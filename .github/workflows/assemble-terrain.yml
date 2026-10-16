@@ -1,0 +1,23 @@
+name: Assemble verified terrain
+on:
+  push:
+    branches: [transfer/teton-terrain]
+permissions:
+  contents: write
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Reassemble and verify original Git blob
+        run: |
+          mkdir -p src/assets/range/v2/terrain
+          cat .transfer/teton.part0 .transfer/teton.part1 > src/assets/range/v2/terrain/teton-range-tour.terrain.bin.gz
+          test "$(git hash-object src/assets/range/v2/terrain/teton-range-tour.terrain.bin.gz)" = ddc0d1cdd2b26c4d23887cd862b1e38588fcba09
+          git add src/assets/range/v2/terrain/teton-range-tour.terrain.bin.gz
+          git rm .transfer/teton.part0 .transfer/teton.part1
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Reassemble verified Teton terrain [skip ci]"
+          git push origin HEAD:refs/heads/transfer/teton-terrain
