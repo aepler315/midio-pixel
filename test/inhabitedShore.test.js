@@ -66,10 +66,8 @@ test('a kick lifts Broshi briefly and lands him again', () => {
   assert.equal(kickHop01([], 1000), 0);
 });
 
-test('listening shows the shore residents but not the retired performer effects', () => {
-  // Midio, Broshi and Midasus live on the inhabited shore; the performer
-  // effects anchor to the retired standalone Midio, which is not drawn.
-  assert.equal(resolveLandscapePresentation('alpine').inhabitants, true);
+test('listening leaves the landscape clear of the foreground sea and shore residents', () => {
+  assert.equal(resolveLandscapePresentation('alpine').inhabitants, false);
   assert.equal(resolveLandscapePresentation('alpine').performers, false);
   assert.equal(resolveLandscapePresentation('fathom').performers, false);
   // Their owners were removed; enabling these dereferences null.

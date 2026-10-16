@@ -119,7 +119,7 @@ test('the real fallback renderer paints terrain without body, shadow, brush, lig
   } finally { sim.biomes = biomes; sim.dispose(); renderer.dispose(); }
 });
 
-for (const silent of [false, true]) test(`alpine compositor draws the inhabited shore every frame (silent=${silent})`, () => {
+for (const silent of [false, true]) test(`alpine compositor leaves foreground scenery clear of the sea and boats (silent=${silent})`, () => {
   const canvas = { width: 1280, height: 720 };
   const ctx = new Proxy({ canvas, globalAlpha: 1,
     getTransform: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }),
@@ -132,14 +132,14 @@ for (const silent of [false, true]) test(`alpine compositor draws the inhabited 
   // boundary is replaced: it requires offscreen/browser surfaces.
   sim.biomes.draw = function () {
     sceneryDraws++;
-    assert.equal(this.inhabitedShore, true, 'the Range scene hosts Midio, Broshi and Midasus on the shore');
+    assert.equal(this.inhabitedShore, false, 'the foreground sea and boat overlay stays disabled');
   };
   sim.perf = { particleMul: 1, heavyPostFx: false, bloomEnabled: false, fullFrameFxEnabled: false };
   sim.highlightReel = null;
   try {
     for (const at of [0, 30000, 0]) {
       sim.startAt(at); renderer.draw(sim, 1);
-      assert.equal(renderer.inhabitedShoreDraws, 1, `shore drawn once in the frame at ${at}ms`);
+      assert.equal(renderer.inhabitedShoreDraws, 0, `no foreground shore painted at ${at}ms`);
     }
     assert.equal(sceneryDraws, 3);
   } finally { sim.dispose(); renderer.dispose(); }
