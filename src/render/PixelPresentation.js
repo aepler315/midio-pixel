@@ -42,34 +42,39 @@ export class PixelPresentation {
     this._pending = null;
     this._capture = null;
   }
-  setPresentation(presentation) {
+  setPresentation(presentation = {}) {
+    // This is the shared title/live/export ingress. Raw stale Natural overrides
+    // must use the same bounded nearest-neighbor presentation as saved profiles.
+    presentation = { ...presentation, pixelated: true, grid: pixelGrid(presentation.grid?.id),
+      paletteId: presentation.pixelated === false ? 'none' : presentation.paletteId || 'none',
+      pixelScale: presentation.pixelScale === 'original' ? 'original' : 'depth' };
     this._invalidateCapture();
     if (JSON.stringify(presentation) === JSON.stringify(this.presentation)) return;
     this.presentation = { ...presentation };
-    this.grid = presentation.pixelated ? pixelGrid(presentation.grid?.id) : null;
+    this.grid = presentation.grid;
     this._preparePalette();
     this.generation++;
     this._securityGeneration = null;
     this._maskDeniedGeneration = null;
     this._ditherFallbackReason = null;
-    this.diagnostics = { requestedLook: presentation.pixelated ? (presentation.paletteId === 'none' ? 'pixel' : 'palette') : 'natural',
-      effectiveLook: 'natural', paletteStatus: { applied: false, reason: null, pixels: 0 }, paletteCpuMs: 0, readbackCpuMs: 0,
-      requestedGrid: this.grid?.id ?? null, effectiveGrid: this.grid, pixelPolicyVersion: PIXEL_POLICY_VERSION,
+    this.diagnostics = { requestedLook: presentation.paletteId === 'none' ? 'pixel' : 'palette',
+      effectiveLook: 'pixel', paletteStatus: { applied: false, reason: null, pixels: 0 }, paletteCpuMs: 0, readbackCpuMs: 0,
+      requestedGrid: this.grid.id, effectiveGrid: this.grid, pixelScale: presentation.pixelScale, pixelPolicyVersion: PIXEL_POLICY_VERSION,
       requestedPalette: presentation.paletteId || 'none', resolvedPalette: this._resolvedPaletteId, effectivePalette: 'none',
       requestedDitherMode: presentation.ditherMode || 'ordered', effectiveDitherMode: 'ordered', ditherFallbackReason: null,
       frame: { presented: false, generation: this.generation, reason: 'not-rendered' } };
-    if (!presentation.pixelated || this.working && (this.working.width !== this.grid.width || this.working.height !== this.grid.height)) this._releaseWorking();
+    if (this.working && (this.working.width !== this.grid.width || this.working.height !== this.grid.height)) this._releaseWorking();
     if (!this._needsDitherWeights() || this.ditherWeights && this.ditherWeights.length !== this.grid.pixels) this._releaseDitherWeights();
   }
   _preparePalette() {
-    this._resolvedPaletteId = this.presentation.pixelated ? resolvePaletteId(this.presentation.paletteId, this.worldKind) : 'none';
+    this._resolvedPaletteId = resolvePaletteId(this.presentation.paletteId, this.worldKind);
     const colors = PALETTES[this._resolvedPaletteId]?.colors;
     this.compiledPalette = colors ? compilePalette(colors) : null;
   }
   setFrameContext({ worldKind = null } = {}) {
     if (worldKind === this.worldKind) return;
     this.worldKind = worldKind;
-    const next = this.presentation.pixelated ? resolvePaletteId(this.presentation.paletteId, worldKind) : 'none';
+    const next = resolvePaletteId(this.presentation.paletteId, worldKind);
     if (next === this._resolvedPaletteId) return;
     this._invalidateCapture();
     this.generation++; this._securityGeneration = null;
@@ -114,7 +119,7 @@ export class PixelPresentation {
     const started = performance.now();
     this._invalidateCapture();
     if (this._disposed) { this.failFrame('disposed'); return null; }
-    const { canvas, presentation: p } = this;
+    const { canvas } = this;
     if (this._outputSize !== `${canvas.width}x${canvas.height}`) {
       this._outputSize = `${canvas.width}x${canvas.height}`;
       this.generation++; this._securityGeneration = null;
@@ -128,7 +133,7 @@ export class PixelPresentation {
         this.failFrame('output-context'); return null;
       }
       const grid = this.grid;
-      if (!p.pixelated || canvas.width === grid.width && canvas.height === grid.height) {
+      if (canvas.width === grid.width && canvas.height === grid.height) {
         if (this.working) this._releaseWorking();
         this.source = canvas;
       } else {
@@ -156,7 +161,7 @@ export class PixelPresentation {
       }
       const ctx = this.source.getContext('2d');
       if (!ctx || ctx.isContextLost?.()) throw Error('Source context unavailable');
-      ctx.imageSmoothingEnabled = !p.pixelated;
+      ctx.imageSmoothingEnabled = false;
       this._ensureDitherWeights();
       this.diagnostics.working = { width: this.source.width, height: this.source.height };
       this._pending = { generation: this.generation, outputSize: this._outputSize };
@@ -180,9 +185,9 @@ export class PixelPresentation {
     try {
       const sourceContext = source.getContext('2d'), outputContext = this.canvas.getContext('2d');
       if (!sourceContext || sourceContext.isContextLost?.() || !outputContext || outputContext.isContextLost?.()) return this.failFrame('context-lost');
-      this.diagnostics.effectiveLook = p.pixelated ? 'pixel' : 'natural';
+      this.diagnostics.effectiveLook = 'pixel';
       let status = { applied: false, reason: null, pixels: 0 };
-      if (this._resolvedPaletteId !== 'none' && p.pixelated) {
+      if (this._resolvedPaletteId !== 'none') {
         if (this._securityGeneration === this.generation) status = { applied: false, reason: 'security', pixels: source.width * source.height };
         else status = applyPalette(source.getContext('2d'), source, { paletteId: this._resolvedPaletteId, dither: p.dither, compiled: this.compiledPalette,
           ditherMode: p.ditherMode, weights: this.ditherWeights, grid: this.grid });
@@ -206,14 +211,14 @@ export class PixelPresentation {
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
         ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-        ctx.imageSmoothingEnabled = !p.pixelated;
+        ctx.imageSmoothingEnabled = false;
         ctx.drawImage(source, fit.x, fit.y, fit.width, fit.height);
       }
       this._pending = null;
       const result = { presented: true, generation: this.generation, frameId: ++this.frameId };
       this.diagnostics.frame = result;
       this.diagnostics.presentationCpuMs = (this._beginCpuMs || 0) + performance.now() - started;
-      this._capture = { ...result, canvas: source, pixelated: !!p.pixelated, scaling: p.scaling,
+      this._capture = { ...result, canvas: source, pixelated: true, scaling: p.scaling, pixelScale: p.pixelScale,
         grid: this.grid, paletteId: this.diagnostics.effectivePalette, worldKind: this.worldKind ?? null,
         ditherMode: this.diagnostics.effectiveDitherMode, pixelPolicyVersion: PIXEL_POLICY_VERSION,
         width: source.width, height: source.height, outputSize: pending.outputSize };

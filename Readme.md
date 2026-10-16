@@ -1,6 +1,12 @@
-# Super Maudio World
+# Midio Pixel
 
-Drop a song and watch The Range carry the music. Super Maudio World is a
+An independent, private copy of [Midio-5](https://github.com/aepler315/Midio-5), pinned at `e53db1e0663ce0f8db6d9d89d168dc6d6dbdb308`. All source assets, worlds, audio integrations and modern rendering systems are preserved. The original project is unchanged.
+
+**Pixel only:** Pixel and Palette looks, Classic and Detailed grids, Auto quality, Fit/Integer scaling. **Depth scale** adds distance-based 1×/2×/4× pixel sampling to Range v2 terrain; **Uniform scale** keeps the original pixel sampling. Existing saved display choices migrate without changing Midio-5 settings. Other worlds retain their existing pixel rendering.
+
+The old custom domain is removed. GitHub Pages deployment is manual until this repository has its own hosting configuration.
+
+Drop a song and watch The Range carry the music. Midio Pixel is a
 browser music visualizer with moving landscapes and musical effects. Your
 original recording supplies the sound; its analysed rhythm, pitch, energy,
 and structure drive the scenery. **Play a sample** starts the authored song

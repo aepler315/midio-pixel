@@ -80,7 +80,7 @@ try {
     assert.equal(rowVisible, mode === 'all', 'world menu follows the opt-in route');
     await page.locator('#titleSettings > summary').click();
     if (await page.locator('#lyricGroundingBtn').getAttribute('aria-pressed') === 'true') await page.locator('#lyricGroundingBtn').click();
-    await page.locator('#stageRes').selectOption('240');
+    await page.locator('#display-pixelGrid').selectOption('classic');
     await page.locator('#titleSettings > summary').click();
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.screenshot({ path: resolve(out, `${mode}-title.png`) });

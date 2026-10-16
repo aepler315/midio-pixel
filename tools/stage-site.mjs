@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { writePlexPublicConfig } from './write-plex-public-config.mjs';
 
-const REQUIRED = ['index.html', 'CNAME', 'src/main.js', 'soundfonts'];
+const REQUIRED = ['index.html', 'src/main.js', 'soundfonts'];
 
 function overlaps(a, b) {
   const rel = path.relative(a, b);
@@ -208,7 +208,8 @@ export async function stageSite(sourceDir, outputDir) {
   await fs.mkdir(output, { recursive: true });
   await Promise.all([
     fs.copyFile(path.join(source, 'index.html'), path.join(output, 'index.html')),
-    fs.copyFile(path.join(source, 'CNAME'), path.join(output, 'CNAME')),
+    exists(path.join(source, 'CNAME')).then(present => present
+      ? fs.copyFile(path.join(source, 'CNAME'), path.join(output, 'CNAME')) : undefined),
     fs.cp(path.join(source, 'src'), path.join(output, 'src'), { recursive: true }),
     fs.cp(path.join(source, 'soundfonts'), path.join(output, 'soundfonts'), { recursive: true }),
     fs.writeFile(path.join(output, '.nojekyll'), ''),

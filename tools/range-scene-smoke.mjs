@@ -479,7 +479,7 @@ async function suiteExport(ctx) {
   await page.locator('#titleSettings').evaluate((node) => { node.open = true; });
   const lyrics = page.locator('#lyricGroundingBtn');
   if (await lyrics.getAttribute('aria-pressed') === 'true') await lyrics.click();
-  await page.locator('#stageRes').selectOption('720');
+  await page.locator('#display-pixelGrid').selectOption('classic');
   await page.locator('#fileInput').setInputFiles(wav);
   // One-world builds start without a picker; all-worlds builds open it.
   const picker = await Promise.race([

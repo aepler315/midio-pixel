@@ -190,7 +190,7 @@ try {
   await page.locator('#titleSettings').evaluate((node) => { node.open = true; });
   const lyrics = page.locator('#lyricGroundingBtn');
   if (await lyrics.getAttribute('aria-pressed') === 'true') await lyrics.click();
-  await page.locator('#stageRes').selectOption('720');
+  await page.locator('#display-pixelGrid').selectOption('classic');
   if (process.env.EXPORT_LOOK) await page.selectOption('#display-look', process.env.EXPORT_LOOK);
 
   const candidate = await page.evaluate(async () => {
@@ -249,7 +249,7 @@ try {
   check('the HUD stays reachable while recording', await page.locator('#recordBtn').isVisible());
   if (webgl) {
     const during = await washState();
-    // Natural look: the recorder reads the same composed source the wash
+    // Pixel look: the recorder reads the same composed source the wash
     // was drawn into, so every recorded frame carries it.
     check('recorded frames receive the wash in the captured source',
       during.backend !== 'webgl' || (during.washFrames > washBefore.washFrames && during.sameSource), JSON.stringify(during));

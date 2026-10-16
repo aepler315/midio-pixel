@@ -270,7 +270,7 @@ try {
       await page.locator('#titleSettings').evaluate((node) => { node.open = true; });
       const lyrics = page.locator('#lyricGroundingBtn');
       if (await lyrics.getAttribute('aria-pressed') === 'true') await lyrics.click();
-      await page.locator('#stageRes').selectOption('720');
+      await page.locator('#display-pixelGrid').selectOption('classic');
       await page.locator('#fileInput').setInputFiles(wav);
       await page.locator('#worldSelect:not(.hidden)').waitFor({ timeout: 90000 });
       assert.ok(await page.locator('.worldCardPreviewNote').isVisible(), 'Range illustration label is visible');

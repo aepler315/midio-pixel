@@ -264,7 +264,7 @@ for (const failure of ['denied', 'output-context', 'working-context', 'creation'
     const good = owner.finishFrame();
     assert.equal(good.presented, true);
     assert.equal(owner.getCaptureSource().generation, good.generation);
-    owner.setPresentation({ ...pixel, pixelated: false }); // releases the working surface
+    owner.setPresentation({ ...pixel, grid: pixelGrid('detailed') }); // retires the previous working dimensions
     assert.equal(owner.getCaptureSource(), null);
     owner.setPresentation({ ...pixel, paletteId: 'range32' });
     if (failure === 'denied') residency.budgetBytes = 1;
@@ -375,4 +375,31 @@ test('reapplying a profile before a backing reset invalidates capture without re
   assert.equal(owner.getCaptureSource(),null);
   assert.equal(owner.generation,first.generation);
   owner.beginFrame();assert.equal(owner.finishFrame().presented,true);owner.dispose();
+});
+
+test('raw Natural presentation overrides stay pixelated through drawing and recorder capture', () => {
+  const canvas = surface(1920, 1080);
+  let sourceSize, scenePolicy;
+  const adapter = createPresentingRenderer({ canvas, presentation: { ...pixel, pixelated: false, grid: null, paletteId: 'world' },
+    rendererFactory: () => ({ draw() { sourceSize = [this.canvas.width, this.canvas.height]; scenePolicy = this.pixelPolicy; }, dispose() {} }) });
+  assert.equal(adapter.draw({}, 0).presented, true);
+  assert.deepEqual(sourceSize, [320, 180]);
+  assert.equal(scenePolicy.active, true);
+  assert.equal(canvas.draws.at(-1).smooth, false);
+  assert.deepEqual([canvas.width, canvas.height], [1920, 1080]);
+  assert.equal(adapter.diagnostics.effectiveLook, 'pixel');
+  assert.equal(adapter.getCaptureSource().pixelated, true);
+  assert.equal(adapter.getCaptureSource().paletteId, 'none');
+  adapter.dispose();
+});
+test('Uniform scale keeps the Pixel compositor free of palette readback or color transforms', () => {
+  const canvas = surface(1920, 1080);
+  const owner = new PixelPresentation({ canvas, presentation: { ...pixel, pixelScale: 'original' } });
+  const source = owner.beginFrame();
+  assert.equal(owner.finishFrame().presented, true);
+  assert.equal(source.reads, 0);
+  assert.equal(source.writes, 0);
+  assert.equal(canvas.draws.at(-1).smooth, false);
+  assert.equal(owner.getCaptureSource().pixelScale, 'original');
+  owner.dispose();
 });

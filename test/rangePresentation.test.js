@@ -181,6 +181,25 @@ test('an assigned view that is still preparing keeps the frame on legacy, then s
   assert.equal(p.snapshot().forcedCandidate, false);
 });
 
+test('presentation carries each pixel-scale selection to the shared scene', async () => {
+  const scene = fakeScene(), requests = [];
+  scene.resize = request => requests.push(request);
+  const p = presentationWith(scene);
+  p.setSong({ terrain: { sceneByBiome: new Map([['RAINFOREST', { view: catalog.views[0] }]]) }, generation: 1 });
+  await p.whenReady();
+  p.pixelated = true;
+  for (const pixelScale of ['depth', 'original', 'depth']) {
+    p.pixelPolicy = { active: true, pixelScale };
+    p.setFrameInputs(inputs());
+    assert.equal(p.beginScenic(), true);
+    assert.equal(requests.at(-1).pixelScale, pixelScale);
+    assert.equal(requests.at(-1).pixelated, true);
+  }
+  p.pixelPolicy = null;
+  p.setFrameInputs(inputs()); p.beginScenic();
+  assert.equal(requests.at(-1).pixelScale, 'original', 'unconfigured callers keep the original rendering');
+});
+
 test('a failed asset takes the legacy path with a recorded reason and no retry storm', async () => {
   const scene = fakeScene({ fail: 'invalid manifest', reason: 'manifest' });
   let tries = 0;

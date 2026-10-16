@@ -461,7 +461,7 @@ async function main() {
       entry.searchParams.set('exportW', String(first.width));
       entry.searchParams.set('exportH', String(first.height));
       if (opts.seed != null) entry.searchParams.set('seed', String(opts.seed));
-      if (opts.presentation) await page.addInitScript(prefs => localStorage.setItem('smw:display:v2', JSON.stringify(prefs)), opts.presentation);
+      if (opts.presentation) await page.addInitScript(prefs => localStorage.setItem('midio-pixel:display:v1', JSON.stringify(prefs)), opts.presentation);
       await page.goto(entry.href);
       const info = await loadSong(page, file, opts);
       const durationMs = opts.maxSeconds != null

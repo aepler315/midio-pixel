@@ -374,13 +374,13 @@ export function parseBulkArgs(argv) {
       i = got.next;
       continue;
     }
-    const displayKey = ['look', 'quality', 'palette', 'dither', 'dither-mode', 'pixel-grid', 'scaling'].find(key => token === `--${key}` || token.startsWith(`--${key}=`));
+    const displayKey = ['look', 'quality', 'palette', 'dither', 'dither-mode', 'pixel-grid', 'pixel-scale', 'scaling'].find(key => token === `--${key}` || token.startsWith(`--${key}=`));
     if (displayKey) {
       const got = takeOption(args, i, `--${displayKey}`);
-      const choices = { look: ['natural', 'pixel', 'palette'], quality: ['auto', 'economy'], palette: ['world', 'range32', 'chroma32', 'rgb332'], dither: ['off', 'subtle', 'full'], 'dither-mode': ['ordered', 'selective'], 'pixel-grid': ['classic', 'detailed'], scaling: ['fit', 'integer'] };
+      const choices = { look: ['pixel', 'palette'], quality: ['auto', 'economy'], palette: ['world', 'range32', 'chroma32', 'rgb332'], dither: ['off', 'subtle', 'full'], 'dither-mode': ['ordered', 'selective'], 'pixel-grid': ['classic', 'detailed'], 'pixel-scale': ['depth', 'original'], scaling: ['fit', 'integer'] };
       if (!choices[displayKey].includes(got.value)) throw new Error(`--${displayKey} must be ${choices[displayKey].join(', ')}`);
       opts.presentation ??= { ...DEFAULT_DISPLAY_PREFS };
-      const key = { 'dither-mode': 'ditherMode', 'pixel-grid': 'pixelGrid' }[displayKey] || displayKey;
+      const key = { 'dither-mode': 'ditherMode', 'pixel-grid': 'pixelGrid', 'pixel-scale': 'pixelScale' }[displayKey] || displayKey;
       opts.presentation[key] = displayKey === 'dither' ? { off: 0, subtle: .35, full: 1 }[got.value] : got.value;
       i = got.next;
       continue;
@@ -420,12 +420,13 @@ Options
   --url <origin>        App origin (default: http://127.0.0.1:8080)
   --lyrics              Look up timed lyrics. Off by default, so a batch
                         does not wait on the network.
-  --look <mode>        natural, pixel, or palette (default: remembered look)
+  --look <mode>        pixel or palette (default: remembered look)
   --quality <mode>     auto or economy
   --palette <name>     world, range32, chroma32, or rgb332
   --dither <amount>    off, subtle, or full
   --dither-mode <mode> selective or ordered (RGB332 always uses ordered)
   --pixel-grid <grid>  classic (320×180) or detailed (640×360, four times the pixel work)
+  --pixel-scale <mode> depth or original (Uniform)
   --scaling <mode>     fit or integer
   --help
 

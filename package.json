@@ -1,9 +1,9 @@
 {
-  "name": "super-maudio-world",
+  "name": "midio-pixel",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Browser music visualizer: drop a song, pick a world, watch it play itself.",
+  "description": "Pixel-only music-reactive worlds with depth-aware pixel scale and modern lighting.",
   "scripts": {
     "start": "node tools/serve.js",
     "dev": "node tools/serve.js 8080",

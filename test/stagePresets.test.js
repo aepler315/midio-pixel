@@ -1,8 +1,5 @@
-// The stage-resolution menu lives in index.html and the presets it names
-// live in StagePresets.js -- two files with no compile-time link between
-// them. An option whose value no preset answers to silently falls back to
-// 1080p, which on the 8-bit entry would mean the one setting a struggling
-// device reaches for quietly doing the opposite of what it says.
+// The product is pixel-only; shared stage helpers stay for internal rendering
+// and migration of upstream preferences.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -17,37 +14,21 @@ const indexHtml = readFileSync(
   fileURLToPath(new URL('../index.html', import.meta.url)), 'utf8',
 );
 
-function stageResOptionValues() {
-  const select = indexHtml.match(/<select id="stageRes"[\s\S]*?<\/select>/);
-  assert.ok(select, 'index.html should still have a #stageRes select');
-  return [...select[0].matchAll(/<option value="([^"]+)"/g)].map((m) => m[1]);
-}
-
-test('every option in the stage-resolution menu resolves to a real preset', () => {
-  const values = stageResOptionValues();
-  assert.ok(values.length >= 8, `expected the full preset menu, got ${values.length}`);
-  for (const v of values) {
-    const preset = resolveStagePreset(v);
-    assert.notEqual(preset, null, `option value "${v}" resolves to no preset`);
-    assert.ok(stageDims(preset).w > 0, `option "${v}" has no dimensions`);
-  }
+test('product exposes Pixel and Palette, grid and scale, without a Natural Stage menu', () => {
+  assert.doesNotMatch(indexHtml, /id="stageRes"|value="natural"/);
+  assert.match(indexHtml, /id="display-look"/);
+  assert.match(indexHtml, /id="display-pixelGrid"/);
+  assert.match(indexHtml, /id="display-pixelScale"/);
+  assert.match(indexHtml, /value="depth">Depth/);
+  assert.match(indexHtml, /value="original">Uniform/);
+  assert.match(indexHtml, /id="stageFps"/);
 });
 
-test('Auto is the default stage mode exposed by the menu', () => {
-  const select = indexHtml.match(/<select id="stageRes"[\s\S]*?<\/select>/);
-  assert.ok(select);
-  assert.match(select[0], /<option value="auto" selected>Auto<\/option>/);
+test('shared legacy resolution helpers remain available for rendering and migration', () => {
   assert.equal(DEFAULT_STAGE_PRESET, AUTO_PRESET);
   assert.equal(resolveStagePreset('auto'), AUTO_PRESET);
   assert.equal(isAutoPreset(AUTO_PRESET), true);
   assert.equal(isAutoPreset(1080), false);
-});
-
-test('legacy presets remain parseable while the menu uses separate Look controls', () => {
-  const values = stageResOptionValues();
-  assert.equal(values.includes(RETRO_PRESET), false);
-  assert.match(indexHtml, /id="display-look"/);
-  assert.equal(values.includes(PALETTE_PRESET), false);
   const retro = Object.keys(STAGE_PRESETS).filter((k) => STAGE_PRESETS[k].retro).sort();
   assert.deepEqual(retro, [RETRO_PRESET, PALETTE_PRESET].sort());
   assert.equal(isRetroPreset(RETRO_PRESET), true);

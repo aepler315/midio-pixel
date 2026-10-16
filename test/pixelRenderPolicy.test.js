@@ -5,7 +5,7 @@ const policy = await import('../src/render/PixelRenderPolicy.js').catch(() => ({
 test('Natural has no grid or pixel-specific dimensions', () => {
   assert.equal(typeof policy.pixelRenderPolicy, 'function');
   assert.deepEqual(policy.pixelRenderPolicy({ pixelated: false }), {
-    active: false, grid: null, unit: 0, minGlyphHeight: 0, heatMaxOffset: 0, materialMinPeriodPx: 0,
+    active: false, grid: null, unit: 0, minGlyphHeight: 0, heatMaxOffset: 0, materialMinPeriodPx: 0, pixelScale: 'original',
   });
 });
 test('Classic dimensions and rendering policy are frozen and shared', () => {
@@ -15,8 +15,14 @@ test('Classic dimensions and rendering policy are frozen and shared', () => {
   assert.equal(grid, policy.pixelGrid('classic'));
   assert.ok(Object.isFrozen(grid));
   const active = policy.pixelRenderPolicy({ pixelated: true, grid });
-  assert.deepEqual(active, { active: true, grid, unit: 1, minGlyphHeight: 7, heatMaxOffset: 1, materialMinPeriodPx: 2 });
+  assert.deepEqual(active, { active: true, grid, unit: 1, minGlyphHeight: 7, heatMaxOffset: 1, materialMinPeriodPx: 2, pixelScale: 'depth' });
   assert.ok(Object.isFrozen(active));
+});
+test('Depth is the pixel default and Original remains an explicit independent comparison', () => {
+  assert.equal(policy.pixelRenderPolicy({ pixelated: true }).pixelScale, 'depth');
+  assert.equal(policy.pixelRenderPolicy({ pixelated: true, pixelScale: 'original' }).pixelScale, 'original');
+  assert.equal(policy.pixelRenderPolicy({ pixelated: true, pixelScale: 'unknown' }).pixelScale, 'depth');
+  assert.equal(policy.pixelRenderPolicy({ pixelated: false, pixelScale: 'depth' }).pixelScale, 'original');
 });
 test('motion preference independently disables pixel heat', () => {
   assert.equal(typeof policy.pixelRenderPolicy, 'function');

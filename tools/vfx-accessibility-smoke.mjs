@@ -12,7 +12,7 @@ const source = path.resolve(process.argv[3] || '.');
 const out = path.resolve(process.argv[2] || '.smoke/vfx-accessibility');
 const audioPath = path.resolve(process.argv[4] || '.smoke/addendum-candidate/contrast/audio.wav');
 const matrix = JSON.parse(await fs.readFile('test/fixtures/visual-evaluation-vfx.json', 'utf8'));
-const settings = { ...manifestForCase(matrix, 'q2-natural-inland-flash').settings, reducedFlash: false };
+const settings = { ...manifestForCase(matrix, 'q2-depth-inland-flash').settings, reducedFlash: false };
 await fs.mkdir(out, { recursive: false });
 const snapshot = await snapshotSource(source), server = await serveSnapshot(snapshot);
 const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });

@@ -58,9 +58,12 @@ try {
       // v2 uses the default path, never a silently accepted fallback.
       await page.goto(`http://127.0.0.1:8089/?seed=315&rangeView=teton-jackson-lake${backend==='legacy'?'&rangeRenderer=legacy':''}`);
       await page.waitForFunction(()=>window.__SMW?.presentationDiagnostics?.frame?.presented);
-      await captureTitle(page,backend,'natural');
+      assert.equal(await page.locator('#display-look').inputValue(),'pixel');
+      assert.equal(await page.locator('#display-pixelScale').inputValue(),'depth');
+      assert.equal(await page.locator('#stageRes').count(),0);
+      await captureTitle(page,backend,'pixel-default');
       await page.locator('#titleSettings').evaluate(n=>{n.open=true;});
-      await settings(page,{look:'palette',quality:'auto',scaling:'integer',palette:'range32',dither:.35});
+      await settings(page,{look:'palette',quality:'auto',scaling:'integer',palette:'range32',dither:.35,pixelScale:'original'});
       const titleFrameId=await page.evaluate(()=>window.__SMW?.presentationDiagnostics?.frame?.frameId);
       await page.selectOption('#stageFps','30');
       await page.waitForFunction(id=>window.__SMW?.presentationDiagnostics?.frame?.presented&&window.__SMW.presentationDiagnostics.frame.frameId!==id,titleFrameId);
@@ -69,6 +72,7 @@ try {
       await page.reload();
       assert.equal(await page.locator('#display-look').inputValue(),'palette');
       assert.equal(await page.locator('#display-quality').inputValue(),'auto');
+      assert.equal(await page.locator('#display-pixelScale').inputValue(),'original');
       assert.equal(await page.locator('#display-scaling').inputValue(),'integer');
       assert.equal(await page.locator('#stageFps').inputValue(),'30');
       await page.locator('#titleSettings').evaluate(n=>{n.open=true;});
@@ -106,7 +110,7 @@ try {
       }
       await page.waitForFunction(()=>{try{window.__SMW.beginBulkExport({width:800,height:480});return true;}catch{return false;}},null,{timeout:180000});
       const cases=[
-        [800,480,'natural','auto','fit','range32',0],
+        [800,480,'pixel','auto','fit','range32',0],
         [800,480,'pixel','auto','integer','range32',.35],
         [1920,1080,'palette','auto','fit','range32',.35],
         [1080,1080,'palette','economy','integer','rgb332',1],
@@ -131,7 +135,7 @@ try {
           assert.equal(frame.barErrors,0,'scene output bars contain image pixels');
           if(look==='palette')assert.equal(frame.palettePixels,frame.grid.pixels);
           if(frame.placement)assert.ok(Math.abs(frame.placement.width/frame.placement.height-16/9)<1e-9);
-          if(look!=='natural'){assert.deepEqual(frame.presentation.working,{width:frame.grid.width,height:frame.grid.height});assert.ok(frame.presentation.paletteStatus.pixels<=frame.grid.pixels);assert.equal(frame.grid.id,pixelGrid);}
+          assert.deepEqual(frame.presentation.working,{width:frame.grid.width,height:frame.grid.height});assert.ok(frame.presentation.paletteStatus.pixels<=frame.grid.pixels);assert.equal(frame.grid.id,pixelGrid);
           if(backend==='v2')assert.ok(frame.backend.mode==='v2'&&frame.backend.active&&frame.backend.runtime==='ready',`silent fallback: ${JSON.stringify(frame.backend)}`);
           else assert.equal(frame.backend.mode,'legacy');
           const png=`${backend}-${look}-${pixelGrid}-${width}x${height}-${time}.png`;await fs.writeFile(path.join(out,png),Buffer.from(frame.png,'base64'));delete frame.png;

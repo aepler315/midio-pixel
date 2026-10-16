@@ -40,7 +40,7 @@ import {
 import { RecalibrationOverlay } from './ui/RecalibrationOverlay.js';
 import { rangeCaptionFor, sceneCaptionFor, captionAt, CAPTION_DELAY_MS } from './ui/RangeCaption.js';
 import { setCaptionDetails } from './ui/PixelCaption.js';
-import { pixelRenderPolicy, pixelGrid } from './render/PixelRenderPolicy.js';
+import { pixelRenderPolicy } from './render/PixelRenderPolicy.js';
 import { realBiomeByName, ecoregionOfRange } from './world/RealBiomes.js';
 import { travelMs } from './world/BiomeSchedule.js';
 import { noteRangeShown } from './world/terrain/RangeHistory.js';
@@ -59,10 +59,7 @@ import { PerfGovernor, resolvePerfStartLevel, MAX_LEVEL as PERF_MAX_LEVEL } from
 import { sharedResidency } from './render/GraphicsResidency.js';
 import { RangePresentation, resolveRangeMode } from './world/alpine/RangePresentation.js';
 import { residencyBudgetFor } from './render/GraphicsResidency.js';
-import {
-  DEFAULT_STAGE_PRESET, resolveStagePreset, stageDims, isAutoPreset, isRetroPreset,
- displayLimitedSize, autoStageSize, shouldSuggestLandscape,
-} from './render/StagePresets.js';
+import { shouldSuggestLandscape } from './render/StagePresets.js';
 import { createPresentingRenderer } from './render/PresentingRenderer.js';
 import { PixelPresentation, fitPixelRect } from './render/PixelPresentation.js';
 import { FrameCadence } from './render/FrameCadence.js';
@@ -204,7 +201,6 @@ const completeNewSeedRowEl = document.getElementById('completeNewSeedRow');
 const completeNewSeedInputEl = document.getElementById('completeNewSeedInput');
 const completeNewSeedStartBtnEl = document.getElementById('completeNewSeedStartBtn');
 const completeNewSeedCancelBtnEl = document.getElementById('completeNewSeedCancelBtn');
-const stageResEl = document.getElementById('stageRes');
 const stageFpsEl = document.getElementById('stageFps');
 const landscapeHintEl = document.getElementById('landscapeHint');
 const debugOverlayEl = document.getElementById('debugOverlay');
@@ -426,18 +422,15 @@ let previewSession = null;
 let lastSongName = 'song';
 let lastSongSeed = null; // 32-bit seed used for the run that just finished
 
-// Stage: logical composition is always 1280×720; the backing store scales
-// to the chosen preset -- up to 4K for sharper output, or down to 320×180
-// for 8-bit mode. See StagePresets.js for the list and for what makes the
-// 8-bit entry a mode rather than just another size.
+// Logical composition stays 1280×720. Live output uses the selected pixel
+// grid; exports retain their independently requested output dimensions.
 const STAGE_W = 1280;
 const STAGE_H = 720;
-const STAGE_RES_KEY = 'smw:stageRes';
 function displayStorage() { try { return localStorage; } catch { return null; } }
 let displayPrefs = readDisplayPrefs(displayStorage());
 writeDisplayPrefs(displayStorage(), displayPrefs);
 let presentation = resolvePresentation(displayPrefs);
-const displayControls = Object.fromEntries(['look', 'quality', 'palette', 'dither', 'ditherMode', 'pixelGrid', 'scaling'].map(key => [key, document.getElementById(`display-${key}`)]));
+const displayControls = Object.fromEntries(['look', 'quality', 'palette', 'dither', 'ditherMode', 'pixelGrid', 'pixelScale', 'scaling'].map(key => [key, document.getElementById(`display-${key}`)]));
 const STAGE_FPS_KEY = 'smw:stageFps';
 let simTime = 0;
 let acc = 0;
@@ -509,32 +502,15 @@ const perfStartLevel = resolvePerfStartLevel(
   },
 );
 
-// The stored value of each of these two settings, or null. Read through
-// their own functions rather than as the fallback arm of the readers below,
-// because the readers ask the <select> first and a <select> ALWAYS has a
-// value -- the one its markup marks `selected`. That made the stored value
-// unreachable at boot: the select said "1080p"/"60 fps" before storage was
-// ever consulted, so the reader returned the markup default and then the
-// boot code assigned that back onto the select. Both settings were written
-// on every change and silently discarded on every reload. It matters most
-// for exactly the machine 8-bit mode exists for: the device that cannot
-// afford 1080p was handed 1080p again on every load.
 function syncDisplayControls() {
   for (const [key, control] of Object.entries(displayControls)) if (control) {
     control.value = String(displayPrefs[key]);
     control.disabled = ['palette', 'dither', 'ditherMode'].includes(key) && displayPrefs.look !== 'palette'
-      || key === 'ditherMode' && (displayPrefs.palette === 'rgb332' || displayPrefs.dither === 0)
-      || ['scaling', 'pixelGrid'].includes(key) && displayPrefs.look === 'natural';
+      || key === 'ditherMode' && (displayPrefs.palette === 'rgb332' || displayPrefs.dither === 0);
   }
-  if (stageResEl) stageResEl.disabled = presentation.pixelated;
   const grid = document.getElementById('pixelGridHint');
-  const selectedGrid = presentation.grid || pixelGrid(displayPrefs.pixelGrid);
-  if (grid) { grid.hidden = !presentation.pixelated; grid.textContent = `${selectedGrid.width} × ${selectedGrid.height} grid`; }
-  if (stageResEl) stageResEl.title = `Natural look resolution. Auto matches the visible stage and follows frame pressure. Pixel looks use ${selectedGrid.width}×${selectedGrid.height}.`;
-}
-
-function storedStagePreset() {
-  try { return resolveStagePreset(localStorage.getItem(STAGE_RES_KEY)); } catch { return null; }
+  const selectedGrid = presentation.grid;
+  if (grid) { grid.hidden = false; grid.textContent = `${selectedGrid.width} × ${selectedGrid.height} grid`; }
 }
 
 function storedFpsCap() {
@@ -542,17 +518,6 @@ function storedFpsCap() {
     const stored = Number(localStorage.getItem(STAGE_FPS_KEY));
     return stored === 30 || stored === 60 ? stored : null;
   } catch { return null; }
-}
-
-function readStagePreset() {
-  const fromUi = resolveStagePreset(stageResEl?.value);
-  if (fromUi != null) return fromUi;
-  // Auto is the default; a remembered manual choice still wins at boot.
-  return storedStagePreset() ?? DEFAULT_STAGE_PRESET;
-}
-
-function persistStagePreset(preset) {
-  try { localStorage.setItem(STAGE_RES_KEY, String(preset)); } catch { /* no storage */ }
 }
 
 function readFpsCap() {
@@ -617,71 +582,26 @@ function readBulkExportFromUrl() {
   }
 }
 
-/** Backing-store size for the chosen preset (up to 4K). Sim stays logical 1280×720.
- *  Under perf pressure the backing store shrinks (PerfGovernor.resolutionScale),
- *  CSS-upscaled to fill the viewport — the single biggest win at 4K. */
+/** Keep live/title raster size fixed to its grid; exports choose output size. */
 function fitCanvas() {
   const active = effectivePresentation();
   renderer?.setPresentation(active);
   titlePresentation?.setPresentation(active);
   fitPixelLayout();
-  if (bulkExportSize) {
-    const { w, h } = bulkExportSize;
-    if (perfGovernor) {
-      perfGovernor.targetCanvasWidth = active.pixelated ? active.grid.width : w;
-      perfGovernor.canvasWidth = active.pixelated ? active.grid.width : w;
-    }
-    resizeStageCanvas(canvas, w, h);
-    canvas.classList.toggle('retro', active.pixelated);
-    landscapeHintEl?.classList.remove('is-visible');
-    return;
-  }
-  const preset = readStagePreset();
-  const dims = stageDims(preset);
-  const adaptive = isAutoPreset(preset);
-  const retro = active.pixelated;
-  // Set BEFORE resolutionScale is read: in 8-bit mode the governor is pinned
-  // to its cheapest rung, and the scale it reports depends on that level.
-  // `retro` must be assigned first -- retroPalette only ever holds alongside
-  // it, and clearing retro clears the palette pass with it.
   if (perfGovernor) {
     perfGovernor.economy = active.quality === 'economy';
+    perfGovernor.targetCanvasWidth = active.grid.width;
+    perfGovernor.canvasWidth = active.grid.width;
   }
-  // Clamp to what the display can actually present BEFORE the governor's own
-  // scale: the preset is a ceiling, and on a phone (especially in portrait,
-  // where the 16:9 stage letterboxes into a strip) it is far above what the
-  // browser will ever draw. Rendering those pixels costs power and shows
-  // nothing. A desktop displaying the stage at or above its preset size is
-  // unaffected -- this only ever reduces.
-  const dpr = typeof devicePixelRatio === 'number' ? devicePixelRatio : 1;
-  const fit = retro ? { w: active.grid.width, h: active.grid.height } : adaptive
-    ? autoStageSize(canvas.clientWidth, canvas.clientHeight, dpr, isCoarsePointer)
-    : displayLimitedSize(dims.w, dims.h, canvas.clientWidth, canvas.clientHeight, dpr);
-  const scale = !retro && perfGovernor ? perfGovernor.resolutionScale(fit.h, { adaptive }) : 1;
-  const w = Math.round(fit.w * scale);
-  const h = Math.round(fit.h * scale);
-  resizeStageCanvas(canvas, w, h);
-  // Assigning canvas.width/height resets every 2D context attribute, this
-  // one included -- so it has to be re-applied after each resize rather than
-  // set once at boot. Nearest-neighbour is both what makes 8-bit read as
-  // pixel art instead of blur and the cheaper of the two samplers for the
-  // silhouette-strip blits, which are the bulk of the frame's draw calls.
+  const size = bulkExportSize || { w: active.grid.width, h: active.grid.height };
+  resizeStageCanvas(canvas, size.w, size.h);
+  // Canvas resets clear context state, including nearest-neighbor sampling.
   const ctx2d = canvas.getContext('2d');
-  if (ctx2d) ctx2d.imageSmoothingEnabled = !retro;
-  // The other half of the same decision: the browser's own upscale from the
-  // backing store to the viewport (see #stage.retro in style.css).
-  canvas.classList.toggle('retro', retro);
-  if (perfGovernor) {
-    // Both, and they are not the same number: `w` is the live backing store
-    // after Auto's resolution scaling, `fit.w` the ceiling before it. Gates
-    // that must not move as the ladder squeezes read the ceiling -- see
-    // PerfGovernor.targetCanvasWidth.
-    perfGovernor.targetCanvasWidth = fit.w;
-    perfGovernor.canvasWidth = w;
-  }
+  if (ctx2d) ctx2d.imageSmoothingEnabled = false;
+  canvas.classList.add('retro');
   landscapeHintEl?.classList.toggle(
     'is-visible',
-    shouldSuggestLandscape(canvas.clientWidth, canvas.clientHeight),
+    !bulkExportSize && shouldSuggestLandscape(canvas.clientWidth, canvas.clientHeight),
   );
 }
 
@@ -711,30 +631,6 @@ function randomizeSeed() {
     });
   }
   syncDisplayControls();
-  if (stageResEl) {
-    // Storage first, and only then whatever the markup defaults to -- see
-    // storedStagePreset() for why asking readStagePreset() here restored
-    // nothing at all.
-    stageResEl.value = String(isRetroPreset(storedStagePreset()) ? DEFAULT_STAGE_PRESET : storedStagePreset() ?? readStagePreset());
-    stageResEl.addEventListener('change', () => {
-      persistStagePreset(resolveStagePreset(stageResEl.value) ?? DEFAULT_STAGE_PRESET);
-      // Someone reaching for this menu has changed the workload, so what the
-      // ladder learned about the old one no longer applies -- otherwise a
-      // rung they can now easily afford stays switched off for up to the
-      // capped recovery window, which is the opposite of why they came here.
-      // Deliberately only on the explicit change: the governor's own Auto
-      // resizes must keep their evidence.
-      perfGovernor?.forgetRecoveryHistory();
-      // Applied immediately, mid-song included. This used to wait for the
-      // next song (`if (!running)`), which is precisely backwards for the
-      // reason someone reaches for this menu: they are watching the frame
-      // rate fall apart right now. Every buffer sized to the backing store
-      // (motion-blur ring, bloom, heat) re-allocates itself on a size
-      // change, and the renderer re-derives its transform from canvas.width
-      // every frame, so a resize between frames is already supported.
-      fitCanvas();
-    });
-  }
   if (stageFpsEl) {
     stageFpsEl.value = String(storedFpsCap() ?? readFpsCap());
     // Seeding the select above does not itself move the live cap, which was
@@ -747,7 +643,7 @@ function randomizeSeed() {
       persistFpsCap(fps);
       fpsCapMs = 1000 / fps;
       playbackCadence.reset(); titleCadence.reset(); presentedFps.reset();
-      // The same reasoning as the resolution menu next to it: halving the
+      // As with the pixel detail control: halving the
       // draw rate halves the work, so what the ladder learned at the old
       // rate describes a different workload. The frame callbacks go clean
       // almost immediately -- sampling runs at the full rAF rate whatever
@@ -1801,9 +1697,8 @@ function startTimeline(timelineData, extra = {}) {
   // note between zero and here at once -- the whole first half of the song
   // arriving in one step.
   if (startAtMs > 0) conductor.seekTo(startAtMs);
-  // A fresh governor per song: it starts already pinned when 8-bit is the
-  // chosen preset, rather than spending the first song at full quality
-  // until something calls fitCanvas() again.
+  // A fresh governor per song starts at the selected quality. Pixel detail
+  // and scale stay independent of the Auto/Economy choice.
   perfGovernor = new PerfGovernor({
     startLevel: exportMode ? exportQualityLevel : perfStartLevel,
     economy: effectivePresentation().quality === 'economy',

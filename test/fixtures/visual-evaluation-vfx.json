@@ -1,32 +1,216 @@
 {
   "version": 1,
   "kind": "matrix",
-  "note": "Bounded VFX coverage: every governor shedding boundary (q0, q2-q6), all four reduced-flash/reduced-motion combinations, Natural/Pixel/Palette and a lake and an inland view, spread across cases instead of a Cartesian product. Two continuous cases draw every frame of a short history. Run one case per capture with --case.",
-  "settings": { "width": 640, "height": 360, "seed": 315, "quality": 0, "view": "teton-jackson-lake", "biome": "CONIFER", "fps": 12, "mode": "sparse" },
+  "note": "Bounded VFX coverage: every governor shedding boundary (q0, q2-q6), all four reduced-flash/reduced-motion combinations, Depth pixel/Pixel/Palette and a lake and an inland view, spread across cases instead of a Cartesian product. Two continuous cases draw every frame of a short history. Run one case per capture with --case.",
+  "settings": {
+    "width": 640,
+    "height": 360,
+    "seed": 315,
+    "quality": 0,
+    "view": "teton-jackson-lake",
+    "biome": "CONIFER",
+    "fps": 12,
+    "mode": "sparse"
+  },
   "songs": [
-    { "id": "contrast", "fixture": "contrast", "seconds": 24, "timesMs": [6000, 12000, 20000], "clips": [{ "startMs": 12000, "durationMs": 1000 }] },
-    { "id": "contrast-history", "fixture": "contrast", "seconds": 24, "timesMs": [1500], "clips": [] }
+    {
+      "id": "contrast",
+      "fixture": "contrast",
+      "seconds": 24,
+      "timesMs": [
+        6000,
+        12000,
+        20000
+      ],
+      "clips": [
+        {
+          "startMs": 12000,
+          "durationMs": 1000
+        }
+      ]
+    },
+    {
+      "id": "contrast-history",
+      "fixture": "contrast",
+      "seconds": 24,
+      "timesMs": [
+        1500
+      ],
+      "clips": []
+    }
   ],
   "cases": [
-    { "id": "q0-natural-lake-history", "covers": "q0, natural, lake, no reductions, continuous from zero",
-      "settings": { "mode": "continuous" }, "songs": ["contrast-history"] },
-    { "id": "q2-natural-inland-flash", "covers": "q2 (2x MSAA), natural, inland, reduced flash",
-      "settings": { "quality": 2, "view": "panamint-dantes-view", "biome": "DESERT", "reducedFlash": true }, "songs": ["contrast"] },
-    { "id": "q3-pixel-lake-motion", "covers": "q3 (edges/fog/shafts shed), pixel, lake, reduced motion",
-      "settings": { "quality": 3, "reducedMotion": true,
-        "presentation": { "version": 1, "look": "pixel", "quality": "auto", "palette": "range32", "dither": 0, "scaling": "fit" } }, "songs": ["contrast"] },
-    { "id": "q4-palette-inland-both", "covers": "q4, palette, inland, both reductions",
-      "settings": { "quality": 4, "view": "panamint-dantes-view", "biome": "DESERT", "reducedFlash": true, "reducedMotion": true,
-        "presentation": { "version": 1, "look": "palette", "quality": "auto", "palette": "range32", "dither": 0.35, "scaling": "fit" } }, "songs": ["contrast"] },
-    { "id": "q5-natural-lake-both", "covers": "q5, natural, lake, both reductions",
-      "settings": { "quality": 5, "reducedFlash": true, "reducedMotion": true }, "songs": ["contrast"] },
-    { "id": "q6-pixel-inland", "covers": "q6 (deepest rung), pixel, inland, no reductions",
-      "settings": { "quality": 6, "view": "panamint-dantes-view", "biome": "DESERT",
-        "presentation": { "version": 1, "look": "pixel", "quality": "auto", "palette": "range32", "dither": 0, "scaling": "fit" } }, "songs": ["contrast"] },
-    { "id": "q0-palette-lake-flash", "covers": "q0, palette, lake, reduced flash",
-      "settings": { "reducedFlash": true,
-        "presentation": { "version": 1, "look": "palette", "quality": "auto", "palette": "range32", "dither": 0.35, "scaling": "fit" } }, "songs": ["contrast"] },
-    { "id": "q2-natural-inland-motion-history", "covers": "q2, natural, inland, reduced motion, continuous from zero",
-      "settings": { "quality": 2, "view": "panamint-dantes-view", "biome": "DESERT", "reducedMotion": true, "mode": "continuous" }, "songs": ["contrast-history"] }
+    {
+      "id": "q0-depth-lake-history",
+      "covers": "q0, depth pixel, lake, no reductions, continuous from zero",
+      "settings": {
+        "mode": "continuous",
+        "presentation": {
+          "version": 2,
+          "look": "pixel",
+          "quality": "auto",
+          "palette": "world",
+          "dither": 0.35,
+          "ditherMode": "selective",
+          "pixelGrid": "classic",
+          "pixelScale": "depth",
+          "scaling": "fit"
+        }
+      },
+      "songs": [
+        "contrast-history"
+      ]
+    },
+    {
+      "id": "q2-depth-inland-flash",
+      "covers": "q2 (2x MSAA), depth pixel, inland, reduced flash",
+      "settings": {
+        "quality": 2,
+        "view": "panamint-dantes-view",
+        "biome": "DESERT",
+        "reducedFlash": true,
+        "presentation": {
+          "version": 2,
+          "look": "pixel",
+          "quality": "auto",
+          "palette": "world",
+          "dither": 0.35,
+          "ditherMode": "selective",
+          "pixelGrid": "classic",
+          "pixelScale": "depth",
+          "scaling": "fit"
+        }
+      },
+      "songs": [
+        "contrast"
+      ]
+    },
+    {
+      "id": "q3-pixel-lake-motion",
+      "covers": "q3 (edges/fog/shafts shed), pixel, lake, reduced motion",
+      "settings": {
+        "quality": 3,
+        "reducedMotion": true,
+        "presentation": {
+          "version": 1,
+          "look": "pixel",
+          "quality": "auto",
+          "palette": "range32",
+          "dither": 0,
+          "scaling": "fit"
+        }
+      },
+      "songs": [
+        "contrast"
+      ]
+    },
+    {
+      "id": "q4-palette-inland-both",
+      "covers": "q4, palette, inland, both reductions",
+      "settings": {
+        "quality": 4,
+        "view": "panamint-dantes-view",
+        "biome": "DESERT",
+        "reducedFlash": true,
+        "reducedMotion": true,
+        "presentation": {
+          "version": 1,
+          "look": "palette",
+          "quality": "auto",
+          "palette": "range32",
+          "dither": 0.35,
+          "scaling": "fit"
+        }
+      },
+      "songs": [
+        "contrast"
+      ]
+    },
+    {
+      "id": "q5-depth-lake-both",
+      "covers": "q5, depth pixel, lake, both reductions",
+      "settings": {
+        "quality": 5,
+        "reducedFlash": true,
+        "reducedMotion": true,
+        "presentation": {
+          "version": 2,
+          "look": "pixel",
+          "quality": "auto",
+          "palette": "world",
+          "dither": 0.35,
+          "ditherMode": "selective",
+          "pixelGrid": "classic",
+          "pixelScale": "depth",
+          "scaling": "fit"
+        }
+      },
+      "songs": [
+        "contrast"
+      ]
+    },
+    {
+      "id": "q6-pixel-inland",
+      "covers": "q6 (deepest rung), pixel, inland, no reductions",
+      "settings": {
+        "quality": 6,
+        "view": "panamint-dantes-view",
+        "biome": "DESERT",
+        "presentation": {
+          "version": 1,
+          "look": "pixel",
+          "quality": "auto",
+          "palette": "range32",
+          "dither": 0,
+          "scaling": "fit"
+        }
+      },
+      "songs": [
+        "contrast"
+      ]
+    },
+    {
+      "id": "q0-palette-lake-flash",
+      "covers": "q0, palette, lake, reduced flash",
+      "settings": {
+        "reducedFlash": true,
+        "presentation": {
+          "version": 1,
+          "look": "palette",
+          "quality": "auto",
+          "palette": "range32",
+          "dither": 0.35,
+          "scaling": "fit"
+        }
+      },
+      "songs": [
+        "contrast"
+      ]
+    },
+    {
+      "id": "q2-depth-inland-motion-history",
+      "covers": "q2, depth pixel, inland, reduced motion, continuous from zero",
+      "settings": {
+        "quality": 2,
+        "view": "panamint-dantes-view",
+        "biome": "DESERT",
+        "reducedMotion": true,
+        "mode": "continuous",
+        "presentation": {
+          "version": 2,
+          "look": "pixel",
+          "quality": "auto",
+          "palette": "world",
+          "dither": 0.35,
+          "ditherMode": "selective",
+          "pixelGrid": "classic",
+          "pixelScale": "depth",
+          "scaling": "fit"
+        }
+      },
+      "songs": [
+        "contrast-history"
+      ]
+    }
   ]
 }

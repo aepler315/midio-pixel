@@ -84,13 +84,14 @@ const COMPOSITE = /* glsl */`
 
 /** Construct only after the whole active-side bundle has been reserved.
  * Depth textures replace existing depth renderbuffers (same base charge).
- * This bundle owns their attachment/detachment; the target owns GL deletion.
+ * Existing scenic depth is borrowed. For targets without it, this bundle
+ * owns attachment/detachment; the target owns GL deletion.
  */
 export class SunShaftGL {
   constructor(THREE, targets) {
     this.targets = targets;
     this.buffers = {};
-    this.sourceTargets = Object.values(targets);
+    this.ownedDepth = new Map();
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3));
     this.geometry = geo;
@@ -119,10 +120,13 @@ export class SunShaftGL {
         depthBuffer: false, stencilBuffer: false,
         minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, type: THREE.UnsignedByteType,
       });
-      // Reinitialize an existing FBO so the old unsampleable renderbuffer is
-      // replaced rather than retained beside the sampled attachment.
-      target.dispose();
-      target.depthTexture = new THREE.DepthTexture(target.width, target.height, THREE.UnsignedIntType);
+      if (!target.depthTexture) {
+        // Reinitialize only when replacing an unsampleable renderbuffer.
+        // Pixel scenic targets already own a sampleable attachment.
+        target.dispose();
+        target.depthTexture = new THREE.DepthTexture(target.width, target.height, THREE.UnsignedIntType);
+        this.ownedDepth.set(target, target.depthTexture);
+      }
     }
   }
 
@@ -159,12 +163,14 @@ export class SunShaftGL {
   }
 
   dispose() {
-    for (const t of this.sourceTargets) {
+    for (const [t, depth] of this.ownedDepth) {
       // WebGLRenderTarget disposal deletes its depthTexture exactly once.
-      t.dispose();
-      t.depthTexture = null;
+      if (t.depthTexture === depth) {
+        t.dispose();
+        t.depthTexture = null;
+      }
     }
-    this.sourceTargets = [];
+    this.ownedDepth.clear();
     for (const b of Object.values(this.buffers)) b.dispose();
     this.buffers = {};
     this.geometry.dispose();

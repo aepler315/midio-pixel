@@ -120,7 +120,7 @@ export async function runAudioSmoke({
     const lyrics = page.locator('#lyricGroundingBtn');
     if (await lyrics.getAttribute('aria-pressed') === 'true') await lyrics.click();
     check('optional lyric lookup is off', await lyrics.getAttribute('aria-pressed') === 'false');
-    await page.locator('#stageRes').selectOption('720');
+    await page.locator('#display-pixelGrid').selectOption('classic');
 
     const chooserReady = page.waitForEvent('filechooser');
     await page.getByText('Browse files', { exact: true }).click();

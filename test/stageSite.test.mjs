@@ -36,6 +36,14 @@ test('stageSite fails when a required runtime input is missing', async (t) => {
   await assert.rejects(stageSite(source, output), /required runtime input.*src\/main\.js/i);
 });
 
+test('stageSite supports a new repository without a custom domain', async (t) => {
+  const { root, source, output } = await fixture();
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await fs.rm(path.join(source, 'CNAME'));
+  await stageSite(source, output);
+  assert.deepEqual((await fs.readdir(output)).sort(), ['.nojekyll', 'index.html', 'soundfonts', 'src']);
+});
+
 test('stageSite refuses to clean a source directory or one of its ancestors', async (t) => {
   const { root, source } = await fixture();
   t.after(() => fs.rm(root, { recursive: true, force: true }));

@@ -1,14 +1,6 @@
 name: Visual evaluation
 on:
-  pull_request:
-    paths:
-      - 'src/**'
-      - 'index.html'
-      - 'tools/visual-evaluate.mjs'
-      - 'tools/lib/visual-evaluation*.mjs'
-      - 'test/fixtures/visual-evaluation*.json'
-      - '.github/workflows/visual-evaluation.yml'
-      - 'package*.json'
+  # Full historical corpus is available on demand; bounded pixel validation runs on changes.
   workflow_dispatch:
 permissions:
   contents: read

@@ -1,5 +1,4 @@
-// The two quality controls in the settings menu -- stage resolution and the
-// frame-rate cap -- both change how much work a frame is. The perf ladder
+// Display settings and the frame-rate cap both change how much work a frame is. The perf ladder
 // keeps per-rung evidence about which quality levels this machine can
 // afford, with an exponential backoff on retrying one that failed, so that
 // evidence has to be discarded when the player changes the workload under
@@ -34,7 +33,7 @@ function changeHandlerBody(source, el) {
   throw new Error(`unbalanced listener body for ${el}`);
 }
 
-for (const el of ['stageResEl', 'stageFpsEl']) {
+for (const el of ['control', 'stageFpsEl']) {
   test(`${el}: an explicit quality change clears the perf ladder's recovery history`, () => {
     const body = changeHandlerBody(main, el);
     assert.match(

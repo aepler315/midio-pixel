@@ -655,7 +655,7 @@ export class RangePresentation {
       // Quality rung and look decide the target's multisampling
       // (RangeRenderPolicy); Pixel/Palette never smooth their grid.
       this.scene.resize({ widthPx: vp.backingWidth, heightPx: vp.backingHeight, pixelRatio: vp.pixelRatio || 1,
-        quality: inputs.sim.perf?.level ?? 0, pixelated: !!this.pixelated });
+        quality: inputs.sim.perf?.level ?? 0, pixelated: !!this.pixelated, pixelScale: this.pixelPolicy?.pixelScale || 'original' });
     } catch (err) {
       this.reason = `budget: ${err.message}`;
       // The render target was refused room: let the owner free fallback

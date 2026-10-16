@@ -86,19 +86,25 @@ test('paired missing provenance cannot masquerade as compatible evidence', () =>
 test('visual manifests accept independent presentation profiles and reject invalid values', () => {
   const presentation = { version: 1, look: 'palette', quality: 'auto', palette: 'range32', dither: .35, scaling: 'integer' };
   const m = normalizeManifest({ ...manifest(), settings: { presentation } });
-  assert.deepEqual(m.settings.presentation, { ...presentation, version: 2, pixelGrid: 'classic', ditherMode: 'ordered' });
+  assert.deepEqual(m.settings.presentation, { ...presentation, version: 2, pixelGrid: 'classic', ditherMode: 'ordered', pixelScale: 'original' });
   for (const change of [{ look: 'cathode' }, { quality: 'low' }, { scaling: 'stretch' }, { dither: 9 }, { palette: 'missing' }]) {
     assert.throws(() => normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, ...change } } }));
   }
 });
 test('visual v2 profiles accept Chroma/world and strictly reject unknown fields', () => {
   const presentation = { version: 2, look: 'palette', quality: 'auto', palette: 'world', dither: .35, ditherMode: 'ordered', pixelGrid: 'classic', scaling: 'fit' };
-  assert.deepEqual(normalizeManifest({ ...manifest(), settings: { presentation } }).settings.presentation, presentation);
+  assert.deepEqual(normalizeManifest({ ...manifest(), settings: { presentation } }).settings.presentation, { ...presentation, pixelScale: 'original' });
   for (const change of [{ palette: 'chroma32' }, { palette: 'rgb332' }]) assert.equal(normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, ...change } } }).settings.presentation.palette, change.palette);
   assert.equal(normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, ditherMode: 'selective' } } }).settings.presentation.ditherMode, 'selective');
   assert.equal(normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, pixelGrid: 'detailed' } } }).settings.presentation.pixelGrid, 'detailed');
   for (const change of [{ arbitrary: true }, { pixelGrid: 'arbitrary' }, { ditherMode: 'animated' }]) assert.throws(() => normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, ...change } } }));
 });
+test('visual manifests record depth scale and reject unsupported scale modes', () => {
+  const presentation = { version: 2, look: 'pixel', quality: 'auto', palette: 'world', dither: .35, ditherMode: 'selective', pixelGrid: 'classic', pixelScale: 'depth', scaling: 'fit' };
+  assert.equal(normalizeManifest({ ...manifest(), settings: { presentation } }).settings.presentation.pixelScale, 'depth');
+  assert.throws(() => normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, pixelScale: 'random' } } }), /pixelScale/);
+});
+
 test('comparison normalizes valid v1 presentation choices without weakening value validation', () => {
   const a = report(), b = report();
   const p = { version: 1, look: 'palette', quality: 'auto', palette: 'range32', dither: .35, scaling: 'fit' };
@@ -174,11 +180,11 @@ test('the VFX matrix covers every shedding boundary, preference combination, loo
   const cases = normalizeMatrix(matrix).cases.map(c => c.manifest.settings);
   assert.deepEqual([...new Set(cases.map(s => s.quality))].sort(), [0, 2, 3, 4, 5, 6]);
   assert.deepEqual(new Set(cases.map(s => `${s.reducedFlash}/${s.reducedMotion}`)).size, 4);
-  assert.deepEqual([...new Set(cases.map(s => s.presentation?.look ?? 'natural'))].sort(), ['natural', 'palette', 'pixel']);
+  assert.deepEqual([...new Set(cases.map(s => s.presentation?.look ?? 'pixel'))].sort(), ['palette', 'pixel']);
   assert.deepEqual([...new Set(cases.map(s => s.view))].sort(), ['panamint-dantes-view', 'teton-jackson-lake']);
   assert.ok(cases.some(s => s.mode === 'continuous'), 'a continuous history case');
   assert.ok(cases.length < 6 * 4 * 3 * 2, 'bounded, not a Cartesian product');
-  assert.equal(manifestForCase(matrix, 'q5-natural-lake-both').settings.quality, 5);
+  assert.equal(manifestForCase(matrix, 'q5-depth-lake-both').settings.quality, 5);
   assert.throws(() => manifestForCase(matrix, 'missing'), /unknown case/);
   assert.throws(() => normalizeMatrix({ ...matrix, cases: [...matrix.cases, matrix.cases[0]] }), /duplicate/);
   assert.throws(() => normalizeMatrix({ ...matrix, cases: [{ id: 'bad', settings: { quality: 7 } }] }));
