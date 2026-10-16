@@ -1,0 +1,23 @@
+{
+ "source": {
+  "provider": "ambientCG",
+  "asset": "Ground022",
+  "url": "https://ambientcg.com/get?file=Ground022_2K-PNG.zip",
+  "page": "https://ambientcg.com/a/Ground022",
+  "license": "CC0 1.0 Universal (public domain dedication)"
+ },
+ "channels": [
+  "normalX",
+  "normalY",
+  "roughness",
+  "height"
+ ],
+ "sourceSha256": "9fabf4cb673af788193083c0b21142e2f2451f4b8af25ee752791b55c6fd0975",
+ "masterSize": 1024,
+ "width": 512,
+ "height": 512,
+ "format": "webp-lossless",
+ "colorSpace": "data",
+ "sha256": "f177eaa80edb4e15276be1c6d8ae34085917e4838ea4b236695d952741da5af1",
+ "bytes": 777854
+}

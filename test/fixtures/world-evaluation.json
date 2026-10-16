@@ -1,0 +1,255 @@
+{
+  "protocol": 1,
+  "purpose": "World-quality comparison corpus. Source references only — no audio bytes in the repo. Tune tracks inform response work; holdout tracks are for acceptance review. Heuristic scores are private and must not set gallery order.",
+  "tracks": [
+    {
+      "id": "tune-piano-midi",
+      "split": "tune",
+      "family": "sparse-piano",
+      "representation": "midi",
+      "title": "Sparse piano (generated)",
+      "durationMs": 96000,
+      "source": { "kind": "generator", "tool": "tools/gen-test-midi.mjs", "license": "generated-for-evaluation" },
+      "features": {
+        "centroid": 0.62, "bass": 0.18, "air": 0.48, "spread": 0.32, "dyn": 0.38,
+        "energyMean": 0.16, "phrase": 0.52, "landmarks": 3, "onset": 0.10, "pulse": 0.35,
+        "contrast": 0.28, "groove": 0.22, "warmth": 0.28, "texture": 0.40, "form": 0.22,
+        "arc": 0.38, "drive": 0.22, "bpm": 72, "tempoHeat": 0.00, "trend": 0.05
+      },
+      "energyWave": [0.12, 0.11, 0.10, 0.12, 0.14, 0.13, 0.12, 0.18, 0.16, 0.14, 0.12, 0.13, 0.22, 0.28, 0.24, 0.18, 0.14, 0.32, 0.40, 0.22],
+      "structure": { "boundariesMs": [0, 24000, 56000, 96000], "labels": [0, 1, 0] }
+    },
+    {
+      "id": "tune-drone-helix6",
+      "split": "tune",
+      "family": "ambient",
+      "representation": "audio",
+      "title": "Deep Orbit",
+      "durationMs": 330000,
+      "source": { "kind": "url", "href": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3", "artist": "SoundHelix", "license": "demo" },
+      "features": {
+        "centroid": 0.44, "bass": 0.42, "air": 0.38, "spread": 0.58, "dyn": 0.22,
+        "energyMean": 0.28, "phrase": 0.24, "landmarks": 2, "onset": 0.08, "pulse": 0.20,
+        "contrast": 0.18, "groove": 0.18, "warmth": 0.48, "texture": 0.62, "form": 0.18,
+        "arc": 0.22, "drive": 0.18, "bpm": 64, "tempoHeat": 0.00, "trend": 0.02
+      }
+    },
+    {
+      "id": "tune-bass-helix7",
+      "split": "tune",
+      "family": "warm-bass",
+      "representation": "audio",
+      "title": "Velvet Static",
+      "durationMs": 345000,
+      "source": { "kind": "url", "href": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-7.mp3", "artist": "SoundHelix", "license": "demo" },
+      "features": {
+        "centroid": 0.32, "bass": 0.72, "air": 0.16, "spread": 0.36, "dyn": 0.34,
+        "energyMean": 0.40, "phrase": 0.48, "landmarks": 5, "onset": 0.22, "pulse": 0.62,
+        "contrast": 0.30, "groove": 0.70, "warmth": 0.74, "texture": 0.28, "form": 0.42,
+        "arc": 0.34, "drive": 0.38, "bpm": 86, "tempoHeat": 0.16, "trend": 0.08
+      }
+    },
+    {
+      "id": "tune-drums-midi",
+      "split": "tune",
+      "family": "fast-percussion",
+      "representation": "midi",
+      "title": "Fast kit (generated)",
+      "durationMs": 72000,
+      "source": { "kind": "generator", "tool": "tools/gen-test-midi.mjs", "license": "generated-for-evaluation" },
+      "features": {
+        "centroid": 0.58, "bass": 0.48, "air": 0.22, "spread": 0.40, "dyn": 0.44,
+        "energyMean": 0.52, "phrase": 0.38, "landmarks": 6, "onset": 0.82, "pulse": 0.88,
+        "contrast": 0.36, "groove": 0.78, "warmth": 0.42, "texture": 0.30, "form": 0.48,
+        "arc": 0.44, "drive": 0.68, "bpm": 148, "tempoHeat": 0.84, "trend": 0.00
+      }
+    },
+    {
+      "id": "tune-wall-guitars",
+      "split": "tune",
+      "family": "dense-guitars",
+      "representation": "audio",
+      "title": "Wall of sound (feature snapshot)",
+      "durationMs": 210000,
+      "source": { "kind": "features", "note": "Synthetic watch-features. Replace with a licensed dense-guitar recording when capturing stills." },
+      "features": {
+        "centroid": 0.55, "bass": 0.38, "air": 0.42, "spread": 0.62, "dyn": 0.78,
+        "energyMean": 0.72, "phrase": 0.58, "landmarks": 8, "onset": 0.64, "pulse": 0.70,
+        "contrast": 0.74, "groove": 0.52, "warmth": 0.36, "texture": 0.58, "form": 0.70,
+        "arc": 0.78, "drive": 0.76, "bpm": 160, "tempoHeat": 0.98, "trend": 0.12
+      },
+      "energyWave": [0.18, 0.22, 0.28, 0.34, 0.48, 0.62, 0.70, 0.66, 0.42, 0.38, 0.80, 0.88, 0.84, 0.60, 0.44, 0.40, 0.86, 0.90, 0.55, 0.30]
+    },
+    {
+      "id": "tune-orchestra-helix9",
+      "split": "tune",
+      "family": "orchestral",
+      "representation": "audio",
+      "title": "Chrome Ballet",
+      "durationMs": 355000,
+      "source": { "kind": "url", "href": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-9.mp3", "artist": "SoundHelix", "license": "demo" },
+      "features": {
+        "centroid": 0.50, "bass": 0.40, "air": 0.46, "spread": 0.55, "dyn": 0.72,
+        "energyMean": 0.48, "phrase": 0.62, "landmarks": 7, "onset": 0.28, "pulse": 0.48,
+        "contrast": 0.68, "groove": 0.40, "warmth": 0.44, "texture": 0.50, "form": 0.64,
+        "arc": 0.72, "drive": 0.58, "bpm": 108, "tempoHeat": 0.40, "trend": 0.18
+      },
+      "structure": { "boundariesMs": [0, 48000, 120000, 210000, 355000], "labels": [0, 1, 0, 2] }
+    },
+    {
+      "id": "tune-loose-midi",
+      "split": "tune",
+      "family": "loose-rhythm",
+      "representation": "midi",
+      "title": "Free-time sketch (generated)",
+      "durationMs": 88000,
+      "source": { "kind": "generator", "tool": "tools/gen-test-midi.mjs", "license": "generated-for-evaluation" },
+      "features": {
+        "centroid": 0.48, "bass": 0.30, "air": 0.36, "spread": 0.44, "dyn": 0.40,
+        "energyMean": 0.32, "phrase": 0.28, "landmarks": 4, "onset": 0.24, "pulse": 0.12,
+        "contrast": 0.34, "groove": 0.16, "warmth": 0.38, "texture": 0.42, "form": 0.30,
+        "arc": 0.40, "drive": 0.30, "bpm": 0, "tempoHeat": 0.18, "trend": 0.00
+      }
+    },
+    {
+      "id": "tune-helix1-audio",
+      "split": "tune",
+      "family": "warm-bass",
+      "representation": "audio",
+      "title": "Neon Skyline",
+      "durationMs": 372000,
+      "source": { "kind": "url", "href": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3", "artist": "SoundHelix", "license": "demo" },
+      "features": {
+        "centroid": 0.46, "bass": 0.58, "air": 0.28, "spread": 0.42, "dyn": 0.46,
+        "energyMean": 0.44, "phrase": 0.50, "landmarks": 5, "onset": 0.34, "pulse": 0.66,
+        "contrast": 0.40, "groove": 0.64, "warmth": 0.58, "texture": 0.34, "form": 0.46,
+        "arc": 0.46, "drive": 0.48, "bpm": 118, "tempoHeat": 0.51, "trend": 0.06
+      }
+    },
+    {
+      "id": "hold-piano-audio",
+      "split": "holdout",
+      "family": "sparse-piano",
+      "representation": "audio",
+      "title": "Held-out piano (feature snapshot)",
+      "durationMs": 184000,
+      "source": { "kind": "features", "note": "Held-out sparse piano. Supply a licensed recording at review time." },
+      "passages": { "quietMs": 22000, "transitionMs": 74000, "peakMs": 128000 },
+      "features": {
+        "centroid": 0.68, "bass": 0.14, "air": 0.52, "spread": 0.28, "dyn": 0.42,
+        "energyMean": 0.14, "phrase": 0.48, "landmarks": 3, "onset": 0.08, "pulse": 0.30,
+        "contrast": 0.32, "groove": 0.18, "warmth": 0.24, "texture": 0.38, "form": 0.20,
+        "arc": 0.42, "drive": 0.20, "bpm": 68, "tempoHeat": 0.00, "trend": 0.04
+      }
+    },
+    {
+      "id": "hold-drone-helix3",
+      "split": "holdout",
+      "family": "ambient",
+      "representation": "audio",
+      "title": "Crystal Garden",
+      "durationMs": 360000,
+      "source": { "kind": "url", "href": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3", "artist": "SoundHelix", "license": "demo" },
+      "features": {
+        "centroid": 0.40, "bass": 0.36, "air": 0.44, "spread": 0.60, "dyn": 0.20,
+        "energyMean": 0.26, "phrase": 0.22, "landmarks": 2, "onset": 0.06, "pulse": 0.18,
+        "contrast": 0.16, "groove": 0.16, "warmth": 0.46, "texture": 0.64, "form": 0.16,
+        "arc": 0.20, "drive": 0.16, "bpm": 58, "tempoHeat": 0.00, "trend": 0.00
+      }
+    },
+    {
+      "id": "hold-bass-helix2",
+      "split": "holdout",
+      "family": "warm-bass",
+      "representation": "audio",
+      "title": "Midnight Express",
+      "durationMs": 426000,
+      "source": { "kind": "url", "href": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3", "artist": "SoundHelix", "license": "demo" },
+      "features": {
+        "centroid": 0.34, "bass": 0.68, "air": 0.18, "spread": 0.34, "dyn": 0.36,
+        "energyMean": 0.42, "phrase": 0.46, "landmarks": 5, "onset": 0.24, "pulse": 0.60,
+        "contrast": 0.32, "groove": 0.68, "warmth": 0.70, "texture": 0.26, "form": 0.40,
+        "arc": 0.36, "drive": 0.40, "bpm": 92, "tempoHeat": 0.22, "trend": 0.10
+      }
+    },
+    {
+      "id": "hold-perc-helix4",
+      "split": "holdout",
+      "family": "fast-percussion",
+      "representation": "audio",
+      "title": "Pulse City",
+      "durationMs": 340000,
+      "source": { "kind": "url", "href": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3", "artist": "SoundHelix", "license": "demo" },
+      "features": {
+        "centroid": 0.56, "bass": 0.50, "air": 0.24, "spread": 0.42, "dyn": 0.48,
+        "energyMean": 0.54, "phrase": 0.40, "landmarks": 6, "onset": 0.76, "pulse": 0.84,
+        "contrast": 0.38, "groove": 0.74, "warmth": 0.44, "texture": 0.32, "form": 0.50,
+        "arc": 0.48, "drive": 0.70, "bpm": 140, "tempoHeat": 0.76, "trend": 0.04
+      }
+    },
+    {
+      "id": "hold-wall-guitars",
+      "split": "holdout",
+      "family": "dense-guitars",
+      "representation": "audio",
+      "title": "Held-out wall of sound (feature snapshot)",
+      "durationMs": 198000,
+      "source": { "kind": "features", "note": "Held-out dense-guitar snapshot. Supply a licensed recording at review time." },
+      "features": {
+        "centroid": 0.52, "bass": 0.40, "air": 0.40, "spread": 0.60, "dyn": 0.80,
+        "energyMean": 0.70, "phrase": 0.54, "landmarks": 9, "onset": 0.60, "pulse": 0.66,
+        "contrast": 0.76, "groove": 0.50, "warmth": 0.34, "texture": 0.56, "form": 0.72,
+        "arc": 0.80, "drive": 0.78, "bpm": 168, "tempoHeat": 1.00, "trend": 0.14
+      }
+    },
+    {
+      "id": "hold-orchestra-helix10",
+      "split": "holdout",
+      "family": "orchestral",
+      "representation": "audio",
+      "title": "Solar Flare",
+      "durationMs": 360000,
+      "source": { "kind": "url", "href": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-10.mp3", "artist": "SoundHelix", "license": "demo" },
+      "features": {
+        "centroid": 0.48, "bass": 0.38, "air": 0.50, "spread": 0.52, "dyn": 0.70,
+        "energyMean": 0.46, "phrase": 0.60, "landmarks": 7, "onset": 0.26, "pulse": 0.46,
+        "contrast": 0.66, "groove": 0.38, "warmth": 0.42, "texture": 0.52, "form": 0.62,
+        "arc": 0.70, "drive": 0.56, "bpm": 102, "tempoHeat": 0.33, "trend": 0.16
+      }
+    },
+    {
+      "id": "hold-loose-midi",
+      "split": "holdout",
+      "family": "loose-rhythm",
+      "representation": "midi",
+      "title": "Held-out free-time (generated)",
+      "durationMs": 104000,
+      "source": { "kind": "generator", "tool": "tools/gen-test-midi.mjs", "license": "generated-for-evaluation" },
+      "features": {
+        "centroid": 0.46, "bass": 0.28, "air": 0.34, "spread": 0.46, "dyn": 0.36,
+        "energyMean": 0.30, "phrase": 0.26, "landmarks": 3, "onset": 0.20, "pulse": 0.10,
+        "contrast": 0.30, "groove": 0.14, "warmth": 0.36, "texture": 0.44, "form": 0.28,
+        "arc": 0.36, "drive": 0.28, "bpm": 0, "tempoHeat": 0.16, "trend": 0.00
+      }
+    },
+    {
+      "id": "hold-operator-song",
+      "split": "holdout",
+      "family": "operator",
+      "representation": "audio",
+      "title": "Operator-supplied song",
+      "durationMs": 240000,
+      "source": {
+        "kind": "local",
+        "path": null,
+        "note": "Drop the reported song here if available. Not required for the protocol or the chooser."
+      },
+      "features": {
+        "centroid": 0.50, "bass": 0.45, "air": 0.35, "spread": 0.48, "dyn": 0.55,
+        "energyMean": 0.50, "phrase": 0.50, "landmarks": 5, "onset": 0.40, "pulse": 0.55,
+        "contrast": 0.50, "groove": 0.50, "warmth": 0.48, "texture": 0.42, "form": 0.48,
+        "arc": 0.55, "drive": 0.52, "bpm": 110, "tempoHeat": 0.42, "trend": 0.08
+      }
+    }
+  ]
+}

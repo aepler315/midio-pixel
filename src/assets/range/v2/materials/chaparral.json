@@ -1,0 +1,273 @@
+{
+ "schema": "midio.material",
+ "version": 1,
+ "id": "chaparral",
+ "biomes": [
+  "CHAPARRAL"
+ ],
+ "textures": {
+  "rockDetail": {
+   "id": "proc-cliff",
+   "url": "../textures/proc-cliff.webp",
+   "sha256": "3196ffb5ab32bd8a8d6e8f3c5d2ab9f2006f4d1e6762b97af9291f265d24c1ea",
+   "bytes": 703766,
+   "width": 512,
+   "height": 512,
+   "colorSpace": "data",
+   "channels": [
+    "normalX",
+    "normalY",
+    "roughness",
+    "height"
+   ],
+   "format": "webp-lossless",
+   "mips": "generated at upload",
+   "metersPerTile": 150,
+   "note": "weathered crystalline cliff: buttresses, sparse joints, patchy bedding",
+   "source": {
+    "generator": "tools/terrain/make-materials.py",
+    "kind": "cliff",
+    "seed": 11,
+    "license": "project (generated)"
+   }
+  },
+  "rockNear": {
+   "id": "cc0-rock029",
+   "url": "../textures/cc0-rock029.webp",
+   "sha256": "758794769204cdfddd4770c45efd49503608fde3499380d2d4101783cd1e18bc",
+   "bytes": 674582,
+   "width": 512,
+   "height": 512,
+   "colorSpace": "data",
+   "channels": [
+    "normalX",
+    "normalY",
+    "roughness",
+    "height"
+   ],
+   "format": "webp-lossless",
+   "mips": "generated at upload",
+   "metersPerTile": 6,
+   "note": "red desert cliff",
+   "source": {
+    "provider": "ambientCG",
+    "asset": "Rock029",
+    "url": "https://ambientcg.com/get?file=Rock029_2K-PNG.zip",
+    "page": "https://ambientcg.com/a/Rock029",
+    "license": "CC0 1.0 Universal (public domain dedication)",
+    "zipSha256": "94e51ed1fc0e211c032ffd0f9a17031702bfdea0036054e1145d7ef7435d2eca",
+    "usedMaps": [
+     "NormalGL",
+     "Roughness",
+     "Displacement"
+    ]
+   }
+  },
+  "stage": {
+   "id": "cc0-rock055",
+   "url": "../textures/cc0-rock055.webp",
+   "sha256": "c645119c364c020e176110ceb60cd4f0a9bf5835485491514f19f69535eb63aa",
+   "bytes": 964374,
+   "width": 1024,
+   "height": 512,
+   "colorSpace": "data",
+   "channels": [
+    "normalX",
+    "normalY",
+    "roughness",
+    "height"
+   ],
+   "format": "webp-lossless",
+   "mips": "generated at upload",
+   "metersPerTile": 6,
+   "note": "layered beige cliff",
+   "source": {
+    "provider": "ambientCG",
+    "asset": "Rock055",
+    "url": "https://ambientcg.com/get?file=Rock055_2K-PNG.zip",
+    "page": "https://ambientcg.com/a/Rock055",
+    "license": "CC0 1.0 Universal (public domain dedication)",
+    "zipSha256": "b1405afda5ee6d80da117c471f2752794bc77ad6df59e751741534718df9fcf7",
+    "usedMaps": [
+     "NormalGL",
+     "Roughness",
+     "Displacement"
+    ]
+   }
+  },
+  "stageWet": {
+   "id": "cc0-rock020",
+   "url": "../textures/cc0-rock020.webp",
+   "sha256": "7cae7301552ce33ec53b49d9612ad800c561d8687601f1b76e5883bc998d69b1",
+   "bytes": 608986,
+   "width": 512,
+   "height": 512,
+   "colorSpace": "data",
+   "channels": [
+    "normalX",
+    "normalY",
+    "roughness",
+    "height"
+   ],
+   "format": "webp-lossless",
+   "mips": "generated at upload",
+   "metersPerTile": 3,
+   "note": "smooth wet flat stone",
+   "source": {
+    "provider": "ambientCG",
+    "asset": "Rock020",
+    "url": "https://ambientcg.com/get?file=Rock020_2K-PNG.zip",
+    "page": "https://ambientcg.com/a/Rock020",
+    "license": "CC0 1.0 Universal (public domain dedication)",
+    "zipSha256": "ff9017bf96e5740890a504fbf1f19068563644b5ef32d1bc5f8dc7a6498294fb",
+    "usedMaps": [
+     "NormalGL",
+     "Roughness",
+     "Displacement"
+    ]
+   }
+  },
+  "soil": {
+   "id": "cc0-ground068",
+   "url": "../textures/cc0-ground068.webp",
+   "sha256": "3e6274d2650a6500398e7f0c8d2bda2d6cd46b4af70e759ac309a3e2ab81c786",
+   "bytes": 720482,
+   "width": 512,
+   "height": 512,
+   "colorSpace": "data",
+   "channels": [
+    "normalX",
+    "normalY",
+    "roughness",
+    "height"
+   ],
+   "format": "webp-lossless",
+   "mips": "generated at upload",
+   "metersPerTile": 3,
+   "note": "dirt, moss and stones",
+   "source": {
+    "provider": "ambientCG",
+    "asset": "Ground068",
+    "url": "https://ambientcg.com/get?file=Ground068_2K-PNG.zip",
+    "page": "https://ambientcg.com/a/Ground068",
+    "license": "CC0 1.0 Universal (public domain dedication)",
+    "zipSha256": "b0d61e5921e11da675eaf1ed08d9e43676b2c2d47db3e23250c44e2e15cd6ce7",
+    "usedMaps": [
+     "NormalGL",
+     "Roughness",
+     "Displacement"
+    ]
+   }
+  },
+  "canopy": {
+   "id": "proc-canopy",
+   "url": "../textures/proc-canopy.webp",
+   "sha256": "e00ed901f016f1315a635f298754a9eb3ab45ebd587dbb9d996dd0f6603c9417",
+   "bytes": 578984,
+   "width": 512,
+   "height": 512,
+   "colorSpace": "data",
+   "channels": [
+    "normalX",
+    "normalY",
+    "coverage",
+    "height"
+   ],
+   "format": "webp-lossless",
+   "mips": "generated at upload",
+   "metersPerTile": 70,
+   "note": "conifer crowns from above: clumped stands with gaps",
+   "source": {
+    "generator": "tools/terrain/make-materials.py",
+    "kind": "canopy",
+    "seed": 12,
+    "license": "project (generated)"
+   }
+  },
+  "snow": {
+   "id": "proc-snow",
+   "url": "../textures/proc-snow.webp",
+   "sha256": "a92a6b966a33db5c4d102fc1392202aa70b53ffbd1af2b33563fe27dd53cd519",
+   "bytes": 471956,
+   "width": 512,
+   "height": 512,
+   "colorSpace": "data",
+   "channels": [
+    "normalX",
+    "normalY",
+    "roughness",
+    "height"
+   ],
+   "format": "webp-lossless",
+   "mips": "generated at upload",
+   "metersPerTile": 60,
+   "note": "wind-packed snow ripples",
+   "source": {
+    "generator": "tools/terrain/make-materials.py",
+    "kind": "snow",
+    "seed": 13,
+    "license": "project (generated)"
+   }
+  },
+  "pebbles": {
+   "id": "cc0-ground022",
+   "url": "../textures/cc0-ground022.webp",
+   "sha256": "f177eaa80edb4e15276be1c6d8ae34085917e4838ea4b236695d952741da5af1",
+   "bytes": 777854,
+   "width": 512,
+   "height": 512,
+   "colorSpace": "data",
+   "channels": [
+    "normalX",
+    "normalY",
+    "roughness",
+    "height"
+   ],
+   "format": "webp-lossless",
+   "mips": "generated at upload",
+   "metersPerTile": 2,
+   "note": "river pebbles",
+   "source": {
+    "provider": "ambientCG",
+    "asset": "Ground022",
+    "url": "https://ambientcg.com/get?file=Ground022_2K-PNG.zip",
+    "page": "https://ambientcg.com/a/Ground022",
+    "license": "CC0 1.0 Universal (public domain dedication)",
+    "zipSha256": "9fabf4cb673af788193083c0b21142e2f2451f4b8af25ee752791b55c6fd0975",
+    "usedMaps": [
+     "NormalGL",
+     "Roughness",
+     "Displacement"
+    ]
+   }
+  }
+ },
+ "palette": {
+  "rockLit": "#a8987e",
+  "rockShade": "#443c32",
+  "rockWarm": "#ae8e6c",
+  "soil": "#7a6648",
+  "meadow": "#8a8456",
+  "forestNear": "#2e3a28",
+  "forestFar": "#48523c",
+  "moss": "#6a6a42",
+  "snow": "#f2f4f6",
+  "snowShade": "#b2bcc8",
+  "water": "#2c3c42",
+  "waterDeep": "#141e22",
+  "wetRock": "#383228",
+  "lichen": "#8a8466"
+ },
+ "rules": {
+  "snowlineM": 3200,
+  "snowFullM": 3400,
+  "snowMaxSlopeDeg": 42,
+  "treelineM": 3000,
+  "forestMaxSlopeDeg": 34,
+  "forestDensity": 0.35,
+  "moss": 0.05,
+  "wetness": 0.1,
+  "strata": 0.3
+ },
+ "colorManagement": "palette hex values are sRGB albedo; shaders convert to linear; data textures are not colour-managed"
+}

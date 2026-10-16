@@ -1,0 +1,37 @@
+# Copy this file for a recording. Leave unknown values null or omit them.
+# Quote every timestamp. Add a segment only when its character helps describe the song.
+format: midio-listening/0.1
+status: draft
+audio_file: null
+listener: null
+perspective: expressed
+basis: unspecified
+summary: ""
+
+segments:
+  - span: [null, null]
+    label: ""
+    sound:
+      brightness: null
+      activity: null
+    # Use the vocabulary in README.md. Example syntax:
+    # joy: {intensity: 3, role: foreground}
+    # melancholy: {intensity: 3, role: undertone}
+    emotions: {}
+    confidence: unrated
+    notes: ""
+
+# Optional: a direction of change over an interval.
+# - span: ["00:45", "01:30"]
+#   target: emotions.melancholy.intensity
+#   direction: rising
+#   confidence: high
+trends: []
+
+# Optional: when one emotional layer becomes the foreground.
+# - within: ["01:25", "01:35"]
+#   type: foreground_change
+#   from: joy
+#   to: melancholy
+#   confidence: medium
+events: []

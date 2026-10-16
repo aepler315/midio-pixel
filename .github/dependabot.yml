@@ -1,0 +1,24 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    # The workflows at / and the shared setup action, whose setup-node pin
+    # moved out of the workflows. Dependabot only scans .github/workflows
+    # for a plain directory: /, so without the second entry that pin would
+    # quietly stop being updated.
+    directories:
+      - /
+      - /.github/actions/*
+    schedule:
+      interval: weekly
+  # docker-compose, not docker: the docker ecosystem only reads Dockerfiles
+  # and this repo has none, so that entry never checked anything. The one
+  # pinned image lives in docker-compose.yml (slskd, pinned by digest).
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly

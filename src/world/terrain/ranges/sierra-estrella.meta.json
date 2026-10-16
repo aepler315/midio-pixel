@@ -1,0 +1,34 @@
+{
+  "id": "sierra-estrella",
+  "name": "Sierra Estrella",
+  "landmark": "Montezuma Peak",
+  "region": "Arizona, USA",
+  "bbox": [
+    -112.434,
+    32.985,
+    -111.961,
+    33.383
+  ],
+  "source": "discovered",
+  "archetype": "brooding",
+  "mood": "melancholy",
+  "quality": {
+    "floorShare": 0.04,
+    "artifact": 0.05
+  },
+  "scores": {
+    "energy": 0.217,
+    "rawness": 0.198,
+    "grandeur": 0.231,
+    "dominance": 0.55
+  },
+  "features": {
+    "reliefM": 1038.3,
+    "slopeMPerKm": 114.6,
+    "peaksPer10Km": 1.7,
+    "roughnessM": 46.4,
+    "dominance": 0.6,
+    "summitM": 1328.3,
+    "lengthKm": 42.1
+  }
+}

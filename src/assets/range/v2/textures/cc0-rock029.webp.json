@@ -1,0 +1,23 @@
+{
+ "source": {
+  "provider": "ambientCG",
+  "asset": "Rock029",
+  "url": "https://ambientcg.com/get?file=Rock029_2K-PNG.zip",
+  "page": "https://ambientcg.com/a/Rock029",
+  "license": "CC0 1.0 Universal (public domain dedication)"
+ },
+ "channels": [
+  "normalX",
+  "normalY",
+  "roughness",
+  "height"
+ ],
+ "sourceSha256": "94e51ed1fc0e211c032ffd0f9a17031702bfdea0036054e1145d7ef7435d2eca",
+ "masterSize": 1024,
+ "width": 512,
+ "height": 512,
+ "format": "webp-lossless",
+ "colorSpace": "data",
+ "sha256": "758794769204cdfddd4770c45efd49503608fde3499380d2d4101783cd1e18bc",
+ "bytes": 674582
+}

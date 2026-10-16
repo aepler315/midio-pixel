@@ -1,0 +1,3130 @@
+* { box-sizing: border-box; }
+
+/* One Spectrum: the HUD chrome is keyed to the song like the world and
+   the characters -- these vars are rewritten from the live spectral
+   palette (main.js, cache-gated) so combo/score/roleDots/buttons all
+   shift hue with the song's key and section, as one family. DO NOT
+   rename -- main.js writes to these exact custom-property names. */
+:root {
+  --spec-gold: #ffd76a;    /* combo, grade, hover accents */
+  --spec-cool: #7ad1ff;    /* BASS role, ghost-button hover */
+  --spec-warm: #ff7ab6;    /* primary file button, warm accents */
+  /* Coarse mirrors of the three above, for the one element whose repaint is
+     expensive enough to be worth decoupling -- see #app::before. */
+  --glow-gold: #ffd76a;
+  --glow-cool: #7ad1ff;
+  --glow-warm: #ff7ab6;
+  --spec-pad: #b9a3ff;     /* PAD role dot */
+  --spec-rhythm: #ff5a7a;  /* RHYTHM role dot, hide action */
+  --spec-hue: 45;
+
+  /* Structural design tokens -- static, not song-driven. Every color,
+     spacing, radius, and motion value in this file is built on these so
+     the whole chrome reads as one deliberately-designed surface instead
+     of each panel drifting to its own nearby purple. */
+  --bg-void: #080c14;                    /* page/stage background */
+  --bg-surface: rgba(12, 16, 28, 0.86);  /* card background */
+  --bg-surface-2: rgba(255, 255, 255, 0.05); /* nested/raised surface: inputs, chips, rows */
+  --bg-surface-3: rgba(0, 0, 0, 0.3);    /* recessed surface: settings wells */
+  --bg-scrim: rgba(8, 12, 20, 0.72);     /* modal/drag backdrop */
+
+  --border-subtle: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.22);
+
+  --text-primary: #f2f0f8;
+  --text-secondary: rgba(242, 240, 248, 0.65);
+  --text-tertiary: rgba(242, 240, 248, 0.45);
+
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px; --space-7: 32px; --space-8: 40px;
+
+  --radius-sm: 8px; --radius-md: 12px; --radius-lg: 20px; --radius-pill: 999px;
+
+  --ease-standard: cubic-bezier(0.2, 0.7, 0.3, 1);
+  --dur-fast: 120ms; --dur-base: 200ms; --dur-slow: 320ms;
+
+  --font-sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-mono: 'SF Mono', Consolas, ui-monospace, monospace;
+
+  --shadow-card: 0 24px 64px rgba(0, 0, 0, 0.45);
+  --shadow-modal: 0 20px 60px rgba(0, 0, 0, 0.5);
+
+  /* The recording indicator. Structural on purpose: every other accent in
+     this chrome is rewritten from the song's spectral palette, and a record
+     light that turns green because the song is bright has stopped saying
+     "recording". */
+  --record-red: #ff3b44;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg-void);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  overflow: hidden;
+  height: 100%;
+}
+
+#app {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Treat the safe-stage bars as part of the composition. These colors are
+   cache-synced to the live song/world palette by main.js.
+
+   They read --glow-* rather than the --spec-* tokens the rest of the chrome
+   uses, and that separation is a performance fix, not a naming preference.
+   This element is larger than the viewport and sits under a 48px blur, so
+   any rewrite of a custom property it reads repaints the whole document
+   layer and re-runs that blur at DISPLAY resolution. The --spec-* tokens
+   move with the song's spectral drift, which measured ~0.9 rewrites a
+   second -- i.e. roughly one full-viewport blurred repaint per second, all
+   song. It costs the same whatever the stage resolution is, which is why
+   picking 8-bit never helped it. main.js updates --glow-* on a far coarser
+   quantization; a 0.38-alpha wash under a 48px blur cannot show the
+   difference. */
+#app::before {
+  content: '';
+  position: absolute;
+  inset: -12%;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.38;
+  filter: blur(48px) saturate(0.8);
+  transform: scale(1.08);
+  background:
+    radial-gradient(ellipse at 18% 30%, color-mix(in srgb, var(--glow-cool) 42%, transparent), transparent 58%),
+    radial-gradient(ellipse at 82% 68%, color-mix(in srgb, var(--glow-warm) 34%, transparent), transparent 62%),
+    linear-gradient(145deg, var(--bg-void), color-mix(in srgb, var(--glow-gold) 16%, var(--bg-void)));
+}
+
+#stage {
+  /* Logical stage is 1280×720; backing store can be 720p–4K (see stageRes).
+     CSS letterboxes to the window; the compositor scales drawing into the buffer. */
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  background: transparent;
+  position: relative;
+  z-index: 1;
+  image-rendering: auto;
+}
+
+/* 8-bit mode (StagePresets.RETRO_PRESET): the backing store is 320×180, so
+   the browser is upscaling it ~6x to a 1080p viewport. Nearest-neighbour is
+   both the cheaper filter and the entire reason the mode reads as pixel art
+   rather than as a blurry low-res frame. Toggled from fitCanvas(), which
+   sets the matching ctx.imageSmoothingEnabled for drawing INTO the buffer. */
+#stage.retro {
+  /* Fallback first, preferred value last: the later declaration wins in any
+     browser that understands it, and an older one that doesn't simply keeps
+     the earlier line. */
+  image-rendering: crisp-edges;
+  image-rendering: pixelated;
+}
+
+.panel {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  background: radial-gradient(circle at 50% 40%, rgba(36, 52, 88, 0.42), rgba(8, 12, 22, 0.92));
+  text-align: center;
+  padding: var(--space-6);
+}
+
+.panel.hidden, .hidden { display: none !important; }
+
+/* ── Error banner ─────────────────────────────────────────────────────────── */
+/* Replaces the old native alert() surface (see showErrorBanner in main.js):
+   a dismissible, styled-in-frame message instead of a browser dialog
+   dumping raw exception text. Sits above every other layer, including
+   modals, since a failure can happen mid-modal too. */
+.errorBanner {
+  position: absolute;
+  top: var(--space-4);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: min(560px, calc(100% - var(--space-6)));
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  border: 1px solid var(--spec-rhythm);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+.errorBanner.hidden { display: none !important; }
+.errorBannerText { flex: 1; }
+.errorBannerClose {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 var(--space-1);
+}
+.errorBannerClose:hover { color: var(--text-primary); }
+
+@media (max-width: 540px) {
+  .errorBanner { top: var(--space-2); font-size: 0.8rem; }
+}
+
+/* ── Sync prompt ──────────────────────────────────────────────────────────── */
+/* An offer, not a failure -- gold-toned rather than the error banner's red,
+   and anchored at the bottom so it never competes with it for the same
+   space. See SyncMonitor.js / the consumePrompt() check in main.js. */
+.syncPrompt {
+  position: absolute;
+  bottom: var(--space-6);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: min(480px, calc(100% - var(--space-6)));
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  border: 1px solid color-mix(in srgb, var(--spec-gold) 55%, transparent);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+.syncPrompt.hidden { display: none !important; }
+.syncPromptText { flex: 1; }
+.syncPromptFixBtn {
+  flex: none;
+  border: 1px solid color-mix(in srgb, var(--spec-gold) 55%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--spec-gold) 18%, transparent);
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 5px var(--space-3);
+  cursor: pointer;
+}
+.syncPromptFixBtn:hover { background: color-mix(in srgb, var(--spec-gold) 28%, transparent); }
+.syncPromptDismissBtn {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 var(--space-1);
+}
+.syncPromptDismissBtn:hover { color: var(--text-primary); }
+
+@media (max-width: 540px) {
+  .syncPrompt { bottom: var(--space-3); font-size: 0.8rem; }
+}
+
+/* ── Title screen ─────────────────────────────────────────────────────────── */
+#loader.titleScreen {
+  gap: 0;
+  padding: var(--space-4) var(--space-5) var(--space-3);
+  overflow: auto;
+  /* The stage canvas already draws TitleBackdrop (stars, nebula, the trio).
+     An opaque void here was covering that entire living world, so the first
+     impression was a flat card on black instead of a Midio stage. */
+  background: transparent;
+  justify-content: flex-start;
+}
+
+.titleBg {
+  /* CSS hills/stars are a no-JS fallback only. Once the canvas backdrop is
+     painting, showing both doubles the sky and muddies the glyphs. */
+  display: none;
+}
+
+.titleStars {
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(1.2px 1.2px at 8% 18%, rgba(255,255,255,0.85), transparent),
+    radial-gradient(1px 1px at 22% 42%, rgba(255,255,255,0.55), transparent),
+    radial-gradient(1.5px 1.5px at 38% 12%, rgba(255,255,255,0.75), transparent),
+    radial-gradient(1px 1px at 55% 28%, rgba(255,255,255,0.45), transparent),
+    radial-gradient(1.2px 1.2px at 71% 8%, rgba(255,255,255,0.7), transparent),
+    radial-gradient(1px 1px at 84% 36%, rgba(255,255,255,0.5), transparent),
+    radial-gradient(1.4px 1.4px at 92% 16%, rgba(255,255,255,0.65), transparent),
+    radial-gradient(1px 1px at 14% 62%, rgba(255,255,255,0.35), transparent),
+    radial-gradient(1px 1px at 48% 55%, rgba(255,255,255,0.4), transparent),
+    radial-gradient(1.2px 1.2px at 66% 48%, rgba(255,255,255,0.55), transparent),
+    radial-gradient(1px 1px at 6% 78%, rgba(255,255,255,0.4), transparent),
+    radial-gradient(1.2px 1.2px at 33% 86%, rgba(255,255,255,0.5), transparent),
+    radial-gradient(1px 1px at 61% 74%, rgba(255,255,255,0.35), transparent),
+    radial-gradient(1.3px 1.3px at 88% 82%, rgba(255,255,255,0.45), transparent);
+  animation: titleTwinkle 4.5s ease-in-out infinite alternate;
+  opacity: 0.85;
+}
+
+@keyframes titleTwinkle {
+  from { opacity: 0.55; }
+  to { opacity: 1; }
+}
+
+.titleGlow {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(48px);
+  opacity: 0.5;
+  animation: titleDrift 14s ease-in-out infinite alternate;
+}
+.titleGlowA {
+  width: 42vw; height: 42vw; max-width: 420px; max-height: 420px;
+  left: 8%; top: 12%;
+  background: color-mix(in srgb, var(--spec-warm) 60%, transparent);
+}
+.titleGlowB {
+  width: 36vw; height: 36vw; max-width: 360px; max-height: 360px;
+  right: 6%; top: 18%;
+  background: color-mix(in srgb, var(--spec-cool) 55%, transparent);
+  animation-delay: -4s;
+}
+.titleGlowC {
+  width: 50vw; height: 28vw; max-width: 520px; max-height: 280px;
+  left: 28%; bottom: 8%;
+  background: color-mix(in srgb, var(--spec-gold) 32%, transparent);
+  animation-delay: -8s;
+}
+
+@keyframes titleDrift {
+  from { transform: translate(0, 0) scale(1); }
+  to { transform: translate(18px, -22px) scale(1.08); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .titleStars, .titleGlow { animation: none; }
+}
+
+.titleHills {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 28%;
+  background:
+    radial-gradient(ellipse 70% 100% at 20% 100%, #1c2848 0%, transparent 70%),
+    radial-gradient(ellipse 80% 120% at 55% 100%, #243050 0%, transparent 72%),
+    radial-gradient(ellipse 60% 100% at 85% 100%, #1a3040 0%, transparent 70%);
+  opacity: 0.9;
+}
+
+/* Shared card language -- .titleCard, .completeCard, and .slskPanel all
+   read as the same family of surface now (same radius/border/blur/shadow
+   recipe), differentiated only by content, not by three near-identical
+   but slightly different purples. */
+.titleCard {
+  position: relative;
+  z-index: 1;
+  width: min(520px, 100%);
+
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-3);
+  margin: 0 auto var(--space-4);
+  padding: var(--space-5) var(--space-5) var(--space-4);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(165deg, rgba(20, 28, 48, 0.78), rgba(10, 14, 24, 0.82));
+  border: 1px solid var(--border-subtle);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--spec-gold) 6%, transparent) inset,
+    var(--shadow-card),
+    0 0 80px rgba(40, 70, 120, 0.12);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.titleHero {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  text-align: left;
+}
+
+.titleMascot {
+  position: relative;
+  flex: 0 0 72px;
+  width: 72px;
+  height: 88px;
+  filter: drop-shadow(0 0 14px color-mix(in srgb, var(--spec-gold) 45%, transparent));
+  animation: mascotBob 2.8s ease-in-out infinite;
+}
+/* Same angular shard language as Midio's in-game glyph -- the old round
+   gold blob read as a cartoon mascot on a title card for a wireframe world. */
+.mascotShard {
+  position: absolute;
+  inset: 0 10px 8px;
+  background: linear-gradient(165deg, #fff6cf 0%, var(--spec-gold) 42%, #e08a18 100%);
+  clip-path: polygon(50% 0%, 72% 20%, 80% 48%, 66% 78%, 62% 100%, 50% 88%, 38% 100%, 34% 76%, 20% 48%, 28% 20%);
+}
+.mascotCore {
+  position: absolute;
+  top: 42%;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 50%;
+  background: #1a1020;
+  box-shadow: 0 0 8px color-mix(in srgb, var(--spec-warm) 70%, transparent);
+}
+
+@keyframes mascotBob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+@keyframes mascotBlink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  95% { transform: scaleY(0.12); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .titleMascot { animation: none; }
+}
+
+.titleBrand { flex: 1; min-width: 0; }
+.titleEyebrow {
+  margin: 0 0 var(--space-1);
+  font-size: 0.72rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--spec-gold) 75%, transparent);
+}
+#loader.titleScreen h1 {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  margin: 0;
+  line-height: 0.95;
+  background: none;
+  color: inherit;
+  -webkit-background-clip: unset;
+  background-clip: unset;
+}
+.titleWord {
+  display: block;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.titleWordSuper {
+  font-size: 0.95rem;
+  letter-spacing: 0.28em;
+  color: var(--text-secondary);
+}
+.titleWordMidio {
+  font-size: clamp(2.1rem, 6vw, 2.75rem);
+  letter-spacing: 0.1em;
+  background: linear-gradient(90deg, var(--spec-gold), var(--spec-warm), var(--spec-cool));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 18px color-mix(in srgb, var(--spec-warm) 35%, transparent));
+}
+.titleWordWorld {
+  font-size: 1.05rem;
+  letter-spacing: 0.32em;
+  color: color-mix(in srgb, var(--spec-cool) 80%, var(--text-primary));
+}
+.titleTagline {
+  margin: var(--space-3) 0 0;
+  font-size: 0.92rem;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+/* The game is autoplay -- Midio performs the song himself, and every key
+   that isn't F/J/C/etc. otherwise falls through to an unroled beat-anchor
+   tap (see main.js's keydown handler). Without this line a first-time
+   visitor reaches for arrows/WASD/Space expecting to control him, gets no
+   feedback, and concludes the controls are broken. */
+.titleSub {
+  margin: var(--space-2) 0 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--text-tertiary);
+}
+.titleSub kbd {
+  display: inline-block;
+  min-width: 1.2em;
+  padding: 0 5px;
+  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-surface-2);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: color-mix(in srgb, var(--spec-gold) 85%, transparent);
+}
+
+#loader #dropzone {
+  border: 1.5px dashed color-mix(in srgb, var(--spec-gold) 35%, transparent);
+  border-radius: var(--radius-md);
+  padding: 0;
+  display: block;
+  cursor: pointer;
+  transition: border-color var(--dur-base) var(--ease-standard), background var(--dur-base), box-shadow var(--dur-base), transform var(--dur-base);
+  background: rgba(255, 255, 255, 0.03);
+  outline: none;
+}
+#loader #dropzone:hover,
+#loader #dropzone:focus-visible {
+  border-color: color-mix(in srgb, var(--spec-gold) 70%, transparent);
+  background: color-mix(in srgb, var(--spec-gold) 6%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--spec-gold) 8%, transparent);
+}
+#loader #dropzone.drag {
+  border-color: var(--spec-gold);
+  border-style: solid;
+  background: color-mix(in srgb, var(--spec-gold) 12%, transparent);
+  box-shadow: 0 0 32px color-mix(in srgb, var(--spec-gold) 20%, transparent);
+  transform: scale(1.015);
+}
+.dropzoneInner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5) var(--space-4);
+}
+.dropIcon {
+  font-size: 1.8rem;
+  line-height: 1;
+  color: var(--spec-gold);
+  text-shadow: 0 0 16px color-mix(in srgb, var(--spec-gold) 55%, transparent);
+  animation: dropNote 2.2s ease-in-out infinite;
+}
+@keyframes dropNote {
+  0%, 100% { transform: translateY(0) rotate(-6deg); }
+  50% { transform: translateY(-4px) rotate(6deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dropIcon { animation: none; }
+}
+.dropPrimary {
+  font-size: 1.05rem;
+  font-weight: 650;
+  color: var(--text-primary);
+}
+.dropSecondary {
+  font-size: 0.78rem;
+  color: var(--text-tertiary);
+  margin-bottom: var(--space-2);
+}
+#loader #dropzone #demoBtn {
+  margin-top: 2px;
+}
+
+/* Primary/action pill button (file picker, Soulseek search). One recipe
+   reused wherever an accent-filled call-to-action is needed. */
+.filebtn {
+  background: linear-gradient(135deg, var(--spec-warm), #ff9a6a);
+  color: #1a0d16;
+  padding: var(--space-2) var(--space-5);
+  border-radius: var(--radius-pill);
+  font-weight: 650;
+  cursor: pointer;
+  display: inline-block;
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--spec-warm) 30%, transparent);
+  transition: transform var(--dur-base) var(--ease-standard), box-shadow var(--dur-base);
+}
+.filebtn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--spec-warm) 40%, transparent);
+}
+
+#playAgainBtn:hover {
+  border-color: var(--spec-cool);
+  color: var(--spec-cool);
+  background: color-mix(in srgb, var(--spec-cool) 8%, transparent);
+  box-shadow: 0 0 24px color-mix(in srgb, var(--spec-cool) 12%, transparent);
+}
+
+#playAgainBtn {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  color: var(--text-primary);
+  padding: var(--space-2) var(--space-5);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: border-color var(--dur-base), color var(--dur-base);
+}
+
+.titleMeta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: center;
+}
+.titleFlashNote {
+  margin: 0;
+  max-width: 44ch;
+  font-size: 0.76rem;
+  line-height: 1.4;
+  color: var(--text-tertiary);
+}
+.titleFlashNote strong { color: var(--text-secondary); font-weight: 600; }
+#loader .prefRow {
+  margin-top: 0;
+  flex-wrap: wrap;
+}
+.chipbtn {
+  border-radius: var(--radius-pill) !important;
+  font-size: 0.78rem !important;
+  padding: 5px var(--space-3) !important;
+}
+
+.titleAdvanced {
+  width: 100%;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface-3);
+  text-align: left;
+  overflow: hidden;
+}
+.titleAdvanced summary {
+  cursor: pointer;
+  list-style: none;
+  padding: var(--space-2) var(--space-4);
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  user-select: none;
+  transition: color var(--dur-fast);
+}
+.titleAdvanced summary::-webkit-details-marker { display: none; }
+.titleAdvanced summary::before {
+  content: '▸ ';
+  color: color-mix(in srgb, var(--spec-gold) 70%, transparent);
+}
+.titleAdvanced[open] summary::before { content: '▾ '; }
+.titleAdvanced[open] summary {
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+}
+.titleAdvanced .sfRow {
+  margin: 0;
+  padding: var(--space-3) var(--space-4) var(--space-1);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.titleAdvanced .hint {
+  margin: 0;
+  padding: var(--space-1) var(--space-4) var(--space-3);
+  text-align: center;
+}
+.titleAdvanced .hint a { color: color-mix(in srgb, var(--spec-gold) 85%, transparent); }
+
+/* Music-search rows (Jamendo/Soulseek panels) */
+.jamendoRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-4);
+}
+.jamendoRow input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-surface-2);
+  color: var(--text-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  padding: 6px var(--space-3);
+  font-size: 0.82rem;
+}
+.jamendoRow input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--spec-gold) 55%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--spec-gold) 15%, transparent);
+}
+.jamendoStatus.hidden { display: none; }
+.jamendoStatus { color: var(--text-secondary); }
+.jamendoStatusError { color: var(--spec-rhythm); }
+.jamendoResults {
+  list-style: none;
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-3);
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.jamendoResultBtn {
+  width: 100%;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.progressHint {
+  min-height: 1.2em;
+  color: var(--spec-cool) !important;
+  opacity: 0.9 !important;
+}
+
+.titleKeys {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.72rem;
+  color: var(--text-tertiary);
+}
+.titleKeys kbd {
+  display: inline-block;
+  min-width: 1.4em;
+  padding: 1px 6px;
+  margin-right: 3px;
+  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-surface-2);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: color-mix(in srgb, var(--spec-gold) 85%, transparent);
+}
+
+@media (max-width: 540px) {
+  .titleHero { flex-direction: column; text-align: center; }
+  #loader.titleScreen h1 { align-items: center; }
+  .titleCard { padding: var(--space-5) var(--space-4) var(--space-4); }
+}
+
+.sub { opacity: 0.8; margin: 0; }
+.hint { opacity: 0.5; font-size: 0.8rem; margin-top: var(--space-3); }
+
+/* Generic dropzone (also used if non-title contexts ever share the id) */
+#dropzone {
+  border: 2px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: var(--space-7) var(--space-8);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  cursor: pointer;
+  transition: border-color var(--dur-base), background var(--dur-base);
+}
+#dropzone.drag { border-color: var(--spec-gold); background: color-mix(in srgb, var(--spec-gold) 8%, transparent); }
+
+/* ── Complete screen ─────────────────────────────────────────────────────── */
+#completePanel.completePanel {
+  gap: 0;
+  padding: var(--space-6);
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 30%, rgba(70, 40, 110, 0.4), transparent 60%),
+    radial-gradient(circle at 50% 100%, rgba(10, 30, 50, 0.5), rgba(5, 3, 8, 0.94));
+}
+.completeCard {
+  width: min(520px, 94vw);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-6) var(--space-5);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(10px);
+}
+.completeEyebrow {
+  margin: 0;
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#completePanel h1 {
+  font-size: 2.4rem;
+  letter-spacing: 0.08em;
+  margin: 0;
+  color: var(--spec-gold);
+  text-shadow: 0 0 28px color-mix(in srgb, var(--spec-gold) 35%, transparent);
+}
+.completeSeedRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: center;
+  font-size: 0.9rem;
+}
+.completeSeedRow .seedLabel {
+  opacity: 0.55;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+}
+.completeSeedRow code {
+  font-family: var(--font-mono);
+  font-size: 1.05rem;
+  letter-spacing: 0.12em;
+  color: color-mix(in srgb, var(--spec-cool) 88%, var(--text-primary));
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 6px var(--space-3);
+}
+.resultsGrid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2) var(--space-4);
+  margin: var(--space-1) 0 2px;
+  text-align: left;
+}
+.statCell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-3) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-subtle);
+}
+.statCell .statLabel {
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.statCell .statValue {
+  font-size: 1.15rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+.statCell.statWide { grid-column: 1 / -1; }
+.completeActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  justify-content: center;
+  width: 100%;
+  margin-top: var(--space-1);
+}
+.completeActions button {
+  min-width: 120px;
+}
+/* #replaySameSeedBtn ships with no class in the markup (browser-default
+   button otherwise) -- give it the same primary-pill treatment as the
+   title screen's #demoBtn/.filebtn family so the results screen's main
+   call-to-action doesn't read as an unstyled leftover. */
+#replaySameSeedBtn {
+  background: linear-gradient(135deg, var(--spec-warm), var(--spec-gold));
+  color: #1a0d16;
+  border: none;
+  padding: var(--space-2) var(--space-5);
+  border-radius: var(--radius-pill);
+  font-weight: 650;
+  font-size: 0.9rem;
+  cursor: pointer;
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--spec-warm) 30%, transparent);
+  transition: transform var(--dur-base) var(--ease-standard), box-shadow var(--dur-base);
+}
+#replaySameSeedBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--spec-warm) 40%, transparent);
+}
+.completeNewSeedRow {
+  margin-top: 2px;
+}
+
+/* Title seed + stage resolution */
+.seedRow, .resRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-top: var(--space-1);
+  font-size: 0.85rem;
+}
+.seedRow label, .resRow label {
+  opacity: 0.6;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+}
+#seedInput, #completeNewSeedInput {
+  width: min(160px, 40vw);
+  background: var(--bg-surface-2);
+  color: var(--text-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  padding: 6px var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  letter-spacing: 0.06em;
+}
+#seedInput:focus, #completeNewSeedInput:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--spec-gold) 55%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--spec-gold) 15%, transparent);
+}
+#stageRes {
+  background: var(--bg-surface-2);
+  color: var(--text-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  padding: 6px var(--space-3);
+  font-size: 0.85rem;
+}
+
+#hud {
+  position: absolute;
+  top: var(--space-4);
+  left: var(--space-4);
+  right: var(--space-4);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+  z-index: 5;
+}
+
+/* Left-hand cluster: the Bluetooth latency chip. Fades on the same timer as
+   #hudRight -- it is chrome over the show like everything else, and leaving
+   one cluster lit while the other goes dark reads as a bug rather than as a
+   decision. The concern that kept it pinned open (losing it mid-edit) is
+   answered where it actually arises: main.js holds the fade off entirely
+   while the popover is open. */
+#hudLeft {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  pointer-events: auto;
+  opacity: 1;
+  transition: opacity var(--dur-slow) ease;
+}
+#hudLeft.hud-faded {
+  opacity: 0;
+  pointer-events: none;
+}
+#btLatencyBtn[aria-pressed="true"] {
+  border-color: var(--spec-cool);
+  color: var(--spec-cool);
+  background: color-mix(in srgb, var(--spec-cool) 12%, transparent);
+}
+
+/* Bluetooth latency trim: a small editor popover under the chip, open on
+   click, closed on Escape/outside-click/Set/Off -- same discipline as any
+   other click-to-edit control, not a modal. */
+#btLatencyControl { position: relative; }
+#btLatencyPopover {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  z-index: 6;
+  background: rgba(8, 8, 14, 0.92);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  min-width: 190px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+#btLatencyPopover label { display: block; margin-bottom: var(--space-1); }
+#btLatencyInputRow { display: flex; align-items: center; gap: var(--space-1); margin-bottom: var(--space-2); }
+#btLatencyInput {
+  width: 70px;
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-surface-3);
+  color: var(--text-primary);
+  min-height: 32px; /* still a text field, but tall enough to tap accurately on a phone */
+}
+#btLatencyInput:focus { outline: none; border-color: var(--spec-cool); }
+#btLatencyPopoverActions { display: flex; gap: var(--space-2); justify-content: flex-end; }
+#btLatencyPopoverActions button {
+  font-size: 0.78rem;
+  padding: 6px var(--space-2);
+  min-height: 36px;
+}
+
+/* Right-hand cluster of the HUD row: difficulty, fullscreen, settings gear,
+   track badge. #hud disables pointer-events so the canvas underneath stays
+   clickable; this wrapper opts its interactive children back in.
+   Auto-fades after a few seconds of inactivity (main.js); while faded it's
+   both invisible and unclickable, and the first tap anywhere just wakes it
+   back up rather than also acting on whatever's underneath. */
+#hudRight {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  pointer-events: auto;
+  opacity: 1;
+  transition: opacity var(--dur-slow) ease;
+}
+#hudRight.hud-faded {
+  opacity: 0;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  #hudRight, #hudLeft { transition: none; }
+}
+#settingsBtn, #fullscreenBtn {
+  line-height: 1;
+}
+
+/* On-device FPS HUD (mobile performance round): small, always-on-top,
+   toggled by the P key or the ?fps URL param -- deliberately much lighter
+   than #debugOverlay so it's cheap enough to leave on during play. */
+#fpsHud {
+  position: absolute;
+  left: var(--space-2); bottom: var(--space-2);
+  z-index: 20;
+  background: rgba(5, 5, 10, 0.75);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  padding: var(--space-1) var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.4;
+  color: #d8f7c8;
+  pointer-events: none;
+  white-space: pre;
+}
+
+#debugOverlay {
+  position: absolute;
+  top: 0; right: 0;
+  /* #stage carries z-index:1, so an auto-stacked overlay painted UNDERNEATH
+     the canvas and was invisible however much it rendered. Sits with the
+     other HUD chrome now. */
+  z-index: 8;
+  color: #d8f7c8;
+  width: 380px;
+  height: 100%;
+  background: rgba(5, 5, 10, 0.9);
+  border-left: 1px solid var(--border-strong);
+  padding: var(--space-4);
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+/* Mario Paint-style wobbling title letters on the COMPLETE panel. */
+.wobble-letter {
+  display: inline-block;
+  animation: letterWobble 1.5s ease-in-out infinite;
+}
+@keyframes letterWobble {
+  0%, 100% { transform: rotate(-5deg) translateY(0); }
+  50% { transform: rotate(5deg) translateY(-5px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wobble-letter { animation: none; }
+}
+
+/* SoundFont loader row */
+.sfRow {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  margin-top: var(--space-3);
+}
+
+.prefRow {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: center;
+  margin-top: var(--space-3);
+}
+
+/* Preference toggles read as engaged when on. */
+#noLyricsBtn[aria-pressed="true"] {
+  border-color: var(--spec-cool);
+  color: var(--spec-cool);
+}
+
+/* Ghost button (outline style) -- the shared secondary-action recipe used
+   across the title screen, HUD, and every modal footer. */
+.ghostbtn {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  color: var(--text-secondary);
+  padding: 6px var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: border-color var(--dur-base), color var(--dur-base);
+}
+.ghostbtn:hover {
+  border-color: var(--spec-cool);
+  color: var(--spec-cool);
+}
+
+/* Compact square variant for single-glyph buttons (gear, ×). */
+.iconbtn {
+  padding: var(--space-1) 10px;
+  font-size: 1rem;
+  border-radius: var(--radius-sm);
+}
+
+/* Fullscreen sits at the end of the row and is the one HUD button people
+   reach for mid-song without looking -- bigger target, more breathing room
+   from Stop so a hurried tap doesn't clip it instead. */
+#fullscreenBtn {
+  padding: 10px 16px;
+  font-size: 1.35rem;
+  margin-left: var(--space-3);
+}
+
+/* Auto-hiding SoundFont pill (bottom-center) — click to open the switcher
+   popup (#fontModal). */
+#fontBar {
+  position: absolute;
+  bottom: 96px; /* clears the composer strip, now bottom-anchored */
+  left: 50%;
+  transform: translateX(-50%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-slow) ease;
+  z-index: 6;
+}
+#fontBar.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+#fontBarBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background: rgba(5, 5, 10, 0.72);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: border-color var(--dur-base), color var(--dur-base);
+}
+#fontBarBtn:hover { border-color: var(--spec-cool); color: var(--spec-cool); }
+#fontName {
+  min-width: 100px;
+  max-width: 220px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Track visibility badge (top-right of the HUD row) — click/tap or press T
+   to expand the full per-track breakdown of the loaded MIDI. */
+#trackBadge {
+  position: relative;
+  pointer-events: auto;
+}
+#trackBadgeBtn {
+  background: rgba(5, 5, 10, 0.72);
+  border: 1px solid var(--border-strong);
+  color: var(--text-primary);
+  padding: 6px var(--space-4);
+  border-radius: var(--radius-pill);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: border-color var(--dur-base), color var(--dur-base);
+}
+#trackBadgeBtn:hover { border-color: var(--spec-cool); color: var(--spec-cool); }
+
+#trackList {
+  display: none;
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  min-width: 260px;
+  max-width: 340px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: rgba(5, 5, 10, 0.94);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+  font-size: 0.78rem;
+}
+#trackBadge.expanded #trackList { display: block; }
+
+.trackRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+}
+.trackRow.intertwined { background: var(--bg-surface-2); }
+.trackRow .roleDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+.roleDot.role-MELODY { background: var(--spec-gold); }
+.roleDot.role-BASS   { background: var(--spec-cool); }
+.roleDot.role-PAD    { background: var(--spec-pad); }
+.roleDot.role-RHYTHM { background: var(--spec-rhythm); }
+
+.trackRow .trackName {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trackRow .trackMeta {
+  flex: none;
+  opacity: 0.55;
+  font-variant-numeric: tabular-nums;
+}
+/* Casting tag: which character performs this track (Casting.js lanes). */
+.trackRow .laneTag {
+  flex: none;
+  font-size: 0.68rem;
+  opacity: 0.75;
+  padding: 0 5px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-2);
+  white-space: nowrap;
+}
+.trackRow .panGlyph {
+  flex: none;
+  width: 1.4em;
+  text-align: center;
+  opacity: 0.8;
+}
+.trackListHint {
+  opacity: 0.5;
+  font-size: 0.72rem;
+  padding: 4px 6px 2px;
+  border-top: 1px solid var(--border-subtle);
+  margin-top: 4px;
+}
+
+/* Full-window "drop to play" feedback — shown while dragging a file over
+   the page mid-song (the loader screen's own #dropzone already gives its
+   own drag feedback pre-game, so this only activates once #loader is
+   hidden; see main.js's isLoaderVisible()). pointer-events:none keeps it
+   purely decorative — the actual dragenter/dragover/drop listeners live on
+   `window`, not on this element. */
+#dragOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-scrim);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-base) ease;
+  z-index: 20;
+}
+#dragOverlay.visible { opacity: 1; }
+.dragOverlayMsg {
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: var(--space-5) var(--space-7);
+  border: 3px dashed var(--spec-gold);
+  border-radius: var(--radius-md);
+  color: var(--spec-gold);
+  background: rgba(5, 5, 10, 0.5);
+}
+
+.landscapeHint {
+  display: none;
+  position: absolute;
+  top: var(--space-2);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 25;
+  pointer-events: none;
+  padding: 4px var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+/* main.js bases this on the actual contained-stage height, so tall modern
+   phones receive guidance while portrait tablets are left alone. */
+.landscapeHint.is-visible { display: block; }
+
+/* SoundFont switcher popup — lists every loaded font with a click-to-
+   activate row and a × (hide) action; #fontHiddenToggle swaps the same
+   list into the "settings" view of hidden fonts with a + (unhide) action.
+   Shared modal shell (.modalBackdrop/.modalPanel) reused by the filmstrip
+   modal below -- one recipe instead of two near-duplicates. */
+.modalBackdrop {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-scrim);
+  z-index: 30;
+}
+.modalPanel {
+  width: min(420px, 90vw);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  background: rgba(10, 8, 16, 0.97);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-modal);
+}
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+  flex: none;
+}
+.modalHeader h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  letter-spacing: 0.04em;
+  color: var(--spec-gold);
+}
+.fontList {
+  overflow-y: auto;
+  padding: var(--space-2);
+  flex: 1 1 auto;
+  min-height: 60px;
+}
+.fontListEmpty {
+  opacity: 0.55;
+  font-size: 0.85rem;
+  padding: var(--space-5) var(--space-3);
+  text-align: center;
+}
+.fontRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--dur-base);
+}
+.fontRow:hover { background: var(--bg-surface-2); }
+.fontRow.active { background: color-mix(in srgb, var(--spec-gold) 12%, transparent); }
+.fontRow.active .fontRowName { color: var(--spec-gold); font-weight: 600; }
+.fontRowName {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fontRowAction {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  transition: border-color var(--dur-base), color var(--dur-base);
+}
+/* Hide (×) reads as a removal — red accent, matching RHYTHM's roleDot.
+   Unhide (+) reads as a restore — blue accent, matching the shared hover. */
+.fontRowAction[data-action="hide"]:hover { border-color: var(--spec-rhythm); color: var(--spec-rhythm); }
+.fontRowAction[data-action="unhide"]:hover { border-color: var(--spec-cool); color: var(--spec-cool); }
+
+/* Per-song audition verdicts (FontRecommender) */
+.fontRowStar {
+  flex: none;
+  color: var(--spec-gold);
+  font-size: 0.9rem;
+  cursor: default;
+}
+.fontRowBadge {
+  flex: none;
+  min-width: 30px;
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  font-size: 0.72rem;
+  text-align: center;
+  cursor: default;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+.fontRowBadge.ok { border-color: color-mix(in srgb, var(--spec-cool) 45%, transparent); color: var(--spec-cool); }
+.fontRowBadge.dq { border-color: color-mix(in srgb, var(--spec-rhythm) 55%, transparent); color: var(--spec-rhythm); }
+.fontRowBadge.pending { opacity: 0.55; }
+.auditionStatus {
+  flex: none;
+  padding: var(--space-2) var(--space-4);
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  border-top: 1px solid var(--border-subtle);
+}
+.auditionStatus.hidden { display: none; }
+.modalFooter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+  flex: none;
+}
+.modalFooter .filebtn, .modalFooter .ghostbtn {
+  font-size: 0.78rem;
+  padding: 6px var(--space-3);
+}
+#fontHiddenToggle { margin-left: auto; }
+
+/* The Reel (Movement VI): the COMPLETE panel's highlight filmstrip. */
+#filmstrip {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+  max-width: min(560px, 84vw);
+}
+.filmstripFrame {
+  width: 96px;
+  height: 54px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  cursor: pointer;
+  background: #000;
+  transition: border-color var(--dur-base), transform var(--dur-base);
+}
+.filmstripFrame:hover { border-color: var(--spec-gold); transform: translateY(-2px); }
+.filmstripFrame img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.filmstripModalPanel { width: min(720px, 92vw); }
+#filmstripModalImg { width: 100%; display: block; background: #000; }
+
+/* --- Audition load screen (font ratings gate the show) --- */
+#auditionCanvas {
+  display: block;
+  margin: var(--space-2) auto;
+  background: transparent;
+}
+#auditionBar {
+  width: min(420px, 80%);
+  height: 6px;
+  margin: var(--space-3) auto 4px;
+  border-radius: 3px;
+  background: var(--bg-surface-2);
+  overflow: hidden;
+}
+#auditionBarFill {
+  width: 0%;
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--spec-cool), var(--spec-gold));
+  transition: width var(--dur-slow) ease;
+}
+
+/* ---------------------------------------------------------------------------
+   Tap recalibration (RecalibrationOverlay.js / SyncMonitor.js)
+
+   The overlay is a HUD, not a modal: the song keeps playing, the world keeps
+   moving behind it, and pointer-events stay off so a tap anywhere still
+   reaches the canvas handler that feeds BeatAnchor. Everything here is
+   deliberately low-contrast except the numeral -- the player should be
+   watching the count and listening, not reading.
+--------------------------------------------------------------------------- */
+#recalPanel {
+  position: absolute;
+  inset: 0;
+  z-index: 6; /* above #hud (3), below the modals (20+) */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  pointer-events: none;
+  animation: recalFadeIn 260ms ease-out;
+}
+
+/* The big block count. Sized off the viewport so it reads at any stage
+   resolution, and translucent enough that the show is never hidden -- the
+   pass runs over a playing song and the player has to keep seeing it. */
+#recalNumber {
+  font-family: var(--font-sans);
+  font-size: 40vh;
+  line-height: 0.82;
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  color: rgba(255, 255, 255, 0.12);
+  text-shadow: 0 0 60px color-mix(in srgb, var(--spec-cool) 18%, transparent);
+  transition: opacity 240ms ease;
+  font-variant-numeric: tabular-nums;
+  /* Scale/opacity are driven per-beat from JS (same swell-then-snap shape as
+     the old calibration beacon), so no CSS transition -- it would smear it. */
+  will-change: transform, opacity;
+}
+
+/* The eye phase's target: a ring rather than a filled disc, so the world
+   keeps showing through the middle of the one thing the player is staring
+   at. Brightness and scale are written per frame from the VISUAL clock --
+   no CSS transition, which would smear the very edge being measured. */
+.recalMarker {
+  /* Pinned high and centred rather than sitting in the flow: a timing
+     target has to be in the SAME place every beat, and the middle of the
+     stage is where the characters are. Up here it is over sky. */
+  position: absolute;
+  top: 14%;
+  left: 50%;
+  margin-left: -9vh;
+  width: 18vh;
+  height: 18vh;
+  max-width: 170px;
+  max-height: 170px;
+  border-radius: 50%;
+  /* A ring, not a disc, so the show keeps showing through the one thing
+     the player is staring at. */
+  border: 7px solid #fff;
+  box-shadow:
+    0 0 0 3px rgba(0, 0, 0, 0.55),
+    0 0 46px color-mix(in srgb, var(--spec-cool) 70%, transparent),
+    inset 0 0 0 3px rgba(0, 0, 0, 0.45);
+  opacity: 0.18;
+  will-change: opacity, transform;
+}
+
+/* A ring that pulses is the point of the exercise, so reduced-motion gets a
+   version that still reads but does not grow. The BRIGHTNESS is capped in
+   JS (RecalibrationOverlay's reducedFlash path), not here -- this rule only
+   ever governed the scale, and on its own it left an OS reduced-motion user
+   with the full-strength flash, which is the half that matters. */
+@media (prefers-reduced-motion: reduce) {
+  .recalMarker { transform: none !important; }
+}
+
+#recalInstruction {
+  max-width: 46ch;
+  margin: 0;
+  /* A narrow scrim behind the words only. The pass runs over a playing
+     song and a full panel would hide it, but unbacked text over a bright
+     sky is genuinely unreadable -- and this one has to be read once,
+     quickly, while the music keeps going. */
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: rgba(6, 4, 10, 0.72);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  text-align: center;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--text-primary);
+  opacity: 0.92;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.95);
+  transition: opacity 700ms ease;
+}
+#recalInstruction strong { display: block; margin-bottom: 4px; color: #fff; font-size: 17px; }
+#recalInstruction { color: rgba(255, 255, 255, 0.92); }
+#recalInstruction.faded { opacity: 0.2; }
+
+/* Beat pips within the current measure. */
+#recalPips { display: flex; gap: var(--space-3); }
+#recalPips span {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+  transition: background 90ms linear, transform 90ms linear;
+}
+#recalPips span.on { background: color-mix(in srgb, var(--spec-cool) 95%, white); transform: scale(1.45); }
+
+/* Live BeatAnchor.confidence -- the player can watch the tapping land. */
+.recalConf {
+  width: 220px; height: 4px; border-radius: 2px;
+  background: var(--bg-surface-2);
+  overflow: hidden;
+}
+.recalConfFill {
+  height: 100%; width: 0%;
+  background: linear-gradient(90deg, var(--spec-cool), #8ef0c8);
+  transition: width 160ms ease-out;
+}
+
+#recalStatus {
+  margin: 0; min-height: 1.2em;
+  padding: 4px var(--space-3);
+  border-radius: var(--radius-pill);
+  background: rgba(6, 4, 10, 0.5);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.9);
+}
+
+@keyframes recalFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  #recalPanel { animation: none; }
+}
+
+/* Nothing in the pass takes the pointer. Taps are meant to fall through to
+   the canvas, which is what feeds both the beat anchor and this
+   measurement -- a control here that swallowed one would be measuring its
+   own button instead of the song. */
+#recalPanel, #recalPanel * { pointer-events: none; }
+
+/* ── Soulseek search panel ────────────────────────────────────────────────── */
+/* Same card language as .titleCard/.completeCard/.modalPanel now -- it used
+   to be a visually distinct violet-only block; the accent still comes
+   through (border tint, badge colors) without a whole separate palette. */
+.slskPanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  text-align: left;
+  padding: var(--space-3) var(--space-3) var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--spec-pad) 8%, transparent) inset;
+}
+
+.slskHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.slskTitleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.slskHeading {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+
+.slskModeBadge {
+  flex: 0 0 auto;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 3px var(--space-2);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface-3);
+  color: var(--text-secondary);
+}
+.slskModeBadge[data-mode="free"],
+.slskModeBadge[data-mode="demo"] {
+  color: var(--spec-gold);
+  border-color: color-mix(in srgb, var(--spec-gold) 35%, transparent);
+  background: color-mix(in srgb, var(--spec-gold) 10%, transparent);
+}
+.slskModeBadge[data-mode="slskd"] {
+  color: var(--spec-cool);
+  border-color: color-mix(in srgb, var(--spec-cool) 40%, transparent);
+  background: color-mix(in srgb, var(--spec-cool) 12%, transparent);
+}
+.slskModeBadge[data-mode="direct"] {
+  color: var(--spec-warm);
+  border-color: color-mix(in srgb, var(--spec-warm) 40%, transparent);
+  background: color-mix(in srgb, var(--spec-warm) 12%, transparent);
+}
+.slskModeBadge[data-mode="offline"] {
+  color: var(--spec-rhythm);
+  border-color: color-mix(in srgb, var(--spec-rhythm) 40%, transparent);
+}
+
+.slskSearchForm {
+  display: flex;
+  gap: var(--space-2);
+  align-items: stretch;
+}
+
+.slskSearchForm input[type="search"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 40px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface-3);
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  outline: none;
+  transition: border-color var(--dur-base), box-shadow var(--dur-base);
+}
+.slskSearchForm input[type="search"]::placeholder {
+  color: var(--text-tertiary);
+}
+.slskSearchForm input[type="search"]:focus {
+  border-color: color-mix(in srgb, var(--spec-pad) 65%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--spec-pad) 20%, transparent);
+}
+
+.slskSearchBtn {
+  flex: 0 0 auto;
+  height: 40px;
+  padding: 0 var(--space-4);
+  border: none;
+  border-radius: var(--radius-sm);
+  font-weight: 700;
+  font-size: 0.88rem;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  color: #1a1020;
+  background: linear-gradient(135deg, var(--spec-warm), var(--spec-gold) 120%);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--spec-warm) 28%, transparent);
+  transition: transform var(--dur-fast), filter var(--dur-fast), opacity var(--dur-fast);
+}
+.slskSearchBtn:hover:not(:disabled) {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+.slskSearchBtn:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.slskSettings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-3);
+  border: 1px solid var(--border-subtle);
+}
+
+.slskField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  text-align: left;
+}
+.slskField input,
+.slskField select {
+  height: 34px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface-3);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+.slskFieldGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.slskSettingsActions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+.slskHint {
+  margin: 0;
+  font-size: 0.7rem;
+  line-height: 1.35;
+  color: var(--text-tertiary);
+}
+.slskHint code {
+  font-size: 0.68rem;
+  color: color-mix(in srgb, var(--spec-pad) 85%, var(--text-primary));
+}
+
+.slskStatus {
+  margin: 0;
+  min-height: 1.1em;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.slskEmpty {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--text-tertiary);
+  text-align: center;
+  padding: 4px 4px 0;
+}
+
+/* needs-login badge state */
+.slskModeBadge[data-mode="needs-login"] {
+  color: var(--spec-gold);
+  border-color: color-mix(in srgb, var(--spec-gold) 45%, transparent);
+  background: color-mix(in srgb, var(--spec-gold) 12%, transparent);
+}
+
+.slskResults {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: min(280px, 38vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--spec-pad) 35%, transparent) transparent;
+}
+
+.slskResult {
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  gap: var(--space-2);
+  align-items: start;
+  width: 100%;
+  padding: var(--space-3) var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface-2);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast), border-color var(--dur-fast), transform var(--dur-fast);
+}
+.slskResult:hover {
+  background: color-mix(in srgb, var(--spec-pad) 14%, transparent);
+  border-color: color-mix(in srgb, var(--spec-pad) 35%, transparent);
+  transform: translateY(-1px);
+}
+.slskResult.loading {
+  opacity: 0.7;
+  pointer-events: none;
+}
+.slskResultIcon {
+  font-size: 1.05rem;
+  opacity: 0.85;
+  text-align: center;
+  margin-top: 2px;
+}
+.slskResultBody {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.slskResultTitle {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: 0.01em;
+}
+.slskResultFields {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1px;
+}
+.slskFieldLine {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: 6px;
+  align-items: baseline;
+  min-width: 0;
+}
+.slskFieldLabel {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.slskFieldValue {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.slskResultMeta {
+  font-size: 0.65rem;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+.slskResultAction {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--spec-gold);
+  padding: 4px var(--space-2);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--spec-gold) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--spec-gold) 25%, transparent);
+  align-self: center;
+}
+
+.slskLegal {
+  margin: 0;
+  font-size: 0.65rem;
+  line-height: 1.35;
+  color: var(--text-tertiary);
+  text-align: center;
+}
+
+.slskDivider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--text-tertiary);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.slskDivider::before,
+.slskDivider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border-subtle), transparent);
+}
+
+@media (max-width: 420px) {
+  .slskResults { max-height: min(220px, 34vh); }
+  .slskSearchForm { flex-direction: column; }
+  .slskSearchBtn { width: 100%; }
+  .slskFieldLine { grid-template-columns: 48px 1fr; }
+}
+
+
+/* Free-first search: advanced slskd stays collapsed */
+.slskAdvanced {
+  margin-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-2);
+}
+.slskAdvanced > summary {
+  cursor: pointer;
+  font-size: 0.78rem;
+  opacity: 0.75;
+  list-style: none;
+}
+.slskAdvanced > summary::-webkit-details-marker { display: none; }
+.slskHintLead {
+  margin: 0 0 var(--space-2);
+  line-height: 1.35;
+}
+.slskField em {
+  font-style: normal;
+  opacity: 0.6;
+  font-weight: 400;
+}
+
+/* --- World select ------------------------------------------------------- */
+.worldSelect {
+  position: fixed;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  border: 0;
+  color: inherit;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-5);
+  background: var(--bg-scrim);
+  pointer-events: auto;
+}
+.worldSelect.hidden, .worldSelect:not([open]) { display: none; }
+.worldSelect::backdrop { background: transparent; }
+.worldSelectInner {
+  width: min(1100px, 100%);
+  max-height: min(92vh, 960px);
+  overflow: auto;
+  padding: var(--space-6) var(--space-6) var(--space-5);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(165deg, rgba(24, 16, 38, 0.88), rgba(14, 11, 22, 0.92));
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.worldSelectEyebrow {
+  margin: 0 0 var(--space-2);
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.worldSelectInner h2 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-xl, 1.6rem);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+.worldSelectHint {
+  margin: 0 0 var(--space-4);
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+  line-height: 1.45;
+  max-width: 62ch;
+}
+.worldSelectToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-5);
+}
+.worldSelectPassages {
+  display: inline-flex;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+.worldPassageBtn {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--text-secondary);
+  padding: 8px 16px;
+  min-height: 44px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.worldPassageBtn[aria-pressed="true"] {
+  background: var(--bg-surface-2);
+  color: var(--text-primary);
+}
+.worldSelectGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: var(--space-4);
+}
+.worldSelectBack {
+  margin-top: var(--space-5);
+  min-height: 44px;
+}
+.fileInputVisuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+.worldCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-subtle);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-height: 44px;
+  transition: border-color var(--dur-base) var(--ease-standard),
+              transform var(--dur-fast) var(--ease-standard),
+              background var(--dur-base) var(--ease-standard);
+}
+.worldCard:hover,
+.worldCard:focus-visible,
+.worldCard.is-focused {
+  border-color: var(--border-strong);
+  background: rgba(255, 255, 255, 0.07);
+  transform: translateY(-1px);
+  outline: none;
+}
+.worldCard.is-previewing {
+  border-color: var(--spec-gold);
+}
+.worldCardPreview {
+  height: 132px;
+  border-radius: var(--radius-sm);
+  position: relative;
+  overflow: hidden;
+}
+.worldCardPreview.alpine {
+  background: linear-gradient(180deg, #1c2248 0%, #5a4a78 55%, #e8a078 100%);
+}
+.worldCardPreview.alpine::after {
+  content: '';
+  position: absolute;
+  left: -8%; right: -8%; bottom: 0;
+  height: 58%;
+  background: #4a4068;
+  clip-path: polygon(0 100%, 0 58%, 10% 46%, 22% 30%, 36% 44%, 50% 20%, 64% 38%, 78% 26%, 90% 42%, 100% 54%, 100% 100%);
+}
+.worldCardPreview.city {
+  background: linear-gradient(180deg, #0c101c 0%, #1a2233 70%, #2a3448 100%);
+}
+.worldCardPreview.city::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 72%;
+  background:
+    linear-gradient(90deg,
+      transparent 6%, #1a2030 6%, #1a2030 18%, transparent 18%,
+      transparent 22%, #1c2838 22%, #1c2838 31%, transparent 31%,
+      transparent 36%, #1a2030 36%, #1a2030 58%, transparent 58%,
+      transparent 64%, #241c30 64%, #241c30 72%, transparent 72%,
+      transparent 78%, #1a2030 78%, #1a2030 94%, transparent 94%);
+  clip-path: polygon(0 100%, 6% 100%, 6% 42%, 18% 42%, 18% 100%, 22% 100%, 22% 28%, 31% 28%, 31% 100%, 36% 100%, 36% 18%, 58% 18%, 58% 100%, 64% 100%, 64% 36%, 72% 36%, 72% 100%, 78% 100%, 78% 24%, 94% 24%, 94% 100%, 100% 100%);
+}
+.worldCardPreview.airless {
+  background: linear-gradient(180deg, #000000 0%, #020208 60%, #080a14 100%);
+}
+.worldCardPreview.airless::after {
+  content: '';
+  position: absolute;
+  left: -4%; right: -4%; bottom: 0;
+  height: 34%;
+  background: #2c3240;
+  clip-path: polygon(0 100%, 0 78%, 12% 68%, 28% 74%, 46% 62%, 64% 72%, 82% 64%, 100% 70%, 100% 100%);
+}
+.worldCardPreview.abyssal {
+  background: linear-gradient(180deg, #0a2e3a 0%, #12586a 42%, #03151f 100%);
+}
+.worldCardPreview.abyssal::before {
+  content: '';
+  position: absolute;
+  left: -4%; right: -4%; top: 0;
+  height: 40%;
+  background: #144850;
+  clip-path: polygon(0 0, 100% 0, 100% 48%, 88% 78%, 74% 50%, 58% 82%, 42% 46%, 26% 74%, 12% 52%, 0 68%);
+}
+.worldCardPreview.abyssal::after {
+  content: '';
+  position: absolute;
+  left: -4%; right: -4%; bottom: 0;
+  height: 30%;
+  background: #0e3440;
+  clip-path: polygon(0 100%, 0 52%, 18% 64%, 40% 44%, 64% 60%, 86% 48%, 100% 58%, 100% 100%);
+}
+.worldCardPreview.strip {
+  background: linear-gradient(180deg, #241848 0%, #5a2860 42%, #e07060 100%);
+}
+.worldCardPreview.strip::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 26%;
+  background: #2a1840;
+  clip-path: polygon(0 100%, 0 58%, 100% 42%, 100% 100%);
+}
+.worldCardPreview.foundry {
+  background: linear-gradient(180deg, #18141c 0%, #3a1808 52%, #c06020 100%);
+}
+.worldCardPreview.foundry::after {
+  content: '';
+  position: absolute;
+  left: -2%; right: -2%; bottom: 0;
+  height: 62%;
+  background: #2a1810;
+  clip-path: polygon(
+    0 100%, 0 52%,
+    7% 52%, 7% 16%, 18% 16%, 18% 52%,
+    27% 52%, 27% 6%, 40% 6%, 40% 52%,
+    50% 52%, 50% 22%, 62% 22%, 62% 52%,
+    71% 52%, 71% 10%, 84% 10%, 84% 52%,
+    100% 52%, 100% 100%
+  );
+}
+.worldCardPreview.overgrowth {
+  background: linear-gradient(180deg, #1a3a28 0%, #3a6a40 48%, #a8c060 100%);
+}
+.worldCardPreview.overgrowth::before {
+  content: '';
+  position: absolute;
+  left: -4%; right: -4%; top: 0;
+  height: 42%;
+  background: #243818;
+  clip-path: polygon(0 0, 100% 0, 100% 40%, 90% 78%, 78% 48%, 64% 86%, 50% 44%, 36% 80%, 22% 50%, 10% 74%, 0 42%);
+}
+.worldCardPreview.overgrowth::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 48%;
+  background: #1a3a28;
+  clip-path: polygon(
+    0 100%, 0 70%,
+    12% 70%, 12% 18%, 18% 18%, 18% 70%,
+    38% 70%, 38% 28%, 44% 28%, 44% 70%,
+    66% 70%, 66% 12%, 72% 12%, 72% 70%,
+    88% 70%, 88% 32%, 94% 32%, 94% 70%,
+    100% 70%, 100% 100%
+  );
+}
+.worldCardPreview.nave {
+  background: linear-gradient(180deg, #1c1c28 0%, #3a4460 55%, #c08a30 100%);
+}
+.worldCardPreview.nave::before {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 36%;
+  background: #282838;
+  clip-path: polygon(0 0, 100% 0, 100% 55%, 84% 100%, 68% 55%, 50% 100%, 32% 55%, 16% 100%, 0 55%);
+}
+.worldCardPreview.nave::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 58%;
+  background: #1c2838;
+  clip-path: polygon(
+    0 100%, 0 28%, 8% 28%, 8% 100%,
+    18% 100%, 18% 12%, 26% 0, 34% 12%, 34% 100%,
+    48% 100%, 48% 22%, 52% 22%, 52% 100%,
+    66% 100%, 66% 12%, 74% 0, 82% 12%, 82% 100%,
+    92% 100%, 92% 28%, 100% 28%, 100% 100%
+  );
+}
+.worldCardPreview.is-rendered::after,
+.worldCardPreview.is-rendered::before {
+  display: none;
+}
+.worldCardStill,
+.worldCardLive {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.worldCardStill.hidden,
+.worldCardLive.hidden {
+  display: none;
+}
+.worldCardLive {
+  z-index: 1;
+}
+.worldCardWhy {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  line-height: 1.4;
+  min-height: 2.8em;
+}
+.worldCardActions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: auto;
+}
+.worldCardActions button {
+  flex: 1;
+  min-height: 44px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.worldCardPreviewBtn {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  color: var(--text-secondary);
+}
+.worldCardPlayBtn {
+  background: rgba(255, 215, 106, 0.12);
+  border: 1px solid var(--spec-gold);
+  color: var(--text-primary);
+}
+
+.worldCardTop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.worldCardName {
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.worldCardTag {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+@media (max-width: 560px) {
+  .worldSelectInner { padding: var(--space-5) var(--space-4); }
+  .worldSelectGrid { grid-template-columns: 1fr; }
+  .worldCardPreview { height: 160px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .worldCard { transition: none; }
+}
+
+/* ===================================================================
+   MUSIC LIBRARY
+   Built on the same tokens as every other surface -- the library is a
+   part of the app, not a bolted-on file manager, and it has to read that
+   way at a glance.
+   =================================================================== */
+
+/* --- Title screen: the returning player's own music, above the fold --- */
+
+.libraryHome {
+  width: 100%;
+  margin: 0 0 var(--space-4);
+  padding: var(--space-4);
+  background: var(--bg-surface-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  text-align: left;
+}
+
+.libraryHomeHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.libraryHomeTitle {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.libraryRecent {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* One recent song. Two lines, because an artist under a title is the
+   difference between recognising a track and reading a filename. */
+.recentChip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+  max-width: 220px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-standard), background var(--dur-fast) var(--ease-standard);
+}
+
+.recentChip:hover, .recentChip:focus-visible {
+  border-color: var(--border-strong);
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.recentChipTitle {
+  font-weight: 600;
+  font-size: 0.92rem;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recentChipArtist {
+  font-size: 0.78rem;
+  color: var(--text-tertiary);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.libraryHomeNote {
+  margin: var(--space-3) 0 0;
+  font-size: 0.82rem;
+  color: var(--text-tertiary);
+}
+
+.titleFolderRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2) var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.libraryFolderBtn { cursor: pointer; }
+
+.libraryFolderHint {
+  margin: 0;
+  flex: 1 1 260px;
+  min-width: 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--text-tertiary);
+  text-align: left;
+}
+
+/* The settings were most of the first screenful and none of them is what
+   anyone opened the page to do. Folded away, they stay one click from
+   anyone who wants them and stop competing with the music. */
+.settingsWell {
+  margin-top: var(--space-3);
+  padding: 0 var(--space-3);
+  background: var(--bg-surface-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.settingsSummary {
+  padding: var(--space-3) 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  cursor: pointer;
+  list-style: none;
+}
+
+.settingsSummary::-webkit-details-marker { display: none; }
+
+.settingsSummary::before {
+  content: '\203a';
+  display: inline-block;
+  margin-right: var(--space-2);
+  transition: transform var(--dur-fast) var(--ease-standard);
+}
+
+.settingsWell[open] > .settingsSummary::before { transform: rotate(90deg); }
+.settingsWell[open] > .settingsSummary { border-bottom: 1px solid var(--border-subtle); }
+.settingsWell > *:last-child { margin-bottom: var(--space-3); }
+
+/* --- The library panel --- */
+
+/* The same <dialog> reset .worldSelect uses: a dialog is a centred,
+   auto-sized box by default, and this one is a full-screen scrim. */
+.libraryPanel {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  border: 0;
+  color: inherit;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: var(--space-5);
+  background: var(--bg-scrim);
+  backdrop-filter: blur(8px);
+}
+
+.libraryPanel.hidden, .libraryPanel:not([open]) { display: none; }
+.libraryPanel::backdrop { background: transparent; }
+
+.libraryInner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: min(1040px, 100%);
+  max-height: 100%;
+  margin: 0 auto;
+  padding: var(--space-5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-modal);
+  overflow: hidden; /* the list scrolls, the panel does not */
+  /* .panel centres its text for the title and complete screens. A list of
+     file names read down a column, so it opts out. */
+  text-align: left;
+}
+
+.libraryHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.libraryHeadings { min-width: 0; }
+
+.libraryTitle {
+  margin: 0;
+  font-size: 1.4rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.librarySub {
+  margin: var(--space-1) 0 0;
+  font-size: 0.84rem;
+  color: var(--text-tertiary);
+}
+
+.libraryHeaderActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+.libraryToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.librarySearch {
+  flex: 1 1 240px;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.librarySearch:focus-visible {
+  outline: none;
+  border-color: var(--border-strong);
+}
+
+.librarySort {
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.libraryDirBtn { min-width: 2.4em; }
+
+.libraryCrumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 0.86rem;
+  color: var(--text-tertiary);
+}
+
+.libraryCrumb {
+  padding: 2px var(--space-2);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--spec-cool);
+  font: inherit;
+  cursor: pointer;
+}
+
+.libraryCrumb:hover { background: var(--bg-surface-2); }
+.libraryCrumb.isCurrent { color: var(--text-primary); cursor: default; }
+.libraryCrumbSep { color: var(--text-tertiary); }
+
+.libraryList {
+  flex: 1 1 auto;
+  min-height: 120px;
+  overflow-y: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface-3);
+}
+
+/* Five columns: marker, title, artist, album-or-path, length. The title
+   gets the most room because it is what someone is scanning for. */
+.libraryRow {
+  display: grid;
+  grid-template-columns: 1.6em minmax(0, 2.4fr) minmax(0, 1.4fr) minmax(0, 1.4fr) 4em;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-standard);
+}
+
+.libraryRow:last-child { border-bottom: none; }
+.libraryRow:hover, .libraryRow:focus-visible { background: var(--bg-surface-2); outline: none; }
+.libraryRow.isFolder .libraryRowTitle { font-weight: 600; }
+
+.libraryRowIcon { color: var(--text-tertiary); font-size: 0.9rem; }
+
+.libraryRowTitle,
+.libraryRowArtist,
+.libraryRowAlbum {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.libraryRowArtist, .libraryRowAlbum { color: var(--text-secondary); font-size: 0.88rem; }
+
+/* A path standing in for a missing album is information of a different
+   kind, and says so rather than passing itself off as one. */
+.libraryRowAlbum.isPath { color: var(--text-tertiary); font-family: var(--font-mono); font-size: 0.78rem; }
+
+.libraryRowTime {
+  color: var(--text-tertiary);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* A tag that came from the network, not from the file. Worth marking:
+   it is a good guess, not ground truth. */
+.libraryRow.isAutoTagged .libraryRowTitle::after {
+  content: '';
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-left: var(--space-2);
+  border-radius: 50%;
+  background: var(--spec-cool);
+  vertical-align: middle;
+  opacity: 0.7;
+}
+
+.libraryEmpty {
+  margin: var(--space-5) 0;
+  color: var(--text-tertiary);
+  text-align: center;
+}
+
+.libraryStatus {
+  margin: 0;
+  min-height: 1.2em;
+  font-size: 0.82rem;
+  color: var(--text-tertiary);
+}
+
+@media (max-width: 720px) {
+  .libraryPanel { padding: var(--space-2); }
+  .libraryInner { padding: var(--space-4); border-radius: var(--radius-md); }
+  .libraryHeader { flex-direction: column; }
+  .libraryHeaderActions { justify-content: flex-start; }
+  /* The album column goes and the artist drops under the title: on a
+     phone a row is a title, who it is by, and how long it is. */
+  .libraryRow { grid-template-columns: 1.6em minmax(0, 1fr) 4em; row-gap: 0; }
+  .libraryRowIcon { grid-column: 1; grid-row: 1 / span 2; }
+  .libraryRowTitle { grid-column: 2; grid-row: 1; }
+  .libraryRowArtist { grid-column: 2; grid-row: 2; font-size: 0.78rem; }
+  .libraryRowAlbum { display: none; }
+  .libraryRowTime { grid-column: 3; grid-row: 1 / span 2; }
+  .recentChip { max-width: 100%; flex: 1 1 100%; }
+}
+
+/* With a library on screen the dropzone is no longer the main event: it
+   shrinks to a quiet second way in rather than competing with the music
+   the player already has. Scoped under #loader to outrank the title
+   screen's own gold-dashed treatment of it. */
+#loader #dropzone.isSecondary {
+  border-width: 1px;
+  border-color: var(--border-subtle);
+  background: transparent;
+  opacity: 0.75;
+}
+
+#loader #dropzone.isSecondary:hover,
+#loader #dropzone.isSecondary:focus-visible {
+  border-color: var(--border-strong);
+  background: var(--bg-surface-2);
+  box-shadow: none;
+  opacity: 1;
+}
+
+#dropzone.isSecondary .dropzoneInner {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+}
+
+#dropzone.isSecondary .dropIcon,
+#dropzone.isSecondary .dropSecondary { display: none; }
+#dropzone.isSecondary .dropPrimary { font-size: 0.92rem; font-weight: 600; color: var(--text-secondary); }
+
+/* The accent pill is the page's single loudest control. With a library
+   present that belongs to the library, not to the fallback. */
+#dropzone.isSecondary .filebtn {
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  font-weight: 600;
+  padding: var(--space-1) var(--space-4);
+  box-shadow: none;
+}
+
+#dropzone.isSecondary .filebtn:hover {
+  transform: none;
+  border-color: var(--border-strong);
+  box-shadow: none;
+}
+
+/* ===================================================================
+   VIDEO EXPORT
+   =================================================================== */
+
+/* The record dot. Red only while armed -- a permanently red button in the
+   HUD reads as a warning light, and this one is an offer.
+
+   Deliberately NOT --spec-rhythm. Every other accent in this chrome is
+   rewritten from the song's spectral palette, which is the point of the One
+   Spectrum system; a recording indicator is not decoration, and one that
+   turns green because the song is bright has stopped saying "recording".
+   Defined with the structural tokens on :root, not here. */
+.recordBtn { color: var(--text-secondary); }
+.recordBtn[aria-pressed="true"] {
+  color: var(--record-red);
+  border-color: color-mix(in srgb, var(--record-red) 55%, transparent);
+  background: color-mix(in srgb, var(--record-red) 12%, transparent);
+}
+
+.recordStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--record-red) 16%, var(--bg-surface-3));
+  border: 1px solid color-mix(in srgb, var(--record-red) 40%, transparent);
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.recordStatus::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--record-red);
+  animation: recordPulse 1.6s ease-in-out infinite;
+}
+
+@keyframes recordPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* A blinking dot is exactly the thing reduced-motion is asking about, and
+   the pill still reads as recording without it. */
+@media (prefers-reduced-motion: reduce) {
+  .recordStatus::before { animation: none; }
+}
+
+.completeExport {
+  margin: var(--space-4) 0 0;
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-surface-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  text-align: left;
+}
+
+.completeExportRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.completeExportRow label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+#exportPreset {
+  flex: 1 1 210px;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.completeExportNote {
+  margin: var(--space-2) 0 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--text-tertiary);
+}
+
+/* What you ended up with, once a file exists. Stated from the bytes, so
+   this is where a VP9-in-MP4 gets called out rather than passed off. */
+.completeExportNote.isResult { color: var(--text-secondary); }
+.completeExportNote.isWarning { color: var(--spec-gold); }
+
+@media (max-width: 720px) {
+  .recordStatus { display: none; } /* the dot on the button is enough */
+}
+
+/* The status line while a folder is still being read. Brighter than the
+   resting count, because it is the answer to "is this working" and it is
+   the only thing on screen that is moving. */
+.libraryStatus.isScanning { color: var(--text-secondary); }
+
+/* A disabled ghost button has to look disabled. Rescan and Auto-tag are
+   both turned off while a folder is being read -- one would restart the
+   walk it is already doing, the other would work from a list that is still
+   half-written -- and a button that refuses a click without saying why is
+   worse than one that is visibly out of reach. */
+.ghostbtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ghostbtn:disabled:hover {
+  border-color: var(--border-subtle);
+  background: transparent;
+  color: inherit;
+}
+
+/* --- Load from a URL -----------------------------------------------------
+   The way in for browsers with no file chooser (see
+   src/ui/FileChooserProbe.js). It is a full-width well like .libraryHome
+   rather than a chip, because when it is showing it is the *only* way the
+   player can reach their music -- and it has to be operable on a car screen
+   with a low-precision touch panel, so every target is at least 44px tall
+   and the list is one column, never a grid. */
+.urlLoad {
+  width: 100%;
+  margin: 0 0 var(--space-4);
+  padding: var(--space-4);
+  background: var(--bg-surface-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  text-align: left;
+}
+
+.urlLoadTitle {
+  margin: 0 0 var(--space-2);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+/* Filled in by main.js only when the probe found no chooser -- an
+   explanation nobody needs is worse than no explanation. */
+.urlLoadWhy {
+  margin: 0 0 var(--space-3);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.urlLoadWhy:empty { display: none; }
+
+.urlLoadForm { margin: 0; }
+
+.urlLoadLabel {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-size: 0.78rem;
+  color: var(--text-tertiary);
+}
+
+.urlLoadRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.urlLoadInput {
+  flex: 1 1 220px;
+  min-width: 0;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  /* An address is read character by character when it goes wrong, and a
+     proportional font makes 1/l and 0/O the same shape. */
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+}
+.urlLoadInput:focus {
+  outline: none;
+  border-color: var(--spec-cool);
+}
+
+.urlLoad .chipbtn { min-height: 44px; }
+
+.urlLoadStatus {
+  margin: var(--space-2) 0 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  /* A CORS or mixed-content explanation is several lines long and is the
+     whole value of the message, so it wraps rather than truncating. */
+  overflow-wrap: anywhere;
+}
+.urlLoadStatus:empty { display: none; }
+.urlLoadStatus.isError { color: var(--spec-rhythm); }
+
+.urlLoadCrumb {
+  margin: var(--space-3) 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--text-tertiary);
+  overflow-wrap: anywhere;
+}
+
+.urlLoadList {
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  /* A music folder is thousands of files; the well must not become the
+     whole page. */
+  max-height: 46vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.urlLoadItem + .urlLoadItem { margin-top: var(--space-1); }
+
+.urlLoadEntry {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.88rem;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-standard);
+}
+.urlLoadEntry:hover,
+.urlLoadEntry:focus-visible {
+  border-color: var(--spec-cool);
+  outline: none;
+}
+.urlLoadEntry .urlLoadEntryName {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.urlLoadEntry .urlLoadEntryIcon {
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+}
+.urlLoadEntry[data-kind='folder'] .urlLoadEntryIcon { color: var(--spec-gold); }
+
+.urlLoadHelp {
+  margin-top: var(--space-3);
+  font-size: 0.82rem;
+  color: var(--text-tertiary);
+}
+.urlLoadHelp > summary {
+  cursor: pointer;
+  padding: var(--space-1) 0;
+}
+.urlLoadHelpBody > p { margin: var(--space-2) 0 0; line-height: 1.5; }
+.urlLoadHelpBody code {
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+  overflow-wrap: anywhere;
+}
+
+/* The way back up out of a subfolder. Browsing does not touch history, so
+   the browser's own Back button leaves the page instead of returning to the
+   previous listing -- on a touch screen this is the only way up. */
+.urlLoadCrumb {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.urlLoadUp {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.urlLoadUp:hover,
+.urlLoadUp:focus-visible {
+  border-color: var(--spec-cool);
+  outline: none;
+}
+.urlLoadCrumbPath {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* "Show more" closes a listing's only dead end: in a flat folder there is
+   no subfolder to open, so a row past the batch size would otherwise be
+   unreachable without typing its URL by hand. It deliberately does NOT
+   carry .urlLoadEntry -- it is a control, not a row, and sharing the class
+   would make "count the entries" quietly wrong. */
+.urlLoadMore {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.urlLoadMore:hover,
+.urlLoadMore:focus-visible {
+  border-color: var(--spec-cool);
+  outline: none;
+}
+
+/* A centered integer image has its own hit rectangle; surrounding bars reject taps. */
+#stage.integerPixels {
+  position: fixed; left: 0; top: 0;
+  width: var(--pixel-grid-width); height: var(--pixel-grid-height);
+  /* Resolved offsets, never 50% centering. Transforms preserve sub-CSS-pixel
+     precision at fractional DPR; layout positions AND dimensions quantize
+     to 1/64 CSS px. Scale the logical dimensions in the transform instead. */
+  transform-origin: 0 0;
+  transform: translate(var(--pixel-left), var(--pixel-top)) scale(var(--pixel-scale));
+  background: #000;
+}
+.displayRow { flex-wrap: wrap; }
+.displayRow select { min-width: 6em; }
+#rangeCaptionDetails { position: relative; }
+#rangeCaptionDetails p { position: absolute; right: 0; width: min(28em, 80vw); max-height: 60vh; overflow: auto; white-space: pre-line; padding: 12px; background: #111a25; color: #f2f0f8; border: 1px solid #647080; border-radius: 8px; }
+
+#displaySettingsDialog { color: inherit; background: #111a25; border: 1px solid #647080; border-radius: 12px; max-width: min(90vw, 680px); }
+#displaySettingsDialog::backdrop { background: #0009; }
+
+#app.pixelDisplay { background: #000; }
+#app.pixelDisplay::before { display: none; }
+#app.pixelDisplay #stage { background: #000; }
+
+/* Public Plex catalog, scoped so local-folder and playback controls keep their layout. */
+.plexPanel { color: #edf2fa; background: #101d2c; border: 1px solid #536980; border-radius: 18px; width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 22px; box-sizing: border-box; overflow: auto; box-shadow: 0 22px 90px #0009; }
+.plexPanel::backdrop { background: #07101dcc; backdrop-filter: blur(6px); }
+.plexHead { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.plexHead h2 { margin: 0 0 12px; font-size: 24px; }
+.plexPanel .plexButton { min-height: 44px; padding: 8px 14px; }
+.plexSearchLabel { display: block; margin: 12px 0 6px; color: #b6c9dd; font-size: 13px; }
+.plexSearch { width: 100%; box-sizing: border-box; min-height: 46px; border: 1px solid #526b82; background: #091522; color: #fff; border-radius: 8px; padding: 10px 14px; font: inherit; }
+.plexLibraries { max-width: 100%; min-height: 44px; margin-top: 10px; }
+.plexTabs, .plexCrumbs, .plexFoot { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.plexTabs [aria-pressed="true"] { background: #304d67; border-color: #9bbcd3; }
+.plexCrumbs .plexButton { white-space: normal; overflow-wrap: anywhere; max-width: 100%; text-align: left; }
+.plexStatus, .plexDownload { font-size: 14px; line-height: 1.5; color: #bed0df; overflow-wrap: anywhere; }
+.plexList { list-style: none; padding: 0; margin: 0; max-height: min(42dvh, 420px); overflow-y: auto; overscroll-behavior: contain; }
+.plexItem { display: flex; align-items: center; width: 100%; min-height: 68px; gap: 14px; padding: 9px 12px; color: inherit; background: transparent; border: 0; border-bottom: 1px solid #293b4c; text-align: left; cursor: pointer; font: inherit; }
+.plexItem:hover { background: #20344a; }
+.plexItem:disabled { opacity: .6; cursor: default; }
+.plexCover { position: relative; display: grid; place-items: center; flex: 0 0 48px; width: 48px; height: 48px; background: #293f56; border-radius: 7px; color: #b6d2e8; font-size: 25px; overflow: hidden; }
+.plexCover img { position: absolute; width: 100%; height: 100%; object-fit: cover; }
+.plexItemText { display: flex; flex-direction: column; min-width: 0; gap: 4px; }
+.plexItemText strong, .plexItemText span { overflow-wrap: anywhere; }
+.plexItemText span { font-size: 13px; color: #b6c9dd; }
+.plexGroup { padding: 14px 12px 6px; color: #b6d2e8; font-size: 13px; text-transform: uppercase; letter-spacing: .1em; }
+.plexPanel :focus-visible { outline: 3px solid #b1e2ff; outline-offset: 2px; }
+.plexPanel [hidden] { display: none; }
+@media (max-height: 540px) { .plexPanel { padding: 12px 18px; } .plexHead h2 { font-size: 20px; margin: 0; } .plexSearchLabel { margin-top: 4px; } .plexTabs, .plexCrumbs, .plexFoot { margin-top: 6px; } .plexList { max-height: 30dvh; } .plexStatus { margin: 7px 0; } }

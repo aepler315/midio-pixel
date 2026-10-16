@@ -1,0 +1,34 @@
+{
+  "id": "livingston-range",
+  "name": "Livingston Range",
+  "landmark": "Kintla Peak",
+  "region": "Montana, USA",
+  "bbox": [
+    -114.472,
+    48.745,
+    -113.87,
+    49.143
+  ],
+  "source": "discovered",
+  "archetype": "restless",
+  "mood": "unease",
+  "quality": {
+    "floorShare": 0.02,
+    "artifact": 0.22
+  },
+  "scores": {
+    "energy": 0.489,
+    "rawness": 0.518,
+    "grandeur": 0.216,
+    "dominance": 0.428
+  },
+  "features": {
+    "reliefM": 973.5,
+    "slopeMPerKm": 270.3,
+    "peaksPer10Km": 4.7,
+    "roughnessM": 110.7,
+    "dominance": 0.4,
+    "summitM": 2987.5,
+    "lengthKm": 42.9
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "id": "medicine-bow-mountains",
+  "name": "Medicine Bow Mountains",
+  "landmark": "Medicine Bow Peak",
+  "region": "Wyoming, USA",
+  "bbox": [
+    -106.581,
+    41.162,
+    -106.055,
+    41.56
+  ],
+  "source": "discovered",
+  "archetype": "defiant",
+  "mood": "defiance",
+  "quality": {
+    "floorShare": 0.06,
+    "artifact": 0.05
+  },
+  "scores": {
+    "energy": 0.12,
+    "rawness": 0.101,
+    "grandeur": 0.175,
+    "dominance": 0.668
+  },
+  "features": {
+    "reliefM": 788.7,
+    "slopeMPerKm": 66.5,
+    "peaksPer10Km": 0.7,
+    "roughnessM": 28.2,
+    "dominance": 0.7,
+    "summitM": 3655.6,
+    "lengthKm": 41.7
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "id": "california-cascades",
+  "name": "California Cascades",
+  "landmark": "Mount Shasta",
+  "region": "California, USA",
+  "bbox": [
+    -122.459,
+    41.21,
+    -121.932,
+    41.608
+  ],
+  "source": "discovered",
+  "archetype": "sublime",
+  "mood": "awe",
+  "quality": {
+    "floorShare": 0.1,
+    "artifact": 0.06
+  },
+  "scores": {
+    "energy": 0.354,
+    "rawness": 0.26,
+    "grandeur": 0.673,
+    "dominance": 0.717
+  },
+  "features": {
+    "reliefM": 3027.9,
+    "slopeMPerKm": 221.8,
+    "peaksPer10Km": 1.3,
+    "roughnessM": 91.4,
+    "dominance": 0.7,
+    "summitM": 4301.4,
+    "lengthKm": 60.5
+  }
+}

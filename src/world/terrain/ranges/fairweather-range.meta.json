@@ -1,0 +1,34 @@
+{
+  "id": "fairweather-range",
+  "name": "Fairweather Range",
+  "landmark": "Mount Fairweather",
+  "region": "Alaska, USA",
+  "bbox": [
+    -137.91,
+    58.707,
+    -137.144,
+    59.105
+  ],
+  "source": "discovered",
+  "archetype": "wild",
+  "mood": "ferocity",
+  "quality": {
+    "floorShare": 0.01,
+    "artifact": 0.11
+  },
+  "scores": {
+    "energy": 0.64,
+    "rawness": 0.575,
+    "grandeur": 0.889,
+    "dominance": 0.446
+  },
+  "features": {
+    "reliefM": 4002.6,
+    "slopeMPerKm": 413.9,
+    "peaksPer10Km": 3.4,
+    "roughnessM": 187.4,
+    "dominance": 0.4,
+    "summitM": 4648.3,
+    "lengthKm": 65.5
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "id": "mahoosuc-range",
+  "name": "Mahoosuc Range",
+  "landmark": "Old Speck Mountain",
+  "region": "Maine, USA",
+  "bbox": [
+    -71.231,
+    44.372,
+    -70.676,
+    44.77
+  ],
+  "source": "discovered",
+  "archetype": "brooding",
+  "mood": "melancholy",
+  "quality": {
+    "floorShare": 0.02,
+    "artifact": 0.03
+  },
+  "scores": {
+    "energy": 0.24,
+    "rawness": 0.237,
+    "grandeur": 0.19,
+    "dominance": 0.455
+  },
+  "features": {
+    "reliefM": 853.9,
+    "slopeMPerKm": 115,
+    "peaksPer10Km": 2.2,
+    "roughnessM": 48.2,
+    "dominance": 0.5,
+    "summitM": 1265.5,
+    "lengthKm": 59.3
+  }
+}

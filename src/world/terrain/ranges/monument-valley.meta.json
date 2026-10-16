@@ -1,0 +1,34 @@
+{
+  "id": "monument-valley",
+  "name": "Monument Valley",
+  "landmark": null,
+  "region": "Utah-Arizona, USA",
+  "bbox": [
+    -110.25,
+    36.9,
+    -109.9,
+    37.1
+  ],
+  "source": "curated",
+  "archetype": "serene",
+  "mood": "calm",
+  "quality": {
+    "floorShare": 0.25,
+    "artifact": 0.09
+  },
+  "scores": {
+    "energy": 0.198,
+    "rawness": 0.22,
+    "grandeur": 0.078,
+    "dominance": 0.456
+  },
+  "features": {
+    "reliefM": 351.6,
+    "slopeMPerKm": 100.6,
+    "peaksPer10Km": 2,
+    "roughnessM": 46,
+    "dominance": 0.5,
+    "summitM": 2049.6,
+    "lengthKm": 19.9
+  }
+}

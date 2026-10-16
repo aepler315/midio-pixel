@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Teton tour candidate review</title>
+<style>body{margin:16px;background:#17212b;color:#eee;font:14px system-ui}canvas{max-width:100%;display:block;margin:12px 0}label{margin-right:12px}button,select,input{font:inherit}#map{width:560px}#status{white-space:pre-wrap}</style>
+<h1>Teton tour candidate review</h1><p>Primary stations are candidates for visual role review. Views use the published terrain, stored station height and best aim, with neutral lighting.</p>
+<label>Station <select id="station"></select></label><label>Song time <input id="time" type="range" min="0" max="360000" value="0"></label><button id="song">Show route pose</button><p id="status">Loading verified assets…</p>
+<canvas id="view"></canvas><canvas id="map" width="1000" height="1400"></canvas>
+<script type="module">
+import * as THREE from '../vendor/range/three-range.module.js';
+import catalog from '../world/terrain/sceneCatalogData.js';
+import {loadTourPackage} from '../world/terrain/TourPackage.js';
+import {loadTerrainPackage} from '../world/alpine/RangeAssets.js';
+import {createSurfaceTexture,terrainUniforms,createBandGeometries,createReviewMaterial} from '../world/alpine/TerrainGL.js';
+import {planTerrainWindow} from '../world/alpine/TerrainWindow.js';
+import {planTour} from '../world/terrain/TourPlanner.js';
+import {buildTourTimeline} from '../world/terrain/TourTimeline.js';
+const status=document.querySelector('#status'),state={ready:false,error:null};window.__tetonReview=state;
+try{
+const view=catalog.views.find(v=>v.id==='teton-range-tour'),base=new URL('../assets/range/v2/',import.meta.url);
+const [{data},{data:terrain}]=await Promise.all([loadTourPackage(new URL(view.tourManifestUrl,base).href,{expectManifestSha256:view.tourManifestSha256}),loadTerrainPackage(new URL(view.terrainManifestUrl,base).href)]);
+const roles=['intro','verse','pre-chorus','chorus','verse','pre-chorus','chorus','bridge','solo','chorus','drop','interlude','outro'];
+const sections=roles.map((role,i)=>({role,startMs:i*360000/13,endMs:(i+1)*360000/13,relEnergy01:role==='drop'?1:.6,finalChorus:i===9}));
+const tour=buildTourTimeline(data,planTour(data,{sections,durationMs:360000}));
+const canvas=document.querySelector('#view'),renderer=new THREE.WebGLRenderer({canvas,antialias:true,preserveDrawingBuffer:true});renderer.outputColorSpace=THREE.LinearSRGBColorSpace;
+const surface=createSurfaceTexture(THREE,terrain,{stride:2}),material=createReviewMaterial(THREE,terrainUniforms(THREE,terrain,surface)),camera=new THREE.PerspectiveCamera(40,16/9,5,120000),scene=new THREE.Scene();
+let geos=null;
+const primaries=data.points.filter(p=>p.tier==='primary').sort((a,b)=>data.roles.indexOf(a.role)-data.roles.indexOf(b.role)||a.id.localeCompare(b.id));
+const select=document.querySelector('#station');for(const point of primaries){const o=document.createElement('option');o.value=point.id;o.textContent=`${point.role}: ${point.name||point.id}`;select.append(o);}
+state.renderPose=(pose,{width=1280,height=720}={})=>{
+ if(geos){for(const g of Object.values(geos.geometries))g.dispose();for(const g of Object.values(geos.fringes))g.dispose();scene.clear();}
+ const detail=planTerrainWindow(terrain,{durationMs:0,poseAt:()=>pose},0,{heightPx:height,aspect:width/height});
+ geos=createBandGeometries(THREE,terrain,{strides:detail.strides});
+ for(const g of Object.values(geos.geometries)){const mesh=new THREE.Mesh(g,material);mesh.frustumCulled=false;scene.add(mesh);}
+ renderer.setSize(width,height,false);camera.aspect=width/height;camera.fov=pose.fovYDeg;camera.position.set(...pose.eyeM);camera.lookAt(...pose.targetM);camera.updateProjectionMatrix();renderer.setClearColor(0x9fb3c8,1);renderer.render(scene,camera);renderer.getContext().finish();
+ return{pose,detail:{triangles:detail.triangles,pixelLimit:detail.pixelLimit,maxErrorPx:detail.maxErrorPx},png:canvas.toDataURL('image/png')};
+};
+state.primary=id=>{const p=primaries.find(p=>p.id===id);const preview=buildTourTimeline(data,{durationMs:0,heroes:[],notes:[],previewPointId:p.id});status.textContent=`${p.role}: ${p.name||p.id}\nHeight ${p.station.yM.toFixed(1)} m; heading ${p.station.bestAim.headingDeg.toFixed(1)}°`;return state.renderPose(preview.poseAt(0));};
+state.drawMap=()=>{
+ const c=document.querySelector('#map'),ctx=c.getContext('2d'),b=data.region?.boundsM||[-24000,-38000,24000,38000];
+ const xs=data.nodes.map(n=>n.posM[0]),zs=data.nodes.map(n=>n.posM[1]),xmin=Math.min(...xs)-1000,xmax=Math.max(...xs)+1000,zmin=Math.min(...zs)-1000,zmax=Math.max(...zs)+1000;
+ const xy=p=>[50+(p[0]-xmin)/(xmax-xmin)*900,50+(p[1]-zmin)/(zmax-zmin)*1200];void b;
+ ctx.fillStyle='#17212b';ctx.fillRect(0,0,c.width,c.height);ctx.lineWidth=1;ctx.strokeStyle='#54768d';
+ for(const edge of data.edges){ctx.beginPath();for(let i=0;i<edge.samples.length;i++){const p=xy(edge.samples[i]);if(i)ctx.lineTo(...p);else ctx.moveTo(...p);}ctx.stroke();}
+ ctx.strokeStyle='#ffd36e';ctx.lineWidth=3;ctx.beginPath();for(let t=0;t<=tour.durationMs;t+=500){const p=tour.poseAt(t),q=xy([p.eyeM[0],p.eyeM[2]]);if(t)ctx.lineTo(...q);else ctx.moveTo(...q);}ctx.stroke();
+ for(const point of primaries){const p=xy(point.station.posM),color=`hsl(${data.roles.indexOf(point.role)*360/11} 75% 65%)`;ctx.fillStyle=color;ctx.beginPath();ctx.arc(...p,5,0,Math.PI*2);ctx.fill();ctx.font='12px sans-serif';ctx.fillText(point.name||point.id,p[0]+7,p[1]);}
+ ctx.fillStyle='#eee';ctx.font='18px sans-serif';ctx.fillText('Teton highway · 44 primary stations · example six-minute route',30,1320);ctx.font='14px sans-serif';ctx.fillText('North ↑    Blue: roads    Gold: route    Coloured dots: candidate roles',30,1350);
+ return c.toDataURL('image/png');
+};
+state.contactSheet=async images=>{const c=document.createElement('canvas');c.width=4*480;c.height=11*300;const ctx=c.getContext('2d');ctx.fillStyle='#17212b';ctx.fillRect(0,0,c.width,c.height);for(let i=0;i<images.length;i++){const img=new Image();img.src=images[i].png;await img.decode();const x=i%4*480,y=Math.floor(i/4)*300;ctx.drawImage(img,x,y,480,270);ctx.fillStyle='#eee';ctx.font='14px sans-serif';ctx.fillText(images[i].label.slice(0,62),x+8,y+290);}return c.toDataURL('image/jpeg',.9);};
+Object.assign(state,{primaries:primaries.map(p=>({id:p.id,name:p.name,role:p.role})),tour,data,terrain,ready:true});
+select.onchange=()=>state.primary(select.value);document.querySelector('#song').onclick=()=>state.renderPose(tour.poseAt(Number(document.querySelector('#time').value)));state.primary(select.value);state.drawMap();
+}catch(error){state.error=error.message;status.textContent=error.stack;}
+</script></html>

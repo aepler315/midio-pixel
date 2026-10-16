@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Super Maudio World · Versions</title>
+  <link rel="stylesheet" href="./src/ui/history-picker.css">
+</head>
+<body>
+  <iframe id="versionEngine" title="Midio visualizer" allow="autoplay; fullscreen; screen-wake-lock" allowfullscreen></iframe>
+  <nav id="versionNavigation" aria-label="Browse Midio versions">
+    <button id="versionPrevious" class="version-arrow previous" aria-label="Previous version" disabled>←</button>
+    <button id="versionPicker" aria-haspopup="dialog" disabled>Loading versions…</button>
+    <button id="versionNext" class="version-arrow next" aria-label="Next version" disabled>→</button>
+  </nav>
+  <p id="versionStatus" role="status" aria-live="polite"></p>
+  <button id="versionResume" hidden>Resume song</button>
+  <dialog id="versionDialog" aria-labelledby="versionHeading">
+    <div class="picker-heading"><h1 id="versionHeading">Choose a version</h1><button id="versionClose" aria-label="Close version picker">×</button></div>
+    <label for="versionSearch">Search title, PR number, date or commit</label>
+    <input id="versionSearch" type="search" autocomplete="off" placeholder="Search versions…">
+    <div class="picker-summary"><span id="versionCount"></span><button id="versionLatest">Latest version</button></div>
+    <ol id="versionList"></ol>
+  </dialog>
+  <script type="module" src="./src/ui/HistoryPicker.js"></script>
+</body>
+</html>

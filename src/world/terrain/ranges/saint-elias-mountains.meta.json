@@ -1,0 +1,34 @@
+{
+  "id": "saint-elias-mountains",
+  "name": "Saint Elias Mountains",
+  "landmark": "Mount Saint Elias",
+  "region": "Alaska, USA",
+  "bbox": [
+    -141.329,
+    60.094,
+    -140.531,
+    60.492
+  ],
+  "source": "discovered",
+  "archetype": "wild",
+  "mood": "ferocity",
+  "quality": {
+    "floorShare": 0.1,
+    "artifact": 0.22
+  },
+  "scores": {
+    "energy": 0.588,
+    "rawness": 0.541,
+    "grandeur": 0.941,
+    "dominance": 0.449
+  },
+  "features": {
+    "reliefM": 4236.1,
+    "slopeMPerKm": 374.8,
+    "peaksPer10Km": 2.7,
+    "roughnessM": 191.8,
+    "dominance": 0.4,
+    "summitM": 5446.5,
+    "lengthKm": 55
+  }
+}

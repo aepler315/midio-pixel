@@ -1,0 +1,17 @@
+# Climax weather and landscape cast
+
+`RangeStorm` selects the loudest measured section, or the strongest sustained window when structural sections are unavailable. Heard time drives the cloud approach, distant rain, snare-lit cloud interior, clearing and wet-land response. Percussion role/channel and GM snare pitch both qualify a flash; a 700 ms spacing limit prevents clusters. Reduced flashing disables lightning. Reduced motion holds advection. No measurements means no invented climax.
+
+The same weather snapshot reaches the sky backdrop, celestial receiver light, water glints, gust amplitudes, wet ground and solar scattering. The clearing strengthens shafts from the actual visible sun; it never creates a light source at night.
+
+Between peaks the three instrument lanes remain small lanterns and motes. At each actor's own peak, its envelope drives metre-scale material masks from the existing rest silhouettes:
+
+- **Midio:** a scene-lit virtual radiance source rendered only through WaterMirror. It stands just beyond the far shore of the main lake (the farthest visible water near the middle of the frame, found with a terrain line-of-sight test), in front of the range so the mirrored mountains never hide it. Its height is set each frame from the live camera: the reflected ray through the frame's lower edge reaches it at that height, so his figure hangs from the far shore to the bottom of the frame, taller in the water than any mirrored peak. The sheet is widened by 1/MIRROR_LIFT to keep his proportions, his eye is an open socket, and his own lantern colour stays in him so he never reads as moonglade. Without visible mirror water, his figure gathers in cloud over the range instead.
+- **Broshi:** a shadow on terrain and forest, thrown by his lantern carried just behind the viewer (a Brocken spectre). Each receiver looks back along its own view ray to a caster plane through the anchor peak, so the shadow keeps his proportions on any slope; only the range beyond the near ground receives it. The air and mist in front of a shadowed slope are dimmed too, so distance haze cannot wash his outline out.
+- **Midasus:** a cloud in the shape of her hexagram, half the frame tall over the range, its lower points behind the peaks. Layered billows in the sheet's own coordinates draw the outline, thin enough for sky to show through, and eat the figure from its edges as the peak passes. A light valley cloud sea (30% fill) rises with her.
+
+Cloud radiance has a separate depth-tested copy boundary, so it never contaminates the terrain alpha used for crest light or sampled skylines. Peaks dissolve through the lane envelope and advected billows. There are no enlarged screen-space character meshes. The masks and three radiance quads belong to the prepared view, are reserved before construction, and retire with its actors. Mask CPU data drops after GPU upload.
+
+All giant manifestations drop at quality level 4, alongside the mirror. The small lights remain. `biomes.actorPeakOverride` accepts either a common numeric amount or `{midio, broshi, midasus}` for independent review; `stormOverride` supports weather review. Normal playback uses the measured scores.
+
+Reproduce frames with `npm run test:peaks` and `node tools/peak-evidence.mjs before`. The before mode serves the baseline alpine render modules from commit `96908d0`, with only the independent diagnostic peak selector adapted. The evidence records seed, heard time, actual quality/view, mirror availability and material anchors.

@@ -1,0 +1,34 @@
+{
+  "id": "beaverhead-mountains",
+  "name": "Beaverhead Mountains",
+  "landmark": "Tweedy Mountain",
+  "region": "Montana, USA",
+  "bbox": [
+    -113.247,
+    45.281,
+    -112.683,
+    45.68
+  ],
+  "source": "discovered",
+  "archetype": "restless",
+  "mood": "unease",
+  "quality": {
+    "floorShare": 0.03,
+    "artifact": 0.12
+  },
+  "scores": {
+    "energy": 0.425,
+    "rawness": 0.466,
+    "grandeur": 0.227,
+    "dominance": 0.325
+  },
+  "features": {
+    "reliefM": 1021,
+    "slopeMPerKm": 224.3,
+    "peaksPer10Km": 4,
+    "roughnessM": 105,
+    "dominance": 0.3,
+    "summitM": 3383.8,
+    "lengthKm": 42.1
+  }
+}

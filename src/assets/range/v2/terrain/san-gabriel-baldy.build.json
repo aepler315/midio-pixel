@@ -1,0 +1,188 @@
+{
+ "credit": "Elevation: USGS 3DEP 1/3 arc-second DEM",
+ "sourceSha256": [
+  "b8b1f0f8e90ec3c80ceef5f15531751545db1bcc80795679804a70b939700e07"
+ ],
+ "view": {
+  "id": "san-gabriel-baldy",
+  "regionId": "san-gabriel-mountains",
+  "biome": "CHAPARRAL",
+  "status": "candidate",
+  "notes": "From above the San Gabriel foothills looking north into the chaparral front ranges rising to Mount San Antonio.",
+  "dem": {
+   "source": "3dep13",
+   "centerLonLat": [
+    -117.7,
+    34.23
+   ],
+   "extentM": [
+    44800,
+    44800
+   ],
+   "cellM": 20
+  },
+  "rail": {
+   "eyeStart": {
+    "lonLat": [
+     -117.70551,
+     34.15891
+    ],
+    "aboveGroundM": 900
+   },
+   "eyeEnd": {
+    "lonLat": [
+     -117.68649,
+     34.15509
+    ],
+    "aboveGroundM": 900
+   },
+   "targetStart": {
+    "lonLat": [
+     -117.66952,
+     34.28191
+    ],
+    "heightM": 1492
+   },
+   "targetEnd": {
+    "lonLat": [
+     -117.65048,
+     34.27809
+    ],
+    "heightM": 1492
+   },
+   "fovYDeg": 28.1
+  },
+  "landmarks": [
+   {
+    "name": "Mount San Antonio",
+    "lonLat": [
+     -117.6464,
+     34.2889
+    ],
+    "elevationM": 3069
+   },
+   {
+    "name": "Mount Baden-Powell",
+    "lonLat": [
+     -117.7647,
+     34.3583
+    ],
+    "elevationM": 2865
+   }
+  ],
+  "title": "San Gabriel Mountains",
+  "place": "Angeles National Forest, California",
+  "camera": {
+   "eyeStartM": [
+    -508.1,
+    1582.8,
+    7885.7
+   ],
+   "eyeEndM": [
+    1245.8,
+    1568.3,
+    8309.4
+   ],
+   "targetStartM": [
+    2806.6,
+    1492,
+    -5758.6
+   ],
+   "targetEndM": [
+    4559.9,
+    1492,
+    -5335.6
+   ],
+   "fovYDeg": 28.1
+  }
+ },
+ "characterScores": {
+  "energy": 0.228,
+  "rawness": 0.2,
+  "grandeur": 0.212,
+  "dominance": 0.644
+ },
+ "archetype": "brooding",
+ "skylineFeatures": [
+  {
+   "reliefM": 1067.47216796875,
+   "slopeMPerKm": 95.292597418412,
+   "peaksPer10Km": 0.9041475347558036,
+   "roughnessM": 40.75287720790736,
+   "dominance": 0.5969674084923358,
+   "summitM": 3066.566650390625,
+   "lengthKm": 44.24056745429648
+  },
+  {
+   "reliefM": 856.66796875,
+   "slopeMPerKm": 143.42944095417505,
+   "peaksPer10Km": 1.9704201362423965,
+   "roughnessM": 44.584597715830476,
+   "dominance": 0.7215849243298208,
+   "summitM": 3065.53369140625,
+   "lengthKm": 25.375298942767767
+  },
+  {
+   "reliefM": 937.6103515625,
+   "slopeMPerKm": 124.35022111071137,
+   "peaksPer10Km": 2.6525540445311298,
+   "roughnessM": 38.8555244826073,
+   "dominance": 0.6125547201214857,
+   "summitM": 3062.60986328125,
+   "lengthKm": 33.929563164059324
+  }
+ ],
+ "manifestSha256": "56871dd030fa48fc1d1fce0c165f0320fc8cd9a76cddbe3bfa76539e91c4c904",
+ "payloadSha256": "5288efcf70ebe56bb5086b67be2382b3ebcf9cb24161195f7e8eb0e4dbcfbab7",
+ "payloadBytes": 1405149,
+ "stats": {
+  "tiles": 199,
+  "desktop": {
+   "vertices": 770183,
+   "triangles": 1491968,
+   "meshBytes": 27145812,
+   "surfaceTextureBytes": 26784432
+  },
+  "mobile": {
+   "vertices": 467959,
+   "triangles": 901952,
+   "meshBytes": 16438932,
+   "surfaceTextureBytes": 26784432
+  }
+ },
+ "landmarks": [
+  {
+   "name": "Mount San Antonio",
+   "lonLat": [
+    -117.6464,
+    34.2889
+   ],
+   "publishedElevationM": 3069,
+   "localM": [
+    4935,
+    -6534.9
+   ],
+   "demGroundM": 3066.566650390625,
+   "demPeakWithin200mM": 3067.86083984375
+  },
+  {
+   "name": "Mount Baden-Powell",
+   "lonLat": [
+    -117.7647,
+    34.3583
+   ],
+   "publishedElevationM": 2865,
+   "localM": [
+    -5952.1,
+    -14233.9
+   ],
+   "demGroundM": 2862.54296875,
+   "demPeakWithin200mM": 2863.755859375
+  }
+ ],
+ "achievedErrorPx": {
+  "desktop": 0,
+  "mobile": 1.973
+ },
+ "despikedSamples": 0
+}

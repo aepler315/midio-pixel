@@ -1,0 +1,34 @@
+{
+  "id": "big-horn-mountains",
+  "name": "Big Horn Mountains",
+  "landmark": "Bush Butte",
+  "region": "Wyoming, USA",
+  "bbox": [
+    -107.886,
+    44.279,
+    -107.332,
+    44.677
+  ],
+  "source": "discovered",
+  "archetype": "serene",
+  "mood": "calm",
+  "quality": {
+    "floorShare": 0.06,
+    "artifact": 0.04
+  },
+  "scores": {
+    "energy": 0.301,
+    "rawness": 0.302,
+    "grandeur": 0.385,
+    "dominance": 0.288
+  },
+  "features": {
+    "reliefM": 1731,
+    "slopeMPerKm": 144.6,
+    "peaksPer10Km": 2.2,
+    "roughnessM": 81.1,
+    "dominance": 0.3,
+    "summitM": 3353.3,
+    "lengthKm": 71.4
+  }
+}

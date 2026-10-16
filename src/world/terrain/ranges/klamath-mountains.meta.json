@@ -1,0 +1,34 @@
+{
+  "id": "klamath-mountains",
+  "name": "Klamath Mountains",
+  "landmark": "Page Mountain",
+  "region": "Oregon, USA",
+  "bbox": [
+    -123.826,
+    41.817,
+    -123.294,
+    42.215
+  ],
+  "source": "discovered",
+  "archetype": "restless",
+  "mood": "unease",
+  "quality": {
+    "floorShare": 0.05,
+    "artifact": 0.1
+  },
+  "scores": {
+    "energy": 0.367,
+    "rawness": 0.373,
+    "grandeur": 0.274,
+    "dominance": 0.374
+  },
+  "features": {
+    "reliefM": 1234.3,
+    "slopeMPerKm": 187.2,
+    "peaksPer10Km": 3.3,
+    "roughnessM": 82.1,
+    "dominance": 0.4,
+    "summitM": 2187,
+    "lengthKm": 64
+  }
+}

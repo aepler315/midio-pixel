@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Super Maudio World</title>
+  <link rel="stylesheet" href="./src/ui/style.css" />
+</head>
+<body>
+  <div id="app">
+    <canvas id="stage" width="1280" height="720" tabindex="-1" aria-label="Music visualizer"></canvas>
+
+    <!-- Every user-facing failure (bad file, decode error, no audio
+         support) surfaces here instead of a native alert() -- see
+         showErrorBanner() in main.js. Always mounted, hidden by default. -->
+    <div id="errorBanner" class="errorBanner hidden" role="alert">
+      <span id="errorBannerText" class="errorBannerText"></span>
+      <button id="errorBannerClose" type="button" class="errorBannerClose" aria-label="Dismiss">&times;</button>
+    </div>
+
+    <div id="loader" class="panel titleScreen">
+      <div class="titleBg" aria-hidden="true">
+        <div class="titleStars"></div>
+        <div class="titleGlow titleGlowA"></div>
+        <div class="titleGlow titleGlowB"></div>
+        <div class="titleGlow titleGlowC"></div>
+        <div class="titleHills"></div>
+      </div>
+
+      <div class="titleCard">
+        <div class="titleHero">
+          <div class="titleMascot" aria-hidden="true">
+            <span class="mascotShard"></span>
+            <span class="mascotCore"></span>
+          </div>
+          <div class="titleBrand">
+            <p class="titleEyebrow">music becomes a world</p>
+            <h1>
+              <span class="titleWord titleWordSuper">SUPER</span>
+              <span class="titleWord titleWordMidio">MAUDIO</span>
+              <span class="titleWord titleWordWorld">WORLD</span>
+            </h1>
+            <p class="titleTagline">Drop a song. Watch The Range carry the music.</p>
+            <p class="titleSub">Play your recording or try the live sample. <a href="?worlds=all" style="color: inherit">Explore all eight worlds</a>, or tap <kbd>F</kbd>/<kbd>J</kbd> with the beat if you want to.</p>
+          </div>
+        </div>
+
+        
+
+        <!-- Shown only once a library exists. A returning player's first
+             screenful should be their own music, so this sits above the
+             dropzone and the dropzone becomes the secondary way in. -->
+        <section id="libraryHome" class="libraryHome hidden" aria-labelledby="libraryHomeTitle">
+          <div class="libraryHomeHead">
+            <h2 id="libraryHomeTitle" class="libraryHomeTitle">Jump back in</h2>
+            <button id="libraryOpenBtn" type="button" class="ghostbtn chipbtn">Browse library</button>
+          </div>
+          <div id="libraryRecent" class="libraryRecent"></div>
+          <p id="libraryHomeNote" class="libraryHomeNote hidden"></p>
+        </section>
+
+        <div id="dropzone" tabindex="0" role="button" aria-label="Drop or choose a music file">
+          <div class="dropzoneInner">
+            <span class="dropIcon" aria-hidden="true">&#9834;</span>
+            <span class="dropPrimary">Drop a song to play</span>
+            <span class="dropSecondary">mp3 &middot; wav &middot; flac &middot; m4a &mdash; multi-stem drops welcome</span>
+            <!-- A real button, not a <label> wrapping the input. A label
+                 natively activates its nested input, which would click the
+                 input directly and bypass openFilePicker() -- so in a
+                 browser with no chooser the primary button would keep
+                 producing the dead click (and the phantom keyboard) on
+                 every tap, never recording a verdict. Every activation
+                 goes through JS instead. -->
+            <button id="browseBtn" type="button" class="filebtn" onclick="event.stopPropagation()">Browse files</button>
+            <!-- tabindex="-1" keeps this out of the tab order: #browseBtn is
+                 the focusable control now, and a focused file input is what
+                 raises the Android IME. inputmode="none" is a best-effort
+                 hint against the same thing. -->
+            <input id="fileInput" type="file" tabindex="-1" inputmode="none" aria-hidden="true" accept=".mp3,.wav,.flac,.ogg,.m4a,.aac,audio/*" multiple class="fileInputVisuallyHidden" />
+            <button id="demoBtn" type="button" class="ghostbtn" onclick="event.stopPropagation()">Play a sample</button>
+          </div>
+        </div>
+
+        <!-- The world menu is visible with ?worlds=all. Choose before the
+             song, not only after analysis. Any
+             choice but "Show me the worlds" skips the post-analysis picker.
+             Worlds are filled in from the registry by main.js. -->
+        <div class="resRow titleWorldRow">
+          <label for="titleWorld">World</label>
+          <select id="titleWorld" title="The world your song plays in. Pick one to start in it directly, or keep the picker that opens once the song is ready. Remembered.">
+            <option value="ask" selected>Show me the worlds</option>
+            <option value="auto">Choose for me</option>
+          </select>
+        </div>
+
+        <!-- The way in for browsers with no file chooser. Hidden until it is
+             needed: either the probe finds no chooser, or the player opens
+             it deliberately. See src/ui/FileChooserProbe.js. -->
+        <section id="urlLoad" class="urlLoad hidden" aria-labelledby="urlLoadTitle">
+          <h2 id="urlLoadTitle" class="urlLoadTitle">Load from a URL</h2>
+          <p id="urlLoadWhy" class="urlLoadWhy"></p>
+          <form id="urlLoadForm" class="urlLoadForm" autocomplete="off">
+            <label class="urlLoadLabel" for="urlLoadInput">Address of a song, or of a folder to browse</label>
+            <div class="urlLoadRow">
+              <!-- type="text", NOT type="url". A url input applies native
+                   constraint validation on submit, and a bare address like
+                   `127.0.0.1:8088` is not a valid absolute URL -- so the
+                   browser would block the submit and classifyUrl(), which
+                   exists precisely to prepend http:// for that shape, would
+                   never run. inputmode="url" still gets the URL keyboard. -->
+              <input id="urlLoadInput" type="text" inputmode="url" spellcheck="false"
+                     autocapitalize="off" autocorrect="off"
+                     placeholder="http://127.0.0.1:8088/" class="urlLoadInput" />
+              <button id="urlLoadBtn" type="submit" class="ghostbtn chipbtn">Open</button>
+            </div>
+          </form>
+          <p id="urlLoadStatus" class="urlLoadStatus" role="status" aria-live="polite"></p>
+          <nav id="urlLoadCrumb" class="urlLoadCrumb hidden" aria-label="Folder"></nav>
+          <ul id="urlLoadList" class="urlLoadList hidden"></ul>
+          <details class="urlLoadHelp">
+            <summary>Why can't I browse my files?</summary>
+            <div class="urlLoadHelpBody">
+              <p>A web page can only read a file off this device if the browser
+                 opens a file chooser for it. Some in-app browsers &mdash;
+                 Fermata's among them &mdash; never implement one, so the
+                 button has nothing to open and the keyboard comes up instead.
+                 No change to this page can add a chooser to that browser.</p>
+              <p>What works instead is serving the folder over HTTP from this
+                 same device and loading it by address. A server on
+                 <code>127.0.0.1</code> is readable from an https page;
+                 a LAN address such as <code>192.168.1.5</code> is not.
+                 The server also has to send an
+                 <code>Access-Control-Allow-Origin</code> header, which most
+                 simple ones do not &mdash;
+                 <code>tools/music-server.mjs</code> in the Midio repository
+                 is a small one that does.</p>
+              <p>Opening this page in Chrome instead, where a chooser exists,
+                 also works.</p>
+            </div>
+          </details>
+        </section>
+
+        <div class="titleFolderRow">
+          <button id="libraryFolderBtn" type="button" class="ghostbtn libraryFolderBtn">Use a music folder</button>
+          <!-- Browsers with no persistable directory handle fall back to
+               this; main.js shows whichever one the browser can honour. -->
+          <button id="libraryFolderFallback" type="button" class="ghostbtn libraryFolderBtn hidden">Use a music folder</button>
+          <input id="libraryFolderInput" type="file" tabindex="-1" inputmode="none" aria-hidden="true" webkitdirectory directory multiple class="fileInputVisuallyHidden" />
+          <button id="plexOpenBtn" type="button" class="ghostbtn libraryFolderBtn hidden">Plex library</button>
+          <button id="urlLoadOpenBtn" type="button" class="ghostbtn libraryFolderBtn">Load from a URL</button>
+          <p class="libraryFolderHint">Choose it once and it stays. Your files never leave the device &mdash; the folder is read straight off your disk.</p>
+        </div>
+
+        <div class="titleMeta">
+          <p class="titleFlashNote">Contains flashing lights, camera shake, and sudden scene cuts. Turn on <b>Reduced flashing</b> in Settings (or press <kbd>R</kbd>) to dampen all three; <b>Reduced motion</b> separately holds terrain movement and heat shimmer. Both turn on automatically if your system asks for reduced motion.</p>
+          <details id="titleSettings" class="settingsWell">
+            <summary class="settingsSummary">Settings</summary>
+            <p class="hint">The Range v2 uses WebGL2 scenery when available, with a painted fallback.</p>
+            <div class="prefRow">
+
+              <button id="lyricGroundingBtn" class="ghostbtn chipbtn" type="button" aria-pressed="true" title="Looks up time-stamped lyrics for your song and uses them to place verses and choruses on the real clock. Tries the tags as they are, then progressively cleaner versions of them. Remembered.">Timed lyric grounding: on</button>
+              <button id="reducedFlashBtn" class="ghostbtn chipbtn" type="button" aria-pressed="false" aria-keyshortcuts="R" title="Cap flash brightness and soften camera shake and scene cuts. Shortcut: R. Independent of reduced motion. Remembered.">Reduced flashing: off</button>
+              <button id="reducedMotionBtn" class="ghostbtn chipbtn" type="button" aria-pressed="false" title="Hold musical terrain deformation, stop heat shimmer and dampen camera movement. Independent of reduced flashing. Remembered.">Reduced motion: off</button>
+            </div>
+
+          
+
+            <div class="resRow displayRow">
+              <label for="display-look">Look</label>
+              <select id="display-look"><option value="natural">Natural</option><option value="pixel">Pixel</option><option value="palette">Palette</option></select>
+              <label for="display-quality">Quality</label>
+              <select id="display-quality"><option value="auto">Auto</option><option value="economy">Economy</option></select>
+              <label for="display-pixelGrid">Pixel detail</label>
+              <select id="display-pixelGrid" title="Detailed uses four times the pixel work. Quality remains independent."><option value="classic">Classic — 320×180</option><option value="detailed">Detailed — 640×360</option></select>
+              <label><input id="range-tour-toggle" type="checkbox"> Range: Tetons only</label>
+              <span id="pixelGridHint" hidden>320 × 180 grid</span>
+            </div>
+            <div class="resRow displayRow">
+              <label for="display-palette">Palette</label>
+              <select id="display-palette"><option value="world">World colors</option><option value="range32">Landscape</option><option value="chroma32">Chroma</option><option value="rgb332">Legacy RGB332</option></select>
+              <label for="display-dither">Dither</label>
+              <select id="display-dither"><option value="0">Off</option><option value="0.35">Subtle</option><option value="1">Full</option></select>
+              <label for="display-ditherMode">Dither style</label>
+              <select id="display-ditherMode"><option value="selective">Selective</option><option value="ordered">Ordered</option></select>
+              <label for="display-scaling">Scaling</label>
+              <select id="display-scaling" title="Fit fills the available space while preserving aspect. Integer uses evenly sized physical pixels, with borders when needed."><option value="fit">Fit</option><option value="integer">Integer</option></select>
+            </div>
+            <div class="resRow" title="Stage render resolution (sim stays 16:9 logical; canvas upscales to this).">
+              <label for="stageRes">Stage</label>
+              <select id="stageRes" title="Natural look resolution. Auto matches the visible stage and follows frame pressure. Pixel looks use 320×180.">
+                <option value="auto" selected>Auto</option>
+                <option value="144">144p</option>
+                <option value="240">240p</option>
+                <option value="360">360p</option>
+                <option value="480">480p</option>
+                <option value="720">720p</option>
+                <option value="1080">1080p</option>
+                <option value="1440">1440p</option>
+                <option value="2160">4K</option>
+              </select>
+              <select id="stageFps" title="Frame-rate cap. 60 = every frame drawn; 30 = every other frame skipped, halving GPU load.">
+                <option value="60" selected>60 fps</option>
+                <option value="30">30 fps</option>
+              </select>
+            </div>
+            <details id="graphicsTroubleshooting">
+              <summary>Graphics troubleshooting</summary>
+              <p class="hint">If the 3D scenery never appears, copy a report of the graphics state. Audio, filenames and lyrics are excluded.</p>
+              <button id="copyGraphicsReport" class="ghostbtn" type="button">Copy graphics report</button>
+              <p id="graphicsReportStatus" class="hint" role="status"></p>
+              <textarea id="graphicsReport" hidden readonly rows="12" aria-label="Graphics report"></textarea>
+            </details>
+          </details>
+
+          
+
+          
+
+          <p id="progressText" class="hint progressHint hidden"></p>
+
+          
+        </div>
+      </div>
+    </div>
+
+    <!-- A real <dialog>, like #worldSelect: native modality makes the page
+         behind it inert, traps focus, and gives Escape for free. Filled by
+         LibraryPanel.js. -->
+    <dialog id="libraryPanel" class="libraryPanel hidden" aria-label="Music library"></dialog>
+
+    <dialog id="worldSelect" class="worldSelect hidden" aria-labelledby="worldSelectTitle" aria-modal="true">
+      <div class="worldSelectInner">
+        <p class="worldSelectEyebrow">same song, eight worlds</p>
+        <h2 id="worldSelectTitle">Choose how your song looks</h2>
+        <p class="worldSelectHint">Each world keeps its own look and listens to this song. Preview the same quiet stretch and the same peak, then play. The cards are not a ranking — Choose for me is optional.</p>
+        <div class="worldSelectToolbar">
+          <div class="worldSelectPassages" role="group" aria-label="Preview passage">
+            <button type="button" id="worldPassageQuiet" class="worldPassageBtn" aria-pressed="false" title="The same quiet stretch of this song, in every world">Quiet</button>
+            <button type="button" id="worldPassagePeak" class="worldPassageBtn" aria-pressed="true" title="The same loud stretch of this song, in every world">Peak</button>
+          </div>
+          <button type="button" id="worldChooseForMe" class="ghostbtn" title="Play in a world that fits this mix. The cards stay unranked.">Choose for me</button>
+        </div>
+        <div id="worldSelectGrid" class="worldSelectGrid" role="list"></div>
+        <button id="worldSelectBack" type="button" class="ghostbtn worldSelectBack">Different song</button>
+      </div>
+    </dialog>
+
+    <dialog id="displaySettingsDialog"><button id="displaySettingsClose" type="button" class="ghostbtn">Close</button><div id="displaySettingsBody"></div></dialog>
+    <div id="hud" class="hidden">
+      <div id="hudLeft">
+        <div id="btLatencyControl">
+          <button id="btLatencyBtn" class="ghostbtn chipbtn" type="button" aria-pressed="false"
+            aria-haspopup="true" aria-expanded="false"
+            title="Manual Bluetooth latency correction. Most Bluetooth speakers/headphones report no output latency to the browser, so beat-anchored visuals (jumps, flashes, camera hits) can land audibly early. Tap to set how many ms to delay them by -- your room's real Bluetooth round-trip is commonly 100-200ms. Negative delays the audio instead, for the opposite problem. 0 = off. Leave off on wired audio.">
+            BT: off
+          </button>
+          <div id="btLatencyPopover" class="hidden">
+            <label for="btLatencyInput">Delay visuals by (negative delays audio)</label>
+            <div id="btLatencyInputRow">
+              <input id="btLatencyInput" type="number" inputmode="numeric" pattern="-?[0-9]*" min="-500" max="500" step="1" value="30" />
+              <span>ms</span>
+            </div>
+            <div id="btLatencyPopoverActions">
+              <button id="btLatencyOffBtn" type="button" class="ghostbtn">Off</button>
+              <button id="btLatencyApplyBtn" type="button" class="ghostbtn">Set</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="hudRight">
+        <details id="rangeCaptionDetails" hidden>
+          <summary>Landscape details</summary>
+          <p></p>
+        </details>
+        <details id="rangeNavigation" class="hidden">
+          <summary>Seek</summary>
+          <input id="rangeSeek" type="range" min="0" max="1" step="0.1" value="0" aria-label="Song position in seconds" />
+          <button id="rangeRestart" type="button" class="ghostbtn">Restart</button>
+        </details>
+        <button id="displaySettingsBtn" class="ghostbtn" type="button" title="Display settings">Display</button>
+        <button id="pauseBtn" class="ghostbtn iconbtn" type="button" title="Pause">&#9208;</button>
+        <button id="plexMusicBtn" type="button" class="ghostbtn chipbtn hidden" title="Choose music from Plex">Music</button>
+        <button id="stopBtn" class="ghostbtn iconbtn" type="button" title="Stop (back to title)">&#9209;</button>
+        <button id="fullscreenBtn" class="ghostbtn iconbtn" type="button" title="Fullscreen (F11)">&#9974;</button>
+        <button id="calibrateBtn" class="ghostbtn" type="button" title="Guided tap calibration -- tap along with the beat so taps register right on time. Same as the C key. The only way to reach this on a phone.">Sync</button>
+
+        <!-- Record from here. The full-song export lives on the complete
+             screen, where you already know you want to keep this one. -->
+        <button id="recordBtn" class="ghostbtn iconbtn recordBtn" type="button" aria-pressed="false"
+          title="Record the show to a video file from this moment. Press again to stop and save.">&#9679;</button>
+        <span id="recordStatus" class="recordStatus hidden" role="status"></span>
+
+        
+        <div id="trackBadge" class="hidden">
+          <button id="trackBadgeBtn" type="button"></button>
+          <div id="trackList"></div>
+        </div>
+      </div>
+    </div>
+    <!-- Tap recalibration (RecalibrationOverlay.js). Purely visual and
+         pointer-events:none, so taps fall through to the canvas and reach
+         the existing BeatAnchor handler untouched. The music never stops. -->
+    <div id="recalPanel" class="recalPanel hidden" aria-hidden="true">
+      <div id="recalNumber" class="recalNumber">1</div>
+      <!-- The eye phase's target. Driven from the chart's kicks on the
+           VISUAL clock, so tapping it measures the path from "the app drew
+           this beat" to "a person saw it" -- the term a by-ear pass cannot
+           reach. Hidden during the ear phase. -->
+      <div id="recalMarker" class="recalMarker hidden" aria-hidden="true"></div>
+
+      <!-- The instruction has to name what the pass MEASURES, and it
+           measures two different things in turn. Written from JS per phase. -->
+      <p id="recalInstruction" class="recalInstruction">
+        <strong>Tap the kick, when you hear it.</strong>
+        The low drum, not straight time &mdash; and go by your ears, not by
+        what the screen is doing.
+      </p>
+      <div id="recalPips" class="recalPips" aria-hidden="true"></div>
+      <div class="recalConf"><div id="recalConfFill" class="recalConfFill"></div></div>
+      <p id="recalStatus" class="recalStatus"></p>
+    </div>
+
+    <!-- A non-blocking offer, not an interruption: SyncMonitor detects when
+         the chart's own beat grid reads as scattered against the player's
+         kicks (the "characters are moving randomly" failure) and raises
+         this at most twice per song. Music never stops; dismissing it just
+         goes away. -->
+    
+
+    <div id="auditionPanel" class="panel hidden">
+      <h1 id="auditionHeading">PULLING THE RECORDING APART</h1>
+      <canvas id="auditionCanvas" width="420" height="220"></canvas>
+      <p id="auditionText" class="sub">Separating into frequency bands…</p>
+      <div id="auditionBar"><div id="auditionBarFill"></div></div>
+      <button id="plexAuditionBtn" type="button" class="ghostbtn hidden">Choose different music from Plex</button>
+      <div id="lyricsRow" class="hidden">
+        <p id="lyricsStatus" class="sub"></p>
+        <div id="lyricsFields" class="hidden">
+          <input id="lyricsArtistInput" type="text" placeholder="Artist" autocomplete="off" />
+          <input id="lyricsTitleInput" type="text" placeholder="Title" autocomplete="off" />
+          <button id="lyricsFindBtn" class="ghostbtn" type="button">Find lyrics</button>
+          <button id="lyricsSkipBtn" class="ghostbtn" type="button">Skip</button>
+          <button id="lyricsNoneBtn" class="ghostbtn" type="button" title="Skip lyrics now and for every future song">No lyrics</button>
+        </div>
+      </div>
+    </div>
+
+    <dialog id="plexLibraryPanel" class="plexPanel" aria-labelledby="plexLibraryTitle"></dialog>
+
+    <div id="dragOverlay">
+      <div class="dragOverlayMsg">Drop a song</div>
+    </div>
+
+    <!-- CSS-only, no JS: a portrait phone letterboxes the 16:9 stage down
+         to a thin strip (see #stage's object-fit: contain). Shown only
+         under the narrow-portrait media query below; never blocks input. -->
+    <div id="landscapeHint" class="landscapeHint" aria-hidden="true">Rotate your device for the full view</div>
+
+    
+
+    <div id="completePanel" class="panel completePanel hidden">
+      <div class="completeCard">
+        <p class="completeEyebrow" id="completeSongName">Song</p>
+        <h1>Complete</h1>
+        <div id="completeSeedRow" class="completeSeedRow">
+          <span class="seedLabel">Seed</span>
+          <code id="completeSeed">————————</code>
+          <button id="copySeedBtn" type="button" class="ghostbtn chipbtn" title="Copy seed">Copy</button>
+        </div>
+        <div id="resultsGrid" class="resultsGrid"></div>
+        <div id="filmstrip" class="hidden"></div>
+        <!-- Save a video. Populated from RENDER_PRESETS so the sizes have
+             one source of truth, and the note under it states what this
+             browser will actually produce before anyone spends a song on
+             it. -->
+        <div id="completeExport" class="completeExport">
+          <div class="completeExportRow">
+            <label for="exportPreset">Save a video</label>
+            <select id="exportPreset" aria-describedby="exportNote"></select>
+            <button id="exportBtn" type="button" class="ghostbtn">Record full song</button>
+          </div>
+          <p id="exportNote" class="hint completeExportNote"></p>
+        </div>
+
+        <div class="completeActions">
+          <button id="replaySameSeedBtn" type="button">Replay seed</button>
+          <button id="replayNewSeedBtn" type="button" class="ghostbtn">New seed</button>
+          <button id="playAgainBtn" type="button" class="ghostbtn">Title</button>
+        </div>
+        <div id="completeNewSeedRow" class="seedRow completeNewSeedRow hidden" title="Pick a seed for the replay.">
+          <label for="completeNewSeedInput">Seed</label>
+          <input id="completeNewSeedInput" type="text" spellcheck="false" autocomplete="off" placeholder="auto" maxlength="48" />
+          <button id="completeNewSeedStartBtn" type="button" class="ghostbtn chipbtn">Start</button>
+          <button id="completeNewSeedCancelBtn" type="button" class="ghostbtn chipbtn">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="filmstripModal" class="modalBackdrop hidden">
+      <div class="modalPanel filmstripModalPanel">
+        <div class="modalHeader">
+          <h2 id="filmstripModalTitle">Highlight</h2>
+          <button id="filmstripModalClose" class="ghostbtn iconbtn" type="button" aria-label="Close">&times;</button>
+        </div>
+        <img id="filmstripModalImg" alt="" />
+        <div class="modalFooter">
+          <a id="filmstripModalDownload" class="ghostbtn" download>Download</a>
+        </div>
+      </div>
+    </div>
+
+    <div id="debugOverlay" class="hidden"></div>
+    <div id="fpsHud" class="hidden"></div>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

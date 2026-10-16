@@ -1,0 +1,188 @@
+{
+ "credit": "Elevation: USGS 3DEP 1/3 arc-second DEM",
+ "sourceSha256": [
+  "4fcbc4955bef84eb70c1c7d402268c131533e9e830fe2be5c40db13b2c78a955"
+ ],
+ "view": {
+  "id": "la-sal-castle-valley",
+  "regionId": "la-sal-mountains",
+  "biome": "CANYON",
+  "status": "candidate",
+  "notes": "From above upper Castle Valley looking south-east over the red-rock benches to the north La Sal group.",
+  "dem": {
+   "source": "3dep13",
+   "centerLonLat": [
+    -109.34,
+    38.58
+   ],
+   "extentM": [
+    50000,
+    50000
+   ],
+   "cellM": 22
+  },
+  "rail": {
+   "eyeStart": {
+    "lonLat": [
+     -109.38412,
+     38.64405
+    ],
+    "aboveGroundM": 400
+   },
+   "eyeEnd": {
+    "lonLat": [
+     -109.39788,
+     38.63195
+    ],
+    "aboveGroundM": 400
+   },
+   "targetStart": {
+    "lonLat": [
+     -109.23413,
+     38.54005
+    ],
+    "heightM": 2471
+   },
+   "targetEnd": {
+    "lonLat": [
+     -109.24787,
+     38.52795
+    ],
+    "heightM": 2471
+   },
+   "fovYDeg": 21.1
+  },
+  "landmarks": [
+   {
+    "name": "Castleton Tower",
+    "lonLat": [
+     -109.3667,
+     38.6503
+    ],
+    "elevationM": 2025
+   },
+   {
+    "name": "Mount Peale",
+    "lonLat": [
+     -109.2292,
+     38.4386
+    ],
+    "elevationM": 3877
+   }
+  ],
+  "title": "La Sal Mountains",
+  "place": "Castle Valley, Utah",
+  "camera": {
+   "eyeStartM": [
+    -3841,
+    1872.6,
+    -7111
+   ],
+   "eyeEndM": [
+    -5039.8,
+    1853.6,
+    -5768.5
+   ],
+   "targetStartM": [
+    9230.2,
+    2471,
+    4429.4
+   ],
+   "targetEndM": [
+    8033.6,
+    2471,
+    5773.9
+   ],
+   "fovYDeg": 21.1
+  }
+ },
+ "characterScores": {
+  "energy": 0.217,
+  "rawness": 0.237,
+  "grandeur": 0.248,
+  "dominance": 0.378
+ },
+ "archetype": "serene",
+ "skylineFeatures": [
+  {
+   "reliefM": 1096.534912109375,
+   "slopeMPerKm": 113.27294710098694,
+   "peaksPer10Km": 1.7548551354537036,
+   "roughnessM": 67.405391676153,
+   "dominance": 0.4817920086066571,
+   "summitM": 3870.177978515625,
+   "lengthKm": 56.984760724506074
+  },
+  {
+   "reliefM": 1097.71240234375,
+   "slopeMPerKm": 112.4532198776266,
+   "peaksPer10Km": 1.5912916610791008,
+   "roughnessM": 69.58232579514595,
+   "dominance": 0.3606081094605925,
+   "summitM": 3863.005859375,
+   "lengthKm": 75.41043727874784
+  },
+  {
+   "reliefM": 1154.35986328125,
+   "slopeMPerKm": 115.88063281534392,
+   "peaksPer10Km": 1.5178876574295073,
+   "roughnessM": 69.70301488180156,
+   "dominance": 0.29141007110864087,
+   "summitM": 3874.893798828125,
+   "lengthKm": 72.46913133629492
+  }
+ ],
+ "manifestSha256": "930f043038551229e0b43b47d0a68db31b33a9bf23d631376af54e33fbf62c42",
+ "payloadSha256": "ad892081c31b58efd2da7eba203a528654e8aed1fd161986163de497eb0eb231",
+ "payloadBytes": 1021302,
+ "stats": {
+  "tiles": 150,
+  "desktop": {
+   "vertices": 585046,
+   "triangles": 1133568,
+   "meshBytes": 20623368,
+   "surfaceTextureBytes": 27579072
+  },
+  "mobile": {
+   "vertices": 352145,
+   "triangles": 678306,
+   "meshBytes": 12365412,
+   "surfaceTextureBytes": 27579072
+  }
+ },
+ "landmarks": [
+  {
+   "name": "Castleton Tower",
+   "lonLat": [
+    -109.3667,
+    38.6503
+   ],
+   "publishedElevationM": 2025,
+   "localM": [
+    -2324.3,
+    -7804.2
+   ],
+   "demGroundM": 1804.6392822265625,
+   "demPeakWithin200mM": 1965.3499755859375
+  },
+  {
+   "name": "Mount Peale",
+   "lonLat": [
+    -109.2292,
+    38.4386
+   ],
+   "publishedElevationM": 3877,
+   "localM": [
+    9673.6,
+    15690.5
+   ],
+   "demGroundM": 3875.851806640625,
+   "demPeakWithin200mM": 3875.851806640625
+  }
+ ],
+ "achievedErrorPx": {
+  "desktop": 0,
+  "mobile": 1.996
+ },
+ "despikedSamples": 0
+}

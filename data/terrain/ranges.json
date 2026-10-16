@@ -1,0 +1,13 @@
+{
+  "about": "The range basket. North America only. Each entry is a real mountain range, named for the range (`name`) with the place the view centres on (`landmark`): a lon/lat box around a roughly north-south crest, with a valley on at least one side for the camera. `node tools/build-ranges.mjs` fetches real elevation, traces the crest, picks the camera side, scores the skyline (RangeCharacter.js) and writes src/world/terrain/ranges/. Add an entry and rebuild to grow the basket; scores are absolute, so adding a range never re-ranks the others. `profile` points at a prebuilt profile instead of fetching (none do now: every range is built at the same 30m resolution). `side` (1 east, -1 west) overrides the automatic camera side.",
+  "ranges": [
+    {"id": "tetons", "name": "Teton Range", "landmark": "Grand Teton", "region": "Wyoming, USA", "bbox": [-111, 43.55, -110.25, 43.95]},
+    {"id": "sierra-whitney", "name": "Sierra Nevada", "landmark": "Mount Whitney", "region": "California, USA", "bbox": [-118.75, 36.25, -117.95, 36.85]},
+    {"id": "sawtooth", "name": "Sawtooth Range", "landmark": "Thompson Peak", "region": "Idaho, USA", "bbox": [-115.25, 43.85, -114.75, 44.3]},
+    {"id": "wasatch", "name": "Wasatch Range", "landmark": "Lone Peak", "region": "Utah, USA", "bbox": [-111.95, 40.45, -111.5, 41.0]},
+    {"id": "canadian-rockies", "name": "Canadian Rockies", "landmark": "Lake Louise", "region": "Alberta, Canada", "bbox": [-116.5, 51.1, -115.8, 51.55]},
+    {"id": "blue-ridge", "name": "Blue Ridge Mountains", "landmark": "Shenandoah", "region": "Virginia, USA", "bbox": [-78.75, 38.25, -78.2, 38.75]},
+    {"id": "rainier", "name": "Cascade Range", "landmark": "Mount Rainier", "region": "Washington, USA", "bbox": [-121.95, 46.7, -121.55, 47.0]},
+    {"id": "monument-valley", "name": "Monument Valley", "region": "Utah-Arizona, USA", "bbox": [-110.25, 36.9, -109.9, 37.1]}
+  ]
+}

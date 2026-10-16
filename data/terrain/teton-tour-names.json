@@ -1,0 +1,3494 @@
+{
+  "schema": "midio.tour-names",
+  "version": 1,
+  "centerLonLat": [
+    -110.83,
+    43.75
+  ],
+  "extentM": [
+    48000,
+    76000
+  ],
+  "names": [
+    {
+      "id": "5555455",
+      "name": "Mink Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.84586,
+        43.8106
+      ],
+      "elevationM": 2722,
+      "localM": [
+        -1276.1098547467875,
+        -6733.264237113585
+      ]
+    },
+    {
+      "id": "5588509",
+      "name": "Chain Lakes",
+      "featureCode": "LK",
+      "lonLat": [
+        -111.09104,
+        44.03339
+      ],
+      "elevationM": 1917,
+      "localM": [
+        -20925.281860780073,
+        -31520.63207552931
+      ]
+    },
+    {
+      "id": "5589619",
+      "name": "Corral Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -111.08778,
+        43.47535
+      ],
+      "elevationM": 2035,
+      "localM": [
+        -20856.873718569022,
+        30482.61882596323
+      ]
+    },
+    {
+      "id": "5590600",
+      "name": "Dead Man Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -111.11383,
+        43.46881
+      ],
+      "elevationM": 2242,
+      "localM": [
+        -22967.045845266362,
+        31202.371743218482
+      ]
+    },
+    {
+      "id": "5591447",
+      "name": "Dry Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -111.11216,
+        43.43353
+      ],
+      "elevationM": 2076,
+      "localM": [
+        -22845.18757978537,
+        35122.49561431596
+      ]
+    },
+    {
+      "id": "5593330",
+      "name": "Fogg Hill",
+      "featureCode": "MT",
+      "lonLat": [
+        -111.11744,
+        43.50881
+      ],
+      "elevationM": 2712,
+      "localM": [
+        -23243.817257146817,
+        26757.27619769561
+      ]
+    },
+    {
+      "id": "5596447",
+      "name": "Ice Cove Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -111.10633,
+        43.47714
+      ],
+      "elevationM": 2102,
+      "localM": [
+        -22357.087261060293,
+        30278.93280814054
+      ]
+    },
+    {
+      "id": "5596651",
+      "name": "Indian Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -111.04189,
+        44.06937
+      ],
+      "elevationM": 1958,
+      "localM": [
+        -16975.07779941888,
+        -35507.18526883712
+      ]
+    },
+    {
+      "id": "5598897",
+      "name": "Little Dry Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -111.12161,
+        43.46298
+      ],
+      "elevationM": 2339,
+      "localM": [
+        -23598.858490339167,
+        31847.92090396087
+      ]
+    },
+    {
+      "id": "5599056",
+      "name": "Little Palisades Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -111.08466,
+        43.43825
+      ],
+      "elevationM": 2837,
+      "localM": [
+        -20617.036636872013,
+        34605.26870389494
+      ]
+    },
+    {
+      "id": "5599545",
+      "name": "Lorian Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -111.07188,
+        43.46409
+      ],
+      "elevationM": 2177,
+      "localM": [
+        -19574.044201909903,
+        31737.486315351005
+      ]
+    },
+    {
+      "id": "5599611",
+      "name": "Lost Spring Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -111.11272,
+        43.46825
+      ],
+      "elevationM": 2228,
+      "localM": [
+        -22877.43768005237,
+        31264.894340027455
+      ]
+    },
+    {
+      "id": "5600930",
+      "name": "Mikesell Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -111.06189,
+        43.55242
+      ],
+      "elevationM": 1999,
+      "localM": [
+        -18738.262447446938,
+        21926.08461425363
+      ]
+    },
+    {
+      "id": "5602247",
+      "name": "Nordell Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -111.10633,
+        43.57048
+      ],
+      "elevationM": 1915,
+      "localM": [
+        -22322.64396526212,
+        19908.57716544049
+      ]
+    },
+    {
+      "id": "5602821",
+      "name": "Oliver Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -111.05605,
+        43.51964
+      ],
+      "elevationM": 2739,
+      "localM": [
+        -18276.24863577404,
+        25569.3479968778
+      ]
+    },
+    {
+      "id": "5603155",
+      "name": "Palisades Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -111.08855,
+        43.44159
+      ],
+      "elevationM": 2949,
+      "localM": [
+        -20930.81614640492,
+        34233.22031577119
+      ]
+    },
+    {
+      "id": "5604150",
+      "name": "Pole Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -111.12717,
+        43.91853
+      ],
+      "elevationM": 1845,
+      "localM": [
+        -23867.469069512637,
+        -18768.133918425097
+      ]
+    },
+    {
+      "id": "5605610",
+      "name": "Rock Hollow",
+      "featureCode": "VAL",
+      "lonLat": [
+        -111.108,
+        43.98742
+      ],
+      "elevationM": 1951,
+      "localM": [
+        -22302.035640276994,
+        -26417.236022840156
+      ]
+    },
+    {
+      "id": "5608816",
+      "name": "Stateline Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -111.048,
+        43.54103
+      ],
+      "elevationM": 2049,
+      "localM": [
+        -17619.174489357574,
+        23194.5890102031
+      ]
+    },
+    {
+      "id": "5609507",
+      "name": "Sweet Hollow",
+      "featureCode": "VAL",
+      "lonLat": [
+        -111.08328,
+        43.58325
+      ],
+      "elevationM": 1947,
+      "localM": [
+        -20456.281953625672,
+        18495.71015468494
+      ]
+    },
+    {
+      "id": "5611089",
+      "name": "Upper Palisades Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -111.12174,
+        43.4344
+      ],
+      "elevationM": 2023,
+      "localM": [
+        -23620.497779623493,
+        35023.16675511912
+      ]
+    },
+    {
+      "id": "5611148",
+      "name": "Vacation Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -111.108,
+        43.4327
+      ],
+      "elevationM": 2110,
+      "localM": [
+        -22508.679117721025,
+        35215.84162840717
+      ]
+    },
+    {
+      "id": "5611623",
+      "name": "Waterfall Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -111.10939,
+        43.43103
+      ],
+      "elevationM": 2038,
+      "localM": [
+        -22621.84456930564,
+        35401.004321326385
+      ]
+    },
+    {
+      "id": "5612375",
+      "name": "Wiggleton Hollow",
+      "featureCode": "VAL",
+      "lonLat": [
+        -111.05661,
+        43.8227
+      ],
+      "elevationM": 1964,
+      "localM": [
+        -18229.56486724609,
+        -8102.5187765639375
+      ]
+    },
+    {
+      "id": "5816925",
+      "name": "Albright Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.81382,
+        43.67076
+      ],
+      "elevationM": 3198,
+      "localM": [
+        1304.8909255694457,
+        8803.95886256886
+      ]
+    },
+    {
+      "id": "5817135",
+      "name": "Amphitheater Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.78125,
+        43.72967
+      ],
+      "elevationM": 2957,
+      "localM": [
+        3927.761393480838,
+        2257.653568927614
+      ]
+    },
+    {
+      "id": "5817335",
+      "name": "Apres Vous Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.8316,
+        43.6091
+      ],
+      "elevationM": 2561,
+      "localM": [
+        -129.16944839143846,
+        15654.832335122113
+      ]
+    },
+    {
+      "id": "5817363",
+      "name": "Arizona Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.6191,
+        43.96133
+      ],
+      "elevationM": 2121,
+      "localM": [
+        16926.47025193083,
+        -23502.379786490063
+      ]
+    },
+    {
+      "id": "5817417",
+      "name": "Arrowhead Pool",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.75881,
+        43.77548
+      ],
+      "elevationM": 2795,
+      "localM": [
+        5731.366797680722,
+        -2833.4852698363234
+      ]
+    },
+    {
+      "id": "5817543",
+      "name": "Avalanche Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.76466,
+        43.70688
+      ],
+      "elevationM": 2126,
+      "localM": [
+        5266.404510647872,
+        4788.856390186525
+      ]
+    },
+    {
+      "id": "5817754",
+      "name": "Baldy Knoll",
+      "featureCode": "MT",
+      "lonLat": [
+        -111.00883,
+        43.62159
+      ],
+      "elevationM": 2742,
+      "localM": [
+        -14434.121204307801,
+        14251.59512097687
+      ]
+    },
+    {
+      "id": "5817777",
+      "name": "Mount Bannon",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.90772,
+        43.67159
+      ],
+      "elevationM": 3344,
+      "localM": [
+        -6267.9064636507455,
+        8708.932757925184
+      ]
+    },
+    {
+      "id": "5817954",
+      "name": "Basin Lakes",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.85244,
+        43.69437
+      ],
+      "elevationM": 2904,
+      "localM": [
+        -1809.0402611983789,
+        6180.62761945596
+      ]
+    },
+    {
+      "id": "5818019",
+      "name": "Battleship Mountain",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.8691,
+        43.72326
+      ],
+      "elevationM": 3197,
+      "localM": [
+        -3150.601999232212,
+        2970.2608498009167
+      ]
+    },
+    {
+      "id": "5818066",
+      "name": "Bear Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -111.02272,
+        43.5627
+      ],
+      "elevationM": 2083,
+      "localM": [
+        -15570.41659018412,
+        20792.020310300406
+      ]
+    },
+    {
+      "id": "5818067",
+      "name": "Bear Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.90577,
+        43.93521
+      ],
+      "elevationM": 2127,
+      "localM": [
+        -6083.832672932603,
+        -20581.320422481665
+      ]
+    },
+    {
+      "id": "5818068",
+      "name": "Bear Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.97133,
+        43.75576
+      ],
+      "elevationM": 2061,
+      "localM": [
+        -11381.938961569247,
+        -649.6870558518804
+      ]
+    },
+    {
+      "id": "5818178",
+      "name": "Beard Mountain",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.93633,
+        43.82381
+      ],
+      "elevationM": 2884,
+      "localM": [
+        -8553.521685864092,
+        -8206.383364985702
+      ]
+    },
+    {
+      "id": "5818183",
+      "name": "Bearpaw Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.72965,
+        43.82977
+      ],
+      "elevationM": 2089,
+      "localM": [
+        8071.668388138187,
+        -8867.991430706996
+      ]
+    },
+    {
+      "id": "5818496",
+      "name": "Mount Berry",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.7966,
+        44.05771
+      ],
+      "elevationM": 2739,
+      "localM": [
+        2676.2888698476036,
+        -34190.312890955865
+      ]
+    },
+    {
+      "id": "5818869",
+      "name": "Bitch Creek Narrows",
+      "featureCode": "GAP",
+      "lonLat": [
+        -110.89272,
+        43.93632
+      ],
+      "elevationM": 2234,
+      "localM": [
+        -5035.909806288471,
+        -20703.774966461744
+      ]
+    },
+    {
+      "id": "5818880",
+      "name": "Bivouac Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.7841,
+        43.86882
+      ],
+      "elevationM": 3296,
+      "localM": [
+        3689.565871373747,
+        -13202.938694068174
+      ]
+    },
+    {
+      "id": "5818906",
+      "name": "Black Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.8791,
+        43.48354
+      ],
+      "elevationM": 1871,
+      "localM": [
+        -3972.1235297174703,
+        29603.803719598298
+      ]
+    },
+    {
+      "id": "5819003",
+      "name": "Blacktail Butte",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.69299,
+        43.63521
+      ],
+      "elevationM": 2341,
+      "localM": [
+        11056.156039133613,
+        12744.763418975166
+      ]
+    },
+    {
+      "id": "5819013",
+      "name": "Blacktail Ponds",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.69646,
+        43.66821
+      ],
+      "elevationM": 1974,
+      "localM": [
+        10770.24222242011,
+        9078.739498904535
+      ]
+    },
+    {
+      "id": "5819477",
+      "name": "Boyles Hill",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.83076,
+        43.47021
+      ],
+      "elevationM": 2018,
+      "localM": [
+        -61.49648741571433,
+        31085.964740563406
+      ]
+    },
+    {
+      "id": "5819499",
+      "name": "Bradley Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.75491,
+        43.71421
+      ],
+      "elevationM": 2142,
+      "localM": [
+        6051.517056885764,
+        3973.7796034295325
+      ]
+    },
+    {
+      "id": "5819812",
+      "name": "Buck Mountain",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.81938,
+        43.68937
+      ],
+      "elevationM": 3627,
+      "localM": [
+        856.2211988643418,
+        6736.348669279641
+      ]
+    },
+    {
+      "id": "5820108",
+      "name": "Burned Wagon Gulch",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.7391,
+        43.72049
+      ],
+      "elevationM": 2049,
+      "localM": [
+        7324.882902464128,
+        3274.753890135864
+      ]
+    },
+    {
+      "id": "5820337",
+      "name": "Cache Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.61047,
+        43.42382
+      ],
+      "elevationM": 3143,
+      "localM": [
+        17777.16665907149,
+        36216.55096308585
+      ]
+    },
+    {
+      "id": "5820429",
+      "name": "Camp Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.85786,
+        43.92279
+      ],
+      "elevationM": 2717,
+      "localM": [
+        -2237.4402796790696,
+        -19198.909785903466
+      ]
+    },
+    {
+      "id": "5820620",
+      "name": "Carpenter Draw",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.68299,
+        43.66271
+      ],
+      "elevationM": 2000,
+      "localM": [
+        11857.704730032574,
+        9687.984507890627
+      ]
+    },
+    {
+      "id": "5820646",
+      "name": "Carrot Knoll",
+      "featureCode": "GAP",
+      "lonLat": [
+        -110.87633,
+        44.00687
+      ],
+      "elevationM": 2687,
+      "localM": [
+        -3715.5241392460352,
+        -28541.835663914087
+      ]
+    },
+    {
+      "id": "5820676",
+      "name": "Cascade Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.74466,
+        43.76521
+      ],
+      "elevationM": 2073,
+      "localM": [
+        6871.731212124688,
+        -1693.4851003411661
+      ]
+    },
+    {
+      "id": "5821224",
+      "name": "Christian Pond",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.56603,
+        43.87693
+      ],
+      "elevationM": 2085,
+      "localM": [
+        21215.74672503501,
+        -14136.888560739118
+      ]
+    },
+    {
+      "id": "5821293",
+      "name": "Cirque Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.836,
+        43.82962
+      ],
+      "elevationM": 2929,
+      "localM": [
+        -482.6121630687508,
+        -8846.447516928942
+      ]
+    },
+    {
+      "id": "5821422",
+      "name": "Cleaver Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.84716,
+        43.83521
+      ],
+      "elevationM": 3372,
+      "localM": [
+        -1380.1419599389092,
+        -9467.67230272156
+      ]
+    },
+    {
+      "id": "5821477",
+      "name": "Cloudveil Dome",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.80771,
+        43.71882
+      ],
+      "elevationM": 3665,
+      "localM": [
+        1796.217511657407,
+        3464.0765833983637
+      ]
+    },
+    {
+      "id": "5821710",
+      "name": "Colter Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.70243,
+        43.94466
+      ],
+      "elevationM": 2066,
+      "localM": [
+        10241.409966028665,
+        -21636.44098517289
+      ]
+    },
+    {
+      "id": "5821757",
+      "name": "Conant Pass",
+      "featureCode": "GAP",
+      "lonLat": [
+        -110.87105,
+        44.00549
+      ],
+      "elevationM": 2670,
+      "localM": [
+        -3292.160625970739,
+        -28388.276277598197
+      ]
+    },
+    {
+      "id": "5821902",
+      "name": "Corral Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -111.08605,
+        43.4752
+      ],
+      "elevationM": 2041,
+      "localM": [
+        -20716.951321845205,
+        30499.715983697308
+      ]
+    },
+    {
+      "id": "5822140",
+      "name": "Cow Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.56312,
+        43.82934
+      ],
+      "elevationM": 2085,
+      "localM": [
+        21466.692676960276,
+        -8849.941978589357
+      ]
+    },
+    {
+      "id": "5822205",
+      "name": "Coyote Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.87069,
+        43.63939
+      ],
+      "elevationM": 3111,
+      "localM": [
+        -3283.2916263266684,
+        12288.661342463587
+      ]
+    },
+    {
+      "id": "5822229",
+      "name": "Lake of the Crags",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.77034,
+        43.77553
+      ],
+      "elevationM": 2917,
+      "localM": [
+        4803.1051703838075,
+        -2838.3073457714463
+      ]
+    },
+    {
+      "id": "5822271",
+      "name": "Crater Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.928,
+        43.49816
+      ],
+      "elevationM": 2178,
+      "localM": [
+        -7926.155376232856,
+        27975.993335189905
+      ]
+    },
+    {
+      "id": "5822443",
+      "name": "Crows Nest",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.89911,
+        43.86965
+      ],
+      "elevationM": 2963,
+      "localM": [
+        -5555.171251060825,
+        -13296.457396453174
+      ]
+    },
+    {
+      "id": "5822533",
+      "name": "Curtis Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.67604,
+        43.50299
+      ],
+      "elevationM": 1985,
+      "localM": [
+        12451.159738319302,
+        27432.518164308905
+      ]
+    },
+    {
+      "id": "5822570",
+      "name": "Cygnet Pond",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.61716,
+        43.90062
+      ],
+      "elevationM": 2085,
+      "localM": [
+        17099.55648257268,
+        -16757.235240300237
+      ]
+    },
+    {
+      "id": "5822653",
+      "name": "Darby Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -111.04494,
+        43.67825
+      ],
+      "elevationM": 1983,
+      "localM": [
+        -17332.41072409859,
+        7949.450922130403
+      ]
+    },
+    {
+      "id": "5822785",
+      "name": "Dead Horse Pass",
+      "featureCode": "GAP",
+      "lonLat": [
+        -110.88299,
+        43.88632
+      ],
+      "elevationM": 2860,
+      "localM": [
+        -4258.232774744829,
+        -15147.701974068556
+      ]
+    },
+    {
+      "id": "5822866",
+      "name": "Death Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.8066,
+        43.65299
+      ],
+      "elevationM": 2039,
+      "localM": [
+        1887.7289879835962,
+        10778.167255154576
+      ]
+    },
+    {
+      "id": "5823028",
+      "name": "Delta Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.77283,
+        43.7325
+      ],
+      "elevationM": 2748,
+      "localM": [
+        4605.939411745649,
+        1942.7873138716332
+      ]
+    },
+    {
+      "id": "5823312",
+      "name": "Disappointment Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.79299,
+        43.73354
+      ],
+      "elevationM": 3529,
+      "localM": [
+        2981.683872380418,
+        1828.1588029726297
+      ]
+    },
+    {
+      "id": "5823367",
+      "name": "Doane Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.7791,
+        43.91132
+      ],
+      "elevationM": 3450,
+      "localM": [
+        4088.571033881866,
+        -17925.353130551288
+      ]
+    },
+    {
+      "id": "5823604",
+      "name": "Dry Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -111.01105,
+        43.75659
+      ],
+      "elevationM": 2007,
+      "localM": [
+        -14580.567656022979,
+        -748.1300610451277
+      ]
+    },
+    {
+      "id": "5823750",
+      "name": "Dry Hollow",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.61409,
+        43.56827
+      ],
+      "elevationM": 2092,
+      "localM": [
+        17442.398244921253,
+        20168.567803093956
+      ]
+    },
+    {
+      "id": "5823796",
+      "name": "Dry Ridge Mountain",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.87188,
+        43.87465
+      ],
+      "elevationM": 3142,
+      "localM": [
+        -3366.099274073734,
+        -13850.536931442546
+      ]
+    },
+    {
+      "id": "5823853",
+      "name": "Dudley Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.78154,
+        43.87994
+      ],
+      "elevationM": 2514,
+      "localM": [
+        3894.6213110823505,
+        -14438.597002225131
+      ]
+    },
+    {
+      "id": "5824046",
+      "name": "Eagle Rest Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.75882,
+        43.89855
+      ],
+      "elevationM": 3407,
+      "localM": [
+        5718.79580769781,
+        -16507.677072345876
+      ]
+    },
+    {
+      "id": "5824066",
+      "name": "Eagles Rest Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.75891,
+        43.89842
+      ],
+      "elevationM": 3417,
+      "localM": [
+        5711.577388211312,
+        -16493.22651330293
+      ]
+    },
+    {
+      "id": "5824251",
+      "name": "East Gros Ventre Butte",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.77965,
+        43.48465
+      ],
+      "elevationM": 2259,
+      "localM": [
+        4073.172261441667,
+        29480.4199115172
+      ]
+    },
+    {
+      "id": "5824260",
+      "name": "East Horn",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.76632,
+        43.83438
+      ],
+      "elevationM": 3429,
+      "localM": [
+        5121.71671669447,
+        -9377.279891384627
+      ]
+    },
+    {
+      "id": "5824280",
+      "name": "East Prong",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.79188,
+        43.74604
+      ],
+      "elevationM": 3659,
+      "localM": [
+        3070.471365417677,
+        439.27872418162343
+      ]
+    },
+    {
+      "id": "5824370",
+      "name": "Eddington Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.96077,
+        43.75687
+      ],
+      "elevationM": 2073,
+      "localM": [
+        -10531.300043994306,
+        -771.619790033861
+      ]
+    },
+    {
+      "id": "5824505",
+      "name": "Elk Gulch",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.9641,
+        43.45076
+      ],
+      "elevationM": 2111,
+      "localM": [
+        -10854.372833135827,
+        33238.157599184524
+      ]
+    },
+    {
+      "id": "5824527",
+      "name": "Elk Mountain",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.80216,
+        43.97716
+      ],
+      "elevationM": 3268,
+      "localM": [
+        2233.7968364446097,
+        -25240.02877006382
+      ]
+    },
+    {
+      "id": "5824664",
+      "name": "Emma Matilda Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.5329,
+        43.88636
+      ],
+      "elevationM": 2096,
+      "localM": [
+        23874.69964309217,
+        -15193.692210359903
+      ]
+    },
+    {
+      "id": "5824754",
+      "name": "Ernest Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -111.03232,
+        44.03151
+      ],
+      "elevationM": 1993,
+      "localM": [
+        -16218.727606394159,
+        -31298.510064643284
+      ]
+    },
+    {
+      "id": "5825372",
+      "name": "Forellen Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.82938,
+        44.00882
+      ],
+      "elevationM": 2961,
+      "localM": [
+        49.72047246773459,
+        -28757.46137120471
+      ]
+    },
+    {
+      "id": "5825384",
+      "name": "Forget-me-not Lakes",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.87383,
+        43.65021
+      ],
+      "elevationM": 2965,
+      "localM": [
+        -3536.0247145841636,
+        11086.372914437825
+      ]
+    },
+    {
+      "id": "5825455",
+      "name": "Fossil Mountain",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.91883,
+        43.65354
+      ],
+      "elevationM": 3327,
+      "localM": [
+        -7166.044390100648,
+        10713.490720301897
+      ]
+    },
+    {
+      "id": "5825548",
+      "name": "Fox Creek Pass",
+      "featureCode": "GAP",
+      "lonLat": [
+        -110.91022,
+        43.64632
+      ],
+      "elevationM": 2917,
+      "localM": [
+        -6472.238477720394,
+        11516.379140757797
+      ]
+    },
+    {
+      "id": "5825614",
+      "name": "Freds Mountain",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.93577,
+        43.79104
+      ],
+      "elevationM": 2970,
+      "localM": [
+        -8513.126357471618,
+        -4565.300381575845
+      ]
+    },
+    {
+      "id": "5825835",
+      "name": "Garnet Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.76243,
+        43.71715
+      ],
+      "elevationM": 2174,
+      "localM": [
+        5445.212621102974,
+        3647.6473127792538
+      ]
+    },
+    {
+      "id": "5826041",
+      "name": "Gin Pole Draw",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.69354,
+        43.44743
+      ],
+      "elevationM": 2108,
+      "localM": [
+        11046.002836841852,
+        33607.81543973066
+      ]
+    },
+    {
+      "id": "5826050",
+      "name": "Glacier Gulch",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.73688,
+        43.72743
+      ],
+      "elevationM": 2049,
+      "localM": [
+        7502.9082453317405,
+        2503.473728610522
+      ]
+    },
+    {
+      "id": "5826103",
+      "name": "Glory Slide",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.92861,
+        43.49806
+      ],
+      "elevationM": 2185,
+      "localM": [
+        -7975.504814057311,
+        27987.045314512987
+      ]
+    },
+    {
+      "id": "5826104",
+      "name": "Mount Glory",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.94994,
+        43.50687
+      ],
+      "elevationM": 3065,
+      "localM": [
+        -9699.249265117513,
+        27005.96712421611
+      ]
+    },
+    {
+      "id": "5826183",
+      "name": "Goodwin Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.61707,
+        43.47123
+      ],
+      "elevationM": 2897,
+      "localM": [
+        17229.248057959157,
+        30950.615159610614
+      ]
+    },
+    {
+      "id": "5826325",
+      "name": "Grand Teton",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.80237,
+        43.74125
+      ],
+      "elevationM": 4200,
+      "localM": [
+        2225.705357924449,
+        971.8176240425611
+      ]
+    },
+    {
+      "id": "5826330",
+      "name": "Grand View Point",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.55576,
+        43.90605
+      ],
+      "elevationM": 2282,
+      "localM": [
+        22030.428674344344,
+        -17375.10393686495
+      ]
+    },
+    {
+      "id": "5826346",
+      "name": "Granite Basin Lakes",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.88309,
+        43.80977
+      ],
+      "elevationM": 2838,
+      "localM": [
+        -4271.728295772741,
+        -6642.29193385069
+      ]
+    },
+    {
+      "id": "5826348",
+      "name": "Granite Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.81743,
+        43.61798
+      ],
+      "elevationM": 2042,
+      "localM": [
+        1014.6381739896668,
+        14668.147072114945
+      ]
+    },
+    {
+      "id": "5826539",
+      "name": "Green Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.89958,
+        43.83318
+      ],
+      "elevationM": 2704,
+      "localM": [
+        -5596.3597792193705,
+        -9244.331280772161
+      ]
+    },
+    {
+      "id": "5826540",
+      "name": "Green Lakes Mountain",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.87522,
+        43.86354
+      ],
+      "elevationM": 3092,
+      "localM": [
+        -3635.2264931849672,
+        -12616.249721336431
+      ]
+    },
+    {
+      "id": "5826547",
+      "name": "Green Mountain",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.76826,
+        43.41937
+      ],
+      "elevationM": 1888,
+      "localM": [
+        4999.965921288112,
+        36732.50895008227
+      ]
+    },
+    {
+      "id": "5826549",
+      "name": "Green Mountain",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.90661,
+        43.83715
+      ],
+      "elevationM": 2929,
+      "localM": [
+        -6161.378287081057,
+        -9685.933697376342
+      ]
+    },
+    {
+      "id": "5826664",
+      "name": "Grizzly Bear Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.81053,
+        43.80311
+      ],
+      "elevationM": 2810,
+      "localM": [
+        1566.7694591225709,
+        -5901.123778959109
+      ]
+    },
+    {
+      "id": "5826974",
+      "name": "Hanging Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.74271,
+        43.76993
+      ],
+      "elevationM": 2070,
+      "localM": [
+        7028.196073299876,
+        -2218.0771129748628
+      ]
+    },
+    {
+      "id": "5827081",
+      "name": "Harem Hill",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.72077,
+        44.01938
+      ],
+      "elevationM": 2229,
+      "localM": [
+        8758.070443691464,
+        -29936.610614373367
+      ]
+    },
+    {
+      "id": "5827380",
+      "name": "Hechtman Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.79565,
+        44.04567
+      ],
+      "elevationM": 2398,
+      "localM": [
+        2752.9685236507185,
+        -32852.54063289897
+      ]
+    },
+    {
+      "id": "5827384",
+      "name": "Hedrick Pond",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.59136,
+        43.75411
+      ],
+      "elevationM": 2049,
+      "localM": [
+        19219.279532791657,
+        -484.3311574307331
+      ]
+    },
+    {
+      "id": "5827513",
+      "name": "Heron Pond",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.63606,
+        43.88502
+      ],
+      "elevationM": 2066,
+      "localM": [
+        15585.198788691527,
+        -15020.17891104774
+      ]
+    },
+    {
+      "id": "5827565",
+      "name": "Hidden Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.93411,
+        44.00657
+      ],
+      "elevationM": 2205,
+      "localM": [
+        -8349.345433587006,
+        -28512.72835884615
+      ]
+    },
+    {
+      "id": "5827792",
+      "name": "Holly Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.79815,
+        43.7927
+      ],
+      "elevationM": 2870,
+      "localM": [
+        2563.4448670704514,
+        -4744.7952271222375
+      ]
+    },
+    {
+      "id": "5827849",
+      "name": "Hominy Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.90494,
+        44.03798
+      ],
+      "elevationM": 2544,
+      "localM": [
+        -6006.816604102713,
+        -32000.23818992712
+      ]
+    },
+    {
+      "id": "5828078",
+      "name": "Housetop Mountain",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.94744,
+        43.62437
+      ],
+      "elevationM": 3176,
+      "localM": [
+        -9478.638966543229,
+        13951.561738303066
+      ]
+    },
+    {
+      "id": "5828120",
+      "name": "Huckleberry Mountain",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.60021,
+        44.08827
+      ],
+      "elevationM": 2928,
+      "localM": [
+        18403.2361118042,
+        -37611.08068858575
+      ]
+    },
+    {
+      "id": "5828175",
+      "name": "Mount Hunt",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.86132,
+        43.63104
+      ],
+      "elevationM": 3275,
+      "localM": [
+        -2527.5726994401343,
+        13216.717004685213
+      ]
+    },
+    {
+      "id": "5828207",
+      "name": "Hurricane Pass",
+      "featureCode": "GAP",
+      "lonLat": [
+        -110.85077,
+        43.72826
+      ],
+      "elevationM": 3151,
+      "localM": [
+        -1673.467025831089,
+        2415.259768965756
+      ]
+    },
+    {
+      "id": "5828265",
+      "name": "Icefloe Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.82336,
+        43.72665
+      ],
+      "elevationM": 3248,
+      "localM": [
+        535.0081207195835,
+        2594.3301513347683
+      ]
+    },
+    {
+      "id": "5828339",
+      "name": "Indian Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -111.04046,
+        44.06784
+      ],
+      "elevationM": 1953,
+      "localM": [
+        -16860.950962442024,
+        -35336.887769648674
+      ]
+    },
+    {
+      "id": "5828340",
+      "name": "Indian Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.88879,
+        43.63166
+      ],
+      "elevationM": 2990,
+      "localM": [
+        -4744.395670678811,
+        13146.629007289635
+      ]
+    },
+    {
+      "id": "5828636",
+      "name": "Jackass Pass",
+      "featureCode": "GAP",
+      "lonLat": [
+        -110.87299,
+        44.02826
+      ],
+      "elevationM": 2591,
+      "localM": [
+        -3446.4272024486527,
+        -30918.388828626055
+      ]
+    },
+    {
+      "id": "5828677",
+      "name": "Jackson Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.62631,
+        43.46243
+      ],
+      "elevationM": 3266,
+      "localM": [
+        16483.983650645958,
+        31930.181802841576
+      ]
+    },
+    {
+      "id": "5828739",
+      "name": "The Jaw",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.78716,
+        43.77826
+      ],
+      "elevationM": 3455,
+      "localM": [
+        3448.8042827573236,
+        -3140.7938908791875
+      ]
+    },
+    {
+      "id": "5828751",
+      "name": "Mount Jedediah Smith",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.89188,
+        43.68215
+      ],
+      "elevationM": 3232,
+      "localM": [
+        -4989.5784657964605,
+        7536.728678257992
+      ]
+    },
+    {
+      "id": "5828791",
+      "name": "Jenny Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.73014,
+        43.76399
+      ],
+      "elevationM": 2069,
+      "localM": [
+        8041.071347528202,
+        -1559.2408043692444
+      ]
+    },
+    {
+      "id": "5828798",
+      "name": "Jensen Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.85493,
+        43.55271
+      ],
+      "elevationM": 1912,
+      "localM": [
+        -2014.5007410827627,
+        21919.689677236933
+      ]
+    },
+    {
+      "id": "5829699",
+      "name": "Kit Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.83228,
+        43.71499
+      ],
+      "elevationM": 3160,
+      "localM": [
+        -183.74323809089114,
+        3889.8542528918874
+      ]
+    },
+    {
+      "id": "5830145",
+      "name": "Laurel Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.74199,
+        43.78176
+      ],
+      "elevationM": 2289,
+      "localM": [
+        7084.77038727683,
+        -3532.5445883343873
+      ]
+    },
+    {
+      "id": "5830229",
+      "name": "Leeks Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.79298,
+        43.45215
+      ],
+      "elevationM": 1871,
+      "localM": [
+        2996.4180530892913,
+        33091.796448560155
+      ]
+    },
+    {
+      "id": "5830249",
+      "name": "Leigh Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.75382,
+        43.81466
+      ],
+      "elevationM": 2098,
+      "localM": [
+        6129.096115072888,
+        -7187.063778162172
+      ]
+    },
+    {
+      "id": "5830256",
+      "name": "Leigh Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.73213,
+        43.81352
+      ],
+      "elevationM": 2097,
+      "localM": [
+        7874.324663520111,
+        -7062.235004392954
+      ]
+    },
+    {
+      "id": "5830846",
+      "name": "Littles Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.87022,
+        43.80604
+      ],
+      "elevationM": 3258,
+      "localM": [
+        -3236.3835618956505,
+        -6227.27351568141
+      ]
+    },
+    {
+      "id": "5831004",
+      "name": "Long Hollow",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.63798,
+        43.57827
+      ],
+      "elevationM": 2001,
+      "localM": [
+        15509.865586927752,
+        19062.263581284424
+      ]
+    },
+    {
+      "id": "5831325",
+      "name": "Lunch Tree Hill",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.57854,
+        43.8805
+      ],
+      "elevationM": 2125,
+      "localM": [
+        20209.088441892338,
+        -14530.416351908845
+      ]
+    },
+    {
+      "id": "5831465",
+      "name": "Maidenform Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.85133,
+        43.82493
+      ],
+      "elevationM": 3390,
+      "localM": [
+        -1715.8205799991595,
+        -8325.550574666146
+      ]
+    },
+    {
+      "id": "5831548",
+      "name": "Marion Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.92905,
+        43.62353
+      ],
+      "elevationM": 2816,
+      "localM": [
+        -7994.484440960467,
+        14046.82450625281
+      ]
+    },
+    {
+      "id": "5832050",
+      "name": "Mount Meek",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.88216,
+        43.68576
+      ],
+      "elevationM": 3233,
+      "localM": [
+        -4205.572175710963,
+        7136.174446870953
+      ]
+    },
+    {
+      "id": "5832158",
+      "name": "Mica Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.84426,
+        43.78359
+      ],
+      "elevationM": 2915,
+      "localM": [
+        -1147.8893574614283,
+        -3732.2061362900668
+      ]
+    },
+    {
+      "id": "5832250",
+      "name": "Middle Fork Phillips Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.89632,
+        43.52854
+      ],
+      "elevationM": 2204,
+      "localM": [
+        -5361.214247929495,
+        24603.22088910317
+      ]
+    },
+    {
+      "id": "5832309",
+      "name": "Middle Teton",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.81133,
+        43.72993
+      ],
+      "elevationM": 3904,
+      "localM": [
+        1504.2253877841363,
+        2229.7514098000925
+      ]
+    },
+    {
+      "id": "5832471",
+      "name": "Millers Butte",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.72687,
+        43.50715
+      ],
+      "elevationM": 1990,
+      "localM": [
+        8339.827771098508,
+        26976.680176310878
+      ]
+    },
+    {
+      "id": "5832745",
+      "name": "Moose Gulch",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.97549,
+        43.45659
+      ],
+      "elevationM": 2139,
+      "localM": [
+        -11775.175412909412,
+        32588.888276895854
+      ]
+    },
+    {
+      "id": "5832751",
+      "name": "Moose Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.94526,
+        43.59456
+      ],
+      "elevationM": 2838,
+      "localM": [
+        -9307.285634412716,
+        17263.837293273635
+      ]
+    },
+    {
+      "id": "5832756",
+      "name": "Moose Mountain",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.85633,
+        43.93743
+      ],
+      "elevationM": 3050,
+      "localM": [
+        -2114.047158832201,
+        -20825.532731818086
+      ]
+    },
+    {
+      "id": "5832758",
+      "name": "Moose Pond",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.7423,
+        43.74885
+      ],
+      "elevationM": 2067,
+      "localM": [
+        7063.686932362656,
+        124.03519019909817
+      ]
+    },
+    {
+      "id": "5832766",
+      "name": "Moran Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.75466,
+        43.86132
+      ],
+      "elevationM": 2080,
+      "localM": [
+        6056.7918887902615,
+        -12371.351739565996
+      ]
+    },
+    {
+      "id": "5832770",
+      "name": "Moran Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.75132,
+        43.86438
+      ],
+      "elevationM": 2066,
+      "localM": [
+        6324.980249508113,
+        -12711.597094269999
+      ]
+    },
+    {
+      "id": "5832773",
+      "name": "Mount Moran",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.77632,
+        43.83521
+      ],
+      "elevationM": 3837,
+      "localM": [
+        4317.3671808160825,
+        -9468.929887640748
+      ]
+    },
+    {
+      "id": "5832849",
+      "name": "Mosquito Pass",
+      "featureCode": "GAP",
+      "lonLat": [
+        -111.03216,
+        43.47659
+      ],
+      "elevationM": 2538,
+      "localM": [
+        -16356.346782088764,
+        30357.280165606415
+      ]
+    },
+    {
+      "id": "5832878",
+      "name": "Mount Meek Pass",
+      "featureCode": "GAP",
+      "lonLat": [
+        -110.87466,
+        43.68409
+      ],
+      "elevationM": 2962,
+      "localM": [
+        -3600.959805518159,
+        7322.074523767274
+      ]
+    },
+    {
+      "id": "5832964",
+      "name": "Mud Pass",
+      "featureCode": "GAP",
+      "lonLat": [
+        -110.99355,
+        43.42381
+      ],
+      "elevationM": 2711,
+      "localM": [
+        -13244.00266779074,
+        36228.07898275459
+      ]
+    },
+    {
+      "id": "5832965",
+      "name": "Mud Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -111.01688,
+        43.43826
+      ],
+      "elevationM": 2894,
+      "localM": [
+        -15129.627119536899,
+        34618.695710609994
+      ]
+    },
+    {
+      "id": "5833376",
+      "name": "Nez Perce",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.79744,
+        43.71937
+      ],
+      "elevationM": 3612,
+      "localM": [
+        2623.7912645134015,
+        3402.694088785779
+      ]
+    },
+    {
+      "id": "5833475",
+      "name": "Noker Mine Draw",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.65492,
+        43.4366
+      ],
+      "elevationM": 2230,
+      "localM": [
+        14174.697649941661,
+        34805.19865260248
+      ]
+    },
+    {
+      "id": "5833483",
+      "name": "Mount Nord",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.88188,
+        43.95132
+      ],
+      "elevationM": 2957,
+      "localM": [
+        -4164.498018246265,
+        -22369.83821649781
+      ]
+    },
+    {
+      "id": "5833485",
+      "name": "Nordwall Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -111.03688,
+        43.56353
+      ],
+      "elevationM": 2047,
+      "localM": [
+        -16714.215490899016,
+        20697.054884299512
+      ]
+    },
+    {
+      "id": "5833486",
+      "name": "Nord Pass",
+      "featureCode": "GAP",
+      "lonLat": [
+        -110.86549,
+        43.94104
+      ],
+      "elevationM": 2866,
+      "localM": [
+        -2849.3351466878357,
+        -21226.91895162939
+      ]
+    },
+    {
+      "id": "5833749",
+      "name": "North Fork Phillips Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.88716,
+        43.5352
+      ],
+      "elevationM": 2119,
+      "localM": [
+        -4620.2244565874225,
+        23863.823724688213
+      ]
+    },
+    {
+      "id": "5833770",
+      "name": "North Fork Snowshoe Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.77466,
+        43.88466
+      ],
+      "elevationM": 2293,
+      "localM": [
+        4447.200337167218,
+        -14963.383118795959
+      ]
+    },
+    {
+      "id": "5833978",
+      "name": "Nowlin Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.64631,
+        43.46021
+      ],
+      "elevationM": 3008,
+      "localM": [
+        14865.990884893086,
+        32180.59146205676
+      ]
+    },
+    {
+      "id": "5834280",
+      "name": "Open Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.80493,
+        43.62826
+      ],
+      "elevationM": 2022,
+      "localM": [
+        2023.2812309808758,
+        13525.760207989008
+      ]
+    },
+    {
+      "id": "5834335",
+      "name": "Ortenburger Lake (not official)",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.84471,
+        43.87464
+      ],
+      "elevationM": 2931,
+      "localM": [
+        -1182.3144327340945,
+        -13848.678383370789
+      ]
+    },
+    {
+      "id": "5834405",
+      "name": "Mount Owen",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.79744,
+        43.74688
+      ],
+      "elevationM": 3934,
+      "localM": [
+        2622.5904921693577,
+        346.1396004357432
+      ]
+    },
+    {
+      "id": "5834430",
+      "name": "Owl Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.79466,
+        43.97771
+      ],
+      "elevationM": 3229,
+      "localM": [
+        2835.547830546675,
+        -25301.37064656633
+      ]
+    },
+    {
+      "id": "5834509",
+      "name": "Paintbrush Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.75299,
+        43.81188
+      ],
+      "elevationM": 2101,
+      "localM": [
+        6196.1615602774145,
+        -6878.243672059523
+      ]
+    },
+    {
+      "id": "5834666",
+      "name": "Pass Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.90833,
+        43.6436
+      ],
+      "elevationM": 2900,
+      "localM": [
+        -6320.036331180055,
+        11818.731225005444
+      ]
+    },
+    {
+      "id": "5834949",
+      "name": "Phelps Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.79648,
+        43.64347
+      ],
+      "elevationM": 2023,
+      "localM": [
+        2704.5585597907557,
+        11835.610513711985
+      ]
+    },
+    {
+      "id": "5834977",
+      "name": "Phillips Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.8616,
+        43.54243
+      ],
+      "elevationM": 1946,
+      "localM": [
+        -2553.9126667251458,
+        23061.649559051304
+      ]
+    },
+    {
+      "id": "5834989",
+      "name": "Phillips Pass",
+      "featureCode": "GAP",
+      "lonLat": [
+        -110.93216,
+        43.54826
+      ],
+      "elevationM": 2722,
+      "localM": [
+        -8255.777901979463,
+        22409.33120163402
+      ]
+    },
+    {
+      "id": "5835044",
+      "name": "Pilgrim Mountain",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.57826,
+        43.9405
+      ],
+      "elevationM": 2517,
+      "localM": [
+        20211.276691123338,
+        -21197.117093419965
+      ]
+    },
+    {
+      "id": "5835338",
+      "name": "Plummer Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -111.03605,
+        43.56631
+      ],
+      "elevationM": 2063,
+      "localM": [
+        -16646.392731613814,
+        20388.35288364702
+      ]
+    },
+    {
+      "id": "5835710",
+      "name": "Prospectors Mountain",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.84938,
+        43.64937
+      ],
+      "elevationM": 3417,
+      "localM": [
+        -1563.5207334661852,
+        11180.452498949651
+      ]
+    },
+    {
+      "id": "5835927",
+      "name": "Rammell Mountain",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.90161,
+        43.90298
+      ],
+      "elevationM": 3085,
+      "localM": [
+        -5752.916604181546,
+        -16999.92558680138
+      ]
+    },
+    {
+      "id": "5835941",
+      "name": "Ramshead Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.76407,
+        43.77668
+      ],
+      "elevationM": 2895,
+      "localM": [
+        5307.788397201668,
+        -2966.4641483170817
+      ]
+    },
+    {
+      "id": "5835942",
+      "name": "Ramshield Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.76407,
+        43.77668
+      ],
+      "elevationM": 2895,
+      "localM": [
+        5307.788397201668,
+        -2966.4641483170817
+      ]
+    },
+    {
+      "id": "5835971",
+      "name": "Ranger Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.76355,
+        43.92855
+      ],
+      "elevationM": 3454,
+      "localM": [
+        5336.093397059277,
+        -19840.677312414347
+      ]
+    },
+    {
+      "id": "5836092",
+      "name": "Raynolds Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.82549,
+        43.87076
+      ],
+      "elevationM": 3318,
+      "localM": [
+        362.5142110830772,
+        -13417.477223901304
+      ]
+    },
+    {
+      "id": "5836280",
+      "name": "Red Mountain",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.8716,
+        43.97826
+      ],
+      "elevationM": 3103,
+      "localM": [
+        -3337.795728138655,
+        -25362.716318950064
+      ]
+    },
+    {
+      "id": "5836397",
+      "name": "Mount Reid",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.6516,
+        43.99911
+      ],
+      "elevationM": 2394,
+      "localM": [
+        14308.99958968836,
+        -27694.035057809208
+      ]
+    },
+    {
+      "id": "5836411",
+      "name": "Rendezvous Mountain",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.9049,
+        43.56724
+      ],
+      "elevationM": 3337,
+      "localM": [
+        -6050.936728059382,
+        20302.92971828714
+      ]
+    },
+    {
+      "id": "5836413",
+      "name": "Rendezvous Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.9049,
+        43.56724
+      ],
+      "elevationM": 3337,
+      "localM": [
+        -6050.936728059382,
+        20302.92971828714
+      ]
+    },
+    {
+      "id": "5836631",
+      "name": "Rimrock Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.84559,
+        43.65518
+      ],
+      "elevationM": 3024,
+      "localM": [
+        -1257.6335664530054,
+        10534.994212467198
+      ]
+    },
+    {
+      "id": "5836899",
+      "name": "Rock Springs Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.83827,
+        43.57465
+      ],
+      "elevationM": 1915,
+      "localM": [
+        -668.0255187500122,
+        19482.342666285716
+      ]
+    },
+    {
+      "id": "5836909",
+      "name": "Rockchuck Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.76771,
+        43.78827
+      ],
+      "elevationM": 3381,
+      "localM": [
+        5013.776332389345,
+        -4253.978998092453
+      ]
+    },
+    {
+      "id": "5836987",
+      "name": "Rolling Thunder Mountain",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.81049,
+        43.89049
+      ],
+      "elevationM": 3314,
+      "localM": [
+        1567.6981551580823,
+        -15609.850935227896
+      ]
+    },
+    {
+      "id": "5837315",
+      "name": "Mount Saint John",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.77327,
+        43.78188
+      ],
+      "elevationM": 3469,
+      "localM": [
+        4566.733508414454,
+        -3543.676909546202
+      ]
+    },
+    {
+      "id": "5837367",
+      "name": "Salt Lick Draw",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.71409,
+        43.45799
+      ],
+      "elevationM": 2037,
+      "localM": [
+        9380.913216010826,
+        32437.102171033283
+      ]
+    },
+    {
+      "id": "5837964",
+      "name": "Shadow Mountain",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.58493,
+        43.71133
+      ],
+      "elevationM": 2513,
+      "localM": [
+        19751.18521889576,
+        4267.3176343135365
+      ]
+    },
+    {
+      "id": "5837965",
+      "name": "Shadow Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.79327,
+        43.71493
+      ],
+      "elevationM": 3272,
+      "localM": [
+        2960.0420570997794,
+        3895.867504884449
+      ]
+    },
+    {
+      "id": "5838219",
+      "name": "Sherman Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -111.02272,
+        43.5627
+      ],
+      "elevationM": 2083,
+      "localM": [
+        -15570.41659018412,
+        20792.020310300406
+      ]
+    },
+    {
+      "id": "5838372",
+      "name": "Signal Mountain",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.56715,
+        43.84883
+      ],
+      "elevationM": 2354,
+      "localM": [
+        21135.655460523383,
+        -11014.421578478088
+      ]
+    },
+    {
+      "id": "5838537",
+      "name": "Ski Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.93245,
+        43.52535
+      ],
+      "elevationM": 2638,
+      "localM": [
+        -8282.348523149441,
+        24954.67694290631
+      ]
+    },
+    {
+      "id": "5838665",
+      "name": "Smith Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.78743,
+        43.43576
+      ],
+      "elevationM": 1853,
+      "localM": [
+        3446.5682880154486,
+        34912.53368858828
+      ]
+    },
+    {
+      "id": "5838733",
+      "name": "Smoky Hollow Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.99605,
+        43.41631
+      ],
+      "elevationM": 2883,
+      "localM": [
+        -13448.108327553005,
+        37060.93585270155
+      ]
+    },
+    {
+      "id": "5838783",
+      "name": "Snow King Mountain",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.76382,
+        43.46215
+      ],
+      "elevationM": 2378,
+      "localM": [
+        5355.7610019459635,
+        31979.318050561942
+      ]
+    },
+    {
+      "id": "5838794",
+      "name": "Snowdrift Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.82721,
+        43.7086
+      ],
+      "elevationM": 3051,
+      "localM": [
+        224.8675894579165,
+        4599.8242743479
+      ]
+    },
+    {
+      "id": "5838796",
+      "name": "Snowshoe Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.73716,
+        43.87077
+      ],
+      "elevationM": 2066,
+      "localM": [
+        7462.48654888886,
+        -13422.768499461761
+      ]
+    },
+    {
+      "id": "5838913",
+      "name": "Lake Solitude",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.84468,
+        43.79256
+      ],
+      "elevationM": 2755,
+      "localM": [
+        -1181.5214577087352,
+        -4728.851747643446
+      ]
+    },
+    {
+      "id": "5839042",
+      "name": "South Fork Avalanche Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.7916,
+        43.70493
+      ],
+      "elevationM": 2380,
+      "localM": [
+        3095.140610151787,
+        5006.872337020996
+      ]
+    },
+    {
+      "id": "5839062",
+      "name": "South Fork Cascade Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.8166,
+        43.7641
+      ],
+      "elevationM": 2378,
+      "localM": [
+        1079.0121791935442,
+        -1566.7030178335572
+      ]
+    },
+    {
+      "id": "5839198",
+      "name": "South Fork Snowshoe Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.77466,
+        43.88493
+      ],
+      "elevationM": 2295,
+      "localM": [
+        4447.1802509230965,
+        -14993.382817453923
+      ]
+    },
+    {
+      "id": "5839247",
+      "name": "South Leigh Lakes",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.87861,
+        43.77954
+      ],
+      "elevationM": 2897,
+      "localM": [
+        -3913.230627031283,
+        -3283.2685163432493
+      ]
+    },
+    {
+      "id": "5839331",
+      "name": "South Teton",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.81855,
+        43.71854
+      ],
+      "elevationM": 3801,
+      "localM": [
+        922.6911737919761,
+        3495.364229487687
+      ]
+    },
+    {
+      "id": "5839383",
+      "name": "Spearhead Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.91105,
+        43.63687
+      ],
+      "elevationM": 3062,
+      "localM": [
+        -6540.228831603151,
+        12566.258723908157
+      ]
+    },
+    {
+      "id": "5839666",
+      "name": "Spring Gulch",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.77021,
+        43.53104
+      ],
+      "elevationM": 1920,
+      "localM": [
+        4833.13871863635,
+        24325.86331875526
+      ]
+    },
+    {
+      "id": "5839735",
+      "name": "Squaw Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -111.00077,
+        43.51853
+      ],
+      "elevationM": 2184,
+      "localM": [
+        -13807.086964108405,
+        25703.329869640318
+      ]
+    },
+    {
+      "id": "5839852",
+      "name": "Starvation Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -111.02716,
+        43.43326
+      ],
+      "elevationM": 2939,
+      "localM": [
+        -15963.200598424879,
+        35172.28425398999
+      ]
+    },
+    {
+      "id": "5839875",
+      "name": "Static Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.81605,
+        43.68271
+      ],
+      "elevationM": 3417,
+      "localM": [
+        1124.8217768951224,
+        7476.275624613841
+      ]
+    },
+    {
+      "id": "5839901",
+      "name": "Steamboat Mountain",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.70716,
+        44.05077
+      ],
+      "elevationM": 2391,
+      "localM": [
+        9844.123619911525,
+        -33425.98140419824
+      ]
+    },
+    {
+      "id": "5839981",
+      "name": "Stewart Draw",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.75993,
+        43.63382
+      ],
+      "elevationM": 1948,
+      "localM": [
+        5654.497358826256,
+        12905.935699558666
+      ]
+    },
+    {
+      "id": "5840128",
+      "name": "String Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.73355,
+        43.78771
+      ],
+      "elevationM": 2097,
+      "localM": [
+        7763.417047291621,
+        -4194.394191351583
+      ]
+    },
+    {
+      "id": "5840329",
+      "name": "Sunset Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.85626,
+        43.71036
+      ],
+      "elevationM": 2944,
+      "localM": [
+        -2116.433735823292,
+        4403.945347054755
+      ]
+    },
+    {
+      "id": "5840360",
+      "name": "Surprise Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.77738,
+        43.72848
+      ],
+      "elevationM": 2917,
+      "localM": [
+        4239.649161485862,
+        2389.6801782202688
+      ]
+    },
+    {
+      "id": "5840362",
+      "name": "Survey Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.85022,
+        44.04021
+      ],
+      "elevationM": 2824,
+      "localM": [
+        -1620.6735424119595,
+        -32245.488284590996
+      ]
+    },
+    {
+      "id": "5840399",
+      "name": "Swan Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.63058,
+        43.88701
+      ],
+      "elevationM": 2064,
+      "localM": [
+        16025.043263823976,
+        -15242.33582777276
+      ]
+    },
+    {
+      "id": "5840534",
+      "name": "Table Mountain",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.58881,
+        43.50327
+      ],
+      "elevationM": 3025,
+      "localM": [
+        19505.5964035856,
+        27384.66328005941
+      ]
+    },
+    {
+      "id": "5840535",
+      "name": "Table Mountain",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.85188,
+        43.7466
+      ],
+      "elevationM": 3372,
+      "localM": [
+        -1762.363248376102,
+        377.5322351929228
+      ]
+    },
+    {
+      "id": "5840561",
+      "name": "Taggart Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.75473,
+        43.70419
+      ],
+      "elevationM": 2105,
+      "localM": [
+        6067.033901903158,
+        5087.054282465264
+      ]
+    },
+    {
+      "id": "5840566",
+      "name": "Talbot Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -111.01522,
+        43.52576
+      ],
+      "elevationM": 2098,
+      "localM": [
+        -14973.609590863027,
+        24897.556339370563
+      ]
+    },
+    {
+      "id": "5840573",
+      "name": "Talus Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.80355,
+        43.90031
+      ],
+      "elevationM": 2949,
+      "localM": [
+        2125.0026993586007,
+        -16701.108164213907
+      ]
+    },
+    {
+      "id": "5840574",
+      "name": "Lake Taminah",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.8063,
+        43.70775
+      ],
+      "elevationM": 2761,
+      "localM": [
+        1910.192540509085,
+        4693.995636465377
+      ]
+    },
+    {
+      "id": "5840629",
+      "name": "Taylor Mountain",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.98077,
+        43.53104
+      ],
+      "elevationM": 3152,
+      "localM": [
+        -12187.529055894996,
+        24316.555873078232
+      ]
+    },
+    {
+      "id": "5840684",
+      "name": "Teewinot Mountain",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.78021,
+        43.74715
+      ],
+      "elevationM": 3733,
+      "localM": [
+        4010.386796762494,
+        315.45099483523575
+      ]
+    },
+    {
+      "id": "5840783",
+      "name": "Teton Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -111.01216,
+        43.76048
+      ],
+      "elevationM": 2001,
+      "localM": [
+        -14669.009345927869,
+        -1180.5344012087505
+      ]
+    },
+    {
+      "id": "5840792",
+      "name": "Teton Pass",
+      "featureCode": "GAP",
+      "lonLat": [
+        -110.95521,
+        43.49742
+      ],
+      "elevationM": 2571,
+      "localM": [
+        -10127.000520387532,
+        28055.258458106124
+      ]
+    },
+    {
+      "id": "5840794",
+      "name": "Teton Range",
+      "featureCode": "MTS",
+      "lonLat": [
+        -110.88411,
+        43.75132
+      ],
+      "elevationM": 2820,
+      "localM": [
+        -4358.043076055435,
+        -148.08480817990127
+      ]
+    },
+    {
+      "id": "5840931",
+      "name": "Thor Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.79494,
+        43.83077
+      ],
+      "elevationM": 3659,
+      "localM": [
+        2820.009600294783,
+        -8974.802798721856
+      ]
+    },
+    {
+      "id": "5841073",
+      "name": "Timberline Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.81229,
+        43.68627
+      ],
+      "elevationM": 3143,
+      "localM": [
+        1427.915103329305,
+        7080.680114085176
+      ]
+    },
+    {
+      "id": "5841339",
+      "name": "Trapper Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.73248,
+        43.83298
+      ],
+      "elevationM": 2109,
+      "localM": [
+        7843.616467046438,
+        -9224.378980743932
+      ]
+    },
+    {
+      "id": "5841343",
+      "name": "Traverse Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.79466,
+        43.86799
+      ],
+      "elevationM": 3370,
+      "localM": [
+        2840.763987143779,
+        -13110.300619579439
+      ]
+    },
+    {
+      "id": "5841347",
+      "name": "Treasure Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.94833,
+        43.75337
+      ],
+      "elevationM": 2096,
+      "localM": [
+        -9530.024915597503,
+        -381.2374770850509
+      ]
+    },
+    {
+      "id": "5841348",
+      "name": "Treasure Mountain",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.94105,
+        43.72937
+      ],
+      "elevationM": 2982,
+      "localM": [
+        -8947.283897248528,
+        2286.1470309649562
+      ]
+    },
+    {
+      "id": "5841491",
+      "name": "Turquoise Lake",
+      "featureCode": "LK",
+      "lonLat": [
+        -110.56617,
+        43.41978
+      ],
+      "elevationM": 2885,
+      "localM": [
+        21365.927424649883,
+        36654.99760269246
+      ]
+    },
+    {
+      "id": "5841879",
+      "name": "Valhalla Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.80244,
+        43.7641
+      ],
+      "elevationM": 2339,
+      "localM": [
+        2219.222067008891,
+        -1566.9849237201804
+      ]
+    },
+    {
+      "id": "5841938",
+      "name": "Veiled Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.82605,
+        43.70076
+      ],
+      "elevationM": 3446,
+      "localM": [
+        318.4024167980849,
+        5470.895257791575
+      ]
+    },
+    {
+      "id": "5842361",
+      "name": "Webb Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.72438,
+        43.98605
+      ],
+      "elevationM": 2080,
+      "localM": [
+        8473.36290618677,
+        -26232.860469068262
+      ]
+    },
+    {
+      "id": "5842389",
+      "name": "The Wedge",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.90216,
+        43.70187
+      ],
+      "elevationM": 3157,
+      "localM": [
+        -5816.580961250165,
+        5345.0440812604265
+      ]
+    },
+    {
+      "id": "5842611",
+      "name": "West Gros Ventre Butte",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.80076,
+        43.51076
+      ],
+      "elevationM": 2099,
+      "localM": [
+        2364.4140841413964,
+        26580.351442445095
+      ]
+    },
+    {
+      "id": "5842614",
+      "name": "West Horn",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.76994,
+        43.8316
+      ],
+      "elevationM": 3427,
+      "localM": [
+        4830.788086057555,
+        -9068.179171064508
+      ]
+    },
+    {
+      "id": "5842950",
+      "name": "The Wigwams",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.84549,
+        43.76826
+      ],
+      "elevationM": 3297,
+      "localM": [
+        -1247.219434000663,
+        -2028.9403054498803
+      ]
+    },
+    {
+      "id": "5843013",
+      "name": "Wildcat Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.56743,
+        44.04578
+      ],
+      "elevationM": 2952,
+      "localM": [
+        21043.542791946784,
+        -32897.712377034506
+      ]
+    },
+    {
+      "id": "5843315",
+      "name": "Window Peak",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.85383,
+        43.85632
+      ],
+      "elevationM": 3198,
+      "localM": [
+        -1915.9199741966531,
+        -11813.321080625838
+      ]
+    },
+    {
+      "id": "5843385",
+      "name": "Mount Wister",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.81688,
+        43.70187
+      ],
+      "elevationM": 3493,
+      "localM": [
+        1057.560162030225,
+        5347.491065972629
+      ]
+    },
+    {
+      "id": "5843467",
+      "name": "Mount Woodring",
+      "featureCode": "MT",
+      "lonLat": [
+        -110.79383,
+        43.80299
+      ],
+      "elevationM": 3514,
+      "localM": [
+        2910.640209870709,
+        -5888.242430171131
+      ]
+    },
+    {
+      "id": "5843476",
+      "name": "Woods Canyon",
+      "featureCode": "VAL",
+      "lonLat": [
+        -110.73215,
+        43.46521
+      ],
+      "elevationM": 1963,
+      "localM": [
+        7918.325623013191,
+        31636.8229747698
+      ]
+    }
+  ],
+  "provenance": {
+    "provider": "GeoNames",
+    "license": "CC BY 4.0",
+    "url": "https://download.geonames.org/export/dump/US.zip",
+    "inputFile": "US.zip",
+    "sha256": "39b82abf1d32534718b9213c87327d4197b3f803bde8c4f422a2551544a7ac02",
+    "builtAt": "2026-10-08T17:24:45.172Z"
+  }
+}

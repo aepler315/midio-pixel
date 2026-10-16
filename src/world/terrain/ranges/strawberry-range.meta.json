@@ -1,0 +1,34 @@
+{
+  "id": "strawberry-range",
+  "name": "Strawberry Range",
+  "landmark": "Strawberry Mountain",
+  "region": "Oregon, USA",
+  "bbox": [
+    -118.993,
+    44.113,
+    -118.44,
+    44.511
+  ],
+  "source": "discovered",
+  "archetype": "serene",
+  "mood": "calm",
+  "quality": {
+    "floorShare": 0.07,
+    "artifact": 0.06
+  },
+  "scores": {
+    "energy": 0.264,
+    "rawness": 0.27,
+    "grandeur": 0.363,
+    "dominance": 0.324
+  },
+  "features": {
+    "reliefM": 1635.2,
+    "slopeMPerKm": 136.5,
+    "peaksPer10Km": 1.8,
+    "roughnessM": 81.2,
+    "dominance": 0.3,
+    "summitM": 2754.6,
+    "lengthKm": 67.9
+  }
+}

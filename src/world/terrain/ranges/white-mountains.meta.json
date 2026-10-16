@@ -1,0 +1,34 @@
+{
+  "id": "white-mountains",
+  "name": "White Mountains",
+  "landmark": "White Mountain Peak",
+  "region": "California, USA",
+  "bbox": [
+    -118.505,
+    37.435,
+    -118.006,
+    37.833
+  ],
+  "source": "discovered",
+  "archetype": "majestic",
+  "mood": "heroism",
+  "quality": {
+    "floorShare": 0.05,
+    "artifact": 0.04
+  },
+  "scores": {
+    "energy": 0.333,
+    "rawness": 0.251,
+    "grandeur": 0.587,
+    "dominance": 0.277
+  },
+  "features": {
+    "reliefM": 2641.5,
+    "slopeMPerKm": 160.1,
+    "peaksPer10Km": 1.9,
+    "roughnessM": 64.9,
+    "dominance": 0.3,
+    "summitM": 4337.7,
+    "lengthKm": 67.1
+  }
+}

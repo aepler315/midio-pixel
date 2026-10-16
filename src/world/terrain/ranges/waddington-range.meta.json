@@ -1,0 +1,34 @@
+{
+  "id": "waddington-range",
+  "name": "Waddington Range",
+  "landmark": "Mount Waddington",
+  "region": "British Columbia, Canada",
+  "bbox": [
+    -125.579,
+    51.173,
+    -124.946,
+    51.571
+  ],
+  "source": "discovered",
+  "archetype": "majestic",
+  "mood": "heroism",
+  "quality": {
+    "floorShare": 0.03,
+    "artifact": 0.28
+  },
+  "scores": {
+    "energy": 0.647,
+    "rawness": 0.648,
+    "grandeur": 0.452,
+    "dominance": 0.676
+  },
+  "features": {
+    "reliefM": 2033.8,
+    "slopeMPerKm": 448.3,
+    "peaksPer10Km": 4.6,
+    "roughnessM": 182.1,
+    "dominance": 0.7,
+    "summitM": 3943.7,
+    "lengthKm": 45.6
+  }
+}

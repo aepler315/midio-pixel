@@ -1,0 +1,34 @@
+{
+  "id": "absaroka-range",
+  "name": "Absaroka Range",
+  "landmark": "Carter Mountain",
+  "region": "Wyoming, USA",
+  "bbox": [
+    -109.694,
+    43.996,
+    -109.143,
+    44.394
+  ],
+  "source": "discovered",
+  "archetype": "serene",
+  "mood": "calm",
+  "quality": {
+    "floorShare": 0.02,
+    "artifact": 0.12
+  },
+  "scores": {
+    "energy": 0.355,
+    "rawness": 0.391,
+    "grandeur": 0.22,
+    "dominance": 0.203
+  },
+  "features": {
+    "reliefM": 990.8,
+    "slopeMPerKm": 213.7,
+    "peaksPer10Km": 3,
+    "roughnessM": 102.6,
+    "dominance": 0.2,
+    "summitM": 3700.4,
+    "lengthKm": 43.7
+  }
+}

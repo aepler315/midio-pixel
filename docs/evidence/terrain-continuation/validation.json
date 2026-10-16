@@ -1,0 +1,73 @@
+{
+  "baseCommit": "c7c22e850a92bdea6313653ab03903f587e03e28",
+  "sourceCommit": "bc2b82d530ed468925e27c13a47f0ad3437343d0",
+  "sourceFiles": {
+    "data/terrain/scenic-views.json": "e0ba1c2c9d386e74853bec406836323cdd790f53ff01d904a91c60198f8fc525",
+    "src/render/Renderer.js": "6e5a21f86bceaeb16151f9c5a86e91b3f9df61eb782fc1ce15b9c6e417e88a00",
+    "src/world/BiomeManager.js": "8cced07bc2d13563fd10c74103a2b34233c6ecf7c2cda581d71fcad0fa0d6003",
+    "src/world/LandscapePresentation.js": "18e36465ce8638c5ef5f0754f90c64c6929e79af38ba9bff4a31a84fc4d21354",
+    "src/world/RidgeMotionHistory.js": "6b3f22097ded7c56122f209f72d9fa28bc745ae88b9a89125f0e2bb44c85250c",
+    "src/world/alpine/MaterialPackage.js": "488e31406ccb70a6755ab8607373f394dde1de48ddd91c0ef485645012f034c8",
+    "src/world/alpine/RangeComposition.js": "76814aca457ef540ace0044d759da71f89fd682485c6b1580227b5a23c65b4f6",
+    "src/world/alpine/RangeFrame.js": "23f51e426298f56e597681924ef9d608a423a5fa2733afcb217bc7e17454344b",
+    "src/world/alpine/RangePresentation.js": "ae7fe45ad220603bbeb7a0947841f423cdc27a6bf74aa11eb19bf6338593002d",
+    "src/world/alpine/RangeScene.js": "7b1d7b2f708b21ce4a686df6582eaafba41be3dd8d2e9471e445cfe5fd8a803f",
+    "src/world/alpine/RidgeComposition.js": "436bd9545fbe730b1cdc756da96e8d54dd6823b072743fb7207358b389fa72c0",
+    "src/world/alpine/RidgeMotion.js": "b4783ab3e98ae362bf99e6c558a04efcc5c6179c39f4f644d11a7500602daf46",
+    "src/world/alpine/RockStage.js": "7de149cc921f8a9cf6b5e0d4a719037e01c92bec7b1ba6439fcaebed01f70fe5",
+    "src/world/alpine/TerrainMaterial.js": "bd54719ccca1bd1d8241c3ec5ca3a1e7b5bc1c79b38e34a1be1cda88e8922684",
+    "src/world/terrain/SceneCatalog.js": "bc7c3951d6d5922a8a04931c46e6fd3ffcfbeeb6726135cc905237e2de4d77bc",
+    "src/world/terrain/sceneCatalogData.js": "b64d2a5d872559d6df90c6bb787c7b27abece13836244d551bad83328208dfa3",
+    "test/heatDistortionComposite.test.js": "4056bc5d5ebecee58998503b0879dbb181561d7ea61a465d9283244f26cb6b42",
+    "test/inhabitedShore.test.js": "509d4bed1b88e76eb8a72894f14d702ff3b1c1c6062ee177cce30decf66fd326",
+    "test/landscapeMotion.test.js": "16ccb3996f3b1ee78d8e7cff90e9e4660f92719012a1873165b3a633fa8575cc",
+    "test/landscapePresentation.test.js": "175a8a182ac13d3d09a3b42dc1f1a36aa6f0b57707077567eedeb24b6b92d26a",
+    "test/rangeComposition.test.js": "4a996552afc736c88707cd44ded081f083c2299225c4189d23bcf3b2c49f7a36",
+    "test/rangeMotionMetrics.test.js": "65447ced2b438b6570413c4e1f22025c571d280a7acb13866ee74199c3177b18",
+    "test/rangePresentation.test.js": "16ed74d7b9e096891644fed59b7158183bdcb0b72e749a9986e7447732f6648d",
+    "test/rangeSceneLifecycle.test.js": "5c295dd119513ad12d30212ebc1a5c5824dd51a1e0cd4bf4d56f6e22ce10ce52",
+    "test/rangeSceneTransition.test.js": "f139f0adb478192a5ebac58de36dac60f3b26e9e7fe3d0dca3161b0f4927b89d",
+    "test/rangeWaterResponse.test.js": "8f69593442823a067ed88cc34bbf8d5ece25b4db7cf51462dbb6dac4df9fee25",
+    "test/rendererOutputFit.test.js": "49a3f8f4b66ee44af2ec8f73ef8c2107959a3efe0005f6dd2bfe63d1f6b6f50f",
+    "test/ridgeMotionHistory.test.js": "a26a34b35fcd4775f5f6120ea0fea8e4d3d19581ad35f650b20da47fc78acff6",
+    "test/sceneApproval.test.mjs": "d0e8bf78365abebcb33705663eaf4dc168a39f0b16762a3bc6d62b1cd9bbf044",
+    "tools/build-range-scene.mjs": "0024c32f08b96d0b3f584309728b03a99b50105d3e4a7c083c7e3901d759e76f",
+    "tools/landscape-performance-smoke.mjs": "9897900688c3b7ffc4f141b05768df9139898807d8cb570d348e495fad7ab133",
+    "tools/lib/range-motion-evidence.mjs": "acea62b28aef234cb66b3de04d553bf3bc63b22fe43db83c20053a828a5b7d80",
+    "tools/lib/range-motion-metrics.mjs": "e1e68655238e89dafe8779a9d29dbcf9eb98ca308d3c79f9ffd90f5577a65434",
+    "tools/range-composition-coverage.mjs": "2873a57d1410b8f11374267ee0648920eb1dc36734c79c3c3506653b2c74125f",
+    "tools/range-motion-evidence.mjs": "c1b45c613e11f76d5961abe6de8f3cb7782e3fab3451c770f8c75286c3f688a0",
+    "tools/range-scene-smoke.mjs": "481d88aa65382be54c6b57a7f37e784356e18eb4ae6b79c6e25d05a76c8d7e96",
+    "package.json": "30b47460cdbe20c63f037c0da4c67fdfedb1eabed3cf2df90ba5af6950ce99ba",
+    "package-lock.json": "15c888147e1cd9598bd0117eb2760f12f0846c9778529d618a54ac6a06dcdd9f"
+  },
+  "tests": {
+    "command": "npm test -- --test-concurrency=4",
+    "counts": {
+      "tests": 3677,
+      "pass": 3672,
+      "fail": 0,
+      "skipped": 5
+    },
+    "fullLogSha256": "4cf9c060d579e129a1c152da27eeb1ca077e0a3d2c91d1941a56507ecebfe20f",
+    "authoringFollowup": "13 approval/glacier tests passed after shared-source tool cleanup"
+  },
+  "lint": "passed",
+  "stage": {
+    "command": "npm run stage:site",
+    "runtimeRebuilt": true,
+    "catalogEntriesVerified": 16,
+    "httpDelivery": "staged-delivery.json"
+  },
+  "install": {
+    "cleanPrefixOffline": "ENOTCACHED: yocto-queue",
+    "dependencySource": "preinstalled node_modules; package versions verified against lockfile"
+  },
+  "review": "Two important findings fixed and focused re-review resolved; no remaining concrete findings.",
+  "pending": [
+    "GPU/browser final composite captures",
+    "decoded video/audio export",
+    "real-song artistic review",
+    "physical desktop and Android frame-time/memory acceptance"
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "id": "countess-of-dufferin-range",
+  "name": "Countess of Dufferin Range",
+  "landmark": "Mount Patterson",
+  "region": "British Columbia, Canada",
+  "bbox": [
+    -129.834,
+    53.244,
+    -129.171,
+    53.642
+  ],
+  "source": "discovered",
+  "archetype": "serene",
+  "mood": "calm",
+  "quality": {
+    "floorShare": 0.05,
+    "artifact": 0.08
+  },
+  "scores": {
+    "energy": 0.272,
+    "rawness": 0.27,
+    "grandeur": 0.186,
+    "dominance": 0.392
+  },
+  "features": {
+    "reliefM": 836.2,
+    "slopeMPerKm": 128.2,
+    "peaksPer10Km": 2.6,
+    "roughnessM": 51,
+    "dominance": 0.4,
+    "summitM": 1030.7,
+    "lengthKm": 42.1
+  }
+}

@@ -1,0 +1,218 @@
+{
+  "src/audio/AnalysisBundle.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/audio/OnsetDetector.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/audio/Sf2Parser.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/audio/SoundfontLibrary.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/core/DemoSong.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/lyrics/LyricGrounding.js": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "src/lyrics/SongIdentity.js": {
+    "no-control-regex": {
+      "count": 2
+    }
+  },
+  "src/main.js": {
+    "no-unused-vars": {
+      "count": 3
+    }
+  },
+  "src/render/spectral.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/sim/BabyStars.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/sim/BattleDirector.js": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "src/sim/SyncMonitor.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/ui/TitleBackdrop.js": {
+    "no-unused-vars": {
+      "count": 4
+    }
+  },
+  "src/utils/color.js": {
+    "no-useless-assignment": {
+      "count": 3
+    }
+  },
+  "src/utils/zip.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/world/FarVignettes.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/world/NearField.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/world/ParticleField.js": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "src/world/WorldAssembly.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/world/dna/OklchColor.js": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "src/world/dna/SongDNA.js": {
+    "no-useless-assignment": {
+      "count": 9
+    }
+  },
+  "test/airJump.test.js": {
+    "no-unused-vars": {
+      "count": 3
+    }
+  },
+  "test/burrow.test.js": {
+    "no-unused-vars": {
+      "count": 1
+    },
+    "no-useless-assignment": {
+      "count": 3
+    }
+  },
+  "test/cameraDirector.test.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "test/conductorLeak.test.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "test/excursionDirector.test.js": {
+    "no-unused-vars": {
+      "count": 3
+    },
+    "no-useless-assignment": {
+      "count": 2
+    }
+  },
+  "test/helpers/sf2Fixture.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "test/keyDirector.test.js": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "test/perf-governor.test.js": {
+    "no-unused-vars": {
+      "count": 1
+    },
+    "no-useless-assignment": {
+      "count": 2
+    }
+  },
+  "test/ridgePortrait.test.js": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "test/ridgeShape.test.js": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "test/skyVoyage.test.js": {
+    "no-useless-assignment": {
+      "count": 12
+    }
+  },
+  "test/starCatalogue.test.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "test/vibeEnsemble.test.js": {
+    "no-useless-assignment": {
+      "count": 1
+    }
+  },
+  "test/weatherDirector.test.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "test/worldScore.test.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "tools/free-music.mjs": {
+    "no-useless-assignment": {
+      "count": 1
+    },
+    "no-useless-escape": {
+      "count": 1
+    }
+  },
+  "tools/song-meta.mjs": {
+    "no-sparse-arrays": {
+      "count": 1
+    },
+    "no-useless-assignment": {
+      "count": 1
+    },
+    "no-useless-escape": {
+      "count": 15
+    }
+  },
+  "tools/soulseek-bridge.mjs": {
+    "no-sparse-arrays": {
+      "count": 1
+    },
+    "no-unused-vars": {
+      "count": 1
+    }
+  }
+}

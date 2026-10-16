@@ -1,0 +1,167 @@
+{
+ "credit": "Elevation: USGS 3DEP 1/3 arc-second DEM",
+ "sourceSha256": [
+  "c888770207f27ef836b91b02f2848650c49d9f156e82d494f736f97b3de384ee"
+ ],
+ "view": {
+  "id": "white-mountains-owens",
+  "regionId": "white-mountains",
+  "biome": "STEPPE",
+  "status": "candidate",
+  "notes": "From the Owens Valley floor near Laws looking east-north-east at the White Mountains escarpment and White Mountain Peak.",
+  "dem": {
+   "source": "3dep13",
+   "centerLonLat": [
+    -118.34,
+    37.47
+   ],
+   "extentM": [
+    50000,
+    50000
+   ],
+   "cellM": 22
+  },
+  "rail": {
+   "eyeStart": {
+    "lonLat": [
+     -118.40602,
+     37.47653
+    ],
+    "aboveGroundM": 400
+   },
+   "eyeEnd": {
+    "lonLat": [
+     -118.39398,
+     37.46347
+    ],
+    "aboveGroundM": 400
+   },
+   "targetStart": {
+    "lonLat": [
+     -118.25103,
+     37.56653
+    ],
+    "heightM": 2537
+   },
+   "targetEnd": {
+    "lonLat": [
+     -118.23897,
+     37.55347
+    ],
+    "heightM": 2537
+   },
+   "fovYDeg": 24
+  },
+  "landmarks": [
+   {
+    "name": "White Mountain Peak",
+    "lonLat": [
+     -118.2555,
+     37.6341
+    ],
+    "elevationM": 4344
+   }
+  ],
+  "title": "White Mountains",
+  "place": "Owens Valley, California",
+  "camera": {
+   "eyeStartM": [
+    -5839.7,
+    1675.7,
+    -726.8
+   ],
+   "eyeEndM": [
+    -4775.5,
+    1792.6,
+    723.4
+   ],
+   "targetStartM": [
+    7860.2,
+    2537,
+    -10717.3
+   ],
+   "targetEndM": [
+    8927.2,
+    2537,
+    -9268.9
+   ],
+   "fovYDeg": 24
+  }
+ },
+ "characterScores": {
+  "energy": 0.219,
+  "rawness": 0.219,
+  "grandeur": 0.218,
+  "dominance": 0.577
+ },
+ "archetype": "brooding",
+ "skylineFeatures": [
+  {
+   "reliefM": 933.8291015625,
+   "slopeMPerKm": 130.0567566240909,
+   "peaksPer10Km": 1.7438753015611799,
+   "roughnessM": 68.06301775409202,
+   "dominance": 0.6157519391032177,
+   "summitM": 4339.69677734375,
+   "lengthKm": 40.14048477969352
+  },
+  {
+   "reliefM": 1078.271484375,
+   "slopeMPerKm": 124.17630447015277,
+   "peaksPer10Km": 1.5685650447438884,
+   "roughnessM": 58.212701054944134,
+   "dominance": 0.5303439297196939,
+   "summitM": 4324.546875,
+   "lengthKm": 38.251521797616405
+  },
+  {
+   "reliefM": 925.063720703125,
+   "slopeMPerKm": 129.47718898664544,
+   "peaksPer10Km": 1.4888329606659307,
+   "roughnessM": 53.89716914463084,
+   "dominance": 0.5858704834786244,
+   "summitM": 4270.939453125,
+   "lengthKm": 26.866680854586036
+  }
+ ],
+ "manifestSha256": "a83a16041b1153ff3babe0a156ed1e54ce47acb9d663f42cca2e53223800fb83",
+ "payloadSha256": "85cc9eac527de9ddc523e7c56c65b980694c3731f8279703c5618adff0d00e10",
+ "payloadBytes": 1215850,
+ "stats": {
+  "tiles": 213,
+  "desktop": {
+   "vertices": 708616,
+   "triangles": 1371378,
+   "meshBytes": 24959928,
+   "surfaceTextureBytes": 27579072
+  },
+  "mobile": {
+   "vertices": 407451,
+   "triangles": 783900,
+   "meshBytes": 14296212,
+   "surfaceTextureBytes": 27579072
+  }
+ },
+ "landmarks": [
+  {
+   "name": "White Mountain Peak",
+   "lonLat": [
+    -118.2555,
+    37.6341
+   ],
+   "publishedElevationM": 4344,
+   "localM": [
+    7458.6,
+    -18216.5
+   ],
+   "demGroundM": 4330.66015625,
+   "demPeakWithin200mM": 4339.69677734375
+  }
+ ],
+ "achievedErrorPx": {
+  "desktop": 0.969,
+  "mobile": 1.986
+ },
+ "despikedSamples": 0,
+ "gentleGroundSmoothingM": null
+}

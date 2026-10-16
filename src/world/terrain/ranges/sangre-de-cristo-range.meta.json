@@ -1,0 +1,34 @@
+{
+  "id": "sangre-de-cristo-range",
+  "name": "Sangre de Cristo Range",
+  "landmark": "Mount Adams",
+  "region": "Colorado, USA",
+  "bbox": [
+    -105.856,
+    37.808,
+    -105.354,
+    38.207
+  ],
+  "source": "discovered",
+  "archetype": "majestic",
+  "mood": "heroism",
+  "quality": {
+    "floorShare": 0.04,
+    "artifact": 0.06
+  },
+  "scores": {
+    "energy": 0.407,
+    "rawness": 0.369,
+    "grandeur": 0.402,
+    "dominance": 0.214
+  },
+  "features": {
+    "reliefM": 1811.2,
+    "slopeMPerKm": 187.6,
+    "peaksPer10Km": 3.5,
+    "roughnessM": 71.2,
+    "dominance": 0.2,
+    "summitM": 4343.4,
+    "lengthKm": 65.1
+  }
+}

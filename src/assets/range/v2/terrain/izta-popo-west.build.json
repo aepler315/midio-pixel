@@ -1,0 +1,239 @@
+{
+ "credit": "Elevation: AWS Terrain Tiles",
+ "sourceSha256": [
+  "f225b989957eebdf5f62a32985e6aad172500604898497723a671ba460e177dc",
+  "05f934da3e3cc38c2a6d0197188bd355298cf229a6a424a4df3fa1d4a6b95d25",
+  "aceada6a3f02309e61f26ba68eb90762691aa159bc5eab4f5eeb88c23fe8c920",
+  "52b5fb8aae865118c3b70a62ff0f889c8564d2bbe323636031498e7097f14bc9",
+  "f29d9012715a2d1941cff6bbace241cb97977903759ca9c3cdb9d300d1633b9f",
+  "68bc8fe7b97b8cc15a5cc2ebebba9b4d5fd256321c4d847c6ad42f0f93fb7703",
+  "f8fe4f5ce3231ea795d4e51f456fa30c234d710cc9ad4af5d2a23284e2731b42",
+  "6d80fae9e13bedc82efa265e5bc3d6254a09a6b07e4c1384ac02a6c3571a31d9",
+  "78915b83a5309eaced68463418881658c9e35a0cd34614b5e79c963cd5b530ff",
+  "6ad36847d31fada18face6aa7a3e59508b7651d1bd5c2d4ff78e75796a6cd997",
+  "4c627a7a4ff7d2c68b336dffd0d980b5c36cd481ef2cac410d864b737a2a7449",
+  "74f1b31432201afecee70647cd7b6a616d68a13eb05d1e77248fb15d97a62774",
+  "274f15255d347cc418a62fbb1d76a60c2d3d360099f1eefdf741b658985991f7",
+  "37cc363493f786b95797fd8f7f93b3aae4063ed3a20f0a867676b9573fc307e7",
+  "d8e7a59e8e1a52297636359e9d07e7ea8302d44185b724c754e2f11d6488c198",
+  "a4d75ec9dd37e89615874c274cd0e6556771489c504a33b90abdc865a65e6dd3",
+  "da430785b527e777da8abb6dc35781f8820275598b127fbc615d96c12d9c3423",
+  "9371bcd8f1ecb10c27784ff5ee56d369862f42e967c6134c9b8da2685ae411d1",
+  "d0356911335b230093e7310a334dab96876ec2efa926900799d94ffdab7508c2",
+  "b5ccc3aee81ec521bcbf58349f87c9cf466cc20080120a21be476032666f296f",
+  "fb89abdac2ade16c89aaf1d58b27e808d8a1c0bb4a4b65a9951e702e4b1abbe7",
+  "6e71ec6bae016306a63c4029d6b7c5016be933fd6a7ad5e32412ba9ad66cc439",
+  "0275d350ee1a118ae828ed8db4ac90d839ecbbe63416e7ca7e598bb69b4e4821",
+  "55dd877c9a50c39a80950d042c9fc8d93b6daf98a33afbfdbead38190f427469",
+  "29daaab482ae82e3494f30a0113066cdb50880961bc387dc4d5c9ba756fec782",
+  "bc4979d3c8f8f219eeff3f322405e174e7830f3dcd486c4718fb919ed6440437",
+  "964eee84124e5a76e1aa0356144241f9cbe005113d709d369054e0c9a269d58f",
+  "e3ed014e255d3a8efb40d4361ec9bef14408eebe5ed4d6ceafb53fdabea2265a",
+  "79b2000c498968fa34437fdad630908fc947285253ae371ea7db034516c84d4e",
+  "81328f2cbbad78cb0553228332e67f59ab5184016849326c32b82985ab58a1e5",
+  "d0acda2f18faee9127c9bdb05384be8642e4d3253159e56a0bef75e51fee356d",
+  "ab3f785977487f3b110a27d507c372a9e0caf7c3c1a148a8f397d00f12a78a33",
+  "796c50499815018c8f988472aadba9c8d4c10a19f36f79fe9947f50df136d934",
+  "059e5aa8b7857c085f2148bd0ec1490fa5e864ecf61b30df254d2bf84f91339c",
+  "6236a1f6b25f70a78116012937436fd901a7569057ddf1333e48eb54cffa9bee",
+  "883895512f72107431a3fba679449b95c0101853129f9c834e637a917c328a62",
+  "2f74fa6c8fa98a188642129d36bceb6433803c25d237223e570f05d98f02fa74",
+  "e4376e6d009fad9a8c4cdec55b372f078bad1b9e112206e73d6ed3b1c78d5cb6",
+  "850228536a293504474e9fd1026f2cfa8df76aef6a7b527464141fed65371171",
+  "58ade7c4efcf653842961d2ae966b6f60e9cda3282fdbb6ebfa2991138bbc43c",
+  "3b9f5882e261ad5dc6b8320ea9f3a25199b4ffa16c9625d4b94cbcb92b06551e",
+  "32cc26ecae73d6ca970603dc229e6b3f90e31e6cbeb078766d2da5256d34db1e",
+  "11e83726211db94a4d707b24ba77747605c7373c382440e89b86050050585181",
+  "d8277c3fe84a93be1cc2a9e14000fee3291c353eec7e314b34d838226e14c006",
+  "41eba753f815af5aca9cc4417913cfa78266e57b1ae59846019a91b35ba24ac5",
+  "b7f563cc166a4b59333e43a28c11ff88b4ab877369dadc07c5a907489bb45dd1",
+  "4dda0a11f80862e3b765901f3cc88eff55218891d874f01edcafc6732ca48ad5",
+  "42bdc77b7846b8cefd54858ab6d6de55f961f9c1bd755d8717b5c125bc028206",
+  "05ea6952b8c8b6e91306e1719a9a67e0fc0469bffa7a489b3fa9e5d61f11bfa6"
+ ],
+ "view": {
+  "id": "izta-popo-west",
+  "regionId": "trans-mexican-volcanic-belt",
+  "biome": "PINE_OAK",
+  "status": "candidate",
+  "notes": "From the western foothills above Tlalmanalco looking east to Iztaccíhuatl and Popocatépetl.",
+  "dem": {
+   "source": "terrarium",
+   "zoom": 12,
+   "centerLonLat": [
+    -98.72,
+    19.1
+   ],
+   "extentM": [
+    52000,
+    52000
+   ],
+   "cellM": 36
+  },
+  "rail": {
+   "eyeStart": {
+    "lonLat": [
+     -98.86888,
+     19.13802
+    ],
+    "aboveGroundM": 400
+   },
+   "eyeEnd": {
+    "lonLat": [
+     -98.87112,
+     19.12198
+    ],
+    "aboveGroundM": 400
+   },
+   "targetStart": {
+    "lonLat": [
+     -98.62888,
+     19.10802
+    ],
+    "heightM": 2407
+   },
+   "targetEnd": {
+    "lonLat": [
+     -98.63112,
+     19.09198
+    ],
+    "heightM": 2407
+   },
+   "fovYDeg": 30
+  },
+  "landmarks": [
+   {
+    "name": "Iztaccíhuatl",
+    "lonLat": [
+     -98.6425,
+     19.1786
+    ],
+    "elevationM": 5230
+   },
+   {
+    "name": "Popocatépetl",
+    "lonLat": [
+     -98.6278,
+     19.0225
+    ],
+    "elevationM": 5426
+   }
+  ],
+  "title": "Iztaccíhuatl and Popocatépetl",
+  "place": "Trans-Mexican Volcanic Belt, México",
+  "water": false,
+  "camera": {
+   "eyeStartM": [
+    -15662.9,
+    2829.7,
+    -4215.2
+   ],
+   "eyeEndM": [
+    -15900.1,
+    2858.9,
+    -2439.9
+   ],
+   "targetStartM": [
+    9588,
+    2407,
+    -890.3
+   ],
+   "targetEndM": [
+    9353.2,
+    2407,
+    885.4
+   ],
+   "fovYDeg": 30
+  }
+ },
+ "characterScores": {
+  "energy": 0.269,
+  "rawness": 0.19,
+  "grandeur": 0.38,
+  "dominance": 0.643
+ },
+ "archetype": "brooding",
+ "skylineFeatures": [
+  {
+   "reliefM": 1707.527587890625,
+   "slopeMPerKm": 159.48537813033073,
+   "peaksPer10Km": 1.8214809667964114,
+   "roughnessM": 47.33445584587567,
+   "dominance": 0.5857847682445879,
+   "summitM": 5395.80322265625,
+   "lengthKm": 43.92030521224858
+  },
+  {
+   "reliefM": 1706.64501953125,
+   "slopeMPerKm": 156.6958601601093,
+   "peaksPer10Km": 1.547530381006563,
+   "roughnessM": 45.520257763812985,
+   "dominance": 0.6375584407112708,
+   "summitM": 5395.46923828125,
+   "lengthKm": 45.23336075280782
+  },
+  {
+   "reliefM": 1717.13330078125,
+   "slopeMPerKm": 138.5140620794886,
+   "peaksPer10Km": 1.5437780426076646,
+   "roughnessM": 36.37707728455943,
+   "dominance": 0.7066993982123526,
+   "summitM": 5401.78955078125,
+   "lengthKm": 51.82092100809286
+  }
+ ],
+ "manifestSha256": "435e0a01cab2af34ca66a16d7bd63cf513ab3d4b071a9ff941709ea63ad3478a",
+ "payloadSha256": "02233f778ef622fef7601d005c7dcd96dcbf45ecf3ce40cd427a6aff7f07a202",
+ "payloadBytes": 995553,
+ "stats": {
+  "tiles": 162,
+  "desktop": {
+   "vertices": 580082,
+   "triangles": 1122984,
+   "meshBytes": 20436792,
+   "surfaceTextureBytes": 11136133
+  },
+  "mobile": {
+   "vertices": 304982,
+   "triangles": 586560,
+   "meshBytes": 10698504,
+   "surfaceTextureBytes": 11136133
+  }
+ },
+ "landmarks": [
+  {
+   "name": "Iztaccíhuatl",
+   "lonLat": [
+    -98.6425,
+    19.1786
+   ],
+   "publishedElevationM": 5230,
+   "localM": [
+    8151.4,
+    -8702.3
+   ],
+   "demGroundM": 5194.7626953125,
+   "demPeakWithin200mM": 5207.62939453125
+  },
+  {
+   "name": "Popocatépetl",
+   "lonLat": [
+    -98.6278,
+    19.0225
+   ],
+   "publishedElevationM": 5426,
+   "localM": [
+    9706.6,
+    8576.1
+   ],
+   "demGroundM": 5394.2705078125,
+   "demPeakWithin200mM": 5410.27587890625
+  }
+ ],
+ "achievedErrorPx": {
+  "desktop": 0.99,
+  "mobile": 1.998
+ },
+ "despikedSamples": 0,
+ "gentleGroundSmoothingM": 1.538778093672491
+}

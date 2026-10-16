@@ -1,0 +1,34 @@
+{
+  "id": "jackson-mountains",
+  "name": "Jackson Mountains",
+  "landmark": "Parrot Peak",
+  "region": "Nevada, USA",
+  "bbox": [
+    -118.735,
+    41.167,
+    -118.209,
+    41.565
+  ],
+  "source": "discovered",
+  "archetype": "brooding",
+  "mood": "melancholy",
+  "quality": {
+    "floorShare": 0.12,
+    "artifact": 0.06
+  },
+  "scores": {
+    "energy": 0.226,
+    "rawness": 0.198,
+    "grandeur": 0.301,
+    "dominance": 0.581
+  },
+  "features": {
+    "reliefM": 1352.4,
+    "slopeMPerKm": 128.3,
+    "peaksPer10Km": 1.4,
+    "roughnessM": 54.2,
+    "dominance": 0.6,
+    "summitM": 2762.3,
+    "lengthKm": 41.7
+  }
+}

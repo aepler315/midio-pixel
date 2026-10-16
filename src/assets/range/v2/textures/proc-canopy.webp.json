@@ -1,0 +1,21 @@
+{
+ "channels": [
+  "normalX",
+  "normalY",
+  "coverage",
+  "height"
+ ],
+ "generator": {
+  "script": "tools/terrain/make-materials.py",
+  "kind": "canopy",
+  "seed": 12,
+  "numpy": "1.26.4"
+ },
+ "masterSize": 1024,
+ "width": 512,
+ "height": 512,
+ "format": "webp-lossless",
+ "colorSpace": "data",
+ "sha256": "e00ed901f016f1315a635f298754a9eb3ab45ebd587dbb9d996dd0f6603c9417",
+ "bytes": 578984
+}

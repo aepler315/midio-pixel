@@ -1,0 +1,43 @@
+node_modules/
+*.log
+.DS_Store
+.smoke/
+_site/
+.smoke-soundfont.png
+.smoke-multitrack.png
+.smoke-hotswap.png
+.smoke-fontswitcher.png
+
+# User-dropped SoundFonts (see soundfonts/README.md) — never commit binary
+# fonts; the folder itself stays tracked via the README.
+/soundfonts/*.sf2
+/soundfonts/*.zip
+
+# slskd downloads / local secrets
+/data/slskd-downloads/**
+!/data/slskd-downloads/.gitkeep
+
+# Elevation rasters used to build a profile. The profile JSON is the asset.
+/data/terrain/*.tif
+/data/terrain/*-grid.json
+.env
+
+# Elevation tiles fetched by tools/fetch-terrain-grid.mjs
+/.terrain-cache/
+
+# Content-addressed offline tour field authoring results
+/.cache/teton-tour/
+
+# Downloaded history used by source ZIP previews
+.midio-history/
+
+# Captured evidence belongs in CI artifacts or Release assets, not git
+# history (see AGENTS.md). Only the index and the two folders cited by
+# src/world/terrain/sceneCatalogData.js stay tracked.
+/docs/evidence/*
+!/docs/evidence/README.md
+!/docs/evidence/range-v2/
+!/docs/evidence/terrain-continuation/
+
+# Private Plex adapter credentials
+.env.plex

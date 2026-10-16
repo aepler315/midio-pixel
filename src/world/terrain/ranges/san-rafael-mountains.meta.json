@@ -1,0 +1,34 @@
+{
+  "id": "san-rafael-mountains",
+  "name": "San Rafael Mountains",
+  "landmark": "Big Pine Mountain",
+  "region": "California, USA",
+  "bbox": [
+    -119.895,
+    34.498,
+    -119.414,
+    34.896
+  ],
+  "source": "discovered",
+  "archetype": "defiant",
+  "mood": "defiance",
+  "quality": {
+    "floorShare": 0.01,
+    "artifact": 0.12
+  },
+  "scores": {
+    "energy": 0.23,
+    "rawness": 0.251,
+    "grandeur": 0.163,
+    "dominance": 0.608
+  },
+  "features": {
+    "reliefM": 732.7,
+    "slopeMPerKm": 102,
+    "peaksPer10Km": 2.3,
+    "roughnessM": 53.5,
+    "dominance": 0.6,
+    "summitM": 2077.2,
+    "lengthKm": 62
+  }
+}

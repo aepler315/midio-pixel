@@ -1,0 +1,571 @@
+{
+ "sha": "51d4965c3832288d643b151344e2b17155a08cc8",
+ "dirty": "M src/render/GraphicsResidency.js\n M src/world/BiomeManager.js\n M src/world/alpine/RangePresentation.js\n M src/world/terrain/TerrainStripCache.js\n M tools/range-scene-smoke.mjs",
+ "suite": "lifecycle",
+ "served": {
+  "src/world/alpine/RangeScene.js": "0dae018c7b9ef4bad4e8b636bcfe1926e41ad8effcd8152be3ffb21b82bcf7e1",
+  "src/world/alpine/RangePresentation.js": "a076c2fa866164cb32313f88987716150fc339c796af86d60e74e8af93bd44b0",
+  "src/world/alpine/RangeFrame.js": "8efbc861651431a3df26d5923143c4fa58ff852ea3a4317c35aaaa4c62c3fefc",
+  "src/world/alpine/TerrainMesh.js": "935f981ccddab5931ec72b58edfe0e1382029b5d498749409b919343f8d13944",
+  "src/world/alpine/TerrainGL.js": "3534ea0d98194b9e1ef0940874b8eadd40c8bd549a282da2c9efee594052cf59",
+  "src/world/alpine/TerrainMaterial.js": "c7cecabca0b1ae1885ae290c7da0fbbba43dce4e7af0a63c4718d658e099f35b",
+  "src/world/alpine/TerrainPackage.js": "054db198cca7d267746c76845b029ed9378fe858fa4e28241174bf89c68da885",
+  "src/world/alpine/RangeAssets.js": "d0f9c0bec804b1b8ce341ab3c0d665966a318f961b453b60846d6564dc7dc222",
+  "src/render/GraphicsResidency.js": "14ad502e8e3928e5371a336bf221328a394ff56db5220ab5f5de20c82a15ad31",
+  "src/world/terrain/SceneCatalog.js": "074e7c1c0dec945ade3cc04e5b81582e1c8cee8e936f8496547fae11a000c3a3",
+  "src/world/terrain/SceneTravel.js": "a9f36224374dfcc818d5db0f5f2d42e601f03a4a5c5215887cf810e3d3b22fce",
+  "src/world/terrain/sceneCatalogData.js": "bb767c2b0f0958d557c8bbb3a39734c5d080c62ed6f656fb92b666604989818d",
+  "src/world/BiomeManager.js": "9a7539fcf85c5d2a54b138d9763ca0d88b1f609fdb33ee04483ff30189b1e267",
+  "src/render/Renderer.js": "c3c1c4cfa4316c0f6e391051ff56196cd21c39cfc2c02d4f97f67544bd22397b",
+  "src/vendor/range/three-range.module.js": "82184b5f7409d5fe58637a10cd9d1dff428a514087c0e8912f156bf8a67e67d2",
+  "src/assets/range/v2/terrain/nc-ross-lake-north.terrain.json": "32ee5822fccba5a474d0298cd8eb4e941cbb4858e7f1679b4e6ae9fa338aa4d2",
+  "src/assets/range/v2/terrain/nc-ross-lake-north.terrain.bin.gz": "b621d841e649af0cee550e4db298e94195c22a379186154e8decc741e5a64c1b",
+  "src/assets/range/v2/materials/wet-conifer.json": "8f5ff6bb64b01072364f9d4698c13591af20de8f32dfbd40b67f0614fd242bb0",
+  "src/assets/range/v2/textures/proc-cliff.webp": "3196ffb5ab32bd8a8d6e8f3c5d2ab9f2006f4d1e6762b97af9291f265d24c1ea",
+  "src/assets/range/v2/textures/cc0-rock051.webp": "bd1026e5e4daacd471a6d1530ac732123a4e8770c6d54ac9b74142eee8ed1436",
+  "src/assets/range/v2/textures/cc0-rock063.webp": "c297085eeddd21e5659c1eb485ca9ea3c98c090f32f51734e8db40f6b35401a6",
+  "src/assets/range/v2/textures/cc0-rock020.webp": "7cae7301552ce33ec53b49d9612ad800c561d8687601f1b76e5883bc998d69b1",
+  "src/assets/range/v2/textures/cc0-ground068.webp": "3e6274d2650a6500398e7f0c8d2bda2d6cd46b4af70e759ac309a3e2ab81c786",
+  "src/assets/range/v2/textures/proc-canopy.webp": "e00ed901f016f1315a635f298754a9eb3ab45ebd587dbb9d996dd0f6603c9417",
+  "src/assets/range/v2/textures/proc-snow.webp": "a92a6b966a33db5c4d102fc1392202aa70b53ffbd1af2b33563fe27dd53cd519",
+  "src/assets/range/v2/textures/cc0-ground022.webp": "f177eaa80edb4e15276be1c6d8ae34085917e4838ea4b236695d952741da5af1",
+  "src/assets/range/v2/terrain/teton-jackson-lake.terrain.json": "bd3b57442d203981a66be4e1e23df677116f9a562d7a39497f0a0e0e01b429b1",
+  "src/assets/range/v2/terrain/teton-jackson-lake.terrain.bin.gz": "4d6c2aae717cba1c485d3533ac0406e21ab14733c459b065eec71cdbbcead4f2",
+  "src/assets/range/v2/materials/dry-conifer.json": "6afff55ebe7762475b09f09fa8f60627714d051f9f117ffffd8e124894281175",
+  "src/assets/range/v2/terrain/denali-wonder-lake.terrain.json": "351aad9728f86a3e78fe985d9d154214f4f7c0a4e89ad1d823df690b6543e46a",
+  "src/assets/range/v2/terrain/denali-wonder-lake.terrain.bin.gz": "73f8cb644518da9972e6871ba9dbffce15d425e0aad663cdf417f4571e436382",
+  "src/assets/range/v2/materials/icefield.json": "ac0da317cbbc611f7b9a47755b4d66705d11b37b4fbceab783d918a79d6d49ae",
+  "src/assets/range/v2/terrain/tombstone-north-klondike.terrain.json": "5cbcec0d5132d445b75c1ffcec1fe1bb48980e2c34f44f34b6ebb4eb96bdbc89",
+  "src/assets/range/v2/terrain/tombstone-north-klondike.terrain.bin.gz": "54e82597b709d5208bd15cbee53ac4aea35e3a698057ecf6a9c317e2324cd330",
+  "src/assets/range/v2/materials/tundra.json": "76deaaa34707bc0454ecb6e10080e4d1b6716ba84b760a7fa4ce9df09a26dce2",
+  "src/assets/range/v2/terrain/muncho-lake-south.terrain.json": "d25af9f0f975972c13f3da100d7b7df0a1c97136adb9073c1e673931e81c6ac2",
+  "src/assets/range/v2/terrain/muncho-lake-south.terrain.bin.gz": "bfd2526a366309e01efceaf3b8c8279a94321b5fb771849b57dd33a634d05467",
+  "src/assets/range/v2/materials/taiga.json": "c44b2272c56122a84854f3f8bb2376fad740401588242ed4e0fecb8ed15f564c",
+  "src/assets/range/v2/terrain/izta-popo-west.terrain.json": "435e0a01cab2af34ca66a16d7bd63cf513ab3d4b071a9ff941709ea63ad3478a",
+  "src/assets/range/v2/terrain/izta-popo-west.terrain.bin.gz": "02233f778ef622fef7601d005c7dcd96dcbf45ecf3ce40cd427a6aff7f07a202",
+  "src/assets/range/v2/materials/pine-oak.json": "8959b57b89150274c889b241bd4656a0cdfafd28d31f675f4fd4011abaa7a38f",
+  "src/assets/range/v2/textures/cc0-rock029.webp": "758794769204cdfddd4770c45efd49503608fde3499380d2d4101783cd1e18bc",
+  "src/assets/range/v2/textures/cc0-rock055.webp": "c645119c364c020e176110ceb60cd4f0a9bf5835485491514f19f69535eb63aa",
+  "src/assets/range/v2/terrain/black-mountains-catawba.terrain.json": "0f5d8ce42c058a97f1e912a79fc7610ea82f76ef7d557ca964227647250d7b68",
+  "src/assets/range/v2/terrain/black-mountains-catawba.terrain.bin.gz": "e98302c187b24b12f72a771f955be1065b91d6de239e70abc8b48e721780ad8d",
+  "src/assets/range/v2/materials/broadleaf.json": "3e8ff42e50658d7473f7a81d107c6a3e3b628ee8daae6b7d89541f8e21578894",
+  "src/assets/range/v2/terrain/san-gabriel-baldy.terrain.json": "56871dd030fa48fc1d1fce0c165f0320fc8cd9a76cddbe3bfa76539e91c4c904",
+  "src/assets/range/v2/terrain/san-gabriel-baldy.terrain.bin.gz": "5288efcf70ebe56bb5086b67be2382b3ebcf9cb24161195f7e8eb0e4dbcfbab7",
+  "src/assets/range/v2/materials/chaparral.json": "f3357cb770f82d0525600484c2e29132ac827dc07e799cec03e54a13a6004168",
+  "src/assets/range/v2/terrain/white-mountains-owens.terrain.json": "a83a16041b1153ff3babe0a156ed1e54ce47acb9d663f42cca2e53223800fb83",
+  "src/assets/range/v2/terrain/white-mountains-owens.terrain.bin.gz": "85cc9eac527de9ddc523e7c56c65b980694c3731f8279703c5618adff0d00e10",
+  "src/assets/range/v2/materials/steppe.json": "ada04aa0d6767f64aa7dde9aedc02e553f98b2b3488b70e032e6319b170be6c9",
+  "src/assets/range/v2/terrain/la-sal-castle-valley.terrain.json": "930f043038551229e0b43b47d0a68db31b33a9bf23d631376af54e33fbf62c42",
+  "src/assets/range/v2/terrain/la-sal-castle-valley.terrain.bin.gz": "ad892081c31b58efd2da7eba203a528654e8aed1fd161986163de497eb0eb231",
+  "src/assets/range/v2/materials/canyon.json": "ca6259b1e0cd2b10e4aae9e84abbe9c95b32976767ef372aa3caac4e73c326ce",
+  "src/assets/range/v2/terrain/panamint-dantes-view.terrain.json": "b7d3479f316016efe7d25fbacff1127fd5378ab89fa663095e0d55382af5d8c3",
+  "src/assets/range/v2/terrain/panamint-dantes-view.terrain.bin.gz": "1baae9d51ec7017a48cb6c2347add0db87a582e7b2d21de6edcb979a22df3186",
+  "src/assets/range/v2/materials/desert.json": "2beecf1f1647994f69a65b655ee5e48a3e771117bb7bcd1efd4c12ec67cfc14d"
+ },
+ "renderer": "Chromium SwiftShader (software WebGL2); timings are not device measurements",
+ "browser": "141.0.7390.37",
+ "lifecycle": {
+  "cycles": [
+   {
+    "cycle": 0,
+    "song": 0,
+    "size": "1280x720",
+    "generation": 1,
+    "liveMiB": 224.2,
+    "pendingMiB": 0,
+    "ownedMiB": 224.2,
+    "entries": 8,
+    "generations": [
+     0,
+     1
+    ],
+    "overcommits": 0,
+    "denials": 3,
+    "byOwnerMiB": {
+     "range-targets": 22.8,
+     "range-terrain-cpu": 18.1,
+     "range-material": 24,
+     "range-terrain-gpu": 159.3
+    },
+    "prepared": [
+     "san-gabriel-baldy",
+     "nc-ross-lake-north"
+    ],
+    "heapMiB": 174.9,
+    "frames": [
+     {
+      "t": 8000,
+      "active": true,
+      "viewId": "nc-ross-lake-north",
+      "incoming": null,
+      "reason": null
+     },
+     {
+      "t": 30000,
+      "active": true,
+      "viewId": "san-gabriel-baldy",
+      "incoming": "nc-ross-lake-north",
+      "reason": null
+     },
+     {
+      "t": 55000,
+      "active": true,
+      "viewId": "nc-ross-lake-north",
+      "incoming": null,
+      "reason": null
+     }
+    ],
+    "context": null
+   },
+   {
+    "cycle": 1,
+    "song": 1,
+    "size": "1280x720",
+    "generation": 2,
+    "liveMiB": 215,
+    "pendingMiB": 0,
+    "ownedMiB": 215,
+    "entries": 6,
+    "generations": [
+     0,
+     2
+    ],
+    "overcommits": 0,
+    "denials": 4,
+    "byOwnerMiB": {
+     "range-material": 24,
+     "range-terrain-gpu": 149.2,
+     "legacy-strips#8": 35.8,
+     "range-terrain-cpu": 6
+    },
+    "prepared": [
+     "denali-wonder-lake",
+     "la-sal-castle-valley"
+    ],
+    "heapMiB": 151.3,
+    "frames": [
+     {
+      "t": 8000,
+      "active": true,
+      "viewId": "panamint-dantes-view",
+      "incoming": null,
+      "reason": null
+     },
+     {
+      "t": 30000,
+      "active": true,
+      "viewId": "panamint-dantes-view",
+      "incoming": null,
+      "reason": null
+     },
+     {
+      "t": 55000,
+      "active": true,
+      "viewId": "la-sal-castle-valley",
+      "incoming": null,
+      "reason": null
+     }
+    ],
+    "context": null
+   },
+   {
+    "cycle": 2,
+    "song": 0,
+    "size": "960x540",
+    "generation": 3,
+    "liveMiB": 157.6,
+    "pendingMiB": 0,
+    "ownedMiB": 157.6,
+    "entries": 6,
+    "generations": [
+     0,
+     3
+    ],
+    "overcommits": 0,
+    "denials": 6,
+    "byOwnerMiB": {
+     "range-targets": 12.8,
+     "legacy-strips#12": 35.9,
+     "range-terrain-cpu": 10.2,
+     "range-material": 12,
+     "range-terrain-gpu": 86.7
+    },
+    "prepared": [
+     "nc-ross-lake-north"
+    ],
+    "heapMiB": 120.2,
+    "frames": [
+     {
+      "t": 8000,
+      "active": true,
+      "viewId": "nc-ross-lake-north",
+      "incoming": null,
+      "reason": null
+     },
+     {
+      "t": 30000,
+      "active": true,
+      "viewId": "san-gabriel-baldy",
+      "incoming": "nc-ross-lake-north",
+      "reason": null
+     },
+     {
+      "t": 55000,
+      "active": true,
+      "viewId": "nc-ross-lake-north",
+      "incoming": null,
+      "reason": null
+     }
+    ],
+    "context": {
+     "lost": true,
+     "duringActive": false,
+     "duringReason": "context-lost",
+     "afterActive": true,
+     "afterView": "nc-ross-lake-north"
+    }
+   },
+   {
+    "cycle": 3,
+    "song": 1,
+    "size": "960x540",
+    "generation": 4,
+    "liveMiB": 215,
+    "pendingMiB": 0,
+    "ownedMiB": 215,
+    "entries": 6,
+    "generations": [
+     0,
+     4
+    ],
+    "overcommits": 0,
+    "denials": 7,
+    "byOwnerMiB": {
+     "range-material": 24,
+     "range-terrain-gpu": 149.2,
+     "legacy-strips#16": 35.8,
+     "range-terrain-cpu": 6
+    },
+    "prepared": [
+     "denali-wonder-lake",
+     "la-sal-castle-valley"
+    ],
+    "heapMiB": 176.6,
+    "frames": [
+     {
+      "t": 8000,
+      "active": true,
+      "viewId": "panamint-dantes-view",
+      "incoming": null,
+      "reason": null
+     },
+     {
+      "t": 30000,
+      "active": true,
+      "viewId": "panamint-dantes-view",
+      "incoming": null,
+      "reason": null
+     },
+     {
+      "t": 55000,
+      "active": true,
+      "viewId": "la-sal-castle-valley",
+      "incoming": null,
+      "reason": null
+     }
+    ],
+    "context": null
+   },
+   {
+    "cycle": 4,
+    "song": 0,
+    "size": "1280x720",
+    "generation": 5,
+    "liveMiB": 214,
+    "pendingMiB": 0,
+    "ownedMiB": 214,
+    "entries": 7,
+    "generations": [
+     0,
+     5
+    ],
+    "overcommits": 0,
+    "denials": 9,
+    "byOwnerMiB": {
+     "range-targets": 22.8,
+     "range-material": 24,
+     "range-terrain-gpu": 159.3,
+     "range-terrain-cpu": 8
+    },
+    "prepared": [
+     "nc-ross-lake-north",
+     "san-gabriel-baldy"
+    ],
+    "heapMiB": 172.9,
+    "frames": [
+     {
+      "t": 8000,
+      "active": true,
+      "viewId": "nc-ross-lake-north",
+      "incoming": null,
+      "reason": null
+     },
+     {
+      "t": 30000,
+      "active": true,
+      "viewId": "san-gabriel-baldy",
+      "incoming": "nc-ross-lake-north",
+      "reason": null
+     },
+     {
+      "t": 55000,
+      "active": true,
+      "viewId": "nc-ross-lake-north",
+      "incoming": null,
+      "reason": null
+     }
+    ],
+    "context": null
+   },
+   {
+    "cycle": 5,
+    "song": 1,
+    "size": "1280x720",
+    "generation": 6,
+    "liveMiB": 133.6,
+    "pendingMiB": 0,
+    "ownedMiB": 133.6,
+    "entries": 5,
+    "generations": [
+     0,
+     6
+    ],
+    "overcommits": 0,
+    "denials": 10,
+    "byOwnerMiB": {
+     "legacy-strips#24": 35.8,
+     "range-terrain-cpu": 6,
+     "range-material": 12,
+     "range-terrain-gpu": 66.1,
+     "range-targets": 13.7
+    },
+    "prepared": [
+     "la-sal-castle-valley"
+    ],
+    "heapMiB": 113.8,
+    "frames": [
+     {
+      "t": 8000,
+      "active": true,
+      "viewId": "panamint-dantes-view",
+      "incoming": null,
+      "reason": null
+     },
+     {
+      "t": 30000,
+      "active": true,
+      "viewId": "panamint-dantes-view",
+      "incoming": null,
+      "reason": null
+     },
+     {
+      "t": 55000,
+      "active": true,
+      "viewId": "la-sal-castle-valley",
+      "incoming": null,
+      "reason": null
+     }
+    ],
+    "context": {
+     "lost": true,
+     "duringActive": false,
+     "duringReason": "context-lost",
+     "afterActive": true,
+     "afterView": "la-sal-castle-valley"
+    }
+   }
+  ],
+  "checks": [
+   {
+    "name": "cycle 0: inside the budget",
+    "ok": true,
+    "detail": "224.2 MiB"
+   },
+   {
+    "name": "cycle 0: nothing of a replaced song remains",
+    "ok": true,
+    "detail": "generations 0,1, current 1"
+   },
+   {
+    "name": "cycle 0: no replaced song's legacy strips remain",
+    "ok": true,
+    "detail": " (current legacy-strips#3)"
+   },
+   {
+    "name": "cycle 0: no page or shader errors",
+    "ok": true,
+    "detail": ""
+   },
+   {
+    "name": "cycle 0: every frame drew its v2 view",
+    "ok": true,
+    "detail": "[{\"t\":8000,\"active\":true,\"viewId\":\"nc-ross-lake-north\",\"incoming\":null,\"reason\":null},{\"t\":30000,\"active\":true,\"viewId\":\"san-gabriel-baldy\",\"incoming\":\"nc-ross-lake-north\",\"reason\":null},{\"t\":55000,\"active\":true,\"viewId\":\"nc-ross-lake-north\",\"incoming\":null,\"reason\":null}]"
+   },
+   {
+    "name": "cycle 1: inside the budget",
+    "ok": true,
+    "detail": "215 MiB"
+   },
+   {
+    "name": "cycle 1: nothing of a replaced song remains",
+    "ok": true,
+    "detail": "generations 0,2, current 2"
+   },
+   {
+    "name": "cycle 1: no replaced song's legacy strips remain",
+    "ok": true,
+    "detail": "legacy-strips#8 (current legacy-strips#8)"
+   },
+   {
+    "name": "cycle 1: no page or shader errors",
+    "ok": true,
+    "detail": ""
+   },
+   {
+    "name": "cycle 1: every frame drew its v2 view",
+    "ok": true,
+    "detail": "[{\"t\":8000,\"active\":true,\"viewId\":\"panamint-dantes-view\",\"incoming\":null,\"reason\":null},{\"t\":30000,\"active\":true,\"viewId\":\"panamint-dantes-view\",\"incoming\":null,\"reason\":null},{\"t\":55000,\"active\":true,\"viewId\":\"la-sal-castle-valley\",\"incoming\":null,\"reason\":null}]"
+   },
+   {
+    "name": "cycle 2: context loss draws legacy, restore draws v2 again",
+    "ok": true,
+    "detail": "{\"lost\":true,\"duringActive\":false,\"duringReason\":\"context-lost\",\"afterActive\":true,\"afterView\":\"nc-ross-lake-north\"}"
+   },
+   {
+    "name": "cycle 2: inside the budget",
+    "ok": true,
+    "detail": "157.6 MiB"
+   },
+   {
+    "name": "cycle 2: nothing of a replaced song remains",
+    "ok": true,
+    "detail": "generations 0,3, current 3"
+   },
+   {
+    "name": "cycle 2: no replaced song's legacy strips remain",
+    "ok": true,
+    "detail": "legacy-strips#12 (current legacy-strips#12)"
+   },
+   {
+    "name": "cycle 2: no page or shader errors",
+    "ok": true,
+    "detail": ""
+   },
+   {
+    "name": "cycle 2: every frame drew its v2 view",
+    "ok": true,
+    "detail": "[{\"t\":8000,\"active\":true,\"viewId\":\"nc-ross-lake-north\",\"incoming\":null,\"reason\":null},{\"t\":30000,\"active\":true,\"viewId\":\"san-gabriel-baldy\",\"incoming\":\"nc-ross-lake-north\",\"reason\":null},{\"t\":55000,\"active\":true,\"viewId\":\"nc-ross-lake-north\",\"incoming\":null,\"reason\":null}]"
+   },
+   {
+    "name": "cycle 3: inside the budget",
+    "ok": true,
+    "detail": "215 MiB"
+   },
+   {
+    "name": "cycle 3: nothing of a replaced song remains",
+    "ok": true,
+    "detail": "generations 0,4, current 4"
+   },
+   {
+    "name": "cycle 3: no replaced song's legacy strips remain",
+    "ok": true,
+    "detail": "legacy-strips#16 (current legacy-strips#16)"
+   },
+   {
+    "name": "cycle 3: no page or shader errors",
+    "ok": true,
+    "detail": ""
+   },
+   {
+    "name": "cycle 3: every frame drew its v2 view",
+    "ok": true,
+    "detail": "[{\"t\":8000,\"active\":true,\"viewId\":\"panamint-dantes-view\",\"incoming\":null,\"reason\":null},{\"t\":30000,\"active\":true,\"viewId\":\"panamint-dantes-view\",\"incoming\":null,\"reason\":null},{\"t\":55000,\"active\":true,\"viewId\":\"la-sal-castle-valley\",\"incoming\":null,\"reason\":null}]"
+   },
+   {
+    "name": "cycle 4: inside the budget",
+    "ok": true,
+    "detail": "214 MiB"
+   },
+   {
+    "name": "cycle 4: nothing of a replaced song remains",
+    "ok": true,
+    "detail": "generations 0,5, current 5"
+   },
+   {
+    "name": "cycle 4: no replaced song's legacy strips remain",
+    "ok": true,
+    "detail": " (current legacy-strips#20)"
+   },
+   {
+    "name": "cycle 4: no page or shader errors",
+    "ok": true,
+    "detail": ""
+   },
+   {
+    "name": "cycle 4: every frame drew its v2 view",
+    "ok": true,
+    "detail": "[{\"t\":8000,\"active\":true,\"viewId\":\"nc-ross-lake-north\",\"incoming\":null,\"reason\":null},{\"t\":30000,\"active\":true,\"viewId\":\"san-gabriel-baldy\",\"incoming\":\"nc-ross-lake-north\",\"reason\":null},{\"t\":55000,\"active\":true,\"viewId\":\"nc-ross-lake-north\",\"incoming\":null,\"reason\":null}]"
+   },
+   {
+    "name": "cycle 5: context loss draws legacy, restore draws v2 again",
+    "ok": true,
+    "detail": "{\"lost\":true,\"duringActive\":false,\"duringReason\":\"context-lost\",\"afterActive\":true,\"afterView\":\"la-sal-castle-valley\"}"
+   },
+   {
+    "name": "cycle 5: inside the budget",
+    "ok": true,
+    "detail": "133.6 MiB"
+   },
+   {
+    "name": "cycle 5: nothing of a replaced song remains",
+    "ok": true,
+    "detail": "generations 0,6, current 6"
+   },
+   {
+    "name": "cycle 5: no replaced song's legacy strips remain",
+    "ok": true,
+    "detail": "legacy-strips#24 (current legacy-strips#24)"
+   },
+   {
+    "name": "cycle 5: no page or shader errors",
+    "ok": true,
+    "detail": ""
+   },
+   {
+    "name": "cycle 5: every frame drew its v2 view",
+    "ok": true,
+    "detail": "[{\"t\":8000,\"active\":true,\"viewId\":\"panamint-dantes-view\",\"incoming\":null,\"reason\":null},{\"t\":30000,\"active\":true,\"viewId\":\"panamint-dantes-view\",\"incoming\":null,\"reason\":null},{\"t\":55000,\"active\":true,\"viewId\":\"la-sal-castle-valley\",\"incoming\":null,\"reason\":null}]"
+   },
+   {
+    "name": "no overcommit in any cycle",
+    "ok": true,
+    "detail": "0,0,0,0,0,0"
+   },
+   {
+    "name": "cycle 4 vs 0: ownership stable",
+    "ok": true,
+    "detail": "224.2 -> 214 MiB, 8 -> 7 entries"
+   },
+   {
+    "name": "cycle 5 vs 1: ownership stable",
+    "ok": true,
+    "detail": "215 -> 133.6 MiB, 6 -> 5 entries"
+   },
+   {
+    "name": "JS heap does not climb per cycle",
+    "ok": true,
+    "detail": "174.9,151.3,120.2,176.6,172.9,113.8"
+   }
+  ]
+ }
+}

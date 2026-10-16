@@ -1,0 +1,34 @@
+{
+  "id": "tower-of-london-range",
+  "name": "Tower of London Range",
+  "landmark": "King Peak",
+  "region": "British Columbia, Canada",
+  "bbox": [
+    -125.245,
+    58.017,
+    -124.495,
+    58.415
+  ],
+  "source": "discovered",
+  "archetype": "restless",
+  "mood": "unease",
+  "quality": {
+    "floorShare": 0.06,
+    "artifact": 0.21
+  },
+  "scores": {
+    "energy": 0.441,
+    "rawness": 0.49,
+    "grandeur": 0.126,
+    "dominance": 0.557
+  },
+  "features": {
+    "reliefM": 569,
+    "slopeMPerKm": 237.9,
+    "peaksPer10Km": 4.5,
+    "roughnessM": 101.2,
+    "dominance": 0.6,
+    "summitM": 2814.7,
+    "lengthKm": 42.1
+  }
+}

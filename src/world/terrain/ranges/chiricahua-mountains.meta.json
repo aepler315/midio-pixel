@@ -1,0 +1,34 @@
+{
+  "id": "chiricahua-mountains",
+  "name": "Chiricahua Mountains",
+  "landmark": "Cochise Head",
+  "region": "Arizona, USA",
+  "bbox": [
+    -109.533,
+    31.86,
+    -109.067,
+    32.258
+  ],
+  "source": "discovered",
+  "archetype": "brooding",
+  "mood": "melancholy",
+  "quality": {
+    "floorShare": 0.03,
+    "artifact": 0.04
+  },
+  "scores": {
+    "energy": 0.283,
+    "rawness": 0.252,
+    "grandeur": 0.347,
+    "dominance": 0.521
+  },
+  "features": {
+    "reliefM": 1561.5,
+    "slopeMPerKm": 159.2,
+    "peaksPer10Km": 1.9,
+    "roughnessM": 66.9,
+    "dominance": 0.5,
+    "summitM": 2912.3,
+    "lengthKm": 63.2
+  }
+}

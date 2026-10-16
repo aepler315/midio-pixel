@@ -1,0 +1,34 @@
+{
+  "id": "sangre-de-cristo-mountains",
+  "name": "Sangre de Cristo Mountains",
+  "landmark": "Cabresto Peak",
+  "region": "New Mexico, USA",
+  "bbox": [
+    -105.755,
+    36.582,
+    -105.262,
+    36.98
+  ],
+  "source": "discovered",
+  "archetype": "brooding",
+  "mood": "melancholy",
+  "quality": {
+    "floorShare": 0.11,
+    "artifact": 0.14
+  },
+  "scores": {
+    "energy": 0.318,
+    "rawness": 0.295,
+    "grandeur": 0.387,
+    "dominance": 0.34
+  },
+  "features": {
+    "reliefM": 1740.5,
+    "slopeMPerKm": 152.9,
+    "peaksPer10Km": 2.4,
+    "roughnessM": 70.3,
+    "dominance": 0.3,
+    "summitM": 3940.6,
+    "lengthKm": 65.5
+  }
+}

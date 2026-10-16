@@ -1,0 +1,249 @@
+{
+ "credit": "Elevation: USGS 3DEP 1/3 arc-second DEM",
+ "sourceSha256": [
+  "b7f07453b28eaa5404e75822c23e23c2ac32d4a93a315a34071bcd466ba9ca7e",
+  "448aa74ee0a45435316c7292f4323876cc47d9f1ebd9ca752cf9d55e95c770cc"
+ ],
+ "view": {
+  "id": "pend-oreille-valley",
+  "regionId": "pend-oreille-valley",
+  "biome": "CONIFER",
+  "status": "candidate",
+  "notes": "Aerial journey north-west from Newport over the Cusick valley toward Ione, using USGS 3DEP terrain. Glacier geometry is an artistic compressed interpretation of the Pend Oreille River lobe, not a dated reconstruction; the straight axis spans the broad bent valley and bed elevation limits ice to low ground. River station coordinates from USGS NWIS 12395500, 12395950 and 12396500 (NAD83). Regional glacial context: Carrara, Kiver and Stradling (1996), https://pubs.usgs.gov/publication/70018536. Forest recovery is an explicitly compressed later stage. The simplified glacier axis begins west-southwest of Newport to include the Cusick bend, and ends north of Ione; neither axis endpoint is a measured historic terminus. The sparse instanced stands over canopy reflect the mixed forest and open valley floor and keep the long flight within memory limits.",
+  "dem": {
+   "source": "3dep13",
+   "centerLonLat": [
+    -117.27,
+    48.5
+   ],
+   "extentM": [
+    64000,
+    96000
+   ],
+   "cellM": 64
+  },
+  "rail": {
+   "eyeStart": {
+    "lonLat": [
+     -117.025,
+     48.205
+    ],
+    "aboveGroundM": 900
+   },
+   "eyeEnd": {
+    "lonLat": [
+     -117.38,
+     48.68
+    ],
+    "aboveGroundM": 800
+   },
+   "targetStart": {
+    "lonLat": [
+     -117.16,
+     48.275
+    ],
+    "heightM": 850
+   },
+   "targetEnd": {
+    "lonLat": [
+     -117.415,
+     48.82
+    ],
+    "heightM": 1100
+   },
+   "fovYDeg": 32,
+   "eyeArcM": [
+    -3500,
+    300,
+    -1000
+   ],
+   "targetArcM": [
+    -2000,
+    100,
+    0
+   ]
+  },
+  "glacier": {
+   "axisStartM": [
+    10417.2,
+    38909.3
+   ],
+   "axisEndM": [
+    -11749.6,
+    -35597.4
+   ],
+   "halfWidthM": 12500,
+   "surfaceStartM": 950,
+   "surfaceEndM": 1400,
+   "maxThicknessM": 850
+  },
+  "landmarks": [
+   {
+    "name": "Newport — USGS 12395500",
+    "lonLat": [
+     -117.0341667,
+     48.1822222
+    ]
+   },
+   {
+    "name": "Cusick — USGS 12395950",
+    "lonLat": [
+     -117.2929986,
+     48.3360166
+    ]
+   },
+   {
+    "name": "Ione / Box Canyon — USGS 12396500",
+    "lonLat": [
+     -117.4163706,
+     48.7809561
+    ]
+   }
+  ],
+  "title": "Pend Oreille Valley",
+  "place": "Newport–Cusick–Ione, Washington",
+  "reviewPath": "docs/glacial-valley-validation.md",
+  "materialRules": {
+   "snowlineM": 2250,
+   "forestFloorM": 550,
+   "forestDensity": 0.2
+  },
+  "camera": {
+   "eyeStartM": [
+    18210.7,
+    1615.9,
+    32774.1
+   ],
+   "eyeEndM": [
+    -8100.3,
+    1458.5,
+    -20022.2
+   ],
+   "targetStartM": [
+    8165.1,
+    850,
+    25013.7
+   ],
+   "targetEndM": [
+    -10648.1,
+    1100,
+    -35595.1
+   ],
+   "fovYDeg": 32,
+   "eyeArcM": [
+    -3500,
+    300,
+    -1000
+   ],
+   "targetArcM": [
+    -2000,
+    100,
+    0
+   ]
+  }
+ },
+ "characterScores": {
+  "energy": 0.102,
+  "rawness": 0.074,
+  "grandeur": 0.249,
+  "dominance": 0.505
+ },
+ "archetype": "brooding",
+ "skylineFeatures": [
+  {
+   "reliefM": 1093.8759765625,
+   "slopeMPerKm": 37.75637064170862,
+   "peaksPer10Km": 0.6942087921767801,
+   "roughnessM": 20.79038240084631,
+   "dominance": 0.4807881502934037,
+   "summitM": 2062.763916015625,
+   "lengthKm": 187.2635458741
+  },
+  {
+   "reliefM": 1023.5286865234375,
+   "slopeMPerKm": 26.921844505703678,
+   "peaksPer10Km": 0.44524501336835415,
+   "roughnessM": 28.238689345733256,
+   "dominance": 0.5856325778225628,
+   "summitM": 2222.393310546875,
+   "lengthKm": 291.97407291892597
+  },
+  {
+   "reliefM": 1248.580078125,
+   "slopeMPerKm": 39.84841618437974,
+   "peaksPer10Km": 0.3766133375856262,
+   "roughnessM": 15.809961133439979,
+   "dominance": 0.44905511807944337,
+   "summitM": 2207.3857421875,
+   "lengthKm": 106.20972761195868
+  }
+ ],
+ "manifestSha256": "c06b35fc64d0af6a0d22b8a595e9fa1499e7c0d701d755caa61c8b3a5ba6a3bd",
+ "payloadSha256": "d51e69acee4988f501b56feaee699dd6fb3e7b087b530ba103dfa89f7270cf32",
+ "payloadBytes": 656250,
+ "stats": {
+  "tiles": 284,
+  "desktop": {
+   "vertices": 309276,
+   "triangles": 581632,
+   "meshBytes": 10690896,
+   "surfaceTextureBytes": 8013339
+  },
+  "mobile": {
+   "vertices": 309276,
+   "triangles": 581632,
+   "meshBytes": 10690896,
+   "surfaceTextureBytes": 8013339
+  }
+ },
+ "landmarks": [
+  {
+   "name": "Newport — USGS 12395500",
+   "lonLat": [
+    -117.0341667,
+    48.1822222
+   ],
+   "publishedElevationM": null,
+   "localM": [
+    17537.1,
+    35309
+   ],
+   "demGroundM": 625.6396484375,
+   "demPeakWithin200mM": 646.777587890625
+  },
+  {
+   "name": "Cusick — USGS 12395950",
+   "lonLat": [
+    -117.2929986,
+    48.3360166
+   ],
+   "publishedElevationM": null,
+   "localM": [
+    -1705.1,
+    18234.4
+   ],
+   "demGroundM": 624.6253662109375,
+   "demPeakWithin200mM": 627.1453247070312
+  },
+  {
+   "name": "Ione / Box Canyon — USGS 12396500",
+   "lonLat": [
+    -117.4163706,
+    48.7809561
+   ],
+   "publishedElevationM": null,
+   "localM": [
+    -10757.1,
+    -31253.4
+   ],
+   "demGroundM": 618.8633422851562,
+   "demPeakWithin200mM": 656.388671875
+  }
+ ],
+ "achievedErrorPx": {
+  "desktop": 2687.847,
+  "mobile": 1791.898
+ },
+ "despikedSamples": 0,
+ "gentleGroundSmoothingM": null
+}

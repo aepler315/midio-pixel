@@ -1,0 +1,34 @@
+{
+  "id": "alaska-range",
+  "name": "Alaska Range",
+  "landmark": "Denali",
+  "region": "Alaska, USA",
+  "bbox": [
+    -151.442,
+    62.87,
+    -150.57,
+    63.268
+  ],
+  "source": "discovered",
+  "archetype": "sublime",
+  "mood": "awe",
+  "quality": {
+    "floorShare": 0.04,
+    "artifact": 0.03
+  },
+  "scores": {
+    "energy": 0.591,
+    "rawness": 0.428,
+    "grandeur": 1,
+    "dominance": 0.571
+  },
+  "features": {
+    "reliefM": 4557.9,
+    "slopeMPerKm": 359.3,
+    "peaksPer10Km": 2.7,
+    "roughnessM": 130.8,
+    "dominance": 0.6,
+    "summitM": 6158.3,
+    "lengthKm": 65.5
+  }
+}

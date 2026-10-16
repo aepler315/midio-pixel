@@ -1,0 +1,34 @@
+{
+  "id": "taconic-mountains",
+  "name": "Taconic Mountains",
+  "landmark": "Dorset Mountain",
+  "region": "Vermont, USA",
+  "bbox": [
+    -73.3,
+    43.11,
+    -72.757,
+    43.508
+  ],
+  "source": "discovered",
+  "archetype": "serene",
+  "mood": "calm",
+  "quality": {
+    "floorShare": 0.02,
+    "artifact": 0.2
+  },
+  "scores": {
+    "energy": 0.234,
+    "rawness": 0.244,
+    "grandeur": 0.115,
+    "dominance": 0.411
+  },
+  "features": {
+    "reliefM": 516.7,
+    "slopeMPerKm": 110.6,
+    "peaksPer10Km": 2.4,
+    "roughnessM": 44.9,
+    "dominance": 0.4,
+    "summitM": 1041.7,
+    "lengthKm": 41.7
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "id": "aleutian-range",
+  "name": "Aleutian Range",
+  "landmark": "Shishaldin Volcano",
+  "region": "Alaska, USA",
+  "bbox": [
+    -164.313,
+    54.556,
+    -163.628,
+    54.954
+  ],
+  "source": "discovered",
+  "archetype": "sublime",
+  "mood": "awe",
+  "quality": {
+    "floorShare": 0.28,
+    "artifact": 0.02
+  },
+  "scores": {
+    "energy": 0.303,
+    "rawness": 0.222,
+    "grandeur": 0.612,
+    "dominance": 0.814
+  },
+  "features": {
+    "reliefM": 2754.6,
+    "slopeMPerKm": 176.3,
+    "peaksPer10Km": 1.2,
+    "roughnessM": 77.3,
+    "dominance": 0.8,
+    "summitM": 2853,
+    "lengthKm": 69.4
+  }
+}

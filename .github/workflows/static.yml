@@ -1,0 +1,82 @@
+# Deploy the static game to GitHub Pages. Only what the page actually
+# needs (index.html, src/, soundfonts/) plus CNAME/.nojekyll get staged
+# and uploaded -- not the whole repo. Previously `path: '.'` published the
+# entire checkout, including test/ (a third of the tracked payload),
+# tools/ (readable Node source for the local dev bridge), docs/,
+# docker-compose.yml, and slskd/slskd.yml (a local-dev API key/credentials
+# file, not a real secret but not something that belongs on the public
+# site either). This also used to run without a .nojekyll marker, so
+# GitHub's Jekyll processor silently touched the upload (confirmed:
+# /soundfonts/ rendered as a Jekyll-templated page of its README) -- a
+# latent trap for any future `_`-prefixed file. Both are fixed by staging
+# explicitly rather than uploading the raw checkout.
+name: Deploy static content to Pages
+
+on:
+  # Runs on pushes targeting the default branch
+  push:
+    branches: ["main"]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
+# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/test.yml
+
+  stage:
+    needs: validate
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      # The version picker (every past engine, selectable) is switched off.
+      # docs/version-picker.md says how to publish it again.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up the game
+        uses: ./.github/actions/setup
+        with:
+          browser: true
+      - name: Setup Pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
+      - name: Stage public site
+        env:
+          MIDIO_PLEX_PUBLIC_API_BASE: ${{ vars.MIDIO_PLEX_PUBLIC_API_BASE }}
+        run: npm run stage:site
+      - name: Validate staged artifact
+        run: |
+          SITE_ROOT=_site HOST=127.0.0.1 node tools/serve.js > .stage-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          npm run test:bootstrap -- http://127.0.0.1:8080
+          npm run test:smoke -- http://127.0.0.1:8080
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
+        with:
+          path: '_site'
+
+  deploy:
+    needs: stage
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5

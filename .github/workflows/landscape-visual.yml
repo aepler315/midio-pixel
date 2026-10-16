@@ -1,0 +1,100 @@
+# Browser evidence for The Range landscape correction.
+# A green unit run is not a picture. This job keeps the captures.
+name: Landscape visual
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      preset:
+        description: Landscape preset
+        default: primary
+        type: choice
+        options: [primary, full]
+
+permissions:
+  contents: read
+
+jobs:
+  landscape:
+    runs-on: ubuntu-latest
+    # The 72-frame full-compositor clip took about 30 minutes on SwiftShader;
+    # since #446 (MSAA, branch-spray forest, horizon bake) it runs past 60.
+    # Include room for setup, the material preset and artifact upload.
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up the game
+        uses: ./.github/actions/setup
+        with:
+          browser: true
+      - name: Capture the primary Range preset
+        run: |
+          mkdir -p .smoke
+          npm run stage:site
+          SITE_ROOT=_site HOST=127.0.0.1 PORT=8091 node tools/serve.js > .smoke/landscape-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          node tools/range-landscape-smoke.mjs \
+            --url http://127.0.0.1:8091 \
+            --source-root . \
+            --expect-sha "${{ github.sha }}" \
+            --preset ${{ github.event.inputs.preset || 'primary' }} \
+            --output .smoke/range-correction
+          node tools/range-scene-smoke.mjs \
+            --url http://127.0.0.1:8091 \
+            --source-root . \
+            --expect-sha "${{ github.sha }}" \
+            --suite short-motion \
+            --output .smoke/conifer-teton-motion
+      - name: Upload landscape evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: landscape-visual
+          path: .smoke/
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14
+
+  shader-fallback:
+    # A failed link in any material a Range view draws (terrain, forest,
+    # the cast) must select legacy scenery instead of an empty active scene.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up the game
+        uses: ./.github/actions/setup
+        with:
+          browser: true
+      - name: Inject shader compile failures
+        run: |
+          mkdir -p .smoke
+          HOST=127.0.0.1 PORT=8092 node tools/serve.js > .smoke/shader-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 30); do curl -sf http://127.0.0.1:8092/ > /dev/null && break; sleep 1; done
+          for fault in terrain forest actors; do
+            RANGE_SHADER_FAULT=$fault node tools/range-shader-failure-smoke.mjs \
+              http://127.0.0.1:8092 .smoke/range-shader-failure-$fault
+          done
+      - name: Require bit-exact forest lattice parity
+        run: |
+          HOST=127.0.0.1 PORT=8093 node tools/serve.js > .smoke/forest-parity-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 30); do curl -sf http://127.0.0.1:8093/ > /dev/null && break; sleep 1; done
+          node tools/forest-parity-smoke.mjs http://127.0.0.1:8093 .smoke/forest-parity
+          node tools/far-forest-dots-smoke.mjs http://127.0.0.1:8093 .smoke/far-forest-dots
+      - name: Upload shader fallback evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: range-shader-fallback
+          path: .smoke/
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14

@@ -1,0 +1,15 @@
+{
+  "about": "Local Three.js subset for Range v2. Built by tools/build-range-runtime.mjs from tools/range-runtime-entry.mjs.",
+  "three": "0.186.1",
+  "esbuild": "0.28.2",
+  "files": {
+    "three-range.module.js": {
+      "bytes": 539390,
+      "sha256": "71db55b57c96420b2e82ac2a0c2ce303a36154ff30b5e8044ea9c1390ef4a168"
+    },
+    "LICENSE-three.txt": {
+      "bytes": 1081,
+      "sha256": "8b378ebe60e2fe500158cb0ac71cb5e8b7d92953c2abcc63a0eb90499653b5bc"
+    }
+  }
+}

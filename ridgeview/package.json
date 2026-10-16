@@ -1,0 +1,22 @@
+{
+  "name": "ridgeview",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "3D Earth terrain viewer for mountain ranges, seen from calculated crest viewpoints.",
+  "license": "MIT",
+  "scripts": {
+    "start": "node tools/serve.mjs",
+    "test": "node --test test/*.test.mjs",
+    "vendor": "node tools/vendor-three.mjs",
+    "viewpoints": "node tools/compute-viewpoints.mjs",
+    "smoke": "node tools/smoke.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0",
+    "three": "0.186.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

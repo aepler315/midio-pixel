@@ -1,0 +1,34 @@
+{
+  "id": "diablo-range",
+  "name": "Diablo Range",
+  "landmark": "Mount Oso",
+  "region": "California, USA",
+  "bbox": [
+    -121.624,
+    37.308,
+    -121.125,
+    37.706
+  ],
+  "source": "discovered",
+  "archetype": "serene",
+  "mood": "calm",
+  "quality": {
+    "floorShare": 0.03,
+    "artifact": 0.09
+  },
+  "scores": {
+    "energy": 0.215,
+    "rawness": 0.201,
+    "grandeur": 0.21,
+    "dominance": 0.353
+  },
+  "features": {
+    "reliefM": 945.9,
+    "slopeMPerKm": 94.5,
+    "peaksPer10Km": 1.9,
+    "roughnessM": 38.9,
+    "dominance": 0.4,
+    "summitM": 1283.9,
+    "lengthKm": 41.7
+  }
+}

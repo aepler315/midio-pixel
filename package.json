@@ -1,0 +1,56 @@
+{
+  "name": "super-maudio-world",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser music visualizer: drop a song, pick a world, watch it play itself.",
+  "scripts": {
+    "start": "node tools/serve.js",
+    "dev": "node tools/serve.js 8080",
+    "archive": "node tools/archive-serve.mjs --open",
+    "lint": "eslint src tools test ridgeview",
+    "test": "node --test test/*.js test/*.mjs",
+    "test:all": "node --test",
+    "test:smoke": "node tools/smoke.mjs",
+    "test:bootstrap": "node tools/bootstrap-smoke.mjs",
+    "stage:site": "node tools/stage-site.mjs . _site",
+    "test:seek": "node tools/seek-effects-smoke.mjs",
+    "test:shading": "node tools/static-shading-smoke.mjs",
+    "test:lighting": "node tools/adapted-lighting-smoke.mjs",
+    "test:worlds": "node tools/worlds-smoke.mjs",
+    "test:landscape": "node tools/range-landscape-smoke.mjs",
+    "test:retro": "node tools/retro-smoke.mjs",
+    "test:peaks": "node tools/peak-evidence.mjs",
+    "test:export": "node tools/export-smoke.mjs",
+    "export:bulk": "node tools/bulk-export.mjs",
+    "test:car": "node tools/car-mode-smoke.mjs",
+    "test:urlload": "node tools/url-load-smoke.mjs",
+    "music-server": "node tools/music-server.mjs",
+    "bench:sections": "node tools/benchmark-segmentation.mjs",
+    "eval:worlds": "node tools/evaluate-worlds.mjs",
+    "slskd": "docker compose up -d slskd",
+    "slskd:down": "docker compose down",
+    "slskd:logs": "docker compose logs -f slskd",
+    "start:full": "docker compose up -d slskd && node tools/serve.js",
+    "stage:versions": "node tools/stage-history.mjs . _site",
+    "visual:eval": "node tools/visual-evaluate.mjs",
+    "plex:server": "node --env-file=.env.plex tools/plex-server.mjs",
+    "plex:probe": "node --env-file=.env.plex tools/plex-probe.mjs",
+    "plex:config": "node tools/write-plex-public-config.mjs",
+    "test:plex": "node tools/plex-smoke.mjs"
+  },
+  "dependencies": {
+    "slsk-client": "2.0.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "esbuild": "0.28.2",
+    "eslint": "^10.12.0",
+    "globals": "^17.13.0",
+    "playwright": "^1.63.0",
+    "three": "0.186.1"
+  },
+  "engines": {
+    "node": "24.x"
+  }
+}

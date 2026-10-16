@@ -1,0 +1,12 @@
+Teton Song Highway summit coordinates and GeoNames elevation values in
+tools/build-teton-tour.mjs are derived from GeoNames (https://www.geonames.org/),
+licensed under Creative Commons Attribution 4.0 International
+(https://creativecommons.org/licenses/by/4.0/).
+
+The ten entries were selected from the repository's ridgeview/data/peaks.json
+snapshot. Teewinot Mountain is labelled Teewinot to match the implementation
+plan. Published elevation checks are stored separately from GeoNames values.
+
+tools/build-tour-names.mjs selects summit, lake, pass and valley features
+from the GeoNames US dump under the same CC BY 4.0 license, transforms their
+coordinates into the tour's local metric frame, and records the input hash.

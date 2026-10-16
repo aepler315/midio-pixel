@@ -1,0 +1,34 @@
+{
+  "id": "pine-valley-mountains",
+  "name": "Pine Valley Mountains",
+  "landmark": "Burger Peak",
+  "region": "Utah, USA",
+  "bbox": [
+    -113.75,
+    37.127,
+    -113.253,
+    37.525
+  ],
+  "source": "discovered",
+  "archetype": "brooding",
+  "mood": "melancholy",
+  "quality": {
+    "floorShare": 0.09,
+    "artifact": 0.17
+  },
+  "scores": {
+    "energy": 0.282,
+    "rawness": 0.217,
+    "grandeur": 0.471,
+    "dominance": 0.49
+  },
+  "features": {
+    "reliefM": 2120.5,
+    "slopeMPerKm": 118.3,
+    "peaksPer10Km": 1.9,
+    "roughnessM": 47.4,
+    "dominance": 0.5,
+    "summitM": 3160.2,
+    "lengthKm": 62.4
+  }
+}

@@ -1,0 +1,1364 @@
+{
+  "classification": "CPU geometry projection of verified shipped meshes using synthetic musical channel probes; no browser or artistic acceptance",
+  "sourceCommit": "d89b8914dec9d25958a238786d01c0567f2fe074",
+  "sourceChanges": "M tools/landscape-performance-smoke.mjs\n?? test/rangeMotionMetrics.test.js\n?? tools/lib/range-motion-evidence.mjs\n?? tools/lib/range-motion-metrics.mjs\n?? tools/range-motion-evidence.mjs",
+  "sources": {
+    "src/world/alpine/RangeFrame.js": "255ebd57ad3a5de80fe118851ea3d5fda7a4096bb70727dc9015eb67500bc6c8",
+    "src/world/alpine/GlacierField.js": "6b4f3d7cf48007d1f313ca0c9a497414c5dc9778f34d2444f44ebb7db9be6d35",
+    "src/world/alpine/TerrainMesh.js": "809f02f342c796f2d18cd5eb4bc63c2793d4a1d6c07ebcb68b7bfe61cfb1d7af",
+    "src/world/terrain/SceneTravel.js": "97f2b1b6c541acd43723ee4846cf47b59686ae52eb386a4907012592f8c1d4e7",
+    "src/world/terrain/sceneCatalogData.js": "b64d2a5d872559d6df90c6bb787c7b27abece13836244d551bad83328208dfa3",
+    "tools/lib/range-motion-metrics.mjs": "e1e68655238e89dafe8779a9d29dbcf9eb98ca308d3c79f9ffd90f5577a65434",
+    "tools/lib/range-motion-evidence.mjs": "acea62b28aef234cb66b3de04d553bf3bc63b22fe43db83c20053a828a5b7d80",
+    "tools/range-motion-evidence.mjs": "c1b45c613e11f76d5961abe6de8f3cb7782e3fab3451c770f8c75286c3f688a0"
+  },
+  "states": {
+    "quiet": {
+      "env": {
+        "groove": 0.06,
+        "sustain": 0.04,
+        "scaleMul": 1,
+        "kickMul": 1,
+        "gesture": 0
+      },
+      "activity01": 0.08
+    },
+    "sustained-bass": {
+      "env": {
+        "groove": 0.7,
+        "sustain": 0.9,
+        "scaleMul": 1.2,
+        "kickMul": 1,
+        "gesture": 0
+      },
+      "activity01": 0.9
+    },
+    "isolated-kick": {
+      "env": {
+        "groove": 0,
+        "sustain": 0,
+        "scaleMul": 1,
+        "kickMul": 1,
+        "gesture": 0
+      },
+      "evaluatedKick01": 1,
+      "activity01": 1
+    },
+    "dense": {
+      "env": {
+        "groove": 0.9,
+        "sustain": 0.9,
+        "scaleMul": 1.3,
+        "kickMul": 0.8,
+        "gesture": 0.8
+      },
+      "evaluatedKick01": 0.7,
+      "activity01": 1,
+      "melody": {
+        "activity": 0.8,
+        "pitch01": 0.7,
+        "pan": 0.3
+      },
+      "structural01": 0.7
+    }
+  },
+  "rows": [
+    {
+      "label": "quiet",
+      "classification": "CPU projection of prepared terrain; terrain self-visibility, not final composited pixels",
+      "cameraComparison": "fixed camera, time, glacier and lighting; music displacement only",
+      "viewId": "teton-jackson-lake-coherent",
+      "timeMs": 60000,
+      "progress01": 0.5,
+      "camera": {
+        "world": [
+          -0.5082836546204538,
+          8.673617379884034e-19,
+          -0.861189715710583,
+          0,
+          -0.0025494694461114897,
+          0.999995617994591,
+          0.00150472494477422,
+          0,
+          0.8611859419725905,
+          0.0029604039616379723,
+          -0.50828142731873,
+          0,
+          3617.7,
+          2411.1000000000004,
+          -3556.5,
+          1
+        ],
+        "projection": [
+          2.1066303893348812,
+          0,
+          0,
+          0,
+          0,
+          3.7451206921509,
+          0,
+          0,
+          0,
+          0,
+          -1.0002667022269636,
+          -1,
+          0,
+          0,
+          -40.005334044539275,
+          0
+        ]
+      },
+      "sampling": {
+        "columns": 12,
+        "rows": 12,
+        "outputWidth": 1280,
+        "outputHeight": 720,
+        "fittedStage": {
+          "width": 1280,
+          "height": 720,
+          "left": 0,
+          "top": 0
+        },
+        "normalizedHeight": 720,
+        "foregroundMaxFrac": 0.12,
+        "groups": {
+          "crest": "first visible sampled terrain in each column, excluding near band",
+          "flank": "remaining far/mid terrain hits",
+          "near": "hits owned by the near terrain band"
+        }
+      },
+      "calibration": {
+        "gain": 0.7532699535887771,
+        "targetPx": 8,
+        "projectedBoundPx": 0.344892221180881,
+        "totalBoundM": 3.4650417865083747,
+        "geologicalCapM": 145.8398858642578
+      },
+      "sampledSurfaceCount": 96,
+      "excluded": {
+        "hydro": 25,
+        "selfOccluded": 0,
+        "cropped": 0,
+        "foreground": 11
+      },
+      "waterMaxDisplacementM": 0,
+      "groups": {
+        "crest": {
+          "visibleCount": 12,
+          "medianPx": 0.04628147667778869,
+          "p95Px": 0.11246889207426629,
+          "maxPx": 0.11509498858620512
+        },
+        "flank": {
+          "visibleCount": 34,
+          "medianPx": 0.004357421084140238,
+          "p95Px": 0.0490038974016999,
+          "maxPx": 0.1029890908613869
+        },
+        "near": {
+          "visibleCount": 14,
+          "medianPx": 0.0015381010692226793,
+          "p95Px": 0.0034047248953005442,
+          "maxPx": 0.003512441660479454
+        }
+      },
+      "assetHashes": {
+        "manifest": "bd3b57442d203981a66be4e1e23df677116f9a562d7a39497f0a0e0e01b429b1",
+        "payload": "4d6c2aae717cba1c485d3533ac0406e21ab14733c459b065eec71cdbbcead4f2",
+        "decoded": "612bfee11584360b38c854375004c8105b2a145f2cc4354b0b8e86258dabaea1"
+      },
+      "budget": "desktop"
+    },
+    {
+      "label": "sustained-bass",
+      "classification": "CPU projection of prepared terrain; terrain self-visibility, not final composited pixels",
+      "cameraComparison": "fixed camera, time, glacier and lighting; music displacement only",
+      "viewId": "teton-jackson-lake-coherent",
+      "timeMs": 60000,
+      "progress01": 0.5,
+      "camera": {
+        "world": [
+          -0.5082836546204538,
+          8.673617379884034e-19,
+          -0.861189715710583,
+          0,
+          -0.0025494694461114897,
+          0.999995617994591,
+          0.00150472494477422,
+          0,
+          0.8611859419725905,
+          0.0029604039616379723,
+          -0.50828142731873,
+          0,
+          3617.7,
+          2411.1000000000004,
+          -3556.5,
+          1
+        ],
+        "projection": [
+          2.1066303893348812,
+          0,
+          0,
+          0,
+          0,
+          3.7451206921509,
+          0,
+          0,
+          0,
+          0,
+          -1.0002667022269636,
+          -1,
+          0,
+          0,
+          -40.005334044539275,
+          0
+        ]
+      },
+      "sampling": {
+        "columns": 12,
+        "rows": 12,
+        "outputWidth": 1280,
+        "outputHeight": 720,
+        "fittedStage": {
+          "width": 1280,
+          "height": 720,
+          "left": 0,
+          "top": 0
+        },
+        "normalizedHeight": 720,
+        "foregroundMaxFrac": 0.12,
+        "groups": {
+          "crest": "first visible sampled terrain in each column, excluding near band",
+          "flank": "remaining far/mid terrain hits",
+          "near": "hits owned by the near terrain band"
+        }
+      },
+      "calibration": {
+        "gain": 1.3668217981654902,
+        "targetPx": 20,
+        "projectedBoundPx": 5.5180389993784535,
+        "totalBoundM": 55.43829213359228,
+        "geologicalCapM": 145.8398858642578
+      },
+      "sampledSurfaceCount": 96,
+      "excluded": {
+        "hydro": 25,
+        "selfOccluded": 0,
+        "cropped": 0,
+        "foreground": 11
+      },
+      "waterMaxDisplacementM": 0,
+      "groups": {
+        "crest": {
+          "visibleCount": 12,
+          "medianPx": 0.7404861524545365,
+          "p95Px": 1.7994700821789071,
+          "maxPx": 1.8415700879198407
+        },
+        "flank": {
+          "visibleCount": 34,
+          "medianPx": 0.0698054623024229,
+          "p95Px": 0.7839222461036954,
+          "maxPx": 1.647849814918312
+        },
+        "near": {
+          "visibleCount": 14,
+          "medianPx": 0.024097076826605245,
+          "p95Px": 0.0546965393174768,
+          "maxPx": 0.05709541063184641
+        }
+      },
+      "assetHashes": {
+        "manifest": "bd3b57442d203981a66be4e1e23df677116f9a562d7a39497f0a0e0e01b429b1",
+        "payload": "4d6c2aae717cba1c485d3533ac0406e21ab14733c459b065eec71cdbbcead4f2",
+        "decoded": "612bfee11584360b38c854375004c8105b2a145f2cc4354b0b8e86258dabaea1"
+      },
+      "budget": "desktop"
+    },
+    {
+      "label": "isolated-kick",
+      "classification": "CPU projection of prepared terrain; terrain self-visibility, not final composited pixels",
+      "cameraComparison": "fixed camera, time, glacier and lighting; music displacement only",
+      "viewId": "teton-jackson-lake-coherent",
+      "timeMs": 60000,
+      "progress01": 0.5,
+      "camera": {
+        "world": [
+          -0.5082836546204538,
+          8.673617379884034e-19,
+          -0.861189715710583,
+          0,
+          -0.0025494694461114897,
+          0.999995617994591,
+          0.00150472494477422,
+          0,
+          0.8611859419725905,
+          0.0029604039616379723,
+          -0.50828142731873,
+          0,
+          3617.7,
+          2411.1000000000004,
+          -3556.5,
+          1
+        ],
+        "projection": [
+          2.1066303893348812,
+          0,
+          0,
+          0,
+          0,
+          3.7451206921509,
+          0,
+          0,
+          0,
+          0,
+          -1.0002667022269636,
+          -1,
+          0,
+          0,
+          -40.005334044539275,
+          0
+        ]
+      },
+      "sampling": {
+        "columns": 12,
+        "rows": 12,
+        "outputWidth": 1280,
+        "outputHeight": 720,
+        "fittedStage": {
+          "width": 1280,
+          "height": 720,
+          "left": 0,
+          "top": 0
+        },
+        "normalizedHeight": 720,
+        "foregroundMaxFrac": 0.12,
+        "groups": {
+          "crest": "first visible sampled terrain in each column, excluding near band",
+          "flank": "remaining far/mid terrain hits",
+          "near": "hits owned by the near terrain band"
+        }
+      },
+      "calibration": {
+        "gain": 1.3668217981654902,
+        "targetPx": 20,
+        "projectedBoundPx": 2.4488338754638113,
+        "totalBoundM": 24.602792366978825,
+        "geologicalCapM": 145.8398858642578
+      },
+      "sampledSurfaceCount": 96,
+      "excluded": {
+        "hydro": 25,
+        "selfOccluded": 0,
+        "cropped": 0,
+        "foreground": 11
+      },
+      "waterMaxDisplacementM": 0,
+      "groups": {
+        "crest": {
+          "visibleCount": 12,
+          "medianPx": 0.825158118190775,
+          "p95Px": 1.5238404518555966,
+          "maxPx": 1.5347850984305107
+        },
+        "flank": {
+          "visibleCount": 34,
+          "medianPx": 0.06981702063873566,
+          "p95Px": 0.48691309882769174,
+          "maxPx": 0.7897118735134993
+        },
+        "near": {
+          "visibleCount": 14,
+          "medianPx": 0.07357394270037197,
+          "p95Px": 0.09617657942911466,
+          "maxPx": 0.09677058931355137
+        }
+      },
+      "assetHashes": {
+        "manifest": "bd3b57442d203981a66be4e1e23df677116f9a562d7a39497f0a0e0e01b429b1",
+        "payload": "4d6c2aae717cba1c485d3533ac0406e21ab14733c459b065eec71cdbbcead4f2",
+        "decoded": "612bfee11584360b38c854375004c8105b2a145f2cc4354b0b8e86258dabaea1"
+      },
+      "budget": "desktop"
+    },
+    {
+      "label": "dense",
+      "classification": "CPU projection of prepared terrain; terrain self-visibility, not final composited pixels",
+      "cameraComparison": "fixed camera, time, glacier and lighting; music displacement only",
+      "viewId": "teton-jackson-lake-coherent",
+      "timeMs": 60000,
+      "progress01": 0.5,
+      "camera": {
+        "world": [
+          -0.5082836546204538,
+          8.673617379884034e-19,
+          -0.861189715710583,
+          0,
+          -0.0025494694461114897,
+          0.999995617994591,
+          0.00150472494477422,
+          0,
+          0.8611859419725905,
+          0.0029604039616379723,
+          -0.50828142731873,
+          0,
+          3617.7,
+          2411.1000000000004,
+          -3556.5,
+          1
+        ],
+        "projection": [
+          2.1066303893348812,
+          0,
+          0,
+          0,
+          0,
+          3.7451206921509,
+          0,
+          0,
+          0,
+          0,
+          -1.0002667022269636,
+          -1,
+          0,
+          0,
+          -40.005334044539275,
+          0
+        ]
+      },
+      "sampling": {
+        "columns": 12,
+        "rows": 12,
+        "outputWidth": 1280,
+        "outputHeight": 720,
+        "fittedStage": {
+          "width": 1280,
+          "height": 720,
+          "left": 0,
+          "top": 0
+        },
+        "normalizedHeight": 720,
+        "foregroundMaxFrac": 0.12,
+        "groups": {
+          "crest": "first visible sampled terrain in each column, excluding near band",
+          "flank": "remaining far/mid terrain hits",
+          "near": "hits owned by the near terrain band"
+        }
+      },
+      "calibration": {
+        "gain": 1.3668217981654902,
+        "targetPx": 20,
+        "projectedBoundPx": 11.51904245752894,
+        "totalBoundM": 115.72880165067208,
+        "geologicalCapM": 145.8398858642578
+      },
+      "sampledSurfaceCount": 96,
+      "excluded": {
+        "hydro": 25,
+        "selfOccluded": 0,
+        "cropped": 0,
+        "foreground": 11
+      },
+      "waterMaxDisplacementM": 0,
+      "groups": {
+        "crest": {
+          "visibleCount": 12,
+          "medianPx": 0.7888515473924071,
+          "p95Px": 3.041540412400504,
+          "maxPx": 3.727020850434314
+        },
+        "flank": {
+          "visibleCount": 34,
+          "medianPx": 0.11031923078332397,
+          "p95Px": 0.7744619493001005,
+          "maxPx": 0.9844722658130839
+        },
+        "near": {
+          "visibleCount": 14,
+          "medianPx": 0.05562518685976568,
+          "p95Px": 0.1204868070526126,
+          "maxPx": 0.126388460309192
+        }
+      },
+      "assetHashes": {
+        "manifest": "bd3b57442d203981a66be4e1e23df677116f9a562d7a39497f0a0e0e01b429b1",
+        "payload": "4d6c2aae717cba1c485d3533ac0406e21ab14733c459b065eec71cdbbcead4f2",
+        "decoded": "612bfee11584360b38c854375004c8105b2a145f2cc4354b0b8e86258dabaea1"
+      },
+      "budget": "desktop"
+    },
+    {
+      "label": "quiet",
+      "classification": "CPU projection of prepared terrain; terrain self-visibility, not final composited pixels",
+      "cameraComparison": "fixed camera, time, glacier and lighting; music displacement only",
+      "viewId": "monument-valley-163-coherent",
+      "timeMs": 60000,
+      "progress01": 0.5,
+      "camera": {
+        "world": [
+          -0.8160638725081473,
+          0,
+          -0.5779617253651027,
+          0,
+          0.004997344910363586,
+          0.9999626183373552,
+          -0.007056094652693462,
+          0,
+          0.5779401201948634,
+          -0.00864649801369931,
+          -0.8160333666837687,
+          0,
+          -500.84999999999997,
+          1640.9,
+          -30,
+          1
+        ],
+        "projection": [
+          4.002395468841117,
+          0,
+          0,
+          0,
+          0,
+          7.115369722384209,
+          0,
+          0,
+          0,
+          0,
+          -1.0002667022269636,
+          -1,
+          0,
+          0,
+          -40.005334044539275,
+          0
+        ]
+      },
+      "sampling": {
+        "columns": 12,
+        "rows": 12,
+        "outputWidth": 1280,
+        "outputHeight": 720,
+        "fittedStage": {
+          "width": 1280,
+          "height": 720,
+          "left": 0,
+          "top": 0
+        },
+        "normalizedHeight": 720,
+        "foregroundMaxFrac": 0.12,
+        "groups": {
+          "crest": "first visible sampled terrain in each column, excluding near band",
+          "flank": "remaining far/mid terrain hits",
+          "near": "hits owned by the near terrain band"
+        }
+      },
+      "calibration": {
+        "gain": 0.2000657885590063,
+        "targetPx": 8,
+        "projectedBoundPx": 0.3448922211808809,
+        "totalBoundM": 0.920302627371429,
+        "geologicalCapM": 35.40465576171875
+      },
+      "sampledSurfaceCount": 81,
+      "excluded": {
+        "hydro": 0,
+        "selfOccluded": 0,
+        "cropped": 0,
+        "foreground": 12
+      },
+      "waterMaxDisplacementM": 0,
+      "groups": {
+        "crest": {
+          "visibleCount": 12,
+          "medianPx": 0.07340851117620803,
+          "p95Px": 0.09289725795190223,
+          "maxPx": 0.09467643961853305
+        },
+        "flank": {
+          "visibleCount": 9,
+          "medianPx": 0.012831362826182744,
+          "p95Px": 0.015209867704915054,
+          "maxPx": 0.015588848578246151
+        },
+        "near": {
+          "visibleCount": 48,
+          "medianPx": 0.093184808068044,
+          "p95Px": 0.14906254111902834,
+          "maxPx": 0.155154509734975
+        }
+      },
+      "assetHashes": {
+        "manifest": "78779fcd2a016e3777d524969955edb225e64db416ca02ee1708c8cb9825720e",
+        "payload": "9a60ac6d2118690f9c0db529cdad9ca52c6a75d731b813df25496dfc640df677",
+        "decoded": "69947ae39100985e4d143c188811903e8d23c534c1aaa041a07166100875ffb5"
+      },
+      "budget": "desktop"
+    },
+    {
+      "label": "sustained-bass",
+      "classification": "CPU projection of prepared terrain; terrain self-visibility, not final composited pixels",
+      "cameraComparison": "fixed camera, time, glacier and lighting; music displacement only",
+      "viewId": "monument-valley-163-coherent",
+      "timeMs": 60000,
+      "progress01": 0.5,
+      "camera": {
+        "world": [
+          -0.8160638725081473,
+          0,
+          -0.5779617253651027,
+          0,
+          0.004997344910363586,
+          0.9999626183373552,
+          -0.007056094652693462,
+          0,
+          0.5779401201948634,
+          -0.00864649801369931,
+          -0.8160333666837687,
+          0,
+          -500.84999999999997,
+          1640.9,
+          -30,
+          1
+        ],
+        "projection": [
+          4.002395468841117,
+          0,
+          0,
+          0,
+          0,
+          7.115369722384209,
+          0,
+          0,
+          0,
+          0,
+          -1.0002667022269636,
+          -1,
+          0,
+          0,
+          -40.005334044539275,
+          0
+        ]
+      },
+      "sampling": {
+        "columns": 12,
+        "rows": 12,
+        "outputWidth": 1280,
+        "outputHeight": 720,
+        "fittedStage": {
+          "width": 1280,
+          "height": 720,
+          "left": 0,
+          "top": 0
+        },
+        "normalizedHeight": 720,
+        "foregroundMaxFrac": 0.12,
+        "groups": {
+          "crest": "first visible sampled terrain in each column, excluding near band",
+          "flank": "remaining far/mid terrain hits",
+          "near": "hits owned by the near terrain band"
+        }
+      },
+      "calibration": {
+        "gain": 0.33181495559249063,
+        "targetPx": 20,
+        "projectedBoundPx": 5.0436697304905085,
+        "totalBoundM": 13.458414598831418,
+        "geologicalCapM": 35.40465576171875
+      },
+      "sampledSurfaceCount": 81,
+      "excluded": {
+        "hydro": 0,
+        "selfOccluded": 0,
+        "cropped": 0,
+        "foreground": 12
+      },
+      "waterMaxDisplacementM": 0,
+      "groups": {
+        "crest": {
+          "visibleCount": 12,
+          "medianPx": 1.0734805625478656,
+          "p95Px": 1.3584448242793625,
+          "maxPx": 1.3844558494518653
+        },
+        "flank": {
+          "visibleCount": 9,
+          "medianPx": 0.18779968545356707,
+          "p95Px": 0.22249729165539,
+          "maxPx": 0.22806898095910658
+        },
+        "near": {
+          "visibleCount": 48,
+          "medianPx": 1.3618454725614866,
+          "p95Px": 2.1773757943286003,
+          "maxPx": 2.264325487820843
+        }
+      },
+      "assetHashes": {
+        "manifest": "78779fcd2a016e3777d524969955edb225e64db416ca02ee1708c8cb9825720e",
+        "payload": "9a60ac6d2118690f9c0db529cdad9ca52c6a75d731b813df25496dfc640df677",
+        "decoded": "69947ae39100985e4d143c188811903e8d23c534c1aaa041a07166100875ffb5"
+      },
+      "budget": "desktop"
+    },
+    {
+      "label": "isolated-kick",
+      "classification": "CPU projection of prepared terrain; terrain self-visibility, not final composited pixels",
+      "cameraComparison": "fixed camera, time, glacier and lighting; music displacement only",
+      "viewId": "monument-valley-163-coherent",
+      "timeMs": 60000,
+      "progress01": 0.5,
+      "camera": {
+        "world": [
+          -0.8160638725081473,
+          0,
+          -0.5779617253651027,
+          0,
+          0.004997344910363586,
+          0.9999626183373552,
+          -0.007056094652693462,
+          0,
+          0.5779401201948634,
+          -0.00864649801369931,
+          -0.8160333666837687,
+          0,
+          -500.84999999999997,
+          1640.9,
+          -30,
+          1
+        ],
+        "projection": [
+          4.002395468841117,
+          0,
+          0,
+          0,
+          0,
+          7.115369722384209,
+          0,
+          0,
+          0,
+          0,
+          -1.0002667022269636,
+          -1,
+          0,
+          0,
+          -40.005334044539275,
+          0
+        ]
+      },
+      "sampling": {
+        "columns": 12,
+        "rows": 12,
+        "outputWidth": 1280,
+        "outputHeight": 720,
+        "fittedStage": {
+          "width": 1280,
+          "height": 720,
+          "left": 0,
+          "top": 0
+        },
+        "normalizedHeight": 720,
+        "foregroundMaxFrac": 0.12,
+        "groups": {
+          "crest": "first visible sampled terrain in each column, excluding near band",
+          "flank": "remaining far/mid terrain hits",
+          "near": "hits owned by the near terrain band"
+        }
+      },
+      "calibration": {
+        "gain": 0.33181495559249063,
+        "targetPx": 20,
+        "projectedBoundPx": 2.2383149691525928,
+        "totalBoundM": 5.972669200664831,
+        "geologicalCapM": 35.40465576171875
+      },
+      "sampledSurfaceCount": 81,
+      "excluded": {
+        "hydro": 0,
+        "selfOccluded": 0,
+        "cropped": 0,
+        "foreground": 12
+      },
+      "waterMaxDisplacementM": 0,
+      "groups": {
+        "crest": {
+          "visibleCount": 12,
+          "medianPx": 0.6053631342691497,
+          "p95Px": 0.6285047773377838,
+          "maxPx": 0.6286296929542067
+        },
+        "flank": {
+          "visibleCount": 9,
+          "medianPx": 0.09748463197836237,
+          "p95Px": 0.11538323189024344,
+          "maxPx": 0.12147085437299153
+        },
+        "near": {
+          "visibleCount": 48,
+          "medianPx": 0.9691310201397663,
+          "p95Px": 1.2897302068699954,
+          "maxPx": 1.3180814957331035
+        }
+      },
+      "assetHashes": {
+        "manifest": "78779fcd2a016e3777d524969955edb225e64db416ca02ee1708c8cb9825720e",
+        "payload": "9a60ac6d2118690f9c0db529cdad9ca52c6a75d731b813df25496dfc640df677",
+        "decoded": "69947ae39100985e4d143c188811903e8d23c534c1aaa041a07166100875ffb5"
+      },
+      "budget": "desktop"
+    },
+    {
+      "label": "dense",
+      "classification": "CPU projection of prepared terrain; terrain self-visibility, not final composited pixels",
+      "cameraComparison": "fixed camera, time, glacier and lighting; music displacement only",
+      "viewId": "monument-valley-163-coherent",
+      "timeMs": 60000,
+      "progress01": 0.5,
+      "camera": {
+        "world": [
+          -0.8160638725081473,
+          0,
+          -0.5779617253651027,
+          0,
+          0.004997344910363586,
+          0.9999626183373552,
+          -0.007056094652693462,
+          0,
+          0.5779401201948634,
+          -0.00864649801369931,
+          -0.8160333666837687,
+          0,
+          -500.84999999999997,
+          1640.9,
+          -30,
+          1
+        ],
+        "projection": [
+          4.002395468841117,
+          0,
+          0,
+          0,
+          0,
+          7.115369722384209,
+          0,
+          0,
+          0,
+          0,
+          -1.0002667022269636,
+          -1,
+          0,
+          0,
+          -40.005334044539275,
+          0
+        ]
+      },
+      "sampling": {
+        "columns": 12,
+        "rows": 12,
+        "outputWidth": 1280,
+        "outputHeight": 720,
+        "fittedStage": {
+          "width": 1280,
+          "height": 720,
+          "left": 0,
+          "top": 0
+        },
+        "normalizedHeight": 720,
+        "foregroundMaxFrac": 0.12,
+        "groups": {
+          "crest": "first visible sampled terrain in each column, excluding near band",
+          "flank": "remaining far/mid terrain hits",
+          "near": "hits owned by the near terrain band"
+        }
+      },
+      "calibration": {
+        "gain": 0.33181495559249063,
+        "targetPx": 20,
+        "projectedBoundPx": 10.528784913230561,
+        "totalBoundM": 28.094772290016188,
+        "geologicalCapM": 35.40465576171875
+      },
+      "sampledSurfaceCount": 81,
+      "excluded": {
+        "hydro": 0,
+        "selfOccluded": 0,
+        "cropped": 0,
+        "foreground": 12
+      },
+      "waterMaxDisplacementM": 0,
+      "groups": {
+        "crest": {
+          "visibleCount": 12,
+          "medianPx": 0.43307111231413176,
+          "p95Px": 2.5222831694438694,
+          "maxPx": 2.6145222797643752
+        },
+        "flank": {
+          "visibleCount": 9,
+          "medianPx": 0.14736026148160583,
+          "p95Px": 0.1794829043994358,
+          "maxPx": 0.1915481492016953
+        },
+        "near": {
+          "visibleCount": 48,
+          "medianPx": 3.0685856436328294,
+          "p95Px": 4.510938301412602,
+          "maxPx": 4.66733679677877
+        }
+      },
+      "assetHashes": {
+        "manifest": "78779fcd2a016e3777d524969955edb225e64db416ca02ee1708c8cb9825720e",
+        "payload": "9a60ac6d2118690f9c0db529cdad9ca52c6a75d731b813df25496dfc640df677",
+        "decoded": "69947ae39100985e4d143c188811903e8d23c534c1aaa041a07166100875ffb5"
+      },
+      "budget": "desktop"
+    },
+    {
+      "label": "quiet",
+      "classification": "CPU projection of prepared terrain; terrain self-visibility, not final composited pixels",
+      "cameraComparison": "fixed camera, time, glacier and lighting; music displacement only",
+      "viewId": "pend-oreille-valley",
+      "timeMs": 60000,
+      "progress01": 0.5,
+      "camera": {
+        "world": [
+          0.9120268246974464,
+          3.469446951953614e-18,
+          -0.41013055364395035,
+          0,
+          -0.026671677609706273,
+          0.9978831683053951,
+          -0.059311078444675154,
+          0,
+          0.40926237628907103,
+          0.06503216444796003,
+          0.910096217408597,
+          0,
+          1555.2000000000007,
+          1837.2,
+          5375.949999999997,
+          1
+        ],
+        "projection": [
+          1.9616706246605116,
+          0,
+          0,
+          0,
+          0,
+          3.487414443840909,
+          0,
+          0,
+          0,
+          0,
+          -1.0002667022269636,
+          -1,
+          0,
+          0,
+          -40.005334044539275,
+          0
+        ]
+      },
+      "sampling": {
+        "columns": 12,
+        "rows": 12,
+        "outputWidth": 1280,
+        "outputHeight": 720,
+        "fittedStage": {
+          "width": 1280,
+          "height": 720,
+          "left": 0,
+          "top": 0
+        },
+        "normalizedHeight": 720,
+        "foregroundMaxFrac": 0,
+        "groups": {
+          "crest": "first visible sampled terrain in each column, excluding near band",
+          "flank": "remaining far/mid terrain hits",
+          "near": "hits owned by the near terrain band"
+        }
+      },
+      "calibration": {
+        "gain": 0.6999390771035753,
+        "targetPx": 8,
+        "projectedBoundPx": 0.344892221180881,
+        "totalBoundM": 3.219719754676446,
+        "geologicalCapM": 111.67333450317383
+      },
+      "sampledSurfaceCount": 84,
+      "excluded": {
+        "hydro": 2,
+        "selfOccluded": 0,
+        "cropped": 0,
+        "foreground": 0
+      },
+      "waterMaxDisplacementM": 0,
+      "groups": {
+        "crest": {
+          "visibleCount": 3,
+          "medianPx": 0.015676432798850955,
+          "p95Px": 0.02442605582166755,
+          "maxPx": 0.02539823615753606
+        },
+        "flank": {
+          "visibleCount": 0,
+          "medianPx": 0,
+          "p95Px": 0,
+          "maxPx": 0
+        },
+        "near": {
+          "visibleCount": 79,
+          "medianPx": 0.0023690818914750772,
+          "p95Px": 0.047286002518832866,
+          "maxPx": 0.056918319409683595
+        }
+      },
+      "assetHashes": {
+        "manifest": "c06b35fc64d0af6a0d22b8a595e9fa1499e7c0d701d755caa61c8b3a5ba6a3bd",
+        "payload": "d51e69acee4988f501b56feaee699dd6fb3e7b087b530ba103dfa89f7270cf32",
+        "decoded": "4a8ad580a42719dc6940cfe522bf8bd3a638e693bfee180f17ded125d2ffa2ad"
+      },
+      "budget": "desktop"
+    },
+    {
+      "label": "sustained-bass",
+      "classification": "CPU projection of prepared terrain; terrain self-visibility, not final composited pixels",
+      "cameraComparison": "fixed camera, time, glacier and lighting; music displacement only",
+      "viewId": "pend-oreille-valley",
+      "timeMs": 60000,
+      "progress01": 0.5,
+      "camera": {
+        "world": [
+          0.9120268246974464,
+          3.469446951953614e-18,
+          -0.41013055364395035,
+          0,
+          -0.026671677609706273,
+          0.9978831683053951,
+          -0.059311078444675154,
+          0,
+          0.40926237628907103,
+          0.06503216444796003,
+          0.910096217408597,
+          0,
+          1555.2000000000007,
+          1837.2,
+          5375.949999999997,
+          1
+        ],
+        "projection": [
+          1.9616706246605116,
+          0,
+          0,
+          0,
+          0,
+          3.487414443840909,
+          0,
+          0,
+          0,
+          0,
+          -1.0002667022269636,
+          -1,
+          0,
+          0,
+          -40.005334044539275,
+          0
+        ]
+      },
+      "sampling": {
+        "columns": 12,
+        "rows": 12,
+        "outputWidth": 1280,
+        "outputHeight": 720,
+        "fittedStage": {
+          "width": 1280,
+          "height": 720,
+          "left": 0,
+          "top": 0
+        },
+        "normalizedHeight": 720,
+        "foregroundMaxFrac": 0,
+        "groups": {
+          "crest": "first visible sampled terrain in each column, excluding near band",
+          "flank": "remaining far/mid terrain hits",
+          "near": "hits owned by the near terrain band"
+        }
+      },
+      "calibration": {
+        "gain": 1.0466104452031286,
+        "targetPx": 20,
+        "projectedBoundPx": 4.547244831998749,
+        "totalBoundM": 42.45051965743889,
+        "geologicalCapM": 111.67333450317383
+      },
+      "sampledSurfaceCount": 84,
+      "excluded": {
+        "hydro": 2,
+        "selfOccluded": 0,
+        "cropped": 0,
+        "foreground": 0
+      },
+      "waterMaxDisplacementM": 0,
+      "groups": {
+        "crest": {
+          "visibleCount": 3,
+          "medianPx": 0.2067220181073579,
+          "p95Px": 0.32207848415875795,
+          "maxPx": 0.3348958692755802
+        },
+        "flank": {
+          "visibleCount": 0,
+          "medianPx": 0,
+          "p95Px": 0,
+          "maxPx": 0
+        },
+        "near": {
+          "visibleCount": 79,
+          "medianPx": 0.031203756048568992,
+          "p95Px": 0.6234873071042747,
+          "maxPx": 0.7504771810697599
+        }
+      },
+      "assetHashes": {
+        "manifest": "c06b35fc64d0af6a0d22b8a595e9fa1499e7c0d701d755caa61c8b3a5ba6a3bd",
+        "payload": "d51e69acee4988f501b56feaee699dd6fb3e7b087b530ba103dfa89f7270cf32",
+        "decoded": "4a8ad580a42719dc6940cfe522bf8bd3a638e693bfee180f17ded125d2ffa2ad"
+      },
+      "budget": "desktop"
+    },
+    {
+      "label": "isolated-kick",
+      "classification": "CPU projection of prepared terrain; terrain self-visibility, not final composited pixels",
+      "cameraComparison": "fixed camera, time, glacier and lighting; music displacement only",
+      "viewId": "pend-oreille-valley",
+      "timeMs": 60000,
+      "progress01": 0.5,
+      "camera": {
+        "world": [
+          0.9120268246974464,
+          3.469446951953614e-18,
+          -0.41013055364395035,
+          0,
+          -0.026671677609706273,
+          0.9978831683053951,
+          -0.059311078444675154,
+          0,
+          0.40926237628907103,
+          0.06503216444796003,
+          0.910096217408597,
+          0,
+          1555.2000000000007,
+          1837.2,
+          5375.949999999997,
+          1
+        ],
+        "projection": [
+          1.9616706246605116,
+          0,
+          0,
+          0,
+          0,
+          3.487414443840909,
+          0,
+          0,
+          0,
+          0,
+          -1.0002667022269636,
+          -1,
+          0,
+          0,
+          -40.005334044539275,
+          0
+        ]
+      },
+      "sampling": {
+        "columns": 12,
+        "rows": 12,
+        "outputWidth": 1280,
+        "outputHeight": 720,
+        "fittedStage": {
+          "width": 1280,
+          "height": 720,
+          "left": 0,
+          "top": 0
+        },
+        "normalizedHeight": 720,
+        "foregroundMaxFrac": 0,
+        "groups": {
+          "crest": "first visible sampled terrain in each column, excluding near band",
+          "flank": "remaining far/mid terrain hits",
+          "near": "hits owned by the near terrain band"
+        }
+      },
+      "calibration": {
+        "gain": 1.0466104452031286,
+        "targetPx": 20,
+        "projectedBoundPx": 2.018008061537907,
+        "totalBoundM": 18.838988013656316,
+        "geologicalCapM": 111.67333450317383
+      },
+      "sampledSurfaceCount": 84,
+      "excluded": {
+        "hydro": 2,
+        "selfOccluded": 0,
+        "cropped": 0,
+        "foreground": 0
+      },
+      "waterMaxDisplacementM": 0,
+      "groups": {
+        "crest": {
+          "visibleCount": 3,
+          "medianPx": 0.16328588448554077,
+          "p95Px": 0.20322794225184443,
+          "maxPx": 0.20766594867032262
+        },
+        "flank": {
+          "visibleCount": 0,
+          "medianPx": 0,
+          "p95Px": 0,
+          "maxPx": 0
+        },
+        "near": {
+          "visibleCount": 79,
+          "medianPx": 0.03401187732031101,
+          "p95Px": 0.30374442756882514,
+          "maxPx": 0.4757599937370113
+        }
+      },
+      "assetHashes": {
+        "manifest": "c06b35fc64d0af6a0d22b8a595e9fa1499e7c0d701d755caa61c8b3a5ba6a3bd",
+        "payload": "d51e69acee4988f501b56feaee699dd6fb3e7b087b530ba103dfa89f7270cf32",
+        "decoded": "4a8ad580a42719dc6940cfe522bf8bd3a638e693bfee180f17ded125d2ffa2ad"
+      },
+      "budget": "desktop"
+    },
+    {
+      "label": "dense",
+      "classification": "CPU projection of prepared terrain; terrain self-visibility, not final composited pixels",
+      "cameraComparison": "fixed camera, time, glacier and lighting; music displacement only",
+      "viewId": "pend-oreille-valley",
+      "timeMs": 60000,
+      "progress01": 0.5,
+      "camera": {
+        "world": [
+          0.9120268246974464,
+          3.469446951953614e-18,
+          -0.41013055364395035,
+          0,
+          -0.026671677609706273,
+          0.9978831683053951,
+          -0.059311078444675154,
+          0,
+          0.40926237628907103,
+          0.06503216444796003,
+          0.910096217408597,
+          0,
+          1555.2000000000007,
+          1837.2,
+          5375.949999999997,
+          1
+        ],
+        "projection": [
+          1.9616706246605116,
+          0,
+          0,
+          0,
+          0,
+          3.487414443840909,
+          0,
+          0,
+          0,
+          0,
+          -1.0002667022269636,
+          -1,
+          0,
+          0,
+          -40.005334044539275,
+          0
+        ]
+      },
+      "sampling": {
+        "columns": 12,
+        "rows": 12,
+        "outputWidth": 1280,
+        "outputHeight": 720,
+        "fittedStage": {
+          "width": 1280,
+          "height": 720,
+          "left": 0,
+          "top": 0
+        },
+        "normalizedHeight": 720,
+        "foregroundMaxFrac": 0,
+        "groups": {
+          "crest": "first visible sampled terrain in each column, excluding near band",
+          "flank": "remaining far/mid terrain hits",
+          "near": "hits owned by the near terrain band"
+        }
+      },
+      "calibration": {
+        "gain": 1.0466104452031286,
+        "targetPx": 20,
+        "projectedBoundPx": 9.492485698356367,
+        "totalBoundM": 88.61650639534892,
+        "geologicalCapM": 111.67333450317383
+      },
+      "sampledSurfaceCount": 84,
+      "excluded": {
+        "hydro": 2,
+        "selfOccluded": 0,
+        "cropped": 0,
+        "foreground": 0
+      },
+      "waterMaxDisplacementM": 0,
+      "groups": {
+        "crest": {
+          "visibleCount": 3,
+          "medianPx": 0.5119956658499656,
+          "p95Px": 0.6252695451926193,
+          "maxPx": 0.6378555317862475
+        },
+        "flank": {
+          "visibleCount": 0,
+          "medianPx": 0,
+          "p95Px": 0,
+          "maxPx": 0
+        },
+        "near": {
+          "visibleCount": 79,
+          "medianPx": 0.03894602300434427,
+          "p95Px": 0.4262007565040787,
+          "maxPx": 0.7257172499456449
+        }
+      },
+      "assetHashes": {
+        "manifest": "c06b35fc64d0af6a0d22b8a595e9fa1499e7c0d701d755caa61c8b3a5ba6a3bd",
+        "payload": "d51e69acee4988f501b56feaee699dd6fb3e7b087b530ba103dfa89f7270cf32",
+        "decoded": "4a8ad580a42719dc6940cfe522bf8bd3a638e693bfee180f17ded125d2ffa2ad"
+      },
+      "budget": "desktop"
+    }
+  ],
+  "unavailable": [
+    "final composite and forest visibility",
+    "real-song passages",
+    "moving-camera clips",
+    "physical device performance"
+  ],
+  "sourceContinuity": {
+    "note": "RangeFrame file hash above identifies the evaluated source at run start. A later buildRangeFrame melody-input fix changed that file; the directly probed functions below are byte-identical between the evaluated commit and the current checkout.",
+    "comparedCommit": "b2b0d3433774414393c03c881de2a4cf9fac6c1e",
+    "currentRangeFrameSha256": "23f51e426298f56e597681924ef9d608a423a5fa2733afcb217bc7e17454344b",
+    "functions": {
+      "rangeMusicState": {
+        "sha256": "4772d7b255b6dd64b605ea80509b34811224b202404937c03b16bf5ddb711ec8",
+        "identical": true
+      },
+      "calibrateRangeMusic": {
+        "sha256": "766363839a0bed2cef5aa914e444b4b33d759d240818db2802ac56e2be83be20",
+        "identical": true
+      },
+      "sceneDeformation": {
+        "sha256": "00df8d3bef292ba82d44b760786de564375fe88f95059b9ce60c8723d3b9e4de",
+        "identical": true
+      }
+    }
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "id": "la-sal-mountains",
+  "name": "La Sal Mountains",
+  "landmark": "Mount Peale",
+  "region": "Utah, USA",
+  "bbox": [
+    -109.482,
+    38.239,
+    -108.977,
+    38.637
+  ],
+  "source": "discovered",
+  "archetype": "brooding",
+  "mood": "melancholy",
+  "quality": {
+    "floorShare": 0.1,
+    "artifact": 0.05
+  },
+  "scores": {
+    "energy": 0.257,
+    "rawness": 0.205,
+    "grandeur": 0.397,
+    "dominance": 0.391
+  },
+  "features": {
+    "reliefM": 1787.2,
+    "slopeMPerKm": 146.5,
+    "peaksPer10Km": 1.4,
+    "roughnessM": 58,
+    "dominance": 0.4,
+    "summitM": 3850.6,
+    "lengthKm": 41.7
+  }
+}

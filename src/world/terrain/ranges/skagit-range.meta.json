@@ -1,0 +1,34 @@
+{
+  "id": "skagit-range",
+  "name": "Skagit Range",
+  "landmark": "Mount Baker",
+  "region": "Washington, USA",
+  "bbox": [
+    -122.113,
+    48.578,
+    -121.513,
+    48.976
+  ],
+  "source": "discovered",
+  "archetype": "sublime",
+  "mood": "awe",
+  "quality": {
+    "floorShare": 0.02,
+    "artifact": 0.07
+  },
+  "scores": {
+    "energy": 0.387,
+    "rawness": 0.314,
+    "grandeur": 0.536,
+    "dominance": 0.628
+  },
+  "features": {
+    "reliefM": 2412,
+    "slopeMPerKm": 242,
+    "peaksPer10Km": 2.1,
+    "roughnessM": 91.5,
+    "dominance": 0.6,
+    "summitM": 3283.1,
+    "lengthKm": 42.1
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "id": "wallowa-mountains",
+  "name": "Wallowa Mountains",
+  "landmark": "Matterhorn",
+  "region": "Oregon, USA",
+  "bbox": [
+    -117.579,
+    45.029,
+    -117.018,
+    45.427
+  ],
+  "source": "discovered",
+  "archetype": "restless",
+  "mood": "unease",
+  "quality": {
+    "floorShare": 0.04,
+    "artifact": 0.26
+  },
+  "scores": {
+    "energy": 0.336,
+    "rawness": 0.376,
+    "grandeur": 0.157,
+    "dominance": 0.469
+  },
+  "features": {
+    "reliefM": 706.6,
+    "slopeMPerKm": 180.8,
+    "peaksPer10Km": 3.2,
+    "roughnessM": 85.8,
+    "dominance": 0.5,
+    "summitM": 2985,
+    "lengthKm": 43.3
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "id": "olympic-mountains",
+  "name": "Olympic Mountains",
+  "landmark": "Second Top",
+  "region": "Washington, USA",
+  "bbox": [
+    -123.754,
+    47.808,
+    -123.163,
+    48.206
+  ],
+  "source": "discovered",
+  "archetype": "majestic",
+  "mood": "heroism",
+  "quality": {
+    "floorShare": 0.03,
+    "artifact": 0.1
+  },
+  "scores": {
+    "energy": 0.417,
+    "rawness": 0.367,
+    "grandeur": 0.525,
+    "dominance": 0.271
+  },
+  "features": {
+    "reliefM": 2361.3,
+    "slopeMPerKm": 175,
+    "peaksPer10Km": 3.4,
+    "roughnessM": 74,
+    "dominance": 0.3,
+    "summitM": 2361.3,
+    "lengthKm": 64.4
+  }
+}

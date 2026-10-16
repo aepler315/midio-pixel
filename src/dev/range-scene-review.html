@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Range v2 scene review</title>
+<style>
+  html, body { margin: 0; background: #20242a; color: #ddd; font: 12px system-ui, sans-serif; }
+  canvas { display: block; }
+  #status { position: fixed; left: 8px; top: 8px; }
+</style>
+</head>
+<body>
+<!-- Diagnostic viewer only: the same TerrainMesh geometry, surface texture
+     and cameraPoseAt() the production scene uses, drawn with review
+     materials (neutral light, silhouette, depth). Driven by
+     tools/review-range-views.mjs; not linked from the app. -->
+<div id="status">loading…</div>
+<script type="module">
+  import * as THREE from '../vendor/range/three-range.module.js';
+  import { loadTerrainPackage } from '../world/alpine/RangeAssets.js';
+  import { createSurfaceTexture, terrainUniforms, createBandGeometries, createReviewMaterial, REVIEW_MODES } from '../world/alpine/TerrainGL.js';
+  import { scenePoseAt } from '../world/terrain/SceneTravel.js';
+  import { terrainHeightAt } from '../world/alpine/TerrainMesh.js';
+  import { sceneUniforms, createSceneMaterial, createMaterialTextures, applyMaterial, setLinearFromHex } from '../world/alpine/TerrainMaterial.js';
+  import { loadMaterialPack } from '../world/alpine/MaterialPackage.js';
+  import { placeForest } from '../world/alpine/ForestCover.js';
+  import { createForest } from '../world/alpine/ForestGL.js';
+  import { hashSeed } from '../utils/math.js';
+
+  const q = new URLSearchParams(location.search);
+  const status = document.getElementById('status');
+  const state = { ready: false, error: null };
+  window.__review = state;
+  try {
+    const manifestUrl = q.get('manifest');
+    const view = await (await fetch(q.get('view'))).json();
+    const budget = q.get('budget') || 'desktop';
+    const pkg = await loadTerrainPackage(manifestUrl);
+    const surface = createSurfaceTexture(THREE, pkg.data);
+    const uniforms = terrainUniforms(THREE, pkg.data, surface);
+    const material = createReviewMaterial(THREE, uniforms);
+    const { geometries, stats } = createBandGeometries(THREE, pkg.data, { budget });
+    const scene = new THREE.Scene();
+    const meshes = [];
+    for (const geo of Object.values(geometries)) { const m = new THREE.Mesh(geo, material); m.frustumCulled = false; meshes.push(m); scene.add(m); }
+    // Production material (the same shader RangeScene draws), lit with the
+    // reference's blue-hour sky values unless the query overrides them.
+    const prodUniforms = sceneUniforms(THREE, uniforms);
+    const prod = createSceneMaterial(THREE, prodUniforms);
+    if (q.get('material')) {
+      const pack = await loadMaterialPack(q.get('material'));
+      applyMaterial(prodUniforms, pack, createMaterialTextures(THREE, pack), view.materialRules || {});
+    }
+    // Trees on the same terrain, placed by the production ForestCover.
+    let forestMeshes = [];
+    if (q.get('material') && q.get('trees') !== '0') {
+      const pack = await loadMaterialPack(q.get('material'));
+      const placed = placeForest(pkg.data, view, { ...pack.manifest.rules, ...(view.materialRules || {}) }, { seed: hashSeed(view.id) });
+      const forest = createForest(THREE, placed, prodUniforms, { partitioned: false });
+      forestMeshes = [...forest.byBand.far, ...forest.byBand.mid, ...forest.byBand.near];
+      state.trees = forest.counts;
+    }
+    const lin = (hex) => setLinearFromHex(new THREE.Color(), hex);
+    prodUniforms.uSkyZenith.value.copy(lin(q.get('zenith') || '#21374e'));
+    prodUniforms.uSkyHorizon.value.copy(lin(q.get('horizon') || '#5d687a'));
+    prodUniforms.uAirColor.value.copy(lin(q.get('air') || '#465668'));
+    prodUniforms.uLightColor.value.copy(lin(q.get('light') || '#aab4c8')).multiplyScalar(Number(q.get('lightScale') || 0.9));
+    prodUniforms.uAirDensity.value = Number(q.get('airDensity') || 1 / 42000);
+    if (q.get('exposure')) prodUniforms.uExposure.value = Number(q.get('exposure'));
+    if (q.get('debugMask')) prodUniforms.uDebugMask.value = Number(q.get('debugMask'));
+    if (q.get('ambient')) prodUniforms.uAmbientScale.value = Number(q.get('ambient'));
+    const canvas = document.createElement('canvas');
+    document.body.appendChild(canvas);
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+    renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+    const camera = new THREE.PerspectiveCamera(view.camera.fovYDeg, 16 / 9, 5, 120000);
+    state.stats = stats;
+    state.render = ({ progress = 0, mode = 'neutral', width = 1280, height = 720 } = {}) => {
+      renderer.setPixelRatio(1);
+      renderer.setSize(width, height, false);
+      canvas.style.width = `${width}px`; canvas.style.height = `${height}px`;
+      const pose = scenePoseAt(view, { progress01: progress });
+      camera.aspect = width / height;
+      camera.fov = pose.fovYDeg;
+      camera.position.set(...pose.eyeM);
+      camera.up.set(0, 1, 0);
+      camera.lookAt(...pose.targetM);
+      camera.updateProjectionMatrix();
+      const useProd = mode === 'material';
+      for (const m of meshes) m.material = useProd ? prod : material;
+      for (const m of forestMeshes) { if (useProd && !m.parent) scene.add(m); if (!useProd && m.parent) scene.remove(m); }
+      if (!useProd) material.uniforms.uMode.value = REVIEW_MODES[mode];
+      if (useProd) {
+        prodUniforms.uCameraPos.value.copy(camera.position);
+        const ld = (q.get('lightDir') || '-0.35,0.35,-0.87').split(',').map(Number);
+        prodUniforms.uLightDir.value.set(...ld).normalize();
+      }
+      renderer.setClearColor(mode === 'silhouette' ? 0xffffff : mode === 'depth' ? 0x000000 : mode === 'material' ? 0x3a4a5e : 0x9fb3c8, 1);
+      const t0 = performance.now();
+      renderer.render(scene, camera);
+      renderer.getContext().finish();
+      return { ms: performance.now() - t0, pose };
+    };
+    // Exploration: render an explicit pose (local metres) with the same
+    // camera construction, for comparing candidate rails before authoring.
+    state.renderPose = ({ eye, target, fovYDeg = view.camera.fovYDeg, mode = 'neutral', width = 640, height = 360 }) => {
+      const v = { id: view.id, camera: { eyeStartM: eye, eyeEndM: eye, targetStartM: target, targetEndM: target, fovYDeg } };
+      const saved = view.camera;
+      view.camera = v.camera;
+      try { return state.render({ progress: 0, mode, width, height }); } finally { view.camera = saved; }
+    };
+    state.heightAt = (x, z) => terrainHeightAt(pkg.data, x, z);
+    state.bounds = pkg.manifest.boundsM;
+    state.ready = true;
+    status.textContent = `${view.id}: ${stats.triangles} triangles`;
+  } catch (err) {
+    state.error = String(err?.stack || err);
+    status.textContent = state.error;
+  }
+</script>
+</body>
+</html>

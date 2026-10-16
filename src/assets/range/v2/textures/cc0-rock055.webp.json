@@ -1,0 +1,23 @@
+{
+ "source": {
+  "provider": "ambientCG",
+  "asset": "Rock055",
+  "url": "https://ambientcg.com/get?file=Rock055_2K-PNG.zip",
+  "page": "https://ambientcg.com/a/Rock055",
+  "license": "CC0 1.0 Universal (public domain dedication)"
+ },
+ "channels": [
+  "normalX",
+  "normalY",
+  "roughness",
+  "height"
+ ],
+ "sourceSha256": "b1405afda5ee6d80da117c471f2752794bc77ad6df59e751741534718df9fcf7",
+ "masterSize": 1024,
+ "width": 1024,
+ "height": 512,
+ "format": "webp-lossless",
+ "colorSpace": "data",
+ "sha256": "c645119c364c020e176110ceb60cd4f0a9bf5835485491514f19f69535eb63aa",
+ "bytes": 964374
+}

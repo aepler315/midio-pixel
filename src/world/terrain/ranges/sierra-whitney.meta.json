@@ -1,0 +1,34 @@
+{
+  "id": "sierra-whitney",
+  "name": "Sierra Nevada",
+  "landmark": "Mount Whitney",
+  "region": "California, USA",
+  "bbox": [
+    -118.75,
+    36.25,
+    -117.95,
+    36.85
+  ],
+  "source": "curated",
+  "archetype": "majestic",
+  "mood": "heroism",
+  "quality": {
+    "floorShare": 0.14,
+    "artifact": 0.32
+  },
+  "scores": {
+    "energy": 0.494,
+    "rawness": 0.586,
+    "grandeur": 0.44,
+    "dominance": 0.608
+  },
+  "features": {
+    "reliefM": 1979.7,
+    "slopeMPerKm": 313.8,
+    "peaksPer10Km": 3.5,
+    "roughnessM": 188,
+    "dominance": 0.6,
+    "summitM": 4411.8,
+    "lengthKm": 65.5
+  }
+}

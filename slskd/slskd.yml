@@ -1,0 +1,44 @@
+# Bundled slskd config for Midio.
+# One command:  docker compose up -d slskd
+# Midio auto-detects this instance — you never paste an API key.
+#
+# Optional Soulseek account (env overrides this file):
+#   SLSK_USER / SLSK_PASS  in .env or the shell before `docker compose up`
+
+remote_configuration: true
+flags:
+  no_version_check: true
+
+directories:
+  incomplete: /data/incomplete
+  downloads: /data/downloads
+
+shares:
+  directories: []
+
+web:
+  port: 5030
+  https:
+    disabled: true
+  authentication:
+    # Disabled because Compose publishes 5030 only on 127.0.0.1. That is a
+    # host-trust boundary, not per-client auth: any local process can call
+    # the API. Enable authentication and set SLSKD_API_KEY before binding
+    # this service beyond loopback.
+    disabled: true
+
+soulseek:
+  # Prefer env: SLSKD_SLSK_USERNAME / SLSKD_SLSK_PASSWORD (set via compose)
+  username: ~
+  password: ~
+  description: |
+    Midio companion (slskd). https://github.com/aepler315/Midio-5
+  listen_port: 50300
+
+global:
+  upload:
+    slots: 5
+    speed_limit: 1000
+  download:
+    slots: 50
+    speed_limit: 0

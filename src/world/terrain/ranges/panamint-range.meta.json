@@ -1,0 +1,34 @@
+{
+  "id": "panamint-range",
+  "name": "Panamint Range",
+  "landmark": "Telescope Peak",
+  "region": "California, USA",
+  "bbox": [
+    -117.334,
+    35.971,
+    -116.844,
+    36.369
+  ],
+  "source": "discovered",
+  "archetype": "brooding",
+  "mood": "melancholy",
+  "quality": {
+    "floorShare": 0.03,
+    "artifact": 0.03
+  },
+  "scores": {
+    "energy": 0.309,
+    "rawness": 0.294,
+    "grandeur": 0.362,
+    "dominance": 0.427
+  },
+  "features": {
+    "reliefM": 1627.3,
+    "slopeMPerKm": 153,
+    "peaksPer10Km": 2.4,
+    "roughnessM": 72.6,
+    "dominance": 0.4,
+    "summitM": 3362.8,
+    "lengthKm": 42.1
+  }
+}

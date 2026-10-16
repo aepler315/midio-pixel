@@ -1,0 +1,203 @@
+{
+ "credit": "Elevation: USGS 3DEP 1/3 arc-second DEM",
+ "sourceSha256": [
+  "09930a44096be83c6023c6d853c12d1571f428878691e4bfba81cdd17d9077b9",
+  "a19a985ea1d6370572bfaac2b7850bd90b49f28e9d10e3ad37c5ac17d4880e8f"
+ ],
+ "view": {
+  "id": "teton-jackson-lake",
+  "regionId": "tetons",
+  "biome": "CONIFER",
+  "status": "approved",
+  "notes": "Over the south arm of Jackson Lake looking south-west across the water to Mount Moran and the Cathedral Group.",
+  "dem": {
+   "source": "3dep13",
+   "fill": "terrarium",
+   "fillZoom": 12,
+   "centerLonLat": [
+    -110.7,
+    43.83
+   ],
+   "extentM": [
+    44800,
+    44800
+   ],
+   "cellM": 20
+  },
+  "rail": {
+   "eyeStart": {
+    "lonLat": [
+     -110.64927,
+     43.85504
+    ],
+    "aboveGroundM": 350
+   },
+   "eyeEnd": {
+    "lonLat": [
+     -110.66073,
+     43.86896
+    ],
+    "aboveGroundM": 350
+   },
+   "targetStart": {
+    "lonLat": [
+     -110.79428,
+     43.79304
+    ],
+    "heightM": 2371
+   },
+   "targetEnd": {
+    "lonLat": [
+     -110.80572,
+     43.80696
+    ],
+    "heightM": 2371
+   },
+   "fovYDeg": 29.9
+  },
+  "landmarks": [
+   {
+    "name": "Grand Teton",
+    "lonLat": [
+     -110.8024,
+     43.7411
+    ],
+    "elevationM": 4199
+   },
+   {
+    "name": "Mount Moran",
+    "lonLat": [
+     -110.7762,
+     43.835
+    ],
+    "elevationM": 3842
+   }
+  ],
+  "title": "Teton Range",
+  "place": "Jackson Lake, Wyoming",
+  "approval": {
+   "date": "2026-09-29",
+   "terrainManifestSha256": "e98c6ab7e7fe80ca393867f053b178b40c742724b5d663ee7b1320ba16ba9ea0",
+   "materialManifestSha256": "6afff55ebe7762475b09f09fa8f60627714d051f9f117ffffd8e124894281175",
+   "materialRulesSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+   "cameraSha256": "eda9f5f9370642792602854f1dab20861e664781068cdeba95bbb2ecb5c8726d",
+   "evidence": [
+    "docs/evidence/range-v2/teton-jackson-lake-stations.jpg",
+    "docs/evidence/range-v2/teton-jackson-lake-inapp-10s.jpg"
+   ]
+  },
+  "camera": {
+   "eyeStartM": [
+    4078.8,
+    2416.8,
+    -2783.4
+   ],
+   "eyeEndM": [
+    3156.6,
+    2405.4,
+    -4329.6
+   ],
+   "targetStartM": [
+    -7588.1,
+    2371,
+    4102.3
+   ],
+   "targetEndM": [
+    -8506.8,
+    2371,
+    2554.5
+   ],
+   "fovYDeg": 29.9
+  }
+ },
+ "characterScores": {
+  "energy": 0.282,
+  "rawness": 0.26,
+  "grandeur": 0.293,
+  "dominance": 0.6
+ },
+ "archetype": "brooding",
+ "skylineFeatures": [
+  {
+   "reliefM": 1297.87890625,
+   "slopeMPerKm": 148.72809943063575,
+   "peaksPer10Km": 2.338057158839279,
+   "roughnessM": 60.75390926263125,
+   "dominance": 0.6104579813216877,
+   "summitM": 4175.833984375,
+   "lengthKm": 59.878775619627085
+  },
+  {
+   "reliefM": 1352.398681640625,
+   "slopeMPerKm": 142.9422799017012,
+   "peaksPer10Km": 2.1556940511974108,
+   "roughnessM": 59.68541009456399,
+   "dominance": 0.5909369654792691,
+   "summitM": 4187.6806640625,
+   "lengthKm": 60.30540369482843
+  },
+  {
+   "reliefM": 1306.153564453125,
+   "slopeMPerKm": 136.06206041870865,
+   "peaksPer10Km": 2.2830924867547036,
+   "roughnessM": 54.92914293418235,
+   "dominance": 0.5984807490834121,
+   "summitM": 4151.80517578125,
+   "lengthKm": 56.94031264795068
+  }
+ ],
+ "manifestSha256": "bd3b57442d203981a66be4e1e23df677116f9a562d7a39497f0a0e0e01b429b1",
+ "payloadSha256": "4d6c2aae717cba1c485d3533ac0406e21ab14733c459b065eec71cdbbcead4f2",
+ "payloadBytes": 1282262,
+ "stats": {
+  "tiles": 251,
+  "desktop": {
+   "vertices": 766994,
+   "triangles": 1484050,
+   "meshBytes": 27012528,
+   "surfaceTextureBytes": 26784432
+  },
+  "mobile": {
+   "vertices": 515892,
+   "triangles": 994582,
+   "meshBytes": 18125688,
+   "surfaceTextureBytes": 26784432
+  }
+ },
+ "landmarks": [
+  {
+   "name": "Grand Teton",
+   "lonLat": [
+    -110.8024,
+    43.7411
+   ],
+   "publishedElevationM": 4199,
+   "localM": [
+    -8248.7,
+    9872.4
+   ],
+   "demGroundM": 4180.0537109375,
+   "demPeakWithin200mM": 4188.830078125
+  },
+  {
+   "name": "Mount Moran",
+   "lonLat": [
+    -110.7762,
+    43.835
+   ],
+   "publishedElevationM": 3842,
+   "localM": [
+    -6128.6,
+    -558.4
+   ],
+   "demGroundM": 3823.56689453125,
+   "demPeakWithin200mM": 3841.440185546875
+  }
+ ],
+ "achievedErrorPx": {
+  "desktop": 0.998,
+  "mobile": 1.956
+ },
+ "despikedSamples": 0,
+ "gentleGroundSmoothingM": null
+}

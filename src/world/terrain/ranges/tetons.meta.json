@@ -1,0 +1,34 @@
+{
+  "id": "tetons",
+  "name": "Teton Range",
+  "landmark": "Grand Teton",
+  "region": "Wyoming, USA",
+  "bbox": [
+    -111,
+    43.55,
+    -110.25,
+    43.95
+  ],
+  "source": "curated",
+  "archetype": "brooding",
+  "mood": "melancholy",
+  "quality": {
+    "floorShare": 0.07,
+    "artifact": 0.17
+  },
+  "scores": {
+    "energy": 0.424,
+    "rawness": 0.445,
+    "grandeur": 0.253,
+    "dominance": 0.751
+  },
+  "features": {
+    "reliefM": 1139.3,
+    "slopeMPerKm": 223.7,
+    "peaksPer10Km": 3.9,
+    "roughnessM": 97.9,
+    "dominance": 0.8,
+    "summitM": 4175.9,
+    "lengthKm": 43.3
+  }
+}

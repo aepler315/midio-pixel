@@ -1,0 +1,23 @@
+{
+ "source": {
+  "provider": "ambientCG",
+  "asset": "Rock063",
+  "url": "https://ambientcg.com/get?file=Rock063_2K-PNG.zip",
+  "page": "https://ambientcg.com/a/Rock063",
+  "license": "CC0 1.0 Universal (public domain dedication)"
+ },
+ "channels": [
+  "normalX",
+  "normalY",
+  "roughness",
+  "height"
+ ],
+ "sourceSha256": "98a35715a59908bfc9e44f8605331fa6718c74358cfdb5d71c6093aaa7860e58",
+ "masterSize": 1024,
+ "width": 1024,
+ "height": 512,
+ "format": "webp-lossless",
+ "colorSpace": "data",
+ "sha256": "c297085eeddd21e5659c1eb485ca9ea3c98c090f32f51734e8db40f6b35401a6",
+ "bytes": 1083848
+}

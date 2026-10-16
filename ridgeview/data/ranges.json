@@ -1,0 +1,1973 @@
+{
+ "about": "Mountain ranges Ridgeview computes viewpoints for. Imported from Midio-5 data/terrain/ranges.json (hand-curated) and data/terrain/discovered.json (summits from GeoNames, CC BY 4.0; range names from Wikidata, CC0). bbox is [west, south, east, north] around the crest. biome/ecoregion: RESOLVE Ecoregions 2017 (Dinerstein et al.), CC BY 4.0, majority over the bbox (from Midio-5 data/terrain/range-biomes.json).",
+ "ranges": [
+  {
+   "id": "tetons",
+   "name": "Teton Range",
+   "landmark": "Grand Teton",
+   "region": "Wyoming, USA",
+   "bbox": [
+    -111,
+    43.55,
+    -110.25,
+    43.95
+   ],
+   "summit": null,
+   "source": "curated",
+   "biome": "conifer",
+   "ecoregion": "South Central Rockies forests"
+  },
+  {
+   "id": "sierra-whitney",
+   "name": "Sierra Nevada",
+   "landmark": "Mount Whitney",
+   "region": "California, USA",
+   "bbox": [
+    -118.75,
+    36.25,
+    -117.95,
+    36.85
+   ],
+   "summit": null,
+   "source": "curated",
+   "biome": "conifer",
+   "ecoregion": "Sierra Nevada forests"
+  },
+  {
+   "id": "sawtooth",
+   "name": "Sawtooth Range",
+   "landmark": "Thompson Peak",
+   "region": "Idaho, USA",
+   "bbox": [
+    -115.25,
+    43.85,
+    -114.75,
+    44.3
+   ],
+   "summit": null,
+   "source": "curated",
+   "biome": "conifer",
+   "ecoregion": "South Central Rockies forests"
+  },
+  {
+   "id": "wasatch",
+   "name": "Wasatch Range",
+   "landmark": "Lone Peak",
+   "region": "Utah, USA",
+   "bbox": [
+    -111.95,
+    40.45,
+    -111.5,
+    41
+   ],
+   "summit": null,
+   "source": "curated",
+   "biome": "conifer",
+   "ecoregion": "Wasatch and Uinta montane forests"
+  },
+  {
+   "id": "canadian-rockies",
+   "name": "Canadian Rockies",
+   "landmark": "Lake Louise",
+   "region": "Alberta, Canada",
+   "bbox": [
+    -116.5,
+    51.1,
+    -115.8,
+    51.55
+   ],
+   "summit": null,
+   "source": "curated",
+   "biome": "conifer",
+   "ecoregion": "Northern Rockies conifer forests"
+  },
+  {
+   "id": "blue-ridge",
+   "name": "Blue Ridge Mountains",
+   "landmark": "Shenandoah",
+   "region": "Virginia, USA",
+   "bbox": [
+    -78.75,
+    38.25,
+    -78.2,
+    38.75
+   ],
+   "summit": null,
+   "source": "curated",
+   "biome": "broadleaf",
+   "ecoregion": "Appalachian-Blue Ridge forests"
+  },
+  {
+   "id": "rainier",
+   "name": "Cascade Range",
+   "landmark": "Mount Rainier",
+   "region": "Washington, USA",
+   "bbox": [
+    -121.95,
+    46.7,
+    -121.55,
+    47
+   ],
+   "summit": null,
+   "source": "curated",
+   "biome": "conifer",
+   "ecoregion": "Central-Southern Cascades Forests"
+  },
+  {
+   "id": "monument-valley",
+   "name": "Monument Valley",
+   "landmark": null,
+   "region": "Utah-Arizona, USA",
+   "bbox": [
+    -110.25,
+    36.9,
+    -109.9,
+    37.1
+   ],
+   "summit": null,
+   "source": "curated",
+   "biome": "desert",
+   "ecoregion": "Colorado Plateau shrublands"
+  },
+  {
+   "id": "absaroka-range",
+   "name": "Absaroka Range",
+   "landmark": "Carter Mountain",
+   "region": "Wyoming, USA",
+   "bbox": [
+    -109.694,
+    43.996,
+    -109.143,
+    44.394
+   ],
+   "summit": {
+    "name": "Carter Mountain",
+    "lonLat": [
+     -109.41877,
+     44.19467
+    ],
+    "elevationM": 3686
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "South Central Rockies forests"
+  },
+  {
+   "id": "alaska-range",
+   "name": "Alaska Range",
+   "landmark": "Denali",
+   "region": "Alaska, USA",
+   "bbox": [
+    -151.442,
+    62.87,
+    -150.57,
+    63.268
+   ],
+   "summit": {
+    "name": "Denali",
+    "lonLat": [
+     -151.00609,
+     63.06933
+    ],
+    "elevationM": 6194
+   },
+   "source": "discovered",
+   "biome": "ice",
+   "ecoregion": "Rock and Ice"
+  },
+  {
+   "id": "aleutian-range",
+   "name": "Aleutian Range",
+   "landmark": "Shishaldin Volcano",
+   "region": "Alaska, USA",
+   "bbox": [
+    -164.313,
+    54.556,
+    -163.628,
+    54.954
+   ],
+   "summit": {
+    "name": "Shishaldin Volcano",
+    "lonLat": [
+     -163.97048,
+     54.75505
+    ],
+    "elevationM": 2783
+   },
+   "source": "discovered",
+   "biome": "taiga",
+   "ecoregion": "Alaska Peninsula montane taiga"
+  },
+  {
+   "id": "arctic-cordillera",
+   "name": "Arctic Cordillera",
+   "landmark": "Mount Biederbick",
+   "region": "Nunavut, Canada",
+   "bbox": [
+    -75.808,
+    81.353,
+    -73.117,
+    81.751
+   ],
+   "summit": {
+    "name": "Mount Biederbick",
+    "lonLat": [
+     -74.4623,
+     81.5521
+    ],
+    "elevationM": 1542
+   },
+   "source": "discovered",
+   "biome": "tundra",
+   "ecoregion": "Canadian High Arctic tundra"
+  },
+  {
+   "id": "beaverhead-mountains",
+   "name": "Beaverhead Mountains",
+   "landmark": "Tweedy Mountain",
+   "region": "Montana, USA",
+   "bbox": [
+    -113.247,
+    45.281,
+    -112.683,
+    45.68
+   ],
+   "summit": {
+    "name": "Tweedy Mountain",
+    "lonLat": [
+     -112.96531,
+     45.48048
+    ],
+    "elevationM": 3394
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "South Central Rockies forests"
+  },
+  {
+   "id": "bedded-range",
+   "name": "Bedded Range",
+   "landmark": "Bedded Range",
+   "region": "British Columbia, Canada",
+   "bbox": [
+    -121.357,
+    49.317,
+    -120.748,
+    49.715
+   ],
+   "summit": {
+    "name": "Bedded Range",
+    "lonLat": [
+     -121.05251,
+     49.51641
+    ],
+    "elevationM": 2157
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "assigned by hand (no RESOLVE entry)"
+  },
+  {
+   "id": "big-horn-mountains",
+   "name": "Big Horn Mountains",
+   "landmark": "Bush Butte",
+   "region": "Wyoming, USA",
+   "bbox": [
+    -107.886,
+    44.279,
+    -107.332,
+    44.677
+   ],
+   "summit": {
+    "name": "Bush Butte",
+    "lonLat": [
+     -107.60925,
+     44.47802
+    ],
+    "elevationM": 2176
+   },
+   "source": "discovered",
+   "biome": "desert",
+   "ecoregion": "Wyoming Basin shrub steppe"
+  },
+  {
+   "id": "black-range",
+   "name": "Black Range",
+   "landmark": "Black Mountain",
+   "region": "New Mexico, USA",
+   "bbox": [
+    -108.464,
+    33.179,
+    -107.99,
+    33.577
+   ],
+   "summit": {
+    "name": "Black Mountain",
+    "lonLat": [
+     -108.227,
+     33.37784
+    ],
+    "elevationM": 2830
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "Arizona Mountains forests"
+  },
+  {
+   "id": "book-cliffs",
+   "name": "Book Cliffs",
+   "landmark": "Roan Peaks",
+   "region": "Utah, USA",
+   "bbox": [
+    -110.035,
+    38.993,
+    -109.525,
+    39.391
+   ],
+   "summit": {
+    "name": "Roan Peaks",
+    "lonLat": [
+     -109.77958,
+     39.19163
+    ],
+    "elevationM": 2873
+   },
+   "source": "discovered",
+   "biome": "desert",
+   "ecoregion": "Colorado Plateau shrublands"
+  },
+  {
+   "id": "boundary-ranges",
+   "name": "Boundary Ranges",
+   "landmark": "Chutine Peak",
+   "region": "British Columbia, Canada",
+   "bbox": [
+    -132.706,
+    57.576,
+    -131.964,
+    57.974
+   ],
+   "summit": {
+    "name": "Chutine Peak",
+    "lonLat": [
+     -132.33496,
+     57.77525
+    ],
+    "elevationM": 2903
+   },
+   "source": "discovered",
+   "biome": "taiga",
+   "ecoregion": "Northern Cordillera forests"
+  },
+  {
+   "id": "brooks-range",
+   "name": "Brooks Range",
+   "landmark": "James Dalton Mountain",
+   "region": "Alaska, USA",
+   "bbox": [
+    -150.06,
+    68.001,
+    -148.996,
+    68.399
+   ],
+   "summit": {
+    "name": "James Dalton Mountain",
+    "lonLat": [
+     -149.52778,
+     68.2
+    ],
+    "elevationM": 2122
+   },
+   "source": "discovered",
+   "biome": "tundra",
+   "ecoregion": "assigned by hand (no RESOLVE entry)"
+  },
+  {
+   "id": "california-cascades",
+   "name": "California Cascades",
+   "landmark": "Mount Shasta",
+   "region": "California, USA",
+   "bbox": [
+    -122.459,
+    41.21,
+    -121.932,
+    41.608
+   ],
+   "summit": {
+    "name": "Mount Shasta",
+    "lonLat": [
+     -122.19501,
+     41.40932
+    ],
+    "elevationM": 4303
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "Central-Southern Cascades Forests"
+  },
+  {
+   "id": "canyon-ranges",
+   "name": "Canyon Ranges",
+   "landmark": "Pyramid Mountain",
+   "region": "Northwest Territories, Canada",
+   "bbox": [
+    -127.548,
+    64.401,
+    -126.626,
+    64.799
+   ],
+   "summit": {
+    "name": "Pyramid Mountain",
+    "lonLat": [
+     -127.08696,
+     64.60012
+    ],
+    "elevationM": 1228
+   },
+   "source": "discovered",
+   "biome": "taiga",
+   "ecoregion": "assigned by hand (no RESOLVE entry)"
+  },
+  {
+   "id": "carson-range",
+   "name": "Carson Range",
+   "landmark": "Mount Rose",
+   "region": "Nevada, USA",
+   "bbox": [
+    -120.173,
+    39.145,
+    -119.662,
+    39.543
+   ],
+   "summit": {
+    "name": "Mount Rose",
+    "lonLat": [
+     -119.91714,
+     39.3438
+    ],
+    "elevationM": 3264
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "Sierra Nevada forests"
+  },
+  {
+   "id": "chigmit-mountains",
+   "name": "Chigmit Mountains",
+   "landmark": "Redoubt Volcano",
+   "region": "Alaska, USA",
+   "bbox": [
+    -153.144,
+    60.286,
+    -152.342,
+    60.684
+   ],
+   "summit": {
+    "name": "Redoubt Volcano",
+    "lonLat": [
+     -152.74306,
+     60.48528
+    ],
+    "elevationM": 3101
+   },
+   "source": "discovered",
+   "biome": "tundra",
+   "ecoregion": "Alaska-St. Elias Range tundra"
+  },
+  {
+   "id": "chiricahua-mountains",
+   "name": "Chiricahua Mountains",
+   "landmark": "Cochise Head",
+   "region": "Arizona, USA",
+   "bbox": [
+    -109.533,
+    31.86,
+    -109.067,
+    32.258
+   ],
+   "summit": {
+    "name": "Cochise Head",
+    "lonLat": [
+     -109.29978,
+     32.05925
+    ],
+    "elevationM": 2465
+   },
+   "source": "discovered",
+   "biome": "desert",
+   "ecoregion": "Chihuahuan desert"
+  },
+  {
+   "id": "chugach-mountains",
+   "name": "Chugach Mountains",
+   "landmark": "Mount Marcus Baker",
+   "region": "Alaska, USA",
+   "bbox": [
+    -148.165,
+    61.238,
+    -147.339,
+    61.636
+   ],
+   "summit": {
+    "name": "Mount Marcus Baker",
+    "lonLat": [
+     -147.75195,
+     61.43729
+    ],
+    "elevationM": 3993
+   },
+   "source": "discovered",
+   "biome": "ice",
+   "ecoregion": "Rock and Ice"
+  },
+  {
+   "id": "coast-mountains",
+   "name": "Coast Mountains",
+   "landmark": "Mount Priestley",
+   "region": "British Columbia, Canada",
+   "bbox": [
+    -129.217,
+    55.034,
+    -128.524,
+    55.432
+   ],
+   "summit": {
+    "name": "Mount Priestley",
+    "lonLat": [
+     -128.87038,
+     55.23286
+    ],
+    "elevationM": 2359
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "British Columbia coastal conifer forests"
+  },
+  {
+   "id": "countess-of-dufferin-range",
+   "name": "Countess of Dufferin Range",
+   "landmark": "Mount Patterson",
+   "region": "British Columbia, Canada",
+   "bbox": [
+    -129.834,
+    53.244,
+    -129.171,
+    53.642
+   ],
+   "summit": {
+    "name": "Mount Patterson",
+    "lonLat": [
+     -129.50233,
+     53.44293
+    ],
+    "elevationM": 743
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "Central Pacific Northwest coastal forests"
+  },
+  {
+   "id": "deep-creek-range",
+   "name": "Deep Creek Range",
+   "landmark": "Ibapah Peak",
+   "region": "Utah, USA",
+   "bbox": [
+    -114.177,
+    39.629,
+    -113.662,
+    40.027
+   ],
+   "summit": {
+    "name": "Ibapah Peak",
+    "lonLat": [
+     -113.91972,
+     39.82827
+    ],
+    "elevationM": 3663
+   },
+   "source": "discovered",
+   "biome": "desert",
+   "ecoregion": "Great Basin shrub steppe"
+  },
+  {
+   "id": "diablo-range",
+   "name": "Diablo Range",
+   "landmark": "Mount Oso",
+   "region": "California, USA",
+   "bbox": [
+    -121.624,
+    37.308,
+    -121.125,
+    37.706
+   ],
+   "summit": {
+    "name": "Mount Oso",
+    "lonLat": [
+     -121.37438,
+     37.50743
+    ],
+    "elevationM": 1024
+   },
+   "source": "discovered",
+   "biome": "chaparral",
+   "ecoregion": "California interior chaparral and woodlands"
+  },
+  {
+   "id": "fairweather-range",
+   "name": "Fairweather Range",
+   "landmark": "Mount Fairweather",
+   "region": "Alaska, USA",
+   "bbox": [
+    -137.91,
+    58.707,
+    -137.144,
+    59.105
+   ],
+   "summit": {
+    "name": "Mount Fairweather",
+    "lonLat": [
+     -137.52701,
+     58.90618
+    ],
+    "elevationM": 4620
+   },
+   "source": "discovered",
+   "biome": "ice",
+   "ecoregion": "Rock and Ice"
+  },
+  {
+   "id": "front-range",
+   "name": "Front Range",
+   "landmark": "Pikes Peak",
+   "region": "Colorado, USA",
+   "bbox": [
+    -105.298,
+    38.642,
+    -104.791,
+    39.04
+   ],
+   "summit": {
+    "name": "Pikes Peak",
+    "lonLat": [
+     -105.04442,
+     38.84054
+    ],
+    "elevationM": 4303
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "Colorado Rockies forests"
+  },
+  {
+   "id": "garibaldi-ranges",
+   "name": "Garibaldi Ranges",
+   "landmark": "Mount Garibaldi",
+   "region": "British Columbia, Canada",
+   "bbox": [
+    -123.311,
+    49.651,
+    -122.698,
+    50.05
+   ],
+   "summit": {
+    "name": "Mount Garibaldi",
+    "lonLat": [
+     -123.00452,
+     49.85052
+    ],
+    "elevationM": 2678
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "British Columbia coastal conifer forests"
+  },
+  {
+   "id": "green-mountains",
+   "name": "Green Mountains",
+   "landmark": "The Chin",
+   "region": "Vermont, USA",
+   "bbox": [
+    -73.092,
+    44.345,
+    -72.537,
+    44.743
+   ],
+   "summit": {
+    "name": "The Chin",
+    "lonLat": [
+     -72.81429,
+     44.54366
+    ],
+    "elevationM": 1337
+   },
+   "source": "discovered",
+   "biome": "broadleaf",
+   "ecoregion": "New England-Acadian forests"
+  },
+  {
+   "id": "hualapai-mountains",
+   "name": "Hualapai Mountains",
+   "landmark": "Hayden Peak",
+   "region": "Arizona, USA",
+   "bbox": [
+    -114.146,
+    34.882,
+    -113.663,
+    35.28
+   ],
+   "summit": {
+    "name": "Hayden Peak",
+    "lonLat": [
+     -113.90495,
+     35.08111
+    ],
+    "elevationM": 2542
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "Arizona Mountains forests"
+  },
+  {
+   "id": "jackson-mountains",
+   "name": "Jackson Mountains",
+   "landmark": "Parrot Peak",
+   "region": "Nevada, USA",
+   "bbox": [
+    -118.735,
+    41.167,
+    -118.209,
+    41.565
+   ],
+   "summit": {
+    "name": "Parrot Peak",
+    "lonLat": [
+     -118.4721,
+     41.36601
+    ],
+    "elevationM": 2547
+   },
+   "source": "discovered",
+   "biome": "desert",
+   "ecoregion": "Great Basin shrub steppe"
+  },
+  {
+   "id": "klamath-mountains",
+   "name": "Klamath Mountains",
+   "landmark": "Page Mountain",
+   "region": "Oregon, USA",
+   "bbox": [
+    -123.826,
+    41.817,
+    -123.294,
+    42.215
+   ],
+   "summit": {
+    "name": "Page Mountain",
+    "lonLat": [
+     -123.55958,
+     42.01634
+    ],
+    "elevationM": 1556
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "Klamath-Siskiyou forests"
+  },
+  {
+   "id": "la-sal-mountains",
+   "name": "La Sal Mountains",
+   "landmark": "Mount Peale",
+   "region": "Utah, USA",
+   "bbox": [
+    -109.482,
+    38.239,
+    -108.977,
+    38.637
+   ],
+   "summit": {
+    "name": "Mount Peale",
+    "lonLat": [
+     -109.22928,
+     38.43832
+    ],
+    "elevationM": 3877
+   },
+   "source": "discovered",
+   "biome": "desert",
+   "ecoregion": "Colorado Plateau shrublands"
+  },
+  {
+   "id": "laurentian-mountains",
+   "name": "Laurentian Mountains",
+   "landmark": "Mont Tremblant",
+   "region": "Quebec, Canada",
+   "bbox": [
+    -74.869,
+    46.051,
+    -74.297,
+    46.449
+   ],
+   "summit": {
+    "name": "Mont Tremblant",
+    "lonLat": [
+     -74.583,
+     46.25
+    ],
+    "elevationM": 968
+   },
+   "source": "discovered",
+   "biome": "broadleaf",
+   "ecoregion": "Eastern Canadian Forest-Boreal transition"
+  },
+  {
+   "id": "lillooet-ranges",
+   "name": "Lillooet Ranges",
+   "landmark": "Cantilever Range",
+   "region": "British Columbia, Canada",
+   "bbox": [
+    -122.011,
+    49.984,
+    -121.394,
+    50.382
+   ],
+   "summit": {
+    "name": "Cantilever Range",
+    "lonLat": [
+     -121.7026,
+     50.18303
+    ],
+    "elevationM": 2968
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "Okanogan dry forests"
+  },
+  {
+   "id": "little-belt-mountains",
+   "name": "Little Belt Mountains",
+   "landmark": "Big Baldy Mountain",
+   "region": "Montana, USA",
+   "bbox": [
+    -110.896,
+    46.77,
+    -110.317,
+    47.168
+   ],
+   "summit": {
+    "name": "Big Baldy Mountain",
+    "lonLat": [
+     -110.60633,
+     46.96857
+    ],
+    "elevationM": 2799
+   },
+   "source": "discovered",
+   "biome": "steppe",
+   "ecoregion": "Montana Valley and Foothill grasslands"
+  },
+  {
+   "id": "livingston-range",
+   "name": "Livingston Range",
+   "landmark": "Kintla Peak",
+   "region": "Montana, USA",
+   "bbox": [
+    -114.472,
+    48.745,
+    -113.87,
+    49.143
+   ],
+   "summit": {
+    "name": "Kintla Peak",
+    "lonLat": [
+     -114.17125,
+     48.94386
+    ],
+    "elevationM": 3070
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "Northern Rockies conifer forests"
+  },
+  {
+   "id": "madison-range",
+   "name": "Madison Range",
+   "landmark": "Echo Peak",
+   "region": "Montana, USA",
+   "bbox": [
+    -111.742,
+    44.743,
+    -111.184,
+    45.141
+   ],
+   "summit": {
+    "name": "Echo Peak",
+    "lonLat": [
+     -111.46274,
+     44.94215
+    ],
+    "elevationM": 3411
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "South Central Rockies forests"
+  },
+  {
+   "id": "mahoosuc-range",
+   "name": "Mahoosuc Range",
+   "landmark": "Old Speck Mountain",
+   "region": "Maine, USA",
+   "bbox": [
+    -71.231,
+    44.372,
+    -70.676,
+    44.77
+   ],
+   "summit": {
+    "name": "Old Speck Mountain",
+    "lonLat": [
+     -70.95365,
+     44.57092
+    ],
+    "elevationM": 1268
+   },
+   "source": "discovered",
+   "biome": "broadleaf",
+   "ecoregion": "New England-Acadian forests"
+  },
+  {
+   "id": "medicine-bow-mountains",
+   "name": "Medicine Bow Mountains",
+   "landmark": "Medicine Bow Peak",
+   "region": "Wyoming, USA",
+   "bbox": [
+    -106.581,
+    41.162,
+    -106.055,
+    41.56
+   ],
+   "summit": {
+    "name": "Medicine Bow Peak",
+    "lonLat": [
+     -106.31807,
+     41.36053
+    ],
+    "elevationM": 3639
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "Colorado Rockies forests"
+  },
+  {
+   "id": "mission-mountains",
+   "name": "Mission Mountains",
+   "landmark": "McDonald Peak",
+   "region": "Montana, USA",
+   "bbox": [
+    -114.211,
+    47.184,
+    -113.627,
+    47.582
+   ],
+   "summit": {
+    "name": "McDonald Peak",
+    "lonLat": [
+     -113.91927,
+     47.38271
+    ],
+    "elevationM": 2983
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "Northern Rockies conifer forests"
+  },
+  {
+   "id": "north-cascades",
+   "name": "North Cascades",
+   "landmark": "Glacier Peak",
+   "region": "Washington, USA",
+   "bbox": [
+    -121.41,
+    47.912,
+    -120.818,
+    48.31
+   ],
+   "summit": {
+    "name": "Glacier Peak",
+    "lonLat": [
+     -121.11399,
+     48.11123
+    ],
+    "elevationM": 3180
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "North Cascades conifer forests"
+  },
+  {
+   "id": "olympic-mountains",
+   "name": "Olympic Mountains",
+   "landmark": "Second Top",
+   "region": "Washington, USA",
+   "bbox": [
+    -123.754,
+    47.808,
+    -123.163,
+    48.206
+   ],
+   "summit": {
+    "name": "Second Top",
+    "lonLat": [
+     -123.45824,
+     48.00731
+    ],
+    "elevationM": 1828
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "Central Pacific Northwest coastal forests"
+  },
+  {
+   "id": "oregon-cascades",
+   "name": "Oregon Cascades",
+   "landmark": "Mount Hood",
+   "region": "Oregon, USA",
+   "bbox": [
+    -121.977,
+    45.174,
+    -121.414,
+    45.572
+   ],
+   "summit": {
+    "name": "Mount Hood",
+    "lonLat": [
+     -121.69573,
+     45.37334
+    ],
+    "elevationM": 3425
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "Central-Southern Cascades Forests"
+  },
+  {
+   "id": "pacific-ranges",
+   "name": "Pacific Ranges",
+   "landmark": "Mount Raleigh",
+   "region": "British Columbia, Canada",
+   "bbox": [
+    -124.588,
+    50.711,
+    -123.961,
+    51.109
+   ],
+   "summit": {
+    "name": "Mount Raleigh",
+    "lonLat": [
+     -124.27413,
+     50.91026
+    ],
+    "elevationM": 3132
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "British Columbia coastal conifer forests"
+  },
+  {
+   "id": "panamint-range",
+   "name": "Panamint Range",
+   "landmark": "Telescope Peak",
+   "region": "California, USA",
+   "bbox": [
+    -117.334,
+    35.971,
+    -116.844,
+    36.369
+   ],
+   "summit": {
+    "name": "Telescope Peak",
+    "lonLat": [
+     -117.08917,
+     36.17004
+    ],
+    "elevationM": 3369
+   },
+   "source": "discovered",
+   "biome": "desert",
+   "ecoregion": "Mojave desert"
+  },
+  {
+   "id": "park-ranges",
+   "name": "Park Ranges",
+   "landmark": "Mount Clemenceau",
+   "region": "British Columbia, Canada",
+   "bbox": [
+    -118.281,
+    52.048,
+    -117.635,
+    52.446
+   ],
+   "summit": {
+    "name": "Mount Clemenceau",
+    "lonLat": [
+     -117.95799,
+     52.24738
+    ],
+    "elevationM": 3664
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "Northern Rockies conifer forests"
+  },
+  {
+   "id": "peninsular-ranges",
+   "name": "Peninsular Ranges",
+   "landmark": "Volcán Las Tres Vírgenes",
+   "region": "Baja California Sur, Mexico",
+   "bbox": [
+    -112.815,
+    27.271,
+    -112.369,
+    27.669
+   ],
+   "summit": {
+    "name": "Volcán Las Tres Vírgenes",
+    "lonLat": [
+     -112.59208,
+     27.47042
+    ],
+    "elevationM": 1919
+   },
+   "source": "discovered",
+   "biome": "desert",
+   "ecoregion": "Baja California desert"
+  },
+  {
+   "id": "pinaleno-mountains",
+   "name": "Pinaleño Mountains",
+   "landmark": "Mount Graham",
+   "region": "Arizona, USA",
+   "bbox": [
+    -110.106,
+    32.503,
+    -109.637,
+    32.901
+   ],
+   "summit": {
+    "name": "Mount Graham",
+    "lonLat": [
+     -109.87147,
+     32.70174
+    ],
+    "elevationM": 3260
+   },
+   "source": "discovered",
+   "biome": "desert",
+   "ecoregion": "Chihuahuan desert"
+  },
+  {
+   "id": "pine-valley-mountains",
+   "name": "Pine Valley Mountains",
+   "landmark": "Burger Peak",
+   "region": "Utah, USA",
+   "bbox": [
+    -113.75,
+    37.127,
+    -113.253,
+    37.525
+   ],
+   "summit": {
+    "name": "Burger Peak",
+    "lonLat": [
+     -113.50134,
+     37.32554
+    ],
+    "elevationM": 3135
+   },
+   "source": "discovered",
+   "biome": "desert",
+   "ecoregion": "Great Basin shrub steppe"
+  },
+  {
+   "id": "rainbow-range",
+   "name": "Rainbow Range",
+   "landmark": "Mount Robson",
+   "region": "British Columbia, Canada",
+   "bbox": [
+    -119.486,
+    52.911,
+    -118.827,
+    53.309
+   ],
+   "summit": {
+    "name": "Mount Robson",
+    "lonLat": [
+     -119.15661,
+     53.11034
+    ],
+    "elevationM": 3959
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "assigned by hand (no RESOLVE entry)"
+  },
+  {
+   "id": "revelation-mountains",
+   "name": "Revelation Mountains",
+   "landmark": "Mount Hesperus",
+   "region": "Alaska, USA",
+   "bbox": [
+    -154.561,
+    61.605,
+    -153.724,
+    62.003
+   ],
+   "summit": {
+    "name": "Mount Hesperus",
+    "lonLat": [
+     -154.1425,
+     61.80444
+    ],
+    "elevationM": 2769
+   },
+   "source": "discovered",
+   "biome": "tundra",
+   "ecoregion": "Alaska-St. Elias Range tundra"
+  },
+  {
+   "id": "rocky-mountains",
+   "name": "Rocky Mountains",
+   "landmark": "Fairview Peak",
+   "region": "Montana, USA",
+   "bbox": [
+    -110.562,
+    45.757,
+    -109.993,
+    46.155
+   ],
+   "summit": {
+    "name": "Fairview Peak",
+    "lonLat": [
+     -110.2777,
+     45.95633
+    ],
+    "elevationM": 3099
+   },
+   "source": "discovered",
+   "biome": "steppe",
+   "ecoregion": "Montana Valley and Foothill grasslands"
+  },
+  {
+   "id": "saint-elias-mountains",
+   "name": "Saint Elias Mountains",
+   "landmark": "Mount Saint Elias",
+   "region": "Alaska, USA",
+   "bbox": [
+    -141.329,
+    60.094,
+    -140.531,
+    60.492
+   ],
+   "summit": {
+    "name": "Mount Saint Elias",
+    "lonLat": [
+     -140.92978,
+     60.29321
+    ],
+    "elevationM": 5489
+   },
+   "source": "discovered",
+   "biome": "tundra",
+   "ecoregion": "Pacific Coastal Mountain icefields and tundra"
+  },
+  {
+   "id": "san-gabriel-mountains",
+   "name": "San Gabriel Mountains",
+   "landmark": "Mount San Antonio",
+   "region": "California, USA",
+   "bbox": [
+    -117.886,
+    34.09,
+    -117.408,
+    34.488
+   ],
+   "summit": {
+    "name": "Mount San Antonio",
+    "lonLat": [
+     -117.64672,
+     34.28889
+    ],
+    "elevationM": 3062
+   },
+   "source": "discovered",
+   "biome": "chaparral",
+   "ecoregion": "California montane chaparral and woodlands"
+  },
+  {
+   "id": "san-jacinto-mountains",
+   "name": "San Jacinto Mountains",
+   "landmark": "San Jacinto Peak",
+   "region": "California, USA",
+   "bbox": [
+    -116.917,
+    33.615,
+    -116.441,
+    34.013
+   ],
+   "summit": {
+    "name": "San Jacinto Peak",
+    "lonLat": [
+     -116.67918,
+     33.81446
+    ],
+    "elevationM": 3288
+   },
+   "source": "discovered",
+   "biome": "chaparral",
+   "ecoregion": "California montane chaparral and woodlands"
+  },
+  {
+   "id": "san-mateo-mountains",
+   "name": "San Mateo Mountains",
+   "landmark": "Mount Taylor",
+   "region": "New Mexico, USA",
+   "bbox": [
+    -107.85,
+    35.04,
+    -107.366,
+    35.438
+   ],
+   "summit": {
+    "name": "Mount Taylor",
+    "lonLat": [
+     -107.60839,
+     35.23865
+    ],
+    "elevationM": 3445
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "Arizona Mountains forests"
+  },
+  {
+   "id": "san-rafael-mountains",
+   "name": "San Rafael Mountains",
+   "landmark": "Big Pine Mountain",
+   "region": "California, USA",
+   "bbox": [
+    -119.895,
+    34.498,
+    -119.414,
+    34.896
+   ],
+   "summit": {
+    "name": "Big Pine Mountain",
+    "lonLat": [
+     -119.6543,
+     34.69693
+    ],
+    "elevationM": 2077
+   },
+   "source": "discovered",
+   "biome": "chaparral",
+   "ecoregion": "California montane chaparral and woodlands"
+  },
+  {
+   "id": "sangre-de-cristo-mountains",
+   "name": "Sangre de Cristo Mountains",
+   "landmark": "Cabresto Peak",
+   "region": "New Mexico, USA",
+   "bbox": [
+    -105.755,
+    36.582,
+    -105.262,
+    36.98
+   ],
+   "summit": {
+    "name": "Cabresto Peak",
+    "lonLat": [
+     -105.50862,
+     36.78058
+    ],
+    "elevationM": 3794
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "Colorado Rockies forests"
+  },
+  {
+   "id": "sangre-de-cristo-range",
+   "name": "Sangre de Cristo Range",
+   "landmark": "Mount Adams",
+   "region": "Colorado, USA",
+   "bbox": [
+    -105.856,
+    37.808,
+    -105.354,
+    38.207
+   ],
+   "summit": {
+    "name": "Mount Adams",
+    "lonLat": [
+     -105.60473,
+     38.0075
+    ],
+    "elevationM": 4248
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "Colorado Rockies forests"
+  },
+  {
+   "id": "selkirk-mountains",
+   "name": "Selkirk Mountains",
+   "landmark": "Mount Proteus",
+   "region": "British Columbia, Canada",
+   "bbox": [
+    -117.746,
+    50.749,
+    -117.118,
+    51.148
+   ],
+   "summit": {
+    "name": "Mount Proteus",
+    "lonLat": [
+     -117.43195,
+     50.94849
+    ],
+    "elevationM": 3111
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "Northern Rockies conifer forests"
+  },
+  {
+   "id": "sierra-de-san-pedro-martir",
+   "name": "Sierra de San Pedro Mártir",
+   "landmark": "Picacho del Diablo",
+   "region": "Baja California, Mexico",
+   "bbox": [
+    -115.606,
+    30.793,
+    -115.144,
+    31.191
+   ],
+   "summit": {
+    "name": "Picacho del Diablo",
+    "lonLat": [
+     -115.375,
+     30.9924
+    ],
+    "elevationM": 3096
+   },
+   "source": "discovered",
+   "biome": "chaparral",
+   "ecoregion": "California montane chaparral and woodlands"
+  },
+  {
+   "id": "sierra-estrella",
+   "name": "Sierra Estrella",
+   "landmark": "Montezuma Peak",
+   "region": "Arizona, USA",
+   "bbox": [
+    -112.434,
+    32.985,
+    -111.961,
+    33.383
+   ],
+   "summit": {
+    "name": "Montezuma Peak",
+    "lonLat": [
+     -112.19737,
+     33.18421
+    ],
+    "elevationM": 1313
+   },
+   "source": "discovered",
+   "biome": "desert",
+   "ecoregion": "Sonoran desert"
+  },
+  {
+   "id": "sierra-madre-del-sur",
+   "name": "Sierra Madre del Sur",
+   "landmark": "Cerro Tiotepec",
+   "region": "Guerrero, Mexico",
+   "bbox": [
+    -100.343,
+    17.269,
+    -99.929,
+    17.667
+   ],
+   "summit": {
+    "name": "Cerro Tiotepec",
+    "lonLat": [
+     -100.13625,
+     17.46819
+    ],
+    "elevationM": 3548
+   },
+   "source": "discovered",
+   "biome": "pine-oak",
+   "ecoregion": "Sierra Madre del Sur pine-oak forests"
+  },
+  {
+   "id": "sierra-madre-occidental",
+   "name": "Sierra Madre Occidental",
+   "landmark": "Cerro Mohinora",
+   "region": "Chihuahua, Mexico",
+   "bbox": [
+    -107.267,
+    25.757,
+    -106.828,
+    26.155
+   ],
+   "summit": {
+    "name": "Cerro Mohinora",
+    "lonLat": [
+     -107.04737,
+     25.95579
+    ],
+    "elevationM": 3300
+   },
+   "source": "discovered",
+   "biome": "pine-oak",
+   "ecoregion": "Sierra Madre Occidental pine-oak forests"
+  },
+  {
+   "id": "sierra-madre-oriental",
+   "name": "Sierra Madre Oriental",
+   "landmark": "Cerro La Viga",
+   "region": "Coahuila, Mexico",
+   "bbox": [
+    -100.652,
+    25.132,
+    -100.214,
+    25.53
+   ],
+   "summit": {
+    "name": "Cerro La Viga",
+    "lonLat": [
+     -100.43308,
+     25.33138
+    ],
+    "elevationM": 3712
+   },
+   "source": "discovered",
+   "biome": "pine-oak",
+   "ecoregion": "Sierra Madre Oriental pine-oak forests"
+  },
+  {
+   "id": "sierra-mixteca",
+   "name": "Sierra Mixteca",
+   "landmark": "Cerro Zempoaltepec",
+   "region": "Oaxaca, Mexico",
+   "bbox": [
+    -96.206,
+    16.969,
+    -95.792,
+    17.367
+   ],
+   "summit": {
+    "name": "Cerro Zempoaltepec",
+    "lonLat": [
+     -95.99884,
+     17.16754
+    ],
+    "elevationM": 3209
+   },
+   "source": "discovered",
+   "biome": "pine-oak",
+   "ecoregion": "Sierra Madre de Oaxaca pine-oak forests"
+  },
+  {
+   "id": "skagit-range",
+   "name": "Skagit Range",
+   "landmark": "Mount Baker",
+   "region": "Washington, USA",
+   "bbox": [
+    -122.113,
+    48.578,
+    -121.513,
+    48.976
+   ],
+   "summit": {
+    "name": "Mount Baker",
+    "lonLat": [
+     -121.8132,
+     48.77734
+    ],
+    "elevationM": 3176
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "North Cascades conifer forests"
+  },
+  {
+   "id": "skeena-mountains",
+   "name": "Skeena Mountains",
+   "landmark": "Delta Peak",
+   "region": "British Columbia, Canada",
+   "bbox": [
+    -129.93,
+    56.451,
+    -129.211,
+    56.849
+   ],
+   "summit": {
+    "name": "Delta Peak",
+    "lonLat": [
+     -129.5707,
+     56.64963
+    ],
+    "elevationM": 2220
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "Central British Columbia Mountain forests"
+  },
+  {
+   "id": "strawberry-range",
+   "name": "Strawberry Range",
+   "landmark": "Strawberry Mountain",
+   "region": "Oregon, USA",
+   "bbox": [
+    -118.993,
+    44.113,
+    -118.44,
+    44.511
+   ],
+   "summit": {
+    "name": "Strawberry Mountain",
+    "lonLat": [
+     -118.71661,
+     44.31238
+    ],
+    "elevationM": 2750
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "Blue Mountains forests"
+  },
+  {
+   "id": "taconic-mountains",
+   "name": "Taconic Mountains",
+   "landmark": "Dorset Mountain",
+   "region": "Vermont, USA",
+   "bbox": [
+    -73.3,
+    43.11,
+    -72.757,
+    43.508
+   ],
+   "summit": {
+    "name": "Dorset Mountain",
+    "lonLat": [
+     -73.02816,
+     43.30924
+    ],
+    "elevationM": 1148
+   },
+   "source": "discovered",
+   "biome": "broadleaf",
+   "ecoregion": "New England-Acadian forests"
+  },
+  {
+   "id": "thudaka-range",
+   "name": "Thudaka Range",
+   "landmark": "Thudaka Peak",
+   "region": "British Columbia, Canada",
+   "bbox": [
+    -127.225,
+    57.734,
+    -126.481,
+    58.132
+   ],
+   "summit": {
+    "name": "Thudaka Peak",
+    "lonLat": [
+     -126.8532,
+     57.93289
+    ],
+    "elevationM": 2748
+   },
+   "source": "discovered",
+   "biome": "taiga",
+   "ecoregion": "Northern Cordillera forests"
+  },
+  {
+   "id": "toquima-range",
+   "name": "Toquima Range",
+   "landmark": "South Summit",
+   "region": "Nevada, USA",
+   "bbox": [
+    -117.18,
+    38.553,
+    -116.673,
+    38.951
+   ],
+   "summit": {
+    "name": "South Summit",
+    "lonLat": [
+     -116.92675,
+     38.75215
+    ],
+    "elevationM": 3637
+   },
+   "source": "discovered",
+   "biome": "desert",
+   "ecoregion": "Great Basin shrub steppe"
+  },
+  {
+   "id": "tordrillo-mountains",
+   "name": "Tordrillo Mountains",
+   "landmark": "Mount Torbert",
+   "region": "Alaska, USA",
+   "bbox": [
+    -152.826,
+    61.21,
+    -152,
+    61.608
+   ],
+   "summit": {
+    "name": "Mount Torbert",
+    "lonLat": [
+     -152.41306,
+     61.40861
+    ],
+    "elevationM": 3478
+   },
+   "source": "discovered",
+   "biome": "tundra",
+   "ecoregion": "Alaska-St. Elias Range tundra"
+  },
+  {
+   "id": "tower-of-london-range",
+   "name": "Tower of London Range",
+   "landmark": "King Peak",
+   "region": "British Columbia, Canada",
+   "bbox": [
+    -125.245,
+    58.017,
+    -124.495,
+    58.415
+   ],
+   "summit": {
+    "name": "King Peak",
+    "lonLat": [
+     -124.86974,
+     58.21633
+    ],
+    "elevationM": 2848
+   },
+   "source": "discovered",
+   "biome": "taiga",
+   "ecoregion": "Northern Cordillera forests"
+  },
+  {
+   "id": "trans-mexican-volcanic-belt",
+   "name": "Trans-Mexican Volcanic Belt",
+   "landmark": "Volcán Pico de Orizaba",
+   "region": "Veracruz, Mexico",
+   "bbox": [
+    -97.48,
+    18.832,
+    -97.062,
+    19.23
+   ],
+   "summit": {
+    "name": "Volcán Pico de Orizaba",
+    "lonLat": [
+     -97.27082,
+     19.03084
+    ],
+    "elevationM": 5636
+   },
+   "source": "discovered",
+   "biome": "pine-oak",
+   "ecoregion": "Trans-Mexican Volcanic Belt pine-oak forests"
+  },
+  {
+   "id": "vaca-mountains",
+   "name": "Vaca Mountains",
+   "landmark": "Berryessa Peak",
+   "region": "California, USA",
+   "bbox": [
+    -122.443,
+    38.465,
+    -121.937,
+    38.863
+   ],
+   "summit": {
+    "name": "Berryessa Peak",
+    "lonLat": [
+     -122.18997,
+     38.66379
+    ],
+    "elevationM": 927
+   },
+   "source": "discovered",
+   "biome": "chaparral",
+   "ecoregion": "California interior chaparral and woodlands"
+  },
+  {
+   "id": "waddington-range",
+   "name": "Waddington Range",
+   "landmark": "Mount Waddington",
+   "region": "British Columbia, Canada",
+   "bbox": [
+    -125.579,
+    51.173,
+    -124.946,
+    51.571
+   ],
+   "summit": {
+    "name": "Mount Waddington",
+    "lonLat": [
+     -125.26219,
+     51.37219
+    ],
+    "elevationM": 4016
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "British Columbia coastal conifer forests"
+  },
+  {
+   "id": "wallowa-mountains",
+   "name": "Wallowa Mountains",
+   "landmark": "Matterhorn",
+   "region": "Oregon, USA",
+   "bbox": [
+    -117.579,
+    45.029,
+    -117.018,
+    45.427
+   ],
+   "summit": {
+    "name": "Matterhorn",
+    "lonLat": [
+     -117.29823,
+     45.22821
+    ],
+    "elevationM": 2975
+   },
+   "source": "discovered",
+   "biome": "conifer",
+   "ecoregion": "Blue Mountains forests"
+  },
+  {
+   "id": "wassuk-range",
+   "name": "Wassuk Range",
+   "landmark": "Mount Grant",
+   "region": "Nevada, USA",
+   "bbox": [
+    -119.044,
+    38.371,
+    -118.539,
+    38.769
+   ],
+   "summit": {
+    "name": "Mount Grant",
+    "lonLat": [
+     -118.79153,
+     38.5702
+    ],
+    "elevationM": 3421
+   },
+   "source": "discovered",
+   "biome": "desert",
+   "ecoregion": "assigned by hand (no RESOLVE entry)"
+  },
+  {
+   "id": "white-mountains",
+   "name": "White Mountains",
+   "landmark": "White Mountain Peak",
+   "region": "California, USA",
+   "bbox": [
+    -118.505,
+    37.435,
+    -118.006,
+    37.833
+   ],
+   "summit": {
+    "name": "White Mountain Peak",
+    "lonLat": [
+     -118.25567,
+     37.63437
+    ],
+    "elevationM": 4338
+   },
+   "source": "discovered",
+   "biome": "desert",
+   "ecoregion": "Great Basin shrub steppe"
+  },
+  {
+   "id": "white-pine-range",
+   "name": "White Pine Range",
+   "landmark": "Currant Mountain",
+   "region": "Nevada, USA",
+   "bbox": [
+    -115.678,
+    38.711,
+    -115.17,
+    39.109
+   ],
+   "summit": {
+    "name": "Currant Mountain",
+    "lonLat": [
+     -115.42447,
+     38.90994
+    ],
+    "elevationM": 3492
+   },
+   "source": "discovered",
+   "biome": "desert",
+   "ecoregion": "Great Basin shrub steppe"
+  },
+  {
+   "id": "wrangell-mountains",
+   "name": "Wrangell Mountains",
+   "landmark": "Mount Blackburn",
+   "region": "Alaska, USA",
+   "bbox": [
+    -143.85,
+    61.533,
+    -143.016,
+    61.931
+   ],
+   "summit": {
+    "name": "Mount Blackburn",
+    "lonLat": [
+     -143.43306,
+     61.73167
+    ],
+    "elevationM": 4839
+   },
+   "source": "discovered",
+   "biome": "tundra",
+   "ecoregion": "Alaska-St. Elias Range tundra"
+  },
+  {
+   "id": "yukon-ranges",
+   "name": "Yukon Ranges",
+   "landmark": "Trapper Mountain",
+   "region": "Yukon, Canada",
+   "bbox": [
+    -138.636,
+    64.389,
+    -137.714,
+    64.787
+   ],
+   "summit": {
+    "name": "Trapper Mountain",
+    "lonLat": [
+     -138.175,
+     64.58763
+    ],
+    "elevationM": 1840
+   },
+   "source": "discovered",
+   "biome": "tundra",
+   "ecoregion": "Ogilvie-MacKenzie alpine tundra"
+  }
+ ]
+}

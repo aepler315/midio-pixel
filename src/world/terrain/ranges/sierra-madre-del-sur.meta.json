@@ -1,0 +1,34 @@
+{
+  "id": "sierra-madre-del-sur",
+  "name": "Sierra Madre del Sur",
+  "landmark": "Cerro Tiotepec",
+  "region": "Guerrero, Mexico",
+  "bbox": [
+    -100.343,
+    17.269,
+    -99.929,
+    17.667
+  ],
+  "source": "discovered",
+  "archetype": "majestic",
+  "mood": "heroism",
+  "quality": {
+    "floorShare": 0.03,
+    "artifact": 0.07
+  },
+  "scores": {
+    "energy": 0.334,
+    "rawness": 0.291,
+    "grandeur": 0.499,
+    "dominance": 0.304
+  },
+  "features": {
+    "reliefM": 2247.2,
+    "slopeMPerKm": 172,
+    "peaksPer10Km": 2.1,
+    "roughnessM": 79.7,
+    "dominance": 0.3,
+    "summitM": 3551.8,
+    "lengthKm": 61.2
+  }
+}

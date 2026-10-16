@@ -1,0 +1,247 @@
+{
+  "schema": "midio.range-composition-coverage",
+  "version": 1,
+  "visualApproval": false,
+  "nominalStage": [
+    1280,
+    720
+  ],
+  "overscanPx": 64,
+  "sampleGrid": [
+    320,
+    180
+  ],
+  "rasterWidth": 320,
+  "region": {
+    "lowerFraction": 0.12,
+    "firstSampleRow": 158,
+    "includesBottomRow": true
+  },
+  "nominalCamera": {
+    "zoom": 1,
+    "shakeX": 0,
+    "shakeY": 0,
+    "roll": 0
+  },
+  "rawExtremes": {
+    "zoom": [
+      1,
+      0.66
+    ],
+    "shakeX": [
+      -32,
+      32
+    ],
+    "shakeY": [
+      -32,
+      32
+    ],
+    "roll": [
+      -0.025,
+      0.025
+    ]
+  },
+  "cameraMapping": "production presentationCamera, fully arrived per-view assignment",
+  "glacierMapping": "production glacierStateAt; song time and journey progress equal station fraction",
+  "limitations": [
+    "sampled CPU desktop triangles and glacier surface",
+    "lower foreground region only; sky is intentionally absent",
+    "no musical deformation, trees or travel compositor",
+    "no GPU render, material appearance, device performance or visual approval"
+  ],
+  "sourceFiles": [
+    {
+      "path": "tools/range-composition-coverage.mjs",
+      "sha256": "2873a57d1410b8f11374267ee0648920eb1dc36734c79c3c3506653b2c74125f"
+    },
+    {
+      "path": "tools/lib/range-exposure.mjs",
+      "sha256": "f0c57f6f71f4c9bf9568369e814ec97180bf7c57d8d114d4997574be71f610c5"
+    },
+    {
+      "path": "src/render/Renderer.js",
+      "sha256": "6e5a21f86bceaeb16151f9c5a86e91b3f9df61eb782fc1ce15b9c6e417e88a00"
+    },
+    {
+      "path": "src/render/CameraDirector.js",
+      "sha256": "f57faef5014f0c187816cb5ec5ee99a42d45a6d642cce740015ea2a5bbf0c5d6"
+    },
+    {
+      "path": "src/world/alpine/RangeFrame.js",
+      "sha256": "23f51e426298f56e597681924ef9d608a423a5fa2733afcb217bc7e17454344b"
+    },
+    {
+      "path": "src/world/alpine/TerrainMesh.js",
+      "sha256": "809f02f342c796f2d18cd5eb4bc63c2793d4a1d6c07ebcb68b7bfe61cfb1d7af"
+    },
+    {
+      "path": "src/world/alpine/GlacierField.js",
+      "sha256": "6b4f3d7cf48007d1f313ca0c9a497414c5dc9778f34d2444f44ebb7db9be6d35"
+    },
+    {
+      "path": "src/world/terrain/SceneTravel.js",
+      "sha256": "97f2b1b6c541acd43723ee4846cf47b59686ae52eb386a4907012592f8c1d4e7"
+    },
+    {
+      "path": "src/world/terrain/sceneCatalogData.js",
+      "sha256": "b64d2a5d872559d6df90c6bb787c7b27abece13836244d551bad83328208dfa3"
+    }
+  ],
+  "rows": [
+    {
+      "id": "teton-jackson-lake-coherent",
+      "status": "candidate",
+      "composition": {
+        "foreground": "ledge",
+        "nearLedgeMaxFrac": 0.12
+      },
+      "sourceDemSha256": [
+        "09930a44096be83c6023c6d853c12d1571f428878691e4bfba81cdd17d9077b9",
+        "a19a985ea1d6370572bfaac2b7850bd90b49f28e9d10e3ad37c5ac17d4880e8f",
+        "4d6c2aae717cba1c485d3533ac0406e21ab14733c459b065eec71cdbbcead4f2"
+      ],
+      "viewSha256": "3e462e343931266fb1634ad36ca233542ca7e653d3fec2a1adde5b9597895bf1",
+      "terrainManifest": {
+        "path": "src/assets/range/v2/terrain/teton-jackson-lake.terrain.json",
+        "sha256": "bd3b57442d203981a66be4e1e23df677116f9a562d7a39497f0a0e0e01b429b1"
+      },
+      "terrainPayload": {
+        "path": "src/assets/range/v2/terrain/teton-jackson-lake.terrain.bin.gz",
+        "sha256": "4d6c2aae717cba1c485d3533ac0406e21ab14733c459b065eec71cdbbcead4f2"
+      },
+      "materialManifest": {
+        "path": "src/assets/range/v2/materials/dry-conifer.json",
+        "sha256": "6afff55ebe7762475b09f09fa8f60627714d051f9f117ffffd8e124894281175"
+      },
+      "effectiveExtremeExample": {
+        "zoom": 1,
+        "shakeX": -32,
+        "shakeY": -32,
+        "roll": -0.025
+      },
+      "stations": 21,
+      "nominal": {
+        "scenarios": 21,
+        "testedPixels": 147840,
+        "uncoveredPixels": 0,
+        "outsideBufferPixels": 0,
+        "missingTerrainPixels": 0,
+        "uncoveredBottomPixels": 0,
+        "worst": null
+      },
+      "extremes": {
+        "scenarios": 336,
+        "testedPixels": 2365440,
+        "uncoveredPixels": 0,
+        "outsideBufferPixels": 0,
+        "missingTerrainPixels": 0,
+        "uncoveredBottomPixels": 0,
+        "worst": null
+      }
+    },
+    {
+      "id": "monument-valley-163-coherent",
+      "status": "candidate",
+      "composition": {
+        "foreground": "ledge",
+        "nearLedgeMaxFrac": 0.12
+      },
+      "sourceDemSha256": [
+        "44ac5e6091ea8cbdc717221309402d6dc89e8318d6e6ede132699d8c93d09a03",
+        "dc7c415a970682759cd65907ee0b68e9c216e0f2af0acbc12e3d1d74b8f5b806",
+        "ec7dcd2d11304f041b9d91672873fd3b81c0ed7728d30650588fc1ac5351fe64",
+        "169278ce11a8a7b813f83819d8a0636ffc537d69bd774f990495c9f4e8460562",
+        "9a60ac6d2118690f9c0db529cdad9ca52c6a75d731b813df25496dfc640df677"
+      ],
+      "viewSha256": "df3b4657216cc55c80b4bc5600e4ead1883a599f03fe160b538a52194758010b",
+      "terrainManifest": {
+        "path": "src/assets/range/v2/terrain/monument-valley-163.terrain.json",
+        "sha256": "78779fcd2a016e3777d524969955edb225e64db416ca02ee1708c8cb9825720e"
+      },
+      "terrainPayload": {
+        "path": "src/assets/range/v2/terrain/monument-valley-163.terrain.bin.gz",
+        "sha256": "9a60ac6d2118690f9c0db529cdad9ca52c6a75d731b813df25496dfc640df677"
+      },
+      "materialManifest": {
+        "path": "src/assets/range/v2/materials/canyon.json",
+        "sha256": "ca6259b1e0cd2b10e4aae9e84abbe9c95b32976767ef372aa3caac4e73c326ce"
+      },
+      "effectiveExtremeExample": {
+        "zoom": 1,
+        "shakeX": -32,
+        "shakeY": -32,
+        "roll": -0.025
+      },
+      "stations": 21,
+      "nominal": {
+        "scenarios": 21,
+        "testedPixels": 147840,
+        "uncoveredPixels": 0,
+        "outsideBufferPixels": 0,
+        "missingTerrainPixels": 0,
+        "uncoveredBottomPixels": 0,
+        "worst": null
+      },
+      "extremes": {
+        "scenarios": 336,
+        "testedPixels": 2365440,
+        "uncoveredPixels": 0,
+        "outsideBufferPixels": 0,
+        "missingTerrainPixels": 0,
+        "uncoveredBottomPixels": 0,
+        "worst": null
+      }
+    },
+    {
+      "id": "pend-oreille-valley",
+      "status": "candidate",
+      "composition": {
+        "foreground": "none",
+        "nearLedgeMaxFrac": 0
+      },
+      "sourceDemSha256": [
+        "b7f07453b28eaa5404e75822c23e23c2ac32d4a93a315a34071bcd466ba9ca7e",
+        "448aa74ee0a45435316c7292f4323876cc47d9f1ebd9ca752cf9d55e95c770cc",
+        "d51e69acee4988f501b56feaee699dd6fb3e7b087b530ba103dfa89f7270cf32"
+      ],
+      "viewSha256": "aa30dae1e43bd6ebfccc4a1dd1ef3bb507c1142b718d1fd104535e40a1a70d3b",
+      "terrainManifest": {
+        "path": "src/assets/range/v2/terrain/pend-oreille-valley.terrain.json",
+        "sha256": "c06b35fc64d0af6a0d22b8a595e9fa1499e7c0d701d755caa61c8b3a5ba6a3bd"
+      },
+      "terrainPayload": {
+        "path": "src/assets/range/v2/terrain/pend-oreille-valley.terrain.bin.gz",
+        "sha256": "d51e69acee4988f501b56feaee699dd6fb3e7b087b530ba103dfa89f7270cf32"
+      },
+      "materialManifest": {
+        "path": "src/assets/range/v2/materials/dry-conifer.json",
+        "sha256": "6afff55ebe7762475b09f09fa8f60627714d051f9f117ffffd8e124894281175"
+      },
+      "effectiveExtremeExample": {
+        "zoom": 1,
+        "shakeX": -2.5599999999999987,
+        "shakeY": -2.5599999999999987,
+        "roll": -0.001999999999999999
+      },
+      "stations": 21,
+      "nominal": {
+        "scenarios": 21,
+        "testedPixels": 147840,
+        "uncoveredPixels": 0,
+        "outsideBufferPixels": 0,
+        "missingTerrainPixels": 0,
+        "uncoveredBottomPixels": 0,
+        "worst": null
+      },
+      "extremes": {
+        "scenarios": 336,
+        "testedPixels": 2365440,
+        "uncoveredPixels": 0,
+        "outsideBufferPixels": 0,
+        "missingTerrainPixels": 0,
+        "uncoveredBottomPixels": 0,
+        "worst": null
+      }
+    }
+  ]
+}

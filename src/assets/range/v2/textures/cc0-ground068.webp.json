@@ -1,0 +1,23 @@
+{
+ "source": {
+  "provider": "ambientCG",
+  "asset": "Ground068",
+  "url": "https://ambientcg.com/get?file=Ground068_2K-PNG.zip",
+  "page": "https://ambientcg.com/a/Ground068",
+  "license": "CC0 1.0 Universal (public domain dedication)"
+ },
+ "channels": [
+  "normalX",
+  "normalY",
+  "roughness",
+  "height"
+ ],
+ "sourceSha256": "b0d61e5921e11da675eaf1ed08d9e43676b2c2d47db3e23250c44e2e15cd6ce7",
+ "masterSize": 1024,
+ "width": 512,
+ "height": 512,
+ "format": "webp-lossless",
+ "colorSpace": "data",
+ "sha256": "3e6274d2650a6500398e7f0c8d2bda2d6cd46b4af70e759ac309a3e2ab81c786",
+ "bytes": 720482
+}

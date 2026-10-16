@@ -1,0 +1,34 @@
+{
+  "id": "pinaleno-mountains",
+  "name": "Pinaleño Mountains",
+  "landmark": "Mount Graham",
+  "region": "Arizona, USA",
+  "bbox": [
+    -110.106,
+    32.503,
+    -109.637,
+    32.901
+  ],
+  "source": "discovered",
+  "archetype": "brooding",
+  "mood": "melancholy",
+  "quality": {
+    "floorShare": 0.17,
+    "artifact": 0.03
+  },
+  "scores": {
+    "energy": 0.236,
+    "rawness": 0.171,
+    "grandeur": 0.46,
+    "dominance": 0.541
+  },
+  "features": {
+    "reliefM": 2068.2,
+    "slopeMPerKm": 122.4,
+    "peaksPer10Km": 1.1,
+    "roughnessM": 51.5,
+    "dominance": 0.5,
+    "summitM": 3262,
+    "lengthKm": 62.4
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "id": "tordrillo-mountains",
+  "name": "Tordrillo Mountains",
+  "landmark": "Mount Torbert",
+  "region": "Alaska, USA",
+  "bbox": [
+    -152.826,
+    61.21,
+    -152,
+    61.608
+  ],
+  "source": "discovered",
+  "archetype": "majestic",
+  "mood": "heroism",
+  "quality": {
+    "floorShare": 0.03,
+    "artifact": 0.23
+  },
+  "scores": {
+    "energy": 0.457,
+    "rawness": 0.382,
+    "grandeur": 0.649,
+    "dominance": 0.225
+  },
+  "features": {
+    "reliefM": 2920,
+    "slopeMPerKm": 224.5,
+    "peaksPer10Km": 3.1,
+    "roughnessM": 92.1,
+    "dominance": 0.2,
+    "summitM": 3479,
+    "lengthKm": 60.5
+  }
+}

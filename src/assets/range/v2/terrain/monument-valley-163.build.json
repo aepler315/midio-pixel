@@ -1,0 +1,146 @@
+{
+ "credit": "Elevation: USGS 3DEP 1/3 arc-second DEM",
+ "sourceSha256": [
+  "44ac5e6091ea8cbdc717221309402d6dc89e8318d6e6ede132699d8c93d09a03",
+  "dc7c415a970682759cd65907ee0b68e9c216e0f2af0acbc12e3d1d74b8f5b806",
+  "ec7dcd2d11304f041b9d91672873fd3b81c0ed7728d30650588fc1ac5351fe64",
+  "169278ce11a8a7b813f83819d8a0636ffc537d69bd774f990495c9f4e8460562"
+ ],
+ "view": {
+  "id": "monument-valley-163",
+  "regionId": "monument-valley",
+  "biome": "CANYON",
+  "status": "candidate",
+  "notes": "From US-163 at Forrest Gump Point looking south-west down the highway to the Mittens and Merrick Butte.",
+  "dem": {
+   "source": "3dep13",
+   "centerLonLat": [
+    -110.04,
+    37.04
+   ],
+   "extentM": [
+    44800,
+    44800
+   ],
+   "cellM": 20
+  },
+  "rail": {
+   "eyeStart": {
+    "lonLat": [
+     -110.0401,
+     37.03716
+    ],
+    "aboveGroundM": 60
+   },
+   "eyeEnd": {
+    "lonLat": [
+     -110.05116,
+     37.04338
+    ],
+    "aboveGroundM": 60
+   },
+   "targetStart": {
+    "lonLat": [
+     -110.08448,
+     36.98689
+    ],
+    "heightM": 1700
+   },
+   "targetEnd": {
+    "lonLat": [
+     -110.09552,
+     36.99311
+    ],
+    "heightM": 1700
+   },
+   "fovYDeg": 16
+  },
+  "landmarks": [],
+  "title": "Monument Valley",
+  "place": "Navajo Nation, Utah and Arizona",
+  "camera": {
+   "eyeStartM": [
+    -8.9,
+    1612.3,
+    315.2
+   ],
+   "eyeEndM": [
+    -992.8,
+    1669.5,
+    -375.2
+   ],
+   "targetStartM": [
+    -3959.9,
+    1700,
+    5893.1
+   ],
+   "targetEndM": [
+    -4942.4,
+    1700,
+    5202.3
+   ],
+   "fovYDeg": 16
+  }
+ },
+ "characterScores": {
+  "energy": 0.059,
+  "rawness": 0.072,
+  "grandeur": 0.073,
+  "dominance": 0.184
+ },
+ "archetype": "serene",
+ "skylineFeatures": [
+  {
+   "reliefM": 302.373779296875,
+   "slopeMPerKm": 27.54548169992967,
+   "peaksPer10Km": 0.7384963246687746,
+   "roughnessM": 22.834932111961958,
+   "dominance": 0.1629723469002998,
+   "summitM": 2006.9254150390625,
+   "lengthKm": 81.24617279159894
+  },
+  {
+   "reliefM": 351.7608642578125,
+   "slopeMPerKm": 19.2063994781659,
+   "peaksPer10Km": 0.5068767605840068,
+   "roughnessM": 20.09622736546757,
+   "dominance": 0.20147173903613413,
+   "summitM": 2037.1697998046875,
+   "lengthKm": 98.64330718652722
+  },
+  {
+   "reliefM": 328.619873046875,
+   "slopeMPerKm": 18.619241177534985,
+   "peaksPer10Km": 0.3444921845572821,
+   "roughnessM": 16.42771059001799,
+   "dominance": 0.18684469182267519,
+   "summitM": 2022.3399658203125,
+   "lengthKm": 116.11293896668593
+  }
+ ],
+ "manifestSha256": "78779fcd2a016e3777d524969955edb225e64db416ca02ee1708c8cb9825720e",
+ "payloadSha256": "9a60ac6d2118690f9c0db529cdad9ca52c6a75d731b813df25496dfc640df677",
+ "payloadBytes": 787574,
+ "stats": {
+  "tiles": 128,
+  "desktop": {
+   "vertices": 461121,
+   "triangles": 893110,
+   "meshBytes": 16250772,
+   "surfaceTextureBytes": 26784432
+  },
+  "mobile": {
+   "vertices": 360351,
+   "triangles": 697306,
+   "meshBytes": 12691884,
+   "surfaceTextureBytes": 26784432
+  }
+ },
+ "landmarks": [],
+ "achievedErrorPx": {
+  "desktop": 0.967,
+  "mobile": 1.951
+ },
+ "despikedSamples": 2,
+ "gentleGroundSmoothingM": null
+}

@@ -1,0 +1,63 @@
+{
+  "classification": "HTTP byte delivery only; no browser execution",
+  "runtime": {
+    "checked": true,
+    "rebuilt": true,
+    "views": [
+      "nc-ross-lake-north",
+      "teton-jackson-lake",
+      "denali-wonder-lake",
+      "tombstone-north-klondike",
+      "muncho-lake-south",
+      "izta-popo-west",
+      "black-mountains-catawba",
+      "san-gabriel-baldy",
+      "white-mountains-owens",
+      "la-sal-castle-valley",
+      "panamint-dantes-view",
+      "chugach-matanuska",
+      "monument-valley-163",
+      "pend-oreille-valley",
+      "teton-jackson-lake-coherent",
+      "monument-valley-163-coherent"
+    ]
+  },
+  "results": [
+    {
+      "file": "index.html",
+      "status": 200,
+      "bytes": 21920,
+      "sha256": "5a450b785404cdcf7b98f863beed2e034128712097940ce77f240fd3909b9bd6"
+    },
+    {
+      "file": "src/main.js",
+      "status": 200,
+      "bytes": 214341,
+      "sha256": "8febdb148c339039e9fbc7d6c6ea59e70a5059ebeee72b1a9f2e3b2b3995d916"
+    },
+    {
+      "file": "src/render/Renderer.js",
+      "status": 200,
+      "bytes": 83533,
+      "sha256": "6e5a21f86bceaeb16151f9c5a86e91b3f9df61eb782fc1ce15b9c6e417e88a00"
+    },
+    {
+      "file": "src/world/alpine/RangeFrame.js",
+      "status": 200,
+      "bytes": 17829,
+      "sha256": "23f51e426298f56e597681924ef9d608a423a5fa2733afcb217bc7e17454344b"
+    },
+    {
+      "file": "src/world/terrain/sceneCatalogData.js",
+      "status": 200,
+      "bytes": 90111,
+      "sha256": "b64d2a5d872559d6df90c6bb787c7b27abece13836244d551bad83328208dfa3"
+    },
+    {
+      "file": "src/vendor/range/three-range.module.js",
+      "status": 200,
+      "bytes": 539390,
+      "sha256": "71db55b57c96420b2e82ac2a0c2ce303a36154ff30b5e8044ea9c1390ef4a168"
+    }
+  ]
+}

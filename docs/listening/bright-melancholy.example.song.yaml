@@ -1,0 +1,57 @@
+# ILLUSTRATION ONLY. No recording was submitted or analyzed.
+# Times, ratings, and the 3-minute duration are invented to demonstrate syntax.
+# The sound remains bright while the emotional foreground changes.
+format: midio-listening/0.1
+status: illustrative
+audio_file: "illustrative-song.flac"
+listener: "illustration"
+perspective: expressed
+basis: sound
+summary: >-
+  Bright and happy with a severe melancholy undertone that intensifies
+  and eventually takes over.
+
+segments:
+  - span: ["00:00", "00:45"]
+    label: "cheerful foreground, strong melancholy underneath"
+    sound: {brightness: 4, activity: 3}
+    emotions:
+      joy: {intensity: 3, role: foreground}
+      melancholy: {intensity: 3, role: undertone}
+    confidence: high
+    notes: "The melancholy is strong already, although joy leads the passage."
+
+  - span: ["00:45", "01:30"]
+    label: "the two readings compete"
+    sound: {brightness: 4, activity: 3}
+    emotions:
+      joy: {intensity: 3, role: foreground}
+      melancholy: {intensity: 3, role: foreground}
+    confidence: high
+    notes: >-
+      Both readings occupy the foreground. Melancholy grows across this
+      passage; the representative rating alone does not encode that trend.
+
+  - span: ["01:30", "03:00"]
+    label: "melancholy takes over"
+    sound: {brightness: 4, activity: 3}
+    emotions:
+      joy: {intensity: 1, role: undertone}
+      melancholy: {intensity: 4, role: foreground}
+    confidence: high
+    notes: >-
+      The sound stays bright and active, but melancholy now dominates.
+      Brightness is not being used as a synonym for happiness.
+
+trends:
+  - span: ["00:45", "01:30"]
+    target: emotions.melancholy.intensity
+    direction: rising
+    confidence: high
+
+events:
+  - within: ["01:25", "01:35"]
+    type: foreground_change
+    from: joy
+    to: melancholy
+    confidence: medium

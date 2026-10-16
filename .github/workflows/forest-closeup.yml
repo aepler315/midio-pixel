@@ -1,0 +1,192 @@
+name: Forest close-ups
+
+on:
+  pull_request:
+    paths:
+      - 'src/world/alpine/Forest*.js'
+      - 'src/world/alpine/TerrainMaterial.js'
+      - 'src/world/alpine/RangeScene.js'
+      - 'tools/forest-closeup-smoke.mjs'
+      - 'tools/forest-billboard-smoke.mjs'
+      - 'tools/forest-mesh-smoke.mjs'
+      - 'tools/far-forest-smoke.mjs'
+      - 'tools/far-forest-dots-smoke.mjs'
+      - 'tools/forest-parity-smoke.mjs'
+      - 'src/world/alpine/terrainWindowWorker.js'
+      - 'tools/range-scene-smoke.mjs'
+      - 'tools/lib/forest-checkpoints.mjs'
+      - 'tools/lib/forest-window.mjs'
+      - 'tools/lib/forest-flicker.mjs'
+      - 'tools/lib/forest-ring-tone.mjs'
+      - 'tools/lib/forest-far-dots.mjs'
+      - 'tools/forest-flicker-compare.mjs'
+      - '.github/workflows/forest-closeup.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  closeups:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/setup
+        with:
+          browser: true
+      - name: Check out the unchanged PR base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          path: .smoke/forest-base
+      - name: Capture the same six views on base and candidate
+        run: |
+          times=$(node --input-type=module -e "import { FOREST_CHECKPOINTS } from './tools/lib/forest-checkpoints.mjs'; console.log(FOREST_CHECKPOINTS.map(c => c.timeMs / 1000).join(','))")
+          cp tools/forest-closeup-smoke.mjs .smoke/forest-base/tools/
+          cp tools/range-scene-smoke.mjs .smoke/forest-base/tools/
+          cp tools/lib/forest-checkpoints.mjs .smoke/forest-base/tools/lib/
+          cp tools/lib/forest-window.mjs .smoke/forest-base/tools/lib/
+          cp tools/lib/forest-flicker.mjs tools/lib/forest-ring-tone.mjs tools/lib/forest-far-dots.mjs .smoke/forest-base/tools/lib/
+          npm --prefix .smoke/forest-base ci --no-fund
+          HOST=127.0.0.1 PORT=8093 node .smoke/forest-base/tools/serve.js > .smoke/forest-base-server.log 2>&1 &
+          base_pid=$!
+          trap 'kill "$base_pid" "${candidate_pid:-}" 2>/dev/null || true' EXIT
+          for i in $(seq 30); do curl -sf http://127.0.0.1:8093/ > /dev/null && break; sleep 1; done
+          node .smoke/forest-base/tools/forest-closeup-smoke.mjs http://127.0.0.1:8093 .smoke/forest-closeup-baseline --times "$times" --sample --ring-tone
+          kill "$base_pid"
+          HOST=127.0.0.1 PORT=8092 node tools/serve.js > .smoke/forest-candidate-server.log 2>&1 &
+          candidate_pid=$!
+          for i in $(seq 30); do curl -sf http://127.0.0.1:8092/ > /dev/null && break; sleep 1; done
+          node tools/forest-closeup-smoke.mjs http://127.0.0.1:8092 .smoke/forest-closeup-candidate --times "$times" --ring-tone --far-dots
+          node tools/forest-closeup-smoke.mjs http://127.0.0.1:8092 .smoke/forest-closeup-debug --times 2,76 --debug
+          node tools/forest-closeup-smoke.mjs http://127.0.0.1:8092 .smoke/forest-closeup-no-isolation --times 0 --no-isolation
+          node tools/forest-billboard-smoke.mjs http://127.0.0.1:8092 .smoke/forest-billboard
+          node tools/forest-mesh-smoke.mjs http://127.0.0.1:8092 .smoke/forest-mesh
+          node tools/far-forest-smoke.mjs http://127.0.0.1:8092 .smoke/far-forest
+      - name: Require the original 76-second ring tone within five percent
+        run: |
+          node --input-type=module -e "import fs from 'node:fs'; import assert from 'node:assert/strict'; const r = JSON.parse(fs.readFileSync('.smoke/forest-closeup-candidate/report.json')).ringTone; assert.equal(r?.forestDebug, false); assert.equal(r?.pass, true, JSON.stringify(r && { inside: r.inside.meanLuminance, outside: r.outside.meanLuminance, differencePercent: r.differencePercent }));"
+      - name: Require painted crowns in the original 8–14 km view
+        run: |
+          node --input-type=module -e "import fs from 'node:fs'; import assert from 'node:assert/strict'; const r=JSON.parse(fs.readFileSync('.smoke/forest-closeup-candidate/report.json')).farDots; assert.equal(r?.pass,true,JSON.stringify(r));"
+      - name: Upload captures, audio, survey and measurements
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: forest-closeups
+          path: |
+            .smoke/forest-closeup-baseline/
+            .smoke/forest-closeup-candidate/
+            .smoke/forest-closeup-debug/
+            .smoke/forest-closeup-no-isolation/
+            .smoke/forest-billboard/
+            .smoke/forest-mesh/
+            .smoke/far-forest/
+            .smoke/forest-*-server.log
+          include-hidden-files: true
+          retention-days: 14
+          if-no-files-found: warn
+
+  # Motion captures are retained as records, not an acceptance gate.
+  motion:
+    runs-on: ubuntu-latest
+    # Up to ~82 min observed since #446's heavier forest (SwiftShader).
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        phase: [baseline, candidate]
+        seconds: [7.5, 40]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/setup
+        with:
+          browser: true
+      - name: Check out the unchanged PR base
+        if: matrix.phase == 'baseline'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          path: .smoke/forest-base
+      - name: Capture consecutive forest frames and window handoff
+        env:
+          PHASE: ${{ matrix.phase }}
+          FOREST_MOTION_SECONDS: ${{ matrix.seconds }}
+        run: |
+          tree=.
+          if [ "$PHASE" = baseline ]; then
+            tree=.smoke/forest-base
+            cp tools/forest-closeup-smoke.mjs "$tree/tools/"
+            cp tools/range-scene-smoke.mjs "$tree/tools/"
+            cp tools/lib/forest-window.mjs "$tree/tools/lib/"
+            cp tools/lib/forest-flicker.mjs tools/lib/forest-ring-tone.mjs tools/lib/forest-far-dots.mjs "$tree/tools/lib/"
+            npm --prefix "$tree" ci --no-fund
+          fi
+          mkdir -p .smoke
+          HOST=127.0.0.1 PORT=8092 node "$tree/tools/serve.js" > ".smoke/forest-motion-$PHASE-$FOREST_MOTION_SECONDS-server.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 30); do curl -sf http://127.0.0.1:8092/ > /dev/null && break; sleep 1; done
+          node "$tree/tools/forest-closeup-smoke.mjs" http://127.0.0.1:8092 ".smoke/forest-motion-$PHASE-$FOREST_MOTION_SECONDS" --motion "$FOREST_MOTION_SECONDS"
+      - name: Upload continuous frames, matching audio and crop measurements
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: forest-motion-${{ matrix.phase }}-${{ matrix.seconds }}
+          path: |
+            .smoke/forest-motion-${{ matrix.phase }}-${{ matrix.seconds }}/
+            .smoke/forest-motion-${{ matrix.phase }}-${{ matrix.seconds }}-server.log
+          include-hidden-files: true
+          retention-days: 14
+          if-no-files-found: warn
+
+  flicker:
+    runs-on: ubuntu-latest
+    # pr-base ran 54-60 min before #446 and 108-120+ after (SwiftShader).
+    timeout-minutes: 210
+    strategy:
+      fail-fast: false
+      matrix:
+        reference: [pr-base, phase1]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/setup
+        with:
+          browser: true
+      # Phase 2 merged with a documented flicker regression. Keep the accepted
+      # Phase 1 reference as a gate alongside the current PR base.
+      - name: Check out the flicker reference
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ matrix.reference == 'phase1' && 'd53c6c95d65c44fc13e0fe7e77848a70456f4732' || github.event.pull_request.base.sha || github.sha }}
+          path: .smoke/forest-base
+      - name: Compare fixed-pose crop brightness across one pixel
+        run: |
+          cp tools/forest-closeup-smoke.mjs tools/range-scene-smoke.mjs .smoke/forest-base/tools/
+          cp tools/lib/forest-window.mjs tools/lib/forest-flicker.mjs tools/lib/forest-ring-tone.mjs tools/lib/forest-far-dots.mjs .smoke/forest-base/tools/lib/
+          npm --prefix .smoke/forest-base ci --no-fund
+          HOST=127.0.0.1 PORT=8093 node .smoke/forest-base/tools/serve.js > .smoke/forest-flicker-base-server.log 2>&1 &
+          base_pid=$!
+          trap 'kill "$base_pid" "${candidate_pid:-}" 2>/dev/null || true' EXIT
+          for i in $(seq 30); do curl -sf http://127.0.0.1:8093/ > /dev/null && break; sleep 1; done
+          node .smoke/forest-base/tools/forest-closeup-smoke.mjs http://127.0.0.1:8093 .smoke/forest-flicker-baseline --flicker 40
+          kill "$base_pid"
+          HOST=127.0.0.1 PORT=8092 node tools/serve.js > .smoke/forest-flicker-candidate-server.log 2>&1 &
+          candidate_pid=$!
+          for i in $(seq 30); do curl -sf http://127.0.0.1:8092/ > /dev/null && break; sleep 1; done
+          node tools/forest-closeup-smoke.mjs http://127.0.0.1:8092 .smoke/forest-flicker-candidate --flicker 40
+          node tools/forest-flicker-compare.mjs .smoke/forest-flicker-baseline .smoke/forest-flicker-candidate .smoke/forest-flicker-comparison
+      - name: Upload fixed-pose flicker comparison
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: forest-flicker-${{ matrix.reference }}
+          path: |
+            .smoke/forest-flicker-baseline/
+            .smoke/forest-flicker-candidate/
+            .smoke/forest-flicker-comparison/
+            .smoke/forest-flicker-*-server.log
+          include-hidden-files: true
+          retention-days: 14
+          if-no-files-found: warn

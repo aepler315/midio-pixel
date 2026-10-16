@@ -1,0 +1,34 @@
+{
+  "id": "rainier",
+  "name": "Cascade Range",
+  "landmark": "Mount Rainier",
+  "region": "Washington, USA",
+  "bbox": [
+    -121.95,
+    46.7,
+    -121.55,
+    47
+  ],
+  "source": "curated",
+  "archetype": "sublime",
+  "mood": "awe",
+  "quality": {
+    "floorShare": 0.14,
+    "artifact": 0.04
+  },
+  "scores": {
+    "energy": 0.425,
+    "rawness": 0.294,
+    "grandeur": 0.628,
+    "dominance": 0.826
+  },
+  "features": {
+    "reliefM": 2826,
+    "slopeMPerKm": 261.6,
+    "peaksPer10Km": 2.2,
+    "roughnessM": 76.9,
+    "dominance": 0.8,
+    "summitM": 4379.1,
+    "lengthKm": 31.2
+  }
+}

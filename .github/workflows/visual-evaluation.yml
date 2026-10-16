@@ -1,0 +1,140 @@
+name: Visual evaluation
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'index.html'
+      - 'tools/visual-evaluate.mjs'
+      - 'tools/lib/visual-evaluation*.mjs'
+      - 'test/fixtures/visual-evaluation*.json'
+      - '.github/workflows/visual-evaluation.yml'
+      - 'package*.json'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  songs:
+    # One capture job per corpus recording, read from the fixture so a song
+    # added there is never silently left out of CI.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      ids: ${{ steps.read.outputs.ids }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: test/fixtures
+      - id: read
+        run: echo "ids=$(node -e 'console.log(JSON.stringify(require("./test/fixtures/visual-evaluation.json").songs.map(s => s.id)))')" >> "$GITHUB_OUTPUT"
+
+  capture:
+    needs: songs
+    runs-on: ubuntu-latest
+    # Each job captures its recording twice (the identical-input check).
+    # Range v2 natural rendering (#446: MSAA, branch-spray forest, horizon
+    # bake) roughly doubled SwiftShader capture time: kicks, the longest,
+    # went from ~20 min to ~26 min per pass (~52 min for both).
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        song: ${{ fromJSON(needs.songs.outputs.ids) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/setup
+        with:
+          browser: true
+      - name: Select one complete recording from the shared corpus
+        env:
+          VISUAL_SONG: ${{ matrix.song }}
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const corpus = JSON.parse(fs.readFileSync('test/fixtures/visual-evaluation.json', 'utf8'));
+          const songs = corpus.songs.filter(song => song.id === process.env.VISUAL_SONG);
+          if (songs.length !== 1) throw new Error('Expected exactly one corpus recording');
+          fs.mkdirSync('.smoke/visual-evaluation', { recursive: true });
+          fs.writeFileSync('.smoke/visual-evaluation/corpus.json', JSON.stringify({ ...corpus, songs }));
+          NODE
+      - name: Capture diagnostic corpus
+        run: npm run visual:eval -- --manifest .smoke/visual-evaluation/corpus.json --out .smoke/visual-evaluation/baseline
+      - name: Repeat identical corpus
+        run: npm run visual:eval -- --manifest .smoke/visual-evaluation/corpus.json --out .smoke/visual-evaluation/repeat
+      - name: Compare identical inputs
+        # Software WebGL renders identical inputs byte-for-byte; any differing
+        # PNG means nondeterministic rendering and fails the job.
+        run: npm run visual:eval -- --compare .smoke/visual-evaluation/baseline .smoke/visual-evaluation/repeat --out .smoke/visual-evaluation/comparison --require-identical
+      - name: Retain real rendered evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: visual-evaluation-${{ matrix.song }}
+          path: .smoke/visual-evaluation/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
+  vfx-cases:
+    # The bounded VFX matrix (quality rungs, accessibility preferences,
+    # looks, lake and inland views): one job per case.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      ids: ${{ steps.read.outputs.ids }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: test/fixtures
+      - id: read
+        run: echo "ids=$(node -e 'console.log(JSON.stringify(require("./test/fixtures/visual-evaluation-vfx.json").cases.map(c => c.id)))')" >> "$GITHUB_OUTPUT"
+
+  vfx:
+    needs: vfx-cases
+    runs-on: ubuntu-latest
+    # Three captures per case (candidate, repeat, base); one short capture
+    # takes ~25 min on SwiftShader since #446.
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        case: ${{ fromJSON(needs.vfx-cases.outputs.ids) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+        with:
+          browser: true
+      # Gates: the capture fails on page/shader errors, an inactive or wrong
+      # Range backend, a wrong quality rung or preference, or a blank frame.
+      # There is no pixel-difference beauty threshold.
+      - name: Capture case
+        run: npm run visual:eval -- --manifest test/fixtures/visual-evaluation-vfx.json --case ${{ matrix.case }} --out .smoke/vfx/candidate
+      - name: Repeat identical case
+        run: npm run visual:eval -- --manifest test/fixtures/visual-evaluation-vfx.json --case ${{ matrix.case }} --out .smoke/vfx/repeat
+      - name: Compare identical inputs
+        run: npm run visual:eval -- --compare .smoke/vfx/candidate .smoke/vfx/repeat --out .smoke/vfx/determinism --require-identical
+      # Review material, not a gate: the base branch rendered with the same
+      # case, so a reviewer can see what this change did to the picture.
+      - name: Capture base-branch baseline for review
+        id: base
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: |
+          git worktree add ../base "${{ github.event.pull_request.base.sha }}"
+          ln -s "$PWD/node_modules" ../base/node_modules
+          cp test/fixtures/visual-evaluation-vfx.json ../vfx-case.json
+          (cd ../base && npm run visual:eval -- --manifest ../vfx-case.json --case ${{ matrix.case }} --out "$GITHUB_WORKSPACE/.smoke/vfx/base")
+      - name: Compare base and candidate for review
+        if: github.event_name == 'pull_request' && steps.base.outcome == 'success'
+        continue-on-error: true
+        run: npm run visual:eval -- --compare .smoke/vfx/base .smoke/vfx/candidate --out .smoke/vfx/review
+      - name: Retain rendered evidence and failure diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: visual-vfx-${{ matrix.case }}
+          path: .smoke/vfx/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14

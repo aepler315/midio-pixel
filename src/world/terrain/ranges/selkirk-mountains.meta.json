@@ -1,0 +1,34 @@
+{
+  "id": "selkirk-mountains",
+  "name": "Selkirk Mountains",
+  "landmark": "Mount Proteus",
+  "region": "British Columbia, Canada",
+  "bbox": [
+    -117.746,
+    50.749,
+    -117.118,
+    51.148
+  ],
+  "source": "discovered",
+  "archetype": "majestic",
+  "mood": "heroism",
+  "quality": {
+    "floorShare": 0.03,
+    "artifact": 0.19
+  },
+  "scores": {
+    "energy": 0.553,
+    "rawness": 0.606,
+    "grandeur": 0.219,
+    "dominance": 0.565
+  },
+  "features": {
+    "reliefM": 983.8,
+    "slopeMPerKm": 338.8,
+    "peaksPer10Km": 5,
+    "roughnessM": 145.5,
+    "dominance": 0.6,
+    "summitM": 3051.2,
+    "lengthKm": 44.1
+  }
+}

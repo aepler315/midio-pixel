@@ -1,0 +1,293 @@
+{
+ "credit": "Elevation: USGS 3DEP 1/3 arc-second DEM + AWS Terrain Tiles (beyond 3DEP coverage)",
+ "sourceSha256": [
+  "db044eff3e8bbd5e89579b8d11c1c86e1ceec9b61013ee0f4d543927d6838fdd",
+  "91642208a0183ec44c382f644a836aad1430092811a3af0d07923e3cc999072f",
+  "6d19d0db1b851f19caf63c4baca85f817e97ac99bfb68a810a5fa2e59d351b94",
+  "dde8e7d5b043f3cba50dae5be493973a42610e79fc2586666f1318b6f2532b29",
+  "811bb64e1201e1ef5b89fc38080496b44b8b017abb3da749bd12f0ded42e10cb",
+  "003c6de563381d91f5c4ce9cd32b969f3ddc7fb59df3f107d185b3d1e9234dff",
+  "776a8793b0fac7335293567e3db6e0bfee5e292ee5ecd4807c93d39a799c4167",
+  "d78219d6207c1bb3358b0e867c0559f091c8890d4e08b8d02bd342017e08b015",
+  "fc06479911fd4ef1e4012053e530dc69c767d8b1e104aa87de16df45319d15ab",
+  "cc9f56202edbdc33bd87b3fa7a683ac37897135b74af8f202f633837f2f58da0",
+  "9612f3c37d4bbef42718c31169bff7b294b5be176099056bc84737223fec4396",
+  "f2a0790743a380448c97a22bb1f6a3c0f1df54f7cd0d2f7086b741d81a257df2",
+  "d02d0d545d9cf7a8bed555a5bc2f14f82e0bd43c244764758253c882b3b319a6",
+  "d3ffc75a6937eb656e34fb2957d7f23a2363288da2a2cc81dbf5c07f80d9e500",
+  "4b28c29e0b172c21a33c5606391d4cb047ad09115e93d40ff434c4cc41783089",
+  "ec01eef65ea0cf171dbc137ba0f8b82db368d93b809595fef217e1830a3556ca",
+  "610a2d87f7c893285cc7b543f1d8c1ac72cede6df8a6fdbcbc5cb617b5e2e38c",
+  "da55d390e6b4f2e02a68afb4f2d5d88642e445cfe859ec70088f768126a744b9",
+  "7297a01920af8f376cc45bdbe6b0367671dca28fc416004881eef11af87a6747",
+  "27beee47571d47ca322b4759351000c765e0b293997ba93e5f6bf9c68cc6a6c5",
+  "034e774532758ae9ea058c1ea9741fa979263c79dc14c6efce25440221211eda",
+  "a3cf4455d5f4f07e7f775071f2af8e6ebf3b14a115d1fe4481e3f0c06a48083a",
+  "1afebb059a6462a04d41f50524de55dc093cead2ee39fd270ef8ceed905289e8",
+  "a189071c8aee933df1c37da98bade970c54dcc9c40bf1b01c77eaed2a2444c11",
+  "180ca1bfc6f29adabeaeb286df32873837d84350a2a51d4187a68d70c1ca2077",
+  "8511cb4a7dd853734bd5b78310f6b535986ce47a1306bbd58ce7fb4c987bb695",
+  "51e63c9f45debf033fd8c2f2c7cc95946e7e8448e832c8e97f7b364c79a69876",
+  "8c01b290ab5e139af1ce1e4f98cfbfd0e4e7ed2a879345dbbc595c561a7ccf92",
+  "43bc63101c290de7c52443ede500ff774ab11fb15d342b3938d69c81901192db",
+  "522c77221726f6bf82b6968a29bd1c3a937e3e924f3aac94873fb8e51fddfaad",
+  "e0b18e4c932c58b59850670fa4f15a68bfbad7d5f4880a6b1c8f95563d85f823",
+  "d168c737b7cae73056e34989084563b94d173b2002ace552f0c59fc9b69b1473",
+  "123b7fb31a445bc69ed7fc72979413e8a76d8106a08e77f0bc3ca6409391ca81",
+  "57f0700ceb926ac1ebc6d6c0344930d3896db18e87c64d99265d6f5a1a75b112",
+  "8b4c3388960f358dc9f90cd588ceeaa30f59a407bf2d30ad613683d3b947d300",
+  "52ff94a27c0e1b7d1f618314ea7cc672b62a15dd2d5de4006c1491c35cc98b05",
+  "84f85a5fd9771f103ad3ac1ac5131aef35bd8d05a10c723d2ff16c68966691ea",
+  "8f1a92a50518ef8b7596bce5442f690288203cadb4c2fa05e669e475c96071f4",
+  "b069c4f57b026f39ee13fa16e1cf3d69d9dc93e7de4249b8d70c8662f78b7533",
+  "f446c484b71f9155e8f943676abac9e3b53e699a4f878f759977f9be29fb1bc2",
+  "0ae39c3a2c528294698d9206e42a135e2e1004fe8e6fcddcd47eb15c42f6a277",
+  "e6de7d31619ac9d4c60da08ba94a851e3800b14321007c8713f9b661851b2eb5",
+  "69df226bb288c02277eca366a17bff46678cf8e5bd0daabf38a5dfce0e983c37",
+  "d2743e8e4e3ccc8ea9939988fd9a9238a5251dc69d72ef0904f5303e907ec5d0",
+  "c6dd005c9f873d01ad6d96a11dc5ba109852ec259689cd60f8a24f445316b618",
+  "a6212ffa2a750e8839bbbfd474fb6c831e88e34000d8e413b9ea81b59d28338c",
+  "0f6addaa15f184ed57d8034522c3f1c26f2a4528f776656c84cb61ce909af30a",
+  "f94edf8f93f8248baa74eaac6f72cd7b7e36f1fb7aadfbbf5228a9bba25a8bc5",
+  "8b5a4d8f47534ad3dfb0f944073bc1242d64c150158065914993b17ffbf4df9d",
+  "88dbab9785002a5d03f198b2ab60e4523317a7c082d145365060c9ccf9b813e8",
+  "04ef7cbd3e031124fa92a27acc443f2d22a7b09f00c6355edcdb8ba2e5bf8e09",
+  "0497dc77bb34831111fcf770f0c0ad254e874f876a643f6c99c8432e22684ceb",
+  "281b962e72344c39d0a71f53ae839b7323bce72e346f97580f7457fcefea4680",
+  "966e639973c856440c89a3bbf49ce7f5221e5872926176b91d19796fcba49303",
+  "26be8ea385d0764fd684636d86e706b4b095aabe388f345f79194db0ca93f7c1",
+  "7661e52902fda544e85efa9cb813d14e577448d2f44afd5720b7c76d201b7e11",
+  "b9a09cf4e4879dd282c9acb8132f4c58676a4bda3ae009ef4c74e801a28daa9b",
+  "4239b5b91301797d28664e7edc8e0f91024f4a892b75d265a90371416bbb4451",
+  "cfb85c9c10c660f289a7c5e7ef62fd4ec7575bf2a2d98deeac88a2360601ba28",
+  "0800bc1e87c2a7fa6b118faa784085b6a0344b2087da8205ea244507b505f1d2",
+  "57f35abfbbc2de4ccb2c271748c2398c2f96a82627478487d3a2fb8c5e4f698d",
+  "aab5b0fe658478fd323da92f1dcbdd542e5a1123400bc4f52a0d066b65b3f4ba",
+  "c43dd61d6a69c04fde5f8b838598ebd78bcfde57d65bf541d1b690dd7883d836",
+  "b3d8aabf5f649fe41a58e4c3114397b30a32dcb95a9178ef4977735e010c6211",
+  "bfed72d675aef809877522ba636e89c18c06a10243d2bfe0fd60daec689df92d",
+  "9fe71f8462cda743708757429969c11e25a061911ce8c713a9253511424d9b36",
+  "76a07320ae284c5a397bb8b307b1f916c7d999121a67e34a53df0f113aa24e9c",
+  "bef1fbf8f871821ae6bd884f381a30b1cf3565eb75d33c51b309cc5ec80ffb60"
+ ],
+ "view": {
+  "id": "nc-ross-lake-north",
+  "regionId": "north-cascades",
+  "biome": "RAINFOREST",
+  "status": "approved",
+  "notes": "Elevated over the Ross Dam / Diablo Lake junction looking north-north-east up Ross Lake: the lake is the central opening, Jack Mountain the tall snowy mass on the right, Sourdough's wooded flanks at the left, Hozomeen and the Pasayten peaks on the far skyline. The rail trucks 1.8 km east-south-east, across the line of sight, for parallax.",
+  "dem": {
+   "source": "3dep13",
+   "fill": "terrarium",
+   "fillZoom": 12,
+   "centerLonLat": [
+    -120.9,
+    48.87
+   ],
+   "extentM": [
+    44800,
+    44800
+   ],
+   "cellM": 20
+  },
+  "rail": {
+   "eyeStart": {
+    "lonLat": [
+     -121.1144,
+     48.706
+    ],
+    "heightM": 1500
+   },
+   "eyeEnd": {
+    "lonLat": [
+     -121.0937,
+     48.6974
+    ],
+    "heightM": 1500
+   },
+   "targetStart": {
+    "lonLat": [
+     -120.9644,
+     48.866
+    ],
+    "heightM": 700
+   },
+   "targetEnd": {
+    "lonLat": [
+     -120.9437,
+     48.8574
+    ],
+    "heightM": 700
+   },
+   "fovYDeg": 35
+  },
+  "landmarks": [
+   {
+    "name": "Jack Mountain",
+    "lonLat": [
+     -120.9575,
+     48.7727
+    ],
+    "elevationM": 2763
+   },
+   {
+    "name": "Hozomeen Mountain",
+    "lonLat": [
+     -121.012,
+     48.9822
+    ],
+    "elevationM": 2459,
+    "note": "summit located as the DEM maximum within 5 km of the first estimate"
+   },
+   {
+    "name": "Ross Dam",
+    "lonLat": [
+     -121.0676,
+     48.7317
+    ]
+   }
+  ],
+  "review": "2026-09-29 geometry/camera review (Task 4): 21 stations + continuous traverse, neutral/silhouette/depth/crop-edge modes. Connected real relief (Ross Lake chain, Jack Mountain spurs, Sourdough flanks); no crop-edge skyline, no cracks; terrain coverage 0.62-0.64, skyline top 0.28 of frame height. Geometry approved for material pilot; production status stays candidate until the Task 13 full pilot.",
+  "title": "Ross Lake",
+  "place": "North Cascades, Washington",
+  "approval": {
+   "date": "2026-09-29",
+   "terrainManifestSha256": "8995e13dae058742479bb8b35396400b6a690a953e0d172be8988144047d2748",
+   "materialManifestSha256": "8f5ff6bb64b01072364f9d4698c13591af20de8f32dfbd40b67f0614fd242bb0",
+   "materialRulesSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+   "cameraSha256": "1947b732c79e756600438f9747cb0dbd629daecafb072dd925d4d5cd1773eb7a",
+   "evidence": [
+    "docs/evidence/range-v2/pilot-ross-lake-calm-10s.jpg",
+    "docs/evidence/range-v2/pilot-ross-lake-energetic-32s.jpg",
+    "docs/evidence/range-v2/pilot-ross-lake-reflection-38s.jpg"
+   ]
+  },
+  "camera": {
+   "eyeStartM": [
+    -15780.2,
+    1500,
+    18215.5
+   ],
+   "eyeEndM": [
+    -14259,
+    1500,
+    19176
+   ],
+   "targetStartM": [
+    -4724.9,
+    700,
+    442.8
+   ],
+   "targetEndM": [
+    -3206.7,
+    700,
+    1400.3
+   ],
+   "fovYDeg": 35
+  }
+ },
+ "characterScores": {
+  "energy": 0.127,
+  "rawness": 0.109,
+  "grandeur": 0.255,
+  "dominance": 0.571
+ },
+ "archetype": "brooding",
+ "skylineFeatures": [
+  {
+   "reliefM": 1161.0478515625,
+   "slopeMPerKm": 47.58544096842038,
+   "peaksPer10Km": 0.7297524014265194,
+   "roughnessM": 29.60102332158169,
+   "dominance": 0.553035419748964,
+   "summitM": 2726.93505859375,
+   "lengthKm": 123.32950165572332
+  },
+  {
+   "reliefM": 1204.587158203125,
+   "slopeMPerKm": 40.55910596016266,
+   "peaksPer10Km": 0.5801639874507746,
+   "roughnessM": 34.08188134143214,
+   "dominance": 0.5405891662912098,
+   "summitM": 2761.277587890625,
+   "lengthKm": 206.8380709517612
+  },
+  {
+   "reliefM": 1070.670654296875,
+   "slopeMPerKm": 60.48107166283128,
+   "peaksPer10Km": 0.9669755904657023,
+   "roughnessM": 30.48427727625265,
+   "dominance": 0.6204531923282058,
+   "summitM": 2761.277587890625,
+   "lengthKm": 134.4397948425886
+  }
+ ],
+ "manifestSha256": "32ee5822fccba5a474d0298cd8eb4e941cbb4858e7f1679b4e6ae9fa338aa4d2",
+ "payloadSha256": "b621d841e649af0cee550e4db298e94195c22a379186154e8decc741e5a64c1b",
+ "payloadBytes": 1755743,
+ "stats": {
+  "tiles": 355,
+  "desktop": {
+   "vertices": 993139,
+   "triangles": 1917992,
+   "meshBytes": 34933572,
+   "surfaceTextureBytes": 26784432
+  },
+  "mobile": {
+   "vertices": 465257,
+   "triangles": 891620,
+   "meshBytes": 16282524,
+   "surfaceTextureBytes": 26784432
+  }
+ },
+ "landmarks": [
+  {
+   "name": "Jack Mountain",
+   "lonLat": [
+    -120.9575,
+    48.7727
+   ],
+   "publishedElevationM": 2763,
+   "localM": [
+    -4226.5,
+    10818.8
+   ],
+   "demGroundM": 2717.779052734375,
+   "demPeakWithin200mM": 2761.701171875
+  },
+  {
+   "name": "Hozomeen Mountain",
+   "lonLat": [
+    -121.012,
+    48.9822
+   ],
+   "publishedElevationM": 2459,
+   "localM": [
+    -8198.2,
+    -12483.6
+   ],
+   "demGroundM": 2448.302490234375,
+   "demPeakWithin200mM": 2448.302490234375
+  },
+  {
+   "name": "Ross Dam",
+   "lonLat": [
+    -121.0676,
+    48.7317
+   ],
+   "publishedElevationM": null,
+   "localM": [
+    -12329.3,
+    15366.2
+   ],
+   "demGroundM": 423.5277404785156,
+   "demPeakWithin200mM": 561.9127807617188
+  }
+ ],
+ "achievedErrorPx": {
+  "desktop": 0.998,
+  "mobile": 1.999
+ },
+ "despikedSamples": 0,
+ "gentleGroundSmoothingM": null
+}

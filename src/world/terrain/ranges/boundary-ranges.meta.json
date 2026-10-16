@@ -1,0 +1,34 @@
+{
+  "id": "boundary-ranges",
+  "name": "Boundary Ranges",
+  "landmark": "Chutine Peak",
+  "region": "British Columbia, Canada",
+  "bbox": [
+    -132.706,
+    57.576,
+    -131.964,
+    57.974
+  ],
+  "source": "discovered",
+  "archetype": "restless",
+  "mood": "unease",
+  "quality": {
+    "floorShare": 0.05,
+    "artifact": 0.24
+  },
+  "scores": {
+    "energy": 0.338,
+    "rawness": 0.378,
+    "grandeur": 0.132,
+    "dominance": 0.53
+  },
+  "features": {
+    "reliefM": 592.2,
+    "slopeMPerKm": 202,
+    "peaksPer10Km": 3.1,
+    "roughnessM": 90.7,
+    "dominance": 0.5,
+    "summitM": 2479.8,
+    "lengthKm": 41.7
+  }
+}

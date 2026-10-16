@@ -1,0 +1,46 @@
+# Midio + slskd (Soulseek) — zero API-key UX
+#
+#   docker compose up -d slskd   # Soulseek daemon only
+#   npm start                   # Midio auto-detects slskd on :5030
+#
+# Optional .env:
+#   SLSK_USER=your_soulseek_name
+#   SLSK_PASS=your_soulseek_password
+#
+# Midio talks to the loopback-only slskd API. Set SLSKD_API_KEY in the server
+# environment if you enable slskd authentication in a separate deployment.
+# Recreating this revision always pulls the pinned 0.26.0 digest, not :latest.
+
+services:
+  slskd:
+    image: slskd/slskd:0.26.0@sha256:ecd4026d4f8fb504e2cc55323efa2c1f5b56d20d3686b018249cc36b48ea17a6
+    container_name: midio-slskd
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 512m
+    cpus: 1.0
+    ports:
+      - "127.0.0.1:5030:5030" # HTTP API + web UI (local bridge only)
+      - "127.0.0.1:${SLSKD_PORT:-50300}:50300" # Soulseek listen, local by default
+    environment:
+      SLSKD_REMOTE_CONFIGURATION: "true"
+      SLSKD_SLSK_USERNAME: ${SLSK_USER:-}
+      SLSKD_SLSK_PASSWORD: ${SLSK_PASS:-}
+      SLSKD_SLSK_DESCRIPTION: "Midio companion"
+    volumes:
+      - ./slskd/slskd.yml:/app/slskd.yml:ro
+      - midio-slskd-data:/data
+      # Shared downloads so Midio can read finished files without extra config
+      - ./data/slskd-downloads:/data/downloads
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5030/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
+
+volumes:
+  midio-slskd-data:

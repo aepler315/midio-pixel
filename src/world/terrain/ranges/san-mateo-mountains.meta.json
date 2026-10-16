@@ -1,0 +1,34 @@
+{
+  "id": "san-mateo-mountains",
+  "name": "San Mateo Mountains",
+  "landmark": "Mount Taylor",
+  "region": "New Mexico, USA",
+  "bbox": [
+    -107.85,
+    35.04,
+    -107.366,
+    35.438
+  ],
+  "source": "discovered",
+  "archetype": "brooding",
+  "mood": "melancholy",
+  "quality": {
+    "floorShare": 0.08,
+    "artifact": 0.06
+  },
+  "scores": {
+    "energy": 0.217,
+    "rawness": 0.177,
+    "grandeur": 0.329,
+    "dominance": 0.517
+  },
+  "features": {
+    "reliefM": 1482.5,
+    "slopeMPerKm": 84.1,
+    "peaksPer10Km": 1.7,
+    "roughnessM": 35.2,
+    "dominance": 0.5,
+    "summitM": 3439.9,
+    "lengthKm": 60.1
+  }
+}

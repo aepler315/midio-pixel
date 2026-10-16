@@ -1,0 +1,21 @@
+{
+ "channels": [
+  "normalX",
+  "normalY",
+  "roughness",
+  "height"
+ ],
+ "generator": {
+  "script": "tools/terrain/make-materials.py",
+  "kind": "cliff",
+  "seed": 11,
+  "numpy": "1.26.4"
+ },
+ "masterSize": 1024,
+ "width": 512,
+ "height": 512,
+ "format": "webp-lossless",
+ "colorSpace": "data",
+ "sha256": "3196ffb5ab32bd8a8d6e8f3c5d2ab9f2006f4d1e6762b97af9291f265d24c1ea",
+ "bytes": 703766
+}

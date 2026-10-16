@@ -1,0 +1,34 @@
+{
+  "id": "garibaldi-ranges",
+  "name": "Garibaldi Ranges",
+  "landmark": "Mount Garibaldi",
+  "region": "British Columbia, Canada",
+  "bbox": [
+    -123.311,
+    49.651,
+    -122.698,
+    50.05
+  ],
+  "source": "discovered",
+  "archetype": "restless",
+  "mood": "unease",
+  "quality": {
+    "floorShare": 0.02,
+    "artifact": 0.14
+  },
+  "scores": {
+    "energy": 0.361,
+    "rawness": 0.377,
+    "grandeur": 0.245,
+    "dominance": 0.427
+  },
+  "features": {
+    "reliefM": 1100.9,
+    "slopeMPerKm": 230,
+    "peaksPer10Km": 2.8,
+    "roughnessM": 100.8,
+    "dominance": 0.4,
+    "summitM": 2659.8,
+    "lengthKm": 42.5
+  }
+}

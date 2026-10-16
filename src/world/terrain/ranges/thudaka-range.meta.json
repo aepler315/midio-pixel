@@ -1,0 +1,34 @@
+{
+  "id": "thudaka-range",
+  "name": "Thudaka Range",
+  "landmark": "Thudaka Peak",
+  "region": "British Columbia, Canada",
+  "bbox": [
+    -127.225,
+    57.734,
+    -126.481,
+    58.132
+  ],
+  "source": "discovered",
+  "archetype": "restless",
+  "mood": "unease",
+  "quality": {
+    "floorShare": 0.01,
+    "artifact": 0.21
+  },
+  "scores": {
+    "energy": 0.425,
+    "rawness": 0.482,
+    "grandeur": 0.181,
+    "dominance": 0.571
+  },
+  "features": {
+    "reliefM": 814.2,
+    "slopeMPerKm": 212.8,
+    "peaksPer10Km": 4.3,
+    "roughnessM": 103.6,
+    "dominance": 0.6,
+    "summitM": 2709.7,
+    "lengthKm": 41.7
+  }
+}

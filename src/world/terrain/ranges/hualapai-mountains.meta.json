@@ -1,0 +1,34 @@
+{
+  "id": "hualapai-mountains",
+  "name": "Hualapai Mountains",
+  "landmark": "Hayden Peak",
+  "region": "Arizona, USA",
+  "bbox": [
+    -114.146,
+    34.882,
+    -113.663,
+    35.28
+  ],
+  "source": "discovered",
+  "archetype": "brooding",
+  "mood": "melancholy",
+  "quality": {
+    "floorShare": 0.07,
+    "artifact": 0.05
+  },
+  "scores": {
+    "energy": 0.21,
+    "rawness": 0.17,
+    "grandeur": 0.286,
+    "dominance": 0.426
+  },
+  "features": {
+    "reliefM": 1288.6,
+    "slopeMPerKm": 128.9,
+    "peaksPer10Km": 1.2,
+    "roughnessM": 47.9,
+    "dominance": 0.4,
+    "summitM": 2545.3,
+    "lengthKm": 41.7
+  }
+}
