@@ -107,6 +107,7 @@ export class RangePresentation {
     this.tour = null;
     this.tourData = null;
     this._tourAbort = null;
+    this._tourPreparation = { state: tour ? 'idle' : 'off', generation: 0, reason: null, reducedMotion: false };
     this.diag = diag;
     this.residency = residency;
     this.budget = budget;
@@ -183,17 +184,26 @@ export class RangePresentation {
    *  of the previous generation is cancelled; its late results never land. */
   setSong({ terrain = null, mgr = null, generation = this.generation + 1, exportMode = false } = {}) {
     this.stage = null;
+    this.active = false;
+    this.frame = null;
+    this.viewId = null;
+    this.incomingViewId = null;
+    // A new song does not repair a failed renderer. Keep its useful error
+    // until the runtime itself retries or is recreated by a mode change.
+    if (this.runtimeState !== 'failed') this.reason = this.enabled ? 'not-started' : 'legacy-mode';
     if (this.tourMode || this.residency?.cancelled?.has(generation)) generation = Math.max(generation, this.generation + 1);
     const previous = this.generation;
     if (this._tourCpuKey) this.residency?.release(this._tourCpuKey);
     if (this.tourMode) this.scene?.release('teton-range-tour');
     this.generation = generation;
     this._tourAbort?.abort();
+    this._tourPromise = null;
     this.tour = null;
     this.tourData = null;
     this._tourSections = mgr?.sections;
     this._tourMotion = !!mgr?.reducedMotion; // the preference the tour is planned with
     this._tourManager = mgr;
+    this._tourPreparation = { state: this.tourMode ? 'idle' : 'off', generation, reason: null, reducedMotion: this._tourMotion };
     this._replanAbort?.abort();
     // Export draws frames on request and waits for readiness: never fades,
     // never counts as the listener having seen a view.
@@ -214,9 +224,18 @@ export class RangePresentation {
     this.arrival = 1;
     this._legacyShown = false;
     this._arrivalStartSec = null;
-    if (this.tourMode && this.forced?.view?.tourManifestUrl) {
+    // A saved/title preference has no song to plan yet. Other worlds keep
+    // the preference, but must not spend memory on a camera they never draw.
+    const ownsTour = this.tourMode && mgr?.durationMs > 0 && (!mgr.world?.kind || mgr.world.kind === 'alpine');
+    if (ownsTour && !this.forced?.view?.tourManifestUrl) {
+      const reason = this.forced?.fallbackReason || 'Teton tour files are not available in this version';
+      this._tourPreparation = { ...this._tourPreparation, state: 'failed', reason };
+      this.failures.set(this.forcedViewId || 'teton-range-tour', reason);
+    }
+    if (ownsTour && this.forced?.view?.tourManifestUrl) {
       const view = this.forced.view, controller = new AbortController();
       this._tourAbort = controller;
+      this._tourPreparation = { ...this._tourPreparation, state: 'loading' };
       this._tourCpuKey = `range:tour-cpu:${generation}`;
       const reservation = this.residency?.reserve({ key: this._tourCpuKey, bytes: 80 * 1024 ** 2, owner: 'range-tour-cpu', generation });
       const load = this.residency && !reservation ? Promise.reject(new Error('No room to plan the tour')) : retryAssetDownload(() => loadTourPackage(new URL(view.tourManifestUrl, this.assetBase).href,
@@ -224,19 +243,25 @@ export class RangePresentation {
       ;
       this._tourPromise = load
         .then(async pkg => {
+          if (controller.signal.aborted || this.generation !== generation) return;
+          this._tourPreparation = { ...this._tourPreparation, state: 'planning', reducedMotion: !!mgr.reducedMotion };
           const tour = await prepareTourTimeline(pkg.data, mgr, { signal: controller.signal });
           if (controller.signal.aborted || this.generation !== generation) return;
-          this.tour = tour; this.tourData = pkg.data;
           if (reservation) {
-            if (!this.residency.commit(reservation, { data: pkg.data, tour })) return;
+            if (!this.residency.commit(reservation, { data: pkg.data, tour })) throw new Error('Tour planning memory reservation is no longer available');
             this.residency.shrink(reservation.key, 32 * 1024 ** 2);
           }
+          this.tour = tour; this.tourData = pkg.data;
+          this._tourPreparation = { ...this._tourPreparation, state: 'ready', reducedMotion: !!tour.reducedMotion };
           this.forced = { ...this.forced, view: { ...view, tour } };
           this.scene?.release(view.id);
         }).catch(error => {
           if (controller.signal.aborted || this.generation !== generation) return;
           if (reservation) this.residency?.releaseReservation(reservation);
-          this.failures.set(view.id, `tour: ${error.message}`);
+          const reason = `tour: ${error.message}`;
+          this._tourPreparation = { ...this._tourPreparation, state: 'failed', reason };
+          this.failures.set(view.id, reason);
+          this._availabilityChanged();
           console.warn('[range tour] preparation failed', error);
         });
     }
@@ -407,6 +432,9 @@ export class RangePresentation {
    *  reservations crowd out the view actually on screen. */
   async whenReady({ timeoutMs = 60000 } = {}) {
     if (!this.enabled) return this.snapshot();
+    // The saved preference is idle on the title and in other worlds.
+    // Export calls readiness for every world; there is no tour job to await.
+    if (this.tourMode && this._tourPreparation.state === 'idle') return this.snapshot();
     if (this.runtimeState === 'idle') await this._ensureRuntime();
     else while (this.runtimeState === 'loading') await new Promise((r) => setTimeout(r, 20));
     if (this.runtimeState !== 'ready' || this.scene.contextLost) return this.snapshot();
@@ -574,13 +602,33 @@ export class RangePresentation {
       this._replanAbort?.abort();
       const controller = new AbortController(), generation = this.generation;
       this._replanAbort = controller;
+      const previousNotes = new Map();
+      for (const note of this.tour.notes || []) previousNotes.set(note, (previousNotes.get(note) || 0) + 1);
+      this._tourPreparation = { ...this._tourPreparation, replanning: true, refinement: { state: 'pending', reason: null } };
       this._replanPromise = prepareTourTimeline(this.tourData, mgr, { signal: controller.signal, previous: this.tour, committedThroughMs: (mgr.tSec || 0) * 1000 })
         .then(tour => {
           if (controller.signal.aborted || generation !== this.generation) return;
           this.tour = tour;
+          // The worker can safely retain the previous flight when no
+          // continuation exists. Only a newly reported deferral describes
+          // this job; historical notes must not mark a later success held.
+          let deferredReason = null;
+          for (const note of tour.notes || []) {
+            const count = previousNotes.get(note) || 0;
+            if (count) previousNotes.set(note, count - 1);
+            else if (/^Refinement (deferred|held):/.test(note)) deferredReason = note;
+          }
+          const held = !!deferredReason || !!tour.reducedMotion !== tourMotion;
+          const reason = deferredReason || (held ? 'The tour retained its previous motion setting.' : null);
+          this._tourPreparation = { ...this._tourPreparation, replanning: false, reducedMotion: !!tour.reducedMotion,
+            refinement: { state: held ? 'held' : 'applied', reason } };
           this.forced = { ...this.forced, view: { ...this.forced.view, tour } };
           this.scene.replaceTour?.(this.forced.view);
-        }).catch(error => { if (!controller.signal.aborted) this.tour.notes.push(`Refinement held: ${error.message}`); });
+        }).catch(error => {
+          if (controller.signal.aborted || generation !== this.generation) return;
+          this._tourPreparation = { ...this._tourPreparation, replanning: false, refinement: { state: 'held', reason: error.message } };
+          this.tour.notes.push(`Refinement held: ${error.message}`);
+        });
     }
     const blend = mgr.currentBlend || {};
     const name = (p) => (typeof p === 'string' ? p : p?.name ?? null);
@@ -1002,10 +1050,28 @@ export class RangePresentation {
     return { wetMasks: this.stage.wetMasks, litEdges: [], pools: this.stage.pools };
   }
 
+  /** Small enough for the control to poll while paused; unlike the full
+   *  snapshot this does not copy scene, terrain or residency diagnostics. */
+  status() {
+    const selectedViewId = this.forcedViewId || this.viewId || this._wants[0]?.id || null;
+    const runtimeReady = this.runtimeState === 'ready' && !!this.scene && !this.scene.contextLost;
+    const active = this.active && runtimeReady;
+    const fallbackReason = active ? null : this.failures.get(selectedViewId)
+      || (this.scene?.contextLost ? 'context-lost' : this.reason);
+    return {
+      mode: this.mode, requestedMode: this.mode, resolvedMode: active ? 'v2' : 'legacy',
+      tourMode: this.tourMode, active, viewId: active ? this.viewId : null, selectedViewId,
+      runtime: this.runtimeState, runtimeReady, reason: this.reason, fallbackReason,
+      tourPreparation: { ...this._tourPreparation,
+        requestedReducedMotion: this._tourManager ? !!this._tourManager.reducedMotion : null,
+        effectiveReducedMotion: this.tour ? !!this.tour.reducedMotion : null }, generation: this.generation,
+    };
+  }
+
   snapshot() {
     return {
-      tourMode: this.tourMode, tour: this.tour ? { durationMs: this.tour.durationMs, heroes: this.tour.heroes, notes: this.tour.notes, meanQualityRatio: this.tour.meanQualityRatio } : null,
-      mode: this.mode, active: this.active, reason: this.reason, viewId: this.active ? this.viewId : null,
+      ...this.status(),
+      tour: this.tour ? { durationMs: this.tour.durationMs, heroes: this.tour.heroes, notes: this.tour.notes, meanQualityRatio: this.tour.meanQualityRatio } : null,
       forcedCandidate: !!this.forced?.forcedCandidate, forcedViewId: this.forcedViewId, diag: this.diag,
       generation: this.generation, runtime: this.runtimeState, runtimeAttempts: this.runtimeAttempts, arrival: this.arrival, incomingFade: this.incomingFade, incomingViewId: this.active ? this.incomingViewId : null, seamP: this.seamP ?? null,
       failures: Object.fromEntries(this.failures), deferred: [...this.deferred.keys()], frameId: this.frameId, progress01: this.frame?.progress01 ?? null,
@@ -1022,6 +1088,10 @@ export class RangePresentation {
     if (this.residency && this.generation) this.residency.cancelGeneration(this.generation);
     this.scene?.dispose();
     this.scene = null;
+    this.active = false;
+    this.frame = null;
+    this.viewId = null;
+    this.incomingViewId = null;
     this._runtimeEpoch++; // a load still in flight must not publish
     this.runtimeState = this.enabled ? 'idle' : 'off';
   }
