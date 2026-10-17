@@ -1,0 +1,63 @@
+name: Terrain shading study
+on:
+  pull_request:
+    paths:
+      - 'src/world/alpine/TerrainShadingExperiment.js'
+      - 'src/world/alpine/TerrainMaterial.js'
+      - 'src/world/alpine/RangeScene.js'
+      - 'test/terrainShading*'
+      - 'test/fixtures/terrain-shading-*.json'
+      - 'tools/terrain-shading-*.mjs'
+      - 'tools/lib/terrain-shading-*.mjs'
+      - '.github/workflows/terrain-shading.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    # The unchanged full application is expensive in SwiftShader. Each
+    # motion side has 72 consecutive frames plus its end checkpoint.
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        case: [stills, motion]
+    env:
+      TERRAIN_IN_PROCESS: '1'
+      CASE: ${{ matrix.case }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/setup
+        with:
+          browser: true
+      - name: Check opt-in, actual GLSL and matched-state contracts
+        run: node --test test/terrainShading*.js test/terrainShading*.mjs
+      - name: Check out the untouched PR base for preservation
+        if: matrix.case == 'stills'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          path: .smoke/terrain-base
+      - name: Capture current OFF and experimental ON with identical settings
+        run: |
+          close_args=()
+          if [ "$CASE" = stills ]; then close_args=(--close 1); fi
+          node tools/terrain-shading-evaluate.mjs --manifest "test/fixtures/terrain-shading-$CASE.json" --out ".smoke/terrain/$CASE/off" "${close_args[@]}"
+          node tools/terrain-shading-evaluate.mjs --manifest "test/fixtures/terrain-shading-$CASE.json" --out ".smoke/terrain/$CASE/on" --shading moran "${close_args[@]}"
+      - name: Require matched state and build the full-size toggle report
+        run: node tools/terrain-shading-compare.mjs ".smoke/terrain/$CASE/off" ".smoke/terrain/$CASE/on" ".smoke/terrain/$CASE/review"
+      - name: Prove default OFF preserves the untouched base
+        if: matrix.case == 'stills'
+        run: |
+          node tools/terrain-shading-evaluate.mjs --root .smoke/terrain-base --manifest test/fixtures/terrain-shading-stills.json --out .smoke/terrain/stills/base --close 1
+          npm run visual:eval -- --compare .smoke/terrain/stills/base .smoke/terrain/stills/off --out .smoke/terrain/stills/preservation --require-identical
+      - name: Retain captures, audio, settings and comparison outside git
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: terrain-shading-${{ matrix.case }}
+          path: .smoke/terrain/${{ matrix.case }}/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14

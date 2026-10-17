@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "settings": {
+    "width": 1280,
+    "height": 720,
+    "seed": 315,
+    "quality": 3,
+    "view": "teton-jackson-lake",
+    "biome": "CONIFER",
+    "fps": 6,
+    "mode": "continuous",
+    "intervalMs": 10000,
+    "reducedFlash": false,
+    "reducedMotion": false,
+    "presentation": {
+      "version": 2,
+      "look": "pixel",
+      "quality": "auto",
+      "palette": "world",
+      "dither": 0.35,
+      "ditherMode": "selective",
+      "pixelGrid": "classic",
+      "scaling": "fit",
+      "pixelScale": "depth"
+    },
+    "startMs": 18000
+  },
+  "songs": [
+    {
+      "id": "contrast96",
+      "fixture": "contrast",
+      "seconds": 96,
+      "timesMs": [
+        18000,
+        30000
+      ],
+      "clips": [
+        {
+          "startMs": 18000,
+          "durationMs": 12000
+        }
+      ]
+    }
+  ]
+}
