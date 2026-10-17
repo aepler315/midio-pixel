@@ -58,6 +58,7 @@ import { getVisualStyle, resolveVisualStyle } from './render/VisualStyle.js';
 import { PerfGovernor, resolvePerfStartLevel, MAX_LEVEL as PERF_MAX_LEVEL } from './render/PerfGovernor.js';
 import { sharedResidency } from './render/GraphicsResidency.js';
 import { RangePresentation, resolveRangeMode } from './world/alpine/RangePresentation.js';
+import { rangeTourControlState } from './ui/RangeTourControl.js';
 import { residencyBudgetFor } from './render/GraphicsResidency.js';
 import { shouldSuggestLandscape } from './render/StagePresets.js';
 import { createPresentingRenderer } from './render/PresentingRenderer.js';
@@ -457,6 +458,22 @@ let rangePresentation = rangeMode.mode === 'v2'
   : null;
 
 const rangeTourToggle = document.getElementById('range-tour-toggle');
+const rangeTourStatus = document.getElementById('range-tour-status');
+function currentTourControlState() {
+  return rangeTourControlState(rangePresentation?.status(), { running, worldKind: sim?.biomes?.world?.kind, paused });
+}
+function rangeStateSnapshot() {
+  return rangePresentation?.snapshot() || { mode: 'legacy', requestedMode: 'legacy', resolvedMode: 'legacy',
+    active: false, tourMode: null, runtime: 'off', runtimeReady: false, selectedViewId: null,
+    tourPreparation: { state: 'off' }, fallbackReason: 'legacy-mode' };
+}
+function syncRangeTourControl() {
+  if (!rangeTourStatus) return;
+  const status = currentTourControlState();
+  if (rangeTourStatus.textContent !== status.text) rangeTourStatus.textContent = status.text;
+  rangeTourStatus.dataset.state = status.state;
+  rangeTourStatus.title = status.reason || '';
+}
 if (rangeTourToggle) {
   rangeTourToggle.checked = rangeMode.tour === 'tetons';
   rangeTourToggle.addEventListener('change', () => {
@@ -481,8 +498,13 @@ if (rangeTourToggle) {
       });
       if(wasPaused){paused=true;updatePauseButtonUI();}
     }
+    syncRangeTourControl();
   });
 }
+syncRangeTourControl();
+// Downloads/workers can settle while the audio is paused and no scenic
+// frames are drawn. Poll only lightweight status, and announce changed text.
+if (rangeTourStatus) setInterval(syncRangeTourControl, 250);
 
 // The title screen is alive from the very first frame: a living backdrop
 // (starfield + nebula) runs on its own rAF loop until a song
@@ -2001,8 +2023,9 @@ function startTimeline(timelineData, extra = {}) {
     // Range v2: which renderer the Range uses and why, and a promise that
     // settles once the song's scenic views are prepared or have failed
     // (evidence/export wait on it; playback never does).
-    rangeRenderer: rangeMode.mode,
-    get rangeState() { return rangePresentation ? rangePresentation.snapshot() : { mode: 'legacy', active: false }; },
+    get rangeRenderer() { return rangePresentation?.mode || rangeMode.mode; },
+    get rangeState() { return rangeStateSnapshot(); },
+    get rangeTourStatus() { return currentTourControlState(); },
     rangeReady: (opts) => (rangePresentation ? rangePresentation.whenReady(opts) : Promise.resolve({ mode: 'legacy' })),
     // Export: after a frame, wait for the scenic views it lacked; true means
     // the caller should redraw the same heard time (deterministic).
@@ -4690,6 +4713,9 @@ syncRecordUI();
 if (!window.__SMW) window.__SMW = {
   get presentationDiagnostics() { return titlePresentation?.diagnostics; },
   get displayPrefs() { return { ...displayPrefs }; },
+  get rangeRenderer() { return rangePresentation?.mode || rangeMode.mode; },
+  get rangeState() { return rangeStateSnapshot(); },
+  get rangeTourStatus() { return currentTourControlState(); },
 };
 
 // Public Plex endpoint configuration loads independently of local startup.

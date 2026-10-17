@@ -1,10 +1,12 @@
 # Teton Song Highway validation
 
 Implementation branch: `teton-song-highway-resume`. Enable The Range's
-**Range: Tetons only** Display preference, or open `?rangeTour=tetons`.
+**Camera tour: Tetons** Display preference, or open `?rangeTour=tetons`.
 `?rangeTour=off` overrides the saved preference. The authored Teton catalog
 entry remains a **candidate**: these checks do not approve the station roles
 or establish physical-device performance.
+
+The access and narrative-star restoration is documented in [Range tour and stars](range-tour-stars-restoration.md). Its local checks do not supersede the candidate limits below.
 
 ## Reproduce
 

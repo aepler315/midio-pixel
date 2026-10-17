@@ -21,7 +21,7 @@ import { VisualMusicHistory } from './VisualMusicHistory.js';
 import { ridgeEnvelope, boundaryLift01 } from './alpine/Ridge.js';
 import { travelSeam, TRAVEL_FEATHER, TRAVEL_BANDS } from './TravelSeam.js';
 import { landscapeLayerColor, landscapePasses, landscapePolicy, landscapeBudget, landscapeSnowAllowed, resolveLandscapePalette, resolveRangePresentation, rangeDrawsSea } from './alpine/LandscapePolicy.js';
-import { createRangeSkyComposition, rangeMoonRadius, rangeV2MoonRadius, drawMoonMaria, rangeCloudBanks, tourCloudBanks, drawRangeClouds } from './alpine/RangeSkyComposition.js';
+import { createRangeSkyComposition, rangeMoonRadius, rangeV2MoonRadius, drawMoonMaria, rangeCloudBanks, tourCloudBanks, drawRangeClouds, tourSkyDirection, projectSkyDirection } from './alpine/RangeSkyComposition.js';
 import { rangeSkyState } from './alpine/RangeFrame.js';
 import { withNarrativeAlpha, drawNarrativeMarks } from '../render/NarrativeDraw.js';
 import { buildRidgeSurface } from './alpine/RidgeSurface.js';
@@ -3743,6 +3743,8 @@ export class BiomeManager {
   }
 
   _drawSky(ctx, canvas, A, B, t, night = 0, starOptions = {}) {
+    // Water and vault ceilings retain local light effects, not astronomy.
+    const astronomical = identityAllows(this.world, 'astronomy') && starOptions.astronomical !== false;
     if (this.rangeNarrative && this.world?.kind === 'alpine') {
       const sky = rangeSkyState(this, A, B, t, night, this.rangeNarrative);
       const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
@@ -3764,10 +3766,9 @@ export class BiomeManager {
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.restore();
       }
+      if (astronomical) this._drawStarfield(ctx, canvas, A, B, t, night, starOptions);
       return;
     }
-    // Water and vault ceilings retain local light effects, not astronomy.
-    const astronomical = identityAllows(this.world, 'astronomy') && starOptions.astronomical !== false;
     const dials = styleDials(this.visualStyle);
     const g = ctx.createLinearGradient(0, 0, 0, canvas.height);
     // Night + rendered both pull toward deep space so stars/ocean have a stage.
@@ -3915,7 +3916,10 @@ export class BiomeManager {
     const nightBoost = 0.55 + 1.55 * night;
     const biomeBoost = 0.95 * twinkleBlend;
     const spaceFloor = dials.spaceWash ? 0.22 : 0;
-    const alpha = clamp01(ambient * nightBoost + biomeBoost + spaceFloor) * this.openingGain;
+    // The Range shares the song's existing solar clock. Its dark narrative
+    // palette can also occur by day; that is not permission for night stars.
+    const rangeNight = this._rangeSky ? smoothstep(0.05, 0.85, night) : 1;
+    const alpha = clamp01(ambient * nightBoost + biomeBoost + spaceFloor) * this.openingGain * rangeNight;
     if (alpha < 0.04) return;
 
     const twinkleRate = 1.15 + 0.7 * (this.calmLevel || 0) + 0.35 * night;
@@ -3923,7 +3927,12 @@ export class BiomeManager {
     // The sky field's height on the ACTUAL canvas being drawn to -- shared
     // by every rescale below (stars, dust lanes, deep sky) so they all
     // agree on where the field ends, no matter how wide the stage is.
-    const skyH = canvas.height * STAR_SKY_FRAC;
+    // Legacy ocean scenery needs the inherited screen horizon. V2 has real
+    // terrain/cloud occlusion, including low-angle and upward tour shots.
+    const skyH = canvas.height * (this._rangeV2Active ? 1 : STAR_SKY_FRAC);
+    const tourPose = this._rangeV2Active && this.rangePresentation?.skyPan?.tourPose;
+    const projectStar = (xFrac, yFrac) => projectSkyDirection(tourPose,
+      tourSkyDirection(xFrac * 360, (1 - yFrac) * 90), tourPose.aspect || canvas.width / canvas.height);
 
     // Soft milky / galactic wash. Sits on the SAME tilted axis the star
     // density does (GALACTIC_BAND, shared with StarCatalogue) -- it used to
@@ -4035,6 +4044,15 @@ export class BiomeManager {
 
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
+    // A logical 1px point becomes only 1/16 of a Classic pixel's area in
+    // the compositor. Map centres through its actual transform and paint
+    // one aligned native pixel. Brightness, not subpixel blur, carries depth.
+    const nativeTransform = this._rangeSky && this.rangePresentation?.pixelPolicy?.active ? ctx.getTransform() : null;
+    if (nativeTransform) ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const point = (x, y) => nativeTransform
+      ? [Math.floor(nativeTransform.a * x + nativeTransform.c * y + nativeTransform.e),
+        Math.floor(nativeTransform.b * x + nativeTransform.d * y + nativeTransform.f)]
+      : [x - 0.5, y - 0.5];
     const starBuckets = this._starBuckets;
     // Cheap dots for the field; soft glow only for hero stars (layer 2).
     for (let starIndex = 0; starIndex < this.stars.length; starIndex++) {
@@ -4072,10 +4090,23 @@ export class BiomeManager {
       // original span while the sky around it widened.
       let x = s.xFrac * canvas.width + layerDrift;
       x = ((x % canvas.width) + canvas.width) % canvas.width;
-      const y = s.yFrac * skyH;
+      let y = s.yFrac * skyH;
+      if (tourPose) {
+        // The catalogue is a persistent celestial hemisphere. Use the final
+        // rendered lens once; never layer ordinary drift/zoom onto the tour.
+        const p = projectStar(s.xFrac, s.yFrac);
+        if (!p.visible) continue;
+        x = p.xFrac * canvas.width; y = p.yFrac * canvas.height;
+        // A narrow, low-angle tour lens sees only the catalogue's faint
+        // horizon population. Lift its display exposure without changing
+        // point size or adding a brightness floor; extinction, relative
+        // brightness and the atmospheric occluders still shape the field.
+        a = 1 - Math.exp(-4 * a);
+      }
       if (this._rangeSky) a *= this._rangeSky.starBrightnessAt(x, y);
       if (a < 0.004) continue;
       const sz = 1;
+      const [px, py] = point(x, y);
 
       // The same air path that dimmed it also scatters its blue out first,
       // so what survives is warmer. Pull the star's own spectral hue toward
@@ -4087,10 +4118,16 @@ export class BiomeManager {
       if (s.layer === 2) {
         ctx.globalAlpha = a;
         ctx.fillStyle = useHue ? `hsl(${hue},55%,88%)` : '#ffffff';
-        ctx.fillRect(x - 0.5, y - 0.5, sz, sz);
+        ctx.fillRect(px, py, sz, sz);
         if (s.companion) {
           ctx.globalAlpha = a * 0.45;
-          ctx.fillRect(x + s.companion.dx - 0.5, y + s.companion.dy - 0.5, 1, 1);
+          const companion = tourPose ? projectStar(s.xFrac + s.companion.dx / canvas.width,
+            s.yFrac + s.companion.dy / skyH) : null;
+          if (!companion || companion.visible) {
+            const [cx, cy] = point(companion ? companion.xFrac * canvas.width : x + s.companion.dx,
+              companion ? companion.yFrac * canvas.height : y + s.companion.dy);
+            ctx.fillRect(cx, cy, 1, 1);
+          }
         }
       } else {
         // Deferred into a bucket instead of drawn here. Setting fillStyle per
@@ -4119,7 +4156,7 @@ export class BiomeManager {
             : (s.layer === 1 ? '#f0f4ff' : '#d8e0f5');
           starBuckets.set(key, bucket);
         }
-        bucket.rects.push(x - 0.5, y - 0.5, sz);
+        bucket.rects.push(px, py, sz);
       }
     }
 
