@@ -2,6 +2,7 @@ import { cloudPuffs } from './CloudOcclusion.js';
 import { shaderFailureLog } from '../../render/GraphicsDiagnostics.js';
 import { applyLensFov } from '../../render/CameraLens.js';
 import { PIXEL_DEPTH_GLSL } from '../../render/PixelDepthScale.js';
+import { terrainShadingMode, terrainShadingForView } from './TerrainShadingExperiment.js';
 import { giantLayout, giantAmounts, mirrorGiantSpan, aheadOfEye } from './LandscapeGiants.js';
 import { resolveRangeComposition, compositionBars } from './RangeComposition.js';
 import { rangeRenderPolicy, supportedSamples, msaaOverride, sceneTargetBytes, sideTargetBytes, nearerMask } from './RangeRenderPolicy.js';
@@ -123,6 +124,7 @@ export class RangeScene {
     this.diag = diag;
     // Developer-only representation probe; normal shaders compile it out.
     this.forestDebug = new URLSearchParams(globalThis.location?.search || '').get('forestDebug') === '1';
+    this.terrainShading = terrainShadingMode();
     // Developer-only terrain views (?rangeDebug=roughness etc.).
     this.debugMask = TERRAIN_DEBUG_MODES[new URLSearchParams(globalThis.location?.search || '').get('rangeDebug')] ?? 0;
     this.residency = residency;
@@ -850,7 +852,8 @@ export class RangeScene {
             console.warn(`[range v2] ${view.id}: horizon bake failed; direct light unshadowed`, err);
           }
         }
-        material = createSceneMaterial(THREE, uniforms, { forestDebug: this.forestDebug, budget: this.budget });
+        material = createSceneMaterial(THREE, uniforms, { forestDebug: this.forestDebug, budget: this.budget,
+          terrainShading: terrainShadingForView(this.terrainShading, view.id) });
         featureMaterial = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms,
           vertexShader: SCENE_VERT, fragmentShader: FEATURE_FRAG, transparent: true,
           depthTest: true, depthWrite: false, depthFunc: THREE.LessEqualDepth });

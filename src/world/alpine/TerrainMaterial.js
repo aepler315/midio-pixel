@@ -6,6 +6,7 @@ import { MIRROR_LIFT } from './WaterMirror.js';
 import { ACTOR_GLSL, WAKE_GLSL, actorUniforms } from './ActorsGL.js';
 import { STORM_GLSL } from './RangeStorm.js';
 import { MATERIAL_DETAIL_DOMAIN_GLSL } from './MaterialDetailDomain.js';
+import { moranTerrainFragment } from './TerrainShadingExperiment.js';
 export { materialDetailPosition } from './MaterialDetailDomain.js';
 // Range v2 production terrain material (GLSL3 via the local Three.js
 // bundle). Task 8 ships the neutral-material pilot: real geometry, the
@@ -959,8 +960,11 @@ export function applyMaterial(uniforms, pack, textures, ruleOverrides = {}) {
   uniforms.uHasMaterial.value = 1;
 }
 
-export function createSceneMaterial(THREE, uniforms, { forestDebug = false, budget = 'desktop' } = {}) {
-  const m = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: SCENE_VERT, fragmentShader: SCENE_FRAG, uniforms });
+export function createSceneMaterial(THREE, uniforms, { forestDebug = false, budget = 'desktop', terrainShading = 'off' } = {}) {
+  const experimental = terrainShading === 'moran';
+  const m = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: SCENE_VERT,
+    fragmentShader: experimental ? moranTerrainFragment(SCENE_FRAG) : SCENE_FRAG, uniforms });
+  if (experimental) m.userData.terrainShading = 'moran';
   m.defines.FAR_FOREST_KMAX = budget === 'mobile' ? 4 : 8;
   if (forestDebug) m.defines.FOREST_DEBUG = 1;
   return m;
