@@ -14,7 +14,8 @@ sample envelopes directly; no skipped-event burst is dispatched.
 Normal-view sky anchors are lifted into the authored rail's direction basis and
 projected through the same moved pose, lens and off-axis crop as terrain. Both
 travel partitions project before blending, including a late incoming fade.
-Tours retain their world-direction sky. Both update the resolved light anchor.
+Camera bases are resolved once per immutable sky frame and shared by every star,
+cloud and celestial projection. Tours retain their world-direction sky. Both update the resolved light anchor.
 
 Tour worker energy sampling uses milliseconds throughout (250 ms per sample).
 Station selection checks climb and heading feasibility before committing a leg.
