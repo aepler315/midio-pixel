@@ -50,6 +50,33 @@ export function rangeMoonOrbit(timeMs, durationMs) {
   return { azimuth01: .12 + .76 * p, altitude01: .4 + .35 * Math.sin(Math.PI * p) };
 }
 
+/** Normal views author sky anchors in the unmoved rail's image. Lift each
+ * anchor into that rail's direction basis, then use the actual terrain
+ * pose/lens/crop. Both partitions project before a travel blend. */
+export function projectRailSky(point, snapshot) {
+  const one = camera => {
+    const { referencePose, pose, aspect } = camera;
+    const { forward, right, up } = cameraBasis(referencePose);
+    const tan = Math.tan(referencePose.fovYDeg * Math.PI / 360);
+    const x = (point.xFrac * 2 - 1) * tan * aspect, y = (1 - point.yFrac * 2) * tan;
+    return projectSkyDirection(pose, forward.map((v, i) => v + right[i] * x + up[i] * y), aspect);
+  };
+  const a = one(snapshot.from), b = snapshot.to ? one(snapshot.to) : a, k = snapshot.mix || 0;
+  return { xFrac: a.xFrac + (b.xFrac - a.xFrac) * k, yFrac: a.yFrac + (b.yFrac - a.yFrac) * k,
+    visible: k < .5 ? a.visible : b.visible };
+}
+
+export function projectRailCelestials(state, snapshot, solar = null) {
+  const scaleFor = c => Math.tan(c.referencePose.fovYDeg * Math.PI / 360)
+    / Math.tan(c.pose.fovYDeg * Math.PI / 360) / (1 - (c.pose.viewOffset?.fx || 0));
+  const k = snapshot.mix || 0, a = scaleFor(snapshot.from), b = snapshot.to ? scaleFor(snapshot.to) : a;
+  const bodies = {};
+  for (const name of ['sun', 'moon']) bodies[name] = Object.freeze({ ...state[name],
+    ...projectRailSky(state[name], snapshot), radiusFrac: state[name].radiusFrac * (a + (b - a) * k) });
+  if (solar) bodies.moon = Object.freeze({ ...bodies.moon, illuminant: Object.freeze(projectRailSky(solar, snapshot)) });
+  return Object.freeze({ ...state, ...bodies });
+}
+
 /** Project both celestial bodies through the terrain's resolved tour pose.
  * Azimuth follows the body's arc continuously; dawn/dusk never flips a
  * compass direction, and bounded elevation avoids a zenith dive through
@@ -185,7 +212,12 @@ export function projectSkyDirection(pose,direction,aspect=16/9) {
   const {forward,right,up}=cameraBasis(pose),dot=(a,b)=>a.reduce((s,v,i)=>s+v*b[i],0);
   const depth=dot(direction,forward),tan=Math.tan(pose.fovYDeg*Math.PI/360);
   if(depth<=0)return {xFrac:-10,yFrac:-10,visible:false};
-  const x=dot(direction,right)/(depth*tan*aspect),y=dot(direction,up)/(depth*tan);
+  let x=dot(direction,right)/(depth*tan*aspect),y=dot(direction,up)/(depth*tan);
+  if (pose.viewOffset) {
+    const { fx, rx, uy } = pose.viewOffset;
+    x = (x - rx / (tan * aspect)) / (1 - fx);
+    y = (y - uy / tan) / (1 - fx);
+  }
   return {xFrac:(x+1)/2,yFrac:(1-y)/2,visible:Math.abs(x)<1.2&&Math.abs(y)<1.2};
 }
 /** A complete sky cylinder: camera yaw exposes different persistent banks. */

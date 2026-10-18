@@ -1,3 +1,4 @@
+import { landscapeScoreFor } from './LandscapeScore.js';
 import { cameraLensAt } from '../../render/CameraLens.js';
 import { stormAt } from './RangeStorm.js';
 import { resolveRangeComposition } from './RangeComposition.js';
@@ -25,7 +26,7 @@ import { profileTravelPx } from '../terrain/ProfileTravel.js';
 import { styleDials } from '../../render/VisualStyle.js';
 import { cloudSeaAt } from './CloudSea.js';
 import { rangeActorsAt } from './RangeActors.js';
-import { rangeCameraMoveAt, rangeUserCamera } from './RangeCamera.js';
+import { rangeUserCamera } from './RangeCamera.js';
 import { hexLerp } from '../../utils/color.js';
 
 const NIGHT_SKY = '#05060d';
@@ -316,6 +317,7 @@ export function buildRangeFrame({
   const timeMs = sim.heardTimeMs ?? (mgr.tSec || 0) * 1000;
   const narrative = sim.rangeNarrativeAt?.(timeMs) || null;
   const reducedFlash = !!mgr.reducedFlash;
+  const performance = landscapeScoreFor(mgr).at(timeMs, { reducedMotion: !!(sim.reducedMotion || mgr.reducedMotion), preview: !!mgr.terrainPreview });
   const reducedMotion = !!(sim.reducedMotion || mgr.reducedMotion);
   const progress01 = mgr.terrainPreview ? SCENE_PREVIEW_PROGRESS : sceneProgressAt({
     timeMs, curves: mgr.energyCurves, durationMs: mgr.durationMs, reducedFlash: reducedMotion, response: mgr.world?.response,
@@ -410,12 +412,12 @@ export function buildRangeFrame({
     // How much of the Forest Service map under the land shows (quiet passages).
     cloudSea01: cloudSeaAt(mgr, timeMs),
     storm: stormAt(mgr, timeMs),
+    performance,
     // The cast as lights in the land: brightness, travel and peaks per lane.
     actors: rangeActorsAt(sim, timeMs),
     cameraEffects: lens,
     // Camera: this section's slow cinematic move, and the listener's zoom.
-    cameraMove: rangeCameraMoveAt({ timeMs, sections: mgr.sections, durationMs: mgr.durationMs,
-      seed: sim.songSeed ?? 0, reducedMotion, preview: !!mgr.terrainPreview }),
+    cameraMove: performance.camera,
     userCamera: sim.userCameraEnabled ? rangeUserCamera.sample() : null,
     scenicViewport, groundViewport,
     light: lightState, music: land, ridges, narrative, groundBars, emitters,

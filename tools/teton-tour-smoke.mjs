@@ -12,15 +12,19 @@ await fs.mkdir(output,{recursive:true});
 const codeFiles=execFileSync('git',['ls-files','-z','--cached','--others','--exclude-standard','src','index.html'],{cwd:root,encoding:'utf8'}).split('\0').filter(f=>/\.(js|mjs|html)$/.test(f)).sort();
 const codeHash=createHash('sha256');for(const file of codeFiles){codeHash.update(file+'\0');codeHash.update(await fs.readFile(path.join(root,file)));codeHash.update('\0');}
 const report={sourceHashScope:'src JavaScript/HTML and index.html',sourceSha256:codeHash.digest('hex'),commit:execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),dirty:!!execFileSync('git',['status','--porcelain'],{cwd:root,encoding:'utf8'}).trim(),browser:null,songs:[],review:null};
-const browser=await chromium.launch({executablePath:process.env.PLAYWRIGHT_CHROMIUM_PATH||undefined,args:['--use-angle=swiftshader','--enable-unsafe-swiftshader','--ignore-gpu-blocklist']});report.browser=browser.version();
+const angle=process.env.VISUAL_ANGLE || 'swiftshader';
+assert.ok(['gl','swiftshader'].includes(angle));
+const browser=await chromium.launch({headless:process.env.VISUAL_HEADFUL !== '1',executablePath:process.env.PLAYWRIGHT_CHROMIUM_PATH||undefined,args:[`--use-angle=${angle}`,'--enable-unsafe-swiftshader','--ignore-gpu-blocklist']});report.browser=browser.version();
 try{
  const fixtures=process.env.TETON_SMOKE_QUICK?[[120,96]]:[[120,96],[80,150],[150,120],[174,100],[100,180]];
  for(const [bpm,seconds]of fixtures){
   const wav=path.join('/tmp',`teton-smoke-${bpm}-${seconds}.wav`);execFileSync(process.execPath,[path.join(root,'tools/gen-test-wav.mjs'),wav,String(bpm),String(seconds)]);
   const {context,page,errors}=await openSong(browser,{url,wav,width:1280,height:720,params:{rangeTour:'tetons',seed:'315'}});
   try{
-   const setup=await page.evaluate(()=>{const p=window.__SMW.sim.biomes.rangePresentation;const sections=window.__SMW.sim.biomes.sections;const longest=[...sections].sort((a,b)=>(b.endMs-b.startMs)-(a.endMs-a.startMs))[0];return{heroes:p.tour.heroes,longestMs:(longest.startMs+longest.endMs)/2,qualityRatio:p.tour.meanQualityRatio};});
-   const song={bpm,seconds,qualityRatio:setup.qualityRatio,frames:[],errors};report.songs.push(song);
+   const setup=await page.evaluate(()=>{const p=window.__SMW.sim.biomes.rangePresentation;const sections=window.__SMW.sim.biomes.sections;const longest=[...sections].sort((a,b)=>(b.endMs-b.startMs)-(a.endMs-a.startMs))[0];return{heroes:p.tour.heroes,longestMs:(longest.startMs+longest.endMs)/2,qualityRatio:p.tour.meanQualityRatio,heroFraming:p.tour.heroFraming};});
+   const song={bpm,seconds,qualityRatio:setup.qualityRatio,heroFraming:setup.heroFraming,frames:[],errors};report.songs.push(song);
+   assert.ok(setup.qualityRatio >= .8, `tour view quality ${setup.qualityRatio} below 0.8 (${bpm}/${seconds})`);
+   assert.ok((setup.heroFraming || []).filter(h=>h.stationVisit).every(h=>h.framedFraction>=.8), 'feasible hero projection missed its viewing window');
    const times=[...new Set([...setup.heroes.map(h=>Math.round(h.timeMs)),Math.round(setup.longestMs)])].sort((a,b)=>a-b);
    for(const timeMs of times){
     const frame=await captureFrame(page,timeMs),p=await page.evaluate(t=>{const pres=window.__SMW.sim.biomes.rangePresentation;return pres.tour.poseAt(t);},timeMs);

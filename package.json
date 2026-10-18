@@ -9,7 +9,7 @@
     "dev": "node tools/serve.js 8080",
     "archive": "node tools/archive-serve.mjs --open",
     "lint": "eslint src tools test ridgeview",
-    "test": "node --test test/*.js test/*.mjs",
+    "test": "node --test --test-concurrency=1 test/*.js test/*.mjs",
     "test:all": "node --test",
     "test:smoke": "node tools/smoke.mjs",
     "test:bootstrap": "node tools/bootstrap-smoke.mjs",

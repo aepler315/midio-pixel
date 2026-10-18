@@ -1,9 +1,9 @@
-// One squall per song. All envelopes are evaluated at heard time; playback,
+import { compileLandscapeScore, landscapeScoreFor } from './LandscapeScore.js';
+// Musical weather episodes. All envelopes are evaluated at heard time; playback,
 // pause, seeking and offline exports share exactly the same weather.
 import { rangeCloudBanks, drawRangeClouds } from './RangeSkyComposition.js';
 const unit = x => Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : 0;
 const ease = x => { const t = unit(x); return t * t * (3 - 2 * t); };
-const EMPTY_TIMELINE = Object.freeze([]);
 const EMPTY = Object.freeze({ amount: 0, flash: 0, flashU: .5, break01: 0, wet01: 0 });
 const hash01 = i => { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
 const smooth = (a, b, x) => ease((x - a) / (b - a));
@@ -50,57 +50,22 @@ export const STORM_GLSL = /* glsl */`
   // Rain-washed air, lit from inside by lightning.
   vec3 rainColor() { return uAirColor * 1.1 + uLightColor * 0.04; }
 `;
-export function compileStorm({ energyCurves, sections = [], timeline = [], durationMs = 0 } = {}) {
-  if (!(durationMs > 0)) return { section: null, at: () => EMPTY };
-  const read = energyCurves?.globalEnergyNorm?.bind(energyCurves) || energyCurves?.globalEnergy?.bind(energyCurves);
-  if (!read) return { section: null, at: () => EMPTY };
-  const average = (a, b) => {
-    if (!read) return 0;
-    let sum = 0, n = 0;
-    for (let t = a; t < b; t += 250) { sum += unit(read(t)); n++; }
-    return sum / Math.max(1, n);
-  };
-  // Clip away arrival time; do not discard a sustained climax merely
-  // because its structural section also contains the song's opening.
-  let candidates = sections.filter(s => s.provenance !== 'decorative' && Number.isFinite(s.startMs) && Number.isFinite(s.endMs) && s.endMs > s.startMs && s.endMs > 8000)
-    .map(s => ({ startMs: Math.max(8000, s.startMs), endMs: Math.min(durationMs, s.endMs) })).filter(s => s.endMs > s.startMs);
-  // Unsegmented songs still get their strongest sustained passage. The
-  // averaging window prevents a short opening/ending transient from winning.
-  if (!candidates.length) {
-    const span = Math.min(20000, durationMs * .24);
-    for (let t = 8000; t + span <= durationMs; t += 1000) candidates.push({ startMs: t, endMs: t + span });
-  }
-  const scored = candidates.map(section => ({ section, energy: average(section.startMs, section.endMs) }));
-  scored.sort((a, b) => b.energy - a.energy || Math.abs((a.section.startMs+a.section.endMs)/2-durationMs*.5)
-    - Math.abs((b.section.startMs+b.section.endMs)/2-durationMs*.5));
-  const section = scored[0]?.section || { startMs: durationMs * .4, endMs: durationMs * .65 };
-  const attacks = [];
-  // Ignore continuous hats and pitched instruments. Kicks, snares and
-  // crashes carry attacks even when the analyzer does not label a snare.
-  // Simultaneous drum layers share their strongest attack. Later notes
-  // cannot rewrite a flash that was already heard; the cooldown stays fixed.
-  for (const event of [...timeline].sort((a, b) => a.tMs - b.tMs)) {
-    if (!(event.role === 'RHYTHM' || event.channel === 9)
-      || ![35, 36, 38, 40, 49, 52, 55, 57].includes(event.pitch)
-      || !Number.isFinite(event.tMs) || event.tMs < section.startMs || event.tMs >= section.endMs) continue;
-    const velocity = unit(event.vel ?? event.velocity ?? .8);
-    const amp = velocity * velocity * (.65 + .35 * unit(read(event.tMs)));
-    attacks.push({ tMs: event.tMs, amp });
-  }
-  // Offline analysis also emits low-level percussion between audible beats.
-  // Let the passage's prominent attacks own the cooldown; do not normalize
-  // quiet audio into a loud storm or move any attack away from its timestamp.
-  const peak = attacks.reduce((value, attack) => Math.max(value, attack.amp), 0);
-  const strikes = [];
-  for (const strike of attacks) {
-    if (!(strike.amp > 0) || strike.amp < peak * .25) continue;
-    const previous = strikes.at(-1);
-    if (!previous || strike.tMs - previous.tMs >= 700) strikes.push(strike);
-    else if (strike.tMs === previous.tMs && strike.amp > previous.amp) strikes[strikes.length - 1] = strike;
-  }
-  return Object.freeze({ section: Object.freeze(section), at(timeMs, { reducedFlash = false } = {}) {
-    const t = Number.isFinite(timeMs) ? timeMs : 0, a = section.startMs, b = section.endMs;
-    const amount = ease((t - a + 6000) / 8000) * (1 - ease((t - b) / 4000));
+export function compileStorm({ energyCurves, sections = [], timeline = [], durationMs = 0, landscape = null,
+  previous = null, committedThroughMs = -1 } = {}) {
+  landscape ||= compileLandscapeScore({ energyCurves, sections, timeline, durationMs, previous, committedThroughMs });
+  const episodes = landscape.episodes;
+  const strongest = [...episodes].sort((a, b) => b.energy01 - a.energy01 || a.startMs - b.startMs)[0];
+  const section = strongest ? Object.freeze({ startMs: strongest.startMs, endMs: strongest.endMs }) : null;
+  const strikes = episodes.flatMap(e => e.strikes);
+  return Object.freeze({ section, episodes, landscape, at(timeMs, { reducedFlash = false } = {}) {
+    const t = Number.isFinite(timeMs) ? timeMs : 0;
+    let amount = 0, break01 = 0, wet01 = 0;
+    for (const { startMs: a, endMs: b, energy01 } of episodes) {
+      const strength = Math.min(1, Math.max(.35, (energy01 - .5) * 3));
+      amount = Math.max(amount, strength * ease((t - a + 6000) / 8000) * (1 - ease((t - b) / 4000)));
+      break01 = Math.max(break01, ease((t - b - 2000) / 6000) * (1 - ease((t - b - 14000) / 20000)));
+      wet01 = Math.max(wet01, ease((t - a) / 6000) * (1 - ease((t - b) / 45000)));
+    }
     let flash = 0, flashU = .5;
     if (!reducedFlash && amount > .2) {
       let lo = 0, hi = strikes.length;
@@ -118,18 +83,16 @@ export function compileStorm({ energyCurves, sections = [], timeline = [], durat
       }
       if (hit) flashU = .18 + .64 * hash01(lo);
     }
-    return { amount, flash, flashU, break01: ease((t - b - 2000) / 6000) * (1 - ease((t - b - 14000) / 20000)),
-      wet01: ease((t - a) / 6000) * (1 - ease((t - b) / 45000)) };
+    return { amount, flash, flashU, break01, wet01 };
   } });
 }
 const cache = new WeakMap();
 export function stormAt(mgr, timeMs) {
   if (!mgr || mgr.terrainPreview) return EMPTY;
-  const timeline = mgr.conductor?.timeline || EMPTY_TIMELINE;
+  const landscape = landscapeScoreFor(mgr);
   let hit = cache.get(mgr);
-  if (!hit || hit.curves !== mgr.energyCurves || hit.sections !== mgr.sections || hit.timeline !== timeline || hit.durationMs !== mgr.durationMs) {
-    hit = { curves: mgr.energyCurves, sections: mgr.sections, timeline, durationMs: mgr.durationMs,
-      score: compileStorm({ energyCurves: mgr.energyCurves, sections: mgr.sections, timeline, durationMs: mgr.durationMs }) };
+  if (!hit || hit.landscape !== landscape) {
+    hit = { landscape, score: compileStorm({ energyCurves: mgr.energyCurves, timeline: mgr.conductor?.timeline || [], landscape }) };
     cache.set(mgr, hit);
   }
   const state = hit.score.at(timeMs, { reducedFlash: !!mgr.reducedFlash });

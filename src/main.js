@@ -3511,7 +3511,8 @@ function adoptFullAnalysisLive(data) {
     keepUserCamera: true,
     preservePause: wasPaused,
     fitDiagnostic: sim.fitDiagnostic,
-    chapterState: { previous: sim.biomes.chapterPlan, committedThroughMs: sim.heardTimeMs ?? audioEngine.nowMs, landSections: sim.biomes.sections },
+    chapterState: { previous: sim.biomes.chapterPlan, committedThroughMs: sim.heardTimeMs ?? audioEngine.nowMs, landSections: sim.biomes.sections,
+      landscapeHistory: { previous: sim.biomes.landscapeScore, committedThroughMs: sim.heardTimeMs ?? audioEngine.nowMs } },
   });
   if (!running || !sim) return;
   if (wasPaused) { paused = true; updatePauseButtonUI(); }
