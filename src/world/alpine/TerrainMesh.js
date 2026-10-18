@@ -1,3 +1,4 @@
+import { finishPreparation, prepareInSlices } from './PreparationSteps.js';
 // Range v2: build drawable terrain from a validated heightfield package
 // (TerrainPackage.js). Engine-agnostic: produces typed arrays (positions,
 // indices, a surface texture) that RangeScene uploads, and a height sampler
@@ -232,7 +233,15 @@ export function buildTerrainGeometry(data, { budget = 'desktop', bias = 1, inclu
  * Heights come from the stored samples at each tile's baked stride, so a
  * coarse distant tile shades as smoothly as it is shaped.
  */
-export function buildSurfaceTexture(data, { stride = 1 } = {}) {
+export function buildSurfaceTexture(data, options = {}) {
+  return finishPreparation(surfaceTextureSteps(data, options));
+}
+
+export function buildSurfaceTextureAsync(data, options = {}) {
+  return prepareInSlices(surfaceTextureSteps(data, options), options);
+}
+
+function* surfaceTextureSteps(data, { stride = 1 } = {}) {
   const { grid, cells } = data;
   if (![1, 2, 4].includes(stride) || (grid.width - 1) % stride || (grid.height - 1) % stride) throw new Error('Invalid surface sampling stride');
   const W = (grid.width - 1) / stride + 1, H = (grid.height - 1) / stride + 1;
@@ -273,6 +282,7 @@ export function buildSurfaceTexture(data, { stride = 1 } = {}) {
         const acc = (fa === 255 ? 0 : fa * wa) + (fb === 255 ? 0 : fb * wb) + (fc === 255 ? 0 : fc * wc) + (fd === 255 ? 0 : fd * wd);
         flow[i] = wet > 0.5 ? 255 : dry > 1e-6 ? Math.min(254, Math.round(acc / dry)) : 254;
       }
+      yield;
     }
   }
   const out = new Uint8Array(W * H * 4);
@@ -309,6 +319,7 @@ export function buildSurfaceTexture(data, { stride = 1 } = {}) {
       out[o + 2] = Math.max(0, Math.min(255, Math.round(128 + lap * (127 / 12))));
       out[o + 3] = flow[i];
     }
+    yield;
   }
   return { width: W, height: H, data: out, waterValue: WATER_FLOW };
 }
@@ -318,39 +329,58 @@ export function buildSurfaceTexture(data, { stride = 1 } = {}) {
  * a two-cell shoulder reconnects smoothly to moving uplands. Water's special
  * 255 marker is checked exactly; high flow accumulation is not a lake. */
 export function buildReceiverMask(surface) {
+  return finishPreparation(receiverMaskSteps(surface));
+}
+
+export function buildReceiverMaskAsync(surface, options = {}) {
+  return prepareInSlices(receiverMaskSteps(surface), options);
+}
+
+function* receiverMaskSteps(surface) {
   const { width: W, height: H, data } = surface;
   const mask = new Uint8Array(W * H).fill(255);
-  for (let i = 0; i < mask.length; i++) if (data[i * 4 + 3] === 255) mask[i] = 0;
+  for (let z = 0; z < H; z++) {
+    for (let x = 0; x < W; x++) { const i = z * W + x; if (data[i * 4 + 3] === 255) mask[i] = 0; }
+    yield;
+  }
   // Two linear sweeps compute chessboard distance without repeated scans of
   // large lake interiors; the same byte array becomes the final field.
-  for (let z = 0; z < H; z++) for (let x = 0; x < W; x++) {
-    const i = z * W + x;
-    let d = mask[i];
-    if (x > 0) d = Math.min(d, mask[i - 1] + 1);
-    if (z > 0) {
-      d = Math.min(d, mask[i - W] + 1);
-      if (x > 0) d = Math.min(d, mask[i - W - 1] + 1);
-      if (x < W - 1) d = Math.min(d, mask[i - W + 1] + 1);
+  for (let z = 0; z < H; z++) {
+    for (let x = 0; x < W; x++) {
+      const i = z * W + x;
+      let d = mask[i];
+      if (x > 0) d = Math.min(d, mask[i - 1] + 1);
+      if (z > 0) {
+        d = Math.min(d, mask[i - W] + 1);
+        if (x > 0) d = Math.min(d, mask[i - W - 1] + 1);
+        if (x < W - 1) d = Math.min(d, mask[i - W + 1] + 1);
     }
     mask[i] = d;
+    }
+    yield;
   }
-  for (let z = H - 1; z >= 0; z--) for (let x = W - 1; x >= 0; x--) {
-    const i = z * W + x;
-    let d = mask[i];
-    if (x < W - 1) d = Math.min(d, mask[i + 1] + 1);
-    if (z < H - 1) {
-      d = Math.min(d, mask[i + W] + 1);
-      if (x > 0) d = Math.min(d, mask[i + W - 1] + 1);
-      if (x < W - 1) d = Math.min(d, mask[i + W + 1] + 1);
+  for (let z = H - 1; z >= 0; z--) {
+    for (let x = W - 1; x >= 0; x--) {
+      const i = z * W + x;
+      let d = mask[i];
+      if (x < W - 1) d = Math.min(d, mask[i + 1] + 1);
+      if (z < H - 1) {
+        d = Math.min(d, mask[i + W] + 1);
+        if (x > 0) d = Math.min(d, mask[i + W - 1] + 1);
+        if (x < W - 1) d = Math.min(d, mask[i + W + 1] + 1);
     }
     mask[i] = d;
+    }
+    yield;
   }
   for (let i = 0; i < mask.length; i++) {
     const t = Math.min(1, Math.max(0, (mask[i] - 2) / 2));
     mask[i] = Math.round(255 * t * t * (3 - 2 * t));
+    if (i % 4096 === 4095) yield;
   }
   return { width: W, height: H, data: mask };
 }
+
 
 /** Bilinear receiver read at grid sample coordinates, matching GL texture. */
 export function sampleReceiverMask(mask, x, z) {

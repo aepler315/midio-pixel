@@ -1,14 +1,24 @@
+import { finishPreparation, prepareInSlices } from './PreparationSteps.js';
 // Sparse source-space contour hints sampled from the actual drawable mesh.
 // Never expose tile/triangle edges; bounded reservoir distributes hints over
 // the geography without retaining a second terrain mesh. The GPU shares the
 // terrain's displacement and depth preparation, including glacier thickness.
-export function terrainFeatureSegments(positions, indices, { intervalM = 300, maxSegments = 768 } = {}) {
+export function terrainFeatureSegments(positions, indices, options = {}) {
+  return finishPreparation(featureSteps(positions, indices, options));
+}
+
+export function terrainFeatureSegmentsAsync(positions, indices, options = {}) {
+  return prepareInSlices(featureSteps(positions, indices, options), options);
+}
+
+function* featureSteps(positions, indices, { intervalM = 300, maxSegments = 768 } = {}) {
   intervalM = Math.max(1, intervalM);
   maxSegments = Math.max(0, Math.floor(maxSegments));
   if (!maxSegments) return new Float32Array();
   const reservoir = new Float32Array(maxSegments * 6);
   let seen = 0, count = 0;
   for (let i = 0; i < indices.length; i += 3) {
+    if (i % 384 === 0) yield;
     const pts = [indices[i], indices[i + 1], indices[i + 2]].map(k => [positions[k * 3], positions[k * 3 + 1], positions[k * 3 + 2]]);
     if (!pts.flat().every(Number.isFinite)) continue;
     const heights = pts.map(p => p[1]), low = Math.min(...heights), high = Math.max(...heights);
