@@ -137,3 +137,52 @@ test('Range dims large decorative motes while retaining the true point-star cata
   const subdued = draw(); mgr._rangeSky = null; const ordinary = draw();
   assert.ok(subdued > 0 && subdued < ordinary * .25, 'large ambient dots recede from clusters');
 });
+
+test('Range moon traces a continuous lateral arc throughout long songs independently of storms', async () => {
+  const sky = await import('../src/world/alpine/RangeSkyComposition.js');
+  assert.equal(typeof sky.rangeMoonOrbit, 'function');
+  const first = sky.rangeMoonOrbit(0, 180000), middle = sky.rangeMoonOrbit(90000, 180000), last = sky.rangeMoonOrbit(180000, 180000);
+  assert.ok(first.azimuth01 < middle.azimuth01 && middle.azimuth01 < last.azimuth01);
+  assert.ok(middle.altitude01 > first.altitude01 && middle.altitude01 > last.altitude01);
+  assert.ok(first.altitude01 > 0 && last.altitude01 > 0, 'the finite song samples a visible part of the lunar arc');
+  let previous = first;
+  for (let t = 100; t <= 180000; t += 100) {
+    const current = sky.rangeMoonOrbit(t, 180000);
+    assert.ok(Math.abs(current.altitude01 - previous.altitude01) < .001);
+    assert.ok(Math.abs(current.azimuth01 - previous.azimuth01) < .001);
+    previous = current;
+  }
+  assert.deepEqual(sky.rangeMoonOrbit(90000, 180000), middle, 'seek reconstructs the same world direction');
+});
+
+test('tour moon projects a lateral orbit and below-horizon illumination through the resolved lens', async () => {
+  const { projectRangeCelestials, tourSkyDirection } = await import('../src/world/alpine/RangeSkyComposition.js');
+  const direction = tourSkyDirection(65, 3.75);
+  const pose = { eyeM: [20, 2000, 30], targetM: direction.map((v, i) => [20, 2000, 30][i] + v * 10000), fovYDeg: 40, aspect: 16 / 9 };
+  const state = { activeBody: 'moon', sun: { azimuth01: .5, altitude01: 0, radiusFrac: .01 },
+    moon: { azimuth01: .3, altitude01: .625, radiusFrac: .01 } };
+  const a = projectRangeCelestials(state, pose, 1, { xFrac: .5, altSigned: -.5 });
+  const b = projectRangeCelestials({ ...state, moon: { ...state.moon, azimuth01: .7 } }, pose, 1, { xFrac: .5, altSigned: -.5 });
+  assert.ok(a.moon.visible && b.moon.visible);
+  assert.ok(Math.abs(a.moon.xFrac - b.moon.xFrac) > .05, 'orbit must cross the view rather than dive vertically');
+  assert.ok(a.moon.illuminant.yFrac > a.moon.yFrac, 'the solar reference remains below the moon while the sun is down');
+  assert.ok([...a.moon.worldDirection, a.moon.illuminant.xFrac, a.moon.illuminant.yFrac].every(Number.isFinite));
+  const zoom = projectRangeCelestials(state, { ...pose, fovYDeg: 30 });
+  assert.ok(Math.abs(zoom.moon.xFrac - .5) > Math.abs(a.moon.xFrac - .5), 'the moon uses the same narrowed view as the land');
+  assert.deepEqual(projectRangeCelestials({ ...state, dawn01: 1, dusk01: 0 }, pose).moon.worldDirection,
+    projectRangeCelestials({ ...state, dawn01: 0, dusk01: 1 }, pose).moon.worldDirection, 'twilight cannot flip compass direction');
+});
+
+test('the moon stays in the visible sky of the published Teton opening and return shots', async () => {
+  const { rangeMoonOrbit, projectRangeCelestials } = await import('../src/world/alpine/RangeSkyComposition.js');
+  // Measured final tour headings, pitches and lenses from the 96-second
+  // generated 120 BPM baseline, before inspecting the candidate orbit.
+  for (const [timeMs, heading, pitch, fovYDeg] of [[1000, 45, -5.4, 27.2], [45000, 75, -6.1, 27.1], [94000, 80, -7, 27.1]]) {
+    const h = heading * Math.PI / 180, p = pitch * Math.PI / 180;
+    const pose = { eyeM: [0, 0, 0], targetM: [Math.sin(h) * Math.cos(p), Math.sin(p), -Math.cos(h) * Math.cos(p)], fovYDeg, aspect: 16 / 9 };
+    const state = { sun: { azimuth01: 0, altitude01: 0, radiusFrac: .01 }, moon: { ...rangeMoonOrbit(timeMs, 96000), radiusFrac: .0175 } };
+    const moon = projectRangeCelestials(state, pose).moon;
+    assert.ok(moon.visible && moon.xFrac > .05 && moon.xFrac < .95 && moon.yFrac > .12 && moon.yFrac < .45,
+      `the actual ${timeMs}ms camera must retain the full moon above its horizon after 64px overscan is cropped`);
+  }
+});

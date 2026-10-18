@@ -234,3 +234,10 @@ multisample count with the reason (`natural`, `pixel-look`, `quality`,
 whether sun shafts drew, and tree counts by representation. A capture fails
 when the scene's effective quality rung differs from `settings.quality`, in
 addition to the existing governor and Range v2 checks.
+
+
+For an available desktop OpenGL GPU, `VISUAL_HEADFUL=1 VISUAL_ANGLE=gl`
+runs Chromium with a visible window. Keep the same window mode and driver
+for both sides of a comparison, and check the recorded GL renderer: requesting
+OpenGL does not prove that a hardware backend was selected. Headless
+SwiftShader remains the default for CI.

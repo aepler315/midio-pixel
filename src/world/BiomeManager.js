@@ -21,7 +21,7 @@ import { VisualMusicHistory } from './VisualMusicHistory.js';
 import { ridgeEnvelope, boundaryLift01 } from './alpine/Ridge.js';
 import { travelSeam, TRAVEL_FEATHER, TRAVEL_BANDS } from './TravelSeam.js';
 import { landscapeLayerColor, landscapePasses, landscapePolicy, landscapeBudget, landscapeSnowAllowed, resolveLandscapePalette, resolveRangePresentation, rangeDrawsSea } from './alpine/LandscapePolicy.js';
-import { createRangeSkyComposition, rangeMoonRadius, rangeV2MoonRadius, drawMoonMaria, rangeCloudBanks, tourCloudBanks, drawRangeClouds, tourSkyDirection, projectSkyDirection } from './alpine/RangeSkyComposition.js';
+import { createRangeSkyComposition, rangeMoonOrbit, rangeMoonRadius, rangeV2MoonRadius, drawMoonMaria, rangeCloudBanks, tourCloudBanks, drawRangeClouds, tourSkyDirection, projectSkyDirection } from './alpine/RangeSkyComposition.js';
 import { rangeSkyState } from './alpine/RangeFrame.js';
 import { withNarrativeAlpha, drawNarrativeMarks } from '../render/NarrativeDraw.js';
 import { buildRidgeSurface } from './alpine/RidgeSurface.js';
@@ -2601,7 +2601,8 @@ export class BiomeManager {
       // fallback paints, so late preparation cannot move/change the anchor.
       const compact = !!this.rangePresentation?.enabled && !this.terrainPreview;
       this.celestialState = resolveCelestialState({ timeMs: heardTimeMs, cycleMs: this._dayNightCycleMs,
-        viewport: canvas, approach: { progress01: this._progress || 0 }, moonOffset,
+        viewport: canvas, approach: { progress01: this._progress || 0 }, moonOffset: compact ? {} : moonOffset,
+        moonOrbit: compact ? rangeMoonOrbit(heardTimeMs, this.durationMs) : null,
         reducedMotion: this.reducedMotion, sunColor: this.currentCelestialColor(),
         sunRadiusPx: Math.max(A.celestial.radius || 0, B.celestial.radius || 0),
         moonRadiusPx: (compact ? rangeV2MoonRadius(canvas.width, grow) : rangeMoonRadius(canvas.height, grow)) / grow,
@@ -2774,12 +2775,13 @@ export class BiomeManager {
     // horizon, and both rise from and set into the sea horizon.
     this._moonDisc = null;
     if (sunUp) withNarrativeAlpha(ctx, this.rangeNarrative?.atmosphere ?? 1, c => this._drawCelestial(c, canvas, A, B, t, celestialYFrac, horizonFade(dn.sunAlt), celestialXFrac, this.celestialState?.sun));
-    if (dn.moonAlt > 0.001) withNarrativeAlpha(ctx, this.rangeNarrative?.atmosphere ?? 1, c => {
+    const moon = this.celestialState?.moon;
+    if ((moon?.altitude01 ?? dn.moonAlt) > 0.001) withNarrativeAlpha(ctx, .35 + .65 * (this.rangeNarrative?.atmosphere ?? 1), c => {
       // Where the sun really is -- below the horizon all night, which is the
       // whole point: it's what makes the moon read as lit from underneath.
-      const sun = sunScreenFrac(cyclePhase01(this.tSec * 1000, this._dayNightCycleMs));
+      const sun = moon?.illuminant || sunScreenFrac(cyclePhase01(this.tSec * 1000, this._dayNightCycleMs));
       this._drawMoon(
-        c, canvas, celestialYFracFor(dn.moonAlt), horizonFade(dn.moonAlt),
+        c, canvas, celestialYFracFor(moon?.altitude01 ?? dn.moonAlt), (moon?.visibility ?? horizonFade(dn.moonAlt)) * (.35 + .65 * dn.night),
         0,
         celestialXFracFor(dn.moonAz01),
         sun.xFrac, sun.yFrac, this._moonPhase01(), this.celestialState?.moon,
@@ -3916,9 +3918,9 @@ export class BiomeManager {
     const nightBoost = 0.55 + 1.55 * night;
     const biomeBoost = 0.95 * twinkleBlend;
     const spaceFloor = dials.spaceWash ? 0.22 : 0;
-    // The Range shares the song's existing solar clock. Its dark narrative
-    // palette can also occur by day; that is not permission for night stars.
-    const rangeNight = this._rangeSky ? smoothstep(0.05, 0.85, night) : 1;
+    // Range keeps its celestial field throughout the song. Daylight dims it
+    // without removing the catalogue when the terrain finishes preparing.
+    const rangeNight = this._rangeSky ? .38 + .62 * smoothstep(0.05, 0.85, night) : 1;
     const alpha = clamp01(ambient * nightBoost + biomeBoost + spaceFloor) * this.openingGain * rangeNight;
     if (alpha < 0.04) return;
 

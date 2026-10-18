@@ -19,7 +19,9 @@ npm run visual:eval -- --compare .smoke/baseline .smoke/candidate --out .smoke/c
 --require-identical fails the comparison (after writing it) unless every PNG
 matches. Use it only for repeat runs of identical inputs, as CI does.
 Creates a NEW output directory (never overwrites a run). See docs/visual-evaluation-loop.md.
-Set PLAYWRIGHT_CHROMIUM_PATH to use an installed Chromium. Outputs contain copies of source audio.
+Set PLAYWRIGHT_CHROMIUM_PATH to use an installed Chromium.
+VISUAL_HEADFUL=1 opens a visible browser; VISUAL_ANGLE=gl requests OpenGL.
+Outputs contain copies of source audio.
 `;
 function parseArgs(argv) {
   const args = { manifest: path.join(root, 'test/fixtures/visual-evaluation.json') };
@@ -80,7 +82,7 @@ async function runCapture(args) {
     report.source = { commit: git('rev-parse', 'HEAD'), dirty: git('status', '--porcelain', '--untracked-files=normal'), digest: snapshot.digest, hashes: snapshot.hashes };
     await fs.writeFile(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 2));
     server = await serveSnapshot(snapshot);
-    browser = await chromium.launch({ ...(process.env.PLAYWRIGHT_CHROMIUM_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH } : {}),
+    browser = await chromium.launch({ headless: process.env.VISUAL_HEADFUL !== '1', ...(process.env.PLAYWRIGHT_CHROMIUM_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH } : {}),
       args: [`--use-angle=${angle}`, '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
     report.browser = browser.version();
     for (const song of manifest.songs) {

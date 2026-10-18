@@ -94,7 +94,7 @@ test('narrative stars survive real Canvas transforms, both native grids and Pale
     });
     for (const row of rows) {
       assert.equal(row.presented, true);
-      assert.equal(row.unchangedDay, true, JSON.stringify(row));
+      assert.equal(row.unchangedDay, false, 'daylight catalogue survives the final pixel/palette presentation: ' + JSON.stringify(row));
       assert.equal(row.rawChanged.length, 4, 'each unoccluded star covers exactly one native pixel');
       assert.ok(row.changed.length >= 3, 'Palette must retain visible stars');
       // Selective dithering reacts to the new point's immediate edge, but

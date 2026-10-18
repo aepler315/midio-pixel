@@ -469,6 +469,25 @@ export const SCENE_FRAG = /* glsl */`
     return pow(max(cosine, 0.0), 600.0) * gain;
   }
 
+  // Interpolate membership, not drainage magnitude. Blending 255 (lake)
+  // with a dry flow byte before thresholding erodes almost the whole cell
+  // and turns hydro shorelines into right-angled stair steps.
+  float waterMaskCoverage(float a, float b, float c, float d, float x, float y) {
+    float top = mix(step(254.5, a), step(254.5, b), x);
+    float bottom = mix(step(254.5, c), step(254.5, d), x);
+    return mix(top, bottom, y);
+  }
+  float waterCoverageAt(vec2 uv) {
+    ivec2 size = textureSize(uSurface, 0);
+    vec2 samplePos = uv * vec2(size) - .5;
+    ivec2 corner = ivec2(floor(samplePos));
+    vec2 f = fract(samplePos);
+    float a = texelFetch(uSurface, clamp(corner, ivec2(0), size - 1), 0).a * 255.;
+    float b = texelFetch(uSurface, clamp(corner + ivec2(1, 0), ivec2(0), size - 1), 0).a * 255.;
+    float c = texelFetch(uSurface, clamp(corner + ivec2(0, 1), ivec2(0), size - 1), 0).a * 255.;
+    float d = texelFetch(uSurface, clamp(corner + ivec2(1, 1), ivec2(0), size - 1), 0).a * 255.;
+    return waterMaskCoverage(a, b, c, d, f.x, f.y);
+  }
   void main() {
     if (vRenderedWorld.y < uClipBelow) discard;
     vec2 uv = vUv * (1.0 - uTexel) + 0.5 * uTexel;
@@ -488,7 +507,8 @@ export const SCENE_FRAG = /* glsl */`
     float slopeDeg = degrees(acos(clamp(n.y, 0.0, 1.0)));
     float curv = (s.b - 0.5) * 2.0;            // + concave gully, - convex ridge
     float flow = s.a * 255.0;
-    bool water = flow > 254.5 && ice.y < 0.01;
+    float waterCoverage = waterCoverageAt(uv);
+    bool water = waterCoverage > .5 && ice.y < 0.01;
     float flowN = clamp(flow / 254.0, 0.0, 1.0);
     float h = vWorld.y;
     vec3 albedo;
@@ -609,8 +629,10 @@ export const SCENE_FRAG = /* glsl */`
       rough = mix(mix(0.9, macro.b, rockMask), 0.6, snow);
       snow01 = snow;
       if (water) {
-        albedo = pWaterDeep;
-        rough = 0.08;
+        float depthMix = smoothstep(.5, .98, waterCoverage);
+        albedo = mix(pWater, pWaterDeep, depthMix);
+        nShade = vec3(0.0, 1.0, 0.0);
+        rough = mix(.28, .12, depthMix);
       }
       if (uDebugMask == 1) { outColor = vec4(rockMask, crowns, snow, 1.0); if (water) outColor = vec4(0.0, 0.6, 1.0, 1.0); return; }
       if (uDebugMask == 2) { outColor = vec4(vec3(slopeDeg / 90.0), 1.0); return; }
@@ -790,7 +812,7 @@ export const SCENE_FRAG = /* glsl */`
       // The floor keeps a believable shore relationship from a high camera
       // (physical water would show almost none); a cat's paw roughens it.
       float reflectance = clamp(${WATER_REFLECT_FLOOR.toFixed(3)} + ${(1 - WATER_REFLECT_FLOOR).toFixed(3)} * waterFres, 0.0, 0.88) * (1.0 - 0.4 * paw);
-      color = mix(color, mirrored * 0.9, reflectance * have * clear * uNarrative.z * uNarrative.w);
+      color = mix(color, mirrored * 0.9, reflectance * smoothstep(.5, .9, waterCoverage) * have * clear * uNarrative.z * uNarrative.w);
     }
     if (water) {
       // Lanterns over the water lay a path of glints; Midio's wake catches

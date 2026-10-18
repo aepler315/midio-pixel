@@ -42,7 +42,7 @@ test('a live reduced-motion change replans the tour; obsolete worker replies nev
   const mgr={sections,reducedMotion:false,tSec:5,durationMs:60000,currentBlend:{}};
   const replaced=[];
   Object.assign(p,{runtimeState:'ready',tourMode:'tetons',tourData:{},_tourSections:sections,_tourMotion:false,
-   tour:{reducedMotion:false,notes:[]},forced:{view:{id:'teton-range-tour'}},
+   tour:{reducedMotion:false,notes:[],poseAt:()=>({eyeM:[0,0,0],targetM:[0,0,-1],fovYDeg:35})},forced:{view:{id:'teton-range-tour'}},
    scene:{isReady:()=>false,replaceTour:v=>replaced.push(v.tour),dispose(){}},frameInputs:{sim:{biomes:mgr}}});
   const frame=()=>{try{p._beginScenic();}catch{/* the rest of the frame is not under test */}};
   frame();
