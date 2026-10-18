@@ -5,7 +5,7 @@
 // frame (generation, frameId) was on screen at that callback, so callback
 // cadence and successfully presented frames are summarized separately.
 //
-// Sample: { wallMs, generation, frameId, presented, paused, hidden, capFps }.
+// Sample: { wallMs, generation, frameId, presented, paused, hidden, capFps, segment? }.
 // - A repeated (generation, frameId) is the same frame, not a new one.
 // - Pause, hidden and generation boundaries break both interval chains, so
 //   resuming never counts the whole gap as one interval.
@@ -46,12 +46,16 @@ export class FrameDeliveryAggregator {
     this.excluded = { paused: 0, hidden: 0 };
     this.caps = new Set();
     this._lastCallback = null; this._lastFrame = null; this._generation = undefined;
+    this._segment = undefined;
   }
 
   _break() { this._lastCallback = null; this._lastFrame = null; }
 
   push(sample) {
-    const { wallMs, generation, frameId, presented, paused, hidden, capFps } = sample;
+    const { wallMs, generation, frameId, presented, paused, hidden, capFps, segment } = sample;
+    // A bucket can resume after another bucket owned many real frames.
+    // That missing measurement window is not one frozen presentation.
+    if (segment !== this._segment) { this._segment = segment; this._break(); }
     if (generation !== this._generation) {
       if (this._generation !== undefined) this.generationChanges++;
       this._generation = generation;

@@ -103,3 +103,18 @@ No physical desktop, Android or iPhone run was made for this change:
 hardware acceptance remains **pending**, and SwiftShader runs cannot close
 it. Optional GPU timer queries and governor threshold changes are deferred
 until these reports show an attribution need.
+
+## Measurement segments — 2026-10-17
+
+Cold, steady and travel intervals now break when their measurement segment
+changes. A steady bucket that resumes after thirteen seconds of actual travel
+must not report that travel as one thirteen-second frozen frame. Earlier
+multi-bucket runs without this boundary handling have invalid gap, stall and
+aggregate FPS statistics; retain them as superseded evidence, not acceptance.
+
+`frameDelivery.playback` also records the continuous post-cold chain across
+steady/travel boundaries. It uses song load generation and a composite
+presentation/frame identity, so an actual quality-refresh gap remains visible
+instead of being discarded as a new song. Use this chain for the post-cold
+stall gate. Keep deliberate quality interventions separate from automatic
+ladder oscillation when interpreting the level counts.
