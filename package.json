@@ -21,6 +21,7 @@
     "test:landscape": "node tools/range-landscape-smoke.mjs",
     "test:retro": "node tools/retro-smoke.mjs",
     "test:peaks": "node tools/peak-evidence.mjs",
+    "test:trio": "node tools/trio-stage-smoke.mjs",
     "test:export": "node tools/export-smoke.mjs",
     "export:bulk": "node tools/bulk-export.mjs",
     "test:car": "node tools/car-mode-smoke.mjs",

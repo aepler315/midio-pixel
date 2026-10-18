@@ -4,7 +4,7 @@ An independent, private copy of [Midio-5](https://github.com/aepler315/Midio-5),
 
 **Pixel only:** Pixel and Palette looks, Classic and Detailed grids, Auto quality, Fit/Integer scaling. **Depth scale** adds distance-based 1×/2×/4× pixel sampling to Range v2 terrain; **Uniform scale** keeps the original pixel sampling. Existing saved display choices migrate without changing Midio-5 settings. Other worlds retain their existing pixel rendering.
 
-The old custom domain is removed. GitHub Pages deployment is manual until this repository has its own hosting configuration.
+Hosting needs reconciliation: the repository still carries its inherited CNAME and the observed Pages path is a dynamic Jekyll branch build. The staged manual workflow and the current limits are documented in [the validation matrix](docs/test-matrix.md).
 
 Drop a song and watch The Range carry the music. Midio Pixel is a
 browser music visualizer with moving landscapes and musical effects. Your
@@ -12,10 +12,12 @@ original recording supplies the sound; its analysed rhythm, pitch, energy,
 and structure drive the scenery. **Play a sample** starts the authored song
 *Proof*, performed live by the built-in synth.
 
-The default experience is **The Range**, with no world chooser. Add
+The default experience is **Landscape**, showing **The Range**, with no world chooser. Choose **Trio Stage** in Display for Midio, Broshi and Midasus performing automatically on a scrolling platform. Midio jumps to rhythmic accents, Broshi follows the bass, and Midasus follows confident melodic notes. Experience changes keep the current song and playhead; the choice is remembered independently of display preferences. `?experience=trio` opens the stage directly.
+
+Add
 `?worlds=all` to explore the eight registered landscape styles
 and their shared quiet/peak previews. The current landscapes have no
-performer cast.
+performer cast. Trio Stage uses uniform pixel scaling and restores the selected depth treatment on return to Landscape.
 
 The root app uses plain JavaScript modules and Web Audio, with Canvas 2D
 composition and **Range v2** WebGL2 scenery. If that scenery cannot load or
@@ -49,7 +51,7 @@ LAN access, or set `PORT` to change the port.
 3. The song starts in **The Range**. With `?worlds=all`, you can choose a
    world before loading, or preview the same quiet and peak passages in
    the chooser. **Choose for me** is optional.
-4. Watch the landscape. There is no movement control or failure condition.
+4. Watch Landscape or switch to Trio Stage in Display. Both play automatically with no score or failure condition.
    Optional taps help calibrate the groove.
 
 Several files selected or dropped together are treated as **stems of one

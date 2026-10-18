@@ -1,3 +1,4 @@
+import { readExperience, writeExperience, resolveExperience } from './core/Experience.js';
 import { resizeStageCanvas } from './render/CanvasResidency.js';
 import { ensureRidgeMusicSession, upgradeRidgeMusicSession } from './world/RidgeMotionHistory.js';
 // Bootstrap: file loading UI, audio-clock-driven game loop (spec §6.1).
@@ -431,6 +432,11 @@ function displayStorage() { try { return localStorage; } catch { return null; } 
 let displayPrefs = readDisplayPrefs(displayStorage());
 writeDisplayPrefs(displayStorage(), displayPrefs);
 let presentation = resolvePresentation(displayPrefs);
+let experience = readExperience(displayStorage(), typeof location === 'undefined' ? '' : location.search);
+const experienceControl = document.getElementById('display-experience');
+const experienceStatus = document.getElementById('experience-status');
+if (experienceControl) experienceControl.value = experience;
+let experienceRequest = 0;
 const displayControls = Object.fromEntries(['look', 'quality', 'palette', 'dither', 'ditherMode', 'pixelGrid', 'pixelScale', 'scaling'].map(key => [key, document.getElementById(`display-${key}`)]));
 const STAGE_FPS_KEY = 'smw:stageFps';
 let simTime = 0;
@@ -453,7 +459,7 @@ paramBus.rendererMode = rendererMode;
 // opts out, and any v2 failure falls back to legacy per frame on its own.
 // ?rangeView=<id> forces one catalog view for diagnostics. One presentation (and one GPU context) per page.
 const rangeMode = resolveRangeMode();
-let rangePresentation = rangeMode.mode === 'v2'
+let rangePresentation = experience === 'landscape' && rangeMode.mode === 'v2'
   ? new RangePresentation({ mode: 'v2', tour: rangeMode.tour, forcedViewId: rangeMode.forcedViewId, diag: rangeMode.diag, residency: sharedResidency(), budget: residencyBudgetFor().name })
   : null;
 
@@ -468,7 +474,11 @@ function rangeStateSnapshot() {
     tourPreparation: { state: 'off' }, fallbackReason: 'legacy-mode' };
 }
 function syncRangeTourControl() {
+  if (rangeTourToggle) rangeTourToggle.disabled = experience === 'trio';
   if (!rangeTourStatus) return;
+  if (experience === 'trio') {
+    rangeTourStatus.textContent = 'Available in Landscape'; rangeTourStatus.dataset.state = 'off'; return;
+  }
   const status = currentTourControlState();
   if (rangeTourStatus.textContent !== status.text) rangeTourStatus.textContent = status.text;
   rangeTourStatus.dataset.state = status.state;
@@ -559,7 +569,72 @@ let bulkExportSize = null;
 let bulkExportArmed = false;
 let bulkPresentation = null;
 let titlePresentation = null;
-function effectivePresentation() { return bulkPresentation || presentation; }
+function effectivePresentation() {
+  const requested = bulkPresentation || presentation;
+  return experience === 'trio' ? { ...requested, pixelScale: 'original' } : requested;
+}
+async function changeExperience(value) {
+  const next = resolveExperience(value), request = ++experienceRequest, owner = sim;
+  if (next === experience) return;
+  let prepared = null;
+  if (experienceControl) experienceControl.disabled = true;
+  if (experienceStatus) experienceStatus.textContent = next === 'landscape' ? 'Preparing landscape…' : 'Preparing the trio…';
+  try {
+    if (running && owner && next === 'landscape') {
+      const mode = resolveRangeMode();
+      owner.biomes.update(owner.timeMs, 0, owner.energyCurves, owner.calm.level, owner.worldX);
+      if (mode.mode === 'v2') {
+        prepared = new RangePresentation({ mode: 'v2', tour: mode.tour, forcedViewId: mode.forcedViewId,
+          diag: mode.diag, residency: sharedResidency(), budget: residencyBudgetFor().name });
+        prepared.setSong({ terrain: lastTimelineData?.terrain, mgr: owner.biomes, generation: loadGen, exportMode: bulkExportArmed });
+        await prepared.whenReady({ timeoutMs: 120000 });
+      }
+      if (request !== experienceRequest || sim !== owner || !running) {
+        prepared?.dispose();
+        if (request === experienceRequest) {
+          if (experienceControl) experienceControl.value = experience;
+          if (experienceStatus) experienceStatus.textContent = experience === 'trio' ? 'Automatic performance' : '';
+        }
+        return;
+      }
+    }
+    if (running && owner) {
+      owner.setExperience(next);
+      if (next === 'trio') { rangePresentation?.dispose(); rangePresentation = null; }
+      else rangePresentation = prepared;
+      renderer.rangePresentation = rangePresentation;
+      owner.biomes.rangePresentation = rangePresentation;
+      if (next === 'landscape') {
+        owner.step(0, owner.timeMs);
+        if (!rangePresentation?.enabled || rangePresentation.runtimeState === 'failed') owner.biomes.preparePlaybackStrips();
+      }
+    } else {
+      rangePresentation?.dispose();
+      const mode = resolveRangeMode();
+      rangePresentation = next === 'landscape' && mode.mode === 'v2'
+        ? new RangePresentation({ mode: 'v2', tour: mode.tour, forcedViewId: mode.forcedViewId, diag: mode.diag,
+          residency: sharedResidency(), budget: residencyBudgetFor().name }) : null;
+    }
+    experience = next;
+    writeExperience(displayStorage(), next);
+    const url = new URL(location.href); url.searchParams.set('experience', next); history.replaceState(null, '', url);
+    if (experienceControl) experienceControl.value = next;
+    if (displayControls.pixelScale) displayControls.pixelScale.disabled = next === 'trio';
+    fitCanvas(); syncRangeTourControl();
+    if (next === 'trio' && owner) { owner.rangeCaption = null; owner.rangeCaptions = null; }
+    else if (owner && lastTimelineData) applyRangeCaptions(lastTimelineData, bulkExportArmed);
+    if (running && owner === sim) renderer.draw(sim, 1);
+    if (experienceStatus) experienceStatus.textContent = next === 'trio' ? 'Automatic performance' : '';
+    if (worldSelectEl?.open && pendingWorldStart) startChooserPreviews();
+  } catch (error) {
+    prepared?.dispose();
+    if (experienceControl) experienceControl.value = experience;
+    if (experienceStatus) experienceStatus.textContent = 'Could not switch experience. ' + (error?.message || error);
+  } finally { if (request === experienceRequest && experienceControl) experienceControl.disabled = false; }
+}
+experienceControl?.addEventListener('change', () => changeExperience(experienceControl.value));
+if (displayControls.pixelScale) displayControls.pixelScale.disabled = experience === 'trio';
+
 function fitPixelLayout() {
   const p = effectivePresentation();
   const integer = p.pixelated && p.scaling === 'integer' && !bulkExportSize;
@@ -1333,7 +1408,7 @@ function startChooserPreviews() {
   if (!pending) return;
   const audio = previewAudioHandlers();
   previewSession = new PreviewSession({
-    data: { ...pending.data, profile: pending.profile },
+    data: { ...pending.data, profile: pending.profile, experience, previewPresentation: effectivePresentation() },
     features: pending.features,
     seed: pending.seed,
     reducedFlash,
@@ -1590,6 +1665,7 @@ function startConfirmedWorld(pending, id) {
 /** Name the real ranges behind The Range (RangeCaption.js): one caption per
  *  biome the song travels through, or one for the song's single range. */
 function applyRangeCaptions(timelineData, exportMode) {
+  if (sim?.experience === 'trio') { sim.rangeCaption = sim.rangeCaptions = null; return; }
   const terrain = timelineData.terrain || null;
   const kind = getWorld(sim.worldId)?.kind;
   const lengthOf = (p) => (p?.spacingM > 0 && p.angles?.length > 1 ? p.spacingM * (p.angles.length - 1) : 0);
@@ -1740,6 +1816,7 @@ function startTimeline(timelineData, extra = {}) {
       timelineData.terrain.biomes = ['CONIFER'];
     }
     sim = new Simulation(conductor, paramBus, {
+      experience,
       bpm: timelineData.bpm || 120,
       rangeListening,
       rangeNarrative: timelineData.rangeNarrative || null,
@@ -1908,7 +1985,7 @@ function startTimeline(timelineData, extra = {}) {
   // first frame), so strips for biomes Range v2 covers are adopted as
   // evictable fallback from the start.
   if (rangePresentation?.enabled && sim.biomes) sim.biomes.rangePresentation = rangePresentation;
-  try { if (!rangePresentation?.tourMode) sim.biomes.preparePlaybackStrips(); }
+  try { if (experience === 'landscape' && !rangePresentation?.tourMode) sim.biomes.preparePlaybackStrips(); }
   catch (err) { console.warn('[strip prepare]', err); }
   running = true;
   syncKeepAwake();
@@ -1980,6 +2057,8 @@ function startTimeline(timelineData, extra = {}) {
     analysis: timelineData.analysis || null,
     stems: timelineData.stems || null,
     muteTimelineSynth,
+    get experience() { return sim?.experience || experience; },
+    setExperience: value => changeExperience(value),
     get sourceTrack() { return lastTimelineData?.sourceTrack || null; },
     get trackIdentity() { return lastTimelineData?.lyricIdentity || null; },
     get audioBuffer() { return lastAudioBuffer; },

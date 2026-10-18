@@ -1,3 +1,5 @@
+import { resolveExperience } from '../core/Experience.js';
+import { TrioPerformance } from './TrioPerformance.js';
 import { cameraLensAt } from '../render/CameraLens.js';
 // Listening simulation owns transport, musical context, scenery and tap calibration.
 // Stage coordinates are independent of any performer or presentation backend.
@@ -54,6 +56,7 @@ export class Simulation {
     residency = null,
     chapterState = null,
     rangeListening = true,
+    experience = 'landscape',
     ridgeMusicSession = null,
     // Set while the song is playing on its opening analysis only: how far
     // the timeline actually reaches (OpeningAnalysis.js asOpening).
@@ -189,6 +192,21 @@ export class Simulation {
     // Candidate-only song replay belongs to construction, before audio starts.
     // Draws read this immutable schedule rather than warming it on stage.
     highlightCandidatesFor(this);
+    this.setExperience(experience);
+  }
+
+  setExperience(value) {
+    const next = resolveExperience(value);
+    if (this.experience === next) return;
+    const prepared = next === 'trio' ? new TrioPerformance({ timeline: this.conductor.timeline,
+      durationMs: this.conductor.durationMs, bpm: this.bpm, barGrid: this.conductor.barGrid,
+      beatMetadata: this.conductor.beatMetadata, energyCurves: this.energyCurves,
+      paramBus: this.paramBus, seed: this.songSeed, stageW: this.stageW, stageH: this.stageH,
+      reducedFlash: this.reducedFlash, reducedMotion: this.reducedMotion, particleMul: this.perf?.particleMul ?? 1 }) : null;
+    prepared?.seek(this.heardTimeMs ?? this.timeMs ?? 0);
+    this.trio?.dispose(); this.trio = prepared;
+    this.experience = next;
+    this.presentation = resolveLandscapePresentation(getWorld(this.worldId), next);
   }
 
   _applyCues(nowMs) {
@@ -290,6 +308,7 @@ export class Simulation {
    *  conductor outlives every song, so a replay that skips this leaves the
    *  old sim's listeners firing forever, stacked on top of the new one's. */
   dispose() {
+    this.trio?.dispose();
     for (const unsub of this._unsub) unsub();
     this._unsub.length = 0;
     this.biomes.dispose();
@@ -327,7 +346,7 @@ export class Simulation {
 
   /** Compatibility adapter: complete scenery plus causal lane samples. */
   rangeNarrativeAt(timeMs = this.heardTimeMs ?? this.timeMs ?? 0) {
-    return this.biomes?.world?.kind === 'alpine'
+    return this.experience !== 'trio' && this.biomes?.world?.kind === 'alpine'
       ? this.rangeNarrative.sample(timeMs) : null;
   }
 
@@ -354,6 +373,11 @@ export class Simulation {
     this.hype.update(nowMs, dtSec, this.energyCurves);
     this.vibe.epicBias = epicBiasForKind(this.biomes.currentKind, this.biomes.lyricIntensityEased, this.biomes.kindConfidenceEased);
     this.vibe.update(nowMs, dtSec, this.energyCurves);
+    if (this.trio) {
+      this.trio.update(this.heardTimeMs, { reducedFlash: this.reducedFlash, reducedMotion: this.reducedMotion, particleMul: this.perf.particleMul });
+      this.worldX = this.trio.worldX;
+      this.paramBus.step(); this.curr = this._snapshot(); return;
+    }
     this.keyDirector.update(nowMs, dtSec, { tonic: this.vibe.tonic, tonicConfidence: this.vibe.tonicConfidence, conductor: this.conductor });
     if (this.keyDirector.justKeyChange) this.biomes.mandala.reseed(this.keyDirector.lastKeyChange.to);
     this.coda.update(nowMs);

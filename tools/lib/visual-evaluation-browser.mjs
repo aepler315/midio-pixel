@@ -45,7 +45,7 @@ export async function openEvaluationSong(browser, { url, audioPath, settings, di
     });
     const entry = new URL(url);
     for (const [key, value] of Object.entries({ bulkExport: 1, exportW: settings.width, exportH: settings.height,
-      rangeRenderer: 'v2', rangeView: settings.view, seed: settings.seed, perf: 'high' })) {
+      experience: settings.experience, rangeRenderer: 'v2', rangeView: settings.view, seed: settings.seed, perf: 'high' })) {
       if (value != null) entry.searchParams.set(key, value);
     }
     for (const [key, value] of Object.entries(settings.debug || {})) if (value != null) entry.searchParams.set(key, value);
@@ -98,8 +98,9 @@ export async function renderEvaluationFrame(page, point, settings) {
       || accessibility.reducedFlash !== !!settings.reducedFlash || accessibility.reducedMotion !== !!settings.reducedMotion) {
       throw new Error(`accessibility drift at ${point.timeMs}: ${JSON.stringify(accessibility)}`);
     }
-    if (state.mode !== 'v2' || !state.active || state.runtime !== 'ready') throw new Error(`Range v2 inactive: ${JSON.stringify(state)}`);
-    if (settings.view && state.viewId !== settings.view) throw new Error(`wrong view ${state.viewId}`);
+    if (settings.experience === 'trio' && (smw.experience !== 'trio' || !smw.sim.trio || state.active)) throw new Error('Trio Stage is inactive or terrain is still active');
+    if (settings.experience !== 'trio' && (state.mode !== 'v2' || !state.active || state.runtime !== 'ready')) throw new Error(`Range v2 inactive: ${JSON.stringify(state)}`);
+    if (settings.experience !== 'trio' && settings.view && state.viewId !== settings.view) throw new Error(`wrong view ${state.viewId}`);
     // The rung the scene actually drew with, not only the governor's value.
     const rangeFrame = smw.sim.biomes.rangePresentation?.frame;
     if (rangeFrame && (rangeFrame.qualityLevel ?? 0) !== settings.quality) throw new Error(`effective quality ${rangeFrame.qualityLevel} != ${settings.quality}`);
@@ -109,7 +110,7 @@ export async function renderEvaluationFrame(page, point, settings) {
     const ctx = thumb.getContext('2d', { willReadFrequently: true }); ctx.drawImage(canvas, 0, 0, 64, 36);
     const thumbnail = [...ctx.getImageData(0, 0, 64, 36).data];
     const sim = smw.sim, frame = sim.biomes.rangePresentation?.frame;
-    return { timeMs: point.timeMs, actualTimeMs: clock.timeMs, checkpoint: point.checkpoint, clips: point.clips,
+    return { ...(settings.experience ? { experience: smw.experience } : {}), timeMs: point.timeMs, actualTimeMs: clock.timeMs, checkpoint: point.checkpoint, clips: point.clips,
       pngData: canvas.toDataURL('image/png').split(',')[1], thumbnail, range: state, quality: smw.perfLevel, accessibility,
       audio: { heardTimeMs: sim.heardTimeMs, energy: sim.energyCurves?.globalEnergyNorm(sim.heardTimeMs) ?? null,
         bands: sim.energyCurves?.sampleAll(sim.heardTimeMs) ?? null },

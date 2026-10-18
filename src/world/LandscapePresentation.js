@@ -3,4 +3,5 @@
 // and residents covered the landscape. Keep the scenery visible through
 // the bottom of the frame, with standalone performer effects disabled too.
 const landscape = Object.freeze({ performers: false, decorativeActors: false, artificialNearProps: false, inhabitants: false });
-export function resolveLandscapePresentation() { return landscape; }
+const trio = Object.freeze({ performers: true, decorativeActors: false, artificialNearProps: false, inhabitants: false });
+export function resolveLandscapePresentation(world, experience = 'landscape') { return experience === 'trio' ? trio : landscape; }

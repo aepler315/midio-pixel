@@ -1,3 +1,4 @@
+import { drawTrioStage } from './TrioStage.js';
 import { CanvasBuffers } from './CanvasResidency.js';
 import { drawPixelGlow, pixelHeatOffset } from './PixelEffects.js';
 import { resolveLandscapePresentation } from '../world/LandscapePresentation.js';
@@ -231,6 +232,18 @@ export class Renderer {
     this.drawCount++;
     this.inhabitedShoreDraws = 0;
     const { ctx, canvas } = this;
+    if (sim.trio) {
+      this.rangeListeningActive = false;
+      this._styleDials = styleDials(sim.visualStyle);
+      this._capture?.dispose(); this._capture = null;
+      for (const name of ['motion', 'shock', 'heat', 'pixel-glow']) this._postBuffers.release(name);
+      drawTrioStage(ctx, canvas, sim.trio, { drawMidio: (pose, performer, seconds, ensemble) => {
+        const beat = sim.songBeat.snapshotAt(sim.heardTimeMs);
+        this._drawMidio(ctx, pose, performer, seconds, 0, null, !!sim.reducedFlash, 210, ensemble, null, 1, null,
+          beat.freeTime ? null : beat.phase01);
+      } });
+      return;
+    }
     const fracture = sim.fracture || null;
     this._styleDials = styleDials(sim.visualStyle);
 
