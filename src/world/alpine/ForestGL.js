@@ -17,6 +17,17 @@ import { MIST_GLSL } from './RangeAtmosphere.js';
 import { ACTOR_GLSL, actorUniforms } from './ActorsGL.js';
 import { buildConiferAsset, familyFor, variantFor, FOREST_FAMILIES, FOREST_VARIANTS } from './ForestSpeciesAssets.js';
 
+// Match the terrain canopy's actual-camera handoff, including mirrors.
+// Placement uses the closest point on the entire route, so its 8 km edge
+// alone cannot describe what the current camera sees.
+const FOREST_DISTANCE_GLSL = /* glsl */`
+  uniform vec4 uFarForest;
+  float forestInstanceWeight(float distanceM, float startM, float endM) {
+    if (endM <= startM) return 1.0;
+    return 1.0 - smoothstep(startM, endM, distanceM);
+  }
+`;
+
 const GUST_ATTACK_SEC = 0.7;
 const GUST_DECAY_SEC = 2.4;
 /** Crown lean at a full gust, as a fraction of tree height. */
@@ -166,6 +177,7 @@ const BOARD_VERT = /* glsl */`
 `;
 
 const SHADE = /* glsl */`
+  ${FOREST_DISTANCE_GLSL}
   uniform vec3 uLightDir;
   uniform vec3 uLightColor;
   uniform vec3 uSkyZenith;
@@ -251,7 +263,7 @@ const MESH_FRAG = /* glsl */`
   MESH_COVERAGE
   void main() {
     gTreeOcc = vOcc;
-    float cov = meshCoverage();
+    float cov = meshCoverage() * forestInstanceWeight(length(uCameraPos - vWorld), uFarForest.x, uFarForest.y);
     // Every quad lane contributes before coverage can terminate a fragment.
     float phase = vBranch.y * 6.283185 * 8.0 + vBranch.x * 11.0 + vId * 31.0;
     float detail = 1.0 - smoothstep(.25, .5, fwidth(phase) / 6.283185);
@@ -317,7 +329,7 @@ const BOARD_FRAG = /* glsl */`
   ${SILHOUETTE}
   void main() {
     float core, side;
-    float cov = treeCoverage(vLocal, core, side);
+    float cov = treeCoverage(vLocal, core, side) * forestInstanceWeight(length(uCameraPos - vWorld), uFarForest.x, uFarForest.y);
     #ifdef FOREST_BLEND
       if (cov < 1.0 / 255.0) discard;
     #else
@@ -336,22 +348,25 @@ const BOARD_FRAG = /* glsl */`
 
 const BOARD_DEPTH_FRAG = /* glsl */`
   precision highp float;
+  uniform vec3 uCameraPos;
+  ${FOREST_DISTANCE_GLSL}
   in vec3 vWorld; in vec2 vLocal; in float vVar; in float vId; in vec3 vRight; in vec3 vToCam; in vec2 vSize;
   out vec4 outColor;
   ${SILHOUETTE}
-  void main() { float core, side; if (treeCoverage(vLocal, core, side) < .5) discard; outColor = vec4(0.0); }
+  void main() { float core, side; if (treeCoverage(vLocal, core, side) * forestInstanceWeight(length(uCameraPos - vWorld), uFarForest.x, uFarForest.y) < .5) discard; outColor = vec4(0.0); }
 `;
 const MESH_DEPTH_FRAG = /* glsl */`
   precision highp float;
+  ${FOREST_DISTANCE_GLSL}
   uniform vec3 uCameraPos;
   in vec3 vWorld; in vec3 vNormal; in vec4 vBranch; in float vId;
   out vec4 outColor;
   MESH_COVERAGE
   void main() {
     #ifdef FOREST_CORE
-      if (meshCoverage() < 254.5 / 255.0) discard;
+      if (meshCoverage() * forestInstanceWeight(length(uCameraPos - vWorld), uFarForest.x, uFarForest.y) < 254.5 / 255.0) discard;
     #else
-      if (meshCoverage() < .5) discard;
+      if (meshCoverage() * forestInstanceWeight(length(uCameraPos - vWorld), uFarForest.x, uFarForest.y) < .5) discard;
     #endif
     outColor = vec4(0.0);
   }
@@ -444,6 +459,7 @@ function instanced(THREE, base, instances, stride, indices) {
  */
 export function createForest(THREE, placed, uniforms, { partitioned = true, forestDebug = false } = {}) {
   const u = { ...uniforms, uTime: uniforms.uTime || { value: 0 }, uForestKeep: uniforms.uForestKeep || { value: 1 },
+    uFarForest: uniforms.uFarForest || { value: new THREE.Vector4() },
     uStorm: uniforms.uStorm || { value: new THREE.Vector4() }, uRainShift: uniforms.uRainShift || { value: 0 },
     uViewProj: uniforms.uViewProj || { value: new THREE.Matrix4() },
     uViewportPx: uniforms.uViewportPx || { value: new THREE.Vector2(1, 1) },

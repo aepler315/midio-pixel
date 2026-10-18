@@ -74,21 +74,48 @@ export function compileStorm({ energyCurves, sections = [], timeline = [], durat
   scored.sort((a, b) => b.energy - a.energy || Math.abs((a.section.startMs+a.section.endMs)/2-durationMs*.5)
     - Math.abs((b.section.startMs+b.section.endMs)/2-durationMs*.5));
   const section = scored[0]?.section || { startMs: durationMs * .4, endMs: durationMs * .65 };
-  const snares = [];
+  const attacks = [];
+  // Ignore continuous hats and pitched instruments. Kicks, snares and
+  // crashes carry attacks even when the analyzer does not label a snare.
+  // Simultaneous drum layers share their strongest attack. Later notes
+  // cannot rewrite a flash that was already heard; the cooldown stays fixed.
   for (const event of [...timeline].sort((a, b) => a.tMs - b.tMs)) {
-    if (!(event.role === 'RHYTHM' || event.channel === 9) || ![38, 40].includes(event.pitch) || !Number.isFinite(event.tMs) || event.tMs < section.startMs || event.tMs >= section.endMs) continue;
-    if (event.tMs - (snares.at(-1)?.tMs ?? -Infinity) >= 700) snares.push({ tMs: event.tMs, amp: unit(event.vel ?? event.velocity ?? .8) });
+    if (!(event.role === 'RHYTHM' || event.channel === 9)
+      || ![35, 36, 38, 40, 49, 52, 55, 57].includes(event.pitch)
+      || !Number.isFinite(event.tMs) || event.tMs < section.startMs || event.tMs >= section.endMs) continue;
+    const velocity = unit(event.vel ?? event.velocity ?? .8);
+    const amp = velocity * velocity * (.65 + .35 * unit(read(event.tMs)));
+    attacks.push({ tMs: event.tMs, amp });
+  }
+  // Offline analysis also emits low-level percussion between audible beats.
+  // Let the passage's prominent attacks own the cooldown; do not normalize
+  // quiet audio into a loud storm or move any attack away from its timestamp.
+  const peak = attacks.reduce((value, attack) => Math.max(value, attack.amp), 0);
+  const strikes = [];
+  for (const strike of attacks) {
+    if (!(strike.amp > 0) || strike.amp < peak * .25) continue;
+    const previous = strikes.at(-1);
+    if (!previous || strike.tMs - previous.tMs >= 700) strikes.push(strike);
+    else if (strike.tMs === previous.tMs && strike.amp > previous.amp) strikes[strikes.length - 1] = strike;
   }
   return Object.freeze({ section: Object.freeze(section), at(timeMs, { reducedFlash = false } = {}) {
     const t = Number.isFinite(timeMs) ? timeMs : 0, a = section.startMs, b = section.endMs;
     const amount = ease((t - a + 6000) / 8000) * (1 - ease((t - b) / 4000));
     let flash = 0, flashU = .5;
     if (!reducedFlash && amount > .2) {
-      let lo = 0, hi = snares.length;
-      while (lo < hi) { const m = (lo + hi) >>> 1; if (snares[m].tMs <= t) lo = m + 1; else hi = m; }
-      const hit = snares[lo - 1], age = hit ? t - hit.tMs : Infinity;
-      // A stroke, then a fainter restrike, as cloud lightning flickers.
-      if (age < 290) flash = hit.amp * Math.max(1 - ease(age / 120), age > 90 ? .7 * (1 - ease((age - 90) / 200)) : 0) * amount;
+      let lo = 0, hi = strikes.length;
+      while (lo < hi) { const m = (lo + hi) >>> 1; if (strikes[m].tMs <= t) lo = m + 1; else hi = m; }
+      const hit = strikes[lo - 1], age = hit ? t - hit.tMs : Infinity;
+      // Heard-time envelopes keep attack timing exact under seek/export.
+      // Hard accents flash longer and earn a stronger cloud restrike;
+      // soft hits remain brief, dim illumination rather than white washes.
+      if (hit && age < 320) {
+        const decayMs = 65 + 100 * hit.amp;
+        const restrikeMs = 80 + 35 * hash01(lo + 17);
+        const echo = age > restrikeMs ? (.25 + .5 * hit.amp)
+          * (1 - ease((age - restrikeMs) / (100 + 100 * hit.amp))) : 0;
+        flash = hit.amp * Math.max(1 - ease(age / decayMs), echo) * amount;
+      }
       if (hit) flashU = .18 + .64 * hash01(lo);
     }
     return { amount, flash, flashU, break01: ease((t - b - 2000) / 6000) * (1 - ease((t - b - 14000) / 20000)),

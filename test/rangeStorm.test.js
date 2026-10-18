@@ -42,11 +42,11 @@ test('unsegmented songs can climax early or late after the arrival', () => {
     assert.equal(score.section.startMs, startMs);
   }
 });
-test('lightning is actual snare timing, seek safe, rate limited and disabled by reduced flash', () => {
+test('lightning follows actual percussion timing, is seek safe, rate limited and disabled by reduced flash', () => {
   const score = compileStorm({ energyCurves, sections, timeline, durationMs: 120000 });
   assert.ok(score.at(45020).flash > .5);
   assert.equal(score.at(45100).flash, score.at(45100).flash);
-  assert.equal(score.at(47000).flash, 0);
+  assert.ok(score.at(47000).flash > .5, 'a kick is also an authored rhythmic attack');
   assert.equal(score.at(45020, { reducedFlash: true }).flash, 0);
   assert.ok(score.at(45020).flash > score.at(45120).flash);
 });
@@ -63,7 +63,8 @@ test('songs without structural sections use their loudest sustained window; no a
 test('a pitched D2/E2 line never creates lightning and snare velocity is respected', () => {
   const song = { energyCurves, sections, durationMs: 120000 };
   assert.equal(compileStorm({ ...song, timeline: [{ tMs: 45000, pitch: 38, role: 'BASS', vel: 1 }] }).at(45000).flash, 0);
-  assert.equal(compileStorm({ ...song, timeline: [{ tMs: 45000, pitch: 40, role: 'RHYTHM', vel: .2 }] }).at(45000).flash, .2);
+  const soft = compileStorm({ ...song, timeline: [{ tMs: 45000, pitch: 40, role: 'RHYTHM', vel: .2 }] }).at(45000).flash;
+  assert.ok(soft > 0 && soft < .1, 'soft percussion stays dim');
 });
 
 test('missing measurements do not invent a climax', () => {
@@ -108,4 +109,32 @@ test('no sun-shaft passes run under the full squall deck', async () => {
   const light = { celestial: { body: 'sun', visibility: 1, intensity: 1, xFrac: .5, yFrac: .2 } };
   assert.equal(shaftSource({ light, storm: { amount: 1, break01: 0 } }), null);
   assert.ok(shaftSource({ light, storm: { amount: 0, break01: 1 } }).stormGain > 1);
+});
+
+
+test('kick and crash accents drive lightning without depending on snare classification', () => {
+  for (const pitch of [36, 49, 57]) {
+    const score = compileStorm({ energyCurves, sections, durationMs: 120000,
+      timeline: [{ tMs: 45000, pitch, role: 'RHYTHM', vel: .95 }] });
+    assert.ok(score.at(45000).flash > .5, `accent ${pitch} must reach the scene`);
+    assert.equal(score.at(45400).flash, 0);
+    assert.equal(score.at(45000, { reducedFlash: true }).flash, 0);
+  }
+});
+test('lightning strength and duration distinguish soft hits from musical accents', () => {
+  const score = compileStorm({ energyCurves, sections, durationMs: 120000,
+    timeline: [{ tMs: 45000, pitch: 38, role: 'RHYTHM', vel: .25 },
+      { tMs: 47000, pitch: 38, role: 'RHYTHM', vel: 1 }] });
+  assert.ok(score.at(47000).flash > score.at(45000).flash * 6, 'nonlinear intensity follows the attack');
+  assert.ok(score.at(47150).flash > score.at(45150).flash * 6, 'a strong attack sustains the cloud restrike');
+});
+
+test('weak detected percussion cannot consume the cooldown immediately before a strong kick', () => {
+  const score = compileStorm({ energyCurves, sections, durationMs: 120000,
+    timeline: [{ tMs: 45000, pitch: 36, role: 'RHYTHM', vel: .25 },
+      { tMs: 45400, pitch: 36, role: 'RHYTHM', vel: .9 },
+      { tMs: 45600, pitch: 36, role: 'RHYTHM', vel: .2 }] });
+  assert.equal(score.at(45000).flash, 0, 'buried activity does not steal the musical accent');
+  assert.ok(score.at(45400).flash > .5, 'the actual kick owns its flash');
+  assert.equal(score.at(46000).flash, 0);
 });

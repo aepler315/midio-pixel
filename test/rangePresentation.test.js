@@ -817,3 +817,34 @@ test('readiness stops polling a pending preparation when the context is lost', a
     assert.ok(performance.now() - start < 200, 'a still-pending asset job cannot hold readiness across context loss');
   } finally { complete(); }
 });
+
+
+test('the Range moon is visible during the predawn opening of a long song', async () => {
+  const { songSkyClock } = await import('../src/world/DayNight.js');
+  const { m, calls } = manager();
+  m._dayNightCycleMs = songSkyClock(60000); m.tSec = 3;
+  m.rangePresentation = fakePresentation();
+  m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, null, 1, null, groundView);
+  assert.ok(calls.includes('_drawMoon'), 'a long-song clock must not exclude the moon until the storm clears');
+  assert.ok(m.celestialState.moon.altitude01 > 0);
+  m.dispose();
+});
+
+test('the visible moon keeps its bright limb continuous across the long-song sunrise', async () => {
+  const { songSkyClock } = await import('../src/world/DayNight.js');
+  const { m } = manager();
+  m.durationMs = 180000; m._dayNightCycleMs = songSkyClock(180000);
+  m.rangePresentation = fakePresentation();
+  const angles = [];
+  m._drawMoon = (ctx, canvas, cy, alpha, offset, cx, sunX, sunY, phase, resolved) => {
+    angles.push(Math.atan2((sunY - resolved.yFrac) * canvas.height, (sunX - resolved.xFrac) * canvas.width));
+  };
+  for (const tMs of [23999, 24000]) {
+    m.tSec = tMs / 1000;
+    m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, null, 1, null, groundView);
+  }
+  assert.equal(angles.length, 2);
+  const delta = Math.atan2(Math.sin(angles[1] - angles[0]), Math.cos(angles[1] - angles[0]));
+  assert.ok(Math.abs(delta) < .01, 'sunrise cannot instantly rotate the lunar crescent');
+  m.dispose();
+});

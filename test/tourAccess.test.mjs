@@ -277,3 +277,29 @@ test('disposing the tour clears its active status even when paused between frame
   assert.equal(p.snapshot().active, false);
   assert.equal(p.snapshot().viewId, null);
 });
+
+
+test('a late refinement cannot replace the camera after its committed horizon has passed', async t => {
+  const workers = installTourBoundaries(t), mgr = manager(), scene = fakeScene();
+  const p = new RangePresentation({ mode: 'v2', tour: 'tetons', forcedViewId: tourViewId, sceneFactory: async () => scene });
+  t.after(() => p.dispose());
+  p.setSong({ mgr });
+  await waitFor(() => workers.length === 1);
+  workers[0].reply(previewTour(mgr.durationMs));
+  await p.whenReady();
+  p.setFrameInputs(inputs(mgr)); p.beginScenic();
+  const committed = p.tour;
+  mgr.tSec = 10;
+  mgr.sections = [...mgr.sections]; p.setFrameInputs(inputs(mgr)); p.beginScenic();
+  await waitFor(() => workers.length === 2);
+  mgr.tSec = 20;
+  const late = previewTour(mgr.durationMs); late.previewPose.eyeM[0] = 2000;
+  workers[1].reply(late); await p._replanPromise;
+  assert.equal(p.tour, committed, 'the current camera stays on the committed route');
+  assert.equal(p.status().tourPreparation.refinement.state, 'held');
+  p.beginScenic();
+  await waitFor(() => workers.length === 3);
+  assert.equal(workers[2].message.committedThroughMs, 20000, 'retry begins from the current heard time');
+  workers[2].reply(previewTour(mgr.durationMs)); await p._replanPromise;
+  assert.equal(p.status().tourPreparation.refinement.state, 'applied');
+});

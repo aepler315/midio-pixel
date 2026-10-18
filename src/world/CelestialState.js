@@ -20,7 +20,7 @@ export const MOONLESS_AMBIENT_CUT = 0.8;
 export const SUN_HORIZON_COLOR = '#ff5a1e';
 
 export function resolveCelestialState({ timeMs, cycleMs, viewport, approach = {}, moonOffset = {},
-  nightFill = .35, reducedMotion = false, sunColor = '#fff3df', moonColor = '#c8d8ff',
+  nightFill = .35, reducedMotion = false, moonOrbit = null, sunColor = '#fff3df', moonColor = '#c8d8ff',
   sunRadiusPx = 26, moonRadiusPx = 26, radiusCapPx = Infinity }) {
   const dn = dayNight(timeMs, cycleMs), { width, height } = viewport;
   const body = (alt, az, name) => {
@@ -34,10 +34,10 @@ export function resolveCelestialState({ timeMs, cycleMs, viewport, approach = {}
     dx *= bound; dy *= bound;
     return Object.freeze({ xFrac: (app.x + dx) / width, yFrac: (app.y + dy) / height,
       radiusFrac: Math.min(radiusCapPx, (name === 'sun' ? sunRadiusPx : moonRadiusPx) * app.scale) / width,
-      scale: app.scale, altitude01: alt, visibility, directGain: (name === 'sun' ? 1.6 : .25) * visibility,
+      scale: app.scale, altitude01: alt, azimuth01: az, visibility, directGain: (name === 'sun' ? 1.6 : .25) * visibility,
       colorHex: name === 'sun' ? warmSun(sunColor, alt) : moonColor });
   };
-  const sun = body(dn.sunAlt,dn.sunAz01,'sun'), moon = body(dn.moonAlt,dn.moonAz01,'moon');
+  const sun = body(dn.sunAlt,dn.sunAz01,'sun'), moon = body(moonOrbit?.altitude01 ?? dn.moonAlt,moonOrbit?.azimuth01 ?? dn.moonAz01,'moon');
   const darkness = clamp01(dn.night * (1 - moon.visibility));
   return Object.freeze({ sun, moon, activeBody: sun.visibility > 0 ? 'sun' : moon.visibility > 0 ? 'moon' : null,
     night01: dn.night, dawn01: dn.dawnAlpha, dusk01: dn.duskAlpha,

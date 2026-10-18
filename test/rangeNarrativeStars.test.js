@@ -55,13 +55,13 @@ test('enclosed worlds cannot acquire stars through the shared painter', () => {
   }
 });
 
-test('Range daylight suppresses catalogue light while a dark opening retains it', () => {
+test('Range daylight retains a dimmer catalogue after terrain preparation', () => {
   const { ctx, mgr, draws } = fixture();
   mgr._drawStarfield(ctx, canvas, palette, palette, 0, 1);
   assert.ok(draws.some(d => d.alpha > .05));
   draws.length = 0;
   mgr._drawStarfield(ctx, canvas, palette, palette, 0, 0);
-  assert.equal(draws.length, 0, 'the unchanged day sky must not carry night stars');
+  assert.ok(draws.some(d => d.alpha > .05), 'daylight retains a visible star field');
 });
 
 test('Range points cover one native pixel through Classic and Detailed compositor transforms', () => {
@@ -98,7 +98,7 @@ test('tour stars project persistent catalogue directions with the resolved lens,
   assert.deepEqual(draws[0], first, 'returning to an orientation sees the same persistent star');
 });
 
-test('tour horizon points gain display exposure without a floor, bigger sprites or daylight stars', () => {
+test('tour horizon points retain exposure and a native footprint through daylight', () => {
   const { ctx, mgr, draws } = fixture();
   const direction = tourSkyDirection(90, 18);
   mgr._rangeV2Active = true;
@@ -112,5 +112,5 @@ test('tour horizon points gain display exposure without a floor, bigger sprites 
   assert.equal(draws.length, 0, 'exposure must not add a uniform bright floor');
   mgr.stars[0].bright = 1;
   mgr._drawStarfield(ctx, canvas, palette, palette, 0, 0);
-  assert.equal(draws.length, 0);
+  assert.ok(draws.some(d => d.alpha > .05));
 });

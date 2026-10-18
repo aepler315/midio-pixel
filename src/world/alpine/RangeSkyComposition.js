@@ -1,4 +1,5 @@
 import { cameraBasis } from '../terrain/SceneTravel.js';
+import { CELESTIAL_RISE_XFRAC, CELESTIAL_SET_XFRAC } from '../DayNight.js';
 /** One frame's Range-specific upper-sky ownership. Keep faint star depth
  * behind the live ridge while reserving its body for incidental figures. */
 export function createRangeSkyComposition(spaceRidge, canvas, { voyageActive = false } = {}) {
@@ -38,6 +39,48 @@ export function rangeMoonRadius(canvasHeight, scale) {
 /** Moon radius under Range v2: ~3.5% of the frame width across. */
 export function rangeV2MoonRadius(canvasWidth, approachScale = 1) {
   return canvasWidth * 0.0175 * Math.min(1.25, Math.max(0.85, approachScale));
+}
+
+/** The Range samples a slow, visible part of the lunar orbit over one
+ * song. The solar clock's long-song predawn/day/afterglow schedule never
+ * enters its moon phase; using that phase hid the moon for the whole song.
+ * This angular path has no storm gate, screen offset or ridge displacement. */
+export function rangeMoonOrbit(timeMs, durationMs) {
+  const p = Math.max(0, Math.min(1, durationMs > 0 ? timeMs / durationMs : 0));
+  return { azimuth01: .12 + .76 * p, altitude01: .4 + .35 * Math.sin(Math.PI * p) };
+}
+
+/** Project both celestial bodies through the terrain's resolved tour pose.
+ * Azimuth follows the body's arc continuously; dawn/dusk never flips a
+ * compass direction, and bounded elevation avoids a zenith dive through
+ * the top edge of a narrow landscape lens. */
+export function projectRangeCelestials(state, pose, lensScale = 1, solar = null) {
+  const bodies = {};
+  for (const name of ['sun', 'moon']) {
+    const source = state[name];
+    // The published Teton flight looks northeast with a narrow lens and
+    // a slightly downward aim. Sample a slow lunar arc over that skyline;
+    // a 150-degree orbit or a zenith-height moon stays outside the flight.
+    const azimuth = name === 'moon' ? 50 + 30 * (source.azimuth01 ?? .5) : 100 + 150 * (source.azimuth01 ?? .5);
+    const worldDirection = tourSkyDirection(azimuth, (name === 'moon' ? 4 : 32) * source.altitude01);
+    bodies[name] = Object.freeze({ ...source, radiusFrac: source.radiusFrac / lensScale,
+      ...projectSkyDirection(pose, worldDirection, pose.aspect), worldDirection: Object.freeze(worldDirection) });
+  }
+  if (solar) {
+    const azimuth = (solar.xFrac - CELESTIAL_RISE_XFRAC) / (CELESTIAL_SET_XFRAC - CELESTIAL_RISE_XFRAC);
+    const sun = tourSkyDirection(100 + 150 * azimuth, 32 * solar.altSigned);
+    const moon = bodies.moon.worldDirection, { forward, right, up } = cameraBasis(pose);
+    const dot = (a, b) => a.reduce((sum, v, i) => sum + v * b[i], 0);
+    // Project the direction of sunlight in the moon's tangent plane. This
+    // works even when the sun is behind the camera or below the horizon;
+    // projecting its point directly would return an offscreen sentinel.
+    const depth = dot(moon, forward), sunDepth = dot(sun, forward);
+    const dx = dot(sun, right) * depth - dot(moon, right) * sunDepth;
+    const dy = dot(sun, up) * depth - dot(moon, up) * sunDepth;
+    bodies.moon = Object.freeze({ ...bodies.moon, illuminant: Object.freeze({
+      xFrac: bodies.moon.xFrac + dx / (pose.aspect || 16 / 9), yFrac: bodies.moon.yFrac - dy }) });
+  }
+  return Object.freeze({ ...state, ...bodies });
 }
 
 const hash = (i, salt) => {

@@ -39,7 +39,7 @@ test('detail rail ring splits near instances without altering any tree record', 
   assert.equal(p.count, unsplit.count);
   const sorted = p => all(p).sort((a, b) => a[0] - b[0] || a[2] - b[2]).map(t => [...t]);
   assert.deepEqual(sorted(p), sorted(unsplit));
-  for (const [arr, lo, hi] of [[p.meshDetail, 0, 450], [p.mesh, 450, 1200], [p.billboard, 1200, 8000]]) {
+  for (const [arr, lo, hi] of [[p.meshDetail, 0, 531], [p.mesh, 369, 1416], [p.billboard, 984, 8000]]) {
     for (let i = 0; i < arr.length; i += 8) {
       const d = Math.hypot(arr[i] - Math.max(-200, Math.min(200, arr[i])), arr[i + 1] - 750, arr[i + 2]);
       assert.ok(d >= lo - .001 && d < hi + .001, `rail class ${d}: ${lo}..${hi}`);
@@ -159,14 +159,18 @@ const mainPlacementSamples = [
 ];
 test('species and sizes preserve every main placement root, ID and band byte', () => {
   const p = placeForest(data, view, rules, { seed: 5 });
-  const records = all(p).map(t => [t[0], t[1], t[2], t[6], t[7]]);
+  const records = all(p).map(t => [t[0], t[1], t[2], t[6], t[7]]).sort((a, b) => a[0] - b[0] || a[2] - b[2]);
   assert.equal(p.count, 20737);
-  assert.equal(p.mesh.length, 0);
+  // Canonical-order hash recorded from unchanged 5fade9d: representation
+  // grouping can change without changing a single root, ID or band byte.
   const bytes = new Float32Array(records.flat());
   assert.equal(createHash('sha256').update(new Uint8Array(bytes.buffer)).digest('hex'),
-    'f1292fcfddcc18c6cbb516b491452f07ebfe73b7725fe4b66ef500c982e66010');
-  for (const { index, bits } of mainPlacementSamples) {
-    assert.deepEqual([...new Uint32Array(new Float32Array(records[index]).buffer)], bits);
+    'ec99894c8c6a87feb0292ea66d82d31234f80b938ae7e3a0ec0aa0442188e7bc');
+  for (const { bits } of mainPlacementSamples) {
+    const [x, , z] = new Float32Array(new Uint32Array(bits).buffer);
+    const record = records.find(r => r[0] === x && r[2] === z);
+    assert.ok(record, 'each original root remains present');
+    assert.deepEqual([...new Uint32Array(new Float32Array(record).buffer)], bits);
   }
 });
 
@@ -240,4 +244,22 @@ test('height responds to the tree’s own broken treeline and slope before the t
   const upright = forestCover.treeTraits(ix, iz, seed, edge - 220 - .001, 0, r, view);
   assert.ok(mat.height >= 2 && mat.height <= 6 && mat.width / mat.height >= .7);
   assert.ok(upright.width / upright.height < .45);
+});
+
+test('mesh and silhouette trees interleave on both sides of their distance boundary', () => {
+  const close = { ...view, camera: { ...view.camera, eyeStartM: [-200, 750, 0], eyeEndM: [200, 750, 0],
+    targetStartM: [-200, 600, 500], targetEndM: [200, 600, 500] } };
+  const p = placeForest(data, close, rules, { seed: 5 });
+  const count = (array, lo, hi) => {
+    let found = 0;
+    for (let i = 0; i < array.length; i += p.stride) {
+      const d = Math.hypot(array[i] - Math.max(-200, Math.min(200, array[i])), array[i + 1] - 750, array[i + 2]);
+      if (d >= lo && d < hi) found++;
+    }
+    return found;
+  };
+  for (const [lo, hi] of [[1120, 1180], [1220, 1280]]) {
+    assert.ok(count(p.mesh, lo, hi) > 3 && count(p.billboard, lo, hi) > 3,
+      `both representations must share ${lo}..${hi}m instead of forming a hard ring`);
+  }
 });

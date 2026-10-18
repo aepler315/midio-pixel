@@ -257,7 +257,13 @@ function* placeForestSteps(data, view, rules, { seed = 0, rings = FOREST_RINGS, 
         const traits = treeTraits(ix, iz, seed, y, slope, rules, view);
         const band = d < b.nearM ? 2 : d < b.midM ? 1 : 0;
         const rec = [traits.x, y, traits.z, traits.height, traits.width, traits.species, traits.id, band];
-        (d < Math.min(rings.meshM, rings.detailM ?? FOREST_RINGS.detailM) ? detail : d < rings.meshM ? mesh : board).push(...rec);
+        // Mix representations across a stand instead of exposing a contour
+        // at one exact rail distance. A separate stable cell hash selects
+        // each tree's threshold: roots, dimensions, IDs and density stay put,
+        // and moving/returning cameras never roll a new representation.
+        const ringScale = .82 + .36 * u01(hash2(ix, iz, seed + 23));
+        (d < Math.min(rings.meshM, rings.detailM ?? FOREST_RINGS.detailM) * ringScale ? detail
+          : d < rings.meshM * ringScale ? mesh : board).push(...rec);
       }
       // One lattice row per step: a 64-cell tile holds ~100 rows of ~100
       // candidates, so a whole tile between yields could run for 100 ms.

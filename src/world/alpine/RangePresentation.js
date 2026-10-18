@@ -1,4 +1,3 @@
-import { cameraLensAt, applyLensFov } from '../../render/CameraLens.js';
 // Range v2 presentation boundary (plan §6.2, §7.4). Owns the choice between
 // the GPU scene and the legacy painters for each frame, the song's scene
 // assignments, the frame snapshot, and the synchronous copy of each GPU
@@ -18,7 +17,10 @@ import { scenePoseAt, cameraBasis } from '../terrain/SceneTravel.js';
 import { loadTourPackage } from '../terrain/TourPackage.js';
 import { prepareTourTimeline } from '../terrain/TourRuntime.js';
 import { applyCameraMoves } from './RangeCamera.js';
-import { skyTurn, tourSkyDirection, projectSkyDirection } from './RangeSkyComposition.js';
+import { skyTurn, projectRangeCelestials } from './RangeSkyComposition.js';
+import { convertLightBetween } from './LightSpace.js';
+import { lightDirTo } from '../../render/LightField.js';
+import { cyclePhase01, sunScreenFrac } from '../DayNight.js';
 import { forcedSceneChoice } from '../terrain/SceneCatalog.js';
 import SCENE_CATALOG from '../terrain/sceneCatalogData.js';
 import { noteViewShown } from '../terrain/RangeHistory.js';
@@ -608,6 +610,21 @@ export class RangePresentation {
       this._replanPromise = prepareTourTimeline(this.tourData, mgr, { signal: controller.signal, previous: this.tour, committedThroughMs: (mgr.tSec || 0) * 1000 })
         .then(tour => {
           if (controller.signal.aborted || generation !== this.generation) return;
+          // A worker freezes only a short prefix beyond its request time.
+          // Playback can pass that prefix while the job is still running.
+          // Admit the result against the camera being heard NOW, so a late
+          // refinement cannot teleport the listener onto a different route.
+          const nowMs = (mgr.tSec || 0) * 1000;
+          const before = this.tour.poseAt(nowMs), after = tour.poseAt(nowMs);
+          const continuous = ['eyeM', 'targetM'].every(key =>
+            before[key].every((value, i) => Math.abs(value - after[key][i]) < .1))
+            && Math.abs(before.fovYDeg - after.fovYDeg) < .01;
+          if (!continuous) {
+            this._tourSections = null; // retry from the current committed pose
+            this._tourPreparation = { ...this._tourPreparation, replanning: false,
+              refinement: { state: 'held', reason: 'Refinement arrived beyond its committed camera; continuing the current flight.' } };
+            return;
+          }
           this.tour = tour;
           // The worker can safely retain the previous flight when no
           // continuation exists. Only a newly reported deferral describes
@@ -732,26 +749,30 @@ export class RangePresentation {
     this.timings.frameId = this.frameId + 1;
     this.timings.frameRenderMs = 0;
     this.timings.frameCopyMs = 0;
-    if (view.tour && mgr.celestialState) {
-      const pose=view.tour.poseAt((mgr.tSec||0)*1000),lens=cameraLensAt({ sections:mgr.sections,timeMs:(mgr.tSec||0)*1000,durationMs:mgr.durationMs,reducedMotion:inputs.sim.reducedMotion || mgr.reducedMotion || mgr.reducedFlash,preview:mgr.terrainPreview }),projection=scenicProjection(applyLensFov(pose.fovYDeg,lens),inputs.scenicViewport);
-      const state=mgr.celestialState,morning=(state.dawn01||0)>(state.dusk01||0),bodies={};
-      for(const body of ['sun','moon']){
-        const source=state[body],altitude=Math.asin(Math.max(-1,Math.min(1,source.altitude01??.2)))*180/Math.PI;
-        const worldDirection=tourSkyDirection((morning?100:250)+(body==='moon'?180:0),altitude);
-        bodies[body]={...source,radiusFrac:source.radiusFrac/lens.halfAngleScale,...projectSkyDirection({...pose,fovYDeg:projection.fovYDeg},worldDirection,projection.aspect),worldDirection};
-      }
-      mgr.celestialState={...state,...bodies};
-      const active=bodies[state.activeBody];
-      if(active&&mgr._scenicLight)mgr._scenicLight={...mgr._scenicLight,x:active.xFrac*inputs.scenicViewport.logicalWidth,y:active.yFrac*inputs.scenicViewport.logicalHeight};
-    }
     this.scene.skyClouds = null;
     this.frame = buildRangeFrame({
       frameId: ++this.frameId, generation: this.generation, sim: inputs.sim, pose: inputs.pose,
       scenicViewport: inputs.scenicViewport, groundViewport: inputs.groundViewport,
       sceneAssignments: this.sceneByBiome, forcedView: this.forced, renderedViews: [view, incoming].filter(Boolean),
     });
-    this.scene.prepareShafts?.(this.frame, incoming ? [view.id, incoming.id] : [view.id]);
     this.skyPan = this._skyPan(view, incoming, this.frame);
+    if (this.skyPan.tourPose && mgr.celestialState) {
+      const solar = sunScreenFrac(cyclePhase01(this.frame.timeMs, mgr._dayNightCycleMs));
+      const state = projectRangeCelestials(mgr.celestialState, this.skyPan.tourPose, this.frame.cameraEffects.halfAngleScale, solar);
+      mgr.celestialState = state;
+      const active = state[state.activeBody];
+      if (active && mgr._scenicLight) {
+        const x = active.xFrac * inputs.scenicViewport.logicalWidth;
+        const y = active.yFrac * inputs.scenicViewport.logicalHeight;
+        const dir = lightDirTo({ x, y }, inputs.scenicViewport.logicalWidth / 2, inputs.scenicViewport.logicalHeight);
+        mgr._scenicLight = { ...mgr._scenicLight, x, y, dirX: dir.x, dirY: dir.y };
+        mgr._groundLight = convertLightBetween(mgr._scenicLight, inputs.scenicViewport.transform, inputs.groundViewport.transform);
+        this.frame = Object.freeze({ ...this.frame, light: Object.freeze({ ...this.frame.light, state,
+          celestial: Object.freeze({ ...active, body: state.activeBody, intensity: this.frame.light.celestial.intensity }),
+          ground: Object.freeze({ ...mgr._groundLight }) }) });
+      }
+    }
+    this.scene.prepareShafts?.(this.frame, incoming ? [view.id, incoming.id] : [view.id]);
     this.scene.skyPan = this.skyPan; // rain curtains and lightning stand where the sky draws them
     this.viewId = view.id;
     this.active = true;
