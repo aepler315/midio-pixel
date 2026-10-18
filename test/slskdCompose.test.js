@@ -11,7 +11,7 @@ const compose = readFileSync(join(root, 'docker-compose.yml'), 'utf8');
 const slskdYml = readFileSync(join(root, 'slskd/slskd.yml'), 'utf8');
 
 test('the slskd image is pinned by version and digest, not latest', () => {
-  assert.match(compose, /image:\s*slskd\/slskd:0\.26\.0@sha256:[a-f0-9]{64}/);
+  assert.match(compose, /image:\s*slskd\/slskd:0\.26\.1@sha256:[a-f0-9]{64}/);
   assert.doesNotMatch(compose, /slskd\/slskd:latest(?:\s|$)/);
 });
 

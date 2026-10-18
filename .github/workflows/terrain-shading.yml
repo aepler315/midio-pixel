@@ -1,15 +1,6 @@
 name: Terrain shading study
 on:
-  pull_request:
-    paths:
-      - 'src/world/alpine/TerrainShadingExperiment.js'
-      - 'src/world/alpine/TerrainMaterial.js'
-      - 'src/world/alpine/RangeScene.js'
-      - 'test/terrainShading*'
-      - 'test/fixtures/terrain-shading-*.json'
-      - 'tools/terrain-shading-*.mjs'
-      - 'tools/lib/terrain-shading-*.mjs'
-      - '.github/workflows/terrain-shading.yml'
+  # Expensive matched comparisons are explicitly dispatched for relevant changes.
   workflow_dispatch:
 permissions:
   contents: read

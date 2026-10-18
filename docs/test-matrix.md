@@ -5,7 +5,7 @@ This is the QA-001 contract: a workflow-to-test map with explicit
 thresholds, supported environments, and unverified cases. It is not a
 claim that product assurance is complete.
 
-Revision tagged against the 20432ab audit unless a later row says otherwise.
+Workflow map updated for midio-pixel. Historical audit counts below are not live gates.
 
 ## Supported environments (measured)
 
@@ -13,7 +13,7 @@ Revision tagged against the 20432ab audit unless a later row says otherwise.
 | --- | --- | --- |
 | Root unit tests | Node 24 on `ubuntu-latest` | `.github/workflows/test.yml` job `test` (`npm test`) |
 | Root lint + high-severity audit | Node 24 on `ubuntu-latest` | same job (`npm run lint`, `npm audit --audit-level=high`) |
-| Browser smoke | Playwright Chromium on `ubuntu-latest` | job `audio-smoke` |
+| Browser smoke | Playwright Chromium on `ubuntu-latest` | job `browser-smoke` |
 | Local audio-only app | Chromium-family browsers | README + `npm start` on loopback |
 
 Since 2026-10-14 the repository is private, and GitHub-hosted runners for
@@ -24,24 +24,36 @@ example `plex-smoke` 7.5-8.7 min before, 13-16 min after). Job budgets
 assume 2 CPUs; the shared setup action logs each job's CPU and memory
 count as its first step.
 
-Root `package.json` scripts that CI does **not** run on every PR:
-`bench:sections`, `eval:worlds`. Those are operator tools. `test:car` runs in
-the `audio-smoke` job.
+The core gate runs on PRs, main pushes and reusable deployment calls. Extended
+playback/lighting/shading/seek/world/export/car/URL/Plex/pixel checks run through
+the manually dispatched `Extended browser validation` workflow. Forest close-ups,
+terrain shading, landscape comparisons, full visual evaluation and depth rendering
+remain separately dispatched jobs; a green core gate does not claim those passed.
 
 ## Workflow jobs
 
 | Job | Command / check | Pass bar | Proves | Does not prove |
 | --- | --- | --- | --- | --- |
 | `test` | `npm ci`, `npm audit --audit-level=high`, `npm run lint`, `npm test` | zero failing Node tests under `test/*.js`, `test/*.mjs`, `test/helpers/*.js`; lint clean; no high+ npm advisories | Unit contracts for analysis, library fakes, export estimates, UI helpers | Real IndexedDB in a browser; Firefox/Safari; long recordings; physical devices |
-| `pixel-presentation` | `npm run test:retro` (24-minute harness bound; 30-minute job) | real DPR raster grid/boundaries, completed-capture palette membership, meaningful/changing Range content, scene bars, explicit export rejection | Chromium default v2 versus explicit legacy, eight representative export profiles/sizes, persisted settings, context recovery where available | Device performance, non-Chromium engines, every profile combination; failed driver runs remain failed evidence |
-| `plex-smoke` | `npm run test:plex` against its synthetic PMS, dedicated adapter, and generated staged artifact | zero failed catalog, ownership, cancellation, PCM, playback, or export assertions; no uncaught browser errors | Anonymous Chromium catalog, paging, actual loader races/cancellation, no token-bearing browser calls, blocked-storage recovery, offline playback, source/cache identity | Live PMS, external HTTPS ingress, real library format compatibility, non-Chromium or head-unit hardware; see [deployment guide](./plex-integration.md) |
-| `audio-smoke` | Playback/lighting/shading/seek/world/export/car/URL-loader smokes against source, then `stage:site` + `test:bootstrap` against that artifact | each script exits 0; staged Browse opens a real chooser; artifacts under `.smoke/` | Chromium can boot the actual public file set, upload a short synthetic fixture, pick a world, draw, seek, and start an export | Watchability, identity, other engines, songs longer than the fixture |
+| `browser-smoke` | `test:smoke`, `stage:site`, `test:bootstrap` | zero failures within a ten-minute job | Short Chromium upload/playback and actual staged file-set bootstrap | Long visual comparisons, real-song pacing, hardware performance |
+| `pixel-presentation` (manual extended job) | `npm run test:retro` (24-minute harness bound; 30-minute job) | real DPR raster grid/boundaries, completed-capture palette membership, meaningful/changing Range content, scene bars, explicit export rejection | Chromium default v2 versus explicit legacy, eight representative export profiles/sizes, persisted settings, context recovery where available | Device performance, non-Chromium engines, every profile combination; failed driver runs remain failed evidence |
+| `plex-smoke` (manual extended job) | `npm run test:plex` against its synthetic PMS, dedicated adapter, and generated staged artifact | zero failed catalog, ownership, cancellation, PCM, playback, or export assertions; no uncaught browser errors | Anonymous Chromium catalog, paging, actual loader races/cancellation, no token-bearing browser calls, blocked-storage recovery, offline playback, source/cache identity | Live PMS, external HTTPS ingress, real library format compatibility, non-Chromium or head-unit hardware; see [deployment guide](./plex-integration.md) |
+| `audio-smoke` (manual extended job) | Playback/lighting/shading/seek/world/export/car/URL-loader smokes against source, then `stage:site` + `test:bootstrap` against that artifact | each script exits 0; staged Browse opens a real chooser; artifacts under `.smoke/` | Chromium can boot the actual public file set, upload a short synthetic fixture, pick a world, draw, seek, and start an export | Watchability, identity, other engines, songs longer than the fixture |
 
-GitHub Pages deploy stages one artifact with `stage:site`, runs bootstrap and
-audio playback against that exact directory, uploads it, and deploys only
-after the reusable validation workflow succeeds. It publishes `index.html`,
-`src/`, `soundfonts/`, `CNAME`, and `.nojekyll`; it does not publish tools,
-tests, raw terrain inputs, or the Soulseek bridge.
+The intended `Deploy static content to Pages` workflow stages one artifact with
+`stage:site`, validates it, and uploads only the public allowlist after the reusable
+gate. **This is not the currently observed publishing path.** On 2026-10-18,
+run 39099645162 built main 0a82fba through GitHub's dynamic Jekyll Pages workflow
+and deployed successfully. Root CNAME still names `supermaudio.com`, inherited
+from Midio-5. Confirm the intended independent domain and select GitHub Actions
+as the Pages source in repository Settings > Pages before treating the staged
+workflow as the release gate. No Pages settings were changed during this work.
+
+Pixel validation run 39099645278 failed in two seconds with empty step lists and
+no assigned runner. The pinned checkout SHA resolves to actions/checkout v7.0.1.
+The connector cannot read check annotations or Pages settings, and the desktop
+browser connection is unavailable in this host session. The runner-allocation
+failure remains unresolved externally; local green tests cannot establish CI health.
 
 ## Thresholds that are measured today
 
