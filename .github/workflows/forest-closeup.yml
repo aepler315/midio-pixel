@@ -1,26 +1,7 @@
 name: Forest close-ups
 
 on:
-  pull_request:
-    paths:
-      - 'src/world/alpine/Forest*.js'
-      - 'src/world/alpine/TerrainMaterial.js'
-      - 'src/world/alpine/RangeScene.js'
-      - 'tools/forest-closeup-smoke.mjs'
-      - 'tools/forest-billboard-smoke.mjs'
-      - 'tools/forest-mesh-smoke.mjs'
-      - 'tools/far-forest-smoke.mjs'
-      - 'tools/far-forest-dots-smoke.mjs'
-      - 'tools/forest-parity-smoke.mjs'
-      - 'src/world/alpine/terrainWindowWorker.js'
-      - 'tools/range-scene-smoke.mjs'
-      - 'tools/lib/forest-checkpoints.mjs'
-      - 'tools/lib/forest-window.mjs'
-      - 'tools/lib/forest-flicker.mjs'
-      - 'tools/lib/forest-ring-tone.mjs'
-      - 'tools/lib/forest-far-dots.mjs'
-      - 'tools/forest-flicker-compare.mjs'
-      - '.github/workflows/forest-closeup.yml'
+  # Expensive matched comparisons are explicitly dispatched for relevant changes.
   workflow_dispatch:
 
 permissions:
