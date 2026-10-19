@@ -21,7 +21,7 @@ import { VisualMusicHistory } from './VisualMusicHistory.js';
 import { ridgeEnvelope, boundaryLift01 } from './alpine/Ridge.js';
 import { travelSeam, TRAVEL_FEATHER, TRAVEL_BANDS } from './TravelSeam.js';
 import { landscapeLayerColor, landscapePasses, landscapePolicy, landscapeBudget, landscapeSnowAllowed, resolveLandscapePalette, resolveRangePresentation, rangeDrawsSea } from './alpine/LandscapePolicy.js';
-import { createRangeSkyComposition, rangeMoonOrbit, rangeMoonRadius, rangeV2MoonRadius, drawMoonMaria, rangeCloudBanks, tourCloudBanks, drawRangeClouds, tourSkyDirection, projectSkyDirection } from './alpine/RangeSkyComposition.js';
+import { createRangeSkyComposition, rangeMoonOrbit, rangeMoonRadius, rangeV2MoonRadius, drawMoonMaria, rangeCloudBanks, tourCloudBanks, drawRangeClouds, tourSkyDirection, projectSkyDirection, projectRailSky } from './alpine/RangeSkyComposition.js';
 import { rangeSkyState } from './alpine/RangeFrame.js';
 import { withNarrativeAlpha, drawNarrativeMarks } from '../render/NarrativeDraw.js';
 import { buildRidgeSurface } from './alpine/RidgeSurface.js';
@@ -470,6 +470,7 @@ export class BiomeManager {
       timeline: conductor.timeline, durationMs, casting: ridgeCasting, conductorCues: ridgeCalmCues, response: getWorld(worldId || DEFAULT_WORLD_ID)?.response }) });
     this._crestBeatClock = new CrestBeatClock(conductor.barGrid);
     this.energyCurves = energyCurves;
+    this.landscapeHistory = chapterState?.landscapeHistory || null;
     this.durationMs = durationMs || 0;
     // The sky's clock: one day across the song (dark before dawn, sunset at
     // the end), or the repeating cycle for a song too short to hold one.
@@ -2681,7 +2682,7 @@ export class BiomeManager {
 
     // The infinite sky shares the ordinary Range lens. Tour bodies already
     // use its projected world directions, so they must not be scaled twice.
-    const skyLens = v2 && !this.rangePresentation?.tourMode
+    const skyLens = v2 && !this.rangePresentation?.tourMode && !this.rangePresentation?.skyPan?.skyCamera
       ? this.rangePresentation?.frame?.cameraEffects?.halfAngleScale || 1 : 1;
     ctx.save();
     ctx.translate(canvas.width / 2, canvas.height / 2);
@@ -2794,8 +2795,15 @@ export class BiomeManager {
       const halo = hexToRgb(this._scenicLight.colorHex);
       const top = hexToRgb(this._rotated(this.lerpCache.get(A.sky[0], B.sky[0], t)));
       const pan = this.rangePresentation?.skyPan;
-      const panPx = (pan?.x || 0) * canvas.width / 2, panYPx = -(pan?.y || 0) * canvas.height / 2;
+      const panPx = pan?.skyCamera ? 0 : (pan?.x || 0) * canvas.width / 2, panYPx = pan?.skyCamera ? 0 : -(pan?.y || 0) * canvas.height / 2;
       const banks = pan?.tourPose ? tourCloudBanks({ pose: pan.tourPose, width: canvas.width, height: canvas.height, tSec: this.tSec, seed: (this.songSeed || 0) % 9973, lensScale: this.rangePresentation?.frame?.cameraEffects.halfAngleScale || 1 }) : rangeCloudBanks({ width: canvas.width, height: canvas.height, tSec: this.tSec, seed: (this.songSeed || 0) % 9973, panPx, panYPx });
+      if (pan?.skyCamera) for (const bank of banks) {
+        const p = projectRailSky({ xFrac: bank.x / canvas.width, yFrac: bank.y / canvas.height }, pan.skyCamera);
+        bank.x = p.xFrac * canvas.width; bank.y = p.yFrac * canvas.height;
+        const camera = pan.skyCamera.from, zoom = Math.tan(camera.referencePose.fovYDeg * Math.PI / 360)
+          / Math.tan(camera.pose.fovYDeg * Math.PI / 360) / (1 - (camera.pose.viewOffset?.fx || 0));
+        bank.w *= zoom; bank.h *= zoom;
+      }
       if (this.rangePresentation?.scene) this.rangePresentation.scene.skyClouds = { banks, options: {
         width: canvas.width, height: canvas.height, light: this._scenicLight,
         allowPoint: this._rangeSky?.allowPoint || null,
@@ -3933,8 +3941,9 @@ export class BiomeManager {
     // terrain/cloud occlusion, including low-angle and upward tour shots.
     const skyH = canvas.height * (this._rangeV2Active ? 1 : STAR_SKY_FRAC);
     const tourPose = this._rangeV2Active && this.rangePresentation?.skyPan?.tourPose;
-    const projectStar = (xFrac, yFrac) => projectSkyDirection(tourPose,
-      tourSkyDirection(xFrac * 360, (1 - yFrac) * 90), tourPose.aspect || canvas.width / canvas.height);
+    const skyCamera = this._rangeV2Active && this.rangePresentation?.skyPan?.skyCamera;
+    const projectStar = (xFrac, yFrac) => tourPose ? projectSkyDirection(tourPose,
+      tourSkyDirection(xFrac * 360, (1 - yFrac) * 90), tourPose.aspect || canvas.width / canvas.height) : projectRailSky({ xFrac, yFrac: yFrac * skyH / canvas.height }, skyCamera);
 
     // Soft milky / galactic wash. Sits on the SAME tilted axis the star
     // density does (GALACTIC_BAND, shared with StarCatalogue) -- it used to
@@ -4093,17 +4102,17 @@ export class BiomeManager {
       let x = s.xFrac * canvas.width + layerDrift;
       x = ((x % canvas.width) + canvas.width) % canvas.width;
       let y = s.yFrac * skyH;
-      if (tourPose) {
+      if (tourPose || skyCamera) {
         // The catalogue is a persistent celestial hemisphere. Use the final
         // rendered lens once; never layer ordinary drift/zoom onto the tour.
-        const p = projectStar(s.xFrac, s.yFrac);
+        const p = projectStar(skyCamera ? x / canvas.width : s.xFrac, s.yFrac);
         if (!p.visible) continue;
         x = p.xFrac * canvas.width; y = p.yFrac * canvas.height;
         // A narrow, low-angle tour lens sees only the catalogue's faint
         // horizon population. Lift its display exposure without changing
         // point size or adding a brightness floor; extinction, relative
         // brightness and the atmospheric occluders still shape the field.
-        a = 1 - Math.exp(-4 * a);
+        if (tourPose) a = 1 - Math.exp(-4 * a);
       }
       if (this._rangeSky) a *= this._rangeSky.starBrightnessAt(x, y);
       if (a < 0.004) continue;
@@ -4123,7 +4132,7 @@ export class BiomeManager {
         ctx.fillRect(px, py, sz, sz);
         if (s.companion) {
           ctx.globalAlpha = a * 0.45;
-          const companion = tourPose ? projectStar(s.xFrac + s.companion.dx / canvas.width,
+          const companion = (tourPose || skyCamera) ? projectStar(s.xFrac + s.companion.dx / canvas.width,
             s.yFrac + s.companion.dy / skyH) : null;
           if (!companion || companion.visible) {
             const [cx, cy] = point(companion ? companion.xFrac * canvas.width : x + s.companion.dx,

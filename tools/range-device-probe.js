@@ -40,8 +40,9 @@
   // view), so keep it -- open a fresh page for each run. Started during
   // playback: begin a new window here.
   if (!coldStartCaptured) residency()?.resetPeak?.();
-  const buckets = { cold: new FrameDeliveryAggregator(), steady: new FrameDeliveryAggregator(), travel: new FrameDeliveryAggregator() };
+  const buckets = { cold: new FrameDeliveryAggregator(), steady: new FrameDeliveryAggregator(), travel: new FrameDeliveryAggregator(), playback: new FrameDeliveryAggregator() };
   const levels = {};
+  let previousBucket = null, segment = 0;
   const renderMs = [], copyMs = [];
   const MAX_TIMINGS = 40000; // ten minutes at 60 Hz, bounded
   let legacyFrames = 0, restarts = 0, lastSim = live().sim, lastFrameId = null;
@@ -57,9 +58,16 @@
       // Which presented frame is on screen at this callback. A new song
       // (load generation) or presentation generation restarts frame ids.
       const shown = smw?.presentationDiagnostics?.frame || {};
-      (t - t0 < COLD_MS ? buckets.cold : travelling ? buckets.travel : buckets.steady).push({
-        wallMs: t, generation: `${smw?.generation ?? 0}:${shown.generation ?? 0}`, frameId: shown.frameId ?? null,
-        presented: !!shown.presented, paused: !!smw?.paused, hidden: document.hidden, capFps: smw?.fpsCap ?? null });
+      const bucket = t - t0 < COLD_MS ? 'cold' : travelling ? 'travel' : 'steady';
+      if (bucket !== previousBucket) { segment++; previousBucket = bucket; }
+      const sample = {
+        wallMs: t, generation: smw?.generation ?? 0,
+        frameId: shown.frameId == null ? null : `${shown.generation ?? 0}:${shown.frameId}`,
+        presented: !!shown.presented, paused: !!smw?.paused, hidden: document.hidden, capFps: smw?.fpsCap ?? null };
+      buckets[bucket].push({ ...sample, segment });
+      // Keep the post-cold playback chain continuous across travel and
+      // quality changes, so a real boundary stall is still measured.
+      if (bucket !== 'cold') buckets.playback.push(sample);
       levels[smw?.perfLevel] = (levels[smw?.perfLevel] || 0) + 1;
       if (pres?.active) {
         // The totals of the latest Range frame (every pass summed), once
@@ -92,7 +100,7 @@
     rangeTarget: scene ? `${scene.size.width}x${scene.size.height}` : null,
     budget: smw?.rangeState?.residency?.budget ?? null,
     minutes: MINUTES, coldStartCaptured, songRestarts: restarts,
-    frameDelivery: { cold: buckets.cold.summary(), steady: buckets.steady.summary(), travel: buckets.travel.summary() },
+    frameDelivery: { cold: buckets.cold.summary(), steady: buckets.steady.summary(), travel: buckets.travel.summary(), playback: buckets.playback.summary() },
     qualityLevels: levels, legacyFrames,
     residencyPeakWindow: coldStartCaptured ? 'page load' : 'probe start',
     residencyPeakMiB: r ? +(r.peakBytes / MiB).toFixed(1) : null,

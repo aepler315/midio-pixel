@@ -148,9 +148,9 @@ export function describeWorldResponse(kind, features = {}, extras = {}) {
 }
 
 export function previewCacheKey({
-  worldId, seed, tMs, reducedFlash = false, reducedMotion = false, version = PREVIEW_VERSION,
+  worldId, seed, tMs, reducedFlash = false, reducedMotion = false, version = PREVIEW_VERSION, experience = 'landscape',
 } = {}) {
-  return `${version}|${worldId}|${seed >>> 0}|${Math.round(tMs || 0)}|${reducedFlash ? 1 : 0}|${reducedMotion ? 1 : 0}`;
+  return `${version}|${worldId}|${seed >>> 0}|${Math.round(tMs || 0)}|${reducedFlash ? 1 : 0}|${reducedMotion ? 1 : 0}${experience === 'trio' ? '|trio' : ''}`;
 }
 
 function withCustomWorld(world, fn) {
@@ -177,6 +177,21 @@ export function createPreviewWorld({
   canvas.width = width;
   canvas.height = height;
   worldId = resolveWorldId(worldId);
+  if (data.experience === 'trio') {
+    const runtime = createPreviewWorld._trio;
+    if (!runtime) throw new Error('Preview renderer is not loaded');
+    const conductor = new Conductor(); conductor.load({ ...data, timeline: data.timeline || [], barGrid: data.barGrid || [] });
+    const sim = new runtime.Simulation(conductor, new runtime.ParamBus(), { experience: 'trio',
+      canvasWidth: 1280, canvasHeight: 720, energyCurves: data.energyCurves, songSeed: seed });
+    sim.setReducedFlash(reducedFlash); sim.setReducedMotion(reducedMotion);
+    const renderer = runtime.createPresentingRenderer({ canvas, presentation: data.previewPresentation || runtime.resolvePresentation(runtime.DEFAULT_DISPLAY_PREFS) });
+    let last = -Infinity;
+    return { kind: 'trio', canvas, draw(timeMs) {
+      if (last === -Infinity || timeMs < last || timeMs - last > 1000) sim.trio.seek(timeMs);
+      sim.step(Math.max(0, Math.min(200, timeMs - (Number.isFinite(last) ? last : timeMs))), timeMs);
+      renderer.draw(sim, 1); last = timeMs;
+    }, dispose() { renderer.dispose(); sim.dispose(); } };
+  }
   const stock = getWorld(worldId);
 
   const variant = worldId === getCustomWorld()?.id ? stock : buildWorldVariant(worldId, features, data).world;
@@ -231,8 +246,13 @@ createPreviewWorld._BiomeManager = null;
 
 export async function loadPreviewRenderer() {
   if (createPreviewWorld._BiomeManager) return;
-  const mod = await import('../world/BiomeManager.js');
+  const [mod, sim, bus, renderer, display] = await Promise.all([
+    import('../world/BiomeManager.js'), import('../sim/Simulation.js'), import('../core/ParamBus.js'),
+    import('../render/PresentingRenderer.js'), import('../render/DisplayProfile.js'),
+  ]);
   createPreviewWorld._BiomeManager = mod.BiomeManager;
+  createPreviewWorld._trio = { Simulation: sim.Simulation, ParamBus: bus.ParamBus,
+    createPresentingRenderer: renderer.createPresentingRenderer, ...display };
 }
 
 export function renderWorldStill(args) {
@@ -310,6 +330,7 @@ export class PreviewSession {
   keyFor(worldId, which = this.passage) {
     return previewCacheKey({
       worldId,
+      experience: this.data.experience,
       seed: this.seed,
       tMs: passageStart(this.passages, which),
       reducedFlash: this.reducedFlash,

@@ -11,6 +11,8 @@ class PresentingRenderer {
     this.inner = rendererFactory(canvas, mode);
     this.output = new PixelPresentation({ canvas, presentation, residency });
     this._disposed = false;
+    this._requestedPresentation = presentation;
+    this._experience = 'landscape';
   }
   get backend() { return this.inner.backend || 'canvas'; }
   get canvasRenderer() { return this.inner.canvasRenderer || this.inner; }
@@ -23,10 +25,16 @@ class PresentingRenderer {
   set hudInFrame(value) { this.inner.hudInFrame = value; }
   get rangeListeningActive() { return this.canvasRenderer.rangeListeningActive; }
   get diagnostics() { return this.output.diagnostics; }
-  setPresentation(value) { this.output.setPresentation(value); }
+  setPresentation(value) {
+    this._requestedPresentation = value;
+    this.output.setPresentation(this._experience === 'trio' ? { ...value, pixelScale: 'original' } : value);
+  }
   getCaptureSource() { return this._disposed ? null : this.output.getCaptureSource(); }
   draw(sim, alpha) {
     if (this._disposed) return this.output.failFrame('disposed');
+    if ((sim?.experience || 'landscape') !== this._experience) {
+      this._experience = sim?.experience || 'landscape'; this.setPresentation(this._requestedPresentation);
+    }
     this.output.setFrameContext?.({ worldKind: sim?.biomes?.world?.kind ?? null });
     const source = this.output.beginFrame();
     if (!source) return this.output.diagnostics.frame;

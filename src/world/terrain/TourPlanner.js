@@ -16,6 +16,11 @@ export function planTour(data,{sections=[],roles=null,durationMs=0,energyAt=null
   const events=descriptors.map(s=>({...s,timeMs:heroTime(s,energy)})).filter(s=>s.timeMs!==null&&s.timeMs>(startContinuation?.timeMs??-1));
   const hasOrbits=data.edges.some(e=>e.kind==='orbit');
   const notes=[],missed=[],occurrences=new Map();let states=[];
+  const climb = reducedMotion ? 15 : 30, yaw = reducedMotion ? 12 : 25;
+  const feasibleLeg = (a, b, seconds) => {
+    const turn = Math.abs(((b.station.bestAim.headingDeg - a.station.bestAim.headingDeg + 540) % 360) - 180);
+    return Math.abs(b.station.yM - a.station.yM) <= seconds * climb && turn <= seconds * yaw;
+  };
   const path=(a,b,incoming=null)=>graph.shortestPath(a.station.nodeId,b.station.nodeId,{geometry:false,incoming});
   const candidates=event=>{
     const compatible=[event.role,...(data.fallback?.[event.role]||[])];
@@ -40,7 +45,7 @@ export function planTour(data,{sections=[],roles=null,durationMs=0,energyAt=null
         const lowerBound=(previous?.cost||0)+penalty+(p.tier==='backup'?.3:-1)+(previous?.used.has(p.id)?3:0)
           -(event.finalChorus?1.5*p.grandeur:0)-(event.role==='drop'?p.grandeur+(p.name==='Grand Teton'?8:0):0);
         if(winner&&lowerBound>=winner.cost)continue;
-        const travel=previous?path(previous.p,p,previous.incoming):null;if(previous&&!travel)continue;
+        const travel=previous?path(previous.p,p,previous.incoming):null;if(previous&&(!travel||!feasibleLeg(previous.p,p,dt)))continue;
         if(travel?.steps.length&&event.timeMs<durationMs-8000&&!(hasOrbits?graph.canReachOrbit(p.station.nodeId,travel.steps.at(-1)):graph.canContinue(p.station.nodeId,travel.steps.at(-1))))continue;
         const agl=300; // Spec tier2 AGL for transition feasibility.
         const omega=travel?travel.lengthM/dt/agl:.05+.17*energy(event.timeMs),target=.05+.17*energy(event.timeMs);

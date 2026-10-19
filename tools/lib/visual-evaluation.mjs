@@ -24,8 +24,9 @@ const keys = (obj, allowed, label) => {
 export function normalizeManifest(value) {
   keys(value, ['version', 'settings', 'songs'], 'manifest');
   assert.equal(value.version, 1, 'manifest version must be 1');
-  keys(value.settings || {}, [...Object.keys(DEFAULT_SETTINGS), 'presentation', 'startMs', 'debug'], 'settings');
+  keys(value.settings || {}, [...Object.keys(DEFAULT_SETTINGS), 'presentation', 'startMs', 'debug', 'experience'], 'settings');
   const settings = { ...DEFAULT_SETTINGS, ...value.settings };
+  if (settings.experience != null) assert.ok(['landscape', 'trio'].includes(settings.experience), 'invalid experience');
   if (settings.presentation != null) {
     const p = settings.presentation;
     const old = p.version === 1;

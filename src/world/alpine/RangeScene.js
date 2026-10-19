@@ -21,9 +21,9 @@ import { rangeRenderPolicy, supportedSamples, msaaOverride, sceneTargetBytes, si
 // GraphicsResidency; GPU meshes, the surface texture and render targets are
 // reserved here before creation and released through dispose().
 import { prepareTerrainAssets, RangeAssetError } from './RangeAssets.js';
-import { createSurfaceTexture, terrainUniforms, createBandGeometries } from './TerrainGL.js';
+import { createSurfaceTextureAsync, terrainUniforms, createBandGeometries } from './TerrainGL.js';
 import { syncGustUniforms, sceneUniforms, createSceneMaterial, createDepthMaterial, setLinearFromHex, createMaterialTextures, applyMaterial, SCENE_VERT, FEATURE_FRAG } from './TerrainMaterial.js';
-import { terrainFeatureSegments } from './TerrainFeatures.js';
+import { terrainFeatureSegmentsAsync } from './TerrainFeatures.js';
 import { loadMaterialPack, materialGpuBytes, RULE_DEFAULTS, validateWaterRules } from './MaterialPackage.js';
 import { placeForestAsync, forestPlacementBound } from './ForestCover.js';
 import { SunShaftGL, SHAFT_KEY, shaftSize, shaftSource } from './SunShaftGL.js';
@@ -829,7 +829,8 @@ export class RangeScene {
         const scratch = this.residency?.reserve({ key: scratchKey, bytes: gridPx * 11, owner: 'range-scratch', generation }) || null;
         if (this.residency && !scratch) throw new RangeAssetError('budget', `no room to build ${view.id} surface`);
         try {
-          surface = createSurfaceTexture(THREE, cpu.data, { stride: textureStride });
+          surface = await createSurfaceTextureAsync(THREE, cpu.data, { stride: textureStride, signal,
+            checkCurrent: () => { if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`); } });
           this.renderer?.initTexture?.(surface.texture);
           this.renderer?.initTexture?.(surface.receiverTexture);
         } finally { if (scratch) this.residency.release(scratchKey); }
@@ -873,8 +874,9 @@ export class RangeScene {
           meshes[band].frustumCulled = false;
           scenes[band] = new THREE.Scene();
           scenes[band].add(meshes[band]);
-          const hints = terrainFeatureSegments(geos.geometries[band].attributes.position.array,
-            geos.geometries[band].index.array);
+          const hints = await terrainFeatureSegmentsAsync(geos.geometries[band].attributes.position.array,
+            geos.geometries[band].index.array, { signal,
+              checkCurrent: () => { if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`); } });
           const fg = new THREE.BufferGeometry();
           fg.setAttribute('position', new THREE.BufferAttribute(hints, 3));
           featureGeometries[band] = fg;

@@ -17,7 +17,7 @@ import { scenePoseAt, cameraBasis } from '../terrain/SceneTravel.js';
 import { loadTourPackage } from '../terrain/TourPackage.js';
 import { prepareTourTimeline } from '../terrain/TourRuntime.js';
 import { applyCameraMoves } from './RangeCamera.js';
-import { skyTurn, projectRangeCelestials } from './RangeSkyComposition.js';
+import { skyTurn, projectRangeCelestials, projectRailCelestials } from './RangeSkyComposition.js';
 import { convertLightBetween } from './LightSpace.js';
 import { lightDirTo } from '../../render/LightField.js';
 import { cyclePhase01, sunScreenFrac } from '../DayNight.js';
@@ -756,9 +756,11 @@ export class RangePresentation {
       sceneAssignments: this.sceneByBiome, forcedView: this.forced, renderedViews: [view, incoming].filter(Boolean),
     });
     this.skyPan = this._skyPan(view, incoming, this.frame);
-    if (this.skyPan.tourPose && mgr.celestialState) {
+    if ((this.skyPan.tourPose || this.skyPan.skyCamera) && mgr.celestialState) {
       const solar = sunScreenFrac(cyclePhase01(this.frame.timeMs, mgr._dayNightCycleMs));
-      const state = projectRangeCelestials(mgr.celestialState, this.skyPan.tourPose, this.frame.cameraEffects.halfAngleScale, solar);
+      const state = this.skyPan.tourPose
+        ? projectRangeCelestials(mgr.celestialState, this.skyPan.tourPose, this.frame.cameraEffects.halfAngleScale, solar)
+        : projectRailCelestials(mgr.celestialState, this.skyPan.skyCamera, solar);
       mgr.celestialState = state;
       const active = state[state.activeBody];
       if (active && mgr._scenicLight) {
@@ -805,7 +807,9 @@ export class RangePresentation {
       }
       if (v.tour) return { tourPose: { ...pose, fovYDeg: proj.fovYDeg, aspect: proj.aspect } };
       const turn = skyTurn(pose, cameraBasis(rail).forward);
-      return { ...turn, tanY: Math.tan((proj.fovYDeg * Math.PI) / 360) / (frame.cameraEffects?.halfAngleScale || 1), aspect: proj.aspect };
+      const referenceFov = Math.atan(Math.tan(proj.fovYDeg * Math.PI / 360) / (frame.cameraEffects?.halfAngleScale || 1)) * 360 / Math.PI;
+      const skyCamera = { referencePose: { ...rail, fovYDeg: referenceFov }, pose: { ...pose, fovYDeg: proj.fovYDeg }, aspect: proj.aspect };
+      return { ...turn, skyCamera, tanY: Math.tan((proj.fovYDeg * Math.PI) / 360) / (frame.cameraEffects?.halfAngleScale || 1), aspect: proj.aspect };
     };
     try {
       const a = one(view);
@@ -815,7 +819,7 @@ export class RangePresentation {
       const mix = (key) => a[key] + (b[key] - a[key]) * k;
       const tanY = mix('tanY'), aspect = mix('aspect');
       if (!(tanY > 0 && aspect > 0)) return still;
-      return { x: mix('x') / (tanY * aspect), y: mix('y') / tanY };
+      return { x: mix('x') / (tanY * aspect), y: mix('y') / tanY, skyCamera: Object.freeze({ from: a.skyCamera, to: k === 0 ? a.skyCamera : b.skyCamera, mix: k }) };
     } catch { return still; }
   }
 
@@ -1092,7 +1096,7 @@ export class RangePresentation {
   snapshot() {
     return {
       ...this.status(),
-      tour: this.tour ? { durationMs: this.tour.durationMs, heroes: this.tour.heroes, notes: this.tour.notes, meanQualityRatio: this.tour.meanQualityRatio } : null,
+      tour: this.tour ? { durationMs: this.tour.durationMs, heroes: this.tour.heroes, notes: this.tour.notes, meanQualityRatio: this.tour.meanQualityRatio, heroFraming: this.tour.heroFraming || [] } : null,
       forcedCandidate: !!this.forced?.forcedCandidate, forcedViewId: this.forcedViewId, diag: this.diag,
       generation: this.generation, runtime: this.runtimeState, runtimeAttempts: this.runtimeAttempts, arrival: this.arrival, incomingFade: this.incomingFade, incomingViewId: this.active ? this.incomingViewId : null, seamP: this.seamP ?? null,
       failures: Object.fromEntries(this.failures), deferred: [...this.deferred.keys()], frameId: this.frameId, progress01: this.frame?.progress01 ?? null,

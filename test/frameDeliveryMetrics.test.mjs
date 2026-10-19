@@ -78,3 +78,29 @@ test('empty and all-excluded inputs summarize without inventing frames', () => {
   assert.equal(s.delivered, null);
   assert.equal(s.deliveredFrames, 0);
 });
+
+test('separate steady segments never count intervening travel as a frozen frame', () => {
+  const samples = [
+    ...run({ seconds: 1, every: 1, capFps: 60 }).map(s => ({ ...s, segment: 1 })),
+    // The travel bucket owns thirteen seconds of real presented frames.
+    // This steady bucket receives samples again only when that travel ends.
+    ...run({ seconds: 1, every: 1, start: 14000, firstId: 841, capFps: 60 }).map(s => ({ ...s, segment: 3 })),
+  ];
+  const result = summarizeFrameDelivery(samples);
+  assert.ok(result.callbacks.maxMs < 20, `invented callback gap ${result.callbacks.maxMs}`);
+  assert.ok(result.delivered.maxMs < 20, `invented presentation gap ${result.delivered.maxMs}`);
+  assert.equal(result.delivered.stallsOver100ms, 0);
+  assert.equal(result.deliveredFrames, 120);
+  assert.equal(result.generationChanges, 0, 'measurement segments are not song replacements');
+});
+
+test('a quality renderer refresh keeps a real gap in the same source playback chain', () => {
+  const result = summarizeFrameDelivery([
+    { wallMs: 0, generation: 'song', frameId: 'old:1', presented: true },
+    { wallMs: hz60, generation: 'song', frameId: 'old:2', presented: true },
+    { wallMs: 250, generation: 'song', frameId: 'new:1', presented: true },
+  ]);
+  assert.equal(result.deliveredFrames, 3);
+  assert.equal(result.generationChanges, 0);
+  assert.equal(result.delivered.stallsOver100ms, 1, 'the new canvas does not erase a listener-visible gap');
+});

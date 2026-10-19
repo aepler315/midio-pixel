@@ -280,6 +280,7 @@ export function parseBulkArgs(argv) {
     resolutions: null,
     frameRates: null,
     world: null,
+    experience: 'landscape',
     seed: null,
     crf: 16,
     preset: 'medium',
@@ -320,6 +321,11 @@ export function parseBulkArgs(argv) {
       opts.frameRates = parseFrameRates(got.value);
       i = got.next;
       continue;
+    }
+    if (token === '--experience' || token.startsWith('--experience=')) {
+      const got = takeOption(args, i, '--experience');
+      if (!['landscape', 'trio'].includes(got.value)) throw new Error('--experience must be landscape or trio.');
+      opts.experience = got.value; i = got.next; continue;
     }
     if (token === '--world' || token.startsWith('--world=')) {
       const got = takeOption(args, i, '--world');
@@ -409,6 +415,7 @@ Options
   --out <dir>           Output folder (default: exports)
   --res <list>          1080, 1440, 2160, 4k, or all (default: all)
   --fps <list>          30, 60, or all (default: all)
+  --experience <mode>  landscape (default) or trio
   --world <id|name>     World id (alpine, city, ...) or card name.
                         Default: the world's own recommendation.
   --seed <n>            Same performance seed for every file in the batch
