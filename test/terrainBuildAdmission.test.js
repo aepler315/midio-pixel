@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { RangeScene } from '../src/world/alpine/RangeScene.js';
 import { GraphicsResidency } from '../src/render/GraphicsResidency.js';
-import { shareTerrainLanes } from '../src/world/alpine/TerrainWindowWorker.js';
+import { shareTerrainLanes } from '../src/world/alpine/TerrainWindowWorkerClient.js';
 import { buildTerrainGeometry } from '../src/world/alpine/TerrainMesh.js';
 import { TourWindowCache } from '../src/world/alpine/TerrainWindow.js';
 
@@ -161,7 +161,7 @@ test('WP02 shared-lane conversion stops allocating at its yield when the CPU own
 });
 
 test('worker errors terminate execution before its jobs reject and release their admission', async () => {
-  const { TerrainWindowWorker } = await import('../src/world/alpine/TerrainWindowWorker.js');
+  const { TerrainWindowWorker } = await import('../src/world/alpine/TerrainWindowWorkerClient.js');
   const prior = globalThis.Worker; let terminated = false;
   globalThis.Worker = class { postMessage() {} terminate() { terminated = true; } };
   try {

@@ -52,7 +52,7 @@ export class FrameDeliveryAggregator {
   _break() { this._lastCallback = null; this._lastFrame = null; }
 
   push(sample) {
-    const { wallMs, generation, frameId, presented, paused, hidden, capFps, segment } = sample;
+    const { wallMs, generation, frameId, presented, attempted = true, paused, hidden, capFps, segment } = sample;
     // A bucket can resume after another bucket owned many real frames.
     // That missing measurement window is not one frozen presentation.
     if (segment !== this._segment) { this._segment = segment; this._break(); }
@@ -69,7 +69,9 @@ export class FrameDeliveryAggregator {
     if (capFps != null) this.caps.add(Number.isFinite(capFps) ? +(+capFps).toFixed(2) : null);
     if (this._lastCallback != null) this.callbacks.push(wallMs - this._lastCallback);
     this._lastCallback = wallMs;
-    if (!presented) { this.failedPresentations++; return; }
+    // A profile invalidation can be observed before any draw is attempted.
+    // It is not a rejected draw, but its entire delivery gap still counts.
+    if (!presented) { if (attempted) this.failedPresentations++; return; }
     if (this._lastFrame && this._lastFrame.frameId === frameId) { this.repeatedFrames++; return; }
     this.deliveredFrames++;
     if (this._lastFrame) this.delivered.push(wallMs - this._lastFrame.wallMs);

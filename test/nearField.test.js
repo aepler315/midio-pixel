@@ -261,12 +261,12 @@ test('artificial foreground props remain absent for every queried sector', () =>
 // it always had.
 import { BiomeManager } from '../src/world/BiomeManager.js';
 
-test('drawForeground damps the landmarks under either preference', () => {
+test('non-Landscape foreground landmarks retain their preference damping', () => {
   const seen = [];
   for (const [reducedMotion, reducedFlash] of [[false, false], [true, false], [false, true], [true, true]]) {
     const m = new BiomeManager({
       conductor: { barGrid: [], onBar: () => () => {}, on: () => () => {} },
-      durationMs: 60000, canvasWidth: 1280, canvasHeight: 720, groundY: 625, songSeed: 3, worldId: 'range',
+      durationMs: 60000, canvasWidth: 1280, canvasHeight: 720, groundY: 625, songSeed: 3, worldId: 'farside',
     });
     m.currentBlend = { from: 'TAIGA', to: 'TAIGA', t: 1 };
     m.reducedMotion = reducedMotion;

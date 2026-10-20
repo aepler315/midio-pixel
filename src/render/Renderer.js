@@ -226,9 +226,26 @@ export class Renderer {
     this.drawCount = 0;
   }
 
-  dispose() { this._postBuffers.dispose(); this._groundResponse.dispose(); this._capture?.dispose(); }
+  dispose() { this.discardFrameCaptures(); this._postBuffers.dispose(); this._groundResponse.dispose(); this._capture?.dispose(); }
+
+  _captureSceneFrame(canvas, capture) {
+    if (this.deferSceneCaptures) (this._frameCaptures ||= []).push(capture);
+    else capture(canvas);
+  }
+
+  /** The presenter calls this synchronously after the final sky composite.
+   * Drain before invoking consumers so no throw or duplicate completion can
+   * carry a previous frame's captures into the next presentation. */
+  completeFrameCaptures(canvas) {
+    const captures = this._frameCaptures || [];
+    this.discardFrameCaptures();
+    for (const capture of captures) capture(canvas);
+  }
+
+  discardFrameCaptures() { this._frameCaptures = null; }
 
   draw(sim, alpha) {
+    this.discardFrameCaptures();
     this.drawCount++;
     this.inhabitedShoreDraws = 0;
     const { ctx, canvas } = this;
@@ -420,7 +437,7 @@ export class Renderer {
     let scenicMatrix = null;
     if (biomeManager) {
       biomeManager.salience = salience;
-      biomeManager.inhabitedShore = !!presentation.inhabitants && biomeManager.world?.kind === 'alpine';
+      biomeManager.inhabitedShore = false;
       // The scenic transform the celestial bodies are painted with, so the
       // shore's glitter path can sit under the sun or moon on screen.
       scenicMatrix = ctx.getTransform();
@@ -497,7 +514,7 @@ export class Renderer {
     // the clean world+characters composite -- not last frame's bloom/vignette
     // riding along, and not a HUD strip that hasn't drawn yet this frame.
     if (sim.assembly && sim.assembly.wantsCapture(sim.timeMs)) {
-      sim.assembly.captureFrame(canvas, sim.timeMs);
+      this._captureSceneFrame(canvas, source => sim.assembly.captureFrame(source, sim.timeMs));
     }
 
     if (sim.fever && presentation.performers) this._drawFeverAura(ctx, viewStage, sim.fever.level, sim.biomes, sim.reducedFlash);
@@ -587,27 +604,28 @@ export class Renderer {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     this._drawOutputBars(ctx, canvas, outputFit);
 
-    if (fracture && fracture.isAboutToFreeze) fracture.captureFreeze(canvas, sim.timeMs);
+    if (fracture && fracture.isAboutToFreeze)
+      this._captureSceneFrame(canvas, source => fracture.captureFreeze(source, sim.timeMs));
 
     // Semantic winners come from song evidence; only the current composed
     // frame can confirm that their producer was admitted and is visible.
     // captureFreeze has already consumed isAboutToFreeze, so retain its
     // actual capture frame separately from the immutable Finale time.
-    if (sim.highlightReel) {
+    if (sim.highlightReel) this._captureSceneFrame(canvas, source => {
       const heardMs = sim.heardTimeMs ?? sim.timeMs;
       const dropAgeMs = sim.timeMs - (sim.hype?.dropAtMs ?? -Infinity);
       const bloomVisible = (!!this._pixelGlowVisible || !!this._bloomA && !!this._bloomB) && biomeManager?.world?.kind !== 'alpine'
         && (perf?.bloomEnabled ?? true)
         && bloomStrength(sim.hype, sim.fever, !!sim.reducedFlash, sim.opening?.gain ?? 1, salience.bloom) > BLOOM_BASE + .005;
       const filmVisible = !!sim.filmFinish && (perf?.heavyPostFx ?? true) && biomeManager?._pass?.('film') !== false;
-      sim.highlightReel.notify(highlightCandidatesFor(sim, sim.timeMs), canvas, heardMs, {
+      sim.highlightReel.notify(highlightCandidatesFor(sim, sim.timeMs), source, heardMs, {
         frameTimeMs: sim.timeMs,
         producerTimeMs: sim.timeMs,
         isVisible: candidate => candidate.category === 'finale'
           ? !!fracture && (fracture.isAboutToFreeze || fracture.freezeMs === sim.timeMs && !!fracture.freezeFrame)
           : dropAgeMs >= 0 && dropAgeMs < 100 && sim.hype?.surge > 0 && (bloomVisible || filmVisible),
       });
-    }
+    });
   }
 
   _drawOutputBars(ctx, canvas, fit) {

@@ -1,7 +1,6 @@
 import { cloudPuffs } from './CloudOcclusion.js';
 import { shaderFailureLog } from '../../render/GraphicsDiagnostics.js';
 import { applyLensFov } from '../../render/CameraLens.js';
-import { PIXEL_DEPTH_GLSL } from '../../render/PixelDepthScale.js';
 import { terrainShadingMode, terrainShadingForView } from './TerrainShadingExperiment.js';
 import { giantLayout, giantAmounts, mirrorGiantSpan, aheadOfEye } from './LandscapeGiants.js';
 import { resolveRangeComposition, compositionBars } from './RangeComposition.js';
@@ -30,10 +29,10 @@ import { SunShaftGL, SHAFT_KEY, shaftSize, shaftSource } from './SunShaftGL.js';
 import { rangeQuality } from './RangeQuality.js';
 import { hashSeed } from '../../utils/math.js';
 import { createForest, FOREST_ASSET_BUILD_BYTES, forestGroupingBytes } from './ForestGL.js';
-import { forestAssetBytes } from './ForestSpeciesAssets.js';
+import { forestAssetBytes, FOREST_FAMILIES, FOREST_VARIANTS } from './ForestSpeciesAssets.js';
 import { bakeHorizonAsync, createHorizonTexture, horizonBytes } from './TerrainOcclusion.js';
-import { planTerrainWindow, terrainWindowCoverage, terrainWindowCovers, tourSummitTiles, TourWindowCache } from './TerrainWindow.js';
-import { TerrainWindowWorker, shareTerrainLanes, terrainLaneBytes } from './TerrainWindowWorker.js';
+import { planTerrainWindow, terrainWindowCoverage, terrainWindowCovers, tourSummitTiles, terrainPixelProtection, TourWindowCache } from './TerrainWindow.js';
+import { TerrainWindowWorker, shareTerrainLanes, terrainLaneBytes } from './TerrainWindowWorkerClient.js';
 import { buildTerrainGeometry } from './TerrainMesh.js';
 import { buildRockStage } from './RockStage.js';
 import { RockStageGL } from './RockStageGL.js';
@@ -51,6 +50,8 @@ import { ACTOR_IDS, ACTOR_HUES, ACTOR_LOOK, ACTOR_START, actorRoutes, routePosit
 const STORM_ZENITH = { r: .02, g: .026, b: .036 }, STORM_HORIZON = { r: .03, g: .038, b: .05 }, STORM_AIR = { r: .028, g: .036, b: .048 };
 
 const BACKDROP_KEY = 'range:water-backdrop';
+// Full/lite pairs share instances and retain two scalar attributes per batch.
+const FOREST_DETAIL_BYTES = BANDS.length * FOREST_FAMILIES * FOREST_VARIANTS * 8;
 /** ?rangeDebug=<mode> terrain diagnostics (uDebugMask in TerrainMaterial). */
 export const TERRAIN_DEBUG_MODES = Object.freeze({ masks: 1, slope: 2, albedo: 3, fill: 4, key: 5, roughness: 6, specular: 7, sun: 8 });
 
@@ -74,10 +75,8 @@ const COPY_FRAG = /* glsl */`
   uniform float uUseOwn;
   in vec2 vUv;
   out vec4 outColor;
-  ${PIXEL_DEPTH_GLSL}
   void main() {
     vec4 c = texture(uColor, vUv);
-    c = pixelDepthColor(c, vUv);
     if (uUseOwn > 0.5 && c.a > 0.0) {
       float nearer = dot(texture(uOwn, vUv).rgb, uNearer);
       if (nearer > 0.0) c *= min(1.0 / max(1.0 - nearer, 1.0 / 255.0), 1.0 / c.a);
@@ -172,9 +171,7 @@ export class RangeScene {
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3));
     const mat = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3, vertexShader: COPY_VERT, fragmentShader: COPY_FRAG,
-      uniforms: { uColor: { value: null }, uOwn: { value: null }, uNearer: { value: new THREE.Vector3() }, uUseOwn: { value: 0 },
-        uPixelDepth: { value: null }, uPixelDepthEnabled: { value: 0 },
-        uPixelDepthSize: { value: new THREE.Vector2(1, 1) }, uPixelCameraRange: { value: new THREE.Vector2(1, 2) } },
+      uniforms: { uColor: { value: null }, uOwn: { value: null }, uNearer: { value: new THREE.Vector3() }, uUseOwn: { value: 0 } },
       depthTest: false, depthWrite: false, blending: THREE.NoBlending,
     });
     const mesh = new THREE.Mesh(geo, mat);
@@ -186,13 +183,19 @@ export class RangeScene {
 
   /** Physical backing size of the partition images. `pixelRatio` is
    *  evidence/LOD context only; widthPx/heightPx are already physical. */
-  resize({ widthPx, heightPx, pixelRatio = 1, quality = 0, pixelated = false, pixelScale = 'depth' }) {
+  resize({ widthPx, heightPx, pixelRatio = 1, quality = 0, pixelated = false, pixelHeightPx = null }) {
     const w = Math.max(2, Math.round(widthPx)), h = Math.max(2, Math.round(heightPx));
     this.pixelRatio = pixelRatio;
-    // Scale toggles do not change allocations. Set before the unchanged-size
-    // early return so an Original comparison takes effect on the next copy.
     this.pixelated = !!pixelated;
-    this.pixelScale = pixelScale === 'original' ? 'original' : 'depth';
+    this.pixelHeightPx = pixelated && pixelHeightPx > 0 ? pixelHeightPx : null;
+    this.pixelScale = 'original';
+    for (const p of this.prepared?.values() || []) {
+      if (!!p.material?.defines?.PIXEL_MATERIAL_SKIP !== this.pixelated && p.material) {
+        if (this.pixelated) p.material.defines.PIXEL_MATERIAL_SKIP = 1;
+        else delete p.material.defines.PIXEL_MATERIAL_SKIP;
+        p.material.needsUpdate = true;
+      }
+    }
     const policy = rangeRenderPolicy({ widthPx: w, heightPx: h, quality, pixelated, budget: this.budget,
       capability: this.edge?.capability ?? 0, override: this.edge?.override ?? null });
     // Everything a budget fallback depends on. The fallback is retried only
@@ -204,7 +207,7 @@ export class RangeScene {
     const live = this.target && (!this.residency || this.residency.has('range:render-target'));
     const sameSize = live && w === this.size.width && h === this.size.height;
     if (sameSize && this._edgeRequest?.key === request) return;
-    this._edgeRequest = { key: request, args: { widthPx: w, heightPx: h, pixelRatio, quality, pixelated, pixelScale } };
+    this._edgeRequest = { key: request, args: { widthPx: w, heightPx: h, pixelRatio, quality, pixelated } };
     this.edge.requestedSamples = policy.samples;
     if (sameSize && policy.samples === this.edge.samples) {
       this.edge.reason = policy.reason;
@@ -398,7 +401,7 @@ export class RangeScene {
    * reflected ray. Only while a prepared view mirrors; otherwise the copy
    * is released.
    */
-  captureBackdrop(ctx, stage, frame) {
+  captureBackdrop(ctx, stage, frame, drawSky = null) {
     const wanted = !this.contextLost && rangeQuality(frame?.qualityLevel).waterMirror
       && [...this.prepared.values()].some((p) => Number.isFinite(p.mirrorLevelM));
     if (!wanted || !ctx?.canvas || !(stage?.width > 0)) { this.releaseBackdrop(); return false; }
@@ -423,6 +426,11 @@ export class RangeScene {
     // The stage's rectangle in the canvas: the painter's scale/translate.
     const T = ctx.getTransform?.() || { a: 1, d: 1, e: 0, f: 0 };
     b.ctx.clearRect(0, 0, width, height);
+    if (drawSky) {
+      b.ctx.save();
+      try { drawSky(b.ctx, width, height); }
+      finally { b.ctx.restore(); }
+    }
     b.ctx.drawImage(ctx.canvas, T.e, T.f, T.a * stage.width, T.d * stage.height, 0, 0, width, height);
     b.texture.needsUpdate = true;
     b.frame = frame?.frameId ?? -1;
@@ -442,6 +450,17 @@ export class RangeScene {
    * quality that sheds it, or without room, the water keeps its sky
    * reflection.
    */
+  _updateForestDetail(p, frame, camera, width, height, kind) {
+    if (!p.forest?.updateDetailView) return;
+    const key = `${frame.frameId}:${kind}:${width}:${height}`;
+    if (p.forestDetailState?.forest === p.forest && p.forestDetailState.key === key) return;
+    const state = p.forest.updateDetailView({ camera, width, height, pixelated: !!this.pixelated,
+      nearDetail: rangeQuality(frame.qualityLevel).nearDetail });
+    p.forestDetailState = { forest: p.forest, key };
+    p.forestDetailViews ||= {};
+    p.forestDetailViews[kind] = state;
+  }
+
   _prepareMirror(p, frame, side, viewId) {
     const u = p.uniforms;
     u.uViewportPx.value.set(this.size.width, this.size.height);
@@ -467,6 +486,7 @@ export class RangeScene {
       this.mirrorCamera.updateMatrixWorld();
       u.uViewProj.value.multiplyMatrices(this.mirrorCamera.projectionMatrix, this.mirrorCamera.matrixWorldInverse);
       u.uViewportPx.value.set(m.target.width, m.target.height);
+      this._updateForestDetail(p, frame, this.mirrorCamera, m.target.width, m.target.height, 'mirror');
       r.setRenderTarget(m.target);
       r.setClearColor(0x000000, 0);
       r.clear(true, true, false);
@@ -525,7 +545,10 @@ export class RangeScene {
     this._invalidateTourWindows(p);
   }
 
-  _invalidateTourWindows(p) {
+  _invalidateTourWindows(p, { keepDetail = false } = {}) {
+    const active = p.activeWindow;
+    p.detailHeldWindow = keepDetail && active && !active.coarse
+      && (active.detail?.coverageRevision === (p.coverageRevision || 0) || active === p.detailHeldWindow) ? active : null;
     p.coverageRevision = (p.coverageRevision || 0) + 1;
     p.windowOptions = { ...p.windowOptions, coverageRevision: p.coverageRevision };
     p.windowCache.invalidate(p.activeWindow);
@@ -538,9 +561,11 @@ export class RangeScene {
   _updateTourCoverage(p, frame) {
     if (!p?.windowCache || !frame?.scenicViewport) return;
     const coverage = terrainWindowCoverage(frame.scenicViewport);
-    if (p.windowOptions.coverage?.key === coverage.key) return;
-    p.windowOptions = { ...p.windowOptions, coverage };
-    this._invalidateTourWindows(p);
+    const pixelHeightPx = this.pixelated && !p.view?.glacier ? this.pixelHeightPx : null;
+    if (p.windowOptions.coverage?.key === coverage.key && (p.windowOptions.pixelHeightPx ?? null) === (pixelHeightPx ?? null)) return;
+    const keepDetail = p.windowOptions.coverage?.key === coverage.key;
+    p.windowOptions = { ...p.windowOptions, coverage, pixelHeightPx };
+    this._invalidateTourWindows(p, { keepDetail });
   }
 
   _tourWindowResource(p, index, geos, forest, key, coarse = false, reservation = null) {
@@ -674,7 +699,7 @@ export class RangeScene {
       if (entry.cancelled || p.windowCache.closed || generation !== p.windowCache.generation || entry.coverageRevision !== (p.coverageRevision || 0) || !this.prepared.has(p.view.id)) {
         throw new RangeAssetError('stale', 'Tour window generation ended');
       }
-      const bytes = 2 * (Object.values(raw.built.bands).reduce((n, b) => n + b.positions.byteLength + b.indices.byteLength + b.fringe.byteLength, 0) + raw.placed.count * 7 * 4 + forestAssetBytes());
+      const bytes = 2 * (Object.values(raw.built.bands).reduce((n, b) => n + b.positions.byteLength + b.indices.byteLength + b.fringe.byteLength, 0) + raw.placed.count * 7 * 4 + forestAssetBytes() + FOREST_DETAIL_BYTES);
       if (bytes > entry.bytes) throw new RangeAssetError('budget', 'Window exceeded admitted build bound');
       const checkCurrent = () => {
         if (entry.cancelled || p.windowCache.closed || generation !== p.windowCache.generation || entry.coverageRevision !== (p.coverageRevision || 0)
@@ -735,6 +760,7 @@ export class RangeScene {
     }
     p.geometries = window.geos.geometries; p.fringes = window.geos.fringes; p.forest = window.forest;
     p.activeWindow = window; p.windowIndex = window.index;
+    if (p.detailHeldWindow === previous) p.detailHeldWindow = null;
     // pinView ran before this frame resolved its window. Transfer its hold
     // before any later target/material reservation can evict the new mesh.
     if (this.residency) {
@@ -759,6 +785,10 @@ export class RangeScene {
         pixelLimit: w?.detail?.pixelLimit, maxErrorPx: w?.detail?.maxErrorPx,
         summitPixelLimit: w?.detail?.summitPixelLimit, summitMaxErrorPx: w?.detail?.summitMaxErrorPx,
         protectedTiles: w?.detail?.protectedTiles };
+      Object.assign(p.windowCoverage, { detailHeightPx: w?.detail?.detailHeightPx,
+        pixelErrorPx: w?.detail?.pixelErrorPx, pixelTrianglesSaved: w?.detail?.pixelTrianglesSaved,
+        pixelCoarsenedTiles: w?.detail?.pixelCoarsenedTiles, pixelProtectedTiles: w?.detail?.pixelProtectedTiles,
+        pixelCoarsenedMaxErrorPx: w?.detail?.pixelCoarsenedMaxErrorPx });
     };
     let window = p.windowCache.resident.get(index);
     const covers = w => !camera || (w?.detail?.coverageRevision === (p.coverageRevision || 0)
@@ -767,7 +797,10 @@ export class RangeScene {
     if (rejected) window = null;
     // A neighbouring full mesh may be held only while it covers the actual
     // view. A turn or a wider viewport needs a new covering reconstruction.
-    const held = !window && p.activeWindow && !p.activeWindow.coarse && Math.abs(p.activeWindow.index - index) <= 1 && covers(p.activeWindow) ? p.activeWindow : null;
+    const detailPending = p.activeWindow && p.activeWindow === p.detailHeldWindow && camera
+      && terrainWindowCovers(p.activeWindow.detail, camera.pose, camera.proj);
+    const held = !window && p.activeWindow && !p.activeWindow.coarse && Math.abs(p.activeWindow.index - index) <= 1
+      && (covers(p.activeWindow) || detailPending) ? p.activeWindow : null;
     if (held) window = held;
     if (!window) {
       if (p.coverageRetryAt > Date.now()) { report(p.activeWindow, false, 'budget'); return false; }
@@ -803,11 +836,13 @@ export class RangeScene {
       p.windowCache.resident.set(index, window);
     }
     this._swapTourWindow(p, window);
-    report(window, covers(window));
+    report(window, covers(window) || !!(held && detailPending), held && detailPending ? 'detail-pending' : null);
+    p.windowCoverage.targetDetailHeightPx = p.windowOptions.pixelHeightPx;
     p.windowCache.prune();
     if (window.coarse) p.windowCache.request(index, { replace: true }).catch(fail);
-    else if (held) p.windowCache.request(index).catch(fail);
-    const currentReady = !window.coarse && p.windowCache.resident.get(index) === window;
+    else if (held) p.windowCache.request(index, { replace: !!detailPending }).catch(fail);
+    const currentReady = !window.coarse && p.windowCache.resident.get(index) === window
+      && (window.detail?.coverageRevision ?? 0) === (p.coverageRevision || 0);
     if (currentReady && (index + 1) * 8000 < p.view.tour.durationMs) p.windowCache.request(index + 1).catch(fail);
     // Admit against this window's own plan, not the preceding window's
     // size. Keep the admitted result until handoff, disposal or termination.
@@ -883,9 +918,13 @@ export class RangeScene {
         // Placement yields to the event loop as it goes: a view prepared
         // during playback must not freeze frames while its forest is laid.
         let rawWindow = null;
+        const waterLevelM = waterLevel(cpu.data), mirrorLevelM = mirrorLevelFor(cpu.data, waterLevelM);
         const windowOptions = { budget: this.budget, heightPx: this.budget === 'mobile' ? 720 : 1080,
           coverage: terrainWindowCoverage(opts.scenicViewport), coverageRevision: 0,
+          pixelHeightPx: (this.pixelated ?? opts.pixelated) && !view.glacier ? (this.pixelHeightPx ?? opts.pixelHeightPx ?? null) : null,
+          mirrorLevelM,
           protectedTileIds: view.tour ? tourSummitTiles(cpu.data, opts.tourData?.points) : [] };
+        windowOptions.pixelProtectedTileIds = terrainPixelProtection(cpu.data, windowOptions.protectedTileIds);
         const buildOwner = { view, data: cpu.data, rules, windowOptions, cpuKey: cpu.key, gpuKey, materialKey: mat.key };
         if (view.tour) {
           workerKey = `range:tour-worker:${view.id}`;
@@ -909,7 +948,7 @@ export class RangeScene {
         if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
         // CPU arrays stay on BufferAttributes after upload; charge both copies.
         // Instances plus the near conifer assets their batches build.
-        const forestBytes = placed.count * 7 * 4 + forestAssetBytes();
+        const forestBytes = placed.count * 7 * 4 + forestAssetBytes() + FOREST_DETAIL_BYTES;
         // Building the surface texture needs temporary height and flow
         // arrays (6 B/px), its RGBA array (4 B/px) and dry receiver mask (1 B/px). The texture is
         // uploaded at once and drops its RGBA copy after the upload (see
@@ -966,17 +1005,14 @@ export class RangeScene {
           }
         }
         material = createSceneMaterial(THREE, uniforms, { forestDebug: this.forestDebug, budget: this.budget,
+          pixelated: this.pixelated ?? opts.pixelated ?? false,
           terrainShading: terrainShadingForView(this.terrainShading, view.id) });
         featureMaterial = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms,
           vertexShader: SCENE_VERT, fragmentShader: FEATURE_FRAG, transparent: true,
           depthTest: true, depthWrite: false, depthFunc: THREE.LessEqualDepth });
         depthMaterial = createDepthMaterial(THREE, uniforms);
         // The same pre-pass with each band's ownership colour (edge policy).
-        ownershipMaterials = Object.fromEntries(BANDS.map(band => {
-          const m = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: SCENE_VERT,
-            fragmentShader: OWNERSHIP_FRAG.replace('OWNER_COLOUR', OWNER_COLOURS[band]), uniforms });
-          return [band, m];
-        }));
+        ownershipMaterials = this._createOwnershipMaterials(uniforms, this.pixelated ?? opts.pixelated ?? false);
         await yieldToMain();
         if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
         const meshes = {}, depthMeshes = {}, scenes = {};
@@ -1028,7 +1064,6 @@ export class RangeScene {
         for (const d of forest.depth) depthScene.add(d);
         // The cast: lanterns and swarms, moved between band scenes as they
         // travel (RangeActors.js picks their routes from what the rail sees).
-        const waterLevelM = waterLevel(cpu.data);
         actors = new ActorsGL(THREE, uniforms);
         const routes = actorRoutes(cpu.data, view, { waterLevelM, seed: hashSeed(`${view.id}:cast`) });
         // Per-band depth scenes for travel frames, where a side's nearer
@@ -1054,12 +1089,14 @@ export class RangeScene {
         const checked = new Set();
         // The ownership twins of the depth pre-pass link too (swapped in only
         // for multisampled pre-passes; a failed link must not appear later).
-        const ownershipScene = new THREE.Scene();
-        for (const band of BANDS) {
-          const om = new THREE.Mesh(geos.geometries[band], ownershipMaterials[band]);
-          om.frustumCulled = false; ownershipScene.add(om);
+        if (ownershipMaterials) {
+          const ownershipScene = new THREE.Scene();
+          for (const band of BANDS) {
+            const om = new THREE.Mesh(geos.geometries[band], ownershipMaterials[band]);
+            om.frustumCulled = false; ownershipScene.add(om);
+          }
+          targets.push([ownershipScene]);
         }
-        targets.push([ownershipScene]);
         for (const [scene, camera = this.camera, target = null] of targets) {
           for (const m of this.renderer.compile(scene, camera, target)) {
             if (checked.has(m)) continue;
@@ -1078,7 +1115,7 @@ export class RangeScene {
           forest, stageGL, featureGeometries, featureMaterial,
           stats: { ...geos.stats, trees: forest.counts, featureBytes: featureBudgetBytes }, gpuKey, cpuKey: cpu.key, cpuOwner,
           giantLayout: giantLayout(cpu.data, view, [uniforms.uHeightRange.value.x, uniforms.uHeightRange.value.y], waterLevelM),
-          rules, waterLevelM, mirrorLevelM: mirrorLevelFor(cpu.data, waterLevelM), materialKey: mat.key, materialOwner, actors, actorRoutes: routes,
+          rules, waterLevelM, mirrorLevelM, materialKey: mat.key, materialOwner, actors, actorRoutes: routes,
         };
         if (windowWorker) {
           prepared.windowWorker = windowWorker;
@@ -1097,7 +1134,7 @@ export class RangeScene {
             this.residency.entries.get(buildEntry.key).evictable = true;
           }
           prepared.windowCache = new TourWindowCache({ build: index => this._buildTourWindow(prepared, index),
-            canRetry: index => this._canRetryTerrainBuild(prepared, index) });
+            canRetry: index => this._canRetryTerrainBuild(prepared, index), isDisplayed: window => window === prepared.activeWindow });
           prepared.windowCache.resident.set(0, initialWindow);
           prepared.windowIndex = 0;
           prepared.activeWindow = initialWindow;
@@ -1379,6 +1416,9 @@ export class RangeScene {
     p.featureMaterial?.dispose();
     for (const g of Object.values(p.featureGeometries || {})) g.dispose();
     p.windowCache?.dispose();
+    // An accepted replacement can be resident before the next render has
+    // detached the displayed mesh. Its ownership still belongs to this view.
+    if (p.windowCache) p.activeWindow?.dispose();
     for (const entry of p.rawAhead?.values() || []) this._dropTourRaw(entry);
     p.rawAhead?.clear();
     if (p.workerKey && this.residency) this.residency.releaseReservation(p.workerReservation || { key: p.workerKey }); else p.windowWorker?.dispose();
@@ -1762,25 +1802,9 @@ export class RangeScene {
   /** Draw `texture` 1:1 into the current target. With `coverage`
    *  ({ own, pass }) the partition is rescaled by the ownership of the
    *  bands nearer than `pass` (see COPY_FRAG). */
-  _copyTexture(texture, coverage = null, scenic = null) {
+  _copyTexture(texture, coverage = null) {
     const u = this._copy.mesh.material.uniforms;
     u.uColor.value = texture;
-    if (u.uPixelDepthEnabled) {
-      // Every copy clears this contract, including ownership and ground.
-      u.uPixelDepthEnabled.value = 0;
-      u.uPixelDepth.value = null;
-      u.uPixelDepthSize.value.set(1, 1);
-      u.uPixelCameraRange.value.set(1, 2);
-      const target = scenic?.target, camera = scenic?.camera;
-      if (this.pixelated && this.pixelScale === 'depth' && target?.depthTexture && !target.samples
-        && target.texture === texture && target.width > 0 && target.height > 0
-        && Number.isFinite(camera?.near) && Number.isFinite(camera?.far) && camera.near > 0 && camera.far > camera.near) {
-        u.uPixelDepthEnabled.value = 1;
-        u.uPixelDepth.value = target.depthTexture;
-        u.uPixelDepthSize.value.set(target.width, target.height);
-        u.uPixelCameraRange.value.set(camera.near, camera.far);
-      }
-    }
     if (u.uUseOwn) {
       u.uUseOwn.value = coverage ? 1 : 0;
       u.uOwn.value = coverage ? coverage.own : null;
@@ -1791,8 +1815,19 @@ export class RangeScene {
 
   /** The full-scene depth pre-pass, also recording which band owns each
    *  sample, then resolving that into `own` (cleared by the caller). */
+  _createOwnershipMaterials(uniforms, pixelated) {
+    if (pixelated) return null;
+    const THREE = this.THREE;
+    return Object.fromEntries(BANDS.map(band => [band, new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3, vertexShader: SCENE_VERT,
+      fragmentShader: OWNERSHIP_FRAG.replace('OWNER_COLOUR', OWNER_COLOURS[band]), uniforms,
+    })]));
+  }
+
   _renderOwnership(p, target, own) {
     const r = this.renderer;
+    // Legacy nonpixel callers can enable multisampling after preparation.
+    p.ownershipMaterials ||= this._createOwnershipMaterials(p.uniforms, false);
     const meshes = p.depthBandMeshes || {};
     for (const band of BANDS) if (meshes[band] && p.ownershipMaterials?.[band]) meshes[band].material = p.ownershipMaterials[band];
     try { r.render(p.depthScene, this.camera); }
@@ -1822,6 +1857,7 @@ export class RangeScene {
     if (p.windowCache && p.windowCoverage?.covered === false) return null;
     this._setUniforms(p, frame);
     this._prepareMirror(p, frame, side, viewId);
+    this._updateForestDetail(p, frame, this.camera, this.size.width, this.size.height, 'main');
     const softForest = Object.values(p.forest?.counts || {}).some(n => n > 0);
     this.camera.layers.set(0);
     if (!softForest) this.camera.layers.enable(3);
@@ -1887,7 +1923,7 @@ export class RangeScene {
     this._setCanvasSize(this.size.width, this.size.height);
     r.clear(true, true, false);
     const owned = !bandColumns && depth.owned && this.ownership?.[side];
-    this._copyTexture(target.texture, owned ? { own: owned.texture, pass } : null, { target, camera: this.camera });
+    this._copyTexture(target.texture, owned ? { own: owned.texture, pass } : null);
     if (scattering) this.shafts.compositeToScreen(r, side, source);
     // Whether translucent sky light now shares the returned image with the
     // terrain: an alpha mask taken from it must not trust faint pixels.
@@ -1985,7 +2021,7 @@ export class RangeScene {
     return {
       prepared: [...this.prepared.keys()], pending: [...this.pending.keys()], contextLost: this.contextLost,
       buildAdmission: { requestedBytes: 0, admittedBytes: 0, denials: 0, peakBytes: 0, ...this.buildAdmission },
-      windows: [...this.prepared.values()].filter(p=>p.windowCache).map(p=>({id:p.view.id,index:p.windowIndex,resident:[...p.windowCache.resident.keys()],detail:p.activeWindow?.detail,coverage:p.windowCoverage,note:p.windowNote,stats:p.stats})),
+      windows: [...this.prepared.values()].filter(p=>p.windowCache).map(p=>({id:p.view.id,index:p.windowIndex,resident:[...p.windowCache.resident.keys()],detail:p.activeWindow?.detail,coverage:p.windowCoverage,note:p.windowNote,stats:p.stats,forestDetail:p.forestDetailViews})),
       size: { ...this.size }, stats: { ...this.stats }, sideB: !!this.sideTargets.B,
       edge: { samples: this.edge?.samples ?? 0, requestedSamples: this.edge?.requestedSamples ?? 0, reason: this.edge?.reason ?? null, capability: this.edge?.capability ?? 0 },
     };

@@ -77,6 +77,8 @@ function fakeScope({
       this.timeslice = timeslice;
       if (chunkOnStart) queueMicrotask(() => this.ondataavailable?.({ data: h264Chunk() }));
     }
+    pause() { this.state = 'paused'; this.pauses = (this.pauses || 0) + 1; }
+    resume() { this.state = 'recording'; this.resumes = (this.resumes || 0) + 1; }
     stop() {
       this.state = 'inactive';
       // A real MediaRecorder always flushes what it is holding as a final
@@ -110,6 +112,43 @@ function fakeAudio() {
 }
 
 const stage = { width: STAGE_W, height: STAGE_H, nodeName: 'CANVAS' };
+
+test('terrain preparation pauses recording samples and excludes its wait from elapsed and final duration', async () => {
+  const scope = fakeScope(), rec = new SongRecorder({ stage, scope });
+  rec.start({ presetId: '720p' }); scope.advance(250);
+  const release = rec.holdForPreparation(), track = rec._videoTrack, frames = track.frames;
+  assert.equal(scope.recorders[0].state, 'paused');
+  scope.advance(5000); rec.captureFrame();
+  assert.equal(track.frames, frames, 'held draws cannot add recording samples');
+  assert.equal(rec.elapsedMs, 250);
+  assert.equal(release(), true); assert.equal(scope.recorders[0].state, 'recording');
+  assert.equal(release(), false, 'one preparation cannot release twice');
+  scope.advance(750);
+  assert.equal((await rec.stop()).durationMs, 1000);
+});
+
+test('terrain readiness cannot resume an independently paused recording', async () => {
+  const scope = fakeScope(), rec = new SongRecorder({ stage, scope });
+  rec.start(); rec.pause();
+  assert.equal(rec.holdForPreparation(), null, 'an existing user pause is not owned by terrain');
+  rec.resume();
+  const release = rec.holdForPreparation();
+  rec.pause();
+  assert.equal(release(), false, 'a later user pause remains in force after readiness');
+  assert.equal(scope.recorders[0].state, 'paused');
+  rec.resume(); assert.equal(scope.recorders[0].state, 'recording');
+  await rec.stop();
+});
+
+test('a cancelled preparation cannot resume a stopped or replacement recording session', () => {
+  const scope = fakeScope(), rec = new SongRecorder({ stage, scope });
+  rec.start(); const release = rec.holdForPreparation(), old = scope.recorders[0];
+  rec.cancel(); rec.start();
+  assert.equal(release(), false);
+  assert.equal(old.resumes || 0, 0);
+  assert.equal(scope.recorders[1].resumes || 0, 0);
+  rec.cancel();
+});
 test('Classic/Detailed/Natural changes keep encoded dimensions and never sample a pending grid', async () => {
   const makeStage = (width, height) => {
     const canvas = fakeCanvas(); canvas.width = width; canvas.height = height;
@@ -412,5 +451,24 @@ test('nullable failed capture is ignored without destructuring or pushing a fram
   assert.doesNotThrow(() => rec.captureFrame(null));
   assert.equal(rec._canvas.draws.length, 0);
   assert.equal(rec._videoTrack.frames, 0);
+  rec.cancel();
+});
+
+test('mixed sky captures recompose at recorder size and never smooth the completed terrain picture', () => {
+  const rec = new SongRecorder({ stage, scope: fakeScope() });
+  rec.start({ presetId: 'car', deferFirstFrame: true });
+  const native = { width: 320, height: 180 }, calls = [];
+  const source = { canvas: stage, pixelated: false, drawCaptureFrame(ctx, width, height) {
+    calls.push([width, height]);
+    ctx.imageSmoothingEnabled = false; ctx.drawImage(native, 0, 15, 800, 450);
+    return true;
+  } };
+  rec.captureFrame(source);
+  assert.deepEqual(calls, [[800, 480]]);
+  assert.deepEqual(rec._canvas.samplers, [false]);
+  assert.equal(rec._canvas.draws[0][0], native);
+  assert.equal(rec._videoTrack.frames, 1);
+  rec.captureFrame({ ...source, drawCaptureFrame: () => false });
+  assert.equal(rec._videoTrack.frames, 1, 'a rejected or stale mixed capture adds no encoded frame');
   rec.cancel();
 });

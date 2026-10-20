@@ -1,5 +1,7 @@
 # Midio Pixel implementation plan
 
+> Historical plan: the user subsequently removed Depth scaling and requested a smooth Landscape sky experiment. Current behavior is documented in [Display presentation](../../pixel-presentation.md).
+
 **Goal:** Deliver the separate pixel-only repository without losing upstream pixel capabilities, adding physical depth scale.
 
 **Architecture:** Preserve the existing scene renderer and pixel presentation. Enforce pixel-only at display ingress; add depth sampling inside the existing scenic GPU copy, with independently owned depth attachments.

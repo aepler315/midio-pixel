@@ -53,14 +53,18 @@ export async function inspectPixelFrame({ paletteId = 'none' } = {}) {
     const colors = PALETTES[paletteId]?.colors;
     if (!colors && paletteId !== 'rgb332') throw new Error('unknown completed palette');
     const allowed = colors ? new Set(colors.map(hex=>[1,3,5].map(start=>parseInt(hex.slice(start,start+2),16)).join(','))) : null;
-    const source = capture.canvas, raw=source.getContext('2d').getImageData(0,0,source.width,source.height).data;
-    palettePixels=raw.length/4;
-    if (!palettePixels) throw new Error('palette evidence requires nonempty capture');
+    const source = capture.pixelCanvas || capture.canvas, raw=source.getContext('2d').getImageData(0,0,source.width,source.height).data;
+    palettePixels=0;
     for(let i=0;i<raw.length;i+=4) {
+      // The sky experiment is deliberately full-colour and smooth. Only
+      // fully covered terrain cells have an exact palette membership.
+      if (capture.hybridSky && raw[i+3] !== 255) continue;
+      palettePixels++;
       if (raw[i+3] !== 255) { paletteErrors++; continue; }
       if (allowed) { if(!allowed.has(`${raw[i]},${raw[i+1]},${raw[i+2]}`))paletteErrors++; }
       else if (![0,36,73,109,146,182,219,255].includes(raw[i]) || ![0,36,73,109,146,182,219,255].includes(raw[i+1]) || ![0,85,170,255].includes(raw[i+2])) paletteErrors++;
     }
+    if (!palettePixels) throw new Error('palette evidence requires nonempty covered terrain');
   }
   return { width:canvas.width,height:canvas.height,colors:colors.size,litFraction:lit/(px.length/4),mean:sum/(px.length/4*3),opaque,
     captureReady:true,grid:capture.grid,paletteId,placement,barPixels,barErrors,palettePixels,paletteErrors,thumbnail:[...ctx.getImageData(0,0,64,36).data],presentation:smw.presentationDiagnostics,backend:smw.rangeState,

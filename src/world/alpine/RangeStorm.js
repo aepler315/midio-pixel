@@ -110,7 +110,8 @@ export function arrivingStorm(storm, arrival = 1) {
   const a = unit(arrival);
   return a >= 1 || !storm ? storm : { ...storm, amount: unit(storm.amount) * a, break01: unit(storm.break01) * a, flash: unit(storm.flash) * a };
 }
-export function drawStormSky(ctx, canvas, storm, { tSec = 0, seed = 0, pan = null, light, reducedMotion = false } = {}) {
+export function drawStormSky(ctx, canvas, storm, { tSec = 0, seed = 0, pan = null, light, reducedMotion = false,
+  cloudPainter = drawRangeClouds } = {}) {
   const amount = unit(storm?.amount), breaking = unit(storm?.break01), flash = unit(storm?.flash);
   if (amount < .001 && breaking < .001) return;
   const { width: w, height: h } = canvas;
@@ -133,7 +134,7 @@ export function drawStormSky(ctx, canvas, storm, { tSec = 0, seed = 0, pan = nul
   });
   const sun = breaking * (1 - amount);
   const mixRgb = (a, b) => a.map((v, i) => Math.round(v + (b[i] - v) * sun));
-  drawRangeClouds(ctx, banks, { dark: mixRgb([26, 31, 39], [104, 114, 128]), lit: mixRgb([70, 76, 86], [240, 228, 206]), light,
+  cloudPainter(ctx, banks, { dark: mixRgb([26, 31, 39], [104, 114, 128]), lit: mixRgb([70, 76, 86], [240, 228, 206]), light,
     directGain: .35 + sun * 1.2 });
   if (flash > .001) {
     // Lightning inside the cloud: the banks near the strike are painted
@@ -141,7 +142,7 @@ export function drawStormSky(ctx, canvas, storm, { tSec = 0, seed = 0, pan = nul
     const fx = ((storm.flashU ?? .5) + panX) * w, fy = h * .15, reach = w * .32;
     const lit = banks.map(b => ({ ...b, alpha: b.alpha * flash * Math.max(0, 1 - Math.hypot(b.x - fx, (b.y - fy) * 2) / reach) }))
       .filter(b => b.alpha > .01);
-    drawRangeClouds(ctx, lit, { dark: [150, 168, 215], lit: [222, 232, 255], light: { x: fx, y: fy }, directGain: 1.2 });
+    cloudPainter(ctx, lit, { dark: [150, 168, 215], lit: [222, 232, 255], light: { x: fx, y: fy }, directGain: 1.2 });
   }
   // Rain curtains hanging from the deck's base; the terrain passes continue
   // them in front of the far land, so they hang plumb like the veil does.

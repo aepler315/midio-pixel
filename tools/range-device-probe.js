@@ -63,7 +63,8 @@
       const sample = {
         wallMs: t, generation: smw?.generation ?? 0,
         frameId: shown.frameId == null ? null : `${shown.generation ?? 0}:${shown.frameId}`,
-        presented: !!shown.presented, paused: !!smw?.paused, hidden: document.hidden, capFps: smw?.fpsCap ?? null };
+        presented: !!shown.presented, attempted: shown.reason !== 'not-rendered',
+        paused: !!smw?.paused, hidden: document.hidden, capFps: smw?.fpsCap ?? null };
       buckets[bucket].push({ ...sample, segment });
       // Keep the post-cold playback chain continuous across travel and
       // quality changes, so a real boundary stall is still measured.

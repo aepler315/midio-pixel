@@ -44,6 +44,10 @@ export function normalizeManifest(value) {
       if (p.pixelScale != null) assert.ok(['original', 'depth'].includes(p.pixelScale), 'invalid pixelScale');
     }
     settings.presentation = resolveDisplayPrefs({ saved: p });
+    // Historical manifests retain their recorded mode as evidence metadata.
+    // Current product presentation still normalizes a stale Depth request to
+    // Uniform; readers must not relabel an old capture as Uniform retroactively.
+    if (p.pixelScale === 'depth') settings.presentation.pixelScale = 'depth';
   }
   if (settings.debug != null) {
     // Diagnostic renders (Natural-rendering Task 0): existing developer URL

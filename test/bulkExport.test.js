@@ -225,7 +225,7 @@ test('stepExportClock takes the same whole steps every frame across a long rende
 
 test('bulk display overrides are explicit and validated', () => {
   const opts = parseBulkArgs(['--look', 'palette', '--quality', 'economy', '--palette', 'rgb332', '--dither', 'full', '--scaling', 'integer', 'song.wav']);
-  assert.deepEqual(opts.presentation, { version: 2, look: 'palette', quality: 'economy', palette: 'rgb332', dither: 1, ditherMode: 'selective', pixelGrid: 'classic', scaling: 'integer', pixelScale: 'depth' });
+  assert.deepEqual(opts.presentation, { version: 2, look: 'palette', quality: 'economy', palette: 'rgb332', dither: 1, ditherMode: 'selective', pixelGrid: 'classic', scaling: 'integer', pixelScale: 'original' });
   assert.equal(parseBulkArgs(['song.wav']).presentation, null);
   assert.throws(() => parseBulkArgs(['--look', 'bad']), /look/);
 });
@@ -240,18 +240,15 @@ test('bulk export accepts only deterministic Ordered and Selective dither styles
 test('bulk export round trips both explicit grids with the v2 palette/dither profile', () => {
   for (const pixelGrid of ['classic', 'detailed']) {
     const opts = parseBulkArgs(['song.wav', '--look', 'palette', '--quality', 'auto', '--palette', 'world', '--dither', 'subtle', '--dither-mode', 'selective', '--pixel-grid', pixelGrid, '--scaling', 'integer']);
-    assert.deepEqual(opts.presentation, { version: 2, look: 'palette', quality: 'auto', palette: 'world', dither: .35, ditherMode: 'selective', pixelGrid, scaling: 'integer', pixelScale: 'depth' });
+    assert.deepEqual(opts.presentation, { version: 2, look: 'palette', quality: 'auto', palette: 'world', dither: .35, ditherMode: 'selective', pixelGrid, scaling: 'integer', pixelScale: 'original' });
   }
   assert.throws(() => parseBulkArgs(['song.wav', '--pixel-grid', 'arbitrary']));
 });
 
-test('bulk export rejects Natural and supports both pixel scale choices', () => {
+test('bulk export rejects Natural and the removed pixel-scale option', () => {
   assert.throws(() => parseBulkArgs(['--look', 'natural', 'song.wav']), /look/);
-  for (const pixelScale of ['depth', 'original']) {
-    const parsed = parseBulkArgs(['--pixel-scale', pixelScale, 'song.wav']);
-    assert.equal(parsed.presentation.pixelScale, pixelScale);
-    assert.equal(parsed.presentation.look, 'pixel');
-    assert.equal(parsed.presentation.quality, 'auto');
+  for (const pixelScale of ['depth', 'original', 'random']) {
+    assert.throws(() => parseBulkArgs(['--pixel-scale', pixelScale, 'song.wav']), /Unknown option --pixel-scale/);
+    assert.throws(() => parseBulkArgs([`--pixel-scale=${pixelScale}`, 'song.wav']), /Unknown option --pixel-scale/);
   }
-  assert.throws(() => parseBulkArgs(['--pixel-scale', 'random']), /pixel-scale/);
 });

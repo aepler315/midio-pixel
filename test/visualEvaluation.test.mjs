@@ -104,7 +104,7 @@ test('visual v2 profiles accept Chroma/world and strictly reject unknown fields'
   assert.equal(normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, pixelGrid: 'detailed' } } }).settings.presentation.pixelGrid, 'detailed');
   for (const change of [{ arbitrary: true }, { pixelGrid: 'arbitrary' }, { ditherMode: 'animated' }]) assert.throws(() => normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, ...change } } }));
 });
-test('visual manifests record depth scale and reject unsupported scale modes', () => {
+test('historical visual manifests retain recorded Depth metadata and reject unsupported scale modes', () => {
   const presentation = { version: 2, look: 'pixel', quality: 'auto', palette: 'world', dither: .35, ditherMode: 'selective', pixelGrid: 'classic', pixelScale: 'depth', scaling: 'fit' };
   assert.equal(normalizeManifest({ ...manifest(), settings: { presentation } }).settings.presentation.pixelScale, 'depth');
   assert.throws(() => normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, pixelScale: 'random' } } }), /pixelScale/);

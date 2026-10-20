@@ -76,6 +76,10 @@ export class SongRecorder {
     this._candidate = null;
     this._stopPromise = null;
     this._resolveStop = null;
+    this._preparationHolds = new Set();
+    this._userPaused = false;
+    this._pausedAtMs = null;
+    this._pausedDurationMs = 0;
   }
 
   /** Can this browser record at all? */
@@ -92,7 +96,50 @@ export class SongRecorder {
   }
 
   get elapsedMs() {
-    return this.recording ? (this.scope?.performance?.now?.() ?? Date.now()) - this.startedMs : 0;
+    return this.recording ? this._durationMs() : 0;
+  }
+
+  _durationMs() {
+    return (this._pausedAtMs ?? this.scope?.performance?.now?.() ?? Date.now()) - this.startedMs - this._pausedDurationMs;
+  }
+
+  get paused() { return this.recording && (this._userPaused || this._preparationHolds.size > 0 || this._recorder?.state === 'paused'); }
+
+  _pauseRecorder() {
+    if (!this.recording || !this._recorder) return false;
+    try {
+      if (this._recorder.state === 'recording') this._recorder.pause();
+      if (this._recorder.state !== 'paused') return false;
+      this._pausedAtMs ??= this.scope?.performance?.now?.() ?? Date.now();
+      return true;
+    } catch (error) { this.error = error?.message || 'Recording could not pause.'; return false; }
+  }
+
+  _resumeRecorder() {
+    if (!this.recording || this._userPaused || this._preparationHolds.size || this._recorder?.state !== 'paused') return false;
+    try {
+      this._recorder.resume();
+      if (this._pausedAtMs != null) this._pausedDurationMs += (this.scope?.performance?.now?.() ?? Date.now()) - this._pausedAtMs;
+      this._pausedAtMs = null;
+      return true;
+    } catch (error) { this.error = error?.message || 'Recording could not resume.'; return false; }
+  }
+
+  pause() { if (!this.recording) return false; this._userPaused = true; return this._pauseRecorder(); }
+  resume() { if (!this.recording) return false; this._userPaused = false; return this._resumeRecorder(); }
+
+  /** A readiness owner can release only its own hold on this exact session.
+   * User/external pauses and replacement recorders never belong to it. */
+  holdForPreparation() {
+    const recorder = this._recorder;
+    if (!this.recording || this._userPaused || recorder?.state === 'paused' && !this._preparationHolds.size) return null;
+    const token = {};
+    this._preparationHolds.add(token);
+    if (!this._pauseRecorder()) { this._preparationHolds.delete(token); return null; }
+    return () => {
+      if (this._recorder !== recorder || !this._preparationHolds.delete(token)) return false;
+      return this._resumeRecorder();
+    };
   }
 
   /**
@@ -151,6 +198,7 @@ export class SongRecorder {
     this._candidate = candidate;
     this.recording = true;
     this.startedMs = this.scope?.performance?.now?.() ?? Date.now();
+    this._pausedDurationMs = 0;
     this._stopPromise = new Promise((resolve) => { this._resolveStop = resolve; });
     // One frame right away, so a recording stopped immediately still holds a
     // picture rather than an empty track.
@@ -226,7 +274,15 @@ export class SongRecorder {
   captureFrame(source = {}) {
     if (source == null) return;
     const { canvas = this.stage, pixelated = false, scaling = 'fit' } = source;
-    if (!this.recording || !this._ctx || !canvas) return;
+    if (!this.recording || this.paused || !this._ctx || !canvas) return;
+    if (typeof source.drawCaptureFrame === 'function') {
+      try {
+        if (source.drawCaptureFrame(this._ctx, this._canvas.width, this._canvas.height) && this._pushesFrames)
+          this._videoTrack.requestFrame();
+        this._lastCaptureFit = null;
+      } catch { /* the next completed frame can still be recorded */ }
+      return;
+    }
     const fit = pixelated ? fitPixelRect(canvas.width, canvas.height, this._canvas.width, this._canvas.height, scaling) : this._fit;
     if (JSON.stringify(fit) !== this._lastCaptureFit) {
       if (scaling === 'integer' || this._lastCaptureFit) {
@@ -263,7 +319,7 @@ export class SongRecorder {
   }
 
   async _finish() {
-    const durationMs = (this.scope?.performance?.now?.() ?? Date.now()) - this.startedMs;
+    const durationMs = this._durationMs();
     const candidate = this._candidate;
     const chunks = this._chunks;
     const preset = this._preset;
@@ -319,6 +375,10 @@ export class SongRecorder {
     this._ctx = null;
     this._chunks = [];
     this.recording = false;
+    this._preparationHolds.clear();
+    this._userPaused = false;
+    this._pausedAtMs = null;
+    this._pausedDurationMs = 0;
   }
 
   /** Abandon a recording without producing a file.

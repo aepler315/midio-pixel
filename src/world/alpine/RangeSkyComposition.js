@@ -2,8 +2,9 @@ import { cameraBasis } from '../terrain/SceneTravel.js';
 import { CELESTIAL_RISE_XFRAC, CELESTIAL_SET_XFRAC } from '../DayNight.js';
 /** One frame's Range-specific upper-sky ownership. Keep faint star depth
  * behind the live ridge while reserving its body for incidental figures. */
-export function createRangeSkyComposition(spaceRidge, canvas, { voyageActive = false } = {}) {
-  const corridorAt = spaceRidge.corridor(canvas);
+export function createRangeSkyComposition(spaceRidge, canvas, { voyageActive = false, lazyCorridor = false } = {}) {
+  let corridor = lazyCorridor ? null : spaceRidge.corridor(canvas);
+  const corridorAt = x => (corridor ||= spaceRidge.corridor(canvas))(x);
   const allowPoint = (x, y) => {
     const { top, bottom } = corridorAt(x);
     return y < top || y > bottom;

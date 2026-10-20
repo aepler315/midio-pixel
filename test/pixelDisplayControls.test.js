@@ -22,6 +22,7 @@ for (const paused of [true, false]) test(`grid controls preserve song time and $
     writeDisplayPrefs, displayStorage: () => null, resolvePresentation, syncDisplayControls() {}, perfGovernor: null,
     paused, sim, renderer, bulkExportArmed: false, console,
     songRecorder: { recording: true, captureFrame() { assert.ok(renderer.getCaptureSource()); recorded++; } },
+    playbackPreparing: false,
     fitCanvas() { renderer.setPresentation(context.presentation); canvas.width = context.presentation.grid.width; canvas.height = context.presentation.grid.height; },
   });
   vm.runInContext(binding, context);

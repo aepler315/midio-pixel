@@ -1,5 +1,13 @@
 # Midio-5 coding workflow
 
+Run browser review in the background without interrupting the user's work.
+For bounded Landscape captures, use `npm run review:landscape -- --out
+.smoke/<unique-run>` and `docs/landscape-review.md`. Keep Chromium headless,
+retain its isolated temporary profile and muted audio, and hide helper-process
+windows on Windows. Save reports and clips without automatically opening them.
+Do not launch a headed browser, focus a user window, or attach to the user's
+Chrome session unless the user explicitly requests that interaction.
+
 For work that changes rendered appearance or its relationship to music, use
 `docs/visual-evaluation-loop.md` before editing. Capture a baseline with
 `npm run visual:eval -- --out .smoke/<unique-baseline>`, inspect the actual

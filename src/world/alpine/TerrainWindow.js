@@ -1,7 +1,9 @@
 import { cameraBasis } from '../terrain/SceneTravel.js';
-import { STRIDES } from './TerrainPackage.js';
+import { STRIDES, WATER_FLOW } from './TerrainPackage.js';
 import { ZOOM_MIN } from '../../render/CameraDirector.js';
 import { LENS_MIN_HALF_ANGLE_SCALE } from '../../render/CameraLens.js';
+import { MIRROR_LIFT } from './WaterMirror.js';
+import { LAND_MAX_DISPLACEMENT_M, LAND_TOUR_FADE_END_M, landDetailErrorM } from './LandMotionLimits.js';
 
 const dot = (a, b) => a.reduce((n, v, i) => n + v * b[i], 0);
 const ceil = n => Math.ceil(n * 64) / 64;
@@ -27,6 +29,128 @@ export function tourSummitTiles(data, points = []) {
     data.byIndex.get(`${Math.floor((p.localM[0] - data.grid.originM[0]) / size)},${Math.floor((p.localM[2] - data.grid.originM[1]) / size)}`)?.id).filter(Boolean))];
 }
 
+/** Preserve authored skyline/shore geometry and near roots, including a
+ * neighbour ring so snapping at a coarser tile cannot change their edges. */
+export function terrainPixelProtection(data, summitIds = []) {
+  const protectedIds = new Set(summitIds);
+  for (const t of data.tiles.values()) {
+    if (t.band === 'near' || t.flowBytes?.some(v => v === WATER_FLOW)) protectedIds.add(t.id);
+  }
+  for (const id of [...protectedIds]) {
+    const t = data.tiles.get(id);
+    if (!t) continue;
+    for (let z = -1; z <= 1; z++) for (let x = -1; x <= 1; x++) {
+      const neighbour = data.byIndex?.get(`${t.ix + x},${t.iz + z}`);
+      if (neighbour) protectedIds.add(neighbour.id);
+    }
+  }
+  return [...protectedIds];
+}
+
+function heightProjectionRate(cx, cy, cz, hx, hy, p) {
+  const dx = cx - p.eyeM[0], dy = cy - p.eyeM[1], dz = cz - p.eyeM[2];
+  const { forward: f, right: r, up: u } = p.basis;
+  const depth = dx * f[0] + dy * f[1] + dz * f[2];
+  const depthRadius = hx * (Math.abs(f[0]) + Math.abs(f[2])) + hy * Math.abs(f[1]) + p.paddingM;
+  if (depth + depthRadius <= 1) return 0;
+  const side = dx * r[0] + dy * r[1] + dz * r[2], up = dx * u[0] + dy * u[1] + dz * u[2];
+  const sideRadius = hx * (Math.abs(r[0]) + Math.abs(r[2])) + hy * Math.abs(r[1]) + p.paddingM;
+  const upRadius = hx * (Math.abs(u[0]) + Math.abs(u[2])) + hy * Math.abs(u[1]) + p.paddingM;
+  if (Math.abs(side) > Math.max(0, depth) * p.tanX + sideRadius + depthRadius * p.tanX
+    || Math.abs(up) > Math.max(0, depth) * p.tanY + upRadius + depthRadius * p.tanY) return 0;
+  const nearest = depth - depthRadius;
+  if (nearest <= 20) return Infinity;
+  // Bound both coordinates' projection Jacobian throughout the height
+  // interval, including pitched/off-axis views and interpolation padding.
+  return p.focal / nearest * Math.hypot(Math.abs(r[1]) + (Math.abs(side) + sideRadius) / nearest * Math.abs(f[1]),
+    Math.abs(u[1]) + (Math.abs(up) + upRadius) / nearest * Math.abs(f[1]));
+}
+
+// A conservative second pass only removes additional interior geometry.
+// The reference plan's protected grids and any already budget-limited error
+// remain unchanged. Coverage, source heights and camera poses never change.
+function pixelTerrainPlan(plan, data, requirements, { heightPx, pixelHeightPx, pixelErrorPx, pixelProtectedTileIds, protectedTileIds, nearRootIds, detailPoses }) {
+  if (!(pixelHeightPx > 0) || !Number.isFinite(pixelHeightPx)) return plan;
+  const scale = Math.min(1, pixelHeightPx / heightPx);
+  const protectedIds = new Set([...pixelProtectedTileIds, ...protectedTileIds]);
+  for (const id of nearRootIds) {
+    const t = data.tiles.get(id);
+    protectedIds.add(id);
+    for (let z = -1; z <= 1; z++) for (let x = -1; x <= 1; x++) {
+      const neighbour = data.byIndex?.get(`${t.ix + x},${t.iz + z}`);
+      if (neighbour) protectedIds.add(neighbour.id);
+    }
+  }
+  let triangles = 0, maxErrorPx = 0, summitMaxErrorPx = 0, coarsened = 0, coarsenedError = 0;
+  const summits = new Set(protectedTileIds), strides = new Map(plan.strides);
+  const minimumUpY = Math.min(...detailPoses.map(p => Math.abs(p.basis.up[1])));
+  const heightMin = data.manifest?.boundsM?.min?.[1] ?? Math.min(...[...data.tiles.values()].map(t => t.minY));
+  const heightMax = data.manifest?.boundsM?.max?.[1] ?? Math.max(...[...data.tiles.values()].map(t => t.maxY));
+  const rates = new Map();
+  const rateFor = tile => {
+    if (!rates.has(tile.id)) {
+      const size = data.cells * data.grid.cellSizeM;
+      const cx = data.grid.originM[0] + (tile.ix + .5) * size, cz = data.grid.originM[1] + (tile.iz + .5) * size;
+      rates.set(tile.id, detailPoses.reduce((max, p) => Math.max(max,
+        heightProjectionRate(cx, (tile.minY + tile.maxY) / 2, cz, size / 2, (tile.maxY - tile.minY) / 2 + LAND_MAX_DISPLACEMENT_M, p) * scale), 0));
+    }
+    return rates.get(tile.id);
+  };
+  const coarsenError = (tile, stride) => {
+    let error = 0;
+    // Coarser edges also snap the neighbouring grid. Require those edges
+    // to pass the same error check, retaining protected grids at seams.
+    for (let z = -1; z <= 1; z++) for (let x = -1; x <= 1; x++) {
+      const neighbour = x || z ? data.byIndex?.get(`${tile.ix + x},${tile.iz + z}`) : tile;
+      if (!neighbour || (neighbour !== tile && stride <= strides.get(neighbour.id))) continue;
+      if (protectedIds.has(neighbour.id)) return Infinity;
+      const ownStride = neighbour === tile ? stride : strides.get(neighbour.id);
+      let seamError = 0, spanStride = ownStride;
+      for (let nz = -1; nz <= 1; nz++) for (let nx = -1; nx <= 1; nx++) {
+        const adjacent = data.byIndex?.get(`${neighbour.ix + nx},${neighbour.iz + nz}`);
+        const adjacentStride = adjacent === tile ? stride : strides.get(adjacent?.id);
+        if (adjacentStride > ownStride) {
+          if (!Number.isFinite(neighbour.errorsM?.[adjacentStride])) return Infinity;
+          seamError = Math.max(seamError, neighbour.errorsM[adjacentStride]);
+          spanStride = Math.max(spanStride, adjacentStride);
+        }
+      }
+      if (!Number.isFinite(neighbour.errorsM?.[ownStride])) return Infinity;
+      const residual = neighbour.errorsM[ownStride] + seamError;
+      error = Math.max(error, landDetailErrorM(neighbour, spanStride, residual, data.grid.cellSizeM, heightMin, heightMax) * rateFor(neighbour));
+    }
+    return error;
+  };
+  for (const tile of data.tiles.values()) {
+    const ppm = requirements.get(tile.id) * scale;
+    let stride = strides.get(tile.id);
+    if (ppm > 0 && !protectedIds.has(tile.id)) {
+      for (const s of STRIDES) {
+        if (s <= stride || s > data.cells) continue;
+        // A lower bound rejects impossible candidates before evaluating
+        // the more expensive deformation, seam and reflected-view bounds.
+        if (!Number.isFinite(tile.errorsM?.[s]) || tile.errorsM[s] * ppm * minimumUpY > pixelErrorPx) continue;
+        if (coarsenError(tile, s) <= pixelErrorPx) stride = s;
+      }
+      if (stride > strides.get(tile.id)) coarsenedError = Math.max(coarsenedError, coarsenError(tile, stride));
+    }
+    if (stride > strides.get(tile.id)) coarsened++;
+    strides.set(tile.id, stride);
+    triangles += 2 * (data.cells / stride) ** 2;
+    if (ppm > 0) {
+      const error = (tile.errorsM?.[stride] || 0) * ppm;
+      maxErrorPx = Math.max(maxErrorPx, error);
+      if (summits.has(tile.id)) summitMaxErrorPx = Math.max(summitMaxErrorPx, error);
+    }
+  }
+  return { ...plan, strides, triangles, maxErrorPx, summitMaxErrorPx,
+    pixelLimit: Math.max(plan.pixelLimit * scale, pixelErrorPx), summitPixelLimit: plan.summitPixelLimit * scale,
+    detailHeightPx: pixelHeightPx, pixelErrorPx, referenceHeightPx: heightPx,
+    pixelCoarsenedTiles: coarsened, pixelTrianglesSaved: plan.triangles - triangles,
+    pixelProtectedTiles: protectedIds.size, pixelCoarsenedMaxErrorPx: coarsenedError,
+  };
+}
+
 // Expanding a rectangular frustum by a spherical orientation bound needs
 // more margin at its corners. Bound the change of each projected angle by
 // the smallest projection of a unit ray onto that coordinate plane.
@@ -44,6 +168,8 @@ export function planTerrainWindow(data, tour, index, {
   budget = 'desktop', heightPx = 1080, aspect = 16 / 9, bias = 1,
   pixelLimit = budget === 'mobile' ? 2 : 1, coverage = null, coverageRevision = 0,
   protectedTileIds = [],
+  pixelHeightPx = null, pixelErrorPx = .25, pixelProtectedTileIds = [],
+  mirrorLevelM = null,
 } = {}) {
   const summits = new Set(protectedTileIds);
   const startMs = index * 8000, endMs = Math.min(tour.durationMs, startMs + 8000);
@@ -74,14 +200,29 @@ export function planTerrainWindow(data, tour, index, {
     Object.assign(p, expandedTangents(p, framing));
     p.focal = heightPx / (2 * Math.tan(p.minFovYDeg * Math.PI / 360) * LENS_MIN_HALF_ANGLE_SCALE);
   }
+  const detailPoses = [...poses];
+  if (Number.isFinite(mirrorLevelM)) for (const p of poses) {
+    detailPoses.push({ ...p, eyeM: [p.eyeM[0], mirrorLevelM - MIRROR_LIFT * (p.eyeM[1] - mirrorLevelM), p.eyeM[2]],
+      basis: Object.fromEntries(Object.entries(p.basis).map(([key, v]) => [key, [v[0], -v[1], v[2]]])) });
+  }
+  const nearRootIds = new Set();
+  const rootReach = Math.max(data.manifest?.bands?.nearM ?? 1800, LAND_TOUR_FADE_END_M)
+    + Math.SQRT2 * data.cells * data.grid.cellSizeM / 2;
+  const rootPad = rootReach + Math.max(...poses.map(p => p.paddingM));
+  const rootBounds = { minX: Math.min(...poses.map(p => p.eyeM[0])) - rootPad,
+    maxX: Math.max(...poses.map(p => p.eyeM[0])) + rootPad,
+    minZ: Math.min(...poses.map(p => p.eyeM[2])) - rootPad,
+    maxZ: Math.max(...poses.map(p => p.eyeM[2])) + rootPad };
   const requirements = new Map(), visible = new Set();
   for (const tile of data.tiles.values()) {
     const size = data.cells * data.grid.cellSizeM;
     const cx = data.grid.originM[0] + (tile.ix + .5) * size;
     const cz = data.grid.originM[1] + (tile.iz + .5) * size;
     const cy = (tile.minY + tile.maxY) / 2, hy = (tile.maxY - tile.minY) / 2, hx = size / 2;
+    const rootCandidate = pixelHeightPx > 0 && cx >= rootBounds.minX && cx <= rootBounds.maxX && cz >= rootBounds.minZ && cz <= rootBounds.maxZ;
     let pixelPerMetre = 0;
     for (const p of poses) {
+      if (rootCandidate && !nearRootIds.has(tile.id) && Math.hypot(cx - p.eyeM[0], cz - p.eyeM[2]) <= rootReach + p.paddingM) nearRootIds.add(tile.id);
       const dx = cx - p.eyeM[0], dy = cy - p.eyeM[1], dz = cz - p.eyeM[2];
       const { forward: f, right: r, up: u } = p.basis;
       const depth = dx * f[0] + dy * f[1] + dz * f[2];
@@ -121,10 +262,11 @@ export function planTerrainWindow(data, tour, index, {
         if (summit) { protectedTiles++; summitMaxErrorPx = Math.max(summitMaxErrorPx, error); }
       }
     }
-    if (triangles <= cap) return { index, startMs, endMs, strides, visible, triangles, maxErrorPx, pixelLimit,
+    if (triangles <= cap) return pixelTerrainPlan({ index, startMs, endMs, strides, visible, triangles, maxErrorPx, pixelLimit,
       coarse: bias > 1, coverage: framing, coverageRevision, poses,
       protectedTiles, summitMaxErrorPx, summitPixelLimit: Math.min(8, pixelLimit),
-      ...(pixelLimit > requestedLimit ? { detailNote: `Triangle cap required ${pixelLimit}px surrounding terrain / ${Math.min(8, pixelLimit)}px summit detail (requested ${requestedLimit}px)` } : {}) };
+      ...(pixelLimit > requestedLimit ? { detailNote: `Triangle cap required ${pixelLimit}px surrounding terrain / ${Math.min(8, pixelLimit)}px summit detail (requested ${requestedLimit}px)` } : {}) },
+    data, requirements, { heightPx, pixelHeightPx, pixelErrorPx, pixelProtectedTileIds, protectedTileIds, nearRootIds, detailPoses });
     // Wide views can expose more terrain than the original 8px ceiling
     // permits within the triangle cap. Keep that ceiling for every summit;
     // only surrounding terrain may use the additional measured levels.
@@ -151,9 +293,9 @@ export function terrainWindowCovers(plan, pose, projection) {
 
 /** Mesh ownership is bounded independently of asynchronous build completion. */
 export class TourWindowCache {
-  constructor({ build, windowMs = 8000, now = Date.now, canRetry = null } = {}) {
+  constructor({ build, windowMs = 8000, now = Date.now, canRetry = null, isDisplayed = () => false } = {}) {
     this.build = build; this.windowMs = windowMs; this.resident = new Map(); this.pending = new Map();
-    this.now = now; this.canRetry = canRetry; this.retryAt = new Map();
+    this.now = now; this.canRetry = canRetry; this.isDisplayed = isDisplayed; this.retryAt = new Map();
     this.generation = 0; this.current = 0; this.closed = false;
   }
   async request(index, { replace = false, retryNow = false } = {}) {
@@ -170,8 +312,12 @@ export class TourWindowCache {
     const generation = this.generation;
     const job = Promise.resolve(this.build(index)).then(mesh => {
       if (this.closed || generation !== this.generation || Math.abs(index - this.current) > 1) { mesh?.dispose?.(); return null; }
-      this.resident.get(index)?.dispose?.(); this.resident.set(index, mesh);
-      if (mesh?.adopt?.() === false) { this.resident.delete(index); mesh.dispose?.(); return null; }
+      if (mesh?.adopt?.() === false) { mesh.dispose?.(); return null; }
+      const previous = this.resident.get(index);
+      this.resident.set(index, mesh);
+      // A displayed replacement stays alive until the scene detaches it
+      // and transfers its residency pin during the next render handoff.
+      if (previous !== mesh && !this.isDisplayed(previous)) previous?.dispose?.();
       this.retryAt.delete(index);
       this.prune(); return mesh;
     }).catch(error => {

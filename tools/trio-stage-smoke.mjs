@@ -14,7 +14,7 @@ await fs.mkdir(out, { recursive: true });
 const audioPath = path.join(out, 'performance.wav');
 execFileSync(process.execPath, [path.join(root, 'tools/gen-test-wav.mjs'), audioPath, '120', '36']);
 const presentation = { version: 2, look: 'pixel', quality: 'auto', palette: 'world', dither: .35,
-  ditherMode: 'selective', pixelGrid: 'classic', pixelScale: 'depth', scaling: 'fit' };
+  ditherMode: 'selective', pixelGrid: 'classic', pixelScale: 'original', scaling: 'fit' };
 const settings = { width: 1280, height: 720, experience: 'trio', view: null, biome: null,
   seed: 315, quality: 0, reducedFlash: false, reducedMotion: false, presentation };
 const report = { status: 'failed', frames: [], switches: [], live: null, errors: [] };
@@ -72,7 +72,7 @@ try {
       assert.equal(state.experience, experience); assert.equal(state.sameTransport, true);
       assert.equal(state.timeMs, before.timeMs); assert.equal(state.heard, before.heard); assert.equal(state.paused, before.paused);
       assert.equal(state.actors, experience === 'trio'); assert.equal(state.ahead, 0);
-      assert.equal(state.pixelScale, experience === 'trio' ? 'original' : 'depth');
+      assert.equal(state.pixelScale, 'original');
       report.switches.push(state);
     }
     const stages = report.switches.filter(s => s.experience === 'trio');

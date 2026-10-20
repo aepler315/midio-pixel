@@ -21,6 +21,7 @@
 // original frame. A dolly's cone can fit while exposing hidden terrain;
 // that mode therefore needs a package with coverage beyond visible tiles.
 import { cameraBasis } from '../terrain/SceneTravel.js';
+import { LAND_MAX_DISPLACEMENT_M } from './LandMotionLimits.js';
 import { hashSeed, mulberry32 } from '../../utils/math.js';
 
 export const MOVE_KINDS = Object.freeze(['establish', 'push', 'pullback', 'orbit', 'drift']);
@@ -60,7 +61,7 @@ const LOW_CLEARANCE_MIN_M = 50;
 // The musical deformation's reach (calibrateRangeMusic bounds it near
 // 180 m). It scales with the square of a point's height in the view's
 // height range, so a desert floor barely moves while ridges move fully.
-export const DEFORM_PAD_M = 180;
+export const DEFORM_PAD_M = LAND_MAX_DISPLACEMENT_M;
 // The zoom path is checked at least every terrain cell (so no ridge slips
 // between samples), within these bounds.
 const CLEARANCE_SAMPLES_MIN = 16;

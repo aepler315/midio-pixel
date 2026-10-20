@@ -1,4 +1,5 @@
 import { cloudUniforms, CLOUD_OCCLUSION_GLSL } from './CloudOcclusion.js';
+import { LAND_TOUR_FADE_END_M } from './LandMotionLimits.js';
 import { hexToLinear, RULE_DEFAULTS, validateWaterRules } from './MaterialPackage.js';
 import { GUST_FRONTS, GUST_IDLE_SEC, GUST_SWEEP_SEC } from './Gust.js';
 import { RangeAssetError } from './RangeAssets.js';
@@ -279,7 +280,7 @@ export const DEFORM_GLSL = /* glsl */`
     vec2 uv = (p.xz - uGridOrigin) / uGridExtent;
     float receiver = texture(uReceiver, uv * (1.0 - uTexel) + 0.5 * uTexel).r;
     float h = clamp((p.y - uHeightRange.x) / max(1.0, uHeightRange.y - uHeightRange.x), 0.0, 1.0);
-    float tourFade = mix(1.0, smoothstep(1500.0, 4000.0, distance(p, uTourEye)), uTourEnabled);
+    float tourFade = mix(1.0, smoothstep(1500.0, ${LAND_TOUR_FADE_END_M.toFixed(1)}, distance(p, uTourEye)), uTourEnabled);
     return receiver * tourFade * deformField(h, dot(p.xz, uDeformDir), dot(p.xz, uMelodyDir));
   }
   // Full field derivatives include the receiver shoulder and height lift.
@@ -432,6 +433,34 @@ export const SCENE_FRAG = /* glsl */`
     return r;
   }
   Tri triplanar(sampler2D t, vec3 p, vec3 n, float scale, float rot) { return triplanarRib(t, p, n, scale, rot, 1.0); }
+  #ifdef PIXEL_MATERIAL_SKIP
+  // Evaluate the same projected UVs and their gradients in every lane
+  // before skipping invisible detail. Implicit derivatives inside that
+  // divergent branch would change mip/aniso filtering along its boundary.
+  Tri triplanarWhen(sampler2D t, vec3 p, vec3 n, float scale, float rot, bool visible) {
+    float c = cos(rot), s = sin(rot);
+    mat2 R = mat2(c, -s, s, c);
+    vec2 uvX = R * (vec2(p.z, p.y) / scale);
+    vec2 uvY = R * (p.xz / scale);
+    vec2 uvZ = R * (vec2(p.x, p.y) / scale);
+    vec2 dxX = dFdx(uvX), dyX = dFdy(uvX);
+    vec2 dxY = dFdx(uvY), dyY = dFdy(uvY);
+    vec2 dxZ = dFdx(uvZ), dyZ = dFdy(uvZ);
+    if (!visible) return Tri(vec3(0.0), 0.0, 0.5);
+    vec4 tx = textureGrad(t, uvX, dxX, dyX);
+    vec4 ty = textureGrad(t, uvY, dxY, dyY);
+    vec4 tz = textureGrad(t, uvZ, dxZ, dyZ);
+    vec3 w = pow(abs(n), vec3(4.0));
+    w /= (w.x + w.y + w.z);
+    vec2 nx = tx.rg * 2.0 - 1.0, ny = ty.rg * 2.0 - 1.0, nz = tz.rg * 2.0 - 1.0;
+    vec3 dn = w.x * vec3(0.0, nx.y, nx.x) + w.y * vec3(ny.x, 0.0, ny.y) + w.z * vec3(nz.x, nz.y, 0.0);
+    Tri r;
+    r.dn = dn;
+    r.b = w.x * tx.b + w.y * ty.b + w.z * tz.b;
+    r.h = w.x * tx.a + w.y * ty.a + w.z * tz.a;
+    return r;
+  }
+  #endif
   vec3 srgbToLinear(vec3 c) { return pow(max(c, 0.0), vec3(2.2)); }
   // How rough the water is here from the passing gust fronts: each front
   // reaches a screen column when the forest's does, rises fast and settles
@@ -531,7 +560,11 @@ export const SCENE_FRAG = /* glsl */`
       // Skipped where it cannot contribute (nearFade 0): three fetches saved
       // on every distant pixel, the result identical.
       Tri near = Tri(vec3(0.0), 0.0, 0.5);
+      #ifdef PIXEL_MATERIAL_SKIP
+      near = triplanarWhen(tRockNear, vWorld, n, sRockNear, 0.4, !water && nearFade > 0.0);
+      #else
       if (nearFade > 0.0) near = triplanar(tRockNear, vWorld, n, sRockNear, 0.4);
+      #endif
       float detailFade = 1.0 - smoothstep(9000.0, 30000.0, dist);
       vec3 dn = (macro.dn * 1.3 + macro2.dn * 0.8 * (1.0 - smoothstep(2500.0, 9000.0, dist))) * detailFade + near.dn * 0.7 * nearFade;
       float rh = mix(macro.h, macro2.h, 0.35);
@@ -614,8 +647,13 @@ export const SCENE_FRAG = /* glsl */`
       farCrownNormal = normalize(mix(normalize(towardEyeHorizontal * .6 + vec3(0.0, .5, 0.0)),dotNormal,dotCrownWeight));
       // Two snow scales at unrelated sizes and angles: a single 60 m tile
       // repeats visibly as a grid across a wide snowy flat.
+      #ifdef PIXEL_MATERIAL_SKIP
+      Tri sn = triplanarWhen(tSnow, detailPosition, n, sSnow, 0.7, !water && snow > 0.0);
+      Tri sn2 = triplanarWhen(tSnow, detailPosition, n, sSnow * 3.7, 2.1, !water && snow > 0.0);
+      #else
       Tri sn = triplanar(tSnow, detailPosition, n, sSnow, 0.7);
       Tri sn2 = triplanar(tSnow, detailPosition, n, sSnow * 3.7, 2.1);
+      #endif
       sn.h = mix(sn.h, sn2.h, 0.5);
       sn.dn = mix(sn.dn, sn2.dn, 0.5);
       vec3 snowCol = mix(pSnowShade, pSnow, 0.7 + 0.3 * sn.h);
@@ -982,12 +1020,13 @@ export function applyMaterial(uniforms, pack, textures, ruleOverrides = {}) {
   uniforms.uHasMaterial.value = 1;
 }
 
-export function createSceneMaterial(THREE, uniforms, { forestDebug = false, budget = 'desktop', terrainShading = 'off' } = {}) {
+export function createSceneMaterial(THREE, uniforms, { forestDebug = false, budget = 'desktop', terrainShading = 'off', pixelated = false } = {}) {
   const experimental = terrainShading === 'moran';
   const m = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: SCENE_VERT,
     fragmentShader: experimental ? moranTerrainFragment(SCENE_FRAG) : SCENE_FRAG, uniforms });
   if (experimental) m.userData.terrainShading = 'moran';
   m.defines.FAR_FOREST_KMAX = budget === 'mobile' ? 4 : 8;
+  if (pixelated) m.defines.PIXEL_MATERIAL_SKIP = 1;
   if (forestDebug) m.defines.FOREST_DEBUG = 1;
   return m;
 }

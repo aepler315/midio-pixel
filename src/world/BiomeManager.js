@@ -22,7 +22,8 @@ import { ridgeEnvelope, boundaryLift01 } from './alpine/Ridge.js';
 import { travelSeam, TRAVEL_FEATHER, TRAVEL_BANDS } from './TravelSeam.js';
 import { landscapeLayerColor, landscapePasses, landscapePolicy, landscapeBudget, landscapeSnowAllowed, resolveLandscapePalette, resolveRangePresentation, rangeDrawsSea } from './alpine/LandscapePolicy.js';
 import { createRangeSkyComposition, rangeMoonOrbit, rangeMoonRadius, rangeV2MoonRadius, drawMoonMaria, rangeCloudBanks, tourCloudBanks, drawRangeClouds, tourSkyDirection, projectSkyDirection, projectRailSky } from './alpine/RangeSkyComposition.js';
-import { rangeSkyState } from './alpine/RangeFrame.js';
+import { RangeSkyRenderer } from './alpine/RangeSkyRenderer.js';
+import { rangeSkyState, usesHighResolutionRangeSky } from './alpine/RangeFrame.js';
 import { withNarrativeAlpha, drawNarrativeMarks } from '../render/NarrativeDraw.js';
 import { buildRidgeSurface } from './alpine/RidgeSurface.js';
 import { drawRidgeSurface } from './alpine/RidgeSurfaceDraw.js';
@@ -987,6 +988,9 @@ export class BiomeManager {
 
   /** Undo every conductor subscription made at construction. */
   dispose() {
+    this._highResolutionSkyRenderer?.dispose();
+    this._highResolutionSkyRenderer = null;
+    this.rangeSkyLayer = null;
     this._scratchDisposed = true;
     this._cancelBake();
     this._canvasBuffers?.dispose();
@@ -2585,18 +2589,22 @@ export class BiomeManager {
     // The same causal ridge samples own paint geometry and the moon's
     // bounded relationship. Resolve before sky and before beginScenic.
     const heardTimeMs = this.tSec * 1000;
+    const compactSky = usesHighResolutionRangeSky(this);
     this._frameRidges = null;
     this.celestialState = null;
     if (this.world?.kind === 'alpine') {
-      this.danceRidgeSample = sampleHorizonRidge({ viewport: canvas, crest: this._horizonCrest,
-        songP: this.durationMs > 0 ? clamp01(heardTimeMs / this.durationMs) : 0,
-        advectionPx: ridgeAdvectionPxAt(heardTimeMs, this.reducedMotion), heardTimeMs, history: this.ridgeMusicSession, tuning: this._horizonTuning, reducedMotion: this.reducedMotion });
-      const space = sampleSpaceRidge({ viewport: canvas, seededGeometry: this.spaceRidge,
-        heardTimeMs, history: this.ridgeMusicSession, reducedMotion: this.reducedMotion });
-      this.spaceRidge.frameSample = { sample: space, width: canvas.width, height: canvas.height, heardTimeMs, reducedMotion: !!this.reducedMotion };
-      this._frameRidges = { stateKey: this.ridgeMusicSession?.stateKey, dance: this.danceRidgeSample, space };
-      const moonOffset = sampleRidgeRelationship({ space, dance: this.danceRidgeSample,
-        nominalViewport: canvas, moonVisibility: horizonFade(dn.moonAlt), reducedMotion: this.reducedMotion });
+      let moonOffset = {};
+      if (!compactSky) {
+        this.danceRidgeSample = sampleHorizonRidge({ viewport: canvas, crest: this._horizonCrest,
+          songP: this.durationMs > 0 ? clamp01(heardTimeMs / this.durationMs) : 0,
+          advectionPx: ridgeAdvectionPxAt(heardTimeMs, this.reducedMotion), heardTimeMs, history: this.ridgeMusicSession, tuning: this._horizonTuning, reducedMotion: this.reducedMotion });
+        const space = sampleSpaceRidge({ viewport: canvas, seededGeometry: this.spaceRidge,
+          heardTimeMs, history: this.ridgeMusicSession, reducedMotion: this.reducedMotion });
+        this.spaceRidge.frameSample = { sample: space, width: canvas.width, height: canvas.height, heardTimeMs, reducedMotion: !!this.reducedMotion };
+        this._frameRidges = { stateKey: this.ridgeMusicSession?.stateKey, dance: this.danceRidgeSample, space };
+        moonOffset = sampleRidgeRelationship({ space, dance: this.danceRidgeSample,
+          nominalViewport: canvas, moonVisibility: horizonFade(dn.moonAlt), reducedMotion: this.reducedMotion });
+      }
       const grow = approachScale(this._progress || 0);
       // A requested v2 scene keeps this radius policy even while its quality
       // fallback paints, so late preparation cannot move/change the anchor.
@@ -2631,7 +2639,7 @@ export class BiomeManager {
       })
       : null;
     this._rangeSky = this.world?.kind === 'alpine'
-      ? createRangeSkyComposition(this.spaceRidge, canvas, { voyageActive: (skyVoyage?.depth ?? 0) > 0 })
+      ? createRangeSkyComposition(this.spaceRidge, canvas, { voyageActive: (skyVoyage?.depth ?? 0) > 0, lazyCorridor: compactSky })
       : null;
 
     // The horizon color, and from it the air color every range body and the
@@ -2652,6 +2660,13 @@ export class BiomeManager {
     // baked (and their composition fitted) when the legacy stack draws.
     const v2 = this.world?.kind === 'alpine' && !this.terrainPreview && !!this.rangePresentation?.beginScenic?.();
     this._rangeV2Active = v2;
+    this._awaitingTerrain = this.world?.kind === 'alpine' && !this.terrainPreview && !!this.rangePresentation?.enabled && !v2;
+    if (this._awaitingTerrain) {
+      this._rangeV2Arriving = false;
+      this._groundReceivers = null;
+      this._lakeReflectGroundY = null;
+      return;
+    }
     // Mid-song arrival: the scene fades in over legacy scenery, which keeps
     // drawing (and keeps its strips) until the fade completes.
     const v2Arriving = v2 && !!this.rangePresentation?.arriving;
@@ -2680,11 +2695,20 @@ export class BiomeManager {
       return;
     }
 
+    // The presenter may paint the sky directly into its full-resolution
+    // output, underneath this transparent native-grid terrain frame.
+    // Direct canvas callers keep their established complete sky draw.
+    this.rangeSkyLayer = null;
+    const separateSky = !!this.highResolutionSky && v2
+      && this._prepareHighResolutionSky(ctx, canvas, A, B, t, dn.night);
+    const skyA = styleDials(this.visualStyle).skyWireAlpha ?? 1;
+    const mandalaColor = this._rotated(this.lerpCache.get(A.celestial.haloColor, B.celestial.haloColor, t));
+    ctx.save();
+    if (!separateSky) {
     // The infinite sky shares the ordinary Range lens. Tour bodies already
     // use its projected world directions, so they must not be scaled twice.
     const skyLens = v2 && !this.rangePresentation?.tourMode && !this.rangePresentation?.skyPan?.skyCamera
       ? this.rangePresentation?.frame?.cameraEffects?.halfAngleScale || 1 : 1;
-    ctx.save();
     ctx.translate(canvas.width / 2, canvas.height / 2);
     ctx.scale(1 / skyLens, 1 / skyLens);
     ctx.translate(-canvas.width / 2, -canvas.height / 2);
@@ -2736,7 +2760,6 @@ export class BiomeManager {
 
     // Hybrid sky wire: mandala / ribbon / weaver scale with skyWireAlpha
     // (Soft ~0.38, Neon ~0.72) so geometry feels musical without striping.
-    const skyA = styleDials(this.visualStyle).skyWireAlpha ?? 1;
     // Midasus's sky voyage and the ambient connect-the-dots constellations,
     // drawn HERE -- before the sun/moon rather than after -- for the same
     // reason the space ridge moved above: both are additive ('lighter')
@@ -2827,7 +2850,6 @@ export class BiomeManager {
     if (this._rangeV2Active) this.rangePresentation.drawSkyGiants?.(ctx, canvas);
     // Spirograph resonance mandala, centered on the celestial body so it
     // reads as the sun/moon itself resonating with the track.
-    const mandalaColor = this._rotated(this.lerpCache.get(A.celestial.haloColor, B.celestial.haloColor, t));
     // Both are pure background phenomena (a ~700-point spirograph path and a
     // ~420-point attractor trail redrawn every frame) -- real atmosphere but
     // never gameplay, so they shed at the same rung as the rest of the
@@ -2850,6 +2872,7 @@ export class BiomeManager {
       this.ribbon.intensity = prevR * ribbonA;
       this.ribbon.draw(ctx, canvas.width * 0.22, canvas.height * 0.30, canvas.height * 0.075 * (this._ribbonScaleMul || 1), mandalaColor);
       this.ribbon.intensity = prevR;
+    }
     }
     // The ordinary sea remains a distant background plane. The real terrain
     // partitions paint over it, and inland lake/river receivers retain their
@@ -3029,7 +3052,6 @@ export class BiomeManager {
     const tint = ensureContrast(this._rotated(this.lerpCache.get(A.silhouette, B.silhouette, t)), skyHorizonNight, 0.14);
     const farTint = this.lerpCache.get(tint, skyHorizonNight, AERIAL_PULL.L2 || 0);
     pres.drawPartition(ctx, 'far', canvas);
-    this._drawCrestLight(ctx, canvas, worldX, A, B, t, pres.lastPartition);
     this._drawFarVignettes(ctx, canvas, worldX, A, B, t, phenomenaFull, farTint);
     pres.drawPartition(ctx, 'mid', canvas);
     this._drawMidDepthLife(ctx, canvas, frame, { worldX, originX, phenomenaFull, particleMul, mandalaColor });
@@ -3131,6 +3153,7 @@ export class BiomeManager {
    * rather than as two unrelated effects.
    */
   _drawForegroundSwell(ctx, canvas, worldX, A, B, t) {
+    if (this.world?.kind === 'alpine') return;
     const reveal = isthmusReveal01(this.pullback01 || 0);
     if (reveal <= 0.002) return;
     if (this._perf && !this._perf.heavyPostFx) return;
@@ -3272,6 +3295,7 @@ export class BiomeManager {
    *  flood.level01/active for wet-footing traction the same frame,
    *  without depending on draw() having already run. */
   _drawFlood(ctx, canvas) {
+    if (this.world?.kind === 'alpine') return;
     if (!this.flood?.active) return;
     if (this.flood.source === 'tsunami' && !this.acceptsOceanHazard()) return;
     const level01 = this.flood.level01;
@@ -3586,6 +3610,7 @@ export class BiomeManager {
   }
 
   drawForeground(ctx, canvas, worldX, veilEnabled = true) {
+    if (this.world?.kind === 'alpine') return;
     // L7: oversized, blurred, low-alpha foreground veil (spec §4.1.1).
     // Calm sections lift the veil alpha a little -- a small, cheap way to
     // keep this backmost layer visibly breathing when nothing else is loud.
@@ -3750,6 +3775,57 @@ export class BiomeManager {
       ctx.fill();
     }
     ctx.restore();
+  }
+
+  /** Snapshot once in the same draw that resolves the terrain camera.
+   * The presenter consumes it after the transparent terrain image is ready. */
+  _prepareHighResolutionSky(ctx, canvas, A, B, t, night) {
+    const camera = this.rangePresentation?.skyPan;
+    if (!camera?.tourPose && !camera?.skyCamera) return false;
+    const matrix = ctx.getTransform();
+    const body = value => value ? Object.freeze({ ...value,
+      ...(value.illuminant ? { illuminant: Object.freeze({ ...value.illuminant }) } : {}) }) : null;
+    const weather = this._pass('range-clouds') && !this.terrainPreview
+      ? arrivingStorm(this.rangePresentation?.frame?.storm || stormAt(this, this.tSec * 1000), this.rangePresentation?.arrival ?? 1) : null;
+    const bolt = this.tSec * 1000 <= this.lightning?._boltUntilMs ? this.lightning?._bolt : null;
+    const points = line => Object.freeze(line.map(point => Object.freeze({ ...point })));
+    const lightning = !this.rangeNarrative && this.lightning && (bolt || this.lightning.flash > .01) ? Object.freeze({
+      flash: this.lightning.flash, _boltUntilMs: this.lightning._boltUntilMs,
+      _bolt: bolt ? Object.freeze({ main: points(bolt.main), branches: Object.freeze(bolt.branches.map(points)) }) : null,
+    }) : null;
+    this.rangeSkyLayer = Object.freeze({
+      sourceWidth: canvas.width, sourceHeight: canvas.height,
+      scenicTransform: Object.freeze([matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f]),
+      camera, seed: this.songSeed || 0, timeSec: this.tSec,
+      night, reducedMotion: !!this.reducedMotion, reducedFlash: !!this.reducedFlash,
+      colors: Object.freeze(rangeSkyState(this, A, B, t, night, this.rangeNarrative)),
+      sun: body(this.celestialState?.sun), moon: body(this.celestialState?.moon),
+      phase: this._moonPhase01(), authority: this.rangeNarrative?.spaceAuthority ?? 1,
+      storm: weather ? Object.freeze({ ...weather }) : null,
+      light: this._scenicLight ? Object.freeze({ ...this._scenicLight }) : null,
+      lightning,
+    });
+    const moon = this.rangeSkyLayer.moon;
+    this._moonDisc = moon?.visible !== false && moon?.altitude01 > .001
+      ? { x: moon.xFrac * canvas.width, y: moon.yFrac * canvas.height, R: moon.radiusFrac * canvas.width } : null;
+    // The old ellipse-bank occluder cannot describe the new density clouds.
+    if (this.rangePresentation?.scene) this.rangePresentation.scene.skyClouds = null;
+    return true;
+  }
+
+  /** Draw behind the upscaled terrain. `transform` maps the original scenic
+   * coordinates into physical output pixels, including camera shake/crop. */
+  drawHighResolutionSky(ctx, canvas, { transform = null } = {}) {
+    const frame = this.rangeSkyLayer;
+    if (!this.highResolutionSky || !frame) return false;
+    this._highResolutionSkyRenderer ||= new RangeSkyRenderer({ residency: this.residency });
+    ctx.save();
+    if (transform) ctx.setTransform(...transform);
+    // Without an explicit transform, use the caller's existing stage CTM.
+    // Destination size never feeds back into the terrain camera or pixel grid.
+    void canvas;
+    try { return this._highResolutionSkyRenderer.draw(ctx, frame); }
+    finally { ctx.restore(); }
   }
 
   _drawSky(ctx, canvas, A, B, t, night = 0, starOptions = {}) {
@@ -4985,6 +5061,7 @@ export class BiomeManager {
   }
 
   _drawOcean(ctx, canvas, worldX, A, B, t, phenomenaFull, night = 0) {
+    if (this.world?.kind === 'alpine') return;
     const horizonY = canvas.height * OCEAN_HORIZON_FRAC;
     // Withdrawal telegraph: the sea visibly drains back toward the horizon
     // in the seconds before a tsunami wall's own approach begins -- pulling
@@ -5530,6 +5607,7 @@ export class BiomeManager {
   }
 
   _drawHorizonEQ(ctx, canvas, worldX, A, B, t) {
+    if (this.world?.kind === 'alpine') return;
     let color = ensureMinLightness(
       this._rotated(this.lerpCache.get(A.celestial.haloColor, B.celestial.haloColor, t)), .72);
     if (this.rangeNarrative) color = this.lerpCache.get('#000000', color, this.rangeNarrative.materials);
@@ -6856,6 +6934,7 @@ export class BiomeManager {
    * same rung as the connector country it partners with.
    */
   _drawDistantWave(ctx, canvas, { scrollX0, scrollX1, scrollX2 }, A, B, t, alphaMul = 1) {
+    if (this.world?.kind === 'alpine') return;
     // `alphaMul` is how the caller crossfades two PROFILES through this pass.
     // The heightMul below is interpolated, but the strip set cannot be: this
     // draws one geometry, and two different biomes have entirely different
@@ -7733,6 +7812,7 @@ export class BiomeManager {
   }
 
   _drawSpectrumMassif(ctx, canvas, worldX, A, B, t) {
+    if (this.world?.kind === 'alpine') return;
     const geometry = this._massifGeometry(canvas, worldX);
     if (this._landscapeGeometry) this._landscapeGeometry.massif = geometry?.ridgePts || [];
     if (!geometry) return;

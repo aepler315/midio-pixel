@@ -1,4 +1,5 @@
 import { landscapeScoreFor } from './LandscapeScore.js';
+import { LAND_MAX_DISPLACEMENT_M, LAND_WAVE_K } from './LandMotionLimits.js';
 import { cameraLensAt } from '../../render/CameraLens.js';
 import { stormAt } from './RangeStorm.js';
 import { resolveRangeComposition } from './RangeComposition.js';
@@ -133,7 +134,7 @@ export function rangeMusicState({ env = null, tSec = 0, kickAgeMs = Infinity, ki
     gestureM: 12 * gesture * motion,
     melodicM: 14 * unit(melody?.activity) * (.4 + .6 * pitch01) * motion,
     structuralM: 12 * unit(structural01) * motion,
-    waveK: (2 * Math.PI) / 4800, waveDir: [Math.cos(angle), Math.sin(angle)],
+    waveK: LAND_WAVE_K, waveDir: [Math.cos(angle), Math.sin(angle)],
     phaseRad: 2 * Math.PI * .045 * tSec,
     melodyK: (2 * Math.PI) / (2400 + 2400 * pitch01),
     melodyDir: [Math.cos(pan * .7 + .9), Math.sin(pan * .7 + .9)],
@@ -241,7 +242,7 @@ export function calibrateRangeMusic(music, { view = null, progress01 = .5, depth
   fovYDeg = view?.camera?.fovYDeg ?? 40, nominalHeight = 720, heightRange = [0, 2000] } = {}) {
   if (view && !(depthM > 0)) { const pose = scenePoseAt(view, { progress01 }); depthM = Math.hypot(...pose.eyeM.map((v, i) => v - pose.targetM[i])); }
   const metresPerPixel = Math.max(1, depthM || 10000) / focalPx(fovYDeg, nominalHeight);
-  const cap = Math.min(180, Math.max(0, heightRange[1] - heightRange[0]) * .065);
+  const cap = Math.min(LAND_MAX_DISPLACEMENT_M, Math.max(0, heightRange[1] - heightRange[0]) * .065);
   const targetPx = 8 + 12 * smoothstep(.25, .90, unit(music.calibrationActivity01 ?? music.activity01));
   const gain = Math.min(targetPx * metresPerPixel / RANGE_MOTION_REFERENCE_M, cap / RANGE_MOTION_REFERENCE_M);
   const m = { ...music };
@@ -295,6 +296,13 @@ export function rangeSkyState(mgr, A, B, t, night, narrative = null) {
     horizon = hexLerp(horizon, tw.colors.horizon, 0.8 * a);
   }
   return { top, mid, horizon, air: horizon };
+}
+
+export function usesHighResolutionRangeSky(manager) {
+  const presentation = manager.rangePresentation;
+  return !!(manager.highResolutionSky && manager.world?.kind === 'alpine'
+    && presentation?.enabled && !manager.terrainPreview
+    && (presentation.skyPan?.tourPose || presentation.skyPan?.skyCamera));
 }
 
 /**
@@ -378,7 +386,10 @@ export function buildRangeFrame({
   const land = landMotion(music, landMoment01(mgr.sections, timeMs, mgr._landHistory),
     { tSec: timeMs / 1000, reducedMotion, seed: sim.songSeed ?? 0 });
   const ridgeViewport = { width: sim.stageW || 1280, height: sim.stageH || 720 };
-  const ridges = mgr._frameRidges || (mgr.ridgeMusicSession && mgr.spaceRidge ? {
+  // These measurements describe legacy painted ridges and their moon
+  // relationship. The compact smooth sky consumes neither; keep the
+  // primary ridge sample above, which still owns terrain/forest music.
+  const ridges = usesHighResolutionRangeSky(mgr) ? null : mgr._frameRidges || (mgr.ridgeMusicSession && mgr.spaceRidge ? {
     stateKey: mgr.ridgeMusicSession.stateKey,
     dance: sampleHorizonRidge({ viewport: ridgeViewport, crest: mgr._horizonCrest,
       songP: mgr.durationMs > 0 ? unit(timeMs / mgr.durationMs) : 0, advectionPx: ridgeAdvectionPxAt(timeMs, reducedMotion),

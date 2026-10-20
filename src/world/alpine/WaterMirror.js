@@ -61,6 +61,8 @@ export function mirrorCameraFor(THREE, camera, levelM, out, lift = 1) {
   out.position.set(pos.x, levelM - lift * (pos.y - levelM), pos.z);
   out.up.copy(up);
   out.lookAt(out.position.clone().add(fwd));
+  out.near = camera.near;
+  out.far = camera.far;
   out.projectionMatrix.copy(camera.projectionMatrix);
   // Reflection reverses the camera's horizontal basis. Reflect an off-axis
   // crop too, or one side of the visible lake samples beyond the mirror.

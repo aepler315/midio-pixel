@@ -4,9 +4,9 @@ import { resolveDisplayPrefs, resolvePresentation, readDisplayPrefs, writeDispla
 import { PerfGovernor } from '../src/render/PerfGovernor.js';
 import { DISPLAY_PREFS_KEY } from '../src/render/DisplayProfile.js';
 
-const defaults = { version: 2, look: 'pixel', quality: 'auto', palette: 'world', dither: .35, ditherMode: 'selective', pixelGrid: 'classic', scaling: 'fit', pixelScale: 'depth' };
+const defaults = { version: 2, look: 'pixel', quality: 'auto', palette: 'world', dither: .35, ditherMode: 'selective', pixelGrid: 'classic', scaling: 'fit', pixelScale: 'original' };
 const v1 = { version: 1, look: 'palette', quality: 'economy', palette: 'rgb332', dither: 1, scaling: 'integer' };
-test('new and numeric legacy defaults use Pixel Classic Depth with independent Auto quality', () => {
+test('new and numeric legacy defaults use Pixel Classic Uniform with independent Auto quality', () => {
   assert.deepEqual(resolveDisplayPrefs({}), defaults);
   assert.deepEqual(resolveDisplayPrefs({ legacyStagePreset: 1080 }), defaults);
 });
@@ -23,7 +23,7 @@ test('validated saved settings take precedence; malformed input has usable defau
   assert.deepEqual(resolveDisplayPrefs({ saved: { ...saved, dither: -1, pixelGrid: 'unknown' } }), saved);
 });
 test('pixel grid and palette selection are independent of quality', () => {
-  assert.deepEqual(resolvePresentation({ ...defaults, look: 'pixel' }), { pixelated: true, grid: { id: 'classic', width: 320, height: 180, pixels: 57600 }, paletteId: 'none', dither: .35, ditherMode: 'selective', quality: 'auto', scaling: 'fit', pixelScale: 'depth' });
+  assert.deepEqual(resolvePresentation({ ...defaults, look: 'pixel' }), { pixelated: true, grid: { id: 'classic', width: 320, height: 180, pixels: 57600 }, paletteId: 'none', dither: .35, ditherMode: 'selective', quality: 'auto', scaling: 'fit', pixelScale: 'original' });
   assert.equal(resolvePresentation({ ...defaults, look: 'palette' }).paletteId, 'world');
   assert.equal(resolvePresentation(defaults).grid.id, 'classic');
 });
@@ -100,12 +100,23 @@ test('stale Natural settings coerce to Pixel without pinning quality or losing d
   assert.equal(presentation.grid.width, 640);
   assert.equal(presentation.quality, 'auto');
 });
-test('Depth and Uniform scales round trip independently of grid and quality', () => {
-  for (const pixelScale of ['depth', 'original']) {
+test('saved Depth and unknown pixel scale values migrate to Uniform without losing grid or quality', () => {
+  for (const pixelScale of ['depth', 'original', 'random']) {
     const saved = { ...defaults, pixelScale, pixelGrid: 'detailed' };
-    assert.deepEqual(resolveDisplayPrefs({ saved }), saved);
-    assert.equal(resolvePresentation(saved).pixelScale, pixelScale);
+    assert.deepEqual(resolveDisplayPrefs({ saved }), { ...saved, pixelScale: 'original' });
+    assert.equal(resolvePresentation(saved).pixelScale, 'original');
     assert.equal(resolvePresentation(saved).quality, 'auto');
   }
-  assert.equal(resolveDisplayPrefs({ saved: { ...defaults, pixelScale: 'random' } }).pixelScale, 'depth');
+});
+test('persisted Depth preferences are read and rewritten as Uniform while legacy storage remains intact', () => {
+  for (const key of [DISPLAY_PREFS_KEY, 'smw:display:v2']) {
+    const saved = { ...defaults, pixelScale: 'depth', pixelGrid: 'detailed', quality: 'economy' };
+    const original = JSON.stringify(saved), records = new Map([[key, original]]);
+    const storage = { getItem: k => records.get(k), setItem: (k, v) => records.set(k, v) };
+    const migrated = readDisplayPrefs(storage);
+    assert.deepEqual(migrated, { ...saved, pixelScale: 'original' });
+    assert.equal(writeDisplayPrefs(storage, migrated), true);
+    assert.equal(JSON.parse(records.get(DISPLAY_PREFS_KEY)).pixelScale, 'original');
+    if (key !== DISPLAY_PREFS_KEY) assert.equal(records.get(key), original);
+  }
 });

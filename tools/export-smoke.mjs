@@ -228,7 +228,7 @@ try {
     return { backend: inner?.backend ?? null, washFrames: inner?.washFrames ?? 0, skipped: inner?.washSkipped ?? null,
       overlay: !!document.querySelector('#stage-webgl'),
       // The canvas capture reads is the one the wash was composited into.
-      sameSource: !!inner?.canvasRenderer && r?.getCaptureSource?.()?.canvas === inner.canvasRenderer.canvas };
+      sameSource: !!inner?.canvasRenderer && (r?.getCaptureSource?.()?.pixelCanvas || r?.getCaptureSource?.()?.canvas) === inner.canvasRenderer.canvas };
   });
   const washBefore = webgl ? await washState() : null;
   if (webgl) {

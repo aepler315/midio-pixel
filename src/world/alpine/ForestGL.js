@@ -16,6 +16,7 @@ import { GUST_FRONTS, GUST_SWEEP_SEC } from './Gust.js';
 import { MIST_GLSL } from './RangeAtmosphere.js';
 import { ACTOR_GLSL, actorUniforms } from './ActorsGL.js';
 import { buildConiferAsset, familyFor, variantFor, FOREST_FAMILIES, FOREST_VARIANTS } from './ForestSpeciesAssets.js';
+import { forestBatchFootprintPx, forestDetailWeight } from './ForestDetail.js';
 
 // Match the terrain canopy's actual-camera handoff, including mirrors.
 // Placement uses the closest point on the entire route, so its 8 km edge
@@ -106,10 +107,15 @@ const MESH_VERT = /* glsl */`
   invariant gl_Position;
   ${TREE_COMMON}
   in vec4 aBranch;
+  in float iLodWeight;
+  flat out float vLodWeight;
+  flat out float vLodId;
   out vec4 vBranch;
   out vec3 vNormal;
   out float vOcc;
   void main() {
+    vLodWeight = iLodWeight;
+    vLodId = iVar.y;
     // Hidden trees avoid all profile, wind and gust work in both passes.
     if (iVar.y > uForestKeep || hiddenByGlacier()) {
       gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return;
@@ -258,6 +264,8 @@ const MESH_FRAG = /* glsl */`
   precision highp float;
   uniform vec3 uCameraPos;
   in vec3 vWorld; in vec2 vLocal; in float vVar; in float vId; in vec3 vNormal; in vec4 vBranch; in float vOcc;
+  flat in float vLodWeight;
+  flat in float vLodId;
   out vec4 outColor;
   ${SHADE}
   MESH_COVERAGE
@@ -267,6 +275,7 @@ const MESH_FRAG = /* glsl */`
     // Every quad lane contributes before coverage can terminate a fragment.
     float phase = vBranch.y * 6.283185 * 8.0 + vBranch.x * 11.0 + vId * 31.0;
     float detail = 1.0 - smoothstep(.25, .5, fwidth(phase) / 6.283185);
+    if (!forestLodSelected()) discard;
     #ifdef FOREST_CORE
       if (cov < 254.5 / 255.0) discard;
       cov = 1.0;
@@ -360,13 +369,17 @@ const MESH_DEPTH_FRAG = /* glsl */`
   ${FOREST_DISTANCE_GLSL}
   uniform vec3 uCameraPos;
   in vec3 vWorld; in vec3 vNormal; in vec4 vBranch; in float vId;
+  flat in float vLodWeight;
+  flat in float vLodId;
   out vec4 outColor;
   MESH_COVERAGE
   void main() {
+    float cov = meshCoverage() * forestInstanceWeight(length(uCameraPos - vWorld), uFarForest.x, uFarForest.y);
+    if (!forestLodSelected()) discard;
     #ifdef FOREST_CORE
-      if (meshCoverage() * forestInstanceWeight(length(uCameraPos - vWorld), uFarForest.x, uFarForest.y) < 254.5 / 255.0) discard;
+      if (cov < 254.5 / 255.0) discard;
     #else
-      if (meshCoverage() * forestInstanceWeight(length(uCameraPos - vWorld), uFarForest.x, uFarForest.y) < .5) discard;
+      if (cov < .5) discard;
     #endif
     outColor = vec4(0.0);
   }
@@ -374,6 +387,24 @@ const MESH_DEPTH_FRAG = /* glsl */`
 
 // Both twins use exactly the same normal and branch-coordinate coverage.
 const MESH_COVERAGE = /* glsl */`
+  // Screen pixels and a flat instance id give both geometries exactly the
+  // same deterministic choice in colour/core/depth. No time or world-space
+  // interpolation enters the pattern. Each render target has its own grid.
+  float forestLodNoise() {
+    uvec2 px = uvec2(floor(gl_FragCoord.xy));
+    uint h = px.x * 0x9e3779b9u ^ px.y * 0x85ebca6bu ^ uint(vLodId * 65535.0 + .5);
+    h ^= h >> 16u; h *= 0x7feb352du;
+    h ^= h >> 15u; h *= 0x846ca68bu;
+    h ^= h >> 16u;
+    return float(h & 0x00ffffffu) / 16777216.0;
+  }
+  bool forestLodSelected() {
+    // Full=+w, lite=-(1-w); ordinary meshes use the default +1.
+    if (abs(vLodWeight) >= 1.0) return true;
+    float threshold = vLodWeight < 0.0 ? 1.0 + vLodWeight : vLodWeight;
+    bool detail = forestLodNoise() < threshold;
+    return vLodWeight < 0.0 ? !detail : detail;
+  }
   float meshCoverage() {
     vec3 n = normalize(vNormal), eye = normalize(uCameraPos - vWorld);
     float facing = dot(n, eye);
@@ -391,7 +422,6 @@ const MESH_COVERAGE = /* glsl */`
   }
 `;
 
-// Current catalog: 557,808 typed bytes, largest asset 92,952 bytes.
 // Allow 8 MiB for JS numeric-array growth, typed conversion and position /
 // normal / branch copies while assets are built. This is an accounting
 // allowance, not a measurement of a JavaScript engine or driver heap.
@@ -466,6 +496,8 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
     ...(uniforms.uGustAge ? {} : gustUniforms()), ...(uniforms.uActorPos ? {} : actorUniforms(THREE)) };
   const mat = (vert, frag, depth = false) => {
     const m = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: vert, fragmentShader: frag, uniforms: u });
+    // Ordinary mesh-ring assets have no LOD scalar; they keep full coverage.
+    m.defaultAttributeValues.iLodWeight = [1];
     if (forestDebug && !depth) m.defines.FOREST_DEBUG = 1;
     if (depth) m.colorWrite = false;
     else if (partitioned) { m.depthFunc = THREE.LessEqualDepth; m.depthWrite = false; }
@@ -501,13 +533,13 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
     return bases.get(key);
   };
   const baseBoard = billboardGeometry(THREE);
-  const byBand = { far: [], mid: [], near: [] }, depth = [], depthByBand = { far: [], mid: [], near: [] }, geos = [];
+  const byBand = { far: [], mid: [], near: [] }, depth = [], depthByBand = { far: [], mid: [], near: [] }, geos = [], detailGroups = [];
   const bandName = ['far', 'mid', 'near'];
   let bytes = 0;
   const counts = { meshDetail: 0, mesh: 0, billboard: 0 };
   const batches = { meshDetail: 0, mesh: 0, billboard: 0 };
-  // nearLod: 'detail' / 'lite' tags the detail ring's two representations
-  // (setNearDetail shows one); null for everything else.
+  // nearLod tags the detail ring's paired assets. Their original seven
+  // per-tree floats remain shared; each batch adds only one GPU scalar.
   const addBatch = (kind, base, data, idx, b, colorMat, depthMat, { from = null, nearLod = null } = {}) => {
     let geo;
     if (from) geo = reinstanced(THREE, base, from);
@@ -518,6 +550,13 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
       counts[kind] += idx.length;
       batches[kind]++;
     }
+    if (nearLod) {
+      const weight = new THREE.InstancedBufferAttribute(new Float32Array([nearLod === 'detail' ? 1 : 0]), 1, false, idx.length);
+      weight.setUsage(THREE.DynamicDrawUsage);
+      geo.setAttribute('iLodWeight', weight);
+      bytes += weight.array.byteLength;
+    }
+    geo.userData.asset = base.userData.asset;
     geos.push(geo);
     const tag = (mesh) => { if (nearLod) { mesh.userData.nearLod = nearLod; mesh.visible = nearLod === 'detail'; } return mesh; };
     if (partitioned && kind !== 'billboard') {
@@ -567,23 +606,68 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
         const family = Math.floor(g / FOREST_VARIANTS), variant = g % FOREST_VARIANTS;
         if (lod !== 0) { addBatch(kind, assetFor(lod, family, variant), data, idx, b, colorMat, depthMat); return; }
         const geo = addBatch(kind, assetFor(0, family, variant), data, idx, b, colorMat, depthMat, { nearLod: 'detail' });
-        addBatch(kind, assetFor(1, family, variant), data, idx, b, colorMat, depthMat, { from: geo, nearLod: 'lite' });
+        const lite = addBatch(kind, assetFor(1, family, variant), data, idx, b, colorMat, depthMat, { from: geo, nearLod: 'lite' });
+        detailGroups.push({ detail: geo, lite, qualityBase: assetFor(1, family, variant), pixelBase: assetFor(2, family, variant) });
       });
     }
   }
   const assets = [...bases.values()].map(g => g.userData.asset);
   const every = [...Object.values(byBand).flat(), ...depth, ...Object.values(depthByBand).flat()];
+  const setWeight = (geometry, value) => {
+    const a = geometry.attributes.iLodWeight;
+    if (a.getX(0) !== Math.fround(value)) { a.setX(0, value); a.needsUpdate = true; }
+  };
+  const setLiteAsset = (group, pixel) => {
+    const base = pixel ? group.pixelBase : group.qualityBase;
+    group.lite.userData.asset = base.userData.asset;
+    if (group.lite.index === base.index) return;
+    group.lite.setIndex(base.index);
+    for (const [name, attribute] of Object.entries(base.attributes)) group.lite.setAttribute(name, attribute);
+  };
   const forest = {
-    byBand, depth, depthByBand, bytes, counts, batches, assets, uniforms: u, nearDetail: true, shown: true,
-    /** Whether trees draw at all (`shown`) and which detail-ring
-     *  representation does (`nearDetail`: full assets, else the lighter
-     *  ones). Every forest mesh's visibility is decided here, so the two
-     *  representations never draw together. */
+    byBand, depth, depthByBand, bytes, counts, batches, assets, uniforms: u, nearDetail: true, shown: true, pixelatedDetail: false, detailView: null,
+    /** Narrative visibility and the governor cap also apply while a pixel
+     * footprint blends the paired assets. No placement counts change. */
     applyVisibility({ shown = forest.shown, nearDetail = forest.nearDetail } = {}) {
       forest.shown = !!shown; forest.nearDetail = !!nearDetail;
-      for (const m of every) m.visible = forest.shown && (!m.userData.nearLod || (m.userData.nearLod === 'detail') === forest.nearDetail);
+      for (const group of detailGroups) setLiteAsset(group, forest.pixelatedDetail && forest.nearDetail);
+      if (!forest.pixelatedDetail || !forest.nearDetail) for (const group of detailGroups) {
+        setWeight(group.detail, forest.nearDetail ? 1 : 0);
+        setWeight(group.lite, forest.nearDetail ? 0 : -1);
+      }
+      for (const m of every) m.visible = forest.shown && (!m.userData.nearLod || Math.abs(m.geometry.attributes.iLodWeight.getX(0)) > 0);
     },
     setNearDetail(detail) { forest.applyVisibility({ nearDetail: detail }); },
+    /** Call before drawing each camera/target, including again after a
+     * mirror. Stateless weights preserve seeking/export reconstruction. */
+    updateDetailView({ camera, width, height, pixelated = false, nearDetail = forest.nearDetail } = {}) {
+      forest.pixelatedDetail = !!pixelated && partitioned;
+      const deformation = {
+        heightMin: u.uHeightRange?.value.x ?? 0,
+        heightSpan: (u.uHeightRange?.value.y ?? 1) - (u.uHeightRange?.value.x ?? 0),
+        amplitudeM: ['uDeformAmp', 'uDeformKick', 'uDeformStructural', 'uDeformMelodic'].reduce((sum, key) => sum + Math.abs(u[key]?.value || 0), 0),
+        gestureM: Math.abs(u.uDeformGesture?.value || 0),
+      };
+      const state = { pixelated: forest.pixelatedDetail, width, height, batches: detailGroups.length,
+        detailBatches: 0, liteBatches: 0, blendedBatches: 0, maxFootprintPx: 0, detailWeightMin: 1, detailWeightMax: 0 };
+      for (const group of detailGroups) {
+        const footprint = forest.pixelatedDetail ? forestBatchFootprintPx(group.detail, camera, width, height, deformation) : 0;
+        const targetWeight = nearDetail ? (forest.pixelatedDetail ? forestDetailWeight(footprint) : 1) : 0;
+        // Binary fractions decode to an identical full-weight threshold in
+        // both float32 attributes, including close to the endpoints.
+        const weight = Math.round(targetWeight * 65536) / 65536;
+        setWeight(group.detail, weight); setWeight(group.lite, -(1 - weight));
+        if (weight === 1) state.detailBatches++;
+        else if (weight === 0) state.liteBatches++;
+        else state.blendedBatches++;
+        state.maxFootprintPx = Math.max(state.maxFootprintPx, footprint);
+        state.detailWeightMin = Math.min(state.detailWeightMin, weight);
+        state.detailWeightMax = Math.max(state.detailWeightMax, weight);
+      }
+      forest.applyVisibility({ nearDetail });
+      forest.detailView = state;
+      return state;
+    },
     dispose: () => { for (const g of geos) g.dispose(); for (const g of bases.values()) g.dispose(); baseBoard.dispose(); for (const m of Object.values(materials)) m.dispose(); },
   };
   return forest;

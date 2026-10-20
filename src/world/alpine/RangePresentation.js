@@ -185,6 +185,9 @@ export class RangePresentation {
   /** A new song (or world): new generation, new assignments. Pending work
    *  of the previous generation is cancelled; its late results never land. */
   setSong({ terrain = null, mgr = null, generation = this.generation + 1, exportMode = false } = {}) {
+    // Replays may reuse the load generation, but every reset supersedes
+    // readiness loops that were preparing the previous song's views.
+    this._readinessOwner = {};
     this.stage = null;
     this.active = false;
     this.frame = null;
@@ -376,6 +379,8 @@ export class RangePresentation {
     const gen = this.generation, preparation = {};
     this._preparing.set(view.id, preparation);
     this.scene.prepare(view, { generation: gen, baseUrl: this.assetBase, scenicViewport: this.frameInputs?.scenicViewport,
+      pixelated: !!this.pixelated,
+      pixelHeightPx: this.pixelPolicy?.grid?.height ?? null,
       tourData: this.tourData, tourCpuKey: this._tourCpuKey, isCurrent: (g) => g === this.generation })
       .then(() => { if (gen === this.generation) this.assetFailures.delete(view.id); })
       .catch((err) => {
@@ -433,24 +438,35 @@ export class RangePresentation {
    *  with the snapshot (evidence/export use this; live playback never
    *  waits on it). Preparing every view at once let later biomes' pending
    *  reservations crowd out the view actually on screen. */
-  async whenReady({ timeoutMs = 60000 } = {}) {
+  async whenReady({ timeoutMs = 60000, signal = null } = {}) {
+    const owner = this._readinessOwner;
+    const check = () => {
+      if (signal?.aborted || this._readinessOwner !== owner)
+        throw Object.assign(new Error('Landscape readiness superseded'), { name: 'AbortError' });
+    };
+    check();
     if (!this.enabled) return this.snapshot();
     // The saved preference is idle on the title and in other worlds.
     // Export calls readiness for every world; there is no tour job to await.
     if (this.tourMode && this._tourPreparation.state === 'idle') return this.snapshot();
-    if (this.runtimeState === 'idle') await this._ensureRuntime();
-    else while (this.runtimeState === 'loading') await new Promise((r) => setTimeout(r, 20));
+    if (this.runtimeState === 'idle') { await this._ensureRuntime(); check(); }
+    else while (this.runtimeState === 'loading') {
+      await new Promise((r) => setTimeout(r, 20));
+      check();
+    }
     if (this.runtimeState !== 'ready' || this.scene.contextLost) return this.snapshot();
-    if (this.tourMode) await this._tourPromise;
+    if (this.tourMode) { await this._tourPromise; check(); }
     const unique = this._songViews();
     const deadline = Date.now() + timeoutMs;
     const ready = [];
     for (const v of unique) {
+      check();
       if (Date.now() >= deadline || this.scene.contextLost) break;
       this._prepare(v);
       while (Date.now() < deadline && !this.scene.contextLost && !this.scene.isReady(v.id) && !this.failures.has(v.id)
         && (!this.deferred.has(v.id) || this.deferred.get(v.id) <= Date.now())) {
         await new Promise((r) => setTimeout(r, 25));
+        check();
         // A preparation can retire just after a context restores. Retry
         // due work once its old job settles; HTTP/budget backoff stays put.
         this._prepare(v);
@@ -463,6 +479,7 @@ export class RangePresentation {
       // Keep what is prepared while the next view reserves its room.
       this.scene.pinView?.(ready);
     }
+    check();
     this.residency?.pin?.([]);
     return this.snapshot();
   }
@@ -572,6 +589,15 @@ export class RangePresentation {
   _updateArrival(ok) {
     const sim = this.frameInputs?.sim;
     const tSec = Number(sim?.biomes?.tSec);
+    // Landscape waits for the actual renderer instead of showing legacy
+    // loading scenery. No heard-time fade may hold the first ready frame
+    // transparent while the transport is still waiting at time zero.
+    if (this.enabled && sim?.biomes?.world?.kind === 'alpine') {
+      this.arrival = 1;
+      this._legacyShown = false;
+      this._arrivalStartSec = null;
+      return;
+    }
     if (!ok) {
       this.arrival = 1;
       this._arrivalStartSec = null;
@@ -737,7 +763,8 @@ export class RangePresentation {
       // Quality rung and look decide the target's multisampling
       // (RangeRenderPolicy); Pixel/Palette never smooth their grid.
       this.scene.resize({ widthPx: vp.backingWidth, heightPx: vp.backingHeight, pixelRatio: vp.pixelRatio || 1,
-        quality: inputs.sim.perf?.level ?? 0, pixelated: !!this.pixelated, pixelScale: this.pixelPolicy?.pixelScale || 'original' });
+        quality: inputs.sim.perf?.level ?? 0, pixelated: !!this.pixelated, pixelScale: 'original',
+        pixelHeightPx: this.pixelPolicy?.grid?.height ?? null });
     } catch (err) {
       this.reason = `budget: ${err.message}`;
       // The render target was refused room: let the owner free fallback
@@ -921,7 +948,12 @@ export class RangePresentation {
     const t0 = performance.now();
     // Everything painted before the middle distance (sky, aurora, distant
     // ranges, the far terrain) is the backdrop the lake reflects.
-    if (pass === 'mid') this.scene.captureBackdrop?.(ctx, stage, this.frame);
+    if (pass === 'mid') {
+      const manager = this.frameInputs?.sim?.biomes;
+      const drawSky = manager?.highResolutionSky && manager.rangeSkyLayer ? (target, width, height) =>
+        manager.drawHighResolutionSky(target, target.canvas, { transform: [width / stage.width, 0, 0, height / stage.height, 0, 0] }) : null;
+      this.scene.captureBackdrop?.(ctx, stage, this.frame, drawSky);
+    }
     if (this.incomingViewId) {
       // Travel between two views: each side renders into its own target and
       // is composited through the shared travel seam (TravelSeam.js), the
@@ -1129,6 +1161,7 @@ export class RangePresentation {
   }
 
   dispose() {
+    this._readinessOwner = {};
     this._tourAbort?.abort();
     this._replanAbort?.abort();
     this._releaseScratch();
