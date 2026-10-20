@@ -176,3 +176,23 @@ test('export settling explicitly retries current terrain preparation during admi
   assert.ok(cache.resident.has(1));
   cache.dispose();
 });
+
+test('an uncovered active mesh yields its budget before terrain reconstruction falls back', async () => {
+  const { GraphicsResidency } = await import('../src/render/GraphicsResidency.js');
+  const { scene, p, cache } = await windowScene();
+  p.windowOptions.coverageRevision = p.coverageRevision;
+  const residency = scene.residency = new GraphicsResidency({ budgetBytes: 2 * 1024 ** 2 });
+  let retired = false;
+  const old = p.activeWindow, reservation = residency.reserve({ key: 'old-uncovered', bytes: 1.8 * 1024 ** 2, evictable: false });
+  residency.commit(reservation, old, () => { retired = true; });
+  old.key = reservation.key;
+  old.dispose = () => residency.release(reservation.key);
+  const before = p.view.tour.poseAt(9000);
+  scene._ensureTourWindow(p, 9000, { pose, proj: { fovYDeg: 40, aspect: 2.16 } });
+  assert.equal(retired, true, 'the unusable old mesh must not block admission');
+  assert.equal(p.windowCoverage.covered, true);
+  assert.equal(p.activeWindow.coarse, true);
+  assert.deepEqual(p.view.tour.poseAt(9000), before);
+  assert.ok(residency.usedBytes <= residency.budgetBytes);
+  cache.dispose();
+});

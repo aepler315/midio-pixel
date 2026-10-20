@@ -718,7 +718,18 @@ export class RangeScene {
       const plan = planTerrainWindow(p.data, p.view.tour, index, { ...p.windowOptions, bias: 2 });
       const key = `range:tour-window:${p.view.id}:${p.coverageRevision || 0}:${index}:coarse:${this._buildSerial = (this._buildSerial || 0) + 1}`;
       const bytes = 2 * (plan.triangles * 36 + 256 * 1024);
-      const reservation = this.residency?.reserve({ key, bytes, owner: 'range-tour-window', generation: p.generation, protect: [p.gpuKey, p.cpuKey, p.workerKey, p.activeWindow?.key].filter(Boolean) });
+      const reserve = () => this.residency?.reserve({ key, bytes, owner: 'range-tour-window', generation: p.generation,
+        protect: [p.gpuKey, p.cpuKey, p.workerKey, p.activeWindow?.key].filter(Boolean) });
+      let reservation = reserve(), retired = null;
+      if (this.residency && !reservation && p.activeWindow && !covers(p.activeWindow)) {
+        // This mesh cannot be displayed. Retaining it must not force a
+        // legacy fallback when its room can admit the covering reconstruction.
+        retired = p.activeWindow;
+        if (p.windowCache.resident.get(retired.index) === retired) p.windowCache.resident.delete(retired.index);
+        p.activeWindow = null;
+        retired.dispose();
+        reservation = reserve();
+      }
       if (this.residency && !reservation) {
         report(p.activeWindow, false, 'budget');
         p.coverageRetryAt = Date.now() + 250;
@@ -731,7 +742,7 @@ export class RangeScene {
       window = this._tourWindowResource(p, index, geos, forest, key, true, reservation);
       window.detail = plan;
       if (reservation && !this.residency.commit(reservation, window, w => w.destroy())) return;
-      if (rejected && rejected !== p.activeWindow) rejected.dispose();
+      if (rejected && rejected !== retired && rejected !== p.activeWindow) rejected.dispose();
       p.windowCache.resident.set(index, window);
     }
     this._swapTourWindow(p, window);
