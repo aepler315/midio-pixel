@@ -151,16 +151,22 @@ export function terrainWindowCovers(plan, pose, projection) {
 
 /** Mesh ownership is bounded independently of asynchronous build completion. */
 export class TourWindowCache {
-  constructor({ build, windowMs = 8000, now = Date.now } = {}) {
+  constructor({ build, windowMs = 8000, now = Date.now, canRetry = null } = {}) {
     this.build = build; this.windowMs = windowMs; this.resident = new Map(); this.pending = new Map();
-    this.now = now; this.retryAt = new Map();
+    this.now = now; this.canRetry = canRetry; this.retryAt = new Map();
     this.generation = 0; this.current = 0; this.closed = false;
   }
   async request(index, { replace = false, retryNow = false } = {}) {
     if (this.closed || index < 0) return null;
     if (this.resident.has(index) && !replace) return this.resident.get(index);
     if (this.pending.has(index)) return this.pending.get(index);
-    if (!retryNow && this.now() < (this.retryAt.get(index) || 0)) return null;
+    if (!retryNow && this.retryAt.has(index)) {
+      if (this.now() < this.retryAt.get(index)) return null;
+      if (this.canRetry && !this.canRetry(index)) {
+        this.retryAt.set(index, this.now() + 250);
+        return null;
+      }
+    }
     const generation = this.generation;
     const job = Promise.resolve(this.build(index)).then(mesh => {
       if (this.closed || generation !== this.generation || Math.abs(index - this.current) > 1) { mesh?.dispose?.(); return null; }

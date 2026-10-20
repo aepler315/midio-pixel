@@ -58,13 +58,16 @@ test('WP02 completed window stays protected across the actual cache Promise adop
   p.windowCache.current = 1;
   let resource, pressure;
   const create = scene._tourWindowResource.bind(scene);
-  scene._tourWindowResource = (...args) => { resource = create(...args); return resource; };
+  scene._tourWindowResource = (...args) => {
+    resource = create(...args);
+    queueMicrotask(() => {
+      assert.equal(p.windowCache.resident.has(1), false, 'pressure lands after commit but before adoption');
+      assert.equal(scene.residency.entries.get(resource.key)?.state, 'live');
+      pressure = scene.residency.reserve({ key: 'pressure', bytes: 1e9 });
+    });
+    return resource;
+  };
   const job = p.windowCache.request(1);
-  queueMicrotask(() => queueMicrotask(() => queueMicrotask(() => {
-    assert.equal(p.windowCache.resident.has(1), false, 'pressure lands after commit but before adoption');
-    assert.equal(scene.residency.entries.get(resource.key)?.state, 'live');
-    pressure = scene.residency.reserve({ key: 'pressure', bytes: 1e9 });
-  })));
   const result = await job;
   assert.equal(pressure, null);
   assert.equal(scene.residency.has(result.key), true);
@@ -78,8 +81,13 @@ test('WP02 cache rejects a completed window if its song cancels before adoption'
   p.windowWorker = { build: async () => raw(p.data) };
   p.windowCache = new TourWindowCache({ build: index => scene._buildTourWindow(p, index) });
   p.windowCache.current = 1;
+  const create = scene._tourWindowResource.bind(scene);
+  scene._tourWindowResource = (...args) => {
+    const resource = create(...args);
+    queueMicrotask(() => scene.residency.cancelGeneration(p.generation));
+    return resource;
+  };
   const job = p.windowCache.request(1);
-  queueMicrotask(() => queueMicrotask(() => queueMicrotask(() => scene.residency.cancelGeneration(p.generation))));
   assert.equal(await job, null);
   assert.equal(p.windowCache.resident.size, 0);
   assert.equal(scene.residency.usedBytes, 0);
@@ -264,4 +272,151 @@ test('late window disposal cannot release a newer reservation under the same key
   const fresh = scene.residency.reserve({ key: window.key, bytes: 123 });
   window.dispose();
   assert.equal(scene.residency.entries.get(window.key)?.id, fresh.id);
+});
+
+// These catch repeated route evaluation after a denied reservation, worker
+// replanning, and an unused future mesh blocking the currently displayed view.
+test('denied admission reuses one route plan until coverage changes and sends it to the worker', async () => {
+  const { scene, p } = fixture(1);
+  p.windowCache = new TourWindowCache({ build: async () => null });
+  const original = p.view.tour.poseAt;
+  let samples = 0, dispatched;
+  p.view.tour.poseAt = t => { samples++; return original(t); };
+  assert.throws(() => scene._admitTerrainBuild(p, 1), /room/);
+  const first = samples;
+  assert.ok(first > 0);
+  assert.throws(() => scene._admitTerrainBuild(p, 1), /room/);
+  assert.equal(samples, first, 'an unchanged budget refusal must reuse the plan and forest bound');
+  scene.residency.budgetBytes = 1e9;
+  p.windowWorker = { setTour() {}, build: async (_index, _options, plan) => { dispatched = plan; return raw(p.data); } };
+  const entry = scene._requestTourRaw(p, 1);
+  await entry.job;
+  assert.ok(dispatched?.strides instanceof Map, 'worker must consume the admitted plan');
+  assert.equal(samples, first);
+  scene._dropTourRaw(entry);
+  scene._invalidateTourWindows(p);
+  const replacement = scene._admitTerrainBuild(p, 1);
+  assert.ok(samples > first, 'a new coverage revision must be evaluated again');
+  scene.residency.releaseReservation(replacement.reservation);
+});
+
+test('current-window refinement may evict an unused future mesh while keeping the displayed mesh', () => {
+  const { scene, p } = fixture();
+  const live = (index, bytes) => {
+    const key = `window-${index}`, resource = { key, index, coarse: index === 0, disposed: false };
+    const r = scene.residency.reserve({ key, bytes, owner: 'range-tour-window', generation: p.generation });
+    scene.residency.commit(r, resource, w => { w.disposed = true; p.windowCache.resident.delete(index); });
+    p.windowCache.resident.set(index, resource);
+    return resource;
+  };
+  const estimate = scene._admitTerrainBuild(p, 0);
+  scene.residency.releaseReservation(estimate.reservation);
+  const active = p.activeWindow = live(0, 1000), next = live(1, 1000);
+  scene.residency.budgetBytes = estimate.bytes + 1000;
+  scene.pinView(['v']);
+  const admission = scene._admitTerrainBuild(p, 0);
+  assert.equal(active.disposed, false);
+  assert.equal(next.disposed, true, 'future detail must yield to the current view upgrade');
+  assert.equal(scene.residency.has(active.key), true);
+  assert.ok(scene.residency.usedBytes <= scene.residency.budgetBytes);
+  scene.residency.releaseReservation(admission.reservation);
+});
+
+test('budget retries wait for admissible room and resume when the current build can fit', async () => {
+  const { scene, p } = fixture(1); let clock = 0;
+  p.windowWorker = { build: async () => raw(p.data) };
+  p.windowCache = new TourWindowCache({ now: () => clock, build: index => scene._buildTourWindow(p, index),
+    canRetry: index => scene.residency.canFit(scene._terrainBuildSpec(p, index).bytes, scene._terrainBuildProtect(p, index)) });
+  await assert.rejects(p.windowCache.request(0), /room/);
+  for (let i = 0; i < 8; i++) { clock += 250; await p.windowCache.request(0); }
+  assert.equal(scene.buildAdmission.denials, 1, 'unchanged memory pressure must not repeatedly reserve and fail');
+  scene.residency.budgetBytes = 1e9; clock += 250;
+  const window = await p.windowCache.request(0);
+  assert.ok(window);
+  assert.equal(p.windowCache.resident.get(0), window);
+  p.windowCache.dispose();
+  assert.equal(scene.residency.usedBytes, 0);
+});
+
+test('a current upgrade releases completed speculative raw output before admission', async () => {
+  const { scene, p } = fixture();
+  p.windowWorker = { build: async () => raw(p.data) };
+  const ahead = scene._requestTourRaw(p, 2);
+  p.rawAhead.set(2, ahead);
+  await ahead.job;
+  const bytes = ahead.bytes;
+  scene.residency.budgetBytes = bytes;
+  const current = scene._admitTerrainBuild(p, 0);
+  assert.equal(p.rawAhead.size, 0);
+  assert.equal(scene.residency.has(ahead.key), false);
+  assert.ok(scene.residency.usedBytes <= scene.residency.budgetBytes);
+  scene.residency.releaseReservation(current.reservation);
+});
+
+test('coverage invalidation keeps consumed worker output charged until staged geometry retires', async () => {
+  const { scene, p } = fixture();
+  p.windowCache = new TourWindowCache({ build: async () => null });
+  p.windowWorker = { build: async () => raw(p.data) };
+  const entry = scene._requestTourRaw(p, 1);
+  p.rawAhead.set(1, entry);
+  let began; const staged = new Promise(resolve => { began = resolve; });
+  let disposed = 0;
+  class Geometry extends THREE.BufferGeometry {
+    constructor() { super(); this.addEventListener('dispose', () => disposed++); began(); }
+  }
+  scene.THREE = { ...THREE, BufferGeometry: Geometry };
+  const job = scene._buildTourWindow(p, 1);
+  job.catch(() => {});
+  try {
+    await staged;
+    const charged = scene.residency.usedBytes;
+    assert.ok(charged > 0);
+    scene._invalidateTourWindows(p);
+    assert.equal(scene.residency.usedBytes, charged, 'a staging consumer still owns the completed worker arrays');
+    await assert.rejects(job, /generation ended/);
+  } finally { await job.catch(() => {}); }
+  assert.equal(scene.residency.usedBytes, 0);
+  assert.ok(disposed > 0);
+});
+
+test('a window handoff pins the new displayed mesh before another owner can reserve', () => {
+  const { scene, p } = fixture(1000);
+  const forest = () => ({ byBand: { far: [], mid: [], near: [] }, depthByBand: { far: [], mid: [], near: [] }, depth: [], counts: {} });
+  const make = index => ({ index, key: `display-${index}`, detail: { coverageRevision: 0 }, disposed: false, forest: forest(),
+    geos: { geometries: Object.fromEntries(['far', 'mid', 'near'].map(b => [b, new THREE.BufferGeometry()])), fringes: {}, stats: {} } });
+  const old = make(0), next = make(1);
+  for (const w of [old, next]) {
+    const r = scene.residency.reserve({ key: w.key, bytes: 300 });
+    scene.residency.commit(r, w, resource => { resource.disposed = true; });
+    p.windowCache.resident.set(w.index, w);
+  }
+  const other = scene.residency.reserve({ key: 'other-visible-side', bytes: 100 }); scene.residency.commit(other, {});
+  Object.assign(p, { activeWindow: old, forest: old.forest, geometries: old.geos.geometries, fringes: {},
+    scenes: Object.fromEntries(['far', 'mid', 'near'].map(b => [b, new THREE.Scene()])),
+    depthScenes: Object.fromEntries(['far', 'mid', 'near'].map(b => [b, new THREE.Scene()])), depthScene: new THREE.Scene() });
+  scene.residency.pin([old.key, other.key]);
+  scene._swapTourWindow(p, next);
+  assert.ok(scene.residency.reserve({ key: 'pressure', bytes: 500 }));
+  assert.equal(next.disposed, false, 'the mesh selected for this frame must survive later reservations');
+  assert.equal(old.disposed, true);
+  assert.equal(scene.residency.pinned.has(other.key), true, 'the other travel side remains pinned');
+});
+
+test('a current retry reclaims completed future output before checking whether it can fit', async () => {
+  const { scene, p } = fixture(1); let clock = 0;
+  assert.equal(typeof scene._canRetryTerrainBuild, 'function');
+  p.windowWorker = { build: async () => raw(p.data) };
+  p.windowCache = new TourWindowCache({ now: () => clock, build: index => scene._buildTourWindow(p, index),
+    canRetry: index => scene._canRetryTerrainBuild(p, index) });
+  await assert.rejects(p.windowCache.request(0), /room/);
+  scene.residency.budgetBytes = 1e9;
+  const ahead = scene._requestTourRaw(p, 2); p.rawAhead.set(2, ahead); await ahead.job;
+  scene.residency.budgetBytes = ahead.bytes;
+  clock = 250;
+  const window = await p.windowCache.request(0, { replace: true });
+  assert.ok(window, 'the current window must progress using the space its own admission can reclaim');
+  assert.equal(p.rawAhead.size, 0);
+  assert.equal(scene.residency.has(ahead.key), false);
+  p.windowCache.dispose();
+  assert.equal(scene.residency.usedBytes, 0);
 });
