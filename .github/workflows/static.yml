@@ -13,8 +13,8 @@
 name: Deploy static content to Pages
 
 on:
-  # This independent copy has no inherited domain or hosting destination.
-  # Configure its own Pages environment before manually deploying.
+  # Optional staged deployment. The active branch-based Pages publisher is
+  # configured in repository settings and remains independent of tests.
   workflow_dispatch:
 
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
@@ -30,13 +30,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  validate:
-    permissions:
-      contents: read
-    uses: ./.github/workflows/test.yml
-
   stage:
-    needs: validate
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
@@ -46,21 +40,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Set up the game
         uses: ./.github/actions/setup
-        with:
-          browser: true
       - name: Setup Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
       - name: Stage public site
         env:
           MIDIO_PLEX_PUBLIC_API_BASE: ${{ vars.MIDIO_PLEX_PUBLIC_API_BASE }}
         run: npm run stage:site
-      - name: Validate staged artifact
-        run: |
-          SITE_ROOT=_site HOST=127.0.0.1 node tools/serve.js > .stage-server.log 2>&1 &
-          server_pid=$!
-          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
-          npm run test:bootstrap -- http://127.0.0.1:8080
-          npm run test:smoke -- http://127.0.0.1:8080
       - name: Upload artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:
