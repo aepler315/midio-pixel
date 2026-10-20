@@ -20,6 +20,13 @@ export function terrainWindowCoverage(viewport = {}) {
   return { aspect, fovScale, key: `${aspect}:${fovScale}:${width}:${height}` };
 }
 
+/** Summit identities come from the tour's existing extracted point catalog. */
+export function tourSummitTiles(data, points = []) {
+  const size = data.cells * data.grid.cellSizeM;
+  return [...new Set(points.filter(p => p.type === 'summit' || p.type === 'butte').map(p =>
+    data.byIndex.get(`${Math.floor((p.localM[0] - data.grid.originM[0]) / size)},${Math.floor((p.localM[2] - data.grid.originM[1]) / size)}`)?.id).filter(Boolean))];
+}
+
 // Expanding a rectangular frustum by a spherical orientation bound needs
 // more margin at its corners. Bound the change of each projected angle by
 // the smallest projection of a unit ray onto that coordinate plane.
@@ -36,7 +43,9 @@ function expandedTangents(p, framing) {
 export function planTerrainWindow(data, tour, index, {
   budget = 'desktop', heightPx = 1080, aspect = 16 / 9, bias = 1,
   pixelLimit = budget === 'mobile' ? 2 : 1, coverage = null, coverageRevision = 0,
+  protectedTileIds = [],
 } = {}) {
+  const summits = new Set(protectedTileIds);
   const startMs = index * 8000, endMs = Math.min(tour.durationMs, startMs + 8000);
   const times = [];
   for (let t = startMs; t < endMs; t += 100) times.push(t);
@@ -91,25 +100,35 @@ export function planTerrainWindow(data, tour, index, {
   // tables, so admission and a seek reconstruction do not repeat it.
   const cap = budget === 'mobile' ? 1000000 : 1500000, requestedLimit = pixelLimit;
   for (;;) {
-    const strides = new Map(); let triangles = 0, maxErrorPx = 0;
+    const strides = new Map(); let triangles = 0, maxErrorPx = 0, summitMaxErrorPx = 0, protectedTiles = 0;
     for (const tile of data.tiles.values()) {
-      const ppm = requirements.get(tile.id); let stride = data.cells;
+      const ppm = requirements.get(tile.id), summit = summits.has(tile.id);
+      const tileLimit = summit ? Math.min(8, pixelLimit) : pixelLimit;
+      let stride = data.cells;
       if (ppm) {
         stride = tile.stride;
         for (const s of STRIDES) {
           if (s < tile.stride || s > data.cells) continue;
           const error = tile.errorsM?.[s];
-          if (Number.isFinite(error) && error * ppm <= pixelLimit) stride = s;
+          if (Number.isFinite(error) && error * ppm <= tileLimit) stride = s;
         }
       }
-      stride = Math.min(data.cells, Math.max(tile.stride, stride * bias));
+      stride = Math.min(data.cells, Math.max(tile.stride, stride * (summit ? 1 : bias)));
       strides.set(tile.id, stride); triangles += 2 * (data.cells / stride) ** 2;
-      if (ppm) maxErrorPx = Math.max(maxErrorPx, (tile.errorsM?.[stride] || 0) * ppm);
+      if (ppm) {
+        const error = (tile.errorsM?.[stride] || 0) * ppm;
+        maxErrorPx = Math.max(maxErrorPx, error);
+        if (summit) { protectedTiles++; summitMaxErrorPx = Math.max(summitMaxErrorPx, error); }
+      }
     }
     if (triangles <= cap) return { index, startMs, endMs, strides, visible, triangles, maxErrorPx, pixelLimit,
       coarse: bias > 1, coverage: framing, coverageRevision, poses,
-      ...(pixelLimit > requestedLimit ? { detailNote: `Triangle cap required ${pixelLimit}px detail (requested ${requestedLimit}px)` } : {}) };
-    if (pixelLimit >= 8) throw new Error(`Tour window ${index} exceeds triangle cap (${triangles})`);
+      protectedTiles, summitMaxErrorPx, summitPixelLimit: Math.min(8, pixelLimit),
+      ...(pixelLimit > requestedLimit ? { detailNote: `Triangle cap required ${pixelLimit}px surrounding terrain / ${Math.min(8, pixelLimit)}px summit detail (requested ${requestedLimit}px)` } : {}) };
+    // Wide views can expose more terrain than the original 8px ceiling
+    // permits within the triangle cap. Keep that ceiling for every summit;
+    // only surrounding terrain may use the additional measured levels.
+    if (pixelLimit >= (summits.size ? 32 : 8)) throw new Error(`Tour window ${index} exceeds triangle cap (${triangles})`);
     pixelLimit *= 2;
   }
 }

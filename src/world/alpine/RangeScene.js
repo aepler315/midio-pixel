@@ -32,7 +32,7 @@ import { hashSeed } from '../../utils/math.js';
 import { createForest, FOREST_ASSET_BUILD_BYTES, forestGroupingBytes } from './ForestGL.js';
 import { forestAssetBytes } from './ForestSpeciesAssets.js';
 import { bakeHorizonAsync, createHorizonTexture, horizonBytes } from './TerrainOcclusion.js';
-import { planTerrainWindow, terrainWindowCoverage, terrainWindowCovers, TourWindowCache } from './TerrainWindow.js';
+import { planTerrainWindow, terrainWindowCoverage, terrainWindowCovers, tourSummitTiles, TourWindowCache } from './TerrainWindow.js';
 import { TerrainWindowWorker, shareTerrainLanes, terrainLaneBytes } from './TerrainWindowWorker.js';
 import { buildTerrainGeometry } from './TerrainMesh.js';
 import { buildRockStage } from './RockStage.js';
@@ -700,7 +700,9 @@ export class RangeScene {
     const report = (w, covered, reason = null) => {
       p.windowCoverage = { revision: p.coverageRevision || 0, key: p.windowOptions.coverage?.key,
         covered, reason, activeRevision: w?.detail?.coverageRevision, framing: w?.detail?.coverage,
-        pixelLimit: w?.detail?.pixelLimit, maxErrorPx: w?.detail?.maxErrorPx };
+        pixelLimit: w?.detail?.pixelLimit, maxErrorPx: w?.detail?.maxErrorPx,
+        summitPixelLimit: w?.detail?.summitPixelLimit, summitMaxErrorPx: w?.detail?.summitMaxErrorPx,
+        protectedTiles: w?.detail?.protectedTiles };
     };
     let window = p.windowCache.resident.get(index);
     const covers = w => !camera || (w?.detail?.coverageRevision === (p.coverageRevision || 0)
@@ -813,7 +815,8 @@ export class RangeScene {
         // during playback must not freeze frames while its forest is laid.
         let rawWindow = null;
         const windowOptions = { budget: this.budget, heightPx: this.budget === 'mobile' ? 720 : 1080,
-          coverage: terrainWindowCoverage(opts.scenicViewport), coverageRevision: 0 };
+          coverage: terrainWindowCoverage(opts.scenicViewport), coverageRevision: 0,
+          protectedTileIds: view.tour ? tourSummitTiles(cpu.data, opts.tourData?.points) : [] };
         const buildOwner = { view, data: cpu.data, rules, windowOptions, cpuKey: cpu.key, gpuKey, materialKey: mat.key };
         if (view.tour) {
           workerKey = `range:tour-worker:${view.id}`;
