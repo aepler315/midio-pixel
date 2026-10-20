@@ -37,7 +37,7 @@ test('both mesh LODs share colour/depth geometry, staged coverage and seven GPU 
   const f = createForest(THREE, placed, {});
   try {
     assert.deepEqual(f.counts, { meshDetail: 1, mesh: 1, billboard: 1 });
-    assert.equal(f.bytes, 3 * 7 * 4);
+    assert.equal(f.bytes, 3 * 7 * 4 + 8, 'seven floats per tree and two detail-batch scalars');
     // The detail ring also carries a hidden lighter representation of the
     // same instances (RangeQuality nearDetail); five batches draw.
     const near = f.byBand.near.filter(m => m.visible);

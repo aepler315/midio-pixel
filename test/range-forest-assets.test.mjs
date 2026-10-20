@@ -117,7 +117,7 @@ test('forests batch by family/variant without regenerating or reordering trees',
     f.applyVisibility({ shown: true, nearDetail: false });
     assert.ok(lite.every(m => m.visible) && detail.every(m => !m.visible));
     assert.ok(all.filter(m => !m.userData.nearLod).every(m => m.visible));
-    assert.equal(f.bytes, 24 * 7 * 4, 'per-instance GPU data unchanged');
+    assert.equal(f.bytes, 24 * 7 * 4 + f.batches.meshDetail * 8, 'per-instance GPU data unchanged; two scalars per detail batch');
   } finally { f.dispose(); }
   const total = coniferAssetCatalog().reduce((n, a) => n + a.bytes, 0);
   assert.equal(forestAssetBytes(), total);

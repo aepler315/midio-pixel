@@ -376,6 +376,8 @@ export class RangePresentation {
     const gen = this.generation, preparation = {};
     this._preparing.set(view.id, preparation);
     this.scene.prepare(view, { generation: gen, baseUrl: this.assetBase, scenicViewport: this.frameInputs?.scenicViewport,
+      pixelated: !!this.pixelated,
+      pixelHeightPx: this.pixelPolicy?.grid?.height ?? null,
       tourData: this.tourData, tourCpuKey: this._tourCpuKey, isCurrent: (g) => g === this.generation })
       .then(() => { if (gen === this.generation) this.assetFailures.delete(view.id); })
       .catch((err) => {
@@ -737,7 +739,8 @@ export class RangePresentation {
       // Quality rung and look decide the target's multisampling
       // (RangeRenderPolicy); Pixel/Palette never smooth their grid.
       this.scene.resize({ widthPx: vp.backingWidth, heightPx: vp.backingHeight, pixelRatio: vp.pixelRatio || 1,
-        quality: inputs.sim.perf?.level ?? 0, pixelated: !!this.pixelated, pixelScale: this.pixelPolicy?.pixelScale || 'original' });
+        quality: inputs.sim.perf?.level ?? 0, pixelated: !!this.pixelated, pixelScale: this.pixelPolicy?.pixelScale || 'original',
+        pixelHeightPx: this.pixelPolicy?.grid?.height ?? null });
     } catch (err) {
       this.reason = `budget: ${err.message}`;
       // The render target was refused room: let the owner free fallback
