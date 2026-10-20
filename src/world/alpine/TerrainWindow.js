@@ -293,9 +293,9 @@ export function terrainWindowCovers(plan, pose, projection) {
 
 /** Mesh ownership is bounded independently of asynchronous build completion. */
 export class TourWindowCache {
-  constructor({ build, windowMs = 8000, now = Date.now, canRetry = null } = {}) {
+  constructor({ build, windowMs = 8000, now = Date.now, canRetry = null, isDisplayed = () => false } = {}) {
     this.build = build; this.windowMs = windowMs; this.resident = new Map(); this.pending = new Map();
-    this.now = now; this.canRetry = canRetry; this.retryAt = new Map();
+    this.now = now; this.canRetry = canRetry; this.isDisplayed = isDisplayed; this.retryAt = new Map();
     this.generation = 0; this.current = 0; this.closed = false;
   }
   async request(index, { replace = false, retryNow = false } = {}) {
@@ -312,8 +312,12 @@ export class TourWindowCache {
     const generation = this.generation;
     const job = Promise.resolve(this.build(index)).then(mesh => {
       if (this.closed || generation !== this.generation || Math.abs(index - this.current) > 1) { mesh?.dispose?.(); return null; }
-      this.resident.get(index)?.dispose?.(); this.resident.set(index, mesh);
-      if (mesh?.adopt?.() === false) { this.resident.delete(index); mesh.dispose?.(); return null; }
+      if (mesh?.adopt?.() === false) { mesh.dispose?.(); return null; }
+      const previous = this.resident.get(index);
+      this.resident.set(index, mesh);
+      // A displayed replacement stays alive until the scene detaches it
+      // and transfers its residency pin during the next render handoff.
+      if (previous !== mesh && !this.isDisplayed(previous)) previous?.dispose?.();
       this.retryAt.delete(index);
       this.prune(); return mesh;
     }).catch(error => {

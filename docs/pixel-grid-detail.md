@@ -17,8 +17,12 @@ pitched and off-axis projection, the mirror camera, the permitted structural
 land wave, and interior error combined with snapped coarser tile edges.
 Summit and water tiles, the near-root/tour-fade region, and their neighbouring
 tiles retain their reference grids. Glacier views retain their existing
-geometry. A grid change invalidates plans and worker revisions through the
-same path as a coverage change. Static views retain their authored baked
+geometry. A grid change invalidates plans and worker revisions while retaining
+the displayed full forest/terrain until replacement detail is ready, provided
+its geographic coverage still contains the actual camera. Diagnostics report
+`detail-pending` with the displayed and target heights during this handoff.
+Geographic coverage and route changes retain strict revision checks.
+Static views retain their authored baked
 terrain grids.
 
 This policy may retain all existing terrain detail: a reference plan already

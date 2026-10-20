@@ -547,7 +547,10 @@ export class RangeScene {
     this._invalidateTourWindows(p);
   }
 
-  _invalidateTourWindows(p) {
+  _invalidateTourWindows(p, { keepDetail = false } = {}) {
+    const active = p.activeWindow;
+    p.detailHeldWindow = keepDetail && active && !active.coarse
+      && (active.detail?.coverageRevision === (p.coverageRevision || 0) || active === p.detailHeldWindow) ? active : null;
     p.coverageRevision = (p.coverageRevision || 0) + 1;
     p.windowOptions = { ...p.windowOptions, coverageRevision: p.coverageRevision };
     p.windowCache.invalidate(p.activeWindow);
@@ -562,8 +565,9 @@ export class RangeScene {
     const coverage = terrainWindowCoverage(frame.scenicViewport);
     const pixelHeightPx = this.pixelated && !p.view?.glacier ? this.pixelHeightPx : null;
     if (p.windowOptions.coverage?.key === coverage.key && (p.windowOptions.pixelHeightPx ?? null) === (pixelHeightPx ?? null)) return;
+    const keepDetail = p.windowOptions.coverage?.key === coverage.key;
     p.windowOptions = { ...p.windowOptions, coverage, pixelHeightPx };
-    this._invalidateTourWindows(p);
+    this._invalidateTourWindows(p, { keepDetail });
   }
 
   _tourWindowResource(p, index, geos, forest, key, coarse = false, reservation = null) {
@@ -758,6 +762,7 @@ export class RangeScene {
     }
     p.geometries = window.geos.geometries; p.fringes = window.geos.fringes; p.forest = window.forest;
     p.activeWindow = window; p.windowIndex = window.index;
+    if (p.detailHeldWindow === previous) p.detailHeldWindow = null;
     // pinView ran before this frame resolved its window. Transfer its hold
     // before any later target/material reservation can evict the new mesh.
     if (this.residency) {
@@ -794,7 +799,10 @@ export class RangeScene {
     if (rejected) window = null;
     // A neighbouring full mesh may be held only while it covers the actual
     // view. A turn or a wider viewport needs a new covering reconstruction.
-    const held = !window && p.activeWindow && !p.activeWindow.coarse && Math.abs(p.activeWindow.index - index) <= 1 && covers(p.activeWindow) ? p.activeWindow : null;
+    const detailPending = p.activeWindow && p.activeWindow === p.detailHeldWindow && camera
+      && terrainWindowCovers(p.activeWindow.detail, camera.pose, camera.proj);
+    const held = !window && p.activeWindow && !p.activeWindow.coarse && Math.abs(p.activeWindow.index - index) <= 1
+      && (covers(p.activeWindow) || detailPending) ? p.activeWindow : null;
     if (held) window = held;
     if (!window) {
       if (p.coverageRetryAt > Date.now()) { report(p.activeWindow, false, 'budget'); return false; }
@@ -830,11 +838,13 @@ export class RangeScene {
       p.windowCache.resident.set(index, window);
     }
     this._swapTourWindow(p, window);
-    report(window, covers(window));
+    report(window, covers(window) || !!(held && detailPending), held && detailPending ? 'detail-pending' : null);
+    p.windowCoverage.targetDetailHeightPx = p.windowOptions.pixelHeightPx;
     p.windowCache.prune();
     if (window.coarse) p.windowCache.request(index, { replace: true }).catch(fail);
-    else if (held) p.windowCache.request(index).catch(fail);
-    const currentReady = !window.coarse && p.windowCache.resident.get(index) === window;
+    else if (held) p.windowCache.request(index, { replace: !!detailPending }).catch(fail);
+    const currentReady = !window.coarse && p.windowCache.resident.get(index) === window
+      && (window.detail?.coverageRevision ?? 0) === (p.coverageRevision || 0);
     if (currentReady && (index + 1) * 8000 < p.view.tour.durationMs) p.windowCache.request(index + 1).catch(fail);
     // Admit against this window's own plan, not the preceding window's
     // size. Keep the admitted result until handoff, disposal or termination.
@@ -1126,7 +1136,7 @@ export class RangeScene {
             this.residency.entries.get(buildEntry.key).evictable = true;
           }
           prepared.windowCache = new TourWindowCache({ build: index => this._buildTourWindow(prepared, index),
-            canRetry: index => this._canRetryTerrainBuild(prepared, index) });
+            canRetry: index => this._canRetryTerrainBuild(prepared, index), isDisplayed: window => window === prepared.activeWindow });
           prepared.windowCache.resident.set(0, initialWindow);
           prepared.windowIndex = 0;
           prepared.activeWindow = initialWindow;
@@ -1408,6 +1418,9 @@ export class RangeScene {
     p.featureMaterial?.dispose();
     for (const g of Object.values(p.featureGeometries || {})) g.dispose();
     p.windowCache?.dispose();
+    // An accepted replacement can be resident before the next render has
+    // detached the displayed mesh. Its ownership still belongs to this view.
+    if (p.windowCache) p.activeWindow?.dispose();
     for (const entry of p.rawAhead?.values() || []) this._dropTourRaw(entry);
     p.rawAhead?.clear();
     if (p.workerKey && this.residency) this.residency.releaseReservation(p.workerReservation || { key: p.workerKey }); else p.windowWorker?.dispose();
