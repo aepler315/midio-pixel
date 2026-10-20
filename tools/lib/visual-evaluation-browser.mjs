@@ -41,11 +41,16 @@ export async function openEvaluationSong(browser, { url, audioPath, settings, di
       if (res.status() >= 400) diagnostics.errors.push(`HTTP ${res.status()} ${u.pathname}`);
     });
     page.on('requestfailed', req => {
+      if (settings.tour && req.failure()?.errorText === 'net::ERR_ABORTED'
+        && new URL(req.url()).pathname.startsWith('/src/assets/range/v2/')) {
+        diagnostics.warnings.push(`cancelled tour preparation request ${new URL(req.url()).pathname}`);
+        return; // analysis revisions cancel old fetches; active backend is verified per frame
+      }
       if (new URL(req.url()).origin === origin) diagnostics.errors.push(`request failed ${new URL(req.url()).pathname}: ${req.failure()?.errorText}`);
     });
     const entry = new URL(url);
     for (const [key, value] of Object.entries({ bulkExport: 1, exportW: settings.width, exportH: settings.height,
-      experience: settings.experience, rangeRenderer: 'v2', rangeView: settings.view, seed: settings.seed, perf: 'high' })) {
+      experience: settings.experience, rangeRenderer: 'v2', rangeTour: settings.tour || 'off', rangeView: settings.view, seed: settings.seed, perf: 'high' })) {
       if (value != null) entry.searchParams.set(key, value);
     }
     for (const [key, value] of Object.entries(settings.debug || {})) if (value != null) entry.searchParams.set(key, value);

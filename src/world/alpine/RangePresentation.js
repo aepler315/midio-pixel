@@ -375,7 +375,8 @@ export class RangePresentation {
     this.deferred.delete(view.id);
     const gen = this.generation, preparation = {};
     this._preparing.set(view.id, preparation);
-    this.scene.prepare(view, { generation: gen, baseUrl: this.assetBase, tourData: this.tourData, tourCpuKey: this._tourCpuKey, isCurrent: (g) => g === this.generation })
+    this.scene.prepare(view, { generation: gen, baseUrl: this.assetBase, scenicViewport: this.frameInputs?.scenicViewport,
+      tourData: this.tourData, tourCpuKey: this._tourCpuKey, isCurrent: (g) => g === this.generation })
       .then(() => { if (gen === this.generation) this.assetFailures.delete(view.id); })
       .catch((err) => {
         if (gen !== this.generation) return; // stale: the new song decides again
@@ -482,6 +483,22 @@ export class RangePresentation {
    * frame already had everything it needed.
    */
   async settle({ timeoutMs = 120000, attempts = 3 } = {}) {
+    const windows = [...(this.scene?.prepared?.values() || [])].map(p => {
+      const cache = p.windowCache;
+      // Export settling is an explicit bounded attempt. Playback's admission
+      // cooldown must not make a fixed-clock export accept an unsettled mesh.
+      if (cache?.retryAt?.has(cache.current)) return cache.request(cache.current, { replace: true, retryNow: true });
+      return cache?.pending.get(cache.current);
+    }).filter(Boolean);
+    const terrainWaited = windows.length > 0;
+    if (terrainWaited) {
+      let timer;
+      try {
+        await Promise.race([Promise.allSettled(windows), new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Terrain window settling timed out')), timeoutMs);
+        })]);
+      } finally { clearTimeout(timer); }
+    }
     const lacking = this._needed.size > 0;
     this._needed.clear();
     // The aurora echoes a skyline read back from the frame's own land; one
@@ -493,7 +510,7 @@ export class RangePresentation {
     const views = this._wants;
     // A lost context cannot make progress: nothing is ready until it is
     // restored, and waiting would only run out the timeout.
-    if (!lacking || !views.length || !this.scene || this.scene.contextLost) return sky;
+    if (!lacking || !views.length || !this.scene || this.scene.contextLost) return sky || terrainWaited;
     const deadline = Date.now() + timeoutMs;
     const tries = new Map();
     let waited = false;
@@ -515,7 +532,7 @@ export class RangePresentation {
       }
       await new Promise((r) => setTimeout(r, 25));
     }
-    return waited || sky;
+    return waited || sky || terrainWaited;
   }
 
   /** Renderer: this frame's inputs, before BiomeManager.draw. */
@@ -755,6 +772,11 @@ export class RangePresentation {
       scenicViewport: inputs.scenicViewport, groundViewport: inputs.groundViewport,
       sceneAssignments: this.sceneByBiome, forcedView: this.forced, renderedViews: [view, incoming].filter(Boolean),
     });
+    if (this.scene.prepareFrameCoverage?.(view, this.frame) === false) {
+      this.reason = 'budget: tour terrain coverage is preparing';
+      this._budgetRefused(view.id);
+      return false;
+    }
     this.skyPan = this._skyPan(view, incoming, this.frame);
     if ((this.skyPan.tourPose || this.skyPan.skyCamera) && mgr.celestialState) {
       const solar = sunScreenFrac(cyclePhase01(this.frame.timeMs, mgr._dayNightCycleMs));

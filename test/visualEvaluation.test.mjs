@@ -4,6 +4,11 @@ import * as evaluationBrowser from '../tools/lib/visual-evaluation-browser.mjs';
 import { normalizeManifest, captureSchedule, compareReports, imageDifference, differingFrames } from '../tools/lib/visual-evaluation.mjs';
 
 const manifest = (song = {}) => ({ version: 1, songs: [{ id: 'song', fixture: 'contrast', ...song }] });
+test('tour evidence pins the tour mode and rejects unknown tours', () => {
+  const input = { ...manifest(), settings: { tour: 'tetons', view: 'teton-range-tour' } };
+  assert.equal(normalizeManifest(input).settings.tour, 'tetons');
+  assert.throws(() => normalizeManifest({ ...input, settings: { tour: 'unknown' } }), /invalid tour/);
+});
 test('rejects empty, duplicate, unsafe and ambiguous song inputs', () => {
   for (const input of [{ version: 1, songs: [] }, { version: 1, songs: [{ id: '../x', fixture: 'silence' }] },
     { version: 1, songs: [{ id: 'a', fixture: 'silence' }, { id: 'a', fixture: 'kicks' }] },
