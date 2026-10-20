@@ -88,6 +88,7 @@ export class RangeSkyRenderer {
     this.seed = null;
     this.stars = [];
     this.painted = new WeakSet();
+    this.stormTints = new WeakMap();
   }
   _seed(seed) {
     if (seed === this.seed) return;
@@ -95,6 +96,7 @@ export class RangeSkyRenderer {
     this.stars = createSkyCatalogue(seed);
     this.buffers.dispose();
     this.painted = new WeakSet();
+    this.stormTints = new WeakMap();
   }
   _cloud(index) {
     const canvas = this.buffers.ensure(`cloud-${index}`, 192, 128);
@@ -329,17 +331,25 @@ export class RangeSkyRenderer {
         const density = this._cloud(index);
         image = this.buffers.ensure(`storm-cloud-${index}`, 192, 128);
         if (!density || !image) continue;
-        const target = image.getContext('2d');
-        target.clearRect(0, 0, image.width, image.height);
-        target.globalCompositeOperation = 'source-over';
-        const light = lit.map((value, channel) => Math.round(dark[channel] + (value - dark[channel]) * Math.min(1, directGain)));
-        const gradient = target.createLinearGradient(0, 0, 0, image.height);
-        gradient.addColorStop(0, `rgb(${light.join(',')})`);
-        gradient.addColorStop(1, `rgb(${dark.join(',')})`);
-        target.fillStyle = gradient; target.fillRect(0, 0, image.width, image.height);
-        target.globalCompositeOperation = 'destination-in';
-        target.drawImage(density, 0, 0);
-        target.globalCompositeOperation = 'source-over';
+        // Density and tint determine these pixels exactly. Bank motion and
+        // opacity affect only the destination draw below, so stable weather
+        // need not repaint the same six owned scratch canvases every frame.
+        const key = [density, ...dark, ...lit, directGain];
+        const prior = this.stormTints.get(image);
+        if (!prior || prior.length !== key.length || !prior.every((value, i) => Object.is(value, key[i]))) {
+          const target = image.getContext('2d');
+          target.clearRect(0, 0, image.width, image.height);
+          target.globalCompositeOperation = 'source-over';
+          const light = lit.map((value, channel) => Math.round(dark[channel] + (value - dark[channel]) * Math.min(1, directGain)));
+          const gradient = target.createLinearGradient(0, 0, 0, image.height);
+          gradient.addColorStop(0, `rgb(${light.join(',')})`);
+          gradient.addColorStop(1, `rgb(${dark.join(',')})`);
+          target.fillStyle = gradient; target.fillRect(0, 0, image.width, image.height);
+          target.globalCompositeOperation = 'destination-in';
+          target.drawImage(density, 0, 0);
+          target.globalCompositeOperation = 'source-over';
+          this.stormTints.set(image, key);
+        }
         images.set(index, image);
       }
       ctx.globalAlpha = bank.alpha;
@@ -347,5 +357,5 @@ export class RangeSkyRenderer {
     }
     ctx.restore();
   }
-  dispose() { this.buffers.dispose(); this.stars = []; this.seed = null; this.painted = new WeakSet(); }
+  dispose() { this.buffers.dispose(); this.stars = []; this.seed = null; this.painted = new WeakSet(); this.stormTints = new WeakMap(); }
 }

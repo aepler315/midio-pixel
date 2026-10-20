@@ -64,3 +64,37 @@ test('hash-addressed snapshots preserve case-distinct source modules and reject 
     await assert.rejects(loadReviewSnapshot({ snapshot: dir }), /snapshot byte hash/);
   } finally { await fs.rm(dir, { recursive: true, force: true }); }
 });
+
+test('serialized grid provenance can be compared only after verifying source immutability', async () => {
+  const { verifyReviewSource, loadReviewSnapshot } = await import('../tools/landscape-review.mjs');
+  const { compareReports } = await import('../tools/lib/visual-evaluation.mjs');
+  const { sha256 } = await import('../tools/lib/visual-evaluation-server.mjs');
+  const fs = await import('node:fs/promises'), path = await import('node:path'), os = await import('node:os');
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'landscape-grid-provenance-'));
+  try {
+    const hashes = {};
+    for (const [name, value] of Object.entries({ 'index.html': '<!doctype html>', 'src/main.js': 'start()' })) {
+      hashes[name] = sha256(value); await fs.writeFile(path.join(dir, hashes[name]), value);
+    }
+    const digest = sha256(JSON.stringify(hashes));
+    await fs.writeFile(path.join(dir, 'manifest.json'), JSON.stringify({ hashes, digest }));
+    const snapshot = await loadReviewSnapshot({ snapshot: dir });
+    const run = { version: 1, status: 'passed', browser: 'test',
+      source: { commit: 'a'.repeat(40), digest, hashes: snapshot.hashes },
+      environment: { gl: 'test', vendor: 'test', deviceMemory: 8, dpr: 1 },
+      settings: makeReviewManifest(parseReviewArgs(['--out', 'unused']), 'classic').settings,
+      songs: [{ id: 'review-audio', durationMs: 90000, audioSha256: 'a'.repeat(64),
+        schedule: [{ timeMs: 12000, save: true }], clips: [{ startMs: 12000, durationMs: 2000 }],
+        frames: [{ timeMs: 12000, actualTimeMs: 12000, png: 'frame.png', sha256: 'b'.repeat(64), thumbnail: [0, 0, 0, 255] }] }] };
+    assert.throws(() => compareReports(run, run), /source provenance/);
+    await verifyReviewSource({ snapshot: dir }, digest, run.source);
+    const serialized = JSON.parse(JSON.stringify(run));
+    assert.equal(serialized.source.changedDuringRun, false);
+    assert.doesNotThrow(() => compareReports(serialized, serialized));
+    hashes['src/main.js'] = sha256('different()');
+    await fs.writeFile(path.join(dir, hashes['src/main.js']), 'different()');
+    await fs.writeFile(path.join(dir, 'manifest.json'), JSON.stringify({ hashes, digest: sha256(JSON.stringify(hashes)) }));
+    await assert.rejects(verifyReviewSource({ snapshot: dir }, digest, run.source), /source changed/);
+    assert.equal(run.source.changedDuringRun, true);
+  } finally { await fs.rm(dir, { recursive: true, force: true }); }
+});

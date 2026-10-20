@@ -3,6 +3,19 @@
 `npm run review:landscape` captures actual output without opening a browser
 window or report. The command always launches headless Chromium. It does not
 honour `VISUAL_HEADFUL`, and has no `--headful` or `--open` option.
+Chromium uses a fresh temporary profile and isolated contexts; the tool never
+attaches to an existing Chrome session. Its default headless `--mute-audio`
+flag stays enabled, so decoding and analysis do not play through speakers.
+Git, audio-generation and optional FFmpeg helper processes also request hidden
+windows on Windows.
+
+Ctrl+C (`SIGINT`) or `SIGTERM` cancels the owned run, stops helper processes,
+closes its browser and loopback server, and saves a `cancelled` root report
+with the signal and any cleanup errors. The command exits nonzero (130 or
+143); the root report never marks an interrupted run as passed.
+Already saved files remain for diagnosis. Forced termination such as `SIGKILL`,
+power loss, or closing the process outside this signal path cannot guarantee a
+completed report.
 
 ```sh
 npm run review:landscape -- --out .smoke/landscape-baseline --record-baseline
@@ -62,7 +75,8 @@ advancing heard time or replacing the audio engine. This check does not replace
 the unit tests or the separate delayed-worker lifecycle fixture.
 
 Optional live timing uses a separate real upload and waits for `renderReady`
-before measuring delivered frames:
+before measuring delivered frames. It uses the authored Teton tour and the
+first selected grid; a `--view` choice applies to the fixed-clock clips:
 
 ```sh
 npm run review:landscape -- --out .smoke/landscape-live --hardware-gpu \
@@ -79,6 +93,9 @@ reported as successful. The live duration is bounded at 300 seconds, and the inp
 enough for it. This background trace does not claim OS fullscreen, optical
 scanout, foreground scheduling or physical-device acceptance. Fixed-clock clips
 never measure live pacing.
+An invalidated presentation with reason `not-rendered` has not attempted a
+draw and does not count as a rejected presentation. Its complete delivery
+interval and any stall still count; an actual rejected draw remains a failure.
 
 A passing run means its technical controls and checks passed. Artistic judgment
 remains **unreviewed**. Inspect the actual frames and matching audio, note the

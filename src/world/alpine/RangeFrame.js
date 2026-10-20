@@ -298,6 +298,13 @@ export function rangeSkyState(mgr, A, B, t, night, narrative = null) {
   return { top, mid, horizon, air: horizon };
 }
 
+export function usesHighResolutionRangeSky(manager) {
+  const presentation = manager.rangePresentation;
+  return !!(manager.highResolutionSky && manager.world?.kind === 'alpine'
+    && presentation?.enabled && !manager.terrainPreview
+    && (presentation.skyPan?.tourPose || presentation.skyPan?.skyCamera));
+}
+
 /**
  * Assemble the frame snapshot.
  *   frameId, generation   renderer frame counter and load generation
@@ -379,7 +386,10 @@ export function buildRangeFrame({
   const land = landMotion(music, landMoment01(mgr.sections, timeMs, mgr._landHistory),
     { tSec: timeMs / 1000, reducedMotion, seed: sim.songSeed ?? 0 });
   const ridgeViewport = { width: sim.stageW || 1280, height: sim.stageH || 720 };
-  const ridges = mgr._frameRidges || (mgr.ridgeMusicSession && mgr.spaceRidge ? {
+  // These measurements describe legacy painted ridges and their moon
+  // relationship. The compact smooth sky consumes neither; keep the
+  // primary ridge sample above, which still owns terrain/forest music.
+  const ridges = usesHighResolutionRangeSky(mgr) ? null : mgr._frameRidges || (mgr.ridgeMusicSession && mgr.spaceRidge ? {
     stateKey: mgr.ridgeMusicSession.stateKey,
     dance: sampleHorizonRidge({ viewport: ridgeViewport, crest: mgr._horizonCrest,
       songP: mgr.durationMs > 0 ? unit(timeMs / mgr.durationMs) : 0, advectionPx: ridgeAdvectionPxAt(timeMs, reducedMotion),

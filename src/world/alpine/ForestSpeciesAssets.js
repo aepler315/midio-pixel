@@ -61,6 +61,9 @@ const LODS = [
   // Fewer, broader sprays keep the crown's mass (and the detail ring's
   // silhouette) at a tenth of the triangles.
   { tiers: [8, 9], branches: [4, 5], stations: 2, crossed: false, trunkSides: 6, widthScale: 1.55 },
+  // Pixel reduction preserves LOD0's branches, upright sprays and normals.
+  // Only longitudinal subdivisions disappear below the native pixel limit.
+  { tiers: [11, 14], branches: [4, 6], stations: 2, crossed: true, trunkSides: 8, widthScale: 1 },
 ];
 const FAMILIES = [
   // High-crown pine: short tufted sprays, little droop, slight upturn.
@@ -76,8 +79,9 @@ const FAMILIES = [
  *   bounds: { min: number[], max: number[] }, family: number, variant: number, lod: number } }}
  */
 export function buildConiferAsset({ family = 1, variant = 0, lod = 0 } = {}) {
-  const L = LODS[Math.max(0, Math.min(1, lod | 0))], F = FAMILIES[Math.max(0, Math.min(1, family | 0))];
-  const rand = rng(0x9e3779b9 ^ (family * 7349 + variant * 131 + lod * 17 + FOREST_ASSET_VERSION * 1000003));
+  const L = LODS[Math.max(0, Math.min(2, lod | 0))], F = FAMILIES[Math.max(0, Math.min(1, family | 0))];
+  const layoutLod = lod === 2 ? 0 : lod;
+  const rand = rng(0x9e3779b9 ^ (family * 7349 + variant * 131 + layoutLod * 17 + FOREST_ASSET_VERSION * 1000003));
   const lerp = (a, b, t) => a + (b - a) * t;
   const range = ([a, b]) => lerp(a, b, rand());
   const pos = [], nor = [], br = [], idx = [];
@@ -195,7 +199,7 @@ export function forestAssetBytes() {
 /** The whole set's metadata (for diagnostics and the asset test). */
 export function coniferAssetCatalog() {
   const out = [];
-  for (let lod = 0; lod < 2; lod++) for (let family = 0; family < FOREST_FAMILIES; family++) for (let variant = 0; variant < FOREST_VARIANTS; variant++) {
+  for (let lod = 0; lod < 3; lod++) for (let family = 0; family < FOREST_FAMILIES; family++) for (let variant = 0; variant < FOREST_VARIANTS; variant++) {
     const { stats } = buildConiferAsset({ family, variant, lod });
     out.push({ ...stats, bytes: stats.vertices * (3 + 3 + 4) * 4 + stats.triangles * 3 * 2 });
   }

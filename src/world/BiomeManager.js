@@ -23,7 +23,7 @@ import { travelSeam, TRAVEL_FEATHER, TRAVEL_BANDS } from './TravelSeam.js';
 import { landscapeLayerColor, landscapePasses, landscapePolicy, landscapeBudget, landscapeSnowAllowed, resolveLandscapePalette, resolveRangePresentation, rangeDrawsSea } from './alpine/LandscapePolicy.js';
 import { createRangeSkyComposition, rangeMoonOrbit, rangeMoonRadius, rangeV2MoonRadius, drawMoonMaria, rangeCloudBanks, tourCloudBanks, drawRangeClouds, tourSkyDirection, projectSkyDirection, projectRailSky } from './alpine/RangeSkyComposition.js';
 import { RangeSkyRenderer } from './alpine/RangeSkyRenderer.js';
-import { rangeSkyState } from './alpine/RangeFrame.js';
+import { rangeSkyState, usesHighResolutionRangeSky } from './alpine/RangeFrame.js';
 import { withNarrativeAlpha, drawNarrativeMarks } from '../render/NarrativeDraw.js';
 import { buildRidgeSurface } from './alpine/RidgeSurface.js';
 import { drawRidgeSurface } from './alpine/RidgeSurfaceDraw.js';
@@ -2589,18 +2589,22 @@ export class BiomeManager {
     // The same causal ridge samples own paint geometry and the moon's
     // bounded relationship. Resolve before sky and before beginScenic.
     const heardTimeMs = this.tSec * 1000;
+    const compactSky = usesHighResolutionRangeSky(this);
     this._frameRidges = null;
     this.celestialState = null;
     if (this.world?.kind === 'alpine') {
-      this.danceRidgeSample = sampleHorizonRidge({ viewport: canvas, crest: this._horizonCrest,
-        songP: this.durationMs > 0 ? clamp01(heardTimeMs / this.durationMs) : 0,
-        advectionPx: ridgeAdvectionPxAt(heardTimeMs, this.reducedMotion), heardTimeMs, history: this.ridgeMusicSession, tuning: this._horizonTuning, reducedMotion: this.reducedMotion });
-      const space = sampleSpaceRidge({ viewport: canvas, seededGeometry: this.spaceRidge,
-        heardTimeMs, history: this.ridgeMusicSession, reducedMotion: this.reducedMotion });
-      this.spaceRidge.frameSample = { sample: space, width: canvas.width, height: canvas.height, heardTimeMs, reducedMotion: !!this.reducedMotion };
-      this._frameRidges = { stateKey: this.ridgeMusicSession?.stateKey, dance: this.danceRidgeSample, space };
-      const moonOffset = sampleRidgeRelationship({ space, dance: this.danceRidgeSample,
-        nominalViewport: canvas, moonVisibility: horizonFade(dn.moonAlt), reducedMotion: this.reducedMotion });
+      let moonOffset = {};
+      if (!compactSky) {
+        this.danceRidgeSample = sampleHorizonRidge({ viewport: canvas, crest: this._horizonCrest,
+          songP: this.durationMs > 0 ? clamp01(heardTimeMs / this.durationMs) : 0,
+          advectionPx: ridgeAdvectionPxAt(heardTimeMs, this.reducedMotion), heardTimeMs, history: this.ridgeMusicSession, tuning: this._horizonTuning, reducedMotion: this.reducedMotion });
+        const space = sampleSpaceRidge({ viewport: canvas, seededGeometry: this.spaceRidge,
+          heardTimeMs, history: this.ridgeMusicSession, reducedMotion: this.reducedMotion });
+        this.spaceRidge.frameSample = { sample: space, width: canvas.width, height: canvas.height, heardTimeMs, reducedMotion: !!this.reducedMotion };
+        this._frameRidges = { stateKey: this.ridgeMusicSession?.stateKey, dance: this.danceRidgeSample, space };
+        moonOffset = sampleRidgeRelationship({ space, dance: this.danceRidgeSample,
+          nominalViewport: canvas, moonVisibility: horizonFade(dn.moonAlt), reducedMotion: this.reducedMotion });
+      }
       const grow = approachScale(this._progress || 0);
       // A requested v2 scene keeps this radius policy even while its quality
       // fallback paints, so late preparation cannot move/change the anchor.
@@ -2635,7 +2639,7 @@ export class BiomeManager {
       })
       : null;
     this._rangeSky = this.world?.kind === 'alpine'
-      ? createRangeSkyComposition(this.spaceRidge, canvas, { voyageActive: (skyVoyage?.depth ?? 0) > 0 })
+      ? createRangeSkyComposition(this.spaceRidge, canvas, { voyageActive: (skyVoyage?.depth ?? 0) > 0, lazyCorridor: compactSky })
       : null;
 
     // The horizon color, and from it the air color every range body and the

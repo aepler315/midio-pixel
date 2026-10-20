@@ -104,3 +104,32 @@ test('a quality renderer refresh keeps a real gap in the same source playback ch
   assert.equal(result.generationChanges, 0);
   assert.equal(result.delivered.stallsOver100ms, 1, 'the new canvas does not erase a listener-visible gap');
 });
+
+test('two profile invalidations are not attempted failures and retain the complete delivery gap', () => {
+  const samples = [
+    { wallMs: 0, generation: 'song', frameId: 'old:1', presented: true },
+    { wallMs: 16, generation: 'song', frameId: null, presented: false, attempted: false },
+    { wallMs: 130, generation: 'song', frameId: null, presented: false, attempted: false },
+    { wallMs: 250, generation: 'song', frameId: 'new:1', presented: true },
+  ];
+  const result = summarizeFrameDelivery(samples);
+  const priorClassification = summarizeFrameDelivery(samples.map(({ attempted: _attempted, ...sample }) => sample));
+  assert.equal(result.failedPresentations, 0);
+  assert.equal(priorClassification.failedPresentations, 2, 'omitting attempted preserves the existing classification');
+  assert.deepEqual(result.callbacks, priorClassification.callbacks);
+  assert.deepEqual(result.delivered, priorClassification.delivered);
+  assert.equal(result.delivered.maxMs, 250);
+  assert.equal(result.delivered.stallsOver100ms, 1, 'invalidated state must never erase pacing evidence');
+});
+
+test('an actual rejected draw still counts between pending and delivered samples', () => {
+  const result = summarizeFrameDelivery([
+    { wallMs: 0, generation: 1, frameId: 1, presented: true },
+    { wallMs: 16, generation: 1, presented: false, attempted: false },
+    { wallMs: 32, generation: 1, presented: false, attempted: true },
+    { wallMs: 150, generation: 1, frameId: 2, presented: true },
+  ]);
+  assert.equal(result.failedPresentations, 1);
+  assert.equal(result.delivered.maxMs, 150);
+  assert.equal(result.delivered.stallsOver100ms, 1);
+});

@@ -422,7 +422,6 @@ const MESH_COVERAGE = /* glsl */`
   }
 `;
 
-// Current catalog: 557,808 typed bytes, largest asset 92,952 bytes.
 // Allow 8 MiB for JS numeric-array growth, typed conversion and position /
 // normal / branch copies while assets are built. This is an accounting
 // allowance, not a measurement of a JavaScript engine or driver heap.
@@ -557,6 +556,7 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
       geo.setAttribute('iLodWeight', weight);
       bytes += weight.array.byteLength;
     }
+    geo.userData.asset = base.userData.asset;
     geos.push(geo);
     const tag = (mesh) => { if (nearLod) { mesh.userData.nearLod = nearLod; mesh.visible = nearLod === 'detail'; } return mesh; };
     if (partitioned && kind !== 'billboard') {
@@ -607,7 +607,7 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
         if (lod !== 0) { addBatch(kind, assetFor(lod, family, variant), data, idx, b, colorMat, depthMat); return; }
         const geo = addBatch(kind, assetFor(0, family, variant), data, idx, b, colorMat, depthMat, { nearLod: 'detail' });
         const lite = addBatch(kind, assetFor(1, family, variant), data, idx, b, colorMat, depthMat, { from: geo, nearLod: 'lite' });
-        detailGroups.push({ detail: geo, lite });
+        detailGroups.push({ detail: geo, lite, qualityBase: assetFor(1, family, variant), pixelBase: assetFor(2, family, variant) });
       });
     }
   }
@@ -617,12 +617,20 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
     const a = geometry.attributes.iLodWeight;
     if (a.getX(0) !== Math.fround(value)) { a.setX(0, value); a.needsUpdate = true; }
   };
+  const setLiteAsset = (group, pixel) => {
+    const base = pixel ? group.pixelBase : group.qualityBase;
+    group.lite.userData.asset = base.userData.asset;
+    if (group.lite.index === base.index) return;
+    group.lite.setIndex(base.index);
+    for (const [name, attribute] of Object.entries(base.attributes)) group.lite.setAttribute(name, attribute);
+  };
   const forest = {
     byBand, depth, depthByBand, bytes, counts, batches, assets, uniforms: u, nearDetail: true, shown: true, pixelatedDetail: false, detailView: null,
     /** Narrative visibility and the governor cap also apply while a pixel
      * footprint blends the paired assets. No placement counts change. */
     applyVisibility({ shown = forest.shown, nearDetail = forest.nearDetail } = {}) {
       forest.shown = !!shown; forest.nearDetail = !!nearDetail;
+      for (const group of detailGroups) setLiteAsset(group, forest.pixelatedDetail && forest.nearDetail);
       if (!forest.pixelatedDetail || !forest.nearDetail) for (const group of detailGroups) {
         setWeight(group.detail, forest.nearDetail ? 1 : 0);
         setWeight(group.lite, forest.nearDetail ? 0 : -1);
