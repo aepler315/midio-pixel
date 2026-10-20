@@ -54,12 +54,12 @@ export class TerrainWindowWorker{
   catch (error) { this.dispose(error); throw error; }
  }
  setTour(tour){this.worker.postMessage({kind:'tour',tour:{durationMs:tour.durationMs,eye:tour.eye,target:tour.target,fov:tour.fov,meta:tour.meta}});}
- build(index,options){
+ build(index,options,plan=null){
   if(this.closed)return Promise.reject(new DOMException('Window worker closed','AbortError'));
   const id=++this.serial;
   return new Promise((resolve,reject)=>{
    this.jobs.set(id,{resolve,reject});
-   try { this.worker.postMessage({id,index,options}); }
+   try { this.worker.postMessage({id,index,options,plan}); }
    catch(error){this.jobs.delete(id);reject(error);}
   });
  }

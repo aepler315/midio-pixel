@@ -21,7 +21,7 @@ import { rangeRenderPolicy, supportedSamples, msaaOverride, sceneTargetBytes, si
 // GraphicsResidency; GPU meshes, the surface texture and render targets are
 // reserved here before creation and released through dispose().
 import { prepareTerrainAssets, RangeAssetError } from './RangeAssets.js';
-import { createSurfaceTextureAsync, terrainUniforms, createBandGeometries } from './TerrainGL.js';
+import { createSurfaceTextureAsync, terrainUniforms, createBandGeometries, createBandGeometriesAsync } from './TerrainGL.js';
 import { syncGustUniforms, sceneUniforms, createSceneMaterial, createDepthMaterial, setLinearFromHex, createMaterialTextures, applyMaterial, SCENE_VERT, FEATURE_FRAG } from './TerrainMaterial.js';
 import { terrainFeatureSegmentsAsync } from './TerrainFeatures.js';
 import { loadMaterialPack, materialGpuBytes, RULE_DEFAULTS, validateWaterRules } from './MaterialPackage.js';
@@ -532,6 +532,7 @@ export class RangeScene {
     for(const entry of p.rawAhead?.values()||[])this._dropTourRaw(entry);
     p.rawAhead?.clear();p.prefetchAttempted=null;
     p.coverageRetryAt = 0;
+    p.windowPlans = null;
   }
 
   _updateTourCoverage(p, frame) {
@@ -557,28 +558,68 @@ export class RangeScene {
     return resource;
   }
 
-  /** Admit a complete window's peak before worker dispatch. One reservation
-   * becomes retained ownership; source geometry is not charged twice at
-   * upload. A cancelled song cannot erase an executing worker's charge. */
-  _admitTerrainBuild(p, index = null) {
+  /** Bounded deterministic plans survive retries, but never new coverage,
+   * route, source terrain or material rules. */
+  _terrainWindowSpec(p, index) {
+    let cache = p.windowPlans;
+    if (!cache || cache.options !== p.windowOptions || cache.tour !== p.view.tour || cache.data !== p.data || cache.rules !== p.rules) {
+      cache = p.windowPlans = { options: p.windowOptions, tour: p.view.tour, data: p.data, rules: p.rules, entries: new Map() };
+    }
+    if (!cache.entries.has(index)) {
+      if (cache.entries.size >= 4) cache.entries.delete(cache.entries.keys().next().value);
+      cache.entries.set(index, {});
+    }
+    return cache.entries.get(index);
+  }
+
+  _terrainBuildSpec(p, index) {
+    const spec = this._terrainWindowSpec(p, index);
+    if (spec.bytes != null) return spec;
     const view = index == null ? p.view : { ...p.view, tourWindowStartMs: index * 8000 };
     const forest = forestPlacementBound(p.data, view, p.rules);
     const scratch = Math.max(forest.placementBytes,
       forest.count * 32 + forestGroupingBytes(forest.count) + FOREST_ASSET_BUILD_BYTES);
-    let terrain = 0;
+    let terrain = 0, plan = null;
     if (index != null) {
-      const plan = planTerrainWindow(p.data, p.view.tour, index, p.windowOptions);
+      plan = planTerrainWindow(p.data, p.view.tour, index, p.windowOptions);
       for (const tile of p.data.tiles.values()) {
         if (!tile.visible) continue;
         const m = p.data.cells / plan.strides.get(tile.id);
-        // Positions, indexes and a worst-case fringe for every tile.
         terrain += 12 * (m + 1) ** 2 + 48 * m * m;
       }
     }
     const bytes = scratch + (index == null ? 0 : 2 * terrain + forest.count * 56 + 2 * 1024 ** 2);
+    Object.assign(spec, { plan, bytes });
+    return spec;
+  }
+
+  _terrainBuildProtect(p, index) {
+    const current = p.windowCache?.current ?? p.windowIndex ?? 0;
+    // Speculation cannot displace either current or next. A current upgrade
+    // may reclaim an unused future window instead of remaining coarse.
+    return [p.gpuKey, p.cpuKey, p.materialKey, p.workerKey, p.activeWindow?.key,
+      index > current ? p.windowCache?.resident.get(current + 1)?.key : null].filter(Boolean);
+  }
+
+  _retireTourSpeculation(p, index) {
+    const current = p.windowCache?.current ?? p.windowIndex ?? 0;
+    if (index != null && index <= current) for (const [ahead, entry] of p.rawAhead || []) {
+      if (ahead > current) { this._dropTourRaw(entry); p.rawAhead.delete(ahead); }
+    }
+  }
+
+  _canRetryTerrainBuild(p, index) {
+    this._retireTourSpeculation(p, index);
+    return !this.residency || this.residency.canFit(this._terrainBuildSpec(p, index).bytes, this._terrainBuildProtect(p, index));
+  }
+
+  /** Admit the complete build peak before dispatch; executing work retains
+   * its charge through cancellation and staged graphics finalization. */
+  _admitTerrainBuild(p, index = null) {
+    this._retireTourSpeculation(p, index);
+    const { plan, bytes } = this._terrainBuildSpec(p, index);
     const key = `range:build:${p.view.id}:${index ?? 'forest'}:${this._buildSerial = (this._buildSerial || 0) + 1}`;
-    const protect = [p.gpuKey, p.cpuKey, p.materialKey, p.workerKey, p.activeWindow?.key,
-      p.windowCache?.resident.get(p.windowIndex + 1)?.key].filter(Boolean);
+    const protect = this._terrainBuildProtect(p, index);
     this.buildAdmission ||= { requestedBytes: 0, admittedBytes: 0, denials: 0, peakBytes: 0 };
     this.buildAdmission.requestedBytes += bytes;
     const reservation = this.residency?.reserve({ key, bytes,
@@ -589,7 +630,7 @@ export class RangeScene {
     }
     this.buildAdmission.admittedBytes += bytes;
     this.buildAdmission.peakBytes = Math.max(this.buildAdmission.peakBytes, bytes);
-    return { key, reservation, bytes };
+    return { key, reservation, bytes, plan };
   }
 
   _requestTourRaw(p, index) {
@@ -597,7 +638,7 @@ export class RangeScene {
     entry.coverageRevision = p.coverageRevision || 0;
     entry.done = false;
     try {
-      entry.job = p.windowWorker.build(index, p.windowOptions).then(raw => {
+      entry.job = p.windowWorker.build(index, p.windowOptions, entry.plan).then(raw => {
         entry.done = true;
         if (entry.cancelled || entry.coverageRevision !== (p.coverageRevision || 0)) throw new RangeAssetError('stale', 'Tour window generation ended');
         return raw;
@@ -624,15 +665,24 @@ export class RangeScene {
     const generation = p.windowCache.generation;
     const ahead = p.rawAhead?.get(index);
     const entry = ahead || this._requestTourRaw(p, index);
+    // The finalizer now owns these bytes through its yields. Speculative
+    // cleanup must not release them merely because the worker has finished.
+    if (ahead) p.rawAhead.delete(index);
     let geos, forest, transferred = false;
     try {
       const raw = await entry.job;
-      if (p.windowCache.closed || generation !== p.windowCache.generation || entry.coverageRevision !== (p.coverageRevision || 0) || !this.prepared.has(p.view.id)) {
+      if (entry.cancelled || p.windowCache.closed || generation !== p.windowCache.generation || entry.coverageRevision !== (p.coverageRevision || 0) || !this.prepared.has(p.view.id)) {
         throw new RangeAssetError('stale', 'Tour window generation ended');
       }
       const bytes = 2 * (Object.values(raw.built.bands).reduce((n, b) => n + b.positions.byteLength + b.indices.byteLength + b.fringe.byteLength, 0) + raw.placed.count * 7 * 4 + forestAssetBytes());
       if (bytes > entry.bytes) throw new RangeAssetError('budget', 'Window exceeded admitted build bound');
-      geos = createBandGeometries(this.THREE, p.data, { built: raw.built });
+      const checkCurrent = () => {
+        if (entry.cancelled || p.windowCache.closed || generation !== p.windowCache.generation || entry.coverageRevision !== (p.coverageRevision || 0)
+          || this.prepared.get(p.view.id) !== p || this.residency?.cancelled.has(p.generation)) {
+          throw new RangeAssetError('stale', 'Tour window generation ended');
+        }
+      };
+      geos = await createBandGeometriesAsync(this.THREE, p.data, { built: raw.built, checkCurrent });
       forest = createForest(this.THREE, raw.placed, p.uniforms, { forestDebug: this.forestDebug });
       const window = this._tourWindowResource(p, index, geos, forest, entry.key, false, entry.reservation);
       window.detail = raw.plan;
@@ -685,6 +735,12 @@ export class RangeScene {
     }
     p.geometries = window.geos.geometries; p.fringes = window.geos.fringes; p.forest = window.forest;
     p.activeWindow = window; p.windowIndex = window.index;
+    // pinView ran before this frame resolved its window. Transfer its hold
+    // before any later target/material reservation can evict the new mesh.
+    if (this.residency) {
+      const pinned = [...this.residency.pinned].filter(key => key !== previous?.key);
+      this.residency.pin([...pinned, window.key]);
+    }
     p.stats = { ...p.stats, ...window.geos.stats, trees: window.forest.counts, windowIndex: window.index, coarse: window.coarse, pixelLimit: window.detail?.pixelLimit, detailNote: window.detail?.detailNote };
     if (previous && (p.windowCache.resident.get(previous.index) !== previous || previous.detail?.coverageRevision !== (p.coverageRevision || 0))) {
       if (p.windowCache.resident.get(previous.index) === previous) p.windowCache.resident.delete(previous.index);
@@ -715,7 +771,8 @@ export class RangeScene {
     if (held) window = held;
     if (!window) {
       if (p.coverageRetryAt > Date.now()) { report(p.activeWindow, false, 'budget'); return false; }
-      const plan = planTerrainWindow(p.data, p.view.tour, index, { ...p.windowOptions, bias: 2 });
+      const spec = this._terrainWindowSpec(p, index);
+      const plan = spec.coarse ||= planTerrainWindow(p.data, p.view.tour, index, { ...p.windowOptions, bias: 2 });
       const key = `range:tour-window:${p.view.id}:${p.coverageRevision || 0}:${index}:coarse:${this._buildSerial = (this._buildSerial || 0) + 1}`;
       const bytes = 2 * (plan.triangles * 36 + 256 * 1024);
       const reserve = () => this.residency?.reserve({ key, bytes, owner: 'range-tour-window', generation: p.generation,
@@ -750,13 +807,14 @@ export class RangeScene {
     p.windowCache.prune();
     if (window.coarse) p.windowCache.request(index, { replace: true }).catch(fail);
     else if (held) p.windowCache.request(index).catch(fail);
-    if ((index + 1) * 8000 < p.view.tour.durationMs) p.windowCache.request(index + 1).catch(fail);
+    const currentReady = !window.coarse && p.windowCache.resident.get(index) === window;
+    if (currentReady && (index + 1) * 8000 < p.view.tour.durationMs) p.windowCache.request(index + 1).catch(fail);
     // Admit against this window's own plan, not the preceding window's
     // size. Keep the admitted result until handoff, disposal or termination.
     p.rawAhead ||= new Map();
     for (const [old, entry] of p.rawAhead) if (old < index || old > index + 2) { this._dropTourRaw(entry); p.rawAhead.delete(old); }
     const aheadIndex = index + 2, next = p.windowCache.resident.get(index + 1);
-    if (next && !next.coarse && aheadIndex * 8000 < p.view.tour.durationMs && !p.rawAhead.has(aheadIndex) && p.prefetchAttempted !== aheadIndex) {
+    if (currentReady && next && !next.coarse && aheadIndex * 8000 < p.view.tour.durationMs && !p.rawAhead.has(aheadIndex) && p.prefetchAttempted !== aheadIndex) {
       p.prefetchAttempted = aheadIndex;
       try {
         const entry = this._requestTourRaw(p, aheadIndex);
@@ -840,11 +898,12 @@ export class RangeScene {
           const shared = await shareTerrainLanes(cpu.data, { residency: this.residency, protect: [cpu.key, mat.key], signal, isCurrent: () => !stale() });
           if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
           if (shared) this.residency?.shrink(workerKey, workerControlBytes);
-          buildEntry = this._admitTerrainBuild({ ...buildOwner, workerKey }, 0);
+          buildOwner.workerKey = workerKey;
+          buildEntry = this._admitTerrainBuild(buildOwner, 0);
           windowReservation = buildEntry.reservation;
           windowWorker = new TerrainWindowWorker({ data: cpu.data, tour: view.tour, view, rules, seed: hashSeed(view.terrainSourceId || view.id) });
           if (workerReservation && !this.residency.commit(workerReservation, windowWorker, w => w.dispose())) throw new RangeAssetError('stale', 'Tour worker cancelled');
-          rawWindow = await windowWorker.build(0, windowOptions);
+          rawWindow = await windowWorker.build(0, windowOptions, buildEntry.plan);
         } else buildEntry = this._admitTerrainBuild(buildOwner);
         const placed = rawWindow?.placed || await placeForestAsync(cpu.data, view, rules, { seed: hashSeed(view.terrainSourceId || view.id), signal });
         if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
@@ -1027,6 +1086,7 @@ export class RangeScene {
           prepared.workerKey = workerKey;
           prepared.workerReservation = workerReservation;
           prepared.windowOptions = windowOptions;
+          prepared.windowPlans = buildOwner.windowPlans;
           initialWindow = this._tourWindowResource(prepared, 0, geos, forest, windowReservation?.key, false, windowReservation);
           initialWindow.detail = rawWindow.plan;
           rawWindow.placed = null;
@@ -1036,7 +1096,8 @@ export class RangeScene {
             this.residency.retag(buildEntry.key, generation);
             this.residency.entries.get(buildEntry.key).evictable = true;
           }
-          prepared.windowCache = new TourWindowCache({ build: index => this._buildTourWindow(prepared, index) });
+          prepared.windowCache = new TourWindowCache({ build: index => this._buildTourWindow(prepared, index),
+            canRetry: index => this._canRetryTerrainBuild(prepared, index) });
           prepared.windowCache.resident.set(0, initialWindow);
           prepared.windowIndex = 0;
           prepared.activeWindow = initialWindow;
@@ -1153,7 +1214,7 @@ export class RangeScene {
     const keys = ['range:render-target', 'range:ground-target', 'range:render-target-B', ...extraKeys];
     for (const id of [].concat(viewIds)) {
       const p = this.prepared.get(id);
-      if (p) keys.push(p.gpuKey, p.cpuKey, p.materialKey, p.workerKey, p.tourCpuKey, ...[...(p.windowCache?.resident.values() || [])].map(w => w.key));
+      if (p) keys.push(p.gpuKey, p.cpuKey, p.materialKey, p.workerKey, p.tourCpuKey, p.activeWindow?.key);
     }
     this.residency.pin(keys);
   }

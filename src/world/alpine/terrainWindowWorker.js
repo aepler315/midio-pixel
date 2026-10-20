@@ -5,7 +5,7 @@ self.onmessage=e=>{
  if(msg.kind==='tour'){tour=restoreTourTimeline(msg.tour);return;}
  if(msg.kind==='init'){({data,view,rules,seed}=msg);tour=restoreTourTimeline(msg.tour);return;}
  try{
-  const plan=planTerrainWindow(data,tour,msg.index,msg.options),built=buildTerrainGeometry(data,{strides:plan.strides,budget:msg.options.budget});
+  const plan=msg.plan||planTerrainWindow(data,tour,msg.index,msg.options),built=buildTerrainGeometry(data,{strides:plan.strides,budget:msg.options.budget});
   const placed=placeForest(data,{...view,tour,tourWindowStartMs:msg.index*8000},rules,{seed});
   const transfer=[];for(const b of Object.values(built.bands))for(const a of [b.positions,b.indices,b.fringe])if(a)transfer.push(a.buffer);
   transfer.push(placed.meshDetail.buffer,placed.mesh.buffer,placed.billboard.buffer);

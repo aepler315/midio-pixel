@@ -75,6 +75,7 @@ test('a missing next window keeps the neighbouring full window and its trees, ne
  RangeScene.prototype._ensureTourWindow.call(scene,p,9000);
  assert.deepEqual(swaps,[full]);assert.ok(requests.some(([i])=>i===1),'the arriving window is requested');
  assert.equal(p.windowCache.resident.has(1),false,'no coarse stand-in is published for window 1');
+ assert.equal(requests.some(([i])=>i>1),false,'speculation must wait for the missing current window, even while a neighbour covers');
 });
 
 test('budget-denied window preparation backs off across playback frames and resets with coverage', async () => {

@@ -56,3 +56,38 @@ test('async GPU surface retains the same textures, ownership cost and CPU releas
     }
   } finally {for(const v of [expected,actual]){v.texture.dispose();v.receiverTexture.dispose();}}
 });
+
+test('tour geometry finalization yields between bands while preserving every buffer and bounds', async () => {
+  assert.equal(typeof GL.createBandGeometriesAsync, 'function');
+  const built = { bands: Object.fromEntries(['far', 'mid', 'near'].map((b, i) => [b, {
+    positions: new Float32Array([0, 0, 0, 10, i + 1, 0, 0, 0, 10]), indices: new Uint32Array([0, 1, 2]), fringe: new Uint32Array([0, 1, 2]),
+  }])), stats: { triangles: 3 } };
+  let turns = 0;
+  const expected = GL.createBandGeometries(THREE, null, { built });
+  const actual = await GL.createBandGeometriesAsync(THREE, null, { built, yieldTo: async () => { turns++; } });
+  assert.ok(turns >= 2, 'graphics construction must leave opportunities to deliver frames');
+  assert.equal(actual.bytes, expected.bytes);
+  for (const b of ['far', 'mid', 'near']) {
+    assert.deepEqual(actual.geometries[b].attributes.position.array, expected.geometries[b].attributes.position.array);
+    assert.deepEqual(actual.geometries[b].index.array, expected.geometries[b].index.array);
+    assert.deepEqual(actual.geometries[b].boundingSphere, expected.geometries[b].boundingSphere);
+    actual.geometries[b].dispose(); actual.fringes[b].dispose();
+    expected.geometries[b].dispose(); expected.fringes[b].dispose();
+  }
+});
+
+test('retired staged geometry releases constructed buffers before the next band', async () => {
+  assert.equal(typeof GL.createBandGeometriesAsync, 'function');
+  const built = { bands: Object.fromEntries(['far', 'mid', 'near'].map(b => [b, {
+    positions: new Float32Array(), indices: new Uint32Array(), fringe: new Uint32Array(),
+  }])), stats: {} };
+  const controller = new AbortController(); let created = 0, disposed = 0;
+  class Geometry extends THREE.BufferGeometry {
+    constructor() { super(); created++; this.addEventListener('dispose', () => disposed++); }
+  }
+  await assert.rejects(GL.createBandGeometriesAsync({ ...THREE, BufferGeometry: Geometry }, null, {
+    built, signal: controller.signal, yieldTo: async () => controller.abort(),
+  }), { name: 'AbortError' });
+  assert.equal(created, 1);
+  assert.equal(disposed, 1);
+});

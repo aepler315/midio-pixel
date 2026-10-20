@@ -3,6 +3,8 @@
 // (src/dev/range-scene-review.html), so both draw the same mesh through the
 // same camera. `THREE` is the local bundle (src/vendor/range), passed in so
 // this module stays importable (and testable) without a GPU.
+import { finishPreparation, prepareInSlices } from './PreparationSteps.js';
+import { yieldToMain } from '../../utils/yieldToMain.js';
 import { buildTerrainGeometry, buildSurfaceTexture, buildReceiverMask, buildSurfaceTextureAsync, buildReceiverMaskAsync, BANDS } from './TerrainMesh.js';
 
 export const REVIEW_MODES = Object.freeze({ neutral: 0, silhouette: 1, depth: 2, normals: 3, edges: 4 });
@@ -132,29 +134,47 @@ export function terrainUniforms(THREE, data, surface) {
 
 /** One BufferGeometry per depth band. */
 export function createBandGeometries(THREE, data, options = {}) {
+  return finishPreparation(bandGeometrySteps(THREE, data, options));
+}
+
+/** Leave a scheduling opportunity between depth bands, retaining the admitted
+ * build charge until every band is ready. Cancelled unpublished bands retire. */
+export function createBandGeometriesAsync(THREE, data, options = {}) {
+  const steps = bandGeometrySteps(THREE, data, options);
+  return prepareInSlices(steps, { sliceMs: 0, yieldTo: yieldToMain, ...options })
+    .catch(error => { steps.return(); throw error; });
+}
+
+function* bandGeometrySteps(THREE, data, options) {
   const built = options.built || buildTerrainGeometry(data, options);
   const geometries = {}, fringes = {};
-  let bytes = 0;
-  for (const band of BANDS) {
-    const b = built.bands[band];
-    const geo = new THREE.BufferGeometry();
-    const position = new THREE.BufferAttribute(b.positions, 3);
-    geo.setAttribute('position', position);
-    geo.setIndex(new THREE.BufferAttribute(b.indices, 1));
-    geo.computeBoundingSphere();
-    geometries[band] = geo;
-    bytes += b.positions.byteLength + b.indices.byteLength;
-    // The band's tiles that border a farther band, sharing its vertices.
-    if (b.fringe?.length) {
-      const f = new THREE.BufferGeometry();
-      f.setAttribute('position', position);
-      f.setIndex(new THREE.BufferAttribute(b.fringe, 1));
-      f.boundingSphere = geo.boundingSphere;
-      fringes[band] = f;
-      bytes += b.fringe.byteLength;
+  let bytes = 0, complete = false;
+  try {
+    for (const band of BANDS) {
+      const b = built.bands[band];
+      const geo = new THREE.BufferGeometry();
+      const position = new THREE.BufferAttribute(b.positions, 3);
+      geo.setAttribute('position', position);
+      geo.setIndex(new THREE.BufferAttribute(b.indices, 1));
+      geo.computeBoundingSphere();
+      geometries[band] = geo;
+      bytes += b.positions.byteLength + b.indices.byteLength;
+      // The band's tiles that border a farther band, sharing its vertices.
+      if (b.fringe?.length) {
+        const f = new THREE.BufferGeometry();
+        f.setAttribute('position', position);
+        f.setIndex(new THREE.BufferAttribute(b.fringe, 1));
+        f.boundingSphere = geo.boundingSphere;
+        fringes[band] = f;
+        bytes += b.fringe.byteLength;
+      }
+      yield;
     }
+    complete = true;
+    return { geometries, fringes, stats: built.stats, bytes };
+  } finally {
+    if (!complete) for (const g of [...Object.values(geometries), ...Object.values(fringes)]) g.dispose();
   }
-  return { geometries, fringes, stats: built.stats, bytes };
 }
 
 /** The review material (neutral / silhouette / depth / normals). */
