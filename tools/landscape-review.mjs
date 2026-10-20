@@ -199,7 +199,8 @@ async function liveReview(browser, url, audio, args, dir) {
     const started = Date.now(); await page.locator('#fileInput').setInputFiles(audio);
     await page.waitForFunction(() => window.__SMW?.sim && (window.__SMW.renderReady || window.__SMW.rangeState?.active), null, { timeout: 180000 });
     const ready = await page.evaluate(async () => { const s = window.__SMW, result = s.renderReady ? await s.renderReady : {status:'legacy-ready'}; return { result, preparing: !!s.playbackPreparing, state: s.renderReadiness ?? null, sampleRate: s.audioEngine.ctx.sampleRate, durationMs:s.durationMs, songSeed:s.songSeed, heardMs:s.sim.heardTimeMs }; });
-    assert.ok(ready.result.status === 'ready' || (args.recordBaseline && ready.result.status === 'legacy-ready'));assert.equal(ready.preparing, false);assert.ok(ready.durationMs-ready.heardMs>=args.liveSeconds*1000,'recording too short for requested live trace');
+    result.ready = ready;
+    assert.ok(ready.result.status === 'ready' || (args.recordBaseline && ready.result.status === 'legacy-ready'), `live readiness failed: ${JSON.stringify(ready)}`);assert.equal(ready.preparing, false);assert.ok(ready.durationMs-ready.heardMs>=args.liveSeconds*1000,'recording too short for requested live trace');
     const uploadToReadyMs = Date.now() - started;Object.assign(result,{uploadToReadyMs,ready});await json(path.join(dir,'live-report.json'),result);
     const delivery = await page.evaluate(async seconds => {
       const { FrameDeliveryAggregator } = await import('/src/render/FrameDelivery.js'); const meter = new FrameDeliveryAggregator(), start = performance.now();

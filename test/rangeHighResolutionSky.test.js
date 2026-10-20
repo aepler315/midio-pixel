@@ -67,7 +67,7 @@ test('sky textures use smooth sampling even after native pixel terrain presentat
   sky.dispose();
 });
 
-test('finite cloud sprites share six bounded textures and scale smoothly with the destination', () => {
+test('finite cloud sprites have distinct stable shapes and scale smoothly with the destination', () => {
   const sky = new RangeSkyRenderer();
   sky.seed = 4;
   const indices = [], matrices = [];
@@ -78,7 +78,8 @@ test('finite cloud sprites share six bounded textures and scale smoothly with th
     sky._clouds(ctx, camera, 1280, 720, 1, 0);
     const first = structuredClone(matrices), firstIndices = [...indices];
     assert.ok(first.length > 0);
-    assert.ok(indices.every(index => Number.isInteger(index) && index >= 0 && index < 6));
+    assert.ok(indices.every(Number.isInteger));
+    assert.equal(new Set(indices).size, indices.length, 'visible world banks must not repeat a six-sprite catalogue');
     indices.length = matrices.length = 0;
     sky._clouds(ctx, camera, 2560, 1440, 1, 0);
     assert.deepEqual(indices, firstIndices, 'resizing cannot change the world cloud catalogue');
@@ -127,4 +128,31 @@ test('sky image caches reserve bounded canvas storage and release it on disposal
   assert.equal(residency.usedBytes, (192 * 128 + 192 * 192) * 4);
   sky.dispose();
   assert.equal(residency.usedBytes, 0);
+});
+
+test('individual cloud textures reuse, evict with their tint, and reconstruct deterministically', () => {
+  const residency = new GraphicsResidency({ budgetBytes: 8 * 1024 ** 2 });
+  let paints = 0;
+  const sky = new RangeSkyRenderer({ residency, makeCanvas: () => {
+    const canvas = { width: 0, height: 0 };
+    canvas.getContext = () => ({
+      createImageData: (w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }),
+      putImageData(image) { paints++; canvas.pixels = image.data.slice(); },
+    });
+    return canvas;
+  } });
+  sky._seed(315);
+  const first = sky._cloud(103), pixels = first.pixels.slice();
+  assert.equal(sky._cloud(103), first);
+  assert.equal(paints, 1, 'unchanged bank does not rebake during playback');
+  sky.buffers.ensure('storm-cloud-103', 192, 128);
+  for (let i = 0; i < 56; i++) sky._cloud(i + 500);
+  assert.equal(sky.cloudCache.size, 48);
+  assert.equal(sky.buffers.buffers.has('storm-cloud-103'), false);
+  assert.equal(residency.usedBytes, 48 * 192 * 128 * 4);
+  assert.deepEqual(sky._cloud(103).pixels, pixels, 'returning to a world bank restores exactly its shape');
+  sky._seed(316);
+  assert.equal(sky.cloudCache.size, 0);
+  assert.equal(residency.usedBytes, 0);
+  sky.dispose();
 });

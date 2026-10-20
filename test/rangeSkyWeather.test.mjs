@@ -108,7 +108,7 @@ test('hybrid storm banks use bounded density sprites and release their storage',
   try {
     sky.draw(ctx, snapshot(managerFixture({ amount: 1, flash: .9, flashU: .4, break01: 0, wet01: 1 })));
     assert.ok(events.some(event => event.image), 'storm clouds must render textured density instead of ellipse banks');
-    assert.ok(residency.usedBytes > 0 && residency.usedBytes <= 6 * 192 * 128 * 4);
+    assert.ok(residency.usedBytes > 0 && residency.usedBytes <= Math.min(residency.budgetBytes, 48 * 192 * 128 * 4));
   } finally { sky.dispose(); }
   assert.equal(residency.usedBytes, 0);
 });

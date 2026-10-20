@@ -101,9 +101,9 @@ export function cloudBanks({ camera, width, height, timeSec = 0, seed = 0, storm
     const heightM = widthM * 128 / 192;
     // Altitude describes the full card's base, not its centre. Even the
     // tallest storm bank remains above the peaks before density masking.
-    const world = [(ix + .3 + hash(ix, iz, salt + 1) * .4) * CELL_M + wind[0],
+    const world = [(ix + .08 + hash(ix, iz, salt + 1) * .84) * CELL_M + wind[0],
       (storm ? 4500 : 5500) + hash(ix, iz, salt + 2) * 2000 + heightM * .5,
-      (iz + .3 + hash(ix, iz, salt + 3) * .4) * CELL_M + wind[1]];
+      (iz + .08 + hash(ix, iz, salt + 3) * .84) * CELL_M + wind[1]];
     const matrix = [0, 0, 0, 0, 0, 0];
     let weight = 0, depth = 0;
     for (const c of views) {
@@ -122,7 +122,7 @@ export function cloudBanks({ camera, width, height, timeSec = 0, seed = 0, storm
     const [a, b, c, d, x, y] = matrix, ex = (Math.abs(a) + Math.abs(c)) * .5, ey = (Math.abs(b) + Math.abs(d)) * .5;
     if (x + ex < 0 || x - ex > width || y + ey < 0 || y - ey > height) continue;
     if (!matrix.every(Number.isFinite)) continue;
-    banks.push({ id: `${storm ? 'storm' : 'fair'}:${cell}`, index: Math.floor(hash(ix, iz, salt + 5) * 6), depth: depth / weight,
+    banks.push({ id: `${storm ? 'storm' : 'fair'}:${cell}`, index: Math.floor(hash(ix, iz, salt + 5) * 6), shapeSeed: Math.floor(hash(ix, iz, salt + 9) * 4294967296), depth: depth / weight,
       x, y, w: Math.hypot(a, b), h: Math.hypot(c, d), matrix, world,
       alpha: weight * ((storm ? .75 : .32) + hash(ix, iz, salt + 6) * (storm ? .25 : .32)) });
   }
