@@ -32,7 +32,7 @@ import { hashSeed } from '../../utils/math.js';
 import { createForest, FOREST_ASSET_BUILD_BYTES, forestGroupingBytes } from './ForestGL.js';
 import { forestAssetBytes } from './ForestSpeciesAssets.js';
 import { bakeHorizonAsync, createHorizonTexture, horizonBytes } from './TerrainOcclusion.js';
-import { planTerrainWindow, TourWindowCache } from './TerrainWindow.js';
+import { planTerrainWindow, terrainWindowCoverage, terrainWindowCovers, TourWindowCache } from './TerrainWindow.js';
 import { TerrainWindowWorker, shareTerrainLanes, terrainLaneBytes } from './TerrainWindowWorker.js';
 import { buildTerrainGeometry } from './TerrainMesh.js';
 import { buildRockStage } from './RockStage.js';
@@ -521,11 +521,25 @@ export class RangeScene {
 
   replaceTour(view) {
     const p=this.prepared.get(view.id);if(!p?.windowCache)return;
-    p.view=view;p.windowWorker.setTour(view.tour);p.windowCache.generation++;
-    for(const [index,window]of p.windowCache.resident)if(window!==p.activeWindow){window.dispose();p.windowCache.resident.delete(index);}
+    p.view=view;p.windowWorker.setTour(view.tour);
+    this._invalidateTourWindows(p);
+  }
+
+  _invalidateTourWindows(p) {
+    p.coverageRevision = (p.coverageRevision || 0) + 1;
+    p.windowOptions = { ...p.windowOptions, coverageRevision: p.coverageRevision };
+    p.windowCache.invalidate(p.activeWindow);
     for(const entry of p.rawAhead?.values()||[])this._dropTourRaw(entry);
     p.rawAhead?.clear();p.prefetchAttempted=null;
-    if(p.activeWindow)p.activeWindow.coarse=true;
+    p.coverageRetryAt = 0;
+  }
+
+  _updateTourCoverage(p, frame) {
+    if (!p?.windowCache || !frame?.scenicViewport) return;
+    const coverage = terrainWindowCoverage(frame.scenicViewport);
+    if (p.windowOptions.coverage?.key === coverage.key) return;
+    p.windowOptions = { ...p.windowOptions, coverage };
+    this._invalidateTourWindows(p);
   }
 
   _tourWindowResource(p, index, geos, forest, key, coarse = false, reservation = null) {
@@ -580,11 +594,12 @@ export class RangeScene {
 
   _requestTourRaw(p, index) {
     const entry = this._admitTerrainBuild(p, index);
+    entry.coverageRevision = p.coverageRevision || 0;
     entry.done = false;
     try {
       entry.job = p.windowWorker.build(index, p.windowOptions).then(raw => {
         entry.done = true;
-        if (entry.cancelled) throw new RangeAssetError('stale', 'Tour window generation ended');
+        if (entry.cancelled || entry.coverageRevision !== (p.coverageRevision || 0)) throw new RangeAssetError('stale', 'Tour window generation ended');
         return raw;
       }).catch(error => {
         entry.done = true;
@@ -612,7 +627,7 @@ export class RangeScene {
     let geos, forest, transferred = false;
     try {
       const raw = await entry.job;
-      if (p.windowCache.closed || generation !== p.windowCache.generation || !this.prepared.has(p.view.id)) {
+      if (p.windowCache.closed || generation !== p.windowCache.generation || entry.coverageRevision !== (p.coverageRevision || 0) || !this.prepared.has(p.view.id)) {
         throw new RangeAssetError('stale', 'Tour window generation ended');
       }
       const bytes = 2 * (Object.values(raw.built.bands).reduce((n, b) => n + b.positions.byteLength + b.indices.byteLength + b.fringe.byteLength, 0) + raw.placed.count * 7 * 4 + forestAssetBytes());
@@ -653,6 +668,7 @@ export class RangeScene {
 
   _swapTourWindow(p, window) {
     if (p.activeWindow === window) return;
+    const previous = p.activeWindow;
     const replacements = new Map();
     for (const band of BANDS) {
       replacements.set(p.geometries[band], window.geos.geometries[band]);
@@ -670,34 +686,55 @@ export class RangeScene {
     p.geometries = window.geos.geometries; p.fringes = window.geos.fringes; p.forest = window.forest;
     p.activeWindow = window; p.windowIndex = window.index;
     p.stats = { ...p.stats, ...window.geos.stats, trees: window.forest.counts, windowIndex: window.index, coarse: window.coarse, pixelLimit: window.detail?.pixelLimit, detailNote: window.detail?.detailNote };
+    if (previous && (p.windowCache.resident.get(previous.index) !== previous || previous.detail?.coverageRevision !== (p.coverageRevision || 0))) {
+      if (p.windowCache.resident.get(previous.index) === previous) p.windowCache.resident.delete(previous.index);
+      previous.dispose();
+    }
   }
 
-  _ensureTourWindow(p, timeMs) {
+  _ensureTourWindow(p, timeMs, camera = null) {
     if (!p?.windowCache) return;
     const index = Math.max(0, Math.floor(Math.min(timeMs, Math.max(0, p.view.tour.durationMs - 1)) / 8000));
     p.windowCache.current = index;
+    const fail = error => { if (error?.reason !== 'stale' && error?.name !== 'AbortError') p.windowNote = error.message; };
+    const report = (w, covered, reason = null) => {
+      p.windowCoverage = { revision: p.coverageRevision || 0, key: p.windowOptions.coverage?.key,
+        covered, reason, activeRevision: w?.detail?.coverageRevision, framing: w?.detail?.coverage,
+        pixelLimit: w?.detail?.pixelLimit, maxErrorPx: w?.detail?.maxErrorPx };
+    };
     let window = p.windowCache.resident.get(index);
-    // Until this window's full build arrives, keep drawing the neighbouring
-    // full window: its trees stand within 8 km of an adjacent stretch of the
-    // same route. A coarse stand-in has no forest, so it is only for a seek
-    // with no full neighbour on screen.
-    const held = !window && p.activeWindow && !p.activeWindow.coarse && Math.abs(p.activeWindow.index - index) <= 1 ? p.activeWindow : null;
+    const covers = w => !camera || (w?.detail?.coverageRevision === (p.coverageRevision || 0)
+      && terrainWindowCovers(w.detail, camera.pose, camera.proj));
+    const rejected = window && !covers(window) ? window : null;
+    if (rejected) window = null;
+    // A neighbouring full mesh may be held only while it covers the actual
+    // view. A turn or a wider viewport needs a new covering reconstruction.
+    const held = !window && p.activeWindow && !p.activeWindow.coarse && Math.abs(p.activeWindow.index - index) <= 1 && covers(p.activeWindow) ? p.activeWindow : null;
     if (held) window = held;
     if (!window) {
+      if (p.coverageRetryAt > Date.now()) { report(p.activeWindow, false, 'budget'); return false; }
       const plan = planTerrainWindow(p.data, p.view.tour, index, { ...p.windowOptions, bias: 2 });
-      const key = `range:tour-window:${p.view.id}:${index}:coarse`, bytes = 2 * (plan.triangles * 36 + 256 * 1024);
+      const key = `range:tour-window:${p.view.id}:${p.coverageRevision || 0}:${index}:coarse:${this._buildSerial = (this._buildSerial || 0) + 1}`;
+      const bytes = 2 * (plan.triangles * 36 + 256 * 1024);
       const reservation = this.residency?.reserve({ key, bytes, owner: 'range-tour-window', generation: p.generation, protect: [p.gpuKey, p.cpuKey, p.workerKey, p.activeWindow?.key].filter(Boolean) });
-      if (this.residency && !reservation) return;
+      if (this.residency && !reservation) {
+        report(p.activeWindow, false, 'budget');
+        p.coverageRetryAt = Date.now() + 250;
+        p.windowCache.request(index, { replace: true }).catch(fail);
+        return false;
+      }
       const built = buildTerrainGeometry(p.data, { strides: plan.strides });
       const geos = createBandGeometries(this.THREE, p.data, { built });
       const forest = createForest(this.THREE, { mesh: new Float32Array(), billboard: new Float32Array(), stride: 8, count: 0 }, p.uniforms, { forestDebug: this.forestDebug });
       window = this._tourWindowResource(p, index, geos, forest, key, true, reservation);
+      window.detail = plan;
       if (reservation && !this.residency.commit(reservation, window, w => w.destroy())) return;
+      if (rejected && rejected !== p.activeWindow) rejected.dispose();
       p.windowCache.resident.set(index, window);
     }
     this._swapTourWindow(p, window);
+    report(window, covers(window));
     p.windowCache.prune();
-    const fail = error => { if (error?.reason !== 'stale' && error?.name !== 'AbortError') p.windowNote = error.message; };
     if (window.coarse) p.windowCache.request(index, { replace: true }).catch(fail);
     else if (held) p.windowCache.request(index).catch(fail);
     if ((index + 1) * 8000 < p.view.tour.durationMs) p.windowCache.request(index + 1).catch(fail);
@@ -717,6 +754,7 @@ export class RangeScene {
         });
       } catch (error) { fail(error); }
     }
+    return p.windowCoverage.covered;
   }
 
   /**
@@ -774,7 +812,8 @@ export class RangeScene {
         // Placement yields to the event loop as it goes: a view prepared
         // during playback must not freeze frames while its forest is laid.
         let rawWindow = null;
-        const windowOptions = { budget: this.budget, heightPx: this.budget === 'mobile' ? 720 : 1080, aspect: 16 / 9 };
+        const windowOptions = { budget: this.budget, heightPx: this.budget === 'mobile' ? 720 : 1080,
+          coverage: terrainWindowCoverage(opts.scenicViewport), coverageRevision: 0 };
         const buildOwner = { view, data: cpu.data, rules, windowOptions, cpuKey: cpu.key, gpuKey, materialKey: mat.key };
         if (view.tour) {
           workerKey = `range:tour-worker:${view.id}`;
@@ -1254,6 +1293,13 @@ export class RangeScene {
     }
   }
 
+  prepareFrameCoverage(view, frame) {
+    const p = this.prepared.get(view.id);
+    if (!p?.windowCache) return true;
+    this.movedPose(view, frame, p);
+    return p.windowCoverage?.covered === true;
+  }
+
   _disposePrepared(p) {
     p.featureMaterial?.dispose();
     for (const g of Object.values(p.featureGeometries || {})) g.dispose();
@@ -1305,7 +1351,7 @@ export class RangeScene {
    *  rendered ground. Computed once per frame and view and shared by the
    *  partition passes and the sky (RangePresentation._skyPan). */
   movedPose(view, frame, p = this.prepared.get(view.id) || null) {
-    this._ensureTourWindow(p, frame.timeMs);
+    if (p?.windowCache) this._updateTourCoverage(p, frame);
     const baseRail = scenePoseAt(view, { progress01: view.glacier && !frame.reducedMotion ? (frame.glacier?.journey01 ?? frame.progress01) : frame.progress01, timeMs: frame.timeMs });
     const rail = { ...baseRail, fovYDeg: applyLensFov(baseRail.fovYDeg, frame.cameraEffects) };
     const proj = scenicProjection(rail.fovYDeg, frame.scenicViewport);
@@ -1327,6 +1373,7 @@ export class RangeScene {
         heightRangeM: p?.uniforms ? [p.uniforms.uHeightRange.value.x, p.uniforms.uHeightRange.value.y] : null,
         zoomMode: 'projection' });
       poses.set(view.id, pose);
+      this._ensureTourWindow(p, frame.timeMs, { pose, proj });
     }
     return { rail, proj, pose, tanX, tanY };
   }
@@ -1697,6 +1744,7 @@ export class RangeScene {
     // The camera is shared: set this side's pose for every pass, even when
     // its depth pre-pass (kept per side) is reused.
     this._setCamera(p.view, frame, p);
+    if (p.windowCache && p.windowCoverage?.covered === false) return null;
     this._setUniforms(p, frame);
     this._prepareMirror(p, frame, side, viewId);
     const softForest = Object.values(p.forest?.counts || {}).some(n => n > 0);
@@ -1862,7 +1910,7 @@ export class RangeScene {
     return {
       prepared: [...this.prepared.keys()], pending: [...this.pending.keys()], contextLost: this.contextLost,
       buildAdmission: { requestedBytes: 0, admittedBytes: 0, denials: 0, peakBytes: 0, ...this.buildAdmission },
-      windows: [...this.prepared.values()].filter(p=>p.windowCache).map(p=>({id:p.view.id,index:p.windowIndex,resident:[...p.windowCache.resident.keys()],detail:p.activeWindow?.detail,note:p.windowNote,stats:p.stats})),
+      windows: [...this.prepared.values()].filter(p=>p.windowCache).map(p=>({id:p.view.id,index:p.windowIndex,resident:[...p.windowCache.resident.keys()],detail:p.activeWindow?.detail,coverage:p.windowCoverage,note:p.windowNote,stats:p.stats})),
       size: { ...this.size }, stats: { ...this.stats }, sideB: !!this.sideTargets.B,
       edge: { samples: this.edge?.samples ?? 0, requestedSamples: this.edge?.requestedSamples ?? 0, reason: this.edge?.reason ?? null, capability: this.edge?.capability ?? 0 },
     };
