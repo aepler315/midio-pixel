@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Pixel-only music-reactive worlds with depth-aware pixel scale and modern lighting.",
+  "description": "Music-reactive pixel landscapes with smooth skies and automatic performance.",
   "scripts": {
     "start": "node tools/serve.js",
     "dev": "node tools/serve.js 8080",
@@ -35,6 +35,7 @@
     "start:full": "docker compose up -d slskd && node tools/serve.js",
     "stage:versions": "node tools/stage-history.mjs . _site",
     "visual:eval": "node tools/visual-evaluate.mjs",
+    "review:landscape": "node tools/landscape-review.mjs",
     "plex:server": "node --env-file=.env.plex tools/plex-server.mjs",
     "plex:probe": "node --env-file=.env.plex tools/plex-probe.mjs",
     "plex:config": "node tools/write-plex-public-config.mjs",

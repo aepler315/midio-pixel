@@ -6,7 +6,7 @@ import { SunShaftGL } from '../src/world/alpine/SunShaftGL.js';
 
 function scene() {
   const s = Object.create(RangeScene.prototype);
-  Object.assign(s, { THREE, pixelated: true, pixelScale: 'depth', target: null, sideTargets: { B: null },
+  Object.assign(s, { THREE, pixelated: true, pixelScale: 'original', target: null, sideTargets: { B: null },
     size: { width: 320, height: 180 }, edge: { samples: 0, capability: 4 }, ownership: { A: null, B: null },
     depthCache: { A: { frame: -1 }, B: { frame: -1 } }, mirrors: { A: null, B: null }, prepared: new Map(),
     renderer: { render() {}, setRenderTarget() {}, clear() {}, setClearColor() {}, setSize() {}, setPixelRatio() {} },
@@ -45,52 +45,46 @@ test('shaft lifetime borrows scenic depth without disposing or detaching it', ()
   assert.deepEqual(disposed, [0, 1], 'each base target is released by its owner once');
 });
 
-test('every copy resets depth state and only eligible scenic targets enable it', () => {
-  const s = scene(), target = s._scenicTarget(320, 180);
-  const u = s._copy.mesh.material.uniforms;
-  s._copyTexture(target.texture, null, { target, camera: s.camera });
-  assert.equal(u.uPixelDepthEnabled?.value, 1);
-  assert.equal(u.uPixelDepth.value, target.depthTexture);
-  assert.deepEqual(u.uPixelDepthSize.value.toArray(), [320, 180]);
-  assert.deepEqual(u.uPixelCameraRange.value.toArray(), [20, 150000]);
-  for (const opt of [null, { target: { ...target, depthTexture: null }, camera: s.camera },
-    { target, camera: { near: 0, far: 150000 } }]) {
-    s._copyTexture(target.texture, null, opt);
-    assert.equal(u.uPixelDepthEnabled.value, 0);
-    assert.equal(u.uPixelDepth.value, null);
-    assert.deepEqual(u.uPixelDepthSize.value.toArray(), [1, 1]);
-    assert.deepEqual(u.uPixelCameraRange.value.toArray(), [1, 2]);
-  }
-  for (const [pixelated, pixelScale] of [[true, 'original'], [false, 'depth']]) {
-    s.pixelated = pixelated; s.pixelScale = pixelScale;
+test('uniform copy samples only source colour and ignores stale Depth arguments', () => {
+  const s = scene(), target = s._scenicTarget(320, 180), draws = [];
+  s.renderer.render = value => draws.push(value);
+  const material = s._copy.mesh.material, u = material.uniforms;
+  for (const pixelScale of ['depth', 'original', 'unknown']) {
+    s.pixelScale = pixelScale;
     s._copyTexture(target.texture, null, { target, camera: s.camera });
-    assert.equal(u.uPixelDepthEnabled.value, 0);
+    assert.equal(u.uColor.value, target.texture);
+    assert.equal(u.uUseOwn.value, 0);
+    assert.deepEqual(Object.keys(u).filter(key => key.startsWith('uPixel')), []);
   }
+  assert.doesNotMatch(material.fragmentShader, /uPixelDepth|uPixelCameraRange|depthScale|viewDepth/);
+  assert.match(material.fragmentShader, /texture\(uColor, vUv\)/);
+  assert.equal(draws.length, 3, 'one existing copy draw per source');
   target.dispose();
 });
 
-test('scale changes update policy without reallocating scenic targets', () => {
+test('obsolete scale requests stay Uniform without reallocating scenic targets', () => {
   const s = scene();
   const request = { widthPx: 320, heightPx: 180, pixelated: true, pixelScale: 'depth' };
   s.resize(request);
-  const target = s.target;
-  s.resize({ ...request, pixelScale: 'original' });
   assert.equal(s.pixelScale, 'original');
-  assert.equal(s.target, target);
-  s.resize(request);
-  assert.equal(s.pixelScale, 'depth');
-  assert.equal(s.target, target);
+  const target = s.target;
+  for (const pixelScale of ['original', 'depth', 'unknown']) {
+    s.resize({ ...request, pixelScale });
+    assert.equal(s.pixelScale, 'original');
+    assert.equal(s.target, target);
+  }
   target.dispose();
 });
 
-test('missing depth support keeps a working colour target and disables depth sampling', () => {
+test('missing sampleable depth support retains the independent colour copy', () => {
   const s = scene();
   s.THREE = { ...THREE, DepthTexture: class { constructor() { throw new Error('depth unavailable'); } } };
   const target = s._scenicTarget(320, 180);
   assert.ok(target.texture);
   assert.equal(target.depthTexture, null);
-  s._copyTexture(target.texture, null, { target, camera: s.camera });
-  assert.equal(s._copy.mesh.material.uniforms.uPixelDepthEnabled.value, 0);
+  s._copyTexture(target.texture);
+  assert.equal(s._copy.mesh.material.uniforms.uColor.value, target.texture);
+  assert.deepEqual(Object.keys(s._copy.mesh.material.uniforms).filter(key => key.startsWith('uPixel')), []);
   target.dispose();
 });
 
@@ -118,7 +112,7 @@ test('resize and context loss release both depth-owning scenic targets once and 
   s.target.dispose();
 });
 
-test('scenic A/B copies use that side depth and the newly set camera with no added draws', () => {
+test('scenic A/B copies retain each side colour and camera with no added draws', () => {
   const s = scene();
   s.target = s._scenicTarget(320, 180); s.ensureSide('B');
   const copied = [], draws = [];
@@ -134,13 +128,14 @@ test('scenic A/B copies use that side depth and the newly set camera with no add
   s._copyTexture = function (...args) {
     copy.apply(this, args);
     const u = this._copy.mesh.material.uniforms;
-    copied.push([u.uPixelDepth?.value, u.uPixelCameraRange?.value.y]);
+    copied.push([u.uColor.value, this.camera.far, u.uUseOwn.value]);
+    assert.deepEqual(Object.keys(u).filter(key => key.startsWith('uPixel')), []);
   };
   const frame = { frameId: 1, qualityLevel: 3 };
   s.renderPartition(frame, 'far', 'a', { side: 'A' });
   s.renderPartition(frame, 'far', 'b', { side: 'B' });
   s.renderPartition(frame, 'far', 'a', { side: 'A' });
-  assert.deepEqual(copied, [[s.target.depthTexture, 150000], [s.sideTargets.B.depthTexture, 80000], [s.target.depthTexture, 150000]]);
+  assert.deepEqual(copied, [[s.target.texture, 150000, 0], [s.sideTargets.B.texture, 80000, 0], [s.target.texture, 150000, 0]]);
   assert.equal(draws.length, 8, 'two cached depth passes, three colour passes, three existing copies');
   s.releaseSide(); s.target.dispose();
 });

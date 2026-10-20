@@ -63,6 +63,8 @@ import { rangeTourControlState } from './ui/RangeTourControl.js';
 import { residencyBudgetFor } from './render/GraphicsResidency.js';
 import { shouldSuggestLandscape } from './render/StagePresets.js';
 import { createPresentingRenderer } from './render/PresentingRenderer.js';
+import { createRenderReadyPlayback, waitForScenicReady } from './render/RenderReadyPlayback.js';
+import { stageOutputSize } from './render/RenderOutputSize.js';
 import { PixelPresentation, fitPixelRect } from './render/PixelPresentation.js';
 import { FrameCadence } from './render/FrameCadence.js';
 import { readDisplayPrefs, writeDisplayPrefs, resolvePresentation, resolveDisplayPrefs } from './render/DisplayProfile.js';
@@ -437,7 +439,7 @@ const experienceControl = document.getElementById('display-experience');
 const experienceStatus = document.getElementById('experience-status');
 if (experienceControl) experienceControl.value = experience;
 let experienceRequest = 0;
-const displayControls = Object.fromEntries(['look', 'quality', 'palette', 'dither', 'ditherMode', 'pixelGrid', 'pixelScale', 'scaling'].map(key => [key, document.getElementById(`display-${key}`)]));
+const displayControls = Object.fromEntries(['look', 'quality', 'palette', 'dither', 'ditherMode', 'pixelGrid', 'scaling'].map(key => [key, document.getElementById(`display-${key}`)]));
 const STAGE_FPS_KEY = 'smw:stageFps';
 let simTime = 0;
 let acc = 0;
@@ -445,6 +447,11 @@ let lastNowMs = 0;
 const captureClock = new CaptureClock({ liveLeadMs: VISUAL_LEAD_MS });
 let running = false;
 let paused = false; // suspends the AudioContext itself -- the master clock everything derives from
+const renderPlayback = createRenderReadyPlayback();
+let playbackPreparing = false;
+let renderReadyPromise = Promise.resolve({ status: 'idle' });
+let restartRenderPreparation = null;
+let terrainRecordingHold = null;
 let fpsHudVisible = resolveFpsHudVisible(typeof location !== 'undefined' ? location.search : '');
 let fpsEma = null;
 const presentedFps = new PresentedFpsMeter();
@@ -503,7 +510,7 @@ if (rangeTourToggle) {
       delete lastTimelineData.chapterState;
       startTimeline(lastTimelineData, {
         ...lastStartExtra, songSeed:sim.songSeed,
-        startAtMs:Math.max(1,audioEngine.nowMs), keepAudio:true,
+        startAtMs:Math.max(0,audioEngine.nowMs), keepAudio:true,
         keepUserCamera:true, preservePause:wasPaused, chapterState:null,
       });
       if(wasPaused){paused=true;updatePauseButtonUI();}
@@ -576,18 +583,21 @@ function effectivePresentation() {
 async function changeExperience(value) {
   const next = resolveExperience(value), request = ++experienceRequest, owner = sim;
   if (next === experience) return;
+  const rebuildLandscape = running && owner && next === 'landscape' && lastTimelineData && !bulkExportArmed;
   let prepared = null;
   if (experienceControl) experienceControl.disabled = true;
   if (experienceStatus) experienceStatus.textContent = next === 'landscape' ? 'Preparing landscape…' : 'Preparing the trio…';
   try {
     if (running && owner && next === 'landscape') {
       const mode = resolveRangeMode();
-      owner.biomes.update(owner.timeMs, 0, owner.energyCurves, owner.calm.level, owner.worldX);
+      if (!rebuildLandscape) owner.biomes.update(owner.timeMs, 0, owner.energyCurves, owner.calm.level, owner.worldX);
       if (mode.mode === 'v2') {
         prepared = new RangePresentation({ mode: 'v2', tour: mode.tour, forcedViewId: mode.forcedViewId,
           diag: mode.diag, residency: sharedResidency(), budget: residencyBudgetFor().name });
-        prepared.setSong({ terrain: lastTimelineData?.terrain, mgr: owner.biomes, generation: loadGen, exportMode: bulkExportArmed });
-        await prepared.whenReady({ timeoutMs: 120000 });
+        if (!rebuildLandscape) {
+          prepared.setSong({ terrain: lastTimelineData?.terrain, mgr: owner.biomes, generation: loadGen, exportMode: bulkExportArmed });
+          await prepared.whenReady({ timeoutMs: 120000 });
+        }
       }
       if (request !== experienceRequest || sim !== owner || !running) {
         prepared?.dispose();
@@ -604,7 +614,7 @@ async function changeExperience(value) {
       else rangePresentation = prepared;
       renderer.rangePresentation = rangePresentation;
       owner.biomes.rangePresentation = rangePresentation;
-      if (next === 'landscape') {
+      if (next === 'landscape' && !rebuildLandscape) {
         owner.step(0, owner.timeMs);
         if (!rangePresentation?.enabled || rangePresentation.runtimeState === 'failed') owner.biomes.preparePlaybackStrips();
       }
@@ -619,11 +629,23 @@ async function changeExperience(value) {
     writeExperience(displayStorage(), next);
     const url = new URL(location.href); url.searchParams.set('experience', next); history.replaceState(null, '', url);
     if (experienceControl) experienceControl.value = next;
-    if (displayControls.pixelScale) displayControls.pixelScale.disabled = next === 'trio';
     fitCanvas(); syncRangeTourControl();
     if (next === 'trio' && owner) { owner.rangeCaption = null; owner.rangeCaptions = null; }
     else if (owner && lastTimelineData) applyRangeCaptions(lastTimelineData, bulkExportArmed);
-    if (running && owner === sim) renderer.draw(sim, 1);
+    if (running && owner === sim) {
+      if (rebuildLandscape) {
+        // A new Landscape starts at the heard destination, whose complete
+        // forest window may differ from the prepared opening window. Reuse
+        // the seek/start lifecycle so the same gate owns audio and recording.
+        startTimeline(lastTimelineData, {
+          ...lastStartExtra, songSeed: owner.songSeed, startAtMs: Math.max(0, audioEngine.nowMs),
+          keepAudio: true, keepUserCamera: true, preservePause: paused, chapterState: null,
+        });
+      } else {
+        renderer.draw(sim, 1, { preparing: playbackPreparing });
+        if (playbackPreparing) restartRenderPreparation?.();
+      }
+    }
     if (experienceStatus) experienceStatus.textContent = next === 'trio' ? 'Automatic performance' : '';
     if (worldSelectEl?.open && pendingWorldStart) startChooserPreviews();
   } catch (error) {
@@ -633,7 +655,6 @@ async function changeExperience(value) {
   } finally { if (request === experienceRequest && experienceControl) experienceControl.disabled = false; }
 }
 experienceControl?.addEventListener('change', () => changeExperience(experienceControl.value));
-if (displayControls.pixelScale) displayControls.pixelScale.disabled = experience === 'trio';
 
 function fitPixelLayout() {
   const p = effectivePresentation();
@@ -679,7 +700,7 @@ function readBulkExportFromUrl() {
   }
 }
 
-/** Keep live/title raster size fixed to its grid; exports choose output size. */
+/** Terrain uses its native grid; hybrid sky uses the displayed output density. */
 function fitCanvas() {
   const active = effectivePresentation();
   renderer?.setPresentation(active);
@@ -690,12 +711,17 @@ function fitCanvas() {
     perfGovernor.targetCanvasWidth = active.grid.width;
     perfGovernor.canvasWidth = active.grid.width;
   }
-  const size = bulkExportSize || { w: active.grid.width, h: active.grid.height };
+  const worldKind = sim?.biomes?.world?.kind
+    || getWorld(lastTimelineData?.worldId || lastWorldId || DEFAULT_WORLD_ID)?.kind;
+  const hybrid = experience === 'landscape' && worldKind === 'alpine' && !!rangePresentation?.enabled;
+  const box = canvas.getBoundingClientRect();
+  const size = stageOutputSize({ grid: active.grid, hybrid, cssWidth: box.width, cssHeight: box.height,
+    dpr: window.devicePixelRatio || 1, exportSize: bulkExportSize });
   resizeStageCanvas(canvas, size.w, size.h);
   // Canvas resets clear context state, including nearest-neighbor sampling.
   const ctx2d = canvas.getContext('2d');
   if (ctx2d) ctx2d.imageSmoothingEnabled = false;
-  canvas.classList.add('retro');
+  canvas.classList.toggle('retro', !hybrid);
   landscapeHintEl?.classList.toggle(
     'is-visible',
     !bulkExportSize && shouldSuggestLandscape(canvas.clientWidth, canvas.clientHeight),
@@ -721,7 +747,7 @@ function randomizeSeed() {
       fitCanvas();
       if (paused && sim && renderer && !bulkExportArmed) {
         try {
-          const frame = renderer.draw(sim, 1);
+          const frame = renderer.draw(sim, 1, { preparing: playbackPreparing });
           if (frame?.presented) songRecorder?.captureFrame(renderer.getCaptureSource());
         } catch (err) { console.warn('[display presentation]', err); }
       }
@@ -1048,6 +1074,10 @@ function toggleTrackList() {
  *  to call before the very first song too (everything it touches already
  *  tolerates being idle). */
 function stopTimeline({ preservePause = false, keepAudio = false } = {}) {
+  renderPlayback.cancel();
+  playbackPreparing = false;
+  restartRenderPreparation = null;
+  if (!keepAudio) terrainRecordingHold = null;
   running = false;
   syncKeepAwake();
   recalibration.stop();
@@ -1116,10 +1146,15 @@ function updatePauseButtonUI() {
  *  where it left off. */
 function togglePause() {
   if (!running || !sim || !audioEngine) return;
+  if (renderPlayback.status === 'failed') return;
   paused = !paused;
   playbackCadence.reset(); presentedFps.reset();
+  if (playbackPreparing) {
+    if (paused) audioEngine.ctx.suspend();
+    updatePauseButtonUI(); return;
+  }
   if (paused) audioEngine.ctx.suspend();
-  else { audioEngine.ctx.resume(); lastRafMs = null; }
+  else { resumeRecordingAfterTerrain(); audioEngine.ctx.resume(); lastRafMs = null; }
   updatePauseButtonUI();
 }
 
@@ -1643,14 +1678,9 @@ function startConfirmedWorld(pending, id) {
   lastWorldId = id;
   pending.data.worldId = id;
   closeWorldChooser();
-  // World select can sit for a while; a suspended context would start a
-  // silent, frozen first frame that reads as "upload did nothing."
-  // Bulk export keeps the context suspended: the file's audio is the
-  // source track, muxed later, and a live play would fight the stepped clock.
+  // Timeline readiness owns audio startup, including a suspended context.
   const extra = { ...(pending.extra || {}) };
   if (pending.seed != null && extra.songSeed === undefined) extra.songSeed = pending.seed;
-  const exporting = !!(extra.exportMode || readBulkExportFromUrl());
-  if (!exporting) audioEngine?.resume?.();
   // A recording already has every voice. The timeline synth (oscillator
   // "keyboard" tones + hat/kick clicks) must not sit on top of it.
   if (extra.playBuffer) muteTimelineSynth = true;
@@ -1658,7 +1688,6 @@ function startConfirmedWorld(pending, id) {
   if (running) canvas.focus({ preventScroll: true });
   if (extra.playBuffer) {
     lastAudioBuffer = extra.playBuffer;
-    if (!exporting) audioEngine.playBuffer(extra.playBuffer, 0);
   }
 }
 
@@ -1744,9 +1773,17 @@ function startTimeline(timelineData, extra = {}) {
     startAtMs = 0, startAtWallMs = 0, preservePause = false, captureMode: captureModeFlag = false,
     exportMode: exportModeFlag = false, exportSize = null, keepAudio = false,
   } = extra;
-  lastStartExtra = { ...extra, chapterState: null, keepAudio: false, startAtMs: 0, startAtWallMs: 0, keepUserCamera: false };
+  lastStartExtra = { ...extra, beforePlayback: undefined, chapterState: null, keepAudio: false, startAtMs: 0, startAtWallMs: 0, keepUserCamera: false };
   const fromUrl = exportModeFlag ? null : readBulkExportFromUrl();
   const exportMode = !!(exportModeFlag || fromUrl);
+  const waitForLandscape = !exportMode && experience === 'landscape' && rangePresentation?.enabled
+    && getWorld(timelineData.worldId || lastWorldId || DEFAULT_WORLD_ID)?.kind === 'alpine';
+  // Freeze a retained recording before world construction. It resumes at
+  // the same heard position only after the replacement scene can draw.
+  if (waitForLandscape) {
+    if (keepAudio) holdRecordingForTerrain();
+    audioEngine.pause();
+  }
   const exportQualityLevel = extra.exportQualityLevel ?? perfGovernor?.level ?? perfStartLevel;
   if (exportMode) {
     bulkPresentation = extra.exportPresentation || { ...presentation };
@@ -1897,7 +1934,7 @@ function startTimeline(timelineData, extra = {}) {
   // with undefined multipliers and throw on rgba(...,NaN).
   try {
     if (!(startAtMs > 0)) {
-      if (captureMode) { sim.step(0, 0); simTime = 0; }
+      if (captureMode || waitForLandscape) { sim.step(0, 0); simTime = 0; }
       else { sim.step(STEP_MS, STEP_MS); simTime = STEP_MS; }
     }
   } catch (err) {
@@ -1954,7 +1991,8 @@ function startTimeline(timelineData, extra = {}) {
     ? audioEngine.nowMs
     : (startAtWallMs > 0 ? startAtMs + (performance.now() - startAtWallMs) : startAtMs);
   if (keepAudio) conductor.seekTo(startedAt);
-  else audioEngine.start(startedAt);
+  if (waitForLandscape) { audioEngine.pause(); audioEngine.seekToMs(startedAt); }
+  else if (!keepAudio) audioEngine.start(startedAt);
   if (captureMode) captureClock.beginFullCapture(startedAt);
   else captureClock.resetLive(startedAt);
   const presentationLeadMs = captureClock.leadMs;
@@ -1991,10 +2029,14 @@ function startTimeline(timelineData, extra = {}) {
   syncKeepAwake();
   stopTitleBackdrop();
 
-  progressEl.classList.add('hidden');
-  loaderEl.classList.add('hidden');
-  hudEl.classList.remove('hidden');
-  rangeNavigationEl?.classList.remove('hidden');
+  const revealPlayback = () => {
+    progressEl.classList.add('hidden'); loaderEl.classList.add('hidden');
+    hudEl.classList.remove('hidden'); rangeNavigationEl?.classList.remove('hidden');
+  };
+  if (waitForLandscape) {
+    showProgress('Preparing landscape…'); loaderEl.classList.remove('hidden');
+    hudEl.classList.add('hidden'); rangeNavigationEl?.classList.add('hidden');
+  } else revealPlayback();
   if (rangeSeekEl) { rangeSeekEl.max = String((conductor.durationMs || 0) / 1000); rangeSeekEl.value = String(startedAt / 1000); }
   wakeHud();
   // Name the real range behind The Range. The renderer draws it on the
@@ -2031,16 +2073,18 @@ function startTimeline(timelineData, extra = {}) {
     console.warn('[range caption]', err);
   }
   if (exportMode) {
-    // No rAF loop: the exporter asks for each frame. Frame 0 is drawn now so
-    // the first capture is the opening, not an unpainted canvas.
+    // No rAF loop: the exporter asks for each frame. The opening prime
+    // requests terrain even when not ready yet; the armed stepped clock
+    // stays frozen until the caller awaits readiness and requests a frame.
     try {
-      const result = renderer.draw(sim, 0);
-      if (!result?.presented) throw new Error(result?.reason || 'no completed frame');
+      const result = renderer.draw(sim, 0, { preparing: true });
+      if (!result?.presented && result?.reason !== 'terrain-not-ready')
+        throw new Error(result?.reason || 'no completed frame');
     } catch (err) {
       abortBulkExport();
       throw failBulkExport(`Export presentation failed on the first frame: ${err?.message || err}`);
     }
-  } else {
+  } else if (!waitForLandscape) {
     rafHandle = requestAnimationFrame(frame);
   }
 
@@ -2091,6 +2135,9 @@ function startTimeline(timelineData, extra = {}) {
     // the song is paused, so callback cadence is not read as delivery.
     get fpsCap() { return 1000 / fpsCapMs; },
     get paused() { return paused; },
+    get playbackPreparing() { return playbackPreparing; },
+    get renderReady() { return renderReadyPromise; },
+    get renderReadiness() { return { status: renderPlayback.status, reason: renderPlayback.error?.message || null }; },
     get displayPrefs() { return { ...displayPrefs }; },
     beginBulkExport: (size) => beginBulkExport(size),
     renderExportFrame: (timeMs, options) => renderExportFrame(timeMs, options),
@@ -2125,6 +2172,52 @@ function startTimeline(timelineData, extra = {}) {
       },
     },
   };
+  if (!exportMode) {
+    const owner = sim, ownedRenderer = renderer, generation = loadGen;
+    const buffer = playBuffer || (waitForLandscape && keepAudio ? lastAudioBuffer : null);
+    const beginPreparation = () => {
+      const ownedPresentation = rangePresentation;
+      renderReadyPromise = renderPlayback.begin({
+        isCurrent: () => sim === owner && renderer === ownedRenderer && loadGen === generation && running,
+        hold() { playbackPreparing = !!waitForLandscape; },
+        async prepare(signal) {
+          if (waitForLandscape)
+            await waitForScenicReady({ presentation: ownedPresentation, draw: options => ownedRenderer.draw(owner, 1, options), signal });
+          // suspend() is asynchronous. A paused startup cannot create its
+          // BufferSource until the context has actually stopped rendering.
+          if (paused) await audioEngine.ctx.suspend();
+        },
+        start() {
+          restartRenderPreparation = null;
+          extra.beforePlayback?.();
+          if (terrainRecordingHold) terrainRecordingHold.ready = true;
+          resumeRecordingAfterTerrain();
+          if (waitForLandscape) {
+            if (buffer) audioEngine.playBuffer(buffer, startedAt / 1000);
+            else audioEngine.start(startedAt);
+            if (paused) audioEngine.ctx.suspend(); else audioEngine.resume();
+            acc = 0; lastRafMs = null; lastNowMs = startedAt + captureClock.leadMs;
+            playbackCadence.reset(); presentedFps.reset(); perfGovernor.beginWarmup(performance.now());
+            revealPlayback();
+          } else {
+            if (buffer) audioEngine.playBuffer(buffer, startedAt / 1000);
+            if (paused) audioEngine.ctx.suspend(); else audioEngine.resume();
+          }
+          playbackPreparing = false;
+          if (waitForLandscape) rafHandle = requestAnimationFrame(frame);
+        },
+        fail(error) {
+          restartRenderPreparation = null;
+          holdRecordingForTerrain();
+          audioEngine.pause(); paused = true; playbackPreparing = false; updatePauseButtonUI();
+          progressEl.classList.add('hidden');
+          showErrorBanner('Could not prepare the landscape: ' + (error?.message || error));
+        },
+      });
+    };
+    restartRenderPreparation = waitForLandscape ? beginPreparation : null;
+    beginPreparation();
+  } else renderReadyPromise = Promise.resolve({ status: 'export' });
 }
 
 /**
@@ -3254,7 +3347,7 @@ if (trackBadgeBtnEl) trackBadgeBtnEl.addEventListener('click', () => toggleTrack
 
 function frame(tRaf) {
   if (!running) return;
-  if (paused) { rafHandle = requestAnimationFrame(frame); return; }
+  if (paused || playbackPreparing) { rafHandle = requestAnimationFrame(frame); return; }
   if (lastRafMs !== null) {
     const rafDeltaMs = tRaf - lastRafMs;
     noteFrameGap(rafDeltaMs);
@@ -3585,7 +3678,7 @@ function adoptFullAnalysisLive(data) {
   startTimeline(data, {
     ...lastStartExtra,
     songSeed: sim.songSeed,
-    startAtMs: Math.max(1, audioEngine.nowMs),
+    startAtMs: Math.max(0, audioEngine.nowMs),
     keepAudio: true,
     keepUserCamera: true,
     preservePause: wasPaused,
@@ -3595,7 +3688,7 @@ function adoptFullAnalysisLive(data) {
   });
   if (!running || !sim) return;
   if (wasPaused) { paused = true; updatePauseButtonUI(); }
-  renderer.draw(sim, 1);
+  renderer.draw(sim, 1, { preparing: playbackPreparing });
 }
 
 /** Seek is a fresh playback scene at the destination. Use the same complete
@@ -3616,13 +3709,12 @@ function seekSong(ms) {
   if (!running || !sim) return;
   renderer.hudInFrame = hudInFrame;
   sim.showSectionLabels = showSectionLabels;
-  if (buffer) audioEngine.playBuffer(buffer, t / 1000);
   if (wasPaused) {
     paused = true;
     audioEngine.ctx.suspend();
     updatePauseButtonUI();
   }
-  renderer.draw(sim, 1);
+  renderer.draw(sim, 1, { preparing: playbackPreparing });
   const composer = renderer.composer;
   if (composer && selectedSection != null) composer.selectedSection = selectedSection;
 }
@@ -3631,7 +3723,7 @@ function seekSong(ms) {
  *  the clock the EAR is on (visualNow), same discipline as every other
  *  beat-anchored cue in the sim. */
 function beatTap(role = null, atMs = null) {
-  if (!running || !sim || paused || !audioEngine) return;
+  if (!running || !sim || paused || playbackPreparing || !audioEngine) return;
   // A deferred touch tap (see the canvas handler) keeps its own moment.
   const tapMs = atMs ?? visualNow(audioEngine.nowMs, effectiveOutputLatencyMs());
   const eyePhase = recalibration.active && recalibration.phase === PHASE_EYE;
@@ -3670,7 +3762,7 @@ function beatTap(role = null, atMs = null) {
  *  taps keep flowing through the canvas handler into BeatAnchor as usual.
  *  Opt-in only (the 'C' key) -- there is no automatic prompt. */
 function startRecalibration() {
-  if (!running || !sim || paused || recalibration.active) return;
+  if (!running || !sim || paused || playbackPreparing || recalibration.active) return;
   recalibration.start(simTime, sim.beatAnchor.periodMs, sim.beatAnchor.confidence);
   // Start from the trim already in force rather than from zero: it is a
   // correction the player has already made, and the pass refines it.
@@ -4119,26 +4211,17 @@ function replaySong({ songSeed } = {}) {
   // via stopTimeline, but must not lose the decoded song for the restart.
   const buffer = lastAudioBuffer;
   if (buffer) muteTimelineSynth = true;
+  const recordingPreset = pendingExportPresetId;
+  pendingExportPresetId = null;
+  // Arm the master-bus recorder after the landscape is ready and before
+  // the replacement source starts, preserving the first audio onset.
   startTimeline(lastTimelineData, {
     songSeed: songSeed !== undefined ? songSeed : null,
     playBuffer: buffer || undefined,
-    captureMode: !!pendingExportPresetId,
+    captureMode: !!recordingPreset,
+    beforePlayback: recordingPreset ? () => startRecording(recordingPreset) : undefined,
   });
-  // A full-song export replays the song with the recorder armed, so the
-  // file covers it start to finish rather than from wherever someone
-  // managed to press a button.
-  if (pendingExportPresetId) {
-    const presetId = pendingExportPresetId;
-    pendingExportPresetId = null;
-    startRecording(presetId);
-  }
-  // Start the recorder's master-bus tap before the replacement source. That
-  // keeps the first audio onset inside a full-song file instead of letting
-  // playback begin a few milliseconds before MediaRecorder exists.
-  if (buffer) {
-    lastAudioBuffer = buffer;
-    audioEngine.playBuffer(buffer, 0);
-  }
+  if (buffer) lastAudioBuffer = buffer;
   // Completion seed readout stays in sync with the run that just started.
   if (sim?.songSeed != null) {
     lastSongSeed = sim.songSeed;
@@ -4569,6 +4652,26 @@ let pendingExportPresetId = null;
 let pendingCapturePresetId = null;
 /** The last object URL handed out, revoked when the next one replaces it. */
 let lastExportUrl = null;
+
+/** Keep recorder timestamps aligned with a transport held for real terrain.
+ * A replacement preparation inherits the hold; it never resumes the old
+ * session while new world construction is still in progress. */
+function holdRecordingForTerrain() {
+  if (!songRecorder?.recording) { terrainRecordingHold = null; return; }
+  if (terrainRecordingHold?.recorder === songRecorder) { terrainRecordingHold.ready = false; return; }
+  const resume = songRecorder.holdForPreparation();
+  terrainRecordingHold = resume ? { recorder: songRecorder, resume, ready: false } : null;
+  // If the platform refuses a pause, save the recording at its current
+  // endpoint instead of silently adding the terrain wait to the file.
+  if (!resume && !songRecorder.paused) finishRecording();
+}
+
+function resumeRecordingAfterTerrain() {
+  const held = terrainRecordingHold;
+  if (!held?.ready || paused) return;
+  terrainRecordingHold = null;
+  if (songRecorder === held.recorder) held.resume();
+}
 
 function storedExportPresetId() {
   try { return presetById(localStorage.getItem(EXPORT_PRESET_KEY)).id; } catch { return DEFAULT_PRESET_ID; }

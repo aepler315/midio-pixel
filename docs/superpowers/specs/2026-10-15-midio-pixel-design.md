@@ -1,5 +1,7 @@
 # Midio Pixel design
 
+> Historical plan: the user subsequently removed Depth scaling and requested a smooth Landscape sky experiment. Current behavior is documented in [Display presentation](../../pixel-presentation.md).
+
 The user wants an independent private `aepler315/midio-pixel` copy of Midio-5, pixel-only, preserving the excellent current pixel appearance while adding dynamic pixel size to communicate dramatic scale. The source is pinned to `e53db1e0663ce0f8db6d9d89d168dc6d6dbdb308`, tree `3d4ca45c9d38b8bb7a26a2ce851e72dbb259df8b`. Original repository files and settings must not change.
 
 ## Preserve

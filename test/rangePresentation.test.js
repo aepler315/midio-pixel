@@ -64,21 +64,21 @@ test('v2 draws its partitions at the retained pass boundaries, legacy scenery no
   pres.drawPartition = (ctx, pass) => { order.push(`gpu:${pass}`); calls.push(`gpu:${pass}`); return true; };
   m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, null, 1, null, groundView);
   const seq = calls.filter((c) => /gpu:|_draw(HorizonEQ|CrestLight|SpectrumMassif|FarVignettes|MidDepthLife|Ground|LegacyScenic)|spaceRidge|_drawSky/.test(c));
-  assert.deepEqual(seq, ['_drawSky', 'spaceRidge', '_drawSpectrumMassif', 'gpu:far', '_drawCrestLight', '_drawFarVignettes',
+  assert.deepEqual(seq, ['_drawSky', 'spaceRidge', '_drawSpectrumMassif', 'gpu:far', '_drawFarVignettes',
     'gpu:mid', '_drawMidDepthLife', 'gpu:near']);
   assert.ok(!calls.includes('_drawLegacyScenic'), 'no double-painted terrain');
-  assert.equal(calls.filter((c) => c === '_drawCrestLight').length, 1, 'the Dancing Ridge lights the far range exactly once');
+  assert.equal(calls.includes('_drawCrestLight'), false, 'real terrain has no synthetic crest glow or skyline readback');
   assert.ok(!calls.includes('_drawHorizonEQ'), 'its drawn line belongs to the legacy stack only');
   assert.equal(m._rangeV2Active, true);
   m.dispose();
 });
 
-test('when v2 is not ready the legacy stack draws, with the ridge in its original place', () => {
+test('an unready Landscape draws no synthetic fallback before real terrain is ready', () => {
   const { m, calls } = manager();
   m.rangePresentation = fakePresentation({ ready: false });
   m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, null, 1, null, groundView);
-  const seq = calls.filter((c) => /gpu:|_draw(HorizonEQ|SpectrumMassif|LegacyScenic|Ground)/.test(c));
-  assert.deepEqual(seq, ['_drawHorizonEQ', '_drawSpectrumMassif', '_drawLegacyScenic']);
+  assert.deepEqual(calls, [], 'no sky, synthetic range, ocean, or foreground paint enters an unready scenic frame');
+  assert.equal(m._awaitingTerrain, true);
   assert.equal(m._rangeV2Active, false);
   m.dispose();
 });
@@ -181,7 +181,7 @@ test('an assigned view that is still preparing keeps the frame on legacy, then s
   assert.equal(p.snapshot().forcedCandidate, false);
 });
 
-test('presentation carries each pixel-scale selection to the shared scene', async () => {
+test('presentation always carries uniform scaling despite obsolete selections', async () => {
   const scene = fakeScene(), requests = [];
   scene.resize = request => requests.push(request);
   const p = presentationWith(scene);
@@ -192,7 +192,7 @@ test('presentation carries each pixel-scale selection to the shared scene', asyn
     p.pixelPolicy = { active: true, pixelScale };
     p.setFrameInputs(inputs());
     assert.equal(p.beginScenic(), true);
-    assert.equal(requests.at(-1).pixelScale, pixelScale);
+    assert.equal(requests.at(-1).pixelScale, 'original');
     assert.equal(requests.at(-1).pixelated, true);
   }
   p.pixelPolicy = null;
@@ -617,41 +617,37 @@ test('Range never paints a foreground ground bar, including fallback and uncompo
   }
 });
 
-test('a view that composes its own foreground takes neither the veil nor the landmark occluders, fading with its arrival', () => {
-  // [owned, arrival, expected legacy presence]
-  for (const [owned, arrival, presence] of [[false, 1, 1], [true, 1, 0], [true, .25, .75], [true, 0, 1]]) {
+test('Landscape foreground never paints veil ovals or landmark occluders during arrival', () => {
+  for (const [owned, arrival] of [[false, 1], [true, 1], [true, .25], [true, 0]]) {
     const { m } = manager();
     m.currentBlend = { from: 'TAIGA', to: 'TAIGA', t: 1 };
     m.calmLevel = 0;
     const ctx = anyCtx();
     const landmarks = [], discs = [];
-    m.nearField.draw = (c) => { c.globalAlpha = 1; landmarks.push(ctx.globalAlpha); };
-    ctx.ellipse = () => { discs.push(ctx.globalAlpha); };
+    m.nearField.draw = () => { landmarks.push(1); };
+    ctx.ellipse = () => { discs.push(1); };
     m.rangePresentation = { hasViewComposition: owned, arrival };
     m.drawForeground(ctx, { width: 1408, height: 848 }, 0, true);
-    assert.deepEqual(landmarks.map(a => +a.toFixed(3)), presence ? [presence] : []);
-    assert.deepEqual(discs.map(a => +a.toFixed(3)), presence ? [.1, .1, .1].map(a => +(a * presence).toFixed(3)) : []);
+    assert.deepEqual(landmarks, []);
+    assert.deepEqual(discs, []);
     m.dispose();
   }
 });
 
-test('over a Range view the spectrum massif keeps its body but its crest cap fades with the arrival', () => {
-  // [owned, arrival, expected cap presence]
-  for (const [owned, arrival, presence] of [[false, 1, 1], [true, 1, 0], [true, .4, .6]]) {
+test('Landscape never builds or paints the synthetic spectrum massif body or crest', () => {
+  for (const [owned, arrival] of [[false, 1], [true, 1], [true, .4]]) {
     const { m } = manager();
     m.currentBlend = { from: 'TAIGA', to: 'TAIGA', t: 1 };
     const ctx = anyCtx();
     const strokes = [], fills = [];
-    ctx.stroke = () => { strokes.push(ctx.globalAlpha); };
+    ctx.stroke = () => { strokes.push(1); };
     ctx.fill = () => { fills.push(1); };
-    m._massifCrest = null;
-    m._massifGeometry = () => ({ ridgePts: [{ x: 0, y: 20 }, { x: 50, y: 5 }, { x: 100, y: 20 }], left: 0, massifW: 100, baseY: 40, maxH: 30 });
+    m._massifGeometry = () => assert.fail('removed synthetic geometry must not be built');
     m.rangePresentation = { hasViewComposition: owned, arrival };
     const A = m._profile('TAIGA');
     BiomeManager.prototype._drawSpectrumMassif.call(m, ctx, { width: 1408, height: 848 }, 0, A, A, 1);
-    assert.equal(fills.length, 1, 'the massif body always draws');
-    const full = 0.28 * (0.5 + 0.5 * m.budget);
-    assert.deepEqual(strokes.map(a => +a.toFixed(4)), presence ? [+(full * presence).toFixed(4)] : []);
+    assert.deepEqual(fills, []);
+    assert.deepEqual(strokes, []);
     m.dispose();
   }
 });

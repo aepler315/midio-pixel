@@ -2,6 +2,11 @@
 
 Use actual audio and actual rendered output to guide changes. Unit tests establish correctness; they do not establish that the scene looks good or follows the music clearly.
 
+For a bounded Landscape review that always stays in the background, use
+[`npm run review:landscape`](landscape-review.md). It saves exact PNG/audio
+clips, contact sheets, control checks and an optional separate live trace; it
+never opens a foreground browser or report.
+
 ## First run
 
 ```sh

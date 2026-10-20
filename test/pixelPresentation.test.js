@@ -403,3 +403,74 @@ test('Uniform scale keeps the Pixel compositor free of palette readback or color
   assert.equal(owner.getCaptureSource().pixelScale, 'original');
   owner.dispose();
 });
+
+test('a full-resolution sky is composed behind the pixel terrain and exported with it', () => {
+  const canvas = surface(1280, 720), order = [];
+  let expectedTransform = [4, 0, 0, 4, 40, 80];
+  const ctx = canvas.getContext();
+  Object.assign(ctx, { save() {}, restore() {}, beginPath() {}, rect() {}, clip() {} });
+  const originalDraw = ctx.drawImage;
+  ctx.drawImage = function (...args) { order.push('terrain'); return originalDraw.apply(this, args); };
+  const manager = { world: { kind: 'alpine' },
+    drawHighResolutionSky(_, output, options) {
+      order.push('sky'); assert.equal(output, canvas);
+      assert.deepEqual(options.transform, expectedTransform); return true;
+    } };
+  const inner = { rangePresentation: { enabled: true }, draw(sim) {
+    assert.equal(manager.highResolutionSky, sim.experience !== 'trio');
+    manager.rangeSkyLayer = manager.highResolutionSky ? { scenicTransform: [1, 0, 0, 1, 10, 20] } : null;
+  }, dispose() {} };
+  const adapter = createPresentingRenderer({ canvas, presentation: pixel, rendererFactory: () => inner });
+  assert.equal(adapter.draw({ biomes: manager }, 0).presented, true);
+  assert.deepEqual(order, ['sky', 'terrain']);
+  const capture = adapter.getCaptureSource();
+  assert.equal(capture.canvas, canvas);
+  assert.equal(capture.width, 1280);
+  assert.equal(capture.height, 720);
+  assert.equal(capture.pixelCanvas.width, 320);
+  assert.equal(capture.hybridSky, true);
+  assert.equal(capture.pixelated, false, 'recording must not nearest-neighbour rescale the smooth sky');
+  assert.equal(capture.terrainPixelated, true);
+  assert.equal(adapter.diagnostics.skyResolution.width, 1280);
+  const recorded = surface(800, 450), recordedCtx = recorded.getContext();
+  Object.assign(recordedCtx, { save() {}, restore() {}, beginPath() {}, rect() {}, clip() {} });
+  expectedTransform = [2.5, 0, 0, 2.5, 25, 50];
+  assert.equal(capture.drawCaptureFrame(recordedCtx, 800, 450), true);
+  assert.equal(recorded.draws.at(-1).smooth, false, 'the recorder target receives native terrain without interpolated edges');
+  assert.equal(recorded.draws.at(-1).args[0], capture.pixelCanvas);
+  assert.equal(adapter.diagnostics.skyResolution.width, 1280, 'recording cannot alter display diagnostics');
+  adapter.draw({ experience: 'trio', biomes: manager }, 0);
+  assert.equal(adapter.diagnostics.hybridSky, false);
+  assert.equal(adapter.diagnostics.skyResolution, null);
+  assert.equal(adapter.getCaptureSource().hybridSky, undefined);
+  assert.equal(capture.drawCaptureFrame(recordedCtx, 800, 450), false, 'an obsolete capture painter cannot redraw another frame');
+  adapter.dispose();
+});
+
+test('a grid-sized hybrid output retains a separate transparent foreground buffer', () => {
+  const canvas = surface(320, 180), owner = new PixelPresentation({ canvas, presentation: pixel });
+  const source = owner.beginFrame({ separate: true });
+  assert.notEqual(source, canvas, 'painting the sky cannot destroy an aliased terrain source');
+  assert.equal(source.width, 320); assert.equal(source.height, 180);
+  owner.dispose();
+});
+
+test('unready terrain holds the last completed output instead of publishing loading scenery', () => {
+  const canvas = surface(), manager = { world: { kind: 'alpine' }, _awaitingTerrain: true };
+  const adapter = createPresentingRenderer({ canvas, presentation: pixel,
+    rendererFactory: () => ({ rangePresentation: { enabled: true }, draw() {}, dispose() {} }) });
+  const result = adapter.draw({ biomes: manager }, 0);
+  assert.equal(result.presented, false);
+  assert.equal(result.reason, 'terrain-not-ready');
+  assert.equal(canvas.draws.length, 0);
+  assert.equal(adapter.getCaptureSource(), null);
+  adapter.dispose();
+});
+
+test('a pending Landscape flag cannot prevent Trio from drawing after a mode switch', () => {
+  const manager = { world: { kind: 'alpine' }, _awaitingTerrain: true };
+  const adapter = createPresentingRenderer({ canvas: surface(), presentation: pixel,
+    rendererFactory: () => ({ rangePresentation: { enabled: true }, draw() {}, dispose() {} }) });
+  assert.equal(adapter.draw({ experience: 'trio', biomes: manager }, 0).presented, true);
+  adapter.dispose();
+});

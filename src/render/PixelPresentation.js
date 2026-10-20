@@ -18,6 +18,19 @@ export function fitPixelRect(srcW, srcH, dstW, dstH, scaling = 'fit', origin = {
   }
   return { x, y, width, height, scale };
 }
+
+/** Recompose at the destination resolution: smooth sky, nearest native
+ * foreground. Recording must not resample the already combined picture. */
+export function compositePixelFrame(ctx, source, width, height, scaling, background = null) {
+  const fit = fitPixelRect(source.width, source.height, width, height, scaling);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, width, height);
+  const hybridSky = background ? !!background(ctx, fit) : false;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(source, fit.x, fit.y, fit.width, fit.height);
+  return { hybridSky, fit };
+}
 let nextOwner = 0;
 /** Owns only the bounded working buffer. The output belongs to the caller. */
 export class PixelPresentation {
@@ -47,7 +60,7 @@ export class PixelPresentation {
     // must use the same bounded nearest-neighbor presentation as saved profiles.
     presentation = { ...presentation, pixelated: true, grid: pixelGrid(presentation.grid?.id),
       paletteId: presentation.pixelated === false ? 'none' : presentation.paletteId || 'none',
-      pixelScale: presentation.pixelScale === 'original' ? 'original' : 'depth' };
+      pixelScale: 'original' };
     this._invalidateCapture();
     if (JSON.stringify(presentation) === JSON.stringify(this.presentation)) return;
     this.presentation = { ...presentation };
@@ -115,7 +128,7 @@ export class PixelPresentation {
     this.diagnostics.frame = { ...result, failures: this.failures };
     return result;
   }
-  beginFrame() {
+  beginFrame({ separate = false } = {}) {
     const started = performance.now();
     this._invalidateCapture();
     if (this._disposed) { this.failFrame('disposed'); return null; }
@@ -133,7 +146,7 @@ export class PixelPresentation {
         this.failFrame('output-context'); return null;
       }
       const grid = this.grid;
-      if (canvas.width === grid.width && canvas.height === grid.height) {
+      if (!separate && canvas.width === grid.width && canvas.height === grid.height) {
         if (this.working) this._releaseWorking();
         this.source = canvas;
       } else {
@@ -174,7 +187,7 @@ export class PixelPresentation {
       this.failFrame('source-unavailable'); return null;
     }
   }
-  finishFrame() {
+  finishFrame({ background = null } = {}) {
     const started = performance.now();
     if (!this.source || !this._pending || this._disposed) {
       return this.diagnostics.frame?.presented === false ? this.diagnostics.frame : this.failFrame('not-rendered');
@@ -182,6 +195,8 @@ export class PixelPresentation {
     const p = this.presentation, source = this.source, pending = this._pending;
     if (pending.generation !== this.generation || pending.outputSize !== `${this.canvas.width}x${this.canvas.height}`
       || source === this.working && this.residency.get(this.key) !== source) return this.failFrame('stale-frame');
+    this.diagnostics.hybridSky = false;
+    this.diagnostics.skyResolution = null;
     try {
       const sourceContext = source.getContext('2d'), outputContext = this.canvas.getContext('2d');
       if (!sourceContext || sourceContext.isContextLost?.() || !outputContext || outputContext.isContextLost?.()) return this.failFrame('context-lost');
@@ -207,12 +222,9 @@ export class PixelPresentation {
       if (source !== this.canvas) {
         const ctx = this.canvas.getContext('2d');
         if (!ctx) return this.failFrame('output-context');
-        const fit = fitPixelRect(source.width, source.height, this.canvas.width, this.canvas.height, p.scaling);
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
-        ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-        ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(source, fit.x, fit.y, fit.width, fit.height);
+        const { fit, hybridSky } = compositePixelFrame(ctx, source, this.canvas.width, this.canvas.height, p.scaling, background);
+        this.diagnostics.hybridSky = hybridSky;
+        this.diagnostics.skyResolution = this.diagnostics.hybridSky ? { width: Math.round(fit.width), height: Math.round(fit.height) } : null;
       }
       this._pending = null;
       const result = { presented: true, generation: this.generation, frameId: ++this.frameId };

@@ -21,7 +21,8 @@ test('narrative stars survive real Canvas transforms, both native grids and Pale
       const { hexLerp } = await import('/src/utils/color.js');
       const { tourSkyDirection } = await import('/src/world/alpine/RangeSkyComposition.js');
       const rows = [], palette = { fx: '', sky: ['#183044', '#38445a', '#706579'] };
-      for (const grid of ['classic', 'detailed']) for (const paletteId of ['none', 'range32']) for (const pixelScale of ['original', 'depth']) {
+      for (const grid of ['classic', 'detailed']) for (const paletteId of ['none', 'range32']) {
+        const pixelScale = 'original';
         const canvas = document.createElement('canvas'); canvas.width = 1280; canvas.height = 720;
         const presentation = { pixelated: true, grid: pixelGrid(grid), paletteId, pixelScale, dither: .35, ditherMode: 'selective', scaling: 'fit' };
         const output = new PixelPresentation({ canvas, presentation });
@@ -61,7 +62,7 @@ test('narrative stars survive real Canvas transforms, both native grids and Pale
       const tourRows = [];
       for (const grid of ['classic', 'detailed']) {
         const canvas = document.createElement('canvas'); canvas.width = 1280; canvas.height = 720;
-        const presentation = { pixelated: true, grid: pixelGrid(grid), paletteId: 'none', pixelScale: 'depth', scaling: 'fit' };
+        const presentation = { pixelated: true, grid: pixelGrid(grid), paletteId: 'none', pixelScale: 'original', scaling: 'fit' };
         const output = new PixelPresentation({ canvas, presentation });
         const pose = { eyeM: [0, 0, 0], targetM: tourSkyDirection(0, 60), fovYDeg: 50, aspect: 16 / 9 };
         const mgr = { world: { kind: 'alpine' }, rangeNarrative: { skyDark: 1 }, _rangeV2Active: true,

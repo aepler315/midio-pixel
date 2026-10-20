@@ -59,11 +59,12 @@ try {
       await page.goto(`http://127.0.0.1:8089/?seed=315&rangeView=teton-jackson-lake${backend==='legacy'?'&rangeRenderer=legacy':''}`);
       await page.waitForFunction(()=>window.__SMW?.presentationDiagnostics?.frame?.presented);
       assert.equal(await page.locator('#display-look').inputValue(),'pixel');
-      assert.equal(await page.locator('#display-pixelScale').inputValue(),'depth');
+      assert.equal(await page.locator('#display-pixelScale').count(),0);
+      assert.equal(await page.evaluate(()=>window.__SMW.presentationDiagnostics.pixelScale),'original');
       assert.equal(await page.locator('#stageRes').count(),0);
       await captureTitle(page,backend,'pixel-default');
       await page.locator('#titleSettings').evaluate(n=>{n.open=true;});
-      await settings(page,{look:'palette',quality:'auto',scaling:'integer',palette:'range32',dither:.35,pixelScale:'original'});
+      await settings(page,{look:'palette',quality:'auto',scaling:'integer',palette:'range32',dither:.35});
       const titleFrameId=await page.evaluate(()=>window.__SMW?.presentationDiagnostics?.frame?.frameId);
       await page.selectOption('#stageFps','30');
       await page.waitForFunction(id=>window.__SMW?.presentationDiagnostics?.frame?.presented&&window.__SMW.presentationDiagnostics.frame.frameId!==id,titleFrameId);
@@ -72,7 +73,7 @@ try {
       await page.reload();
       assert.equal(await page.locator('#display-look').inputValue(),'palette');
       assert.equal(await page.locator('#display-quality').inputValue(),'auto');
-      assert.equal(await page.locator('#display-pixelScale').inputValue(),'original');
+      assert.equal(await page.evaluate(()=>window.__SMW.displayPrefs.pixelScale),'original');
       assert.equal(await page.locator('#display-scaling').inputValue(),'integer');
       assert.equal(await page.locator('#stageFps').inputValue(),'30');
       await page.locator('#titleSettings').evaluate(n=>{n.open=true;});

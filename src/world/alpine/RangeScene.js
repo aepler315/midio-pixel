@@ -1,7 +1,6 @@
 import { cloudPuffs } from './CloudOcclusion.js';
 import { shaderFailureLog } from '../../render/GraphicsDiagnostics.js';
 import { applyLensFov } from '../../render/CameraLens.js';
-import { PIXEL_DEPTH_GLSL } from '../../render/PixelDepthScale.js';
 import { terrainShadingMode, terrainShadingForView } from './TerrainShadingExperiment.js';
 import { giantLayout, giantAmounts, mirrorGiantSpan, aheadOfEye } from './LandscapeGiants.js';
 import { resolveRangeComposition, compositionBars } from './RangeComposition.js';
@@ -33,7 +32,7 @@ import { createForest, FOREST_ASSET_BUILD_BYTES, forestGroupingBytes } from './F
 import { forestAssetBytes, FOREST_FAMILIES, FOREST_VARIANTS } from './ForestSpeciesAssets.js';
 import { bakeHorizonAsync, createHorizonTexture, horizonBytes } from './TerrainOcclusion.js';
 import { planTerrainWindow, terrainWindowCoverage, terrainWindowCovers, tourSummitTiles, terrainPixelProtection, TourWindowCache } from './TerrainWindow.js';
-import { TerrainWindowWorker, shareTerrainLanes, terrainLaneBytes } from './TerrainWindowWorker.js';
+import { TerrainWindowWorker, shareTerrainLanes, terrainLaneBytes } from './TerrainWindowWorkerClient.js';
 import { buildTerrainGeometry } from './TerrainMesh.js';
 import { buildRockStage } from './RockStage.js';
 import { RockStageGL } from './RockStageGL.js';
@@ -76,10 +75,8 @@ const COPY_FRAG = /* glsl */`
   uniform float uUseOwn;
   in vec2 vUv;
   out vec4 outColor;
-  ${PIXEL_DEPTH_GLSL}
   void main() {
     vec4 c = texture(uColor, vUv);
-    c = pixelDepthColor(c, vUv);
     if (uUseOwn > 0.5 && c.a > 0.0) {
       float nearer = dot(texture(uOwn, vUv).rgb, uNearer);
       if (nearer > 0.0) c *= min(1.0 / max(1.0 - nearer, 1.0 / 255.0), 1.0 / c.a);
@@ -174,9 +171,7 @@ export class RangeScene {
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3));
     const mat = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3, vertexShader: COPY_VERT, fragmentShader: COPY_FRAG,
-      uniforms: { uColor: { value: null }, uOwn: { value: null }, uNearer: { value: new THREE.Vector3() }, uUseOwn: { value: 0 },
-        uPixelDepth: { value: null }, uPixelDepthEnabled: { value: 0 },
-        uPixelDepthSize: { value: new THREE.Vector2(1, 1) }, uPixelCameraRange: { value: new THREE.Vector2(1, 2) } },
+      uniforms: { uColor: { value: null }, uOwn: { value: null }, uNearer: { value: new THREE.Vector3() }, uUseOwn: { value: 0 } },
       depthTest: false, depthWrite: false, blending: THREE.NoBlending,
     });
     const mesh = new THREE.Mesh(geo, mat);
@@ -188,14 +183,12 @@ export class RangeScene {
 
   /** Physical backing size of the partition images. `pixelRatio` is
    *  evidence/LOD context only; widthPx/heightPx are already physical. */
-  resize({ widthPx, heightPx, pixelRatio = 1, quality = 0, pixelated = false, pixelScale = 'depth', pixelHeightPx = null }) {
+  resize({ widthPx, heightPx, pixelRatio = 1, quality = 0, pixelated = false, pixelHeightPx = null }) {
     const w = Math.max(2, Math.round(widthPx)), h = Math.max(2, Math.round(heightPx));
     this.pixelRatio = pixelRatio;
-    // Scale toggles do not change allocations. Set before the unchanged-size
-    // early return so an Original comparison takes effect on the next copy.
     this.pixelated = !!pixelated;
     this.pixelHeightPx = pixelated && pixelHeightPx > 0 ? pixelHeightPx : null;
-    this.pixelScale = pixelScale === 'original' ? 'original' : 'depth';
+    this.pixelScale = 'original';
     for (const p of this.prepared?.values() || []) {
       if (!!p.material?.defines?.PIXEL_MATERIAL_SKIP !== this.pixelated && p.material) {
         if (this.pixelated) p.material.defines.PIXEL_MATERIAL_SKIP = 1;
@@ -214,7 +207,7 @@ export class RangeScene {
     const live = this.target && (!this.residency || this.residency.has('range:render-target'));
     const sameSize = live && w === this.size.width && h === this.size.height;
     if (sameSize && this._edgeRequest?.key === request) return;
-    this._edgeRequest = { key: request, args: { widthPx: w, heightPx: h, pixelRatio, quality, pixelated, pixelScale } };
+    this._edgeRequest = { key: request, args: { widthPx: w, heightPx: h, pixelRatio, quality, pixelated } };
     this.edge.requestedSamples = policy.samples;
     if (sameSize && policy.samples === this.edge.samples) {
       this.edge.reason = policy.reason;
@@ -408,7 +401,7 @@ export class RangeScene {
    * reflected ray. Only while a prepared view mirrors; otherwise the copy
    * is released.
    */
-  captureBackdrop(ctx, stage, frame) {
+  captureBackdrop(ctx, stage, frame, drawSky = null) {
     const wanted = !this.contextLost && rangeQuality(frame?.qualityLevel).waterMirror
       && [...this.prepared.values()].some((p) => Number.isFinite(p.mirrorLevelM));
     if (!wanted || !ctx?.canvas || !(stage?.width > 0)) { this.releaseBackdrop(); return false; }
@@ -433,6 +426,11 @@ export class RangeScene {
     // The stage's rectangle in the canvas: the painter's scale/translate.
     const T = ctx.getTransform?.() || { a: 1, d: 1, e: 0, f: 0 };
     b.ctx.clearRect(0, 0, width, height);
+    if (drawSky) {
+      b.ctx.save();
+      try { drawSky(b.ctx, width, height); }
+      finally { b.ctx.restore(); }
+    }
     b.ctx.drawImage(ctx.canvas, T.e, T.f, T.a * stage.width, T.d * stage.height, 0, 0, width, height);
     b.texture.needsUpdate = true;
     b.frame = frame?.frameId ?? -1;
@@ -1804,25 +1802,9 @@ export class RangeScene {
   /** Draw `texture` 1:1 into the current target. With `coverage`
    *  ({ own, pass }) the partition is rescaled by the ownership of the
    *  bands nearer than `pass` (see COPY_FRAG). */
-  _copyTexture(texture, coverage = null, scenic = null) {
+  _copyTexture(texture, coverage = null) {
     const u = this._copy.mesh.material.uniforms;
     u.uColor.value = texture;
-    if (u.uPixelDepthEnabled) {
-      // Every copy clears this contract, including ownership and ground.
-      u.uPixelDepthEnabled.value = 0;
-      u.uPixelDepth.value = null;
-      u.uPixelDepthSize.value.set(1, 1);
-      u.uPixelCameraRange.value.set(1, 2);
-      const target = scenic?.target, camera = scenic?.camera;
-      if (this.pixelated && this.pixelScale === 'depth' && target?.depthTexture && !target.samples
-        && target.texture === texture && target.width > 0 && target.height > 0
-        && Number.isFinite(camera?.near) && Number.isFinite(camera?.far) && camera.near > 0 && camera.far > camera.near) {
-        u.uPixelDepthEnabled.value = 1;
-        u.uPixelDepth.value = target.depthTexture;
-        u.uPixelDepthSize.value.set(target.width, target.height);
-        u.uPixelCameraRange.value.set(camera.near, camera.far);
-      }
-    }
     if (u.uUseOwn) {
       u.uUseOwn.value = coverage ? 1 : 0;
       u.uOwn.value = coverage ? coverage.own : null;
@@ -1941,7 +1923,7 @@ export class RangeScene {
     this._setCanvasSize(this.size.width, this.size.height);
     r.clear(true, true, false);
     const owned = !bandColumns && depth.owned && this.ownership?.[side];
-    this._copyTexture(target.texture, owned ? { own: owned.texture, pass } : null, { target, camera: this.camera });
+    this._copyTexture(target.texture, owned ? { own: owned.texture, pass } : null);
     if (scattering) this.shafts.compositeToScreen(r, side, source);
     // Whether translucent sky light now shares the returned image with the
     // terrain: an alpha mask taken from it must not trust faint pixels.

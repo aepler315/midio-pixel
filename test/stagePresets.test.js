@@ -14,13 +14,12 @@ const indexHtml = readFileSync(
   fileURLToPath(new URL('../index.html', import.meta.url)), 'utf8',
 );
 
-test('product exposes Pixel and Palette, grid and scale, without a Natural Stage menu', () => {
+test('product exposes Pixel and Palette, grid and fitting, without a Natural Stage menu', () => {
   assert.doesNotMatch(indexHtml, /id="stageRes"|value="natural"/);
   assert.match(indexHtml, /id="display-look"/);
   assert.match(indexHtml, /id="display-pixelGrid"/);
-  assert.match(indexHtml, /id="display-pixelScale"/);
-  assert.match(indexHtml, /value="depth">Depth/);
-  assert.match(indexHtml, /value="original">Uniform/);
+  assert.doesNotMatch(indexHtml, /id="display-pixelScale"|value="depth">Depth/);
+  assert.match(indexHtml, /id="display-scaling"/);
   assert.match(indexHtml, /id="stageFps"/);
 });
 

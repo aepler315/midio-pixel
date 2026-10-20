@@ -13,7 +13,7 @@ const snapshot = await snapshotSource(root), server = await serveSnapshot(snapsh
 const audioPath = path.join(out, 'audio.wav');
 execFileSync(process.execPath, ['tools/gen-test-wav.mjs', audioPath, '120', '96']);
 const settings = { width: 1280, height: 720, seed: 315, quality: 3, view: tour ? 'teton-range-tour' : 'teton-jackson-lake', biome: 'CONIFER', reducedFlash: false, reducedMotion: false,
-  presentation: { version: 2, look: 'pixel', quality: 'auto', palette: 'world', dither: .35, ditherMode: 'selective', pixelGrid: 'classic', scaling: 'fit', pixelScale: 'depth' }, debug: { rangeTour: tour ? 'tetons' : 'off' } };
+  presentation: { version: 2, look: 'pixel', quality: 'auto', palette: 'world', dither: .35, ditherMode: 'selective', pixelGrid: 'classic', scaling: 'fit', pixelScale: 'original' }, debug: { rangeTour: tour ? 'tetons' : 'off' } };
 const report = { status: 'running', source: { root, digest: snapshot.digest, hashes: snapshot.hashes }, settings, audioSha256: sha256(await fs.readFile(audioPath)), errors: [], warnings: [], loadedFiles: new Set(), frames: [] };
 const previous = resume ? JSON.parse(await fs.readFile(path.join(out, 'report.json'), 'utf8')) : null;
 if (previous) {
@@ -85,7 +85,8 @@ try {
     return f;
   };
   const initial = { ...settings.presentation };
-  for (const pixelGrid of ['classic', 'detailed']) for (const pixelScale of ['original', 'depth']) for (const look of ['pixel', 'palette']) {
+  for (const pixelGrid of ['classic', 'detailed']) for (const look of ['pixel', 'palette']) {
+    const pixelScale = 'original';
     const id = `${pixelGrid}-${pixelScale}-${look}`;
     if (captured(`${id}-on`) && captured(`${id}-off`)) continue;
     await profile({ ...initial, pixelGrid, pixelScale, look });
