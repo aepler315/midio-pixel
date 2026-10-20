@@ -24,7 +24,10 @@ example `plex-smoke` 7.5-8.7 min before, 13-16 min after). Job budgets
 assume 2 CPUs; the shared setup action logs each job's CPU and memory
 count as its first step.
 
-The core gate runs on PRs, main pushes and reusable deployment calls. Extended
+The core gate (`test.yml`) runs only when manually dispatched; it has no PR,
+push or reusable-workflow trigger, and routine validation runs locally (see
+[local validation](./local-validation.md)). A PR or main push therefore has no
+hosted green gate. Extended
 playback/lighting/shading/seek/world/export/car/URL/Plex/pixel checks run through
 the manually dispatched `Extended browser validation` workflow. Forest close-ups,
 terrain shading, landscape comparisons, full visual evaluation and depth rendering
@@ -41,8 +44,9 @@ remain separately dispatched jobs; a green core gate does not claim those passed
 | `audio-smoke` (manual extended job) | Playback/lighting/shading/seek/world/export/car/URL-loader smokes against source, then `stage:site` + `test:bootstrap` against that artifact | each script exits 0; staged Browse opens a real chooser; artifacts under `.smoke/` | Chromium can boot the actual public file set, upload a short synthetic fixture, pick a world, draw, seek, and start an export | Watchability, identity, other engines, songs longer than the fixture |
 
 The intended `Deploy static content to Pages` workflow stages one artifact with
-`stage:site`, validates it, and uploads only the public allowlist after the reusable
-gate. **This is not the currently observed publishing path.** On 2026-10-18,
+`stage:site`, boots and plays that artifact (`test:bootstrap` and `test:smoke`),
+and uploads only the public allowlist. It does not call the Test workflow, so lint
+and unit tests are not part of it. **This is not the currently observed publishing path.** On 2026-10-18,
 run 39099645162 built main 0a82fba through GitHub's dynamic Jekyll Pages workflow
 and deployed successfully. Root CNAME still names `supermaudio.com`, inherited
 from Midio-5. Confirm the intended independent domain and select GitHub Actions
