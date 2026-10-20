@@ -76,3 +76,36 @@ test('a missing next window keeps the neighbouring full window and its trees, ne
  assert.deepEqual(swaps,[full]);assert.ok(requests.some(([i])=>i===1),'the arriving window is requested');
  assert.equal(p.windowCache.resident.has(1),false,'no coarse stand-in is published for window 1');
 });
+
+test('budget-denied window preparation backs off across playback frames and resets with coverage', async () => {
+  let clock = 1000, builds = 0;
+  const denied = Object.assign(new Error('No room to build terrain window'), { reason: 'budget' });
+  const cache = new TourWindowCache({ now: () => clock, build: async () => { builds++; throw denied; } });
+  await assert.rejects(cache.request(1), /No room/);
+  for (let frame = 0; frame < 12; frame++) {
+    clock += 16;
+    await cache.request(1);
+  }
+  assert.equal(builds, 1, 'playback must not repeat planning/admission on every frame while denied');
+  clock = 1250;
+  await assert.rejects(cache.request(1), /No room/);
+  assert.equal(builds, 2, 'asynchronous preparation must keep retrying');
+  cache.invalidate();
+  await assert.rejects(cache.request(1), /No room/);
+  assert.equal(builds, 3, 'new coverage must not inherit an obsolete retry delay');
+  cache.dispose();
+});
+
+test('an obsolete budget denial cannot delay preparation for replacement coverage', async () => {
+  const rejectors = [];
+  const cache = new TourWindowCache({ build: () => new Promise((_, reject) => rejectors.push(reject)) });
+  const old = cache.request(0);
+  cache.invalidate();
+  const next = cache.request(0);
+  rejectors[0](Object.assign(new Error('old budget'), { reason: 'budget' }));
+  await assert.rejects(old, /old budget/);
+  assert.equal(cache.retryAt.size, 0);
+  rejectors[1](new Error('new attempt ended'));
+  await assert.rejects(next, /new attempt/);
+  cache.dispose();
+});

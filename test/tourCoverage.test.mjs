@@ -159,3 +159,20 @@ test('export settling waits for the current terrain window before requesting a r
   await Promise.resolve(); assert.equal(settled, false);
   finish(); assert.equal(await pending, true);
 });
+
+test('export settling explicitly retries current terrain preparation during admission cooldown', async () => {
+  const { RangePresentation } = await import('../src/world/alpine/RangePresentation.js');
+  let builds = 0;
+  const cache = new windows.TourWindowCache({ now: () => 1000, build: async () => {
+    if (++builds === 1) throw Object.assign(new Error('budget'), { reason: 'budget' });
+    return { dispose() {} };
+  } });
+  cache.current = 1;
+  await assert.rejects(cache.request(1), /budget/);
+  const presentation = { _needed: new Set(), _wants: [], frameInputs: {},
+    scene: { prepared: new Map([['tour', { windowCache: cache }]]) } };
+  assert.equal(await RangePresentation.prototype.settle.call(presentation, { timeoutMs: 1000 }), true);
+  assert.equal(builds, 2, 'export settling must not accept a cooldown without retrying');
+  assert.ok(cache.resident.has(1));
+  cache.dispose();
+});

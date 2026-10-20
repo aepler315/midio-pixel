@@ -151,20 +151,28 @@ export function terrainWindowCovers(plan, pose, projection) {
 
 /** Mesh ownership is bounded independently of asynchronous build completion. */
 export class TourWindowCache {
-  constructor({ build, windowMs = 8000 } = {}) {
+  constructor({ build, windowMs = 8000, now = Date.now } = {}) {
     this.build = build; this.windowMs = windowMs; this.resident = new Map(); this.pending = new Map();
+    this.now = now; this.retryAt = new Map();
     this.generation = 0; this.current = 0; this.closed = false;
   }
-  async request(index, { replace = false } = {}) {
+  async request(index, { replace = false, retryNow = false } = {}) {
     if (this.closed || index < 0) return null;
     if (this.resident.has(index) && !replace) return this.resident.get(index);
     if (this.pending.has(index)) return this.pending.get(index);
+    if (!retryNow && this.now() < (this.retryAt.get(index) || 0)) return null;
     const generation = this.generation;
     const job = Promise.resolve(this.build(index)).then(mesh => {
       if (this.closed || generation !== this.generation || Math.abs(index - this.current) > 1) { mesh?.dispose?.(); return null; }
       this.resident.get(index)?.dispose?.(); this.resident.set(index, mesh);
       if (mesh?.adopt?.() === false) { this.resident.delete(index); mesh.dispose?.(); return null; }
+      this.retryAt.delete(index);
       this.prune(); return mesh;
+    }).catch(error => {
+      // Failed admission otherwise reruns the route planner on every frame.
+      // Keep playback smooth while retrying asynchronously as room returns.
+      if (error?.reason === 'budget' && generation === this.generation && !this.closed) this.retryAt.set(index, this.now() + 250);
+      throw error;
     }).finally(() => { if (this.pending.get(index) === job) this.pending.delete(index); });
     this.pending.set(index, job); return job;
   }
@@ -172,8 +180,12 @@ export class TourWindowCache {
   invalidate(keep = null) {
     this.generation++;
     this.pending.clear();
+    this.retryAt.clear();
     for (const [index, mesh] of this.resident) if (mesh !== keep) { mesh?.dispose?.(); this.resident.delete(index); }
   }
-  prune() { for (const [index, mesh] of this.resident) if (Math.abs(index - this.current) > 1) { mesh?.dispose?.(); this.resident.delete(index); } }
+  prune() {
+    for (const index of this.retryAt.keys()) if (Math.abs(index - this.current) > 1) this.retryAt.delete(index);
+    for (const [index, mesh] of this.resident) if (Math.abs(index - this.current) > 1) { mesh?.dispose?.(); this.resident.delete(index); }
+  }
   dispose() { if (this.closed) return; this.closed = true; this.invalidate(); }
 }

@@ -483,7 +483,13 @@ export class RangePresentation {
    * frame already had everything it needed.
    */
   async settle({ timeoutMs = 120000, attempts = 3 } = {}) {
-    const windows = [...(this.scene?.prepared?.values() || [])].map(p => p.windowCache?.pending.get(p.windowCache.current)).filter(Boolean);
+    const windows = [...(this.scene?.prepared?.values() || [])].map(p => {
+      const cache = p.windowCache;
+      // Export settling is an explicit bounded attempt. Playback's admission
+      // cooldown must not make a fixed-clock export accept an unsettled mesh.
+      if (cache?.retryAt?.has(cache.current)) return cache.request(cache.current, { replace: true, retryNow: true });
+      return cache?.pending.get(cache.current);
+    }).filter(Boolean);
     const terrainWaited = windows.length > 0;
     if (terrainWaited) {
       let timer;
