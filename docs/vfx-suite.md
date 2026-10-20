@@ -270,9 +270,10 @@ is a fresh destination state, not replay of every earlier random particle.
 | Eight-world selection/playback/seek, preference chips, paint checks and two-frame City/Redline/Understory geometry | `npm run test:worlds` |
 | Legacy Range fallback and Pixel/Palette worlds | `npm run test:retro` (kept out of the strict Range v2 capture) |
 
-The reusable `.github/workflows/test.yml` runs lint, unit tests and all five
-browser commands above, and Pages deployment depends on the entire
-validation workflow.
+These commands run locally (see `docs/local-validation.md`). The manually
+dispatched `.github/workflows/test.yml` covers lint, unit tests and the core
+upload/playback smoke; Pages deployment does not depend on it and checks only
+the staged artifact's bootstrap and playback.
 The world smoke explicitly rejects astronomical painting in Fathom/Nave.
 Browser liveness, isolated pixel checks and unit tests do not establish
 subjective appeal, exhaustive accessibility or real-device sustained FPS.

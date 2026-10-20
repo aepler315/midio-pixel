@@ -14,19 +14,29 @@ npm run lint
 npm test
 npm --prefix ridgeview test
 npm run stage:site
-npm run test:bootstrap
 ```
 
-For upload and playback, start `npm start` in another terminal, then run
-`npm run test:smoke -- http://127.0.0.1:8080`. Repeat against a server with
-`SITE_ROOT=_site` to check the staged application. Browser checks are headless.
-Retain logs and captures outside Git.
+`npm run test:bootstrap` with no URL serves the source tree, not `_site`, so
+point both browser checks at explicit servers. For the source, start `npm start`
+(port 8080) in another terminal, then run
+`npm run test:smoke -- http://127.0.0.1:8080`. For the staged application, start
+a second server on its own port in a third terminal:
+
+```sh
+SITE_ROOT=_site PORT=8090 node tools/serve.js
+npm run test:bootstrap -- http://127.0.0.1:8090
+npm run test:smoke -- http://127.0.0.1:8090
+```
+
+Browser checks are headless. Retain logs and captures outside Git.
 
 The active publisher is GitHub's branch-based Pages build and deployment,
 confirmed on main at commit 9a500dfbb07b3f389c4efae47f8a30e3b9cce4ac. It is
 independent of the Test workflow. Keep repository Pages settings unchanged.
-The optional manual `static.yml` workflow stages and publishes without calling
-test workflows or installing Chromium; run the checks above locally first.
+The optional manual `static.yml` workflow does not call the Test workflow. It
+stages `_site`, then boots and plays that exact artifact (`test:bootstrap` and
+`test:smoke` in Chromium) before uploading it, so a staged regression cannot be
+published. Lint and unit tests are not repeated there; run them locally first.
 Changing workflow triggers does not clear historical billing-blocked runs.
 
 ## RTX 3060 rendering checks
