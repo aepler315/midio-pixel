@@ -67,20 +67,23 @@ test('sky textures use smooth sampling even after native pixel terrain presentat
   sky.dispose();
 });
 
-test('cloud sprites leave the frame only when their entire projected extent is outside', () => {
+test('finite cloud sprites share six bounded textures and scale smoothly with the destination', () => {
   const sky = new RangeSkyRenderer();
   sky.seed = 4;
-  sky._cloud = () => ({});
-  let draws = 0;
-  const ctx = { save() {}, restore() {}, translate() {}, rotate() {}, drawImage() { draws++; } };
-  const nearEdge = Object.assign(() => ({ xFrac: 1.01, yFrac: .5, visible: false, inFront: true }), { focal: 1 });
-  sky._clouds(ctx, nearEdge, 1280, 720, 1, 0);
-  assert.equal(draws, 28, 'centres outside the image can have visible cloud volume');
-  draws = 0;
-  const farOutside = Object.assign(() => ({ xFrac: 2, yFrac: .5, visible: false, inFront: true }), { focal: 1 });
-  sky._clouds(ctx, farOutside, 1280, 720, 1, 0);
-  assert.equal(draws, 0);
-  sky.dispose();
+  const indices = [], matrices = [];
+  sky._cloud = index => { indices.push(index); return {}; };
+  const ctx = { save() {}, restore() {}, transform(...matrix) { matrices.push(matrix); }, drawImage() {} };
+  const camera = { tourPose: { eyeM: [0, 2500, 0], targetM: [0, 3500, -40000], fovYDeg: 50, aspect: 16 / 9 } };
+  try {
+    sky._clouds(ctx, camera, 1280, 720, 1, 0);
+    const first = structuredClone(matrices), firstIndices = [...indices];
+    assert.ok(first.length > 0);
+    assert.ok(indices.every(index => Number.isInteger(index) && index >= 0 && index < 6));
+    indices.length = matrices.length = 0;
+    sky._clouds(ctx, camera, 2560, 1440, 1, 0);
+    assert.deepEqual(indices, firstIndices, 'resizing cannot change the world cloud catalogue');
+    assert.deepEqual(matrices, first.map(matrix => matrix.map(value => value * 2)));
+  } finally { sky.dispose(); }
 });
 
 test('aurora paints bounded emission rays through the narrowest tour lens', () => {
@@ -112,7 +115,8 @@ test('the star catalogue and cloud density reconstruct after seeks without frame
   const density = Array.from({ length: 64 }, (_, i) => cloudDensity(i % 8 / 7, Math.floor(i / 8) / 7, 41));
   assert.ok(density.every(Number.isFinite));
   assert.ok(density.some(d => d > .25) && density.some(d => d === 0), 'clouds contain opaque structure and open gaps');
-  assert.notEqual(cloudDensity(.4, .3, 41), cloudDensity(.4, .7, 41), 'the volume is not a symmetric ellipse');
+  const reflected = Array.from({ length: 64 }, (_, i) => cloudDensity(i % 8 / 7, 1 - Math.floor(i / 8) / 7, 41));
+  assert.notDeepEqual(density, reflected, 'the cloud has an upper silhouette and a distinct lower base');
 });
 
 test('sky image caches reserve bounded canvas storage and release it on disposal', () => {

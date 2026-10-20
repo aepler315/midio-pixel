@@ -25,6 +25,7 @@ function contextFixture() {
     createLinearGradient(...coords) { const stops = []; events.push({ gradient: coords, stops }); return { addColorStop: (...stop) => stops.push(stop) }; },
     fillRect(...rect) { events.push({ fill: rect, alpha: this.globalAlpha, style: typeof this.fillStyle === 'string' ? this.fillStyle : 'gradient' }); },
     clearRect() {}, drawImage(...args) { events.push({ image: args.slice(1), alpha: this.globalAlpha }); },
+    transform(...matrix) { assert.ok(matrix.every(Number.isFinite)); events.push({ matrix }); },
     beginPath() {}, moveTo() {}, lineTo() {}, stroke() { events.push({ stroke: this.lineWidth, alpha: this.globalAlpha }); },
     arc() { assert.fail('the hybrid storm must not use ellipse cloud puffs'); },
   };

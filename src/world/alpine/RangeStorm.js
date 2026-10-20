@@ -111,7 +111,7 @@ export function arrivingStorm(storm, arrival = 1) {
   return a >= 1 || !storm ? storm : { ...storm, amount: unit(storm.amount) * a, break01: unit(storm.break01) * a, flash: unit(storm.flash) * a };
 }
 export function drawStormSky(ctx, canvas, storm, { tSec = 0, seed = 0, pan = null, light, reducedMotion = false,
-  cloudPainter = drawRangeClouds } = {}) {
+  cloudPainter = drawRangeClouds, cloudBankFactory = null } = {}) {
   const amount = unit(storm?.amount), breaking = unit(storm?.break01), flash = unit(storm?.flash);
   if (amount < .001 && breaking < .001) return;
   const { width: w, height: h } = canvas;
@@ -126,11 +126,18 @@ export function drawStormSky(ctx, canvas, storm, { tSec = 0, seed = 0, pan = nul
   ctx.fillStyle = dark; ctx.fillRect(0, 0, w, h);
   // The deck: heavy banks low over the peaks. As the storm breaks they thin
   // to scattered remnants with sunlit rims, the sky washed clean between.
-  const banks = rangeCloudBanks({ width: w, height: h, tSec: motion * .6, seed: (seed % 9973) + 17, panPx: (pan?.x || 0) * w / 2, panYPx: -(pan?.y || 0) * h / 2, count: 14 });
+  const banks = cloudBankFactory ? cloudBankFactory()
+    : rangeCloudBanks({ width: w, height: h, tSec: motion * .6, seed: (seed % 9973) + 17, panPx: (pan?.x || 0) * w / 2, panYPx: -(pan?.y || 0) * h / 2, count: 14 });
   banks.forEach((b, i) => {
-    const remnant = breaking * smooth(.35, .75, hash01(i + seed % 101)) * .9;
-    b.alpha = Math.min(1, Math.max(amount, remnant) * (.75 + .25 * hash01(i + 7)));
-    b.w *= 1.9; b.h *= 1.6; b.y = h * (.03 + .22 * hash01(i + 3)) - (pan?.y || 0) * h / 2;
+    // Camera culling changes the array ordinal, not a world's cloud identity.
+    const identity = cloudBankFactory
+      ? String(b.id).split('').reduce((value, char) => (Math.imul(value, 31) + char.charCodeAt(0)) | 0, 0) : i;
+    const remnant = breaking * smooth(.35, .75, hash01(identity + seed % 101)) * .9;
+    b.alpha = Math.min(1, Math.max(amount, remnant) * (.75 + .25 * hash01(identity + 7)))
+      * (cloudBankFactory ? b.alpha : 1);
+    if (!cloudBankFactory) {
+      b.w *= 1.9; b.h *= 1.6; b.y = h * (.03 + .22 * hash01(i + 3)) - (pan?.y || 0) * h / 2;
+    }
   });
   const sun = breaking * (1 - amount);
   const mixRgb = (a, b) => a.map((v, i) => Math.round(v + (b[i] - v) * sun));

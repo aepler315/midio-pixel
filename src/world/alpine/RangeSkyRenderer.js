@@ -3,6 +3,9 @@ import { cameraBasis } from '../terrain/SceneTravel.js';
 import { projectSkyDirection, tourSkyDirection } from './RangeSkyComposition.js';
 import { drawStormSky } from './RangeStorm.js';
 import { LightningFX } from '../Lightning.js';
+import { cloudBanks } from './RangeCloudField.js';
+import { buildCloudTexture } from './RangeCloudTexture.js';
+export { cloudDensity } from './RangeCloudTexture.js';
 
 const TAU = Math.PI * 2;
 const clamp = (x, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, x));
@@ -66,17 +69,6 @@ export function createSkyCatalogue(seed, count = 2600) {
   });
 }
 
-/** Eroded cloud volume, not a chain of stretched radial-gradient ellipses.
- * Two warped density scales produce distinct lobes and open sky between them. */
-export function cloudDensity(u, v, seed) {
-  const x = (u - .5) * 2, y = (v - .5) * 2;
-  const warp = noise(u * 3 + 8, v * 3, seed + 12) - .5;
-  const envelope = 1 - Math.sqrt(x * x + y * y * 1.15);
-  const billow = fractal(u * 4.2 + warp, v * 4.2 + warp * .5, seed);
-  const erosion = fractal(u * 11, v * 11, seed + 30);
-  return clamp((envelope * .8 + billow * .85 - .65 - erosion * .15) * 3.5);
-}
-
 const STAR_COLORS = ['190,210,255', '218,229,255', '245,244,231', '255,226,188', '217,231,255'];
 
 /** Full-resolution sky experiment. Cached density/albedo images are small,
@@ -103,18 +95,7 @@ export class RangeSkyRenderer {
     if (!canvas || this.painted.has(canvas)) return canvas;
     const ctx = canvas.getContext('2d'), image = ctx.createImageData(canvas.width, canvas.height);
     const seed = this.seed + index * 71;
-    for (let y = 0; y < canvas.height; y++) for (let x = 0; x < canvas.width; x++) {
-      const u = x / (canvas.width - 1), v = y / (canvas.height - 1);
-      const d = cloudDensity(u, v, seed);
-      // Light penetrates the thin edge and catches the upper-left billows.
-      const shoulder = cloudDensity(u - .025, v - .04, seed);
-      const light = clamp(.48 + (shoulder - d) * 1.6 + (1 - v) * .22 + (1 - d) * .14);
-      const i = (y * canvas.width + x) * 4;
-      image.data[i] = 100 + light * 128;
-      image.data[i + 1] = 117 + light * 121;
-      image.data[i + 2] = 143 + light * 105;
-      image.data[i + 3] = Math.round((1 - Math.exp(-d * 2.2)) * 235);
-    }
+    image.data.set(buildCloudTexture(seed, canvas.width, canvas.height));
     ctx.putImageData(image, 0, 0);
     this.painted.add(canvas);
     return canvas;
@@ -169,12 +150,14 @@ export class RangeSkyRenderer {
     this._aurora(ctx, project, width, height, night, time, frame.authority);
     if (frame.lightning) LightningFX.prototype.draw.call(frame.lightning, ctx, { width, height }, frame.timeSec * 1000, frame.reducedFlash);
     this._bodies(ctx, frame, width, height, night);
-    this._clouds(ctx, project, width, height, night, time, frame.storm);
+    this._clouds(ctx, frame.camera, width, height, night, time, frame.storm);
     // Keep the existing heard-time storm score and triggered bolts. Only
     // their target and the cloud shape change; terrain wetness stays native.
     const storm = frame.reducedFlash && frame.storm ? { ...frame.storm, flash: 0 } : frame.storm;
     drawStormSky(ctx, { width, height }, storm, { tSec: frame.timeSec, seed: frame.seed, pan: frame.camera,
       light: frame.light, reducedMotion: frame.reducedMotion,
+      cloudBankFactory: () => cloudBanks({ camera: frame.camera, width, height,
+        timeSec: frame.timeSec, seed: frame.seed, storm: true, reducedMotion: frame.reducedMotion }),
       cloudPainter: (target, banks, options) => this._stormClouds(target, banks, options) });
     ctx.restore();
     return true;
@@ -297,26 +280,14 @@ export class RangeSkyRenderer {
     else { ctx.fillStyle = '#e7e5d9'; ctx.fillRect(-radius, -radius, radius * 2, radius * 2); }
     ctx.restore();
   }
-  _clouds(ctx, project, width, height, night, time, storm = 0) {
+  _clouds(ctx, camera, width, height, night, time, storm = 0) {
     ctx.save();
-    for (let i = 0; i < 28; i++) {
-      const az = hash(i, 8, this.seed) * 360 + time * .008;
-      const alt = 8 + hash(i, 9, this.seed) * 30;
-      const centre = project(tourSkyDirection(az, alt));
-      if (!centre.inFront) continue;
-      const angularSize = (.075 + hash(i, 10, this.seed) * .14);
-      const w = angularSize * project.focal * height * 2, h = w * (.45 + hash(i, 11, this.seed) * .3);
-      const x = centre.xFrac * width, y = centre.yFrac * height;
-      const extent = Math.hypot(w, h) / 2;
-      if (x + extent < 0 || x - extent > width || y + extent < 0 || y - extent > height) continue;
-      const image = this._cloud(i % 6);
+    for (const bank of cloudBanks({ camera, width, height, timeSec: time, seed: this.seed })) {
+      const image = this._cloud(bank.index);
       if (!image) continue;
-      const tangent = project(tourSkyDirection(az + 1, alt));
-      const angle = tangent.inFront
-        ? Math.atan2((tangent.yFrac - centre.yFrac) * height, (tangent.xFrac - centre.xFrac) * width) : 0;
-      ctx.save(); ctx.translate(centre.xFrac * width, centre.yFrac * height); ctx.rotate(angle);
-      ctx.globalAlpha = (.32 + .32 * hash(i, 12, this.seed)) * (1 - night * .48) * (1 + clamp(storm?.amount ?? storm) * .35);
-      ctx.drawImage(image, -w / 2, -h / 2, w, h);
+      ctx.save(); ctx.transform(...bank.matrix);
+      ctx.globalAlpha = bank.alpha * (1 - night * .48) * (1 + clamp(storm?.amount ?? storm) * .35);
+      ctx.drawImage(image, -.5, -.5, 1, 1);
       ctx.restore();
     }
     ctx.restore();
@@ -325,7 +296,7 @@ export class RangeSkyRenderer {
     const images = new Map();
     ctx.save();
     for (const [i, bank] of banks.entries()) {
-      const index = Number(String(bank.id || `bank${i}`).slice(4)) % 6;
+      const index = bank.index ?? Number(String(bank.id || `bank${i}`).slice(4)) % 6;
       let image = images.get(index);
       if (!image) {
         const density = this._cloud(index);
@@ -345,6 +316,10 @@ export class RangeSkyRenderer {
           gradient.addColorStop(0, `rgb(${light.join(',')})`);
           gradient.addColorStop(1, `rgb(${dark.join(',')})`);
           target.fillStyle = gradient; target.fillRect(0, 0, image.width, image.height);
+          // Preserve each billow's internal light and shadow. An alpha-only
+          // mask flattens the volume into a mottled slab, even with a new shape.
+          target.globalCompositeOperation = 'multiply';
+          target.drawImage(density, 0, 0);
           target.globalCompositeOperation = 'destination-in';
           target.drawImage(density, 0, 0);
           target.globalCompositeOperation = 'source-over';
@@ -353,7 +328,10 @@ export class RangeSkyRenderer {
         images.set(index, image);
       }
       ctx.globalAlpha = bank.alpha;
-      ctx.drawImage(image, bank.x - bank.w * .5, bank.y - bank.h, bank.w, bank.h * 2);
+      if (bank.matrix) {
+        ctx.save(); ctx.transform(...bank.matrix);
+        ctx.drawImage(image, -.5, -.5, 1, 1); ctx.restore();
+      } else ctx.drawImage(image, bank.x - bank.w * .5, bank.y - bank.h, bank.w, bank.h * 2);
     }
     ctx.restore();
   }
