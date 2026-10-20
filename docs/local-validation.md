@@ -28,3 +28,29 @@ independent of the Test workflow. Keep repository Pages settings unchanged.
 The optional manual `static.yml` workflow stages and publishes without calling
 test workflows or installing Chromium; run the checks above locally first.
 Changing workflow triggers does not clear historical billing-blocked runs.
+
+## RTX 3060 rendering checks
+
+```sh
+npm run test:gpu
+npm run test:gpu -- --audio path/to/song.wav --start-ms 0 --live-seconds 30
+```
+
+This local command requires the actual WebGL renderer to contain `RTX 3060` and
+rejects software rendering. It captures both Classic and Detailed Landscape
+output with a fresh, headless, muted browser and saves a new `.smoke/gpu-*`
+report. It never opens a window or report or dispatches a hosted workflow.
+Pass `--out DIR` to save elsewhere. The optional live trace is separate from
+fixed-clock visual captures; short runs are not a five-minute performance gate.
+
+From WSL it freezes the source and runs native Windows Node/Chrome so WebGL
+reaches the desktop GPU. Node and Chrome are found in their standard Program
+Files locations; `MIDIO_WINDOWS_NODE` and `MIDIO_WINDOWS_CHROME` can override
+these with WSL filesystem paths. On native Windows/Linux, Playwright uses its
+local browser or the explicit `--browser` executable. A different renderer
+fails the test rather than silently producing software-rendering evidence.
+
+The ordinary Node tests continue to cover logic locally; the GPU command adds
+actual hardware rendering, camera, readiness, graphics residency and optional
+live-playback diagnostics. Inspect the report's recorded renderer as well as
+its pass/fail status. These captures do not imply subjective visual acceptance.

@@ -13,6 +13,7 @@
     "test:all": "node --test",
     "test:smoke": "node tools/smoke.mjs",
     "test:bootstrap": "node tools/bootstrap-smoke.mjs",
+    "test:gpu": "node tools/gpu-review.mjs",
     "stage:site": "node tools/stage-site.mjs . _site",
     "test:seek": "node tools/seek-effects-smoke.mjs",
     "test:shading": "node tools/static-shading-smoke.mjs",

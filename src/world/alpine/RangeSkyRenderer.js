@@ -81,6 +81,7 @@ export class RangeSkyRenderer {
     this.stars = [];
     this.painted = new WeakSet();
     this.stormTints = new WeakMap();
+    this.cloudCache = new Map();
   }
   _seed(seed) {
     if (seed === this.seed) return;
@@ -89,8 +90,19 @@ export class RangeSkyRenderer {
     this.buffers.dispose();
     this.painted = new WeakSet();
     this.stormTints = new WeakMap();
+    this.cloudCache = new Map();
   }
   _cloud(index) {
+    // Stable world identities replace the six repeating stamps. Evict both
+    // density and tint together; seed changes and disposal clear ownership.
+    this.cloudCache.delete(index);
+    this.cloudCache.set(index, true);
+    if (this.cloudCache.size > 48) {
+      const oldest = this.cloudCache.keys().next().value;
+      this.cloudCache.delete(oldest);
+      this.buffers.release(`cloud-${oldest}`);
+      this.buffers.release(`storm-cloud-${oldest}`);
+    }
     const canvas = this.buffers.ensure(`cloud-${index}`, 192, 128);
     if (!canvas || this.painted.has(canvas)) return canvas;
     const ctx = canvas.getContext('2d'), image = ctx.createImageData(canvas.width, canvas.height);
@@ -283,7 +295,7 @@ export class RangeSkyRenderer {
   _clouds(ctx, camera, width, height, night, time, storm = 0) {
     ctx.save();
     for (const bank of cloudBanks({ camera, width, height, timeSec: time, seed: this.seed })) {
-      const image = this._cloud(bank.index);
+      const image = this._cloud(bank.shapeSeed ?? bank.index);
       if (!image) continue;
       ctx.save(); ctx.transform(...bank.matrix);
       ctx.globalAlpha = bank.alpha * (1 - night * .48) * (1 + clamp(storm?.amount ?? storm) * .35);
@@ -296,7 +308,7 @@ export class RangeSkyRenderer {
     const images = new Map();
     ctx.save();
     for (const [i, bank] of banks.entries()) {
-      const index = bank.index ?? Number(String(bank.id || `bank${i}`).slice(4)) % 6;
+      const index = bank.shapeSeed ?? bank.index ?? Number(String(bank.id || `bank${i}`).slice(4)) % 6;
       let image = images.get(index);
       if (!image) {
         const density = this._cloud(index);
@@ -304,7 +316,7 @@ export class RangeSkyRenderer {
         if (!density || !image) continue;
         // Density and tint determine these pixels exactly. Bank motion and
         // opacity affect only the destination draw below, so stable weather
-        // need not repaint the same six owned scratch canvases every frame.
+        // need not repaint owned scratch canvases every frame.
         const key = [density, ...dark, ...lit, directGain];
         const prior = this.stormTints.get(image);
         if (!prior || prior.length !== key.length || !prior.every((value, i) => Object.is(value, key[i]))) {
@@ -335,5 +347,8 @@ export class RangeSkyRenderer {
     }
     ctx.restore();
   }
-  dispose() { this.buffers.dispose(); this.stars = []; this.seed = null; this.painted = new WeakSet(); this.stormTints = new WeakMap(); }
+  dispose() {
+    this.buffers.dispose(); this.stars = []; this.seed = null;
+    this.painted = new WeakSet(); this.stormTints = new WeakMap(); this.cloudCache.clear();
+  }
 }

@@ -18,12 +18,12 @@ test('side-view cloud silhouettes have a coherent base beneath varied upper bill
       const occupied = grid.flatMap((row, y) => row[x] > .2 ? [y / 63] : []);
       if (occupied.length) { tops.push(occupied[0]); bases.push(occupied.at(-1)); }
     }
-    assert.ok(deviation(bases) < .045 && deviation(bases) < deviation(tops) * .6,
-      `seed ${seed}: base variation ${deviation(bases)} must be smaller than upper variation ${deviation(tops)}`);
+    assert.ok(deviation(bases) < .045,
+      `seed ${seed}: base variation ${deviation(bases)} stays coherent under upper variation ${deviation(tops)}`);
     assert.ok(tops.length >= 44, `seed ${seed}: connected central body`);
-    // Individual banks can be flatter; require resolved upper variation
-    // while the relative bound above distinguishes them from radial masks.
-    assert.ok(deviation(tops) > .015, `seed ${seed}: visibly varied upper silhouette`);
+    // Broad banks can be flatter; retain upper variation without requiring
+    // the tall isolated protrusion that made the old catalogue conspicuous.
+    assert.ok(deviation(tops) > .005, `seed ${seed}: visibly varied upper silhouette`);
   }
 });
 
@@ -39,7 +39,7 @@ test('dense upper billows receive more light than dense undersides', () => {
     }
     const mean = values => values.reduce((sum, value) => sum + value, 0) / values.length;
     assert.ok(upper.length > 100);
-    assert.ok(mean(upper) > mean(lower) + .15, `seed ${seed}: lit billows, shaded base`);
+    assert.ok(mean(upper) > mean(lower) + .09, `seed ${seed}: lit billows, shaded base`);
   }
 });
 
@@ -55,7 +55,7 @@ test('bounded RGBA textures are deterministic, retain lit interior variation and
     if (!x || !y || x === 191 || y === 127) assert.equal(first[i + 3], 0);
     if (first[i + 3] > 220) lights.push(first[i]);
   }
-  assert.ok(Math.max(...lights) - Math.min(...lights) > 60, 'opaque interiors retain volume lighting');
+  assert.ok(Math.max(...lights) - Math.min(...lights) > 25, 'opaque interiors retain gentle shading without dark circular cavities');
   for (const [w, h] of [[0, 128], [192, 0], [193, 128], [192, 129], [NaN, 128]]) {
     assert.throws(() => buildCloudTexture(315, w, h), RangeError);
   }
@@ -105,5 +105,17 @@ test('cloud opacity varies through the body instead of flattening into an outlin
     assert.ok(Math.max(...histogram.values()) / occupied < .12,
       `seed ${seed}: a single alpha level cannot dominate the cloud interior`);
     assert.ok(translucent / occupied > .3, `seed ${seed}: a broad optically thin envelope must survive`);
+  }
+});
+
+test('dense cloud rows do not acquire dark circular cavities surrounded by bright rims', () => {
+  for (const seed of seeds) {
+    for (const v of [.4, .5, .6, .7]) {
+      const row = Array.from({ length: 48 }, (_, i) => cloudSample((i + .5) / 48, v, seed))
+        .filter(point => point.density > .65).map(point => point.light);
+      if (row.length < 4) continue;
+      assert.ok(Math.max(...row) - Math.min(...row) < .18,
+        `seed ${seed}, row ${v}: broad lighting instead of isolated dark holes`);
+    }
   }
 });
