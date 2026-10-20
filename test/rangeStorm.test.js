@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compileStorm, stormAt, rainCurtain, STORM_GLSL, arrivingStorm } from '../src/world/alpine/RangeStorm.js';
+import { compileStorm, stormAt, rainCurtain, STORM_GLSL, arrivingStorm, drawStormSky } from '../src/world/alpine/RangeStorm.js';
 const energyCurves = { globalEnergyNorm: t => t >= 40000 && t < 60000 ? .95 : .25 };
 const sections = [{ startMs: 0, endMs: 40000 }, { startMs: 40000, endMs: 60000 }, { startMs: 60000, endMs: 120000 }];
 const timeline = [{ tMs: 45000, pitch: 38, role: 'RHYTHM', vel: .9 }, { tMs: 45100, pitch: 40, channel: 9, vel: 1 }, { tMs: 47000, pitch: 36, role: 'RHYTHM', vel: 1 }];
@@ -137,4 +137,25 @@ test('weak detected percussion cannot consume the cooldown immediately before a 
   assert.equal(score.at(45000).flash, 0, 'buried activity does not steal the musical accent');
   assert.ok(score.at(45400).flash > .5, 'the actual kick owns its flash');
   assert.equal(score.at(46000).flash, 0);
+});
+
+test('projected cloud banks retain world placement and weather identity when camera culling changes their order', () => {
+  const bank = (id, x) => ({ id, x, y: 110, w: 300, h: 190, alpha: .6 });
+  const all = [bank('world:12:3', 200), bank('world:13:3', 650)];
+  const draw = source => {
+    let output;
+    const ctx = { save() {}, restore() {}, fillRect() {},
+      createLinearGradient: () => ({ addColorStop() {} }) };
+    drawStormSky(ctx, { width: 1280, height: 720 }, { amount: 1, flash: 0, break01: 0 }, {
+      seed: 315, cloudBankFactory: () => structuredClone(source), cloudPainter: (_, banks) => { output = banks; },
+    });
+    return output;
+  };
+  const full = draw(all), onlySecond = draw([all[1]]), reversed = draw([...all].reverse());
+  assert.deepEqual(onlySecond[0], full[1], 'a cloud does not change opacity when another cloud leaves the camera');
+  assert.deepEqual(reversed, [...full].reverse());
+  for (const [i, projected] of full.entries()) {
+    for (const key of ['x', 'y', 'w', 'h']) assert.equal(projected[key], all[i][key], 'no fixed screen-height deck override');
+    assert.ok(projected.alpha > 0 && projected.alpha <= all[i].alpha, 'projected distance fade survives weather grading');
+  }
 });
