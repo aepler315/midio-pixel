@@ -467,7 +467,7 @@ paramBus.rendererMode = rendererMode;
 // ?rangeView=<id> forces one catalog view for diagnostics. One presentation (and one GPU context) per page.
 const rangeMode = resolveRangeMode();
 let rangePresentation = experience === 'landscape' && rangeMode.mode === 'v2'
-  ? new RangePresentation({ mode: 'v2', tour: rangeMode.tour, forcedViewId: rangeMode.forcedViewId, diag: rangeMode.diag, residency: sharedResidency(), budget: residencyBudgetFor().name })
+  ? new RangePresentation({ mode: 'v2', tour: rangeMode.tour, upgradeIntended: rangeMode.upgradeIntended, forcedViewId: rangeMode.forcedViewId, diag: rangeMode.diag, residency: sharedResidency(), budget: residencyBudgetFor().name })
   : null;
 
 const rangeTourToggle = document.getElementById('range-tour-toggle');
@@ -497,7 +497,7 @@ if (rangeTourToggle) {
     const tour = rangeTourToggle.checked ? 'tetons' : null;
     try { if (tour) localStorage.setItem('range-tour', tour); else localStorage.removeItem('range-tour'); } catch { /* Storage may be blocked. */ }
     const url = new URL(location.href); url.searchParams.set('rangeTour', tour || 'off'); history.replaceState(null, '', url);
-    rangePresentation ||= new RangePresentation({ mode: 'v2', residency: sharedResidency(), budget: residencyBudgetFor().name });
+    rangePresentation ||= new RangePresentation({ mode: 'v2', upgradeIntended: rangeMode.upgradeIntended, residency: sharedResidency(), budget: residencyBudgetFor().name });
     if (renderer) renderer.rangePresentation = rangePresentation;
     const terrain = lastTimelineData?.terrain;
     if (terrain) {
@@ -592,7 +592,7 @@ async function changeExperience(value) {
       const mode = resolveRangeMode();
       if (!rebuildLandscape) owner.biomes.update(owner.timeMs, 0, owner.energyCurves, owner.calm.level, owner.worldX);
       if (mode.mode === 'v2') {
-        prepared = new RangePresentation({ mode: 'v2', tour: mode.tour, forcedViewId: mode.forcedViewId,
+        prepared = new RangePresentation({ mode: 'v2', tour: mode.tour, upgradeIntended: mode.upgradeIntended, forcedViewId: mode.forcedViewId,
           diag: mode.diag, residency: sharedResidency(), budget: residencyBudgetFor().name });
         if (!rebuildLandscape) {
           prepared.setSong({ terrain: lastTimelineData?.terrain, mgr: owner.biomes, generation: loadGen, exportMode: bulkExportArmed });
@@ -622,7 +622,7 @@ async function changeExperience(value) {
       rangePresentation?.dispose();
       const mode = resolveRangeMode();
       rangePresentation = next === 'landscape' && mode.mode === 'v2'
-        ? new RangePresentation({ mode: 'v2', tour: mode.tour, forcedViewId: mode.forcedViewId, diag: mode.diag,
+        ? new RangePresentation({ mode: 'v2', tour: mode.tour, upgradeIntended: mode.upgradeIntended, forcedViewId: mode.forcedViewId, diag: mode.diag,
           residency: sharedResidency(), budget: residencyBudgetFor().name }) : null;
     }
     experience = next;

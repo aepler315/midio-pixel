@@ -59,8 +59,18 @@ const smooth=(values,seconds,dt)=>{
   for(let i=result.length-2;i>=0;i--)result[i]=mix(result[i+1],result[i],alpha);
   return result;
 };
+// The published frames of each built result, for the pass that runs once on
+// the chosen route after station rebuilds and quality retries.
+const compositionFrames=new WeakMap();
 /** Joint continuous altitude/aim beam DP: tiers are targets, never jumps. */
-export function buildTourTimeline(data,plan,{reducedMotion=plan.reducedMotion||false,previous=null,frozenThroughMs=-1,routeScale=1,qualityRetry=true}={}){
+export function buildTourTimeline(data,plan,options={}){
+  const tour=buildTimeline(data,plan,options),composition=compositionFrames.get(tour);
+  if(composition){compositionFrames.delete(tour);refineHeroFraming(tour,data,composition,options);}
+  // Refinements inherit the setting the tour was planned with.
+  tour.upgradeIntended=!!options.upgradeIntended;
+  return tour;
+}
+function buildTimeline(data,plan,{reducedMotion=plan.reducedMotion||false,previous=null,frozenThroughMs=-1,routeScale=1,qualityRetry=true}={}){
   const durationMs=plan.durationMs,points=new Map(data.points.map(p=>[p.id,p])),notes=[...plan.notes],heroes=plan.heroes.map(h=>({...h}));
   const preview=points.get(plan.previewPointId),climb=reducedMotion?15:30;
   if(!durationMs){const p=preview.station,a=p.bestAim,eyeM=[p.posM[0],p.yM,p.posM[1]],v=vector(a.headingDeg,a.pitchDeg),pose={eyeM,targetM:eyeM.map((x,i)=>x+v[i]*12000),fovYDeg:fovY(a.hfovDeg),tour:true};return{durationMs:0,heroes:[],notes,meanQualityRatio:1,poseAt:()=>structuredClone(pose),reducedMotion};}
@@ -233,7 +243,8 @@ export function buildTourTimeline(data,plan,{reducedMotion=plan.reducedMotion||f
     meta.set([aim.tier,data.points.findIndex(p=>p.id===frame.pointId),Math.max(0,data.roles.indexOf(frame.role)),lock?1:0],i*4);
   }
   const result = restoreTourTimeline({durationMs,eye,target,fov,meta,heroes,notes,reducedMotion,meanQualityRatio:qualitySum/Math.max(.001,maxSum),data,plan,routeSegments:plan.segments,routeSpeedProfile:plan.speedProfile,scale,routeTimeOriginMs,routeSlowTauSec});
-  composeDistantHeroes(result, data, frames, lastFrozen);
+  const shots = composeDistantHeroes(result, data, frames, lastFrozen);
+  compositionFrames.set(result, { frames, lastFrozen, shots });
   result.heroFraming = measureHeroFraming(result, data);
   result.heroCoverage = summarizeHeroCoverage(result.heroFraming);
   const missedStations = new Set(result.heroFraming.filter(h => h.stationVisit && h.framedFraction < .8).map(h => h.pointId));
@@ -242,7 +253,7 @@ export function buildTourTimeline(data,plan,{reducedMotion=plan.reducedMotion||f
     // framed from the safe eye corridor. Release that exact shot's locks
     // and genuinely solve a distant view instead of claiming a visit.
     const nextHeroes = heroes.map(h => missedStations.has(h.pointId) ? { ...h, passedAtRange: true } : h);
-    return buildTourTimeline(data, { ...plan, heroes: nextHeroes,
+    return buildTimeline(data, { ...plan, heroes: nextHeroes,
       notes: [...notes, ...[...missedStations].map(id => `${id}: station subject cannot fit the safe viewing window; compose at range`)] },
     { reducedMotion, previous, frozenThroughMs, routeScale, qualityRetry });
   }
@@ -253,7 +264,7 @@ export function buildTourTimeline(data,plan,{reducedMotion=plan.reducedMotion||f
     // preserve heard time and every committed pose, then re-compose views.
     for (const factor of [1.25, 1.5, 2]) {
       if (factor <= result.scale) continue;
-      const candidate = buildTourTimeline(data, plan, { reducedMotion, previous, frozenThroughMs,
+      const candidate = buildTimeline(data, plan, { reducedMotion, previous, frozenThroughMs,
         routeScale: factor, qualityRetry: false });
       if (candidate.meanQualityRatio > best.meanQualityRatio) best = candidate;
       if (best.meanQualityRatio >= .8) break;
@@ -308,11 +319,23 @@ export function summarizeHeroCoverage(framing) {
     endings: framing.filter(h => h.finalChorus || h.role === 'outro').map(h => ({ ...h })),
   };
 }
-/** Compose a distant subject only when the entire shot fits the already
- * safe route, yaw limits and quality budget. Never retime roads or lift
- * the eye to rescue a failed close visit. Alternatives are explicit. */
-function composeDistantHeroes(tour, data, frames, lastFrozen) {
-  const points = new Map(data.points.map(p => [p.id, p]));
+/** poseAt slerps target directions, so a frame that also changes pitch does
+ * not turn uniformly. Peak sub-frame heading rate relative to its mean. */
+function slerpTurnPeak(h0, p0, h1, p1) {
+  const a = vector(h0, p0), b = vector(h1, p1), turn = Math.abs(diff(h1, h0));
+  const angle = Math.acos(clamp(a[0] * b[0] + a[1] * b[1] + a[2] * b[2], -1, 1));
+  if (angle < 1e-9 || turn < 1e-9) return 1;
+  let previous = h0, peak = 0;
+  for (let k = 1; k <= 32; k++) {
+    const sa = Math.sin((1 - k / 32) * angle) / Math.sin(angle), sb = Math.sin(k / 32 * angle) / Math.sin(angle);
+    const h = Math.atan2(a[0] * sa + b[0] * sb, -(a[2] * sa + b[2] * sb)) / DEG;
+    peak = Math.max(peak, Math.abs(diff(h, previous)) * 32); previous = h;
+  }
+  return Math.max(1, peak / turn);
+}
+/** Composition state on one published route: current aim, quality budget
+ * and the shared yaw capacity. */
+function compositionState(tour, data, frames, lastFrozen) {
   const count = tour.fov.length, headings = new Float64Array(count), pitches = new Float64Array(count);
   const quality = new Float64Array(count), maximum = new Float64Array(count);
   for (let i = 0; i < count; i++) {
@@ -322,78 +345,190 @@ function composeDistantHeroes(tour, data, frames, lastFrozen) {
     quality[i] = aimAt(frames[i].sample, tour.eye[i * 3 + 1], headings[i]).quality;
     maximum[i] = Math.max(...frames[i].sample.tiers.flatMap(t => [...t.score])) / 255;
   }
-  let sum = quality.reduce((a, b) => a + b, 0);
-  const max = maximum.reduce((a, b) => a + b, 0);
+  return { tour, data, frames, lastFrozen, count, headings, pitches, quality,
+    points: new Map(data.points.map(p => [p.id, p])),
+    sum: quality.reduce((a, b) => a + b, 0), max: maximum.reduce((a, b) => a + b, 0),
+    capacityBetween: tourYawBudget(frames, { reducedMotion: tour.reducedMotion }) };
+}
+const ease = x => { const t = clamp(x, 0, 1); return t * t * (3 - 2 * t); };
+/** The intended subject first; a shot passed at range may also try the
+ * `limit` same-role points nearest its current bearing. */
+function shotCandidates(state, hero, limit = 6) {
+  const { tour, data, count, headings, points } = state;
+  const center = Math.min(count - 1, Math.round(hero.timeMs / 100)), eye = [...tour.eye.subarray(center * 3, center * 3 + 3)];
+  const stationSubject = !hero.passedAtRange && points.get(hero.pointId)?.station?.bestAim?.subjectId;
+  const intended = points.get(stationSubject || hero.pointId);
+  const candidates = [intended, ...(hero.passedAtRange ? data.points.filter(p => p.id !== hero.pointId && p.role === intended?.role)
+    .sort((a, b) => {
+      const angle = p => Math.abs(diff(Math.atan2(p.localM[0] - eye[0], -(p.localM[2] - eye[2])) / DEG, headings[center]));
+      return angle(a) - angle(b) || a.id.localeCompare(b.id);
+    }).slice(0, limit) : [])].filter(Boolean);
+  return { intended, candidates };
+}
+/** Start after accepted shots, preserving their pitch as well as heading.
+ * A shot may use the remaining approach, never their windows. */
+function shotBounds(state, hero, accepted) {
+  const { tour, frames, count, lastFrozen } = state;
+  const priorShots = [...accepted].filter(at => at < hero.timeMs);
+  const priorEnd = priorShots.length ? Math.max(...priorShots) + 1500 : -100;
+  const start = Math.max(lastFrozen + 1, 0, Math.floor((hero.timeMs - 10000) / 100), Math.floor(priorEnd / 100) + 1);
+  const futureShots = [...accepted].filter(at => at > hero.timeMs);
+  const futureStart = futureShots.length ? Math.min(...futureShots) - 1500 : Infinity;
+  const end = Math.min(count - 1, Math.ceil((hero.timeMs + 7000) / 100), Math.floor(futureStart / 100));
+  const protectedFrame = i => [...accepted].some(at => i >= Math.floor(Math.max(0, at - 1500) / 100)
+    && i <= Math.min(count - 1, Math.ceil(Math.min(tour.durationMs, at + 1500) / 100)));
+  if (!frames[start] || frames[start].timeMs >= hero.timeMs - 1500) return null;
+  return { start, end, protectedFrame };
+}
+/** Try one subject without writing anything. The eased ramp is rejected
+ * where its step exceeds the yaw budget unless `chase` limits it to that
+ * budget instead; a chase must still rejoin the route before `end`. */
+function attemptShot(state, hero, point, { start, end, protectedFrame, chase = false, base = null }) {
+  const { tour, data, frames, lastFrozen, count, headings, pitches, quality, capacityBetween } = state;
+  // The ramp eases away from `base` (default: the current aim) outside
+  // protected windows. Continuity and the rejoin use the current aim.
+  const baseOf = (i, current, other) => base && !protectedFrame(i) ? other[i] : current[i];
+  const hs = [], ps = [], qs = [];
+  let delta = 0;
+  for (let i = start; i <= end; i++) {
+    const t = frames[i].timeMs;
+    const envelope = ease((t - frames[start].timeMs) / Math.max(1, hero.timeMs - 1500 - frames[start].timeMs))
+      * (1 - ease((t - hero.timeMs - 1500) / Math.max(1, frames[end].timeMs - hero.timeMs - 1500)));
+    const dx = point.localM[0] - tour.eye[i * 3], dy = point.localM[1] - tour.eye[i * 3 + 1], dz = point.localM[2] - tour.eye[i * 3 + 2];
+    const weight = start === 0 && lastFrozen < 0 && !hero.passedAtRange && hero.timeMs <= 10000 && t < hero.timeMs - 1500 ? 1 : envelope;
+    const baseHeading = baseOf(i, headings, base?.headings), basePitch = baseOf(i, pitches, base?.pitches);
+    const eased = baseHeading + diff(Math.atan2(dx, -dz) / DEG, baseHeading) * weight;
+    const p = mix(basePitch, clamp(Math.atan2(dy, Math.hypot(dx, dz)) / DEG, -25, 35), weight);
+    const previousHeading = i > start ? hs.at(-1) : headings[Math.max(0, i - 1)];
+    const previousPitch = i > start ? ps.at(-1) : pitches[Math.max(0, i - 1)];
+    const capacity = i ? capacityBetween(frames[i - 1].timeMs, t) : 0;
+    let h = eased;
+    if (i && Math.abs(diff(eased, previousHeading)) > capacity + .001) {
+      if (!chase) return null;
+      // poseAt slerps directions, so a frame that also pitches turns unevenly.
+      const turn = Math.sign(diff(eased, previousHeading)) * capacity;
+      h = previousHeading + turn / slerpTurnPeak(previousHeading, previousPitch, previousHeading + turn, p);
+    }
+    if (i && frames[i].stop && frames[i - 1].stop && Math.abs(p - previousPitch) > .001
+      || protectedFrame(i) && (Math.abs(diff(h, headings[i])) > .00001 || Math.abs(p - pitches[i]) > .00001)) return null;
+    const q = aimAt(frames[i].sample, tour.eye[i * 3 + 1], h).quality;
+    delta += q - quality[i]; hs.push(h); ps.push(p); qs.push(q);
+  }
+  // The song's final frame has no successor, so only a ramp that ends
+  // earlier must return to the unchanged route.
+  if (chase && end < count - 1 && Math.abs(diff(hs.at(-1), headings[end])) > .00001) return null;
+  if ((state.sum + delta) / Math.max(.001, state.max) < Math.min(.8, state.sum / Math.max(.001, state.max)) - 1e-6) return null;
+  const target = tour.target.slice();
+  for (let i = start; i <= end; i++) {
+    if (protectedFrame(i)) continue;
+    const v = vector(hs[i - start], ps[i - start]);
+    for (let axis = 0; axis < 3; axis++) target[i * 3 + axis] = tour.eye[i * 3 + axis] + v[axis] * 12000;
+  }
+  const candidate = restoreTourTimeline({ ...tour, target });
+  if (measureHeroFraming({ ...candidate, heroes: [{ ...hero, framingPointId: point.id }] }, data)[0].framedFraction < .8) return null;
+  return { start, end, hs, ps, qs, delta, target };
+}
+function commitShot(state, hero, point, shot, accepted, reason, note) {
+  // The aim each first-pass shot replaced, for a later intended upgrade.
+  state.shots?.set(hero.timeMs, { start: shot.start, end: shot.end,
+    headings: state.headings.slice(shot.start, shot.end + 1), pitches: state.pitches.slice(shot.start, shot.end + 1) });
+  for (let i = shot.start; i <= shot.end; i++) {
+    const k = i - shot.start;
+    state.headings[i] = shot.hs[k]; state.pitches[i] = shot.ps[k]; state.quality[i] = shot.qs[k];
+  }
+  state.tour.target.set(shot.target);
+  state.sum += shot.delta; hero.framingPointId = point.id; accepted.add(hero.timeMs);
+  hero.framingReason = reason;
+  if (note) state.tour.notes.push(note);
+}
+/** Compose a distant subject only when the entire shot fits the already
+ * safe route, yaw limits and quality budget. Never retime roads or lift
+ * the eye to rescue a failed close visit. Alternatives are explicit. */
+function composeDistantHeroes(tour, data, frames, lastFrozen) {
+  const state = compositionState(tour, data, frames, lastFrozen);
+  state.shots = new Map();
   // Existing coverage is a constraint even when its hero occurs later in
   // the song. Trying an earlier repair must not erase that intended shot.
   const accepted = new Set(measureHeroFraming(tour, data).filter(h => h.framedFraction >= .8).map(h => h.timeMs));
-  const capacityBetween = tourYawBudget(frames, { reducedMotion: tour.reducedMotion });
-  const ease = x => { const t = clamp(x, 0, 1); return t * t * (3 - 2 * t); };
   for (const hero of [...tour.heroes].sort((a, b) => a.timeMs - b.timeMs)) {
-    const center = Math.min(count - 1, Math.round(hero.timeMs / 100)), eye = [...tour.eye.subarray(center * 3, center * 3 + 3)];
-    const stationSubject = !hero.passedAtRange && points.get(hero.pointId)?.station?.bestAim?.subjectId;
-    const intended = points.get(stationSubject || hero.pointId);
     const existing = measureHeroFraming({ ...tour, heroes: [hero] }, data)[0];
     if (existing.framedFraction >= .8) { accepted.add(hero.timeMs); hero.framingReason = 'retained-projected-shot'; continue; }
-    const candidates = [intended, ...(hero.passedAtRange ? data.points.filter(p => p.id !== hero.pointId && p.role === intended?.role)
-      .sort((a, b) => {
-        const angle = p => Math.abs(diff(Math.atan2(p.localM[0] - eye[0], -(p.localM[2] - eye[2])) / DEG, headings[center]));
-        return angle(a) - angle(b) || a.id.localeCompare(b.id);
-      }).slice(0, 6) : [])].filter(Boolean);
-    // Start after already accepted shots, preserving their pitch as well as
-    // heading. A later shot may use the remaining approach, never their window.
-    const priorShots = [...accepted].filter(at => at < hero.timeMs);
-    const priorEnd = priorShots.length ? Math.max(...priorShots) + 1500 : -100;
-    const start = Math.max(lastFrozen + 1, 0, Math.floor((hero.timeMs - 10000) / 100), Math.floor(priorEnd / 100) + 1);
-    const futureShots = [...accepted].filter(at => at > hero.timeMs);
-    const futureStart = futureShots.length ? Math.min(...futureShots) - 1500 : Infinity;
-    const end = Math.min(count - 1, Math.ceil((hero.timeMs + 7000) / 100), Math.floor(futureStart / 100));
-    const protectedFrame = i => [...accepted].some(at => i >= Math.floor(Math.max(0, at - 1500) / 100)
-      && i <= Math.min(count - 1, Math.ceil(Math.min(tour.durationMs, at + 1500) / 100)));
-    if (!frames[start] || frames[start].timeMs >= hero.timeMs - 1500) { hero.framingReason = 'no-uncommitted-approach'; continue; }
+    const { intended, candidates } = shotCandidates(state, hero);
+    const bounds = shotBounds(state, hero, accepted);
+    if (!bounds) { hero.framingReason = 'no-uncommitted-approach'; continue; }
     hero.framingReason = 'no-legal-projected-shot';
     for (const point of candidates) {
-      const hs = [], ps = [], qs = [];
-      let delta = 0, valid = true;
-      for (let i = start; i <= end; i++) {
-        const t = frames[i].timeMs;
-        const envelope = ease((t - frames[start].timeMs) / Math.max(1, hero.timeMs - 1500 - frames[start].timeMs))
-          * (1 - ease((t - hero.timeMs - 1500) / Math.max(1, frames[end].timeMs - hero.timeMs - 1500)));
-        const dx = point.localM[0] - tour.eye[i * 3], dy = point.localM[1] - tour.eye[i * 3 + 1], dz = point.localM[2] - tour.eye[i * 3 + 2];
-        const weight = start === 0 && lastFrozen < 0 && !hero.passedAtRange && hero.timeMs <= 10000 && t < hero.timeMs - 1500 ? 1 : envelope;
-        const h = headings[i] + diff(Math.atan2(dx, -dz) / DEG, headings[i]) * weight;
-        const p = mix(pitches[i], clamp(Math.atan2(dy, Math.hypot(dx, dz)) / DEG, -25, 35), weight);
-        const previousHeading = i > start ? hs.at(-1) : headings[Math.max(0, i - 1)];
-        const previousPitch = i > start ? ps.at(-1) : pitches[Math.max(0, i - 1)];
-        const capacity = i ? capacityBetween(frames[i - 1].timeMs, t) : 0;
-        if (i && (Math.abs(diff(h, previousHeading)) > capacity + .001
-          || frames[i].stop && frames[i - 1].stop && Math.abs(p - previousPitch) > .001)
-          || protectedFrame(i) && (Math.abs(diff(h, headings[i])) > .00001 || Math.abs(p - pitches[i]) > .00001)) { valid = false; break; }
-        const q = aimAt(frames[i].sample, tour.eye[i * 3 + 1], h).quality;
-        delta += q - quality[i]; hs.push(h); ps.push(p); qs.push(q);
-      }
-      if (!valid || (sum + delta) / Math.max(.001, max) < Math.min(.8, sum / Math.max(.001, max)) - 1e-6) continue;
-      const candidateTarget = tour.target.slice();
-      for (let i = start; i <= end; i++) {
-        if (protectedFrame(i)) continue;
-        const v = vector(hs[i - start], ps[i - start]);
-        for (let axis = 0; axis < 3; axis++) candidateTarget[i * 3 + axis] = tour.eye[i * 3 + axis] + v[axis] * 12000;
-      }
-      const candidate = restoreTourTimeline({ ...tour, target: candidateTarget });
-      const candidateHero = { ...hero, framingPointId: point.id };
-      if (measureHeroFraming({ ...candidate, heroes: [candidateHero] }, data)[0].framedFraction < .8) continue;
-      for (let i = start; i <= end; i++) {
-        const k = i - start;
-        headings[i] = hs[k]; pitches[i] = ps[k]; quality[i] = qs[k];
-      }
-      tour.target.set(candidateTarget);
-      sum += delta; hero.framingPointId = point.id; accepted.add(hero.timeMs);
-      hero.framingReason = point.id === intended?.id ? 'composed-intended-subject' : 'composed-distant-alternative';
-      if (point.id !== hero.pointId) tour.notes.push(`${hero.pointId}: composed distant alternative ${point.name || point.id}`);
+      const shot = attemptShot(state, hero, point, bounds);
+      if (!shot) continue;
+      commitShot(state, hero, point, shot, accepted,
+        point.id === intended?.id ? 'composed-intended-subject' : 'composed-distant-alternative',
+        point.id !== hero.pointId ? `${hero.pointId}: composed distant alternative ${point.name || point.id}` : null);
       break;
     }
   }
-  tour.meanQualityRatio = sum / Math.max(.001, max);
+  tour.meanQualityRatio = state.sum / Math.max(.001, state.max);
+  return state.shots;
+}
+/** A second pass over the route the first pass settled on. It never
+ * changes a hero that pass covered: their windows stay exactly as they
+ * are. A subject already in frame is recorded before anything moves; the
+ * remaining misses then chase their eased ramp at the shared yaw capacity,
+ * in song order. `upgradeIntended` also lets a hero framed by an alternative
+ * try its intended subject. That replaces an accepted subject, so it is
+ * off by default. */
+function refineHeroFraming(tour, data, { frames, lastFrozen, shots }, { upgradeIntended = false } = {}) {
+  const state = compositionState(tour, data, frames, lastFrozen), startSum = state.sum;
+  // An upgrade eases from the aim its first-pass shot replaced, not from the
+  // ramp toward the alternative.
+  const replacedAim = hero => {
+    const shot = shots.get(hero.timeMs);
+    if (!shot) return null;
+    const headings = state.headings.slice(), pitches = state.pitches.slice();
+    headings.set(shot.headings, shot.start); pitches.set(shot.pitches, shot.start);
+    return { headings, pitches };
+  };
+  const measure = hero => measureHeroFraming({ ...tour, heroes: [hero] }, data)[0];
+  const heroes = [...tour.heroes].sort((a, b) => a.timeMs - b.timeMs);
+  const accepted = new Set(heroes.filter(hero => measure(hero).framedFraction >= .8).map(hero => hero.timeMs));
+  let changed = false;
+  // Record first, so no chase can turn away from an unrecorded subject.
+  for (const hero of heroes) {
+    if (accepted.has(hero.timeMs)) continue;
+    const inFrame = shotCandidates(state, hero, Infinity).candidates
+      .find(point => measure({ ...hero, framingPointId: point.id }).framedFraction >= .8);
+    if (!inFrame) continue;
+    hero.framingPointId = inFrame.id; hero.framingReason = 'retained-in-frame-subject';
+    accepted.add(hero.timeMs); changed = true;
+  }
+  for (const hero of heroes) {
+    const current = measure(hero), { intended, candidates } = shotCandidates(state, hero);
+    if (current.framedFraction >= .8) {
+      if (!upgradeIntended || !current.alternative || !intended) continue;
+      // Release only this hero's own window; every other one stays fixed.
+      const bounds = shotBounds(state, hero, new Set([...accepted].filter(at => at !== hero.timeMs)));
+      const shot = bounds && attemptShot(state, hero, intended, { ...bounds, chase: true, base: replacedAim(hero) });
+      if (!shot) continue;
+      commitShot(state, hero, intended, shot, accepted, 'rate-limited-intended-upgrade',
+        `${hero.pointId}: intended subject replaces accepted alternative ${current.framedPointId}`);
+      changed = true;
+      continue;
+    }
+    const bounds = shotBounds(state, hero, accepted);
+    if (!bounds) continue;
+    for (const point of candidates) {
+      const shot = attemptShot(state, hero, point, { ...bounds, chase: true });
+      if (!shot) continue;
+      commitShot(state, hero, point, shot, accepted,
+        point.id === intended?.id ? 'rate-limited-intended-subject' : 'rate-limited-distant-alternative',
+        point.id !== hero.pointId ? `${hero.pointId}: rate-limited distant alternative ${point.name || point.id}` : null);
+      changed = true;
+      break;
+    }
+  }
+  if (!changed) return;
+  tour.meanQualityRatio += (state.sum - startSum) / Math.max(.001, state.max);
+  tour.heroFraming = measureHeroFraming(tour, data);
+  tour.heroCoverage = summarizeHeroCoverage(tour.heroFraming);
 }
 
 export function restoreTourTimeline(tour){
@@ -440,9 +575,9 @@ export function tourContinuation(previous,data,committedThroughMs){
 /** Rebuild the uncommitted tail. `reducedMotion` is the CURRENT preference
  *  (default: the previous tour's): it sets the limits after the committed
  *  horizon, while every pose through that horizon stays exactly as it was. */
-export function replanTour(previous,data,plan,committedThroughMs,{reducedMotion=previous.reducedMotion}={}){
+export function replanTour(previous,data,plan,committedThroughMs,{reducedMotion=previous.reducedMotion,upgradeIntended=!!previous.upgradeIntended}={}){
   restoreTourTimeline(previous);
   const freeze=Math.min(previous.durationMs,Math.ceil((committedThroughMs+3000)/100)*100);
-  const next=buildTourTimeline(data,plan,{reducedMotion:!!reducedMotion,previous,frozenThroughMs:freeze});
+  const next=buildTourTimeline(data,plan,{reducedMotion:!!reducedMotion,upgradeIntended:!!upgradeIntended,previous,frozenThroughMs:freeze});
   return next;
 }

@@ -48,9 +48,12 @@ export function resolveRangeMode(search = (typeof location !== 'undefined' ? loc
     let saved = null;
     try { saved = (storage || globalThis.localStorage)?.getItem('range-tour'); } catch { /* Private-mode storage can be unavailable. */ }
     const tour = (q.has('rangeTour') ? q.get('rangeTour') : saved) === 'tetons' ? 'tetons' : null;
-    return { mode: tour ? 'v2' : RANGE_RENDERER_MODES.includes(raw) ? raw : RANGE_DEFAULT_MODE, forcedViewId: tour ? 'teton-range-tour' : forcedViewId, diag, tour };
+    // ?rangeTourIntended=1 lets a tour shot framed by an alternative try its
+    // intended subject. It replaces an accepted subject, so it is opt-in.
+    const upgradeIntended = q.get('rangeTourIntended') === '1';
+    return { mode: tour ? 'v2' : RANGE_RENDERER_MODES.includes(raw) ? raw : RANGE_DEFAULT_MODE, forcedViewId: tour ? 'teton-range-tour' : forcedViewId, diag, tour, upgradeIntended };
   } catch {
-    return { mode: RANGE_DEFAULT_MODE, forcedViewId: null, diag: null, tour: null };
+    return { mode: RANGE_DEFAULT_MODE, forcedViewId: null, diag: null, tour: null, upgradeIntended: false };
   }
 }
 
@@ -98,7 +101,7 @@ function defaultCanvas(w, h) {
 }
 
 export class RangePresentation {
-  constructor({ mode = 'legacy', forcedViewId = null, tour = null, diag = null, residency = null, budget = 'desktop',
+  constructor({ mode = 'legacy', forcedViewId = null, tour = null, upgradeIntended = false, diag = null, residency = null, budget = 'desktop',
     loadRuntime = (attempt) => import(retryUrl(RUNTIME_URL, attempt)),
     loadScene = (attempt) => import(retryUrl('./RangeScene.js', attempt)),
     retryDelaysMs = RUNTIME_RETRY_MS, cooldownMs = RUNTIME_COOLDOWN_MS, sceneFactory = null, catalog = SCENE_CATALOG, assetBase = ASSET_BASE,
@@ -106,6 +109,7 @@ export class RangePresentation {
     this.mode = mode;
     this.forcedViewId = forcedViewId;
     this.tourMode = tour;
+    this.upgradeIntended = !!upgradeIntended;
     this.tour = null;
     this.tourData = null;
     this._tourAbort = null;
@@ -250,7 +254,7 @@ export class RangePresentation {
         .then(async pkg => {
           if (controller.signal.aborted || this.generation !== generation) return;
           this._tourPreparation = { ...this._tourPreparation, state: 'planning', reducedMotion: !!mgr.reducedMotion };
-          const tour = await prepareTourTimeline(pkg.data, mgr, { signal: controller.signal });
+          const tour = await prepareTourTimeline(pkg.data, mgr, { signal: controller.signal, upgradeIntended: this.upgradeIntended });
           if (controller.signal.aborted || this.generation !== generation) return;
           if (reservation) {
             if (!this.residency.commit(reservation, { data: pkg.data, tour })) throw new Error('Tour planning memory reservation is no longer available');
@@ -650,7 +654,8 @@ export class RangePresentation {
       const previousNotes = new Map();
       for (const note of this.tour.notes || []) previousNotes.set(note, (previousNotes.get(note) || 0) + 1);
       this._tourPreparation = { ...this._tourPreparation, replanning: true, refinement: { state: 'pending', reason: null } };
-      this._replanPromise = prepareTourTimeline(this.tourData, mgr, { signal: controller.signal, previous: this.tour, committedThroughMs: (mgr.tSec || 0) * 1000 })
+      this._replanPromise = prepareTourTimeline(this.tourData, mgr, { signal: controller.signal, previous: this.tour,
+        committedThroughMs: (mgr.tSec || 0) * 1000, upgradeIntended: this.upgradeIntended })
         .then(tour => {
           if (controller.signal.aborted || generation !== this.generation) return;
           // A worker freezes only a short prefix beyond its request time.
@@ -1143,7 +1148,9 @@ export class RangePresentation {
       runtime: this.runtimeState, runtimeReady, reason: this.reason, fallbackReason,
       tourPreparation: { ...this._tourPreparation,
         requestedReducedMotion: this._tourManager ? !!this._tourManager.reducedMotion : null,
-        effectiveReducedMotion: this.tour ? !!this.tour.reducedMotion : null }, generation: this.generation,
+        effectiveReducedMotion: this.tour ? !!this.tour.reducedMotion : null,
+        requestedUpgradeIntended: this.upgradeIntended, effectiveUpgradeIntended: this.tour ? !!this.tour.upgradeIntended : null },
+      generation: this.generation,
     };
   }
 
