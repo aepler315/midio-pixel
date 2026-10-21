@@ -204,6 +204,8 @@ export async function buildCatalog(doc) {
       camera: build.view.camera,
       ...(Object.hasOwn(v, 'composition') ? { composition: v.composition } : {}),
       ...(v.glacier ? { glacier: v.glacier } : {}),
+      ...(v.rivers ? { rivers: v.rivers } : {}),
+      ...(v.riverPolicy ? { riverPolicy: v.riverPolicy } : {}),
       characterScores: build.characterScores,
       archetype: build.archetype,
       evidence: {
