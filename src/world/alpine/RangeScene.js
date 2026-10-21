@@ -419,7 +419,7 @@ export class RangeScene {
       const texture = new THREE.CanvasTexture(canvas);
       texture.minFilter = THREE.LinearFilter; texture.magFilter = THREE.LinearFilter; texture.generateMipmaps = false;
       b = { width, height, epoch: this.contextEpoch, canvas, ctx: canvas.getContext('2d'), texture, frame: -1 };
-      const dispose = (x) => { x.texture.dispose(); x.canvas.width = x.canvas.height = 0; if (this.backdrop === x) this.backdrop = null; };
+      const dispose = (x) => { this._unbindBackdrop(x.texture); x.texture.dispose(); x.canvas.width = x.canvas.height = 0; if (this.backdrop === x) this.backdrop = null; };
       if (res && !this.residency.commit(res, b, dispose)) return false;
       this.backdrop = b;
     }
@@ -440,8 +440,21 @@ export class RangeScene {
   releaseBackdrop() {
     if (!this.backdrop) return;
     if (this.residency) this.residency.release(BACKDROP_KEY);
-    else { this.backdrop.texture.dispose(); this.backdrop = null; }
+    else { this._unbindBackdrop(this.backdrop.texture); this.backdrop.texture.dispose(); this.backdrop = null; }
     this.backdrop = null;
+  }
+
+  /** Every release path (unwanted, resized, evicted, lost context) reaches
+   *  here. A view whose mirror is skipped keeps its sampler; three would
+   *  reallocate the disposed CanvasTexture from the emptied canvas (0x0,
+   *  INVALID_VALUE). Unbind exactly this texture from every view. */
+  _unbindBackdrop(texture) {
+    for (const p of this.prepared?.values() || []) {
+      const u = p.uniforms;
+      if (u?.uBackdrop?.value !== texture) continue;
+      u.uBackdrop.value = null;
+      if (u.uBackdropAmount) u.uBackdropAmount.value = 0;
+    }
   }
 
   /**

@@ -27,7 +27,7 @@ async function bestEffort(operation, timeoutMs) {
   finally { clearTimeout(timer); }
 }
 
-async function playbackSample(page) {
+export async function playbackSample(page) {
   return page.evaluate(() => {
     const s = window.__SMW, frame = s.presentationDiagnostics?.frame;
     const capture = s.renderer.getCaptureSource();
