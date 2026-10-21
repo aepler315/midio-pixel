@@ -250,7 +250,7 @@ async function probeRoute(browser, url, audioPath, routeId, outDir, options) {
   });
   let cpu, pings, tracing = false;
   try {
-    await page.goto(url + '/?experience=landscape');
+    await page.goto(url + '/');
     await page.locator('#titleSettings').evaluate(node => { node.open = true; });
     const lyrics = page.locator('#lyricGroundingBtn');
     if (await lyrics.getAttribute('aria-pressed') === 'true') await lyrics.click();
@@ -258,12 +258,10 @@ async function probeRoute(browser, url, audioPath, routeId, outDir, options) {
     if (routeId.startsWith('tour-')) {
       await page.locator('#range-tour-toggle').check();
       if (routeId === 'tour-persisted') {
-        await page.goto(url + '/?experience=landscape');
+        await page.goto(url + '/');
         await page.locator('#titleSettings').evaluate(node => { node.open = true; });
         assert.equal(await page.locator('#range-tour-toggle').isChecked(), true);
       }
-    } else if (routeId === 'trio') {
-      await page.locator('#display-experience').selectOption('trio');
     }
     result.entryUrl = page.url();
     controls.setPhase('upload-and-prepare');
@@ -275,6 +273,9 @@ async function probeRoute(browser, url, audioPath, routeId, outDir, options) {
     pings = startPings(page);
     result.uploadAt = Date.now();
     await page.locator('#fileInput').setInputFiles(audioPath);
+    // The chooser opens once the song is ready; pick this route's world.
+    await timed('chooser-wait', result.events, () => page.locator('#worldSelect[open]').waitFor({ timeout: options.timeoutMs }));
+    await page.locator(`.worldCard[data-base-world-id="${routeId === 'trio' ? 'trio' : 'alpine'}"] .worldCardPlayBtn`).click();
     await timed('ready-wait', result.events, () => page.waitForFunction(() => {
       const s = window.__SMW;
       return s?.renderReadiness?.status === 'failed'

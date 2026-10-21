@@ -66,7 +66,7 @@ async function exerciseRoute(browser, url, audioPath, row, timeoutMs, outDir) {
         ? route.continue() : route.abort();
     });
     const run = async () => {
-      await page.goto(url + '/?experience=landscape');
+      await page.goto(url + '/');
       await page.locator('#titleSettings').evaluate(node => { node.open = true; });
       const lyrics = page.locator('#lyricGroundingBtn');
       if (await lyrics.getAttribute('aria-pressed') === 'true') await lyrics.click();
@@ -78,22 +78,24 @@ async function exerciseRoute(browser, url, audioPath, row, timeoutMs, outDir) {
           controls.setPhase('persisted-reload');
           // The actual UI wrote the preference. Reload cleanly, without the
           // query override that the toggle adds, and keep this same profile.
-          await page.goto(url + '/?experience=landscape');
+          await page.goto(url + '/');
           await page.locator('#titleSettings').evaluate(node => { node.open = true; });
           assert.equal(await page.locator('#range-tour-toggle').isChecked(), true);
           assert.equal(new URL(page.url()).searchParams.has('rangeTour'), false);
         }
-      } else if (row.id === 'trio') {
-        await page.locator('#display-experience').selectOption('trio');
       }
       row.entry = { url: page.url(), tourChecked: await page.locator('#range-tour-toggle').isChecked(),
         savedTour: await page.evaluate(() => localStorage.getItem('range-tour')),
         experience: await page.locator('#display-experience').inputValue() };
-      for (const key of ['worlds', 'rangeRenderer', 'rangeView', 'bulkExport']) {
+      for (const key of ['experience', 'rangeRenderer', 'rangeView', 'bulkExport']) {
         assert.equal(new URL(page.url()).searchParams.has(key), false, `ordinary route must not force ${key}`);
       }
       controls.setPhase('upload-and-prepare');
       await page.locator('#fileInput').setInputFiles(audioPath);
+      // The ordinary route: the chooser opens once the song is ready and the
+      // listener picks this route's world.
+      await page.locator('#worldSelect[open]').waitFor({ timeout: timeoutMs });
+      await page.locator(`.worldCard[data-base-world-id="${row.id === 'trio' ? 'trio' : 'alpine'}"] .worldCardPlayBtn`).click();
       await page.waitForFunction(() => {
         const s = window.__SMW;
         return s?.renderReadiness?.status === 'failed'
