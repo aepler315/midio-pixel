@@ -21,6 +21,7 @@ import { compositionErrors } from '../alpine/RangeComposition.js';
 import { AXES, axisDistance } from './RangeCharacter.js';
 import { seedTicket, songTerrainTarget } from './RangeMatcher.js';
 import { cameraRailErrors } from './SceneTravel.js';
+import { riverChannelErrors } from '../alpine/RiverChannel.js';
 
 export const SCENIC_FAIR_SHARE = 0.15;
 const KERNEL_WIDTH = 0.4;
@@ -44,6 +45,19 @@ export function sceneViewErrors(view) {
   errors.push(...compositionErrors(view));
   if (!view.characterScores || !AXES.every((a) => Number.isFinite(view.characterScores[a]))) errors.push('characterScores');
   if (!view.evidence || typeof view.evidence.reviewPath !== 'string') errors.push('evidence');
+  if (view.rivers != null) {
+    if (!Array.isArray(view.rivers)) errors.push('rivers must be an array');
+    else {
+      const ids = new Set();
+      for (const river of view.rivers) {
+        errors.push(...riverChannelErrors(river));
+        if (ids.has(river?.id)) errors.push('duplicate river id');
+        ids.add(river?.id);
+      }
+    }
+  }
+  if (view.riverPolicy != null && (view.riverPolicy.condition !== 'representative-no-runoff'
+    || view.riverPolicy.terrainWater !== 'mapped-only')) errors.push('riverPolicy');
   return errors;
 }
 

@@ -44,6 +44,7 @@ import { mirrorSize, mirrorLevelFor, mirrorCameraFor, mirrorTextureMatrix, MIRRO
 import { scenicProjection, calibrateRangeMusic } from './RangeFrame.js';
 import { applyGlacierUniforms, glacierErrors, glacierSample } from './GlacierField.js';
 import { ActorsGL } from './ActorsGL.js';
+import { buildRiverGeometry, riverGeometryBound, riverChannelErrors } from './RiverChannel.js';
 import { ACTOR_IDS, ACTOR_HUES, ACTOR_LOOK, ACTOR_START, actorRoutes, routePosition } from './RangeActors.js';
 // Storm light, linear: the deck's underside, the rain-dimmed horizon, the rain air.
 // STORM_AIR meets the slate the sky paints at the horizon (drawStormSky) once displayed.
@@ -52,6 +53,7 @@ const STORM_ZENITH = { r: .02, g: .026, b: .036 }, STORM_HORIZON = { r: .03, g: 
 const BACKDROP_KEY = 'range:water-backdrop';
 // Full/lite pairs share instances and retain two scalar attributes per batch.
 const FOREST_DETAIL_BYTES = BANDS.length * FOREST_FAMILIES * FOREST_VARIANTS * 8;
+const RIVER_VERTICES_PER_SET = 60000; // primary surface and seam fill share one admitted bound
 /** ?rangeDebug=<mode> terrain diagnostics (uDebugMask in TerrainMaterial). */
 export const TERRAIN_DEBUG_MODES = Object.freeze({ masks: 1, slope: 2, albedo: 3, fill: 4, key: 5, roughness: 6, specular: 7, sun: 8 });
 
@@ -190,10 +192,11 @@ export class RangeScene {
     this.pixelHeightPx = pixelated && pixelHeightPx > 0 ? pixelHeightPx : null;
     this.pixelScale = 'original';
     for (const p of this.prepared?.values() || []) {
-      if (!!p.material?.defines?.PIXEL_MATERIAL_SKIP !== this.pixelated && p.material) {
-        if (this.pixelated) p.material.defines.PIXEL_MATERIAL_SKIP = 1;
-        else delete p.material.defines.PIXEL_MATERIAL_SKIP;
-        p.material.needsUpdate = true;
+      for (const material of [p.material, p.riverMaterial]) {
+        if (!material || !!material.defines?.PIXEL_MATERIAL_SKIP === this.pixelated) continue;
+        if (this.pixelated) material.defines.PIXEL_MATERIAL_SKIP = 1;
+        else delete material.defines.PIXEL_MATERIAL_SKIP;
+        material.needsUpdate = true;
       }
     }
     const policy = rangeRenderPolicy({ widthPx: w, heightPx: h, quality, pixelated, budget: this.budget,
@@ -904,7 +907,8 @@ export class RangeScene {
         } };
       let mat = null, res = null, published = false;
       const cpu = await prepareTerrainAssets(view, { baseUrl, residency: this.residency, generation, signal, isCurrent, owner: cpuOwner });
-      let surface, geos, material, depthMaterial, ownershipMaterials = null, horizon = null, forest, stageGL, featureMaterial, actors;
+      let surface, geos, material, riverMaterial, riverDepthMaterial, riverOwnershipMaterials = null, depthMaterial, ownershipMaterials = null, horizon = null, forest, stageGL, featureMaterial, actors;
+      const riverGeometries = {}, riverFringeGeometries = {}, riverDepthMeshes = {};
       let initialWindow = null, workerKey = null, windowReservation = null, buildEntry = null, workerReservation = null;
       const featureGeometries = {};
       // This preparation's hold on its material pack (see _acquireMaterial).
@@ -926,12 +930,15 @@ export class RangeScene {
         mat = await this._acquireMaterial(view, { baseUrl, signal, owner: materialOwner });
         if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
         const rules = { ...mat.pack.manifest.rules, ...(view.materialRules || {}) };
+        const riverErrors = (view.rivers || []).flatMap(r => riverChannelErrors(r));
+        if (riverErrors.length) throw new RangeAssetError('manifest', `${view.id}: ${riverErrors.join('; ')}`);
         const waterCheck = validateWaterRules(rules);
         if (!waterCheck.ok) throw new RangeAssetError('manifest', `material rules rejected for ${view.id}: ${waterCheck.errors.join('; ')}`);
         // Placement yields to the event loop as it goes: a view prepared
         // during playback must not freeze frames while its forest is laid.
         let rawWindow = null;
-        const waterLevelM = waterLevel(cpu.data), mirrorLevelM = mirrorLevelFor(cpu.data, waterLevelM);
+        const waterLevelM = view.riverPolicy?.terrainWater === 'mapped-only' ? null : waterLevel(cpu.data);
+        const mirrorLevelM = mirrorLevelFor(cpu.data, waterLevelM);
         const windowOptions = { budget: this.budget, heightPx: this.budget === 'mobile' ? 720 : 1080,
           coverage: terrainWindowCoverage(opts.scenicViewport), coverageRevision: 0,
           pixelHeightPx: (this.pixelated ?? opts.pixelated) && !view.glacier ? (this.pixelHeightPx ?? opts.pixelHeightPx ?? null) : null,
@@ -979,8 +986,9 @@ export class RangeScene {
         // whose terrain streams; they keep the unshadowed key).
         const horizonOptions = { maxSize: this.budget === 'mobile' ? 192 : 256 };
         const horizonCost = view.tour || !cpu.data?.grid ? 0 : horizonBytes(cpu.data.grid, horizonOptions);
-        const bytes = view.tour ? Math.ceil(gridPx * (4 * 4 / 3 + 1)) + featureBudgetBytes + 2 * ActorsGL.bytes()
-          : 2 * ((est?.meshBytes || 0) + fringeBytes + forestBytes) + (est?.surfaceTextureBytes || 0) + gridPx + featureBudgetBytes + 2 * ActorsGL.bytes() + horizonCost;
+        const riverBound = 2 * riverGeometryBound(view, { maxVertices: RIVER_VERTICES_PER_SET });
+        const bytes = (view.tour ? Math.ceil(gridPx * (4 * 4 / 3 + 1)) + featureBudgetBytes + 2 * ActorsGL.bytes()
+          : 2 * ((est?.meshBytes || 0) + fringeBytes + forestBytes) + (est?.surfaceTextureBytes || 0) + gridPx + featureBudgetBytes + 2 * ActorsGL.bytes() + horizonCost) + 2 * riverBound;
         res = this.residency?.reserve({ key: gpuKey, bytes, owner: 'range-terrain-gpu', generation }) || null;
         if (this.residency && !res) throw new RangeAssetError('budget', `no GPU room for ${view.id}`);
         if (rawWindow) {
@@ -989,6 +997,28 @@ export class RangeScene {
           buildEntry.retainedBytes = windowBytes;
         }
         geos = createBandGeometries(THREE, cpu.data, { budget: this.budget, ...(rawWindow ? { built: rawWindow.built } : {}) });
+        // Clip narrow mapped channels to the actual drawn triangles: the
+        // same LOD, tile boundaries and no-data gaps, with a small depth lift.
+        const riverOptions = { maxVertices: RIVER_VERTICES_PER_SET };
+        const rivers = buildRiverGeometry(cpu.data, view, geos, riverOptions);
+        const riverFringes = buildRiverGeometry(cpu.data, view, { geometries: geos.fringes }, riverOptions);
+        for (const [destination, built] of [[riverGeometries, rivers], [riverFringeGeometries, riverFringes]]) for (const band of BANDS) {
+          const raw = built.bands[band];
+          if (!raw.indices.length) continue;
+          const geometry = new THREE.BufferGeometry();
+          destination[band] = geometry;
+          geometry.setAttribute('position', new THREE.BufferAttribute(raw.positions, 3));
+          geometry.setAttribute('river', new THREE.BufferAttribute(raw.river, 3));
+          geometry.setAttribute('riverDirection', new THREE.BufferAttribute(raw.riverDirection, 2));
+          for (const key of ['terrainA', 'terrainB', 'terrainC']) geometry.setAttribute(key, new THREE.BufferAttribute(raw[key], 3));
+          geometry.setIndex(new THREE.BufferAttribute(raw.indices, 1));
+          geometry.computeBoundingSphere();
+        }
+        const riverStats = { ...rivers.stats, fringeTriangles: riverFringes.stats.triangles,
+          bytes: rivers.stats.bytes + riverFringes.stats.bytes };
+        if (res && riverBound) this.residency.shrink(gpuKey, bytes - 2 * riverBound + 2 * riverStats.bytes);
+        await yieldToMain();
+        if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
         const scratchKey = `range:surface-scratch:${view.id}`;
         const scratch = this.residency?.reserve({ key: scratchKey, bytes: gridPx * 11, owner: 'range-scratch', generation }) || null;
         if (this.residency && !scratch) throw new RangeAssetError('budget', `no room to build ${view.id} surface`);
@@ -1019,13 +1049,22 @@ export class RangeScene {
         }
         material = createSceneMaterial(THREE, uniforms, { forestDebug: this.forestDebug, budget: this.budget,
           pixelated: this.pixelated ?? opts.pixelated ?? false,
+          mappedWaterOnly: view.riverPolicy?.terrainWater === 'mapped-only',
           terrainShading: terrainShadingForView(this.terrainShading, view.id) });
+        if (Object.keys(riverGeometries).length) {
+          riverMaterial = createSceneMaterial(THREE, uniforms, { budget: this.budget, riverSurface: true,
+            pixelated: this.pixelated ?? opts.pixelated ?? false });
+          riverMaterial.depthFunc = THREE.LessEqualDepth;
+          riverMaterial.depthWrite = false;
+        }
         featureMaterial = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms,
           vertexShader: SCENE_VERT, fragmentShader: FEATURE_FRAG, transparent: true,
           depthTest: true, depthWrite: false, depthFunc: THREE.LessEqualDepth });
         depthMaterial = createDepthMaterial(THREE, uniforms);
+        if (riverMaterial) riverDepthMaterial = createDepthMaterial(THREE, uniforms, { riverSurface: true });
         // The same pre-pass with each band's ownership colour (edge policy).
         ownershipMaterials = this._createOwnershipMaterials(uniforms, this.pixelated ?? opts.pixelated ?? false);
+        if (riverMaterial) riverOwnershipMaterials = this._createOwnershipMaterials(uniforms, this.pixelated ?? opts.pixelated ?? false, true);
         await yieldToMain();
         if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
         const meshes = {}, depthMeshes = {}, scenes = {};
@@ -1047,6 +1086,15 @@ export class RangeScene {
           depthMeshes[band] = new THREE.Mesh(geos.geometries[band], depthMaterial);
           depthMeshes[band].frustumCulled = false;
           depthScene.add(depthMeshes[band]);
+          if (riverGeometries[band]) {
+            const river = new THREE.Mesh(riverGeometries[band], riverMaterial);
+            river.frustumCulled = false;
+            scenes[band].add(river);
+            const depth = new THREE.Mesh(riverGeometries[band], riverDepthMaterial);
+            depth.frustumCulled = false;
+            riverDepthMeshes[band] = depth;
+            depthScene.add(depth);
+          }
         }
         // Seam fill: a nearer band's tiles that border a farther band also
         // draw in that farther pass (against the same depth pre-pass, so
@@ -1069,6 +1117,7 @@ export class RangeScene {
           scene.add(travel);
           fringeTravel.push({ band: BANDS[b], pass: BANDS[b - 1], scene });
         }
+        this._attachRiverFringes(riverFringeGeometries, riverMaterial, scenes, fringeMeshes, fringeTravel);
         material.depthFunc = THREE.LessEqualDepth;
         material.depthWrite = false;
         forest = createForest(THREE, placed, uniforms, { forestDebug: this.forestDebug });
@@ -1088,6 +1137,11 @@ export class RangeScene {
           const dm = new THREE.Mesh(geos.geometries[band], depthMaterial);
           dm.frustumCulled = false;
           depthScenes[band].add(dm);
+          if (riverGeometries[band]) {
+            const riverDepth = new THREE.Mesh(riverGeometries[band], riverDepthMaterial);
+            riverDepth.frustumCulled = false;
+            depthScenes[band].add(riverDepth);
+          }
           for (const d of forest.depthByBand?.[band] || []) depthScenes[band].add(d);
         }
         // Three's compile() creates programs but does not reject a failed
@@ -1107,6 +1161,10 @@ export class RangeScene {
           for (const band of BANDS) {
             const om = new THREE.Mesh(geos.geometries[band], ownershipMaterials[band]);
             om.frustumCulled = false; ownershipScene.add(om);
+            if (riverGeometries[band]) {
+              const riverOwner = new THREE.Mesh(riverGeometries[band], riverOwnershipMaterials[band]);
+              riverOwner.frustumCulled = false; ownershipScene.add(riverOwner);
+            }
           }
           targets.push([ownershipScene]);
         }
@@ -1125,6 +1183,7 @@ export class RangeScene {
         const prepared = {
           view, generation, manifest: cpu.manifest, data: cpu.data, identity: cpu.identity, tourCpuKey: opts.tourCpuKey,
           surface, uniforms, material, depthMaterial, ownershipMaterials, horizon, depthBandMeshes: depthMeshes, geometries: geos.geometries, fringes: geos.fringes, fringeMeshes, fringeTravel, scenes, depthScene, depthScenes,
+          riverMaterial, riverDepthMaterial, riverOwnershipMaterials, riverGeometries, riverFringeGeometries, riverDepthMeshes, riverStats,
           forest, stageGL, featureGeometries, featureMaterial,
           stats: { ...geos.stats, trees: forest.counts, featureBytes: featureBudgetBytes }, gpuKey, cpuKey: cpu.key, cpuOwner,
           giantLayout: giantLayout(cpu.data, view, [uniforms.uHeightRange.value.x, uniforms.uHeightRange.value.y], waterLevelM),
@@ -1175,6 +1234,11 @@ export class RangeScene {
           actors?.dispose();
           stageGL?.dispose();
           material?.dispose();
+          riverMaterial?.dispose();
+          riverDepthMaterial?.dispose();
+          for (const m of Object.values(riverOwnershipMaterials || {})) m.dispose();
+          for (const g of Object.values(riverGeometries)) g.dispose();
+          for (const g of Object.values(riverFringeGeometries)) g.dispose();
           depthMaterial?.dispose();
           for (const m of Object.values(ownershipMaterials || {})) m.dispose();
           horizon?.texture?.dispose();
@@ -1236,6 +1300,25 @@ export class RangeScene {
       r.setRenderTarget(target);
     });
     this.stats.depthPasses++;
+  }
+
+  /** Channels need the same seam fill and scoped travel as the ground
+   * below them: their depth pre-pass must not punch a hole in the fill. */
+  _attachRiverFringes(geometries, material, scenes, meshes, travel) {
+    for (let b = 1; b < BANDS.length; b++) {
+      const band = BANDS[b], geometry = geometries[band];
+      if (!geometry) continue;
+      const mesh = new this.THREE.Mesh(geometry, material);
+      mesh.frustumCulled = false;
+      scenes[BANDS[b - 1]].add(mesh);
+      meshes.push(mesh);
+      const scoped = travel.find(f => f.band === band && f.pass === BANDS[b - 1]);
+      if (scoped) {
+        const copy = new this.THREE.Mesh(geometry, material);
+        copy.frustumCulled = false;
+        scoped.scene.add(copy);
+      }
+    }
   }
 
   /** A travel side's seam fill for one pass: each nearer band's border
@@ -1443,6 +1526,11 @@ export class RangeScene {
     p.surface?.texture?.dispose();
     p.surface?.receiverTexture?.dispose();
     p.material?.dispose();
+    p.riverMaterial?.dispose();
+    p.riverDepthMaterial?.dispose();
+    for (const m of Object.values(p.riverOwnershipMaterials || {})) m.dispose();
+    for (const g of Object.values(p.riverGeometries || {})) g.dispose();
+    for (const g of Object.values(p.riverFringeGeometries || {})) g.dispose();
     p.depthMaterial?.dispose();
     for (const m of Object.values(p.ownershipMaterials || {})) m.dispose();
     p.horizon?.texture?.dispose();
@@ -1828,12 +1916,13 @@ export class RangeScene {
 
   /** The full-scene depth pre-pass, also recording which band owns each
    *  sample, then resolving that into `own` (cleared by the caller). */
-  _createOwnershipMaterials(uniforms, pixelated) {
+  _createOwnershipMaterials(uniforms, pixelated, riverSurface = false) {
     if (pixelated) return null;
     const THREE = this.THREE;
     return Object.fromEntries(BANDS.map(band => [band, new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3, vertexShader: SCENE_VERT,
       fragmentShader: OWNERSHIP_FRAG.replace('OWNER_COLOUR', OWNER_COLOURS[band]), uniforms,
+      ...(riverSurface ? { defines: { RIVER_SURFACE: 1 } } : {}),
     })]));
   }
 
@@ -1843,8 +1932,15 @@ export class RangeScene {
     p.ownershipMaterials ||= this._createOwnershipMaterials(p.uniforms, false);
     const meshes = p.depthBandMeshes || {};
     for (const band of BANDS) if (meshes[band] && p.ownershipMaterials?.[band]) meshes[band].material = p.ownershipMaterials[band];
+    if (Object.keys(p.riverDepthMeshes || {}).length) p.riverOwnershipMaterials ||= this._createOwnershipMaterials(p.uniforms, false, true);
+    for (const band of BANDS) if (p.riverDepthMeshes?.[band] && p.riverOwnershipMaterials?.[band]) p.riverDepthMeshes[band].material = p.riverOwnershipMaterials[band];
     try { r.render(p.depthScene, this.camera); }
-    finally { for (const band of BANDS) if (meshes[band]) meshes[band].material = p.depthMaterial; }
+    finally {
+      for (const band of BANDS) {
+        if (meshes[band]) meshes[band].material = p.depthMaterial;
+        if (p.riverDepthMeshes?.[band]) p.riverDepthMeshes[band].material = p.riverDepthMaterial;
+      }
+    }
     // The render resolved the samples into target.texture: keep that.
     r.setRenderTarget(own);
     r.setClearColor(0x000000, 0);
@@ -2033,6 +2129,7 @@ export class RangeScene {
   snapshot() {
     return {
       prepared: [...this.prepared.keys()], pending: [...this.pending.keys()], contextLost: this.contextLost,
+      rivers: [...this.prepared.values()].filter(p => p.view.rivers).map(p => ({ viewId: p.view.id, ...p.riverStats })),
       buildAdmission: { requestedBytes: 0, admittedBytes: 0, denials: 0, peakBytes: 0, ...this.buildAdmission },
       windows: [...this.prepared.values()].filter(p=>p.windowCache).map(p=>({id:p.view.id,index:p.windowIndex,resident:[...p.windowCache.resident.keys()],detail:p.activeWindow?.detail,coverage:p.windowCoverage,note:p.windowNote,stats:p.stats,forestDetail:p.forestDetailViews})),
       size: { ...this.size }, stats: { ...this.stats }, sideB: !!this.sideTargets.B,
