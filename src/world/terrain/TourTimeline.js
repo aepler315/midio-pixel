@@ -1,6 +1,7 @@
 import { projectPoint } from './SceneTravel.js';
 import { trimPath } from './TourGraph.js';
 import { tourClearanceAt, tourClearanceAlong } from './TourPackage.js';
+import { tourYawBudget } from './TourMotion.js';
 const DEG=Math.PI/180,clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
 const diff=(a,b)=>((a-b+540)%360)-180;
 const fovY=hfov=>2*Math.atan(Math.tan(hfov*DEG/2)/(16/9))/DEG;
@@ -46,10 +47,10 @@ function aimAt(sample,y,heading){
  *  they were planned under the previous preference and are never
  *  re-validated against a new (reduced-motion) climb limit. */
 function envelopes(frames,locks,climb,lastFrozen=-1){
-  const lo=Float64Array.from(frames,f=>f.floorY+5.02),hi=Float64Array.from(frames,f=>f.ceilY-.02),step=climb*.1;
+  const lo=Float64Array.from(frames,f=>f.floorY+5.02),hi=Float64Array.from(frames,f=>f.ceilY-.02);
   for(const [i,y]of locks){if(y<lo[i]||y>hi[i])return null;lo[i]=hi[i]=y;}
-  for(let i=1;i<lo.length;i++){if(i<=lastFrozen)continue;lo[i]=Math.max(lo[i],lo[i-1]-step);hi[i]=Math.min(hi[i],hi[i-1]+step);if(lo[i]>hi[i]+.001)return null;}
-  for(let i=lo.length-2;i>=0;i--){if(i+1<=lastFrozen)continue;lo[i]=Math.max(lo[i],lo[i+1]-step);hi[i]=Math.min(hi[i],hi[i+1]+step);if(lo[i]>hi[i]+.001)return null;}
+  for(let i=1;i<lo.length;i++){if(i<=lastFrozen)continue;const step=climb*(frames[i].timeMs-frames[i-1].timeMs)/1000;lo[i]=Math.max(lo[i],lo[i-1]-step);hi[i]=Math.min(hi[i],hi[i-1]+step);if(lo[i]>hi[i]+.001)return null;}
+  for(let i=lo.length-2;i>=0;i--){if(i+1<=lastFrozen)continue;const step=climb*(frames[i+1].timeMs-frames[i].timeMs)/1000;lo[i]=Math.max(lo[i],lo[i+1]-step);hi[i]=Math.min(hi[i],hi[i+1]+step);if(lo[i]>hi[i]+.001)return null;}
   return{lo,hi};
 }
 const smooth=(values,seconds,dt)=>{
@@ -61,10 +62,10 @@ const smooth=(values,seconds,dt)=>{
 /** Joint continuous altitude/aim beam DP: tiers are targets, never jumps. */
 export function buildTourTimeline(data,plan,{reducedMotion=plan.reducedMotion||false,previous=null,frozenThroughMs=-1,routeScale=1,qualityRetry=true}={}){
   const durationMs=plan.durationMs,points=new Map(data.points.map(p=>[p.id,p])),notes=[...plan.notes],heroes=plan.heroes.map(h=>({...h}));
-  const preview=points.get(plan.previewPointId),climb=reducedMotion?15:30,yaw=reducedMotion?12:25;
+  const preview=points.get(plan.previewPointId),climb=reducedMotion?15:30;
   if(!durationMs){const p=preview.station,a=p.bestAim,eyeM=[p.posM[0],p.yM,p.posM[1]],v=vector(a.headingDeg,a.pitchDeg),pose={eyeM,targetM:eyeM.map((x,i)=>x+v[i]*12000),fovYDeg:fovY(a.hfovDeg),tour:true};return{durationMs:0,heroes:[],notes,meanQualityRatio:1,poseAt:()=>structuredClone(pose),reducedMotion};}
   const count=Math.ceil(durationMs/100)+1;let frames,bounds,locks,scale=1;
-  const lastFrozen=previous?Math.min(count-1,Math.floor(frozenThroughMs/100)):-1;
+  const lastFrozen=previous?Math.min(count-1,frozenThroughMs>=durationMs?count-1:Math.floor(frozenThroughMs/100)):-1;
   const routeTimeOriginMs=previous?frozenThroughMs:0,routeSlowTauSec=previous?10:0;
   const routeClock=(time,factor)=>{
     const elapsed=Math.max(0,(time-routeTimeOriginMs)/1000);
@@ -75,7 +76,7 @@ export function buildTourTimeline(data,plan,{reducedMotion=plan.reducedMotion||f
   for(const factor of [routeScale,...[1.25,1.5,2,3,4,6,10].filter(f=>f>routeScale)]){
     frames=Array.from({length:count},(_,i)=>{
       const time=Math.min(durationMs,i*100),route=plan.routeAt(routeClock(time,factor));
-      if(previous&&i*100<=frozenThroughMs){const p=previous.poseAt(i*100);route.posM=[p.eyeM[0],p.eyeM[2]];}
+      if(previous&&time<=frozenThroughMs){const p=previous.poseAt(time);route.posM=[p.eyeM[0],p.eyeM[2]];}
       route.speedMps*=clockRate(time,factor);
       const band=data.clearance?tourClearanceAt(data.clearance,...route.posM):route;
       if(route.speedMps>=15&&(!previous||time>frozenThroughMs)){
@@ -89,10 +90,10 @@ export function buildTourTimeline(data,plan,{reducedMotion=plan.reducedMotion||f
       const band=tourClearanceAlong(data.clearance,frames[i-1].posM,frames[i].posM);
       for(const f of [frames[i-1],frames[i]]){f.floorY=Math.max(f.floorY,band.floorY);f.ceilY=Math.min(f.ceilY,band.ceilY);}
     }
-    locks=new Map();if(previous)for(let i=0;i<count&&i*100<=frozenThroughMs;i++)locks.set(i,previous.poseAt(i*100).eyeM[1]);bounds=envelopes(frames,locks,climb,lastFrozen);
+    locks=new Map();if(previous)for(let i=0;i<count&&frames[i].timeMs<=frozenThroughMs;i++)locks.set(i,previous.poseAt(frames[i].timeMs).eyeM[1]);bounds=envelopes(frames,locks,climb,lastFrozen);
     if(bounds&&factor===1)for(const h of heroes.filter(h=>!h.passedAtRange)){
       const station=points.get(h.pointId).station,proposed=new Map(locks);
-      for(let i=Math.max(0,Math.ceil((h.timeMs-1500)/100));i<=Math.min(count-1,Math.floor((h.timeMs+1500)/100));i++)proposed.set(i,station.yM);
+      for(let i=Math.max(lastFrozen+1,0,Math.ceil((h.timeMs-1500)/100));i<=Math.min(count-1,Math.floor((h.timeMs+1500)/100));i++)proposed.set(i,station.yM);
       const constrained=envelopes(frames,proposed,climb,lastFrozen);
       if(constrained){locks=proposed;bounds=constrained;}
       else{h.passedAtRange=true;notes.push(`${h.pointId}: exact-height lock cannot fit the climb corridor`);}
@@ -102,7 +103,38 @@ export function buildTourTimeline(data,plan,{reducedMotion=plan.reducedMotion||f
   if(!bounds)throw new Error('Tour route has no rate-limited altitude corridor');
   if(scale!==1){notes.push(`Route slowed by ${scale} for clearance or view quality; hero deadlines passed at range`);for(const h of heroes)h.passedAtRange=true;}
   const dpTimes=[];let begin=0;if(previous){for(let t=0;t<=frozenThroughMs&&t<durationMs;t+=100)dpTimes.push(t);begin=frozenThroughMs+250;}for(let t=begin;t<durationMs;t+=250)dpTimes.push(t);dpTimes.push(durationMs);
-  let beam=[],lastTime=0;
+  const yawBetween=tourYawBudget(frames,{reducedMotion});
+  const refreshLocks=()=>{
+    locks=new Map();if(previous)for(let i=0;i<count&&frames[i].timeMs<=frozenThroughMs;i++)locks.set(i,previous.poseAt(frames[i].timeMs).eyeM[1]);
+    if(scale===1)for(const h of heroes.filter(h=>!h.passedAtRange)){
+      const station=points.get(h.pointId).station;
+      for(let i=Math.max(lastFrozen+1,0,Math.ceil((h.timeMs-1500)/100));i<=Math.min(count-1,Math.floor((h.timeMs+1500)/100));i++)locks.set(i,station.yM);
+    }
+    bounds=envelopes(frames,locks,climb,lastFrozen);
+    if(!bounds)throw new Error('Tour route has no rate-limited altitude corridor');
+  };
+  // Exact windows have priority in chronological order. A later overlapping
+  // or too-close aim must not evict an earlier feasible shot when the beam
+  // reaches their shared window. Keep compatible repeated shots locked.
+  let priorLock=null;
+  for(const hero of [...heroes].sort((a,b)=>a.timeMs-b.timeMs)){
+    if(hero.passedAtRange)continue;
+    const station=points.get(hero.pointId).station;
+    if(priorLock){
+      const priorStation=points.get(priorLock.pointId).station;
+      if(Math.abs(diff(station.bestAim.headingDeg,priorStation.bestAim.headingDeg))>yawBetween(priorLock.timeMs+1500,hero.timeMs-1500)+.01){
+        hero.passedAtRange=true;notes.push(`${hero.pointId}: aim lock unreachable under yaw limit`);continue;
+      }
+    }
+    priorLock=hero;
+  }
+  refreshLocks();
+  let beam=[],lastTime;
+  // At most one authored lock is released per retry. Re-run the DP locally
+  // so an unreachable future deadline cannot cause unbounded recursion or
+  // silently invalidate the route, clearance, or committed prefix.
+  for(let attempt=0;attempt<=heroes.length;attempt++){
+  beam=[];lastTime=0;let blockedHero=null;
   for(let step=0;step<dpTimes.length;step++){
     const time=dpTimes[step],frame=frames[Math.min(count-1,Math.round(time/100))],point=points.get(frame.pointId)||preview;
     const lock=heroes.find(h=>!h.passedAtRange&&Math.abs(h.timeMs-time)<=1500);
@@ -116,12 +148,12 @@ export function buildTourTimeline(data,plan,{reducedMotion=plan.reducedMotion||f
     // Committed keyframes keep the rates they were planned with; the limits
     // of the current preference start at the first uncommitted step.
     const committed=previous&&time<=frozenThroughMs;
-    const dt=step?(time-lastTime)/1000:0,limit=committed?Infinity:(frame.role==='outro'||frame.role==='breakdown'?Math.min(12,yaw):yaw)*dt,rise=committed?Infinity:climb*dt;
+    const dt=step?(time-lastTime)/1000:0,limit=committed?Infinity:yawBetween(lastTime,time),rise=committed?Infinity:climb*dt;
     const states=new Map();
     const predecessors=beam.length?beam:[null];
     for(const prev of predecessors){
       const targets=station?[station.yM]:frame.sample.tiers.map(t=>t.yM);
-      const frameAt=Math.min(count-1,time/100),boundLo=Math.floor(frameAt),boundHi=Math.min(count-1,boundLo+1),fraction=frameAt-boundLo;
+      const boundLo=Math.min(count-2,Math.floor(time/100)),boundHi=boundLo+1,fraction=clamp((time-frames[boundLo].timeMs)/(frames[boundHi].timeMs-frames[boundLo].timeMs),0,1);
       const minimum=mix(bounds.lo[boundLo],bounds.lo[boundHi],fraction),maximum=mix(bounds.hi[boundLo],bounds.hi[boundHi],fraction);
       for(const targetY of targets){
         const y=clamp(targetY,Math.max(minimum,prev?prev.y-rise:minimum),Math.min(maximum,prev?prev.y+rise:maximum));
@@ -131,7 +163,7 @@ export function buildTourTimeline(data,plan,{reducedMotion=plan.reducedMotion||f
         for(const targetHeading of aims){
           const heading=prev?prev.heading+clamp(diff(targetHeading,prev.heading),-limit,limit):targetHeading;
           if(station&&Math.abs(diff(heading,station.bestAim.headingDeg))>.01)continue;
-          if(nextStation&&Math.abs(diff(nextStation.bestAim.headingDeg,heading))>yaw*Math.max(0,(nextHero.timeMs-1500-time)/1000)+.01)continue;
+          if(nextStation&&Math.abs(diff(nextStation.bestAim.headingDeg,heading))>yawBetween(time,nextHero.timeMs-1500)+.01)continue;
           const aim=station?{quality:station.bestAim.score,pitch:station.bestAim.pitchDeg,hfov:station.bestAim.hfovDeg,tier:0}:aimAt(frame.sample,y,heading);
           const activeHero=heroes.find(h=>h.pointId===frame.pointId&&h.timeMs+3000>=time);
           const pull=activeHero?clamp(time<=activeHero.timeMs?1-(activeHero.timeMs-time)/4000:1-(time-activeHero.timeMs)/3000,0,1):0;
@@ -144,7 +176,8 @@ export function buildTourTimeline(data,plan,{reducedMotion=plan.reducedMotion||f
       }
     }
     if(!states.size){
-      if(lock){lock.passedAtRange=true;notes.push(`${lock.pointId}: aim lock unreachable under yaw limit`);return buildTourTimeline(data,{...plan,heroes,notes},{reducedMotion,previous,frozenThroughMs});}
+      blockedHero=lock||nextHero;
+      if(blockedHero)break;
       throw new Error('Tour timeline has no feasible aim state');
     }
     const diverse=new Map();
@@ -153,6 +186,12 @@ export function buildTourTimeline(data,plan,{reducedMotion=plan.reducedMotion||f
       if(!diverse.has(key)||diverse.get(key).cost<state.cost)diverse.set(key,state);
     }
     beam=[...diverse.values()].sort((a,b)=>b.cost-a.cost||a.heading-b.heading||a.y-b.y).slice(0,data.tunables?.timelineBeamWidth||60);lastTime=time;
+  }
+  if(!blockedHero)break;
+  blockedHero.passedAtRange=true;notes.push(`${blockedHero.pointId}: aim lock unreachable under yaw limit`);
+  // Releasing an aim also releases only its own future altitude lock. Build
+  // the remaining locks again to retain overlaps and every committed pose.
+  refreshLocks();
   }
   const chosen=[];let state=beam[0];while(state){chosen.push(state);state=state.previous;}chosen.reverse();
   const rawY=new Float64Array(count),headings=new Float64Array(count),pitches=new Float64Array(count),fovs=new Float64Array(count);let at=0;
@@ -164,13 +203,14 @@ export function buildTourTimeline(data,plan,{reducedMotion=plan.reducedMotion||f
   const y=smooth(rawY,1.2,.1),heading=smooth(headings,data.tunables?.aimSmoothSec??.6,.1),pitch=smooth(pitches,.6,.1),hfov=smooth(fovs,1,.1);
   const eye=new Float32Array(count*3),target=new Float32Array(count*3),fov=new Float32Array(count),meta=new Uint16Array(count*4);let qualitySum=0,maxSum=0;
   for(let i=0;i<count;i++){
-    if(previous&&i*100<=frozenThroughMs){
+    if(previous&&frames[i].timeMs<=frozenThroughMs){
       for(const [key,array,size]of [['eye',eye,3],['target',target,3],['fov',fov,1],['meta',meta,4]])array.set(previous[key].subarray(i*size,(i+1)*size),i*size);
       y[i]=previous.eye[i*3+1];const v=previous.target.subarray(i*3,i*3+3).map((n,k)=>n-previous.eye[i*3+k]);heading[i]=Math.atan2(v[0],-v[2])/DEG;continue;
     }
     const frame=frames[i],lock=heroes.find(h=>!h.passedAtRange&&Math.abs(h.timeMs-frame.timeMs)<=1500),s=lock?points.get(lock.pointId).station:null;
-    const lo=Math.max(bounds.lo[i],i?y[i-1]-climb*.1:bounds.lo[i]),hi=Math.min(bounds.hi[i],i?y[i-1]+climb*.1:bounds.hi[i]);y[i]=s?s.yM:clamp(y[i],lo,hi);
-    const rate=(frame.role==='outro'||frame.role==='breakdown'?Math.min(12,yaw):yaw)*.1;
+    const dt=i?(frame.timeMs-frames[i-1].timeMs)/1000:0;
+    const lo=Math.max(bounds.lo[i],i?y[i-1]-climb*dt:bounds.lo[i]),hi=Math.min(bounds.hi[i],i?y[i-1]+climb*dt:bounds.hi[i]);y[i]=s?s.yM:clamp(y[i],lo,hi);
+    const rate=i?yawBetween(frames[i-1].timeMs,frame.timeMs):0;
     const nextLock=heroes.find(h=>!h.passedAtRange&&h.timeMs+1500>=frame.timeMs);
     const futureHeading=nextLock?points.get(nextLock.pointId).station.bestAim.headingDeg:null;
     if(i){
@@ -178,10 +218,13 @@ export function buildTourTimeline(data,plan,{reducedMotion=plan.reducedMotion||f
       let low=previousHeading-rate,high=previousHeading+rate;
       if(futureHeading!==null){
         const unwrapped=previousHeading+diff(futureHeading,previousHeading);
-        const reach=Math.max(0,nextLock.timeMs-1500-frame.timeMs)*.001*(frame.role==='outro'||frame.role==='breakdown'?Math.min(12,yaw):yaw);
+        const reach=yawBetween(frame.timeMs,nextLock.timeMs-1500);
         low=Math.max(low,unwrapped-reach);high=Math.min(high,unwrapped+reach);
       }
       heading[i]=clamp(previousHeading+diff(s?s.bestAim.headingDeg:heading[i],previousHeading),low,high);
+    }else if(futureHeading!==null){
+      const reach=yawBetween(frame.timeMs,nextLock.timeMs-1500),centre=heading[i]+diff(futureHeading,heading[i]);
+      heading[i]=clamp(s?s.bestAim.headingDeg:heading[i],centre-reach,centre+reach);
     }
     if(s){pitch[i]=s.bestAim.pitchDeg;hfov[i]=s.bestAim.hfovDeg;}
     if(frame.stop&&i&&frames[i-1].stop){heading[i]=heading[i-1];pitch[i]=pitch[i-1];hfov[i]=hfov[i-1];}
@@ -192,6 +235,7 @@ export function buildTourTimeline(data,plan,{reducedMotion=plan.reducedMotion||f
   const result = restoreTourTimeline({durationMs,eye,target,fov,meta,heroes,notes,reducedMotion,meanQualityRatio:qualitySum/Math.max(.001,maxSum),data,plan,routeSegments:plan.segments,routeSpeedProfile:plan.speedProfile,scale,routeTimeOriginMs,routeSlowTauSec});
   composeDistantHeroes(result, data, frames, lastFrozen);
   result.heroFraming = measureHeroFraming(result, data);
+  result.heroCoverage = summarizeHeroCoverage(result.heroFraming);
   const missedStations = new Set(result.heroFraming.filter(h => h.stationVisit && h.framedFraction < .8).map(h => h.pointId));
   if (missedStations.size) {
     // A waypoint can be reachable while its authored subject cannot be
@@ -224,21 +268,45 @@ export function measureHeroFraming(tour, data) {
   const points = new Map(data.points.map(p => [p.id, p]));
   return tour.heroes.map(hero => {
     const station = points.get(hero.pointId)?.station;
-    const subjectId = hero.framingPointId || (!hero.passedAtRange && station?.bestAim?.subjectId) || hero.pointId;
-    const point = points.get(subjectId);
-    let framed = 0, count = 0, stationDistanceM = Infinity;
-    for (let t = Math.max(0, hero.timeMs - 1500); t <= Math.min(tour.durationMs, hero.timeMs + 1500); t += 250) {
-      const pose = tour.poseAt(t), projected = point ? projectPoint(pose, 16 / 9, point.localM) : null;
-      const forward = pose.targetM.map((v, i) => v - pose.eyeM[i]);
-      const front = point && point.localM.reduce((v, x, i) => v + (x - pose.eyeM[i]) * forward[i], 0) > 0;
-      if (front && projected && Math.abs(projected.x) <= .8 && Math.abs(projected.y) <= .8) framed++;
+    const intendedPointId = (!hero.passedAtRange && station?.bestAim?.subjectId) || hero.pointId;
+    const point = points.get(hero.framingPointId || intendedPointId), intended = points.get(intendedPointId);
+    const windowStartMs = Math.max(0, hero.timeMs - 1500), windowEndMs = Math.min(tour.durationMs, hero.timeMs + 1500);
+    const times = [];
+    for (let t = windowStartMs; t < windowEndMs; t += 250) times.push(t);
+    times.push(windowEndMs);
+    let framed = 0, intendedFramed = 0, stationDistanceM = Infinity;
+    for (const t of times) {
+      const pose = tour.poseAt(t), forward = pose.targetM.map((v, i) => v - pose.eyeM[i]);
+      const covered = subject => {
+        const projected = subject ? projectPoint(pose, 16 / 9, subject.localM) : null;
+        const front = subject && subject.localM.reduce((v, x, i) => v + (x - pose.eyeM[i]) * forward[i], 0) > 0;
+        return front && projected && Math.abs(projected.x) <= .8 && Math.abs(projected.y) <= .8;
+      };
+      if (covered(point)) framed++;
+      if (covered(intended)) intendedFramed++;
       if (station) stationDistanceM = Math.min(stationDistanceM, Math.hypot(pose.eyeM[0] - station.posM[0], pose.eyeM[2] - station.posM[1]));
-      count++;
     }
-    const framedFraction = framed / Math.max(1, count), stationVisit = !hero.passedAtRange && stationDistanceM <= 150;
-    return { pointId: hero.pointId, framedPointId: point?.id ?? null, timeMs: hero.timeMs, framedFraction, stationVisit, stationReached: stationDistanceM <= 150, stationDistanceM,
+    const framedFraction = framed / times.length, stationVisit = !hero.passedAtRange && stationDistanceM <= 150;
+    return { pointId: hero.pointId, intendedPointId: intended?.id ?? null, framedPointId: point?.id ?? null,
+      intendedFramedFraction: intendedFramed / times.length, alternative: !!point && point.id !== intendedPointId,
+      role: hero.role ?? null, finalChorus: !!hero.finalChorus, subHero: !!hero.subHero,
+      timeMs: hero.timeMs, windowStartMs, windowEndMs, sampleCount: times.length,
+      reason: hero.framingReason || (framedFraction >= .8 ? 'projected-subject-covered' : 'no-legal-projected-shot'),
+      framedFraction, stationVisit, stationReached: stationDistanceM <= 150, stationDistanceM,
       outcome: framedFraction < .8 ? 'missed' : stationVisit ? 'station' : 'distant' };
   });
+}
+/** Projection diagnostics, not terrain visibility or artistic acceptance. */
+export function summarizeHeroCoverage(framing) {
+  return {
+    projectionOnly: true, total: framing.length,
+    intended: framing.filter(h => h.intendedFramedFraction >= .8).length,
+    alternative: framing.filter(h => h.alternative && h.framedFraction >= .8).length,
+    station: framing.filter(h => h.outcome === 'station').length,
+    distant: framing.filter(h => h.outcome === 'distant').length,
+    missed: framing.filter(h => h.outcome === 'missed').length,
+    endings: framing.filter(h => h.finalChorus || h.role === 'outro').map(h => ({ ...h })),
+  };
 }
 /** Compose a distant subject only when the entire shot fits the already
  * safe route, yaw limits and quality budget. Never retime roads or lift
@@ -255,22 +323,35 @@ function composeDistantHeroes(tour, data, frames, lastFrozen) {
     maximum[i] = Math.max(...frames[i].sample.tiers.flatMap(t => [...t.score])) / 255;
   }
   let sum = quality.reduce((a, b) => a + b, 0);
-  const max = maximum.reduce((a, b) => a + b, 0), accepted = [];
+  const max = maximum.reduce((a, b) => a + b, 0);
+  // Existing coverage is a constraint even when its hero occurs later in
+  // the song. Trying an earlier repair must not erase that intended shot.
+  const accepted = new Set(measureHeroFraming(tour, data).filter(h => h.framedFraction >= .8).map(h => h.timeMs));
+  const capacityBetween = tourYawBudget(frames, { reducedMotion: tour.reducedMotion });
   const ease = x => { const t = clamp(x, 0, 1); return t * t * (3 - 2 * t); };
-  for (const hero of tour.heroes) {
+  for (const hero of [...tour.heroes].sort((a, b) => a.timeMs - b.timeMs)) {
     const center = Math.min(count - 1, Math.round(hero.timeMs / 100)), eye = [...tour.eye.subarray(center * 3, center * 3 + 3)];
     const stationSubject = !hero.passedAtRange && points.get(hero.pointId)?.station?.bestAim?.subjectId;
     const intended = points.get(stationSubject || hero.pointId);
     const existing = measureHeroFraming({ ...tour, heroes: [hero] }, data)[0];
-    if (existing.framedFraction >= .8) { accepted.push(hero.timeMs); continue; }
+    if (existing.framedFraction >= .8) { accepted.add(hero.timeMs); hero.framingReason = 'retained-projected-shot'; continue; }
     const candidates = [intended, ...(hero.passedAtRange ? data.points.filter(p => p.id !== hero.pointId && p.role === intended?.role)
       .sort((a, b) => {
         const angle = p => Math.abs(diff(Math.atan2(p.localM[0] - eye[0], -(p.localM[2] - eye[2])) / DEG, headings[center]));
         return angle(a) - angle(b) || a.id.localeCompare(b.id);
       }).slice(0, 6) : [])].filter(Boolean);
-    const start = Math.max(lastFrozen + 1, 0, Math.floor((hero.timeMs - 10000) / 100));
-    const end = Math.min(count - 1, Math.ceil((hero.timeMs + 7000) / 100));
-    if (frames[start]?.timeMs >= hero.timeMs - 1500) continue;
+    // Start after already accepted shots, preserving their pitch as well as
+    // heading. A later shot may use the remaining approach, never their window.
+    const priorShots = [...accepted].filter(at => at < hero.timeMs);
+    const priorEnd = priorShots.length ? Math.max(...priorShots) + 1500 : -100;
+    const start = Math.max(lastFrozen + 1, 0, Math.floor((hero.timeMs - 10000) / 100), Math.floor(priorEnd / 100) + 1);
+    const futureShots = [...accepted].filter(at => at > hero.timeMs);
+    const futureStart = futureShots.length ? Math.min(...futureShots) - 1500 : Infinity;
+    const end = Math.min(count - 1, Math.ceil((hero.timeMs + 7000) / 100), Math.floor(futureStart / 100));
+    const protectedFrame = i => [...accepted].some(at => i >= Math.floor(Math.max(0, at - 1500) / 100)
+      && i <= Math.min(count - 1, Math.ceil(Math.min(tour.durationMs, at + 1500) / 100)));
+    if (!frames[start] || frames[start].timeMs >= hero.timeMs - 1500) { hero.framingReason = 'no-uncommitted-approach'; continue; }
+    hero.framingReason = 'no-legal-projected-shot';
     for (const point of candidates) {
       const hs = [], ps = [], qs = [];
       let delta = 0, valid = true;
@@ -283,19 +364,31 @@ function composeDistantHeroes(tour, data, frames, lastFrozen) {
         const h = headings[i] + diff(Math.atan2(dx, -dz) / DEG, headings[i]) * weight;
         const p = mix(pitches[i], clamp(Math.atan2(dy, Math.hypot(dx, dz)) / DEG, -25, 35), weight);
         const previousHeading = i > start ? hs.at(-1) : headings[Math.max(0, i - 1)];
-        const rate = tour.reducedMotion ? 12 : ['outro', 'breakdown'].includes(frames[i].role) ? 12 : 25;
-        if (i && Math.abs(diff(h, previousHeading)) > rate * .1 + .001
-          || accepted.some(at => Math.abs(t - at) <= 1500) && Math.abs(diff(h, headings[i])) > .01) { valid = false; break; }
+        const previousPitch = i > start ? ps.at(-1) : pitches[Math.max(0, i - 1)];
+        const capacity = i ? capacityBetween(frames[i - 1].timeMs, t) : 0;
+        if (i && (Math.abs(diff(h, previousHeading)) > capacity + .001
+          || frames[i].stop && frames[i - 1].stop && Math.abs(p - previousPitch) > .001)
+          || protectedFrame(i) && (Math.abs(diff(h, headings[i])) > .00001 || Math.abs(p - pitches[i]) > .00001)) { valid = false; break; }
         const q = aimAt(frames[i].sample, tour.eye[i * 3 + 1], h).quality;
         delta += q - quality[i]; hs.push(h); ps.push(p); qs.push(q);
       }
       if (!valid || (sum + delta) / Math.max(.001, max) < Math.min(.8, sum / Math.max(.001, max)) - 1e-6) continue;
+      const candidateTarget = tour.target.slice();
       for (let i = start; i <= end; i++) {
-        const k = i - start, v = vector(hs[k], ps[k]);
-        headings[i] = hs[k]; pitches[i] = ps[k]; quality[i] = qs[k];
-        for (let axis = 0; axis < 3; axis++) tour.target[i * 3 + axis] = tour.eye[i * 3 + axis] + v[axis] * 12000;
+        if (protectedFrame(i)) continue;
+        const v = vector(hs[i - start], ps[i - start]);
+        for (let axis = 0; axis < 3; axis++) candidateTarget[i * 3 + axis] = tour.eye[i * 3 + axis] + v[axis] * 12000;
       }
-      sum += delta; hero.framingPointId = point.id; accepted.push(hero.timeMs);
+      const candidate = restoreTourTimeline({ ...tour, target: candidateTarget });
+      const candidateHero = { ...hero, framingPointId: point.id };
+      if (measureHeroFraming({ ...candidate, heroes: [candidateHero] }, data)[0].framedFraction < .8) continue;
+      for (let i = start; i <= end; i++) {
+        const k = i - start;
+        headings[i] = hs[k]; pitches[i] = ps[k]; quality[i] = qs[k];
+      }
+      tour.target.set(candidateTarget);
+      sum += delta; hero.framingPointId = point.id; accepted.add(hero.timeMs);
+      hero.framingReason = point.id === intended?.id ? 'composed-intended-subject' : 'composed-distant-alternative';
       if (point.id !== hero.pointId) tour.notes.push(`${hero.pointId}: composed distant alternative ${point.name || point.id}`);
       break;
     }
@@ -307,7 +400,8 @@ export function restoreTourTimeline(tour){
   if(tour.previewPose){tour.poseAt=()=>structuredClone(tour.previewPose);return tour;}
   const {eye,target,fov,durationMs}=tour,count=fov.length;
   tour.poseAt=timeMs=>{
-    const t=clamp(Number(timeMs)||0,0,durationMs)/100,i=Math.min(count-2,Math.floor(t)),u=clamp(t-i,0,1),eyeM=[],a=[],b=[];
+    const time=clamp(Number(timeMs)||0,0,durationMs),i=Math.min(count-2,Math.floor(time/100));
+    const u=clamp((time-i*100)/Math.max(1,Math.min(durationMs,(i+1)*100)-i*100),0,1),eyeM=[],a=[],b=[];
     for(let k=0;k<3;k++){eyeM[k]=mix(eye[i*3+k],eye[(i+1)*3+k],u);a[k]=target[i*3+k]-eye[i*3+k];b[k]=target[(i+1)*3+k]-eye[(i+1)*3+k];}
     const da=Math.hypot(...a),db=Math.hypot(...b),dot=clamp(a.reduce((n,x,k)=>n+x*b[k]/(da*db),0),-1,1),angle=Math.acos(dot);
     const sa=angle<1e-5?1-u:Math.sin((1-u)*angle)/Math.sin(angle),sb=angle<1e-5?u:Math.sin(u*angle)/Math.sin(angle),d=mix(da,db,u);
