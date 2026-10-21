@@ -300,16 +300,49 @@ export const SCENE_VERT = /* glsl */`
   out vec3 vWorld;
   out vec3 vRenderedWorld;
   out float vViewDepth;
+  #ifdef RIVER_SURFACE
+  in vec3 river;
+  in vec2 riverDirection;
+  in vec3 terrainA;
+  in vec3 terrainB;
+  in vec3 terrainC;
+  out vec3 vRiver;
+  out vec2 vRiverDirection;
+  vec3 riverTerrainWeights(vec2 p) {
+    vec2 ab = terrainB.xz - terrainA.xz, ac = terrainC.xz - terrainA.xz;
+    vec2 q = p - terrainA.xz;
+    float area = ab.x * ac.y - ab.y * ac.x;
+    float b = (q.x * ac.y - q.y * ac.x) / area;
+    float c = (ab.x * q.y - ab.y * q.x) / area;
+    return vec3(1.0 - b - c, b, c);
+  }
+  float riverTerrainShift(vec3 p) {
+    vec3 ice = glacierAt(p);
+    return ice.x + deformAt(p) * (1.0 - ice.y);
+  }
+  #endif
   void main() {
     vec3 p = position;
     vec3 ice = glacierAt(position);
+    #ifdef RIVER_SURFACE
+    // The drawn ground interpolates deformation of its original triangle
+    // vertices. Evaluating the field again at clipped interior vertices
+    // would let the creek sink below that plane during a musical swell.
+    p.y += dot(riverTerrainWeights(position.xz), vec3(riverTerrainShift(terrainA),
+      riverTerrainShift(terrainB), riverTerrainShift(terrainC)));
+    #else
     p.y += ice.x + deformAt(position) * (1.0 - ice.y);
+    #endif
     vec4 world = modelMatrix * vec4(p, 1.0);
     vWorld = vec3(world.x, position.y, world.z); // source height for masks
     vRenderedWorld = world.xyz;
     vUv = (position.xz - uGridOrigin) / uGridExtent;
     vec4 view = viewMatrix * world;
     vViewDepth = -view.z;
+    #ifdef RIVER_SURFACE
+    vRiver = river;
+    vRiverDirection = riverDirection;
+    #endif
     gl_Position = projectionMatrix * view;
   }
 `;
@@ -388,6 +421,10 @@ export const SCENE_FRAG = /* glsl */`
   in vec3 vWorld;
   in vec3 vRenderedWorld;
   in float vViewDepth;
+  #ifdef RIVER_SURFACE
+  in vec3 vRiver;
+  in vec2 vRiverDirection;
+  #endif
   out vec4 outColor;
   vec3 linearToSrgb(vec3 c) { return pow(max(c, 0.0), vec3(1.0 / 2.2)); }
   // Filmic shoulder (Narkowicz ACES fit): snow and moonlit rock compress
@@ -498,6 +535,28 @@ export const SCENE_FRAG = /* glsl */`
     return pow(max(cosine, 0.0), 600.0) * gain;
   }
 
+  // Along-channel distance increases downstream. Velocity is the reach's
+  // sourced or estimated metres per second, independent of the music.
+  float riverTravel(float distanceM, float speedMps, float timeSec) {
+    return distanceM - max(0.0, speedMps) * timeSec;
+  }
+  float riverCurrentTone(float phase, float resolved) {
+    return 1.0 + .1 * cos(phase) * resolved;
+  }
+  #ifdef RIVER_SURFACE
+  vec2 riverSlope(float t) {
+    float along = riverTravel(vRiver.x, vRiver.z, t);
+    vec2 direction = normalize(vRiverDirection);
+    vec2 across = vec2(-direction.y, direction.x);
+    float phase = along * 2.617994 + .3 * sin(vRiver.y * 3.0);
+    float slowPhase = along * .897598 + vRiver.y * 1.7;
+    float fineFade = 1.0 - smoothstep(.35, 1.2, fwidth(phase));
+    float broadFade = 1.0 - smoothstep(.35, 1.2, fwidth(slowPhase));
+    return direction * (.16 * cos(phase) * fineFade + .08 * cos(slowPhase) * broadFade)
+      + across * .045 * sin(slowPhase + vRiver.y * 2.0) * broadFade;
+  }
+  #endif
+
   // Interpolate membership, not drainage magnitude. Blending 255 (lake)
   // with a dry flow byte before thresholding erodes almost the whole cell
   // and turns hydro shorelines into right-angled stair steps.
@@ -537,6 +596,14 @@ export const SCENE_FRAG = /* glsl */`
     float curv = (s.b - 0.5) * 2.0;            // + concave gully, - convex ridge
     float flow = s.a * 255.0;
     float waterCoverage = waterCoverageAt(uv);
+    #ifdef MAPPED_WATER_ONLY
+    // A flat DEM patch is not evidence of water in a dry canyon. Only
+    // explicitly mapped channel geometry can be wet under this policy.
+    waterCoverage = 0.0;
+    #endif
+    #ifdef RIVER_SURFACE
+    waterCoverage = 1.0;
+    #endif
     bool water = waterCoverage > .5 && ice.y < 0.01;
     float flowN = clamp(flow / 254.0, 0.0, 1.0);
     float h = vWorld.y;
@@ -778,6 +845,9 @@ export const SCENE_FRAG = /* glsl */`
       // Rain stipples the whole lake while the squall is over it.
       paw = max(max(catsPaw(vWorld.xz), wake), uStorm.x * 0.75);
       waterSwell = waterSlope(vWorld.xz, uTime);
+      #ifdef RIVER_SURFACE
+      waterSwell = riverSlope(uTime);
+      #endif
       vec2 ripple = waterSwell * (0.03 + 0.06 * paw);
       vec3 waterNormal = normalize(vec3(ripple.x, 1.0, ripple.y));
       waterN = waterNormal;
@@ -794,7 +864,17 @@ export const SCENE_FRAG = /* glsl */`
       vec3 skyReflect = mix(uSkyZenith, uSkyHorizon, 0.3) * 0.5;
       // With the backdrop to reflect, the sky arrives with the mirror below.
       float skyHere = fres * (1.0 - uBackdropAmount * uMirrorAmount);
+      #ifdef RIVER_SURFACE
+      // Descending reaches have no single planar lake reflection.
+      skyHere = fres;
+      #endif
       lit = mix(lit, skyReflect * rWaterSkyMix, skyHere) + uLightColor * glint * moonTransmission;
+      #ifdef RIVER_SURFACE
+      // Gentle advected surface variation remains readable under ambient
+      // light. Filtered-out ripples retain their mean rather than flashing.
+      float currentPhase = riverTravel(vRiver.x, vRiver.z, uTime) * .897598 + .25 * sin(vRiver.y * 4.0);
+      lit *= riverCurrentTone(currentPhase, 1.0 - smoothstep(.35, 1.2, fwidth(currentPhase)));
+      #endif
     }
     // Aerial perspective, applied once here and nowhere else.
     float heightTerm = exp(-max(0.0, vRenderedWorld.y - uCameraPos.y * 0.25) * uAirHeightFalloff);
@@ -822,6 +902,7 @@ export const SCENE_FRAG = /* glsl */`
     // the air along its own (longer) path, so it replaces the water's colour
     // by the water's reflectance, as the sky reflection did in lit. Groove
     // and kicks shiver it in horizontal bands; a cat's paw breaks it up.
+    #ifndef RIVER_SURFACE
     if (water && uMirrorAmount > 0.0) {
       // The reflection wavers with the surface itself: the same world-fixed
       // swells (not screen rows) displace it, more in a cat's paw, and less
@@ -852,6 +933,7 @@ export const SCENE_FRAG = /* glsl */`
       float reflectance = clamp(${WATER_REFLECT_FLOOR.toFixed(3)} + ${(1 - WATER_REFLECT_FLOOR).toFixed(3)} * waterFres, 0.0, 0.88) * (1.0 - 0.4 * paw);
       color = mix(color, mirrored * 0.9, reflectance * smoothstep(.5, .9, waterCoverage) * have * clear * uNarrative.z * uNarrative.w);
     }
+    #endif
     if (water) {
       // Lanterns over the water lay a path of glints; Midio's wake catches
       // his light. Over the mirror, through the air.
@@ -1020,7 +1102,7 @@ export function applyMaterial(uniforms, pack, textures, ruleOverrides = {}) {
   uniforms.uHasMaterial.value = 1;
 }
 
-export function createSceneMaterial(THREE, uniforms, { forestDebug = false, budget = 'desktop', terrainShading = 'off', pixelated = false } = {}) {
+export function createSceneMaterial(THREE, uniforms, { forestDebug = false, budget = 'desktop', terrainShading = 'off', pixelated = false, riverSurface = false, mappedWaterOnly = false } = {}) {
   const experimental = terrainShading === 'moran';
   const m = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: SCENE_VERT,
     fragmentShader: experimental ? moranTerrainFragment(SCENE_FRAG) : SCENE_FRAG, uniforms });
@@ -1028,12 +1110,15 @@ export function createSceneMaterial(THREE, uniforms, { forestDebug = false, budg
   m.defines.FAR_FOREST_KMAX = budget === 'mobile' ? 4 : 8;
   if (pixelated) m.defines.PIXEL_MATERIAL_SKIP = 1;
   if (forestDebug) m.defines.FOREST_DEBUG = 1;
+  if (riverSurface) m.defines.RIVER_SURFACE = 1;
+  if (mappedWaterOnly) m.defines.MAPPED_WATER_ONLY = 1;
   return m;
 }
 
 /** Depth-only twin: identical vertex transform (invariant), no colour. */
-export function createDepthMaterial(THREE, uniforms) {
+export function createDepthMaterial(THREE, uniforms, { riverSurface = false } = {}) {
   const m = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: SCENE_VERT, fragmentShader: DEPTH_FRAG, uniforms });
+  if (riverSurface) m.defines.RIVER_SURFACE = 1;
   m.colorWrite = false;
   return m;
 }
