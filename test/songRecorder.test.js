@@ -10,9 +10,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MAX_RECORDING_BYTES, SongRecorder } from '../src/render/SongRecorder.js';
 import { presetById, STAGE_W, STAGE_H } from '../src/render/VideoExport.js';
-import { PixelPresentation } from '../src/render/PixelPresentation.js';
+import { PixelPresentation, compositePixelFrame } from '../src/render/PixelPresentation.js';
 import { pixelGrid } from '../src/render/PixelRenderPolicy.js';
 import { GraphicsResidency } from '../src/render/GraphicsResidency.js';
+import { FrameCadence } from '../src/render/FrameCadence.js';
 
 const H264 = 'video/mp4;codecs="avc1.42E01E,mp4a.40.2"';
 
@@ -28,6 +29,7 @@ function fakeCanvas({ withRequestFrame = true } = {}) {
     draws: [], fills: [], streams: [], samplers: [],
     getContext: () => ({
       setTransform() {},
+      getImageData() { canvas.flushes = (canvas.flushes || 0) + 1; return {}; },
       set fillStyle(v) { canvas._fill = v; },
       get fillStyle() { return canvas._fill; },
       fillRect: (...a) => canvas.fills.push(a),
@@ -112,6 +114,73 @@ function fakeAudio() {
 }
 
 const stage = { width: STAGE_W, height: STAGE_H, nodeName: 'CANVAS' };
+
+test('the capture stream starts from a completed scene instead of a blank canvas', async () => {
+  const scope = fakeScope(), rec = new SongRecorder({ stage, scope });
+  const initialFrame = { canvas: stage };
+  assert.equal(rec.start({ settings: { resolution: '480' }, initialFrame, deferFirstFrame: true }), true);
+  assert.equal(rec._canvas.draws.length, 1);
+  assert.equal(rec._canvas.draws[0][0], stage);
+  await rec.stop();
+});
+
+test('already paced live draws are never throttled again after variable render cost', async () => {
+  const scope = fakeScope(), rec = new SongRecorder({ stage, scope }), cadence = new FrameCadence();
+  rec.start({ settings: { fps: 30 }, deferFirstFrame: true });
+  let last = 0;
+  for (let i = 0; i < 600; i++) {
+    const raf = i * 1000 / 60;
+    if (!cadence.shouldDraw(raf, 30)) continue;
+    const completedAt = raf + 8 + Math.sin(i);
+    scope.advance(completedAt - last); last = completedAt;
+    rec.captureFrame({}, { alreadyPaced: true });
+  }
+  assert.equal(rec.captureStats.frames, 300);
+  await rec.stop();
+});
+
+test('hybrid sky and terrain share the explicit portrait fit and centered fill rectangle', async () => {
+  const source = { width: 320, height: 180 };
+  for (const [framing, want] of [
+    ['fit', [0, 292, 480, 270]], ['fill', [-519, 0, 1518, 854]],
+  ]) {
+    const scope = fakeScope();
+    const rec = new SongRecorder({ stage, scope });
+    rec.start({ settings: { aspect: '9:16', resolution: '480', framing }, deferFirstFrame: true });
+    const skyFits = [];
+    rec.captureFrame({ canvas: stage, drawCaptureFrame(ctx, width, height, fit) {
+      return compositePixelFrame(ctx, source, width, height, 'fit', (_ctx, rect) => { skyFits.push(rect); return true; }, fit).hybridSky;
+    } });
+    assert.equal(skyFits.length, 1, 'a completed hybrid frame must be captured');
+    assert.deepEqual([skyFits[0].x, skyFits[0].y, skyFits[0].width, skyFits[0].height], want);
+    assert.deepEqual(rec._canvas.draws.at(-1).slice(1), want);
+    await rec.stop();
+  }
+});
+
+test('export settings control encoded dimensions, bitrate and manual frame cadence', async () => {
+  const scope = fakeScope();
+  const rec = new SongRecorder({ stage, scope });
+  assert.equal(rec.start({ settings: { resolution: '720', aspect: '9:16', fps: 24, encoding: 'compact', framing: 'fill' } }), true);
+  assert.equal(rec._canvas.width, 720); assert.equal(rec._canvas.height, 1280);
+  assert.equal(scope.recorders[0].options.videoBitsPerSecond, 1216512);
+  const track = rec._videoTrack;
+  for (let i = 0; i < 60; i++) { scope.advance(1000 / 60); rec.captureFrame(); }
+  assert.equal(track.frames, 25, 'one opening frame plus 24 frames in one second');
+  assert.equal(rec.captureStats.frames, 25);
+  assert.equal(Math.round(rec.captureStats.averageFps), 24);
+  const lastDraw = rec._canvas.draws.at(-1);
+  assert.deepEqual(lastDraw.slice(1), [-778, 0, 2276, 1280]);
+  await rec.stop();
+});
+
+test('timed-sampling fallback uses the requested export fps', async () => {
+  const scope = fakeScope({ withRequestFrame: false });
+  const rec = new SongRecorder({ stage, scope });
+  assert.equal(rec.start({ settings: { fps: 24 } }), true);
+  assert.equal(scope.recorders[0].stream.fps, 24);
+  await rec.stop();
+});
 
 test('terrain preparation pauses recording samples and excludes its wait from elapsed and final duration', async () => {
   const scope = fakeScope(), rec = new SongRecorder({ stage, scope });
@@ -471,4 +540,40 @@ test('mixed sky captures recompose at recorder size and never smooth the complet
   rec.captureFrame({ ...source, drawCaptureFrame: () => false });
   assert.equal(rec._videoTrack.frames, 1, 'a rejected or stale mixed capture adds no encoded frame');
   rec.cancel();
+});
+
+
+test('drained stop freezes capture and audio before completion navigation can finalize early', async () => {
+  const scope = fakeScope(), frames = [], timers = [], audio = fakeAudio();
+  scope.requestAnimationFrame = callback => frames.push(callback);
+  scope.setTimeout = (callback, delay) => timers.push({ callback, delay });
+  const rec = new SongRecorder({ stage, scope, audioContext: audio.context, audioSource: audio.source });
+  rec.start(); const native = scope.recorders[0], canvas = rec._canvas;
+  const pending = rec.stop({ drain: true });
+  assert.equal(rec.finalizing, true);
+  assert.equal(native.state, 'recording', 'native encoder stays open for pending frames');
+  assert.deepEqual(audio.source.disconnected, [audio.dest], 'a replacement song cannot leak into the old recording');
+  assert.equal(canvas.flushes, 1, 'queued copies finish before their source canvases can be disposed');
+  const drawn = canvas.draws.length;
+  rec.captureFrame(); assert.equal(canvas.draws.length, drawn, 'teardown cannot replace the closing picture');
+  assert.equal(rec.stop(), pending, 'a quick second stop shares the pending drain');
+  assert.equal(rec.start(), false, 'the old recorder stays owned until finalization');
+  frames.shift()(); frames.shift()();
+  assert.equal(native.state, 'recording');
+  timers.find(timer => timer.delay === 250).callback();
+  const result = await pending;
+  assert.equal(native.state, 'inactive'); assert.ok(result.blob.size > 0);
+});
+
+
+test('drained stop still saves when a hidden tab suspends animation callbacks', async () => {
+  const scope = fakeScope(), timers = [];
+  scope.requestAnimationFrame = () => {};
+  scope.setTimeout = (callback, delay) => timers.push({ callback, delay });
+  const rec = new SongRecorder({ stage, scope });
+  rec.start(); const pending = rec.stop({ drain: true });
+  assert.equal(scope.recorders[0].state, 'recording');
+  assert.equal(timers[0].delay, 1500); timers[0].callback();
+  assert.ok((await pending).blob.size > 0);
+  assert.equal(rec.finalizing, false);
 });

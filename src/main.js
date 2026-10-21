@@ -96,9 +96,11 @@ import { fingerprintBufferOffThread } from './audio/FingerprintWorkerClient.js';
 import { readVisionConfig, persistVisionConfig } from './vision/config.js';
 import { packBundle, unpackBundle } from './audio/AnalysisBundle.js';
 import { analysisCacheKey, getBundle, putBundle } from './audio/AnalysisCache.js';
-import { SongRecorder } from './render/SongRecorder.js';
+import { SongRecorder, MAX_RECORDING_BYTES } from './render/SongRecorder.js';
+import { ExportSetup } from './ui/ExportSetup.js';
+import { readRenderQuality, writeRenderQuality, RENDER_QUALITIES, renderQualityLevel } from './render/RenderQuality.js';
 import {
-  RENDER_PRESETS, DEFAULT_PRESET_ID, presetById, reachSummary, estimateBytes,
+  estimateExportBytes,
   formatBytes, formatElapsed, exportFileName, describeResult,
 } from './render/VideoExport.js';
 import { stepExportClock, evenExportSize } from './render/BulkExport.js';
@@ -113,7 +115,7 @@ import {
 } from './audio/AudioSessionIdentity.js';
 import { PlexSource } from './net/PlexSource.js';
 import { PlexLibraryPanel } from './ui/PlexLibraryPanel.js';
-import { recentlyPlayed, displayTitle, displayArtist, untaggedTracks } from './library/TrackIndex.js';
+import { recentlyPlayed, displayTitle, displayArtist, untaggedTracks, randomTrack } from './library/TrackIndex.js';
 
 
 const STEP_MS = 1000 / 120;
@@ -397,6 +399,11 @@ const STAGE_W = 1280;
 const STAGE_H = 720;
 function displayStorage() { try { return localStorage; } catch { return null; } }
 let displayPrefs = readDisplayPrefs(displayStorage());
+let generalQuality = readRenderQuality(displayStorage(), displayPrefs.quality);
+// Migrate the old Economy choice into the separate general detail budget.
+displayPrefs = { ...displayPrefs, quality: 'auto' };
+writeRenderQuality(displayStorage(), generalQuality);
+const selectionExportSettings = new WeakMap();
 writeDisplayPrefs(displayStorage(), displayPrefs);
 let presentation = resolvePresentation(displayPrefs);
 let experience = readExperience(displayStorage(), typeof location === 'undefined' ? '' : location.search);
@@ -404,7 +411,7 @@ const experienceControl = document.getElementById('display-experience');
 const experienceStatus = document.getElementById('experience-status');
 if (experienceControl) experienceControl.value = experience;
 let experienceRequest = 0;
-const displayControls = Object.fromEntries(['look', 'quality', 'palette', 'dither', 'ditherMode', 'pixelGrid', 'scaling'].map(key => [key, document.getElementById(`display-${key}`)]));
+const displayControls = Object.fromEntries(['look', 'palette', 'dither', 'ditherMode', 'pixelGrid', 'scaling'].map(key => [key, document.getElementById(`display-${key}`)]));
 const STAGE_FPS_KEY = 'smw:stageFps';
 let simTime = 0;
 let acc = 0;
@@ -505,6 +512,22 @@ const perfStartLevel = resolvePerfStartLevel(
   },
 );
 
+const generalQualityEl = document.getElementById('generalQuality');
+function syncGeneralQuality() {
+  if (!generalQualityEl) return;
+  generalQualityEl.value = String(RENDER_QUALITIES.indexOf(generalQuality));
+  const label = generalQuality[0].toUpperCase() + generalQuality.slice(1);
+  generalQualityEl.setAttribute('aria-valuetext', label);
+  document.getElementById('generalQualityValue').textContent = label;
+}
+generalQualityEl?.addEventListener('input', () => {
+  generalQuality = RENDER_QUALITIES[Number(generalQualityEl.value)] || 'high';
+  writeRenderQuality(displayStorage(), generalQuality);
+  perfGovernor?.setQualityLimit(renderQualityLevel(generalQuality));
+  syncGeneralQuality();
+});
+syncGeneralQuality();
+
 function syncDisplayControls() {
   for (const [key, control] of Object.entries(displayControls)) if (control) {
     control.value = String(displayPrefs[key]);
@@ -534,6 +557,9 @@ function persistFpsCap(fps) {
 }
 
 let fpsCapMs = 1000 / readFpsCap();
+function playbackFps() {
+  return songRecorder?.recording ? songRecorder.settings?.fps || 60 : Math.round(1000 / fpsCapMs);
+}
 /** Exact backing-store size while tools/bulk-export.mjs is driving frames.
  *  Display-fit and the perf ladder both stand aside for it. */
 let bulkExportSize = null;
@@ -588,6 +614,7 @@ async function changeExperience(value) {
     // An armed export draws one world on a stepped clock; it names its world
     // on the page (\`--experience\`) instead of switching part-way.
     if (bulkExportArmed) throw new Error('Choose the world before exporting.');
+    if (songRecorder?.recording || pendingCaptureOptions) throw new Error('Finish or cancel the recording before switching worlds.');
     if (running && owner && lastTimelineData) {
       lastTimelineData.worldId = tailoredWorldId(worldForExperience(next), lastTimelineData);
       delete lastTimelineData.chapterState;
@@ -1056,7 +1083,7 @@ function stopTimeline({ preservePause = false, keepAudio = false } = {}) {
   // asked for, and silently discarding it is the worse surprise.
   // An in-place rebuild (the whole-song analysis arriving) keeps the music
   // and any recording running straight through it.
-  if (!keepAudio && (songRecorder?.recording || pendingCapturePresetId)) finishRecording();
+  if (!keepAudio && (songRecorder?.recording || pendingCaptureOptions)) finishRecording();
   if (!keepAudio) audioEngine?.pause();
   // Forget any decoded buffer from a previous raw-audio song -- otherwise a
   // MIDI/demo load right after one leaves the OLD song's buffer attached,
@@ -1103,8 +1130,8 @@ function togglePause() {
     if (paused) audioEngine.ctx.suspend();
     updatePauseButtonUI(); return;
   }
-  if (paused) audioEngine.ctx.suspend();
-  else { resumeRecordingAfterTerrain(); audioEngine.ctx.resume(); lastRafMs = null; }
+  if (paused) { songRecorder?.pause(); audioEngine.ctx.suspend(); }
+  else { songRecorder?.resume(); resumeRecordingAfterTerrain(); audioEngine.ctx.resume(); lastRafMs = null; }
   updatePauseButtonUI();
 }
 
@@ -1271,8 +1298,9 @@ function worldCardEl({
   const playBtn = document.createElement('button');
   playBtn.type = 'button';
   playBtn.className = 'worldCardPlayBtn';
-  playBtn.textContent = 'Play';
-  playBtn.setAttribute('aria-label', `Play in ${name}`);
+  const verb = pendingWorldStart?.extra?.recordingSettings ? 'Export' : 'Play';
+  playBtn.textContent = verb;
+  playBtn.setAttribute('aria-label', `${verb} in ${name}`);
   actions.appendChild(previewBtn);
   actions.appendChild(playBtn);
   card.appendChild(actions);
@@ -1290,6 +1318,24 @@ function renderWorldGrid(customWorld, features = null, extras = {}) {
 }
 
 function offerWorldsThenStart(data, extra = {}) {
+  if (extra.recordingSettings) {
+    exportSetup.setDuration(data.durationMs);
+    const bytes = estimateExportBytes(extra.recordingSettings, data.durationMs + 3000);
+    if (!exportSetup.candidate || bytes > MAX_RECORDING_BYTES) {
+      backToTitle();
+      showErrorBanner(!exportSetup.candidate ? 'This browser cannot record video.'
+        : 'This song exceeds the 512 MB recording budget at these settings. Choose a lower resolution, FPS, or encoding quality.');
+      return;
+    }
+    const settings = extra.recordingSettings;
+    exportSetup.toggle.checked = false;
+    exportSetup.render();
+    extra = { ...extra, captureMode: true, beforePlayback: () => {
+      const started = startRecording(settings);
+      fullSongRecording = started;
+      return started;
+    } };
+  }
   try {
     clearCustomWorld();
     // A song's look comes from its identity when it has one: the opening's
@@ -1741,7 +1787,8 @@ function startTimeline(timelineData, extra = {}) {
   // A fresh governor per song starts at the selected quality. Pixel detail
   // and scale stay independent of the Auto/Economy choice.
   perfGovernor = new PerfGovernor({
-    startLevel: exportMode ? exportQualityLevel : perfStartLevel,
+    startLevel: exportMode ? exportQualityLevel : Math.max(perfStartLevel, renderQualityLevel(generalQuality)),
+    minLevel: exportMode ? 0 : renderQualityLevel(generalQuality),
     economy: effectivePresentation().quality === 'economy',
   });
   // An offline frame's period is its draw time, which the ladder would read
@@ -2037,7 +2084,7 @@ function startTimeline(timelineData, extra = {}) {
     get frameRates() { return { presented: presentedFps.fps, callback: fpsEma }; },
     // Device probes: what bounds delivered frames (the FPS cap) and whether
     // the song is paused, so callback cadence is not read as delivery.
-    get fpsCap() { return 1000 / fpsCapMs; },
+    get fpsCap() { return playbackFps(); },
     get paused() { return paused; },
     get playbackPreparing() { return playbackPreparing; },
     get renderReady() { return renderReadyPromise; },
@@ -2083,7 +2130,7 @@ function startTimeline(timelineData, extra = {}) {
       const ownedPresentation = rangePresentation;
       renderReadyPromise = renderPlayback.begin({
         isCurrent: () => sim === owner && renderer === ownedRenderer && loadGen === generation && running,
-        hold() { playbackPreparing = !!waitForLandscape; },
+        hold() { playbackPreparing = !!waitForLandscape || !!extra.recordingSettings; },
         async prepare(signal) {
           if (waitForLandscape)
             await waitForScenicReady({ presentation: ownedPresentation, draw: options => ownedRenderer.draw(owner, 1, options), signal });
@@ -2091,8 +2138,18 @@ function startTimeline(timelineData, extra = {}) {
           // BufferSource until the context has actually stopped rendering.
           if (paused) await audioEngine.ctx.suspend();
         },
-        start() {
-          extra.beforePlayback?.();
+        async start() {
+          if (extra.recordingSettings) {
+            const opening = ownedRenderer.draw(owner, 0);
+            if (!opening?.presented) throw new Error('The opening frame is not ready to record.');
+          }
+          if (extra.beforePlayback?.() === false) throw new Error('Could not start recording. Choose different export settings and try again.');
+          if (extra.recordingSettings) {
+            // Warm capture while holding the opening picture, before source audio.
+            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            if (sim !== owner || renderer !== ownedRenderer || loadGen !== generation || !running) return;
+          }
+          if (paused) songRecorder?.pause();
           if (terrainRecordingHold) terrainRecordingHold.ready = true;
           resumeRecordingAfterTerrain();
           if (waitForLandscape) {
@@ -2104,6 +2161,7 @@ function startTimeline(timelineData, extra = {}) {
             revealPlayback();
           } else {
             if (buffer) audioEngine.playBuffer(buffer, startedAt / 1000);
+            else if (extra.recordingSettings && !keepAudio) audioEngine.start(startedAt);
             if (paused) audioEngine.ctx.suspend(); else audioEngine.resume();
           }
           playbackPreparing = false;
@@ -2373,6 +2431,7 @@ async function resolveLyricsForAudio(identity, durationSec, vocalStem = null, { 
  *  file's NAME casting its notes to a character (see Casting.js). */
 function beginAudioSelection(source) {
   const ticket = audioSelections.begin(source);
+  selectionExportSettings.set(ticket, exportSetup.snapshot());
   loadGen++;
   // Keep an already playing song's whole-song analysis alive while a remote
   // choice downloads. The handoff to loadAudioFiles stops and aborts it.
@@ -2534,7 +2593,7 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
     // A long song starts on its opening and is analysed whole while it plays
     // (OpeningAnalysis.js). The first pass is then just the opening.
     const openingFirst = useOpeningAnalysis({
-      durationSec: audioBuffer.duration, stemDrop: isStemDrop, exporting: !!readBulkExportFromUrl(),
+      durationSec: audioBuffer.duration, stemDrop: isStemDrop, exporting: !!(readBulkExportFromUrl() || selectionExportSettings.get(selection)),
       rangeListening,
     });
     const analysis = audioToTimeline(openingFirst ? sliceAudioBuffer(audioBuffer, OPENING_SECONDS) : audioBuffer, {
@@ -2698,7 +2757,7 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
     fontRecommender?.clear(); // the recording is its own sound source
     loadAudioFiles._preparedData = data;
     onPrepared?.();
-    offerWorldsThenStart(data, { playBuffer: audioBuffer, lyricsReady });
+    offerWorldsThenStart(data, { playBuffer: audioBuffer, lyricsReady, recordingSettings: selectionExportSettings.get(selection) });
     return true;
   } catch (err) {
     if (isStale() || err?.name === 'AbortError') return;
@@ -3143,7 +3202,7 @@ async function startDemoSample() {
       boundariesMs,
       confidence: 1,
     },
-  });
+  }, { recordingSettings: selectionExportSettings.get(selection) });
 }
 demoBtnEl?.addEventListener('click', (e) => {
   e.stopPropagation();
@@ -3259,7 +3318,7 @@ function frame(tRaf) {
     // "frames" is exactly the shape the severity escalation is built to
     // believe, so it would shed rung after rung while nothing was being
     // drawn at all, and hand the player back a degraded show on return.
-    if (!document.hidden) perfGovernor.sample(rafDeltaMs, tRaf, { capFps: 1000 / fpsCapMs });
+    if (!document.hidden) perfGovernor.sample(rafDeltaMs, tRaf, { capFps: playbackFps() });
     if (perfGovernor.level !== prevLevel) fitCanvas();
     fpsEma = emaFps(fpsEma, rafDeltaMs);
     if (fpsHudVisible && fpsHudEl) {
@@ -3308,15 +3367,15 @@ function frame(tRaf) {
   // FPS cap: skip the draw when we're ahead of the target frame period.
   // The sim still steps at full rate so audio sync stays tight; only the
   // GPU-bound draw is throttled.
-  if (!playbackCadence.shouldDraw(tRaf, 1000 / fpsCapMs)) {
+  if (!playbackCadence.shouldDraw(tRaf, playbackFps())) {
     presentedFps.sample(tRaf, false);
     rafHandle = requestAnimationFrame(frame);
     return;
   }
 
-  if (pendingCapturePresetId && captureClock.captureReady) {
-    const presetId = pendingCapturePresetId;
-    pendingCapturePresetId = null;
+  if (pendingCaptureOptions && captureClock.captureReady) {
+    const presetId = pendingCaptureOptions;
+    pendingCaptureOptions = null;
     beginRecorder(presetId);
   }
 
@@ -3368,22 +3427,7 @@ function frame(tRaf) {
     }
   }
 
-  // Last impact notes → freeze/shatter: fade music out so the glass break
-  // lands in silence (not over a long empty pad after the real ending).
-  if (sim.fracture?.justEnteredFinale && !sim.fracture.audioSilenced) {
-    sim.fracture.audioSilenced = true;
-    audioEngine?.fadeToSilence?.(0.32);
-    synth?.stopAll?.();
-  }
-
-  // Authored cuts: the drop and the apotheosis duck the mix for a beat,
-  // the sound half of the same snap the camera/color already get (CutDirector).
-  if (sim.cut?.dropJustCut) audioEngine?.duck?.();
-  if (sim.cut?.apotheosisJustCut) audioEngine?.duck?.(0.6, 0.04, 0.3);
-  // Disaster cuts get the same sound-half treatment as the authored ones
-  // above -- a quake strike and a tsunami wall's arrival both duck the mix.
-  if (sim.disasters?.justStruck && sim.disasters.struckKind === 'quake') audioEngine?.duck?.(0.7, 0.08, 0.4);
-  if (sim.biomes?.tsunamiJustArrived) audioEngine?.duck?.(0.5, 0.05, 0.35);
+  applyShowAudio();
 
   // Tap recalibration: drive the count while an (opt-in, 'C'-key-triggered)
   // pass is running. Never blocks the frame, pauses audio, or swallows input.
@@ -3425,27 +3469,47 @@ function frame(tRaf) {
   // visionLoop samples the same canvas here, which is what says so.
   const capture = presented ? renderer?.getCaptureSource() : null;
   presentedFps.sample(tRaf, !!capture);
-  if (capture) songRecorder?.captureFrame(capture);
-  else if (songRecorder?.recording || pendingCapturePresetId) abortRecording('Presentation failed; the recording was discarded.');
+  if (capture) songRecorder?.captureFrame(capture, { alreadyPaced: true });
+  else if (songRecorder?.recording || pendingCaptureOptions) abortRecording('Presentation failed; the recording was discarded.');
   updateRecordReadout(tRaf);
   if (presented) visionLoop.maybeSample(tRaf, simTime);
   debugOverlay.render();
 
-  // Fallback completion: FractureEngine finishes after musical last impact +
-  // shatter, not after silence-padded duration. Guard still uses declared
-  // duration so a stuck freeze never hangs forever.
-  const durationMs = conductor.durationMs || 0;
-  const musicalEnd = sim.fracture?.finale?.musicalEndMs ?? durationMs;
-  if (durationMs > 0 && nowMs > Math.max(durationMs, musicalEnd) + 2500 && !sim.fracture.isDone) {
-    onSongComplete();
-    return;
-  }
-  if (sim.fracture.isDone) {
+  if (isSongComplete(nowMs)) {
     onSongComplete();
     return;
   }
 
   rafHandle = requestAnimationFrame(frame);
+}
+
+function applyShowAudio() {
+  // Full exports keep the complete source; live playback retains authored cuts.
+  if (fullSongRecording) return;
+  // Last impact notes → freeze/shatter: fade music out so the glass break
+  // lands in silence (not over a long empty pad after the real ending).
+  if (sim.fracture?.justEnteredFinale && !sim.fracture.audioSilenced) {
+    sim.fracture.audioSilenced = true;
+    audioEngine?.fadeToSilence?.(0.32);
+    synth?.stopAll?.();
+  }
+
+  // Authored cuts: the drop and the apotheosis duck the mix for a beat,
+  // the sound half of the same snap the camera/color already get (CutDirector).
+  if (sim.cut?.dropJustCut) audioEngine?.duck?.();
+  if (sim.cut?.apotheosisJustCut) audioEngine?.duck?.(0.6, 0.04, 0.3);
+  // Disaster cuts get the same sound-half treatment as the authored ones
+  // above -- a quake strike and a tsunami wall's arrival both duck the mix.
+  if (sim.disasters?.justStruck && sim.disasters.struckKind === 'quake') audioEngine?.duck?.(0.7, 0.08, 0.4);
+  if (sim.biomes?.tsunamiJustArrived) audioEngine?.duck?.(0.5, 0.05, 0.35);
+
+}
+
+function isSongComplete(nowMs) {
+  const durationMs = conductor.durationMs || 0;
+  if (fullSongRecording) return durationMs > 0 && nowMs >= durationMs;
+  const musicalEnd = sim.fracture?.finale?.musicalEndMs ?? durationMs;
+  return (durationMs > 0 && nowMs > Math.max(durationMs, musicalEnd) + 2500 && !sim.fracture.isDone) || sim.fracture.isDone;
 }
 
 function formatClock(ms) {
@@ -3595,6 +3659,10 @@ function adoptFullAnalysisLive(data) {
  * teardown/construction lifecycle as replay so no effect pool, timestamp,
  * subscription or renderer history can survive from the discarded future. */
 function seekSong(ms) {
+  if (songRecorder?.recording || songRecorder?.finalizing || pendingCaptureOptions) {
+    showErrorBanner('Finish or cancel the recording before seeking.');
+    return;
+  }
   if (!running || !sim || !audioEngine || !lastTimelineData || !Number.isFinite(ms)) return;
   const dur = Math.max(1, sim.conductor?.durationMs || audioEngine.nowMs + 1);
   const t = Math.max(0, Math.min(ms, dur - 1));
@@ -4064,7 +4132,6 @@ function onSongComplete() {
   renderResultsGrid(buildRunStats(sim));
   renderFilmstrip(sim.highlightReel?.frames || []);
   completePanelEl.classList.remove('hidden');
-  syncExportUI();
   // A full-song export ends where the song does. Awaiting it here would
   // hold up the panel, so it saves itself and writes its own line.
   if (songRecorder?.recording) finishRecording();
@@ -4074,30 +4141,15 @@ function onSongComplete() {
  *  the song-derived default. Explicit completion-screen seeds still override it. */
 function replaySong({ songSeed } = {}) {
   if (!lastTimelineData) { window.location.reload(); return; }
-  // A full-song recording is the whole song: wait for its analysis rather
-  // than record the part past the opening with nothing driving it.
-  if (pendingExportPresetId && lastTimelineData.opening && fullAnalysisPending) {
-    const waitingOn = lastTimelineData;
-    showProgress('Finishing the analysis…');
-    fullAnalysisPending.finally(() => {
-      progressEl.classList.add('hidden');
-      if (lastTimelineData === waitingOn) replaySong({ songSeed });
-    });
-    return;
-  }
   // Capture buffer before rebuild — startTimeline stops the AudioContext source
   // via stopTimeline, but must not lose the decoded song for the restart.
   const buffer = lastAudioBuffer;
   if (buffer) muteTimelineSynth = true;
-  const recordingPreset = pendingExportPresetId;
-  pendingExportPresetId = null;
   // Arm the master-bus recorder after the landscape is ready and before
   // the replacement source starts, preserving the first audio onset.
   startTimeline(lastTimelineData, {
     songSeed: songSeed !== undefined ? songSeed : null,
     playBuffer: buffer || undefined,
-    captureMode: !!recordingPreset,
-    beforePlayback: recordingPreset ? () => startRecording(recordingPreset) : undefined,
   });
   if (buffer) lastAudioBuffer = buffer;
   // Completion seed readout stays in sync with the run that just started.
@@ -4219,6 +4271,18 @@ const libraryFolderInputEl = document.getElementById('libraryFolderInput');
 const libraryFolderHintEl = document.querySelector('.libraryFolderHint');
 
 const musicLibrary = new MusicLibrary();
+const randomSongBtn = document.getElementById('randomSongBtn');
+let lastLibraryTrackId = null;
+randomSongBtn?.addEventListener('click', async () => {
+  if (randomSongBtn.disabled) return;
+  if (!musicLibrary.tracks.length) { chooseMusicFolder(); return; }
+  const previous = lastLibraryTrackId || recentlyPlayed(musicLibrary.tracks, 1)[0]?.key;
+  const track = randomTrack(musicLibrary.tracks, previous);
+  randomSongBtn.disabled = true;
+  try { await playLibraryTrack(track); }
+  catch (error) { showErrorBanner('Could not open that song: ' + (error?.message || error)); }
+  finally { randomSongBtn.disabled = false; }
+});
 /** Set when a load came from the library, so the decode can report the
  *  track's real duration back. Cleared as soon as it is consumed. */
 let autoTagAbort = null;
@@ -4373,7 +4437,8 @@ async function playLibraryTrack(track) {
   // The scan keeps running: playing the first track you recognise is the
   // reason the rows stream in at all.
   closeLibrary({ cancelScan: false });
-  handleFiles([file], { selection, localTrack: track });
+  lastLibraryTrackId = track.key;
+  return handleFiles([file], { selection, localTrack: track });
 }
 
 async function chooseMusicFolder() {
@@ -4515,19 +4580,16 @@ musicLibrary.init().catch((err) => console.warn('[library] could not be loaded',
 
 const recordBtnEl = document.getElementById('recordBtn');
 const recordStatusEl = document.getElementById('recordStatus');
-const completeExportEl = document.getElementById('completeExport');
-const exportPresetEl = document.getElementById('exportPreset');
-const exportBtnEl = document.getElementById('exportBtn');
+const cancelExportBtn = document.getElementById('cancelExportBtn');
+const exportSetup = new ExportSetup({ root: document.getElementById('exportSetup'), storage: displayStorage() });
 const exportNoteEl = document.getElementById('exportNote');
 
-const EXPORT_PRESET_KEY = 'midio.export.preset';
 
 let songRecorder = null;
-/** Set just before a replay so the recorder starts with the new song. */
-let pendingExportPresetId = null;
+let fullSongRecording = false;
 /** Mid-song capture waits until the live presentation lead has been paid
  * down without rewinding simulation time. */
-let pendingCapturePresetId = null;
+let pendingCaptureOptions = null;
 /** The last object URL handed out, revoked when the next one replaces it. */
 let lastExportUrl = null;
 
@@ -4551,14 +4613,6 @@ function resumeRecordingAfterTerrain() {
   if (songRecorder === held.recorder) held.resume();
 }
 
-function storedExportPresetId() {
-  try { return presetById(localStorage.getItem(EXPORT_PRESET_KEY)).id; } catch { return DEFAULT_PRESET_ID; }
-}
-
-function rememberExportPresetId(id) {
-  try { localStorage.setItem(EXPORT_PRESET_KEY, id); } catch { /* private mode */ }
-}
-
 /** The recorder needs the audio graph, so it cannot exist before bootAudio.
  *  Built once and reused: the master-bus tap is connected per recording and
  *  released again when each one ends. */
@@ -4568,15 +4622,16 @@ function ensureRecorder() {
     stage: canvas,
     audioContext: audioEngine.ctx,
     audioSource: audioEngine.master,
-    onAutoStop: () => finishRecording(),
+    onAutoStop: (message) => { showErrorBanner(`${message || 'Recording stopped.'} A partial video will be saved.`); finishRecording(); },
   });
   return songRecorder;
 }
 
-function beginRecorder(presetId) {
+function beginRecorder(options) {
   const recorder = ensureRecorder();
   if (!recorder) { showErrorBanner('Start a song before recording.'); return false; }
-  if (!recorder.start({ presetId, deferFirstFrame: true })) {
+  if (!recorder.start({ ...(typeof options === 'string' ? { presetId: options } : { settings: options }),
+    initialFrame: renderer?.getCaptureSource(), deferFirstFrame: true })) {
     showErrorBanner(recorder.error || 'This browser cannot record video.');
     captureClock.release(audioEngine?.nowMs || 0);
     syncRecordUI();
@@ -4587,14 +4642,14 @@ function beginRecorder(presetId) {
   return true;
 }
 
-function startRecording(presetId = storedExportPresetId()) {
+function startRecording(options = exportSetup.settings) {
   const recorder = ensureRecorder();
   if (!recorder?.candidate) {
     showErrorBanner('This browser cannot record video.');
     return false;
   }
-  if (captureClock.captureReady) return beginRecorder(presetId);
-  pendingCapturePresetId = presetId;
+  if (captureClock.captureReady) return beginRecorder(options);
+  pendingCaptureOptions = options;
   captureClock.arm(audioEngine?.nowMs || 0);
   syncRecordUI();
   return true;
@@ -4604,18 +4659,19 @@ function startRecording(presetId = storedExportPresetId()) {
  *  on screen waits for a file to finish writing. */
 function finishRecording() {
   const recorder = songRecorder;
-  if (pendingCapturePresetId) {
-    pendingCapturePresetId = null;
+  if (pendingCaptureOptions) {
+    pendingCaptureOptions = null;
     captureClock.release(audioEngine?.nowMs || 0);
     syncRecordUI();
     return;
   }
   if (!recorder?.recording) return;
+  fullSongRecording = false;
   captureClock.release(audioEngine?.nowMs || 0);
   // Finalization may finish after another song has been selected.
   const recordingData = lastTimelineData;
   const recordingName = sessionSongName(recordingData, lastSongName);
-  recorder.stop().then((result) => {
+  recorder.stop({ drain: true }).then((result) => {
     syncRecordUI();
     if (!result) {
       setExportNote('Nothing was captured — the recording was too short to save.', 'isWarning');
@@ -4627,6 +4683,11 @@ function finishRecording() {
       ext: result.candidate?.ext || 'mp4',
     });
     downloadBlob(result.blob, fileName);
+    const notice = document.getElementById('exportSaved');
+    const cadence = result.capture ? ` · ${Math.round(result.capture.averageFps)}/${result.capture.requestedFps} fps drawn` : '';
+    notice.textContent = `Video saved · ${describeResult(result)}${cadence}`;
+    notice.hidden = false;
+    setTimeout(() => { notice.hidden = true; }, 12000);
     setExportNote(
       `Saved ${fileName} — ${describeResult(result)}`,
       result.codec && result.codec !== 'H.264' ? 'isWarning' : 'isResult',
@@ -4640,9 +4701,9 @@ function finishRecording() {
 }
 
 function abortRecording(message) {
-  const active = songRecorder?.recording || pendingCapturePresetId;
-  pendingCapturePresetId = null;
-  pendingExportPresetId = null;
+  fullSongRecording = false;
+  const active = songRecorder?.recording || pendingCaptureOptions;
+  pendingCaptureOptions = null;
   songRecorder?.cancel();
   if (!active) return;
   captureClock.release(audioEngine?.nowMs || 0);
@@ -4674,7 +4735,7 @@ function setExportNote(text, className = '') {
 }
 
 function syncRecordUI() {
-  const arming = !!pendingCapturePresetId;
+  const arming = !!pendingCaptureOptions;
   const active = !!songRecorder?.recording;
   const finalizing = !!songRecorder?.finalizing;
   const busy = active || arming || finalizing;
@@ -4686,7 +4747,9 @@ function syncRecordUI() {
   recordStatusEl?.classList.toggle('hidden', !active && !arming);
   if (arming && recordStatusEl) recordStatusEl.textContent = 'Aligning capture…';
   if (recordBtnEl) recordBtnEl.disabled = finalizing;
-  if (exportBtnEl) exportBtnEl.disabled = busy;
+  exportSetup.setBusy(busy);
+  cancelExportBtn?.classList.toggle('hidden', !active && !arming);
+  for (const control of [rangeSeekEl, document.getElementById('rangeRestart'), experienceControl]) if (control) control.disabled = busy;
 }
 
 /** Elapsed time and file size while recording.
@@ -4706,66 +4769,20 @@ function updateRecordReadout(tRaf = 0) {
   // until the recording stops rather than emitting per timeslice, and a
   // readout sitting on "0 B" thirty seconds in reads as broken when it is
   // merely early.
-  const elapsed = formatElapsed(songRecorder.elapsedMs);
+  const stats = songRecorder.captureStats;
+  const elapsed = `${formatElapsed(songRecorder.elapsedMs)} · ${Math.round(stats.averageFps)}/${stats.requestedFps} fps drawn`;
   recordStatusEl.textContent = songRecorder.bytes > 0
     ? `${elapsed} · ${formatBytes(songRecorder.bytes)}`
     : elapsed;
 }
 
-/** Fill the preset menu from one source of truth, and say what this browser
- *  will actually produce BEFORE anyone spends a song finding out. */
-function syncExportUI() {
-  if (!exportPresetEl || !completeExportEl) return;
-  if (!exportPresetEl.options.length) {
-    for (const preset of RENDER_PRESETS) {
-      const option = document.createElement('option');
-      option.value = preset.id;
-      option.textContent = `${preset.label} — ${preset.width}×${preset.height}`;
-      option.title = preset.note || '';
-      exportPresetEl.appendChild(option);
-    }
-    exportPresetEl.value = storedExportPresetId();
-  }
-
-  const recorder = ensureRecorder();
-  const candidate = recorder?.candidate ?? null;
-  // A browser that cannot record says so here rather than after a replay.
-  if (exportBtnEl) exportBtnEl.disabled = !candidate || !!songRecorder?.recording || !!songRecorder?.finalizing;
-  if (recordBtnEl) recordBtnEl.classList.toggle('hidden', !candidate);
-
-  const preset = presetById(exportPresetEl.value);
-  const durationMs = conductor?.durationMs || 0;
-  const size = estimateBytes({ width: preset.width, height: preset.height, durationMs });
-  const parts = [preset.note, reachSummary(candidate)];
-  // An upper bound, not a promise: it is computed from the bitrate we ASK
-  // for, and an encoder that finds the content easy will undershoot it --
-  // measured at roughly half on a sparse test signal. Over-stating is the
-  // safe direction; nobody is upset by a smaller file than they were told.
-  if (candidate && size > 0) parts.push(`Up to about ${formatBytes(size)} for this song.`);
-  if (candidate) parts.push('Recording replays the song in real time.');
-  setExportNote(parts.filter(Boolean).join(' '));
-}
-
 recordBtnEl?.addEventListener('click', () => {
-  if (songRecorder?.recording || pendingCapturePresetId) finishRecording();
-  else if (songRecorder?.finalizing) return;
-  else startRecording();
+  if (songRecorder?.recording || pendingCaptureOptions) finishRecording();
+  else if (!songRecorder?.finalizing) startRecording();
 });
-
-exportPresetEl?.addEventListener('change', () => {
-  rememberExportPresetId(exportPresetEl.value);
-  syncExportUI();
-});
-
-exportBtnEl?.addEventListener('click', () => {
-  if (!lastTimelineData) return;
-  const presetId = exportPresetEl?.value || storedExportPresetId();
-  rememberExportPresetId(presetId);
-  pendingExportPresetId = presetId;
-  setExportNote('Recording… the song is replaying in real time. It saves itself when it finishes.');
-  // Same seed, so the file is the show that was just watched and not a
-  // different roll of the same song.
-  replaySong({ songSeed: lastSongSeed });
+cancelExportBtn?.addEventListener('click', () => {
+  abortRecording('Export cancelled.');
+  backToTitle();
 });
 
 syncRecordUI();

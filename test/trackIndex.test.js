@@ -171,3 +171,14 @@ test('a filename guess still counts as untagged -- replacing it is the point', (
   ];
   assert.deepEqual(untaggedTracks(tracks).map((t) => t.path), ['b', 'c']);
 });
+test('random selection covers the whole library and avoids the last song when alternatives exist', async () => {
+  const { randomTrack } = await import('../src/library/TrackIndex.js');
+  assert.equal(typeof randomTrack, 'function');
+  const tracks = [{ key: 'a' }, { key: 'b' }, { key: 'c' }];
+  assert.equal(randomTrack(tracks, 'b', () => 0).key, 'a');
+  assert.equal(randomTrack(tracks, 'a', () => 0).key, 'b');
+  assert.equal(randomTrack(tracks, 'b', () => .9999).key, 'c');
+  assert.equal(randomTrack([tracks[0]], 'a', () => .5).key, 'a');
+  assert.equal(randomTrack([], null, () => 0), null);
+  assert.deepEqual(tracks.map(t => t.key), ['a', 'b', 'c']);
+});

@@ -27,7 +27,13 @@ const watchdog=setTimeout(async()=>{
   setTimeout(()=>process.exit(1),3000);await browser?.close();process.exit(1);
 },24*60*1000);
 async function settings(page, values) {
-  for(const [key,value] of Object.entries(values)) await page.selectOption(`#display-${key}`,String(value));
+  for (const [key, value] of Object.entries(values)) {
+    if (key === 'quality') await page.locator('#generalQuality').evaluate((control, quality) => {
+      control.value = quality === 'economy' ? '0' : '2';
+      control.dispatchEvent(new Event('input', { bubbles: true }));
+    }, value);
+    else await page.selectOption(`#display-${key}`, String(value));
+  }
 }
 async function captureTitle(page,backend,tag) {
       const title=await page.evaluate(()=>{
@@ -72,7 +78,7 @@ try {
       await captureTitle(page,backend,'palette');
       await page.reload();
       assert.equal(await page.locator('#display-look').inputValue(),'palette');
-      assert.equal(await page.locator('#display-quality').inputValue(),'auto');
+      assert.equal(await page.locator('#generalQuality').inputValue(),'2');
       assert.equal(await page.evaluate(()=>window.__SMW.displayPrefs.pixelScale),'original');
       assert.equal(await page.locator('#display-scaling').inputValue(),'integer');
       assert.equal(await page.locator('#stageFps').inputValue(),'30');

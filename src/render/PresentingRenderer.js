@@ -37,9 +37,9 @@ class PresentingRenderer {
     return source && this.output.diagnostics.hybridSky ? { ...source, canvas: this.canvas,
       pixelCanvas: source.canvas, width: this.canvas.width, height: this.canvas.height,
       pixelated: false, terrainPixelated: true, hybridSky: true,
-      drawCaptureFrame: (ctx, width, height) => {
+      drawCaptureFrame: (ctx, width, height, destination) => {
         if (this._disposed || this.output.getCaptureSource() !== source) return false;
-        return compositePixelFrame(ctx, source.canvas, width, height, source.scaling, background).hybridSky;
+        return compositePixelFrame(ctx, source.canvas, width, height, source.scaling, background, destination).hybridSky;
       } } : source;
   }
   draw(sim, alpha, { preparing = false } = {}) {

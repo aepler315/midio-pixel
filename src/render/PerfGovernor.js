@@ -134,7 +134,7 @@ const RETRO_PARTICLE_MUL = 0.35; // vs 0.6 at the ladder's particle rung
 const RETRO_DANCE_COLUMN_WIDTH = 128;
 
 export class PerfGovernor {
-  constructor({ startLevel = 0, retro = false, economy = retro, retroPalette = false } = {}) {
+  constructor({ startLevel = 0, minLevel = 0, retro = false, economy = retro, retroPalette = false } = {}) {
     this._retro = !!economy;
     // "8-bit intensive": the palette pass rides on top of the retro floor,
     // never on its own -- quantizing a 4K frame would cost many times what
@@ -146,7 +146,8 @@ export class PerfGovernor {
     this._heldLevel = 0;
     // Evidence fixtures pin an exact rung (setFixtureLevel). Null when off.
     this._fixtureLevel = null;
-    this.level = this._retro ? MAX_LEVEL : Math.max(0, Math.min(MAX_LEVEL, startLevel));
+    this.minLevel = Number.isInteger(minLevel) ? Math.max(0, Math.min(MAX_LEVEL, minLevel)) : 0;
+    this.level = this._retro ? MAX_LEVEL : Math.max(this.minLevel, Math.min(MAX_LEVEL, startLevel));
     this._overCount = 0;
     this._cleanSinceMs = null;
     this._warmUntilMs = null;
@@ -177,6 +178,13 @@ export class PerfGovernor {
     this._overCount = 0;
     this._catastrophicRun = 0;
     this._cleanSinceMs = null;
+  }
+
+  /** Apply an explicit detail budget immediately, retaining automatic shedding. */
+  setQualityLimit(level) {
+    this.minLevel = Number.isInteger(level) ? Math.max(0, Math.min(MAX_LEVEL, level)) : 0;
+    this.forgetRecoveryHistory();
+    this.level = this._fixtureLevel ?? (this._holdQuality ? this._heldLevel : this._retro ? MAX_LEVEL : this.minLevel);
   }
 
   /** How long a clean run has to last before the ladder will try `level`
@@ -274,7 +282,7 @@ export class PerfGovernor {
 
   /** Call once per rendered frame with the raw rAF-to-rAF delta. */
   sample(deltaMs, nowMs, { capFps = 60 } = {}) {
-    const budgetMs = Math.max(FRAME_BUDGET_MS, 1000 / (Math.round(capFps) === 30 ? 30 : 60) + (FRAME_BUDGET_MS - 1000 / 60));
+    const budgetMs = Math.max(FRAME_BUDGET_MS, 1000 / ([24, 30, 60].includes(Math.round(capFps)) ? Math.round(capFps) : 60) + (FRAME_BUDGET_MS - 1000 / 60));
     if (this._sampleBudgetMs !== budgetMs) {
       this._sampleBudgetMs = budgetMs;
       this.forgetRecoveryHistory();
@@ -320,7 +328,7 @@ export class PerfGovernor {
       this._catastrophicRun = 0;
       this._overCount = Math.max(0, this._overCount - OVER_DECAY_PER_CLEAN_FRAME);
       if (this._cleanSinceMs === null) this._cleanSinceMs = nowMs;
-      else if (this.level > 0 && nowMs - this._cleanSinceMs >= this.recoverWindowMsFor(this.level - 1)) {
+      else if (this.level > this.minLevel && nowMs - this._cleanSinceMs >= this.recoverWindowMsFor(this.level - 1)) {
         this.level--;
         this._recoveredInto.add(this.level);
         this._overCount = 0; // fresh evidence for the rung just entered

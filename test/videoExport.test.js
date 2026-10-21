@@ -24,16 +24,16 @@ test('H.264 in MP4 wins when it is on offer', () => {
   assert.equal(picked.reach, 'anywhere');
 });
 
-test('an MP4 container with no codec promise is never sold as one', () => {
+test('explicit audio and video codecs take priority over an unspecified MP4 codec pair', () => {
   // This is the real trap: a Chromium build without proprietary codecs
   // answers true to 'video/mp4' and then writes VP9 into it. The file has
   // the right extension and a head unit still refuses it.
   const openSourceChromium = supporting('video/mp4', 'video/mp4;codecs=vp9', 'video/webm;codecs="vp9,opus"');
   const picked = pickMimeType(openSourceChromium);
-  assert.equal(picked.ext, 'mp4');
+  assert.equal(picked.ext, 'webm');
   assert.notEqual(picked.reach, 'anywhere');
-  assert.equal(picked.reach, 'unknown');
-  assert.match(reachSummary(picked), /may not be H\.264/);
+  assert.equal(picked.reach, 'browsers');
+  assert.equal(picked.audio, 'Opus');
 });
 
 test('a browser with only WebM says so instead of failing', () => {
@@ -55,12 +55,12 @@ test('every candidate in the ladder is internally consistent', () => {
   for (const c of MIME_CANDIDATES) {
     assert.ok(c.mimeType.startsWith(`video/${c.ext}`), c.mimeType);
     // Only an explicitly-requested H.264 may claim to play anywhere.
-    if (c.reach === 'anywhere') assert.equal(c.video, 'H.264');
+    if (c.reach === 'anywhere') { assert.equal(c.video, 'H.264'); assert.equal(c.audio, 'AAC'); }
     if (c.video === null) assert.notEqual(c.reach, 'anywhere');
   }
   // Best first: the ladder must never offer a weaker reach before a
   // stronger one, or a browser that supports both would get the weaker.
-  const rank = { anywhere: 0, unknown: 1, browsers: 2 };
+  const rank = { anywhere: 0, browsers: 1, unknown: 2 };
   const reaches = MIME_CANDIDATES.map((c) => rank[c.reach]);
   assert.deepEqual(reaches, [...reaches].sort((a, b) => a - b));
 });
@@ -179,8 +179,10 @@ test('what the file turned out to be beats what was asked for', () => {
   const mp4 = MIME_CANDIDATES[0];
   const good = describeResult({ candidate: mp4, codec: 'H.264', bytes: 52428800, durationMs: 195000 });
   assert.match(good, /H\.264/);
-  assert.match(good, /plays anywhere/);
+  assert.match(good, /AAC audio/);
+  assert.match(good, /supported resolution and FPS/);
   assert.match(good, /3:15/);
+  assert.doesNotMatch(describeResult({ candidate: { ext: 'mp4' }, codec: 'H.264', bytes: 1000, durationMs: 1000 }), /plays anywhere/);
 
   // The container says MP4 and the extension says MP4 -- and the bytes say
   // this will not play in a car. That sentence is the whole point.

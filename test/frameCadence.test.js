@@ -47,3 +47,9 @@ test('pause/resume resets and cap changes start a new phase; title and playback 
   title.reset();
   assert.equal(title.shouldDraw(1038, 60), true);
 });
+test('24 fps capture uses 24 slots per second on a 60 Hz callback clock', () => {
+  const cadence = new FrameCadence();
+  let drawn = 0;
+  for (let i = 0; i < 60; i++) if (cadence.shouldDraw(i * 1000 / 60, 24)) drawn++;
+  assert.equal(drawn, 24);
+});
