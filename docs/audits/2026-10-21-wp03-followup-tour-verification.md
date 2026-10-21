@@ -8,7 +8,7 @@ Branch: `impl/wp03-followup-tour-verification`. Sole parent: WP03 `ac5db24a49c96
 
 | Item | Result |
 | --- | --- |
-| Persisted-Tetons screenshot timeout | Diagnosed: a software-rasterizer limit triggered by the tour's heavy terrain-window frames. Not specific to the persisted route, not a compositor hang, and not a harness defect. The SwiftShader gate remains intermittently failing; no timeout, assertion or fixture was changed. |
+| Persisted-Tetons screenshot timeout | Diagnosed: a software-rasterizer limit triggered by the tour's heavy terrain-window frames. Not specific to the persisted route, not a compositor hang, and not a harness defect. The SwiftShader gate remains intermittently failing (final run: 3/4, persisted screenshot timeout); no timeout, assertion or fixture was changed. |
 | Same routes on the local RTX 3060 | All four rows pass the gate's own sample, validation and 30 s screenshot deadline (45–120 ms). Sustained tour playback: 32/32 screenshots under 0.5 s. |
 | New defect: released mirror backdrop still bound | Fixed in `RangeScene.js` with a RED-to-GREEN regression test. It caused two fatal WebGL diagnostics on both tour routes during sustained hardware playback. |
 | 48 kHz ending misses | Quantified with a new reachability tool. The pre-chorus and outro are large gaps under the current protected framing; no change shipped. |
@@ -34,7 +34,7 @@ The failure predates WP03 and is not specific to the persisted route. The retain
 - a Chromium trace;
 - screenshot latency under a configurable deadline.
 
-It never decides acceptance. Its long default screenshot deadline exists only to distinguish "slow" from "hung". Each run used the unchanged standard 120 s fixture (SHA-256 `0bbee2957cc72a3e4214a84c3bb67dac20871f9796be0e43014fc2da7224be85`), the WP03 staged artifact (digest `574bd21532f767c7f46059a43b310372d7d1c1e191f55185b387e60be213a67a`), Chromium 153.0.8010.12, and the gate's launch flags. The machine was otherwise idle during timing runs.
+It never decides acceptance. Its long default screenshot deadline exists only to distinguish "slow" from "hung". Each run used the unchanged standard 120 s fixture (SHA-256 `0bbee2957cc72a3e4214a84c3bb67dac20871f9796be0e43014fc2da7224be85`), the WP03 staged artifact (digest `574bd21532f767c7f46059a43b310372d7d1c1e191f55185b387e60be213a67a`), Chromium 153.0.8010.12, and the gate's launch flags. The traced baseline run, the hardware runs and the Windows control ran with no other workload. Single-threaded CPU analyses overlapped the GL-wrapped and second traced runs, which were used for attribution rather than timing.
 
 ### SwiftShader attribution (WSL, gate flags)
 
@@ -74,7 +74,7 @@ The same probe ran under native Windows Node (`v25.9.0`, with a loader that reso
 
 On hardware, simulation time tracks audio from the first sample. For example, in the persisted row audio 1,230 ms coincides with simulation 1,135 ms on frame 49. No ping after ready saw `playbackPreparing`. Three.js held 12 programs throughout, so no window fell back to coarse and no forest programs were recompiled.
 
-The hardware runs changed the operating system, Node version and ANGLE backend as well as the GPU. A control isolated the GPU. It used the same Windows Node and Windows Chromium 1243 with the gate's SwiftShader flags, on the persisted route with a 180 s diagnostic screenshot deadline, and the renderer reported SwiftShader as expected. The stall reproduced on Windows:
+The hardware runs changed the operating system, Node version and ANGLE backend as well as the GPU. A control isolated the GPU. It used the same Windows Node and Windows Chromium 1243 with the gate's SwiftShader flags, on the persisted route with a 180 s diagnostic screenshot deadline, and the renderer reported SwiftShader as expected. It ran against this branch's staged artifact, which differs from WP03's only by the backdrop fix. The stall reproduced on Windows:
 
 - The first sample came 41 s late (audio 40.4 s, simulation 0 on frame 4).
 - Screenshots took **53.6 s and 67.1 s**, both beyond the gate's 30 s.
@@ -136,7 +136,7 @@ Pinned 48 kHz request (89,984 ms, nine heroes):
 - **Pre-chorus.** A large gap: about 153° to the coverage edge, with 144° of capacity, and boxed in by the protected verse window that follows.
 - **Outro.** Also a large gap given the final chorus's protected framing. Its approach can start only at 84.5 s, leaving 1.9 s and 47° of capacity, against 144° to the coverage edge. None of the 66 outro-role candidates is reachable.
 - **The ending trade-off.** If the final chorus's accepted alternative were not protected, the intended outro subject would become reachable (s* 0.68). Covering the outro therefore requires changing an accepted shot, which these constraints do not allow automatically.
-- **Middle Teton.** At both choruses it is reachable under the hard limits (s* 0.83–0.93). WP03's composition rejects it because its smoothstep approach peaks at 1.5× its mean yaw rate.
+- **Middle Teton.** At both choruses it is reachable under the hard limits (s* 0.83–0.93). At the final chorus, WP03's retained diagnostics show it rejected by a per-step yaw check (2.55° against 2.5°), which follows from the smoothstep approach peaking at 1.5× its mean rate. The rejection at 14.44 s was not instrumented.
 
 ### Saturated-chase experiment (reverted)
 
@@ -148,7 +148,7 @@ To test that last point, a prototype chased the same eased target at the shared 
 | 44.1 kHz replay | 11/11: the 23.45 s verse is covered by an alternative. |
 | Published arrays versus WP03 | Eye, FOV and meta byte-identical. Target differs only at 75.9–90.0 s (48 kHz) and 20.8–26.4 s (44.1 kHz). |
 | Safety | First version failed holdout H06 by 0.0028° of yaw excess: `poseAt` slerps directions, so a saturated frame that also changes pitch turns unevenly (up to 1.16× its mean at 10° of pitch change). A slerp-aware saturation then passed 18/18 holdout cases with maximum excess 0.00031°. |
-| Monotonicity, all 201 holdout heroes | 157 unchanged, 19 alternatives upgraded to intended, 12 newly covered, 4 swapped alternatives, **7 previously covered heroes lost**, **2 intended subjects demoted to alternatives** |
+| Monotonicity, all 201 holdout heroes | 157 unchanged; 19 now frame their intended subject where WP03 framed another; 12 newly covered; 4 swapped one alternative for another; **7 previously covered heroes lost**; **2 intended subjects demoted to alternatives** |
 | Accepted subjects | Against WP03, the 48 kHz final chorus changes accepted subject. Against WP01, at 44.1 kHz, WP01's accepted `peak-5775431` drops from 1.0 to 0.23 in frame at 23.45 s. |
 
 Greedy chronological composition lets an earlier success consume heading budget that a later, previously covered hero depended on. That violates the accepted-subject constraint, so the prototype was reverted. Its diff is retained outside Git with the rest of the evidence. Shipping the gains safely needs a composition that protects every hero the previous solution covered, or solves endings jointly. Upgrading an accepted alternative to its intended subject is also a product decision, because the accepted subject changes.
@@ -167,10 +167,11 @@ For the host-default 44.1 kHz request, WP03's replay preservation gate measures 
 | Full repository suite (`npm test`, Node v24.10.0, WSL) | 4,866 total: 4,860 passed, 0 failed, 6 GDAL skips, 0 TODOs (WP03's 4,862 plus the four backdrop tests) |
 | Lint / whitespace | `npm run lint` clean; `git diff --check` clean |
 | Captured-input replays | Planner unchanged from WP03; reachability reports for both captures retained |
-| SwiftShader standard four-route gate, final commit | PENDING_GATE |
+| SwiftShader standard four-route gate (run once; unchanged harness and default fixture `0bbee295…`; clean commit `0f0fcdcff2af9b5a8166a4382461a023155861cb`, staged digest `99e7db42…`, unchanged during the run) | **Failed, 3/4.** Landscape, tour-selected and Trio passed. Persisted Tetons reached ready playback (audio 67.3 s with simulation 0.18 s on frame 5, then audio 69.2 s and simulation 68.4 s on frame 9), then exceeded the 30 s screenshot deadline. All rows recorded 0 browser errors and 0 warnings. This matches the diagnosis in section 1 and was not rerun to obtain a pass. The commit that adds this row changes only this document. |
 
 ## 5. Limitations
 
+- **Remaining failed gates.** The standard SwiftShader four-route gate still fails on persisted Tetons (section 1). The 48 kHz pre-chorus and outro remain projection misses, and the final chorus still frames an alternative rather than its intended subject.
 - Hardware evidence comes from one machine (RTX 3060, D3D11 ANGLE, Windows). It is integration evidence, not a performance benchmark, and it says nothing about integrated or mobile GPUs. The hardware runs observed a few seconds (gate-equivalent) and about 83 s (sustained) of tour playback, not whole songs.
 - SwiftShader captures and CPU projection checks do not establish smooth playback, audio/visual synchronization, terrain visibility, subject footprint or artistic quality. No audio was auditioned.
 - The reachability tool considers only headings on the fixed eye path and fixed FOV. Route, eye or FOV changes, and joint multi-hero solutions, are outside it.
@@ -185,4 +186,4 @@ node tools/tour-reachability-check.mjs --request /path/to/input-0.json --out .sm
 node --test test/rangeBackdropRelease.test.mjs
 ```
 
-Captured traces, PNGs, probe JSON, logs, the reverted prototype diff and both holdout reports stay outside Git under ignored `.smoke/` directories and the task evidence archive. Successful and failed runs are both retained. Publication is a branch candidate, separate from merge and deployment.
+Captured traces, PNGs, probe JSON, logs, the reverted prototype diff and the failed and passing holdout reports stay outside Git under ignored `.smoke/` directories and the task evidence archive. Successful and failed runs are both retained. Publication is a branch candidate, separate from merge and deployment.
