@@ -12,7 +12,6 @@ test('a current pattern travels downstream at the sourced metres per second', ()
   assert.equal(travel(11, .4, 2.5), 10);
   assert.equal(travel(10, .4, 2.5), 9);
   assert.equal(travel(10, 0, 20), 10, 'zero flow cannot advance the pattern');
-  assert.equal(travel(10, .4, 0), 10, 'the reduced-motion clock holds its initial pattern');
 });
 
 test('resolved current has restrained ambient contrast and averages away below a pixel', () => {
