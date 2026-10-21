@@ -1,5 +1,10 @@
 # Pixel preservation and depth validation
 
+Historical validation record. The Depth pixel effect has since been retired;
+current profiles use Uniform sampling and migrate saved Depth choices to it.
+The captures and counts below describe that earlier implementation, rather
+than current acceptance. See [current presentation behavior](./pixel-presentation.md).
+
 Validated on 2026-10-15 against Midio-5 commit `e53db1e0663ce0f8db6d9d89d168dc6d6dbdb308`. The complete source snapshot matched its original Git tree before any changes.
 
 ## Original appearance

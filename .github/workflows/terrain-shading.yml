@@ -2,6 +2,12 @@ name: Terrain shading study
 on:
   # Expensive matched comparisons are explicitly dispatched for relevant changes.
   workflow_dispatch:
+    inputs:
+      baseline_ref:
+        description: Optional preservation ref for stills; empty checks repeatability.
+        required: false
+        default: ''
+        type: string
 permissions:
   contents: read
 jobs:
@@ -24,12 +30,39 @@ jobs:
           browser: true
       - name: Check opt-in, actual GLSL and matched-state contracts
         run: node --test test/terrainShading*.js test/terrainShading*.mjs
-      - name: Check out the untouched PR base for preservation
+      - name: Check out the selected preservation source or identical repeat
         if: matrix.case == 'stills'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          ref: ${{ inputs.baseline_ref || github.sha }}
           path: .smoke/terrain-base
+      - name: Record resolved source commits and comparison purpose
+        env:
+          BASELINE_REF: ${{ inputs.baseline_ref }}
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          import { snapshotSource } from './tools/lib/visual-evaluation-server.mjs';
+          const commit = cwd => execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim();
+          const candidateCommit = commit('.');
+          const baselineCommit = process.env.CASE === 'stills' ? commit('.smoke/terrain-base') : candidateCommit;
+          const candidateDigest = (await snapshotSource('.')).digest;
+          const baselineDigest = process.env.CASE === 'stills' ? (await snapshotSource('.smoke/terrain-base')).digest : candidateDigest;
+          const comparisonKind = process.env.CASE === 'stills'
+            ? baselineDigest === candidateDigest ? 'repeatability' : 'committed-source'
+            : 'same-source-toggle';
+          const out = `.smoke/terrain/${process.env.CASE}`;
+          fs.mkdirSync(out, { recursive: true });
+          fs.writeFileSync(`${out}/source-pair.json`, JSON.stringify({
+            requestedBaselineRef: process.env.CASE === 'stills' ? process.env.BASELINE_REF || null : null,
+            baselineCommit, candidateCommit, comparisonKind,
+            baselineDigest, candidateDigest,
+            toggleCommit: candidateCommit,
+            purpose: process.env.CASE === 'stills' ? 'Default OFF preservation or identical-source repeat; OFF/ON toggle captures use the candidate source.' : 'OFF/ON toggle captures use the same candidate source; no independent source baseline.'
+          }, null, 2) + '\n');
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Terrain ${process.env.CASE} ${comparisonKind}: reference ${baselineCommit} (${baselineDigest}); candidate ${candidateCommit} (${candidateDigest}). Pixel changes do not establish improvement.\n`);
+          NODE
       - name: Capture current OFF and experimental ON with identical settings
         run: |
           close_args=()
@@ -38,7 +71,7 @@ jobs:
           node tools/terrain-shading-evaluate.mjs --manifest "test/fixtures/terrain-shading-$CASE.json" --out ".smoke/terrain/$CASE/on" --shading moran "${close_args[@]}"
       - name: Require matched state and build the full-size toggle report
         run: node tools/terrain-shading-compare.mjs ".smoke/terrain/$CASE/off" ".smoke/terrain/$CASE/on" ".smoke/terrain/$CASE/review"
-      - name: Prove default OFF preserves the untouched base
+      - name: Require default OFF to match the selected source or identical repeat
         if: matrix.case == 'stills'
         run: |
           node tools/terrain-shading-evaluate.mjs --root .smoke/terrain-base --manifest test/fixtures/terrain-shading-stills.json --out .smoke/terrain/stills/base --close 1

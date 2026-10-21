@@ -1,9 +1,16 @@
 import assert from 'node:assert/strict';
 import { seedBrowserConstruction, installSeedReceiver } from './landscape-browser.mjs';
+import { attachBrowserDiagnostics } from './browser-diagnostics.mjs';
 
 export function validateEvaluationSeeds(info, settings) {
   assert.equal(info.constructionSeed, settings.seed, 'construction seed did not match the pinned seed');
   assert.ok(Number.isInteger(info.seed) && info.seed >= 0 && info.seed <= 0xffffffff, 'invalid song-derived seed');
+}
+
+export function expectedTourPreparationFailure(request) {
+  const url = new URL(request.url());
+  return request.failure()?.errorText === 'net::ERR_ABORTED' && url.pathname.startsWith('/src/assets/range/v2/')
+    && `cancelled tour preparation request ${url.pathname}`;
 }
 
 // Uses the real upload/analysis and existing export APIs. No synthetic control
@@ -29,25 +36,10 @@ export async function openEvaluationSong(browser, { url, audioPath, settings, di
     });
     const page = await context.newPage();
     page.setDefaultTimeout(60000);
-    page.on('pageerror', e => diagnostics.errors.push(e.message));
-    page.on('console', m => {
-      if (m.type() === 'error' || /Shader Error|program not valid/.test(m.text())) diagnostics.errors.push(m.text());
-      else if (m.type() === 'warning') diagnostics.warnings.push(m.text());
-    });
-    page.on('response', res => {
-      const u = new URL(res.url());
-      if (u.origin !== origin) return;
-      diagnostics.loadedFiles.add(u.pathname);
-      if (res.status() >= 400) diagnostics.errors.push(`HTTP ${res.status()} ${u.pathname}`);
-    });
-    page.on('requestfailed', req => {
-      if (settings.tour && req.failure()?.errorText === 'net::ERR_ABORTED'
-        && new URL(req.url()).pathname.startsWith('/src/assets/range/v2/')) {
-        diagnostics.warnings.push(`cancelled tour preparation request ${new URL(req.url()).pathname}`);
-        return; // analysis revisions cancel old fetches; active backend is verified per frame
-      }
-      if (new URL(req.url()).origin === origin) diagnostics.errors.push(`request failed ${new URL(req.url()).pathname}: ${req.failure()?.errorText}`);
-    });
+    const browserDiagnostics = await attachBrowserDiagnostics(page, diagnostics, { origin,
+      // Analysis revisions cancel old tour preparation fetches; the active
+      // backend is still verified per frame. Other cancellations remain fatal.
+      isExpectedRequestFailure: settings.tour === 'tetons' ? expectedTourPreparationFailure : undefined });
     const entry = new URL(url);
     for (const [key, value] of Object.entries({ bulkExport: 1, exportW: settings.width, exportH: settings.height,
       experience: settings.experience, rangeRenderer: 'v2', rangeTour: settings.tour || 'off', rangeView: settings.view, seed: settings.seed, perf: 'high' })) {
@@ -58,8 +50,10 @@ export async function openEvaluationSong(browser, { url, audioPath, settings, di
     await page.locator('#titleSettings').evaluate(node => { node.open = true; });
     const lyrics = page.locator('#lyricGroundingBtn');
     if (await lyrics.getAttribute('aria-pressed') === 'true') await lyrics.click();
+    browserDiagnostics.setPhase('audio-analysis');
     await page.locator('#fileInput').setInputFiles(audioPath);
     await page.waitForFunction(() => window.__SMW?.exportReady || window.__SMW_EXPORT_ERROR, null, { timeout: 300000 });
+    browserDiagnostics.setPhase('render-preparation');
     const info = await page.evaluate(async settings => {
       if (window.__SMW_EXPORT_ERROR) throw new Error(window.__SMW_EXPORT_ERROR);
       window.__resetLandscapeRandom();
@@ -80,7 +74,8 @@ export async function openEvaluationSong(browser, { url, audioPath, settings, di
           deviceMemory: navigator.deviceMemory ?? null, dpr: devicePixelRatio } };
     }, settings);
     validateEvaluationSeeds(info, settings);
-    return { context, page, ...info };
+    browserDiagnostics.setPhase('ready');
+    return { context, page, browserDiagnostics, ...info };
   } catch (err) { await context.close(); throw err; }
 }
 

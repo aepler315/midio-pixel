@@ -7,6 +7,7 @@ import { chromium } from 'playwright';
 import { manifestForCase } from './lib/visual-evaluation.mjs';
 import { snapshotSource, serveSnapshot } from './lib/visual-evaluation-server.mjs';
 import { openEvaluationSong, renderEvaluationFrame } from './lib/visual-evaluation-browser.mjs';
+import { finalizeBrowserDiagnostics } from './lib/browser-diagnostics.mjs';
 
 const source = path.resolve(process.argv[3] || '.');
 const out = path.resolve(process.argv[2] || '.smoke/vfx-accessibility');
@@ -16,12 +17,16 @@ const settings = { ...manifestForCase(matrix, 'q2-depth-inland-flash').settings,
 await fs.mkdir(out, { recursive: false });
 const snapshot = await snapshotSource(source), server = await serveSnapshot(snapshot);
 const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
-const diagnostics = { errors: [], warnings: [], loadedFiles: new Set() };
-const report = { passed: false, song: 'contrast', timeMs: 12000, injection: 'returning-section cut flash = 1', sourceDigest: snapshot.digest, frames: [] };
+const diagnostics = { errors: [], warnings: [], events: [], loadedFiles: new Set() };
+const report = { passed: false, song: 'contrast', timeMs: 12000, injection: 'returning-section cut flash = 1', sourceDigest: snapshot.digest, frames: [],
+  errors: diagnostics.errors, warnings: diagnostics.warnings, events: diagnostics.events };
+let loaded, failed = false;
 try {
-  const loaded = await openEvaluationSong(browser, { url: server.url, audioPath, settings, diagnostics });
+  loaded = await openEvaluationSong(browser, { url: server.url, audioPath, settings, diagnostics });
+  loaded.browserDiagnostics.setPhase('capture:12000ms');
   await renderEvaluationFrame(loaded.page, { timeMs: 12000, save: false }, settings);
   report.environment = loaded.environment;
+  loaded.browserDiagnostics.setPhase('accessibility-cut-comparison');
   const frames = await loaded.page.evaluate(() => {
     const { sim, renderer } = window.__SMW, canvasRenderer = renderer.canvasRenderer, ctx = canvasRenderer.ctx;
     const original = ctx.fillRect, frames = [];
@@ -53,10 +58,11 @@ try {
   assert.ok(frames[1].meanRgb < frames[0].meanRgb, 'reduced cut must lower the final composed frame brightness');
   assert.deepEqual(diagnostics.errors, []);
   report.passed = true;
-} catch (error) { report.error = String(error.stack || error); process.exitCode = 1; }
+} catch (error) { failed = true; report.error = String(error.stack || error); process.exitCode = 1; }
 finally {
-  await browser.close(); await server.close();
-  report.errors = diagnostics.errors;
+  await loaded?.context.close(); await loaded?.browserDiagnostics.dispose(); await browser.close(); await server.close();
+  try { finalizeBrowserDiagnostics(diagnostics, report, { preserveFailure: failed }); }
+  catch { process.exitCode = 1; }
   await fs.writeFile(path.join(out, 'report.json'), JSON.stringify(report, null, 2));
   console.log(JSON.stringify({ passed: report.passed, frames: report.frames, error: report.error }));
 }
