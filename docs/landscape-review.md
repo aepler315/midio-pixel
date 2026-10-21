@@ -61,8 +61,11 @@ PLAYWRIGHT_CHROMIUM_PATH=/path/to/chrome npm run review:landscape -- \
 ```
 
 `--browser /path/to/chrome` is equivalent to selecting the executable through
-the environment. Hardware mode rejects SwiftShader, llvmpipe and other software
-renderers; `--gpu-match` additionally checks a substring of the actual renderer.
+the environment. Hardware mode rejects SwiftShader, llvmpipe, softpipe, Windows
+WARP (`Microsoft Basic Render Driver`) and other software renderers, and the
+masked `WebKit WebGL` string, which cannot show what rendered. The route gate's
+hardware configuration uses the same check. `--gpu-match` additionally checks a
+substring of the actual renderer.
 A headless hardware run is separate evidence from a headed physical-display run.
 Capture both sides again under the same transport before comparing them.
 

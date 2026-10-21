@@ -7,6 +7,7 @@ import { parseCurrentRoutesArgs, routeGateConfiguration, requireRouteHardwareRen
   summarizeConfiguredRun, checkoutIdentity, SWIFTSHADER_ARGS } from '../tools/current-routes-smoke.mjs';
 import { CURRENT_ROUTES } from '../tools/lib/current-route-evidence.mjs';
 import { isWindowsPath } from '../tools/lib/windows-node.mjs';
+import { requireHardwareRenderer } from '../tools/landscape-review.mjs';
 
 // Verbatim renderer strings from the WP03 follow-up's SwiftShader gate and RTX 3060 runs.
 const SWIFTSHADER = 'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)';
@@ -56,6 +57,10 @@ test('the hardware check rejects software rasterizers, unverifiable renderers an
     assert.throws(() => requireRouteHardwareRenderer(renderer), /Hardware GPU unavailable/, String(renderer));
   }
   assert.throws(() => requireRouteHardwareRenderer(RTX_3060, 'RX 7900'), /does not match RX 7900/);
+});
+
+test('the route gate and landscape-review --hardware-gpu (test:gpu) share one renderer check', () => {
+  assert.equal(requireRouteHardwareRenderer, requireHardwareRenderer);
 });
 
 test('a hardware run that renders in software fails even when every route passes playback', () => {

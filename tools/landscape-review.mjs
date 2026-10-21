@@ -63,8 +63,11 @@ export function makeReviewManifest(a, grid) {
   songs: [{ id: 'review-audio', fixture: 'contrast', seconds: Math.max(90, a.liveSeconds + 15, Math.ceil((a.startMs / 1000 + a.seconds + 1))),
     timesMs: [a.startMs, a.startMs + a.seconds * 1000], clips: [{ startMs: a.startMs, durationMs: a.seconds * 1000 }] }] });
 }
+// Shared with the route gate's hardware configuration. Rejects software
+// rasterizers (SwiftShader, llvmpipe, softpipe, Windows WARP, which is Chromium's
+// D3D11 fallback) and the masked renderer string, which cannot show what rendered.
 export function requireHardwareRenderer(renderer, match) {
-  assert.ok(typeof renderer === 'string' && renderer.length && !/swiftshader|software|llvmpipe|softpipe/i.test(renderer), `Hardware GPU unavailable: ${renderer}`);
+  assert.ok(typeof renderer === 'string' && renderer.length && !/swiftshader|software|llvmpipe|softpipe|basic render driver|\bwarp\b|^webkit webgl$/i.test(renderer), `Hardware GPU unavailable: ${renderer}`);
   if (match) assert.ok(renderer.toLowerCase().includes(match.toLowerCase()), `Actual GPU does not match ${match}: ${renderer}`);
 }
 export function validateReviewFrame(frame, grid) {
