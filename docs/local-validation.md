@@ -44,6 +44,31 @@ not replace the legacy suite's pause/resume/replace/stop coverage or the
 specialized seek, export and context-recovery suites. Those transition and
 device matrices remain separate completion gates.
 
+The default route gate renders with SwiftShader. Under SwiftShader the tour's
+detailed terrain windows can cost 20–50 s of GPU-process time per frame, so its
+tour rows can exceed the 30 s screenshot deadline intermittently (see
+`docs/audits/2026-10-21-wp03-followup-tour-verification.md`). A separate,
+opt-in hardware configuration runs the same routes, assertions, fixture and
+deadline on a real GPU:
+
+```sh
+npm run test:routes -- --hardware-gpu --gpu-match "RTX 3060" \
+  --browser 'C:\path\to\ms-playwright\chromium-1243\chrome-win64\chrome.exe' \
+  --site-root _site --out .smoke/current-routes-hardware-gpu
+```
+
+It launches with `--mute-audio --enable-gpu --ignore-gpu-blocklist`, records
+the actual renderer of every sample, and fails if the renderer is SwiftShader,
+llvmpipe/softpipe, Windows WARP or unverifiable, or (with `--gpu-match`) a
+different GPU. Trio has no WebGL context of its own, so a probe context read
+before and after the routes also has to pass. From WSL the command runs native
+Windows Node (`MIDIO_WINDOWS_NODE`) with the WSL-installed Playwright and needs
+a Windows Chromium (`--browser` or `MIDIO_WINDOWS_CHROME`). Windows Git cannot
+read a WSL worktree, so the report records the checkout identity as unavailable
+and the adjacent `launcher.json` records the WSL checkout and checks the staged
+digest. A hardware result is reported separately and never stands in for the
+default SwiftShader gate.
+
 `test/tourPlannerRegression.test.mjs` separately characterizes audit C01 using
 the published tour package and a minimized role schedule. The 60- and
 120-second controls complete; the 90-second desired success is an explicit
