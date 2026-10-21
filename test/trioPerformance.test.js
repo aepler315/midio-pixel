@@ -92,6 +92,7 @@ test('Trio plays on the procedural pre-terrain range with its sky restored', () 
     assert.equal(biomes.presentation.performers, true, 'the deep sky draws the voyages of Midasus');
     assert.equal(biomes.presentation.crystalSpaceRidge, true);
     assert.equal(biomes.presentation.rangeSky, false, 'the pre-terrain sky, not The Range composition');
+    assert.equal(biomes.presentation.horizonEq, true, 'the dancing spectrum ridge rides the horizon');
     assert.ok(biomes.skyEnsemble, 'seeded planets hang behind the celestial bodies');
     assert.ok(biomes.spaceRidge && biomes.weaver && biomes.stars?.length > 0);
   } finally { sim.dispose(); }

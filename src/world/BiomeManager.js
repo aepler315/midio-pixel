@@ -5575,7 +5575,9 @@ export class BiomeManager {
   }
 
   _drawHorizonEQ(ctx, canvas, worldX, A, B, t) {
-    if (this.world?.kind === 'alpine') return;
+    // Landscape lights its real crests instead (_drawCrestLight); Trio keeps
+    // the dancing spectrum ridge it had before real terrain.
+    if (this.world?.kind === 'alpine' && !this.presentation?.horizonEq) return;
     let color = ensureMinLightness(
       this._rotated(this.lerpCache.get(A.celestial.haloColor, B.celestial.haloColor, t)), .72);
     if (this.rangeNarrative) color = this.lerpCache.get('#000000', color, this.rangeNarrative.materials);

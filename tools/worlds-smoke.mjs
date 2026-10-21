@@ -39,8 +39,9 @@ const WORLDS = [
   { name: 'Landscape', experience: 'landscape',
     // The Range keeps its terrain/water composition; the cast and the
     // pre-terrain sky belong to Trio.
-    mustPaint: ['mgr:_drawSky', 'mgr:_drawFarShore', 'mgr:_drawOcean', 'mgr:_drawLayer'],
-    watch: ['mgr:_drawStarfield'],
+    mustPaint: ['mgr:_drawSky', 'mgr:_drawFarShore', 'mgr:_drawLayer'],
+    // The fixture's song casts a canyon, which has no sea to paint.
+    watch: ['mgr:_drawStarfield', 'mgr:_drawOcean'],
     mustNotRun: ['renderer:_drawTrioCast', 'mgr:drawDeepSky', 'skyEnsemble:draw'] },
   { name: 'Trio', experience: 'trio',
     // The dancing ranges, the crystalline space ridge, the star catalogue,

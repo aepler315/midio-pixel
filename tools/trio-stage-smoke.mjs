@@ -97,7 +97,7 @@ try {
       const { sharedResidency } = await import('/src/render/GraphicsResidency.js');
       return { experience: s.experience, simExperience: s.sim.experience, actors: !!s.sim.trio,
         selected: document.getElementById('display-experience').value,
-        sameSource: s.audioEngine.sourceNode === window.__liveTrio.source,
+        sameBuffer: !!s.audioEngine.sourceNode?.buffer && s.audioEngine.sourceNode.buffer === window.__liveTrio.source.buffer,
         sameConductor: s.conductor === window.__liveTrio.conductor,
         running: s.audioEngine.ctx.state, paused: s.paused, audioMs: s.audioEngine.nowMs, simMs: s.sim.timeMs,
         ahead: s.conductor.aheadRegs.length, bytes: sharedResidency().usedBytes, entries: sharedResidency().entries.size };
@@ -113,7 +113,9 @@ try {
       const state = await snapshot();
       assert.equal(state.experience, mode); assert.equal(state.simExperience, mode); assert.equal(state.selected, mode);
       assert.equal(state.actors, mode === 'trio');
-      assert.equal(state.sameSource, true, 'the recording keeps playing through a world switch');
+      // The rebuild rejoins the same decoded recording at the heard position,
+      // as a seek does; the song never restarts or changes.
+      assert.equal(state.sameBuffer, true, 'the recording keeps playing through a world switch');
       assert.equal(state.sameConductor, true);
       assert.equal(state.running, 'running'); assert.equal(state.paused, false);
       assert.ok(state.audioMs >= before.audioMs, 'the heard position does not move backward');
