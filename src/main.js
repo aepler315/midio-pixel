@@ -431,7 +431,7 @@ paramBus.rendererMode = rendererMode;
 // ?rangeView=<id> forces one catalog view for diagnostics. One presentation (and one GPU context) per page.
 const rangeMode = resolveRangeMode();
 let rangePresentation = experience === 'landscape' && rangeMode.mode === 'v2'
-  ? new RangePresentation({ mode: 'v2', tour: rangeMode.tour, forcedViewId: rangeMode.forcedViewId, diag: rangeMode.diag, residency: sharedResidency(), budget: residencyBudgetFor().name })
+  ? new RangePresentation({ mode: 'v2', tour: rangeMode.tour, shots: rangeMode.shots, shotCandidates: rangeMode.shotCandidates, forcedViewId: rangeMode.forcedViewId, diag: rangeMode.diag, residency: sharedResidency(), budget: residencyBudgetFor().name })
   : null;
 
 const rangeTourToggle = document.getElementById('range-tour-toggle');
@@ -456,11 +456,15 @@ function syncRangeTourControl() {
   rangeTourStatus.title = status.reason || '';
 }
 if (rangeTourToggle) {
-  rangeTourToggle.checked = rangeMode.tour === 'tetons';
+  // Camera tours are on by default: each approved view's shot tour. Off
+  // keeps every authored rail. The Teton highway tour (?rangeTour=tetons)
+  // stays reachable by URL and counts as on.
+  rangeTourToggle.checked = !!(rangeMode.tour || rangeMode.shots);
   rangeTourToggle.addEventListener('change', () => {
-    const tour = rangeTourToggle.checked ? 'tetons' : null;
-    try { if (tour) localStorage.setItem('range-tour', tour); else localStorage.removeItem('range-tour'); } catch { /* Storage may be blocked. */ }
-    const url = new URL(location.href); url.searchParams.set('rangeTour', tour || 'off'); history.replaceState(null, '', url);
+    const choice = rangeTourToggle.checked ? (rangePresentation?.tourMode === 'tetons' ? 'tetons' : 'shots') : 'off';
+    const tour = choice === 'tetons' ? 'tetons' : null;
+    try { localStorage.setItem('range-tour', choice); } catch { /* Storage may be blocked. */ }
+    const url = new URL(location.href); url.searchParams.set('rangeTour', choice); history.replaceState(null, '', url);
     rangePresentation ||= new RangePresentation({ mode: 'v2', residency: sharedResidency(), budget: residencyBudgetFor().name });
     if (renderer) renderer.rangePresentation = rangePresentation;
     const terrain = lastTimelineData?.terrain;
@@ -468,7 +472,7 @@ if (rangeTourToggle) {
       if (tour && getWorld(lastTimelineData.worldId)?.kind === 'alpine') { terrain._rangeTourOriginalBiomes ||= [...terrain.biomes]; terrain.biomes = ['CONIFER']; }
       else if (terrain._rangeTourOriginalBiomes) { terrain.biomes = terrain._rangeTourOriginalBiomes; delete terrain._rangeTourOriginalBiomes; }
     }
-    rangePresentation.setTourMode(tour);
+    rangePresentation.setTourMode(choice === 'off' ? null : choice);
     if (running && sim && audioEngine && lastTimelineData) {
       const wasPaused=paused;
       delete lastTimelineData.chapterState;
@@ -551,7 +555,7 @@ function applyExperience(value) {
   const wantsRange = next === 'landscape' && mode.mode === 'v2';
   if (!wantsRange && rangePresentation) { rangePresentation.dispose(); rangePresentation = null; }
   if (wantsRange && !rangePresentation) {
-    rangePresentation = new RangePresentation({ mode: 'v2', tour: mode.tour, forcedViewId: mode.forcedViewId, diag: mode.diag,
+    rangePresentation = new RangePresentation({ mode: 'v2', tour: mode.tour, shots: mode.shots, shotCandidates: mode.shotCandidates, forcedViewId: mode.forcedViewId, diag: mode.diag,
       residency: sharedResidency(), budget: residencyBudgetFor().name });
   }
   if (renderer) renderer.rangePresentation = rangePresentation;
@@ -1857,7 +1861,8 @@ function startTimeline(timelineData, extra = {}) {
   // overlay. Created here per song, after the world is known.
   renderer = createPresentingRenderer({ canvas, mode: rendererMode, presentation: effectivePresentation(), residency: sharedResidency() });
   if (rangePresentation) {
-    rangePresentation.setSong({ terrain: timelineData.terrain || null, mgr: sim.biomes, generation: loadGen, exportMode });
+    rangePresentation.setSong({ terrain: timelineData.terrain || null, mgr: sim.biomes, generation: loadGen, exportMode,
+      cameraContinuation: extra.chapterState?.cameraTours || null });
     renderer.rangePresentation = rangePresentation;
   }
   // An exported frame is the picture, not the player: no seekbar strip.
@@ -3553,7 +3558,7 @@ function stopTitleBackdrop() {
 // 1280x720 stage space the sim draws in.
 const rangeZoomInput = attachRangeZoomInput(canvas, {
   camera: rangeUserCamera,
-  enabled: () => !!(running && sim?.userCameraEnabled && !rangePresentation?.tourMode),
+  enabled: () => !!(running && sim?.userCameraEnabled && !rangePresentation?.tourMode && !rangePresentation?.cameraTourActive),
   toStage: (e) => clientToStage(e),
   stageW: STAGE_W, stageH: STAGE_H,
 });
@@ -3584,6 +3589,7 @@ function adoptFullAnalysisLive(data) {
     preservePause: wasPaused,
     fitDiagnostic: sim.fitDiagnostic,
     chapterState: { previous: sim.biomes.chapterPlan, committedThroughMs: sim.heardTimeMs ?? audioEngine.nowMs, landSections: sim.biomes.sections,
+      cameraTours: rangePresentation?.cameraContinuation?.(sim.heardTimeMs ?? audioEngine.nowMs) || null,
       landscapeHistory: { previous: sim.biomes.landscapeScore, committedThroughMs: sim.heardTimeMs ?? audioEngine.nowMs } },
   });
   if (!running || !sim) return;

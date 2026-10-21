@@ -343,7 +343,7 @@ export function buildRangeFrame({
     canvasHeight: scenicViewport?.logicalHeight || 720, celestialState: state });
   const active = state[state.activeBody] || state.sun;
   const lens = cameraLensAt({ sections: mgr.sections, timeMs, durationMs: mgr.durationMs, preview: mgr.terrainPreview });
-  const skyScale = mgr.rangePresentation?.tourMode ? 1 : lens.halfAngleScale;
+  const skyScale = mgr.rangePresentation?.tourMode || mgr.rangePresentation?.cameraTourActive ? 1 : lens.halfAngleScale;
   const celestial = skyScale === 1 ? active : { ...active, xFrac: .5 + ((active.xFrac ?? .5) - .5) / skyScale,
     yFrac: .5 + ((active.yFrac ?? .5) - .5) / skyScale };
   const lightState = {

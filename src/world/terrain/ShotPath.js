@@ -97,6 +97,15 @@ export function samplePath({ eyes, aims, fovs, spacingM = 25, minSamples = 8 }) 
   return { eye, aim, fov, s, lengthM: total };
 }
 
+/** A sampled path with its progress recomputed from its eye and aim lanes
+ *  (after an edit such as a clearance lift). */
+export function withProgress(path) {
+  const n = path.s.length, eyes = [], aims = [];
+  for (let i = 0; i < n; i++) { eyes.push([path.eye[i * 3], path.eye[i * 3 + 1], path.eye[i * 3 + 2]]); aims.push([path.aim[i * 3], path.aim[i * 3 + 1], path.aim[i * 3 + 2]]); }
+  const s = progressOf(eyes, aims);
+  return { ...path, s: Float32Array.from(s), lengthM: s[n - 1] };
+}
+
 /** Errors in a sampled path (empty = usable). */
 export function pathErrors(path, { minFov = 5, maxFov = 120 } = {}) {
   const errors = [];

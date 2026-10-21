@@ -65,7 +65,7 @@ async function open({ query = '', saved = null, blocked = false, fail = null } =
   await page.waitForFunction(() => window.__SMW);
   assert.ok(await page.evaluate(() => window.__SMW.rangeState), 'title screen exposes the requested tour and its actual readiness');
   await page.locator('#titleSettings').evaluate(node => { node.open = true; });
-  assert.match(await page.locator('label:has(#range-tour-toggle)').innerText(), /Camera tour: Tetons/i);
+  assert.match(await page.locator('label:has(#range-tour-toggle)').innerText(), /Camera tours/i);
   assert.match(await page.locator('#range-tour-description').innerText(), /continuous.*music.timed.*flight/i);
   return { context, page, errors, warnings };
 }

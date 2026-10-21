@@ -34,7 +34,10 @@ export async function openEvaluationSong(browser, { url, audioPath, settings, di
       isExpectedRequestFailure: settings.tour === 'tetons' ? expectedTourPreparationFailure : undefined });
     const entry = new URL(url);
     for (const [key, value] of Object.entries({ bulkExport: 1, exportW: settings.width, exportH: settings.height,
-      experience: settings.experience, rangeRenderer: 'v2', rangeTour: settings.tour || 'off', rangeView: settings.view, seed: settings.seed, perf: 'high' })) {
+      // An unset tour leaves the page's default camera (shot tours where
+      // approved); VISUAL_RANGE_SHOTS=all also lets candidate libraries play.
+      experience: settings.experience, rangeRenderer: 'v2', rangeTour: settings.tour, rangeView: settings.view, seed: settings.seed, perf: 'high',
+      rangeShots: process.env.VISUAL_RANGE_SHOTS === 'all' ? 'all' : undefined })) {
       if (value != null) entry.searchParams.set(key, value);
     }
     for (const [key, value] of Object.entries(settings.debug || {})) if (value != null) entry.searchParams.set(key, value);

@@ -129,12 +129,12 @@ test('glacial inland pilot suppresses distant sea throughout a biome handoff', (
 });
 
 test('mode resolution: v2 by default, explicit legacy opt-out and view/diagnostic flags', () => {
-  assert.deepEqual(resolveRangeMode(''), { mode: 'v2', forcedViewId: null, diag: null, tour: null });
-  assert.deepEqual(resolveRangeMode('?rangeRenderer=legacy'), { mode: 'legacy', forcedViewId: null, diag: null, tour: null });
+  assert.deepEqual(resolveRangeMode(''), { mode: 'v2', forcedViewId: null, diag: null, tour: null, shots: true, shotCandidates: false });
+  assert.deepEqual(resolveRangeMode('?rangeRenderer=legacy'), { mode: 'legacy', forcedViewId: null, diag: null, tour: null, shots: true, shotCandidates: false });
   assert.equal(resolveRangeMode('?rangeRenderer=LEGACY').mode, 'legacy');
-  assert.deepEqual(resolveRangeMode('?rangeRenderer=v2'), { mode: 'v2', forcedViewId: null, diag: null, tour: null });
+  assert.deepEqual(resolveRangeMode('?rangeRenderer=v2'), { mode: 'v2', forcedViewId: null, diag: null, tour: null, shots: true, shotCandidates: false });
   assert.deepEqual(resolveRangeMode('?rangeRenderer=V2&rangeView=nc-ross-lake-north&rangeDiag=markers'),
-    { mode: 'v2', forcedViewId: 'nc-ross-lake-north', diag: 'markers', tour: null });
+    { mode: 'v2', forcedViewId: 'nc-ross-lake-north', diag: 'markers', tour: null, shots: true, shotCandidates: false });
   assert.equal(resolveRangeMode('?rangeRenderer=webgl').mode, 'v2', 'unknown values take the default');
   assert.equal(resolveRangeMode('?renderer=webgl').mode, 'v2', 'the old overlay flag does not change the Range renderer');
 });
