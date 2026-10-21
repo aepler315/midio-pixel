@@ -16,8 +16,9 @@ import { isWsl, toWindowsPath, writePlaywrightLoader, runChild } from './lib/win
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 // The default gate renders with SwiftShader. The opt-in hardware configuration
-// uses the flags of landscape-review.mjs --hardware-gpu (plus --mute-audio) and
-// is a separate result: it must prove its renderer and never replaces the default.
+// uses route-stall-probe.mjs --hardware-gpu's flags (the GPU flags of
+// landscape-review.mjs --hardware-gpu, plus --mute-audio) and is a separate
+// result: it must prove its renderer and never replaces the default.
 export const SWIFTSHADER_ARGS = Object.freeze(['--mute-audio', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist']);
 export const HARDWARE_GPU_ARGS = Object.freeze(['--mute-audio', '--enable-gpu', '--ignore-gpu-blocklist']);
 
