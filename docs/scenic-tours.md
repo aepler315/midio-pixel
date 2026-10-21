@@ -1,0 +1,170 @@
+# Scenic shot tours
+
+**Status:** in development on `feat/scenic-shot-tours`. This document is the
+design and the shared contract; the per-region completion table and the
+evidence links are kept at the end and updated as regions land.
+
+Each approved scenic view gets an offline-discovered **shot library**: complete
+camera moves around the region's real subjects, plus connecting moves between
+them. At playback a deterministic planner strings shots and links together
+against the song, schedules each shot's visual payoff on a musical moment, and
+produces a `poseAt(heardTimeMs)` camera. The authored rail stays in every
+library and is the fallback whenever a library or plan is unavailable.
+
+## Inventory (catalog v19, 2026-10-21)
+
+- **Production (approved, 13 views, 11 biomes):** `nc-ross-lake-north`
+  (RAINFOREST), `teton-jackson-lake` (CONIFER), `denali-wonder-lake` and
+  `chugach-matanuska` (ICEFIELD), `tombstone-north-klondike` (TUNDRA),
+  `muncho-lake-south` (TAIGA), `izta-popo-west` (PINE_OAK),
+  `black-mountains-catawba` (BROADLEAF), `san-gabriel-baldy` (CHAPARRAL),
+  `white-mountains-owens` (STEPPE), `la-sal-castle-valley` and
+  `monument-valley-163` (CANYON), `panamint-dantes-view` (DESERT).
+- **Candidates (4, never drawn for songs):** `pend-oreille-valley` (glacial
+  pilot), `teton-jackson-lake-coherent` and `monument-valley-163-coherent`
+  (foreground pilots sharing their originals' packages), `teton-range-tour`
+  (the Teton highway tour, forced by `?rangeTour=tetons`).
+- **Rejected (4):** kept in `data/terrain/scenic-views.json`, never shipped.
+- **Legacy skyline-only ranges:** 83 scanned range modules; 13 host an
+  approved view, 70 are skyline-only. They supply the musical ridges for
+  every song and are out of scope for tours.
+
+## Why the Teton highway is not generalized as is
+
+`tools/build-teton-tour.mjs` builds a road network first (A*, minimum
+spanning tree, 1.35 spanner, station merges) and only then scores views on
+the surviving roads, keeping one station and one best aim per subject. The
+road pruning never sees scenery, and alternatives that would be shorter, a
+stronger reveal or a better approach are discarded before they are judged.
+It also assumes a north–south range, NAD83, US GeoNames, a 4700 m ceiling,
+Teton names, and an all-tiles terrain package (13 MB) per region; the shared
+Range asset budget (60 MB, about 11 MB free) cannot hold that for 13 views.
+
+Shot tours reuse its proven parts — DEM loading and normalization, the
+clearance idea, the exact-height scorer as a cheap pre-filter, the
+committed-prefix replanning contract, the 100 ms keyframe pose format — but
+score whole moving shots and every connecting alternative **before** pruning,
+and validate them against the view's actual packaged terrain.
+
+## Pipeline
+
+```
+data/terrain/scenic-tours.json  (regional config)
+        │
+tools/build-scenic-tours.mjs --view <id>|all [--stage ...] [--publish]
+  terrain   normalized DEM grid of the view (.terrain-cache, same key as build-range-scene)
+  subjects  config subjects + authored landmarks + rail target + DEM features
+  shots     generators per subject and landform → sampled paths (ShotPath)
+  score     cheap CPU depth-raster scoring of every sampled pose → shortlist
+  links     connecting alternatives between shortlisted shots, scored too
+  render    actual-renderer evaluation of the shortlist (src/dev/shot-review.html)
+  select    diverse library under byte/triangle/coverage budgets
+  bake      terrain package re-culled for rail + library poses (+ mirrored poses)
+  validate  every path frustum against the baked package; clearance; joins
+  pack      src/assets/range/v2/tour/<viewId>.shots.json + .shots.bin.gz
+```
+
+## Contracts
+
+### Local frame and paths
+
+Every library uses its view's terrain frame: metres, X east, Y up, Z south,
+origin at the DEM grid centre. A **path** (`src/world/terrain/ShotPath.js`)
+is a dense sample list `{s, eye, aim, fov, flow}`: progress `s` (eye metres
+plus `AIM_PROGRESS_M = 400` metres per radian of aim turn), eye and aim
+points, vertical FOV in degrees, and `flow`, the 95th-percentile angular
+image speed of visible terrain per unit progress speed (rad per progress
+metre). `pathPoseAt(path, s)` interpolates C1 (uniform Catmull–Rom in `s`).
+
+### Shot library (`src/world/terrain/ShotLibrary.js`, schema `midio.shots` v1)
+
+Manifest fields: `schema, version, viewId, regionId, terrainManifestSha256,
+axes, subjects[], shots[], links[], payload{url, byteLength, sha256,
+decodedByteLength, decodedSha256}, provenance{}`.
+
+- `subjects[]`: `{id, kind, name|null, posM:[x,y,z], radiusM, heightM}`;
+  kinds `landmark | peak | butte | ridge | lake | valley | shore | rail-target`.
+- `shots[]`: `{id, subjectId, move, samples{offset,count}, lengthM, payoffS,
+  holdS:[a,b], durationMs{min,ideal,max}, traits{headingDeg, azimuthDeg,
+  elevationDeg, aglM, distanceM, lens, foreground, side}, score{total,
+  composition, subject, depth, parallax, reveal, weakest, render|null},
+  tags[]}`. Moves: `rail | traverse | approach | reveal | orbit | pullback |
+  valley | crest`. `payoffS` is where the visual payoff lands (the reveal
+  completes, the subject reaches its best framing); `holdS` brackets the
+  sustained view around it.
+- `links[]`: `{id, from, to, kind, samples, lengthM, durationMs{min,max},
+  score{total, weakest}}`; kinds `direct | arc | high | low`. A link starts
+  exactly at its `from` shot's last sample (position, look direction, FOV)
+  and ends exactly at its `to` shot's first sample, with matching tangents.
+- Binary payload: per path, `count × 9` little-endian Float32
+  (`s, eye xyz, aim xyz, fov, flow`).
+
+### Regional config (`data/terrain/scenic-tours.json`)
+
+`{version, defaults{lenses, clearance, motion, discovery, budget}, regions{
+<viewId>: {status, landform, subjects[{name, lonLat, kind, weight}], hero[],
+preferAzimuthDeg[], avoid[], overrides{}, notes}}}`. Region `status` is the
+tour's own review state (`candidate | approved`); a view plays its tour in
+production only when both the view and its tour are approved. Geography,
+named-subject preferences, route anchors and region-dependent parameters live
+here, never in code. DEM source details stay in `scenic-views.json`.
+
+### Music model (`ShotMusic.js`)
+
+`musicMoments({durationMs, sections, roles, energy, energyStepMs})` returns
+`{impacts[], climax, calm[], intensityAt(t)}`. Payoff targets are **energy
+impacts** (the strongest 1 s energy rise within ±3 s of a section boundary,
+or a strong rise anywhere), not section-relative energy peaks; the climax is
+the strongest impact in the last 55% of the song. Detected section labels are
+a weak cue: on the structured test songs the detector misplaces boundaries by
+up to 2.5 s and the final-chorus label, while the energy rise lands within
+0.1 s of every chorus downbeat.
+
+### Planner (`ShotPlanner.js`) and timeline (`ShotTimeline.js`)
+
+```
+planShotTour(library, {durationMs, sections, roles, energy, energyStepMs,
+  visible:[{startMs,endMs}], seed, start, tunables}) → plan
+  plan = {durationMs, moments[], items[{kind:'shot'|'link', id, startMs,
+          endMs, sFrom, sTo, payoffMs?}], notes[], cost, fallback:null|reason}
+buildShotTimeline(library, plan, {previous, frozenThroughMs}) → timeline
+  timeline = {durationMs, eye, target, fov (Float32, 100 ms lattice),
+              meta (Uint16 ×4: item, kind, phase, subject), items, payoffs[],
+              poseAt(t), stateAt(t), diagnostics}
+```
+
+Shot choice, link choice, payoff times and speeds are chosen together by a
+beam search with lookahead over the moments; the final chorus and outro are
+planned as one passage. Costs: shot quality weighted by moment importance,
+repetition (subject, viewpoint, elevation, foreground, move type), link
+quality, timing error, and comfort (required speed against the shot's flow
+lane). Hard constraints: legal joins (links only), the speed/acceleration/
+yaw/flow limits, and every payoff inside a visible interval. Planning is
+pure and seeded; `poseAt` is a pure function of heard time.
+
+### Runtime integration
+
+- Catalog: an approved view may carry `shotsManifestUrl` and
+  `shotsManifestSha256`; the approval hashes the library
+  (`shotsManifestSha256`, conditional like `glacierSha256`).
+- Prepare-time resources (mesh LOD, forest, rivers, actor routes, mirror)
+  depend only on the rail plus the library footprint, never on a song's plan:
+  replanning and seeking never rebuild GPU state.
+- `RangePresentation` loads the library, plans per song in a worker over the
+  chapter intervals where the view is on screen, and hands the timeline to
+  `RangeScene.setCameraTour(viewId, timeline)`. Until a plan is ready, and
+  whenever a library or plan fails, the view keeps its rail and records the
+  reason in `status().shotTours[viewId]`.
+- Refinement replans keep every committed pose (the Teton contract).
+
+### Budgets and approval
+
+- `src/assets/range/v2` stays within 60 MB. Per-region byte and triangle caps
+  live in the regional config and are enforced by the pack step and a test.
+- A view's terrain is re-culled only when its library needs tiles the rail
+  package lacks. Any rebake changes the terrain identity and stales the
+  view's approval, so each rebake is re-approved in the same commit with
+  `--approve`, citing this document as the review record.
+
+Reduced-motion support was removed from the app in 3eefb64 (PR #22); there is
+no reduced-motion camera path to retain.
