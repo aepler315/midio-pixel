@@ -71,6 +71,7 @@ The same probe ran under native Windows Node (`v25.9.0`, with a loader that reso
 | Gate-equivalent, WP03 artifact | landscape, tour-selected, tour-persisted, trio | all passed | 1 per row: 83, 120, **117**, 45 ms | 0 errors, 0 warnings |
 | Sustained, WP03 artifact | tour-selected, tour-persisted | both passed | 32/32, 89–357 ms over about 83 s of audio | **2 fatal per row** (section 2) |
 | Sustained, this branch | tour-selected, tour-persisted | both passed | 32/32, 119–445 ms over about 84 s of audio | 0 errors, 0 warnings, 0 invalid uploads |
+| Gate-equivalent, this branch | landscape, tour-selected, tour-persisted, trio | all passed | 1 per row: 79, 118, 118, 39 ms | 0 errors, 0 warnings, 0 invalid uploads |
 
 On hardware, simulation time tracks audio from the first sample. For example, in the persisted row audio 1,230 ms coincides with simulation 1,135 ms on frame 49. No ping after ready saw `playbackPreparing`. Three.js held 12 programs throughout, so no window fell back to coarse and no forest programs were recompiled.
 
@@ -99,7 +100,7 @@ No timeout, assertion, fixture or launch flag of `current-routes-smoke.mjs` was 
 - **Cold synchronous compile (C35).** On the RTX 3060, the first tour preparation in a fresh browser contains a 3.49 s blocking `setTimeout` task. The second tour row, with a warm shader cache, takes 0.33 s. Under SwiftShader the same preparation task spends 9.6 s in `GetShaderiv` and 0.6 s in `GetProgramiv`. This is before ready, and belongs to WP08/C35.
 - **Forest program churn.** Six forest programs are recompiled on every coarse-to-detailed adoption once the coarse fallback has released the last forest materials. No churn was seen on hardware (12 programs throughout), where windows are prefetched in time. It is still a synchronous compile hitch whenever a coarse fallback occurs after a seek, a slow worker, or a slow device. It belongs to WP08/C35.
 - **Instanced forest volume.** Detailed windows submit 155–290 M indices per frame across the scene, mirror and depth passes, about 15 times the coarse window. Hardware cost on integrated or mobile GPUs is unmeasured.
-- **Mid-playback re-preparation.** `adoptFullAnalysisLive` (`src/main.js:3674`) can rebuild the timeline during playback when whole-song analysis lands late. It was not observed in any of these runs: no ping after ready saw `playbackPreparing`, and no trace shows a second compile burst.
+- **Mid-playback re-preparation.** `adoptFullAnalysisLive` (`src/main.js:3674`) can rebuild the timeline during playback when whole-song analysis lands late. It was not observed in the traced SwiftShader runs: no ping after ready saw `playbackPreparing`, and no trace shows a second compile burst. The hardware runs were not traced, and their pings checked only `playbackPreparing`, so a re-preparation that does not set that flag is not excluded there.
 
 ## 2. Mirror backdrop released while still bound (fixed)
 
@@ -110,11 +111,11 @@ During sustained hardware playback (16 screenshots, 5 s apart, about 83 s of aud
 
 The probe's trap attributed both to one Three.js sampler-uniform upload (`setTexture2D` ← `renderBufferDirect`): `texStorage2D(TEXTURE_2D, 1, RGBA8, 0, 0)` followed by `texSubImage2D` from a **0×0 `OffscreenCanvas`**, at a moment when `scene.backdrop` was already null.
 
-The cause is in [RangeScene.js](../../src/world/alpine/RangeScene.js). The lake mirror copies the stage into a `CanvasTexture` backdrop. Every release path (mirror no longer wanted, resize, residency eviction, context loss) disposes that texture and empties its canvas. `_prepareMirror`, however, rebinds `uBackdrop` only while it draws a mirror. Its early-return branch sets `uBackdropAmount` to 0 and leaves the sampler pointing at the disposed texture. Three.js then reallocates that texture from the 0×0 canvas. The error has no visual effect, because the amount is 0, but it is a real WebGL error and the route gate counts it as fatal.
+The cause is in [RangeScene.js](../../src/world/alpine/RangeScene.js). The lake mirror copies the stage into a `CanvasTexture` backdrop. Every release path (mirror no longer wanted, resize, residency eviction, context loss) disposes that texture and empties its canvas. `_prepareMirror`, however, rebinds `uBackdrop` only while it draws a mirror. Its early-return branch sets `uBackdropAmount` to 0 and leaves the sampler pointing at the disposed texture. Three.js then reallocates that texture from the 0×0 canvas. On that early-return path the amount is 0, so nothing visible changes, but it is a real WebGL error and the route gate counts it as fatal. A residency eviction after `_prepareMirror` has bound the backdrop within a frame would leave the amount at 1, and the old code would then sample the emptied texture for that frame. The trap did not record `uBackdropAmount`, so it does not tell the two paths apart. The fix covers both, and on the second path the water falls back to its sky reflection. The change is intended to be nonvisual, so no matched render comparison was run.
 
 The fix: the backdrop's owner now unbinds exactly that texture from every prepared view's uniforms on every release path, before disposing it (`_unbindBackdrop`). A live backdrop bound to another view is left alone.
 
-[rangeBackdropRelease.test.mjs](../../test/rangeBackdropRelease.test.mjs) covers release without a ledger, release with the residency ledger, eviction by another owner's reservation, and the unrelated-view case. All four failed on WP03 and pass with the fix. Repeating the sustained hardware runs on the staged branch (digest `99e7db4296f6afefbfb834d3d1fef56e3823e331cf6829652565134941cd10be`) recorded no browser errors or warnings and no invalid texture uploads on either tour route.
+[rangeBackdropRelease.test.mjs](../../test/rangeBackdropRelease.test.mjs) covers release without a ledger, release with the residency ledger, eviction by another owner's reservation, and the unrelated-view case. All four failed on WP03 and pass with the fix. With the WP03 artifact, the two errors appeared in all 3 sustained hardware route runs, each time about 17 s after upload. With this branch's staged artifact (digest `99e7db4296f6afefbfb834d3d1fef56e3823e331cf6829652565134941cd10be`), they appeared in 0 of 2 sustained runs, and in none of the four gate-equivalent hardware rows. Those runs recorded no browser errors or warnings and no invalid texture uploads.
 
 ## 3. Ending coverage
 
@@ -162,7 +163,7 @@ For the host-default 44.1 kHz request, WP03's replay preservation gate measures 
 | Check | Result |
 | --- | --- |
 | Checkpoint identity | Remote and local `impl/wp03-legal-tour-planning` at `ac5db24`; worktree clean; planner files byte-identical to the WP03 receipt |
-| Focused tour suites (5 files) | 31 passed, 0 failed |
+| Focused tour suites (5 files) plus the backdrop test, on the final source | 35 passed, 0 failed, 0 skipped |
 | Backdrop regression | 4 failed on WP03, 4 passed with the fix |
 | Full repository suite (`npm test`, Node v24.10.0, WSL) | 4,866 total: 4,860 passed, 0 failed, 6 GDAL skips, 0 TODOs (WP03's 4,862 plus the four backdrop tests) |
 | Lint / whitespace | `npm run lint` clean; `git diff --check` clean |
@@ -172,6 +173,7 @@ For the host-default 44.1 kHz request, WP03's replay preservation gate measures 
 ## 5. Limitations
 
 - **Remaining failed gates.** The standard SwiftShader four-route gate still fails on persisted Tetons (section 1). The 48 kHz pre-chorus and outro remain projection misses, and the final chorus still frames an alternative rather than its intended subject.
+- The hardware and Windows-control runs used native Windows Node v25.9.0, outside the repository's pinned 24.x. All test, lint, replay and gate runs used the pinned Node v24.10.0 in WSL.
 - Hardware evidence comes from one machine (RTX 3060, D3D11 ANGLE, Windows). It is integration evidence, not a performance benchmark, and it says nothing about integrated or mobile GPUs. The hardware runs observed a few seconds (gate-equivalent) and about 83 s (sustained) of tour playback, not whole songs.
 - SwiftShader captures and CPU projection checks do not establish smooth playback, audio/visual synchronization, terrain visibility, subject footprint or artistic quality. No audio was auditioned.
 - The reachability tool considers only headings on the fixed eye path and fixed FOV. Route, eye or FOV changes, and joint multi-hero solutions, are outside it.
