@@ -30,12 +30,6 @@ import { DebugOverlay } from './ui/DebugOverlay.js';
 import { FileChooserSupport } from './ui/FileChooserProbe.js';
 import { prepareSongTerrain } from './world/terrain/RangeLibrary.js';
 import {
-  ASK as ASK_WORLD, AUTO as TITLE_AUTO, readTitleWorld, resolveTitleWorldChoice, writeTitleWorld,
-} from './ui/TitleWorldChoice.js';
-// How long a title-screen world choice waits for the song's range to load
-// before starting anyway on the bundled Tetons.
-const RANGE_WAIT_MS = 1500;
-import {
   openAudioUrl, UrlAudioError, fetchAudioAsFile, classifyUrl,
 } from './net/UrlAudioSource.js';
 import { RecalibrationOverlay } from './ui/RecalibrationOverlay.js';
@@ -51,7 +45,7 @@ import { DrawErrorLog } from './render/DrawErrorLog.js';
 import { ROLE_LOW, ROLE_HIGH, GrooveFingerprint } from './sim/GrooveFingerprint.js';
 import { generateCustomBiomeFromMidi, rememberCustomBiome } from './world/BiomeImporter.js';
 import {
-  getReducedFlash, setReducedFlash, getReducedMotion, setReducedMotion, getLyricsDisabled, setLyricsDisabled,
+  getLyricsDisabled, setLyricsDisabled,
   getBtLatencyTrimMs, setBtLatencyTrimMs, BT_LATENCY_TRIM_MS,
   getStoredGroove, setStoredGroove,
 } from './ui/Accessibility.js';
@@ -88,10 +82,11 @@ import {
   SyncCalibrator, syncStatusText, syncResultText, positiveTrimCeilingMs, beatPulse01,
   PHASE_EAR, PHASE_EYE,
 } from './sim/SyncCalibrator.js';
-import { buildWorldVariant, scoreWorlds, pickRecommended, formatFitDiagnostic } from './world/WorldScore.js';
+import { buildWorldVariant, scoreWorlds, formatFitDiagnostic } from './world/WorldScore.js';
 import { buildSongProfile, PROFILE_VERSION } from './audio/SongProfile.js';
 import {
   DEFAULT_WORLD_ID, setCustomWorld, clearCustomWorld, getCustomWorld, getWorld, listWorlds, resolveWorldId,
+  worldExperience, worldForExperience,
 } from './world/Worlds.js';
 import { buildWorldChoices, moveChoiceIndex } from './ui/WorldChooser.js';
 import {
@@ -173,21 +168,18 @@ const urlLoadListEl = document.getElementById('urlLoadList');
 const urlLoadCrumbEl = document.getElementById('urlLoadCrumb');
 const urlLoadOpenBtnEl = document.getElementById('urlLoadOpenBtn');
 const worldSelectEl = document.getElementById('worldSelect');
-const titleWorldEl = document.getElementById('titleWorld');
-// One-world mode: The Range is the game, so a song starts in it without a
-// picker. The other worlds are still registered, and `?worlds=all` brings
-// the picker and the title-screen world menu back (the smoke tools that
-// exercise them use it).
-const ALL_WORLDS = typeof location !== 'undefined' && new URLSearchParams(location.search).get('worlds') === 'all';
-const ONE_WORLD_ID = 'alpine';
-// How long a one-world start waits for the song's biomes to load before
-// starting on the bundled Tetons instead.
+// Two worlds, Landscape and Trio, picked per song from the chooser once the
+// song is ready. A page opened with `?experience=landscape|trio` has
+// already chosen: songs start straight in that world (links, exports and
+// the smoke tools use it).
+const URL_PICKS_WORLD = typeof location !== 'undefined' && new URLSearchParams(location.search).has('experience');
+// How long a direct Landscape start waits for the song's biomes to load
+// before starting on the bundled Tetons instead.
 const BIOME_WAIT_MS = 2500;
 const worldSelectGridEl = document.getElementById('worldSelectGrid');
 const worldSelectBackEl = document.getElementById('worldSelectBack');
 const worldPassageQuietEl = document.getElementById('worldPassageQuiet');
 const worldPassagePeakEl = document.getElementById('worldPassagePeak');
-const worldChooseForMeEl = document.getElementById('worldChooseForMe');
 const progressEl = document.getElementById('progressText');
 const hudEl = document.getElementById('hud');
 const hudRightEl = document.getElementById('hudRight');
@@ -293,32 +285,6 @@ let fontRecommender = null;
 let rafHandle = null; // tracks the pending frame() call so a mid-song file
                        // drop can cancel the old loop instead of stacking a
                        // second one alongside it
-let reducedFlash = getReducedFlash(); // The Reel (Movement VI): persisted accessibility toggle
-let reducedMotion = getReducedMotion();
-const reducedFlashBtn = document.getElementById('reducedFlashBtn');
-/** Pointer, Enter/Space (native button) and R all reach toggleReducedFlash,
- *  so the chip, persistence and the running sim never disagree. */
-function syncFlashButton() {
-  if (!reducedFlashBtn) return;
-  reducedFlashBtn.textContent = `Reduced flashing: ${reducedFlash ? 'on' : 'off'}`;
-  reducedFlashBtn.setAttribute('aria-pressed', String(reducedFlash));
-}
-syncFlashButton();
-reducedFlashBtn?.addEventListener('click', () => toggleReducedFlash());
-const reducedMotionBtn = document.getElementById('reducedMotionBtn');
-function syncMotionButton() {
-  if (!reducedMotionBtn) return;
-  reducedMotionBtn.textContent = `Reduced motion: ${reducedMotion ? 'on' : 'off'}`;
-  reducedMotionBtn.setAttribute('aria-pressed', String(reducedMotion));
-}
-syncMotionButton();
-reducedMotionBtn?.addEventListener('click', () => {
-  reducedMotion = !reducedMotion;
-  setReducedMotion(reducedMotion);
-  sim?.setReducedMotion(reducedMotion);
-  syncMotionButton();
-  if (pendingWorldStart) startChooserPreviews();
-});
 let lyricsDisabled = getLyricsDisabled(); // "No lyrics": persisted opt-out from the lyric fetch/prompt
 let btLatencyTrimMs = getBtLatencyTrimMs(); // manual Bluetooth output-latency correction, player-entered ms; 0 = off
 /** Derives that trim from tapping during a Sync pass. See SyncCalibrator.js:
@@ -395,8 +361,7 @@ if (lyricGroundingBtnEl) {
 
 
 // Guided calibration was previously reachable only via the C key -- this
-// is the only way to reach it on a phone or tablet, same gap the reduced-
-// flash toggle already had a button for.
+// is the only way to reach it on a phone or tablet.
 if (calibrateBtnEl) {
   calibrateBtnEl.addEventListener('click', () => {
     if (recalibration.active) endRecalibration(); else startRecalibration();
@@ -450,7 +415,6 @@ let paused = false; // suspends the AudioContext itself -- the master clock ever
 const renderPlayback = createRenderReadyPlayback();
 let playbackPreparing = false;
 let renderReadyPromise = Promise.resolve({ status: 'idle' });
-let restartRenderPreparation = null;
 let terrainRecordingHold = null;
 let fpsHudVisible = resolveFpsHudVisible(typeof location !== 'undefined' ? location.search : '');
 let fpsEma = null;
@@ -580,78 +544,65 @@ function effectivePresentation() {
   const requested = bulkPresentation || presentation;
   return experience === 'trio' ? { ...requested, pixelScale: 'original' } : requested;
 }
+/** Point the page at one world's presentation. Landscape owns the page's one
+ *  Range v2 presentation (and its GPU context); Trio owns none. */
+function applyExperience(value) {
+  const next = resolveExperience(value), mode = resolveRangeMode();
+  const wantsRange = next === 'landscape' && mode.mode === 'v2';
+  if (!wantsRange && rangePresentation) { rangePresentation.dispose(); rangePresentation = null; }
+  if (wantsRange && !rangePresentation) {
+    rangePresentation = new RangePresentation({ mode: 'v2', tour: mode.tour, forcedViewId: mode.forcedViewId, diag: mode.diag,
+      residency: sharedResidency(), budget: residencyBudgetFor().name });
+  }
+  if (renderer) renderer.rangePresentation = rangePresentation;
+  experience = next;
+  writeExperience(displayStorage(), next);
+  if (experienceControl) experienceControl.value = next;
+  syncRangeTourControl();
+}
+
+/** The world a song should play in for `baseWorldId`, tailored to the song
+ *  when its profile is known, as the chooser does. */
+function tailoredWorldId(baseWorldId, data) {
+  const profile = data?.songIdentity?.songProfile;
+  if (!profile?.watch) return baseWorldId;
+  try {
+    const { world } = buildWorldVariant(baseWorldId, profile.watch, { ...data, profile });
+    setCustomWorld(world);
+    return world.id;
+  } catch (err) {
+    console.warn('[world variant] failed; switching to the stock world:', err);
+    return baseWorldId;
+  }
+}
+
+/** Mid-song world change from Settings. Landscape's real terrain and Trio's
+ *  procedural range are different worlds, so the scene is rebuilt at the
+ *  heard position through the same playback gate as a seek. */
 async function changeExperience(value) {
   const next = resolveExperience(value), request = ++experienceRequest, owner = sim;
   if (next === experience) return;
-  const rebuildLandscape = running && owner && next === 'landscape' && lastTimelineData && !bulkExportArmed;
-  let prepared = null;
   if (experienceControl) experienceControl.disabled = true;
   if (experienceStatus) experienceStatus.textContent = next === 'landscape' ? 'Preparing landscape…' : 'Preparing the trio…';
   try {
-    if (running && owner && next === 'landscape') {
-      const mode = resolveRangeMode();
-      if (!rebuildLandscape) owner.biomes.update(owner.timeMs, 0, owner.energyCurves, owner.calm.level, owner.worldX);
-      if (mode.mode === 'v2') {
-        prepared = new RangePresentation({ mode: 'v2', tour: mode.tour, forcedViewId: mode.forcedViewId,
-          diag: mode.diag, residency: sharedResidency(), budget: residencyBudgetFor().name });
-        if (!rebuildLandscape) {
-          prepared.setSong({ terrain: lastTimelineData?.terrain, mgr: owner.biomes, generation: loadGen, exportMode: bulkExportArmed });
-          await prepared.whenReady({ timeoutMs: 120000 });
-        }
-      }
-      if (request !== experienceRequest || sim !== owner || !running) {
-        prepared?.dispose();
-        if (request === experienceRequest) {
-          if (experienceControl) experienceControl.value = experience;
-          if (experienceStatus) experienceStatus.textContent = experience === 'trio' ? 'Automatic performance' : '';
-        }
-        return;
-      }
-    }
-    if (running && owner) {
-      owner.setExperience(next);
-      if (next === 'trio') { rangePresentation?.dispose(); rangePresentation = null; }
-      else rangePresentation = prepared;
-      renderer.rangePresentation = rangePresentation;
-      owner.biomes.rangePresentation = rangePresentation;
-      if (next === 'landscape' && !rebuildLandscape) {
-        owner.step(0, owner.timeMs);
-        if (!rangePresentation?.enabled || rangePresentation.runtimeState === 'failed') owner.biomes.preparePlaybackStrips();
-      }
+    // An armed export draws one world on a stepped clock; it names its world
+    // on the page (\`--experience\`) instead of switching part-way.
+    if (bulkExportArmed) throw new Error('Choose the world before exporting.');
+    if (running && owner && lastTimelineData) {
+      lastTimelineData.worldId = tailoredWorldId(worldForExperience(next), lastTimelineData);
+      delete lastTimelineData.chapterState;
+      startTimeline(lastTimelineData, {
+        ...lastStartExtra, songSeed: owner.songSeed, startAtMs: Math.max(0, audioEngine.nowMs),
+        keepAudio: true, keepUserCamera: true, preservePause: paused, chapterState: null,
+      });
     } else {
-      rangePresentation?.dispose();
-      const mode = resolveRangeMode();
-      rangePresentation = next === 'landscape' && mode.mode === 'v2'
-        ? new RangePresentation({ mode: 'v2', tour: mode.tour, forcedViewId: mode.forcedViewId, diag: mode.diag,
-          residency: sharedResidency(), budget: residencyBudgetFor().name }) : null;
+      applyExperience(next);
     }
-    experience = next;
-    writeExperience(displayStorage(), next);
-    const url = new URL(location.href); url.searchParams.set('experience', next); history.replaceState(null, '', url);
-    if (experienceControl) experienceControl.value = next;
-    fitCanvas(); syncRangeTourControl();
-    if (next === 'trio' && owner) { owner.rangeCaption = null; owner.rangeCaptions = null; }
-    else if (owner && lastTimelineData) applyRangeCaptions(lastTimelineData, bulkExportArmed);
-    if (running && owner === sim) {
-      if (rebuildLandscape) {
-        // A new Landscape starts at the heard destination, whose complete
-        // forest window may differ from the prepared opening window. Reuse
-        // the seek/start lifecycle so the same gate owns audio and recording.
-        startTimeline(lastTimelineData, {
-          ...lastStartExtra, songSeed: owner.songSeed, startAtMs: Math.max(0, audioEngine.nowMs),
-          keepAudio: true, keepUserCamera: true, preservePause: paused, chapterState: null,
-        });
-      } else {
-        renderer.draw(sim, 1, { preparing: playbackPreparing });
-        if (playbackPreparing) restartRenderPreparation?.();
-      }
-    }
+    fitCanvas();
     if (experienceStatus) experienceStatus.textContent = next === 'trio' ? 'Automatic performance' : '';
-    if (worldSelectEl?.open && pendingWorldStart) startChooserPreviews();
   } catch (error) {
-    prepared?.dispose();
     if (experienceControl) experienceControl.value = experience;
-    if (experienceStatus) experienceStatus.textContent = 'Could not switch experience. ' + (error?.message || error);
+    if (experienceStatus) experienceStatus.textContent = 'Could not switch world. ' + (error?.message || error);
   } finally { if (request === experienceRequest && experienceControl) experienceControl.disabled = false; }
 }
 experienceControl?.addEventListener('change', () => changeExperience(experienceControl.value));
@@ -1076,7 +1027,6 @@ function toggleTrackList() {
 function stopTimeline({ preservePause = false, keepAudio = false } = {}) {
   renderPlayback.cancel();
   playbackPreparing = false;
-  restartRenderPreparation = null;
   if (!keepAudio) terrainRecordingHold = null;
   running = false;
   syncKeepAwake();
@@ -1264,7 +1214,7 @@ function previewAudioHandlers() {
 /** One card for the select grid. CSS swatch is the fallback until a real
  *  still from this song's world instance is ready. */
 function worldCardEl({
-  worldId, playWorldId, name, tagline, kind, description, previewLabel,
+  worldId, playWorldId, name, tagline, kind, experience: cardExperience, description, previewLabel,
 }) {
   const card = document.createElement('article');
   card.className = 'worldCard';
@@ -1275,7 +1225,7 @@ function worldCardEl({
   card.setAttribute('aria-label', `${name}. ${tagline}. Preview or play in this world.`);
 
   const preview = document.createElement('div');
-  preview.className = `worldCardPreview ${kind}`;
+  preview.className = `worldCardPreview ${cardExperience === 'trio' ? 'trio' : kind}`;
   const still = document.createElement('img');
   still.className = 'worldCardStill hidden';
   still.alt = '';
@@ -1339,23 +1289,6 @@ function renderWorldGrid(customWorld, features = null, extras = {}) {
   }
 }
 
-// Title-screen world choice (TitleWorldChoice.js): one option per
-// registered world after the two fixed ones, and the remembered pick.
-if (titleWorldEl && !ALL_WORLDS) {
-  titleWorldEl.closest('.titleWorldRow')?.classList.add('hidden');
-}
-if (titleWorldEl && ALL_WORLDS) {
-  for (const world of listWorlds()) {
-    const opt = document.createElement('option');
-    opt.value = world.id;
-    opt.textContent = world.name;
-    titleWorldEl.appendChild(opt);
-  }
-  const remembered = resolveTitleWorldChoice(readTitleWorld(), listWorlds().map((w) => w.id));
-  titleWorldEl.value = remembered.id ?? remembered.mode;
-  titleWorldEl.addEventListener('change', () => writeTitleWorld(titleWorldEl.value));
-}
-
 function offerWorldsThenStart(data, extra = {}) {
   try {
     clearCustomWorld();
@@ -1392,39 +1325,23 @@ function offerWorldsThenStart(data, extra = {}) {
       return terrain;
     });
     lastFitDiagnostic = recordFitDiagnostic(features, profile);
-    if (!ALL_WORLDS) {
-      // One world: start in it. The home biome's ranges have to be there
-      // first -- there is no picker to cover the load -- and an export waits
-      // for every biome, so its frames never depend on load timing.
-      const mine = pendingWorldStart;
-      const exporting = !!(extra.exportMode || readBulkExportFromUrl());
+    const exporting = !!(extra.exportMode || readBulkExportFromUrl());
+    if (URL_PICKS_WORLD || exporting) {
+      // Already chosen: start in that world. Landscape's home ranges have
+      // to be there first -- there is no picker to cover the load -- and an
+      // export waits for every biome, so its frames never depend on load
+      // timing. Trio's ranges are procedural and start at once.
+      const mine = pendingWorldStart, worldId = worldForExperience(experience);
       const ready = mine.terrainReady.then((t) => (exporting && t?.whenAll ? t.whenAll.then(() => t) : t));
-      const wait = exporting ? ready : Promise.race([ready, new Promise((r) => setTimeout(r, BIOME_WAIT_MS))]);
+      const wait = worldExperience(worldId) === 'trio' ? Promise.resolve()
+        : exporting ? ready : Promise.race([ready, new Promise((r) => setTimeout(r, BIOME_WAIT_MS))]);
       wait.then(() => {
         if (pendingWorldStart !== mine) return;
-        playSelectedWorld(ONE_WORLD_ID);
+        playSelectedWorld(worldId);
       });
       return;
     }
-    // A world already chosen on the title screen: start in it, no picker.
-    const titleChoice = resolveTitleWorldChoice(titleWorldEl?.value ?? readTitleWorld(),
-      listWorlds().map((w) => w.id));
-    // Skipping the picker leaves no time for the range to load in the
-    // background, so wait for it -- briefly; it never rejects, and a slow
-    // load still falls back to the bundled Tetons rather than holding the
-    // song. A newer load starting in the meantime wins.
-    if (titleChoice.mode !== ASK_WORLD) {
-      const mine = pendingWorldStart;
-      const go = () => {
-        if (pendingWorldStart !== mine) return;
-        if (titleChoice.mode === TITLE_AUTO) chooseRecommendedWorld();
-        else playSelectedWorld(titleChoice.id);
-      };
-      Promise.race([mine.terrainReady, new Promise((r) => setTimeout(r, RANGE_WAIT_MS))]).then(go);
-      return;
-    }
-    const hasLabels = Array.isArray(data.structure?.labels) && data.structure.labels.length > 1;
-    renderWorldGrid(null, features, { hasLabels });
+    renderWorldGrid(null, features);
     worldSelectEl?.classList.remove('hidden');
     if (worldSelectEl && !worldSelectEl.open) worldSelectEl.showModal();
     startChooserPreviews();
@@ -1446,8 +1363,6 @@ function startChooserPreviews() {
     data: { ...pending.data, profile: pending.profile, experience, previewPresentation: effectivePresentation() },
     features: pending.features,
     seed: pending.seed,
-    reducedFlash,
-    reducedMotion,
     playAudio: audio.play,
     stopAudio: audio.stop,
     onStill: ({ worldId, dataUrl }) => applyWorldStill(worldId, dataUrl),
@@ -1465,6 +1380,7 @@ function playSelectedWorld(baseWorldId) {
   baseWorldId = resolveWorldId(baseWorldId);
   const baseWorld = listWorlds().find((world) => world.id === baseWorldId);
   if (!baseWorld) return;
+  applyExperience(worldExperience(baseWorldId));
 
   // Preview audio/timing must not leak into the performance.
   if (previewSession) previewSession.stopPreview();
@@ -1508,17 +1424,6 @@ function recordFitDiagnostic(features, profile) {
     confidence,
     lines: formatFitDiagnostic(ranked, { confidence }),
   };
-}
-
-function chooseRecommendedWorld() {
-  const pending = pendingWorldStart;
-  if (!pending?.features) return;
-  const diagnostic = lastFitDiagnostic?.ranked?.length
-    ? lastFitDiagnostic
-    : recordFitDiagnostic(pending.features, pending.profile);
-  lastFitDiagnostic = diagnostic;
-  const pick = pickRecommended(diagnostic?.ranked || []);
-  if (pick?.id) playSelectedWorld(pick.id);
 }
 
 worldSelectGridEl?.addEventListener('click', (e) => {
@@ -1570,7 +1475,6 @@ worldPassagePeakEl?.addEventListener('click', () => {
   previewSession?.setPassage('peak');
   syncPassageButtons();
 });
-worldChooseForMeEl?.addEventListener('click', () => chooseRecommendedWorld());
 
 
 /** Step the armed export clock to `timeMs` and draw that instant.
@@ -1774,6 +1678,9 @@ function startTimeline(timelineData, extra = {}) {
     exportMode: exportModeFlag = false, exportSize = null, keepAudio = false,
   } = extra;
   lastStartExtra = { ...extra, beforePlayback: undefined, chapterState: null, keepAudio: false, startAtMs: 0, startAtWallMs: 0, keepUserCamera: false };
+  // The world decides the presentation, before anything below reads it.
+  timelineData.worldId = resolveWorldId(timelineData.worldId || lastWorldId || DEFAULT_WORLD_ID);
+  applyExperience(worldExperience(timelineData.worldId));
   const fromUrl = exportModeFlag ? null : readBulkExportFromUrl();
   const exportMode = !!(exportModeFlag || fromUrl);
   const waitForLandscape = !exportMode && experience === 'landscape' && rangePresentation?.enabled
@@ -1819,7 +1726,6 @@ function startTimeline(timelineData, extra = {}) {
   // idle -> about-to-freeze transition never fires and the song never
   // completes -- the engine would just run forever.
   timelineData.durationMs = resolveDurationMs(timelineData.timeline, timelineData.durationMs);
-  timelineData.worldId = resolveWorldId(timelineData.worldId || lastWorldId || DEFAULT_WORLD_ID);
   timelineData.ridgeResponse ??= getWorld(timelineData.worldId || lastWorldId || DEFAULT_WORLD_ID)?.response;
   ensureRidgeMusicSession(timelineData);
   lastTimelineData = timelineData;
@@ -1926,8 +1832,6 @@ function startTimeline(timelineData, extra = {}) {
   // A song start is the expensive moment (strip bakes, cold paths); don't let
   // that hitch vote on the shed level -- see PerfGovernor.WARMUP_MS.
   perfGovernor.beginWarmup(performance.now());
-  sim.setReducedFlash(reducedFlash);
-  sim.setReducedMotion(reducedMotion);
   sim.setVisualStyle(visualStyle);
   // Prime one sim step so BiomeManager/update dials (haze, calm, etc.) are
   // initialized before the first paint — a zero-dt first rAF used to draw
@@ -2188,7 +2092,6 @@ function startTimeline(timelineData, extra = {}) {
           if (paused) await audioEngine.ctx.suspend();
         },
         start() {
-          restartRenderPreparation = null;
           extra.beforePlayback?.();
           if (terrainRecordingHold) terrainRecordingHold.ready = true;
           resumeRecordingAfterTerrain();
@@ -2207,7 +2110,6 @@ function startTimeline(timelineData, extra = {}) {
           if (waitForLandscape) rafHandle = requestAnimationFrame(frame);
         },
         fail(error) {
-          restartRenderPreparation = null;
           holdRecordingForTerrain();
           audioEngine.pause(); paused = true; playbackPreparing = false; updatePauseButtonUI();
           progressEl.classList.add('hidden');
@@ -2215,7 +2117,6 @@ function startTimeline(timelineData, extra = {}) {
         },
       });
     };
-    restartRenderPreparation = waitForLandscape ? beginPreparation : null;
     beginPreparation();
   } else renderReadyPromise = Promise.resolve({ status: 'export' });
 }
@@ -3498,7 +3399,6 @@ function frame(tRaf) {
     const alive = recalibration.update(simTime, {
       beatPeriodMs: sim.beatAnchor.periodMs,
       confidence: sim.beatAnchor.confidence,
-      reducedFlash,
       // Matched against the same collapsed onsets the tap is measured
       // against. Pulsing on the raw list would flash twice for a flammed
       // kick while the match resolved to the first of the pair, so a player
@@ -3625,7 +3525,7 @@ function titleFrame(tRaf) {
   }
   const ctx = source.getContext('2d');
   ctx.clearRect(0, 0, source.width, source.height);
-  titleBackdrop.draw(ctx, tRaf / 1000, { pixelPolicy: pixelRenderPolicy({ ...effectivePresentation(), reducedMotion, reducedFlash }), reducedFlash });
+  titleBackdrop.draw(ctx, tRaf / 1000, { pixelPolicy: pixelRenderPolicy(effectivePresentation()) });
   titlePresentation.finishFrame();
   // 8-bit intensive quantizes the title screen too. The song path runs this
   // from Renderer.draw(); doing it here as well means choosing the mode
@@ -3958,13 +3858,10 @@ const INERT_KEYS = new Set([
 
 window.addEventListener('keydown', (e) => {
   if (e.defaultPrevented) return;
-  // A modal chooser owns keyboard input. R stays available for accessibility;
-  // all other keys retain native dialog/button behavior, including Escape.
+  // A modal chooser owns keyboard input; every key retains native
+  // dialog/button behavior, including Escape.
   if (document.getElementById('plexLibraryPanel')?.open) return;
-  if (worldSelectEl?.open) {
-    if (e.key === 'r' || e.key === 'R') toggleReducedFlash();
-    return;
-  }
+  if (worldSelectEl?.open) return;
   // Native controls must receive their Enter/Space default actions before
   // the gameplay handler's inert-key guard can suppress them.
   if ((e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar')
@@ -4010,7 +3907,6 @@ window.addEventListener('keydown', (e) => {
   // an anonymous timestamp could never carry.
   if (e.key === 'f' || e.key === 'F') { beatTap(ROLE_LOW); return; }
   if (e.key === 'j' || e.key === 'J') { beatTap(ROLE_HIGH); return; }
-  if (e.key === 'r' || e.key === 'R') { toggleReducedFlash(); return; }
 
   if (e.key === 'p' || e.key === 'P') {
     fpsHudVisible = !fpsHudVisible;
@@ -4048,32 +3944,14 @@ window.addEventListener('keydown', (e) => {
   beatTap();
 });
 
-/** The Reel (Movement VI): live-toggle + persist the reduced-flash
- *  accessibility setting, cascading into the running sim if there is one. */
-function toggleReducedFlash() {
-  reducedFlash = !reducedFlash;
-  setReducedFlash(reducedFlash);
-  sim?.setReducedFlash(reducedFlash);
-  syncFlashButton();
-  if (worldSelectEl?.open && previewSession) {
-    // Rebuild stills and stop any live animation/audio using the old setting.
-    const worldId = previewSession.activePreviewId;
-    const passage = previewSession.passage;
-    startChooserPreviews();
-    previewSession?.setPassage(passage);
-    syncPassageButtons();
-    if (worldId) previewSelectedWorld(worldId);
-  }
-}
-
 /** Reflects the current trim in the chip. Takes effect on the very next
  *  frame either way -- effectiveOutputLatencyMs() reads the live
  *  `btLatencyTrimMs` variable, so nothing needs to be re-armed on the
- *  running sim the way reducedFlash cascades into one; the choreography
- *  clock just starts reading a different number. A negative trim shows its
- *  own sign (Number.toString already includes the "-"); only the positive
- *  case gets an explicit "+", since a bare number there would otherwise
- *  read as ambiguous about which way the correction goes. */
+ *  running sim; the choreography clock just starts reading a different
+ *  number. A negative trim shows its own sign (Number.toString already
+ *  includes the "-"); only the positive case gets an explicit "+", since a
+ *  bare number there would otherwise read as ambiguous about which way the
+ *  correction goes. */
 function updateBtLatencyBtnUI() {
   if (!btLatencyBtnEl) return;
   btLatencyBtnEl.setAttribute('aria-pressed', btLatencyTrimMs !== 0 ? 'true' : 'false');

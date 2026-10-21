@@ -1,5 +1,6 @@
 // Small real Simulation/Renderer thumbnail fixture. Serve the specified source
 // tree first; this harness never changes app state or calls a live service.
+// It plays in Trio: procedural ranges drawn in Canvas 2D, no terrain to load.
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -53,7 +54,7 @@ try {
     const energyCurves = {
       sample: () => .1, sampleAll: () => Array(7).fill(.1), globalEnergy: () => .1, globalEnergyNorm: () => .1,
     };
-    const sim = new Simulation(conductor, new ParamBus(), { worldId: 'understory', songSeed: 315,
+    const sim = new Simulation(conductor, new ParamBus(), { worldId: 'trio', songSeed: 315,
       energyCurves, conductorCues: { liveCues: cues, scheduleCues: [] } });
     const canvas = document.getElementById('stage');
     const renderer = new Renderer(canvas);
@@ -73,7 +74,7 @@ try {
       }
       return { frames, thumbnails: sim.highlightReel.frames, selections: sim.highlightReel.selections || null,
         categories: [...new Set(sim.highlightReel.frames.map(frame => frame.label))],
-        fixture: { song: 'WP23 authored drop fixture', durationMs: 24000, worldId: 'understory', cueTimes: cues.map(cue => cue.tMs),
+        fixture: { song: 'WP23 authored drop fixture', durationMs: 24000, worldId: 'trio', cueTimes: cues.map(cue => cue.tMs),
           audio: 'Generated 120 BPM diagnostic recording; cues are authored, not inferred from this recording.' } };
     } finally { renderer.dispose(); sim.dispose(); }
   });
@@ -84,7 +85,7 @@ try {
     ]);
     const rows = [], stepMs = 1000 / 120;
     function fixture({ cueTimes = [5000], durationMs = 24000, lastImpactMs = 22000,
-      profile = 'flat', quality = 0, reduced = false, startMs = 0, latencyMs = 0 } = {}) {
+      profile = 'flat', quality = 0, startMs = 0, latencyMs = 0 } = {}) {
       const conductor = new Conductor();
       conductor.load({ durationMs, bpm: 120,
         timeline: profile === 'quiet' ? [] : [1000, lastImpactMs].map((tMs, i) => ({ id: `note:${i}`,
@@ -97,11 +98,10 @@ try {
         const value = profile === 'quiet' ? 0 : profile === 'inferred' && tMs >= 5000 ? .95 : .1;
         for (const band of energyCurves.bands) band[frame] = value;
       }
-      const sim = new Simulation(conductor, new ParamBus(), { worldId: 'understory', songSeed: 315,
+      const sim = new Simulation(conductor, new ParamBus(), { worldId: 'trio', songSeed: 315,
         energyCurves, outputLatencyMs: () => latencyMs, conductorCues: { liveCues: cueTimes.map((tMs, i) => ({
           id: `drop:${i}`, tMs, kind: 'drop', value: 1 })), scheduleCues: [] } });
       sim.biomes.pumpStripPrewarm = () => {};
-      sim.reducedFlash = reduced; sim.reducedMotion = reduced;
       const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 360;
       const renderer = new Renderer(canvas);
       let tick = Math.floor(startMs / stepMs);
@@ -111,7 +111,7 @@ try {
         while ((tick + 1) * stepMs <= timeMs + 1e-7) { tick++; sim.step(stepMs, tick * stepMs); }
         renderer.draw(sim, 1);
       }, save(name, fps = null) {
-        rows.push({ name, fps, quality: sim.perf.level, reducedFlash: sim.reducedFlash,
+        rows.push({ name, fps, quality: sim.perf.level,
           selections: sim.highlightReel.selections,
           frames: sim.highlightReel.frames, actualDropAtMs: sim.hype.dropAtMs });
       }, dispose() { renderer.dispose(); sim.dispose(); } };
@@ -135,8 +135,8 @@ try {
       }
     }
     for (const quality of [0, 6]) {
-      const f = fixture({ quality, reduced: true });
-      try { for (const time of [4900, 5000, 5100]) f.draw(time); f.save(`reduced-q${quality}`); }
+      const f = fixture({ quality });
+      try { for (const time of [4900, 5000, 5100]) f.draw(time); f.save(`q${quality}`); }
       finally { f.dispose(); }
     }
     for (const [name, options, times] of [
@@ -167,9 +167,9 @@ try {
       }
     }
     const row = name => result.matrix.find(row => row.name === name);
-    assert.equal(row('reduced-q0').frames.length, 1);
-    assert.equal(row('reduced-q6').frames.length, 0);
-    assert.equal(row('reduced-q6').selections[0].status, 'rejected');
+    assert.equal(row('q0').frames.length, 1);
+    assert.equal(row('q6').frames.length, 0);
+    assert.equal(row('q6').selections[0].status, 'rejected');
     assert.equal(row('stall').frames.length, 0); assert.equal(row('stall').selections[0].status, 'missed');
     assert.equal(row('quiet-short').selections.length, 0);
     assert.equal(row('output-latency').frames[0].atMs, 4750);

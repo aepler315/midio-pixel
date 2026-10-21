@@ -118,7 +118,7 @@ test('the forest capture seeds construction so residual 2D impact shake repeats'
     window.__resetLandscapeRandom();
     const camera = new CameraDirector();
     camera._shakeAmp = 2;
-    camera.update(1 / 60, 0, false, null, 0);
+    camera.update(1 / 60, 0, null, 0);
     const residual = presentationCamera(camera, { enabled: true, active: true, arrival: 1 });
     return { seed: camera._shakeSeed, x: residual.shakeX, y: residual.shakeY };
   };

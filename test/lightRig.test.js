@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import {
   LightRig, snapEnvelope, sweepOmega, beamAngle, beamTrianglePoints, beamAlpha,
 } from '../src/world/LightRig.js';
-import { FLASH_CAP } from '../src/ui/Accessibility.js';
 
 const CANVAS = { width: 1280, height: 720 };
 
@@ -55,12 +54,10 @@ test('beamTrianglePoints: tip is the anchor, both edges are exactly `length` awa
   assert.ok(Math.abs(delta - 0.4) < 1e-6, `expected angle-between of 2*halfAngle=0.4, got ${delta}`);
 });
 
-test('beamAlpha respects FLASH_CAP under reducedFlash even at max snap/presence/budget', () => {
-  const capped = beamAlpha(0.26, 1, 1, 1, true);
-  assert.ok(capped <= FLASH_CAP + 1e-9);
-  const uncapped = beamAlpha(0.26, 1, 1, 1, false);
-  assert.ok(uncapped > FLASH_CAP, 'the snap boost should genuinely exceed FLASH_CAP unbounded');
-  assert.ok(Number.isFinite(uncapped) && uncapped >= 0);
+test('beamAlpha at max snap/presence/budget carries the full snap boost', () => {
+  const boosted = beamAlpha(0.26, 1, 1, 1);
+  assert.ok(boosted > 0.4, 'the snap boost should genuinely brighten the core past 0.4');
+  assert.ok(Number.isFinite(boosted) && boosted >= 0);
 });
 
 test('LightRig.update: sustained calm fades beams 1..N toward 0 and keeps beam 0 near 1', () => {
@@ -116,11 +113,11 @@ test('LightRig.draw never throws with degenerate canvas dims, and scales beam co
     fill() { fills++; }, createLinearGradient() { return { addColorStop() {} }; },
     set fillStyle(_v) {}, set globalCompositeOperation(_v) {},
   };
-  rig.draw(fakeCtx, CANVAS, 1000, 100, '#ffaa55', 1, false);
+  rig.draw(fakeCtx, CANVAS, 1000, 100, '#ffaa55', 1);
   const fullFills = fills;
   fills = 0;
-  rig.draw(fakeCtx, CANVAS, 1000, 100, '#ffaa55', 0.6, false);
+  rig.draw(fakeCtx, CANVAS, 1000, 100, '#ffaa55', 0.6);
   assert.ok(fills < fullFills, `expected fewer fills at particleMul=0.6 (${fills}) than 1 (${fullFills})`);
 
-  assert.doesNotThrow(() => rig.draw(fakeCtx, { width: 0, height: 0 }, 0, 0, '#ffffff', 1, false));
+  assert.doesNotThrow(() => rig.draw(fakeCtx, { width: 0, height: 0 }, 0, 0, '#ffffff', 1));
 });

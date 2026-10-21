@@ -7,12 +7,12 @@ import { rangeTourControlState } from '../src/ui/RangeTourControl.js';
 const tourViewId = 'teton-range-tour';
 const manager = (durationMs = 60000) => ({
   durationMs, sections: [{ startMs: 0, endMs: durationMs, profile: { name: 'CONIFER' } }],
-  world: { kind: 'alpine' }, reducedMotion: false, tSec: 0,
+  world: { kind: 'alpine' }, tSec: 0,
   currentBlend: { from: 'CONIFER', to: 'CONIFER', t: 1 }, _profile: () => null,
 });
 
 const previewTour = (durationMs) => ({
-  durationMs, heroes: [], notes: [], reducedMotion: false,
+  durationMs, heroes: [], notes: [],
   previewPose: { eyeM: [0, 2000, 0], targetM: [0, 2000, -1000], fovYDeg: 35, tour: true },
 });
 
@@ -103,7 +103,7 @@ test('runtime-unavailable tour diagnostics preserve the real fallback reason', a
   p.dispose();
 });
 
-for (const [name, mgr] of [['title', null], ['another world', { ...manager(), world: { kind: 'strip' } }]]) {
+for (const [name, mgr] of [['title', null], ['another world kind', { ...manager(), world: { kind: 'unregistered-kind' } }]]) {
   test(`tour readiness on ${name} does not wait for a camera that this song does not own`, async t => {
     const sceneFactory = t.mock.fn(async () => fakeScene());
     const p = new RangePresentation({ mode: 'v2', tour: 'tetons', forcedViewId: tourViewId, sceneFactory });
@@ -197,7 +197,7 @@ test('a lost planning reservation cannot publish a ready tour', async t => {
 for (const [outcome, reason] of [
   ['deferral', 'Refinement deferred: no safe road continuation before the end'],
   ['error', 'Tour route has no rate-limited altitude corridor'],
-]) test(`a motion refinement ${outcome} reports the retained setting and clears its reason after success`, async t => {
+]) test(`a refinement ${outcome} is held with its reason and clears it after success`, async t => {
   const workers = installTourBoundaries(t), mgr = manager(), scene = fakeScene();
   const p = new RangePresentation({ mode: 'v2', tour: 'tetons', forcedViewId: tourViewId, sceneFactory: async () => scene });
   t.after(() => p.dispose());
@@ -209,37 +209,27 @@ for (const [outcome, reason] of [
   p.beginScenic();
   const before = p.tour.poseAt(12000);
   mgr.tSec = 12;
-  mgr.reducedMotion = true;
+  mgr.sections = [...mgr.sections];
   p.beginScenic();
   if (outcome === 'deferral') workers[1].reply({ ...previewTour(mgr.durationMs), notes: [reason] });
   else workers[1].onmessage({ data: { error: reason } });
   await p._replanPromise;
   const held = p.snapshot();
   assert.deepEqual(p.tour.poseAt(12000), before, 'a deferred request keeps the owned camera');
-  assert.equal(held.tourPreparation.requestedReducedMotion, true);
-  assert.equal(held.tourPreparation.effectiveReducedMotion, false);
   assert.equal(held.tourPreparation.refinement.state, 'held');
   assert.equal(held.tourPreparation.refinement.reason, reason);
   const control = rangeTourControlState(held, { running: true, worldKind: 'alpine', paused: true });
   assert.equal(control.state, 'active');
-  assert.match(control.text, /motion change unavailable/i);
-  assert.equal(control.reason, reason);
+  assert.equal(control.text, 'Active');
 
   // A later request still owns a new worker; success must clear the hold.
-  mgr.reducedMotion = false;
+  mgr.sections = [...mgr.sections];
   p.beginScenic();
   workers[2].reply(previewTour(mgr.durationMs));
   await p._replanPromise;
-  mgr.reducedMotion = true;
-  p.beginScenic();
-  workers[3].reply({ ...previewTour(mgr.durationMs), reducedMotion: true });
-  await p._replanPromise;
   const applied = p.snapshot();
-  assert.equal(applied.tourPreparation.requestedReducedMotion, true);
-  assert.equal(applied.tourPreparation.effectiveReducedMotion, true);
   assert.equal(applied.tourPreparation.refinement.state, 'applied');
   assert.equal(applied.tourPreparation.refinement.reason, null);
-  assert.match(rangeTourControlState(applied, { running: true, worldKind: 'alpine', paused: true }).text, /Active — reduced motion/);
 });
 
 test('a sections-only deferral is held but historical refinement notes do not mark a later success held', async t => {
@@ -260,8 +250,6 @@ test('a sections-only deferral is held but historical refinement notes do not ma
   await p._replanPromise;
   assert.equal(p.status().tourPreparation.refinement.state, 'held');
   assert.equal(p.status().tourPreparation.refinement.reason, note);
-  assert.equal(p.status().tourPreparation.requestedReducedMotion, false);
-  assert.equal(p.status().tourPreparation.effectiveReducedMotion, false);
   mgr.sections = [...mgr.sections];
   p.beginScenic();
   workers[2].reply({ ...previewTour(mgr.durationMs), notes: [note, note] });

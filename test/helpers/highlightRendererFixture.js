@@ -44,7 +44,7 @@ export function rendererFixture({ cues = [{ id: 'drop', tMs: 5000, kind: 'drop',
       role: Role.RHYTHM, kick: true, vel: .8, pitch: 36 })),
     barGrid: Array.from({ length: Math.ceil(durationMs / 2000) }, (_, i) => ({ ms: i * 2000, tick: i * 4,
       numerator: 4, denominator: 4 })) });
-  const sim = new Simulation(conductor, new ParamBus(), { worldId: 'understory', songSeed: 315,
+  const sim = new Simulation(conductor, new ParamBus(), { worldId: 'alpine', songSeed: 315,
     energyCurves, conductorCues: { liveCues: cues, scheduleCues: [] }, ridgeMusicSession });
   // Background strip prerendering is unrelated to the highlight contract.
   sim.biomes.pumpStripPrewarm = () => {};

@@ -47,14 +47,6 @@ test('explicit astronomy suppression also applies to the narrative branch', () =
   assert.equal(draws.length, 1);
 });
 
-test('enclosed worlds cannot acquire stars through the shared painter', () => {
-  for (const kind of ['abyssal', 'nave']) {
-    const { ctx, mgr, draws } = fixture(); mgr.world.kind = kind;
-    BiomeManager.prototype._drawStarfield.call(mgr, ctx, canvas, palette, palette, 0, 1);
-    assert.equal(draws.length, 0, kind);
-  }
-});
-
 test('Range daylight retains a dimmer catalogue after terrain preparation', () => {
   const { ctx, mgr, draws } = fixture();
   mgr._drawStarfield(ctx, canvas, palette, palette, 0, 1);

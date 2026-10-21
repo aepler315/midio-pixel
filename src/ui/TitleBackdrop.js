@@ -53,11 +53,11 @@ export class TitleBackdrop {
   }
 
   /** Draw one frame at time tSec. Pure-ish: only reads this.layout + tSec. */
-  draw(ctx, tSec, { pixelPolicy = null, reducedFlash = false } = {}) {
+  draw(ctx, tSec, { pixelPolicy = null } = {}) {
     const { width: w, height: h } = this;
     ctx.save();
     this._drawNebula(ctx, tSec);
-    this._drawStars(ctx, tSec, pixelPolicy, reducedFlash);
+    this._drawStars(ctx, tSec, pixelPolicy);
     ctx.restore();
   }
 
@@ -72,13 +72,13 @@ export class TitleBackdrop {
     }
   }
 
-  _drawStars(ctx, tSec, pixelPolicy = null, reducedFlash = false) {
+  _drawStars(ctx, tSec, pixelPolicy = null) {
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     for (let i = 0; i < this.layout.stars.length; i++) {
       const s = this.layout.stars[i];
       const tw = 0.5 + 0.5 * Math.sin(tSec * s.speed * 2 + s.phase);
-      const alpha = pixelPolicy?.active ? Math.min(0.25 + 0.55 * tw, reducedFlash ? .5 : .8) : 0.25 + 0.55 * tw;
+      const alpha = 0.25 + 0.55 * tw;
       ctx.fillStyle = `hsla(${s.hue.toFixed(0)},70%,${(70 + 20 * tw).toFixed(0)}%,${alpha.toFixed(3)})`;
       if (pixelPolicy?.active) {
         const unit = pixelPolicy.unit, x = Math.round(s.x / unit) * unit, y = Math.round(s.y / unit) * unit;

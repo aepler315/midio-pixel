@@ -14,7 +14,6 @@ import { biomeByName } from '../src/world/BiomeProfiles.js';
 import { ValueNoise1D } from '../src/utils/noise.js';
 import { alpineHeightField, rollingHeightField, ALPINE_CHARACTERS } from '../src/world/SilhouetteGenerator.js';
 import { ParticleField } from '../src/world/ParticleField.js';
-import { cityHeightField, buildingProfile } from '../src/world/city/CitySilhouette.js';
 
 // The published Krumhansl-Schmuckler tonal-hierarchy profiles, rooted at C.
 const MAJOR_PROFILE = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];
@@ -470,7 +469,7 @@ test('novelty history measurably steers selection away from a recently-used hue 
   assert.ok(flips > 0, 'matching history should change the winning palette for at least some songs');
 });
 
-// A synthesized palette's own display `name` (e.g. "NAVE_A_0", set by
+// A synthesized palette's own display `name` (e.g. "ALPINE_A_0", set by
 // synthesizeSectionPalettes) never matches a LANDMARKS/BIOMES key -- ground
 // clutter (decorateStrip), near-field occluders, and NearField's silhouette-
 // darkening color (biomeByName) all keyed off that display name and silently
@@ -500,7 +499,7 @@ test('every synthesized palette carries a landmarkKey that LANDMARKS and biomeBy
 test('synthesizeSectionPalettes: every section palette carries its own valid landmarkKey', () => {
   const dna = buildSongDNA(synthTimeline({ pitches: [60, 62, 64, 65, 67, 69, 71], program: 73 }));
   dna.sectionLabels = ['intro', 'verse', 'chorus', 'verse', 'chorus', 'outro'];
-  const { palettes } = synthesizeSectionPalettes(dna, 'nave');
+  const { palettes } = synthesizeSectionPalettes(dna, 'alpine');
   assert.ok(palettes.length >= 2);
   for (const p of palettes) {
     assert.ok(LANDMARKS[p.landmarkKey], `${p.name} has invalid landmarkKey "${p.landmarkKey}"`);
@@ -603,27 +602,13 @@ test('deriveTerrainParams on a real song DNA actually changes the rendered ridge
   }
 });
 
-test('deriveTerrainParams city/rolling fields: spiky songs get narrower isolated towers and grainier hills, mound songs the opposite', () => {
+test('deriveTerrainParams rolling fields: spiky songs get grainier hills, mound songs the opposite', () => {
   const spiky = { trunkBranch: 0.03, verticalStack: 0.35, spikeCluster: 0.40, arch: 0.05, mound: 0.02, geometricRegularity: 0.15 };
   const mound = { trunkBranch: 0.35, verticalStack: 0.03, spikeCluster: 0.02, arch: 0.05, mound: 0.40, geometricRegularity: 0.15 };
   const spikyMods = deriveTerrainParams(spiky);
   const moundMods = deriveTerrainParams(mound);
 
-  assert.ok(spikyMods.cityWidthMul < 1, `expected narrower towers, got ${spikyMods.cityWidthMul}`);
-  assert.ok(moundMods.cityWidthMul > 1, `expected broader blocks, got ${moundMods.cityWidthMul}`);
-  assert.ok(spikyMods.cityTaperMul > moundMods.cityTaperMul, 'spiky should taper more sharply than mound');
-  assert.ok(spikyMods.cityDensityMul < moundMods.cityDensityMul, 'mound should pack denser fabric than spiky');
   assert.ok(spikyMods.rollingAmpMul > moundMods.rollingAmpMul, 'spiky should read taller/grainier hills than mound');
-});
-
-test('buildingProfile: default params reproduce the original fixed setback exactly; DNA params move it', () => {
-  assert.equal(buildingProfile(0.4), 1);
-  assert.ok(Math.abs(buildingProfile(0.7) - 0.84) < 1e-9);
-  assert.ok(Math.abs(buildingProfile(0.9) - 0.58) < 1e-9);
-  // A sharper setback (higher taper) drops further at the same width.
-  assert.ok(buildingProfile(0.7, 0.62, 1.6) < buildingProfile(0.7, 0.62, 1));
-  // A later setbackFrac keeps full height further out.
-  assert.equal(buildingProfile(0.7, 0.85, 1), 1);
 });
 
 test('pickCharacterScheme: spiky songs get the jagged scheme, organic songs the monumental scheme, balanced songs the classic scheme', () => {
@@ -669,28 +654,6 @@ test('a spiky vs. an organic song render measurably different L2 geometry via th
     if (Math.abs(withSpikyScheme[i] - withMoundScheme[i]) > 1e-9) { same = false; break; }
   }
   assert.equal(same, false, 'different character schemes produced identical L2 geometry');
-});
-
-test('cityHeightField: terrainMods measurably changes the rendered skyline and stays in 0..1', () => {
-  const spikyDna = buildSongDNA(synthTimeline({ pitches: [40, 43, 46, 49], program: 30, n: 400 }));
-  const moundDna = buildSongDNA({ durationMs: 60000, bpm: 70 });
-  const spikyMods = deriveTerrainParams(buildShapeGrammar(spikyDna));
-  const moundMods = deriveTerrainParams(buildShapeGrammar(moundDna));
-
-  const n = 400, step = 5, width = n * step;
-  const plain = cityHeightField(n, step, 11, width, null, 'L2', null);
-  const withSpiky = cityHeightField(n, step, 11, width, null, 'L2', spikyMods);
-  const withMound = cityHeightField(n, step, 11, width, null, 'L2', moundMods);
-
-  let same = true;
-  for (let i = 0; i < n; i++) {
-    if (Math.abs(plain[i] - withSpiky[i]) > 1e-9 || Math.abs(plain[i] - withMound[i]) > 1e-9) { same = false; break; }
-  }
-  assert.equal(same, false, 'terrainMods had no measurable effect on the city height field');
-  for (let i = 0; i < n; i++) {
-    assert.ok(withSpiky[i] >= 0 && withSpiky[i] <= 1);
-    assert.ok(withMound[i] >= 0 && withMound[i] <= 1);
-  }
 });
 
 test('rollingHeightField: terrainMods measurably changes the rendered hills and stays in 0..1', () => {

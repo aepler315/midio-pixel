@@ -38,15 +38,15 @@ assert.ok(!input.previous && !input.previousPresent, 'Reachability replays initi
 const manifest = JSON.parse(await fs.readFile(path.join(source, 'src/assets/range/v2/tour/teton-range-tour.tour.json'), 'utf8'));
 const data = decodeTour(manifest, gunzipSync(await fs.readFile(path.join(source, 'src/assets/range/v2/tour/teton-range-tour.tour.bin.gz'))));
 const energyAt = time => input.energy[Math.min(input.energy.length - 1, Math.max(0, Math.round(time / 250)))];
-const plan = planTour(data, { sections: input.sections, roles: input.roles, durationMs: input.durationMs, energyAt, reducedMotion: input.reducedMotion });
-const tour = buildTourTimeline(data, plan, { reducedMotion: input.reducedMotion });
+const plan = planTour(data, { sections: input.sections, roles: input.roles, durationMs: input.durationMs, energyAt });
+const tour = buildTourTimeline(data, plan);
 const origin = tour.routeTimeOriginMs || 0, tau = tour.routeSlowTauSec || 0, scale = tour.scale || 1, count = tour.fov.length;
 const frames = Array.from({ length: count }, (_, at) => {
   const timeMs = Math.min(tour.durationMs, at * 100), elapsed = Math.max(0, (timeMs - origin) / 1000);
   const clock = origin + 1000 * (elapsed / scale + (tau ? (1 - 1 / scale) * tau * (1 - Math.exp(-elapsed / tau)) : 0));
   return { ...plan.routeAt(clock), timeMs };
 });
-const budget = tourYawBudget(frames, { reducedMotion: tour.reducedMotion });
+const budget = tourYawBudget(frames);
 const capacity = Array.from({ length: count }, (_, i) => i ? budget(frames[i - 1].timeMs, frames[i].timeMs) : 0);
 const headings = Array.from({ length: count }, (_, i) => {
   const v = [0, 1, 2].map(k => tour.target[i * 3 + k] - tour.eye[i * 3 + k]);
@@ -139,7 +139,7 @@ function analyse(hero, subject, released = []) {
     bestSStar: Number.isFinite(best) ? best : null, legal: best <= 1, results };
 }
 
-const report = { version: 1, kind: 'diagnostic', source, request: requestPath, durationMs: tour.durationMs, reducedMotion: tour.reducedMotion,
+const report = { version: 1, kind: 'diagnostic', source, request: requestPath, durationMs: tour.durationMs,
   limits: 'Heading reachability on the fixed eye path, FOV and protected windows only. Not a planner, occlusion, footprint, rendered or musical check.',
   heroes: [] };
 for (const framing of tour.heroFraming) {

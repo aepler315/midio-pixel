@@ -8,11 +8,11 @@ outer canvas transform.
 
 `RangeCloudField.js` selects a bounded neighborhood of fixed world cells.
 Changing the camera changes projection, rather than relocating the clouds.
-Heard-time wind is deterministic, seeks reconstruct the same field, and reduced
-motion freezes wind without detaching the field from the camera. Distance and
-route weights also control the affine transform, so a cloud entering a blended
-view does not acquire a discontinuous position. Visible banks draw far to near;
-texture selection and weather opacity use their persistent identities.
+Heard-time wind is deterministic, and seeks reconstruct the same field.
+Distance and route weights also control the affine transform, so a cloud
+entering a blended view does not acquire a discontinuous position. Visible
+banks draw far to near; texture selection and weather opacity use their
+persistent identities.
 
 `RangeCloudTexture.js` generates a stable individual shape for each world bank.
 Irregular overlapping volumes and warped density replace the shared four-lobe

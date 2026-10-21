@@ -54,7 +54,7 @@ Candidate full, visibility, and motion runs finished without page errors.
 | 21 broad-profile stations | Horizon 100%; minimum L2 crest exposure 64.29% |
 | Full-matrix foreground area | Maximum L3 14.38%; L4 1.99% of viewport |
 | Motion | 120 distinct frames at 12 fps, from 18.000s through 27.917s |
-| World playback | All nine worlds completed selection, passage, rhythm, seek and reduced-motion assertions across resumed runs |
+| World playback | All nine worlds completed selection, passage, rhythm and seek assertions across resumed runs |
 
 The 21 broad-profile stations are distinct captures from 5s through 85s. Across
 them the musical horizon is fully exposed, L2 crest exposure is at least 64.29%,
@@ -87,7 +87,6 @@ instead of relabeling them as one revision.
 The clip was checked using sampled frames and frame differences. Terrain moves
 through the A/B seam without a transparent overlap. The largest pixel delta at
 24.083s is a brief full-scene landing/accent flash, not a terrain discontinuity.
-Reduced-flash presence is covered separately by matrix cases and unit tests.
 
 World smoke runs resumed after software rendering skipped a narrow live-clock
 window. The harness now pauses after actual live rhythm has advanced, then seeks

@@ -481,7 +481,7 @@ async function suiteExport(ctx) {
   if (await lyrics.getAttribute('aria-pressed') === 'true') await lyrics.click();
   await page.locator('#display-pixelGrid').selectOption('classic');
   await page.locator('#fileInput').setInputFiles(wav);
-  // One-world builds start without a picker; all-worlds builds open it.
+  // The chooser opens unless the page names its world; take Landscape.
   const picker = await Promise.race([
     page.locator('#worldSelect[open]').waitFor({ timeout: 300000 }).then(() => true),
     page.waitForFunction(() => !!window.__SMW?.sim, null, { timeout: 300000 }).then(() => false),

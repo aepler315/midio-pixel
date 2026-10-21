@@ -64,9 +64,8 @@ test('reserve evicts before the next palette allocation', () => {
 // The tests above all size strips at 10x10 against budgets of ~1000 bytes,
 // so they exercise the eviction POLICY but never the real ratio of working
 // set to budget. At real dimensions a single alpine biome's four layers are
-// ~35.8MB and a city biome's ~69.7MB, against DEFAULT_TERRAIN_STRIP_BUDGET
-// of 64MB -- so two biomes have never fit, and one city biome does not fit
-// on its own.
+// ~35.8MB against DEFAULT_TERRAIN_STRIP_BUDGET of 64MB -- so two biomes have
+// never fit.
 
 import { layerBake } from '../src/world/WorldMaterial.js';
 import { TERRAIN_STRIP_WIDTH } from '../src/world/terrain/StripRead.js';
@@ -79,28 +78,25 @@ function realStripSet(kind) {
     const bake = layerBake(kind, layerKey);
     const width = layerKey !== 'L5' ? TERRAIN_STRIP_WIDTH : 2048;
     const surface = { width, height: bake.height, getContext: () => ({}) };
-    if (bake.profile === 'city') surface.windows = { width, height: bake.height, getContext: () => ({}) };
     strips[layerKey] = surface;
   }
   return strips;
 }
 
 test('the default budget holds the two biomes a transition draws at once', () => {
-  // Every world's draw function asks for two strip sets per frame:
+  // The range draw asks for two strip sets per frame:
   //   const stripsA = mgr.stripsFor(from);
   //   const stripsB = mgr.stripsFor(to);
   // If the pair cannot be resident together, fetching the second one evicts
   // the first while the caller is still holding it.
-  for (const kind of ['alpine', 'city']) {
-    const pair = stripSetBytes(realStripSet(kind)) * 2;
-    assert.ok(pair <= DEFAULT_TERRAIN_STRIP_BUDGET,
-      `${kind}: a transition needs ${(pair / 1048576).toFixed(1)}MB but the budget is `
-      + `${(DEFAULT_TERRAIN_STRIP_BUDGET / 1048576).toFixed(1)}MB`);
-  }
+  const pair = stripSetBytes(realStripSet('alpine')) * 2;
+  assert.ok(pair <= DEFAULT_TERRAIN_STRIP_BUDGET,
+    `alpine: a transition needs ${(pair / 1048576).toFixed(1)}MB but the budget is `
+    + `${(DEFAULT_TERRAIN_STRIP_BUDGET / 1048576).toFixed(1)}MB`);
 });
 
 test('fetching a second strip set does not destroy the first one', () => {
-  // The exact shape of drawCity/drawNave/drawFarside/... at real sizes.
+  // The exact shape of a transition draw at real sizes.
   const cache = new TerrainStripCache();
   cache.setPins(['from', 'to']);
   cache.set('from', realStripSet('alpine'));

@@ -77,7 +77,8 @@ async function makeManager({ perf = null } = {}) {
   bm.groundY = 400;
   bm.h = 540;
   bm._airColor = null;
-  bm.world = { kind: 'city' }; // Legacy strata still belong to non-alpine worlds.
+  // The alpine kind skips these legacy strata; any other kind still draws them.
+  bm.world = { kind: 'unregistered-kind' };
   return bm;
 }
 

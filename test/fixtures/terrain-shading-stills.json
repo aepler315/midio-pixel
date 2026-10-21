@@ -10,8 +10,6 @@
     "fps": 12,
     "mode": "sparse",
     "intervalMs": 10000,
-    "reducedFlash": false,
-    "reducedMotion": false,
     "presentation": {
       "version": 2,
       "look": "pixel",

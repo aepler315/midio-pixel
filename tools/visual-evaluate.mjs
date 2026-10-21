@@ -12,7 +12,7 @@ import { finalizeBrowserDiagnostics } from './lib/browser-diagnostics.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const help = `npm run visual:eval -- --out .smoke/baseline [--manifest path/to/corpus.json]
-npm run visual:eval -- --manifest test/fixtures/visual-evaluation-vfx.json --case q4-palette-both --out .smoke/q4
+npm run visual:eval -- --manifest test/fixtures/visual-evaluation-vfx.json --case q4-palette-inland --out .smoke/q4
 npm run visual:eval -- --compare .smoke/baseline .smoke/candidate --out .smoke/comparison [--require-identical]
 
 --case selects one case of a VFX matrix manifest (see docs/visual-evaluation-loop.md).

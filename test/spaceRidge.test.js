@@ -111,7 +111,7 @@ test('a real 120Hz onset flashes once and rearms only after the band releases', 
   assert.ok(second > 0, 'a later onset must rearm');
 });
 
-test('the Range sky form has a large musical throw even with reduced flash', () => {
+test('the Range sky form has a large musical throw', () => {
   const ridge = new SpaceRidge(315);
   const stage = { width: 1280, height: 720 };
   const quiet = ridge._samples(stage).pts;
@@ -182,7 +182,7 @@ test('draw() no longer takes a worldX -- the structure never scrolls with the wo
   // draw(ctx, canvas, worldX, ...) translated every sample by worldX*PARALLAX.
   // The signature itself is now the guarantee -- draw() has no worldX
   // parameter at all, so nothing can reintroduce that drift.
-  assert.equal(SpaceRidge.prototype.draw.length, 4, 'draw(ctx, canvas, color, tSec, reducedFlash=false) -- no worldX');
+  assert.equal(SpaceRidge.prototype.draw.length, 4, 'draw(ctx, canvas, color, tSec, presentation=1) -- no worldX');
 });
 
 test('tidalOffset stays within its amplitude bound across a long time sweep', () => {

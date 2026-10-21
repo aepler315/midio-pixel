@@ -27,7 +27,7 @@ function timelineGate(overrides = {}) {
     extra: {}, startedAt: 15950, paused: false, captureClock: { leadMs: 0 },
     audioEngine: { playBuffer: () => events.push('source'), resume: () => events.push('resume'),
       pause: () => events.push('pause'), ctx: { suspend: () => events.push('suspend') } },
-    acc: 0, lastRafMs: null, lastNowMs: 0, playbackPreparing: false, rafHandle: null, restartRenderPreparation: null,
+    acc: 0, lastRafMs: null, lastNowMs: 0, playbackPreparing: false, rafHandle: null,
     terrainRecordingHold: null, holdRecordingForTerrain() {}, resumeRecordingAfterTerrain() {},
     playbackCadence: { reset() {} }, presentedFps: { reset() {} }, perfGovernor: { beginWarmup() {} },
     performance: { now: () => 0 }, revealPlayback() {}, frame() {},
@@ -119,41 +119,6 @@ test('a prepared paused seek releases exactly one frame loop with the audio cont
   assert.equal(events.filter(event => event === 'raf').length, 1);
   assert.ok(events.includes('suspend') && !events.includes('resume'));
   assert.equal(context.paused, true);
-});
-
-test('switching to Trio while landscape startup is pending retargets the owned readiness preparation', async () => {
-  let restarts = 0;
-  const owner = { biomes: {}, setExperience() {} };
-  const context = production('changeExperience', { resolveExperience: value => value, experienceRequest: 0,
-    sim: owner, experience: 'landscape', running: true, experienceControl: {}, experienceStatus: {},
-    rangePresentation: { dispose() {} }, renderer: { draw() {} },
-    writeExperience() {}, displayStorage() {}, location: { href: 'https://example.test/' }, history: { replaceState() {} },
-    URL, fitCanvas() {}, syncRangeTourControl() {}, worldSelectEl: null,
-    playbackPreparing: true, restartRenderPreparation: () => { restarts++; },
-  });
-  await context.changeExperience('trio');
-  assert.equal(context.experience, 'trio');
-  assert.equal(restarts, 1, 'discarding the landscape must replace its pending readiness owner');
-});
-
-test('a retargeted main preparation cancels its old terrain waiter and starts the current scene once', async () => {
-  let release;
-  const oldReady = new Promise(resolve => { release = resolve; }), presentations = [];
-  const { context, events } = timelineGate({ waitForScenicReady: ({ presentation }) => {
-    presentations.push(presentation); return presentations.length === 1 ? oldReady : Promise.resolve();
-  } });
-  const oldPromise = context.renderReadyPromise;
-  await Promise.resolve();
-  const replacement = {};
-  context.rangePresentation = replacement;
-  context.restartRenderPreparation();
-  const ready = await context.renderReadyPromise;
-  assert.equal(ready.status, 'ready');
-  assert.equal(presentations[1], replacement);
-  release();
-  assert.equal((await oldPromise).status, 'cancelled');
-  assert.equal(events.filter(event => event === 'source').length, 1);
-  assert.equal(events.filter(event => event === 'raf').length, 1);
 });
 
 test('pausing during render preparation immediately suspends the audio context', () => {

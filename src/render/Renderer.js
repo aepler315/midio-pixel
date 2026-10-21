@@ -1,8 +1,8 @@
-import { drawTrioStage } from './TrioStage.js';
 import { CanvasBuffers } from './CanvasResidency.js';
 import { drawPixelGlow, pixelHeatOffset } from './PixelEffects.js';
 import { resolveLandscapePresentation } from '../world/LandscapePresentation.js';
 import { drawInhabitedShore, kickHop01 } from '../world/InhabitedShore.js';
+import { contactShadow } from '../world/ContactShadow.js';
 // Canvas 2D compositor. Draws sky -> parallax biome layers -> ground ->
 // telegraph glints -> world FX -> companions -> Midio -> foreground veil ->
 // cracks/shatter -> HUD. Layers are added incrementally as later stages land;
@@ -17,7 +17,6 @@ import { drawRangeCaption } from '../ui/RangeCaption.js';
 import { drawPixelCaption } from '../ui/PixelCaption.js';
 import { GOLD_AFTERIMAGE_LIFE_MS } from '../sim/MidioPerformer.js';
 import { clamp01 } from '../utils/math.js';
-import { capFlashAlpha, flashCompositeOp } from '../ui/Accessibility.js';
 import { LerpCache, hexToRgb } from '../utils/color.js';
 import { spectralFamily } from './spectral.js';
 import { hypeFrameStyle } from '../sim/HypeDirector.js';
@@ -81,9 +80,9 @@ const BLOOM_THRESHOLD_PASSES = 2; // self-multiply passes: c^(2^passes)
 function postFxDownscale(width) {
   return width > 2560 ? 5 : width > 1920 ? 4 : BLOOM_DOWNSCALE_BASE;
 }
-// Bloom supports the scene rather than becoming a white veil on drops.
-// Scale the reactive term AFTER its accessibility cap so reduced-flash
-// remains visibly softer even under this much lower overall ceiling.
+// Bloom supports the scene rather than becoming a white veil on drops:
+// the resting base and the reactive swell both sit under this much lower
+// overall ceiling.
 export const BLOOM_BASE = 0.02;
 const BLOOM_MAX = 0.24;
 
@@ -249,18 +248,6 @@ export class Renderer {
     this.drawCount++;
     this.inhabitedShoreDraws = 0;
     const { ctx, canvas } = this;
-    if (sim.trio) {
-      this.rangeListeningActive = false;
-      this._styleDials = styleDials(sim.visualStyle);
-      this._capture?.dispose(); this._capture = null;
-      for (const name of ['motion', 'shock', 'heat', 'pixel-glow']) this._postBuffers.release(name);
-      drawTrioStage(ctx, canvas, sim.trio, { drawMidio: (pose, performer, seconds, ensemble) => {
-        const beat = sim.songBeat.snapshotAt(sim.heardTimeMs);
-        this._drawMidio(ctx, pose, performer, seconds, 0, null, !!sim.reducedFlash, 210, ensemble, null, 1, null,
-          beat.freeTime ? null : beat.phase01);
-      } });
-      return;
-    }
     const fracture = sim.fracture || null;
     this._styleDials = styleDials(sim.visualStyle);
 
@@ -441,7 +428,8 @@ export class Renderer {
       // The scenic transform the celestial bodies are painted with, so the
       // shore's glitter path can sit under the sun or moon on screen.
       scenicMatrix = ctx.getTransform();
-      biomeManager.draw(ctx, stage, pose.worldX, pose.midioX, null, worldParticleMul, perf, groundView);
+      // Trio: Midasus's voyage is drawn into the deep sky, behind the ranges.
+      biomeManager.draw(ctx, stage, pose.worldX, pose.midioX, sim.trio?.midasus?.voyage ?? null, worldParticleMul, perf, groundView);
     } else {
       this._drawFallbackSky(ctx, stage);
       groundView.apply();
@@ -454,7 +442,6 @@ export class Renderer {
       this._groundResponse.draw(ctx, { receivers: biomeManager._groundReceivers,
         lights, nowMs: sim.heardTimeMs ?? sim.timeMs,
         hits: recentConductorHits(sim.conductor?.timeline, sim.heardTimeMs ?? sim.timeMs),
-        reducedFlash: !!sim.reducedFlash, reducedMotion: !!sim.reducedMotion,
         quality: perf?.level ?? 0 });
     }
     // The inhabited shore: near sea over the bottom third, with Midio's
@@ -481,7 +468,7 @@ export class Renderer {
         bands: biomeManager._eqSmoothed, kick: kickHop01(recentConductorHits(sim.conductor?.timeline, heardMs), heardMs),
         airColor: biomeManager._airColor || '#2a3850', landColor: biomeManager._landTint || '#3a3024',
         haloColor: biomeManager.currentHaloColor(), night01: biomeManager.celestialState?.night01 ?? 0.5,
-        celestial: cs, glitterX, reducedMotion: !!sim.reducedMotion, reducedFlash: !!sim.reducedFlash,
+        celestial: cs, glitterX,
       });
       ctx.restore();
       // The flood rises over the shore, not under it, in the shore's own
@@ -493,6 +480,7 @@ export class Renderer {
       // Transition flashes cover the whole composed frame, shore included.
       biomeManager._drawTransitionOverlays(ctx, groundView.stage, null);
     }
+    if (sim.trio && presentation.performers) this._drawTrioCast(ctx, sim, particleMul);
     if (sim.battle && presentation.performers) this._drawBattleFX(ctx, sim);
     if (sim.gnat && presentation.performers) sim.gnat.draw(ctx, sim.timeMs);
     // drawForeground (the L7 veil + near-field occluders, NearField.js)
@@ -517,7 +505,7 @@ export class Renderer {
       this._captureSceneFrame(canvas, source => sim.assembly.captureFrame(source, sim.timeMs));
     }
 
-    if (sim.fever && presentation.performers) this._drawFeverAura(ctx, viewStage, sim.fever.level, sim.biomes, sim.reducedFlash);
+    if (sim.fever && presentation.performers) this._drawFeverAura(ctx, viewStage, sim.fever.level, sim.biomes);
     if (sim.hype && presentation.performers) this._drawHypeFrame(ctx, viewStage, sim);
     // Drop impact pack: a chromatic shock + radial speed-lines from Midio,
     // both keyed off the same window as the shockwave rings -- drawn last so
@@ -616,7 +604,7 @@ export class Renderer {
       const dropAgeMs = sim.timeMs - (sim.hype?.dropAtMs ?? -Infinity);
       const bloomVisible = (!!this._pixelGlowVisible || !!this._bloomA && !!this._bloomB) && biomeManager?.world?.kind !== 'alpine'
         && (perf?.bloomEnabled ?? true)
-        && bloomStrength(sim.hype, sim.fever, !!sim.reducedFlash, sim.opening?.gain ?? 1, salience.bloom) > BLOOM_BASE + .005;
+        && bloomStrength(sim.hype, sim.fever, sim.opening?.gain ?? 1, salience.bloom) > BLOOM_BASE + .005;
       const filmVisible = !!sim.filmFinish && (perf?.heavyPostFx ?? true) && biomeManager?._pass?.('film') !== false;
       sim.highlightReel.notify(highlightCandidatesFor(sim, sim.timeMs), source, heardMs, {
         frameTimeMs: sim.timeMs,
@@ -697,13 +685,13 @@ export class Renderer {
     const maxR = Math.hypot(canvas.width, canvas.height) * 0.75;
     const focusMul = sim.focus ? sim.focus.mul('drop') : 1;
     ctx.save();
-    ctx.globalCompositeOperation = flashCompositeOp(sim.reducedFlash);
+    ctx.globalCompositeOperation = 'lighter';
     for (const [lag, alphaMul, lw] of [[0, 1, 3.5], [0.12, 0.5, 1.8]]) {
       const uu = u - lag;
       if (uu <= 0) continue;
       const r = maxR * (1 - (1 - uu) ** 2); // ease-out: it detonates, then coasts
       ctx.strokeStyle = '#ffffff';
-      ctx.globalAlpha = capFlashAlpha((1 - uu) ** 2 * 0.55 * alphaMul * focusMul, sim.reducedFlash);
+      ctx.globalAlpha = (1 - uu) ** 2 * 0.55 * alphaMul * focusMul;
       ctx.lineWidth = lw + 10 * (1 - uu);
       ctx.beginPath();
       ctx.arc(cx, cy, r, 0, Math.PI * 2);
@@ -733,7 +721,7 @@ export class Renderer {
       ctx.save();
       ctx.translate(e.sx, e.sy + bob);
       ctx.scale(SCALE, SCALE);
-      ctx.strokeStyle = `hsla(${hue}, 70%, ${light}%, ${capFlashAlpha(0.8, sim.reducedFlash).toFixed(3)})`;
+      ctx.strokeStyle = `hsla(${hue}, 70%, ${light}%, 0.800)`;
       ctx.lineWidth = 2 / SCALE;
       ctx.beginPath();
       if (e.kind === 'flyer') {
@@ -786,23 +774,23 @@ export class Renderer {
       const [x, y] = bezier(u, d.x0, d.y0, liftX, liftY, tx, ty);
       // Muzzle glint at departure.
       if (u < 0.15) {
-        ctx.fillStyle = `rgba(255,245,200,${capFlashAlpha(0.6 * (1 - u / 0.15), sim.reducedFlash).toFixed(3)})`;
+        ctx.fillStyle = `rgba(255,245,200,${(0.6 * (1 - u / 0.15)).toFixed(3)})`;
         ctx.beginPath(); ctx.arc(d.x0, d.y0, 6, 0, Math.PI * 2); ctx.fill();
       }
       const [tailX, tailY] = bezier(Math.max(0, u - 0.08), d.x0, d.y0, liftX, liftY, tx, ty);
-      ctx.strokeStyle = `rgba(255,250,210,${capFlashAlpha(0.9, sim.reducedFlash).toFixed(3)})`;
+      ctx.strokeStyle = 'rgba(255,250,210,0.900)';
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(tailX, tailY);
       ctx.lineTo(x, y);
       ctx.stroke();
-      ctx.fillStyle = `rgba(255,255,235,${capFlashAlpha(1, sim.reducedFlash).toFixed(3)})`;
+      ctx.fillStyle = 'rgba(255,255,235,1.000)';
       ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
     }
 
     for (const b of battle.bursts.active) {
       const t = b.age / b.life;
-      const alpha = capFlashAlpha((1 - t) ** 2, sim.reducedFlash);
+      const alpha = (1 - t) ** 2;
       ctx.strokeStyle = `rgba(255,235,190,${alpha.toFixed(3)})`;
       ctx.lineWidth = 2;
       for (const s of b.shards) {
@@ -823,9 +811,8 @@ export class Renderer {
    *  calm) drawn first, then a radial-gradient vignette on top -- grade-
    *  then-vignette matches a real post pipeline, where the vignette is a
    *  neutral lens artifact applied after grading. Neither channel ever
-   *  spikes upward on a kick/drop (edgeAlpha only ever opens on hype,
-   *  gradeAlpha has no percussive term at all), so this deliberately never
-   *  routes through capFlashAlpha. */
+   *  spikes upward on a kick/drop: edgeAlpha only ever opens on hype, and
+   *  gradeAlpha has no percussive term at all. */
   _drawFilmFinish(ctx, canvas, sim) {
     const narrative = sim.rangeNarrativeAt?.() || null;
     if (!narrative && sim.biomes?._pass?.('film') === false) return;
@@ -887,10 +874,10 @@ export class Renderer {
    *  highway. Silent below FEVER_AURA_THRESHOLD; ramps to FEVER_AURA_MAX_ALPHA
    *  at fever=1. Tinted toward the current biome halo color so it reads as
    *  part of the world rather than a generic UI glow. */
-  _drawFeverAura(ctx, canvas, fever, biomeManager, reducedFlash) {
+  _drawFeverAura(ctx, canvas, fever, biomeManager) {
     if (fever <= FEVER_AURA_THRESHOLD) return;
     const u = (fever - FEVER_AURA_THRESHOLD) / (1 - FEVER_AURA_THRESHOLD);
-    const alpha = capFlashAlpha(FEVER_AURA_MAX_ALPHA * u, reducedFlash);
+    const alpha = FEVER_AURA_MAX_ALPHA * u;
     if (alpha <= 0.002) return;
     const haloHex = biomeManager && biomeManager.currentHaloColor ? biomeManager.currentHaloColor() : '#ffd76a';
     const { r, g, b } = hexToRgb(haloHex);
@@ -926,7 +913,6 @@ export class Renderer {
     // once (the RGB-split shock and the speed-lines both derive from `s`).
     const s = dropImpactStrength(sim.timeMs, hype.dropAtMs) * (sim.focus ? sim.focus.mul('drop') : 1);
     if (s <= 0) return;
-    const reducedFlash = !!sim.reducedFlash;
 
     // Chromatic shock — half-res offscreen: the RGB split is a soft additive
     // glow, so the upscale blur is actually desirable and saves 4x fill.
@@ -945,10 +931,8 @@ export class Renderer {
       off.height = shockH;
     }
     const offCtx = off.getContext('2d');
-    // Reduced-flash halves the pixel split too -- what's left reads as
-    // motion blur, not a flash, which is the whole point of the toggle.
-    const offsetPx = (reducedFlash ? 0.5 : 1) * SHOCK_MAX_OFFSET_PX * s;
-    const shockAlpha = capFlashAlpha(SHOCK_MAX_ALPHA * s, reducedFlash);
+    const offsetPx = SHOCK_MAX_OFFSET_PX * s;
+    const shockAlpha = SHOCK_MAX_ALPHA * s;
     for (const [color, dir] of [['rgba(255,60,60,1)', 1], ['rgba(60,220,255,1)', -1]]) {
       offCtx.globalCompositeOperation = 'copy';
       offCtx.drawImage(src, 0, 0, shockW, shockH);
@@ -956,7 +940,7 @@ export class Renderer {
       offCtx.fillStyle = color;
       offCtx.fillRect(0, 0, shockW, shockH);
       ctx.save();
-      ctx.globalCompositeOperation = flashCompositeOp(reducedFlash);
+      ctx.globalCompositeOperation = 'lighter';
       ctx.globalAlpha = shockAlpha;
       // Device-pixel source back into the logical rect the transform expects,
       // shifted by a logical-space offset so the split is the same visual
@@ -970,9 +954,9 @@ export class Renderer {
     const maxR = Math.hypot(canvas.width, canvas.height) * 0.42;
     const cx = pose.midioDrawX, cy = sim.midio.groundY - 60;
     const segs = speedLineSegments(cx, cy, count, s, hype.dropCount, maxR);
-    const lineAlpha = capFlashAlpha(SPEED_LINE_MAX_ALPHA * s, reducedFlash);
+    const lineAlpha = SPEED_LINE_MAX_ALPHA * s;
     ctx.save();
-    ctx.globalCompositeOperation = flashCompositeOp(reducedFlash);
+    ctx.globalCompositeOperation = 'lighter';
     ctx.strokeStyle = `rgba(255,255,255,${lineAlpha})`;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
@@ -1000,9 +984,6 @@ export class Renderer {
   _drawHeatDistortion(ctx, canvas, sim, pose, viewStage, outputFit = null) {
     const perf = sim.perf;
     if (perf && !perf.heavyPostFx) { this._postBuffers?.release('heat'); this._heatCanvas = null; return; }
-    // Reduced motion: no animated whole-frame displacement at all. Fire
-    // keeps its colour and light (drawn elsewhere); only the shimmer goes.
-    if (sim.reducedMotion || this.pixelPolicy?.active && this.pixelPolicy.heatMaxOffset === 0) { this._postBuffers?.release('heat'); this._heatCanvas = null; return; }
 
     // A performer shock requires a visible performer. Landscape presentation
     // keeps fire and ember heat, whose visible owners remain in the scene.
@@ -1012,10 +993,9 @@ export class Renderer {
     const ambient = heatAmbient01(!!(sim.fire && sim.fire.active), sim.fire ? sim.fire.intensity01 : 0, emberFxAlpha);
     if (dropS <= 0.02 && ambient <= 0.02) return;
 
-    const ampMul = sim.reducedFlash ? 0.5 : 1; // less pixel-shove, reads as haze not a jolt
     const pixelUnit = this.pixelPolicy?.active ? this.pixelPolicy.unit : 0;
-    const dropAmpPx = HEAT_DROP_MAX_PX * dropS * ampMul * (pixelUnit || 1);
-    const ambientAmpPx = HEAT_AMBIENT_MAX_PX * ambient * ampMul * (pixelUnit || 1);
+    const dropAmpPx = HEAT_DROP_MAX_PX * dropS * (pixelUnit || 1);
+    const ambientAmpPx = HEAT_AMBIENT_MAX_PX * ambient * (pixelUnit || 1);
     if (dropAmpPx < 0.15 && ambientAmpPx < 0.15) return;
 
     if (this._postBuffers) {
@@ -1109,14 +1089,14 @@ export class Renderer {
       return;
     }
     const strength = bloomStrength(
-      sim.hype, sim.fever, !!sim.reducedFlash, sim.opening ? sim.opening.gain : 1,
+      sim.hype, sim.fever, sim.opening ? sim.opening.gain : 1,
       salience?.bloom ?? 1,
     );
     if (strength <= 0.005) return;
 
     if (this.pixelPolicy?.active) {
       this._postBuffers?.release('bloom'); this._bloomA = this._bloomB = null;
-      this._pixelGlowVisible = drawPixelGlow(ctx, canvas, { buffers: this._postBuffers, unit: this.pixelPolicy.unit, strength, reducedFlash: !!sim.reducedFlash });
+      this._pixelGlowVisible = drawPixelGlow(ctx, canvas, { buffers: this._postBuffers, unit: this.pixelPolicy.unit, strength });
       return;
     }
 
@@ -1178,10 +1158,8 @@ export class Renderer {
     const focusMul = sim.focus ? sim.focus.mul('drop') : 1;
 
     // Frame echo: on hard hits the previous frame ghosts outward once.
-    // The Reel: reduced-flash disables it outright (a rapid self-blit
-    // ghost is exactly the kind of flash the toggle exists to remove).
-    // Calm also kills most of the echo via hypeFrameStyle.
-    const echo = sim.reducedFlash ? 0 : style.echo;
+    // Calm kills most of the echo via hypeFrameStyle.
+    const echo = style.echo;
     // Same reasoning as the motion-blur ring: the echo re-blits the entire
     // composed frame, so it sheds on backing-store size, not draw calls.
     if (echo > 0.05 && (sim.perf ? sim.perf.fullFrameFxEnabled : true)) {
@@ -1205,9 +1183,9 @@ export class Renderer {
 
     if (style.alpha < 0.02) return; // fully calm, no rim stroke
     ctx.save();
-    ctx.globalCompositeOperation = flashCompositeOp(sim.reducedFlash);
+    ctx.globalCompositeOperation = 'lighter';
     ctx.strokeStyle = color;
-    ctx.globalAlpha = capFlashAlpha(style.alpha * focusMul, sim.reducedFlash);
+    ctx.globalAlpha = style.alpha * focusMul;
     ctx.lineWidth = style.lineWidth;
     const inset = style.inset;
     ctx.beginPath();
@@ -1223,10 +1201,9 @@ export class Renderer {
    *  motion) instead of an additive flash, and over two frames of history
    *  rather than one. Capture runs every frame (a single blit) so the ring
    *  is warm the instant a drop lands; the composite only runs in-window.
-   *  Gated like the echo: reduced-flash disables it outright, perf pressure
-   *  skips the ring entirely (and frees it). Runs at identity transform on
-   *  the physical backing store; `stageSx/stageSy` convert the camera's
-   *  logical travel into physical px. */
+   *  Gated like the echo: perf pressure skips the ring entirely (and frees
+   *  it). Runs at identity transform on the physical backing store;
+   *  `stageSx/stageSy` convert the camera's logical travel into physical px. */
   _drawDropMotionBlur(ctx, canvasEl, sim, camera, stageSx, stageSy) {
     // Camera travel this frame, logical px. The first frame of a session has
     // no previous position to difference against: travel 0, no smear. Tracked
@@ -1247,7 +1224,7 @@ export class Renderer {
     // shed its vision loop, particles, rim light, bloom, the veil and the
     // entire phenomena layer before ever reaching it. The new gate sheds it
     // first at that size and is identical to the old one at 1080p and below.
-    if (perf && !perf.fullFrameFxEnabled || sim.reducedFlash || sim.reducedMotion) {
+    if (perf && !perf.fullFrameFxEnabled) {
       this._postBuffers?.release('motion');
       this._motionHistory = null;
       return;
@@ -1353,6 +1330,23 @@ export class Renderer {
     ctx.stroke();
   }
 
+  /** Midio, Midasus and Broshi on the world's ground, after the scenery and
+   *  before the foreground veil, each with a contact shadow beneath. Broshi
+   *  and Midasus stand on the same ground field the world just drew. */
+  _drawTrioCast(ctx, sim, particleMul = 1) {
+    const trio = sim.trio, m = trio.midio, b = trio.broshi, f = trio.midasus;
+    const pose = trio.pose();
+    if (b.burrow.depth <= 0.02) this._drawContactShadow(ctx, contactShadow(b.renderX, b.groundY, b.hopY, b.shadowWidthPx));
+    b.draw(ctx, pose, null, 1);
+    this._drawContactShadow(ctx, contactShadow(m.screenX, m.groundY, m.y, m.halfWidth * 2));
+    const beat = sim.songBeat.snapshotAt(sim.heardTimeMs);
+    this._drawMidio(ctx, pose, trio.performer, trio.clockMs / 1000, 0, null, MIDIO_IDENTITY_HUE, trio.ensemble, null, 1, null,
+      beat.freeTime ? null : beat.phase01);
+    // Away on a voyage she is drawn by the deep sky, not here.
+    if (f.voyage.depth <= 0) this._drawContactShadow(ctx, contactShadow(f.p.x, f.yFloor, f.yFloor - f.p.y, f.shadowWidthPx));
+    f.draw(ctx, particleMul);
+  }
+
   /** One contact-shadow ellipse. 'multiply' darkens whatever terrain color
    *  sits underneath instead of flattening it to a fixed gray. */
   _drawContactShadow(ctx, s) {
@@ -1376,7 +1370,7 @@ export class Renderer {
     ctx.restore();
   }
 
-  _drawMidio(ctx, pose, performer, tSec = 0, melt = 0, apotheosis = null, reducedFlash = false, baseHue = MIDIO_IDENTITY_HUE, ensemble = null, lights = null, focusMul = 1, gaze = null, beatPhase01 = null) {
+  _drawMidio(ctx, pose, performer, tSec = 0, melt = 0, apotheosis = null, baseHue = MIDIO_IDENTITY_HUE, ensemble = null, lights = null, focusMul = 1, gaze = null, beatPhase01 = null) {
     const flash = performer ? performer.goldFlash : 0;
     const blink = performer ? performer.blinkScale : 1;
     const apoProgress = apotheosis ? apotheosis.progress : 0;
@@ -1397,15 +1391,12 @@ export class Renderer {
     // physical position, so the jump reads unchanged and his contact shadow
     // stays anchored to the ground instead of bobbing with the float (which
     // is what actually sells the hover).
-    // Reduced-flash is the accessibility setting for exactly this, so it
-    // scales the whole thing to rest.
-    const motionScale = reducedFlash ? 0.25 : 1;
     // beatPhase01 comes from BeatAnchor at the call site -- the same grid
     // every kick-quantized thing in the show already hangs off, so the pulse
     // stays in step through tempo changes without its own tracking. Null when
     // there is no usable grid yet, and midioMotion then returns a pulse of
     // exactly 1: a pulse off the beat is worse than no pulse.
-    const motion = midioMotion(tSec, clamp01(melt / 8), motionScale, beatPhase01);
+    const motion = midioMotion(tSec, clamp01(melt / 8), beatPhase01);
     const pulse = motion.pulseScale;
     const transform = {
       tx: pose.midioDrawX, ty: pose.midioY + motion.hoverPx,
@@ -1457,10 +1448,7 @@ export class Renderer {
     // copy of the body drawn first so he reads like an instrument catching
     // light, not a flat outline -- brighter on fever and right on the beat.
     const excitement = clamp01(melt / 8); // vibe/fever/apotheosis "melt" doubles as how hard he's glowing
-    const glowAlpha = capFlashAlpha(
-      (0.14 + 0.22 * excitement + 0.28 * breatheBeatFlash) * dials.glowHaloMul * focusMul,
-      reducedFlash,
-    );
+    const glowAlpha = (0.14 + 0.22 * excitement + 0.28 * breatheBeatFlash) * dials.glowHaloMul * focusMul;
     if (glowAlpha > 0.02) {
       const glowCenter = applyTransform(hub, transform);
       drawGlowHalo(
@@ -1499,30 +1487,28 @@ export class Renderer {
     // carries Gaze: a spinning pupil would be pointing at nothing.
     // Three short arcs, so it costs a rounding error next to the body's
     // own glow passes.
-    if (motionScale > 0.01) {
-      const spin = (motion.coreSpinDeg * Math.PI) / 180;
-      const rBase = MIDIO_EYE_SOCKET_R * 2.9;
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.lineCap = 'round';
-      for (let i = 0; i < 3; i++) {
-        const a = -spin + (i * Math.PI * 2) / 3;
-        // Elliptical, so the ring reads as a tilted orbit rather than a
-        // flat circle stuck to the screen.
-        const ox = Math.cos(a) * rBase;
-        const oy = Math.sin(a) * rBase * 0.42 + MIDIO_EYE_CY;
-        const p = applyTransform({ x: ox, y: oy }, transform);
-        const depth = 0.55 + 0.45 * Math.sin(a); // far side dims
-        ctx.globalAlpha = capFlashAlpha(0.5 * depth * focusMul * motionScale, reducedFlash);
-        ctx.strokeStyle = `hsl(${hue} 70% 82%)`;
-        ctx.lineWidth = 1.6 * depth;
-        ctx.beginPath();
-        ctx.moveTo(p.x, p.y);
-        ctx.lineTo(p.x + Math.cos(a + Math.PI / 2) * 3.4, p.y + Math.sin(a + Math.PI / 2) * 1.6);
-        ctx.stroke();
-      }
-      ctx.restore();
+    const spin = (motion.coreSpinDeg * Math.PI) / 180;
+    const rBase = MIDIO_EYE_SOCKET_R * 2.9;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    for (let i = 0; i < 3; i++) {
+      const a = -spin + (i * Math.PI * 2) / 3;
+      // Elliptical, so the ring reads as a tilted orbit rather than a
+      // flat circle stuck to the screen.
+      const ox = Math.cos(a) * rBase;
+      const oy = Math.sin(a) * rBase * 0.42 + MIDIO_EYE_CY;
+      const p = applyTransform({ x: ox, y: oy }, transform);
+      const depth = 0.55 + 0.45 * Math.sin(a); // far side dims
+      ctx.globalAlpha = 0.5 * depth * focusMul;
+      ctx.strokeStyle = `hsl(${hue} 70% 82%)`;
+      ctx.lineWidth = 1.6 * depth;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(p.x + Math.cos(a + Math.PI / 2) * 3.4, p.y + Math.sin(a + Math.PI / 2) * 1.6);
+      ctx.stroke();
     }
+    ctx.restore();
 
     // Kick ignition: the sigil flashes additively right on the beat.
     const beatFlash = performer ? performer.beatFlash : 0;
@@ -1530,7 +1516,7 @@ export class Renderer {
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
       drawMeshPart(ctx, bodyMesh, this._midioBodyRest, transform, hue, {
-        alpha: capFlashAlpha(0.65 * beatFlash, reducedFlash), satBase: 70, lightBase: 74, widthBase: 2.4,
+        alpha: 0.65 * beatFlash, satBase: 70, lightBase: 74, widthBase: 2.4,
       });
       ctx.restore();
     }
@@ -1542,7 +1528,7 @@ export class Renderer {
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
       drawMeshPart(ctx, bodyMesh, this._midioBodyRest, transform, hue, {
-        alpha: capFlashAlpha(0.5 * holdGlow, reducedFlash), satBase: 80, lightBase: 70, widthBase: 2.0,
+        alpha: 0.5 * holdGlow, satBase: 80, lightBase: 70, widthBase: 2.0,
       });
       ctx.restore();
     }
@@ -1590,18 +1576,16 @@ export class Renderer {
 
 /**
  * Music-reactive bloom strength: a small steady base (a lit scene always
- * catches a little light, not a flash -- never capped by reduced-flash)
- * plus a reactive swell from the same signals that already throw the drop
- * shockwave and the fever aura (HypeDirector.slam/surge, FeverMeter.level).
- * Only the reactive term runs through capFlashAlpha, so reduced-flash tames
- * the pulsing on drops/kicks while the base glow stays intact. Clamped to
- * BLOOM_MAX so a maxed-out drop-during-fever never blows the frame out.
+ * catches a little light, not a flash) plus a reactive swell from the same
+ * signals that already throw the drop shockwave and the fever aura
+ * (HypeDirector.slam/surge, FeverMeter.level). Clamped to BLOOM_MAX so a
+ * maxed-out drop-during-fever never blows the frame out.
  */
-export function bloomStrength(hype, fever, reducedFlash = false, openingGain = 1, supportingBloomMul = 1) {
+export function bloomStrength(hype, fever, openingGain = 1, supportingBloomMul = 1) {
   const slam = hype ? hype.slam : 0;
   const surge = hype ? hype.surge : 0;
   const feverLevel = fever ? fever.level : 0;
-  const reactive = 0.25 * capFlashAlpha(0.45 * slam + 0.35 * surge + 0.3 * feverLevel, reducedFlash);
+  const reactive = 0.25 * (0.45 * slam + 0.35 * surge + 0.3 * feverLevel);
   // The base glow is unconditional, which meant a song fading in from silence
   // still opened on a fully bloomed frame -- the single loudest thing on
   // screen at t=0, and the one least justified by anything audible.

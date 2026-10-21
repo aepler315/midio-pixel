@@ -27,9 +27,9 @@ test('FOV effect narrows the lens without moving the eye or exposing unbaked cov
  assert.equal(lens.applyLensFov(35,{halfAngleScale:1}),35);
  assert.ok(Number.isFinite(lens.applyLensFov(35,{halfAngleScale:NaN})));
 });
-test('preview and reduced motion hold a neutral lens',()=>{
+test('preview holds a neutral lens',()=>{
  assert.equal(typeof lens.cameraLensAt,'function');
- for(const flag of ['preview','reducedMotion'])assert.equal(lens.cameraLensAt({sections,timeMs:20000,durationMs:60000,[flag]:true}).halfAngleScale,1);
+ assert.equal(lens.cameraLensAt({sections,timeMs:20000,durationMs:60000,preview:true}).halfAngleScale,1);
 });
 test('Range rendering shares the lens across projection and pose without dollying',async()=>{
  const {RangeScene}=await import('../src/world/alpine/RangeScene.js');

@@ -82,11 +82,11 @@ function sprite(c, world, widthM, heightM, width, height) {
  * Alpha includes continuous distance fades; the painter adds daylight or
  * the existing storm envelope. At most121 cells per camera /242 per blend.
  * No sprites, frame buffers or history are allocated or retained here. */
-export function cloudBanks({ camera, width, height, timeSec = 0, seed = 0, storm = false, reducedMotion = false } = {}) {
+export function cloudBanks({ camera, width, height, timeSec = 0, seed = 0, storm = false } = {}) {
   if (!(width > 0 && height > 0) || !Number.isFinite(width) || !Number.isFinite(height)) return [];
   const views = cameras(camera);
   if (!views.length) return [];
-  const time = reducedMotion || !Number.isFinite(timeSec) ? 0 : timeSec;
+  const time = Number.isFinite(timeSec) ? timeSec : 0;
   const wind = [time * 10, time * 3], salt = (seed | 0) + (storm ? 1709 : 0), cells = new Map();
   for (const c of views) {
     const cx = Math.floor((c.pose.eyeM[0] - wind[0]) / CELL_M), cz = Math.floor((c.pose.eyeM[2] - wind[1]) / CELL_M);

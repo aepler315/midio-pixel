@@ -8,10 +8,9 @@
 // broad-shouldered summits joined by high saddles, couloirs, ridged
 // high-frequency crags.
 // profile 'rolling' (nearer hills L4/L5): softer fbm foothills.
-// profile 'city': stepped skyline.
-// profile 'columnar': bays and shafts (foundry stacks, nave piers, trunks).
-// anchor 'ceiling': hang the mass from the top of the strip (canopy, vault,
-// water surface) instead of standing it on the ground.
+// anchor 'ceiling': hang the mass from the top of the strip instead of
+// standing it on the ground. No registered world bakes one; BiomeManager
+// still reads `ridge.anchor`, so the generator still honors it.
 //
 // shadeMode 'rendered' bakes soft vertical CGI shading (DKC3 lineage):
 // dark foot, mid body, lit crest, faint ridge specular -- once, free forever.
@@ -27,7 +26,6 @@ import {
   summitMass, plateauMass, flankness01, apronMass, massingEnvelope, crenellation, couloirCarve, regionalDip, flankQs,
   shapeDials, flankness,
 } from './RidgeShape.js';
-import { cityHeightField, bakeWindowStrip } from './city/CitySilhouette.js';
 import { pickFormation, varyFormation, spaceByIsolation } from './ColoradoPlateau.js';
 import { rimStroke } from './WorldMaterial.js';
 
@@ -87,7 +85,7 @@ export function layoutRidgeYs(heights, {
     if (ridgeYs[i] < minY) minY = ridgeYs[i];
     if (ridgeYs[i] > maxY) maxY = ridgeYs[i];
   }
-  const HEADROOM = profile === 'alpine' ? 14 : profile === 'city' ? 10 : profile === 'columnar' ? 8 : 6;
+  const HEADROOM = profile === 'alpine' ? 14 : 6;
   if (!preserveScale && !hanging && minY < HEADROOM) {
     const span = footY - minY;
     const target = footY - HEADROOM;
@@ -505,9 +503,9 @@ export function rollingHeightField(noise, n, step, octaves, portrait = null, wid
   const bass = portrait?.bassShare ?? 0;
   const phraseAmp = 0.16 * bass * (0.45 + 0.55 * (portrait?.phraseStrength ?? 0));
   // A spiky/vertical-stack-heavy song reads grainier hills even in this
-  // soft 'rolling' profile (strip worlds' L2-L4, and every world's nearest
-  // L5 layer); an organic/regular one stays smoother. Both default to a
-  // no-op so a caller with no DNA gets byte-identical output.
+  // soft 'rolling' profile (the nearest L5 layer, and the stand-in in front
+  // of a real range); an organic/regular one stays smoother. Both default
+  // to a no-op so a caller with no DNA gets byte-identical output.
   const octAdj = clamp(octaves + Math.round(terrainMods?.rollingOctaveBias ?? 0), 1, 5);
   const ampMul = terrainMods?.rollingAmpMul ?? 1;
   const cycles = phraseCyclesPerTile(portrait, timeline, stripW);
@@ -524,73 +522,14 @@ export function rollingHeightField(noise, n, step, octaves, portrait = null, wid
   return heights;
 }
 
-/**
- * Vertical members with a capital and a base, spaced on a regular bay.
- * This is architecture (Nave columns, Foundry stacks, Understory trunks),
- * not a mountain. `organic: true` jitters bay width and tapers the shaft
- * so trunks don't read as a barcode.
- */
-export function columnarHeightField(n, step, seed, width, portrait = null, {
-  bayPx = 96, colFrac = 0.18, colH = 0.90, archAmp = 0.22, organic = false, layerKey = 'L4',
-} = {}) {
-  const heights = new Float32Array(n);
-  const stripW = width > 0 ? width : Math.max(1, (n - 1) * step);
-  const landmarkXs = [];
-  if (portrait?.landmarks?.length) {
-    for (const lm of portrait.landmarks) {
-      const u = Number.isFinite(lm.u) ? lm.u : (Number.isFinite(lm.x01) ? lm.x01 : null);
-      if (u == null) continue;
-      landmarkXs.push(clamp01(u) * stripW);
-    }
-  }
-  const baseH = Math.max(0.08, colH - archAmp - 0.12);
-  let bay = Math.max(48, bayPx);
-  if (layerKey === 'L2') bay *= 1.25;
-  if (layerKey === 'L3') bay *= 1.10;
-
-  for (let i = 0; i < n; i++) {
-    const x = i * step;
-    let localBay = bay;
-    if (organic) {
-      const jitter = 0.18 * Math.sin(x * 0.003 + seed * 0.01);
-      localBay = bay * (1 + jitter);
-    }
-    const phase = ((x % localBay) + localBay) % localBay;
-    const u = phase / localBay;
-    const half = colFrac * 0.5;
-    const colLo = 0.5 - half;
-    const colHi = 0.5 + half;
-    const inCol = u >= colLo && u <= colHi;
-    const colT = inCol ? (u - colLo) / Math.max(1e-6, colFrac) : 0;
-    // Shaft slightly wider at the foot, capital as a small step near the top
-    // of the column's own height (encoded as extra height, not width).
-    const taper = organic ? (0.08 * (1 - colT)) : 0;
-    const capital = inCol && colT > 0.82 ? 0.06 : 0;
-    let arch = 0;
-    if (!inCol && u > 0.08 && u < 0.92) {
-      const au = (u - 0.08) / 0.84;
-      arch = Math.sin(au * Math.PI) * archAmp;
-    }
-    let h = inCol ? (colH + capital + taper) : (baseH + arch);
-    // Portrait landmarks raise the nearest column, the way a chorus bay
-    // should be the tall one.
-    for (const lx of landmarkXs) {
-      const d = Math.abs(x - lx);
-      if (d < localBay * 0.55) h += 0.08 * (1 - d / (localBay * 0.55));
-    }
-    heights[i] = clamp01(h);
-  }
-  return heights;
-}
-
 export function generateSilhouette({
   seed, width = 2048, height = 320, octaves = 2, baseline = 0.55, amplitude = 0.30, color, step = 4,
   edgeLight = null, // optional neon ridge-line stroke (CYBER's edgeLight hook)
   shadeMode = 'classic', // 'classic' flat fill | 'rendered' soft CGI volume
-  profile = 'rolling', // 'rolling' | 'alpine' | 'city' | 'columnar'
+  profile = 'rolling', // 'rolling' | 'alpine'
   character = 'massif', // alpine only -- see ALPINE_CHARACTERS
-  // Hang the strip from the top of the canvas (Fathom surface, Nave vault,
-  // Understory canopy) instead of standing it on the ground.
+  // 'ceiling' hangs the strip from the top of the canvas instead of
+  // standing it on the ground.
   anchor = 'ground',
   // Lift the baked fill so a silhouette is a colored mass, not a hole.
   fillLift = 0,
@@ -598,8 +537,6 @@ export function generateSilhouette({
   // never the old moonlight cream (that was the Halloween outline).
   rimColor = null,
   kind = null,
-  // Columnar-only bake knobs. Ignored for other profiles.
-  colH, archAmp, bayPx, colFrac, organic,
   // Song-anchored outline (RidgePortrait). Null keeps the seeded fallback
   // so tests and anything without energy curves still get a range. layerKey
   // picks which facet of the portrait this depth reads (L2 form / L3
@@ -660,14 +597,6 @@ export function generateSilhouette({
   const heights = resolveStripHeights(n, sourceHeights, () => {
     if (profile === 'alpine') {
       return alpineHeightField(noise, n, step, seed, width, character, portrait, layerKey, terrainMods, timeline);
-    }
-    if (profile === 'city') {
-      return cityHeightField(n, step, seed, width, portrait, layerKey, terrainMods);
-    }
-    if (profile === 'columnar') {
-      return columnarHeightField(n, step, seed, width, portrait, {
-        bayPx, colFrac, colH, archAmp, organic, layerKey,
-      });
     }
     return rollingHeightField(noise, n, step, octaves, portrait, width, terrainMods, timeline);
   });
@@ -785,11 +714,6 @@ export function generateSilhouette({
     anchor: hanging ? 'ceiling' : 'ground',
     source: sourceHeights ? 'terrain' : 'procedural',
   };
-  if (profile === 'city') {
-    canvas.windows = bakeWindowStrip(ridgeYs, {
-      width, height, step, seed, color: '#f2d090',
-    });
-  }
   return canvas;
 }
 

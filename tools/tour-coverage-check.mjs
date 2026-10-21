@@ -72,16 +72,15 @@ const data = decodeTour(JSON.parse(manifestBytes), gunzipSync(payload));
 if (input.data?.id) assert.equal(data.id, input.data.id, 'Captured tour package identity');
 if (input.data?.payload?.sha256) assert.equal(data.payload.sha256, input.data.payload.sha256, 'Captured tour payload identity');
 const energyAt = time => input.energy[Math.min(input.energy.length - 1, Math.max(0, Math.round(time / 250)))];
-const plan = planTour(data, { sections: input.sections, roles: input.roles, durationMs: input.durationMs,
-  energyAt, reducedMotion: input.reducedMotion });
-const tour = buildTourTimeline(data, plan, { reducedMotion: input.reducedMotion });
+const plan = planTour(data, { sections: input.sections, roles: input.roles, durationMs: input.durationMs, energyAt });
+const tour = buildTourTimeline(data, plan);
 const origin = tour.routeTimeOriginMs || 0, tau = tour.routeSlowTauSec || 0, scale = tour.scale || 1;
 const frames = Array.from({ length: Math.ceil(tour.durationMs / 100) + 1 }, (_, at) => {
   const timeMs = Math.min(tour.durationMs, at * 100), elapsed = Math.max(0, (timeMs - origin) / 1000);
   const clock = origin + 1000 * (elapsed / scale + (tau ? (1 - 1 / scale) * tau * (1 - Math.exp(-elapsed / tau)) : 0));
   return { ...plan.routeAt(clock), timeMs };
 });
-const yawBudget = tourYawBudget(frames, { reducedMotion: tour.reducedMotion });
+const yawBudget = tourYawBudget(frames);
 const heroes = tour.heroFraming.map((framing, at) => ({ ...tour.heroes[at], ...framing }));
 const endings = heroes.filter(hero => hero.finalChorus || hero.role === 'outro');
 const preserved = [];
@@ -138,7 +137,7 @@ const gates = {
   sampledYaw: maxYawBudgetExcessDeg <= .002,
   sampledHeldPitch: maxStoppedPitchChangeDeg <= .002,
   sampledHeldFov: maxStoppedFovChangeDeg <= .002,
-  sampledClimb: maxClimbMPerSecond <= (tour.reducedMotion ? 15 : 30) + .05,
+  sampledClimb: maxClimbMPerSecond <= 30 + .05,
   sampledClearance: minFloorMarginM >= -.05 && minCeilingMarginM >= -.05,
   ...(baseline ? { acceptedBaselineSubjects: preserved.every(hero => hero.pass) } : {}),
 };
@@ -147,7 +146,7 @@ const report = {
   hashScope: 'All terrain JavaScript modules and their literal relative imports, tour manifest and payload; separate yaw-validator and replay-harness hashes.',
   yawValidator: { path: fileURLToPath(motionUrl), sha256: motionSha256 }, harnessSha256,
   request: { path: requestPath, sha256: sha256(requestBytes) }, baseline,
-  durationMs: tour.durationMs, reducedMotion: tour.reducedMotion, scale: tour.scale,
+  durationMs: tour.durationMs, scale: tour.scale,
   meanQualityRatio: tour.meanQualityRatio, heroCoverage: tour.heroCoverage ?? null,
   heroFraming: heroes, endingFraming: endings, preserved,
   sampling: { intervalMs: 25, exactEndpoint: tour.durationMs, maxYawDegPerSecond,

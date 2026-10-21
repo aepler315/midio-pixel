@@ -5,7 +5,6 @@
 // coastlines, mountain profiles, and lightning all look "right". A few
 // interior points spawn shorter side branches built the same way.
 import { mulberry32 } from '../utils/math.js';
-import { capFlashAlpha } from '../ui/Accessibility.js';
 
 export function generateBolt(x0, y0, x1, y1, { displace = 70, detail = 6, branches = 3, rand = Math.random } = {}) {
   let pts = [{ x: x0, y: y0 }, { x: x1, y: y1 }];
@@ -85,10 +84,10 @@ export class LightningFX {
     this.flash = Math.max(0, this.flash - dtSec / FLASH_DECAY_SEC);
   }
 
-  draw(ctx, canvas, nowMs, reducedFlash = false) {
+  draw(ctx, canvas, nowMs) {
     if (this.flash > 0.01) {
       ctx.save();
-      ctx.globalAlpha = capFlashAlpha(0.30 * this.flash, reducedFlash);
+      ctx.globalAlpha = 0.30 * this.flash;
       ctx.fillStyle = '#dfe9ff';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.restore();
@@ -101,7 +100,7 @@ export class LightningFX {
     ctx.lineCap = 'round';
     for (const [pts, lw, alpha] of [[this._bolt.main, 2.6, 0.95], ...this._bolt.branches.map((b) => [b, 1.3, 0.6])]) {
       ctx.lineWidth = lw;
-      ctx.globalAlpha = capFlashAlpha(alpha * (0.35 + 0.65 * life), reducedFlash);
+      ctx.globalAlpha = alpha * (0.35 + 0.65 * life);
       ctx.beginPath();
       for (let i = 0; i < pts.length; i++) {
         if (i === 0) ctx.moveTo(pts[i].x, pts[i].y); else ctx.lineTo(pts[i].x, pts[i].y);

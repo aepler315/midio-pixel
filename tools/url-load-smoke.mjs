@@ -48,7 +48,8 @@ try {
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto(pageUrl);
+  // Start straight in Landscape; the world chooser is not under test here.
+  await page.goto(new URL('?experience=landscape', pageUrl).href);
   await page.locator('#dropzone').waitFor();
 
   const deadClicks = () => page.evaluate(() => window.__deadClicks || 0);

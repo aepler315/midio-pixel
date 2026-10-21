@@ -65,10 +65,10 @@ test('actual weak/strong scheduled attacks survive the hybrid sky draw and rando
     sections: [{ startMs: 0, endMs: 40000 }, { startMs: 40000, endMs: 60000 }, { startMs: 60000, endMs: 120000 }],
     timeline: [{ tMs: 45000, pitch: 36, role: 'RHYTHM', vel: .25 }, { tMs: 45400, pitch: 36, role: 'RHYTHM', vel: .9 }] });
   const sky = weatherOnly(new RangeSkyRenderer());
-  const drawAt = (time, reducedFlash = false) => {
+  const drawAt = time => {
     const calls = [], { ctx, events } = contextFixture();
     sky._stormClouds = (_, banks, options) => calls.push({ banks, options });
-    const manager = managerFixture(score.at(time), { tSec: time / 1000, reducedFlash });
+    const manager = managerFixture(score.at(time), { tSec: time / 1000 });
     sky.draw(ctx, snapshot(manager));
     return { calls, events };
   };
@@ -80,21 +80,17 @@ test('actual weak/strong scheduled attacks survive the hybrid sky draw and rando
     assert.ok(strong.events.some(event => event.fill?.[1] === 144), 'the existing rain curtains reach the sky target');
     drawAt(70000);
     assert.deepEqual(drawAt(45400), strong, 'seek order cannot change weather or its scheduled accent');
-    assert.equal(drawAt(45400, true).calls.length, 1, 'reduced flash keeps the deck and rain without the accent flash');
   } finally { sky.dispose(); }
 });
 
-test('already triggered legacy lightning draws on the smooth layer with its original reduced-flash cap', () => {
+test('already triggered legacy lightning draws on the smooth layer', () => {
   const manager = managerFixture();
   manager.lightning.strike(45000, 1280, 625);
   const sky = weatherOnly(new RangeSkyRenderer());
   try {
-    const frame = snapshot(manager), normal = contextFixture(), reduced = contextFixture();
-    sky.draw(normal.ctx, frame);
-    sky.draw(reduced.ctx, { ...frame, reducedFlash: true });
+    const normal = contextFixture();
+    sky.draw(normal.ctx, snapshot(manager));
     assert.ok(normal.events.some(event => event.stroke && event.alpha > .4), 'a triggered bolt cannot disappear inside separateSky');
-    assert.ok(reduced.events.some(event => event.stroke));
-    assert.ok(reduced.events.filter(event => event.stroke).every(event => event.alpha <= .4));
   } finally { sky.dispose(); }
 });
 

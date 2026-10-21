@@ -1,4 +1,4 @@
-export function sampleWetResponse({ nowMs = 0, hits = [], x = 0, reducedFlash = false }) {
+export function sampleWetResponse({ nowMs = 0, hits = [], x = 0 }) {
   let sum = 0;
   for (const hit of hits) {
     const age = (nowMs - hit.tMs) / 1000;
@@ -6,7 +6,7 @@ export function sampleWetResponse({ nowMs = 0, hits = [], x = 0, reducedFlash = 
     const reach = Math.max(0, 1 - Math.abs(hit.x - x) / 120);
     sum += Math.exp(-age / .45) * reach * Math.max(0, hit.strength || 0);
   }
-  return Math.min(reducedFlash ? .35 : 1, sum * (reducedFlash ? .35 : 1));
+  return Math.min(1, sum);
 }
 
 /** Query the existing sorted conductor timeline; no seek-dependent event log. */
@@ -37,9 +37,8 @@ function polygonBox(poly) {
 export class GroundResponse {
   constructor() { this.disposed = false; }
 
-  draw(ctx, { receivers, lights = [], nowMs = 0, hits = [], reducedFlash = false, reducedMotion = false, quality = 0 } = {}) {
+  draw(ctx, { receivers, lights = [], nowMs = 0, hits = [], quality = 0 } = {}) {
     if (this.disposed || quality >= 6 || !receivers) return;
-    if (reducedMotion) hits = [];
     const { wetMasks = [], litEdges = [] } = receivers;
     if ((!wetMasks.length && !litEdges.length) || (!lights.length && !hits.length)) return;
     ctx.save();
@@ -54,9 +53,8 @@ export class GroundResponse {
       // Each receiver evaluates the same conductor event at its own center.
       // Past performer positions are not reconstructed from current poses.
       const localHits = wet ? hits.map(hit => ({ ...hit, x: cx })) : [];
-      const pulse = wet ? sampleWetResponse({ nowMs, hits: localHits, x: cx, reducedFlash }) : 0;
-      const opacity = Math.min(.12, (illumination * .10 + pulse * .07)
-        * (reducedFlash ? .35 : 1) * (edge.alpha ?? 1));
+      const pulse = wet ? sampleWetResponse({ nowMs, hits: localHits, x: cx }) : 0;
+      const opacity = Math.min(.12, (illumination * .10 + pulse * .07) * (edge.alpha ?? 1));
       if (opacity < .005) continue;
       ctx.strokeStyle = `rgba(218,231,220,${opacity.toFixed(3)})`;
       ctx.lineWidth = wet ? 1.4 : 1;
@@ -78,8 +76,7 @@ export class GroundResponse {
       for (const hit of hits.slice(0, 2)) {
         const age = (nowMs - hit.tMs) / 1000;
         if (age < 0 || age > 2) continue;
-        const opacity = Math.min(.07, Math.exp(-age / .45) * .07 * maskAlpha * Math.min(1, Math.max(0, hit.strength ?? 1))
-          * (reducedFlash ? .35 : 1));
+        const opacity = Math.min(.07, Math.exp(-age / .45) * .07 * maskAlpha * Math.min(1, Math.max(0, hit.strength ?? 1)));
         if (opacity < .003) continue;
         ctx.strokeStyle = `rgba(212,229,224,${opacity.toFixed(3)})`;
         ctx.lineWidth = 1;

@@ -59,7 +59,7 @@ test('the afterglow fades out over AFTERGLOW_SEC and is then dropped', () => {
 
 function fakeManager() {
   const bm = Object.create(BiomeManager.prototype);
-  bm.w = 1280; bm.h = 720; bm.reducedFlash = false; bm.tSec = 0;
+  bm.w = 1280; bm.h = 720; bm.tSec = 0;
   return bm;
 }
 

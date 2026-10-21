@@ -67,7 +67,7 @@ try {
     if (!staged) await page.route('**/src/config/plex.json', route => route.fulfill({ json: { version: 1, apiBase: enabled ? apiBase : '' } }));
     // Startup draws the title scene, which can stall on CI's software GPU
     // like screenshots do; it gets the same rendering budget.
-    await page.goto(app.url + '/?seed=315&quality=0', { timeout: 120000 });
+    await page.goto(app.url + '/?seed=315&quality=0&experience=landscape', { timeout: 120000 });
     await page.waitForFunction(() => !!window.__SMW, null, { timeout: 120000 });
     await page.evaluate(async () => { window.__plexFingerprint = (await import('/src/audio/SongFingerprint.js')).fingerprintBuffer; });
     if (enabled) await page.locator('#plexOpenBtn:not(.hidden)').waitFor({ timeout: 120000 });

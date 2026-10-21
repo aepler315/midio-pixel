@@ -65,13 +65,6 @@ test('higher lakes and shores pin every channel with a common source-space recei
   assert.equal(sampleReceiverMask(mask, 10, 10), 1);
 });
 
-test('reduced motion suppresses geometry; reduced flash leaves geometry intact', () => {
-  const full = rangeMusicState({ ...base, kickAgeMs: 50, kickAmp: 1 });
-  assert.deepEqual(rangeMusicState({ ...base, kickAgeMs: 50, kickAmp: 1, reducedFlash: true }), full);
-  const reduced = rangeMusicState({ ...base, kickAgeMs: 50, kickAmp: 1, reducedMotion: true });
-  assert.equal(at(reduced), 0);
-});
-
 test('the production GLSL field matches CPU terrain/root displacement for every channel', async () => {
   const { DEFORM_GLSL } = await import('../src/world/alpine/TerrainMaterial.js');
   // Evaluate the exact scalar body embedded in all production vertex shaders,

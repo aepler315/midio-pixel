@@ -57,7 +57,7 @@ class PresentingRenderer {
     const scene = this.canvasRenderer;
     scene.canvas = source; scene.ctx = source.getContext('2d');
     scene.deferSceneCaptures = hybridSky || preparing;
-    scene.pixelPolicy = pixelRenderPolicy({ ...this.output.presentation, reducedMotion: sim?.reducedMotion, reducedFlash: sim?.reducedFlash });
+    scene.pixelPolicy = pixelRenderPolicy(this.output.presentation);
     this.inner.presentationPixelated = this.output.presentation.pixelated;
     const range = this.inner.rangePresentation;
     if (range) { range.pixelated = !!this.output.presentation.pixelated; range.pixelPolicy = scene.pixelPolicy; }

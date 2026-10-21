@@ -41,7 +41,6 @@ test('the far strip does not crawl at the fixed parallax speed', () => {
   assert.ok(quietPx < FAR_PARALLAX_PX_S * 30);
   assert.ok(groovePx > FAR_PARALLAX_PX_S * 30);
   assert.ok(groovePx < profileRate(0.4) * 30);
-  assert.equal(profileTravelPx(30, quiet, true), quietPx / 2);
 });
 
 test('both scanned ridges open on the song station; the nearer one then pulls ahead', () => {

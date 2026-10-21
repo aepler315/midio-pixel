@@ -21,11 +21,11 @@ test('narrative frames remove all emitters and retain source activity at final h
   assert.equal(opening.light.sky.top, '#fff3db');
 });
 
-function fakeSim(tSec = 30, { reducedFlash = false, preview = false } = {}) {
+function fakeSim(tSec = 30, { preview = false } = {}) {
   const profile = { name: 'RAINFOREST', sky: ['#102030', '#304050', '#607080'] };
   const bars = [];
   const mgr = {
-    tSec, reducedFlash, terrainPreview: preview, durationMs: 180000, _dayNightCycleMs: 240000,
+    tSec, terrainPreview: preview, durationMs: 180000, _dayNightCycleMs: 240000,
     energyCurves: { globalEnergyNorm: (t) => 0.5 + 0.4 * Math.sin(t / 4000) },
     currentBlend: { from: 'RAINFOREST', to: 'RAINFOREST', t: 1 },
     world: { response: null }, light: { colorHex: '#c8d8ff', intensity: 0.8 },
@@ -45,16 +45,10 @@ const pose = { worldX: 1000, midioX: 400, midioDrawX: 402, midioY: 500 };
 const vp = (w, h, bw, bh) => viewportState({ logicalWidth: w, logicalHeight: h, backingWidth: bw, backingHeight: bh, overscanPx: 64 });
 const scenes = new Map([['RAINFOREST', { view: { id: 'nc-ross-lake-north' }, fallbackReason: null }]]);
 
-test('camera lens respects both accessibility settings in the shared frame', () => {
-  const at = (flags = {}) => {
-    const sim = fakeSim(20, flags);
-    sim.reducedMotion = !!flags.reducedMotion;
-    sim.biomes.sections = [{ startMs: 0, relEnergy01: .3 }, { startMs: 20000, role: 'chorus', relEnergy01: .9 }];
-    return buildRangeFrame({ frameId: 1, sim, pose }).cameraEffects;
-  };
-  assert.ok(at().halfAngleScale < .95);
-  assert.equal(at({ reducedFlash: true }).halfAngleScale, 1);
-  assert.equal(at({ reducedMotion: true }).halfAngleScale, 1);
+test('camera lens reaches the shared frame', () => {
+  const sim = fakeSim(20);
+  sim.biomes.sections = [{ startMs: 0, relEnergy01: .3 }, { startMs: 20000, role: 'chorus', relEnergy01: .9 }];
+  assert.ok(buildRangeFrame({ frameId: 1, sim, pose }).cameraEffects.halfAngleScale < .95);
 });
 
 test('glacier journey spans the song and reconstructs independently of quality and DPR', () => {
@@ -125,8 +119,6 @@ test('deformation is bounded, holds valleys still and is a pure function of time
   assert.equal(sceneDeformation(m, 100, 200, 400, range), 0, 'valley floor holds');
   assert.ok(bound < 60, `macro geology kept: ${bound} m`);
   assert.deepEqual(rangeMusicState({ env: { groove: 1, sustain: 1, scaleMul: 1.22, kickMul: 1 }, tSec: 12, kickAgeMs: 50, kickAmp: 1 }), m);
-  const reduced = rangeMusicState({ env: { groove: 1, sustain: 1, scaleMul: 1.22, kickMul: 1 }, tSec: 12, kickAgeMs: 50, kickAmp: 1, reducedFlash: true });
-  assert.equal(reduced.amplitudeM, m.amplitudeM, 'reduced flash is a lighting policy');
   assert.equal(sceneDeformation(null, 0, 0, 0, range), 0);
 });
 

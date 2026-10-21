@@ -18,7 +18,6 @@
     "stage:site": "node tools/stage-site.mjs . _site",
     "test:seek": "node tools/seek-effects-smoke.mjs",
     "test:shading": "node tools/static-shading-smoke.mjs",
-    "test:lighting": "node tools/adapted-lighting-smoke.mjs",
     "test:worlds": "node tools/worlds-smoke.mjs",
     "test:landscape": "node tools/range-landscape-smoke.mjs",
     "test:retro": "node tools/retro-smoke.mjs",

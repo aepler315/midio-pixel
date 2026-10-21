@@ -68,9 +68,9 @@ export function profileRate(energy = 0) {
   return lerp(CRUISE, SETTLE, (e - PEAK_AT) / (1 - PEAK_AT));
 }
 
-/** Integrated far-strip distance. Reduced flash halves it. */
-export function profileTravelPx(tSec, curves = null, reducedFlash = false, response = null) {
-  return energyTravel(tSec, curves, profileRate, response) * (reducedFlash ? 0.5 : 1);
+/** Integrated far-strip distance. */
+export function profileTravelPx(tSec, curves = null, response = null) {
+  return energyTravel(tSec, curves, profileRate, response);
 }
 
 /** How far this layer runs ahead of the far ridge, after the coda spreads them. */
@@ -124,8 +124,6 @@ export function terrainScrollPx({
   curves = null,
   durationMs = 0,
   stripWidth = 0,
-  reducedMotion = false,
-  reducedFlash = false,
   response = null,
   depth = 1,
   fit = null,
@@ -134,7 +132,7 @@ export function terrainScrollPx({
   let start = profileStart01(curves, durationMs) * width;
   let rate = depth > 0 ? depth : 1;
   if (fit && width > 0) {
-    const totalPx = profileTravelPx((Number(durationMs) || 0) / 1000, curves, reducedFlash, response);
+    const totalPx = profileTravelPx((Number(durationMs) || 0) / 1000, curves, response);
     const fitted = fitRidge({
       startPx: start, depth: rate, maxDepth: Math.max(rate, fit.maxDepth || rate), totalPx,
       room: width - (fit.viewWidth > 0 ? fit.viewWidth : 0),
@@ -142,7 +140,7 @@ export function terrainScrollPx({
     start = fitted.startPx;
     rate = fitted.rate;
   }
-  return start + (reducedMotion ? 0 : profileTravelPx(tSec, curves, reducedFlash, response) * rate);
+  return start + profileTravelPx(tSec, curves, response) * rate;
 }
 
 /**
@@ -157,7 +155,7 @@ export function groundSpeedMps({
 } = {}) {
   const sec = (Number(durationMs) || 0) / 1000;
   if (!(sec > 0) || !(lengthM > 0) || !(stripWidth > 0)) return NaN;
-  const totalPx = profileTravelPx(sec, curves, false, response);
+  const totalPx = profileTravelPx(sec, curves, response);
   // A trip longer than the range is slowed to fit it (fitRidge), so the
   // speed shown is the speed the view actually travels.
   const room = stripWidth - (viewWidth > 0 ? viewWidth : 0);

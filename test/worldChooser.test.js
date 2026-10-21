@@ -6,8 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { buildWorldChoices } from '../src/ui/WorldChooser.js';
 
 const WORLDS = [
-  { id: 'alpine', name: 'The Range', tagline: 'Mountains that breathe with the mix.', kind: 'alpine' },
-  { id: 'nocturne', name: 'After Hours', tagline: 'A city that glows with the groove.', kind: 'city' },
+  { id: 'alpine', name: 'Landscape', tagline: 'Real mountains that breathe with the mix.', kind: 'alpine', experience: 'landscape', realBiomes: true },
+  { id: 'trio', name: 'Trio', tagline: 'Midio, Midasus and Broshi on the dancing range.', kind: 'alpine', experience: 'trio' },
   { id: 'manual-fixture', name: 'Manual fixture', tagline: 'Synthetic manual-only choice.', kind: 'manual-fixture', manualOnly: true },
 ];
 
@@ -19,13 +19,13 @@ function ids(choices) {
 
 test('chooser replaces a tailored base world instead of adding a duplicate card', () => {
   const choices = buildWorldChoices(WORLDS, {
-    id: 'custom', baseId: 'alpine', name: 'The Range',
-    tagline: 'Mountains that breathe with the mix.', kind: 'alpine',
+    id: 'custom', baseId: 'alpine', name: 'Landscape',
+    tagline: 'Real mountains that breathe with the mix.', kind: 'alpine',
   });
 
   assert.deepEqual(ids(choices), [
-    { worldId: 'alpine', playWorldId: 'custom', name: 'The Range', tagline: 'Mountains that breathe with the mix.', kind: 'alpine' },
-    { worldId: 'nocturne', playWorldId: 'nocturne', name: 'After Hours', tagline: 'A city that glows with the groove.', kind: 'city' },
+    { worldId: 'alpine', playWorldId: 'custom', name: 'Landscape', tagline: 'Real mountains that breathe with the mix.', kind: 'alpine' },
+    { worldId: 'trio', playWorldId: 'trio', name: 'Trio', tagline: 'Midio, Midasus and Broshi on the dancing range.', kind: 'alpine' },
     { worldId: 'manual-fixture', playWorldId: 'manual-fixture', name: 'Manual fixture', tagline: 'Synthetic manual-only choice.', kind: 'manual-fixture' },
   ]);
   assert.equal(choices.every((c) => typeof c.description === 'string' && c.description.length > 0), true);
@@ -37,7 +37,7 @@ test('chooser uses each registered world directly when there is no tailored vari
 
   assert.deepEqual(choices.map(({ worldId, playWorldId }) => ({ worldId, playWorldId })), [
     { worldId: 'alpine', playWorldId: 'alpine' },
-    { worldId: 'nocturne', playWorldId: 'nocturne' },
+    { worldId: 'trio', playWorldId: 'trio' },
     { worldId: 'manual-fixture', playWorldId: 'manual-fixture' },
   ]);
 });
@@ -49,8 +49,18 @@ test('chooser copy never ranks worlds or mentions a score', () => {
   assert.ok(start >= 0 && end > start);
   const chooser = html.slice(start, end);
   assert.match(chooser, /Choose how your song looks/);
-  assert.match(chooser, /Choose for me/);
-  assert.match(chooser, /not a ranking/i);
+  assert.match(chooser, /two worlds/);
+  assert.equal(chooser.includes('Choose for me'), false, 'two worlds need no recommendation');
   assert.equal(chooser.includes('Cathode'), false);
   assert.equal(/%|\bscore\b|\bbest match\b|\bwinner\b/i.test(chooser), false);
+});
+
+test('the two cards are Landscape and Trio, and only Trio is labeled as the cast performing', () => {
+  const [landscape, trio] = buildWorldChoices(WORLDS.slice(0, 2), null, { groove: 0.6 });
+  assert.equal(landscape.experience, 'landscape');
+  assert.match(landscape.previewLabel, /3D landscape/);
+  assert.equal(trio.experience, 'trio');
+  assert.equal(trio.previewLabel, null);
+  assert.match(trio.description, /Midasus/);
+  assert.doesNotMatch(landscape.description, /Midasus/);
 });

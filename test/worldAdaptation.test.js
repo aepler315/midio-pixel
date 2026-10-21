@@ -8,9 +8,9 @@ import {
   adaptWorld, capabilitiesFor, filterTerrainMods, responseConfigFor,
   instanceIdFor, ADAPT_VERSION,
 } from '../src/world/WorldAdaptation.js';
-import { RIDGE_TERRAIN_KEYS, CITY_TERRAIN_KEYS } from '../src/world/dna/ShapeGrammar.js';
+import { RIDGE_TERRAIN_KEYS, ROLLING_TERRAIN_KEYS } from '../src/world/dna/ShapeGrammar.js';
 import { sampleWorldMusic } from '../src/world/WorldMusic.js';
-import { buildWorldVariant, buildCustomWorld } from '../src/world/WorldScore.js';
+import { buildWorldVariant } from '../src/world/WorldScore.js';
 
 function curves({ durationMs = 120000, energyAt, bandsAt } = {}) {
   const ec = new EnergyCurves(durationMs, 50);
@@ -51,7 +51,7 @@ function song(overrides = {}) {
 test('every registered kind has an explicit capability description', () => {
   for (const w of listWorlds()) {
     const caps = capabilitiesFor(w.kind);
-    assert.ok(caps.palette === 'painterly' || caps.palette === 'four-color', w.id);
+    assert.equal(caps.palette, 'painterly', w.id);
     assert.ok(Array.isArray(caps.geometry) && caps.geometry.length > 0, w.id);
     assert.ok(caps.response.smoothingMs > 0 && caps.response.maxAccents >= 1, w.id);
   }
@@ -60,68 +60,50 @@ test('every registered kind has an explicit capability description', () => {
 
 test('adaptWorld is deterministic and keeps registered identity separate from the instance', () => {
   const { data, profile } = song({ bpm: 112 });
-  const a = adaptWorld(getWorld('nocturne'), profile, data);
-  const b = adaptWorld(getWorld('nocturne'), profile, data);
+  const a = adaptWorld(getWorld('trio'), profile, data);
+  const b = adaptWorld(getWorld('trio'), profile, data);
   assert.equal(a.world.instanceId, b.world.instanceId);
-  assert.equal(a.world.name, 'After Hours');
-  assert.equal(a.world.kind, 'city');
-  assert.equal(a.world.registeredId, 'nocturne');
-  assert.equal(a.world.baseId, 'nocturne');
+  assert.equal(a.world.name, 'Trio');
+  assert.equal(a.world.kind, 'alpine');
+  assert.equal(a.world.registeredId, 'trio');
+  assert.equal(a.world.baseId, 'trio');
   assert.equal(a.world.id, 'custom');
-  assert.notEqual(a.world.instanceId, 'nocturne');
-  assert.equal(a.world.instanceId, instanceIdFor('nocturne', profile));
-  assert.deepEqual(a.world.channels, getWorld('nocturne').channels);
+  assert.notEqual(a.world.instanceId, 'trio');
+  assert.equal(a.world.instanceId, instanceIdFor('trio', profile));
+  assert.deepEqual(a.world.channels, getWorld('trio').channels);
 });
 
-test('After Hours and The Fathom treat the same song differently', () => {
-  const { data, profile } = song({
-    bpm: 90,
-    energyAt: () => 0.35,
-    bandsAt: () => [1.4, 1.2, 0.8, 0.5, 0.3, 0.2, 0.1],
-  });
-  const city = adaptWorld(getWorld('nocturne'), profile, data).world;
-  const deep = adaptWorld(getWorld('fathom'), profile, data).world;
-  assert.equal(city.kind, 'city');
-  assert.equal(deep.kind, 'abyssal');
-  assert.notEqual(city.instanceId, deep.instanceId);
-  assert.ok(!city.characterScheme, 'city must not receive alpine character schemes');
-  assert.ok(deep.characterScheme, 'fathom consumes ridge landforms');
-  const cityKeys = Object.keys(city.terrainMods || {});
-  const deepKeys = Object.keys(deep.terrainMods || {});
-  assert.ok(cityKeys.every((k) => CITY_TERRAIN_KEYS.includes(k)), `city leaked ${cityKeys}`);
-  assert.ok(!deepKeys.some((k) => CITY_TERRAIN_KEYS.includes(k)), `fathom leaked city keys ${deepKeys}`);
-  assert.notEqual(city.response.smoothingMs, deep.response.smoothingMs);
-  assert.notEqual(city.palettes[0].silhouette, deep.palettes[0].silhouette);
-});
-
-test('alpine terrain controls are not sent to a city; city controls are not sent to alpine', () => {
+test('only the terrain controls the alpine kind reads are sent', () => {
   const { data, profile } = song();
-  const range = adaptWorld(getWorld('alpine'), profile, data).world;
-  const city = adaptWorld(getWorld('nocturne'), profile, data).world;
-  const strip = adaptWorld(getWorld('redline'), profile, data).world;
-  for (const k of CITY_TERRAIN_KEYS) assert.equal(range.terrainMods?.[k], undefined);
-  for (const k of RIDGE_TERRAIN_KEYS) assert.equal(city.terrainMods?.[k], undefined);
-  assert.ok(range.characterScheme);
-  assert.equal(city.characterScheme, null);
-  assert.equal(strip.characterScheme, null);
-  assert.ok(strip.terrainMods?.rollingAmpMul);
-  assert.equal(strip.terrainMods?.shoulderMul, undefined);
-  assert.equal(filterTerrainMods('city', { shoulderMul: 1.2, cityWidthMul: 0.8 }).shoulderMul, undefined);
+  const readable = new Set([...RIDGE_TERRAIN_KEYS, ...ROLLING_TERRAIN_KEYS]);
+  for (const id of ['alpine', 'trio']) {
+    const world = adaptWorld(getWorld(id), profile, data).world;
+    const keys = Object.keys(world.terrainMods || {});
+    assert.ok(keys.length > 0, `${id} received no terrain controls`);
+    assert.ok(keys.every((k) => readable.has(k)), `${id} leaked ${keys}`);
+    assert.ok(world.terrainMods.shoulderMul, `${id} lost its ridge controls`);
+    assert.ok(world.terrainMods.rollingAmpMul, `${id} lost its rolling controls`);
+    assert.ok(world.characterScheme, `${id} lost its character scheme`);
+  }
+  const filtered = filterTerrainMods('alpine', { shoulderMul: 1.2, rollingAmpMul: 1.1, unreadKey: 0.8 });
+  assert.deepEqual(filtered, { shoulderMul: 1.2, rollingAmpMul: 1.1 });
+  // A kind nobody registered reads the alpine capabilities.
+  assert.equal(capabilitiesFor('unregistered-kind'), capabilitiesFor('alpine'));
+  assert.deepEqual(filterTerrainMods('unregistered-kind', { shoulderMul: 1.2, unreadKey: 0.8 }), { shoulderMul: 1.2 });
 });
 
 
 test('response bounds: sparse is restrained, dense filters accents, quiet stays still', () => {
-  const sparse = responseConfigFor('city', { watch: { onset: 0.08, energyMean: 0.3, dyn: 0.3 } });
-  const dense = responseConfigFor('city', { watch: { onset: 0.8, energyMean: 0.6, dyn: 0.5 } });
-  const quiet = responseConfigFor('city', { watch: { onset: 0.05, energyMean: 0.05, dyn: 0.08 } });
+  const sparse = responseConfigFor('alpine', { watch: { onset: 0.08, energyMean: 0.3, dyn: 0.3 } });
+  const dense = responseConfigFor('alpine', { watch: { onset: 0.8, energyMean: 0.6, dyn: 0.5 } });
+  const quiet = responseConfigFor('alpine', { watch: { onset: 0.05, energyMean: 0.05, dyn: 0.08 } });
   assert.equal(sparse.band, 'sparse');
   assert.equal(dense.band, 'dense');
   assert.ok(sparse.accentGain > dense.accentGain);
   assert.ok(dense.smoothingMs > sparse.smoothingMs);
   assert.ok(dense.macroMs > sparse.macroMs);
   assert.equal(quiet.quiet, true);
-  assert.equal(quiet.cityLightFloor, 0);
-  assert.equal(quiet.waterLightFloor, 0);
+  assert.ok(quiet.ambientScale <= 0.35, 'quiet input is not given a lifted ambient');
   assert.ok(quiet.accentGain <= sparse.accentGain);
   for (const r of [sparse, dense, quiet]) {
     assert.ok(r.smoothingMs >= 60 && r.smoothingMs <= 4000);
@@ -143,9 +125,9 @@ test('a palette-only failure leaves geometry; a geometry-only failure leaves pal
   console.warn = (...args) => warns.push(args);
   let result;
   try {
-    // Far Side: The Range's real biomes are never synthesized (see below),
-    // so the palette path is exercised on a world that still is.
-    result = adaptWorld(getWorld('farside'), profile, data);
+    // Trio: Landscape's real biomes are never synthesized (see below), so
+    // the palette path is exercised on the world that still is.
+    result = adaptWorld(getWorld('trio'), profile, data);
   } finally {
     console.warn = original;
   }
@@ -154,7 +136,7 @@ test('a palette-only failure leaves geometry; a geometry-only failure leaves pal
   assert.ok(result.world.terrainMods, 'ridge geometry must survive a palette-only failure');
   assert.ok(result.world.characterScheme);
   assert.ok(warns.some((args) => String(args[0]).includes('palette')));
-  assert.equal(result.world.palettes, getWorld('farside').palettes);
+  assert.equal(result.world.palettes, getWorld('trio').palettes);
 });
 
 test('The Range keeps its real biomes: no palette is synthesized into them', () => {
@@ -174,39 +156,24 @@ test('buildWorldVariant no longer constructs a 100 score', () => {
     phrase: 0.4, landmarks: 5, onset: 0.4, contrast: 0.4, groove: 0.5, warmth: 0.5,
     texture: 0.4, form: 0.5, arc: 0.5, drive: 0.5, bpm: 120, tempoHeat: 0.5, trend: 0,
   };
-  const { world, proof } = buildWorldVariant('nocturne', feat);
-  assert.equal(world.kind, 'city');
-  assert.equal(world.registeredId, 'nocturne');
+  const { world, proof } = buildWorldVariant('trio', feat);
+  assert.equal(world.kind, 'alpine');
+  assert.equal(world.registeredId, 'trio');
   assert.notEqual(proof.score, 100);
   assert.ok(proof.score >= 1 && proof.score <= 99);
-  assert.equal(world.comfort, getWorld('nocturne').comfort);
+  assert.equal(world.comfort, getWorld('trio').comfort);
 });
 
-test('Choose-for-me still picks a base and adapts it, without a privileged custom card', () => {
-  const feat = {
-    centroid: 0.8, bass: 0.1, air: 0.8, spread: 0.8, dyn: 0.2, energyMean: 0.15,
-    phrase: 0.4, landmarks: 3, onset: 0.08, contrast: 0.2, groove: 0.2, warmth: 0.1,
-    texture: 0.5, form: 0.3, arc: 0.15, drive: 0.1, bpm: 70, tempoHeat: 0.1, trend: 0,
-  };
-  const { world, baseId } = buildCustomWorld(feat);
-  assert.ok(baseId);
-  assert.equal(world.baseId, baseId);
-  assert.equal(world.registeredId, baseId);
-  assert.notEqual(baseId, 'cathode');
-});
-
-test('sampleWorldMusic without a response matches the historical floors; quiet response does not lift silence', () => {
-  const plain = sampleWorldMusic({ nowMs: 0 });
-  assert.ok(plain.cityLight > 0 && plain.waterLight > 0);
+test('sampleWorldMusic: a quiet response does not lift silence; a dense response damps accents', () => {
   const quiet = sampleWorldMusic({
-    nowMs: 0,
+    nowMs: 1000,
+    rhythm: { tMs: 1000, vel: 1 },
     response: {
-      cityLightFloor: 0, waterLightFloor: 0, ambientScale: 0.35,
+      ambientScale: 0.35,
       accentGain: 0, smoothingMs: 1200, accentWindowMs: 800, accentDecayMs: 150, macroMs: 8000,
     },
   });
-  assert.equal(quiet.cityLight, 0);
-  assert.equal(quiet.waterLight, 0);
+  assert.equal(quiet.accent, 0);
   const dense = sampleWorldMusic({
     nowMs: 1000,
     rhythm: { tMs: 1000, vel: 1 },
@@ -222,11 +189,19 @@ test('WorldAdaptation does not import WorldScore — construction stays downstre
   assert.equal(/from ['"].*WorldScore/.test(src), false);
 });
 
-for (const id of ['nave', 'foundry', 'redline']) {
+// Eleven sections reach Trio's neon stock palettes (CYBER, ABYSS), whose
+// edgeLight ridge wire palette synthesis does not generate.
+const ELEVEN_SECTIONS = {
+  boundariesMs: Array.from({ length: 12 }, (_, i) => Math.round(i * 120000 / 11)),
+  labels: 'ABCDEFGHIJK'.split(''),
+  confidence: 0.6,
+};
+
+for (const id of ['alpine', 'trio']) {
   test(`${id}: adaptation preserves material lighting without mutating stock palettes`, () => {
     const base = getWorld(id);
     const before = structuredClone(base.palettes);
-    const { data, profile } = song();
+    const { data, profile } = song({ structure: ELEVEN_SECTIONS });
     const { world, degraded } = adaptWorld(base, profile, data);
     assert.equal(degraded.palette, false);
     assert.ok(world.palettes.length > 0);
@@ -234,6 +209,7 @@ for (const id of ['nave', 'foundry', 'redline']) {
       assert.equal(palette.edgeLight, base.palettes[i % base.palettes.length].edgeLight);
       if (palette.edgeLight) assert.match(palette.edgeLight, /^#[0-9a-f]{6}$/i);
     });
+    if (id === 'trio') assert.ok(world.palettes.some((p) => p.edgeLight), 'no neon stock palette was reached');
     assert.deepEqual(base.palettes, before);
   });
 }
@@ -246,38 +222,21 @@ for (const fixture of [
 ]) {
   test(`adapted physical vocabulary stays within selected world at bpm=${fixture.bpm}`, () => {
     const { data, profile } = song(fixture);
+    let synthesized = 0;
     for (const base of listWorlds()) {
-      if (base.kind === 'alpine') continue;
+      // Real biomes are never synthesized (above), so only an invented
+      // palette set can drift out of its world's vocabulary.
+      if (base.realBiomes) continue;
+      synthesized++;
       const { world } = adaptWorld(base, profile, data);
       assert.equal(world.kind, base.kind);
       const particles = new Set(base.palettes.map(p => p.particles.kind));
       const effects = new Set(base.palettes.map(p => p.fx));
       for (const palette of world.palettes) {
-        assert.ok(particles.has(palette.particles.kind), `${base.kind}: inappropriate ${palette.particles.kind}`);
-        assert.ok(effects.has(palette.fx), `${base.kind}: inappropriate ${palette.fx}`);
+        assert.ok(particles.has(palette.particles.kind), `${base.id}: inappropriate ${palette.particles.kind}`);
+        assert.ok(effects.has(palette.fx), `${base.id}: inappropriate ${palette.fx}`);
       }
     }
+    assert.ok(synthesized > 0, 'no registered world synthesizes palettes');
   });
 }
-
-test('Far Side adaptation keeps an airless dark sky around its primary', () => {
-  const { data, profile } = song({ energyAt: () => 0.9, bpm: 160 });
-  const base = listWorlds().find(w => w.kind === 'airless');
-  const { world } = adaptWorld(base, profile, data);
-  for (const palette of world.palettes) {
-    for (const color of [...palette.sky, ...palette.skyStops]) {
-      assert.ok(color.slice(1).match(/../g).every(byte => parseInt(byte, 16) < 64), color);
-    }
-  }
-});
-
-test('After Hours adaptation keeps the sky subordinate to city lights', () => {
-  const { data, profile } = song();
-  const base = listWorlds().find(w => w.kind === 'city');
-  const { world } = adaptWorld(base, profile, data);
-  for (const palette of world.palettes) {
-    for (const color of [...palette.sky, ...palette.skyStops]) {
-      assert.ok(color.slice(1).match(/../g).every(byte => parseInt(byte, 16) < 112), color);
-    }
-  }
-});

@@ -214,33 +214,8 @@ async function pushExportFrame({ timeMs, url, width, height, jpeg }) {
   };
 }
 
-async function chooseWorld(page, world) {
-  const clicked = await page.evaluate((wanted) => {
-    const dialogOpen = () => document.getElementById('worldSelect')?.open;
-    if (!wanted) {
-      document.getElementById('worldChooseForMe')?.click();
-      return dialogOpen() ? 'still-open' : 'started';
-    }
-    const needle = String(wanted).trim().toLowerCase();
-    const cards = [...document.querySelectorAll('.worldCard')];
-    // One-world mode starts the song without a picker.
-    if (!cards.length && !dialogOpen()) return 'started';
-    const card = cards.find((el) => {
-      const id = (el.dataset.baseWorldId || '').toLowerCase();
-      const name = (el.querySelector('.worldCardName')?.textContent || '').trim().toLowerCase();
-      return id === needle || name === needle;
-    });
-    card?.querySelector('.worldCardPlayBtn')?.click();
-    return card ? 'started' : 'missing';
-  }, world);
-  if (clicked === 'missing') throw new Error(`No world matching "${world}".`);
-  if (clicked === 'still-open') {
-    await page.locator('.worldCardPlayBtn').first().click();
-  }
-}
-
 /** Wait for the page to arm export, or stop as soon as it reports it can't.
- *  An arming failure is not an uncaught error: the world picker's variant
+ *  An arming failure is not an uncaught error: the world-start variant
  *  fallback catches it, so the page records it in __SMW_EXPORT_ERROR
  *  instead. Without this the tool sat out the full ten-minute timeout. */
 async function waitForExportReady(page) {
@@ -253,7 +228,7 @@ async function waitForExportReady(page) {
   if (armError) throw new Error(`Export could not start: ${armError}`);
 }
 
-async function loadSong(page, file, { world, lyrics }) {
+async function loadSong(page, file, { lyrics }) {
   if (!lyrics) {
     await page.locator('#titleSettings').evaluate((node) => { node.open = true; });
     const grounding = page.locator('#lyricGroundingBtn');
@@ -262,14 +237,8 @@ async function loadSong(page, file, { world, lyrics }) {
     }
   }
   await page.locator('#fileInput').setInputFiles(file);
-  // One-world builds (the default) start the song without a picker; only
-  // an all-worlds build opens it. Wait for whichever happens.
-  const picker = await Promise.race([
-    page.locator('#worldSelect[open]').waitFor({ timeout: 600000 }).then(() => true),
-    page.waitForFunction(() => window.__SMW?.exportReady === true || !!window.__SMW_EXPORT_ERROR,
-      null, { timeout: 600000 }).then(() => false),
-  ]);
-  if (picker) await chooseWorld(page, world);
+  // The export page names its world (?experience=), so the song starts
+  // straight in it without the chooser.
   await waitForExportReady(page);
   // Range v2 prepares its real-terrain view asynchronously; an export must
   // not bake legacy frames because the first ones arrived before it.
@@ -469,7 +438,7 @@ async function main() {
       const durationMs = opts.maxSeconds != null
         ? Math.min(info.durationMs, opts.maxSeconds * 1000)
         : info.durationMs;
-      const worldLabel = info.experience === 'trio' ? 'Trio Stage' : info.worldKind && info.worldKind !== info.worldId
+      const worldLabel = info.experience === 'trio' ? 'Trio' : info.worldKind && info.worldKind !== info.worldId
         ? `${info.worldKind} (${info.worldId})`
         : (info.worldKind || info.worldId);
       console.log(`  world ${worldLabel}   seed ${info.seed}   ${formatSeconds(info.durationMs)}`);

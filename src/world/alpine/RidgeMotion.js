@@ -8,8 +8,7 @@ export const DEFAULT_SPACE_RIDGE_TUNING = Object.freeze({ musicHeightFrac: .11, 
   depthGain: .45, globalDepthGain: .3 });
 const frozenPoints = pts => Object.freeze(pts.map(p => Object.freeze(p)));
 const bounded = v => clamp(v, -1, 1);
-function measured(evaluate, timeMs, reducedMotion) {
-  if (reducedMotion) return { displacement01: 0, velocity01: 0 };
+function measured(evaluate, timeMs) {
   let displacement01 = 0, velocity01 = 0;
   for (let tap = 0; tap < 5; tap++) {
     const at = Math.max(0, timeMs - tap * 20);
@@ -22,7 +21,7 @@ function measured(evaluate, timeMs, reducedMotion) {
 const silent = Object.freeze({ bands: Array(7).fill(0), spaceLevels: Array(7).fill(0), spaceDepths: Array(7).fill(0), activity01: 0, kick01: 0, sources: {} });
 
 export function sampleHorizonRidge({ viewport, crest = null, songP = 0, advectionPx = 0, heardTimeMs = 0,
-  history, tuning = DEFAULT_RIDGE_TUNING, reducedMotion = false }) {
+  history, tuning = DEFAULT_RIDGE_TUNING }) {
   tuning = { ...DEFAULT_RIDGE_TUNING, ...tuning };
   const { width, height } = viewport, scale = height / 720, baseline = height * .6, maxH = height * tuning.maxHeightFrac;
   const shape = u => crest ? crestHeightAt(crest, songP, u) : 1;
@@ -67,20 +66,20 @@ export function sampleHorizonRidge({ viewport, crest = null, songP = 0, advectio
     return total / 64;
   };
   const count = crest ? Math.max(64, Math.ceil(width / 4)) : 64;
-  const music = reducedMotion ? silent : history?.sample(heardTimeMs) || silent;
+  const music = history?.sample(heardTimeMs) || silent;
   const raw = Array.from({ length: count + 3 }, (_, k) => point((k - 1) / count, music, heardTimeMs));
   return Object.freeze({ points: frozenPoints(raw.map(p => ({ x: p.x, y: p.y }))),
     neutralPoints: frozenPoints(raw.map(p => ({ x: p.x, y: p.neutralY }))),
-    boundPx, ...measured(metricAt, heardTimeMs, reducedMotion) });
+    boundPx, ...measured(metricAt, heardTimeMs) });
 }
 
-export function sampleSpaceRidge({ viewport, seededGeometry, heardTimeMs = 0, history, reducedMotion = false, tuning = DEFAULT_SPACE_RIDGE_TUNING }) {
+export function sampleSpaceRidge({ viewport, seededGeometry, heardTimeMs = 0, history, tuning = DEFAULT_SPACE_RIDGE_TUNING }) {
   tuning = { ...DEFAULT_SPACE_RIDGE_TUNING, ...tuning };
   const { width, height } = viewport, nodes = seededGeometry.nodes, spine = seededGeometry._spine;
-  const tSec = reducedMotion ? 0 : heardTimeMs / 1000;
+  const tSec = heardTimeMs / 1000;
   const tide = height * .012 * (.6 * Math.sin(tSec * 2 * Math.PI / 19) + .4 * Math.sin(tSec * 2 * Math.PI / 47 + 1.3));
-  const globalZ = reducedMotion ? 0 : Math.sin(tSec * 2 * Math.PI / 31);
-  const y0 = height * .33 + (reducedMotion ? 0 : tide), maxH = height * tuning.musicHeightFrac;
+  const globalZ = Math.sin(tSec * 2 * Math.PI / 31);
+  const y0 = height * .33 + tide, maxH = height * tuning.musicHeightFrac;
   const sourceLift = tuning.sourceLiftPx * height / 720;
   const boundPx = maxH + sourceLift;
   const evaluate = (at, neutral = false) => {
@@ -101,13 +100,12 @@ export function sampleSpaceRidge({ viewport, seededGeometry, heardTimeMs = 0, hi
   const metricAt = at => evaluate(at).reduce((sum, p) => sum + p.lift / boundPx, 0) / nodes.length;
   const clean = pts => pts.map(({ lift, ...p }) => { void lift; return p; });
   const neutralPoints = frozenPoints(clean(evaluate(heardTimeMs, true)));
-  return Object.freeze({ points: reducedMotion ? neutralPoints : frozenPoints(clean(evaluate(heardTimeMs))), neutralPoints,
-    y0, maxH, boundPx, ...measured(metricAt, heardTimeMs, reducedMotion) });
+  return Object.freeze({ points: frozenPoints(clean(evaluate(heardTimeMs))), neutralPoints,
+    y0, maxH, boundPx, ...measured(metricAt, heardTimeMs) });
 }
 
 /** Samples already carry fixed-source, causal trailing measurements. */
-export function sampleRidgeRelationship({ space, dance, nominalViewport, moonVisibility = 1, reducedMotion = false }) {
-  if (reducedMotion) return { dxPx: 0, dyPx: 0 };
+export function sampleRidgeRelationship({ space, dance, nominalViewport, moonVisibility = 1 }) {
   const q = bounded((space?.displacement01 || 0) - (dance?.displacement01 || 0));
   const v = bounded((space?.velocity01 || 0) - (dance?.velocity01 || 0));
   const scale = (nominalViewport?.height || 720) / 720 * clamp01(moonVisibility);

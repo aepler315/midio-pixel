@@ -29,7 +29,7 @@ test('a missing required biome fails the preset', () => {
 test('actual DPR and duplicate case ids are rejected', () => {
   assert.throws(() => assertActualDpr(2, 1), /devicePixelRatio/);
   const seen = new Set();
-  const spec = { biome: 'DESERT', seed: 315, timeMs: 45000, level: 0, reducedFlash: false, width: 1280, height: 720, dpr: 1, pass: 'all' };
+  const spec = { biome: 'DESERT', seed: 315, timeMs: 45000, level: 0, width: 1280, height: 720, dpr: 1, pass: 'all' };
   claimCase(seen, caseId(spec, { fixtureHash: 'h' }));
   assert.throws(() => claimCase(seen, caseId(spec, { fixtureHash: 'h' })), /duplicate/);
   assert.throws(() => casesForPreset('not-a-preset'), /unknown landscape preset/);

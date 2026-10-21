@@ -36,18 +36,6 @@ test('color equals the crossfaded halo color passed in verbatim', () => {
   assert.equal(light.colorHex, '#abcdef');
 });
 
-test('reducedFlash compresses intensity variance rather than capping a peak', () => {
-  const dim = computeLight({ canvasWidth: 1280, canvasHeight: 720, budget: 0, reducedFlash: false });
-  const bright = computeLight({ canvasWidth: 1280, canvasHeight: 720, budget: 1, reducedFlash: false });
-  const dimReduced = computeLight({ canvasWidth: 1280, canvasHeight: 720, budget: 0, reducedFlash: true });
-  const brightReduced = computeLight({ canvasWidth: 1280, canvasHeight: 720, budget: 1, reducedFlash: true });
-
-  const spread = bright.intensity - dim.intensity;
-  const spreadReduced = brightReduced.intensity - dimReduced.intensity;
-  assert.ok(spreadReduced < spread, `expected a compressed spread, got ${spreadReduced} vs ${spread}`);
-  assert.ok(spreadReduced > 0, 'reducedFlash should compress, not eliminate, the swing');
-});
-
 test('lightDirTo returns a unit vector pointing from the light toward the target', () => {
   const light = { x: 0, y: 0 };
   const dir = lightDirTo(light, 3, 4);
@@ -90,8 +78,8 @@ test('characterGlowLight carries hueDeg directly (no hex round-trip) plus a boun
   assert.ok(l.radius > 0 && Number.isFinite(l.radius));
 });
 
-test('hidden shared celestial state cannot regain direct intensity from reduced flash', () => {
-  const light = computeLight({ canvasWidth: 1280, canvasHeight: 720, reducedFlash: true,
+test('hidden shared celestial state has no direct intensity', () => {
+  const light = computeLight({ canvasWidth: 1280, canvasHeight: 720,
     celestialState: { activeBody: null, sun: { xFrac: .08, yFrac: .6, directGain: 0 }, moon: { xFrac: .92, yFrac: .6, directGain: 0 } } });
   assert.equal(light.intensity, 0);
 });

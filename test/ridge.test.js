@@ -19,11 +19,6 @@ test('quiet songs keep atmosphere, a groove breathes, dense material settles', (
   assert.ok(dense > quiet, 'settled dense motion is still more than a hush');
 });
 
-test('reduced flash halves the travel without inventing a different shape', () => {
-  assert.ok(Math.abs(ambientDance(0.40, true) * 2 - ambientDance(0.40)) < 1e-9);
-  assert.ok(ambientDance(0.95, true) < ambientDance(0.40, true));
-});
-
 test('weight follows sustained bass, not a single kick', () => {
   const low = new EnergyCurves(4000, 50);
   const burst = new EnergyCurves(4000, 50);
@@ -53,7 +48,6 @@ test('an earned phrase lift scales the range; a decorative cut does not', () => 
   assert.equal(idle, 1);
   assert.ok(opened > 1.12, `phrase ${opened.toFixed(3)} should raise the range`);
   assert.equal(decorative, 1);
-  assert.ok(phraseScale({ reveal: at('detected'), lift, reducedFlash: true }) < opened);
 });
 
 test('sparse songs let an isolated accent sharpen a summit; dense songs filter it', () => {

@@ -155,7 +155,7 @@ test('BattleDirector: a full window runs the drama arc and every kill lands exac
   let nowMs = 0;
   const stopMs = durationMs; // run the whole song
   while (nowMs < stopMs) {
-    director.update(nowMs, dtMs, anchors, 0, false);
+    director.update(nowMs, dtMs, anchors, 0);
     if (director.phase === 'BATTLE' || director.phase === 'FINALE') sawBattle = true;
     defendersSeen.add(director.defenders);
     nowMs += dtMs;

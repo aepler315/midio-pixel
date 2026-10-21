@@ -14,16 +14,16 @@ const data = decodeTour(JSON.parse(await fs.readFile(new URL('teton-range-tour.t
 
 const heading = pose => Math.atan2(pose.targetM[0] - pose.eyeM[0], -(pose.targetM[2] - pose.eyeM[2])) * 180 / Math.PI;
 const delta = (a, b) => ((a - b + 540) % 360) - 180;
-function checkTimeline(tour, reducedMotion = false) {
+function checkTimeline(tour) {
   let previous = tour.poseAt(0);
   for (let t = 100; t <= tour.durationMs + 99; t += 100) {
     const time = Math.min(t, tour.durationMs), pose = tour.poseAt(time), dt = (time - Math.min(t - 100, tour.durationMs)) / 1000;
     const band = tourClearanceAt(data.clearance, pose.eyeM[0], pose.eyeM[2]);
     const index = Math.min(tour.meta.length / 4 - 1, Math.ceil(time / 100)), role = data.roles[tour.meta[index * 4 + 2]];
-    const yaw = reducedMotion || ['outro', 'breakdown'].includes(role) ? 12 : 25;
+    const yaw = ['outro', 'breakdown'].includes(role) ? 12 : 25;
     assert.ok([...pose.eyeM, ...pose.targetM, pose.fovYDeg].every(Number.isFinite), `finite pose at ${time}`);
     assert.ok(pose.eyeM[1] >= band.floorY + 5 - .05 && pose.eyeM[1] <= band.ceilY + .05, `clearance at ${time}`);
-    assert.ok(Math.abs(pose.eyeM[1] - previous.eyeM[1]) <= (reducedMotion ? 15 : 30) * dt + .03, `climb at ${time}`);
+    assert.ok(Math.abs(pose.eyeM[1] - previous.eyeM[1]) <= 30 * dt + .03, `climb at ${time}`);
     assert.ok(Math.abs(delta(heading(pose), heading(previous))) <= yaw * dt + .03, `yaw at ${time}`);
     assert.deepEqual(tour.poseAt(time), pose, `deterministic access at ${time}`);
     previous = pose;
@@ -43,16 +43,16 @@ for (const durationMs of [60000, 90000, 120000]) {
     });
 }
 
-for (const [durationMs, roles, reducedMotion] of [
-  [7951, ['intro', 'chorus', 'breakdown', 'outro'], false],
-  [90000, ['intro', 'verse', 'outro'], true],
-  [180000, ['intro', 'verse', 'pre-chorus', 'chorus', 'breakdown', 'solo', 'drop', 'bridge', 'outro'], false],
-  [360000, ['intro', 'verse', 'chorus', 'breakdown', 'outro'], true],
+for (const [durationMs, roles] of [
+  [7951, ['intro', 'chorus', 'breakdown', 'outro']],
+  [90000, ['intro', 'verse', 'outro']],
+  [180000, ['intro', 'verse', 'pre-chorus', 'chorus', 'breakdown', 'solo', 'drop', 'bridge', 'outro']],
+  [360000, ['intro', 'verse', 'chorus', 'breakdown', 'outro']],
 ]) {
-  test(`C01 published mixed-role timeline remains legal for ${durationMs} ms, reduced motion ${reducedMotion}`, () => {
+  test(`C01 published mixed-role timeline remains legal for ${durationMs} ms`, () => {
     const sections = roles.map((role, i) => ({ role, startMs: i * durationMs / roles.length,
       endMs: (i + 1) * durationMs / roles.length, relEnergy01: i % 2 ? .8 : .3 }));
-    const tour = buildTourTimeline(data, planTour(data, { sections, durationMs, reducedMotion }), { reducedMotion });
-    checkTimeline(tour, reducedMotion);
+    const tour = buildTourTimeline(data, planTour(data, { sections, durationMs }));
+    checkTimeline(tour);
   });
 }

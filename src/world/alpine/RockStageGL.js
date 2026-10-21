@@ -106,7 +106,6 @@ const WATER_FRAG = /* glsl */`
   uniform float uExposure; uniform float uTime;
   uniform vec2 uNarrativeStage;
   uniform vec2 uWaterHits[8]; // age seconds, preserved contact strength
-  uniform float uWaterFlash;
   uniform vec4 uEmitters[3]; uniform vec3 uEmitterColor[3];
   in vec2 vXY;
   in float vPoolAlpha;
@@ -141,7 +140,7 @@ const WATER_FRAG = /* glsl */`
       if (hit.x < 0.0 || hit.x > 2.0 || hit.y <= 0.0) continue;
       vec2 q = (vXY - vPoolCenter) / vec2(4.0 + 22.0 * hit.x, 2.0 + 4.0 * hit.x);
       float ring = 1.0 - smoothstep(0.02, 0.18, abs(length(q) - 1.0));
-      c += vec3(0.07) * ring * exp(-hit.x / 0.45) * hit.y * uWaterFlash;
+      c += vec3(0.07) * ring * exp(-hit.x / 0.45) * hit.y;
     }
     vec3 color = tonemap(c * uExposure);
     float a = vPoolAlpha * uNarrativeStage.y;
@@ -194,7 +193,6 @@ export class RockStageGL {
       uPoolAlpha: { value: new Array(8).fill(0) },
       uDiag: { value: 0 }, uTime: { value: 0 },
       uWaterHits: { value: Array.from({ length: 8 }, () => new THREE.Vector2(0, 0)) },
-      uWaterFlash: { value: 1 },
       uNarrativeStage: { value: new THREE.Vector2(1, 1) },
     };
     this.uniforms = u;
@@ -244,14 +242,13 @@ export class RockStageGL {
     for (let i = 0; i < 8; i++) {
       const hit = frame.waterHits?.[i];
       const age = hit ? (frame.timeMs - hit.tMs) / 1000 : -1;
-      u.uWaterHits.value[i].set(age, age >= 0 && age <= 2 && !frame.reducedMotion ? Math.min(1, Math.max(0, hit.strength || 0)) : 0);
+      u.uWaterHits.value[i].set(age, age >= 0 && age <= 2 ? Math.min(1, Math.max(0, hit.strength || 0)) : 0);
     }
-    u.uWaterFlash.value = frame.reducedFlash ? .35 : 1;
     const ems = (frame.emitters || []).filter((e) => e.visible).slice(0, 3);
     for (let i = 0; i < 3; i++) {
       const e = ems[i];
       if (!e) { u.uEmitters.value[i].set(0, 0, 1, 0); continue; }
-      u.uEmitters.value[i].set(e.x, e.supportY ?? e.y, 150, emitterStrength({ airbornePx: e.airborneM, reducedFlash: frame.reducedFlash }) * (e.presence ?? 1));
+      u.uEmitters.value[i].set(e.x, e.supportY ?? e.y, 150, emitterStrength({ airbornePx: e.airborneM }) * (e.presence ?? 1));
       const [r, gg, b] = hueToLinear(e.hue ?? 180);
       u.uEmitterColor.value[i].set(r, gg, b);
     }
@@ -261,7 +258,7 @@ export class RockStageGL {
     // Stage legibility is independently calibrated: keep sheltered fill
     // at night while the open terrain uses the full ambient reduction.
     u.uAmbientScale.value = .45 * (.65 + .35 * (frame.light?.ambientMultiplier ?? 1));
-    u.uTime.value = frame.reducedMotion ? 0 : frame.timeMs / 1000;
+    u.uTime.value = frame.timeMs / 1000;
     this.bytes = stage.positions.byteLength * 3 + stage.indices.byteLength + (wp.length + wa.length + wc.length) * 4;
   }
 

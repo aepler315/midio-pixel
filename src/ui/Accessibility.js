@@ -1,75 +1,19 @@
-// The Reel (Movement VI): a persisted reduced-flash accessibility toggle.
-// Guarded against environments with no localStorage (Node's test runner,
-// most notably) -- a ReferenceError there is caught exactly like a
-// disabled/blocked storage API in a locked-down browser. Both fall back to
-// the OS reduced-motion preference (and "off" when that is unavailable),
-// never throwing.
-const STORAGE_KEY = 'smw:reducedFlash';
-const MOTION_KEY = 'smw:reducedMotion';
+// Persisted player preferences. Every read and write is guarded against
+// environments with no localStorage (Node's test runner, most notably) -- a
+// ReferenceError there is caught exactly like a disabled/blocked storage API
+// in a locked-down browser. Reads fall back to the default, never throwing.
 const NO_LYRICS_KEY = 'smw:noLyrics';
-export const FLASH_CAP = 0.4;
-
-/** A player who has never touched this toggle gets the OS-level signal as
- *  their default rather than a silent "off" -- prefers-reduced-motion was
- *  never consulted here before. An explicit past choice (on OR off) always
- *  wins over it; this only fills the gap before anyone has chosen. */
-function prefersReducedMotion() {
-  try { return !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches; } catch { return false; }
-}
-
-export function getReducedFlash() {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored !== null) return stored === '1';
-  } catch { /* OS preference is available even when storage is blocked. */ }
-  return prefersReducedMotion();
-}
-
-export function setReducedFlash(v) {
-  try { localStorage.setItem(STORAGE_KEY, v ? '1' : '0'); } catch { /* no persistent storage available */ }
-}
-
-export function getReducedMotion() {
-  try {
-    const stored = localStorage.getItem(MOTION_KEY);
-    if (stored !== null) return stored === '1';
-  } catch { /* OS preference is available even when storage is blocked. */ }
-  return prefersReducedMotion();
-}
-
-export function setReducedMotion(v) {
-  try { localStorage.setItem(MOTION_KEY, v ? '1' : '0'); } catch { /* unavailable storage */ }
-}
 
 // "No lyrics": a persisted opt-out from the LRCLIB lyric fetch/prompt that
 // runs for dropped audio files. When on, the whole identity/lyrics step is
 // skipped -- for songs that have no lyrics, or when the player just doesn't
-// want the search. Same storage-guarded pattern as reduced-flash above.
+// want the search.
 export function getLyricsDisabled() {
   try { return localStorage.getItem(NO_LYRICS_KEY) === '1'; } catch { return false; }
 }
 
 export function setLyricsDisabled(v) {
   try { localStorage.setItem(NO_LYRICS_KEY, v ? '1' : '0'); } catch { /* no persistent storage available */ }
-}
-
-/** Caps a flash alpha at FLASH_CAP when reduced-flash is active; a pure pass-through otherwise. */
-export function capFlashAlpha(alpha, reducedFlash) {
-  return reducedFlash ? Math.min(alpha, FLASH_CAP) : alpha;
-}
-
-// capFlashAlpha caps each layer independently, but several landing effects
-// (ImpactFX's ignition ring, RippleFX's rings/pulses/puffs, RainbowBrush's
-// dabs) draw additively ('lighter') and pile up on the same ground point at
-// the same moment -- several independently-capped-at-0.4 layers still sum
-// to a blown-out white under additive blending, which is exactly the flash
-// reduced-flash is supposed to prevent. Falling back to normal ('source-over')
-// compositing for those effects when the toggle is on means overlapping
-// layers occlude instead of summing, so the per-layer cap actually holds.
-/** Composite operation for a flash-heavy additive effect: 'lighter' normally,
- *  'source-over' under reduced-flash so overlapping capped layers can't sum past the cap. */
-export function flashCompositeOp(reducedFlash) {
-  return reducedFlash ? 'source-over' : 'lighter';
 }
 
 // The groove fingerprint (GrooveFingerprint.js): the one piece of state that

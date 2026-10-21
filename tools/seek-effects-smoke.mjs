@@ -1,7 +1,6 @@
 // Real transport seek lifecycle, with future state deliberately injected.
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
-import { withAllWorlds } from './lib/allWorlds.mjs';
 const browser = await chromium.launch({ headless: true,
   ...(process.env.PLAYWRIGHT_CHROMIUM_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH } : {}),
 });
@@ -10,8 +9,8 @@ try {
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.route('**/soundfonts/', route => route.fulfill({ json: [] }));
-  await page.goto(withAllWorlds(process.argv[2] || 'http://127.0.0.1:8080'));
-  for (const worldId of ['redline']) {
+  await page.goto(process.argv[2] || 'http://127.0.0.1:8080');
+  for (const worldId of ['trio']) {
   await page.locator('#demoBtn').click();
   await page.locator('#worldSelect:not(.hidden)').waitFor({ timeout: 90000 });
   await page.locator(`.worldCard[data-world-id="${worldId}"]`).click();

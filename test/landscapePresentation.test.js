@@ -20,7 +20,7 @@ function scene(worldId = 'alpine', silent = false) {
 }
 
 // Catches construction or callback ownership returning through any public start mode.
-for (const world of ['alpine', 'fathom', 'farside']) {
+for (const world of ['alpine']) {
   for (const mode of ['opening', 'silence', 'middle', 'final', 'seek', 'restart', 'export']) {
     test(`${world} ${mode} keeps transport without constructing or updating the trio`, () => {
       const sim = scene(world, mode === 'silence');
@@ -41,7 +41,7 @@ for (const world of ['alpine', 'fathom', 'farside']) {
         assert.ok(sim.worldX > 0, 'scenic transport keeps moving');
         assert.equal(sim.stageAnchor.x, 220, 'camera origin does not roam with an actor');
         assert.equal(sim.camera._zoomTarget ?? sim.camera.zoomTarget ?? 1, 1);
-        assert.deepEqual(sim.rangeNarrativeAt()?.cast, world === 'alpine' ? { midio: 0, broshi: 0, midasus: 0 } : undefined);
+        assert.deepEqual(sim.rangeNarrativeAt()?.cast, { midio: 0, broshi: 0, midasus: 0 });
       } finally { sim.dispose(); }
     });
   }

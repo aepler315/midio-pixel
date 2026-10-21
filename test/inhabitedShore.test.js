@@ -49,15 +49,6 @@ test('Broshi walks both ways and stops to look up', () => {
   assert.ok(poses.some(p => !p.walking && p.lookUp01 > 0.9));
 });
 
-test('reduced motion removes bobbing, pitching and hops but keeps travel', () => {
-  const a = shipPose(10, W, H, { bass: 1, reducedMotion: true });
-  const b = shipPose(20, W, H, { bass: 1, reducedMotion: true });
-  assert.equal(a.rot, 0);
-  assert.equal(a.y, b.y);
-  assert.notEqual(a.x, b.x);
-  assert.equal(broshiPose(3, W, H, { kick: 1, reducedMotion: true }).airborne, 0);
-});
-
 test('a kick lifts Broshi briefly and lands him again', () => {
   const hits = [{ tMs: 1000, strength: 1 }];
   assert.equal(kickHop01(hits, 990), 0);
@@ -69,7 +60,7 @@ test('a kick lifts Broshi briefly and lands him again', () => {
 test('listening leaves the landscape clear of the foreground sea and shore residents', () => {
   assert.equal(resolveLandscapePresentation('alpine').inhabitants, false);
   assert.equal(resolveLandscapePresentation('alpine').performers, false);
-  assert.equal(resolveLandscapePresentation('fathom').performers, false);
+  assert.equal(resolveLandscapePresentation('unregistered-kind').performers, false);
   // Their owners were removed; enabling these dereferences null.
   assert.equal(resolveLandscapePresentation('alpine').decorativeActors, false);
   assert.equal(resolveLandscapePresentation('alpine').artificialNearProps, false);
@@ -83,19 +74,5 @@ test('a second kick mid-hop never drops Broshi back to the sand', () => {
     const v = kickHop01(hits, t);
     assert.ok(Math.abs(v - prev) < 0.02, `continuous at ${t}`);
     prev = v;
-  }
-});
-
-test('reduced motion holds the baby stars in place around Midasus', () => {
-  const rel = (t) => {
-    const p = midasusPose(t, W, H, { reducedMotion: true });
-    return p.babies.map((b, i) => {
-      const lagged = midasusPose(t - [0.55, 0.95, 1.35][i], W, H, { reducedMotion: true });
-      return [b.x - lagged.x, b.y - (lagged.y)];
-    });
-  };
-  const a = rel(10), b = rel(11.3);
-  for (let i = 0; i < 3; i++) {
-    assert.ok(Math.abs(a[i][0] - b[i][0]) < 1e-9 && Math.abs(a[i][1] - b[i][1]) < 1e-9, `baby ${i} orbit frozen`);
   }
 });

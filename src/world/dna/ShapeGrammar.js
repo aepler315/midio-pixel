@@ -168,13 +168,10 @@ export function pickCelestialKind(dna) {
  *    regular song's range reads more evenly spaced.
  */
 /** Keys each silhouette profile actually reads. Adaptation sends only the
- *  groups the world kind consumes — alpine flanks never go to a city. */
+ *  groups the world kind consumes (WorldAdaptation.KIND_CAPABILITIES). */
 export const RIDGE_TERRAIN_KEYS = [
   'shoulderMul', 'spireMul', 'spireMixAdd', 'notchAdd', 'teethAdd',
   'apronGainAdd', 'apronSpreadAdd', 'apronCapAdd', 'asymMul',
-];
-export const CITY_TERRAIN_KEYS = [
-  'cityWidthMul', 'citySetbackFrac', 'cityTaperMul', 'cityDensityMul',
 ];
 export const ROLLING_TERRAIN_KEYS = [
   'rollingAmpMul', 'rollingOctaveBias',
@@ -203,18 +200,9 @@ export function deriveTerrainParams(grammar) {
     apronCapAdd: -0.04 * spikeBias + 0.06 * organicBias,
     asymMul: 1 + 0.3 * spikeBias - 0.35 * regularBias,
 
-    // City-kind worlds (CitySilhouette.cityHeightField) read these the same
-    // way the alpine fields above are read: spiky/vertical-stack songs get
-    // narrower, more isolated towers with a more pronounced setback step;
-    // organic/mound songs get broader, denser, gentler-tapered fabric.
-    cityWidthMul: 1 - 0.25 * spikeBias + 0.20 * organicBias,
-    citySetbackFrac: clamp01(0.62 + 0.10 * regularBias - 0.08 * organicBias),
-    cityTaperMul: 1 + 0.25 * spikeBias - 0.20 * organicBias,
-    cityDensityMul: 1 + 0.35 * organicBias - 0.25 * spikeBias,
-
-    // 'rolling' profile (strip worlds' L2-L4, and every world's nearest L5
-    // layer): spiky/vertical-stack songs get more pronounced, grainier
-    // hills; organic/regular songs stay smoother.
+    // 'rolling' profile (the nearest L5 layer, and any procedural stand-in
+    // for a real range): spiky/vertical-stack songs get more pronounced,
+    // grainier hills; organic/regular songs stay smoother.
     rollingAmpMul: 1 + 0.3 * spikeBias - 0.25 * organicBias,
     rollingOctaveBias: spikeBias > 0.3 ? 1 : regularBias > 0.3 ? -1 : 0,
   };

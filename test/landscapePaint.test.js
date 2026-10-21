@@ -41,13 +41,13 @@ test('space ridge honors inherited opacity on every stroke', () => {
   const ridge = new SpaceRidge(315);
   const full = stub();
   full.ctx.globalAlpha = 1;
-  ridge.draw(full.ctx, { width: 1280, height: 720 }, '#88aacc', 1, false, 1);
+  ridge.draw(full.ctx, { width: 1280, height: 720 }, '#88aacc', 1, 1);
   const dim = stub();
   dim.ctx.globalAlpha = 0.25;
-  ridge.draw(dim.ctx, { width: 1280, height: 720 }, '#88aacc', 1, false, 1);
+  ridge.draw(dim.ctx, { width: 1280, height: 720 }, '#88aacc', 1, 1);
   const none = stub();
   none.ctx.globalAlpha = 0;
-  ridge.draw(none.ctx, { width: 1280, height: 720 }, '#88aacc', 1, false, 1);
+  ridge.draw(none.ctx, { width: 1280, height: 720 }, '#88aacc', 1, 1);
   assert.ok(full.ops.length > 0);
   assert.equal(dim.ops.length, full.ops.length);
   assert.ok(dim.ops.every((alpha, i) => Math.abs(alpha - full.ops[i] * 0.25) < 1e-9));
@@ -63,26 +63,14 @@ test('active and retained constellations both take the system opacity', () => {
     holdStartMs: 0, edgeStartMs: 0, edgeRevealedCount: 1, targetCount: 2,
   });
   const full = stub();
-  weaver.draw(full.ctx, { width: 1280, height: 720 }, false, 1, 1, 0);
+  weaver.draw(full.ctx, { width: 1280, height: 720 }, 1, 1, 0);
   const dim = stub();
   dim.ctx.globalAlpha = 0.25;
-  weaver.draw(dim.ctx, { width: 1280, height: 720 }, false, 1, 1, 0);
+  weaver.draw(dim.ctx, { width: 1280, height: 720 }, 1, 1, 0);
   assert.ok(full.ops.length > 2);
   assert.equal(dim.ops.length, full.ops.length);
   assert.ok(dim.ops.every((alpha) => Math.abs(alpha - 0.25) < 1e-9));
   assert.equal(dim.ctx.globalAlpha, 0.25);
-});
-
-test('Range keeps a steady readable core when reduced flash is enabled', () => {
-  const ridge = new SpaceRidge(315);
-  const view = stub();
-  const strokes = [];
-  view.ctx.stroke = () => strokes.push({ alpha: view.ctx.globalAlpha, blend: view.ctx.globalCompositeOperation });
-  ridge.draw(view.ctx, { width: 1280, height: 720 }, '#88aacc', 1, true);
-  assert.ok(strokes.some(({ alpha }) => alpha >= 0.39), 'the steady contour should survive the flash cap');
-  assert.ok(strokes.every(({ blend }) => blend === 'source-over'),
-    'reduced flash should not accumulate multiple capped strokes additively');
-  assert.equal(view.ctx.globalAlpha, 1);
 });
 
 test('SpaceRidge has only a few bright structural joints, not a bead at every sample', () => {
@@ -105,12 +93,12 @@ test('Range can show one incidental figure and exclude the ridge corridor', () =
   const all = stub();
   weaver.draw(all.ctx, { width: 1280, height: 720 });
   const one = stub();
-  weaver.draw(one.ctx, { width: 1280, height: 720 }, false, 1, 1, 0,
+  weaver.draw(one.ctx, { width: 1280, height: 720 }, 1, 1, 0,
     { maxFigures: 1, maxRetained: 0, allowPoint: () => true });
   assert.ok(one.ops.length > 0 && one.ops.length < all.ops.length / 2,
     `one figure should be far simpler than all figures and stars (${one.ops.length}/${all.ops.length})`);
   const excluded = stub();
-  weaver.draw(excluded.ctx, { width: 1280, height: 720 }, false, 1, 1, 0,
+  weaver.draw(excluded.ctx, { width: 1280, height: 720 }, 1, 1, 0,
     { maxFigures: 1, maxRetained: 0, allowPoint: () => false });
   assert.equal(excluded.ops.length, 0, 'no incidental dot or line may enter the signature corridor');
 });
@@ -123,7 +111,7 @@ test('light rig opacity changes without changing beam count', () => {
     let paths = 0;
     const orig = view.ctx.beginPath;
     view.ctx.beginPath = () => { paths += 1; orig.call(view.ctx); };
-    rig.draw(view.ctx, { width: 1280, height: 720 }, 900, 120, '#ffaa55', 1, false, presentation);
+    rig.draw(view.ctx, { width: 1280, height: 720 }, 900, 120, '#ffaa55', 1, presentation);
     return { paths, alpha: view.ops[0], restored: view.ctx.globalAlpha };
   };
   const bright = count(1);

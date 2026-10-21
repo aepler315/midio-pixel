@@ -3,8 +3,8 @@
 export function rangeTourControlState(range, { running = false, worldKind = null, paused = false } = {}) {
   const result = (state, text, reason = null) => ({ state, text, reason });
   if (range?.tourMode !== 'tetons') return result('off', 'Off');
-  if (!running) return result('ready', 'Ready — start a song in The Range.');
-  if (worldKind !== 'alpine') return result('unavailable', 'Unavailable — choose The Range to use this tour.', 'world-not-alpine');
+  if (!running) return result('ready', 'Ready — start a song in Landscape.');
+  if (worldKind !== 'alpine') return result('unavailable', 'Unavailable — choose Landscape to use this tour.', 'world-not-alpine');
 
   const preparation = range.tourPreparation || {};
   const reason = preparation.state === 'failed' ? preparation.reason : range.fallbackReason;
@@ -24,11 +24,7 @@ export function rangeTourControlState(range, { running = false, worldKind = null
     return result('unavailable', `Unavailable — ${detail}`, reason);
   }
   if (range.active && range.runtimeReady && range.viewId === 'teton-range-tour' && preparation.state === 'ready') {
-    if (preparation.refinement?.state === 'held'
-      && preparation.requestedReducedMotion !== preparation.effectiveReducedMotion) {
-      return result('active', 'Active — motion change unavailable; try restarting the song.', preparation.refinement.reason);
-    }
-    return result('active', preparation.reducedMotion ? 'Active — reduced motion.' : 'Active');
+    return result('active', 'Active');
   }
   if (paused && preparation.state === 'ready') return result('ready', 'Ready — resume playback to start the tour.');
   if (preparation.state === 'loading') return result('loading', 'Loading tour files…');
