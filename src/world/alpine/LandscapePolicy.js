@@ -119,13 +119,12 @@ export function resolveLandscapePalette({ profile, night01, airColor } = {}) {
 
 /** Alpine sky weights. Reconstructed from the current scene, never accumulated. */
 export function resolveRangePresentation({
-  night01 = 0, salienceSky = 1, voyageWeight = 0, quality = 0, reducedFlash = false,
+  night01 = 0, salienceSky = 1, voyageWeight = 0, quality = 0,
 } = {}) {
   const sky = finite01(salienceSky, 1);
   const voyage = finite01(voyageWeight, 0);
   const night = finite01(night01, 0);
-  const flash = reducedFlash ? 0.7 : 1;
-  const ambientScale = sky * (1 - 0.62 * voyage) * flash;
+  const ambientScale = sky * (1 - 0.62 * voyage);
   const rows = landscapeBudget(Number.isFinite(quality) ? quality : 0).oceanRows;
   const unit = (n) => finite01(n, 0);
   return {
@@ -134,10 +133,10 @@ export function resolveRangePresentation({
     liveWeaver: unit(0.30 * (0.55 + 0.45 * sky) * (1 - 0.35 * voyage)),
     retainedWeaver: unit(0.20 * ambientScale * (0.85 + 0.15 * night)),
     ensemble: unit(0.30 * ambientScale),
-    beams: unit(0.15 * sky * (reducedFlash ? 0.4 : 1)),
+    beams: unit(0.15 * sky),
     ambient: unit(0.35 * ambientScale),
     oceanRows: rows,
-    oceanMarks: unit(0.30 * (reducedFlash ? 0.65 : 1)),
+    oceanMarks: unit(0.30),
     film: unit(0.82 * (0.75 + 0.25 * sky)),
   };
 }

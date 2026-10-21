@@ -224,7 +224,7 @@ Ashton saw the sun come up "in an instant" and the clouds move as if by accident
 Ashton found the land moving with the song accidental. It heaved all the time: a swell rolling across the ridges at 0.045 Hz sized by groove and sustain, a lift on every kick, a melodic tilt, a summit gesture, and a section lift that dropped and regrew at every boundary. Together they came to 8-20 px. The default chosen for him ("Big moments only") keeps all of those channels on the frame as `music.source` (the water still ripples to the kick, and evidence still reads them) but lets none of them move the ground.
 
 - `landMoment01` (RangeFrame.js) is a pure function of the section list. At each section change the land swells over 3 s, holds for 2 s and settles over 9 s. A lift into a louder part (`boundaryLift01`) swells fully, any other change by 0.35, and a repeat of the same part not at all. The song's start never swells. When the whole-song analysis replaces the opening one during play, boundaries already heard keep coming from the old section list (`chapterState.landSections`), so a swell under way carries on and none starts in the past.
-- `landMotion` builds the geometry from that alone: a slow wave (50 m, rolling at 0.012 Hz) plus a lift (40 m), at a fixed calibration target. At full strength that is about 17 px; a plain change is about 6 px. Reduced motion holds the land still.
+- `landMotion` builds the geometry from that alone: a slow wave (50 m, rolling at 0.012 Hz) plus a lift (40 m), at a fixed calibration target. At full strength that is about 17 px; a plain change is about 6 px.
 
 ## Task 16: resource, lifecycle and performance
 

@@ -61,18 +61,6 @@ test('the core spin only ever advances -- it can never stall on a beat', () => {
   assert.ok(midioCoreSpinDeg(10, 1) > midioCoreSpinDeg(10, 0), 'energy spins it faster');
 });
 
-test('reduced motion scales everything toward rest, and 0 is a full stop', () => {
-  // The accessibility toggle is exactly what this is for.
-  const full = midioMotion(3.3, 1, 1);
-  const reduced = midioMotion(3.3, 1, 0.25);
-  assert.ok(Math.abs(reduced.hoverPx) < Math.abs(full.hoverPx));
-  assert.ok(Math.abs(reduced.precessDeg) < Math.abs(full.precessDeg));
-  assert.ok(reduced.coreSpinDeg < full.coreSpinDeg);
-  const off = midioMotion(3.3, 1, 0);
-  // pulseScale is a MULTIPLIER, so its "stopped" value is 1, not 0.
-  assert.deepEqual(off, { hoverPx: 0, precessDeg: 0, coreSpinDeg: 0, pulseScale: 1 });
-});
-
 test('every term is finite across a long run at every energy', () => {
   for (const e of [0, 0.37, 1]) {
     for (let t = 0; t < 600; t += 7.3) {
@@ -118,12 +106,7 @@ test('it is a BASELINE: subtle, and louder music only swells it a little', () =>
   assert.ok(loud < 1.09, `too large to sit under the event vocabulary: ${loud}`);
 });
 
-test('reduced motion stills the pulse to exactly 1', () => {
-  assert.equal(midioPulseScale(0, 1, 0), 1);
-  assert.equal(midioPulseScale(0.4, 1, 0), 1);
-});
-
 test('no beat grid means no pulse, not a guessed one', () => {
-  assert.equal(midioMotion(2, 1, 1, null).pulseScale, 1);
-  assert.ok(midioMotion(2, 1, 1, 0).pulseScale > 1);
+  assert.equal(midioMotion(2, 1, null).pulseScale, 1);
+  assert.ok(midioMotion(2, 1, 0).pulseScale > 1);
 });

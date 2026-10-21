@@ -12,7 +12,6 @@ function spyMgr(kind, perf) {
   mgr._beatMs = 500;
   mgr.budget = 1;
   mgr.fever = 0;
-  mgr.reducedFlash = false;
   mgr._danceKickMs = 0;
   mgr._eqSmoothed = new Float32Array(7);
   mgr.calmLevel = 0;
@@ -35,8 +34,8 @@ function spyMgr(kind, perf) {
 
 const FULL = { phenomenaFull: true, constellationsEnabled: true };
 
-test('airless keeps ground diffusion and sky effects it draws, and skips alpine spectacle', () => {
-  const { mgr, calls } = spyMgr('airless', FULL);
+test('an unregistered kind keeps ground diffusion and the shared sky effects, and skips alpine spectacle', () => {
+  const { mgr, calls } = spyMgr('unregistered-kind', FULL);
   mgr.stepOptionalEffects(1000, 0.016, null, 0, { x: 0, y: 0 });
   assert.ok(calls.includes('rd'));
   assert.ok(calls.includes('weaver'));

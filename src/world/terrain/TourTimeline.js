@@ -44,8 +44,8 @@ function aimAt(sample,y,heading){
   return {quality,pitch:mix(tier.pitch[pLo],tier.pitch[pHi],pitchAt-Math.floor(pitchAt)),hfov:[40,55,70][Math.min(2,fovIndex)],tier:sample.tiers.indexOf(tier)};
 }
 /** Altitude corridor. Steps up to `lastFrozen` join committed keyframes:
- *  they were planned under the previous preference and are never
- *  re-validated against a new (reduced-motion) climb limit. */
+ *  they keep the poses already published and are never re-validated
+ *  against the climb limit. */
 function envelopes(frames,locks,climb,lastFrozen=-1){
   const lo=Float64Array.from(frames,f=>f.floorY+5.02),hi=Float64Array.from(frames,f=>f.ceilY-.02);
   for(const [i,y]of locks){if(y<lo[i]||y>hi[i])return null;lo[i]=hi[i]=y;}
@@ -60,10 +60,10 @@ const smooth=(values,seconds,dt)=>{
   return result;
 };
 /** Joint continuous altitude/aim beam DP: tiers are targets, never jumps. */
-export function buildTourTimeline(data,plan,{reducedMotion=plan.reducedMotion||false,previous=null,frozenThroughMs=-1,routeScale=1,qualityRetry=true}={}){
+export function buildTourTimeline(data,plan,{previous=null,frozenThroughMs=-1,routeScale=1,qualityRetry=true}={}){
   const durationMs=plan.durationMs,points=new Map(data.points.map(p=>[p.id,p])),notes=[...plan.notes],heroes=plan.heroes.map(h=>({...h}));
-  const preview=points.get(plan.previewPointId),climb=reducedMotion?15:30;
-  if(!durationMs){const p=preview.station,a=p.bestAim,eyeM=[p.posM[0],p.yM,p.posM[1]],v=vector(a.headingDeg,a.pitchDeg),pose={eyeM,targetM:eyeM.map((x,i)=>x+v[i]*12000),fovYDeg:fovY(a.hfovDeg),tour:true};return{durationMs:0,heroes:[],notes,meanQualityRatio:1,poseAt:()=>structuredClone(pose),reducedMotion};}
+  const preview=points.get(plan.previewPointId),climb=30;
+  if(!durationMs){const p=preview.station,a=p.bestAim,eyeM=[p.posM[0],p.yM,p.posM[1]],v=vector(a.headingDeg,a.pitchDeg),pose={eyeM,targetM:eyeM.map((x,i)=>x+v[i]*12000),fovYDeg:fovY(a.hfovDeg),tour:true};return{durationMs:0,heroes:[],notes,meanQualityRatio:1,poseAt:()=>structuredClone(pose)};}
   const count=Math.ceil(durationMs/100)+1;let frames,bounds,locks,scale=1;
   const lastFrozen=previous?Math.min(count-1,frozenThroughMs>=durationMs?count-1:Math.floor(frozenThroughMs/100)):-1;
   const routeTimeOriginMs=previous?frozenThroughMs:0,routeSlowTauSec=previous?10:0;
@@ -103,7 +103,7 @@ export function buildTourTimeline(data,plan,{reducedMotion=plan.reducedMotion||f
   if(!bounds)throw new Error('Tour route has no rate-limited altitude corridor');
   if(scale!==1){notes.push(`Route slowed by ${scale} for clearance or view quality; hero deadlines passed at range`);for(const h of heroes)h.passedAtRange=true;}
   const dpTimes=[];let begin=0;if(previous){for(let t=0;t<=frozenThroughMs&&t<durationMs;t+=100)dpTimes.push(t);begin=frozenThroughMs+250;}for(let t=begin;t<durationMs;t+=250)dpTimes.push(t);dpTimes.push(durationMs);
-  const yawBetween=tourYawBudget(frames,{reducedMotion});
+  const yawBetween=tourYawBudget(frames);
   const refreshLocks=()=>{
     locks=new Map();if(previous)for(let i=0;i<count&&frames[i].timeMs<=frozenThroughMs;i++)locks.set(i,previous.poseAt(frames[i].timeMs).eyeM[1]);
     if(scale===1)for(const h of heroes.filter(h=>!h.passedAtRange)){
@@ -146,7 +146,7 @@ export function buildTourTimeline(data,plan,{reducedMotion=plan.reducedMotion||f
     const nextHero=heroes.find(h=>!h.passedAtRange&&h.timeMs+1500>=time),nextStation=nextHero?points.get(nextHero.pointId).station:null;
     const activeHeading=Math.atan2(point.localM[0]-frame.posM[0],-(point.localM[2]-frame.posM[1]))/DEG;
     // Committed keyframes keep the rates they were planned with; the limits
-    // of the current preference start at the first uncommitted step.
+    // apply from the first uncommitted step.
     const committed=previous&&time<=frozenThroughMs;
     const dt=step?(time-lastTime)/1000:0,limit=committed?Infinity:yawBetween(lastTime,time),rise=committed?Infinity:climb*dt;
     const states=new Map();
@@ -232,7 +232,7 @@ export function buildTourTimeline(data,plan,{reducedMotion=plan.reducedMotion||f
     const aim=aimAt(frame.sample,y[i],heading[i]);qualitySum+=aim.quality;maxSum+=Math.max(...frame.sample.tiers.flatMap(t=>[...t.score]))/255;
     meta.set([aim.tier,data.points.findIndex(p=>p.id===frame.pointId),Math.max(0,data.roles.indexOf(frame.role)),lock?1:0],i*4);
   }
-  const result = restoreTourTimeline({durationMs,eye,target,fov,meta,heroes,notes,reducedMotion,meanQualityRatio:qualitySum/Math.max(.001,maxSum),data,plan,routeSegments:plan.segments,routeSpeedProfile:plan.speedProfile,scale,routeTimeOriginMs,routeSlowTauSec});
+  const result = restoreTourTimeline({durationMs,eye,target,fov,meta,heroes,notes,meanQualityRatio:qualitySum/Math.max(.001,maxSum),data,plan,routeSegments:plan.segments,routeSpeedProfile:plan.speedProfile,scale,routeTimeOriginMs,routeSlowTauSec});
   composeDistantHeroes(result, data, frames, lastFrozen);
   result.heroFraming = measureHeroFraming(result, data);
   result.heroCoverage = summarizeHeroCoverage(result.heroFraming);
@@ -244,7 +244,7 @@ export function buildTourTimeline(data,plan,{reducedMotion=plan.reducedMotion||f
     const nextHeroes = heroes.map(h => missedStations.has(h.pointId) ? { ...h, passedAtRange: true } : h);
     return buildTourTimeline(data, { ...plan, heroes: nextHeroes,
       notes: [...notes, ...[...missedStations].map(id => `${id}: station subject cannot fit the safe viewing window; compose at range`)] },
-    { reducedMotion, previous, frozenThroughMs, routeScale, qualityRetry });
+    { previous, frozenThroughMs, routeScale, qualityRetry });
   }
   if (qualityRetry && result.meanQualityRatio < .8) {
     let best = result;
@@ -253,7 +253,7 @@ export function buildTourTimeline(data,plan,{reducedMotion=plan.reducedMotion||f
     // preserve heard time and every committed pose, then re-compose views.
     for (const factor of [1.25, 1.5, 2]) {
       if (factor <= result.scale) continue;
-      const candidate = buildTourTimeline(data, plan, { reducedMotion, previous, frozenThroughMs,
+      const candidate = buildTourTimeline(data, plan, { previous, frozenThroughMs,
         routeScale: factor, qualityRetry: false });
       if (candidate.meanQualityRatio > best.meanQualityRatio) best = candidate;
       if (best.meanQualityRatio >= .8) break;
@@ -327,7 +327,7 @@ function composeDistantHeroes(tour, data, frames, lastFrozen) {
   // Existing coverage is a constraint even when its hero occurs later in
   // the song. Trying an earlier repair must not erase that intended shot.
   const accepted = new Set(measureHeroFraming(tour, data).filter(h => h.framedFraction >= .8).map(h => h.timeMs));
-  const capacityBetween = tourYawBudget(frames, { reducedMotion: tour.reducedMotion });
+  const capacityBetween = tourYawBudget(frames);
   const ease = x => { const t = clamp(x, 0, 1); return t * t * (3 - 2 * t); };
   for (const hero of [...tour.heroes].sort((a, b) => a.timeMs - b.timeMs)) {
     const center = Math.min(count - 1, Math.round(hero.timeMs / 100)), eye = [...tour.eye.subarray(center * 3, center * 3 + 3)];
@@ -437,12 +437,11 @@ export function tourContinuation(previous,data,committedThroughMs){
   const a=previous.poseAt(timeMs-100),b=previous.poseAt(timeMs);
   return{timeMs,pointId:segment.pointId,incoming,samples,speedMps:Math.hypot(b.eyeM[0]-a.eyeM[0],b.eyeM[2]-a.eyeM[2])*10};
 }
-/** Rebuild the uncommitted tail. `reducedMotion` is the CURRENT preference
- *  (default: the previous tour's): it sets the limits after the committed
+/** Rebuild the uncommitted tail. The rate limits apply after the committed
  *  horizon, while every pose through that horizon stays exactly as it was. */
-export function replanTour(previous,data,plan,committedThroughMs,{reducedMotion=previous.reducedMotion}={}){
+export function replanTour(previous,data,plan,committedThroughMs){
   restoreTourTimeline(previous);
   const freeze=Math.min(previous.durationMs,Math.ceil((committedThroughMs+3000)/100)*100);
-  const next=buildTourTimeline(data,plan,{reducedMotion:!!reducedMotion,previous,frozenThroughMs:freeze});
+  const next=buildTourTimeline(data,plan,{previous,frozenThroughMs:freeze});
   return next;
 }

@@ -22,26 +22,6 @@ function harness(worldId) {
   return { mgr, flood, camera, film };
 }
 
-test('an airless world ignores a scheduled tsunami in flood, footing and camera state', () => {
-  const { mgr, flood, camera, film } = harness('farside');
-  mgr.armTsunami(0, 1);
-  assert.equal(mgr._tsunamis.length, 0);
-  mgr._tsunamis.push({ tMs: 0, dir: 1 });
-  mgr.stepOceanHazards(OVERTURN_MS);
-  flood.update(OVERTURN_MS, 0.016, { rainAccum01: 0 });
-  assert.equal(flood.active, false);
-  assert.equal(flood.level01, 0);
-  assert.equal(flood.source, null);
-  assert.equal(mgr.tsunamiJustArrived, false);
-  assert.equal(mgr.floodFooting01(), 0);
-  if (mgr.tsunamiJustArrived && mgr.acceptsOceanHazard()) {
-    film.hit('tsunami');
-    camera.shake(4);
-  }
-  assert.deepEqual(film.hits, []);
-  assert.equal(camera.shakes, 0);
-});
-
 test('the range still arms a flood and an arrival accent from the same wave', () => {
   const { mgr, flood, camera, film } = harness('alpine');
   mgr.armTsunami(0, 1);
@@ -61,8 +41,8 @@ test('the range still arms a flood and an arrival accent from the same wave', ()
   assert.equal(camera.shakes, 4);
 });
 
-test('rain can still wet footing where a tsunami must not', () => {
-  const { mgr, flood } = harness('farside');
+test('rain and the Range\'s own tsunami both wet footing to the flood level', () => {
+  const { mgr, flood } = harness('alpine');
   flood._rainLevel01 = 0.4;
   flood.level01 = 0.4;
   flood.active = true;
@@ -70,5 +50,5 @@ test('rain can still wet footing where a tsunami must not', () => {
   assert.equal(mgr.floodFooting01(), 0.4);
   flood.source = 'tsunami';
   flood.level01 = 1;
-  assert.equal(mgr.floodFooting01(), 0);
+  assert.equal(mgr.floodFooting01(), 1);
 });

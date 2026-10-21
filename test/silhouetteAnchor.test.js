@@ -1,29 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  columnarHeightField, generateSilhouette, ridgeYAt, drawTiledStrip,
-} from '../src/world/SilhouetteGenerator.js';
-
-test('columnarHeightField is deterministic and stays in 0..1', () => {
-  const n = 256, step = 8, width = n * step;
-  const a = columnarHeightField(n, step, 42, width);
-  const b = columnarHeightField(n, step, 42, width);
-  assert.equal(a.length, n);
-  for (let i = 0; i < n; i++) {
-    assert.equal(a[i], b[i]);
-    assert.ok(a[i] >= 0 && a[i] <= 1, `height out of range at ${i}: ${a[i]}`);
-  }
-});
-
-test('columnar fields have shafts and bays, not a flat wall', () => {
-  const n = 512, step = 4, width = n * step;
-  const h = columnarHeightField(n, step, 99, width, null, {
-    bayPx: 96, colFrac: 0.18, colH: 0.90, archAmp: 0.22,
-  });
-  let lo = 1, hi = 0;
-  for (const v of h) { if (v < lo) lo = v; if (v > hi) hi = v; }
-  assert.ok(hi - lo > 0.2, `columnar range too flat: ${lo.toFixed(3)}..${hi.toFixed(3)}`);
-});
+// Strip anchoring. The columnar profile went with the worlds that baked it;
+// the ground and ceiling anchors remain generic generator behavior.
+import { generateSilhouette, ridgeYAt, drawTiledStrip } from '../src/world/SilhouetteGenerator.js';
 
 class RecordingCtx {
   constructor() {
@@ -87,7 +66,7 @@ test('a ground bake still stands on the baseline', () => {
 test('drawTiledStrip places a ceiling strip at the top of the frame', () => {
   const strip = generateSilhouette({
     seed: 3, width: 256, height: 120, color: '#224433',
-    shadeMode: 'classic', profile: 'columnar', anchor: 'ceiling',
+    shadeMode: 'classic', profile: 'rolling', anchor: 'ceiling',
   });
   const ctx = new RecordingCtx();
   drawTiledStrip(ctx, strip, 0, 800, 540, 12);

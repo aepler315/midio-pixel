@@ -6,14 +6,16 @@ import { resolveDisplayPrefs } from '../../src/render/DisplayProfile.js';
 /** ?rangeDebug values (RangeScene TERRAIN_DEBUG_MODES). */
 export const DEBUG_VIEWS = Object.freeze(['masks', 'slope', 'albedo', 'fill', 'key', 'roughness', 'specular', 'sun']);
 export const DEFAULT_SETTINGS = Object.freeze({ width: 640, height: 360, seed: 315, quality: 0,
-  view: 'teton-jackson-lake', biome: 'CONIFER', fps: 12, mode: 'sparse', intervalMs: 10000,
-  reducedFlash: false, reducedMotion: false });
-/** Accessibility preferences a capture requests (and verifies per frame). */
-export const ACCESSIBILITY_KEYS = Object.freeze(['reducedFlash', 'reducedMotion']);
-/** Reports written before the preferences existed requested the defaults. */
-const HISTORICAL_DEFAULTS = Object.freeze({ reducedFlash: false, reducedMotion: false });
+  view: 'teton-jackson-lake', biome: 'CONIFER', fps: 12, mode: 'sparse', intervalMs: 10000 });
+/** Settings older reports recorded that captures no longer have. A historical
+ *  report is read with them removed rather than rejected as unknown; one that
+ *  turned either on rendered differently, so it compares only with its like. */
+const RETIRED_SETTINGS = Object.freeze(['reducedFlash', 'reducedMotion']);
 export function normalizeHistoricalSettings(settings) {
-  return settings && typeof settings === 'object' ? { ...HISTORICAL_DEFAULTS, ...settings } : settings;
+  if (!settings || typeof settings !== 'object') return settings;
+  const current = { ...settings };
+  for (const key of RETIRED_SETTINGS) delete current[key];
+  return current;
 }
 const integer = (n, min, max, label) => assert.ok(Number.isInteger(n) && n >= min && n <= max, `invalid ${label}`);
 const keys = (obj, allowed, label) => {
@@ -61,7 +63,6 @@ export function normalizeManifest(value) {
   for (const key of ['width', 'height']) { integer(settings[key], 64, 3840, key); assert.equal(settings[key] % 2, 0, `${key} must be even`); }
   // Every governor rung, so shedding boundaries (q2..q6) can be captured.
   integer(settings.seed, 0, 0xffffffff, 'seed'); integer(settings.quality, 0, 6, 'quality');
-  for (const key of ACCESSIBILITY_KEYS) assert.equal(typeof settings[key], 'boolean', `invalid ${key}`);
   integer(settings.fps, 1, 60, 'fps'); integer(settings.intervalMs, 100, 3600000, 'intervalMs');
   if (settings.startMs != null) integer(settings.startMs, 0, 86400000, 'startMs');
   assert.ok(['sparse', 'continuous'].includes(settings.mode), 'invalid mode');
@@ -185,25 +186,8 @@ function validateReport(report) {
       assert.ok(typeof frame.png === 'string' && frame.png.length, 'missing image path');
       assert.ok(Array.isArray(frame.thumbnail) && frame.thumbnail.length > 0 && frame.thumbnail.length % 4 === 0
         && frame.thumbnail.every(v => Number.isInteger(v) && v >= 0 && v <= 255), 'missing or invalid thumbnail');
-      if (frame.accessibility !== undefined) {
-        // Verified effective state must be what the settings requested.
-        for (const key of ACCESSIBILITY_KEYS) {
-          assert.equal(typeof frame.accessibility?.[key], 'boolean', `invalid effective ${key}`);
-          assert.equal(frame.accessibility[key], settings[key], `effective ${key} differs from the requested setting`);
-        }
-      }
     }
   }
-  accessibilityProvenance(report);
-}
-
-/** 'verified' when every frame records its effective preferences, 'unknown'
- *  for a historical report that recorded none. A partial record is invalid. */
-export function accessibilityProvenance(report) {
-  const frames = report.songs.flatMap(s => s.frames);
-  const verified = frames.filter(f => f.accessibility !== undefined).length;
-  assert.ok(verified === 0 || verified === frames.length, 'invalid accessibility provenance: some frames lack effective preferences');
-  return verified ? 'verified' : 'unknown';
 }
 
 /** The public digest identifies runtime bytes; a commit alone cannot show
@@ -223,17 +207,13 @@ export function compareReports(before, after) {
   const same = (a, b, label) => assert.deepEqual(a, b, `incompatible ${label}`);
   same(before.version, 1, 'report version'); same(after.version, 1, 'report version');
   same(before.status, 'passed', 'baseline status'); same(after.status, 'passed', 'candidate status');
+  const retired = settings => RETIRED_SETTINGS.map(key => !!settings?.[key]);
+  same(retired(before.settings), retired(after.settings), 'settings');
   const requested = settings => normalizeManifest({ version: 1, settings: normalizeHistoricalSettings(settings), songs: [{ id: 'validation', fixture: 'silence' }] }).settings;
   same(requested(before.settings), requested(after.settings), 'settings'); same(before.browser, after.browser, 'browser');
   same(before.environment, after.environment, 'render environment');
   same(before.songs.map(s => s.id), after.songs.map(s => s.id), 'song set');
   assert.ok(before.songs.length, 'missing songs');
-  // Accessibility provenance: both verified must match frame by frame; two
-  // historical reports compare as before (unknown); a historical baseline
-  // against a verified candidate cannot establish matched provenance, so
-  // that gate needs a fresh baseline.
-  const sides = [accessibilityProvenance(before), accessibilityProvenance(after)];
-  const provenance = sides[0] === sides[1] ? sides[0] : 'unmatched';
   const frames = [];
   for (let i = 0; i < before.songs.length; i++) {
     const a = before.songs[i], b = after.songs[i];
@@ -246,12 +226,10 @@ export function compareReports(before, after) {
     same(b.frames.map(f => f.timeMs), expected, 'missing candidate captures');
     same(a.frames.map(f => f.actualTimeMs), b.frames.map(f => f.actualTimeMs), `${a.id} actual time`);
     same(a.frames.map(f => f.seed), b.frames.map(f => f.seed), `${a.id} actual song seed`);
-    if (provenance === 'verified') same(a.frames.map(f => f.accessibility), b.frames.map(f => f.accessibility), `${a.id} effective accessibility`);
     a.frames.forEach((f, n) => frames.push({ songId: a.id, timeMs: f.timeMs, before: f.png, after: b.frames[n].png,
       identical: f.sha256 === b.frames[n].sha256, difference: imageDifference(f.thumbnail, b.frames[n].thumbnail) }));
   }
-  return { version: 1, verdict: 'unreviewed', source: comparisonSource(before.source, after.source),
-    accessibility: { provenance, freshBaselineRequired: provenance === 'unmatched' }, frames };
+  return { version: 1, verdict: 'unreviewed', source: comparisonSource(before.source, after.source), frames };
 }
 
 /** `song@timeMs` for every compared frame whose PNG bytes differ. */
@@ -261,7 +239,7 @@ export function differingFrames(diff) {
 
 /**
  * A VFX matrix: shared settings and songs plus named cases that override
- * settings (quality rung, preferences, look, view). One case is one ordinary
+ * settings (quality rung, look, view). One case is one ordinary
  * manifest, so each runs, repeats and compares exactly like the corpus.
  */
 export function normalizeMatrix(value) {

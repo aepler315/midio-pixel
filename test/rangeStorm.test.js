@@ -42,12 +42,11 @@ test('unsegmented songs can climax early or late after the arrival', () => {
     assert.equal(score.section.startMs, startMs);
   }
 });
-test('lightning follows actual percussion timing, is seek safe, rate limited and disabled by reduced flash', () => {
+test('lightning follows actual percussion timing, is seek safe and rate limited', () => {
   const score = compileStorm({ energyCurves, sections, timeline, durationMs: 120000 });
   assert.ok(score.at(45020).flash > .5);
   assert.equal(score.at(45100).flash, score.at(45100).flash);
   assert.ok(score.at(47000).flash > .5, 'a kick is also an authored rhythmic attack');
-  assert.equal(score.at(45020, { reducedFlash: true }).flash, 0);
   assert.ok(score.at(45020).flash > score.at(45120).flash);
 });
 test('songs without structural sections use their loudest sustained window; no audio evidence means no flashes', () => {
@@ -56,8 +55,6 @@ test('songs without structural sections use their loudest sustained window; no a
   assert.equal(score.at(45000).flash, 0);
   const mgr = { energyCurves, durationMs: 120000, sections, conductor: { timeline } };
   assert.deepEqual(stormAt(mgr, 45020), stormAt(mgr, 45020));
-  mgr.reducedFlash = true;
-  assert.equal(stormAt(mgr, 45020).flash, 0);
 });
 
 test('a pitched D2/E2 line never creates lightning and snare velocity is respected', () => {
@@ -118,7 +115,6 @@ test('kick and crash accents drive lightning without depending on snare classifi
       timeline: [{ tMs: 45000, pitch, role: 'RHYTHM', vel: .95 }] });
     assert.ok(score.at(45000).flash > .5, `accent ${pitch} must reach the scene`);
     assert.equal(score.at(45400).flash, 0);
-    assert.equal(score.at(45000, { reducedFlash: true }).flash, 0);
   }
 });
 test('lightning strength and duration distinguish soft hits from musical accents', () => {

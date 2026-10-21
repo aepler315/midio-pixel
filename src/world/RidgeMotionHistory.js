@@ -14,8 +14,8 @@ const follow = (v, raw, dt, attack, release) => v + (1 - Math.exp(-dt / (raw > v
 let sessionId = 0;
 
 /** Musical scrolling belongs to heard time, never a Simulation's reset origin. */
-export function ridgeAdvectionPxAt(heardTimeMs, reducedMotion = false) {
-  return reducedMotion || !Number.isFinite(heardTimeMs) ? 0 : 220 * Math.max(0, heardTimeMs) / 1000;
+export function ridgeAdvectionPxAt(heardTimeMs) {
+  return Number.isFinite(heardTimeMs) ? 220 * Math.max(0, heardTimeMs) / 1000 : 0;
 }
 
 export class RidgeMotionHistory {

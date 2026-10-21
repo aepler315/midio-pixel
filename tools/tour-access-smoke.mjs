@@ -1,6 +1,6 @@
 // Real controls and camera diagnostics against an immutable copy of this
 // checkout. Software Chromium evidence; this does not claim device performance.
-// node tools/tour-access-smoke.mjs <output-directory> [all|startup|activation|live|motion|refinement|fallback]
+// node tools/tour-access-smoke.mjs <output-directory> [all|startup|activation|live|fallback]
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -12,7 +12,7 @@ import { snapshotSource, serveSnapshot } from './lib/visual-evaluation-server.mj
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const output = path.resolve(process.argv[2] || '.smoke/tour-access/browser');
 const suite = process.argv[3] || 'all';
-assert.ok(['all', 'startup', 'activation', 'live', 'motion', 'refinement', 'fallback'].includes(suite), `unknown suite: ${suite}`);
+assert.ok(['all', 'startup', 'activation', 'live', 'fallback'].includes(suite), `unknown suite: ${suite}`);
 await fs.mkdir(output, { recursive: true });
 const source = await snapshotSource(root), server = await serveSnapshot(source);
 const wav = path.join(output, 'tour-access-120-96.wav');
@@ -32,13 +32,11 @@ const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_C
   args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 report.browser = browser.version();
 
-async function open({ query = '', saved = null, blocked = false, fail = null, reducedMotion = false } = {}) {
+async function open({ query = '', saved = null, blocked = false, fail = null } = {}) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1,
-    serviceWorkers: 'block', reducedMotion: 'no-preference' });
-  await context.addInitScript(({ saved, blocked, reducedMotion }) => {
+    serviceWorkers: 'block' });
+  await context.addInitScript(({ saved, blocked }) => {
     if (saved) localStorage.setItem('range-tour', saved);
-    localStorage.setItem('smw:reducedMotion', reducedMotion ? '1' : '0');
-    localStorage.setItem('smw:reducedFlash', '0');
     if (blocked) {
       for (const method of ['getItem', 'setItem', 'removeItem']) {
         const original = Storage.prototype[method];
@@ -48,7 +46,7 @@ async function open({ query = '', saved = null, blocked = false, fail = null, re
         };
       }
     }
-  }, { saved, blocked, reducedMotion });
+  }, { saved, blocked });
   await context.route('**/*', route => {
     const u = new URL(route.request().url());
     if (u.origin !== server.url && !['blob:', 'data:'].includes(u.protocol)) return route.abort();
@@ -87,7 +85,6 @@ async function state(page) {
       seed: app.songSeed, generation: range.generation,
       biomes: mgr?.songTerrain?.biomes, originalBiomes: mgr?.songTerrain?._rangeTourOriginalBiomes,
       chapterBiomes: mgr?._chapterInputs?.biomes, chapters: mgr?.chapterPlan?.map(c => ({ biome: c.biome, startMs: c.startMs })),
-      reducedMotion: mgr?.reducedMotion, plannedReducedMotion: mgr?.rangePresentation?.tour?.reducedMotion,
       tourNotes: mgr?.rangePresentation?.tour?.notes,
     };
   });
@@ -109,15 +106,17 @@ async function loadSong(page, world = 'alpine') {
   });
   console.log('Tour access: world picker ready; choosing and pausing in one click.');
   await page.locator(`.worldCard[data-base-world-id="${world}"]`).click();
-  const kind = world === 'redline' ? 'strip' : world;
   // The picker builds a song-specific world whose public ID is "custom".
-  await page.waitForFunction(kind => window.__SMW?.sim?.biomes?.world?.kind === kind, kind, { timeout: 300000 });
+  // Both worlds are the alpine kind; the experience tells them apart.
+  const experience = world === 'trio' ? 'trio' : 'landscape';
+  await page.waitForFunction(experience => window.__SMW?.sim?.experience === experience
+    && window.__SMW.sim.biomes?.world?.kind === 'alpine', experience, { timeout: 300000 });
   // Stop the real audio/rAF through the actual Pause handler as soon as the
   // world exists. Preparation and assertions must not leave software GL
   // rendering continuously in the background.
   await page.evaluate(() => { if (!window.__SMW.paused) document.getElementById('pauseBtn').click(); });
   await page.waitForFunction(() => window.__SMW.audioEngine.ctx.state === 'suspended');
-  console.log(`Tour access: ${kind} started and paused; preparing requested scenery.`);
+  console.log(`Tour access: ${world} started and paused; preparing requested scenery.`);
 }
 
 async function drawCurrent(page) {
@@ -191,7 +190,7 @@ try {
     { name: 'fresh UI preference activates the final tour camera', saved: null, enable: true },
     { name: 'persisted preference activates the final tour camera', saved: 'tetons', enable: false },
   ] : [])) {
-    const h = await open({ query: '?worlds=all', saved: spec.saved });
+    const h = await open({ saved: spec.saved });
     try {
       if (spec.enable) await h.page.locator('#range-tour-toggle').check();
       const evidence = await activateTour(h.page);
@@ -201,13 +200,12 @@ try {
     } finally { await h.context.close(); }
   }
 
-  if (['all', 'live', 'motion', 'refinement'].includes(suite)) {
-    const live = await open({ query: '?worlds=all&rangeTour=tetons' });
+  if (['all', 'live'].includes(suite)) {
+    const live = await open({ query: '?rangeTour=tetons' });
     try {
     const { page } = live;
     const { loading, active, camera } = await activateTour(page, { seekMs: 12000 });
     await record({ name: 'live tour activity and final camera', loading, active, camera });
-    if (suite !== 'refinement') {
     console.log('Tour access: active camera passed; rebuilding ordinary geography through the real toggle.');
     const paused = await state(page);
     await page.evaluate(() => { window.__tourAccessAudio = window.__SMW.audioEngine; });
@@ -236,7 +234,6 @@ try {
     assert.equal(await page.evaluate(() => localStorage.getItem('range-tour')), 'tetons');
     assert.equal(new URL(page.url()).searchParams.get('rangeTour'), 'tetons');
     await record({ name: 'paused enable retains clock and seed without stale activity', onPaused });
-    if (suite !== 'motion') {
     console.log('Tour access: paused off/on preserved clock, seed and chapters; checking playing toggle.');
     const playingToggle = await within('playing tour toggle', page.evaluate(async () => {
       document.getElementById('displaySettingsClose').click();
@@ -260,41 +257,13 @@ try {
     await page.waitForFunction(() => window.__SMW.audioEngine.ctx.state === 'suspended');
     await page.locator('#displaySettingsBtn').click();
     await page.locator('#range-tour-toggle').check({ timeout: 300000 });
-    }
     await within('rebuilt tour readiness', page.evaluate(() => window.__SMW.rangeReady({ timeoutMs: 120000 })));
     await drawCurrent(page);
-    } else {
-      await page.locator('#displaySettingsBtn').click({ timeout: 300000 });
-    }
-    console.log('Tour access: checking reduced-motion refinement on the owned song.');
-    await page.locator('#reducedMotionBtn').click();
-    await drawCurrent(page);
-    await within('reduced-motion refinement', page.evaluate(() => window.__SMW.sim.biomes.rangePresentation._replanPromise));
-    await drawCurrent(page);
-    let reduced = await state(page);
-    report.lastObserved = { name: 'reduced-motion refinement result', state: reduced };
-    await saveReport();
-    assert.equal(reduced.reducedMotion, true);
-    assert.equal(reduced.tourPreparation.requestedReducedMotion, true);
-    assert.equal(reduced.tourPreparation.effectiveReducedMotion, reduced.plannedReducedMotion);
-    const applied = reduced.plannedReducedMotion;
-    if (applied) assert.equal(reduced.tourPreparation.refinement.state, 'applied');
-    else {
-      assert.equal(reduced.tourPreparation.refinement.state, 'held');
-      assert.ok(reduced.tourPreparation.refinement.reason);
-      await page.waitForFunction(() => document.getElementById('range-tour-status').textContent.includes('motion change unavailable'));
-      reduced = await state(page);
-      assert.match(reduced.text, /motion change unavailable/);
-      report.limitations = [`At 12 seconds this fixture retains the previous motion setting: ${reduced.tourPreparation.refinement.reason}. The requested reduced-motion change remains unmet; the active flight and its committed prefix are retained.`];
-    }
-    assert.equal(reduced.active, true);
-    const retainedPose = await page.evaluate(() => window.__SMW.sim.biomes.rangePresentation.tour.poseAt(12000));
-    assert.deepEqual(retainedPose.eyeM, camera.at12s.eyeM, 'refinement must preserve the committed camera');
-    assert.deepEqual(retainedPose.targetM, camera.at12s.targetM);
+    const rebuilt = await expectStatus(page, 'active');
+    assert.equal(rebuilt.active, true, 'the rebuilt tour flies again');
     assert.deepEqual(live.errors, []);
-    await record({ name: 'owned-song motion refinement reports its actual outcome', outcome: applied ? 'applied' : 'held', requestedMotionSatisfied: applied,
-      reduced, retainedPose, warnings: live.warnings });
-    console.log(`Tour access: ${applied ? 'applied' : 'explicitly held'} motion refinement and committed camera verified; capturing the real control.`);
+    await record({ name: 'tour rebuilt after the playing toggle', state: rebuilt, warnings: live.warnings });
+    console.log('Tour access: playing toggle passed; capturing the real control.');
     await page.screenshot({ path: path.join(output, 'camera-tour-control.png'), timeout: 300000 });
     report.screenshot = 'camera-tour-control.png';
     console.log('Tour access: camera and playback controls passed.');
@@ -302,7 +271,7 @@ try {
   }
 
   for (const fail of (['all', 'fallback'].includes(suite) ? ['tour', 'runtime'] : [])) {
-    const h = await open({ query: '?worlds=all&rangeTour=tetons', fail });
+    const h = await open({ query: '?rangeTour=tetons', fail });
     try {
       await loadSong(h.page);
       await within('fallback readiness', h.page.evaluate(() => window.__SMW.rangeReady({ timeoutMs: 120000 })));
@@ -319,16 +288,21 @@ try {
     } finally { await h.context.close(); }
   }
   if (['all', 'fallback'].includes(suite)) {
-    const other = await open({ query: '?worlds=all&rangeTour=tetons' });
+    // Trio owns no Range presentation. The saved tour waits for Landscape:
+    // the toggle is disabled but stays checked, and storage keeps it.
+    const other = await open({ saved: 'tetons' });
     try {
-    await loadSong(other.page, 'redline');
+    await loadSong(other.page, 'trio');
     const ready = await other.page.evaluate(() => window.__SMW.rangeReady({ timeoutMs: 120000 }));
-    assert.equal(ready.tourPreparation.state, 'idle');
-    const value = await expectStatus(other.page, 'unavailable');
-    assert.match(value.text, /The Range/);
+    assert.equal(ready.mode, 'legacy');
+    const value = await expectStatus(other.page, 'off');
+    assert.match(value.text, /Available in Landscape/);
     assert.equal(value.active, false);
+    assert.equal(value.checked, true);
+    assert.equal(await other.page.locator('#range-tour-toggle').isDisabled(), true);
+    assert.equal(await other.page.evaluate(() => localStorage.getItem('range-tour')), 'tetons');
     assert.deepEqual(other.errors, []);
-      await record({ name: 'tour preference retained in another world', state: value });
+      await record({ name: 'tour preference retained in Trio', state: value });
     } finally { await other.context.close(); }
   }
   report.passed = true;

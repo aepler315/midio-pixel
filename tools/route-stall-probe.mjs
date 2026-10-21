@@ -250,7 +250,7 @@ async function probeRoute(browser, url, audioPath, routeId, outDir, options) {
   });
   let cpu, pings, tracing = false;
   try {
-    await page.goto(url + '/');
+    await page.goto(url + '/?experience=landscape');
     await page.locator('#titleSettings').evaluate(node => { node.open = true; });
     const lyrics = page.locator('#lyricGroundingBtn');
     if (await lyrics.getAttribute('aria-pressed') === 'true') await lyrics.click();
@@ -258,7 +258,7 @@ async function probeRoute(browser, url, audioPath, routeId, outDir, options) {
     if (routeId.startsWith('tour-')) {
       await page.locator('#range-tour-toggle').check();
       if (routeId === 'tour-persisted') {
-        await page.goto(url + '/');
+        await page.goto(url + '/?experience=landscape');
         await page.locator('#titleSettings').evaluate(node => { node.open = true; });
         assert.equal(await page.locator('#range-tour-toggle').isChecked(), true);
       }

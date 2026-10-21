@@ -32,7 +32,6 @@ export function renderWorldFrame({ atMs, quality = 0, constructionSeed = 315 }) 
     simulationMs: sim.timeMs,
     response: sim.biomes.world.response || null,
     quality: perf?.level ?? null,
-    reducedFlash: !!sim.biomes.reducedFlash,
     backingStore: { width: stage.width, height: stage.height },
   };
 }

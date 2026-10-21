@@ -85,7 +85,7 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
     const phrase = phrases.find(p => t >= p.startMs && t < p.endMs);
     const energy01 = unit(read(t));
     const camera = { ...rangeCameraMoveAt({ timeMs: t, sections: phrases, durationMs: duration, seed,
-      reducedMotion: !!options.reducedMotion, preview: !!options.preview }) };
+      preview: !!options.preview }) };
     if (previous && t < freezeThroughMs + 6000) {
       const old = previous.at(t, options).camera, k = ease((t - freezeThroughMs) / 6000);
       for (const key of ['dolly', 'yaw', 'crane', 'truck']) camera[key] = old[key] + (camera[key] - old[key]) * k;

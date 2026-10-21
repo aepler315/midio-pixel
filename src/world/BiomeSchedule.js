@@ -54,7 +54,7 @@ export function travelMs(sec) {
  * carries `travel: true` and `travelP`, the linear progress (0..1) the
  * layers stagger their arrival on.
  */
-export function blendSections(sections, nowMs, { travel = false, reducedFlash = false } = {}) {
+export function blendSections(sections, nowMs, { travel = false } = {}) {
   const idx = sectionIndexAt(sections, nowMs);
   if (idx < 0) return null;
   const sec = sections[idx];
@@ -71,7 +71,7 @@ export function blendSections(sections, nowMs, { travel = false, reducedFlash = 
   const travelled = travel && prev.profile !== sec.profile;
   // A cut is quick but still long enough for a height change to read as a
   // deliberate transition; shutters and fades use one and four bars.
-  const bars = sec.transition === 'cut' ? (reducedFlash ? 1 : 0.3) : sec.transition === 'shutter' ? 1 : 4;
+  const bars = sec.transition === 'cut' ? 0.3 : sec.transition === 'shutter' ? 1 : 4;
   const spanMs = travelled ? travelMs(sec) : bars * sec.barMs;
   const p = Math.min(1, Math.max(0, (nowMs - sec.startMs) / spanMs));
   const t = smoothstep(0, 1, p);

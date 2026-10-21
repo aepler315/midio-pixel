@@ -105,38 +105,31 @@ test('consecutive impacts alternate roll direction', () => {
 // so tauMs=0 is the very instant of the beat (envelope still 0) -- these
 // tests sample at tauMs=40, the envelope's peak, to check amplitudes.
 test('beatSwayOffset snaps up right on the beat and settles back down, scaled by energy', () => {
-  const quiet = beatSwayOffset(40, 1, 0, 1);
-  const loud = beatSwayOffset(40, 1, 1, 1);
+  const quiet = beatSwayOffset(40, 1, 0);
+  const loud = beatSwayOffset(40, 1, 1);
   assert.ok(Math.abs(quiet.y - BEAT_SWAY_BASE_PX) < 1e-6, 'even at zero energy, the base dip is present');
   assert.ok(Math.abs(loud.y - (BEAT_SWAY_BASE_PX + BEAT_SWAY_ENERGY_PX)) < 1e-6, 'full energy adds the full extra dip');
 
-  const atBeat = beatSwayOffset(0, 1, 1, 1);
+  const atBeat = beatSwayOffset(0, 1, 1);
   assert.equal(atBeat.y, 0, 'the very instant of the beat is still the start of the attack, not the peak');
 
-  const settled = beatSwayOffset(700, 1, 1, 1); // well past kickEnv's settle window
+  const settled = beatSwayOffset(700, 1, 1); // well past kickEnv's settle window
   assert.ok(settled.y < loud.y * 0.1, 'should have rung most of the way back down by 700ms');
 });
 
 test('beatSwayOffset\'s lateral nudge only appears with real musical energy, and flips with sign', () => {
-  const stillCalm = beatSwayOffset(40, 1, 0, 1);
+  const stillCalm = beatSwayOffset(40, 1, 0);
   assert.equal(stillCalm.x, 0, 'no lateral nudge at zero energy');
 
-  const right = beatSwayOffset(40, 1, 1, 1);
-  const left = beatSwayOffset(40, -1, 1, 1);
+  const right = beatSwayOffset(40, 1, 1);
+  const left = beatSwayOffset(40, -1, 1);
   assert.ok(right.x > 0);
   assert.ok(Math.abs(left.x + right.x) < 1e-9, 'the sign flips the nudge, magnitude unchanged');
 });
 
-test('beatSwayOffset is scaled down by the reduced-motion multiplier', () => {
-  const full = beatSwayOffset(40, 1, 1, 1);
-  const half = beatSwayOffset(40, 1, 1, 0.5);
-  assert.ok(Math.abs(half.y - full.y * 0.5) < 1e-9);
-  assert.ok(Math.abs(half.x - full.x * 0.5) < 1e-9);
-});
-
 test('CameraDirector ignores beat sway entirely when no beat clock is supplied (default null)', () => {
   const cam = new CameraDirector();
-  for (let i = 0; i < 10; i++) cam.update(1 / 60, 0, false);
+  for (let i = 0; i < 10; i++) cam.update(1 / 60, 0);
   assert.equal(cam.shakeX, 0);
   assert.equal(cam.shakeY, 0);
 });
@@ -151,7 +144,7 @@ test('CameraDirector applies a beat-locked sway that moves the frame even with n
     const dtMs = 1000 / 60;
     tMs += dtMs;
     const tau = tMs % periodMs;
-    cam.update(dtMs / 1000, 0, false, tau, 1);
+    cam.update(dtMs / 1000, 0, tau, 1);
     if (Math.abs(cam.shakeY) > 0.5) sawMotion = true;
   }
   assert.ok(sawMotion, 'a beat-locked section with real energy should visibly move the camera');
@@ -159,10 +152,10 @@ test('CameraDirector applies a beat-locked sway that moves the frame even with n
 
 test('a fresh beat crossing (tau wraps back toward 0) flips the lateral sway sign', () => {
   const cam = new CameraDirector();
-  cam.update(0.001, 0, false, 490, 1); // just before a beat at period 500
+  cam.update(0.001, 0, 490, 1); // just before a beat at period 500
   const xBefore = Math.sign(cam.shakeX) || cam._beatSwaySign;
-  cam.update(0.001, 0, false, 5, 1); // wrapped: a new beat just landed
-  cam.update(0.001, 0, false, 6, 1); // same beat, one tick later
+  cam.update(0.001, 0, 5, 1); // wrapped: a new beat just landed
+  cam.update(0.001, 0, 6, 1); // same beat, one tick later
   assert.equal(cam._beatSwaySign, -xBefore || cam._beatSwaySign, 'sign should have flipped across the wrap');
 });
 
@@ -173,9 +166,9 @@ test('calm sections keep only a fraction of the beat sway, never the full-energy
   // same-calm camera with no beat clock and subtracting its frame -- the
   // drift state (smoothed amplitude + phase) is identical between the two,
   // so it cancels exactly without re-deriving the drift formula.
-  calmNoBeat.update(dtSec, 1, false, null, 1);
-  calm.update(dtSec, 1, false, 40, 1);
-  active.update(dtSec, 0, false, 40, 1);
+  calmNoBeat.update(dtSec, 1, null, 1);
+  calm.update(dtSec, 1, 40, 1);
+  active.update(dtSec, 0, 40, 1);
 
   const calmSwayY = calm.shakeY - calmNoBeat.shakeY;
 
@@ -188,8 +181,8 @@ test('calm sections keep only a fraction of the beat sway, never the full-energy
 test('a zero universePulse is a complete no-op, same as omitting it', () => {
   const withZero = new CameraDirector();
   const omitted = new CameraDirector();
-  withZero.update(1 / 60, 0, false, null, 0, 0);
-  omitted.update(1 / 60, 0, false, null, 0);
+  withZero.update(1 / 60, 0, null, 0, 0);
+  omitted.update(1 / 60, 0, null, 0);
   assert.equal(withZero.zoom, omitted.zoom);
   assert.equal(withZero.roll, omitted.roll);
 });
@@ -198,36 +191,32 @@ test('a full-strength universePulse pulls the zoom back by UNIVERSE_ZOOM_DIP and
   const cam = new CameraDirector();
   // Run zoom's own ease up to (near) 1 first with no pulse, so the dip below
   // is measured against a settled baseline rather than the initial transient.
-  for (let i = 0; i < 300; i++) cam.update(1 / 60, 0, false, null, 0, 0);
+  for (let i = 0; i < 300; i++) cam.update(1 / 60, 0, null, 0, 0);
   const baseZoom = cam.zoom;
   const baseRoll = cam.roll;
-  cam.update(1 / 60, 0, false, null, 0, 1);
+  cam.update(1 / 60, 0, null, 0, 1);
   assert.ok(Math.abs(cam.zoom - (baseZoom - UNIVERSE_ZOOM_DIP)) < 1e-6, `expected the full dip, got zoom ${cam.zoom}`);
   assert.ok(Math.abs(cam.roll - baseRoll) <= UNIVERSE_ROLL_MAX + 1e-9, 'roll tilt stays within its documented max');
   assert.notEqual(cam.roll, baseRoll, 'a full pulse should visibly tilt the frame');
 });
 
-test('the reframe scales linearly with pulse strength, and reduced motion shrinks (not silences) it', () => {
+test('the reframe scales linearly with pulse strength', () => {
   const full = new CameraDirector();
   const half = new CameraDirector();
-  const reduced = new CameraDirector();
-  full.update(1 / 60, 0, false, null, 0, 1);
-  half.update(1 / 60, 0, false, null, 0, 0.5);
-  reduced.update(1 / 60, 0, true, null, 0, 1);
+  full.update(1 / 60, 0, null, 0, 1);
+  half.update(1 / 60, 0, null, 0, 0.5);
   const fullDip = 1 - full.zoom;
   const halfDip = 1 - half.zoom;
   assert.ok(Math.abs(halfDip - fullDip / 2) < 1e-6, `expected half the dip at half pulse, got ${halfDip} vs ${fullDip}`);
-  assert.ok(Math.abs(reduced.roll) < Math.abs(full.roll), 'reduced motion should shrink the roll tilt');
-  assert.ok(Math.abs(reduced.roll) > 0, 'but not eliminate it outright');
 });
 
 test('consecutive shifts alternate which way the reframe tilts', () => {
   const cam = new CameraDirector();
-  cam.update(1 / 60, 0, false, null, 0, 0); // pulse starts at 0 -- no shift yet
-  cam.update(1 / 60, 0, false, null, 0, 1); // pulse rises from 0 -- first shift
+  cam.update(1 / 60, 0, null, 0, 0); // pulse starts at 0 -- no shift yet
+  cam.update(1 / 60, 0, null, 0, 1); // pulse rises from 0 -- first shift
   const firstSign = cam._universeRollSign;
-  cam.update(1 / 60, 0, false, null, 0, 0); // pulse falls back toward 0
-  cam.update(1 / 60, 0, false, null, 0, 1); // rises from 0 again -- second shift
+  cam.update(1 / 60, 0, null, 0, 0); // pulse falls back toward 0
+  cam.update(1 / 60, 0, null, 0, 1); // rises from 0 again -- second shift
   const secondSign = cam._universeRollSign;
   assert.equal(secondSign, -firstSign);
 });
@@ -246,7 +235,7 @@ test('a pulse held elevated across many frames never runs the zoom away -- regre
     // Same rise-then-settle shape ParallelUniverseDirector.update() produces.
     const u = (i * dtSec) / 0.9;
     const pulse = u < 1 ? Math.sin(u * Math.PI * 0.5) : Math.max(0, 2 - u) ** 2;
-    cam.update(dtSec, 0, false, null, 0, pulse);
+    cam.update(dtSec, 0, null, 0, pulse);
     minZoom = Math.min(minZoom, cam.zoom);
   }
   assert.ok(minZoom > 1 - UNIVERSE_ZOOM_DIP - 0.01, `zoom dipped far past its documented bound: ${minZoom}`);
@@ -257,13 +246,13 @@ test('a pulse held elevated across many frames never runs the zoom away -- regre
 
 test('floatTilt is 0 at normal framing (zoom=1) and rises smoothly as the camera pulls back', () => {
   const cam = new CameraDirector();
-  cam.update(1 / 60, 0, false); // zoom starts at (and stays near) 1 with no target set
+  cam.update(1 / 60, 0); // zoom starts at (and stays near) 1 with no target set
   assert.ok(Math.abs(cam.floatTilt) < 1e-6, `expected ~0 floatTilt at rest, got ${cam.floatTilt}`);
 
   cam._zoomTarget = ZOOM_MIN;
   let last = 0;
   for (let i = 0; i < 600; i++) {
-    cam.update(1 / 60, 0, false);
+    cam.update(1 / 60, 0);
     assert.ok(cam.floatTilt >= last - 1e-9, `floatTilt should rise monotonically as zoom eases down, dipped at frame ${i}`);
     last = cam.floatTilt;
   }
@@ -274,28 +263,15 @@ test('floatTilt never exceeds FLOAT_TILT_MAX even at the hardest pull-back', () 
   const cam = new CameraDirector();
   cam._zoomTarget = ZOOM_MIN;
   for (let i = 0; i < 1000; i++) {
-    cam.update(1 / 60, 0, false);
+    cam.update(1 / 60, 0);
     assert.ok(cam.floatTilt <= FLOAT_TILT_MAX + 1e-6, `floatTilt overshot: ${cam.floatTilt}`);
     assert.ok(cam.floatTilt >= 0, `floatTilt went negative: ${cam.floatTilt}`);
   }
 });
 
-test('reduced motion shrinks floatTilt rather than eliminating it', () => {
-  const full = new CameraDirector();
-  const reduced = new CameraDirector();
-  full._zoomTarget = ZOOM_MIN;
-  reduced._zoomTarget = ZOOM_MIN;
-  for (let i = 0; i < 300; i++) {
-    full.update(1 / 60, 0, false);
-    reduced.update(1 / 60, 0, true);
-  }
-  assert.ok(reduced.floatTilt < full.floatTilt, 'reduced motion should tilt less');
-  assert.ok(reduced.floatTilt > 0, 'but not zero -- the cue should still communicate the pull-back');
-});
-
 test('a universe-shift pull-back also drives floatTilt, not just off-frame pull-back', () => {
   const cam = new CameraDirector();
   // No off-frame target set (_zoomTarget stays 1); only the universe pulse dips zoom.
-  for (let i = 0; i < 5; i++) cam.update(1 / 60, 0, false, null, 0, 1);
+  for (let i = 0; i < 5; i++) cam.update(1 / 60, 0, null, 0, 1);
   assert.ok(cam.floatTilt > 0, 'a universe-reframe pull-back should tilt the layers too, not be ignored');
 });

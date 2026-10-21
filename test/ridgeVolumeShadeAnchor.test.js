@@ -150,7 +150,7 @@ test('ridgeShadingFull off drops exactly the shade and aerial passes, keeping ca
   const strip = makeStrip({ phase: 0 });
 
   const bmOff = await makeManager();
-  bmOff.world = { kind: 'city' };
+  bmOff.world = { kind: 'unregistered-kind' };
   bmOff.tSec = 3;
   bmOff._airColor = '#88aacc'; // a real air color, so the aerial pass would be live
   bmOff._perf = new PerfGovernor({ startLevel: MAX_LEVEL });
@@ -158,7 +158,7 @@ test('ridgeShadingFull off drops exactly the shade and aerial passes, keeping ca
   bmOff._drawRidgeVolume(ctxOff, canvas, strip, 0, 0, 'L2', 1, 1, 1, 1);
 
   const bmOn = await makeManager();
-  bmOn.world = { kind: 'city' };
+  bmOn.world = { kind: 'unregistered-kind' };
   bmOn.tSec = 3;
   bmOn._airColor = '#88aacc';
   bmOn._perf = new PerfGovernor({ startLevel: MAX_LEVEL });
@@ -185,7 +185,7 @@ test('no perf object at all reads every rung, including ridgeShadingFull, as ful
   const strip = makeStrip({ phase: 0 });
 
   const bmFreshGovernor = await makeManager();
-  bmFreshGovernor.world = { kind: 'city' };
+  bmFreshGovernor.world = { kind: 'unregistered-kind' };
   bmFreshGovernor.tSec = 3;
   bmFreshGovernor._airColor = '#88aacc';
   bmFreshGovernor._perf = new PerfGovernor(); // level 0
@@ -193,7 +193,7 @@ test('no perf object at all reads every rung, including ridgeShadingFull, as ful
   bmFreshGovernor._drawRidgeVolume(ctxFreshGovernor, canvas, strip, 0, 0, 'L2', 1, 1, 1, 1);
 
   const bmNoPerf = await makeManager();
-  bmNoPerf.world = { kind: 'city' };
+  bmNoPerf.world = { kind: 'unregistered-kind' };
   bmNoPerf.tSec = 3;
   bmNoPerf._airColor = '#88aacc';
   const ctxNoPerf = new RecordingCtx();
@@ -244,19 +244,4 @@ test('far anchor uses the capped foreground heights', async () => {
   bm._heightStrips = { L2: far, L3: taller, L4: taller };
   assert.equal(bm._rangeDh(canvas, far, 'L2', 1, false), before,
     'invisible height beyond the foreground cap must not inflate the back ridge');
-});
-
-test('reduced motion holds the actual legacy ridge bitmap and crest across two frames (M2)', async () => {
-  const bm = await makeManager(), strip = makeStrip(), records = [];
-  bm.reducedMotion = true; bm.reducedFlash = false;
-  const ctx = new RecordingCtx();
-  for (const name of ['drawImage', 'translate', 'transform']) ctx[name] = (...args) => records.push([name, ...args]);
-  const frames = [];
-  for (const tSec of [10, 20]) {
-    bm.tSec = tSec; bm._crestCache.clear(); records.length = 0;
-    const crest = bm._crestPoints(canvas, strip, 0, 0, 'L2', 1, 1);
-    bm._drawDancingStrip(ctx, canvas, strip, 0, 0, 'L2', 1, 1);
-    frames.push({ crest, records: [...records] });
-  }
-  assert.deepEqual(frames[1], frames[0]);
 });

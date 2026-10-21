@@ -21,7 +21,6 @@ changing the authored flight.
 Lightning follows prominent analyzed kicks, snares and crashes at their heard
 timestamps. Velocity and passage energy shape intensity, decay and restrikes;
 weak intermediate percussion cannot consume the cooldown before a strong beat.
-Reduced-flash mode still suppresses flashes.
 
 The moon has a continuous lateral orbit independent of the storm and solar
 visibility. Tour celestial directions use the final terrain camera, including

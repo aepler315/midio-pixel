@@ -15,7 +15,7 @@
 // has no gait to animate.
 //
 // Every term is built from co-prime-ish frequencies so the composite never
-// visibly loops, and every term keeps a non-zero floor at full motionScale:
+// visibly loops, and every term keeps a non-zero floor:
 // "constant energetic motion" means it must never settle, even in silence.
 //
 // Pure and DOM-free; the renderer applies these to Midio's draw transform,
@@ -51,49 +51,43 @@ export const CORE_SPIN_ENERGY_DPS = 78;
 
 /** Vertical offset in px, NEGATIVE being up (screen space), including the
  *  constant lift that keeps him off the ground. */
-export function midioHoverPx(tSec, energy01 = 0, motionScale = 1) {
-  const m = clamp01(motionScale);
-  if (m <= 0) return 0;
+export function midioHoverPx(tSec, energy01 = 0) {
   const e = clamp01(energy01);
   const amp = HOVER_BASE_PX + HOVER_ENERGY_PX * e;
   const wave = Math.sin(tSec * HOVER_HZ_A * Math.PI * 2)
     * 0.68
     + Math.sin(tSec * HOVER_HZ_B * Math.PI * 2 + 1.7) * 0.32;
-  return -(HOVER_LIFT_PX + amp * 0.5 * (1 + wave)) * m;
+  return -(HOVER_LIFT_PX + amp * 0.5 * (1 + wave));
 }
 
 /** Whole-body sway in degrees. Bounded well inside a lean that would read
  *  as falling over. */
-export function midioPrecessDeg(tSec, energy01 = 0, motionScale = 1) {
-  const m = clamp01(motionScale);
-  if (m <= 0) return 0;
+export function midioPrecessDeg(tSec, energy01 = 0) {
   const e = clamp01(energy01);
   const amp = PRECESS_BASE_DEG + PRECESS_ENERGY_DEG * e;
   const wave = Math.sin(tSec * PRECESS_HZ_A * Math.PI * 2) * 0.7
     + Math.sin(tSec * PRECESS_HZ_B * Math.PI * 2 + 0.9) * 0.3;
-  return amp * wave * m;
+  return amp * wave;
 }
 
 /** Continuously accumulating core rotation in degrees. Monotonic (it only
  *  ever advances) so it can never stall on a beat, and unwrapped by the
  *  caller -- Math.sin/cos of it is all the renderer needs. */
-export function midioCoreSpinDeg(tSec, energy01 = 0, motionScale = 1) {
-  const m = clamp01(motionScale);
-  if (m <= 0) return 0;
+export function midioCoreSpinDeg(tSec, energy01 = 0) {
   const e = clamp01(energy01);
-  return tSec * (CORE_SPIN_BASE_DPS + CORE_SPIN_ENERGY_DPS * e) * m;
+  return tSec * (CORE_SPIN_BASE_DPS + CORE_SPIN_ENERGY_DPS * e);
 }
 
 /** The three together, for one frame. */
-export function midioMotion(tSec, energy01 = 0, motionScale = 1, beatPhase01 = null) {
+export function midioMotion(tSec, energy01 = 0, beatPhase01 = null) {
   return {
-    hoverPx: midioHoverPx(tSec, energy01, motionScale),
-    precessDeg: midioPrecessDeg(tSec, energy01, motionScale),
-    coreSpinDeg: midioCoreSpinDeg(tSec, energy01, motionScale),
+    hoverPx: midioHoverPx(tSec, energy01),
+    precessDeg: midioPrecessDeg(tSec, energy01),
+    coreSpinDeg: midioCoreSpinDeg(tSec, energy01),
     // Null beat phase (no grid yet, or a caller that doesn't have one) means
     // no pulse rather than a guessed one: a pulse off the beat is worse than
     // none, and 1 is the identity here.
-    pulseScale: beatPhase01 == null ? 1 : midioPulseScale(beatPhase01, energy01, motionScale),
+    pulseScale: beatPhase01 == null ? 1 : midioPulseScale(beatPhase01, energy01),
   };
 }
 
@@ -139,10 +133,10 @@ export function midioPulseEnv(beatPhase01) {
 /**
  * Uniform scale multiplier for Midio's glyph on the beat.
  *
- * @returns {number} around 1; exactly 1 when motionScale is 0, so the
- *   accessibility toggle stills it completely like every other term here.
+ * @returns {number} around 1, swelling to at most 1 + PULSE_BASE +
+ *   PULSE_ENERGY exactly on the beat.
  */
-export function midioPulseScale(beatPhase01, energy01 = 0, motionScale = 1) {
-  const amp = (PULSE_BASE + PULSE_ENERGY * clamp01(energy01)) * clamp01(motionScale);
+export function midioPulseScale(beatPhase01, energy01 = 0) {
+  const amp = PULSE_BASE + PULSE_ENERGY * clamp01(energy01);
   return 1 + amp * midioPulseEnv(beatPhase01);
 }

@@ -11,7 +11,7 @@ for (const durationMs of [50, 184, 14951]) {
     const plan = { durationMs, previewPointId: point.id, notes: [], heroes: [], segments: [], routeAt };
     const previous = buildTourTimeline(data, plan);
     const next = buildTourTimeline(data, { ...plan, routeAt: () => routeAt(0) }, {
-      previous, frozenThroughMs: durationMs, reducedMotion: true,
+      previous, frozenThroughMs: durationMs,
     });
     for (const field of ['eye', 'target', 'fov', 'meta']) assert.deepEqual(next[field], previous[field], `committed ${field}`);
     assert.deepEqual(next.poseAt(durationMs), previous.poseAt(durationMs));

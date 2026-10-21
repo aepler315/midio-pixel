@@ -1,6 +1,6 @@
 const clamp = (value, limit) => Math.max(-limit, Math.min(limit, value));
-export function pixelHeatOffset(value, { unit = 1, reducedMotion = false } = {}) {
-  if (reducedMotion || !Number.isFinite(value)) return 0;
+export function pixelHeatOffset(value, { unit = 1 } = {}) {
+  if (!Number.isFinite(value)) return 0;
   return clamp(Math.round(value), unit);
 }
 const STAR_SHAPES = new Map([1, 2].map(unit => [unit, {
@@ -13,8 +13,8 @@ export function pixelStarShape(starId, brightness, unit = 1) {
   return starId % 7 === 0 && brightness >= .75 ? shapes.cross : shapes.core;
 }
 /** Instantaneous highlight spill. One admitted source snapshot; no history/readback. */
-export function drawPixelGlow(ctx, source, { buffers, unit = 1, strength = 0, reducedFlash = false } = {}) {
-  const alpha = Number.isFinite(strength) ? Math.max(0, Math.min(strength, reducedFlash ? .05 : .10)) : 0;
+export function drawPixelGlow(ctx, source, { buffers, unit = 1, strength = 0 } = {}) {
+  const alpha = Number.isFinite(strength) ? Math.max(0, Math.min(strength, .10)) : 0;
   if (!alpha) { buffers?.release('pixel-glow'); return false; }
   const scratch = buffers?.ensure('pixel-glow', source.width, source.height);
   if (!scratch) return false;

@@ -1,8 +1,8 @@
 # Midio Pixel
 
-An independent, private copy of [Midio-5](https://github.com/aepler315/Midio-5), pinned at `e53db1e0663ce0f8db6d9d89d168dc6d6dbdb308`. All source assets, worlds, audio integrations and modern rendering systems are preserved. The original project is unchanged.
+An independent, private copy of [Midio-5](https://github.com/aepler315/Midio-5), pinned at `e53db1e0663ce0f8db6d9d89d168dc6d6dbdb308`. Its source assets, audio integrations and modern rendering systems are preserved; of its worlds, two remain (below). The original project is unchanged.
 
-**Pixel only:** Pixel and Palette looks, Classic and Detailed grids, Auto quality, Fit/Integer scaling, and Uniform pixel sampling. Saved Depth selections migrate to Uniform; the current renderer has no Depth pixel effect. Existing saved display choices migrate without changing Midio-5 settings. Other worlds retain their existing pixel rendering.
+**Pixel only:** Pixel and Palette looks, Classic and Detailed grids, Auto quality, Fit/Integer scaling, and Uniform pixel sampling. Saved Depth selections migrate to Uniform; the current renderer has no Depth pixel effect. Existing saved display choices migrate without changing Midio-5 settings.
 
 Hosting needs reconciliation: the repository still carries its inherited CNAME and the observed Pages path is a dynamic Jekyll branch build. The staged manual workflow and the current limits are documented in [the validation matrix](docs/test-matrix.md).
 
@@ -12,12 +12,15 @@ original recording supplies the sound; its analysed rhythm, pitch, energy,
 and structure drive the scenery. **Play a sample** starts the authored song
 *Proof*, performed live by the built-in synth.
 
-The default experience is **Landscape**, showing **The Range**, with no world chooser. Choose **Trio Stage** in Display for Midio, Broshi and Midasus performing automatically on a scrolling platform. Midio jumps to rhythmic accents, Broshi follows the bass, and Midasus follows confident melodic notes. Experience changes keep the current song and playhead; the choice is remembered independently of display preferences. `?experience=trio` opens the stage directly.
-
-Add
-`?worlds=all` to explore the eight registered landscape styles
-and their shared quiet/peak previews. The current landscapes have no
-performer cast. Trio Stage and Landscape both use Uniform pixel scaling.
+Every song plays in one of two worlds, picked per song from the chooser once
+the song is ready: **Landscape**, The Range on real terrain, or **Trio**,
+where Midio, Broshi and Midasus perform automatically on the dancing range as
+it was before real terrain arrived. Midio jumps to rhythmic accents, Broshi
+follows the bass, and Midasus follows confident melodic notes and flies off to
+draw in the deep sky. The **World** setting switches worlds mid-song and keeps
+the current song and playhead. `?experience=landscape` or `?experience=trio`
+starts songs straight in that world without the chooser. Landscape and Trio
+both use Uniform pixel scaling.
 
 The root app uses plain JavaScript modules and Web Audio, with Canvas 2D
 composition and **Range v2** WebGL2 scenery. If that scenery cannot load or
@@ -48,11 +51,12 @@ LAN access, or set `PORT` to change the port.
    your browser can decode.
 2. Wait while the recording is pulled apart: frequency bands, onsets,
    tempo, pitch, and section structure become one song profile.
-3. The song starts in **The Range**. With `?worlds=all`, you can choose a
-   world before loading, or preview the same quiet and peak passages in
-   the chooser. **Choose for me** is optional.
-4. Watch Landscape or switch to Trio Stage in Display. Both play automatically with no score or failure condition.
-   Optional taps help calibrate the groove.
+3. When the song is ready, the chooser offers two cards, **Landscape** and
+   **Trio**. **Preview** plays the same quiet or peak passage in each;
+   **Play** starts the song in that world.
+4. Watch, or switch worlds with the **World** setting in Display. Both play
+   automatically with no score or failure condition. Optional taps help
+   calibrate the groove.
 
 Several files selected or dropped together are treated as **stems of one
 song**, summed for playback and analysis. Use descriptive names such as
@@ -147,12 +151,12 @@ That path steps every frame and muxes H.264 with ffmpeg. See [docs/video-export.
 | **Use a music folder** / **Change folder** | Choose the folder your library reads from; remembered between sessions |
 | **Browse library** | Open the library: search, sort, folder view, auto-tag. `Esc` closes it |
 | **Timed lyric grounding: on/off** | Enable or skip lyric lookup; remembered between sessions |
+| **World** (Settings, or Display during playback) | Switch between Landscape and Trio mid-song; the song keeps playing |
 | Stage selector | Choose the render resolution, including 8-bit and 8-bit intensive presets |
 | Frame-rate selector | Cap rendering at 30 or 60 fps |
 | **BT** chip | The Bluetooth delay, set by **Sync** or typed in by hand. Fades with the rest of the HUD; held open while its editor is |
 | **Sync** button or `C` | Tap along with what you hear; the Bluetooth delay follows your taps, live ([docs](docs/sync-calibration.md)) |
 | `F` / `J` | Tap the low / high percussion parts for groove calibration |
-| `R` | Toggle reduced flashes, shake, and cuts |
 | `P` | Toggle the FPS display |
 | `T` | Toggle track details when available |
 | `F3` | Toggle section labels on the mountain seekbar |
@@ -161,11 +165,6 @@ On a car head unit, the first tap after a long idle gap is spent entirely on
 waking the display and restoring fullscreen, never on a control; a screen
 wake lock is held while a song plays. See [car mode](docs/car-mode.md).
 
-Settings has two independent, remembered chips: **Reduced flashing** (also
-the `R` key) caps flashes and softens shake and cuts; **Reduced motion** holds
-terrain movement, stops heat shimmer and calms the camera. Until you choose,
-both follow your system's reduced-motion setting, even when browser storage
-is blocked.
 The show can contain flashing lights, camera shake, and sudden cuts.
 Playback controls fade after inactivity; tap the canvas to bring them back.
 
@@ -197,33 +196,25 @@ a fixed 120 Hz and rendering interpolates between steps.
 
 Melody, bass, pad and percussion estimates drive landscape motion and
 color. With uploaded stems, filenames and each stem's activity help assign
-these musical roles. Legacy performer modules remain in the repository;
-the current presentation disables performers and decorative actors.
+these musical roles. In Trio the same estimates drive the cast; Landscape
+draws no performers, and neither world draws decorative actors.
 
-The world registry contains eight landscape styles. Cathode has been retired; old playback IDs resolve to The Range.
+The world registry holds two worlds. The seven other landscape styles and the
+earlier Cathode have been removed; their old playback IDs resolve to
+Landscape.
 
-- **The Range** — mountains that breathe with the mix. The Display preference **Range: Tetons only** (or `?rangeTour=tetons`) enables a song-timed flight through real Teton terrain. Use `?rangeTour=off` to override the saved preference. The tour remains a candidate; [validation and review evidence](docs/teton-tour-validation.md) record its limits.
-- **After Hours** — a city that glows with the groove.
-- **Far Side** — a lunar landscape. No air. Nothing softens.
-- **The Fathom** — an underwater world, slow on purpose.
-- **Redline** — a road that only exists at speed.
-- **The Foundry** — an industrial world that only stops when the song does.
-- **Understory** — a forest. Nothing is built. Everything grows.
-- **The Nave** — a cathedral whose glass rebuilds with returning sections.
+- **Landscape** — real mountains that breathe with the mix: The Range on real terrain, drawn by Range v2. The **Camera tour: Tetons** setting (or `?rangeTour=tetons`) enables a song-timed flight through real Teton terrain. Use `?rangeTour=off` to override the saved preference. The tour belongs to Landscape: in Trio its toggle is disabled and the saved preference waits. The tour remains a candidate; [validation and review evidence](docs/teton-tour-validation.md) record its limits.
+- **Trio** — Midio, Midasus and Broshi on the dancing range: invented palettes on procedural ridges, the crystalline space ridge, a full sky of planets, and Midasus's voyages to the deep sky. See [Trio](docs/trio-stage.md).
 
-With `?worlds=all`, the chooser shows one equal card per world, in authored
-order. A **Preview** plays the same quiet or peak passage through that
-world's treatment of the song. **Play** adapts palette, terrain, and
-musical response for the selected world — alpine never grows a city, and
-a dense mix is filtered rather than amplified. There is no privileged
-“custom” card and no public score.
+The chooser shows one equal card per world, in authored order. A
+**Preview** plays the same quiet or peak passage through that world's
+treatment of the song. **Play** adapts palette, terrain, and musical
+response for the selected world, and a dense mix is filtered rather than
+amplified. There is no privileged “custom” card, no recommendation and no
+public score; a private post-adaptation fit appears only in the debug
+overlay.
 
-**Choose for me** uses a private post-adaptation fit: would this world's
-response sit in a sweet spot for this song, without clipping into noise.
-Ties stay ties. Explicit exclusions stay out of that pick.
-The number is never shown on the cards.
-
-The parallax ranges are laid out as a timeline rather than as decoration.
+Trio's procedural ranges are laid out as a timeline rather than as decoration.
 Each depth travels at its own speed, so one tile of it stands for a fixed
 stretch of music — roughly a song at the horizon, a section, a passage, and
 a phrase at the front — and a summit sits at the point in that stretch its
@@ -277,13 +268,13 @@ checkout is behind), or to use another port:
 ## Repository layout
 
 ```text
-index.html   Recording/sample entry, opt-in world chooser, playback controls
+index.html   Recording/sample entry, world chooser, playback controls
 src/
   main.js    Loading, chooser, playback lifecycle, and app coordination
   core/      NoteEvent timeline, Conductor, ParamBus, MIDI utilities
   audio/     Filtering, onset/tempo/pitch analysis, song profile, caching, playback
   lyrics/    Song identity, lyric lookup, alignment, and section interpretation
-  sim/       Fixed-step music simulation, calibration, effects, legacy performers
+  sim/       Fixed-step music simulation, calibration, effects, the Trio cast
   world/     World registry, adaptation, private fit, palettes, terrain, scenery
   eval/      Private world-quality corpus (no audio, no public scores)
   render/    Canvas compositor, pixel presentation, optional overlay, governor
@@ -348,9 +339,9 @@ The check generates a deterministic 24-second PCM WAV and opens a fresh
 browser context. It turns off optional lyric lookup, selects 720p, and
 uploads through **Browse files**, preserving the browser gesture needed to
 unlock audio. It exercises the real decoder, OfflineAudioContext filtering,
-analysis, the opt-in world chooser (eight equal cards), and playback after
-a world is picked. This smoke enables `?worlds=all` and the legacy Range renderer; ordinary entry
-starts in The Range directly.
+analysis, the world chooser (one equal card per world), and playback after
+a world is picked. This smoke pins the legacy Range renderer
+(`?rangeRenderer=legacy`).
 
 Assertions require a populated timeline, an active recording with the
 timeline synth muted, advancing audio and simulation clocks, a populated
@@ -409,8 +400,10 @@ upload regression suite.
 
 ## Additional references
 
-- [World design notes](docs/worlds.md) — design background; the current
-  registry, chooser, and per-world musical responses are described above.
+- [Worlds](docs/worlds.md) — Landscape and Trio: the registry, song
+  adaptation, the chooser and the private fit.
+- [Trio](docs/trio-stage.md) — the cast, the space ridge and Midasus's
+  deep-sky voyages.
 - [VFX suite](docs/vfx-suite.md) — visual-system design notes.
 - [Car mode](docs/car-mode.md) — keeping a head-unit display awake and in
   fullscreen, and why a page cannot fake a tap.

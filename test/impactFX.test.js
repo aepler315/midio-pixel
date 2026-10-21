@@ -71,24 +71,6 @@ test('landing rings are never starved by a saturated judgment-ring pool', () => 
   assert.equal(fx.rings.active.length, 1, 'landing ring still spawns despite the saturated judgment pool');
 });
 
-test('draw() caps flash-heavy alpha (crater, dust ring, ignition) when reducedFlash is set', () => {
-  const fx = new ImpactFX(1);
-  fx.trigger(0, 500, 1, null);
-  fx.ignite(0, 500);
-  fx.step(0.01); // age the pools slightly off their alpha=peak initial frame
-
-  const normalCtx = fakeCtx2d();
-  fx.draw(normalCtx, 0, 0, false);
-  const reducedCtx = fakeCtx2d();
-  fx.draw(reducedCtx, 0, 0, true);
-
-  assert.ok(normalCtx.strokeAlphas.length > 0, 'expected at least one stroked ring/ignition');
-  const normalMax = Math.max(...normalCtx.strokeAlphas);
-  const reducedMax = Math.max(...reducedCtx.strokeAlphas);
-  assert.ok(reducedMax <= normalMax, 'reducedFlash must never exceed the normal alpha');
-  assert.ok(reducedMax <= 0.4 + 1e-9, 'reducedFlash must cap alpha at the flash cap');
-});
-
 test('draw() renders judgment rings from their own pool alongside landing rings', () => {
   const fx = new ImpactFX(1);
   fx.trigger(0, 500, 0.3, null); // I <= 0.5 -- no star-polygon shockwave, isolating the two ring pools
@@ -96,30 +78,20 @@ test('draw() renders judgment rings from their own pool alongside landing rings'
   fx.step(0.01);
 
   const ctx = fakeCtx2d();
-  fx.draw(ctx, 0, 0, false);
+  fx.draw(ctx, 0, 0);
   // One stroke per ring (landing + judgment) -- strokeAlphas records one
   // entry per strokeStyle assignment, so both pools' rings show up here.
   assert.equal(ctx.strokeAlphas.length, 2, 'both the landing ring and the judgment ring are drawn');
 });
 
-test('draw() falls the ignition ring back to source-over compositing under reducedFlash', () => {
-  // The ignition ring draws additively ('lighter'); on its own each capped
-  // layer stays under FLASH_CAP, but overlapping additive layers (this ring
-  // plus RippleFX's rings/pulses/puffs, all landing on the same ground
-  // point) can still sum past it. Falling back to source-over is what
-  // actually stops that stack, so assert the composite op itself changes.
+test('draw() composites the ignition ring additively', () => {
   const fx = new ImpactFX(1);
   fx.ignite(0, 500);
   fx.step(0.01);
 
-  const normalCtx = fakeCtx2d();
-  fx.draw(normalCtx, 0, 0, false);
-  assert.ok(normalCtx.compositeOps.includes('lighter'), 'normal draw uses additive compositing');
-
-  const reducedCtx = fakeCtx2d();
-  fx.draw(reducedCtx, 0, 0, true);
-  assert.ok(!reducedCtx.compositeOps.includes('lighter'), 'reducedFlash must not use additive compositing');
-  assert.ok(reducedCtx.compositeOps.includes('source-over'), 'reducedFlash falls back to source-over');
+  const ctx = fakeCtx2d();
+  fx.draw(ctx, 0, 0);
+  assert.ok(ctx.compositeOps.includes('lighter'), 'draw uses additive compositing');
 });
 
 test('splat() thins its blob count under a lower particleMul', () => {
@@ -172,7 +144,7 @@ test('draw() renders the crater gradient and dust motes in the tinted color', ()
   fx.step(0.01);
 
   const ctx = fakeCtx2d();
-  fx.draw(ctx, 0, 0, false);
+  fx.draw(ctx, 0, 0);
 
   assert.ok(ctx.gradientStops.some((s) => s.startsWith('rgba(10,200,80,')), 'crater gradient uses the tinted color');
   assert.ok(ctx.fillStyles.some((s) => s === 'rgba(10,200,80,0.9)'), 'landing dust motes use the tinted color');
@@ -184,7 +156,7 @@ test('draw() falls back to the default warm-white when trigger() was given no co
   fx.step(0.01);
 
   const ctx = fakeCtx2d();
-  fx.draw(ctx, 0, 0, false);
+  fx.draw(ctx, 0, 0);
 
   assert.ok(ctx.gradientStops.some((s) => s.startsWith('rgba(255,240,200,')), 'crater gradient falls back to warm-white');
   assert.ok(ctx.fillStyles.some((s) => s === 'rgba(230,220,200,0.9)'), 'motes fall back to warm-white');
@@ -207,9 +179,9 @@ test('draw() culls craters, rings, motes, and splats/scars that have scrolled of
   far.step(0.01);
 
   const nearCtx = fakeCtx2d();
-  near.draw(nearCtx, 0, 0, false, canvasWidth);
+  near.draw(nearCtx, 0, 0, canvasWidth);
   const farCtx = fakeCtx2d();
-  far.draw(farCtx, 0, 0, false, canvasWidth);
+  far.draw(farCtx, 0, 0, canvasWidth);
 
   assert.ok(nearCtx.ellipseCalls > 0, 'on-screen crater should draw');
   assert.equal(farCtx.ellipseCalls, 0, 'off-screen crater should be culled');
@@ -226,7 +198,7 @@ test('draw() with no canvasWidth given draws everything regardless of scroll dis
   fx.trigger(50000, 500, 0.3, null);
   fx.step(0.01);
   const ctx = fakeCtx2d();
-  fx.draw(ctx, 0, 0, false); // canvasWidth omitted -- defaults to Infinity
+  fx.draw(ctx, 0, 0); // canvasWidth omitted -- defaults to Infinity
   assert.ok(ctx.ellipseCalls > 0);
   assert.ok(ctx.arcCalls > 0);
 });

@@ -7,8 +7,8 @@ import { terrainScrollPx } from '../src/world/terrain/ProfileTravel.js';
 
 const curves = (fn) => ({ globalEnergyNorm: fn });
 const pulse = curves((t) => 0.5 + 0.45 * Math.sin(t / 3000));
-const legacy = (tMs, c, durationMs, reducedFlash = false, response = null) => terrainScrollPx({
-  tSec: tMs / 1000, curves: c, durationMs, stripWidth: SCENE_STRIP_WIDTH, reducedFlash, response,
+const legacy = (tMs, c, durationMs, response = null) => terrainScrollPx({
+  tSec: tMs / 1000, curves: c, durationMs, stripWidth: SCENE_STRIP_WIDTH, response,
   depth: 1, fit: { viewWidth: SCENE_REFERENCE_WINDOW, maxDepth: 1 },
 }) / SCENE_ROOM;
 
@@ -43,12 +43,6 @@ test('a long loud track is fitted to the rail and never leaves it', () => {
   assert.ok(sceneProgressAt({ timeMs: dur, curves: loud, durationMs: dur }) <= 1);
   assert.ok(sceneProgressAt({ timeMs: dur, curves: loud, durationMs: dur }) > 0.9, 'uses most of the rail');
   assert.equal(sceneProgressAt({ timeMs: dur * 2, curves: loud, durationMs: dur }), 1);
-});
-
-test('reduced flash follows the legacy halved travel', () => {
-  const u = sceneProgressAt({ timeMs: 60000, curves: pulse, durationMs: 180000, reducedFlash: true });
-  assert.equal(u, Math.min(1, Math.max(0, legacy(60000, pulse, 180000, true))));
-  assert.ok(u < sceneProgressAt({ timeMs: 60000, curves: pulse, durationMs: 180000 }) + 1e-12);
 });
 
 test('seeking back and forth lands on the same progress (no accumulation)', () => {

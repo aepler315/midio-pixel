@@ -30,27 +30,20 @@ test('the aurora hangs from every ridge segment and is brightest at night', () =
   assert.ok(total(day) > 0 && total(day) < total(night) * 0.5, 'a faint veil by day');
 });
 
-test('the aurora stands down with its presentation and is flash-safe', () => {
+test('the aurora stands down with its presentation', () => {
   const ridge = new SpaceRidge(315);
-  const off = recordingCtx(), safe = recordingCtx();
+  const off = recordingCtx();
   ridge.drawAurora(off, canvas, '#9fe8c0', 10, { presentation: 0 });
   assert.equal(off.fills.length, 0);
-  ridge.drawAurora(safe, canvas, '#9fe8c0', 10, { reducedFlash: true });
-  assert.ok(safe.fills.every(f => f.op === 'source-over'));
 });
 
-test('reduced motion holds the curtain\'s rays still, even through flashes', () => {
+test('a flash stretches the curtain\'s rays', () => {
   const ridge = new SpaceRidge(315);
-  const a = recordingCtx(), b = recordingCtx(), c = recordingCtx();
-  ridge.drawAurora(a, canvas, '#9fe8c0', 3, { reducedMotion: true });
-  ridge.drawAurora(b, canvas, '#9fe8c0', 9, { reducedMotion: true });
-  assert.deepEqual(a.fills, b.fills);
+  const calm = recordingCtx(), live = recordingCtx();
+  ridge.drawAurora(calm, canvas, '#9fe8c0', 9);
   ridge._flashes = ridge.nodes.map((_, i) => ({ i, atMs: 9000 }));
-  ridge.drawAurora(c, canvas, '#9fe8c0', 9, { reducedMotion: true });
-  assert.deepEqual(c.heights, a.heights, 'a flash never stretches a ray');
-  const live = recordingCtx();
   ridge.drawAurora(live, canvas, '#9fe8c0', 9);
-  assert.ok(Math.max(...live.heights) > Math.max(...a.heights), 'with motion allowed, a flash does');
+  assert.ok(Math.max(...live.heights) > Math.max(...calm.heights), 'a flash stretches a ray');
 });
 
 test('crest light draws nothing without terrain to land on', () => {

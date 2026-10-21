@@ -22,7 +22,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
-import { withAllWorlds, withLegacyRange } from './lib/allWorlds.mjs';
+import { withLegacyRange } from './lib/allWorlds.mjs';
 import { landscapeOwnership, assertLandscapeOwnership } from './range-scene-smoke.mjs';
 import { seedBrowserConstruction, installSeedReceiver } from './lib/landscape-browser.mjs';
 import { snapshotSource } from './lib/visual-evaluation-server.mjs';
@@ -186,7 +186,7 @@ try {
   if (v2) { entry.searchParams.set('rangeRenderer', 'v2'); entry.searchParams.set('rangeView', 'teton-jackson-lake'); }
   const webgl = process.env.EXPORT_RENDERER === 'webgl';
   if (webgl) entry.searchParams.set('renderer', 'webgl');
-  await page.goto(v2 ? withAllWorlds(entry.href) : withLegacyRange(withAllWorlds(entry.href)));
+  await page.goto(v2 ? entry.href : withLegacyRange(entry.href));
   await page.locator('#titleSettings').evaluate((node) => { node.open = true; });
   const lyrics = page.locator('#lyricGroundingBtn');
   if (await lyrics.getAttribute('aria-pressed') === 'true') await lyrics.click();

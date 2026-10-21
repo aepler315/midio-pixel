@@ -61,7 +61,6 @@ test('seeking does not accumulate or replay flashes from another weather episode
   assert.ok(storm.at(68000).flash > .5);
   assert.equal(storm.at(50000).flash, 0);
   assert.deepEqual(storm.at(28000), storm.at(28000));
-  assert.equal(storm.at(68000, { reducedFlash: true }).flash, 0);
 });
 
 test('late analysis cannot rewrite a flash already heard or consume its restrike', () => {

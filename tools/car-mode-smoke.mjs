@@ -2,7 +2,7 @@
 // reach the UI. Start npm start first. node tools/car-mode-smoke.mjs [url]
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
-import { withAllWorlds } from './lib/allWorlds.mjs';
+import { withLegacyRange } from './lib/allWorlds.mjs';
 
 const url = process.argv[2] || 'http://127.0.0.1:8080';
 const browser = await chromium.launch({ headless: true,
@@ -10,16 +10,17 @@ const browser = await chromium.launch({ headless: true,
 });
 let failures = 0;
 try {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   await context.route('**/soundfonts/', route => route.fulfill({ json: [] }));
   await context.route('**/favicon.ico', route => route.fulfill({ status: 204 }));
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
-  await page.goto(withAllWorlds(url));
+  // A HUD test, not a scenery test: pin the painted Range (see withLegacyRange).
+  await page.goto(withLegacyRange(url));
   await page.locator('#demoBtn').click();
   await page.locator('#worldSelect:not(.hidden)').waitFor();
-  await page.locator('#worldChooseForMe').click();
+  await page.locator('.worldCard[data-base-world-id="alpine"] .worldCardPlayBtn').click();
   await page.locator('#hud:not(.hidden)').waitFor();
   await page.waitForFunction(() => !!window.__SMW?.carMode);
 

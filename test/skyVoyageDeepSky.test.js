@@ -18,13 +18,12 @@ import { BiomeManager } from '../src/world/BiomeManager.js';
 import { SkyVoyage, VoyagePhase } from '../src/sim/SkyVoyage.js';
 
 /** A bare BiomeManager carrying just what drawDeepSky reads (this.w/this.h,
- *  reducedFlash, tSec) -- same bare-prototype approach as
- *  test/transitionShutter.test.js; the real constructor needs a canvas. */
+ *  tSec) -- same bare-prototype approach as test/transitionShutter.test.js;
+ *  the real constructor needs a canvas. */
 function fakeManager(w, h) {
   const bm = Object.create(BiomeManager.prototype);
   bm.w = w;
   bm.h = h;
-  bm.reducedFlash = false;
   bm.tSec = 0;
   return bm;
 }

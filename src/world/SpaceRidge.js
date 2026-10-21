@@ -10,7 +10,6 @@
 // minute. Pure math + draw(). BiomeManager consumes it; tests exercise the
 // math directly.
 import { clamp, clamp01, mulberry32 } from '../utils/math.js';
-import { capFlashAlpha } from '../ui/Accessibility.js';
 import { kickEnv } from './MountainChoreo.js';
 import { sampleSpaceRidge } from './alpine/RidgeMotion.js';
 import { hexToRgb, hexLerp } from '../utils/color.js';
@@ -189,8 +188,8 @@ export class SpaceRidge {
       this.nodes.forEach(n => { n.level = sample.spaceLevels[n.band]; n.z = sample.spaceDepths[n.band]; });
       this._rotX = this._tSec * .04 + sample.kick01 * WIRE_KICK_RAD;
       this._rotY = this._tSec * .027 + sample.kick01 * WIRE_KICK_RAD * .7;
-      this._tidalPx = this.reducedMotion ? 0 : tidalOffset(this._tSec, this._lastCanvasHeight || 720);
-      this._zGlobal = this.reducedMotion ? 0 : Math.sin(this._tSec * 2 * Math.PI / DEPTH_GLOBAL_PERIOD_SEC);
+      this._tidalPx = tidalOffset(this._tSec, this._lastCanvasHeight || 720);
+      this._zGlobal = Math.sin(this._tSec * 2 * Math.PI / DEPTH_GLOBAL_PERIOD_SEC);
       return;
     }
     const { tauMul } = calmResponseParams(calmLevel);
@@ -237,15 +236,15 @@ export class SpaceRidge {
   /** Screen-space samples for the ridge polyline. No world scroll -- this
    *  structure is deliberately too large/far to read as scrolling with the
    *  world; it moves in depth (see depthMul) and on the tidal drift only. */
-  _samples(canvas, reducedMotion = this.reducedMotion) {
+  _samples(canvas) {
     const frame = this.frameSample;
-    if (frame && frame.width === canvas.width && frame.height === canvas.height && frame.heardTimeMs === this._tSec * 1000 && frame.reducedMotion === !!reducedMotion) {
+    if (frame && frame.width === canvas.width && frame.height === canvas.height && frame.heardTimeMs === this._tSec * 1000) {
       const s = frame.sample;
       return { pts: s.points, y0: s.y0, maxH: s.maxH };
     }
     if (this.history) {
       const s = sampleSpaceRidge({ viewport: canvas, seededGeometry: this, history: this.history,
-        heardTimeMs: this._tSec * 1000, reducedMotion });
+        heardTimeMs: this._tSec * 1000 });
       return { pts: s.points, y0: s.y0, maxH: s.maxH };
     }
     this._lastCanvasHeight = canvas.height;
@@ -355,24 +354,20 @@ export class SpaceRidge {
    * The same musical skyline worn as an aurora: a curtain whose bright lower
    * hem follows the ridge, rising in rays where its bands are loud and
    * flaring where a node flashes. Brightest at night; a faint veil by day.
-   * Rays drift slowly in time; reduced motion holds them still.
+   * Rays drift slowly in time.
    */
-  drawAurora(ctx, canvas, color, tSec, { reducedFlash = false, reducedMotion = false, presentation = 1, night01 = 1 } = {}) {
-    const { pts: raw, maxH } = this._samples(canvas, reducedMotion);
+  drawAurora(ctx, canvas, color, tSec, { presentation = 1, night01 = 1 } = {}) {
+    const { pts: raw, maxH } = this._samples(canvas);
     // Whether this sky had the land's skyline to echo (see BiomeManager
     // takeSkylineUnsettled).
     this.lastEchoed = this._skylineFresh();
     const pts = this._echoSkyline(raw, canvas);
     if (pts.length < 2) return;
     const flashSet = this._flashLevels(tSec);
-    // Under reduced motion a flash may brighten the curtain but never
-    // stretch it: the rays stand still.
-    const reachFlash = reducedMotion ? new Map() : flashSet;
     const inherited = Number.isFinite(ctx.globalAlpha) ? ctx.globalAlpha : 1;
     const present = Number.isFinite(presentation) ? clamp01(presentation) : 1;
     const paint = inherited * present * (0.3 + 0.7 * clamp01(night01));
     if (paint < 0.005) return;
-    const t = reducedMotion ? 0 : tSec;
     const hem = hexLerp(color, AURORA_GREEN, 0.55);
     const crown = hexLerp(color, AURORA_VIOLET, 0.7);
     const h = hexToRgb(hem), c = hexToRgb(crown);
@@ -384,7 +379,7 @@ export class SpaceRidge {
     g.addColorStop(0.7, `rgba(${c.r},${c.g},${c.b},0.16)`);
     g.addColorStop(1, `rgba(${c.r},${c.g},${c.b},0)`);
     ctx.save();
-    ctx.globalCompositeOperation = reducedFlash ? 'source-over' : 'lighter';
+    ctx.globalCompositeOperation = 'lighter';
     ctx.fillStyle = g;
     for (let i = 0; i < pts.length - 1; i++) {
       const a = pts[i], b = pts[i + 1];
@@ -397,10 +392,10 @@ export class SpaceRidge {
         const x = a.x + (b.x - a.x) * u;
         const y = a.y + (b.y - a.y) * u;
         // Two slow interfering folds give the curtain its rays.
-        const fold = (0.5 + 0.5 * Math.sin(x * 0.045 + t * 0.35)) * (0.55 + 0.45 * Math.sin(x * 0.13 - t * 0.9));
-        const height = this._curtainHeight(canvas, maxH, a, b, reachFlash, 0.75 + 0.25 * Math.sin(x * 0.021 + t * 0.22));
+        const fold = (0.5 + 0.5 * Math.sin(x * 0.045 + tSec * 0.35)) * (0.55 + 0.45 * Math.sin(x * 0.13 - tSec * 0.9));
+        const height = this._curtainHeight(canvas, maxH, a, b, flashSet, 0.75 + 0.25 * Math.sin(x * 0.021 + tSec * 0.22));
         ctx.save();
-        ctx.globalAlpha = paint * capFlashAlpha((0.1 + 0.22 * fold + 0.18 * level + 0.3 * flash) * dm, reducedFlash);
+        ctx.globalAlpha = paint * ((0.1 + 0.22 * fold + 0.18 * level + 0.3 * flash) * dm);
         ctx.translate(x - w / 2, y);
         ctx.scale(1, height);
         ctx.fillRect(0, -1, w + 0.6, 1 + AURORA_SKIRT);
@@ -410,9 +405,9 @@ export class SpaceRidge {
     ctx.restore();
   }
 
-  draw(ctx, canvas, color, tSec, reducedFlash = false, presentation = 1, inheritedActivity = 0, reducedMotion = false, satellitePresence = 1) {
-    const { pts, y0, maxH } = this._samples(canvas, reducedMotion);
-    if (!this.history && inheritedActivity > 0 && !reducedMotion) {
+  draw(ctx, canvas, color, tSec, presentation = 1, inheritedActivity = 0, satellitePresence = 1) {
+    const { pts, y0, maxH } = this._samples(canvas);
+    if (!this.history && inheritedActivity > 0) {
       for (const p of pts) p.y -= 10 * inheritedActivity * Math.sin(p.x / 370 + tSec * .42);
     }
 
@@ -446,10 +441,10 @@ export class SpaceRidge {
     const depthLayers = [
       { yScale: 1.2, yOff: -maxH * 0.06, alpha: 0.035, lw: 8 },
     ];
-    ctx.globalCompositeOperation = reducedFlash ? 'source-over' : 'lighter';
+    ctx.globalCompositeOperation = 'lighter';
     for (const layer of depthLayers) {
       ctx.strokeStyle = color;
-      ctx.globalAlpha = paint * capFlashAlpha(layer.alpha, reducedFlash);
+      ctx.globalAlpha = paint * layer.alpha;
       ctx.lineWidth = layer.lw;
       ctx.beginPath();
       for (let i = 0; i < pts.length; i++) {
@@ -462,7 +457,7 @@ export class SpaceRidge {
 
     // Vast mirrored ghost above — inverted cosmos echo, not a hairline.
     ctx.strokeStyle = color;
-    ctx.globalAlpha = paint * capFlashAlpha(0.035, reducedFlash);
+    ctx.globalAlpha = paint * 0.035;
     ctx.lineWidth = 5;
     ctx.beginPath();
     pts.forEach((p, i) => {
@@ -488,7 +483,7 @@ export class SpaceRidge {
       const dm = (a.depthMul + b.depthMul) / 2;
       for (const [lw, base] of [[17, 0.075], [7, 0.16], [2.8, 0.58]]) {
         ctx.strokeStyle = color;
-        ctx.globalAlpha = paint * capFlashAlpha((base + 0.35 * flash) * dm, reducedFlash);
+        ctx.globalAlpha = paint * ((base + 0.35 * flash) * dm);
         ctx.lineWidth = lw * dm;
         ctx.beginPath();
         ctx.moveTo(a.x, a.y);
@@ -506,11 +501,11 @@ export class SpaceRidge {
       const n = this.nodes[p.i];
       const dm = p.depthMul;
       ctx.fillStyle = color;
-      ctx.globalAlpha = paint * capFlashAlpha(0.07 * dm, reducedFlash);
+      ctx.globalAlpha = paint * (0.07 * dm);
       ctx.beginPath();
       ctx.arc(p.x, p.y, (9 + 5 * n.level) * dm, 0, Math.PI * 2);
       ctx.fill();
-      ctx.globalAlpha = paint * capFlashAlpha((0.18 + 0.24 * n.level) * dm, reducedFlash);
+      ctx.globalAlpha = paint * ((0.18 + 0.24 * n.level) * dm);
       ctx.beginPath();
       ctx.arc(p.x, p.y, 3.2 * dm, 0, Math.PI * 2);
       ctx.fill();
@@ -524,7 +519,7 @@ export class SpaceRidge {
     const icoScale = Math.max(36, canvas.height * 0.055) * (1 + 0.15 * this._zGlobal);
     const wf = projectWireframe(ICO_VERTS, ICO_EDGES, this._rotX, this._rotY, icoScale);
     ctx.strokeStyle = color;
-    ctx.globalAlpha = paint * capFlashAlpha(0.055, reducedFlash) * satellitePresence;
+    ctx.globalAlpha = paint * 0.055 * satellitePresence;
     ctx.lineWidth = 1.4;
     ctx.beginPath();
     for (const [i, j] of wf.edges) {

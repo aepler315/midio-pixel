@@ -1,6 +1,6 @@
 # Climax weather and landscape cast
 
-`RangeStorm` selects the loudest measured section, or the strongest sustained window when structural sections are unavailable. Heard time drives the cloud approach, distant rain, snare-lit cloud interior, clearing and wet-land response. Percussion role/channel and GM snare pitch both qualify a flash; a 700 ms spacing limit prevents clusters. Reduced flashing disables lightning. Reduced motion holds advection. No measurements means no invented climax.
+`RangeStorm` selects the loudest measured section, or the strongest sustained window when structural sections are unavailable. Heard time drives the cloud approach, distant rain, snare-lit cloud interior, clearing and wet-land response. Percussion role/channel and GM snare pitch both qualify a flash; a 700 ms spacing limit prevents clusters. No measurements means no invented climax.
 
 The same weather snapshot reaches the sky backdrop, celestial receiver light, water glints, gust amplitudes, wet ground and solar scattering. The clearing strengthens shafts from the actual visible sun; it never creates a light source at night.
 

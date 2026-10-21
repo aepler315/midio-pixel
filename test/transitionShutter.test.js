@@ -4,8 +4,7 @@
 // bar. It only ever fired on a section boundary -- but with no cooldown, no
 // probability and no intensity term, so every qualifying boundary fired one,
 // and boundaries are allowed to sit MIN_SECTION_CUT_GAP_MS (11s) apart. It
-// also ignored reduced-flash entirely while being the largest, highest
-// contrast event in the game.
+// is also the largest, highest contrast event in the game.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { BiomeManager } from '../src/world/BiomeManager.js';

@@ -41,7 +41,7 @@ test('no characters or no stage width -> 1 (never divides by zero / never pulls 
 test('CameraDirector.zoom eases toward the target over time -- never snaps in one frame', () => {
   const cam = new CameraDirector();
   cam.setZoomTarget([-STAGE_W], STAGE_W); // maximal pull-back
-  cam.update(1 / 60, 0, false);
+  cam.update(1 / 60, 0);
   assert.ok(cam.zoom < 1, 'should have started easing out');
   assert.ok(cam.zoom > ZOOM_MIN, 'should not reach the target in a single 1/60s frame');
 });
@@ -49,32 +49,17 @@ test('CameraDirector.zoom eases toward the target over time -- never snaps in on
 test('CameraDirector.zoom converges to ZOOM_MIN given enough time at max pull-back', () => {
   const cam = new CameraDirector();
   cam.setZoomTarget([-STAGE_W], STAGE_W);
-  for (let i = 0; i < 600; i++) cam.update(1 / 60, 0, false);
+  for (let i = 0; i < 600; i++) cam.update(1 / 60, 0);
   assert.ok(Math.abs(cam.zoom - ZOOM_MIN) < 1e-6, `expected convergence to ${ZOOM_MIN}, got ${cam.zoom}`);
 });
 
 test('CameraDirector.zoom eases back to 1 once the target returns to normal', () => {
   const cam = new CameraDirector();
   cam.setZoomTarget([-STAGE_W], STAGE_W);
-  for (let i = 0; i < 600; i++) cam.update(1 / 60, 0, false);
+  for (let i = 0; i < 600; i++) cam.update(1 / 60, 0);
   cam.setZoomTarget([STAGE_W / 2], STAGE_W); // back on frame
-  for (let i = 0; i < 600; i++) cam.update(1 / 60, 0, false);
+  for (let i = 0; i < 600; i++) cam.update(1 / 60, 0);
   assert.ok(Math.abs(cam.zoom - 1) < 1e-6, `expected convergence back to 1, got ${cam.zoom}`);
-});
-
-test('reduced motion shrinks the zoom travel rather than disabling it', () => {
-  const camNormal = new CameraDirector();
-  camNormal.setZoomTarget([-STAGE_W], STAGE_W);
-  for (let i = 0; i < 30; i++) camNormal.update(1 / 60, 0, false);
-
-  const camReduced = new CameraDirector();
-  camReduced.setZoomTarget([-STAGE_W], STAGE_W);
-  for (let i = 0; i < 30; i++) camReduced.update(1 / 60, 0, true);
-
-  const travelNormal = 1 - camNormal.zoom;
-  const travelReduced = 1 - camReduced.zoom;
-  assert.ok(travelReduced > 0, 'reduced motion should still move, just less');
-  assert.ok(travelReduced < travelNormal, 'reduced motion must travel less than normal motion');
 });
 
 test('an excursion-excluded character does not count -- caller filters before calling setZoomTarget', () => {

@@ -109,7 +109,7 @@ export class RangePresentation {
     this.tour = null;
     this.tourData = null;
     this._tourAbort = null;
-    this._tourPreparation = { state: tour ? 'idle' : 'off', generation: 0, reason: null, reducedMotion: false };
+    this._tourPreparation = { state: tour ? 'idle' : 'off', generation: 0, reason: null };
     this.diag = diag;
     this.residency = residency;
     this.budget = budget;
@@ -206,9 +206,7 @@ export class RangePresentation {
     this.tour = null;
     this.tourData = null;
     this._tourSections = mgr?.sections;
-    this._tourMotion = !!mgr?.reducedMotion; // the preference the tour is planned with
-    this._tourManager = mgr;
-    this._tourPreparation = { state: this.tourMode ? 'idle' : 'off', generation, reason: null, reducedMotion: this._tourMotion };
+    this._tourPreparation = { state: this.tourMode ? 'idle' : 'off', generation, reason: null };
     this._replanAbort?.abort();
     // Export draws frames on request and waits for readiness: never fades,
     // never counts as the listener having seen a view.
@@ -249,7 +247,7 @@ export class RangePresentation {
       this._tourPromise = load
         .then(async pkg => {
           if (controller.signal.aborted || this.generation !== generation) return;
-          this._tourPreparation = { ...this._tourPreparation, state: 'planning', reducedMotion: !!mgr.reducedMotion };
+          this._tourPreparation = { ...this._tourPreparation, state: 'planning' };
           const tour = await prepareTourTimeline(pkg.data, mgr, { signal: controller.signal });
           if (controller.signal.aborted || this.generation !== generation) return;
           if (reservation) {
@@ -257,7 +255,7 @@ export class RangePresentation {
             this.residency.shrink(reservation.key, 32 * 1024 ** 2);
           }
           this.tour = tour; this.tourData = pkg.data;
-          this._tourPreparation = { ...this._tourPreparation, state: 'ready', reducedMotion: !!tour.reducedMotion };
+          this._tourPreparation = { ...this._tourPreparation, state: 'ready' };
           this.forced = { ...this.forced, view: { ...view, tour } };
           this.scene?.release(view.id);
         }).catch(error => {
@@ -637,13 +635,10 @@ export class RangePresentation {
     const inputs = this.frameInputs;
     if (!inputs?.sim?.biomes) { this.reason = 'no-frame-inputs'; return false; }
     const mgr = inputs.sim.biomes;
-    // Replan the uncommitted tail when the song's sections or the listener's
-    // motion preference change. The newest request wins: an older worker is
-    // aborted, so its late reply never lands.
-    const tourMotion = !!mgr.reducedMotion;
-    if (this.tourMode && this.tour && (mgr.sections !== this._tourSections || tourMotion !== this._tourMotion)) {
+    // Replan the uncommitted tail when the song's sections change. The newest
+    // request wins: an older worker is aborted, so its late reply never lands.
+    if (this.tourMode && this.tour && mgr.sections !== this._tourSections) {
       this._tourSections = mgr.sections;
-      this._tourMotion = tourMotion;
       this._replanAbort?.abort();
       const controller = new AbortController(), generation = this.generation;
       this._replanAbort = controller;
@@ -678,10 +673,8 @@ export class RangePresentation {
             if (count) previousNotes.set(note, count - 1);
             else if (/^Refinement (deferred|held):/.test(note)) deferredReason = note;
           }
-          const held = !!deferredReason || !!tour.reducedMotion !== tourMotion;
-          const reason = deferredReason || (held ? 'The tour retained its previous motion setting.' : null);
-          this._tourPreparation = { ...this._tourPreparation, replanning: false, reducedMotion: !!tour.reducedMotion,
-            refinement: { state: held ? 'held' : 'applied', reason } };
+          this._tourPreparation = { ...this._tourPreparation, replanning: false,
+            refinement: { state: deferredReason ? 'held' : 'applied', reason: deferredReason } };
           this.forced = { ...this.forced, view: { ...this.forced.view, tour } };
           this.scene.replaceTour?.(this.forced.view);
         }).catch(error => {
@@ -850,7 +843,7 @@ export class RangePresentation {
       let rail, proj, pose;
       if (typeof this.scene.movedPose === 'function') ({ rail, proj, pose } = this.scene.movedPose(v, frame));
       else {
-        rail = scenePoseAt(v, { progress01: v.glacier && !frame.reducedMotion ? (frame.glacier?.journey01 ?? frame.progress01) : frame.progress01, timeMs: frame.timeMs });
+        rail = scenePoseAt(v, { progress01: v.glacier ? (frame.glacier?.journey01 ?? frame.progress01) : frame.progress01, timeMs: frame.timeMs });
         proj = scenicProjection(rail.fovYDeg, vp);
         pose = applyCameraMoves(rail, frame.cameraMove, null);
       }
@@ -1141,9 +1134,7 @@ export class RangePresentation {
       mode: this.mode, requestedMode: this.mode, resolvedMode: active ? 'v2' : 'legacy',
       tourMode: this.tourMode, active, viewId: active ? this.viewId : null, selectedViewId,
       runtime: this.runtimeState, runtimeReady, reason: this.reason, fallbackReason,
-      tourPreparation: { ...this._tourPreparation,
-        requestedReducedMotion: this._tourManager ? !!this._tourManager.reducedMotion : null,
-        effectiveReducedMotion: this.tour ? !!this.tour.reducedMotion : null }, generation: this.generation,
+      tourPreparation: { ...this._tourPreparation }, generation: this.generation,
     };
   }
 

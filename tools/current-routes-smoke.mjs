@@ -66,7 +66,7 @@ async function exerciseRoute(browser, url, audioPath, row, timeoutMs, outDir) {
         ? route.continue() : route.abort();
     });
     const run = async () => {
-      await page.goto(url + '/');
+      await page.goto(url + '/?experience=landscape');
       await page.locator('#titleSettings').evaluate(node => { node.open = true; });
       const lyrics = page.locator('#lyricGroundingBtn');
       if (await lyrics.getAttribute('aria-pressed') === 'true') await lyrics.click();
@@ -78,7 +78,7 @@ async function exerciseRoute(browser, url, audioPath, row, timeoutMs, outDir) {
           controls.setPhase('persisted-reload');
           // The actual UI wrote the preference. Reload cleanly, without the
           // query override that the toggle adds, and keep this same profile.
-          await page.goto(url + '/');
+          await page.goto(url + '/?experience=landscape');
           await page.locator('#titleSettings').evaluate(node => { node.open = true; });
           assert.equal(await page.locator('#range-tour-toggle').isChecked(), true);
           assert.equal(new URL(page.url()).searchParams.has('rangeTour'), false);

@@ -43,7 +43,8 @@ function checkpoint(label, cond) {
 await page.route('**/soundfonts/', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }));
 
 // Step 1: Load page and start demo
-await page.goto(url, { waitUntil: 'load' });
+// Start straight in Landscape; the world chooser is not under test here.
+await page.goto(new URL('?experience=landscape', url).href, { waitUntil: 'load' });
 await page.click('#demoBtn');
 await page.waitForTimeout(1500);
 checkpoint('Demo started', await page.evaluate(() => !!window.__SMW));

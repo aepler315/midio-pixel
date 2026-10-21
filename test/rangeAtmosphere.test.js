@@ -90,11 +90,9 @@ test('a cloud sea floods the valley below a flat top that stays under the eye', 
   assert.ok(mistAmount(cam, [0, full.topM + 200, -1500], p) < mistAmount(cam, [0, 900, -1500], p) * 0.5, 'a peak above the top stands clear');
 });
 
-test('local light is bounded, softened for reduced flash and height', () => {
+test('local light is bounded and softened with height', () => {
   const full = emitterStrength({});
   assert.ok(full > 0 && full <= 0.22);
-  const rf = emitterStrength({ reducedFlash: true });
-  assert.ok(rf > 0 && rf < full);
   assert.ok(emitterStrength({ airbornePx: 500 }) < full * 0.5);
   assert.ok(emitterStrength({ airbornePx: 500 }) > 0);
 });

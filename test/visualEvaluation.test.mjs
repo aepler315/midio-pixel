@@ -198,58 +198,54 @@ test('diagnostic renders are pinned settings with validated developer switches',
   assert.equal(normalizeManifest(manifest()).settings.debug, undefined, 'ordinary captures render normally');
 });
 
-// --- E2: every quality rung and accessibility preference, with provenance --
-import { normalizeMatrix, manifestForCase, accessibilityProvenance } from '../tools/lib/visual-evaluation.mjs';
+// --- E2: every quality rung; historical reports ------------------------------
+import { normalizeMatrix, manifestForCase } from '../tools/lib/visual-evaluation.mjs';
 import fs from 'node:fs';
 
-test('manifests accept every governor rung q0-q6 and boolean preferences; reject q7, fractions and non-booleans', () => {
+test('manifests accept every governor rung q0-q6; reject q7 and fractions', () => {
   for (let q = 0; q <= 6; q++) assert.equal(normalizeManifest({ ...manifest(), settings: { quality: q } }).settings.quality, q);
-  const m = normalizeManifest(manifest());
-  assert.deepEqual([m.settings.reducedFlash, m.settings.reducedMotion], [false, false], 'explicit defaults');
-  assert.equal(normalizeManifest({ ...manifest(), settings: { reducedFlash: true, reducedMotion: true } }).settings.reducedMotion, true);
-  for (const settings of [{ quality: 7 }, { quality: 2.5 }, { quality: -1 }, { reducedFlash: 1 }, { reducedMotion: 'true' }, { reducedFlash: null }]) {
+  for (const settings of [{ quality: 7 }, { quality: 2.5 }, { quality: -1 }]) {
     assert.throws(() => normalizeManifest({ ...manifest(), settings }), JSON.stringify(settings));
   }
 });
 
-const withAccessibility = (r, a = { reducedFlash: false, reducedMotion: false }) => { r.songs[0].frames.forEach(f => { f.accessibility = { ...a }; }); return r; };
-const historical = () => { const r = report(); delete r.settings.reducedFlash; delete r.settings.reducedMotion; return r; };
+// Reports captured before the flash/motion preferences were removed still
+// carry them, in the settings and per frame.
+const legacy = () => {
+  const r = report();
+  Object.assign(r.settings, { reducedFlash: false, reducedMotion: false });
+  r.songs[0].frames.forEach(f => { f.accessibility = { reducedFlash: false, reducedMotion: false }; });
+  return r;
+};
 
-test('historical reports without preference fields still validate and compare with each other', () => {
-  const diff = compareReports(historical(), historical());
-  assert.deepEqual(diff.accessibility, { provenance: 'unknown', freshBaselineRequired: false });
-  assert.equal(accessibilityProvenance(historical()), 'unknown');
+test('historical reports carrying retired preference fields still validate and compare with current reports', () => {
+  const diff = compareReports(legacy(), report());
+  assert.equal(diff.frames.length, 1);
+  assert.equal(diff.frames[0].identical, true);
+  assert.equal('accessibility' in diff, false);
+  assert.equal(compareReports(report(), legacy()).frames.length, 1);
+  assert.equal(compareReports(legacy(), legacy()).frames.length, 1);
+  // A capture that had a retired preference on rendered differently.
+  const reducedOn = legacy(); reducedOn.settings.reducedFlash = true;
+  assert.throws(() => compareReports(reducedOn, report()), /incompatible settings/);
+  assert.throws(() => compareReports(report(), reducedOn), /incompatible settings/);
+  assert.equal(compareReports(reducedOn, reducedOn).frames.length, 1);
 });
 
-test('a historical baseline against a verified candidate cannot claim matched accessibility provenance', () => {
-  const diff = compareReports(historical(), withAccessibility(report()));
-  assert.deepEqual(diff.accessibility, { provenance: 'unmatched', freshBaselineRequired: true });
-  const verified = compareReports(withAccessibility(report()), withAccessibility(report()));
-  assert.deepEqual(verified.accessibility, { provenance: 'verified', freshBaselineRequired: false });
-});
-
-test('comparison rejects differing requested or verified effective preferences', () => {
-  const flash = withAccessibility(report(), { reducedFlash: true, reducedMotion: false });
-  flash.settings.reducedFlash = true;
-  assert.throws(() => compareReports(withAccessibility(report()), flash), /incompatible settings/);
-  const drift = withAccessibility(report()); drift.songs[0].frames[0].accessibility.reducedMotion = true;
-  assert.throws(() => compareReports(withAccessibility(report()), drift), /differs from the requested/);
-  const partial = withAccessibility(report()); partial.songs[0].frames.push({ ...partial.songs[0].frames[0], accessibility: undefined });
-  assert.throws(() => accessibilityProvenance(partial), /provenance/);
+test('comparison rejects a differing requested quality', () => {
   const changedQuality = report(); changedQuality.settings.quality = 5;
   assert.throws(() => compareReports(report(), changedQuality), /incompatible settings/);
 });
 
-test('the VFX matrix covers every shedding boundary, preference combination, look and both views', () => {
+test('the VFX matrix covers every shedding boundary, look and both views', () => {
   const matrix = JSON.parse(fs.readFileSync(new URL('./fixtures/visual-evaluation-vfx.json', import.meta.url), 'utf8'));
   const cases = normalizeMatrix(matrix).cases.map(c => c.manifest.settings);
   assert.deepEqual([...new Set(cases.map(s => s.quality))].sort(), [0, 2, 3, 4, 5, 6]);
-  assert.deepEqual(new Set(cases.map(s => `${s.reducedFlash}/${s.reducedMotion}`)).size, 4);
   assert.deepEqual([...new Set(cases.map(s => s.presentation?.look ?? 'pixel'))].sort(), ['palette', 'pixel']);
   assert.deepEqual([...new Set(cases.map(s => s.view))].sort(), ['panamint-dantes-view', 'teton-jackson-lake']);
   assert.ok(cases.some(s => s.mode === 'continuous'), 'a continuous history case');
-  assert.ok(cases.length < 6 * 4 * 3 * 2, 'bounded, not a Cartesian product');
-  assert.equal(manifestForCase(matrix, 'q5-depth-lake-both').settings.quality, 5);
+  assert.ok(cases.length < 6 * 3 * 2, 'bounded, not a Cartesian product');
+  assert.equal(manifestForCase(matrix, 'q5-depth-lake').settings.quality, 5);
   assert.throws(() => manifestForCase(matrix, 'missing'), /unknown case/);
   assert.throws(() => normalizeMatrix({ ...matrix, cases: [...matrix.cases, matrix.cases[0]] }), /duplicate/);
   assert.throws(() => normalizeMatrix({ ...matrix, cases: [{ id: 'bad', settings: { quality: 7 } }] }));

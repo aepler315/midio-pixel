@@ -64,7 +64,8 @@ async function makeManager() {
   bm.groundY = 400;
   bm.h = 540;
   bm._airColor = '#204060';
-  bm.world = { kind: 'city' }; // The alpine depth color is baked; legacy aerial wash stays elsewhere.
+  // The alpine kind bakes its depth color; any other kind takes the live wash.
+  bm.world = { kind: 'unregistered-kind' };
   return bm;
 }
 
@@ -106,24 +107,4 @@ test('no wash at all when this._airColor is unset (defensive: never throws, neve
   const strip = makeStrip();
   const canvas = { width: 960, height: 540 };
   assert.doesNotThrow(() => bm._drawRidgeVolume(ctx, canvas, strip, 0, 40, 'L2', 1, 1, 1));
-});
-
-test('a ceiling strip paints hanging volume, not a cardboard cutout', async () => {
-  const bm = await makeManager();
-  const ctx = new RecordingCtx();
-  const strip = makeStrip();
-  strip.ridge.anchor = 'ceiling';
-  const canvas = { width: 960, height: 540 };
-  bm._drawRidgeVolume(ctx, canvas, strip, 0, 40, 'L2', 1, 1, 1);
-  assert.ok(ctx.fills.length > 0, 'hanging masses get their own volume pass');
-});
-
-test('airless worlds skip the aerial wash — vacuum has no haze', async () => {
-  const bm = await makeManager();
-  bm.world = { kind: 'airless' };
-  const ctx = new RecordingCtx();
-  const strip = makeStrip();
-  const canvas = { width: 960, height: 540 };
-  bm._drawRidgeVolume(ctx, canvas, strip, 0, 40, 'L2', 1, 1, 1);
-  assert.ok(!hasAirColorStop(ctx.fills, 32, 64, 96), 'Far Side must not wash toward sky');
 });

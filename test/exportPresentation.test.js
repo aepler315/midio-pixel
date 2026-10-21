@@ -55,7 +55,7 @@ test('completed pixel export returns its fixed output dimensions and capture', (
 
 test('bulk push rejects an unsuccessful presentation before any canvas read or encoder POST', async () => {
   const bulk = readFileSync(new URL('../tools/bulk-export.mjs', import.meta.url), 'utf8');
-  const push = bulk.slice(bulk.indexOf('async function pushExportFrame('), bulk.indexOf('async function chooseWorld('));
+  const push = bulk.slice(bulk.indexOf('async function pushExportFrame('), bulk.indexOf('/** Wait for the page to arm export'));
   let reads = 0, posts = 0;
   const context = vm.createContext({ performance: { now: () => 0 },
     window: { __SMW: { renderExportFrame: () => ({ width: 800, height: 480, presented: false }) } },

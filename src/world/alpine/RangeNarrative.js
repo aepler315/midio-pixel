@@ -167,10 +167,10 @@ export function compileRangeNarrative({ durationMs = 0, energyCurves = null, tim
   });
 }
 
-export function narrativePressure(narrative, kick01 = 0, { reducedFlash = false, reducedMotion = false } = {}) {
-  const dark = unit(narrative?.skyDark), pulse = reducedFlash ? 0 : unit(kick01);
+export function narrativePressure(narrative, kick01 = 0) {
+  const dark = unit(narrative?.skyDark), pulse = unit(kick01);
   return { edgeAlpha: Math.min(.32, .24 * dark + .08 * dark * pulse),
-    contraction: reducedMotion ? 0 : .04 * dark * pulse };
+    contraction: .04 * dark * pulse };
 }
 
 /** Causal source lookup survives retirement of the full-song reveal arc.

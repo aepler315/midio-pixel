@@ -62,8 +62,8 @@ test('Chroma32 has 32 frozen unique colors with exact teal and blue swatches', (
 });
 test('world palette choice is stable by world kind with deterministic custom/title fallback', () => {
   assert.equal(typeof catalog.resolvePaletteId, 'function');
-  for (const kind of ['alpine', 'overgrowth']) assert.equal(catalog.resolvePaletteId('world', kind), 'range32');
-  for (const kind of ['city', 'airless', 'abyssal', 'strip', 'foundry', 'nave', 'custom', null]) assert.equal(catalog.resolvePaletteId('world', kind), 'chroma32');
+  assert.equal(catalog.resolvePaletteId('world', 'alpine'), 'range32');
+  for (const kind of ['unregistered-kind', 'custom', null]) assert.equal(catalog.resolvePaletteId('world', kind), 'chroma32');
   for (const id of ['range32', 'chroma32', 'rgb332', 'none']) assert.equal(catalog.resolvePaletteId(id, 'alpine'), id);
 });
 test('Canvas palette pass resolves the Chroma catalog without a second readback', () => {

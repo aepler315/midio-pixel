@@ -41,11 +41,6 @@ test('each front carries its age and strength in heard time', () => {
   assert.ok(rangeMusicState({}).gusts.every(g => g.amp01 === 0), 'no kick, no front in flight');
 });
 
-test('reduced motion stills the gusts', () => {
-  const m = rangeMusicState({ env: { kickMul: 1 }, activity01: 1, gustFronts: [{ ageMs: 250, amp: 1, dir: 1 }], reducedMotion: true });
-  assert.ok(m.gusts.every(g => g.amp01 === 0));
-});
-
 test('a front keeps the way its section leaned when its kick landed', () => {
   // For song seed 0, a verse leans one way and a drop the other.
   const lean = (label) => rangeSectionMotif({ label, startMs: 0 }, null, 10000, 0).angle;

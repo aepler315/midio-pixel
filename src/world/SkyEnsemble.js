@@ -10,7 +10,6 @@
 // background astronomy, never foreground fireworks.
 import { mulberry32, hashSeed, clamp01 } from '../utils/math.js';
 import { hexLerp } from '../utils/color.js';
-import { capFlashAlpha } from '../ui/Accessibility.js';
 
 const ARTIFACT_KINDS = ['comet', 'eclipse', 'satellite', 'auroraRibbon', 'starPair'];
 const ARTIFACT_MIN_GAP_MS = 22000;
@@ -97,7 +96,7 @@ export class SkyEnsemble {
    * {skyMid, silhouette, halo}; `groove` breathes the planet halos.
    */
   draw(ctx, canvas, nowMs, {
-    fromName, toName, t = 0, colors, tSec = 0, groove = 0, reducedFlash = false,
+    fromName, toName, t = 0, colors, tSec = 0, groove = 0,
     presentation = 1, maxPlanets = Infinity,
   } = {}) {
     const inherited = Number.isFinite(ctx.globalAlpha) ? ctx.globalAlpha : 1;
@@ -124,7 +123,7 @@ export class SkyEnsemble {
       case 'eclipse': this._drawEclipse(ctx, canvas, u, env, this._planets(t > 0.5 ? toName : fromName), colors, paint); break;
       case 'satellite': this._drawSatellite(ctx, canvas, u, env, a.seed, tSec, paint); break;
       case 'auroraRibbon': this._drawAuroraRibbon(ctx, canvas, u, env, a.seed, tSec, colors, paint); break;
-      case 'starPair': this._drawStarPair(ctx, canvas, u, env, a.seed, reducedFlash, paint); break;
+      case 'starPair': this._drawStarPair(ctx, canvas, u, env, a.seed, paint); break;
       default: break;
     }
   }
@@ -325,7 +324,7 @@ export class SkyEnsemble {
     ctx.restore();
   }
 
-  _drawStarPair(ctx, canvas, u, env, seed, reducedFlash, paint = 1) {
+  _drawStarPair(ctx, canvas, u, env, seed, paint = 1) {
     const rand = mulberry32(seed);
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
@@ -340,7 +339,7 @@ export class SkyEnsemble {
       const ang = 0.5 + rand() * 0.35;
       const x = x0 + Math.cos(ang) * len * su;
       const y = y0 + Math.sin(ang) * len * su;
-      const a = capFlashAlpha(0.5 * Math.sin(Math.PI * su), reducedFlash);
+      const a = 0.5 * Math.sin(Math.PI * su);
       ctx.strokeStyle = `rgba(238,247,255,${a.toFixed(3)})`;
       ctx.lineWidth = 1.6;
       ctx.beginPath();

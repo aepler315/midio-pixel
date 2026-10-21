@@ -4,7 +4,6 @@
 // itself celebrating alongside the player. Mirrors LightningFX's shape:
 // seeded rand, plain state, no canvas ownership between calls.
 import { mulberry32, clamp01 } from '../utils/math.js';
-import { capFlashAlpha } from '../ui/Accessibility.js';
 
 const MAX_ACTIVE_METEORS = 40;   // safety cap; far above any real single volley (max 14)
 const STAGGER_BASE_MS = 90;      // average gap between launches in a volley
@@ -76,7 +75,7 @@ export class MeteorShowerFX {
     this._meteors = this._meteors.filter((m) => m.launchInMs > 0 || m.ageMs < m.lifeMs);
   }
 
-  draw(ctx, canvas, reducedFlash = false) {
+  draw(ctx, canvas) {
     if (!this._meteors.length) return;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
@@ -97,19 +96,19 @@ export class MeteorShowerFX {
         const ax = a.x * canvas.width, ay = a.y * canvas.height;
         const bx = b.x * canvas.width, by = b.y * canvas.height;
         const u = i / trail.length;
-        ctx.strokeStyle = `hsla(${hue}, ${satGlow}%, 80%, ${capFlashAlpha(0.5 * u * fade, reducedFlash)})`;
+        ctx.strokeStyle = `hsla(${hue}, ${satGlow}%, 80%, ${0.5 * u * fade})`;
         ctx.lineWidth = 4.5 * u;
         ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
-        ctx.strokeStyle = `hsla(${hue}, ${satCore}%, 92%, ${capFlashAlpha(0.9 * u * fade, reducedFlash)})`;
+        ctx.strokeStyle = `hsla(${hue}, ${satCore}%, 92%, ${0.9 * u * fade})`;
         ctx.lineWidth = 1.4 * u;
         ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
       }
 
       // Bright head: soft halo + hot core, gently twinkling.
       const twinkle = 0.85 + 0.15 * Math.sin(m.ageMs * 0.02 + m.phase);
-      ctx.fillStyle = `hsla(${hue}, ${satHalo}%, 92%, ${capFlashAlpha(0.35 * fade * twinkle, reducedFlash)})`;
+      ctx.fillStyle = `hsla(${hue}, ${satHalo}%, 92%, ${0.35 * fade * twinkle})`;
       ctx.beginPath(); ctx.arc(x, y, HEAD_GLOW_RADIUS_PX * 2.4, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = `hsla(${hue}, ${satHead}%, 97%, ${capFlashAlpha(0.9 * fade * twinkle, reducedFlash)})`;
+      ctx.fillStyle = `hsla(${hue}, ${satHead}%, 97%, ${0.9 * fade * twinkle})`;
       ctx.beginPath(); ctx.arc(x, y, HEAD_GLOW_RADIUS_PX, 0, Math.PI * 2); ctx.fill();
     }
     ctx.restore();

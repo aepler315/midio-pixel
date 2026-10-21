@@ -56,7 +56,8 @@ try {
     // Audio/copy checks use the supported Canvas fallback; no heavy v2
     // renderer or visual/performance acceptance is attempted here.
     entry.searchParams.set('rangeRenderer', 'legacy');
-    if (mode === 'all') entry.searchParams.set('worlds', 'all');
+    // The chooser opens per song unless the page already names a world.
+    if (mode === 'direct') entry.searchParams.set('experience', 'landscape');
     await page.goto(entry.href);
     await page.locator('#browseBtn').waitFor();
     if (!report.graphicsProbe) report.graphicsProbe = await page.evaluate(async () => {
@@ -76,8 +77,7 @@ try {
       gl.getExtension('WEBGL_lose_context')?.loseContext();
       return result;
     });
-    const rowVisible = await page.locator('.titleWorldRow').isVisible();
-    assert.equal(rowVisible, mode === 'all', 'world menu follows the opt-in route');
+    assert.equal(await page.locator('#titleWorld').count(), 0, 'the world is chosen in the chooser, not on the title screen');
     await page.locator('#titleSettings > summary').click();
     if (await page.locator('#lyricGroundingBtn').getAttribute('aria-pressed') === 'true') await page.locator('#lyricGroundingBtn').click();
     await page.locator('#display-pixelGrid').selectOption('classic');
@@ -87,9 +87,9 @@ try {
     return { page, context, requests, mode };
   }
   async function chooseAndWait(h) {
-    if (h.mode === 'all') {
+    if (h.mode === 'picker') {
       await h.page.locator('#worldSelect:not(.hidden)').waitFor();
-      assert.equal(await h.page.locator('.worldCard').count(), 8);
+      assert.equal(await h.page.locator('.worldCard').count(), 2);
       const card = h.page.locator('.worldCard[data-base-world-id="alpine"]');
       await card.focus(); await card.press('Enter');
     }
@@ -131,7 +131,7 @@ try {
         sf2: !!smw.sf2Engine, fonts: !!smw.fontLibrary, audioState: smw.audioEngine.ctx.state };
     });
   }
-  for (const mode of ['default', 'all']) for (const source of ['sample', 'local', 'url']) {
+  for (const mode of ['picker', 'direct']) for (const source of ['sample', 'local', 'url']) {
     console.log(`START ${mode}/${source}`);
     const h = await open(mode);
     const record = { mode, source, fontRequests: h.requests, passed: false };

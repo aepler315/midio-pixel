@@ -708,17 +708,15 @@ test('budget reclamation keeps the visible legacy strips the fallback will draw'
   m.dispose();
 });
 
-test('reduced flashing removes the full-frame cut flash over a composed v2 view (M1)', () => {
-  for (const reducedFlash of [false, true]) {
-    const { m } = manager(), ctx = anyCtx(), white = [];
-    m.rangePresentation = { ...fakePresentation(), hasViewComposition: true, arrival: 1 };
-    m._drawTransitionOverlays = BiomeManager.prototype._drawTransitionOverlays;
-    m._cutFlash = 1; m.reducedFlash = reducedFlash;
-    ctx.fillRect = (x, y, w, h) => { if (ctx.fillStyle === '#ffffff' && w === 1408 && h === 848) white.push(ctx.globalAlpha); };
-    m.draw(ctx, { width: 1408, height: 848 }, 0, 0, null, 1, null, groundView);
-    assert.deepEqual(white, reducedFlash ? [] : [.35]);
-    m.dispose();
-  }
+test('the full-frame cut flash draws over a composed v2 view (M1)', () => {
+  const { m } = manager(), ctx = anyCtx(), white = [];
+  m.rangePresentation = { ...fakePresentation(), hasViewComposition: true, arrival: 1 };
+  m._drawTransitionOverlays = BiomeManager.prototype._drawTransitionOverlays;
+  m._cutFlash = 1;
+  ctx.fillRect = (x, y, w, h) => { if (ctx.fillStyle === '#ffffff' && w === 1408 && h === 848) white.push(ctx.globalAlpha); };
+  m.draw(ctx, { width: 1408, height: 848 }, 0, 0, null, 1, null, groundView);
+  assert.deepEqual(white, [.35]);
+  m.dispose();
 });
 
 test('tour downloads retry only HTTP failures, with a bound and cancellation', async () => {

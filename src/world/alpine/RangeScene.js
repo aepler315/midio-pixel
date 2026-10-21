@@ -477,7 +477,7 @@ export class RangeScene {
   _prepareMirror(p, frame, side, viewId) {
     const u = p.uniforms;
     u.uViewportPx.value.set(this.size.width, this.size.height);
-    const ripple = (m) => (frame.reducedMotion ? 0.001 : 0.0012 + 0.0025 * (m?.groove ?? 0) + 0.004 * (m?.kick01 ?? 0));
+    const ripple = (m) => 0.0012 + 0.0025 * (m?.groove ?? 0) + 0.004 * (m?.kick01 ?? 0);
     const level = p.mirrorLevelM;
     const wanted = Number.isFinite(level) && rangeQuality(frame.qualityLevel).waterMirror
       && (frame.narrative?.materials ?? 1) > .01;
@@ -1480,7 +1480,7 @@ export class RangeScene {
    *  partition passes and the sky (RangePresentation._skyPan). */
   movedPose(view, frame, p = this.prepared.get(view.id) || null) {
     if (p?.windowCache) this._updateTourCoverage(p, frame);
-    const baseRail = scenePoseAt(view, { progress01: view.glacier && !frame.reducedMotion ? (frame.glacier?.journey01 ?? frame.progress01) : frame.progress01, timeMs: frame.timeMs });
+    const baseRail = scenePoseAt(view, { progress01: view.glacier ? (frame.glacier?.journey01 ?? frame.progress01) : frame.progress01, timeMs: frame.timeMs });
     const rail = { ...baseRail, fovYDeg: applyLensFov(baseRail.fovYDeg, frame.cameraEffects) };
     const proj = scenicProjection(rail.fovYDeg, frame.scenicViewport);
     // This view's VISIBLE frustum (the overscan margin excluded): the
@@ -1559,7 +1559,7 @@ export class RangeScene {
     u.uDeformK.value = m.waveK;
     u.uDeformDir.value.set(m.waveDir[0], m.waveDir[1]);
     u.uDeformPhase.value = m.phaseRad;
-    u.uTime.value = frame.reducedMotion ? 0 : frame.timeMs / 1000;
+    u.uTime.value = frame.timeMs / 1000;
     m.gusts.forEach((g, i) => { u.uGustAge.value[i] = g.ageSec; u.uGustAmp.value[i] = g.amp01 * (1 + (frame.storm?.amount || 0) * .8); u.uGustDir.value[i] = g.dir; });
     syncGustUniforms(u);
     const rung = rangeQuality(frame.qualityLevel);
@@ -1612,8 +1612,7 @@ export class RangeScene {
       // Environment tint stays separate from the resolved physical body
       // color. Air, mist and reflected sky share the same recipe.
       const tone = new THREE.Color().setHSL(frame.motif.hueDeg / 360, .65, .65);
-      const amount = frame.motif.intensity01 * (frame.reducedFlash ? .5 : 1);
-      const tint = new THREE.Color(1, 1, 1).lerp(tone, amount);
+      const tint = new THREE.Color(1, 1, 1).lerp(tone, frame.motif.intensity01);
       u.uSkyZenith.value.multiply(tint);
       u.uSkyHorizon.value.multiply(tint);
       u.uAirColor.value.multiply(tint);
@@ -1650,11 +1649,11 @@ export class RangeScene {
       // lands on the range in his own proportions (a Brocken spectre).
       u.uShadowEye.value.copy(this.camera.position);
       u.uMidioCloud.value = layout.hasLake && Number.isFinite(p.mirrorLevelM) ? 0 : 1;
-      u.uGiantTime.value = frame.reducedMotion ? 0 : frame.timeMs / 1000;
+      u.uGiantTime.value = frame.timeMs / 1000;
     }
     // Valley mist: anchored at the view's water level, thicker in calm.
     const mp = mistParams({ rules: p.rules, waterLevelM: p.waterLevelM, heightRange: [u.uHeightRange.value.x, u.uHeightRange.value.y],
-      tSec: frame.reducedMotion ? 0 : frame.timeMs / 1000, calm01: 1 - (frame.music?.groove ?? 0),
+      tSec: frame.timeMs / 1000, calm01: 1 - (frame.music?.groove ?? 0),
       sea01: Math.max(frame.cloudSea01 ?? 0, amounts[2] * .3, u.uMidioCloud.value * amounts[0] * .3), cameraY: this.camera.position.y });
     const quality = rangeQuality(frame.qualityLevel);
     if (p.view.tour) {
@@ -1726,7 +1725,7 @@ export class RangeScene {
     const tanHalf = Math.tan((cam.fov * Math.PI) / 360)
       * (cam.view?.enabled ? cam.view.height / cam.view.fullHeight : 1);
     const materials = frame.narrative?.materials ?? 1;
-    const tSec = frame.reducedMotion ? 0 : frame.timeMs / 1000;
+    const tSec = frame.timeMs / 1000;
     // The lights carry the dark: brightest before dawn and after sunset,
     // a soft shimmer at noon.
     const dark = Math.min(1, Math.max(0, frame.light?.night01 ?? 0));
@@ -1747,11 +1746,10 @@ export class RangeScene {
       if (!pos) { group.visible = false; return; }
       const at = new THREE.Vector3(pos[0], pos[1], pos[2]);
       const dist = Math.max(1, at.distanceTo(cam.position));
-      const peak = frame.reducedFlash ? s.peak * 0.7 : s.peak;
       const display = new THREE.Color().setHSL(ACTOR_HUES[id] / 360, 0.85, 0.62);
       // Light: linear, stronger as the lane plays and at its peak.
       const lin = display.clone().convertSRGBToLinear();
-      const gain = look.lightGain * (0.35 + 0.65 * s.glow + 0.5 * peak) * presence * (0.45 + 1.15 * dark);
+      const gain = look.lightGain * (0.35 + 0.65 * s.glow + 0.5 * s.peak) * presence * (0.45 + 1.15 * dark);
       u.uActorPos.value[k].copy(at);
       u.uActorColor.value[k].set(lin.r * gain, lin.g * gain, lin.b * gain);
       u.uActorRadius.value[k] = look.lightM;
@@ -1769,7 +1767,7 @@ export class RangeScene {
       v.uColor.value.copy(display);
       v.uGlow.value = s.glow;
       v.uPresence.value = presence * (0.55 + 0.45 * dark);
-      v.uCohere.value = peak;
+      v.uCohere.value = s.peak;
       v.uTime.value = tSec + k * 37;
       v.uWanderPx.value = look.wanderPx * (1 + 0.5 * s.glow);
       v.uShapePx.value = look.shapePx;

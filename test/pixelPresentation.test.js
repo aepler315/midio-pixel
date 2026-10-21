@@ -61,10 +61,9 @@ for (const backend of ['canvas', 'webgl']) test(`pixel context reaches ${backend
     assert.equal(scene.pixelPolicy?.minGlyphHeight, 7);
     assert.equal(range.pixelPolicy, scene.pixelPolicy);
     assert.equal(range.pixelated, true);
-    assert.equal(scene.pixelPolicy.heatMaxOffset, 0);
   };
   const adapter = createPresentingRenderer({ canvas: surface(), presentation: pixel, rendererFactory: () => inner });
-  assert.equal(adapter.draw({ reducedMotion: true, biomes: { world: { kind: 'alpine' } } }, 0).presented, true);
+  assert.equal(adapter.draw({ biomes: { world: { kind: 'alpine' } } }, 0).presented, true);
   adapter.dispose();
 });
 test('identical frame context preserves a completed capture and generation', () => {
@@ -126,7 +125,7 @@ test('persistent readback failures retry only after a presentation generation ch
 });
 test('world palette context resolves before drawing and changes only on an effective palette change', () => {
   const owner = new PixelPresentation({ canvas: surface(), presentation: { ...pixel, paletteId: 'world' } });
-  owner.setFrameContext({ worldKind: 'city' });
+  owner.setFrameContext({ worldKind: 'unregistered-kind' });
   owner.beginFrame(); owner.finishFrame();
   assert.equal(owner.diagnostics.effectivePalette, 'chroma32');
   assert.equal(owner.diagnostics.effectiveLook, 'palette');
@@ -147,8 +146,8 @@ test('same effective world palette keeps taint backoff and Natural/Pixel compile
   const canvas = surface(320, 180); let attempts = 0;
   canvas.getContext().getImageData = () => { attempts++; throw Object.assign(Error('tainted'), { name: 'SecurityError' }); };
   const owner = new PixelPresentation({ canvas, presentation: { ...pixel, paletteId: 'world' } });
-  owner.setFrameContext({ worldKind: 'city' }); owner.beginFrame(); owner.finishFrame();
-  for (const worldKind of ['city', 'airless', 'custom', null]) { owner.setFrameContext({ worldKind }); owner.beginFrame(); owner.finishFrame(); }
+  owner.setFrameContext({ worldKind: 'unregistered-kind' }); owner.beginFrame(); owner.finishFrame();
+  for (const worldKind of ['unregistered-kind', 'other-unregistered-kind', 'custom', null]) { owner.setFrameContext({ worldKind }); owner.beginFrame(); owner.finishFrame(); }
   assert.equal(attempts, 1);
   owner.setFrameContext({ worldKind: 'alpine' }); owner.beginFrame(); owner.finishFrame();
   assert.equal(attempts, 2);
@@ -167,7 +166,7 @@ test('mask admission denial falls back to a valid Ordered palette frame once per
   assert.equal(owner.diagnostics.ditherFallbackReason, 'allocation-denied');
   assert.ok(owner.getCaptureSource());
   residency.budgetBytes = 100000;
-  owner.setFrameContext({ worldKind: 'city' }); owner.beginFrame(); owner.finishFrame();
+  owner.setFrameContext({ worldKind: 'unregistered-kind' }); owner.beginFrame(); owner.finishFrame();
   assert.equal(owner.diagnostics.effectiveDitherMode, 'ordered', 'no retry without a new generation');
   owner.setPresentation({ ...profile, dither: 1 }); owner.beginFrame(); owner.finishFrame();
   assert.equal(owner.diagnostics.effectiveDitherMode, 'selective');

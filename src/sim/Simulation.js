@@ -1,4 +1,3 @@
-import { resolveExperience } from '../core/Experience.js';
 import { TrioPerformance } from './TrioPerformance.js';
 import { cameraLensAt } from '../render/CameraLens.js';
 // Listening simulation owns transport, musical context, scenery and tap calibration.
@@ -18,7 +17,7 @@ import { CodaDirector } from './CodaDirector.js';
 import { FilmFinish } from '../render/FilmFinish.js';
 import { BiomeManager } from '../world/BiomeManager.js';
 import { alpineTerrainProfiles } from '../world/terrain/loadTerrain.js';
-import { getWorld, resolveWorldId } from '../world/Worlds.js';
+import { getWorld, resolveWorldId, worldExperience, worldForExperience } from '../world/Worlds.js';
 import { FractureEngine } from '../world/FractureEngine.js';
 import { GroundField } from '../world/GroundField.js';
 import { PerfGovernor } from '../render/PerfGovernor.js';
@@ -66,7 +65,10 @@ export class Simulation {
     this.paramBus = paramBus;
     this.energyCurves = energyCurves;
     this.customBiome = customBiome || null;
-    this.worldId = resolveWorldId(worldId);
+    // The world decides the presentation. `experience` alone (no world)
+    // names the world that plays it, for callers that only know the mode.
+    this.worldId = resolveWorldId(worldId ?? worldForExperience(experience));
+    this.experience = worldExperience(this.worldId);
     this.canvasWidth = canvasWidth;
     this.canvasHeight = canvasHeight;
     this.stageW = canvasWidth;
@@ -148,18 +150,18 @@ export class Simulation {
       conductorSchedule: conductorCues ? conductorCues.scheduleCues : null,
       worldId: this.worldId,
 
-      terrainProfiles: getWorld(this.worldId)?.kind === 'alpine'
+      // Real terrain belongs to Landscape. Trio's ridges stay procedural,
+      // the Range as it was before real terrain arrived.
+      terrainProfiles: getWorld(this.worldId)?.realBiomes
         ? (terrainProfiles || alpineTerrainProfiles()) : null,
 
-      songTerrain: getWorld(this.worldId)?.kind === 'alpine' ? songTerrain : null,
+      songTerrain: getWorld(this.worldId)?.realBiomes ? songTerrain : null,
 
       residency,
     });
     this.rangeNarrative = compileLandscapeSources({ durationMs: conductor.durationMs,
       timeline: conductor.timeline, casting: this.casting });
-    this.reducedFlash = false;
     this.visualStyle = 'rendered';
-    this.biomes.reducedFlash = this.reducedFlash;
     this.biomes.setVisualStyle(this.visualStyle);
     this.highlightReel = new HighlightReel();
     this.fracture = new FractureEngine(conductor, {
@@ -192,21 +194,12 @@ export class Simulation {
     // Candidate-only song replay belongs to construction, before audio starts.
     // Draws read this immutable schedule rather than warming it on stage.
     highlightCandidatesFor(this);
-    this.setExperience(experience);
-  }
-
-  setExperience(value) {
-    const next = resolveExperience(value);
-    if (this.experience === next) return;
-    const prepared = next === 'trio' ? new TrioPerformance({ timeline: this.conductor.timeline,
-      durationMs: this.conductor.durationMs, bpm: this.bpm, barGrid: this.conductor.barGrid,
-      beatMetadata: this.conductor.beatMetadata, energyCurves: this.energyCurves,
-      paramBus: this.paramBus, seed: this.songSeed, stageW: this.stageW, stageH: this.stageH,
-      reducedFlash: this.reducedFlash, reducedMotion: this.reducedMotion, particleMul: this.perf?.particleMul ?? 1 }) : null;
-    prepared?.seek(this.heardTimeMs ?? this.timeMs ?? 0);
-    this.trio?.dispose(); this.trio = prepared;
-    this.experience = next;
-    this.presentation = resolveLandscapePresentation(getWorld(this.worldId), next);
+    // Trio: Midio, Midasus and Broshi perform on the world's own ground.
+    this.trio = this.experience === 'trio' ? new TrioPerformance({ timeline: conductor.timeline,
+      durationMs: conductor.durationMs, bpm, barGrid: conductor.barGrid,
+      beatMetadata: conductor.beatMetadata, energyCurves,
+      paramBus, seed: songSeed, stageW: this.stageW, stageH: this.stageH, ground: this.groundField }) : null;
+    this.trio?.seek(0);
   }
 
   _applyCues(nowMs) {
@@ -315,19 +308,6 @@ export class Simulation {
     this.fracture.dispose();
   }
 
-  /** The Reel (Movement VI): live-toggle the reduced-flash accessibility
-   *  setting, cascading to every consumer that caps its own flash alphas. */
-  setReducedFlash(v) {
-    this.reducedFlash = v;
-    this.biomes.reducedFlash = v;
-    this.fracture.reducedFlash = v;
-  }
-
-  setReducedMotion(v) {
-    this.reducedMotion = !!v;
-    this.biomes.reducedMotion = !!v;
-  }
-
   syncSongBeat(nowMs) {
     const state = this.songBeat.snapshotAt(nowMs);
     this.beatAnchor.setSongBeatMs(state.periodMs, nowMs);
@@ -373,11 +353,7 @@ export class Simulation {
     this.hype.update(nowMs, dtSec, this.energyCurves);
     this.vibe.epicBias = epicBiasForKind(this.biomes.currentKind, this.biomes.lyricIntensityEased, this.biomes.kindConfidenceEased);
     this.vibe.update(nowMs, dtSec, this.energyCurves);
-    if (this.trio) {
-      this.trio.update(this.heardTimeMs, { reducedFlash: this.reducedFlash, reducedMotion: this.reducedMotion, particleMul: this.perf.particleMul });
-      this.worldX = this.trio.worldX;
-      this.paramBus.step(); this.curr = this._snapshot(); return;
-    }
+    if (this.trio) this._stepTrio();
     this.keyDirector.update(nowMs, dtSec, { tonic: this.vibe.tonic, tonicConfidence: this.vibe.tonicConfidence, conductor: this.conductor });
     if (this.keyDirector.justKeyChange) this.biomes.mandala.reseed(this.keyDirector.lastKeyChange.to);
     this.coda.update(nowMs);
@@ -404,7 +380,7 @@ export class Simulation {
     this.groundField.update(nowMs, dtSec, this.worldX, this.energyCurves, this.calm.level, this.heardTimeMs);
     this.stageAnchor.groundY = this.groundField.heightAt(this.worldX);
     this.midio.groundY = this.midio.renderY = this.stageAnchor.groundY;
-    this.worldX += WORLD_SPEED_PX_S * this.paramBus.live.scrollSpeed * dtSec;
+    if (!this.trio) this.worldX += WORLD_SPEED_PX_S * this.paramBus.live.scrollSpeed * dtSec;
     this.opening.update(nowMs, dtSec, this.energyCurves);
     Object.assign(this.biomes, {
       openingGain: 1, focusMul: 1, stillnessMul: 1,
@@ -434,10 +410,26 @@ export class Simulation {
     this.biomes.orogenyGrowth = this.orogeny.growth;
     const period = Math.max(1, this.beatAnchor.periodMs);
     const tau = ((this.heardTimeMs - this.beatAnchor.anchorMs) % period + period) % period;
-    this.camera.update(dtSec, this.calm.level, this.reducedFlash || this.reducedMotion, tau,
-      this.songBeat.freeTime ? 0 : Math.max(this.vibe.epic, this.hype.surge), cameraLensAt({ sections: this.biomes.sections, timeMs: this.heardTimeMs, durationMs: this.biomes.durationMs, reducedMotion: this.reducedFlash || this.reducedMotion }).zoomPulse);
+    this.camera.update(dtSec, this.calm.level, tau,
+      this.songBeat.freeTime ? 0 : Math.max(this.vibe.epic, this.hype.surge), cameraLensAt({ sections: this.biomes.sections, timeMs: this.heardTimeMs, durationMs: this.biomes.durationMs }).zoomPulse);
     this.paramBus.step();
     this.curr = this._snapshot();
+  }
+
+  /** The cast performs first; the world then scrolls to where they are.
+   *  Midio stands at his own screen x, so that is the world's origin. */
+  _stepTrio() {
+    const trio = this.trio, biomes = this.biomes;
+    const chorus = biomes.currentKind === 'chorus';
+    trio.update(this.heardTimeMs, { particleMul: this.perf.particleMul, hype: this.hype,
+      chorusText: chorus ? biomes.currentSectionText : null,
+      lyricSymbol: chorus ? biomes.currentSectionSymbol : null });
+    this.worldX = trio.worldX;
+    this.stageAnchor.x = trio.midio.screenX;
+    const voyage = trio.midasus.voyage;
+    if (trio.voyageEvents.launched || trio.voyageEvents.landed) this.camera.shake(4);
+    // The sky notices her: the celestial's mandala swells while she dances near it.
+    biomes.mandalaScaleMul = 1 + 0.12 * voyage.depth;
   }
 
   _snapshot() {

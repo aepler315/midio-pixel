@@ -38,12 +38,12 @@ const isVec3 = (v) => Array.isArray(v) && v.length === 3 && v.every(Number.isFin
  * A zero or unknown duration is a preview: the rail's midpoint, matching the
  * scanned skylines' midpoint preview station.
  */
-export function sceneProgressAt({ timeMs = 0, curves = null, durationMs = 0, reducedFlash = false, response = null } = {}) {
+export function sceneProgressAt({ timeMs = 0, curves = null, durationMs = 0, response = null } = {}) {
   const dur = Number(durationMs) || 0;
   if (!(dur > 0)) return SCENE_PREVIEW_PROGRESS;
   const tSec = Math.max(0, Number(timeMs) || 0) / 1000;
   const scrollPx = terrainScrollPx({
-    tSec, curves, durationMs: dur, stripWidth: SCENE_STRIP_WIDTH, reducedFlash, response,
+    tSec, curves, durationMs: dur, stripWidth: SCENE_STRIP_WIDTH, response,
     depth: 1, fit: { viewWidth: SCENE_REFERENCE_WINDOW, maxDepth: 1 },
   });
   return clamp01(scrollPx / SCENE_ROOM);

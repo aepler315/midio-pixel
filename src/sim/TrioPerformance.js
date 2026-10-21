@@ -8,6 +8,7 @@ import { MidioPerformer } from './MidioPerformer.js';
 import { EnsembleDirector } from './EnsembleDirector.js';
 import { CalmDirector } from './CalmDirector.js';
 import { VibeDirector } from './VibeDirector.js';
+import { ExcursionDirector } from './ExcursionDirector.js';
 import { GroundField } from '../world/GroundField.js';
 
 const STEP = 1000 / 120;
@@ -15,11 +16,14 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 // Performer consumes this legacy scalar to choose its trick repertoire;
 // there is no judge, points, streak, health or artificial perfect-tap feed.
 const PERFORMANCE = Object.freeze({ displayM: 1 });
+// The finale: every star Midasus wrote into her atlas goes supernova this
+// long before the song ends, as the song shatters.
+const ATLAS_DETONATE_LEAD_MS = 4000;
 
 export class TrioPerformance {
   constructor({ timeline = [], durationMs = 0, bpm = 120, barGrid = [], beatMetadata = null,
     energyCurves = null, paramBus, seed = 315, stageW = 1280, stageH = 720,
-    reducedFlash = false, reducedMotion = false, particleMul = 1 } = {}) {
+    particleMul = 1, ground = null } = {}) {
     this.song = { timeline, durationMs, bpm, barGrid, ...beatMetadata };
     this.energyCurves = energyCurves;
     this.paramBus = paramBus;
@@ -28,8 +32,12 @@ export class TrioPerformance {
     this.leads = timeline.filter(e => e.lane === Lane.MIDIO && e.vel >= .65 && (e.pitchConfidence == null || e.pitchConfidence >= .5));
     this.motionEvents = [...this.kicks.map(event => ({ kind: 'kick', event })), ...this.leads.map(event => ({ kind: 'lead', event }))]
       .sort((a, b) => a.event.tMs - b.event.tMs || (a.kind === 'kick' ? -1 : 1));
-    this.reducedFlash = !!reducedFlash; this.reducedMotion = !!reducedMotion;
     this.particleMul = particleMul;
+    // The ground the world draws. Sharing it is what keeps the cast standing
+    // on the drawn surface instead of a private copy beside it.
+    this.sharedGround = ground;
+    this.hype = null; this.chorusText = null; this.lyricSymbol = null;
+    this.voyageEvents = { launched: false, landed: false };
     this.disposed = false;
     this.seek(0);
   }
@@ -47,7 +55,12 @@ export class TrioPerformance {
     this.ensemble._t = startMs / 1000;
     this.calm = new CalmDirector();
     this.vibe = new VibeDirector(this.song.timeline);
-    this.ground = new GroundField(this.midio.groundY, { conductor: this.conductor, durationMs: this.song.durationMs, songSeed: this.seed });
+    this.ground = this.sharedGround || new GroundField(this.midio.groundY, { conductor: this.conductor, durationMs: this.song.durationMs, songSeed: this.seed });
+    // Midasus's deep-sky voyages and the (disabled) burrow, scheduled off
+    // the music. A seek starts a new performance segment, so its budget and
+    // the atlas she writes start over with it.
+    this.excursions = new ExcursionDirector(this.song.durationMs || 0);
+    this._atlasDetonated = false;
     const bassLane = this.song.timeline.some(e => e.lane === Lane.BROSHI);
     const melodyLane = this.song.timeline.some(e => e.lane === Lane.MIDASUS);
     this.broshi = new Broshi(this.conductor, this.paramBus, { seed: this.seed + 1,
@@ -78,9 +91,12 @@ export class TrioPerformance {
     this.clockMs = t;
   }
 
-  update(timeMs, { reducedFlash = false, reducedMotion = false, particleMul = 1 } = {}) {
+  /** `hype` and the chorus text come from the listening simulation: a drop
+   * holds a voyage back, and a chorus voyage sky-writes its lyric. */
+  update(timeMs, { particleMul = 1, hype = null, chorusText = null, lyricSymbol = null } = {}) {
     if (this.disposed) return;
-    this.reducedFlash = reducedFlash; this.reducedMotion = reducedMotion; this.particleMul = particleMul;
+    this.particleMul = particleMul; this.hype = hype; this.chorusText = chorusText; this.lyricSymbol = lyricSymbol;
+    this.voyageEvents.launched = this.voyageEvents.landed = false;
     const t = Math.max(0, Number(timeMs) || 0);
     if (t < this.clockMs || t - this.clockMs > 1500) { this.seek(t); return; }
     while (this.clockMs + STEP <= t + 1e-6) this._step(Math.min(t, this.clockMs + STEP), STEP / 1000);
@@ -94,7 +110,8 @@ export class TrioPerformance {
     while (this.eventCursor < this.motionEvents.length && this.motionEvents[this.eventCursor].event.tMs <= throughMs) {
       const { kind, event } = this.motionEvents[this.eventCursor++];
       if (kind === 'kick') {
-        this.jump.onKick(event); if (notify) this.performer.onKick(event.tMs);
+        this.jump.onKick(event);
+        if (notify) { this.performer.onKick(event.tMs); this.midasus.voyage.onKick(event.vel); }
       } else {
         this.jump.update(event.tMs);
         if (this.jump.airborne && this.jump.y < 220 && event.tMs - this.lastAirJumpMs > 8000
@@ -116,11 +133,11 @@ export class TrioPerformance {
     const energy = this.energyCurves?.globalEnergyNorm?.(nowMs) ?? this.energyCurves?.globalEnergy?.(nowMs) ?? 0;
     const oldEnergy = this.energySlow;
     this.energySlow += (energy - this.energySlow) * (1 - Math.exp(-dt / 3));
-    if (!this.reducedMotion && energy - oldEnergy > .25 && nowMs - this.lastFlourishMs > 16000) {
+    if (energy - oldEnergy > .25 && nowMs - this.lastFlourishMs > 16000) {
       this.ensemble.maybeDisc(nowMs, 'drop', Math.max(.6, this.vibe.epic));
       this.lastFlourishMs = nowMs;
     }
-    this.ground.update(nowMs, dt, this.worldX, this.energyCurves, this.calm.level, nowMs);
+    if (!this.sharedGround) this.ground.update(nowMs, dt, this.worldX, this.energyCurves, this.calm.level, nowMs);
     this.midio.screenX = clamp(this.ensemble.anchors[0].x, this.w * .25, this.w * .55);
     this.midio.groundY = this.ground.heightAt(this.worldX);
     this.midio.y = this.jump.y;
@@ -132,19 +149,32 @@ export class TrioPerformance {
       trailX: clamp(this.ensemble.anchors[1].x, this.midio.screenX + 130, this.w - 100),
       midasusX: this.ensemble.anchors[2].x, midasusY: this.ensemble.anchors[2].y,
       stageW: this.w, worldSpeed: 220, epic: this.vibe.epic, midioY: this.midio.y };
-    this.broshi.reducedFlash = !!this.reducedFlash;
-    this.midasus.reducedFlash = !!this.reducedFlash;
+    // Decided before either companion updates, so a launch animates this step.
+    this.excursions.update(nowMs, dt, { vibe: this.vibe, calm: this.calm, hype: this.hype,
+      energyCurves: this.energyCurves, conductor: this.conductor, midasus: this.midasus, broshi: this.broshi,
+      worldX: this.worldX, chorusText: this.chorusText, lyricSymbol: this.lyricSymbol });
     this.broshi.update(nowMs, dt, this.midio, this.energyCurves, this.worldX,
       this.h * 625 / 720, this.calm.level, common, this.ground, this.particleMul ?? 1);
     this.broshi.groundY = this.ground.heightAt(this.worldX + this.broshi.renderX - this.midio.screenX);
     this.midasus.update(nowMs, dt, this.calm.level, { ...common, phase: this.ensemble.phase(2),
       x: common.midasusX, y: common.midasusY, broshiX: this.broshi.renderX, broshiY: this.broshi.groundY - this.broshi.hopY }, this.particleMul ?? 1);
+    const voyage = this.midasus.voyage;
+    // While she is away the ensemble feels the hole she leaves.
+    this.ensemble.setPresence(2, voyage.active ? 0 : 1);
+    voyage.atlasPulse = this.hype?.slam ?? 0;
+    if (voyage.justLaunched) this.voyageEvents.launched = true;
+    if (voyage.justLanded) this.voyageEvents.landed = true;
+    const end = this.song.durationMs || 0;
+    if (!this._atlasDetonated && end > 0 && nowMs >= end - ATLAS_DETONATE_LEAD_MS && voyage.atlas.length > 0) {
+      this._atlasDetonated = true;
+      voyage.detonateAtlas(nowMs);
+    }
   }
 
   pose() {
-    const m = this.midio, motion = this.reducedMotion ? .35 : 1;
-    return { midioDrawX: m.screenX, midioY: m.groundY - m.y * motion,
-      scaleX: m.scaleX, scaleY: m.scaleY, leanDeg: m.leanDeg * motion,
+    const m = this.midio;
+    return { midioDrawX: m.screenX, midioY: m.groundY - m.y,
+      scaleX: m.scaleX, scaleY: m.scaleY, leanDeg: m.leanDeg,
       worldX: this.worldX, midioX: m.screenX };
   }
 
