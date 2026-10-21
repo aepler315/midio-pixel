@@ -6,6 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { chromium } from 'playwright';
 import { snapshotSource, serveSnapshot, sha256 } from './lib/visual-evaluation-server.mjs';
 import { openEvaluationSong, renderEvaluationFrame } from './lib/visual-evaluation-browser.mjs';
+import { finalizeBrowserDiagnostics } from './lib/browser-diagnostics.mjs';
 const root = path.resolve(process.argv[2] || '.'), out = path.resolve(process.argv[3] || '.smoke/range-stars'), tour = process.argv[4] === 'tour';
 const resume = process.argv[5] === 'resume';
 await fs.mkdir(out, { recursive: true });
@@ -14,7 +15,7 @@ const audioPath = path.join(out, 'audio.wav');
 execFileSync(process.execPath, ['tools/gen-test-wav.mjs', audioPath, '120', '96']);
 const settings = { width: 1280, height: 720, seed: 315, quality: 3, view: tour ? 'teton-range-tour' : 'teton-jackson-lake', biome: 'CONIFER', reducedFlash: false, reducedMotion: false,
   presentation: { version: 2, look: 'pixel', quality: 'auto', palette: 'world', dither: .35, ditherMode: 'selective', pixelGrid: 'classic', scaling: 'fit', pixelScale: 'original' }, debug: { rangeTour: tour ? 'tetons' : 'off' } };
-const report = { status: 'running', source: { root, digest: snapshot.digest, hashes: snapshot.hashes }, settings, audioSha256: sha256(await fs.readFile(audioPath)), errors: [], warnings: [], loadedFiles: new Set(), frames: [] };
+const report = { status: 'running', source: { root, digest: snapshot.digest, hashes: snapshot.hashes }, settings, audioSha256: sha256(await fs.readFile(audioPath)), errors: [], warnings: [], events: [], loadedFiles: new Set(), frames: [] };
 const previous = resume ? JSON.parse(await fs.readFile(path.join(out, 'report.json'), 'utf8')) : null;
 if (previous) {
   assert.equal(previous.source.digest, snapshot.digest, 'resume requires the identical served source');
@@ -27,13 +28,14 @@ if (previous) {
   report.frames = previous.frames;
   report.errors = previous.errors || [];
   report.warnings = previous.warnings || [];
+  report.events = previous.events || [];
   report.previousAttempts = [...previous.previousAttempts || [], { status: previous.status, error: previous.error || null, errors: previous.errors || [] }];
 }
 const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
-let loaded;
+let loaded, failed = false;
 const saveReport = () => fs.writeFile(path.join(out, 'report.json'), JSON.stringify({ ...report, loadedFiles: [...report.loadedFiles] }, null, 2));
 try {
-  loaded = await openEvaluationSong(browser, { url: server.url, audioPath, settings, diagnostics: report });
+  loaded = await openEvaluationSong(browser, { url: server.url, audioPath, settings: { ...settings, ...(tour ? { tour: 'tetons' } : {}) }, diagnostics: report });
   report.environment = loaded.environment; report.browser = browser.version(); report.seed = loaded.seed;
   if (previous) {
     assert.deepEqual(previous.environment, report.environment);
@@ -43,12 +45,14 @@ try {
   const page = loaded.page;
   const captured = id => report.frames.some(f => f.file === `${id}.png`);
   const profile = async p => {
+    loaded.browserDiagnostics.setPhase(`star-profile:${p.pixelGrid}/${p.look}`);
     settings.presentation = p;
     await page.evaluate(async p => { const { resolvePresentation, resolveDisplayPrefs } = await import('/src/render/DisplayProfile.js');
       window.__SMW.renderer.setPresentation(resolvePresentation(resolveDisplayPrefs({ saved: p })));
     }, p);
   };
   const capture = async (timeMs, id, disabled = false) => {
+    loaded.browserDiagnostics.setPhase(`star-capture:${id}:${timeMs}ms`);
     if (tour) await page.evaluate(async timeMs => {
       // Readiness covers the view, but a seek can still have a coarse
       // terrain window while its worker builds. Settle that real work so
@@ -135,12 +139,13 @@ try {
   for (const point of remaining.sort((a, b) => a.timeMs - b.timeMs)) {
     if (!captured(point.id)) await capture(point.timeMs, point.id, point.disabled);
   }
-  // Song/export ownership can abort an obsolete startup request. Preserve
-  // those events separately only after every frame proved an active tour;
-  // real HTTP/decode/runtime failures still fail the run.
-  report.cancelledStartupRequests = report.errors.filter(e => /request failed \/src\/assets\/range\/v2\/tour\/.*: net::ERR_ABORTED$/.test(e));
-  report.errors = report.errors.filter(e => !report.cancelledStartupRequests.includes(e));
+  report.cancelledStartupRequests = report.events.filter(event => event.source === 'requestfailed' && event.expected).map(event => event.message);
   assert.deepEqual(report.errors, []);
   report.status = 'passed';
-} catch (e) { report.status = 'failed'; report.error = String(e.stack || e); console.error(e); process.exitCode = 1; }
-finally { await saveReport(); await loaded?.context.close(); await browser.close(); await server.close(); }
+} catch (e) { failed = true; report.status = 'failed'; report.error = String(e.stack || e); console.error(e); process.exitCode = 1; }
+finally {
+  await loaded?.context.close(); await loaded?.browserDiagnostics.dispose(); await browser.close(); await server.close();
+  try { finalizeBrowserDiagnostics(report, report, { preserveFailure: failed }); }
+  catch (error) { console.error(error); process.exitCode = 1; }
+  await saveReport();
+}

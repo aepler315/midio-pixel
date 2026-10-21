@@ -16,7 +16,7 @@ plus a few Canvas passes around it.
 
 | Effect | Owner | Notes |
 | --- | --- | --- |
-| Terrain (far / mid / near partitions) | `RangeScene`, `TerrainMaterial`, `TerrainMesh` | One shared depth pre-pass; multisampled in Natural at q0–q2 (`RangeRenderPolicy`), never in Pixel/Palette |
+| Terrain (far / mid / near partitions) | `RangeScene`, `TerrainMaterial`, `TerrainMesh` | One shared depth pre-pass; current Pixel/Palette do not enable the historical Natural/MSAA path (`RangeRenderPolicy`) |
 | Forest | `ForestCover`, `ForestGL` | Near instanced conifers, mid silhouettes, canopy texture beyond; wind and gust fronts at heard time |
 | Water | `WaterMirror`, `WetReflection` | Lake mirror (dropped at q4; the water keeps its sky reflection) |
 | Fog, mist, cloud sea | `RangeAtmosphere`, `ValleyAtmosphere`, `CloudSea` | Fog samples per pixel fall at q3, q5 and q6 |

@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { chromium } from 'playwright';
 import { openEvaluationSong, renderEvaluationFrame } from './lib/visual-evaluation-browser.mjs';
+import { attachBrowserDiagnostics, finalizeBrowserDiagnostics } from './lib/browser-diagnostics.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const url = process.argv[2] || 'http://127.0.0.1:8080';
@@ -17,14 +18,17 @@ const presentation = { version: 2, look: 'pixel', quality: 'auto', palette: 'wor
   ditherMode: 'selective', pixelGrid: 'classic', pixelScale: 'original', scaling: 'fit' };
 const settings = { width: 1280, height: 720, experience: 'trio', view: null, biome: null,
   seed: 315, quality: 0, reducedFlash: false, reducedMotion: false, presentation };
-const report = { status: 'failed', frames: [], switches: [], live: null, errors: [] };
+const report = { status: 'failed', frames: [], switches: [], live: null, errors: [], warnings: [], events: [] };
 const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined });
+let failed = false;
 try {
-  const diagnostics = { errors: [], warnings: [], loadedFiles: new Set() };
+  const diagnostics = { errors: report.errors, warnings: report.warnings, events: report.events, loadedFiles: new Set() };
   const loaded = await openEvaluationSong(browser, { url, audioPath, settings, diagnostics });
   const page = loaded.page;
+  let captureFailed = false;
   try {
     for (const [grid, look] of [['classic', 'pixel'], ['detailed', 'pixel'], ['classic', 'palette'], ['detailed', 'palette']]) {
+      loaded.browserDiagnostics.setPhase(`trio-capture:${grid}/${look}:3000ms`);
       settings.presentation = { ...presentation, pixelGrid: grid, look };
       await page.evaluate(p => window.__SMW.beginBulkExport({ width: 1280, height: 720, presentation: p }), settings.presentation);
       const frame = await renderEvaluationFrame(page, { timeMs: 3000, checkpoint: true, clips: [], save: true }, settings);
@@ -36,6 +40,7 @@ try {
       await fs.writeFile(path.join(out, name), Buffer.from(frame.pngData, 'base64'));
       report.frames.push({ grid, look, file: name, pauseParity: true, presentation: frame.presentation });
     }
+    loaded.browserDiagnostics.setPhase('trio-preview');
     const preview = await page.evaluate(async () => {
       const { loadPreviewRenderer, createPreviewWorld } = await import('/src/ui/WorldPreview.js');
       await loadPreviewRenderer();
@@ -58,6 +63,7 @@ try {
       window.__trioTransport = { sim: window.__SMW.sim, conductor: window.__SMW.conductor, engine: window.__SMW.audioEngine };
     });
     for (let i = 0; i < 3; i++) for (const experience of ['landscape', 'trio']) {
+      loaded.browserDiagnostics.setPhase(`paused-switch:${i}:${experience}`);
       const before = await page.evaluate(() => ({ timeMs: window.__SMW.sim.timeMs, heard: window.__SMW.sim.heardTimeMs, paused: window.__SMW.paused }));
       await page.evaluate(mode => window.__SMW.setExperience(mode), experience);
       const state = await page.evaluate(async () => {
@@ -78,23 +84,31 @@ try {
     const stages = report.switches.filter(s => s.experience === 'trio');
     assert.ok(stages.every(s => s.bytes <= stages[0].bytes && s.entries <= stages[0].entries), 'repeated switches cannot accumulate retained resources');
     assert.deepEqual(diagnostics.errors, []);
-  } finally { await loaded.context.close(); }
+  } catch (error) { captureFailed = true; throw error; }
+  finally {
+    await loaded.context.close(); await loaded.browserDiagnostics.dispose();
+    finalizeBrowserDiagnostics(diagnostics, report, { preserveFailure: captureFailed });
+  }
 
   const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  let liveDiagnostics;
+  let liveFailed = false;
   try {
     const page = await context.newPage();
-    page.on('pageerror', e => report.errors.push(e.message));
+    liveDiagnostics = await attachBrowserDiagnostics(page, { ...diagnostics, loadedFiles: new Set() }, { origin: new URL(url).origin, phase: 'trio-live-startup' });
     await page.route('**/soundfonts/', r => r.fulfill({ json: [] }));
     await page.route('**/favicon.ico', r => r.fulfill({ status: 204 }));
     const entry = new URL(url); entry.searchParams.set('experience', 'trio'); entry.searchParams.set('rangeRenderer', 'legacy'); entry.searchParams.set('rangeTour', 'off');
     await page.goto(entry.href);
     await page.locator('#titleSettings').evaluate(n => { n.open = true; });
     if (await page.locator('#lyricGroundingBtn').getAttribute('aria-pressed') === 'true') await page.locator('#lyricGroundingBtn').click();
+    liveDiagnostics.setPhase('trio-live-analysis');
     await page.locator('#fileInput').setInputFiles(audioPath);
     await page.waitForFunction(() => window.__SMW?.sim?.timeMs > 500, null, { timeout: 120000 });
     await page.evaluate(() => { window.__liveTrio = { sim: window.__SMW.sim, source: window.__SMW.audioEngine.sourceNode }; });
     const live = [];
     for (const mode of ['landscape', 'trio']) {
+      liveDiagnostics.setPhase(`live-switch:${mode}`);
       await page.evaluate(mode => window.__SMW.setExperience(mode), mode);
       const state = await page.evaluate(() => ({ experience: window.__SMW.experience,
         sameSim: window.__SMW.sim === window.__liveTrio.sim,
@@ -104,6 +118,7 @@ try {
       assert.equal(state.experience, mode); assert.equal(state.sameSim, true); assert.equal(state.sameSource, true);
       assert.equal(state.running, 'running'); assert.equal(state.paused, false); live.push(state);
     }
+    liveDiagnostics.setPhase('live-paused-switch');
     await page.locator('#stage').click({ position: { x: 100, y: 80 } });
     await page.locator('#pauseBtn').click();
     await page.waitForFunction(() => window.__SMW.paused);
@@ -113,6 +128,7 @@ try {
     assert.equal(await page.evaluate(() => window.__SMW.audioEngine.nowMs), frozen);
     assert.equal(await page.evaluate(() => window.__SMW.paused), true);
     await page.screenshot({ path: path.join(out, 'live-paused.png') });
+    liveDiagnostics.setPhase('live-cancelled-switch');
     const cancelled = await page.evaluate(async () => {
       const { RangePresentation } = await import('/src/world/alpine/RangePresentation.js');
       const original = RangePresentation.prototype.whenReady;
@@ -134,7 +150,16 @@ try {
     report.cancelledSwitch = cancelled;
     report.live = { switches: live, pausedSwitchPreservedClock: true };
     assert.deepEqual(report.errors, []);
-  } finally { await context.close(); }
+  } catch (error) { liveFailed = true; throw error; }
+  finally {
+    await context.close(); await liveDiagnostics?.dispose();
+    finalizeBrowserDiagnostics(report, report, { preserveFailure: liveFailed });
+  }
   report.status = 'passed';
-} finally { await browser.close(); await fs.writeFile(path.join(out, 'report.json'), JSON.stringify(report, null, 2)); }
+} catch (error) { failed = true; report.error = String(error.stack || error); throw error; }
+finally {
+  await browser.close();
+  try { finalizeBrowserDiagnostics(report, report, { preserveFailure: failed }); }
+  finally { await fs.writeFile(path.join(out, 'report.json'), JSON.stringify(report, null, 2)); }
+}
 console.log(`Trio Stage: ${report.status}; ${report.frames.length} pixel/palette captures, ${report.switches.length} paused switches, live and paused audio preserved.`);

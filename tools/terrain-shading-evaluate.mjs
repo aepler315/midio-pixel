@@ -9,6 +9,7 @@ import { snapshotSource, serveSnapshot, sha256 } from './lib/visual-evaluation-s
 import { openEvaluationSong, renderEvaluationFrame } from './lib/visual-evaluation-browser.mjs';
 import { normalizeManifest, captureSchedule } from './lib/visual-evaluation.mjs';
 import { renderRunReport } from './lib/visual-evaluation-report.mjs';
+import { finalizeBrowserDiagnostics } from './lib/browser-diagnostics.mjs';
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((pairs, value, i, all) => {
   if (i % 2 === 0) pairs.push([value.replace(/^--/, ''), all[i + 1]]);
@@ -24,7 +25,7 @@ await fs.mkdir(out); // Never overwrite evidence.
 const report = { version: 1, status: 'failed', createdAt: new Date().toISOString(), settings: manifest.settings, songs: [],
   experiment: { requested: shading, close: args.close === '1', sourceRoot: root },
   timingScope: 'Offline fixed-clock capture wall times, including software GPU and readback; not live FPS.' };
-let browser, server, loaded;
+let browser, server, loaded, row, failed = false;
 try {
   const snapshot = await snapshotSource(root);
   report.source = { digest: snapshot.digest, hashes: snapshot.hashes,
@@ -44,7 +45,7 @@ try {
     assert.equal(song.fixture, 'contrast');
     execFileSync(process.execPath, [path.join(root, 'tools/gen-pilot-wav.mjs'), audioPath, String(song.seconds)]);
   }
-  const row = { id: song.id, fixture: song.fixture, audio, audioSha256: sha256(await fs.readFile(audioPath)), frames: [], errors: [], warnings: [] };
+  row = { id: song.id, fixture: song.fixture, audio, audioSha256: sha256(await fs.readFile(audioPath)), frames: [], errors: [], warnings: [], events: [] };
   report.songs.push(row);
   const loadedFiles = new Set(), start = performance.now();
   console.log('Loading', song.id, shading);
@@ -77,8 +78,10 @@ try {
       projection: camera.projectionMatrix.toArray(), matrixWorld: camera.matrixWorld.toArray(),
       fov: camera.fov, aspect: camera.aspect, userCameraEnabled: window.__SMW.sim.userCameraEnabled };
   });
+  loaded.browserDiagnostics.setPhase('shading-material-verification');
   report.experiment.compiledMaterial = await verifyActivation(false);
   for (const point of row.schedule) {
+    loaded.browserDiagnostics.setPhase(`capture:${point.timeMs}ms`);
     const began = performance.now();
     const frame = await renderEvaluationFrame(loaded.page, point, manifest.settings);
     if (!frame) continue;
@@ -94,6 +97,7 @@ try {
     console.log(`${point.timeMs}ms: ${(frame.captureWallMs / 1000).toFixed(2)}s wall`);
   }
   if (args.close === '1') {
+    loaded.browserDiagnostics.setPhase('listener-zoom-preparation');
     // The existing listener zoom, settled deterministically, on the final
     // authored pose. No camera-path or production-camera changes.
     await loaded.page.evaluate(async () => {
@@ -107,6 +111,7 @@ try {
       window.__SMW.sim.userCameraEnabled = true;
     });
     const point = { ...row.schedule.at(-1), save: true, checkpoint: true, clips: [] };
+    loaded.browserDiagnostics.setPhase(`listener-zoom-capture:${point.timeMs}ms`);
     const began = performance.now();
     const frame = await renderEvaluationFrame(loaded.page, point, manifest.settings);
     frame.captureWallMs = performance.now() - began;
@@ -125,11 +130,14 @@ try {
   report.source.changedDuringRun = (await snapshotSource(root)).digest !== snapshot.digest;
   assert.equal(report.source.changedDuringRun, false, 'source changed during capture');
   report.status = 'passed';
-} catch (e) { report.error = String(e.stack || e); throw e; }
+} catch (e) { failed = true; report.error = String(e.stack || e); throw e; }
 finally {
-  await loaded?.context.close(); await browser?.close(); await server?.close();
-  await fs.writeFile(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 2));
-  await fs.writeFile(path.join(out, 'report.json'), JSON.stringify(report, null, 2));
-  await fs.writeFile(path.join(out, 'index.html'), renderRunReport(report));
-  console.log(out, report.status);
+  await loaded?.context.close(); await loaded?.browserDiagnostics.dispose(); await browser?.close(); await server?.close();
+  try { if (row) finalizeBrowserDiagnostics(row, report, { preserveFailure: failed }); }
+  finally {
+    await fs.writeFile(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 2));
+    await fs.writeFile(path.join(out, 'report.json'), JSON.stringify(report, null, 2));
+    await fs.writeFile(path.join(out, 'index.html'), renderRunReport(report));
+    console.log(out, report.status);
+  }
 }

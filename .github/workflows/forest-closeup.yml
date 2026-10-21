@@ -3,6 +3,12 @@ name: Forest close-ups
 on:
   # Expensive matched comparisons are explicitly dispatched for relevant changes.
   workflow_dispatch:
+    inputs:
+      baseline_ref:
+        description: Optional source ref; empty repeats the dispatched source. Phase 1 stays fixed.
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -16,12 +22,34 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           browser: true
-      - name: Check out the unchanged PR base
+      - name: Check out the selected source or identical repeat
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          ref: ${{ inputs.baseline_ref || github.sha }}
           path: .smoke/forest-base
-      - name: Capture the same six views on base and candidate
+      - name: Record resolved source commits and comparison purpose
+        env:
+          BASELINE_REF: ${{ inputs.baseline_ref }}
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          import { snapshotSource } from './tools/lib/visual-evaluation-server.mjs';
+          const commit = cwd => execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim();
+          const candidateCommit = commit('.'), baselineCommit = commit('.smoke/forest-base');
+          const candidateDigest = (await snapshotSource('.')).digest;
+          const baselineDigest = (await snapshotSource('.smoke/forest-base')).digest;
+          const comparisonKind = baselineDigest === candidateDigest ? 'repeatability' : 'committed-source';
+          fs.writeFileSync('.smoke/forest-closeup-source-pair.json', JSON.stringify({
+            requestedBaselineRef: process.env.BASELINE_REF || null, baselineCommit, candidateCommit, comparisonKind,
+            baselineDigest, candidateDigest,
+            referenceKind: process.env.BASELINE_REF ? 'selected-ref' : 'candidate-repeat',
+            captureHarness: 'Candidate capture tools are copied into the reference checkout; rendered application source remains at the reference commit.',
+            purpose: 'Matched views with additional diagnostic probes; pixel changes do not establish improvement.'
+          }, null, 2) + '\n');
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Forest closeups ${comparisonKind}: reference ${baselineCommit} (${baselineDigest}); candidate ${candidateCommit} (${candidateDigest}). Pixel changes do not establish improvement.\n`);
+          NODE
+      - name: Capture the same six views on the reference and candidate
         run: |
           times=$(node --input-type=module -e "import { FOREST_CHECKPOINTS } from './tools/lib/forest-checkpoints.mjs'; console.log(FOREST_CHECKPOINTS.map(c => c.timeMs / 1000).join(','))")
           cp tools/forest-closeup-smoke.mjs .smoke/forest-base/tools/
@@ -64,6 +92,7 @@ jobs:
             .smoke/forest-billboard/
             .smoke/forest-mesh/
             .smoke/far-forest/
+            .smoke/forest-closeup-source-pair.json
             .smoke/forest-*-server.log
           include-hidden-files: true
           retention-days: 14
@@ -84,12 +113,35 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           browser: true
-      - name: Check out the unchanged PR base
-        if: matrix.phase == 'baseline'
+      - name: Resolve the selected motion source or identical repeat
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          ref: ${{ inputs.baseline_ref || github.sha }}
           path: .smoke/forest-base
+      - name: Record resolved source commits and comparison purpose
+        env:
+          BASELINE_REF: ${{ inputs.baseline_ref }}
+          PHASE: ${{ matrix.phase }}
+          FOREST_MOTION_SECONDS: ${{ matrix.seconds }}
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          import { snapshotSource } from './tools/lib/visual-evaluation-server.mjs';
+          const commit = cwd => execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim();
+          const candidateCommit = commit('.'), baselineCommit = commit('.smoke/forest-base');
+          const candidateDigest = (await snapshotSource('.')).digest;
+          const baselineDigest = (await snapshotSource('.smoke/forest-base')).digest;
+          const comparisonKind = baselineDigest === candidateDigest ? 'repeatability' : 'committed-source';
+          fs.writeFileSync(`.smoke/forest-motion-${process.env.PHASE}-${process.env.FOREST_MOTION_SECONDS}-source-pair.json`, JSON.stringify({
+            requestedBaselineRef: process.env.BASELINE_REF || null, baselineCommit, candidateCommit, comparisonKind,
+            baselineDigest, candidateDigest,
+            referenceKind: process.env.BASELINE_REF ? 'selected-ref' : 'candidate-repeat', capturedSide: process.env.PHASE,
+            captureHarness: 'Candidate capture tools are copied into the reference checkout; rendered application source remains at the reference commit.',
+            purpose: 'Motion records for review; no automatic visual acceptance or improvement claim.'
+          }, null, 2) + '\n');
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Forest motion ${comparisonKind}: reference ${baselineCommit} (${baselineDigest}); candidate ${candidateCommit} (${candidateDigest}); captured ${process.env.PHASE}.\n`);
+          NODE
       - name: Capture consecutive forest frames and window handoff
         env:
           PHASE: ${{ matrix.phase }}
@@ -117,6 +169,7 @@ jobs:
           name: forest-motion-${{ matrix.phase }}-${{ matrix.seconds }}
           path: |
             .smoke/forest-motion-${{ matrix.phase }}-${{ matrix.seconds }}/
+            .smoke/forest-motion-${{ matrix.phase }}-${{ matrix.seconds }}-source-pair.json
             .smoke/forest-motion-${{ matrix.phase }}-${{ matrix.seconds }}-server.log
           include-hidden-files: true
           retention-days: 14
@@ -124,24 +177,50 @@ jobs:
 
   flicker:
     runs-on: ubuntu-latest
-    # pr-base ran 54-60 min before #446 and 108-120+ after (SwiftShader).
+    # The current-source reference ran 54-60 min before #446 and 108-120+ after.
     timeout-minutes: 210
     strategy:
       fail-fast: false
       matrix:
-        reference: [pr-base, phase1]
+        reference: [baseline, phase1]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/setup
         with:
           browser: true
       # Phase 2 merged with a documented flicker regression. Keep the accepted
-      # Phase 1 reference as a gate alongside the current PR base.
+      # Phase 1 historical reference as a gate alongside the selected source
+      # (or identical-source repeat when no baseline ref is supplied).
       - name: Check out the flicker reference
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ matrix.reference == 'phase1' && 'd53c6c95d65c44fc13e0fe7e77848a70456f4732' || github.event.pull_request.base.sha || github.sha }}
+          ref: ${{ matrix.reference == 'phase1' && 'd53c6c95d65c44fc13e0fe7e77848a70456f4732' || inputs.baseline_ref || github.sha }}
           path: .smoke/forest-base
+      - name: Record the historical or selected flicker source pair
+        env:
+          BASELINE_REF: ${{ inputs.baseline_ref }}
+          REFERENCE: ${{ matrix.reference }}
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          import { snapshotSource } from './tools/lib/visual-evaluation-server.mjs';
+          const commit = cwd => execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim();
+          const candidateCommit = commit('.'), baselineCommit = commit('.smoke/forest-base');
+          const historical = process.env.REFERENCE === 'phase1';
+          const candidateDigest = (await snapshotSource('.')).digest;
+          const baselineDigest = (await snapshotSource('.smoke/forest-base')).digest;
+          const comparisonKind = baselineDigest === candidateDigest ? 'repeatability' : 'committed-source';
+          fs.writeFileSync('.smoke/forest-flicker-source-pair.json', JSON.stringify({
+            requestedBaselineRef: historical ? 'd53c6c95d65c44fc13e0fe7e77848a70456f4732' : process.env.BASELINE_REF || null,
+            baselineCommit, candidateCommit, comparisonKind,
+            baselineDigest, candidateDigest,
+            referenceKind: historical ? 'historical-phase1' : process.env.BASELINE_REF ? 'selected-ref' : 'candidate-repeat',
+            captureHarness: 'Candidate capture tools are copied into the reference checkout; rendered application source remains at the reference commit.',
+            purpose: historical ? 'Fixed historical Phase 1 flicker gate; this is not the selected source baseline.' : 'Selected-source flicker gate or identical-source repeat; no improvement claim.'
+          }, null, 2) + '\n');
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Forest flicker ${comparisonKind}${historical ? ' (historical Phase 1)' : ''}: reference ${baselineCommit} (${baselineDigest}); candidate ${candidateCommit} (${candidateDigest}).\n`);
+          NODE
       - name: Compare fixed-pose crop brightness across one pixel
         run: |
           cp tools/forest-closeup-smoke.mjs tools/range-scene-smoke.mjs .smoke/forest-base/tools/
@@ -167,6 +246,7 @@ jobs:
             .smoke/forest-flicker-baseline/
             .smoke/forest-flicker-candidate/
             .smoke/forest-flicker-comparison/
+            .smoke/forest-flicker-source-pair.json
             .smoke/forest-flicker-*-server.log
           include-hidden-files: true
           retention-days: 14

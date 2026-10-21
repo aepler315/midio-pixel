@@ -1150,7 +1150,7 @@ export class RangePresentation {
   snapshot() {
     return {
       ...this.status(),
-      tour: this.tour ? { durationMs: this.tour.durationMs, heroes: this.tour.heroes, notes: this.tour.notes, meanQualityRatio: this.tour.meanQualityRatio, heroFraming: this.tour.heroFraming || [] } : null,
+      tour: this.tour ? { durationMs: this.tour.durationMs, heroes: this.tour.heroes, notes: this.tour.notes, meanQualityRatio: this.tour.meanQualityRatio, heroFraming: this.tour.heroFraming || [], heroCoverage: this.tour.heroCoverage || null } : null,
       forcedCandidate: !!this.forced?.forcedCandidate, forcedViewId: this.forcedViewId, diag: this.diag,
       generation: this.generation, runtime: this.runtimeState, runtimeAttempts: this.runtimeAttempts, arrival: this.arrival, incomingFade: this.incomingFade, incomingViewId: this.active ? this.incomingViewId : null, seamP: this.seamP ?? null,
       failures: Object.fromEntries(this.failures), deferred: [...this.deferred.keys()], frameId: this.frameId, progress01: this.frame?.progress01 ?? null,

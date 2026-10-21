@@ -2,7 +2,7 @@
 
 An independent, private copy of [Midio-5](https://github.com/aepler315/Midio-5), pinned at `e53db1e0663ce0f8db6d9d89d168dc6d6dbdb308`. All source assets, worlds, audio integrations and modern rendering systems are preserved. The original project is unchanged.
 
-**Pixel only:** Pixel and Palette looks, Classic and Detailed grids, Auto quality, Fit/Integer scaling. **Depth scale** adds distance-based 1×/2×/4× pixel sampling to Range v2 terrain; **Uniform scale** keeps the original pixel sampling. Existing saved display choices migrate without changing Midio-5 settings. Other worlds retain their existing pixel rendering.
+**Pixel only:** Pixel and Palette looks, Classic and Detailed grids, Auto quality, Fit/Integer scaling, and Uniform pixel sampling. Saved Depth selections migrate to Uniform; the current renderer has no Depth pixel effect. Existing saved display choices migrate without changing Midio-5 settings. Other worlds retain their existing pixel rendering.
 
 Hosting needs reconciliation: the repository still carries its inherited CNAME and the observed Pages path is a dynamic Jekyll branch build. The staged manual workflow and the current limits are documented in [the validation matrix](docs/test-matrix.md).
 
@@ -17,7 +17,7 @@ The default experience is **Landscape**, showing **The Range**, with no world ch
 Add
 `?worlds=all` to explore the eight registered landscape styles
 and their shared quiet/peak previews. The current landscapes have no
-performer cast. Trio Stage uses uniform pixel scaling and restores the selected depth treatment on return to Landscape.
+performer cast. Trio Stage and Landscape both use Uniform pixel scaling.
 
 The root app uses plain JavaScript modules and Web Audio, with Canvas 2D
 composition and **Range v2** WebGL2 scenery. If that scenery cannot load or
@@ -349,7 +349,7 @@ browser context. It turns off optional lyric lookup, selects 720p, and
 uploads through **Browse files**, preserving the browser gesture needed to
 unlock audio. It exercises the real decoder, OfflineAudioContext filtering,
 analysis, the opt-in world chooser (eight equal cards), and playback after
-a world is picked. The smoke tool enables `?worlds=all`; ordinary entry
+a world is picked. This smoke enables `?worlds=all` and the legacy Range renderer; ordinary entry
 starts in The Range directly.
 
 Assertions require a populated timeline, an active recording with the
@@ -379,7 +379,30 @@ running server:
 npm run test:car
 ```
 
-CI runs the generated-fixture smoke check and uploads its diagnostics.
+For the current staged routes, build the site and run a separate check:
+
+```sh
+npm run stage:site
+npm run test:routes -- --site-root _site --out .smoke/current-routes
+# Optional real recording (long enough for preparation and playback):
+npm run test:routes -- --site-root _site --out .smoke/current-routes-song --audio path/to/song.wav
+```
+
+This freezes the staged public `index.html` and `src/` bytes and serves them on
+an isolated loopback port. Four fresh headless contexts exercise clean default
+Landscape v2, Tetons selected through its control, Tetons restored after a clean
+reload in the same context, and Trio selected before upload. It records the
+checkout SHA, public source digest, audio hash, browser version, actual route,
+decoded audio clocks and matching completed presentation/capture IDs. A changed
+canvas alone cannot pass. The generated 120-second fixture leaves room for
+software-GPU startup; only the short observed playback window is checked. This is
+integration coverage; it does not establish real-song quality or device speed.
+Invalid WebGL/shader/program warnings and unexpected context loss fail the run
+with their original severity and phase retained. Every route must pass; a known
+failure remains a failed acceptance result. Existing output directories are
+rejected to preserve earlier evidence.
+
+The optional manual Test workflow runs both suites and uploads diagnostics.
 The other `tools/smoke-*.mjs` scripts are legacy or specialized diagnostics;
 some still target removed MIDI/demo/SoundFont UI and are not the maintained
 upload regression suite.

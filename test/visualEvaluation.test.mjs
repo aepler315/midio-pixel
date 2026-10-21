@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as evaluationBrowser from '../tools/lib/visual-evaluation-browser.mjs';
 import { normalizeManifest, captureSchedule, compareReports, imageDifference, differingFrames } from '../tools/lib/visual-evaluation.mjs';
+import { renderComparisonReport, renderRunReport } from '../tools/lib/visual-evaluation-report.mjs';
 
 const manifest = (song = {}) => ({ version: 1, songs: [{ id: 'song', fixture: 'contrast', ...song }] });
 test('tour evidence pins the tour mode and rejects unknown tours', () => {
@@ -69,6 +70,65 @@ test('comparison reports changed pixels without assigning a quality verdict', ()
   assert.equal(diff.frames[0].difference.changedFraction, 1);
   assert.equal(diff.verdict, 'unreviewed');
   assert.deepEqual(imageDifference([0, 0, 0, 255], [0, 0, 0, 255]), { changedFraction: 0, meanAbsoluteError: 0 });
+});
+test('identical public bytes remain a repeatability comparison across commit and working tree labels', () => {
+  const a = report(), b = report();
+  a.source.dirty = '';
+  b.source.commit = 'b'.repeat(40);
+  b.source.dirty = ' M tools/visual-evaluate.mjs';
+  const diff = compareReports(a, b);
+  assert.deepEqual(diff.source, { kind: 'repeatability',
+    before: { commit: 'a'.repeat(40), digest: 'a'.repeat(64), dirty: '' },
+    after: { commit: 'b'.repeat(40), digest: 'a'.repeat(64), dirty: ' M tools/visual-evaluate.mjs' } });
+  assert.equal(diff.verdict, 'unreviewed');
+  const html = renderComparisonReport(diff, a, b);
+  assert.match(html, /Repeatability comparison/);
+  assert.match(html, /Public runtime bytes are identical/);
+  assert.doesNotMatch(html, /Source changes:/);
+  assert.ok(html.includes('b'.repeat(40)) && html.includes('a'.repeat(64)));
+});
+test('different public bytes distinguish committed candidates, working trees and missing cleanliness', () => {
+  const cases = [
+    { beforeDirty: '', afterDirty: '', commit: 'b'.repeat(40), kind: 'committed-source' },
+    { beforeDirty: false, afterDirty: false, commit: 'b'.repeat(40), kind: 'committed-source' },
+    { beforeDirty: '', afterDirty: '', commit: 'a'.repeat(40), kind: 'working-tree' },
+    { beforeDirty: ' M src/main.js', afterDirty: '', commit: 'b'.repeat(40), kind: 'working-tree' },
+    { beforeDirty: false, afterDirty: true, commit: 'b'.repeat(40), kind: 'working-tree' },
+    { beforeDirty: undefined, afterDirty: '', commit: 'b'.repeat(40), kind: 'unverified' },
+  ];
+  for (const c of cases) {
+    const a = report(), b = report();
+    a.source.dirty = c.beforeDirty;
+    b.source.dirty = c.afterDirty;
+    b.source.commit = c.commit;
+    b.source.digest = 'c'.repeat(64);
+    const diff = compareReports(a, b);
+    assert.equal(diff.source.kind, c.kind, JSON.stringify(c));
+    assert.equal(diff.source.before.dirty, c.beforeDirty ?? null);
+    assert.equal(diff.source.after.dirty, c.afterDirty ?? null);
+    assert.equal(diff.source.after.digest, 'c'.repeat(64));
+    assert.equal(diff.verdict, 'unreviewed');
+    const html = renderComparisonReport(diff, a, b);
+    assert.ok(html.includes('c'.repeat(64)), 'comparison publishes both public source digests');
+    assert.match(html, /Pixel differences show change, not improvement/);
+  }
+});
+test('comparison rejects malformed working tree provenance while accepting historical absence', () => {
+  assert.equal(compareReports(report(), report()).source.before.dirty, null);
+  for (const dirty of [0, [], {}]) {
+    const b = report(); b.source.dirty = dirty;
+    assert.throws(() => compareReports(report(), b), /invalid.*source provenance/);
+  }
+});
+test('run reports retain browser diagnostic severity, phase and fatal disposition', () => {
+  const r = report();
+  r.songs[0].frames[0].clips = [];
+  r.songs[0].events = [{ source: 'console', message: 'GL_INVALID_VALUE <probe>', severity: 'warning', phase: 'playback', fatal: true }];
+  const html = renderRunReport(r);
+  assert.match(html, /GL_INVALID_VALUE &lt;probe&gt;/);
+  assert.match(html, /&quot;severity&quot;: &quot;warning&quot;/);
+  assert.match(html, /&quot;phase&quot;: &quot;playback&quot;/);
+  assert.match(html, /&quot;fatal&quot;: true/);
 });
 test('a repeat run names every frame that differs from its identical-input baseline', () => {
   assert.deepEqual(differingFrames(compareReports(report(), report())), []);

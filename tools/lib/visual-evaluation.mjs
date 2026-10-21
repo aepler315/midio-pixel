@@ -157,6 +157,7 @@ function validateReport(report) {
   assert.ok(source && /^[a-f0-9]{40}$/.test(source.commit) && /^[a-f0-9]{64}$/.test(source.digest)
     && source.changedDuringRun === false && source.hashes && /^[a-f0-9]{64}$/.test(source.hashes['index.html'])
     && /^[a-f0-9]{64}$/.test(source.hashes['src/main.js'])
+    && (source.dirty == null || typeof source.dirty === 'string' || typeof source.dirty === 'boolean')
     && Object.values(source.hashes).every(h => typeof h === 'string' && /^[a-f0-9]{64}$/.test(h)), 'missing or invalid source provenance');
   const settings = normalizeHistoricalSettings(report.settings);
   for (const key of Object.keys(DEFAULT_SETTINGS)) assert.ok(settings && Object.hasOwn(settings, key), `missing setting ${key}`);
@@ -205,6 +206,18 @@ export function accessibilityProvenance(report) {
   return verified ? 'verified' : 'unknown';
 }
 
+/** The public digest identifies runtime bytes; a commit alone cannot show
+ *  a rendering change. Preserve unknown historical cleanliness explicitly. */
+function comparisonSource(before, after) {
+  const identity = source => ({ commit: source.commit, digest: source.digest, dirty: source.dirty ?? null });
+  const clean = source => source.dirty === '' || source.dirty === false;
+  const dirty = source => source.dirty === true || typeof source.dirty === 'string' && source.dirty.length > 0;
+  const kind = before.digest === after.digest ? 'repeatability'
+    : before.commit === after.commit || dirty(before) || dirty(after) ? 'working-tree'
+      : clean(before) && clean(after) ? 'committed-source' : 'unverified';
+  return { kind, before: identity(before), after: identity(after) };
+}
+
 export function compareReports(before, after) {
   validateReport(before); validateReport(after);
   const same = (a, b, label) => assert.deepEqual(a, b, `incompatible ${label}`);
@@ -237,7 +250,8 @@ export function compareReports(before, after) {
     a.frames.forEach((f, n) => frames.push({ songId: a.id, timeMs: f.timeMs, before: f.png, after: b.frames[n].png,
       identical: f.sha256 === b.frames[n].sha256, difference: imageDifference(f.thumbnail, b.frames[n].thumbnail) }));
   }
-  return { version: 1, verdict: 'unreviewed', accessibility: { provenance, freshBaselineRequired: provenance === 'unmatched' }, frames };
+  return { version: 1, verdict: 'unreviewed', source: comparisonSource(before.source, after.source),
+    accessibility: { provenance, freshBaselineRequired: provenance === 'unmatched' }, frames };
 }
 
 /** `song@timeMs` for every compared frame whose PNG bytes differ. */

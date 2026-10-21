@@ -8,7 +8,8 @@ import { chromium } from 'playwright';
 import { ReviewRunOwner } from './lib/landscape-review-lifecycle.mjs';
 import { snapshotSource, serveSnapshot, sha256 } from './lib/visual-evaluation-server.mjs';
 import { normalizeManifest, captureSchedule, compareReports, blankFrame } from './lib/visual-evaluation.mjs';
-import { openEvaluationSong, renderEvaluationFrame } from './lib/visual-evaluation-browser.mjs';
+import { openEvaluationSong, renderEvaluationFrame, expectedTourPreparationFailure } from './lib/visual-evaluation-browser.mjs';
+import { attachBrowserDiagnostics, finalizeBrowserDiagnostics } from './lib/browser-diagnostics.mjs';
 import { renderRunReport, renderComparisonReport } from './lib/visual-evaluation-report.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -188,20 +189,26 @@ async function saveMedia(page, dir, row, settings, mp4, owner) {
 }
 async function liveReview(browser, url, audio, args, dir) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 720 }, serviceWorkers: 'block' });
-  const result = { status: 'failed', seconds: args.liveSeconds, errors: [], scope: 'Separate headless live delivery after the real upload and render-ready audio gate; initial asset wait is separate. No physical-display or foreground/OSfullscreen timing claim.' };
+  const result = { status: 'failed', seconds: args.liveSeconds, errors: [], warnings: [], events: [], scope: 'Separate headless live delivery after the real upload and render-ready audio gate; initial asset wait is separate. No physical-display or foreground/OSfullscreen timing claim.' };
+  let browserDiagnostics;
+  let failed = false;
   try {
-    const page = await context.newPage(), errors = result.errors; page.on('pageerror', e => errors.push(e.message));page.on('console',m=>{if(m.type()==='error'||/Shader Error|program not valid/.test(m.text()))errors.push(m.text());});
+    const page = await context.newPage(), errors = result.errors;
+    browserDiagnostics = await attachBrowserDiagnostics(page, { ...result, loadedFiles: new Set() }, {
+      origin: new URL(url).origin, isExpectedRequestFailure: expectedTourPreparationFailure });
     await context.addInitScript(() => { const Native = window.AudioContext; window.AudioContext = class extends Native { constructor(o = {}) { super({ ...o, sampleRate: 48000 }); } }; });
     await page.goto(url + '/?experience=landscape&rangeTour=tetons&rangeRenderer=v2&seed=315');
     await page.locator('#titleSettings').evaluate(n => { n.open = true; });
     await page.locator('#lyricGroundingBtn').evaluate(n => { if (n.getAttribute('aria-pressed') === 'true') n.click(); });
     await page.locator('#display-look').selectOption('pixel');await page.locator('#display-pixelGrid').selectOption(args.grids[0]);await page.locator('#stageFps').selectOption('60');if(await page.locator('#display-pixelScale').count())await page.locator('#display-pixelScale').selectOption('original');
+    browserDiagnostics.setPhase('audio-analysis');
     const started = Date.now(); await page.locator('#fileInput').setInputFiles(audio);
     await page.waitForFunction(() => window.__SMW?.sim && (window.__SMW.renderReady || window.__SMW.rangeState?.active), null, { timeout: 180000 });
     const ready = await page.evaluate(async () => { const s = window.__SMW, result = s.renderReady ? await s.renderReady : {status:'legacy-ready'}; return { result, preparing: !!s.playbackPreparing, state: s.renderReadiness ?? null, sampleRate: s.audioEngine.ctx.sampleRate, durationMs:s.durationMs, songSeed:s.songSeed, heardMs:s.sim.heardTimeMs }; });
     result.ready = ready;
     assert.ok(ready.result.status === 'ready' || (args.recordBaseline && ready.result.status === 'legacy-ready'), `live readiness failed: ${JSON.stringify(ready)}`);assert.equal(ready.preparing, false);assert.ok(ready.durationMs-ready.heardMs>=args.liveSeconds*1000,'recording too short for requested live trace');
     const uploadToReadyMs = Date.now() - started;Object.assign(result,{uploadToReadyMs,ready});await json(path.join(dir,'live-report.json'),result);
+    browserDiagnostics.setPhase('live-playback');
     const delivery = await page.evaluate(async seconds => {
       const { FrameDeliveryAggregator } = await import('/src/render/FrameDelivery.js'); const meter = new FrameDeliveryAggregator(), start = performance.now();
       await new Promise(resolve => { const tick = wallMs => { const s = window.__SMW, f = s.presentationDiagnostics.frame;
@@ -210,11 +217,16 @@ async function liveReview(browser, url, audio, args, dir) {
         if (wallMs - start < seconds * 1000) requestAnimationFrame(tick); else resolve(); }; requestAnimationFrame(tick); });
       return meter.summary();
     }, args.liveSeconds);
+    browserDiagnostics.setPhase('live-acceptance');
     const state = await diagnostics(page);if(args.hardware)requireHardwareRenderer(state.gpu,args.gpuMatch); assert.equal(state.playbackPreparing, false); assert.deepEqual(errors, []);
     assert.equal(state.presentation.pixelScale, 'original');assert.equal(state.presentation.effectiveGrid.id,args.grids[0]);
     Object.assign(result,{uploadToReadyMs,ready,delivery,state,errors,startHeardMs:ready.heardMs});result.targets={deliveredP95Ms:20,gapsOver100msPerMinute:1,maxAccountedGraphicsMiB:512,minHeardAdvanceFraction:.9};result.gates=liveReviewGates(result);result.status=Object.values(result.gates).every(Boolean)?'passed':'failed';assert.equal(result.status,'passed','live delivery or residency targets failed; observed metrics retained');return result;
-  } catch(error) { result.failure={message:error.message,stack:error.stack};throw error; }
-  finally { result.finishedAt=new Date().toISOString();await json(path.join(dir,'live-report.json'),result);await context.close(); }
+  } catch(error) { failed = true; result.failure={message:error.message,stack:error.stack};throw error; }
+  finally {
+    result.finishedAt=new Date().toISOString();await context.close();await browserDiagnostics?.dispose();
+    try { finalizeBrowserDiagnostics(result, result, { preserveFailure: failed }); }
+    finally { await json(path.join(dir,'live-report.json'),result); }
+  }
 
 }
 export async function verifyReviewSource(args, expectedDigest, source) {
@@ -247,25 +259,32 @@ export async function runLandscapeReview(args, { launch = options => chromium.la
       owner.check();
       const manifest = makeReviewManifest(args, grid), settings = manifest.settings, song = manifest.songs[0], dir = path.join(out, grid); await newDir(dir); await fs.mkdir(path.join(dir, song.id));
       const audio = `${song.id}/audio${path.extname(sharedAudio)}`; await fs.copyFile(sharedAudio, path.join(dir, audio));
-      const row = { id: song.id, audio, audioSha256: sha256(await fs.readFile(sharedAudio)), clips: song.clips, frames: [], errors: [], warnings: [] };
+      const row = { id: song.id, audio, audioSha256: sha256(await fs.readFile(sharedAudio)), clips: song.clips, frames: [], errors: [], warnings: [], events: [] };
       const run = { version: 1, status: 'failed', source: report.source, browser: report.browser, settings, songs: [row], captureTransport: { headless: true, hardwareRequired: !!args.hardware }, timingScope: 'Continuous fixed export clock; not live pacing.' };
       report.grids.push({ grid, path: grid + '/index.html', report: grid + '/report.json' });
       await json(path.join(dir, 'manifest.json'), manifest);
       console.log(`Capturing ${grid}: headless ${args.hardware ? 'hardware required' : 'software WebGL'}`);
-      const loaded = await openEvaluationSong(browser, { url: server.url, audioPath: sharedAudio, settings, diagnostics: { ...row, loadedFiles: new Set() } });
+      let loaded;
+      let failed = false;
       try {
+        loaded = await openEvaluationSong(browser, { url: server.url, audioPath: sharedAudio, settings, diagnostics: { ...row, loadedFiles: new Set() } });
         run.environment = loaded.environment;console.log(`Actual renderer: ${loaded.environment.gl}`); if (args.hardware) requireHardwareRenderer(loaded.environment.gl, args.gpuMatch);
-        row.durationMs = loaded.durationMs; row.schedule = captureSchedule(song, row.durationMs, settings); await instrumentReview(loaded.page);
-        for (const point of row.schedule) { const frame = await renderEvaluationFrame(loaded.page, point, settings); if (!frame) continue;
+        row.durationMs = loaded.durationMs; row.schedule = captureSchedule(song, row.durationMs, settings); loaded.browserDiagnostics.setPhase('review-instrumentation'); await instrumentReview(loaded.page);
+        for (const point of row.schedule) { loaded.browserDiagnostics.setPhase(`capture:${point.timeMs}ms`); const frame = await renderEvaluationFrame(loaded.page, point, settings); if (!frame) continue;
           validateReviewFrame(frame, grid); assert.equal(blankFrame(frame.thumbnail), false); frame.review = await diagnostics(loaded.page);
           const bytes = Buffer.from(frame.pngData, 'base64'); delete frame.pngData; frame.png = `${song.id}/frame-${String(row.frames.length).padStart(5, '0')}.png`; frame.sha256 = sha256(bytes); await fs.writeFile(path.join(dir, frame.png), bytes); row.frames.push(frame);if(args.ablateAurora&&row.frames.length===1)run.auroraAblation=await auroraAblation(loaded.page,dir,frame,point,settings); }
-        run.lifecycle = await pausedLifecycle(loaded.page, grid); assert.equal(run.lifecycle.unchanged, true);
+        loaded.browserDiagnostics.setPhase('paused-lifecycle'); run.lifecycle = await pausedLifecycle(loaded.page, grid); assert.equal(run.lifecycle.unchanged, true);
         run.absenceChecks = await loaded.page.evaluate(() => window.__landscapeReviewPaint); if (!args.recordBaseline) assert.ok(Object.values(run.absenceChecks).every(v => v.paints === 0), 'removed overlay painted');
-        run.media = await saveMedia(loaded.page, dir, row, settings, args.mp4, owner);report.grids.at(-1).media=run.media; assert.deepEqual(row.errors, []);
+        loaded.browserDiagnostics.setPhase('review-media'); run.media = await saveMedia(loaded.page, dir, row, settings, args.mp4, owner);report.grids.at(-1).media=run.media; assert.deepEqual(row.errors, []);
         await verifyReviewSource(args, snapshot.digest, run.source);
         owner.check();
         run.status = 'passed';console.log(`Saved ${grid}: ${row.frames.length} actual frames, paused lifecycle and absence checks passed`);
-      } finally { await loaded.context.close(); await json(path.join(dir, 'report.json'), run); await fs.writeFile(path.join(dir, 'index.html'), renderRunReport(run)); }
+      } catch (error) { failed = true; throw error; }
+      finally {
+        await loaded?.context.close(); await loaded?.browserDiagnostics.dispose();
+        try { finalizeBrowserDiagnostics(row, run, { preserveFailure: failed }); }
+        finally { await json(path.join(dir, 'report.json'), run); await fs.writeFile(path.join(dir, 'index.html'), renderRunReport(run)); }
+      }
       if (args.baseline) {
         const beforeDir = path.resolve(args.baseline, grid), before = JSON.parse(await fs.readFile(path.join(beforeDir, 'report.json'))), diff = compareReports(before, run), comparison = path.join(out, 'comparison-' + grid); await newDir(comparison);assert.deepEqual(before.captureTransport,run.captureTransport,'review capture transport must match');
         for (const [name, original, data] of [['baseline', beforeDir, before], ['candidate', dir, run]]) {

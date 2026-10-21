@@ -13,6 +13,7 @@
     "test:all": "node --test",
     "test:smoke": "node tools/smoke.mjs",
     "test:bootstrap": "node tools/bootstrap-smoke.mjs",
+    "test:routes": "node tools/current-routes-smoke.mjs",
     "test:gpu": "node tools/gpu-review.mjs",
     "stage:site": "node tools/stage-site.mjs . _site",
     "test:seek": "node tools/seek-effects-smoke.mjs",
@@ -40,7 +41,8 @@
     "plex:server": "node --env-file=.env.plex tools/plex-server.mjs",
     "plex:probe": "node --env-file=.env.plex tools/plex-probe.mjs",
     "plex:config": "node tools/write-plex-public-config.mjs",
-    "test:plex": "node tools/plex-smoke.mjs"
+    "test:plex": "node tools/plex-smoke.mjs",
+    "test:tour-coverage": "node tools/tour-coverage-check.mjs"
   },
   "dependencies": {
     "slsk-client": "2.0.2"
