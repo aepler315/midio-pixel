@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MusicLibrary } from '../src/library/MusicLibrary.js';
-import { listTracks } from '../src/library/LibraryDB.js';
+import { addRoot, listRoots, listTracks, updateTrack } from '../src/library/LibraryDB.js';
 import { fakeIdb } from './helpers/fakeLibraryIdb.js';
 
 function fakeFile(name, { lastModified = 1 } = {}) {
@@ -309,12 +309,12 @@ test('a scan abandoned part way leaves what it found, and a later rescan complet
 test('choosing a second folder cannot be overwritten by the first scan unwinding', async () => {
   const scope = scopeWith(fakeDirHandle('Music', bigFolder(80)));
   const lib = new MusicLibrary({ scope });
-  lib.root = { id: 'root:music', name: 'Music' };
+  lib.root = await addRoot({ name: 'Music' }, scope);
   lib.handle = fakeDirHandle('Music', bigFolder(80));
   const slow = lib.rescan();
   // A second scan starts before the first has unwound.
   lib.handle = fakeDirHandle('Other', bigFolder(10));
-  lib.root = { id: 'root:other', name: 'Other' };
+  lib.root = await addRoot({ name: 'Other' }, scope);
   const fresh = await lib.rescan();
   await slow;
 
@@ -379,7 +379,7 @@ test('playing a track that arrived mid-scan does not reset its play count', () =
 test('a folder that stops being readable mid-walk does not leave the library scanning forever', async () => {
   const scope = fakeIdb();
   const lib = new MusicLibrary({ scope });
-  lib.root = { id: 'root:music', name: 'Music' };
+  lib.root = await addRoot({ name: 'Music' }, scope);
   lib.handle = {
     values() {
       return (async function* () {
@@ -388,7 +388,9 @@ test('a folder that stops being readable mid-walk does not leave the library sca
       })();
     },
   };
-  await assert.rejects(() => lib.rescan(), /access revoked/);
+  await lib.rescan();
+  assert.equal(lib.scanResult.complete, false);
+  assert.ok(lib.scanResult.issues.some(issue => issue.kind === 'directory-read'));
   // Otherwise the panel stays labelled as reading, with Rescan and Auto-tag
   // disabled and no scan left to re-enable them.
   assert.equal(lib.scanning, false);
@@ -416,18 +418,14 @@ test('forgetting during a scan leaves nothing behind for the scan to write back'
 test('a scan whose writes were refused does not then decide what to delete', async () => {
   // Pruning is the destructive half. A scan that could not store everything
   // it found has no standing to say what is missing from disk.
-  const scope = scopeWith(fakeDirHandle('Music', { 'keep.mp3': fakeFile('keep.mp3') }));
+  let refuseWrites = false;
+  const scope = fakeIdb({ rejectPut: (_row, store) => refuseWrites && store === 'tracks' });
+  scope.showDirectoryPicker = async () => fakeDirHandle('Music', { 'keep.mp3': fakeFile('keep.mp3') });
   const seed = new MusicLibrary({ scope });
   await seed.pickFolder();
   assert.equal(seed.tracks.length, 1);
-
-  const hostile = fakeIdb({ rejectPut: (row, name) => name === 'tracks' });
-  hostile.showDirectoryPicker = scope.showDirectoryPicker;
-  // Same store, but writes now fail: seed it through the working scope
-  // first, then swap in the refusing one.
-  const lib = new MusicLibrary({ scope });
-  await lib.init();
-  lib.scope = { ...scope, indexedDB: hostile.indexedDB };
+  const lib = await new MusicLibrary({ scope }).init();
+  refuseWrites = true;
   lib.handle = fakeDirHandle('Music', { 'other.mp3': fakeFile('other.mp3') });
   await lib.rescan();
   // keep.mp3 is gone from disk, but the replacement never landed, so it is
@@ -439,11 +437,11 @@ test('a scan whose writes were refused does not then decide what to delete', asy
 test('a scan superseded while it is finishing does not clobber the newer one', async () => {
   const scope = scopeWith(fakeDirHandle('Music', bigFolder(60)));
   const lib = new MusicLibrary({ scope });
-  lib.root = { id: 'root:music', name: 'Music' };
+  lib.root = await addRoot({ name: 'Music' }, scope);
   lib.handle = fakeDirHandle('Music', bigFolder(60));
 
   const stale = lib.rescan();
-  lib.root = { id: 'root:other', name: 'Other' };
+  lib.root = await addRoot({ name: 'Other' }, scope);
   lib.handle = fakeDirHandle('Other', bigFolder(8));
   const fresh = lib.rescan();
   await Promise.all([stale, fresh]);
@@ -521,7 +519,7 @@ test('a failed rescan carries session history forward and marks the displayed ro
   let refuseScan = false;
   const scope = fakeIdb({ rejectPut: (row, store) => store === 'tracks' && refuseScan });
   const lib = new MusicLibrary({ scope });
-  lib.root = { id: 'root:music', name: 'Music' };
+  lib.root = await addRoot({ name: 'Music' }, scope);
   lib.handle = fakeDirHandle('Music', { 'a.mp3': fakeFile('a.mp3') });
   await lib.rescan();
   await lib.notePlayed(lib.tracks[0], 180);
@@ -546,4 +544,162 @@ test('storage-free scan, tag and play edits are explicitly session-only', async 
   assert.equal(await lib.notePlayed(lib.tracks[0], 180), false);
   assert.equal(lib.tracks[0].playCount, 1);
   assert.equal(lib.tracks[0].unsaved, true);
+});
+
+test('an incomplete rescan retains unreadable earned rows until a healthy complete deletion', async () => {
+  const scope = scopeWith(fakeDirHandle('Music', { 'keep.mp3': fakeFile('keep.mp3'), 'blocked.mp3': fakeFile('blocked.mp3') }));
+  const lib = new MusicLibrary({ scope });
+  await lib.pickFolder();
+  const earned = lib.tracks.find(row => row.path === 'blocked.mp3');
+  await lib.notePlayed(earned, 217);
+  await updateTrack(earned.key, { album: 'Earned album', title: 'Earned title', tagSource: 'auto' }, scope);
+  lib.handle = { values: async function* () {
+    yield { kind: 'file', name: 'keep.mp3', getFile: async () => fakeFile('keep.mp3') };
+    yield { kind: 'file', name: 'blocked.mp3', getFile: async () => { throw new Error('NotReadableError'); } };
+    yield { kind: 'file', name: 'new.mp3', getFile: async () => fakeFile('new.mp3') };
+  } };
+  await lib.rescan();
+  assert.deepEqual(lib.tracks.map(row => row.path).sort(), ['blocked.mp3', 'keep.mp3', 'new.mp3']);
+  const stored = (await listTracks(lib.root.id, scope)).find(row => row.path === 'blocked.mp3');
+  assert.equal(stored.playCount, 1); assert.equal(stored.durationSec, 217); assert.equal(stored.album, 'Earned album');
+  assert.equal(lib.scanResult.complete, false);
+  assert.ok(lib.scanResult.issues.some(issue => issue.kind === 'file-read'));
+  lib.handle = fakeDirHandle('Music', { 'keep.mp3': fakeFile('keep.mp3'), 'new.mp3': fakeFile('new.mp3') });
+  await lib.rescan();
+  assert.deepEqual((await listTracks(lib.root.id, scope)).map(row => row.path).sort(), ['keep.mp3', 'new.mp3']);
+  assert.equal(lib.scanResult.complete, true);
+});
+
+test('an unreadable root keeps its durable listing and the service view', async () => {
+  const scope = scopeWith(fakeDirHandle('Music', { 'earned.mp3': fakeFile('earned.mp3') }));
+  const lib = new MusicLibrary({ scope }); await lib.pickFolder();
+  await lib.notePlayed(lib.tracks[0], 171);
+  lib.handle = { values() { throw new Error('NotAllowedError'); } };
+  await lib.rescan();
+  assert.equal(lib.tracks.length, 1); assert.equal(lib.tracks[0].playCount, 1);
+  assert.equal((await listTracks(lib.root.id, scope))[0].durationSec, 171);
+  assert.equal(lib.scanning, false); assert.equal(lib.scanResult.complete, false);
+});
+
+test('a tag read failure cannot replace stored earned metadata with empty guesses', async () => {
+  const scope = scopeWith(fakeDirHandle('Music', { 'earned.mp3': fakeFile('earned.mp3') }));
+  const lib = new MusicLibrary({ scope }); await lib.pickFolder();
+  await updateTrack(lib.tracks[0].key, { title: 'Stored tags', album: 'Stored album', tagSource: 'tags' }, scope);
+  lib.handle = fakeDirHandle('Music', { 'earned.mp3': { ...fakeFile('earned.mp3'),
+    slice: () => ({ arrayBuffer: async () => { throw new Error('read failed'); } }) } });
+  await lib.rescan();
+  assert.equal(lib.tracks[0].title, 'Stored tags');
+  assert.equal((await listTracks(lib.root.id, scope))[0].album, 'Stored album');
+  assert.equal(lib.scanResult.complete, false);
+});
+
+function deferred() {
+  let resolve; const promise = new Promise(done => { resolve = done; });
+  return { promise, resolve };
+}
+
+test('a scan in another instance supersedes stale writes and pruning for the same root', async () => {
+  const scope = scopeWith(fakeDirHandle('Music', { 'old.mp3': fakeFile('old.mp3'), 'shared.mp3': fakeFile('shared.mp3') }));
+  const old = new MusicLibrary({ scope }); await old.pickFolder();
+  await old.notePlayed(old.tracks.find(row => row.path === 'shared.mp3'), 190);
+  const entered = deferred(), release = deferred();
+  old.handle = { values: async function* () {
+    yield { kind: 'file', name: 'old.mp3', getFile: async () => fakeFile('old.mp3') };
+    entered.resolve(); await release.promise;
+  } };
+  const pending = old.rescan(); await entered.promise;
+  const current = await new MusicLibrary({ scope }).init();
+  current.handle = fakeDirHandle('Music', { 'shared.mp3': fakeFile('shared.mp3'), 'new.mp3': fakeFile('new.mp3') });
+  await current.rescan(); release.resolve(); await pending;
+  const rows = await listTracks(current.root.id, scope);
+  assert.deepEqual(rows.map(row => row.path).sort(), ['new.mp3', 'shared.mp3']);
+  assert.equal(rows.find(row => row.path === 'shared.mp3').playCount, 1);
+});
+
+test('forget in another instance prevents an old scan from recreating orphan tracks', async () => {
+  const scope = scopeWith(fakeDirHandle('Music', { 'old.mp3': fakeFile('old.mp3') }));
+  const old = new MusicLibrary({ scope }); await old.pickFolder();
+  const entered = deferred(), release = deferred();
+  old.handle = { values: async function* () { entered.resolve(); await release.promise;
+    yield { kind: 'file', name: 'old.mp3', getFile: async () => fakeFile('old.mp3') };
+  } };
+  const pending = old.rescan(); await entered.promise;
+  const other = await new MusicLibrary({ scope }).init(); await other.forget();
+  release.resolve(); await pending;
+  assert.deepEqual(await listRoots(scope), []); assert.deepEqual(await listTracks(null, scope), []);
+});
+
+test('an earlier folder picker cannot overwrite a later selection when it resolves last', async () => {
+  const scope = fakeIdb(), chosen = deferred(); let calls = 0;
+  scope.showDirectoryPicker = () => ++calls === 1 ? chosen.promise
+    : Promise.resolve(fakeDirHandle('Later', { 'new.mp3': fakeFile('new.mp3') }));
+  const lib = new MusicLibrary({ scope }); const old = lib.pickFolder();
+  await lib.pickFolder(); chosen.resolve(fakeDirHandle('Earlier', { 'old.mp3': fakeFile('old.mp3') }));
+  await old;
+  assert.equal(lib.root.name, 'Later'); assert.deepEqual(lib.tracks.map(row => row.path), ['new.mp3']);
+  assert.deepEqual((await listRoots(scope)).map(row => row.name), ['Later']);
+});
+
+test('forget cancels a pending folder identity comparison before it can remember a new root', async () => {
+  const scope = scopeWith(fakeDirHandle('Music', { 'a.mp3': fakeFile('a.mp3') }));
+  const lib = new MusicLibrary({ scope }); await lib.pickFolder();
+  const entered = deferred(), release = deferred();
+  const next = fakeDirHandle('Other', { 'b.mp3': fakeFile('b.mp3') });
+  next.isSameEntry = async () => { entered.resolve(); return release.promise; };
+  scope.showDirectoryPicker = async () => next;
+  const pending = lib.pickFolder(); await entered.promise;
+  await lib.forget(); release.resolve(false); await pending;
+  assert.equal(lib.root, null); assert.deepEqual(lib.tracks, []); assert.deepEqual(await listRoots(scope), []);
+});
+
+test('failed root saves still allow handle and file-list scans for the session', async () => {
+  for (const useHandle of [false, true]) {
+    const scope = fakeIdb({ rejectPut: (_row, store) => store === 'roots' });
+    const handle = fakeDirHandle('Music', { 'a.mp3': fakeFile('a.mp3') });
+    if (useHandle) scope.showDirectoryPicker = async () => handle;
+    const lib = new MusicLibrary({ scope });
+    if (useHandle) await lib.pickFolder();
+    else await lib.adoptFileList([Object.assign(fakeFile('a.mp3'), { webkitRelativePath: 'Music/a.mp3' })]);
+    assert.equal(lib.tracks.length, 1, `usable session row for handle=${useHandle}`);
+    assert.ok(await lib.openFile(lib.tracks[0]));
+    assert.equal(lib.tracks[0].unsaved, true);
+    assert.equal(lib.scanResult.stored, false);
+    assert.deepEqual(await listRoots(scope), []);
+    assert.deepEqual(await listTracks(null, scope), []);
+  }
+});
+
+test('a late scan cannot claim a removed root ID reused by another folder', async () => {
+  const scope = scopeWith(fakeDirHandle('Music', { 'old.mp3': fakeFile('old.mp3') }));
+  const old = new MusicLibrary({ scope });
+  await old.pickFolder();
+  const removedId = old.root.id;
+  const current = await new MusicLibrary({ scope }).init();
+  await current.forget();
+  scope.showDirectoryPicker = async () => fakeDirHandle('Music', { 'new.mp3': fakeFile('new.mp3') });
+  await current.pickFolder();
+  assert.equal(current.root.id, removedId, 'legacy root ID is legitimately reusable');
+  await current.notePlayed(current.tracks[0], 222);
+  await old.rescan();
+  const stored = await listTracks(current.root.id, scope);
+  assert.deepEqual(stored.map(row => row.path), ['new.mp3']);
+  assert.equal(stored[0].playCount, 1);
+  assert.equal(stored[0].durationSec, 222);
+  assert.equal(old.scanResult.stale, true);
+});
+
+test('permission completion cannot restore access to a forgotten root', async () => {
+  const permission = deferred();
+  const handle = fakeDirHandle('Music', { 'a.mp3': fakeFile('a.mp3') });
+  handle.queryPermission = () => permission.promise;
+  const scope = scopeWith(handle);
+  const lib = new MusicLibrary({ scope });
+  await lib.pickFolder();
+  lib.handle = null;
+  const granting = lib.grantAccess();
+  await lib.forget();
+  permission.resolve('granted');
+  assert.equal(await granting, false);
+  assert.equal(lib.root, null);
+  assert.equal(lib.handle, null);
 });

@@ -122,6 +122,75 @@ test('a folder that refuses to be listed ends that branch, not the scan', async 
   assert.deepEqual((await collect(walkAudioFiles(tree))).map((f) => f.path), ['ok.mp3']);
 });
 
+test('directory read failures report the affected branch and preserve readable siblings', async (t) => {
+  const failures = {
+    values: () => { throw new Error('listing refused'); },
+    iterator: () => ({ [Symbol.asyncIterator]() { throw new Error('iterator refused'); } }),
+    next: () => ({
+      [Symbol.asyncIterator]() { return this; },
+      async next() { throw new Error('iteration refused'); },
+    }),
+  };
+  for (const [phase, values] of Object.entries(failures)) {
+    await t.test(phase, async () => {
+      const issues = [];
+      const tree = dir('Music', {
+        locked: { kind: 'directory', name: 'locked', values },
+        'ok.mp3': file('ok.mp3'),
+      });
+      const tracks = await scanDirectory('r', tree, { onIssue: (issue) => issues.push(issue) });
+      assert.deepEqual(tracks.map((track) => track.path), ['ok.mp3']);
+      assert.equal(issues.length, 1);
+      assert.equal(issues[0].kind, 'directory-read');
+      assert.equal(issues[0].path, 'locked');
+      assert.equal(typeof issues[0].message, 'string');
+      assert.deepEqual(Object.keys(issues[0]).sort(), ['kind', 'message', 'path']);
+    });
+  }
+});
+
+test('a directory iterator failure retains files already yielded and continues sibling branches', async () => {
+  const partial = {
+    kind: 'directory', name: 'partial',
+    async *values() {
+      yield { kind: 'file', name: 'first.mp3', getFile: async () => file('first.mp3') };
+      throw new Error('drive disconnected');
+    },
+  };
+  const issues = [];
+  const tracks = await scanDirectory('r', dir('Music', { partial, 'last.mp3': file('last.mp3') }), {
+    onIssue: (issue) => issues.push(issue),
+  });
+  assert.deepEqual(tracks.map((track) => track.path), ['partial/first.mp3', 'last.mp3']);
+  assert.equal(issues[0].path, 'partial');
+});
+
+test('a depth limit reports that descendants could not be inspected', async () => {
+  let deep = dir('level11', { 'buried.mp3': file('buried.mp3') });
+  for (let level = 10; level >= 1; level--) deep = dir(`level${level}`, { child: deep });
+  const issues = [];
+  const tracks = await scanDirectory('r', dir('Music', { deep, 'ok.mp3': file('ok.mp3') }), {
+    onIssue: (issue) => issues.push(issue),
+  });
+  assert.deepEqual(tracks.map((track) => track.path), ['ok.mp3']);
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].kind, 'depth-limit');
+  assert.equal(issues[0].path, 'level1/level2/level3/level4/level5/level6/level7/level8/level9/level10/level11');
+});
+
+test('healthy empty folders and intentionally skipped entries report no issues', async () => {
+  const issues = [];
+  assert.deepEqual(await scanDirectory('r', dir('Empty', {}), { onIssue: (issue) => issues.push(issue) }), []);
+  const hidden = dir('Music', {
+    '.hidden.mp3': file('.hidden.mp3'),
+    __MACOSX: dir('__MACOSX', { 'ghost.mp3': file('ghost.mp3') }),
+    node_modules: dir('node_modules', { 'ghost.mp3': file('ghost.mp3') }),
+    'cover.jpg': file('cover.jpg'),
+  });
+  assert.deepEqual(await scanDirectory('r', hidden, { onIssue: (issue) => issues.push(issue) }), []);
+  assert.deepEqual(issues, []);
+});
+
 test('reading a tag reads a slice, not the file', async () => {
   // 40MB of pretend FLAC behind a tag at the head. The whole promise of the
   // scan is that this costs a quarter megabyte, not forty.
@@ -166,6 +235,33 @@ test('an unreadable file is a null tag, never a throw', async () => {
   assert.equal((await readTags(null)).title, null);
 });
 
+test('tag read failures are distinguishable from readable files without tags', async () => {
+  const issues = [];
+  const unreadable = { name: 'x.mp3', size: 500, slice: () => ({ arrayBuffer: async () => { throw new Error('gone'); } }) };
+  await readTags(unreadable, { path: 'Album/x.mp3', onIssue: (issue) => issues.push(issue) });
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].kind, 'tag-read');
+  assert.equal(issues[0].path, 'Album/x.mp3');
+  await readTags(fakeFile('Artist - Untagged.mp3', new Uint8Array(500)), { onIssue: (issue) => issues.push(issue) });
+  assert.equal(issues.length, 1);
+});
+
+test('both scanner inputs omit unreadable tags rather than publishing empty replacement metadata', async () => {
+  const unreadable = { name: 'tagged.mp3', size: 500, slice: () => ({ arrayBuffer: async () => { throw new Error('read failed'); } }) };
+  const readable = file('Artist - Untagged.mp3', new Uint8Array(500));
+  for (const scan of [
+    (onIssue) => scanDirectory('r', dir('Music', { 'tagged.mp3': unreadable, [readable.name]: readable }), { onIssue }),
+    async (onIssue) => (await scanFileList('r', [unreadable, readable], { onIssue })).tracks,
+  ]) {
+    const issues = [];
+    const tracks = await scan((issue) => issues.push(issue));
+    assert.deepEqual(tracks.map((track) => track.title), ['Untagged']);
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0].kind, 'tag-read');
+    assert.equal(issues[0].path, 'tagged.mp3');
+  }
+});
+
 test('a record carries the path, the folder, and where its tag came from', () => {
   const rec = trackRecord({
     rootId: 'root:music',
@@ -193,6 +289,69 @@ test('one file that vanishes mid-scan does not take the folder with it', async (
   });
   const tracks = await scanDirectory('root:music', tree);
   assert.deepEqual(tracks.map((t) => t.title), ['Here']);
+});
+
+test('a file that cannot be opened reports incompleteness without exposing its handle', async () => {
+  const issues = [];
+  const tree = dir('Music', { Album: dir('Album', { 'gone.mp3': new Error('file vanished') }), 'ok.mp3': file('ok.mp3') });
+  const tracks = await scanDirectory('r', tree, { onIssue: (issue) => issues.push(issue) });
+  assert.deepEqual(tracks.map((track) => track.path), ['ok.mp3']);
+  assert.deepEqual(issues, [{ kind: 'file-read', path: 'Album/gone.mp3', message: 'file vanished' }]);
+});
+
+test('both scanner inputs report an abort while returning and flushing their partial tracks', async () => {
+  const files = [file('first.mp3'), file('second.mp3')];
+  for (const scan of [
+    (options) => scanDirectory('r', dir('Music', { 'first.mp3': files[0], 'second.mp3': files[1] }), options),
+    async (options) => (await scanFileList('r', files, options)).tracks,
+  ]) {
+    const signal = { aborted: false };
+    const issues = [];
+    const batches = [];
+    const tracks = await scan({
+      signal,
+      onProgress: () => { signal.aborted = true; },
+      onIssue: (issue) => issues.push(issue),
+      onBatch: (batch) => batches.push(...batch),
+    });
+    assert.deepEqual(tracks.map((track) => track.path), ['first.mp3']);
+    assert.deepEqual(batches.map((track) => track.path), ['first.mp3']);
+    assert.deepEqual(issues.map((issue) => issue.kind), ['aborted']);
+  }
+});
+
+test('an already aborted scan reports an issue even for an empty folder', async () => {
+  const issues = [];
+  await scanDirectory('r', dir('Music', {}), { signal: { aborted: true }, onIssue: (issue) => issues.push(issue) });
+  assert.deepEqual(issues.map((issue) => issue.kind), ['aborted']);
+});
+
+test('an aborted scan stops listing directories before the next audio file is found', async () => {
+  const signal = { aborted: false };
+  const issues = [];
+  const unreadable = { kind: 'directory', name: 'locked', values() { throw new Error('must not be listed after abort'); } };
+  const tracks = await scanDirectory('r', dir('Music', { 'first.mp3': file('first.mp3'), unreadable }), {
+    signal,
+    onProgress: () => { signal.aborted = true; },
+    onIssue: (issue) => issues.push(issue),
+  });
+  assert.deepEqual(tracks.map((track) => track.path), ['first.mp3']);
+  assert.deepEqual(issues.map((issue) => issue.kind), ['aborted']);
+
+  issues.length = 0;
+  await scanDirectory('r', unreadable, { signal, onIssue: (issue) => issues.push(issue) });
+  assert.deepEqual(issues.map((issue) => issue.kind), ['aborted']);
+});
+
+test('a caller callback failure propagates rather than becoming a directory issue', async () => {
+  const issues = [];
+  const failure = new Error('storage programming error');
+  await assert.rejects(scanDirectory('r', dir('Music', { 'ok.mp3': file('ok.mp3') }), {
+    batchSize: 1,
+    onBatch: () => { throw failure; },
+    onIssue: (issue) => issues.push(issue),
+  }), (error) => error === failure);
+  assert.deepEqual(issues, []);
 });
 
 test('a scan reports progress and can be abandoned part-way', async () => {

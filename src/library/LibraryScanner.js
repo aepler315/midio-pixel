@@ -52,24 +52,47 @@ export function folderOf(path) {
  *  Hidden files are skipped: a leading dot on macOS and Linux marks
  *  something the player did not put there, and `._Track.mp3` resource forks
  *  would otherwise double every count. */
-export async function* walkAudioFiles(dirHandle, { path = '', depth = 0 } = {}) {
-  if (!dirHandle || depth > MAX_DEPTH) return;
+export async function* walkAudioFiles(dirHandle, { path = '', depth = 0, onIssue = null, signal = null } = {}) {
+  if (signal?.aborted) return;
+  if (depth > MAX_DEPTH) {
+    onIssue?.({ kind: 'depth-limit', path, message: 'Directory depth limit reached' });
+    return;
+  }
   let iterator;
   try {
-    iterator = dirHandle.values();
-  } catch {
-    return; // permission revoked mid-walk, or not a directory after all
+    const entries = dirHandle.values();
+    iterator = entries[Symbol.asyncIterator]?.() ?? entries[Symbol.iterator]();
+  } catch (error) {
+    onIssue?.({ kind: 'directory-read', path, message: String(error?.message || 'Unable to list directory') });
+    return;
   }
-  for await (const entry of iterator) {
-    const name = entry?.name || '';
-    if (!name || name.startsWith('.')) continue;
-    const childPath = path ? `${path}/${name}` : name;
-    if (entry.kind === 'directory') {
-      if (SKIP_DIRS.has(name.toLowerCase())) continue;
-      yield* walkAudioFiles(entry, { path: childPath, depth: depth + 1 });
-    } else if (entry.kind === 'file' && isAudioName(name)) {
-      yield { entry, path: childPath };
+  let finished = false;
+  try {
+    while (!signal?.aborted) {
+      let step;
+      // Catch only the directory read. Errors in callers, recursive walks,
+      // and issue callbacks must propagate rather than look like lost files.
+      try {
+        step = await iterator.next();
+      } catch (error) {
+        finished = true;
+        onIssue?.({ kind: 'directory-read', path, message: String(error?.message || 'Unable to read directory') });
+        return;
+      }
+      if (step.done) { finished = true; return; }
+      const entry = step.value;
+      const name = entry?.name || '';
+      if (!name || name.startsWith('.')) continue;
+      const childPath = path ? `${path}/${name}` : name;
+      if (entry.kind === 'directory') {
+        if (SKIP_DIRS.has(name.toLowerCase())) continue;
+        yield* walkAudioFiles(entry, { path: childPath, depth: depth + 1, onIssue, signal });
+      } else if (entry.kind === 'file' && isAudioName(name)) {
+        yield { entry, path: childPath };
+      }
     }
+  } finally {
+    if (!finished) await iterator.return?.();
   }
 }
 
@@ -80,7 +103,7 @@ export async function* walkAudioFiles(dirHandle, { path = '', depth = 0 } = {}) 
  *  bytes: on a 40MB FLAC this reads a quarter megabyte. The tail is only
  *  read when the head came back empty, which for a modern library is
  *  almost never. */
-export async function readTags(file) {
+export async function readTags(file, { path = file?.name || '', onIssue = null } = {}) {
   const empty = { title: null, artist: null, album: null };
   if (!file) return empty;
   try {
@@ -93,7 +116,8 @@ export async function readTags(file) {
       if (fromTail.source === 'tags') return fromTail;
     }
     return fromHead; // filename heuristics, or nothing at all
-  } catch {
+  } catch (error) {
+    onIssue?.({ kind: 'tag-read', path, message: String(error?.message || 'Unable to read file tags') });
     return { ...empty, source: 'none', confidence: 0 };
   }
 }
@@ -141,11 +165,16 @@ export function trackRecord({ rootId, path, file, identity, nowMs = Date.now() }
  * a slow network drive from looking frozen between them.
  *
  * `onProgress(count, path)` is the same running total for a status line.
+ * `onIssue({kind, path, message})` reports any unreadable entry, depth limit,
+ * or abort. No issues means the result can be treated as a complete scan;
+ * partial results must not be used to remove previously stored tracks.
+ * Failed tag reads omit the track so an empty identity cannot replace a
+ * previously earned tag. A readable file without tags is still included.
  * `signal` aborts between files -- closing the panel over a ten-thousand
  * track drive should actually stop reading it.
  */
 export async function scanDirectory(rootId, dirHandle, {
-  onProgress = null, onBatch = null, signal = null, nowMs = Date.now(),
+  onProgress = null, onBatch = null, onIssue = null, signal = null, nowMs = Date.now(),
   batchSize = 40, batchMs = 250, now = () => Date.now(),
 } = {}) {
   const tracks = [];
@@ -162,15 +191,21 @@ export async function scanDirectory(rootId, dirHandle, {
     await onBatch?.(sending);
   };
 
-  for await (const { entry, path } of walkAudioFiles(dirHandle)) {
+  for await (const { entry, path } of walkAudioFiles(dirHandle, { onIssue, signal })) {
     if (signal?.aborted) break;
     let file;
     try {
       file = await entry.getFile();
-    } catch {
+    } catch (error) {
+      onIssue?.({ kind: 'file-read', path, message: String(error?.message || 'Unable to open file') });
       continue; // vanished or unreadable between listing and opening
     }
-    const identity = await readTags(file);
+    let tagReadFailed = false;
+    const identity = await readTags(file, { path, onIssue: (issue) => {
+      tagReadFailed = true;
+      onIssue?.(issue);
+    } });
+    if (tagReadFailed) continue;
     const track = trackRecord({ rootId, path, file, identity, nowMs });
     tracks.push(track);
     batch.push(track);
@@ -180,6 +215,7 @@ export async function scanDirectory(rootId, dirHandle, {
   // Whatever is left over, including everything when the walk was aborted
   // part way -- those tracks were still found and are still worth having.
   await flush();
+  if (signal?.aborted) onIssue?.({ kind: 'aborted', path: '', message: 'Scan aborted' });
   return tracks;
 }
 
@@ -238,7 +274,7 @@ export async function resolveFile(rootHandle, path) {
  * better one than no library.
  */
 export async function scanFileList(rootId, files, {
-  onProgress = null, onBatch = null, signal = null, nowMs = Date.now(),
+  onProgress = null, onBatch = null, onIssue = null, signal = null, nowMs = Date.now(),
   batchSize = 40, batchMs = 250, now = () => Date.now(),
 } = {}) {
   const tracks = [];
@@ -268,7 +304,12 @@ export async function scanFileList(rootId, files, {
     const full = file.webkitRelativePath || file.name;
     const path = full.includes('/') ? full.slice(full.indexOf('/') + 1) : full;
     if (path.split('/').some((part) => part.startsWith('.'))) continue;
-    const identity = await readTags(file);
+    let tagReadFailed = false;
+    const identity = await readTags(file, { path, onIssue: (issue) => {
+      tagReadFailed = true;
+      onIssue?.(issue);
+    } });
+    if (tagReadFailed) continue;
     const track = trackRecord({ rootId, path, file, identity, nowMs });
     tracks.push(track);
     batch.push(track);
@@ -278,5 +319,6 @@ export async function scanFileList(rootId, files, {
     if (batch.length >= batchSize || now() - lastFlushMs >= batchMs) await flush();
   }
   await flush();
+  if (signal?.aborted) onIssue?.({ kind: 'aborted', path: '', message: 'Scan aborted' });
   return { tracks, handles };
 }
