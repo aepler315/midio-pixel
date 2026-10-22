@@ -63,7 +63,7 @@ test('Detailed survives valid v2 storage, without changing look or quality', () 
   assert.equal(resolvePresentation({ ...saved, look: 'natural' }).grid.width, 640);
   assert.equal(resolveDisplayPrefs({ saved: { ...saved, pixelGrid: 'broken' } }).pixelGrid, 'classic');
 });
-for (const [pixelGrid, size] of [['classicPlus', [400, 225]], ['medium', [480, 270]]]) test(`${pixelGrid} survives valid v2 storage as a ${size.join('x')} grid`, () => {
+for (const [pixelGrid, size] of [['classicPlus', [400, 225]], ['medium', [480, 270]], ['mediumPlus', [560, 315]]]) test(`${pixelGrid} survives valid v2 storage as a ${size.join('x')} grid`, () => {
   const saved = { ...defaults, look: 'pixel', pixelGrid, quality: 'auto' };
   assert.deepEqual(resolveDisplayPrefs({ saved }), saved);
   assert.deepEqual([resolvePresentation(saved).grid.width, resolvePresentation(saved).grid.height], size);

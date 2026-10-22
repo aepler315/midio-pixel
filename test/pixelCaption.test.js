@@ -106,7 +106,7 @@ test('Detailed doubles glyph bodies, margins and line advance without changing p
   assert.equal(detailed.bounds.height, classic.bounds.height * 2);
   assert.equal(detailed.bounds.x, classic.bounds.x * 2);
 });
-for (const gridId of ['classicPlus', 'medium']) test(`${gridId} draws captions on whole grid pixels`, () => {
+for (const gridId of ['classicPlus', 'medium', 'mediumPlus']) test(`${gridId} draws captions on whole grid pixels`, () => {
   const caption = sceneCaptionFor(catalog.views[0]), grid = pixelGrid(gridId);
   const l = pixelCaption.layoutPixelCaption(caption, { grid, localMs: 4500 });
   for (const v of [l.bounds.x, l.bounds.y, l.bounds.width, l.bounds.height, ...l.lines.flatMap(line => [line.x, line.y])]) assert.ok(Number.isInteger(v), `${v}`);

@@ -42,7 +42,7 @@ export function normalizeManifest(value) {
     assert.ok(['fit', 'integer'].includes(p.scaling), 'invalid scaling');
     if (!old) {
       assert.ok(['ordered', 'selective'].includes(p.ditherMode), 'invalid ditherMode');
-      assert.ok(['classic', 'classicPlus', 'medium', 'detailed'].includes(p.pixelGrid), 'invalid pixelGrid');
+      assert.ok(['classic', 'classicPlus', 'medium', 'mediumPlus', 'detailed'].includes(p.pixelGrid), 'invalid pixelGrid');
       if (p.pixelScale != null) assert.ok(['original', 'depth'].includes(p.pixelScale), 'invalid pixelScale');
     }
     settings.presentation = resolveDisplayPrefs({ saved: p });
