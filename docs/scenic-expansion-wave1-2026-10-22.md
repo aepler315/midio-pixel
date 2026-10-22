@@ -165,8 +165,11 @@ rails: the source did not change while testing the stand-off.
 
 ## Directed seam gate remains open
 
-The complete initial sweep measured each candidate in both transition directions
-against all 13 approved views: **70 of 78 directed pairs passed, eight failed**.
+The initial sweep measured each candidate in both transition directions
+against all 13 approved views: 70 of 78 directed pairs passed, eight failed.
+The six mutual directions between the three new candidates add four passes
+and two failures. The complete incremental sweep is therefore **74 of 84
+directed pairs passed, ten failed**, without changing cameras or thresholds.
 All measured crest widths were 1.0. The failures are exposure during mixed-band
 travel, with the existing 0.55 threshold:
 
@@ -180,9 +183,14 @@ travel, with the existing 0.55 threshold:
 | Superstition → Ross Lake | 0.54167 | 1 | 0.45 |
 | Ross Lake → Superstition | 0.51302 | 0 | 0.40 |
 | Superstition → Tombstone | 0.52083 | 16 | 0.60 |
+| Stony Man → Redfish | 0.39323 | 0 | 0.55 |
+| Superstition → Redfish | 0.46354 | 0 | 0.55 |
 
 The source/package/material/camera identities and all pair results are in
-`.smoke/expansion-20261022/candidate-pair-checks.json`. These failures block base
+`.smoke/expansion-20261022/candidate-pair-checks.json` and the adjacent
+`verification/rebuild-20261022/new-view-mutual-seams.json`. The latter records
+all 2,646 mutual-pair composite samples and verifies the same source identities
+as the initial sweep. These failures block base
 approval. They do not remove any approved fallback or prevent candidate scouting
 and in-app diagnostic review. The worst seams need rendered review and a scoped
 camera/composition decision before promotion; the threshold has not been relaxed.
@@ -212,8 +220,8 @@ scouting, not approved compositions:
 | View and song window | Rendered finding | Measured camera evidence | Next review |
 | --- | --- | --- | --- |
 | Redfish, Anthem 12.000–15.875 s | The lake opening and mountain wall remain readable as the rail advances; the reflection gives foreground separation. No sudden turn or visible terrain break occurs in this window. A high-contrast lower-right reflection patch deserves a later reflection pass. | 98.09 m eye travel; largest 125 ms eye step 3.23 m | Mid/late rail, reflection poses, and closer alternate shots; compare similarity with Teton before promotion |
-| Stony Man, Anthem 12.000–15.875 s | The revised stand-off keeps the ridge and overlapping foothill layers visible. Haze makes the low-relief layers quiet; the larger stand-off sacrifices prominence, so closer candidate shots must demonstrate useful variety. | 126.99 m eye travel; largest step 4.17 m | Compare haze/contrast and short-window payoff with the existing Black Mountains view; review the four failed outgoing seams |
-| Superstition, Anthem 12.000–15.875 s | The volcanic front reads as a separate central silhouette and the move remains restrained. Moving west solved the numeric rail occlusion but reduced the close wall's scale; that trade-off remains an editorial decision. | 140.79 m eye travel; largest step 4.62 m | Review side and closer shots for pillar/front detail, all three failed seams, and whether the quiet baseline earns a DESERT slot |
+| Stony Man, Anthem 12.000–15.875 s | The revised stand-off keeps the ridge and overlapping foothill layers visible. Haze makes the low-relief layers quiet; the larger stand-off sacrifices prominence, so closer candidate shots must demonstrate useful variety. | 126.99 m eye travel; largest step 4.17 m | Compare haze/contrast and short-window payoff with the existing Black Mountains view; review the failed outgoing seams |
+| Superstition, Anthem 12.000–15.875 s | The volcanic front reads as a separate central silhouette and the move remains restrained. Moving west solved the numeric rail occlusion but reduced the close wall's scale; that trade-off remains an editorial decision. | 140.79 m eye travel; largest step 4.62 m | Review side and closer shots for pillar/front detail, all failed seams, and whether the quiet baseline earns a DESERT slot |
 
 The actual app applies its musical lens after the rail: drawn vertical FOV spans
 35.985–40.745° in these matched windows. Camera-distance measurements help check
@@ -243,5 +251,5 @@ Targeted catalog/discovery/tour verification passed **47 tests, zero skipped**
 `test/scenicTours.test.mjs`); `git diff --check` passed. The 96 captured PNG hashes
 were read back and verified against their reports, and all three staged runtime
 terrain triples matched the exact rail bytes used for this review. These checks
-do not discharge the eight failed seams, remaining view/tour review, whole-song
+do not discharge the ten failed seams, remaining view/tour review, whole-song
 coverage or device validation.

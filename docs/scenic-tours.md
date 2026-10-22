@@ -23,6 +23,16 @@ four existing pilots. The [fresh rebuild and app review](scenic-rebuild-review-2
 separates new discovery artifacts, actual song-planned movement and remaining
 approval gates from the historical results below.
 
+**Current expansion-branch inventory:** catalog v20 has 20 runtime entries
+(13 approved bases and seven candidates), while `scenic-tours.json` has
+16 candidate regional configurations. The primary expansion branch has no
+attached shot libraries and preserves all 13 approved rail packages. Fresh
+libraries are rebuilt and staged in an isolated candidate review snapshot.
+The v19 inventory and R3 delivery table below describe their explicitly dated
+baselines. See [draft PR #31](https://github.com/aepler315/midio-pixel/pull/31)
+and the [dated rebuild review](scenic-rebuild-review-2026-10-22.md) for current
+artifacts and actual planned-move findings.
+
 The intended system gives each approved scenic view an offline-discovered **shot library**: complete
 camera moves around the region's real subjects, plus connecting moves between
 them. At playback a deterministic planner strings shots and links together
@@ -61,6 +71,13 @@ means no build record is available in that checkout. It does not contradict the
 historical local builds reported in PR #25. None of the round-3 shot libraries
 below is committed or approved for production. The four forced runtime candidates
 and four rejected authoring entries are separate from the 13 approved views.
+
+For the fresh batch, use `--build-root .smoke/rebuild-20261022/libraries`.
+The status tool labels **catalog tour state** separately from **build-fit
+counts/costs**. An approved rail cannot approve an attached candidate tour;
+approval also requires current verified library, payload and terrain identities.
+Choosing a build directory does not install or approve its packages. Valid
+rejections and stale identities are reported separately.
 
 | View | Current production camera | R3 shots / links reported in PR #25 | Reported in-app coverage |
 | --- | --- | --- | --- |

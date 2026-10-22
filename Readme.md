@@ -276,7 +276,10 @@ The [expansion proposal](docs/scenic-view-expansion.md) considers **13 â†’ 18 â†
 [first sourced wave](docs/scenic-expansion-wave1-2026-10-22.md) adds candidate
 terrain and rails for Redfish Lake in the Sawtooths, Stony Man in Shenandoah,
 and the Superstition west front. Catalog v20 has 13 approved rails and seven
-candidates; the approved geographic count remains 13. The
+candidates, with 16 regional tour configurations on the expansion branch;
+the approved geographic count remains 13. The new three terrain packages add
+3,813,190 bytes. Source, candidate assets and review documentation are in
+[draft PR #31](https://github.com/aepler315/midio-pixel/pull/31). The
 [fresh rebuild and app review](docs/scenic-rebuild-review-2026-10-22.md) records
 the new scouting runs, exact library identities, actual planned camera moves
 and remaining review gates. Candidate assets and local rebuilt libraries do

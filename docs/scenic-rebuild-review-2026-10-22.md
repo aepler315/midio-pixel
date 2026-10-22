@@ -39,6 +39,16 @@ identities and coverage results. The three new regions join the queue after
 their revised candidate rail packages are staged. Tombstone's existing
 source-drift restriction remains active.
 
+The first three build processes loaded the `f51c27f` driver before the
+connection-pruning correction. Their final graphs are already connected, so
+the correction preserves their selected links. Denali started 43.67 seconds
+before the final corrected driver's recorded modification time; its exact
+loaded driver hash is unconfirmed. The stratified discovery code did not
+change during this correction. Later processes start after the final driver
+cutover. Per-region execution timestamps, source-cutover facts and independent
+package/connectivity checks retain this distinction instead of attributing
+every build to the final source hash.
+
 ## Connection pruning found during the rebuild
 
 An independent graph audit reproduced another defect in the current offline
@@ -91,6 +101,21 @@ seven candidates. No new geographic view or tour is approved here.
 
 There is no global 60 MB asset ceiling. Delivery bytes, per-region fit caps,
 triangle/forest costs and runtime graphics residency are reported separately.
+
+The status CLI previously inferred a tour's approval from its base rail's
+status. It now uses the runtime tour-eligibility contract and verifies the
+actual manifest, payload and terrain identities. Candidate, rejected and
+stale tours remain distinct. A malformed readable manifest produces a stale
+row instead of aborting the table. To inspect this batch's fit records:
+
+```sh
+node tools/scenic-tour-status.mjs \
+  --build-root .smoke/rebuild-20261022/libraries --markdown
+```
+
+The table labels catalog tour status separately from build-fit counts and
+costs. Choosing a build directory neither publishes its packages nor approves
+them. It does not search sibling or historical directories implicitly.
 
 ## Application capture controls
 
@@ -154,11 +179,118 @@ soft foreground terrain. All three brighten late in the same passage. That
 shared light/weather change must be separated from camera motion when
 assessing the rebuilt tours.
 
-Fresh library totals, actual planned-move findings and final validation are
-recorded below when their runs complete. None of the baseline observations,
-fit checks or capture controls automatically promotes a candidate.
+The first completed fits and planned-move findings follow below. Remaining
+regions are still building. None of the baseline observations, fit checks or
+capture controls automatically promotes a candidate.
 
 The source audio is retained with exact frame players and MP4 previews.
 Auditory input was unavailable to the reviewing agent, so the review does not
 claim to have heard or aesthetically accepted the musical coupling. The actual
 camera, timeline and rendered-image observations remain independently useful.
+
+## First completed libraries and actual moves
+
+The first-three public snapshot digest is
+`78bfe215572634c878f9e528490f06fc3c0dd659caf99938707bf27225edb501`.
+All 656 frozen files were rehashed. Each of these packages passed its final
+fit, render and nine-station rail-parity comparison. All non-rail shots are
+mutually reachable in the full selected graph; an isolated fallback rail is
+permitted. Byte additions include shot packages and added terrain coverage.
+
+| View | Shots / non-rail / links | Added bytes | Source drift | Initial app disposition |
+| --- | ---: | ---: | --- | --- |
+| Teton / Jackson Lake | 10 / 9 / 26 | 1,116,251 | false | Retain for review; repeated approaches and long transit need work |
+| Monument Valley | 18 / 17 / 54 | 1,158,808 | false | Retain for review; close opening and dark cropped ending need work |
+| Ross Lake | 8 / 7 / 19 | 1,207,146 | true, previously allowed rebake | Retain for review; repeated orbits, long transit and dark ending need work |
+
+Compared with the preserved R3 artifacts, Ross grows from 6 shots/9 links to
+8/19, Monument grows from 16/39 to 18/54, and Teton shrinks from 13/28 to
+10/26. Teton's recorded non-rail azimuths move from 45-degree bins 0–2 to
+bins 4–6, demonstrating that the fresh selection reaches the previously
+undersampled side. It does not retain more move families: four fresh
+families replace six in that historical library. Ross still retains only
+two distinct subjects. Those are measured artifact differences, not an
+otherwise identical baseline experiment or evidence that every region has
+full-circle selected coverage. The actual song plan can also use a much
+narrower subset than its library provides.
+
+Monument's actual song plan selects two traverses and a valley payoff, with
+payoffs at 8.1, 64.5 and 128 seconds. The 12–16-second comparison replaces a
+distant mesa panorama with a near-buttes traverse and visible foreground
+parallax. The join around 18.4 seconds reads continuously in the captured
+sequence; the 34–38-second transit opens wider butte context. The Mittens are
+legible at the 126–129.75-second hero passage. The last four seconds remain
+dark with a large cliff cropped at the left. Three links occupy roughly
+30–36 seconds each. A useful selected library is not yet a fully paced edit.
+
+Teton's plan uses two approaches, with payoffs at 48 and 128 seconds. The
+opening shows deeper peak layering and foreground movement in place of the
+rail's lake panorama. The first approach lasts about 65 seconds; its join
+into a 42.69-second link appears continuous at 62.95–66.70 seconds. The
+84–88-second transit opens distant ridges as a foreground peak passes left.
+Mount Moran remains readable above fog at 126–129.75 seconds, and the ending
+holds wide layered peaks while still inside a link. These frames support
+retaining the camera material, with repeated move families and long holds
+still open editorial issues.
+
+Ross's plan uses two orbits, with payoffs at 16 and 128 seconds and one
+3.93-kilometre link from 35.14 to 104.50 seconds. That link lasts 69.36 seconds
+at the song's selected comfort pace. The builder's `maxLinkS` currently gates
+the fastest feasible duration; this longer playback does not demonstrate a
+bypassed builder gate. The join frames around 33–37 seconds remain continuous,
+and the 67.8–71.6-second transit gives Jack Mountain readable context behind
+the foreground ridge. The hero keeps a clear outline as weather darkens its
+face. The ending is a low-contrast central silhouette. Repeated orbits, long
+transit and that dark ending remain reasons to withhold aesthetic approval.
+
+These are actual worker-planned tours, with camera assertions against the
+application timeline and 4 fps drawing history from song start. Saved
+sequences cover moves, joins, link interiors, payoffs and the ending; matched
+opening captures use 8 fps. They do not establish smooth physical playback
+between sampled frames. Six bounded 8 fps supplements inspected the sharpest
+measured vector-acceleration and yaw windows, 32 frames each. No camera snap or
+terrain gap appeared in those windows. Ross's yaw passage has a brief brightness
+pulse without a matching camera discontinuity; its cause is unisolated. Peak
+vector acceleration was 19.62/19.31/14.91 m/s² for Monument/Teton/Ross. The
+existing policy does not cap sideways acceleration; these values are reported
+separately from tangential/yaw limits and are not labeled failed gates. The
+captions' separate
+HORIZON and MASSIF names describe the song's independent skyline cast; VIEW
+names the curated terrain, as specified by `sceneCaptionFor`.
+
+## Source validation
+
+The connectivity correction and final candidate data were tested on Node
+24.10.0 with system GDAL 3.12.2, using a byte-copied source directory without
+spaces to avoid the encoded-path harness issue. The final full suite ran
+4,968 tests: **4,960 passed, two failed and six were skipped**. The failures
+are the sky-pan assertion at `test/rangeAtmosphere.test.js:213` and the
+synthetic 18-shot/594-link cold-planning timing threshold at
+`test/shotPlanner.test.mjs:190`. Both failures also reproduce on the unchanged
+parent `f51c27f`; the timing comparison used reserved physical CPU cores.
+The thresholds remain unchanged, and the full suite remains red. Six checks
+that previously skipped for missing GDAL now execute. Linking the restored DEM
+cache into the final isolated test copy enabled another four real-data checks,
+which passed. The remaining six full-suite skips are five Chromium-dependent
+checks whose executable was not configured in that command, and one check
+requiring a library published in the primary checkout. Targeted browser
+follow-up is recorded separately; a diagnostic candidate capture does not
+retroactively turn a skipped full-suite case into a pass.
+
+All 53 connectivity-targeted tests pass, including four new regressions;
+all 47 status/runtime/catalog/review-targeted tests also pass, with four new
+status regressions covering approval, stale bytes, malformed data and explicit
+build roots.
+Lint and whitespace checks pass. Independent source, capture-harness and
+candidate-integrity reviews found no P1/P2 blocker. All 1,511 non-Markdown
+files in the final test snapshot were rehashed against the working source
+after publication and match. Later review-document edits do not change the
+tested runtime, tools, tests or terrain assets.
+
+The source and first three terrain candidates are published in
+[draft PR #31](https://github.com/aepler315/midio-pixel/pull/31), stacked on
+[draft PR #29](https://github.com/aepler315/midio-pixel/pull/29). Its initial
+checkpoint is `21878a1ae3ba2eacf5c4445f4b5a38784963e362`, with sole parent
+`f51c27f7855ca6a3f163f77afaee4827438e2973`. The remote commit, tree, comparison
+and all 20 changed blob identities were read back and verified. This records
+publication of the candidate work; it is not a merge, deployment or approval.
