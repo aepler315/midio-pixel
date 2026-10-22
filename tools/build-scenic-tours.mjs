@@ -291,7 +291,10 @@ export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpu
  * links chosen among the shortlist and priced, and the build report.
  */
 async function selectLibrary(viewId, { ctx, config, pool, cost, scale, graph, out, t0, log }) {
-  const { usable, front, subjects } = graph;
+  const { front, subjects } = graph;
+  // Shots a rendered review marked broken (region.excludeShots) never join.
+  const excluded = new Set(config.region.excludeShots || []);
+  const usable = graph.usable.filter((c) => !excluded.has(c.id));
   // Shots of the region's named heroes (scenic-tours.json region.hero).
   const heroIds = new Set(subjects.filter((x) => (config.region.hero || []).includes(x.name)).map((x) => x.id));
   for (const c of usable) c.hero = heroIds.has(c.subjectId);
