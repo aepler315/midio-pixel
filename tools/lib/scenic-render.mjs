@@ -349,7 +349,7 @@ const FONT = ('00000 25755 65656 34443 65556 74647 74644 34553 55755 72227 11152
   + '02020 00700 00007 11244 07070 02720 24442 21112 51245 57575 61202').split(' ');
 
 /** Decode an 8-bit, non-interlaced RGB or RGBA PNG to { width, height, rgb }. */
-function decodePng(buf, zlib) {
+export function decodePng(buf, zlib) {
   if (buf.readUInt32BE(0) !== 0x89504e47) throw new Error('not a PNG');
   let at = 8, width = 0, height = 0, type = 0;
   const idat = [];

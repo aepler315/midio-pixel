@@ -470,7 +470,7 @@ export async function renderReview(viewId, library, { out, width = 480, height =
  * pixels should match except where finer tour detail lands in view.
  */
 export async function railParity(viewId, camera, terrain, { stations = 9, width = 480, height = 270 } = {}) {
-  const { openShotReview } = await import('./lib/scenic-render.mjs');
+  const { openShotReview, decodePng } = await import('./lib/scenic-render.mjs');
   const poses = Array.from({ length: stations }, (_, k) => {
     const u = k / (stations - 1), at = (a, b, arc) => a.map((v, i) => v + (b[i] - v) * u + (arc?.[i] || 0) * 4 * u * (1 - u));
     return { eyeM: at(camera.eyeStartM, camera.eyeEndM, camera.eyeArcM), targetM: at(camera.targetStartM, camera.targetEndM, camera.targetArcM), fovYDeg: camera.fovYDeg };
@@ -482,19 +482,28 @@ export async function railParity(viewId, camera, terrain, { stations = 9, width 
   const [before, after] = [await render(null), await render(terrain)];
   const rows = before.map((b, k) => {
     const a = after[k], pa = Buffer.from(a.png, 'base64'), pb = Buffer.from(b.png, 'base64');
-    return { u: k / (stations - 1), identical: pa.equals(pb), terrainFrac: [b.metrics.terrainFrac, a.metrics.terrainFrac],
+    // Pixels that visibly changed (any channel by more than 6 levels).
+    const da = decodePng(pa, zlib).rgb, db = decodePng(pb, zlib).rgb;
+    let changed = 0, maxDelta = 0;
+    for (let i = 0; i < da.length; i += 3) {
+      const d = Math.max(Math.abs(da[i] - db[i]), Math.abs(da[i + 1] - db[i + 1]), Math.abs(da[i + 2] - db[i + 2]));
+      if (d > 6) changed++;
+      if (d > maxDelta) maxDelta = d;
+    }
+    return { u: k / (stations - 1), identical: pa.equals(pb), changedFrac: changed / (da.length / 3), maxDelta, terrainFrac: [b.metrics.terrainFrac, a.metrics.terrainFrac],
       holes: [b.metrics.holes, a.metrics.holes], skylineTop: [b.metrics.skylineTop, a.metrics.skylineTop],
       luminance: [b.metrics.luminance?.mean, a.metrics.luminance?.mean] };
   });
   const worst = rows.reduce((w, r) => Math.max(w, Math.abs(r.terrainFrac[0] - r.terrainFrac[1])), 0);
-  return { rows, identical: rows.filter((r) => r.identical).length, maxTerrainFracDelta: worst, ok: worst < 0.01 && rows.every((r) => !(r.holes[1] > r.holes[0] + 1e-4)),
+  const changed = rows.reduce((w, r) => Math.max(w, r.changedFrac), 0);
+  return { rows, identical: rows.filter((r) => r.identical).length, maxTerrainFracDelta: worst, maxChangedFrac: changed,
+    ok: worst < 0.01 && changed < 0.03 && rows.every((r) => !(r.holes[1] > r.holes[0] + 1e-4)),
     before: before.map((b) => b.png), after: after.map((a) => a.png) };
 }
 
 // ---------------------------------------------------------------------------
 // Terrain coverage: re-cull the view's package for rail + library poses
 
-/** Median height of a package's hydro-flattened water samples (RangeScene). */
 /** The poses a library's frames (and, where a lake mirrors, their
  *  reflections) need covered. */
 export function libraryPoses(ctx, library, options = {}) {
@@ -711,10 +720,30 @@ export async function publishView(viewId, fitted, { log = console.log } = {}) {
   log(`${viewId}: published; re-approve with: node tools/build-range-scene.mjs --approve ${viewId} --evidence docs/scenic-tours.md`);
 }
 
+/** A fitted build as writeFitted left it in `dir`, ready for publishView. */
+export async function readFitted(viewId, dir) {
+  const fit = JSON.parse(await fs.readFile(path.join(dir, 'fit.json'), 'utf8'));
+  const manifestText = await fs.readFile(path.join(dir, `${viewId}.shots.json`), 'utf8');
+  const packed = { manifestText, manifest: JSON.parse(manifestText), payload: await fs.readFile(path.join(dir, `${viewId}.shots.bin.gz`)) };
+  const bake = { rebaked: fit.bake.rebaked, validation: { ok: fit.bake.validation.ok } };
+  if (bake.rebaked) {
+    bake.manifestText = await fs.readFile(path.join(dir, `${viewId}.terrain.json`), 'utf8');
+    bake.manifest = JSON.parse(bake.manifestText);
+    bake.payload = await fs.readFile(path.join(dir, `${viewId}.terrain.bin.gz`));
+  }
+  return { failed: fit.failed, packed, bake };
+}
+
 async function main() {
   const args = process.argv.slice(2), opt = (k) => (args.includes(k) ? args[args.indexOf(k) + 1] : null);
   const doc = JSON.parse(await fs.readFile(CONFIG, 'utf8'));
   const id = opt('--view');
+  // Publish a build reviewed earlier, without rebuilding it.
+  if (opt('--publish-from')) {
+    if (!doc.regions[id]) throw new Error('usage: node tools/build-scenic-tours.mjs --view <id> --publish-from DIR');
+    await publishView(id, await readFitted(id, path.resolve(opt('--publish-from'))));
+    return;
+  }
   const ids = id === 'all' ? Object.keys(doc.regions) : (id || '').split(',').filter(Boolean);
   if (!ids.length || ids.some((v) => !doc.regions[v])) throw new Error('usage: node tools/build-scenic-tours.mjs --view <id>[,<id>]|all [--render] [--publish]');
   for (const viewId of ids) {
@@ -732,7 +761,7 @@ async function main() {
         await contactSheet([...parity.before, ...parity.after].map((p) => Buffer.from(p, 'base64')), { columns: parity.rows.length, tileWidth: 240,
           labels: [...parity.rows.map((r) => `shipped u=${r.u.toFixed(2)}`), ...parity.rows.map((r) => `re-culled u=${r.u.toFixed(2)}`)], out: path.join(out, `${viewId}-rail-parity.png`) });
         await fs.writeFile(path.join(out, 'rail-parity.json'), JSON.stringify({ ...parity, before: undefined, after: undefined }, null, 1));
-        console.log(`${viewId}: rail parity ${parity.ok ? 'ok' : 'CHANGED'} (${parity.identical}/${parity.rows.length} identical frames, max terrain delta ${parity.maxTerrainFracDelta.toFixed(4)})`);
+        console.log(`${viewId}: rail parity ${parity.ok ? 'ok' : 'CHANGED'} (${parity.identical}/${parity.rows.length} identical frames, up to ${(100 * parity.maxChangedFrac).toFixed(2)}% of pixels changed, max terrain delta ${parity.maxTerrainFracDelta.toFixed(4)})`);
       }
     }
     const libraryKiB = (Buffer.byteLength(fitted.packed.manifestText) + fitted.packed.payload.byteLength) / 1024;

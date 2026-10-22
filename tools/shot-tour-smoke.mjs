@@ -50,6 +50,10 @@ async function main() {
       report.checks.push('planned');
       const payoffs = (status.payoffs || []).map((p) => Math.round(p.plannedMs ?? p.actualMs)).filter(Number.isFinite);
       const times = [...new Set([4000, ...payoffs.slice(0, 6)])].sort((a, b) => a - b);
+      // The first export frame after loading differs from its repeats with
+      // tours on or off alike (a warm-up of the renderer, not the camera), so
+      // parity is checked from the second frame on.
+      await renderEvaluationFrame(page, { timeMs: times[0], checkpoint: false, clips: [], save: false }, settings);
       for (const timeMs of times) {
         const point = { timeMs, checkpoint: true, clips: [], save: true };
         const frame = await renderEvaluationFrame(page, point, settings);
@@ -75,18 +79,24 @@ async function main() {
       const after = await page.evaluate(([id, ts]) => ts.map((t) => window.__SMW.sim.biomes.rangePresentation.shots.timeline(id).poseAt(t).eyeM), [viewId, times]);
       before.forEach((e, i) => assert.ok(near(e, after[i], 1e-3), `rebuild replanned a different camera at ${times[i]}`));
       report.checks.push('rebuild replans the identical camera');
-      // Tours off: the authored rail draws.
-      await page.evaluate(async () => {
-        const toggle = document.getElementById('range-tour-toggle'); toggle.checked = false; toggle.dispatchEvent(new Event('change', { bubbles: true }));
-      });
-      await page.evaluate(async (s) => { window.__SMW.beginBulkExport({ width: s.width, height: s.height }); await window.__SMW.rangeReady({ timeoutMs: 120000 }); }, settings);
-      const rail = await renderEvaluationFrame(page, { timeMs: times[1] ?? 8000, checkpoint: true, clips: [], save: true }, settings);
-      const railStatus = await page.evaluate(() => window.__SMW.sim.biomes.rangePresentation.status().shotTours);
-      assert.equal(railStatus.enabled, false);
-      assert.equal(rail.camera.shot, null, 'tours off draws without a shot');
-      report.checks.push('tours off draws the rail');
+      console.log(`${viewId}: rebuild replans the identical camera`);
       assert.deepEqual(row.errors, []);
     } finally { await loaded.context.close(); await loaded.browserDiagnostics.dispose(); }
+    // Tours off (as the toggle stores it and an evaluation loads it): the
+    // same song at the same time draws the authored rail, without a shot.
+    const offSettings = { ...settings, tour: 'off' }, offRow = { errors: [], warnings: [], events: [] };
+    const off = await openEvaluationSong(browser, { url: server.url, audioPath: song, settings: offSettings, diagnostics: { ...offRow, loadedFiles: new Set() } });
+    try {
+      const railStatus = await off.page.evaluate(() => window.__SMW.sim.biomes.rangePresentation.status().shotTours);
+      assert.equal(railStatus.enabled, false);
+      await renderEvaluationFrame(off.page, { timeMs: 4000, checkpoint: false, clips: [], save: true }, offSettings);
+      const rail = await renderEvaluationFrame(off.page, { timeMs: 8000, checkpoint: true, clips: [], save: true }, offSettings);
+      assert.ok(rail.camera && !rail.camera.shot?.shot, 'tours off draws without a shot');
+      await fs.writeFile(path.join(out, 'rail-8000.png'), Buffer.from(rail.pngData, 'base64'));
+      report.rail = { timeMs: 8000, camera: rail.camera };
+      report.checks.push('tours off draws the rail');
+      assert.deepEqual(offRow.errors, []);
+    } finally { await off.context.close(); await off.browserDiagnostics.dispose(); }
     report.status.ok = true;
   } finally {
     await browser.close(); await server.close();
