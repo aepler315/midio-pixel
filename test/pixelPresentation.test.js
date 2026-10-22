@@ -473,11 +473,11 @@ test('a pending Landscape flag cannot prevent Trio from drawing after a mode swi
   assert.equal(adapter.draw({ experience: 'trio', biomes: manager }, 0).presented, true);
   adapter.dispose();
 });
-test('Medium pixel effects use a whole-pixel unit', async () => {
+for (const [gridId, unit] of [['classicPlus', 1], ['medium', 2]]) test(`${gridId} pixel effects use a whole-pixel unit`, async () => {
   const { pixelRenderPolicy } = await import('../src/render/PixelRenderPolicy.js');
   const { pixelHeatOffset } = await import('../src/render/PixelEffects.js');
-  const policy = pixelRenderPolicy({ pixelated: true, grid: pixelGrid('medium') });
-  assert.equal(policy.unit, 2);
+  const policy = pixelRenderPolicy({ pixelated: true, grid: pixelGrid(gridId) });
+  assert.equal(policy.unit, unit);
   assert.ok(Number.isInteger(policy.minGlyphHeight));
   for (const v of [-3, -1.2, .4, 1.6, 3]) assert.ok(Number.isInteger(pixelHeatOffset(v, { unit: policy.unit })));
 });
