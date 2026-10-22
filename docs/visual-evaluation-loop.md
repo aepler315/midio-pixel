@@ -156,7 +156,7 @@ The `Visual evaluation` CI workflow captures the committed default fixtures and 
 
 A focused manifest may set `settings.presentation` to a complete version-1
 display profile (`look`, `quality`, `palette`, `dither`, `scaling`) or a complete
-version-2 profile, adding `pixelGrid` (`classic`/`medium`/`detailed`) and `ditherMode`
+version-2 profile, adding `pixelGrid` (`classic`/`classicPlus`/`medium`/`detailed`) and `ditherMode`
 (`ordered`/`selective`). v2 palette choices are `world`, `range32`, `chroma32`
 and `rgb332`. The manifest validator rejects unknown fields and values;
 valid v1 normalizes to Classic/Ordered while preserving its choices. This
