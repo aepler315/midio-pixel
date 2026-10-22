@@ -1,5 +1,20 @@
 # Range v2 progress
 
+## Current camera status — 2026-10-22
+
+This file retains the historical Range rollout and its evidence. Current
+catalog v19 still has 13 approved geographic rail views and four forced
+candidates. Scenic-shot tooling merged in PRs #24/#25, but no shot libraries
+are committed or enabled in the production catalog. See [scenic tour status](scenic-tours.md#current-delivery-and-reported-builds)
+and the [camera scouting audit](camera-scouting-audit-2026-10-22.md).
+
+The next catalog direction is approximately 30 approved geographic views;
+[the expansion proposal](scenic-view-expansion.md) replaces the historical
+12–18-view target. The owner has retired the inherited 60 MB asset ceiling as
+an expansion requirement. Its implementation checks still exist pending removal;
+the historical budget below is not a current design constraint. Runtime memory,
+frame pacing and delivery measurements remain separate.
+
 Plan: `docs/superpowers/plans/2026-09-29-range-geodata-master.md` (copied verbatim from the supplied package; removed, see [removed docs](removed-docs.md)).
 Reference image: `docs/evidence/range-v2/reference.webp` (1806×871, documentation only; never staged into `/src`).
 
@@ -20,7 +35,7 @@ Current evidence and remaining gates are recorded in [terrain continuation](evid
 
 ## Decisions recorded with the user (2026-09-29)
 
-- Runtime asset ceiling: **≤ 60 MB** total under `src/assets/range/v2/` (plain files, no Git LFS).
+- Original artifact ceiling: **≤ 60 MB** under `src/assets/range/v2/` (plain files, no Git LFS). Retired as a design requirement on 2026-10-22; implementation removal is pending. This is not the runtime memory budget.
 - Materials: **hybrid**. Procedural, offline-baked colour ramps and masks everywhere; procedural detail on distant terrain; CC0 photo-scan **normal/roughness data only** (no scan albedo) for the rock stage and nearest terrain. Provenance recorded per file.
 
 ## Environment (this execution session)
@@ -133,7 +148,9 @@ Each view: 21-station neutral/silhouette review, 61-frame motion review, in-app 
 | ICEFIELD | `chugach-matanuska` | 1dc2cd8e74ff | ac0da317cbbc | 0.82 | Task 17 addition. Chugach Mountains above the Matanuska Glacier (Terrain Tiles z12): a real snow range with its valley opening; a second, different ICEFIELD view beside Denali |
 | CANYON | `monument-valley-163` | 78779fcd2a01 | ca6259b1e0cd | 0.76 | Task 17 addition. From US-163 toward the mesa wall and buttes (3DEP 1/3"). View rule `forestFloorM: 1900`: the canyon pack's 1700 m floor put conifers across the valley floor. The floor reads olive rather than red sand (the shared canyon colour ramp) |
 
-13 approved views: every biome has one, ICEFIELD and CANYON two. The plan aims for 12-18.
+13 approved views: every biome has one, ICEFIELD and CANYON two. The original
+plan aimed for 12–18; the [2026-10-22 proposal](scenic-view-expansion.md) now
+considers approximately 30, pending implementation and per-view review.
 
 Task 17 candidate rejected: **`wrangell-copper-river`** (TUNDRA; Terrain Tiles z11). Mount Drum, Sanford and Wrangell are traceable, but the near and middle ground is one broad, smooth shield-volcano slope with little internal relief, filling the left third of the frame. Weaker than Tombstone, and not added for coverage. Its published package was removed; its authoring and review stay in `data/terrain/scenic-views.json`.
 
@@ -282,7 +299,12 @@ Device measurement: `tools/range-device-probe.js` and `docs/range-v2-device-runs
   - Startup strips are fallback from the first bake.
   - A refused render target also asks for fallback strips to be dropped.
 
-## Asset budget (60 MB ceiling)
+## Historical asset budget (original 60 MB ceiling)
+
+These are the original rollout figures. At the 2026-10-22 audited revision,
+the complete asset tree is 48,905,726 bytes; see the [current delivery measurements](scenic-view-expansion.md#delivery-budget).
+The owner has rejected the old 60 MB ceiling for expansion. This documentation
+does not remove the still-existing code checks or alter runtime residency limits.
 
 | Item | Size |
 | --- | --- |
