@@ -2,9 +2,11 @@
 
 ## Current camera status — 2026-10-22
 
-This file retains the historical Range rollout and its evidence. Current
-catalog v19 still has 13 approved geographic rail views and four forced
-candidates. Scenic-shot tooling merged in PRs #24/#25, but no shot libraries
+This file retains the historical Range rollout and its evidence. The expansion
+branch's catalog v20 has 13 approved geographic rail views and seven forced
+candidates, including the [first three sourced new locations](scenic-expansion-wave1-2026-10-22.md).
+Their approval gates remain open; the approved geographic count stays 13.
+Scenic-shot tooling merged in PRs #24/#25, but no shot libraries
 are committed or enabled in the production catalog. See [scenic tour status](scenic-tours.md#current-delivery-and-reported-builds)
 and the historical [camera scouting audit](camera-scouting-audit-2026-10-22.md).
 The [implementation follow-up](camera-scouting-fixes-2026-10-22.md) records source
@@ -21,6 +23,12 @@ an expansion requirement, and its global hard-fail checks are removed in the
 current source changes. Per-region byte/graphics caps and explicit caller limits
 remain; the historical budget below is not a current design constraint. Runtime
 memory, frame pacing and delivery measurements remain separate.
+
+The [fresh scouting rebuild and app review](scenic-rebuild-review-2026-10-22.md)
+records the new library builds and continuous camera evidence. Rebaked library
+terrain is staged in a separate review snapshot to preserve the identities of
+all 13 approved production rail packages. Software attempts, the verified
+headless RTX 3060 captures and failed candidate gates retain separate records.
 
 Plan: `docs/superpowers/plans/2026-09-29-range-geodata-master.md` (copied verbatim from the supplied package; removed, see [removed docs](removed-docs.md)).
 Reference image: `docs/evidence/range-v2/reference.webp` (1806×871, documentation only; never staged into `/src`).

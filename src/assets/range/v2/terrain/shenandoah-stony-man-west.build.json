@@ -1,0 +1,219 @@
+{
+ "credit": "Elevation: USGS 3DEP 1/3 arc-second DEM",
+ "sourceSha256": [
+  "9d237b713ef42927b3cea1fa04a23f119be63c7f70342c0bab7e005aa9c74538"
+ ],
+ "view": {
+  "id": "shenandoah-stony-man-west",
+  "regionId": "shenandoah",
+  "biome": "BROADLEAF",
+  "status": "candidate",
+  "title": "Stony Man",
+  "place": "Shenandoah National Park, Virginia",
+  "notes": "Expansion wave 1 candidate. Elevated over the Shenandoah Valley west of Stony Man, looking east-south-east into the Blue Ridge escarpment. A compact 1 km lateral rail aims to make nearby broadleaf ridges useful in shorter visible windows. Camera coordinates/heights are authored estimates; named peak points use USGS GNIS NAD83. See docs/scenic-expansion-wave1-2026-10-22.md. No rail or tour approval. After the initial render showed the primary ridge masking the default 7 km far partition, the rail was moved approximately 2500 m west at the same endpoint AGL and lens; exact converted positions and new terrain bytes require fresh review.",
+  "composition": {
+   "foreground": "none",
+   "nearLedgeMaxFrac": 0
+  },
+  "water": false,
+  "dem": {
+   "source": "3dep13",
+   "centerLonLat": [
+    -78.385,
+    38.578
+   ],
+   "extentM": [
+    36000,
+    36000
+   ],
+   "cellM": 20
+  },
+  "rail": {
+   "eyeStart": {
+    "lonLat": [
+     -78.4737404,
+     38.611
+    ],
+    "aboveGroundM": 450
+   },
+   "eyeEnd": {
+    "lonLat": [
+     -78.4667376,
+     38.604
+    ],
+    "aboveGroundM": 450
+   },
+   "targetStart": {
+    "lonLat": [
+     -78.3733,
+     38.5982
+    ],
+    "heightM": 1050
+   },
+   "targetEnd": {
+    "lonLat": [
+     -78.3715,
+     38.5955
+    ],
+    "heightM": 1050
+   },
+   "fovYDeg": 35
+  },
+  "landmarks": [
+   {
+    "name": "Stony Man",
+    "lonLat": [
+     -78.373278436,
+     38.598160447
+    ],
+    "elevationM": 1222.5528,
+    "note": "USGS GNIS gaz1475210 point (NAD83); 4011 ft from National Park Service converted to metres, a published approximate elevation."
+   },
+   {
+    "name": "Hawksbill",
+    "lonLat": [
+     -78.395003105,
+     38.555393535
+    ],
+    "note": "USGS GNIS gaz1467849 (NAD83); no surveyed vertical value asserted."
+   },
+   {
+    "name": "Old Rag Mountain",
+    "lonLat": [
+     -78.316034348,
+     38.551715709
+    ],
+    "note": "USGS GNIS gaz1471867 (NAD83); no surveyed vertical value asserted."
+   }
+  ],
+  "review": "Unreviewed candidate: source and rail/shot builds begin 2026-10-22. Need actual renderer, near-ridge occlusion, clearance, skyline and both directed transition checks before base approval. Water deliberately disabled until mapped wet features would be added.",
+  "reviewPath": "docs/scenic-expansion-wave1-2026-10-22.md",
+  "camera": {
+   "eyeStartM": [
+    -7729.2,
+    714.3,
+    -3667
+   ],
+   "eyeEndM": [
+    -7119.9,
+    741.6,
+    -2889.4
+   ],
+   "targetStartM": [
+    1019.2,
+    1050,
+    -2242.4
+   ],
+   "targetEndM": [
+    1176.1,
+    1050,
+    -1942.7
+   ],
+   "fovYDeg": 35
+  }
+ },
+ "characterScores": {
+  "energy": 0.201,
+  "rawness": 0.198,
+  "grandeur": 0.069,
+  "dominance": 0.457
+ },
+ "archetype": "serene",
+ "skylineFeatures": [
+  {
+   "reliefM": 349.5419921875,
+   "slopeMPerKm": 89.48661208637145,
+   "peaksPer10Km": 2.2302137501297494,
+   "roughnessM": 27.04976121374713,
+   "dominance": 0.4297322668335517,
+   "summitM": 1218.7054443359375,
+   "lengthKm": 17.935500575975233
+  },
+  {
+   "reliefM": 307.50714111328125,
+   "slopeMPerKm": 83.86352219825757,
+   "peaksPer10Km": 2.2620672149294467,
+   "roughnessM": 24.86948836354545,
+   "dominance": 0.4653124917505211,
+   "summitM": 1218.04931640625,
+   "lengthKm": 17.68294051388194
+  },
+  {
+   "reliefM": 274.478271484375,
+   "slopeMPerKm": 85.18600297689723,
+   "peaksPer10Km": 2.294229329854865,
+   "roughnessM": 22.831470489821577,
+   "dominance": 0.5208914640079768,
+   "summitM": 1218.04931640625,
+   "lengthKm": 17.43504865859702
+  }
+ ],
+ "manifestSha256": "b7c6a56b96cd47190402f0bf0ec8aa75fe0e02aab1b1935113bdf9c4be594204",
+ "payloadSha256": "2e802386c4b57c42bec52c21748278429233a8d1e70c505050d5d714f9ea8b64",
+ "payloadBytes": 686205,
+ "stats": {
+  "tiles": 138,
+  "desktop": {
+   "vertices": 404442,
+   "triangles": 781440,
+   "meshBytes": 14230584,
+   "surfaceTextureBytes": 17299205
+  },
+  "mobile": {
+   "vertices": 194483,
+   "triangles": 372630,
+   "meshBytes": 6805356,
+   "surfaceTextureBytes": 17299205
+  }
+ },
+ "landmarks": [
+  {
+   "name": "Stony Man",
+   "lonLat": [
+    -78.373278436,
+    38.598160447
+   ],
+   "publishedElevationM": 1222.5528,
+   "localM": [
+    1021.1,
+    -2238
+   ],
+   "demGroundM": 1218.04931640625,
+   "demPeakWithin200mM": 1218.9017333984375
+  },
+  {
+   "name": "Hawksbill",
+   "lonLat": [
+    -78.395003105,
+    38.555393535
+   ],
+   "publishedElevationM": null,
+   "localM": [
+    -871.9,
+    2509.4
+   ],
+   "demGroundM": 1222.525634765625,
+   "demPeakWithin200mM": 1230.484619140625
+  },
+  {
+   "name": "Old Rag Mountain",
+   "lonLat": [
+    -78.316034348,
+    38.551715709
+   ],
+   "publishedElevationM": null,
+   "localM": [
+    6011.8,
+    2915.5
+   ],
+   "demGroundM": 985.8385009765625,
+   "demPeakWithin200mM": 999.1467895507812
+  }
+ ],
+ "achievedErrorPx": {
+  "desktop": 0.959,
+  "mobile": 1.961
+ },
+ "despikedSamples": 0,
+ "gentleGroundSmoothingM": null
+}

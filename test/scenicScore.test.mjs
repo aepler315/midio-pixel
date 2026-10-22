@@ -327,6 +327,28 @@ test('the flow lane is never zero, even for a pure translation through empty sky
   assert.equal(r.aggregate.payoff, null);
 });
 
+test('link visibility records exact terrain presence, allowing a high look when real land fills it', () => {
+  const p = path([[-100, 500, 0], [100, 500, 0]], [[-100, 1500, -1000], [100, 1500, -1000]], 16);
+  const score = (world) => linkScore({}, p, { everyM: 30, width: 32, height: 18,
+    raster: (pose, o) => castRaster(pose, o.width, o.height, world) });
+  const sky = score({ groundY: null });
+  assert.equal(sky.aggregate.minTerrainFrac, 0, 'an upward link with no land must retain the evidence, even with finite flow/score');
+  assert.equal(sky.aggregate.allSkySamples, sky.samples.length);
+  assert.equal(sky.aggregate.visibilitySamples, sky.samples.length);
+  const mountain = score({ groundY: null, boxes: [{ min: [-3000, 0, -1600], max: [3000, 4000, -1000] }] });
+  assert.ok(mountain.aggregate.minTerrainFrac > 0, 'the identical high look is usable when a mountain actually occupies its frame');
+  assert.equal(mountain.aggregate.allSkySamples, 0, 'terrain presence is independent of pitch');
+});
+
+test('link visibility includes an empty interior even when both endpoints contain terrain', () => {
+  const p = path([[-150, 500, 0], [150, 500, 0]], [[-150, 500, -1000], [150, 500, -1000]], 26);
+  const result = linkScore({}, p, { everyM: 30, width: 32, height: 18,
+    raster: (pose, o) => imageRaster(o.width, o.height, Math.abs(pose.eyeM[0]) < 50 ? () => Infinity : layered) });
+  assert.ok(result.samples[0].metrics.terrainFrac > 0 && result.samples.at(-1).metrics.terrainFrac > 0);
+  assert.equal(result.aggregate.minTerrainFrac, 0);
+  assert.ok(result.aggregate.allSkySamples > 0 && result.aggregate.allSkySamples < result.aggregate.visibilitySamples);
+});
+
 test('NaN hit lanes (no-data cells) never leak into flow', () => {
   const a = { eyeM: [0, 300, 0], targetM: [0, 200, -1000], fovYDeg: 26 }, b = { eyeM: [0, 300, -6], targetM: [0, 200, -1006], fovYDeg: 26 };
   const r = castRaster(a, 64, 36);
