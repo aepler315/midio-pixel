@@ -5,6 +5,7 @@
 // Nothing is transferred out of this thread: playback keeps using the
 // library and the committed timeline while the worker plans.
 import { sectionRoles } from './SectionRoles.js';
+import { shotPlanningTables } from './ShotPlanner.js';
 import { restoreShotTimeline, shotTimelineData } from './ShotTimeline.js';
 
 export const SHOT_ENERGY_STEP_MS = 100;
@@ -12,6 +13,16 @@ export const SHOT_ENERGY_STEP_MS = 100;
 /** A decoded library without its lookup Maps (the worker rebuilds them). */
 export function cloneableShotLibrary(library) {
   return Object.fromEntries(Object.entries(library).filter(([, v]) => !(v instanceof Map)));
+}
+
+const planningTables = new WeakMap();
+/** What a request posts: the cloneable library with its planning tables,
+ *  computed once per decoded library on this thread, so that no request's
+ *  fresh copy measures its links again (ShotPlanner.shotPlanningTables). */
+export function plannableShotLibrary(library) {
+  let tables = planningTables.get(library);
+  if (!tables) planningTables.set(library, tables = shotPlanningTables(library));
+  return { ...cloneableShotLibrary(library), planningTables: tables };
 }
 
 /** The worker request for one song: everything structured-cloneable. */
@@ -23,7 +34,7 @@ export function shotPlanRequest(library, mgr, { visible = null, previous = null,
     energy[i] = Number.isFinite(v) ? v : 0;
   }
   const roles = sectionRoles({ sections, durationMs, energyCurves: curves, conductorSchedule: mgr?.conductorSchedule || [], noteEvents: mgr?.conductor?.timeline || [] });
-  return { library: cloneableShotLibrary(library), sections, roles, energy, energyStepMs: SHOT_ENERGY_STEP_MS, durationMs,
+  return { library: plannableShotLibrary(library), sections, roles, energy, energyStepMs: SHOT_ENERGY_STEP_MS, durationMs,
     visible: visible || [{ startMs: 0, endMs: durationMs }], seed, previous: previous ? shotTimelineData(previous) : null, committedThroughMs, tunables };
 }
 

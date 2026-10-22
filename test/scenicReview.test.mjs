@@ -66,3 +66,21 @@ test('the journal shows which expected agents started, finished or are still run
   assert.deepEqual(j.unexpected, ['review:c']);
   assert.equal(j.other[0].type, 'unparsable');
 });
+
+test('a label that reported twice in the journal keeps both answers: different ones are a conflict', () => {
+  const event = (o) => JSON.stringify(o);
+  const a = review('a', [shot('a1'), shot('a2')]), b = review('b', [shot('b1')]), b2 = review('b', [shot('b1', 'broken')]);
+  const lines = [event({ type: 'started', agentId: 1, label: 'review:a' }), event({ type: 'started', agentId: 2, label: 'review:b' }),
+    event({ type: 'result', agentId: 1, result: a }), event({ type: 'result', agentId: 2, result: b }), event({ type: 'result', agentId: 2, result: b2 })].join('\n');
+  const j = journalState(lines, ['review:a', 'review:b']);
+  assert.deepEqual(j.duplicates, ['review:b']);
+  assert.deepEqual(j.results.get('review:b'), [b, b2]);
+  const r = collectReviews(['review:a', 'review:b'].flatMap((l) => j.results.get(l)), expected);
+  assert.equal(r.complete, false);
+  assert.deepEqual(r.problems.conflicts, ['b']);
+  // The same answer twice is reported, not a conflict.
+  const same = journalState(lines.replace(JSON.stringify(b2), JSON.stringify(b)), ['review:a', 'review:b']);
+  const r2 = collectReviews(['review:a', 'review:b'].flatMap((l) => same.results.get(l)), expected);
+  assert.deepEqual(r2.problems.duplicates, ['b']);
+  assert.equal(r2.complete, true);
+});

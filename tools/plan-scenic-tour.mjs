@@ -160,6 +160,9 @@ export function targetReach(library, times, targets) {
 
 // ---------------------------------------------------------------- motion
 
+/** How near an item join a motion spike counts as the join's (ms). */
+export const JOIN_SPIKE_MS = 50;
+
 /**
  * Motion as the viewer sees it, measured on the drawn camera independently
  * of the timeline's own diagnostics: poseAt sampled at `hz`, eye velocity by
@@ -209,10 +212,11 @@ export function motionAudit(timeline, { hz = 60, windowMs = 100 } = {}) {
     around.sort((a, b) => a - b);
     const ratio = d2[k] / Math.max(.5, around[around.length >> 1]);
     // A local maximum only; `key` when the frame is a 100 ms key, `join` when
-    // within 1 s of an item join (a join's turn spreads over a sample or two).
+    // within JOIN_SPIKE_MS of an item join (a join's turn spreads over a
+    // sample or two).
     if (ratio > 3 && d2[k] >= d2[k - 1] && d2[k] >= d2[k + 1]) {
       const t = (k * 1000) / hz;
-      spikes.push({ atMs: t, ratio, d2: d2[k], key: k % Math.round(hz / 10) === 0, join: joins.some((j) => Math.abs(j - t) <= 1000) });
+      spikes.push({ atMs: t, ratio, d2: d2[k], key: k % Math.round(hz / 10) === 0, join: joins.some((j) => Math.abs(j - t) <= JOIN_SPIKE_MS) });
     }
   }
   spikes.sort((a, b) => b.ratio - a.ratio);
@@ -253,6 +257,19 @@ function flowIntegral(library, plan, G, a, b) {
   return sum;
 }
 
+/** The longest stretch on screen without a payoff (ms): measured inside each
+ *  visible interval (from the plan's start), never across time off screen. */
+export function longestPayoffGap(visible, payoffTimesMs, { startMs = 0, durationMs }) {
+  let longest = 0;
+  for (const v of visible) {
+    const a = Math.max(v.startMs, startMs), b = Math.min(v.endMs, durationMs);
+    if (!(b > a)) continue;
+    const times = [a, ...payoffTimesMs.filter((t) => t > a && t < b).sort((x, y) => x - y), b];
+    for (let i = 1; i < times.length; i++) longest = Math.max(longest, times[i] - times[i - 1]);
+  }
+  return longest;
+}
+
 /** Everything the brief's targets measure, for one plan + timeline. */
 export function planMetrics(library, inputs, plan, timeline, audit, { tunables = {} } = {}) {
   const T = { ...liveTimeline.shotMotion(library, tunables) }, D = plan.durationMs;
@@ -263,9 +280,7 @@ export function planMetrics(library, inputs, plan, timeline, audit, { tunables =
   const fullSong = visible.length === 1 && visible[0].startMs <= 0 && visible[0].endMs >= D;
 
   // Pace: payoffs, the longest stretch on screen without one, legs.
-  const times = [0, ...shown.map((it) => it.payoffMs), D];
-  let longestGapMs = 0;
-  for (let i = 1; i < times.length; i++) longestGapMs = Math.max(longestGapMs, times[i] - times[i - 1]);
+  const longestGapMs = longestPayoffGap(visible, shown.map((it) => it.payoffMs), { startMs: plan.start?.timeMs ?? 0, durationMs: D });
   const { G, knots } = planKnots(library, plan), flowAt = (I) => T.flowCalm + (T.flowEnergetic - T.flowCalm) * I;
   const intensityMean = (a, b) => { let s = 0, c = 0; for (let t = a; t <= b; t += 100) { s += music.intensityAt(t); c++; } return c ? s / c : .5; };
   const legs = [];

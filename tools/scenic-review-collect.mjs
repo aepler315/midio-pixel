@@ -34,7 +34,7 @@ async function main() {
   }
   const expected = new Map();
   for (const v of views) expected.set(v, JSON.parse(await fs.readFile(path.join(libraries, `${v}.shots.json`), 'utf8')).shots.map((s) => s.id));
-  const results = labels.map((l) => state.results.get(l));
+  const results = labels.flatMap((l) => state.results.get(l) ?? []);
   const r = collectReviews(results, expected);
   for (const v of views) {
     const x = r.regions[v];

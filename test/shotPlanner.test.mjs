@@ -1,14 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planShotTour, restoreShotLibrary, shotPaceLimits } from '../src/world/terrain/ShotPlanner.js';
-import { cloneableShotLibrary } from '../src/world/terrain/ShotRuntime.js';
+import { planShotTour, restoreShotLibrary, shotPaceLimits, shotPlanningTables } from '../src/world/terrain/ShotPlanner.js';
+import { cloneableShotLibrary, plannableShotLibrary } from '../src/world/terrain/ShotRuntime.js';
 import { handleShotMessage } from '../src/world/terrain/shot-worker.js';
 import { pathPoseAt } from '../src/world/terrain/ShotPath.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildShotTimeline, restoreShotTimeline, shotTimelineData, SHOT_MOTION } from '../src/world/terrain/ShotTimeline.js';
-import { readLibrary, motionAudit, partTimes, payoffBound } from '../tools/plan-scenic-tour.mjs';
+import { readLibrary, motionAudit, partTimes, payoffBound, longestPayoffGap, JOIN_SPIKE_MS } from '../tools/plan-scenic-tour.mjs';
 import { shotLibraryFixture, anthemSong, dropSong, shortSong, rangeShotLibraryFixture } from './fixtures/shot-library-fixture.mjs';
 
 const library = shotLibraryFixture(), song = anthemSong();
@@ -179,14 +179,29 @@ test('an 18-shot library and a 3-minute song plan in under 50 ms', () => {
   const warm = [], cold = [];
   for (let seed = 10; seed < 15; seed++) {
     let t = performance.now(); plan({ seed }); warm.push(performance.now() - t);
-    // The worker plans each request on a fresh copy (no cached index).
-    const copy = restoreShotLibrary(structuredClone(cloneableShotLibrary(library)));
+    // The worker plans each request on a fresh copy of what the runtime
+    // posts: no cached index, the library's planning tables.
+    const copy = restoreShotLibrary(structuredClone(plannableShotLibrary(library)));
     t = performance.now(); plan({ seed }, copy); cold.push(performance.now() - t);
   }
   const stat = (x) => { x.sort((a, b) => a - b); return `min ${x[0].toFixed(1)} median ${x[2].toFixed(1)} max ${x[4].toFixed(1)} ms`; };
   console.log(`planShotTour over ${library.shots.length} shots, ${library.links.length} links, ${song.durationMs / 1000} s: warm ${stat(warm)}; fresh library ${stat(cold)}`);
   // The minimum holds up when other work loads the machine.
   assert.ok(warm[0] < 50 && cold[0] < 50);
+});
+
+test('planning tables change no plan, and tables for other links are ignored', () => {
+  const plain = () => restoreShotLibrary(structuredClone(cloneableShotLibrary(library)));
+  const posted = () => restoreShotLibrary(structuredClone(plannableShotLibrary(library)));
+  const items = (p) => JSON.stringify(p.items), seeds = [3, 21, 40];
+  for (const seed of seeds) assert.equal(items(plan({ seed }, posted())), items(plan({ seed }, plain())), `seed ${seed}`);
+  const real = rangeShotLibraryFixture({ seed: 2 }), realPlain = restoreShotLibrary(structuredClone(cloneableShotLibrary(real)));
+  const realPosted = restoreShotLibrary(structuredClone(plannableShotLibrary(real)));
+  assert.equal(items(planShotTour(realPosted, anthemSong())), items(planShotTour(realPlain, anthemSong())));
+  // Tables measured on other paths (here: a link's samples changed) are not used.
+  const tables = shotPlanningTables(library), stale = { ...tables, samples: Int32Array.from(tables.samples, (n, j) => (j === 0 ? n + 1 : n)) };
+  const misled = restoreShotLibrary({ ...cloneableShotLibrary(library), planningTables: { ...stale, linkBend: new Float64Array(tables.linkBend.length) } });
+  assert.equal(items(plan({ seed: 3 }, misled)), items(plan({ seed: 3 }, plain())), 'zeroed bends behind a mismatched table are ignored');
 });
 
 // ---------------------------------------------------------------------------
@@ -280,8 +295,9 @@ test('a real-shaped library plans in under 50 ms and builds its timeline in unde
   const lib = ranges[0], plans = [], builds = [];
   planShotTour(lib, songs.anthem);
   for (let seed = 0; seed < 5; seed++) {
-    // The worker plans each request on a fresh copy (no cached index).
-    const copy = restoreShotLibrary(structuredClone(cloneableShotLibrary(lib)));
+    // The worker plans each request on a fresh copy of what the runtime
+    // posts: no cached index, the library's planning tables.
+    const copy = restoreShotLibrary(structuredClone(plannableShotLibrary(lib)));
     let t = performance.now();
     const p = planShotTour(copy, { ...songs.anthem, seed });
     plans.push(performance.now() - t);
@@ -455,4 +471,26 @@ test('same-input replans keep the committed payoffs, also where the plan ends in
     assert.deepEqual(later(next), later(first), `commit ${c}: the committed later payoffs`);
   }
   assert.ok(replans >= 8);
+});
+
+test('the replay measures payoff gaps inside each visible interval, never across time off screen', () => {
+  const payoffs = [50000, 140000], D = 168000;
+  // On screen 30-85 s and 120-168 s: 50 -> 85 is the longest stretch, not 50 -> 140.
+  assert.equal(longestPayoffGap([{ startMs: 30000, endMs: 85000 }, { startMs: 120000, endMs: 168000 }], payoffs, { durationMs: D }), 35000);
+  assert.equal(longestPayoffGap([{ startMs: 0, endMs: D }], payoffs, { durationMs: D }), 90000);
+  // A replan from 100 s measures from there.
+  assert.equal(longestPayoffGap([{ startMs: 0, endMs: D }], payoffs, { startMs: 100000, durationMs: D }), 40000);
+});
+
+test('a motion spike belongs to a join only within JOIN_SPIKE_MS of it', () => {
+  // A straight flight that turns 90 deg at 10 s: the second difference spikes there.
+  const kinkMs = 10000, poseAt = (t) => {
+    const s = t / 1000, eyeM = s < 10 ? [40 * s, 300, 0] : [400, 300, 40 * (s - 10)];
+    return { eyeM, targetM: [eyeM[0] + 1000, 300, eyeM[2] + 1000], fovYDeg: 30 };
+  };
+  const audit = (joinMs) => motionAudit({ durationMs: 20000, startMs: 0, poseAt, stateAt: () => ({ id: 'flight' }), items: [{ startMs: 0 }, { startMs: joinMs }] });
+  const at = (a) => a.spikes.worst.find((x) => Math.abs(x.atMs - kinkMs) < 50);
+  assert.ok(at(audit(kinkMs)), 'the kink is a spike');
+  assert.equal(at(audit(kinkMs)).join, true);
+  assert.equal(at(audit(kinkMs + JOIN_SPIKE_MS + 100)).join, false, 'a join 150 ms away is not its source');
 });

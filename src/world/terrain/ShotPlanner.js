@@ -332,7 +332,7 @@ function libraryIndex(library) {
   // A link's flow now; its bend (with both joins) when first needed (linkBend):
   // the planner never needs it for a link no leg can fly in time, and dense
   // long links are most of a library's samples.
-  const joinTurn = new Float64Array(links.length);
+  const joinTurn = new Float64Array(links.length), pre = planningTablesOf(library);
   const linkStats = links.map((l) => laneStats(l.path, 0, l.path.s[l.path.s.length - 1], false, false));
   ix = {
     shots, links, shotIndex, L, pay, head, tail, heroTop,
@@ -360,6 +360,7 @@ function libraryIndex(library) {
   // For endings: the shortest link to each next shot.
   ix.outEnd = ix.out.map((list) => list.filter((j) => !list.some((k) => ix.lTo[k] === ix.lTo[j] && (ix.lL[k] < ix.lL[j] || ix.lL[k] === ix.lL[j] && k < j))));
   ix.linkBend = (j) => {
+    if (ix.lBend[j] < 0 && pre) { ix.lBend[j] = pre.linkBend[j]; joinTurn[j] = pre.joinTurn[j]; }
     if (ix.lBend[j] < 0) {
       const l = links[j], A = library.shotById.get(l.from)?.path, B = library.shotById.get(l.to)?.path;
       const a = A ? joinCurve(A, l.path) : [0, 0], b = B ? joinCurve(l.path, B) : [0, 0];
@@ -367,6 +368,7 @@ function libraryIndex(library) {
     }
     return ix.lBend[j];
   };
+  ix.joinTurn = joinTurn;
   // Turns (zero until asked for: only a vector limit and the reports need them).
   let turns = false;
   ix.withTurns = () => {
@@ -387,6 +389,30 @@ function libraryIndex(library) {
 const sidewaysAccel = (T) => (T.vectorAccelRatio > 1 ? Math.sqrt(T.vectorAccelRatio ** 2 - 1) * T.maxAccelMps2 : Infinity);
 // The speed at which a steady eye reaches the acceleration limits on a bend and turn.
 const curveCap = (T, bend, turn) => Math.min(bend > 0 ? Math.sqrt(T.maxAccelMps2 / bend) : Infinity, turn > 0 ? Math.sqrt(sidewaysAccel(T) / turn) : Infinity);
+
+/**
+ * A library's song-independent planning tables, which a fresh copy would
+ * otherwise rebuild on every plan: each link's bend with both joins and the
+ * joins' turn, the costliest part of a cold plan. The runtime computes them
+ * once per decoded library and posts them with every request
+ * (ShotRuntime.plannableShotLibrary); a library carrying them plans exactly
+ * as one without, measuring nothing it already holds. Tables that do not
+ * match the library's links (ids and sample counts) are ignored.
+ */
+export function shotPlanningTables(library) {
+  library = restoreShotLibrary(library);
+  const ix = libraryIndex(library);
+  library.links.forEach((_, j) => ix.linkBend(j));
+  return { linkIds: library.links.map((l) => l.id), samples: Int32Array.from(library.links, (l) => l.path.s.length),
+    linkBend: Float64Array.from(ix.lBend), joinTurn: Float64Array.from(ix.joinTurn) };
+}
+
+function planningTablesOf(library) {
+  const t = library.planningTables, links = library.links, n = links.length;
+  if (!t || t.linkIds?.length !== n || t.samples?.length !== n || t.linkBend?.length !== n || t.joinTurn?.length !== n) return null;
+  for (let j = 0; j < n; j++) if (t.linkIds[j] !== links[j].id || t.samples[j] !== links[j].path.s.length || !(t.linkBend[j] >= 0)) return null;
+  return t;
+}
 
 /** Speed caps (m/s) of every shot's head (entry to payoff) and tail and of
  *  every link with its joins: the speed limit, the energetic flow limit and

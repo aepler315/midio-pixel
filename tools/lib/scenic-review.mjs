@@ -78,7 +78,9 @@ export function collectReviews(results, expected) {
 /**
  * The state of a workflow run from its journal (one JSON event per line:
  * launched / started / result, with agent labels): which expected labels
- * started, finished, or are still missing, and each result by label.
+ * started, finished, or are still missing, and every result by label -- a
+ * label that reported twice keeps both, so that collectReviews sees them
+ * (two different answers are a conflict, never the later one).
  */
 export function journalState(text, expectedLabels) {
   const events = text.trim() ? text.trim().split('\n').map((line, i) => {
@@ -90,7 +92,7 @@ export function journalState(text, expectedLabels) {
     else if (e.type === 'result') {
       const l = label.get(e.agentId) ?? e.label ?? null;
       if (results.has(l)) duplicates.push(l);
-      results.set(l, e.result ?? null);
+      results.set(l, [...(results.get(l) || []), e.result ?? null]);
     } else if (e.type !== 'launched') other.push(e);
   }
   const finished = expectedLabels.filter((l) => results.has(l));

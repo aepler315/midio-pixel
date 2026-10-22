@@ -5,7 +5,11 @@
 // rendered on the export clock. Writes the frames, an index (frame -> shot,
 // progress, drawn camera) and an MP4 with each shot's id and move burned in.
 //
-//   VISUAL_ANGLE=gl node tools/shot-reel.mjs --view monument-valley-163 [--fps 12] [--size 960x540] [--out DIR]
+//   VISUAL_ANGLE=gl node tools/shot-reel.mjs --view monument-valley-163 --song song.wav [--fps 12] [--size 960x540] [--out DIR]
+//
+// The song only drives the export clock and the scene's light and weather
+// (a reel needs one at least as long as its longest session, 160 s);
+// without --song, .smoke/tour-audio/anthem.wav, as tools/shot-tour-smoke.mjs.
 //
 // Review evidence: keep it out of git (AGENTS.md).
 import fs from 'node:fs/promises';
@@ -34,6 +38,8 @@ async function main() {
   const viewId = opt('--view'), fps = Number(opt('--fps', 12)), [width, height] = opt('--size', '960x540').split('x').map(Number);
   const view = SCENE_CATALOG.views.find((v) => v.id === viewId);
   if (!view?.shotsManifestUrl) throw new Error(`${viewId} has no shot library in the catalog`);
+  const song = path.resolve(opt('--song', path.join(root, '.smoke', 'tour-audio', 'anthem.wav')));
+  if (!(await fs.stat(song).catch(() => null))?.isFile()) throw new Error(`no song at ${song}: pass --song FILE (any audio file at least 160 s long)`);
   const out = path.resolve(opt('--out', path.join(root, '.smoke', 'shot-reels', viewId)));
   await fs.rm(out, { recursive: true, force: true });
   await fs.mkdir(path.join(out, 'frames'), { recursive: true });
@@ -59,7 +65,7 @@ async function main() {
   try {
    for (const [ci, chunk] of chunks.entries()) {
     const spans = schedule.filter((x) => x.session === ci), chunkPaths = paths.filter((p) => chunk.some((s) => s.id === p.id));
-    const loaded = await openEvaluationSong(browser, { url: server.url, audioPath: path.join(root, '.smoke', 'tour-audio', 'anthem.wav'), settings,
+    const loaded = await openEvaluationSong(browser, { url: server.url, audioPath: song, settings,
       diagnostics: { errors: [], warnings: [], events: [], loadedFiles: new Set() } });
     const page = loaded.page;
     // The reel's timeline: pathPoseAt over the scheduled shot (uniform
