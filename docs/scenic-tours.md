@@ -198,7 +198,7 @@ is not a flaw of a shot but a cost. A song's big moments come every 30-60 s
 and a tour should reach a few subjects between them, so a shot longer than
 `discovery.maxShotS` (16 s) at its ideal pace keeps its best window around
 the payoff (a reveal keeps the hidden stretch before it) and is scored again
-as cut, and a link that cannot be flown within `discovery.maxLinkS` (30 s)
+as cut, and a link that cannot be flown within `discovery.maxLinkS` (50 s)
 even at full pace is not offered. In large landscapes the links are a real
 part of the film: they are scored for scenery like shots.
 
@@ -254,6 +254,29 @@ rejoins it. Every shot chosen therefore has a way in and a way out among
 the others, so no shot is selected only to be pruned afterwards. Large
 landscapes link their shots in long loops, which is why seeds and ears are
 found by breadth-first search rather than as pairs.
+
+### Motion policy and links
+
+The camera is held to three limits, region by region (`motion`): a change
+of speed at most `maxAccelMps2` (3.5 m/s², a lurch a viewer feels), a turn
+pulling at most `maxLateralMps2` (twice that by default: a viewer sees a turn
+as rotation, which the yaw limit governs) and a look that rotates at most
+`maxYawDegPerSec`. Durations are honest about them: a path's speed is capped
+where its curvature (|d² eye / ds²| along progress) would pull harder than
+the turning limit, as the timeline enforces, so a link that has to turn
+round takes the time that costs.
+
+Links run over the ground as Dubins courses: the shortest path of arcs of
+radius `discovery.linkRadiusM` and straights from the outgoing shot's
+heading to the incoming one's, so no link cusps or turns tighter than its
+radius; their height is a cubic in course length that leaves and arrives at
+each shot's own climb. Most of a link's time is detour when two shots face
+away from each other, so moves that read the same flown either way
+(traverse, orbit, valley, crest) also enter discovery reversed; a link can
+then arrive along the heading the next shot already travels, and near-copy
+rejection keeps only the direction that serves the library. In wide
+landscapes a link of 30-50 s is part of the film: links are scored for
+scenery like shots, and the leash (`discovery.maxLinkS`) is 50 s.
 
 ### Rendered review
 

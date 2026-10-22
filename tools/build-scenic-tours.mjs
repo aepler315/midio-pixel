@@ -26,7 +26,7 @@ import { linkVariants, keepParetoLinks } from './lib/scenic-links.mjs';
 import { strideCost, tourPoses, tourBakeOptions, bakeOptions } from './lib/scenic-cost.mjs';
 
 import { SHOT_SCHEMA, SHOT_VERSION, packShotPaths, chooseLattice, shotLibraryErrors, decodeShotLibrary, cameraFootprint } from '../src/world/terrain/ShotLibrary.js';
-import { pathPoseAt, slicePath, pathLaneAt } from '../src/world/terrain/ShotPath.js';
+import { pathPoseAt, slicePath, pathLaneAt, withProgress } from '../src/world/terrain/ShotPath.js';
 import { bakeTerrain } from './lib/terrain-bake.mjs';
 import { validatePoses, rangeAssetBytes, RANGE_ASSET_LIMIT } from './lib/scenic-coverage.mjs';
 import { decodeTerrain } from '../src/world/alpine/TerrainMesh.js';
@@ -116,8 +116,10 @@ export function refinePayoff(record, scored) {
 /** Comfortable duration range from the flow lane: the fastest the picture
  *  may move at full energy, the calm pace, and a slow drift floor. */
 export function durationRange(p, flow, motion) {
-  // Curvature caps speed as the timeline does: v^2 * bend <= maxAccelMps2.
-  const bend = pathBend(p), accel = motion.maxAccelMps2 ?? 3.5;
+  // Curvature caps speed as the timeline does: v^2 * bend within the
+  // turning limit (maxLateralMps2; viewers see a turn as rotation, which the
+  // yaw limit governs, so it may pull harder than a change of speed).
+  const bend = pathBend(p), accel = motion.maxLateralMps2 ?? 2 * (motion.maxAccelMps2 ?? 3.5);
   let fast = 0, calm = 0;
   for (let i = 1; i < p.s.length; i++) {
     const ds = p.s[i] - p.s[i - 1], f = Math.max(1e-5, (flow[i] + flow[i - 1]) / 2);
@@ -171,7 +173,11 @@ export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpu
   const mappedWater = ctx.view.riverPolicy?.terrainWater === 'mapped-only' || ctx.view.water === false;
   const lines = { valleys: valleyPaths(ctx), shores: mappedWater ? [] : shorelines(ctx) };
   log(`${viewId}: ${subjects.length} subjects (${subjects.map((s) => s.name || s.kind).join(', ')}); ${lines.valleys.length} valleys, ${lines.shores.length} shores`);
-  const generated = generateShots(ctx, subjects, lines, config.region, { maxPerSubject: config.discovery.shotsPerSubject * 6 });
+  const forward = generateShots(ctx, subjects, lines, config.region, { maxPerSubject: config.discovery.shotsPerSubject * 6 });
+  // Moves that read the same flown either way also run backwards, so a link
+  // can arrive along the heading a shot already travels instead of turning
+  // the camera around (reveals, approaches and pullbacks keep their sense).
+  const generated = [...forward, ...forward.filter((c) => REVERSIBLE.has(c.move)).map(reverseShot)];
   // The authored rail is always a candidate, wherever the focus lies.
   const candidates = generated.filter((c) => (c.move === 'rail' || inFocus(c.path, focus)) && steadyLook(c.path));
   log(`${viewId}: ${candidates.length} candidate shots`);
@@ -266,7 +272,7 @@ export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpu
     for (const a of usable) {
       const next = usable.filter((b) => b !== a).map((b) => [b, endGap(a, b)]).filter(([, d]) => d <= reachM)
         .sort((x, y) => x[1] - y[1]).slice(0, config.discovery.linkFanout ?? 8);
-      for (const [b] of next) for (const v of linkVariants(ctx, a, b, { linkMaxM: config.discovery.linkMaxM, transitMaxM: config.discovery.transitMaxM })) if (steadyLook(v.path)) raw.push({ from: a, to: b, ...v });
+      for (const [b] of next) for (const v of linkVariants(ctx, a, b, { linkMaxM: config.discovery.linkMaxM, transitMaxM: config.discovery.transitMaxM, radiusM: config.discovery.linkRadiusM ?? 400 })) if (steadyLook(v.path)) raw.push({ from: a, to: b, ...v });
     }
     const linkScores = await Promise.all(raw.map((l) => pool.score('link', l.path, { everyM: 120, width: 96, height: 54 })));
     raw.forEach((l, i) => { l.score = linkScores[i].aggregate; l.path.flow = Float32Array.from(linkScores[i].flow); l.durationMs = durationRange(l.path, l.path.flow, config.motion); });
@@ -444,6 +450,18 @@ export function nearCopy(a, b, discovery = {}) {
   if (!x || !y || a === b) return false;
   const maxM = discovery.copyM ?? 700, minCos = Math.cos(((discovery.copyDeg ?? 14) * Math.PI) / 180);
   return Math.hypot(...x.payoff.eye.map((v, i) => v - y.payoff.eye[i])) <= maxM && x.payoff.dir.reduce((t, v, i) => t + v * y.payoff.dir[i], 0) >= minCos;
+}
+
+/** Moves that read the same flown either way. */
+export const REVERSIBLE = new Set(['traverse', 'orbit', 'valley', 'crest']);
+
+/** A shot flown backwards: its samples reversed, its payoff mirrored. */
+export function reverseShot(c) {
+  const p = c.path, n = p.s.length;
+  const back = (arr, k) => { const out = new Float32Array(arr.length); for (let i = 0; i < n; i++) for (let j = 0; j < k; j++) out[i * k + j] = arr[(n - 1 - i) * k + j]; return out; };
+  const path = withProgress({ eye: back(p.eye, 3), aim: back(p.aim, 3), fov: back(p.fov, 1), s: p.s });
+  const side = { left: 'right', right: 'left' }[c.traits?.side] ?? c.traits?.side;
+  return { ...c, id: `${c.id}-rev`, path, lengthM: path.lengthM, payoffFrac: 1 - (c.payoffFrac ?? 0.5), traits: { ...c.traits, side }, tags: [...(c.tags || []), 'reversed'] };
 }
 
 /** Straight distance from a shot's exit to another's entry (NaN without paths). */
@@ -646,9 +664,11 @@ export function selectConnected(scored, links, config, cost = null, { log = null
     return { v: (total / chain.length) * (1 - 0.05 * (chain.length - 1)), bytes: extra.map((x) => x.bytes) };
   };
   // Seeds: the shortest cycle through each shot, valued on its own.
-  const base = selection(config, cost, rail), all = new Set(eligible), seeds = new Map();
+  const base = selection(config, cost, rail), seeds = new Map();
   for (const a of eligible) {
-    const { parent, depth } = bfs(all, [a], outs, earShots + 1);
+    // Not through a copy of itself (its own reversal pays off on its frame).
+    const through = new Set(eligible.filter((x) => x === a || !nearCopy(a, x, config.discovery)));
+    const { parent, depth } = bfs(through, [a], outs, earShots + 1);
     let close = null;
     for (const y of ins.get(a) || []) if (y !== a && depth.has(y) && (!close || depth.get(y) < depth.get(close))) close = y;
     if (!close) continue;
@@ -662,7 +682,11 @@ export function selectConnected(scored, links, config, cost = null, { log = null
   // Grow from a seed: { out, worth }.
   const grow = (seed) => {
     const sel = selection(config, cost, rail), set = new Set(rail), pool = new Set(eligible);
-    const add = (best) => { best.chain.forEach((c, i) => { sel.take(c, best.bytes[i]); set.add(c); pool.delete(c); }); };
+    // Shots that can no longer join (copies of chosen ones) are no way through either.
+    const add = (best) => {
+      best.chain.forEach((c, i) => { sel.take(c, best.bytes[i]); set.add(c); pool.delete(c); });
+      for (const c of [...pool]) if (best.chain.some((o) => nearCopy(o, c, config.discovery))) pool.delete(c);
+    };
     add(seed);
     while (sel.out.length < max) {
       const fwd = bfs(pool, [...set], outs, earShots), back = bfs(pool, [...set], ins, earShots);

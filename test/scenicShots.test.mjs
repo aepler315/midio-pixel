@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateShots, liftToClearance, lineOfSight, railShot, headingOf, subjectMarks } from '../tools/lib/scenic-shots.mjs';
-import { buildLink, linkVariants, keepParetoLinks, minTurnRadius } from '../tools/lib/scenic-links.mjs';
+import { buildLink, linkVariants, keepParetoLinks, minTurnRadius, dubins, sampleCourse } from '../tools/lib/scenic-links.mjs';
 import { samplePath, pathPoseAt, pathTangent } from '../src/world/terrain/ShotPath.js';
 
 // A synthetic landscape: a 1000 m basin floor, a 900 m cone at the origin,
@@ -129,4 +129,19 @@ test('a foreground pass frames a nearer feature against the subject, and a crane
   assert.ok(cranes.length > 0);
   for (const c of cranes) assert.ok(pathPoseAt(c.path, c.lengthM).eyeM[1] - pathPoseAt(c.path, 0).eyeM[1] > 300, 'rises');
   assert.ok(!shots.some((s) => s.subjectId === railTarget.id && s.move !== 'rail'), 'the rail target seeds the rail only');
+});
+
+test('a Dubins course reaches the next shot in its own heading, never turning tighter than its radius', () => {
+  for (const [start, end] of [[[0, 0, 0], [3000, 0, 0]], [[0, 0, 0], [-1500, 200, Math.PI]], [[0, 0, Math.PI / 2], [800, -900, -Math.PI / 2]]]) {
+    const course = dubins(start, end, 400);
+    const pts = sampleCourse(course, 20), last = pts.at(-1);
+    assert.ok(Math.hypot(last[0] - end[0], last[1] - end[1]) < 0.01, 'ends where the next shot begins');
+    assert.ok(Math.abs(Math.atan2(Math.sin(last[2] - end[2]), Math.cos(last[2] - end[2]))) < 1e-3, 'in its heading');
+    assert.ok(course.length >= Math.hypot(end[0] - start[0], end[1] - start[1]) - 1e-6);
+    const path = { s: Float32Array.from(pts, (p) => p[3]), eye: Float32Array.from(pts.flatMap((p) => [p[0], 0, p[1]])) };
+    assert.ok(minTurnRadius(path, 1) > 399, 'no turn tighter than the radius');
+  }
+  const turn = [[0, 0, 0], [3000, 900, Math.PI / 2]];
+  assert.ok(dubins(...turn, 400, { rank: 1 }).length > dubins(...turn, 400).length, 'the second course is a different, longer one');
+  assert.equal(dubins([0, 0, 0], [3000, 0, 0], 400, { rank: 1 }), null, 'a straight run has no second course');
 });

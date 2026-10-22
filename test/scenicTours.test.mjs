@@ -185,8 +185,10 @@ test('a tight curve caps the comfortable pace the way the timeline will', () => 
   assert.ok(Math.abs(bend[Math.floor(bend.length / 2)] - 1 / 200) < 1e-3, 'the bend of a 200 m circle');
   const flow = Float32Array.from(p.s, () => 1e-5);
   const capMps = Math.sqrt(3.5 / (1 / 200));
-  const r = durationRange(p, flow, { ...config.motion, maxAccelMps2: 3.5 });
+  const r = durationRange(p, flow, { ...config.motion, maxLateralMps2: 3.5 });
   assert.ok(r.min >= (p.s.at(-1) / capMps) * 1000 * 0.9, 'no faster than v^2 * bend <= 3.5 allows');
+  const loose = durationRange(p, flow, { ...config.motion, maxAccelMps2: 3.5 });
+  assert.ok(loose.min < r.min, 'turns may pull twice the speed-change limit by default');
 });
 
 test('the renderer drops a shot whose subject is off frame or fills it, or whose payoff is all soft close terrain', () => {

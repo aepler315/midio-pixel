@@ -6,11 +6,13 @@
     "clearance": { "minAglM": 70, "treeHeightM": 35, "subjectStandoffM": 300, "boundaryMarginM": 1500, "cellM": 60 },
     "motion": { "maxSpeedMps": 120, "minSpeedMps": 4, "flowCalm": 0.07, "flowEnergetic": 0.24, "maxYawDegPerSec": 20, "maxClimbMps": 22, "maxAccelMps2": 3.5 },
     "discovery": { "focusRadiusM": 11000, "maxSubjects": 12, "minSubjectSpacingM": 1800, "prominenceMinM": 80, "snapRadiusM": 2500, "shotsPerSubject": 8, "maxShots": 36, "maxLinksPerShot": 4, "tileWeight": 0.6,
-      "byteScaleKB": 250, "linkMaxM": 6000, "transitMaxM": 9000, "maxShotS": 16, "maxLinkS": 30, "shotsPerRound": 6, "earShots": 5, "linkFanout": 8 },
+      "byteScaleKB": 250, "linkMaxM": 6000, "transitMaxM": 9000, "maxShotS": 16, "maxLinkS": 50, "shotsPerRound": 6, "earShots": 5, "linkFanout": 14, "linkRadiusM": 400 },
     "budget": { "assetBytes": 800000, "poseErrorScale": 4, "desktopTriangles": 2600000, "mobileTriangles": 1450000 }
   },
   "regions": {
     "nc-ross-lake-north": {
+      "overrides": { "budget": { "assetBytes": 1400000 } },
+      "budgetNote": "Wide views over a long lake: each shot brings hundreds of distant tiles (mostly manifest entries), so the default 800 KB fits only three or four shots; raised within the shared Range asset headroom.",
       "rebakeOnDrift": true,
       "rebakeOnDriftEvidence": "Rail parity after the tour rebake: 0.00% of rail pixels changed at 9 stations (.smoke/scenic-tours/nc-ross-lake-north/rail-parity.json); the drift is below what the rail can show.",
       "status": "candidate",
