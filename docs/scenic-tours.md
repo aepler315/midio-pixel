@@ -255,6 +255,33 @@ the others, so no shot is selected only to be pruned afterwards. Large
 landscapes link their shots in long loops, which is why seeds and ears are
 found by breadth-first search rather than as pairs.
 
+### Rendered review
+
+The first complete libraries (12 regions, 170 shots) were reviewed shot by
+shot from their rendered key frames (entry, payoff, end of hold, exit) as a
+film editor would: 103 good or acceptable, 67 weak or broken. No frame had
+holes, missing terrain or a data-edge cut, and every rail rendered the same
+on the rebaked package. The failures were of film, not data: frames with no
+horizon looking down on featureless slopes, close terrain too soft to show
+detail filling the frame, subjects that never appear (the Ross Dam
+approaches fly into a ridge), near copies a few hundred metres apart, and
+too little variety (eight of Denali's nine shots framed one foothill dome).
+
+Joining the verdicts with the renderer's own metrics showed which ones
+separate them: whether the subject is in frame at the payoff, how much of
+the frame it fills, and how much of the picture is terrain too close for the
+DEM's detail (a source cell spanning more than 10 pixels of the 640x360
+picture). Sky share did not: good aerial shots have none either. Selection
+now drops a candidate whose subject is out of frame at the payoff, fills the
+frame, or whose payoff and hold are all soft close terrain, and discounts
+soft close terrain short of that (`renderedGate`). On the reviewed shots
+these gates drop 37 of the 67 weak shots and 14 of the 91 good ones; fitted
+on half the regions and tested on the other half they drop 38-44% of weak
+shots and 16-22% of good ones. Shots that pay off on the same frame now
+count as copies whatever moves lead in and out, and steep look-downs are
+penalised once a library has some. Payoffs stay at or before 88% of a shot,
+so every shot holds its view before it ends.
+
 ### Terrain policy, drift and per-region budgets
 
 Every build first bakes the rail alone. When that no longer reproduces the

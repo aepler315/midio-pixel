@@ -93,7 +93,9 @@ export function buildLink(ctx, from, to, kind, { side = 1, linkMaxM = 9000, tran
   const path = liftInterior(sampled, ctx.clearance.floorAt);
   if (!path) return reject('clearance at an end');
   const total = path.s[path.s.length - 1];
-  if (minTurnRadius(path) < minRadiusM) return reject('turn too tight');
+  // Every sample, the ends included: a cusp just after a shot's exit is
+  // the tightest turn a link can make.
+  if (minTurnRadius(path, 1) < minRadiusM) return reject('turn too tight');
   // Progress (with aim turn) far beyond the chord means a loop, not a turn.
   if (total > 3 * D + 1500 + 400 * turn) return reject('loop');
   return { kind, path, lengthM: total };

@@ -25,7 +25,7 @@ import { generateShots, poseTraits, LANDFORMS } from './lib/scenic-shots.mjs';
 import { linkVariants, keepParetoLinks } from './lib/scenic-links.mjs';
 import { strideCost, tourPoses, tourBakeOptions, bakeOptions } from './lib/scenic-cost.mjs';
 
-import { SHOT_SCHEMA, SHOT_VERSION, packShotPaths, shotLibraryErrors, decodeShotLibrary, cameraFootprint } from '../src/world/terrain/ShotLibrary.js';
+import { SHOT_SCHEMA, SHOT_VERSION, packShotPaths, chooseLattice, shotLibraryErrors, decodeShotLibrary, cameraFootprint } from '../src/world/terrain/ShotLibrary.js';
 import { pathPoseAt, slicePath, pathLaneAt } from '../src/world/terrain/ShotPath.js';
 import { bakeTerrain } from './lib/terrain-bake.mjs';
 import { validatePoses, rangeAssetBytes, RANGE_ASSET_LIMIT } from './lib/scenic-coverage.mjs';
@@ -104,7 +104,8 @@ export function refinePayoff(record, scored) {
       if (!best || v > best.v) best = { ...x, v };
     }
   }
-  const payoffS = clamp(best?.s ?? record.payoffFrac * L, 0.2 * L, L);
+  // The payoff leaves room to hold the view before the shot ends.
+  const payoffS = clamp(best?.s ?? record.payoffFrac * L, 0.2 * L, 0.88 * L);
   const ref = value(samples.reduce((a, b) => (Math.abs(b.s - payoffS) < Math.abs(a.s - payoffS) ? b : a)));
   let a = payoffS, b = payoffS;
   for (const x of samples) if (x.s <= payoffS && value(x) >= 0.8 * ref) a = Math.min(a, x.s);
@@ -115,14 +116,35 @@ export function refinePayoff(record, scored) {
 /** Comfortable duration range from the flow lane: the fastest the picture
  *  may move at full energy, the calm pace, and a slow drift floor. */
 export function durationRange(p, flow, motion) {
+  // Curvature caps speed as the timeline does: v^2 * bend <= maxAccelMps2.
+  const bend = pathBend(p), accel = motion.maxAccelMps2 ?? 3.5;
   let fast = 0, calm = 0;
   for (let i = 1; i < p.s.length; i++) {
     const ds = p.s[i] - p.s[i - 1], f = Math.max(1e-5, (flow[i] + flow[i - 1]) / 2);
-    fast += ds / Math.min(motion.maxSpeedMps, motion.flowEnergetic / f);
-    calm += ds / Math.min(motion.maxSpeedMps, motion.flowCalm / f);
+    const cap = Math.min(motion.maxSpeedMps, Math.sqrt(accel / Math.max(1e-9, Math.max(bend[i], bend[i - 1]))));
+    fast += ds / Math.min(cap, motion.flowEnergetic / f);
+    calm += ds / Math.min(cap, motion.flowCalm / f);
   }
   const L = p.s[p.s.length - 1];
   return { min: Math.round(fast * 1000), ideal: Math.round(clamp((fast + calm) / 2, fast, calm) * 1000), max: Math.round(Math.max(calm, L / motion.minSpeedMps) * 1000) };
+}
+
+/** Curvature of the eye along progress per sample, |d2 eye / ds2| (1/m),
+ *  from the three-point second difference on uneven progress. */
+export function pathBend(p) {
+  const n = p.s.length, out = new Float64Array(n);
+  for (let i = 1; i < n - 1; i++) {
+    const a = p.s[i] - p.s[i - 1], b = p.s[i + 1] - p.s[i];
+    if (!(a > 0 && b > 0)) continue;
+    let sq = 0;
+    for (let k = 0; k < 3; k++) {
+      const d2 = (2 * (p.eye[(i + 1) * 3 + k] * a - p.eye[i * 3 + k] * (a + b) + p.eye[(i - 1) * 3 + k] * b)) / (a * b * (a + b));
+      sq += d2 * d2;
+    }
+    out[i] = Math.sqrt(sq);
+  }
+  if (n > 2) { out[0] = out[1]; out[n - 1] = out[n - 2]; }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -221,12 +243,17 @@ export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpu
       const baked = await bakeTerrain(ctx.grid, ctx.build.view, tourBakeOptions(ctx, poses, scale));
       const rendered = await renderReview(viewId, { subjects, shots: second, links: [] },
         { out, sheet: false, terrain: { manifestText: JSON.stringify(baked.manifest) + '\n', payload: baked.payload }, log });
+      const detailM = ctx.grid.sourceResolutionM ?? ctx.grid.cellSizeM, reasons = new Map();
       for (const c of second) {
-        const r = rendered.get(c.id)?.score;
-        if (r != null) c.score = { ...c.score, dem: c.score.total, render: r, total: renderedTotal(c.score.total, r) };
+        const r = rendered.get(c.id);
+        if (!r) continue;
+        const gate = renderedGate(r.frames, { fovYDeg: c.traits.fovYDeg ?? c.path.fov[0], detailM });
+        const total = c.move === 'rail' || gate.pass ? renderedTotal(c.score.total, r.score) * gate.factor : 0;
+        c.score = { ...c.score, dem: c.score.total, render: r.score, sharp: gate.factor, total };
+        if (c.move !== 'rail') for (const why of gate.reasons) reasons.set(why, (reasons.get(why) || 0) + 1);
       }
       const weak = second.filter((c) => c.move !== 'rail' && c.score.total === 0).length;
-      log(`${viewId}: renderer scored ${rendered.size} candidates; ${weak} show no subject or render flat`);
+      log(`${viewId}: renderer scored ${rendered.size} candidates; ${weak} dropped (${[...reasons].map(([k, n]) => `${n} ${k}`).join(', ') || 'none gated'})`);
     }
     // The candidate link graph: from each scored shot to its nearest few
     // within reach (exit to entry), every variant scored, on a leash (a
@@ -410,15 +437,13 @@ function shotEnds(c) {
 
 /** Whether two shots are near copies: their payoff cameras stand within
  *  discovery.copyM metres (default 700) and look within discovery.copyDeg
- *  degrees (default 14) of each other, and they also share the move, the
- *  entry or the exit (an approach to a view and a pullback from it are two
- *  shots; two traverses through the same payoff frame are one). */
+ *  degrees (default 14) of each other. Cut together, two shots that pay off
+ *  on the same frame read as one, whatever moves lead in and out of it. */
 export function nearCopy(a, b, discovery = {}) {
   const x = shotEnds(a), y = shotEnds(b);
   if (!x || !y || a === b) return false;
   const maxM = discovery.copyM ?? 700, minCos = Math.cos(((discovery.copyDeg ?? 14) * Math.PI) / 180);
-  const close = (k) => Math.hypot(...x[k].eye.map((v, i) => v - y[k].eye[i])) <= maxM && x[k].dir.reduce((t, v, i) => t + v * y[k].dir[i], 0) >= minCos;
-  return close('payoff') && (a.move === b.move || close('entry') || close('exit'));
+  return Math.hypot(...x.payoff.eye.map((v, i) => v - y.payoff.eye[i])) <= maxM && x.payoff.dir.reduce((t, v, i) => t + v * y.payoff.dir[i], 0) >= minCos;
 }
 
 /** Straight distance from a shot's exit to another's entry (NaN without paths). */
@@ -517,6 +542,9 @@ function selection(config, cost, chosen) {
     v *= 1 - 0.1 * others.filter((o) => o.move === c.move).length / n;
     v *= 1 - 0.25 * others.filter((o) => o.traits.elevation === c.traits.elevation).length / n;
     v *= 1 - 0.15 * others.filter((o) => o.traits.lens === c.traits.lens).length / n;
+    // Steep look-downs read alike however the terrain differs.
+    const down = (x) => (x.traits.elevationDeg ?? 0) < -10;
+    if (down(c)) v *= 1 - 0.3 * others.filter(down).length / n;
     for (const o of same) {
       const dAz = Math.abs(((o.traits.azimuthDeg - c.traits.azimuthDeg + 540) % 360) - 180);
       if (dAz < 25 && o.traits.elevation === c.traits.elevation) v *= 0.55;
@@ -718,6 +746,36 @@ export function renderedTotal(dem, render) {
   return dem * (0.55 + 0.45 * clamp(render / 0.45, 0, 1));
 }
 
+/**
+ * What the renderer shows of a candidate's key frames (entry, payoff, end
+ * of hold, exit), as gates and a sharpness factor. Fitted to a visual review
+ * of the first full libraries (170 shots in 12 regions, judged as film:
+ * docs/scenic-tours.md, "Rendered review"): a shot is dropped when its
+ * subject is not in the frame at the payoff, fills the frame, or when the
+ * payoff and hold are all terrain too close to show detail (the DEM's
+ * detailM cells spanning more than 10 pixels of the 640x360 picture); its
+ * worth falls by up to half as that soft close terrain grows, and by up to a
+ * quarter more when the entry or exit frame is all of it.
+ */
+export function renderedGate(frames, { fovYDeg = 26, detailM = 30 } = {}) {
+  const m = frames.map((f) => f.metrics || {});
+  const focal = 180 / Math.tan((fovYDeg * Math.PI) / 360), softM = (focal * detailM) / 10;
+  const soft = (x) => {
+    const d = x.depth;
+    if (!d?.frac) return 0;
+    let t = 0, lo = 0;
+    d.frac.forEach((f, i) => { const hi = d.edgesM[i]; t += hi <= softM ? f : lo < softM ? (f * (softM - lo)) / (hi - lo) : 0; lo = hi; });
+    return t;
+  };
+  const pay = m[1] || {}, reasons = [];
+  if (pay.subject && !(pay.subject.inFrame >= 0.6)) reasons.push('subject out of frame at the payoff');
+  if ((pay.subject?.screenHeight ?? 0) > 0.8) reasons.push('subject fills the frame');
+  const payoffSoft = Math.max(soft(m[1] || {}), soft(m[2] || {})), endsSoft = Math.max(soft(m[0] || {}), soft(m[3] || {}));
+  if (payoffSoft > 0.95) reasons.push('payoff all soft close terrain');
+  const factor = 1 - 0.5 * clamp((payoffSoft - 0.75) / 0.2, 0, 1) - 0.25 * clamp((endsSoft - 0.85) / 0.15, 0, 1);
+  return { pass: !reasons.length, factor, reasons, payoffSoft, endsSoft };
+}
+
 /** Renderer score for one shot from its rendered key frames (0..1): no
  *  holes, the subject actually visible at the payoff, real contrast. */
 export function renderScore(frames) {
@@ -869,7 +927,8 @@ export function packLibrary(viewId, regionId, terrainManifestSha256, library, pr
     return { id, from: l.from.id, to: l.to.id, kind: l.kind, path: l.path, lengthM: round(l.lengthM, 10), durationMs: l.durationMs,
       score: { total: round(l.score.total), weakest: round(l.score.weakest ?? 0), composition: round(l.score.composition ?? 0) } };
   });
-  const decoded = Buffer.from(packShotPaths([...shots, ...links]));
+  const lattice = chooseLattice([...shots, ...links]);
+  const decoded = Buffer.from(packShotPaths([...shots, ...links], lattice));
   const payload = zlib.gzipSync(decoded, { level: 9, mtime: 0 });
   payload[4] = payload[5] = payload[6] = payload[7] = 0; payload[9] = 255;
   const strip = (r) => Object.fromEntries(Object.entries(r).filter(([k]) => k !== 'path'));
@@ -878,7 +937,7 @@ export function packLibrary(viewId, regionId, terrainManifestSha256, library, pr
     axes: { x: 'east', y: 'up', z: 'south', units: 'metres' },
     ...(motion ? { motion } : {}), subjects, shots: shots.map(strip), links: links.map(strip),
     payload: { url: `${viewId}.shots.bin.gz`, encoding: 'gzip', byteLength: payload.byteLength, sha256: sha(payload),
-      decodedByteLength: decoded.byteLength, decodedSha256: sha(decoded) },
+      decodedByteLength: decoded.byteLength, decodedSha256: sha(decoded), lattice },
     provenance,
   };
   const errors = shotLibraryErrors(manifest, { viewId, decodedByteLength: decoded.byteLength });

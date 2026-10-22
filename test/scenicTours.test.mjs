@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { refinePayoff, durationRange, selectShots, selectLinks, regionConfig, focusArea, inFocus, steadyLook, linkLibrary, costliestShot, estimatedBytes, trimWindow, trimShot, renderedTotal, bestComponent, selectConnected, nearCopy } from '../tools/build-scenic-tours.mjs';
+import { refinePayoff, durationRange, selectShots, selectLinks, regionConfig, focusArea, inFocus, steadyLook, linkLibrary, costliestShot, estimatedBytes, trimWindow, trimShot, renderedTotal, bestComponent, selectConnected, nearCopy, pathBend, renderedGate } from '../tools/build-scenic-tours.mjs';
 import { TILE_BYTES } from '../tools/lib/scenic-cost.mjs';
 import { samplePath } from '../src/world/terrain/ShotPath.js';
 
@@ -164,7 +164,7 @@ test('a connected shortlist seeds with a longer cycle when no short one exists, 
   assert.deepEqual(capped.map((x) => x.id).sort(), ['a', 'b', 'c', 'd'], 'an ear longer than earShots is not taken');
 });
 
-test('a near copy of a chosen shot is no new shot: same payoff frame and the same move, entry or exit', () => {
+test('a near copy of a chosen shot is no new shot: the same payoff frame', () => {
   const shot = (id, move, x0, x1, payoffX) => {
     const path = samplePath({ eyes: [[x0, 500, 0], [x1, 500, 0]], aims: [[x0, 400, -5000], [x1, 400, -5000]], fovs: 30 });
     return { id, move, path, lengthM: path.s.at(-1), payoffS: path.s.at(-1) * ((payoffX - x0) / (x1 - x0)) };
@@ -172,6 +172,32 @@ test('a near copy of a chosen shot is no new shot: same payoff frame and the sam
   const a = shot('a', 'traverse', 0, 3000, 1500), cut = shot('cut', 'traverse', 1000, 2000, 1500);
   assert.equal(nearCopy(a, cut), true, 'a cut of the same traverse is a copy');
   const other = shot('approach', 'approach', 1000, 2000, 1500);
-  assert.equal(nearCopy(a, other), false, 'another move through the same frame, entered and left elsewhere, is a new shot');
+  assert.equal(nearCopy(a, other), true, 'another move paying off on the same frame reads as the same shot');
   assert.equal(nearCopy(a, shot('far', 'traverse', 5000, 8000, 6500)), false);
+});
+
+test('a tight curve caps the comfortable pace the way the timeline will', () => {
+  // A quarter circle of radius 200 m looking at one far point (the aim
+  // barely turns, so progress is the eye's arc): bend 1/200 per metre.
+  const eyes = Array.from({ length: 13 }, (_, i) => { const a = (i / 12) * Math.PI / 2; return [200 * Math.cos(a), 500, 200 * Math.sin(a)]; });
+  const p = samplePath({ eyes, aims: eyes.map(() => [0, 400, -80000]), fovs: 30, spacingM: 10 });
+  const bend = pathBend(p);
+  assert.ok(Math.abs(bend[Math.floor(bend.length / 2)] - 1 / 200) < 1e-3, 'the bend of a 200 m circle');
+  const flow = Float32Array.from(p.s, () => 1e-5);
+  const capMps = Math.sqrt(3.5 / (1 / 200));
+  const r = durationRange(p, flow, { ...config.motion, maxAccelMps2: 3.5 });
+  assert.ok(r.min >= (p.s.at(-1) / capMps) * 1000 * 0.9, 'no faster than v^2 * bend <= 3.5 allows');
+});
+
+test('the renderer drops a shot whose subject is off frame or fills it, or whose payoff is all soft close terrain', () => {
+  const depth = (near) => ({ edgesM: [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 150000], frac: [0, 0, 0, 0, near, 0, 0, 0, 1 - near, 0, 0, 0], sky: 0 });
+  const frame = (subject, near = 0) => ({ metrics: { subject, depth: depth(near) } });
+  const good = { inFrame: 1, visible: 0.8, screenHeight: 0.4 };
+  assert.equal(renderedGate([frame(good), frame(good), frame(good), frame(good)]).pass, true);
+  assert.deepEqual(renderedGate([frame(good), frame({ ...good, inFrame: 0.2 }), frame(good), frame(good)]).reasons, ['subject out of frame at the payoff']);
+  assert.deepEqual(renderedGate([frame(good), frame({ ...good, screenHeight: 0.95 }), frame(good), frame(good)]).reasons, ['subject fills the frame']);
+  const soft = renderedGate([frame(good, 1), frame(good, 1), frame(good, 1), frame(good, 1)], { fovYDeg: 16, detailM: 30 });
+  assert.ok(!soft.pass && soft.reasons.includes('payoff all soft close terrain'));
+  const crisp = renderedGate([frame(good, 1), frame(good), frame(good), frame(good, 1)], { fovYDeg: 36, detailM: 30 });
+  assert.ok(crisp.pass && crisp.factor < 1 && crisp.factor >= 0.75, 'soft entry and exit frames cost worth, not the shot');
 });

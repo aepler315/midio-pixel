@@ -14,10 +14,15 @@
 // Binary payload: every path is `count` samples of PATH_LANES little-endian
 // Int16 values:
 //   ds, dEyeX, dEyeY, dEyeZ, dAimX, dAimY, dAimZ, fov, flow
-// Progress and positions are quantized to one global lattice (POSITION_STEP_M
-// metres) and stored as differences from the previous sample; the record's
-// `samples.first` holds sample 0's lattice integers. Paths that meet (a
-// link's ends and its shots' ends) therefore decode to identical values.
+// Progress and eye positions are quantized to one lattice per library
+// (payload.lattice.positionStepM metres, the finest of LATTICE_STEPS_M whose
+// differences fit an Int16), aim points to a coarser one (aimStepM; a few
+// centimetres at kilometres are invisible), and stored as differences from
+// the previous sample; the record's `samples.first` holds sample 0's
+// lattice integers. Paths that meet (a link's ends and its shots' ends)
+// therefore decode to identical values. A fine eye lattice matters: its
+// rounding is curvature the timeline must slow down for. Libraries without
+// payload.lattice use POSITION_STEP_M for both.
 // fov is in FOV_STEP_DEG; flow, the 95th-percentile angular image speed of
 // visible terrain per unit progress speed (radians per progress metre: at
 // progress speed v the picture moves ~v*flow rad/s), is stored as
@@ -29,6 +34,8 @@ export const SHOT_SCHEMA = 'midio.shots';
 export const SHOT_VERSION = 1;
 export const PATH_LANES = 9;
 export const POSITION_STEP_M = 0.1;
+export const LATTICE_STEPS_M = Object.freeze([0.01, 0.02, 0.05, 0.1]);
+export const AIM_STEP_M = 0.1;
 export const FOV_STEP_DEG = 0.01;
 export const FLOW_SCALE = 60000;
 export const SHOT_MOVES = Object.freeze(['rail', 'traverse', 'approach', 'reveal', 'orbit', 'pullback', 'valley', 'crest']);
@@ -52,6 +59,8 @@ export function shotLibraryErrors(m, { viewId = null, decodedByteLength = null }
   if (!(m.payload?.byteLength > 0) || typeof m.payload?.url !== 'string') fail('payload metadata');
   // Optional region motion tunables (data/terrain/scenic-tours.json defaults.motion + overrides).
   if (m.motion != null && (typeof m.motion !== 'object' || !Object.values(m.motion).every((v) => typeof v === 'number' && v > 0))) fail('motion');
+  const lattice = m.payload?.lattice;
+  if (lattice != null && !(LATTICE_STEPS_M.includes(lattice.positionStepM) && finite(lattice.aimStepM) && lattice.aimStepM > 0)) fail('payload lattice');
   if (!Array.isArray(m.subjects) || !Array.isArray(m.shots) || !Array.isArray(m.links)) return [...errors, 'library arrays'];
   if (!m.shots.length) fail('no shots');
   const subjects = new Set(), ids = new Set(), ranges = [];
@@ -103,15 +112,15 @@ export function shotLibraryErrors(m, { viewId = null, decodedByteLength = null }
 }
 
 /** Path lanes for one record from decoded payload bytes. */
-function readPath(view, l) {
+function readPath(view, l, { positionStepM = POSITION_STEP_M, aimStepM = POSITION_STEP_M } = {}) {
   const n = l.count, s = new Float32Array(n), eye = new Float32Array(n * 3), aim = new Float32Array(n * 3);
   const fov = new Float32Array(n), flow = new Float32Array(n);
   const acc = l.first.slice();
   for (let i = 0; i < n; i++) {
     const at = l.offset + i * PATH_LANES * 2, q = (k) => view.getInt16(at + k * 2, true);
     if (i) for (let k = 0; k < 7; k++) acc[k] += q(k);
-    s[i] = acc[0] * POSITION_STEP_M;
-    for (let k = 0; k < 3; k++) { eye[i * 3 + k] = acc[1 + k] * POSITION_STEP_M; aim[i * 3 + k] = acc[4 + k] * POSITION_STEP_M; }
+    s[i] = acc[0] * positionStepM;
+    for (let k = 0; k < 3; k++) { eye[i * 3 + k] = acc[1 + k] * positionStepM; aim[i * 3 + k] = acc[4 + k] * aimStepM; }
     fov[i] = view.getUint16(at + 14, true) * FOV_STEP_DEG;
     flow[i] = (view.getUint16(at + 16, true) / FLOW_SCALE) ** 2;
   }
@@ -125,7 +134,7 @@ export function decodeShotLibrary(manifest, bytes) {
   if (errors.length) throw new RangeAssetError('manifest', errors.slice(0, 3).join('; '));
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const withPath = (record) => {
-    const path = readPath(view, record.samples);
+    const path = readPath(view, record.samples, manifest.payload.lattice || undefined);
     const problems = pathErrors(path);
     if (problems.length) throw new RangeAssetError('decode', `${record.id}: ${problems[0]}`);
     if (!path.flow.every((v) => Number.isFinite(v) && v >= 0)) throw new RangeAssetError('decode', `${record.id}: flow lane`);
@@ -139,18 +148,42 @@ export function decodeShotLibrary(manifest, bytes) {
   return { ...manifest, shots, links, shotById, linkById, linksFrom, subjectById: new Map(manifest.subjects.map((s) => [s.id, s])) };
 }
 
+/** The finest lattice whose sample-to-sample differences fit an Int16 for
+ *  every record: { positionStepM, aimStepM } (payload.lattice). */
+export function chooseLattice(records) {
+  let eye = 0, aim = 0;
+  for (const r of records) {
+    const p = r.path, n = p.s.length;
+    for (let i = 1; i < n; i++) {
+      eye = Math.max(eye, p.s[i] - p.s[i - 1]);
+      for (let k = 0; k < 3; k++) {
+        eye = Math.max(eye, Math.abs(p.eye[i * 3 + k] - p.eye[(i - 1) * 3 + k]));
+        aim = Math.max(aim, Math.abs(p.aim[i * 3 + k] - p.aim[(i - 1) * 3 + k]));
+      }
+    }
+  }
+  // Rounding adds up to one step to a difference; keep a margin.
+  const fits = (step, d) => d / step + 2 < 32767;
+  const positionStepM = LATTICE_STEPS_M.find((step) => fits(step, eye));
+  const aimStepM = [AIM_STEP_M, 0.2, 0.5].find((step) => fits(step, aim));
+  if (positionStepM == null || aimStepM == null) throw new Error('paths step too far for any Int16 lattice');
+  return { positionStepM, aimStepM };
+}
+
 /** Pack records with in-memory paths into a payload (authoring side). Each
  *  record gets `samples: {offset, count, first}`; returns the decoded
  *  bytes. Progress is re-anchored so every path starts at 0. Throws when a
- *  step does not fit an Int16 difference. */
-export function packShotPaths(records) {
+ *  step does not fit an Int16 difference. `lattice` (chooseLattice) must be
+ *  recorded as the manifest's payload.lattice; without it both lanes use
+ *  POSITION_STEP_M. */
+export function packShotPaths(records, { positionStepM = POSITION_STEP_M, aimStepM = POSITION_STEP_M } = {}) {
   const total = records.reduce((n, r) => n + r.path.s.length * PATH_LANES * 2, 0);
   const bytes = new Uint8Array(total), view = new DataView(bytes.buffer);
-  const q = (v) => Math.round(v / POSITION_STEP_M);
+  const q = (v) => Math.round(v / positionStepM), qa = (v) => Math.round(v / aimStepM);
   let at = 0;
   for (const r of records) {
     const { s, eye, aim, fov, flow } = r.path, n = s.length;
-    const lat = (i) => [q(s[i] - s[0]), q(eye[i * 3]), q(eye[i * 3 + 1]), q(eye[i * 3 + 2]), q(aim[i * 3]), q(aim[i * 3 + 1]), q(aim[i * 3 + 2])];
+    const lat = (i) => [q(s[i] - s[0]), q(eye[i * 3]), q(eye[i * 3 + 1]), q(eye[i * 3 + 2]), qa(aim[i * 3]), qa(aim[i * 3 + 1]), qa(aim[i * 3 + 2])];
     let prev = lat(0);
     r.samples = { offset: at, count: n, first: prev.slice() };
     for (let i = 0; i < n; i++, at += PATH_LANES * 2) {
