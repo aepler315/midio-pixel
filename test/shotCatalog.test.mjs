@@ -10,7 +10,8 @@ const LIBRARY = 'tour/teton-range-tour.tour.json';
 
 test('adding a shot library to an approved view stales its approval until it is re-recorded', async () => {
   const doc = await readAuthoring();
-  const id = 'monument-valley-163';
+  // Any approved view will do; the test sets its library itself.
+  const id = catalog.views.find((v) => v.status === 'approved' && !v.tourManifestUrl).id;
   const original = structuredClone(doc.views.find((v) => v.id === id));
   const view = doc.views.find((v) => v.id === id);
   view.shotsManifestUrl = LIBRARY;
@@ -33,7 +34,9 @@ test('adding a shot library to an approved view stales its approval until it is 
 });
 
 test('the catalog validator requires a complete shot identity beside a rail', () => {
-  const rail = catalog.views.find((v) => v.id === 'monument-valley-163');
+  // A rail view without shot fields of its own.
+  const rail = Object.fromEntries(Object.entries(catalog.views.find((v) => v.status === 'approved' && !v.tourManifestUrl))
+    .filter(([k]) => !k.startsWith('shotsManifest')));
   assert.deepEqual(sceneViewErrors({ ...rail, shotsManifestUrl: 'tour/x.shots.json', shotsManifestSha256: 'a'.repeat(64) }), []);
   assert.ok(sceneViewErrors({ ...rail, shotsManifestUrl: 'tour/x.shots.json' }).includes('shot library identity'));
   assert.ok(sceneViewErrors({ ...rail, shotsManifestUrl: 'tour/x.shots', shotsManifestSha256: 'a'.repeat(64) }).includes('shot library identity'));

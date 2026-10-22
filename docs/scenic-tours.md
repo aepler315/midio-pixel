@@ -194,11 +194,13 @@ audio, a checkpoint sheet and an index of timestamps and camera state.
 ### Selection and budgets
 
 Discovery judges scenery on the full DEM; a tile the shipped package lacks
-is not a flaw of a shot but a cost. A song has room for a payoff every
-15-30 s, so a shot longer than `discovery.maxShotS` at its ideal pace keeps
-its best window around the payoff (a reveal keeps the hidden stretch
-before it) and is scored again as cut; a link that cannot be flown within
-`discovery.maxLinkS` even at full pace is not offered.
+is not a flaw of a shot but a cost. A song's big moments come every 30-60 s
+and a tour should reach a few subjects between them, so a shot longer than
+`discovery.maxShotS` (16 s) at its ideal pace keeps its best window around
+the payoff (a reveal keeps the hidden stretch before it) and is scored again
+as cut, and a link that cannot be flown within `discovery.maxLinkS` (30 s)
+even at full pace is not offered. In large landscapes the links are a real
+part of the film: they are scored for scenery like shots.
 
 The cheap scores pick which candidates are worth rendering; the renderer
 then has the last word on each. One package is baked for every scored

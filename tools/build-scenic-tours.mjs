@@ -225,44 +225,50 @@ export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpu
       const weak = second.filter((c) => c.move !== 'rail' && c.score.total === 0).length;
       log(`${viewId}: renderer scored ${rendered.size} candidates; ${weak} show no subject or render flat`);
     }
-    // Shortlist and links in rounds. Each round picks the best shots with
-    // diversity across subjects, moves and views, charged for their terrain
-    // within the region's byte budget and favouring shots a short link can
-    // reach from the ones already kept; scores every link variant between
-    // new pairs (links on a leash: a transit that cannot be flown within
-    // discovery.maxLinkS even at full pace costs the song a payoff); and
-    // keeps the shots both reachable and leavable. Shots left unconnected
-    // free their budget for the next round.
-    const maxLinkMs = (config.discovery.maxLinkS ?? 18) * 1000;
-    const pairs = [], tried = new Set(), failed = new Set();
-    let kept = [], linked = { shots: [], links: [] }, variants = 0, shortlisted = 0;
-    for (let round = 1; round <= 6; round++) {
-      // A few shots per round, so each round's picks are near what is kept.
-      const shortlist = selectShots(second.filter((c) => !failed.has(c)), config, cost, kept, { add: config.discovery.shotsPerRound ?? 6 });
-      const fresh = shortlist.filter((s) => !kept.includes(s));
-      if (!fresh.length) break;
-      shortlisted += fresh.length;
-      const added = [];
-      for (const a of shortlist) for (const b of shortlist) {
-        if (a === b || tried.has(`${a.id}>${b.id}`)) continue;
-        tried.add(`${a.id}>${b.id}`);
-        for (const v of linkVariants(ctx, a, b, { linkMaxM: config.discovery.linkMaxM, transitMaxM: config.discovery.transitMaxM })) if (steadyLook(v.path)) added.push({ from: a, to: b, ...v });
-      }
-      const linkScores = await Promise.all(added.map((l) => pool.score('link', l.path, { everyM: 120, width: 96, height: 54 })));
-      added.forEach((l, i) => { l.score = linkScores[i].aggregate; l.path.flow = Float32Array.from(linkScores[i].flow); l.durationMs = durationRange(l.path, l.path.flow, config.motion); });
-      const usable = added.filter((l) => l.durationMs.min <= maxLinkMs);
-      variants += added.length;
-      // Footprints for the links selection can choose (each pair's Pareto front).
-      const front = paretoFront(usable);
-      const linkPrints = await Promise.all(front.map((l) => pool.score('footprint', l.path, { scale })));
-      front.forEach((l, i) => { l.footprint = new Map(linkPrints[i]); l.missing = linkPrints[i].map(([t]) => t).filter((t) => cost.shipped(t) == null); });
-      pairs.push(...front);
-      linked = linkLibrary(shortlist, pairs, config, cost);
-      for (const s of shortlist) if (!linked.shots.includes(s)) failed.add(s);
-      kept = linked.shots;
-      log(`${viewId}: round ${round}: +${fresh.length} shots (${fresh.map((s) => `${s.move}:${s.score.total.toFixed(2)}`).join(' ')}); ${usable.length}/${added.length} link variants within ${maxLinkMs / 1000} s; ${kept.length} shots / ${linked.links.length} links connected, ~${Math.round(estimatedBytes([...kept, ...linked.links], cost) / 1024)} KiB`);
+    // The candidate link graph: from each scored shot to its nearest few
+    // within reach (exit to entry), every variant scored, on a leash (a
+    // transit that cannot be flown within discovery.maxLinkS even at full
+    // pace costs the song a payoff) and Pareto-pruned per pair.
+    const maxLinkMs = (config.discovery.maxLinkS ?? 30) * 1000;
+    const reachM = (maxLinkMs / 1000) * config.motion.maxSpeedMps;
+    const usable = second.filter((c) => c.move === 'rail' || c.score.total > 0);
+    const raw = [];
+    for (const a of usable) {
+      const next = usable.filter((b) => b !== a).map((b) => [b, endGap(a, b)]).filter(([, d]) => d <= reachM)
+        .sort((x, y) => x[1] - y[1]).slice(0, config.discovery.linkFanout ?? 8);
+      for (const [b] of next) for (const v of linkVariants(ctx, a, b, { linkMaxM: config.discovery.linkMaxM, transitMaxM: config.discovery.transitMaxM })) if (steadyLook(v.path)) raw.push({ from: a, to: b, ...v });
     }
-    const library = { subjects, ...linked };
+    const linkScores = await Promise.all(raw.map((l) => pool.score('link', l.path, { everyM: 120, width: 96, height: 54 })));
+    raw.forEach((l, i) => { l.score = linkScores[i].aggregate; l.path.flow = Float32Array.from(linkScores[i].flow); l.durationMs = durationRange(l.path, l.path.flow, config.motion); });
+    const front = paretoFront(raw.filter((l) => l.durationMs.min <= maxLinkMs));
+    // Tours stay inside a strongly connected part of the graph: take the
+    // one whose best shots are worth most (the rail joins as the fallback).
+    const component = bestComponent(usable, front, config.discovery.maxShots);
+    const linked = (a, b) => front.some((l) => l.from === a && l.to === b);
+    log(`${viewId}: link graph ${raw.length} variants, ${front.length} usable within ${maxLinkMs / 1000} s; best connected part ${component.size} of ${usable.length} shots`);
+    // Selection inside it: diverse, charged for terrain, favouring shots
+    // linked both ways to those already kept; links chosen among them; then
+    // once more with the budget unconnected shots leave behind.
+    const candidatesIn = usable.filter((c) => component.has(c) || c.move === 'rail');
+    const priced = new Set();
+    const priceLinks = async (shots) => {
+      const among = front.filter((l) => shots.includes(l.from) && shots.includes(l.to) && !priced.has(l));
+      const prints = await Promise.all(among.map((l) => pool.score('footprint', l.path, { scale })));
+      among.forEach((l, i) => { l.footprint = new Map(prints[i]); l.missing = prints[i].map(([t]) => t).filter((t) => cost.shipped(t) == null); priced.add(l); });
+      return front.filter((l) => shots.includes(l.from) && shots.includes(l.to));
+    };
+    let shortlist = selectShots(candidatesIn, config, cost, [], { reach: linked });
+    let library2 = linkLibrary(shortlist, await priceLinks(shortlist), config, cost);
+    const shortlisted = shortlist.length;
+    if (library2.shots.length < shortlist.length) {
+      const dropped = new Set(shortlist.filter((x) => !library2.shots.includes(x)));
+      shortlist = selectShots(candidatesIn.filter((c) => !dropped.has(c)), config, cost, library2.shots, { reach: linked });
+      library2 = linkLibrary(shortlist, await priceLinks(shortlist), config, cost);
+    }
+    const variants = raw.length, pairs = front;
+    log(`${viewId}: shortlisted ${shortlisted}: ${library2.shots.length} shots / ${library2.links.length} links connected, ~${Math.round(estimatedBytes([...library2.shots, ...library2.links], cost) / 1024)} KiB: ${library2.shots.map((x) => `${x.move}:${x.score.total.toFixed(2)}`).join(' ')}`);
+    const linkedLib = library2;
+    const library = { subjects, ...linkedLib };
     // Footprint: tiles the library needs beyond the shipped package, and the
     // terrain bytes the cost model expects them to add.
     const need = new Set(library.shots.concat(library.links).flatMap((r) => r.missing || []));
@@ -327,6 +333,37 @@ export function trimShot(c, [a, b], motion) {
   return { ...c, path, lengthM: len, payoffS, holdS, cutS: [a, b], durationMs: durationRange(path, path.flow, motion) };
 }
 
+/** Straight distance from a shot's exit to another's entry (NaN without paths). */
+export function endGap(a, b) {
+  const p = a.path, q = b.path;
+  if (!p || !q) return NaN;
+  const i = (p.s.length - 1) * 3;
+  return Math.hypot(p.eye[i] - q.eye[0], p.eye[i + 1] - q.eye[1], p.eye[i + 2] - q.eye[2]);
+}
+
+/** The strongly connected set of shots (by `links`) whose best `top`
+ *  scores add up most (Tarjan); empty when no two shots join both ways. */
+export function bestComponent(shots, links, top = 36) {
+  const out = new Map(shots.map((x) => [x, []]));
+  for (const l of links) out.get(l.from)?.push(l.to);
+  const index = new Map(), low = new Map(), stack = [], on = new Set(), parts = [];
+  let next = 0;
+  const visit = (v) => {
+    index.set(v, next); low.set(v, next); next++; stack.push(v); on.add(v);
+    for (const w of out.get(v) || []) {
+      if (!index.has(w)) { visit(w); low.set(v, Math.min(low.get(v), low.get(w))); } else if (on.has(w)) low.set(v, Math.min(low.get(v), index.get(w)));
+    }
+    if (low.get(v) === index.get(v)) {
+      const part = [];
+      for (let w; w !== v;) { w = stack.pop(); on.delete(w); part.push(w); }
+      if (part.length > 1) parts.push(part);
+    }
+  };
+  for (const v of shots) if (!index.has(v)) visit(v);
+  const worth = (part) => part.map((x) => x.score.total).sort((a, b) => b - a).slice(0, top).reduce((a, b) => a + b, 0);
+  return new Set(parts.sort((a, b) => worth(b) - worth(a))[0] || []);
+}
+
 /** Whether every pose along a path, between samples too, keeps a usable
  *  look direction (the baker rejects near-vertical views). */
 export function steadyLook(p, { everyM = 30, limit = 0.95 } = {}) {
@@ -349,16 +386,16 @@ const RECORD_BYTES = 1300;
 
 /** Diverse shortlist: greedy by score with penalties for repeating a
  *  subject, a move, a viewing azimuth or an elevation class. */
-export function selectShots(scored, config, cost = null, kept = [], { add = Infinity } = {}) {
+export function selectShots(scored, config, cost = null, kept = [], { add = Infinity, reach = null } = {}) {
   const perSubject = config.discovery.shotsPerSubject;
   const out = kept.length ? [...kept] : scored.filter((c) => c.move === 'rail');
   const max = Math.min(config.discovery.maxShots, out.length + add);
   const rest = scored.filter((c) => !out.includes(c) && c.move !== 'rail' && c.score.holes <= 0.002 && c.score.total > 0);
   // A shot no short link can reach from (or leave for) the shots already
   // kept is worth less: it may end up unconnected.
-  const reachM = (config.discovery.maxLinkS ?? 18) * (config.motion?.maxSpeedMps ?? 120) * 0.8;
-  const end = (c, last) => { const p = c.path; if (!p) return null; const i = last ? p.s.length - 1 : 0; return [p.eye[i * 3], p.eye[i * 3 + 1], p.eye[i * 3 + 2]]; };
-  const near = (a, b) => { const x = end(a, true), y = end(b, false); return !x || !y || Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]) <= reachM; };
+  // (By an actual link when the graph is known, else by distance.)
+  const reachM = (config.discovery.maxLinkS ?? 30) * (config.motion?.maxSpeedMps ?? 120) * 0.8;
+  const near = reach || ((a, b) => !(endGap(a, b) > reachM));
   // New terrain: with a cost model each shot pays for the bytes its detail
   // adds beyond the shipped package and the shots already chosen
   // (discovery.byteWeight per 100 KB), and selection stops short of the

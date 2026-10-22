@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { refinePayoff, durationRange, selectShots, selectLinks, regionConfig, focusArea, inFocus, steadyLook, linkLibrary, costliestShot, estimatedBytes, trimWindow, trimShot, renderedTotal } from '../tools/build-scenic-tours.mjs';
+import { refinePayoff, durationRange, selectShots, selectLinks, regionConfig, focusArea, inFocus, steadyLook, linkLibrary, costliestShot, estimatedBytes, trimWindow, trimShot, renderedTotal, bestComponent } from '../tools/build-scenic-tours.mjs';
 import { TILE_BYTES } from '../tools/lib/scenic-cost.mjs';
 import { samplePath } from '../src/world/terrain/ShotPath.js';
 
@@ -123,4 +123,15 @@ test('the renderer keeps a shot whose subject it shows and discounts one it rend
   assert.ok(Math.abs(renderedTotal(0.8, 0.225) - 0.8 * 0.775) < 1e-9);
   assert.equal(renderedTotal(0.8, 0.05), 0, 'an empty render drops the shot');
   assert.ok(renderedTotal(0.6, 0.45) > renderedTotal(0.7, 0.15), 'a shot that renders well beats a slightly better DEM score that does not');
+});
+
+test('tours stay inside the strongly connected part of the link graph worth most', () => {
+  const s = (id, total) => ({ id, score: { total } });
+  const [a, b, c, d, e] = [s('a', 0.5), s('b', 0.5), s('c', 0.6), s('d', 0.9), s('e', 0.99)];
+  const l = (from, to) => ({ from, to });
+  // a<->b<->c form a cycle; d<->e another; e is reachable from c but leads nowhere back.
+  const links = [l(a, b), l(b, c), l(c, a), l(d, e), l(e, d), l(c, d)];
+  assert.deepEqual([...bestComponent([a, b, c, d, e], links)].map((x) => x.id).sort(), ['d', 'e'], 'two strong shots outweigh three weaker ones');
+  assert.deepEqual([...bestComponent([a, b, c, d, e], links, 1)].map((x) => x.id).sort(), ['d', 'e']);
+  assert.equal(bestComponent([a, b], [l(a, b)]).size, 0, 'a one-way pair is no tour');
 });
