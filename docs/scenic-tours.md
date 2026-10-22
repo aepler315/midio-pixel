@@ -324,6 +324,40 @@ count as copies whatever moves lead in and out, and steep look-downs are
 penalised once a library has some. Payoffs stay at or before 88% of a shot,
 so every shot holds its view before it ends.
 
+#### In the application
+
+Key frames from the review harness are not the experience: the harness
+lights terrain from a fixed direction (north-west views glare white there)
+and shows a shot at four moments. Libraries are therefore also judged in
+the app: `tools/shot-reel.mjs` plays every published shot entry to exit at
+its ideal pace through the real scene (frames, an MP4 with each shot's id,
+and a sheet of five frames per shot; the drawn camera matches the library
+path to the centimetre), and a continuous `tools/visual-evaluate.mjs`
+manifest records the tour the planner actually makes for a song.
+
+Seen there, a bright sheet on flat desert floor (Monument Valley) is the
+app's music-driven weather, not data: after a squall `wet01` lowers the
+terrain's roughness (`RangeStorm.js`, the shader's wet receivers), and flat
+ground then mirrors lightning, the moon or a low sun. The same pose with dry
+ground shows nothing; the DEM water mask is not under it. It is independent
+of tours (the rail shows it facing the light at those times).
+
+#### Pacing
+
+What a viewer sees is the planned tour, and there the limit is distance. The
+planner lands a payoff where a leg -- the rest of one shot, a link, the next
+shot up to its payoff -- can be flown within the motion limits; selected
+shots lie 2-5 km apart, so a leg takes 45-60 s even at the speed caps
+(links are held to 20-90 m/s by their bend, calm music lowers the flow cap
+further) and a 168 s song holds two or three payoffs. Replaying the round-2
+libraries over three songs planned 57 payoffs where each part flown at its
+own cap would allow 129. More reward per payoff (x10) or a wider search did
+not change that (61, 57); letting each part of a leg keep its own pace
+between join knots gave 59. More payoffs per song need shots closer
+together -- fewer subjects per view -- or smoother link joins where those
+set the cap (Ross Lake: 11 of 13 links); that trade-off is a choice for
+the product, not made here.
+
 ### Terrain policy, drift and per-region budgets
 
 Every build first bakes the rail alone. When that no longer reproduces the
