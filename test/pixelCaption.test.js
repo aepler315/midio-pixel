@@ -106,3 +106,9 @@ test('Detailed doubles glyph bodies, margins and line advance without changing p
   assert.equal(detailed.bounds.height, classic.bounds.height * 2);
   assert.equal(detailed.bounds.x, classic.bounds.x * 2);
 });
+test('Medium draws captions on whole grid pixels', () => {
+  const caption = sceneCaptionFor(catalog.views[0]);
+  const medium = pixelCaption.layoutPixelCaption(caption, { grid: pixelGrid('medium'), localMs: 4500 });
+  for (const v of [medium.bounds.x, medium.bounds.y, medium.bounds.width, medium.bounds.height, ...medium.lines.flatMap(l => [l.x, l.y])]) assert.ok(Number.isInteger(v), `${v}`);
+  assert.ok(medium.bounds.x >= 0 && medium.bounds.y >= 0 && medium.bounds.x + medium.bounds.width <= 480);
+});

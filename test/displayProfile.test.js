@@ -63,6 +63,11 @@ test('Detailed survives valid v2 storage, without changing look or quality', () 
   assert.equal(resolvePresentation({ ...saved, look: 'natural' }).grid.width, 640);
   assert.equal(resolveDisplayPrefs({ saved: { ...saved, pixelGrid: 'broken' } }).pixelGrid, 'classic');
 });
+test('Medium survives valid v2 storage as a 480x270 grid', () => {
+  const saved = { ...defaults, look: 'pixel', pixelGrid: 'medium', quality: 'auto' };
+  assert.deepEqual(resolveDisplayPrefs({ saved }), saved);
+  assert.deepEqual([resolvePresentation(saved).grid.width, resolvePresentation(saved).grid.height], [480, 270]);
+});
 test('Economy stays pinned over two clean minutes while Pixel Auto keeps device quality', () => {
   const auto = new PerfGovernor({ startLevel: 2, economy: false });
   assert.equal(auto.level, 2);

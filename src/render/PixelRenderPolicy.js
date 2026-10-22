@@ -2,8 +2,9 @@
 /** @typedef {{active: boolean, grid: PixelGrid|null, unit: number, minGlyphHeight: number, materialMinPeriodPx: number, pixelScale: 'original'}} PixelPolicy */
 
 const CLASSIC = Object.freeze({ id: 'classic', width: 320, height: 180, pixels: 57600 });
+const MEDIUM = Object.freeze({ id: 'medium', width: 480, height: 270, pixels: 129600 });
 const DETAILED = Object.freeze({ id: 'detailed', width: 640, height: 360, pixels: 230400 });
-export const PIXEL_GRIDS = Object.freeze({ classic: CLASSIC, detailed: DETAILED });
+export const PIXEL_GRIDS = Object.freeze({ classic: CLASSIC, medium: MEDIUM, detailed: DETAILED });
 export const MAX_PIXEL_PIXELS = DETAILED.pixels;
 const INACTIVE = Object.freeze({ active: false, grid: null, unit: 0, minGlyphHeight: 0, materialMinPeriodPx: 0, pixelScale: 'original' });
 export const PIXEL_POLICY_VERSION = 2;
