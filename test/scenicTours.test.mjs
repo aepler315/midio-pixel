@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { refinePayoff, durationRange, selectShots, selectLinks, regionConfig, focusArea, inFocus, steadyLook, linkLibrary, costliestShot, estimatedBytes } from '../tools/build-scenic-tours.mjs';
+import { refinePayoff, durationRange, selectShots, selectLinks, regionConfig, focusArea, inFocus, steadyLook, linkLibrary, costliestShot, estimatedBytes, trimWindow, trimShot } from '../tools/build-scenic-tours.mjs';
 import { TILE_BYTES } from '../tools/lib/scenic-cost.mjs';
 import { samplePath } from '../src/world/terrain/ShotPath.js';
 
@@ -66,7 +66,8 @@ test('a path that looks straight down anywhere is unusable', () => {
 
 // Stub cost model: a footprint maps tile -> stride directly.
 const stubCost = { own(fp, owned) { for (const [t, s] of fp) if (!(owned.get(t) <= s)) owned.set(t, s); return owned; }, shipped: () => null,
-  marginal(fp, owned = new Map()) { let b = 0; for (const [t, s] of fp) if (!(owned.get(t) <= s)) b += TILE_BYTES[s] - (owned.has(t) ? TILE_BYTES[owned.get(t)] : 0); return b; } };
+  marginal(fp, owned = new Map()) { let b = 0; for (const [t, s] of fp) if (!(owned.get(t) <= s)) b += TILE_BYTES[s] - (owned.has(t) ? TILE_BYTES[owned.get(t)] : 0); return b; },
+  total(fps) { return this.marginal(fps.reduce((m, fp) => this.own(fp, m), new Map())); } };
 
 test('dropping a shot re-links the rest from every scored pair instead of stranding them', () => {
   const cfg = { ...config, discovery: { ...config.discovery, maxLinksPerShot: 1 } };
@@ -90,4 +91,29 @@ test('the shot dropped first is the one whose terrain is most its own per unit o
   assert.equal(costliestShot(library, stubCost).shot, dear);
   const rare = shot('dear', 0.5, [[3, 1], [4, 1]], 'reveal');
   assert.equal(costliestShot({ shots: [cheap, rare, shared], links: [] }, stubCost).shot.id, 'dear', 'rarity softens but does not hide a 14 KB cost');
+});
+
+test('a long shot keeps its best window around the payoff; a reveal keeps the stretch before it', () => {
+  const p = samplePath({ eyes: [[0, 500, 0], [6000, 500, 0]], aims: [[0, 400, -5000], [6000, 400, -5000]], fovs: 30, spacingM: 60 });
+  p.flow = Float32Array.from(p.s, () => 0.0005);
+  const L = p.s.at(-1), shot = { move: 'traverse', path: p, lengthM: L, payoffS: 0.7 * L, holdS: [0.6 * L, 0.9 * L], durationMs: { ideal: 60000 } };
+  assert.equal(trimWindow({ ...shot, durationMs: { ideal: 15000 } }, 16000), null, 'a shot that fits is kept whole');
+  const [a, b] = trimWindow(shot, 16000);
+  assert.ok(Math.abs(b - a - L * 16 / 60) < 1e-6 && a < shot.payoffS && shot.payoffS < b);
+  const cut = trimShot(shot, [a, b], config.motion);
+  assert.ok(Math.abs(cut.lengthM - (b - a)) < 1e-6 && Math.abs(cut.payoffS - (shot.payoffS - a)) < 1e-6);
+  assert.ok(cut.holdS[0] <= cut.payoffS && cut.payoffS <= cut.holdS[1] && cut.holdS[1] <= cut.lengthM);
+  assert.ok(cut.durationMs.ideal < shot.durationMs.ideal && cut.path.flow.length === cut.path.s.length);
+  const reveal = { ...shot, move: 'reveal', scored: { samples: [{ s: 0.2 * L, visible: 0.1 }, { s: 0.4 * L, visible: 0.2 }, { s: 0.6 * L, visible: 0.9 }] } };
+  assert.ok(trimWindow(reveal, 16000)[0] < 0.4 * L, 'the reveal starts while its subject is still hidden');
+});
+
+test('a later round keeps what earlier rounds connected and prefers shots a short link can reach', () => {
+  const at = (x) => samplePath({ eyes: [[x, 500, 0], [x + 200, 500, 0]], aims: [[x, 400, -5000], [x + 200, 400, -5000]], fovs: 30 });
+  const shot = (id, subjectId, total, x, move = 'traverse') => ({ id, subjectId, move, path: at(x), score: { total, holes: 0 }, traits: { azimuthDeg: 0, elevation: 'low', lens: 'normal' }, missing: [] });
+  const rail = shot('rail', 'r', 0.3, 0, 'rail'), kept = shot('k1', 'k', 0.7, 300);
+  const far = shot('far', 'f', 0.8, 30000), close = shot('close', 'c', 0.7, 900);
+  const out = selectShots([rail, kept, far, close], { ...config, discovery: { ...config.discovery, maxShots: 3 } }, null, [rail, kept]);
+  assert.deepEqual(out.slice(0, 2), [rail, kept]);
+  assert.equal(out[2], close, 'a slightly better shot 30 km away loses to one within reach');
 });

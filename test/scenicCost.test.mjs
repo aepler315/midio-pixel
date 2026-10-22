@@ -1,29 +1,25 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { terrainCostModel, TILE_BYTES } from '../tools/lib/scenic-cost.mjs';
+import { strideCost, TILE_BYTES, MANIFEST_TILE_BYTES } from '../tools/lib/scenic-cost.mjs';
 
-// Two 64-cell tiles side by side: flat ground, then sharp ridges.
-function ctx(shipped = {}) {
-  const width = 129, height = 65, heightsM = new Float32Array(width * height), valid = new Uint8Array(width * height).fill(1);
-  for (let y = 0; y < height; y++) for (let x = 66; x < width; x++) heightsM[y * width + x] = 40 * Math.abs(Math.sin(x * 1.3)) + 25 * Math.abs(Math.cos(y * 0.9));
-  const byIndex = new Map(Object.entries(shipped).map(([k, stride]) => [k, { stride }]));
-  return { grid: { width, height, heightsM, valid }, terrain: { manifest: { tileCells: 64 }, data: { byIndex } } };
-}
+// A 4x2-tile grid whose shipped package holds tile (1,0) at stride 4.
+const ctx = { grid: { width: 257, height: 129 }, terrain: { manifest: { tileCells: 64 }, data: { byIndex: new Map([['1,0', { stride: 4 }], ['2,0', { stride: 8, visible: false }]]) } } };
 
-test('the stride a tile needs follows its relief and how sharply it is seen', () => {
-  const cost = terrainCostModel(ctx(), { scale: 4 });
-  assert.equal(cost.strideFor(0, 50), 64, 'flat ground needs no detail however close');
-  assert.ok(cost.strideFor(1, 50) <= 2, 'sharp ridges seen up close need full detail');
-  assert.ok(cost.strideFor(1, 0.05) > cost.strideFor(1, 50), 'and less from far away');
+test('a new tile costs its samples and its manifest entry; a shipped one only the finer detail', () => {
+  const cost = strideCost(ctx);
+  assert.equal(cost.tilesX, 4);
+  assert.equal(cost.shipped(1), 4);
+  assert.equal(cost.shipped(2), null, 'a hidden shipped tile is not drawn, so not owned');
+  assert.equal(cost.marginal(new Map([[0, 2]])), TILE_BYTES[2] + MANIFEST_TILE_BYTES);
+  assert.equal(cost.marginal(new Map([[1, 1]])), TILE_BYTES[1] - TILE_BYTES[4]);
+  assert.equal(cost.marginal(new Map([[1, 8]])), 0, 'coarser than shipped costs nothing');
 });
 
-test('a footprint costs only the detail it adds beyond the shipped package and what is already owned', () => {
-  const fp = new Map([[0, 50], [1, 50]]);
-  const bare = terrainCostModel(ctx(), { scale: 4 });
-  const need = bare.strideFor(1, 50);
-  assert.equal(bare.marginal(fp), TILE_BYTES[64] + TILE_BYTES[need]);
-  const shipped = terrainCostModel(ctx({ '0,0': 64, '1,0': 4 }), { scale: 4 });
-  assert.equal(shipped.marginal(fp), TILE_BYTES[need] - TILE_BYTES[4], 'a shipped tile pays the difference to the finer stride');
-  const owned = shipped.own(fp, new Map());
-  assert.equal(shipped.marginal(fp, owned), 0, 'nothing more once another shot has paid for it');
+test('footprints add up tile by tile at the finest stride any record needs', () => {
+  const cost = strideCost(ctx);
+  const a = new Map([[0, 4], [5, 16]]), b = new Map([[0, 1], [6, 64]]);
+  const owned = cost.own(a, new Map());
+  assert.equal(cost.marginal(b, owned), TILE_BYTES[1] - TILE_BYTES[4] + TILE_BYTES[64] + MANIFEST_TILE_BYTES);
+  assert.equal(cost.total([a, b]), cost.marginal(a) + cost.marginal(b, owned));
+  assert.equal(cost.total([a, a]), cost.marginal(a));
 });

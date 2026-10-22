@@ -6,7 +6,10 @@
 // same plan as the browser worker.
 //
 //   node tools/plan-scenic-tour.mjs --library DIR_OR_MANIFEST --structure structure.json [--song anthem.wav]
-//        [--seed N] [--out plan.json]
+//        [--seed N] [--visible 30-85,120-168] [--out plan.json]
+//
+// --visible limits where the view is on screen (seconds), as the app does when a
+// song's chapters move between views; without it the view holds the whole song.
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import zlib from 'node:zlib';
@@ -94,7 +97,8 @@ async function main() {
   if (!opt('--library') || !opt('--structure')) throw new Error('usage: node tools/plan-scenic-tour.mjs --library DIR --structure structure.json [--song file.wav]');
   const library = await readLibrary(path.resolve(opt('--library')));
   const inputs = songInputs(JSON.parse(await fs.readFile(path.resolve(opt('--structure')), 'utf8')), opt('--song'));
-  const r = replay(library, inputs, { seed: Number(opt('--seed') ?? 315) });
+  const visible = opt('--visible')?.split(',').map((w) => { const [a, b] = w.split('-').map(Number); return { startMs: a * 1000, endMs: b * 1000 }; }) ?? null;
+  const r = replay(library, inputs, { seed: Number(opt('--seed') ?? 315), visible });
   console.log(`${library.viewId} x ${inputs.file}: ${r.shots.length} shots, plan ${r.planMs.toFixed(1)} ms, timeline ${r.timelineMs.toFixed(1)} ms${r.fallback ? `, FALLBACK ${r.fallback}` : ''}`);
   for (const s of r.shots) {
     console.log(`  ${(s.startMs / 1000).toFixed(1).padStart(6)}-${(s.endMs / 1000).toFixed(1).padEnd(6)} payoff ${s.payoffMs == null ? '   -  ' : (s.payoffMs / 1000).toFixed(1).padStart(6)}  ${s.move.padEnd(9)} ${s.lens.padEnd(6)} ${String(s.elevation).padEnd(5)} ${s.subjectId}`);

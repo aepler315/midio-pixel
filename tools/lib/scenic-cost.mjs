@@ -1,79 +1,97 @@
-// Scenic shot tours: what a camera path would cost in terrain, before any
-// bake (docs/scenic-tours.md, "Selection and budgets").
+// Scenic shot tours: what a camera path would cost in terrain, before the
+// library bake (docs/scenic-tours.md, "Selection and budgets").
 //
-// A path's footprint is, per DEM tile its frames hit, the sharpest
-// focal / view depth any of its poses has on it (pixels per metre of
-// geometric error, at the desktop 1080-row budget). The baker gives a tile
-// the coarsest stride whose measured error stays within the pixel budget at
-// that sharpness, so the stride -- and with it the tile's compressed bytes
-// -- follows from the DEM alone. A tile already shipped costs only the
-// detail it must gain; a tile already paid for by chosen shots costs only
-// the difference to a finer stride.
-import { tileStrideError, TILE_CELLS, LOD_BUDGETS } from './terrain-bake.mjs';
-import { STRIDES } from '../../src/world/alpine/TerrainPackage.js';
-import { pathPoseAt } from '../../src/world/terrain/ShotPath.js';
+// A record's footprint is the stride the baker itself gives each tile the
+// record's frames see: the same bake the library will get (rail stations,
+// the record's poses and their reflections, the tour pixel budget, core
+// framing), run on that record alone. A tile's stride is set by the
+// sharpest viewer that sees it, so a library's strides are the finest of
+// its records' and costs add up tile by tile. A tile the shipped package
+// already holds at that stride or finer costs nothing; a new tile costs its
+// compressed samples and its manifest entry; a shipped or already paid-for
+// tile costs only the difference to the finer stride.
+import { bakeTerrain, mirroredPose } from './terrain-bake.mjs';
+import { sampleFootprintPoses } from './scenic-coverage.mjs';
+import { mirrorLevelFor } from '../../src/world/alpine/WaterMirror.js';
 
-/** Compressed bytes per tile by stride, measured on posed Monument Valley
- *  bakes (residuals + flow, gzip ratio applied). */
+/** Compressed payload bytes per tile by stride, measured on posed Monument
+ *  Valley bakes (residual heights + flow, gzip applied). */
 export const TILE_BYTES = Object.freeze({ 1: 7300, 2: 1900, 4: 500, 8: 140, 16: 45, 32: 16, 64: 7 });
+/** Manifest JSON bytes per tile entry (uncompressed, as shipped). */
+export const MANIFEST_TILE_BYTES = 470;
 
-/** Footprint of one path: Map tile index -> sharpest focal/depth. */
-export function pathFootprint(ctx, path, raster, { everyM = 150, width = 96, height = 54, heightPx = LOD_BUDGETS.desktop.heightPx } = {}) {
-  const out = new Map(), L = path.s[path.s.length - 1];
-  for (let x = 0; ; x += everyM) {
-    const pose = pathPoseAt(path, Math.min(x, L)), r = raster(pose, { width, height });
-    const focal = heightPx / (2 * Math.tan((pose.fovYDeg * Math.PI) / 360));
-    for (let i = 0; i < r.tile.length; i++) {
-      if (r.tile[i] < 0 || !(r.depth[i] > 0)) continue;
-      const fod = focal / Math.max(40, r.depth[i]);
-      if (!(out.get(r.tile[i]) >= fod)) out.set(r.tile[i], fod);
-    }
-    if (x >= L) break;
+/** Median height of the package's water samples (null without water). */
+export function waterLevelOf(data) {
+  const hs = [];
+  for (const t of data.tiles.values()) {
+    if (!t.flowBytes) continue;
+    for (let i = 0; i < t.flowBytes.length; i += 7) if (t.flowBytes[i] === 255 && Number.isFinite(t.heightsM[i])) hs.push(t.heightsM[i]);
   }
-  return out;
+  if (!hs.length) return null;
+  hs.sort((a, b) => a - b);
+  return hs[hs.length >> 1];
 }
 
-/** Terrain cost model for one view's grid and shipped package. */
-export function terrainCostModel(ctx, { errorPx = LOD_BUDGETS.desktop.errorPx, scale = 4 } = {}) {
-  const g = ctx.grid, cells = ctx.terrain?.manifest?.tileCells ?? TILE_CELLS;
-  const tilesX = Math.ceil((g.width - 1) / cells);
-  const errors = new Map();
-  const errorsOf = (t) => {
-    let e = errors.get(t);
-    if (!e) {
-      const ix = t % tilesX, iz = Math.floor(t / tilesX);
-      e = STRIDES.filter((s) => s <= cells).map((s) => [s, tileStrideError(g.heightsM, g.valid, g.width, g.height, ix * cells, iz * cells, cells, s)]);
-      errors.set(t, e);
-    }
-    return e;
-  };
+/** The poses records' frames (and, where a lake mirrors, their
+ *  reflections) need covered. */
+export function tourPoses(ctx, records, { spacingM = 120, maxPoses = 2600 } = {}) {
+  let poses = sampleFootprintPoses(records, { spacingM, maxPoses });
+  const mapped = ctx.view.riverPolicy?.terrainWater === 'mapped-only';
+  const level = mapped ? null : mirrorLevelFor(ctx.terrain.data, waterLevelOf(ctx.terrain.data));
+  if (level != null) poses = poses.concat(poses.filter((_, i) => i % 2 === 0).map((p) => mirroredPose(p, level)));
+  return { poses, mirrorLevelM: level };
+}
+
+/** The bake options build-range-scene.mjs uses for the view (rail only). */
+export function bakeOptions(ctx) {
+  const camera = ctx.build.view.camera;
+  return { landmarks: ctx.build.landmarks, dataUrl: `${ctx.viewId}.terrain.bin.gz`, ...(ctx.view.water === false ? { water: false } : {}),
+    ...(camera.eyeArcM || camera.targetArcM ? { visibility: { stations: 61 } } : {}) };
+}
+
+/** Bake options for tour poses at `scale` times the rail's pixel budget. */
+export function tourBakeOptions(ctx, poses, scale) {
+  return { ...bakeOptions(ctx), poses, poseErrorScale: scale, poseFramings: ['core'] };
+}
+
+/** One path's footprint: [tile index, stride] for every tile the bake of
+ *  the rail plus this path's poses ships. */
+export async function pathFootprint(ctx, path, { scale = 4, spacingM = 120 } = {}) {
+  const { poses } = tourPoses(ctx, [{ path }], { spacingM });
+  const baked = await bakeTerrain(ctx.grid, ctx.build.view, tourBakeOptions(ctx, poses, scale));
+  const tilesX = tilesAcross(ctx);
+  return baked.manifest.tiles.filter((t) => t.visible !== false).map((t) => [t.iz * tilesX + t.ix, t.stride]);
+}
+
+function tilesAcross(ctx) {
+  const cells = ctx.terrain?.manifest?.tileCells ?? 64;
+  return Math.ceil((ctx.grid.width - 1) / cells);
+}
+
+/** Cost model over footprints (Map tile index -> stride) for one view. */
+export function strideCost(ctx) {
+  const tilesX = tilesAcross(ctx);
   const shipped = (t) => {
     const tile = ctx.terrain?.data?.byIndex?.get(`${t % tilesX},${Math.floor(t / tilesX)}`);
     return tile && tile.visible !== false ? tile.stride : null;
   };
-  /** The stride a tile needs at sharpness `fod`. */
-  const strideFor = (t, fod) => {
-    let best = 1;
-    for (const [s, e] of errorsOf(t)) if (e * fod <= errorPx * scale) best = s;
-    return best;
-  };
+  const price = (stride, have) => (have == null ? TILE_BYTES[stride] + MANIFEST_TILE_BYTES : TILE_BYTES[stride] - TILE_BYTES[have]);
   /** Bytes a footprint adds beyond the shipped package and `owned`
    *  (Map tile -> stride already paid for). */
   const marginal = (footprint, owned = new Map()) => {
     let bytes = 0;
-    for (const [t, fod] of footprint) {
-      const need = strideFor(t, fod), have = Math.min(shipped(t) ?? Infinity, owned.get(t) ?? Infinity);
-      if (need < have) bytes += TILE_BYTES[need] - (Number.isFinite(have) ? TILE_BYTES[have] : 0);
+    for (const [t, need] of footprint) {
+      const ship = shipped(t), paid = owned.get(t), have = Math.min(ship ?? Infinity, paid ?? Infinity);
+      if (need < have) bytes += price(need, Number.isFinite(have) ? have : null);
     }
     return bytes;
   };
   /** Record a footprint's strides in `owned`. */
   const own = (footprint, owned) => {
-    for (const [t, fod] of footprint) {
-      const need = strideFor(t, fod);
-      if (!(owned.get(t) <= need)) owned.set(t, need);
-    }
+    for (const [t, need] of footprint) if (!(owned.get(t) <= need)) owned.set(t, need);
     return owned;
   };
-  return { strideFor, marginal, own, shipped, tilesX };
+  /** Bytes a set of footprints adds beyond the shipped package. */
+  const total = (footprints) => marginal(footprints.reduce((m, fp) => own(fp, m), new Map()));
+  return { shipped, marginal, own, total, tilesX };
 }

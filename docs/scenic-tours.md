@@ -191,22 +191,30 @@ audio, a checkpoint sheet and an index of timestamps and camera state.
 ### Selection and budgets
 
 Discovery judges scenery on the full DEM; a tile the shipped package lacks
-is not a flaw of a shot but a cost. Every scored candidate records its
-footprint: per DEM tile, the sharpest focal length over view depth any of
-its frames has on it. The baker gives a tile the coarsest stride whose
-measured error stays within the pixel budget at that sharpness, so the
-stride and the tile's compressed bytes follow from the DEM alone
-(`tools/lib/scenic-cost.mjs`; bytes per stride measured on posed bakes).
-Selection charges a shot (and a link) for the bytes its detail adds beyond
-the shipped package and the shots already chosen (`discovery.byteWeight`
-of score per 100 KB) and stops short of the region's byte budget.
-`fitToBudget` then bakes the library's footprint and measures the added
-bytes and triangles against the region's caps and the shared 60 MB. While
-over, it calibrates the estimate on that bake, drops the shot whose terrain
-is most its own per unit of score and rarity (the only reveal, the only high
-shot or the only shot of a subject is worth more), and chooses the links
-afresh from every scored pair among the shots that remain, so a drop never
-strands the shots that were reached through it.
+is not a flaw of a shot but a cost. A song has room for a payoff every
+15-30 s, so a shot longer than `discovery.maxShotS` at its ideal pace keeps
+its best window around the payoff (a reveal keeps the hidden stretch
+before it) and is scored again as cut; a link that cannot be flown within
+`discovery.maxLinkS` even at full pace is not offered.
+
+Every candidate shot and every link on a pair's Pareto front records its
+footprint: the stride the baker itself gives each tile when it bakes the
+rail plus that record's poses (and their reflections) at the tour pixel
+budget (`tools/lib/scenic-cost.mjs`). A tile's stride is set by the
+sharpest viewer that sees it, so footprints add up tile by tile. A new tile
+costs its compressed samples (bytes per stride measured on posed bakes) and
+its manifest entry (about 470 bytes of JSON, often more than a coarse
+tile's samples); a shipped or already paid-for tile costs only the step to
+a finer stride. Selection charges a shot (and a link) for the bytes it adds
+beyond the shipped package and the shots already chosen
+(`discovery.byteWeight` of score per 100 KB) and stops short of the
+region's byte budget. `fitToBudget` then bakes the library's footprint and
+measures the added bytes and triangles against the region's caps and the
+shared 60 MB. While over, it calibrates the estimate on that bake, drops the
+shot whose terrain is most its own per unit of score and rarity (the only
+reveal, the only high shot or the only shot of a subject is worth more), and
+chooses the links afresh from every scored pair among the shots that
+remain, so a drop never strands the shots that were reached through it.
 Tiles only tour cameras see are held to `budget.poseErrorScale` times the
 rail's pixel budget (the app presents terrain on a 320×180 or 640×360
 pixel grid); tiles the rail sees keep their approved detail.

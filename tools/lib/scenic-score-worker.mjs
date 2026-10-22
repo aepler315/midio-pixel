@@ -4,7 +4,8 @@
 // Discovery judges scenery on the full DEM: a tile the shipped package
 // lacks is not a flaw of the shot (the bake adds it), only a cost, so
 // scoring runs without the package and holes mean rays leaving the grid.
-// 'missing' jobs report the tiles a path's frames need from the package.
+// 'missing' jobs report the tiles a path's frames need from the package;
+// 'footprint' jobs the stride the baker gives each tile (scenic-cost.mjs).
 import { parentPort, workerData } from 'node:worker_threads';
 import { loadViewContext, depthRaster } from './scenic-terrain.mjs';
 import { scorePath, linkScore } from './scenic-score.mjs';
@@ -24,12 +25,11 @@ function missing(path, { everyM = 150, width = 96, height = 54 } = {}) {
   return [...need].sort((a, b) => a - b);
 }
 
-parentPort.on('message', ({ id, kind, path, opts }) => {
+parentPort.on('message', async ({ id, kind, path, opts }) => {
   try {
     if (kind === 'missing') { parentPort.postMessage({ id, result: missing(path, opts) }); return; }
     if (kind === 'footprint') {
-      const fp = pathFootprint(dem, path, (pose, o) => depthRaster(dem, pose, o), opts);
-      parentPort.postMessage({ id, result: [...fp] }); return;
+      parentPort.postMessage({ id, result: await pathFootprint(ctx, path, opts) }); return;
     }
     const result = kind === 'link' ? linkScore(dem, path, opts) : scorePath(dem, path, opts);
     parentPort.postMessage({ id, result: { aggregate: result.aggregate, flow: result.flow, signature: result.signature,
