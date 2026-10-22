@@ -463,11 +463,11 @@ export function selectShots(scored, config, cost = null, kept = [], { add = Infi
 
 /**
  * A connected shortlist grown by ears over the link graph: seeded with the
- * best two- or three-shot cycle, then extended only by a shot the set links
- * into and back out of, or a two-shot chain set -> a -> b -> set, whichever
- * is worth most per shot (selection()). Every shot so chosen has a way in
- * and a way out among the others. The rail joins as the fallback, linked or
- * not.
+ * best short cycle (at most discovery.earShots + 2 shots), then extended
+ * only by ears, chains of at most discovery.earShots new shots that leave
+ * the set and rejoin it (set -> a -> ... -> set), whichever is worth most
+ * per shot (selection()). Every shot so chosen has a way in and a way out
+ * among the others. The rail joins as the fallback, linked or not.
  */
 export function selectConnected(scored, links, config, cost = null) {
   const rail = scored.filter((c) => c.move === 'rail');
@@ -478,58 +478,66 @@ export function selectConnected(scored, links, config, cost = null) {
     if (!ins.has(l.to)) ins.set(l.to, new Set());
     outs.get(l.from).add(l.to); ins.get(l.to).add(l.from);
   }
-  const has = (m, a, b) => m.get(a)?.has(b) || false;
   const sel = selection(config, cost, rail);
-  const set = new Set(rail.filter((r) => [...(outs.get(r) || [])].some((x) => has(outs, x, r))));
-  const max = config.discovery.maxShots;
-  // Value of adding a group in order, or null when any member does not fit.
-  const groupValue = (group) => {
+  const set = new Set(rail);
+  const max = config.discovery.maxShots, earShots = config.discovery.earShots ?? 3;
+  // Value of adding a chain in order, or null when any member does not fit.
+  const chainValue = (chain) => {
     const extra = [];
     let total = 0;
-    for (const c of group) {
+    for (const c of chain) {
       const w = sel.value(c, extra);
       if (!w) return null;
       total += w.v; extra.push(Object.assign(Object.create(c), { bytes: w.bytes }));
     }
-    return { v: total / group.length, bytes: extra.map((x) => x.bytes) };
+    // Longer chains spend more of the song on one detour: 5% per extra shot.
+    return { v: (total / chain.length) * (1 - 0.05 * (chain.length - 1)), bytes: extra.map((x) => x.bytes) };
   };
-  const better = (a, b) => !b || a.v > b.v || (a.v === b.v && a.key < b.key);
-  const add = (best) => { best.group.forEach((c, i) => { sel.take(c, best.bytes[i]); set.add(c); pool.delete(c); }); };
-  // Seed: the best cycle of two or three shots.
+  const key = (chain) => chain.map((c) => c.id).join('>');
+  const better = (x, y) => !y || x.v > y.v || (x.v === y.v && x.key < y.key);
+  // Breadth-first distances through pool shots: from `sources` along links
+  // (or against them), at most `limit` steps; returns Map shot -> parent.
+  const bfs = (sources, edges, limit) => {
+    const parent = new Map(), depth = new Map();
+    let frontier = [...sources];
+    for (const x of frontier) depth.set(x, 0);
+    for (let d = 1; d <= limit && frontier.length; d++) {
+      const next = [];
+      for (const x of frontier) for (const y of edges.get(x) || []) {
+        if (!pool.has(y) || depth.has(y)) continue;
+        depth.set(y, d); parent.set(y, x); next.push(y);
+      }
+      frontier = next;
+    }
+    return { parent, depth };
+  };
+  const walk = (parent, from, stop) => { const path = []; for (let x = from; x && !stop(x); x = parent.get(x)) path.push(x); return path; };
+  // Seed: for each pool shot, the shortest cycle through it.
   let seed = null;
   for (const a of pool) {
-    for (const b of outs.get(a) || []) {
-      if (!pool.has(b)) continue;
-      if (has(outs, b, a) && a.id < b.id) {
-        const w = groupValue([a, b]);
-        if (w && better({ ...w, key: a.id + b.id }, seed)) seed = { ...w, key: a.id + b.id, group: [a, b] };
-      }
-      for (const c of outs.get(b) || []) {
-        if (c === a || !pool.has(c) || !has(outs, c, a) || !(a.id < b.id && a.id < c.id)) continue;
-        const w = groupValue([a, b, c]);
-        // A three-shot seed must beat a two-shot one per shot by a margin.
-        if (w && better({ ...w, v: w.v * 0.95, key: a.id + b.id + c.id }, seed)) seed = { ...w, v: w.v * 0.95, key: a.id + b.id + c.id, group: [a, b, c] };
-      }
-    }
+    const { parent, depth } = bfs([a], outs, earShots + 1);
+    let close = null;
+    for (const y of ins.get(a) || []) if (y !== a && depth.has(y) && (!close || depth.get(y) < depth.get(close))) close = y;
+    if (!close) continue;
+    const chain = walk(parent, close, (x) => x === a).reverse();
+    chain.unshift(a);
+    const w = chainValue(chain);
+    if (w && better({ ...w, key: key(chain) }, seed)) seed = { ...w, key: key(chain), chain };
   }
   if (!seed) return sel.out;
+  const add = (best) => { best.chain.forEach((c, i) => { sel.take(c, best.bytes[i]); set.add(c); pool.delete(c); }); };
   add(seed);
-  // Ears: a single shot linked both ways to the set, or a chain of two.
+  // Ears: for each pool shot, the shortest way in from the set and the
+  // shortest way back out to it.
   while (sel.out.length < max) {
+    const fwd = bfs([...set], outs, earShots), back = bfs([...set], ins, earShots);
     let best = null;
     for (const c of pool) {
-      const into = [...(ins.get(c) || [])].some((x) => set.has(x));
-      if (!into) continue;
-      if ([...(outs.get(c) || [])].some((x) => set.has(x))) {
-        const w = groupValue([c]);
-        if (w && better({ ...w, key: c.id }, best)) best = { ...w, key: c.id, group: [c] };
-      }
-      if (sel.out.length + 2 > max) continue;
-      for (const d of outs.get(c) || []) {
-        if (!pool.has(d) || ![...(outs.get(d) || [])].some((x) => set.has(x))) continue;
-        const w = groupValue([c, d]);
-        if (w && better({ ...w, v: w.v * 0.95, key: c.id + d.id }, best)) best = { ...w, v: w.v * 0.95, key: c.id + d.id, group: [c, d] };
-      }
+      if (!fwd.depth.has(c) || !back.depth.has(c)) continue;
+      const chain = [...walk(fwd.parent, c, (x) => set.has(x)).reverse(), ...walk(back.parent, back.parent.get(c), (x) => set.has(x))];
+      if (chain.length > earShots || sel.out.length + chain.length > max || new Set(chain).size !== chain.length) continue;
+      const w = chainValue(chain);
+      if (w && better({ ...w, key: key(chain) }, best)) best = { ...w, key: key(chain), chain };
     }
     if (!best) break;
     add(best);

@@ -151,3 +151,15 @@ test('a connected shortlist grows only by shots the set links into and back out 
   }
   assert.deepEqual(selectConnected([rail, d, e], [l(d, e)], config, null), [rail], 'no cycle, no tour shots');
 });
+
+test('a connected shortlist seeds with a longer cycle when no short one exists, and adds longer ears', () => {
+  const shot = (id, total) => ({ id, subjectId: id, move: 'traverse', score: { total, holes: 0 }, traits: { azimuthDeg: 0, elevation: 'low', lens: 'normal' }, missing: [] });
+  const [a, b, c, d, e, f, g] = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((id) => shot(id, 0.5));
+  const l = (from, to) => ({ from, to });
+  // Only a four-shot cycle a->b->c->d->a, and a three-shot ear b->e->f->g->d.
+  const links = [l(a, b), l(b, c), l(c, d), l(d, a), l(b, e), l(e, f), l(f, g), l(g, d)];
+  const out = selectConnected([a, b, c, d, e, f, g], links, { ...config, discovery: { ...config.discovery, maxShots: 8 } }, null);
+  assert.deepEqual(out.map((x) => x.id).sort(), ['a', 'b', 'c', 'd', 'e', 'f', 'g']);
+  const capped = selectConnected([a, b, c, d, e, f, g], links, { ...config, discovery: { ...config.discovery, maxShots: 8, earShots: 2 } }, null);
+  assert.deepEqual(capped.map((x) => x.id).sort(), ['a', 'b', 'c', 'd'], 'an ear longer than earShots is not taken');
+});
