@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { loadViewContext, buildClearance, heightAt } from './lib/scenic-terrain.mjs';
 import { discoverSubjects, valleyPaths, shorelines } from './lib/scenic-features.mjs';
 import { generateShots, poseTraits, LANDFORMS } from './lib/scenic-shots.mjs';
-import { linkVariants, keepParetoLinks } from './lib/scenic-links.mjs';
+import { linkVariants, keepParetoLinks, linkRejects } from './lib/scenic-links.mjs';
 import { strideCost, tourPoses, tourBakeOptions, bakeOptions } from './lib/scenic-cost.mjs';
 
 import { SHOT_SCHEMA, SHOT_VERSION, packShotPaths, chooseLattice, shotLibraryErrors, decodeShotLibrary, cameraFootprint } from '../src/world/terrain/ShotLibrary.js';
@@ -181,8 +181,12 @@ export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpu
   // the camera around (reveals, approaches and pullbacks keep their sense).
   const generated = [...forward, ...forward.filter((c) => REVERSIBLE.has(c.move)).map(reverseShot)];
   // The authored rail is always a candidate, wherever the focus lies.
+  const outOfFocus = generated.filter((c) => c.move !== 'rail' && !inFocus(c.path, focus));
   const candidates = generated.filter((c) => (c.move === 'rail' || inFocus(c.path, focus)) && steadyLook(c.path));
-  log(`${viewId}: ${candidates.length} candidate shots`);
+  // What each stage keeps and why the rest go (report.funnel).
+  const funnel = { discovery: { generated: forward.length, reversed: generated.length - forward.length, outOfFocus: outOfFocus.length,
+    steepLook: generated.length - outOfFocus.length - candidates.length, candidates: candidates.length } };
+  log(`${viewId}: ${candidates.length} candidate shots (${forward.length} generated + ${generated.length - forward.length} reversed; ${outOfFocus.length} outside the focus area, ${funnel.discovery.steepLook} looking near straight down)`);
   const subjectById = new Map(subjects.map((s) => [s.id, s]));
   const pool = new ScorePool(viewId, workers);
   await pool.ready;
@@ -207,6 +211,8 @@ export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpu
         if (k < 3 && second.filter((x) => x.subjectId === c.subjectId).length < config.discovery.shotsPerSubject * 2) { second.push(c); perMove.set(key, k + 1); }
       }
     }
+    Object.assign(funnel.discovery, { coarseHoles: candidates.filter((c) => c.move !== 'rail' && !(c.coarse.holes < 0.5)).length,
+      scoredInFull: second.length, cappedPerSubjectOrMove: candidates.filter((c) => c.move !== 'rail' && c.coarse.holes < 0.5).length - (second.length - candidates.filter((c) => c.move === 'rail').length) });
     // Pass 2: full scores and flow lanes.
     const full = await Promise.all(second.map((c) => pool.score('shot', c.path, {
       subject: subjectById.get(c.subjectId), subjects, lens: c.traits.lens, move: c.move,
@@ -261,6 +267,7 @@ export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpu
         if (c.move !== 'rail') for (const why of gate.reasons) reasons.set(why, (reasons.get(why) || 0) + 1);
       }
       const weak = second.filter((c) => c.move !== 'rail' && c.score.total === 0).length;
+      funnel.discovery.renderGate = { dropped: weak, reasons: Object.fromEntries(reasons) };
       log(`${viewId}: renderer scored ${rendered.size} candidates; ${weak} dropped (${[...reasons].map(([k, n]) => `${n} ${k}`).join(', ') || 'none gated'})`);
     }
     // The candidate link graph: from each scored shot to its nearest few
@@ -271,15 +278,25 @@ export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpu
     const reachM = (maxLinkMs / 1000) * config.motion.maxSpeedMps;
     const usable = second.filter((c) => c.move === 'rail' || c.score.total > 0);
     const raw = [];
+    for (const k of Object.keys(linkRejects)) delete linkRejects[k];
+    let pairsTried = 0, outOfReach = 0, steep = 0;
     for (const a of usable) {
-      const next = usable.filter((b) => b !== a).map((b) => [b, endGap(a, b)]).filter(([, d]) => d <= reachM)
-        .sort((x, y) => x[1] - y[1]).slice(0, config.discovery.linkFanout ?? 8);
-      for (const [b] of next) for (const v of linkVariants(ctx, a, b, { linkMaxM: config.discovery.linkMaxM, transitMaxM: config.discovery.transitMaxM, radiusM: config.discovery.linkRadiusM ?? 400 })) if (steadyLook(v.path)) raw.push({ from: a, to: b, ...v });
+      const near = usable.filter((b) => b !== a).map((b) => [b, endGap(a, b)]);
+      const next = near.filter(([, d]) => d <= reachM).sort((x, y) => x[1] - y[1]).slice(0, config.discovery.linkFanout ?? 8);
+      outOfReach += near.filter(([, d]) => !(d <= reachM)).length;
+      pairsTried += next.length;
+      for (const [b] of next) for (const v of linkVariants(ctx, a, b, { linkMaxM: config.discovery.linkMaxM, transitMaxM: config.discovery.transitMaxM, radiusM: config.discovery.linkRadiusM ?? 400 })) {
+        if (steadyLook(v.path)) raw.push({ from: a, to: b, ...v }); else steep++;
+      }
     }
     const linkScores = await Promise.all(raw.map((l) => pool.score('link', l.path, { everyM: 120, width: 96, height: 54 })));
     raw.forEach((l, i) => { l.score = linkScores[i].aggregate; l.path.flow = Float32Array.from(linkScores[i].flow); l.durationMs = durationRange(l.path, l.path.flow, config.motion); });
-    const front = paretoFront(raw.filter((l) => l.durationMs.min <= maxLinkMs));
-    const graph = { usable, front, subjects, focus: ctx.focus, scored: second.length, variants: raw.length,
+    const leashed = raw.filter((l) => l.durationMs.min <= maxLinkMs);
+    const front = paretoFront(leashed);
+    funnel.links = { shots: usable.length, pairsOutOfReach: outOfReach, pairsTried, variantsTried: pairsTried * 4, rejected: { ...linkRejects, 'looks near straight down': steep },
+      built: raw.length, overLeash: raw.length - leashed.length, holed: leashed.filter((l) => l.score.holes > 0.002).length, paretoKept: front.length };
+    log(`${viewId}: links: ${pairsTried} nearest pairs within reach (${outOfReach} pairs beyond ${Math.round(reachM)} m), ${pairsTried * 4} variants tried, ${raw.length} built (rejected: ${Object.entries(funnel.links.rejected).map(([k, n]) => `${n} ${k}`).join(', ')}), ${funnel.links.overLeash} slower than ${maxLinkMs / 1000} s, ${funnel.links.holed} seeing holes, ${front.length} kept on the pairs' Pareto fronts`);
+    const graph = { usable, front, subjects, focus: ctx.focus, scored: second.length, variants: raw.length, funnel,
       candidateScores: candidates.map((c) => ({ id: c.id, move: c.move, tags: c.tags, elevation: c.traits.elevation, lens: c.traits.lens,
         coarse: c.coarse ? { total: c.coarse.total, holes: c.coarse.holes, payoff: c.coarse.payoff } : null, full: c.score?.total ?? null })) };
     await writeGraphCache(out, graph);
@@ -303,6 +320,8 @@ async function selectLibrary(viewId, { ctx, config, pool, cost, scale, graph, ou
   // Tours stay inside a strongly connected part of the graph: take the
   // one whose best shots are worth most (the rail joins as the fallback).
   const component = bestComponent(usable, front, config.discovery.maxShots);
+  const funnel = { ...(graph.funnel || {}), excluded: graph.usable.length - usable.length,
+    components: { parts: bestComponent.parts, inBest: component.size, onNoCycle: usable.length - bestComponent.parts.reduce((a, b) => a + b, 0) } };
   log(`${viewId}: link graph ${graph.variants} variants, ${front.length} usable within ${config.discovery.maxLinkS ?? 30} s; best connected part ${component.size} of ${usable.length} shots`);
   // Selection inside it grows a connected set: diverse, charged for
   // terrain, and only shots (or two-shot chains) the set links into and
@@ -316,6 +335,7 @@ async function selectLibrary(viewId, { ctx, config, pool, cost, scale, graph, ou
     return front.filter((l) => shots.includes(l.from) && shots.includes(l.to));
   };
   const shortlist = selectConnected(candidatesIn, front, config, cost, { log: (m) => log(`${viewId}: ${m}`) });
+  funnel.selection = selectConnected.funnel;
   const library2 = linkLibrary(shortlist, await priceLinks(shortlist), config, cost);
   const shortlisted = shortlist.length;
   const pairs = front;
@@ -332,7 +352,7 @@ async function selectLibrary(viewId, { ctx, config, pool, cost, scale, graph, ou
     candidateScores: graph.candidateScores, scored: graph.scored, shortlisted, linkVariants: graph.variants,
     shots: library.shots.map((s) => ({ id: s.id, move: s.move, subjectId: s.subjectId, lengthM: s.lengthM, payoffS: s.payoffS, holdS: s.holdS, score: s.score, traits: s.traits, durationMs: s.durationMs })),
     links: library.links.map((l) => ({ from: l.from.id, to: l.to.id, kind: l.kind, lengthM: l.lengthM, score: l.score })),
-    missingTiles: [...need].sort((a, b) => a - b), estimatedTerrainBytes: estimated,
+    missingTiles: [...need].sort((a, b) => a - b), estimatedTerrainBytes: estimated, funnel,
   };
   await fs.mkdir(out, { recursive: true });
   await fs.writeFile(path.join(out, 'report.json'), JSON.stringify(report, null, 1));
@@ -497,7 +517,9 @@ export function bestComponent(shots, links, top = 36) {
   };
   for (const v of shots) if (!index.has(v)) visit(v);
   const worth = (part) => part.map((x) => x.score.total).sort((a, b) => b - a).slice(0, top).reduce((a, b) => a + b, 0);
-  return new Set(parts.sort((a, b) => worth(b) - worth(a))[0] || []);
+  parts.sort((a, b) => worth(b) - worth(a));
+  bestComponent.parts = parts.map((p) => p.length);
+  return new Set(parts[0] || []);
 }
 
 /** Whether every pose along a path, between samples too, keeps a usable
@@ -540,26 +562,28 @@ function selection(config, cost, chosen) {
   const room = (config.budget?.assetBytes ?? Infinity) * 0.85;
   let spent = estimatedBytes(out, cost);
   /** { v, bytes } for c next to `out` (plus `extra`), or null when it
-   *  does not fit or is worth nothing. */
+   *  cannot join; `state.reject` then names why. */
+  const state = { reject: null };
+  const no = (why) => { state.reject = why; return null; };
   const value = (c, extra = []) => {
     const others = extra.length ? [...out, ...extra] : out;
     const same = others.filter((o) => o.subjectId === c.subjectId);
-    if (same.length >= perSubject) return null;
-    // A near copy of a chosen shot (same view at the payoff, same way in
-    // and out) adds nothing a viewer would notice.
-    if (others.some((o) => nearCopy(o, c, config.discovery))) return null;
+    if (same.length >= perSubject) return no('subject limit');
+    // A near copy of a chosen shot (same frame at the payoff) adds nothing
+    // a viewer would notice.
+    if (others.some((o) => nearCopy(o, c, config.discovery))) return no('near copy');
     let bytes = 0;
     if (cost) {
       const held = extra.length ? extra.reduce((m, x) => cost.own(x.footprint || new Map(), m), new Map(paid)) : paid;
       bytes = cost.marginal(c.footprint || new Map(), held);
-      if (cost.coverageOnly && bytes > 0) return null;
+      if (cost.coverageOnly && bytes > 0) return no('needs new terrain (coverage only)');
       const before = extra.reduce((n, x) => n + (x.bytes || 0), 0);
       // Links add about a quarter again to the shots' terrain; each shot
       // brings its own record and about three links.
-      if ((spent + before + bytes) * 1.25 + 4 * RECORD_BYTES * (others.length + 1) > room) return null;
+      if ((spent + before + bytes) * 1.25 + 4 * RECORD_BYTES * (others.length + 1) > room) return no('over the byte budget');
     }
     let v = cost ? c.score.total / (1 + bytes / byteScale) : c.score.total - tileWeight * (c.missing || []).filter((t) => !owned.has(t)).length / 100;
-    if (v <= 0) return null;
+    if (v <= 0) return no('worth nothing');
     const n = Math.max(1, others.length);
     v *= 1 - 0.12 * same.length;
     v *= 1 - 0.1 * others.filter((o) => o.move === c.move).length / n;
@@ -581,7 +605,7 @@ function selection(config, cost, chosen) {
     for (const t of c.missing || []) owned.add(t);
     if (cost) { cost.own(c.footprint || new Map(), paid); spent += bytes; }
   };
-  return { out, value, take };
+  return { out, value, take, state };
 }
 
 /** Diverse shortlist: greedy by worth (selection()), starting from `kept`
@@ -633,8 +657,8 @@ export function selectConnected(scored, links, config, cost = null, { log = null
     if (!ins.has(l.to)) ins.set(l.to, new Set());
     outs.get(l.from).add(l.to); ins.get(l.to).add(l.from);
   }
-  // Why a shot cannot join (for the build log).
-  const why = { holes: scored.filter((c) => c.move !== 'rail' && !(c.score.holes <= 0.002)).length, cycles: 0, unfit: 0 };
+  // Why a shot cannot join (report.funnel.selection and the build log).
+  const why = { eligible: 0, holes: scored.filter((c) => c.move !== 'rail' && !(c.score.holes <= 0.002)).length, noShortCycle: 0, cycles: 0, seedRejects: {}, seeds: 0, trials: 0, stop: null };
   const max = config.discovery.maxShots, earShots = config.discovery.earShots ?? 3;
   const key = (chain) => chain.map((c) => c.id).join('>');
   const better = (x, y) => !y || x.v > y.v || (x.v === y.v && x.key < y.key);
@@ -667,7 +691,7 @@ export function selectConnected(scored, links, config, cost = null, { log = null
     let total = 0;
     for (const c of chain) {
       const w = sel.value(c, extra);
-      if (!w) return null;
+      if (!w) { chainValue.reject = sel.state.reject; return null; }
       total += w.v; extra.push(Object.assign(Object.create(c), { bytes: w.bytes }));
     }
     return { v: (total / chain.length) * (1 - 0.05 * (chain.length - 1)), bytes: extra.map((x) => x.bytes) };
@@ -680,11 +704,11 @@ export function selectConnected(scored, links, config, cost = null, { log = null
     const { parent, depth } = bfs(through, [a], outs, earShots + 1);
     let close = null;
     for (const y of ins.get(a) || []) if (y !== a && depth.has(y) && (!close || depth.get(y) < depth.get(close))) close = y;
-    if (!close) continue;
+    if (!close) { why.noShortCycle++; continue; }
     const chain = [a, ...walk(parent, close, (x) => x === a).reverse()];
     why.cycles++;
     const w = chainValue(base, chain);
-    if (!w) { why.unfit++; continue; }
+    if (!w) { why.seedRejects[chainValue.reject] = (why.seedRejects[chainValue.reject] || 0) + 1; continue; }
     const k = [...chain].map((c) => c.id).sort().join('+');
     if (!seeds.has(k) || w.v > seeds.get(k).v) seeds.set(k, { ...w, key: key(chain), chain });
   }
@@ -697,23 +721,30 @@ export function selectConnected(scored, links, config, cost = null, { log = null
       for (const c of [...pool]) if (best.chain.some((o) => nearCopy(o, c, config.discovery))) pool.delete(c);
     };
     add(seed);
+    let stop = null;
     while (sel.out.length < max) {
       const fwd = bfs(pool, [...set], outs, earShots), back = bfs(pool, [...set], ins, earShots);
       let best = null;
+      // Why each remaining shot could not join on this pass.
+      stop = { remaining: pool.size, unreachable: 0, noWayBack: 0, longChain: 0, repeat: 0, rejects: {} };
       for (const c of pool) {
-        if (!fwd.depth.has(c) || !back.depth.has(c)) continue;
+        if (!fwd.depth.has(c)) { stop.unreachable++; continue; }
+        if (!back.depth.has(c)) { stop.noWayBack++; continue; }
         const chain = [...walk(fwd.parent, c, (x) => set.has(x)).reverse(), ...walk(back.parent, back.parent.get(c), (x) => set.has(x))];
-        if (chain.length > earShots || sel.out.length + chain.length > max || new Set(chain).size !== chain.length) continue;
+        if (chain.length > earShots || sel.out.length + chain.length > max) { stop.longChain++; continue; }
+        if (new Set(chain).size !== chain.length) { stop.repeat++; continue; }
         const w = chainValue(sel, chain);
-        if (w && better({ ...w, key: key(chain) }, best)) best = { ...w, key: key(chain), chain };
+        if (!w) { stop.rejects[chainValue.reject] = (stop.rejects[chainValue.reject] || 0) + 1; continue; }
+        if (better({ ...w, key: key(chain) }, best)) best = { ...w, key: key(chain), chain };
       }
       if (!best) break;
       add(best);
     }
+    if (sel.out.length >= max) stop = { full: true };
     // A library worth keeping covers the region's heroes: each hero subject
     // with a shot counts as much as a good shot more.
     const heroes = new Set(sel.out.filter((c) => c.hero).map((c) => c.subjectId)).size;
-    return { out: sel.out, worth: sel.out.filter((c) => c.move !== 'rail').reduce((t, c) => t + c.score.total, 0) + 0.6 * heroes };
+    return { out: sel.out, worth: sel.out.filter((c) => c.move !== 'rail').reduce((t, c) => t + c.score.total, 0) + 0.6 * heroes, stop };
   };
   const trials = [...seeds.values()].sort((x, y) => y.v - x.v || (x.key < y.key ? -1 : 1)).slice(0, config.discovery.seedTrials ?? 12);
   let kept = null;
@@ -721,7 +752,11 @@ export function selectConnected(scored, links, config, cost = null, { log = null
     const r = grow(seed);
     if (!kept || r.worth > kept.worth + 1e-9) kept = { ...r, seed };
   }
-  log?.(`connected selection: ${eligible.length} shots eligible (${why.holes} left out for holes), ${why.cycles} short cycles, ${why.unfit} of them over budget or worth nothing${kept ? `; grew ${trials.length} seeds, kept one of ${kept.seed.chain.length} shots growing to ${kept.out.length - rail.length}` : '; no seed'}`);
+  Object.assign(why, { eligible: eligible.length, seeds: seeds.size, trials: trials.length, keptSeed: kept?.seed.chain.length ?? 0, chosen: kept ? kept.out.length - rail.length : 0, stop: kept?.stop ?? null });
+  const list = (o) => Object.entries(o).map(([k, n]) => `${n} ${k}`).join(', ') || 'none';
+  log?.(`connected selection: ${eligible.length} shots eligible (${why.holes} left out for holes); ${why.noShortCycle} lie on no cycle of ${earShots + 2} or fewer shots; ${why.cycles} short cycles (${seeds.size} distinct usable seeds, ${Object.values(why.seedRejects).reduce((a, b) => a + b, 0)} rejected: ${list(why.seedRejects)})${kept ? `; grew ${trials.length} seeds, kept one of ${kept.seed.chain.length} shots growing to ${why.chosen}` : '; no seed'}`);
+  if (kept?.stop && !kept.stop.full) log?.(`connected selection stopped with ${kept.stop.remaining} shots left: ${kept.stop.unreachable} unreachable from the set within ${earShots} shots, ${kept.stop.noWayBack} with no way back, ${kept.stop.longChain} only by longer chains, ${kept.stop.repeat} only through a repeated shot, rejected: ${list(kept.stop.rejects)}`);
+  selectConnected.funnel = why;
   return kept ? kept.out : base.out;
 }
 
