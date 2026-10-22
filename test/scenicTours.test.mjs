@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { refinePayoff, durationRange, selectShots, selectLinks, regionConfig, focusArea, inFocus, steadyLook, linkLibrary, costliestShot, estimatedBytes, trimWindow, trimShot, renderedTotal, bestComponent, selectConnected } from '../tools/build-scenic-tours.mjs';
+import { refinePayoff, durationRange, selectShots, selectLinks, regionConfig, focusArea, inFocus, steadyLook, linkLibrary, costliestShot, estimatedBytes, trimWindow, trimShot, renderedTotal, bestComponent, selectConnected, nearCopy } from '../tools/build-scenic-tours.mjs';
 import { TILE_BYTES } from '../tools/lib/scenic-cost.mjs';
 import { samplePath } from '../src/world/terrain/ShotPath.js';
 
@@ -162,4 +162,16 @@ test('a connected shortlist seeds with a longer cycle when no short one exists, 
   assert.deepEqual(out.map((x) => x.id).sort(), ['a', 'b', 'c', 'd', 'e', 'f', 'g']);
   const capped = selectConnected([a, b, c, d, e, f, g], links, { ...config, discovery: { ...config.discovery, maxShots: 8, earShots: 2 } }, null);
   assert.deepEqual(capped.map((x) => x.id).sort(), ['a', 'b', 'c', 'd'], 'an ear longer than earShots is not taken');
+});
+
+test('a near copy of a chosen shot is no new shot: same payoff frame and the same move, entry or exit', () => {
+  const shot = (id, move, x0, x1, payoffX) => {
+    const path = samplePath({ eyes: [[x0, 500, 0], [x1, 500, 0]], aims: [[x0, 400, -5000], [x1, 400, -5000]], fovs: 30 });
+    return { id, move, path, lengthM: path.s.at(-1), payoffS: path.s.at(-1) * ((payoffX - x0) / (x1 - x0)) };
+  };
+  const a = shot('a', 'traverse', 0, 3000, 1500), cut = shot('cut', 'traverse', 1000, 2000, 1500);
+  assert.equal(nearCopy(a, cut), true, 'a cut of the same traverse is a copy');
+  const other = shot('approach', 'approach', 1000, 2000, 1500);
+  assert.equal(nearCopy(a, other), false, 'another move through the same frame, entered and left elsewhere, is a new shot');
+  assert.equal(nearCopy(a, shot('far', 'traverse', 5000, 8000, 6500)), false);
 });

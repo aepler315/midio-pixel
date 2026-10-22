@@ -398,6 +398,29 @@ export async function terrainPolicy(ctx, config, log = console.log) {
   else if (ctx.coverageOnly) log(`${ctx.viewId}: coverage only (region.coverageOnly)`);
 }
 
+/** The camera at a shot's payoff, entry and exit (cached on the record). */
+function shotEnds(c) {
+  if (!c.path) return null;
+  if (!c.ends) {
+    const at = (x) => { const p = pathPoseAt(c.path, x), d = p.targetM.map((v, k) => v - p.eyeM[k]), l = Math.hypot(...d); return { eye: p.eyeM, dir: d.map((v) => v / l) }; };
+    c.ends = { payoff: at(c.payoffS ?? c.lengthM / 2), entry: at(0), exit: at(c.lengthM ?? c.path.s[c.path.s.length - 1]) };
+  }
+  return c.ends;
+}
+
+/** Whether two shots are near copies: their payoff cameras stand within
+ *  discovery.copyM metres (default 700) and look within discovery.copyDeg
+ *  degrees (default 14) of each other, and they also share the move, the
+ *  entry or the exit (an approach to a view and a pullback from it are two
+ *  shots; two traverses through the same payoff frame are one). */
+export function nearCopy(a, b, discovery = {}) {
+  const x = shotEnds(a), y = shotEnds(b);
+  if (!x || !y || a === b) return false;
+  const maxM = discovery.copyM ?? 700, minCos = Math.cos(((discovery.copyDeg ?? 14) * Math.PI) / 180);
+  const close = (k) => Math.hypot(...x[k].eye.map((v, i) => v - y[k].eye[i])) <= maxM && x[k].dir.reduce((t, v, i) => t + v * y[k].dir[i], 0) >= minCos;
+  return close('payoff') && (a.move === b.move || close('entry') || close('exit'));
+}
+
 /** Straight distance from a shot's exit to another's entry (NaN without paths). */
 export function endGap(a, b) {
   const p = a.path, q = b.path;
@@ -474,6 +497,9 @@ function selection(config, cost, chosen) {
     const others = extra.length ? [...out, ...extra] : out;
     const same = others.filter((o) => o.subjectId === c.subjectId);
     if (same.length >= perSubject) return null;
+    // A near copy of a chosen shot (same view at the payoff, same way in
+    // and out) adds nothing a viewer would notice.
+    if (others.some((o) => nearCopy(o, c, config.discovery))) return null;
     let bytes = 0;
     if (cost) {
       const held = extra.length ? extra.reduce((m, x) => cost.own(x.footprint || new Map(), m), new Map(paid)) : paid;
