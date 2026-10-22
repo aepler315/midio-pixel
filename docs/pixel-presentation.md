@@ -6,7 +6,7 @@ Display settings are available on the title screen and from **Display** during p
 |---|---|
 | Pixel | Compose on the selected native grid with unrestricted scene colors, then nearest-neighbour presentation |
 | Palette | Same grid, then World, Landscape32, Chroma32 or legacy RGB332 |
-| Pixel detail | Classic 320×180 (default) or Detailed 640×360; Detailed processes four times as many pixels |
+| Pixel detail | Classic 320×180 (default), Medium 480×270 or Detailed 640×360; Medium processes 2.25× and Detailed four times as many pixels |
 | Dither strength | Off (0), Subtle (0.35), Full (1) |
 | Dither style | Ordered Bayer or Selective, which reduces stippling at original-RGB boundaries; RGB332 remains Ordered |
 | Auto quality | Existing governor and recovery hysteresis |
@@ -58,7 +58,7 @@ node tools/export-smoke.mjs http://127.0.0.1:8091 .smoke/pixel-export
 node tools/export-smoke.mjs http://127.0.0.1:8091 .smoke/pixel-export-v2 v2
 ```
 
-The bulk CLI supports `--look`, `--quality`, `--palette world|range32|chroma32|rgb332`, `--dither off|subtle|full`, `--dither-mode ordered|selective`, `--pixel-grid classic|detailed` and `--scaling fit|integer`.
+The bulk CLI supports `--look`, `--quality`, `--palette world|range32|chroma32|rgb332`, `--dither off|subtle|full`, `--dither-mode ordered|selective`, `--pixel-grid classic|medium|detailed` and `--scaling fit|integer`.
 
 The browser smoke needs installed Playwright Chromium or `PLAYWRIGHT_CHROMIUM_PATH`. Software WebGL validates raster output and shaders; it does not establish device FPS, battery use or GPU timings. `palette-bench` reports warm mask/transform arithmetic at both grids, excluding readback, writeback, copying and GPU work. Detailed is an optional detail choice, with higher cost. Implementation evidence, retained variants and unavailable motion/device checks are recorded in the task report (`docs/superpowers/plans/2026-10-14-pixel-mode-progress.md`, removed; see [removed docs](removed-docs.md)); generated captures stay under ignored `.smoke/pixel-mode/`.
 
@@ -66,7 +66,7 @@ The browser smoke needs installed Playwright Chromium or `PLAYWRIGHT_CHROMIUM_PA
 
 Alpine Landscape paints moon, sun, stars, aurora, clouds and musical weather into a separate smooth sky layer using the same resolved camera, crop and scenic transform as the terrain. Terrain and its native material responses remain pixelated. Pixel/Palette and Classic/Detailed still control the foreground; the sky stays full-colour and is not palette-quantized.
 
-The live output follows the contained stage CSS size times DPR, capped at 1920×1080. Classic and Detailed keep their 320×180 and 640×360 terrain buffers. Trio retains its native grid, and offline exports use their requested dimensions. The sky does not use nearest-neighbour CSS stretching. Above the live cap the completed picture is scaled to the display.
+The live output follows the contained stage CSS size times DPR, capped at 1920×1080. Classic, Medium and Detailed keep their 320×180, 480×270 and 640×360 terrain buffers. Trio retains its native grid, and offline exports use their requested dimensions. The sky does not use nearest-neighbour CSS stretching. Above the live cap the completed picture is scaled to the display.
 
 Sky density and lunar textures have bounded, accounted canvas ownership and release on song teardown. The experiment adds no terrain readback or full-frame sky cache. Existing water backdrop storage captures the same sky before far terrain, preserving reflections. Sampleable scenic depth remains required for real depth consumers such as water and shafts, despite removal of the Depth pixel effect.
 

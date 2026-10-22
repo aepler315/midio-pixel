@@ -1,5 +1,5 @@
 import { captionAt, captionAlpha, CAPTION_DELAY_MS, CAPTION_FADE_MS, CAPTION_HOLD_MS } from './RangeCaption.js';
-import { pixelGrid } from '../render/PixelRenderPolicy.js';
+import { pixelGrid, pixelUnit } from '../render/PixelRenderPolicy.js';
 import { pixelFontText, measurePixelText, drawPixelText, PIXEL_ADVANCE, PIXEL_LINE_ADVANCE } from './PixelFont.js';
 
 export function captionAccessibleText(caption) {
@@ -26,7 +26,7 @@ function wrap(text, maxChars) {
 /** Layout in native grid space. All required names/credits survive pagination. */
 export function layoutPixelCaption(caption, { grid = pixelGrid(), localMs = 0 } = {}) {
   if (!caption) return null;
-  const unit = grid.width / pixelGrid().width, padding = 6 * unit;
+  const unit = pixelUnit(grid), padding = 6 * unit;
   const maxWidth = grid.width - padding * 2;
   const maxChars = Math.floor((maxWidth / unit + 1) / PIXEL_ADVANCE);
   const required = [...(caption.rows || []).filter(row => row.name).map(row => [row.label, row.name].filter(Boolean).join(': ')), caption.credit].filter(Boolean);
@@ -55,7 +55,7 @@ export function drawPixelCaption(ctx, captions, songMs, { grid = pixelGrid() } =
   if (!(alpha > 0)) return null;
   const layout = layoutPixelCaption(up.caption, { grid, localMs: up.localMs });
   if (!layout) return null;
-  const unit = grid.width / pixelGrid().width;
+  const unit = pixelUnit(grid);
   ctx.save();
   ctx.globalAlpha = alpha * .72;
   ctx.fillStyle = '#000000';
