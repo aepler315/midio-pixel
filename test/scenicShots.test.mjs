@@ -4,13 +4,17 @@ import { generateShots, liftToClearance, lineOfSight, railShot, headingOf, subje
 import { buildLink, linkVariants, keepParetoLinks, minTurnRadius } from '../tools/lib/scenic-links.mjs';
 import { samplePath, pathPoseAt, pathTangent } from '../src/world/terrain/ShotPath.js';
 
-// A synthetic landscape: flat 1000 m plain, a 900 m cone at the origin and
-// an east-west ridge 4 km south of it that hides the cone from low eyes.
+// A synthetic landscape: a 1000 m basin floor, a 900 m cone at the origin,
+// an east-west ridge 4 km south of it that hides the cone from low eyes,
+// and a rim of hills toward the edges.
 function landscape() {
   const heightAt = (x, z) => {
     const cone = 900 * Math.max(0, 1 - Math.hypot(x, z) / 1500);
     const ridge = 260 * Math.max(0, 1 - Math.abs(z - 4000) / 300) * (Math.abs(x) < 6000 ? 1 : 0);
-    return 1000 + cone + ridge;
+    // A rim of hills toward the grid's edges, as real regions have: the
+    // horizon is terrain, not the grid's crop edge.
+    const r = Math.max(Math.abs(x), Math.abs(z)), rim = 900 * Math.min(1, Math.max(0, (r - 12000) / 5000)) ** 2;
+    return 1000 + cone + ridge + rim;
   };
   const grid = { originM: [-20000, -20000], width: 2001, height: 2001, cellSizeM: 20 };
   return {

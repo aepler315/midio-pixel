@@ -28,7 +28,7 @@ import { pathErrors } from './ShotPath.js';
 export const SHOT_SCHEMA = 'midio.shots';
 export const SHOT_VERSION = 1;
 export const PATH_LANES = 9;
-export const POSITION_STEP_M = 0.05;
+export const POSITION_STEP_M = 0.1;
 export const FOV_STEP_DEG = 0.01;
 export const FLOW_SCALE = 60000;
 export const SHOT_MOVES = Object.freeze(['rail', 'traverse', 'approach', 'reveal', 'orbit', 'pullback', 'valley', 'crest']);

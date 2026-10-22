@@ -184,6 +184,10 @@ export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpu
         foreground: full[i].samples.reduce((a, b) => (Math.abs(b.s - c.payoffS) < Math.abs(a.s - c.payoffS) ? b : a)).foreground ?? 0 };
       c.durationMs = durationRange(c.path, c.path.flow, config.motion);
     });
+    // Tiles each candidate's frames need beyond the shipped package: the
+    // terrain it would cost (selection charges only the new ones).
+    const needs = await Promise.all(second.map((c) => pool.score('missing', c.path, {})));
+    second.forEach((c, i) => { c.missing = needs[i]; });
     // Shortlist: best shots with diversity across subjects, moves and views.
     const shortlist = selectShots(second, config);
     log(`${viewId}: scored ${second.length}, shortlisted ${shortlist.length}: ${shortlist.map((s) => `${s.move}:${s.score.total.toFixed(2)}`).join(' ')}`);
@@ -194,6 +198,8 @@ export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpu
     log(`${viewId}: ${pairs.length} link variants`);
     const linkScores = await Promise.all(pairs.map((l) => pool.score('link', l.path, { everyM: 120, width: 96, height: 54 })));
     pairs.forEach((l, i) => { l.score = linkScores[i].aggregate; l.path.flow = Float32Array.from(linkScores[i].flow); l.durationMs = durationRange(l.path, l.path.flow, config.motion); });
+    const linkNeeds = await Promise.all(pairs.map((l) => (l.score.holes > 0.002 ? [] : pool.score('missing', l.path, { everyM: 250 }))));
+    pairs.forEach((l, i) => { l.missing = linkNeeds[i]; });
     const links = selectLinks(pairs, shortlist, config);
     const connected = shortlist.filter((s) => links.some((l) => l.from === s) && links.some((l) => l.to === s));
     log(`${viewId}: kept ${links.length} links; ${connected.length}/${shortlist.length} shots connected both ways`);
@@ -241,12 +247,17 @@ export function selectShots(scored, config) {
   const max = config.discovery.maxShots, perSubject = config.discovery.shotsPerSubject;
   const out = scored.filter((c) => c.move === 'rail');
   const rest = scored.filter((c) => c.move !== 'rail' && c.score.holes <= 0.002 && c.score.total > 0);
+  // New terrain: each tile beyond the shipped package and the shots already
+  // chosen costs score (config.discovery.tileWeight per 100 tiles).
+  const owned = new Set(out.flatMap((o) => o.missing || []));
+  const tileWeight = config.discovery.tileWeight ?? 0.25;
   while (out.length < max && rest.length) {
     let best = null;
     for (const c of rest) {
       const same = out.filter((o) => o.subjectId === c.subjectId);
       if (same.length >= perSubject) continue;
-      let v = c.score.total;
+      let v = c.score.total - tileWeight * (c.missing || []).filter((t) => !owned.has(t)).length / 100;
+      if (v <= 0) continue;
       v *= 1 - 0.12 * same.length;
       v *= 1 - 0.1 * out.filter((o) => o.move === c.move).length / Math.max(1, out.length);
       // Variety across the whole library: elevations and lenses, not only moves.
@@ -260,6 +271,7 @@ export function selectShots(scored, config) {
     }
     if (!best) break;
     out.push(best.c);
+    for (const t of best.c.missing || []) owned.add(t);
     rest.splice(rest.indexOf(best.c), 1);
   }
   return out;
@@ -278,8 +290,11 @@ export function selectLinks(pairs, shots, config) {
   const front = [...byPair.values()].flatMap((v) => keepParetoLinks(v, 2));
   const out = [];
   for (const s of shots) {
-    // A link's worth is its scenery per second it costs the song.
-    const worth = (l) => l.score.total / (1 + (l.durationMs?.ideal ?? l.lengthM * 40) / 20000);
+    // A link's worth is its scenery per second it costs the song, less the
+    // new terrain it would add beyond the shots' own.
+    const owned = new Set(shots.flatMap((x) => x.missing || []));
+    const worth = (l) => l.score.total / (1 + (l.durationMs?.ideal ?? l.lengthM * 40) / 20000)
+      - (config.discovery.tileWeight ?? 0.25) * (l.missing || []).filter((t) => !owned.has(t)).length / 100;
     const mine = front.filter((l) => l.from === s).sort((a, b) => worth(b) - worth(a) || a.lengthM - b.lengthM);
     const seen = new Set();
     for (const l of mine) {
@@ -311,9 +326,9 @@ export function renderScore(frames) {
   return 0.45 * visible + 0.3 * contrast + 0.25 * terrain;
 }
 
-export async function renderReview(viewId, library, { out, width = 480, height = 270, sheet = true, log = console.log } = {}) {
+export async function renderReview(viewId, library, { out, width = 480, height = 270, sheet = true, terrain = null, log = console.log } = {}) {
   const { openShotReview, contactSheet } = await import('./lib/scenic-render.mjs');
-  const session = await openShotReview(viewId, { cameraPaths: cameraFootprint(library), width, height });
+  const session = await openShotReview(viewId, { cameraPaths: cameraFootprint(library), width, height, terrain });
   const pngs = [], labels = [], results = new Map();
   try {
     for (const shot of library.shots) {
@@ -366,7 +381,9 @@ export function libraryPoses(ctx, library, { spacingM = 120, maxPoses = 2600 } =
  */
 export async function bakeForLibrary(ctx, library, config, { log = console.log } = {}) {
   const { poses, mirrorLevelM } = libraryPoses(ctx, library);
-  const shipped = validatePoses(ctx, poses);
+  // Tour frames are held to the tour pixel budget (the rail keeps its own).
+  const scale = config.budget.poseErrorScale ?? 3, check = { errorPx: scale, extendedErrorPx: 3 * scale };
+  const shipped = validatePoses(ctx, poses, check);
   log(`${ctx.viewId}: ${poses.length} footprint poses${mirrorLevelM != null ? ` (mirror at ${mirrorLevelM.toFixed(1)} m)` : ''}; shipped package: ${shipped.holes.length} poses with holes, ${shipped.lod.length} LOD violations`);
   if (shipped.ok) return { rebaked: false, validation: shipped, poses };
   const camera = ctx.build.view.camera;
@@ -376,9 +393,9 @@ export async function bakeForLibrary(ctx, library, config, { log = console.log }
   // has drifted since the view was approved (reported, not hidden).
   const rail = await bakeTerrain(ctx.grid, ctx.build.view, options);
   const drift = rail.manifest.payload.sha256 !== ctx.terrain.manifest.payload.sha256;
-  const baked = await bakeTerrain(ctx.grid, ctx.build.view, { ...options, poses });
+  const baked = await bakeTerrain(ctx.grid, ctx.build.view, { ...options, poses, poseErrorScale: scale });
   const data = decodeTerrain(baked.manifest, new Uint8Array(baked.decoded));
-  const validation = validatePoses({ ...ctx, terrain: { manifest: baked.manifest, data } }, poses);
+  const validation = validatePoses({ ...ctx, terrain: { manifest: baked.manifest, data } }, poses, check);
   const manifestText = JSON.stringify(baked.manifest) + '\n';
   const before = Buffer.byteLength(JSON.stringify(ctx.terrain.manifest) + '\n') + ctx.terrain.manifest.payload.byteLength;
   const budget = { addedBytes: Buffer.byteLength(manifestText) + baked.payload.byteLength - before,
@@ -440,20 +457,130 @@ export function packLibrary(viewId, regionId, terrainManifestSha256, library, pr
   return { manifest, manifestText: JSON.stringify(manifest) + '\n', payload, decoded };
 }
 
+// ---------------------------------------------------------------------------
+// Fit to budget, write, publish
+
+const TERRAIN_DIR = path.join(root, 'src', 'assets', 'range', 'v2', 'terrain');
+const TOUR_DIR = path.join(root, 'src', 'assets', 'range', 'v2', 'tour');
+
+/** Remove a shot and its links; then shots left without a way in or out. */
+function dropShot(library, shot) {
+  let shots = library.shots.filter((s) => s !== shot), links = library.links.filter((l) => l.from !== shot && l.to !== shot);
+  for (let changed = true; changed;) {
+    const keep = shots.filter((s) => s.move === 'rail' || (links.some((l) => l.from === s) && links.some((l) => l.to === s)));
+    changed = keep.length !== shots.length;
+    shots = keep; links = links.filter((l) => shots.includes(l.from) && shots.includes(l.to));
+  }
+  return { ...library, shots, links };
+}
+
+/**
+ * Bake, pack and measure; while the region is over its byte or triangle
+ * budget (or the shared 60 MB), drop the shot whose terrain is most its
+ * own per unit of score, and try again. Returns the fitted result.
+ */
+export async function fitToBudget(built, { log = console.log, maxIterations = Infinity } = {}) {
+  const { ctx, config } = built;
+  const shippedSha = sha(await fs.readFile(path.join(TERRAIN_DIR, `${ctx.viewId}.terrain.json`)));
+  let library = { ...built.library };
+  for (let iter = 1; ; iter++) {
+    const bake = await bakeForLibrary(ctx, library, config, { log });
+    const terrainSha = bake.rebaked ? sha(bake.manifestText) : shippedSha;
+    const packed = packLibrary(ctx.viewId, ctx.view.regionId, terrainSha, library,
+      { builtWith: 'tools/build-scenic-tours.mjs', configSha256: sha(JSON.stringify(config)), demSha256: ctx.grid.meta?.payload?.heights?.sha256 ?? null });
+    const budget = await budgetErrors(ctx, config, packed, bake);
+    log(`${ctx.viewId}: fit ${iter}: ${library.shots.length} shots / ${library.links.length} links, adds ${(budget.added / 1024).toFixed(0)} KiB${budget.errors.length ? ` -- ${budget.errors.join('; ')}` : ' -- within budget'}`);
+    if (!budget.errors.length) return { library, bake, packed, budget, iterations: iter };
+    if (iter >= maxIterations) return { library, bake, packed, budget, iterations: iter, failed: true, survey: true };
+    const records = [...library.shots, ...library.links];
+    let worst = null;
+    for (const shot of library.shots) {
+      if (shot.move === 'rail') continue;
+      const own = new Set(shot.missing || []);
+      for (const l of library.links) if (l.from === shot || l.to === shot) for (const t of l.missing || []) own.add(t);
+      const others = new Set();
+      for (const r of records) if (r !== shot && r.from !== shot && r.to !== shot) for (const t of r.missing || []) others.add(t);
+      const unique = [...own].filter((t) => !others.has(t)).length;
+      // What the shot alone brings to the library: the only move, elevation
+      // or subject of its kind is worth keeping at a higher terrain cost.
+      const alone = (key) => library.shots.filter((o) => o !== shot && key(o) === key(shot)).length === 0;
+      const rarity = 1 + 1.5 * alone((o) => o.move + (o.tags || []).join('+')) + 1.5 * alone((o) => o.traits.elevation) + 0.8 * alone((o) => o.subjectId);
+      const cost = (unique + 1) / (Math.max(0.05, shot.score.total) * rarity);
+      if (!worst || cost > worst.cost) worst = { shot, cost, unique };
+    }
+    if (!worst || library.shots.length <= 4) return { library, bake, packed, budget, iterations: iter, failed: true };
+    log(`${ctx.viewId}: dropping ${worst.shot.id} (${worst.unique} tiles of its own)`);
+    library = dropShot(library, worst.shot);
+  }
+}
+
+/** Write the fitted library (and re-culled terrain) to `out`. */
+export async function writeFitted(out, viewId, fitted) {
+  await fs.mkdir(out, { recursive: true });
+  await fs.writeFile(path.join(out, `${viewId}.shots.json`), fitted.packed.manifestText);
+  await fs.writeFile(path.join(out, `${viewId}.shots.bin.gz`), fitted.packed.payload);
+  if (fitted.bake.rebaked) {
+    await fs.writeFile(path.join(out, `${viewId}.terrain.json`), fitted.bake.manifestText);
+    await fs.writeFile(path.join(out, `${viewId}.terrain.bin.gz`), fitted.bake.payload);
+  }
+  await fs.writeFile(path.join(out, 'fit.json'), JSON.stringify({ iterations: fitted.iterations, failed: !!fitted.failed, budget: fitted.budget,
+    bake: { rebaked: fitted.bake.rebaked, budget: fitted.bake.budget || null, validation: { ok: fitted.bake.validation.ok, worst: fitted.bake.validation.worst,
+      holes: fitted.bake.validation.holes.length, lod: fitted.bake.validation.lod.length } },
+    shots: fitted.packed.manifest.shots.length, links: fitted.packed.manifest.links.length,
+    libraryBytes: Buffer.byteLength(fitted.packed.manifestText) + fitted.packed.payload.byteLength }, null, 1));
+}
+
+/**
+ * Publish: the library into src/assets/range/v2/tour, the re-culled terrain
+ * (if any) over the view's package with its build record updated, and
+ * shotsManifestUrl into scenic-views.json; then regenerate the catalog.
+ * The view ships as a candidate until it is re-approved (build-range-scene
+ * --approve), which is a separate, reviewed step.
+ */
+export async function publishView(viewId, fitted, { log = console.log } = {}) {
+  if (fitted.failed || !fitted.bake.validation.ok) throw new Error(`${viewId}: not publishable (budget or validation failed)`);
+  await fs.mkdir(TOUR_DIR, { recursive: true });
+  await fs.writeFile(path.join(TOUR_DIR, `${viewId}.shots.json`), fitted.packed.manifestText);
+  await fs.writeFile(path.join(TOUR_DIR, `${viewId}.shots.bin.gz`), fitted.packed.payload);
+  if (fitted.bake.rebaked) {
+    await fs.writeFile(path.join(TERRAIN_DIR, `${viewId}.terrain.json`), fitted.bake.manifestText);
+    await fs.writeFile(path.join(TERRAIN_DIR, `${viewId}.terrain.bin.gz`), fitted.bake.payload);
+    const buildPath = path.join(TERRAIN_DIR, `${viewId}.build.json`);
+    const build = JSON.parse(await fs.readFile(buildPath, 'utf8'));
+    const m = fitted.bake.manifest;
+    Object.assign(build, { manifestSha256: sha(fitted.bake.manifestText), payloadSha256: m.payload.sha256, payloadBytes: fitted.bake.payload.byteLength,
+      stats: { tiles: m.tiles.length, ...m.estimatedBytes }, achievedErrorPx: m.lod.achievedErrorPx,
+      tourFootprint: { shotsManifestSha256: sha(fitted.packed.manifestText), poses: m.lod.poses } });
+    await fs.writeFile(buildPath, JSON.stringify(build, null, 1) + '\n');
+  }
+  const { readAuthoring, AUTHORING } = await import('./build-range-scene.mjs');
+  const doc = await readAuthoring();
+  const v = doc.views.find((x) => x.id === viewId);
+  v.shotsManifestUrl = `tour/${viewId}.shots.json`;
+  await fs.writeFile(AUTHORING, JSON.stringify(doc, null, 2) + '\n');
+  const { execFileSync } = await import('node:child_process');
+  execFileSync(process.execPath, [path.join(root, 'tools', 'build-range-scene.mjs'), '--catalog'], { stdio: 'inherit' });
+  log(`${viewId}: published; re-approve with: node tools/build-range-scene.mjs --approve ${viewId} --evidence docs/scenic-tours.md`);
+}
+
 async function main() {
   const args = process.argv.slice(2), opt = (k) => (args.includes(k) ? args[args.indexOf(k) + 1] : null);
   const doc = JSON.parse(await fs.readFile(CONFIG, 'utf8'));
   const id = opt('--view');
-  const ids = id === 'all' ? Object.keys(doc.regions) : [id];
-  if (!id || ids.some((v) => !doc.regions[v])) throw new Error('usage: node tools/build-scenic-tours.mjs --view <id>|all');
+  const ids = id === 'all' ? Object.keys(doc.regions) : (id || '').split(',').filter(Boolean);
+  if (!ids.length || ids.some((v) => !doc.regions[v])) throw new Error('usage: node tools/build-scenic-tours.mjs --view <id>[,<id>]|all [--render] [--publish]');
   for (const viewId of ids) {
     const out = path.resolve(opt('--out') || path.join(root, '.smoke', 'scenic-tours', viewId));
     const built = await buildViewTours(viewId, { out, workers: Number(opt('--workers')) || undefined });
-    const { manifest, manifestText, payload } = packLibrary(viewId, built.ctx.view.regionId, sha(await fs.readFile(path.join(root, 'src', 'assets', 'range', 'v2', 'terrain', `${viewId}.terrain.json`))), built.library,
-      { builtWith: 'tools/build-scenic-tours.mjs', configSha256: sha(JSON.stringify(built.config)), demSha256: built.ctx.grid.meta?.payload?.heights?.sha256 ?? null });
-    await fs.writeFile(path.join(out, `${viewId}.shots.json`), manifestText);
-    await fs.writeFile(path.join(out, `${viewId}.shots.bin.gz`), payload);
-    console.log(`${viewId}: library ${manifest.shots.length} shots, ${manifest.links.length} links, ${(payload.byteLength / 1024).toFixed(1)} KiB payload`);
+    const fitted = await fitToBudget(built, { maxIterations: args.includes('--survey') ? 1 : Infinity });
+    await writeFitted(out, viewId, fitted);
+    if (args.includes('--render')) {
+      const scores = await renderReview(viewId, fitted.library, { out, terrain: fitted.bake.rebaked ? { manifestText: fitted.bake.manifestText, payload: fitted.bake.payload } : null });
+      await fs.writeFile(path.join(out, 'render.json'), JSON.stringify(Object.fromEntries(scores), null, 1));
+    }
+    const libraryKiB = (Buffer.byteLength(fitted.packed.manifestText) + fitted.packed.payload.byteLength) / 1024;
+    console.log(`${viewId}: ${fitted.packed.manifest.shots.length} shots, ${fitted.packed.manifest.links.length} links, library ${libraryKiB.toFixed(1)} KiB, terrain ${fitted.bake.rebaked ? `re-culled (+${(fitted.bake.budget.addedBytes / 1024).toFixed(0)} KiB)` : 'unchanged'}${fitted.failed ? ' -- OVER BUDGET' : ''}`);
+    if (args.includes('--publish')) await publishView(viewId, fitted);
   }
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();

@@ -65,7 +65,7 @@ export class RangeShotTours {
    *  previous timelines and the committed horizon when the same song is
    *  rebuilt in place (full-analysis adoption), so committed motion holds. */
   setSong({ mgr = null, views = [], choiceFor = () => null, generation, exportMode = false, continuation = null } = {}) {
-    for (const s of this.views.values()) s.abort?.abort();
+    for (const s of this.views.values()) { s.abort?.abort(); s.refineAbort?.abort(); }
     this.views.clear();
     this.generation = generation;
     this.mgr = mgr;

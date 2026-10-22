@@ -55,7 +55,7 @@ export function minTurnRadius(path, stride = 3) {
  * Returns { kind, path, lengthM } or null when the variant is illegal
  * (too long, too tight, below clearance near an end, degenerate look).
  */
-export function buildLink(ctx, from, to, kind, { side = 1, linkMaxM = 9000, transitMaxM = 14000, minRadiusM = 200, spacingM = 40 } = {}) {
+export function buildLink(ctx, from, to, kind, { side = 1, linkMaxM = 9000, transitMaxM = 14000, minRadiusM = 200, spacingM = 60 } = {}) {
   const A = endState(from.path, true), B = endState(to.path, false);
   if (!A.tangent || !B.tangent) return reject('no tangent');
   const chord = sub(B.eye, A.eye), D = len(chord);

@@ -168,3 +168,41 @@ pure and seeded; `poseAt` is a pure function of heard time.
 
 Reduced-motion support was removed from the app in 3eefb64 (PR #22); there is
 no reduced-motion camera path to retain.
+
+## Building and publishing a region
+
+```sh
+# GDAL Python for DEM normalization (once per machine), then per region:
+export MIDIO_GDAL_PYTHON=/path/to/python-with-gdal
+node tools/build-range-scene.mjs --view <viewId>          # warms .terrain-cache with the view's DEM grid
+node tools/build-scenic-tours.mjs --view <viewId> --render   # discover, score, connect, fit, bake, review
+node tools/plan-scenic-tour.mjs --library .smoke/scenic-tours/<viewId> --structure <structure.json> --song <song.wav>
+node tools/build-scenic-tours.mjs --view <viewId> --publish  # write library (+ re-culled terrain); catalog marks it stale
+node tools/build-range-scene.mjs --approve <viewId> --evidence docs/scenic-tours.md
+```
+
+`tools/song-structure-probe.mjs` captures a song's detected sections, roles
+and energy from the real upload/analysis path; `tools/plan-scenic-tour.mjs`
+replays the runtime planner and timeline on them offline (the same pure
+code the worker runs). `tools/tour-evidence.mjs` turns two `visual:eval`
+runs of the identical manifest into side-by-side clips with the song's
+audio, a checkpoint sheet and an index of timestamps and camera state.
+
+### Selection and budgets
+
+Discovery judges scenery on the full DEM; a tile the shipped package lacks
+is not a flaw of a shot but a cost. Every scored candidate records the
+tiles its frames need beyond the package; selection charges a shot (and a
+link) for the new tiles it adds (`discovery.tileWeight` per 100 tiles), and
+`fitToBudget` bakes the library's footprint, measures the added bytes and
+triangles against the region's caps and the shared 60 MB, and drops the
+shot whose terrain is most its own per unit of score until the region fits.
+Tiles only tour cameras see are held to `budget.poseErrorScale` times the
+rail's pixel budget (the app presents terrain on a 320×180 or 640×360
+pixel grid); tiles the rail sees keep their approved detail.
+
+Elevated views over open country would show the DEM grid's crop edge just
+below the horizon (the package has nothing beyond the grid). Generators
+tilt such views down until the frame's highest downward ray meets ground
+inside the grid, and verify the sampled path; views whose horizon is
+terrain (ridges, rims) are unchanged.
