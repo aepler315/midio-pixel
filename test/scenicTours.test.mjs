@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { refinePayoff, durationRange, selectShots, selectLinks, regionConfig, focusArea, inFocus, steadyLook, linkLibrary, costliestShot, estimatedBytes, trimWindow, trimShot } from '../tools/build-scenic-tours.mjs';
+import { refinePayoff, durationRange, selectShots, selectLinks, regionConfig, focusArea, inFocus, steadyLook, linkLibrary, costliestShot, estimatedBytes, trimWindow, trimShot, renderedTotal } from '../tools/build-scenic-tours.mjs';
 import { TILE_BYTES } from '../tools/lib/scenic-cost.mjs';
 import { samplePath } from '../src/world/terrain/ShotPath.js';
 
@@ -116,4 +116,11 @@ test('a later round keeps what earlier rounds connected and prefers shots a shor
   const out = selectShots([rail, kept, far, close], { ...config, discovery: { ...config.discovery, maxShots: 3 } }, null, [rail, kept]);
   assert.deepEqual(out.slice(0, 2), [rail, kept]);
   assert.equal(out[2], close, 'a slightly better shot 30 km away loses to one within reach');
+});
+
+test('the renderer keeps a shot whose subject it shows and discounts one it renders flat or empty', () => {
+  assert.equal(renderedTotal(0.8, 0.5), 0.8);
+  assert.ok(Math.abs(renderedTotal(0.8, 0.225) - 0.8 * 0.775) < 1e-9);
+  assert.equal(renderedTotal(0.8, 0.05), 0, 'an empty render drops the shot');
+  assert.ok(renderedTotal(0.6, 0.45) > renderedTotal(0.7, 0.15), 'a shot that renders well beats a slightly better DEM score that does not');
 });

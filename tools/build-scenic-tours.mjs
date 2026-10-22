@@ -127,7 +127,7 @@ export function durationRange(p, flow, motion) {
 
 // ---------------------------------------------------------------------------
 
-export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpus().length - 4), log = console.log } = {}) {
+export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpus().length - 4), renderGate = true, log = console.log } = {}) {
   const t0 = Date.now();
   const config = regionConfig(JSON.parse(await fs.readFile(CONFIG, 'utf8')), viewId);
   const ctx = await loadViewContext(viewId, { root });
@@ -149,7 +149,8 @@ export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpu
   const lines = { valleys: valleyPaths(ctx), shores: mappedWater ? [] : shorelines(ctx) };
   log(`${viewId}: ${subjects.length} subjects (${subjects.map((s) => s.name || s.kind).join(', ')}); ${lines.valleys.length} valleys, ${lines.shores.length} shores`);
   const generated = generateShots(ctx, subjects, lines, config.region, { maxPerSubject: config.discovery.shotsPerSubject * 6 });
-  const candidates = generated.filter((c) => inFocus(c.path, focus) && steadyLook(c.path));
+  // The authored rail is always a candidate, wherever the focus lies.
+  const candidates = generated.filter((c) => (c.move === 'rail' || inFocus(c.path, focus)) && steadyLook(c.path));
   log(`${viewId}: ${candidates.length} candidate shots`);
   const subjectById = new Map(subjects.map((s) => [s.id, s]));
   const pool = new ScorePool(viewId, workers);
@@ -208,6 +209,22 @@ export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpu
     const cost = strideCost(ctx), scale = config.budget.poseErrorScale ?? 4;
     const prints = await Promise.all(second.map((c) => pool.score('footprint', c.path, { scale })));
     second.forEach((c, i) => { c.footprint = new Map(prints[i]); c.missing = prints[i].map(([t]) => t).filter((t) => cost.shipped(t) == null); });
+    // The actual renderer: every scored candidate's key frames (entry,
+    // payoff, end of hold, exit) through the production terrain material and
+    // forest, against one package baked for all of them. A shot whose
+    // subject the renderer does not show, or that renders flat, loses score.
+    if (renderGate) {
+      const { poses } = tourPoses(ctx, second, { spacingM: 200, maxPoses: 2600 });
+      const baked = await bakeTerrain(ctx.grid, ctx.build.view, tourBakeOptions(ctx, poses, scale));
+      const rendered = await renderReview(viewId, { subjects, shots: second, links: [] },
+        { out, sheet: false, terrain: { manifestText: JSON.stringify(baked.manifest) + '\n', payload: baked.payload }, log });
+      for (const c of second) {
+        const r = rendered.get(c.id)?.score;
+        if (r != null) c.score = { ...c.score, dem: c.score.total, render: r, total: renderedTotal(c.score.total, r) };
+      }
+      const weak = second.filter((c) => c.move !== 'rail' && c.score.total === 0).length;
+      log(`${viewId}: renderer scored ${rendered.size} candidates; ${weak} show no subject or render flat`);
+    }
     // Shortlist and links in rounds. Each round picks the best shots with
     // diversity across subjects, moves and views, charged for their terrain
     // within the region's byte budget and favouring shots a short link can
@@ -219,8 +236,9 @@ export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpu
     const maxLinkMs = (config.discovery.maxLinkS ?? 18) * 1000;
     const pairs = [], tried = new Set(), failed = new Set();
     let kept = [], linked = { shots: [], links: [] }, variants = 0, shortlisted = 0;
-    for (let round = 1; round <= 4; round++) {
-      const shortlist = selectShots(second.filter((c) => !failed.has(c)), config, cost, kept);
+    for (let round = 1; round <= 6; round++) {
+      // A few shots per round, so each round's picks are near what is kept.
+      const shortlist = selectShots(second.filter((c) => !failed.has(c)), config, cost, kept, { add: config.discovery.shotsPerRound ?? 6 });
       const fresh = shortlist.filter((s) => !kept.includes(s));
       if (!fresh.length) break;
       shortlisted += fresh.length;
@@ -331,9 +349,10 @@ const RECORD_BYTES = 1300;
 
 /** Diverse shortlist: greedy by score with penalties for repeating a
  *  subject, a move, a viewing azimuth or an elevation class. */
-export function selectShots(scored, config, cost = null, kept = []) {
-  const max = config.discovery.maxShots, perSubject = config.discovery.shotsPerSubject;
+export function selectShots(scored, config, cost = null, kept = [], { add = Infinity } = {}) {
+  const perSubject = config.discovery.shotsPerSubject;
   const out = kept.length ? [...kept] : scored.filter((c) => c.move === 'rail');
+  const max = Math.min(config.discovery.maxShots, out.length + add);
   const rest = scored.filter((c) => !out.includes(c) && c.move !== 'rail' && c.score.holes <= 0.002 && c.score.total > 0);
   // A shot no short link can reach from (or leave for) the shots already
   // kept is worth less: it may end up unconnected.
@@ -429,6 +448,14 @@ export function selectLinks(pairs, shots, config, cost = null) {
 // ---------------------------------------------------------------------------
 // Actual-renderer review: each library shot at its start, payoff, end of
 // hold and exit, through the production terrain material and forest.
+
+/** A candidate's score once rendered: its DEM score, kept in full when
+ *  the renderer shows its subject with real contrast (render >= 0.45) and
+ *  down to 55% as that fades; zero when the render is near empty. */
+export function renderedTotal(dem, render) {
+  if (!(render >= 0.1)) return 0;
+  return dem * (0.55 + 0.45 * clamp(render / 0.45, 0, 1));
+}
 
 /** Renderer score for one shot from its rendered key frames (0..1): no
  *  holes, the subject actually visible at the payoff, real contrast. */
@@ -748,7 +775,7 @@ async function main() {
   if (!ids.length || ids.some((v) => !doc.regions[v])) throw new Error('usage: node tools/build-scenic-tours.mjs --view <id>[,<id>]|all [--render] [--publish]');
   for (const viewId of ids) {
     const out = path.resolve(opt('--out') || path.join(root, '.smoke', 'scenic-tours', viewId));
-    const built = await buildViewTours(viewId, { out, workers: Number(opt('--workers')) || undefined });
+    const built = await buildViewTours(viewId, { out, workers: Number(opt('--workers')) || undefined, renderGate: !args.includes('--no-render-gate') });
     const fitted = await fitToBudget(built, { maxIterations: args.includes('--survey') ? 1 : Infinity });
     await writeFitted(out, viewId, fitted);
     if (args.includes('--render')) {

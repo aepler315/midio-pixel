@@ -51,14 +51,17 @@ and validate them against the view's actual packaged terrain.
 ```
 data/terrain/scenic-tours.json  (regional config)
         │
-tools/build-scenic-tours.mjs --view <id>|all [--stage ...] [--publish]
+tools/build-scenic-tours.mjs --view <id>|all [--render] [--publish | --publish-from DIR]
   terrain   normalized DEM grid of the view (.terrain-cache, same key as build-range-scene)
   subjects  config subjects + authored landmarks + rail target + DEM features
   shots     generators per subject and landform → sampled paths (ShotPath)
-  score     cheap CPU depth-raster scoring of every sampled pose → shortlist
-  links     connecting alternatives between shortlisted shots, scored too
-  render    actual-renderer evaluation of the shortlist (src/dev/shot-review.html)
-  select    diverse library under byte/triangle/coverage budgets
+  score     cheap CPU depth-raster scoring: every candidate coarsely, the best
+            per subject and move in full; long shots cut to their best window
+  render    actual-renderer key frames of every scored candidate
+            (src/dev/shot-review.html) fold into its score
+  cost      each candidate's terrain footprint as the baker would ship it
+  select    rounds of diverse, budget-charged, reachable shots; links between
+            them scored, leashed and Pareto-pruned; unconnected shots dropped
   bake      terrain package re-culled for rail + library poses (+ mirrored poses)
   validate  every path frustum against the baked package; clearance; joins
   pack      src/assets/range/v2/tour/<viewId>.shots.json + .shots.bin.gz
@@ -196,6 +199,16 @@ is not a flaw of a shot but a cost. A song has room for a payoff every
 its best window around the payoff (a reveal keeps the hidden stretch
 before it) and is scored again as cut; a link that cannot be flown within
 `discovery.maxLinkS` even at full pace is not offered.
+
+The cheap scores pick which candidates are worth rendering; the renderer
+then has the last word on each. One package is baked for every scored
+candidate's poses, and each candidate's entry, payoff, end of hold and exit
+are rendered through the production terrain material and forest
+(`renderReview`). The render score weighs whether the subject is actually
+visible at the payoff, the frame's local contrast and its terrain share; a
+candidate keeps its DEM score in full when the render scores 0.45 or more,
+falls to 55% of it as the render fades, and is dropped when the render is
+near empty (`renderedTotal`).
 
 Every candidate shot and every link on a pair's Pareto front records its
 footprint: the stride the baker itself gives each tile when it bakes the
