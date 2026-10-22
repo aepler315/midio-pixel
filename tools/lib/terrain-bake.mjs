@@ -762,6 +762,13 @@ export async function bakeTerrain(grid, view, options = {}) {
   // 640x360 pixel grid, so 1 px at 1080 is stricter than any tour frame needs.
   const poseErrorScale = posed && options.poseErrorScale > 1 ? options.poseErrorScale : 1;
   if (poseErrorScale > 1) for (const v of posedViewers) v.focalScale /= poseErrorScale;
+  // options.poseFramings narrows the framings tour poses are tested in: the
+  // extended framing (2.4:1, 1.85x lens) is the rail's margin for the
+  // listener's zoom and shake, which a tour camera does not have.
+  if (posed && Array.isArray(options.poseFramings)) {
+    const keep = options.poseFramings.filter((f) => FRAMINGS.includes(f));
+    for (const v of posedViewers) v.framings = v.framings.filter((f) => keep.includes(f));
+  }
   viewers.push(...posedViewers);
   // Each tile's highest valid sample: narrow summits must not slip between
   // the coarse occlusion samples.
@@ -987,6 +994,7 @@ export async function bakeTerrain(grid, view, options = {}) {
       achievedErrorPx: Object.fromEntries(Object.entries(achieved).map(([k, v]) => [k, Math.round(v * 1000) / 1000])),
       ...(posed ? { poses: {
         poseCount: options.poses.length, bakedPoses: posedViewers.length, ...(poseErrorScale > 1 ? { errorScale: poseErrorScale } : {}),
+        ...(Array.isArray(options.poseFramings) ? { framings: options.poseFramings } : {}),
         minFovYDeg: Math.min(...options.poses.map((p) => p.fovYDeg)),
         sources: options.poses.reduce((n, p) => { const k = p.source ?? p.framing ?? 'core'; n[k] = (n[k] || 0) + 1; return n; }, hasRail ? { rail: stations.length } : {}),
         detail: 'each pose with its own lens at its own closest unoccluded approach; mirror poses at the mirror resolution, ground at and below the water clipped',

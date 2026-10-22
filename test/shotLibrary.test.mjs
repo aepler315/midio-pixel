@@ -20,7 +20,7 @@ function library() {
   const links = [{ id: 'l', from: 'a', to: 'b', kind: 'direct', path: ln, lengthM: ln.s.at(-1), durationMs, score: { total: 0.5 } }];
   const decoded = Buffer.from(packShotPaths([...shots, ...links]));
   const payload = zlib.gzipSync(decoded);
-  const strip = ({ path: _p, ...r }) => r;
+  const strip = (r) => Object.fromEntries(Object.entries(r).filter(([k]) => k !== 'path'));
   const manifest = { schema: SHOT_SCHEMA, version: SHOT_VERSION, viewId: 'v', regionId: 'r', terrainManifestSha256: 'f'.repeat(64),
     axes: { x: 'east', y: 'up', z: 'south', units: 'metres' }, subjects: [{ id: 'p', kind: 'peak', name: null, posM: [0, 1600, 0], radiusM: 500, heightM: 600 }],
     shots: shots.map(strip), links: links.map(strip),

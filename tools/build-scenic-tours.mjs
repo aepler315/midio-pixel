@@ -393,7 +393,7 @@ export async function bakeForLibrary(ctx, library, config, { log = console.log }
   // has drifted since the view was approved (reported, not hidden).
   const rail = await bakeTerrain(ctx.grid, ctx.build.view, options);
   const drift = rail.manifest.payload.sha256 !== ctx.terrain.manifest.payload.sha256;
-  const baked = await bakeTerrain(ctx.grid, ctx.build.view, { ...options, poses, poseErrorScale: scale });
+  const baked = await bakeTerrain(ctx.grid, ctx.build.view, { ...options, poses, poseErrorScale: scale, poseFramings: ['core'] });
   const data = decodeTerrain(baked.manifest, new Uint8Array(baked.decoded));
   const validation = validatePoses({ ...ctx, terrain: { manifest: baked.manifest, data } }, poses, check);
   const manifestText = JSON.stringify(baked.manifest) + '\n';
@@ -442,7 +442,7 @@ export function packLibrary(viewId, regionId, terrainManifestSha256, library, pr
   const decoded = Buffer.from(packShotPaths([...shots, ...links]));
   const payload = zlib.gzipSync(decoded, { level: 9, mtime: 0 });
   payload[4] = payload[5] = payload[6] = payload[7] = 0; payload[9] = 255;
-  const strip = (r) => { const { path: _p, ...rest } = r; return rest; };
+  const strip = (r) => Object.fromEntries(Object.entries(r).filter(([k]) => k !== 'path'));
   const manifest = {
     schema: SHOT_SCHEMA, version: SHOT_VERSION, viewId, regionId, terrainManifestSha256,
     axes: { x: 'east', y: 'up', z: 'south', units: 'metres' },

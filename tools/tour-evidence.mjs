@@ -57,7 +57,7 @@ export async function buildEvidence({ base, cand, out, name = null, fps = null }
   for (const [si, song] of A.songs.entries()) {
     const other = B.songs[si];
     // Side-by-side clips with the song's audio for exactly that window.
-    for (const [k, clip] of song.clips.entries()) {
+    for (const k of song.clips.keys()) {
       const fa = clipFrames(song, k), fb = clipFrames(other, k);
       if (!fa.length) continue;
       const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'tour-evidence-'));

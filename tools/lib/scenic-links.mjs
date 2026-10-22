@@ -87,7 +87,8 @@ export function buildLink(ctx, from, to, kind, { side = 1, linkMaxM = 9000, tran
       aims.push([p[0] + d[0] * dist, p[1] + d[1] * dist, p[2] + d[2] * dist]);
     }
   }
-  const sampled = samplePath({ eyes, aims, fovs, spacingM, minSamples: 12 });
+  // Long transits sample more sparsely: they are gentle curves.
+  const sampled = samplePath({ eyes, aims, fovs, spacingM: Math.max(spacingM, Math.min(120, D / 40)), minSamples: 12 });
   if (pathErrors(sampled).length) return reject('degenerate look');
   const path = liftInterior(sampled, ctx.clearance.floorAt);
   if (!path) return reject('clearance at an end');
