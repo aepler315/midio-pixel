@@ -188,7 +188,12 @@ Auditory input was unavailable to the reviewing agent, so the review does not
 claim to have heard or aesthetically accepted the musical coupling. The actual
 camera, timeline and rendered-image observations remain independently useful.
 
-## First completed libraries and actual moves
+## First completed libraries and actual moves (R1)
+
+These initial results precede the terrain-presence correction described below.
+Their snapshots and captures remain immutable evidence. The final R2 selection
+uses this run's fresh cached graphs and receives a new app review whenever its
+package or camera identities change.
 
 The first-three public snapshot digest is
 `78bfe215572634c878f9e528490f06fc3c0dd659caf99938707bf27225edb501`.
@@ -258,11 +263,68 @@ captions' separate
 HORIZON and MASSIF names describe the song's independent skyline cast; VIEW
 names the curated terrain, as specified by `sceneCaptionFor`.
 
-## Source validation
+## Denali exposed an all-sky link
+
+Denali's R1 fit produced 13 shots and 30 links, with connected non-rail moves,
+no final coverage holes/LOD violations and passing rail parity. Actual app
+review nevertheless found a blank sky passage in
+`link-valley-mount-foraker-085-valley-denali-022-rev-direct`.
+The 66.125–69.875 and 67.417–71.167-second saved sequences contain only sky.
+The terrain is loaded, the renderer is ready and no resource-admission denial
+is recorded; drawn eye/forward still match the actual planned timeline.
+
+The endpoint viewing directions differ by 146.362 degrees, which invokes
+`scenic-links.mjs`'s spherical direction blend. Both endpoint pitches are
+about 12 degrees upward; their spherical turn reaches about 45.3 degrees
+upward in the middle. The near-vertical guard allows this, while the link's
+weakest-window penalty can only halve its score. The old score is about
+0.09534 with zero coverage holes. Coverage and view composition are distinct.
+
+Actual production-depth readback has zero finite-depth pixels out of 74,624
+at every integer-second sample from 58 through 83 seconds. The 57-second
+sample has one finite pixel; 84 seconds has 84. These are 26 sampled zero-hit
+observations spanning 25 seconds, with boundaries bracketed by 57–58 and
+83–84 seconds; they do not claim inspection of every live frame. Both named
+payoff compositions remain readable. The R1 link is marked for rework.
+
+The correction records exact `minTerrainFrac`, `allSkySamples` and
+`visibilitySamples` during existing CPU link scoring. A link must contain
+finite terrain in every scored frame. This is a zero-terrain floor, with no
+arbitrary pitch or quality-score cutoff: the same high look remains valid
+when a real mountain occupies its frame. Fresh generation rejects empty or
+unmeasured variants before Pareto selection. Reselection measures missing
+evidence once across the entire retained fresh front, preserving existing
+paths, scores, durations and flow. Only validated pairs reach connected
+selection and later budget/forest relinks. Packing and publication also fail
+closed when retained-link evidence is empty, invalid or missing.
+
+Per-link evidence is packed without rounding a tiny positive fraction to
+zero, and the report and fit retain gate summaries. CPU scoring samples
+every 120 metres at 96×54; this technical floor does not certify every live
+frame, musical lens change, transit quality or artistic acceptance.
+
+The patch was prepared and tested in an isolated copy of `6cac5b0`, then
+applied at 2026-10-22 21:23:21 UTC. Pausing only the launch controller for
+0.153 seconds prevented a new job from reading partially updated files;
+already-running builds continued. All pre-cutover outputs are retained as
+R1 history and reselected to separate R2 directories from **this run's fresh
+stratified graphs**. The retained old Pareto fronts cannot recover variants
+discarded before they were cached; they can still produce a fully measured
+safe candidate pool. No historical Claude graph replaces fresh discovery.
+A clean R2 stage avoids carrying an old R1 library forward if a new selection
+becomes rail-only or fails.
+
+The copied-cache Denali proof measures all 817 retained variants: 776 retain
+terrain in every scored frame, 41 have an all-sky sample and none remain
+unmeasured. After removing only the three added fields, its enriched graph
+exactly matches every original field. Final fitted and app results are
+recorded with the R2 batch rather than inferred from this CPU proof.
+
+## Source validation snapshots
 
 The connectivity correction and final candidate data were tested on Node
 24.10.0 with system GDAL 3.12.2, using a byte-copied source directory without
-spaces to avoid the encoded-path harness issue. The final full suite ran
+spaces to avoid the encoded-path harness issue. The completed post-status suite ran
 4,968 tests: **4,960 passed, two failed and six were skipped**. The failures
 are the sky-pan assertion at `test/rangeAtmosphere.test.js:213` and the
 synthetic 18-shot/594-link cold-planning timing threshold at
@@ -273,9 +335,15 @@ that previously skipped for missing GDAL now execute. Linking the restored DEM
 cache into the final isolated test copy enabled another four real-data checks,
 which passed. The remaining six full-suite skips are five Chromium-dependent
 checks whose executable was not configured in that command, and one check
-requiring a library published in the primary checkout. Targeted browser
-follow-up is recorded separately; a diagnostic candidate capture does not
-retroactively turn a skipped full-suite case into a pass.
+requiring a library published in the primary checkout. All five exact
+Chromium-dependent cases subsequently executed and passed in targeted runs
+using their prescribed/default SwiftShader launches on Chromium 156. The route
+deadline case initially failed because the copied source lacked Git metadata;
+a temporary metadata-only Git pointer allowed the unchanged case to exercise
+and pass all four routes, then was removed. Both attempts are retained.
+The published-Monument case remains unexecuted in the primary checkout.
+These separate passes do not rewrite the full-suite skip count or establish
+device performance.
 
 All 53 connectivity-targeted tests pass, including four new regressions;
 all 47 status/runtime/catalog/review-targeted tests also pass, with four new
@@ -283,9 +351,12 @@ status regressions covering approval, stale bytes, malformed data and explicit
 build roots.
 Lint and whitespace checks pass. Independent source, capture-harness and
 candidate-integrity reviews found no P1/P2 blocker. All 1,511 non-Markdown
-files in the final test snapshot were rehashed against the working source
-after publication and match. Later review-document edits do not change the
-tested runtime, tools, tests or terrain assets.
+files in that post-status snapshot matched before the subsequent four-file
+terrain-presence correction. The correction passed 88 targeted tests with
+zero failures/skips, full lint and independent source review. Six initial
+regressions and three unsafe-publication mutation regressions failed before
+their fixes. A new full suite on the integrated correction runs separately;
+its result is recorded with the final R2 validation.
 
 The source and first three terrain candidates are published in
 [draft PR #31](https://github.com/aepler315/midio-pixel/pull/31), stacked on

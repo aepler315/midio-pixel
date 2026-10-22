@@ -79,6 +79,16 @@ approval also requires current verified library, payload and terrain identities.
 Choosing a build directory does not install or approve its packages. Valid
 rejections and stale identities are reported separately.
 
+The fresh rebuild also adds a sampled terrain-presence floor for connecting
+moves after actual Denali playback exposed a roughly 25-second blank-sky
+passage. Existing CPU link scoring records exact minimum terrain fraction and
+empty/sample counts; any sampled all-sky link is excluded before Pareto and
+connected selection. Missing legacy-cache evidence is measured once on the
+fresh retained front. The validated pair pool stays closed through budget
+relinks, and packing/publication reject missing or invalid link evidence.
+This adds no pitch cutoff and changes no source camera path or fit budget.
+See the [measured cause and R1/R2 evidence](scenic-rebuild-review-2026-10-22.md#denali-exposed-an-all-sky-link).
+
 | View | Current production camera | R3 shots / links reported in PR #25 | Reported in-app coverage |
 | --- | --- | --- | --- |
 | `nc-ross-lake-north` | authored rail | 6 / 9 | smoke |

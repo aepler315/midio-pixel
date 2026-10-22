@@ -1,5 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import * as tours from '../tools/build-scenic-tours.mjs';
 import { refinePayoff, durationRange, selectShots, selectLinks, regionConfig, focusArea, inFocus, steadyLook, linkLibrary, costliestShot, forestDrop, estimatedBytes, trimWindow, trimShot, renderedTotal, bestComponent, selectConnected, nearCopy, pathBend, renderedGate } from '../tools/build-scenic-tours.mjs';
 import { TILE_BYTES } from '../tools/lib/scenic-cost.mjs';
 import { samplePath } from '../src/world/terrain/ShotPath.js';
@@ -8,6 +13,8 @@ const config = regionConfig({
   defaults: { motion: { maxSpeedMps: 120, minSpeedMps: 4, flowCalm: 0.07, flowEnergetic: 0.24 },
     discovery: { maxShots: 4, shotsPerSubject: 2, maxLinksPerShot: 2, tileWeight: 0.6, focusRadiusM: 5000 } },
   regions: { v: { landform: 'butte', hero: ['Hero'] } } }, 'v');
+
+const visible = { minTerrainFrac: 0.2, allSkySamples: 0, visibilitySamples: 3 };
 
 test('a reveal pays off where its subject first stands clear; other moves at their best framing near the intent', () => {
   const samples = [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000].map((s, i) => ({ s, composition: 0.5 + 0.04 * i, subject: 0.6, visible: i < 4 ? 0.1 : i < 6 ? 0.6 : 0.95 }));
@@ -79,13 +86,128 @@ test('the graph component retained for selection respects configured subject emp
 
 test('link selection keeps a way into every shot and prefers short, scenic, cheap links', () => {
   const s = ['a', 'b', 'c'].map((id) => ({ id, missing: [] }));
-  const link = (from, to, total, lengthM, kind = 'direct', missing = []) => ({ from, to, kind, lengthM, score: { total, holes: 0 }, durationMs: { ideal: lengthM * 20 }, missing });
+  const link = (from, to, total, lengthM, kind = 'direct', missing = []) => ({ from, to, kind, lengthM, score: { total, holes: 0, ...visible }, durationMs: { ideal: lengthM * 20 }, missing });
   const pairs = [link(s[0], s[1], 0.8, 1000), link(s[0], s[1], 0.85, 4000, 'arc'), link(s[0], s[2], 0.5, 1500), link(s[1], s[0], 0.6, 1200),
     link(s[2], s[0], 0.4, 900, 'direct', Array.from({ length: 300 }, (_, i) => i))];
   const kept = selectLinks(pairs, s, config);
   assert.ok(kept.some((l) => l.to === s[2]), 'c stays reachable');
   assert.ok(kept.some((l) => l.from === s[2]), 'c keeps its only way out even when costly');
   assert.ok(kept.filter((l) => l.from === s[0]).length <= 2);
+});
+
+test('link Pareto selection rejects all-sky and unknown evidence before they can dominate a visible alternative', () => {
+  const [a, b] = ['a', 'b'].map((id) => ({ id }));
+  const link = (kind, lengthM, total, visibility) => ({ from: a, to: b, kind, lengthM, score: { total, holes: 0, ...visibility } });
+  const sky = link('direct', 500, 1, { minTerrainFrac: 0, allSkySamples: 1, visibilitySamples: 3 });
+  const unknown = link('high', 600, 0.9, {});
+  const nonfinite = link('arc', 650, 0.8, { ...visible, minTerrainFrac: NaN });
+  const land = link('arc', 1500, 0.3, visible);
+  assert.deepEqual(tours.paretoFront([sky, unknown, nonfinite, land]), [land]);
+});
+
+test('cached fronts measure missing visibility once and retain existing scores and flow', async () => {
+  assert.equal(typeof tours.refreshLinkVisibility, 'function');
+  const link = (id, visibility) => ({ from: { id: 'a' }, to: { id: 'b' }, kind: id,
+    path: { id, flow: Float32Array.of(0.01, 0.02) }, score: { total: 0.731234, holes: 0, ...visibility } });
+  const good = link('good', visible), missing = link('missing', {}), invalid = link('invalid', { ...visible, minTerrainFrac: Infinity });
+  const sky = link('sky', { minTerrainFrac: 0, allSkySamples: 2, visibilitySamples: 4 });
+  const score = missing.score, flow = missing.path.flow, measured = [];
+  const result = await tours.refreshLinkVisibility([good, missing, invalid, sky], async (p) => {
+    measured.push(p.id); return { aggregate: { total: 0.1, minTerrainFrac: 0.4, allSkySamples: 0, visibilitySamples: 5 } };
+  });
+  assert.deepEqual(measured.sort(), ['invalid', 'missing']);
+  assert.deepEqual(result.pairs, [good, missing, invalid]);
+  assert.equal(result.measured, 2); assert.deepEqual(result.rejected, { allSky: 1, unmeasured: 0 });
+  assert.equal(missing.score, score); assert.equal(missing.score.total, 0.731234); assert.equal(missing.path.flow, flow);
+  const again = await tours.refreshLinkVisibility([good, missing, invalid, sky], async () => assert.fail('known evidence must not be rescored'));
+  assert.equal(again.measured, 0);
+  const failed = await tours.refreshLinkVisibility([link('bad-raster', {})], async () => ({ aggregate: { ...visible, minTerrainFrac: NaN } }));
+  assert.deepEqual(failed.pairs, []); assert.deepEqual(failed.rejected, { allSky: 0, unmeasured: 1 });
+});
+
+test('fitting relinks only visible pairs when a connector disappears', () => {
+  const [a, b, c] = ['a', 'b', 'c'].map((id) => ({ id, move: 'traverse', score: { total: 1 }, missing: [] }));
+  const link = (from, to, kind = 'direct', total = 0.6, evidence = visible) => ({ from, to, kind, lengthM: kind === 'direct' ? 500 : 1500,
+    durationMs: { ideal: 15000 }, score: { total, holes: 0, ...evidence }, missing: [] });
+  const bad = [link(a, c, 'direct', 1, { minTerrainFrac: 0, allSkySamples: 1, visibilitySamples: 3 }),
+    link(c, a, 'direct', 1, {})];
+  const safe = [link(a, b), link(b, a), link(b, c), link(c, b), link(a, c, 'arc', 0.2), link(c, a, 'arc', 0.2)];
+  const pool = [...bad, ...safe], full = linkLibrary([a, b, c], pool, config);
+  assert.ok(full.links.every((l) => safe.includes(l)));
+  const fitted = linkLibrary(full.shots.filter((s) => s !== b), pool, config);
+  assert.deepEqual(fitted.shots, [a, c]);
+  assertMutuallyReachable([a, c], fitted.links);
+  assert.ok(fitted.links.every((l) => safe.includes(l)), 'an unsafe high-score pair cannot return during budget/forest relink');
+});
+
+test('packed links retain exact visibility evidence and cannot package unknown or all-sky links', () => {
+  const at = (x) => samplePath({ eyes: [[x, 500, 0], [x + 500, 500, 0]], aims: [[x, 1000, -5000], [x + 500, 1000, -5000]], fovs: 30 });
+  const shot = (id, x) => { const p = at(x); return { id, subjectId: 'peak', move: 'traverse', path: p, lengthM: p.s.at(-1),
+    payoffS: p.s.at(-1) / 2, holdS: [0, p.s.at(-1)], durationMs: { min: 4000, ideal: 8000, max: 20000 },
+    traits: { headingDeg: 90, azimuthDeg: 0, elevationDeg: 5, aglM: 300, distanceM: 5000, lens: 'normal', foreground: 0, side: 'left' }, score: { total: 0.6 } }; };
+  const a = shot('a', 0), b = shot('b', 1000), p = at(500);
+  const link = { from: a, to: b, kind: 'direct', path: p, lengthM: p.s.at(-1), durationMs: a.durationMs,
+    score: { total: 0.6, ...visible, minTerrainFrac: 1 / 5184 } };
+  const pack = () => tours.packLibrary('v', 'r', 'a'.repeat(64), { subjects: [{ id: 'peak', kind: 'peak', posM: [0, 1000, -5000], radiusM: 300 }], shots: [a, b], links: [link] });
+  const packed = pack();
+  assert.equal(packed.manifest.links[0].score.minTerrainFrac, 1 / 5184, 'rounding a tiny positive fraction to zero would invalidate its evidence');
+  assert.equal(packed.manifest.links[0].score.visibilitySamples, 3);
+  assert.equal(packed.manifest.links[0].score.allSkySamples, 0);
+  delete link.score.minTerrainFrac;
+  assert.throws(pack, /visibility|terrain/i);
+  Object.assign(link.score, { minTerrainFrac: 0, allSkySamples: 1 });
+  assert.throws(pack, /visibility|terrain/i);
+});
+
+test('publishing legacy or all-sky fitted links cannot write assets or change approvals', async (t) => {
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'scenic-publish-visibility-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await fs.mkdir(path.join(dir, 'tools'), { recursive: true });
+  await fs.mkdir(path.join(dir, 'src/assets/range/v2/terrain'), { recursive: true });
+  await fs.mkdir(path.join(dir, 'data/terrain'), { recursive: true });
+  await fs.copyFile(path.join(root, 'tools/build-scenic-tours.mjs'), path.join(dir, 'tools/build-scenic-tours.mjs'));
+  await fs.symlink(path.join(root, 'tools/lib'), path.join(dir, 'tools/lib'), 'dir');
+  await fs.symlink(path.join(root, 'src/world'), path.join(dir, 'src/world'), 'dir');
+  // Only the later authoring collaborator is bounded to this disposable
+  // directory. The real publishView executes unchanged, including its writes.
+  await fs.writeFile(path.join(dir, 'tools/build-range-scene.mjs'), `
+    import fs from 'node:fs/promises';
+    export const AUTHORING = new URL('../data/terrain/scenic-views.json', import.meta.url);
+    export const TOUR_AUTHORING = new URL('../data/terrain/scenic-tours.json', import.meta.url);
+    export const readAuthoring = async () => JSON.parse(await fs.readFile(AUTHORING, 'utf8'));
+    export const shotLibraryIdentity = async () => ({ fixture: 'identity only after the early gate' });
+  `);
+  const authoring = path.join(dir, 'data/terrain/scenic-views.json'), toursFile = path.join(dir, 'data/terrain/scenic-tours.json');
+  const reset = async () => {
+    await fs.writeFile(authoring, JSON.stringify({ views: [{ id: 'v', status: 'approved' }] }));
+    await fs.writeFile(toursFile, JSON.stringify({ regions: { v: { status: 'approved', approval: { evidence: ['retained-review'] } } } }));
+    await fs.mkdir(path.join(dir, 'src/assets/range/v2/tour'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'src/assets/range/v2/tour/v.shots.json'), 'original reviewed manifest');
+    await fs.writeFile(path.join(dir, 'src/assets/range/v2/tour/v.shots.bin.gz'), 'original reviewed payload');
+  };
+  await reset();
+  await fs.writeFile(path.join(dir, 'src/assets/range/v2/terrain/v.build.json'), '{}');
+  const assets = path.join(dir, 'src/assets/range/v2/tour');
+  const snapshot = async () => ({ authoring: await fs.readFile(authoring, 'utf8'), tours: await fs.readFile(toursFile, 'utf8'),
+    manifest: await fs.readFile(path.join(assets, 'v.shots.json'), 'utf8'), payload: await fs.readFile(path.join(assets, 'v.shots.bin.gz'), 'utf8') });
+  const { publishView } = await import(pathToFileURL(path.join(dir, 'tools/build-scenic-tours.mjs')));
+  const fitted = (score) => ({ failed: false, bake: { rebaked: false, validation: { ok: true } },
+    packed: { manifest: { links: score === null ? [] : [{ id: 'link', score }] }, manifestText: '{"fixture":"library"}', payload: Buffer.from('fixture-payload') } });
+  for (const [label, score] of [['legacy', { total: 1 }], ['empty', { ...visible, minTerrainFrac: 0, allSkySamples: 1 }],
+    ['nonfinite', { ...visible, minTerrainFrac: NaN }]]) {
+    await t.test(label, async () => {
+      await reset();
+      const before = await snapshot(); let error;
+      try { await publishView('v', fitted(score), { log: () => {} }); } catch (e) { error = e; }
+      assert.deepEqual(await snapshot(), before, 'the visibility gate must run before any asset/catalog/approval write');
+      assert.match(error?.message ?? '', /visibility.*reselect/i, 'legacy fits must be rebuilt from their current cached graph');
+    });
+  }
+  await t.test('zero-link rail-only retains the existing publication policy', async () => {
+    await publishView('v', fitted(null), { log: () => {} });
+    assert.deepEqual((await fs.readdir(assets)).sort(), ['v.shots.bin.gz', 'v.shots.json']);
+  });
 });
 
 function assertMutuallyReachable(shots, links) {
@@ -101,7 +223,7 @@ function assertMutuallyReachable(shots, links) {
 test('the outgoing link cap preserves low-score bridges between two scenic clusters', () => {
   const shots = Array.from({ length: 10 }, (_, i) => ({ id: `s${i}`, move: 'traverse', score: { total: 1 }, missing: [] }));
   const link = (from, to, total = 1) => ({ from, to, kind: 'direct', lengthM: 1000,
-    score: { total, holes: 0 }, durationMs: { ideal: 15000 }, missing: [], footprint: new Map([[3, 4]]) });
+    score: { total, holes: 0, ...visible }, durationMs: { ideal: 15000 }, missing: [], footprint: new Map([[3, 4]]) });
   const pairs = [];
   for (const group of [shots.slice(0, 5), shots.slice(5)]) {
     for (const from of group) for (const to of group) if (from !== to) pairs.push(link(from, to));
@@ -121,7 +243,7 @@ test('relinking after a connector drop retains one mutually reachable tour and t
   const shot = (id, total = 1) => ({ id, move: 'traverse', score: { total }, missing: [] });
   const [a, b, bridge, c, d] = [shot('a'), shot('b'), shot('bridge'), shot('c', 0.5), shot('d', 0.5)];
   const rail = { ...shot('rail', 0.1), move: 'rail' };
-  const link = (from, to) => ({ from, to, kind: 'direct', lengthM: 1000, score: { total: 1, holes: 0 }, durationMs: { ideal: 15000 }, missing: [] });
+  const link = (from, to) => ({ from, to, kind: 'direct', lengthM: 1000, score: { total: 1, holes: 0, ...visible }, durationMs: { ideal: 15000 }, missing: [] });
   const pairs = [[a, b], [b, a], [b, bridge], [bridge, b], [bridge, c], [c, bridge], [c, d], [d, c]].map(([from, to]) => link(from, to));
   const full = linkLibrary([rail, a, b, bridge, c, d], pairs, config);
   assertMutuallyReachable([a, b, bridge, c, d], full.links);
@@ -134,7 +256,7 @@ test('relinking after a connector drop retains one mutually reachable tour and t
 test('a cycle through the fallback rail can retain one useful shot, but a lone self-loop cannot', () => {
   const rail = { id: 'rail', move: 'rail', score: { total: 0.2 }, missing: [] };
   const shot = { id: 'a', move: 'orbit', score: { total: 0.8 }, missing: [] };
-  const link = (from, to) => ({ from, to, kind: 'direct', lengthM: 1000, score: { total: 1, holes: 0 }, durationMs: { ideal: 15000 }, missing: [] });
+  const link = (from, to) => ({ from, to, kind: 'direct', lengthM: 1000, score: { total: 1, holes: 0, ...visible }, durationMs: { ideal: 15000 }, missing: [] });
   const cycle = linkLibrary([rail, shot], [link(rail, shot), link(shot, rail)], config);
   assert.deepEqual(cycle.shots, [rail, shot]);
   const alone = linkLibrary([rail, shot], [link(shot, shot)], config);
@@ -144,7 +266,7 @@ test('a cycle through the fallback rail can retain one useful shot, but a lone s
 
 test('a graph requiring more outgoing links than the preferred cap reports the excess explicitly', () => {
   const [hub, a, b] = ['hub', 'a', 'b'].map((id) => ({ id, move: 'traverse', score: { total: 1 }, missing: [] }));
-  const link = (from, to) => ({ from, to, kind: 'direct', lengthM: 1000, score: { total: 1, holes: 0 }, durationMs: { ideal: 15000 }, missing: [] });
+  const link = (from, to) => ({ from, to, kind: 'direct', lengthM: 1000, score: { total: 1, holes: 0, ...visible }, durationMs: { ideal: 15000 }, missing: [] });
   // Every route between the leaves needs the hub's two exits. A strict
   // degree-one cap cannot retain all three; the existing incoming-link
   // restoration already treats this cap as a preference.
@@ -179,7 +301,7 @@ test('dropping a shot re-links the rest from every scored pair instead of strand
   const cfg = { ...config, discovery: { ...config.discovery, maxLinksPerShot: 1 } };
   const shot = (id) => ({ id, move: 'traverse', missing: [], footprint: new Map(), score: { total: 0.5 }, traits: { elevation: 'low' } });
   const [a, b, c] = ['a', 'b', 'c'].map(shot);
-  const link = (from, to, total) => ({ from, to, kind: 'direct', lengthM: 1000, score: { total, holes: 0 }, durationMs: { ideal: 20000 }, missing: [], footprint: new Map() });
+  const link = (from, to, total) => ({ from, to, kind: 'direct', lengthM: 1000, score: { total, holes: 0, ...visible }, durationMs: { ideal: 20000 }, missing: [], footprint: new Map() });
   const pairs = [link(a, b, 0.9), link(b, a, 0.9), link(a, c, 0.3), link(c, a, 0.3), link(b, c, 0.8), link(c, b, 0.8)];
   const full = linkLibrary([a, b, c], pairs, cfg, stubCost);
   assert.equal(full.shots.length, 3);
