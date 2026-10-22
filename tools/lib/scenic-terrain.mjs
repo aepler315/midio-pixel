@@ -453,9 +453,11 @@ function tilePresence(ctx, tilesX, tilesZ) {
  *   present 1 when that tile is in ctx.terrain.data and drawn (visible !== false;
  *           1 when ctx carries no package)
  *   water   1 when the nearest DEM sample of the hit is water
- *   edge    1 when a downward ray (below the eye's horizontal) left the grid
- *           (or never entered it) before farM without hitting: the frame
- *           shows past the terrain's boundary
+ *   edge    1 when a ray more than ctx.edgeDipDeg below the eye's horizontal
+ *           left the grid (or never entered it) before farM without hitting:
+ *           the frame shows the land ending short of the horizon. Rays that
+ *           leave closer to the horizontal are sky, as the app draws them
+ *           (the grid's far boundary then reads as the horizon).
  */
 export function depthRaster(ctx, pose, { width = 160, height = 90, farM = 60000, aspect = width / height, curvature = true } = {}) {
   const grid = ctx.grid, { width: gw, height: gh, cellSizeM: cs, originM } = grid;
@@ -472,7 +474,7 @@ export function depthRaster(ctx, pose, { width = 160, height = 90, farM = 60000,
   const tanY = Math.tan((pose.fovYDeg * DEG) / 2), tanX = tanY * aspect;
   const [ex, ey, ez] = pose.eyeM;
   const gx0 = (ex - originM[0]) / cs, gz0 = (ez - originM[1]) / cs, cw = gw - 1, ch = gh - 1;
-  const invR = curvature ? 1 / (2 * CURVATURE_RADIUS_M) : 0;
+  const invR = curvature ? 1 / (2 * CURVATURE_RADIUS_M) : 0, edgeDy = -Math.sin((ctx.edgeDipDeg ?? 0) * DEG);
   const h = grid.heightsM;
   // Bilinear surface in cell units; NaN over no-data.
   const surf = (fx, fz) => {
@@ -545,7 +547,7 @@ export function depthRaster(ctx, pose, { width = 160, height = 90, farM = 60000,
         level = Math.min(top, 1);
       }
       if (hitT < 0) {
-        if (dy < 0 && leaves) edge[o] = 1;
+        if (dy < edgeDy && leaves) edge[o] = 1;
         continue;
       }
       const x = ex + (dx / hl) * hitT, z = ez + (dz / hl) * hitT, along = hitT / hl;

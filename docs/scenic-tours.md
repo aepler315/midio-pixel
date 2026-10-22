@@ -235,11 +235,28 @@ Tiles only tour cameras see are held to `budget.poseErrorScale` times the
 rail's pixel budget (the app presents terrain on a 320×180 or 640×360
 pixel grid); tiles the rail sees keep their approved detail.
 
-Elevated views over open country would show the DEM grid's crop edge just
-below the horizon (the package has nothing beyond the grid). Generators
-tilt such views down until the frame's highest downward ray meets ground
-inside the grid, and verify the sampled path; views whose horizon is
-terrain (ridges, rims) are unchanged.
+#### Horizon and the grid edge
+
+The package has no terrain beyond the DEM grid. From an elevated eye over
+open country, rays just below the horizontal leave the grid; the app
+paints them with the sky, so the grid's far boundary reads as the horizon
+(rendered in the app at the deepest such band any round-2 camera saw,
+11.4° at Izta, with no visible crop). Generators therefore tilt a view
+down only while a ray more than `discovery.edgeDipDeg` (12°) below the
+horizontal would leave the grid, and the scorer's raster counts only those
+deeper rays as holes (`edge`); shallower ones are sky. Both sides use the
+same allowance, so a horizon shot is neither tilted away nor scored as
+holes.
+
+Before this rule every such view was tilted until no ray left the grid,
+and high eyes aimed at a subject's mid-height looked 20–35° down: 47 of
+the 126 round-2 shots framed no horizon, mostly near terrain, which the
+app draws soft at that range. Generators now also keep the horizon in
+frame (`discovery.frame`): an aim is raised, keeping its heading and
+distance, until the horizon sits at least `horizonBelowTop` (20%) of the
+frame below the top edge, as far as the subject's aim point stays at
+least `subjectAboveBottom` (10%) above the bottom edge. Where the subject
+would leave the frame first, the look is raised only that far.
 
 ### Connected selection
 

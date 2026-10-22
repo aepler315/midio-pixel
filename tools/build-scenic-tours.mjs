@@ -54,10 +54,10 @@ export function regionConfig(doc, viewId) {
 // Scoring pool
 
 class ScorePool {
-  constructor(viewId, size) {
+  constructor(viewId, size, { edgeDipDeg = 0 } = {}) {
     this.workers = []; this.queue = []; this.pending = new Map(); this.next = 0;
     this.ready = Promise.all(Array.from({ length: size }, () => new Promise((resolve, reject) => {
-      const w = new Worker(new URL('./lib/scenic-score-worker.mjs', import.meta.url), { workerData: { viewId, root } });
+      const w = new Worker(new URL('./lib/scenic-score-worker.mjs', import.meta.url), { workerData: { viewId, root, edgeDipDeg } });
       w.busy = false;
       w.on('message', (m) => {
         if (m.ready) { this.workers.push(w); resolve(); this.pump(); return; }
@@ -160,6 +160,8 @@ export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpu
   ctx.clearance = buildClearance(ctx, config.clearance);
   ctx.heightAt = (x, z) => heightAt(ctx.grid, x, z);
   ctx.lenses = config.lensFovYDeg; ctx.standoffM = config.clearance.subjectStandoffM; ctx.boundaryMarginM = config.clearance.boundaryMarginM;
+  // Horizon policy (docs/scenic-tours.md, "Horizon and the grid edge").
+  ctx.edgeDipDeg = config.discovery.edgeDipDeg ?? 0; ctx.frame = config.discovery.frame ?? null;
   await terrainPolicy(ctx, config, log);
   // The tour stays in one coherent area around what the authored rail
   // frames (and the region's heroes): subjects and moves outside it would
@@ -188,7 +190,7 @@ export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpu
     steepLook: generated.length - outOfFocus.length - candidates.length, candidates: candidates.length } };
   log(`${viewId}: ${candidates.length} candidate shots (${forward.length} generated + ${generated.length - forward.length} reversed; ${outOfFocus.length} outside the focus area, ${funnel.discovery.steepLook} looking near straight down)`);
   const subjectById = new Map(subjects.map((s) => [s.id, s]));
-  const pool = new ScorePool(viewId, workers);
+  const pool = new ScorePool(viewId, workers, { edgeDipDeg: ctx.edgeDipDeg });
   await pool.ready;
   try {
     // Pass 1: coarse scores for every candidate.
@@ -387,11 +389,11 @@ export async function reselectViewTours(viewId, { out, workers = Math.max(2, os.
   const config = regionConfig(JSON.parse(await fs.readFile(CONFIG, 'utf8')), viewId);
   const ctx = await loadViewContext(viewId, { root });
   const graph = await readGraphCache(out);
-  ctx.focus = graph.focus;
+  ctx.focus = graph.focus; ctx.edgeDipDeg = config.discovery.edgeDipDeg ?? 0;
   await terrainPolicy(ctx, config, log);
   const cost = strideCost(ctx), scale = config.budget.poseErrorScale ?? 4;
   cost.coverageOnly = ctx.coverageOnly;
-  const pool = new ScorePool(viewId, workers);
+  const pool = new ScorePool(viewId, workers, { edgeDipDeg: ctx.edgeDipDeg });
   await pool.ready;
   try { return await selectLibrary(viewId, { ctx, config, pool, cost, scale, graph, out, t0, log }); } finally { await pool.close(); }
 }

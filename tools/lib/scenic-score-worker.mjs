@@ -13,6 +13,8 @@ import { pathPoseAt } from '../../src/world/terrain/ShotPath.js';
 import { pathFootprint } from './scenic-cost.mjs';
 
 const ctx = await loadViewContext(workerData.viewId, { root: workerData.root });
+// Rays leaving the grid this close below the horizontal are sky, not holes.
+ctx.edgeDipDeg = workerData.edgeDipDeg ?? 0;
 const dem = { ...ctx, terrain: null };
 
 function missing(path, { everyM = 150, width = 96, height = 54 } = {}) {

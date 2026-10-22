@@ -260,13 +260,35 @@ test('real data: monument-valley-163 context matches its baked package; depth ra
   assert.ok(r.present.filter((v, i) => r.tile[i] >= 0 && !v).length <= 0.02 * hits, 'the rail sees its own package');
   const cl = buildClearance(ctx);
   for (const p of [pose.eyeM, pose.targetM]) assert.ok(cl.floorAt(p[0], p[2]) >= cl.groundAt(p[0], p[2]) + 70);
-  // The package spans less height than the grid; a re-bake reaching the low
-  // northern valleys widens it, and the margin still bounds the motion.
+  // The package spans no more height than the grid (the approved rail bake
+  // stops short of the low northern valleys; a tour re-bake reaching them
+  // widens it toward the grid's), and the margin bounds the motion over each.
   let gridLo = Infinity, gridHi = -Infinity;
   for (let i = 0; i < g.heightsM.length; i++) if (g.valid[i]) { gridLo = Math.min(gridLo, g.heightsM[i]); gridHi = Math.max(gridHi, g.heightsM[i]); }
-  assert.ok(gridLo < ctx.heightRangeM[0] - 100);
+  assert.ok(gridLo <= ctx.heightRangeM[0] + manifest.quantization.stepM && gridHi >= ctx.heightRangeM[1] - manifest.quantization.stepM);
   for (const [lo, hi] of [ctx.heightRangeM, [gridLo, gridHi], [gridLo, ctx.heightRangeM[1]]]) {
     const cap = Math.min(180, 0.065 * (hi - lo));
     for (let y = lo; y <= hi; y += 25) assert.ok(deformationMarginM(ctx, y) >= cap * ((y - lo) / (hi - lo)) ** 2 - 1e-6, `y ${y} in [${lo}, ${hi}]`);
+  }
+});
+
+test('depth raster: rays leaving the grid within the allowed dip are sky, deeper ones the edge', () => {
+  const g = grid(257, 20, () => 0); // +-2560 m, flat at 0
+  // 1000 m up, looking 1.4 deg down with a 20 deg lens: every downward ray in
+  // frame leaves the grid (it would meet the ground beyond 2.5 km).
+  const pose = look([0, 1000, 0], [0, 900, -4000], 20), W = 8, H = 60;
+  const strict = depthRaster({ grid: g }, pose, { width: W, height: H });
+  const dipped = depthRaster({ grid: g, edgeDipDeg: 5 }, pose, { width: W, height: H });
+  const pitch = Math.atan2(-100, 4000), tanY = Math.tan(10 * Math.PI / 180);
+  for (let y = 0; y < H; y++) {
+    const rowDeg = (pitch + Math.atan((1 - ((y + 0.5) / H) * 2) * tanY)) * 180 / Math.PI;
+    for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      assert.equal(strict.depth[i], Infinity);
+      // Strict: every downward ray is edge. Allowed 5 deg: only rays below it.
+      if (rowDeg < -0.3) assert.equal(strict.edge[i], 1, `row ${y} (${rowDeg.toFixed(2)} deg) is edge with no allowance`);
+      if (rowDeg > -4.7) assert.equal(dipped.edge[i], 0, `row ${y} (${rowDeg.toFixed(2)} deg) is sky within 5 deg`);
+      if (rowDeg < -5.3) assert.equal(dipped.edge[i], 1, `row ${y} (${rowDeg.toFixed(2)} deg) is edge below 5 deg`);
+    }
   }
 });
