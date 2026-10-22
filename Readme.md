@@ -2,7 +2,7 @@
 
 An independent, private copy of [Midio-5](https://github.com/aepler315/Midio-5), pinned at `e53db1e0663ce0f8db6d9d89d168dc6d6dbdb308`. Its source assets, audio integrations and modern rendering systems are preserved; of its worlds, two remain (below). The original project is unchanged.
 
-**Pixel only:** Pixel and Palette looks, Classic and Detailed grids, Auto quality, Fit/Integer scaling, and Uniform pixel sampling. Saved Depth selections migrate to Uniform; the current renderer has no Depth pixel effect. Existing saved display choices migrate without changing Midio-5 settings.
+**Pixel only:** Pixel and Palette looks, Classic (320×180), Medium (480×270) and Detailed (640×360) grids, Auto quality, Fit/Integer scaling, and Uniform pixel sampling. Saved Depth selections migrate to Uniform; the current renderer has no Depth pixel effect. Existing saved display choices migrate without changing Midio-5 settings.
 
 Hosting needs reconciliation: the repository still carries its inherited CNAME and the observed Pages path is a dynamic Jekyll branch build. The staged manual workflow and the current limits are documented in [the validation matrix](docs/test-matrix.md).
 
@@ -246,6 +246,30 @@ loop. That loop is off by default and needs a configured local or remote
 provider. Its provider/model/endpoint settings live in the debug overlay;
 external providers can require a user-supplied API key. Playback does not
 require this feature.
+
+## Scenic views and cameras
+
+Landscape has **13 approved geographic views across 11 biomes**, selected for
+each song from the catalog. Each has an authored camera rail. The separate
+Teton highway tour remains a forced candidate; it is not the camera system for
+all scenic views.
+
+Scenic shot discovery and music-aware tour tooling were merged in PRs
+[#24](https://github.com/aepler315/midio-pixel/pull/24) and
+[#25](https://github.com/aepler315/midio-pixel/pull/25). At the audited main
+revision on **2026-10-22**, all 13 regional tour configurations are candidates,
+and no shot libraries are committed or enabled in the production catalog.
+Claude's reported 12-region builds and the retained review evidence are listed
+in [scenic tours](docs/scenic-tours.md#current-delivery-and-reported-builds).
+
+The [camera scouting audit](docs/camera-scouting-audit-2026-10-22.md) checks
+angle discovery, rail and tour approval, evidence identity and pacing. The
+[expansion proposal](docs/scenic-view-expansion.md) considers **13 → 18 → 24 → 30
+approved geographic views**, with review waves of two or three. The inherited
+60 MB asset ceiling is retired as a design requirement for that expansion;
+removing its existing code checks is future implementation work. Asset growth,
+download costs and runtime memory remain separate measurements. This is a
+documented direction, not approval or delivery of additional locations.
 
 ## Version archive
 

@@ -1,10 +1,20 @@
 # Scenic shot tours
 
-**Status:** in development on `feat/scenic-shot-tours`. This document is the
-design and the shared contract; the per-region completion table and the
-evidence links are kept at the end and updated as regions land.
+**Status checked 2026-10-22:** tooling merged in PRs
+[#24](https://github.com/aepler315/midio-pixel/pull/24) and
+[#25](https://github.com/aepler315/midio-pixel/pull/25). At main
+`05725b8b753f18234ab9f3aa21b7c5c6cc4d12ac`, the production catalog still has
+13 approved rail views and **no committed shot libraries**. All 13 regional
+tour configurations remain candidates. This document contains the intended
+contract and historical development results; the delivery table below separates
+those results from current production behavior.
 
-Each approved scenic view gets an offline-discovered **shot library**: complete
+The [camera scouting audit](camera-scouting-audit-2026-10-22.md) records current
+contract gaps and evidence limits. The [30-view proposal](scenic-view-expansion.md)
+retires the inherited 60 MB ceiling as an expansion requirement; the existing
+enforcement remains in code until implementation removes it.
+
+The intended system gives each approved scenic view an offline-discovered **shot library**: complete
 camera moves around the region's real subjects, plus connecting moves between
 them. At playback a deterministic planner strings shots and links together
 against the song, schedules each shot's visual payoff on a musical moment, and
@@ -29,6 +39,55 @@ library and is the fallback whenever a library or plan is unavailable.
   approved view, 70 are skyline-only. They supply the musical ridges for
   every song and are out of scope for tours.
 
+## Current delivery and reported builds
+
+The clean main checkout reports every configured region as **rail only**:
+
+```sh
+node tools/scenic-tour-status.mjs --markdown
+```
+
+Without local `.smoke/scenic-tours/<id>/fit.json` files, the command's “not built”
+means no build record is available in that checkout. It does not contradict the
+historical local builds reported in PR #25. None of the round-3 shot libraries
+below is committed or approved for production. The four forced runtime candidates
+and four rejected authoring entries are separate from the 13 approved views.
+
+| View | Current production camera | R3 shots / links reported in PR #25 | Reported in-app coverage |
+| --- | --- | --- | --- |
+| `nc-ross-lake-north` | authored rail | 6 / 9 | smoke |
+| `teton-jackson-lake` | authored rail | 13 / 28 | smoke |
+| `denali-wonder-lake` | authored rail | 18 / 54 | smoke |
+| `tombstone-north-klondike` | authored rail | blocked by source drift | none for a shot library |
+| `muncho-lake-south` | authored rail | 15 / 33 | smoke |
+| `izta-popo-west` | authored rail | 28 / 87 | smoke, reel, one planned tour |
+| `black-mountains-catawba` | authored rail | 11 / 21 | smoke |
+| `san-gabriel-baldy` | authored rail | 4 / 5 | smoke |
+| `white-mountains-owens` | authored rail | 9 / 25 | smoke |
+| `la-sal-castle-valley` | authored rail | 15 / 34 | smoke |
+| `panamint-dantes-view` | authored rail | 8 / 16 | smoke |
+| `chugach-matanuska` | authored rail | 7 / 17 | smoke |
+| `monument-valley-163` | authored rail | 16 / 39 | smoke, reel, one planned tour |
+
+These reported totals are **150 shots / 368 links in 12 regions**, built from
+`8851754b6036619fe86efb91657299c37fc377dd`. “Published” in the PR means
+written to its local working tree for review, not delivered in the merged
+repository. All-region smoke and review outcomes are attributed reports;
+this documentation audit did not reproduce or visually accept those builds.
+
+The [evidence prerelease](https://github.com/aepler315/midio-pixel/releases/tag/scenic-tours-evidence-r3)
+retains 15 attachments: Monument Valley R2/R3 reels and a R3 anthem tour,
+horizon and wet-ground comparisons, and R2 replay/pacing material. It targets
+`627f7a6680dc87b23ceef5439659afa3d8116ed1`, before final source head
+`fb08bcece9c2ce47cb1e473220b38724de38e7e8`. Exact round-3 library packages,
+all-region raw review collections and all-region smoke reports are not in
+those attachments. Source, build and capture identities must remain distinct.
+
+The R3 Monument Valley tour is reported in PR #25 as two shots and two links
+over the 168 s anthem; known weak frames and long transit remain. The horizon
+and pacing discussion below records development findings, not blanket current
+whole-song acceptance. No new camera, library or source is approved here.
+
 ## Why the Teton highway is not generalized as is
 
 `tools/build-teton-tour.mjs` builds a road network first (A*, minimum
@@ -37,8 +96,11 @@ the surviving roads, keeping one station and one best aim per subject. The
 road pruning never sees scenery, and alternatives that would be shorter, a
 stronger reveal or a better approach are discarded before they are judged.
 It also assumes a north–south range, NAD83, US GeoNames, a 4700 m ceiling,
-Teton names, and an all-tiles terrain package (13 MB) per region; the shared
-Range asset budget (60 MB, about 11 MB free) cannot hold that for 13 views.
+Teton names, and an all-tiles terrain package (13 MB) per region. Its regional
+assumptions and route-first pruning still matter for generalization. The
+inherited 60 MB bundle ceiling is no longer an expansion requirement; see the
+[delivery policy](scenic-view-expansion.md#delivery-budget) for current measured
+size and the plan to remove the old hard gate.
 
 Shot tours reuse its proven parts — DEM loading and normalization, the
 clearance idea, the exact-height scorer as a cheap pre-filter, the
@@ -107,10 +169,17 @@ decodedByteLength, decodedSha256}, provenance{}`.
 `{version, defaults{lenses, clearance, motion, discovery, budget}, regions{
 <viewId>: {status, landform, subjects[{name, lonLat, kind, weight}], hero[],
 preferAzimuthDeg[], avoid[], overrides{}, notes}}}`. Region `status` is the
-tour's own review state (`candidate | approved`); a view plays its tour in
-production only when both the view and its tour are approved. Geography,
+tour's intended review state (`candidate | approved`). The design calls for
+both view and tour approval; **current code enforces one combined view/library
+hash approval and does not consume regional tour status**. Re-approving a view
+with a library enables that library even if this regional status is candidate.
+No libraries currently ship. See audit finding C02 before promotion. Geography,
 named-subject preferences, route anchors and region-dependent parameters live
 here, never in code. DEM source details stay in `scenic-views.json`.
+`weight` is currently retained metadata without a scoring/selection consumer;
+`avoid[]` is not implemented. `hero`, `excludeShots` and generation-time
+`preferAzimuthDeg` have consumers, although early thinning can discard later
+preferred angles (audit C01).
 
 ### Music model (`ShotMusic.js`)
 
@@ -162,8 +231,12 @@ pure and seeded; `poseAt` is a pure function of heard time.
 
 ### Budgets and approval
 
-- `src/assets/range/v2` stays within 60 MB. Per-region byte and triangle caps
-  live in the regional config and are enforced by the pack step and a test.
+- Current code still applies a 60,000,000-byte global asset ceiling. The owner
+  has retired that ceiling as an expansion requirement; remove its hard-fail
+  paths in future implementation and keep reporting measured delivery size.
+  Per-region byte caps are separately configured discovery/fit controls;
+  review them intentionally rather than confusing them with runtime memory.
+  Triangle and forest limits remain runtime feasibility checks.
 - A view's terrain is re-culled only when its library needs tiles the rail
   package lacks. Any rebake changes the terrain identity and stales the
   view's approval, so each rebake is re-approved in the same commit with
@@ -175,14 +248,21 @@ no reduced-motion camera path to retain.
 ## Building and publishing a region
 
 ```sh
-# GDAL Python for DEM normalization (once per machine), then per region:
+# Discovery and review; these commands do not approve the result:
 export MIDIO_GDAL_PYTHON=/path/to/python-with-gdal
 node tools/build-range-scene.mjs --view <viewId>          # warms .terrain-cache with the view's DEM grid
 node tools/build-scenic-tours.mjs --view <viewId> --render   # discover, score, connect, fit, bake, review
 node tools/plan-scenic-tour.mjs --library .smoke/scenic-tours/<viewId> --structure <structure.json> --song <song.wav>
-node tools/build-scenic-tours.mjs --view <viewId> --publish  # write library (+ re-culled terrain); catalog marks it stale
-node tools/build-range-scene.mjs --approve <viewId> --evidence docs/scenic-tours.md
 ```
+
+After the fitted artifact has been reviewed, `--publish-from
+.smoke/scenic-tours/<viewId>` writes that artifact without rebuilding it.
+`--publish` builds again, so it is not a substitute for publishing the reviewed
+bytes. Publication can stale the entire view's approval and temporarily remove
+the only approved view for a biome. A separate `build-range-scene.mjs --approve`
+step records reviewed asset hashes and an existing evidence file; this design
+document's existence is not itself aesthetic acceptance. Keep captures outside
+Git and link retained evidence from the review record.
 
 `tools/song-structure-probe.mjs` captures a song's detected sections, roles
 and energy from the real upload/analysis path; `tools/plan-scenic-tour.mjs`
@@ -224,15 +304,16 @@ a finer stride. Selection divides a shot's (and a link's) worth by 1 + the bytes
 beyond the shipped package and the shots already chosen, over
 `discovery.byteScaleKB`: the first shot over a range pays for terrain the
 later ones share, so it is discounted rather than refused. Selection stops
-short of the region's byte budget. `fitToBudget` then bakes the library's footprint and
+short of the region's byte budget. In the current implementation, `fitToBudget` then bakes the library's footprint and
 measures the added bytes and triangles against the region's caps and the
-shared 60 MB. While over, it calibrates the estimate on that bake, drops the
+inherited shared 60 MB gate, which is slated for removal. While over a current
+fit limit, it calibrates the estimate on that bake, drops the
 shot whose terrain is most its own per unit of score and rarity (the only
 reveal, the only high shot or the only shot of a subject is worth more), and
 chooses the links afresh from every scored pair among the shots that
 remain, so a drop never strands the shots that were reached through it.
 Tiles only tour cameras see are held to `budget.poseErrorScale` times the
-rail's pixel budget (the app presents terrain on a 320×180 or 640×360
+rail's pixel budget (the app presents terrain on a 320×180, 480×270 or 640×360
 pixel grid); tiles the rail sees keep their approved detail.
 
 #### Horizon and the grid edge
@@ -376,7 +457,7 @@ JSON. In wide views the manifest dominates: one shot over a large range
 brings hundreds of distant tiles at the coarsest stride. The default
 region budget (800 KB) therefore fits only three to eight shots in the
 widest regions; those get 1.4 MB (`overrides.budget.assetBytes`, with a
-`budgetNote`) inside the shared Range asset headroom. A compact tile table
+`budgetNote`) under the inherited shared Range asset check (now slated for removal). A compact tile table
 in the terrain manifest would roughly halve that cost; it is a format change
 left for later.
 
