@@ -635,7 +635,8 @@ export function selectConnected(scored, links, config, cost = null, { log = null
   const better = (x, y) => !y || x.v > y.v || (x.v === y.v && x.key < y.key);
   const walk = (parent, from, stop) => { const path = []; for (let x = from; x && !stop(x); x = parent.get(x)) path.push(x); return path; };
   // Breadth-first through `pool` shots from `sources` along `edges`, at
-  // most `limit` steps: { parent, depth }.
+  // most `limit` steps, never through a copy of a shot already on the way
+  // (a chain holding two copies could not be chosen): { parent, depth }.
   const bfs = (pool, sources, edges, limit) => {
     const parent = new Map(), depth = new Map();
     let frontier = [...sources];
@@ -644,6 +645,9 @@ export function selectConnected(scored, links, config, cost = null, { log = null
       const next = [];
       for (const x of frontier) for (const y of edges.get(x) || []) {
         if (!pool.has(y) || depth.has(y)) continue;
+        let copy = false;
+        for (let z = x; z !== undefined && !copy; z = parent.get(z)) copy = nearCopy(z, y, config.discovery);
+        if (copy) continue;
         depth.set(y, d); parent.set(y, x); next.push(y);
       }
       frontier = next;

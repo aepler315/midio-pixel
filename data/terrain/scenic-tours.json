@@ -110,6 +110,8 @@
       "hero": ["White Mountain Peak"]
     },
     "la-sal-castle-valley": {
+      "overrides": { "budget": { "assetBytes": 1400000 } },
+      "budgetNote": "Wide canyon views: the connected shots each bring 200-300 KB of distant tiles alone, so the default 800 KB fits no connected pair; raised within the shared Range asset headroom.",
       "status": "candidate",
       "landform": "canyon-butte",
       "notes": "Castle Valley's red-rock towers under the La Sal Mountains; Castle Creek reaches are mapped water.",
