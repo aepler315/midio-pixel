@@ -12,11 +12,15 @@ export const PIXEL_POLICY_VERSION = 2;
 /** Resolve only supported grids; preferences and legacy callers default to Classic. @returns {PixelGrid} */
 export function pixelGrid(id = 'classic') { return Object.hasOwn(PIXEL_GRIDS, id) ? PIXEL_GRIDS[id] : CLASSIC; }
 
+/** Whole grid pixels per Classic pixel. Medium's 1.5x rounds up to 2x so
+ *  captions, glow, heat and stars never land on half pixels. */
+export function pixelUnit(grid) { return Math.max(1, Math.round((grid?.width ?? CLASSIC.width) / CLASSIC.width)); }
+
 /** Pixel-space dimensions only. Simulation, camera and quality remain independent. @returns {PixelPolicy} */
 export function pixelRenderPolicy({ pixelated = false, grid = null } = {}) {
   if (!pixelated) return INACTIVE;
   const resolved = pixelGrid(typeof grid === 'string' ? grid : grid?.id);
-  const unit = resolved.width / CLASSIC.width;
+  const unit = pixelUnit(resolved);
   return Object.freeze({ active: true, grid: resolved, unit, minGlyphHeight: 7 * unit,
     materialMinPeriodPx: 2, pixelScale: 'original' });
 }
