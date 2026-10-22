@@ -422,6 +422,18 @@ All 15 main captures passed their drawn-camera assertions and have no saved zero
 
 Redfish and Superstition are retained pending editorial review. The other thirteen routes, including Stony Man, require rework or explicit acceptance of their recorded findings. All fifteen remain unapproved.
 
+## Ending and pacing continuation
+
+The [Denali ending pilot](scenic-ending-pilot-2026-10-22.md) follows this completed
+batch without replacing its original reviews. Exact replay reproduced all 15
+Anthem plans and isolated four transit endings. A diagnostic ending penalty of
+16 instead of 4 changed only Denali on those exact inputs. Matched actual-app
+captures reached the same 128-second hero payoff and remained on that shot to
+the ending, but the changed main transfer became more sky-heavy and both played
+shots were valley moves. The ending remained dark. The higher default was
+rejected; its evidence and broader opening remain useful references. Primary
+application source, review packages and all approvals are unchanged.
+
 ## Final fitted libraries
 
 All 16 regional builds completed. Fifteen have useful, mutually reachable

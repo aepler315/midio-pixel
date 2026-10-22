@@ -299,6 +299,12 @@ The fitted packages are preserved on the separate
 see the [diagnostic playback instructions](docs/scenic-rebuild-review-2026-10-22.md#candidate-asset-branch-and-diagnostic-playback).
 Its rebaked bases and attached tours remain candidates.
 
+A subsequent [Denali ending pilot](docs/scenic-ending-pilot-2026-10-22.md)
+tested a stronger ending-in-transit penalty in matched actual-app captures.
+It improved the opening and reached a final shot, but made the main transfer
+more sky-heavy and left the ending dark. The experiment was rejected as a
+default change; production planning and camera approvals remain unchanged.
+
 ## Version archive
 
 `npm run archive` opens a timeline of every version on the checked-out

@@ -44,6 +44,13 @@ contains those exact packages. Its rebaked bases are candidates, so interactive
 review uses the explicit overrides in the
 [playback instructions](scenic-rebuild-review-2026-10-22.md#candidate-asset-branch-and-diagnostic-playback).
 
+The [Denali ending pilot](scenic-ending-pilot-2026-10-22.md) explains why long
+runtime transfers can exceed the discovery duration setting and why a legal
+shot ending can lose to a transit ending. Its matched rendered experiment
+rejected a higher ending penalty as a default change: the broader opening and
+final-shot completion came with a more sky-heavy transfer and less move variety.
+The existing planner defaults and candidate approval states remain unchanged.
+
 The intended system gives each approved scenic view an offline-discovered **shot library**: complete
 camera moves around the region's real subjects, plus connecting moves between
 them. At playback a deterministic planner strings shots and links together
