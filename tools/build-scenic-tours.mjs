@@ -30,6 +30,8 @@ import { pathPoseAt, slicePath, pathLaneAt, withProgress } from '../src/world/te
 import { bakeTerrain } from './lib/terrain-bake.mjs';
 import { validatePoses, rangeAssetBytes, RANGE_ASSET_LIMIT } from './lib/scenic-coverage.mjs';
 import { decodeTerrain } from '../src/world/alpine/TerrainMesh.js';
+import { forestPlacementBound } from '../src/world/alpine/ForestCover.js';
+import SCENE_CATALOG from '../src/world/terrain/sceneCatalogData.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const CONFIG = path.join(root, 'data', 'terrain', 'scenic-tours.json');
@@ -919,8 +921,27 @@ export async function bakeForLibrary(ctx, library, config, { log = console.log }
 }
 
 /** Budget problems for a candidate library + terrain (empty = within). */
-export async function budgetErrors(ctx, config, packed, bake) {
+/**
+ * Forest build memory the runtime reserves before it plants a static view:
+ * ForestCover's placement bound (every forest lattice cell within the
+ * billboard ring of the rail or a library path, 64 bytes each), for the rail
+ * alone and with the library's footprint. A wide footprint can outgrow the
+ * graphics residency budget, and a view that cannot reserve it is deferred
+ * for good, so the fit holds it to budget.forestBuildBytes (or a little over
+ * the rail's own bound where that is larger already).
+ */
+export async function forestBuild(ctx, data, library) {
+  const view = SCENE_CATALOG.views.find((v) => v.id === ctx.viewId);
+  const pack = JSON.parse(await fs.readFile(path.join(root, 'src', 'assets', 'range', 'v2', view.materialManifestUrl), 'utf8'));
+  const rules = { ...pack.rules, ...(view.materialRules || {}) };
+  const bound = (lib) => forestPlacementBound(data, lib ? { ...view, cameraPaths: cameraFootprint(lib) } : view, rules).placementBytes;
+  return { rail: bound(null), tour: bound(library), bound };
+}
+
+export async function budgetErrors(ctx, config, packed, bake, forest = null) {
   const errors = [], b = config.budget;
+  const forestCap = Math.max(b.forestBuildBytes ?? 160 * 2 ** 20, 1.1 * (forest?.rail ?? 0));
+  if (forest && forest.tour > forestCap) errors.push(`forest build ${(forest.tour / 2 ** 20).toFixed(0)} MiB, over ${(forestCap / 2 ** 20).toFixed(0)} MiB`);
   if (!bake.rebaked && !bake.validation.ok) errors.push(`not covered by the shipped package (${bake.validation.holes.length} poses with holes, ${bake.validation.lod.length} LOD violations)`);
   const added = (bake.rebaked ? bake.budget.addedBytes : 0) + Buffer.byteLength(packed.manifestText) + packed.payload.byteLength;
   if (added > b.assetBytes) errors.push(`adds ${added} bytes, over the region's ${b.assetBytes}`);
@@ -928,7 +949,7 @@ export async function budgetErrors(ctx, config, packed, bake) {
   if (bake.rebaked && bake.budget.mobileTriangles > b.mobileTriangles) errors.push(`mobile ${bake.budget.mobileTriangles} triangles, over ${b.mobileTriangles}`);
   const total = await rangeAssetBytes(root);
   if (total + added > RANGE_ASSET_LIMIT) errors.push(`Range assets would reach ${total + added} bytes, over ${RANGE_ASSET_LIMIT}`);
-  return { errors, added };
+  return { errors, added, forest: forest ? { rail: forest.rail, tour: forest.tour, cap: forestCap } : null };
 }
 
 // ---------------------------------------------------------------------------
@@ -1030,7 +1051,8 @@ export async function fitToBudget(built, { log = console.log, maxIterations = In
     const packed = packLibrary(ctx.viewId, ctx.view.regionId, terrainSha, library,
       { builtWith: 'tools/build-scenic-tours.mjs', configSha256: sha(JSON.stringify(config)), demSha256: ctx.grid.meta?.payload?.heights?.sha256 ?? null },
       config.motion, config.region.hero || []);
-    const budget = await budgetErrors(ctx, config, packed, bake);
+    const forest = await forestBuild(ctx, bake.rebaked ? bake.data : ctx.terrain.data, library);
+    const budget = await budgetErrors(ctx, config, packed, bake, forest);
     log(`${ctx.viewId}: fit ${iter}: ${library.shots.length} shots / ${library.links.length} links, adds ${(budget.added / 1024).toFixed(0)} KiB${budget.errors.length ? ` -- ${budget.errors.join('; ')}` : ' -- within budget'}`);
     if (!budget.errors.length) return { library, bake, packed, budget, iterations: iter };
     if (iter >= maxIterations) return { library, bake, packed, budget, iterations: iter, failed: true, survey: true };
@@ -1043,6 +1065,21 @@ export async function fitToBudget(built, { log = console.log, maxIterations = In
     const perRecord = libBytes / Math.max(1, library.shots.length + library.links.length);
     const fits = (lib) => estimatedBytes([...lib.shots, ...lib.links], cost) * ratio + perRecord * (lib.shots.length + lib.links.length) <= 0.95 * config.budget.assetBytes;
     let dropped = 0;
+    // Over the forest build: drop, among the drops that keep the most of the
+    // library connected, the shot whose footprint widens the forest most.
+    while (budget.forest && budget.forest.tour > budget.forest.cap && library.shots.length > 4) {
+      let best = null;
+      for (const shot of library.shots) {
+        if (shot.move === 'rail') continue;
+        const rest = linkLibrary(library.shots.filter((x) => x !== shot), pairs, config, cost), size = forest.bound({ ...library, ...rest });
+        if (!best || rest.shots.length > best.keep || (rest.shots.length === best.keep && size < best.size)) best = { shot, rest, size, keep: rest.shots.length };
+      }
+      if (!best) break;
+      log(`${ctx.viewId}: dropping ${best.shot.id} (forest build to ${(best.size / 2 ** 20).toFixed(0)} MiB)`);
+      library = { ...library, ...best.rest };
+      dropped++;
+      if (best.size <= budget.forest.cap) break;
+    }
     while (library.shots.length > 4 && (!dropped || (cost && !fits(library)))) {
       const worst = costliestShot(library, cost, (shot) => linkLibrary(library.shots.filter((s) => s !== shot), pairs, config, cost).shots.length);
       if (!worst) break;
