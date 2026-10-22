@@ -8,37 +8,68 @@
 // intervals. Off screen the camera only has to keep moving legally: there the
 // fillers are *pass-through* knots (`hidden`), where a shot passes its
 // payoffS unseen -- no payoff, no reward, and the costs of what a viewer
-// would see (repetition, link quality, speed changes) scale with the share
-// of the leg on screen. Between two knots the camera covers one *leg*: the
-// rest of the shot after its payoff, a link, and the next shot up to its
-// payoff. A leg's mean speed must fit [minSpeed, capMargin * cap], cap =
-// min(maxSpeed, flowLimit / max flow) over each part of the leg (rest of a
-// shot, link, next shot), the flow limit running from flowCalm to
+// would see (repetition, link quality, pace, speed changes) scale with the
+// share of the leg on screen. Between two knots the camera covers one *leg*:
+// the rest of the shot after its payoff, a link, and the next shot up to its
+// payoff. A leg's mean speed must fit [minSpeed, cap], cap = min(maxSpeed,
+// flowLimit / max flow, sqrt(maxAccel / bend)) over each part of the leg
+// (rest of a shot, link, next shot), the flow limit running from flowCalm to
 // flowEnergetic with the music's lowest intensity while that part plays, and
 // the speed profile that ShotTimeline will build through the knots
 // (intervalLimits, the same knot rules) must keep the eye's acceleration in
-// the limit: |a| + v^2 * bend <= maxAccel, where `bend` is the fastest change
+// the limit: |a| + v^2 * bend <= maxAccel, where `bend` is the largest change
 // of the eye's share of progress on the leg (joins included) -- at a steady
 // progress speed v the eye still speeds up or slows by bend * v^2 where a
-// path trades flying for panning.
+// path trades flying for panning. The eye's sideways acceleration v^2 * turn
+// (curvature) is unlimited -- turning comfort is the yaw limit -- unless
+// `vectorAccelRatio` holds the whole acceleration to that multiple of
+// maxAccel (then also v^2 * turn <= sqrt(ratio^2 - 1) * maxAccel).
+//
+// `bend` and `turn` are measured on the curve the timeline draws through the
+// decoded samples (pathPoseAt's spline at smoothPoseAt's pace), at their
+// largest over each segment, not at a few fixed points. On the libraries'
+// 0.1 m lattice that includes quantization: on shots sampled every ~29 m it
+// is about 6e-4/m (the drawn eye's speed jitters by 2.2 m/s2 at 60 m/s and
+// 4.7 at 90 m/s at a steady pace, about half from the s lane and half from
+// the eye lane), on links sampled every ~58 m about a quarter of that. Only a
+// finer lattice (or coarser shot sampling) removes it; the planner does not
+// pretend it is not drawn. Real bends (a link's kinks at its joins, a shot's
+// pan) are usually far larger and are what limit links.
 //
 // Search: knots in time order, each holding a beam of states (last shot,
 // its payoff at that knot, recent history), at most one per (shot, previous
 // subject) and `beamWidth` in all. Every state expands over its shot's links
-// and the next few impact slots plus the few visible and pass-through slots
-// nearest a comfortable pace that its leg can reach (and the ones from which
-// the shot's rest would just reach the song end); a song end is tried from
-// every state. The best complete plan wins, so the climax shot and the
-// outro are chosen together, never committed greedily. Costs: shot quality
-// times slot importance (the climax heaviest, a bonus for a top hero shot
-// there and for ending on a pullback or high move after it), link quality,
-// repetition (subject, move, heading, elevation, lens, foreground), calm
-// slots wanting gentle moves, pace against the comfortable image flow, and
-// speed changes between legs.
+// and the next few impact slots (and strong ones further on) that its leg
+// can reach at the minimum speed or faster, however long the leg, plus the
+// few visible and pass-through slots nearest a comfortable pace (slower ones
+// up to `fillerReachMs` on) and the ones from which the shot's rest would
+// just reach the song end; the song
+// end is tried from every state, inside its shot, through one more link into
+// a last shot, or -- only when a state has no other way to the end -- inside
+// that link. The best complete plan wins, so the climax shot, the final
+// chorus and the outro are chosen together, never committed greedily.
+//
+// Costs: shot quality times slot importance (strong impacts at a section
+// start heavier, the climax heaviest, a bonus for a hero subject there --
+// most for its best shots),
+// link quality, repetition (subject, move runs, heading, elevation, lens,
+// foreground passes), the music's character (calm slots want gentle moves,
+// energetic ones approaches, reveals and passes), pace (against a
+// comfortable pace for the music, `comfortFlow` of the image-flow limit;
+// a leg under `crawlRatio` of it crawls and pays per second), stretches of
+// more than `payoffGapMs` on screen without a payoff (also when an on-screen
+// window closes without one; the first payoff of each window earns
+// `window`), every strong impact or climax passed on screen without a payoff
+// (`missStrong`), speed changes between legs, and the ending (a pullback,
+// high or crane shot for the outro, more after a hero climax).
 //
 // A replan (`start` from shotContinuation) holds its first leg to the hard
 // limits only and, landing on the committed timeline's next knot, keeps that
 // knot's speed (`plan.pin`): the committed sequence stays among its choices.
+// It chooses from the same options a fresh plan has: the committed element's
+// own leg is not charged for what it repeats (every continuation pays that
+// alike), and riding the committed element to the song end without its
+// payoff is only a last resort.
 // Motion limits: the defaults, then the library's region `motion`, then
 // `tunables`.
 //
@@ -50,15 +81,16 @@ import { SHOT_MOTION, SHOT_KEY_MS, knotSpeed, intervalLimits, itemKnots, progres
 
 export const SHOT_TUNABLES = Object.freeze({
   ...SHOT_MOTION,
-  beamWidth: 256, maxLegMs: 90000, impactsPerLeg: 2, freeSlotsPerLeg: 3, hiddenSlotsPerLeg: 2, fillerGapMs: 12000, fillerSpacingMs: 6000,
-  capMargin: .8, comfortFlow: .55,
-  weights: Object.freeze({ shot: 3, scoreBase: .5, impact: 3, climax: 2.5, showing: .3, link: .5, comfort: .06, hiddenComfort: .15, change: .8, timing: .002, sameSubject: 10, recentSubject: 1,
-    olderSubject: .5, sameMove: .8, heading: .3, run: .3, foregroundRun: .2, reuse: 3, calmEnergetic: .8, impactGentle: .3,
-    climaxHero: 16, outro: 2, railOpen: 2, wideOpen: 1, energeticOpen: 2.5, linkTime: .04, seedJitter: .2 }),
+  beamWidth: 256, statesPerShot: 3, fillerReachMs: 90000, impactsPerLeg: 2, strongPerLeg: 2, freeSlotsPerLeg: 2, hiddenSlotsPerLeg: 2, fillerGapMs: 8000, fillerSpacingMs: 4000,
+  capMargin: 1, vectorAccelRatio: 0, endViaMs: 60000, comfortFlow: .85, crawlRatio: .5, payoffGapMs: 30000, strongWindowMs: 3000,
+  weights: Object.freeze({ shot: 3, scoreBase: .5, impact: 3, strong: 1.5, climax: 2.5, showing: .3, link: .5, comfort: .06, crawl: .3, gap: .25, window: 90, hiddenComfort: .15,
+    change: .8, timing: .002, sameSubject: 300, recentSubject: 1, olderSubject: .5, sameMove: .8, moveRun: 4, heading: .3, run: .4, foregroundRun: .6, reuse: 3,
+    calmEnergetic: 1.2, energyGentle: .5, impactGentle: .3, missStrong: 40, climaxHero: 60, climaxHeroAny: 12, outro: 2, outroMove: 1.5, endInLink: 4,
+    railOpen: 2, wideOpen: 1, energeticOpen: 2.5, linkTime: .04, seedJitter: .2 }),
 });
 
-const GENTLE = new Set(['rail', 'orbit', 'pullback', 'traverse']), ENERGETIC = new Set(['reveal', 'approach', 'valley', 'crest']);
-const LENSES = ['wide', 'normal', 'tele'];
+const GENTLE = new Set(['rail', 'orbit', 'pullback', 'traverse']), LIVELY = new Set(['reveal', 'approach', 'valley', 'crest']);
+const LENSES = ['wide', 'normal', 'tele'], ELEVATIONS = ['low', 'mid', 'high'];
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const byId = (a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
@@ -72,39 +104,161 @@ export function restoreShotLibrary(library) {
     linksFrom, subjectById: new Map(library.subjects.map((s) => [s.id, s])) };
 }
 
-// The eye's share of progress g (eye metres per progress metre) and its
-// rate of change along a path, as the timeline traverses pathPoseAt's
-// uniform Catmull-Rom. From the per-progress-metre chords a, b, c around
-// segment i (a = w[i-1], clamped at the ends as pathPoseAt reflects), the
-// eye's velocity per metre is P(u) = (a+b)/2 + E u + 1.5 F u^2 and its
-// derivative Q(u) = E + 3 F u (E = -2a + 3b - c, F = a - 2b + c), so
-// dg/ds = P.Q / |P| / ds; its largest magnitude (at u = 0, 1/2 or 1, where
-// Q jumps or turns) is the segment's bend.
-const chordOf = (path) => {
-  const { s, eye } = path, last = s.length - 2;
-  return (i, out) => {
-    i = i < 0 ? 0 : i > last ? last : i;
-    const ds = s[i + 1] - s[i] || 1;
-    out[0] = (eye[i * 3 + 3] - eye[i * 3]) / ds; out[1] = (eye[i * 3 + 4] - eye[i * 3 + 1]) / ds; out[2] = (eye[i * 3 + 5] - eye[i * 3 + 2]) / ds;
-    return out;
-  };
-};
-function segmentBend(a, b, c, ds) {
-  let bend = 0;
-  for (let u = 0; u <= 1; u += .5) {
-    let pq = 0, pp = 0;
-    for (let k = 0; k < 3; k++) {
-      const E = -2 * a[k] + 3 * b[k] - c[k], F = a[k] - 2 * b[k] + c[k], P = (a[k] + b[k]) / 2 + E * u + 1.5 * F * u * u;
-      pq += P * (E + 3 * F * u); pp += P * P;
-    }
-    if (pp > 1e-12) bend = Math.max(bend, Math.abs(pq) / Math.sqrt(pp) / ds);
+// The drawn eye along a path, as ShotTimeline draws it: pathPoseAt's
+// uniform Catmull-Rom through the samples (reflected at a path's ends, or
+// run through the neighbour's support sample where two items join)
+// traversed by smoothPoseAt's Hermite fraction (slopes k0, k1 from the
+// neighbouring spacings). With E(x) the eye at progress x, the eye's
+// acceleration at progress speed v and progress acceleration a is
+// E'' v^2 + E' a. Its part along the travel adds `bend` * v^2 to the
+// profile's own (bend = |E'.E''| / |E'|, how fast the eye's share of
+// progress changes: where a path trades flying for panning, or the sample
+// spacing steps); its sideways part is `turn` * v^2 (turn = |E' x E''| /
+// |E'|, the curvature seen per progress metre).
+//
+// Both are rational functions of the segment fraction t whose largest value
+// usually lies inside the segment, not at t = 0, 1/2 or 1 (Teton's
+// reveal-jackson-lake-107, segment 15, peaks at t = 0.77 at 2.9x its
+// midpoint value). So every segment is scanned at t = 0, 1/4, ..., 1 (the
+// scan reads at most 1.52x low over the 22,600 segments of the 14 real
+// libraries and the test fixtures), and over a range of a path the leading
+// segment, then every segment whose scan comes within BEND_SLACK of the best
+// value found, is refined by golden-section search around each local maximum
+// of its scan (parabolic steps miss the sharp peaks at kinked joins). That
+// matches a dense scan (257-513 points per segment) to 0.15% on every part
+// and link (joins included) of the real libraries at a fraction of its cost.
+const SCAN = 5, BEND_SLACK = 1.6, GOLDEN_STEPS = 5;
+const SCAN_T = Float64Array.from({ length: SCAN }, (_, j) => j / (SCAN - 1));
+// Per scan point: the Hermite fraction u, du/dt and d2u/dt2 as coefficients of k0, k1 and 1.
+const SCAN_B = new Float64Array(SCAN * 9);
+SCAN_T.forEach((t, j) => {
+  const t2 = t * t;
+  SCAN_B.set([t2 * t - 2 * t2 + t, t2 * t - t2, 3 * t2 - 2 * t2 * t, 3 * t2 - 4 * t + 1, 3 * t2 - 2 * t, 6 * t - 6 * t2, 6 * t - 4, 6 * t - 2, 6 - 12 * t], j * 9);
+});
+// One segment's curve: Catmull-Rom derivative coefficients per axis
+// (E'(u) = c + A u + B u^2 / 2, E''(u) = A + B u), the Hermite slopes and ds.
+const curve = new Float64Array(12);
+function loadSegment(p, before, ds, after, ends) {
+  for (let k = 0; k < 3; k++) {
+    const p0 = p[k], p1 = p[3 + k], p2 = p[6 + k], p3 = p[9 + k];
+    curve[k] = .5 * (p2 - p0); curve[3 + k] = 2 * p0 - 5 * p1 + 4 * p2 - p3; curve[6 + k] = 3 * (-p0 + 3 * p1 - 3 * p2 + p3);
   }
-  return bend;
+  curve[9] = ends ? 2 * ds / (before + ds) : 1; curve[10] = ends ? 2 * ds / (ds + after) : 1; curve[11] = ds;
+}
+// The bend (q = 0) or turn (q = 1) of the loaded segment at fraction t:
+// with d = E'/du and C = dE'/du / du (per unit u), E' = d du and
+// E'' = C du^2 + d ddu, so bend = |du^2 d.C + ddu |d|^2| / |d|.
+function drawnAt(t, q) {
+  const k0 = curve[9], k1 = curve[10], ds = curve[11], t2 = t * t, t3 = t2 * t;
+  const u = (t3 - 2 * t2 + t) * k0 + (t3 - t2) * k1 + 3 * t2 - 2 * t3, hu = .5 * u * u;
+  const du = ((3 * t2 - 4 * t + 1) * k0 + (3 * t2 - 2 * t) * k1 + 6 * t - 6 * t2) / ds, ddu = ((6 * t - 4) * k0 + (6 * t - 2) * k1 + 6 - 12 * t) / (ds * ds), du2 = du * du;
+  const dx = curve[0] + curve[3] * u + curve[6] * hu, dy = curve[1] + curve[4] * u + curve[7] * hu, dz = curve[2] + curve[5] * u + curve[8] * hu;
+  const cx = curve[3] + curve[6] * u, cy = curve[4] + curve[7] * u, cz = curve[5] + curve[8] * u, dd = dx * dx + dy * dy + dz * dz;
+  if (!(dd * du2 > 1e-12)) return 0;
+  const b = Math.abs(du2 * (dx * cx + dy * cy + dz * cz) + ddu * dd) / Math.sqrt(dd);
+  if (!q) return b;
+  const ex = cx * du2 + dx * ddu, ey = cy * du2 + dy * ddu, ez = cz * du2 + dz * ddu;
+  return Math.sqrt(Math.max(0, ex * ex + ey * ey + ez * ez - b * b));
+}
+// Golden-section search for the largest value of quantity q in [a, c].
+function refineMax(q, a, c) {
+  const g = .3819660112501051;
+  let x1 = a + g * (c - a), x2 = c - g * (c - a);
+  let f1 = drawnAt(x1, q), f2 = drawnAt(x2, q);
+  for (let k = 0; k < GOLDEN_STEPS; k++) {
+    if (f1 > f2) { c = x2; x2 = x1; f2 = f1; x1 = a + g * (c - a); f1 = drawnAt(x1, q); } else { a = x1; x1 = x2; f1 = f2; x2 = c - g * (c - a); f2 = drawnAt(x2, q); }
+  }
+  return f1 > f2 ? f1 : f2;
+}
+// The loaded segment's scan of quantity q into out[0..SCAN).
+function scanSegment(out, q) {
+  for (let j = 0; j < SCAN; j++) out[j] = drawnAt(SCAN_T[j], q);
+}
+// The refined maximum of quantity q over the loaded segment, from its scan:
+// every local maximum of the scan that could still be the largest, or beat
+// `floor`, is searched (so the result is exact wherever it is above floor).
+function segmentMax(scan, q, floor = 0) {
+  let best = 0;
+  for (let j = 0; j < SCAN; j++) best = Math.max(best, scan[j]);
+  const least = Math.max(best, floor);
+  for (let j = 0; j < SCAN; j++) {
+    const v = scan[j];
+    if (v * BEND_SLACK < least || (j > 0 && v < scan[j - 1]) || (j < SCAN - 1 && v < scan[j + 1])) continue;
+    best = Math.max(best, refineMax(q, SCAN_T[Math.max(0, j - 1)], SCAN_T[Math.min(SCAN - 1, j + 1)]));
+  }
+  return best;
+}
+
+// Per path: each segment's scan maximum per quantity and, once refined, its
+// refined maximum (-1 until then), exact above the floor it was refined at.
+const pathCurves = new WeakMap(), points = new Float64Array(12), scanBuf = new Float64Array(SCAN);
+function loadPathSegment(path, i) {
+  const { s, eye } = path, n = s.length, ds = s[i + 1] - s[i];
+  for (let k = 0; k < 3; k++) {
+    const p1 = eye[i * 3 + k], p2 = eye[i * 3 + 3 + k];
+    points[k] = i > 0 ? eye[i * 3 - 3 + k] : 2 * p1 - p2; points[3 + k] = p1; points[6 + k] = p2; points[9 + k] = i + 2 < n ? eye[i * 3 + 6 + k] : 2 * p2 - p1;
+  }
+  loadSegment(points, i > 0 ? s[i] - s[i - 1] : ds, ds, i + 2 < n ? s[i + 2] - s[i + 1] : ds, n >= 3);
+  return ds > 0;
+}
+// The scan of quantity q on every segment of a path (drawnAt inlined: this
+// runs over every sample of a library on each fresh copy the worker plans with).
+function curvesOf(path, q) {
+  let c = pathCurves.get(path);
+  if (!c) pathCurves.set(path, c = { scan: [null, null], refined: [null, null], floor: [null, null] });
+  if (c.scan[q]) return c;
+  const { s, eye } = path, n = s.length, m = Math.max(0, n - 1), B = SCAN_B, out = c.scan[q] = new Float64Array(m), refined = c.refined[q] = new Float64Array(m).fill(-1);
+  c.floor[q] = new Float64Array(m);
+  for (let i = 0; i < m; i++) {
+    const ds = s[i + 1] - s[i];
+    if (!(ds > 0)) { refined[i] = 0; continue; }
+    const k0 = n >= 3 ? 2 * ds / ((i > 0 ? s[i] - s[i - 1] : ds) + ds) : 1, k1 = n >= 3 ? 2 * ds / (ds + (i + 2 < n ? s[i + 2] - s[i + 1] : ds)) : 1;
+    const o = i * 3, ids = 1 / ds;
+    let x1 = eye[o], x2 = eye[o + 3], x0 = i > 0 ? eye[o - 3] : 2 * x1 - x2, x3 = i + 2 < n ? eye[o + 6] : 2 * x2 - x1;
+    const cx = .5 * (x2 - x0), ax = 2 * x0 - 5 * x1 + 4 * x2 - x3, bx = 3 * (-x0 + 3 * x1 - 3 * x2 + x3);
+    x1 = eye[o + 1]; x2 = eye[o + 4]; x0 = i > 0 ? eye[o - 2] : 2 * x1 - x2; x3 = i + 2 < n ? eye[o + 7] : 2 * x2 - x1;
+    const cy = .5 * (x2 - x0), ay = 2 * x0 - 5 * x1 + 4 * x2 - x3, by = 3 * (-x0 + 3 * x1 - 3 * x2 + x3);
+    x1 = eye[o + 2]; x2 = eye[o + 5]; x0 = i > 0 ? eye[o - 1] : 2 * x1 - x2; x3 = i + 2 < n ? eye[o + 8] : 2 * x2 - x1;
+    const cz = .5 * (x2 - x0), az = 2 * x0 - 5 * x1 + 4 * x2 - x3, bz = 3 * (-x0 + 3 * x1 - 3 * x2 + x3);
+    let most = 0;
+    for (let j = 0; j < SCAN * 9; j += 9) {
+      const u = B[j] * k0 + B[j + 1] * k1 + B[j + 2], du = (B[j + 3] * k0 + B[j + 4] * k1 + B[j + 5]) * ids, ddu = (B[j + 6] * k0 + B[j + 7] * k1 + B[j + 8]) * ids * ids;
+      const hu = .5 * u * u, dx = cx + ax * u + bx * hu, dy = cy + ay * u + by * hu, dz = cz + az * u + bz * hu, dd = dx * dx + dy * dy + dz * dz;
+      if (!(dd * du * du > 1e-12)) continue;
+      // E' = d du, E'' = C du^2 + d ddu (C = A + B u): bend = |du^2 d.C + ddu |d|^2| / |d|.
+      const ex = ax + bx * u, ey = ay + by * u, ez = az + bz * u, du2 = du * du, w = du2 * (dx * ex + dy * ey + dz * ez) + ddu * dd;
+      let v = w * w / dd;
+      if (q) { const qx = ex * du2 + dx * ddu, qy = ey * du2 + dy * ddu, qz = ez * du2 + dz * ddu; v = qx * qx + qy * qy + qz * qz - v; }
+      if (v > most) most = v;
+    }
+    out[i] = Math.sqrt(most);
+  }
+  return c;
+}
+/** The largest bend (q = 0) or turn (q = 1) of a path's drawn eye over
+ *  progress [a, b] (1/m), or `floor` if that is larger (segments that cannot
+ *  beat it are not refined). */
+function rangeMax(path, a, b, q, floor = 0) {
+  const { s } = path, c = curvesOf(path, q), scan = c.scan[q], refined = c.refined[q], floors = c.floor[q], n = scan.length;
+  let i0 = 0, i1 = n - 1, best = floor;
+  while (i0 < n && s[i0 + 1] < a) i0++;
+  while (i1 >= i0 && s[i1] > b) i1--;
+  let top = -1;
+  for (let i = i0; i <= i1; i++) {
+    const v = refined[i] >= 0 ? refined[i] : scan[i];
+    if (v > best) { best = v; top = i; }
+  }
+  // The leading segment first (it usually holds the maximum), then any other
+  // whose scan could still beat what is known.
+  const refine = (i) => { loadPathSegment(path, i); scanSegment(scanBuf, q); refined[i] = segmentMax(scanBuf, q, best); floors[i] = best; if (refined[i] > best) best = refined[i]; };
+  if (top >= 0 && refined[top] < 0) refine(top);
+  for (let i = i0; i <= i1; i++) if ((refined[i] < 0 || floors[i] > best) && scan[i] * BEND_SLACK >= best) refine(i);
+  return best;
 }
 
 /** Over progress [a, b] of a path: max and integral of its flow lane, and
- *  `bend`, the fastest change of the eye's share of progress (1/m). */
-function laneStats(path, a, b) {
+ *  the drawn eye's largest `bend` there (and `turn`, when asked; 1/m). */
+function laneStats(path, a, b, withTurn = false, withBend = true) {
   const { s, flow } = path, n = s.length;
   let prevS = a, prevF = flow ? pathLaneAt(path, flow, a) : 1 / 500, max = prevF, int = 0;
   if (flow) {
@@ -113,24 +267,34 @@ function laneStats(path, a, b) {
       int += (s[i] - prevS) * (flow[i] + prevF) / 2; max = Math.max(max, flow[i]); prevS = s[i]; prevF = flow[i];
     }
   }
-  const fb = flow ? pathLaneAt(path, flow, b) : 1 / 500, w = chordOf(path);
-  let bend = 0, p = new Float64Array(3), q = new Float64Array(3), r = new Float64Array(3), first = true;
-  for (let i = 0; i < n - 1; i++) {
-    if (s[i + 1] < a || s[i] > b) continue;
-    if (first) { w(i - 1, p); w(i, q); first = false; }
-    w(i + 1, r);
-    bend = Math.max(bend, segmentBend(p, q, r, s[i + 1] - s[i]));
-    [p, q, r] = [q, r, p];
-  }
-  return { max: Math.max(max, fb, 1e-9), int: Math.max(0, int + (b - prevS) * (fb + prevF) / 2), bend };
+  const fb = flow ? pathLaneAt(path, flow, b) : 1 / 500;
+  return { max: Math.max(max, fb, 1e-9), int: Math.max(0, int + (b - prevS) * (fb + prevF) / 2), bend: withBend ? rangeMax(path, a, b, 0) : 0, turn: withTurn ? rangeMax(path, a, b, 1) : 0 };
 }
 
-/** Bend of the two segments where path A's end joins path B's start
- *  (ShotTimeline joins them through each other's end chords). */
-function joinBend(A, B) {
-  const na = A.s.length, wa = chordOf(A), wb = chordOf(B);
-  const a2 = wa(na - 3, new Float64Array(3)), a1 = wa(na - 2, new Float64Array(3)), b0 = wb(0, new Float64Array(3)), b1 = wb(1, new Float64Array(3));
-  return Math.max(segmentBend(a2, a1, b0, A.s[na - 1] - A.s[na - 2]), segmentBend(a1, b0, b1, B.s[1] - B.s[0]));
+/** Bend and turn of the two segments where path A's end joins path B's
+ *  start, drawn as ShotTimeline joins them: each runs its Catmull-Rom
+ *  through a support sample on the other's end chord, scaled to its own
+ *  sample spacing (so the spline is uniform there: slope 1 at the join). */
+function joinCurve(A, B) {
+  const na = A.s.length, nb = B.s.length, out = [0, 0];
+  if (na < 2 || nb < 2) return out;
+  const dsA = A.s[na - 1] - A.s[na - 2], dsB = B.s[1] - B.s[0];
+  if (!(dsA > 0 && dsB > 0)) return out;
+  // A's last segment: p3 is the support past A's end toward B's second sample.
+  for (let k = 0; k < 3; k++) {
+    const p1 = A.eye[(na - 2) * 3 + k], p2 = A.eye[(na - 1) * 3 + k];
+    points[k] = na >= 3 ? A.eye[(na - 3) * 3 + k] : 2 * p1 - p2; points[3 + k] = p1; points[6 + k] = p2; points[9 + k] = p2 + (B.eye[3 + k] - p2) * dsA / dsB;
+  }
+  loadSegment(points, na >= 3 ? A.s[na - 2] - A.s[na - 3] : dsA, dsA, dsA, true);
+  for (let q = 0; q < 2; q++) { scanSegment(scanBuf, q); out[q] = segmentMax(scanBuf, q); }
+  // B's first segment: p0 is the support before B's start toward A's second-last sample.
+  for (let k = 0; k < 3; k++) {
+    const p1 = B.eye[k], p2 = B.eye[3 + k];
+    points[k] = p1 + (A.eye[(na - 2) * 3 + k] - p1) * dsB / dsA; points[3 + k] = p1; points[6 + k] = p2; points[9 + k] = nb >= 3 ? B.eye[6 + k] : 2 * p2 - p1;
+  }
+  loadSegment(points, dsB, dsB, nb >= 3 ? B.s[2] - B.s[1] : dsB, true);
+  for (let q = 0; q < 2; q++) { scanSegment(scanBuf, q); out[q] = Math.max(out[q], segmentMax(scanBuf, q)); }
+  return out;
 }
 
 // Song-independent per-library tables, cached per decoded library.
@@ -145,8 +309,15 @@ function libraryIndex(library) {
     L[i] = s.path.s[s.path.s.length - 1]; pay[i] = clamp(s.payoffS, 0, L[i]);
     head.push(laneStats(s.path, 0, pay[i])); tail.push(laneStats(s.path, pay[i], L[i]));
   });
-  const fgOf = (f) => { const key = String(f ?? 'none'); if (!foregrounds.has(key)) foregrounds.set(key, foregrounds.size); return foregrounds.get(key); };
+  // Foreground: a pass in front of something else (tag), or the trait when it names a kind.
+  const fgOf = (s) => {
+    const f = s.tags?.includes('foreground-pass') ? 'pass' : typeof s.traits?.foreground === 'string' ? s.traits.foreground : 'none';
+    if (!foregrounds.has(f)) foregrounds.set(f, foregrounds.size);
+    return foregrounds.get(f);
+  };
   const agl = (s) => s.traits?.aglM ?? 500;
+  const elevOf = (s) => (ELEVATIONS.includes(s.traits?.elevation) ? ELEVATIONS.indexOf(s.traits.elevation) : agl(s) < 450 ? 0 : agl(s) < 750 ? 1 : 2);
+  const highOf = (s) => agl(s) >= 750 || !!s.tags?.includes('high') || s.traits?.elevation === 'high';
   const heroes = new Set(library.subjects.filter((s) => s.hero).map((s) => s.id));
   for (const s of shots) if (s.tags?.includes('hero')) heroes.add(s.subjectId);
   if (!heroes.size) {
@@ -158,31 +329,78 @@ function libraryIndex(library) {
     const own = shots.map((s, i) => [s, i]).filter(([s]) => s.subjectId === subject).sort(([a], [b]) => b.score.total - a.score.total || byId(a, b));
     for (const [, i] of own.slice(0, own.length >= 6 ? 3 : 2)) heroTop[i] = 1;
   }
-  // A link's bend includes both of its joins.
-  const linkStats = links.map((l) => {
-    const st = laneStats(l.path, 0, l.path.s[l.path.s.length - 1]), A = library.shotById.get(l.from)?.path, B = library.shotById.get(l.to)?.path;
-    return { ...st, bend: Math.max(st.bend, A ? joinBend(A, l.path) : 0, B ? joinBend(l.path, B) : 0) };
-  });
+  // A link's flow now; its bend (with both joins) when first needed (linkBend):
+  // the planner never needs it for a link no leg can fly in time, and dense
+  // long links are most of a library's samples.
+  const joinTurn = new Float64Array(links.length);
+  const linkStats = links.map((l) => laneStats(l.path, 0, l.path.s[l.path.s.length - 1], false, false));
   ix = {
     shots, links, shotIndex, L, pay, head, tail, heroTop,
+    hero: Uint8Array.from(shots, (s) => +heroes.has(s.subjectId)),
     subj: Int32Array.from(shots, (s) => subjects.get(s.subjectId) ?? -1),
-    move: shots.map((s) => s.move), gentle: Uint8Array.from(shots, (s) => +GENTLE.has(s.move)), energetic: Uint8Array.from(shots, (s) => +ENERGETIC.has(s.move)),
+    move: shots.map((s) => s.move), gentle: Uint8Array.from(shots, (s) => +(GENTLE.has(s.move) && !s.tags?.includes('foreground-pass'))),
+    // Lively: approaches, reveals and the like, and passes in front of a foreground.
+    lively: Uint8Array.from(shots, (s) => +(LIVELY.has(s.move) || !!s.tags?.includes('foreground-pass'))),
     heading: Float64Array.from(shots, (s) => s.traits?.headingDeg ?? NaN),
-    elev: Int8Array.from(shots, (s) => (agl(s) < 450 ? 0 : agl(s) < 750 ? 1 : 2)),
-    lens: Int8Array.from(shots, (s) => LENSES.indexOf(s.traits?.lens)), fg: Int16Array.from(shots, (s) => fgOf(s.traits?.foreground)),
+    elev: Int8Array.from(shots, elevOf),
+    lens: Int8Array.from(shots, (s) => LENSES.indexOf(s.traits?.lens)), fg: Int16Array.from(shots, fgOf),
     score: Float64Array.from(shots, (s) => s.score.total),
-    high: Uint8Array.from(shots, (s) => +(agl(s) >= 750 || !!s.tags?.includes('high'))), wide: Uint8Array.from(shots, (s) => +(s.traits?.lens === 'wide')),
+    high: Uint8Array.from(shots, (s) => +highOf(s)), wide: Uint8Array.from(shots, (s) => +(s.traits?.lens === 'wide')),
+    // An ending: a pullback, a high shot or a crane reveal.
+    outro: Uint8Array.from(shots, (s) => +(s.move === 'pullback' || highOf(s) || !!s.tags?.includes('crane'))),
     rail: shots.findIndex((s) => s.move === 'rail'),
     lFrom: Int32Array.from(links, (l) => shotIndex.get(l.from)), lTo: Int32Array.from(links, (l) => shotIndex.get(l.to)),
-    lL: Float64Array.from(links, (l) => l.path.s[l.path.s.length - 1]), lMax: Float64Array.from(linkStats, (x) => x.max), lBend: Float64Array.from(linkStats, (x) => x.bend),
+    lL: Float64Array.from(links, (l) => l.path.s[l.path.s.length - 1]), lMax: Float64Array.from(linkStats, (x) => x.max), lBend: new Float64Array(links.length).fill(-1), lTurn: new Float64Array(links.length),
     lInt: Float64Array.from(linkStats, (x) => x.int), lScore: Float64Array.from(links, (l) => l.score.total),
     out: shots.map(() => []),
   };
   const linkIndex = new Map(links.map((l, j) => [l, j]));
   // Code-unit id order (not locale order), so ties break the same everywhere.
   shots.forEach((s, i) => { ix.out[i] = (library.linksFrom.get(s.id) || []).toSorted(byId).map((l) => linkIndex.get(l)).filter((j) => j !== undefined); });
+  // For endings: the shortest link to each next shot.
+  ix.outEnd = ix.out.map((list) => list.filter((j) => !list.some((k) => ix.lTo[k] === ix.lTo[j] && (ix.lL[k] < ix.lL[j] || ix.lL[k] === ix.lL[j] && k < j))));
+  ix.linkBend = (j) => {
+    if (ix.lBend[j] < 0) {
+      const l = links[j], A = library.shotById.get(l.from)?.path, B = library.shotById.get(l.to)?.path;
+      const a = A ? joinCurve(A, l.path) : [0, 0], b = B ? joinCurve(l.path, B) : [0, 0];
+      ix.lBend[j] = rangeMax(l.path, 0, ix.lL[j], 0, Math.max(a[0], b[0])); joinTurn[j] = Math.max(a[1], b[1]);
+    }
+    return ix.lBend[j];
+  };
+  // Turns (zero until asked for: only a vector limit and the reports need them).
+  let turns = false;
+  ix.withTurns = () => {
+    if (turns) return ix;
+    turns = true;
+    shots.forEach((s, i) => { head[i].turn = rangeMax(s.path, 0, pay[i], 1); tail[i].turn = rangeMax(s.path, pay[i], L[i], 1); });
+    links.forEach((l, j) => { ix.linkBend(j); ix.lTurn[j] = Math.max(rangeMax(l.path, 0, ix.lL[j], 1), joinTurn[j]); });
+    return ix;
+  };
   indexes.set(library, ix);
   return ix;
+}
+
+// Sideways acceleration (v^2 * turn) is unlimited -- turning comfort is the
+// yaw limit -- unless `vectorAccelRatio` (> 1) holds the eye's whole
+// acceleration to that multiple of maxAccel: then sqrt(ratio^2 - 1) *
+// maxAccel is left for it beside a full maxAccel along the travel.
+const sidewaysAccel = (T) => (T.vectorAccelRatio > 1 ? Math.sqrt(T.vectorAccelRatio ** 2 - 1) * T.maxAccelMps2 : Infinity);
+// The speed at which a steady eye reaches the acceleration limits on a bend and turn.
+const curveCap = (T, bend, turn) => Math.min(bend > 0 ? Math.sqrt(T.maxAccelMps2 / bend) : Infinity, turn > 0 ? Math.sqrt(sidewaysAccel(T) / turn) : Infinity);
+
+/** Speed caps (m/s) of every shot's head (entry to payoff) and tail and of
+ *  every link with its joins: the speed limit, the energetic flow limit and
+ *  the drawn eye's tangential bend (and its turn, when `vectorAccelRatio`
+ *  limits it). { head, tail, link: [{lengthM, capMps, bendPerM, turnPerM}] } */
+export function shotPaceLimits(library, tunables = {}) {
+  library = restoreShotLibrary(library);
+  const T = { ...SHOT_TUNABLES, ...(library.motion || {}), ...tunables }, ix = libraryIndex(library).withTurns();
+  const part = (lengthM, max, bend, turn) => ({ lengthM, capMps: Math.min(T.maxSpeedMps, T.flowEnergetic / max, curveCap(T, bend, turn)), bendPerM: bend, turnPerM: turn });
+  return {
+    head: ix.shots.map((_, i) => part(ix.pay[i], ix.head[i].max, ix.head[i].bend, ix.head[i].turn)),
+    tail: ix.shots.map((_, i) => part(ix.L[i] - ix.pay[i], ix.tail[i].max, ix.tail[i].bend, ix.tail[i].turn)),
+    link: ix.links.map((_, j) => part(ix.lL[j], ix.lMax[j], ix.linkBend(j), ix.lTurn[j])),
+  };
 }
 
 function hash01(seed, text) {
@@ -201,10 +419,12 @@ function rangeTables(lane) {
     for (let i = 0; i < next.length; i++) next[i] = Math.min(last[i], last[i + w]);
     table.push(next);
   }
-  const span = (a, b) => [clamp(Math.floor(a / SHOT_KEY_MS), 0, n - 1), clamp(Math.ceil(b / SHOT_KEY_MS), 0, n - 1)];
+  const log = new Uint8Array(n + 1);
+  for (let k = 2; k <= n; k++) log[k] = log[k >> 1] + 1;
+  const lo = (a) => clamp(Math.floor(a / SHOT_KEY_MS), 0, n - 1), hi = (b) => clamp(Math.ceil(b / SHOT_KEY_MS), 0, n - 1);
   return {
-    mean: (a, b) => { const [i, j] = span(a, b); return (prefix[j + 1] - prefix[i]) / (j - i + 1); },
-    min: (a, b) => { const [i, j] = span(a, b), l = Math.floor(Math.log2(j - i + 1)); return Math.min(table[l][i], table[l][j - (1 << l) + 1]); },
+    mean: (a, b) => { const i = lo(a), j = Math.max(i, hi(b)); return (prefix[j + 1] - prefix[i]) / (j - i + 1); },
+    min: (a, b) => { const i = lo(a), j = Math.max(i, hi(b)), l = log[j - i + 1]; return Math.min(table[l][i], table[l][j - (1 << l) + 1]); },
   };
 }
 
@@ -213,18 +433,25 @@ function rangeTables(lane) {
  * [{kind, id, startMs, endMs, sFrom, sTo, payoffMs?, moment?, hidden?}],
  * notes, cost, fallback, start, pin, intensity, intensityStepMs, visible,
  * stats }. Items tile [start?.timeMs ?? 0, durationMs]: shot, link, shot,
- * ... A shot item's payoffMs is when the camera passes its payoffS; `hidden`
- * marks one off screen, which is no payoff. `visible` null means the whole
- * song is on screen; [] means none of it.
+ * ... A shot item's payoffMs is when the camera passes its payoffS (null for
+ * a last shot the song ends in before its payoff); `hidden` marks one off
+ * screen, which is no payoff. `visible` null means the whole song is on
+ * screen; [] means none of it. Moments carry `strong` (top third by
+ * strength, at a section start) and `climax`.
  */
 export function planShotTour(library, { durationMs = 0, sections = [], roles = [], energy = null, energyStepMs = 100,
   visible = null, seed = 0, start = null, tunables = {} } = {}) {
   library = restoreShotLibrary(library);
   const T = { ...SHOT_TUNABLES, ...(library.motion || {}), ...tunables, weights: { ...SHOT_TUNABLES.weights, ...tunables.weights } }, w = T.weights;
-  const ix = libraryIndex(library), { shots, links, L, pay } = ix, nShots = shots.length;
+  const turnsOn = sidewaysAccel(T) < Infinity, ix = turnsOn ? libraryIndex(library).withTurns() : libraryIndex(library), { shots, links, L, pay } = ix, nShots = shots.length;
   durationMs = Math.max(0, Number(durationMs) || 0);
   const music = musicMoments({ durationMs, sections, roles, energy: energy || [], energyStepMs });
-  const moments = music.impacts.map((m) => ({ ...m, climax: m === music.climax }));
+  // Strong impacts: the top third by strength, at a section start (a chorus
+  // or drop boundary, or within strongWindowMs of any detected start).
+  const ranked = music.impacts.map((m) => m.strength).sort((a, b) => b - a), cut = ranked[Math.max(0, Math.ceil(ranked.length / 3) - 1)] ?? Infinity;
+  const starts = sections.map((s) => s.startMs).filter((t) => t > 0);
+  const moments = music.impacts.map((m) => ({ ...m, climax: m === music.climax,
+    strong: m.strength >= cut && (m.boundary || starts.some((t) => Math.abs(t - m.timeMs) <= T.strongWindowMs)) }));
   const nLane = Math.ceil(durationMs / SHOT_KEY_MS) + 1, intensity = Float32Array.from({ length: nLane }, (_, i) => music.intensityAt(i * SHOT_KEY_MS));
   const t0 = start ? clamp(Math.round(start.timeMs), 0, durationMs) : 0, notes = [];
   const intervals = (visible ?? [{ startMs: 0, endMs: durationMs }]).map((v) => ({ startMs: Math.max(0, v.startMs), endMs: Math.min(durationMs, v.endMs) }))
@@ -275,6 +502,8 @@ export function planShotTour(library, { durationMs = 0, sections = [], roles = [
   const lanes = rangeTables(intensity), vis = rangeTables(Float64Array.from({ length: nLane }, (_, i) => +visibleAt(i * SHOT_KEY_MS)));
   const flowAt = (I) => T.flowCalm + (T.flowEnergetic - T.flowCalm) * I;
   const inCalm = (t) => music.calm.some((c) => t >= c.startMs && t <= c.endMs);
+  // Where the on-screen stretch containing t began (for the payoff-gap rule).
+  const shownFrom = (t) => { let from = t; for (const v of intervals) if (t >= v.startMs && t <= v.endMs) from = Math.min(from, v.startMs); return from; };
 
   // Slots on a grid of the whole song (independent of t0), then the
   // committed knots of a replan; only those after t0 are used.
@@ -283,8 +512,8 @@ export function planShotTour(library, { durationMs = 0, sections = [], roles = [
   moments.forEach((m, k) => {
     const t = Math.round(m.timeMs / SHOT_KEY_MS) * SHOT_KEY_MS;
     if (t > 0 && t <= durationMs && visibleAt(t)) {
-      addSlot(t, { kind: 'impact', moment: k, strength: m.strength, climax: m.climax, timing: Math.abs(t - m.timeMs),
-        imp: w.impact * (1 + 1.5 * m.strength + (m.boundary ? .5 : 0)) * (m.climax ? w.climax : 1) });
+      addSlot(t, { kind: 'impact', moment: k, strength: m.strength, climax: m.climax, strong: m.strong, timing: Math.abs(t - m.timeMs),
+        imp: w.impact * (1 + 1.5 * m.strength + (m.boundary ? .5 : 0) + (m.strong ? w.strong : 0)) * (m.climax ? w.climax : 1) });
     }
   });
   const near = (t, gap) => [...slotMap.keys()].some((u) => Math.abs(u - t) < gap);
@@ -305,17 +534,28 @@ export function planShotTour(library, { durationMs = 0, sections = [], roles = [
   }
   for (const t of [start?.next?.timeMs, ...(start?.knots || [])]) if (Number.isFinite(t) && t > t0 && t < durationMs && !slotMap.has(t)) addSlot(t, free(t));
   const slots = [...slotMap.values()].filter((s) => s.t > t0).sort((a, b) => a.t - b.t);
-  slots.forEach((s) => { s.calm = inCalm(s.t); s.climax = !!s.climax; s.strength ??= 0; s.timing ??= 0; });
+  slots.forEach((s) => {
+    s.calm = inCalm(s.t) || intensity[Math.round(s.t / SHOT_KEY_MS)] < .3; s.lively = !s.calm && intensity[Math.round(s.t / SHOT_KEY_MS)] >= .6;
+    s.climax = !!s.climax; s.strong = !!s.strong; s.strength ??= 0; s.timing ??= 0; s.from = shownFrom(s.t);
+    // How much the first payoff of its on-screen stretch is worth: `window` for a stretch of payoffGapMs or more.
+    s.window = w.window * Math.min(1, intervals.filter((v) => s.t >= v.startMs && s.t <= v.endMs).reduce((m, v) => Math.max(m, v.endMs - v.startMs), 0) / T.payoffGapMs);
+  });
   const pick = (test) => slots.map((s, i) => i).filter((i) => test(slots[i]));
-  const impactSlots = pick((s) => s.kind === 'impact'), visSlots = pick((s) => s.kind === 'phrase' || s.kind === 'filler'), hidSlots = pick((s) => s.kind === 'hidden');
+  const impactSlots = pick((s) => s.kind === 'impact'), strongSlots = pick((s) => s.kind === 'impact' && (s.strong || s.climax));
+  const visSlots = pick((s) => s.kind === 'phrase' || s.kind === 'filler'), hidSlots = pick((s) => s.kind === 'hidden');
   const timesOf = (list) => Float64Array.from(list, (i) => slots[i].t);
-  const impactT = timesOf(impactSlots), visT = timesOf(visSlots), hidT = timesOf(hidSlots);
+  const impactT = timesOf(impactSlots), strongT = timesOf(strongSlots), visT = timesOf(visSlots), hidT = timesOf(hidSlots);
   const nextSlot = start?.next ? slots.findIndex((s) => s.t === start.next.timeMs) : -1;
   const lowerBound = (arr, x) => { let lo = 0, hi = arr.length; while (lo < hi) { const mid = (lo + hi) >> 1; if (arr[mid] < x) lo = mid + 1; else hi = mid; } return lo; };
+  // A strong impact (or the climax) on screen in (ta, tb) that the tour passes
+  // without a payoff costs `missStrong`: more than a hero climax is worth, so
+  // a tour only gives up a drop for the climax's subject when both drops
+  // cannot be had.
+  const missedStrong = (ta, tb) => w.missStrong * Math.max(0, lowerBound(strongT, tb) - lowerBound(strongT, ta + 1));
 
   const jitter = Float64Array.from(shots, (s) => w.seedJitter * (hash01(seed, s.id) - .5));
   const linkJitter = Float64Array.from(links, (l) => w.seedJitter * (hash01(seed, l.id) - .5));
-  const amax = T.maxAccelMps2, vmin = T.minSpeedMps, pinned = Number.isFinite(start?.speedMps);
+  const amax = T.maxAccelMps2, aside = sidewaysAccel(T), vmin = T.minSpeedMps, pinned = Number.isFinite(start?.speedMps);
   const startSpeed = pinned ? start.speedMps : null, startAccel = pinned && Number.isFinite(start.accelMps2) ? start.accelMps2 : 0;
   // A leg's speed cap over [ta, tb]: the speed limit, the bend's share of the
   // acceleration limit (the eye's acceleration is the profile's plus bend *
@@ -324,10 +564,10 @@ export function planShotTour(library, { durationMs = 0, sections = [], roles = [
   // limit at the quietest music while that part is on screen -- the parts'
   // times assume a steady pace, widened by up to 2 s for the profile's swing.
   // The upper bound (the most energetic music) prunes a leg's reachable slots.
-  const capBound = (leg) => Math.min(T.maxSpeedMps, flowAt(1) / leg.max, leg.bend > 0 ? Math.sqrt(amax / leg.bend) : Infinity);
+  const capBound = (leg) => Math.min(T.maxSpeedMps, flowAt(1) / leg.max, curveCap(T, leg.bend, leg.turn));
   const legCap = (ta, tb, leg) => {
     const parts = leg.parts, span = tb - ta, slack = Math.min(2000, .15 * span);
-    let cap = Math.min(T.maxSpeedMps, leg.bend > 0 ? Math.sqrt(amax / leg.bend) : Infinity), at = 0;
+    let cap = Math.min(T.maxSpeedMps, curveCap(T, leg.bend, leg.turn)), at = 0;
     for (let k = 0; k < parts.length; k += 2) {
       const a = ta + span * at / leg.D, b = ta + span * (at + parts[k]) / leg.D;
       at += parts[k];
@@ -335,163 +575,310 @@ export function planShotTour(library, { durationMs = 0, sections = [], roles = [
     }
     return cap;
   };
-  const okLimits = (lim, cap, bend) => lim.maxAccel + lim.peak * lim.peak * bend <= amax + 1e-9 && lim.peak <= cap + 1e-9 && lim.low >= vmin - 1e-9;
+  const okLimits = (lim, cap, bend, turn) => lim.maxAccel + lim.peak * lim.peak * bend <= amax + 1e-9 && lim.peak * lim.peak * turn <= aside + 1e-9
+    && lim.peak <= cap + 1e-9 && lim.low >= vmin - 1e-9;
+  // Pace over [ta, tb] for `len` metres with flow integral `int`: the
+  // comfortable pace (the music's flow limit over the leg's mean flow, at
+  // most the speed limit) and the cost of flying it at v -- off the
+  // comfortable pace (`comfortFlow` of it, within the cap) by the log ratio,
+  // and per second below `crawlRatio` of it by the share it falls short (so
+  // a crawl costs at most `crawl` per second: the climax still outweighs a
+  // slow outro) -- both scaled by how much of it is on screen.
+  const paceCost = (ta, tb, len, int, cap, v, seen) => {
+    const dtS = (tb - ta) / 1000, ref = Math.min(T.maxSpeedMps, flowAt(lanes.mean(ta, tb)) * len / Math.max(1e-9, int));
+    const target = clamp(T.comfortFlow * ref, vmin, Math.max(vmin, cap));
+    let cost = w.comfort * dtS * Math.abs(Math.log(v / target)) * (w.hiddenComfort + (1 - w.hiddenComfort) * seen);
+    if (v < T.crawlRatio * ref) cost += seen * w.crawl * dtS * (1 - v / (T.crawlRatio * ref));
+    return cost;
+  };
+  // More than payoffGapMs on screen without a payoff, per second; and the
+  // same for every on-screen stretch that closes in [ta, tb) (tb not in it)
+  // with no payoff since `shownAt` -- a window that passes unpaid costs what
+  // a late payoff in it would.
+  const gapCost = (from, to) => w.gap * Math.max(0, to - from - T.payoffGapMs) / 1000;
+  const closedGaps = (shownAt, ta, tb) => {
+    let cost = 0;
+    for (const v of intervals) if (v.endMs >= ta && v.endMs < tb && !(tb >= v.startMs && tb <= v.endMs)) cost += gapCost(Math.max(shownAt, v.startMs), v.endMs);
+    return cost;
+  };
+  const repeatCost = (P, B) => {
+    const s1 = ix.subj[B];
+    let repeat = 0;
+    if (s1 === P.s1) repeat += w.sameSubject; else if (s1 === P.s2) repeat += w.recentSubject; else if (s1 === P.s3) repeat += w.olderSubject;
+    const moveRun = ix.move[B] === P.move ? P.moveRun + 1 : 1;
+    if (moveRun >= 2) repeat += w.sameMove;
+    if (moveRun >= 3) repeat += w.moveRun;
+    if (Math.abs(((ix.heading[B] - P.heading + 540) % 360) - 180) < 30) repeat += w.heading;
+    const elevRun = ix.elev[B] === P.elev ? P.elevRun + 1 : 1, lensRun = ix.lens[B] === P.lens ? P.lensRun + 1 : 1, fgRun = ix.fg[B] === P.fg ? P.fgRun + 1 : 1;
+    repeat += w.run * (elevRun - 1 + lensRun - 1) + w.foregroundRun * (fgRun - 1);
+    for (let q = P; q && !q.root; q = q.parent) if (q.shot === B) { repeat += w.reuse; break; }
+    if (P.root && P.shot === B) repeat += w.reuse;
+    return { repeat, moveRun, elevRun, lensRun, fgRun };
+  };
 
   // Root state: the song start, or the committed element of a replan.
-  const root = { root: true, t: t0, shot: -1, cost: 0, serial: 0, parent: null, s1: -1, s2: -1, s3: -1, move: null, heading: NaN,
-    elev: -1, elevRun: 0, lens: -1, lensRun: 0, fg: -1, fgRun: 0, used: 0n, climax: 0, vbar: 0, rem: 0, endBase: 0, pending: null, pinV: null };
+  const root = { root: true, t: t0, shot: -1, cost: 0, serial: 0, parent: null, s1: -1, s2: -1, s3: -1, move: null, moveRun: 0, heading: NaN,
+    elev: -1, elevRun: 0, lens: -1, lensRun: 0, fg: -1, fgRun: 0, climax: 0, vbar: 0, rem: 0, endBase: 0, pending: null, pinV: null,
+    shownAt: shownFrom(t0), paidFrom: -1 };
   if (start) {
     if (start.itemKind === 'link') {
-      const j = startIndex, B = ix.lTo[j], part = laneStats(links[j].path, start.s, ix.lL[j]);
+      const j = startIndex, B = ix.lTo[j], part = laneStats(links[j].path, start.s, ix.lL[j], turnsOn);
       root.pending = { kind: 'link', link: j, shot: B, D: ix.lL[j] - start.s + pay[B], max: Math.max(part.max, ix.head[B].max), int: part.int + ix.head[B].int,
-        bend: Math.max(ix.lBend[j], ix.head[B].bend), linkRest: ix.lL[j] - start.s, linkPart: ix.lL[j] - start.s, parts: [ix.lL[j] - start.s, part.max, pay[B], ix.head[B].max] };
+        bend: Math.max(ix.linkBend(j), ix.head[B].bend), turn: Math.max(ix.lTurn[j], ix.head[B].turn), linkRest: ix.lL[j] - start.s, linkPart: ix.lL[j] - start.s, parts: [ix.lL[j] - start.s, part.max, pay[B], ix.head[B].max] };
       root.s1 = ix.subj[ix.lFrom[j]];
     } else if (start.s < pay[startIndex] - 1e-6) {
-      const X = startIndex, part = laneStats(shots[X].path, start.s, pay[X]);
-      root.pending = { kind: 'shot', link: -1, shot: X, D: pay[X] - start.s, max: part.max, int: part.int, bend: part.bend, parts: [pay[X] - start.s, part.max] };
+      const X = startIndex, part = laneStats(shots[X].path, start.s, pay[X], turnsOn);
+      root.pending = { kind: 'shot', link: -1, shot: X, D: pay[X] - start.s, max: part.max, int: part.int, bend: part.bend, turn: part.turn, parts: [pay[X] - start.s, part.max] };
     } else {
-      const X = startIndex, part = laneStats(shots[X].path, start.s, L[X]);
-      Object.assign(root, { shot: X, rem: L[X] - start.s, remMax: part.max, remInt: part.int, remBend: part.bend, endBase: start.s, s1: ix.subj[X], move: ix.move[X],
-        heading: ix.heading[X], elev: ix.elev[X], elevRun: 1, lens: ix.lens[X], lensRun: 1, fg: ix.fg[X], fgRun: 1, used: 1n << BigInt(X) });
+      const X = startIndex, part = laneStats(shots[X].path, start.s, L[X], turnsOn);
+      Object.assign(root, { shot: X, rem: L[X] - start.s, remMax: part.max, remInt: part.int, remBend: part.bend, remTurn: part.turn, endBase: start.s, s1: ix.subj[X], move: ix.move[X], moveRun: 1,
+        heading: ix.heading[X], elev: ix.elev[X], elevRun: 1, lens: ix.lens[X], lensRun: 1, fg: ix.fg[X], fgRun: 1 });
     }
+    // The committed timeline's last knot so far, when on screen in this
+    // stretch, was its last payoff: the gap rule counts from there.
+    const last = Math.max(start.lastKnotMs ?? -1, Number.isFinite(start.payoffMs) ? start.payoffMs : -1);
+    if (last >= 0 && visibleAt(last) && shownFrom(last) === shownFrom(t0) && visibleAt(t0)) { root.shownAt = Math.max(root.shownAt, last); root.paidFrom = shownFrom(t0); }
   }
 
   const W = Math.max(1, T.beamWidth | 0), buckets = new Array(slots.length).fill(null);
-  let serial = 1, best = null, expansions = 0, kept = 0;
+  let serial = 1, best = null, lastResort = null, expansions = 0, kept = 0;
   const prune = (bucket) => {
     bucket.list.sort((a, b) => a.cost - b.cost || a.serial - b.serial);
-    const seen = new Set(), out = [];
+    const seen = new Set(), perShot = new Map(), out = [];
     for (const s of bucket.list) {
-      const key = s.shot * 4096 + s.s2 + 1;
-      if (seen.has(key)) continue;
-      seen.add(key); out.push(s);
+      const key = s.shot * 4096 + s.s2 + 1, n = perShot.get(s.shot) || 0;
+      if (seen.has(key) || n >= T.statesPerShot) continue;
+      seen.add(key); perShot.set(s.shot, n + 1); out.push(s);
       if (out.length >= W) break;
     }
     bucket.list = out; bucket.worst = out.length >= W ? out[out.length - 1].cost : Infinity;
   };
 
   // One leg from state P to shot B's payoff at slot si, through link j.
+  // True when the leg is legal (whether or not its state survives the beam).
   const evaluate = (P, leg, si) => {
     const slot = slots[si], B = leg.shot, dtS = (slot.t - P.t) / 1000, v = leg.D / dtS;
     expansions++;
-    if (!(dtS > 0)) return;
+    if (!(dtS > 0)) return false;
     // The committed start's first leg is held to the hard limits only, and
     // keeps the committed knot's speed when it lands on that knot.
     const committed = P.root && !!start, pinV = committed && si === nextSlot && shots[B].id === start.next.id ? start.next.speedMps : null;
-    const cap = legCap(P.t, slot.t, leg);
-    if (!committed && (v < vmin - 1e-9 || v > T.capMargin * cap)) return;
+    let cap = legCap(P.t, slot.t, leg);
+    if (!committed && (v < vmin - 1e-9 || v > T.capMargin * cap)) return false;
     let Vk = v, Ak = 0;
     if (P.root) { if (pinned) { Vk = startSpeed; Ak = startAccel; } }
     else {
       Vk = P.pinV ?? knotSpeed(P.vbar, P.dt, v, dtS);
-      if (!okLimits(intervalLimits(P.V, P.A, Vk, 0, P.vbar, P.dt), P.cap, P.bend)) return;
+      if (!okLimits(intervalLimits(P.V, P.A, Vk, 0, P.vbar, P.dt), P.cap, P.bend, P.turn)) return false;
     }
-    if (!okLimits(intervalLimits(Vk, Ak, pinV ?? v, 0, v, dtS), cap, leg.bend)) return;
+    if (!okLimits(intervalLimits(Vk, Ak, pinV ?? v, 0, v, dtS), cap, leg.bend, leg.turn)) return false;
+    if (leg.lazyLink >= 0) {
+      // Legal without its link's own bend: measure that now and check again.
+      leg.bend = Math.max(leg.bend, ix.linkBend(leg.lazyLink)); leg.lazyLink = -1;
+      cap = legCap(P.t, slot.t, leg);
+      if (!committed && v > T.capMargin * cap) return false;
+      if (!okLimits(intervalLimits(Vk, Ak, pinV ?? v, 0, v, dtS), cap, leg.bend, leg.turn)) return false;
+    }
     // Soft costs of what a viewer sees scale with the leg's share on screen.
     const hidden = slot.kind === 'hidden', seen = vis.mean(P.t, slot.t);
-    const comfort = clamp(T.comfortFlow * flowAt(lanes.mean(P.t, slot.t)) * leg.D / Math.max(1e-9, leg.int), vmin, T.capMargin * cap);
-    let cost = P.cost + w.comfort * dtS * Math.abs(Math.log(v / comfort)) * (w.hiddenComfort + (1 - w.hiddenComfort) * seen) + w.timing * slot.timing;
-    const before = P.root ? startSpeed : P.vbar;
+    let cost = P.cost + paceCost(P.t, slot.t, leg.D, leg.int, cap, v, seen) + w.timing * slot.timing;
+    const before = P.root ? startSpeed : P.cv;
     if (before > 0) cost += seen * w.change * Math.abs(Math.log(v / before));
+    let shownAt = P.shownAt;
+    cost += closedGaps(P.shownAt, P.t, slot.t) + missedStrong(P.t, slot.t);
+    if (!hidden) {
+      // The first payoff of an on-screen stretch is worth more: a window that
+      // passes without one is worse than a climax on another subject.
+      if (P.paidFrom !== slot.from) cost -= slot.window;
+      cost += gapCost(Math.max(P.shownAt, slot.from), slot.t); shownAt = slot.t;
+    }
     if (!hidden) cost -= w.shot * (w.scoreBase + ix.score[B]) * (slot.imp + w.showing) * (1 + jitter[B]);
     if (leg.link >= 0 && !leg.continued) cost -= seen * w.link * ix.lScore[leg.link] * (1 + linkJitter[leg.link]);
     if (leg.link >= 0) cost += seen * w.linkTime * dtS * leg.linkPart / leg.D;
-    if (!hidden && slot.calm && ix.energetic[B]) cost += w.calmEnergetic;
+    // The music's character: calm slots want gentle moves, lively ones
+    // approaches, reveals and passes (the climax wants its hero instead).
+    if (!hidden && slot.calm && ix.lively[B]) cost += w.calmEnergetic;
+    if (!hidden && slot.lively && !slot.climax && ix.gentle[B]) cost += w.energyGentle;
     if (slot.kind === 'impact' && !slot.climax && slot.strength >= .5 && ix.gentle[B]) cost += w.impactGentle;
     let climax = P.climax;
-    if (slot.climax) { climax = ix.heroTop[B] ? 2 : 1; if (ix.heroTop[B]) cost -= w.climaxHero; }
-    const s1 = ix.subj[B];
-    let repeat = 0;
-    if (s1 === P.s1) repeat += w.sameSubject; else if (s1 === P.s2) repeat += w.recentSubject; else if (s1 === P.s3) repeat += w.olderSubject;
-    if (ix.move[B] === P.move) repeat += w.sameMove;
-    if (Math.abs(((ix.heading[B] - P.heading + 540) % 360) - 180) < 30) repeat += w.heading;
-    const elevRun = ix.elev[B] === P.elev ? P.elevRun + 1 : 1, lensRun = ix.lens[B] === P.lens ? P.lensRun + 1 : 1, fgRun = ix.fg[B] === P.fg ? P.fgRun + 1 : 1;
-    repeat += w.run * (elevRun - 1 + lensRun - 1) + w.foregroundRun * (fgRun - 1);
-    const bit = 1n << BigInt(B);
-    if (P.used & bit) repeat += w.reuse;
-    cost += seen * repeat;
+    if (slot.climax) {
+      climax = ix.hero[B] ? 2 : 1;
+      if (ix.hero[B]) cost -= ix.heroTop[B] ? w.climaxHero : w.climaxHeroAny;
+    }
+    // (The committed element's own leg repeats whatever it repeats: every
+    // continuation pays that alike, so it is not charged.)
+    const r = repeatCost(P, B);
+    if (!(committed && leg.continued)) cost += seen * r.repeat;
     if (P.root && !start) {
-      let open = ix.energetic[B] ? w.energeticOpen : 0;
+      let open = ix.lively[B] && !ix.gentle[B] ? w.energeticOpen : 0;
       if (ix.move[B] === 'rail') open -= w.railOpen; else if (ix.high[B] || ix.wide[B]) open -= w.wideOpen;
       cost += seen * open;
     }
     let bucket = buckets[si];
     if (!bucket) bucket = buckets[si] = { list: [], worst: Infinity };
-    if (cost >= bucket.worst) return;
+    if (cost >= bucket.worst) return true;
     bucket.list.push({ root: false, t: slot.t, si, shot: B, link: leg.link, continued: !!leg.continued, parent: P, cost, serial: serial++,
-      rem: L[B] - pay[B], remMax: ix.tail[B].max, remInt: ix.tail[B].int, remBend: ix.tail[B].bend, endBase: pay[B], V: Vk, A: Ak, vbar: v, dt: dtS, cap, bend: leg.bend,
-      s1, s2: P.s1, s3: P.s2, move: ix.move[B], heading: ix.heading[B], elev: ix.elev[B], elevRun, lens: ix.lens[B], lensRun, fg: ix.fg[B], fgRun,
-      used: P.used | bit, climax, pending: null, pinV });
+      rem: L[B] - pay[B], remMax: ix.tail[B].max, remInt: ix.tail[B].int, remBend: ix.tail[B].bend, remTurn: ix.tail[B].turn, endBase: pay[B], V: Vk, A: Ak, vbar: v, dt: dtS, cap, bend: leg.bend, turn: leg.turn,
+      s1: ix.subj[B], s2: P.s1, s3: P.s2, move: ix.move[B], moveRun: r.moveRun, heading: ix.heading[B], elev: ix.elev[B], elevRun: r.elevRun, lens: ix.lens[B], lensRun: r.lensRun,
+      fg: ix.fg[B], fgRun: r.fgRun, climax, pending: null, pinV, shownAt, paidFrom: hidden ? P.paidFrom : slot.from,
+      // The pace the next leg's speed change is measured from: on the committed knot, the committed leg's (as the plan that made it saw it).
+      cv: pinV != null && Number.isFinite(start.next.legMps) ? start.next.legMps : v });
     if (bucket.list.length >= 3 * W) prune(bucket);
+    return true;
   };
 
-  // A leg tries the next few impacts it can reach, and the visible and the
-  // pass-through slots nearest a comfortable pace (separate quotas).
-  const nearest = (P, leg, times, list, at, lo, hi, quota) => {
-    let left = lowerBound(times, at) - 1, right = left + 1, taken = 0;
-    while (taken < quota) {
-      const okL = left >= 0 && times[left] >= lo, okR = right < times.length && times[right] <= hi;
+  // A leg tries the next few impacts it can reach (and the next strong
+  // ones beyond them) as far as it reaches at the minimum speed, and the
+  // visible and the pass-through slots nearest a comfortable pace (separate
+  // quotas; slower ones up to fillerReachMs on).
+  // Quotas count legal legs (a leg's slots nearest its bounds may still be
+  // too fast for the music there); at most twice the quota are tried.
+  const nearest = (P, leg, times, list, at, lo, hi, quota, hiRight = hi) => {
+    let left = lowerBound(times, at) - 1, right = left + 1, taken = 0, tried = 0;
+    while (taken < quota && tried < 2 * quota) {
+      const okL = left >= 0 && times[left] >= lo && times[left] <= hi, okR = right < times.length && times[right] <= hiRight;
       if (!okL && !okR) break;
-      if (okR && (!okL || times[right] - at <= at - times[left])) { if (times[right] >= lo) { evaluate(P, leg, list[right]); taken++; } right++; }
-      else { evaluate(P, leg, list[left]); taken++; left--; }
+      if (okR && (!okL || times[right] - at <= at - times[left])) { if (times[right] >= lo) { taken += evaluate(P, leg, list[right]); tried++; } right++; }
+      else { taken += evaluate(P, leg, list[left]); tried++; left--; }
     }
   };
   const expandLeg = (P, leg) => {
     if (!(leg.D > 0)) return;
-    const capHi = capBound(leg), committed = P.root && !!start;
-    const lo = P.t + 1000 * leg.D / ((committed ? 1 : T.capMargin) * capHi), hi = Math.min(durationMs, P.t + Math.min(T.maxLegMs, 1000 * leg.D / vmin));
+    const committed = P.root && !!start;
+    if (leg.lazyLink >= 0) {
+      // A link's bend is measured the first time a leg through it could reach
+      // a slot at all (as far as the leg can go at the minimum speed).
+      if (!committed && P.t + 1000 * leg.D / (T.capMargin * capBound(leg)) > Math.min(durationMs, P.t + 1000 * leg.D / vmin)) return;
+      if (committed || ix.lBend[leg.lazyLink] >= 0) { leg.bend = Math.max(leg.bend, ix.linkBend(leg.lazyLink)); leg.lazyLink = -1; }
+    }
+    const capHi = capBound(leg);
+    let lo = P.t + 1000 * leg.D / ((committed ? 1 : T.capMargin) * capHi);
+    // The cap over the leg's own earliest span (the music there) tightens it.
+    if (!committed && lo < durationMs) lo = Math.max(lo, P.t + 1000 * leg.D / (T.capMargin * legCap(P.t, lo, leg)));
+    // One reach for every kind of slot: as far as the leg can go at the minimum speed.
+    const hi = Math.min(durationMs, P.t + 1000 * leg.D / vmin);
     if (committed && nextSlot >= 0 && shots[leg.shot].id === start.next.id) evaluate(P, leg, nextSlot);
     if (lo > hi) return;
-    for (let k = lowerBound(impactT, lo), n = 0; k < impactT.length && impactT[k] <= hi && n < T.impactsPerLeg; k++, n++) evaluate(P, leg, impactSlots[k]);
-    const pace = clamp(T.comfortFlow * flowAt(lanes.mean(P.t, P.t + 1000 * leg.D / Math.max(vmin, 20))) * leg.D / Math.max(1e-9, leg.int), vmin, T.capMargin * capHi);
+    let last = -1;
+    for (let k = lowerBound(impactT, lo), n = 0, tried = 0; k < impactT.length && impactT[k] <= hi && n < T.impactsPerLeg && tried < 2 * T.impactsPerLeg; k++, tried++) {
+      n += evaluate(P, leg, impactSlots[k]); last = k;
+    }
+    for (let k = lowerBound(strongT, lo), n = 0, tried = 0; k < strongT.length && strongT[k] <= hi && n < T.strongPerLeg && tried < 2 * T.strongPerLeg; k++) {
+      if (lowerBound(impactT, strongT[k]) > last) { n += evaluate(P, leg, strongSlots[k]); tried++; }
+    }
+    const ref = Math.min(T.maxSpeedMps, flowAt(lanes.mean(P.t, P.t + 1000 * leg.D / Math.max(vmin, 20))) * leg.D / Math.max(1e-9, leg.int));
+    const pace = clamp(T.comfortFlow * ref, vmin, T.capMargin * capHi);
     const at = P.t + 1000 * leg.D / pace;
-    nearest(P, leg, visT, visSlots, at, lo, hi, T.freeSlotsPerLeg);
-    nearest(P, leg, hidT, hidSlots, at, lo, hi, T.hiddenSlotsPerLeg);
+    // Fillers slower than the comfortable pace: at most fillerReachMs on (a search bound, not a rule).
+    const near = Math.min(hi, P.t + T.fillerReachMs);
+    nearest(P, leg, visT, visSlots, at, lo, hi, T.freeSlotsPerLeg, near);
+    nearest(P, leg, hidT, hidSlots, at, lo, hi, T.hiddenSlotsPerLeg, near);
     // And the knot from which the shot's rest would carry the camera to the
     // song end at this pace, so a quiet or off-screen ending has a way out.
     const end = durationMs - 1000 * (L[leg.shot] - pay[leg.shot]) / pace;
-    if (end > at + 1000) { nearest(P, leg, visT, visSlots, end, lo, hi, 1); nearest(P, leg, hidT, hidSlots, end, lo, hi, 1); }
+    if (end > at + 1000) { nearest(P, leg, visT, visSlots, end, lo, hi, 1, near); nearest(P, leg, hidT, hidSlots, end, lo, hi, 1, near); }
   };
   const expand = (P) => {
-    if (P.pending) { const p = P.pending; expandLeg(P, { shot: p.shot, link: p.link, continued: true, D: p.D, max: p.max, int: p.int, bend: p.bend, linkPart: p.linkPart || 0, parts: p.parts }); return; }
+    if (P.pending) { const p = P.pending; expandLeg(P, { shot: p.shot, link: p.link, continued: true, D: p.D, max: p.max, int: p.int, bend: p.bend, turn: p.turn, linkPart: p.linkPart || 0, parts: p.parts }); return; }
     if (P.shot < 0) {
-      for (let B = 0; B < nShots; B++) expandLeg(P, { shot: B, link: -1, D: pay[B], max: ix.head[B].max, int: ix.head[B].int, bend: ix.head[B].bend, parts: [pay[B], ix.head[B].max] });
+      for (let B = 0; B < nShots; B++) expandLeg(P, { shot: B, link: -1, D: pay[B], max: ix.head[B].max, int: ix.head[B].int, bend: ix.head[B].bend, turn: ix.head[B].turn, parts: [pay[B], ix.head[B].max] });
       return;
     }
     for (const j of ix.out[P.shot]) {
       const B = ix.lTo[j];
       expandLeg(P, { shot: B, link: j, D: P.rem + ix.lL[j] + pay[B], max: Math.max(P.remMax, ix.lMax[j], ix.head[B].max), int: P.remInt + ix.lInt[j] + ix.head[B].int,
-        bend: Math.max(P.remBend, ix.lBend[j], ix.head[B].bend), linkPart: ix.lL[j], parts: [P.rem, P.remMax, ix.lL[j], ix.lMax[j], pay[B], ix.head[B].max] });
+        bend: Math.max(P.remBend, ix.head[B].bend), lazyLink: j, turn: Math.max(P.remTurn, ix.lTurn[j], ix.head[B].turn), linkPart: ix.lL[j], parts: [P.rem, P.remMax, ix.lL[j], ix.lMax[j], pay[B], ix.head[B].max] });
     }
   };
 
-  // The song end from state P: ride on inside its current element. The
-  // outro bonus goes to a song that ends on a pullback or high shot after a
-  // hero climax.
+  // The song end from state P over its last tau seconds, with `avail` metres
+  // ahead at most and `least` at least: the speed nearest the comfortable
+  // pace that keeps the last interval in the limits, or undefined.
+  const endSpeed = (P, tau, least, avail, end, quick = false) => {
+    const cap = legCap(P.t, durationMs, end), hi = Math.min(T.capMargin * cap, avail / tau), lo = Math.max(vmin, least / tau);
+    if (hi < lo) return quick ? null : undefined;
+    const ref = Math.min(T.maxSpeedMps, flowAt(lanes.mean(P.t, durationMs)) * end.D / Math.max(1e-9, end.int)), comfort = clamp(T.comfortFlow * ref, lo, hi);
+    const before = P.root ? startSpeed : P.cv, keep = clamp(before || comfort, lo, hi);
+    const ok = (u) => {
+      const Vk = P.root ? (pinned ? startSpeed : u) : P.pinV ?? knotSpeed(P.vbar, P.dt, u, tau), Ak = P.root ? startAccel : 0;
+      return (P.root || okLimits(intervalLimits(P.V, P.A, Vk, 0, P.vbar, P.dt), P.cap, P.bend, P.turn)) && okLimits(intervalLimits(Vk, Ak, u, 0, u, tau), cap, end.bend, end.turn);
+    };
+    // The last knot's committed speed (a replan's pin) is a candidate too: a
+    // continuation that keeps the committed sequence must find its ending.
+    const pinV = P.pinV != null ? clamp(P.pinV, lo, hi) : comfort;
+    let v = (quick ? [comfort, keep, pinV] : [comfort, keep, pinV, (comfort + keep) / 2, hi, lo]).find(ok);
+    // On a committed knot the feasible speeds may lie between the candidates: try 15 spread over [lo, hi].
+    if (v === undefined && !quick && P.pinV != null) for (let k = 1; k < 16 && v === undefined; k++) { const u = lo + (hi - lo) * ((k * 9) % 16) / 16; if (ok(u)) v = u; }
+    return v === undefined ? undefined : { v, cap, crawl: v < T.crawlRatio * ref };
+  };
+  const endCosts = (P, tau, v, cap, len, int) => {
+    const seen = vis.mean(P.t, durationMs), before = P.root ? startSpeed : P.cv;
+    let cost = paceCost(P.t, durationMs, len, int, cap, v, seen);
+    if (before > 0) cost += seen * w.change * Math.abs(Math.log(v / before));
+    return { cost, seen };
+  };
+  // The song end from state P: ride on inside its current element, or (from
+  // a shot, when that is impossible or would crawl) through one more link
+  // into a last shot that the song ends in before its payoff -- or, at a
+  // cost, inside that link. An ending on a pullback, high or crane shot
+  // earns `outroMove`, and `outro` more after a hero climax.
   const terminal = (P) => {
     if (P.root && !start) return;
     const tau = (durationMs - P.t) / 1000, avail = P.pending ? P.pending.D - .5 : P.rem;
-    const end = P.pending || { max: P.remMax, int: P.remInt, bend: P.remBend }, fint = end.int;
-    let cost = P.cost, v = 0;
+    const end = P.pending ? { ...P.pending } : { D: Math.max(1e-9, P.rem), max: P.remMax, int: P.remInt, bend: P.remBend, turn: P.remTurn, parts: [Math.max(1e-9, P.rem), P.remMax] };
+    const gap = gapCost(Math.max(P.shownAt, shownFrom(durationMs)), durationMs) + closedGaps(P.shownAt, P.t, durationMs) + missedStrong(P.t, durationMs + 1);
+    let inside = null;
     if (tau <= 1e-9) {
-      if (!P.root && !okLimits(intervalLimits(P.V, P.A, P.vbar, 0, P.vbar, P.dt), P.cap, P.bend)) return;
+      if (P.root || okLimits(intervalLimits(P.V, P.A, P.vbar, 0, P.vbar, P.dt), P.cap, P.bend, P.turn)) inside = { cost: P.cost + gap, v: 0, seen: 1, crawl: false };
     } else {
-      const cap = legCap(P.t, durationMs, { D: 1, parts: [1, end.max], bend: end.bend }), hi = Math.min(T.capMargin * cap, avail / tau);
-      if (hi < vmin) return;
-      const comfort = clamp(T.comfortFlow * flowAt(lanes.mean(P.t, durationMs)) * avail / Math.max(1e-9, fint), vmin, hi);
-      const before = P.root ? startSpeed : P.vbar;
-      const ok = (u) => {
-        const Vk = P.root ? (pinned ? startSpeed : u) : P.pinV ?? knotSpeed(P.vbar, P.dt, u, tau), Ak = P.root ? startAccel : 0;
-        return (P.root || okLimits(intervalLimits(P.V, P.A, Vk, 0, P.vbar, P.dt), P.cap, P.bend)) && okLimits(intervalLimits(Vk, Ak, u, 0, u, tau), cap, end.bend);
-      };
-      v = [comfort, clamp(before || comfort, vmin, hi), (comfort + clamp(before || comfort, vmin, hi)) / 2].find(ok);
-      if (v === undefined) return;
-      const seen = vis.mean(P.t, durationMs);
-      cost += w.comfort * tau * Math.abs(Math.log(v / comfort)) * (w.hiddenComfort + (1 - w.hiddenComfort) * seen);
-      if (before > 0) cost += seen * w.change * Math.abs(Math.log(v / before));
+      const sp = endSpeed(P, tau, 0, avail, end);
+      if (sp) {
+        const c = endCosts(P, tau, sp.v, sp.cap, Math.min(avail, sp.v * tau), end.int * Math.min(1, sp.v * tau / end.D));
+        inside = { cost: P.cost + gap + c.cost, v: sp.v, seen: c.seen, crawl: sp.crawl };
+      }
     }
-    if (P.climax === 2 && P.shot >= 0 && (ix.move[P.shot] === 'pullback' || ix.high[P.shot])) cost -= w.outro * (tau > 0 ? vis.mean(P.t, durationMs) : 1);
-    if (!best || cost < best.cost) best = { cost, state: P, e: v * Math.max(0, tau) };
+    if (inside) {
+      let cost = inside.cost;
+      if (P.shot >= 0 && !P.pending && ix.outro[P.shot]) cost -= (w.outroMove + (P.climax === 2 ? w.outro : 0)) * (tau > 0 ? inside.seen : 1);
+      // A replan's committed element ridden to the song end without its
+      // payoff is a last resort: a fresh plan has no such ending (it ends
+      // after a payoff, or within endViaMs of one), so it must not undercut
+      // the committed continuation.
+      if (P.pending) lastResort = { cost, state: P, e: inside.v * Math.max(0, tau), via: -1 };
+      else if (!best || cost < best.cost) best = { cost, state: P, e: inside.v * Math.max(0, tau), via: -1 };
+    }
+    if (P.shot < 0 || P.pending || !(tau > 0) || (inside && !inside.crawl) || tau * 1000 > T.endViaMs) return;
+    // An ending in transit only when this state has no other way to the end.
+    let reached = !!inside, transit = null;
+    const top = ix.outEnd[P.shot].reduce((b, k) => (b < 0 || ix.lScore[k] > ix.lScore[b] ? k : b), -1);
+    for (const j of ix.outEnd[P.shot]) {
+      const B = ix.lTo[j], through = P.rem + ix.lL[j], room = .98 * pay[B];
+      if (!(room > 1)) continue;
+      const leg = { D: through + room, max: Math.max(P.remMax, ix.lMax[j], ix.head[B].max), int: P.remInt + ix.lInt[j] + ix.head[B].int * .98,
+        bend: Math.max(P.remBend, ix.linkBend(j), ix.head[B].bend), turn: Math.max(P.remTurn, ix.lTurn[j], ix.head[B].turn), parts: [P.rem, P.remMax, ix.lL[j], ix.lMax[j], room, ix.head[B].max] };
+      const sp = endSpeed(P, tau, through + 1, through + room, leg, true);
+      // (null: the last shot is out of reach at any legal speed.)
+      if (sp === null) {
+        if (reached || j !== top) continue;
+        // Too far to reach the last shot: end in the link itself, if it is
+        // not too fast for that either (`endInLink` for an ending in transit).
+        const part = { D: through, max: Math.max(P.remMax, ix.lMax[j]), int: P.remInt + ix.lInt[j], bend: Math.max(P.remBend, ix.linkBend(j)), turn: Math.max(P.remTurn, ix.lTurn[j]), parts: [P.rem, P.remMax, ix.lL[j], ix.lMax[j]] };
+        const mid = endSpeed(P, tau, P.rem + 1, through - 1, part, true);
+        if (!mid) continue;
+        const e = mid.v * tau, c = endCosts(P, tau, mid.v, mid.cap, e, P.remInt + ix.lInt[j] * Math.min(1, (e - P.rem) / ix.lL[j]));
+        transit = { cost: P.cost + c.cost + gap + c.seen * (w.endInLink + w.linkTime * tau * (e - P.rem) / e), state: P, e, via: j, inLink: true };
+        continue;
+      }
+      if (!sp) continue;
+      reached = true;
+      const e = sp.v * tau, c = endCosts(P, tau, sp.v, sp.cap, e, P.remInt + ix.lInt[j] + ix.head[B].int * Math.min(1, (e - through) / pay[B]));
+      let total = P.cost + c.cost + gap + c.seen * repeatCost(P, B).repeat;
+      total -= c.seen * w.link * ix.lScore[j] * (1 + linkJitter[j]);
+      total += c.seen * w.linkTime * tau * ix.lL[j] / e;
+      if (ix.outro[B]) total -= c.seen * (w.outroMove + (P.climax === 2 ? w.outro : 0));
+      if (!best || total < best.cost) best = { cost: total, state: P, e, via: j };
+    }
+    if (!reached && transit && (!best || transit.cost < best.cost)) best = transit;
   };
 
   expand(root); terminal(root);
@@ -502,6 +889,7 @@ export function planShotTour(library, { durationMs = 0, sections = [], roles = [
     for (const P of bucket.list) { terminal(P); expand(P); }
   }
   const stats = { slots: slots.length, kept, expansions };
+  best ??= lastResort;
   if (!best) return fallbackPlan('no feasible shot sequence');
 
   // Items from the winning chain.
@@ -523,7 +911,16 @@ export function planShotTour(library, { durationMs = 0, sections = [], roles = [
     open = shotItem(st.shot, k === 1 && root.pending?.kind === 'shot' ? start.s : 0, slot);
     items.push(open);
   }
-  if (chain.length > 1 || !root.pending) open.sTo = Math.min(L[ix.shotIndex.get(open.id)], best.state.endBase + best.e);
+  if (best.via >= 0) {
+    // Through one more link into the last shot, which the song ends in (or into the link only).
+    const j = best.via, X = ix.shotIndex.get(open.id), B = ix.lTo[j];
+    open.sTo = L[X];
+    if (best.inLink) items.push({ kind: 'link', id: links[j].id, sFrom: 0, sTo: Math.min(ix.lL[j], best.e - best.state.rem) });
+    else {
+      items.push({ kind: 'link', id: links[j].id, sFrom: 0, sTo: ix.lL[j] });
+      items.push({ ...shotItem(B, 0, null), sTo: Math.min(pay[B], best.e - (best.state.rem + ix.lL[j])) });
+    }
+  } else if (chain.length > 1 || !root.pending) open.sTo = Math.min(L[ix.shotIndex.get(open.id)], best.state.endBase + best.e);
   else if (root.pending.kind === 'shot') items.push({ ...shotItem(root.pending.shot, start.s, null), sTo: start.s + best.e });
   else {
     // Ending inside the committed link, or just past it before the next payoff.
@@ -535,7 +932,8 @@ export function planShotTour(library, { durationMs = 0, sections = [], roles = [
   const shown = nonEmpty.filter((it) => it.kind === 'shot' && Number.isFinite(it.payoffMs) && !it.hidden && it.payoffMs > t0);
   const hit = shown.filter((it) => it.moment >= 0).length;
   const ahead = moments.filter((m) => m.timeMs > t0), climaxAhead = ahead.some((m) => m.climax);
-  notes.push(`payoffs on ${hit} of ${ahead.length} impacts${climaxAhead ? `; climax ${best.state.climax === 2 ? 'on a hero shot' : best.state.climax ? 'on a non-hero shot' : 'missed'}` : ''}`);
+  const strongAhead = ahead.filter((m) => m.strong && visibleAt(m.timeMs)), strongHit = strongAhead.filter((m) => shown.some((it) => it.moment >= 0 && moments[it.moment] === m)).length;
+  notes.push(`payoffs on ${hit} of ${ahead.length} impacts (${strongHit} of ${strongAhead.length} strong)${climaxAhead ? `; climax ${best.state.climax === 2 ? 'on a hero shot' : best.state.climax ? 'on a non-hero shot' : 'missed'}` : ''}`);
   for (const v of intervals) {
     if (v.endMs - Math.max(v.startMs, t0) >= 10000 && !shown.some((it) => it.payoffMs >= v.startMs && it.payoffMs <= v.endMs)) notes.push(`no payoff on screen ${v.startMs}-${v.endMs} ms`);
   }

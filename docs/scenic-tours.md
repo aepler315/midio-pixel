@@ -257,14 +257,16 @@ found by breadth-first search rather than as pairs.
 
 ### Motion policy and links
 
-The camera is held to three limits, region by region (`motion`): a change
-of speed at most `maxAccelMps2` (3.5 m/s², a lurch a viewer feels), a turn
-pulling at most `maxLateralMps2` (twice that by default: a viewer sees a turn
-as rotation, which the yaw limit governs) and a look that rotates at most
-`maxYawDegPerSec`. Durations are honest about them: a path's speed is capped
-where its curvature (|d² eye / ds²| along progress) would pull harder than
-the turning limit, as the timeline enforces, so a link that has to turn
-round takes the time that costs.
+The planner holds the camera to two limits, region by region (`motion`): a
+change of speed at most `maxAccelMps2` (3.5 m/s², a lurch a viewer feels),
+with the change that path curvature adds to it measured on the drawn curve,
+and a look that rotates at most `maxYawDegPerSec`. Sideways acceleration in
+turns is reported, not limited: a viewer sees a turn as rotation, which the
+yaw limit governs (the tunable `vectorAccelRatio` can bound the whole
+acceleration; at 2 it costs about a quarter of the payoffs). The library
+builder times paths conservatively, capping speed where curvature would pull
+harder than twice `maxAccelMps2` (`maxLateralMps2`), so its durations and its
+link leash never promise a pace the timeline cannot fly.
 
 Links run over the ground as Dubins courses: the shortest path of arcs of
 radius `discovery.linkRadiusM` and straights from the outgoing shot's

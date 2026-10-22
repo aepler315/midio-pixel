@@ -179,17 +179,20 @@ function tightestTurn(pts) {
 // turns no tighter than 80 m. Its height follows a cubic matching the
 // shots' climb rates ('arc' also lifts), and the aim moves with the eye's
 // arc length and rests at both joins, so the pan grows and fades with the
-// flight.
-function linkPath(a, b, kind, random) {
+// flight. `kinkDeg` turns the departure and arrival headings that far off
+// the shots' (left at the start, right at the end): the link then kinks at
+// both joins, as many real links do.
+function linkPath(a, b, kind, random, { spacingM = 25, radius = kind === 'arc' ? 500 : 300, flow = flowLane, kinkDeg = 0 } = {}) {
   const na = a.path.s.length;
   const pick = (arr, i, k = 3) => Array.from(arr.subarray(i * k, i * k + k));
   const pA = pick(a.path.eye, na - 1), pB = pick(b.path.eye, 0), aimA = pick(a.path.aim, na - 1), aimB = pick(b.path.aim, 0);
   const fovA = a.path.fov[na - 1], fovB = b.path.fov[0];
   const flat = (t) => { const l = Math.hypot(t[0], t[2]); return { d: [t[0] / l, t[2] / l], slope: Math.max(-.6, Math.min(.6, t[1] / l)) }; };
-  const A = flat(pathTangent(a.path, true)), B = flat(pathTangent(b.path, false));
+  const turn = (t, deg) => { const r = deg * Math.PI / 180, c = Math.cos(r), s = Math.sin(r); return { ...t, d: [t.d[0] * c - t.d[1] * s, t.d[0] * s + t.d[1] * c] }; };
+  const A = turn(flat(pathTangent(a.path, true)), kinkDeg), B = turn(flat(pathTangent(b.path, false)), -kinkDeg);
   const p0 = [pA[0], pA[2]], p1 = [pB[0], pB[2]], chord = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]), lift0 = kind === 'arc' ? 60 + 60 * random() : 0;
   const arcLength = (pts) => { const e = [0]; for (let i = 1; i < pts.length; i++) e.push(e[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])); return e; };
-  const options = [dubins(p0, A.d, p1, B.d, kind === 'arc' ? 500 : 300), hermite(p0, A.d, p1, B.d, (kind === 'arc' ? 1.4 : 1) * Math.max(100, chord))]
+  const options = [dubins(p0, A.d, p1, B.d, radius), hermite(p0, A.d, p1, B.d, (kind === 'arc' ? 1.4 : 1) * Math.max(100, chord))]
     .filter((pts, i) => pts && (i === 0 || tightestTurn(pts) >= 80)).map((pts) => ({ pts, e: arcLength(pts) }));
   const { pts: flatPts, e: arc } = options.sort((x, y) => x.e.at(-1) - y.e.at(-1))[0]
     || { pts: hermite(p0, A.d, p1, B.d, Math.max(100, chord)), e: arcLength(hermite(p0, A.d, p1, B.d, Math.max(100, chord))) };
@@ -203,11 +206,11 @@ function linkPath(a, b, kind, random) {
     fa.push([0, 1, 2].map((k) => aimA[k] + (aimB[k] - aimA[k]) * ease(u)));
     ff.push(fovA + (fovB - fovA) * smooth(u));
   });
-  const path = resample(fe, fa, ff);
+  const path = resample(fe, fa, ff, spacingM);
   const n = path.s.length;
   path.eye.set(a.path.eye.subarray((na - 1) * 3, na * 3), 0); path.aim.set(a.path.aim.subarray((na - 1) * 3, na * 3), 0); path.fov[0] = fovA;
   path.eye.set(b.path.eye.subarray(0, 3), (n - 1) * 3); path.aim.set(b.path.aim.subarray(0, 3), (n - 1) * 3); path.fov[n - 1] = fovB;
-  path.flow = flowLane(path.eye);
+  path.flow = flow(path.eye);
   return path;
 }
 
@@ -310,3 +313,144 @@ export function anthemSong({ energyStepMs = 100, finalChorusIndex = 9 } = {}) {
   const roles = roleNames.map((role, i) => ({ role, confidence: .8, finalChorus: i === finalChorusIndex, stops: [] }));
   return { durationMs, sections, roles, energy, energyStepMs, downbeatsMs: [48000, 96000, 128000] };
 }
+
+const MOTION = Object.freeze({ maxSpeedMps: 120, minSpeedMps: 4, flowCalm: .07, flowEnergetic: .24, maxYawDegPerSec: 20, maxClimbMps: 22, maxAccelMps2: 3.5 });
+// Flow on the scale the real libraries measure (about 0.0006-0.003 rad per
+// progress metre for 100-600 m above the ground).
+const realFlow = (eye) => Float32Array.from({ length: eye.length / 3 }, (_, i) => .3 / Math.max(150, eye[i * 3 + 1] - FIXTURE_GROUND_M + 100));
+const REAL_PAYOFF = { rail: .45, traverse: .55, approach: .78, reveal: .62, orbit: .48, pullback: .9, valley: .6 };
+const REAL_LENS = { rail: 'tele', traverse: 'tele', approach: 'wide', reveal: 'wide', orbit: 'wide', pullback: 'wide', valley: 'normal' };
+
+/**
+ * A library shaped like the real ones (Monument Valley: 15 shots of 0.6-1.6
+ * km, 45 links of 0.6-2.2 km (median 1.2), 2-4 links per shot, shots sampled every ~29 m
+ * and links every ~58 m on the 0.1 m lattice, an isolated rail shot, a hero
+ * subject, `motion` limits in the manifest) but with the links the contract
+ * asks for: they leave and arrive along the shots' tangents (Dubins turns of
+ * 600-900 m), so nothing in them forces a crawl.
+ *
+ * Two lanes circle the subjects (radius 1.6 and 2.2 km, travelled
+ * counter-clockwise); `slots` slots around the loop hold one shot on each
+ * lane, each shot linking ahead to both shots of the next slot. A lap is one
+ * shot per slot, about 11 km. Shot 0 is the rail (no links). Subject
+ * 'hero-butte' (hero) stands in the centre, four more around it.
+ * `kinkDeg` makes every link leave and arrive that far off the shots'
+ * headings (kinked joins, like the real libraries' links).
+ */
+export function rangeShotLibraryFixture({ seed = 1, slots = 5, kinkDeg = 0 } = {}) {
+  const random = mulberry32(seed * 104729 + 7), between = (a, b) => a + (b - a) * random(), G = FIXTURE_GROUND_M, R = [1600, 2200];
+  const subjects = [{ id: 'hero-butte', kind: 'butte', name: 'Hero Butte', hero: true, posM: [0, G + 380, 0], radiusM: 260, heightM: 380 }];
+  for (let k = 0; k < 4; k++) {
+    const a = (k + .5) * Math.PI / 2 + between(-.3, .3), r = between(900, 1300), h = between(180, 320);
+    subjects.push({ id: `butte-${k}`, kind: k === 3 ? 'peak' : 'butte', name: null, posM: [r * Math.cos(a), G + h, r * Math.sin(a)], radiusM: between(120, 300), heightM: h });
+  }
+  const aimOf = (s) => [s.posM[0], s.posM[1] - .3 * s.heightM, s.posM[2]];
+  const order = [0, 1, 2, 3, 4].map((k) => subjects[(k + seed) % 5]);
+  const innerMoves = ['approach', 'orbit', 'reveal', 'valley', 'traverse'], outerMoves = ['traverse', 'pullback', 'orbit', 'traverse', 'approach'];
+  const records = [];
+  const make = (id, subject, move, lane, phi0, L, agl, hero) => {
+    const r0 = R[lane], eyes = [], aims = [], target = aimOf(subject);
+    // Dense control points: the spline through them then follows the eased
+    // moves (and the reveal's pan) closely instead of kinking between them.
+    const K = 32;
+    for (let k = 0; k <= K; k++) {
+      const u = k / K, r = r0 + (move === 'approach' ? -260 * smooth(u) : move === 'pullback' ? 220 * smooth(u) : 0), phi = phi0 + L / r0 * u;
+      const y = G + agl + (move === 'pullback' ? 400 * smooth(u) : move === 'approach' ? -50 * smooth(u) : move === 'valley' ? -25 * Math.sin(Math.PI * u) : 0);
+      eyes.push([r * Math.cos(phi), y, r * Math.sin(phi)]);
+      if (move === 'reveal') {
+        // The look starts along the travel, at rest, and pans onto the subject by 70%.
+        const ahead = [eyes[k][0] - 3000 * Math.sin(phi), target[1], eyes[k][2] + 3000 * Math.cos(phi)], h = pan(u / .7);
+        aims.push([0, 1, 2].map((q) => ahead[q] + (target[q] - ahead[q]) * h));
+      } else aims.push(target);
+    }
+    const path = samplePath({ eyes, aims, fovs: LENS_FOV[REAL_LENS[move] === 'tele' ? 'tele' : REAL_LENS[move]], spacingM: 29.4 });
+    path.flow = realFlow(path.eye);
+    const n = path.s.length, lengthM = path.s[n - 1], payoffS = REAL_PAYOFF[move] * lengthM, pose = pathPoseAt(path, payoffS), look = headingPitch(lookDir(pose));
+    const aglM = pose.eyeM[1] - G, dx = pose.eyeM[0] - subject.posM[0], dz = pose.eyeM[2] - subject.posM[2], total = (hero ? .66 : .55) + .2 * random();
+    const pass = move === 'traverse' && random() < .6, tags = [...(pass ? ['foreground-pass'] : []), ...(move === 'pullback' ? ['crane'] : []), ...(hero ? ['hero'] : [])];
+    records.push({
+      id, subjectId: subject.id, move, lengthM, payoffS, holdS: [Math.max(0, payoffS - .25 * lengthM), Math.min(lengthM, payoffS + .25 * lengthM)],
+      durationMs: { min: lengthM / 120 * 1000, ideal: Math.max(16000, lengthM / 100 * 1000), max: lengthM / 4 * 1000 },
+      traits: { lens: REAL_LENS[move], elevation: aglM < 200 ? 'low' : aglM < 450 ? 'mid' : 'high', side: dx >= 0 ? 'right' : 'left',
+        ...(pass ? { foregroundSubjectId: order[(order.indexOf(subject) + 1) % 5].id } : {}), headingDeg: look.headingDeg, azimuthDeg: Math.atan2(dx, -dz) * 180 / Math.PI,
+        elevationDeg: look.pitchDeg, aglM, distanceM: Math.hypot(dx, dz), fovYDeg: LENS_FOV[REAL_LENS[move]], foreground: .33 },
+      score: { total, composition: total, subject: total, depth: total, parallax: total, reveal: total, weakest: total - .1, render: null }, tags, path,
+    });
+  };
+  make('rail-0', subjects[1], 'rail', 1, between(0, 2 * Math.PI), 900, 90, false);
+  for (let j = 0; j < slots; j++) {
+    const phi = j * 2 * Math.PI / slots;
+    for (const lane of [0, 1]) {
+      const subject = order[(j + 2 * lane) % 5], move = (lane ? outerMoves : innerMoves)[(j + seed) % 5];
+      const L = lane ? between(1000, 1550) : between(700, 1250), agl = move === 'valley' ? between(80, 120) : move === 'pullback' ? between(150, 220) : between(110, 330);
+      make(`${move}-${subject.id}-${j}${lane ? 'o' : 'i'}`, subject, move, lane, phi + between(-.03, .03), L, agl, !!subject.hero);
+    }
+  }
+  // Links ahead to both shots of the next slot (never to or from the rail).
+  const links = [];
+  for (let a = 1; a < records.length; a++) {
+    const out = [];
+    for (let b = 1; b < records.length; b++) {
+      if (a === b || Math.floor((b - 1) / 2) !== (Math.floor((a - 1) / 2) + 1) % slots) continue;
+      for (const kind of ['direct', 'arc']) {
+        const path = linkPath(records[a], records[b], kind, random, { spacingM: 58, radius: kind === 'arc' ? 900 : 600, flow: realFlow, kinkDeg }), lengthM = path.s.at(-1);
+        if (lengthM > 2200) continue;
+        const total = .55 + .3 * random();
+        out.push({ id: `link-${records[a].id}-${records[b].id}-${kind}`, from: records[a].id, to: records[b].id, kind, lengthM,
+          durationMs: { min: lengthM / 120 * 1000, ideal: lengthM / 80 * 1000, max: lengthM / 4 * 1000 }, score: { total, weakest: total - .1 }, path });
+      }
+    }
+    // The shortest link to each next shot, and the other kind to some of them (2-4 per shot).
+    out.sort((x, y) => x.lengthM - y.lengthM);
+    const first = out.filter((l, k) => out.findIndex((m) => m.to === l.to) === k), rest = out.filter((l) => !first.includes(l));
+    links.push(...first, ...rest.filter(() => random() < .5));
+  }
+  const bytes = packShotPaths([...records, ...links]);
+  const strip = ({ path, ...rest }) => rest;
+  const hex = (c) => c.repeat(64);
+  const manifest = {
+    schema: SHOT_SCHEMA, version: SHOT_VERSION, viewId: 'fixture-range-loop', regionId: 'fixture', terrainManifestSha256: hex('d'),
+    axes: { x: 'east', y: 'up', z: 'south', units: 'metres' }, motion: { ...MOTION }, subjects, shots: records.map(strip), links: links.map(strip),
+    payload: { url: 'fixture-range-loop.shots.bin.gz', byteLength: bytes.length, sha256: hex('e'), decodedByteLength: bytes.length, decodedSha256: hex('f') },
+    provenance: { fixture: true, shape: 'range', seed, kinkDeg, groundM: G },
+  };
+  return decodeShotLibrary(manifest, bytes);
+}
+
+/**
+ * A structured test song from its energy levels: `levels` [[startMs,
+ * level | [from, to]], ...] (a pair ramps over the span), with the detected
+ * sections starting at `starts` (labelled `roles`) as the analysis path
+ * reports them -- early and mislabelled like the real probes -- and the
+ * ground-truth payoffs `downbeatsMs` (the last the climax).
+ */
+export function songFixture({ durationMs, levels, starts, roles, downbeatsMs, finalChorusIndex = -1, energyStepMs = 100, seed = 7 }) {
+  const level = (t) => {
+    let k = 0;
+    while (k + 1 < levels.length && levels[k + 1][0] <= t) k++;
+    const [a, v] = levels[k], b = levels[k + 1]?.[0] ?? durationMs;
+    return Array.isArray(v) ? v[0] + (v[1] - v[0]) * (t - a) / Math.max(1, b - a) : v;
+  };
+  const random = mulberry32(seed), n = Math.floor(durationMs / energyStepMs) + 1, energy = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const t = i * energyStepMs;
+    energy[i] = Math.max(0, level(t) * (1 + .03 * Math.sin(2 * Math.PI * t / 470)) + (random() - .5) * .01);
+  }
+  const sections = starts.map((startMs, i) => ({ startMs, endMs: starts[i + 1] ?? durationMs, label: String(i), provenance: 'detected', relEnergy01: Math.min(1, level(startMs + 3000)) }));
+  return { durationMs, sections, roles: roles.map((role, i) => ({ role, confidence: .8, finalChorus: i === finalChorusIndex, stops: [] })), energy, energyStepMs, downbeatsMs };
+}
+
+/** The "drop" song: drops at 45.0 and 97.5 s (the climax), 142.5 s. */
+export const dropSong = () => songFixture({
+  durationMs: 142500, downbeatsMs: [45000, 97500],
+  levels: [[0, .15], [15000, .35], [37500, [.4, .6]], [45000, .95], [75000, .2], [90000, [.45, .65]], [97500, 1], [127500, [.3, .1]]],
+  starts: [0, 5671, 14998, 20618, 29986, 46870, 74972, 78715, 86251, 99359, 129351, 133092, 136833],
+  roles: ['intro', 'verse', 'chorus', 'chorus', 'chorus', 'chorus', 'breakdown', 'verse', 'bridge', 'chorus', 'breakdown', 'chorus', 'outro'], finalChorusIndex: 11,
+});
+
+/** The "short" song: one chorus at 28.8 s, 60 s. */
+export const shortSong = () => songFixture({
+  durationMs: 60000, downbeatsMs: [28800],
+  levels: [[0, .15], [9600, .4], [28800, .9], [48000, [.3, .1]]],
+  starts: [0, 15588, 32388, 47993], roles: ['intro', 'verse', 'bridge', 'outro'],
+});
