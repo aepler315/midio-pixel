@@ -5,9 +5,12 @@ import { resolveRangeMode } from '../src/world/alpine/RangePresentation.js';
 import { samplePath } from '../src/world/terrain/ShotPath.js';
 
 const sha = 'a'.repeat(64);
-const view = (id, status = 'approved') => ({ id, status, shotsManifestUrl: `tour/${id}.shots.json`, shotsManifestSha256: sha });
+const view = (id, status = 'approved') => ({ id, status, shotsManifestUrl: `tour/${id}.shots.json`, shotsManifestSha256: sha,
+  terrainManifestSha256: sha, baseViewSha256: sha,
+  shotTour: { status: 'approved', identity: { shotsManifestSha256: sha, terrainManifestSha256: sha, baseViewSha256: sha },
+    approval: { shotsManifestSha256: sha, terrainManifestSha256: sha, baseViewSha256: sha, date: '2026-10-22', evidence: ['review.md'] } } });
 const path = (x0) => ({ ...samplePath({ eyes: [[x0, 500, 0], [x0 + 1000, 500, 0]], aims: [[x0, 400, -5000], [x0 + 1000, 400, -5000]], fovs: 30 }), flow: null });
-const library = { shots: [{ id: 's1', path: path(0) }, { id: 's2', path: path(3000) }], links: [{ id: 'l1', path: path(1000) }] };
+const library = { terrainManifestSha256: sha, shots: [{ id: 's1', path: path(0) }, { id: 's2', path: path(3000) }], links: [{ id: 'l1', path: path(1000) }] };
 const mgr = (sections = [{ startMs: 0, endMs: 60000, profile: { name: 'CONIFER' } }]) => ({ durationMs: 60000, sections, songSeed: 7, tSec: 0 });
 const settle = () => new Promise((r) => setTimeout(r, 0));
 const timeline = (offset = 0) => ({ durationMs: 60000, items: [{}, {}, {}], payoffs: [], diagnostics: {},
@@ -19,6 +22,48 @@ test('only approved views with a complete shot identity are eligible; candidates
   assert.equal(shotTourEligible(view('a', 'candidate'), { allowCandidates: true }), true);
   assert.equal(shotTourEligible({ ...view('a'), shotsManifestSha256: 'x' }), false);
   assert.equal(shotTourEligible({ id: 'rail-only', status: 'approved' }), false);
+});
+
+test('tour approval, regional review state and exact package identities are independent gates', () => {
+  const candidate = view('a'); candidate.shotTour.status = 'candidate';
+  assert.equal(shotTourEligible(candidate), false);
+  assert.equal(shotTourEligible(candidate, { allowCandidates: true }), true);
+  const noApproval = view('a'); noApproval.shotTour.approval = null;
+  assert.equal(shotTourEligible(noApproval), false);
+  assert.equal(shotTourEligible(noApproval, { allowCandidates: true }), true);
+  for (const key of ['shotsManifestSha256', 'terrainManifestSha256', 'baseViewSha256']) {
+    const stale = view('a'); stale.shotTour.identity[key] = 'b'.repeat(64);
+    assert.equal(shotTourEligible(stale), false, key);
+    assert.equal(shotTourEligible(stale, { allowCandidates: true }), false, key);
+    const staleApproval = view('a'); staleApproval.shotTour.approval[key] = 'b'.repeat(64);
+    assert.equal(shotTourEligible(staleApproval), false, key);
+    assert.equal(shotTourEligible(staleApproval, { allowCandidates: true }), false, key);
+  }
+  const missingEvidence = view('a'); missingEvidence.shotTour.approval.evidence = [];
+  assert.equal(shotTourEligible(missingEvidence), false);
+});
+
+test('candidate tours keep the rail until diagnostics explicitly opt in', async () => {
+  const candidate = view('a'); candidate.shotTour.status = 'candidate'; candidate.shotTour.approval = null;
+  let loads = 0;
+  const tours = new RangeShotTours({ assetBase: 'http://x/', load: async () => { loads++; return { library }; }, plan: async () => timeline() });
+  tours.setSong({ mgr: mgr(), views: [candidate], generation: 1 });
+  await settle();
+  assert.equal(loads, 0);
+  assert.equal(tours.prepareView(candidate), candidate);
+  assert.equal(tours.timeline('a'), null);
+  const review = new RangeShotTours({ assetBase: 'http://x/', allowCandidates: true, load: async () => ({ library }), plan: async () => timeline() });
+  review.setSong({ mgr: mgr(), views: [candidate], generation: 1 });
+  await settle(); await settle();
+  assert.ok(review.timeline('a'));
+});
+
+test('a loaded library for another terrain package falls back to the rail', async () => {
+  const tours = new RangeShotTours({ assetBase: 'http://x/', load: async () => ({ library: { ...library, terrainManifestSha256: 'b'.repeat(64) } }), plan: async () => timeline() });
+  tours.setSong({ mgr: mgr(), views: [view('a')], generation: 1 });
+  await settle(); await settle();
+  assert.equal(tours.timeline('a'), null);
+  assert.match(tours.status().a.reason, /terrain identity/);
 });
 
 test('mode resolution: shot tours by default, off keeps rails, tetons forces the highway', () => {

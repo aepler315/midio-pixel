@@ -110,7 +110,19 @@ test('every biome has at least one approved scene in the shipped catalog', () =>
   for (const biome of BIOMES) {
     assert.ok(catalogData.views.some((v) => v.biome === biome && v.status === 'approved'), `${biome} has no approved view`);
   }
-  assert.ok(catalogData.views.length >= 11 && catalogData.views.length <= 18, `${catalogData.views.length} views`);
+  assert.ok(catalogData.views.length >= BIOMES.length, `${catalogData.views.length} views`);
+});
+
+test('a thirty-view pool remains valid, deterministic and excludes candidates', () => {
+  const views = Array.from({ length: 30 }, (_, i) => mk(`location-${i}`, 'CANYON'));
+  views.push(mk('unreviewed', 'CANYON', 'candidate'));
+  const catalog = { catalogVersion: 3, views };
+  assert.equal(validateSceneCatalog(catalog).ok, true);
+  for (let seed = 0; seed < 40; seed++) {
+    const pick = chooseSceneForBiome('CANYON', profile(), seed, opts(views));
+    assert.equal(pick.view.status, 'approved');
+    assert.equal(pick.view.id, chooseSceneForBiome('CANYON', profile(), seed, opts(views)).view.id);
+  }
 });
 
 test("each shipped view wears a material pack made for its own biome", async () => {

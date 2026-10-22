@@ -38,6 +38,45 @@ test('selection keeps the rail, spreads subjects and charges new terrain', () =>
   assert.ok(out.filter((id) => id.startsWith('a')).length <= 2);
 });
 
+test('positive subject weights change selection priority after quality and terrain gates', () => {
+  const shot = (id, total, subjectWeight, holes = 0, missing = []) => ({ id, subjectId: id, move: 'traverse',
+    subjectWeight, score: { total, holes }, traits: { azimuthDeg: 0, elevation: 'mid', lens: 'normal' }, missing });
+  const select = (a, b) => selectShots([a, b], { ...config, discovery: { ...config.discovery, maxShots: 1 } });
+  const ordinary = shot('ordinary', 0.7), emphasized = shot('emphasized', 0.6, 1.6);
+  assert.deepEqual(select(ordinary, emphasized), [emphasized], 'existing configured weights can outweigh a modest quality difference');
+  assert.deepEqual(select(ordinary, { ...emphasized, subjectWeight: 1 }), [ordinary], 'weight one retains score priority');
+  for (const invalid of [0, -1, NaN, Infinity, '2']) {
+    assert.deepEqual(select(ordinary, { ...emphasized, subjectWeight: invalid }), [ordinary], 'invalid weights default to one');
+  }
+  assert.equal(select(shot('bounded', 0.1, 100), shot('better', 0.5, 1))[0].id, 'better', 'weights are capped at four');
+  assert.equal(select(shot('gentle', 0.8, 0.01), shot('lower', 0.15, 1))[0].id, 'gentle', 'positive weights have a quarter floor');
+  assert.deepEqual(select(ordinary, { ...emphasized, score: { total: 1, holes: 0.1 } }), [ordinary], 'weight cannot admit a shot with holes');
+  assert.deepEqual(select(ordinary, { ...emphasized, score: { total: 0, holes: 0 } }), [ordinary], 'weight cannot restore a failed quality score');
+  assert.deepEqual(select(ordinary, { ...emphasized, missing: Array.from({ length: 200 }, (_, i) => i) }), [ordinary], 'weight cannot restore terrain-adjusted worth below zero');
+});
+
+test('connected library selection compares subject-weighted quality across disconnected cycles', () => {
+  const shot = (id, total, subjectWeight = 1) => ({ id, subjectId: id, move: 'traverse', subjectWeight,
+    score: { total, holes: 0 }, traits: { azimuthDeg: 0, elevation: 'mid', lens: 'normal' }, missing: [] });
+  const [a, b, c, d] = [shot('a', 0.7), shot('b', 0.7), shot('c', 0.6, 1.6), shot('d', 0.6, 1.6)];
+  const link = (from, to) => ({ from, to });
+  const links = [link(a, b), link(b, a), link(c, d), link(d, c)];
+  const cfg = { ...config, discovery: { ...config.discovery, maxShots: 2 } };
+  assert.deepEqual(selectConnected([a, b, c, d], links, cfg).map((s) => s.id).sort(), ['c', 'd']);
+  c.subjectWeight = 1; d.subjectWeight = 1;
+  assert.deepEqual(selectConnected([a, b, c, d], links, cfg).map((s) => s.id).sort(), ['a', 'b']);
+});
+
+test('the graph component retained for selection respects configured subject emphasis', () => {
+  const shot = (id, total, subjectWeight = 1) => ({ id, score: { total }, subjectWeight });
+  const [a, b, c, d] = [shot('a', 0.7), shot('b', 0.7), shot('c', 0.6, 1.6), shot('d', 0.6, 1.6)];
+  const link = (from, to) => ({ from, to });
+  const links = [link(a, b), link(b, a), link(c, d), link(d, c)];
+  assert.deepEqual([...bestComponent([a, b, c, d], links)].map((s) => s.id).sort(), ['c', 'd']);
+  c.subjectWeight = 1; d.subjectWeight = 1;
+  assert.deepEqual([...bestComponent([a, b, c, d], links)].map((s) => s.id).sort(), ['a', 'b']);
+});
+
 test('link selection keeps a way into every shot and prefers short, scenic, cheap links', () => {
   const s = ['a', 'b', 'c'].map((id) => ({ id, missing: [] }));
   const link = (from, to, total, lengthM, kind = 'direct', missing = []) => ({ from, to, kind, lengthM, score: { total, holes: 0 }, durationMs: { ideal: lengthM * 20 }, missing });

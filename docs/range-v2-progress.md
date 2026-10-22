@@ -6,14 +6,21 @@ This file retains the historical Range rollout and its evidence. Current
 catalog v19 still has 13 approved geographic rail views and four forced
 candidates. Scenic-shot tooling merged in PRs #24/#25, but no shot libraries
 are committed or enabled in the production catalog. See [scenic tour status](scenic-tours.md#current-delivery-and-reported-builds)
-and the [camera scouting audit](camera-scouting-audit-2026-10-22.md).
+and the historical [camera scouting audit](camera-scouting-audit-2026-10-22.md).
+The [implementation follow-up](camera-scouting-fixes-2026-10-22.md) records source
+fixes for stratified discovery, separate base/tour approval, exact review identity,
+worker-side cold planning, ending alternatives and reel endpoint evidence. The
+changes add no assets or approvals and have not merged or deployed. Verification
+results are recorded in the PR; existing rendered and device acceptance limits
+remain visible there and in the linked review documents.
 
 The next catalog direction is approximately 30 approved geographic views;
 [the expansion proposal](scenic-view-expansion.md) replaces the historical
 12–18-view target. The owner has retired the inherited 60 MB asset ceiling as
-an expansion requirement. Its implementation checks still exist pending removal;
-the historical budget below is not a current design constraint. Runtime memory,
-frame pacing and delivery measurements remain separate.
+an expansion requirement, and its global hard-fail checks are removed in the
+current source changes. Per-region byte/graphics caps and explicit caller limits
+remain; the historical budget below is not a current design constraint. Runtime
+memory, frame pacing and delivery measurements remain separate.
 
 Plan: `docs/superpowers/plans/2026-09-29-range-geodata-master.md` (copied verbatim from the supplied package; removed, see [removed docs](removed-docs.md)).
 Reference image: `docs/evidence/range-v2/reference.webp` (1806×871, documentation only; never staged into `/src`).
@@ -35,7 +42,7 @@ Current evidence and remaining gates are recorded in [terrain continuation](evid
 
 ## Decisions recorded with the user (2026-09-29)
 
-- Original artifact ceiling: **≤ 60 MB** under `src/assets/range/v2/` (plain files, no Git LFS). Retired as a design requirement on 2026-10-22; implementation removal is pending. This is not the runtime memory budget.
+- Original artifact ceiling: **≤ 60 MB** under `src/assets/range/v2/` (plain files, no Git LFS). Retired on 2026-10-22, with its global code checks removed in the current source changes. The historical figure is not the runtime memory budget; per-region caps remain.
 - Materials: **hybrid**. Procedural, offline-baked colour ramps and masks everywhere; procedural detail on distant terrain; CC0 photo-scan **normal/roughness data only** (no scan albedo) for the rock stage and nearest terrain. Provenance recorded per file.
 
 ## Environment (this execution session)
@@ -303,8 +310,9 @@ Device measurement: `tools/range-device-probe.js` and `docs/range-v2-device-runs
 
 These are the original rollout figures. At the 2026-10-22 audited revision,
 the complete asset tree is 48,905,726 bytes; see the [current delivery measurements](scenic-view-expansion.md#delivery-budget).
-The owner has rejected the old 60 MB ceiling for expansion. This documentation
-does not remove the still-existing code checks or alter runtime residency limits.
+The owner rejected the old 60 MB ceiling for expansion, and the current source
+fixes remove its global hard-fail checks. Per-region caps and runtime residency
+limits remain separate from the historical figures below.
 
 | Item | Size |
 | --- | --- |

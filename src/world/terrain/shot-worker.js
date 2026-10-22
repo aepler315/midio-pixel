@@ -6,13 +6,13 @@
 // up to there bit for bit; when it finds no feasible continuation it keeps
 // the committed timeline whole ("Refinement deferred") rather than ship the
 // planner's unchecked fallback.
-import { planShotTour, restoreShotLibrary } from './ShotPlanner.js';
+import { planShotTour, restoreShotLibrary, shotPlanningTables } from './ShotPlanner.js';
 import { buildShotTimeline, shotContinuation, shotTimelineData } from './ShotTimeline.js';
 
 export const SHOT_COMMIT_LEAD_MS = 3000;
 const LANES = ['eye', 'target', 'fov', 'meta', 'progress', 'speed', 'accel'];
 
-const reply = (timeline) => ({ message: { timeline }, transfer: [...new Set(LANES.map((k) => timeline[k]?.buffer).filter(Boolean))] });
+const reply = (timeline, planningTables) => ({ message: { timeline, planningTables }, transfer: [...new Set(LANES.map((k) => timeline[k]?.buffer).filter(Boolean))] });
 
 /** One request -> { message: {timeline} | {error}, transfer } for postMessage. */
 export function handleShotMessage(data) {
@@ -20,9 +20,12 @@ export function handleShotMessage(data) {
     const { sections = [], roles = [], energy = null, energyStepMs = 100, durationMs = 0, visible = null, seed = 0,
       committedThroughMs = 0, tunables = {} } = data || {};
     const library = restoreShotLibrary(data.library);
+    // The cold geometry scan stays off the rendering thread. The caller
+    // caches these small tables for later requests using the same library.
+    const planningTables = shotPlanningTables(library);
     // A committed timeline of another length belongs to another song.
     const previous = data.previous?.fov?.length && data.previous.durationMs === durationMs ? data.previous : null;
-    const defer = (why) => reply({ ...previous, notes: [...(previous.notes || []), `Refinement deferred: ${why}`] });
+    const defer = (why) => reply({ ...previous, notes: [...(previous.notes || []), `Refinement deferred: ${why}`] }, planningTables);
     let start = null;
     if (previous) {
       start = shotContinuation(previous, committedThroughMs, { leadMs: SHOT_COMMIT_LEAD_MS });
@@ -30,7 +33,7 @@ export function handleShotMessage(data) {
     }
     const plan = planShotTour(library, { durationMs, sections, roles, energy, energyStepMs, visible, seed, start, tunables });
     if (start && plan.fallback) return defer(plan.fallback);
-    return reply(shotTimelineData(buildShotTimeline(library, plan, { previous, frozenThroughMs: start ? start.timeMs : -1, tunables })));
+    return reply(shotTimelineData(buildShotTimeline(library, plan, { previous, frozenThroughMs: start ? start.timeMs : -1, tunables })), planningTables);
   } catch (error) {
     return { message: { error: error?.message || String(error) }, transfer: [] };
   }

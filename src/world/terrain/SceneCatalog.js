@@ -42,9 +42,8 @@ export function sceneViewErrors(view) {
   if (view.tourManifestUrl) {
     if (!view.tourManifestUrl.endsWith('.json') || !/^[a-f0-9]{64}$/.test(view.tourManifestSha256 || '')) errors.push('tour package identity');
   } else errors.push(...cameraRailErrors(view.camera));
-  // A shot tour adds to a rail, never replaces it: the rail is its fallback.
-  if (view.shotsManifestUrl != null && (typeof view.shotsManifestUrl !== 'string' || !view.shotsManifestUrl.endsWith('.json')
-    || !/^[a-f0-9]{64}$/.test(view.shotsManifestSha256 || '') || view.tourManifestUrl)) errors.push('shot library identity');
+  // Optional shot metadata is checked independently by shotTourIdentityErrors:
+  // a candidate or broken tour must never remove its approved fallback rail.
   errors.push(...compositionErrors(view));
   if (!view.characterScores || !AXES.every((a) => Number.isFinite(view.characterScores[a]))) errors.push('characterScores');
   if (!view.evidence || typeof view.evidence.reviewPath !== 'string') errors.push('evidence');
@@ -61,6 +60,20 @@ export function sceneViewErrors(view) {
   }
   if (view.riverPolicy != null && (view.riverPolicy.condition !== 'representative-no-runoff'
     || view.riverPolicy.terrainWater !== 'mapped-only')) errors.push('riverPolicy');
+  return errors;
+}
+
+/** The tour's identity gate, independent of the base scene's validity and
+ * review status. Diagnostics may override status, never package identity. */
+export function shotTourIdentityErrors(view) {
+  if (!view || typeof view.shotsManifestUrl !== 'string' || !view.shotsManifestUrl.endsWith('.json') || view.tourManifestUrl) return ['shot library identity'];
+  const tour = view.shotTour;
+  if (!STATUSES.has(tour?.status)) return ['shot tour status'];
+  const errors = [];
+  for (const key of ['shotsManifestSha256', 'terrainManifestSha256', 'baseViewSha256']) {
+    if (!/^[a-f0-9]{64}$/.test(view[key] || '') || tour.identity?.[key] !== view[key]
+      || (tour.approval != null && tour.approval[key] !== view[key])) errors.push(`shot ${key}`);
+  }
   return errors;
 }
 
