@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { refinePayoff, durationRange, selectShots, selectLinks, regionConfig, focusArea, inFocus, steadyLook, linkLibrary, costliestShot, estimatedBytes, trimWindow, trimShot, renderedTotal, bestComponent, selectConnected, nearCopy, pathBend, renderedGate } from '../tools/build-scenic-tours.mjs';
+import { refinePayoff, durationRange, selectShots, selectLinks, regionConfig, focusArea, inFocus, steadyLook, linkLibrary, costliestShot, forestDrop, estimatedBytes, trimWindow, trimShot, renderedTotal, bestComponent, selectConnected, nearCopy, pathBend, renderedGate } from '../tools/build-scenic-tours.mjs';
 import { TILE_BYTES } from '../tools/lib/scenic-cost.mjs';
 import { samplePath } from '../src/world/terrain/ShotPath.js';
 
@@ -202,4 +202,22 @@ test('the renderer drops a shot whose subject is off frame or fills it, or whose
   assert.ok(!soft.pass && soft.reasons.includes('payoff all soft close terrain'));
   const crisp = renderedGate([frame(good, 1), frame(good), frame(good), frame(good, 1)], { fovYDeg: 36, detailM: 30 });
   assert.ok(crisp.pass && crisp.factor < 1 && crisp.factor >= 0.75, 'soft entry and exit frames cost worth, not the shot');
+});
+
+test('a forest drop narrows the forest most per shot lost, trying each subject\'s overlapping shots together', () => {
+  // The forest covers the distinct places the shots stand: 1 MiB each.
+  const shot = (id, subjectId, at) => ({ id, subjectId, move: 'orbit', at });
+  const bound = (lib) => new Set(lib.shots.map((s) => s.at)).size * 2 ** 20, relink = (shots) => ({ shots, links: [] });
+  const rail = { id: 'rail', subjectId: 'rail-target', move: 'rail', at: 'r' };
+  // Three overlapping shots of A and one shot of B elsewhere: B alone narrows the forest.
+  const a = ['a1', 'a2', 'a3'].map((id) => shot(id, 'A', 'x')), b = shot('b1', 'B', 'y');
+  const one = forestDrop({ shots: [rail, ...a, b, shot('c1', 'C', 'z')], links: [] }, relink, bound);
+  assert.ok(['b1', 'c1'].includes(one.group[0].id) && one.group.length === 1 && one.gain === 2 ** 20);
+  // Only overlapping groups: no single shot narrows anything, A's three together do.
+  const b3 = ['b1', 'b2', 'b3'].map((id) => shot(id, 'B', 'y')), d3 = ['d1', 'd2'].map((id) => shot(id, 'D', 'w'));
+  const group = forestDrop({ shots: [rail, ...a, ...b3, ...d3], links: [] }, relink, bound);
+  assert.deepEqual(group.group.map((s) => s.id), ['d1', 'd2'], 'the smallest group that narrows the forest: most per shot lost');
+  assert.equal(group.lost, 2);
+  // Never below the minimum.
+  assert.equal(forestDrop({ shots: [rail, ...a], links: [] }, relink, bound), null);
 });

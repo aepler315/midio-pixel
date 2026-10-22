@@ -1074,6 +1074,26 @@ export function costliestShot(library, cost, survivors = null) {
   return worst;
 }
 
+/** What to drop from a library over its forest build: among single shots
+ *  and each subject's shots together, the drop that narrows the forest most
+ *  per shot it costs (shots it disconnects included), then the one costing
+ *  fewest shots. A subject's shots overlap, so dropping one of them alone
+ *  often narrows nothing (Izta, round 3: 12 of 22 single drops). relink(shots)
+ *  gives { shots, links }; bound(library) the forest build bytes. Null when
+ *  nothing can go without leaving fewer than minShots. */
+export function forestDrop(library, relink, bound, { minShots = 4 } = {}) {
+  const now = bound(library), movable = library.shots.filter((s) => s.move !== 'rail'), bySubject = new Map();
+  for (const s of movable) bySubject.set(s.subjectId, [...(bySubject.get(s.subjectId) || []), s]);
+  let best = null;
+  for (const group of [...movable.map((s) => [s]), ...[...bySubject.values()].filter((g) => g.length > 1)]) {
+    const rest = relink(library.shots.filter((s) => !group.includes(s)));
+    if (rest.shots.length < minShots) continue;
+    const size = bound({ ...library, ...rest }), lost = library.shots.length - rest.shots.length, gain = (now - size) / lost;
+    if (!best || gain > best.gain + 1e-9 || (Math.abs(gain - best.gain) <= 1e-9 && lost < best.lost)) best = { group, rest, size, lost, gain };
+  }
+  return best;
+}
+
 /**
  * Bake, pack and measure; while the region is over its byte or triangle
  * budget (or the shared 60 MB), drop the shot whose terrain is most its
@@ -1103,19 +1123,13 @@ export async function fitToBudget(built, { log = console.log, maxIterations = In
     const perRecord = libBytes / Math.max(1, library.shots.length + library.links.length);
     const fits = (lib) => estimatedBytes([...lib.shots, ...lib.links], cost) * ratio + perRecord * (lib.shots.length + lib.links.length) <= 0.95 * config.budget.assetBytes;
     let dropped = 0;
-    // Over the forest build: drop, among the drops that keep the most of the
-    // library connected, the shot whose footprint widens the forest most.
+    // Over the forest build: drop what narrows the forest most per shot lost.
     while (budget.forest && budget.forest.tour > budget.forest.cap && library.shots.length > 4) {
-      let best = null;
-      for (const shot of library.shots) {
-        if (shot.move === 'rail') continue;
-        const rest = linkLibrary(library.shots.filter((x) => x !== shot), pairs, config, cost), size = forest.bound({ ...library, ...rest });
-        if (!best || rest.shots.length > best.keep || (rest.shots.length === best.keep && size < best.size)) best = { shot, rest, size, keep: rest.shots.length };
-      }
+      const best = forestDrop(library, (shots) => linkLibrary(shots, pairs, config, cost), forest.bound);
       if (!best) break;
-      log(`${ctx.viewId}: dropping ${best.shot.id} (forest build to ${(best.size / 2 ** 20).toFixed(0)} MiB)`);
+      log(`${ctx.viewId}: dropping ${best.group.map((s) => s.id).join(', ')}${best.lost > best.group.length ? ` (and ${best.lost - best.group.length} left unlinked)` : ''} (forest build to ${(best.size / 2 ** 20).toFixed(0)} MiB)`);
       library = { ...library, ...best.rest };
-      dropped++;
+      dropped += best.lost;
       if (best.size <= budget.forest.cap) break;
     }
     while (library.shots.length > 4 && (!dropped || (cost && !fits(library)))) {
