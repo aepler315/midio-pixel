@@ -269,7 +269,9 @@ documents the current fixes: broader discovery within the existing candidate
 budget, separate rail and tour approvals, review results tied to exact library
 bytes, and removal of the inherited global 60 MB hard gate. Asset growth,
 download costs and runtime memory remain separate measurements. These changes
-have not merged or deployed and do not add assets or approve cameras.
+merged through [PR #29](https://github.com/aepler315/midio-pixel/pull/29).
+That source-only implementation added no assets or camera approvals; deployment
+was not verified.
 
 The [expansion proposal](docs/scenic-view-expansion.md) considers **13 → 18 → 24 →
 30 approved geographic views**, with review waves of two or three. The
@@ -279,11 +281,23 @@ and the Superstition west front. Catalog v20 has 13 approved rails and seven
 candidates, with 16 regional tour configurations on the expansion branch;
 the approved geographic count remains 13. The new three terrain packages add
 3,813,190 bytes. Source, candidate assets and review documentation are in
-[draft PR #31](https://github.com/aepler315/midio-pixel/pull/31). The
+[draft PR #32](https://github.com/aepler315/midio-pixel/pull/32). The
 [fresh rebuild and app review](docs/scenic-rebuild-review-2026-10-22.md) records
 the new scouting runs, exact library identities, actual planned camera moves
 and remaining review gates. Candidate assets and local rebuilt libraries do
 not enable a production shot tour by themselves.
+
+The completed batch has **15 useful candidate libraries: 179 shots and 462
+links**, including libraries for all three new locations. Tombstone remains a
+blocked rail-only result. The complete review asset tree is **65,023,144 bytes**;
+the global 60 MB ceiling is gone, while regional fit and graphics constraints
+remain. Actual app review found and corrected a sampled blank-sky Denali transit;
+long transfers, named-subject framing and dark endings still need editorial
+work. The approved geographic count remains 13.
+The fitted packages are preserved on the separate
+[candidate review asset branch](https://github.com/aepler315/midio-pixel/tree/review/scenic-library-rebuild-20261022);
+see the [diagnostic playback instructions](docs/scenic-rebuild-review-2026-10-22.md#candidate-asset-branch-and-diagnostic-playback).
+Its rebaked bases and attached tours remain candidates.
 
 ## Version archive
 

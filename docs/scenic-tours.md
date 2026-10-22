@@ -13,7 +13,8 @@ The [camera scouting audit](camera-scouting-audit-2026-10-22.md) records contrac
 gaps and evidence limits at its audited revision. The [implementation follow-up](camera-scouting-fixes-2026-10-22.md)
 documents the subsequent fixes to discovery, approval, review identity, planning
 and reel evidence, plus removal of the global 60 MB hard gate. Those source
-changes have not merged or deployed. They add no assets or camera approvals;
+changes merged through [PR #29](https://github.com/aepler315/midio-pixel/pull/29).
+Deployment was not verified. They added no assets or camera approvals;
 the 13 approved rails and candidate regional configurations above are unchanged.
 The [30-view proposal](scenic-view-expansion.md) now has a
 [first sourced candidate wave](scenic-expansion-wave1-2026-10-22.md): Redfish
@@ -27,11 +28,21 @@ approval gates from the historical results below.
 (13 approved bases and seven candidates), while `scenic-tours.json` has
 16 candidate regional configurations. The primary expansion branch has no
 attached shot libraries and preserves all 13 approved rail packages. Fresh
-libraries are rebuilt and staged in an isolated candidate review snapshot.
+libraries were rebuilt and staged in an isolated candidate review snapshot.
 The v19 inventory and R3 delivery table below describe their explicitly dated
-baselines. See [draft PR #31](https://github.com/aepler315/midio-pixel/pull/31)
+baselines. See [draft PR #32](https://github.com/aepler315/midio-pixel/pull/32)
 and the [dated rebuild review](scenic-rebuild-review-2026-10-22.md) for current
 artifacts and actual planned-move findings.
+
+The completed fresh batch has 15 useful candidate libraries with 179 shots and
+462 links; Tombstone remains blocked with only its rail. Its separate candidate
+asset tree is 65,023,144 bytes. The primary branch keeps the 13 approved rail
+packages unchanged; no fit, capture or diagnostic setting approves a tour.
+The separate
+[review asset branch](https://github.com/aepler315/midio-pixel/tree/review/scenic-library-rebuild-20261022)
+contains those exact packages. Its rebaked bases are candidates, so interactive
+review uses the explicit overrides in the
+[playback instructions](scenic-rebuild-review-2026-10-22.md#candidate-asset-branch-and-diagnostic-playback).
 
 The intended system gives each approved scenic view an offline-discovered **shot library**: complete
 camera moves around the region's real subjects, plus connecting moves between
@@ -72,7 +83,7 @@ historical local builds reported in PR #25. None of the round-3 shot libraries
 below is committed or approved for production. The four forced runtime candidates
 and four rejected authoring entries are separate from the 13 approved views.
 
-For the fresh batch, use `--build-root .smoke/rebuild-20261022/libraries`.
+For the final batch, use `--build-root .smoke/rebuild-20261022/selected-libraries`.
 The status tool labels **catalog tour state** separately from **build-fit
 counts/costs**. An approved rail cannot approve an attached candidate tour;
 approval also requires current verified library, payload and terrain identities.

@@ -12,7 +12,8 @@ and the historical [camera scouting audit](camera-scouting-audit-2026-10-22.md).
 The [implementation follow-up](camera-scouting-fixes-2026-10-22.md) records source
 fixes for stratified discovery, separate base/tour approval, exact review identity,
 worker-side cold planning, ending alternatives and reel endpoint evidence. The
-changes add no assets or approvals and have not merged or deployed. Verification
+changes merged through [PR #29](https://github.com/aepler315/midio-pixel/pull/29),
+adding no assets or approvals. Deployment was not verified. Verification
 results are recorded in the PR; existing rendered and device acceptance limits
 remain visible there and in the linked review documents.
 
@@ -29,6 +30,14 @@ records the new library builds and continuous camera evidence. Rebaked library
 terrain is staged in a separate review snapshot to preserve the identities of
 all 13 approved production rail packages. Software attempts, the verified
 headless RTX 3060 captures and failed candidate gates retain separate records.
+
+The completed batch yields 15 useful candidate libraries, 179 shots and 462
+links; Tombstone remains blocked at rail-only. All three new locations have
+fitted libraries. The separate complete review asset tree is 65,023,144 bytes,
+with no replacement global ceiling. Actual app evidence corrected a sampled
+blank-sky Denali transit while retaining open pacing, named-subject framing and
+ending concerns. The primary branch preserves all 39 approved-rail terrain/build
+files byte for byte.
 
 Plan: `docs/superpowers/plans/2026-09-29-range-geodata-master.md` (copied verbatim from the supplied package; removed, see [removed docs](removed-docs.md)).
 Reference image: `docs/evidence/range-v2/reference.webp` (1806×871, documentation only; never staged into `/src`).

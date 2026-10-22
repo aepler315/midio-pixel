@@ -3,16 +3,21 @@
 This follows the [scouting fixes](camera-scouting-fixes-2026-10-22.md) at
 `f51c27f7855ca6a3f163f77afaee4827438e2973` and begins the
 [first geographic expansion wave](scenic-expansion-wave1-2026-10-22.md).
-The work is on `feat/scenic-rebuild-batch-one-20261022`, based on the unmerged
-implementation branch. Main was checked at
-`8a5a1e362e4da2dda21a4cc523909b1eeb0bfda1`; neither merge nor deployment is
-part of this review.
+The work is on `feat/scenic-rebuild-batch-one-20261022`, initially based on the
+implementation branch while it was unmerged. Main was initially checked at
+`8a5a1e362e4da2dda21a4cc523909b1eeb0bfda1`. During the rebuild the owner merged
+PR #29 into main at `6feed187f7cfe82ff11ec734e784208aabb78f78`, then merged
+PR #31 into the implementation branch. The follow-up source at `aafb89ee7cc68e655bde9b41937b3742f63b6d7e`
+therefore still needs [continuation PR #32](https://github.com/aepler315/midio-pixel/pull/32)
+to reach main. Main's separate pixel-presentation changes are not represented in
+the exact-source captures below. No merge or deployment was performed by this review.
 
 ## What is being rebuilt
 
-Fresh discovery runs the corrected stratified generator, render gates,
-connected selection and terrain fitting. It does not use `--reselect` or
-reuse the old scored graph. All 13 existing regions have their original,
+Initial discovery runs the corrected stratified generator, render gates,
+connected selection and terrain fitting. Those initial runs do not use
+`--reselect` or reuse an old scored graph. The subsequent R2 selection below
+uses only the fresh graphs produced by these runs. All 13 existing regions have their original,
 parameter-keyed normalized DEM grids restored from the preserved Claude
 checkout. Every height/validity payload was verified against its recorded
 hash and length before and after transfer. This avoids silently acquiring
@@ -33,10 +38,10 @@ node tools/build-scenic-tours.mjs --view teton-jackson-lake \
   --out .smoke/rebuild-20261022/libraries/teton-jackson-lake
 ```
 
-The local batch uses three concurrent regions. Its execution records preserve
+The local batch used three concurrent regions. Its execution records preserve
 commands, completion states, elapsed times, fitted byte counts, source/config
-identities and coverage results. The three new regions join the queue after
-their revised candidate rail packages are staged. Tombstone's existing
+identities and coverage results. The three new regions joined the queue after
+their revised candidate rail packages were staged. Tombstone's existing
 source-drift restriction remains active.
 
 The first three build processes loaded the `f51c27f` driver before the
@@ -99,6 +104,13 @@ Only the three new geographic candidate packages are added to the expansion
 branch's runtime assets. Catalog v20 has 20 entries: 13 approved rails and
 seven candidates. No new geographic view or tour is approved here.
 
+The first wave's 84 new directed seam pairings, with 74 passes and ten
+failures, apply to the initial new-rail source freeze
+`d1e7337d52dc8904cdb3cd5a8dc108836f79163ac0fa628f590d8719a6749177`
+and the 13 unchanged primary rails. They do not transfer to the R2 rebaked
+terrain identities. A passing per-view rail comparison is not a composite
+seam certificate; R2 cross-view seam acceptance remains pending.
+
 There is no global 60 MB asset ceiling. Delivery bytes, per-region fit caps,
 triangle/forest costs and runtime graphics residency are reported separately.
 
@@ -110,7 +122,7 @@ row instead of aborting the table. To inspect this batch's fit records:
 
 ```sh
 node tools/scenic-tour-status.mjs \
-  --build-root .smoke/rebuild-20261022/libraries --markdown
+  --build-root .smoke/rebuild-20261022/selected-libraries --markdown
 ```
 
 The table labels catalog tour status separately from build-fit counts and
@@ -162,6 +174,12 @@ camera. Saved frames are checked against that timeline's eye and forward
 direction. A 60 Hz audit of the exact application timeline reports motion
 and ending limits; it does not replace watching the rendered movement.
 
+GPU depth observations below measure **drawn-surface coverage** in the production
+depth scene: terrain, mapped river surfaces and tree depth geometry, excluding
+sky and atmosphere. They are not a terrain-only segmentation or final-color
+readability score. The observer runs after each saved image/camera record and
+restores render state. The CPU link-scoring terrain floor is a separate measure.
+
 ## Evidence and disposition
 
 Captured PNG, audio, MP4, HTML and JSON evidence stays outside Git under
@@ -179,8 +197,8 @@ soft foreground terrain. All three brighten late in the same passage. That
 shared light/weather change must be separated from camera motion when
 assessing the rebuilt tours.
 
-The first completed fits and planned-move findings follow below. Remaining
-regions are still building. None of the baseline observations, fit checks or
+All 16 regions have finished and are classified below. Actual move review is
+recorded separately from the fit outcome. None of the baseline observations, fit checks or
 capture controls automatically promotes a candidate.
 
 The source audio is retained with exact frame players and MP4 previews.
@@ -317,12 +335,186 @@ becomes rail-only or fails.
 The copied-cache Denali proof measures all 817 retained variants: 776 retain
 terrain in every scored frame, 41 have an all-sky sample and none remain
 unmeasured. After removing only the three added fields, its enriched graph
-exactly matches every original field. Final fitted and app results are
-recorded with the R2 batch rather than inferred from this CPU proof.
+exactly matches every original field. Its fitted replacement has 12 shots,
+32 safe links and 11 mutually reachable non-rail shots. The known blank-sky
+link is absent; the minimum sampled terrain fraction is 0.11168981481481481.
+The one-iteration fit has zero coverage holes and zero LOD violations, adding
+777,333 bytes including a 54,407-byte shot library. This isolated proof loaded
+the builder before the publication-only guard was added, while scoring,
+selection and fitting match the final correction. It remains validation
+evidence. Exact committed-source fitted and app results are recorded with
+the R2 batch rather than inferred from this proof.
+
+## R2 application checks
+
+The first clean R2 snapshot, containing Denali and Teton, is
+`48e9ce377c7d5e54f6b2681eb3d0e35cb0d27dde2eeb895abc29a68c69ae29f2`.
+Its 654 public files were frozen from the exact integrated correction.
+Both packages completed fit, render, rail-parity, native-identity and connected
+graph checks before admission. Changed package identities require fresh app
+captures; the R1 captures remain tied to their original snapshots.
+
+Denali's actual R2 plan replaces its former valley pair with a traverse, a
+75.104-second high transit, a valley move and a final direct transit. The
+first production-depth preflight inspects 105 checkpoints: every integer
+second inside both actual played links, their joins and the former blank-sky
+times. None is all sky; the minimum sampled prepared-depth coverage is
+30.690%. At 66.125, 68.125 and 69.875 seconds, the matched R1/R2 comparison
+replaces empty sky with visible snow ridges and valley terrain. Each frame
+retains its actual plan item, source/package identities and controls.
+
+The subsequent full-history run preserves 173 distinct frames across 11
+motion windows. All saved frames were visually inspected: no empty-sky
+frame, visible camera snap or terrain gap appeared. Saved-frame prepared
+depth remains at least 31.393%, with drawn eye error 0 m and forward error
+below 6.0e-16. The close opening tightly crops a softly sculpted snow dome;
+the long transit gives coherent ridge/valley context; the 128-second passage
+frames an unnamed snowy peak, and the ending remains dark and low contrast.
+The 48-second checkpoint also exposes a rectilinear shading boundary on a
+close snow face. Depth remains present and the camera assertions pass;
+its cause is unisolated, so it is recorded as a visible shading/readability
+concern rather than a demonstrated coverage hole or camera-path defect.
+These observations resolve the former sampled blank-sky passage for this
+recording, while retaining the editorial rework below.
+
+This is a changed selected plan, not a rewrite of the old link's path. It
+uses two move families but still has a long transit. Its played shots target
+unnamed DEM peaks; the retained library has a named Mount Foraker subject
+but no selected shot with the named `denali` subject. This does not establish
+which named mountains are visible elsewhere in those frames. A source/DEM
+sanity check reproduces the named Denali point: the configured geographic
+landmark agrees within 0.049 m of stored projection, and the same local
+summit search reproduces the cached subject. Its 39.6 m difference from the
+authored elevation is not evidence of a misplaced summit; the preserved
+32 m mixed-source grid has an unverified vertical reference. Fifteen fresh
+named-Denali shots are usable, including two inside the safe best connected
+component; final connected/budget selection chooses other subjects. Pacing and
+named-subject selection remain candidate review issues. The depth checks
+do not grant aesthetic approval or certify unsampled live frames.
+
+### Actual planned camera moves
+
+All 15 useful libraries now have actual-app camera reviews and complete representative-move evidence. The Anthem plans give useful foreground parallax and continuous saved joins, while repeatedly favoring close terrain over the geographic context of the approved rails. Long transfers and dark endings remain editorial work. Thirteen routes require rework or explicit acceptance; Redfish and Superstition are retained for owner editorial review. These dispositions grant no base-view or tour approval.
+
+| View | Played moves and readable result | Pacing and ending to revisit |
+|---|---|---|
+| Denali / Wonder Lake | Traverse and valley moves replace the sampled empty-sky passage with coherent snow ridges and a valley. The opening tightly crops a rounded snow dome; the climax targets an unnamed DEM subject. | A 75.104 s high transfer; dark, low-contrast ending inside a link. A close snow face also exposes an unisolated rectilinear shading boundary. |
+| Teton / Jackson Lake | Two approaches give layered mountain aerials and a readable 128 s Moran payoff. Saved joins and hotspot windows remain continuous. | The first approach lasts 64.951 s, followed by a 42.689 s transfer; limited move-family variety and a dark ending inside the final link. |
+| Monument Valley | Traverses and valley moves provide legible butte parallax and the Mittens payoff, with continuous joins. | Link travel occupies 99.513 s. A dark, cropped cliff dominates the ending; the final shot receives only 1.015 s. |
+| Ross Lake | Two orbits retain layered ridge context and a readable Jack Mountain silhouette. The long link opens useful mountain context. | A 69.359 s transfer and repeated orbit family; the ending holds a nearly black foreground beneath the mountain silhouette. |
+| Muncho Lake | Traverse and approach moves preserve ridge parallax, though the sampled opening does not establish the lake. | A 65.165 s transfer; fog and rain obscure the unnamed valley payoff, followed by a low-contrast ridge ending. |
+| Iztaccíhuatl / Popocatépetl | A close unnamed-peak approach leads continuously into the attributed Iztaccíhuatl orbit; the 128 s ridge silhouette is readable. | The initial approach lasts 68.586 s with limited compositional change; a 37.634 s transfer and dark ending still need a decision. |
+| Black Mountains / Catawba | Reveal and traverse moves produce a strong layered-valley opening and a readable earlier Mount Mitchell payoff. The 128 s climax targets an unnamed valley. | Transfers total 105.310 s, or 62.69% of the song. Fog weakens the climax and the ending continues moving inside the last link. |
+| San Gabriel Mountains | Orbit and reveal moves supply detailed ridge/gully parallax and continuous joins; the selected subjects remain unnamed. | A 55.511 s high transfer prolongs tight downward terrain framing. Broad geographic context arrives late; the ending retains a dark cropped ridge. |
+| La Sal / Castle Valley | Orbit, traverse, pullback and approach supply four played move families; the pullback opens distinct ridges and valley layers. | The first transfer lasts 43.001 s. The final 7.561 s approach is still moving at cutoff; the dark opening and closing pace need work. |
+| Panamint / Dante's View | Reveal and traverse give coherent folded-ridge parallax. The configured Telescope Peak shot is foreground dominated in the inspected payoff. | One high transfer lasts 88.944 s, over half the song. The ending tightly crops a dark near ridge with little far context. |
+| Chugach / Matanuska | Pullback and approach give a useful layered-valley opening and continuous joins, with unnamed subjects. Large smooth near snow slopes later dominate. | A 68.545 s high transfer; fine repeating near-slope banding, restricted climax context and a dark cropped ending need review. |
+| White Mountains / Owens | Pullback and traverse provide coherent near/far ridge separation and a source-supported White Mountain Peak payoff. | A 70.046 s high transfer; bright, smooth near faces reduce detail and broader context. The quiet ending leaves dark foreground hills over a modest far silhouette. |
+| Sawtooth / Redfish | Traverse and pullback preserve a blue lake corridor and coherent jagged-peak layers; the Heyburn-targeted payoff stays readable through haze. | A 60.676 s transfer; weather weakens contrast and the song ends inside the link toward the unplayed Grand Mogul reveal. |
+| Shenandoah / Stony Man | Reveal and approach open rounded ridge and broad valley layers; saved arrivals stay continuous. The Stony-Man-targeted climax has subdued subject separation. | A dark close opening, a 48 s first reveal and a 56.862 s transfer; the quiet ending retains haze and a dark valley. Distinctness from Black Mountains needs an editorial decision. |
+| Superstition west front | Traverse and orbit preserve layered desert relief and a distinct narrow two-topped silhouette in the Weavers-Needle-targeted payoff. | A 68.999 s transfer and very bright middle passage; the focal shape remains at the ending, but foreground and face detail become dark. Retain for owner editorial review. |
+
+The retained source audio, actual song seed, full worker plan/timeline and package/base identities bind these observations to their captures. A named subject in plan metadata does not independently identify every visible mountain; unnamed DEM peaks remain unnamed. Matching audio is available for audition, but no auditory assessment was performed.
+
+The application drew continuously from zero to 167.983 s on a fixed 4 fps export clock. Only the saved representative windows were visually inspected. The hardened evidence ledger now covers every played shot midpoint and assigned payoff, every played link entry/interior/arrival or song cutoff, and the global vector, tangential and yaw hotspots for all 15 plans, with no missing or uninspected required anchor. Shots without an assigned payoff are recorded explicitly. Fresh actual-app probes against the complete final source freeze verified all 15 retained captures: runtime and loaded assets, complete forced-view entries, package/base identities, audio, seed, duration, renderer, plan and full timeline arrays match. Retained media keeps its original source identity; the final-source reuse proof is recorded separately.
+
+All 15 main captures passed their drawn-camera assertions and have no saved zero-surface-depth frame; the lowest sampled drawn-surface fraction is 31.393% in Denali. The auxiliary production depth scene measures drawn-surface presence, including terrain, water surfaces and tree depth; it does not segment terrain alone. Its saved-frame observations are separate from the CPU link floor used during scouting. Exact timeline-camera assertions and headless RTX rendering do not establish live frame rate, physical-device performance, unseen frames or artistic approval. Every tour remains a candidate.
+
+Redfish and Superstition are retained pending editorial review. The other thirteen routes, including Stony Man, require rework or explicit acceptance of their recorded findings. All fifteen remain unapproved.
+
+## Final fitted libraries
+
+All 16 regional builds completed. Fifteen have useful, mutually reachable
+non-rail moves and are staged as candidates; Tombstone remains blocked for an
+expanded tour by its existing source-drift policy. Its one-shot fallback is not
+counted in the useful totals. The final candidate freeze contains 680 public
+files with digest
+`b234caf5321e4c0c937d60fb1ad4d5ca24dc82c0fe42baa2a99f67e2d57e89aa`.
+Each staged library passed native manifest/payload/terrain identity checks,
+complete useful-graph connectivity, sampled link framing, final coverage/LOD,
+render checks and its nine-station rail comparison. These checks do not confer
+base or tour approval.
+
+| Region | Shots / non-rail / links | Added bytes including library | Library bytes | Forest tour bytes |
+| --- | ---: | ---: | ---: | ---: |
+| Ross Lake | 8 / 7 / 19 | 1,208,609 | 33,616 | 152,936,320 |
+| Teton / Jackson Lake | 10 / 9 / 26 | 1,118,252 | 42,901 | 137,137,728 |
+| Denali / Wonder Lake | 12 / 11 / 32 | 777,333 | 54,407 | 22,500,032 |
+| Muncho Lake | 12 / 11 / 31 | 765,761 | 50,360 | 71,122,560 |
+| Iztaccíhuatl / Popocatépetl | 24 / 23 / 67 | 947,903 | 109,873 | 166,940,928 |
+| Black Mountains | 11 / 10 / 30 | 1,362,184 | 48,133 | 144,801,216 |
+| San Gabriel | 4 / 3 / 4 | 194,645 | 11,305 | 29,734,592 |
+| White Mountains | 10 / 9 / 24 | 400,315 | 41,526 | 20,606,912 |
+| La Sal / Castle Valley | 20 / 19 / 55 | 1,304,605 | 85,579 | 16,830,528 |
+| Panamint / Dante's View | 10 / 9 / 26 | 710,968 | 44,463 | 24,584,512 |
+| Chugach / Matanuska | 8 / 7 / 18 | 757,223 | 29,969 | 13,711,488 |
+| Monument Valley | 18 / 17 / 54 | 1,162,965 | 81,663 | 12,267,968 |
+| Redfish Lake | 6 / 5 / 7 | 270,385 | 16,336 | 101,895,424 |
+| Stony Man | 11 / 10 / 29 | 645,665 | 45,555 | 167,236,096 |
+| Superstition west front | 15 / 14 / 40 | 670,248 | 63,052 | 23,473,792 |
+| Tombstone, blocked rail only | 1 / 0 / 0 | 2,042, not staged | 2,042 | 5,312,704 |
+
+The fifteen useful libraries contain **179 shots, 164 non-rail shots and 462
+links**. Stony Man's forest union is only 536,064 bytes below its 167,772,160-byte
+regional cap; Iztaccíhuatl is also close to that cap. A bigger catalog does not
+justify relaxing these measured regional fits. Forest figures describe each
+tour's modeled residency and must not be summed into a browser/GPU memory claim.
+
+The primary source branch has **52,718,916 bytes** under `src/assets/range/v2/`.
+The complete candidate review asset tree has **65,023,144 bytes**, a
+12,304,228-byte increase: 12,297,061 bytes of fitted replacement/library growth
+plus 7,167 bytes of publication-generated build metadata. Shared assets are
+counted once. This exceeds both 60 decimal MB and 60 MiB and is permitted by the
+removed global ceiling. It is a logical asset-tree size, not a measured startup
+download or decoded runtime memory value. No per-region `fit.deliveryBytes`
+totals were summed.
+
+All 39 original approved-rail terrain/build files remain byte-identical on the
+primary branch. The three new primary rail triples remain the original sourced
+3,813,190-byte candidate wave. Rebaked tour terrain and generated candidate
+approval metadata belong to the separate review asset branch. Exact fitted
+artifacts are retained under `.smoke/rebuild-20261022/selected-libraries/`, with
+source directories, execution records, before/after hashes and package identities
+in `source-index.json`. Original discovery and R2 reselection directories remain
+available. Tombstone's retained blocked output is clearly labeled and is not
+attached as an expanded tour.
+
+## Candidate asset branch and diagnostic playback
+
+The separate
+[`review/scenic-library-rebuild-20261022` branch](https://github.com/aepler315/midio-pixel/tree/review/scenic-library-rebuild-20261022)
+retains the fitted terrain, fifteen shot libraries, generated catalog and both
+authoring files as a coherent candidate artifact. Its asset delta has 78 files
+and 34,342,688 bytes of replacement/new file content; that delta is not the final
+65,023,144-byte asset-tree size. Capture media remains local outside Git.
+
+Rebaking invalidates the original exact-byte base approvals on this review
+branch. Its catalog has one approved rail, Tombstone, and nineteen candidates;
+all fifteen attached tours are candidates. Normal selection therefore yields
+Tombstone for TUNDRA and explicit no-approved-view fallbacks for the other
+biomes. This diagnostic branch is not a replacement production catalog. The
+primary source branch retains thirteen approved rails and seven candidates.
+
+To inspect a candidate interactively, check out the review branch, install the
+repository dependencies and run `npm start`. Open
+`http://127.0.0.1:8080/?rangeView=sawtooth-redfish-north&rangeShots=all`,
+load a recording and choose Landscape. Substitute any staged view ID from the
+table above. Both query parameters are diagnostic overrides; neither changes
+approval or bypasses package/base identity checks. Omitting `rangeShots=all`
+keeps candidate tours disabled.
+
+Native validation decoded all twenty catalog entries' eighteen unique terrain
+packages, the fifteen attached shot libraries and the legacy pilot tour package.
+The two coherent aliases match their rebuilt originals' terrain and camera
+bindings while inheriting no shot approval. In 1,100 production-picker samples
+the primary task source chose only approved bases. The review branch produced
+100 Tombstone choices and 1,000 explicit biome fallbacks, with no candidate
+selection. Missing optional libraries settle to the authored rail, and diagnostic
+mode still rejects stale identities.
 
 ## Source validation snapshots
 
-The connectivity correction and final candidate data were tested on Node
+The primary source and initial three candidate rail packages were tested on Node
 24.10.0 with system GDAL 3.12.2, using a byte-copied source directory without
 spaces to avoid the encoded-path harness issue. The completed post-status suite ran
 4,968 tests: **4,960 passed, two failed and six were skipped**. The failures
@@ -345,6 +537,13 @@ The published-Monument case remains unexecuted in the primary checkout.
 These separate passes do not rewrite the full-suite skip count or establish
 device performance.
 
+These source-suite results apply to the primary task checkout. The separate
+78-file candidate asset branch did not receive a full-suite run; it received the
+native package/catalog, fit, rail comparison and actual application checks above.
+Its diagnostic candidate statuses intentionally differ from the primary
+production-style catalog. Neither set of results certifies the additional
+rendering changes on current main.
+
 All 53 connectivity-targeted tests pass, including four new regressions;
 all 47 status/runtime/catalog/review-targeted tests also pass, with four new
 status regressions covering approval, stale bytes, malformed data and explicit
@@ -355,13 +554,35 @@ files in that post-status snapshot matched before the subsequent four-file
 terrain-presence correction. The correction passed 88 targeted tests with
 zero failures/skips, full lint and independent source review. Six initial
 regressions and three unsafe-publication mutation regressions failed before
-their fixes. A new full suite on the integrated correction runs separately;
-its result is recorded with the final R2 validation.
+their fixes.
 
-The source and first three terrain candidates are published in
-[draft PR #31](https://github.com/aepler315/midio-pixel/pull/31), stacked on
-[draft PR #29](https://github.com/aepler315/midio-pixel/pull/29). Its initial
-checkpoint is `21878a1ae3ba2eacf5c4445f4b5a38784963e362`, with sole parent
-`f51c27f7855ca6a3f163f77afaee4827438e2973`. The remote commit, tree, comparison
-and all 20 changed blob identities were read back and verified. This records
-publication of the candidate work; it is not a merge, deployment or approval.
+The completed full suite on the integrated terrain-presence correction ran
+4,979 tests: **4,971 passed, two failed and six skipped**, exit 1, in
+303,094.09881 ms. It retains the same sky-pan and planner-timing failures and
+the same six skips described above. All 1,511 non-Markdown tracked files,
+including the 87 generated assets, match the recorded test snapshot, current
+primary checkout and committed correction `aafb89ee7cc68e655bde9b41937b3742f63b6d7e`.
+The 1,424-file source-only subset also matches. The five separate browser
+passes remain source-identical; they do not change the full-suite result.
+The final evidence audit caught a stale hash in the original browser summary:
+the successful route-deadline rerun was labeled with its initial failed
+attempt's hash. Both logs and the original summary remain preserved. A new
+corrected manifest records each actual log hash, exit status and source
+identity; the successful unchanged case still records one pass and zero skips.
+
+The initial source and three terrain candidates were published in
+[PR #31](https://github.com/aepler315/midio-pixel/pull/31), starting at
+`21878a1ae3ba2eacf5c4445f4b5a38784963e362` with sole parent
+`f51c27f7855ca6a3f163f77afaee4827438e2973`. The status and terrain-presence
+follow-ups culminate in `aafb89ee7cc68e655bde9b41937b3742f63b6d7e`, tree
+`da3756de47fc5bba06e3551db31ba3dd7434e2e9`, sole parent
+`6cac5b0d3d62f0cb5dc07fbb631015b9fa0be022`. The remote commit, tree,
+comparison and all 24 changed blob identities were read back and verified.
+
+The owner merged PR #29 to main at 21:56:47 UTC and PR #31 to the implementation
+branch at 21:56:59 UTC. Because main had already advanced, the follow-up source
+and final documentation continue in
+[draft PR #32](https://github.com/aepler315/midio-pixel/pull/32), targeting main.
+The rendering and test claims here retain the exact task-source identity;
+they do not certify main's additional pixel-presentation changes or a future
+combined merge. No camera approval or deployment is recorded.

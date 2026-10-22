@@ -5,7 +5,9 @@
 This remains an initial geographic expansion direction. The [implementation
 follow-up](camera-scouting-fixes-2026-10-22.md) removes the inherited global 60 MB
 hard gate and adds stratified discovery, separate tour approval and review
-identity checks. Those source changes have not merged or deployed; they add no
+identity checks. Those source changes merged through
+[PR #29](https://github.com/aepler315/midio-pixel/pull/29); deployment was not
+verified. That implementation added no
 locations, assets or approvals. Read the historical [camera scouting audit](camera-scouting-audit-2026-10-22.md)
 and [current tour status](scenic-tours.md#current-delivery-and-reported-builds) first.
 
@@ -160,9 +162,10 @@ node --input-type=module -e "import {rangeAssetBytes} from './tools/lib/scenic-c
 Verification covers the removed default limit and explicit caller limits;
 results are recorded in the PR. Invalid paths, corrupt assets, missing files,
 unsupported schemas and runtime residency failures retain their own checks.
-Per-view byte reports keep growth visible. No larger catalog or new terrain
-publication has been built as part of these source fixes, so actual staging
-costs for 30 locations remain to be measured.
+Per-view byte reports keep growth visible. The first sourced wave below
+records actual candidate assets; the earlier implementation follow-up changed
+source only. Actual staging costs for a full 30-location catalog remain to be
+measured.
 
 ## Runtime and offline work
 
@@ -222,6 +225,30 @@ planning tables need a measured successive-song audit. Their reservation
 formula is an accounting estimate, not a JS heap measurement. This is a
 code-supported reason to measure retention across a larger catalog; this run
 has not observed or established a device memory failure.
+
+The current app review adds two checks to carry into later waves. First,
+track configured named subjects through usable discovery shots, the safe
+connected component, final selection and actual playback. Denali has 15 usable
+named shots and two in its safe component, but none selected or played in the
+reviewed song. Teton retains three Grand Teton shots while that song plays a
+Mount Moran shot. These are assigned-shot observations, not claims that a
+mountain is absent from other frames. They flag editorial/selection tradeoffs
+without inventing a mandatory named-shot quota.
+
+Second, inspect the payoff and midpoint of every actually played shot,
+including repeated move families, along with every played link's entry,
+interior and arrival or explicit song cutoff. Initial reviewed plans contain
+43–75-second links even though the builder's fastest-feasible-duration gate
+passes. The song planner's selected comfort pace and the resulting visible
+transit need their own review. Library diversity alone does not establish
+variety in a particular song's edit.
+
+Catalog size and per-song planning complexity are separate measurements:
+planning uses the chosen library's shot/link graph, while successive locations
+can increase retained page data. Preserve source/config/algorithm provenance
+for cache reuse. A new eligibility check applied to a retained Pareto front
+cannot recover variants discarded before that front was cached; distinguish
+that reselection from fresh variant generation when interpreting comparisons.
 
 ## Acceptance for each wave
 

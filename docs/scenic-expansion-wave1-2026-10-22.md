@@ -253,3 +253,38 @@ were read back and verified against their reports, and all three staged runtime
 terrain triples matched the exact rail bytes used for this review. These checks
 do not discharge the ten failed seams, remaining view/tour review, whole-song
 coverage or device validation.
+
+## Fresh tour build follow-up
+
+Fresh stratified discovery and renderer gating now produce useful fitted
+libraries for all three locations. They are candidate tour packages, separate
+from the initial sourced rail triples and their 84 directed seam checks.
+
+| Location | Shots / non-rail / links | Added fitted terrain and library bytes | Library bytes |
+| --- | ---: | ---: | ---: |
+| Redfish Lake | 6 / 5 / 7 | 270,385 | 16,336 |
+| Stony Man | 11 / 10 / 29 | 645,665 | 45,555 |
+| Superstition west front | 15 / 14 / 40 | 670,248 | 63,052 |
+
+All three pass final native identities, connected useful-graph checks, sampled
+link framing, zero final coverage holes/LOD violations, rendering and their
+nine-station rail comparison. Stony Man's modeled forest-tour union is
+167,236,096 bytes against a 167,772,160-byte regional cap, leaving 536,064 bytes;
+this is a tight regional fit, not a measured total browser memory value.
+The complete 15-library review asset tree is 65,023,144 bytes, with the original
+13 approved rail packages preserved on the primary source branch. The
+[dated rebuild and actual app review](scenic-rebuild-review-2026-10-22.md)
+records final identities, selected moves and remaining candidate decisions.
+The initial rail seam results do not transfer to these rebaked terrain packages.
+
+## Actual planned tours from the rebuilt libraries
+
+All three new regions now have fitted connected libraries and manually reviewed actual Anthem tours. The application’s worker-generated plans retain the same audio, seed, browser and camera assertions as the existing-region review. Their saved joins and hotspot windows remain continuous, with no saved zero-surface-depth frame. These remain candidate tours; the reviews grant no base-view, seam or tour approval.
+
+| New location | Actual planned move review | Remaining decision |
+|---|---|---|
+| Sawtooth / Redfish | The lake traverse and Heyburn-targeted pullback provide contrasting moves, a readable blue lake corridor and jagged-peak layers. Saved joins remain continuous. | Retain for owner review; decide on the 60.676 s transfer, weather haze and an ending inside the link toward the unplayed Grand Mogul reveal. |
+| Shenandoah / Stony Man | Reveal and approach moves open rounded ridges and broad valley layers with continuous saved joins. The Stony-Man-targeted climax remains readable through haze. | Rework or explicitly accept the dark close opening, 48 s reveal, 56.862 s transfer and weak subject isolation. Compare visual distinctness with Black Mountains before approval. |
+| Superstition west front | Traverse and orbit moves preserve broad desert layers and a distinct narrow two-topped focal silhouette in the Weavers-Needle-targeted payoff. | Retain for owner review; decide on the 68.999 s transfer, very bright middle passage and dark closing detail. Superstition Peak is configured in the library but has no played shot in this song. |
+
+The hardened coverage audit includes each actually played shot midpoint and assigned payoff, link entry/interior/arrival or song cutoff, and global vector, tangential and yaw hotspots, including Redfish’s bounded ending supplement. Final-source fresh probes verified the retained captures against the complete candidate freeze. Geographic names here describe assigned subjects in the source-supported plan; no summit is independently named from pixels. The saved windows do not show every possible library edge or song. Fixed-clock RTX captures and drawn-surface depth checks are separate from live-device performance, terrain-only segmentation and auditory acceptance. The original 74/84 seam result belongs to the initial rail-source freeze; R2 rebaked terrain still requires cross-view seam acceptance. Full observations and remaining regional work are in the [dated rebuild review](scenic-rebuild-review-2026-10-22.md).
