@@ -242,46 +242,92 @@ export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpu
     const linkScores = await Promise.all(raw.map((l) => pool.score('link', l.path, { everyM: 120, width: 96, height: 54 })));
     raw.forEach((l, i) => { l.score = linkScores[i].aggregate; l.path.flow = Float32Array.from(linkScores[i].flow); l.durationMs = durationRange(l.path, l.path.flow, config.motion); });
     const front = paretoFront(raw.filter((l) => l.durationMs.min <= maxLinkMs));
-    // Tours stay inside a strongly connected part of the graph: take the
-    // one whose best shots are worth most (the rail joins as the fallback).
-    const component = bestComponent(usable, front, config.discovery.maxShots);
-    log(`${viewId}: link graph ${raw.length} variants, ${front.length} usable within ${maxLinkMs / 1000} s; best connected part ${component.size} of ${usable.length} shots`);
-    // Selection inside it grows a connected set: diverse, charged for
-    // terrain, and only shots (or two-shot chains) the set links into and
-    // back out of; then links chosen among them.
-    const candidatesIn = usable.filter((c) => component.has(c) || c.move === 'rail');
-    const priced = new Set();
-    const priceLinks = async (shots) => {
-      const among = front.filter((l) => shots.includes(l.from) && shots.includes(l.to) && !priced.has(l));
-      const prints = await Promise.all(among.map((l) => pool.score('footprint', l.path, { scale })));
-      among.forEach((l, i) => { l.footprint = new Map(prints[i]); l.missing = prints[i].map(([t]) => t).filter((t) => cost.shipped(t) == null); priced.add(l); });
-      return front.filter((l) => shots.includes(l.from) && shots.includes(l.to));
-    };
-    const shortlist = selectConnected(candidatesIn, front, config, cost);
-    const library2 = linkLibrary(shortlist, await priceLinks(shortlist), config, cost);
-    const shortlisted = shortlist.length;
-    const variants = raw.length, pairs = front;
-    log(`${viewId}: shortlisted ${shortlisted}: ${library2.shots.length} shots / ${library2.links.length} links connected, ~${Math.round(estimatedBytes([...library2.shots, ...library2.links], cost) / 1024)} KiB: ${library2.shots.map((x) => `${x.move}:${x.score.total.toFixed(2)}`).join(' ')}`);
-    const linkedLib = library2;
-    const library = { subjects, ...linkedLib };
-    // Footprint: tiles the library needs beyond the shipped package, and the
-    // terrain bytes the cost model expects them to add.
-    const need = new Set(library.shots.concat(library.links).flatMap((r) => r.missing || []));
-    const estimated = estimatedBytes([...library.shots, ...library.links], cost);
-    const report = {
-      viewId, builtAt: new Date().toISOString(), seconds: (Date.now() - t0) / 1000, config,
-      focus: ctx.focus, subjects, candidates: candidates.length,
+    const graph = { usable, front, subjects, focus: ctx.focus, scored: second.length, variants: raw.length,
       candidateScores: candidates.map((c) => ({ id: c.id, move: c.move, tags: c.tags, elevation: c.traits.elevation, lens: c.traits.lens,
-        coarse: c.coarse ? { total: c.coarse.total, holes: c.coarse.holes, payoff: c.coarse.payoff } : null, full: c.score?.total ?? null })), scored: second.length, shortlisted, linkVariants: variants,
-      shots: library.shots.map((s) => ({ id: s.id, move: s.move, subjectId: s.subjectId, lengthM: s.lengthM, payoffS: s.payoffS, holdS: s.holdS, score: s.score, traits: s.traits, durationMs: s.durationMs })),
-      links: library.links.map((l) => ({ from: l.from.id, to: l.to.id, kind: l.kind, lengthM: l.lengthM, score: l.score })),
-      missingTiles: [...need].sort((a, b) => a - b), estimatedTerrainBytes: estimated,
-    };
-    await fs.mkdir(out, { recursive: true });
-    await fs.writeFile(path.join(out, 'report.json'), JSON.stringify(report, null, 1));
-    log(`${viewId}: library ${library.shots.length} shots / ${library.links.length} links, ${need.size} tiles beyond the shipped package, ~${Math.round(estimated / 1024)} KiB terrain expected, ${report.seconds.toFixed(0)} s`);
-    return { ctx, config, library, report, pairs, cost };
+        coarse: c.coarse ? { total: c.coarse.total, holes: c.coarse.holes, payoff: c.coarse.payoff } : null, full: c.score?.total ?? null })) };
+    await writeGraphCache(out, graph);
+    return await selectLibrary(viewId, { ctx, config, pool, cost, scale, graph, out, t0, log });
   } finally { await pool.close(); }
+}
+
+/**
+ * Selection, from a scored link graph (buildViewTours, or its cache): the
+ * strongly connected part worth most, a connected shortlist grown in it,
+ * links chosen among the shortlist and priced, and the build report.
+ */
+async function selectLibrary(viewId, { ctx, config, pool, cost, scale, graph, out, t0, log }) {
+  const { usable, front, subjects } = graph;
+  // Tours stay inside a strongly connected part of the graph: take the
+  // one whose best shots are worth most (the rail joins as the fallback).
+  const component = bestComponent(usable, front, config.discovery.maxShots);
+  log(`${viewId}: link graph ${graph.variants} variants, ${front.length} usable within ${config.discovery.maxLinkS ?? 30} s; best connected part ${component.size} of ${usable.length} shots`);
+  // Selection inside it grows a connected set: diverse, charged for
+  // terrain, and only shots (or two-shot chains) the set links into and
+  // back out of; then links chosen among them.
+  const candidatesIn = usable.filter((c) => component.has(c) || c.move === 'rail');
+  const priced = new Set();
+  const priceLinks = async (shots) => {
+    const among = front.filter((l) => shots.includes(l.from) && shots.includes(l.to) && !priced.has(l));
+    const prints = await Promise.all(among.map((l) => pool.score('footprint', l.path, { scale })));
+    among.forEach((l, i) => { l.footprint = new Map(prints[i]); l.missing = prints[i].map(([t]) => t).filter((t) => cost.shipped(t) == null); priced.add(l); });
+    return front.filter((l) => shots.includes(l.from) && shots.includes(l.to));
+  };
+  const shortlist = selectConnected(candidatesIn, front, config, cost, { log: (m) => log(`${viewId}: ${m}`) });
+  const library2 = linkLibrary(shortlist, await priceLinks(shortlist), config, cost);
+  const shortlisted = shortlist.length;
+  const pairs = front;
+  log(`${viewId}: shortlisted ${shortlisted}: ${library2.shots.length} shots / ${library2.links.length} links connected, ~${Math.round(estimatedBytes([...library2.shots, ...library2.links], cost) / 1024)} KiB: ${library2.shots.map((x) => `${x.move}:${x.score.total.toFixed(2)}`).join(' ')}`);
+  const linkedLib = library2;
+  const library = { subjects, ...linkedLib };
+  // Footprint: tiles the library needs beyond the shipped package, and the
+  // terrain bytes the cost model expects them to add.
+  const need = new Set(library.shots.concat(library.links).flatMap((r) => r.missing || []));
+  const estimated = estimatedBytes([...library.shots, ...library.links], cost);
+  const report = {
+    viewId, builtAt: new Date().toISOString(), seconds: (Date.now() - t0) / 1000, config,
+    focus: graph.focus, subjects, candidates: graph.candidateScores.length,
+    candidateScores: graph.candidateScores, scored: graph.scored, shortlisted, linkVariants: graph.variants,
+    shots: library.shots.map((s) => ({ id: s.id, move: s.move, subjectId: s.subjectId, lengthM: s.lengthM, payoffS: s.payoffS, holdS: s.holdS, score: s.score, traits: s.traits, durationMs: s.durationMs })),
+    links: library.links.map((l) => ({ from: l.from.id, to: l.to.id, kind: l.kind, lengthM: l.lengthM, score: l.score })),
+    missingTiles: [...need].sort((a, b) => a - b), estimatedTerrainBytes: estimated,
+  };
+  await fs.mkdir(out, { recursive: true });
+  await fs.writeFile(path.join(out, 'report.json'), JSON.stringify(report, null, 1));
+  log(`${viewId}: library ${library.shots.length} shots / ${library.links.length} links, ${need.size} tiles beyond the shipped package, ~${Math.round(estimated / 1024)} KiB terrain expected, ${report.seconds.toFixed(0)} s`);
+  return { ctx, config, library, report, pairs, cost };
+}
+
+// The scored link graph, cached so selection can be rerun (--reselect)
+// without rediscovering, rescoring and rerendering every candidate.
+const GRAPH_CACHE = 'graph-cache.json';
+
+async function writeGraphCache(out, graph) {
+  const typed = (k, v) => (k === 'scored' && typeof v === 'object' ? undefined
+    : v instanceof Float32Array ? { $f32: Array.from(v) } : v instanceof Float64Array ? { $f64: Array.from(v) } : v instanceof Map ? { $map: [...v] } : v);
+  const text = JSON.stringify({ ...graph, front: graph.front.map((l) => ({ ...l, from: l.from.id, to: l.to.id })) }, typed);
+  await fs.mkdir(out, { recursive: true });
+  await fs.writeFile(path.join(out, GRAPH_CACHE), text);
+}
+
+async function readGraphCache(out) {
+  const graph = JSON.parse(await fs.readFile(path.join(out, GRAPH_CACHE), 'utf8'), (k, v) => (v && typeof v === 'object'
+    ? (v.$f32 ? Float32Array.from(v.$f32) : v.$f64 ? Float64Array.from(v.$f64) : v.$map ? new Map(v.$map) : v) : v));
+  const byId = new Map(graph.usable.map((c) => [c.id, c]));
+  graph.front = graph.front.map((l) => ({ ...l, from: byId.get(l.from), to: byId.get(l.to) }));
+  return graph;
+}
+
+/** Selection, fit and review again from a build's cached link graph. */
+export async function reselectViewTours(viewId, { out, workers = Math.max(2, os.cpus().length - 4), log = console.log } = {}) {
+  const t0 = Date.now();
+  const config = regionConfig(JSON.parse(await fs.readFile(CONFIG, 'utf8')), viewId);
+  const ctx = await loadViewContext(viewId, { root });
+  const graph = await readGraphCache(out);
+  ctx.focus = graph.focus;
+  const cost = strideCost(ctx), scale = config.budget.poseErrorScale ?? 4;
+  const pool = new ScorePool(viewId, workers);
+  await pool.ready;
+  try { return await selectLibrary(viewId, { ctx, config, pool, cost, scale, graph, out, t0, log }); } finally { await pool.close(); }
 }
 
 /** The tour's area: centred between the rail target and the hero
@@ -382,10 +428,12 @@ const RECORD_BYTES = 1300;
 /**
  * Selection state shared by selectShots and selectConnected: what a shot
  * is worth next to those already chosen. Terrain is charged with a cost
- * model (bytes its detail adds beyond the shipped package and the chosen
- * shots, discovery.byteWeight of score per 100 KB, stopping short of the
- * region's byte budget with room for links and records) or, without one,
- * per new tile (discovery.tileWeight per 100 tiles). Variety: penalties for
+ * model (worth divided by 1 + bytes / discovery.byteScaleKB, the bytes its
+ * detail adds beyond the shipped package and the chosen shots, stopping
+ * short of the region's byte budget with room for links and records): the
+ * first shot over a range pays for terrain later shots share, so it is
+ * discounted, not refused. Without a cost model, per new tile
+ * (discovery.tileWeight per 100 tiles). Variety: penalties for
  * repeating a subject, a move, an elevation class, a lens, or a viewing
  * azimuth of the same subject.
  */
@@ -393,7 +441,7 @@ function selection(config, cost, chosen) {
   const perSubject = config.discovery.shotsPerSubject;
   const out = [...chosen], owned = new Set(out.flatMap((o) => o.missing || [])), paid = new Map();
   if (cost) for (const o of out) cost.own(o.footprint || new Map(), paid);
-  const tileWeight = config.discovery.tileWeight ?? 0.25, byteWeight = config.discovery.byteWeight ?? 0.25;
+  const tileWeight = config.discovery.tileWeight ?? 0.25, byteScale = (config.discovery.byteScaleKB ?? 250) * 1024;
   const room = (config.budget?.assetBytes ?? Infinity) * 0.85;
   let spent = estimatedBytes(out, cost);
   /** { v, bytes } for c next to `out` (plus `extra`), or null when it
@@ -411,7 +459,7 @@ function selection(config, cost, chosen) {
       // brings its own record and about three links.
       if ((spent + before + bytes) * 1.25 + 4 * RECORD_BYTES * (others.length + 1) > room) return null;
     }
-    let v = c.score.total - (cost ? byteWeight * bytes / 100000 : tileWeight * (c.missing || []).filter((t) => !owned.has(t)).length / 100);
+    let v = cost ? c.score.total / (1 + bytes / byteScale) : c.score.total - tileWeight * (c.missing || []).filter((t) => !owned.has(t)).length / 100;
     if (v <= 0) return null;
     const n = Math.max(1, others.length);
     v *= 1 - 0.12 * same.length;
@@ -469,10 +517,12 @@ export function selectShots(scored, config, cost = null, kept = [], { add = Infi
  * per shot (selection()). Every shot so chosen has a way in and a way out
  * among the others. The rail joins as the fallback, linked or not.
  */
-export function selectConnected(scored, links, config, cost = null) {
+export function selectConnected(scored, links, config, cost = null, { log = null } = {}) {
   const rail = scored.filter((c) => c.move === 'rail');
   const pool = new Set(scored.filter((c) => c.move !== 'rail' && c.score.holes <= 0.002 && c.score.total > 0));
   const outs = new Map(), ins = new Map();
+  // Why a shot cannot join (for the build log).
+  const why = { holes: scored.filter((c) => c.move !== 'rail' && !(c.score.holes <= 0.002)).length, cycles: 0, unfit: 0 };
   for (const l of links) {
     if (!outs.has(l.from)) outs.set(l.from, new Set());
     if (!ins.has(l.to)) ins.set(l.to, new Set());
@@ -521,9 +571,12 @@ export function selectConnected(scored, links, config, cost = null) {
     if (!close) continue;
     const chain = walk(parent, close, (x) => x === a).reverse();
     chain.unshift(a);
+    why.cycles++;
     const w = chainValue(chain);
+    if (!w) why.unfit++;
     if (w && better({ ...w, key: key(chain) }, seed)) seed = { ...w, key: key(chain), chain };
   }
+  log?.(`connected selection: ${pool.size} shots eligible (${why.holes} left out for holes), ${why.cycles} short cycles, ${why.unfit} of them over budget or worth nothing${seed ? `; seed ${seed.chain.length} shots` : '; no seed'}`);
   if (!seed) return sel.out;
   const add = (best) => { best.chain.forEach((c, i) => { sel.take(c, best.bytes[i]); set.add(c); pool.delete(c); }); };
   add(seed);
@@ -566,9 +619,10 @@ export function selectLinks(pairs, shots, config, cost = null) {
   // new terrain it would add beyond the shots' own.
   const owned = new Set(shots.flatMap((x) => x.missing || []));
   const paid = cost ? shots.reduce((m, x) => cost.own(x.footprint || new Map(), m), new Map()) : null;
-  const worth = new Map(front.map((l) => [l, l.score.total / (1 + (l.durationMs?.ideal ?? l.lengthM * 40) / 20000)
-    - (cost ? (config.discovery.byteWeight ?? 0.25) * cost.marginal(l.footprint || new Map(), paid) / 100000
-      : (config.discovery.tileWeight ?? 0.25) * (l.missing || []).filter((t) => !owned.has(t)).length / 100)]));
+  const byteScale = (config.discovery.byteScaleKB ?? 250) * 1024;
+  const worth = new Map(front.map((l) => { const w = l.score.total / (1 + (l.durationMs?.ideal ?? l.lengthM * 40) / 20000);
+    return [l, cost ? w / (1 + cost.marginal(l.footprint || new Map(), paid) / byteScale)
+      : w - (config.discovery.tileWeight ?? 0.25) * (l.missing || []).filter((t) => !owned.has(t)).length / 100]; }));
   for (const s of shots) {
     const mine = front.filter((l) => l.from === s).sort((a, b) => worth.get(b) - worth.get(a) || a.lengthM - b.lengthM);
     const seen = new Set();
@@ -918,7 +972,8 @@ async function main() {
   if (!ids.length || ids.some((v) => !doc.regions[v])) throw new Error('usage: node tools/build-scenic-tours.mjs --view <id>[,<id>]|all [--render] [--publish]');
   for (const viewId of ids) {
     const out = path.resolve(opt('--out') || path.join(root, '.smoke', 'scenic-tours', viewId));
-    const built = await buildViewTours(viewId, { out, workers: Number(opt('--workers')) || undefined, renderGate: !args.includes('--no-render-gate') });
+    const built = args.includes('--reselect') ? await reselectViewTours(viewId, { out, workers: Number(opt('--workers')) || undefined })
+      : await buildViewTours(viewId, { out, workers: Number(opt('--workers')) || undefined, renderGate: !args.includes('--no-render-gate') });
     const fitted = await fitToBudget(built, { maxIterations: args.includes('--survey') ? 1 : Infinity });
     await writeFitted(out, viewId, fitted);
     if (args.includes('--render')) {

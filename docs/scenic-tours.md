@@ -220,10 +220,11 @@ sharpest viewer that sees it, so footprints add up tile by tile. A new tile
 costs its compressed samples (bytes per stride measured on posed bakes) and
 its manifest entry (about 470 bytes of JSON, often more than a coarse
 tile's samples); a shipped or already paid-for tile costs only the step to
-a finer stride. Selection charges a shot (and a link) for the bytes it adds
-beyond the shipped package and the shots already chosen
-(`discovery.byteWeight` of score per 100 KB) and stops short of the
-region's byte budget. `fitToBudget` then bakes the library's footprint and
+a finer stride. Selection divides a shot's (and a link's) worth by 1 + the bytes it adds
+beyond the shipped package and the shots already chosen, over
+`discovery.byteScaleKB`: the first shot over a range pays for terrain the
+later ones share, so it is discounted rather than refused. Selection stops
+short of the region's byte budget. `fitToBudget` then bakes the library's footprint and
 measures the added bytes and triangles against the region's caps and the
 shared 60 MB. While over, it calibrates the estimate on that bake, drops the
 shot whose terrain is most its own per unit of score and rarity (the only
