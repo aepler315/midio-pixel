@@ -272,9 +272,15 @@ download costs and runtime memory remain separate measurements. These changes
 have not merged or deployed and do not add assets or approve cameras.
 
 The [expansion proposal](docs/scenic-view-expansion.md) considers **13 → 18 → 24 →
-30 approved geographic views**, with review waves of two or three. That direction
-does not deliver additional locations; the existing 13 approved rails remain the
-production cameras.
+30 approved geographic views**, with review waves of two or three. The
+[first sourced wave](docs/scenic-expansion-wave1-2026-10-22.md) adds candidate
+terrain and rails for Redfish Lake in the Sawtooths, Stony Man in Shenandoah,
+and the Superstition west front. Catalog v20 has 13 approved rails and seven
+candidates; the approved geographic count remains 13. The
+[fresh rebuild and app review](docs/scenic-rebuild-review-2026-10-22.md) records
+the new scouting runs, exact library identities, actual planned camera moves
+and remaining review gates. Candidate assets and local rebuilt libraries do
+not enable a production shot tour by themselves.
 
 ## Version archive
 

@@ -15,8 +15,13 @@ documents the subsequent fixes to discovery, approval, review identity, planning
 and reel evidence, plus removal of the global 60 MB hard gate. Those source
 changes have not merged or deployed. They add no assets or camera approvals;
 the 13 approved rails and candidate regional configurations above are unchanged.
-The [30-view proposal](scenic-view-expansion.md) remains a geographic expansion
-direction awaiting sourced locations and per-view review.
+The [30-view proposal](scenic-view-expansion.md) now has a
+[first sourced candidate wave](scenic-expansion-wave1-2026-10-22.md): Redfish
+Lake, Stony Man and the Superstition west front. Catalog v20 on the expansion
+branch keeps the 13 approved rails and adds these three candidates beside the
+four existing pilots. The [fresh rebuild and app review](scenic-rebuild-review-2026-10-22.md)
+separates new discovery artifacts, actual song-planned movement and remaining
+approval gates from the historical results below.
 
 The intended system gives each approved scenic view an offline-discovered **shot library**: complete
 camera moves around the region's real subjects, plus connecting moves between

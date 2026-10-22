@@ -340,6 +340,8 @@ async function selectLibrary(viewId, { ctx, config, pool, cost, scale, graph, ou
   const shortlist = selectConnected(candidatesIn, front, config, cost, { log: (m) => log(`${viewId}: ${m}`) });
   funnel.selection = selectConnected.funnel;
   const library2 = linkLibrary(shortlist, await priceLinks(shortlist), config, cost);
+  funnel.linkSelection = library2.connectivity;
+  if (library2.connectivity.overCap.length) log(`${viewId}: connectivity retains links above the preferred outgoing cap: ${library2.connectivity.overCap.map((x) => `${x.id} ${x.links}/${x.preferredCap}`).join(', ')}; all retained links remain in the byte, triangle and forest fit`);
   const shortlisted = shortlist.length;
   const pairs = front;
   log(`${viewId}: shortlisted ${shortlisted}: ${library2.shots.length} shots / ${library2.links.length} links connected, ~${Math.round(estimatedBytes([...library2.shots, ...library2.links], cost) / 1024)} KiB: ${library2.shots.map((x) => `${x.move}:${x.score.total.toFixed(2)}`).join(' ')}`);
@@ -500,9 +502,9 @@ export function endGap(a, b) {
   return Math.hypot(p.eye[i] - q.eye[0], p.eye[i + 1] - q.eye[1], p.eye[i + 2] - q.eye[2]);
 }
 
-/** The strongly connected set of shots (by `links`) whose best `top`
- *  scores add up most (Tarjan); empty when no two shots join both ways. */
-export function bestComponent(shots, links, top = 36) {
+/** Strong components with at least two shots (Tarjan). A fallback rail
+ *  may be isolated; a shot's self-loop alone is not a useful tour. */
+function strongComponents(shots, links) {
   const out = new Map(shots.map((x) => [x, []]));
   for (const l of links) out.get(l.from)?.push(l.to);
   const index = new Map(), low = new Map(), stack = [], on = new Set(), parts = [];
@@ -519,6 +521,13 @@ export function bestComponent(shots, links, top = 36) {
     }
   };
   for (const v of shots) if (!index.has(v)) visit(v);
+  return parts;
+}
+
+/** The strongly connected set of shots (by `links`) whose best `top`
+ *  scores add up most; empty when no two shots join both ways. */
+export function bestComponent(shots, links, top = 36) {
+  const parts = strongComponents(shots, links);
   const worth = (part) => part.map((x) => x.score.total * subjectPriority(x)).sort((a, b) => b - a).slice(0, top).reduce((a, b) => a + b, 0);
   parts.sort((a, b) => worth(b) - worth(a));
   bestComponent.parts = parts.map((p) => p.length);
@@ -781,8 +790,9 @@ export function paretoFront(pairs) {
   return [...byPair.values()].flatMap((v) => keepParetoLinks(v, 2));
 }
 
-/** Pareto per pair, then at most maxLinksPerShot per origin, preferring
- *  distinct destinations and keeping each destination reachable. */
+/** Pareto per pair, then prefer maxLinksPerShot per origin and distinct
+ *  destinations. Restore connectivity when local ranking cuts a cycle;
+ *  the incoming-link restoration already makes this a preferred cap. */
 export function selectLinks(pairs, shots, config, cost = null) {
   const front = paretoFront(pairs).filter((l) => !cost?.coverageOnly || cost.marginal(l.footprint || new Map()) === 0);
   const out = [];
@@ -807,6 +817,43 @@ export function selectLinks(pairs, shots, config, cost = null) {
   for (const s of shots) if (!out.some((l) => l.to === s)) {
     const best = front.filter((l) => l.to === s).sort((a, b) => b.score.total - a.score.total)[0];
     if (best) out.push(best);
+  }
+  // Having a way in and out is insufficient: local caps can keep two
+  // closed clusters while discarding their only inter-cluster bridges.
+  // Preserve existing connected selections byte for byte; repair only a
+  // component that the scored graph connected before local link ranking.
+  const required = strongComponents(shots, front);
+  const componentMap = () => new Map(strongComponents(shots, out).flatMap((part, i) => part.map((s) => [s, i])));
+  const intact = (parts) => required.every((part) => parts.has(part[0]) && part.every((s) => parts.get(s) === parts.get(part[0])));
+  let parts = componentMap();
+  if (!intact(parts)) {
+    const sourceParts = new Map(required.flatMap((part, i) => part.map((s) => [s, i])));
+    const ranked = [...front].sort((a, b) => worth.get(b) - worth.get(a) || a.lengthM - b.lengthM);
+    for (const link of ranked) {
+      if (!sourceParts.has(link.from) || sourceParts.get(link.from) !== sourceParts.get(link.to) || out.includes(link)) continue;
+      if (parts.has(link.from) && parts.get(link.from) === parts.get(link.to)) continue;
+      out.push(link); parts = componentMap();
+      if (intact(parts)) break;
+    }
+    // Make room for bridges by removing redundant local links. Do not
+    // replace an indispensable bridge just to meet the preferred cap:
+    // some graphs (a hub with two leaves at cap one) cannot satisfy both.
+    // linkLibrary reports any excess, and fitting prices every link.
+    for (const shot of shots) {
+      let mine = out.filter((l) => l.from === shot);
+      while (mine.length > config.discovery.maxLinksPerShot) {
+        const redundant = (l) => mine.filter((x) => x.to === l.to).length > 1 ? 1 : 0;
+        mine.sort((a, b) => redundant(b) - redundant(a) || worth.get(a) - worth.get(b) || b.lengthM - a.lengthM);
+        let removed = false;
+        for (const link of mine) {
+          const at = out.indexOf(link); out.splice(at, 1);
+          if (intact(componentMap())) { removed = true; break; }
+          out.splice(at, 0, link);
+        }
+        if (!removed) break;
+        mine = out.filter((l) => l.from === shot);
+      }
+    }
   }
   return out;
 }
@@ -1047,18 +1094,21 @@ export function packLibrary(viewId, regionId, terrainManifestSha256, library, pr
 const TERRAIN_DIR = path.join(root, 'src', 'assets', 'range', 'v2', 'terrain');
 const TOUR_DIR = path.join(root, 'src', 'assets', 'range', 'v2', 'tour');
 
-/** Links for a set of shots, chosen afresh from every scored pair between
- *  them, and the shots both reachable and leavable through those links
- *  (the rail always stays: it is the fallback). */
+/** Re-link from every scored pair, retaining one actual strongly
+ *  connected tour rather than disconnected cycles with ways in/out.
+ *  The rail always stays as a fallback, without forcing it into a cycle. */
 export function linkLibrary(shots, pairs, config, cost = null) {
   let keep = shots, links = [];
   for (let changed = true; changed;) {
     const set = new Set(keep);
     links = selectLinks(pairs.filter((l) => set.has(l.from) && set.has(l.to)), keep, config, cost);
-    const next = keep.filter((s) => s.move === 'rail' || (links.some((l) => l.from === s) && links.some((l) => l.to === s)));
+    const component = bestComponent(keep, links, config.discovery.maxShots);
+    const next = keep.filter((s) => s.move === 'rail' || component.has(s));
     changed = next.length !== keep.length; keep = next;
   }
-  return { shots: keep, links };
+  const cap = config.discovery.maxLinksPerShot;
+  return { shots: keep, links, connectivity: { droppedShots: shots.length - keep.length,
+    overCap: keep.map((s) => ({ id: s.id, links: links.filter((l) => l.from === s).length, preferredCap: cap })).filter((s) => s.links > cap) } };
 }
 
 /** The shot whose terrain is most its own per unit of what it brings
@@ -1101,7 +1151,7 @@ export function forestDrop(library, relink, bound, { minShots = 4 } = {}) {
 
 /**
  * Bake, pack and measure; while the region is over its byte or triangle
- * budget (or the shared 60 MB), drop the shot whose terrain is most its
+ * budget, drop the shot whose terrain is most its
  * own per unit of score, and try again. Returns the fitted result.
  */
 export async function fitToBudget(built, { log = console.log, maxIterations = Infinity } = {}) {
@@ -1161,6 +1211,7 @@ export async function writeFitted(out, viewId, fitted) {
     bake: { rebaked: fitted.bake.rebaked, budget: fitted.bake.budget || null, validation: { ok: fitted.bake.validation.ok, worst: fitted.bake.validation.worst,
       holes: fitted.bake.validation.holes.length, lod: fitted.bake.validation.lod.length } },
     shots: fitted.packed.manifest.shots.length, links: fitted.packed.manifest.links.length,
+    connectivity: fitted.library?.connectivity || null,
     libraryBytes: Buffer.byteLength(fitted.packed.manifestText) + fitted.packed.payload.byteLength }, null, 1));
 }
 

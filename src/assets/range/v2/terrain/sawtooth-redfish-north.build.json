@@ -1,0 +1,197 @@
+{
+ "credit": "Elevation: USGS 3DEP 1/3 arc-second DEM",
+ "sourceSha256": [
+  "e74ccd223967d153f5b098fb0847d0cf205f005c9de9159c2063f25e2e538ce6",
+  "0620bfa61bf4192a6b3f774d42d752210ad6c3275d3a0c585fc0fa392cb824b1",
+  "b9adba7fea91a214991368b780dfaff387d6c00f52156963cf97f8da98d097bf",
+  "5ee9631802371f315a3f542c2afe982d5090102e7b313fa1162d84a0def5ef80"
+ ],
+ "view": {
+  "id": "sawtooth-redfish-north",
+  "regionId": "sawtooth",
+  "biome": "CONIFER",
+  "status": "candidate",
+  "title": "Redfish Lake",
+  "place": "Sawtooth Mountains, Idaho",
+  "notes": "Expansion wave 1 candidate. Elevated over Redfish Lake north shore looking south-west to Heyburn Mountain and Grand Mogul. Camera anchors are authored estimates; named peak coordinates are USGS GNIS NAD83 primary points (gaz396651 and gaz382498). North Shore Recreation.gov facility232076 anchors the camera vicinity. See docs/scenic-expansion-wave1-2026-10-22.md. No rail or tour approval.",
+  "composition": {
+   "foreground": "none",
+   "nearLedgeMaxFrac": 0
+  },
+  "dem": {
+   "source": "3dep13",
+   "centerLonLat": [
+    -114.955,
+    44.113
+   ],
+   "extentM": [
+    32000,
+    32000
+   ],
+   "cellM": 20
+  },
+  "rail": {
+   "eyeStart": {
+    "lonLat": [
+     -114.911,
+     44.146
+    ],
+    "aboveGroundM": 350
+   },
+   "eyeEnd": {
+    "lonLat": [
+     -114.9,
+     44.14
+    ],
+    "aboveGroundM": 350
+   },
+   "targetStart": {
+    "lonLat": [
+     -114.966,
+     44.096
+    ],
+    "heightM": 2450
+   },
+   "targetEnd": {
+    "lonLat": [
+     -114.96,
+     44.092
+    ],
+    "heightM": 2450
+   },
+   "fovYDeg": 35
+  },
+  "landmarks": [
+   {
+    "name": "Heyburn Mountain",
+    "lonLat": [
+     -114.976695918,
+     44.100795363
+    ],
+    "note": "USGS GNIS gaz396651 (NAD83); no surveyed vertical value asserted."
+   },
+   {
+    "name": "Grand Mogul",
+    "lonLat": [
+     -114.959966494,
+     44.079674938
+    ],
+    "note": "USGS GNIS gaz382498 (NAD83); no surveyed vertical value asserted."
+   }
+  ],
+  "review": "Unreviewed candidate: source and rail/shot builds begin 2026-10-22. Need actual renderer, reflections, clearance, skyline and both directed transition checks before base approval.",
+  "camera": {
+   "eyeStartM": [
+    3520.4,
+    2354.8,
+    -3667.7
+   ],
+   "eyeEndM": [
+    4401,
+    2480.5,
+    -3001.6
+   ],
+   "targetStartM": [
+    -880.8,
+    2450,
+    1888.9
+   ],
+   "targetEndM": [
+    -400.4,
+    2450,
+    2333.4
+   ],
+   "fovYDeg": 35
+  }
+ },
+ "characterScores": {
+  "energy": 0.162,
+  "rawness": 0.186,
+  "grandeur": 0.122,
+  "dominance": 0.384
+ },
+ "archetype": "serene",
+ "skylineFeatures": [
+  {
+   "reliefM": 579.544189453125,
+   "slopeMPerKm": 76.27417729721567,
+   "peaksPer10Km": 1.5445899272539263,
+   "roughnessM": 50.31300721458092,
+   "dominance": 0.3655389030222684,
+   "summitM": 3249.436767578125,
+   "lengthKm": 103.5873646311151
+  },
+  {
+   "reliefM": 588.400390625,
+   "slopeMPerKm": 74.88017927530389,
+   "peaksPer10Km": 1.614463412453626,
+   "roughnessM": 39.79552540358552,
+   "dominance": 0.36598871078566425,
+   "summitM": 3254.143798828125,
+   "lengthKm": 80.52210969738167
+  },
+  {
+   "reliefM": 485.762451171875,
+   "slopeMPerKm": 62.49366064454477,
+   "peaksPer10Km": 1.5781187301856403,
+   "roughnessM": 38.962056523091725,
+   "dominance": 0.4212655985903282,
+   "summitM": 3249.436767578125,
+   "lengthKm": 101.38654141769078
+  }
+ ],
+ "manifestSha256": "f35bc8812afc805781cca08eca36b3b8ecf0878e2f36cded0cd868731ddfbe7f",
+ "payloadSha256": "2ab5092ab3a586ed136c835f6ce202adef597832b2b1ae2fb697aa92d1659be6",
+ "payloadBytes": 1058952,
+ "stats": {
+  "tiles": 163,
+  "desktop": {
+   "vertices": 601331,
+   "triangles": 1164416,
+   "meshBytes": 21188964,
+   "surfaceTextureBytes": 13670405
+  },
+  "mobile": {
+   "vertices": 423766,
+   "triangles": 817922,
+   "meshBytes": 14900256,
+   "surfaceTextureBytes": 13670405
+  }
+ },
+ "landmarks": [
+  {
+   "name": "Heyburn Mountain",
+   "lonLat": [
+    -114.976695918,
+    44.100795363
+   ],
+   "publishedElevationM": null,
+   "localM": [
+    -1737.2,
+    1355.9
+   ],
+   "demGroundM": 3110.90234375,
+   "demPeakWithin200mM": 3110.90234375
+  },
+  {
+   "name": "Grand Mogul",
+   "lonLat": [
+    -114.959966494,
+    44.079674938
+   ],
+   "publishedElevationM": null,
+   "localM": [
+    -397.8,
+    3702.9
+   ],
+   "demGroundM": 2960.296630859375,
+   "demPeakWithin200mM": 2960.296630859375
+  }
+ ],
+ "achievedErrorPx": {
+  "desktop": 0.959,
+  "mobile": 1.957
+ },
+ "despikedSamples": 0,
+ "gentleGroundSmoothingM": null
+}

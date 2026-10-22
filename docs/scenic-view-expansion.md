@@ -9,6 +9,16 @@ identity checks. Those source changes have not merged or deployed; they add no
 locations, assets or approvals. Read the historical [camera scouting audit](camera-scouting-audit-2026-10-22.md)
 and [current tour status](scenic-tours.md#current-delivery-and-reported-builds) first.
 
+**Execution follow-up:** the [first sourced wave](scenic-expansion-wave1-2026-10-22.md)
+now adds Redfish Lake (CONIFER), Stony Man (BROADLEAF) and the Superstition west
+front (DESERT) as candidates. Their source acquisition and fallback rails are
+concrete assets; all three still need the recorded promotion gates. Catalog v20
+contains 20 entries: 13 approved rails and seven candidates. The
+[rebuild and app review](scenic-rebuild-review-2026-10-22.md) tracks fresh shot
+discovery and actual camera motion. These are the first three proposals within
+the five-location 13 → 18 batch, with two locations still to scout after this
+wave's failures and distinctness are understood.
+
 ## What should grow
 
 Count an approved view as a curated geographic camera corridor with a sourced

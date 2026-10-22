@@ -88,6 +88,73 @@ test('link selection keeps a way into every shot and prefers short, scenic, chea
   assert.ok(kept.filter((l) => l.from === s[0]).length <= 2);
 });
 
+function assertMutuallyReachable(shots, links) {
+  for (const start of shots) {
+    const seen = new Set([start]), queue = [start];
+    for (const from of queue) for (const link of links) if (link.from === from && !seen.has(link.to)) {
+      seen.add(link.to); queue.push(link.to);
+    }
+    for (const to of shots) assert.ok(seen.has(to), `${start.id} cannot reach ${to.id}`);
+  }
+}
+
+test('the outgoing link cap preserves low-score bridges between two scenic clusters', () => {
+  const shots = Array.from({ length: 10 }, (_, i) => ({ id: `s${i}`, move: 'traverse', score: { total: 1 }, missing: [] }));
+  const link = (from, to, total = 1) => ({ from, to, kind: 'direct', lengthM: 1000,
+    score: { total, holes: 0 }, durationMs: { ideal: 15000 }, missing: [], footprint: new Map([[3, 4]]) });
+  const pairs = [];
+  for (const group of [shots.slice(0, 5), shots.slice(5)]) {
+    for (const from of group) for (const to of group) if (from !== to) pairs.push(link(from, to));
+  }
+  const there = link(shots[0], shots[5], 0.1), back = link(shots[5], shots[0], 0.1);
+  there.footprint = new Map([[1, 4]]); back.footprint = new Map([[2, 4]]);
+  pairs.push(there, back);
+  const cfg = { ...config, discovery: { ...config.discovery, maxLinksPerShot: 4 } };
+  const kept = selectLinks(pairs, shots, cfg);
+  assert.ok(kept.includes(there) && kept.includes(back), 'both bridges are needed to travel between the two clusters');
+  assertMutuallyReachable(shots, kept);
+  for (const shot of shots) assert.ok(kept.filter((l) => l.from === shot).length <= 4, 'a redundant interior link can make room');
+  assert.equal(estimatedBytes(kept, stubCost), 3 * TILE_BYTES[4], 'bridge footprints remain charged');
+});
+
+test('relinking after a connector drop retains one mutually reachable tour and the fallback rail', () => {
+  const shot = (id, total = 1) => ({ id, move: 'traverse', score: { total }, missing: [] });
+  const [a, b, bridge, c, d] = [shot('a'), shot('b'), shot('bridge'), shot('c', 0.5), shot('d', 0.5)];
+  const rail = { ...shot('rail', 0.1), move: 'rail' };
+  const link = (from, to) => ({ from, to, kind: 'direct', lengthM: 1000, score: { total: 1, holes: 0 }, durationMs: { ideal: 15000 }, missing: [] });
+  const pairs = [[a, b], [b, a], [b, bridge], [bridge, b], [bridge, c], [c, bridge], [c, d], [d, c]].map(([from, to]) => link(from, to));
+  const full = linkLibrary([rail, a, b, bridge, c, d], pairs, config);
+  assertMutuallyReachable([a, b, bridge, c, d], full.links);
+  const dropped = linkLibrary(full.shots.filter((s) => s !== bridge), pairs, config);
+  assert.deepEqual(dropped.shots.map((s) => s.id), ['rail', 'a', 'b'], 'the other closed cycle is no longer part of the same tour');
+  assertMutuallyReachable([a, b], dropped.links);
+  assert.ok(dropped.links.every((l) => dropped.shots.includes(l.from) && dropped.shots.includes(l.to)));
+});
+
+test('a cycle through the fallback rail can retain one useful shot, but a lone self-loop cannot', () => {
+  const rail = { id: 'rail', move: 'rail', score: { total: 0.2 }, missing: [] };
+  const shot = { id: 'a', move: 'orbit', score: { total: 0.8 }, missing: [] };
+  const link = (from, to) => ({ from, to, kind: 'direct', lengthM: 1000, score: { total: 1, holes: 0 }, durationMs: { ideal: 15000 }, missing: [] });
+  const cycle = linkLibrary([rail, shot], [link(rail, shot), link(shot, rail)], config);
+  assert.deepEqual(cycle.shots, [rail, shot]);
+  const alone = linkLibrary([rail, shot], [link(shot, shot)], config);
+  assert.deepEqual(alone.shots, [rail]);
+  assert.deepEqual(alone.links, []);
+});
+
+test('a graph requiring more outgoing links than the preferred cap reports the excess explicitly', () => {
+  const [hub, a, b] = ['hub', 'a', 'b'].map((id) => ({ id, move: 'traverse', score: { total: 1 }, missing: [] }));
+  const link = (from, to) => ({ from, to, kind: 'direct', lengthM: 1000, score: { total: 1, holes: 0 }, durationMs: { ideal: 15000 }, missing: [] });
+  // Every route between the leaves needs the hub's two exits. A strict
+  // degree-one cap cannot retain all three; the existing incoming-link
+  // restoration already treats this cap as a preference.
+  const library = linkLibrary([hub, a, b], [link(hub, a), link(a, hub), link(hub, b), link(b, hub)],
+    { ...config, discovery: { ...config.discovery, maxLinksPerShot: 1 } });
+  assertMutuallyReachable([hub, a, b], library.links);
+  assert.ok(library.connectivity, 'the library reports a cap/connectivity trade-off');
+  assert.deepEqual(library.connectivity.overCap, [{ id: 'hub', links: 2, preferredCap: 1 }]);
+});
+
 test('the focus area centres between the rail target and the heroes', () => {
   const f = focusArea([{ kind: 'rail-target', posM: [0, 0, 0] }, { name: 'Hero', posM: [2000, 0, 0] }, { name: 'Other', posM: [9000, 0, 0] }], config);
   assert.deepEqual(f.center, [1000, 0, 0]);

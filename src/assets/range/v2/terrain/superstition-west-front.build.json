@@ -1,0 +1,196 @@
+{
+ "credit": "Elevation: USGS 3DEP 1/3 arc-second DEM",
+ "sourceSha256": [
+  "7f32518c35ff76b6177bd9964917fcbab5d956ecfcc924159e14c477e01ff247"
+ ],
+ "view": {
+  "id": "superstition-west-front",
+  "regionId": "superstition",
+  "biome": "DESERT",
+  "status": "candidate",
+  "title": "Superstition West Front",
+  "place": "Superstition Mountains, Arizona",
+  "notes": "Expansion wave 1 candidate. Short north-south move west of the volcanic front near Lost Dutchman State Park, looking south-east across the Sonoran Desert toward the Superstition ridge. Camera anchors are authored estimates based on the official park map vicinity; named points use USGS GNIS NAD83 (Superstition Peak gaz42805; Weavers Needle gaz35931). See docs/scenic-expansion-wave1-2026-10-22.md. No rail or tour approval. After the initial render showed the primary ridge masking the default 7 km far partition, the rail was moved approximately 4500 m west at the same endpoint AGL and lens; exact converted positions and new terrain bytes require fresh review.",
+  "composition": {
+   "foreground": "none",
+   "nearLedgeMaxFrac": 0
+  },
+  "water": false,
+  "dem": {
+   "source": "3dep13",
+   "centerLonLat": [
+    -111.425,
+    33.445
+   ],
+   "extentM": [
+    30000,
+    30000
+   ],
+   "cellM": 20
+  },
+  "rail": {
+   "eyeStart": {
+    "lonLat": [
+     -111.5324616,
+     33.473
+    ],
+    "aboveGroundM": 280
+   },
+   "eyeEnd": {
+    "lonLat": [
+     -111.528456,
+     33.463
+    ],
+    "aboveGroundM": 280
+   },
+   "targetStart": {
+    "lonLat": [
+     -111.435,
+     33.445
+    ],
+    "heightM": 1100
+   },
+   "targetEnd": {
+    "lonLat": [
+     -111.431,
+     33.435
+    ],
+    "heightM": 1100
+   },
+   "fovYDeg": 35
+  },
+  "landmarks": [
+   {
+    "name": "Superstition Peak",
+    "lonLat": [
+     -111.4006741,
+     33.4111562
+    ],
+    "note": "USGS GNIS gaz42805 (NAD83); no surveyed vertical value asserted."
+   },
+   {
+    "name": "Weavers Needle",
+    "lonLat": [
+     -111.3704066,
+     33.4331056
+    ],
+    "note": "USGS GNIS gaz35931 (NAD83); no surveyed vertical value asserted."
+   }
+  ],
+  "review": "Unreviewed candidate: source and rail/shot builds begin 2026-10-22. Need actual renderer, volcanic-front silhouette, source resolution at near pillars, clearance, skyline and both directed transition checks before base approval. No permanent surface water asserted; water disabled.",
+  "reviewPath": "docs/scenic-expansion-wave1-2026-10-22.md",
+  "camera": {
+   "eyeStartM": [
+    -9988.7,
+    927.3,
+    -3110.7
+   ],
+   "eyeEndM": [
+    -9617.5,
+    894,
+    -2001.2
+   ],
+   "targetStartM": [
+    -929.8,
+    1100,
+    0
+   ],
+   "targetEndM": [
+    -558,
+    1100,
+    1109.1
+   ],
+   "fovYDeg": 35
+  }
+ },
+ "characterScores": {
+  "energy": 0.103,
+  "rawness": 0.088,
+  "grandeur": 0.207,
+  "dominance": 0.298
+ },
+ "archetype": "serene",
+ "skylineFeatures": [
+  {
+   "reliefM": 940.1575317382812,
+   "slopeMPerKm": 37.23834312256323,
+   "peaksPer10Km": 0.6790319919627253,
+   "roughnessM": 23.323064898107138,
+   "dominance": 0.29235888033796903,
+   "summitM": 1528.7095947265625,
+   "lengthKm": 132.54161963688514
+  },
+  {
+   "reliefM": 928.7499389648438,
+   "slopeMPerKm": 35.96900164345684,
+   "peaksPer10Km": 0.632096279743471,
+   "roughnessM": 25.834449153757493,
+   "dominance": 0.28751684258264915,
+   "summitM": 1514.435546875,
+   "lengthKm": 142.38337241365423
+  },
+  {
+   "reliefM": 929.9031372070312,
+   "slopeMPerKm": 37.54617438684677,
+   "peaksPer10Km": 0.6529724405923422,
+   "roughnessM": 21.663779782162276,
+   "dominance": 0.31461505153774405,
+   "summitM": 1516.668701171875,
+   "lengthKm": 122.51665618142815
+  }
+ ],
+ "manifestSha256": "9e708586a94925274bdbc3dc4ecd3c1f05040329af8f27f7c1e7217b529ccc24",
+ "payloadSha256": "a1dd77a7bb1ae97dbe1ba90a2e98ceaa6f0f7c2f70c453dd3e1191f0d3f1837b",
+ "payloadBytes": 1711645,
+ "stats": {
+  "tiles": 349,
+  "desktop": {
+   "vertices": 971853,
+   "triangles": 1880480,
+   "meshBytes": 34227996,
+   "surfaceTextureBytes": 12016005
+  },
+  "mobile": {
+   "vertices": 463146,
+   "triangles": 888878,
+   "meshBytes": 16224288,
+   "surfaceTextureBytes": 12016005
+  }
+ },
+ "landmarks": [
+  {
+   "name": "Superstition Peak",
+   "lonLat": [
+    -111.4006741,
+    33.4111562
+   ],
+   "publishedElevationM": null,
+   "localM": [
+    2262.7,
+    3753.4
+   ],
+   "demGroundM": 1521.2860107421875,
+   "demPeakWithin200mM": 1528.7095947265625
+  },
+  {
+   "name": "Weavers Needle",
+   "lonLat": [
+    -111.3704066,
+    33.4331056
+   ],
+   "publishedElevationM": null,
+   "localM": [
+    5076.9,
+    1317.9
+   ],
+   "demGroundM": 1231.2275390625,
+   "demPeakWithin200mM": 1382.0634765625
+  }
+ ],
+ "achievedErrorPx": {
+  "desktop": 0.996,
+  "mobile": 1.997
+ },
+ "despikedSamples": 1,
+ "gentleGroundSmoothingM": null
+}
