@@ -473,7 +473,7 @@ test('a pending Landscape flag cannot prevent Trio from drawing after a mode swi
   assert.equal(adapter.draw({ experience: 'trio', biomes: manager }, 0).presented, true);
   adapter.dispose();
 });
-for (const [gridId, unit] of [['classicPlus', 1], ['medium', 2]]) test(`${gridId} pixel effects use a whole-pixel unit`, async () => {
+for (const [gridId, unit] of [['classicPlus', 1], ['medium', 2], ['mediumPlus', 2]]) test(`${gridId} pixel effects use a whole-pixel unit`, async () => {
   const { pixelRenderPolicy } = await import('../src/render/PixelRenderPolicy.js');
   const { pixelHeatOffset } = await import('../src/render/PixelEffects.js');
   const policy = pixelRenderPolicy({ pixelated: true, grid: pixelGrid(gridId) });

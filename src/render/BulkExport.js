@@ -376,7 +376,7 @@ export function parseBulkArgs(argv) {
     const displayKey = ['look', 'quality', 'palette', 'dither', 'dither-mode', 'pixel-grid', 'scaling'].find(key => token === `--${key}` || token.startsWith(`--${key}=`));
     if (displayKey) {
       const got = takeOption(args, i, `--${displayKey}`);
-      const choices = { look: ['pixel', 'palette'], quality: ['auto', 'economy'], palette: ['world', 'range32', 'chroma32', 'rgb332'], dither: ['off', 'subtle', 'full'], 'dither-mode': ['ordered', 'selective'], 'pixel-grid': ['classic', 'classicPlus', 'medium', 'detailed'], scaling: ['fit', 'integer'] };
+      const choices = { look: ['pixel', 'palette'], quality: ['auto', 'economy'], palette: ['world', 'range32', 'chroma32', 'rgb332'], dither: ['off', 'subtle', 'full'], 'dither-mode': ['ordered', 'selective'], 'pixel-grid': ['classic', 'classicPlus', 'medium', 'mediumPlus', 'detailed'], scaling: ['fit', 'integer'] };
       if (!choices[displayKey].includes(got.value)) throw new Error(`--${displayKey} must be ${choices[displayKey].join(', ')}`);
       opts.presentation ??= { ...DEFAULT_DISPLAY_PREFS };
       const key = { 'dither-mode': 'ditherMode', 'pixel-grid': 'pixelGrid' }[displayKey] || displayKey;
@@ -423,7 +423,7 @@ Options
   --palette <name>     world, range32, chroma32, or rgb332
   --dither <amount>    off, subtle, or full
   --dither-mode <mode> selective or ordered (RGB332 always uses ordered)
-  --pixel-grid <grid>  classic (320×180), classicPlus (400×225, 1.56× the pixel work), medium (480×270, 2.25× the pixel work) or detailed (640×360, four times)
+  --pixel-grid <grid>  classic (320×180), classicPlus (400×225, 1.56× the pixel work), medium (480×270, 2.25× the pixel work), mediumPlus (560×315, 3.06×) or detailed (640×360, four times)
   --scaling <mode>     fit or integer
   --help
 

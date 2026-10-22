@@ -20,7 +20,7 @@ test('odd output centers Integer on whole pixels while Fit and sub-grid keep fra
   const sub = fitPixelRect(320, 180, 160, 100, 'integer');
   assert.equal(sub.scale, .5); assert.equal(sub.y, 5);
 });
-for (const gridId of ['classic', 'classicPlus', 'medium', 'detailed']) for (const dpr of [1, 1.25, 1.5, 2]) for (const [width, height] of [[800, 480], [853, 481], [720, 720], [540, 960], [1920, 1080], [160, 100]]) {
+for (const gridId of ['classic', 'classicPlus', 'medium', 'mediumPlus', 'detailed']) for (const dpr of [1, 1.25, 1.5, 2]) for (const [width, height] of [[800, 480], [853, 481], [720, 720], [540, 960], [1920, 1080], [160, 100]]) {
   test(`${gridId} retains aspect and physical placement in ${width}×${height} at DPR ${dpr}`, () => {
     const grid = pixelGrid(gridId), origin = { x: 11.3 * dpr, y: 7.7 * dpr };
     const r = fitPixelRect(grid.width, grid.height, width * dpr, height * dpr, 'integer', origin);

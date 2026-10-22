@@ -17,7 +17,7 @@ const help = `npm run review:landscape -- --out .smoke/review [--audio song.wav]
   --source DIR         Public source checkout (default: this repository)
   --snapshot DIR       Verified hash-addressed manifest.json + byte files (preserves case)
   --baseline DIR       Compare with a previous review using the same controls
-  --grid GRID          classic, classicPlus, medium, detailed or both (default: both)
+  --grid GRID          classic, classicPlus, medium, mediumPlus, detailed or both (default: both)
   --view ID            Default: teton-range-tour; other IDs select a static catalog view
   --start-ms N         Continuous capture start (default12000)
   --seconds N          Clip length, >0 through10 (default2)
@@ -50,7 +50,7 @@ export function parseReviewArgs(argv) {
   assert.ok(a.seconds > 0 && a.seconds <= 10, 'seconds must be >0 through10');
   assert.ok(Number.isInteger(a.fps) && a.fps >= 1 && a.fps <= 60, 'fps must be1 through60');
   assert.ok(Number.isInteger(a.liveSeconds) && a.liveSeconds >= 0 && a.liveSeconds <= 300, 'live-seconds must be0 through300');
-  if (a.grid) { assert.ok(['classic', 'classicPlus', 'medium', 'detailed', 'both'].includes(a.grid), 'invalid grid'); a.grids = a.grid === 'both' ? ['classic', 'detailed'] : [a.grid]; }
+  if (a.grid) { assert.ok(['classic', 'classicPlus', 'medium', 'mediumPlus', 'detailed', 'both'].includes(a.grid), 'invalid grid'); a.grids = a.grid === 'both' ? ['classic', 'detailed'] : [a.grid]; }
   if (a.gpuMatch) assert.ok(a.hardware, '--gpu-match requires --hardware-gpu');
   return a;
 }
