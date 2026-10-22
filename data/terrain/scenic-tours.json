@@ -24,6 +24,8 @@
       "hero": ["Jack Mountain"]
     },
     "teton-jackson-lake": {
+      "overrides": { "budget": { "assetBytes": 1400000 } },
+      "budgetNote": "Wide views: each shot brings hundreds of distant tiles (mostly manifest entries), so the default 800 KB fits only 3-8 shots; raised within the shared Range asset headroom.",
       "status": "candidate",
       "landform": "lake-alpine",
       "notes": "Jackson Lake under the Teton front: Mount Moran rising straight from the lake, the Grand Teton and Cathedral Group to the south.",
@@ -63,6 +65,8 @@
       "hero": []
     },
     "izta-popo-west": {
+      "overrides": { "budget": { "assetBytes": 1400000 } },
+      "budgetNote": "Wide views: each shot brings hundreds of distant tiles (mostly manifest entries), so the default 800 KB fits only 3-8 shots; raised within the shared Range asset headroom.",
       "status": "candidate",
       "landform": "volcano",
       "notes": "Iztaccihuatl and Popocatepetl from the west: two isolated stratovolcanoes over high plateau.",
@@ -73,6 +77,8 @@
       "hero": ["Popocatépetl", "Iztaccíhuatl"]
     },
     "black-mountains-catawba": {
+      "overrides": { "budget": { "assetBytes": 1400000 } },
+      "budgetNote": "Wide views: each shot brings hundreds of distant tiles (mostly manifest entries), so the default 800 KB fits only 3-8 shots; raised within the shared Range asset headroom.",
       "status": "candidate",
       "landform": "rolling",
       "notes": "Forested Black Mountains with Mount Mitchell above the Catawba valley; soft layered ridgelines.",
@@ -130,6 +136,8 @@
       "hero": []
     },
     "monument-valley-163": {
+      "overrides": { "budget": { "assetBytes": 1400000 } },
+      "budgetNote": "Wide views: each shot brings hundreds of distant tiles (mostly manifest entries), so the default 800 KB fits only 3-8 shots; raised within the shared Range asset headroom.",
       "status": "candidate",
       "landform": "butte",
       "notes": "Sandstone buttes and mesas standing out of a flat desert floor (the Mittens, Merrick Butte and their neighbours) seen from US-163.",

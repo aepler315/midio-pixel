@@ -240,3 +240,43 @@ below the horizon (the package has nothing beyond the grid). Generators
 tilt such views down until the frame's highest downward ray meets ground
 inside the grid, and verify the sampled path; views whose horizon is
 terrain (ridges, rims) are unchanged.
+
+### Connected selection
+
+Selection works on the candidate link graph rather than on shots alone.
+Each scored shot is linked to its `discovery.linkFanout` nearest reachable
+shots (exit to entry); every link variant is scored, leashed and pruned to
+each pair's Pareto front. Tours stay inside the strongly connected part of
+that graph whose best shots are worth most. There the shortlist grows by
+ears: it is seeded with the best shortest cycle, then extended only by a
+chain of at most `discovery.earShots` new shots that leaves the set and
+rejoins it. Every shot chosen therefore has a way in and a way out among
+the others, so no shot is selected only to be pruned afterwards. Large
+landscapes link their shots in long loops, which is why seeds and ears are
+found by breadth-first search rather than as pairs.
+
+### Terrain policy, drift and per-region budgets
+
+Every build first bakes the rail alone. When that no longer reproduces the
+shipped package, the region's DEM source has drifted since approval and a
+rebake would change the approved rail. Such a region keeps its package:
+selection admits only shots and links whose terrain the package already
+holds at enough detail, and an uncovered library is fitted down instead of
+rebaked. A region may allow the rebake (`rebakeOnDrift`) only with recorded
+rail-parity evidence that the rail renders the same (Ross Lake: 0.00% of
+rail pixels change). Tombstone's drift is visible (3.3% of rail pixels), so
+it stays coverage-only, and its package covers no tour shot: it keeps the
+authored rail until its source is re-approved.
+
+A new tile costs its compressed samples and about 470 bytes of manifest
+JSON. In wide views the manifest dominates: one shot over a large range
+brings hundreds of distant tiles at the coarsest stride. The default
+region budget (800 KB) therefore fits only three to eight shots in the
+widest regions; those get 1.4 MB (`overrides.budget.assetBytes`, with a
+`budgetNote`) inside the shared Range asset headroom. A compact tile table
+in the terrain manifest would roughly halve that cost; it is a format change
+left for later.
+
+The rail shot costs nothing and adds no coverage poses: it is the authored
+rail, which the approved package (and the rail stations every bake keeps)
+already covers, reflections included.

@@ -259,6 +259,9 @@ export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpu
  */
 async function selectLibrary(viewId, { ctx, config, pool, cost, scale, graph, out, t0, log }) {
   const { usable, front, subjects } = graph;
+  // Shots of the region's named heroes (scenic-tours.json region.hero).
+  const heroIds = new Set(subjects.filter((x) => (config.region.hero || []).includes(x.name)).map((x) => x.id));
+  for (const c of usable) c.hero = heroIds.has(c.subjectId);
   // Tours stay inside a strongly connected part of the graph: take the
   // one whose best shots are worth most (the rail joins as the fallback).
   const component = bestComponent(usable, front, config.discovery.maxShots);
@@ -492,6 +495,8 @@ function selection(config, cost, chosen) {
       const dAz = Math.abs(((o.traits.azimuthDeg - c.traits.azimuthDeg + 540) % 360) - 180);
       if (dAz < 25 && o.traits.elevation === c.traits.elevation) v *= 0.55;
     }
+    // The region's heroes carry the climax: their shots are worth more.
+    if (c.hero) v *= 1 + (config.discovery.heroBonus ?? 0.35);
     return { v, bytes };
   };
   const take = (c, bytes) => {
@@ -532,44 +537,34 @@ export function selectShots(scored, config, cost = null, kept = [], { add = Infi
 }
 
 /**
- * A connected shortlist grown by ears over the link graph: seeded with the
- * best short cycle (at most discovery.earShots + 2 shots), then extended
- * only by ears, chains of at most discovery.earShots new shots that leave
- * the set and rejoin it (set -> a -> ... -> set), whichever is worth most
- * per shot (selection()). Every shot so chosen has a way in and a way out
- * among the others. The rail joins as the fallback, linked or not.
+ * A connected shortlist grown by ears over the link graph: seeded with a
+ * short cycle (at most discovery.earShots + 2 shots), then extended only by
+ * ears, chains of at most discovery.earShots new shots that leave the set
+ * and rejoin it (set -> a -> ... -> set), whichever is worth most per shot
+ * (selection()). Every shot so chosen has a way in and a way out among the
+ * others. A seed worth most on its own may sit where nothing else connects
+ * cheaply, so the library is grown from each of the best
+ * discovery.seedTrials seeds and the one worth most in total is kept. The
+ * rail joins as the fallback, linked or not.
  */
 export function selectConnected(scored, links, config, cost = null, { log = null } = {}) {
   const rail = scored.filter((c) => c.move === 'rail');
-  const pool = new Set(scored.filter((c) => c.move !== 'rail' && c.score.holes <= 0.002 && c.score.total > 0));
+  const eligible = scored.filter((c) => c.move !== 'rail' && c.score.holes <= 0.002 && c.score.total > 0);
   const outs = new Map(), ins = new Map();
-  // Why a shot cannot join (for the build log).
-  const why = { holes: scored.filter((c) => c.move !== 'rail' && !(c.score.holes <= 0.002)).length, cycles: 0, unfit: 0 };
   for (const l of links) {
     if (!outs.has(l.from)) outs.set(l.from, new Set());
     if (!ins.has(l.to)) ins.set(l.to, new Set());
     outs.get(l.from).add(l.to); ins.get(l.to).add(l.from);
   }
-  const sel = selection(config, cost, rail);
-  const set = new Set(rail);
+  // Why a shot cannot join (for the build log).
+  const why = { holes: scored.filter((c) => c.move !== 'rail' && !(c.score.holes <= 0.002)).length, cycles: 0, unfit: 0 };
   const max = config.discovery.maxShots, earShots = config.discovery.earShots ?? 3;
-  // Value of adding a chain in order, or null when any member does not fit.
-  const chainValue = (chain) => {
-    const extra = [];
-    let total = 0;
-    for (const c of chain) {
-      const w = sel.value(c, extra);
-      if (!w) return null;
-      total += w.v; extra.push(Object.assign(Object.create(c), { bytes: w.bytes }));
-    }
-    // Longer chains spend more of the song on one detour: 5% per extra shot.
-    return { v: (total / chain.length) * (1 - 0.05 * (chain.length - 1)), bytes: extra.map((x) => x.bytes) };
-  };
   const key = (chain) => chain.map((c) => c.id).join('>');
   const better = (x, y) => !y || x.v > y.v || (x.v === y.v && x.key < y.key);
-  // Breadth-first distances through pool shots: from `sources` along links
-  // (or against them), at most `limit` steps; returns Map shot -> parent.
-  const bfs = (sources, edges, limit) => {
+  const walk = (parent, from, stop) => { const path = []; for (let x = from; x && !stop(x); x = parent.get(x)) path.push(x); return path; };
+  // Breadth-first through `pool` shots from `sources` along `edges`, at
+  // most `limit` steps: { parent, depth }.
+  const bfs = (pool, sources, edges, limit) => {
     const parent = new Map(), depth = new Map();
     let frontier = [...sources];
     for (const x of frontier) depth.set(x, 0);
@@ -583,41 +578,64 @@ export function selectConnected(scored, links, config, cost = null, { log = null
     }
     return { parent, depth };
   };
-  const walk = (parent, from, stop) => { const path = []; for (let x = from; x && !stop(x); x = parent.get(x)) path.push(x); return path; };
-  // Seed: for each pool shot, the shortest cycle through it.
-  let seed = null;
-  for (const a of pool) {
-    const { parent, depth } = bfs([a], outs, earShots + 1);
+  // Value of adding a chain in order to a selection, or null when any
+  // member does not fit. Longer chains spend more of the song on one
+  // detour: 5% per extra shot.
+  const chainValue = (sel, chain) => {
+    const extra = [];
+    let total = 0;
+    for (const c of chain) {
+      const w = sel.value(c, extra);
+      if (!w) return null;
+      total += w.v; extra.push(Object.assign(Object.create(c), { bytes: w.bytes }));
+    }
+    return { v: (total / chain.length) * (1 - 0.05 * (chain.length - 1)), bytes: extra.map((x) => x.bytes) };
+  };
+  // Seeds: the shortest cycle through each shot, valued on its own.
+  const base = selection(config, cost, rail), all = new Set(eligible), seeds = new Map();
+  for (const a of eligible) {
+    const { parent, depth } = bfs(all, [a], outs, earShots + 1);
     let close = null;
     for (const y of ins.get(a) || []) if (y !== a && depth.has(y) && (!close || depth.get(y) < depth.get(close))) close = y;
     if (!close) continue;
-    const chain = walk(parent, close, (x) => x === a).reverse();
-    chain.unshift(a);
+    const chain = [a, ...walk(parent, close, (x) => x === a).reverse()];
     why.cycles++;
-    const w = chainValue(chain);
-    if (!w) why.unfit++;
-    if (w && better({ ...w, key: key(chain) }, seed)) seed = { ...w, key: key(chain), chain };
+    const w = chainValue(base, chain);
+    if (!w) { why.unfit++; continue; }
+    const k = [...chain].map((c) => c.id).sort().join('+');
+    if (!seeds.has(k) || w.v > seeds.get(k).v) seeds.set(k, { ...w, key: key(chain), chain });
   }
-  log?.(`connected selection: ${pool.size} shots eligible (${why.holes} left out for holes), ${why.cycles} short cycles, ${why.unfit} of them over budget or worth nothing${seed ? `; seed ${seed.chain.length} shots` : '; no seed'}`);
-  if (!seed) return sel.out;
-  const add = (best) => { best.chain.forEach((c, i) => { sel.take(c, best.bytes[i]); set.add(c); pool.delete(c); }); };
-  add(seed);
-  // Ears: for each pool shot, the shortest way in from the set and the
-  // shortest way back out to it.
-  while (sel.out.length < max) {
-    const fwd = bfs([...set], outs, earShots), back = bfs([...set], ins, earShots);
-    let best = null;
-    for (const c of pool) {
-      if (!fwd.depth.has(c) || !back.depth.has(c)) continue;
-      const chain = [...walk(fwd.parent, c, (x) => set.has(x)).reverse(), ...walk(back.parent, back.parent.get(c), (x) => set.has(x))];
-      if (chain.length > earShots || sel.out.length + chain.length > max || new Set(chain).size !== chain.length) continue;
-      const w = chainValue(chain);
-      if (w && better({ ...w, key: key(chain) }, best)) best = { ...w, key: key(chain), chain };
+  // Grow from a seed: { out, worth }.
+  const grow = (seed) => {
+    const sel = selection(config, cost, rail), set = new Set(rail), pool = new Set(eligible);
+    const add = (best) => { best.chain.forEach((c, i) => { sel.take(c, best.bytes[i]); set.add(c); pool.delete(c); }); };
+    add(seed);
+    while (sel.out.length < max) {
+      const fwd = bfs(pool, [...set], outs, earShots), back = bfs(pool, [...set], ins, earShots);
+      let best = null;
+      for (const c of pool) {
+        if (!fwd.depth.has(c) || !back.depth.has(c)) continue;
+        const chain = [...walk(fwd.parent, c, (x) => set.has(x)).reverse(), ...walk(back.parent, back.parent.get(c), (x) => set.has(x))];
+        if (chain.length > earShots || sel.out.length + chain.length > max || new Set(chain).size !== chain.length) continue;
+        const w = chainValue(sel, chain);
+        if (w && better({ ...w, key: key(chain) }, best)) best = { ...w, key: key(chain), chain };
+      }
+      if (!best) break;
+      add(best);
     }
-    if (!best) break;
-    add(best);
+    // A library worth keeping covers the region's heroes: each hero subject
+    // with a shot counts as much as a good shot more.
+    const heroes = new Set(sel.out.filter((c) => c.hero).map((c) => c.subjectId)).size;
+    return { out: sel.out, worth: sel.out.filter((c) => c.move !== 'rail').reduce((t, c) => t + c.score.total, 0) + 0.6 * heroes };
+  };
+  const trials = [...seeds.values()].sort((x, y) => y.v - x.v || (x.key < y.key ? -1 : 1)).slice(0, config.discovery.seedTrials ?? 12);
+  let kept = null;
+  for (const seed of trials) {
+    const r = grow(seed);
+    if (!kept || r.worth > kept.worth + 1e-9) kept = { ...r, seed };
   }
-  return sel.out;
+  log?.(`connected selection: ${eligible.length} shots eligible (${why.holes} left out for holes), ${why.cycles} short cycles, ${why.unfit} of them over budget or worth nothing${kept ? `; grew ${trials.length} seeds, kept one of ${kept.seed.chain.length} shots growing to ${kept.out.length - rail.length}` : '; no seed'}`);
+  return kept ? kept.out : base.out;
 }
 
 /** Each ordered pair's Pareto front of usable link variants (at most two). */
