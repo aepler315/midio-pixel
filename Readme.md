@@ -262,14 +262,19 @@ and no shot libraries are committed or enabled in the production catalog.
 Claude's reported 12-region builds and the retained review evidence are listed
 in [scenic tours](docs/scenic-tours.md#current-delivery-and-reported-builds).
 
-The [camera scouting audit](docs/camera-scouting-audit-2026-10-22.md) checks
-angle discovery, rail and tour approval, evidence identity and pacing. The
-[expansion proposal](docs/scenic-view-expansion.md) considers **13 → 18 → 24 → 30
-approved geographic views**, with review waves of two or three. The inherited
-60 MB asset ceiling is retired as a design requirement for that expansion;
-removing its existing code checks is future implementation work. Asset growth,
-download costs and runtime memory remain separate measurements. This is a
-documented direction, not approval or delivery of additional locations.
+The [camera scouting audit](docs/camera-scouting-audit-2026-10-22.md) records
+angle discovery, rail and tour approval, evidence identity and pacing at its
+audited revision. The [implementation follow-up](docs/camera-scouting-fixes-2026-10-22.md)
+documents the current fixes: broader discovery within the existing candidate
+budget, separate rail and tour approvals, review results tied to exact library
+bytes, and removal of the inherited global 60 MB hard gate. Asset growth,
+download costs and runtime memory remain separate measurements. These changes
+have not merged or deployed and do not add assets or approve cameras.
+
+The [expansion proposal](docs/scenic-view-expansion.md) considers **13 → 18 → 24 →
+30 approved geographic views**, with review waves of two or three. That direction
+does not deliver additional locations; the existing 13 approved rails remain the
+production cameras.
 
 ## Version archive
 

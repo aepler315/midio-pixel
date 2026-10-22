@@ -297,9 +297,10 @@ export function planMetrics(library, inputs, plan, timeline, audit, { tunables =
   const nearestPayoff = (t) => shown.reduce((best, it) => (!best || Math.abs(it.payoffMs - t) < Math.abs(best.payoffMs - t) ? it : best), null);
   const groundTruth = (inputs.form?.payoffs || []).map((p) => {
     const it = nearestPayoff(p.timeMs), errorMs = it ? it.payoffMs - p.timeMs : null;
+    const onScreen = visible.some((v) => p.timeMs >= v.startMs && p.timeMs <= v.endMs);
     return { kind: p.kind, timeMs: p.timeMs, climax: !!p.climax, errorMs, shot: it?.id ?? null, move: it?.rec.move ?? null,
-      hero: it ? !!library.subjectById.get(it.rec.subjectId)?.hero : null, visible: visible.some((v) => p.timeMs >= v.startMs && p.timeMs <= v.endMs),
-      hit: errorMs !== null && Math.abs(errorMs) <= 150 };
+      hero: it ? !!library.subjectById.get(it.rec.subjectId)?.hero : null, visible: onScreen,
+      hit: onScreen && errorMs !== null && Math.abs(errorMs) <= 150 };
   });
   const gtClimax = groundTruth.find((p) => p.climax) ?? null;
   const byStrength = [...music.impacts].sort((a, b) => b.strength - a.strength), cut = byStrength[Math.max(0, Math.ceil(byStrength.length / 3) - 1)]?.strength ?? Infinity;
@@ -319,7 +320,7 @@ export function planMetrics(library, inputs, plan, timeline, audit, { tunables =
     motion: payoffBound(library, mot, D), motionNoRepeat: payoffBound(library, mot, D, { noRepeat: true }),
   } : null;
   const reach = targetReach(library, mot, strong.map((m) => m.timeMs));
-  const gtReach = targetReach(library, mot, (inputs.form?.payoffs || []).map((p) => p.timeMs));
+  const gtReach = targetReach(library, mot, groundTruth.filter((p) => p.visible).map((p) => p.timeMs));
 
   // Variety.
   const run = (key) => { let best = 0, cur = 0, prev; for (const it of shots) { const v = key(it.rec); cur = v === prev ? cur + 1 : 1; prev = v; best = Math.max(best, cur); } return best; };

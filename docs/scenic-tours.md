@@ -9,10 +9,14 @@ tour configurations remain candidates. This document contains the intended
 contract and historical development results; the delivery table below separates
 those results from current production behavior.
 
-The [camera scouting audit](camera-scouting-audit-2026-10-22.md) records current
-contract gaps and evidence limits. The [30-view proposal](scenic-view-expansion.md)
-retires the inherited 60 MB ceiling as an expansion requirement; the existing
-enforcement remains in code until implementation removes it.
+The [camera scouting audit](camera-scouting-audit-2026-10-22.md) records contract
+gaps and evidence limits at its audited revision. The [implementation follow-up](camera-scouting-fixes-2026-10-22.md)
+documents the subsequent fixes to discovery, approval, review identity, planning
+and reel evidence, plus removal of the global 60 MB hard gate. Those source
+changes have not merged or deployed. They add no assets or camera approvals;
+the 13 approved rails and candidate regional configurations above are unchanged.
+The [30-view proposal](scenic-view-expansion.md) remains a geographic expansion
+direction awaiting sourced locations and per-view review.
 
 The intended system gives each approved scenic view an offline-discovered **shot library**: complete
 camera moves around the region's real subjects, plus connecting moves between
@@ -98,9 +102,9 @@ stronger reveal or a better approach are discarded before they are judged.
 It also assumes a north–south range, NAD83, US GeoNames, a 4700 m ceiling,
 Teton names, and an all-tiles terrain package (13 MB) per region. Its regional
 assumptions and route-first pruning still matter for generalization. The
-inherited 60 MB bundle ceiling is no longer an expansion requirement; see the
-[delivery policy](scenic-view-expansion.md#delivery-budget) for current measured
-size and the plan to remove the old hard gate.
+inherited 60 MB bundle ceiling has been removed from the current builder and
+scenic fitter; see the [delivery policy](scenic-view-expansion.md#delivery-budget)
+for the historical size baseline and the byte reports retained by the tools.
 
 Shot tours reuse its proven parts — DEM loading and normalization, the
 clearance idea, the exact-height scorer as a cheap pre-filter, the
@@ -168,18 +172,27 @@ decodedByteLength, decodedSha256}, provenance{}`.
 
 `{version, defaults{lenses, clearance, motion, discovery, budget}, regions{
 <viewId>: {status, landform, subjects[{name, lonLat, kind, weight}], hero[],
-preferAzimuthDeg[], avoid[], overrides{}, notes}}}`. Region `status` is the
-tour's intended review state (`candidate | approved`). The design calls for
-both view and tour approval; **current code enforces one combined view/library
-hash approval and does not consume regional tour status**. Re-approving a view
-with a library enables that library even if this regional status is candidate.
-No libraries currently ship. See audit finding C02 before promotion. Geography,
-named-subject preferences, route anchors and region-dependent parameters live
-here, never in code. DEM source details stay in `scenic-views.json`.
-`weight` is currently retained metadata without a scoring/selection consumer;
-`avoid[]` is not implemented. `hero`, `excludeShots` and generation-time
-`preferAzimuthDeg` have consumers, although early thinning can discard later
-preferred angles (audit C01).
+preferAzimuthDeg[], avoid[], overrides{}, notes, library?, approval?}}}`.
+Region `status` is the tour's independent review state (`candidate | approved`).
+Publication records `library{shotsManifestSha256, terrainManifestSha256,
+baseViewSha256}`, marks the tour candidate and clears its earlier approval.
+`--approve-tour` records `approval{date, evidence[], shotsManifestSha256,
+terrainManifestSha256, baseViewSha256}` only after the base rail has a current
+approval. `--approve` approves the base alone. Normal playback requires both
+approvals and matching identities; no libraries currently ship.
+
+Geography, named-subject preferences, route anchors and region-dependent
+parameters live here. DEM source details stay in `scenic-views.json`.
+Subject `weight` reaches each generated candidate as `subjectWeight` and affects
+connected-component, shot and winning-library selection; finite positive values
+are clamped to 0.25–4, with other values defaulting to 1. It does not change render
+or coverage quality gates. `avoid[]` remains unsupported. `hero`, `excludeShots`
+and `preferAzimuthDeg` have consumers. Discovery now stratifies its existing
+per-subject candidate budget over move, azimuth, elevation, distance and direction,
+including generated preferred angles before filling angular gaps. The default
+forward budget remains 48 candidates per subject; this does not increase it.
+Existing graph caches require fresh discovery to contain these alternatives and
+candidate weights; see the [migration notes](camera-scouting-fixes-2026-10-22.md#migration-and-review).
 
 ### Music model (`ShotMusic.js`)
 
@@ -216,9 +229,12 @@ pure and seeded; `poseAt` is a pure function of heard time.
 
 ### Runtime integration
 
-- Catalog: an approved view may carry `shotsManifestUrl` and
-  `shotsManifestSha256`; the approval hashes the library
-  (`shotsManifestSha256`, conditional like `glacierSha256`).
+- Catalog: a view with an optional library carries `shotsManifestUrl`,
+  `shotsManifestSha256`, `baseViewSha256` and `shotTour{status, identity,
+  approval}`. Tour eligibility checks this independent identity and approval;
+  missing, stale, candidate or malformed tour metadata leaves a valid approved
+  base rail available. `?rangeShots=all` permits diagnostic candidate playback
+  while retaining package identity checks.
 - Prepare-time resources (mesh LOD, forest, rivers, actor routes, mirror)
   depend only on the rail plus the library footprint, never on a song's plan:
   replanning and seeking never rebuild GPU state.
@@ -227,20 +243,26 @@ pure and seeded; `poseAt` is a pure function of heard time.
   `RangeScene.setCameraTour(viewId, timeline)`. Until a plan is ready, and
   whenever a library or plan fails, the view keeps its rail and records the
   reason in `status().shotTours[viewId]`.
+- Cold bend and join tables are measured in the planning worker and returned
+  for reuse by later requests for the same decoded library. Preparing a request
+  on the rendering thread only clones library data and any cached tables.
+- Ending search tries every retained outgoing link alternative, including
+  alternatives that differ in bend, flow and join feasibility.
 - Refinement replans keep every committed pose (the Teton contract).
 
 ### Budgets and approval
 
-- Current code still applies a 60,000,000-byte global asset ceiling. The owner
-  has retired that ceiling as an expansion requirement; remove its hard-fail
-  paths in future implementation and keep reporting measured delivery size.
-  Per-region byte caps are separately configured discovery/fit controls;
-  review them intentionally rather than confusing them with runtime memory.
-  Triangle and forest limits remain runtime feasibility checks.
+- There is no global Range asset-size ceiling. The Teton builder reports
+  delivery bytes, and scenic fitting reports `budget.deliveryBytes` alongside
+  added bytes. `assetBudgetErrors(root)` has no default limit; an explicit
+  caller may supply a finite nonnegative `limit`. Per-region byte, triangle
+  and forest caps remain configured discovery/fit and runtime feasibility
+  checks. Download size and decoded memory remain separate measurements.
 - A view's terrain is re-culled only when its library needs tiles the rail
-  package lacks. Any rebake changes the terrain identity and stales the
-  view's approval, so each rebake is re-approved in the same commit with
-  `--approve`, citing this document as the review record.
+  package lacks. Publishing a candidate library alone preserves base approval.
+  A real rebake changes the terrain identity and stales base approval; review
+  and re-approve that base with `--approve`, then separately review the tour
+  before `--approve-tour`. Neither command substitutes for aesthetic review.
 
 Reduced-motion support was removed from the app in 3eefb64 (PR #22); there is
 no reduced-motion camera path to retain.
@@ -258,11 +280,24 @@ node tools/plan-scenic-tour.mjs --library .smoke/scenic-tours/<viewId> --structu
 After the fitted artifact has been reviewed, `--publish-from
 .smoke/scenic-tours/<viewId>` writes that artifact without rebuilding it.
 `--publish` builds again, so it is not a substitute for publishing the reviewed
-bytes. Publication can stale the entire view's approval and temporarily remove
-the only approved view for a biome. A separate `build-range-scene.mjs --approve`
-step records reviewed asset hashes and an existing evidence file; this design
-document's existence is not itself aesthetic acceptance. Keep captures outside
-Git and link retained evidence from the review record.
+bytes. Publishing an optional candidate library preserves a current base rail
+approval when its terrain is unchanged. A terrain rebake stales that approval
+and requires its own review. After reviewing the exact published bytes:
+
+```sh
+# Needed when the base/package changed; this approves only the base:
+node tools/build-range-scene.mjs --approve <viewId> --evidence <base-review.md>
+# Separate promotion of the reviewed library against the current approved base:
+node tools/build-range-scene.mjs --approve-tour <viewId> --evidence <tour-review.md>
+```
+
+Both commands require existing evidence files. A document's existence is not
+itself aesthetic acceptance. Keep captures outside Git and link retained evidence
+from the review record. Rebuild discovery into a fresh output directory when
+adopting the angle/weight fixes; `--reselect` reuses the old candidate graph.
+Fresh discovery can change shot IDs, so re-check `excludeShots` against the new
+IDs and collect fresh verdicts rather than copying historical exclusions or
+reviews blindly.
 
 `tools/song-structure-probe.mjs` captures a song's detected sections, roles
 and energy from the real upload/analysis path; `tools/plan-scenic-tour.mjs`
@@ -304,10 +339,10 @@ a finer stride. Selection divides a shot's (and a link's) worth by 1 + the bytes
 beyond the shipped package and the shots already chosen, over
 `discovery.byteScaleKB`: the first shot over a range pays for terrain the
 later ones share, so it is discounted rather than refused. Selection stops
-short of the region's byte budget. In the current implementation, `fitToBudget` then bakes the library's footprint and
-measures the added bytes and triangles against the region's caps and the
-inherited shared 60 MB gate, which is slated for removal. While over a current
-fit limit, it calibrates the estimate on that bake, drops the
+short of the region's byte budget. `fitToBudget` then bakes the library's footprint
+and measures the added bytes and triangles against the region's caps, retaining
+combined delivery-byte reporting without a global hard gate. While over a fit
+limit, it calibrates the estimate on that bake, drops the
 shot whose terrain is most its own per unit of score and rarity (the only
 reveal, the only high shot or the only shot of a subject is worth more), and
 chooses the links afresh from every scored pair among the shots that
@@ -405,6 +440,18 @@ count as copies whatever moves lead in and out, and steep look-downs are
 penalised once a library has some. Payoffs stay at or before 88% of a shot,
 so every shot holds its view before it ends.
 
+Reviewer collection now checks exact manifest, compressed payload, decoded
+payload and terrain-manifest hashes, as well as the final shot set. Results
+carry source/capture provenance; that provenance is reviewer attribution, not
+authenticated proof of the referenced capture. Use
+`tools/scenic-review-collect.mjs --journal <journal.jsonl> --views <id>` with
+`--libraries <tour-directory>` and, for a separate staged terrain directory,
+`--terrain <terrain-directory>`. Known aliases use their catalog terrain filename;
+`--terrain-manifest <file>` selects a custom manifest for one view and is rejected
+for multiple views. The collector derives and verifies expected identity from
+those files. See the [result schema](camera-scouting-fixes-2026-10-22.md#review-identity)
+for required fields and migration from old ID-only results.
+
 #### In the application
 
 Key frames from the review harness are not the experience: the harness
@@ -414,7 +461,10 @@ the app: `tools/shot-reel.mjs` plays every published shot entry to exit at
 its ideal pace through the real scene (frames, an MP4 with each shot's id,
 and a sheet of five frames per shot; the drawn camera matches the library
 path to the centimetre), and a continuous `tools/visual-evaluate.mjs`
-manifest records the tour the planner actually makes for a song.
+manifest records the tour the planner actually makes for a song. The reel uses
+one timeline factory for its browser camera and frame labels; at and after the
+final endpoint it holds the final shot's end pose. Its index records the exact
+review-library identity and source digest.
 
 Seen there, a bright sheet on flat desert floor (Monument Valley) is the
 app's music-driven weather, not data: after a squall `wet01` lowers the
@@ -437,7 +487,10 @@ not change that (61, 57); letting each part of a leg keep its own pace
 between join knots gave 59. More payoffs per song need shots closer
 together -- fewer subjects per view -- or smoother link joins where those
 set the cap (Ross Lake: 11 of 13 links); that trade-off is a choice for
-the product, not made here.
+the product, not made here. Offline ground-truth payoff hits now require the
+target time to be inside a visible interval; the ground-truth reach denominator
+also uses only visible target times. Historical all-song counts above are not
+recomputed results from that corrected metric.
 
 ### Terrain policy, drift and per-region budgets
 
@@ -457,9 +510,9 @@ JSON. In wide views the manifest dominates: one shot over a large range
 brings hundreds of distant tiles at the coarsest stride. The default
 region budget (800 KB) therefore fits only three to eight shots in the
 widest regions; those get 1.4 MB (`overrides.budget.assetBytes`, with a
-`budgetNote`) under the inherited shared Range asset check (now slated for removal). A compact tile table
-in the terrain manifest would roughly halve that cost; it is a format change
-left for later.
+`budgetNote`). Those per-region caps remain after removal of the global
+Range asset-size gate. A compact tile table in the terrain manifest would
+roughly halve that manifest cost; it is a format change left for later.
 
 The rail shot costs nothing and adds no coverage poses: it is the authored
 rail, which the approved package (and the rail stations every bake keeps)

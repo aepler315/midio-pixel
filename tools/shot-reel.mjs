@@ -23,6 +23,8 @@ import { openEvaluationSong, renderEvaluationFrame } from './lib/visual-evaluati
 import { DEFAULT_SETTINGS } from './lib/visual-evaluation.mjs';
 import { decodeShotLibrary } from '../src/world/terrain/ShotLibrary.js';
 import SCENE_CATALOG from '../src/world/terrain/sceneCatalogData.js';
+import { createReelTimeline } from './lib/shot-reel-timeline.mjs';
+import { readReviewLibraryIdentity } from './lib/scenic-review.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const FONT = process.platform === 'win32' ? 'C\\:/Windows/Fonts/consola.ttf' : '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf';
@@ -44,7 +46,9 @@ async function main() {
   await fs.rm(out, { recursive: true, force: true });
   await fs.mkdir(path.join(out, 'frames'), { recursive: true });
   const R = path.join(root, 'src', 'assets', 'range', 'v2');
-  const manifestText = await fs.readFile(path.join(R, view.shotsManifestUrl), 'utf8'), manifest = JSON.parse(manifestText);
+  const manifestPath = path.join(R, view.shotsManifestUrl);
+  const { identity } = await readReviewLibraryIdentity(manifestPath, { viewId, terrainManifestPath: path.join(R, view.terrainManifestUrl) });
+  const manifestText = await fs.readFile(manifestPath, 'utf8'), manifest = JSON.parse(manifestText);
   const library = decodeShotLibrary(manifest, new Uint8Array(zlib.gunzipSync(await fs.readFile(path.join(R, 'tour', manifest.payload.url)))));
   // One session plays at most maxMs of reel (the song's export clock ends
   // with the song); longer libraries take several sessions.
@@ -60,7 +64,7 @@ async function main() {
   const snapshot = await snapshotSource(root), server = await serveSnapshot(snapshot);
   const browser = await chromium.launch({ headless: true, args: [`--use-angle=${process.env.VISUAL_ANGLE || 'gl'}`, '--ignore-gpu-blocklist'] });
   const settings = { ...DEFAULT_SETTINGS, width, height, view: viewId, biome: view.biome, quality: 0 };
-  const index = { viewId, manifestSha256: view.shotsManifestSha256, source: snapshot.digest, fps, size: [width, height], schedule, frames: [] };
+  const index = { viewId, manifestSha256: identity.manifestSha256, identity, source: snapshot.digest, fps, size: [width, height], schedule, frames: [] };
   let k = 0;
   try {
    for (const [ci, chunk] of chunks.entries()) {
@@ -70,33 +74,22 @@ async function main() {
     const page = loaded.page;
     // The reel's timeline: pathPoseAt over the scheduled shot (uniform
     // Catmull-Rom on samples, as ShotPath does), on the export clock.
-    await page.evaluate(([id, paths, schedule]) => {
+    // Inject the same self-contained factory used below to label frames.
+    // Keeping clock selection inside it prevents the camera and index from
+    // disagreeing at a cut or at the exact end of the final shot.
+    await page.evaluate(`(([id, paths, schedule]) => {
       const rp = window.__SMW.sim.biomes.rangePresentation, v = rp.shots.views.get(id);
-      const cr = (a, b, c, d, u) => 0.5 * (2 * b + (c - a) * u + (2 * a - 5 * b + 4 * c - d) * u * u + (3 * b - a - 3 * c + d) * u * u * u);
-      const poseOf = (p, x) => {
-        const n = p.s.length, xs = Math.min(Math.max(x, p.s[0]), p.s[n - 1]);
-        let i = 0; while (i < n - 2 && p.s[i + 1] < xs) i++;
-        const u = p.s[i + 1] > p.s[i] ? (xs - p.s[i]) / (p.s[i + 1] - p.s[i]) : 0, ia = Math.max(0, i - 1), id2 = Math.min(n - 1, i + 2);
-        const pick = (arr, k, st) => { const a = arr[ia * st + k], b = arr[i * st + k], c = arr[(i + 1) * st + k], d = arr[id2 * st + k];
-          return cr(ia === i ? 2 * b - c : a, b, c, id2 === i + 1 ? 2 * c - b : d, u); };
-        return { eyeM: [0, 1, 2].map((k) => pick(p.eye, k, 3)), targetM: [0, 1, 2].map((k) => pick(p.aim, k, 3)), fovYDeg: pick(p.fov, 0, 1) };
-      };
-      const reel = Object.assign(Object.create(v.timeline), {
-        poseAt(t) {
-          const j = Math.max(0, schedule.findIndex((x) => t < x.endMs)), span = schedule[j === -1 ? schedule.length - 1 : j], p = paths[j];
-          const f = Math.min(1, Math.max(0, (t - span.startMs) / (span.endMs - span.startMs)));
-          return { ...poseOf(p, f * p.s[p.s.length - 1]), tour: true, shot: { kind: 'shot', id: span.id } };
-        },
-      });
+      const reel = Object.assign(Object.create(v.timeline), (${createReelTimeline.toString()})(paths, schedule));
       v.timeline = reel; rp.scene?.setCameraTour?.(id, reel);
-    }, [viewId, chunkPaths, spans]);
+    })(${JSON.stringify([viewId, chunkPaths, spans])})`);
+    const timeline = createReelTimeline(chunkPaths, spans);
     const end = spans.at(-1).endMs, step = 1000 / fps;
     for (let j = 0, t = 0; t <= end; j++, k++, t = j * step) {
       const f = await renderEvaluationFrame(page, { timeMs: t, checkpoint: false, clips: [0], save: true }, settings);
-      const span = spans.find((x) => t < x.endMs) || spans.at(-1);
+      const frame = timeline.frameAt(t);
       const file = `frames/${String(k).padStart(5, '0')}.png`;
       await fs.writeFile(path.join(out, file), Buffer.from(f.pngData, 'base64'));
-      index.frames.push({ k, session: ci, timeMs: t, shot: span.id, move: span.move, progress: (t - span.startMs) / (span.endMs - span.startMs), eyeM: f.camera?.eyeM, forward: f.camera?.forward, file });
+      index.frames.push({ k, session: ci, timeMs: t, shot: frame.shot, move: frame.move, progress: frame.progress, eyeM: f.camera?.eyeM, forward: f.camera?.forward, file });
     }
     await loaded.context.close();
    }

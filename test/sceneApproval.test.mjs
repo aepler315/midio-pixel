@@ -78,7 +78,8 @@ test('composition changes and removal invalidate approval, but metadata-free app
 });
 
 test('coherent pilots reuse published assets without removing approved biome coverage or inheriting approval', async () => {
-  const cat = await buildCatalog(await readAuthoring());
+  const authoring = await readAuthoring();
+  const cat = await buildCatalog(authoring);
   for (const id of ['teton-jackson-lake', 'monument-valley-163']) {
     const original = cat.views.find(v => v.id === id);
     const pilot = cat.views.find(v => v.id === `${id}-coherent`);
@@ -90,5 +91,6 @@ test('coherent pilots reuse published assets without removing approved biome cov
     assert.deepEqual(pilot.camera, original.camera);
     assert.equal(pilot.composition.foreground, 'ledge');
   }
-  assert.equal(cat.views.filter(v => v.status === 'approved').length, 13);
+  assert.deepEqual(cat.views.filter(v => v.status === 'approved').map(v => v.id).sort(),
+    authoring.views.filter(v => v.status === 'approved').map(v => v.id).sort());
 });

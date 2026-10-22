@@ -11,6 +11,7 @@
 // plan leave the view on its authored rail with the reason recorded --
 // never a camera that switches mid-song, never a blank frame.
 import { loadShotLibrary, shotLibraryBytes, cameraFootprint } from '../terrain/ShotLibrary.js';
+import { shotTourIdentityErrors } from '../terrain/SceneCatalog.js';
 import { prepareShotTimeline } from '../terrain/ShotRuntime.js';
 export { cameraFootprint };
 
@@ -22,8 +23,11 @@ const SEAM_MARGIN_MS = 6000;
 /** Whether a catalog view may play its shot tour. Candidates play only
  *  for diagnostics (?rangeShots=all), mirroring forcedCandidate. */
 export function shotTourEligible(view, { allowCandidates = false } = {}) {
-  if (!view?.shotsManifestUrl || !/^[a-f0-9]{64}$/.test(view.shotsManifestSha256 || '')) return false;
-  return view.status === 'approved' || allowCandidates;
+  if (shotTourIdentityErrors(view).length) return false;
+  if (allowCandidates) return true;
+  const a = view.shotTour.approval;
+  return view.status === 'approved' && view.shotTour.status === 'approved'
+    && Array.isArray(a?.evidence) && a.evidence.length > 0 && a.evidence.every((s) => typeof s === 'string' && s.length > 0);
 }
 
 /** Heard-time intervals where `viewId` can be on screen: sections whose
@@ -87,8 +91,9 @@ export class RangeShotTours {
     let entry = this.libraries.get(url);
     if (!entry || entry.state === 'failed') {
       entry = { state: 'loading', library: null, reason: null, key: `range:shots:${view.id}` };
-      entry.promise = this._load(url, { expectManifestSha256: view.shotsManifestSha256, viewId: view.terrainSourceId || view.id })
+      entry.promise = this._load(url, { expectManifestSha256: view.shotsManifestSha256, viewId: view.id })
         .then(({ library }) => {
+          if (library.terrainManifestSha256 !== view.terrainManifestSha256) throw new Error('terrain identity differs from the shot library');
           const bytes = shotLibraryBytes(library);
           // Libraries stay resident for the page: they are small and every
           // later song in this view reuses them.

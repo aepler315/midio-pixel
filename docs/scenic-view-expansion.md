@@ -2,11 +2,11 @@
 
 **Proposal dated 2026-10-22**, based on main
 `05725b8b753f18234ab9f3aa21b7c5c6cc4d12ac`.
-This is an initial direction for discussion and later implementation.
-The owner has rejected the inherited 60 MB bundle limit as a requirement for
-this expansion. Remove that arbitrary hard gate during implementation and retain
-existing features. This documentation pass does not change code enforcement,
-locations, cameras or approval state. Read the [camera scouting audit](camera-scouting-audit-2026-10-22.md)
+This remains an initial geographic expansion direction. The [implementation
+follow-up](camera-scouting-fixes-2026-10-22.md) removes the inherited global 60 MB
+hard gate and adds stratified discovery, separate tour approval and review
+identity checks. Those source changes have not merged or deployed; they add no
+locations, assets or approvals. Read the historical [camera scouting audit](camera-scouting-audit-2026-10-22.md)
 and [current tour status](scenic-tours.md#current-delivery-and-reported-builds) first.
 
 ## What should grow
@@ -35,12 +35,13 @@ of two or three inside each batch. These are proposed milestones, not current
 acceptance. Retaining all four existing candidates would make the total runtime
 catalog 22, 28 and 34 entries at those milestones, before additional candidates.
 
-1. **Establish the expansion contract before adding assets.** Retire the inherited global asset-size hard gate while retaining byte reporting;
-   revise the total-18 and approved-13 assertions intentionally; make
-   approval state unambiguous; retain a review index keyed to exact source and
-   package/library identities. Keep approved rails available during candidate
-   tour work. Address the candidate-angle bias before using this generator as
-   the standard scouting tool.
+1. **Prove the expansion contract before adding assets.** The source fixes
+   retire the global asset-size hard gate, retain byte reporting, separate base
+   and tour approvals, preserve valid approved rails during candidate-library
+   work, and stratify discovery within its existing budget. Validate fresh
+   builds and retain reviews keyed to exact source and package/library
+   identities. The unchanged production catalog remains 17 entries with 13
+   approved rails; update that inventory only when new views actually ship.
 2. **13 → 18: prove the workflow on five distinct gaps.** Prioritize currently
    singleton biomes, with contrasting relief, camera orientation and source
    conditions. Include both a compact route suited to short visible windows and
@@ -80,14 +81,18 @@ entry or linked review document:
 Use existing `scenic-views.json` fields for data, rail, composition, landmarks and
 approval. Use `scenic-tours.json` for supported regional discovery controls.
 Do not add speculative unused schema fields merely to match this table.
-Authoring metadata such as `weight` or `avoid` must not be presented as working
-selection controls before implementation.
+Subject `weight` now reaches candidate `subjectWeight` and affects selection:
+finite positive values are clamped to 0.25–4, with other values defaulting to 1.
+Render, clearance and coverage quality gates retain their independent checks.
+`avoid[]` remains unsupported.
 
-Prefer a bounded, stratified camera search over move, azimuth, distance, elevation
-and lens. Keep a fixed total render budget per region and expose the number kept
-from each category in the funnel. Raising the global candidate cap is a useful
-comparison experiment, but expensive as a permanent default. The old rail side
-can be a baseline without dominating which alternatives reach scoring.
+The current generator stratifies the existing per-subject budget over move,
+azimuth, distance, elevation and direction, including generated preferred angles
+before filling angular gaps. The default forward cap remains 48 candidates per
+subject. Verify the resulting funnel on fresh builds; `--reselect` cannot recover
+cameras or weights absent from an old graph cache. Lens variety and a measured
+regional render budget remain useful review dimensions. The old rail side can
+be a baseline without dominating which alternatives reach scoring.
 
 The horizon-as-sky allowance is a rendering policy, not proof of distant terrain.
 Check it again for new landforms, wide lenses and reflection poses. Match cell
@@ -96,12 +101,14 @@ detailed by a higher score.
 
 ## Delivery budget
 
-**Decision: retire the inherited 60 MB ceiling.** Do not reduce the geographic
-catalog, delete existing features or force inferior camera framing to satisfy it.
-The code still contains that hard gate today; removing its blocking paths in the
-Teton builder, scenic-tour fitter and budget tests is future implementation work,
-not a change made by this documentation pass. Per-region byte caps also deserve
-an intentional review as authoring trade-offs rather than proxies for GPU safety.
+**Decision implemented in source: retire the inherited 60 MB ceiling.** The
+Teton builder reports delivery bytes; scenic fitting reports
+`budget.deliveryBytes` while retaining its per-region byte, triangle and forest
+caps. `assetBudgetErrors(root)` has no default limit and accepts an explicit
+finite nonnegative caller limit when needed. No new unexplained global ceiling
+replaces 60 MB. These changes retain existing features and do not approve asset
+growth or new locations by themselves. Per-region byte caps still deserve an
+intentional review as authoring trade-offs rather than proxies for GPU safety.
 
 Keep reporting real asset, download and storage costs. Do not replace 60 MB with
 another unexplained ceiling. Measure regression against the delivered feature
@@ -112,7 +119,7 @@ The audited source provides a useful size baseline:
 
 | Quantity | Bytes | Interpretation |
 | --- | ---: | --- |
-| Current Range asset tree, 79 files | 48,905,726 | Includes candidates and the retained Teton highway feature |
+| Audited Range asset tree, 79 files | 48,905,726 | Historical 2026-10-22 baseline; includes candidates and the retained Teton highway feature |
 | Mean approved terrain triple | 1,530,590 | Terrain manifest, compressed payload and build record; shared materials excluded |
 | Seventeen similar new terrain packages | about 26,020,037 | Estimate from current mean; unseen geography will differ |
 | Projected tree with 30 approved rail views | about 74,925,763 | Planning baseline before new shot libraries, not a new limit |
@@ -138,12 +145,12 @@ Measure current bytes with the existing read-only helper:
 node --input-type=module -e "import {rangeAssetBytes} from './tools/lib/scenic-coverage.mjs'; console.log({bytes:await rangeAssetBytes(process.cwd())});"
 ```
 
-Today `assetBudgetErrors(root)` and scenic fitting still apply the old global
-check; the future removal must cover all call sites and tests. Verify that a
-catalog above 60 MB can build and stage while invalid paths, corrupt assets,
-missing files, unsupported schemas and runtime residency failures still fail
-their own checks. Preserve per-view byte reports so unexpected growth remains
-visible without blocking the catalog on an arbitrary total.
+Verification covers the removed default limit and explicit caller limits;
+results are recorded in the PR. Invalid paths, corrupt assets, missing files,
+unsupported schemas and runtime residency failures retain their own checks.
+Per-view byte reports keep growth visible. No larger catalog or new terrain
+publication has been built as part of these source fixes, so actual staging
+costs for 30 locations remain to be measured.
 
 ## Runtime and offline work
 
@@ -196,8 +203,8 @@ A wave is ready for review only when the following are concrete and linked:
   deployment are reported as separate states. Publishing a candidate must not
   silently remove a biome's only approved fallback.
 
-The next implementation proposal should cover removal of the inherited asset
-ceiling, independent tour approval, stratified discovery and one small geographic
-pilot wave. It
-should use measured pilot results to refine the remaining catalog, rather than
-committing all 17 new locations up front.
+The next geographic work is one small sourced pilot wave using the corrected
+discovery and approval workflow. Fresh builds, exact review identities, rendered
+rail comparisons and visible-window pacing evidence should refine the remaining
+catalog before committing all 17 new locations. Tombstone source drift and
+whole-song aesthetic acceptance remain separate gates.

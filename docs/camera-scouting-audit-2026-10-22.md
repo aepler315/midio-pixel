@@ -1,5 +1,11 @@
 # Camera scouting audit — 2026-10-22
 
+**Implementation follow-up:** the [camera scouting fixes](camera-scouting-fixes-2026-10-22.md)
+address discovery coverage, independent tour approval, review identity, the
+retired global size ceiling and the confirmed planner/tool defects. The findings
+and verification below retain the original audited source and historical state;
+they do not describe the follow-up implementation's current behavior.
+
 This audit covers Claude's recent work on camera locations, framing and routes in
 `aepler315/midio-pixel`, against main commit
 [`05725b8b753f18234ab9f3aa21b7c5c6cc4d12ac`](https://github.com/aepler315/midio-pixel/commit/05725b8b753f18234ab9f3aa21b7c5c6cc4d12ac).

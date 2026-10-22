@@ -31,6 +31,40 @@ function landscape() {
 const peak = { id: 'peak-cone', kind: 'peak', name: 'Cone', posM: [0, 1900, 0], radiusM: 1500, heightM: 900 };
 const railTarget = { id: 'rail-target', kind: 'rail-target', name: null, posM: [0, 1500, 0], radiusM: 300, heightM: 300 };
 
+test('a fixed scout budget covers the cone from every azimuth, including a preferred angle, with varied poses', () => {
+  // A symmetric cone has no visibility reason to favour the rail side.
+  // Taking generation prefixes would keep only the first orbit/traverse angle.
+  const heightAt = (x, z) => 1000 + 900 * Math.max(0, 1 - Math.hypot(x, z) / 1500);
+  const ctx = { ...landscape(), heightAt, clearance: { floorAt: (x, z) => heightAt(x, z) + 70 },
+    grid: { originM: [-100000, -100000], width: 2001, height: 2001, cellSizeM: 100 }, edgeDipDeg: 12 };
+  ctx.camera = { ...ctx.camera, eyeStartM: [0, 1500, 9000] };
+  const scout = () => generateShots(ctx, [railTarget, peak], { valleys: [], shores: [] },
+    { landform: 'volcano', preferAzimuthDeg: [203] }, { azimuths: 8, maxPerSubject: 48 });
+  const shots = scout(), candidates = shots.filter((s) => s.move !== 'rail');
+  assert.equal(candidates.length, 48, 'the scout budget does not grow to obtain coverage');
+  for (const move of ['orbit', 'traverse']) {
+    const family = candidates.filter((s) => s.move === move);
+    const azimuths = family.map((s) => { const eye = pathPoseAt(s.path, s.lengthM / 2).eyeM; return Math.round(headingOf(eye[0], eye[2])); });
+    assert.equal(azimuths[0], 203, `${move} includes the preferred angle even before its budget fills`);
+    assert.ok(azimuths[1] <= 45 || azimuths[1] >= 315, `${move} reaches the opposite side early`);
+    for (const angle of [0, 45, 90, 135, 180, 203, 225, 270, 315]) assert.ok(azimuths.includes(angle), `${move} scouts ${angle} degrees`);
+    assert.deepEqual([...new Set(family.map((s) => s.traits.elevation))].sort(), ['high', 'low', 'mid'], `${move} varies elevation`);
+    assert.deepEqual([...new Set(family.map((s) => s.traits.side))].sort(), ['left', 'right'], `${move} varies direction`);
+    const distances = family.map((s) => { const eye = pathPoseAt(s.path, s.lengthM / 2).eyeM; return Math.hypot(eye[0], eye[2]); });
+    assert.ok(Math.max(...distances) / Math.min(...distances) > 1.4, `${move} varies stand-off distance`);
+  }
+  assert.ok(candidates.some((s) => s.tags.includes('crane')), 'tagged move families retain a share');
+  assert.deepEqual(scout(), shots, 'identical inputs keep the same candidates and IDs');
+});
+
+test('generated candidates carry their configured subject weight into library selection', () => {
+  const shots = generateShots(landscape(), [railTarget, { ...peak, weight: 1.6 }], { valleys: [], shores: [] },
+    { landform: 'volcano' }, { azimuths: 4, maxPerSubject: 8 });
+  const candidates = shots.filter((s) => s.subjectId === peak.id);
+  assert.ok(candidates.length > 0);
+  assert.ok(candidates.every((s) => s.subjectWeight === 1.6));
+});
+
 test('every generated shot clears the floor along its whole path and stays in the grid', () => {
   const ctx = landscape();
   const shots = generateShots(ctx, [railTarget, peak], { valleys: [], shores: [] }, { landform: 'volcano' }, { azimuths: 6 });

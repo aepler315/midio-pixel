@@ -28,7 +28,7 @@ import { strideCost, tourPoses, tourBakeOptions, bakeOptions } from './lib/sceni
 import { SHOT_SCHEMA, SHOT_VERSION, packShotPaths, chooseLattice, shotLibraryErrors, decodeShotLibrary, cameraFootprint } from '../src/world/terrain/ShotLibrary.js';
 import { pathPoseAt, slicePath, pathLaneAt, withProgress } from '../src/world/terrain/ShotPath.js';
 import { bakeTerrain } from './lib/terrain-bake.mjs';
-import { validatePoses, rangeAssetBytes, RANGE_ASSET_LIMIT } from './lib/scenic-coverage.mjs';
+import { validatePoses, rangeAssetBytes } from './lib/scenic-coverage.mjs';
 import { decodeTerrain } from '../src/world/alpine/TerrainMesh.js';
 import { forestPlacementBound } from '../src/world/alpine/ForestCover.js';
 import SCENE_CATALOG from '../src/world/terrain/sceneCatalogData.js';
@@ -519,7 +519,7 @@ export function bestComponent(shots, links, top = 36) {
     }
   };
   for (const v of shots) if (!index.has(v)) visit(v);
-  const worth = (part) => part.map((x) => x.score.total).sort((a, b) => b - a).slice(0, top).reduce((a, b) => a + b, 0);
+  const worth = (part) => part.map((x) => x.score.total * subjectPriority(x)).sort((a, b) => b - a).slice(0, top).reduce((a, b) => a + b, 0);
   parts.sort((a, b) => worth(b) - worth(a));
   bestComponent.parts = parts.map((p) => p.length);
   return new Set(parts[0] || []);
@@ -544,6 +544,11 @@ export function estimatedBytes(records, cost) {
 /** Library bytes per record (manifest entry + packed samples), measured on
  *  packed libraries; selection reserves them inside the region's budget. */
 const RECORD_BYTES = 1300;
+
+/** Subject emphasis changes selection priority, never a shot's quality or
+ *  eligibility. Invalid weights retain the default; finite positives are
+ *  bounded so emphasis stays a limited preference. */
+const subjectPriority = (c) => Number.isFinite(c.subjectWeight) && c.subjectWeight > 0 ? clamp(c.subjectWeight, 0.25, 4) : 1;
 
 /**
  * Selection state shared by selectShots and selectConnected: what a shot
@@ -601,6 +606,7 @@ function selection(config, cost, chosen) {
     }
     // The region's heroes carry the climax: their shots are worth more.
     if (c.hero) v *= 1 + (config.discovery.heroBonus ?? 0.35);
+    v *= subjectPriority(c);
     return { v, bytes };
   };
   const take = (c, bytes) => {
@@ -747,7 +753,7 @@ export function selectConnected(scored, links, config, cost = null, { log = null
     // A library worth keeping covers the region's heroes: each hero subject
     // with a shot counts as much as a good shot more.
     const heroes = new Set(sel.out.filter((c) => c.hero).map((c) => c.subjectId)).size;
-    return { out: sel.out, worth: sel.out.filter((c) => c.move !== 'rail').reduce((t, c) => t + c.score.total, 0) + 0.6 * heroes, stop };
+    return { out: sel.out, worth: sel.out.filter((c) => c.move !== 'rail').reduce((t, c) => t + c.score.total * subjectPriority(c), 0) + 0.6 * heroes, stop };
   };
   const trials = [...seeds.values()].sort((x, y) => y.v - x.v || (x.key < y.key ? -1 : 1)).slice(0, config.discovery.seedTrials ?? 12);
   let kept = null;
@@ -986,8 +992,7 @@ export async function budgetErrors(ctx, config, packed, bake, forest = null) {
   if (bake.rebaked && bake.budget.desktopTriangles > b.desktopTriangles) errors.push(`desktop ${bake.budget.desktopTriangles} triangles, over ${b.desktopTriangles}`);
   if (bake.rebaked && bake.budget.mobileTriangles > b.mobileTriangles) errors.push(`mobile ${bake.budget.mobileTriangles} triangles, over ${b.mobileTriangles}`);
   const total = await rangeAssetBytes(root);
-  if (total + added > RANGE_ASSET_LIMIT) errors.push(`Range assets would reach ${total + added} bytes, over ${RANGE_ASSET_LIMIT}`);
-  return { errors, added, forest: forest ? { rail: forest.rail, tour: forest.tour, cap: forestCap } : null };
+  return { errors, added, deliveryBytes: total + added, forest: forest ? { rail: forest.rail, tour: forest.tour, cap: forestCap } : null };
 }
 
 // ---------------------------------------------------------------------------
@@ -1163,8 +1168,9 @@ export async function writeFitted(out, viewId, fitted) {
  * Publish: the library into src/assets/range/v2/tour, the re-culled terrain
  * (if any) over the view's package with its build record updated, and
  * shotsManifestUrl into scenic-views.json; then regenerate the catalog.
- * The view ships as a candidate until it is re-approved (build-range-scene
- * --approve), which is a separate, reviewed step.
+ * The library stays a candidate until --approve-tour records a review.
+ * Unchanged terrain preserves base approval; a rebake still requires its
+ * own base review with --approve before the tour can be approved.
  */
 export async function publishView(viewId, fitted, { log = console.log } = {}) {
   if (fitted.failed || !fitted.bake.validation.ok) throw new Error(`${viewId}: not publishable (budget or validation failed)`);
@@ -1182,14 +1188,23 @@ export async function publishView(viewId, fitted, { log = console.log } = {}) {
       tourFootprint: { shotsManifestSha256: sha(fitted.packed.manifestText), poses: m.lod.poses } });
     await fs.writeFile(buildPath, JSON.stringify(build, null, 1) + '\n');
   }
-  const { readAuthoring, AUTHORING } = await import('./build-range-scene.mjs');
+  const { readAuthoring, AUTHORING, TOUR_AUTHORING, shotLibraryIdentity } = await import('./build-range-scene.mjs');
   const doc = await readAuthoring();
   const v = doc.views.find((x) => x.id === viewId);
   v.shotsManifestUrl = `tour/${viewId}.shots.json`;
+  const tours = JSON.parse(await fs.readFile(TOUR_AUTHORING, 'utf8'));
+  const region = tours.regions?.[viewId];
+  if (!region) throw new Error(`${viewId}: no region block in scenic-tours.json`);
+  const build = JSON.parse(await fs.readFile(path.join(TERRAIN_DIR, `${v.terrainSourceId || viewId}.build.json`), 'utf8'));
+  region.library = await shotLibraryIdentity(v, build);
+  region.status = 'candidate';
+  delete region.approval;
+  await fs.writeFile(TOUR_AUTHORING, JSON.stringify(tours, null, 2) + '\n');
   await fs.writeFile(AUTHORING, JSON.stringify(doc, null, 2) + '\n');
   const { execFileSync } = await import('node:child_process');
   execFileSync(process.execPath, [path.join(root, 'tools', 'build-range-scene.mjs'), '--catalog'], { stdio: 'inherit' });
-  log(`${viewId}: published; re-approve with: node tools/build-range-scene.mjs --approve ${viewId} --evidence docs/scenic-tours.md`);
+  if (fitted.bake.rebaked) log(`${viewId}: terrain changed; review and approve the base with --approve ${viewId} before approving the tour`);
+  log(`${viewId}: published candidate tour; after review: node tools/build-range-scene.mjs --approve-tour ${viewId} --evidence docs/scenic-tours.md`);
 }
 
 /** A fitted build as writeFitted left it in `dir`, ready for publishView. */

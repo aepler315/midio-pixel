@@ -357,8 +357,9 @@ function libraryIndex(library) {
   const linkIndex = new Map(links.map((l, j) => [l, j]));
   // Code-unit id order (not locale order), so ties break the same everywhere.
   shots.forEach((s, i) => { ix.out[i] = (library.linksFrom.get(s.id) || []).toSorted(byId).map((l) => linkIndex.get(l)).filter((j) => j !== undefined); });
-  // For endings: the shortest link to each next shot.
-  ix.outEnd = ix.out.map((list) => list.filter((j) => !list.some((k) => ix.lTo[k] === ix.lTo[j] && (ix.lL[k] < ix.lL[j] || ix.lL[k] === ix.lL[j] && k < j))));
+  // A longer or lower-scored alternative can be the only legal ending:
+  // feasibility also depends on flow, bends and both joins.
+  ix.outEnd = ix.out;
   ix.linkBend = (j) => {
     if (ix.lBend[j] < 0 && pre) { ix.lBend[j] = pre.linkBend[j]; joinTurn[j] = pre.joinTurn[j]; }
     if (ix.lBend[j] < 0) {
@@ -393,9 +394,8 @@ const curveCap = (T, bend, turn) => Math.min(bend > 0 ? Math.sqrt(T.maxAccelMps2
 /**
  * A library's song-independent planning tables, which a fresh copy would
  * otherwise rebuild on every plan: each link's bend with both joins and the
- * joins' turn, the costliest part of a cold plan. The runtime computes them
- * once per decoded library and posts them with every request
- * (ShotRuntime.plannableShotLibrary); a library carrying them plans exactly
+ * joins' turn, the costliest part of a cold plan. The worker computes them
+ * and returns them for reuse by later requests. A library carrying them plans exactly
  * as one without, measuring nothing it already holds. Tables that do not
  * match the library's links (ids and sample counts) are ignored.
  */
@@ -876,7 +876,6 @@ export function planShotTour(library, { durationMs = 0, sections = [], roles = [
     if (P.shot < 0 || P.pending || !(tau > 0) || (inside && !inside.crawl) || tau * 1000 > T.endViaMs) return;
     // An ending in transit only when this state has no other way to the end.
     let reached = !!inside, transit = null;
-    const top = ix.outEnd[P.shot].reduce((b, k) => (b < 0 || ix.lScore[k] > ix.lScore[b] ? k : b), -1);
     for (const j of ix.outEnd[P.shot]) {
       const B = ix.lTo[j], through = P.rem + ix.lL[j], room = .98 * pay[B];
       if (!(room > 1)) continue;
@@ -885,14 +884,15 @@ export function planShotTour(library, { durationMs = 0, sections = [], roles = [
       const sp = endSpeed(P, tau, through + 1, through + room, leg, true);
       // (null: the last shot is out of reach at any legal speed.)
       if (sp === null) {
-        if (reached || j !== top) continue;
+        if (reached) continue;
         // Too far to reach the last shot: end in the link itself, if it is
         // not too fast for that either (`endInLink` for an ending in transit).
         const part = { D: through, max: Math.max(P.remMax, ix.lMax[j]), int: P.remInt + ix.lInt[j], bend: Math.max(P.remBend, ix.linkBend(j)), turn: Math.max(P.remTurn, ix.lTurn[j]), parts: [P.rem, P.remMax, ix.lL[j], ix.lMax[j]] };
         const mid = endSpeed(P, tau, P.rem + 1, through - 1, part, true);
         if (!mid) continue;
         const e = mid.v * tau, c = endCosts(P, tau, mid.v, mid.cap, e, P.remInt + ix.lInt[j] * Math.min(1, (e - P.rem) / ix.lL[j]));
-        transit = { cost: P.cost + c.cost + gap + c.seen * (w.endInLink + w.linkTime * tau * (e - P.rem) / e), state: P, e, via: j, inLink: true };
+        const candidate = { cost: P.cost + c.cost + gap + c.seen * (w.endInLink + w.linkTime * tau * (e - P.rem) / e), state: P, e, via: j, inLink: true };
+        if (!transit || candidate.cost < transit.cost) transit = candidate;
         continue;
       }
       if (!sp) continue;

@@ -18,10 +18,9 @@ import { focalPx } from '../../src/world/terrain/SceneTravel.js';
 import { pathPoseAt } from '../../src/world/terrain/ShotPath.js';
 import { MIRROR_SCALE, MIRROR_CLIP_M } from '../../src/world/alpine/WaterMirror.js';
 
-/** Everything under this directory ships; tools/build-teton-tour.mjs holds
- *  it to RANGE_ASSET_LIMIT bytes. */
+/** Files in this directory contribute to delivery size, independently of
+ *  the runtime's decoded-memory and graphics residency budgets. */
 export const RANGE_ASSET_DIR = 'src/assets/range/v2';
-export const RANGE_ASSET_LIMIT = 60e6;
 
 /** Tiles a package ships (decodeTerrain data, or a manifest): `keys`, the
  *  set of 'ix,iz', and `tiles`, per key { id, stride, lod, errorsM,
@@ -166,8 +165,10 @@ export async function rangeAssetBytes(root) {
   return walk(path.join(root, RANGE_ASSET_DIR));
 }
 
-/** Errors when the Range assets exceed their byte budget (empty = within). */
-export async function assetBudgetErrors(root, { limit = RANGE_ASSET_LIMIT } = {}) {
+/** An optional caller-specified delivery budget. There is no global ceiling. */
+export async function assetBudgetErrors(root, { limit = null } = {}) {
   const bytes = await rangeAssetBytes(root);
+  if (limit == null) return [];
+  if (!(Number.isFinite(limit) && limit >= 0)) throw new Error('asset byte limit must be finite and nonnegative');
   return bytes > limit ? [`${RANGE_ASSET_DIR} holds ${bytes} bytes, over its ${limit} byte budget`] : [];
 }

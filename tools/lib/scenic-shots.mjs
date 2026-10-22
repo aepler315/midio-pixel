@@ -213,7 +213,7 @@ function insideGrid(ctx, x, z) {
 }
 
 function record(subject, move, path, traits, extra = {}) {
-  return { subjectId: subject.id, move, path, traits, lengthM: path.s[path.s.length - 1], tags: [], ...extra };
+  return { subjectId: subject.id, subjectWeight: subject.weight ?? 1, move, path, traits, lengthM: path.s[path.s.length - 1], tags: [], ...extra };
 }
 
 /** Pose traits at progress s for diagnostics and variety costs. */
@@ -516,44 +516,96 @@ export function generateShots(ctx, subjects, lines, region, { azimuths = 8, maxP
     // The rail target is where the authored rail happens to look, often
     // open ground: it seeds the rail shot only.
     if (subject.kind === 'rail-target') continue;
-    const sc = subjectScale(subject), list = [];
+    const sc = subjectScale(subject), list = [], strata = new Map();
+    // Keep the generator's angle and distance class for thinning. Geometry
+    // can shift the actual midpoint slightly (for example a bowed push-in).
+    const add = (records, az, distance) => {
+      for (const r of records) {
+        if (az === undefined) {
+          const eye = pathPoseAt(r.path, r.lengthM / 2).eyeM;
+          strata.set(r, { az: Math.round(headingOf(eye[0] - subject.posM[0], eye[2] - subject.posM[2])), distance: 0 });
+        } else strata.set(r, { az, distance: distance ?? 0 });
+        list.push(r);
+      }
+    };
     // Viewing azimuths: evenly spread plus the region's preferred ones and
     // the side the authored rail sees the subject from.
     const railEye = ctx.camera.eyeStartM, railAz = headingOf(railEye[0] - subject.posM[0], railEye[2] - subject.posM[2]);
     const azList = [...new Set([...Array.from({ length: azimuths }, (_, i) => (railAz + i * 360 / azimuths) % 360),
-      ...(region.preferAzimuthDeg || [])].map((a) => Math.round(a)))];
+      ...(region.preferAzimuthDeg || [])].map((a) => ((Math.round(a) % 360) + 360) % 360))];
     const dists = form.distance.map((k) => clamp(k * sc.size, (subject.radiusM || 300) + (ctx.standoffM ?? 300) + 200, 22000));
     for (const move of form.moves) {
       for (const az of azList) {
-        if (move === 'traverse') for (const d of dists) for (const elev of form.elevations) for (const dir of [1, -1]) list.push(...traverse(ctx, subject, az, d, elev, dir, lenses));
-        if (move === 'approach') for (const d of dists.slice(0, 2)) for (const elev of form.elevations) list.push(...approach(ctx, subject, az, d, elev, [1, -1, 0][(Math.round(az) + Math.round(d)) % 3], lenses));
-        if (move === 'orbit') for (const d of dists.slice(0, 2)) for (const elev of form.elevations) for (const sweep of [90, -90]) list.push(...orbit(ctx, subject, az, d, elev, sweep, lenses));
-        if (move === 'pullback') list.push(...pullback(ctx, subject, az, dists[0], lenses));
-        if (move === 'reveal') list.push(...reveal(ctx, subject, az, lenses));
-        if (move === 'pullback' && form.elevations.includes('high')) list.push(...craneRise(ctx, subject, az, lenses));
+        if (move === 'traverse') for (const d of dists) for (const elev of form.elevations) for (const dir of [1, -1]) add(traverse(ctx, subject, az, d, elev, dir, lenses), az, d);
+        if (move === 'approach') for (const d of dists.slice(0, 2)) for (const elev of form.elevations) add(approach(ctx, subject, az, d, elev, [1, -1, 0][(Math.round(az) + Math.round(d)) % 3], lenses), az, d);
+        if (move === 'orbit') for (const d of dists.slice(0, 2)) for (const elev of form.elevations) for (const sweep of [90, -90]) add(orbit(ctx, subject, az, d, elev, sweep, lenses), az, d);
+        if (move === 'pullback') add(pullback(ctx, subject, az, dists[0], lenses), az, dists[0]);
+        if (move === 'reveal') add(reveal(ctx, subject, az, lenses), az);
+        if (move === 'pullback' && form.elevations.includes('high')) add(craneRise(ctx, subject, az, lenses), az);
       }
       if (move === 'traverse') {
         // Foreground relationships: every other point subject in reach can
         // frame this one.
         for (const near of subjects) {
           if (near === subject || near.kind === 'rail-target' || near.kind === 'lake' || near.kind === 'valley') continue;
-          list.push(...foregroundPass(ctx, subject, near, lenses));
+          add(foregroundPass(ctx, subject, near, lenses));
         }
       }
       if (move === 'valley') {
         for (const line of [...(lines.valleys || []), ...(lines.shores || [])]) {
           const near = line.points.some((p) => hyp2(p[0] - subject.posM[0], p[2] - subject.posM[2]) < 12 * Math.max(sc.size, 1000));
-          if (near) list.push(...floorRun(ctx, subject, line, line.lakeId ? 'shore' : 'valley', lenses));
+          if (near) add(floorRun(ctx, subject, line, line.lakeId ? 'shore' : 'valley', lenses));
         }
       }
     }
-    // Deterministic thinning: keep a spread over moves before the scorer
-    // sees them (round-robin by move, in generation order).
+    // Share the fixed budget across move/tag families and viewing angles.
+    // Preferred angles go first; then fill the largest angular gaps so a
+    // small budget still sees the far side of a subject. Within each angle,
+    // favour elevation, distance and direction classes not already sampled.
     const byMove = new Map();
-    for (const r of list) { const k = [r.move, ...(r.tags || [])].join('+'); if (!byMove.has(k)) byMove.set(k, []); byMove.get(k).push(r); }
+    for (const r of list) {
+      const k = [r.move, ...(r.tags || [])].join('+');
+      if (!byMove.has(k)) byMove.set(k, { angles: new Map(), used: new Map(), cursor: 0 });
+      const family = byMove.get(k), az = strata.get(r).az;
+      if (!family.angles.has(az)) family.angles.set(az, []);
+      family.angles.get(az).push(r);
+    }
+    for (const family of byMove.values()) {
+      const remaining = [...family.angles.keys()], order = [];
+      for (const preferred of region.preferAzimuthDeg || []) {
+        const az = ((Math.round(preferred) % 360) + 360) % 360, at = remaining.indexOf(az);
+        if (at >= 0) order.push(...remaining.splice(at, 1));
+      }
+      while (remaining.length) {
+        let best = 0, gap = -1;
+        for (let i = 0; i < remaining.length; i++) {
+          const d = order.length ? Math.min(...order.map((a) => Math.abs(wrap180(remaining[i] - a)))) : 0;
+          if (d > gap) { gap = d; best = i; }
+        }
+        order.push(...remaining.splice(best, 1));
+      }
+      family.order = order;
+    }
+    const classes = (r) => [`elevation:${r.traits.elevation}`, `distance:${strata.get(r).distance}`, `side:${r.traits.side}`];
     const kept = [];
-    for (let k = 0; kept.length < maxPerSubject && [...byMove.values()].some((l) => l.length > k); k++) {
-      for (const l of byMove.values()) if (l[k] && kept.length < maxPerSubject) kept.push(l[k]);
+    while (kept.length < maxPerSubject) {
+      let added = false;
+      for (const family of byMove.values()) {
+        if (kept.length >= maxPerSubject) break;
+        let pool;
+        for (let i = 0; i < family.order.length; i++) {
+          const next = family.angles.get(family.order[family.cursor++ % family.order.length]);
+          if (next.length) { pool = next; break; }
+        }
+        if (!pool) continue;
+        const repeats = (r) => classes(r).reduce((n, k) => n + (family.used.get(k) || 0), 0);
+        let best = 0;
+        for (let i = 1; i < pool.length; i++) if (repeats(pool[i]) < repeats(pool[best])) best = i;
+        const r = pool.splice(best, 1)[0];
+        for (const k of classes(r)) family.used.set(k, (family.used.get(k) || 0) + 1);
+        kept.push(r); added = true;
+      }
+      if (!added) break;
     }
     out.push(...kept);
   }

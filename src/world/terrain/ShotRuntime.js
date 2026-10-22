@@ -5,7 +5,6 @@
 // Nothing is transferred out of this thread: playback keeps using the
 // library and the committed timeline while the worker plans.
 import { sectionRoles } from './SectionRoles.js';
-import { shotPlanningTables } from './ShotPlanner.js';
 import { restoreShotTimeline, shotTimelineData } from './ShotTimeline.js';
 
 export const SHOT_ENERGY_STEP_MS = 100;
@@ -16,13 +15,11 @@ export function cloneableShotLibrary(library) {
 }
 
 const planningTables = new WeakMap();
-/** What a request posts: the cloneable library with its planning tables,
- *  computed once per decoded library on this thread, so that no request's
- *  fresh copy measures its links again (ShotPlanner.shotPlanningTables). */
+/** Reuse tables returned by an earlier worker. Cold requests only clone
+ *  metadata here; measuring link geometry always happens in the worker. */
 export function plannableShotLibrary(library) {
-  let tables = planningTables.get(library);
-  if (!tables) planningTables.set(library, tables = shotPlanningTables(library));
-  return { ...cloneableShotLibrary(library), planningTables: tables };
+  const tables = planningTables.get(library);
+  return { ...cloneableShotLibrary(library), ...(tables ? { planningTables: tables } : {}) };
 }
 
 /** The worker request for one song: everything structured-cloneable. */
@@ -49,7 +46,12 @@ export function prepareShotTimeline(library, mgr, { signal = null, ...options } 
     const finish = () => { signal?.removeEventListener('abort', abort); worker.terminate(); };
     const abort = () => { finish(); reject(new DOMException('Shot planning aborted', 'AbortError')); };
     signal?.addEventListener('abort', abort, { once: true });
-    worker.onmessage = (e) => { finish(); if (e.data?.error) reject(new Error(e.data.error)); else resolve(restoreShotTimeline(e.data.timeline)); };
+    worker.onmessage = (e) => {
+      finish();
+      if (e.data?.error) { reject(new Error(e.data.error)); return; }
+      if (e.data.planningTables) planningTables.set(library, e.data.planningTables);
+      resolve(restoreShotTimeline(e.data.timeline));
+    };
     worker.onerror = (e) => { finish(); reject(new Error(e.message || 'Shot worker failed')); };
     worker.postMessage(request);
   });
