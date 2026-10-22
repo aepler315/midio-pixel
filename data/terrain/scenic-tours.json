@@ -7,7 +7,8 @@
     "motion": { "maxSpeedMps": 120, "minSpeedMps": 4, "flowCalm": 0.07, "flowEnergetic": 0.24, "maxYawDegPerSec": 20, "maxClimbMps": 22, "maxAccelMps2": 3.5 },
     "discovery": { "focusRadiusM": 11000, "maxSubjects": 12, "minSubjectSpacingM": 1800, "prominenceMinM": 80, "snapRadiusM": 2500, "shotsPerSubject": 8, "maxShots": 36, "maxLinksPerShot": 4, "tileWeight": 0.6,
       "byteScaleKB": 250, "linkMaxM": 6000, "transitMaxM": 9000, "maxShotS": 16, "maxLinkS": 50, "shotsPerRound": 6, "earShots": 5, "linkFanout": 14, "linkRadiusM": 400 },
-    "budget": { "assetBytes": 800000, "poseErrorScale": 4, "desktopTriangles": 2600000, "mobileTriangles": 1450000 }
+    "budget": { "assetBytes": 800000, "poseErrorScale": 4, "desktopTriangles": 3200000, "mobileTriangles": 1800000,
+      "trianglesNote": "About 18 mesh bytes per triangle plus ~27 MB of surface textures per view; two views are resident across a seam, with forest and sky, inside the low-memory residency budgets (256 MiB desktop, 192 MiB mobile, src/render/GraphicsResidency.js)." }
   },
   "regions": {
     "nc-ross-lake-north": {

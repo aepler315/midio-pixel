@@ -991,8 +991,10 @@ export function linkLibrary(shots, pairs, config, cost = null) {
 }
 
 /** The shot whose terrain is most its own per unit of what it brings
- *  (score, and rarity: the only move, elevation or subject of its kind). */
-export function costliestShot(library, cost) {
+ *  (score, and rarity: the only move, elevation or subject of its kind),
+ *  among the drops that keep the most of the library (`survivors(shot)`,
+ *  the shots still connected without it). */
+export function costliestShot(library, cost, survivors = null) {
   const records = [...library.shots, ...library.links], all = estimatedBytes(records, cost);
   let worst = null;
   for (const shot of library.shots) {
@@ -1000,8 +1002,8 @@ export function costliestShot(library, cost) {
     const own = all - estimatedBytes(records.filter((r) => r !== shot && r.from !== shot && r.to !== shot), cost);
     const alone = (key) => library.shots.filter((o) => o !== shot && key(o) === key(shot)).length === 0;
     const rarity = 1 + 1.5 * alone((o) => o.move + (o.tags || []).join('+')) + 1.5 * alone((o) => o.traits.elevation) + 0.8 * alone((o) => o.subjectId);
-    const c = (own + 4000) / (Math.max(0.05, shot.score.total) * rarity);
-    if (!worst || c > worst.cost) worst = { shot, cost: c, bytes: own };
+    const c = (own + 4000) / (Math.max(0.05, shot.score.total) * rarity), keep = survivors ? survivors(shot) : 0;
+    if (!worst || keep > worst.keep || (keep === worst.keep && c > worst.cost)) worst = { shot, cost: c, bytes: own, keep };
   }
   return worst;
 }
@@ -1035,7 +1037,7 @@ export async function fitToBudget(built, { log = console.log, maxIterations = In
     const fits = (lib) => estimatedBytes([...lib.shots, ...lib.links], cost) * ratio + perRecord * (lib.shots.length + lib.links.length) <= 0.95 * config.budget.assetBytes;
     let dropped = 0;
     while (library.shots.length > 4 && (!dropped || (cost && !fits(library)))) {
-      const worst = costliestShot(library, cost);
+      const worst = costliestShot(library, cost, (shot) => linkLibrary(library.shots.filter((s) => s !== shot), pairs, config, cost).shots.length);
       if (!worst) break;
       log(`${ctx.viewId}: dropping ${worst.shot.id} (~${Math.round(worst.bytes * ratio / 1024)} KiB of its own)`);
       library = { ...library, ...linkLibrary(library.shots.filter((s) => s !== worst.shot), pairs, config, cost) };
