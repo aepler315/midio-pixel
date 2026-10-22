@@ -14,6 +14,7 @@ function changeContext(overrides = {}) {
     resolveExperience: value => (value === 'trio' ? 'trio' : 'landscape'), experienceRequest: 0,
     sim: { songSeed: 315 }, experience: 'landscape', running: true, paused: false,
     experienceControl: {}, experienceStatus: {}, lastTimelineData: timeline, bulkExportArmed: false,
+    songRecorder: null, pendingCaptureOptions: null,
     lastStartExtra: { live: false, songSeed: 1, startAtMs: 999 }, audioEngine: { nowMs: 0 },
     worldForExperience: value => (value === 'trio' ? 'trio' : 'alpine'), tailoredWorldId: id => id,
     applyExperience: value => applied.push(value), fitCanvas() {},

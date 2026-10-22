@@ -10,10 +10,51 @@ function production(name, bindings) {
   assert.ok(declaration >= 0);
   const start = main.slice(0, declaration).endsWith('async ') ? declaration - 6 : declaration;
   const end = main.indexOf('\n}\n', start) + 3;
-  const context = vm.createContext(bindings);
+  const context = vm.createContext({ songRecorder: null, pendingCaptureOptions: null, ...bindings });
   vm.runInContext(main.slice(start, end), context);
   return context;
 }
+
+test('capture fps overrides the live cap and releases it after recording', () => {
+  const context = production('playbackFps', { fpsCapMs: 1000 / 30,
+    songRecorder: { recording: true, settings: { fps: 60 } } });
+  assert.equal(context.playbackFps(), 60);
+  context.songRecorder.recording = false;
+  assert.equal(context.playbackFps(), 30);
+});
+
+test('full source recording retains its sustained tail without live-show fades or ducks', () => {
+  const calls = [];
+  const context = production('applyShowAudio', { fullSongRecording: true,
+    sim: { fracture: { justEnteredFinale: true }, cut: { dropJustCut: true, apotheosisJustCut: true },
+      disasters: { justStruck: true, struckKind: 'quake' }, biomes: { tsunamiJustArrived: true } },
+    audioEngine: { fadeToSilence: () => calls.push('fade'), duck: () => calls.push('duck') },
+    synth: { stopAll: () => calls.push('stop') },
+  });
+  context.applyShowAudio(); assert.deepEqual(calls, []);
+  context.fullSongRecording = false; context.applyShowAudio();
+  assert.deepEqual(calls, ['fade', 'stop', 'duck', 'duck', 'duck', 'duck']);
+});
+
+test('full export ends on the source clock even if the visual finale finishes earlier', () => {
+  const context = production('isSongComplete', { fullSongRecording: true,
+    conductor: { durationMs: 30000 }, sim: { fracture: { isDone: true, finale: { musicalEndMs: 12000 } } } });
+  assert.equal(context.isSongComplete(15000), false);
+  assert.equal(context.isSongComplete(30000), true);
+  context.fullSongRecording = false;
+  assert.equal(context.isSongComplete(15000), true);
+});
+
+test('all seek entry points refuse to rebuild an active recording', () => {
+  let starts = 0;
+  const context = production('seekSong', { running: true, paused: false, playbackPreparing: false,
+    lastAudioBuffer: {}, sim: { songSeed: 315, conductor: { durationMs: 30000 } },
+    renderer: { composer: {}, draw() {} }, lastTimelineData: {}, songRecorder: { recording: true }, pendingCaptureOptions: null,
+    audioEngine: { nowMs: 1000 }, startTimeline() { starts++; }, showErrorBanner() {},
+  });
+  context.seekSong(25000);
+  assert.equal(starts, 0);
+});
 
 function timelineGate(overrides = {}) {
   const owner = main.indexOf('    const owner = sim, ownedRenderer = renderer');
@@ -24,7 +65,7 @@ function timelineGate(overrides = {}) {
   const bindings = { exportMode: false, sim: {}, renderer: {}, rangePresentation: {}, loadGen: 1, running: true,
     playBuffer: {}, waitForLandscape: true, keepAudio: false, lastAudioBuffer: null,
     renderReadyPromise: null, renderPlayback: createRenderReadyPlayback(), waitForScenicReady: async () => {},
-    extra: {}, startedAt: 15950, paused: false, captureClock: { leadMs: 0 },
+    extra: {}, startedAt: 15950, paused: false, captureClock: { leadMs: 0 }, songRecorder: null,
     audioEngine: { playBuffer: () => events.push('source'), resume: () => events.push('resume'),
       pause: () => events.push('pause'), ctx: { suspend: () => events.push('suspend') } },
     acc: 0, lastRafMs: null, lastNowMs: 0, playbackPreparing: false, rafHandle: null,

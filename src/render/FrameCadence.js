@@ -4,7 +4,7 @@ export class FrameCadence {
   constructor() { this.reset(); }
   shouldDraw(nowMs, fps) {
     if (!Number.isFinite(nowMs)) return false;
-    const target = Math.round(fps) === 30 ? 30 : 60, period = 1000 / target;
+    const target = [24, 30, 60].includes(Math.round(fps)) ? Math.round(fps) : 60, period = 1000 / target;
     if (nowMs === this.lastCallback) return false;
     const rebase = this.deadline == null || target !== this.fps || nowMs < this.lastCallback || nowMs - this.lastCallback > 250;
     this.lastCallback = nowMs;

@@ -18,6 +18,8 @@
       <button id="errorBannerClose" type="button" class="errorBannerClose" aria-label="Dismiss">&times;</button>
     </div>
 
+    <div id="exportSaved" class="exportSaved" role="status" hidden></div>
+
     <div id="loader" class="panel titleScreen">
       <div class="titleBg" aria-hidden="true">
         <div class="titleStars"></div>
@@ -56,6 +58,32 @@
           </div>
           <div id="libraryRecent" class="libraryRecent"></div>
           <p id="libraryHomeNote" class="libraryHomeNote hidden"></p>
+        </section>
+
+        <div class="titleQuickActions">
+          <button id="randomSongBtn" type="button" class="ghostbtn randomSongBtn">↝ Random song</button>
+          <span class="hint">A surprise from your music library</span>
+        </div>
+
+        <section id="exportSetup" class="exportSetup" aria-labelledby="exportSetupTitle">
+          <label class="exportToggle" for="exportEnabled">
+            <span><strong id="exportSetupTitle">Export video</strong><small>Save this song’s world from beginning to end</small></span>
+            <input id="exportEnabled" type="checkbox" aria-controls="exportFields" />
+          </label>
+          <fieldset id="exportFields" class="exportFields" hidden>
+            <legend class="sr-only">Video export settings</legend>
+            <div class="exportControls">
+              <label>Resolution<select data-export="resolution" aria-label="Export resolution"></select></label>
+              <label>Aspect ratio<select data-export="aspect" aria-label="Export aspect ratio"></select></label>
+              <label>Frame rate<select data-export="fps" aria-label="Export frame rate"></select></label>
+              <label>Encoding quality<select data-export="encoding" aria-label="Video encoding quality"></select></label>
+              <label class="exportFraming">Framing<select data-export="framing" aria-label="Export framing"></select></label>
+            </div>
+            <div class="exportPreviewWrap"><div id="exportPreview" class="exportPreview" role="img"><div id="exportPreviewScene" class="exportPreviewScene"></div></div><p class="hint">Framing preview</p></div>
+            <p id="exportSummary" class="exportSummary" role="status" aria-live="polite"></p>
+            <p class="hint exportDetailHint">Resolution sets file dimensions. Encoding quality controls compression. General quality in Settings controls scene detail.</p>
+          </fieldset>
+          <p id="exportNote" class="hint exportNote" role="status" aria-live="polite"></p>
         </section>
 
         <div id="dropzone" tabindex="0" role="button" aria-label="Drop or choose a music file">
@@ -150,14 +178,19 @@
 
           
 
+            <div class="generalQualityRow">
+              <label for="generalQuality">General quality <output id="generalQualityValue" for="generalQuality">High</output></label>
+              <input id="generalQuality" type="range" min="0" max="2" step="1" value="2" aria-describedby="generalQualityHint" />
+              <div class="qualityTicks" aria-hidden="true"><span>Low</span><span>Medium</span><span>High</span></div>
+              <p id="generalQualityHint" class="hint">Scene detail and effects. Lower it for smoother playback; video resolution and compression stay separate.</p>
+            </div>
             <div class="resRow displayRow">
               <label for="display-experience">World</label>
               <select id="display-experience" title="Switches the world mid-song; the song keeps playing."><option value="landscape">Landscape</option><option value="trio">Trio</option></select>
               <span id="experience-status" class="hint" role="status" aria-live="polite"></span>
               <label for="display-look">Look</label>
               <select id="display-look"><option value="pixel">Pixel</option><option value="palette">Palette</option></select>
-              <label for="display-quality">Quality</label>
-              <select id="display-quality"><option value="auto">Auto</option><option value="economy">Economy</option></select>
+
               <label for="display-pixelGrid">Pixel detail</label>
               <select id="display-pixelGrid" title="Detailed uses four times the pixel work. Quality remains independent."><option value="classic">Classic — 320×180</option><option value="detailed">Detailed — 640×360</option></select>
               <label><input id="range-tour-toggle" type="checkbox" aria-describedby="range-tour-description range-tour-status"> Camera tour: Tetons</label>
@@ -265,6 +298,7 @@
              screen, where you already know you want to keep this one. -->
         <button id="recordBtn" class="ghostbtn iconbtn recordBtn" type="button" aria-pressed="false"
           title="Record the show to a video file from this moment. Press again to stop and save.">&#9679;</button>
+        <button id="cancelExportBtn" type="button" class="ghostbtn chipbtn hidden">Cancel export</button>
         <span id="recordStatus" class="recordStatus hidden" role="status"></span>
 
         
@@ -346,18 +380,7 @@
         </div>
         <div id="resultsGrid" class="resultsGrid"></div>
         <div id="filmstrip" class="hidden"></div>
-        <!-- Save a video. Populated from RENDER_PRESETS so the sizes have
-             one source of truth, and the note under it states what this
-             browser will actually produce before anyone spends a song on
-             it. -->
-        <div id="completeExport" class="completeExport">
-          <div class="completeExportRow">
-            <label for="exportPreset">Save a video</label>
-            <select id="exportPreset" aria-describedby="exportNote"></select>
-            <button id="exportBtn" type="button" class="ghostbtn">Record full song</button>
-          </div>
-          <p id="exportNote" class="hint completeExportNote"></p>
-        </div>
+
 
         <div class="completeActions">
           <button id="replaySameSeedBtn" type="button">Replay seed</button>

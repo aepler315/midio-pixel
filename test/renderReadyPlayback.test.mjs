@@ -109,3 +109,13 @@ test('only the full destination draw admits semantic scene captures after readin
   assert.deepEqual(captures, [false], 'one complete destination frame owns all semantic captures');
   assert.ok(options.slice(0, -1).every(option => option.preparing));
 });
+test('readiness waits for asynchronous source startup before admitting playback', async () => {
+  const playback = gate();
+  let release;
+  const startup = new Promise(resolve => { release = resolve; });
+  const ready = playback.begin({ hold() {}, prepare() {}, start: () => startup });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(playback.status, 'preparing');
+  release(); await ready;
+  assert.equal(playback.status, 'ready');
+});

@@ -14,8 +14,9 @@ test('actual recording finalization keeps the captured source title across an as
   const namesUsed = [], downloads = [], order = [];
   const context = vm.createContext({
     sessionSongName,
-    songRecorder: { recording: true, stop() { order.push('stop'); return stopped; } },
-    pendingCapturePresetId: null,
+    songRecorder: { recording: true, stop(options) { assert.equal(options.drain, true); order.push('stop'); return stopped; } },
+    pendingCaptureOptions: null, fullSongRecording: true,
+    document: { getElementById: () => ({}) }, setTimeout() {},
     captureClock: { release() { order.push('release'); } }, audioEngine: { nowMs: 5000 },
     lastTimelineData: { sourceTrack: { title: 'Source A' }, lyricIdentity: { title: 'Tagged A' }, sourceFileName: 'a.wav' },
     lastSongName: 'legacy-a.wav', syncRecordUI() {}, setExportNote() {}, describeResult: () => 'recorded',

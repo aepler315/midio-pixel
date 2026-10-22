@@ -21,8 +21,9 @@ export function fitPixelRect(srcW, srcH, dstW, dstH, scaling = 'fit', origin = {
 
 /** Recompose at the destination resolution: smooth sky, nearest native
  * foreground. Recording must not resample the already combined picture. */
-export function compositePixelFrame(ctx, source, width, height, scaling, background = null) {
-  const fit = fitPixelRect(source.width, source.height, width, height, scaling);
+export function compositePixelFrame(ctx, source, width, height, scaling, background = null, destination = null) {
+  const fit = destination ? { ...destination, scale: destination.width / source.width }
+    : fitPixelRect(source.width, source.height, width, height, scaling);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
   ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, width, height);

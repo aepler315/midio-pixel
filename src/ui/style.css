@@ -2983,3 +2983,37 @@ html, body {
 .plexPanel :focus-visible { outline: 3px solid #b1e2ff; outline-offset: 2px; }
 .plexPanel [hidden] { display: none; }
 @media (max-height: 540px) { .plexPanel { padding: 12px 18px; } .plexHead h2 { font-size: 20px; margin: 0; } .plexSearchLabel { margin-top: 4px; } .plexTabs, .plexCrumbs, .plexFoot { margin-top: 6px; } .plexList { max-height: 30dvh; } .plexStatus { margin: 7px 0; } }
+
+
+/* Choose playback and recording before the music starts. */
+.titleQuickActions { display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin:20px 0 14px; }
+.randomSongBtn { border-color:#82c2b6; color:#c9f5df; padding:12px 20px; }
+.exportSetup { border:1px solid #a1b5d342; border-radius:16px; background:#102132b8; padding:18px; margin:14px 0 22px; text-align:left; }
+.exportFields legend { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+.exportToggle { display:flex; justify-content:space-between; align-items:center; gap:18px; cursor:pointer; }
+.exportToggle strong { display:block; color:#e8f0ff; font-size:16px; }
+.exportToggle small { display:block; color:#acbdd1; margin-top:5px; font-size:12px; line-height:1.5; }
+.exportToggle input { width:23px; height:23px; flex:none; accent-color:#96debf; cursor:pointer; }
+.exportFields { margin:18px 0 0; padding:18px 0 0; border:0; border-top:1px solid #a1b5d32b; display:grid; grid-template-columns:minmax(0,1fr) 108px; gap:14px 22px; min-width:0; }
+.exportFields[hidden] { display:none; }
+.exportControls { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; min-width:0; }
+.exportControls label { display:flex; flex-direction:column; gap:7px; color:#bacee1; font-size:12px; min-width:0; }
+.exportControls select { width:100%; min-width:0; padding:9px 8px; border:1px solid #9ab5ce50; border-radius:7px; background:#152b3d; color:#eef4ff; font:inherit; }
+.exportControls select:focus-visible,.exportToggle input:focus-visible,.generalQualityRow input:focus-visible { outline:2px solid #ade9cb; outline-offset:4px; }
+.exportFraming { grid-column:1/-1; }
+.exportPreviewWrap { align-self:center; min-width:0; }
+.exportPreview { width:100%; max-height:190px; position:relative; overflow:hidden; background:#030910; border:1px solid #8eb4c55c; border-radius:6px; }
+.exportPreviewScene { position:absolute; background:linear-gradient(#4e7296 0%,#abc5c8 62%,#4d7884 63%,#284858); }
+.exportPreviewScene:after { content:''; position:absolute; inset:23% 0 22%; background:#234654; clip-path:polygon(0 100%,0 65%,20% 15%,34% 61%,55% 0,75% 67%,88% 31%,100% 70%,100% 100%); }
+.exportPreviewWrap .hint { text-align:center; font-size:10px; }
+.exportSummary,.exportDetailHint { grid-column:1/-1; margin:0; }
+.exportSummary { color:#c4f1dd; font-size:12px; font-variant-numeric:tabular-nums; }
+.exportNote { margin:10px 0 0; line-height:1.6; font-size:11px; }
+.generalQualityRow { margin:20px 0; max-width:460px; }
+.generalQualityRow>label { display:flex; justify-content:space-between; gap:16px; font-size:13px; color:#c6d6e7; }
+.generalQualityRow output { color:#b8edcd; }
+.generalQualityRow input { width:100%; margin:16px 0 7px; accent-color:#a5dfc0; cursor:pointer; }
+.qualityTicks { display:flex; justify-content:space-between; font-size:11px; color:#99aec3; }
+.exportSaved { position:fixed; z-index:120; bottom:22px; left:50%; transform:translateX(-50%); width:max-content; max-width:calc(100vw - 36px); padding:14px 20px; border:1px solid #9edbbf88; border-radius:12px; background:#102d25f2; color:#def9ea; font-size:12px; box-shadow:0 8px 40px #0005; }
+.exportSaved[hidden] { display:none; }
+@media(max-width:520px) { .exportSetup { padding:15px; } .exportFields { grid-template-columns:minmax(0,1fr) 68px; gap:14px 12px; } .exportControls { grid-template-columns:1fr; } .exportToggle small { font-size:11px; } .titleQuickActions { align-items:flex-start; flex-direction:column; gap:5px; } }
