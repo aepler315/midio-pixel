@@ -134,6 +134,7 @@ export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpu
   ctx.clearance = buildClearance(ctx, config.clearance);
   ctx.heightAt = (x, z) => heightAt(ctx.grid, x, z);
   ctx.lenses = config.lensFovYDeg; ctx.standoffM = config.clearance.subjectStandoffM; ctx.boundaryMarginM = config.clearance.boundaryMarginM;
+  await terrainPolicy(ctx, config, log);
   // The tour stays in one coherent area around what the authored rail
   // frames (and the region's heroes): subjects and moves outside it would
   // only connect through long transits and pull in far terrain.
@@ -207,6 +208,7 @@ export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpu
     // Each candidate's terrain footprint (the stride the baker gives each
     // tile it sees): what it would cost beyond the shipped package.
     const cost = strideCost(ctx), scale = config.budget.poseErrorScale ?? 4;
+    cost.coverageOnly = ctx.coverageOnly;
     // The rail costs nothing: its approved package covers it, reflections included.
     const prints = await Promise.all(second.map((c) => (c.move === 'rail' ? [] : pool.score('footprint', c.path, { scale }))));
     second.forEach((c, i) => { c.footprint = new Map(prints[i]); c.missing = prints[i].map(([t]) => t).filter((t) => cost.shipped(t) == null); });
@@ -324,7 +326,9 @@ export async function reselectViewTours(viewId, { out, workers = Math.max(2, os.
   const ctx = await loadViewContext(viewId, { root });
   const graph = await readGraphCache(out);
   ctx.focus = graph.focus;
+  await terrainPolicy(ctx, config, log);
   const cost = strideCost(ctx), scale = config.budget.poseErrorScale ?? 4;
+  cost.coverageOnly = ctx.coverageOnly;
   const pool = new ScorePool(viewId, workers);
   await pool.ready;
   try { return await selectLibrary(viewId, { ctx, config, pool, cost, scale, graph, out, t0, log }); } finally { await pool.close(); }
@@ -372,6 +376,23 @@ export function trimShot(c, [a, b], motion) {
   const payoffS = clamp(c.payoffS - a, 0, len);
   const holdS = [Math.min(payoffS, clamp(c.holdS[0] - a, 0, len)), Math.max(payoffS, clamp(c.holdS[1] - a, 0, len))];
   return { ...c, path, lengthM: len, payoffS, holdS, cutS: [a, b], durationMs: durationRange(path, path.flow, motion) };
+}
+
+/**
+ * Whether the view's package may be rebaked. The rail-only bake must
+ * reproduce the shipped package; when it does not, the DEM source has
+ * drifted since approval and a rebake would change the approved rail. Such
+ * a region keeps its package (coverage only: shots and links whose terrain
+ * the shipped package already holds at enough detail) unless its config
+ * allows the rebake (region.rebakeOnDrift, set only with rail-parity
+ * evidence that the rail renders the same). region.coverageOnly forces it.
+ */
+export async function terrainPolicy(ctx, config, log = console.log) {
+  const rail = await bakeTerrain(ctx.grid, ctx.build.view, bakeOptions(ctx));
+  ctx.drift = rail.manifest.payload.sha256 !== ctx.terrain.manifest.payload.sha256;
+  ctx.coverageOnly = !!config.region.coverageOnly || (ctx.drift && !config.region.rebakeOnDrift);
+  if (ctx.drift) log(`${ctx.viewId}: the rail-only bake differs from the shipped package (source drift); ${ctx.coverageOnly ? 'coverage only: the package is kept' : 'rebake allowed by region.rebakeOnDrift'}`);
+  else if (ctx.coverageOnly) log(`${ctx.viewId}: coverage only (region.coverageOnly)`);
 }
 
 /** Straight distance from a shot's exit to another's entry (NaN without paths). */
@@ -454,6 +475,7 @@ function selection(config, cost, chosen) {
     if (cost) {
       const held = extra.length ? extra.reduce((m, x) => cost.own(x.footprint || new Map(), m), new Map(paid)) : paid;
       bytes = cost.marginal(c.footprint || new Map(), held);
+      if (cost.coverageOnly && bytes > 0) return null;
       const before = extra.reduce((n, x) => n + (x.bytes || 0), 0);
       // Links add about a quarter again to the shots' terrain; each shot
       // brings its own record and about three links.
@@ -613,7 +635,7 @@ export function paretoFront(pairs) {
 /** Pareto per pair, then at most maxLinksPerShot per origin, preferring
  *  distinct destinations and keeping each destination reachable. */
 export function selectLinks(pairs, shots, config, cost = null) {
-  const front = paretoFront(pairs);
+  const front = paretoFront(pairs).filter((l) => !cost?.coverageOnly || cost.marginal(l.footprint || new Map()) === 0);
   const out = [];
   // A link's worth is its scenery per second it costs the song, less the
   // new terrain it would add beyond the shots' own.
@@ -746,7 +768,7 @@ export async function bakeForLibrary(ctx, library, config, { log = console.log }
   const scale = config.budget.poseErrorScale ?? 3, check = { errorPx: scale, extendedErrorPx: 3 * scale };
   const shipped = validatePoses(ctx, poses, check);
   log(`${ctx.viewId}: ${poses.length} footprint poses${mirrorLevelM != null ? ` (mirror at ${mirrorLevelM.toFixed(1)} m)` : ''}; shipped package: ${shipped.holes.length} poses with holes, ${shipped.lod.length} LOD violations`);
-  if (shipped.ok) return { rebaked: false, validation: shipped, poses };
+  if (shipped.ok || ctx.coverageOnly) return { rebaked: false, validation: shipped, poses };
   // The rail-only bake must reproduce the shipped heights, or the source
   // has drifted since the view was approved (reported, not hidden).
   const rail = await bakeTerrain(ctx.grid, ctx.build.view, bakeOptions(ctx));
@@ -766,6 +788,7 @@ export async function bakeForLibrary(ctx, library, config, { log = console.log }
 /** Budget problems for a candidate library + terrain (empty = within). */
 export async function budgetErrors(ctx, config, packed, bake) {
   const errors = [], b = config.budget;
+  if (!bake.rebaked && !bake.validation.ok) errors.push(`not covered by the shipped package (${bake.validation.holes.length} poses with holes, ${bake.validation.lod.length} LOD violations)`);
   const added = (bake.rebaked ? bake.budget.addedBytes : 0) + Buffer.byteLength(packed.manifestText) + packed.payload.byteLength;
   if (added > b.assetBytes) errors.push(`adds ${added} bytes, over the region's ${b.assetBytes}`);
   if (bake.rebaked && bake.budget.desktopTriangles > b.desktopTriangles) errors.push(`desktop ${bake.budget.desktopTriangles} triangles, over ${b.desktopTriangles}`);
