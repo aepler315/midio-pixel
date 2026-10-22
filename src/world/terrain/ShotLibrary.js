@@ -50,6 +50,8 @@ export function shotLibraryErrors(m, { viewId = null, decodedByteLength = null }
   if (!Number.isInteger(length) || length <= 0 || (decodedByteLength !== null && length !== decodedByteLength)) fail('decoded length');
   for (const key of ['sha256', 'decodedSha256']) if (!/^[a-f0-9]{64}$/.test(m.payload?.[key] || '')) fail(`payload ${key}`);
   if (!(m.payload?.byteLength > 0) || typeof m.payload?.url !== 'string') fail('payload metadata');
+  // Optional region motion tunables (data/terrain/scenic-tours.json defaults.motion + overrides).
+  if (m.motion != null && (typeof m.motion !== 'object' || !Object.values(m.motion).every((v) => typeof v === 'number' && v > 0))) fail('motion');
   if (!Array.isArray(m.subjects) || !Array.isArray(m.shots) || !Array.isArray(m.links)) return [...errors, 'library arrays'];
   if (!m.shots.length) fail('no shots');
   const subjects = new Set(), ids = new Set(), ranges = [];

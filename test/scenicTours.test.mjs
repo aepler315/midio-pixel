@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { refinePayoff, durationRange, selectShots, selectLinks, regionConfig, focusArea, inFocus } from '../tools/build-scenic-tours.mjs';
+import { refinePayoff, durationRange, selectShots, selectLinks, regionConfig, focusArea, inFocus, steadyLook, linkLibrary, costliestShot, estimatedBytes } from '../tools/build-scenic-tours.mjs';
+import { TILE_BYTES } from '../tools/lib/scenic-cost.mjs';
 import { samplePath } from '../src/world/terrain/ShotPath.js';
 
 const config = regionConfig({
@@ -54,4 +55,39 @@ test('the focus area centres between the rail target and the heroes', () => {
   assert.equal(f.radiusM, 6000, 'the butte landform keeps a compact area');
   const p = samplePath({ eyes: [[0, 500, 0], [20000, 500, 0]], aims: [[0, 400, -5000], [20000, 400, -5000]], fovs: 30 });
   assert.equal(inFocus(p, f), false);
+});
+
+test('a path that looks straight down anywhere is unusable', () => {
+  const level = samplePath({ eyes: [[0, 500, 0], [1000, 500, 0]], aims: [[0, 400, -5000], [1000, 400, -5000]], fovs: 30 });
+  assert.equal(steadyLook(level), true);
+  const over = samplePath({ eyes: [[-600, 2000, 0], [0, 2000, 0], [600, 2000, 0]], aims: [[-300, 0, 0], [0, 0, 1], [300, 0, 0]], fovs: 30 });
+  assert.equal(steadyLook(over), false);
+});
+
+// Stub cost model: a footprint maps tile -> stride directly.
+const stubCost = { own(fp, owned) { for (const [t, s] of fp) if (!(owned.get(t) <= s)) owned.set(t, s); return owned; }, shipped: () => null,
+  marginal(fp, owned = new Map()) { let b = 0; for (const [t, s] of fp) if (!(owned.get(t) <= s)) b += TILE_BYTES[s] - (owned.has(t) ? TILE_BYTES[owned.get(t)] : 0); return b; } };
+
+test('dropping a shot re-links the rest from every scored pair instead of stranding them', () => {
+  const cfg = { ...config, discovery: { ...config.discovery, maxLinksPerShot: 1 } };
+  const shot = (id) => ({ id, move: 'traverse', missing: [], footprint: new Map(), score: { total: 0.5 }, traits: { elevation: 'low' } });
+  const [a, b, c] = ['a', 'b', 'c'].map(shot);
+  const link = (from, to, total) => ({ from, to, kind: 'direct', lengthM: 1000, score: { total, holes: 0 }, durationMs: { ideal: 20000 }, missing: [], footprint: new Map() });
+  const pairs = [link(a, b, 0.9), link(b, a, 0.9), link(a, c, 0.3), link(c, a, 0.3), link(b, c, 0.8), link(c, b, 0.8)];
+  const full = linkLibrary([a, b, c], pairs, cfg, stubCost);
+  assert.equal(full.shots.length, 3);
+  assert.ok(!full.links.some((l) => l.from === a && l.to === c), 'a leaves for b while b is there');
+  const without = linkLibrary([a, c], pairs, cfg, stubCost);
+  assert.deepEqual(without.shots.map((s) => s.id), ['a', 'c'], 'a and c stay, joined by the links they were not using');
+  assert.ok(without.links.some((l) => l.from === a && l.to === c) && without.links.some((l) => l.from === c && l.to === a));
+});
+
+test('the shot dropped first is the one whose terrain is most its own per unit of score and rarity', () => {
+  const shot = (id, total, footprint, move = 'traverse') => ({ id, move, score: { total }, traits: { elevation: 'low' }, subjectId: 's', footprint: new Map(footprint) });
+  const cheap = shot('cheap', 0.5, [[1, 4], [2, 4]]), dear = shot('dear', 0.5, [[3, 1], [4, 1]]), shared = shot('shared', 0.5, [[1, 4]]);
+  const library = { shots: [cheap, dear, shared], links: [] };
+  assert.equal(estimatedBytes(library.shots, stubCost), 2 * TILE_BYTES[4] + 2 * TILE_BYTES[1]);
+  assert.equal(costliestShot(library, stubCost).shot, dear);
+  const rare = shot('dear', 0.5, [[3, 1], [4, 1]], 'reveal');
+  assert.equal(costliestShot({ shots: [cheap, rare, shared], links: [] }, stubCost).shot.id, 'dear', 'rarity softens but does not hide a 14 KB cost');
 });

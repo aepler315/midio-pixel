@@ -33,6 +33,40 @@ export function songInputs(structure, file = null) {
     roles: d.roles, energy: Float32Array.from(d.energy), energyStepMs: d.energyStepMs };
 }
 
+/**
+ * Motion as the viewer sees it, measured on the drawn camera independently
+ * of the timeline's own diagnostics: poseAt sampled at `hz`, eye velocity
+ * by central differences, acceleration (vector, so turns count) and yaw
+ * rate over `windowMs`. Returns max and 99th percentile of each with the
+ * time and item of the worst frame, and the eye speed per item.
+ */
+export function motionAudit(timeline, { hz = 60, windowMs = 100 } = {}) {
+  const dt = 1 / hz, n = Math.floor((timeline.durationMs / 1000) * hz), w = Math.max(1, Math.round((windowMs / 1000) * hz / 2));
+  const eye = [], yaw = [];
+  for (let k = 0; k <= n; k++) {
+    const p = timeline.poseAt((k * 1000) / hz);
+    eye.push(p.eyeM); yaw.push(Math.atan2(p.targetM[0] - p.eyeM[0], -(p.targetM[2] - p.eyeM[2])));
+  }
+  const vel = eye.map((_, k) => (k === 0 || k === n ? null : eye[k + 1].map((v, i) => (v - eye[k - 1][i]) / (2 * dt))));
+  const stat = () => ({ values: [], worst: null });
+  const acc = stat(), turn = stat(), speed = [];
+  for (let k = 1; k < n; k++) speed[k] = Math.hypot(...vel[k]);
+  for (let k = 1 + w; k < n - w; k++) {
+    const a = Math.hypot(...vel[k + w].map((v, i) => v - vel[k - w][i])) / (2 * w * dt);
+    const y = Math.abs(((yaw[k + w] - yaw[k - w]) * 180 / Math.PI + 540) % 360 - 180) / (2 * w * dt);
+    for (const [st, v] of [[acc, a], [turn, y]]) { st.values.push(v); if (!st.worst || v > st.worst.v) st.worst = { v, k }; }
+  }
+  const summary = (st) => {
+    const sorted = Float64Array.from(st.values).sort(), at = st.worst ? (st.worst.k * 1000) / hz : null;
+    return { max: st.worst?.v ?? 0, p99: sorted[Math.floor(0.99 * (sorted.length - 1))] ?? 0, atMs: at, item: at == null ? null : timeline.stateAt(at).id };
+  };
+  const legs = (timeline.items || []).filter((it) => it.endMs > (timeline.startMs ?? 0)).map((it) => {
+    const ks = speed.map((v, k) => [v, (k * 1000) / hz]).filter(([v, t]) => v != null && t >= it.startMs && t < it.endMs).map(([v]) => v);
+    return { kind: it.kind, id: it.id, startMs: it.startMs, endMs: it.endMs, meanSpeedMps: ks.length ? ks.reduce((a, b) => a + b, 0) / ks.length : 0 };
+  });
+  return { accelMps2: summary(acc), yawDegPerSec: summary(turn), legs };
+}
+
 /** Plan + timeline + a readable report. */
 export function replay(library, inputs, { seed = 315, visible = null } = {}) {
   const t0 = performance.now();
@@ -52,7 +86,7 @@ export function replay(library, inputs, { seed = 315, visible = null } = {}) {
     return { ...p, plannedMs: near?.payoffMs ?? null, errorMs: near ? near.payoffMs - p.timeMs : null, shot: near?.id ?? null, move: near?.move ?? null };
   });
   return { plan, timeline, planMs: t1 - t0, timelineMs: t2 - t1, shots, payoffs, moments: plan.moments, notes: plan.notes,
-    diagnostics: timeline.diagnostics, fallback: plan.fallback };
+    diagnostics: timeline.diagnostics, audit: motionAudit(timeline), fallback: plan.fallback };
 }
 
 async function main() {
@@ -67,6 +101,8 @@ async function main() {
   }
   for (const p of r.payoffs) console.log(`  ${p.kind} at ${(p.timeMs / 1000).toFixed(1)} s -> planned payoff ${p.plannedMs == null ? 'none' : `${(p.plannedMs / 1000).toFixed(2)} s (${p.errorMs >= 0 ? '+' : ''}${p.errorMs} ms, ${p.move})`}`);
   console.log('  diagnostics', JSON.stringify(r.diagnostics));
+  const { accelMps2: a, yawDegPerSec: y } = r.audit;
+  console.log(`  drawn camera at 60 Hz: accel max ${a.max.toFixed(2)} (p99 ${a.p99.toFixed(2)}) m/s2 at ${(a.atMs / 1000).toFixed(2)} s in ${a.item}; yaw max ${y.max.toFixed(1)} (p99 ${y.p99.toFixed(1)}) deg/s at ${(y.atMs / 1000).toFixed(2)} s in ${y.item}`);
   if (r.notes?.length) console.log('  notes', r.notes.slice(0, 8).join(' | '));
   if (opt('--out')) await fs.writeFile(path.resolve(opt('--out')), JSON.stringify({ ...r, plan: { ...r.plan, moments: undefined }, timeline: undefined }, null, 1));
 }

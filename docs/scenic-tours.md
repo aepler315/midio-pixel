@@ -191,12 +191,22 @@ audio, a checkpoint sheet and an index of timestamps and camera state.
 ### Selection and budgets
 
 Discovery judges scenery on the full DEM; a tile the shipped package lacks
-is not a flaw of a shot but a cost. Every scored candidate records the
-tiles its frames need beyond the package; selection charges a shot (and a
-link) for the new tiles it adds (`discovery.tileWeight` per 100 tiles), and
-`fitToBudget` bakes the library's footprint, measures the added bytes and
-triangles against the region's caps and the shared 60 MB, and drops the
-shot whose terrain is most its own per unit of score until the region fits.
+is not a flaw of a shot but a cost. Every scored candidate records its
+footprint: per DEM tile, the sharpest focal length over view depth any of
+its frames has on it. The baker gives a tile the coarsest stride whose
+measured error stays within the pixel budget at that sharpness, so the
+stride and the tile's compressed bytes follow from the DEM alone
+(`tools/lib/scenic-cost.mjs`; bytes per stride measured on posed bakes).
+Selection charges a shot (and a link) for the bytes its detail adds beyond
+the shipped package and the shots already chosen (`discovery.byteWeight`
+of score per 100 KB) and stops short of the region's byte budget.
+`fitToBudget` then bakes the library's footprint and measures the added
+bytes and triangles against the region's caps and the shared 60 MB. While
+over, it calibrates the estimate on that bake, drops the shot whose terrain
+is most its own per unit of score and rarity (the only reveal, the only high
+shot or the only shot of a subject is worth more), and chooses the links
+afresh from every scored pair among the shots that remain, so a drop never
+strands the shots that were reached through it.
 Tiles only tour cameras see are held to `budget.poseErrorScale` times the
 rail's pixel budget (the app presents terrain on a 320×180 or 640×360
 pixel grid); tiles the rail sees keep their approved detail.

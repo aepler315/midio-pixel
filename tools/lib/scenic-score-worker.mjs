@@ -9,6 +9,7 @@ import { parentPort, workerData } from 'node:worker_threads';
 import { loadViewContext, depthRaster } from './scenic-terrain.mjs';
 import { scorePath, linkScore } from './scenic-score.mjs';
 import { pathPoseAt } from '../../src/world/terrain/ShotPath.js';
+import { pathFootprint } from './scenic-cost.mjs';
 
 const ctx = await loadViewContext(workerData.viewId, { root: workerData.root });
 const dem = { ...ctx, terrain: null };
@@ -26,6 +27,10 @@ function missing(path, { everyM = 150, width = 96, height = 54 } = {}) {
 parentPort.on('message', ({ id, kind, path, opts }) => {
   try {
     if (kind === 'missing') { parentPort.postMessage({ id, result: missing(path, opts) }); return; }
+    if (kind === 'footprint') {
+      const fp = pathFootprint(dem, path, (pose, o) => depthRaster(dem, pose, o), opts);
+      parentPort.postMessage({ id, result: [...fp] }); return;
+    }
     const result = kind === 'link' ? linkScore(dem, path, opts) : scorePath(dem, path, opts);
     parentPort.postMessage({ id, result: { aggregate: result.aggregate, flow: result.flow, signature: result.signature,
       samples: result.samples.map((s) => ({ s: s.s, composition: s.composition, subject: s.subject, depth: s.depth,
