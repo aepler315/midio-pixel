@@ -265,6 +265,7 @@ export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpu
         const total = c.move === 'rail' || gate.pass ? renderedTotal(c.score.total, r.score) * gate.factor : 0;
         c.score = { ...c.score, dem: c.score.total, render: r.score, sharp: gate.factor, total };
         if (c.move !== 'rail') for (const why of gate.reasons) reasons.set(why, (reasons.get(why) || 0) + 1);
+        if (c.move !== 'rail' && gate.pass && total === 0) reasons.set('render near empty', (reasons.get('render near empty') || 0) + 1);
       }
       const weak = second.filter((c) => c.move !== 'rail' && c.score.total === 0).length;
       funnel.discovery.renderGate = { dropped: weak, reasons: Object.fromEntries(reasons) };

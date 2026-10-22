@@ -50,6 +50,7 @@
       "hero": ["Denali"]
     },
     "tombstone-north-klondike": {
+      "blocker": "Source drift: the rail-only bake no longer reproduces the approved package (a rebake changes 3.3% of rail pixels), so the package is kept, and it covers no tour shot. Needs the DEM source re-pinned to the approved build (or the rebaked rail re-reviewed and re-approved); then rebuild with scenic tours.",
       "status": "candidate",
       "landform": "alpine",
       "notes": "Granite spires of the Tombstone Range above tundra valleys of the North Klondike.",
