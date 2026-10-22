@@ -34,7 +34,10 @@ export async function openEvaluationSong(browser, { url, audioPath, settings, di
       isExpectedRequestFailure: settings.tour === 'tetons' ? expectedTourPreparationFailure : undefined });
     const entry = new URL(url);
     for (const [key, value] of Object.entries({ bulkExport: 1, exportW: settings.width, exportH: settings.height,
-      experience: settings.experience, rangeRenderer: 'v2', rangeTour: settings.tour || 'off', rangeView: settings.view, seed: settings.seed, perf: 'high' })) {
+      // An unset tour leaves the page's default camera (shot tours where
+      // approved); VISUAL_RANGE_SHOTS=all also lets candidate libraries play.
+      experience: settings.experience, rangeRenderer: 'v2', rangeTour: settings.tour, rangeView: settings.view, seed: settings.seed, perf: 'high',
+      rangeShots: process.env.VISUAL_RANGE_SHOTS === 'all' ? 'all' : undefined })) {
       if (value != null) entry.searchParams.set(key, value);
     }
     for (const [key, value] of Object.entries(settings.debug || {})) if (value != null) entry.searchParams.set(key, value);
@@ -110,6 +113,16 @@ export async function renderEvaluationFrame(page, point, settings) {
           exposure: prepared?.uniforms?.uExposure?.value ?? null, lightDir: prepared?.uniforms?.uLightDir?.value?.toArray?.() ?? null,
           cameraPos: prepared?.uniforms?.uCameraPos?.value?.toArray?.() ?? null, horizonSize: prepared?.uniforms?.uHorizonSize?.value?.toArray?.() ?? null, forestKeep: prepared?.uniforms?.uForestKeep?.value ?? null,
           mirror: prepared?.uniforms?.uMirrorAmount?.value ?? null, shafts: !!scene?.shafts, trees: prepared?.stats?.trees ?? null };
+      })(),
+      // The perspective camera the scenic partitions were drawn with, and the
+      // tour shot that placed it (null on an authored rail).
+      camera: (() => {
+        const presentation = sim.biomes.rangePresentation, cam = presentation?.scene?.camera;
+        if (!cam?.position) return null;
+        const e = cam.matrixWorld?.elements;
+        return { eyeM: cam.position.toArray(), forward: e ? [-e[8], -e[9], -e[10]] : null, fovYDeg: cam.fov, aspect: cam.aspect,
+          near: cam.near, far: cam.far, viewOffset: cam.view?.enabled ? { ...cam.view } : null,
+          shot: presentation?.shotState?.(state.viewId, sim.heardTimeMs) ?? null };
       })(),
       generation: smw.generation, seed: smw.songSeed };
   }, { point, settings });

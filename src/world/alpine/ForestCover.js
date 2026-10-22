@@ -131,10 +131,75 @@ function railDistance(a, b, p) {
   return Math.hypot(p[0] - a[0] - ab[0] * t, p[1] - a[1] - ab[1] * t, p[2] - a[2] - ab[2] * t);
 }
 
+/** Distance to every eye path the view's camera can take: the authored rail,
+ * plus each `view.cameraPaths` polyline ([[x, y, z], ...], a shot library's
+ * footprint) when present. Without footprint polylines this is the rail's
+ * own function, unchanged. */
+function forestRail(view) {
+  const rail = authoredRail(view);
+  const lines = (view.cameraPaths || []).filter((line) => line?.length);
+  if (!lines.length) return rail;
+  // One malformed point would make every distance NaN, which neither the
+  // tile cull nor the ring cut ever rejects: refuse it.
+  for (const line of lines) {
+    for (const p of line) {
+      if (!(p?.length >= 3 && Number.isFinite(p[0]) && Number.isFinite(p[1]) && Number.isFinite(p[2]))) {
+        throw new Error(`forest: ${view.id} cameraPaths point [${p}] is not a finite [x, y, z]`);
+      }
+    }
+  }
+  const near = polylineDistance(lines);
+  return p => near(p, rail(p));
+}
+
+/** min(bound, exact distance from p to a set of polylines). Placement asks
+ * once per candidate tree and a footprint has thousands of segments, so the
+ * segments sit in a bounding-box tree (median splits on the longest axis)
+ * and whole boxes no nearer than the best so far are skipped. */
+function polylineDistance(lines) {
+  const segments = [];
+  for (const line of lines) {
+    if (line.length === 1) segments.push([line[0], line[0]]);
+    for (let i = 1; i < line.length; i++) segments.push([line[i - 1], line[i]]);
+  }
+  const build = (list) => {
+    const b = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+    for (const s of list) for (const q of s) for (let k = 0; k < 3; k++) { b[k] = Math.min(b[k], q[k]); b[k + 3] = Math.max(b[k + 3], q[k]); }
+    if (list.length <= 4) return { b, list };
+    const axis = [1, 2].reduce((m, k) => (b[k + 3] - b[k] > b[m + 3] - b[m] ? k : m), 0);
+    list.sort((s, t) => s[0][axis] + s[1][axis] - t[0][axis] - t[1][axis]);
+    return { b, kids: [build(list.slice(0, list.length >> 1)), build(list.slice(list.length >> 1))] };
+  };
+  const root = build(segments), stack = [];
+  const box2 = (b, p) => Math.max(b[0] - p[0], 0, p[0] - b[3]) ** 2 + Math.max(b[1] - p[1], 0, p[1] - b[4]) ** 2 + Math.max(b[2] - p[2], 0, p[2] - b[5]) ** 2;
+  return (p, bound) => {
+    let best2 = bound * bound;
+    stack.length = 0;
+    stack.push(root);
+    while (stack.length) {
+      const node = stack.pop();
+      if (box2(node.b, p) >= best2) continue;
+      if (node.kids) {
+        // Nearer box last, so it is searched first and tightens the bound.
+        const [a, b] = node.kids;
+        if (box2(a.b, p) < box2(b.b, p)) stack.push(b, a); else stack.push(a, b);
+        continue;
+      }
+      for (const [a, b] of node.list) {
+        const d0 = b[0] - a[0], d1 = b[1] - a[1], d2 = b[2] - a[2], x = p[0] - a[0], y = p[1] - a[1], z = p[2] - a[2];
+        const length2 = d0 * d0 + d1 * d1 + d2 * d2;
+        const t = length2 > 0 ? Math.max(0, Math.min(1, (x * d0 + y * d1 + z * d2) / length2)) : 0;
+        best2 = Math.min(best2, (x - t * d0) ** 2 + (y - t * d1) ** 2 + (z - t * d2) ** 2);
+      }
+    }
+    return Math.min(bound, Math.sqrt(best2));
+  };
+}
+
 /** Conservative distance to the authored eye path. For a quadratic rail,
  * each of 32 chords deviates by at most |arc|/32² metres; subtracting that
  * bound keeps stands at a ring's edge while retaining straight-rail parity. */
-function forestRail(view) {
+function authoredRail(view) {
   if(view.tour){
     const start=view.tourWindowStartMs||0,end=Math.min(view.tour.durationMs,start+8000);
     const poses=pathStations({tour:{durationMs:end-start,poseAt:t=>view.tour.poseAt(start+t)}},17).map(p=>p.eyeM);

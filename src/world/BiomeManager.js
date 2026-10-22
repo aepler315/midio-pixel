@@ -2680,7 +2680,7 @@ export class BiomeManager {
     if (!separateSky) {
     // The infinite sky shares the ordinary Range lens. Tour bodies already
     // use its projected world directions, so they must not be scaled twice.
-    const skyLens = v2 && !this.rangePresentation?.tourMode && !this.rangePresentation?.skyPan?.skyCamera
+    const skyLens = v2 && !this.rangePresentation?.tourMode && !this.rangePresentation?.skyPan?.skyCamera && !this.rangePresentation?.skyPan?.tourPose
       ? this.rangePresentation?.frame?.cameraEffects?.halfAngleScale || 1 : 1;
     ctx.translate(canvas.width / 2, canvas.height / 2);
     ctx.scale(1 / skyLens, 1 / skyLens);

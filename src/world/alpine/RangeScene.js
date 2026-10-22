@@ -561,6 +561,16 @@ export class RangeScene {
     this._invalidateTourWindows(p);
   }
 
+  /** A shot tour's camera timeline for a prepared static view (null: its
+   *  authored rail). Prepared resources were built for the library's
+   *  footprint, so swapping a song's plan touches no GPU state. */
+  setCameraTour(viewId, tour) {
+    const p = this.prepared.get(viewId);
+    if (!p || p.windowCache || p.cameraTour === tour) return;
+    p.cameraTour = tour || null;
+    this._movedPoses = new WeakMap();
+  }
+
   _invalidateTourWindows(p, { keepDetail = false } = {}) {
     const active = p.activeWindow;
     p.detailHeldWindow = keepDetail && active && !active.coarse
@@ -1568,7 +1578,8 @@ export class RangeScene {
    *  partition passes and the sky (RangePresentation._skyPan). */
   movedPose(view, frame, p = this.prepared.get(view.id) || null) {
     if (p?.windowCache) this._updateTourCoverage(p, frame);
-    const baseRail = scenePoseAt(view, { progress01: view.glacier ? (frame.glacier?.journey01 ?? frame.progress01) : frame.progress01, timeMs: frame.timeMs });
+    const baseRail = scenePoseAt(view, { progress01: view.glacier ? (frame.glacier?.journey01 ?? frame.progress01) : frame.progress01, timeMs: frame.timeMs,
+      tour: p?.cameraTour || view.tour });
     const rail = { ...baseRail, fovYDeg: applyLensFov(baseRail.fovYDeg, frame.cameraEffects) };
     const proj = scenicProjection(rail.fovYDeg, frame.scenicViewport);
     // This view's VISIBLE frustum (the overscan margin excluded): the
@@ -1744,10 +1755,11 @@ export class RangeScene {
       tSec: frame.timeMs / 1000, calm01: 1 - (frame.music?.groove ?? 0),
       sea01: Math.max(frame.cloudSea01 ?? 0, amounts[2] * .3, u.uMidioCloud.value * amounts[0] * .3), cameraY: this.camera.position.y });
     const quality = rangeQuality(frame.qualityLevel);
-    if (p.view.tour) {
+    const cameraTour = p.view.tour || p.cameraTour;
+    if (cameraTour) {
       // The ceiling follows the route continuously, and the fog thins out
       // as it closes on the valley floor instead of switching off.
-      const routeCap = tourMistCap((t) => p.view.tour.poseAt(t), frame.timeMs, p.view.tour.durationMs);
+      const routeCap = tourMistCap((t) => cameraTour.poseAt(t), frame.timeMs, cameraTour.durationMs);
       mp.topM = Math.min(mp.topM, this.camera.position.y - 120, routeCap);
       const fade = tourMistFade(mp.topM, mp.baseM);
       mp.fill *= fade; mp.density *= fade;
@@ -1770,7 +1782,7 @@ export class RangeScene {
     u.uMistColor.value.g = Math.min(0.9, u.uMistColor.value.g);
     u.uMistColor.value.b = Math.min(0.9, u.uMistColor.value.b);
     u.uCameraPos.value.copy(this.camera.position);
-    u.uTourEnabled.value = p.view.tour ? 1 : 0;
+    u.uTourEnabled.value = p.view.tour || p.cameraTour ? 1 : 0;
     u.uTourEye.value.copy(this.camera.position);
     this._setCloudUniforms(p, frame);
     this._setActors(p, frame);

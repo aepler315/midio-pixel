@@ -2,7 +2,7 @@
  *  actually selected a prepared tour view for the current song's frame. */
 export function rangeTourControlState(range, { running = false, worldKind = null, paused = false } = {}) {
   const result = (state, text, reason = null) => ({ state, text, reason });
-  if (range?.tourMode !== 'tetons') return result('off', 'Off');
+  if (range?.tourMode !== 'tetons') return shotTourControlState(range, { running, worldKind, paused });
   if (!running) return result('ready', 'Ready — start a song in Landscape.');
   if (worldKind !== 'alpine') return result('unavailable', 'Unavailable — choose Landscape to use this tour.', 'world-not-alpine');
 
@@ -29,5 +29,23 @@ export function rangeTourControlState(range, { running = false, worldKind = null
   if (paused && preparation.state === 'ready') return result('ready', 'Ready — resume playback to start the tour.');
   if (preparation.state === 'loading') return result('loading', 'Loading tour files…');
   if (preparation.state === 'planning') return result('loading', 'Loading — planning the flight for this song…');
+  return result('loading', 'Loading scenery…');
+}
+
+/** Scenic shot tours: the view on screen plays its approved tour, or its
+ *  authored rail with the reason (no library yet, a failed or late plan). */
+export function shotTourControlState(range, { running = false, worldKind = null, paused = false } = {}) {
+  const result = (state, text, reason = null) => ({ state, text, reason });
+  const shots = range?.shotTours;
+  if (!shots?.enabled) return result('off', 'Off — the authored camera rails play.');
+  if (!running) return result('ready', 'On — landscapes with an approved tour play it.');
+  if (worldKind !== 'alpine') return result('unavailable', 'Unavailable — choose Landscape to use camera tours.', 'world-not-alpine');
+  const viewId = range.viewId || range.selectedViewId, view = viewId ? shots.views?.[viewId] : null;
+  if (!view) return result('rail', range.active ? 'Rail — this landscape has no approved tour yet.' : 'Loading scenery…');
+  if (view.state === 'failed') return result('rail', `Rail — ${view.reason || 'the tour could not be planned'}.`, view.reason);
+  if (view.state === 'loading') return result('loading', 'Loading the tour for this landscape…');
+  if (view.state === 'planning') return result('loading', 'Loading — planning the camera for this song…');
+  if (range.active && shots.active) return result('active', `Active — ${view.items ? Math.ceil(view.items / 2) : 0} shots planned for this song`);
+  if (paused) return result('ready', 'Ready — resume playback to start the tour.');
   return result('loading', 'Loading scenery…');
 }

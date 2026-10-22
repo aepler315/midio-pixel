@@ -42,6 +42,9 @@ export function sceneViewErrors(view) {
   if (view.tourManifestUrl) {
     if (!view.tourManifestUrl.endsWith('.json') || !/^[a-f0-9]{64}$/.test(view.tourManifestSha256 || '')) errors.push('tour package identity');
   } else errors.push(...cameraRailErrors(view.camera));
+  // A shot tour adds to a rail, never replaces it: the rail is its fallback.
+  if (view.shotsManifestUrl != null && (typeof view.shotsManifestUrl !== 'string' || !view.shotsManifestUrl.endsWith('.json')
+    || !/^[a-f0-9]{64}$/.test(view.shotsManifestSha256 || '') || view.tourManifestUrl)) errors.push('shot library identity');
   errors.push(...compositionErrors(view));
   if (!view.characterScores || !AXES.every((a) => Number.isFinite(view.characterScores[a]))) errors.push('characterScores');
   if (!view.evidence || typeof view.evidence.reviewPath !== 'string') errors.push('evidence');

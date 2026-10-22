@@ -1,0 +1,140 @@
+{
+  "about": "Regional configuration for scenic shot tours (docs/scenic-tours.md). Geography, named-subject preferences, route anchors and region-dependent parameters live here; DEM sources stay in scenic-views.json. A region's status is its tour's own review state: a view plays its tour in production only when the view and its tour are both approved. Subject lonLat values marked approximate are snapped to the nearest matching DEM feature within snapRadiusM.",
+  "version": 1,
+  "defaults": {
+    "lensFovYDeg": { "wide": 36, "normal": 26, "tele": 16 },
+    "clearance": { "minAglM": 70, "treeHeightM": 35, "subjectStandoffM": 300, "boundaryMarginM": 1500, "cellM": 60 },
+    "motion": { "maxSpeedMps": 120, "minSpeedMps": 4, "flowCalm": 0.07, "flowEnergetic": 0.24, "maxYawDegPerSec": 20, "maxClimbMps": 22, "maxAccelMps2": 3.5 },
+    "discovery": { "focusRadiusM": 11000, "maxSubjects": 12, "minSubjectSpacingM": 1800, "prominenceMinM": 80, "snapRadiusM": 2500, "shotsPerSubject": 8, "maxShots": 36, "maxLinksPerShot": 4, "tileWeight": 0.6,
+      "byteWeight": 0.25, "linkMaxM": 6000, "transitMaxM": 9000, "maxShotS": 16, "maxLinkS": 30, "shotsPerRound": 6 },
+    "budget": { "assetBytes": 800000, "poseErrorScale": 4, "desktopTriangles": 2600000, "mobileTriangles": 1450000 }
+  },
+  "regions": {
+    "nc-ross-lake-north": {
+      "status": "candidate",
+      "landform": "lake-alpine",
+      "notes": "Ross Lake reservoir between Jack Mountain and the Hozomeen/Pasayten peaks; long north-south water with steep forested flanks.",
+      "subjects": [
+        { "name": "Jack Mountain", "kind": "peak", "weight": 1.3 },
+        { "name": "Hozomeen Mountain", "kind": "peak", "weight": 1.1 },
+        { "name": "Ross Lake", "kind": "lake", "lonLat": [-121.06, 48.83], "approximate": true, "weight": 1.2 }
+      ],
+      "hero": ["Jack Mountain"]
+    },
+    "teton-jackson-lake": {
+      "status": "candidate",
+      "landform": "lake-alpine",
+      "notes": "Jackson Lake under the Teton front: Mount Moran rising straight from the lake, the Grand Teton and Cathedral Group to the south.",
+      "subjects": [
+        { "name": "Grand Teton", "kind": "peak", "weight": 1.5 },
+        { "name": "Mount Moran", "kind": "peak", "weight": 1.4 },
+        { "name": "Jackson Lake", "kind": "lake", "lonLat": [-110.67, 43.88], "approximate": true, "weight": 1.1 }
+      ],
+      "hero": ["Grand Teton", "Mount Moran"]
+    },
+    "denali-wonder-lake": {
+      "status": "candidate",
+      "landform": "massif",
+      "notes": "Denali and Mount Foraker above the McKinley River bar and Wonder Lake; enormous relief at long range.",
+      "subjects": [
+        { "name": "Denali", "kind": "peak", "weight": 1.6 },
+        { "name": "Mount Foraker", "kind": "peak", "weight": 1.2 }
+      ],
+      "hero": ["Denali"]
+    },
+    "tombstone-north-klondike": {
+      "status": "candidate",
+      "landform": "alpine",
+      "notes": "Granite spires of the Tombstone Range above tundra valleys of the North Klondike.",
+      "subjects": [
+        { "name": "Tombstone Mountain", "kind": "peak", "weight": 1.4 }
+      ],
+      "hero": ["Tombstone Mountain"]
+    },
+    "muncho-lake-south": {
+      "status": "candidate",
+      "landform": "lake-valley",
+      "notes": "Muncho Lake in its valley between the Terminal and Sentinel ranges; the lake is the subject as much as the peaks.",
+      "subjects": [
+        { "name": "Muncho Lake", "kind": "lake", "lonLat": [-125.77, 58.93], "approximate": true, "weight": 1.3 }
+      ],
+      "hero": []
+    },
+    "izta-popo-west": {
+      "status": "candidate",
+      "landform": "volcano",
+      "notes": "Iztaccihuatl and Popocatepetl from the west: two isolated stratovolcanoes over high plateau.",
+      "subjects": [
+        { "name": "Popocatépetl", "kind": "peak", "weight": 1.5 },
+        { "name": "Iztaccíhuatl", "kind": "peak", "weight": 1.4 }
+      ],
+      "hero": ["Popocatépetl", "Iztaccíhuatl"]
+    },
+    "black-mountains-catawba": {
+      "status": "candidate",
+      "landform": "rolling",
+      "notes": "Forested Black Mountains with Mount Mitchell above the Catawba valley; soft layered ridgelines.",
+      "subjects": [
+        { "name": "Mount Mitchell", "kind": "peak", "weight": 1.4 }
+      ],
+      "hero": ["Mount Mitchell"]
+    },
+    "san-gabriel-baldy": {
+      "status": "candidate",
+      "landform": "alpine-ridge",
+      "notes": "Steep chaparral ridges of the San Gabriels around Mount San Antonio (Baldy) and Baden-Powell.",
+      "subjects": [
+        { "name": "Mount San Antonio", "kind": "peak", "weight": 1.4 },
+        { "name": "Mount Baden-Powell", "kind": "peak", "weight": 1.1 }
+      ],
+      "hero": ["Mount San Antonio"]
+    },
+    "white-mountains-owens": {
+      "status": "candidate",
+      "landform": "escarpment",
+      "notes": "The White Mountains' fault scarp over Owens Valley, White Mountain Peak at the crest.",
+      "subjects": [
+        { "name": "White Mountain Peak", "kind": "peak", "weight": 1.4 }
+      ],
+      "hero": ["White Mountain Peak"]
+    },
+    "la-sal-castle-valley": {
+      "status": "candidate",
+      "landform": "canyon-butte",
+      "notes": "Castle Valley's red-rock towers under the La Sal Mountains; Castle Creek reaches are mapped water.",
+      "subjects": [
+        { "name": "Castleton Tower", "kind": "butte", "weight": 1.4 },
+        { "name": "Mount Peale", "kind": "peak", "weight": 1.2 }
+      ],
+      "hero": ["Castleton Tower", "Mount Peale"]
+    },
+    "panamint-dantes-view": {
+      "status": "candidate",
+      "landform": "escarpment-basin",
+      "notes": "Death Valley's salt basin under the Panamint escarpment, Telescope Peak opposite Dantes View.",
+      "subjects": [
+        { "name": "Telescope Peak", "kind": "peak", "weight": 1.4 },
+        { "name": "Badwater", "kind": "valley", "weight": 0.9 }
+      ],
+      "hero": ["Telescope Peak"]
+    },
+    "chugach-matanuska": {
+      "status": "candidate",
+      "landform": "glacier-valley",
+      "notes": "The Matanuska Glacier valley in the Chugach; glaciated peaks on both sides of a broad valley floor.",
+      "subjects": [
+        { "name": "Matanuska Glacier", "kind": "valley", "lonLat": [-147.65, 61.76], "approximate": true, "weight": 1.2 }
+      ],
+      "hero": []
+    },
+    "monument-valley-163": {
+      "status": "candidate",
+      "landform": "butte",
+      "notes": "Sandstone buttes and mesas standing out of a flat desert floor (the Mittens, Merrick Butte and their neighbours) seen from US-163.",
+      "subjects": [
+        { "name": "The Mittens and Merrick Butte", "kind": "butte", "lonLat": [-110.10, 36.98], "approximate": true, "snapRadiusM": 3500, "weight": 1.4 }
+      ],
+      "hero": ["The Mittens and Merrick Butte"]
+    }
+  }
+}

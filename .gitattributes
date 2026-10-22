@@ -1,0 +1,4 @@
+# Content-addressed Range assets: catalog and manifest SHA-256 identities are
+# of the committed bytes, so checkout must never convert their line endings
+# (core.autocrlf on Windows otherwise breaks every terrain/tour identity).
+src/assets/range/v2/** -text
