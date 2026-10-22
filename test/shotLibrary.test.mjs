@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import zlib from 'node:zlib';
 import { createHash } from 'node:crypto';
-import { packShotPaths, decodeShotLibrary, shotLibraryErrors, SHOT_SCHEMA, SHOT_VERSION, POSITION_STEP_M } from '../src/world/terrain/ShotLibrary.js';
+import { packShotPaths, chooseLattice, decodeShotLibrary, shotLibraryErrors, SHOT_SCHEMA, SHOT_VERSION, POSITION_STEP_M } from '../src/world/terrain/ShotLibrary.js';
 import { samplePath } from '../src/world/terrain/ShotPath.js';
 
 const sha = (b) => createHash('sha256').update(b).digest('hex');
@@ -59,4 +59,20 @@ test('validation rejects unknown ends, overlapping lanes and a missing lattice a
   const anchor = structuredClone(manifest);
   delete anchor.shots[0].samples.first;
   assert.ok(shotLibraryErrors(anchor).some((e) => /samples/.test(e)));
+});
+
+test('a library packs eyes on the finest lattice that fits and decodes old libraries on the old one', () => {
+  const { manifest, source } = library();
+  const records = [...manifest.shots, ...manifest.links].map((r) => ({ ...r, path: { a: source.a, b: source.b, l: source.ln }[r.id] }));
+  const lattice = chooseLattice(records);
+  assert.equal(lattice.positionStepM, 0.01, 'kilometre-scale steps fit the centimetre lattice');
+  const decoded = Buffer.from(packShotPaths(records, lattice));
+  const payload = zlib.gzipSync(decoded);
+  const fine = { ...manifest, shots: records.filter((r) => r.id !== 'l').map(({ path, ...r }) => r), links: records.filter((r) => r.id === 'l').map(({ path, ...r }) => r),
+    payload: { ...manifest.payload, byteLength: payload.length, sha256: sha(payload), decodedByteLength: decoded.length, decodedSha256: sha(decoded), lattice } };
+  assert.deepEqual(shotLibraryErrors(fine, { decodedByteLength: decoded.length }), []);
+  const lib = decodeShotLibrary(fine, new Uint8Array(decoded));
+  const p = lib.shotById.get('a').path;
+  for (let i = 0; i < source.a.eye.length; i++) assert.ok(Math.abs(p.eye[i] - source.a.eye[i]) <= 0.005 + 1e-3);
+  assert.ok(shotLibraryErrors({ ...fine, payload: { ...fine.payload, lattice: { positionStepM: 0.03, aimStepM: 0.1 } } }).some((e) => /lattice/.test(e)));
 });

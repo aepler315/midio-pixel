@@ -38,7 +38,7 @@ export function tourPoses(ctx, records, { spacingM = 120, maxPoses = 2600 } = {}
   let poses = sampleFootprintPoses(records, { spacingM, maxPoses });
   const mapped = ctx.view.riverPolicy?.terrainWater === 'mapped-only';
   const level = mapped ? null : mirrorLevelFor(ctx.terrain.data, waterLevelOf(ctx.terrain.data));
-  if (level != null) poses = poses.concat(poses.filter((_, i) => i % 2 === 0).map((p) => mirroredPose(p, level)));
+  if (level != null) poses = poses.concat(poses.filter((_, i) => i % 2 === 0).map((p) => ({ ...mirroredPose(p, level), ...(p.pathId != null ? { pathId: p.pathId } : {}) })));
   return { poses, mirrorLevelM: level };
 }
 

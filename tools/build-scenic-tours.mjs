@@ -22,14 +22,16 @@ import { fileURLToPath } from 'node:url';
 import { loadViewContext, buildClearance, heightAt } from './lib/scenic-terrain.mjs';
 import { discoverSubjects, valleyPaths, shorelines } from './lib/scenic-features.mjs';
 import { generateShots, poseTraits, LANDFORMS } from './lib/scenic-shots.mjs';
-import { linkVariants, keepParetoLinks } from './lib/scenic-links.mjs';
+import { linkVariants, keepParetoLinks, linkRejects } from './lib/scenic-links.mjs';
 import { strideCost, tourPoses, tourBakeOptions, bakeOptions } from './lib/scenic-cost.mjs';
 
-import { SHOT_SCHEMA, SHOT_VERSION, packShotPaths, shotLibraryErrors, decodeShotLibrary, cameraFootprint } from '../src/world/terrain/ShotLibrary.js';
-import { pathPoseAt, slicePath, pathLaneAt } from '../src/world/terrain/ShotPath.js';
+import { SHOT_SCHEMA, SHOT_VERSION, packShotPaths, chooseLattice, shotLibraryErrors, decodeShotLibrary, cameraFootprint } from '../src/world/terrain/ShotLibrary.js';
+import { pathPoseAt, slicePath, pathLaneAt, withProgress } from '../src/world/terrain/ShotPath.js';
 import { bakeTerrain } from './lib/terrain-bake.mjs';
 import { validatePoses, rangeAssetBytes, RANGE_ASSET_LIMIT } from './lib/scenic-coverage.mjs';
 import { decodeTerrain } from '../src/world/alpine/TerrainMesh.js';
+import { forestPlacementBound } from '../src/world/alpine/ForestCover.js';
+import SCENE_CATALOG from '../src/world/terrain/sceneCatalogData.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const CONFIG = path.join(root, 'data', 'terrain', 'scenic-tours.json');
@@ -52,10 +54,10 @@ export function regionConfig(doc, viewId) {
 // Scoring pool
 
 class ScorePool {
-  constructor(viewId, size) {
+  constructor(viewId, size, { edgeDipDeg = 0 } = {}) {
     this.workers = []; this.queue = []; this.pending = new Map(); this.next = 0;
     this.ready = Promise.all(Array.from({ length: size }, () => new Promise((resolve, reject) => {
-      const w = new Worker(new URL('./lib/scenic-score-worker.mjs', import.meta.url), { workerData: { viewId, root } });
+      const w = new Worker(new URL('./lib/scenic-score-worker.mjs', import.meta.url), { workerData: { viewId, root, edgeDipDeg } });
       w.busy = false;
       w.on('message', (m) => {
         if (m.ready) { this.workers.push(w); resolve(); this.pump(); return; }
@@ -104,7 +106,8 @@ export function refinePayoff(record, scored) {
       if (!best || v > best.v) best = { ...x, v };
     }
   }
-  const payoffS = clamp(best?.s ?? record.payoffFrac * L, 0.2 * L, L);
+  // The payoff leaves room to hold the view before the shot ends.
+  const payoffS = clamp(best?.s ?? record.payoffFrac * L, 0.2 * L, 0.88 * L);
   const ref = value(samples.reduce((a, b) => (Math.abs(b.s - payoffS) < Math.abs(a.s - payoffS) ? b : a)));
   let a = payoffS, b = payoffS;
   for (const x of samples) if (x.s <= payoffS && value(x) >= 0.8 * ref) a = Math.min(a, x.s);
@@ -115,14 +118,37 @@ export function refinePayoff(record, scored) {
 /** Comfortable duration range from the flow lane: the fastest the picture
  *  may move at full energy, the calm pace, and a slow drift floor. */
 export function durationRange(p, flow, motion) {
+  // Curvature caps speed as the timeline does: v^2 * bend within the
+  // turning limit (maxLateralMps2; viewers see a turn as rotation, which the
+  // yaw limit governs, so it may pull harder than a change of speed).
+  const bend = pathBend(p), accel = motion.maxLateralMps2 ?? 2 * (motion.maxAccelMps2 ?? 3.5);
   let fast = 0, calm = 0;
   for (let i = 1; i < p.s.length; i++) {
     const ds = p.s[i] - p.s[i - 1], f = Math.max(1e-5, (flow[i] + flow[i - 1]) / 2);
-    fast += ds / Math.min(motion.maxSpeedMps, motion.flowEnergetic / f);
-    calm += ds / Math.min(motion.maxSpeedMps, motion.flowCalm / f);
+    const cap = Math.min(motion.maxSpeedMps, Math.sqrt(accel / Math.max(1e-9, Math.max(bend[i], bend[i - 1]))));
+    fast += ds / Math.min(cap, motion.flowEnergetic / f);
+    calm += ds / Math.min(cap, motion.flowCalm / f);
   }
   const L = p.s[p.s.length - 1];
   return { min: Math.round(fast * 1000), ideal: Math.round(clamp((fast + calm) / 2, fast, calm) * 1000), max: Math.round(Math.max(calm, L / motion.minSpeedMps) * 1000) };
+}
+
+/** Curvature of the eye along progress per sample, |d2 eye / ds2| (1/m),
+ *  from the three-point second difference on uneven progress. */
+export function pathBend(p) {
+  const n = p.s.length, out = new Float64Array(n);
+  for (let i = 1; i < n - 1; i++) {
+    const a = p.s[i] - p.s[i - 1], b = p.s[i + 1] - p.s[i];
+    if (!(a > 0 && b > 0)) continue;
+    let sq = 0;
+    for (let k = 0; k < 3; k++) {
+      const d2 = (2 * (p.eye[(i + 1) * 3 + k] * a - p.eye[i * 3 + k] * (a + b) + p.eye[(i - 1) * 3 + k] * b)) / (a * b * (a + b));
+      sq += d2 * d2;
+    }
+    out[i] = Math.sqrt(sq);
+  }
+  if (n > 2) { out[0] = out[1]; out[n - 1] = out[n - 2]; }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -134,6 +160,9 @@ export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpu
   ctx.clearance = buildClearance(ctx, config.clearance);
   ctx.heightAt = (x, z) => heightAt(ctx.grid, x, z);
   ctx.lenses = config.lensFovYDeg; ctx.standoffM = config.clearance.subjectStandoffM; ctx.boundaryMarginM = config.clearance.boundaryMarginM;
+  // Horizon policy (docs/scenic-tours.md, "Horizon and the grid edge").
+  ctx.edgeDipDeg = config.discovery.edgeDipDeg ?? 0; ctx.frame = config.discovery.frame ?? null;
+  await terrainPolicy(ctx, config, log);
   // The tour stays in one coherent area around what the authored rail
   // frames (and the region's heroes): subjects and moves outside it would
   // only connect through long transits and pull in far terrain.
@@ -148,12 +177,20 @@ export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpu
   const mappedWater = ctx.view.riverPolicy?.terrainWater === 'mapped-only' || ctx.view.water === false;
   const lines = { valleys: valleyPaths(ctx), shores: mappedWater ? [] : shorelines(ctx) };
   log(`${viewId}: ${subjects.length} subjects (${subjects.map((s) => s.name || s.kind).join(', ')}); ${lines.valleys.length} valleys, ${lines.shores.length} shores`);
-  const generated = generateShots(ctx, subjects, lines, config.region, { maxPerSubject: config.discovery.shotsPerSubject * 6 });
+  const forward = generateShots(ctx, subjects, lines, config.region, { maxPerSubject: config.discovery.shotsPerSubject * 6 });
+  // Moves that read the same flown either way also run backwards, so a link
+  // can arrive along the heading a shot already travels instead of turning
+  // the camera around (reveals, approaches and pullbacks keep their sense).
+  const generated = [...forward, ...forward.filter((c) => REVERSIBLE.has(c.move)).map(reverseShot)];
   // The authored rail is always a candidate, wherever the focus lies.
+  const outOfFocus = generated.filter((c) => c.move !== 'rail' && !inFocus(c.path, focus));
   const candidates = generated.filter((c) => (c.move === 'rail' || inFocus(c.path, focus)) && steadyLook(c.path));
-  log(`${viewId}: ${candidates.length} candidate shots`);
+  // What each stage keeps and why the rest go (report.funnel).
+  const funnel = { discovery: { generated: forward.length, reversed: generated.length - forward.length, outOfFocus: outOfFocus.length,
+    steepLook: generated.length - outOfFocus.length - candidates.length, candidates: candidates.length } };
+  log(`${viewId}: ${candidates.length} candidate shots (${forward.length} generated + ${generated.length - forward.length} reversed; ${outOfFocus.length} outside the focus area, ${funnel.discovery.steepLook} looking near straight down)`);
   const subjectById = new Map(subjects.map((s) => [s.id, s]));
-  const pool = new ScorePool(viewId, workers);
+  const pool = new ScorePool(viewId, workers, { edgeDipDeg: ctx.edgeDipDeg });
   await pool.ready;
   try {
     // Pass 1: coarse scores for every candidate.
@@ -176,6 +213,8 @@ export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpu
         if (k < 3 && second.filter((x) => x.subjectId === c.subjectId).length < config.discovery.shotsPerSubject * 2) { second.push(c); perMove.set(key, k + 1); }
       }
     }
+    Object.assign(funnel.discovery, { coarseHoles: candidates.filter((c) => c.move !== 'rail' && !(c.coarse.holes < 0.5)).length,
+      scoredInFull: second.length, cappedPerSubjectOrMove: candidates.filter((c) => c.move !== 'rail' && c.coarse.holes < 0.5).length - (second.length - candidates.filter((c) => c.move === 'rail').length) });
     // Pass 2: full scores and flow lanes.
     const full = await Promise.all(second.map((c) => pool.score('shot', c.path, {
       subject: subjectById.get(c.subjectId), subjects, lens: c.traits.lens, move: c.move,
@@ -207,23 +246,32 @@ export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpu
     // Each candidate's terrain footprint (the stride the baker gives each
     // tile it sees): what it would cost beyond the shipped package.
     const cost = strideCost(ctx), scale = config.budget.poseErrorScale ?? 4;
-    const prints = await Promise.all(second.map((c) => pool.score('footprint', c.path, { scale })));
+    cost.coverageOnly = ctx.coverageOnly;
+    // The rail costs nothing: its approved package covers it, reflections included.
+    const prints = await Promise.all(second.map((c) => (c.move === 'rail' ? [] : pool.score('footprint', c.path, { scale }))));
     second.forEach((c, i) => { c.footprint = new Map(prints[i]); c.missing = prints[i].map(([t]) => t).filter((t) => cost.shipped(t) == null); });
     // The actual renderer: every scored candidate's key frames (entry,
     // payoff, end of hold, exit) through the production terrain material and
     // forest, against one package baked for all of them. A shot whose
     // subject the renderer does not show, or that renders flat, loses score.
     if (renderGate) {
-      const { poses } = tourPoses(ctx, second, { spacingM: 200, maxPoses: 2600 });
+      const { poses } = tourPoses(ctx, second.filter((c) => c.move !== 'rail'), { spacingM: 200, maxPoses: 2600 });
       const baked = await bakeTerrain(ctx.grid, ctx.build.view, tourBakeOptions(ctx, poses, scale));
       const rendered = await renderReview(viewId, { subjects, shots: second, links: [] },
         { out, sheet: false, terrain: { manifestText: JSON.stringify(baked.manifest) + '\n', payload: baked.payload }, log });
+      const detailM = ctx.grid.sourceResolutionM ?? ctx.grid.cellSizeM, reasons = new Map();
       for (const c of second) {
-        const r = rendered.get(c.id)?.score;
-        if (r != null) c.score = { ...c.score, dem: c.score.total, render: r, total: renderedTotal(c.score.total, r) };
+        const r = rendered.get(c.id);
+        if (!r) continue;
+        const gate = renderedGate(r.frames, { fovYDeg: c.traits.fovYDeg ?? c.path.fov[0], detailM });
+        const total = c.move === 'rail' || gate.pass ? renderedTotal(c.score.total, r.score) * gate.factor : 0;
+        c.score = { ...c.score, dem: c.score.total, render: r.score, sharp: gate.factor, total };
+        if (c.move !== 'rail') for (const why of gate.reasons) reasons.set(why, (reasons.get(why) || 0) + 1);
+        if (c.move !== 'rail' && gate.pass && total === 0) reasons.set('render near empty', (reasons.get('render near empty') || 0) + 1);
       }
       const weak = second.filter((c) => c.move !== 'rail' && c.score.total === 0).length;
-      log(`${viewId}: renderer scored ${rendered.size} candidates; ${weak} show no subject or render flat`);
+      funnel.discovery.renderGate = { dropped: weak, reasons: Object.fromEntries(reasons) };
+      log(`${viewId}: renderer scored ${rendered.size} candidates; ${weak} dropped (${[...reasons].map(([k, n]) => `${n} ${k}`).join(', ') || 'none gated'})`);
     }
     // The candidate link graph: from each scored shot to its nearest few
     // within reach (exit to entry), every variant scored, on a leash (a
@@ -233,60 +281,121 @@ export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpu
     const reachM = (maxLinkMs / 1000) * config.motion.maxSpeedMps;
     const usable = second.filter((c) => c.move === 'rail' || c.score.total > 0);
     const raw = [];
+    for (const k of Object.keys(linkRejects)) delete linkRejects[k];
+    let pairsTried = 0, outOfReach = 0, steep = 0;
     for (const a of usable) {
-      const next = usable.filter((b) => b !== a).map((b) => [b, endGap(a, b)]).filter(([, d]) => d <= reachM)
-        .sort((x, y) => x[1] - y[1]).slice(0, config.discovery.linkFanout ?? 8);
-      for (const [b] of next) for (const v of linkVariants(ctx, a, b, { linkMaxM: config.discovery.linkMaxM, transitMaxM: config.discovery.transitMaxM })) if (steadyLook(v.path)) raw.push({ from: a, to: b, ...v });
+      const near = usable.filter((b) => b !== a).map((b) => [b, endGap(a, b)]);
+      const next = near.filter(([, d]) => d <= reachM).sort((x, y) => x[1] - y[1]).slice(0, config.discovery.linkFanout ?? 8);
+      outOfReach += near.filter(([, d]) => !(d <= reachM)).length;
+      pairsTried += next.length;
+      for (const [b] of next) for (const v of linkVariants(ctx, a, b, { linkMaxM: config.discovery.linkMaxM, transitMaxM: config.discovery.transitMaxM, radiusM: config.discovery.linkRadiusM ?? 400 })) {
+        if (steadyLook(v.path)) raw.push({ from: a, to: b, ...v }); else steep++;
+      }
     }
     const linkScores = await Promise.all(raw.map((l) => pool.score('link', l.path, { everyM: 120, width: 96, height: 54 })));
     raw.forEach((l, i) => { l.score = linkScores[i].aggregate; l.path.flow = Float32Array.from(linkScores[i].flow); l.durationMs = durationRange(l.path, l.path.flow, config.motion); });
-    const front = paretoFront(raw.filter((l) => l.durationMs.min <= maxLinkMs));
-    // Tours stay inside a strongly connected part of the graph: take the
-    // one whose best shots are worth most (the rail joins as the fallback).
-    const component = bestComponent(usable, front, config.discovery.maxShots);
-    const linked = (a, b) => front.some((l) => l.from === a && l.to === b);
-    log(`${viewId}: link graph ${raw.length} variants, ${front.length} usable within ${maxLinkMs / 1000} s; best connected part ${component.size} of ${usable.length} shots`);
-    // Selection inside it: diverse, charged for terrain, favouring shots
-    // linked both ways to those already kept; links chosen among them; then
-    // once more with the budget unconnected shots leave behind.
-    const candidatesIn = usable.filter((c) => component.has(c) || c.move === 'rail');
-    const priced = new Set();
-    const priceLinks = async (shots) => {
-      const among = front.filter((l) => shots.includes(l.from) && shots.includes(l.to) && !priced.has(l));
-      const prints = await Promise.all(among.map((l) => pool.score('footprint', l.path, { scale })));
-      among.forEach((l, i) => { l.footprint = new Map(prints[i]); l.missing = prints[i].map(([t]) => t).filter((t) => cost.shipped(t) == null); priced.add(l); });
-      return front.filter((l) => shots.includes(l.from) && shots.includes(l.to));
-    };
-    let shortlist = selectShots(candidatesIn, config, cost, [], { reach: linked });
-    let library2 = linkLibrary(shortlist, await priceLinks(shortlist), config, cost);
-    const shortlisted = shortlist.length;
-    if (library2.shots.length < shortlist.length) {
-      const dropped = new Set(shortlist.filter((x) => !library2.shots.includes(x)));
-      shortlist = selectShots(candidatesIn.filter((c) => !dropped.has(c)), config, cost, library2.shots, { reach: linked });
-      library2 = linkLibrary(shortlist, await priceLinks(shortlist), config, cost);
-    }
-    const variants = raw.length, pairs = front;
-    log(`${viewId}: shortlisted ${shortlisted}: ${library2.shots.length} shots / ${library2.links.length} links connected, ~${Math.round(estimatedBytes([...library2.shots, ...library2.links], cost) / 1024)} KiB: ${library2.shots.map((x) => `${x.move}:${x.score.total.toFixed(2)}`).join(' ')}`);
-    const linkedLib = library2;
-    const library = { subjects, ...linkedLib };
-    // Footprint: tiles the library needs beyond the shipped package, and the
-    // terrain bytes the cost model expects them to add.
-    const need = new Set(library.shots.concat(library.links).flatMap((r) => r.missing || []));
-    const estimated = estimatedBytes([...library.shots, ...library.links], cost);
-    const report = {
-      viewId, builtAt: new Date().toISOString(), seconds: (Date.now() - t0) / 1000, config,
-      focus: ctx.focus, subjects, candidates: candidates.length,
+    const leashed = raw.filter((l) => l.durationMs.min <= maxLinkMs);
+    const front = paretoFront(leashed);
+    funnel.links = { shots: usable.length, pairsOutOfReach: outOfReach, pairsTried, variantsTried: pairsTried * 4, rejected: { ...linkRejects, 'looks near straight down': steep },
+      built: raw.length, overLeash: raw.length - leashed.length, holed: leashed.filter((l) => l.score.holes > 0.002).length, paretoKept: front.length };
+    log(`${viewId}: links: ${pairsTried} nearest pairs within reach (${outOfReach} pairs beyond ${Math.round(reachM)} m), ${pairsTried * 4} variants tried, ${raw.length} built (rejected: ${Object.entries(funnel.links.rejected).map(([k, n]) => `${n} ${k}`).join(', ')}), ${funnel.links.overLeash} slower than ${maxLinkMs / 1000} s, ${funnel.links.holed} seeing holes, ${front.length} kept on the pairs' Pareto fronts`);
+    const graph = { usable, front, subjects, focus: ctx.focus, scored: second.length, variants: raw.length, funnel,
       candidateScores: candidates.map((c) => ({ id: c.id, move: c.move, tags: c.tags, elevation: c.traits.elevation, lens: c.traits.lens,
-        coarse: c.coarse ? { total: c.coarse.total, holes: c.coarse.holes, payoff: c.coarse.payoff } : null, full: c.score?.total ?? null })), scored: second.length, shortlisted, linkVariants: variants,
-      shots: library.shots.map((s) => ({ id: s.id, move: s.move, subjectId: s.subjectId, lengthM: s.lengthM, payoffS: s.payoffS, holdS: s.holdS, score: s.score, traits: s.traits, durationMs: s.durationMs })),
-      links: library.links.map((l) => ({ from: l.from.id, to: l.to.id, kind: l.kind, lengthM: l.lengthM, score: l.score })),
-      missingTiles: [...need].sort((a, b) => a - b), estimatedTerrainBytes: estimated,
-    };
-    await fs.mkdir(out, { recursive: true });
-    await fs.writeFile(path.join(out, 'report.json'), JSON.stringify(report, null, 1));
-    log(`${viewId}: library ${library.shots.length} shots / ${library.links.length} links, ${need.size} tiles beyond the shipped package, ~${Math.round(estimated / 1024)} KiB terrain expected, ${report.seconds.toFixed(0)} s`);
-    return { ctx, config, library, report, pairs, cost };
+        coarse: c.coarse ? { total: c.coarse.total, holes: c.coarse.holes, payoff: c.coarse.payoff } : null, full: c.score?.total ?? null })) };
+    await writeGraphCache(out, graph);
+    return await selectLibrary(viewId, { ctx, config, pool, cost, scale, graph, out, t0, log });
   } finally { await pool.close(); }
+}
+
+/**
+ * Selection, from a scored link graph (buildViewTours, or its cache): the
+ * strongly connected part worth most, a connected shortlist grown in it,
+ * links chosen among the shortlist and priced, and the build report.
+ */
+async function selectLibrary(viewId, { ctx, config, pool, cost, scale, graph, out, t0, log }) {
+  const { front, subjects } = graph;
+  // Shots a rendered review marked broken (region.excludeShots) never join.
+  const excluded = new Set(config.region.excludeShots || []);
+  const usable = graph.usable.filter((c) => !excluded.has(c.id));
+  // Shots of the region's named heroes (scenic-tours.json region.hero).
+  const heroIds = new Set(subjects.filter((x) => (config.region.hero || []).includes(x.name)).map((x) => x.id));
+  for (const c of usable) c.hero = heroIds.has(c.subjectId);
+  // Tours stay inside a strongly connected part of the graph: take the
+  // one whose best shots are worth most (the rail joins as the fallback).
+  const component = bestComponent(usable, front, config.discovery.maxShots);
+  const funnel = { ...(graph.funnel || {}), excluded: graph.usable.length - usable.length,
+    components: { parts: bestComponent.parts, inBest: component.size, onNoCycle: usable.length - bestComponent.parts.reduce((a, b) => a + b, 0) } };
+  log(`${viewId}: link graph ${graph.variants} variants, ${front.length} usable within ${config.discovery.maxLinkS ?? 30} s; best connected part ${component.size} of ${usable.length} shots`);
+  // Selection inside it grows a connected set: diverse, charged for
+  // terrain, and only shots (or two-shot chains) the set links into and
+  // back out of; then links chosen among them.
+  const candidatesIn = usable.filter((c) => component.has(c) || c.move === 'rail');
+  const priced = new Set();
+  const priceLinks = async (shots) => {
+    const among = front.filter((l) => shots.includes(l.from) && shots.includes(l.to) && !priced.has(l));
+    const prints = await Promise.all(among.map((l) => pool.score('footprint', l.path, { scale })));
+    among.forEach((l, i) => { l.footprint = new Map(prints[i]); l.missing = prints[i].map(([t]) => t).filter((t) => cost.shipped(t) == null); priced.add(l); });
+    return front.filter((l) => shots.includes(l.from) && shots.includes(l.to));
+  };
+  const shortlist = selectConnected(candidatesIn, front, config, cost, { log: (m) => log(`${viewId}: ${m}`) });
+  funnel.selection = selectConnected.funnel;
+  const library2 = linkLibrary(shortlist, await priceLinks(shortlist), config, cost);
+  const shortlisted = shortlist.length;
+  const pairs = front;
+  log(`${viewId}: shortlisted ${shortlisted}: ${library2.shots.length} shots / ${library2.links.length} links connected, ~${Math.round(estimatedBytes([...library2.shots, ...library2.links], cost) / 1024)} KiB: ${library2.shots.map((x) => `${x.move}:${x.score.total.toFixed(2)}`).join(' ')}`);
+  const linkedLib = library2;
+  const library = { subjects, ...linkedLib };
+  // Footprint: tiles the library needs beyond the shipped package, and the
+  // terrain bytes the cost model expects them to add.
+  const need = new Set(library.shots.concat(library.links).flatMap((r) => r.missing || []));
+  const estimated = estimatedBytes([...library.shots, ...library.links], cost);
+  const report = {
+    viewId, builtAt: new Date().toISOString(), seconds: (Date.now() - t0) / 1000, config,
+    focus: graph.focus, subjects, candidates: graph.candidateScores.length,
+    candidateScores: graph.candidateScores, scored: graph.scored, shortlisted, linkVariants: graph.variants,
+    shots: library.shots.map((s) => ({ id: s.id, move: s.move, subjectId: s.subjectId, lengthM: s.lengthM, payoffS: s.payoffS, holdS: s.holdS, score: s.score, traits: s.traits, durationMs: s.durationMs })),
+    links: library.links.map((l) => ({ from: l.from.id, to: l.to.id, kind: l.kind, lengthM: l.lengthM, score: l.score })),
+    missingTiles: [...need].sort((a, b) => a - b), estimatedTerrainBytes: estimated, funnel,
+  };
+  await fs.mkdir(out, { recursive: true });
+  await fs.writeFile(path.join(out, 'report.json'), JSON.stringify(report, null, 1));
+  log(`${viewId}: library ${library.shots.length} shots / ${library.links.length} links, ${need.size} tiles beyond the shipped package, ~${Math.round(estimated / 1024)} KiB terrain expected, ${report.seconds.toFixed(0)} s`);
+  return { ctx, config, library, report, pairs, cost };
+}
+
+// The scored link graph, cached so selection can be rerun (--reselect)
+// without rediscovering, rescoring and rerendering every candidate.
+const GRAPH_CACHE = 'graph-cache.json';
+
+async function writeGraphCache(out, graph) {
+  const typed = (k, v) => (k === 'scored' && typeof v === 'object' ? undefined
+    : v instanceof Float32Array ? { $f32: Array.from(v) } : v instanceof Float64Array ? { $f64: Array.from(v) } : v instanceof Map ? { $map: [...v] } : v);
+  const text = JSON.stringify({ ...graph, front: graph.front.map((l) => ({ ...l, from: l.from.id, to: l.to.id })) }, typed);
+  await fs.mkdir(out, { recursive: true });
+  await fs.writeFile(path.join(out, GRAPH_CACHE), text);
+}
+
+async function readGraphCache(out) {
+  const graph = JSON.parse(await fs.readFile(path.join(out, GRAPH_CACHE), 'utf8'), (k, v) => (v && typeof v === 'object'
+    ? (v.$f32 ? Float32Array.from(v.$f32) : v.$f64 ? Float64Array.from(v.$f64) : v.$map ? new Map(v.$map) : v) : v));
+  const byId = new Map(graph.usable.map((c) => [c.id, c]));
+  graph.front = graph.front.map((l) => ({ ...l, from: byId.get(l.from), to: byId.get(l.to) }));
+  return graph;
+}
+
+/** Selection, fit and review again from a build's cached link graph. */
+export async function reselectViewTours(viewId, { out, workers = Math.max(2, os.cpus().length - 4), log = console.log } = {}) {
+  const t0 = Date.now();
+  const config = regionConfig(JSON.parse(await fs.readFile(CONFIG, 'utf8')), viewId);
+  const ctx = await loadViewContext(viewId, { root });
+  const graph = await readGraphCache(out);
+  ctx.focus = graph.focus; ctx.edgeDipDeg = config.discovery.edgeDipDeg ?? 0;
+  await terrainPolicy(ctx, config, log);
+  const cost = strideCost(ctx), scale = config.budget.poseErrorScale ?? 4;
+  cost.coverageOnly = ctx.coverageOnly;
+  const pool = new ScorePool(viewId, workers, { edgeDipDeg: ctx.edgeDipDeg });
+  await pool.ready;
+  try { return await selectLibrary(viewId, { ctx, config, pool, cost, scale, graph, out, t0, log }); } finally { await pool.close(); }
 }
 
 /** The tour's area: centred between the rail target and the hero
@@ -333,6 +442,56 @@ export function trimShot(c, [a, b], motion) {
   return { ...c, path, lengthM: len, payoffS, holdS, cutS: [a, b], durationMs: durationRange(path, path.flow, motion) };
 }
 
+/**
+ * Whether the view's package may be rebaked. The rail-only bake must
+ * reproduce the shipped package; when it does not, the DEM source has
+ * drifted since approval and a rebake would change the approved rail. Such
+ * a region keeps its package (coverage only: shots and links whose terrain
+ * the shipped package already holds at enough detail) unless its config
+ * allows the rebake (region.rebakeOnDrift, set only with rail-parity
+ * evidence that the rail renders the same). region.coverageOnly forces it.
+ */
+export async function terrainPolicy(ctx, config, log = console.log) {
+  const rail = await bakeTerrain(ctx.grid, ctx.build.view, bakeOptions(ctx));
+  ctx.drift = rail.manifest.payload.sha256 !== ctx.terrain.manifest.payload.sha256;
+  ctx.coverageOnly = !!config.region.coverageOnly || (ctx.drift && !config.region.rebakeOnDrift);
+  if (ctx.drift) log(`${ctx.viewId}: the rail-only bake differs from the shipped package (source drift); ${ctx.coverageOnly ? 'coverage only: the package is kept' : 'rebake allowed by region.rebakeOnDrift'}`);
+  else if (ctx.coverageOnly) log(`${ctx.viewId}: coverage only (region.coverageOnly)`);
+}
+
+/** The camera at a shot's payoff, entry and exit (cached on the record). */
+function shotEnds(c) {
+  if (!c.path) return null;
+  if (!c.ends) {
+    const at = (x) => { const p = pathPoseAt(c.path, x), d = p.targetM.map((v, k) => v - p.eyeM[k]), l = Math.hypot(...d); return { eye: p.eyeM, dir: d.map((v) => v / l) }; };
+    c.ends = { payoff: at(c.payoffS ?? c.lengthM / 2), entry: at(0), exit: at(c.lengthM ?? c.path.s[c.path.s.length - 1]) };
+  }
+  return c.ends;
+}
+
+/** Whether two shots are near copies: their payoff cameras stand within
+ *  discovery.copyM metres (default 700) and look within discovery.copyDeg
+ *  degrees (default 14) of each other. Cut together, two shots that pay off
+ *  on the same frame read as one, whatever moves lead in and out of it. */
+export function nearCopy(a, b, discovery = {}) {
+  const x = shotEnds(a), y = shotEnds(b);
+  if (!x || !y || a === b) return false;
+  const maxM = discovery.copyM ?? 700, minCos = Math.cos(((discovery.copyDeg ?? 14) * Math.PI) / 180);
+  return Math.hypot(...x.payoff.eye.map((v, i) => v - y.payoff.eye[i])) <= maxM && x.payoff.dir.reduce((t, v, i) => t + v * y.payoff.dir[i], 0) >= minCos;
+}
+
+/** Moves that read the same flown either way. */
+export const REVERSIBLE = new Set(['traverse', 'orbit', 'valley', 'crest']);
+
+/** A shot flown backwards: its samples reversed, its payoff mirrored. */
+export function reverseShot(c) {
+  const p = c.path, n = p.s.length;
+  const back = (arr, k) => { const out = new Float32Array(arr.length); for (let i = 0; i < n; i++) for (let j = 0; j < k; j++) out[i * k + j] = arr[(n - 1 - i) * k + j]; return out; };
+  const path = withProgress({ eye: back(p.eye, 3), aim: back(p.aim, 3), fov: back(p.fov, 1), s: p.s });
+  const side = { left: 'right', right: 'left' }[c.traits?.side] ?? c.traits?.side;
+  return { ...c, id: `${c.id}-rev`, path, lengthM: path.lengthM, payoffFrac: 1 - (c.payoffFrac ?? 0.5), traits: { ...c.traits, side }, tags: [...(c.tags || []), 'reversed'] };
+}
+
 /** Straight distance from a shot's exit to another's entry (NaN without paths). */
 export function endGap(a, b) {
   const p = a.path, q = b.path;
@@ -361,7 +520,9 @@ export function bestComponent(shots, links, top = 36) {
   };
   for (const v of shots) if (!index.has(v)) visit(v);
   const worth = (part) => part.map((x) => x.score.total).sort((a, b) => b - a).slice(0, top).reduce((a, b) => a + b, 0);
-  return new Set(parts.sort((a, b) => worth(b) - worth(a))[0] || []);
+  parts.sort((a, b) => worth(b) - worth(a));
+  bestComponent.parts = parts.map((p) => p.length);
+  return new Set(parts[0] || []);
 }
 
 /** Whether every pose along a path, between samples too, keeps a usable
@@ -384,61 +545,222 @@ export function estimatedBytes(records, cost) {
  *  packed libraries; selection reserves them inside the region's budget. */
 const RECORD_BYTES = 1300;
 
-/** Diverse shortlist: greedy by score with penalties for repeating a
- *  subject, a move, a viewing azimuth or an elevation class. */
-export function selectShots(scored, config, cost = null, kept = [], { add = Infinity, reach = null } = {}) {
+/**
+ * Selection state shared by selectShots and selectConnected: what a shot
+ * is worth next to those already chosen. Terrain is charged with a cost
+ * model (worth divided by 1 + bytes / discovery.byteScaleKB, the bytes its
+ * detail adds beyond the shipped package and the chosen shots, stopping
+ * short of the region's byte budget with room for links and records): the
+ * first shot over a range pays for terrain later shots share, so it is
+ * discounted, not refused. Without a cost model, per new tile
+ * (discovery.tileWeight per 100 tiles). Variety: penalties for
+ * repeating a subject, a move, an elevation class, a lens, or a viewing
+ * azimuth of the same subject.
+ */
+function selection(config, cost, chosen) {
   const perSubject = config.discovery.shotsPerSubject;
-  const out = kept.length ? [...kept] : scored.filter((c) => c.move === 'rail');
-  const max = Math.min(config.discovery.maxShots, out.length + add);
-  const rest = scored.filter((c) => !out.includes(c) && c.move !== 'rail' && c.score.holes <= 0.002 && c.score.total > 0);
-  // A shot no short link can reach from (or leave for) the shots already
-  // kept is worth less: it may end up unconnected.
-  // (By an actual link when the graph is known, else by distance.)
-  const reachM = (config.discovery.maxLinkS ?? 30) * (config.motion?.maxSpeedMps ?? 120) * 0.8;
-  const near = reach || ((a, b) => !(endGap(a, b) > reachM));
-  // New terrain: with a cost model each shot pays for the bytes its detail
-  // adds beyond the shipped package and the shots already chosen
-  // (discovery.byteWeight per 100 KB), and selection stops short of the
-  // region's byte budget (with room for the library and its links); without
-  // one, per new tile (discovery.tileWeight per 100 tiles).
-  const owned = new Set(out.flatMap((o) => o.missing || [])), paid = new Map();
+  const out = [...chosen], owned = new Set(out.flatMap((o) => o.missing || [])), paid = new Map();
   if (cost) for (const o of out) cost.own(o.footprint || new Map(), paid);
-  const tileWeight = config.discovery.tileWeight ?? 0.25, byteWeight = config.discovery.byteWeight ?? 0.25;
+  const tileWeight = config.discovery.tileWeight ?? 0.25, byteScale = (config.discovery.byteScaleKB ?? 250) * 1024;
   const room = (config.budget?.assetBytes ?? Infinity) * 0.85;
   let spent = estimatedBytes(out, cost);
-  while (out.length < max && rest.length) {
-    let best = null;
-    for (const c of rest) {
-      const same = out.filter((o) => o.subjectId === c.subjectId);
-      if (same.length >= perSubject) continue;
-      const bytes = cost ? cost.marginal(c.footprint || new Map(), paid) : 0;
+  /** { v, bytes } for c next to `out` (plus `extra`), or null when it
+   *  cannot join; `state.reject` then names why. */
+  const state = { reject: null };
+  const no = (why) => { state.reject = why; return null; };
+  const value = (c, extra = []) => {
+    const others = extra.length ? [...out, ...extra] : out;
+    const same = others.filter((o) => o.subjectId === c.subjectId);
+    if (same.length >= perSubject) return no('subject limit');
+    // A near copy of a chosen shot (same frame at the payoff) adds nothing
+    // a viewer would notice.
+    if (others.some((o) => nearCopy(o, c, config.discovery))) return no('near copy');
+    let bytes = 0;
+    if (cost) {
+      const held = extra.length ? extra.reduce((m, x) => cost.own(x.footprint || new Map(), m), new Map(paid)) : paid;
+      bytes = cost.marginal(c.footprint || new Map(), held);
+      if (cost.coverageOnly && bytes > 0) return no('needs new terrain (coverage only)');
+      const before = extra.reduce((n, x) => n + (x.bytes || 0), 0);
       // Links add about a quarter again to the shots' terrain; each shot
       // brings its own record and about three links.
-      if (cost && (spent + bytes) * 1.25 + 4 * RECORD_BYTES * (out.length + 1) > room) continue;
-      let v = c.score.total - (cost ? byteWeight * bytes / 100000 : tileWeight * (c.missing || []).filter((t) => !owned.has(t)).length / 100);
-      if (v <= 0) continue;
-      if (out.length) {
-        const into = out.some((o) => near(o, c)), away = out.some((o) => near(c, o));
+      if ((spent + before + bytes) * 1.25 + 4 * RECORD_BYTES * (others.length + 1) > room) return no('over the byte budget');
+    }
+    let v = cost ? c.score.total / (1 + bytes / byteScale) : c.score.total - tileWeight * (c.missing || []).filter((t) => !owned.has(t)).length / 100;
+    if (v <= 0) return no('worth nothing');
+    const n = Math.max(1, others.length);
+    v *= 1 - 0.12 * same.length;
+    v *= 1 - 0.1 * others.filter((o) => o.move === c.move).length / n;
+    v *= 1 - 0.25 * others.filter((o) => o.traits.elevation === c.traits.elevation).length / n;
+    v *= 1 - 0.15 * others.filter((o) => o.traits.lens === c.traits.lens).length / n;
+    // Steep look-downs read alike however the terrain differs.
+    const down = (x) => (x.traits.elevationDeg ?? 0) < -10;
+    if (down(c)) v *= 1 - 0.3 * others.filter(down).length / n;
+    for (const o of same) {
+      const dAz = Math.abs(((o.traits.azimuthDeg - c.traits.azimuthDeg + 540) % 360) - 180);
+      if (dAz < 25 && o.traits.elevation === c.traits.elevation) v *= 0.55;
+    }
+    // The region's heroes carry the climax: their shots are worth more.
+    if (c.hero) v *= 1 + (config.discovery.heroBonus ?? 0.35);
+    return { v, bytes };
+  };
+  const take = (c, bytes) => {
+    out.push(c);
+    for (const t of c.missing || []) owned.add(t);
+    if (cost) { cost.own(c.footprint || new Map(), paid); spent += bytes; }
+  };
+  return { out, value, take, state };
+}
+
+/** Diverse shortlist: greedy by worth (selection()), starting from `kept`
+ *  or the rail; shots no short link can reach from (or leave for) the
+ *  chosen ones are worth less (by an actual link when `reach` is given,
+ *  else by distance). */
+export function selectShots(scored, config, cost = null, kept = [], { add = Infinity, reach = null } = {}) {
+  const sel = selection(config, cost, kept.length ? kept : scored.filter((c) => c.move === 'rail'));
+  const max = Math.min(config.discovery.maxShots, sel.out.length + add);
+  const rest = scored.filter((c) => !sel.out.includes(c) && c.move !== 'rail' && c.score.holes <= 0.002 && c.score.total > 0);
+  const reachM = (config.discovery.maxLinkS ?? 30) * (config.motion?.maxSpeedMps ?? 120) * 0.8;
+  const near = reach || ((a, b) => !(endGap(a, b) > reachM));
+  while (sel.out.length < max && rest.length) {
+    let best = null;
+    for (const c of rest) {
+      const w = sel.value(c);
+      if (!w) continue;
+      let v = w.v;
+      if (sel.out.length) {
+        const into = sel.out.some((o) => near(o, c)), away = sel.out.some((o) => near(c, o));
         v *= into && away ? 1 : into || away ? 0.75 : 0.45;
       }
-      v *= 1 - 0.12 * same.length;
-      v *= 1 - 0.1 * out.filter((o) => o.move === c.move).length / Math.max(1, out.length);
-      // Variety across the whole library: elevations and lenses, not only moves.
-      v *= 1 - 0.25 * out.filter((o) => o.traits.elevation === c.traits.elevation).length / Math.max(1, out.length);
-      v *= 1 - 0.15 * out.filter((o) => o.traits.lens === c.traits.lens).length / Math.max(1, out.length);
-      for (const o of same) {
-        const dAz = Math.abs(((o.traits.azimuthDeg - c.traits.azimuthDeg + 540) % 360) - 180);
-        if (dAz < 25 && o.traits.elevation === c.traits.elevation) v *= 0.55;
-      }
-      if (!best || v > best.v || (v === best.v && c.id < best.c.id)) best = { c, v, bytes };
+      if (!best || v > best.v || (v === best.v && c.id < best.c.id)) best = { c, v, bytes: w.bytes };
     }
     if (!best) break;
-    out.push(best.c);
-    for (const t of best.c.missing || []) owned.add(t);
-    if (cost) { cost.own(best.c.footprint || new Map(), paid); spent += best.bytes; }
+    sel.take(best.c, best.bytes);
     rest.splice(rest.indexOf(best.c), 1);
   }
-  return out;
+  return sel.out;
+}
+
+/**
+ * A connected shortlist grown by ears over the link graph: seeded with a
+ * short cycle (at most discovery.earShots + 2 shots), then extended only by
+ * ears, chains of at most discovery.earShots new shots that leave the set
+ * and rejoin it (set -> a -> ... -> set), whichever is worth most per shot
+ * (selection()). Every shot so chosen has a way in and a way out among the
+ * others. A seed worth most on its own may sit where nothing else connects
+ * cheaply, so the library is grown from each of the best
+ * discovery.seedTrials seeds and the one worth most in total is kept. The
+ * rail joins as the fallback, linked or not.
+ */
+export function selectConnected(scored, links, config, cost = null, { log = null } = {}) {
+  const rail = scored.filter((c) => c.move === 'rail');
+  const eligible = scored.filter((c) => c.move !== 'rail' && c.score.holes <= 0.002 && c.score.total > 0);
+  const outs = new Map(), ins = new Map();
+  for (const l of links) {
+    if (!outs.has(l.from)) outs.set(l.from, new Set());
+    if (!ins.has(l.to)) ins.set(l.to, new Set());
+    outs.get(l.from).add(l.to); ins.get(l.to).add(l.from);
+  }
+  // Why a shot cannot join (report.funnel.selection and the build log).
+  const why = { eligible: 0, holes: scored.filter((c) => c.move !== 'rail' && !(c.score.holes <= 0.002)).length, noShortCycle: 0, cycles: 0, seedRejects: {}, seeds: 0, trials: 0, stop: null };
+  const max = config.discovery.maxShots, earShots = config.discovery.earShots ?? 3;
+  const key = (chain) => chain.map((c) => c.id).join('>');
+  const better = (x, y) => !y || x.v > y.v || (x.v === y.v && x.key < y.key);
+  const walk = (parent, from, stop) => { const path = []; for (let x = from; x && !stop(x); x = parent.get(x)) path.push(x); return path; };
+  // Breadth-first through `pool` shots from `sources` along `edges`, at
+  // most `limit` steps, never through a copy of a shot already on the way
+  // (a chain holding two copies could not be chosen): { parent, depth }.
+  const bfs = (pool, sources, edges, limit) => {
+    const parent = new Map(), depth = new Map();
+    let frontier = [...sources];
+    for (const x of frontier) depth.set(x, 0);
+    for (let d = 1; d <= limit && frontier.length; d++) {
+      const next = [];
+      for (const x of frontier) for (const y of edges.get(x) || []) {
+        if (!pool.has(y) || depth.has(y)) continue;
+        let copy = false;
+        for (let z = x; z !== undefined && !copy; z = parent.get(z)) copy = nearCopy(z, y, config.discovery);
+        if (copy) continue;
+        depth.set(y, d); parent.set(y, x); next.push(y);
+      }
+      frontier = next;
+    }
+    return { parent, depth };
+  };
+  // Value of adding a chain in order to a selection, or null when any
+  // member does not fit. Longer chains spend more of the song on one
+  // detour: 5% per extra shot.
+  const chainValue = (sel, chain) => {
+    const extra = [];
+    let total = 0;
+    for (const c of chain) {
+      const w = sel.value(c, extra);
+      if (!w) { chainValue.reject = sel.state.reject; return null; }
+      total += w.v; extra.push(Object.assign(Object.create(c), { bytes: w.bytes }));
+    }
+    return { v: (total / chain.length) * (1 - 0.05 * (chain.length - 1)), bytes: extra.map((x) => x.bytes) };
+  };
+  // Seeds: the shortest cycle through each shot, valued on its own.
+  const base = selection(config, cost, rail), seeds = new Map();
+  for (const a of eligible) {
+    // Not through a copy of itself (its own reversal pays off on its frame).
+    const through = new Set(eligible.filter((x) => x === a || !nearCopy(a, x, config.discovery)));
+    const { parent, depth } = bfs(through, [a], outs, earShots + 1);
+    let close = null;
+    for (const y of ins.get(a) || []) if (y !== a && depth.has(y) && (!close || depth.get(y) < depth.get(close))) close = y;
+    if (!close) { why.noShortCycle++; continue; }
+    const chain = [a, ...walk(parent, close, (x) => x === a).reverse()];
+    why.cycles++;
+    const w = chainValue(base, chain);
+    if (!w) { why.seedRejects[chainValue.reject] = (why.seedRejects[chainValue.reject] || 0) + 1; continue; }
+    const k = [...chain].map((c) => c.id).sort().join('+');
+    if (!seeds.has(k) || w.v > seeds.get(k).v) seeds.set(k, { ...w, key: key(chain), chain });
+  }
+  // Grow from a seed: { out, worth }.
+  const grow = (seed) => {
+    const sel = selection(config, cost, rail), set = new Set(rail), pool = new Set(eligible);
+    // Shots that can no longer join (copies of chosen ones) are no way through either.
+    const add = (best) => {
+      best.chain.forEach((c, i) => { sel.take(c, best.bytes[i]); set.add(c); pool.delete(c); });
+      for (const c of [...pool]) if (best.chain.some((o) => nearCopy(o, c, config.discovery))) pool.delete(c);
+    };
+    add(seed);
+    let stop = null;
+    while (sel.out.length < max) {
+      const fwd = bfs(pool, [...set], outs, earShots), back = bfs(pool, [...set], ins, earShots);
+      let best = null;
+      // Why each remaining shot could not join on this pass.
+      stop = { remaining: pool.size, unreachable: 0, noWayBack: 0, longChain: 0, repeat: 0, rejects: {} };
+      for (const c of pool) {
+        if (!fwd.depth.has(c)) { stop.unreachable++; continue; }
+        if (!back.depth.has(c)) { stop.noWayBack++; continue; }
+        const chain = [...walk(fwd.parent, c, (x) => set.has(x)).reverse(), ...walk(back.parent, back.parent.get(c), (x) => set.has(x))];
+        if (chain.length > earShots || sel.out.length + chain.length > max) { stop.longChain++; continue; }
+        if (new Set(chain).size !== chain.length) { stop.repeat++; continue; }
+        const w = chainValue(sel, chain);
+        if (!w) { stop.rejects[chainValue.reject] = (stop.rejects[chainValue.reject] || 0) + 1; continue; }
+        if (better({ ...w, key: key(chain) }, best)) best = { ...w, key: key(chain), chain };
+      }
+      if (!best) break;
+      add(best);
+    }
+    if (sel.out.length >= max) stop = { full: true };
+    // A library worth keeping covers the region's heroes: each hero subject
+    // with a shot counts as much as a good shot more.
+    const heroes = new Set(sel.out.filter((c) => c.hero).map((c) => c.subjectId)).size;
+    return { out: sel.out, worth: sel.out.filter((c) => c.move !== 'rail').reduce((t, c) => t + c.score.total, 0) + 0.6 * heroes, stop };
+  };
+  const trials = [...seeds.values()].sort((x, y) => y.v - x.v || (x.key < y.key ? -1 : 1)).slice(0, config.discovery.seedTrials ?? 12);
+  let kept = null;
+  for (const seed of trials) {
+    const r = grow(seed);
+    if (!kept || r.worth > kept.worth + 1e-9) kept = { ...r, seed };
+  }
+  Object.assign(why, { eligible: eligible.length, seeds: seeds.size, trials: trials.length, keptSeed: kept?.seed.chain.length ?? 0, chosen: kept ? kept.out.length - rail.length : 0, stop: kept?.stop ?? null });
+  const list = (o) => Object.entries(o).map(([k, n]) => `${n} ${k}`).join(', ') || 'none';
+  log?.(`connected selection: ${eligible.length} shots eligible (${why.holes} left out for holes); ${why.noShortCycle} lie on no cycle of ${earShots + 2} or fewer shots; ${why.cycles} short cycles (${seeds.size} distinct usable seeds, ${Object.values(why.seedRejects).reduce((a, b) => a + b, 0)} rejected: ${list(why.seedRejects)})${kept ? `; grew ${trials.length} seeds, kept one of ${kept.seed.chain.length} shots growing to ${why.chosen}` : '; no seed'}`);
+  if (kept?.stop && !kept.stop.full) log?.(`connected selection stopped with ${kept.stop.remaining} shots left: ${kept.stop.unreachable} unreachable from the set within ${earShots} shots, ${kept.stop.noWayBack} with no way back, ${kept.stop.longChain} only by longer chains, ${kept.stop.repeat} only through a repeated shot, rejected: ${list(kept.stop.rejects)}`);
+  selectConnected.funnel = why;
+  return kept ? kept.out : base.out;
 }
 
 /** Each ordered pair's Pareto front of usable link variants (at most two). */
@@ -456,15 +778,16 @@ export function paretoFront(pairs) {
 /** Pareto per pair, then at most maxLinksPerShot per origin, preferring
  *  distinct destinations and keeping each destination reachable. */
 export function selectLinks(pairs, shots, config, cost = null) {
-  const front = paretoFront(pairs);
+  const front = paretoFront(pairs).filter((l) => !cost?.coverageOnly || cost.marginal(l.footprint || new Map()) === 0);
   const out = [];
   // A link's worth is its scenery per second it costs the song, less the
   // new terrain it would add beyond the shots' own.
   const owned = new Set(shots.flatMap((x) => x.missing || []));
   const paid = cost ? shots.reduce((m, x) => cost.own(x.footprint || new Map(), m), new Map()) : null;
-  const worth = new Map(front.map((l) => [l, l.score.total / (1 + (l.durationMs?.ideal ?? l.lengthM * 40) / 20000)
-    - (cost ? (config.discovery.byteWeight ?? 0.25) * cost.marginal(l.footprint || new Map(), paid) / 100000
-      : (config.discovery.tileWeight ?? 0.25) * (l.missing || []).filter((t) => !owned.has(t)).length / 100)]));
+  const byteScale = (config.discovery.byteScaleKB ?? 250) * 1024;
+  const worth = new Map(front.map((l) => { const w = l.score.total / (1 + (l.durationMs?.ideal ?? l.lengthM * 40) / 20000);
+    return [l, cost ? w / (1 + cost.marginal(l.footprint || new Map(), paid) / byteScale)
+      : w - (config.discovery.tileWeight ?? 0.25) * (l.missing || []).filter((t) => !owned.has(t)).length / 100]; }));
   for (const s of shots) {
     const mine = front.filter((l) => l.from === s).sort((a, b) => worth.get(b) - worth.get(a) || a.lengthM - b.lengthM);
     const seen = new Set();
@@ -492,6 +815,36 @@ export function selectLinks(pairs, shots, config, cost = null) {
 export function renderedTotal(dem, render) {
   if (!(render >= 0.1)) return 0;
   return dem * (0.55 + 0.45 * clamp(render / 0.45, 0, 1));
+}
+
+/**
+ * What the renderer shows of a candidate's key frames (entry, payoff, end
+ * of hold, exit), as gates and a sharpness factor. Fitted to a visual review
+ * of the first full libraries (170 shots in 12 regions, judged as film:
+ * docs/scenic-tours.md, "Rendered review"): a shot is dropped when its
+ * subject is not in the frame at the payoff, fills the frame, or when the
+ * payoff and hold are all terrain too close to show detail (the DEM's
+ * detailM cells spanning more than 10 pixels of the 640x360 picture); its
+ * worth falls by up to half as that soft close terrain grows, and by up to a
+ * quarter more when the entry or exit frame is all of it.
+ */
+export function renderedGate(frames, { fovYDeg = 26, detailM = 30 } = {}) {
+  const m = frames.map((f) => f.metrics || {});
+  const focal = 180 / Math.tan((fovYDeg * Math.PI) / 360), softM = (focal * detailM) / 10;
+  const soft = (x) => {
+    const d = x.depth;
+    if (!d?.frac) return 0;
+    let t = 0, lo = 0;
+    d.frac.forEach((f, i) => { const hi = d.edgesM[i]; t += hi <= softM ? f : lo < softM ? (f * (softM - lo)) / (hi - lo) : 0; lo = hi; });
+    return t;
+  };
+  const pay = m[1] || {}, reasons = [];
+  if (pay.subject && !(pay.subject.inFrame >= 0.6)) reasons.push('subject out of frame at the payoff');
+  if ((pay.subject?.screenHeight ?? 0) > 0.8) reasons.push('subject fills the frame');
+  const payoffSoft = Math.max(soft(m[1] || {}), soft(m[2] || {})), endsSoft = Math.max(soft(m[0] || {}), soft(m[3] || {}));
+  if (payoffSoft > 0.95) reasons.push('payoff all soft close terrain');
+  const factor = 1 - 0.5 * clamp((payoffSoft - 0.75) / 0.2, 0, 1) - 0.25 * clamp((endsSoft - 0.85) / 0.15, 0, 1);
+  return { pass: !reasons.length, factor, reasons, payoffSoft, endsSoft };
 }
 
 /** Renderer score for one shot from its rendered key frames (0..1): no
@@ -571,7 +924,9 @@ export async function railParity(viewId, camera, terrain, { stations = 9, width 
 /** The poses a library's frames (and, where a lake mirrors, their
  *  reflections) need covered. */
 export function libraryPoses(ctx, library, options = {}) {
-  return tourPoses(ctx, [...library.shots, ...library.links], options);
+  // The rail shot is the authored rail, which the approved package (and the
+  // rail stations every bake keeps) already covers, reflections included.
+  return tourPoses(ctx, [...library.shots.filter((x) => x.move !== 'rail'), ...library.links], options);
 }
 
 /**
@@ -586,7 +941,7 @@ export async function bakeForLibrary(ctx, library, config, { log = console.log }
   const scale = config.budget.poseErrorScale ?? 3, check = { errorPx: scale, extendedErrorPx: 3 * scale };
   const shipped = validatePoses(ctx, poses, check);
   log(`${ctx.viewId}: ${poses.length} footprint poses${mirrorLevelM != null ? ` (mirror at ${mirrorLevelM.toFixed(1)} m)` : ''}; shipped package: ${shipped.holes.length} poses with holes, ${shipped.lod.length} LOD violations`);
-  if (shipped.ok) return { rebaked: false, validation: shipped, poses };
+  if (shipped.ok || ctx.coverageOnly) return { rebaked: false, validation: shipped, poses };
   // The rail-only bake must reproduce the shipped heights, or the source
   // has drifted since the view was approved (reported, not hidden).
   const rail = await bakeTerrain(ctx.grid, ctx.build.view, bakeOptions(ctx));
@@ -604,15 +959,35 @@ export async function bakeForLibrary(ctx, library, config, { log = console.log }
 }
 
 /** Budget problems for a candidate library + terrain (empty = within). */
-export async function budgetErrors(ctx, config, packed, bake) {
+/**
+ * Forest build memory the runtime reserves before it plants a static view:
+ * ForestCover's placement bound (every forest lattice cell within the
+ * billboard ring of the rail or a library path, 64 bytes each), for the rail
+ * alone and with the library's footprint. A wide footprint can outgrow the
+ * graphics residency budget, and a view that cannot reserve it is deferred
+ * for good, so the fit holds it to budget.forestBuildBytes (or a little over
+ * the rail's own bound where that is larger already).
+ */
+export async function forestBuild(ctx, data, library) {
+  const view = SCENE_CATALOG.views.find((v) => v.id === ctx.viewId);
+  const pack = JSON.parse(await fs.readFile(path.join(root, 'src', 'assets', 'range', 'v2', view.materialManifestUrl), 'utf8'));
+  const rules = { ...pack.rules, ...(view.materialRules || {}) };
+  const bound = (lib) => forestPlacementBound(data, lib ? { ...view, cameraPaths: cameraFootprint(lib) } : view, rules).placementBytes;
+  return { rail: bound(null), tour: bound(library), bound };
+}
+
+export async function budgetErrors(ctx, config, packed, bake, forest = null) {
   const errors = [], b = config.budget;
+  const forestCap = Math.max(b.forestBuildBytes ?? 160 * 2 ** 20, 1.1 * (forest?.rail ?? 0));
+  if (forest && forest.tour > forestCap) errors.push(`forest build ${(forest.tour / 2 ** 20).toFixed(0)} MiB, over ${(forestCap / 2 ** 20).toFixed(0)} MiB`);
+  if (!bake.rebaked && !bake.validation.ok) errors.push(`not covered by the shipped package (${bake.validation.holes.length} poses with holes, ${bake.validation.lod.length} LOD violations)`);
   const added = (bake.rebaked ? bake.budget.addedBytes : 0) + Buffer.byteLength(packed.manifestText) + packed.payload.byteLength;
   if (added > b.assetBytes) errors.push(`adds ${added} bytes, over the region's ${b.assetBytes}`);
   if (bake.rebaked && bake.budget.desktopTriangles > b.desktopTriangles) errors.push(`desktop ${bake.budget.desktopTriangles} triangles, over ${b.desktopTriangles}`);
   if (bake.rebaked && bake.budget.mobileTriangles > b.mobileTriangles) errors.push(`mobile ${bake.budget.mobileTriangles} triangles, over ${b.mobileTriangles}`);
   const total = await rangeAssetBytes(root);
   if (total + added > RANGE_ASSET_LIMIT) errors.push(`Range assets would reach ${total + added} bytes, over ${RANGE_ASSET_LIMIT}`);
-  return { errors, added };
+  return { errors, added, forest: forest ? { rail: forest.rail, tour: forest.tour, cap: forestCap } : null };
 }
 
 // ---------------------------------------------------------------------------
@@ -642,7 +1017,8 @@ export function packLibrary(viewId, regionId, terrainManifestSha256, library, pr
     return { id, from: l.from.id, to: l.to.id, kind: l.kind, path: l.path, lengthM: round(l.lengthM, 10), durationMs: l.durationMs,
       score: { total: round(l.score.total), weakest: round(l.score.weakest ?? 0), composition: round(l.score.composition ?? 0) } };
   });
-  const decoded = Buffer.from(packShotPaths([...shots, ...links]));
+  const lattice = chooseLattice([...shots, ...links]);
+  const decoded = Buffer.from(packShotPaths([...shots, ...links], lattice));
   const payload = zlib.gzipSync(decoded, { level: 9, mtime: 0 });
   payload[4] = payload[5] = payload[6] = payload[7] = 0; payload[9] = 255;
   const strip = (r) => Object.fromEntries(Object.entries(r).filter(([k]) => k !== 'path'));
@@ -651,7 +1027,7 @@ export function packLibrary(viewId, regionId, terrainManifestSha256, library, pr
     axes: { x: 'east', y: 'up', z: 'south', units: 'metres' },
     ...(motion ? { motion } : {}), subjects, shots: shots.map(strip), links: links.map(strip),
     payload: { url: `${viewId}.shots.bin.gz`, encoding: 'gzip', byteLength: payload.byteLength, sha256: sha(payload),
-      decodedByteLength: decoded.byteLength, decodedSha256: sha(decoded) },
+      decodedByteLength: decoded.byteLength, decodedSha256: sha(decoded), lattice },
     provenance,
   };
   const errors = shotLibraryErrors(manifest, { viewId, decodedByteLength: decoded.byteLength });
@@ -681,8 +1057,10 @@ export function linkLibrary(shots, pairs, config, cost = null) {
 }
 
 /** The shot whose terrain is most its own per unit of what it brings
- *  (score, and rarity: the only move, elevation or subject of its kind). */
-export function costliestShot(library, cost) {
+ *  (score, and rarity: the only move, elevation or subject of its kind),
+ *  among the drops that keep the most of the library (`survivors(shot)`,
+ *  the shots still connected without it). */
+export function costliestShot(library, cost, survivors = null) {
   const records = [...library.shots, ...library.links], all = estimatedBytes(records, cost);
   let worst = null;
   for (const shot of library.shots) {
@@ -690,10 +1068,30 @@ export function costliestShot(library, cost) {
     const own = all - estimatedBytes(records.filter((r) => r !== shot && r.from !== shot && r.to !== shot), cost);
     const alone = (key) => library.shots.filter((o) => o !== shot && key(o) === key(shot)).length === 0;
     const rarity = 1 + 1.5 * alone((o) => o.move + (o.tags || []).join('+')) + 1.5 * alone((o) => o.traits.elevation) + 0.8 * alone((o) => o.subjectId);
-    const c = (own + 4000) / (Math.max(0.05, shot.score.total) * rarity);
-    if (!worst || c > worst.cost) worst = { shot, cost: c, bytes: own };
+    const c = (own + 4000) / (Math.max(0.05, shot.score.total) * rarity), keep = survivors ? survivors(shot) : 0;
+    if (!worst || keep > worst.keep || (keep === worst.keep && c > worst.cost)) worst = { shot, cost: c, bytes: own, keep };
   }
   return worst;
+}
+
+/** What to drop from a library over its forest build: among single shots
+ *  and each subject's shots together, the drop that narrows the forest most
+ *  per shot it costs (shots it disconnects included), then the one costing
+ *  fewest shots. A subject's shots overlap, so dropping one of them alone
+ *  often narrows nothing (Izta, round 3: 12 of 22 single drops). relink(shots)
+ *  gives { shots, links }; bound(library) the forest build bytes. Null when
+ *  nothing can go without leaving fewer than minShots. */
+export function forestDrop(library, relink, bound, { minShots = 4 } = {}) {
+  const now = bound(library), movable = library.shots.filter((s) => s.move !== 'rail'), bySubject = new Map();
+  for (const s of movable) bySubject.set(s.subjectId, [...(bySubject.get(s.subjectId) || []), s]);
+  let best = null;
+  for (const group of [...movable.map((s) => [s]), ...[...bySubject.values()].filter((g) => g.length > 1)]) {
+    const rest = relink(library.shots.filter((s) => !group.includes(s)));
+    if (rest.shots.length < minShots) continue;
+    const size = bound({ ...library, ...rest }), lost = library.shots.length - rest.shots.length, gain = (now - size) / lost;
+    if (!best || gain > best.gain + 1e-9 || (Math.abs(gain - best.gain) <= 1e-9 && lost < best.lost)) best = { group, rest, size, lost, gain };
+  }
+  return best;
 }
 
 /**
@@ -711,7 +1109,8 @@ export async function fitToBudget(built, { log = console.log, maxIterations = In
     const packed = packLibrary(ctx.viewId, ctx.view.regionId, terrainSha, library,
       { builtWith: 'tools/build-scenic-tours.mjs', configSha256: sha(JSON.stringify(config)), demSha256: ctx.grid.meta?.payload?.heights?.sha256 ?? null },
       config.motion, config.region.hero || []);
-    const budget = await budgetErrors(ctx, config, packed, bake);
+    const forest = await forestBuild(ctx, bake.rebaked ? bake.data : ctx.terrain.data, library);
+    const budget = await budgetErrors(ctx, config, packed, bake, forest);
     log(`${ctx.viewId}: fit ${iter}: ${library.shots.length} shots / ${library.links.length} links, adds ${(budget.added / 1024).toFixed(0)} KiB${budget.errors.length ? ` -- ${budget.errors.join('; ')}` : ' -- within budget'}`);
     if (!budget.errors.length) return { library, bake, packed, budget, iterations: iter };
     if (iter >= maxIterations) return { library, bake, packed, budget, iterations: iter, failed: true, survey: true };
@@ -724,8 +1123,17 @@ export async function fitToBudget(built, { log = console.log, maxIterations = In
     const perRecord = libBytes / Math.max(1, library.shots.length + library.links.length);
     const fits = (lib) => estimatedBytes([...lib.shots, ...lib.links], cost) * ratio + perRecord * (lib.shots.length + lib.links.length) <= 0.95 * config.budget.assetBytes;
     let dropped = 0;
+    // Over the forest build: drop what narrows the forest most per shot lost.
+    while (budget.forest && budget.forest.tour > budget.forest.cap && library.shots.length > 4) {
+      const best = forestDrop(library, (shots) => linkLibrary(shots, pairs, config, cost), forest.bound);
+      if (!best) break;
+      log(`${ctx.viewId}: dropping ${best.group.map((s) => s.id).join(', ')}${best.lost > best.group.length ? ` (and ${best.lost - best.group.length} left unlinked)` : ''} (forest build to ${(best.size / 2 ** 20).toFixed(0)} MiB)`);
+      library = { ...library, ...best.rest };
+      dropped += best.lost;
+      if (best.size <= budget.forest.cap) break;
+    }
     while (library.shots.length > 4 && (!dropped || (cost && !fits(library)))) {
-      const worst = costliestShot(library, cost);
+      const worst = costliestShot(library, cost, (shot) => linkLibrary(library.shots.filter((s) => s !== shot), pairs, config, cost).shots.length);
       if (!worst) break;
       log(`${ctx.viewId}: dropping ${worst.shot.id} (~${Math.round(worst.bytes * ratio / 1024)} KiB of its own)`);
       library = { ...library, ...linkLibrary(library.shots.filter((s) => s !== worst.shot), pairs, config, cost) };
@@ -812,7 +1220,8 @@ async function main() {
   if (!ids.length || ids.some((v) => !doc.regions[v])) throw new Error('usage: node tools/build-scenic-tours.mjs --view <id>[,<id>]|all [--render] [--publish]');
   for (const viewId of ids) {
     const out = path.resolve(opt('--out') || path.join(root, '.smoke', 'scenic-tours', viewId));
-    const built = await buildViewTours(viewId, { out, workers: Number(opt('--workers')) || undefined, renderGate: !args.includes('--no-render-gate') });
+    const built = args.includes('--reselect') ? await reselectViewTours(viewId, { out, workers: Number(opt('--workers')) || undefined })
+      : await buildViewTours(viewId, { out, workers: Number(opt('--workers')) || undefined, renderGate: !args.includes('--no-render-gate') });
     const fitted = await fitToBudget(built, { maxIterations: args.includes('--survey') ? 1 : Infinity });
     await writeFitted(out, viewId, fitted);
     if (args.includes('--render')) {

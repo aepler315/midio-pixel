@@ -1,11 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planShotTour } from '../src/world/terrain/ShotPlanner.js';
-import { buildShotTimeline, restoreShotTimeline, shotContinuation, shotTimelineData, progressProfile, SHOT_MOTION } from '../src/world/terrain/ShotTimeline.js';
+import { planShotTour, restoreShotLibrary } from '../src/world/terrain/ShotPlanner.js';
+import { buildShotTimeline, restoreShotTimeline, shotContinuation, shotTimelineData, progressProfile, itemKnots, SHOT_MOTION } from '../src/world/terrain/ShotTimeline.js';
 import { pathPoseAt, lookDir, headingPitch } from '../src/world/terrain/ShotPath.js';
 import { handleShotMessage } from '../src/world/terrain/shot-worker.js';
-import { shotPlanRequest } from '../src/world/terrain/ShotRuntime.js';
-import { shotLibraryFixture, anthemSong } from './fixtures/shot-library-fixture.mjs';
+import { shotPlanRequest, cloneableShotLibrary } from '../src/world/terrain/ShotRuntime.js';
+import { shotLibraryFixture, anthemSong, rangeShotLibraryFixture } from './fixtures/shot-library-fixture.mjs';
+import { motionAudit } from '../tools/plan-scenic-tour.mjs';
 
 const library = shotLibraryFixture(), song = anthemSong();
 const plan = (options = {}) => planShotTour(library, { ...song, ...options });
@@ -222,4 +223,64 @@ test('replans from every commit time keep the committed motion and never ship a 
     }
     assert.ok(replanned >= 40, `fixture ${seed}: ${replanned} replans applied (the rest deferred)`);
   }
+});
+
+test('a song end off the 100 ms lattice: the keys stay uniform and the drawn camera runs smoothly into it', () => {
+  // Real songs end anywhere (167984.8 ms); the last key used to sit at the song
+  // end, 85 ms after the one before, which the uniform spline read as 100 ms:
+  // a 6-14 m/s2 step in the drawn speed over the last frames.
+  const D = 169985, t = buildShotTimeline(library, plan({ durationMs: D }));
+  assert.equal(t.fov.length, Math.ceil(D / 100) + 1);
+  const audit = motionAudit(t);
+  assert.ok(audit.lastAccel.tangential <= SHOT_MOTION.maxAccelMps2, `last 100 ms ${audit.lastAccel.tangential.toFixed(2)} m/s2`);
+  assert.ok(audit.tangentialMps2.max <= SHOT_MOTION.maxAccelMps2 * 1.05, `tangential ${audit.tangentialMps2.max.toFixed(2)} m/s2`);
+  const v = (at) => dist(t.poseAt(at + H / 2).eyeM, t.poseAt(at - H / 2).eyeM) / (H / 1000);
+  for (let at = D - 1000; at + 1.5 * H <= D; at += H) assert.ok(Math.abs(v(at + H) - v(at)) / (H / 1000) <= SHOT_MOTION.maxAccelMps2 * 1.05, `speed step at ${at.toFixed(0)} ms`);
+  assert.ok(Number.isFinite(t.poseAt(D).eyeM[0]) && t.poseAt(D + 500).eyeM.every((x, k) => x === t.poseAt(D).eyeM[k]), 'poseAt holds at the song end');
+});
+
+test('a payoff at a shot\'s very end keeps its knot even past the decoded path\'s end', () => {
+  // Libraries put some payoffs at lengthM (a pullback's or a reveal's last
+  // frame), which the 0.1 m lattice can leave just past the decoded end.
+  const shots = library.shots.map((s) => (s.move === 'rail' ? s : { ...s, payoffS: s.path.s.at(-1) + .05 }));
+  const lib = restoreShotLibrary({ ...cloneableShotLibrary(library), shots });
+  const p = planShotTour(lib, song), t = buildShotTimeline(lib, p), payoffItems = p.items.filter((it) => it.kind === 'shot' && Number.isFinite(it.payoffMs) && it.payoffMs > 0);
+  assert.ok(payoffItems.length >= 2);
+  for (const it of payoffItems) assert.ok(t.knots.some((k) => k.timeMs === it.payoffMs), `${it.id}: knot at ${it.payoffMs}`);
+  for (const x of t.payoffs) assert.ok(Math.abs(x.actualMs - x.plannedMs) < 1, `${x.shotId}: at ${x.actualMs} for ${x.plannedMs}`);
+  assert.ok(motionAudit(t).tangentialMps2.max <= SHOT_MOTION.maxAccelMps2 * 1.05);
+});
+
+test('a continuation reports the last knot so far and the committed leg into the next knot', () => {
+  // The replan's gap rule counts from the last knot; the committed leg's mean
+  // speed is what the plan that made the next knot measured its pace from.
+  for (const committed of [20000, 40000, 90000]) {
+    const start = shotContinuation(tl, committed);
+    assert.equal(start.lastKnotMs, Math.max(0, ...tl.knots.map((k) => k.timeMs).filter((t) => t <= start.timeMs)));
+    const payoffOf = (i) => (timeline.items[i].kind === 'shot' ? library.shotById.get(timeline.items[i].id).payoffS : null);
+    const { times, prog } = itemKnots(timeline.items, payoffOf, 0, timeline.durationMs), k = times.indexOf(start.next.timeMs);
+    const mean = (prog[k] - prog[k - 1]) / ((times[k] - times[k - 1]) / 1000);
+    assert.ok(k > 0 && Math.abs(start.next.legMps - mean) < .005 * mean, `${committed}: ${start.next.legMps} against ${mean}`);
+  }
+});
+
+test('a replan that keeps the committed sequence draws the committed camera again from its next knot on (plan.pin)', () => {
+  // The replan's first knot keeps the committed knot's speed, so every later
+  // interval is the committed one; without the pin that knot's speed comes
+  // from the replan's shorter first leg and the rest of the song shifts.
+  let kept = 0;
+  for (const lib of [library, rangeShotLibraryFixture({ seed: 1 })]) {
+    const request = { library: cloneableShotLibrary(lib), sections: song.sections, roles: song.roles, energy: song.energy, energyStepMs: 100, durationMs: song.durationMs, seed: 0 };
+    const first = restoreShotTimeline(structuredClone(handleShotMessage(structuredClone(request)).message.timeline));
+    for (let c = 10000; c < 150000; c += 10000) {
+      const start = shotContinuation(first, c, { leadMs: 3000 });
+      if (!start?.next) continue;
+      const next = restoreShotTimeline(handleShotMessage(structuredClone({ ...request, previous: shotTimelineData(first), committedThroughMs: c })).message.timeline);
+      const after = (t) => t.items.filter((it) => it.startMs >= start.next.timeMs).map((it) => `${it.id}@${it.payoffMs}`).join();
+      if (/deferred/.test(next.notes.at(-1)) || after(next) !== after(first)) continue;
+      kept++;
+      for (let at = start.next.timeMs; at <= song.durationMs; at += 250) assert.ok(dist(next.poseAt(at).eyeM, first.poseAt(at).eyeM) < 1e-3, `commit ${c}: the committed camera at ${at} ms`);
+    }
+  }
+  assert.ok(kept >= 10, `${kept} replans kept the committed sequence`);
 });

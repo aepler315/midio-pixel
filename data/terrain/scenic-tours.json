@@ -6,11 +6,18 @@
     "clearance": { "minAglM": 70, "treeHeightM": 35, "subjectStandoffM": 300, "boundaryMarginM": 1500, "cellM": 60 },
     "motion": { "maxSpeedMps": 120, "minSpeedMps": 4, "flowCalm": 0.07, "flowEnergetic": 0.24, "maxYawDegPerSec": 20, "maxClimbMps": 22, "maxAccelMps2": 3.5 },
     "discovery": { "focusRadiusM": 11000, "maxSubjects": 12, "minSubjectSpacingM": 1800, "prominenceMinM": 80, "snapRadiusM": 2500, "shotsPerSubject": 8, "maxShots": 36, "maxLinksPerShot": 4, "tileWeight": 0.6,
-      "byteWeight": 0.25, "linkMaxM": 6000, "transitMaxM": 9000, "maxShotS": 16, "maxLinkS": 30, "shotsPerRound": 6 },
-    "budget": { "assetBytes": 800000, "poseErrorScale": 4, "desktopTriangles": 2600000, "mobileTriangles": 1450000 }
+      "byteScaleKB": 250, "linkMaxM": 6000, "transitMaxM": 9000, "maxShotS": 16, "maxLinkS": 50, "shotsPerRound": 6, "earShots": 5, "linkFanout": 14, "linkRadiusM": 400,
+      "edgeDipDeg": 12, "frame": { "horizonBelowTop": 0.2, "subjectAboveBottom": 0.1 },
+      "horizonNote": "Rays that leave the DEM grid within edgeDipDeg below the horizontal are drawn as sky by the app, so the grid's far boundary reads as the horizon; measured in the app up to the deepest band any published camera saw (11.4 deg, Izta) with no visible crop. Before this rule, generators tilted every such view down until no ray left the grid, and high eyes aimed at a subject's mid-height looked 20-35 deg down: 47 of 126 round-2 shots framed no horizon. frame keeps the horizon at least 20% below the top edge while the subject's aim point stays at least 10% above the bottom (docs/scenic-tours.md, Horizon and the grid edge)." },
+    "budget": { "assetBytes": 800000, "poseErrorScale": 4, "desktopTriangles": 3200000, "mobileTriangles": 1800000,
+      "trianglesNote": "About 18 mesh bytes per triangle plus ~27 MB of surface textures per view; two views are resident across a seam, with forest and sky, inside the low-memory residency budgets (256 MiB desktop, 192 MiB mobile, src/render/GraphicsResidency.js)." }
   },
   "regions": {
     "nc-ross-lake-north": {
+      "overrides": { "budget": { "assetBytes": 1400000 } },
+      "budgetNote": "Wide views over a long lake: each shot brings hundreds of distant tiles (mostly manifest entries), so the default 800 KB fits only three or four shots; raised within the shared Range asset headroom.",
+      "rebakeOnDrift": true,
+      "rebakeOnDriftEvidence": "Rail parity after the tour rebake: 0.00% of rail pixels changed at 9 stations (.smoke/scenic-tours/nc-ross-lake-north/rail-parity.json); the drift is below what the rail can show.",
       "status": "candidate",
       "landform": "lake-alpine",
       "notes": "Ross Lake reservoir between Jack Mountain and the Hozomeen/Pasayten peaks; long north-south water with steep forested flanks.",
@@ -22,6 +29,8 @@
       "hero": ["Jack Mountain"]
     },
     "teton-jackson-lake": {
+      "overrides": { "budget": { "assetBytes": 1400000 } },
+      "budgetNote": "Wide views: each shot brings hundreds of distant tiles (mostly manifest entries), so the default 800 KB fits only 3-8 shots; raised within the shared Range asset headroom.",
       "status": "candidate",
       "landform": "lake-alpine",
       "notes": "Jackson Lake under the Teton front: Mount Moran rising straight from the lake, the Grand Teton and Cathedral Group to the south.",
@@ -43,6 +52,7 @@
       "hero": ["Denali"]
     },
     "tombstone-north-klondike": {
+      "blocker": "Source drift: the rail-only bake no longer reproduces the approved package (a rebake changes 3.3% of rail pixels), so the package is kept, and it covers no tour shot. Needs the DEM source re-pinned to the approved build (or the rebaked rail re-reviewed and re-approved); then rebuild with scenic tours.",
       "status": "candidate",
       "landform": "alpine",
       "notes": "Granite spires of the Tombstone Range above tundra valleys of the North Klondike.",
@@ -61,6 +71,10 @@
       "hero": []
     },
     "izta-popo-west": {
+      "excludeShots": ["reveal-valley-e1960-n3020-354","reveal-peak-e9110-n5080-219","reveal-peak-e13280-n9070-494"],
+      "excludeNote": "Marked broken in the rendered review of the libraries (docs/scenic-tours.md, Rendered review).",
+      "overrides": { "budget": { "assetBytes": 1400000 } },
+      "budgetNote": "Wide views: each shot brings hundreds of distant tiles (mostly manifest entries), so the default 800 KB fits only 3-8 shots; raised within the shared Range asset headroom.",
       "status": "candidate",
       "landform": "volcano",
       "notes": "Iztaccihuatl and Popocatepetl from the west: two isolated stratovolcanoes over high plateau.",
@@ -71,6 +85,8 @@
       "hero": ["Popocatépetl", "Iztaccíhuatl"]
     },
     "black-mountains-catawba": {
+      "overrides": { "budget": { "assetBytes": 1400000 } },
+      "budgetNote": "Wide views: each shot brings hundreds of distant tiles (mostly manifest entries), so the default 800 KB fits only 3-8 shots; raised within the shared Range asset headroom.",
       "status": "candidate",
       "landform": "rolling",
       "notes": "Forested Black Mountains with Mount Mitchell above the Catawba valley; soft layered ridgelines.",
@@ -90,6 +106,8 @@
       "hero": ["Mount San Antonio"]
     },
     "white-mountains-owens": {
+      "excludeShots": ["approach-peak-e9490-n7510-064"],
+      "excludeNote": "Marked broken in the rendered review of the libraries (docs/scenic-tours.md, Rendered review).",
       "status": "candidate",
       "landform": "escarpment",
       "notes": "The White Mountains' fault scarp over Owens Valley, White Mountain Peak at the crest.",
@@ -99,6 +117,8 @@
       "hero": ["White Mountain Peak"]
     },
     "la-sal-castle-valley": {
+      "overrides": { "budget": { "assetBytes": 1400000 } },
+      "budgetNote": "Wide canyon views: the connected shots each bring 200-300 KB of distant tiles alone, so the default 800 KB fits no connected pair; raised within the shared Range asset headroom.",
       "status": "candidate",
       "landform": "canyon-butte",
       "notes": "Castle Valley's red-rock towers under the La Sal Mountains; Castle Creek reaches are mapped water.",
@@ -119,6 +139,8 @@
       "hero": ["Telescope Peak"]
     },
     "chugach-matanuska": {
+      "excludeShots": ["reveal-peak-e790-s16030-196"],
+      "excludeNote": "Marked broken in the rendered review of the libraries (docs/scenic-tours.md, Rendered review).",
       "status": "candidate",
       "landform": "glacier-valley",
       "notes": "The Matanuska Glacier valley in the Chugach; glaciated peaks on both sides of a broad valley floor.",
@@ -128,6 +150,8 @@
       "hero": []
     },
     "monument-valley-163": {
+      "overrides": { "budget": { "assetBytes": 1400000 } },
+      "budgetNote": "Wide views: each shot brings hundreds of distant tiles (mostly manifest entries), so the default 800 KB fits only 3-8 shots; raised within the shared Range asset headroom.",
       "status": "candidate",
       "landform": "butte",
       "notes": "Sandstone buttes and mesas standing out of a flat desert floor (the Mittens, Merrick Butte and their neighbours) seen from US-163.",

@@ -239,7 +239,14 @@ export function forestPlacementBound(data, view, rules, rings = FOREST_RINGS) {
     count += (Math.ceil((x0 + size) / LATTICE_M) - Math.ceil(x0 / LATTICE_M))
       * (Math.ceil((z0 + size) / LATTICE_M) - Math.ceil(z0 / LATTICE_M));
   }
-  return { count, placementBytes: count * 64 + 3 * (1 << 16) * 4 };
+  // Placement's first test keeps a lattice cell with probability
+  // rules.forestDensity (a uniform hash): at most the expected share plus
+  // eight standard deviations of those cells can reach the later tests.
+  // Without it a wide camera footprint over sparse woodland reserved memory
+  // for trees the density test was always going to drop.
+  const d = Math.min(1, Math.max(0, rules.forestDensity ?? 1));
+  const kept = Math.min(count, Math.ceil(count * d + 8 * Math.sqrt(count * d * (1 - d)) + 64));
+  return { count: kept, lattice: count, placementBytes: kept * 64 + 3 * (1 << 16) * 4 };
 }
 
 /**

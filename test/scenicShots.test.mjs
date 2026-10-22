@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { generateShots, liftToClearance, lineOfSight, railShot, headingOf, subjectMarks } from '../tools/lib/scenic-shots.mjs';
-import { buildLink, linkVariants, keepParetoLinks, minTurnRadius } from '../tools/lib/scenic-links.mjs';
+import { generateShots, liftToClearance, lineOfSight, railShot, headingOf, subjectMarks, tiltForGridEdge, keepHorizon } from '../tools/lib/scenic-shots.mjs';
+import { buildLink, linkVariants, keepParetoLinks, minTurnRadius, dubins, sampleCourse } from '../tools/lib/scenic-links.mjs';
 import { samplePath, pathPoseAt, pathTangent } from '../src/world/terrain/ShotPath.js';
 
 // A synthetic landscape: a 1000 m basin floor, a 900 m cone at the origin,
@@ -129,4 +129,54 @@ test('a foreground pass frames a nearer feature against the subject, and a crane
   assert.ok(cranes.length > 0);
   for (const c of cranes) assert.ok(pathPoseAt(c.path, c.lengthM).eyeM[1] - pathPoseAt(c.path, 0).eyeM[1] > 300, 'rises');
   assert.ok(!shots.some((s) => s.subjectId === railTarget.id && s.move !== 'rail'), 'the rail target seeds the rail only');
+});
+
+test('a Dubins course reaches the next shot in its own heading, never turning tighter than its radius', () => {
+  for (const [start, end] of [[[0, 0, 0], [3000, 0, 0]], [[0, 0, 0], [-1500, 200, Math.PI]], [[0, 0, Math.PI / 2], [800, -900, -Math.PI / 2]]]) {
+    const course = dubins(start, end, 400);
+    const pts = sampleCourse(course, 20), last = pts.at(-1);
+    assert.ok(Math.hypot(last[0] - end[0], last[1] - end[1]) < 0.01, 'ends where the next shot begins');
+    assert.ok(Math.abs(Math.atan2(Math.sin(last[2] - end[2]), Math.cos(last[2] - end[2]))) < 1e-3, 'in its heading');
+    assert.ok(course.length >= Math.hypot(end[0] - start[0], end[1] - start[1]) - 1e-6);
+    const path = { s: Float32Array.from(pts, (p) => p[3]), eye: Float32Array.from(pts.flatMap((p) => [p[0], 0, p[1]])) };
+    assert.ok(minTurnRadius(path, 1) > 399, 'no turn tighter than the radius');
+  }
+  const turn = [[0, 0, 0], [3000, 900, Math.PI / 2]];
+  assert.ok(dubins(...turn, 400, { rank: 1 }).length > dubins(...turn, 400).length, 'the second course is a different, longer one');
+  assert.equal(dubins([0, 0, 0], [3000, 0, 0], 400, { rank: 1 }), null, 'a straight run has no second course');
+});
+
+test('the grid-edge tilt leaves a view level while its rays leave the grid within the allowed dip', () => {
+  // Flat open country +-20 km at 1000 m, the eye 500 m above it at the centre,
+  // looking level north with a 26 deg lens: rays just below the horizontal
+  // leave the grid; a ray 3 deg down meets the ground 9.5 km out, 1 deg down 28.6 km out.
+  const flat = { grid: { originM: [-20000, -20000], width: 2001, height: 2001, cellSizeM: 20 }, heightAt: () => 1000 };
+  const eye = [0, 1500, 0], aim = [0, 1500, -5000];
+  const pitchOf = (a) => Math.atan2(a[1] - eye[1], Math.hypot(a[0] - eye[0], a[2] - eye[2])) * 180 / Math.PI;
+  const strict = tiltForGridEdge(flat, [eye], [aim], 26)[0];
+  assert.ok(pitchOf(strict) < -14, `no allowance: tilted until the frame top meets the grid (${pitchOf(strict).toFixed(1)} deg)`);
+  assert.deepEqual(tiltForGridEdge({ ...flat, edgeDipDeg: 3 }, [eye], [aim], 26)[0], aim, 'a 3 deg allowance keeps the level view');
+  assert.ok(pitchOf(tiltForGridEdge({ ...flat, edgeDipDeg: 1 }, [eye], [aim], 26)[0]) < -14, 'a 1 deg band is too thin for this eye');
+});
+
+test('keepHorizon raises a steep look until the horizon is in frame, as far as its subject stays in frame', () => {
+  const t = Math.tan(18 * Math.PI / 180); // 36 deg lens
+  const rowOf = (eye, aim, elDeg) => {
+    const p = Math.atan2(aim[1] - eye[1], Math.hypot(aim[0] - eye[0], aim[2] - eye[2]));
+    return 0.5 - 0.5 * Math.tan(elDeg * Math.PI / 180 - p) / t;
+  };
+  const eye = [0, 2000, 0];
+  // 15 deg down: raised until the horizon sits 20% below the top edge.
+  const a15 = [0, 2000 - 1000 * Math.tan(15 * Math.PI / 180), -1000], [k15] = keepHorizon([eye], [a15], 36);
+  assert.ok(Math.abs(rowOf(eye, k15, 0) - 0.2) < 1e-9, 'horizon on the 20% row');
+  assert.ok(Math.abs(Math.hypot(...k15.map((v, i) => v - eye[i])) - Math.hypot(...a15.map((v, i) => v - eye[i]))) < 1e-6, 'aim distance kept');
+  assert.ok(Math.abs(k15[0]) < 1e-9 && k15[2] < 0, 'heading kept');
+  // 30 deg down: the subject (the original aim point) limits the raise to 10% above the bottom.
+  const a30 = [0, 2000 - 1000 * Math.tan(30 * Math.PI / 180), -1000], [k30] = keepHorizon([eye], [a30], 36);
+  const el30 = -30;
+  assert.ok(Math.abs(rowOf(eye, k30, el30) - 0.9) < 1e-9, 'subject on the 90% row');
+  assert.ok(rowOf(eye, k30, 0) < 0.2, 'horizon still above the frame top: partial raise');
+  // A view already level enough is returned as is.
+  const level = [0, 1900, -1000];
+  assert.equal(keepHorizon([eye], [level], 36)[0], level);
 });

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { refinePayoff, durationRange, selectShots, selectLinks, regionConfig, focusArea, inFocus, steadyLook, linkLibrary, costliestShot, estimatedBytes, trimWindow, trimShot, renderedTotal, bestComponent } from '../tools/build-scenic-tours.mjs';
+import { refinePayoff, durationRange, selectShots, selectLinks, regionConfig, focusArea, inFocus, steadyLook, linkLibrary, costliestShot, forestDrop, estimatedBytes, trimWindow, trimShot, renderedTotal, bestComponent, selectConnected, nearCopy, pathBend, renderedGate } from '../tools/build-scenic-tours.mjs';
 import { TILE_BYTES } from '../tools/lib/scenic-cost.mjs';
 import { samplePath } from '../src/world/terrain/ShotPath.js';
 
@@ -134,4 +134,90 @@ test('tours stay inside the strongly connected part of the link graph worth most
   assert.deepEqual([...bestComponent([a, b, c, d, e], links)].map((x) => x.id).sort(), ['d', 'e'], 'two strong shots outweigh three weaker ones');
   assert.deepEqual([...bestComponent([a, b, c, d, e], links, 1)].map((x) => x.id).sort(), ['d', 'e']);
   assert.equal(bestComponent([a, b], [l(a, b)]).size, 0, 'a one-way pair is no tour');
+});
+
+test('a connected shortlist grows only by shots the set links into and back out of', () => {
+  const shot = (id, total, subjectId = id) => ({ id, subjectId, move: 'traverse', score: { total, holes: 0 }, traits: { azimuthDeg: 0, elevation: 'low', lens: 'normal' }, missing: [] });
+  const [rail, a, b, c, d, e, f] = [{ ...shot('rail', 0.3), move: 'rail' }, shot('a', 0.6), shot('b', 0.6), shot('c', 0.5), shot('d', 0.95), shot('e', 0.9), shot('f', 0.4)];
+  const l = (from, to) => ({ from, to });
+  // a<->b; b->c->a; c->d but d leads nowhere back; e is unreachable; b->f->a is another ear.
+  const links = [l(a, b), l(b, a), l(b, c), l(c, a), l(c, d), l(e, a), l(b, f), l(f, a)];
+  const out = selectConnected([rail, a, b, c, d, e, f], links, { ...config, discovery: { ...config.discovery, maxShots: 8 } }, null);
+  assert.equal(out[0], rail, 'the rail always joins');
+  assert.deepEqual(out.slice(1).map((x) => x.id).sort(), ['a', 'b', 'c', 'f'], 'the cycle grows by its ears; d and e cannot be both entered and left');
+  for (const x of out.slice(1)) {
+    assert.ok(links.some((k) => k.to === x && out.includes(k.from)), `${x.id} has a way in`);
+    assert.ok(links.some((k) => k.from === x && out.includes(k.to)), `${x.id} has a way out`);
+  }
+  assert.deepEqual(selectConnected([rail, d, e], [l(d, e)], config, null), [rail], 'no cycle, no tour shots');
+});
+
+test('a connected shortlist seeds with a longer cycle when no short one exists, and adds longer ears', () => {
+  const shot = (id, total) => ({ id, subjectId: id, move: 'traverse', score: { total, holes: 0 }, traits: { azimuthDeg: 0, elevation: 'low', lens: 'normal' }, missing: [] });
+  const [a, b, c, d, e, f, g] = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((id) => shot(id, 0.5));
+  const l = (from, to) => ({ from, to });
+  // Only a four-shot cycle a->b->c->d->a, and a three-shot ear b->e->f->g->d.
+  const links = [l(a, b), l(b, c), l(c, d), l(d, a), l(b, e), l(e, f), l(f, g), l(g, d)];
+  const out = selectConnected([a, b, c, d, e, f, g], links, { ...config, discovery: { ...config.discovery, maxShots: 8 } }, null);
+  assert.deepEqual(out.map((x) => x.id).sort(), ['a', 'b', 'c', 'd', 'e', 'f', 'g']);
+  const capped = selectConnected([a, b, c, d, e, f, g], links, { ...config, discovery: { ...config.discovery, maxShots: 8, earShots: 2 } }, null);
+  assert.deepEqual(capped.map((x) => x.id).sort(), ['a', 'b', 'c', 'd'], 'an ear longer than earShots is not taken');
+});
+
+test('a near copy of a chosen shot is no new shot: the same payoff frame', () => {
+  const shot = (id, move, x0, x1, payoffX) => {
+    const path = samplePath({ eyes: [[x0, 500, 0], [x1, 500, 0]], aims: [[x0, 400, -5000], [x1, 400, -5000]], fovs: 30 });
+    return { id, move, path, lengthM: path.s.at(-1), payoffS: path.s.at(-1) * ((payoffX - x0) / (x1 - x0)) };
+  };
+  const a = shot('a', 'traverse', 0, 3000, 1500), cut = shot('cut', 'traverse', 1000, 2000, 1500);
+  assert.equal(nearCopy(a, cut), true, 'a cut of the same traverse is a copy');
+  const other = shot('approach', 'approach', 1000, 2000, 1500);
+  assert.equal(nearCopy(a, other), true, 'another move paying off on the same frame reads as the same shot');
+  assert.equal(nearCopy(a, shot('far', 'traverse', 5000, 8000, 6500)), false);
+});
+
+test('a tight curve caps the comfortable pace the way the timeline will', () => {
+  // A quarter circle of radius 200 m looking at one far point (the aim
+  // barely turns, so progress is the eye's arc): bend 1/200 per metre.
+  const eyes = Array.from({ length: 13 }, (_, i) => { const a = (i / 12) * Math.PI / 2; return [200 * Math.cos(a), 500, 200 * Math.sin(a)]; });
+  const p = samplePath({ eyes, aims: eyes.map(() => [0, 400, -80000]), fovs: 30, spacingM: 10 });
+  const bend = pathBend(p);
+  assert.ok(Math.abs(bend[Math.floor(bend.length / 2)] - 1 / 200) < 1e-3, 'the bend of a 200 m circle');
+  const flow = Float32Array.from(p.s, () => 1e-5);
+  const capMps = Math.sqrt(3.5 / (1 / 200));
+  const r = durationRange(p, flow, { ...config.motion, maxLateralMps2: 3.5 });
+  assert.ok(r.min >= (p.s.at(-1) / capMps) * 1000 * 0.9, 'no faster than v^2 * bend <= 3.5 allows');
+  const loose = durationRange(p, flow, { ...config.motion, maxAccelMps2: 3.5 });
+  assert.ok(loose.min < r.min, 'turns may pull twice the speed-change limit by default');
+});
+
+test('the renderer drops a shot whose subject is off frame or fills it, or whose payoff is all soft close terrain', () => {
+  const depth = (near) => ({ edgesM: [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 150000], frac: [0, 0, 0, 0, near, 0, 0, 0, 1 - near, 0, 0, 0], sky: 0 });
+  const frame = (subject, near = 0) => ({ metrics: { subject, depth: depth(near) } });
+  const good = { inFrame: 1, visible: 0.8, screenHeight: 0.4 };
+  assert.equal(renderedGate([frame(good), frame(good), frame(good), frame(good)]).pass, true);
+  assert.deepEqual(renderedGate([frame(good), frame({ ...good, inFrame: 0.2 }), frame(good), frame(good)]).reasons, ['subject out of frame at the payoff']);
+  assert.deepEqual(renderedGate([frame(good), frame({ ...good, screenHeight: 0.95 }), frame(good), frame(good)]).reasons, ['subject fills the frame']);
+  const soft = renderedGate([frame(good, 1), frame(good, 1), frame(good, 1), frame(good, 1)], { fovYDeg: 16, detailM: 30 });
+  assert.ok(!soft.pass && soft.reasons.includes('payoff all soft close terrain'));
+  const crisp = renderedGate([frame(good, 1), frame(good), frame(good), frame(good, 1)], { fovYDeg: 36, detailM: 30 });
+  assert.ok(crisp.pass && crisp.factor < 1 && crisp.factor >= 0.75, 'soft entry and exit frames cost worth, not the shot');
+});
+
+test('a forest drop narrows the forest most per shot lost, trying each subject\'s overlapping shots together', () => {
+  // The forest covers the distinct places the shots stand: 1 MiB each.
+  const shot = (id, subjectId, at) => ({ id, subjectId, move: 'orbit', at });
+  const bound = (lib) => new Set(lib.shots.map((s) => s.at)).size * 2 ** 20, relink = (shots) => ({ shots, links: [] });
+  const rail = { id: 'rail', subjectId: 'rail-target', move: 'rail', at: 'r' };
+  // Three overlapping shots of A and one shot of B elsewhere: B alone narrows the forest.
+  const a = ['a1', 'a2', 'a3'].map((id) => shot(id, 'A', 'x')), b = shot('b1', 'B', 'y');
+  const one = forestDrop({ shots: [rail, ...a, b, shot('c1', 'C', 'z')], links: [] }, relink, bound);
+  assert.ok(['b1', 'c1'].includes(one.group[0].id) && one.group.length === 1 && one.gain === 2 ** 20);
+  // Only overlapping groups: no single shot narrows anything, A's three together do.
+  const b3 = ['b1', 'b2', 'b3'].map((id) => shot(id, 'B', 'y')), d3 = ['d1', 'd2'].map((id) => shot(id, 'D', 'w'));
+  const group = forestDrop({ shots: [rail, ...a, ...b3, ...d3], links: [] }, relink, bound);
+  assert.deepEqual(group.group.map((s) => s.id), ['d1', 'd2'], 'the smallest group that narrows the forest: most per shot lost');
+  assert.equal(group.lost, 2);
+  // Never below the minimum.
+  assert.equal(forestDrop({ shots: [rail, ...a], links: [] }, relink, bound), null);
 });

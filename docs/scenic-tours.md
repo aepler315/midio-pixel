@@ -198,7 +198,7 @@ is not a flaw of a shot but a cost. A song's big moments come every 30-60 s
 and a tour should reach a few subjects between them, so a shot longer than
 `discovery.maxShotS` (16 s) at its ideal pace keeps its best window around
 the payoff (a reveal keeps the hidden stretch before it) and is scored again
-as cut, and a link that cannot be flown within `discovery.maxLinkS` (30 s)
+as cut, and a link that cannot be flown within `discovery.maxLinkS` (50 s)
 even at full pace is not offered. In large landscapes the links are a real
 part of the film: they are scored for scenery like shots.
 
@@ -220,10 +220,11 @@ sharpest viewer that sees it, so footprints add up tile by tile. A new tile
 costs its compressed samples (bytes per stride measured on posed bakes) and
 its manifest entry (about 470 bytes of JSON, often more than a coarse
 tile's samples); a shipped or already paid-for tile costs only the step to
-a finer stride. Selection charges a shot (and a link) for the bytes it adds
-beyond the shipped package and the shots already chosen
-(`discovery.byteWeight` of score per 100 KB) and stops short of the
-region's byte budget. `fitToBudget` then bakes the library's footprint and
+a finer stride. Selection divides a shot's (and a link's) worth by 1 + the bytes it adds
+beyond the shipped package and the shots already chosen, over
+`discovery.byteScaleKB`: the first shot over a range pays for terrain the
+later ones share, so it is discounted rather than refused. Selection stops
+short of the region's byte budget. `fitToBudget` then bakes the library's footprint and
 measures the added bytes and triangles against the region's caps and the
 shared 60 MB. While over, it calibrates the estimate on that bake, drops the
 shot whose terrain is most its own per unit of score and rarity (the only
@@ -234,8 +235,151 @@ Tiles only tour cameras see are held to `budget.poseErrorScale` times the
 rail's pixel budget (the app presents terrain on a 320×180 or 640×360
 pixel grid); tiles the rail sees keep their approved detail.
 
-Elevated views over open country would show the DEM grid's crop edge just
-below the horizon (the package has nothing beyond the grid). Generators
-tilt such views down until the frame's highest downward ray meets ground
-inside the grid, and verify the sampled path; views whose horizon is
-terrain (ridges, rims) are unchanged.
+#### Horizon and the grid edge
+
+The package has no terrain beyond the DEM grid. From an elevated eye over
+open country, rays just below the horizontal leave the grid; the app
+paints them with the sky, so the grid's far boundary reads as the horizon
+(rendered in the app at the deepest such band any round-2 camera saw,
+11.4° at Izta, with no visible crop). Generators therefore tilt a view
+down only while a ray more than `discovery.edgeDipDeg` (12°) below the
+horizontal would leave the grid, and the scorer's raster counts only those
+deeper rays as holes (`edge`); shallower ones are sky. Both sides use the
+same allowance, so a horizon shot is neither tilted away nor scored as
+holes.
+
+Before this rule every such view was tilted until no ray left the grid,
+and high eyes aimed at a subject's mid-height looked 20–35° down: 47 of
+the 126 round-2 shots framed no horizon, mostly near terrain, which the
+app draws soft at that range. Generators now also keep the horizon in
+frame (`discovery.frame`): an aim is raised, keeping its heading and
+distance, until the horizon sits at least `horizonBelowTop` (20%) of the
+frame below the top edge, as far as the subject's aim point stays at
+least `subjectAboveBottom` (10%) above the bottom edge. Where the subject
+would leave the frame first, the look is raised only that far.
+
+### Connected selection
+
+Selection works on the candidate link graph rather than on shots alone.
+Each scored shot is linked to its `discovery.linkFanout` nearest reachable
+shots (exit to entry); every link variant is scored, leashed and pruned to
+each pair's Pareto front. Tours stay inside the strongly connected part of
+that graph whose best shots are worth most. There the shortlist grows by
+ears: it is seeded with the best shortest cycle, then extended only by a
+chain of at most `discovery.earShots` new shots that leaves the set and
+rejoins it. Every shot chosen therefore has a way in and a way out among
+the others, so no shot is selected only to be pruned afterwards. Large
+landscapes link their shots in long loops, which is why seeds and ears are
+found by breadth-first search rather than as pairs.
+
+### Motion policy and links
+
+The planner holds the camera to two limits, region by region (`motion`): a
+change of speed at most `maxAccelMps2` (3.5 m/s², a lurch a viewer feels),
+with the change that path curvature adds to it measured on the drawn curve,
+and a look that rotates at most `maxYawDegPerSec`. Sideways acceleration in
+turns is reported, not limited: a viewer sees a turn as rotation, which the
+yaw limit governs (the tunable `vectorAccelRatio` can bound the whole
+acceleration; at 2 it costs about a quarter of the payoffs). The library
+builder times paths conservatively, capping speed where curvature would pull
+harder than twice `maxAccelMps2` (`maxLateralMps2`), so its durations and its
+link leash never promise a pace the timeline cannot fly.
+
+Links run over the ground as Dubins courses: the shortest path of arcs of
+radius `discovery.linkRadiusM` and straights from the outgoing shot's
+heading to the incoming one's, so no link cusps or turns tighter than its
+radius; their height is a cubic in course length that leaves and arrives at
+each shot's own climb. Most of a link's time is detour when two shots face
+away from each other, so moves that read the same flown either way
+(traverse, orbit, valley, crest) also enter discovery reversed; a link can
+then arrive along the heading the next shot already travels, and near-copy
+rejection keeps only the direction that serves the library. In wide
+landscapes a link of 30-50 s is part of the film: links are scored for
+scenery like shots, and the leash (`discovery.maxLinkS`) is 50 s.
+
+### Rendered review
+
+The first complete libraries (12 regions, 170 shots) were reviewed shot by
+shot from their rendered key frames (entry, payoff, end of hold, exit) as a
+film editor would: 103 good or acceptable, 67 weak or broken. No frame had
+holes, missing terrain or a data-edge cut, and every rail rendered the same
+on the rebaked package. The failures were of film, not data: frames with no
+horizon looking down on featureless slopes, close terrain too soft to show
+detail filling the frame, subjects that never appear (the Ross Dam
+approaches fly into a ridge), near copies a few hundred metres apart, and
+too little variety (eight of Denali's nine shots framed one foothill dome).
+
+Joining the verdicts with the renderer's own metrics showed which ones
+separate them: whether the subject is in frame at the payoff, how much of
+the frame it fills, and how much of the picture is terrain too close for the
+DEM's detail (a source cell spanning more than 10 pixels of the 640x360
+picture). Sky share did not: good aerial shots have none either. Selection
+now drops a candidate whose subject is out of frame at the payoff, fills the
+frame, or whose payoff and hold are all soft close terrain, and discounts
+soft close terrain short of that (`renderedGate`). On the reviewed shots
+these gates drop 37 of the 67 weak shots and 14 of the 91 good ones; fitted
+on half the regions and tested on the other half they drop 38-44% of weak
+shots and 16-22% of good ones. Shots that pay off on the same frame now
+count as copies whatever moves lead in and out, and steep look-downs are
+penalised once a library has some. Payoffs stay at or before 88% of a shot,
+so every shot holds its view before it ends.
+
+#### In the application
+
+Key frames from the review harness are not the experience: the harness
+lights terrain from a fixed direction (north-west views glare white there)
+and shows a shot at four moments. Libraries are therefore also judged in
+the app: `tools/shot-reel.mjs` plays every published shot entry to exit at
+its ideal pace through the real scene (frames, an MP4 with each shot's id,
+and a sheet of five frames per shot; the drawn camera matches the library
+path to the centimetre), and a continuous `tools/visual-evaluate.mjs`
+manifest records the tour the planner actually makes for a song.
+
+Seen there, a bright sheet on flat desert floor (Monument Valley) is the
+app's music-driven weather, not data: after a squall `wet01` lowers the
+terrain's roughness (`RangeStorm.js`, the shader's wet receivers), and flat
+ground then mirrors lightning, the moon or a low sun. The same pose with dry
+ground shows nothing; the DEM water mask is not under it. It is independent
+of tours (the rail shows it facing the light at those times).
+
+#### Pacing
+
+What a viewer sees is the planned tour, and there the limit is distance. The
+planner lands a payoff where a leg -- the rest of one shot, a link, the next
+shot up to its payoff -- can be flown within the motion limits; selected
+shots lie 2-5 km apart, so a leg takes 45-60 s even at the speed caps
+(links are held to 20-90 m/s by their bend, calm music lowers the flow cap
+further) and a 168 s song holds two or three payoffs. Replaying the round-2
+libraries over three songs planned 57 payoffs where each part flown at its
+own cap would allow 129. More reward per payoff (x10) or a wider search did
+not change that (61, 57); letting each part of a leg keep its own pace
+between join knots gave 59. More payoffs per song need shots closer
+together -- fewer subjects per view -- or smoother link joins where those
+set the cap (Ross Lake: 11 of 13 links); that trade-off is a choice for
+the product, not made here.
+
+### Terrain policy, drift and per-region budgets
+
+Every build first bakes the rail alone. When that no longer reproduces the
+shipped package, the region's DEM source has drifted since approval and a
+rebake would change the approved rail. Such a region keeps its package:
+selection admits only shots and links whose terrain the package already
+holds at enough detail, and an uncovered library is fitted down instead of
+rebaked. A region may allow the rebake (`rebakeOnDrift`) only with recorded
+rail-parity evidence that the rail renders the same (Ross Lake: 0.00% of
+rail pixels change). Tombstone's drift is visible (3.3% of rail pixels), so
+it stays coverage-only, and its package covers no tour shot: it keeps the
+authored rail until its source is re-approved.
+
+A new tile costs its compressed samples and about 470 bytes of manifest
+JSON. In wide views the manifest dominates: one shot over a large range
+brings hundreds of distant tiles at the coarsest stride. The default
+region budget (800 KB) therefore fits only three to eight shots in the
+widest regions; those get 1.4 MB (`overrides.budget.assetBytes`, with a
+`budgetNote`) inside the shared Range asset headroom. A compact tile table
+in the terrain manifest would roughly halve that cost; it is a format change
+left for later.
+
+The rail shot costs nothing and adds no coverage poses: it is the authored
+rail, which the approved package (and the rail stations every bake keeps)
+already covers, reflections included.

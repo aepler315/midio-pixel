@@ -102,8 +102,8 @@ function aimPoint(subject, scale, eye, side, fovYDeg, aspect = 16 / 9, heightFra
 
 /**
  * Whether a downward ray from `eye` leaves the DEM grid before it meets the
- * ground: the picture would show the package's crop edge (there is no
- * terrain beyond the grid to draw).
+ * ground: the package has no terrain beyond the grid, and the app paints
+ * such a ray with the sky.
  */
 // Earth curvature with standard refraction, as the scorer's raster applies.
 const CURVE_R = 6371000 / (1 - 0.13);
@@ -132,23 +132,25 @@ function pathSeesEdge(ctx, path, { every = 3, aspect = 2.1 } = {}) {
 }
 
 /**
- * Tilt each aim down (keeping its heading) until the frame's top edge
- * meets the ground inside the grid. Elevated views over open country then
- * frame the land below the horizon instead of the grid's crop edge; views
- * whose far ground is blocked by ridges are unchanged. Null when more than
- * `maxTiltDeg` would be needed.
+ * Tilt each aim down (keeping its heading) until no ray in frame leaves the
+ * grid more than `edgeDipDeg` below the horizontal. Rays that leave closer
+ * to the horizontal show sky in the app, so the grid's far boundary stands
+ * in for the horizon; a deeper band would show the land ending well short
+ * of it. Views whose far ground is blocked by ridges are unchanged. Null
+ * when more than `maxTiltDeg` would be needed.
  */
-export function tiltForGridEdge(ctx, eyes, aims, fovs, { maxTiltDeg = 22, aspect = 2.1, extraTiltDeg = 0 } = {}) {
-  const out = [];
+export function tiltForGridEdge(ctx, eyes, aims, fovs, { maxTiltDeg = 22, aspect = 2.1, extraTiltDeg = 0, edgeDipDeg = ctx.edgeDipDeg ?? 0 } = {}) {
+  const out = [], dip = -Math.max(0.1, edgeDipDeg) * DEG;
   for (let i = 0; i < eyes.length; i++) {
     const e = eyes[i], a = aims[i], fov = Array.isArray(fovs) ? fovs[i] : fovs;
     const dx = a[0] - e[0], dy = a[1] - e[1], dz = a[2] - e[2], hd = Math.hypot(dx, dz), dist = Math.hypot(hd, dy);
     let pitch = Math.atan2(dy, hd);
     const half = Math.atan(Math.tan(fov * DEG / 2) * 1.08), hx = Math.atan(Math.tan(fov * DEG / 2) * aspect);
-    // The highest downward ray in frame is the one that runs furthest: the
-    // frame top, or just below the horizon when the horizon is in frame.
+    // The highest downward ray in frame that must meet the ground is the one
+    // that runs furthest: the frame top, or the allowed dip below the horizon
+    // when that is in frame.
     const ok = (p) => [-hx, -hx / 2, 0, hx / 2, hx].every((yaw) => {
-      const h0 = Math.atan2(dx, -dz) + yaw, top = Math.min(p + half * Math.cos(yaw), -0.1 * DEG);
+      const h0 = Math.atan2(dx, -dz) + yaw, top = Math.min(p + half * Math.cos(yaw), dip);
       if (top < p - half) return true; // the whole column is above the horizon
       return !rayEscapes(ctx, e, [Math.sin(h0) * Math.cos(top), Math.sin(top), -Math.cos(h0) * Math.cos(top)]);
     });
@@ -162,10 +164,36 @@ export function tiltForGridEdge(ctx, eyes, aims, fovs, { maxTiltDeg = 22, aspect
   return out;
 }
 
-/** Build a ShotPath from control eyes/aims/fovs: no crop edge in frame,
- *  clearance enforced. */
+/**
+ * Raise each aim (keeping its heading and distance) so the horizon stays in
+ * frame at least `horizonBelowTop` of the frame height below its top edge,
+ * as far as the aim point itself -- the subject's mass -- stays at least
+ * `subjectAboveBottom` of the height above the bottom edge. A high eye aimed
+ * at the mid-height of a subject a kilometre or two away otherwise looks
+ * 20-35 degrees down at near terrain with no sky. Aims already level enough
+ * are returned unchanged.
+ */
+export function keepHorizon(eyes, aims, fovs, { horizonBelowTop = 0.2, subjectAboveBottom = 0.1 } = {}) {
+  return aims.map((a, i) => {
+    const e = eyes[i], t = Math.tan((Array.isArray(fovs) ? fovs[i] : fovs) * DEG / 2);
+    const dx = a[0] - e[0], dy = a[1] - e[1], dz = a[2] - e[2], hd = Math.hypot(dx, dz), dist = Math.hypot(hd, dy);
+    if (hd < 1e-6) return a;
+    // With no roll, a direction `el` above the horizontal sits on row
+    // 0.5 - 0.5 tan(el - pitch) / t (0 top, 1 bottom) for every column.
+    const pitch = Math.atan2(dy, hd);
+    const lowest = Math.atan((2 * horizonBelowTop - 1) * t), highest = pitch + Math.atan((1 - 2 * subjectAboveBottom) * t);
+    const want = Math.max(pitch, Math.min(lowest, highest));
+    if (want === pitch) return a;
+    return [e[0] + dx / hd * Math.cos(want) * dist, e[1] + Math.sin(want) * dist, e[2] + dz / hd * Math.cos(want) * dist];
+  });
+}
+
+/** Build a ShotPath from control eyes/aims/fovs: the horizon kept in frame
+ *  where the subject allows (ctx.frame), no ray leaving the grid deeper
+ *  than ctx.edgeDipDeg, clearance enforced. */
 function makePath(ctx, eyes, aims, fovs, { spacingM = 30 } = {}) {
   for (const e of eyes) if (!insideGrid(ctx, e[0], e[2])) return null;
+  if (ctx.frame) aims = keepHorizon(eyes, aims, fovs, ctx.frame);
   // Tilt at the control points, then verify the sampled path (aims between
   // control points, and the eye heights clearance gives it) and tilt on.
   for (let extra = 0; extra <= 12; extra += 2) {

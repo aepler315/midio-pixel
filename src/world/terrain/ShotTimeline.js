@@ -152,7 +152,14 @@ const pathOf = (library, item) => (item.kind === 'link' ? library.linkById.get(i
 // shipped s lanes are quantized to 0.1 m: 24.1 m then 24.2 m is a 0.4% step,
 // a spike in eye acceleration). Here the fraction is a cubic Hermite in
 // progress whose slope at a sample is its two segments' mean, so speed is
-// continuous; poses move along the same curve by at most a few millimetres.
+// continuous. Poses stay on the same curve (the validated geometry) and only
+// shift along it, by at most about ds * |1 - k| / 7 for a spacing step k:
+// measured over every path at 0.5 m steps, at most 7.5 mm (eye) on evenly
+// sampled libraries (the test fixtures; the 0.1 m lattice alone), but 0.43 m
+// on Monument Valley (manifest 56cd1c57bde1), whose link
+// traverse-peak-...-096 -> orbit-...-184 steps its spacing 58.6 -> 52.4 m.
+// That is a 7 ms timing shift at 60 m/s; holding the pose to pathPoseAt there
+// instead would step the eye's speed by 11% at once.
 function smoothPoseAt(path, x) {
   const s = path.s, n = s.length;
   if (n < 3 || !(x > s[0] && x < s[n - 1])) return pathPoseAt(path, x);
@@ -215,7 +222,10 @@ function joinedPath(library, items, k) {
  */
 export function buildShotTimeline(library, plan, { previous = null, frozenThroughMs = -1, tunables = {} } = {}) {
   const T = shotMotion(library, tunables), durationMs = Math.max(0, plan.durationMs || 0), notes = [...(plan.notes || [])];
-  const count = durationMs > 0 ? Math.ceil(durationMs / SHOT_KEY_MS) + 1 : 1, keyTime = (i) => Math.min(durationMs, i * SHOT_KEY_MS);
+  // Keys lie on the 100 ms lattice; the last one may fall past the song end
+  // (the song rarely ends on the lattice), where the camera runs on at its
+  // final speed, so the spline through the keys stays uniform to the end.
+  const count = durationMs > 0 ? Math.ceil(durationMs / SHOT_KEY_MS) + 1 : 1, keyTime = (i) => i * SHOT_KEY_MS;
   const planItems = plan.items || [], t0 = planItems[0]?.startMs ?? 0;
   const resolved = planItems.map((item) => pathOf(library, item));
   if (resolved.some((r) => !r)) throw new Error('shot plan references an item missing from the library');
@@ -237,7 +247,11 @@ export function buildShotTimeline(library, plan, { previous = null, frozenThroug
   const offset = kept.length, items = [...kept, ...planItems.map((it) => ({ ...it }))];
   const paths = planItems.map((_, j) => joinedPath(library, items, offset + j));
 
-  const { G, times, prog, knotItem } = itemKnots(planItems, (i) => (planItems[i].kind === 'shot' ? resolved[i].payoffS : null), t0, durationMs);
+  // A payoff at a shot's very end (payoffS = lengthM) can lie a lattice step
+  // past the decoded path's end: clamp it to the path, as the planner does,
+  // or the knot -- and the speed profile the planner checked -- is lost.
+  const payoffAt = (rec) => clamp(rec.payoffS, 0, rec.path.s[rec.path.s.length - 1]);
+  const { G, times, prog, knotItem } = itemKnots(planItems, (i) => (planItems[i].kind === 'shot' ? payoffAt(resolved[i]) : null), t0, durationMs);
   const profile = progressProfile(times, prog, { startSpeed: plan.start?.speedMps ?? null, startAccel: plan.start?.accelMps2 ?? 0, pin: plan.pin ?? null });
 
   const locateItem = (S) => {
@@ -245,16 +259,26 @@ export function buildShotTimeline(library, plan, { previous = null, frozenThroug
     while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (G[mid] <= S) lo = mid; else hi = mid - 1; }
     return lo;
   };
+  const endS = profile.sAt(durationMs), endSpeed = profile.vAt(durationMs);
   const sample = (t) => {
-    const S = profile.sAt(Math.max(t, t0)), j = locateItem(S), it = planItems[j];
-    const local = clamp(it.sFrom + (S - G[j]), it.sFrom, it.sTo);
+    const after = t > durationMs, S = after ? endS + endSpeed * (t - durationMs) / 1000 : profile.sAt(Math.max(t, t0)), j = locateItem(S), it = planItems[j];
+    // Past the song end the last item runs on along its own path, and past
+    // the path's end straight along its last tangent (the key past the song
+    // end only shapes the spline up to it).
+    const want = it.sFrom + (S - G[j]), end = paths[j].s[paths[j].s.length - 1];
+    if (after && want > end) {
+      const a = smoothPoseAt(paths[j], end - 1), b = smoothPoseAt(paths[j], end), d = want - end;
+      const run = (p, q) => q.map((v, k) => v + (v - p[k]) * d);
+      return { j, it, local: end, pose: { eyeM: run(a.eyeM, b.eyeM), targetM: run(a.targetM, b.targetM), fovYDeg: b.fovYDeg } };
+    }
+    const local = clamp(want, it.sFrom, after ? end : it.sTo);
     return { j, it, local, pose: smoothPoseAt(paths[j], local) };
   };
   const phaseOf = (it, rec, local, t) => {
     if (it.kind !== 'shot') return 0;
     if (Number.isFinite(it.payoffMs) && !it.hidden && Math.abs(t - it.payoffMs) <= PAYOFF_WINDOW_MS) return 1;
     if (local >= rec.holdS[0] && local <= rec.holdS[1]) return 2;
-    return local < rec.payoffS ? 0 : 3;
+    return local < payoffAt(rec) ? 0 : 3;
   };
   const subjectOf = (it, rec) => subjectIndex.get(it.kind === 'shot' ? rec.subjectId : library.shotById.get(rec.to)?.subjectId) ?? 0;
 
@@ -282,6 +306,10 @@ export function buildShotTimeline(library, plan, { previous = null, frozenThroug
       const span = progress[i + 1] - progress[i];
       return keyTime(i) + (span > 0 ? clamp((payoffS - progress[i]) / span, 0, 1) : 0) * (keyTime(i + 1) - keyTime(i));
     }
+    // A payoff on the item's last metre: between its last key and the next
+    // item's first, read from the profile there.
+    const j = itemIndex - offset, it = planItems[j];
+    if (it && payoffS >= it.sTo - 1e-6) return profile.timeAt(G[j] + it.sTo - it.sFrom);
     return NaN;
   };
   const payoffs = [...keptPayoffs], knots = [...keptKnots];
@@ -291,7 +319,7 @@ export function buildShotTimeline(library, plan, { previous = null, frozenThroug
     knots.push({ timeMs: times[k], itemIndex: offset + knotItem[k] });
     if (it.hidden) continue;
     payoffs.push({ itemIndex: offset + knotItem[k], shotId: it.id, subjectId: rec.subjectId, plannedMs: it.payoffMs,
-      actualMs: crossing(offset + knotItem[k], rec.payoffS), moment: it.moment ?? -1 });
+      actualMs: crossing(offset + knotItem[k], payoffAt(rec)), moment: it.moment ?? -1 });
   }
 
   // Diagnostics over the planned (uncommitted) span, every 50 ms: eye speed
@@ -352,7 +380,8 @@ export function shotTimelineData(timeline) {
 /** Add poseAt(t) and stateAt(t) to a timeline (after a structured clone). */
 export function restoreShotTimeline(timeline) {
   const { eye, target, fov, meta, durationMs } = timeline, count = fov.length;
-  const keyTime = (i) => Math.min(durationMs, i * SHOT_KEY_MS);
+  // Uniform keys (the last may lie past the song end; poseAt never reads past it).
+  const keyTime = (i) => i * SHOT_KEY_MS;
   const locate = (timeMs) => {
     const t = clamp(Number(timeMs) || 0, 0, durationMs), i = Math.max(0, Math.min(count - 2, Math.floor(t / SHOT_KEY_MS)));
     const span = keyTime(i + 1) - keyTime(i);
@@ -395,9 +424,11 @@ export function restoreShotTimeline(timeline) {
  * Where a committed timeline is at the replanning horizon
  * ceil((committedThroughMs + leadMs) / 100) * 100: the element, its local
  * progress, speed and acceleration, the payoff it already showed
- * (`payoffMs`), its next knot `next` {timeMs, speedMps, id: that shot} and
- * the times of all later knots (`knots`), so a replan can keep the
- * committed sequence. Null when nothing is left to replan.
+ * (`payoffMs`), its next knot `next` {timeMs, speedMps, id: that shot,
+ * legMps: the committed interval's mean speed into it}, the
+ * times of all later knots (`knots`), so a replan can keep the committed
+ * sequence, and of its last knot so far (`lastKnotMs`, or null). Null when
+ * nothing is left to replan.
  */
 export function shotContinuation(previous, committedThroughMs, { leadMs = 3000, minRemainingMs = 4000 } = {}) {
   const count = previous?.fov?.length || 0;
@@ -407,9 +438,18 @@ export function shotContinuation(previous, committedThroughMs, { leadMs = 3000, 
   const i = Math.round(timeMs / SHOT_KEY_MS), itemIndex = previous.meta[i * 4], item = previous.items[itemIndex];
   if (!item) return null;
   const later = (previous.knots || []).filter((k) => k.timeMs > timeMs && previous.items[k.itemIndex]).sort((a, b) => a.timeMs - b.timeMs);
+  const earlier = (previous.knots || []).filter((k) => k.timeMs <= timeMs).reduce((m, k) => Math.max(m, k.timeMs), -Infinity);
+  // The committed interval into the next knot: its mean progress speed (`legMps`, over the speed lane).
+  const meanSpeed = (a, b) => {
+    const i0 = Math.max(0, Math.round(a / SHOT_KEY_MS)), i1 = Math.min(count - 1, Math.round(b / SHOT_KEY_MS));
+    let sum = 0;
+    for (let k = i0; k < i1; k++) sum += (previous.speed[k] + previous.speed[k + 1]) / 2;
+    return i1 > i0 ? sum / (i1 - i0) : null;
+  };
   const next = later[0] && Number.isInteger(later[0].timeMs / SHOT_KEY_MS)
-    ? { timeMs: later[0].timeMs, speedMps: previous.speed[later[0].timeMs / SHOT_KEY_MS], id: previous.items[later[0].itemIndex].id } : null;
+    ? { timeMs: later[0].timeMs, speedMps: previous.speed[later[0].timeMs / SHOT_KEY_MS], id: previous.items[later[0].itemIndex].id,
+      legMps: meanSpeed(Number.isFinite(earlier) ? earlier : (previous.startMs ?? 0), later[0].timeMs) } : null;
   return { timeMs, itemKind: item.kind, id: item.id, s: previous.progress[i], speedMps: previous.speed[i], accelMps2: previous.accel[i],
     itemIndex, payoffMs: item.kind === 'shot' && Number.isFinite(item.payoffMs) && item.payoffMs <= timeMs ? item.payoffMs : null,
-    next, knots: later.map((k) => k.timeMs) };
+    next, knots: later.map((k) => k.timeMs), lastKnotMs: Number.isFinite(earlier) ? earlier : null };
 }

@@ -4,9 +4,16 @@
 // fast, measured as the mean energy over the next second minus the mean over
 // the previous second. Detected section labels are a weak cue -- on the
 // structured test songs the detector places boundaries up to 2.5 s early and
-// can misplace the final-chorus label, while the 1 s energy rise lands within
-// 0.1 s of every chorus downbeat. So a chorus/drop boundary only says "look
-// within +-3 s for the rise"; the rise itself sets the time.
+// can misplace the final-chorus label, while the 1 s energy rise peaks within
+// 0.2 s of every chorus downbeat. So a chorus/drop boundary only says "look
+// within +-3 s for the rise"; the rise finds the impact and its onset sets
+// the time: the 1 s rise peaks early where the music dips just before the
+// downbeat (drop.wav: at 44.8 and 97.3 s for drops at 45.0 and 97.5 s), so
+// the impact moves to the largest one-step jump in energy within
+// onsetWindowMs of the rise peak whose level holds afterwards: its rise over
+// onsetWindowMs (median of the next against median of the previous, so one
+// loud sample does not count) at least half the largest such rise there. A
+// lone beat spike just before the downbeat jumps as far but does not hold.
 //
 // Pure and deterministic: the same inputs give the same moments.
 
@@ -27,7 +34,7 @@ function quantile(values, q) {
  * intensity (Float32Array on the energy lattice), intensityAt(t) 0..1 }.
  */
 export function musicMoments({ durationMs, sections = [], roles = [], energy = [], energyStepMs = 100,
-  minGapMs = 6000, boundaryWindowMs = 3000, thresholdFraction = .35 } = {}) {
+  minGapMs = 6000, boundaryWindowMs = 3000, thresholdFraction = .35, onsetWindowMs = 300 } = {}) {
   const step = energyStepMs > 0 ? energyStepMs : 100, n = energy?.length || 0;
   const duration = Math.max(0, Number(durationMs) || 0) || n * step;
   const roleOf = (i) => roles?.[i]?.role ?? sections[i]?.role ?? null;
@@ -54,7 +61,19 @@ export function musicMoments({ durationMs, sections = [], roles = [], energy = [
   for (let i = k; i + k <= n; i++) rise[i] = mean(i, i + k) - mean(i - k, i);
   const riseMax = Math.max(0, ...rise), threshold = Math.max(thresholdFraction * quantile(rise, .95), .02 * hi);
   const strengthOf = (r, boundary) => { const base = riseMax > 0 ? clamp01(r / riseMax) : 0; return boundary ? .15 + .85 * base : .85 * base; };
-  const make = (i, sectionIndex, boundary) => ({ timeMs: Math.min(duration, i * step), strength: strengthOf(rise[i], boundary), rise: rise[i],
+  const ow = Math.max(1, Math.round(onsetWindowMs / step));
+  const median = (lo, hi) => { const v = Array.from(e.subarray(Math.max(0, lo), Math.min(n, hi))).sort((x, y) => x - y); return v.length ? v[v.length >> 1] : 0; };
+  const onset = (i) => {
+    const a = Math.max(1, i - ow), b = Math.min(n - 1, i + ow), held = (j) => median(j, j + ow) - median(j - ow, j);
+    let most = 0, at = i, jump = 0;
+    for (let j = a; j <= b; j++) most = Math.max(most, held(j));
+    for (let j = a; j <= b; j++) {
+      const d = e[j] - e[j - 1];
+      if (d > jump && held(j) >= .5 * most) { at = j; jump = d; }
+    }
+    return at;
+  };
+  const make = (i, sectionIndex, boundary) => ({ timeMs: Math.min(duration, onset(i) * step), strength: strengthOf(rise[i], boundary), rise: rise[i],
     sectionIndex, role: roleOf(sectionIndex), boundary });
 
   // Boundary impacts: the strongest rise near a chorus/drop/post-chorus or
@@ -81,7 +100,7 @@ export function musicMoments({ durationMs, sections = [], roles = [], energy = [
     if (peak) peaks.push(i);
   }
   peaks.sort((a, b) => rise[b] - rise[a] || a - b);
-  for (const i of peaks) if (free(i)) accepted.push(make(i, sectionAt(i * step), false));
+  for (const i of peaks) if (free(onset(i))) accepted.push(make(i, sectionAt(i * step), false));
   const impacts = accepted.sort((a, b) => a.timeMs - b.timeMs).map(({ rise: _, ...m }) => m);
 
   // Climax: the strongest impact in the last 55%, preferring one inside the
