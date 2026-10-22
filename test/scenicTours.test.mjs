@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { refinePayoff, durationRange, selectShots, selectLinks, regionConfig, focusArea, inFocus, steadyLook, linkLibrary, costliestShot, estimatedBytes, trimWindow, trimShot, renderedTotal, bestComponent } from '../tools/build-scenic-tours.mjs';
+import { refinePayoff, durationRange, selectShots, selectLinks, regionConfig, focusArea, inFocus, steadyLook, linkLibrary, costliestShot, estimatedBytes, trimWindow, trimShot, renderedTotal, bestComponent, selectConnected } from '../tools/build-scenic-tours.mjs';
 import { TILE_BYTES } from '../tools/lib/scenic-cost.mjs';
 import { samplePath } from '../src/world/terrain/ShotPath.js';
 
@@ -134,4 +134,20 @@ test('tours stay inside the strongly connected part of the link graph worth most
   assert.deepEqual([...bestComponent([a, b, c, d, e], links)].map((x) => x.id).sort(), ['d', 'e'], 'two strong shots outweigh three weaker ones');
   assert.deepEqual([...bestComponent([a, b, c, d, e], links, 1)].map((x) => x.id).sort(), ['d', 'e']);
   assert.equal(bestComponent([a, b], [l(a, b)]).size, 0, 'a one-way pair is no tour');
+});
+
+test('a connected shortlist grows only by shots the set links into and back out of', () => {
+  const shot = (id, total, subjectId = id) => ({ id, subjectId, move: 'traverse', score: { total, holes: 0 }, traits: { azimuthDeg: 0, elevation: 'low', lens: 'normal' }, missing: [] });
+  const [rail, a, b, c, d, e, f] = [{ ...shot('rail', 0.3), move: 'rail' }, shot('a', 0.6), shot('b', 0.6), shot('c', 0.5), shot('d', 0.95), shot('e', 0.9), shot('f', 0.4)];
+  const l = (from, to) => ({ from, to });
+  // a<->b; b->c->a; c->d but d leads nowhere back; e is unreachable; b->f->a is another ear.
+  const links = [l(a, b), l(b, a), l(b, c), l(c, a), l(c, d), l(e, a), l(b, f), l(f, a)];
+  const out = selectConnected([rail, a, b, c, d, e, f], links, { ...config, discovery: { ...config.discovery, maxShots: 8 } }, null);
+  assert.equal(out[0], rail, 'the rail always joins');
+  assert.deepEqual(out.slice(1).map((x) => x.id).sort(), ['a', 'b', 'c', 'f'], 'the cycle grows by its ears; d and e cannot be both entered and left');
+  for (const x of out.slice(1)) {
+    assert.ok(links.some((k) => k.to === x && out.includes(k.from)), `${x.id} has a way in`);
+    assert.ok(links.some((k) => k.from === x && out.includes(k.to)), `${x.id} has a way out`);
+  }
+  assert.deepEqual(selectConnected([rail, d, e], [l(d, e)], config, null), [rail], 'no cycle, no tour shots');
 });
