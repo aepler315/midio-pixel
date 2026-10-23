@@ -76,6 +76,8 @@ test('a flat basin has no summit: the cast light its shore', () => {
   assert.ok(plan.cairns.length >= 6 && plan.cairns.length <= CAIRN_BINS, `${plan.cairns.length} cairns`);
   assert.ok(plan.buoys.length > 0 && plan.buoys.length <= 6);
   for (const b of plan.buoys) assert.equal(b[1], LEVEL);
+  // Tiles share their edge samples: no two sites stand on one point.
+  assert.equal(new Set([...plan.cairns, ...plan.buoys].map(String)).size, plan.cairns.length + plan.buoys.length);
   const pose = scenePoseAt(view, { progress01: 0.5 });
   const xs = plan.cairns.map((p) => projectPoint(pose, 16 / 9, p).x);
   assert.ok(xs.every((x, i) => i === 0 || x >= xs[i - 1]), 'swept left to right');

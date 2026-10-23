@@ -17,6 +17,9 @@ const ASPECT = 16 / 9;
  *  must stand below the sky band. */
 const FRAME_X = 0.72, FRAME_Y = [-0.6, 0.6], GROUND_Y = [-0.5, 0.42], SKY_Y = 0.55;
 const SUMMIT_DEPTH_M = [1500, 12000], SITE_DEPTH_M = [700, 12000];
+/** Sites may stand this far out when too few lie nearer (a view down onto
+ *  a wide basin); they are drawn at a fixed size on screen. */
+const SITE_FAR_M = 30000;
 /** A summit rises at least this far (NDC) over its own foot: the lowest
  *  ground within FOOT_X of it, between half its depth and its own. */
 export const ASCENT_RISE = 0.25;
@@ -45,7 +48,7 @@ const inFrame = (q, y = FRAME_Y) => q && Math.abs(q.x) <= FRAME_X && q.y >= y[0]
 function viewSamples(data, view, waterLevelM) {
   const poses = ROUTE_STATIONS.map((u) => scenePoseAt(view, { progress01: u }));
   const { grid, cells } = data;
-  const all = [];
+  const all = [], seen = new Set();
   for (const tile of data.tiles.values()) {
     if (!tile.visible) continue;
     const n = tile.samples, step = Math.max(1, Math.floor(n / 8));
@@ -54,6 +57,10 @@ function viewSamples(data, view, waterLevelM) {
       if (!Number.isFinite(y)) continue;
       const x = grid.originM[0] + (tile.ix * cells + u * tile.stride) * grid.cellSizeM;
       const z = grid.originM[1] + (tile.iz * cells + v * tile.stride) * grid.cellSizeM;
+      // Neighbouring tiles share their edge samples.
+      const key = `${x},${z}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
       const q = poses.map((pose) => projectPoint(pose, ASPECT, [x, y, z]));
       if (!q[1]) continue;
       const level = Number.isFinite(waterLevelM);
@@ -178,8 +185,10 @@ export function ascentPlan(data, view, summit, samples, { waterLevelM = null } =
  * and swept left to right.
  */
 export function lampPlan(data, view, samples, { seed = 0 } = {}) {
-  const ground = samples.all.filter((s) => !s.water && framedEverywhere(s, GROUND_Y)
-    && s.q.every((q) => q.depth >= SITE_DEPTH_M[0] && q.depth <= SITE_DEPTH_M[1]));
+  const within = (far) => samples.all.filter((s) => !s.water && framedEverywhere(s, GROUND_Y)
+    && s.q.every((q) => q.depth >= SITE_DEPTH_M[0] && q.depth <= far));
+  let ground = within(SITE_DEPTH_M[1]);
+  if (ground.length < 2 * CAIRN_BINS) ground = within(SITE_FAR_M);
   const shore = ground.filter((s) => s.shore);
   const low = () => {
     const ys = ground.map((s) => s.y).sort((a, b) => a - b);
@@ -187,7 +196,7 @@ export function lampPlan(data, view, samples, { seed = 0 } = {}) {
     return ground.filter((s) => s.y <= cut);
   };
   const cairns = pickAnchors(shore.length >= CAIRN_BINS ? shore : low(), seed + 4, CAIRN_BINS) || [];
-  const lake = samples.all.filter((s) => s.water && framedEverywhere(s, GROUND_Y) && s.depth >= SITE_DEPTH_M[0]);
+  const lake = samples.all.filter((s) => s.water && framedEverywhere(s, GROUND_Y) && s.depth >= SITE_DEPTH_M[0] && s.depth <= SITE_FAR_M);
   const buoys = lake.length >= BUOY_BINS ? pickAnchors(lake, seed + 5, BUOY_BINS) || [] : [];
   return Object.freeze({ job: 'lamplighters', cairns: Object.freeze(cairns), buoys: Object.freeze(buoys) });
 }
