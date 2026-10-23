@@ -31,6 +31,7 @@ part that works. What they do does not:
 | What the cast does | **Per view, by terrain**: an *Ascent* where a clear summit holds the frame, *Lamplighters* elsewhere |
 | What sets timing | **Song structure**: milestones are pinned to sections, and the payoff lands on the climax phrase |
 | Figure gathering | **Removed entirely**: lights, their work and its traces only |
+| Midasus's height | **Six feet up** (1.83 m): she flies but keeps to the ground like the others. Her high flights read as random |
 
 ## Model: one job per view, resumed on return
 
@@ -125,7 +126,7 @@ frame. They keep plain wandering lanterns with no peaks (see Out of scope).
     it kindles at the scheduled time.
   - A light never goes out. It stays for every later stay of that view and
     through the end of the song.
-- **Midasus, scout**, at `u = p + δm`, 150–300 m above the path. `δm` goes
+- **Midasus, scout**, at `u = p + δm`, six feet (1.83 m) above the path. `δm` goes
   from 0.04 to 0.12 with her lane: she ranges further ahead while she plays.
   Her 700 m light radius washes the next pitch before the others reach it,
   so the viewer sees where they are going. Her three baby stars trail her
@@ -164,8 +165,8 @@ When `p_v` reaches 1:
 - **Midio** lights the buoys the same way, on his own lane. With no lake, he
   lights alternate cairns and Broshi lights the others.
 - **Midasus** draws **survey threads**. Once both ends of a neighbouring pair
-  (by sweep order) are lit, she flies the line between them 200–400 m up and
-  leaves a faint thread of light in her hue. Each thread is due when its
+  (by sweep order) are lit, she flies the ground between them six feet up and
+  leaves a faint thread of light in her hue, draped over the terrain. Each thread is due when its
   second end kindles, snapped to her lane's nearest onset.
 - Lit sites and threads never go out.
 
@@ -185,7 +186,7 @@ At `p = 1`, the last thread closes the network back to the first cairn.
   swarm wanders as now, with no outline gathering.
 - **Storms.** `weather(τ)` is 0.15 inside a `LandscapeScore` episode, ramped
   over its 6 s build, and 1 elsewhere. Ascent: the team bunches up
-  (`δb` and `δm` × 0.3, Midasus comes down to the path) and the lanterns dim
+  (`δb` and `δm` × 0.3) and the lanterns dim
   to 60%. Lamplighters: they pause in place. Normalization makes the time up
   after the storm.
   - **Exception: the climax view's final stay.** There `weather = 1`. The

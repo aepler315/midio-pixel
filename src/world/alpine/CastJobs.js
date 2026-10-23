@@ -26,6 +26,9 @@ export const ASCENT_RISE = 0.25;
 const FOOT_X = 0.15, LANDING_X = 0.2;
 /** Summit candidates tested for their foot (the highest on screen). */
 const SUMMIT_CANDIDATES = 160;
+/** Lake samples given a line-of-sight test when finding the water leg's
+ *  start (bounds the synchronous cost of preparing a view). */
+const MAX_LAKE_SIGHT_TESTS = 96;
 /** Path: greedy steps, headings tried each step, the slope it prefers, and
  *  the share of waypoints the middle station must see. */
 export const ASCENT_STEPS = 24;
@@ -40,6 +43,18 @@ const WATER_LEG_POINTS = 6;
 export const FIXED_LIGHTS = 32;
 export const FIXED_LIGHTS_LOW = 12;
 export const CAIRN_BINS = 8, BUOY_BINS = 6;
+
+/** The flow byte of the sample at world (x, z), in whichever tile holds
+ *  it, or null between samples or off the terrain. */
+export function flowAt(data, x, z) {
+  const { grid, cells } = data;
+  const gx = (x - grid.originM[0]) / grid.cellSizeM, gz = (z - grid.originM[1]) / grid.cellSizeM;
+  const tile = data.byIndex?.get(`${Math.floor(gx / cells)},${Math.floor(gz / cells)}`);
+  if (!tile?.flowBytes) return null;
+  const u = (gx - tile.ix * cells) / tile.stride, v = (gz - tile.iz * cells) / tile.stride;
+  if (!Number.isInteger(u) || !Number.isInteger(v) || u >= tile.samples || v >= tile.samples) return null;
+  return tile.flowBytes[v * tile.samples + u];
+}
 
 const inFrame = (q, y = FRAME_Y) => q && Math.abs(q.x) <= FRAME_X && q.y >= y[0] && q.y <= y[1];
 
@@ -67,7 +82,9 @@ function viewSamples(data, view, waterLevelM) {
       const water = tile.flowBytes?.[i] === 255 && level && Math.abs(y - waterLevelM) < MIRROR_LEVEL_TOLERANCE_M;
       let wet = false;
       if (!water && level && y < waterLevelM + 40) {
-        for (const j of [i - step, i + step, i - step * n, i + step * n]) if (tile.flowBytes?.[j] === 255) wet = true;
+        // Neighbours by position: at a tile's edge they lie in the next tile.
+        const d = step * tile.stride * grid.cellSizeM;
+        wet = [[d, 0], [-d, 0], [0, d], [0, -d]].some(([dx, dz]) => flowAt(data, x + dx, z + dz) === 255);
       }
       all.push({ x, y, z, p: [x, y, z], q, sx: q[1].x, sy: q[1].y, depth: q[1].depth, water, shore: wet, d: step * tile.stride * grid.cellSizeM });
     }
@@ -119,12 +136,17 @@ export function ascentPlan(data, view, summit, samples, { waterLevelM = null } =
   const eye = samples.eye;
   const framed = (p) => samples.poses.every((pose) => inFrame(projectPoint(pose, ASPECT, p)));
   const S = summit.p;
-  const lake = samples.all.filter((s) => s.water && framedEverywhere(s) && s.depth >= 300 && seenFrom(data, eye, s.p));
-  let W0 = null, L = null, shoreStart = null;
-  if (lake.length) {
-    const near = lake.filter((s) => Math.abs(s.sx - summit.sx) <= FOOT_X);
-    const pool = near.length ? near : lake;
-    W0 = pool.reduce((a, b) => (b.depth < a.depth ? b : a)).p;
+  // The water leg starts at the lake's near edge below the summit (else
+  // anywhere on it): the nearest framed lake sample the rail can see,
+  // testing at most MAX_LAKE_SIGHT_TESTS of them (in each of the two
+  // pools), nearest first.
+  const lake = samples.all.filter((s) => s.water && framedEverywhere(s) && s.depth >= 300).sort((a, b) => a.depth - b.depth);
+  const nearestSeen = (pool) => {
+    const every = Math.max(1, Math.ceil(pool.length / MAX_LAKE_SIGHT_TESTS));
+    return pool.find((s, i) => i % every === 0 && seenFrom(data, eye, s.p))?.p ?? null;
+  };
+  let W0 = nearestSeen(lake.filter((s) => Math.abs(s.sx - summit.sx) <= FOOT_X)) ?? nearestSeen(lake), L = null, shoreStart = null;
+  if (W0) {
     const shore = samples.all.filter((s) => s.shore && framedEverywhere(s));
     const xz = (a, b) => Math.hypot(a[0] - b[0], a[2] - b[2]);
     if (shore.length) {
@@ -264,8 +286,11 @@ export function siteWalk(sites, dues, p) {
   return A.map((v, j) => v + (B[j] - v) * e);
 }
 
-/** Thread heights over the sites they join. */
-export const THREAD_ALT_M = Object.freeze([200, 400]);
+/** Midasus flies, but keeps to the ground like the others: this far (six
+ *  feet) above it, and her survey threads lie draped at the same height. */
+export const MIDASUS_HOVER_M = 1.83;
+/** Segments a survey thread is draped over the ground in. */
+export const THREAD_SEGMENTS = 16;
 
 /**
  * What a plan builds, as the schedule needs it: `lights` (fixed lines on an
@@ -306,13 +331,20 @@ export function castWork(plan, { data = null, waterLevelM = null } = {}) {
       walkers.midio.sites.push(pos); walkers.midio.dues.push(p);
     });
     // Survey threads join neighbouring cairns once both are lit; the last
-    // closes the network back to the first at the finish.
-    const raise = (p, k) => [p[0], p[1] + THREAD_ALT_M[0] + (THREAD_ALT_M[1] - THREAD_ALT_M[0]) * (0.5 + 0.5 * Math.sin(k * 2.4)), p[2]];
+    // closes the network back to the first at the finish. Each lies draped
+    // over the ground (or water) between them, where Midasus flies it.
+    const drape = (a, b) => Array.from({ length: THREAD_SEGMENTS + 1 }, (_, s) => {
+      const f = s / THREAD_SEGMENTS, x = a[0] + (b[0] - a[0]) * f, z = a[2] + (b[2] - a[2]) * f;
+      const h = data ? terrainHeightAt(data, x, z) : NaN;
+      const ground = Number.isFinite(h) ? h : a[1] + (b[1] - a[1]) * f - 1.5;
+      return [x, (Number.isFinite(waterLevelM) ? Math.max(ground, waterLevelM) : ground) + MIDASUS_HOVER_M, z];
+    });
     for (let k = 1; k <= nc; k++) {
       const closing = k === nc;
       if (closing && nc < 3) break;
       const i = k - 1, j = closing ? 0 : k;
-      threads.push({ a: raise(lights[i].pos, i), b: raise(lights[j].pos, j), closing, mark: marks.length });
+      const points = drape(lights[i].pos, lights[j].pos);
+      threads.push({ a: points[0], b: points.at(-1), points, closing, mark: marks.length });
       marks.push(closing ? { p: 1, lane: 'midasus' } : { after: [lights[i].mark, lights[j].mark], lane: 'midasus' });
     }
   }

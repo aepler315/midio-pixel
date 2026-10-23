@@ -42,7 +42,7 @@ import { mistParams, mistDrift, easeMistSteps, tourMistCap, tourMistFade } from 
 import { mirrorSize, mirrorLevelFor, mirrorCameraFor, mirrorTextureMatrix, MIRROR_CLIP_M, MIRROR_LIFT } from './WaterMirror.js';
 import { scenicProjection, calibrateRangeMusic } from './RangeFrame.js';
 import { applyGlacierUniforms, glacierErrors, glacierSample } from './GlacierField.js';
-import { ActorsGL } from './ActorsGL.js';
+import { ActorsGL, SITE_LIGHTS_MAX } from './ActorsGL.js';
 import { buildRiverGeometry, riverGeometryBound, riverChannelErrors } from './RiverChannel.js';
 import { ACTOR_IDS, ACTOR_HUES, ACTOR_LOOK, ACTOR_START, actorRoutes, routePosition } from './RangeActors.js';
 import { castPlan, castWork, pathPosition, siteWalk } from './CastJobs.js';
@@ -1137,8 +1137,10 @@ export class RangeScene {
         // job leaves stand in the band that owns the ground under them.
         actors = new ActorsGL(THREE, uniforms);
         const castSeed = hashSeed(`${view.id}:cast`);
-        const routes = actorRoutes(cpu.data, view, { waterLevelM, seed: castSeed });
         const plan = castPlan(cpu.data, view, { waterLevelM, seed: castSeed });
+        // Wandering routes cost a second terrain pass: only a view that
+        // wanders gets them here (others build them only if ever needed).
+        const routes = plan.job === 'wander' ? actorRoutes(cpu.data, view, { waterLevelM, seed: castSeed }) : null;
         const work = castWork(plan, { data: cpu.data, waterLevelM });
         for (const band of BANDS) scenes[band].add(actors.sites.meshes[band], actors.threads.meshes[band]);
         // Per-band depth scenes for travel frames, where a side's nearer
@@ -1199,7 +1201,7 @@ export class RangeScene {
           riverMaterial, riverDepthMaterial, riverOwnershipMaterials, riverGeometries, riverFringeGeometries, riverDepthMeshes, riverStats,
           forest, stageGL, featureGeometries, featureMaterial,
           stats: { ...geos.stats, trees: forest.counts, featureBytes: featureBudgetBytes }, gpuKey, cpuKey: cpu.key, cpuOwner,
-          rules, waterLevelM, mirrorLevelM, materialKey: mat.key, materialOwner, actors, actorRoutes: routes, castPlan: plan, castWork: work,
+          rules, waterLevelM, mirrorLevelM, materialKey: mat.key, materialOwner, actors, actorRoutes: routes, castSeed, castPlan: plan, castWork: work,
         };
         if (windowWorker) {
           prepared.windowWorker = windowWorker;
@@ -1822,6 +1824,8 @@ export class RangeScene {
     // has left); only a tour view's own terrain wanders.
     const job = p.view.tour ? null : this._castJob(p, frame);
     const opts = { data: p.data, waterLevelM: p.waterLevelM };
+    // A planned view with no job state yet (no schedule) wanders meanwhile.
+    if (!job && !p.actorRoutes && p.castPlan && p.data) p.actorRoutes = actorRoutes(p.data, p.view, { ...opts, seed: p.castSeed ?? 0 });
     ACTOR_IDS.forEach((id, k) => {
       const group = p.actors?.groups[id];
       const route = p.actorRoutes?.[id];
@@ -1908,7 +1912,7 @@ export class RangeScene {
     const state = frame.actors?.jobs?.[p.view.id];
     const schedule = frame.actors?.schedule;
     if (!plan || plan.job === 'wander' || !state || !schedule) return null;
-    const t = frame.timeMs, cast = frame.actors;
+    const t = frame.timeMs;
     const opts = { data: p.data, waterLevelM: p.waterLevelM };
     const unit = x => Math.max(0, Math.min(1, x));
     // When each light kindles (seek-safe: compiled once per schedule). A
@@ -1951,10 +1955,10 @@ export class RangeScene {
         porter = [x, (Number.isFinite(h) ? h : b[1]) + ACTOR_LOOK.broshi.hoverM, z];
       } else porter = pathPosition(plan, Math.max(ub, plan.waterU), { ...opts, hoverM: ACTOR_LOOK.broshi.climbM });
       out.actors.broshi = { pos: porter, fly: flyFor('broshi') };
-      // Midasus scouts ahead and above, and comes down to the path in a storm.
+      // Midasus scouts ahead on the path, six feet up (her light washes the
+      // next pitch before the others reach it).
       const um = Math.min(1, p01 + state.offsets.midasus);
-      const alt = (150 + 150 * (cast.midasus?.glow ?? 0)) * (1 - shelter) + 20;
-      const scout = (x) => { const q = pathPosition(plan, x, opts); return [q[0], q[1] + alt, q[2]]; };
+      const scout = (x) => pathPosition(plan, x, { ...opts, hoverM: ACTOR_LOOK.midasus.climbM });
       out.actors.midasus = { pos: scout(um), lag: [1, 2, 3].map(j => scout(Math.max(0, um - 0.012 * j))), fly: flyFor('midasus') };
     } else {
       // In a storm they pause in place (the schedule slows them); no dimming.
@@ -1968,18 +1972,22 @@ export class RangeScene {
       const midio = walk('midio', ACTOR_LOOK.midio.hoverM);
       out.actors.midio = { pos: midio, fly: flyFor('midio'),
         wakeTail: work.walkers.midio?.water && midio ? siteWalk(work.walkers.midio.sites, work.walkers.midio.dues, Math.max(0, p01 - 0.02)) : null };
-      // Midasus draws the thread being surveyed; between threads she
-      // waits over its far end.
-      let scout = null;
+      // Midasus flies the thread being surveyed along the ground, six feet
+      // up; between threads she waits at its far end (the next one's start).
+      const along = (th, f) => {
+        const pts = th.points, x = unit(f) * (pts.length - 1), i = Math.min(pts.length - 2, Math.floor(x)), g = x - i;
+        return pts[i].map((v, c) => v + (pts[i + 1][c] - v) * g);
+      };
+      let flown = null, f = 0;
       for (const th of work.threads) {
         const age = since(th.mark);
         if (age < 0) break;
-        const f = unit(age / 1500);
-        scout = th.a.map((v, c) => v + (th.b[c] - v) * f);
+        flown = th; f = unit(age / 1500);
       }
-      if (!scout && work.lights[0]) { const c = work.lights[0].pos; scout = [c[0], c[1] + 300, c[2]]; }
-      if (scout) scout = [scout[0], scout[1] * (1 - shelter) + (scout[1] - 200) * shelter, scout[2]];
-      out.actors.midasus = { pos: scout, lag: scout ? [scout, scout, scout] : null, fly: flyFor('midasus') };
+      const first = work.threads[0];
+      const scout = flown ? along(flown, f) : first ? first.a : null;
+      out.actors.midasus = { pos: scout, fly: flyFor('midasus'),
+        lag: scout ? [1, 2, 3].map(j => (flown ? along(flown, f - 0.04 * j) : scout)) : null };
     }
     return out;
   }
@@ -1991,19 +1999,29 @@ export class RangeScene {
     if (!sites || !threads) return;
     const work = p.castWork, schedule = frame.actors?.schedule;
     // Lay the sites out once per schedule: the job's lights, then a camp
-    // light at each camp (known when the schedule is).
-    if (p.castLayoutFor !== schedule) {
+    // light at each camp (known when the schedule is). The slots the lights
+    // leave hold the most recent camps made so far, so every camp stands
+    // while it is among them (in practice a view makes far fewer).
+    const lights = work?.lights || [];
+    const campSlots = Math.max(0, SITE_LIGHTS_MAX - lights.length);
+    const hue = (id, l = 0.62) => new THREE.Color().setHSL(ACTOR_HUES[id] / 360, 0.85, l).convertSRGBToLinear();
+    const bandAt = (pos) => this._tileAt(p.data, pos[0], pos[2])?.band;
+    if (p.castLayoutFor !== schedule || !p.castCamps) {
       p.castLayoutFor = schedule;
-      const hue = (id, l = 0.62) => new THREE.Color().setHSL(ACTOR_HUES[id] / 360, 0.85, l).convertSRGBToLinear();
-      const bandAt = (pos) => this._tileAt(p.data, pos[0], pos[2])?.band;
       const camps = p.castPlan?.job === 'ascent' ? schedule?.views?.[p.view.id]?.camps || [] : [];
       p.castCamps = camps.map(c => pathPosition(p.castPlan, c.p, { data: p.data, waterLevelM: p.waterLevelM, hoverM: 3 }));
-      sites.setSites([
-        ...(work?.lights || []).map(l => ({ pos: l.pos, band: bandAt(l.pos), color: hue(l.actor), sizePx: l.kind === 'line' ? 5 : 9 })),
-        ...p.castCamps.map(pos => ({ pos, band: bandAt(pos), color: hue('midio', 0.7), ring: hue('broshi'), sizePx: 9 })),
-      ]);
+      p.castCampFrom = null;
       threads.setThreads((work?.threads || []).map(th => ({ a: th.a, b: th.b,
         band: this._tileAt(p.data, (th.a[0] + th.b[0]) / 2, (th.a[2] + th.b[2]) / 2)?.band })));
+    }
+    const made = job?.state.camps ?? 0;
+    const campFrom = Math.max(0, Math.min(made, p.castCamps.length) - campSlots);
+    if (p.castCampFrom !== campFrom) {
+      p.castCampFrom = campFrom;
+      sites.setSites([
+        ...lights.map(l => ({ pos: l.pos, band: bandAt(l.pos), color: hue(l.actor), sizePx: l.kind === 'line' ? 5 : 9 })),
+        ...p.castCamps.slice(campFrom, campFrom + campSlots).map(pos => ({ pos, band: bandAt(pos), color: hue('midio', 0.7), ring: hue('broshi'), sizePx: 9 })),
+      ]);
     }
     sites.uniforms.uRight.value.copy(right);
     sites.uniforms.uUp.value.copy(up);
@@ -2013,7 +2031,6 @@ export class RangeScene {
     sites.uniforms.uGain.value = gain * ACTOR_LOOK.broshi.lightGain;
     // Threads are faint: a survey line, not a light.
     threads.setLook(new THREE.Color().setHSL(ACTOR_HUES.midasus / 360, 0.85, 0.7).convertSRGBToLinear(), 0.6 * gain);
-    const lights = work?.lights || [];
     const low = rangeQuality(frame.qualityLevel).level >= 4;
     const fuse = job?.state.fuse01 ?? 0;
     lights.forEach((l, k) => {
@@ -2025,7 +2042,7 @@ export class RangeScene {
       const f = l.kind === 'line' && fuse > 0 && fuse < 1 ? Math.exp(-(((fuse - (l.u - p.castPlan.waterU) / (1 - p.castPlan.waterU)) / 0.06) ** 2)) : 0;
       sites.setState(k, lit, f);
     });
-    (p.castCamps || []).forEach((_, j) => sites.setState(lights.length + j, job && job.state.camps > j ? 1 : 0));
+    for (let j = 0; j < Math.min(campSlots, p.castCamps.length - campFrom); j++) sites.setState(lights.length + j, made > campFrom + j ? 1 : 0);
     (work?.threads || []).forEach((th, k) => {
       if (!job) { threads.setState(k, 0, 0); return; }
       const age = job.since(th.mark);

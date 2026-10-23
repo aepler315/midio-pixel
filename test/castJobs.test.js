@@ -2,9 +2,10 @@
 // frame, or light the shore where none does.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { castPlan, classifyCastJob, pathPosition, siteWalk, ASCENT_STEPS, ASCENT_WATER_U, CAIRN_BINS } from '../src/world/alpine/CastJobs.js';
+import { castPlan, castWork, classifyCastJob, flowAt, pathPosition, siteWalk, MIDASUS_HOVER_M, ASCENT_STEPS, ASCENT_WATER_U, CAIRN_BINS } from '../src/world/alpine/CastJobs.js';
 import { scenePoseAt, projectPoint } from '../src/world/terrain/SceneTravel.js';
 import { seenFrom } from '../src/world/alpine/LineOfSight.js';
+import { terrainHeightAt } from '../src/world/alpine/TerrainMesh.js';
 
 const LEVEL = 1000;
 /** A 12.8 km square of terrain from `height(x, z)` and `wet(x, z)`, seen
@@ -81,6 +82,12 @@ test('a flat basin has no summit: the cast light its shore', () => {
   const pose = scenePoseAt(view, { progress01: 0.5 });
   const xs = plan.cairns.map((p) => projectPoint(pose, 16 / 9, p).x);
   assert.ok(xs.every((x, i) => i === 0 || x >= xs[i - 1]), 'swept left to right');
+  // Survey threads lie draped six feet over the ground, not in the air.
+  const work = castWork(plan, { data, waterLevelM: LEVEL });
+  assert.ok(work.threads.length >= 2);
+  for (const th of work.threads) for (const q of th.points) {
+    assert.ok(Math.abs(q[1] - Math.max(LEVEL, terrainHeightAt(data, q[0], q[2])) - MIDASUS_HOVER_M) < 1e-6, `${q}`);
+  }
 });
 
 test('a summit hidden behind a nearer ridge fails the visibility check', () => {
@@ -104,4 +111,13 @@ test('a lamplighter eases between its sites and closes the loop', () => {
   assert.deepEqual(siteWalk(sites, dues, 0.25), sites[0]);
   assert.deepEqual(siteWalk(sites, dues, 0.5), sites[1]);
   assert.deepEqual(siteWalk(sites, dues, 1), sites[0]);
+});
+
+test('a shore is found by position, across tile seams and never across rows', () => {
+  // Water only in the column just west of a tile seam (x = 1550 m).
+  const { data } = world(() => LEVEL + 5, (x) => x === 1550);
+  assert.equal(flowAt(data, 1550, 800), 255, 'tile 0, one column west of the seam');
+  assert.equal(flowAt(data, 1600, 800), 10, 'the first column of tile 1');
+  assert.equal(flowAt(data, 1575, 800), null, 'between samples');
+  assert.equal(flowAt(data, -50, 800), null, 'off the terrain');
 });

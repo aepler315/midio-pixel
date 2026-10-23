@@ -10,6 +10,7 @@
 // trees and water, through the shared uniforms below (ACTOR_GLSL).
 import { ACTOR_IDS, ACTOR_MOTES } from './RangeActors.js';
 import { BANDS } from './TerrainMesh.js';
+import { THREAD_SEGMENTS } from './CastJobs.js';
 
 export const ACTOR_COUNT = 3;
 /** Small lights that follow an actor along its route. */
@@ -19,7 +20,6 @@ export const ACTOR_FLY_MOTES = 12;
 /** Placed lights (per view, over every band) and threads. */
 export const SITE_LIGHTS_MAX = 48;
 export const SURVEY_THREADS_MAX = 12;
-const THREAD_SEGMENTS = 16;
 
 /** Shared light, wake and parting uniforms (merged into the terrain's). */
 export function actorUniforms(THREE) {
@@ -367,9 +367,10 @@ export class SiteLights {
 }
 
 /**
- * Midasus's survey threads in one view: line strips between raised site
+ * Midasus's survey threads in one view: line strips draped between site
  * pairs, one set per band (by the thread's midpoint). `setThreads(list)`
- * lays them out ({ a, b, band }); `setState(k, reveal, bright)`.
+ * lays them out ({ points: THREAD_SEGMENTS + 1 of them, band }, or a
+ * straight { a, b }); `setState(k, reveal, bright)`.
  */
 export class SurveyThreads {
   constructor(THREE, shared) {
@@ -403,9 +404,8 @@ export class SurveyThreads {
       const band = BANDS.includes(thread.band) ? thread.band : 'far';
       const k = counts[band]++;
       const g = this.meshes[band].geometry, pos = g.attributes.position, tag = g.attributes.aThread;
-      // A shallow sag between its ends.
-      const at = (s) => [0, 1, 2].map((c) => thread.a[c] + (thread.b[c] - thread.a[c]) * s)
-        .map((v, c) => (c === 1 ? v - 0.04 * Math.hypot(thread.b[0] - thread.a[0], thread.b[2] - thread.a[2]) * 4 * s * (1 - s) : v));
+      const at = (s) => thread.points?.[Math.round(s * THREAD_SEGMENTS)]
+        ?? [0, 1, 2].map((c) => thread.a[c] + (thread.b[c] - thread.a[c]) * s);
       for (let j = 0; j < THREAD_SEGMENTS; j++) {
         const v = (k * THREAD_SEGMENTS + j) * 2;
         const s0 = j / THREAD_SEGMENTS, s1 = (j + 1) / THREAD_SEGMENTS;
