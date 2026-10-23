@@ -349,6 +349,9 @@ Choices the proposal left open, as implemented:
   camps. Threads join neighbouring cairns only (at most 8), and the closing
   thread is due at `p = 1`. A view with fewer than two cairn sites, and any
   shot or rail tour, keeps wandering lanterns.
+- **Sites** may stand up to 30 km out when fewer than 16 framed ground
+  samples lie within 12 km (a view down onto a wide basin, like Panamint).
+  They are drawn at a fixed size on screen.
 - **Quality level 4 and up** draws 12 of the 32 fixed lines, evenly spaced.
   The schedule is unchanged.
 - **Refresh.** If the new analysis puts a view's finish at or before
@@ -363,3 +366,27 @@ without one for `tombstone-north-klondike`, `denali-wonder-lake`,
 `monument-valley-163`, `black-mountains-catawba` and `san-gabriel-baldy`.
 `pend-oreille-valley` wanders (no cairn sites). Planning takes 7–64 ms per
 view at prepare time (Node, desktop CPU).
+
+### Validation so far (2026-10-22)
+
+Generated song: 162 s, A-B-A-B-C-B at 27 s per section, 120 BPM (A quiet,
+B kicks, bass and melody, C loudest). The analysis detected its sections
+with confidence 0, so there were no trusted phrases and the energy fallback
+set the climax at 111.0 s, about 3 s into C. The capture tool forces one
+view per run, so every run is one job (no camps or returns).
+
+- `teton-jackson-lake` (Ascent, lake leg). At 50 s the team is low on the
+  face above the shore. 30 of 32 fixed lines are lit by 110 s. At 113.6 s
+  Midio's teal beacon floods the summit and the fuse flares up the fixed
+  lines. At 160 s (dusk) the full line runs from the shore to the summit,
+  with the team on top. At 110–116 s (midday by the song's clock) the lit
+  lines are faint: the day law puts placed lights at 0.4 x 0.45 of the
+  lanterns' night gain.
+- `panamint-dantes-view` (Lamplighters). Threads are drawn across the basin
+  through the song, and by 160 s the network closes back on the first
+  cairn.
+- Not yet judged: camps and returns, which need several views in one song
+  (live playback, not the forced-view capture); a storm hold, since this
+  song has no storm episode; `tombstone-north-klondike` and
+  `monument-valley-163` on screen; and listening to whether the arrival
+  lands with the music.
