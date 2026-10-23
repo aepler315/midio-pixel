@@ -5,9 +5,21 @@
 This remains an initial geographic expansion direction. The [implementation
 follow-up](camera-scouting-fixes-2026-10-22.md) removes the inherited global 60 MB
 hard gate and adds stratified discovery, separate tour approval and review
-identity checks. Those source changes have not merged or deployed; they add no
+identity checks. Those source changes merged through
+[PR #29](https://github.com/aepler315/midio-pixel/pull/29); deployment was not
+verified. That implementation added no
 locations, assets or approvals. Read the historical [camera scouting audit](camera-scouting-audit-2026-10-22.md)
 and [current tour status](scenic-tours.md#current-delivery-and-reported-builds) first.
+
+**Execution follow-up:** the [first sourced wave](scenic-expansion-wave1-2026-10-22.md)
+now adds Redfish Lake (CONIFER), Stony Man (BROADLEAF) and the Superstition west
+front (DESERT) as candidates. Their source acquisition and fallback rails are
+concrete assets; all three still need the recorded promotion gates. Catalog v20
+contains 20 entries: 13 approved rails and seven candidates. The
+[rebuild and app review](scenic-rebuild-review-2026-10-22.md) tracks fresh shot
+discovery and actual camera motion. These are the first three proposals within
+the five-location 13 → 18 batch, with two locations still to scout after this
+wave's failures and distinctness are understood.
 
 ## What should grow
 
@@ -40,8 +52,10 @@ catalog 22, 28 and 34 entries at those milestones, before additional candidates.
    and tour approvals, preserve valid approved rails during candidate-library
    work, and stratify discovery within its existing budget. Validate fresh
    builds and retain reviews keyed to exact source and package/library
-   identities. The unchanged production catalog remains 17 entries with 13
-   approved rails; update that inventory only when new views actually ship.
+   identities. The pinned main baseline has 17 entries with 13 approved rails;
+   the current expansion branch has 20 entries and the same 13 approved rails.
+   The three new geographic entries are candidates. Update the approved count
+   only when their base reviews are accepted.
 2. **13 → 18: prove the workflow on five distinct gaps.** Prioritize currently
    singleton biomes, with contrasting relief, camera orientation and source
    conditions. Include both a compact route suited to short visible windows and
@@ -148,9 +162,10 @@ node --input-type=module -e "import {rangeAssetBytes} from './tools/lib/scenic-c
 Verification covers the removed default limit and explicit caller limits;
 results are recorded in the PR. Invalid paths, corrupt assets, missing files,
 unsupported schemas and runtime residency failures retain their own checks.
-Per-view byte reports keep growth visible. No larger catalog or new terrain
-publication has been built as part of these source fixes, so actual staging
-costs for 30 locations remain to be measured.
+Per-view byte reports keep growth visible. The first sourced wave below
+records actual candidate assets; the earlier implementation follow-up changed
+source only. Actual staging costs for a full 30-location catalog remain to be
+measured.
 
 ## Runtime and offline work
 
@@ -179,6 +194,62 @@ not a benchmark on the audit machine. Bound concurrency by DEM/renderer memory
 and retain cached normalization, scoring and link graphs with their source/config
 identities.
 
+## First-wave inventory and remaining gaps
+
+The three new terrain/build triples total **3,813,190 bytes**. The primary
+expansion branch's logical Range v2 tree grows from 48,905,726 to
+52,718,916 bytes, with 88 files. Source and normalization caches are separate
+build-storage costs. These totals do not measure browser memory, transfer
+compression or physical-device performance, and the final rebuilt-library
+review bundle has its own inventory.
+
+The 20 runtime entries include two coherent aliases sharing their original
+terrain and two earlier pilots. They are not 20 approved geographic choices.
+Accepting the new three would bring the approved geographic count to 16,
+still 14 short of 30. Their six new/new directed seams join 78 new/existing
+directions: a full 16-view matrix has 240 potential directed pairs, 84 more
+than the 13-view baseline. Numeric coverage and failed values are recorded
+in the [wave report](scenic-expansion-wave1-2026-10-22.md).
+
+Nine approved biome pools currently have one geographic view. The new three
+address CONIFER, BROADLEAF and DESERT; even if accepted, six singleton pools
+remain. The next two proposals in the five-location milestone should target
+remaining gaps, beginning with research for contrasting RAINFOREST and STEPPE
+landforms. This is a composition/source criterion, not approval of unresearched
+place names. Prefer a compact cluster with useful payoffs inside short visible
+windows, retain alternative sides and lenses, and compare against the existing
+location before adding another entry.
+
+The page-retained library Map, separate camera footprints and worker-returned
+planning tables need a measured successive-song audit. Their reservation
+formula is an accounting estimate, not a JS heap measurement. This is a
+code-supported reason to measure retention across a larger catalog; this run
+has not observed or established a device memory failure.
+
+The current app review adds two checks to carry into later waves. First,
+track configured named subjects through usable discovery shots, the safe
+connected component, final selection and actual playback. Denali has 15 usable
+named shots and two in its safe component, but none selected or played in the
+reviewed song. Teton retains three Grand Teton shots while that song plays a
+Mount Moran shot. These are assigned-shot observations, not claims that a
+mountain is absent from other frames. They flag editorial/selection tradeoffs
+without inventing a mandatory named-shot quota.
+
+Second, inspect the payoff and midpoint of every actually played shot,
+including repeated move families, along with every played link's entry,
+interior and arrival or explicit song cutoff. Initial reviewed plans contain
+43–75-second links even though the builder's fastest-feasible-duration gate
+passes. The song planner's selected comfort pace and the resulting visible
+transit need their own review. Library diversity alone does not establish
+variety in a particular song's edit.
+
+Catalog size and per-song planning complexity are separate measurements:
+planning uses the chosen library's shot/link graph, while successive locations
+can increase retained page data. Preserve source/config/algorithm provenance
+for cache reuse. A new eligibility check applied to a retained Pareto front
+cannot recover variants discarded before that front was cached; distinguish
+that reselection from fresh variant generation when interpreting comparisons.
+
 ## Acceptance for each wave
 
 A wave is ready for review only when the following are concrete and linked:
@@ -203,8 +274,9 @@ A wave is ready for review only when the following are concrete and linked:
   deployment are reported as separate states. Publishing a candidate must not
   silently remove a biome's only approved fallback.
 
-The next geographic work is one small sourced pilot wave using the corrected
-discovery and approval workflow. Fresh builds, exact review identities, rendered
-rail comparisons and visible-window pacing evidence should refine the remaining
-catalog before committing all 17 new locations. Tombstone source drift and
-whole-song aesthetic acceptance remain separate gates.
+The first sourced wave is now the three candidates linked above. Fresh builds,
+exact review identities, rendered rail comparisons and visible-window pacing
+evidence should refine the remaining catalog before adding the other 14 needed
+for 30 approved geographic views. That remaining count assumes all three
+candidates are eventually accepted. Tombstone source drift and whole-song
+aesthetic acceptance remain separate gates.

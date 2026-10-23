@@ -13,10 +13,51 @@ The [camera scouting audit](camera-scouting-audit-2026-10-22.md) records contrac
 gaps and evidence limits at its audited revision. The [implementation follow-up](camera-scouting-fixes-2026-10-22.md)
 documents the subsequent fixes to discovery, approval, review identity, planning
 and reel evidence, plus removal of the global 60 MB hard gate. Those source
-changes have not merged or deployed. They add no assets or camera approvals;
+changes merged through [PR #29](https://github.com/aepler315/midio-pixel/pull/29).
+Deployment was not verified. They added no assets or camera approvals;
 the 13 approved rails and candidate regional configurations above are unchanged.
-The [30-view proposal](scenic-view-expansion.md) remains a geographic expansion
-direction awaiting sourced locations and per-view review.
+The [30-view proposal](scenic-view-expansion.md) now has a
+[first sourced candidate wave](scenic-expansion-wave1-2026-10-22.md): Redfish
+Lake, Stony Man and the Superstition west front. Catalog v20 on the expansion
+branch keeps the 13 approved rails and adds these three candidates beside the
+four existing pilots. The [fresh rebuild and app review](scenic-rebuild-review-2026-10-22.md)
+separates new discovery artifacts, actual song-planned movement and remaining
+approval gates from the historical results below.
+
+**Current expansion-branch inventory:** catalog v20 has 20 runtime entries
+(13 approved bases and seven candidates), while `scenic-tours.json` has
+16 candidate regional configurations. The primary expansion branch has no
+attached shot libraries and preserves all 13 approved rail packages. Fresh
+libraries were rebuilt and staged in an isolated candidate review snapshot.
+The v19 inventory and R3 delivery table below describe their explicitly dated
+baselines. See [draft PR #32](https://github.com/aepler315/midio-pixel/pull/32)
+and the [dated rebuild review](scenic-rebuild-review-2026-10-22.md) for current
+artifacts and actual planned-move findings.
+
+The completed fresh R2 batch has 15 useful candidate libraries with 179 shots and
+462 links; Tombstone remains blocked with only its rail. Its separate candidate
+asset tree is 65,023,144 bytes. The primary branch keeps the 13 approved rail
+packages unchanged; no fit, capture or diagnostic setting approves a tour.
+The separate
+[review asset branch](https://github.com/aepler315/midio-pixel/tree/review/scenic-library-rebuild-20261022)
+contains those exact packages. Its rebaked bases are candidates, so interactive
+review uses the explicit overrides in the
+[playback instructions](scenic-rebuild-review-2026-10-22.md#candidate-asset-branch-and-diagnostic-playback).
+
+The [Denali ending pilot](scenic-ending-pilot-2026-10-22.md) explains why long
+runtime transfers can exceed the discovery duration setting and why a legal
+shot ending can lose to a transit ending. Its matched rendered experiment
+rejected a higher ending penalty as a default change: the broader opening and
+final-shot completion came with a more sky-heavy transfer and less move variety.
+The existing planner defaults and candidate approval states remain unchanged.
+
+The subsequent [framing and ending follow-up](scenic-motion-fixes-2026-10-22.md)
+regenerates Denali's connections after correcting fallback direction handover.
+Its matched geometry-only app review uses the unchanged planner: the assigned
+Denali shot plays at the 128-second payoff and continues through the ending,
+while total transit falls from 94.224 to 69.915 seconds. The long remaining
+transfer, close crest and dark final view remain editorial gates. Original R2
+packages and captures are preserved; this revised package remains unapproved.
 
 The intended system gives each approved scenic view an offline-discovered **shot library**: complete
 camera moves around the region's real subjects, plus connecting moves between
@@ -56,6 +97,23 @@ means no build record is available in that checkout. It does not contradict the
 historical local builds reported in PR #25. None of the round-3 shot libraries
 below is committed or approved for production. The four forced runtime candidates
 and four rejected authoring entries are separate from the 13 approved views.
+
+For the final batch, use `--build-root .smoke/rebuild-20261022/selected-libraries`.
+The status tool labels **catalog tour state** separately from **build-fit
+counts/costs**. An approved rail cannot approve an attached candidate tour;
+approval also requires current verified library, payload and terrain identities.
+Choosing a build directory does not install or approve its packages. Valid
+rejections and stale identities are reported separately.
+
+The fresh rebuild also adds a sampled terrain-presence floor for connecting
+moves after actual Denali playback exposed a roughly 25-second blank-sky
+passage. Existing CPU link scoring records exact minimum terrain fraction and
+empty/sample counts; any sampled all-sky link is excluded before Pareto and
+connected selection. Missing legacy-cache evidence is measured once on the
+fresh retained front. The validated pair pool stays closed through budget
+relinks, and packing/publication reject missing or invalid link evidence.
+This adds no pitch cutoff and changes no source camera path or fit budget.
+See the [measured cause and R1/R2 evidence](scenic-rebuild-review-2026-10-22.md#denali-exposed-an-all-sky-link).
 
 | View | Current production camera | R3 shots / links reported in PR #25 | Reported in-app coverage |
 | --- | --- | --- | --- |

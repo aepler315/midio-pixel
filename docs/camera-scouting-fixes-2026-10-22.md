@@ -2,11 +2,19 @@
 
 Implementation follow-up to the [camera scouting audit](camera-scouting-audit-2026-10-22.md),
 on base `8a5a1e362e4da2dda21a4cc523909b1eeb0bfda1`. This report describes the
-current source changes. Verification results are recorded below and in the PR. The changes
-have not merged or deployed, add no terrain or shot-library assets, and approve
-no new cameras. The production catalog remains 17 entries, including the same
+source changes at `f51c27f7855ca6a3f163f77afaee4827438e2973`. Verification results
+are recorded below and in [PR #29](https://github.com/aepler315/midio-pixel/pull/29),
+which the owner merged into main at `6feed187f7cfe82ff11ec734e784208aabb78f78`
+on 2026-10-22. Deployment was not verified. That implementation added no terrain
+or shot-library assets and approved no cameras. Its production inventory is
+17 entries, including the same
 13 approved geographic rails; all 13 regional tour configurations remain
 candidates, with no committed shot libraries.
+
+The subsequent [fresh rebuild and app review](scenic-rebuild-review-2026-10-22.md)
+adds three sourced geographic candidates and documents additional connectivity,
+terrain-presence and status corrections. Those follow-up changes have their own
+source, capture and publication identities.
 
 ## Discovery and delivery
 

@@ -269,12 +269,51 @@ documents the current fixes: broader discovery within the existing candidate
 budget, separate rail and tour approvals, review results tied to exact library
 bytes, and removal of the inherited global 60 MB hard gate. Asset growth,
 download costs and runtime memory remain separate measurements. These changes
-have not merged or deployed and do not add assets or approve cameras.
+merged through [PR #29](https://github.com/aepler315/midio-pixel/pull/29).
+That source-only implementation added no assets or camera approvals; deployment
+was not verified.
 
 The [expansion proposal](docs/scenic-view-expansion.md) considers **13 → 18 → 24 →
-30 approved geographic views**, with review waves of two or three. That direction
-does not deliver additional locations; the existing 13 approved rails remain the
-production cameras.
+30 approved geographic views**, with review waves of two or three. The
+[first sourced wave](docs/scenic-expansion-wave1-2026-10-22.md) adds candidate
+terrain and rails for Redfish Lake in the Sawtooths, Stony Man in Shenandoah,
+and the Superstition west front. Catalog v20 has 13 approved rails and seven
+candidates, with 16 regional tour configurations on the expansion branch;
+the approved geographic count remains 13. The new three terrain packages add
+3,813,190 bytes. Source, candidate assets and review documentation are in
+[draft PR #32](https://github.com/aepler315/midio-pixel/pull/32). The
+[fresh rebuild and app review](docs/scenic-rebuild-review-2026-10-22.md) records
+the new scouting runs, exact library identities, actual planned camera moves
+and remaining review gates. Candidate assets and local rebuilt libraries do
+not enable a production shot tour by themselves.
+
+The completed R2 batch has **15 useful candidate libraries: 179 shots and 462
+links**, including libraries for all three new locations. Tombstone remains a
+blocked rail-only result. The complete review asset tree is **65,023,144 bytes**;
+the global 60 MB ceiling is gone, while regional fit and graphics constraints
+remain. Actual app review found and corrected a sampled blank-sky Denali transit;
+long transfers, named-subject framing and dark endings still need editorial
+work. The approved geographic count remains 13.
+The fitted packages are preserved on the separate
+[candidate review asset branch](https://github.com/aepler315/midio-pixel/tree/review/scenic-library-rebuild-20261022);
+see the [diagnostic playback instructions](docs/scenic-rebuild-review-2026-10-22.md#candidate-asset-branch-and-diagnostic-playback).
+Its rebaked bases and attached tours remain candidates.
+
+A subsequent [Denali ending pilot](docs/scenic-ending-pilot-2026-10-22.md)
+tested a stronger ending-in-transit penalty in matched actual-app captures.
+It improved the opening and reached a final shot, but made the main transfer
+more sky-heavy and left the ending dark. The experiment was rejected as a
+default change; production planning and camera approvals remain unchanged.
+
+The [next camera iteration](docs/scenic-motion-fixes-2026-10-22.md) corrects a
+skyward detour in fallback link aiming and regenerates Denali's connections from
+the same scored shots. Matched actual-app review reaches the configured Denali
+shot at the climax and holds it through the ending, with 24.309 seconds less
+transit. The remaining 69.915-second transfer, close snow crest and dark final
+view keep it a candidate. The separate
+[R3 review asset branch](https://github.com/aepler315/midio-pixel/tree/review/scenic-denali-heading-20261022)
+has 180 shots and 459 links across the same 15 useful libraries, with a
+64,853,210-byte asset tree. Camera quality takes priority over another location wave.
 
 ## Version archive
 

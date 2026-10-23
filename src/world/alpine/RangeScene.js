@@ -1683,7 +1683,13 @@ export class RangeScene {
     hexToLinear(THREE, c.colorHex, u.uLightColor.value).multiplyScalar(strength);
     // Receiver fill fades once; sky radiance also feeds air and water's
     // reflection, so it keeps the frame's authored environment colors.
-    u.uAmbientScale.value = 2.5 * (frame.light.ambientMultiplier ?? 1);
+    const ambient = frame.light.ambientMultiplier ?? 1;
+    const visibility = v => Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0;
+    const bodies = frame.light.state;
+    // Keep moonlit receivers readable with the existing sheltered fill.
+    // Existing horizon visibility blends the handoff while daylight and true gaps keep their fill.
+    const moonShare = visibility(night) * visibility(bodies?.moon?.visibility) * (1 - visibility(bodies?.sun?.visibility));
+    u.uAmbientScale.value = 2.5 * (ambient + .65 * (1 - ambient) * moonShare);
     u.uStorm.value.set(storm.amount, storm.flash, storm.break01, storm.wet01);
     // Under the squall the sun is gone behind the deck; the sky's own
     // (darkened, below) radiance is most of what lights the land.

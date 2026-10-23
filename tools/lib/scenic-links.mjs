@@ -12,8 +12,9 @@
 // The look target slides from the outgoing shot's target to the incoming
 // one's, so the camera keeps tracking what it was looking at and hands over
 // to the next subject; when that would swing past the eye, the direction is
-// slerped instead. All variants are generated and scored before any are
-// dropped: a shorter transit, a stronger reveal of the next subject or a
+// handed over in heading and elevation instead. All variants are generated
+// and scored before any are dropped: a shorter transit, a stronger reveal
+// of the next subject or a
 // better approach into it can each survive (keepParetoLinks).
 import { samplePath, pathTangent, pathErrors, withProgress } from '../../src/world/terrain/ShotPath.js';
 
@@ -30,11 +31,18 @@ function endState(path, end) {
   return { eye, aim, fov: path.fov[i], tangent: pathTangent(path, end) };
 }
 
-function slerp(a, b, t) {
-  const d = clamp(a[0] * b[0] + a[1] * b[1] + a[2] * b[2], -1, 1), w = Math.acos(d);
-  if (w < 1e-4) return norm([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]);
-  const sa = Math.sin((1 - t) * w) / Math.sin(w), sb = Math.sin(t * w) / Math.sin(w);
-  return [a[0] * sa + b[0] * sb, a[1] * sa + b[1] * sb, a[2] * sa + b[2] * sb];
+function handoverDirection(a, b, t) {
+  // A great-circle turn between opposing upward views swings over the sky
+  // (and opposing downward views dive). Turn horizontally while handing over
+  // their actual elevations. A vertical view borrows the other end's heading.
+  const horizontalA = Math.hypot(a[0], a[2]), horizontalB = Math.hypot(b[0], b[2]);
+  const headingA = horizontalA > 1e-9 ? Math.atan2(a[0], a[2]) : horizontalB > 1e-9 ? Math.atan2(b[0], b[2]) : 0;
+  const headingB = horizontalB > 1e-9 ? Math.atan2(b[0], b[2]) : headingA;
+  const turn = Math.atan2(Math.sin(headingB - headingA), Math.cos(headingB - headingA));
+  const heading = headingA + turn * t;
+  const pitchA = Math.atan2(a[1], horizontalA), pitchB = Math.atan2(b[1], horizontalB);
+  const pitch = pitchA + (pitchB - pitchA) * t, horizontal = Math.cos(pitch);
+  return [Math.sin(heading) * horizontal, Math.sin(pitch), Math.cos(heading) * horizontal];
 }
 
 /** Minimum turning radius of a sampled eye path (horizontal), metres. */
@@ -93,7 +101,7 @@ export function buildLink(ctx, from, to, kind, { side = 1, linkMaxM = 9000, tran
     const look = sub(target, p);
     if (turn < 2.1 && len(look) > 900) aims.push(target);
     else {
-      const d = slerp(dirA, dirB, w), dist = len(sub(A.aim, A.eye)) * (1 - w) + len(sub(B.aim, B.eye)) * w;
+      const d = handoverDirection(dirA, dirB, w), dist = len(sub(A.aim, A.eye)) * (1 - w) + len(sub(B.aim, B.eye)) * w;
       aims.push([p[0] + d[0] * dist, p[1] + d[1] * dist, p[2] + d[2] * dist]);
     }
   }

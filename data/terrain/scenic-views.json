@@ -1,6 +1,6 @@
 {
   "about": "Range v2 scenic views: curated real terrain corridors with authored camera rails. Authoring source for tools/build-range-scene.mjs; the runtime catalog (src/assets/range/v2/catalog.json) is generated from it. Rail anchors are lon/lat (NAD83 for 3DEP sources) with an absolute height (heightM, metres above the source vertical datum) or a height above the DEM ground (aboveGroundM). status: candidate | approved | rejected; only approved views are production-eligible.",
-  "catalogVersion": 19,
+  "catalogVersion": 20,
   "views": [
     {
       "id": "nc-ross-lake-north",
@@ -6397,6 +6397,245 @@
       "materialPack": "dry-conifer",
       "tourManifestUrl": "tour/teton-range-tour.tour.json",
       "reviewPath": "docs/teton-tour-progress.md"
+    },
+    {
+      "id": "sawtooth-redfish-north",
+      "regionId": "sawtooth",
+      "biome": "CONIFER",
+      "status": "candidate",
+      "title": "Redfish Lake",
+      "place": "Sawtooth Mountains, Idaho",
+      "notes": "Expansion wave 1 candidate. Elevated over Redfish Lake north shore looking south-west to Heyburn Mountain and Grand Mogul. Camera anchors are authored estimates; named peak coordinates are USGS GNIS NAD83 primary points (gaz396651 and gaz382498). North Shore Recreation.gov facility232076 anchors the camera vicinity. See docs/scenic-expansion-wave1-2026-10-22.md. No rail or tour approval.",
+      "composition": {
+        "foreground": "none",
+        "nearLedgeMaxFrac": 0
+      },
+      "dem": {
+        "source": "3dep13",
+        "centerLonLat": [
+          -114.955,
+          44.113
+        ],
+        "extentM": [
+          32000,
+          32000
+        ],
+        "cellM": 20
+      },
+      "rail": {
+        "eyeStart": {
+          "lonLat": [
+            -114.911,
+            44.146
+          ],
+          "aboveGroundM": 350
+        },
+        "eyeEnd": {
+          "lonLat": [
+            -114.9,
+            44.14
+          ],
+          "aboveGroundM": 350
+        },
+        "targetStart": {
+          "lonLat": [
+            -114.966,
+            44.096
+          ],
+          "heightM": 2450
+        },
+        "targetEnd": {
+          "lonLat": [
+            -114.96,
+            44.092
+          ],
+          "heightM": 2450
+        },
+        "fovYDeg": 35
+      },
+      "landmarks": [
+        {
+          "name": "Heyburn Mountain",
+          "lonLat": [
+            -114.976695918,
+            44.100795363
+          ],
+          "note": "USGS GNIS gaz396651 (NAD83); no surveyed vertical value asserted."
+        },
+        {
+          "name": "Grand Mogul",
+          "lonLat": [
+            -114.959966494,
+            44.079674938
+          ],
+          "note": "USGS GNIS gaz382498 (NAD83); no surveyed vertical value asserted."
+        }
+      ],
+      "review": "Unreviewed candidate: source and rail/shot builds begin 2026-10-22. Need actual renderer, reflections, clearance, skyline and both directed transition checks before base approval.",
+      "reviewPath": "docs/scenic-expansion-wave1-2026-10-22.md"
+    },
+    {
+      "id": "shenandoah-stony-man-west",
+      "regionId": "shenandoah",
+      "biome": "BROADLEAF",
+      "status": "candidate",
+      "title": "Stony Man",
+      "place": "Shenandoah National Park, Virginia",
+      "notes": "Expansion wave 1 candidate. Elevated over the Shenandoah Valley west of Stony Man, looking east-south-east into the Blue Ridge escarpment. A compact 1 km lateral rail aims to make nearby broadleaf ridges useful in shorter visible windows. Camera coordinates/heights are authored estimates; named peak points use USGS GNIS NAD83. See docs/scenic-expansion-wave1-2026-10-22.md. No rail or tour approval. After the initial render showed the primary ridge masking the default 7 km far partition, the rail was moved approximately 2500 m west at the same endpoint AGL and lens; exact converted positions and new terrain bytes require fresh review.",
+      "composition": {
+        "foreground": "none",
+        "nearLedgeMaxFrac": 0
+      },
+      "water": false,
+      "dem": {
+        "source": "3dep13",
+        "centerLonLat": [
+          -78.385,
+          38.578
+        ],
+        "extentM": [
+          36000,
+          36000
+        ],
+        "cellM": 20
+      },
+      "rail": {
+        "eyeStart": {
+          "lonLat": [
+            -78.4737404,
+            38.611
+          ],
+          "aboveGroundM": 450
+        },
+        "eyeEnd": {
+          "lonLat": [
+            -78.4667376,
+            38.604
+          ],
+          "aboveGroundM": 450
+        },
+        "targetStart": {
+          "lonLat": [
+            -78.3733,
+            38.5982
+          ],
+          "heightM": 1050
+        },
+        "targetEnd": {
+          "lonLat": [
+            -78.3715,
+            38.5955
+          ],
+          "heightM": 1050
+        },
+        "fovYDeg": 35
+      },
+      "landmarks": [
+        {
+          "name": "Stony Man",
+          "lonLat": [
+            -78.373278436,
+            38.598160447
+          ],
+          "elevationM": 1222.5528,
+          "note": "USGS GNIS gaz1475210 point (NAD83); 4011 ft from National Park Service converted to metres, a published approximate elevation."
+        },
+        {
+          "name": "Hawksbill",
+          "lonLat": [
+            -78.395003105,
+            38.555393535
+          ],
+          "note": "USGS GNIS gaz1467849 (NAD83); no surveyed vertical value asserted."
+        },
+        {
+          "name": "Old Rag Mountain",
+          "lonLat": [
+            -78.316034348,
+            38.551715709
+          ],
+          "note": "USGS GNIS gaz1471867 (NAD83); no surveyed vertical value asserted."
+        }
+      ],
+      "review": "Unreviewed candidate: source and rail/shot builds begin 2026-10-22. Need actual renderer, near-ridge occlusion, clearance, skyline and both directed transition checks before base approval. Water deliberately disabled until mapped wet features would be added.",
+      "reviewPath": "docs/scenic-expansion-wave1-2026-10-22.md"
+    },
+    {
+      "id": "superstition-west-front",
+      "regionId": "superstition",
+      "biome": "DESERT",
+      "status": "candidate",
+      "title": "Superstition West Front",
+      "place": "Superstition Mountains, Arizona",
+      "notes": "Expansion wave 1 candidate. Short north-south move west of the volcanic front near Lost Dutchman State Park, looking south-east across the Sonoran Desert toward the Superstition ridge. Camera anchors are authored estimates based on the official park map vicinity; named points use USGS GNIS NAD83 (Superstition Peak gaz42805; Weavers Needle gaz35931). See docs/scenic-expansion-wave1-2026-10-22.md. No rail or tour approval. After the initial render showed the primary ridge masking the default 7 km far partition, the rail was moved approximately 4500 m west at the same endpoint AGL and lens; exact converted positions and new terrain bytes require fresh review.",
+      "composition": {
+        "foreground": "none",
+        "nearLedgeMaxFrac": 0
+      },
+      "water": false,
+      "dem": {
+        "source": "3dep13",
+        "centerLonLat": [
+          -111.425,
+          33.445
+        ],
+        "extentM": [
+          30000,
+          30000
+        ],
+        "cellM": 20
+      },
+      "rail": {
+        "eyeStart": {
+          "lonLat": [
+            -111.5324616,
+            33.473
+          ],
+          "aboveGroundM": 280
+        },
+        "eyeEnd": {
+          "lonLat": [
+            -111.528456,
+            33.463
+          ],
+          "aboveGroundM": 280
+        },
+        "targetStart": {
+          "lonLat": [
+            -111.435,
+            33.445
+          ],
+          "heightM": 1100
+        },
+        "targetEnd": {
+          "lonLat": [
+            -111.431,
+            33.435
+          ],
+          "heightM": 1100
+        },
+        "fovYDeg": 35
+      },
+      "landmarks": [
+        {
+          "name": "Superstition Peak",
+          "lonLat": [
+            -111.4006741,
+            33.4111562
+          ],
+          "note": "USGS GNIS gaz42805 (NAD83); no surveyed vertical value asserted."
+        },
+        {
+          "name": "Weavers Needle",
+          "lonLat": [
+            -111.3704066,
+            33.4331056
+          ],
+          "note": "USGS GNIS gaz35931 (NAD83); no surveyed vertical value asserted."
+        }
+      ],
+      "review": "Unreviewed candidate: source and rail/shot builds begin 2026-10-22. Need actual renderer, volcanic-front silhouette, source resolution at near pillars, clearance, skyline and both directed transition checks before base approval. No permanent surface water asserted; water disabled.",
+      "reviewPath": "docs/scenic-expansion-wave1-2026-10-22.md"
     }
   ]
 }

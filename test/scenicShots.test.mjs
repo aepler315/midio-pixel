@@ -137,6 +137,42 @@ test('Pareto retention keeps a shorter transit and a more scenic one', () => {
   assert.deepEqual(kept.map((k) => `${k.kind}${k.side || ''}`), ['direct', 'arc1']);
 });
 
+test('opposing link targets hand over horizontally without a skyward or downward detour', () => {
+  // A great-circle blend between two upward directions facing away from one
+  // another goes over the sky. A connecting move must retain their elevation
+  // handover while turning in heading, including across the heading wrap.
+  for (const [headingA, headingB, pitchA, pitchB, accepted] of [[0, 160, 12, 12, true], [170, -30, -12, -8, true], [-170, 30, 6, 14, true], [0, 180, 0, 0, true], [0, 120, 90, -45, false], [0, 0, 90, -90, false]]) {
+    const target = (eye, heading, pitch) => {
+      const h = heading * Math.PI / 180, p = pitch * Math.PI / 180;
+      return [eye[0] + 4000 * Math.cos(p) * Math.sin(h), eye[1] + 4000 * Math.sin(p), eye[2] + 4000 * Math.cos(p) * Math.cos(h)];
+    };
+    const shot = (id, eyes, heading, pitch) => ({ id, path: samplePath({ eyes, aims: eyes.map((eye) => target(eye, heading, pitch)), fovs: 26 }) });
+    const from = shot('from', [[-1000, 1000, 0], [0, 1000, 0]], headingA, pitchA);
+    const to = shot('to', [[6000, 1000, 0], [7000, 1000, 0]], headingB, pitchB);
+    const link = buildLink({ clearance: { floorAt: () => 0 } }, from, to, 'direct');
+    if (!accepted) {
+      assert.equal(link, null, 'vertical endpoints still fail the existing path validity contract');
+      continue;
+    }
+    assert.ok(link, 'the horizontal camera course supports a finite direction handover');
+    for (let i = 0; i < link.path.s.length; i++) {
+      const d = [0, 1, 2].map((k) => link.path.aim[i * 3 + k] - link.path.eye[i * 3 + k]);
+      const pitch = Math.atan2(d[1], Math.hypot(d[0], d[2])) * 180 / Math.PI;
+      assert.ok(pitch >= Math.min(pitchA, pitchB) - .01 && pitch <= Math.max(pitchA, pitchB) + .01,
+        `${headingA}/${headingB}: endpoint elevations ${pitchA}/${pitchB}, handover pitch ${pitch}`);
+    }
+    const end = link.path.s.length - 1;
+    for (let k = 0; k < 3; k++) {
+      assert.ok(Math.abs(link.path.aim[k] - from.path.aim[(from.path.s.length - 1) * 3 + k]) < .5, 'outgoing target preserved');
+      assert.ok(Math.abs(link.path.aim[end * 3 + k] - to.path.aim[k]) < .5, 'incoming target preserved');
+    }
+    const middle = pathPoseAt(link.path, link.lengthM / 2);
+    const heading = Math.atan2(middle.targetM[0] - middle.eyeM[0], middle.targetM[2] - middle.eyeM[2]) * 180 / Math.PI;
+    if (headingA === 170) assert.ok(heading < -100 && heading > -120, 'turn crosses the wrap by the shorter heading arc');
+    if (headingA === -170) assert.ok(heading > 100 && heading < 120, 'mirrored turn crosses the wrap by the shorter heading arc');
+  }
+});
+
 test('the rail shot reproduces the authored rail and headings use north-up degrees', () => {
   const ctx = landscape();
   const r = railShot(ctx, railTarget);

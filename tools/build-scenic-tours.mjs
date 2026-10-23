@@ -23,6 +23,7 @@ import { loadViewContext, buildClearance, heightAt } from './lib/scenic-terrain.
 import { discoverSubjects, valleyPaths, shorelines } from './lib/scenic-features.mjs';
 import { generateShots, poseTraits, LANDFORMS } from './lib/scenic-shots.mjs';
 import { linkVariants, keepParetoLinks, linkRejects } from './lib/scenic-links.mjs';
+import { LINK_VISIBILITY_FIELDS, linkVisibilityStatus } from './lib/scenic-score.mjs';
 import { strideCost, tourPoses, tourBakeOptions, bakeOptions } from './lib/scenic-cost.mjs';
 
 import { SHOT_SCHEMA, SHOT_VERSION, packShotPaths, chooseLattice, shotLibraryErrors, decodeShotLibrary, cameraFootprint } from '../src/world/terrain/ShotLibrary.js';
@@ -296,8 +297,11 @@ export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpu
     raw.forEach((l, i) => { l.score = linkScores[i].aggregate; l.path.flow = Float32Array.from(linkScores[i].flow); l.durationMs = durationRange(l.path, l.path.flow, config.motion); });
     const leashed = raw.filter((l) => l.durationMs.min <= maxLinkMs);
     const front = paretoFront(leashed);
+    const visibility = summarizeLinkVisibility(leashed);
     funnel.links = { shots: usable.length, pairsOutOfReach: outOfReach, pairsTried, variantsTried: pairsTried * 4, rejected: { ...linkRejects, 'looks near straight down': steep },
-      built: raw.length, overLeash: raw.length - leashed.length, holed: leashed.filter((l) => l.score.holes > 0.002).length, paretoKept: front.length };
+      built: raw.length, overLeash: raw.length - leashed.length, holed: leashed.filter((l) => l.score.holes > 0.002).length, visibility, paretoKept: front.length };
+    funnel.links.rejected['all-sky sampled frame'] = visibility.rejected.allSky;
+    funnel.links.rejected['visibility evidence missing or invalid'] = visibility.rejected.unmeasured;
     log(`${viewId}: links: ${pairsTried} nearest pairs within reach (${outOfReach} pairs beyond ${Math.round(reachM)} m), ${pairsTried * 4} variants tried, ${raw.length} built (rejected: ${Object.entries(funnel.links.rejected).map(([k, n]) => `${n} ${k}`).join(', ')}), ${funnel.links.overLeash} slower than ${maxLinkMs / 1000} s, ${funnel.links.holed} seeing holes, ${front.length} kept on the pairs' Pareto fronts`);
     const graph = { usable, front, subjects, focus: ctx.focus, scored: second.length, variants: raw.length, funnel,
       candidateScores: candidates.map((c) => ({ id: c.id, move: c.move, tags: c.tags, elevation: c.traits.elevation, lens: c.traits.lens,
@@ -313,7 +317,11 @@ export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpu
  * links chosen among the shortlist and priced, and the build report.
  */
 async function selectLibrary(viewId, { ctx, config, pool, cost, scale, graph, out, t0, log }) {
-  const { front, subjects } = graph;
+  const { subjects } = graph;
+  const visibility = await refreshLinkVisibility(graph.front, (p) => pool.score('link', p, { everyM: 120, width: 96, height: 54 }));
+  const { pairs: front, rejectedLinks, ...visibilitySummary } = visibility;
+  if (visibility.measured) await writeGraphCache(out, graph);
+  log(`${viewId}: link visibility ${visibility.admitted}/${visibility.checked} with terrain in every sampled frame; ${visibility.measured} cached paths measured, ${visibility.rejected.allSky} all-sky and ${visibility.rejected.unmeasured} unmeasured rejected`);
   // Shots a rendered review marked broken (region.excludeShots) never join.
   const excluded = new Set(config.region.excludeShots || []);
   const usable = graph.usable.filter((c) => !excluded.has(c.id));
@@ -324,6 +332,7 @@ async function selectLibrary(viewId, { ctx, config, pool, cost, scale, graph, ou
   // one whose best shots are worth most (the rail joins as the fallback).
   const component = bestComponent(usable, front, config.discovery.maxShots);
   const funnel = { ...(graph.funnel || {}), excluded: graph.usable.length - usable.length,
+    linkVisibility: { ...visibilitySummary, rejectedLinks },
     components: { parts: bestComponent.parts, inBest: component.size, onNoCycle: usable.length - bestComponent.parts.reduce((a, b) => a + b, 0) } };
   log(`${viewId}: link graph ${graph.variants} variants, ${front.length} usable within ${config.discovery.maxLinkS ?? 30} s; best connected part ${component.size} of ${usable.length} shots`);
   // Selection inside it grows a connected set: diverse, charged for
@@ -340,6 +349,9 @@ async function selectLibrary(viewId, { ctx, config, pool, cost, scale, graph, ou
   const shortlist = selectConnected(candidatesIn, front, config, cost, { log: (m) => log(`${viewId}: ${m}`) });
   funnel.selection = selectConnected.funnel;
   const library2 = linkLibrary(shortlist, await priceLinks(shortlist), config, cost);
+  funnel.linkSelection = library2.connectivity;
+  funnel.selectedLinkVisibility = summarizeLinkVisibility(library2.links);
+  if (library2.connectivity.overCap.length) log(`${viewId}: connectivity retains links above the preferred outgoing cap: ${library2.connectivity.overCap.map((x) => `${x.id} ${x.links}/${x.preferredCap}`).join(', ')}; all retained links remain in the byte, triangle and forest fit`);
   const shortlisted = shortlist.length;
   const pairs = front;
   log(`${viewId}: shortlisted ${shortlisted}: ${library2.shots.length} shots / ${library2.links.length} links connected, ~${Math.round(estimatedBytes([...library2.shots, ...library2.links], cost) / 1024)} KiB: ${library2.shots.map((x) => `${x.move}:${x.score.total.toFixed(2)}`).join(' ')}`);
@@ -366,6 +378,37 @@ async function selectLibrary(viewId, { ctx, config, pool, cost, scale, graph, ou
 // The scored link graph, cached so selection can be rerun (--reselect)
 // without rediscovering, rescoring and rerendering every candidate.
 const GRAPH_CACHE = 'graph-cache.json';
+
+/** Terrain-presence evidence over a complete pair pool or final library. */
+export function summarizeLinkVisibility(pairs) {
+  const rejected = { allSky: 0, unmeasured: 0 };
+  let admitted = 0, min = Infinity;
+  for (const link of pairs) {
+    const status = linkVisibilityStatus(link.score);
+    if (status === 'terrain') admitted++; else rejected[status]++;
+    if (status !== 'unmeasured') min = Math.min(min, link.score.minTerrainFrac);
+  }
+  return { checked: pairs.length, admitted, rejected, minTerrainFrac: min < Infinity ? min : null, allSafe: admitted === pairs.length };
+}
+
+/** Legacy scored fronts lack frame visibility. Measure every unknown path
+ * once, preserving its existing quality, flow and geometry, then close the
+ * pair pool before connected selection and every later budget/forest relink.
+ * Known rejected evidence stays cached for diagnostics, never for playback. */
+export async function refreshLinkVisibility(pairs, score) {
+  const unknown = pairs.filter((l) => linkVisibilityStatus(l.score) === 'unmeasured');
+  await Promise.all(unknown.map(async (link) => {
+    const result = await score(link.path);
+    if (!link.score || typeof link.score !== 'object') link.score = {};
+    for (const key of LINK_VISIBILITY_FIELDS) link.score[key] = result?.aggregate?.[key];
+  }));
+  const rejectedLinks = pairs.filter((l) => linkVisibilityStatus(l.score) !== 'terrain').map((l) => ({
+    from: l.from.id, to: l.to.id, kind: l.kind, reason: linkVisibilityStatus(l.score),
+    ...Object.fromEntries(LINK_VISIBILITY_FIELDS.map((key) => [key, l.score?.[key] ?? null])),
+  }));
+  return { ...summarizeLinkVisibility(pairs), pairs: pairs.filter((l) => linkVisibilityStatus(l.score) === 'terrain'),
+    measured: unknown.length, rejectedLinks };
+}
 
 async function writeGraphCache(out, graph) {
   const typed = (k, v) => (k === 'scored' && typeof v === 'object' ? undefined
@@ -500,9 +543,9 @@ export function endGap(a, b) {
   return Math.hypot(p.eye[i] - q.eye[0], p.eye[i + 1] - q.eye[1], p.eye[i + 2] - q.eye[2]);
 }
 
-/** The strongly connected set of shots (by `links`) whose best `top`
- *  scores add up most (Tarjan); empty when no two shots join both ways. */
-export function bestComponent(shots, links, top = 36) {
+/** Strong components with at least two shots (Tarjan). A fallback rail
+ *  may be isolated; a shot's self-loop alone is not a useful tour. */
+function strongComponents(shots, links) {
   const out = new Map(shots.map((x) => [x, []]));
   for (const l of links) out.get(l.from)?.push(l.to);
   const index = new Map(), low = new Map(), stack = [], on = new Set(), parts = [];
@@ -519,6 +562,13 @@ export function bestComponent(shots, links, top = 36) {
     }
   };
   for (const v of shots) if (!index.has(v)) visit(v);
+  return parts;
+}
+
+/** The strongly connected set of shots (by `links`) whose best `top`
+ *  scores add up most; empty when no two shots join both ways. */
+export function bestComponent(shots, links, top = 36) {
+  const parts = strongComponents(shots, links);
   const worth = (part) => part.map((x) => x.score.total * subjectPriority(x)).sort((a, b) => b - a).slice(0, top).reduce((a, b) => a + b, 0);
   parts.sort((a, b) => worth(b) - worth(a));
   bestComponent.parts = parts.map((p) => p.length);
@@ -773,7 +823,7 @@ export function selectConnected(scored, links, config, cost = null, { log = null
 export function paretoFront(pairs) {
   const byPair = new Map();
   for (const l of pairs) {
-    if (l.score.holes > 0.002) continue;
+    if (l.score.holes > 0.002 || linkVisibilityStatus(l.score) !== 'terrain') continue;
     const k = `${l.from.id}>${l.to.id}`;
     if (!byPair.has(k)) byPair.set(k, []);
     byPair.get(k).push(l);
@@ -781,8 +831,9 @@ export function paretoFront(pairs) {
   return [...byPair.values()].flatMap((v) => keepParetoLinks(v, 2));
 }
 
-/** Pareto per pair, then at most maxLinksPerShot per origin, preferring
- *  distinct destinations and keeping each destination reachable. */
+/** Pareto per pair, then prefer maxLinksPerShot per origin and distinct
+ *  destinations. Restore connectivity when local ranking cuts a cycle;
+ *  the incoming-link restoration already makes this a preferred cap. */
 export function selectLinks(pairs, shots, config, cost = null) {
   const front = paretoFront(pairs).filter((l) => !cost?.coverageOnly || cost.marginal(l.footprint || new Map()) === 0);
   const out = [];
@@ -807,6 +858,43 @@ export function selectLinks(pairs, shots, config, cost = null) {
   for (const s of shots) if (!out.some((l) => l.to === s)) {
     const best = front.filter((l) => l.to === s).sort((a, b) => b.score.total - a.score.total)[0];
     if (best) out.push(best);
+  }
+  // Having a way in and out is insufficient: local caps can keep two
+  // closed clusters while discarding their only inter-cluster bridges.
+  // Preserve existing connected selections byte for byte; repair only a
+  // component that the scored graph connected before local link ranking.
+  const required = strongComponents(shots, front);
+  const componentMap = () => new Map(strongComponents(shots, out).flatMap((part, i) => part.map((s) => [s, i])));
+  const intact = (parts) => required.every((part) => parts.has(part[0]) && part.every((s) => parts.get(s) === parts.get(part[0])));
+  let parts = componentMap();
+  if (!intact(parts)) {
+    const sourceParts = new Map(required.flatMap((part, i) => part.map((s) => [s, i])));
+    const ranked = [...front].sort((a, b) => worth.get(b) - worth.get(a) || a.lengthM - b.lengthM);
+    for (const link of ranked) {
+      if (!sourceParts.has(link.from) || sourceParts.get(link.from) !== sourceParts.get(link.to) || out.includes(link)) continue;
+      if (parts.has(link.from) && parts.get(link.from) === parts.get(link.to)) continue;
+      out.push(link); parts = componentMap();
+      if (intact(parts)) break;
+    }
+    // Make room for bridges by removing redundant local links. Do not
+    // replace an indispensable bridge just to meet the preferred cap:
+    // some graphs (a hub with two leaves at cap one) cannot satisfy both.
+    // linkLibrary reports any excess, and fitting prices every link.
+    for (const shot of shots) {
+      let mine = out.filter((l) => l.from === shot);
+      while (mine.length > config.discovery.maxLinksPerShot) {
+        const redundant = (l) => mine.filter((x) => x.to === l.to).length > 1 ? 1 : 0;
+        mine.sort((a, b) => redundant(b) - redundant(a) || worth.get(a) - worth.get(b) || b.lengthM - a.lengthM);
+        let removed = false;
+        for (const link of mine) {
+          const at = out.indexOf(link); out.splice(at, 1);
+          if (intact(componentMap())) { removed = true; break; }
+          out.splice(at, 0, link);
+        }
+        if (!removed) break;
+        mine = out.filter((l) => l.from === shot);
+      }
+    }
   }
   return out;
 }
@@ -1002,6 +1090,10 @@ const round = (v, k = 1000) => Math.round(v * k) / k;
 
 /** The midio.shots manifest + gzip payload for a selected library. */
 export function packLibrary(viewId, regionId, terrainManifestSha256, library, provenance = {}, motion = null, heroNames = []) {
+  for (const link of library.links) {
+    const visibility = linkVisibilityStatus(link.score);
+    if (visibility !== 'terrain') throw new Error(`${viewId}: link ${link.from.id}->${link.to.id} has ${visibility} terrain visibility`);
+  }
   const used = new Set(library.shots.map((s) => s.subjectId));
   // Hero subjects (the region's named heroes, else its grandest subject)
   // are the planner's choice for the climax.
@@ -1020,7 +1112,8 @@ export function packLibrary(viewId, regionId, terrainManifestSha256, library, pr
     const base = `link-${l.from.id}-${l.to.id}-${l.kind}${l.kind === 'arc' ? (l.side > 0 ? 'R' : 'L') : ''}`;
     const id = ids.has(base) ? `${base}-${i}` : base; ids.set(base, true);
     return { id, from: l.from.id, to: l.to.id, kind: l.kind, path: l.path, lengthM: round(l.lengthM, 10), durationMs: l.durationMs,
-      score: { total: round(l.score.total), weakest: round(l.score.weakest ?? 0), composition: round(l.score.composition ?? 0) } };
+      score: { total: round(l.score.total), weakest: round(l.score.weakest ?? 0), composition: round(l.score.composition ?? 0),
+        ...Object.fromEntries(LINK_VISIBILITY_FIELDS.map((key) => [key, l.score[key]])) } };
   });
   const lattice = chooseLattice([...shots, ...links]);
   const decoded = Buffer.from(packShotPaths([...shots, ...links], lattice));
@@ -1047,18 +1140,21 @@ export function packLibrary(viewId, regionId, terrainManifestSha256, library, pr
 const TERRAIN_DIR = path.join(root, 'src', 'assets', 'range', 'v2', 'terrain');
 const TOUR_DIR = path.join(root, 'src', 'assets', 'range', 'v2', 'tour');
 
-/** Links for a set of shots, chosen afresh from every scored pair between
- *  them, and the shots both reachable and leavable through those links
- *  (the rail always stays: it is the fallback). */
+/** Re-link from every scored pair, retaining one actual strongly
+ *  connected tour rather than disconnected cycles with ways in/out.
+ *  The rail always stays as a fallback, without forcing it into a cycle. */
 export function linkLibrary(shots, pairs, config, cost = null) {
   let keep = shots, links = [];
   for (let changed = true; changed;) {
     const set = new Set(keep);
     links = selectLinks(pairs.filter((l) => set.has(l.from) && set.has(l.to)), keep, config, cost);
-    const next = keep.filter((s) => s.move === 'rail' || (links.some((l) => l.from === s) && links.some((l) => l.to === s)));
+    const component = bestComponent(keep, links, config.discovery.maxShots);
+    const next = keep.filter((s) => s.move === 'rail' || component.has(s));
     changed = next.length !== keep.length; keep = next;
   }
-  return { shots: keep, links };
+  const cap = config.discovery.maxLinksPerShot;
+  return { shots: keep, links, connectivity: { droppedShots: shots.length - keep.length,
+    overCap: keep.map((s) => ({ id: s.id, links: links.filter((l) => l.from === s).length, preferredCap: cap })).filter((s) => s.links > cap) } };
 }
 
 /** The shot whose terrain is most its own per unit of what it brings
@@ -1101,7 +1197,7 @@ export function forestDrop(library, relink, bound, { minShots = 4 } = {}) {
 
 /**
  * Bake, pack and measure; while the region is over its byte or triangle
- * budget (or the shared 60 MB), drop the shot whose terrain is most its
+ * budget, drop the shot whose terrain is most its
  * own per unit of score, and try again. Returns the fitted result.
  */
 export async function fitToBudget(built, { log = console.log, maxIterations = Infinity } = {}) {
@@ -1161,6 +1257,8 @@ export async function writeFitted(out, viewId, fitted) {
     bake: { rebaked: fitted.bake.rebaked, budget: fitted.bake.budget || null, validation: { ok: fitted.bake.validation.ok, worst: fitted.bake.validation.worst,
       holes: fitted.bake.validation.holes.length, lod: fitted.bake.validation.lod.length } },
     shots: fitted.packed.manifest.shots.length, links: fitted.packed.manifest.links.length,
+    connectivity: fitted.library?.connectivity || null,
+    linkVisibility: summarizeLinkVisibility(fitted.packed.manifest.links),
     libraryBytes: Buffer.byteLength(fitted.packed.manifestText) + fitted.packed.payload.byteLength }, null, 1));
 }
 
@@ -1173,6 +1271,10 @@ export async function writeFitted(out, viewId, fitted) {
  * own base review with --approve before the tour can be approved.
  */
 export async function publishView(viewId, fitted, { log = console.log } = {}) {
+  const links = fitted.packed?.manifest?.links;
+  if (!Array.isArray(links) || !summarizeLinkVisibility(links).allSafe) {
+    throw new Error(`${viewId}: link terrain visibility is missing, invalid or all-sky; reselect the current fresh graph with --reselect before publishing`);
+  }
   if (fitted.failed || !fitted.bake.validation.ok) throw new Error(`${viewId}: not publishable (budget or validation failed)`);
   await fs.mkdir(TOUR_DIR, { recursive: true });
   await fs.writeFile(path.join(TOUR_DIR, `${viewId}.shots.json`), fitted.packed.manifestText);

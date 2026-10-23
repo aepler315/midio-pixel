@@ -108,6 +108,17 @@ export const LINK_WEIGHTS = Object.freeze({ composition: .5, depth: .15, paralla
 export const WEAK_OK = 0.3;        // window mean sample score that costs nothing
 export const REVEAL_SIZE = 0.25;   // subject size (screen height; flat: larger extent) that counts as fully framed for reveal
 export const PARALLAX_REF = 1e-3;  // near-far translational image motion (rad per progress metre) that counts as full parallax
+export const LINK_VISIBILITY_FIELDS = Object.freeze(['minTerrainFrac', 'allSkySamples', 'visibilitySamples']);
+
+/** A scenic transit must retain actual land in every scored frame. Unknown
+ * evidence cannot establish that, and an upward view is allowed when its
+ * terrain raster contains land. This gate never changes the quality score. */
+export function linkVisibilityStatus(score) {
+  const min = score?.minTerrainFrac, empty = score?.allSkySamples, samples = score?.visibilitySamples;
+  if (!Number.isFinite(min) || min < 0 || min > 1 || !Number.isInteger(samples) || samples < 2
+    || !Number.isInteger(empty) || empty < 0 || empty > samples || (min === 0) !== (empty > 0)) return 'unmeasured';
+  return empty > 0 ? 'allSky' : 'terrain';
+}
 const NEAR_FRAC_M = 600, FOREGROUND_M = 2500, LAYER_RATIO = 1.6, EMPTY_BIN = Math.log(1.1), SLACK = 1.03;
 const FLOW_STEP_M = 8, FLOW_FLOOR = 1e-6, FLAT_KINDS = new Set(['lake', 'valley', 'shore']), FLAT_MIN = 4;
 const THIRD = 1 / 3, THIRD_NORM = Math.hypot(1 / 6, 1 / 6), DEG = Math.PI / 180;
@@ -521,6 +532,9 @@ function scoreAlong(ctx, path, opts, shot) {
     agg.total = Object.entries(SHOT_WEIGHTS).reduce((t, [key, w]) => t + w * agg[key], 0) * factor;
   } else {
     agg.total = Object.entries(LINK_WEIGHTS).reduce((t, [key, w]) => t + w * agg[key], 0) * factor;
+    agg.minTerrainFrac = Math.min(...samples.map((q) => q.metrics.terrainFrac));
+    agg.allSkySamples = samples.filter((q) => q.metrics.terrainFrac === 0).length;
+    agg.visibilitySamples = samples.length;
   }
   // Signature for the planner's repetition costs.
   const hist = new Array(12).fill(0);
