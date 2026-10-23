@@ -154,7 +154,8 @@ export const ACTOR_MOTES = 72;
 export const ACTOR_LOOK = Object.freeze({
   midio: { hoverM: 7, climbM: 2, haloPx: 30, wanderPx: 26, lightM: 140, lightGain: 2.4 },
   broshi: { hoverM: 4, climbM: 4, haloPx: 26, wanderPx: 30, lightM: 110, lightGain: 2.2 },
-  midasus: { hoverM: 0, climbM: 0, haloPx: 24, wanderPx: 22, lightM: 700, lightGain: 1.1 },
+  // Midasus flies, but six feet up, keeping to the ground like the others.
+  midasus: { hoverM: 1.83, climbM: 1.83, haloPx: 24, wanderPx: 22, lightM: 700, lightGain: 1.1 },
 });
 
 // --- Routes: where the cast wander in a tour view ---
@@ -165,7 +166,7 @@ export const ROUTE_STATIONS = Object.freeze([0.15, 0.5, 0.85]);
 const ROUTE_ASPECT = 16 / 9;
 /** In-frame window (NDC): clear of the frame edges and of the rock stage
  *  along the bottom. */
-const FRAME_X = 0.72, FRAME_Y = [-0.5, 0.42], SKY_Y = [0.32, 0.72];
+const FRAME_X = 0.72, FRAME_Y = [-0.5, 0.42];
 const DEPTH_M = [700, 12000];
 /** One route length takes this many travel units (ACTOR_DRIFT..1 per
  *  second), so a full sweep across the frame takes about a minute. */
@@ -199,16 +200,14 @@ export function pickAnchors(pool, seed, bins = ROUTE_ANCHORS) {
  * Routes for a prepared view: { midio, broshi, midasus } each
  * { points: [[x,y,z]...], lengths, total, kind } or null. Midio skims the
  * lake (else the valley floor), Broshi follows the shore (else low open
- * ground), Midasus drifts in the air above the land. Candidates are tile
+ * ground), Midasus flies six feet over low open ground. Candidates are tile
  * samples visible from the rail that stay inside the frame at every
  * station.
  */
 export function actorRoutes(data, view, { waterLevelM = null, seed = 0 } = {}) {
   const poses = ROUTE_STATIONS.map((u) => scenePoseAt(view, { progress01: u }));
-  const mid = poses[1];
-  const t = Math.tan((mid.fovYDeg * Math.PI) / 360);
   const { grid, cells } = data;
-  const water = [], shore = [], land = [], sky = [];
+  const water = [], shore = [], land = [];
   for (const tile of data.tiles.values()) {
     if (!tile.visible) continue;
     const n = tile.samples, step = Math.max(1, Math.floor(n / 8));
@@ -233,16 +232,6 @@ export function actorRoutes(data, view, { waterLevelM = null, seed = 0 } = {}) {
           else land.push(c);
         }
       }
-      // Midasus: the same ground point raised to stand a little above it
-      // on screen, in the sky band.
-      if (!isWater && proj[1].depth > 2500) {
-        const alt = 0.5 * proj[1].depth * t;
-        const lifted = [x, y + alt, z];
-        const q = poses.map((pose) => projectPoint(pose, ROUTE_ASPECT, lifted));
-        if (q.every((s) => s && s.y >= SKY_Y[0] && s.y <= SKY_Y[1] && Math.abs(s.x) <= FRAME_X)) {
-          sky.push({ x, y: y + alt, z, sx: q[1].x });
-        }
-      }
     }
   }
   const low = (pool) => {
@@ -263,7 +252,7 @@ export function actorRoutes(data, view, { waterLevelM = null, seed = 0 } = {}) {
   return Object.freeze({
     midio: route(water.length >= 8 ? pickAnchors(water, seed + 1) : pickAnchors(low(land), seed + 1), water.length >= 8 ? 'water' : 'ground'),
     broshi: route(shore.length >= 8 ? pickAnchors(shore, seed + 2) : pickAnchors(low(land), seed + 2), 'ground'),
-    midasus: route(pickAnchors(sky, seed + 3), 'air'),
+    midasus: route(pickAnchors(low(land), seed + 3), 'ground'),
   });
 }
 
@@ -284,13 +273,8 @@ export function routePosition(route, travel, { data = null, waterLevelM = null, 
   const p0 = P[Math.max(0, i - 1)], p1 = P[i], p2 = P[i + 1], p3 = P[Math.min(P.length - 1, i + 2)];
   const cr = (a, b, c, e) => 0.5 * ((2 * b) + (-a + c) * f + (2 * a - 5 * b + 4 * c - e) * f * f + (-a + 3 * b - 3 * c + e) * f * f * f);
   const x = cr(p0[0], p1[0], p2[0], p3[0]), z = cr(p0[2], p1[2], p2[2], p3[2]);
-  let y = cr(p0[1], p1[1], p2[1], p3[1]);
+  const y = cr(p0[1], p1[1], p2[1], p3[1]);
   const bob = Math.sin(bobSec * 0.9) * 0.35 + Math.sin(bobSec * 2.3) * 0.15;
-  if (route.kind === 'air') {
-    const ground = data ? terrainHeightAt(data, x, z) : NaN;
-    if (Number.isFinite(ground)) y = Math.max(y, ground + 150);
-    return [x, y + bob * 25, z];
-  }
   const ground = data ? terrainHeightAt(data, x, z) : NaN;
   const base = Number.isFinite(ground) ? ground : y;
   const surface = route.kind === 'water' && Number.isFinite(waterLevelM) ? Math.max(base, waterLevelM) : base;

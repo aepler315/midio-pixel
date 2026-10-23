@@ -90,12 +90,12 @@ function bowl() {
   return { data, view, level };
 }
 
-test('routes: Midio on the lake, Broshi on its shore, Midasus in the air, all in frame', () => {
+test('routes: Midio on the lake, Broshi on its shore, Midasus over low ground, all in frame', () => {
   const { data, view, level } = bowl();
   const r = actorRoutes(data, view, { waterLevelM: level, seed: 7 });
   assert.equal(r.midio.kind, 'water');
   assert.equal(r.broshi.kind, 'ground');
-  assert.equal(r.midasus.kind, 'air');
+  assert.equal(r.midasus.kind, 'ground');
   for (const p of r.midio.points) assert.equal(p[1], level);
   for (const p of r.broshi.points) assert.ok(p[1] > level && p[1] < level + 40, `${p}`);
   const pose = cameraPoseAt(view, 0.5);
@@ -107,7 +107,7 @@ test('routes: Midio on the lake, Broshi on its shore, Midasus in the air, all in
       assert.ok(Math.abs(q.x) < 0.75 && Math.abs(q.y) < 0.75, `${id} ${q.x},${q.y}`);
     }
   }
-  for (const p of r.midasus.points) assert.ok(projectPoint(pose, 16 / 9, p).y > 0.3);
+  for (const p of r.midasus.points) assert.ok(p[1] > level, 'on land, not in the sky');
   // Same view, same seed: the same routes.
   assert.deepEqual(actorRoutes(data, view, { waterLevelM: level, seed: 7 }).midio.points, r.midio.points);
 });

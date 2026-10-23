@@ -1906,7 +1906,7 @@ export class RangeScene {
     const state = frame.actors?.jobs?.[p.view.id];
     const schedule = frame.actors?.schedule;
     if (!plan || plan.job === 'wander' || !state || !schedule) return null;
-    const t = frame.timeMs, cast = frame.actors;
+    const t = frame.timeMs;
     const opts = { data: p.data, waterLevelM: p.waterLevelM };
     const unit = x => Math.max(0, Math.min(1, x));
     // When each light kindles (seek-safe: compiled once per schedule). A
@@ -1949,10 +1949,10 @@ export class RangeScene {
         porter = [x, (Number.isFinite(h) ? h : b[1]) + ACTOR_LOOK.broshi.hoverM, z];
       } else porter = pathPosition(plan, Math.max(ub, plan.waterU), { ...opts, hoverM: ACTOR_LOOK.broshi.climbM });
       out.actors.broshi = { pos: porter, fly: flyFor('broshi') };
-      // Midasus scouts ahead and above, and comes down to the path in a storm.
+      // Midasus scouts ahead on the path, six feet up (her light washes the
+      // next pitch before the others reach it).
       const um = Math.min(1, p01 + state.offsets.midasus);
-      const alt = (150 + 150 * (cast.midasus?.glow ?? 0)) * (1 - shelter) + 20;
-      const scout = (x) => { const q = pathPosition(plan, x, opts); return [q[0], q[1] + alt, q[2]]; };
+      const scout = (x) => pathPosition(plan, x, { ...opts, hoverM: ACTOR_LOOK.midasus.climbM });
       out.actors.midasus = { pos: scout(um), lag: [1, 2, 3].map(j => scout(Math.max(0, um - 0.012 * j))), fly: flyFor('midasus') };
     } else {
       // In a storm they pause in place (the schedule slows them); no dimming.
@@ -1966,18 +1966,22 @@ export class RangeScene {
       const midio = walk('midio', ACTOR_LOOK.midio.hoverM);
       out.actors.midio = { pos: midio, fly: flyFor('midio'),
         wakeTail: work.walkers.midio?.water && midio ? siteWalk(work.walkers.midio.sites, work.walkers.midio.dues, Math.max(0, p01 - 0.02)) : null };
-      // Midasus draws the thread being surveyed; between threads she
-      // waits over its far end.
-      let scout = null;
+      // Midasus flies the thread being surveyed along the ground, six feet
+      // up; between threads she waits at its far end (the next one's start).
+      const along = (th, f) => {
+        const pts = th.points, x = unit(f) * (pts.length - 1), i = Math.min(pts.length - 2, Math.floor(x)), g = x - i;
+        return pts[i].map((v, c) => v + (pts[i + 1][c] - v) * g);
+      };
+      let flown = null, f = 0;
       for (const th of work.threads) {
         const age = since(th.mark);
         if (age < 0) break;
-        const f = unit(age / 1500);
-        scout = th.a.map((v, c) => v + (th.b[c] - v) * f);
+        flown = th; f = unit(age / 1500);
       }
-      if (!scout && work.lights[0]) { const c = work.lights[0].pos; scout = [c[0], c[1] + 300, c[2]]; }
-      if (scout) scout = [scout[0], scout[1] * (1 - shelter) + (scout[1] - 200) * shelter, scout[2]];
-      out.actors.midasus = { pos: scout, lag: scout ? [scout, scout, scout] : null, fly: flyFor('midasus') };
+      const first = work.threads[0];
+      const scout = flown ? along(flown, f) : first ? first.a : null;
+      out.actors.midasus = { pos: scout, fly: flyFor('midasus'),
+        lag: scout ? [1, 2, 3].map(j => (flown ? along(flown, f - 0.04 * j) : scout)) : null };
     }
     return out;
   }

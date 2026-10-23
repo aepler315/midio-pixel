@@ -286,8 +286,11 @@ export function siteWalk(sites, dues, p) {
   return A.map((v, j) => v + (B[j] - v) * e);
 }
 
-/** Thread heights over the sites they join. */
-export const THREAD_ALT_M = Object.freeze([200, 400]);
+/** Midasus flies, but keeps to the ground like the others: this far (six
+ *  feet) above it, and her survey threads lie draped at the same height. */
+export const MIDASUS_HOVER_M = 1.83;
+/** Segments a survey thread is draped over the ground in. */
+export const THREAD_SEGMENTS = 16;
 
 /**
  * What a plan builds, as the schedule needs it: `lights` (fixed lines on an
@@ -328,13 +331,20 @@ export function castWork(plan, { data = null, waterLevelM = null } = {}) {
       walkers.midio.sites.push(pos); walkers.midio.dues.push(p);
     });
     // Survey threads join neighbouring cairns once both are lit; the last
-    // closes the network back to the first at the finish.
-    const raise = (p, k) => [p[0], p[1] + THREAD_ALT_M[0] + (THREAD_ALT_M[1] - THREAD_ALT_M[0]) * (0.5 + 0.5 * Math.sin(k * 2.4)), p[2]];
+    // closes the network back to the first at the finish. Each lies draped
+    // over the ground (or water) between them, where Midasus flies it.
+    const drape = (a, b) => Array.from({ length: THREAD_SEGMENTS + 1 }, (_, s) => {
+      const f = s / THREAD_SEGMENTS, x = a[0] + (b[0] - a[0]) * f, z = a[2] + (b[2] - a[2]) * f;
+      const h = data ? terrainHeightAt(data, x, z) : NaN;
+      const ground = Number.isFinite(h) ? h : a[1] + (b[1] - a[1]) * f - 1.5;
+      return [x, (Number.isFinite(waterLevelM) ? Math.max(ground, waterLevelM) : ground) + MIDASUS_HOVER_M, z];
+    });
     for (let k = 1; k <= nc; k++) {
       const closing = k === nc;
       if (closing && nc < 3) break;
       const i = k - 1, j = closing ? 0 : k;
-      threads.push({ a: raise(lights[i].pos, i), b: raise(lights[j].pos, j), closing, mark: marks.length });
+      const points = drape(lights[i].pos, lights[j].pos);
+      threads.push({ a: points[0], b: points.at(-1), points, closing, mark: marks.length });
       marks.push(closing ? { p: 1, lane: 'midasus' } : { after: [lights[i].mark, lights[j].mark], lane: 'midasus' });
     }
   }
