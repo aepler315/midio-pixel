@@ -420,3 +420,30 @@ test('a current retry reclaims completed future output before checking whether i
   p.windowCache.dispose();
   assert.equal(scene.residency.usedBytes, 0);
 });
+
+test('static scene surface reservation follows the real nine-byte working peak', async () => {
+  const { bakeTerrain } = await import('../tools/lib/terrain-bake.mjs');
+  const { RULE_DEFAULTS } = await import('../src/world/alpine/MaterialPackage.js');
+  const width = 65, pixels = width * width;
+  const grid = { width, height: width, cellSizeM: 10, originM: [-320, -320], heightsM: new Float32Array(pixels).fill(1000), valid: new Uint8Array(pixels).fill(1),
+    horizontalCrs: 'synthetic', verticalReference: 'synthetic', sourceResolutionM: 10, outputSpacingM: 10 };
+  const camera = { eyeStartM: [0, 1800, 900], eyeEndM: [100, 1800, 900], targetStartM: [0, 1000, 0], targetEndM: [100, 1000, 0], fovYDeg: 35 };
+  const baked = await bakeTerrain(grid, { id: 'surface-admission', camera });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async url => new Response(String(url).endsWith('.json') ? JSON.stringify(baked.manifest) : baked.payload);
+  const scene = Object.assign(Object.create(RangeScene.prototype), { budget: 'desktop', THREE,
+    residency: new GraphicsResidency({ budgetBytes: 1e9 }), prepared: new Map(), pending: new Map(), contextEpoch: 0 });
+  scene._acquireMaterial = async () => ({ key: 'test-material', pack: { manifest: { rules: { ...RULE_DEFAULTS, forestDensity: 0 } } } });
+  scene._releaseMaterial = () => {};
+  const reserve = scene.residency.reserve.bind(scene.residency); let scratchRequest;
+  scene.residency.reserve = options => {
+    if (options.owner === 'range-scratch') { scratchRequest = options; return null; }
+    return reserve(options);
+  };
+  try {
+    await assert.rejects(scene.prepare({ id: 'surface-admission', camera, terrainManifestUrl: 'surface-admission.json' },
+      { baseUrl: 'http://test/', generation: 88 }), e => e.reason === 'budget' && /surface/.test(e.message));
+    assert.equal(scratchRequest?.bytes, pixels * 9, 'the actual static preparation must charge the shared reduced backing bound');
+    assert.equal(scene.residency.usedBytes, 0, 'refused surface build retires earlier admitted resources');
+  } finally { globalThis.fetch = originalFetch; }
+});

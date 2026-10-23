@@ -13,7 +13,7 @@
 // hydro-flattened water or above the treeline), evaluated from the
 // package's own heights. These are derived habitat masks, not measured
 // land cover.
-import { terrainHeightAt } from './TerrainMesh.js';
+import { terrainHeightAt, BANDS } from './TerrainMesh.js';
 import { RULE_DEFAULTS } from './MaterialPackage.js';
 import { scenePoseAt, pathStations } from '../terrain/SceneTravel.js';
 
@@ -257,7 +257,8 @@ export function forestPlacementBound(data, view, rules, rings = FOREST_RINGS) {
  *   options { seed, rings, bands: { nearM, midM } }
  * Returns { meshDetail, mesh, billboard: Float32Array, stride, count }.
  * Each instance: x, yRoot, z, height, width, variant, id01, bandIndex
- * (0 far, 1 mid, 2 near -- the terrain band that owns its root).
+ * (0 far, 1 mid, 2 near). Static camera footprints use the terrain root
+ * owner; authored rails and streaming tours retain distance partitions.
  */
 export function placeForest(data, view, rules, options = {}) {
   const steps = placeForestSteps(data, view, rules, options);
@@ -292,6 +293,7 @@ function defaultYield() {
 function* placeForestSteps(data, view, rules, { seed = 0, rings = FOREST_RINGS, bands = null } = {}) {
   const STRIDE = 8;
   const distanceToRail = forestRail(view);
+  const terrainPartitions = !view.tour && view.cameraPaths?.some(line => line?.length);
   const b = bands || data.manifest.bands || { nearM: 1800, midM: 7000 };
   const treeline = rules.treelineM, maxSlope = rules.forestMaxSlopeDeg, density = rules.forestDensity;
   const floor = rules.forestFloorM ?? RULE_DEFAULTS.forestFloorM;
@@ -327,7 +329,13 @@ function* placeForestSteps(data, view, rules, { seed = 0, rings = FOREST_RINGS, 
         const d = distanceToRail([x, y, z]);
         if (d > rings.billboardM) continue;
         const traits = treeTraits(ix, iz, seed, y, slope, rules, view);
-        const band = d < b.nearM ? 2 : d < b.midM ? 1 : 0;
+        let band = d < b.nearM ? 2 : d < b.midM ? 1 : 0;
+        if (terrainPartitions) {
+          // Jitter can move a root into a neighbour of the iteration tile.
+          // Match TerrainMesh.planBands: invalid/missing metadata is far.
+          const owner = data.byIndex.get(`${Math.floor((x - data.grid.originM[0]) / cs / cells)},${Math.floor((z - data.grid.originM[1]) / cs / cells)}`);
+          band = Math.max(0, BANDS.indexOf(owner?.band));
+        }
         const rec = [traits.x, y, traits.z, traits.height, traits.width, traits.species, traits.id, band];
         // Mix representations across a stand instead of exposing a contour
         // at one exact rail distance. A separate stable cell hash selects

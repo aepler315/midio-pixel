@@ -29,7 +29,8 @@ import { strideCost, tourPoses, tourBakeOptions, bakeOptions } from './lib/sceni
 import { SHOT_SCHEMA, SHOT_VERSION, packShotPaths, chooseLattice, shotLibraryErrors, decodeShotLibrary, cameraFootprint } from '../src/world/terrain/ShotLibrary.js';
 import { pathPoseAt, slicePath, pathLaneAt, withProgress } from '../src/world/terrain/ShotPath.js';
 import { shotPaceLimits } from '../src/world/terrain/ShotPlanner.js';
-import { bakeTerrain } from './lib/terrain-bake.mjs';
+import { bakeTerrain, mirroredPose, VISIBILITY, LOD_BUDGETS } from './lib/terrain-bake.mjs';
+import { cameraPoseAt } from '../src/world/terrain/SceneTravel.js';
 import { validatePoses, rangeAssetBytes } from './lib/scenic-coverage.mjs';
 import { decodeTerrain } from '../src/world/alpine/TerrainMesh.js';
 import { forestPlacementBound } from '../src/world/alpine/ForestCover.js';
@@ -1046,9 +1047,33 @@ export async function railParity(viewId, camera, terrain, { stations = 9, width 
 /** The poses a library's frames (and, where a lake mirrors, their
  *  reflections) need covered. */
 export function libraryPoses(ctx, library, options = {}) {
-  // The rail shot is the authored rail, which the approved package (and the
-  // rail stations every bake keeps) already covers, reflections included.
+  // Direct rail stations are kept by every bake. Rail reflections are
+  // checked separately at the rail's own pixel limits in libraryCoverage.
   return tourPoses(ctx, [...library.shots.filter((x) => x.move !== 'rail'), ...library.links], options);
+}
+
+/** Coverage requirements follow the package the runtime will load: a bake
+ *  can expose water or change its median plane. Keep rail mirrors at the
+ *  ordinary rail limits, independently of the looser tour pixel budget. */
+function libraryCoverage(ctx, library, check) {
+  const { poses: tour, mirrorLevelM } = libraryPoses(ctx, library);
+  const count = bakeOptions(ctx).visibility?.stations ?? VISIBILITY.stations;
+  const rail = mirrorLevelM == null ? [] : Array.from({ length: count }, (_, k) =>
+    mirroredPose(cameraPoseAt(ctx.build.view, count > 1 ? k / (count - 1) : 0), mirrorLevelM));
+  const poses = [...tour, ...rail];
+  const validation = { ok: true, holes: [], lod: [], worst: { holeFrac: 0, errorPx: 0, extendedErrorPx: 0 } };
+  for (const budget of ['desktop', 'mobile']) {
+    const lens = (ctx.terrain.manifest.lod?.budgets ?? LOD_BUDGETS)[budget];
+    const tourCheck = { errorPx: check.errorPx * lens.errorPx, extendedErrorPx: check.extendedErrorPx * lens.errorPx };
+    for (const [required, options, offset] of [[tour, tourCheck, 0], [rail, {}, tour.length]]) {
+      if (!required.length) continue;
+      const result = validatePoses(ctx, required, { ...options, budget });
+      validation.ok &&= result.ok;
+      for (const key of ['holes', 'lod']) validation[key].push(...result[key].map((e) => ({ ...e, poseIndex: e.poseIndex + offset, budget })));
+      for (const key of Object.keys(validation.worst)) validation.worst[key] = Math.max(validation.worst[key], result.worst[key]);
+    }
+  }
+  return { poses, railPoses: rail, mirrorLevelM, validation };
 }
 
 /**
@@ -1058,26 +1083,28 @@ export function libraryPoses(ctx, library, options = {}) {
  * { rebaked, manifest, payload, data, validation, budget }.
  */
 export async function bakeForLibrary(ctx, library, config, { log = console.log } = {}) {
-  const { poses, mirrorLevelM } = libraryPoses(ctx, library);
   // Tour frames are held to the tour pixel budget (the rail keeps its own).
   const scale = config.budget.poseErrorScale ?? 3, check = { errorPx: scale, extendedErrorPx: 3 * scale };
-  const shipped = validatePoses(ctx, poses, check);
+  const initial = libraryCoverage(ctx, library, check);
+  const { poses, mirrorLevelM, validation: shipped } = initial;
   log(`${ctx.viewId}: ${poses.length} footprint poses${mirrorLevelM != null ? ` (mirror at ${mirrorLevelM.toFixed(1)} m)` : ''}; shipped package: ${shipped.holes.length} poses with holes, ${shipped.lod.length} LOD violations`);
-  if (shipped.ok || ctx.coverageOnly) return { rebaked: false, validation: shipped, poses };
+  if (shipped.ok || ctx.coverageOnly) return { rebaked: false, ...initial };
   // The rail-only bake must reproduce the shipped heights, or the source
   // has drifted since the view was approved (reported, not hidden).
   const rail = await bakeTerrain(ctx.grid, ctx.build.view, bakeOptions(ctx));
   const drift = rail.manifest.payload.sha256 !== ctx.terrain.manifest.payload.sha256;
-  const baked = await bakeTerrain(ctx.grid, ctx.build.view, tourBakeOptions(ctx, poses, scale));
+  const tour = poses.slice(0, poses.length - initial.railPoses.length);
+  const baked = await bakeTerrain(ctx.grid, ctx.build.view, { ...tourBakeOptions(ctx, tour, scale), railPoses: initial.railPoses });
   const data = decodeTerrain(baked.manifest, new Uint8Array(baked.decoded));
-  const validation = validatePoses({ ...ctx, terrain: { manifest: baked.manifest, data } }, poses, check);
+  const final = libraryCoverage({ ...ctx, terrain: { manifest: baked.manifest, data } }, library, check);
+  const { validation } = final;
   const manifestText = JSON.stringify(baked.manifest) + '\n';
   const before = Buffer.byteLength(JSON.stringify(ctx.terrain.manifest) + '\n') + ctx.terrain.manifest.payload.byteLength;
   const budget = { addedBytes: Buffer.byteLength(manifestText) + baked.payload.byteLength - before,
     desktopTriangles: baked.manifest.estimatedBytes.desktop.triangles, mobileTriangles: baked.manifest.estimatedBytes.mobile.triangles,
     tiles: baked.manifest.tiles.length, shippedTiles: ctx.terrain.manifest.tiles.length, sourceDrift: drift };
   log(`${ctx.viewId}: re-culled package ${budget.shippedTiles} -> ${budget.tiles} tiles, +${(budget.addedBytes / 1024).toFixed(0)} KiB, desktop ${budget.desktopTriangles} / mobile ${budget.mobileTriangles} triangles; ${validation.holes.length} poses with holes, ${validation.lod.length} LOD violations${drift ? '; SOURCE DRIFT: the rail-only bake differs from the shipped package' : ''}`);
-  return { rebaked: true, manifest: baked.manifest, manifestText, payload: baked.payload, data, validation, budget, poses };
+  return { rebaked: true, manifest: baked.manifest, manifestText, payload: baked.payload, data, budget, ...final };
 }
 
 /** Budget problems for a candidate library + terrain (empty = within). */
@@ -1102,7 +1129,7 @@ export async function budgetErrors(ctx, config, packed, bake, forest = null) {
   const errors = [], b = config.budget;
   const forestCap = Math.max(b.forestBuildBytes ?? 160 * 2 ** 20, 1.1 * (forest?.rail ?? 0));
   if (forest && forest.tour > forestCap) errors.push(`forest build ${(forest.tour / 2 ** 20).toFixed(0)} MiB, over ${(forestCap / 2 ** 20).toFixed(0)} MiB`);
-  if (!bake.rebaked && !bake.validation.ok) errors.push(`not covered by the shipped package (${bake.validation.holes.length} poses with holes, ${bake.validation.lod.length} LOD violations)`);
+  if (!bake.validation.ok) errors.push(`not covered by the ${bake.rebaked ? 're-culled' : 'shipped'} package (${bake.validation.holes.length} poses with holes, ${bake.validation.lod.length} LOD violations)`);
   const added = (bake.rebaked ? bake.budget.addedBytes : 0) + Buffer.byteLength(packed.manifestText) + packed.payload.byteLength;
   if (added > b.assetBytes) errors.push(`adds ${added} bytes, over the region's ${b.assetBytes}`);
   if (bake.rebaked && bake.budget.desktopTriangles > b.desktopTriangles) errors.push(`desktop ${bake.budget.desktopTriangles} triangles, over ${b.desktopTriangles}`);
@@ -1234,6 +1261,7 @@ export async function fitToBudget(built, { log = console.log, maxIterations = In
   let library = { ...built.library };
   for (let iter = 1; ; iter++) {
     const bake = await bakeForLibrary(ctx, library, config, { log });
+    if (bake.rebaked && !bake.validation.ok) throw new Error(`${ctx.viewId}: final terrain coverage failed (${bake.validation.holes.length} poses with holes, ${bake.validation.lod.length} LOD violations; mirror ${bake.mirrorLevelM ?? 'none'} m)`);
     const terrainSha = bake.rebaked ? sha(bake.manifestText) : shippedSha;
     const packed = packLibrary(ctx.viewId, ctx.view.regionId, terrainSha, library,
       { builtWith: 'tools/build-scenic-tours.mjs', configSha256: sha(JSON.stringify(config)), demSha256: ctx.grid.meta?.payload?.heights?.sha256 ?? null },

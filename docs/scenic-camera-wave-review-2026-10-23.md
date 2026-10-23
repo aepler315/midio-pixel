@@ -1,5 +1,12 @@
 # Black, White and Izta/Popo alternate camera review
 
+**Later follow-up:** [R7 framing and ending repair](scenic-framing-endings-review-2026-10-23.md)
+addresses this review's Izta opening and Black ending concerns. R7 locally
+retains both improvements with limits after memory and forest partition fixes
+and matched full-song review. Draft PR #38 records source/candidate commit
+identities and publication status. The R6 results and candidate references
+below remain their historical baseline.
+
 This wave retains a shorter Izta/Popo route with a more readable Iztaccíhuatl
 ending, retains White Mountains' revised readable opening and summit framing,
 and rejects Black Mountains' increased total transit. White's first replacement

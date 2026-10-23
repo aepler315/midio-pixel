@@ -698,11 +698,14 @@ export function encodeResiduals(q, n) {
  *   options  { tileCells, budgets, visibility, dataUrl, quantStepM, landmarks,
  *              allTiles?: boolean (requires complete source coverage),
  *              poses?: [{ eyeM, targetM, fovYDeg, framing?, levelM? }],
- *              poseStride?, poseDedupe? (see bakeViewers) }
+ *              poseStride?, poseDedupe? (see bakeViewers),
+ *              railPoses?: additional rail viewers at ordinary rail limits }
  * Poses (shot library footprints, mirrored cameras) are seen in addition
  * to the rail stations, or alone when the view has no camera; a tile's
  * stride then meets the budget at every pose that sees it, each with its
- * own lens. Without poses the bake is exactly the rail bake.
+ * own lens. railPoses retain every supplied pose, with their ordinary
+ * framings and mirror clipping/resolution, unaffected by tour pose options.
+ * Without either pose list the bake is exactly the rail bake.
  * Returns { manifest, payload (gzip Buffer), decoded (Buffer), stats }.
  */
 export async function bakeTerrain(grid, view, options = {}) {
@@ -713,7 +716,8 @@ export async function bakeTerrain(grid, view, options = {}) {
     throw new Error('allTiles DEM contains no-data; normalize with complete source/fill coverage before baking');
   }
   const posed = !allTiles && Array.isArray(options.poses) && options.poses.length > 0;
-  const hasRail = !allTiles && !(posed && view?.camera == null);
+  const extraRail = !allTiles && Array.isArray(options.railPoses) && options.railPoses.length > 0;
+  const hasRail = !allTiles && !((posed || extraRail) && view?.camera == null);
   const railErrors = hasRail ? cameraRailErrors(view?.camera) : [];
   if (railErrors.length) throw new Error(`view ${view?.id}: ${railErrors.join('; ')}`);
   const cells = options.tileCells || TILE_CELLS;
@@ -756,6 +760,7 @@ export async function bakeTerrain(grid, view, options = {}) {
   const tilesX = Math.ceil((w - 1) / cells), tilesZ = Math.ceil((hgt - 1) / cells);
   const stations = hasRail ? railStations(view, vis.stations) : [];
   const viewers = stations.map((pose) => ({ pose, framings: FRAMINGS, focalFovYDeg: pose.fovYDeg, focalScale: 1, minHeightM: -Infinity }));
+  const railViewers = extraRail ? bakeViewers(options.railPoses, { eyeM: 0 }) : [];
   const posedViewers = posed ? bakeViewers(options.poses, { stride: options.poseStride, ...(options.poseDedupe === false ? { eyeM: 0 } : options.poseDedupe) }) : [];
   // Tour poses may carry a coarser pixel budget than the rail
   // (options.poseErrorScale): the app presents terrain on a 320x180 or
@@ -769,7 +774,7 @@ export async function bakeTerrain(grid, view, options = {}) {
     const keep = options.poseFramings.filter((f) => FRAMINGS.includes(f));
     for (const v of posedViewers) v.framings = v.framings.filter((f) => keep.includes(f));
   }
-  viewers.push(...posedViewers);
+  viewers.push(...railViewers, ...posedViewers);
   // Each tile's highest valid sample: narrow summits must not slip between
   // the coarse occlusion samples.
   const peak = new Map();
@@ -809,12 +814,12 @@ export async function bakeTerrain(grid, view, options = {}) {
   }
   const reach = Object.fromEntries(FRAMINGS.map((name) => [name, new Float64Array(boxes.length).fill(Infinity)]));
   const budgetKeys = Object.keys(budgets);
-  const sharp = posed ? Object.fromEntries(FRAMINGS.map((name) => [name, Object.fromEntries(budgetKeys.map((b) => [b, new Float64Array(boxes.length)]))])) : null;
+  const sharp = posed || extraRail ? Object.fromEntries(FRAMINGS.map((name) => [name, Object.fromEntries(budgetKeys.map((b) => [b, new Float64Array(boxes.length)]))])) : null;
   // Poses framed 'extended' hold their whole frame to the extended budget,
   // also on tiles another viewer sees in core. Kept apart from
   // sharp.extended, which every core viewer's widest framing feeds too (wider
   // than the frame validatePoses checks): only these refine core tiles.
-  const wide = posedViewers.some((v) => v.framing === 'extended') ? Object.fromEntries(budgetKeys.map((b) => [b, new Float64Array(boxes.length)])) : null;
+  const wide = [...railViewers, ...posedViewers].some((v) => v.framing === 'extended') ? Object.fromEntries(budgetKeys.map((b) => [b, new Float64Array(boxes.length)])) : null;
   const scratch = {};
   for (const viewer of viewers) {
     const { pose, minHeightM } = viewer;
@@ -837,7 +842,7 @@ export async function bakeTerrain(grid, view, options = {}) {
         // a foreground ice margin and a distant surface clear at different
         // times. Keep all in-frustum glacier tiles conservatively.
         if (!displacement[k]) {
-          ob ||= occlusionBuffer(grid, pose, vis[name], vis.occlusion, posed ? { scratch, tiles: layout, minHeightM } : { scratch });
+          ob ||= occlusionBuffer(grid, pose, vis[name], vis.occlusion, (posed || extraRail) ? { scratch, tiles: layout, minHeightM } : { scratch });
           if (!anyPointVisible(ob, samplePts[k], vis.occlusion, minHeightM)) continue;
         }
         reach[name][k] = Math.min(reach[name][k], depth);
@@ -999,6 +1004,7 @@ export async function bakeTerrain(grid, view, options = {}) {
         sources: options.poses.reduce((n, p) => { const k = p.source ?? p.framing ?? 'core'; n[k] = (n[k] || 0) + 1; return n; }, hasRail ? { rail: stations.length } : {}),
         detail: 'each pose with its own lens at its own closest unoccluded approach; mirror poses at the mirror resolution, ground at and below the water clipped',
       } } : {}),
+      ...(extraRail ? { railPoses: { poseCount: options.railPoses.length, bakedPoses: railViewers.length } } : {}),
       ...(glacier ? { glacierGrid: 'uniform stride 2 for all tiles and quality budgets; nonlinear ice displacement requires shared edge samples' } : {}),
       triangulation: 'quads split along the (0,0)-(1,1) diagonal; finer edges snap to the coarser neighbour',
     } } : {}),

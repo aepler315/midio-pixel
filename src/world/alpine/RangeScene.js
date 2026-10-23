@@ -37,7 +37,7 @@ import { buildRockStage } from './RockStage.js';
 import { RockStageGL } from './RockStageGL.js';
 import { scenePoseAt } from '../terrain/SceneTravel.js';
 import { applyCameraMoves, rangeUserCamera } from './RangeCamera.js';
-import { BANDS, terrainFringeBytes, terrainHeightAt } from './TerrainMesh.js';
+import { BANDS, terrainFringeBytes, terrainHeightAt, SURFACE_BUILD_BYTES_PER_PIXEL } from './TerrainMesh.js';
 import { mistParams, mistDrift, easeMistSteps, tourMistCap, tourMistFade } from './RangeAtmosphere.js';
 import { mirrorSize, mirrorLevelFor, mirrorCameraFor, mirrorTextureMatrix, MIRROR_CLIP_M, MIRROR_LIFT } from './WaterMirror.js';
 import { scenicProjection, calibrateRangeMusic } from './RangeFrame.js';
@@ -976,11 +976,10 @@ export class RangeScene {
         // CPU arrays stay on BufferAttributes after upload; charge both copies.
         // Instances plus the near conifer assets their batches build.
         const forestBytes = placed.count * 7 * 4 + forestAssetBytes() + FOREST_DETAIL_BYTES;
-        // Building the surface texture needs temporary height and flow
-        // arrays (6 B/px), its RGBA array (4 B/px) and dry receiver mask (1 B/px). The texture is
-        // uploaded at once and drops its RGBA copy after the upload (see
-        // createSurfaceTexture), so all eleven bytes are scratch, reserved
-        // only while it is built: the view owns both GPU textures.
+        // The surface build holds heights, spacing and RGBA (9 B/px).
+        // Its temporary lanes retire before receiver construction (RGBA +
+        // mask, 5 B/px). Upload drops both CPU texture copies; the view owns
+        // the GPU textures, while this build peak is charged as scratch.
         const textureStride = view.tour ? (this.budget === 'mobile' ? 4 : 2) : 1;
         const gridPx = ((cpu.data.grid.width - 1) / textureStride + 1) * ((cpu.data.grid.height - 1) / textureStride + 1);
         const featureBudgetBytes = 2 * 3 * 768 * 6 * 4;
@@ -1027,7 +1026,7 @@ export class RangeScene {
         await yieldToMain();
         if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
         const scratchKey = `range:surface-scratch:${view.id}`;
-        const scratch = this.residency?.reserve({ key: scratchKey, bytes: gridPx * 11, owner: 'range-scratch', generation }) || null;
+        const scratch = this.residency?.reserve({ key: scratchKey, bytes: gridPx * SURFACE_BUILD_BYTES_PER_PIXEL, owner: 'range-scratch', generation }) || null;
         if (this.residency && !scratch) throw new RangeAssetError('budget', `no room to build ${view.id} surface`);
         try {
           surface = await createSurfaceTextureAsync(THREE, cpu.data, { stride: textureStride, signal,

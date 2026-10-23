@@ -16,6 +16,9 @@ import { finishPreparation, prepareInSlices } from './PreparationSteps.js';
 import { decodeResiduals, validateTerrainManifest, WATER_FLOW } from './TerrainPackage.js';
 
 export const BANDS = Object.freeze(['far', 'mid', 'near']);
+// Surface build: heights (4) + stored spacing (1) + RGBA output (4).
+// After that generator completes, receiver construction retains RGBA + mask (5).
+export const SURFACE_BUILD_BYTES_PER_PIXEL = 9;
 
 /** Decode the tile samples declared by a (validated) manifest. */
 export function decodeTerrain(manifest, bytes) {
@@ -246,7 +249,7 @@ function* surfaceTextureSteps(data, { stride = 1 } = {}) {
   if (![1, 2, 4].includes(stride) || (grid.width - 1) % stride || (grid.height - 1) % stride) throw new Error('Invalid surface sampling stride');
   const W = (grid.width - 1) / stride + 1, H = (grid.height - 1) / stride + 1;
   const heights = new Float32Array(W * H).fill(NaN);
-  const flow = new Uint8Array(W * H);
+  const out = new Uint8Array(W * H * 4);
   // Each cell's stored sample spacing: coarse tiles on gentle ground keep
   // few samples, and their slopes are measured across that spacing.
   const spacing = new Uint8Array(W * H).fill(1);
@@ -280,12 +283,11 @@ function* surfaceTextureSteps(data, { stride = 1 } = {}) {
         const wet = (fa === 255 ? wa : 0) + (fb === 255 ? wb : 0) + (fc === 255 ? wc : 0) + (fd === 255 ? wd : 0);
         const dry = 1 - wet;
         const acc = (fa === 255 ? 0 : fa * wa) + (fb === 255 ? 0 : fb * wb) + (fc === 255 ? 0 : fc * wc) + (fd === 255 ? 0 : fd * wd);
-        flow[i] = wet > 0.5 ? 255 : dry > 1e-6 ? Math.min(254, Math.round(acc / dry)) : 254;
+        out[i * 4 + 3] = wet > 0.5 ? 255 : dry > 1e-6 ? Math.min(254, Math.round(acc / dry)) : 254;
       }
       yield;
     }
   }
-  const out = new Uint8Array(W * H * 4);
   const cell = grid.cellSizeM * stride;
   const at = (x, z) => {
     const cx = x < 0 ? 0 : x >= W ? W - 1 : x;
@@ -317,7 +319,6 @@ function* surfaceTextureSteps(data, { stride = 1 } = {}) {
       }
       const lap = cnt ? sum / cnt - h0 : 0;
       out[o + 2] = Math.max(0, Math.min(255, Math.round(128 + lap * (127 / 12))));
-      out[o + 3] = flow[i];
     }
     yield;
   }

@@ -3,6 +3,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import zlib from 'node:zlib';
+import { createHash } from 'node:crypto';
+import { scenePoseAt } from '../src/world/terrain/SceneTravel.js';
 import { bakeTerrain } from '../tools/lib/terrain-bake.mjs';
 import { decodeTerrain } from '../src/world/alpine/TerrainMesh.js';
 import { placeForest, forestPlacementBound, FOREST_RINGS } from '../src/world/alpine/ForestCover.js';
@@ -67,8 +69,10 @@ test('trees near a footprint polyline far from the rail are placed and represent
     const p = [t[0], t[1], t[2]], d = Math.min(...footprint.map((line) => lineDist(line, p)));
     kinds.add(kind);
     assert.ok(d <= rings.billboardM + 0.01, `tree ${d.toFixed(1)} m from every path`);
-    // Bands use the exact distance: an independent brute force must agree.
-    if ([120, 220].every((edge) => Math.abs(d - edge) > 0.01)) assert.equal(t[7], d < 120 ? 2 : d < 220 ? 1 : 0, `band at ${d.toFixed(2)} m`);
+    // Static footprint trees compose in the partition of their terrain receiver.
+    const size = data.cells * data.grid.cellSizeM;
+    const owner = data.byIndex.get(`${Math.floor((t[0] - data.grid.originM[0]) / size)},${Math.floor((t[2] - data.grid.originM[1]) / size)}`);
+    assert.equal(t[7], { far: 0, mid: 1, near: 2 }[owner.band] ?? 0);
     const scale = kind === 'meshDetail' ? rings.detailM : kind === 'mesh' ? rings.meshM : rings.billboardM;
     assert.ok(d < scale * 1.18 + 0.01, `${kind} tree at ${d.toFixed(1)} m`);
   }
@@ -96,5 +100,70 @@ test('with default rings a footprint brings detail-ring trees to a far rail view
   for (let i = 0; i < withPaths.meshDetail.length; i += withPaths.stride) {
     const p = [...withPaths.meshDetail.subarray(i, i + 3)];
     assert.ok(Math.min(...footprint.map((line) => lineDist(line, p))) < FOREST_RINGS.detailM * 1.18 + 0.01);
+  }
+});
+
+// Hand-built flat terrain isolates partition ownership from habitat and bake
+// heuristics. Negative local coordinates and a non-lattice-aligned tile edge
+// make some jittered roots belong to a neighbour of their iteration tile.
+test('static footprint partitions follow actual root owners, with invalid terrain bands falling back to far', () => {
+  const bands = ['near', 'mid', 'far', undefined, 'invalid', null, 'near', 'mid', 'far'];
+  const cells = 16, cellSizeM = 10, size = 160, originM = [-240, -240];
+  const tiles = new Map(), byIndex = new Map();
+  for (let iz = 0; iz < 3; iz++) for (let ix = 0; ix < 3; ix++) {
+    const tile = { id: `t${ix}_${iz}`, ix, iz, band: bands[iz * 3 + ix], visible: true,
+      minY: 600, maxY: 600, stride: 1, samples: 17,
+      heightsM: new Float32Array(17 * 17).fill(600), flowBytes: new Uint8Array(17 * 17) };
+    tiles.set(tile.id, tile); byIndex.set(`${ix},${iz}`, tile);
+  }
+  const flat = { cells, grid: { originM, cellSizeM }, tiles, byIndex, manifest: { tilesX: 3, tilesZ: 3 } };
+  const staticView = { ...view, cameraPaths: [[[0, 650, 0]]] };
+  const placed = placeForest(flat, staticView, rules, { seed: 5, rings: { detailM: 1, meshM: 2, billboardM: 8000 } });
+  const ownerAt = (x, z) => [...tiles.values()].find(t => x >= originM[0] + t.ix * size && x < originM[0] + (t.ix + 1) * size
+    && z >= originM[1] + t.iz * size && z < originM[1] + (t.iz + 1) * size);
+  let crossed = 0;
+  const seen = new Set();
+  assert.ok(placed.count > 500);
+  assert.equal(placed.billboard.length / 8, placed.count, 'distance still selects billboards');
+  for (const { t } of trees(placed)) {
+    const owner = ownerAt(t[0], t[2]);
+    const iterationOwner = ownerAt(Math.floor(t[0] / 13) * 13, Math.floor(t[2] / 13) * 13);
+    if (owner !== iterationOwner) crossed++;
+    const expected = owner.band === 'near' ? 2 : owner.band === 'mid' ? 1 : 0;
+    assert.equal(t[7], expected, `root ${t[0]},${t[2]} belongs to ${owner.id} (${owner.band})`);
+    seen.add(owner.band);
+  }
+  assert.ok(crossed > 0, 'fixture exercises jitter across iteration tile boundaries');
+  assert.deepEqual(seen, new Set(bands), 'valid and malformed metadata all own trees');
+});
+
+// Golden bytes were recorded from the unmodified distance-partition placer.
+// Catch collateral changes to inclusion, trait lanes, representation or order,
+// and any application of static terrain partitions to authored/window rails.
+test('static traits and representations stay stable while default and streaming placement retain legacy bytes', () => {
+  const sha = a => createHash('sha256').update(a).digest('hex');
+  const legacy = placeForest(data, view, rules, { seed: 5 });
+  assert.equal(legacy.count, 20737);
+  assert.equal(legacy.meshDetail.length, 0); assert.equal(legacy.mesh.length, 0);
+  assert.equal(sha(legacy.billboard), 'a99788a936531a83d30839a038800a4c7fdc73ab95c0caade3037c08f268e1ec');
+  const staticView = { ...view, cameraPaths: footprint };
+  const streamingView = { ...staticView, tour: { durationMs: 8000, poseAt: t => scenePoseAt(view, { progress01: t / 8000 }) } };
+  const staticTrees = placeForest(data, staticView, rules, { seed: 5 });
+  const streamingTrees = placeForest(data, streamingView, rules, { seed: 5 });
+  const expected = [
+    ['meshDetail', 8369, '552b1f03c7476b55b5054c93db87ebe947df02ac89bc10babbd7537dbbc1f33f', 'b0c418a332b9638b366b0310be342714902485fe2d9908c54d739776503afd60'],
+    ['mesh', 11986, '303fffc055414479ddd612b3e135d8356ef42fb1660716c77749b4572aed73da', 'ea6e87145c8ab31b91fa2258d177deff59160002d6f88ce2f0b8fa4584f2681d'],
+    ['billboard', 382, '04caafe27019b4ed9e067822acf017fe177f95c6e69832b5df24a56bbad92a99', '09b4cced24b4d1ca2271ab2f0b2f301a63c17a56a843c8e70a1466e5b904e251'],
+  ];
+  for (const [kind, count, fullHash, traitHash] of expected) {
+    assert.equal(streamingTrees[kind].length / 8, count, `${kind} streaming count`);
+    assert.equal(sha(streamingTrees[kind]), fullHash, `${kind} streaming legacy bytes`);
+    const a = staticTrees[kind], traits = new Float32Array(count * 7);
+    assert.equal(a.length / 8, count, `${kind} static count`);
+    for (let i = 0; i < a.length; i += 8) traits.set(a.subarray(i, i + 7), i / 8 * 7);
+    assert.equal(sha(traits), traitHash, `${kind} static roots, traits and order`);
+  }
+  for (const v of [view, staticView, streamingView]) {
+    assert.deepEqual(forestPlacementBound(data, v, rules), { count: 35465, lattice: 38809, placementBytes: 3056192 });
   }
 });

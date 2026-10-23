@@ -344,6 +344,20 @@ R6 changes candidate assets, with no new application behavior or rail approvals.
 The [R6 review asset branch](https://github.com/aepler315/midio-pixel/tree/review/scenic-camera-wave-20261023)
 carries the candidate packages. Further geographic expansion stays on hold.
 
+The [R7 framing and ending follow-up](docs/scenic-framing-endings-review-2026-10-23.md)
+retains a wider Izta opening and Black's more open closing skyline after
+matched full-song image review. Their payoffs and closing shots remain;
+Black adds 141.537 ms transit. Two rejected Black packages exposed a runtime
+memory refusal and forest partition mismatch. Reviewed fixes reduce surface
+arrays from 10 to 9 bytes per pixel and align tree draw bands with their owning
+terrain tiles, without changing placement or camera paths. Black's separate
+2.3 MB download allowance covers strict terrain/reflection detail. Softer
+forest representation, dark foreground and narrow runtime headroom remain
+limits. Local implementation and image gates are complete;
+[draft PR #38](https://github.com/aepler315/midio-pixel/pull/38) records source/candidate
+commit identities and publication status. Cameras remain unapproved, and
+further geographic expansion stays on hold.
+
 ## Version archive
 
 `npm run archive` opens a timeline of every version on the checked-out

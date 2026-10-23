@@ -79,6 +79,18 @@ remains unresolved. The final review set has 15 libraries, 144 shots and
 The R5 inventory and historical results below remain their dated baselines.
 The approved geographic count stays 13; geographic expansion remains on hold.
 
+The [R7 framing and ending follow-up](scenic-framing-endings-review-2026-10-23.md)
+retains Izta's wider opening and Black's late-rise ending within the reviewed
+Anthem scope. A surface-memory reduction and static forest partition repair
+let the same strict Black assets prepare and render without the broad bare
+forest bands that rejected two earlier packages. Softer forest texture, dark
+foreground and narrow memory headroom remain explicit limits. The locally
+retained snapshot has 15 libraries, 137 shots and 314 links in 64,967,986 Range
+asset bytes. Local implementation and image gates are complete;
+[draft PR #38](https://github.com/aepler315/midio-pixel/pull/38) records source/candidate
+commit identities and publication status. The R6 baseline stays preserved,
+and no geographic approval is added.
+
 The intended system gives each approved scenic view an offline-discovered **shot library**: complete
 camera moves around the region's real subjects, plus connecting moves between
 them. At playback a deterministic planner strings shots and links together
@@ -206,8 +218,9 @@ tools/build-scenic-tours.mjs --view <id>|all [--render] [--publish | --publish-f
   cost      each candidate's terrain footprint as the baker would ship it
   select    rounds of diverse, budget-charged, reachable shots; links between
             them scored, leashed and Pareto-pruned; unconnected shots dropped
-  bake      terrain package re-culled for rail + library poses (+ mirrored poses)
-  validate  every path frustum against the baked package; clearance; joins
+  bake      terrain for library poses + ordinary-detail rail/reflection viewers
+  validate  derive final-terrain direct/mirror requirements; both-budget coverage;
+            reject failed closure before packing; clearance; joins
   pack      src/assets/range/v2/tour/<viewId>.shots.json + .shots.bin.gz
 ```
 
@@ -435,7 +448,10 @@ chooses the links afresh from every scored pair among the shots that
 remain, so a drop never strands the shots that were reached through it.
 Tiles only tour cameras see are held to `budget.poseErrorScale` times the
 rail's pixel budget (the app presents terrain on a 320×180, 480×270 or 640×360
-pixel grid); tiles the rail sees keep their approved detail.
+pixel grid). Retained rail viewers and their reflections use ordinary declared
+rail limits through the independent `railPoses` channel. Final decoded
+terrain determines mirror eligibility/level and coverage requirements;
+failed final coverage is rejected before packing, including after a rebake.
 
 #### Horizon and the grid edge
 
@@ -595,11 +611,26 @@ A new tile costs its compressed samples and about 470 bytes of manifest
 JSON. In wide views the manifest dominates: one shot over a large range
 brings hundreds of distant tiles at the coarsest stride. The default
 region budget (800 KB) therefore fits only three to eight shots in the
-widest regions; those get 1.4 MB (`overrides.budget.assetBytes`, with a
-`budgetNote`). Those per-region caps remain after removal of the global
-Range asset-size gate. A compact tile table in the terrain manifest would
-roughly halve that manifest cost; it is a format change left for later.
+widest regions; wider allowances are recorded in `overrides.budget.assetBytes`
+with a `budgetNote`. Most existing overrides remain 1.4 MB. R7 separately
+raises **only Black Mountains to 2.3 MB**, with 2,210,427 cumulative added bytes
+against the original rail reference: 810,427 bytes beyond its former 1.4 MB
+allowance. That measured download tradeoff preserves strict reflection
+coverage and old visible terrain detail; triangle, forest, runtime residency,
+motion and quality limits remain unchanged. See the
+[R7 review](scenic-framing-endings-review-2026-10-23.md#black-terrain-repair-and-explicit-download-tradeoff).
+Regional allowances remain separate from the removed global Range asset-size
+gate. A compact tile table could reduce manifest cost; it remains a later
+format change.
 
-The rail shot costs nothing and adds no coverage poses: it is the authored
-rail, which the approved package (and the rail stations every bake keeps)
-already covers, reflections included.
+The fallback rail is already present, but its final reflection requirements
+cannot be assumed to add no coverage. Every final decoded package determines
+its own mirror eligibility and exact plane. Validation includes retained rail
+reflection stations and both endpoints at ordinary unscaled desktop/mobile
+rail limits, separately from tour-scaled direct and mirror poses. The optional
+`railPoses` bake channel retains those ordinary-detail viewers without tour
+dedupe or thinning; an absent/empty channel preserves prior output bytes.
+A newly active or shifted mirror must pass final-state coverage and LOD
+checks. Failed closure is rejected before packing/publication, even after a
+rebake; the gate does not attempt automatic retry bakes. This does not replace
+rendered original-rail parity or actual-song image review.
