@@ -2,19 +2,68 @@
   "about": "Regional configuration for scenic shot tours (docs/scenic-tours.md). Geography, named-subject preferences, route anchors and region-dependent parameters live here; DEM sources stay in scenic-views.json. A region's status is its tour's own review state: a view plays its tour in production only when the view and its tour are both approved. Subject lonLat values marked approximate are snapped to the nearest matching DEM feature within snapRadiusM.",
   "version": 1,
   "defaults": {
-    "lensFovYDeg": { "wide": 36, "normal": 26, "tele": 16 },
-    "clearance": { "minAglM": 70, "treeHeightM": 35, "subjectStandoffM": 300, "boundaryMarginM": 1500, "cellM": 60 },
-    "motion": { "maxSpeedMps": 120, "minSpeedMps": 4, "flowCalm": 0.07, "flowEnergetic": 0.24, "maxYawDegPerSec": 20, "maxClimbMps": 22, "maxAccelMps2": 3.5 },
-    "discovery": { "focusRadiusM": 11000, "maxSubjects": 12, "minSubjectSpacingM": 1800, "prominenceMinM": 80, "snapRadiusM": 2500, "shotsPerSubject": 8, "maxShots": 36, "maxLinksPerShot": 4, "tileWeight": 0.6,
-      "byteScaleKB": 250, "linkMaxM": 6000, "transitMaxM": 9000, "maxShotS": 16, "maxLinkS": 50, "shotsPerRound": 6, "earShots": 5, "linkFanout": 14, "linkRadiusM": 400,
-      "edgeDipDeg": 12, "frame": { "horizonBelowTop": 0.2, "subjectAboveBottom": 0.1 },
-      "horizonNote": "Rays that leave the DEM grid within edgeDipDeg below the horizontal are drawn as sky by the app, so the grid's far boundary reads as the horizon; measured in the app up to the deepest band any published camera saw (11.4 deg, Izta) with no visible crop. Before this rule, generators tilted every such view down until no ray left the grid, and high eyes aimed at a subject's mid-height looked 20-35 deg down: 47 of 126 round-2 shots framed no horizon. frame keeps the horizon at least 20% below the top edge while the subject's aim point stays at least 10% above the bottom (docs/scenic-tours.md, Horizon and the grid edge)." },
-    "budget": { "assetBytes": 800000, "poseErrorScale": 4, "desktopTriangles": 3200000, "mobileTriangles": 1800000,
-      "trianglesNote": "About 18 mesh bytes per triangle plus ~27 MB of surface textures per view; two views are resident across a seam, with forest and sky, inside the low-memory residency budgets (256 MiB desktop, 192 MiB mobile, src/render/GraphicsResidency.js)." }
+    "lensFovYDeg": {
+      "wide": 36,
+      "normal": 26,
+      "tele": 16
+    },
+    "clearance": {
+      "minAglM": 70,
+      "treeHeightM": 35,
+      "subjectStandoffM": 300,
+      "boundaryMarginM": 1500,
+      "cellM": 60
+    },
+    "motion": {
+      "maxSpeedMps": 120,
+      "minSpeedMps": 4,
+      "flowCalm": 0.07,
+      "flowEnergetic": 0.24,
+      "maxYawDegPerSec": 20,
+      "maxClimbMps": 22,
+      "maxAccelMps2": 3.5
+    },
+    "discovery": {
+      "focusRadiusM": 11000,
+      "maxSubjects": 12,
+      "minSubjectSpacingM": 1800,
+      "prominenceMinM": 80,
+      "snapRadiusM": 2500,
+      "shotsPerSubject": 8,
+      "maxShots": 36,
+      "maxLinksPerShot": 4,
+      "tileWeight": 0.6,
+      "byteScaleKB": 250,
+      "linkMaxM": 6000,
+      "transitMaxM": 9000,
+      "maxShotS": 16,
+      "maxLinkS": 50,
+      "shotsPerRound": 6,
+      "earShots": 5,
+      "linkFanout": 14,
+      "linkRadiusM": 400,
+      "edgeDipDeg": 12,
+      "frame": {
+        "horizonBelowTop": 0.2,
+        "subjectAboveBottom": 0.1
+      },
+      "horizonNote": "Rays that leave the DEM grid within edgeDipDeg below the horizontal are drawn as sky by the app, so the grid's far boundary reads as the horizon; measured in the app up to the deepest band any published camera saw (11.4 deg, Izta) with no visible crop. Before this rule, generators tilted every such view down until no ray left the grid, and high eyes aimed at a subject's mid-height looked 20-35 deg down: 47 of 126 round-2 shots framed no horizon. frame keeps the horizon at least 20% below the top edge while the subject's aim point stays at least 10% above the bottom (docs/scenic-tours.md, Horizon and the grid edge)."
+    },
+    "budget": {
+      "assetBytes": 800000,
+      "poseErrorScale": 4,
+      "desktopTriangles": 3200000,
+      "mobileTriangles": 1800000,
+      "trianglesNote": "About 18 mesh bytes per triangle plus ~27 MB of surface textures per view; two views are resident across a seam, with forest and sky, inside the low-memory residency budgets (256 MiB desktop, 192 MiB mobile, src/render/GraphicsResidency.js)."
+    }
   },
   "regions": {
     "nc-ross-lake-north": {
-      "overrides": { "budget": { "assetBytes": 1400000 } },
+      "overrides": {
+        "budget": {
+          "assetBytes": 1400000
+        }
+      },
       "budgetNote": "Wide views over a long lake: each shot brings hundreds of distant tiles (mostly manifest entries), so the default 800 KB fits only three or four shots; raised within the shared Range asset headroom.",
       "rebakeOnDrift": true,
       "rebakeOnDriftEvidence": "Rail parity after the tour rebake: 0.00% of rail pixels changed at 9 stations (.smoke/scenic-tours/nc-ross-lake-north/rail-parity.json); the drift is below what the rail can show.",
@@ -22,34 +71,102 @@
       "landform": "lake-alpine",
       "notes": "Ross Lake reservoir between Jack Mountain and the Hozomeen/Pasayten peaks; long north-south water with steep forested flanks.",
       "subjects": [
-        { "name": "Jack Mountain", "kind": "peak", "weight": 1.3 },
-        { "name": "Hozomeen Mountain", "kind": "peak", "weight": 1.1 },
-        { "name": "Ross Lake", "kind": "lake", "lonLat": [-121.06, 48.83], "approximate": true, "weight": 1.2 }
+        {
+          "name": "Jack Mountain",
+          "kind": "peak",
+          "weight": 1.3
+        },
+        {
+          "name": "Hozomeen Mountain",
+          "kind": "peak",
+          "weight": 1.1
+        },
+        {
+          "name": "Ross Lake",
+          "kind": "lake",
+          "lonLat": [
+            -121.06,
+            48.83
+          ],
+          "approximate": true,
+          "weight": 1.2
+        }
       ],
-      "hero": ["Jack Mountain"]
+      "hero": [
+        "Jack Mountain"
+      ],
+      "library": {
+        "shotsManifestSha256": "583ad8bcca3546bc8d6ffcaa9cdc541432c26a7c1235229244418da02ea6c081",
+        "terrainManifestSha256": "b5c4be9f6cd15fa0eaea982a4688269fe31a6e8a067b8580a1581a0d6eecf2e9",
+        "baseViewSha256": "3aca737136898a49dbc36daf776e911296bcbe3c51ea75c01b3126e2b6912b01"
+      }
     },
     "teton-jackson-lake": {
-      "overrides": { "budget": { "assetBytes": 1400000 } },
+      "overrides": {
+        "budget": {
+          "assetBytes": 1400000
+        }
+      },
       "budgetNote": "Wide views: each shot brings hundreds of distant tiles (mostly manifest entries), so the default 800 KB fits only 3-8 shots; raised within the shared Range asset headroom.",
       "status": "candidate",
       "landform": "lake-alpine",
       "notes": "Jackson Lake under the Teton front: Mount Moran rising straight from the lake, the Grand Teton and Cathedral Group to the south.",
       "subjects": [
-        { "name": "Grand Teton", "kind": "peak", "weight": 1.5 },
-        { "name": "Mount Moran", "kind": "peak", "weight": 1.4 },
-        { "name": "Jackson Lake", "kind": "lake", "lonLat": [-110.67, 43.88], "approximate": true, "weight": 1.1 }
+        {
+          "name": "Grand Teton",
+          "kind": "peak",
+          "weight": 1.5
+        },
+        {
+          "name": "Mount Moran",
+          "kind": "peak",
+          "weight": 1.4
+        },
+        {
+          "name": "Jackson Lake",
+          "kind": "lake",
+          "lonLat": [
+            -110.67,
+            43.88
+          ],
+          "approximate": true,
+          "weight": 1.1
+        }
       ],
-      "hero": ["Grand Teton", "Mount Moran"]
+      "hero": [
+        "Grand Teton",
+        "Mount Moran"
+      ],
+      "library": {
+        "shotsManifestSha256": "9953982fd898468ff90e5a2e4f4e397e0d895a36ba7584ad9c0320a7e9040e82",
+        "terrainManifestSha256": "f9c0851679291f6b6003ec885030aa78909371b17780337022f8cda106139f65",
+        "baseViewSha256": "4959ccd90bfbd9e82512dde5567ff6dfd806cd8f3f3f0903b0ebedd876736926"
+      }
     },
     "denali-wonder-lake": {
       "status": "candidate",
       "landform": "massif",
       "notes": "Denali and Mount Foraker above the McKinley River bar and Wonder Lake; enormous relief at long range.",
       "subjects": [
-        { "name": "Denali", "kind": "peak", "weight": 1.6 },
-        { "name": "Mount Foraker", "kind": "peak", "weight": 1.2 }
+        {
+          "name": "Denali",
+          "kind": "peak",
+          "weight": 1.6
+        },
+        {
+          "name": "Mount Foraker",
+          "kind": "peak",
+          "weight": 1.2
+        }
       ],
-      "hero": ["Denali"]
+      "hero": [
+        "Denali"
+      ],
+      "library": {
+        "shotsManifestSha256": "edfca94bfc203d1ed1fb2c8f7f12e742cca0bbed1769ccacebeb39d54b8a4aa5",
+        "terrainManifestSha256": "4eb64980f9c9048da8d9ecfbbf694b6aa7f4c59d107a4bc97f846f8fe8ec9324",
+        "baseViewSha256": "7a320fe211a0d5a4227beee80f097641c8bf680e1816509deda398fea42bd98f"
+      }
     },
     "tombstone-north-klondike": {
       "blocker": "Source drift: the rail-only bake no longer reproduces the approved package (a rebake changes 3.3% of rail pixels), so the package is kept, and it covers no tour shot. Needs the DEM source re-pinned to the approved build (or the rebaked rail re-reviewed and re-approved); then rebuild with scenic tours.",
@@ -57,105 +174,273 @@
       "landform": "alpine",
       "notes": "Granite spires of the Tombstone Range above tundra valleys of the North Klondike.",
       "subjects": [
-        { "name": "Tombstone Mountain", "kind": "peak", "weight": 1.4 }
+        {
+          "name": "Tombstone Mountain",
+          "kind": "peak",
+          "weight": 1.4
+        }
       ],
-      "hero": ["Tombstone Mountain"]
+      "hero": [
+        "Tombstone Mountain"
+      ]
     },
     "muncho-lake-south": {
       "status": "candidate",
       "landform": "lake-valley",
       "notes": "Muncho Lake in its valley between the Terminal and Sentinel ranges; the lake is the subject as much as the peaks.",
       "subjects": [
-        { "name": "Muncho Lake", "kind": "lake", "lonLat": [-125.77, 58.93], "approximate": true, "weight": 1.3 }
+        {
+          "name": "Muncho Lake",
+          "kind": "lake",
+          "lonLat": [
+            -125.77,
+            58.93
+          ],
+          "approximate": true,
+          "weight": 1.3
+        }
       ],
-      "hero": []
+      "hero": [],
+      "library": {
+        "shotsManifestSha256": "2f000539b182dfc9265bc74a65e854343e742eed3ddd150848be8b3ccdce099d",
+        "terrainManifestSha256": "8b65648660342dba4b3cf4602784c6e2d732ffc080f02287f752d06f72bfae2b",
+        "baseViewSha256": "9a699cd5af83846451743b2d96d4a25c0acb8525be8464cfdaf1f335465f3286"
+      }
     },
     "izta-popo-west": {
-      "historicalExcludedShots": { "ids": ["reveal-valley-e1960-n3020-354","reveal-peak-e9110-n5080-219","reveal-peak-e13280-n9070-494"], "note": "Marked broken in the rendered review of the libraries (docs/scenic-tours.md, Rendered review). Historical pre-stratification IDs only; not applied to fresh discovery. Re-review rebuilt bytes before excluding or promoting shots." },
-      "overrides": { "budget": { "assetBytes": 1400000 } },
+      "historicalExcludedShots": {
+        "ids": [
+          "reveal-valley-e1960-n3020-354",
+          "reveal-peak-e9110-n5080-219",
+          "reveal-peak-e13280-n9070-494"
+        ],
+        "note": "Marked broken in the rendered review of the libraries (docs/scenic-tours.md, Rendered review). Historical pre-stratification IDs only; not applied to fresh discovery. Re-review rebuilt bytes before excluding or promoting shots."
+      },
+      "overrides": {
+        "budget": {
+          "assetBytes": 1400000
+        }
+      },
       "budgetNote": "Wide views: each shot brings hundreds of distant tiles (mostly manifest entries), so the default 800 KB fits only 3-8 shots; raised within the shared Range asset headroom.",
       "status": "candidate",
       "landform": "volcano",
       "notes": "Iztaccihuatl and Popocatepetl from the west: two isolated stratovolcanoes over high plateau.",
       "subjects": [
-        { "name": "Popocatépetl", "kind": "peak", "weight": 1.5 },
-        { "name": "Iztaccíhuatl", "kind": "peak", "weight": 1.4 }
+        {
+          "name": "Popocatépetl",
+          "kind": "peak",
+          "weight": 1.5
+        },
+        {
+          "name": "Iztaccíhuatl",
+          "kind": "peak",
+          "weight": 1.4
+        }
       ],
-      "hero": ["Popocatépetl", "Iztaccíhuatl"]
+      "hero": [
+        "Popocatépetl",
+        "Iztaccíhuatl"
+      ],
+      "library": {
+        "shotsManifestSha256": "f3ade806bee6ba190b7c148fa8b84523a2bbfd371a0d17d287a7eee2fd763ce0",
+        "terrainManifestSha256": "027db555ad158a580abe3800094497feb5d9299546dd3b37cbf03f77c128758f",
+        "baseViewSha256": "d4a8145401d6bd0375bb6094bc983de5e40f25099fe594df5da611aef8a16363"
+      }
     },
     "black-mountains-catawba": {
-      "overrides": { "budget": { "assetBytes": 2300000 } },
+      "overrides": {
+        "budget": {
+          "assetBytes": 2300000
+        }
+      },
       "budgetNote": "Wide views: each shot brings hundreds of distant tiles (mostly manifest entries), so the default 800 KB fits only 3-8 shots; raised within the shared Range asset headroom.",
       "status": "candidate",
       "landform": "rolling",
       "notes": "Forested Black Mountains with Mount Mitchell above the Catawba valley; soft layered ridgelines.",
       "subjects": [
-        { "name": "Mount Mitchell", "kind": "peak", "weight": 1.4 }
+        {
+          "name": "Mount Mitchell",
+          "kind": "peak",
+          "weight": 1.4
+        }
       ],
-      "hero": ["Mount Mitchell"]
+      "hero": [
+        "Mount Mitchell"
+      ],
+      "library": {
+        "shotsManifestSha256": "3762545b0a716b02c10261ee4ad04f96212f570bc0c8ecd09270e6ad7484bfbd",
+        "terrainManifestSha256": "bad690fc81a54c87b35a22173349f5d53a8d362f196e48aab18f52beded2e511",
+        "baseViewSha256": "b441391ae4dd2f1073066ae2ed4c39e288b6bf415dfd1a9cf2ac2dbe1a936cab"
+      }
     },
     "san-gabriel-baldy": {
       "status": "candidate",
       "landform": "alpine-ridge",
       "notes": "Steep chaparral ridges of the San Gabriels around Mount San Antonio (Baldy) and Baden-Powell.",
       "subjects": [
-        { "name": "Mount San Antonio", "kind": "peak", "weight": 1.4 },
-        { "name": "Mount Baden-Powell", "kind": "peak", "weight": 1.1 }
+        {
+          "name": "Mount San Antonio",
+          "kind": "peak",
+          "weight": 1.4
+        },
+        {
+          "name": "Mount Baden-Powell",
+          "kind": "peak",
+          "weight": 1.1
+        }
       ],
-      "hero": ["Mount San Antonio"]
+      "hero": [
+        "Mount San Antonio"
+      ],
+      "library": {
+        "shotsManifestSha256": "3e5a0ee46c3bfccf735aaf7b9f7d7949d7262390b74add7669f822cc188d4d6c",
+        "terrainManifestSha256": "126deab0b53981cf790ed5fd830077e6fd2333baa894315fbeaef94c429c34e5",
+        "baseViewSha256": "f0760ea7e5a38ea18f5a1df3f193048e5d08e2e52a8c22fd3f1b714ae528ff6d"
+      }
     },
     "white-mountains-owens": {
-      "historicalExcludedShots": { "ids": ["approach-peak-e9490-n7510-064"], "note": "Marked broken in the rendered review of the libraries (docs/scenic-tours.md, Rendered review). Historical pre-stratification IDs only; not applied to fresh discovery. Re-review rebuilt bytes before excluding or promoting shots." },
+      "historicalExcludedShots": {
+        "ids": [
+          "approach-peak-e9490-n7510-064"
+        ],
+        "note": "Marked broken in the rendered review of the libraries (docs/scenic-tours.md, Rendered review). Historical pre-stratification IDs only; not applied to fresh discovery. Re-review rebuilt bytes before excluding or promoting shots."
+      },
       "status": "candidate",
       "landform": "escarpment",
       "notes": "The White Mountains' fault scarp over Owens Valley, White Mountain Peak at the crest.",
       "subjects": [
-        { "name": "White Mountain Peak", "kind": "peak", "weight": 1.4 }
+        {
+          "name": "White Mountain Peak",
+          "kind": "peak",
+          "weight": 1.4
+        }
       ],
-      "hero": ["White Mountain Peak"]
+      "hero": [
+        "White Mountain Peak"
+      ],
+      "library": {
+        "shotsManifestSha256": "ad906abd178bbfe82ba53430f8993cad99f85be8bdf84604fe3cf56d4cf4c4cb",
+        "terrainManifestSha256": "65c323bf32b3dd5818516cf2a70e95a9d74a4d1b4590d1a3d52ab1f6bf647d84",
+        "baseViewSha256": "e23f396079851d37e17b026e91c4d6601a9029b0bc9878345cc97eafb9e0e1a7"
+      }
     },
     "la-sal-castle-valley": {
-      "overrides": { "budget": { "assetBytes": 1400000 } },
+      "overrides": {
+        "budget": {
+          "assetBytes": 1400000
+        }
+      },
       "budgetNote": "Wide canyon views: the connected shots each bring 200-300 KB of distant tiles alone, so the default 800 KB fits no connected pair; raised within the shared Range asset headroom.",
       "status": "candidate",
       "landform": "canyon-butte",
       "notes": "Castle Valley's red-rock towers under the La Sal Mountains; Castle Creek reaches are mapped water.",
       "subjects": [
-        { "name": "Castleton Tower", "kind": "butte", "weight": 1.4 },
-        { "name": "Mount Peale", "kind": "peak", "weight": 1.2 }
+        {
+          "name": "Castleton Tower",
+          "kind": "butte",
+          "weight": 1.4
+        },
+        {
+          "name": "Mount Peale",
+          "kind": "peak",
+          "weight": 1.2
+        }
       ],
-      "hero": ["Castleton Tower", "Mount Peale"]
+      "hero": [
+        "Castleton Tower",
+        "Mount Peale"
+      ],
+      "library": {
+        "shotsManifestSha256": "adb7621b9294d1808fc57c9f28327365399c0d9db700137c0d53c26fc6c5368f",
+        "terrainManifestSha256": "38ae09afb8d185d1664ae6957fa7fd9031ef6ae96b3fafd7c118de9c92106e99",
+        "baseViewSha256": "003919422117da95d5aa22e2903286443d5369958882ad9129779bbce4fb9faa"
+      }
     },
     "panamint-dantes-view": {
       "status": "candidate",
       "landform": "escarpment-basin",
       "notes": "Death Valley's salt basin under the Panamint escarpment, Telescope Peak opposite Dantes View.",
       "subjects": [
-        { "name": "Telescope Peak", "kind": "peak", "weight": 1.4 },
-        { "name": "Badwater", "kind": "valley", "weight": 0.9 }
+        {
+          "name": "Telescope Peak",
+          "kind": "peak",
+          "weight": 1.4
+        },
+        {
+          "name": "Badwater",
+          "kind": "valley",
+          "weight": 0.9
+        }
       ],
-      "hero": ["Telescope Peak"]
+      "hero": [
+        "Telescope Peak"
+      ],
+      "library": {
+        "shotsManifestSha256": "01a6f957fd6475786d81832c84e3662333ba2b997e293e39a604d918f0b3d8db",
+        "terrainManifestSha256": "fe9fe197b8e554e2249b3656b023b585d43a79168edd8a0f8dbbef090e33a795",
+        "baseViewSha256": "405761119e0a0d72320cf286c093cc4ddfc4fd803aea75185eb2b27026fbcd02"
+      }
     },
     "chugach-matanuska": {
-      "historicalExcludedShots": { "ids": ["reveal-peak-e790-s16030-196"], "note": "Marked broken in the rendered review of the libraries (docs/scenic-tours.md, Rendered review). Historical pre-stratification IDs only; not applied to fresh discovery. Re-review rebuilt bytes before excluding or promoting shots." },
+      "historicalExcludedShots": {
+        "ids": [
+          "reveal-peak-e790-s16030-196"
+        ],
+        "note": "Marked broken in the rendered review of the libraries (docs/scenic-tours.md, Rendered review). Historical pre-stratification IDs only; not applied to fresh discovery. Re-review rebuilt bytes before excluding or promoting shots."
+      },
       "status": "candidate",
       "landform": "glacier-valley",
       "notes": "The Matanuska Glacier valley in the Chugach; glaciated peaks on both sides of a broad valley floor.",
       "subjects": [
-        { "name": "Matanuska Glacier", "kind": "valley", "lonLat": [-147.65, 61.76], "approximate": true, "weight": 1.2 }
+        {
+          "name": "Matanuska Glacier",
+          "kind": "valley",
+          "lonLat": [
+            -147.65,
+            61.76
+          ],
+          "approximate": true,
+          "weight": 1.2
+        }
       ],
-      "hero": []
+      "hero": [],
+      "library": {
+        "shotsManifestSha256": "ad1a175b36a44b40d93e2fb20a4bfed0ec562c09a2140b587ab6248832b1eba4",
+        "terrainManifestSha256": "3c64577c14386c9c85c6bcfdacaedc60f6e581394adfa2805191e501327ef79f",
+        "baseViewSha256": "b9f0c8ba1767226b4daa19ab72e2649b4597b1301067f85aa13dc694ea0188d5"
+      }
     },
     "monument-valley-163": {
-      "overrides": { "budget": { "assetBytes": 1400000 } },
+      "overrides": {
+        "budget": {
+          "assetBytes": 1400000
+        }
+      },
       "budgetNote": "Wide views: each shot brings hundreds of distant tiles (mostly manifest entries), so the default 800 KB fits only 3-8 shots; raised within the shared Range asset headroom.",
       "status": "candidate",
       "landform": "butte",
       "notes": "Sandstone buttes and mesas standing out of a flat desert floor (the Mittens, Merrick Butte and their neighbours) seen from US-163.",
       "subjects": [
-        { "name": "The Mittens and Merrick Butte", "kind": "butte", "lonLat": [-110.10, 36.98], "approximate": true, "snapRadiusM": 3500, "weight": 1.4 }
+        {
+          "name": "The Mittens and Merrick Butte",
+          "kind": "butte",
+          "lonLat": [
+            -110.1,
+            36.98
+          ],
+          "approximate": true,
+          "snapRadiusM": 3500,
+          "weight": 1.4
+        }
       ],
-      "hero": ["The Mittens and Merrick Butte"]
+      "hero": [
+        "The Mittens and Merrick Butte"
+      ],
+      "library": {
+        "shotsManifestSha256": "cf6720e94882dd02ef900615e4c4a8c7412500ee66489bd22514afc3a3abaf7f",
+        "terrainManifestSha256": "1a15733d59c1dea61f1f2af33871387a43499f052d71ce15a624e7361d922427",
+        "baseViewSha256": "3f3d9ae06293e9c026cb97e071400a7c92d77d2e3e24e67895f18e31a0def80b"
+      }
     },
     "sawtooth-redfish-north": {
       "status": "candidate",
@@ -186,7 +471,12 @@
       "hero": [
         "Heyburn Mountain",
         "Grand Mogul"
-      ]
+      ],
+      "library": {
+        "shotsManifestSha256": "0a7b8bb43de4e4c1ee0a34912ff86e54795cdb341fa9b378cc14548ab599d7e1",
+        "terrainManifestSha256": "e557b71520cdd067cb8f82cf4635b8be5b1034753547e6007d6c1a9a2f556d77",
+        "baseViewSha256": "43be5b98c9887818d8a642516e1f0edd4aca0068114ffb5c823b8710c55794a9"
+      }
     },
     "shenandoah-stony-man-west": {
       "status": "candidate",
@@ -211,7 +501,12 @@
       ],
       "hero": [
         "Stony Man"
-      ]
+      ],
+      "library": {
+        "shotsManifestSha256": "3982ac3397fc2a808e3da3ccebd72b4118ec1258e0890f9296a0742c775a619a",
+        "terrainManifestSha256": "d1ce4d0dc72e0b0b034779258824472c4763729ed5e85147bdd9736e2de12f81",
+        "baseViewSha256": "ff7fafca88ddf28d88a84b8f5e61aec8a0bfe788f35132a0a68ff0156249dd4c"
+      }
     },
     "superstition-west-front": {
       "status": "candidate",
@@ -232,7 +527,12 @@
       "hero": [
         "Superstition Peak",
         "Weavers Needle"
-      ]
+      ],
+      "library": {
+        "shotsManifestSha256": "fc2eac499da6b131645e5c0c92b643fef3b0e5aaec2130854c0f75161b6fd856",
+        "terrainManifestSha256": "2b35bd3ad384244bfd01a4e49125649397f85c95e8ab5ff1fe5dd576267e27b1",
+        "baseViewSha256": "cab22e0b1b6bd95bdfd37e744dd5edb1e96a4ece0d7aba148bca11283ea37faf"
+      }
     }
   }
 }
