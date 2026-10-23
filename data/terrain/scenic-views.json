@@ -102,7 +102,8 @@
           "docs/evidence/range-v2/nc-ross-lake-north-nostage-10s.jpg",
           "docs/evidence/range-v2/no-stage-coverage.json"
         ]
-      }
+      },
+      "shotsManifestUrl": "tour/nc-ross-lake-north.shots.json"
     },
     {
       "id": "nc-diablo-colonial",
@@ -420,7 +421,8 @@
           "docs/evidence/range-v2/no-stage-coverage.json"
         ]
       },
-      "materialRules": {}
+      "materialRules": {},
+      "shotsManifestUrl": "tour/teton-jackson-lake.shots.json"
     },
     {
       "id": "denali-wonder-lake",
@@ -509,7 +511,8 @@
           "docs/evidence/range-v2/denali-wonder-lake-nostage-10s.jpg",
           "docs/evidence/range-v2/no-stage-coverage.json"
         ]
-      }
+      },
+      "shotsManifestUrl": "tour/denali-wonder-lake.shots.json"
     },
     {
       "id": "tombstone-north-klondike",
@@ -666,14 +669,15 @@
           "docs/evidence/range-v2/muncho-lake-south-nostage-10s.jpg",
           "docs/evidence/range-v2/no-stage-coverage.json"
         ]
-      }
+      },
+      "shotsManifestUrl": "tour/muncho-lake-south.shots.json"
     },
     {
       "id": "izta-popo-west",
       "regionId": "trans-mexican-volcanic-belt",
       "biome": "PINE_OAK",
       "status": "approved",
-      "notes": "From the western foothills above Tlalmanalco looking east to Iztacc\u00edhuatl and Popocat\u00e9petl.",
+      "notes": "From the western foothills above Tlalmanalco looking east to Iztaccíhuatl and Popocatépetl.",
       "composition": {
         "foreground": "none",
         "nearLedgeMaxFrac": 0
@@ -724,7 +728,7 @@
       },
       "landmarks": [
         {
-          "name": "Iztacc\u00edhuatl",
+          "name": "Iztaccíhuatl",
           "lonLat": [
             -98.6425,
             19.1786
@@ -732,7 +736,7 @@
           "elevationM": 5230
         },
         {
-          "name": "Popocat\u00e9petl",
+          "name": "Popocatépetl",
           "lonLat": [
             -98.6278,
             19.0225
@@ -740,8 +744,8 @@
           "elevationM": 5426
         }
       ],
-      "title": "Iztacc\u00edhuatl and Popocat\u00e9petl",
-      "place": "Trans-Mexican Volcanic Belt, M\u00e9xico",
+      "title": "Iztaccíhuatl and Popocatépetl",
+      "place": "Trans-Mexican Volcanic Belt, México",
       "water": false,
       "approval": {
         "date": "2026-10-01",
@@ -756,7 +760,8 @@
           "docs/evidence/range-v2/izta-popo-west-nostage-10s.jpg",
           "docs/evidence/range-v2/no-stage-coverage.json"
         ]
-      }
+      },
+      "shotsManifestUrl": "tour/izta-popo-west.shots.json"
     },
     {
       "id": "black-mountains-catawba",
@@ -836,7 +841,8 @@
           "docs/evidence/range-v2/black-mountains-catawba-nostage-10s.jpg",
           "docs/evidence/range-v2/no-stage-coverage.json"
         ]
-      }
+      },
+      "shotsManifestUrl": "tour/black-mountains-catawba.shots.json"
     },
     {
       "id": "san-gabriel-baldy",
@@ -924,7 +930,8 @@
           "docs/evidence/range-v2/san-gabriel-baldy-nostage-10s.jpg",
           "docs/evidence/range-v2/no-stage-coverage.json"
         ]
-      }
+      },
+      "shotsManifestUrl": "tour/san-gabriel-baldy.shots.json"
     },
     {
       "id": "white-mountains-owens",
@@ -1004,7 +1011,8 @@
           "docs/evidence/range-v2/white-mountains-owens-nostage-10s.jpg",
           "docs/evidence/range-v2/no-stage-coverage.json"
         ]
-      }
+      },
+      "shotsManifestUrl": "tour/white-mountains-owens.shots.json"
     },
     {
       "id": "la-sal-castle-valley",
@@ -4637,7 +4645,8 @@
             "rawResponseSha256": "722da9ded7ca460cc5cb7f5eb919e6ae251c449abe1c062ef1dea81d25171c4f"
           }
         }
-      ]
+      ],
+      "shotsManifestUrl": "tour/la-sal-castle-valley.shots.json"
     },
     {
       "id": "panamint-dantes-view",
@@ -4725,7 +4734,8 @@
           "docs/evidence/range-v2/panamint-dantes-view-nostage-10s.jpg",
           "docs/evidence/range-v2/no-stage-coverage.json"
         ]
-      }
+      },
+      "shotsManifestUrl": "tour/panamint-dantes-view.shots.json"
     },
     {
       "id": "chugach-matanuska",
@@ -4797,7 +4807,8 @@
           "docs/evidence/range-v2/chugach-matanuska-nostage-10s.jpg",
           "docs/evidence/range-v2/no-stage-coverage.json"
         ]
-      }
+      },
+      "shotsManifestUrl": "tour/chugach-matanuska.shots.json"
     },
     {
       "id": "wrangell-copper-river",
@@ -5472,7 +5483,8 @@
             "rawResponseSha256": "0631027c04897979f94af16c3eb8925fb8ccf5727adcc762418898eda97ad719"
           }
         }
-      ]
+      ],
+      "shotsManifestUrl": "tour/monument-valley-163.shots.json"
     },
     {
       "id": "pend-oreille-valley",
@@ -5553,21 +5565,21 @@
       },
       "landmarks": [
         {
-          "name": "Newport \u2014 USGS 12395500",
+          "name": "Newport — USGS 12395500",
           "lonLat": [
             -117.0341667,
             48.1822222
           ]
         },
         {
-          "name": "Cusick \u2014 USGS 12395950",
+          "name": "Cusick — USGS 12395950",
           "lonLat": [
             -117.2929986,
             48.3360166
           ]
         },
         {
-          "name": "Ione / Box Canyon \u2014 USGS 12396500",
+          "name": "Ione / Box Canyon — USGS 12396500",
           "lonLat": [
             -117.4163706,
             48.7809561
@@ -5575,7 +5587,7 @@
         }
       ],
       "title": "Pend Oreille Valley",
-      "place": "Newport\u2013Cusick\u2013Ione, Washington",
+      "place": "Newport–Cusick–Ione, Washington",
       "reviewPath": "docs/glacial-valley-validation.md",
       "materialRules": {
         "snowlineM": 2250,
@@ -6472,7 +6484,8 @@
         }
       ],
       "review": "Unreviewed candidate: source and rail/shot builds begin 2026-10-22. Need actual renderer, reflections, clearance, skyline and both directed transition checks before base approval.",
-      "reviewPath": "docs/scenic-expansion-wave1-2026-10-22.md"
+      "reviewPath": "docs/scenic-expansion-wave1-2026-10-22.md",
+      "shotsManifestUrl": "tour/sawtooth-redfish-north.shots.json"
     },
     {
       "id": "shenandoah-stony-man-west",
@@ -6558,7 +6571,8 @@
         }
       ],
       "review": "Unreviewed candidate: source and rail/shot builds begin 2026-10-22. Need actual renderer, near-ridge occlusion, clearance, skyline and both directed transition checks before base approval. Water deliberately disabled until mapped wet features would be added.",
-      "reviewPath": "docs/scenic-expansion-wave1-2026-10-22.md"
+      "reviewPath": "docs/scenic-expansion-wave1-2026-10-22.md",
+      "shotsManifestUrl": "tour/shenandoah-stony-man-west.shots.json"
     },
     {
       "id": "superstition-west-front",
@@ -6635,7 +6649,8 @@
         }
       ],
       "review": "Unreviewed candidate: source and rail/shot builds begin 2026-10-22. Need actual renderer, volcanic-front silhouette, source resolution at near pillars, clearance, skyline and both directed transition checks before base approval. No permanent surface water asserted; water disabled.",
-      "reviewPath": "docs/scenic-expansion-wave1-2026-10-22.md"
+      "reviewPath": "docs/scenic-expansion-wave1-2026-10-22.md",
+      "shotsManifestUrl": "tour/superstition-west-front.shots.json"
     }
   ]
 }
