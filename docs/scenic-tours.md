@@ -34,7 +34,7 @@ baselines. See [draft PR #32](https://github.com/aepler315/midio-pixel/pull/32)
 and the [dated rebuild review](scenic-rebuild-review-2026-10-22.md) for current
 artifacts and actual planned-move findings.
 
-The completed fresh batch has 15 useful candidate libraries with 179 shots and
+The completed fresh R2 batch has 15 useful candidate libraries with 179 shots and
 462 links; Tombstone remains blocked with only its rail. Its separate candidate
 asset tree is 65,023,144 bytes. The primary branch keeps the 13 approved rail
 packages unchanged; no fit, capture or diagnostic setting approves a tour.
@@ -50,6 +50,14 @@ shot ending can lose to a transit ending. Its matched rendered experiment
 rejected a higher ending penalty as a default change: the broader opening and
 final-shot completion came with a more sky-heavy transfer and less move variety.
 The existing planner defaults and candidate approval states remain unchanged.
+
+The subsequent [framing and ending follow-up](scenic-motion-fixes-2026-10-22.md)
+regenerates Denali's connections after correcting fallback direction handover.
+Its matched geometry-only app review uses the unchanged planner: the assigned
+Denali shot plays at the 128-second payoff and continues through the ending,
+while total transit falls from 94.224 to 69.915 seconds. The long remaining
+transfer, close crest and dark final view remain editorial gates. Original R2
+packages and captures are preserved; this revised package remains unapproved.
 
 The intended system gives each approved scenic view an offline-discovered **shot library**: complete
 camera moves around the region's real subjects, plus connecting moves between

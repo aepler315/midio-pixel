@@ -287,7 +287,7 @@ the new scouting runs, exact library identities, actual planned camera moves
 and remaining review gates. Candidate assets and local rebuilt libraries do
 not enable a production shot tour by themselves.
 
-The completed batch has **15 useful candidate libraries: 179 shots and 462
+The completed R2 batch has **15 useful candidate libraries: 179 shots and 462
 links**, including libraries for all three new locations. Tombstone remains a
 blocked rail-only result. The complete review asset tree is **65,023,144 bytes**;
 the global 60 MB ceiling is gone, while regional fit and graphics constraints
@@ -304,6 +304,16 @@ tested a stronger ending-in-transit penalty in matched actual-app captures.
 It improved the opening and reached a final shot, but made the main transfer
 more sky-heavy and left the ending dark. The experiment was rejected as a
 default change; production planning and camera approvals remain unchanged.
+
+The [next camera iteration](docs/scenic-motion-fixes-2026-10-22.md) corrects a
+skyward detour in fallback link aiming and regenerates Denali's connections from
+the same scored shots. Matched actual-app review reaches the configured Denali
+shot at the climax and holds it through the ending, with 24.309 seconds less
+transit. The remaining 69.915-second transfer, close snow crest and dark final
+view keep it a candidate. The separate
+[R3 review asset branch](https://github.com/aepler315/midio-pixel/tree/review/scenic-denali-heading-20261022)
+has 180 shots and 459 links across the same 15 useful libraries, with a
+64,853,210-byte asset tree. Camera quality takes priority over another location wave.
 
 ## Version archive
 

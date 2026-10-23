@@ -598,3 +598,14 @@ and final documentation continue in
 The rendering and test claims here retain the exact task-source identity;
 they do not certify main's additional pixel-presentation changes or a future
 combined merge. No camera approval or deployment is recorded.
+
+## Framing correction after the ending pilot
+
+The [next motion iteration](scenic-motion-fixes-2026-10-22.md) fixes the fallback
+link generator's skyward direction detour and regenerates all Denali connections
+from the same 141 fresh scored shots. The fitted R3 candidate has 13 shots and
+29 links. A separate matched actual-app review keeps the original runtime and
+ending weight, plays the assigned Denali shot at 128 seconds and holds that shot
+through the song end. Total transit falls from 94.224 to 69.915 seconds. The
+remaining long transfer, close snowy crest and dark ending prevent whole-tour
+approval. This later result does not rewrite the R2 findings or media above.
