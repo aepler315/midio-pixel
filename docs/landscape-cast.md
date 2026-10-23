@@ -386,8 +386,17 @@ view per run, so every run is one job (no camps or returns).
 - `panamint-dantes-view` (Lamplighters). Threads are drawn across the basin
   through the song, and by 160 s the network closes back on the first
   cairn.
-- Not yet judged: camps and returns, which need several views in one song
-  (live playback, not the forced-view capture); a storm hold, since this
+- Not yet judged: camps and returns, which need several views in one song.
+  Even with no forced view, the generated song's 13 detected sections
+  (all confidence 0) resolved to one biome, so it never left its view.
+  This needs a representative recording; a storm hold, since this
   song has no storm episode; `tombstone-north-klondike` and
   `monument-valley-163` on screen; and listening to whether the arrival
   lands with the music.
+
+Open question: in a song whose sections are untrusted (no phrases) but
+still switch views by label, the no-phrase fallback makes every view's stay
+the whole song. Each view then advances while it is off screen, with no
+camps and nothing to resume. The proposal's wording allows this. Keeping
+section-based stays and taking only the climax from energy would match the
+model better.
