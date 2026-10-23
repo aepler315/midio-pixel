@@ -1,11 +1,10 @@
 // The cast as lights in the Range (RangeActors.js): the per-song score
-// from each lane, the routes picked from a view, and the outlines the
-// swarms gather into.
+// from each lane, each view's job state, and the wandering routes tours
+// keep.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ACTOR_IDS, ACTOR_MOTES, ACTOR_OUTLINES, ACTOR_OPENING_MS, ACTOR_PEAK_GAP_MS, ROUTE_UNITS,
-  compileActorScore, rangeActorsAt, actorRoutes, routePosition,
+  ACTOR_IDS, ROUTE_UNITS, compileActorScore, rangeActorsAt, actorRoutes, routePosition,
 } from '../src/world/alpine/RangeActors.js';
 import { cameraPoseAt, projectPoint } from '../src/world/terrain/SceneTravel.js';
 
@@ -21,19 +20,11 @@ const song = narrative(120000, (id, t) => {
   return 0.2 + 0.1 * Math.sin(t / 900);
 });
 
-test('an actor peaks where its own lane swells, never in the opening, at most once per gap', () => {
+test('the score has no peaks: only glow and travel', () => {
   const score = compileActorScore(song);
-  const starts = score.peaks.midio;
-  assert.ok(starts.length >= 2, `peaks ${starts}`);
-  assert.ok(starts.every((t) => t >= ACTOR_OPENING_MS));
-  for (let i = 1; i < starts.length; i++) assert.ok(starts[i] - starts[i - 1] >= ACTOR_PEAK_GAP_MS);
-  // The swell at 40 s is within the gap of the one at 30 s.
-  assert.ok(starts[0] > 30000 && starts[0] < 33000, `first ${starts[0]}`);
-  assert.ok(!starts.some((t) => t > 40000 && t < 45000));
-  assert.ok(score.at(starts[0] + 1500).midio.peak > 0.9);
-  assert.equal(score.at(20000).midio.peak, 0);
-  // A silent lane never coheres and only drifts.
-  assert.equal(score.peaks.broshi.length, 0);
+  assert.equal(score.peaks, undefined);
+  assert.deepEqual(Object.keys(score.at(31000).midio).sort(), ['glow', 'travel']);
+  // A silent lane only drifts.
   assert.equal(score.at(60000).broshi.glow, 0);
 });
 
@@ -47,24 +38,34 @@ test('the score is a function of heard time: travel grows faster while the lane 
   assert.ok(score.at(33000).midio.glow > score.at(28000).midio.glow);
 });
 
-test('the cast arrives with the scene, and a review can hold a peak', () => {
+test('the cast arrives with the scene', () => {
   const sim = { rangeNarrative: song, biomes: {} };
   assert.equal(rangeActorsAt(sim, 1000).presence, 0);
   assert.equal(rangeActorsAt(sim, 9000).presence, 1);
   assert.ok(Number.isFinite(rangeActorsAt(sim, 9000).midio.trail));
-  sim.biomes.actorPeakOverride = 1;
-  assert.equal(rangeActorsAt(sim, 9000).broshi.peak, 1);
+  assert.equal(rangeActorsAt(sim, 9000).jobs, null, 'no views cast, no jobs');
   assert.equal(rangeActorsAt({}, 9000), null);
 });
 
-test('each outline has one point per mote, unit height, centred', () => {
-  for (const id of ACTOR_IDS) {
-    const pts = ACTOR_OUTLINES[id];
-    assert.equal(pts.length, ACTOR_MOTES);
-    const ys = pts.map((p) => p[1]);
-    assert.ok(Math.abs(Math.max(...ys) - Math.min(...ys) - 1) < 0.05, id);
-    assert.ok(Math.abs(Math.max(...ys) + Math.min(...ys)) < 0.05, id);
-  }
+test('each view the song visits has a job, and a review can hold its progress', () => {
+  const sections = [0, 1, 2, 3].map((i) => ({ startMs: i * 30000, endMs: (i + 1) * 30000, barMs: 2000, profile: i % 2 ? 'B' : 'A',
+    provenance: 'detected', confidence: 1 }));
+  const sim = { rangeNarrative: { ...song, onsets: { midio: [], broshi: [], midasus: [] } },
+    biomes: { sections, durationMs: 120000, energyCurves: { globalEnergyNorm: (t) => (t > 60000 && t < 90000 ? 0.9 : 0.3) } } };
+  const sceneAssignments = new Map([['A', { view: { id: 'va' } }], ['B', { view: { id: 'vb' } }]]);
+  const at = (t) => rangeActorsAt(sim, t, { sceneAssignments });
+  assert.deepEqual(Object.keys(at(10000).jobs).sort(), ['va', 'vb']);
+  assert.equal(at(10000).schedule, at(50000).schedule, 'compiled once');
+  assert.ok(at(29000).jobs.va.p > at(10000).jobs.va.p);
+  assert.equal(at(45000).jobs.va.p, at(30000).jobs.va.p, 'held while away');
+  // The loud third section is the climax: A finishes on it.
+  assert.equal(at(70000).jobs.va.p, 1);
+  sim.biomes.castProgressOverride = { vb: 0.5 };
+  assert.equal(at(10000).jobs.vb.p, 0.5);
+  assert.equal(at(10000).jobs.vb.override, true);
+  assert.notEqual(at(10000).jobs.va.p, 0.5);
+  sim.biomes.castProgressOverride = 1;
+  assert.equal(at(10000).jobs.va.payoff01, 1);
 });
 
 // A bowl with a round lake in it, seen from its south rim.

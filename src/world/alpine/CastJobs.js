@@ -254,3 +254,58 @@ export function siteWalk(sites, dues, p) {
   const e = f * f * (3 - 2 * f);
   return A.map((v, j) => v + (B[j] - v) * e);
 }
+
+/** Thread heights over the sites they join. */
+export const THREAD_ALT_M = Object.freeze([200, 400]);
+
+/**
+ * What a plan builds, as the schedule needs it: `lights` (fixed lines on an
+ * ascent; cairns and buoys for lamplighters), `threads` (lamplighters), and
+ * `marks`, one per light then per thread, for CastSchedule.kindleTimes.
+ * Lamplighters also get each walker's sites and the progress it reaches
+ * them at. Positions are on the drawn ground or water.
+ */
+export function castWork(plan, { data = null, waterLevelM = null } = {}) {
+  const lights = [], threads = [], marks = [], walkers = {};
+  if (plan?.job === 'ascent') {
+    const low = new Set(Array.from({ length: FIXED_LIGHTS_LOW }, (_, j) => Math.round(((j + 0.5) * FIXED_LIGHTS) / FIXED_LIGHTS_LOW - 0.5)));
+    for (let k = 0; k < FIXED_LIGHTS; k++) {
+      const u = plan.waterU + ((1 - plan.waterU) * (k + 1)) / (FIXED_LIGHTS + 1);
+      lights.push({ pos: pathPosition(plan, u, { data, waterLevelM, hoverM: 1.5 }), kind: 'line', actor: 'broshi', u, low: low.has(k), mark: marks.length });
+      marks.push({ p: u, follow: 'broshi', lane: 'broshi' });
+    }
+  } else if (plan?.job === 'lamplighters') {
+    const lake = plan.buoys.length > 0;
+    const nc = plan.cairns.length, nb = plan.buoys.length;
+    const ground = (p, lift) => {
+      const h = data ? terrainHeightAt(data, p[0], p[2]) : NaN;
+      return [p[0], (Number.isFinite(h) ? h : p[1]) + lift, p[2]];
+    };
+    walkers.broshi = { sites: [], dues: [] };
+    walkers.midio = { sites: [], dues: [], water: lake };
+    plan.cairns.forEach((c, k) => {
+      // With no lake Midio lights alternate cairns.
+      const actor = !lake && k % 2 === 1 ? 'midio' : 'broshi', p = (k + 1) / (nc + 1), pos = ground(c, 1.5);
+      lights.push({ pos, kind: 'cairn', actor, mark: marks.length });
+      marks.push({ p, lane: actor });
+      walkers[actor].sites.push(pos); walkers[actor].dues.push(p);
+    });
+    plan.buoys.forEach((b, j) => {
+      const p = (j + 1) / (nb + 1), pos = [b[0], (Number.isFinite(waterLevelM) ? waterLevelM : b[1]) + 1, b[2]];
+      lights.push({ pos, kind: 'buoy', actor: 'midio', mark: marks.length });
+      marks.push({ p, lane: 'midio' });
+      walkers.midio.sites.push(pos); walkers.midio.dues.push(p);
+    });
+    // Survey threads join neighbouring cairns once both are lit; the last
+    // closes the network back to the first at the finish.
+    const raise = (p, k) => [p[0], p[1] + THREAD_ALT_M[0] + (THREAD_ALT_M[1] - THREAD_ALT_M[0]) * (0.5 + 0.5 * Math.sin(k * 2.4)), p[2]];
+    for (let k = 1; k <= nc; k++) {
+      const closing = k === nc;
+      if (closing && nc < 3) break;
+      const i = k - 1, j = closing ? 0 : k;
+      threads.push({ a: raise(lights[i].pos, i), b: raise(lights[j].pos, j), closing, mark: marks.length });
+      marks.push(closing ? { p: 1, lane: 'midasus' } : { after: [lights[i].mark, lights[j].mark], lane: 'midasus' });
+    }
+  }
+  return Object.freeze({ lights, threads, marks, walkers });
+}

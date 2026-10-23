@@ -229,8 +229,6 @@ const SHADE = /* glsl */`
     vec3 hemi = mix(uSkyHorizon * 0.55, uSkyZenith, 0.5 + 0.5 * n.y) * uAmbientScale;
     vec3 lit = base * (hemi * (0.55 + 0.45 * core) * gTreeOcc + uLightColor * key * mix(.6, 1.0, gTreeOcc));
     lit += base * actorLight(world, n);
-    float giantShade = broshiShadow(world);
-    lit *= 1.0 - giantShade * .78;
     // As the storm breaks, the same sunlit swathes as the ground beneath.
     float opening = stormOpening(world);
     lit *= 1.0 - uStorm.z * (1.0 - opening) * 0.5;
@@ -254,8 +252,6 @@ const SHADE = /* glsl */`
     color = mix(color, rainColor(), rainVeil(world, dist) * 0.8);
     if (uDiag > 0.5) return vec4(1.0, 0.0, 1.0, 1.0);
     color = mix(uSkyHorizon, color, uNarrative.z);
-    // As on the ground: his shadow dims the haze in front of the trees too.
-    color *= 1.0 - giantShade * (.5 + .3 * clamp(air, 0.0, 1.0));
     return vec4(pow(max(color, 0.0), vec3(1.0 / 2.2)), 1.0);
   }
 `;

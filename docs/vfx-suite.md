@@ -30,7 +30,7 @@ few Canvas passes around it.
 
 The Range quality ladder (`RangeQuality.rangeQuality`): q2 lighter near-tree
 assets and 2x MSAA, q3 fewer fog samples, no shafts and no MSAA, q4 no lake
-mirror or landscape giants. Rock-stage pools are dormant on catalog v2 views. Landform structure,
+mirror, and 12 of the cast's 32 fixed-line lights ([landscape-cast.md](landscape-cast.md)). Rock-stage pools are dormant on catalog v2 views. Landform structure,
 ground contact and the musical signatures are never shed.
 
 ### Current composition order
