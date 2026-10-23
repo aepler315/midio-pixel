@@ -208,7 +208,7 @@ test('the sky pan uses the scene\'s own moved pose and follows a late-joining vi
   const scene = { movedPose: (v) => ({ rail, proj, pose: swing(v.id === 'a' ? 0.04 : -0.04) }) };
   const frame = { cameraMove: { yaw: 0 }, scenicViewport: { logicalWidth: 1280, logicalHeight: 720 } };
   const pan = (seamP, incomingFade, incoming = { id: 'b' }) =>
-    RangePresentation.prototype._skyPan.call({ scene, seamP, incomingFade }, { id: 'a' }, incoming, frame);
+    RangePresentation.prototype._skyPan.call({ scene, shots: { timeline: () => null }, seamP, incomingFade }, { id: 'a' }, incoming, frame);
   const alone = pan(0.5, 1, null);
   assert.ok(Math.abs(alone.x) > 0.02, 'the scene pose drives the pan');
   assert.deepEqual(pan(0.5, 0), alone, 'a view that has just joined (still invisible) moves nothing');

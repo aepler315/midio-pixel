@@ -60,3 +60,31 @@ test('stage fill dims at night while retaining its separate foreground legibilit
   apply(1); assert.equal(stage.uniforms.uAmbientScale.value, day);
   stage.dispose();
 });
+
+
+test('moonlit terrain retains sheltered receiver fill when the coda removes direct light', () => {
+  const { render, frame } = receiver();
+  const sky = render().uSkyZenith.value.toArray();
+  const moon = { ...frame.light.celestial, body: 'moon', intensity: 0 };
+  const light = { celestial: moon, night01: 1, ambientMultiplier: .35,
+    state: { sun: { visibility: 0 }, moon: { visibility: 1 } } };
+  const night = render(light);
+  assert.deepEqual(night.uLightColor.value.toArray(), [0, 0, 0], 'the spent direct key remains off');
+  assert.deepEqual(night.uSkyZenith.value.toArray(), sky, 'receiver fill does not brighten the authored sky');
+  assert.ok(Math.abs(night.uAmbientScale.value - 1.93125) < 1e-12, 'the visible moon shelters terrain fill');
+  assert.equal(render(light).uAmbientScale.value, night.uAmbientScale.value, 'fill does not compound');
+  const gap = render({ ...light, celestial: { ...moon, body: null },
+    state: { sun: { visibility: 0 }, moon: { visibility: 0 } } });
+  assert.ok(Math.abs(gap.uAmbientScale.value - .875) < 1e-12, 'an absent moon earns no extra fill');
+  assert.equal(render().uAmbientScale.value, 2.5, 'daylight keeps its existing fill');
+});
+
+test('terrain fill follows continuous celestial visibility through the active-body handover', () => {
+  const { render, frame } = receiver();
+  const shared = { night01: 1, ambientMultiplier: .35,
+    state: { sun: { visibility: 0 }, moon: { visibility: 1 } } };
+  const before = render({ ...shared, celestial: { ...frame.light.celestial, body: 'sun', intensity: 0 } }).uAmbientScale.value;
+  const after = render({ ...shared, celestial: { ...frame.light.celestial, body: 'moon', intensity: 0 } }).uAmbientScale.value;
+  assert.ok(before > .875, 'visible moon fill is already present before the active body changes');
+  assert.equal(before, after, 'the body label cannot introduce a receiver-light jump');
+});

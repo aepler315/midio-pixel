@@ -190,7 +190,19 @@ function joinedPath(library, items, k) {
   const prevItem = items[p], nextItem = items[k + 1], prevPath = prevItem && pathOf(library, prevItem).path;
   const before = prevItem && joins(prevItem, item) && prevItem.sTo >= prevPath.s.at(-1) - 1e-6 ? prevPath : null;
   const after = nextItem && joins(item, nextItem) && item.sTo >= L - 1e-6 && nextItem.sFrom <= 1e-6 ? pathOf(library, nextItem).path : null;
+  return shotSupportedPath(path, before, after);
+}
+
+const supportedPaths = new WeakMap();
+/** The path drawn with neighbouring support samples, shared with motion checks. */
+export function shotSupportedPath(path, before = null, after = null) {
   if (!before && !after) return path;
+  let byBefore = supportedPaths.get(path);
+  if (!byBefore) supportedPaths.set(path, byBefore = new Map());
+  let byAfter = byBefore.get(before);
+  if (!byAfter) byBefore.set(before, byAfter = new Map());
+  if (byAfter.has(after)) return byAfter.get(after);
+  const n = path.s.length, L = path.s[n - 1];
   const o = before ? 1 : 0, m = n + o + (after ? 1 : 0);
   const out = { s: new Float64Array(m), eye: new Float64Array(m * 3), aim: new Float64Array(m * 3), fov: new Float64Array(m), flow: new Float64Array(m) };
   for (let i = 0; i < n; i++) {
@@ -211,15 +223,28 @@ function joinedPath(library, items, k) {
     support(before, nb - 2, 0, 0, path.s[0] - own, own / (before.s[nb - 1] - before.s[nb - 2]));
   }
   if (after) { const own = L - path.s[n - 2]; support(after, 1, n - 1, m - 1, L + own, own / (after.s[1] - after.s[0])); }
+  byAfter.set(after, out);
   return out;
 }
 
-/**
- * Keyframes for a plan. With `previous`, every key through the plan's start
- * (frozenThroughMs, which may not lie beyond it) is copied bit-exactly from
- * `previous`, and the plan -- whose `start` continues the committed element
- * at its progress, speed and acceleration -- takes over from there.
- */
+// Exact maximum vertical derivative of the Float32 key spline, including extrema.
+function keyClimb(eye, fromMs, durationMs) {
+  let max = 0, atMs = fromMs;
+  const n = eye.length / 3;
+  for (let i = Math.max(0, Math.floor(fromMs / SHOT_KEY_MS)); i + 1 < n && i * SHOT_KEY_MS < durationMs; i++) {
+    const b = eye[i * 3 + 1], c = eye[i * 3 + 4], a = i ? eye[i * 3 - 2] : 2 * b - c, d = i + 2 < n ? eye[i * 3 + 7] : 2 * c - b;
+    const A = c - a, B = 2 * a - 5 * b + 4 * c - d, C = 3 * b - a - 3 * c + d;
+    const lo = Math.max(0, (fromMs - i * SHOT_KEY_MS) / SHOT_KEY_MS), hi = Math.min(1, (durationMs - i * SHOT_KEY_MS) / SHOT_KEY_MS);
+    const vertex = C ? -B / (3 * C) : -1;
+    for (const u of [lo, hi, ...(vertex > lo && vertex < hi ? [vertex] : [])]) {
+      const v = Math.abs(.5 * (A + 2 * B * u + 3 * C * u * u) * 1000 / SHOT_KEY_MS);
+      if (v > max) { max = v; atMs = (i + u) * SHOT_KEY_MS; }
+    }
+  }
+  return { max, atMs };
+}
+
+/** Build keys, preserving the committed prefix when `previous` is provided. */
 export function buildShotTimeline(library, plan, { previous = null, frozenThroughMs = -1, tunables = {} } = {}) {
   const T = shotMotion(library, tunables), durationMs = Math.max(0, plan.durationMs || 0), notes = [...(plan.notes || [])];
   // Keys lie on the 100 ms lattice; the last one may fall past the song end
@@ -331,7 +356,7 @@ export function buildShotTimeline(library, plan, { previous = null, frozenThroug
     const at = clamp(t / laneStep, 0, lane.length - 1), a = Math.floor(at), b = Math.min(lane.length - 1, a + 1);
     return T.flowCalm + (T.flowEnergetic - T.flowCalm) * (lane[a] + (lane[b] - lane[a]) * (at - a));
   };
-  const d = { maxSpeedMps: 0, maxProgressSpeedMps: 0, maxAccelMps2: 0, maxLateralAccelMps2: 0, maxProgressAccelMps2: 0, maxYawDegPerSec: 0, maxPitchDegPerSec: 0,
+  const d = { maxSpeedMps: 0, maxProgressSpeedMps: 0, maxAccelMps2: 0, maxLateralAccelMps2: 0, maxProgressAccelMps2: 0, maxYawDegPerSec: 0, maxPitchDegPerSec: 0, maxClimbMps: 0, maxClimbAtMs: null,
     maxFlowRadPerSec: 0, maxFlowRatio: 0, minSpeedMps: Infinity, payoffErrorMs: 0, notes };
   const h = 50, from = Math.max(t0, lastFrozen >= 0 ? keyTime(lastFrozen) : 0);
   let prev = null, prev2 = null, prevSpeed = null;
@@ -357,10 +382,25 @@ export function buildShotTimeline(library, plan, { previous = null, frozenThroug
     prev2 = prev; prev = { t, pose, look };
     if (t >= durationMs) break;
   }
+  const climb = keyClimb(eye, from, durationMs);
+  d.maxClimbMps = climb.max; d.maxClimbAtMs = climb.atMs;
   if (!Number.isFinite(d.minSpeedMps)) d.minSpeedMps = 0;
   for (const p of payoffs.slice(keptPayoffs.length)) d.payoffErrorMs = Math.max(d.payoffErrorMs, Number.isFinite(p.actualMs) ? Math.abs(p.actualMs - p.plannedMs) : Infinity);
   if (d.maxProgressAccelMps2 > T.maxAccelMps2 + 1e-6) notes.push(`progress acceleration ${d.maxProgressAccelMps2.toFixed(2)} m/s2 over the limit`);
   if (d.maxAccelMps2 > T.maxAccelMps2 * 1.05) notes.push(`eye acceleration ${d.maxAccelMps2.toFixed(2)} m/s2 over the limit`);
+  if (d.maxClimbMps > T.maxClimbMps + 1e-6) {
+    const message = `eye climb ${d.maxClimbMps.toFixed(6)} m/s over the limit ${T.maxClimbMps}`;
+    // A checked source path can still overshoot after Float32 key rounding
+    // or at a committed splice. Reject it before the worker publishes it.
+    if (plan.fallback === null) {
+      if (previous?.durationMs === durationMs && !previous.fallback && keyClimb(previous.eye, from, durationMs).max <= T.maxClimbMps + 1e-6) {
+        const heldNotes = [...(previous.notes || []), `Refinement deferred: ${message}`];
+        return restoreShotTimeline({ ...previous, notes: heldNotes, diagnostics: { ...previous.diagnostics, notes: heldNotes } });
+      }
+      throw new Error(message);
+    }
+    notes.push(message);
+  }
   if (d.maxFlowRatio > 1.05) notes.push(`image flow ${d.maxFlowRatio.toFixed(2)}x its comfort limit`);
 
   return restoreShotTimeline({ durationMs, startMs: t0, eye, target, fov, meta, progress, speed, accel, items, payoffs, knots,
@@ -449,7 +489,13 @@ export function shotContinuation(previous, committedThroughMs, { leadMs = 3000, 
   const next = later[0] && Number.isInteger(later[0].timeMs / SHOT_KEY_MS)
     ? { timeMs: later[0].timeMs, speedMps: previous.speed[later[0].timeMs / SHOT_KEY_MS], id: previous.items[later[0].itemIndex].id,
       legMps: meanSpeed(Number.isFinite(earlier) ? earlier : (previous.startMs ?? 0), later[0].timeMs) } : null;
+  // The planner needs the same incoming support as joinedPath. A continued
+  // copy of this item is transparent to that lookup.
+  let p = itemIndex - 1;
+  while (p >= 0 && previous.items[p].kind === item.kind && previous.items[p].id === item.id) p--;
+  const beforeItem = p >= 0 ? previous.items[p] : null;
   return { timeMs, itemKind: item.kind, id: item.id, s: previous.progress[i], speedMps: previous.speed[i], accelMps2: previous.accel[i],
     itemIndex, payoffMs: item.kind === 'shot' && Number.isFinite(item.payoffMs) && item.payoffMs <= timeMs ? item.payoffMs : null,
+    before: beforeItem ? { itemKind: beforeItem.kind, id: beforeItem.id, sTo: beforeItem.sTo } : null,
     next, knots: later.map((k) => k.timeMs), lastKnotMs: Number.isFinite(earlier) ? earlier : null };
 }
