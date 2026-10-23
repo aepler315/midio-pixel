@@ -14,8 +14,8 @@ This supersedes the open climb investigation in the historical
 [motion-fixes record](scenic-motion-fixes-2026-10-22.md). The original
 [R2 review](scenic-rebuild-review-2026-10-22.md),
 [ending-weight pilot](scenic-ending-pilot-2026-10-22.md), R3 packages and their
-captures remain preserved. No new location, camera approval, merge or deployment
-is implied. The approved geographic count remains **13**.
+captures remain preserved. No new location, camera approval or deployment is implied. The owner merged
+the runtime during this review; the delivery section records that separately. The approved geographic count remains **13**.
 
 ## Runtime changes and their boundaries
 
@@ -441,31 +441,45 @@ connection regeneration or new location is claimed in this runtime iteration.
 The global 60 MB cap remains removed; the existing regional limits remain.
 Candidate libraries remain unapproved and excluded from the normal picker.
 
-The source branch is `feat/scenic-rebuild-batch-one-20261022`, reviewed in
-[draft PR #32](https://github.com/aepler315/midio-pixel/pull/32). The runtime
-commit above is followed by a separate five-file Markdown update containing
-this record, the README and the three linked scenic documents. Its parent is
-the tested runtime commit; its exact delivery revision is the PR head.
+The source branch is `feat/scenic-rebuild-batch-one-20261022`. During the
+review, the owner `aepler315` merged [PR #32](https://github.com/aepler315/midio-pixel/pull/32)
+at **2026-10-23 06:28:25 UTC**, using runtime head
+`58a6068142c313e11986dcda5666697784c6f71f` and merge commit
+`112641de29258c995814d18b7a69a8530c51aaf2`. This agent did not issue that merge.
+Final readback caught the changed PR state before reporting completion.
 
-The source review covers that branch at its recorded revision. At readback,
-main is
-`6feed187f7cfe82ff11ec734e784208aabb78f78`; its separate Medium+ pixel-detail
-change is outside these frozen captures and source tests. The common ancestor
-is `f51c27f7855ca6a3f163f77afaee4827438e2973`. No merged integration or GitHub CI
-pass is claimed; the runtime commit has no returned check runs or PR workflow
-runs at this readback. The recorded full suite and lint results are local.
+The five-file Markdown update is commit
+`c13078d806f5c5e75b24c1f2387014d0f1df1da1`, sole parent the tested runtime.
+It contains this review, the README and the three linked scenic documents and
+was published after the owner's merge; it is outside merged PR #32. A subsequent
+one-file documentation correction records that external state change. These
+Markdown changes are delivered in a separate draft follow-up from the source
+branch; the PR description records its exact current head.
+
+The source tests and captures remain pinned to the reviewed runtime. The
+initial main comparison used `6feed187f7cfe82ff11ec734e784208aabb78f78`, which
+adds Medium+ pixel detail outside the freeze. Final readback finds main at
+`c55ad6f62ca7e8bec247bbd483128cae1b74e5a8`, also containing
+landscape-cast work merged through PR #35. Those render/actor changes are outside the
+680-file camera-review snapshot. No current-main integration, live deployment
+or GitHub CI pass follows from these local tests and saved images.
 
 The [combined-runtime candidate branch](https://github.com/aepler315/midio-pixel/tree/review/scenic-climb-pacing-20261022)
-is `review/scenic-climb-pacing-20261022`. Its sole parent is that documentation
-revision. It overlays **78 byte-identical R3 entries** from
+is `review/scenic-climb-pacing-20261022`. Its first assembly is
+`1c4fd074dbd07979006084a2dcf25284e1750923`, sole parent the five-file Markdown
+commit `c13078d806f5c5e75b24c1f2387014d0f1df1da1`. A documentation-only child
+preserves that assembly history and records the external merge. The candidate
+continues to reproduce runtime `58a6068` with the reviewed R3 assets.
+
+It overlays **78 byte-identical R3 entries** from
 `5cd3bf7f2651ab1bae2b9d6bd651915f44eda245`; no new asset blob is created.
-The expected Git tree binds all **680 public files** to the final R3 app-review
-snapshot above. Remote tree/blob identities and sizes provide the binary
-readback check; binary files are not claimed to have been downloaded through
-the UTF-8 connector. The external `candidate-publication-manifest.json` and
-final publication readback bind the source and candidate commit/tree identities.
-The PR description records their exact SHAs without making this document refer
-to its own content hash.
+All **680 public files** remain bound to the final R3 app-review snapshot
+above. Remote tree/blob identities and sizes provide the binary readback check;
+binary downloads through the UTF-8 connector are not claimed. The external
+candidate publication manifests and readbacks bind the initial assembly and
+its documentation-only child to their exact commit/tree identities. The PR
+description records current SHAs without making this document refer to its own
+content hash.
 
 The preserved [R2 branch](https://github.com/aepler315/midio-pixel/tree/review/scenic-library-rebuild-20261022)
 remains at `d3d0d0462a40a8a0df2e48aa1160ccb55b5b856f`, and the
@@ -482,6 +496,7 @@ run from the candidate checkout, use `npm start` and
 the recording and choose Landscape. These explicit diagnostic parameters do
 not grant camera approval or bypass package identity checks.
 
-No merge, deployment, camera approval or expansion beyond the existing first
-candidate wave follows from this delivery. Local source tests, saved app images,
-remote publication and owner/device acceptance remain distinct states.
+The runtime merge is confirmed, while deployment and owner camera/device
+acceptance remain unverified. The documentation follow-up remains a draft.
+Expansion stays on hold at 13 approved views. Local source tests, saved app
+images, remote publication and owner/device acceptance remain distinct states.
