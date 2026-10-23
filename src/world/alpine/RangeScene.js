@@ -1906,7 +1906,11 @@ export class RangeScene {
     // When each light kindles (seek-safe: compiled once per schedule). A
     // review's progress override lights what that progress has reached.
     const times = schedule.kindleTimes(p.view.id, work.marks) || [];
-    const reached = (k) => (state.override ? (Number.isFinite(work.marks[k].p) ? work.marks[k].p <= state.p : false) : t >= times[k]);
+    const reached = (k) => {
+      const m = work.marks[k];
+      if (!state.override) return t >= times[k];
+      return Number.isFinite(m.p) ? m.p <= state.p : m.after.every(reached);
+    };
     const since = (k) => (state.override ? (reached(k) ? Infinity : -1) : t - times[k]);
     const flyFor = (actor) => {
       let best = null;
@@ -1945,7 +1949,7 @@ export class RangeScene {
       const scout = (x) => { const q = pathPosition(plan, x, opts); return [q[0], q[1] + alt, q[2]]; };
       out.actors.midasus = { pos: scout(um), lag: [1, 2, 3].map(j => scout(Math.max(0, um - 0.012 * j))), fly: flyFor('midasus') };
     } else {
-      out.dim = 1 - 0.25 * shelter;
+      // In a storm they pause in place (the schedule slows them); no dimming.
       out.beacon01 = 0;
       const walk = (actor, hoverM) => {
         const w = work.walkers[actor];
@@ -1967,7 +1971,7 @@ export class RangeScene {
       }
       if (!scout && work.lights[0]) { const c = work.lights[0].pos; scout = [c[0], c[1] + 300, c[2]]; }
       if (scout) scout = [scout[0], scout[1] * (1 - shelter) + (scout[1] - 200) * shelter, scout[2]];
-      out.actors.midasus = { pos: scout, lag: scout ? [scout, scout, scout] : null, fly: null };
+      out.actors.midasus = { pos: scout, lag: scout ? [scout, scout, scout] : null, fly: flyFor('midasus') };
     }
     return out;
   }

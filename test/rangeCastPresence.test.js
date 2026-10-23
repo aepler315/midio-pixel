@@ -65,6 +65,31 @@ test('an ascent puts the team on its path and lights the fixed lines Broshi has 
  actors.dispose();
 });
 
+test('lamplighters walk their sites, and Midasus threads the cairns both lit',()=>{
+ const shared={...actorUniforms(THREE),uCameraPos:{value:new THREE.Vector3()},uAirDensity:{value:0},uAirHeightFalloff:{value:0}};
+ const actors=new ActorsGL(THREE,shared), camera=new THREE.PerspectiveCamera(35,16/9,1,100000);
+ camera.position.set(0,1000,0);camera.lookAt(0,1000,-10000);camera.updateMatrixWorld();
+ const plan={job:'lamplighters',cairns:[[-800,1000,-5000],[0,1000,-5200],[800,1000,-5000]],buoys:[]};
+ const work=castWork(plan);
+ assert.equal(work.threads.length,3,'two neighbours and the closing thread');
+ const p={view:{id:'v'},actors,uniforms:shared,actorRoutes:{},castPlan:plan,castWork:work,data:null,scenes:{far:new THREE.Scene()}};
+ const scene={THREE,camera,_tileAt:()=>null,_castJob:RangeScene.prototype._castJob,_setCastLights:RangeScene.prototype._setCastLights};
+ // The first two cairns lit at 10 s, their thread at 19 s; nothing else yet.
+ const times=work.marks.map((m,k)=>k<2?10000:k===work.threads[0].mark?19000:Infinity);
+ const state={p:0.55,offsets:{broshi:0,midasus:0},shelter01:0,payoff01:0,fuse01:0,camps:0,climax:false};
+ const cast={presence:1,...Object.fromEntries(ACTOR_IDS.map(id=>[id,{glow:0.5,travel:1}])),jobs:{v:state},schedule:{kindleTimes:()=>times,views:{v:{camps:[]}}}};
+ RangeScene.prototype._setActors.call(scene,p,{actors:cast,timeMs:20000,qualityLevel:0,light:{night01:1}});
+ const u=actors.threads.uniformsByBand.far;
+ assert.ok(u.uReveal.value[0]>0.6&&u.uReveal.value[0]<0.7,'drawn over 1.5 s');
+ assert.equal(u.uReveal.value[1],0);assert.equal(u.uReveal.value[2],0);
+ // Midasus is at the drawing front, Midio's motes are settling into his cairn.
+ const front=work.threads[0].a.map((v,c)=>v+(work.threads[0].b[c]-v)*(1000/1500));
+ assert.ok(shared.uActorPos.value[2].distanceTo(new THREE.Vector3(...front))<1e-6);
+ const state01=actors.sites.meshes.far.geometry.attributes.aState;
+ assert.deepEqual([0,1,2].map(k=>state01.getX(k)),[1,1,0]);
+ actors.dispose();
+});
+
 test('off-axis terrain zoom preserves the prescribed cast size in screen pixels',()=>{
  const shared=actorUniforms(THREE), actors=new ActorsGL(THREE,shared);
  const camera=new THREE.PerspectiveCamera(35,16/9,1,100000);
