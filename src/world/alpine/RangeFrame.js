@@ -419,8 +419,9 @@ export function buildRangeFrame({
     cloudSea01: cloudSeaAt(mgr, timeMs),
     storm: stormAt(mgr, timeMs),
     performance,
-    // The cast as lights in the land: brightness, travel and peaks per lane.
-    actors: rangeActorsAt(sim, timeMs),
+    // The cast as lights in the land: brightness and travel per lane, and
+    // each view's job (docs/landscape-cast.md).
+    actors: rangeActorsAt(sim, timeMs, { sceneAssignments, forcedView }),
     cameraEffects: lens,
     // Camera: this section's slow cinematic move, and the listener's zoom.
     cameraMove: performance.camera,

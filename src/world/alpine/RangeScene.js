@@ -2,7 +2,6 @@ import { cloudPuffs } from './CloudOcclusion.js';
 import { shaderFailureLog } from '../../render/GraphicsDiagnostics.js';
 import { applyLensFov } from '../../render/CameraLens.js';
 import { terrainShadingMode, terrainShadingForView } from './TerrainShadingExperiment.js';
-import { giantLayout, giantAmounts, mirrorGiantSpan, aheadOfEye } from './LandscapeGiants.js';
 import { resolveRangeComposition, compositionBars } from './RangeComposition.js';
 import { rangeRenderPolicy, supportedSamples, msaaOverride, sceneTargetBytes, sideTargetBytes, nearerMask } from './RangeRenderPolicy.js';
 // Range v2 GPU scene (plan §6, §7.2). One reusable WebGL2 context, owned
@@ -46,6 +45,7 @@ import { applyGlacierUniforms, glacierErrors, glacierSample } from './GlacierFie
 import { ActorsGL } from './ActorsGL.js';
 import { buildRiverGeometry, riverGeometryBound, riverChannelErrors } from './RiverChannel.js';
 import { ACTOR_IDS, ACTOR_HUES, ACTOR_LOOK, ACTOR_START, actorRoutes, routePosition } from './RangeActors.js';
+import { castPlan, castWork, pathPosition, siteWalk } from './CastJobs.js';
 // Storm light, linear: the deck's underside, the rain-dimmed horizon, the rain air.
 // STORM_AIR meets the slate the sky paints at the horizon (drawStormSky) once displayed.
 const STORM_ZENITH = { r: .02, g: .026, b: .036 }, STORM_HORIZON = { r: .03, g: .038, b: .05 }, STORM_AIR = { r: .028, g: .036, b: .048 };
@@ -114,9 +114,6 @@ function waterLevel(data) {
   hs.sort((a, b) => a - b);
   return hs[hs.length >> 1];
 }
-
-/** Midio's mirrored sheet keeps this far ahead of a zoomed-in eye. */
-const MIDIO_MIN_AHEAD_M = 600;
 
 export class RangeScene {
   /** `THREE` is the local bundle; `residency` the shared ledger. */
@@ -1135,9 +1132,15 @@ export class RangeScene {
         for (const band of BANDS) for (const m of forest.byBand[band]) scenes[band].add(m);
         for (const d of forest.depth) depthScene.add(d);
         // The cast: lanterns and swarms, moved between band scenes as they
-        // travel (RangeActors.js picks their routes from what the rail sees).
+        // travel. CastJobs.js reads this view's job from what the rail sees
+        // (tours wander the routes RangeActors.js picks); the lights the
+        // job leaves stand in the band that owns the ground under them.
         actors = new ActorsGL(THREE, uniforms);
-        const routes = actorRoutes(cpu.data, view, { waterLevelM, seed: hashSeed(`${view.id}:cast`) });
+        const castSeed = hashSeed(`${view.id}:cast`);
+        const routes = actorRoutes(cpu.data, view, { waterLevelM, seed: castSeed });
+        const plan = castPlan(cpu.data, view, { waterLevelM, seed: castSeed });
+        const work = castWork(plan, { data: cpu.data, waterLevelM });
+        for (const band of BANDS) scenes[band].add(actors.sites.meshes[band], actors.threads.meshes[band]);
         // Per-band depth scenes for travel frames, where a side's nearer
         // bands are drawn only in some columns (same geometry and material;
         // a mesh has one parent, so these are separate mesh objects).
@@ -1196,8 +1199,7 @@ export class RangeScene {
           riverMaterial, riverDepthMaterial, riverOwnershipMaterials, riverGeometries, riverFringeGeometries, riverDepthMeshes, riverStats,
           forest, stageGL, featureGeometries, featureMaterial,
           stats: { ...geos.stats, trees: forest.counts, featureBytes: featureBudgetBytes }, gpuKey, cpuKey: cpu.key, cpuOwner,
-          giantLayout: giantLayout(cpu.data, view, [uniforms.uHeightRange.value.x, uniforms.uHeightRange.value.y], waterLevelM),
-          rules, waterLevelM, mirrorLevelM, materialKey: mat.key, materialOwner, actors, actorRoutes: routes,
+          rules, waterLevelM, mirrorLevelM, materialKey: mat.key, materialOwner, actors, actorRoutes: routes, castPlan: plan, castWork: work,
         };
         if (windowWorker) {
           prepared.windowWorker = windowWorker;
@@ -1732,34 +1734,10 @@ export class RangeScene {
       u.uAirColor.value.lerp(STORM_AIR, k).add(new THREE.Color(.65, .77, 1).multiplyScalar(storm.flash * .35));
       u.uAirDensity.value *= 1 + storm.amount * .6 - storm.break01 * .35;
     }
-    const amounts = giantAmounts(frame);
-    const layout = p.giantLayout;
-    if (layout) {
-      u.uGiantPeak.value = amounts;
-      layout.centers.forEach((center, i) => u.uGiantCenter.value[i].set(...center));
-      layout.skyCenters.forEach((center, i) => u.uSkyGiantCenter.value[i].set(...center));
-      u.uGiantSpan.value = layout.spans;
-      if (layout.hasLake) {
-        const eye = this.camera.position.toArray();
-        const center = aheadOfEye(layout.centers[0], eye, layout.forward, MIDIO_MIN_AHEAD_M);
-        u.uGiantCenter.value[0].set(center[0], p.waterLevelM, center[2]);
-        const bottom = new THREE.Vector3(0, -.92, .5).unproject(this.camera).sub(this.camera.position);
-        u.uGiantSpan.value = [mirrorGiantSpan(eye, bottom.toArray(), center,
-          p.waterLevelM, MIRROR_LIFT, layout.spans[0]), ...layout.spans.slice(1)];
-      }
-      u.uMirrorAspect.value = layout.hasLake ? 1 / MIRROR_LIFT : 1;
-      u.uSkyGiantSpan.value = layout.skySpan;
-      u.uGiantRight.value.set(...layout.right); u.uGiantForward.value.set(...layout.forward);
-      // Broshi's lantern is carried just behind the viewer, so his shadow
-      // lands on the range in his own proportions (a Brocken spectre).
-      u.uShadowEye.value.copy(this.camera.position);
-      u.uMidioCloud.value = layout.hasLake && Number.isFinite(p.mirrorLevelM) ? 0 : 1;
-      u.uGiantTime.value = frame.timeMs / 1000;
-    }
     // Valley mist: anchored at the view's water level, thicker in calm.
     const mp = mistParams({ rules: p.rules, waterLevelM: p.waterLevelM, heightRange: [u.uHeightRange.value.x, u.uHeightRange.value.y],
       tSec: frame.timeMs / 1000, calm01: 1 - (frame.music?.groove ?? 0),
-      sea01: Math.max(frame.cloudSea01 ?? 0, amounts[2] * .3, u.uMidioCloud.value * amounts[0] * .3), cameraY: this.camera.position.y });
+      sea01: frame.cloudSea01 ?? 0, cameraY: this.camera.position.y });
     const quality = rangeQuality(frame.qualityLevel);
     const cameraTour = p.view.tour || p.cameraTour;
     if (cameraTour) {
@@ -1815,10 +1793,12 @@ export class RangeScene {
   }
 
   /**
-   * Place the cast for this frame: each actor's lantern and swarm on its
-   * route (in the band scene that owns the ground under it), its light in
-   * the shared uniforms, Midio's wake and Broshi's parting. Absent actors
-   * (no route, no score yet, before the scene arrives) give no light.
+   * Place the cast for this frame: each actor's lantern and swarm where its
+   * job puts it (docs/landscape-cast.md) -- or on its wandering route in a
+   * tour -- in the band scene that owns the ground under it, its light in
+   * the shared uniforms, Midio's wake and Broshi's parting, and the lights
+   * the job has left in this view. Absent actors (no route or plan, no
+   * score yet, before the scene arrives) give no light.
    */
   _setActors(p, frame) {
     const THREE = this.THREE;
@@ -1835,16 +1815,21 @@ export class RangeScene {
     // The lights carry the dark: brightest before dawn and after sunset,
     // a soft shimmer at noon.
     const dark = Math.min(1, Math.max(0, frame.light?.night01 ?? 0));
+    const presence = (cast?.presence ?? 0) * (materials > .01 ? materials : 0);
     u.uWakeAmt.value = 0;
     u.uParting.value.w = 0;
+    // A shot tour over a rail view keeps the view's job (and every light it
+    // has left); only a tour view's own terrain wanders.
+    const job = p.view.tour ? null : this._castJob(p, frame);
+    const opts = { data: p.data, waterLevelM: p.waterLevelM };
     ACTOR_IDS.forEach((id, k) => {
       const group = p.actors?.groups[id];
       const route = p.actorRoutes?.[id];
       const s = cast?.[id];
       const look = ACTOR_LOOK[id];
-      const presence = (cast?.presence ?? 0) * (materials > .01 ? materials : 0);
-      const pos = route && s && presence > 0.001
-        ? routePosition(route, s.travel + (ACTOR_START[id] || 0), { data: p.data, waterLevelM: p.waterLevelM, hoverM: look.hoverM, bobSec: tSec + k * 2.1 }) : null;
+      const placed = job?.actors[id];
+      const pos = !s || presence <= 0.001 ? null : job ? placed?.pos
+        : route ? routePosition(route, s.travel + (ACTOR_START[id] || 0), { ...opts, hoverM: look.hoverM, bobSec: tSec + k * 2.1 }) : null;
       u.uActorColor.value[k].set(0, 0, 0);
       if (!group) return;
       // Lanterns, motes and companions must test the completed forest depth.
@@ -1853,36 +1838,41 @@ export class RangeScene {
       const at = new THREE.Vector3(pos[0], pos[1], pos[2]);
       const dist = Math.max(1, at.distanceTo(cam.position));
       const display = new THREE.Color().setHSL(ACTOR_HUES[id] / 360, 0.85, 0.62);
-      // Light: linear, stronger as the lane plays and at its peak.
+      // Light: linear, stronger as the lane plays; dimmed while the team
+      // shelter from a storm; Midio's swells into the summit beacon.
       const lin = display.clone().convertSRGBToLinear();
-      const gain = look.lightGain * (0.35 + 0.65 * s.glow + 0.5 * s.peak) * presence * (0.45 + 1.15 * dark);
+      const beacon = id === 'midio' ? job?.beacon01 ?? 0 : 0;
+      const gain = look.lightGain * (0.35 + 0.65 * s.glow) * presence * (0.45 + 1.15 * dark)
+        * (job?.dim ?? 1) * (1 + beacon * ((job?.beaconGain ?? 2) - 1));
       u.uActorPos.value[k].copy(at);
       u.uActorColor.value[k].set(lin.r * gain, lin.g * gain, lin.b * gain);
-      u.uActorRadius.value[k] = look.lightM;
+      u.uActorRadius.value[k] = look.lightM * (1 + 2 * beacon);
       // The lantern and swarm draw a little toward the camera from the
       // light itself, so the ground it hovers over does not cut its halo.
       const mpp0 = (2 * dist * tanHalf) / 720;
-      const push = Math.min(dist * 0.25, 3 * look.haloPx * mpp0);
+      const haloPx = look.haloPx * (1 + 0.6 * beacon);
+      const push = Math.min(dist * 0.25, 3 * haloPx * mpp0);
       const toCam = cam.position.clone().sub(at).normalize();
       const v = p.actors.uniforms[id];
       v.uCenter.value.copy(at).addScaledVector(toCam, push);
       v.uRight.value.copy(right);
       v.uUp.value.copy(up);
       v.uMpp.value = mpp0 * (dist - push) / dist;
-      v.uHaloPx.value = look.haloPx;
+      v.uHaloPx.value = haloPx;
       v.uColor.value.copy(display);
-      v.uGlow.value = s.glow;
-      v.uPresence.value = presence * (0.55 + 0.45 * dark);
-      v.uCohere.value = s.peak;
+      v.uGlow.value = Math.max(s.glow, beacon);
+      v.uPresence.value = presence * (0.55 + 0.45 * dark) * (job?.dim ?? 1);
       v.uTime.value = tSec + k * 37;
       v.uWanderPx.value = look.wanderPx * (1 + 0.5 * s.glow);
-      v.uShapePx.value = look.shapePx;
-      v.uShapeLift.value = route.kind === 'air' ? 0 : 0.6;
-      // Companions trail along the same route, each a little behind and
+      // A kindling: motes stream from the lantern into the new light.
+      const fly = placed?.fly;
+      v.uFly.value = fly ? fly.t : 0;
+      if (fly) v.uFlyTarget.value.set(...fly.pos);
+      // Companions trail along the same way, each a little behind and
       // weaving about it.
       (p.actors.companions[id] || []).forEach((c, j) => {
-        const lag = routePosition(route, s.travel + (ACTOR_START[id] || 0) - (j + 1) * 0.5,
-          { data: p.data, waterLevelM: p.waterLevelM, hoverM: look.hoverM, bobSec: tSec + j * 1.3 });
+        const lag = job ? placed.lag?.[j] ?? pos
+          : routePosition(route, s.travel + (ACTOR_START[id] || 0) - (j + 1) * 0.5, { ...opts, hoverM: look.hoverM, bobSec: tSec + j * 1.3 });
         const w = tSec * (0.7 + 0.2 * j) + j * 2.1;
         const cp = new THREE.Vector3(lag[0], lag[1], lag[2])
           .addScaledVector(right, Math.sin(w) * 18 * mpp0).addScaledVector(up, Math.cos(w * 1.3) * 10 * mpp0);
@@ -1896,12 +1886,155 @@ export class RangeScene {
       const tile = this._tileAt(p.data, pos[0], pos[2]);
       const band = BANDS.includes(tile?.band) ? tile.band : 'far';
       if (group.parent !== p.scenes[band]) p.scenes[band].add(group);
-      if (id === 'midio' && route.kind === 'water' && Number.isFinite(cast.midio.trail)) {
-        const tail = routePosition(route, cast.midio.trail, { data: p.data, waterLevelM: p.waterLevelM });
+      // Midio's wake runs back along his heading on the water.
+      const tail = job ? placed.wakeTail
+        : id === 'midio' && route.kind === 'water' && Number.isFinite(cast.midio.trail) ? routePosition(route, cast.midio.trail, opts) : null;
+      if (id === 'midio' && tail) {
         u.uWake.value.set(pos[0], pos[2], tail[0], tail[2]);
         u.uWakeAmt.value = presence * (0.3 + 0.7 * s.glow);
       }
       if (id === 'broshi') u.uParting.value.set(pos[0], pos[2], 90, presence * (0.35 + 0.65 * s.glow));
+    });
+    this._setCastLights(p, frame, job, presence, dark, right, up, tanHalf);
+  }
+
+  /**
+   * This view's job at heard time: where each actor stands, what it is
+   * kindling, the beacon, and which lights are lit. Null with no job (a
+   * tour, a view with nowhere to work, or no schedule yet).
+   */
+  _castJob(p, frame) {
+    const plan = p.castPlan, work = p.castWork;
+    const state = frame.actors?.jobs?.[p.view.id];
+    const schedule = frame.actors?.schedule;
+    if (!plan || plan.job === 'wander' || !state || !schedule) return null;
+    const t = frame.timeMs, cast = frame.actors;
+    const opts = { data: p.data, waterLevelM: p.waterLevelM };
+    const unit = x => Math.max(0, Math.min(1, x));
+    // When each light kindles (seek-safe: compiled once per schedule). A
+    // review's progress override lights what that progress has reached.
+    const times = schedule.kindleTimes(p.view.id, work.marks) || [];
+    const reached = (k) => {
+      const m = work.marks[k];
+      if (!state.override) return t >= times[k];
+      return Number.isFinite(m.p) ? m.p <= state.p : m.after.every(reached);
+    };
+    const since = (k) => (state.override ? (reached(k) ? Infinity : -1) : t - times[k]);
+    const flyFor = (actor) => {
+      let best = null;
+      for (const l of work.lights) {
+        const age = since(l.mark);
+        if (l.actor === actor && age >= 0 && age < 800 && (!best || age < best.age)) best = { age, pos: l.pos };
+      }
+      for (const th of work.threads) {
+        const age = since(th.mark);
+        if (actor === 'midasus' && age >= 0 && age < 800 && (!best || age < best.age)) best = { age, pos: th.b };
+      }
+      return best ? { t: best.age / 800, pos: best.pos } : null;
+    };
+    const p01 = state.p, shelter = state.shelter01;
+    const out = { actors: {}, beacon01: 0, beaconGain: state.climax ? 2 : 1.5, dim: 1, reached, since, state, times };
+    if (plan.job === 'ascent') {
+      out.dim = 1 - 0.4 * shelter;
+      out.beacon01 = state.payoff01;
+      const onWater = (x) => x < plan.waterU;
+      const lead = pathPosition(plan, p01, { ...opts, hoverM: onWater(p01) ? ACTOR_LOOK.midio.hoverM : ACTOR_LOOK.midio.climbM });
+      out.actors.midio = { pos: lead, fly: flyFor('midio'),
+        wakeTail: onWater(p01) ? pathPosition(plan, Math.max(0, p01 - 0.04), opts) : null };
+      // Broshi walks the shore to the landing while Midio is on the water.
+      const ub = Math.max(0, p01 - state.offsets.broshi);
+      let porter;
+      if (onWater(ub) && plan.shoreStart) {
+        const f = ub / plan.waterU, a = plan.shoreStart, b = plan.landing;
+        const x = a[0] + (b[0] - a[0]) * f, z = a[2] + (b[2] - a[2]) * f;
+        const h = terrainHeightAt(p.data, x, z);
+        porter = [x, (Number.isFinite(h) ? h : b[1]) + ACTOR_LOOK.broshi.hoverM, z];
+      } else porter = pathPosition(plan, Math.max(ub, plan.waterU), { ...opts, hoverM: ACTOR_LOOK.broshi.climbM });
+      out.actors.broshi = { pos: porter, fly: flyFor('broshi') };
+      // Midasus scouts ahead and above, and comes down to the path in a storm.
+      const um = Math.min(1, p01 + state.offsets.midasus);
+      const alt = (150 + 150 * (cast.midasus?.glow ?? 0)) * (1 - shelter) + 20;
+      const scout = (x) => { const q = pathPosition(plan, x, opts); return [q[0], q[1] + alt, q[2]]; };
+      out.actors.midasus = { pos: scout(um), lag: [1, 2, 3].map(j => scout(Math.max(0, um - 0.012 * j))), fly: flyFor('midasus') };
+    } else {
+      // In a storm they pause in place (the schedule slows them); no dimming.
+      out.beacon01 = 0;
+      const walk = (actor, hoverM) => {
+        const w = work.walkers[actor];
+        const at = w?.sites.length ? siteWalk(w.sites, w.dues, p01) : null;
+        return at ? [at[0], at[1] + hoverM, at[2]] : null;
+      };
+      out.actors.broshi = { pos: walk('broshi', ACTOR_LOOK.broshi.hoverM), fly: flyFor('broshi') };
+      const midio = walk('midio', ACTOR_LOOK.midio.hoverM);
+      out.actors.midio = { pos: midio, fly: flyFor('midio'),
+        wakeTail: work.walkers.midio?.water && midio ? siteWalk(work.walkers.midio.sites, work.walkers.midio.dues, Math.max(0, p01 - 0.02)) : null };
+      // Midasus draws the thread being surveyed; between threads she
+      // waits over its far end.
+      let scout = null;
+      for (const th of work.threads) {
+        const age = since(th.mark);
+        if (age < 0) break;
+        const f = unit(age / 1500);
+        scout = th.a.map((v, c) => v + (th.b[c] - v) * f);
+      }
+      if (!scout && work.lights[0]) { const c = work.lights[0].pos; scout = [c[0], c[1] + 300, c[2]]; }
+      if (scout) scout = [scout[0], scout[1] * (1 - shelter) + (scout[1] - 200) * shelter, scout[2]];
+      out.actors.midasus = { pos: scout, lag: scout ? [scout, scout, scout] : null, fly: flyFor('midasus') };
+    }
+    return out;
+  }
+
+  /** The lights the job has left in this view, and Midasus's threads. */
+  _setCastLights(p, frame, job, presence, dark, right, up, tanHalf) {
+    const THREE = this.THREE;
+    const sites = p.actors?.sites, threads = p.actors?.threads;
+    if (!sites || !threads) return;
+    const work = p.castWork, schedule = frame.actors?.schedule;
+    // Lay the sites out once per schedule: the job's lights, then a camp
+    // light at each camp (known when the schedule is).
+    if (p.castLayoutFor !== schedule) {
+      p.castLayoutFor = schedule;
+      const hue = (id, l = 0.62) => new THREE.Color().setHSL(ACTOR_HUES[id] / 360, 0.85, l).convertSRGBToLinear();
+      const bandAt = (pos) => this._tileAt(p.data, pos[0], pos[2])?.band;
+      const camps = p.castPlan?.job === 'ascent' ? schedule?.views?.[p.view.id]?.camps || [] : [];
+      p.castCamps = camps.map(c => pathPosition(p.castPlan, c.p, { data: p.data, waterLevelM: p.waterLevelM, hoverM: 3 }));
+      sites.setSites([
+        ...(work?.lights || []).map(l => ({ pos: l.pos, band: bandAt(l.pos), color: hue(l.actor), sizePx: l.kind === 'line' ? 5 : 9 })),
+        ...p.castCamps.map(pos => ({ pos, band: bandAt(pos), color: hue('midio', 0.7), ring: hue('broshi'), sizePx: 9 })),
+      ]);
+      threads.setThreads((work?.threads || []).map(th => ({ a: th.a, b: th.b,
+        band: this._tileAt(p.data, (th.a[0] + th.b[0]) / 2, (th.a[2] + th.b[2]) / 2)?.band })));
+    }
+    sites.uniforms.uRight.value.copy(right);
+    sites.uniforms.uUp.value.copy(up);
+    sites.uniforms.uTanHalf.value = tanHalf;
+    // Placed lights follow the lanterns' day law at 40% of their gain.
+    const gain = 0.4 * (0.45 + 1.15 * dark) * presence;
+    sites.uniforms.uGain.value = gain * ACTOR_LOOK.broshi.lightGain;
+    // Threads are faint: a survey line, not a light.
+    threads.setLook(new THREE.Color().setHSL(ACTOR_HUES.midasus / 360, 0.85, 0.7).convertSRGBToLinear(), 0.6 * gain);
+    const lights = work?.lights || [];
+    const low = rangeQuality(frame.qualityLevel).level >= 4;
+    const fuse = job?.state.fuse01 ?? 0;
+    lights.forEach((l, k) => {
+      if (!job || (low && l.kind === 'line' && !l.low)) { sites.setState(k, 0); return; }
+      const age = job.since(l.mark);
+      // A light comes up as its motes arrive, then never goes out. On the
+      // climax the fuse runs up the fixed lines, flaring each once.
+      const lit = age < 0 ? 0 : Math.min(1, age / 800);
+      const f = l.kind === 'line' && fuse > 0 && fuse < 1 ? Math.exp(-(((fuse - (l.u - p.castPlan.waterU) / (1 - p.castPlan.waterU)) / 0.06) ** 2)) : 0;
+      sites.setState(k, lit, f);
+    });
+    (p.castCamps || []).forEach((_, j) => sites.setState(lights.length + j, job && job.state.camps > j ? 1 : 0));
+    (work?.threads || []).forEach((th, k) => {
+      if (!job) { threads.setState(k, 0, 0); return; }
+      const age = job.since(th.mark);
+      const reveal = age < 0 ? 0 : Math.min(1, age / 1500);
+      // The finish: the closing thread first, then outward, each brightening
+      // once (the climax), or all settling to a steady glow.
+      const n = work.threads.length, order = Math.min(k + 1, n - 1 - k) / Math.max(1, n / 2);
+      const flare = job.state.climax && fuse > 0 && fuse < 1 ? Math.exp(-(((fuse - order) / 0.12) ** 2)) : 0;
+      threads.setState(k, reveal, (0.55 + 0.45 * (job.state.payoff01 ?? 0)) * (1 + 1.5 * flare));
     });
   }
 

@@ -233,6 +233,8 @@ Next item from the landscape brainstorm: lakes hold the land around them, as sti
 
 ## The cast as lights (2026-10-01)
 
+> Superseded for routes and peaks by [landscape-cast.md](landscape-cast.md) (2026-10-22): each view now has a job, an Ascent or Lamplighters, timed by song structure; the peaks below are removed. Tour views keep the wandering routes. The light and its consequences are unchanged.
+
 Brainstorm section 6, the "presence ladder" Ashton chose: light is the floor, consequence the body, a brief recognisable figure the peak. Under Range v2 nothing drew Midio, Broshi or Midasus before this.
 
 - **Light.** Each actor is a small lantern in its hue (Midio teal 178, Broshi coral 16, Midasus violet 276) drawn inside the band passes: land in front hides it, the air dims it, and the lake mirror reflects it. Its light reaches the ground and trees (`actorLight`) and lays a path of glints on water. Brightness follows the actor's own lane (`narrative.sources[id].activity`, fast attack, slow release).

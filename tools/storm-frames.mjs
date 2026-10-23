@@ -53,7 +53,6 @@ try {
         for (const name of nopass) app.sim.biomes[name] = () => {};
         const configure = () => {
           app.perf.setFixtureLevel(0);
-          app.sim.biomes.actorPeakOverride = { midio: 0, broshi: 0, midasus: 0 };
           app.sim.biomes.stormOverride = storm;
           if (Number.isFinite(phase)) app.sim.biomes._dayNightCycleMs = { phaseAt: () => phase };
           app.sim.rangeCaption = null; app.sim.rangeCaptions = null;

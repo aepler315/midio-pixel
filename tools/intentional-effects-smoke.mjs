@@ -19,7 +19,7 @@ const browser = await chromium.launch({
   ...(process.env.PLAYWRIGHT_CHROMIUM_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH } : {}),
   args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
 });
-const report = { fixture: '72-second WAV; authored verse/chorus/verse camera cues; local peak override; 100-second diagnostic sky cycle', browser: browser.version(), frames: [], errors: [] };
+const report = { fixture: '72-second WAV; authored verse/chorus/verse camera cues; cast progress override; 100-second diagnostic sky cycle', browser: browser.version(), frames: [], errors: [] };
 try {
   const { context, page, errors } = await openSong(browser, { url, wav, width: 640, height: 360,
     params: { rangeTour: 'off', rangeView: 'nc-ross-lake-north', seed: '315' } });
@@ -31,7 +31,7 @@ try {
         { ...template, startMs: 20000, endMs: 32000, role: 'chorus', kind: 'chorus', relEnergy01: .9 },
         { ...template, startMs: 32000, endMs: 72000, role: 'verse', kind: 'verse', relEnergy01: .35 },
       ];
-      mgr.actorPeakOverride = 1;
+      mgr.castProgressOverride = 0.5;
       mgr._dayNightCycleMs = 100000;
     });
     const sample = () => page.evaluate(() => {
@@ -39,14 +39,13 @@ try {
       return { effect: pres.frame.cameraEffects, fov: scene.camera.fov,
         cloudCount: p.uniforms.uCloudCount.value, moonClouds: p.uniforms.uMoonClouds.value,
         cast: Object.fromEntries(Object.entries(p.actors.groups).map(([id, g]) => [id, g.visible])),
-        cohere: Object.fromEntries(Object.entries(p.actors.uniforms).map(([id, u]) => [id, u.uCohere.value])),
-        giants: p.uniforms.uGiantPeak.value, giantResources: !!(p.actors.mask || p.actors.clouds || p.actors.reflection) };
+        job: p.castPlan?.job, giantUniforms: 'uGiantPeak' in p.uniforms, giantResources: !!(p.actors.mask || p.actors.clouds || p.actors.reflection) };
     });
     for (const timeMs of [19500, 20000, 22500, 60000]) {
       const frame = await captureFrame(page, timeMs), state = await sample();
       assert.equal(frame.range.active, true);
       assert.equal(state.giantResources, false);
-      assert.ok(state.giants.every(x => x === 0));
+      assert.equal(state.giantUniforms, false);
       assert.ok(Object.values(state.cast).every(Boolean));
       const repeat = await captureFrame(page, timeMs);
       assert.deepEqual(await sample(), state, 'held time preserves the camera and cast state');
