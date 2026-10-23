@@ -1991,7 +1991,7 @@ export class RangeScene {
       const camps = p.castPlan?.job === 'ascent' ? schedule?.views?.[p.view.id]?.camps || [] : [];
       p.castCamps = camps.map(c => pathPosition(p.castPlan, c.p, { data: p.data, waterLevelM: p.waterLevelM, hoverM: 3 }));
       sites.setSites([
-        ...(work?.lights || []).map(l => ({ pos: l.pos, band: bandAt(l.pos), color: hue(l.actor), sizePx: l.kind === 'line' ? 5 : 7 })),
+        ...(work?.lights || []).map(l => ({ pos: l.pos, band: bandAt(l.pos), color: hue(l.actor), sizePx: l.kind === 'line' ? 5 : 9 })),
         ...p.castCamps.map(pos => ({ pos, band: bandAt(pos), color: hue('midio', 0.7), ring: hue('broshi'), sizePx: 9 })),
       ]);
       threads.setThreads((work?.threads || []).map(th => ({ a: th.a, b: th.b,
@@ -2003,7 +2003,8 @@ export class RangeScene {
     // Placed lights follow the lanterns' day law at 40% of their gain.
     const gain = 0.4 * (0.45 + 1.15 * dark) * presence;
     sites.uniforms.uGain.value = gain * ACTOR_LOOK.broshi.lightGain;
-    threads.setLook(new THREE.Color().setHSL(ACTOR_HUES.midasus / 360, 0.85, 0.7).convertSRGBToLinear(), gain);
+    // Threads are faint: a survey line, not a light.
+    threads.setLook(new THREE.Color().setHSL(ACTOR_HUES.midasus / 360, 0.85, 0.7).convertSRGBToLinear(), 0.6 * gain);
     const lights = work?.lights || [];
     const low = rangeQuality(frame.qualityLevel).level >= 4;
     const fuse = job?.state.fuse01 ?? 0;
