@@ -258,6 +258,15 @@ frame below the top edge, as far as the subject's aim point stays at
 least `subjectAboveBottom` (10%) above the bottom edge. Where the subject
 would leave the frame first, the look is raised only that far.
 
+Level views cost bytes: a camera that sees the horizon sees distant tiles,
+and every tile the package must hold for it adds samples and about 470
+bytes of manifest. With all 12 round-3 libraries published, the Range
+assets total 59.40 MB of the shared 60 MB; most regions gained shots
+(Denali 6 to 18, La Sal 6 to 15, Izta 20 to 28), but those whose
+selection stops at the byte budget hold fewer than before (San Gabriel 11
+to 4, Chugach 16 to 7, Black Mountains 16 to 11). The compact tile table
+mentioned below, or a larger shared budget, is what would give them back.
+
 ### Connected selection
 
 Selection works on the candidate link graph rather than on shots alone.
@@ -356,7 +365,9 @@ not change that (61, 57); letting each part of a leg keep its own pace
 between join knots gave 59. More payoffs per song need shots closer
 together -- fewer subjects per view -- or smoother link joins where those
 set the cap (Ross Lake: 11 of 13 links); that trade-off is a choice for
-the product, not made here.
+the product, not made here. The round-3 libraries (level views, more of
+them connected) plan the same 57 payoffs over the 36 replays, with fewer
+legs crawling (74 of 93 against 84).
 
 ### Terrain policy, drift and per-region budgets
 
