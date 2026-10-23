@@ -329,6 +329,21 @@ The original regional budgets and the removed global 60 MB gate are unchanged.
 The source proposal preserves all 13 approved rails; fitted tour assets stay on
 a separate candidate branch. Further locations remain on hold.
 
+The [parallel camera wave](docs/scenic-camera-wave-review-2026-10-23.md)
+compares alternate networks at Black Mountains, White Mountains and Izta/Popo
+against the preserved R5 assets. Izta's retained candidate cuts Anthem transit
+from 85.957 to 40.421 seconds and holds Iztaccíhuatl through the ending; its
+close ridge opening remains unresolved. Black's new network was rejected for
+more total transit. White's first replacement improved the summit but was
+rejected for a downward opening crop. Its retained revision restores readable
+valley space from the first saved frame at 4 seconds and cuts transit from
+70.046 to 36.069 seconds, with a later 48-second first formal payoff. The final
+candidate set has 15 libraries, 144 shots and 335 links in a 64,125,061-byte
+Range asset tree.
+R6 changes candidate assets, with no new application behavior or rail approvals.
+The [R6 review asset branch](https://github.com/aepler315/midio-pixel/tree/review/scenic-camera-wave-20261023)
+carries the candidate packages. Further geographic expansion stays on hold.
+
 ## Version archive
 
 `npm run archive` opens a timeline of every version on the checked-out

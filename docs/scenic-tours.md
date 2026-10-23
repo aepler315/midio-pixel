@@ -67,6 +67,18 @@ rebuilds Panamint and Teton, and records their full-song actual-app review.
 The source proposal leaves the approved rail packages intact. Revised assets
 remain on a separate candidate branch; the approved geographic count stays 13.
 
+The [parallel camera wave on 2026-10-23](scenic-camera-wave-review-2026-10-23.md)
+continues camera repair at three existing locations from source `f7b7b16` and
+R5 assets `830d121`. It retains a shorter Izta route and readable named ending,
+rejects Black's increased total transit, and replaces White's rejected downward
+opening with a readable valley-axis view. The retained White route cuts transit
+to 36.069 seconds, with a later 48-second first formal payoff. Izta's opening
+remains unresolved. The final review set has 15 libraries, 144 shots and
+335 links in a 64,125,061-byte Range asset tree on the separate
+[R6 review asset branch](https://github.com/aepler315/midio-pixel/tree/review/scenic-camera-wave-20261023).
+The R5 inventory and historical results below remain their dated baselines.
+The approved geographic count stays 13; geographic expansion remains on hold.
+
 The intended system gives each approved scenic view an offline-discovered **shot library**: complete
 camera moves around the region's real subjects, plus connecting moves between
 them. At playback a deterministic planner strings shots and links together
