@@ -55,7 +55,8 @@ test('an ascent puts the team on its path and lights the fixed lines Broshi has 
  const lead=pathPosition(plan,0.6,{hoverM:2});
  assert.ok(at(0).distanceTo(new THREE.Vector3(...lead))<1e-6,'Midio leads at the job progress');
  assert.ok(at(1).y<at(0).y,'Broshi follows below him');
- assert.ok(at(2).y>at(0).y+100,'Midasus scouts above and ahead');
+ // Midasus scouts ahead (0.1 past the lead), six feet over the ground.
+ assert.ok(at(2).distanceTo(new THREE.Vector3(...pathPosition(plan,0.7,{hoverM:1.83})))<1e-6,'Midasus scouts ahead, six feet up');
  const state01=actors.sites.meshes.far.geometry.attributes.aState;
  const lit=work.lights.filter((_,k)=>state01.getX(k)>0).length;
  assert.equal(lit,work.lights.filter(l=>l.u<=0.55).length);

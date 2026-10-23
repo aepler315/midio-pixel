@@ -2,9 +2,10 @@
 // frame, or light the shore where none does.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { castPlan, classifyCastJob, flowAt, pathPosition, siteWalk, ASCENT_STEPS, ASCENT_WATER_U, CAIRN_BINS } from '../src/world/alpine/CastJobs.js';
+import { castPlan, castWork, classifyCastJob, flowAt, pathPosition, siteWalk, MIDASUS_HOVER_M, ASCENT_STEPS, ASCENT_WATER_U, CAIRN_BINS } from '../src/world/alpine/CastJobs.js';
 import { scenePoseAt, projectPoint } from '../src/world/terrain/SceneTravel.js';
 import { seenFrom } from '../src/world/alpine/LineOfSight.js';
+import { terrainHeightAt } from '../src/world/alpine/TerrainMesh.js';
 
 const LEVEL = 1000;
 /** A 12.8 km square of terrain from `height(x, z)` and `wet(x, z)`, seen
@@ -81,6 +82,12 @@ test('a flat basin has no summit: the cast light its shore', () => {
   const pose = scenePoseAt(view, { progress01: 0.5 });
   const xs = plan.cairns.map((p) => projectPoint(pose, 16 / 9, p).x);
   assert.ok(xs.every((x, i) => i === 0 || x >= xs[i - 1]), 'swept left to right');
+  // Survey threads lie draped six feet over the ground, not in the air.
+  const work = castWork(plan, { data, waterLevelM: LEVEL });
+  assert.ok(work.threads.length >= 2);
+  for (const th of work.threads) for (const q of th.points) {
+    assert.ok(Math.abs(q[1] - Math.max(LEVEL, terrainHeightAt(data, q[0], q[2])) - MIDASUS_HOVER_M) < 1e-6, `${q}`);
+  }
 });
 
 test('a summit hidden behind a nearer ridge fails the visibility check', () => {
