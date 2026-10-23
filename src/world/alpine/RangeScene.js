@@ -1693,13 +1693,15 @@ export class RangeScene {
     // Keep moonlit receivers readable with the existing sheltered fill.
     // Existing horizon visibility blends the handoff while daylight and true gaps keep their fill.
     const moonShare = visibility(night) * visibility(bodies?.moon?.visibility) * (1 - visibility(bodies?.sun?.visibility));
-    u.uAmbientScale.value = 2.5 * (ambient + .65 * (1 - ambient) * moonShare);
+    u.uMoonAmbientScale.value = 2.5 * .65 * (1 - ambient) * moonShare;
+    u.uAmbientScale.value = 2.5 * ambient + u.uMoonAmbientScale.value;
     u.uStorm.value.set(storm.amount, storm.flash, storm.break01, storm.wet01);
     // Under the squall the sun is gone behind the deck; the sky's own
     // (darkened, below) radiance is most of what lights the land.
     u.uLightColor.value.multiplyScalar(1 - storm.amount * .92);
     u.uLightColor.value.add(new THREE.Color(.65, .77, 1).multiplyScalar(storm.flash * 1.6));
     u.uAmbientScale.value *= 1 - storm.amount * .15;
+    u.uMoonAmbientScale.value *= 1 - storm.amount * .15;
     // Lightning lights the land from inside the deck, where the sky draws it.
     // The rain veil projects through the main camera on every view, mirror or not.
     u.uViewProj.value.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);

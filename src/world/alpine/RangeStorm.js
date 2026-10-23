@@ -47,6 +47,15 @@ export const STORM_GLSL = /* glsl */`
     if (uStorm.z <= 0.0) return 0.0; // only while the storm breaks
     return smoothstep(0.35, 0.72, stormNoise(world.xz / 1100.0 + vec2(uTime * 0.02, 0.0)));
   }
+  float stormShadow(float opening) {
+    return 1.0 - uStorm.z * (1.0 - opening) * 0.5;
+  }
+  // The sheltered moon component is diffuse receiver fill. The moving
+  // clearing mask still shades the remaining sky fill and direct light.
+  float stormAmbient(float total, float sheltered, float opening) {
+    float shadow = stormShadow(opening);
+    return total * shadow + clamp(sheltered, 0.0, total) * (1.0 - shadow);
+  }
   // Rain-washed air, lit from inside by lightning.
   vec3 rainColor() { return uAirColor * 1.1 + uLightColor * 0.04; }
 `;

@@ -192,6 +192,7 @@ const SHADE = /* glsl */`
   uniform float uAirDensity;
   uniform float uAirHeightFalloff;
   uniform float uAmbientScale;
+  uniform float uMoonAmbientScale;
   uniform float uSolarTransmission;
   uniform float uExposure;
   uniform vec3 pForestNear;
@@ -226,12 +227,12 @@ const SHADE = /* glsl */`
     #endif
     float wrap = 0.3;
     float key = max((dot(n, uLightDir) + wrap) / (1.0 + wrap), 0.0);
-    vec3 hemi = mix(uSkyHorizon * 0.55, uSkyZenith, 0.5 + 0.5 * n.y) * uAmbientScale;
-    vec3 lit = base * (hemi * (0.55 + 0.45 * core) * gTreeOcc + uLightColor * key * mix(.6, 1.0, gTreeOcc));
-    lit += base * actorLight(world, n);
-    // As the storm breaks, the same sunlit swathes as the ground beneath.
     float opening = stormOpening(world);
-    lit *= 1.0 - uStorm.z * (1.0 - opening) * 0.5;
+    float receiverShadow = stormShadow(opening);
+    vec3 hemi = mix(uSkyHorizon * 0.55, uSkyZenith, 0.5 + 0.5 * n.y) * stormAmbient(uAmbientScale, uMoonAmbientScale, opening);
+    vec3 lit = base * (hemi * (0.55 + 0.45 * core) * gTreeOcc + uLightColor * key * mix(.6, 1.0, gTreeOcc) * receiverShadow);
+    lit += base * actorLight(world, n) * receiverShadow;
+    // As the storm breaks, the same sunlit swathes as the ground beneath.
     lit += base * uLightColor * key * uStorm.z * opening * 0.85;
     // Thin crown edges transmit a solar backlight. Both real conifers and
     // alpha-tested silhouettes use their own normal/core with this shared

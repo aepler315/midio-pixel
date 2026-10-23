@@ -373,6 +373,7 @@ export const SCENE_FRAG = /* glsl */`
   uniform float uDiag;
   uniform vec4 uStorm; // squall, cloud lightning, clearing, wet receivers
   uniform float uAmbientScale;
+  uniform float uMoonAmbientScale;
   uniform int uDebugMask;
   uniform float uExposure;
   uniform vec4 uNarrative; // relief, atmospheric depth, materials, feature materials
@@ -797,17 +798,18 @@ export const SCENE_FRAG = /* glsl */`
     float ao = clamp(1.0 - max(curv, 0.0) * 0.55 - flowN * 0.12, 0.35, 1.0);
     // Sky radiance: the displayed sky colours are radiance, and a surface
     // integrates the hemisphere, hence the scale.
-    vec3 hemi = mix(uSkyHorizon * 0.55, uSkyZenith, 0.5 + 0.5 * nShade.y) * uAmbientScale;
+    float opening = stormOpening(vRenderedWorld);
+    float receiverShadow = water ? 1.0 : stormShadow(opening);
+    float ambientScale = water ? uAmbientScale : stormAmbient(uAmbientScale, uMoonAmbientScale, opening);
+    vec3 hemi = mix(uSkyHorizon * 0.55, uSkyZenith, 0.5 + 0.5 * nShade.y) * ambientScale;
     float moonTransmission = moonCloudTransmission(vRenderedWorld, uLightDir);
-    vec3 lit = albedo * (hemi * ao + uLightColor * moonTransmission * key * mix(0.85, 1.0, ao));
+    vec3 lit = albedo * (hemi * ao + uLightColor * moonTransmission * key * mix(0.85, 1.0, ao) * receiverShadow);
     // The cast's lanterns light the ground around them.
-    lit += albedo * actorLight(vRenderedWorld, nShade);
+    lit += albedo * actorLight(vRenderedWorld, nShade) * receiverShadow;
     // Broken cloud transmits the real solar key in broad moving swathes
     // across wet receivers; world coordinates keep them fixed to the land.
     // Between the swathes the last of the cloud still shades the land, and
     // wet rock and grass shine back toward the sun.
-    float opening=stormOpening(vRenderedWorld);
-    if (!water) lit *= 1.0 - uStorm.z*(1.0-opening)*.5;
     lit += albedo*uLightColor*moonTransmission*key*uStorm.z*opening*.85;
     // The key's reflection, through the same cloud, storm opening and
     // horizon as its diffuse light; rain on the lens (squall) mutes it.
@@ -996,6 +998,7 @@ export function sceneUniforms(THREE, base) {
     uHasMaterial: { value: 0 },
     uStorm: { value: new THREE.Vector4() }, uRainShift: { value: 0 },
     uAmbientScale: { value: 2.5 },
+    uMoonAmbientScale: { value: 0 },
     uDebugMask: { value: 0 },
     // Baked horizon (TerrainOcclusion.js): off until a view's bake lands.
     uHorizon: { value: null }, uHorizonSize: { value: new THREE.Vector2(0, 0) },

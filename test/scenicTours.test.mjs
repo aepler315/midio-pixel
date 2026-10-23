@@ -29,7 +29,7 @@ test('the comfortable duration range follows the flow lane and the drift floor',
   const near = durationRange(p, Float32Array.from(p.s, () => 0.004), config.motion), far = durationRange(p, Float32Array.from(p.s, () => 0.0004), config.motion);
   assert.ok(near.min > far.min, 'nearer terrain (more image flow) allows less speed');
   assert.ok(near.min <= near.ideal && near.ideal <= near.max);
-  assert.equal(far.min, Math.round(1000 / 120 * 1000), 'far terrain is capped by the speed limit');
+  assert.equal(far.min, Math.ceil(1000 / 120 * 1000), 'minimum milliseconds round up to preserve the speed limit');
   assert.equal(near.max, Math.round(Math.max(1000 / (0.07 / 0.004), 1000 / 4) * 1000));
 });
 

@@ -88,3 +88,14 @@ test('terrain fill follows continuous celestial visibility through the active-bo
   assert.ok(before > .875, 'visible moon fill is already present before the active body changes');
   assert.equal(before, after, 'the body label cannot introduce a receiver-light jump');
 });
+
+test('sheltered moon ambient is tracked separately from the shadowed sky receiver fill', () => {
+  const { render } = receiver();
+  const light = { night01: 1, ambientMultiplier: .35,
+    state: { sun: { visibility: 0 }, moon: { visibility: 1 } } };
+  const atNight = render(light);
+  assert.ok(Math.abs(atNight.uMoonAmbientScale?.value - 1.05625) < 1e-12);
+  assert.ok(Math.abs(render(light, { storm: { amount: 1, flash: 0, break01: 0, wet01: 1 } }).uMoonAmbientScale.value - 1.05625 * .85) < 1e-12);
+  assert.equal(render().uMoonAmbientScale.value, 0, 'daylight has no extra moon component');
+  assert.equal(render({ ...light, state: { sun: { visibility: 0 }, moon: { visibility: 0 } } }).uMoonAmbientScale.value, 0);
+});

@@ -28,6 +28,7 @@ import { strideCost, tourPoses, tourBakeOptions, bakeOptions } from './lib/sceni
 
 import { SHOT_SCHEMA, SHOT_VERSION, packShotPaths, chooseLattice, shotLibraryErrors, decodeShotLibrary, cameraFootprint } from '../src/world/terrain/ShotLibrary.js';
 import { pathPoseAt, slicePath, pathLaneAt, withProgress } from '../src/world/terrain/ShotPath.js';
+import { shotPaceLimits } from '../src/world/terrain/ShotPlanner.js';
 import { bakeTerrain } from './lib/terrain-bake.mjs';
 import { validatePoses, rangeAssetBytes } from './lib/scenic-coverage.mjs';
 import { decodeTerrain } from '../src/world/alpine/TerrainMesh.js';
@@ -116,12 +117,12 @@ export function refinePayoff(record, scored) {
   return { payoffS, holdS: [Math.min(a, payoffS - 0.08 * L, payoffS), Math.max(b, Math.min(L, payoffS + 0.08 * L))].map((v) => clamp(v, 0, L)) };
 }
 
-/** Comfortable duration range from the flow lane: the fastest the picture
- *  may move at full energy, the calm pace, and a slow drift floor. */
-export function durationRange(p, flow, motion) {
-  // Curvature caps speed as the timeline does: v^2 * bend within the
-  // turning limit (maxLateralMps2; viewers see a turn as rotation, which the
-  // yaw limit governs, so it may pull harder than a change of speed).
+/** Comfortable duration range, bounded below by the runtime's supported
+ *  curve limits. This is not a promise that every timed payoff/profile fits:
+ *  decoded geometry and the actual inter-payoff speed profile are checked later. */
+export function durationRange(p, flow, motion, physicalCapMps = null) {
+  // Retain the author's comfortable coarse-curvature/flow estimate; the
+  // shared runtime bound below also accounts for the drawn cubic and climb.
   const bend = pathBend(p), accel = motion.maxLateralMps2 ?? 2 * (motion.maxAccelMps2 ?? 3.5);
   let fast = 0, calm = 0;
   for (let i = 1; i < p.s.length; i++) {
@@ -131,7 +132,31 @@ export function durationRange(p, flow, motion) {
     calm += ds / Math.min(cap, motion.flowCalm / f);
   }
   const L = p.s[p.s.length - 1];
-  return { min: Math.round(fast * 1000), ideal: Math.round(clamp((fast + calm) / 2, fast, calm) * 1000), max: Math.round(Math.max(calm, L / motion.minSpeedMps) * 1000) };
+  if (physicalCapMps == null) {
+    // The existing runtime API bounds the drawn cubic over the whole
+    // path when its payoff is at the end. Links pass their batched join cap.
+    const shot = { id: 'duration', subjectId: 'duration', move: 'traverse', path: { ...p, flow }, payoffS: L, score: { total: 1 } };
+    physicalCapMps = shotPaceLimits({ subjects: [], shots: [shot], links: [], motion }).head[0].capMps;
+  }
+  fast = Math.max(fast, L / physicalCapMps);
+  calm = Math.max(calm, fast);
+  const min = Math.ceil(fast * 1000), ideal = Math.max(min, Math.round(clamp((fast + calm) / 2, fast, calm) * 1000));
+  return { min, ideal, max: Math.max(ideal, Math.round(Math.max(calm, L / motion.minSpeedMps) * 1000)) };
+}
+
+/** Refresh authoring estimates from current motion and real source/link/target
+ *  supports, including old cached graphs. Keep rejected geometry in the cache
+ *  but never give an over-leash link to selection or later relinking. */
+export function refreshGraphDurations(graph, motion, maxLinkMs) {
+  const links = graph.front.map((l, i) => ({ ...l, id: `duration-link-${i}`, from: l.from.id, to: l.to.id }));
+  const limits = shotPaceLimits({ subjects: [], shots: graph.usable, links, motion });
+  graph.usable.forEach((s) => { s.durationMs = durationRange(s.path, s.path.flow, motion); });
+  graph.front.forEach((l, i) => { l.durationMs = durationRange(l.path, l.path.flow, motion, limits.link[i].capMps); });
+  const pairs = graph.front.filter((l) => l.durationMs.min <= maxLinkMs);
+  const rejectedLinks = graph.front.filter((l) => l.durationMs.min > maxLinkMs).map((l) => ({
+    from: l.from.id, to: l.to.id, kind: l.kind, minMs: l.durationMs.min, maxLinkMs,
+  }));
+  return { pairs, checked: graph.front.length, admitted: pairs.length, rejectedLinks };
 }
 
 /** Curvature of the eye along progress per sample, |d2 eye / ds2| (1/m),
@@ -294,8 +319,8 @@ export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpu
       }
     }
     const linkScores = await Promise.all(raw.map((l) => pool.score('link', l.path, { everyM: 120, width: 96, height: 54 })));
-    raw.forEach((l, i) => { l.score = linkScores[i].aggregate; l.path.flow = Float32Array.from(linkScores[i].flow); l.durationMs = durationRange(l.path, l.path.flow, config.motion); });
-    const leashed = raw.filter((l) => l.durationMs.min <= maxLinkMs);
+    raw.forEach((l, i) => { l.score = linkScores[i].aggregate; l.path.flow = Float32Array.from(linkScores[i].flow); });
+    const leashed = refreshGraphDurations({ usable, front: raw }, config.motion, maxLinkMs).pairs;
     const front = paretoFront(leashed);
     const visibility = summarizeLinkVisibility(leashed);
     funnel.links = { shots: usable.length, pairsOutOfReach: outOfReach, pairsTried, variantsTried: pairsTried * 4, rejected: { ...linkRejects, 'looks near straight down': steep },
@@ -318,9 +343,11 @@ export async function buildViewTours(viewId, { out, workers = Math.max(2, os.cpu
  */
 async function selectLibrary(viewId, { ctx, config, pool, cost, scale, graph, out, t0, log }) {
   const { subjects } = graph;
-  const visibility = await refreshLinkVisibility(graph.front, (p) => pool.score('link', p, { everyM: 120, width: 96, height: 54 }));
+  const { pairs: leashed, ...durationSummary } = refreshGraphDurations(graph, config.motion, (config.discovery.maxLinkS ?? 30) * 1000);
+  const visibility = await refreshLinkVisibility(leashed, (p) => pool.score('link', p, { everyM: 120, width: 96, height: 54 }));
   const { pairs: front, rejectedLinks, ...visibilitySummary } = visibility;
-  if (visibility.measured) await writeGraphCache(out, graph);
+  await writeGraphCache(out, graph);
+  log(`${viewId}: current supported-curve duration admits ${durationSummary.admitted}/${durationSummary.checked} cached links within ${config.discovery.maxLinkS ?? 30} s`);
   log(`${viewId}: link visibility ${visibility.admitted}/${visibility.checked} with terrain in every sampled frame; ${visibility.measured} cached paths measured, ${visibility.rejected.allSky} all-sky and ${visibility.rejected.unmeasured} unmeasured rejected`);
   // Shots a rendered review marked broken (region.excludeShots) never join.
   const excluded = new Set(config.region.excludeShots || []);
@@ -332,6 +359,7 @@ async function selectLibrary(viewId, { ctx, config, pool, cost, scale, graph, ou
   // one whose best shots are worth most (the rail joins as the fallback).
   const component = bestComponent(usable, front, config.discovery.maxShots);
   const funnel = { ...(graph.funnel || {}), excluded: graph.usable.length - usable.length,
+    linkDurations: durationSummary,
     linkVisibility: { ...visibilitySummary, rejectedLinks },
     components: { parts: bestComponent.parts, inBest: component.size, onNoCycle: usable.length - bestComponent.parts.reduce((a, b) => a + b, 0) } };
   log(`${viewId}: link graph ${graph.variants} variants, ${front.length} usable within ${config.discovery.maxLinkS ?? 30} s; best connected part ${component.size} of ${usable.length} shots`);
