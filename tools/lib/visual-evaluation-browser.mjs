@@ -111,6 +111,16 @@ export async function renderEvaluationFrame(page, point, settings) {
           cameraPos: prepared?.uniforms?.uCameraPos?.value?.toArray?.() ?? null, horizonSize: prepared?.uniforms?.uHorizonSize?.value?.toArray?.() ?? null, forestKeep: prepared?.uniforms?.uForestKeep?.value ?? null,
           mirror: prepared?.uniforms?.uMirrorAmount?.value ?? null, shafts: !!scene?.shafts, trees: prepared?.stats?.trees ?? null };
       })(),
+      // The perspective camera the scenic partitions were drawn with, and the
+      // tour shot that placed it (null on an authored rail).
+      camera: (() => {
+        const presentation = sim.biomes.rangePresentation, cam = presentation?.scene?.camera;
+        if (!cam?.position) return null;
+        const e = cam.matrixWorld?.elements;
+        return { eyeM: cam.position.toArray(), forward: e ? [-e[8], -e[9], -e[10]] : null, fovYDeg: cam.fov, aspect: cam.aspect,
+          near: cam.near, far: cam.far, viewOffset: cam.view?.enabled ? { ...cam.view } : null,
+          shot: presentation?.shotState?.(state.viewId, sim.heardTimeMs) ?? null };
+      })(),
       generation: smw.generation, seed: smw.songSeed };
   }, { point, settings });
 }
