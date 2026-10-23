@@ -189,7 +189,7 @@ export const ACTOR_LOOK = Object.freeze({
 
 export const ROUTE_ANCHORS = 5;
 /** Rail stations a route must stay in frame at. */
-const ROUTE_STATIONS = [0.15, 0.5, 0.85];
+export const ROUTE_STATIONS = Object.freeze([0.15, 0.5, 0.85]);
 const ROUTE_ASPECT = 16 / 9;
 /** In-frame window (NDC): clear of the frame edges and of the rock stage
  *  along the bottom. */
@@ -202,19 +202,19 @@ export const ROUTE_UNITS = 40;
  *  out from the far end, so he and Midio do not move as one. */
 export const ACTOR_START = Object.freeze({ midio: 0, broshi: ROUTE_UNITS, midasus: ROUTE_UNITS / 2 });
 
-function hash(seed, i) {
+export function hash(seed, i) {
   let h = (seed ^ Math.imul(i + 1, 0x9e3779b1)) >>> 0;
   h = Math.imul(h ^ (h >>> 16), 0x85ebca6b) >>> 0;
   h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35) >>> 0;
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
-/** Spread `pool` across the frame: ROUTE_ANCHORS bins by screen x, one
- *  candidate from each (seeded), ordered left to right. */
-function pickAnchors(pool, seed) {
+/** Spread `pool` across the frame: `bins` bins by screen x, one candidate
+ *  from each (seeded), ordered left to right. */
+export function pickAnchors(pool, seed, bins = ROUTE_ANCHORS) {
   if (pool.length < 2) return null;
   const sorted = [...pool].sort((a, b) => a.sx - b.sx);
-  const k = Math.min(ROUTE_ANCHORS, sorted.length);
+  const k = Math.min(bins, sorted.length);
   const out = [];
   for (let b = 0; b < k; b++) {
     const lo = Math.floor((b * sorted.length) / k), hi = Math.max(lo + 1, Math.floor(((b + 1) * sorted.length) / k));
