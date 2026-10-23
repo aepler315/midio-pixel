@@ -62,6 +62,11 @@ test('an ascent puts the team on its path and lights the fixed lines Broshi has 
  assert.ok(lit>0&&lit<work.lights.length);
  assert.equal(state01.getX(work.lights.length),1,'the camp light stands');
  assert.equal(actors.sites.meshes.far.geometry.instanceCount,work.lights.length+1);
+ // A shot tour over the view keeps the job and every light it has left.
+ p.cameraTour={};
+ RangeScene.prototype._setActors.call(scene,p,{actors:cast,timeMs:20000,qualityLevel:0,light:{night01:1}});
+ assert.equal(work.lights.filter((_,k)=>state01.getX(k)>0).length,lit);
+ assert.ok(at(0).distanceTo(new THREE.Vector3(...lead))<1e-6);
  actors.dispose();
 });
 

@@ -1812,7 +1812,9 @@ export class RangeScene {
     const presence = (cast?.presence ?? 0) * (materials > .01 ? materials : 0);
     u.uWakeAmt.value = 0;
     u.uParting.value.w = 0;
-    const job = p.view.tour || p.cameraTour ? null : this._castJob(p, frame);
+    // A shot tour over a rail view keeps the view's job (and every light it
+    // has left); only a tour view's own terrain wanders.
+    const job = p.view.tour ? null : this._castJob(p, frame);
     const opts = { data: p.data, waterLevelM: p.waterLevelM };
     ACTOR_IDS.forEach((id, k) => {
       const group = p.actors?.groups[id];

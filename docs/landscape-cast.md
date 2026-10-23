@@ -347,8 +347,9 @@ Choices the proposal left open, as implemented:
 - **Lamplighters** sweep a fixed left-to-right order. Resuming where they left
   off already starts each return at the actor's last position. They make no
   camps. Threads join neighbouring cairns only (at most 8), and the closing
-  thread is due at `p = 1`. A view with fewer than two cairn sites, and any
-  shot or rail tour, keeps wandering lanterns.
+  thread is due at `p = 1`. A view with fewer than two cairn sites, and a
+  tour view, keeps wandering lanterns. A shot tour over a rail view keeps
+  the view's job, so no light it has left goes out while the camera moves.
 - **Sites** may stand up to 30 km out when fewer than 16 framed ground
   samples lie within 12 km (a view down onto a wide basin, like Panamint).
   They are drawn at a fixed size on screen.
