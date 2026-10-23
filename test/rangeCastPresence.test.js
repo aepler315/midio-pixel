@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {RangeScene} from '../src/world/alpine/RangeScene.js';
-import {ActorsGL,actorUniforms} from '../src/world/alpine/ActorsGL.js';
+import {ActorsGL,actorUniforms,SITE_LIGHTS_MAX} from '../src/world/alpine/ActorsGL.js';
 import {ACTOR_IDS,ACTOR_MOTES} from '../src/world/alpine/RangeActors.js';
 import {castWork,pathPosition} from '../src/world/alpine/CastJobs.js';
 import * as THREE from '../src/vendor/range/three-range.module.js';
@@ -67,6 +67,34 @@ test('an ascent puts the team on its path and lights the fixed lines Broshi has 
  RangeScene.prototype._setActors.call(scene,p,{actors:cast,timeMs:20000,qualityLevel:0,light:{night01:1}});
  assert.equal(work.lights.filter((_,k)=>state01.getX(k)>0).length,lit);
  assert.ok(at(0).distanceTo(new THREE.Vector3(...lead))<1e-6);
+ actors.dispose();
+});
+
+test('a view with more camps than free slots keeps its most recent camps lit',()=>{
+ const shared={...actorUniforms(THREE),uCameraPos:{value:new THREE.Vector3()},uAirDensity:{value:0},uAirHeightFalloff:{value:0}};
+ const actors=new ActorsGL(THREE,shared), camera=new THREE.PerspectiveCamera(35,16/9,1,100000);
+ camera.position.set(0,1000,0);camera.lookAt(0,1000,-10000);camera.updateMatrixWorld();
+ const plan={job:'ascent',points:[[0,1000,-5000],[0,1500,-6000]],us:[0,1],waterU:0,landing:[0,1000,-5000],shoreStart:null};
+ const work=castWork(plan);
+ const p={view:{id:'v'},actors,uniforms:shared,actorRoutes:{},castPlan:plan,castWork:work,data:null,scenes:{far:new THREE.Scene()}};
+ const scene={THREE,camera,_tileAt:()=>null,_castJob:RangeScene.prototype._castJob,_setCastLights:RangeScene.prototype._setCastLights};
+ const camps=Array.from({length:20},(_,j)=>({atMs:j*1000,p:j/20}));
+ const schedule={kindleTimes:()=>work.marks.map(()=>0),views:{v:{camps}}};
+ const draw=made=>{
+  const state={p:1,offsets:{broshi:0,midasus:0},shelter01:0,payoff01:0,fuse01:0,camps:made,climax:false};
+  RangeScene.prototype._setActors.call(scene,p,{actors:{presence:1,...Object.fromEntries(ACTOR_IDS.map(id=>[id,{glow:0.5,travel:1}])),jobs:{v:state},schedule},timeMs:30000,qualityLevel:0,light:{night01:1}});
+  const g=actors.sites.meshes.far.geometry;
+  return {n:g.instanceCount,lit:Array.from({length:g.instanceCount-work.lights.length},(_,j)=>g.attributes.aState.getX(work.lights.length+j)),
+   first:new THREE.Vector3(g.attributes.aPos.getX(work.lights.length),g.attributes.aPos.getY(work.lights.length),g.attributes.aPos.getZ(work.lights.length))};
+ };
+ const early=draw(5);
+ assert.equal(early.n,SITE_LIGHTS_MAX);
+ assert.deepEqual(early.lit.slice(0,6),[1,1,1,1,1,0]);
+ const late=draw(20);
+ assert.equal(late.n,SITE_LIGHTS_MAX);
+ assert.ok(late.lit.every(x=>x===1),'every camp in the window stands');
+ // The window starts at the fifth camp: the most recent 16 of 20.
+ assert.ok(late.first.distanceTo(new THREE.Vector3(...pathPosition(plan,camps[4].p,{hoverM:3})))<1e-3);
  actors.dispose();
 });
 

@@ -2,7 +2,7 @@
 // frame, or light the shore where none does.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { castPlan, classifyCastJob, pathPosition, siteWalk, ASCENT_STEPS, ASCENT_WATER_U, CAIRN_BINS } from '../src/world/alpine/CastJobs.js';
+import { castPlan, classifyCastJob, flowAt, pathPosition, siteWalk, ASCENT_STEPS, ASCENT_WATER_U, CAIRN_BINS } from '../src/world/alpine/CastJobs.js';
 import { scenePoseAt, projectPoint } from '../src/world/terrain/SceneTravel.js';
 import { seenFrom } from '../src/world/alpine/LineOfSight.js';
 
@@ -104,4 +104,13 @@ test('a lamplighter eases between its sites and closes the loop', () => {
   assert.deepEqual(siteWalk(sites, dues, 0.25), sites[0]);
   assert.deepEqual(siteWalk(sites, dues, 0.5), sites[1]);
   assert.deepEqual(siteWalk(sites, dues, 1), sites[0]);
+});
+
+test('a shore is found by position, across tile seams and never across rows', () => {
+  // Water only in the column just west of a tile seam (x = 1550 m).
+  const { data } = world(() => LEVEL + 5, (x) => x === 1550);
+  assert.equal(flowAt(data, 1550, 800), 255, 'tile 0, one column west of the seam');
+  assert.equal(flowAt(data, 1600, 800), 10, 'the first column of tile 1');
+  assert.equal(flowAt(data, 1575, 800), null, 'between samples');
+  assert.equal(flowAt(data, -50, 800), null, 'off the terrain');
 });
