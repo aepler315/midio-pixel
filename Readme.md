@@ -281,7 +281,9 @@ and the Superstition west front. Catalog v20 has 13 approved rails and seven
 candidates, with 16 regional tour configurations on the expansion branch;
 the approved geographic count remains 13. The new three terrain packages add
 3,813,190 bytes. Source, candidate assets and review documentation are in
-[draft PR #32](https://github.com/aepler315/midio-pixel/pull/32). The
+[PR #32](https://github.com/aepler315/midio-pixel/pull/32), merged by the owner on
+2026-10-23. The later R4 review documentation remains in
+[draft PR #37](https://github.com/aepler315/midio-pixel/pull/37). The
 [fresh rebuild and app review](docs/scenic-rebuild-review-2026-10-22.md) records
 the new scouting runs, exact library identities, actual planned camera moves
 and remaining review gates. Candidate assets and local rebuilt libraries do
@@ -314,6 +316,18 @@ view keep it a candidate. The separate
 [R3 review asset branch](https://github.com/aepler315/midio-pixel/tree/review/scenic-denali-heading-20261022)
 has 180 shots and 459 links across the same 15 useful libraries, with a
 64,853,210-byte asset tree. Camera quality takes priority over another location wave.
+
+The [Panamint and Teton repair](docs/scenic-transfer-endings-review-2026-10-23.md)
+corrects the builder's duration estimates using the runtime's supported camera
+curves and refreshes cached link admission. It rebuilds those two candidate
+networks, restores a readable Panamint opening, keeps its hero summit through
+the ending, and adds a Teton middle payoff before reaching a closing shot.
+Matched full-song app captures and the rejected first Panamint opening are
+recorded in the review. A separate fixed-camera comparison retains a small
+moon-fill improvement; dark lower foreground and other editorial limits remain.
+The original regional budgets and the removed global 60 MB gate are unchanged.
+The source proposal preserves all 13 approved rails; fitted tour assets stay on
+a separate candidate branch. Further locations remain on hold.
 
 ## Version archive
 

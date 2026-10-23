@@ -1,6 +1,6 @@
 # Scenic shot tours
 
-**Status checked 2026-10-22:** tooling merged in PRs
+**Original delivery baseline checked 2026-10-22:** tooling merged in PRs
 [#24](https://github.com/aepler315/midio-pixel/pull/24) and
 [#25](https://github.com/aepler315/midio-pixel/pull/25). At main
 `05725b8b753f18234ab9f3aa21b7c5c6cc4d12ac`, the production catalog still has
@@ -30,7 +30,8 @@ approval gates from the historical results below.
 attached shot libraries and preserves all 13 approved rail packages. Fresh
 libraries were rebuilt and staged in an isolated candidate review snapshot.
 The v19 inventory and R3 delivery table below describe their explicitly dated
-baselines. See [draft PR #32](https://github.com/aepler315/midio-pixel/pull/32)
+baselines. See [PR #32](https://github.com/aepler315/midio-pixel/pull/32), merged
+by the owner on 2026-10-23,
 and the [dated rebuild review](scenic-rebuild-review-2026-10-22.md) for current
 artifacts and actual planned-move findings.
 
@@ -58,6 +59,13 @@ Denali shot plays at the 128-second payoff and continues through the ending,
 while total transit falls from 94.224 to 69.915 seconds. The long remaining
 transfer, close crest and dark final view remain editorial gates. Original R2
 packages and captures are preserved; this revised package remains unapproved.
+
+The [2026-10-23 transfer and ending repair](scenic-transfer-endings-review-2026-10-23.md)
+starts from main `1b46e5e3fad38b7b8c75d2391af2e6b79500bfff`, which includes
+the R4 runtime climb and pacing fixes. It corrects authoring duration bounds,
+rebuilds Panamint and Teton, and records their full-song actual-app review.
+The source proposal leaves the approved rail packages intact. Revised assets
+remain on a separate candidate branch; the approved geographic count stays 13.
 
 The intended system gives each approved scenic view an offline-discovered **shot library**: complete
 camera moves around the region's real subjects, plus connecting moves between
@@ -374,6 +382,14 @@ the payoff (a reveal keeps the hidden stretch before it) and is scored again
 as cut, and a link that cannot be flown within `discovery.maxLinkS` (50 s)
 even at full pace is not offered. In large landscapes the links are a real
 part of the film: they are scored for scenery like shots.
+
+The duration lower bound uses the runtime's supported camera curve, including
+climb and the actual source-shot/link/target-shot support. Cached `--reselect`
+runs refresh shot and link estimates, then reapply the unchanged 50-second
+admission leash before Pareto and connected selection. Cached reselection
+retains its rejected geometry for diagnostics. This bounds the fastest admitted geometry;
+the music planner can allocate a longer transfer, and the decoded geometry,
+timed speed profile and delivered camera keys still need their own checks.
 
 The cheap scores pick which candidates are worth rendering; the renderer
 then has the last word on each. One package is baked for every scored
