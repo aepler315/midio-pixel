@@ -681,6 +681,20 @@ export class RangeScene {
     return { key, reservation, bytes, plan };
   }
 
+  /** Static placement has returned compact records; its temporary chunks
+   * no longer belong to this phase. Keep records and the full existing
+   * grouping/asset allowances until forest construction completes. */
+  _retireForestPlacement(p, entry, placed) {
+    if (p.view.tour) return;
+    const records = [placed.meshDetail, placed.mesh, placed.billboard].reduce((sum, a) => sum + (a?.byteLength || 0), 0);
+    const bytes = records + forestGroupingBytes(placed.count) + FOREST_ASSET_BUILD_BYTES;
+    if (bytes > entry.bytes) throw new RangeAssetError('budget', 'Forest records exceed admitted build bound');
+    if (this.residency && !this.residency.shrinkReservation(entry.reservation, bytes)) {
+      throw new RangeAssetError('stale', 'Forest placement reservation retired');
+    }
+    entry.bytes = bytes;
+  }
+
   _requestTourRaw(p, index) {
     const entry = this._admitTerrainBuild(p, index);
     entry.coverageRevision = p.coverageRevision || 0;
@@ -973,6 +987,7 @@ export class RangeScene {
         } else buildEntry = this._admitTerrainBuild(buildOwner);
         const placed = rawWindow?.placed || await placeForestAsync(cpu.data, view, rules, { seed: hashSeed(view.terrainSourceId || view.id), signal });
         if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
+        if (!rawWindow) this._retireForestPlacement(buildOwner, buildEntry, placed);
         // CPU arrays stay on BufferAttributes after upload; charge both copies.
         // Instances plus the near conifer assets their batches build.
         const forestBytes = placed.count * 7 * 4 + forestAssetBytes() + FOREST_DETAIL_BYTES;
@@ -1644,6 +1659,10 @@ export class RangeScene {
     const THREE = this.THREE;
     const u = p.uniforms;
     const n = frame.narrative;
+    // Scoped receiver calibration for the retained Black static scenic scene.
+    // Receiver irradiance changes before albedo/AO; sky, key and water do not.
+    u.uReceiverFillMin.value = p.view.id === 'black-mountains-catawba'
+      && !p.view.tour && p.view.cameraPaths?.some(line => line?.length) ? .32 : 0;
     this._setFarForest(p, frame);
     u.uNarrative.value.set(n?.relief ?? 1, n?.atmosphere ?? 1, n?.materials ?? 1, n?.features ?? 1);
     u.uNarrativeInk.value = n ? (1 - n.materials) * (1 - n.skyDark) : 0;

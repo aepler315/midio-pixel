@@ -24,6 +24,16 @@ export function rainCurtain(u, tSec = 0) {
  *  fixed to the land. */
 export const STORM_GLSL = /* glsl */`
   uniform float uRainShift;
+  uniform float uReceiverFillMin;
+  // Preserve sky chromaticity while lifting only low receiver irradiance.
+  // A true zero has no hue to preserve; do not invent emissive white fill.
+  vec3 receiverFill(vec3 hemi, float minimum) {
+    if (!(minimum > 0.0) || isnan(minimum) || isinf(minimum)) return hemi;
+    if (any(isnan(hemi)) || any(isinf(hemi))) return vec3(0.0);
+    float luminance = dot(hemi, vec3(0.2126, 0.7152, 0.0722));
+    if (!(luminance > 0.0) || luminance >= minimum) return hemi;
+    return hemi / luminance * minimum;
+  }
   float rainCurtain(float u, float t) {
     float a = 0.5 + 0.5 * sin(6.2832 * (u * 1.6 + t * 0.003) + 1.3);
     float b = 0.5 + 0.5 * sin(6.2832 * (u * 3.7 - t * 0.005) + 4.1);

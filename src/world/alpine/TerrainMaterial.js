@@ -802,6 +802,7 @@ export const SCENE_FRAG = /* glsl */`
     float receiverShadow = water ? 1.0 : stormShadow(opening);
     float ambientScale = water ? uAmbientScale : stormAmbient(uAmbientScale, uMoonAmbientScale, opening);
     vec3 hemi = mix(uSkyHorizon * 0.55, uSkyZenith, 0.5 + 0.5 * nShade.y) * ambientScale;
+    if (!water) hemi = receiverFill(hemi, uReceiverFillMin);
     float moonTransmission = moonCloudTransmission(vRenderedWorld, uLightDir);
     vec3 lit = albedo * (hemi * ao + uLightColor * moonTransmission * key * mix(0.85, 1.0, ao) * receiverShadow);
     // The cast's lanterns light the ground around them.
@@ -999,6 +1000,7 @@ export function sceneUniforms(THREE, base) {
     uStorm: { value: new THREE.Vector4() }, uRainShift: { value: 0 },
     uAmbientScale: { value: 2.5 },
     uMoonAmbientScale: { value: 0 },
+    uReceiverFillMin: { value: 0 },
     uDebugMask: { value: 0 },
     // Baked horizon (TerrainOcclusion.js): off until a view's bake lands.
     uHorizon: { value: null }, uHorizonSize: { value: new THREE.Vector2(0, 0) },

@@ -10,6 +10,11 @@ The approved geographic count stays **13**, and further expansion remains on
 hold. Local implementation and image gates are complete; draft PR #38 records
 source/candidate commit identities and publication status.
 
+The [R8 follow-up](scenic-quality-clusters-review-2026-10-23.md) preserves this
+review and records the retained Black lighting/memory repair and compact Denali
+cluster. All forest experiments were rejected; its unresolved softness is
+documented and forest iteration is closed. Publication pins remain pending.
+
 This follows the [R6 alternate camera review](scenic-camera-wave-review-2026-10-23.md).
 Source starts at `e30cbe00345c6b99f385e3d97d75da1a98cf6e43`; the exact R6
 candidate baseline is `6ba1149fd70f30ec30b7d16da23aa3d954707c94`.

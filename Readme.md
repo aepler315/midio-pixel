@@ -358,6 +358,17 @@ limits. Local implementation and image gates are complete;
 commit identities and publication status. Cameras remain unapproved, and
 further geographic expansion stays on hold.
 
+The [R8 quality and compact-cluster follow-up](docs/scenic-quality-clusters-review-2026-10-23.md)
+retains a three-shot Denali establish/shoulder/hero sequence after actual-app
+review, cutting Anthem transfer from 90.245 to 23.226 seconds and holding the
+mountain through the ending. Black retains a scoped lighting and memory repair;
+all forest representation experiments were rejected, and its soft/stippled
+forest remains unresolved with iteration closed. There are still 13 approved
+views and 15 candidate libraries; the approximately 30-view goal is unfinished.
+This first cluster uses a preserved external authoring recipe; the unchanged
+generic scout does not reproduce it, and automated cluster generation is unimplemented.
+PR #38 remains draft/open; its description records the publication pins.
+
 ## Version archive
 
 `npm run archive` opens a timeline of every version on the checked-out

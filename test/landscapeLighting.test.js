@@ -4,14 +4,17 @@ import * as THREE from 'three';
 import { RangeScene } from '../src/world/alpine/RangeScene.js';
 import { sceneUniforms } from '../src/world/alpine/TerrainMaterial.js';
 import { rangeMusicState } from '../src/world/alpine/RangeFrame.js';
+import { STORM_GLSL } from '../src/world/alpine/RangeStorm.js';
+import { createForest } from '../src/world/alpine/ForestGL.js';
+import { createSceneMaterial } from '../src/world/alpine/TerrainMaterial.js';
 import { RockStageGL } from '../src/world/alpine/RockStageGL.js';
 
-function receiver() {
+function receiver(viewExtra = {}) {
   const camera = new THREE.PerspectiveCamera(40, 16 / 9, .1, 100000);
   camera.position.set(0, 1000, 1000); camera.lookAt(0, 0, 0); camera.updateMatrixWorld();
   const scene = Object.assign(Object.create(RangeScene.prototype), { THREE, camera });
   const uniforms = sceneUniforms(THREE, { uHeightRange: { value: new THREE.Vector2(0, 2000) } });
-  const view = { camera: { eyeStartM: [0, 1000, 1000], eyeEndM: [0, 1000, 1000], targetStartM: [0, 0, 0], targetEndM: [0, 0, 0], fovYDeg: 40 } };
+  const view = { camera: { eyeStartM: [0, 1000, 1000], eyeEndM: [0, 1000, 1000], targetStartM: [0, 0, 0], targetEndM: [0, 0, 0], fovYDeg: 40 }, ...viewExtra };
   const frame = { timeMs: 0, progress01: 0, music: rangeMusicState({}), qualityLevel: 0,
     scenicViewport: { nominalHeight: 720 }, light: { celestial: { xFrac: .7, yFrac: .08, body: 'sun', colorHex: '#ffffff', intensity: 1.6 },
       night01: 0, ambientMultiplier: 1, sky: { top: '#334455', horizon: '#778899', air: '#556677' } } };
@@ -98,4 +101,90 @@ test('sheltered moon ambient is tracked separately from the shadowed sky receive
   assert.ok(Math.abs(render(light, { storm: { amount: 1, flash: 0, break01: 0, wet01: 1 } }).uMoonAmbientScale.value - 1.05625 * .85) < 1e-12);
   assert.equal(render().uMoonAmbientScale.value, 0, 'daylight has no extra moon component');
   assert.equal(render({ ...light, state: { sun: { visibility: 0 }, moon: { visibility: 0 } } }).uMoonAmbientScale.value, 0);
+});
+
+
+// Execute the production GLSL helper on CPU; only adapt GLSL vector syntax.
+// Expected photometric/chromaticity properties below do not mirror its formula.
+function receiverFillCpu() {
+  const match = STORM_GLSL.match(/vec3 receiverFill\(vec3 hemi, float minimum\) \{([\s\S]*?)\n {2}\}/);
+  assert.ok(match, 'production shared receiver helper exists');
+  const body = match[1].replace(/\bfloat /g, 'let ')
+    .replace('hemi / luminance * minimum', 'hemi.map(channel => channel / luminance * minimum)');
+  const fn = new Function('hemi', 'minimum', 'dot', 'vec3', 'any', 'isnan', 'isinf', body);
+  return (hemi, minimum) => fn(hemi, minimum,
+    (a, b) => a.reduce((n, value, i) => n + value * b[i], 0),
+    (...values) => values.length === 1 ? Array(3).fill(values[0]) : values,
+    values => values.some(Boolean),
+    value => Array.isArray(value) ? value.map(Number.isNaN) : Number.isNaN(value),
+    value => Array.isArray(value) ? value.map(x => Math.abs(x) === Infinity) : Math.abs(value) === Infinity);
+}
+
+test('Black static receiver floor opts in without altering sky, key, ambient, storm or exposure', () => {
+  const paths = [[[0, 1000, 1000]]];
+  const baseline = receiver().render({}, { storm: { amount: .8, flash: 0, break01: .5, wet01: .7 } });
+  const actual = receiver({ id: 'black-mountains-catawba', cameraPaths: paths }).render({}, { storm: { amount: .8, flash: 0, break01: .5, wet01: .7 } });
+  assert.equal(actual.uReceiverFillMin?.value, .32);
+  for (const key of ['uLightColor', 'uSkyZenith', 'uSkyHorizon', 'uAirColor', 'uAmbientScale', 'uMoonAmbientScale', 'uExposure', 'uSolarTransmission', 'uStorm']) {
+    assert.deepEqual(actual[key].value, baseline[key].value, key);
+  }
+  for (const extra of [{}, { id: 'black-mountains-catawba' }, { id: 'black-mountains-catawba', cameraPaths: [[]] },
+    { id: 'black-mountains-catawba', cameraPaths: paths, tour: { durationMs: 8000, poseAt: () => ({ eyeM: [0, 1000, 1000], targetM: [0, 0, 0], fovYDeg: 40 }) } }, { id: 'shenandoah-stony-man-west', cameraPaths: paths }]) {
+    assert.equal(receiver(extra).render().uReceiverFillMin?.value, 0, JSON.stringify(extra));
+  }
+});
+
+test('shared receiver fill preserves disabled/bright radiance and low-light chromaticity without a black-source invention', () => {
+  const fill = receiverFillCpu(), luma = rgb => rgb[0] * .2126 + rgb[1] * .7152 + rgb[2] * .0722;
+  for (const rgb of [[.01, .02, .03], [.4, .5, .6], [0, 0, 0]]) assert.deepEqual(fill(rgb, 0), rgb);
+  assert.deepEqual(fill([.4, .5, .6], .16), [.4, .5, .6]);
+  for (const rgb of [[.01, .02, .03], [.03, .01, .005], [1e-39, 2e-39, 3e-39]]) {
+    const out = fill(rgb, .16);
+    assert.ok(out.every(Number.isFinite));
+    assert.ok(Math.abs(luma(out) - .16) < 1e-12);
+    assert.ok(out.every((v, i) => v >= rgb[i]));
+    assert.ok(Math.abs(out[0] / out[1] - rgb[0] / rgb[1]) < 1e-12);
+    assert.ok(Math.abs(out[2] / out[1] - rgb[2] / rgb[1]) < 1e-12);
+  }
+  assert.deepEqual(fill([0, 0, 0], .16), [0, 0, 0]);
+  for (const rgb of [[NaN, .1, .1], [Infinity, .1, .1]]) assert.deepEqual(fill(rgb, .16), [0, 0, 0]);
+  for (const minimum of [NaN, Infinity, -1]) assert.deepEqual(fill([.01, .02, .03], minimum), [.01, .02, .03]);
+});
+
+test('assembled terrain and every tree color material share fill uniforms/helper while water bypasses it', () => {
+  const uniforms = sceneUniforms(THREE, {});
+  const terrain = createSceneMaterial(THREE, uniforms);
+  const row = new Float32Array([0, 0, 100, 20, 6, 2, .5, 2]);
+  const forest = createForest(THREE, { meshDetail: row, mesh: row, billboard: row, count: 3, stride: 8 }, uniforms);
+  try {
+    assert.equal(uniforms.uReceiverFillMin?.value, 0);
+    assert.equal(forest.uniforms.uReceiverFillMin, uniforms.uReceiverFillMin, 'trees consume the terrain receiver setting');
+    const helper = STORM_GLSL.match(/vec3 receiverFill\([\s\S]*?\n {2}\}/)?.[0];
+    assert.ok(helper);
+    assert.ok(terrain.fragmentShader.includes(helper));
+    assert.match(terrain.fragmentShader, /if \(!water\) hemi = receiverFill\(hemi, uReceiverFillMin\);/);
+    const materials = new Set(forest.byBand.near.map(mesh => mesh.material));
+    assert.ok(materials.size >= 3, 'mesh, detail and billboard color variants assembled');
+    for (const m of materials) {
+      assert.ok(m.fragmentShader.includes(helper));
+      assert.match(m.fragmentShader, /hemi = receiverFill\(hemi, uReceiverFillMin\);/);
+      assert.equal(m.uniforms.uReceiverFillMin, uniforms.uReceiverFillMin);
+    }
+    uniforms.uReceiverFillMin.value = .16;
+    assert.equal(forest.uniforms.uReceiverFillMin.value, .16);
+  } finally { forest.dispose(); terrain.dispose(); }
+});
+
+
+test('Black second calibration raises measured dim and clear upward receivers while brighter irradiance stays exact', () => {
+  const minimum = receiver({ id: 'black-mountains-catawba', cameraPaths: [[[0, 1000, 1000]]] }).render().uReceiverFillMin.value;
+  const fill = receiverFillCpu();
+  // Rounded clear64 upward hemisphere from captured sky zenith times ambient.
+  // The second calibration may change this daylight sample; no parity claim.
+  for (const irradiance of [[.05, .07, .10], [.070560651276078, .238110329741318, .708918931050773]]) {
+    const out = fill(irradiance, minimum);
+    assert.ok(out.every((v, i) => v > irradiance[i]));
+    assert.ok(Math.abs(out[0] * .2126 + out[1] * .7152 + out[2] * .0722 - .32) < 1e-12);
+  }
+  assert.deepEqual(fill([.4, .5, .6], minimum), [.4, .5, .6]);
 });
