@@ -166,8 +166,11 @@ test('visual v2 profiles accept Chroma/world and strictly reject unknown fields'
 });
 test('historical visual manifests retain recorded Depth metadata and reject unsupported scale modes', () => {
   const presentation = { version: 2, look: 'pixel', quality: 'auto', palette: 'world', dither: .35, ditherMode: 'selective', pixelGrid: 'classic', pixelScale: 'depth', scaling: 'fit' };
-  assert.equal(normalizeManifest({ ...manifest(), settings: { presentation } }).settings.presentation.pixelScale, 'depth');
+  assert.equal(normalizeManifest({ ...manifest(), settings: { presentation } }, { historical: true }).settings.presentation.pixelScale, 'depth');
+  // A new capture cannot request the retired mode the product no longer draws.
+  assert.throws(() => normalizeManifest({ ...manifest(), settings: { presentation } }), /retired/);
   assert.throws(() => normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, pixelScale: 'random' } } }), /pixelScale/);
+  assert.throws(() => normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, pixelScale: 'random' } } }, { historical: true }), /pixelScale/);
 });
 
 test('comparison normalizes valid v1 presentation choices without weakening value validation', () => {

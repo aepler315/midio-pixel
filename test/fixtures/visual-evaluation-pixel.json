@@ -173,7 +173,7 @@
           "dither": 0.35,
           "ditherMode": "selective",
           "pixelGrid": "classic",
-          "pixelScale": "depth",
+          "pixelScale": "original",
           "scaling": "fit"
         }
       },
