@@ -160,6 +160,9 @@ async function stubSlskd(t, { downloads, remote, name, bytes, withId }) {
       const done = polls >= 2;
       if (done && polls === 2) writeFileSync(resolve(downloads, 'Björk', name.replace('.flac', '_638655301234567890.flac')), bytes);
       files.push({ id: 'new-transfer', filename: remote, state: done ? 'Completed, Succeeded' : 'Queued, Remotely', size: bytes.length });
+      // With an id, a newer same-path record that the snapshot fallback
+      // would pick (and fail on) must be ignored.
+      if (withId) files.push({ id: 'someone-else', filename: remote, state: 'Completed, Errored', requestedAt: '2099-01-01T00:00:00Z', size: 1 });
     }
     return json(200, { username: 'peer', directories: [{ directory: '@@share\\Artists\\Björk', files }] });
   });

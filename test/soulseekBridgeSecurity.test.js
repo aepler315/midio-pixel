@@ -146,6 +146,10 @@ test('the slskd poll owns only this request\'s transfer of the exact remote file
   assert.equal(findTransfer(null, wanted), null);
   assert.equal(findTransfer([{ files: [{ filename: wanted, state: 'Queued' }] }], wanted).state, 'Queued');
   assert.equal(transfersFor(user([{ ...old, removed: true }]), wanted).length, 0, 'records slskd marked removed are gone');
+  // The enqueue response lists bare Transfer records: the id must come out.
+  const enqueueResponse = { enqueued: [{ id: 'new', filename: wanted, state: 'Queued, Locally' }], failed: [] };
+  assert.deepEqual(transfersFor(enqueueResponse.enqueued, wanted).map((f) => f.id), ['new']);
+  assert.deepEqual(transfersFor(enqueueResponse.enqueued, '@@share\\Other\\x.flac'), []);
 });
 
 test('only "Succeeded" is success; every other finished state is a failure', () => {

@@ -144,12 +144,16 @@ function remoteKey(remotePath) {
 
 /** Every transfer record for exactly this remote file (a basename or
  *  suffix match picks up a different song that shares a file name), from
- *  slskd's per-user {directories: [{files}]} shape or a flat list. */
+ *  slskd's per-user {directories: [{files}]} shape, a {files} group, or
+ *  bare Transfer records (the enqueue response's `enqueued` list). */
 export function transfersFor(downloads, remotePath) {
   const wanted = remoteKey(remotePath);
-  const dirs = Array.isArray(downloads) ? downloads : downloads ? [downloads] : [];
-  return dirs.flatMap((dir) => dir?.directories?.flatMap((d) => d.files || []) || dir?.files || [])
-    .filter((f) => f && !f.removed && remoteKey(f.filename) === wanted);
+  const entries = Array.isArray(downloads) ? downloads : downloads ? [downloads] : [];
+  return entries.flatMap((entry) => {
+    if (typeof entry?.filename === 'string') return [entry];
+    if (Array.isArray(entry?.directories)) return entry.directories.flatMap((d) => d?.files || []);
+    return entry?.files || [];
+  }).filter((f) => f && !f.removed && remoteKey(f.filename) === wanted);
 }
 
 /** A finished transfer record (succeeded or not); slskd reports
