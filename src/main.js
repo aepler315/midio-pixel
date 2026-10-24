@@ -3936,6 +3936,11 @@ window.addEventListener('keydown', (e) => {
   // dialog/button behavior, including Escape.
   if (document.getElementById('plexLibraryPanel')?.open) return;
   if (worldSelectEl?.open) return;
+  if (document.getElementById('libraryPanel')?.open) return;
+  // Typing belongs to the field. Every shortcut below -- P, T, F/J, C and
+  // the inert WASD/arrows -- otherwise ate letters and caret keys, so
+  // "https://" in the URL loader toggled the FPS HUD and the track list.
+  if (e.target?.isContentEditable || e.target?.closest?.('input, textarea, select')) return;
   // Native controls must receive their Enter/Space default actions before
   // the gameplay handler's inert-key guard can suppress them.
   if ((e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar')
@@ -4011,10 +4016,9 @@ window.addEventListener('keydown', (e) => {
   if (INERT_KEYS.has(e.key)) { e.preventDefault(); return; }
 
   // Almost any other key resyncs the player's beat anchor (BeatAnchor.js) --
-  // ignore held-key auto-repeat, modifier chords, and typing into a field.
+  // ignore held-key auto-repeat and modifier chords (typing into a field
+  // already returned at the top).
   if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
-  const activeTag = document.activeElement?.tagName;
-  if (activeTag === 'INPUT' || activeTag === 'TEXTAREA' || document.activeElement?.isContentEditable) return;
   beatTap();
 });
 
@@ -4113,12 +4117,6 @@ btLatencyOffBtnEl?.addEventListener('click', () => turnOffBtLatencyTrim());
 btLatencyInputEl?.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') { e.preventDefault(); applyBtLatencyTrim(); }
   else if (e.key === 'Escape') { e.preventDefault(); closeBtLatencyPopover(); }
-  // Stop the event reaching window's own keydown handler entirely: several
-  // of its branches (F/L/etc. single-letter shortcuts) fire before that
-  // handler's own typing guard runs, so without this, typing a digit like
-  // "5" here would be harmless, but a stray letter key would trigger
-  // whatever shortcut it's bound to while this popover is open.
-  e.stopPropagation();
 });
 updateBtLatencyBtnUI();
 

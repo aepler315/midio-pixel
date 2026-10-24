@@ -20,6 +20,7 @@ const musicUrl = process.argv[3] || process.env.MUSIC_URL || '';
 
 const browser = await chromium.launch({
   headless: true,
+  args: ['--mute-audio'],
   ...(process.env.PLAYWRIGHT_CHROMIUM_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH } : {}),
 });
 let failures = 0;
@@ -104,6 +105,118 @@ try {
     await page.reload();
     await page.locator('#urlLoad:not(.hidden)').waitFor({ timeout: 5000 });
     assert.equal(await deadClicks(), 0, 'nothing was tapped on this load');
+  });
+
+  // Real key presses, not fill(): the window shortcut handler used to eat
+  // letters and caret keys before it checked for a focused field, so typing
+  // "https://" toggled the FPS HUD (P) and the track list (T), and W/A/S/D
+  // and the arrows never reached the input at all.
+  const shortcutState = () => page.evaluate(() => ({
+    hud: document.getElementById('fpsHud')?.className,
+    badge: document.getElementById('trackBadge')?.className,
+  }));
+  /** Shows a field whose panel is hidden in this state (the lyrics row and
+   *  the complete panel), types into it with the keyboard, then restores. */
+  const typeInto = async (selector, text, { caretLeft = 0, then = '' } = {}) => {
+    await page.evaluate((sel) => {
+      for (let el = document.querySelector(sel); el; el = el.parentElement) {
+        if (el.classList.contains('hidden')) { el.classList.remove('hidden'); el.dataset.smokeUnhidden = ''; }
+      }
+    }, selector);
+    const field = page.locator(selector);
+    await field.evaluate((el) => { el.value = ''; });
+    await field.focus();
+    await page.keyboard.type(text);
+    for (let i = 0; i < caretLeft; i++) await page.keyboard.press('ArrowLeft');
+    if (then) await page.keyboard.type(then);
+    const value = await field.inputValue();
+    await field.evaluate((el) => { el.value = ''; el.blur(); });
+    await page.evaluate(() => {
+      for (const el of document.querySelectorAll('[data-smoke-unhidden]')) {
+        el.classList.add('hidden');
+        delete el.dataset.smokeUnhidden;
+      }
+    });
+    return value;
+  };
+
+  await run('typing a URL reaches the field and fires no shortcut', async () => {
+    const before = await shortcutState();
+    assert.equal(await typeInto('#urlLoadInput', 'https://sawd.example/p', { caretLeft: 1, then: 'X' }),
+      'https://sawd.example/Xp');
+    assert.deepEqual(await shortcutState(), before, 'P/T must not toggle while typing');
+  });
+
+  await run('lyrics and seed fields take letters, WASD and caret keys', async () => {
+    const before = await shortcutState();
+    assert.equal(await typeInto('#lyricsTitleInput', 'Wasd Paths', { caretLeft: 5, then: 'T' }), 'Wasd TPaths');
+    assert.equal(await typeInto('#completeNewSeedInput', 'A1D2', { caretLeft: 2, then: 'w' }), 'A1wD2');
+    assert.deepEqual(await shortcutState(), before);
+  });
+
+  await run('a contenteditable descendant is a field too', async () => {
+    const before = await shortcutState();
+    const typed = await page.evaluate(() => {
+      const host = document.createElement('div');
+      host.contentEditable = 'true';
+      host.id = 'smokeEditable';
+      host.innerHTML = '<p><span id="smokeEditableChild">x</span></p>';
+      document.body.append(host);
+      return true;
+    });
+    assert.ok(typed);
+    await page.locator('#smokeEditableChild').click();
+    await page.keyboard.press('End');
+    await page.keyboard.type('pt wasd');
+    const text = await page.locator('#smokeEditable').textContent();
+    await page.evaluate(() => document.getElementById('smokeEditable')?.remove());
+    assert.equal(text, 'xpt wasd');
+    assert.deepEqual(await shortcutState(), before);
+  });
+
+  await run('shortcuts still work outside fields, but not under the open library', async () => {
+    await page.evaluate(() => document.activeElement?.blur());
+    const before = await shortcutState();
+    await page.keyboard.press('p');
+    assert.notEqual((await shortcutState()).hud, before.hud, 'P toggles the FPS HUD from the page');
+    await page.keyboard.press('p');
+    assert.deepEqual(await shortcutState(), before);
+    const opened = await page.evaluate(() => {
+      const panel = document.getElementById('libraryPanel');
+      if (!panel) return false;
+      panel.classList.remove('hidden');
+      panel.showModal();
+      return panel.open;
+    });
+    assert.equal(opened, true);
+    await page.keyboard.press('p');
+    await page.keyboard.press('t');
+    await page.evaluate(() => {
+      const panel = document.getElementById('libraryPanel');
+      panel.close();
+      panel.classList.add('hidden');
+    });
+    assert.deepEqual(await shortcutState(), before, 'the modal library owns the keyboard');
+  });
+
+  await run('Space and Enter still activate a focused button', async () => {
+    const clicks = await page.evaluate(async () => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.id = 'smokeButton';
+      let count = 0;
+      button.addEventListener('click', () => { count++; });
+      document.body.append(button);
+      window.__smokeButtonClicks = () => count;
+      return 0;
+    });
+    assert.equal(clicks, 0);
+    await page.locator('#smokeButton').focus();
+    await page.keyboard.press('Space');
+    await page.keyboard.press('Enter');
+    const count = await page.evaluate(() => window.__smokeButtonClicks());
+    await page.evaluate(() => document.getElementById('smokeButton')?.remove());
+    assert.equal(count, 2);
   });
 
   await run('a file:// URL is refused with the reason, not a generic error', async () => {
