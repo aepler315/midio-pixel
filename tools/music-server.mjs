@@ -23,6 +23,8 @@
 //   node tools/music-server.mjs ~/Music            # then load http://127.0.0.1:8088/
 //   node tools/music-server.mjs ~/Music 9000       # a different port
 //   MUSIC_HOST=0.0.0.0 node tools/music-server.mjs ~/Music
+//   MUSIC_ALLOW_HOST=phone.local ...    # also answer to a name (default:
+//                                       # loopback and IP addresses only)
 //
 // On Android this runs under Termux (`pkg install nodejs`).
 //

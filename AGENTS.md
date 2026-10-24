@@ -30,10 +30,13 @@ README.
 
 Checkouts are LF everywhere (`.gitattributes`), and pinned Range/vendor bytes
 are never converted. A clone made before that rule may still hold CRLF files,
-which `test/lineEndings.test.js` reports. Refresh such a clone once, and only
-when `git status --porcelain` prints nothing (commit or stash your work
-first; this rewrites every tracked file from HEAD):
-`git rm --cached -r -q . && git checkout HEAD -- .`. Never use
+which `test/lineEndings.test.js` reports. In such a clone `git status` may
+list files under `src/vendor`, `ridgeview/vendor` or `src/assets/range/v2`
+as modified: those are the CRLF bytes, never commit them; discard them with
+`git checkout -- src/vendor ridgeview/vendor src/assets/range/v2`. Then
+refresh the clone once, only when `git status --porcelain` prints nothing
+(commit or stash your own work first; this rewrites every tracked file from
+HEAD): `git rm --cached -r -q . && git checkout HEAD -- .`. Never use
 `git add --renormalize`: for `-text` paths it stages the CRLF bytes.
 
 Run relevant behavior tests and `npm test`/`npm run lint` before completion.
