@@ -34,7 +34,7 @@ let browser;
 try {
   const executablePath = process.env.PLAYWRIGHT_CHROMIUM_PATH
     || (existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : null);
-  browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}) });
+  browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}), args: ['--mute-audio'] });
   const context = await browser.newContext();
   const page = await context.newPage();
   const pageErrors = [];
@@ -149,10 +149,11 @@ try {
     });
     await run('actual rescan/autotag/play overlap reconciles current memory', async () => {
       const file = new File([new Uint8Array(64)], 'Fixture Song.mp3', { lastModified: 1 });
-      const row = track(file.name, { rootId: 'actual-scan', key: `actual-scan\u0000${file.name}`, playCount: 7 });
+      const rootRecord = await db.addRoot({ name: 'Actual scan' });
+      const row = track(file.name, { rootId: rootRecord.id, key: `${rootRecord.id}\u0000${file.name}`, playCount: 7 });
       const stale = await seed(row);
       const lib = new MusicLibrary({ fetchFn: tagFetch });
-      lib.root = { id: row.rootId, name: 'Regression' }; lib.handle = directory(file); lib.tracks = [{ ...stale }];
+      lib.root = rootRecord; lib.handle = directory(file); lib.tracks = [{ ...stale }];
       const before = [...new Uint8Array(await file.arrayBuffer())];
       await Promise.all([lib.autoTag(), lib.rescan(), lib.notePlayed(stale, 222)]);
       const actual = await stored(row.key), current = lib.tracks[0];
@@ -233,8 +234,9 @@ try {
     });
     await run('aborted rescan preserves history and a playable marked row', async () => {
       const file = new File([new Uint8Array(64)], 'Failed scan.mp3', { lastModified: 1 });
-      const row = await seed(track(file.name, { rootId: 'failed-scan', key: `failed-scan\u0000${file.name}`, playCount: 7, durationSec: 150 }));
-      const lib = new MusicLibrary(); lib.root = { id: row.rootId }; lib.handle = directory(file); lib.tracks = [row];
+      const rootRecord = await db.addRoot({ name: 'Failed scan' });
+      const row = await seed(track(file.name, { rootId: rootRecord.id, key: `${rootRecord.id}\u0000${file.name}`, playCount: 7, durationSec: 150 }));
+      const lib = new MusicLibrary(); lib.root = rootRecord; lib.handle = directory(file); lib.tracks = [row];
       await abortAfterPut(() => lib.rescan());
       const current = lib.tracks[0], actual = await stored(row.key);
       expect(current.playCount === 7 && current.durationSec === 150 && current.unsaved === true && actual.playCount === 7 && lib.scanning === false,
