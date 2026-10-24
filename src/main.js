@@ -438,7 +438,7 @@ paramBus.rendererMode = rendererMode;
 // ?rangeView=<id> forces one catalog view for diagnostics. One presentation (and one GPU context) per page.
 const rangeMode = resolveRangeMode();
 let rangePresentation = experience === 'landscape' && rangeMode.mode === 'v2'
-  ? new RangePresentation({ mode: 'v2', tour: rangeMode.tour, shots: rangeMode.shots, shotCandidates: rangeMode.shotCandidates, forcedViewId: rangeMode.forcedViewId, diag: rangeMode.diag, residency: sharedResidency(), budget: residencyBudgetFor().name })
+  ? new RangePresentation({ mode: 'v2', tour: rangeMode.tour, upgradeIntended: rangeMode.upgradeIntended, shots: rangeMode.shots, shotCandidates: rangeMode.shotCandidates, forcedViewId: rangeMode.forcedViewId, diag: rangeMode.diag, residency: sharedResidency(), budget: residencyBudgetFor().name })
   : null;
 
 const rangeTourToggle = document.getElementById('range-tour-toggle');
@@ -472,7 +472,7 @@ if (rangeTourToggle) {
     const tour = choice === 'tetons' ? 'tetons' : null;
     try { localStorage.setItem('range-tour', choice); } catch { /* Storage may be blocked. */ }
     const url = new URL(location.href); url.searchParams.set('rangeTour', choice); history.replaceState(null, '', url);
-    rangePresentation ||= new RangePresentation({ mode: 'v2', residency: sharedResidency(), budget: residencyBudgetFor().name });
+    rangePresentation ||= new RangePresentation({ mode: 'v2', upgradeIntended: rangeMode.upgradeIntended, residency: sharedResidency(), budget: residencyBudgetFor().name });
     if (renderer) renderer.rangePresentation = rangePresentation;
     const terrain = lastTimelineData?.terrain;
     if (terrain) {
@@ -581,7 +581,7 @@ function applyExperience(value) {
   const wantsRange = next === 'landscape' && mode.mode === 'v2';
   if (!wantsRange && rangePresentation) { rangePresentation.dispose(); rangePresentation = null; }
   if (wantsRange && !rangePresentation) {
-    rangePresentation = new RangePresentation({ mode: 'v2', tour: mode.tour, shots: mode.shots, shotCandidates: mode.shotCandidates, forcedViewId: mode.forcedViewId, diag: mode.diag,
+    rangePresentation = new RangePresentation({ mode: 'v2', tour: mode.tour, upgradeIntended: mode.upgradeIntended, shots: mode.shots, shotCandidates: mode.shotCandidates, forcedViewId: mode.forcedViewId, diag: mode.diag,
       residency: sharedResidency(), budget: residencyBudgetFor().name });
   }
   if (renderer) renderer.rangePresentation = rangePresentation;

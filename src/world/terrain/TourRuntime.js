@@ -1,7 +1,7 @@
 import { sectionRoles } from './SectionRoles.js';
 import { restoreTourTimeline } from './TourTimeline.js';
 /** CPU planning runs away from rendering; cancelled generations cannot publish. */
-export function prepareTourTimeline(data,mgr,{signal=null,previous=null,committedThroughMs=0}={}){
+export function prepareTourTimeline(data,mgr,{signal=null,previous=null,committedThroughMs=0,upgradeIntended=false}={}){
   const sections=mgr?.sections||[],durationMs=mgr?.durationMs||0,energy=new Float32Array(Math.ceil(durationMs/250)+1);
   for(let i=0;i<energy.length;i++)energy[i]=mgr?.energyCurves?.globalEnergy?.(i*250)??.5;
   const roles=sectionRoles({sections,durationMs,energyCurves:mgr?.energyCurves,conductorSchedule:mgr?.conductorSchedule || [],noteEvents:mgr?.conductor?.timeline||[]});
@@ -13,7 +13,7 @@ export function prepareTourTimeline(data,mgr,{signal=null,previous=null,committe
     const finish=()=>{signal?.removeEventListener('abort',abort);worker.terminate();};
     worker.onmessage=e=>{finish();if(e.data.error)reject(new Error(e.data.error));else resolve(restoreTourTimeline(e.data.tour));};
     worker.onerror=e=>{finish();reject(new Error(e.message||'Tour worker failed'));};
-    const frozen=previous?.eye?{eye:previous.eye,target:previous.target,fov:previous.fov,meta:previous.meta,durationMs:previous.durationMs,heroes:previous.heroes,notes:previous.notes,meanQualityRatio:previous.meanQualityRatio,heroFraming:previous.heroFraming,heroCoverage:previous.heroCoverage,routeSegments:previous.routeSegments,routeSpeedProfile:previous.routeSpeedProfile,scale:previous.scale,routeTimeOriginMs:previous.routeTimeOriginMs,routeSlowTauSec:previous.routeSlowTauSec}:null;
-    worker.postMessage({data,sections,roles,durationMs,energy,previous:frozen,committedThroughMs});
+    const frozen=previous?.eye?{eye:previous.eye,target:previous.target,fov:previous.fov,meta:previous.meta,durationMs:previous.durationMs,heroes:previous.heroes,notes:previous.notes,meanQualityRatio:previous.meanQualityRatio,heroFraming:previous.heroFraming,heroCoverage:previous.heroCoverage,routeSegments:previous.routeSegments,routeSpeedProfile:previous.routeSpeedProfile,scale:previous.scale,routeTimeOriginMs:previous.routeTimeOriginMs,routeSlowTauSec:previous.routeSlowTauSec,upgradeIntended:!!previous.upgradeIntended}:null;
+    worker.postMessage({data,sections,roles,durationMs,energy,previous:frozen,committedThroughMs,upgradeIntended:!!upgradeIntended});
   });
 }

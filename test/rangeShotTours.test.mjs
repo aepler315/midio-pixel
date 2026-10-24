@@ -67,7 +67,7 @@ test('a loaded library for another terrain package falls back to the rail', asyn
 });
 
 test('mode resolution: shot tours by default, off keeps rails, tetons forces the highway', () => {
-  assert.deepEqual(resolveRangeMode(''), { mode: 'v2', forcedViewId: null, diag: null, tour: null, shots: true, shotCandidates: false });
+  assert.deepEqual(resolveRangeMode(''), { mode: 'v2', forcedViewId: null, diag: null, tour: null, shots: true, shotCandidates: false, upgradeIntended: false });
   assert.equal(resolveRangeMode('?rangeTour=off').shots, false);
   assert.equal(resolveRangeMode('', { getItem: () => 'off' }).shots, false);
   assert.equal(resolveRangeMode('?rangeTour=shots', { getItem: () => 'off' }).shots, true);

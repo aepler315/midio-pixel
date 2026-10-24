@@ -56,10 +56,13 @@ export function resolveRangeMode(search = (typeof location !== 'undefined' ? loc
     const choice = q.has('rangeTour') ? q.get('rangeTour') : saved;
     const tour = choice === 'tetons' ? 'tetons' : null;
     const shots = !tour && choice !== 'off';
-    return { mode: tour ? 'v2' : RANGE_RENDERER_MODES.includes(raw) ? raw : RANGE_DEFAULT_MODE, forcedViewId: tour ? 'teton-range-tour' : forcedViewId, diag, tour,
+    // ?rangeTourIntended=1 lets a tour shot framed by an alternative try its
+    // intended subject. It replaces an accepted subject, so it is opt-in.
+    const upgradeIntended = q.get('rangeTourIntended') === '1';
+    return { mode: tour ? 'v2' : RANGE_RENDERER_MODES.includes(raw) ? raw : RANGE_DEFAULT_MODE, forcedViewId: tour ? 'teton-range-tour' : forcedViewId, diag, tour, upgradeIntended,
       shots, shotCandidates: q.get('rangeShots') === 'all' };
   } catch {
-    return { mode: RANGE_DEFAULT_MODE, forcedViewId: null, diag: null, tour: null, shots: true, shotCandidates: false };
+    return { mode: RANGE_DEFAULT_MODE, forcedViewId: null, diag: null, tour: null, upgradeIntended: false, shots: true, shotCandidates: false };
   }
 }
 
@@ -107,7 +110,7 @@ function defaultCanvas(w, h) {
 }
 
 export class RangePresentation {
-  constructor({ mode = 'legacy', forcedViewId = null, tour = null, shots = true, shotCandidates = false, diag = null, residency = null, budget = 'desktop',
+  constructor({ mode = 'legacy', forcedViewId = null, tour = null, shots = true, shotCandidates = false, upgradeIntended = false, diag = null, residency = null, budget = 'desktop',
     loadRuntime = (attempt) => import(retryUrl(RUNTIME_URL, attempt)),
     loadScene = (attempt) => import(retryUrl('./RangeScene.js', attempt)),
     retryDelaysMs = RUNTIME_RETRY_MS, cooldownMs = RUNTIME_COOLDOWN_MS, sceneFactory = null, catalog = SCENE_CATALOG, assetBase = ASSET_BASE,
@@ -115,8 +118,8 @@ export class RangePresentation {
     this.mode = mode;
     this.forcedViewId = forcedViewId;
     this.tourMode = tour;
-    // Scenic shot tours of the song's approved views; the forced Teton
-    // highway tour excludes them.
+    this.upgradeIntended = !!upgradeIntended;
+    // Scenic shot tours exclude the forced Teton highway tour.
     this.shots = shotTours || new RangeShotTours({ enabled: shots && !tour, allowCandidates: shotCandidates, assetBase, residency });
     this.cameraTourActive = false;
     this.tour = null;
@@ -265,7 +268,7 @@ export class RangePresentation {
         .then(async pkg => {
           if (controller.signal.aborted || this.generation !== generation) return;
           this._tourPreparation = { ...this._tourPreparation, state: 'planning' };
-          const tour = await prepareTourTimeline(pkg.data, mgr, { signal: controller.signal });
+          const tour = await prepareTourTimeline(pkg.data, mgr, { signal: controller.signal, upgradeIntended: this.upgradeIntended });
           if (controller.signal.aborted || this.generation !== generation) return;
           if (reservation) {
             if (!this.residency.commit(reservation, { data: pkg.data, tour })) throw new Error('Tour planning memory reservation is no longer available');
@@ -672,7 +675,8 @@ export class RangePresentation {
       const previousNotes = new Map();
       for (const note of this.tour.notes || []) previousNotes.set(note, (previousNotes.get(note) || 0) + 1);
       this._tourPreparation = { ...this._tourPreparation, replanning: true, refinement: { state: 'pending', reason: null } };
-      this._replanPromise = prepareTourTimeline(this.tourData, mgr, { signal: controller.signal, previous: this.tour, committedThroughMs: (mgr.tSec || 0) * 1000 })
+      this._replanPromise = prepareTourTimeline(this.tourData, mgr, { signal: controller.signal, previous: this.tour,
+        committedThroughMs: (mgr.tSec || 0) * 1000, upgradeIntended: this.upgradeIntended })
         .then(tour => {
           if (controller.signal.aborted || generation !== this.generation) return;
           // A worker freezes only a short prefix beyond its request time.
@@ -1181,7 +1185,9 @@ export class RangePresentation {
       mode: this.mode, requestedMode: this.mode, resolvedMode: active ? 'v2' : 'legacy',
       tourMode: this.tourMode, active, viewId: active ? this.viewId : null, selectedViewId,
       runtime: this.runtimeState, runtimeReady, reason: this.reason, fallbackReason,
-      tourPreparation: { ...this._tourPreparation }, generation: this.generation,
+      tourPreparation: { ...this._tourPreparation,
+        requestedUpgradeIntended: this.upgradeIntended, effectiveUpgradeIntended: this.tour ? !!this.tour.upgradeIntended : null },
+      generation: this.generation,
       shotTours: { enabled: this.shots.enabled, active: this.active && this.cameraTourActive, views: this.shots.status() },
     };
   }
