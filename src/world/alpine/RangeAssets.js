@@ -167,7 +167,12 @@ export async function prepareTerrainAssets(view, {
   catch { throw new RangeAssetError('manifest', `manifest is not JSON: ${manifestUrl}`); }
   const shape = validateTerrainManifest(manifest);
   if (!shape.ok) throw new RangeAssetError('manifest', `manifest rejected: ${shape.errors.slice(0, 3).join('; ')}`);
-  if (manifest.viewId !== view.id) throw new RangeAssetError('manifest', `manifest is for ${manifest.viewId}, not ${view.id}`);
+  // A composition variant (e.g. `teton-jackson-lake-coherent`) reuses its
+  // source view's pinned terrain package unchanged; the package names that
+  // source. The CPU entry stays keyed per view, so the variant never reads
+  // another view's cached preparation past its own manifest pin.
+  const terrainId = view.terrainSourceId || view.id;
+  if (manifest.viewId !== terrainId) throw new RangeAssetError('manifest', `manifest is for ${manifest.viewId}, not ${terrainId}`);
   const reservation = residency
     // A scene owner releases its exact charge after executing consumers have
     // stopped. Canceling a song cannot erase their still-owned shared lanes.

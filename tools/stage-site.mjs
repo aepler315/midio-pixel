@@ -160,7 +160,11 @@ export async function verifyRangeRuntime(sourceDir, outputDir) {
       if (manifestBuf.subarray(0, 40).toString().startsWith('version https://git-lfs')) throw new Error(`${view.id} manifest is an LFS pointer`);
       if (view.terrainManifestSha256 && sha256(manifestBuf) !== view.terrainManifestSha256) throw new Error(`${view.id} manifest hash differs from the catalog`);
       const manifest = JSON.parse(manifestBuf.toString('utf8'));
-      const payload = await fs.readFile(path.join(root, path.dirname(view.terrainManifestUrl), manifest.payload.url));
+      // The same identity gate the runtime applies (RangeAssets.js).
+      if (manifest.viewId !== (view.terrainSourceId || view.id)) {
+        throw new Error(`${view.id} manifest is for ${manifest.viewId}, not ${view.terrainSourceId || view.id}`);
+      }
+      const payload =await fs.readFile(path.join(root, path.dirname(view.terrainManifestUrl), manifest.payload.url));
       if (payload.byteLength !== manifest.payload.byteLength || sha256(payload) !== manifest.payload.sha256) {
         throw new Error(`${view.id} terrain payload does not match its manifest`);
       }

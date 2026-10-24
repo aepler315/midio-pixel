@@ -2,6 +2,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import fs from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import catalog from '../src/world/terrain/sceneCatalogData.js';
 import { bakeTerrain } from '../tools/lib/terrain-bake.mjs';
 import { prepareTerrainAssets, loadTerrainPackage, RangeAssetError } from '../src/world/alpine/RangeAssets.js';
 import { GraphicsResidency, MiB } from '../src/render/GraphicsResidency.js';
@@ -70,6 +73,62 @@ test('a valid package prepares, commits once and is reused', async () => {
   const again = await prepareTerrainAssets(view, { baseUrl: base, residency: r, generation: 1, fetchImpl });
   assert.equal(again, a);
   assert.equal(log.length, 2, 'reuse does not refetch');
+});
+
+// A composition variant names its source with terrainSourceId and pins the
+// source's manifest; the package inside still says viewId: <source>.
+const variant = { ...view, id: 'v1-coherent', terrainSourceId: 'v1' };
+
+test('a composition variant prepares its source terrain under its own identity', async () => {
+  const r = ledger();
+  const cpu = await prepareTerrainAssets(variant, { baseUrl: base, residency: r, fetchImpl: server().fetchImpl });
+  assert.equal(cpu.viewId, 'v1-coherent');
+  assert.equal(cpu.key, 'range:terrain-cpu:v1-coherent');
+  assert.ok(cpu.data.tiles.size > 0);
+});
+
+test('the terrain identity gate still refuses a package for another view', async () => {
+  for (const wrong of [{ ...view, id: 'v2' }, { ...variant, terrainSourceId: 'v2' }]) {
+    await assert.rejects(prepareTerrainAssets(wrong, { baseUrl: base, residency: ledger(), fetchImpl: server().fetchImpl }),
+      (e) => e instanceof RangeAssetError && e.reason === 'manifest' && /manifest is for v1, not v2/.test(e.message));
+  }
+});
+
+test('a live source preparation never lets a variant skip its own manifest pin', async () => {
+  const r = ledger(), sourceOwner = {}, variantOwner = {};
+  const { fetchImpl, log } = server();
+  const source = await prepareTerrainAssets(view, { baseUrl: base, residency: r, fetchImpl, owner: sourceOwner });
+  const badPin = { ...variant, terrainManifestSha256: '0'.repeat(64) };
+  await assert.rejects(prepareTerrainAssets(badPin, { baseUrl: base, residency: r, fetchImpl, owner: {} }),
+    (e) => e.reason === 'hash');
+  assert.equal(r.has(source.key), true, 'the refused variant does not disturb the live source');
+  // Two holders of distinct entries: releasing one never retires the other.
+  const before = log.length;
+  const alias = await prepareTerrainAssets(variant, { baseUrl: base, residency: r, fetchImpl, owner: variantOwner });
+  assert.notEqual(alias, source);
+  assert.ok(log.length > before, 'the variant verifies and loads its own bytes');
+  variantOwner.release();
+  assert.equal(r.has(alias.key), false);
+  assert.equal(r.has(source.key), true);
+  assert.equal(sourceOwner.retired, false);
+  sourceOwner.release();
+  assert.equal(r.usedBytes, 0);
+});
+
+test('every catalog view, composition variants included, prepares from the shipped assets', async () => {
+  const root = new URL('../src/assets/range/v2/', import.meta.url);
+  const fetchImpl = async (url) => {
+    try { return new Response(await fs.readFile(fileURLToPath(url))); } catch { return new Response('missing', { status: 404 }); }
+  };
+  assert.ok(catalog.views.some((v) => v.terrainSourceId), 'the catalog still carries a composition variant');
+  const failures = [];
+  for (const v of catalog.views) {
+    try {
+      const cpu = await prepareTerrainAssets(v, { baseUrl: root.href, fetchImpl });
+      assert.equal(cpu.viewId, v.id);
+    } catch (error) { failures.push(`${v.id}: ${error.message}`); }
+  }
+  assert.deepEqual(failures, []);
 });
 
 test('missing assets fail explicitly', async () => {
