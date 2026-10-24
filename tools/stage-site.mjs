@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { gunzipSync } from 'node:zlib';
@@ -225,7 +226,18 @@ export async function assertStagePaths(sourceDir, outputDir) {
   return { source, output };
 }
 
-export async function stageSite(sourceDir, outputDir) {
+/** The commit a staged site was built from: given by the publisher, else
+ *  the source checkout's HEAD, else unknown (a copied tree). */
+function sourceCommit(source, commit) {
+  if (commit) return commit;
+  try {
+    return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: source, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch {
+    return null;
+  }
+}
+
+export async function stageSite(sourceDir, outputDir, { commit = null, ref = null } = {}) {
   const { source, output } = await assertStagePaths(sourceDir, outputDir);
   for (const required of REQUIRED) {
     try { await fs.access(path.join(source, required)); }
@@ -236,8 +248,10 @@ export async function stageSite(sourceDir, outputDir) {
   await fs.mkdir(output, { recursive: true });
   await Promise.all([
     fs.copyFile(path.join(source, 'index.html'), path.join(output, 'index.html')),
-    exists(path.join(source, 'CNAME')).then(present => present
-      ? fs.copyFile(path.join(source, 'CNAME'), path.join(output, 'CNAME')) : undefined),
+    // The custom domain, and the licence and attribution notices that must
+    // travel with the published code and data.
+    ...['CNAME', 'LICENSE', 'NOTICE'].map(name => exists(path.join(source, name)).then(present => present
+      ? fs.copyFile(path.join(source, name), path.join(output, name)) : undefined)),
     fs.cp(path.join(source, 'src'), path.join(output, 'src'), { recursive: true }),
     fs.cp(path.join(source, 'soundfonts'), path.join(output, 'soundfonts'), { recursive: true }),
     fs.writeFile(path.join(output, '.nojekyll'), ''),
@@ -246,6 +260,9 @@ export async function stageSite(sourceDir, outputDir) {
     apiBase: process.env.MIDIO_PLEX_PUBLIC_API_BASE || '',
   });
   await verifyRangeRuntime(source, output);
+  // What is live: https://supermaudio.com/version.json names the commit.
+  await fs.writeFile(path.join(output, 'version.json'),
+    `${JSON.stringify({ commit: sourceCommit(source, commit), ref })}\n`);
   return output;
 }
 

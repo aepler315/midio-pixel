@@ -26,9 +26,25 @@ test('stageSite writes only the public runtime contract', async (t) => {
   const { root, source, output } = await fixture();
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   await stageSite(source, output);
-  assert.deepEqual((await fs.readdir(output)).sort(), ['.nojekyll', 'CNAME', 'index.html', 'soundfonts', 'src']);
+  assert.deepEqual((await fs.readdir(output)).sort(), ['.nojekyll', 'CNAME', 'index.html', 'soundfonts', 'src', 'version.json']);
   assert.equal(await fs.readFile(path.join(output, 'src/main.js'), 'utf8'), 'export const boot = true;\n');
   await assert.rejects(fs.access(path.join(output, 'secret.txt')));
+  // A copied tree has no Git: the version says so instead of guessing.
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(output, 'version.json'), 'utf8')), { commit: null, ref: null });
+});
+
+test('stageSite carries the licence, notices and the published commit', async (t) => {
+  const { root, source, output } = await fixture();
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await fs.writeFile(path.join(source, 'LICENSE'), 'MIT License\n');
+  await fs.writeFile(path.join(source, 'NOTICE'), 'Elevation data attribution\n');
+  await fs.writeFile(path.join(source, 'AGENTS.md'), 'internal workflow notes\n');
+  const commit = 'a'.repeat(40);
+  await stageSite(source, output, { commit, ref: 'main' });
+  assert.equal(await fs.readFile(path.join(output, 'LICENSE'), 'utf8'), 'MIT License\n');
+  assert.equal(await fs.readFile(path.join(output, 'NOTICE'), 'utf8'), 'Elevation data attribution\n');
+  await assert.rejects(fs.access(path.join(output, 'AGENTS.md')), 'internal docs stay unpublished');
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(output, 'version.json'), 'utf8')), { commit, ref: 'main' });
 });
 
 test('stageSite fails when a required runtime input is missing', async (t) => {
@@ -43,7 +59,7 @@ test('stageSite supports a new repository without a custom domain', async (t) =>
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   await fs.rm(path.join(source, 'CNAME'));
   await stageSite(source, output);
-  assert.deepEqual((await fs.readdir(output)).sort(), ['.nojekyll', 'index.html', 'soundfonts', 'src']);
+  assert.deepEqual((await fs.readdir(output)).sort(), ['.nojekyll', 'index.html', 'soundfonts', 'src', 'version.json']);
 });
 
 test('stageSite refuses to clean a source directory or one of its ancestors', async (t) => {

@@ -57,14 +57,31 @@ the published tour package and a minimized role schedule. The 60- and
 120-second controls complete; the 90-second desired success is an explicit
 TODO until WP03 repairs the planner. It is not a passing playback assertion.
 
-The active publisher is GitHub's branch-based Pages build and deployment,
-confirmed on main at commit 9a500dfbb07b3f389c4efae47f8a30e3b9cce4ac. It is
-independent of the Test workflow. Keep repository Pages settings unchanged.
-The optional manual `static.yml` workflow does not call the Test workflow. It
-stages `_site`, then boots and plays that exact artifact (`test:bootstrap` and
-`test:smoke` and `test:routes` in Chromium) before uploading it, so a staged regression cannot be
-published. Lint and unit tests are not repeated there; run them locally first.
-Changing workflow triggers does not clear historical billing-blocked runs.
+## Publishing
+
+GitHub Pages serves the `gh-pages` branch (repository settings: Pages source
+`gh-pages`, `/`). That branch holds only the staged site, never the
+repository: until 2026-10-24 Pages built `main` itself, which published every
+tracked file (internal docs, tools, data) at supermaudio.com. Publish with:
+
+```sh
+npm run validate             # the gate above, on the commit you will publish
+npm run publish:site         # stage main, verify, boot headless, push gh-pages
+npm run publish:site -- --ref <commit> --dry-run   # build and check only
+```
+
+`publish:site` exports the ref with `git archive` (no line-ending conversion,
+so pinned bytes are exact), stages it with `tools/stage-site.mjs` (which
+verifies the Range runtime, terrain, tour and material pins and writes
+`version.json` with the commit), runs the bootstrap smoke against it, and
+commits it onto `gh-pages` through a private index; no checkout is touched.
+After Pages rebuilds, `https://supermaudio.com/version.json` names the commit.
+The Pages build itself runs on GitHub Actions, so it needs a working billing
+account; a blocked account leaves the previous deployment live.
+
+The optional manual `static.yml` workflow (artifact-based Pages deployment)
+is not the active publisher. Changing workflow triggers does not clear
+historical billing-blocked runs.
 
 Visual comparisons retain both commit labels, public digests and working-tree
 states. Identical public digests are repeatability checks, even when commits

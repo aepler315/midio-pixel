@@ -18,6 +18,7 @@
     "test:routes": "node tools/current-routes-smoke.mjs",
     "test:gpu": "node tools/gpu-review.mjs",
     "stage:site": "node tools/stage-site.mjs . _site",
+    "publish:site": "node tools/publish-site.mjs",
     "test:seek": "node tools/seek-effects-smoke.mjs",
     "test:shading": "node tools/static-shading-smoke.mjs",
     "test:worlds": "node tools/worlds-smoke.mjs",
