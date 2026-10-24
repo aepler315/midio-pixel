@@ -93,20 +93,62 @@ export const DEFAULT_SLSKD_DOWNLOADS =
 export function pathsInsideDownloads(root, relPath) {
   const normalized = String(relPath).replace(/\\/g, '/');
   const base = path.basename(normalized);
-  const primary = path.join(root, base);
   const isAbsolute = normalized.startsWith('/');
   const segments = normalized.split('/').filter(Boolean);
   const hasTraversal = segments.some((seg) => seg === '..' || seg === '.');
+  const plainName = (seg) => Boolean(seg) && seg !== '.' && seg !== '..' && !seg.includes(':');
 
-  const candidates = [primary];
-  if (!isAbsolute && !hasTraversal && segments.length > 1) {
-    const nested = path.join(root, ...segments);
-    if (nested !== primary) candidates.push(nested);
+  // Most specific first, so a same-named file from another transfer at the
+  // root never wins. slskd saves a finished transfer as
+  // <downloads>/<last remote directory>/<file> (the remote path is usually
+  // `@@share\Artist\Album\file.mp3`), so that is the first place to look.
+  const candidates = [];
+  const lastDir = segments.length > 1 ? segments[segments.length - 2] : '';
+  if (!hasTraversal && plainName(lastDir) && plainName(base)) candidates.push(path.join(root, lastDir, base));
+  if (!isAbsolute && !hasTraversal && segments.length > 1) candidates.push(path.join(root, ...segments));
+  if (plainName(base)) candidates.push(path.join(root, base));
+  const resolvedRoot = path.resolve(root);
+  return [...new Set(candidates)].filter((candidate) => isInside(resolvedRoot, path.resolve(candidate)));
+}
+
+function isInside(root, target) {
+  const relative = path.relative(root, target);
+  return Boolean(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
+
+/** The canonical path of a candidate download, or null when it does not
+ *  exist or a symlink leads it outside the (canonical) downloads root. */
+export function realFileInsideDownloads(root, candidate) {
+  try {
+    const real = fs.realpathSync(candidate);
+    return isInside(fs.realpathSync(root), real) ? real : null;
+  } catch {
+    return null;
   }
-  return candidates;
+}
+
+/** The same remote file, regardless of separator style or case. */
+function remoteKey(remotePath) {
+  return String(remotePath || '').replace(/\\/g, '/').toLowerCase();
+}
+
+/** The transfer for exactly this remote file, newest first: a basename or
+ *  suffix match picked up a different song that shared a file name. */
+export function findTransfer(downloads, remotePath) {
+  const wanted = remoteKey(remotePath);
+  const dirs = Array.isArray(downloads) ? downloads : downloads ? [downloads] : [];
+  const stamp = (f) => Date.parse(f.requestedAt || f.enqueuedAt || f.startedAt || '') || 0;
+  return dirs.flatMap((dir) => dir?.directories?.flatMap((d) => d.files || []) || dir?.files || [])
+    .filter((f) => remoteKey(f.filename) === wanted)
+    .sort((a, b) => stamp(b) - stamp(a))[0] || null;
 }
 
 const searches = new Map();
+// The page's download request (src/soulseek/SoulseekSearch.js) must outlast
+// SLSKD_REQUEST_TIMEOUT_MS (enqueue) + SLSKD_DOWNLOAD_DEADLINE_MS + one poll.
+export const SLSKD_REQUEST_TIMEOUT_MS = 15_000;
+export const SLSKD_DOWNLOAD_DEADLINE_MS = 120_000;
+const SLSKD_POLL_MS = 1500;
 const MAX_SEARCHES = 128;
 const SEARCH_TTL_MS = 5 * 60 * 1000;
 
@@ -398,6 +440,7 @@ async function slskdFetch(cfg, apiPath, opts = {}) {
     method: opts.method || 'GET',
     headers,
     body: opts.body ? JSON.stringify(opts.body) : undefined,
+    signal: AbortSignal.timeout(opts.timeoutMs ?? SLSKD_REQUEST_TIMEOUT_MS),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -516,54 +559,60 @@ async function downloadViaSlskd(cfg, item) {
     body: filePayload,
   });
 
-  const deadline = Date.now() + 120_000;
-  const target = basename(item._file || item.filename).toLowerCase();
+  const deadline = Date.now() + SLSKD_DOWNLOAD_DEADLINE_MS;
+  const remotePath = item._file || item.filename;
   while (Date.now() < deadline) {
-    await sleep(1500);
+    await sleep(SLSKD_POLL_MS);
+    // Each poll is bounded by what is left of the overall deadline, so one
+    // stalled request can never stretch the download past it.
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
     const downloads = await slskdFetch(
       cfg,
       `/transfers/downloads/${encodeURIComponent(username)}`,
+      { timeoutMs: Math.min(SLSKD_REQUEST_TIMEOUT_MS, remaining) },
     ).catch(() => null);
-    const dirs = Array.isArray(downloads) ? downloads : downloads ? [downloads] : [];
-    for (const dir of dirs) {
-      for (const f of dir.files || []) {
-        const name = basename(f.filename || '').toLowerCase();
-        if (name !== target && !(f.filename || '').toLowerCase().endsWith(target)) continue;
-        const state = String(f.state || f.transferState || '').toLowerCase();
-        if (state.includes('complete') && !state.includes('incomplete')) {
-          const localPath = f.filename || item.filename;
-          const dlRoot =
-            process.env.SLSKD_DOWNLOADS ||
-            process.env.SLSKD_DOWNLOAD_DIR ||
-            DEFAULT_SLSKD_DOWNLOADS;
-          if (dlRoot) {
-            const tryPaths = pathsInsideDownloads(dlRoot, localPath);
-            for (const p of tryPaths) {
-              if (fs.existsSync(p)) {
-                const stat = fs.statSync(p);
-                if (!stat.isFile() || stat.size > MAX_DOWNLOAD_BYTES) {
-                  throw new Error(`slskd download exceeds the ${MAX_DOWNLOAD_BYTES} byte limit`);
-                }
-                return {
-                  buffer: readBoundedFile(p, 'slskd download'),
-                  filename: basename(localPath),
-                  contentType: mimeFor(basename(localPath)),
-                };
-              }
-            }
-          }
-          throw new Error(
-            `Download completed in slskd for "${basename(localPath)}" but file bytes are not reachable from Midio. ` +
-              `Set SLSKD_DOWNLOADS to your slskd downloads folder, or drop the file manually.`,
-          );
-        }
-        if (state.includes('fail') || state.includes('error') || state.includes('cancel')) {
-          throw new Error(`slskd transfer failed: ${state}`);
-        }
-      }
+    const f = findTransfer(downloads, remotePath);
+    if (!f) continue;
+    const state = String(f.state || f.transferState || '').toLowerCase();
+    if (state.includes('complete') && !state.includes('incomplete')
+      && !/fail|error|cancel|reject|timed ?out/.test(state)) {
+      const localPath = f.filename || item.filename;
+      const dlRoot =
+        process.env.SLSKD_DOWNLOADS ||
+        process.env.SLSKD_DOWNLOAD_DIR ||
+        DEFAULT_SLSKD_DOWNLOADS;
+      return readSlskdDownload(dlRoot, localPath);
+    }
+    if (/fail|error|cancel|reject|timed ?out/.test(state)) {
+      throw new Error(`slskd transfer failed: ${state}`);
     }
   }
   throw new Error('Timed out waiting for slskd download');
+}
+
+/** Reads a finished slskd transfer from the shared downloads folder. Every
+ *  candidate stays inside the root by name and, after following symlinks,
+ *  by canonical path. */
+export function readSlskdDownload(dlRoot, remotePath) {
+  for (const candidate of dlRoot ? pathsInsideDownloads(dlRoot, remotePath) : []) {
+    const real = realFileInsideDownloads(dlRoot, candidate);
+    if (!real) continue;
+    const stat = fs.statSync(real);
+    if (!stat.isFile()) continue;
+    if (stat.size > MAX_DOWNLOAD_BYTES) {
+      throw new Error(`slskd download exceeds the ${MAX_DOWNLOAD_BYTES} byte limit`);
+    }
+    return {
+      buffer: readBoundedFile(real, 'slskd download'),
+      filename: basename(remotePath),
+      contentType: mimeFor(basename(remotePath)),
+    };
+  }
+  throw new Error(
+    `Download completed in slskd for "${basename(remotePath)}" but file bytes are not reachable from Midio. ` +
+      `Set SLSKD_DOWNLOADS to your slskd downloads folder, or drop the file manually.`,
+  );
 }
 
 // ── Direct Soulseek (slsk-client) ──────────────────────────────────────────

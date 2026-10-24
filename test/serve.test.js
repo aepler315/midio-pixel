@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { test } from 'node:test';
-import { mkdtempSync, symlinkSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, symlinkSync, rmSync, writeFileSync } from 'node:fs';
+import http from 'node:http';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { rawRequest } from './helpers/raw-http.mjs';
@@ -128,6 +130,54 @@ test('tokenless bridge rejects untrusted Host headers and never returns configur
     assert.equal(config.status, 200);
     const body = await config.text();
     assert.doesNotMatch(body, /synthetic-password/);
+  } finally {
+    child.kill('SIGTERM');
+    if (child.exitCode === null && child.signalCode === null) await new Promise((resolve) => child.once('exit', resolve));
+  }
+});
+
+test('a finished slskd download with a non-Latin-1 name reaches the page intact', async (t) => {
+  // Real slskd shape: a per-user object whose directories hold the files, and
+  // the finished file under <downloads>/<last remote directory>/<name>.
+  const downloads = mkdtempSync(resolve(tmpdir(), 'midio-serve-slskd-'));
+  t.after(() => rmSync(downloads, { recursive: true, force: true }));
+  const name = 'Björk – Jóga.flac';
+  const remote = `@@share\\Artists\\Björk\\${name}`;
+  mkdirSync(resolve(downloads, 'Björk'));
+  writeFileSync(resolve(downloads, 'Björk', name), 'the requested transfer');
+  writeFileSync(resolve(downloads, name), 'a same-named file from another transfer');
+  const slskd = http.createServer((req, res) => {
+    if (req.url !== '/api/v0/transfers/downloads/peer') { res.writeHead(404); res.end(); return; }
+    if (req.method === 'POST') { res.writeHead(201, { 'Content-Type': 'application/json' }); res.end('{}'); return; }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ username: 'peer', directories: [
+      { directory: '@@share\\Other', files: [{ filename: `@@share\\Other\\${name}`, state: 'Completed, Errored', requestedAt: '2026-10-24T10:05:00Z' }] },
+      { directory: '@@share\\Artists\\Björk', files: [{ filename: remote, state: 'Completed, Succeeded', requestedAt: '2026-10-24T10:00:00Z' }] },
+    ] }));
+  });
+  await new Promise((done) => slskd.listen(0, '127.0.0.1', done));
+  t.after(() => new Promise((done) => slskd.close(done)));
+  const port = 20_000 + Math.floor(Math.random() * 20_000);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, [serverFile, String(port)], {
+    cwd: root,
+    env: { ...process.env, HOST: '127.0.0.1', SLSK_USER: '', SLSK_PASS: '', MIDIO_BRIDGE_TOKEN: '',
+      SLSKD_URL: `http://127.0.0.1:${slskd.address().port}`, SLSKD_API_KEY: 'fixture-key', SLSKD_DOWNLOADS: downloads },
+    stdio: 'ignore',
+  });
+  try {
+    await waitForServer(baseUrl);
+    const response = await fetch(`${baseUrl}/api/soulseek/download`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ item: { source: 'slskd', user: 'peer', filename: remote, size: 22 } }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    assert.equal(response.status, 200, await response.clone().text());
+    assert.equal(await response.text(), 'the requested transfer');
+    const disposition = response.headers.get('content-disposition');
+    assert.equal(decodeURIComponent(disposition.split("filename*=UTF-8''")[1]), name);
+    assert.equal(decodeURIComponent(response.headers.get('x-filename')), name);
   } finally {
     child.kill('SIGTERM');
     if (child.exitCode === null && child.signalCode === null) await new Promise((resolve) => child.once('exit', resolve));

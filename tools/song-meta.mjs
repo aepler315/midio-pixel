@@ -334,6 +334,7 @@ export function dedupeResults(items) {
 }
 
 // ── MusicBrainz enrichment (free, no key; 1 req/s) ─────────────────────────
+const MB_TIMEOUT_MS = 10_000;
 const mbQueue = [];
 let mbBusy = false;
 let mbLastAt = 0;
@@ -379,6 +380,8 @@ async function musicBrainzLookup(artist, title) {
         Accept: 'application/json',
         'User-Agent': 'Midio-Soulseek/1.0 (https://github.com/mysecretomolove/Midio-5)',
       },
+      // One serial queue serves every lookup; a hung request would stall it forever.
+      signal: AbortSignal.timeout(MB_TIMEOUT_MS),
     });
     if (!res.ok) return null;
     const json = await res.json();

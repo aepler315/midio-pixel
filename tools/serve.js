@@ -15,6 +15,7 @@ import {
   listDemoCatalog,
 } from './soulseek-bridge.mjs';
 import { isLoopbackHost, requestHostAllowed } from './lib/request-host.mjs';
+import { contentDisposition } from './lib/content-disposition.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(process.env.SITE_ROOT || path.join(__dirname, '..'));
@@ -372,7 +373,7 @@ async function handleSoulseekRoute(req, res, reqPath) {
       const result = await downloadResult(item);
       res.writeHead(200, {
         'Content-Type': result.contentType || 'application/octet-stream',
-        'Content-Disposition': `attachment; filename="${result.filename.replace(/"/g, '')}"`,
+        'Content-Disposition': contentDisposition(result.filename),
         'X-Filename': encodeURIComponent(result.filename),
         'Cache-Control': 'no-store',
       });
