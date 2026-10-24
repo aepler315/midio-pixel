@@ -6,10 +6,12 @@ import {
   assertLoopbackSlskdUrl,
   BUNDLED_SLSKD_KEY,
   findTransfer,
+  isTerminalTransfer,
+  locateSlskdDownload,
   pathsInsideDownloads,
   readBoundedFile,
-  readSlskdDownload,
   realFileInsideDownloads,
+  transfersFor,
 } from '../tools/soulseek-bridge.mjs';
 import { contentDisposition } from '../tools/lib/content-disposition.mjs';
 
@@ -66,47 +68,93 @@ test('slskd remote paths resolve to the folder slskd actually writes', () => {
     path.join(root, '@@share', 'A', 'B', 'file.mp3'),
     path.join(root, 'file.mp3'),
   ]);
+  // ':' is an ordinary name character for slskd on Linux, and becomes '_'
+  // when slskd runs on Windows; neither may drop the folder candidate.
+  const colon = pathsInsideDownloads(root, '@@share\\Artist\\Album: Deluxe\\01 Intro: Live.flac');
+  if (process.platform === 'win32') {
+    assert.equal(colon[0], path.join(root, 'Album_ Deluxe', '01 Intro_ Live.flac'));
+  } else {
+    assert.equal(colon[0], path.join(root, 'Album: Deluxe', '01 Intro: Live.flac'));
+  }
 });
 
-test('a finished slskd transfer is read from inside the root only, symlinks included', async (t) => {
+async function downloadsFixture(t) {
   const fsp = await import('node:fs/promises');
   const base = await fsp.mkdtemp(path.join(os.tmpdir(), 'midio-slskd-'));
   t.after(() => fsp.rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'downloads');
-  await fsp.mkdir(path.join(root, 'B'), { recursive: true });
-  await fsp.writeFile(path.join(base, 'secret.mp3'), 'outside');
-  await fsp.writeFile(path.join(root, 'B', 'song.mp3'), 'right');
-  await fsp.writeFile(path.join(root, 'song.mp3'), 'same name, other transfer');
-  const got = readSlskdDownload(root, '@@share\\A\\B\\song.mp3');
-  assert.equal(got.buffer.toString(), 'right');
-  assert.equal(got.filename, 'song.mp3');
+  await fsp.mkdir(path.join(root, 'CD1'), { recursive: true });
+  const write = async (rel, body, ageMs = 0) => {
+    const file = path.join(root, rel);
+    await fsp.writeFile(file, body);
+    if (ageMs) { const when = new Date(Date.now() - ageMs); await fsp.utimes(file, when, when); }
+    return file;
+  };
+  return { fsp, base, root, write };
+}
 
+test('the located file is this transfer\'s: fresh, complete, inside the root', async (t) => {
+  const { fsp, base, root, write } = await downloadsFixture(t);
+  const remote = '@@b\\ArtistB\\CD1\\01 Intro.mp3';
+  const startedMs = Date.now() - 1000;
+  // An earlier download of a different song with the same folder and name.
+  await write('CD1/01 Intro.mp3', 'ArtistA, an older transfer', 60_000);
+  await write('01 Intro.mp3', 'a same-named file at the root', 60_000);
+  const wantBytes = 'ArtistB, this transfer!';
+  assert.equal(locateSlskdDownload(root, remote, { size: wantBytes.length, notBeforeMs: startedMs }), null,
+    'nothing fresh yet: the old files never stand in');
+  // slskd's default exists-strategy renames the new file beside the old one.
+  const partial = await write('CD1/01 Intro_638655301234567890.mp3', wantBytes.slice(0, 7));
+  assert.equal(locateSlskdDownload(root, remote, { size: wantBytes.length, notBeforeMs: startedMs }), null,
+    'a file still being copied is refused by size');
+  await fsp.writeFile(partial, wantBytes);
+  const found = locateSlskdDownload(root, remote, { size: wantBytes.length, notBeforeMs: startedMs });
+  assert.equal(await fsp.readFile(found.path, 'utf8'), wantBytes);
+
+  // Unknown size: the file must hold still across two polls.
+  const sizes = new Map();
+  assert.equal(locateSlskdDownload(root, remote, { notBeforeMs: startedMs, sizes }), null);
+  assert.equal(locateSlskdDownload(root, remote, { notBeforeMs: startedMs, sizes })?.path, found.path);
+
+  // A symlink that leads out of the root is never read.
+  await fsp.writeFile(path.join(base, 'secret.mp3'), 'outside');
   await fsp.mkdir(path.join(root, 'Leak'));
   await fsp.symlink(path.join(base, 'secret.mp3'), path.join(root, 'Leak', 'secret.mp3'), 'file');
   assert.equal(realFileInsideDownloads(root, path.join(root, 'Leak', 'secret.mp3')), null);
-  assert.throws(() => readSlskdDownload(root, 'x\\Leak\\secret.mp3'), /not reachable/);
+  assert.equal(locateSlskdDownload(root, 'x\\Leak\\secret.mp3', { size: 7 }), null);
 });
 
-test('the slskd poll matches the exact remote file, newest transfer first', () => {
+test('the slskd poll owns only this request\'s transfer of the exact remote file', () => {
   const wanted = '@@share\\Artists\\Björk\\Björk – Jóga.flac';
-  const user = {
-    username: 'peer',
-    directories: [
-      { directory: '@@share\\Other', files: [
-        { filename: '@@share\\Other\\Björk – Jóga.flac', state: 'Completed, Succeeded', requestedAt: '2026-10-24T10:05:00Z' },
-      ] },
-      { directory: '@@share\\Artists\\Björk', files: [
-        { filename: wanted, state: 'Completed, Errored', requestedAt: '2026-10-24T09:00:00Z' },
-        { filename: wanted.replace(/\\/g, '/').toUpperCase(), state: 'InProgress', requestedAt: '2026-10-24T10:00:00Z' },
-      ] },
-    ],
-  };
-  const match = findTransfer(user, wanted);
-  assert.equal(match.state, 'InProgress', 'the newest transfer of that exact file');
-  assert.equal(findTransfer([user], 'Björk – Jóga.flac'), null, 'a basename alone is not an identity');
+  const user = (files) => ({ username: 'peer', directories: [{ directory: '@@share\\Artists\\Björk', files }] });
+  const other = { id: 'x', filename: '@@share\\Other\\Björk – Jóga.flac', state: 'Completed, Succeeded', requestedAt: '2026-10-24T10:05:00Z' };
+  const old = { id: 'old', filename: wanted, state: 'Completed, Succeeded' };
+  const queued = { id: 'new', filename: wanted.replace(/\\/g, '/').toUpperCase(), state: 'Queued, Remotely' };
+
+  // With the enqueued id, only that record counts, whatever the stamps say.
+  assert.equal(findTransfer(user([other, old, queued]), wanted, { id: 'new' }).id, 'new');
+  assert.equal(findTransfer(user([other, old]), wanted, { id: 'new' }), null, 'not visible yet: keep waiting');
+  // Without an id, records finished before the enqueue are excluded...
+  assert.equal(findTransfer(user([old]), wanted, { excludeIds: new Set(['old']) }), null);
+  assert.equal(findTransfer(user([old, queued]), wanted, { excludeIds: new Set(['old']) }).id, 'new');
+  // ...and with equal or absent stamps an unfinished record still wins.
+  const sameStamp = { ...old, id: 'old2', requestedAt: '2026-10-24T10:00:00Z' };
+  assert.equal(findTransfer(user([sameStamp, { ...queued, requestedAt: '2026-10-24T10:00:00Z' }]), wanted).id, 'new');
+  assert.equal(findTransfer(user([old, queued]), wanted).id, 'new');
+
+  assert.equal(findTransfer([user([old])], 'Björk – Jóga.flac'), null, 'a basename alone is not an identity');
   assert.equal(findTransfer(null, wanted), null);
-  // The flat shape some slskd builds return is accepted too.
   assert.equal(findTransfer([{ files: [{ filename: wanted, state: 'Queued' }] }], wanted).state, 'Queued');
+  assert.equal(transfersFor(user([{ ...old, removed: true }]), wanted).length, 0, 'records slskd marked removed are gone');
+});
+
+test('only "Succeeded" is success; every other finished state is a failure', () => {
+  for (const state of ['Completed, Errored', 'Completed, Cancelled', 'Completed, TimedOut', 'Completed, Rejected', 'Completed, Aborted', 'Completed, Succeeded']) {
+    assert.equal(isTerminalTransfer({ state }), true, state);
+  }
+  for (const state of ['Queued, Remotely', 'Initializing', 'InProgress', 'Requested', 'Incomplete']) {
+    assert.equal(isTerminalTransfer({ state }), false, state);
+  }
 });
 
 test('download headers carry any filename without throwing', () => {

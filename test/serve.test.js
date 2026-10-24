@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { test } from 'node:test';
-import { mkdirSync, mkdtempSync, symlinkSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, symlinkSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -136,53 +136,79 @@ test('tokenless bridge rejects untrusted Host headers and never returns configur
   }
 });
 
-test('a finished slskd download with a non-Latin-1 name reaches the page intact', async (t) => {
-  // Real slskd shape: a per-user object whose directories hold the files, and
-  // the finished file under <downloads>/<last remote directory>/<name>.
-  const downloads = mkdtempSync(resolve(tmpdir(), 'midio-serve-slskd-'));
-  t.after(() => rmSync(downloads, { recursive: true, force: true }));
-  const name = 'Björk – Jóga.flac';
-  const remote = `@@share\\Artists\\Björk\\${name}`;
-  mkdirSync(resolve(downloads, 'Björk'));
-  writeFileSync(resolve(downloads, 'Björk', name), 'the requested transfer');
-  writeFileSync(resolve(downloads, name), 'a same-named file from another transfer');
-  const slskd = http.createServer((req, res) => {
-    if (req.url !== '/api/v0/transfers/downloads/peer') { res.writeHead(404); res.end(); return; }
-    if (req.method === 'POST') { res.writeHead(201, { 'Content-Type': 'application/json' }); res.end('{}'); return; }
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ username: 'peer', directories: [
-      { directory: '@@share\\Other', files: [{ filename: `@@share\\Other\\${name}`, state: 'Completed, Errored', requestedAt: '2026-10-24T10:05:00Z' }] },
-      { directory: '@@share\\Artists\\Björk', files: [{ filename: remote, state: 'Completed, Succeeded', requestedAt: '2026-10-24T10:00:00Z' }] },
-    ] }));
+/**
+ * A stub slskd 0.26.1 for one user. Before the enqueue it holds an older
+ * finished record of the same remote file (no timestamps); the enqueue
+ * creates the new transfer, which is queued on the first poll and succeeds
+ * on the next, when its file lands as slskd's renamed copy beside the old
+ * file. `withId: false` answers the enqueue the way an older slskd did,
+ * without the transfer, so the bridge has to rely on its snapshot.
+ */
+async function stubSlskd(t, { downloads, remote, name, bytes, withId }) {
+  const old = { id: 'old-transfer', filename: remote, state: 'Completed, Succeeded', size: 31 };
+  let enqueued = false, polls = 0;
+  const server = http.createServer((req, res) => {
+    const json = (status, body) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
+    if (req.url !== '/api/v0/transfers/downloads/peer') return json(404, {});
+    if (req.method === 'POST') {
+      enqueued = true;
+      return json(201, withId ? { enqueued: [{ id: 'new-transfer', filename: remote, state: 'Queued, Locally', size: bytes.length }], failed: [] } : {});
+    }
+    const files = [old, { id: 'x', filename: `@@share\\Other\\${name}`, state: 'Completed, Errored', size: 5 }];
+    if (enqueued) {
+      polls++;
+      const done = polls >= 2;
+      if (done && polls === 2) writeFileSync(resolve(downloads, 'Björk', name.replace('.flac', '_638655301234567890.flac')), bytes);
+      files.push({ id: 'new-transfer', filename: remote, state: done ? 'Completed, Succeeded' : 'Queued, Remotely', size: bytes.length });
+    }
+    return json(200, { username: 'peer', directories: [{ directory: '@@share\\Artists\\Björk', files }] });
   });
-  await new Promise((done) => slskd.listen(0, '127.0.0.1', done));
-  t.after(() => new Promise((done) => slskd.close(done)));
-  const port = 20_000 + Math.floor(Math.random() * 20_000);
-  const baseUrl = `http://127.0.0.1:${port}`;
-  const child = spawn(process.execPath, [serverFile, String(port)], {
-    cwd: root,
-    env: { ...process.env, HOST: '127.0.0.1', SLSK_USER: '', SLSK_PASS: '', MIDIO_BRIDGE_TOKEN: '',
-      SLSKD_URL: `http://127.0.0.1:${slskd.address().port}`, SLSKD_API_KEY: 'fixture-key', SLSKD_DOWNLOADS: downloads },
-    stdio: 'ignore',
-  });
-  try {
-    await waitForServer(baseUrl);
-    const response = await fetch(`${baseUrl}/api/soulseek/download`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ item: { source: 'slskd', user: 'peer', filename: remote, size: 22 } }),
-      signal: AbortSignal.timeout(30_000),
+  await new Promise((done) => server.listen(0, '127.0.0.1', done));
+  t.after(() => new Promise((done) => server.close(done)));
+  return server;
+}
+
+for (const withId of [true, false]) {
+  test(`a finished slskd download reaches the page intact (${withId ? 'enqueued id' : 'snapshot fallback'})`, async (t) => {
+    const downloads = mkdtempSync(resolve(tmpdir(), 'midio-serve-slskd-'));
+    t.after(() => rmSync(downloads, { recursive: true, force: true }));
+    const name = 'Björk – Jóga.flac';
+    const remote = `@@share\\Artists\\Björk\\${name}`;
+    const bytes = 'the requested transfer, all of it';
+    mkdirSync(resolve(downloads, 'Björk'));
+    // The earlier transfer's file under the same name, and a root decoy.
+    const stale = new Date(Date.now() - 120_000);
+    for (const file of [resolve(downloads, 'Björk', name), resolve(downloads, name)]) {
+      writeFileSync(file, 'an earlier transfer of this name'); utimesSync(file, stale, stale);
+    }
+    const slskd = await stubSlskd(t, { downloads, remote, name, bytes, withId });
+    const port = 20_000 + Math.floor(Math.random() * 20_000);
+    const baseUrl = `http://127.0.0.1:${port}`;
+    const child = spawn(process.execPath, [serverFile, String(port)], {
+      cwd: root,
+      env: { ...process.env, HOST: '127.0.0.1', SLSK_USER: '', SLSK_PASS: '', MIDIO_BRIDGE_TOKEN: '',
+        SLSKD_URL: `http://127.0.0.1:${slskd.address().port}`, SLSKD_API_KEY: 'fixture-key', SLSKD_DOWNLOADS: downloads },
+      stdio: 'ignore',
     });
-    assert.equal(response.status, 200, await response.clone().text());
-    assert.equal(await response.text(), 'the requested transfer');
-    const disposition = response.headers.get('content-disposition');
-    assert.equal(decodeURIComponent(disposition.split("filename*=UTF-8''")[1]), name);
-    assert.equal(decodeURIComponent(response.headers.get('x-filename')), name);
-  } finally {
-    child.kill('SIGTERM');
-    if (child.exitCode === null && child.signalCode === null) await new Promise((resolve) => child.once('exit', resolve));
-  }
-});
+    try {
+      await waitForServer(baseUrl);
+      const response = await fetch(`${baseUrl}/api/soulseek/download`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item: { source: 'slskd', user: 'peer', filename: remote, size: bytes.length } }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      assert.equal(response.status, 200, await response.clone().text());
+      assert.equal(await response.text(), bytes, 'this transfer, not the older record or same-named file');
+      const disposition = response.headers.get('content-disposition');
+      assert.equal(decodeURIComponent(disposition.split("filename*=UTF-8''")[1]), name);
+      assert.equal(decodeURIComponent(response.headers.get('x-filename')), name);
+    } finally {
+      child.kill('SIGTERM');
+      if (child.exitCode === null && child.signalCode === null) await new Promise((resolve) => child.once('exit', resolve));
+    }
+  });
+}
 
 test('development server refuses a non-loopback bind without a bridge token', async (t) => {
   const port = 20_000 + Math.floor(Math.random() * 20_000);

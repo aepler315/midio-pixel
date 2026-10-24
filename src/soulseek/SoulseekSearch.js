@@ -7,9 +7,9 @@
 
 const STORAGE_KEY = 'midio.soulseek.config';
 const FETCH_TIMEOUT_MS = 10000;
-// Longer than the bridge's worst case (tools/soulseek-bridge.mjs: a 15 s
-// enqueue, then up to 120 s waiting on slskd), so the page never gives up
-// on a download the server is still about to deliver.
+// Longer than the bridge's whole-download deadline (tools/soulseek-bridge.mjs
+// SLSKD_DOWNLOAD_DEADLINE_MS, 150 s) plus reading and sending the file, so
+// the page never gives up on a download the server is still delivering.
 const DOWNLOAD_TIMEOUT_MS = 180_000;
 
 /** Return only non-secret preferences suitable for persistent browser storage. */
