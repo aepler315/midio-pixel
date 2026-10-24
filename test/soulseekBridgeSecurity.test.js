@@ -12,6 +12,7 @@ import {
   readBoundedFile,
   realFileInsideDownloads,
   transfersFor,
+  withDeadline,
 } from '../tools/soulseek-bridge.mjs';
 import { contentDisposition } from '../tools/lib/content-disposition.mjs';
 
@@ -150,6 +151,13 @@ test('the slskd poll owns only this request\'s transfer of the exact remote file
   const enqueueResponse = { enqueued: [{ id: 'new', filename: wanted, state: 'Queued, Locally' }], failed: [] };
   assert.deepEqual(transfersFor(enqueueResponse.enqueued, wanted).map((f) => f.id), ['new']);
   assert.deepEqual(transfersFor(enqueueResponse.enqueued, '@@share\\Other\\x.flac'), []);
+});
+
+test('a direct download that never calls back is given up at the deadline', async () => {
+  const never = new Promise(() => {});
+  await assert.rejects(withDeadline(never, 20, 'Timed out waiting for the Soulseek download'), /Timed out/);
+  assert.equal(await withDeadline(Promise.resolve('bytes'), 1000, 'unused'), 'bytes');
+  await assert.rejects(withDeadline(Promise.reject(new Error('peer refused')), 1000, 'unused'), /peer refused/);
 });
 
 test('only "Succeeded" is success; every other finished state is a failure', () => {

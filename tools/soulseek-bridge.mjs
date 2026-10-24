@@ -829,12 +829,15 @@ async function downloadViaDirect(cfg, item) {
     speed: item.speed || 0,
   };
   try {
-    await new Promise((resolve, reject) => {
+    // slsk-client has no cancel and calls back only when the peer finishes,
+    // so a stalled peer used to hold the request open forever. Give up at
+    // the same deadline as slskd (the page waits longer than that).
+    await withDeadline(new Promise((resolve, reject) => {
       client.download({ file: fileObj, path: outPath }, (err) => {
         if (err) reject(err);
         else resolve();
       });
-    });
+    }), SLSKD_DOWNLOAD_DEADLINE_MS, 'Timed out waiting for the Soulseek download');
     const stat = fs.statSync(outPath);
     if (!stat.isFile() || stat.size > MAX_DOWNLOAD_BYTES) {
       throw new Error(`Soulseek download exceeds the ${MAX_DOWNLOAD_BYTES} byte limit`);
@@ -846,8 +849,17 @@ async function downloadViaDirect(cfg, item) {
       contentType: mimeFor(basename(item.filename)),
     };
   } finally {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    // After a timeout the abandoned transfer may still hold the file open
+    // (EBUSY on Windows); that must not replace the error being reported.
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* removed with the OS temp dir */ }
   }
+}
+
+/** Settles like `promise`, or rejects with `message` after `ms`. */
+export function withDeadline(promise, ms, message) {
+  let timer;
+  const deadline = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(message)), ms); });
+  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
 }
 
 
