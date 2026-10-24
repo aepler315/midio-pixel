@@ -12,7 +12,8 @@ import {
   readBoundedFile,
   realFileInsideDownloads,
   transfersFor,
-  withDeadline,
+  directResultFile,
+  downloadWithClient,
 } from '../tools/soulseek-bridge.mjs';
 import { contentDisposition } from '../tools/lib/content-disposition.mjs';
 
@@ -153,11 +154,57 @@ test('the slskd poll owns only this request\'s transfer of the exact remote file
   assert.deepEqual(transfersFor(enqueueResponse.enqueued, '@@share\\Other\\x.flac'), []);
 });
 
-test('a direct download that never calls back is given up at the deadline', async () => {
-  const never = new Promise(() => {});
-  await assert.rejects(withDeadline(never, 20, 'Timed out waiting for the Soulseek download'), /Timed out/);
-  assert.equal(await withDeadline(Promise.resolve('bytes'), 1000, 'unused'), 'bytes');
-  await assert.rejects(withDeadline(Promise.reject(new Error('peer refused')), 1000, 'unused'), /peer refused/);
+/** A stand-in for slsk-client 2.x: download() returns a thenable, honours
+ *  its signal, and writes where it was told. */
+function fakeClient(behaviour) {
+  const calls = [];
+  return {
+    calls,
+    download(options) {
+      calls.push(options);
+      return new Promise((resolve, reject) => {
+        options.signal?.addEventListener('abort', () => reject(Object.assign(new Error('Download cancelled'), { name: 'DownloadCancelledError' })));
+        behaviour(options, resolve, reject);
+      });
+    },
+  };
+}
+
+test('direct downloads use the slsk-client 2.x download API and read the written file', async () => {
+  const fsp = await import('node:fs/promises');
+  const client = fakeClient(async (options, resolve) => {
+    await fsp.writeFile(options.path, 'flac bytes');
+    resolve({ path: options.path, buffer: Buffer.from('flac bytes'), receivedBytes: 10, size: 10 });
+  });
+  const got = await downloadWithClient(client, { user: 'peer', filename: '@@s\\A\\Björk – Jóga.flac', size: 10 });
+  assert.equal(got.buffer.toString(), 'flac bytes');
+  assert.equal(got.filename, 'Björk – Jóga.flac');
+  assert.equal(client.calls[0].user, 'peer');
+  assert.equal(client.calls[0].file, '@@s\\A\\Björk – Jóga.flac');
+  assert.equal(client.calls[0].expectedSize, 10);
+  assert.ok(client.calls[0].signal instanceof AbortSignal);
+});
+
+test('a stalled direct download is cancelled at the deadline, not abandoned', async () => {
+  const client = fakeClient(() => { /* the peer never sends */ });
+  await assert.rejects(downloadWithClient(client, { user: 'peer', filename: 'x.mp3' }, { deadlineMs: 30 }), /Timed out/);
+  assert.equal(client.calls[0].signal.aborted, true, 'the transfer itself was told to stop');
+});
+
+test('a partial or refused direct download is an error, never served', async () => {
+  const fsp = await import('node:fs/promises');
+  const partial = fakeClient(async (options, resolve) => {
+    await fsp.writeFile(options.path, 'half');
+    resolve({ path: options.path, buffer: Buffer.from('half'), receivedBytes: 4, size: 10 });
+  });
+  await assert.rejects(downloadWithClient(partial, { user: 'peer', filename: 'x.mp3' }), /partial \(4 of 10 bytes\)/);
+  const refused = fakeClient((options, resolve, reject) => reject(new Error('File not shared')));
+  await assert.rejects(downloadWithClient(refused, { user: 'peer', filename: 'x.mp3' }), /File not shared/);
+});
+
+test('slsk-client 2.x search results keep bitrate and duration from attribs', () => {
+  const file = directResultFile({ user: 'peer', file: '@@s\\a.mp3', size: 5, slots: true, speed: 9, attribs: { 0: 320, 1: 241 } });
+  assert.deepEqual(file, { filename: '@@s\\a.mp3', size: 5, bitrate: 320, speed: 9, slots: true, user: 'peer', length: 241 });
 });
 
 test('only "Succeeded" is success; every other finished state is a failure', () => {

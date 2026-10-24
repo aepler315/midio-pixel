@@ -287,6 +287,8 @@ function activeConfig() {
 
 export async function setConfig(cfg) {
   const resetDirect = () => {
+    // A 2.x client holds its server connection and incoming-peer listener.
+    try { directClient?.destroy?.(); } catch { /* already down */ }
     directClient = null;
     directClientPromise = null;
     directLoginError = null;
@@ -716,35 +718,32 @@ async function getDirectClient(cfg) {
   } catch {
     /* best effort — POSIX always has /tmp */
   }
-  const attempt = new Promise((resolve, reject) => {
-    let slsk;
+  // slsk-client 2.x (package.json pins 2.0.2): one SlskClient, then login().
+  // The 1.x connect(opts, callback) API this used to call no longer exists,
+  // so every direct login failed with "slsk.connect is not a function".
+  const attempt = (async () => {
+    let SlskClient;
     try {
-      slsk = require('slsk-client');
+      ({ SlskClient } = require('slsk-client'));
     } catch {
-      reject(new Error('slsk-client is not installed. Run: npm install slsk-client'));
-      return;
+      throw new Error('slsk-client is not installed. Run: npm ci');
     }
-    slsk.connect(
-      {
-        user: cfg.slskUser,
-        pass: cfg.slskPass,
-        // slsk-client's login watchdog defaults to a brutal 2000ms — a slow
-        // handshake to server.slsknet.org fails with "timeout login" even
-        // with valid credentials. Allow a realistic round-trip.
-        timeout: 15_000,
-        ...(process.env.SLSK_HOST ? { host: process.env.SLSK_HOST } : {}),
-        ...(process.env.SLSK_PORT ? { port: Number(process.env.SLSK_PORT) } : {}),
-      },
-      (err, client) => {
-        if (err) {
-          reject(new Error(`Soulseek login failed: ${err.message || err}`));
-          return;
-        }
-        directClient = client;
-        resolve(client);
-      },
-    );
-  });
+    if (typeof SlskClient !== 'function') throw new Error('slsk-client 2.x is required (no SlskClient export)');
+    const client = new SlskClient({
+      // A slow handshake to server.slsknet.org needs a realistic round-trip.
+      timeout: 15_000,
+      ...(process.env.SLSK_HOST ? { host: process.env.SLSK_HOST } : {}),
+      ...(process.env.SLSK_PORT ? { port: Number(process.env.SLSK_PORT) } : {}),
+    });
+    try {
+      await client.login(cfg.slskUser, cfg.slskPass);
+    } catch (err) {
+      try { client.destroy(); } catch { /* already down */ }
+      throw new Error(`Soulseek login failed: ${err.message || err}`, { cause: err });
+    }
+    directClient = client;
+    return client;
+  })();
   directClientPromise = attempt;
   attempt
     .then(() => {
@@ -776,28 +775,11 @@ async function startDirectSearch(cfg, query) {
   (async () => {
     try {
       const client = await getDirectClient(cfg);
-      const res = await new Promise((resolve, reject) => {
-        client.search({ req: query, timeout: 10000 }, (err, data) => {
-          if (err) reject(err);
-          else resolve(data || []);
-        });
-      });
-      const files = (res || [])
+      // slsk-client 2.x: results are collected until the timeout, then returned.
+      const res = (await client.search({ req: query, timeout: 10000 })) || [];
+      const files = res
         .filter((r) => AUDIO_EXT.test(r.file || r.filename || ''))
-        .map((r) =>
-          normalizeFile(
-            {
-              filename: r.file,
-              size: r.size,
-              bitrate: r.bitrate,
-              speed: r.speed,
-              slots: r.slots,
-              user: r.user,
-              length: r.length,
-            },
-            'direct',
-          ),
-        );
+        .map((r) => normalizeFile(directResultFile(r), 'direct'));
       const s = searches.get(id);
       if (s) {
         s.results = finalizeResults(files);
@@ -817,49 +799,63 @@ async function startDirectSearch(cfg, query) {
 }
 
 async function downloadViaDirect(cfg, item) {
-  const client = await getDirectClient(cfg);
+  return downloadWithClient(await getDirectClient(cfg), item);
+}
+
+/**
+ * One file through a logged-in slsk-client 2.x client. `download()` returns
+ * a running Download that is awaited for the finished file and cancelled by
+ * its signal, so a stalled peer is given up (really cancelled, not left
+ * running) at the same deadline as slskd; the page waits longer than that.
+ */
+export async function downloadWithClient(client, item, { deadlineMs = SLSKD_DOWNLOAD_DEADLINE_MS } = {}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'midio-slsk-'));
   const outPath = path.join(tmpDir, basename(item.filename).replace(/[^\w.\- ()[\]]+/g, '_'));
-  const fileObj = {
-    user: item.user,
-    file: item._file || item.filename,
-    size: item.size,
-    slots: item.slots !== false,
-    bitrate: item.bitrate || 0,
-    speed: item.speed || 0,
-  };
+  const signal = AbortSignal.timeout(deadlineMs);
   try {
-    // slsk-client has no cancel and calls back only when the peer finishes,
-    // so a stalled peer used to hold the request open forever. Give up at
-    // the same deadline as slskd (the page waits longer than that).
-    await withDeadline(new Promise((resolve, reject) => {
-      client.download({ file: fileObj, path: outPath }, (err) => {
-        if (err) reject(err);
-        else resolve();
+    let result;
+    try {
+      result = await client.download({
+        user: item.user,
+        file: item._file || item.filename,
+        path: outPath,
+        ...(Number(item.size) > 0 ? { expectedSize: Number(item.size) } : {}),
+        signal,
       });
-    }), SLSKD_DOWNLOAD_DEADLINE_MS, 'Timed out waiting for the Soulseek download');
-    const stat = fs.statSync(outPath);
+    } catch (err) {
+      if (signal.aborted) throw new Error('Timed out waiting for the Soulseek download', { cause: err });
+      throw err;
+    }
+    if (Number.isFinite(result?.size) && result.receivedBytes < result.size) {
+      throw new Error(`Soulseek download is partial (${result.receivedBytes} of ${result.size} bytes)`);
+    }
+    const written = result?.path || outPath;
+    const stat = fs.statSync(written);
     if (!stat.isFile() || stat.size > MAX_DOWNLOAD_BYTES) {
       throw new Error(`Soulseek download exceeds the ${MAX_DOWNLOAD_BYTES} byte limit`);
     }
-    const buffer = readBoundedFile(outPath);
     return {
-      buffer,
+      buffer: readBoundedFile(written),
       filename: basename(item.filename),
       contentType: mimeFor(basename(item.filename)),
     };
   } finally {
-    // After a timeout the abandoned transfer may still hold the file open
-    // (EBUSY on Windows); that must not replace the error being reported.
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* removed with the OS temp dir */ }
   }
 }
 
-/** Settles like `promise`, or rejects with `message` after `ms`. */
-export function withDeadline(promise, ms, message) {
-  let timer;
-  const deadline = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(message)), ms); });
-  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
+/** A slsk-client 2.x SearchResult as the bridge's file record: bitrate and
+ *  duration travel in `attribs`, keyed by FileAttribute (0 and 1). */
+export function directResultFile(r) {
+  return {
+    filename: r.file,
+    size: r.size,
+    bitrate: r.attribs?.[0] ?? r.bitrate,
+    speed: r.speed,
+    slots: r.slots,
+    user: r.user,
+    length: r.attribs?.[1] ?? r.length,
+  };
 }
 
 
