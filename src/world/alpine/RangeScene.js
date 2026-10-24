@@ -1294,7 +1294,7 @@ export class RangeScene {
     if (this.shaftViews?.includes(viewId)) this.releaseShafts();
     if (this.prepared.get(viewId) === p) {
       this.prepared.delete(viewId);
-      if (!p.cpuOwner) this.residency?.release(p.cpuKey);
+      if (!p.cpuOwner && !this._cpuKeyInUse(p.cpuKey)) this.residency?.release(p.cpuKey);
       if (!p.materialOwner) this._releaseMaterial(viewId);
     }
     // Only this preparation's own hold: a replacement under the same view
@@ -1572,9 +1572,18 @@ export class RangeScene {
     this.prepared.delete(viewId);
     this.residency?.release(p.gpuKey); // disposes via the committed dispose
     if (p.cpuOwner) p.cpuOwner.release();
-    else this.residency?.release(p.cpuKey);
+    else if (!this._cpuKeyInUse(p.cpuKey)) this.residency?.release(p.cpuKey);
     if (!this.residency) this._disposePrepared(p);
     this._releaseMaterial(viewId, p.materialOwner || null);
+  }
+
+  /** A source view and its composition variants share one CPU terrain
+   *  entry (RangeAssets.prepareTerrainAssets). Owned holds release their own
+   *  lease; an unowned release must not retire terrain another prepared view
+   *  still draws. */
+  _cpuKeyInUse(cpuKey) {
+    for (const q of this.prepared.values()) if (q.cpuKey === cpuKey) return true;
+    return false;
   }
 
   /** Camera for this frame: the view's rail pose, projected onto the whole

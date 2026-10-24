@@ -79,11 +79,12 @@ test('a valid package prepares, commits once and is reused', async () => {
 // source's manifest; the package inside still says viewId: <source>.
 const variant = { ...view, id: 'v1-coherent', terrainSourceId: 'v1' };
 
-test('a composition variant prepares its source terrain under its own identity', async () => {
+test('a composition variant prepares its source terrain under the terrain identity', async () => {
   const r = ledger();
   const cpu = await prepareTerrainAssets(variant, { baseUrl: base, residency: r, fetchImpl: server().fetchImpl });
-  assert.equal(cpu.viewId, 'v1-coherent');
-  assert.equal(cpu.key, 'range:terrain-cpu:v1-coherent');
+  assert.equal(cpu.viewId, 'v1', 'the entry names the terrain it holds');
+  assert.equal(cpu.key, 'range:terrain-cpu:v1');
+  assert.equal(cpu.manifestSha256, view.terrainManifestSha256);
   assert.ok(cpu.data.tiles.size > 0);
 });
 
@@ -94,25 +95,56 @@ test('the terrain identity gate still refuses a package for another view', async
   }
 });
 
-test('a live source preparation never lets a variant skip its own manifest pin', async () => {
+test('a source and its variant share one verified entry, held by independent leases', async () => {
   const r = ledger(), sourceOwner = {}, variantOwner = {};
   const { fetchImpl, log } = server();
   const source = await prepareTerrainAssets(view, { baseUrl: base, residency: r, fetchImpl, owner: sourceOwner });
-  const badPin = { ...variant, terrainManifestSha256: '0'.repeat(64) };
-  await assert.rejects(prepareTerrainAssets(badPin, { baseUrl: base, residency: r, fetchImpl, owner: {} }),
-    (e) => e.reason === 'hash');
-  assert.equal(r.has(source.key), true, 'the refused variant does not disturb the live source');
-  // Two holders of distinct entries: releasing one never retires the other.
-  const before = log.length;
-  const alias = await prepareTerrainAssets(variant, { baseUrl: base, residency: r, fetchImpl, owner: variantOwner });
-  assert.notEqual(alias, source);
-  assert.ok(log.length > before, 'the variant verifies and loads its own bytes');
+  const charged = r.usedBytes;
+  const fetched = log.length;
+  const shared = await prepareTerrainAssets(variant, { baseUrl: base, residency: r, fetchImpl, owner: variantOwner });
+  assert.equal(shared, source, 'the variant reuses the decoded terrain');
+  assert.equal(log.length, fetched, 'nothing is fetched or decoded twice');
+  assert.equal(r.usedBytes, charged, 'and nothing is charged twice');
+  // Releasing either holder leaves the terrain for the other.
   variantOwner.release();
-  assert.equal(r.has(alias.key), false);
   assert.equal(r.has(source.key), true);
   assert.equal(sourceOwner.retired, false);
+  const again = {};
+  await prepareTerrainAssets(variant, { baseUrl: base, residency: r, fetchImpl, owner: again });
   sourceOwner.release();
+  assert.equal(r.has(source.key), true, 'the source released first: the variant still holds it');
+  again.release();
   assert.equal(r.usedBytes, 0);
+});
+
+test('a live shared entry is never handed to a view that pins other content', async () => {
+  const r = ledger(), sourceOwner = {};
+  const { fetchImpl, log } = server();
+  const source = await prepareTerrainAssets(view, { baseUrl: base, residency: r, fetchImpl, owner: sourceOwner });
+  const fetched = log.length;
+  const otherPin = { ...variant, terrainManifestSha256: '0'.repeat(64) };
+  await assert.rejects(prepareTerrainAssets(otherPin, { baseUrl: base, residency: r, fetchImpl, owner: {} }),
+    (e) => e instanceof RangeAssetError && e.reason === 'hash' && /pins manifest 0{64}/.test(e.message));
+  assert.equal(log.length, fetched);
+  assert.equal(source.owners.size, 1, 'the refused view took no lease');
+  assert.equal(sourceOwner.retired, false);
+  // Without a live entry the same pin fails on the fetched manifest instead.
+  sourceOwner.release();
+  await assert.rejects(prepareTerrainAssets(otherPin, { baseUrl: base, residency: r, fetchImpl }), (e) => e.reason === 'hash');
+});
+
+test('an unowned scene release keeps a CPU entry another prepared view still uses', () => {
+  const r = ledger();
+  const key = 'range:terrain-cpu:v1';
+  r.commit(r.reserve({ key, bytes: MiB, owner: 'range-terrain-cpu' }), { key, data: {}, manifest: {} });
+  const a = { cpuKey: key, gpuKey: 'gpu:a' }, b = { cpuKey: key, gpuKey: 'gpu:b' };
+  const scene = Object.assign(Object.create(RangeScene.prototype), { residency: r, prepared: new Map([['v1', a], ['v1-coherent', b]]) });
+  scene._disposePrepared = () => {};
+  scene._releaseMaterial = () => {};
+  scene.release('v1-coherent');
+  assert.equal(r.has(key), true, 'v1 still draws this terrain');
+  scene.release('v1');
+  assert.equal(r.has(key), false, 'the last user releases it');
 });
 
 test('every catalog view, composition variants included, prepares from the shipped assets', async () => {
@@ -125,7 +157,7 @@ test('every catalog view, composition variants included, prepares from the shipp
   for (const v of catalog.views) {
     try {
       const cpu = await prepareTerrainAssets(v, { baseUrl: root.href, fetchImpl });
-      assert.equal(cpu.viewId, v.id);
+      assert.equal(cpu.viewId, v.terrainSourceId || v.id);
     } catch (error) { failures.push(`${v.id}: ${error.message}`); }
   }
   assert.deepEqual(failures, []);
