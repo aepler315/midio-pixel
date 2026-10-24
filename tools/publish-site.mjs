@@ -27,7 +27,8 @@ const ref = option('--ref', 'main');
 const remote = option('--remote', 'origin');
 const branch = option('--branch', 'gh-pages');
 
-const git = (args, opts = {}) => execFileSync('git', ['-c', 'core.autocrlf=false', ...args], { cwd: root, encoding: 'utf8', ...opts }).trim();
+// With stdio 'inherit' or 'ignore' execFileSync returns null, not a string.
+const git = (args, opts = {}) => (execFileSync('git', ['-c', 'core.autocrlf=false', ...args], { cwd: root, encoding: 'utf8', ...opts }) ?? '').trim();
 
 function freePort() {
   return new Promise((resolve, reject) => {

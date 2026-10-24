@@ -16,7 +16,16 @@ const flag = (name) => argv.includes(name);
 const option = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : null; };
 const stamp = new Date().toISOString().replace(/[:.]/g, '-');
 const out = path.resolve(root, option('--out') || `.smoke/validate-${stamp}`);
-const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+// Run npm as `node npm-cli.js` when npm started us (npm_execpath), with no
+// shell, so an argument such as an output path with spaces stays one
+// argument. Otherwise fall back to npm itself (npm.cmd needs a shell on
+// Windows; arguments are then quoted).
+const npmCli = process.env.npm_execpath && /\.c?js$/.test(process.env.npm_execpath) ? process.env.npm_execpath : null;
+const npmCommand = (args) => (npmCli
+  ? [process.execPath, [npmCli, ...args], false]
+  : process.platform === 'win32'
+    ? ['npm.cmd', args.map((a) => (/[\s&|<>^"]/.test(a) ? `"${a.replace(/"/g, '""')}"` : a)), true]
+    : ['npm', args, false]);
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -26,12 +35,14 @@ function freePort() {
   });
 }
 
-/** Runs one step, logging everything it prints; resolves its exit code. */
-function run(name, command, args, env = {}) {
+/** Runs one npm step, logging everything it prints; resolves its exit code. */
+function run(name, npmArgs, env = {}) {
+  const [command, args, shell] = npmCommand(npmArgs);
   return new Promise((resolve) => {
     const started = Date.now();
     const log = [];
-    const child = spawn(command, args, { cwd: root, env: { ...process.env, ...env }, shell: process.platform === 'win32' });
+    const child = spawn(command, args, { cwd: root, env: { ...process.env, ...env }, shell, windowsHide: true });
+    child.on('error', (error) => log.push(Buffer.from(String(error))));
     child.stdout.on('data', (d) => log.push(d));
     child.stderr.on('data', (d) => log.push(d));
     child.on('close', async (code) => {
@@ -41,16 +52,21 @@ function run(name, command, args, env = {}) {
   });
 }
 
-async function startServer(port, env) {
+/** Starts tools/serve.js on `port` serving `siteRoot` (the source tree when
+ *  empty). PORT and SITE_ROOT are always set, so a developer's exported
+ *  values cannot redirect the check; a server that exits is never mistaken
+ *  for whatever else may answer on the port. */
+async function startServer(port, siteRoot, servers) {
   const child = spawn(process.execPath, [path.join(root, 'tools', 'serve.js'), String(port)], {
-    cwd: root, env: { ...process.env, HOST: '127.0.0.1', ...env }, stdio: 'ignore', windowsHide: true,
+    cwd: root, env: { ...process.env, HOST: '127.0.0.1', PORT: String(port), SITE_ROOT: siteRoot }, stdio: 'ignore', windowsHide: true,
   });
+  servers.push(child);
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
+    if (child.exitCode !== null || child.signalCode !== null) throw new Error(`server on ${port} exited (${child.exitCode ?? child.signalCode})`);
     try { if ((await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(1000) })).ok) return child; } catch { /* starting */ }
     await new Promise((r) => setTimeout(r, 100));
   }
-  child.kill();
   throw new Error(`server on ${port} did not start`);
 }
 
@@ -66,7 +82,7 @@ for (const [name, args] of [
   ['ridgeview-test', ['--prefix', 'ridgeview', 'test']],
   ['stage-site', ['run', 'stage:site']],
 ]) {
-  const result = await run(name, npm, args);
+  const result = await run(name, args);
   results.push(result);
   console.log(`${result.code === 0 ? 'PASS' : 'FAIL'} ${name} (${result.seconds.toFixed(0)} s)`);
 }
@@ -74,9 +90,10 @@ for (const [name, args] of [
 const staged = results.find((r) => r.name === 'stage-site')?.code === 0;
 if (!flag('--no-browser')) {
   const [sourcePort, stagedPort] = [await freePort(), await freePort()];
-  const servers = [await startServer(sourcePort, {})];
-  if (staged) servers.push(await startServer(stagedPort, { SITE_ROOT: '_site' }));
+  const servers = [];
   try {
+    await startServer(sourcePort, '', servers);
+    if (staged) await startServer(stagedPort, path.join(root, '_site'), servers);
     const browserSteps = [
       ['bootstrap-source', ['run', 'test:bootstrap', '--', `http://127.0.0.1:${sourcePort}`]],
       ['smoke-source', ['run', 'test:smoke', '--', `http://127.0.0.1:${sourcePort}`]],
@@ -87,10 +104,14 @@ if (!flag('--no-browser')) {
       ['routes-staged', ['run', 'test:routes', '--', '--site-root', '_site', '--out', path.join(out, 'current-routes')]],
     );
     for (const [name, args] of browserSteps) {
-      const result = await run(name, npm, args);
+      const result = await run(name, args);
       results.push(result);
       console.log(`${result.code === 0 ? 'PASS' : 'FAIL'} ${name} (${result.seconds.toFixed(0)} s)`);
     }
+  } catch (error) {
+    // A server that cannot start fails the run with a summary, not a crash.
+    results.push({ name: 'servers', code: 1, seconds: 0 });
+    console.log(`FAIL servers: ${error.message}`);
   } finally {
     for (const server of servers) server.kill();
   }

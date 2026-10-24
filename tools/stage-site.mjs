@@ -230,8 +230,12 @@ export async function assertStagePaths(sourceDir, outputDir) {
  *  the source checkout's HEAD, else unknown (a copied tree). */
 function sourceCommit(source, commit) {
   if (commit) return commit;
+  // An inherited GIT_DIR (Git exports it to hooks) would name the outer
+  // repository's HEAD for a copied tree; ask only the tree itself.
+  const env = { ...process.env };
+  for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR']) delete env[name];
   try {
-    return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: source, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: source, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   } catch {
     return null;
   }
