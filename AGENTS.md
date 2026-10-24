@@ -28,6 +28,14 @@ anything that must outlive artifact retention to a GitHub Release, and link
 it from the PR description. `docs/evidence/` is closed to new files; see its
 README.
 
+Checkouts are LF everywhere (`.gitattributes`), and pinned Range/vendor bytes
+are never converted. A clone made before that rule may still hold CRLF files,
+which `test/lineEndings.test.js` reports. Refresh such a clone once, and only
+when `git status --porcelain` prints nothing (commit or stash your work
+first; this rewrites every tracked file from HEAD):
+`git rm --cached -r -q . && git checkout HEAD -- .`. Never use
+`git add --renormalize`: for `-text` paths it stages the CRLF bytes.
+
 Run relevant behavior tests and `npm test`/`npm run lint` before completion.
 Document unavailable browser/device checks accurately. For nonvisual changes,
 use the tests relevant to the change; a visual capture is unnecessary.

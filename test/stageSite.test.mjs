@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { stageSite, verifyRangeRuntime } from '../tools/stage-site.mjs';
 
 async function fixture() {
@@ -71,7 +72,7 @@ test('stageSite follows symlinked ancestors when checking destructive overlap', 
 test('staging verifies the Range v2 runtime bundle and shipped terrain assets', async t => {
   const { verifyRangeRuntime } = await import('../tools/stage-site.mjs');
   const fsp = fs, p = path;
-  const root = p.resolve(p.dirname(new URL(import.meta.url).pathname), '..');
+  const root = fileURLToPath(new URL('..', import.meta.url));
   const out = await fsp.mkdtemp(p.join(os.tmpdir(), 'midio-stage-range-'));
   t.after(() => fsp.rm(out, { recursive: true, force: true }));
   await fsp.cp(p.join(root, 'src'), p.join(out, 'src'), { recursive: true });
@@ -117,7 +118,7 @@ test('only a positively identified no-Range tree may skip runtime verification',
 async function rangeFixture(t) {
   const { root, source, output } = await fixture();
   t.after(() => fs.rm(root, { recursive: true, force: true }));
-  const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+  const repo = fileURLToPath(new URL('..', import.meta.url));
   const vendor = path.join(output, 'src/vendor/range');
   await fs.mkdir(vendor, { recursive: true });
   await fs.cp(path.join(repo, 'src/vendor/range'), vendor, { recursive: true });
