@@ -43,15 +43,14 @@ remain separately dispatched jobs; a green core gate does not claim those passed
 | `plex-smoke` (manual extended job) | `npm run test:plex` against its synthetic PMS, dedicated adapter, and generated staged artifact | zero failed catalog, ownership, cancellation, PCM, playback, or export assertions; no uncaught browser errors | Anonymous Chromium catalog, paging, actual loader races/cancellation, no token-bearing browser calls, blocked-storage recovery, offline playback, source/cache identity | Live PMS, external HTTPS ingress, real library format compatibility, non-Chromium or head-unit hardware; see [deployment guide](./plex-integration.md) |
 | `audio-smoke` (manual extended job) | Playback/lighting/shading/seek/world/export/car/URL-loader smokes against source, then `stage:site` + `test:bootstrap` against that artifact | each script exits 0; staged Browse opens a real chooser; artifacts under `.smoke/` | Chromium can boot the actual public file set, upload a short synthetic fixture, pick a world, draw, seek, and start an export | Watchability, identity, other engines, songs longer than the fixture |
 
-The intended `Deploy static content to Pages` workflow stages one artifact with
-`stage:site`, boots and plays that artifact (`test:bootstrap`, `test:smoke` and `test:routes`),
-and uploads only the public allowlist. It does not call the Test workflow, so lint
-and unit tests are not part of it. **This is not the currently observed publishing path.** On 2026-10-18,
-run 39099645162 built main 0a82fba through GitHub's dynamic Jekyll Pages workflow
-and deployed successfully. Root CNAME still names `supermaudio.com`, inherited
-from Midio-5. Confirm the intended independent domain and select GitHub Actions
-as the Pages source in repository Settings > Pages before treating the staged
-workflow as the release gate. No Pages settings were changed during this work.
+Publishing (since 2026-10-24): Pages serves the `gh-pages` branch, which
+`npm run publish:site` fills with only the staged site after verifying it and
+booting it headless; `version.json` names the published commit. The earlier
+path, a dynamic Jekyll build of all of `main`, published every tracked file.
+The optional `Deploy static content to Pages` workflow (stage, boot and play
+the artifact, upload the public allowlist) is not the active publisher, and
+neither path runs lint or unit tests; run `npm run validate` first. The root
+CNAME names `supermaudio.com`. See docs/local-validation.md.
 
 Pixel validation run 39099645278 failed in two seconds with empty step lists and
 no assigned runner. The pinned checkout SHA resolves to actions/checkout v7.0.1.

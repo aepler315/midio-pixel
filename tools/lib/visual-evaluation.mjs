@@ -23,7 +23,9 @@ const keys = (obj, allowed, label) => {
   for (const k of Object.keys(obj)) assert.ok(allowed.includes(k), `unknown ${label}.${k}`);
 };
 
-export function normalizeManifest(value) {
+/** `historical: true` reads a saved report's settings: a retired Depth
+ *  request stays valid evidence there. A new capture may not ask for it. */
+export function normalizeManifest(value, { historical = false } = {}) {
   keys(value, ['version', 'settings', 'songs'], 'manifest');
   assert.equal(value.version, 1, 'manifest version must be 1');
   keys(value.settings || {}, [...Object.keys(DEFAULT_SETTINGS), 'presentation', 'startMs', 'debug', 'experience', 'tour'], 'settings');
@@ -44,6 +46,9 @@ export function normalizeManifest(value) {
       assert.ok(['ordered', 'selective'].includes(p.ditherMode), 'invalid ditherMode');
       assert.ok(['classic', 'classicPlus', 'medium', 'mediumPlus', 'detailed'].includes(p.pixelGrid), 'invalid pixelGrid');
       if (p.pixelScale != null) assert.ok(['original', 'depth'].includes(p.pixelScale), 'invalid pixelScale');
+      // The product renders a Depth request as Uniform ('original'), so a
+      // new capture labelled Depth would record a mode it never drew.
+      assert.ok(historical || p.pixelScale !== 'depth', 'pixelScale "depth" is retired; new captures use "original"');
     }
     settings.presentation = resolveDisplayPrefs({ saved: p });
     // Historical manifests retain their recorded mode as evidence metadata.
@@ -162,7 +167,7 @@ function validateReport(report) {
     && Object.values(source.hashes).every(h => typeof h === 'string' && /^[a-f0-9]{64}$/.test(h)), 'missing or invalid source provenance');
   const settings = normalizeHistoricalSettings(report.settings);
   for (const key of Object.keys(DEFAULT_SETTINGS)) assert.ok(settings && Object.hasOwn(settings, key), `missing setting ${key}`);
-  normalizeManifest({ version: 1, settings, songs: [{ id: 'validation', fixture: 'silence' }] });
+  normalizeManifest({ version: 1, settings, songs: [{ id: 'validation', fixture: 'silence' }] }, { historical: true });
   const env = report.environment;
   assert.ok(env && typeof env.gl === 'string' && env.gl.length && typeof env.vendor === 'string'
     && env.vendor.length && env.dpr === 1 && Object.hasOwn(env, 'deviceMemory')
@@ -209,7 +214,7 @@ export function compareReports(before, after) {
   same(before.status, 'passed', 'baseline status'); same(after.status, 'passed', 'candidate status');
   const retired = settings => RETIRED_SETTINGS.map(key => !!settings?.[key]);
   same(retired(before.settings), retired(after.settings), 'settings');
-  const requested = settings => normalizeManifest({ version: 1, settings: normalizeHistoricalSettings(settings), songs: [{ id: 'validation', fixture: 'silence' }] }).settings;
+  const requested = settings => normalizeManifest({ version: 1, settings: normalizeHistoricalSettings(settings), songs: [{ id: 'validation', fixture: 'silence' }] }, { historical: true }).settings;
   same(requested(before.settings), requested(after.settings), 'settings'); same(before.browser, after.browser, 'browser');
   same(before.environment, after.environment, 'render environment');
   same(before.songs.map(s => s.id), after.songs.map(s => s.id), 'song set');

@@ -1,7 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
+import { gunzipSync } from 'node:zlib';
 import { writePlexPublicConfig } from './write-plex-public-config.mjs';
 
 const REQUIRED = ['index.html', 'src/main.js', 'soundfonts'];
@@ -107,6 +109,23 @@ function validateRuntimeMetadata(runtime) {
  * with the hashes the catalog and manifest declare -- no LFS pointers, no
  * unresolved slots. Skipped for trees that carry no Range v2 runtime.
  */
+/** A gzip payload must match its compressed pin and, once decoded, its
+ *  decoded pin: the runtime checks both, so a stage that checked only the
+ *  first could ship a package every client then refuses. */
+async function verifyPinnedPayload(label, dir, pin) {
+  const compressed = await fs.readFile(path.join(dir, pin.url));
+  if (compressed.byteLength !== pin.byteLength || sha256(compressed) !== pin.sha256) {
+    throw new Error(`${label} does not match its manifest`);
+  }
+  let decoded;
+  try { decoded = gunzipSync(compressed); } catch (error) {
+    throw new Error(`${label} does not decode: ${error.message}`, { cause: error });
+  }
+  if (decoded.byteLength !== pin.decodedByteLength || sha256(decoded) !== pin.decodedSha256) {
+    throw new Error(`${label} decoded bytes do not match decodedByteLength/decodedSha256`);
+  }
+}
+
 export async function verifyRangeRuntime(sourceDir, outputDir) {
   const vendor = path.join(outputDir, 'src', 'vendor', 'range');
   let runtime;
@@ -160,9 +179,19 @@ export async function verifyRangeRuntime(sourceDir, outputDir) {
       if (manifestBuf.subarray(0, 40).toString().startsWith('version https://git-lfs')) throw new Error(`${view.id} manifest is an LFS pointer`);
       if (view.terrainManifestSha256 && sha256(manifestBuf) !== view.terrainManifestSha256) throw new Error(`${view.id} manifest hash differs from the catalog`);
       const manifest = JSON.parse(manifestBuf.toString('utf8'));
-      const payload = await fs.readFile(path.join(root, path.dirname(view.terrainManifestUrl), manifest.payload.url));
-      if (payload.byteLength !== manifest.payload.byteLength || sha256(payload) !== manifest.payload.sha256) {
-        throw new Error(`${view.id} terrain payload does not match its manifest`);
+      // The same identity gate the runtime applies (RangeAssets.js).
+      if (manifest.viewId !== (view.terrainSourceId || view.id)) {
+        throw new Error(`${view.id} manifest is for ${manifest.viewId}, not ${view.terrainSourceId || view.id}`);
+      }
+      await verifyPinnedPayload(`${view.id} terrain payload`, path.join(root, path.dirname(view.terrainManifestUrl)), manifest.payload);
+      // A tour view also ships its pinned camera-tour package; the runtime
+      // loads it with expectManifestSha256 and terrainViewId: view.id.
+      if (view.tourManifestUrl) {
+        const tourBuf = await fs.readFile(path.join(root, view.tourManifestUrl));
+        if (sha256(tourBuf) !== view.tourManifestSha256) throw new Error(`${view.id} tour manifest hash differs from the catalog`);
+        const tour = JSON.parse(tourBuf.toString('utf8'));
+        if (tour.terrainViewId !== view.id) throw new Error(`${view.id} tour is for terrain ${tour.terrainViewId}`);
+        await verifyPinnedPayload(`${view.id} tour payload`, path.join(root, path.dirname(view.tourManifestUrl)), tour.payload);
       }
       // The view's material pack and every data texture it names.
       const matBuf = await fs.readFile(path.join(root, view.materialManifestUrl));
@@ -197,7 +226,22 @@ export async function assertStagePaths(sourceDir, outputDir) {
   return { source, output };
 }
 
-export async function stageSite(sourceDir, outputDir) {
+/** The commit a staged site was built from: given by the publisher, else
+ *  the source checkout's HEAD, else unknown (a copied tree). */
+function sourceCommit(source, commit) {
+  if (commit) return commit;
+  // An inherited GIT_DIR (Git exports it to hooks) would name the outer
+  // repository's HEAD for a copied tree; ask only the tree itself.
+  const env = { ...process.env };
+  for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR']) delete env[name];
+  try {
+    return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: source, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch {
+    return null;
+  }
+}
+
+export async function stageSite(sourceDir, outputDir, { commit = null, ref = null } = {}) {
   const { source, output } = await assertStagePaths(sourceDir, outputDir);
   for (const required of REQUIRED) {
     try { await fs.access(path.join(source, required)); }
@@ -208,8 +252,10 @@ export async function stageSite(sourceDir, outputDir) {
   await fs.mkdir(output, { recursive: true });
   await Promise.all([
     fs.copyFile(path.join(source, 'index.html'), path.join(output, 'index.html')),
-    exists(path.join(source, 'CNAME')).then(present => present
-      ? fs.copyFile(path.join(source, 'CNAME'), path.join(output, 'CNAME')) : undefined),
+    // The custom domain, and the licence and attribution notices that must
+    // travel with the published code and data.
+    ...['CNAME', 'LICENSE', 'NOTICE'].map(name => exists(path.join(source, name)).then(present => present
+      ? fs.copyFile(path.join(source, name), path.join(output, name)) : undefined)),
     fs.cp(path.join(source, 'src'), path.join(output, 'src'), { recursive: true }),
     fs.cp(path.join(source, 'soundfonts'), path.join(output, 'soundfonts'), { recursive: true }),
     fs.writeFile(path.join(output, '.nojekyll'), ''),
@@ -218,6 +264,9 @@ export async function stageSite(sourceDir, outputDir) {
     apiBase: process.env.MIDIO_PLEX_PUBLIC_API_BASE || '',
   });
   await verifyRangeRuntime(source, output);
+  // What is live: https://supermaudio.com/version.json names the commit.
+  await fs.writeFile(path.join(output, 'version.json'),
+    `${JSON.stringify({ commit: sourceCommit(source, commit), ref })}\n`);
   return output;
 }
 

@@ -4,7 +4,7 @@ An independent, private copy of [Midio-5](https://github.com/aepler315/Midio-5),
 
 **Pixel only:** Pixel and Palette looks, Classic (320×180), Medium (480×270) and Detailed (640×360) grids, Auto quality, Fit/Integer scaling, and Uniform pixel sampling. Saved Depth selections migrate to Uniform; the current renderer has no Depth pixel effect. Existing saved display choices migrate without changing Midio-5 settings.
 
-Hosting needs reconciliation: the repository still carries its inherited CNAME and the observed Pages path is a dynamic Jekyll branch build. The staged manual workflow and the current limits are documented in [the validation matrix](docs/test-matrix.md).
+Hosting: supermaudio.com is GitHub Pages serving the `gh-pages` branch, which `npm run publish:site` fills with only the staged site (see [Local validation and publishing](docs/local-validation.md)). The current limits are documented in [the validation matrix](docs/test-matrix.md).
 
 Drop a song and watch The Range carry the music. Midio Pixel is a
 browser music visualizer with moving landscapes and musical effects. Your
@@ -406,8 +406,12 @@ test/        Main app's Node tests and fixtures
 tools/       Local server, fixture generators, browser smoke checks, legacy tools
 ```
 
-The root GitHub Pages workflow publishes `index.html`, `src/`,
-`soundfonts/`, and `CNAME`. It does not run the Node bridge.
+GitHub Pages serves the `gh-pages` branch, which holds only the staged site
+(`index.html`, `src/`, `soundfonts/`, `CNAME`, `LICENSE`, `NOTICE` and
+`version.json`), never the repository. `npm run publish:site` builds it from
+`main` (or `-- --ref <commit>`), verifies and boots it headless, and pushes it;
+`https://supermaudio.com/version.json` names the published commit. It does not
+run the Node bridge.
 
 ## Testing
 

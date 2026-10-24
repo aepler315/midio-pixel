@@ -8,6 +8,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { rawRequest } from './helpers/raw-http.mjs';
 
 const serverFile = fileURLToPath(new URL('../tools/music-server.mjs', import.meta.url));
 const blob = Buffer.from('0123456789abcdef');
@@ -75,7 +76,7 @@ before(async () => {
 
   const port = await freePort(); baseUrl = `http://127.0.0.1:${port}`;
   child = spawn(process.execPath, [serverFile, selected, String(port)], {
-    env: { ...process.env, MUSIC_HOST: '127.0.0.1', MUSIC_ALLOW_ORIGIN: extraOrigin },
+    env: { ...process.env, MUSIC_HOST: '127.0.0.1', MUSIC_ALLOW_ORIGIN: extraOrigin, MUSIC_ALLOW_HOST: 'music.lan.test' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   await new Promise((resolve, reject) => {
@@ -195,4 +196,19 @@ test('music-server origin allowlist and method headers remain unchanged', async 
   assert.equal(options.headers.get('Access-Control-Allow-Origin'), allowedOrigin);
   const post = await request('/track.mp3', { method: 'POST' });
   assert.equal(post.status, 405); assert.equal(post.headers.get('Allow'), 'GET, HEAD, OPTIONS');
+});
+
+test('music-server refuses DNS-rebound Host names but serves loopback, IP literals and configured names', async () => {
+  const port = new URL(baseUrl).port;
+  // A rebinding page is same-origin and sends no Origin; only its Host gives it away.
+  // rawRequest, not fetch: fetch silently replaces a Host header.
+  for (const host of [`attacker.example:${port}`, `127.evil.example:${port}`, `127.0.0.1.nip.io:${port}`, 'localhost.attacker.example']) {
+    const listing = await rawRequest(`${baseUrl}/`, { headers: { Host: host } });
+    assert.equal(listing.status, 403, host);
+    assert.doesNotMatch(listing.text, /track\.mp3/, host);
+    assert.equal((await rawRequest(`${baseUrl}/track.mp3`, { headers: { Host: host } })).status, 403, host);
+  }
+  for (const host of [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`, `192.168.1.5:${port}`, `music.lan.test:${port}`, 'MUSIC.LAN.TEST']) {
+    assert.equal((await rawRequest(`${baseUrl}/track.mp3`, { headers: { Host: host } })).status, 200, host);
+  }
 });

@@ -1,0 +1,12 @@
+#!/bin/sh
+# Local gate before anything leaves this machine (GitHub Actions do not run
+# for this repository). Installed by `npm install` / `npm ci` through the
+# `prepare` script (tools/install-hooks.mjs). Bypass once with
+# `git push --no-verify` when you know why.
+#
+# Git exports GIT_DIR and friends to hooks (githooks(5)); in a linked
+# worktree GIT_DIR is absolute, and tests that build throwaway repositories
+# would then commit into this one. Clear them before running anything.
+unset $(git rev-parse --local-env-vars)
+echo "pre-push: npm run lint && npm test (the full gate is npm run validate)"
+npm run lint && npm test

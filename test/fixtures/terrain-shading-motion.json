@@ -19,7 +19,7 @@
       "ditherMode": "selective",
       "pixelGrid": "classic",
       "scaling": "fit",
-      "pixelScale": "depth"
+      "pixelScale": "original"
     },
     "startMs": 18000
   },

@@ -19,7 +19,7 @@ Three real Depth captures at 6s, 12s and 20s passed with the same fixture, seed,
 
 Four additional Original/Depth pairs used real Monument Valley scenery at 6s. The catalog camera reached 1.274km minimum camera-space depth and showed visibly coarser foreground ground texture. A separately labelled diagnostic camera at 50m ground clearance reached 278m depth, exercising full 4× cells while retaining finer distant mesas. Every alpha byte matched across all four pairs. These are native scenic stills; the diagnostic low camera is not a claim about the normal camera path or projection-only user zoom.
 
-The production GLSL shader is also compiled and drawn in WebGL2 by `test/pixelDepthShader.test.mjs`; raw RGBA readback checks exact Uniform and distant identity, 2×/4× cells, alpha preservation, depth/opacity guards, smooth transitions and repeatability. Lifecycle tests cover A/B target ownership, sun-shaft depth borrowing and copy-uniform reset.
+At the time, the production GLSL shader was also compiled and drawn in WebGL2 by `test/pixelDepthShader.test.mjs` (since removed); raw RGBA readback checks exact Uniform and distant identity, 2×/4× cells, alpha preservation, depth/opacity guards, smooth transitions and repeatability. Lifecycle tests cover A/B target ownership, sun-shaft depth borrowing and copy-uniform reset.
 
 ## Checks
 
@@ -45,10 +45,10 @@ npm test
 npm --prefix ridgeview test
 npm run stage:site
 npx playwright install --with-deps chromium
-node --test test/pixelDepthShader.test.mjs
-npm run visual:eval -- --manifest test/fixtures/visual-evaluation-depth.json --out .smoke/pixel-depth
 ```
 
-Use `PLAYWRIGHT_CHROMIUM_PATH` for a separately installed browser. The Pixel validation workflow repeats behavior checks, production shader readback and actual Depth scene capture, retaining the scene evidence as an artifact. Captured audio and images are not added to source control.
+Use `PLAYWRIGHT_CHROMIUM_PATH` for a separately installed browser. Captured audio and images are not added to source control.
+
+Historical: the Depth shader test (`test/pixelDepthShader.test.mjs`), its capture fixture (`test/fixtures/visual-evaluation-depth.json`) and the Pixel validation workflow that ran them were removed with the Depth mode (e546764 and the 2026-10-24 Phase 0 cleanup). New visual captures reject `pixelScale: "depth"`; saved reports that recorded it remain readable for comparison.
 
 These are fixed-clock export and software-GPU checks. They do not establish device FPS, sustained live playback performance or cross-device equivalence. Depth scale currently applies to Range v2 terrain; other worlds and the legacy fallback retain Uniform pixels.

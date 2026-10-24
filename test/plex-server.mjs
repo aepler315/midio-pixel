@@ -4,6 +4,7 @@ import { createFakePms } from './helpers/plex-fixtures.mjs';
 import { readPlexConfig } from '../tools/plex/config.mjs';
 import { createPlexClient } from '../tools/plex/client.mjs';
 import { createPlexServer } from '../tools/plex/server.mjs';
+import { rawRequest } from './helpers/raw-http.mjs';
 async function fixture(t, options={}, overrides={}) {
   assert.equal(typeof createPlexServer,'function');
   const pms=await createFakePms(options);t.after(pms.close);
@@ -79,3 +80,5 @@ test('PMS-supported-sort-fields-cover-browse-and-disc-pagination',async t=>{
   const second=await json(f,'/items?libraryId=1&kind=track&parentId=20&limit=1&offset=1');
   assert.equal(second.status,200);assert.equal(second.body.items[0].ratingKey,'30');assert.equal(second.body.nextOffset,null);
 });
+test('rebound-host-names-are-refused-before-pms',async t=>{const f=await fixture(t,{},{publicHosts:['plex.example.test']});const before=f.pms.requests.length;const port=f.server.address().port;for(const host of [`attacker.example:${port}`,`127.evil.example:${port}`,`127.0.0.1.nip.io:${port}`]){const r=await rawRequest(f.base+'/items?libraryId=1&kind=track',{headers:{Host:host}});assert.equal(r.status,403,host);assert.equal(r.json().error.code,'HOST_DENIED');}assert.equal(f.pms.requests.length,before);for(const host of [`127.0.0.1:${port}`,`localhost:${port}`,`[::1]:${port}`,'plex.example.test','PLEX.example.test:443'])assert.equal((await rawRequest(f.base+'/items?libraryId=1&kind=track',{headers:{Host:host}})).status,200,host);});
+test('public-host-config-is-bare-hostnames',()=>{assert.deepEqual(readPlexConfig({PLEX_PUBLIC_HOST:' Plex.Example.test , b.test '}).publicHosts,['plex.example.test','b.test']);for(const bad of ['https://plex.example.test','plex.example.test:443','a/b'])assert.throws(()=>readPlexConfig({PLEX_PUBLIC_HOST:bad}),/bare hostnames/);});
