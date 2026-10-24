@@ -30,14 +30,20 @@ README.
 
 Checkouts are LF everywhere (`.gitattributes`), and pinned Range/vendor bytes
 are never converted. A clone made before that rule may still hold CRLF files,
-which `test/lineEndings.test.js` reports. In such a clone `git status` may
-list files under `src/vendor`, `ridgeview/vendor` or `src/assets/range/v2`
-as modified: those are the CRLF bytes, never commit them; discard them with
-`git checkout -- src/vendor ridgeview/vendor src/assets/range/v2`. Then
-refresh the clone once, only when `git status --porcelain` prints nothing
-(commit or stash your own work first; this rewrites every tracked file from
-HEAD): `git rm --cached -r -q . && git checkout HEAD -- .`. Never use
-`git add --renormalize`: for `-text` paths it stages the CRLF bytes.
+which `test/lineEndings.test.js` reports. Refresh such a clone once:
+
+1. Commit or stash your own work first; the steps below rewrite files.
+2. `git status` may still list files under `src/vendor`, `ridgeview/vendor`
+   or `src/assets/range/v2`. Those paths can hold real work, so a modified
+   status alone proves nothing. Discard them only after
+   `git diff --ignore-cr-at-eol --quiet -- src/vendor ridgeview/vendor src/assets/range/v2`
+   exits 0 (the differences are line endings only), with
+   `git checkout -- src/vendor ridgeview/vendor src/assets/range/v2`.
+   Never commit those CRLF bytes.
+3. When `git status --porcelain` prints nothing, rewrite every tracked
+   file from HEAD: `git rm --cached -r -q . && git checkout HEAD -- .`.
+
+Never use `git add --renormalize`: for `-text` paths it stages the CRLF bytes.
 
 Run relevant behavior tests and `npm test`/`npm run lint` before completion.
 Document unavailable browser/device checks accurately. For nonvisual changes,
