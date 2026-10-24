@@ -182,11 +182,19 @@ export async function prepareTerrainAssets(view, {
   const shape = validateTerrainManifest(manifest);
   if (!shape.ok) throw new RangeAssetError('manifest', `manifest rejected: ${shape.errors.slice(0, 3).join('; ')}`);
   if (manifest.viewId !== terrainId) throw new RangeAssetError('manifest', `manifest is for ${manifest.viewId}, not ${terrainId}`);
-  const reservation = residency
+  let reservation = null;
+  if (residency) {
     // A scene owner releases its exact charge after executing consumers have
     // stopped. Canceling a song cannot erase their still-owned shared lanes.
-    ? residency.reserve({ key, bytes: terrainCpuBytes(manifest), owner: 'range-terrain-cpu', generation: owner ? 0 : generation })
-    : null;
+    try {
+      reservation = residency.reserve({ key, bytes: terrainCpuBytes(manifest), owner: 'range-terrain-cpu', generation: owner ? 0 : generation });
+    } catch (err) {
+      // The shared key is pending for a source or variant prepared at the
+      // same moment (RangeScene dedups per view, not per terrain). A
+      // classified, retryable refusal, never a bare Error.
+      throw new RangeAssetError('busy', `${terrainId} terrain is already being prepared for another view: ${err?.message || err}`);
+    }
+  }
   if (residency && !reservation) throw new RangeAssetError('budget', `no room for ${view.id} terrain`);
   try {
     // The manifest is already verified; load the payload through the same path.

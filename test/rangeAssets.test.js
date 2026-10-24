@@ -133,6 +133,23 @@ test('a live shared entry is never handed to a view that pins other content', as
   await assert.rejects(prepareTerrainAssets(otherPin, { baseUrl: base, residency: r, fetchImpl }), (e) => e.reason === 'hash');
 });
 
+test('a source and its variant prepared at the same moment fail cleanly, then share', async () => {
+  const r = ledger(), first = {}, second = {};
+  const { fetchImpl } = server();
+  const [a, b] = await Promise.allSettled([
+    prepareTerrainAssets(view, { baseUrl: base, residency: r, fetchImpl, owner: first }),
+    prepareTerrainAssets(variant, { baseUrl: base, residency: r, fetchImpl, owner: second }),
+  ]);
+  const settled = [a, b];
+  assert.equal(settled.filter((s) => s.status === 'fulfilled').length, 1, 'one decodes the terrain');
+  const refused = settled.find((s) => s.status === 'rejected');
+  assert.ok(refused.reason instanceof RangeAssetError && refused.reason.reason === 'busy', String(refused.reason));
+  // Asked again, the refused view shares the now-live entry.
+  const retry = {};
+  const shared = await prepareTerrainAssets(refused === a ? view : variant, { baseUrl: base, residency: r, fetchImpl, owner: retry });
+  assert.equal(shared, settled.find((s) => s.status === 'fulfilled').value);
+});
+
 test('an unowned scene release keeps a CPU entry another prepared view still uses', () => {
   const r = ledger();
   const key = 'range:terrain-cpu:v1';
