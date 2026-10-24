@@ -61,7 +61,7 @@ npm start
 
 PowerShell equivalent: set `$env:MIDIO_PLEX_PUBLIC_API_BASE` to the loopback endpoint, then run `npm run plex:config`. Include the app's exact local origin in `PLEX_ALLOWED_ORIGINS`. Restore the committed disabled `src/config/plex.json` before committing a local setup.
 
-For GitHub Pages, set repository Actions **variable** `MIDIO_PLEX_PUBLIC_API_BASE` to your public HTTPS adapter endpoint. The Pages workflow passes this one value to `stage:site`. It writes `_site/src/config/plex.json` after copying source; the source default stays disabled. The artifact includes only `index.html`, `src/`, `soundfonts/`, `CNAME`, and `.nojekyll`. Adapter tools, `.env.plex`, tests, and Soulseek files are excluded.
+For the published site, set `MIDIO_PLEX_PUBLIC_API_BASE` to your public HTTPS adapter endpoint in the environment of the publishing shell, then run `npm run publish:site` (see [Local validation and publishing](local-validation.md)); staging writes `_site/src/config/plex.json` after copying source, and the source default stays disabled. The published `gh-pages` tree includes only `index.html`, `src/`, `soundfonts/`, `CNAME`, `LICENSE`, `NOTICE`, `version.json` and `.nojekyll`. Adapter tools, `.env.plex`, tests, and Soulseek files are excluded. (A repository Actions variable reaches only the optional manual `static.yml` workflow, which is not the active publisher.)
 
 The exact public schema is `{"version":1,"apiBase":"https://music.example/api/plex/v1"}`. An empty base disables all Plex entries. Invalid or unreachable optional config never prevents ordinary local/URL loading. Once configured, use **Plex library** on the title screen, **Music** during playback, or **Choose different music from Plex** during audio analysis.
 

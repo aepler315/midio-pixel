@@ -37,7 +37,7 @@ node tools/teton-tour-runtime-check.mjs .smoke/runtime-metrics.json
 TETON_SMOKE_QUICK=1 TETON_SMOKE_SKIP_REVIEW=1 PLAYWRIGHT_CHROMIUM_PATH=/path/to/chromium node tools/teton-tour-smoke.mjs http://127.0.0.1:8080 .smoke/teton-existing
 ```
 
-`range-stars-smoke.mjs` accepts an immutable baseline source directory as its first argument. It serves a frozen public tree, records hashes for the served code/assets, uploads and analyzes the actual WAV, and captures the real final presentation. Its matrix covers Uniform/Depth × Classic/Detailed × Pixel/Palette at the dark opening, a daytime frame, and a sampled substantial authored turn plus returning night for the tour. Each opening profile includes an identical-time star-disabled control. The evidence is diagnostic fixture coverage, not representative-song or physical-device certification.
+`range-stars-smoke.mjs` accepts an immutable baseline source directory as its first argument. It serves a frozen public tree, records hashes for the served code/assets, uploads and analyzes the actual WAV, and captures the real final presentation. Its matrix covered Uniform/Depth (Depth has since been retired; current runs use Uniform only) × Classic/Detailed × Pixel/Palette at the dark opening, a daytime frame, and a sampled substantial authored turn plus returning night for the tour. Each opening profile includes an identical-time star-disabled control. The evidence is diagnostic fixture coverage, not representative-song or physical-device certification.
 
 ## Validation results and limits
 

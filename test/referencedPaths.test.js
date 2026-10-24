@@ -8,7 +8,8 @@ import { fileURLToPath } from 'node:url';
 // only when someone runs it, with a misleading error. pixel.yml ran a test
 // deleted weeks earlier and failed every dispatch. Catch that here.
 const root = fileURLToPath(new URL('..', import.meta.url));
-const PATH = /(?:^|[\s"'=(])((?:tools|test)\/[\w./-]+\.(?:mjs|js|json|ya?ml|sh))(?=$|[\s"')`;,])/g;
+// A leading './' (module imports inside workflow heredocs) is accepted too.
+const PATH = /(?:^|[\s"'=(])(?:\.\/)?((?:tools|test)\/[\w./-]+\.(?:mjs|js|json|ya?ml|sh))(?=$|[\s"')`;,])/g;
 
 function referencedPaths(text) {
   return [...text.matchAll(PATH)].map((m) => m[1]).filter((p) => !p.includes('*'));
@@ -37,4 +38,5 @@ test('the path scanner finds the shapes workflows use', () => {
   assert.deepEqual(referencedPaths('"lint": "eslint src tools test",'), []);
   assert.deepEqual(referencedPaths('npm run visual:eval -- --manifest test/fixtures/a.json --out .smoke/x'), ['test/fixtures/a.json']);
   assert.deepEqual(referencedPaths('"start": "node tools/serve.js"'), ['tools/serve.js']);
+  assert.deepEqual(referencedPaths("import { snapshotSource } from './tools/lib/visual-evaluation-server.mjs';"), ['tools/lib/visual-evaluation-server.mjs']);
 });
