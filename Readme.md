@@ -315,6 +315,16 @@ view keep it a candidate. The separate
 has 180 shots and 459 links across the same 15 useful libraries, with a
 64,853,210-byte asset tree. Camera quality takes priority over another location wave.
 
+The [climb, pacing and ending follow-up](docs/scenic-climb-pacing-review-2026-10-22.md)
+implements the configured vertical-speed limit, checks the delivered camera-key
+spline, and prorates a partial final shot's outro reward. It also retains a scoped
+moonlit terrain-fill response for dark endings. Together the runtime corrections
+change nine of the 15 Anthem routes. Matched app comparisons record lighting
+and framing gains alongside longer transfers, delayed payoffs and link endings.
+The record separates those editorial gates from motion checks, source tests
+and the preserved R3 package identities. Further locations remain on hold while
+these camera-quality gates are addressed.
+
 ## Version archive
 
 `npm run archive` opens a timeline of every version on the checked-out
