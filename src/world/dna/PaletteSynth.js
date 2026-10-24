@@ -101,7 +101,7 @@ function hardConstraintViolation(hex, lch) {
   return violation;
 }
 
-// Every synthesized palette gets a display name like "NAVE_A_0" (see
+// Every synthesized palette gets a display name like "ALPINE_A_0" (see
 // synthesizeSectionPalettes) so replays can point at "the second chorus" --
 // but Landmarks.js and NearField.js key their ground-clutter painters and
 // silhouette-darkening color off a biome NAME string, expecting one of the
@@ -348,9 +348,9 @@ export function synthesizePalette(dna, temperatureOverride = null) {
  *  (song seed, label) so the same section always reads the same way on
  *  replay. Falls back to a single entry when there's no section data. */
 export function synthesizeSectionPalettes(dna, name) {
-  // `name` is the world kind (alpine, city, …). It is only a palette-id
-  // prefix and physical admission key; WorldAdaptation then tints toward its
-  // stock materials so After Hours does not inherit a mountain sky.
+  // `name` is the world kind ('alpine'). It is only a palette-id prefix and
+  // physical admission key; WorldAdaptation then tints toward the world's
+  // stock palettes so Trio keeps its own invented skies.
   // castBiomes forbids picking the same name twice in a row, so a single
   // entry would strand every section after the first with no candidate.
   // Detected structure wins when we have it; otherwise fall back to three

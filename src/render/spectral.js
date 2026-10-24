@@ -66,7 +66,7 @@ export function spectralShiftDeg(anchorHue, tonic) {
  * @param {number} [args.amount=1] 0..1 how far the palette rotates toward
  *   the song's key: 0 keeps the biome's own colors exactly (Phase-1
  *   no-op -- the tokens ARE today's hexes, byte-identical), 1 lands the
- *   anchor hue on the key. Reduced-flash or calm can dial it down.
+ *   anchor hue on the key. Calm can dial it down.
  * @returns {{baseHue:number, shiftDeg:number, sky:string[], silhouette:string,
  *   halo:string, edgeLight:string|null}}
  */
@@ -145,8 +145,8 @@ export function cssVarMap(tokens) {
 
 /** One-pole ease toward a target hue shift (degrees). The characters
  *  glide their hue the same way (easeHueDeg with a one-pole); the world
- *  uses this so a key change sweeps the whole palette smoothly and
- *  reduced-flash sees a glide, never a snap. Returns the new eased value.
+ *  uses this so a key change sweeps the whole palette smoothly, a glide,
+ *  never a snap. Returns the new eased value.
  * @param {number} cur current eased shift (deg)
  * @param {number} target target shift (deg)
  * @param {number} dtSec seconds since last step

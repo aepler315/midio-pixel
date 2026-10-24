@@ -7,7 +7,6 @@
 // (nextDotPos, edgeRevealFrac) are exported so BiomeManager's draw-time
 // choices stay testable without touching canvas.
 import { mulberry32, clamp01 } from '../utils/math.js';
-import { capFlashAlpha } from '../ui/Accessibility.js';
 import { placeGlyph } from './LyricGlyph.js';
 import { OCEAN_HORIZON_FRAC } from './Ocean.js';
 
@@ -380,7 +379,7 @@ export class ConstellationWeaver {
     this.figures = survivors;
   }
 
-  draw(ctx, canvas, reducedFlash = false, alphaMul = 1, presentation = 1, maxHolding = 0,
+  draw(ctx, canvas, alphaMul = 1, presentation = 1, maxHolding = 0,
     { maxFigures = Infinity, maxRetained = Infinity, allowPoint = () => true } = {}) {
     ctx.save();
     const inherited = Number.isFinite(ctx.globalAlpha) ? ctx.globalAlpha : 1;
@@ -411,7 +410,7 @@ export class ConstellationWeaver {
         if (!allowPoint(a.x * sx, a.y * sy) || !allowPoint(b.x * sx, b.y * sy)
           || !allowPoint((a.x + b.x) * sx / 2, (a.y + b.y) * sy / 2)) continue;
         const fade = groundFadeAlpha(Math.max(a.y, b.y) / this.h);
-        ctx.strokeStyle = `hsla(${star.hue}, 32%, 80%, ${capFlashAlpha(0.07 * alphaMul * fade, reducedFlash)})`;
+        ctx.strokeStyle = `hsla(${star.hue}, 32%, 80%, ${0.07 * alphaMul * fade})`;
         ctx.beginPath();
         ctx.moveTo(a.x * sx, a.y * sy);
         ctx.lineTo(b.x * sx, b.y * sy);
@@ -420,7 +419,7 @@ export class ConstellationWeaver {
       for (const s of star.dots) {
         if (!allowPoint(s.x * sx, s.y * sy)) continue;
         const fade = groundFadeAlpha(s.y / this.h);
-        ctx.fillStyle = `hsla(${star.hue}, 40%, 86%, ${capFlashAlpha(0.14 * alphaMul * fade, reducedFlash)})`;
+        ctx.fillStyle = `hsla(${star.hue}, 40%, 86%, ${0.14 * alphaMul * fade})`;
         ctx.beginPath();
         ctx.arc(s.x * sx, s.y * sy, 1.0, 0, Math.PI * 2);
         ctx.fill();
@@ -439,14 +438,14 @@ export class ConstellationWeaver {
       const holdOrFadeFrac = fig.phase === 'fading'
         ? 1 - clamp01((this._lastNowMs - fig.fadeStartMs) / FADE_MS)
         : 1;
-      this._drawFigure(ctx, fig, this._lastNowMs, holdOrFadeFrac, reducedFlash, sx, sy, allowPoint);
+      this._drawFigure(ctx, fig, this._lastNowMs, holdOrFadeFrac, sx, sy, allowPoint);
     }
-    if (!Number.isFinite(maxFigures) && this.building) this._drawFigure(ctx, this.building, this._lastNowMs, 1, reducedFlash, sx, sy, allowPoint);
+    if (!Number.isFinite(maxFigures) && this.building) this._drawFigure(ctx, this.building, this._lastNowMs, 1, sx, sy, allowPoint);
 
     ctx.restore();
   }
 
-  _drawFigure(ctx, fig, nowMs, lifeAlpha, reducedFlash, sx = 1, sy = 1, allowPoint = () => true) {
+  _drawFigure(ctx, fig, nowMs, lifeAlpha, sx = 1, sy = 1, allowPoint = () => true) {
     const pulseBoost = 1 + 1.2 * this.pulse;
     const frac = edgeRevealFrac(fig, nowMs);
     const edgeCount = fig.dots.length - 1;
@@ -461,7 +460,7 @@ export class ConstellationWeaver {
         if (!allowPoint(ax, ay) || !allowPoint(x, y) || !allowPoint((ax + x) / 2, (ay + y) / 2)) continue;
         const fade = groundFadeAlpha(Math.max(a.y, b.y) / this.h);
         for (const [lw, base] of [[3, 0.08], [1, 0.30]]) {
-          ctx.strokeStyle = `hsla(${fig.hue}, 60%, 82%, ${capFlashAlpha(base * lifeAlpha * pulseBoost * fade, reducedFlash)})`;
+          ctx.strokeStyle = `hsla(${fig.hue}, 60%, 82%, ${base * lifeAlpha * pulseBoost * fade})`;
           ctx.lineWidth = lw;
           ctx.beginPath();
           ctx.moveTo(ax, ay);
@@ -475,11 +474,11 @@ export class ConstellationWeaver {
       const dx = d.x * sx, dy = d.y * sy;
       if (!allowPoint(dx, dy)) continue;
       const fade = groundFadeAlpha(d.y / this.h);
-      ctx.fillStyle = `hsla(${fig.hue}, 70%, 88%, ${capFlashAlpha(0.5 * lifeAlpha * pulseBoost * fade, reducedFlash)})`;
+      ctx.fillStyle = `hsla(${fig.hue}, 70%, 88%, ${0.5 * lifeAlpha * pulseBoost * fade})`;
       ctx.beginPath();
       ctx.arc(dx, dy, 1.8, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = `hsla(${fig.hue}, 40%, 90%, ${capFlashAlpha(0.12 * lifeAlpha * fade, reducedFlash)})`;
+      ctx.fillStyle = `hsla(${fig.hue}, 40%, 90%, ${0.12 * lifeAlpha * fade})`;
       ctx.beginPath();
       ctx.arc(dx, dy, 4, 0, Math.PI * 2);
       ctx.fill();
@@ -500,7 +499,7 @@ export class ConstellationWeaver {
             const ax = a.x * sx, ay = a.y * sy, bx = b.x * sx, by = b.y * sy;
             if (!allowPoint(ax, ay) || !allowPoint(bx, by) || !allowPoint((ax + bx) / 2, (ay + by) / 2)) continue;
             const fade = groundFadeAlpha(Math.max(a.y, b.y) / this.h);
-            ctx.strokeStyle = `hsla(${fig.hue}, 55%, 84%, ${capFlashAlpha(0.22 * lifeAlpha * pulseBoost * fade * interiorAlpha, reducedFlash)})`;
+            ctx.strokeStyle = `hsla(${fig.hue}, 55%, 84%, ${0.22 * lifeAlpha * pulseBoost * fade * interiorAlpha})`;
             ctx.lineWidth = 1;
             ctx.beginPath();
             ctx.moveTo(ax, ay);

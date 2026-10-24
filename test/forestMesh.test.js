@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
+import { execFileSync } from 'node:child_process';
 import { createForest } from '../src/world/alpine/ForestGL.js';
 
 function definedMeshDerivatives(fragment) {
@@ -61,4 +62,45 @@ test('both mesh LODs share colour/depth geometry, staged coverage and seven GPU 
   } finally { f.dispose(); }
   const empty = createForest(THREE, { mesh: new Float32Array(), billboard: new Float32Array(), count: 0, stride: 8 }, {});
   assert.equal(empty.counts.meshDetail, 0); empty.dispose();
+});
+
+
+test('real Three forest releases obsolete placement records while retained geometry stays byte-identical', () => {
+  const script = `
+    import assert from 'node:assert/strict';
+    import crypto from 'node:crypto';
+    import * as THREE from 'three';
+    import { createForest } from './src/world/alpine/ForestGL.js';
+    const hash = a => crypto.createHash('sha256').update(a).digest('hex');
+    const snapshot = forest => {
+      const seen = new Set(), out = [];
+      for (const meshes of [...Object.values(forest.byBand), forest.depth, ...Object.values(forest.depthByBand)]) for (const mesh of meshes) {
+        const geo = mesh.geometry; if (seen.has(geo)) continue; seen.add(geo);
+        out.push({ count: geo.instanceCount, index: geo.index ? hash(geo.index.array) : null,
+          attributes: Object.fromEntries(Object.entries(geo.attributes).map(([name, a]) => [name, { itemSize: a.itemSize, count: a.count, hash: hash(a.array) }])) });
+      }
+      return out;
+    };
+    function build() {
+      const count = 3000, arrays = Array.from({ length: 3 }, (_, kind) => {
+        const a = new Float32Array(count * 8);
+        for (let i = 0; i < count; i++) a.set([i % 100, 1000, Math.floor(i / 100), 20, 6, kind % 3, (i % 31) / 31, i % 3], i * 8);
+        return a;
+      });
+      const placed = { meshDetail: arrays[0], mesh: arrays[1], billboard: arrays[2], count: count * 3, stride: 8 };
+      const refs = arrays.map(a => ({ array: new WeakRef(a), backing: new WeakRef(a.buffer) }));
+      const forest = createForest(THREE, placed, {});
+      return { forest, refs, before: snapshot(forest), counts: { ...forest.counts }, bytes: forest.bytes };
+    }
+    const fixture = build();
+    for (let i = 0; i < 8; i++) { await new Promise(resolve => setImmediate(resolve)); global.gc(); }
+    assert.equal(fixture.refs.filter(r => r.array.deref() || r.backing.deref()).length, 0, 'returned methods cannot retain original placement buffers');
+    assert.deepEqual(snapshot(fixture.forest), fixture.before);
+    assert.deepEqual(fixture.forest.counts, fixture.counts); assert.equal(fixture.forest.bytes, fixture.bytes);
+    fixture.forest.dispose();
+    console.log('obsolete record arrays/backings collected; geometry bytes unchanged');
+  `;
+  const result = execFileSync(process.execPath, ['--expose-gc', '--input-type=module', '-e', script],
+    { cwd: new URL('..', import.meta.url), encoding: 'utf8', timeout: 15000 });
+  assert.match(result, /obsolete record arrays\/backings collected; geometry bytes unchanged/);
 });

@@ -78,7 +78,6 @@ export function buildManifest(record) {
     renderer: record.renderer || null,
     rangeRenderer: record.rangeRenderer || null,
     passes: record.passes || null,
-    reducedFlash: !!record.reducedFlash,
     camera: record.camera || null,
     light: record.light || null,
     station: record.station ?? null,

@@ -30,36 +30,37 @@ test('leaving tour mode cannot reuse a cancelled residency generation',async()=>
  presentation.dispose();
 });
 
-// A3: the presentation replans when the motion preference changes, not only
-// when sections do; the newest request wins and late replies are dropped.
-test('a live reduced-motion change replans the tour; obsolete worker replies never land',async()=>{
+// The presentation replans when the song's sections change; the newest
+// request wins and late replies are dropped.
+test('a live sections change replans the tour; obsolete worker replies never land',async()=>{
  const {RangePresentation}=await import('../src/world/alpine/RangePresentation.js');
  const workers=[];const Prior=globalThis.Worker;
  globalThis.Worker=class{constructor(){this.terminated=false;workers.push(this);}postMessage(m){this.message=m;}terminate(){this.terminated=true;}};
  try{
   const p=new RangePresentation({mode:'v2'});
   const sections=[{startMs:0,endMs:60000}];
-  const mgr={sections,reducedMotion:false,tSec:5,durationMs:60000,currentBlend:{}};
+  const mgr={sections,tSec:5,durationMs:60000,currentBlend:{}};
   const replaced=[];
-  Object.assign(p,{runtimeState:'ready',tourMode:'tetons',tourData:{},_tourSections:sections,_tourMotion:false,
-   tour:{reducedMotion:false,notes:[],poseAt:()=>({eyeM:[0,0,0],targetM:[0,0,-1],fovYDeg:35})},forced:{view:{id:'teton-range-tour'}},
+  Object.assign(p,{runtimeState:'ready',tourMode:'tetons',tourData:{},_tourSections:sections,
+   tour:{notes:[],poseAt:()=>({eyeM:[0,0,0],targetM:[0,0,-1],fovYDeg:35})},forced:{view:{id:'teton-range-tour'}},
    scene:{isReady:()=>false,replaceTour:v=>replaced.push(v.tour),dispose(){}},frameInputs:{sim:{biomes:mgr}}});
   const frame=()=>{try{p._beginScenic();}catch{/* the rest of the frame is not under test */}};
   frame();
-  assert.equal(workers.length,0,'unchanged sections and preference: no replan');
-  mgr.reducedMotion=true;frame();
+  assert.equal(workers.length,0,'unchanged sections: no replan');
+  mgr.sections=[...sections];frame();
   assert.equal(workers.length,1);
-  assert.deepEqual([workers[0].message.reducedMotion,workers[0].message.committedThroughMs],[true,5000]);
+  assert.equal(workers[0].message.committedThroughMs,5000);
   frame();
   assert.equal(workers.length,1,'one replan per change, not per frame');
-  mgr.reducedMotion=false;mgr.tSec=6;frame();
-  assert.equal(workers.length,2,'a rapid toggle replans again');
+  mgr.sections=[...sections];mgr.tSec=6;frame();
+  assert.equal(workers.length,2,'a rapid change replans again');
   assert.equal(workers[0].terminated,true,'the obsolete worker is stopped');
-  const tourFrom=(reducedMotion)=>({durationMs:0,heroes:[],notes:[],reducedMotion,previewPose:{eyeM:[0,0,0],targetM:[0,0,-1],fovYDeg:35}});
-  workers[0].onmessage?.({data:{tour:tourFrom(true)}});
-  workers[1].onmessage({data:{tour:tourFrom(false)}});
+  const tourFrom=()=>({durationMs:0,heroes:[],notes:[],previewPose:{eyeM:[0,0,0],targetM:[0,0,-1],fovYDeg:35}});
+  const obsolete=tourFrom(),newest=tourFrom();
+  workers[0].onmessage?.({data:{tour:obsolete}});
+  workers[1].onmessage({data:{tour:newest}});
   await p._replanPromise;
-  assert.equal(p.tour.reducedMotion,false,'the newest preference is applied');
+  assert.equal(p.tour,newest,'the newest request is applied');
   assert.equal(replaced.length,1,'only the current reply replaces the tour');
   p.dispose();
  }finally{globalThis.Worker=Prior;}

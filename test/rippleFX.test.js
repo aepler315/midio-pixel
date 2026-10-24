@@ -76,7 +76,7 @@ test('RippleFX.draw runs without throwing and only draws finite geometry', () =>
     arc(x, y, r) { calls.push(x, y, r); },
     set globalCompositeOperation(v) {}, set strokeStyle(v) {}, set lineWidth(v) {}, set fillStyle(v) {}, set globalAlpha(v) {},
   };
-  assert.doesNotThrow(() => fx.draw(ctx, 500, 220, false));
+  assert.doesNotThrow(() => fx.draw(ctx, 500, 220));
   assert.ok(calls.length > 0);
   for (const v of calls) assert.ok(Number.isFinite(v));
 });
@@ -97,8 +97,8 @@ test('RippleFX.draw culls rings, pulses, and puffs that have scrolled off-screen
     ellipse() { counter(); }, arc() { counter(); },
     set globalCompositeOperation(v) {}, set strokeStyle(v) {}, set lineWidth(v) {}, set fillStyle(v) {}, set globalAlpha(v) {},
   });
-  near.draw(makeCtx(() => nearCalls++), 0, 0, false, canvasWidth);
-  far.draw(makeCtx(() => farCalls++), 0, 0, false, canvasWidth);
+  near.draw(makeCtx(() => nearCalls++), 0, 0, canvasWidth);
+  far.draw(makeCtx(() => farCalls++), 0, 0, canvasWidth);
 
   assert.ok(nearCalls > 0, 'on-screen rings/pulses/puffs should draw');
   assert.equal(farCalls, 0, 'off-screen rings/pulses/puffs should be culled');
@@ -113,28 +113,8 @@ test('RippleFX.draw with no canvasWidth given draws everything regardless of scr
     ellipse() { calls++; }, arc() { calls++; },
     set globalCompositeOperation(v) {}, set strokeStyle(v) {}, set lineWidth(v) {}, set fillStyle(v) {}, set globalAlpha(v) {},
   };
-  fx.draw(ctx, 0, 0, false); // canvasWidth omitted -- defaults to Infinity
+  fx.draw(ctx, 0, 0); // canvasWidth omitted -- defaults to Infinity
   assert.ok(calls > 0);
-});
-
-test('RippleFX.draw falls back to source-over compositing under reducedFlash', () => {
-  // Rings, pulses and puffs all draw additively at the same landing point;
-  // stacked with ImpactFX's ignition ring and RainbowBrush's dabs, capped
-  // layers can still sum past FLASH_CAP under 'lighter'. Reduced-flash must
-  // fall back to normal compositing so the cap actually holds.
-  const fx = new RippleFX();
-  fx.trigger(500, 540, 0.6);
-  fx.landingPuff(500, 540, 0.6, '#ffffff');
-  const compositeOps = [];
-  const ctx = {
-    save() {}, restore() {}, beginPath() {}, stroke() {}, fill() {}, moveTo() {}, lineTo() {},
-    ellipse() {}, arc() {},
-    set globalCompositeOperation(v) { compositeOps.push(v); },
-    set strokeStyle(v) {}, set lineWidth(v) {}, set fillStyle(v) {}, set globalAlpha(v) {},
-  };
-  fx.draw(ctx, 500, 220, true);
-  assert.ok(compositeOps.includes('source-over'), 'reducedFlash falls back to source-over');
-  assert.ok(!compositeOps.includes('lighter'), 'reducedFlash must not use additive compositing');
 });
 
 test('puffOffset: distance grows monotonically within life, rises then settles, finite', () => {

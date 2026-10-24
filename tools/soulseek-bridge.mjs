@@ -82,6 +82,8 @@ export const DEFAULT_SLSKD_DOWNLOADS =
   process.env.SLSKD_DOWNLOAD_DIR ||
   path.join(ROOT, 'data', 'slskd-downloads');
 
+const onWindows = process.platform === 'win32';
+
 /**
  * Guard against path traversal when resolving a slskd-reported download
  * filename against the local downloads root. Returns the set of candidate
@@ -93,20 +95,105 @@ export const DEFAULT_SLSKD_DOWNLOADS =
 export function pathsInsideDownloads(root, relPath) {
   const normalized = String(relPath).replace(/\\/g, '/');
   const base = path.basename(normalized);
-  const primary = path.join(root, base);
   const isAbsolute = normalized.startsWith('/');
   const segments = normalized.split('/').filter(Boolean);
   const hasTraversal = segments.some((seg) => seg === '..' || seg === '.');
+  // ':' is a drive letter or an alternate data stream on Windows, and an
+  // ordinary character in a name everywhere else (slskd on Linux keeps it).
+  const plainName = (seg) => Boolean(seg) && seg !== '.' && seg !== '..' && !(onWindows && seg.includes(':'));
+  // slskd running on Windows writes those characters as '_'.
+  const windowsName = (seg) => seg.replace(/[<>:"|?*]/g, '_');
 
-  const candidates = [primary];
-  if (!isAbsolute && !hasTraversal && segments.length > 1) {
-    const nested = path.join(root, ...segments);
-    if (nested !== primary) candidates.push(nested);
+  // slskd saves a finished transfer as <downloads>/<last remote directory>/
+  // <file> (the remote path is usually `@@share\Artist\Album\file.mp3`), so
+  // that comes first. Which of these is really this transfer's file is
+  // decided by size and modification time, not by order (locateSlskdDownload).
+  const candidates = [];
+  const lastDir = segments.length > 1 ? segments[segments.length - 2] : '';
+  if (!hasTraversal && lastDir && base) {
+    if (plainName(lastDir) && plainName(base)) candidates.push(path.join(root, lastDir, base));
+    if (onWindows) candidates.push(path.join(root, windowsName(lastDir), windowsName(base)));
   }
-  return candidates;
+  if (!isAbsolute && !hasTraversal && segments.length > 1 && segments.every(plainName)) candidates.push(path.join(root, ...segments));
+  if (plainName(base)) candidates.push(path.join(root, base));
+  else if (onWindows && base && base !== '.' && base !== '..') candidates.push(path.join(root, windowsName(base)));
+  const resolvedRoot = path.resolve(root);
+  return [...new Set(candidates)].filter((candidate) => isInside(resolvedRoot, path.resolve(candidate)));
+}
+
+function isInside(root, target) {
+  const relative = path.relative(root, target);
+  return Boolean(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
+
+/** The canonical path of a candidate download, or null when it does not
+ *  exist or a symlink leads it outside the (canonical) downloads root. */
+export function realFileInsideDownloads(root, candidate) {
+  try {
+    const real = fs.realpathSync(candidate);
+    return isInside(fs.realpathSync(root), real) ? real : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The same remote file, regardless of separator style or case. */
+function remoteKey(remotePath) {
+  return String(remotePath || '').replace(/\\/g, '/').toLowerCase();
+}
+
+/** Every transfer record for exactly this remote file (a basename or
+ *  suffix match picks up a different song that shares a file name), from
+ *  slskd's per-user {directories: [{files}]} shape, a {files} group, or
+ *  bare Transfer records (the enqueue response's `enqueued` list). */
+export function transfersFor(downloads, remotePath) {
+  const wanted = remoteKey(remotePath);
+  const entries = Array.isArray(downloads) ? downloads : downloads ? [downloads] : [];
+  return entries.flatMap((entry) => {
+    if (typeof entry?.filename === 'string') return [entry];
+    if (Array.isArray(entry?.directories)) return entry.directories.flatMap((d) => d?.files || []);
+    return entry?.files || [];
+  }).filter((f) => f && !f.removed && remoteKey(f.filename) === wanted);
+}
+
+/** A finished transfer record (succeeded or not); slskd reports
+ *  "Completed, Succeeded|Errored|Cancelled|TimedOut|Rejected|Aborted". */
+export function isTerminalTransfer(f) {
+  return /complete/i.test(String(f?.state || f?.transferState || ''))
+    && !/incomplete/i.test(String(f?.state || f?.transferState || ''));
+}
+
+/**
+ * The transfer that belongs to THIS request, or null while it is not
+ * visible yet. A full remote path alone is not an identity: the same file
+ * can have an older finished record. With the id slskd returned on enqueue
+ * only that record counts. Without one (an older slskd, or an enqueue that
+ * timed out while slskd carried on), any record already finished before
+ * the enqueue (`excludeIds`, from a snapshot) is excluded; an in-flight
+ * record of the same file is accepted, since slskd answers a duplicate
+ * enqueue by leaving that one running. Records without ids cannot be told
+ * apart by this alone; locateSlskdDownload's freshness check covers them.
+ */
+export function findTransfer(downloads, remotePath, { id = null, excludeIds = new Set() } = {}) {
+  const stamp = (f) => Date.parse(f.requestedAt || f.enqueuedAt || f.startedAt || '') || 0;
+  const owned = transfersFor(downloads, remotePath)
+    .filter((f) => (id ? f.id === id : !(f.id && excludeIds.has(f.id))));
+  // Newest first; on equal or missing stamps an unfinished record wins, so
+  // a finished one never stands in for a transfer still running.
+  return owned.sort((a, b) => stamp(b) - stamp(a) || isTerminalTransfer(a) - isTerminalTransfer(b))[0] || null;
 }
 
 const searches = new Map();
+// One deadline covers the whole download: snapshot, enqueue, polling and
+// waiting for the file to land. Each slskd request is capped by what is
+// left of it. The page (src/soulseek/SoulseekSearch.js) waits 180 s.
+export const SLSKD_DOWNLOAD_DEADLINE_MS = 150_000;
+export const SLSKD_REQUEST_TIMEOUT_MS = 15_000;
+// slskd 0.26.1 answers the enqueue only after it has reached the peer.
+export const SLSKD_ENQUEUE_TIMEOUT_MS = 60_000;
+const SLSKD_POLL_MS = 1500;
+// Clock slack between this process and slskd's file writes.
+const FRESHNESS_SLACK_MS = 2000;
 const MAX_SEARCHES = 128;
 const SEARCH_TTL_MS = 5 * 60 * 1000;
 
@@ -200,6 +287,8 @@ function activeConfig() {
 
 export async function setConfig(cfg) {
   const resetDirect = () => {
+    // A 2.x client holds its server connection and incoming-peer listener.
+    try { directClient?.destroy?.(); } catch { /* already down */ }
     directClient = null;
     directClientPromise = null;
     directLoginError = null;
@@ -398,6 +487,7 @@ async function slskdFetch(cfg, apiPath, opts = {}) {
     method: opts.method || 'GET',
     headers,
     body: opts.body ? JSON.stringify(opts.body) : undefined,
+    signal: AbortSignal.timeout(opts.timeoutMs ?? SLSKD_REQUEST_TIMEOUT_MS),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -511,59 +601,106 @@ async function downloadViaSlskd(cfg, item) {
       size: item.size || 0,
     },
   ];
-  await slskdFetch(cfg, `/transfers/downloads/${encodeURIComponent(username)}`, {
-    method: 'POST',
-    body: filePayload,
-  });
+  const remotePath = item._file || item.filename;
+  const userPath = `/transfers/downloads/${encodeURIComponent(username)}`;
+  const startedMs = Date.now();
+  const deadline = startedMs + SLSKD_DOWNLOAD_DEADLINE_MS;
+  const remaining = () => deadline - Date.now();
+  const dlRoot = process.env.SLSKD_DOWNLOADS || process.env.SLSKD_DOWNLOAD_DIR || DEFAULT_SLSKD_DOWNLOADS;
 
-  const deadline = Date.now() + 120_000;
-  const target = basename(item._file || item.filename).toLowerCase();
-  while (Date.now() < deadline) {
-    await sleep(1500);
-    const downloads = await slskdFetch(
-      cfg,
-      `/transfers/downloads/${encodeURIComponent(username)}`,
-    ).catch(() => null);
-    const dirs = Array.isArray(downloads) ? downloads : downloads ? [downloads] : [];
-    for (const dir of dirs) {
-      for (const f of dir.files || []) {
-        const name = basename(f.filename || '').toLowerCase();
-        if (name !== target && !(f.filename || '').toLowerCase().endsWith(target)) continue;
-        const state = String(f.state || f.transferState || '').toLowerCase();
-        if (state.includes('complete') && !state.includes('incomplete')) {
-          const localPath = f.filename || item.filename;
-          const dlRoot =
-            process.env.SLSKD_DOWNLOADS ||
-            process.env.SLSKD_DOWNLOAD_DIR ||
-            DEFAULT_SLSKD_DOWNLOADS;
-          if (dlRoot) {
-            const tryPaths = pathsInsideDownloads(dlRoot, localPath);
-            for (const p of tryPaths) {
-              if (fs.existsSync(p)) {
-                const stat = fs.statSync(p);
-                if (!stat.isFile() || stat.size > MAX_DOWNLOAD_BYTES) {
-                  throw new Error(`slskd download exceeds the ${MAX_DOWNLOAD_BYTES} byte limit`);
-                }
-                return {
-                  buffer: readBoundedFile(p, 'slskd download'),
-                  filename: basename(localPath),
-                  contentType: mimeFor(basename(localPath)),
-                };
-              }
-            }
-          }
-          throw new Error(
-            `Download completed in slskd for "${basename(localPath)}" but file bytes are not reachable from Midio. ` +
-              `Set SLSKD_DOWNLOADS to your slskd downloads folder, or drop the file manually.`,
-          );
-        }
-        if (state.includes('fail') || state.includes('error') || state.includes('cancel')) {
-          throw new Error(`slskd transfer failed: ${state}`);
-        }
-      }
-    }
+  // Which records of this exact file were already finished before this
+  // request: they can never be this request's transfer (see findTransfer).
+  // slskd answers 404 for a user with no transfers at all.
+  const before = await slskdFetch(cfg, userPath, { timeoutMs: Math.min(SLSKD_REQUEST_TIMEOUT_MS, remaining()) }).catch(() => null);
+  const excludeIds = new Set(transfersFor(before, remotePath).filter(isTerminalTransfer).map((f) => f.id).filter(Boolean));
+
+  // slskd 0.26.1 answers 201 {enqueued: [Transfer], failed: [...]}; a file
+  // already queued or in progress comes back under `failed` and keeps its
+  // running record. An enqueue that times out may still go through.
+  let id = null;
+  try {
+    const response = await slskdFetch(cfg, userPath, {
+      method: 'POST', body: filePayload, timeoutMs: Math.min(SLSKD_ENQUEUE_TIMEOUT_MS, remaining()),
+    });
+    id = transfersFor(response?.enqueued || [], remotePath)[0]?.id || null;
+  } catch (error) {
+    if (error?.name !== 'TimeoutError') throw error;
+  }
+
+  let succeeded = null;
+  const sizes = new Map();
+  while (remaining() > 0) {
+    await sleep(Math.min(SLSKD_POLL_MS, Math.max(0, remaining())));
+    if (remaining() <= 0) break;
+    const downloads = await slskdFetch(cfg, userPath, { timeoutMs: Math.min(SLSKD_REQUEST_TIMEOUT_MS, remaining()) }).catch(() => null);
+    const f = findTransfer(downloads, remotePath, { id, excludeIds }) || succeeded;
+    if (!f) continue;
+    const state = String(f.state || f.transferState || '').toLowerCase();
+    if (isTerminalTransfer(f) && !state.includes('succeeded')) throw new Error(`slskd transfer failed: ${state}`);
+    if (!isTerminalTransfer(f)) continue;
+    // slskd records Succeeded before it moves the file out of its
+    // incomplete folder (a copy, across the bundled compose's mounts), so
+    // keep polling until a fresh, complete file is there.
+    succeeded = f;
+    const found = locateSlskdDownload(dlRoot, remotePath, {
+      size: Number(f.size) || 0, notBeforeMs: startedMs - FRESHNESS_SLACK_MS, sizes,
+    });
+    if (found) return readLocatedDownload(found, remotePath);
+  }
+  if (succeeded) {
+    throw new Error(
+      `Download completed in slskd for "${basename(remotePath)}" but file bytes are not reachable from Midio. ` +
+        `Set SLSKD_DOWNLOADS to your slskd downloads folder, or drop the file manually.`,
+    );
   }
   throw new Error('Timed out waiting for slskd download');
+}
+
+/** Files slskd may have written for this transfer: the candidates from
+ *  pathsInsideDownloads plus the `<name>_<ticks><ext>` copies its default
+ *  exists-strategy ("rename") makes when the name is already taken. */
+function downloadCandidates(dlRoot, remotePath) {
+  const out = [];
+  for (const candidate of pathsInsideDownloads(dlRoot, remotePath)) {
+    out.push(candidate);
+    const ext = path.extname(candidate), stem = path.basename(candidate, ext);
+    const renamed = new RegExp(`^${stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}_\\d+${ext.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, onWindows ? 'i' : '');
+    let entries = [];
+    try { entries = fs.readdirSync(path.dirname(candidate)); } catch { /* no such folder yet */ }
+    for (const name of entries) if (renamed.test(name)) out.push(path.join(path.dirname(candidate), name));
+  }
+  return [...new Set(out)];
+}
+
+/**
+ * This transfer's finished file, or null while it is not there yet. A
+ * same-named file from an earlier transfer (left in place, or the original
+ * that a "rename" copy sits next to) is refused by modification time; a file
+ * still being copied is refused by size. With the transfer's size unknown,
+ * the size must hold still across two polls (`sizes` carries them). Every
+ * candidate stays inside the root by name and, after following symlinks,
+ * by canonical path.
+ */
+export function locateSlskdDownload(dlRoot, remotePath, { size = 0, notBeforeMs = 0, sizes = new Map() } = {}) {
+  let best = null;
+  for (const candidate of dlRoot ? downloadCandidates(dlRoot, remotePath) : []) {
+    const real = realFileInsideDownloads(dlRoot, candidate);
+    if (!real) continue;
+    const stat = fs.statSync(real);
+    if (!stat.isFile() || stat.mtimeMs < notBeforeMs) continue;
+    if (size > 0 ? stat.size !== size : sizes.get(real) !== stat.size) { sizes.set(real, stat.size); continue; }
+    if (!best || stat.mtimeMs > best.mtimeMs) best = { path: real, size: stat.size, mtimeMs: stat.mtimeMs };
+  }
+  return best;
+}
+
+function readLocatedDownload(found, remotePath) {
+  if (found.size > MAX_DOWNLOAD_BYTES) throw new Error(`slskd download exceeds the ${MAX_DOWNLOAD_BYTES} byte limit`);
+  return {
+    buffer: readBoundedFile(found.path, 'slskd download'),
+    filename: basename(remotePath),
+    contentType: mimeFor(basename(remotePath)),
+  };
 }
 
 // ── Direct Soulseek (slsk-client) ──────────────────────────────────────────
@@ -581,35 +718,32 @@ async function getDirectClient(cfg) {
   } catch {
     /* best effort — POSIX always has /tmp */
   }
-  const attempt = new Promise((resolve, reject) => {
-    let slsk;
+  // slsk-client 2.x (package.json pins 2.0.2): one SlskClient, then login().
+  // The 1.x connect(opts, callback) API this used to call no longer exists,
+  // so every direct login failed with "slsk.connect is not a function".
+  const attempt = (async () => {
+    let SlskClient;
     try {
-      slsk = require('slsk-client');
+      ({ SlskClient } = require('slsk-client'));
     } catch {
-      reject(new Error('slsk-client is not installed. Run: npm install slsk-client'));
-      return;
+      throw new Error('slsk-client is not installed. Run: npm ci');
     }
-    slsk.connect(
-      {
-        user: cfg.slskUser,
-        pass: cfg.slskPass,
-        // slsk-client's login watchdog defaults to a brutal 2000ms — a slow
-        // handshake to server.slsknet.org fails with "timeout login" even
-        // with valid credentials. Allow a realistic round-trip.
-        timeout: 15_000,
-        ...(process.env.SLSK_HOST ? { host: process.env.SLSK_HOST } : {}),
-        ...(process.env.SLSK_PORT ? { port: Number(process.env.SLSK_PORT) } : {}),
-      },
-      (err, client) => {
-        if (err) {
-          reject(new Error(`Soulseek login failed: ${err.message || err}`));
-          return;
-        }
-        directClient = client;
-        resolve(client);
-      },
-    );
-  });
+    if (typeof SlskClient !== 'function') throw new Error('slsk-client 2.x is required (no SlskClient export)');
+    const client = new SlskClient({
+      // A slow handshake to server.slsknet.org needs a realistic round-trip.
+      timeout: 15_000,
+      ...(process.env.SLSK_HOST ? { host: process.env.SLSK_HOST } : {}),
+      ...(process.env.SLSK_PORT ? { port: Number(process.env.SLSK_PORT) } : {}),
+    });
+    try {
+      await client.login(cfg.slskUser, cfg.slskPass);
+    } catch (err) {
+      try { client.destroy(); } catch { /* already down */ }
+      throw new Error(`Soulseek login failed: ${err.message || err}`, { cause: err });
+    }
+    directClient = client;
+    return client;
+  })();
   directClientPromise = attempt;
   attempt
     .then(() => {
@@ -641,28 +775,11 @@ async function startDirectSearch(cfg, query) {
   (async () => {
     try {
       const client = await getDirectClient(cfg);
-      const res = await new Promise((resolve, reject) => {
-        client.search({ req: query, timeout: 10000 }, (err, data) => {
-          if (err) reject(err);
-          else resolve(data || []);
-        });
-      });
-      const files = (res || [])
+      // slsk-client 2.x: results are collected until the timeout, then returned.
+      const res = (await client.search({ req: query, timeout: 10000 })) || [];
+      const files = res
         .filter((r) => AUDIO_EXT.test(r.file || r.filename || ''))
-        .map((r) =>
-          normalizeFile(
-            {
-              filename: r.file,
-              size: r.size,
-              bitrate: r.bitrate,
-              speed: r.speed,
-              slots: r.slots,
-              user: r.user,
-              length: r.length,
-            },
-            'direct',
-          ),
-        );
+        .map((r) => normalizeFile(directResultFile(r), 'direct'));
       const s = searches.get(id);
       if (s) {
         s.results = finalizeResults(files);
@@ -682,37 +799,63 @@ async function startDirectSearch(cfg, query) {
 }
 
 async function downloadViaDirect(cfg, item) {
-  const client = await getDirectClient(cfg);
+  return downloadWithClient(await getDirectClient(cfg), item);
+}
+
+/**
+ * One file through a logged-in slsk-client 2.x client. `download()` returns
+ * a running Download that is awaited for the finished file and cancelled by
+ * its signal, so a stalled peer is given up (really cancelled, not left
+ * running) at the same deadline as slskd; the page waits longer than that.
+ */
+export async function downloadWithClient(client, item, { deadlineMs = SLSKD_DOWNLOAD_DEADLINE_MS } = {}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'midio-slsk-'));
   const outPath = path.join(tmpDir, basename(item.filename).replace(/[^\w.\- ()[\]]+/g, '_'));
-  const fileObj = {
-    user: item.user,
-    file: item._file || item.filename,
-    size: item.size,
-    slots: item.slots !== false,
-    bitrate: item.bitrate || 0,
-    speed: item.speed || 0,
-  };
+  const signal = AbortSignal.timeout(deadlineMs);
   try {
-    await new Promise((resolve, reject) => {
-      client.download({ file: fileObj, path: outPath }, (err) => {
-        if (err) reject(err);
-        else resolve();
+    let result;
+    try {
+      result = await client.download({
+        user: item.user,
+        file: item._file || item.filename,
+        path: outPath,
+        ...(Number(item.size) > 0 ? { expectedSize: Number(item.size) } : {}),
+        signal,
       });
-    });
-    const stat = fs.statSync(outPath);
+    } catch (err) {
+      if (signal.aborted) throw new Error('Timed out waiting for the Soulseek download', { cause: err });
+      throw err;
+    }
+    if (Number.isFinite(result?.size) && result.receivedBytes < result.size) {
+      throw new Error(`Soulseek download is partial (${result.receivedBytes} of ${result.size} bytes)`);
+    }
+    const written = result?.path || outPath;
+    const stat = fs.statSync(written);
     if (!stat.isFile() || stat.size > MAX_DOWNLOAD_BYTES) {
       throw new Error(`Soulseek download exceeds the ${MAX_DOWNLOAD_BYTES} byte limit`);
     }
-    const buffer = readBoundedFile(outPath);
     return {
-      buffer,
+      buffer: readBoundedFile(written),
       filename: basename(item.filename),
       contentType: mimeFor(basename(item.filename)),
     };
   } finally {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* removed with the OS temp dir */ }
   }
+}
+
+/** A slsk-client 2.x SearchResult as the bridge's file record: bitrate and
+ *  duration travel in `attribs`, keyed by FileAttribute (0 and 1). */
+export function directResultFile(r) {
+  return {
+    filename: r.file,
+    size: r.size,
+    bitrate: r.attribs?.[0] ?? r.bitrate,
+    speed: r.speed,
+    slots: r.slots,
+    user: r.user,
+    length: r.attribs?.[1] ?? r.length,
+  };
 }
 
 

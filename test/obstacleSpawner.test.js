@@ -72,7 +72,7 @@ test('spawned obstacles carry a deterministic archetype/phase and draw without t
   // Approaching, at arrival, and past (dissolving) -- all three lifecycle phases.
   for (const worldX of [-500, spawner.active[0].wx, spawner.active[0].wx + 200]) {
     assert.doesNotThrow(() => spawner.draw(ctx, worldX, 220, 480, {
-      nowMs: 1000, energyCurves: null, haloColor: '#8a3a6b', wind: { x: 5, y: 0 }, particleMul: 1, reducedFlash: false,
+      nowMs: 1000, energyCurves: null, haloColor: '#8a3a6b', wind: { x: 5, y: 0 }, particleMul: 1,
     }));
   }
 });
@@ -83,21 +83,21 @@ test('a pipe obstacle draws without throwing across its full approach/arrival/di
   const ctx = fakeCtx();
   for (const worldX of [1000 - 500, 1000, 1000 + 200]) {
     assert.doesNotThrow(() => spawner.draw(ctx, worldX, 220, 480, {
-      nowMs: 5000, haloColor: '#8a3a6b', reducedFlash: false,
+      nowMs: 5000, haloColor: '#8a3a6b',
     }));
   }
   assert.ok(ctx.calls.fill > 0, 'the pipe body/collar/mouth should have painted something');
   assert.ok(ctx.calls.stroke > 0, 'the halo-tinted outline should have stroked');
 });
 
-test('draw() never throws with an energyCurves-driven pulse, reduced-flash, or fractional particleMul', () => {
+test('draw() never throws with an energyCurves-driven pulse or fractional particleMul', () => {
   const spawner = new ObstacleSpawner({ live: { obstacleDensity: 1 } }, { seed: 3 });
   spawner.candidates = [{ tMs: 500 }];
   spawner.update(0, 0, 0.22);
   const fakeEnergy = { globalEnergy: () => 0.7, sample: () => 0.5 };
   const ctx = fakeCtx();
   assert.doesNotThrow(() => spawner.draw(ctx, 0, 220, 480, {
-    nowMs: 500, energyCurves: fakeEnergy, haloColor: '#00ffd0', particleMul: 0.4, reducedFlash: true,
+    nowMs: 500, energyCurves: fakeEnergy, haloColor: '#00ffd0', particleMul: 0.4,
   }));
 });
 
@@ -128,7 +128,7 @@ test('a geometric row candidate spawns a full lined-up line of clean polygon obs
   const ctx = fakeCtx();
   for (const worldX of [-500, geos[0].wx, geos[0].wx + 200]) {
     assert.doesNotThrow(() => spawner.draw(ctx, worldX, 220, 480, {
-      nowMs: 1000, energyCurves: { globalEnergy: () => 0.6, sample: () => 0.4 }, haloColor: '#00ffd0', reducedFlash: false,
+      nowMs: 1000, energyCurves: { globalEnergy: () => 0.6, sample: () => 0.4 }, haloColor: '#00ffd0',
     }));
   }
 });

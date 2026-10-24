@@ -1,0 +1,16 @@
+# Every text file is LF in the repository and in every checkout. Tests and
+# tools slice source by '\n' (e.g. test/renderExperienceReadiness.test.mjs
+# extracts functions from src/main.js), so core.autocrlf on Windows otherwise
+# turns a clean clone into dozens of spurious failures.
+* text=auto eol=lf
+
+# Content-addressed Range assets: catalog and manifest SHA-256 identities are
+# of the committed bytes, so checkout must never convert their line endings
+# (core.autocrlf on Windows otherwise breaks every terrain/tour identity).
+src/assets/range/v2/** -text
+# Vendored bundles are pinned by byte length and SHA-256 (runtime.json).
+src/vendor/** -text
+ridgeview/vendor/** -text
+
+# Committed with CRLF; kept byte-for-byte rather than renormalized.
+docs/audits/2026-10-20-midio-pixel-prioritized-roadmap.csv -text

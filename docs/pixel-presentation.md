@@ -6,7 +6,7 @@ Display settings are available on the title screen and from **Display** during p
 |---|---|
 | Pixel | Compose on the selected native grid with unrestricted scene colors, then nearest-neighbour presentation |
 | Palette | Same grid, then World, Landscape32, Chroma32 or legacy RGB332 |
-| Pixel detail | Classic 320×180 (default) or Detailed 640×360; Detailed processes four times as many pixels |
+| Pixel detail | Classic 320×180 (default), Classic+ 400×225, Medium 480×270, Medium+ 560×315 or Detailed 640×360; Classic+ processes 1.56×, Medium 2.25×, Medium+ 3.06× and Detailed four times as many pixels |
 | Dither strength | Off (0), Subtle (0.35), Full (1) |
 | Dither style | Ordered Bayer or Selective, which reduces stippling at original-RGB boundaries; RGB332 remains Ordered |
 | Auto quality | Existing governor and recovery hysteresis |
@@ -31,7 +31,7 @@ Read the new key first, then legacy `smw:display:v2`, then `smw:display:v1`, the
 
 Pixel captions use a bundled 5×7 bitmap body at integer native coordinates, doubled at Detailed. Names and required credits wrap into at most six lines per page (54 Classic pixels); longer captions page through the existing hold interval using caption-local song time. Required text is never silently truncated or shrunk. Unsupported characters display a readable `[U+XXXX]` spelling; **Landscape details** retains the original names, regions, statistics, ecoregion and credits. It stays visible while open or focused. Captions are drawn after effects and before quantization, in the captured composition.
 
-Illustrated-world glow uses one instantaneous admitted highlight snapshot and four integer neighboring copies, with total strength capped at 0.10 (0.05 with reduced flashing). Alpine glow remains disabled. Heat uses eight-native-pixel cells and integer offsets limited to one Classic pixel or two Detailed pixels, using heard time when available. Reduced motion disables heat and releases its buffers. Title stars retain their seeded layout and transparent backing, with fixed grid clusters and brightness twinkle. The scenic terrain keeps its native grid. Additional terrain and near-tree simplification must satisfy that grid’s projection-error bounds while protecting skyline and shoreline geometry, placements and forest density. Pixel materials skip unused preparation and discarded surface texture samples.
+Illustrated-world glow uses one instantaneous admitted highlight snapshot and four integer neighboring copies, with total strength capped at 0.10. Alpine glow remains disabled. Heat uses eight-native-pixel cells and integer offsets limited to one Classic pixel or two Detailed pixels, using heard time when available. Title stars retain their seeded layout and transparent backing, with fixed grid clusters and brightness twinkle. The scenic terrain keeps its native grid. Additional terrain and near-tree simplification must satisfy that grid’s projection-error bounds while protecting skyline and shoreline geometry, placements and forest density. Pixel materials skip unused preparation and discarded surface texture samples.
 
 Title, playback, live recording and bulk export share the presentation profile. A non-grid pixel output reserves one native-grid working canvas through GraphicsResidency before allocation. Palette processing accepts only a supported native grid and at most 230,400 pixels, never the enlarged output. Selective owns one admitted byte mask (57,600 or 230,400 bytes), computed from the original RGB in the same readback before quantization. Bayer phase is fixed at the grid origin; there is no time term or frame history. Mask admission/commit failure falls back to Ordered for that generation and reports its reason, without retrying every frame. Off, Pixel and RGB332 allocate no edge mask. Scratch surfaces and masks release on grid changes or disposal.
 
@@ -58,7 +58,7 @@ node tools/export-smoke.mjs http://127.0.0.1:8091 .smoke/pixel-export
 node tools/export-smoke.mjs http://127.0.0.1:8091 .smoke/pixel-export-v2 v2
 ```
 
-The bulk CLI supports `--look`, `--quality`, `--palette world|range32|chroma32|rgb332`, `--dither off|subtle|full`, `--dither-mode ordered|selective`, `--pixel-grid classic|detailed` and `--scaling fit|integer`.
+The bulk CLI supports `--look`, `--quality`, `--palette world|range32|chroma32|rgb332`, `--dither off|subtle|full`, `--dither-mode ordered|selective`, `--pixel-grid classic|classicPlus|medium|mediumPlus|detailed` and `--scaling fit|integer`.
 
 The browser smoke needs installed Playwright Chromium or `PLAYWRIGHT_CHROMIUM_PATH`. Software WebGL validates raster output and shaders; it does not establish device FPS, battery use or GPU timings. `palette-bench` reports warm mask/transform arithmetic at both grids, excluding readback, writeback, copying and GPU work. Detailed is an optional detail choice, with higher cost. Implementation evidence, retained variants and unavailable motion/device checks are recorded in the task report (`docs/superpowers/plans/2026-10-14-pixel-mode-progress.md`, removed; see [removed docs](removed-docs.md)); generated captures stay under ignored `.smoke/pixel-mode/`.
 
@@ -66,7 +66,7 @@ The browser smoke needs installed Playwright Chromium or `PLAYWRIGHT_CHROMIUM_PA
 
 Alpine Landscape paints moon, sun, stars, aurora, clouds and musical weather into a separate smooth sky layer using the same resolved camera, crop and scenic transform as the terrain. Terrain and its native material responses remain pixelated. Pixel/Palette and Classic/Detailed still control the foreground; the sky stays full-colour and is not palette-quantized.
 
-The live output follows the contained stage CSS size times DPR, capped at 1920×1080. Classic and Detailed keep their 320×180 and 640×360 terrain buffers. Trio retains its native grid, and offline exports use their requested dimensions. The sky does not use nearest-neighbour CSS stretching. Above the live cap the completed picture is scaled to the display.
+The live output follows the contained stage CSS size times DPR, capped at 1920×1080. Classic, Classic+, Medium, Medium+ and Detailed keep their 320×180, 400×225, 480×270, 560×315 and 640×360 terrain buffers. Trio retains its native grid, and offline exports use their requested dimensions. The sky does not use nearest-neighbour CSS stretching. Above the live cap the completed picture is scaled to the display.
 
 Sky density and lunar textures have bounded, accounted canvas ownership and release on song teardown. The experiment adds no terrain readback or full-frame sky cache. Existing water backdrop storage captures the same sky before far terrain, preserving reflections. Sampleable scenic depth remains required for real depth consumers such as water and shafts, despite removal of the Depth pixel effect.
 

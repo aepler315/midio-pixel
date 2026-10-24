@@ -8,10 +8,11 @@ import { normalizeManifest, manifestForCase, captureSchedule, compareReports, di
 import { snapshotSource, serveSnapshot, sha256 } from './lib/visual-evaluation-server.mjs';
 import { openEvaluationSong, renderEvaluationFrame } from './lib/visual-evaluation-browser.mjs';
 import { renderRunReport, renderComparisonReport } from './lib/visual-evaluation-report.mjs';
+import { finalizeBrowserDiagnostics } from './lib/browser-diagnostics.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const help = `npm run visual:eval -- --out .smoke/baseline [--manifest path/to/corpus.json]
-npm run visual:eval -- --manifest test/fixtures/visual-evaluation-vfx.json --case q4-palette-both --out .smoke/q4
+npm run visual:eval -- --manifest test/fixtures/visual-evaluation-vfx.json --case q4-palette-inland --out .smoke/q4
 npm run visual:eval -- --compare .smoke/baseline .smoke/candidate --out .smoke/comparison [--require-identical]
 
 --case selects one case of a VFX matrix manifest (see docs/visual-evaluation-loop.md).
@@ -80,6 +81,8 @@ async function runCapture(args) {
   try {
     const snapshot = await snapshotSource(root);
     report.source = { commit: git('rev-parse', 'HEAD'), dirty: git('status', '--porcelain', '--untracked-files=normal'), digest: snapshot.digest, hashes: snapshot.hashes };
+    // Review-only page overrides outside the manifest (never in CI).
+    report.overrides = { rangeShots: process.env.VISUAL_RANGE_SHOTS === 'all' ? 'all' : null };
     await fs.writeFile(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 2));
     server = await serveSnapshot(snapshot);
     browser = await chromium.launch({ headless: process.env.VISUAL_HEADFUL !== '1', ...(process.env.PLAYWRIGHT_CHROMIUM_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH } : {}),
@@ -89,7 +92,7 @@ async function runCapture(args) {
       const dir = path.join(out, song.id); await fs.mkdir(dir);
       const audio = `${song.id}/audio${song.file ? path.extname(song.file).toLowerCase() : '.wav'}`;
       const audioPath = path.join(out, audio);
-      const row = { id: song.id, fixture: song.fixture ?? null, audio, frames: [], errors: [], warnings: [] };
+      const row = { id: song.id, fixture: song.fixture ?? null, audio, frames: [], errors: [], warnings: [], events: [] };
       report.songs.push(row);
       if (song.file) await fs.copyFile(path.resolve(path.dirname(manifestPath), song.file), audioPath);
       else await createFixture(song, audioPath);
@@ -97,6 +100,7 @@ async function runCapture(args) {
       const loadedFiles = new Set();
       console.log(`Loading ${song.id}`);
       const loaded = await openEvaluationSong(browser, { url: server.url, audioPath, settings: manifest.settings, diagnostics: { ...row, loadedFiles } });
+      let failed = false;
       try {
         row.durationMs = loaded.durationMs;
         if (report.environment && JSON.stringify(report.environment) !== JSON.stringify(loaded.environment)) throw new Error('render environment changed between songs');
@@ -104,6 +108,7 @@ async function runCapture(args) {
         row.schedule = captureSchedule(song, row.durationMs, manifest.settings);
         row.clips = song.clips ?? [{ startMs: Math.floor(row.durationMs * 0.5), durationMs: Math.min(2000, Math.floor(row.durationMs * 0.25)) }];
         for (const point of row.schedule) {
+          loaded.browserDiagnostics.setPhase(`capture:${point.timeMs}ms`);
           const frame = await renderEvaluationFrame(loaded.page, point, manifest.settings);
           if (!frame) continue;
           if (blankFrame(frame.thumbnail)) throw new Error(`${song.id}: blank frame at ${point.timeMs}ms`);
@@ -115,7 +120,11 @@ async function runCapture(args) {
         }
         row.loadedFiles = [...loadedFiles].sort();
         if (row.errors.length) throw new Error(`${song.id}: ${row.errors.join('\n')}`);
-      } finally { await loaded.context.close(); }
+      } catch (error) { failed = true; throw error; }
+      finally {
+        await loaded.context.close(); await loaded.browserDiagnostics.dispose();
+        finalizeBrowserDiagnostics(row, report, { preserveFailure: failed });
+      }
     }
     report.source.changedDuringRun = (await snapshotSource(root)).digest !== report.source.digest;
     if (report.source.changedDuringRun) throw new Error('Source changed during capture; captured snapshot is recorded but run must be repeated');

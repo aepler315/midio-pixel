@@ -4,6 +4,7 @@
 // deepest pull-back), shake overscan included.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
 import { scenicProjection, viewportState } from '../src/world/alpine/RangeFrame.js';
 import { ZOOM_MIN } from '../src/render/CameraDirector.js';
 import { SHAKE_MARGIN_PX } from '../src/render/Renderer.js';
@@ -79,7 +80,7 @@ test('the fov does not depend on where the stage sits in a resize', () => {
 // Visibility: the far range's crest, measured on the shipped packages.
 const { viewExposure, travelExposure, pairExposure, MIN_FAR_EXPOSED } = await import('../tools/lib/range-exposure.mjs');
 const { default: CATALOG } = await import('../src/world/terrain/sceneCatalogData.js');
-const RUNTIME_DIR = new URL('../src/assets/range/v2/', import.meta.url).pathname;
+const RUNTIME_DIR = fileURLToPath(new URL('../src/assets/range/v2/', import.meta.url));
 const approved = CATALOG.views.filter((v) => v.status === 'approved');
 const exposures = new Map();
 for (const v of approved) exposures.set(v.id, await viewExposure(RUNTIME_DIR, v));

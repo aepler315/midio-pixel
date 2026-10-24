@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MeteorShowerFX } from '../src/world/MeteorShower.js';
-import { FLASH_CAP } from '../src/ui/Accessibility.js';
 
 const CANVAS = { width: 1280, height: 720 };
 
@@ -61,23 +60,7 @@ test('hue<0 is the achromatic sentinel: no arbitrary hue/jitter on a gray biome'
   assert.ok(new Set(fx2._meteors.map((m) => m.hueJitter)).size > 1, 'chromatic meteors should have varied jitter');
 });
 
-test('draw() with reducedFlash caps every alpha at FLASH_CAP', () => {
-  const fx = new MeteorShowerFX(7);
-  fx.trigger(0, 6, 40);
-  for (let i = 0; i < 30; i++) fx.update(1 / 60); // let some launch and build a trail
-  const alphas = [];
-  const fakeCtx = {
-    save() {}, restore() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}, fill() {}, arc() {},
-    set fillStyle(v) { const m = /,\s*([\d.]+)\)$/.exec(v); if (m) alphas.push(parseFloat(m[1])); },
-    set strokeStyle(v) { const m = /,\s*([\d.]+)\)$/.exec(v); if (m) alphas.push(parseFloat(m[1])); },
-    set lineWidth(_v) {}, set globalCompositeOperation(_v) {}, set lineCap(_v) {},
-  };
-  fx.draw(fakeCtx, CANVAS, true);
-  assert.ok(alphas.length > 0, 'expected at least one styled draw call');
-  for (const a of alphas) assert.ok(a <= FLASH_CAP + 1e-9, `alpha ${a} exceeds FLASH_CAP with reducedFlash`);
-});
-
-test('draw() without reducedFlash can exceed FLASH_CAP', () => {
+test('draw() paints meteor cores and heads at full brightness', () => {
   const fx = new MeteorShowerFX(8);
   fx.trigger(0, 6, 40);
   for (let i = 0; i < 30; i++) fx.update(1 / 60);
@@ -88,6 +71,6 @@ test('draw() without reducedFlash can exceed FLASH_CAP', () => {
     set strokeStyle(v) { const m = /,\s*([\d.]+)\)$/.exec(v); if (m) alphas.push(parseFloat(m[1])); },
     set lineWidth(_v) {}, set globalCompositeOperation(_v) {}, set lineCap(_v) {},
   };
-  fx.draw(fakeCtx, CANVAS, false);
-  assert.ok(alphas.some((a) => a > FLASH_CAP), 'expected at least one alpha above FLASH_CAP without capping');
+  fx.draw(fakeCtx, CANVAS);
+  assert.ok(alphas.some((a) => a > 0.4), 'expected at least one bright alpha above 0.4');
 });

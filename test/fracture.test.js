@@ -13,7 +13,6 @@ import { Conductor } from '../src/core/Conductor.js';
 import { OCEAN_HORIZON_FRAC, OCEAN_NEAR_FRAC } from '../src/world/Ocean.js';
 import { BASELINE_FRAC as SPACE_RIDGE_BASELINE_FRAC } from '../src/world/SpaceRidge.js';
 import { makeNoteEvent, Role } from '../src/core/NoteEvent.js';
-import { FLASH_CAP } from '../src/ui/Accessibility.js';
 
 function buildConductorWithKicks(durationMs, kickPeriodMs = 500) {
   const timeline = [];
@@ -312,12 +311,9 @@ test('draw() renders surface cracks at full alpha through their fade envelope wi
   assert.equal(alphas2.length, 0, 'a fully aged-out burst (pruned by update()) should draw nothing');
 });
 
-// --- Reduced-flash accessibility -----------------------------------------
+// --- Full-viewport flashes ------------------------------------------------
 //
-// draw() and drawShatter() each fill the whole viewport at flashAlpha. This
-// class was the one place in the codebase that never imported
-// Accessibility.js -- every other flash in the game honours capFlashAlpha,
-// but these two full-viewport fills went straight to the raw alpha.
+// draw() and drawShatter() each fill the whole viewport at flashAlpha.
 
 function alphaRecordingCtx() {
   const alphas = [];
@@ -330,21 +326,20 @@ function alphaRecordingCtx() {
   return { ctx, alphas };
 }
 
-test('the progressive crack-birth flash respects reduced-flash', () => {
+test('the progressive crack-birth flash fills the viewport at its scaled alpha', () => {
   const durationMs = 4000;
   const conductor = buildConductorWithKicks(durationMs);
   const fx = new FractureEngine(conductor, { canvasWidth: 1280, canvasHeight: 720, songSeed: 1, durationMs });
   fx.flashAlpha = 1; // force a hard flash regardless of the real birth schedule
-  fx.reducedFlash = true;
 
   const { ctx, alphas } = alphaRecordingCtx();
   fx.draw(ctx, { width: 1280, height: 720 });
 
   assert.ok(alphas.length > 0, 'a nonzero flashAlpha should still draw something');
-  for (const a of alphas) assert.ok(a <= FLASH_CAP + 1e-9, `alpha ${a} exceeds FLASH_CAP under reduced-flash`);
+  assert.ok(alphas.includes(0.12), 'the birth flash fills at flashAlpha * 0.12');
 });
 
-test('the terminal shatter flash respects reduced-flash, and is uncapped when the toggle is off', () => {
+test('the terminal shatter flash passes its raw alpha through', () => {
   const durationMs = 4000;
   const conductor = buildConductorWithKicks(durationMs);
   const fx = new FractureEngine(conductor, { canvasWidth: 1280, canvasHeight: 720, songSeed: 1, durationMs });
@@ -352,15 +347,8 @@ test('the terminal shatter flash respects reduced-flash, and is uncapped when th
   fx.freezeMs = 0;
   fx._lastNowMs = 0;
   fx.flashAlpha = 1; // stronger than any real drawShatter flash ever reaches
-  fx.reducedFlash = true;
 
-  const capped = alphaRecordingCtx();
-  fx.drawShatter(capped.ctx, { width: 1280, height: 720 });
-  assert.ok(capped.alphas.length > 0, 'sanity: the flash fill should still have run');
-  for (const a of capped.alphas) assert.ok(a <= FLASH_CAP + 1e-9, `alpha ${a} exceeds FLASH_CAP under reduced-flash`);
-
-  fx.reducedFlash = false;
-  const uncapped = alphaRecordingCtx();
-  fx.drawShatter(uncapped.ctx, { width: 1280, height: 720 });
-  assert.ok(uncapped.alphas.includes(1), 'with the toggle off, the raw alpha must pass through uncapped');
+  const { ctx, alphas } = alphaRecordingCtx();
+  fx.drawShatter(ctx, { width: 1280, height: 720 });
+  assert.ok(alphas.includes(1), 'the raw alpha must pass through');
 });

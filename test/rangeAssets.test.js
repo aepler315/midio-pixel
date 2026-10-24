@@ -2,6 +2,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import fs from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import catalog from '../src/world/terrain/sceneCatalogData.js';
 import { bakeTerrain } from '../tools/lib/terrain-bake.mjs';
 import { prepareTerrainAssets, loadTerrainPackage, RangeAssetError } from '../src/world/alpine/RangeAssets.js';
 import { GraphicsResidency, MiB } from '../src/render/GraphicsResidency.js';
@@ -70,6 +73,111 @@ test('a valid package prepares, commits once and is reused', async () => {
   const again = await prepareTerrainAssets(view, { baseUrl: base, residency: r, generation: 1, fetchImpl });
   assert.equal(again, a);
   assert.equal(log.length, 2, 'reuse does not refetch');
+});
+
+// A composition variant names its source with terrainSourceId and pins the
+// source's manifest; the package inside still says viewId: <source>.
+const variant = { ...view, id: 'v1-coherent', terrainSourceId: 'v1' };
+
+test('a composition variant prepares its source terrain under the terrain identity', async () => {
+  const r = ledger();
+  const cpu = await prepareTerrainAssets(variant, { baseUrl: base, residency: r, fetchImpl: server().fetchImpl });
+  assert.equal(cpu.viewId, 'v1', 'the entry names the terrain it holds');
+  assert.equal(cpu.key, 'range:terrain-cpu:v1');
+  assert.equal(cpu.manifestSha256, view.terrainManifestSha256);
+  assert.ok(cpu.data.tiles.size > 0);
+});
+
+test('the terrain identity gate still refuses a package for another view', async () => {
+  for (const wrong of [{ ...view, id: 'v2' }, { ...variant, terrainSourceId: 'v2' }]) {
+    await assert.rejects(prepareTerrainAssets(wrong, { baseUrl: base, residency: ledger(), fetchImpl: server().fetchImpl }),
+      (e) => e instanceof RangeAssetError && e.reason === 'manifest' && /manifest is for v1, not v2/.test(e.message));
+  }
+});
+
+test('a source and its variant share one verified entry, held by independent leases', async () => {
+  const r = ledger(), sourceOwner = {}, variantOwner = {};
+  const { fetchImpl, log } = server();
+  const source = await prepareTerrainAssets(view, { baseUrl: base, residency: r, fetchImpl, owner: sourceOwner });
+  const charged = r.usedBytes;
+  const fetched = log.length;
+  const shared = await prepareTerrainAssets(variant, { baseUrl: base, residency: r, fetchImpl, owner: variantOwner });
+  assert.equal(shared, source, 'the variant reuses the decoded terrain');
+  assert.equal(log.length, fetched, 'nothing is fetched or decoded twice');
+  assert.equal(r.usedBytes, charged, 'and nothing is charged twice');
+  // Releasing either holder leaves the terrain for the other.
+  variantOwner.release();
+  assert.equal(r.has(source.key), true);
+  assert.equal(sourceOwner.retired, false);
+  const again = {};
+  await prepareTerrainAssets(variant, { baseUrl: base, residency: r, fetchImpl, owner: again });
+  sourceOwner.release();
+  assert.equal(r.has(source.key), true, 'the source released first: the variant still holds it');
+  again.release();
+  assert.equal(r.usedBytes, 0);
+});
+
+test('a live shared entry is never handed to a view that pins other content', async () => {
+  const r = ledger(), sourceOwner = {};
+  const { fetchImpl, log } = server();
+  const source = await prepareTerrainAssets(view, { baseUrl: base, residency: r, fetchImpl, owner: sourceOwner });
+  const fetched = log.length;
+  const otherPin = { ...variant, terrainManifestSha256: '0'.repeat(64) };
+  await assert.rejects(prepareTerrainAssets(otherPin, { baseUrl: base, residency: r, fetchImpl, owner: {} }),
+    (e) => e instanceof RangeAssetError && e.reason === 'hash' && /pins manifest 0{64}/.test(e.message));
+  assert.equal(log.length, fetched);
+  assert.equal(source.owners.size, 1, 'the refused view took no lease');
+  assert.equal(sourceOwner.retired, false);
+  // Without a live entry the same pin fails on the fetched manifest instead.
+  sourceOwner.release();
+  await assert.rejects(prepareTerrainAssets(otherPin, { baseUrl: base, residency: r, fetchImpl }), (e) => e.reason === 'hash');
+});
+
+test('a source and its variant prepared at the same moment fail cleanly, then share', async () => {
+  const r = ledger(), first = {}, second = {};
+  const { fetchImpl } = server();
+  const [a, b] = await Promise.allSettled([
+    prepareTerrainAssets(view, { baseUrl: base, residency: r, fetchImpl, owner: first }),
+    prepareTerrainAssets(variant, { baseUrl: base, residency: r, fetchImpl, owner: second }),
+  ]);
+  const settled = [a, b];
+  assert.equal(settled.filter((s) => s.status === 'fulfilled').length, 1, 'one decodes the terrain');
+  const refused = settled.find((s) => s.status === 'rejected');
+  assert.ok(refused.reason instanceof RangeAssetError && refused.reason.reason === 'busy', String(refused.reason));
+  // Asked again, the refused view shares the now-live entry.
+  const retry = {};
+  const shared = await prepareTerrainAssets(refused === a ? view : variant, { baseUrl: base, residency: r, fetchImpl, owner: retry });
+  assert.equal(shared, settled.find((s) => s.status === 'fulfilled').value);
+});
+
+test('an unowned scene release keeps a CPU entry another prepared view still uses', () => {
+  const r = ledger();
+  const key = 'range:terrain-cpu:v1';
+  r.commit(r.reserve({ key, bytes: MiB, owner: 'range-terrain-cpu' }), { key, data: {}, manifest: {} });
+  const a = { cpuKey: key, gpuKey: 'gpu:a' }, b = { cpuKey: key, gpuKey: 'gpu:b' };
+  const scene = Object.assign(Object.create(RangeScene.prototype), { residency: r, prepared: new Map([['v1', a], ['v1-coherent', b]]) });
+  scene._disposePrepared = () => {};
+  scene._releaseMaterial = () => {};
+  scene.release('v1-coherent');
+  assert.equal(r.has(key), true, 'v1 still draws this terrain');
+  scene.release('v1');
+  assert.equal(r.has(key), false, 'the last user releases it');
+});
+
+test('every catalog view, composition variants included, prepares from the shipped assets', async () => {
+  const root = new URL('../src/assets/range/v2/', import.meta.url);
+  const fetchImpl = async (url) => {
+    try { return new Response(await fs.readFile(fileURLToPath(url))); } catch { return new Response('missing', { status: 404 }); }
+  };
+  assert.ok(catalog.views.some((v) => v.terrainSourceId), 'the catalog still carries a composition variant');
+  const failures = [];
+  for (const v of catalog.views) {
+    try {
+      const cpu = await prepareTerrainAssets(v, { baseUrl: root.href, fetchImpl });
+      assert.equal(cpu.viewId, v.terrainSourceId || v.id);
+    } catch (error) { failures.push(`${v.id}: ${error.message}`); }
+  }
+  assert.deepEqual(failures, []);
 });
 
 test('missing assets fail explicitly', async () => {

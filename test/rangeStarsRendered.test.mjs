@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import { snapshotSource, serveSnapshot } from '../tools/lib/visual-evaluation-server.mjs';
 
@@ -8,10 +9,15 @@ const executablePath = process.env.PLAYWRIGHT_CHROMIUM_PATH || chromium.executab
 test('narrative stars survive real Canvas transforms, both native grids and Palette', {
   skip: !existsSync(executablePath) ? 'Chromium unavailable; set PLAYWRIGHT_CHROMIUM_PATH' : false,
 }, async () => {
-  const snapshot = await snapshotSource(new URL('../', import.meta.url).pathname);
+  const snapshot = await snapshotSource(fileURLToPath(new URL('../', import.meta.url)));
   snapshot.files.set('/star-test.html', Buffer.from('<!doctype html><title>Star regression</title>'));
   const server = await serveSnapshot(snapshot);
-  const browser = await chromium.launch({ executablePath, args: ['--no-sandbox'] });
+  // CPU-rasterized canvases. Where headless Chromium has GPU 2D canvas, a
+  // fresh canvas starts accelerated and moves to the CPU after the readbacks
+  // below, and the two rasterizers dither the sky gradient differently: the
+  // first frame then differs from the second in ~half of all sky pixels
+  // (13746 of a 320-wide grid), drowning the 4 star pixels this measures.
+  const browser = await chromium.launch({ executablePath, args: ['--no-sandbox', '--disable-accelerated-2d-canvas'] });
   try {
     const page = await browser.newPage(); await page.goto(`${server.url}/star-test.html`);
     const { rows, tourRows } = await page.evaluate(async () => {

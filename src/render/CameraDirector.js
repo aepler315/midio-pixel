@@ -7,7 +7,7 @@ import { kickEnv } from '../world/MountainChoreo.js';
 
 // Shake was dialed up for a "ferocity" pass (gain 2×, long ring, hard roll).
 // That reads as seasick on long songs -- pull it back so impacts still
-// register without thrashing the frame. Reduced-motion halves it further.
+// register without thrashing the frame.
 const SHAKE_GAIN = 0.85;
 const SHAKE_DECAY_TAU = 0.07; // seconds -- short ring, doesn't hang
 const ROLL_COUPLING = 0.0007; // rotational kick per (gained) px of shake
@@ -79,13 +79,13 @@ export const BEAT_SWAY_ENERGY_PX = 9;  // additional dip amplitude at full music
 export const BEAT_SWAY_LATERAL_PX = 4; // alternating left/right nudge at full energy
 
 /** Pure: the beat sway's {x, y} offset given `tauMs` (ms since the most
- *  recent beat-grid crossing), the alternating sign for this beat, current
- *  musical energy (0..1), and the reduced-motion multiplier. */
-export function beatSwayOffset(tauMs, sign, energy01, motionMul = 1) {
+ *  recent beat-grid crossing), the alternating sign for this beat, and
+ *  current musical energy (0..1). */
+export function beatSwayOffset(tauMs, sign, energy01) {
   const env = kickEnv(tauMs);
   const e = clamp01(energy01);
-  const dip = (BEAT_SWAY_BASE_PX + BEAT_SWAY_ENERGY_PX * e) * motionMul;
-  const lateral = BEAT_SWAY_LATERAL_PX * e * motionMul;
+  const dip = BEAT_SWAY_BASE_PX + BEAT_SWAY_ENERGY_PX * e;
+  const lateral = BEAT_SWAY_LATERAL_PX * e;
   return { x: env * lateral * (sign < 0 ? -1 : 1), y: env * dip };
 }
 
@@ -154,10 +154,7 @@ export class CameraDirector {
    *    section musically justifies extra motion (vibe.epic/hype.surge).
    *  @param universePulse 0..1, CameraLens.zoomPulse -- a selected musical
    *    accent with anticipation, hold and eased recovery. */
-  update(dtSec, calmLevel = 0, reducedMotion = false, beatTauMs = null, beatEnergy = 0, universePulse = 0) {
-    // Reduced-motion keeps the harder shake comfortable: half amplitude on
-    // both the translational shake and the rotational roll.
-    const motionMul = reducedMotion ? 0.5 : 1;
+  update(dtSec, calmLevel = 0, beatTauMs = null, beatEnergy = 0, universePulse = 0) {
     let shakeX = 0, shakeY = 0;
     if (this._shakeAmp > 0.01) {
       this._shakeT += dtSec;
@@ -178,7 +175,7 @@ export class CameraDirector {
     if (this._rollAmp > 1e-4) {
       this._rollT += dtSec;
       const env = Math.exp(-this._rollT / 0.12);
-      this.roll = motionMul * this._rollSign * this._rollAmp * env * Math.sin(2 * Math.PI * 6.5 * this._rollT);
+      this.roll = this._rollSign * this._rollAmp * env * Math.sin(2 * Math.PI * 6.5 * this._rollT);
       if (env < 0.02) this._rollAmp = 0;
     } else {
       this.roll = 0;
@@ -211,26 +208,22 @@ export class CameraDirector {
       if (this._lastBeatTauMs != null && beatTauMs < this._lastBeatTauMs) this._beatSwaySign = -this._beatSwaySign;
       this._lastBeatTauMs = beatTauMs;
       const calmMul = 1 - 0.5 * calmLevel;
-      const sway = beatSwayOffset(beatTauMs, this._beatSwaySign, beatEnergy * calmMul, motionMul);
+      const sway = beatSwayOffset(beatTauMs, this._beatSwaySign, beatEnergy * calmMul);
       swayX = sway.x;
       swayY = sway.y;
     }
 
     this.ambientX = driftX + swayX;
     this.ambientY = driftY + swayY;
-    this.shakeX = shakeX * motionMul + this.ambientX;
-    this.shakeY = shakeY * motionMul + this.ambientY;
+    this.shakeX = shakeX + this.ambientX;
+    this.shakeY = shakeY + this.ambientY;
 
     // Zoom: critically-damped-ish exponential ease toward _zoomTarget, same
     // discipline as the shake/roll ring-downs above -- it must never snap
     // or oscillate, since a sudden framing change reads as a cut, not a
-    // camera move. Reduced-motion shrinks the travel rather than disabling
-    // it outright (the target still communicates "someone strayed off
-    // frame", just less dramatically).
-    const zoomTravelMul = reducedMotion ? 0.4 : 1;
-    const zoomTarget = 1 + (this._zoomTarget - 1) * zoomTravelMul;
+    // camera move.
     const zoomAlpha = 1 - Math.exp(-dtSec / ZOOM_TAU);
-    this._zoomBase += zoomAlpha * (zoomTarget - this._zoomBase);
+    this._zoomBase += zoomAlpha * (this._zoomTarget - this._zoomBase);
 
     // Universe-shift reframe: a brief pull-back + tilt on top of whatever
     // zoom/roll the frame already has, riding the director's own pulse
@@ -245,9 +238,9 @@ export class CameraDirector {
     const pulse = clamp01(universePulse);
     if (pulse > 0 && (this._lastUniversePulse ?? 0) <= 0) this._universeRollSign = -this._universeRollSign;
     this._lastUniversePulse = pulse;
-    this.zoom = this._zoomBase - UNIVERSE_ZOOM_DIP * pulse * zoomTravelMul;
+    this.zoom = this._zoomBase - UNIVERSE_ZOOM_DIP * pulse;
     if (pulse > 0) {
-      this.roll += UNIVERSE_ROLL_MAX * pulse * this._universeRollSign * motionMul;
+      this.roll += UNIVERSE_ROLL_MAX * pulse * this._universeRollSign;
     }
 
     // Float tilt: 0 at zoom=1 (normal framing), ramping to FLOAT_TILT_MAX as
@@ -255,8 +248,7 @@ export class CameraDirector {
     // the FINAL this.zoom (post universe-dip), not _zoomBase -- a universe
     // reframe pulse is itself a small, brief pull-back, and it should tilt
     // the layers exactly as an off-frame pull-back would, not be ignored.
-    const tiltTravelMul = reducedMotion ? 0.4 : 1;
     const tiltT = clamp01((1 - this.zoom) / (1 - ZOOM_MIN));
-    this.floatTilt = FLOAT_TILT_MAX * tiltT * tiltTravelMul;
+    this.floatTilt = FLOAT_TILT_MAX * tiltT;
   }
 }

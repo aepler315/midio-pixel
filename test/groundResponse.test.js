@@ -9,7 +9,6 @@ test('wet response ignores future and stale hits and caps simultaneous impulses'
   assert.equal(sampleWetResponse({ nowMs: 800, hits, x: 40 }), 0);
   assert.equal(sampleWetResponse({ nowMs: 4000, hits, x: 40 }), 0);
   assert.ok(sampleWetResponse({ nowMs: 1000, hits: Array(100).fill(hits[0]), x: 40 }) <= 1);
-  assert.ok(sampleWetResponse({ nowMs: 1000, hits, x: 40, reducedFlash: true }) <= .35);
 });
 
 test('empty or dry receiver lists cause no paint and disposal drops references', () => {

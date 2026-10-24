@@ -20,7 +20,6 @@ export const EVAL_QUALITY = Object.freeze({
   contactShadowsEnabled: true,
   rimLightEnabled: true,
   brushEnabled: true,
-  reducedFlash: false,
 });
 
 export const REQUIRED_FAMILIES = Object.freeze([
@@ -382,7 +381,7 @@ export function summarizeAcceptance(sheets, { split = 'all' } = {}) {
 }
 
 /** Track/world pairs with a blocking-defect review. Exported diagnostics:
- *  nothing wires them into Choose-for-me automatically. */
+ *  nothing wires them into world selection automatically. */
 export function autoExclusions(sheets) {
   const out = [];
   for (const s of sheets || []) {

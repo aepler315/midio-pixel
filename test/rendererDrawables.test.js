@@ -46,14 +46,13 @@ function stageView() {
 }
 
 /** A sim with the hype hard enough that the echo branch runs. */
-function hypeSim({ reducedFlash = false, particleMul = 1 } = {}) {
+function hypeSim({ particleMul = 1 } = {}) {
   return {
     timeMs: 10000,
     // surge > 0.45 is what opens the echo branch (see hypeFrameStyle).
     hype: { slam: 1, surge: 1, fast: 1, dropAtMs: 10000 },
     calm: { level: 0 },
     fever: { level: 0 },
-    reducedFlash,
     perf: { particleMul, heavyPostFx: true, fullFrameFxEnabled: true },
     biomes: { currentHaloColor: () => '#ffdca0' },
     midio: { groundY: 540, screenX: 300, renderY: 400 },
@@ -85,13 +84,6 @@ test('...and lands in logical units, so it looks the same at every resolution', 
   assert.equal(dh, STAGE_H, 'destination height must be logical, not device');
   // The offset is a small logical-space nudge, not a device-pixel one.
   assert.ok(Math.abs(dx) > 0 && Math.abs(dx) < 20, `echo offset looks wrong: ${dx}`);
-});
-
-test('reduced-flash removes the echo entirely rather than shrinking it', () => {
-  const r = Object.create(Renderer.prototype);
-  const { ctx, calls } = recordingCtx();
-  r._drawHypeFrame(ctx, stageView(), hypeSim({ reducedFlash: true }));
-  assert.equal(calls.length, 0, 'a rapid self-blit ghost is exactly what the toggle removes');
 });
 
 test('a calm frame never echoes, however the transform is set up', () => {
@@ -299,11 +291,10 @@ test('no drawImage anywhere is handed a plain {width,height}', async () => {
 // for as long as heavyPostFx is on, so its cost is paid continuously. Fixed
 // to capture at postFxDownscale's reduced resolution, the same technique
 // bloom already uses one pass over.
-function motionBlurSim({ reducedFlash = false, dropAtMs = 10000, timeMs = 10000 } = {}) {
+function motionBlurSim({ dropAtMs = 10000, timeMs = 10000 } = {}) {
   return {
     timeMs,
     hype: { dropAtMs },
-    reducedFlash,
     perf: { heavyPostFx: true, fullFrameFxEnabled: true },
     focus: null,
   };

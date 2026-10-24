@@ -86,9 +86,6 @@ test('dense kick overlap stays bounded and reproduces after sparse queries, cold
   const silence = make({ durationMs: 4000 });
   const handoff = api.createRidgeMusicSampler({ previous: played, primary: silence, handoffStartMs: 1000 });
   assert.equal(handoff.sample(1250).kick01, played.sample(1250).kick01 / 2);
-  const frozen = geometry.sampleHorizonRidge({ viewport: { width: 1280, height: 720 },
-    history: played, heardTimeMs: 644.5, reducedMotion: true });
-  assert.deepEqual(frozen.points, frozen.neutralPoints, 'dense kicks do not bypass reduced motion');
 });
 
 test('physical noise is silent while quiet sustained music keeps its response', () => {
@@ -119,7 +116,7 @@ test('immutable snapshots and recorded handoff reproduce playback, restart and e
   assert.notDeepEqual(api.createRidgeMusicSampler({ primary }).stateKey, sampler.stateKey);
 });
 
-test('paint geometry and neutral measurements share seeded points and reduced motion freezes geometry', () => {
+test('paint geometry and neutral measurements share seeded points', () => {
   const history = make({ energyCurves: curves(), durationMs: 12000 });
   assert.equal(typeof geometry.sampleSpaceRidge, 'function');
   const seededGeometry = new SpaceRidge(45);
@@ -128,9 +125,6 @@ test('paint geometry and neutral measurements share seeded points and reduced mo
   assert.ok(s.displacement01 > 0); assert.ok(s.points.every((p, i) => i === 0 || p.x >= s.points[i - 1].x + 3));
   seededGeometry.history = history; seededGeometry.update(4000, .02, []);
   assert.deepEqual(seededGeometry._samples(input.viewport).pts, s.points);
-  const frozen = geometry.sampleSpaceRidge({ ...input, reducedMotion: true });
-  assert.deepEqual(frozen.points, frozen.neutralPoints); assert.equal(frozen.velocity01, 0);
-  assert.deepEqual(frozen.points, geometry.sampleSpaceRidge({ ...input, reducedMotion: true, heardTimeMs: 9000 }).points);
   const silent = make({ durationMs: 12000 });
   const dance = geometry.sampleHorizonRidge({ ...input, history: silent, advectionPx: 80, songP: .5 });
   assert.deepEqual(dance.points, dance.neutralPoints, 'silence has no decorative musical wave');
@@ -275,17 +269,6 @@ test('authored calm cue value uses the same strength contract as live conductor 
   const plain = make({ energyCurves: c, durationMs: 12000 });
   const zeroCue = make({ energyCurves: c, durationMs: 12000, conductorCues: [{ kind: 'calm', tMs: 5000, value: 0 }] });
   assert.deepEqual(zeroCue.sample(5500).spaceLevels, plain.sample(5500).spaceLevels);
-});
-
-test('paused SpaceRidge draw respects a newly enabled reduced-motion policy', () => {
-  const history = make({ energyCurves: curves(), durationMs: 12000 });
-  const ridge = new SpaceRidge(45); ridge.history = history; ridge.update(4000, .02, []);
-  let drawn = null;
-  const ctx = new Proxy({ globalAlpha: 1, moveTo(x, y) { drawn ??= { x, y }; }, createLinearGradient() { return { addColorStop() {} }; } },
-    { get(obj, key) { return key in obj ? obj[key] : () => {}; } });
-  ridge.draw(ctx, { width: 1280, height: 720 }, '#ffffff', 4, false, 1, 0, true, 0);
-  const neutral = geometry.sampleSpaceRidge({ viewport: { width: 1280, height: 720 }, seededGeometry: ridge, history, heardTimeMs: 4000, reducedMotion: true }).points[0];
-  assert.deepEqual(drawn, { x: neutral.x, y: neutral.y });
 });
 
 test('real-mountain pressure retains its broad raw-source window independently of fast EQ and kick accents', () => {

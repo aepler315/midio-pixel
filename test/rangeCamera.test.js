@@ -70,8 +70,7 @@ test('the move is a continuous pure function of heard time', () => {
   }
 });
 
-test('reduced motion and previews hold the authored camera', () => {
-  assert.equal(rangeCameraMoveAt({ timeMs: 50000, sections: SECTIONS, durationMs: DUR, reducedMotion: true }), NEUTRAL_MOVE);
+test('previews hold the authored camera', () => {
   assert.equal(rangeCameraMoveAt({ timeMs: 50000, sections: SECTIONS, durationMs: DUR, preview: true }), NEUTRAL_MOVE);
   assert.equal(rangeCameraMoveAt({ timeMs: 50000, sections: SECTIONS, durationMs: 0 }), NEUTRAL_MOVE);
 });

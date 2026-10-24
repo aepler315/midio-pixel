@@ -27,7 +27,6 @@ function manager(overrides = {}) {
     durationMs: 300000,
     energyCurves: { globalEnergyNorm: () => 0.45 },
     unravel: 0,
-    reducedFlash: false,
     w: 100,
     h: 720,
     _dayNightCycleMs: 180000,

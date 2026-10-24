@@ -1,34 +1,36 @@
 # Visual Effects Suite — implementation and verification
 
-Checked against the implementation on October 13, 2026. This document
-separates what the default Range draws today from Canvas modules that are
-present but dormant, and from the optional WebGL overlay. Audio analysis
-lives elsewhere; the renderers consume its output rather than analyzing
-audio themselves.
+Checked against the implementation on October 13, 2026, and updated for the
+two worlds (Landscape and Trio) on October 21, 2026. This document separates
+what the default Range draws today from what Trio adds, from Canvas modules
+that are present but dormant, and from the optional WebGL overlay. Audio
+analysis lives elsewhere; the renderers consume its output rather than
+analyzing audio themselves.
 
 ## Active on the default Range (v2)
 
-Every registered world currently resolves `performers: false`
-(`src/world/LandscapePresentation.js`): listening owns the landscape from
-frame zero. What the listener sees on the default Range comes from the GPU
-scene (`src/world/alpine/RangeScene.js`) composited into the Canvas frame,
-plus a few Canvas passes around it.
+Landscape resolves `performers: false` (`src/world/LandscapePresentation.js`):
+listening owns the landscape from frame zero. Trio resolves
+`performers: true`; see [Trio's draw order](#trio-draw-order-performers-on).
+What the listener sees on the default Range comes from the GPU scene
+(`src/world/alpine/RangeScene.js`) composited into the Canvas frame, plus a
+few Canvas passes around it.
 
 | Effect | Owner | Notes |
 | --- | --- | --- |
-| Terrain (far / mid / near partitions) | `RangeScene`, `TerrainMaterial`, `TerrainMesh` | One shared depth pre-pass; multisampled in Natural at q0–q2 (`RangeRenderPolicy`), never in Pixel/Palette |
+| Terrain (far / mid / near partitions) | `RangeScene`, `TerrainMaterial`, `TerrainMesh` | One shared depth pre-pass; current Pixel/Palette do not enable the historical Natural/MSAA path (`RangeRenderPolicy`) |
 | Forest | `ForestCover`, `ForestGL` | Near instanced conifers, mid silhouettes, canopy texture beyond; wind and gust fronts at heard time |
 | Water | `WaterMirror`, `WetReflection` | Lake mirror (dropped at q4; the water keeps its sky reflection) |
 | Fog, mist, cloud sea | `RangeAtmosphere`, `ValleyAtmosphere`, `CloudSea` | Fog samples per pixel fall at q3, q5 and q6 |
 | Clouds, storm, rain, lightning | `RangeSkyComposition`, `RangeStorm` | One squall per song, evaluated at heard time; cloud lightning flickers inside the banks |
 | Sun shafts | `SunShaftGL` | Optional; dropped at q3 |
 | Lane lanterns and motes | `RangeActors`, `ActorsGL` | Drawn inside the band passes, so nearer land hides them and the mirror reflects them |
-| Finishing | `Renderer._drawBloom`, `_drawHeatDistortion`, `_drawFilmFinish` | Heat warp is skipped under reduced motion; fire colour and light remain |
+| Finishing | `Renderer._drawBloom`, `_drawHeatDistortion`, `_drawFilmFinish` | On the physical backing store, in the order listed below |
 | Final presentation | `PresentingRenderer`, `PixelPresentation` | Natural, Pixel or Palette; display and capture read the same finished source |
 
 The Range quality ladder (`RangeQuality.rangeQuality`): q2 lighter near-tree
 assets and 2x MSAA, q3 fewer fog samples, no shafts and no MSAA, q4 no lake
-mirror or landscape giants. Rock-stage pools are dormant on catalog v2 views. Landform structure,
+mirror, and 12 of the cast's 32 fixed-line lights ([landscape-cast.md](landscape-cast.md)). Rock-stage pools are dormant on catalog v2 views. Landform structure,
 ground contact and the musical signatures are never shed.
 
 ### Current composition order
@@ -59,10 +61,12 @@ NearField, veil and section swells have zero presence.
 
 ## Dormant Canvas modules
 
-The painterly performer effects below are implemented and unit-tested, but
-`Renderer.draw` gates them on `presentation.performers`, which is `false`
-in every world today, so the default Range does not draw them. They are
-kept, not deleted, and are not part of the active look.
+The impact, ripple and brush effects below are implemented and unit-tested,
+but neither world constructs or draws them: Landscape has no performers, and
+Trio's cast (`Renderer._drawTrioCast`) draws Broshi, Midio and Midasus with
+their contact shadows rather than these pools. Murmuration has no draw
+consumer either. They are kept, not deleted, and are not part of the active
+look. OrbitalDebris is the exception: Midasus carries it, so it draws in Trio.
 
 ## Optional overlay
 
@@ -78,7 +82,7 @@ energy is a pure function of heard time. A lost context skips the wash
 ### Impact and trail inventory (dormant)
 
 `ImpactFX` stores positions in world space and projects them with
-`wx - worldX + originX`. `Simulation` seeds it with the song seed.
+`wx - worldX + originX`. Its constructor takes a seed for its random stream.
 
 | Effect | Capacity | Lifetime / behavior |
 | --- | --- | --- |
@@ -109,37 +113,29 @@ not a promise that every draw count scales identically.
 `RainbowBrush` deposits world-locked square dabs while airborne: at most 320,
 3.2 s lifetime, 8 px nominal spacing, 16° hue steps. Spacing widens under
 particle shedding. Draw skips expired, future-dated and off-screen dabs;
-the entire brush is gated at governor level 5. Reduced flash uses normal
-compositing instead of additive blending.
+the entire brush is gated at governor level 5.
 
-Murmuration and OrbitalDebris render a bounded subset of their fixed simulated
-collections. The draw multiplier affects emitted wing segments/triangles,
-not the size of the simulation arrays. Zero or negative multipliers emit no
-geometry; values above one cannot read beyond the collection.
+Murmuration and OrbitalDebris (Midasus's shards, live in Trio) render a
+bounded subset of their fixed simulated collections. The draw multiplier
+affects emitted wing segments/triangles, not the size of the simulation
+arrays. Zero or negative multipliers emit no geometry; values above one
+cannot read beyond the collection.
 
 ## Lighting and world boundaries
 
 `LightField` resolves a shared celestial light and local ground/character
 lights. Celestial intensity is
-`budget * (1 - unravel) * (1 - 0.5 * dayArcAlpha)`; reduced flash compresses
-it toward a steady 0.6 baseline rather than applying a flash cap.
+`budget * (1 - unravel) * (1 - 0.5 * dayArcAlpha)`.
 
-Song adaptation preserves each stock palette's `edgeLight`, so Nave's
-stained-glass spill, Foundry's furnace glow and Redline's neon band remain
-available. Intentionally unlit stock palettes stay unlit. Seven specialized
-worlds shade the exact fitted vertices and placement of their static strips;
-Range retains its dancing terrain. Ceiling strips have their own geometry.
-
-Fathom and Nave pass `{ astronomical: false }` to the shared sky renderer.
-They retain the base gradient, atmospheric plate and local palette effects
-such as light shafts, bioluminescence and motes. Stars, galactic layers,
-space dust, aurora and nebula bloom are excluded. Their celestial objects
-remain the underwater sun and rose window. The default open-sky behavior is
-unchanged. The final film grade remains a separate, shared color treatment.
-
-Redline travel integrate smoothed song energy into cumulative
-distance. They no longer multiply the current rate by elapsed song age.
-Direct and backward seeks therefore agree with the integrated timeline.
+Song adaptation preserves each stock palette's `edgeLight` (the ridge wire
+some palettes carry); intentionally unlit stock palettes stay unlit. Both
+worlds are the alpine kind and draw the dancing ridges. `npm run test:shading`
+still checks that ridge-volume shading on a static strip stays inside that
+strip's bitmap, although no world draws static strips any more. The alpine
+identity allows astronomy, so the shared sky renderer keeps its astronomical
+layers: stars, galactic layers, and the aurora and nebula bloom of palettes
+that carry them (`test/interiorSky.test.js` pins that the open sky paints
+them). The final film grade remains a separate, shared color treatment.
 
 Protected hues remain Midio (`178°`), hazard (`#ff4d4d`) and reward
 (`#ffd75e`). `VisualStyle.styleDials()` is authoritative for shared style:
@@ -147,31 +143,11 @@ current bloom multiplier 0.9, film grade 1.45, vignette 1.08, glow halo 0.95
 and rim amount 0.95. World identity still needs visual review across songs;
 those numbers alone do not establish balanced compositions.
 
-## Reduced flash and reduced motion
+## Flashing
 
-Two independent, persisted preferences, each with its own Settings chip
-(`#reducedFlashBtn`, also the `R` key; `#reducedMotionBtn`). With no stored
-choice both follow `prefers-reduced-motion`, including when storage is
-blocked. Reduced motion skips the animated heat warp, holds musical terrain
-deformation, damps NearField and the camera, and replans the uncommitted
-part of a Teton tour with the reduced climb/yaw limits. The per-effect flash
-helper caps alpha at `FLASH_CAP = 0.4`.
-
-- Returning-section cut flashes are removed under reduced flashing; cut
-  blends take one bar rather than 0.3 bars.
-- Impact flashes/rings, RippleFX and other flash-aware effects cap their
-  transient opacity. Landing additive effects switch to `source-over`.
-- The hype echo and drop motion blur are disabled. The hype border caps its
-  final opacity (including focus weighting) and switches to `source-over`.
-- Drop shockwave rings, shock blits and speed lines cap opacity and switch to `source-over`;
-  the chromatic displacement is also halved.
-- Film grading is a slow color treatment, not a beat flash. Celestial light
-  compression and bloom's steady base have separate rules.
-
-A per-draw alpha limit is not a frame-wide luminance guarantee. Normal
-compositing avoids additive summation, but overlapping layers and remaining
-post-processing can still alter contrast. These implementation checks do
-not constitute a photosensitivity certification or exhaustive flash audit.
+The show contains flashing lights, camera shake and sudden cuts. These
+implementation notes do not constitute a photosensitivity certification or
+exhaustive flash audit.
 
 ## Performance governor
 
@@ -211,26 +187,30 @@ fracture cracks, although the timing engine and governor accessor remain.
 Profile-crossfade memoization and per-pixel crack refraction are not
 implemented features and are not claimed as savings.
 
-## Painterly draw order (with performers)
+## Trio draw order (performers on)
 
-With `performers` enabled, the boundaries in `Renderer.draw()` are:
+Trio is the one world with `performers` enabled. The boundaries in
+`Renderer.draw()` are:
 
-1. Sky/parallax/phenomena use the zoomed view. The world renderer then switches
-   to the fixed ground view for ground, footing and flood.
-2. Burrow/desaturation/telegraph, obstacles, ImpactFX and RippleFX precede
-   battle enemies, brush and characters. Shadows precede their characters;
-   Midio's afterimages precede his core.
-3. Epicycles/drop shockwave, Midasus, character reflections, battle FX and
-   gnat precede the foreground veil and transposition wave. Fracture drawing
-   has been removed; its simulation timing still exists.
-4. After restoring the camera transform, the opening assembly captures the
-   clean world composite **before post-processing and HUD**.
-5. Fever aura → hype frame → drop impact → drop motion blur → bloom → heat
-   distortion → film finish. Pixel-sampling passes use the physical backing
-   store at identity transform; logical overlays use the stage transform.
-6. HUD/seek strip follows post-processing. Assembly shards follow the HUD.
-   Optional retro palette quantization follows assembly. Freeze and highlight
-   capture use the completed frame.
+1. Sky/parallax/phenomena use the zoomed view. The deep sky (Midasus's
+   voyages and Star Atlas, `BiomeManager.drawDeepSky`) draws before the sun
+   or moon, behind the ranges. The world renderer then switches to the fixed
+   ground view for ground, footing and flood.
+2. The cast (`_drawTrioCast`) on that ground: Broshi, then Midio, then
+   Midasus with her orbital debris, each after its own contact shadow.
+   Midasus away on a voyage is drawn by the deep sky instead.
+3. The foreground veil, then the transposition wave. Fracture drawing has
+   been removed; its simulation timing still exists.
+4. After restoring the camera transform, an opening assembly would capture
+   the clean world composite **before post-processing and HUD**. Neither
+   world constructs one, so this hook is dormant.
+5. Hype frame → drop impact → drop motion blur → bloom → heat distortion →
+   film finish. Pixel-sampling passes use the physical backing store at
+   identity transform; logical overlays use the stage transform. Landscape
+   skips the first three, which are performer passes.
+6. HUD/seek strip follows post-processing; the dormant assembly's shards
+   would follow the HUD. The Palette look is applied afterwards, in
+   `PixelPresentation`. Freeze and highlight capture use the completed frame.
 
 Ambient heat distortion grows toward the ground in backing-store coordinates;
 it is no longer strongest at the top. Radial drop distortion remains a
@@ -250,33 +230,32 @@ is a fresh destination state, not replay of every earlier random particle.
 
 | Area | Evidence in the repository |
 | --- | --- |
-| Impact saturation, separate feedback pool, flash handling, spawn scaling | `test/impactFX.test.js` |
+| Impact saturation, separate feedback pool, additive ignition ring, spawn scaling | `test/impactFX.test.js` |
 | Ripple curves and scaled feedback | `test/rippleFX.test.js` |
 | Brush lifetime, scaling, culling and future timestamps | `test/rainbowBrush.test.js` |
 | Hype border, both shockwave rings, shock blits and speed-line opacity/compositing | `test/rendererFlash.test.js` |
 | Backing-store sampling and blur | `test/rendererDrawables.test.js` |
 | Governor shedding, grace and recovery | `test/perf-governor.test.js` |
 | Observed particle draw counts | `test/perfGovernorConsumers.test.js` |
-| Interior sky exclusions and retained shafts | `test/interiorSky.test.js` |
-| Specialized-world blit/shading argument alignment and material mode | `test/worldKindShading.test.js` |
-| Heat displacement envelope; skipped under reduced motion | `test/heatDistortionComposite.test.js` |
+| Open-sky astronomical layers | `test/interiorSky.test.js` |
+| Heat displacement envelope | `test/heatDistortionComposite.test.js` |
 | Production composition order and presentation/capture boundary | `test/rendererComposition.test.js` |
-| Composed cut flash, normal and reduced flashing | `node tools/vfx-accessibility-smoke.mjs <out> <source-root> <captured-audio.wav>` (injects a returning cut over a real v2 frame) |
-| Range capture across q0–q6, both preferences, Natural/Pixel/Palette, lake and inland | `npm run visual:eval -- --manifest test/fixtures/visual-evaluation-vfx.json --case <id>` |
-| World material light pixels | `npm run test:lighting` |
+| Range capture across q0–q6, Natural/Pixel/Palette, lake and inland | `npm run visual:eval -- --manifest test/fixtures/visual-evaluation-vfx.json --case <id>` |
 | Static shading containment | `npm run test:shading` |
 | Whole-system effect lifecycle across seeks | `npm run test:seek` |
 | Upload/playback/replacement/stop | `npm run test:smoke` |
-| Eight-world selection/playback/seek, preference chips, paint checks and two-frame City/Redline/Understory geometry | `npm run test:worlds` |
+| Landscape and Trio selection/playback/seek, per-pass paint checks and Midasus's deep-sky voyage | `npm run test:worlds` |
+| Trio pixel/palette captures, chooser preview and live/paused world switches | `npm run test:trio` |
 | Legacy Range fallback and Pixel/Palette worlds | `npm run test:retro` (kept out of the strict Range v2 capture) |
 
 These commands run locally (see `docs/local-validation.md`). The manually
 dispatched `.github/workflows/test.yml` covers lint, unit tests and the core
 upload/playback smoke; Pages deployment does not depend on it and checks only
 the staged artifact's bootstrap and playback.
-The world smoke explicitly rejects astronomical painting in Fathom/Nave.
-Browser liveness, isolated pixel checks and unit tests do not establish
-subjective appeal, exhaustive accessibility or real-device sustained FPS.
+The world smoke fails if Trio's cast or deep sky runs in Landscape, or the
+aurora space ridge runs in Trio. Browser liveness, isolated pixel checks and
+unit tests do not establish subjective appeal, exhaustive accessibility or
+real-device sustained FPS.
 
 Still required:
 
@@ -287,11 +266,9 @@ Still required:
 - A device/scene matrix covering 1080p/4K, long tracks, sustained overload and
   recovery, plus complete simulation/audio/compositor costs. Repeated draws
   of one state measure JS submission only, not FPS or GPU completion.
-- Per-world review of shared character outlines, trails, rings and bloom
-  after the material-lighting fixes. Overlay dominance is an art-direction
-  observation, not a demonstrated defect for every song.
-- Manual screen-reader and broader assistive-technology review of the chooser
-  and the preference chips, and a final-frame flash assessment. Automated tests
-  cover keyboard behavior at 1280×800 and 390×844, not every browser/device or
-  screen-reader combination. The composition test pins the top-level order;
-  it does not cover every per-pass ordering invariant.
+- Review across songs of Trio's character outlines, trails and bloom over
+  the procedural ranges. Overlay dominance is an art-direction observation,
+  not a demonstrated defect for every song.
+- Manual screen-reader and broader assistive-technology review of the chooser,
+  and a final-frame flash assessment. The composition test pins the top-level
+  order; it does not cover every per-pass ordering invariant.

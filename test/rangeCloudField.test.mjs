@@ -76,8 +76,6 @@ test('bounded world banks keep IDs and positions through camera changes, resize 
   }
   banks(descriptor(pose), { timeSec: 200 });
   assert.deepEqual(banks(), first, 'seeking and draw history cannot move a world bank');
-  assert.deepEqual(banks(descriptor(pose), { timeSec: 200, reducedMotion: true }),
-    banks(descriptor(pose), { timeSec: 0, reducedMotion: true }));
 });
 
 test('finite sprites retain visible edges, stay bounded near clipping and do not reset at world-cell boundaries', () => {
@@ -88,7 +86,7 @@ test('finite sprites retain visible edges, stay bounded near clipping and do not
     outsideVisible ||= result.some(bank => bank.x < 0 || bank.x > 1280 || bank.y < 0 || bank.y > 720);
   }
   assert.ok(outsideVisible, 'a cloud with an offscreen center can still have a visible projected edge');
-  const at = x => banks(descriptor({ ...pose, eyeM: [x, 3000, 16000], targetM: [x + 5000, 6000, 90000] }), { reducedMotion: true });
+  const at = x => banks(descriptor({ ...pose, eyeM: [x, 3000, 16000], targetM: [x + 5000, 6000, 90000] }), { timeSec: 0 });
   const a = at(31999.99), b = at(32000.01);
   assert.deepEqual(a.map(bank => bank.id).sort(), b.map(bank => bank.id).sort(), 'crossing a lattice cell cannot reset the visible sky');
   for (const result of [banks(descriptor({ ...pose, fovYDeg: 5 })), banks(descriptor({ ...pose, eyeM: [0, 8000, 0], targetM: [0, 8001, 0] }))]) {

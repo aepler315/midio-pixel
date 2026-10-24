@@ -7,7 +7,7 @@ export function heroTime(section, energyAt = () => section.relEnergy01 || .5) {
   return clamp(time,section.startMs+2000,section.endMs-2000);
 }
 /** Pure deterministic sequence search. A missed deadline never changes roads. */
-export function planTour(data,{sections=[],roles=null,durationMs=0,energyAt=null,graph=new TourGraph(data),reducedMotion=false,startContinuation=null}={}) {
+export function planTour(data,{sections=[],roles=null,durationMs=0,energyAt=null,graph=new TourGraph(data),startContinuation=null}={}) {
   const energy=t=>clamp(Number(energyAt?.(t)??sections.find(s=>t>=s.startMs&&t<s.endMs)?.relEnergy01??.5),0,1);
   const stations=data.points.filter(p=>p.station&&p.tier!=='scenery'),points=new Map(stations.map(p=>[p.id,p]));
   if(!stations.length)throw new Error('Tour has no stations');
@@ -16,7 +16,7 @@ export function planTour(data,{sections=[],roles=null,durationMs=0,energyAt=null
   const events=descriptors.map(s=>({...s,timeMs:heroTime(s,energy)})).filter(s=>s.timeMs!==null&&s.timeMs>(startContinuation?.timeMs??-1));
   const hasOrbits=data.edges.some(e=>e.kind==='orbit');
   const notes=[],missed=[],occurrences=new Map();let states=[];
-  const climb = reducedMotion ? 15 : 30, yaw = reducedMotion ? 12 : 25;
+  const climb = 30, yaw = 25;
   const feasibleLeg = (a, b, seconds) => {
     const turn = Math.abs(((b.station.bestAim.headingDeg - a.station.bestAim.headingDeg + 540) % 360) - 180);
     return Math.abs(b.station.yM - a.station.yM) <= seconds * climb && turn <= seconds * yaw;
@@ -185,7 +185,7 @@ export function planTour(data,{sections=[],roles=null,durationMs=0,energyAt=null
   const allSamples=[];
   for(const segment of segments)if(segment.path.lengthM>0)allSamples.push(...(allSamples.length?segment.path.samples.slice(1):segment.path.samples));
   const firstSpeedIndex=Math.ceil((startContinuation?.timeMs||0)/100);
-  const n=Math.ceil(durationMs/100)+1,speeds=new Float64Array(n),distances=new Float64Array(n),acceleration=(reducedMotion?5.9:11.8)*.1;
+  const n=Math.ceil(durationMs/100)+1,speeds=new Float64Array(n),distances=new Float64Array(n),acceleration=11.8*.1;
   for(let i=0;i<n;i++){
     const t=Math.min(durationMs,i*100),route=rawRouteAt(t),stop=stops.find(s=>t>=s.startMs-500&&t<=s.endMs+500);
     let speed=clamp(route.speedMps,30,data.tunables?.maxSpeedMps||90);
@@ -235,5 +235,5 @@ export function planTour(data,{sections=[],roles=null,durationMs=0,energyAt=null
     return{posM:point.slice(0,2),floorY:point[2],ceilY:point[3],speedMps:s>=total?0:speeds[i]+(speeds[i+1]-speeds[i])*u,headingDeg:Math.atan2(ahead[0]-point[0],-(ahead[1]-point[1]))*180/Math.PI,pointId:segment.pointId,role:segment.role,stop:stops.some(stop=>time>=stop.startMs&&time<=stop.endMs)};
   };
   heroes.push(...missed);heroes.sort((a,b)=>a.timeMs-b.timeMs||a.pointId.localeCompare(b.pointId));
-  return{durationMs,heroes,segments,notes,previewPointId:preview.id,reducedMotion,stops,routeAt,speedProfile:{speeds,distances,samples:allSamples}};
+  return{durationMs,heroes,segments,notes,previewPointId:preview.id,stops,routeAt,speedProfile:{speeds,distances,samples:allSamples}};
 }

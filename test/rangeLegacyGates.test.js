@@ -7,14 +7,14 @@ test('the Range paints epic ember weather as driven wind', () => {
   assert.equal(drawnWeatherKindFor('alpine', 'embers'), 'wind');
 });
 
-test('every other Range weather kind, and every other world, paints as directed', () => {
+test('every other Range weather kind, and any other world kind, paints as directed', () => {
   for (const kind of ['rain', 'snow', 'petals', 'sunshine', 'fog', 'wind']) assert.equal(drawnWeatherKindFor('alpine', kind), kind);
-  for (const world of ['city', 'fathom', undefined]) assert.equal(drawnWeatherKindFor(world, 'embers'), 'embers');
+  for (const world of ['unregistered-kind', undefined]) assert.equal(drawnWeatherKindFor(world, 'embers'), 'embers');
 });
 
-test('the Range slows wind streaks to a drift; other worlds keep their gale', () => {
+test('the Range slows wind streaks to a drift; any other world kind keeps its gale', () => {
   assert.equal(windSpeedScaleFor('alpine'), .125);
-  for (const world of ['city', 'fathom', undefined]) assert.equal(windSpeedScaleFor(world), 1);
+  for (const world of ['unregistered-kind', undefined]) assert.equal(windSpeedScaleFor(world), 1);
   const travel = (scale) => {
     const f = new ParticleField({ kind: 'wind', color: '#fff', count: 8, speed: 0 }, 1280, 720, 7);
     f.windSpeedScale = scale;

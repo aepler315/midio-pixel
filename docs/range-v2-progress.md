@@ -1,5 +1,75 @@
 # Range v2 progress
 
+## Current camera status — 2026-10-22
+
+This file retains the historical Range rollout and its evidence. The expansion
+branch's catalog v20 has 13 approved geographic rail views and seven forced
+candidates, including the [first three sourced new locations](scenic-expansion-wave1-2026-10-22.md).
+Their approval gates remain open; the approved geographic count stays 13.
+Scenic-shot tooling merged in PRs #24/#25, but no shot libraries
+are committed or enabled in the production catalog. See [scenic tour status](scenic-tours.md#current-delivery-and-reported-builds)
+and the historical [camera scouting audit](camera-scouting-audit-2026-10-22.md).
+The [implementation follow-up](camera-scouting-fixes-2026-10-22.md) records source
+fixes for stratified discovery, separate base/tour approval, exact review identity,
+worker-side cold planning, ending alternatives and reel endpoint evidence. The
+changes merged through [PR #29](https://github.com/aepler315/midio-pixel/pull/29),
+adding no assets or approvals. Deployment was not verified. Verification
+results are recorded in the PR; existing rendered and device acceptance limits
+remain visible there and in the linked review documents.
+
+The next catalog direction is approximately 30 approved geographic views;
+[the expansion proposal](scenic-view-expansion.md) replaces the historical
+12–18-view target. The owner has retired the inherited 60 MB asset ceiling as
+an expansion requirement, and its global hard-fail checks are removed in the
+current source changes. Per-region byte/graphics caps and explicit caller limits
+remain; the historical budget below is not a current design constraint. Runtime
+memory, frame pacing and delivery measurements remain separate.
+
+The [fresh scouting rebuild and app review](scenic-rebuild-review-2026-10-22.md)
+records the new library builds and continuous camera evidence. Rebaked library
+terrain is staged in a separate review snapshot to preserve the identities of
+all 13 approved production rail packages. Software attempts, the verified
+headless RTX 3060 captures and failed candidate gates retain separate records.
+
+The completed batch yields 15 useful candidate libraries, 179 shots and 462
+links; Tombstone remains blocked at rail-only. All three new locations have
+fitted libraries. The separate complete review asset tree is 65,023,144 bytes,
+with no replacement global ceiling. Actual app evidence corrected a sampled
+blank-sky Denali transit while retaining open pacing, named-subject framing and
+ending concerns. The primary branch preserves all 39 approved-rail terrain/build
+files byte for byte.
+
+### R8 quality and compact shot clusters — 2026-10-23
+
+The [R8 follow-up](scenic-quality-clusters-review-2026-10-23.md) retains a compact
+Denali establish/shoulder/hero sequence after independent actual-app review and
+root inspection. Anthem transit falls 90.245 → 23.226 seconds; longest transfer
+falls 42.891 → 11.912 seconds, with natural 16/64.5/128-second payoffs and a
+mountain ending. Both plans have three listed payoffs; strong-impact alignment
+improves from two to three. The long hero hold and lost Foraker/regional variety
+remain explicit costs. Normal fit retains published terrain and original caps,
+with no planner modification. This first demonstrated cluster uses a preserved
+external authoring recipe; the generic scout is unchanged, and broader
+automated cluster generation remains unimplemented.
+
+Black restores the original R7 forest representation after all rendering
+experiments, including the final projected-crown fallback, failed actual-image
+review. Only a static 0.32 receiver fill floor and the phase/closure memory
+repairs remain. Retained full and detailed-grid captures improve the green
+foreground/ridge contours modestly and stay below the unchanged 512 MiB cap.
+The forest remains soft/stippled; forest iteration is closed. Collectibility
+of retired placement storage does not promise immediate RSS release.
+
+There are still 13 approved geographic views and 15 candidate libraries;
+approximately 30 approved views remains a goal. The global 60 MB gate stays
+removed, with regional, runtime, motion, clearance and LOD limits fixed.
+The final candidate contains 128 shots and 291 links in 64,927,022 Range asset
+bytes; only Denali’s two shot-package files change. The canonical suite reports
+5,071 pass, zero fail and six skipped out of 5,077; separate focused Chromium
+and staged Monument checks close all six skips without a full-suite rerun.
+Draft PR #38 remains open/unmerged; its description records exact publication
+refs. No owner approval or deployment is claimed.
+
 Plan: `docs/superpowers/plans/2026-09-29-range-geodata-master.md` (copied verbatim from the supplied package; removed, see [removed docs](removed-docs.md)).
 Reference image: `docs/evidence/range-v2/reference.webp` (1806×871, documentation only; never staged into `/src`).
 
@@ -20,7 +90,7 @@ Current evidence and remaining gates are recorded in [terrain continuation](evid
 
 ## Decisions recorded with the user (2026-09-29)
 
-- Runtime asset ceiling: **≤ 60 MB** total under `src/assets/range/v2/` (plain files, no Git LFS).
+- Original artifact ceiling: **≤ 60 MB** under `src/assets/range/v2/` (plain files, no Git LFS). Retired on 2026-10-22, with its global code checks removed in the current source changes. The historical figure is not the runtime memory budget; per-region caps remain.
 - Materials: **hybrid**. Procedural, offline-baked colour ramps and masks everywhere; procedural detail on distant terrain; CC0 photo-scan **normal/roughness data only** (no scan albedo) for the rock stage and nearest terrain. Provenance recorded per file.
 
 ## Environment (this execution session)
@@ -133,7 +203,9 @@ Each view: 21-station neutral/silhouette review, 61-frame motion review, in-app 
 | ICEFIELD | `chugach-matanuska` | 1dc2cd8e74ff | ac0da317cbbc | 0.82 | Task 17 addition. Chugach Mountains above the Matanuska Glacier (Terrain Tiles z12): a real snow range with its valley opening; a second, different ICEFIELD view beside Denali |
 | CANYON | `monument-valley-163` | 78779fcd2a01 | ca6259b1e0cd | 0.76 | Task 17 addition. From US-163 toward the mesa wall and buttes (3DEP 1/3"). View rule `forestFloorM: 1900`: the canyon pack's 1700 m floor put conifers across the valley floor. The floor reads olive rather than red sand (the shared canyon colour ramp) |
 
-13 approved views: every biome has one, ICEFIELD and CANYON two. The plan aims for 12-18.
+13 approved views: every biome has one, ICEFIELD and CANYON two. The original
+plan aimed for 12–18; the [2026-10-22 proposal](scenic-view-expansion.md) now
+considers approximately 30, pending implementation and per-view review.
 
 Task 17 candidate rejected: **`wrangell-copper-river`** (TUNDRA; Terrain Tiles z11). Mount Drum, Sanford and Wrangell are traceable, but the near and middle ground is one broad, smooth shield-volcano slope with little internal relief, filling the left third of the frame. Weaker than Tombstone, and not added for coverage. Its published package was removed; its authoring and review stay in `data/terrain/scenic-views.json`.
 
@@ -192,6 +264,8 @@ Next item from the landscape brainstorm: lakes hold the land around them, as sti
 
 ## The cast as lights (2026-10-01)
 
+> Superseded for routes and peaks by [landscape-cast.md](landscape-cast.md) (2026-10-22): each view now has a job, an Ascent or Lamplighters, timed by song structure; the peaks below are removed. Tour views keep the wandering routes. The light and its consequences are unchanged.
+
 Brainstorm section 6, the "presence ladder" Ashton chose: light is the floor, consequence the body, a brief recognisable figure the peak. Under Range v2 nothing drew Midio, Broshi or Midasus before this.
 
 - **Light.** Each actor is a small lantern in its hue (Midio teal 178, Broshi coral 16, Midasus violet 276) drawn inside the band passes: land in front hides it, the air dims it, and the lake mirror reflects it. Its light reaches the ground and trees (`actorLight`) and lays a path of glints on water. Brightness follows the actor's own lane (`narrative.sources[id].activity`, fast attack, slow release).
@@ -224,7 +298,7 @@ Ashton saw the sun come up "in an instant" and the clouds move as if by accident
 Ashton found the land moving with the song accidental. It heaved all the time: a swell rolling across the ridges at 0.045 Hz sized by groove and sustain, a lift on every kick, a melodic tilt, a summit gesture, and a section lift that dropped and regrew at every boundary. Together they came to 8-20 px. The default chosen for him ("Big moments only") keeps all of those channels on the frame as `music.source` (the water still ripples to the kick, and evidence still reads them) but lets none of them move the ground.
 
 - `landMoment01` (RangeFrame.js) is a pure function of the section list. At each section change the land swells over 3 s, holds for 2 s and settles over 9 s. A lift into a louder part (`boundaryLift01`) swells fully, any other change by 0.35, and a repeat of the same part not at all. The song's start never swells. When the whole-song analysis replaces the opening one during play, boundaries already heard keep coming from the old section list (`chapterState.landSections`), so a swell under way carries on and none starts in the past.
-- `landMotion` builds the geometry from that alone: a slow wave (50 m, rolling at 0.012 Hz) plus a lift (40 m), at a fixed calibration target. At full strength that is about 17 px; a plain change is about 6 px. Reduced motion holds the land still.
+- `landMotion` builds the geometry from that alone: a slow wave (50 m, rolling at 0.012 Hz) plus a lift (40 m), at a fixed calibration target. At full strength that is about 17 px; a plain change is about 6 px.
 
 ## Task 16: resource, lifecycle and performance
 
@@ -282,7 +356,13 @@ Device measurement: `tools/range-device-probe.js` and `docs/range-v2-device-runs
   - Startup strips are fallback from the first bake.
   - A refused render target also asks for fallback strips to be dropped.
 
-## Asset budget (60 MB ceiling)
+## Historical asset budget (original 60 MB ceiling)
+
+These are the original rollout figures. At the 2026-10-22 audited revision,
+the complete asset tree is 48,905,726 bytes; see the [current delivery measurements](scenic-view-expansion.md#delivery-budget).
+The owner rejected the old 60 MB ceiling for expansion, and the current source
+fixes remove its global hard-fail checks. Per-region caps and runtime residency
+limits remain separate from the historical figures below.
 
 | Item | Size |
 | --- | --- |

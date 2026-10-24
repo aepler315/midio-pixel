@@ -7,6 +7,10 @@
 
 const STORAGE_KEY = 'midio.soulseek.config';
 const FETCH_TIMEOUT_MS = 10000;
+// Longer than the bridge's whole-download deadline (tools/soulseek-bridge.mjs
+// SLSKD_DOWNLOAD_DEADLINE_MS, 150 s) plus reading and sending the file, so
+// the page never gives up on a download the server is still delivering.
+const DOWNLOAD_TIMEOUT_MS = 180_000;
 
 /** Return only non-secret preferences suitable for persistent browser storage. */
 export function configForStorage(cfg = {}) {
@@ -413,7 +417,7 @@ export class SoulseekSearch {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ item }),
-        signal: AbortSignal.timeout(60000),
+        signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));

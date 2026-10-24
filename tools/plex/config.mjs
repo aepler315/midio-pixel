@@ -1,4 +1,5 @@
 import { AUDIO_LOAD_LIMITS } from "../../src/audio/loadLimits.js";
+import { hostList, requestHostname } from "../lib/request-host.mjs";
 export function readPlexConfig(env = process.env) {
   const enabled = env.MIDIO_PLEX_ENABLED === "true";
   if (
@@ -53,6 +54,11 @@ export function readPlexConfig(env = process.env) {
     if (!["http:", "https:"].includes(url.protocol) || url.origin !== value)
       throw new Error("Allowed origins must be exact HTTP origins");
   }
+  // Names (beyond loopback and IP literals) the adapter answers to, e.g. the
+  // hostname of MIDIO_PLEX_PUBLIC_API_BASE when a reverse proxy forwards it.
+  const publicHosts = hostList(env.PLEX_PUBLIC_HOST);
+  if (publicHosts.some((x) => requestHostname(x) !== x))
+    throw new Error("PLEX_PUBLIC_HOST must list bare hostnames");
   const port = Number(env.PLEX_PORT || 8787);
   if (!Number.isInteger(port) || port < 1 || port > 65535)
     throw new Error("Invalid adapter port");
@@ -65,6 +71,7 @@ export function readPlexConfig(env = process.env) {
     host: env.PLEX_HOST || "127.0.0.1",
     port,
     allowedOrigins,
+    publicHosts,
     metadataMaxBytes: 4 * 1024 * 1024,
     artworkMaxBytes: 4 * 1024 * 1024,
     metadataTimeoutMs: 15000,

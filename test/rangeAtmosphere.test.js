@@ -90,11 +90,9 @@ test('a cloud sea floods the valley below a flat top that stays under the eye', 
   assert.ok(mistAmount(cam, [0, full.topM + 200, -1500], p) < mistAmount(cam, [0, 900, -1500], p) * 0.5, 'a peak above the top stands clear');
 });
 
-test('local light is bounded, softened for reduced flash and height', () => {
+test('local light is bounded and softened with height', () => {
   const full = emitterStrength({});
   assert.ok(full > 0 && full <= 0.22);
-  const rf = emitterStrength({ reducedFlash: true });
-  assert.ok(rf > 0 && rf < full);
   assert.ok(emitterStrength({ airbornePx: 500 }) < full * 0.5);
   assert.ok(emitterStrength({ airbornePx: 500 }) > 0);
 });
@@ -210,7 +208,7 @@ test('the sky pan uses the scene\'s own moved pose and follows a late-joining vi
   const scene = { movedPose: (v) => ({ rail, proj, pose: swing(v.id === 'a' ? 0.04 : -0.04) }) };
   const frame = { cameraMove: { yaw: 0 }, scenicViewport: { logicalWidth: 1280, logicalHeight: 720 } };
   const pan = (seamP, incomingFade, incoming = { id: 'b' }) =>
-    RangePresentation.prototype._skyPan.call({ scene, seamP, incomingFade }, { id: 'a' }, incoming, frame);
+    RangePresentation.prototype._skyPan.call({ scene, shots: { timeline: () => null }, seamP, incomingFade }, { id: 'a' }, incoming, frame);
   const alone = pan(0.5, 1, null);
   assert.ok(Math.abs(alone.x) > 0.02, 'the scene pose drives the pan');
   assert.deepEqual(pan(0.5, 0), alone, 'a view that has just joined (still invisible) moves nothing');

@@ -1,4 +1,7 @@
-// Actual upload/analysis, pixel exports, live/paused switches and ownership.
+// Trio, end to end: actual upload/analysis, pixel exports, the Trio chooser
+// preview, and live/paused world switches. Trio is its own world (the
+// pre-terrain Range with the cast on it), so a switch rebuilds the scene at
+// the heard position while the audio keeps playing.
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -6,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { chromium } from 'playwright';
 import { openEvaluationSong, renderEvaluationFrame } from './lib/visual-evaluation-browser.mjs';
+import { attachBrowserDiagnostics, finalizeBrowserDiagnostics } from './lib/browser-diagnostics.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const url = process.argv[2] || 'http://127.0.0.1:8080';
@@ -16,15 +20,18 @@ execFileSync(process.execPath, [path.join(root, 'tools/gen-test-wav.mjs'), audio
 const presentation = { version: 2, look: 'pixel', quality: 'auto', palette: 'world', dither: .35,
   ditherMode: 'selective', pixelGrid: 'classic', pixelScale: 'original', scaling: 'fit' };
 const settings = { width: 1280, height: 720, experience: 'trio', view: null, biome: null,
-  seed: 315, quality: 0, reducedFlash: false, reducedMotion: false, presentation };
-const report = { status: 'failed', frames: [], switches: [], live: null, errors: [] };
+  seed: 315, quality: 0, presentation };
+const report = { status: 'failed', frames: [], live: null, errors: [], warnings: [], events: [] };
 const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined });
+let failed = false;
 try {
-  const diagnostics = { errors: [], warnings: [], loadedFiles: new Set() };
+  const diagnostics = { errors: report.errors, warnings: report.warnings, events: report.events, loadedFiles: new Set() };
   const loaded = await openEvaluationSong(browser, { url, audioPath, settings, diagnostics });
   const page = loaded.page;
+  let captureFailed = false;
   try {
     for (const [grid, look] of [['classic', 'pixel'], ['detailed', 'pixel'], ['classic', 'palette'], ['detailed', 'palette']]) {
+      loaded.browserDiagnostics.setPhase(`trio-capture:${grid}/${look}:3000ms`);
       settings.presentation = { ...presentation, pixelGrid: grid, look };
       await page.evaluate(p => window.__SMW.beginBulkExport({ width: 1280, height: 720, presentation: p }), settings.presentation);
       const frame = await renderEvaluationFrame(page, { timeMs: 3000, checkpoint: true, clips: [], save: true }, settings);
@@ -36,11 +43,22 @@ try {
       await fs.writeFile(path.join(out, name), Buffer.from(frame.pngData, 'base64'));
       report.frames.push({ grid, look, file: name, pauseParity: true, presentation: frame.presentation });
     }
+    loaded.browserDiagnostics.setPhase('trio-world');
+    const world = await page.evaluate(() => {
+      const { sim } = window.__SMW;
+      return { experience: sim.experience, worldKind: sim.biomes.world.kind, trio: !!sim.trio,
+        terrainProfiles: !!sim.biomes.terrainProfiles, skyEnsemble: !!sim.biomes.skyEnsemble,
+        crystalSpaceRidge: !!sim.biomes.presentation.crystalSpaceRidge };
+    });
+    assert.deepEqual(world, { experience: 'trio', worldKind: 'alpine', trio: true, terrainProfiles: false,
+      skyEnsemble: true, crystalSpaceRidge: true }, 'Trio plays on the procedural pre-terrain range');
+    report.world = world;
+    loaded.browserDiagnostics.setPhase('trio-preview');
     const preview = await page.evaluate(async () => {
       const { loadPreviewRenderer, createPreviewWorld } = await import('/src/ui/WorldPreview.js');
       await loadPreviewRenderer();
       const smw = window.__SMW;
-      const world = createPreviewWorld({ worldId: 'alpine', seed: smw.songSeed, data: { experience: 'trio',
+      const world = createPreviewWorld({ worldId: 'trio', seed: smw.songSeed, data: {
         timeline: smw.conductor.timeline, durationMs: smw.durationMs, energyCurves: smw.sim.energyCurves,
         bpm: smw.sim.bpm, barGrid: smw.conductor.barGrid } });
       try { world.draw(3000); return { kind: world.kind, png: world.canvas.toDataURL('image/png').split(',')[1] }; }
@@ -50,91 +68,86 @@ try {
     await fs.writeFile(path.join(out, 'preview.png'), Buffer.from(preview.png, 'base64'));
     report.preview = { kind: preview.kind, file: 'preview.png' };
     assert.equal([...diagnostics.loadedFiles].filter(p => /\/range\/v2\/(terrain|tour|materials)\//.test(p)).length, 0,
-      'Trio Stage must not request DEM, tour or material packages');
-    // A separate test below covers live audio. This part exercises paused,
-    // stepped exports and checks the same real UI handler repeatedly.
-    await page.evaluate(() => {
-      const u = new URL(location.href); u.searchParams.set('rangeRenderer', 'legacy'); u.searchParams.set('rangeTour', 'off'); history.replaceState(null, '', u);
-      window.__trioTransport = { sim: window.__SMW.sim, conductor: window.__SMW.conductor, engine: window.__SMW.audioEngine };
-    });
-    for (let i = 0; i < 3; i++) for (const experience of ['landscape', 'trio']) {
-      const before = await page.evaluate(() => ({ timeMs: window.__SMW.sim.timeMs, heard: window.__SMW.sim.heardTimeMs, paused: window.__SMW.paused }));
-      await page.evaluate(mode => window.__SMW.setExperience(mode), experience);
-      const state = await page.evaluate(async () => {
-        const s = window.__SMW, saved = window.__trioTransport;
-        const { sharedResidency } = await import('/src/render/GraphicsResidency.js');
-        return { experience: s.experience, timeMs: s.sim.timeMs, heard: s.sim.heardTimeMs, paused: s.paused,
-          sameTransport: s.sim === saved.sim && s.conductor === saved.conductor && s.audioEngine === saved.engine,
-          actors: !!s.sim.trio, ahead: s.conductor.aheadRegs.length,
-          bytes: sharedResidency().usedBytes, entries: sharedResidency().entries.size,
-          pixelScale: s.presentationDiagnostics.pixelScale };
-      });
-      assert.equal(state.experience, experience); assert.equal(state.sameTransport, true);
-      assert.equal(state.timeMs, before.timeMs); assert.equal(state.heard, before.heard); assert.equal(state.paused, before.paused);
-      assert.equal(state.actors, experience === 'trio'); assert.equal(state.ahead, 0);
-      assert.equal(state.pixelScale, 'original');
-      report.switches.push(state);
-    }
-    const stages = report.switches.filter(s => s.experience === 'trio');
-    assert.ok(stages.every(s => s.bytes <= stages[0].bytes && s.entries <= stages[0].entries), 'repeated switches cannot accumulate retained resources');
+      'Trio must not request DEM, tour or material packages');
     assert.deepEqual(diagnostics.errors, []);
-  } finally { await loaded.context.close(); }
+  } catch (error) { captureFailed = true; throw error; }
+  finally {
+    await loaded.context.close(); await loaded.browserDiagnostics.dispose();
+    finalizeBrowserDiagnostics(diagnostics, report, { preserveFailure: captureFailed });
+  }
 
   const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  let liveDiagnostics;
+  let liveFailed = false;
   try {
     const page = await context.newPage();
-    page.on('pageerror', e => report.errors.push(e.message));
+    liveDiagnostics = await attachBrowserDiagnostics(page, { ...diagnostics, loadedFiles: new Set() }, { origin: new URL(url).origin, phase: 'trio-live-startup' });
     await page.route('**/soundfonts/', r => r.fulfill({ json: [] }));
     await page.route('**/favicon.ico', r => r.fulfill({ status: 204 }));
     const entry = new URL(url); entry.searchParams.set('experience', 'trio'); entry.searchParams.set('rangeRenderer', 'legacy'); entry.searchParams.set('rangeTour', 'off');
     await page.goto(entry.href);
     await page.locator('#titleSettings').evaluate(n => { n.open = true; });
     if (await page.locator('#lyricGroundingBtn').getAttribute('aria-pressed') === 'true') await page.locator('#lyricGroundingBtn').click();
+    liveDiagnostics.setPhase('trio-live-analysis');
     await page.locator('#fileInput').setInputFiles(audioPath);
     await page.waitForFunction(() => window.__SMW?.sim?.timeMs > 500, null, { timeout: 120000 });
-    await page.evaluate(() => { window.__liveTrio = { sim: window.__SMW.sim, source: window.__SMW.audioEngine.sourceNode }; });
+    await page.evaluate(() => { window.__liveTrio = { source: window.__SMW.audioEngine.sourceNode, conductor: window.__SMW.conductor }; });
+    const snapshot = () => page.evaluate(async () => {
+      const s = window.__SMW;
+      const { sharedResidency } = await import('/src/render/GraphicsResidency.js');
+      return { experience: s.experience, simExperience: s.sim.experience, actors: !!s.sim.trio,
+        selected: document.getElementById('display-experience').value,
+        sameBuffer: !!s.audioEngine.sourceNode?.buffer && s.audioEngine.sourceNode.buffer === window.__liveTrio.source.buffer,
+        sameConductor: s.conductor === window.__liveTrio.conductor,
+        running: s.audioEngine.ctx.state, paused: s.paused, audioMs: s.audioEngine.nowMs, simMs: s.sim.timeMs,
+        ahead: s.conductor.aheadRegs.length, bytes: sharedResidency().usedBytes, entries: sharedResidency().entries.size };
+    });
+    const start = await snapshot();
+    assert.deepEqual([start.experience, start.simExperience, start.actors], ['trio', 'trio', true], 'the page-named world starts without the chooser');
     const live = [];
-    for (const mode of ['landscape', 'trio']) {
+    for (let i = 0; i < 3; i++) for (const mode of ['landscape', 'trio']) {
+      liveDiagnostics.setPhase(`live-switch:${i}:${mode}`);
+      const before = await snapshot();
       await page.evaluate(mode => window.__SMW.setExperience(mode), mode);
-      const state = await page.evaluate(() => ({ experience: window.__SMW.experience,
-        sameSim: window.__SMW.sim === window.__liveTrio.sim,
-        sameSource: window.__SMW.audioEngine.sourceNode === window.__liveTrio.source,
-        running: window.__SMW.audioEngine.ctx.state, paused: window.__SMW.paused,
-        audioMs: window.__SMW.audioEngine.nowMs }));
-      assert.equal(state.experience, mode); assert.equal(state.sameSim, true); assert.equal(state.sameSource, true);
-      assert.equal(state.running, 'running'); assert.equal(state.paused, false); live.push(state);
+      await page.waitForFunction(mode => window.__SMW.sim?.experience === mode && window.__SMW.audioEngine.playing, mode, { timeout: 60000 });
+      const state = await snapshot();
+      assert.equal(state.experience, mode); assert.equal(state.simExperience, mode); assert.equal(state.selected, mode);
+      assert.equal(state.actors, mode === 'trio');
+      // The rebuild rejoins the same decoded recording at the heard position,
+      // as a seek does; the song never restarts or changes.
+      assert.equal(state.sameBuffer, true, 'the recording keeps playing through a world switch');
+      assert.equal(state.sameConductor, true);
+      assert.equal(state.running, 'running'); assert.equal(state.paused, false);
+      assert.ok(state.audioMs >= before.audioMs, 'the heard position does not move backward');
+      assert.ok(Math.abs(state.simMs - state.audioMs) < 1500, 'the rebuilt world starts at the heard position');
+      live.push(state);
     }
+    const stages = live.filter(s => s.experience === 'trio');
+    assert.ok(stages.every(s => s.bytes <= stages[0].bytes && s.entries <= stages[0].entries), 'repeated switches cannot accumulate retained resources');
+    liveDiagnostics.setPhase('live-paused-switch');
     await page.locator('#stage').click({ position: { x: 100, y: 80 } });
     await page.locator('#pauseBtn').click();
     await page.waitForFunction(() => window.__SMW.paused);
     const frozen = await page.evaluate(() => window.__SMW.audioEngine.nowMs);
-    await page.evaluate(() => window.__SMW.setExperience('landscape'));
-    await page.evaluate(() => window.__SMW.setExperience('trio'));
-    assert.equal(await page.evaluate(() => window.__SMW.audioEngine.nowMs), frozen);
-    assert.equal(await page.evaluate(() => window.__SMW.paused), true);
+    for (const mode of ['landscape', 'trio']) {
+      await page.evaluate(mode => window.__SMW.setExperience(mode), mode);
+      await page.waitForFunction(mode => window.__SMW.sim?.experience === mode, mode, { timeout: 60000 });
+      assert.equal(await page.evaluate(() => window.__SMW.audioEngine.nowMs), frozen, 'a paused switch keeps the clock');
+      assert.equal(await page.evaluate(() => window.__SMW.paused), true, 'a paused switch stays paused');
+    }
     await page.screenshot({ path: path.join(out, 'live-paused.png') });
-    const cancelled = await page.evaluate(async () => {
-      const { RangePresentation } = await import('/src/world/alpine/RangePresentation.js');
-      const original = RangePresentation.prototype.whenReady;
-      let release;
-      const ready = new Promise(resolve => { release = resolve; });
-      RangePresentation.prototype.whenReady = () => ready;
-      try {
-        const u = new URL(location.href); u.searchParams.set('rangeRenderer', 'v2'); history.replaceState(null, '', u);
-        const control = document.getElementById('display-experience'); control.value = 'landscape';
-        const pending = window.__SMW.setExperience('landscape');
-        window.__SMW.seek(6000);
-        release({}); await pending;
-        return { experience: window.__SMW.experience, selected: control.value,
-          disabled: control.disabled, status: document.getElementById('experience-status').textContent };
-      } finally { RangePresentation.prototype.whenReady = original; }
-    });
-    assert.equal(cancelled.experience, 'trio'); assert.equal(cancelled.selected, 'trio');
-    assert.equal(cancelled.disabled, false); assert.equal(cancelled.status, 'Automatic performance');
-    report.cancelledSwitch = cancelled;
-    report.live = { switches: live, pausedSwitchPreservedClock: true };
+    report.live = { start, switches: live, pausedSwitchPreservedClock: true };
     assert.deepEqual(report.errors, []);
-  } finally { await context.close(); }
+  } catch (error) { liveFailed = true; throw error; }
+  finally {
+    await context.close(); await liveDiagnostics?.dispose();
+    finalizeBrowserDiagnostics(report, report, { preserveFailure: liveFailed });
+  }
   report.status = 'passed';
-} finally { await browser.close(); await fs.writeFile(path.join(out, 'report.json'), JSON.stringify(report, null, 2)); }
-console.log(`Trio Stage: ${report.status}; ${report.frames.length} pixel/palette captures, ${report.switches.length} paused switches, live and paused audio preserved.`);
+} catch (error) { failed = true; report.error = String(error.stack || error); throw error; }
+finally {
+  await browser.close();
+  try { finalizeBrowserDiagnostics(report, report, { preserveFailure: failed }); }
+  finally { await fs.writeFile(path.join(out, 'report.json'), JSON.stringify(report, null, 2)); }
+}
+console.log(`Trio: ${report.status}; ${report.frames.length} pixel/palette captures, ${report.live?.switches.length ?? 0} live world switches, paused clock preserved.`);

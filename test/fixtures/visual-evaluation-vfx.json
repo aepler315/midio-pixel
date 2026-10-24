@@ -1,7 +1,7 @@
 {
   "version": 1,
   "kind": "matrix",
-  "note": "Bounded VFX coverage: every governor shedding boundary (q0, q2-q6), all four reduced-flash/reduced-motion combinations, Depth pixel/Pixel/Palette and a lake and an inland view, spread across cases instead of a Cartesian product. Two continuous cases draw every frame of a short history. Run one case per capture with --case.",
+  "note": "Bounded VFX coverage: every governor shedding boundary (q0, q2-q6), Depth pixel/Pixel/Palette and a lake and an inland view, spread across cases instead of a Cartesian product. Two continuous cases draw every frame of a short history. Run one case per capture with --case.",
   "settings": {
     "width": 640,
     "height": 360,
@@ -42,7 +42,7 @@
   "cases": [
     {
       "id": "q0-depth-lake-history",
-      "covers": "q0, depth pixel, lake, no reductions, continuous from zero",
+      "covers": "q0, depth pixel, lake, continuous from zero",
       "settings": {
         "mode": "continuous",
         "presentation": {
@@ -53,7 +53,7 @@
           "dither": 0.35,
           "ditherMode": "selective",
           "pixelGrid": "classic",
-          "pixelScale": "depth",
+          "pixelScale": "original",
           "scaling": "fit"
         }
       },
@@ -62,13 +62,12 @@
       ]
     },
     {
-      "id": "q2-depth-inland-flash",
-      "covers": "q2 (2x MSAA), depth pixel, inland, reduced flash",
+      "id": "q2-depth-inland",
+      "covers": "q2 (2x MSAA), depth pixel, inland",
       "settings": {
         "quality": 2,
         "view": "panamint-dantes-view",
         "biome": "DESERT",
-        "reducedFlash": true,
         "presentation": {
           "version": 2,
           "look": "pixel",
@@ -77,7 +76,7 @@
           "dither": 0.35,
           "ditherMode": "selective",
           "pixelGrid": "classic",
-          "pixelScale": "depth",
+          "pixelScale": "original",
           "scaling": "fit"
         }
       },
@@ -86,11 +85,10 @@
       ]
     },
     {
-      "id": "q3-pixel-lake-motion",
-      "covers": "q3 (edges/fog/shafts shed), pixel, lake, reduced motion",
+      "id": "q3-pixel-lake",
+      "covers": "q3 (edges/fog/shafts shed), pixel, lake",
       "settings": {
         "quality": 3,
-        "reducedMotion": true,
         "presentation": {
           "version": 1,
           "look": "pixel",
@@ -105,14 +103,12 @@
       ]
     },
     {
-      "id": "q4-palette-inland-both",
-      "covers": "q4, palette, inland, both reductions",
+      "id": "q4-palette-inland",
+      "covers": "q4, palette, inland",
       "settings": {
         "quality": 4,
         "view": "panamint-dantes-view",
         "biome": "DESERT",
-        "reducedFlash": true,
-        "reducedMotion": true,
         "presentation": {
           "version": 1,
           "look": "palette",
@@ -127,12 +123,10 @@
       ]
     },
     {
-      "id": "q5-depth-lake-both",
-      "covers": "q5, depth pixel, lake, both reductions",
+      "id": "q5-depth-lake",
+      "covers": "q5, depth pixel, lake",
       "settings": {
         "quality": 5,
-        "reducedFlash": true,
-        "reducedMotion": true,
         "presentation": {
           "version": 2,
           "look": "pixel",
@@ -141,7 +135,7 @@
           "dither": 0.35,
           "ditherMode": "selective",
           "pixelGrid": "classic",
-          "pixelScale": "depth",
+          "pixelScale": "original",
           "scaling": "fit"
         }
       },
@@ -151,7 +145,7 @@
     },
     {
       "id": "q6-pixel-inland",
-      "covers": "q6 (deepest rung), pixel, inland, no reductions",
+      "covers": "q6 (deepest rung), pixel, inland",
       "settings": {
         "quality": 6,
         "view": "panamint-dantes-view",
@@ -170,10 +164,9 @@
       ]
     },
     {
-      "id": "q0-palette-lake-flash",
-      "covers": "q0, palette, lake, reduced flash",
+      "id": "q0-palette-lake",
+      "covers": "q0, palette, lake",
       "settings": {
-        "reducedFlash": true,
         "presentation": {
           "version": 1,
           "look": "palette",
@@ -188,13 +181,12 @@
       ]
     },
     {
-      "id": "q2-depth-inland-motion-history",
-      "covers": "q2, depth pixel, inland, reduced motion, continuous from zero",
+      "id": "q2-depth-inland-history",
+      "covers": "q2, depth pixel, inland, continuous from zero",
       "settings": {
         "quality": 2,
         "view": "panamint-dantes-view",
         "biome": "DESERT",
-        "reducedMotion": true,
         "mode": "continuous",
         "presentation": {
           "version": 2,
@@ -204,7 +196,7 @@
           "dither": 0.35,
           "ditherMode": "selective",
           "pixelGrid": "classic",
-          "pixelScale": "depth",
+          "pixelScale": "original",
           "scaling": "fit"
         }
       },

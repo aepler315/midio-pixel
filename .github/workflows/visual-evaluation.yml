@@ -1,7 +1,13 @@
 name: Visual evaluation
 on:
-  # Full historical corpus is available on demand; bounded pixel validation runs on changes.
+  # The full corpus is available on demand. VFX source review uses an explicit ref.
   workflow_dispatch:
+    inputs:
+      baseline_ref:
+        description: Optional VFX review ref; empty runs only identical-input checks.
+        required: false
+        default: ''
+        type: string
 permissions:
   contents: read
 jobs:
@@ -48,6 +54,20 @@ jobs:
           fs.mkdirSync('.smoke/visual-evaluation', { recursive: true });
           fs.writeFileSync('.smoke/visual-evaluation/corpus.json', JSON.stringify({ ...corpus, songs }));
           NODE
+      - name: Record the identical-input source pair
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          import { snapshotSource } from './tools/lib/visual-evaluation-server.mjs';
+          const commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+          const digest = (await snapshotSource('.')).digest;
+          fs.writeFileSync('.smoke/visual-evaluation/source-pair.json', JSON.stringify({
+            comparisonKind: 'repeatability', baselineCommit: commit, candidateCommit: commit,
+            baselineDigest: digest, candidateDigest: digest,
+            purpose: 'Identical-input corpus check; no independent source baseline.'
+          }, null, 2) + '\n');
+          NODE
       - name: Capture diagnostic corpus
         run: npm run visual:eval -- --manifest .smoke/visual-evaluation/corpus.json --out .smoke/visual-evaluation/baseline
       - name: Repeat identical corpus
@@ -67,8 +87,8 @@ jobs:
           retention-days: 14
 
   vfx-cases:
-    # The bounded VFX matrix (quality rungs, accessibility preferences,
-    # looks, lake and inland views): one job per case.
+    # The bounded VFX matrix (quality rungs, looks, lake and inland views,
+    # continuous history): one job per case.
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -83,7 +103,7 @@ jobs:
   vfx:
     needs: vfx-cases
     runs-on: ubuntu-latest
-    # Three captures per case (candidate, repeat, base); one short capture
+    # Two captures per case, plus an optional selected reference; one short capture
     # takes ~25 min on SwiftShader since #446.
     timeout-minutes: 150
     strategy:
@@ -92,13 +112,41 @@ jobs:
         case: ${{ fromJSON(needs.vfx-cases.outputs.ids) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
       - uses: ./.github/actions/setup
         with:
           browser: true
+      - name: Check out the selected VFX review source
+        if: inputs.baseline_ref != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.baseline_ref }}
+          path: .smoke/vfx-source
+      - name: Record resolved source commits and comparison purpose
+        id: sources
+        env:
+          BASELINE_REF: ${{ inputs.baseline_ref }}
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          import { snapshotSource } from './tools/lib/visual-evaluation-server.mjs';
+          const commit = cwd => execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim();
+          const candidateCommit = commit('.');
+          const baselineCommit = process.env.BASELINE_REF ? commit('.smoke/vfx-source') : candidateCommit;
+          const candidateDigest = (await snapshotSource('.')).digest;
+          const baselineDigest = process.env.BASELINE_REF ? (await snapshotSource('.smoke/vfx-source')).digest : candidateDigest;
+          const comparisonKind = baselineDigest === candidateDigest ? 'repeatability' : 'committed-source';
+          fs.mkdirSync('.smoke/vfx', { recursive: true });
+          fs.writeFileSync('.smoke/vfx/source-pair.json', JSON.stringify({
+            requestedBaselineRef: process.env.BASELINE_REF || null, baselineCommit, candidateCommit, comparisonKind,
+            baselineDigest, candidateDigest,
+            purpose: process.env.BASELINE_REF ? 'Selected source review; pixel changes do not establish improvement.' : 'Identical-input check; no independent source baseline.'
+          }, null, 2) + '\n');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `kind=${comparisonKind}\n`);
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `VFX ${comparisonKind}: reference ${baselineCommit} (${baselineDigest}); candidate ${candidateCommit} (${candidateDigest}). Pixel changes do not establish improvement.\n`);
+          NODE
       # Gates: the capture fails on page/shader errors, an inactive or wrong
-      # Range backend, a wrong quality rung or preference, or a blank frame.
+      # Range backend, a wrong quality rung, or a blank frame.
       # There is no pixel-difference beauty threshold.
       - name: Capture case
         run: npm run visual:eval -- --manifest test/fixtures/visual-evaluation-vfx.json --case ${{ matrix.case }} --out .smoke/vfx/candidate
@@ -106,21 +154,27 @@ jobs:
         run: npm run visual:eval -- --manifest test/fixtures/visual-evaluation-vfx.json --case ${{ matrix.case }} --out .smoke/vfx/repeat
       - name: Compare identical inputs
         run: npm run visual:eval -- --compare .smoke/vfx/candidate .smoke/vfx/repeat --out .smoke/vfx/determinism --require-identical
-      # Review material, not a gate: the base branch rendered with the same
-      # case, so a reviewer can see what this change did to the picture.
-      - name: Capture base-branch baseline for review
+      # Review material: render the explicitly selected source with the same
+      # case. Identical public runtime bytes remain a repeatability check,
+      # including different commits whose changes are outside that runtime.
+      - name: Capture selected VFX source for review
         id: base
-        if: github.event_name == 'pull_request'
+        if: inputs.baseline_ref != ''
         continue-on-error: true
+        env:
+          VISUAL_CASE: ${{ matrix.case }}
         run: |
-          git worktree add ../base "${{ github.event.pull_request.base.sha }}"
-          ln -s "$PWD/node_modules" ../base/node_modules
-          cp test/fixtures/visual-evaluation-vfx.json ../vfx-case.json
-          (cd ../base && npm run visual:eval -- --manifest ../vfx-case.json --case ${{ matrix.case }} --out "$GITHUB_WORKSPACE/.smoke/vfx/base")
-      - name: Compare base and candidate for review
-        if: github.event_name == 'pull_request' && steps.base.outcome == 'success'
+          ln -s "$GITHUB_WORKSPACE/node_modules" .smoke/vfx-source/node_modules
+          (cd .smoke/vfx-source && npm run visual:eval -- --manifest "$GITHUB_WORKSPACE/test/fixtures/visual-evaluation-vfx.json" --case "$VISUAL_CASE" --out "$GITHUB_WORKSPACE/.smoke/vfx/base")
+      - name: Compare selected source and candidate for review
+        if: inputs.baseline_ref != '' && steps.base.outcome == 'success'
         continue-on-error: true
-        run: npm run visual:eval -- --compare .smoke/vfx/base .smoke/vfx/candidate --out .smoke/vfx/review
+        env:
+          COMPARISON_KIND: ${{ steps.sources.outputs.kind }}
+        run: |
+          identical_args=()
+          if [ "$COMPARISON_KIND" = repeatability ]; then identical_args=(--require-identical); fi
+          npm run visual:eval -- --compare .smoke/vfx/base .smoke/vfx/candidate --out .smoke/vfx/review "${identical_args[@]}"
       - name: Retain rendered evidence and failure diagnostics
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

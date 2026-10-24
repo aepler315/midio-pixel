@@ -23,7 +23,6 @@ jobs:
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
           npm run test:smoke -- http://127.0.0.1:8080
           npm run test:trio -- http://127.0.0.1:8080
-          npm run test:lighting -- http://127.0.0.1:8080
           npm run test:shading -- http://127.0.0.1:8080
           npm run test:seek -- http://127.0.0.1:8080
           npm run test:worlds -- http://127.0.0.1:8080

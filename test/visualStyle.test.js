@@ -48,32 +48,32 @@ test('shiftLightness darkens and lightens without leaving the hex space', () => 
 test('bloomStrength is positive for house look', () => {
   // No style argument: bloomStrength stopped taking one when the classic/neon
   // split was removed. The stale extra arg was harmless while it was simply
-  // ignored, but the fourth slot is now openingGain, and a string there makes
+  // ignored, but the third slot is now openingGain, and a string there makes
   // the whole result NaN.
-  const b = bloomStrength(null, null, false);
+  const b = bloomStrength(null, null);
   assert.ok(b > 0);
   assert.ok(isRendered(STYLE_RENDERED));
   assert.ok(isRendered(STYLE_CLASSIC));
 });
 
 test('the opening gain scales the resting bloom, not the reactive swell', () => {
-  const rest = bloomStrength(null, null, false, 1);
-  const held = bloomStrength(null, null, false, 0.35);
+  const rest = bloomStrength(null, null, 1);
+  const held = bloomStrength(null, null, 0.35);
   assert.ok(held < rest, 'a song that has not started yet must not open fully bloomed');
   assert.ok(held > 0, 'but the frame is dimmed, never blacked out');
   // A drop still lands at full force even during the hold -- if the song is
   // slamming, it has plainly started, and the gain will be releasing anyway.
-  const slam = bloomStrength({ slam: 1, surge: 1 }, { level: 1 }, false, 0.35);
+  const slam = bloomStrength({ slam: 1, surge: 1 }, { level: 1 }, 0.35);
   assert.ok(slam > rest, 'the reactive term is untouched by the hold');
 });
 
 test('salience lowers supporting bloom without weakening the active drop', () => {
-  const ordinary = bloomStrength(null, null, false, 1, 1);
-  const restrained = bloomStrength(null, null, false, 1, 0.4);
+  const ordinary = bloomStrength(null, null, 1, 1);
+  const restrained = bloomStrength(null, null, 1, 0.4);
   assert.ok(restrained < ordinary, 'a landmark or performer focus leaves less bloom for the rest of the frame');
 
-  const activeDrop = bloomStrength({ slam: 1, surge: 1 }, { level: 1 }, false, 1, 0.4);
-  const unrestrainedDrop = bloomStrength({ slam: 1, surge: 1 }, { level: 1 }, false, 1, 1);
+  const activeDrop = bloomStrength({ slam: 1, surge: 1 }, { level: 1 }, 1, 0.4);
+  const unrestrainedDrop = bloomStrength({ slam: 1, surge: 1 }, { level: 1 }, 1, 1);
   assert.equal(activeDrop, unrestrainedDrop, 'the drop keeps the bloom it earned');
 });
 

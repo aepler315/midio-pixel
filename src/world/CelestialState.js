@@ -20,7 +20,7 @@ export const MOONLESS_AMBIENT_CUT = 0.8;
 export const SUN_HORIZON_COLOR = '#ff5a1e';
 
 export function resolveCelestialState({ timeMs, cycleMs, viewport, approach = {}, moonOffset = {},
-  nightFill = .35, reducedMotion = false, moonOrbit = null, sunColor = '#fff3df', moonColor = '#c8d8ff',
+  nightFill = .35, moonOrbit = null, sunColor = '#fff3df', moonColor = '#c8d8ff',
   sunRadiusPx = 26, moonRadiusPx = 26, radiusCapPx = Infinity }) {
   const dn = dayNight(timeMs, cycleMs), { width, height } = viewport;
   const body = (alt, az, name) => {
@@ -28,8 +28,8 @@ export function resolveCelestialState({ timeMs, cycleMs, viewport, approach = {}
       orbitY: height * celestialYFracFor(alt), horizonY: height * OCEAN_HORIZON_FRAC,
       progress01: approach.progress01 || 0, observerDy: approach.observerDy || 0 });
     const visibility = horizonFade(alt);
-    let dx = name === 'moon' && !reducedMotion && visibility > 0 ? moonOffset.dxPx || 0 : 0;
-    let dy = name === 'moon' && !reducedMotion && visibility > 0 ? moonOffset.dyPx || 0 : 0;
+    let dx = name === 'moon' && visibility > 0 ? moonOffset.dxPx || 0 : 0;
+    let dy = name === 'moon' && visibility > 0 ? moonOffset.dyPx || 0 : 0;
     const bound = Math.min(1, 6 * height / 720 / (Math.hypot(dx, dy) || 1));
     dx *= bound; dy *= bound;
     return Object.freeze({ xFrac: (app.x + dx) / width, yFrac: (app.y + dy) / height,

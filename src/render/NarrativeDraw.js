@@ -53,8 +53,8 @@ export function narrativeMarks(n, timeMs, width, height, seed = 0) {
   return out;
 }
 
-export function drawNarrativeMarks(ctx, n, timeMs, canvas, seed, reducedMotion) {
-  const marks = narrativeMarks(n, reducedMotion ? 0 : timeMs, canvas.width, canvas.height, seed);
+export function drawNarrativeMarks(ctx, n, timeMs, canvas, seed) {
+  const marks = narrativeMarks(n, timeMs, canvas.width, canvas.height, seed);
   ctx.save();
   ctx.lineWidth = 1.2; ctx.lineCap = 'round';
   for (const m of marks) {

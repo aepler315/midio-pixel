@@ -188,7 +188,7 @@ test('draw() rescales dots against the ACTUAL canvas, not the construction-time 
 
   const ctx = fakeCtx2d();
   const canvas = { width: 1920, height: 1080 };
-  weaver.draw(ctx, canvas, false, 1);
+  weaver.draw(ctx, canvas, 1);
 
   const sx = canvas.width / weaver.w, sy = canvas.height / weaver.h;
   const expectedX = rawDot.x * sx, expectedY = rawDot.y * sy;
@@ -295,12 +295,12 @@ test('interior detail strokes stay hidden until INTERIOR_REVEAL_MS after the out
 
   weaver.update(1000, 0.016, 0);
   const ctxAt0 = makeCtx();
-  weaver.draw(ctxAt0, { width: 1280, height: 720 }, false, 1);
+  weaver.draw(ctxAt0, { width: 1280, height: 720 }, 1);
   const strokesAtCommit = ctxAt0.calls.stroke;
 
   weaver.update(1000 + 450, 0.016, 0); // holdStartMs + INTERIOR_REVEAL_MS
   const ctxAtReveal = makeCtx();
-  weaver.draw(ctxAtReveal, { width: 1280, height: 720 }, false, 1);
+  weaver.draw(ctxAtReveal, { width: 1280, height: 720 }, 1);
   const strokesAtReveal = ctxAtReveal.calls.stroke;
 
   assert.ok(strokesAtReveal > strokesAtCommit,

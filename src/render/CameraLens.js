@@ -23,8 +23,8 @@ function cuesFor(sections, durationMs) {
   cache.set(sections, { durationMs, cues });
   return cues;
 }
-export function cameraLensAt({ sections = [], timeMs = 0, durationMs = 0, reducedMotion = false, preview = false } = {}) {
-  if (reducedMotion || preview || !(durationMs > 0) || !Array.isArray(sections)) return NEUTRAL;
+export function cameraLensAt({ sections = [], timeMs = 0, durationMs = 0, preview = false } = {}) {
+  if (preview || !(durationMs > 0) || !Array.isArray(sections)) return NEUTRAL;
   const cue = cuesFor(sections, durationMs).find(c => timeMs >= c.timeMs - 450 && timeMs < c.timeMs + 2450);
   if (!cue) return NEUTRAL;
   const age = timeMs - cue.timeMs;

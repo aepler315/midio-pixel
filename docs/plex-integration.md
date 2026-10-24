@@ -14,6 +14,7 @@ The committed frontend configuration is disabled. Implementation and automated f
 | `PLEX_MUSIC_SECTION_IDS` | Private adapter environment | Comma-separated decimal music section IDs to publish |
 | `PLEX_ALLOWED_ORIGINS` | Private adapter environment | Exact browser origins, for example `https://supermaudio.com`; no paths or trailing slash |
 | `PLEX_HOST`, `PLEX_PORT` | Private adapter environment | Defaults `127.0.0.1`, `8787` |
+| `PLEX_PUBLIC_HOST` | Private adapter environment | Comma-separated bare hostnames the adapter also answers to, for example the host of `MIDIO_PLEX_PUBLIC_API_BASE` when the ingress forwards it. Default: loopback names and IP addresses only; any other `Host` gets `403 HOST_DENIED` |
 | `MIDIO_PLEX_ENABLED` | Private adapter environment | Explicit `true` to serve the approved library; default `false` |
 | `MIDIO_PLEX_PUBLIC_API_BASE` | Local staging environment or GitHub Actions repository **variable** | Public HTTPS endpoint ending exactly in `/api/plex/v1`, without query, fragment, credentials, trailing slash, or extra path prefix |
 
@@ -47,7 +48,7 @@ On Windows, use Task Scheduler with an absolute `node.exe` program path, argumen
 
 ## HTTPS ingress and frontend staging
 
-Point a TLS reverse proxy or tunnel solely at `http://127.0.0.1:8787`. Preserve `/api/plex/v1/...` and forward only this adapter. Do not publish port 32400, the Midio development server, or a directory tree. Check the chosen ingress supports the full encoded-file size, the transfer duration, cancellation, and streaming without buffering the entire recording. The home computer, PMS, adapter, and ingress must all remain available for new downloads.
+Point a TLS reverse proxy or tunnel solely at `http://127.0.0.1:8787`. Preserve `/api/plex/v1/...` and forward only this adapter. The adapter refuses `Host` names that are not loopback, an IP address or listed in `PLEX_PUBLIC_HOST` (a guard against DNS rebinding), so either have the ingress send `Host: 127.0.0.1:8787` or add its public hostname, e.g. `PLEX_PUBLIC_HOST=plex.example.com`. Do not publish port 32400, the Midio development server, or a directory tree. Check the chosen ingress supports the full encoded-file size, the transfer duration, cancellation, and streaming without buffering the entire recording. The home computer, PMS, adapter, and ingress must all remain available for new downloads.
 
 The adapter sends tokens only in private upstream request headers. It rejects upstream redirects and unapproved key families, rechecks section membership and the selected media revision before audio delivery, strips upstream headers, and caps all streams. Public JSON never contains PMS paths, connection URLs, tokens, or server identity.
 
@@ -60,7 +61,7 @@ npm start
 
 PowerShell equivalent: set `$env:MIDIO_PLEX_PUBLIC_API_BASE` to the loopback endpoint, then run `npm run plex:config`. Include the app's exact local origin in `PLEX_ALLOWED_ORIGINS`. Restore the committed disabled `src/config/plex.json` before committing a local setup.
 
-For GitHub Pages, set repository Actions **variable** `MIDIO_PLEX_PUBLIC_API_BASE` to your public HTTPS adapter endpoint. The Pages workflow passes this one value to `stage:site`. It writes `_site/src/config/plex.json` after copying source; the source default stays disabled. The artifact includes only `index.html`, `src/`, `soundfonts/`, `CNAME`, and `.nojekyll`. Adapter tools, `.env.plex`, tests, and Soulseek files are excluded.
+For the published site, set `MIDIO_PLEX_PUBLIC_API_BASE` to your public HTTPS adapter endpoint in the environment of the publishing shell, then run `npm run publish:site` (see [Local validation and publishing](local-validation.md)); staging writes `_site/src/config/plex.json` after copying source, and the source default stays disabled. The published `gh-pages` tree includes only `index.html`, `src/`, `soundfonts/`, `CNAME`, `LICENSE`, `NOTICE`, `version.json` and `.nojekyll`. Adapter tools, `.env.plex`, tests, and Soulseek files are excluded. (A repository Actions variable reaches only the optional manual `static.yml` workflow, which is not the active publisher.)
 
 The exact public schema is `{"version":1,"apiBase":"https://music.example/api/plex/v1"}`. An empty base disables all Plex entries. Invalid or unreachable optional config never prevents ordinary local/URL loading. Once configured, use **Plex library** on the title screen, **Music** during playback, or **Choose different music from Plex** during audio analysis.
 

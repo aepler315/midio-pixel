@@ -23,10 +23,10 @@ test('bulk export explicitly selects the experience and rejects misspelled mode 
   assert.throws(() => parseBulkArgs(['--experience', 'typo', 'song.wav']), /experience/i);
 });
 
-test('preview caches distinguish the same world and passage in Landscape and Trio Stage', async () => {
+test('preview caches distinguish the same passage in Landscape and Trio Stage', async () => {
   const { previewCacheKey } = await import('../src/ui/WorldPreview.js');
-  const request = { worldId: 'alpine', seed: 315, tMs: 12000 };
-  assert.notEqual(previewCacheKey({ ...request, experience: 'trio' }), previewCacheKey({ ...request, experience: 'landscape' }));
+  const request = { seed: 315, tMs: 12000 };
+  assert.notEqual(previewCacheKey({ ...request, worldId: 'alpine' }), previewCacheKey({ ...request, worldId: 'trio' }));
 });
 
 test('visual evidence can request Trio Stage without changing historical Landscape settings', async () => {

@@ -14,7 +14,6 @@ import { computeRestLengths, drawMeshEdges, drawGlowHalo, applyTransform } from 
 import { MIDIO_IDENTITY_HUE } from '../render/ColorLaw.js';
 import { clamp, clamp01, mulberry32 } from '../utils/math.js';
 import { hexToRgb, hexLerp } from '../utils/color.js';
-import { capFlashAlpha } from '../ui/Accessibility.js';
 
 /** Where the sea begins, as a fraction of frame height (rule of thirds). */
 export const SEA_TOP_FRAC = 2 / 3;
@@ -75,15 +74,15 @@ export function swellY(x, W, H, tSec, depth01 = 1, bass = 0) {
 
 /** Midio's ship: sails left to right across the near sea and comes round
  *  again, pitching on the swell. */
-export function shipPose(tSec, W, H, { bass = 0, energy = 0, reducedMotion = false } = {}) {
+export function shipPose(tSec, W, H, { bass = 0, energy = 0 } = {}) {
   const k = H / 720;
   const u = frac(tSec / SHIP_PERIOD_S + 0.22);
   const x = -0.1 * W + u * 1.2 * W;
   const baseY = H * (SEA_TOP_FRAC + 0.13);
   const depth = 0.55;
-  const bob = reducedMotion ? 0 : swellY(x, W, H, tSec, depth, bass);
+  const bob = swellY(x, W, H, tSec, depth, bass);
   const dx = 6;
-  const slope = reducedMotion ? 0 : (swellY(x + dx, W, H, tSec, depth, bass) - swellY(x - dx, W, H, tSec, depth, bass)) / (2 * dx);
+  const slope = (swellY(x + dx, W, H, tSec, depth, bass) - swellY(x - dx, W, H, tSec, depth, bass)) / (2 * dx);
   return {
     x, y: baseY + bob, rot: clamp(Math.atan(slope) * 0.9, -0.22, 0.22),
     scale: 0.8 * k, billow01: 0.45 + 0.55 * clamp01(energy), heading: 1,
@@ -91,7 +90,7 @@ export function shipPose(tSec, W, H, { bass = 0, energy = 0, reducedMotion = fal
 }
 
 /** Broshi: wanders the beach -- walk, stop and look up, walk back. */
-export function broshiPose(tSec, W, H, { kick = 0, reducedMotion = false } = {}) {
+export function broshiPose(tSec, W, H, { kick = 0 } = {}) {
   const k = H / 720;
   const p = frac(tSec / BROSHI_PERIOD_S) * BROSHI_PERIOD_S;
   const x0 = 0.1 * W, x1 = 0.5 * W;
@@ -101,32 +100,32 @@ export function broshiPose(tSec, W, H, { kick = 0, reducedMotion = false } = {})
   else if (p < 26) { x = x1 + (x0 - x1) * smooth((p - 15) / 11); facing = -1; walking = true; }
   else { x = x0; facing = -1; walking = false; lookUp01 = Math.sin(Math.PI * (p - 26) / 4); }
   const step = tSec * 2.4;
-  const stride = walking && !reducedMotion ? Math.sin(step * TAU) : 0;
-  const bob = walking && !reducedMotion ? Math.abs(Math.sin(step * Math.PI * 2)) * 1.6 * k : 0;
-  const hop = reducedMotion ? 0 : 8 * k * clamp01(kick);
+  const stride = walking ? Math.sin(step * TAU) : 0;
+  const bob = walking ? Math.abs(Math.sin(step * Math.PI * 2)) * 1.6 * k : 0;
+  const hop = 8 * k * clamp01(kick);
   const y = shoreTopY(x, W, H) + 2 * k - bob - hop;
   return { x, y, facing, walking, stride, lookUp01, scale: 1.0 * k, airborne: bob + hop };
 }
 
 /** Midasus: a slow looping glide through the sky third. */
-export function midasusPose(tSec, W, H, { treble = 0, reducedMotion = false } = {}) {
+export function midasusPose(tSec, W, H, { treble = 0 } = {}) {
   const at = (t) => ({
     x: W * (0.5 + 0.4 * Math.sin(TAU * t / MIDASUS_X_PERIOD_S + 0.4)),
     y: H * (0.13 + 0.075 * Math.sin(TAU * t / MIDASUS_Y_PERIOD_S + 1.1)),
   });
   const p = at(tSec);
   const q = at(tSec + 0.1);
-  const lift = reducedMotion ? 0 : H * 0.02 * clamp01(treble);
+  const lift = H * 0.02 * clamp01(treble);
   const vx = (q.x - p.x) / 0.1;
   const trail = [];
   for (let i = 1; i <= 9; i++) trail.push(at(tSec - i * 0.11));
   const babies = BABY_LAGS_S.map((lag, i) => {
     const b = at(tSec - lag);
-    const a = (reducedMotion ? 0 : tSec * 1.7) + i * TAU / 3;
+    const a = tSec * 1.7 + i * TAU / 3;
     const r = H / 720 * 9;
     return { x: b.x + Math.cos(a) * r, y: b.y + Math.sin(a) * r * 0.6 };
   });
-  return { x: p.x, y: p.y - lift, bank: clamp(vx * 0.004, -0.5, 0.5), spin: reducedMotion ? 0 : tSec * 0.5,
+  return { x: p.x, y: p.y - lift, bank: clamp(vx * 0.004, -0.5, 0.5), spin: tSec * 0.5,
     scale: 1.25 * H / 720, trail, babies };
 }
 
@@ -163,31 +162,29 @@ function rgba(hex, a) {
  */
 export function drawInhabitedShore(ctx, {
   W, H, tSec, bands = null, kick = 0, airColor = '#2a3850', landColor = '#3a3024', haloColor = '#ffffff',
-  night01 = 0.5, celestial = null, glitterX = null, reducedMotion = false, reducedFlash = false,
+  night01 = 0.5, celestial = null, glitterX = null,
 }) {
   const eq = bands || [];
   const avg = (i, j) => { let s = 0, n = 0; for (let b = i; b <= j; b++) { s += eq[b] || 0; n++; } return n ? s / n : 0; };
   const bass = avg(0, 1), mid = avg(2, 4), treble = avg(5, 6);
   const energy = (bass + mid + treble) / 3;
   const k = H / 720;
-  const motion = { bass, energy, kick, treble, reducedMotion };
+  const motion = { bass, energy, kick, treble };
 
   ctx.save();
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  // Reduced motion holds the sea still: one fixed wave phase, no swell.
-  drawSea(ctx, { W, H, tSec: reducedMotion ? 0 : tSec, bass: reducedMotion ? 0 : bass, treble, airColor, landColor, haloColor, night01, celestial, glitterX, reducedFlash, k });
+  drawSea(ctx, { W, H, tSec, bass, treble, airColor, landColor, haloColor, night01, celestial, glitterX, k });
 
   // Midasus first: she is the farthest resident, up in the sky third.
   const midasus = midasusPose(tSec, W, H, motion);
-  drawMidasus(ctx, midasus, { night01, reducedFlash });
+  drawMidasus(ctx, midasus, { night01 });
   drawBroshi(ctx, broshiPose(tSec, W, H, motion), { k });
-  // Reduced motion also stills the wake, pennant and Midio's hover.
-  drawShip(ctx, shipPose(tSec, W, H, motion), { tSec: reducedMotion ? 0 : tSec, night01, landColor, k, reducedFlash, lookAt: midasus });
+  drawShip(ctx, shipPose(tSec, W, H, motion), { tSec, night01, landColor, k, lookAt: midasus });
   ctx.restore();
 }
 
-function drawSea(ctx, { W, H, tSec, bass, treble, airColor, landColor, haloColor, night01, celestial, glitterX, reducedFlash, k }) {
+function drawSea(ctx, { W, H, tSec, bass, treble, airColor, landColor, haloColor, night01, celestial, glitterX, k }) {
   const seaTop = H * SEA_TOP_FRAC;
   const N = 48;
   // Beach: a strip of land in front of the sea, so the earth third ends on
@@ -229,17 +226,15 @@ function drawSea(ctx, { W, H, tSec, bass, treble, airColor, landColor, haloColor
   ctx.fill();
 
   // Shore foam along the waterline.
-  if (!reducedFlash) {
-    ctx.strokeStyle = rgba(hexLerp(haloColor, '#ffffff', 0.5), 0.35);
-    ctx.lineWidth = 1.6 * k;
-    ctx.beginPath();
-    for (let i = 0; i <= N; i++) {
-      const x = (i / N) * W;
-      const y = waterlineY(x, W, H, tSec) + 1;
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    }
-    ctx.stroke();
+  ctx.strokeStyle = rgba(hexLerp(haloColor, '#ffffff', 0.5), 0.35);
+  ctx.lineWidth = 1.6 * k;
+  ctx.beginPath();
+  for (let i = 0; i <= N; i++) {
+    const x = (i / N) * W;
+    const y = waterlineY(x, W, H, tSec) + 1;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
   }
+  ctx.stroke();
 
   // Wave rows in perspective: dense at the shore, wide apart up close.
   const rows = 11;
@@ -266,25 +261,24 @@ function drawSea(ctx, { W, H, tSec, bass, treble, airColor, landColor, haloColor
   if (lit && lit.visibility > 0.02) {
     // The body's on-screen x (the caller maps it from the scenic stage).
     const cx = Number.isFinite(glitterX) ? glitterX : lit.xFrac * W;
-    // Reduced flash holds one glint layout instead of reshuffling 6x/s.
-    const rand = mulberry32(0x5ea + (reducedFlash ? 0 : Math.floor(tSec * 6)));
+    // The glints reshuffle 6x/s.
+    const rand = mulberry32(0x5ea + Math.floor(tSec * 6));
     const color = hexLerp(lit.colorHex || '#ffffff', '#ffffff', 0.3);
-    const glints = reducedFlash ? 26 : 60;
     ctx.fillStyle = color;
-    for (let i = 0; i < glints; i++) {
+    for (let i = 0; i < 60; i++) {
       const d = rand();
       const y = seaTop + 3 * k + (H - seaTop) * d * d;
       const spread = (18 + 120 * d) * k;
       const x = cx + (rand() * 2 - 1) * spread * (0.4 + 0.6 * rand());
       const w = (3 + 12 * d) * k * (0.5 + rand());
-      ctx.globalAlpha = capFlashAlpha(lit.visibility * (0.18 + 0.4 * (1 - Math.abs(x - cx) / (spread + 1))) * (0.6 + 0.4 * clamp01(treble)), reducedFlash);
+      ctx.globalAlpha = lit.visibility * (0.18 + 0.4 * (1 - Math.abs(x - cx) / (spread + 1))) * (0.6 + 0.4 * clamp01(treble));
       ctx.fillRect(x - w / 2, y, w, Math.max(1, 1.4 * k));
     }
     ctx.globalAlpha = 1;
   }
 }
 
-function drawMidasus(ctx, pose, { night01, reducedFlash }) {
+function drawMidasus(ctx, pose, { night01 }) {
   const hue = MIDASUS_HUE;
   // Sparkle trail along the path she just flew.
   for (let i = 0; i < pose.trail.length; i++) {
@@ -294,7 +288,7 @@ function drawMidasus(ctx, pose, { night01, reducedFlash }) {
     const r = (1.6 - i * 0.12) * pose.scale;
     ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(0.4, r), 0, Math.PI * 2); ctx.fill();
   }
-  drawGlowHalo(ctx, pose.x, pose.y, 26 * pose.scale, 26 * pose.scale, hue, reducedFlash ? 0.25 : 0.4 + 0.2 * clamp01(night01));
+  drawGlowHalo(ctx, pose.x, pose.y, 26 * pose.scale, 26 * pose.scale, hue, 0.4 + 0.2 * clamp01(night01));
   drawMesh(ctx, MIDASUS_MESH, REST.midasus, { tx: pose.x, ty: pose.y, rot: pose.spin + pose.bank, scaleX: pose.scale, scaleY: pose.scale },
     hue, { alpha: 0.95, widthBase: 1.3, outline: { widthAdd: 1.6 } });
   for (const b of pose.babies) {
@@ -336,7 +330,7 @@ const HULL = [
 ];
 const MAST_X = 2;
 
-function drawShip(ctx, pose, { tSec, night01, landColor, k, reducedFlash, lookAt }) {
+function drawShip(ctx, pose, { tSec, night01, landColor, k, lookAt }) {
   const hue = MIDIO_IDENTITY_HUE;
   const s = pose.scale;
   ctx.save();
@@ -404,7 +398,7 @@ function drawShip(ctx, pose, { tSec, night01, landColor, k, reducedFlash, lookAt
   ctx.fillStyle = `hsl(${hue},70%,58%)`;
   ctx.fill();
   // Masthead lantern at night.
-  if (night01 > 0.2) drawGlowHalo(ctx, MAST_X * s, (top + 8) * s, 12 * s, 12 * s, 42, (reducedFlash ? 0.25 : 0.45) * clamp01((night01 - 0.2) / 0.5));
+  if (night01 > 0.2) drawGlowHalo(ctx, MAST_X * s, (top + 8) * s, 12 * s, 12 * s, 42, 0.45 * clamp01((night01 - 0.2) / 0.5));
   ctx.restore();
 
   // Midio stands on the aft deck, hovering a hair above it, and keeps an
@@ -420,7 +414,7 @@ function drawShip(ctx, pose, { tSec, night01, landColor, k, reducedFlash, lookAt
     ix = (dx / d) * MIDIO_EYE_SOCKET_R * 0.8;
     iy = (dy / d) * MIDIO_EYE_SOCKET_R * 0.8;
   }
-  drawGlowHalo(ctx, mx, my - 30 * ms, 20 * ms, 26 * ms, hue, reducedFlash ? 0.15 : 0.28);
+  drawGlowHalo(ctx, mx, my - 30 * ms, 20 * ms, 26 * ms, hue, 0.28);
   const t = { tx: mx, ty: my, rot: pose.rot * 0.5, scaleX: ms, scaleY: ms };
   drawMesh(ctx, MIDIO_BODY, REST.midio, t, hue, { alpha: 0.95, widthBase: 1.3, outline: { widthAdd: 1.5 } });
   const eye = midioEyeMesh(ix, iy);

@@ -21,9 +21,12 @@ try{
   const wav=path.join('/tmp',`teton-smoke-${bpm}-${seconds}.wav`);execFileSync(process.execPath,[path.join(root,'tools/gen-test-wav.mjs'),wav,String(bpm),String(seconds)]);
   const {context,page,errors}=await openSong(browser,{url,wav,width:1280,height:720,params:{rangeTour:'tetons',seed:'315'}});
   try{
-   const setup=await page.evaluate(()=>{const p=window.__SMW.sim.biomes.rangePresentation;const sections=window.__SMW.sim.biomes.sections;const longest=[...sections].sort((a,b)=>(b.endMs-b.startMs)-(a.endMs-a.startMs))[0];return{heroes:p.tour.heroes,longestMs:(longest.startMs+longest.endMs)/2,qualityRatio:p.tour.meanQualityRatio,heroFraming:p.tour.heroFraming};});
-   const song={bpm,seconds,qualityRatio:setup.qualityRatio,heroFraming:setup.heroFraming,frames:[],errors};report.songs.push(song);
+   const setup=await page.evaluate(()=>{const p=window.__SMW.sim.biomes.rangePresentation;const sections=window.__SMW.sim.biomes.sections;const longest=[...sections].sort((a,b)=>(b.endMs-b.startMs)-(a.endMs-a.startMs))[0];return{heroes:p.tour.heroes,longestMs:(longest.startMs+longest.endMs)/2,qualityRatio:p.tour.meanQualityRatio,heroFraming:p.tour.heroFraming,heroCoverage:p.tour.heroCoverage};});
+   const song={bpm,seconds,qualityRatio:setup.qualityRatio,heroFraming:setup.heroFraming,heroCoverage:setup.heroCoverage,frames:[],errors};report.songs.push(song);
    assert.ok(setup.qualityRatio >= .8, `tour view quality ${setup.qualityRatio} below 0.8 (${bpm}/${seconds})`);
+   assert.equal(setup.heroCoverage?.projectionOnly, true, 'semantic coverage must be reported independently of scenic quality');
+   assert.equal(setup.heroCoverage.total, setup.heroes.length, 'every hero, including missed endings, must be reported');
+   assert.equal(setup.heroCoverage.station + setup.heroCoverage.distant + setup.heroCoverage.missed, setup.heroes.length);
    assert.ok((setup.heroFraming || []).filter(h=>h.stationVisit).every(h=>h.framedFraction>=.8), 'feasible hero projection missed its viewing window');
    const times=[...new Set([...setup.heroes.map(h=>Math.round(h.timeMs)),Math.round(setup.longestMs)])].sort((a,b)=>a-b);
    for(const timeMs of times){

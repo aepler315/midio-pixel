@@ -61,7 +61,6 @@ function composedFrame() {
     biomes: m, timeMs: 5000, heardTimeMs: 5000, stageW: 1280, stageH: 720,
     camera: { zoom: 1, shakeX: 0, shakeY: 0, roll: 0 }, lerpState: () => ({ worldX: 0, midioX: 300 }),
     perf: { level: 0, particleMul: 1, heavyPostFx: true, veilEnabled: true }, filmFinish: true,
-    reducedFlash: false, reducedMotion: false,
   };
   return { log, renderer, sim, m };
 }

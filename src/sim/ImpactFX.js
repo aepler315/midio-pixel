@@ -4,7 +4,6 @@
 // the ground point where they were spawned as the world scrolls under them.
 import { ObjectPool } from '../utils/ObjectPool.js';
 import { clamp, mulberry32 } from '../utils/math.js';
-import { capFlashAlpha, flashCompositeOp } from '../ui/Accessibility.js';
 
 export class ImpactFX {
   constructor(seed = 1) {
@@ -183,7 +182,7 @@ export class ImpactFX {
    *  Infinity (cull nothing) for callers that don't have a canvas width
    *  handy. Margin sized to each effect's own max radius/spread so nothing
    *  visibly pops in/out at the cull boundary. */
-  draw(ctx, worldX, originX, reducedFlash = false, canvasWidth = Infinity) {
+  draw(ctx, worldX, originX, canvasWidth = Infinity) {
     const toScreen = (wx) => wx - worldX + originX;
     const inView = (x, margin) => x > -margin && x < canvasWidth + margin;
 
@@ -212,7 +211,7 @@ export class ImpactFX {
       if (!inView(x, c.R)) continue;
       const t = c.age / c.life;
       const g = ctx.createRadialGradient(x, c.y, 0, x, c.y, c.R);
-      const a = capFlashAlpha(c.alpha * (1 - t), reducedFlash);
+      const a = c.alpha * (1 - t);
       const rgb = c.color || '255,240,200';
       g.addColorStop(0, `rgba(${rgb},${a})`);
       g.addColorStop(1, `rgba(${rgb},0)`);
@@ -230,7 +229,7 @@ export class ImpactFX {
       if (!inView(x, r.Rd)) continue;
       const t = r.age / r.life;
       const radius = r.Rd * (1 - Math.exp(-r.age / r.tau));
-      const alpha = capFlashAlpha(Math.pow(1 - t, 2), reducedFlash);
+      const alpha = Math.pow(1 - t, 2);
       ctx.strokeStyle = `rgba(${r.color || '255,255,255'},${0.7 * alpha})`;
       ctx.lineWidth = Math.max(0.5, 3 * (1 - t));
       ctx.beginPath();
@@ -252,7 +251,7 @@ export class ImpactFX {
       if (!inView(x, p.Rd)) continue;
       const t = p.age / p.life;
       const envelope = p.Rd * (1 - Math.exp(-p.age / p.tau));
-      const alpha = capFlashAlpha(Math.pow(1 - t, 2) * 0.55 * p.I, reducedFlash);
+      const alpha = Math.pow(1 - t, 2) * 0.55 * p.I;
       const rot = p.rot0 + p.spin * p.age;
       ctx.strokeStyle = `rgba(255,235,170,${alpha})`;
       ctx.lineWidth = Math.max(0.5, 2.2 * (1 - t));
@@ -271,13 +270,13 @@ export class ImpactFX {
     }
 
     ctx.save();
-    ctx.globalCompositeOperation = flashCompositeOp(reducedFlash);
+    ctx.globalCompositeOperation = 'lighter';
     for (const g of this.ignitions.active) {
       const x = toScreen(g.wx);
       if (!inView(x, g.Rd)) continue;
       const t = g.age / g.life;
       const radius = g.Rd * (1 - (1 - t) ** 3);
-      const alpha = capFlashAlpha((1 - t) ** 2, reducedFlash);
+      const alpha = (1 - t) ** 2;
       ctx.strokeStyle = `rgba(255,225,140,${(0.8 * alpha).toFixed(3)})`;
       ctx.lineWidth = Math.max(0.5, 4 * (1 - t));
       ctx.beginPath();

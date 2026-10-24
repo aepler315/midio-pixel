@@ -16,16 +16,15 @@ test('relative ridge displacement cancels equal motion and preserves disagreemen
   assert.deepEqual(relationship(sample(0), sample(1,1)), { dxPx: -2, dyPx: -3 });
   const half = relationship(sample(1,1), sample(0), { moonVisibility: .5 });
   assert.deepEqual(half, { dxPx: 1, dyPx: 1.5 });
-  assert.deepEqual(relationship(sample(1,1), sample(0), { reducedMotion: true }), { dxPx: 0, dyPx: 0 });
   const huge = relationship(sample(100,100), sample(-100,-100), { nominalViewport: { height: 1440 } });
   assert.ok(Math.hypot(huge.dxPx, huge.dyPx) <= 12);
 });
 
-test('resolved approached body is the light anchor; both gaps have no direct key even with reduced flash', () => {
+test('resolved approached body is the light anchor; both gaps have no direct key', () => {
   assert.equal(typeof celestial.resolveCelestialState, 'function');
   for (const timeMs of [21000,45000,71000,96000]) {
     const state = celestial.resolveCelestialState({ timeMs, cycleMs: 100000, viewport, approach: { progress01: .75 }, moonOffset: { dxPx: 2, dyPx: 3 } });
-    const light = computeLight({ canvasWidth: 1280, canvasHeight: 720, celestialState: state, reducedFlash: true });
+    const light = computeLight({ canvasWidth: 1280, canvasHeight: 720, celestialState: state });
     if ([45000,96000].includes(timeMs)) {
       assert.equal(state.activeBody, null); assert.equal(state.sun.directGain, 0); assert.equal(state.moon.directGain, 0); assert.equal(light.intensity, 0);
     } else {
@@ -46,7 +45,6 @@ test('moon offsets apply after approach, stay bounded and reconstruct across see
   close((moving.moon.yFrac-neutral.moon.yFrac)*720, 3);
   const bound = at(71000, { moonOffset: { dxPx: 600, dyPx: 800 } });
   close(Math.hypot((bound.moon.xFrac-neutral.moon.xFrac)*1280,(bound.moon.yFrac-neutral.moon.yFrac)*720), 6);
-  assert.deepEqual(at(71000, { reducedMotion: true, moonOffset: { dxPx: 2, dyPx: 3 } }), neutral);
   at(99000); at(1000); assert.deepEqual(at(71000, { moonOffset: { dxPx: 2, dyPx: 3 } }), moving);
   close(neutral.ambientMultiplier, .35);
 });

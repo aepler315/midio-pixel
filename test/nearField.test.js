@@ -205,21 +205,32 @@ test('every biome has a real silhouette color to darken (no crash on an unknown 
 });
 
 test('world foreground geometry is independent of a generated landmark key', () => {
-  for (const kind of ['alpine', 'airless', 'abyssal', 'overgrowth']) {
-    const a = new NearField(555, { id: 'custom', kind });
-    const b = new NearField(555, { id: 'custom', kind });
-    const shapesA = [], shapesB = [];
-    for (let i = 1; i < 100; i++) {
-      const da = a._sector(i, 'DUNE');
-      const db = b._sector(i, 'GEODE');
-      if (da) shapesA.push({ kind: da.kind, hang: da.hang, scale: da.scale, painterIdx: da.painterIdx });
-      if (db) shapesB.push({ kind: db.kind, hang: db.hang, scale: db.scale, painterIdx: db.painterIdx });
-    }
-    assert.ok(shapesA.length > 0);
-    assert.ok(shapesA.every(d => d.kind === kind), `${kind} descriptors retain physical identity`);
-    assert.deepEqual(shapesA, shapesB);
-    if (!['overgrowth', 'nave', 'foundry'].includes(kind)) assert.ok(shapesA.every(d => !d.hang));
+  const a = new NearField(555, { id: 'custom', kind: 'alpine' });
+  const b = new NearField(555, { id: 'custom', kind: 'alpine' });
+  const shapesA = [], shapesB = [];
+  for (let i = 1; i < 100; i++) {
+    const da = a._sector(i, 'DUNE');
+    const db = b._sector(i, 'GEODE');
+    if (da) shapesA.push({ kind: da.kind, hang: da.hang, scale: da.scale, painterIdx: da.painterIdx });
+    if (db) shapesB.push({ kind: db.kind, hang: db.hang, scale: db.scale, painterIdx: db.painterIdx });
   }
+  assert.ok(shapesA.length > 0);
+  assert.ok(shapesA.every(d => d.kind === 'alpine'), 'descriptors retain physical identity');
+  assert.deepEqual(shapesA, shapesB);
+  assert.ok(shapesA.every(d => !d.hang), 'Range props root in the ground');
+});
+
+test('an unregistered world kind places the alpine foreground', () => {
+  const near = new NearField(555, { id: 'custom', kind: 'unregistered-kind' });
+  let occupied = 0;
+  for (let i = 1; i < 100; i++) {
+    const d = near._sector(i, 'DUNE');
+    if (!d) continue;
+    occupied++;
+    assert.equal(d.kind, 'alpine');
+    assert.equal(d.hang, false);
+  }
+  assert.ok(occupied > 0);
 });
 
 test('foreground occupancy is independent of seek and query order', () => {
@@ -233,49 +244,17 @@ test('foreground occupancy is independent of seek and query order', () => {
   }
 });
 
-test('world props stay within bounded coverage and stop swaying under reduced motion', () => {
-  for (const kind of ['alpine', 'airless', 'abyssal', 'overgrowth']) {
+test('world props stay within bounded coverage and sway only slightly', () => {
+  for (const kind of ['alpine', 'unregistered-kind']) {
     const nf = new NearField(315, { kind });
     let d;
     for (let i = 1; !d && i < 100; i++) d = nf._sector(i, BIOME);
     const transforms = [];
     const ctx = { ...recordingCtx(), rect() {}, scale: (x, y) => transforms.push([x, y]) };
-    nf._drawOne(ctx, { width: 1280, height: 720 }, d, 640, { tSec: 1, reducedMotion: true, biomeName: BIOME });
+    nf._drawOne(ctx, { width: 1280, height: 720 }, d, 640, { tSec: 1, biomeName: BIOME });
     const [sx, sy] = transforms[0];
     assert.ok(Math.abs(sx) * 100 <= 1280 * 0.09);
     assert.ok(Math.abs(sy) * 100 <= 720 * nf.identity.foreground.maxHeight);
-    assert.equal(ctx.calls.translate[0][0], 640);
+    assert.equal(ctx.calls.translate[0][0], 640 + Math.sin(1 * 0.6 + d.seed) * 2);
   }
-});
-
-
-test('artificial foreground props remain absent for every queried sector', () => {
-  for (const kind of ['city', 'strip', 'foundry', 'nave']) {
-    const near = new NearField(315, { kind });
-    for (let i = 0; i < 100; i++) assert.equal(near._sector(i, 'JADE'), null);
-  }
-});
-
-// A2: the call boundary. BiomeManager hands NearField `reducedMotion ||
-// reducedFlash`: the motion preference for itself, flash for the damping
-// it always had.
-import { BiomeManager } from '../src/world/BiomeManager.js';
-
-test('non-Landscape foreground landmarks retain their preference damping', () => {
-  const seen = [];
-  for (const [reducedMotion, reducedFlash] of [[false, false], [true, false], [false, true], [true, true]]) {
-    const m = new BiomeManager({
-      conductor: { barGrid: [], onBar: () => () => {}, on: () => () => {} },
-      durationMs: 60000, canvasWidth: 1280, canvasHeight: 720, groundY: 625, songSeed: 3, worldId: 'farside',
-    });
-    m.currentBlend = { from: 'TAIGA', to: 'TAIGA', t: 1 };
-    m.reducedMotion = reducedMotion;
-    m.reducedFlash = reducedFlash;
-    m.nearField.draw = (_c, _cv, _x, env) => seen.push(env.reducedMotion);
-    const noop = () => {};
-    const ctx = new Proxy({}, { get: (t, k) => (k in t ? t[k] : k === 'createRadialGradient' ? () => ({ addColorStop: noop }) : noop), set: (t, k, v) => { t[k] = v; return true; } });
-    m.drawForeground(ctx, { width: 1280, height: 720 }, 0, true);
-    m.dispose();
-  }
-  assert.deepEqual(seen, [false, true, true, true]);
 });

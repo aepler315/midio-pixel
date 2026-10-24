@@ -29,6 +29,7 @@ import { createHash } from 'node:crypto';
 import zlib from 'node:zlib';
 import { cameraPoseAt, boxMayBeVisible, viewDepthToBox, focalPx, cameraRailErrors } from '../../src/world/terrain/SceneTravel.js';
 import { glacierErrors } from '../../src/world/alpine/GlacierField.js';
+import { MIRROR_LIFT, MIRROR_SCALE, MIRROR_CLIP_M } from '../../src/world/alpine/WaterMirror.js';
 
 import { TERRAIN_SCHEMA, TERRAIN_VERSION, STRIDES, WATER_FLOW } from '../../src/world/alpine/TerrainPackage.js';
 
@@ -56,31 +57,62 @@ export const VISIBILITY = Object.freeze({
   occlusion: { width: 384, stride: 4, depthSlack: 0.015, slackM: 30 },
 });
 
+/** Each tile's axis-aligned box over its valid samples (null when it has
+ *  none), as bakeTerrain lays tiles out: { cells, tilesX, tilesZ, boxes }
+ *  with boxes[iz * tilesX + ix]. */
+export function gridTileBoxes(grid, cells = TILE_CELLS) {
+  const { width: w, height: hgt, cellSizeM: cell, originM, heightsM: h, valid } = grid;
+  const tilesX = Math.ceil((w - 1) / cells), tilesZ = Math.ceil((hgt - 1) / cells);
+  const boxes = new Array(tilesX * tilesZ).fill(null);
+  for (let iz = 0; iz < tilesZ; iz++) for (let ix = 0; ix < tilesX; ix++) {
+    const x0 = ix * cells, y0 = iz * cells;
+    let minY = Infinity, maxY = -Infinity;
+    for (let v = 0; v <= cells && y0 + v < hgt; v++) for (let u = 0; u <= cells && x0 + u < w; u++) {
+      const i = (y0 + v) * w + x0 + u;
+      if (valid[i]) { minY = Math.min(minY, h[i]); maxY = Math.max(maxY, h[i]); }
+    }
+    if (minY <= maxY) boxes[iz * tilesX + ix] = { min: [originM[0] + x0 * cell, minY, originM[1] + y0 * cell], max: [originM[0] + (x0 + cells) * cell, maxY, originM[1] + (y0 + cells) * cell] };
+  }
+  return { cells, tilesX, tilesZ, boxes };
+}
+
 /** One station's conservative depth buffer (nearest 1/depth per pixel) of
- *  the whole grid at a coarse stride, for occlusion tests at bake time. */
-export function occlusionBuffer(grid, pose, framing, occ, { minDepthM = 0 } = {}) {
+ *  the whole grid at a coarse stride, for occlusion tests at bake time.
+ *  `minDepthM` drops nearer triangles; `minHeightM` drops samples below it
+ *  (the water mirror clips its plane). With `tiles` (gridTileBoxes) whole
+ *  tiles outside the frustum are skipped -- the same pixels, far faster for
+ *  narrow poses -- and `ids` records per pixel the tile (iz * tilesX + ix)
+ *  of the nearest surface, -1 for sky. `scratch` (any object, reused across
+ *  calls) keeps the arrays: the result is then valid until the next call. */
+export function occlusionBuffer(grid, pose, framing, occ, { minDepthM = 0, minHeightM = -Infinity, tiles = null, ids = false, scratch = null } = {}) {
   const { width: w, height: hgt, cellSizeM: cell, originM, heightsM: h, valid } = grid;
   const W = occ.width, H = Math.max(2, Math.round(occ.width / framing.aspect));
-  const buf = new Float32Array(W * H); // 1/depth, 0 = sky
   const R = occ.stride;
   const cols = Math.floor((w - 1) / R) + 1, rows = Math.floor((hgt - 1) / R) + 1;
-  const sx = new Float32Array(cols * rows), sy = new Float32Array(cols * rows), iz = new Float32Array(cols * rows);
+  const alloc = (key, Type, n) => {
+    if (!scratch) return new Type(n);
+    return (scratch[key + n] ||= new Type(n));
+  };
+  const buf = alloc('buf', Float32Array, W * H).fill(0); // 1/depth, 0 = sky
+  const tileOf = ids && tiles ? alloc('tile', Int32Array, W * H).fill(-1) : null;
+  const sx = alloc('sx', Float32Array, cols * rows), sy = alloc('sy', Float32Array, cols * rows), iz = alloc('iz', Float32Array, cols * rows);
   const f = norm3(sub3(pose.targetM, pose.eyeM));
   const r = norm3(cross3(f, [0, 1, 0]));
   const u = cross3(r, f);
   const t = Math.tan((pose.fovYDeg * Math.PI) / 360) * framing.fovScale;
-  for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+  const project = (i, j) => {
     const k = j * cols + i;
     const gi = (j * R) * w + i * R;
-    if (!valid[gi]) { iz[k] = -1; continue; }
+    if (!valid[gi] || h[gi] < minHeightM) { iz[k] = -1; return; }
     const d = [originM[0] + i * R * cell - pose.eyeM[0], h[gi] - pose.eyeM[1], originM[1] + j * R * cell - pose.eyeM[2]];
     const z = d[0] * f[0] + d[1] * f[1] + d[2] * f[2];
-    if (z < 1) { iz[k] = -1; continue; }
+    if (z < 1) { iz[k] = -1; return; }
     sx[k] = ((d[0] * r[0] + d[1] * r[1] + d[2] * r[2]) / (z * t * framing.aspect) * 0.5 + 0.5) * W;
     sy[k] = (0.5 - (d[0] * u[0] + d[1] * u[1] + d[2] * u[2]) / (z * t) * 0.5) * H;
     iz[k] = 1 / z;
-  }
+  };
   const maxIz = minDepthM > 0 ? 1 / minDepthM : Infinity;
+  let id = -1;
   const tri = (a, b, c) => {
     if (iz[a] < 0 || iz[b] < 0 || iz[c] < 0) return;
     if (iz[a] > maxIz || iz[b] > maxIz || iz[c] > maxIz) return;
@@ -101,20 +133,43 @@ export function occlusionBuffer(grid, pose, framing, occ, { minDepthM = 0 } = {}
         if (w0 < 0 || w1 < 0 || w2 < 0) continue;
         const v = w0 * iz[a] + w1 * iz[b] + w2 * iz[c];
         const o = py * W + px;
-        if (v > buf[o]) buf[o] = v;
+        if (v > buf[o]) { buf[o] = v; if (tileOf) tileOf[o] = id; }
       }
     }
   };
-  for (let j = 0; j + 1 < rows; j++) for (let i = 0; i + 1 < cols; i++) {
+  const quad = (i, j) => {
     const a = j * cols + i, b = a + 1, c = a + cols, d = c + 1;
     tri(a, c, d); tri(a, d, b);
+  };
+  // A tile's quads lie inside its box, so a box outside the frustum draws
+  // nothing; needs tiles whose cells are whole raster quads.
+  const q = tiles && tiles.cells % R === 0 ? tiles.cells / R : 0;
+  if (!q) {
+    for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) project(i, j);
+    for (let j = 0; j + 1 < rows; j++) for (let i = 0; i + 1 < cols; i++) {
+      if (tileOf) id = Math.min(tiles.tilesZ - 1, Math.floor((j * R) / tiles.cells)) * tiles.tilesX + Math.min(tiles.tilesX - 1, Math.floor((i * R) / tiles.cells));
+      quad(i, j);
+    }
+  } else {
+    for (let bz = 0; bz < tiles.tilesZ; bz++) for (let bx = 0; bx < tiles.tilesX; bx++) {
+      id = bz * tiles.tilesX + bx;
+      const box = tiles.boxes[id];
+      if (!box || box.max[1] < minHeightM || !boxMayBeVisible(pose, framing.aspect, box, framing.fovScale)) continue;
+      const i0 = bx * q, j0 = bz * q, i1 = Math.min(cols - 1, i0 + q), j1 = Math.min(rows - 1, j0 + q);
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) project(i, j);
+      for (let j = j0; j < j1; j++) for (let i = i0; i < i1; i++) quad(i, j);
+    }
   }
-  return { buf, W, H, f, r, u, t, eye: pose.eyeM, aspect: framing.aspect };
+  return { buf, W, H, f, r, u, t, eye: pose.eyeM, aspect: framing.aspect, ...(tileOf ? { tile: tileOf } : {}) };
 }
 
 /** Whether a local point is in frame and not behind the buffer's surface. */
 export function pointVisible(ob, p, occ) {
-  const d = [p[0] - ob.eye[0], p[1] - ob.eye[1], p[2] - ob.eye[2]];
+  return visibleAt(ob, p[0], p[1], p[2], occ);
+}
+
+function visibleAt(ob, X, Y, Z, occ) {
+  const d = [X - ob.eye[0], Y - ob.eye[1], Z - ob.eye[2]];
   const z = d[0] * ob.f[0] + d[1] * ob.f[1] + d[2] * ob.f[2];
   if (z < 1) return false;
   const x = ((d[0] * ob.r[0] + d[1] * ob.r[1] + d[2] * ob.r[2]) / (z * ob.t * ob.aspect) * 0.5 + 0.5) * ob.W;
@@ -524,6 +579,94 @@ function railStations(view, count) {
   return Array.from({ length: count }, (_, k) => cameraPoseAt(view, count > 1 ? k / (count - 1) : 0));
 }
 
+const FRAMINGS = Object.freeze(['core', 'extended']);
+// The visibility framings a pose is tested in: an 'extended' pose (seen
+// only in the widest framing) never makes a tile core.
+const POSE_FRAMINGS = Object.freeze({ core: FRAMINGS, extended: Object.freeze(['extended']), mirror: FRAMINGS });
+
+/**
+ * The camera the water mirror renders for `pose` (WaterMirror
+ * mirrorCameraFor): the eye reflected about y = levelM and lifted `lift` of
+ * its height, the look direction reflected (not lifted), the same lens.
+ * Tagged framing 'mirror' with its level, so bakeTerrain and validatePoses
+ * clip the ground at and below the water and use the mirror's resolution.
+ */
+export function mirroredPose(pose, levelM, lift = MIRROR_LIFT) {
+  const d = sub3(pose.targetM, pose.eyeM);
+  const eyeM = [pose.eyeM[0], levelM - lift * (pose.eyeM[1] - levelM), pose.eyeM[2]];
+  return { eyeM, targetM: [eyeM[0] + d[0], eyeM[1] - d[1], eyeM[2] + d[2]], fovYDeg: pose.fovYDeg, framing: 'mirror', levelM };
+}
+
+/** Errors in a bake/validation pose (empty = usable). */
+export function poseErrors(p) {
+  const vec = (v) => Array.isArray(v) && v.length === 3 && v.every(Number.isFinite);
+  if (!p || !vec(p.eyeM) || !vec(p.targetM)) return ['eye and target must be three finite numbers'];
+  const errors = [];
+  if (!(p.fovYDeg >= 5 && p.fovYDeg <= 120)) errors.push('fovYDeg must be within 5..120');
+  if (!POSE_FRAMINGS[p.framing ?? 'core']) errors.push(`unknown framing ${p.framing}`);
+  if (p.framing === 'mirror' && !Number.isFinite(p.levelM)) errors.push('a mirror pose needs levelM');
+  const d = sub3(p.targetM, p.eyeM), l = Math.hypot(d[0], d[1], d[2]);
+  if (!(l > 1)) errors.push('eye and target coincide');
+  else if (Math.abs(d[1] / l) > 0.98) errors.push('looks straight up or down');
+  return errors;
+}
+
+/**
+ * Bake viewers from poses: every `stride`th pose (and the last), with
+ * near-duplicates merged -- eye within `eyeM`, look within `angleDeg`, lens
+ * within `fovDeg`, same framing and mirror level. A merged viewer frames
+ * the widest member lens widened by the look difference, and takes its
+ * detail from the narrowest lens, so merging neither culls nor coarsens
+ * beyond the eye offset. `eyeM: 0` disables merging.
+ */
+function bakeViewers(poses, { stride = 1, eyeM = 25, angleDeg = 2, fovDeg = 2 } = {}) {
+  const step = Math.max(1, Math.floor(stride) || 1), cosMax = Math.cos((angleDeg * Math.PI) / 180);
+  const out = [];
+  // Spatial hash on the eye: candidates for a merge share or neighbour a cell.
+  const cellM = Math.max(1, eyeM), hash = new Map();
+  const keyOf = (x, y, z) => `${x},${y},${z}`;
+  poses.forEach((p, i) => {
+    const errors = poseErrors(p);
+    if (errors.length) throw new Error(`pose ${i}: ${errors.join('; ')}`);
+    if (i % step && i !== poses.length - 1) return;
+    const framing = p.framing ?? 'core';
+    const minHeightM = framing === 'mirror' ? p.levelM + MIRROR_CLIP_M : -Infinity;
+    const dir = norm3(sub3(p.targetM, p.eyeM));
+    const c = p.eyeM.map((v) => Math.floor(v / cellM));
+    if (eyeM > 0) {
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+        for (const v of hash.get(keyOf(c[0] + dx, c[1] + dy, c[2] + dz)) || []) {
+          if (v.framing !== framing || v.minHeightM !== minHeightM || Math.abs(v.lensDeg - p.fovYDeg) > fovDeg) continue;
+          if (Math.hypot(v.pose.eyeM[0] - p.eyeM[0], v.pose.eyeM[1] - p.eyeM[1], v.pose.eyeM[2] - p.eyeM[2]) > eyeM) continue;
+          const cos = v.dir[0] * dir[0] + v.dir[1] * dir[1] + v.dir[2] * dir[2];
+          if (cos < cosMax) continue;
+          const turnDeg = (Math.acos(Math.min(1, cos)) * 180) / Math.PI;
+          v.pose.fovYDeg = Math.max(v.pose.fovYDeg, p.fovYDeg + 2 * turnDeg);
+          v.focalFovYDeg = Math.min(v.focalFovYDeg, p.fovYDeg);
+          return;
+        }
+      }
+    }
+    const viewer = {
+      pose: { eyeM: [...p.eyeM], targetM: [...p.targetM], fovYDeg: p.fovYDeg }, framing, framings: POSE_FRAMINGS[framing],
+      lensDeg: p.fovYDeg, focalFovYDeg: p.fovYDeg, focalScale: framing === 'mirror' ? MIRROR_SCALE : 1, minHeightM, dir,
+    };
+    out.push(viewer);
+    const k = keyOf(...c);
+    if (!hash.has(k)) hash.set(k, []);
+    hash.get(k).push(viewer);
+  });
+  return out;
+}
+
+/** Whether any of the flat xyz points at or above `minHeightM` is visible. */
+function anyPointVisible(ob, pts, occ, minHeightM) {
+  for (let i = 0; i < pts.length; i += 3) {
+    if (pts[i + 1] >= minHeightM && visibleAt(ob, pts[i], pts[i + 1], pts[i + 2], occ)) return true;
+  }
+  return false;
+}
+
 /** Byte-plane split of Uint16 values (low bytes, then high bytes): gzip
  *  compresses small residuals far better this way. */
 function splitPlanes(u16) {
@@ -553,7 +696,16 @@ export function encodeResiduals(q, n) {
  *   grid     DemGrid (tools/lib/terrain-source.mjs)
  *   view     SceneView (camera rail, bands, id)
  *   options  { tileCells, budgets, visibility, dataUrl, quantStepM, landmarks,
- *              allTiles?: boolean (requires complete source coverage) }
+ *              allTiles?: boolean (requires complete source coverage),
+ *              poses?: [{ eyeM, targetM, fovYDeg, framing?, levelM? }],
+ *              poseStride?, poseDedupe? (see bakeViewers),
+ *              railPoses?: additional rail viewers at ordinary rail limits }
+ * Poses (shot library footprints, mirrored cameras) are seen in addition
+ * to the rail stations, or alone when the view has no camera; a tile's
+ * stride then meets the budget at every pose that sees it, each with its
+ * own lens. railPoses retain every supplied pose, with their ordinary
+ * framings and mirror clipping/resolution, unaffected by tour pose options.
+ * Without either pose list the bake is exactly the rail bake.
  * Returns { manifest, payload (gzip Buffer), decoded (Buffer), stats }.
  */
 export async function bakeTerrain(grid, view, options = {}) {
@@ -563,7 +715,10 @@ export async function bakeTerrain(grid, view, options = {}) {
   if (allTiles && grid.valid.some(v => !v)) {
     throw new Error('allTiles DEM contains no-data; normalize with complete source/fill coverage before baking');
   }
-  const railErrors = allTiles ? [] : cameraRailErrors(view?.camera);
+  const posed = !allTiles && Array.isArray(options.poses) && options.poses.length > 0;
+  const extraRail = !allTiles && Array.isArray(options.railPoses) && options.railPoses.length > 0;
+  const hasRail = !allTiles && !((posed || extraRail) && view?.camera == null);
+  const railErrors = hasRail ? cameraRailErrors(view?.camera) : [];
   if (railErrors.length) throw new Error(`view ${view?.id}: ${railErrors.join('; ')}`);
   const cells = options.tileCells || TILE_CELLS;
   const budgets = options.budgets || LOD_BUDGETS;
@@ -603,12 +758,23 @@ export async function bakeTerrain(grid, view, options = {}) {
   const flowByte = (i) => (water[i] ? WATER_FLOW : Math.min(254, Math.round(Math.log2(Math.max(1, acc[i])) * 16)));
 
   const tilesX = Math.ceil((w - 1) / cells), tilesZ = Math.ceil((hgt - 1) / cells);
-  const stations = allTiles ? [] : railStations(view, vis.stations);
-  // Occlusion buffers per station and framing, built once.
-  const occluders = {
-    core: stations.map((pose) => occlusionBuffer(grid, pose, vis.core, vis.occlusion)),
-    extended: stations.map((pose) => occlusionBuffer(grid, pose, vis.extended, vis.occlusion)),
-  };
+  const stations = hasRail ? railStations(view, vis.stations) : [];
+  const viewers = stations.map((pose) => ({ pose, framings: FRAMINGS, focalFovYDeg: pose.fovYDeg, focalScale: 1, minHeightM: -Infinity }));
+  const railViewers = extraRail ? bakeViewers(options.railPoses, { eyeM: 0 }) : [];
+  const posedViewers = posed ? bakeViewers(options.poses, { stride: options.poseStride, ...(options.poseDedupe === false ? { eyeM: 0 } : options.poseDedupe) }) : [];
+  // Tour poses may carry a coarser pixel budget than the rail
+  // (options.poseErrorScale): the app presents terrain on a 320x180 or
+  // 640x360 pixel grid, so 1 px at 1080 is stricter than any tour frame needs.
+  const poseErrorScale = posed && options.poseErrorScale > 1 ? options.poseErrorScale : 1;
+  if (poseErrorScale > 1) for (const v of posedViewers) v.focalScale /= poseErrorScale;
+  // options.poseFramings narrows the framings tour poses are tested in: the
+  // extended framing (2.4:1, 1.85x lens) is the rail's margin for the
+  // listener's zoom and shake, which a tour camera does not have.
+  if (posed && Array.isArray(options.poseFramings)) {
+    const keep = options.poseFramings.filter((f) => FRAMINGS.includes(f));
+    for (const v of posedViewers) v.framings = v.framings.filter((f) => keep.includes(f));
+  }
+  viewers.push(...railViewers, ...posedViewers);
   // Each tile's highest valid sample: narrow summits must not slip between
   // the coarse occlusion samples.
   const peak = new Map();
@@ -619,7 +785,77 @@ export async function bakeTerrain(grid, view, options = {}) {
     const cur = peak.get(key);
     if (!cur || h[i] > cur[1]) peak.set(key, [originM[0] + x * cell, h[i], originM[1] + y * cell]);
   }
-  const focal = allTiles ? {} : Object.fromEntries(Object.entries(budgets).map(([k, b]) => [k, focalPx(view.camera.fovYDeg, b.heightPx)]));
+  const focal = hasRail ? Object.fromEntries(Object.entries(budgets).map(([k, b]) => [k, focalPx(view.camera.fovYDeg, b.heightPx)])) : {};
+
+  // Per tile: its box (raised over glacier ice) and the samples tested for
+  // occlusion, then what every viewer sees of it -- the closest view depth
+  // per framing and, with poses, the sharpest focal / depth per framing and
+  // budget. One viewer's occlusion buffers at a time, reused.
+  const layout = gridTileBoxes(grid, cells);
+  const boxes = layout.boxes.map((b) => b && { min: [...b.min], max: [...b.max] });
+  const displacement = new Float64Array(boxes.length);
+  const samplePts = new Array(boxes.length).fill(null);
+  const R = vis.occlusion.stride;
+  for (let k = 0; k < boxes.length; k++) {
+    const box = boxes[k];
+    if (!box) continue;
+    displacement[k] = displacementFor(box);
+    if (displacement[k]) box.max[1] = Math.max(box.max[1], Math.min(box.max[1] + displacement[k], Math.max(glacier.surfaceStartM, glacier.surfaceEndM)));
+    if (allTiles) continue;
+    const ix = k % tilesX, iz = (k - ix) / tilesX, x0 = ix * cells, y0 = iz * cells;
+    const pts = [];
+    for (let v = 0; v <= cells; v += R) for (let u = 0; u <= cells; u += R) {
+      const X = Math.min(w - 1, x0 + u), Y = Math.min(hgt - 1, y0 + v);
+      const i = Y * w + X;
+      if (valid[i]) pts.push(originM[0] + X * cell, h[i], originM[1] + Y * cell);
+    }
+    if (peak.has(`${ix},${iz}`)) pts.push(...peak.get(`${ix},${iz}`));
+    samplePts[k] = Float64Array.from(pts);
+  }
+  const reach = Object.fromEntries(FRAMINGS.map((name) => [name, new Float64Array(boxes.length).fill(Infinity)]));
+  const budgetKeys = Object.keys(budgets);
+  const sharp = posed || extraRail ? Object.fromEntries(FRAMINGS.map((name) => [name, Object.fromEntries(budgetKeys.map((b) => [b, new Float64Array(boxes.length)]))])) : null;
+  // Poses framed 'extended' hold their whole frame to the extended budget,
+  // also on tiles another viewer sees in core. Kept apart from
+  // sharp.extended, which every core viewer's widest framing feeds too (wider
+  // than the frame validatePoses checks): only these refine core tiles.
+  const wide = [...railViewers, ...posedViewers].some((v) => v.framing === 'extended') ? Object.fromEntries(budgetKeys.map((b) => [b, new Float64Array(boxes.length)])) : null;
+  const scratch = {};
+  for (const viewer of viewers) {
+    const { pose, minHeightM } = viewer;
+    const focalOf = sharp && budgetKeys.map((b) => focalPx(viewer.focalFovYDeg, budgets[b].heightPx) * viewer.focalScale);
+    const wideOnly = wide && viewer.framing === 'extended';
+    for (const name of viewer.framings) {
+      const best = wideOnly ? wide : sharp?.[name];
+      // Built on first need: a viewer that can improve no tile draws nothing.
+      let ob = null;
+      for (let k = 0; k < boxes.length; k++) {
+        const box = boxes[k];
+        if (!box || box.max[1] < minHeightM || !boxMayBeVisible(pose, vis[name].aspect, box, vis[name].fovScale)) continue;
+        // View depth, not Euclidean distance: off-axis tiles project
+        // larger than their distance suggests. A box reaching behind the
+        // eye plane falls to minDistanceM below.
+        const depth = Math.max(0, viewDepthToBox(pose, box));
+        const sharper = sharp && budgetKeys.some((b, j) => focalOf[j] / Math.max(vis.minDistanceM, depth) > best[b][k]);
+        if (!(depth < reach[name][k]) && !sharper) continue;
+        // Bed occlusion is not valid across spatially varying retreat:
+        // a foreground ice margin and a distant surface clear at different
+        // times. Keep all in-frustum glacier tiles conservatively.
+        if (!displacement[k]) {
+          ob ||= occlusionBuffer(grid, pose, vis[name], vis.occlusion, (posed || extraRail) ? { scratch, tiles: layout, minHeightM } : { scratch });
+          if (!anyPointVisible(ob, samplePts[k], vis.occlusion, minHeightM)) continue;
+        }
+        reach[name][k] = Math.min(reach[name][k], depth);
+        if (sharp) {
+          budgetKeys.forEach((b, j) => {
+            const fd = focalOf[j] / Math.max(vis.minDistanceM, depth);
+            sharp[name][b][k] = Math.max(sharp[name][b][k], fd);
+            if (wideOnly) wide[b][k] = Math.max(wide[b][k], fd);
+          });
+        }
+      }
+    }
+  }
   const tiles = [];
   const chunks = [];
   let byteOffset = 0;
@@ -629,53 +865,15 @@ export async function bakeTerrain(grid, view, options = {}) {
 
   for (let iz = 0; iz < tilesZ; iz++) {
     for (let ix = 0; ix < tilesX; ix++) {
-      const x0 = ix * cells, y0 = iz * cells;
-      let minY = Infinity, maxY = -Infinity, validCount = 0;
-      for (let v = 0; v <= cells; v++) for (let u = 0; u <= cells; u++) {
-        const X = x0 + u, Y = y0 + v;
-        if (X >= w || Y >= hgt) continue;
-        const i = Y * w + X;
-        if (!valid[i]) continue;
-        validCount++;
-        minY = Math.min(minY, h[i]); maxY = Math.max(maxY, h[i]);
-      }
-      if (!validCount) continue;
-      const box = {
-        min: [originM[0] + x0 * cell, minY, originM[1] + y0 * cell],
-        max: [originM[0] + (x0 + cells) * cell, maxY, originM[1] + (y0 + cells) * cell],
-      };
-      const displacementM = displacementFor(box);
-      if (displacementM) box.max[1] = Math.max(box.max[1], Math.min(box.max[1] + displacementM, Math.max(glacier.surfaceStartM, glacier.surfaceEndM)));
-      // Closest approach per framing among stations where some sample of
+      const x0 = ix * cells, y0 = iz * cells, ti = iz * tilesX + ix;
+      const box = boxes[ti];
+      if (!box) continue;
+      const minY = layout.boxes[ti].min[1], maxY = layout.boxes[ti].max[1];
+      // Closest approach per framing among viewers where some sample of
       // the tile is on screen and not hidden behind nearer terrain.
-      const samplePts = [];
-      const R = vis.occlusion.stride;
-      if (!allTiles) for (let v = 0; v <= cells; v += R) for (let u = 0; u <= cells; u += R) {
-        const X = Math.min(w - 1, x0 + u), Y = Math.min(hgt - 1, y0 + v);
-        const i = Y * w + X;
-        if (valid[i]) samplePts.push([originM[0] + X * cell, h[i], originM[1] + Y * cell]);
-      }
-      if (peak.has(`${ix},${iz}`)) samplePts.push(peak.get(`${ix},${iz}`));
-      const reach = {};
-      for (const name of ['core', 'extended']) {
-        let dmin = Infinity;
-        stations.forEach((pose, k) => {
-          if (!boxMayBeVisible(pose, vis[name].aspect, box, vis[name].fovScale)) return;
-          const ob = occluders[name][k];
-          // Bed occlusion is not valid across spatially varying retreat:
-          // a foreground ice margin and a distant surface clear at different
-          // times. Keep all in-frustum glacier tiles conservatively.
-          if (!displacementM && !samplePts.some((p) => pointVisible(ob, p, vis.occlusion))) return;
-          // View depth, not Euclidean distance: off-axis tiles project
-          // larger than their distance suggests. A box reaching behind the
-          // eye plane falls to minDistanceM below.
-          dmin = Math.min(dmin, Math.max(0, viewDepthToBox(pose, box)));
-        });
-        reach[name] = dmin;
-      }
-      const framing = allTiles ? 'route' : Number.isFinite(reach.core) ? 'core' : Number.isFinite(reach.extended) ? 'extended' : null;
+      const framing = allTiles ? 'route' : Number.isFinite(reach.core[ti]) ? 'core' : Number.isFinite(reach.extended[ti]) ? 'extended' : null;
       const visible = framing !== null;
-      const dist = allTiles ? Infinity : Math.max(vis.minDistanceM, visible ? reach[framing] : Infinity);
+      const dist = allTiles ? Infinity : Math.max(vis.minDistanceM, visible ? reach[framing][ti] : Infinity);
       const budgetScale = allTiles ? 1 : visible ? vis[framing].budgetScale : 1;
       const errorsM = {};
       for (const s of STRIDES) if (s <= cells) errorsM[s] = tileStrideError(h, valid, w, hgt, x0, y0, cells, s);
@@ -700,7 +898,12 @@ export async function bakeTerrain(grid, view, options = {}) {
         let best = 1;
         for (const s of STRIDES) {
           if (s > cells || s > strideCap) break;
-          if (errorsM[s] * focal[budget] / dist <= budgets[budget].errorPx * budgetScale) best = s;
+          // Rail only: its one lens at the closest approach. With poses: the
+          // sharpest focal / depth of any pose that sees the tile, and of
+          // any 'extended' pose at the extended budget.
+          const px = sharp ? errorsM[s] * sharp[framing][budget][ti] : errorsM[s] * focal[budget] / dist;
+          if (wide && errorsM[s] * wide[budget][ti] > budgets[budget].errorPx * vis.extended.budgetScale) continue;
+          if (px <= budgets[budget].errorPx * budgetScale) best = s;
         }
         return best;
       };
@@ -711,7 +914,7 @@ export async function bakeTerrain(grid, view, options = {}) {
       const stride = allTiles ? (options.tileStride?.({ ix, iz, x0, y0, cells, grid }) ?? 1) : Math.min(...Object.values(lod));
       if (!STRIDES.includes(stride) || stride > cells) throw new Error('Invalid authored tile stride');
       for (const k of Object.keys(lod)) {
-        if (framing === 'core') achieved[k] = Math.max(achieved[k], errorsM[lod[k]] * focal[k] / dist);
+        if (framing === 'core') achieved[k] = Math.max(achieved[k], sharp ? errorsM[lod[k]] * sharp.core[k][ti] : errorsM[lod[k]] * focal[k] / dist);
       }
       const n = cells / stride + 1;
       const q = new Uint16Array(n * n);
@@ -791,9 +994,17 @@ export async function bakeTerrain(grid, view, options = {}) {
     boundsM: bounds,
     bands,
     ...(!allTiles ? { lod: {
-      budgets, fovYDeg: view.camera.fovYDeg, visibility: vis,
+      budgets, fovYDeg: hasRail ? view.camera.fovYDeg : null, visibility: vis,
       framings: 'core tiles meet the pixel budget at their closest unoccluded approach; extended-only tiles at budgetScale x; hidden tiles are not drawn',
       achievedErrorPx: Object.fromEntries(Object.entries(achieved).map(([k, v]) => [k, Math.round(v * 1000) / 1000])),
+      ...(posed ? { poses: {
+        poseCount: options.poses.length, bakedPoses: posedViewers.length, ...(poseErrorScale > 1 ? { errorScale: poseErrorScale } : {}),
+        ...(Array.isArray(options.poseFramings) ? { framings: options.poseFramings } : {}),
+        minFovYDeg: Math.min(...options.poses.map((p) => p.fovYDeg)),
+        sources: options.poses.reduce((n, p) => { const k = p.source ?? p.framing ?? 'core'; n[k] = (n[k] || 0) + 1; return n; }, hasRail ? { rail: stations.length } : {}),
+        detail: 'each pose with its own lens at its own closest unoccluded approach; mirror poses at the mirror resolution, ground at and below the water clipped',
+      } } : {}),
+      ...(extraRail ? { railPoses: { poseCount: options.railPoses.length, bakedPoses: railViewers.length } } : {}),
       ...(glacier ? { glacierGrid: 'uniform stride 2 for all tiles and quality budgets; nonlinear ice displacement requires shared edge samples' } : {}),
       triangulation: 'quads split along the (0,0)-(1,1) diagonal; finer edges snap to the coarser neighbour',
     } } : {}),

@@ -1,5 +1,6 @@
 // Chooser previews: stills and one live passage, rendered by the same world
-// configuration (the Range uses a labeled legacy illustration). Pure
+// configuration (Landscape uses a labeled legacy illustration; Trio is the
+// performance itself). Pure
 // passage/copy helpers live here so
 // Node tests can pin the contract without a document. Canvas work is
 // browser-only and injectable, so a test never has to boot BiomeManager.
@@ -8,10 +9,10 @@ import { Role } from '../core/NoteEvent.js';
 import { clamp, clamp01 } from '../utils/math.js';
 import { buildWorldVariant } from '../world/WorldScore.js';
 import {
-  listWorlds, getWorld, resolveWorldId, getCustomWorld, setCustomWorld, clearCustomWorld,
+  listWorlds, getWorld, resolveWorldId, getCustomWorld, setCustomWorld, clearCustomWorld, worldExperience,
 } from '../world/Worlds.js';
 
-export const PREVIEW_VERSION = 1;
+export const PREVIEW_VERSION = 2;
 export const PREVIEW_SPAN_MS = 8000;
 export const PREVIEW_W = 480;
 export const PREVIEW_H = 270;
@@ -92,54 +93,21 @@ export function passageStart(passages, which = 'peak') {
  */
 export function describeWorldResponse(kind, features = {}, extras = {}) {
   const f = features || {};
-  const onset = Number(f.onset) || 0;
-  const bass = Number(f.bass) || 0;
   const groove = Number(f.groove) || 0;
   const phrase = Number(f.phrase) || 0;
-  const air = Number(f.air) || 0;
-  const texture = Number(f.texture) || 0;
   const contrast = Number(f.contrast) || 0;
   const form = Number(f.form) || 0;
-  const hasLabels = !!extras.hasLabels;
 
+  if (extras.experience === 'trio') {
+    return groove > 0.4
+      ? 'Midio jumps the kicks, Broshi hops the bass and Midasus follows the melody, sometimes into deep space.'
+      : 'The trio performs on a dancing range under the space ridge; Midasus may leave to draw in the stars.';
+  }
   switch (kind) {
     case 'alpine':
       return phrase > 0.45
         ? 'Phrases shape the ridgeline; bass gives the range its weight.'
         : 'Atmosphere first. Isolated phrases move the ridgeline.';
-    case 'city':
-      return onset > 0.38
-        ? 'Selected hits light one district at a time; the rest of the city stays dim.'
-        : groove > 0.4
-          ? 'Windows follow the groove; lamps idle with the mix.'
-          : 'A quieter city. Sparse windows, no invented traffic.';
-    case 'abyssal':
-      return bass > 0.4
-        ? 'Broad waves follow the bass; small lights follow the percussion.'
-        : 'A still column. Light follows whatever low end is there.';
-    case 'airless':
-      return air > 0.45
-        ? 'Slow form guides the illumination. Isolated accents leave a surface trace.'
-        : 'Composition and stillness. Dense hits are filtered so the limb does not strobe.';
-    case 'strip':
-      return groove > 0.45
-        ? 'The road cruises with the mix. Phrase boundaries open a tunnel, then a horizon.'
-        : 'A controlled cruise. No tempo is invented from a missing beat.';
-    case 'foundry':
-      return onset > 0.4
-        ? 'Percussion drops one hammer at a time; sustained energy is the heat.'
-        : 'Low embers. A kick is not a pour.';
-    case 'overgrowth':
-      return texture > 0.4
-        ? 'Sustained texture grows the canopy; phrases open the light. One colony answers each hit.'
-        : 'Slow structural growth. Fine activity follows whatever detail is there.';
-    case 'nave':
-      if (hasLabels) {
-        return 'Returning sections light the same stained-glass bays; bass fills the interior.';
-      }
-      return bass > 0.35
-        ? 'Bays follow the bass equally. No chorus is invented from missing labels.'
-        : 'Broad phrasing. Weak structure does not mint a motif.';
     default:
       return contrast + form > 0.8
         ? 'The scene follows measured contrast and shape, not a guessed genre.'
@@ -147,10 +115,8 @@ export function describeWorldResponse(kind, features = {}, extras = {}) {
   }
 }
 
-export function previewCacheKey({
-  worldId, seed, tMs, reducedFlash = false, reducedMotion = false, version = PREVIEW_VERSION, experience = 'landscape',
-} = {}) {
-  return `${version}|${worldId}|${seed >>> 0}|${Math.round(tMs || 0)}|${reducedFlash ? 1 : 0}|${reducedMotion ? 1 : 0}${experience === 'trio' ? '|trio' : ''}`;
+export function previewCacheKey({ worldId, seed, tMs, version = PREVIEW_VERSION } = {}) {
+  return `${version}|${worldId}|${seed >>> 0}|${Math.round(tMs || 0)}`;
 }
 
 function withCustomWorld(world, fn) {
@@ -165,25 +131,27 @@ function withCustomWorld(world, fn) {
 }
 
 /**
- * Build a tailored world, then draw it at `tMs`. The Range illustrates its
- * legacy configuration; its chooser card labels this explicitly.
+ * Build a tailored world, then draw it at `tMs`. Landscape illustrates its
+ * legacy configuration; its chooser card labels this explicitly. Trio is a
+ * small performance: its world with the cast on it.
  * Caller must dispose(). Browser-only: strip bakes need a canvas factory.
  */
 export function createPreviewWorld({
-  worldId, data = {}, features = null, seed = 1,
-  reducedFlash = false, reducedMotion = false, width = PREVIEW_W, height = PREVIEW_H,
+  worldId, data = {}, features = null, seed = 1, width = PREVIEW_W, height = PREVIEW_H,
 } = {}) {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
   worldId = resolveWorldId(worldId);
-  if (data.experience === 'trio') {
+  if (worldExperience(worldId) === 'trio') {
     const runtime = createPreviewWorld._trio;
     if (!runtime) throw new Error('Preview renderer is not loaded');
     const conductor = new Conductor(); conductor.load({ ...data, timeline: data.timeline || [], barGrid: data.barGrid || [] });
-    const sim = new runtime.Simulation(conductor, new runtime.ParamBus(), { experience: 'trio',
-      canvasWidth: 1280, canvasHeight: 720, energyCurves: data.energyCurves, songSeed: seed });
-    sim.setReducedFlash(reducedFlash); sim.setReducedMotion(reducedMotion);
+    const variant = worldId === getCustomWorld()?.id ? getWorld(worldId) : buildWorldVariant(worldId, features, data).world;
+    const sim = withCustomWorld(variant, () => new runtime.Simulation(conductor, new runtime.ParamBus(), { worldId: 'custom',
+      canvasWidth: 1280, canvasHeight: 720, energyCurves: data.energyCurves, songSeed: seed,
+      structure: data.structure || null, lyricSections: data.lyricSections || null }));
+    sim.biomes.pumpStripPrewarm = () => {};
     const renderer = runtime.createPresentingRenderer({ canvas, presentation: data.previewPresentation || runtime.resolvePresentation(runtime.DEFAULT_DISPLAY_PREFS) });
     let last = -Infinity;
     return { kind: 'trio', canvas, draw(timeMs) {
@@ -216,8 +184,6 @@ export function createPreviewWorld({
     lyricSections: data.lyricSections || null,
     worldId: 'custom',
   }));
-  mgr.reducedFlash = !!reducedFlash;
-  mgr.reducedMotion = !!reducedMotion;
   mgr.openingGain = 1;
   const scale = height / 720;
   const speed = 220 * scale;
@@ -282,7 +248,7 @@ function defaultSchedule(fn) {
  */
 export class PreviewSession {
   constructor({
-    data, features, seed = 1, reducedFlash = false, reducedMotion = false,
+    data, features, seed = 1,
     worldIds = null,
     renderStill = null,
     createWorld = null,
@@ -298,8 +264,6 @@ export class PreviewSession {
     this.data = data || {};
     this.features = features || {};
     this.seed = seed >>> 0;
-    this.reducedFlash = !!reducedFlash;
-    this.reducedMotion = !!reducedMotion;
     this.passages = pickPreviewPassages(this.data);
     this.passage = 'peak';
     this.worldIds = worldIds || listWorlds().map((w) => w.id);
@@ -330,11 +294,8 @@ export class PreviewSession {
   keyFor(worldId, which = this.passage) {
     return previewCacheKey({
       worldId,
-      experience: this.data.experience,
       seed: this.seed,
       tMs: passageStart(this.passages, which),
-      reducedFlash: this.reducedFlash,
-      reducedMotion: this.reducedMotion,
     });
   }
 
@@ -372,8 +333,7 @@ export class PreviewSession {
     this.stopPreview();
     this.enqueue(worldId, true);
     this._previewWorldId = worldId;
-    this.onPreviewStart({ worldId, reduced: this.reducedFlash || this.reducedMotion });
-    if (this.reducedFlash || this.reducedMotion) return;
+    this.onPreviewStart({ worldId });
 
     const t0 = passageStart(this.passages, this.passage);
     const create = this._createWorld || ((args) => {
@@ -389,8 +349,6 @@ export class PreviewSession {
         data: this.data,
         features: this.features,
         seed: this.seed,
-        reducedFlash: this.reducedFlash,
-        reducedMotion: this.reducedMotion,
       });
     } catch (err) {
       this._previewWorldId = null;
@@ -479,8 +437,6 @@ export class PreviewSession {
         features: this.features,
         seed: this.seed,
         tMs: passageStart(this.passages, job.passage),
-        reducedFlash: this.reducedFlash,
-        reducedMotion: this.reducedMotion,
       });
       if (result && typeof result.then === 'function') {
         result.then(finish, () => finish(null));

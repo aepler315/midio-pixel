@@ -4,7 +4,7 @@ import { BiomeManager } from '../src/world/BiomeManager.js';
 
 // A real horizon painter with a recording canvas; only the palette lookup is
 // fixed so contrast can be checked against a known dusky sky.
-function paintedHorizon({ budget = .08, band = .35, openingGain = 1, reducedFlash = false } = {}) {
+function paintedHorizon({ budget = .08, band = .35, openingGain = 1 } = {}) {
   const manager = Object.create(BiomeManager.prototype);
   manager.lerpCache = { get: a => a };
   manager._rotated = color => color;
@@ -14,7 +14,6 @@ function paintedHorizon({ budget = .08, band = .35, openingGain = 1, reducedFlas
   manager._eqSmoothed = Float32Array.from({ length: 7 }, () => band);
   manager.budget = budget;
   manager.openingGain = openingGain;
-  manager.reducedFlash = reducedFlash;
   const strokes = [], saved = [];
   const ctx = {
     globalAlpha: 1, globalCompositeOperation: 'source-over', strokeStyle: '', lineWidth: 1,
@@ -43,15 +42,12 @@ test('the Dancing Ridge stays distinctly luminous in a subdued scene', () => {
   assert.ok(strokes.every(s => s.width <= 16), 'the glow does not become a wide sky wash');
 });
 
-test('music strengthens the halo while reduced flash keeps a steady bright crest', () => {
+test('music strengthens the halo', () => {
   const quiet = paintedHorizon({ band: .04, budget: .4 });
   const active = paintedHorizon({ band: .9, budget: .4 });
-  const reduced = paintedHorizon({ band: .9, budget: .4, reducedFlash: true });
   const glowWeight = strokes => strokes.filter(s => s.width >= 4)
     .reduce((sum, s) => sum + s.width * s.alpha, 0);
   assert.ok(glowWeight(active) > glowWeight(quiet) * 1.35, 'a loud section visibly lights its contour');
-  assert.ok(glowWeight(reduced) < glowWeight(active), 'reduced flash limits the energetic halo');
-  assert.ok(reduced.some(s => s.width <= 3 && s.alpha >= .55), 'steady crest survives reduced flash');
 });
 
 test('the crest respects the opening fade without vanishing at the lowest scene budget', () => {

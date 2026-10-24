@@ -75,11 +75,12 @@ export function presetById(id) {
 export const MIME_CANDIDATES = [
   { mimeType: 'video/mp4;codecs="avc1.42E01E,mp4a.40.2"', ext: 'mp4', video: 'H.264', audio: 'AAC', reach: 'anywhere' },
   { mimeType: 'video/mp4;codecs="avc1.4D401F,mp4a.40.2"', ext: 'mp4', video: 'H.264', audio: 'AAC', reach: 'anywhere' },
-  { mimeType: 'video/mp4;codecs=avc1', ext: 'mp4', video: 'H.264', audio: null, reach: 'anywhere' },
-  { mimeType: 'video/mp4', ext: 'mp4', video: null, audio: null, reach: 'unknown' },
   { mimeType: 'video/webm;codecs="vp9,opus"', ext: 'webm', video: 'VP9', audio: 'Opus', reach: 'browsers' },
   { mimeType: 'video/webm;codecs="vp8,opus"', ext: 'webm', video: 'VP8', audio: 'Opus', reach: 'browsers' },
   { mimeType: 'video/webm', ext: 'webm', video: null, audio: null, reach: 'browsers' },
+  // Prefer an explicit audio/video pair over browser-chosen MP4 audio.
+  { mimeType: 'video/mp4;codecs=avc1', ext: 'mp4', video: 'H.264', audio: null, reach: 'unknown' },
+  { mimeType: 'video/mp4', ext: 'mp4', video: null, audio: null, reach: 'unknown' },
 ];
 
 /**
@@ -100,13 +101,13 @@ export function pickMimeType(isSupported) {
 
 /** One sentence the UI can show before recording, and mean. */
 export function reachSummary(candidate) {
-  if (!candidate) return 'This browser cannot record video. Chrome or Edge can.';
-  if (candidate.reach === 'anywhere') return 'H.264 MP4 — plays on car head units, TVs and phones.';
+  if (!candidate) return 'This browser cannot record video. Try a browser with video recording support.';
+  if (candidate.reach === 'anywhere') return 'H.264/AAC MP4 — broad player support; check the target’s supported resolution and FPS.';
   if (candidate.reach === 'unknown') {
     return 'MP4, but this browser picks the codec and it may not be H.264 — fine on a computer, '
-      + 'not guaranteed on a car head unit. Chrome or Edge will give you H.264.';
+      + 'not guaranteed on a car head unit.';
   }
-  return 'WebM — plays in browsers, but not on most car head units or TVs. Chrome or Edge will give you MP4.';
+  return 'WebM — plays in browsers, but not on most car head units or TVs.';
 }
 
 /**
@@ -237,7 +238,66 @@ export function describeResult({ candidate, codec, bytes, durationMs } = {}) {
   const size = formatBytes(bytes);
   const length = formatElapsed(durationMs);
   const container = (candidate?.ext || 'file').toUpperCase();
-  if (codec === 'H.264') return `${container} · H.264 · ${length} · ${size} — plays anywhere, including car head units.`;
+  if (codec === 'H.264' && candidate?.audio === 'AAC') return `${container} · H.264 · ${length} · ${size} — AAC audio; check the target player’s supported resolution and FPS.`;
+  if (codec === 'H.264') return `${container} · H.264 · ${length} · ${size} — audio codec unverified; check playback on the target device.`;
   if (codec) return `${container} · ${codec} · ${length} · ${size} — plays on computers and phones; most car head units and TVs will not decode ${codec}.`;
   return `${container} · ${length} · ${size}`;
+}
+
+// Front-screen export preferences. Output pixels, compression and playback
+// detail are deliberately independent. Legacy recorder presets remain valid.
+export const EXPORT_SETTINGS_KEY = 'midio-pixel:export:v1';
+export const EXPORT_RESOLUTIONS = ['480', '720', '1080', '1440', '2160'];
+export const EXPORT_ASPECTS = ['16:9', '9:16', '1:1', '4:3', '5:3'];
+export const EXPORT_FPS = [24, 30, 60];
+export const EXPORT_ENCODINGS = ['compact', 'balanced', 'best'];
+export const DEFAULT_EXPORT_SETTINGS = Object.freeze({
+  version: 1, resolution: '720', aspect: '16:9', fps: 30, encoding: 'balanced', framing: 'fit',
+});
+
+export function resolveExportSettings(saved = {}) {
+  const input = saved && typeof saved === 'object' ? saved : {};
+  const value = (key, choices) => choices.includes(input[key]) ? input[key] : DEFAULT_EXPORT_SETTINGS[key];
+  const resolution = value('resolution', EXPORT_RESOLUTIONS), aspect = value('aspect', EXPORT_ASPECTS);
+  const shortEdge = Number(resolution), even = n => Math.round(n / 2) * 2;
+  const [a, b] = aspect.split(':').map(Number);
+  const width = aspect === '5:3' ? 800 : even(shortEdge * Math.max(1, a / b));
+  const height = aspect === '5:3' ? 480 : even(shortEdge * Math.max(1, b / a));
+  const fps = value('fps', EXPORT_FPS), encoding = value('encoding', EXPORT_ENCODINGS);
+  return { version: 1, resolution: aspect === '5:3' ? '480' : resolution, aspect, fps, encoding,
+    framing: value('framing', ['fit', 'fill']), width, height, id: `${width}x${height}-${fps}fps-${encoding}` };
+}
+
+export function readExportSettings(storage) {
+  try {
+    const raw = storage?.getItem(EXPORT_SETTINGS_KEY);
+    if (raw) return resolveExportSettings(JSON.parse(raw));
+    const legacy = storage?.getItem('midio.export.preset');
+    if (legacy === 'car') return resolveExportSettings({ aspect: '5:3' });
+    if (['480p', '720p', '1080p'].includes(legacy)) return resolveExportSettings({ resolution: legacy.slice(0, -1) });
+  } catch { /* corrupt or unavailable storage falls back to usable defaults */ }
+  return resolveExportSettings();
+}
+
+export function writeExportSettings(storage, settings) {
+  try { storage?.setItem(EXPORT_SETTINGS_KEY, JSON.stringify(resolveExportSettings(settings))); }
+  catch { /* private mode does not prevent exporting */ }
+}
+
+export function exportVideoBitsPerSecond(settings) {
+  const s = resolveExportSettings(settings);
+  const factor = { compact: .55, balanced: 1, best: 1.8 }[s.encoding];
+  return Math.round(Math.max(800000, Math.min(80000000, s.width * s.height * s.fps * .1 * factor)));
+}
+
+export function estimateExportBytes(settings, durationMs) {
+  return Math.round((exportVideoBitsPerSecond(settings) + AUDIO_BITS_PER_SECOND) * Math.max(0, durationMs || 0) / 8000);
+}
+
+export function exportFrameRect(srcW, srcH, dstW, dstH, framing = 'fit') {
+  if (framing !== 'fill') return fitLetterbox(srcW, srcH, dstW, dstH);
+  if (!(srcW > 0 && srcH > 0 && dstW > 0 && dstH > 0)) return { x: 0, y: 0, width: 0, height: 0 };
+  const scale = Math.max(dstW / srcW, dstH / srcH);
+  const width = Math.round(srcW * scale), height = Math.round(srcH * scale);
+  return { x: Math.round((dstW - width) / 2), y: Math.round((dstH - height) / 2), width, height };
 }

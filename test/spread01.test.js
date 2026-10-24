@@ -50,7 +50,7 @@ test('spread01 measurably improves edge-band reachability for a central-limit-co
   const rand = mulberry32(31337);
   const N = 20000;
   let rawInEdge = 0, spreadInEdge = 0;
-  const EDGE_LO = 0.02, EDGE_HI = 0.30; // matches WorldScore's 'farside' comfort band
+  const EDGE_LO = 0.02, EDGE_HI = 0.30; // a low-drive comfort band at the edge of drive-space
   for (let i = 0; i < N; i++) {
     const raw = Math.min(1, 0.28 * rand() + 0.18 * rand() + 0.16 * rand() + 0.14 * rand() + 0.24 * rand());
     if (raw >= EDGE_LO && raw <= EDGE_HI) rawInEdge++;

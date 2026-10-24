@@ -15,7 +15,8 @@ try {
     canvas.width = 640; canvas.height = 720;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     const results = [];
-    for (const kind of ['city', 'airless', 'abyssal', 'strip', 'foundry', 'overgrowth', 'nave']) {
+    // Both worlds (Landscape and Trio) are the alpine kind.
+    for (const kind of ['alpine']) {
       const mgr = Object.assign(Object.create(BiomeManager.prototype), {
         world: { kind }, tSec: 3, _danceKickMs: 2950, _danceKickAmp: 1,
         _danceGroove: 1, _danceSustain: 1, _eqSmoothed: [1, 1, 1, 1, 1, 1, 1],
@@ -24,7 +25,7 @@ try {
       let cases = 0, worstLeak = 0, minPaint = Infinity, unexpectedEmpty = 0;
       for (const layer of ['L2', 'L3', 'L4', 'L5']) {
         const strip = generateSilhouette({ seed: 31, width: 400, height: 300,
-          profile: kind === 'city' ? 'city' : 'columnar', kind, color: '#687080', step: 4 });
+          profile: 'alpine', kind, color: '#687080', step: 4 });
         for (const level of [0, MAX_LEVEL]) for (const growth of [0, 1]) for (const pullback of [0, 1]) {
           mgr._perf = new PerfGovernor(); mgr._perf.level = level;
           mgr.orogenyGrowth = growth; mgr.pullback01 = pullback;
@@ -48,7 +49,7 @@ try {
               }
               if (!inside) leaked++;
             }
-            if (!painted && !(kind === 'airless' && level === MAX_LEVEL)) unexpectedEmpty++;
+            if (!painted) unexpectedEmpty++;
             cases++; worstLeak = Math.max(worstLeak, leaked); minPaint = Math.min(minPaint, painted);
           }
         }

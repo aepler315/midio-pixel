@@ -11,13 +11,13 @@ export function renderRunReport(report) {
     ${s.audio ? `<audio id="audio-${index}" controls preload="metadata" src="${escapeHtml(s.audio)}"></audio>` : ''}
     ${(s.clips || []).map((c, n) => `<button data-song="${index}" data-clip="${n}">Play clip ${(c.startMs / 1000).toFixed(2)}–${((c.startMs + c.durationMs) / 1000).toFixed(2)}s</button>`).join('')}
     ${(s.clips || []).length ? `<img id="clip-${index}" alt="Motion clip frames" style="max-width:${report.settings.width}px;display:none">` : ''}
-    <div class="grid">${s.frames.filter(f => f.checkpoint).map(f => `<figure><a href="${escapeHtml(f.png)}"><img loading="lazy" src="${escapeHtml(f.png)}" alt="${escapeHtml(s.id)} at ${f.actualTimeMs}ms"></a><figcaption>${f.view ? escapeHtml(f.view) + " · " : ""}Requested ${(f.timeMs / 1000).toFixed(3)}s · actual ${(f.actualTimeMs / 1000).toFixed(3)}s<br>v2 ${escapeHtml(f.range?.viewId)} · quality ${f.quality}${f.accessibility ? ` · flash ${f.accessibility.reducedFlash ? 'reduced' : 'full'} · motion ${f.accessibility.reducedMotion ? 'reduced' : 'full'}` : ' · preferences unverified'}<br>Energy ${Number(f.audio?.energy ?? 0).toFixed(3)} · storm ${Number(f.controls?.storm?.amount ?? 0).toFixed(3)}</figcaption></figure>`).join('')}</div>
+    <div class="grid">${s.frames.filter(f => f.checkpoint).map(f => `<figure><a href="${escapeHtml(f.png)}"><img loading="lazy" src="${escapeHtml(f.png)}" alt="${escapeHtml(s.id)} at ${f.actualTimeMs}ms"></a><figcaption>${f.view ? escapeHtml(f.view) + " · " : ""}Requested ${(f.timeMs / 1000).toFixed(3)}s · actual ${(f.actualTimeMs / 1000).toFixed(3)}s<br>v2 ${escapeHtml(f.range?.viewId)} · quality ${f.quality}<br>Energy ${Number(f.audio?.energy ?? 0).toFixed(3)} · storm ${Number(f.controls?.storm?.amount ?? 0).toFixed(3)}</figcaption></figure>`).join('')}</div>
     <details><summary>All consecutive clip frames</summary><div class="grid">${s.frames.filter(f => f.clips.length).map(f => `<figure><img loading="lazy" src="${escapeHtml(f.png)}" alt="${escapeHtml(s.id)} ${f.actualTimeMs}ms"><figcaption>${f.actualTimeMs.toFixed(2)}ms</figcaption></figure>`).join('')}</div></details>
-    <details><summary>Diagnostics</summary><pre>${escapeHtml(JSON.stringify({ errors: s.errors, warnings: s.warnings }, null, 2))}</pre></details></section>`).join('');
+    <details><summary>Diagnostics</summary><pre>${escapeHtml(JSON.stringify({ errors: s.errors, warnings: s.warnings, events: s.events }, null, 2))}</pre></details></section>`).join('');
   return document('Midio visual evaluation', `<p class="status">Capture: ${escapeHtml(report.status)} · visual judgment: unreviewed</p>
   <p>${escapeHtml(report.settings.mode)} export sampling · ${report.settings.width} × ${report.settings.height} · ${report.settings.fps} FPS clip cadence.<br>
   Sparse runs advance simulation across gaps but do not draw every intervening frame. Continuous runs draw from zero. These are actual app renders; software WebGL timing is not device FPS.</p>
-  <p>Source ${escapeHtml(report.source?.commit)} · ${escapeHtml(report.source?.digest)}<br>Browser ${escapeHtml(report.browser)} · seed ${report.settings.seed} · quality ${report.settings.quality} · reduced flash ${report.settings.reducedFlash ?? false} · reduced motion ${report.settings.reducedMotion ?? false} · pinned view ${escapeHtml(report.settings.view ?? 'natural')} / biome ${escapeHtml(report.settings.biome ?? 'natural')}</p>
+  <p>Source ${escapeHtml(report.source?.commit)} · ${escapeHtml(report.source?.digest)}<br>Browser ${escapeHtml(report.browser)} · seed ${report.settings.seed} · quality ${report.settings.quality} · pinned view ${escapeHtml(report.settings.view ?? 'natural')} / biome ${escapeHtml(report.settings.biome ?? 'natural')}</p>
   <p>Listen and inspect: Is the intended object answering the audible attack? Does quiet material stay quiet? Does the climax preserve that response? Is camera movement coherent? Are terrain, sky and water readable together? Record each finding with song, time and hypothesis.</p>
   ${report.experiment ? `<p>Terrain shading: ${escapeHtml(report.experiment.requested)} · pixel scaling: ${escapeHtml(report.settings.presentation?.pixelScale)} · grid: ${escapeHtml(report.settings.presentation?.pixelGrid)}</p>` : ''}
   ${report.error ? `<pre class="status">${escapeHtml(report.error)}</pre>` : ''}${songs}`, `
@@ -43,10 +43,24 @@ export function renderRunReport(report) {
 }
 
 export function renderComparisonReport(diff, before, after) {
-  return document('Midio before / after', `<p class="status">Visual judgment: unreviewed</p>
-  <p>Inputs, capture schedule, settings and browser match. Source changes: ${escapeHtml(before.source?.commit)} → ${escapeHtml(after.source?.commit)}.<br>
-  Accessibility provenance: ${escapeHtml(diff.accessibility?.provenance ?? 'unknown')}${diff.accessibility?.freshBaselineRequired ? ' — the baseline predates verified preferences; capture a fresh baseline before relying on matched flash/motion state' : ''}.
+  const source = diff.source;
+  const labels = {
+    repeatability: ['Repeatability comparison', 'Public runtime bytes are identical. This measures repeatability of the captured source.'],
+    'committed-source': ['Committed source comparison', 'Public runtime bytes and commit identities differ; both captures recorded clean working trees.'],
+    'working-tree': ['Working tree comparison', 'Public runtime bytes differ, with a shared commit identity or recorded working tree edits. Commit labels alone do not identify these bytes.'],
+    unverified: ['Source comparison with unverified cleanliness', 'Public runtime bytes differ, but historical working tree metadata cannot establish two clean committed sources.'],
+  };
+  const [title, scope] = labels[source?.kind] || labels.unverified;
+  const identity = side => {
+    const value = source?.[side] || (side === 'before' ? before.source : after.source);
+    const dirty = value?.dirty;
+    const state = dirty == null ? 'unknown' : dirty === '' || dirty === false ? 'clean' : String(dirty);
+    return `<p>${side === 'before' ? 'Baseline' : 'Comparison'} commit: ${escapeHtml(value?.commit)}<br>Public SHA-256: ${escapeHtml(value?.digest)}<br>Working tree: ${escapeHtml(state)}</p>`;
+  };
+  return document(`Midio ${title.toLowerCase()}`, `<p class="status">${escapeHtml(title)} · Visual judgment: unreviewed</p>
+  <p>Inputs, capture schedule, settings and browser match. ${escapeHtml(scope)}<br>
   Pixel differences show change, not improvement. Listen to the matching audio in the baseline and candidate reports before accepting a change.</p>
+  ${identity('before')}${identity('after')}
   <p><a href="baseline/index.html">Baseline with audio and motion</a> · <a href="candidate/index.html">Candidate with audio and motion</a></p>
   ${diff.frames.map((f, i) => `<section><h2>${escapeHtml(f.songId)} · ${(f.timeMs / 1000).toFixed(3)}s</h2>
   <p>${f.identical ? 'Identical PNG' : 'PNG changed'} · ${(100 * f.difference.changedFraction).toFixed(2)}% changed pixels in 64 × 36 thumbnail</p>

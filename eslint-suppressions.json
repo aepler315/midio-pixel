@@ -183,11 +183,6 @@
       "count": 1
     }
   },
-  "test/worldScore.test.js": {
-    "no-unused-vars": {
-      "count": 1
-    }
-  },
   "tools/free-music.mjs": {
     "no-useless-assignment": {
       "count": 1

@@ -16,7 +16,7 @@ export const REAL_BIOMES = Object.freeze(Object.keys(RANGE_FIXTURES));
 export const PRESETS = Object.freeze({
   primary: 'Eleven real-biome fixtures at day, 1280x720.',
   lighting: 'Explicit day and night, forest and dry terrain.',
-  quality: 'Lowest quality and reduced flashes.',
+  quality: 'Lowest quality.',
   viewport: 'Wide, portrait, and DPR 2.',
   travel: 'Forest/desert A/B seam at 25, 50, 75 percent.',
   geometry: 'Broad Book Cliffs, pullback and spectrum massif isolation.',
@@ -24,7 +24,7 @@ export const PRESETS = Object.freeze({
   full: 'Primary, lighting, travel, geometry, quality and viewport.',
   motion: 'Ten seconds of deterministic 12fps full-composite frames.',
 });
-const PRIMARY = { seed: 315, timeMs: 20000, level: 0, reducedFlash: false,
+const PRIMARY = { seed: 315, timeMs: 20000, level: 0,
   width: 1280, height: 720, dpr: 1, pass: 'all', forced: true, label: 'material-fixture' };
 
 export function casesForPreset(preset) {
@@ -34,10 +34,8 @@ export function casesForPreset(preset) {
   if (preset === 'primary') return REAL_BIOMES.map(biome => ({ ...PRIMARY, biome }));
   if (preset === 'lighting') return ['RAINFOREST', 'DESERT', 'ICEFIELD', 'STEPPE'].flatMap(biome =>
     [20000, 68000].map(timeMs => ({ ...PRIMARY, biome, timeMs, label: timeMs === 20000 ? 'day' : 'night' })));
-  if (preset === 'quality') return ['RAINFOREST', 'DESERT', 'ICEFIELD'].flatMap(biome => [
-    { ...PRIMARY, biome, level: 6, label: 'lowest-quality' },
-    { ...PRIMARY, biome, reducedFlash: true, label: 'reduced-flash' },
-  ]);
+  if (preset === 'quality') return ['RAINFOREST', 'DESERT', 'ICEFIELD'].map(biome =>
+    ({ ...PRIMARY, biome, level: 6, label: 'lowest-quality' }));
   if (preset === 'viewport') return [
     { width: 1920, height: 1080, dpr: 1 }, { width: 720, height: 1280, dpr: 1 },
     { width: 1280, height: 720, dpr: 2 },
@@ -63,7 +61,7 @@ export function casesForPreset(preset) {
 
 export function caseId(spec, extra = {}) {
   return [spec.label || 'frame', spec.biome, spec.seed, spec.timeMs, spec.station ?? '-', spec.level,
-    spec.reducedFlash ? 'reduced' : 'full', spec.width, spec.height, spec.dpr, spec.pass || 'all',
+    spec.width, spec.height, spec.dpr, spec.pass || 'all',
     spec.zoom ?? 1, extra.fixtureHash || 'nofixture',
     spec.transition ? `${spec.transition.to}-${spec.transition.t}` : 'settled'].join(':');
 }

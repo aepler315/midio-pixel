@@ -71,7 +71,8 @@ page.on('pageerror', (err) => errors.push('[pageerror] ' + err.message));
 
 try {
   // Step 1: load the multi-track MIDI through the real file-input UI.
-  await page.goto(url, { waitUntil: 'load' });
+  // Start straight in Landscape; the world chooser is not under test here.
+  await page.goto(new URL('?experience=landscape', url).href, { waitUntil: 'load' });
   const input = await page.$('#fileInput');
   await input.setInputFiles(midiPath);
   await page.waitForSelector('#hud:not(.hidden)', { timeout: 15000 });

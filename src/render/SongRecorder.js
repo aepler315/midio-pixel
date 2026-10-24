@@ -24,14 +24,16 @@
 // `captureStream(fps)` lets the browser sample the canvas on its own clock,
 // which duplicates frames when it samples faster than the app draws and
 // drops them when it samples slower. `captureStream(0)` plus an explicit
-// `requestFrame()` after each composite yields exactly one encoded frame per
-// rendered frame. Where `requestFrame` is missing, it falls back to timed
+// `requestFrame()` after each composite requests completed frames without an
+// independent sampling clock. The browser may still coalesce or drop them. Where `requestFrame` is missing, it falls back to timed
 // sampling rather than refusing to record.
 import {
-  STAGE_W, STAGE_H, fitLetterbox, needsLetterbox, pickMimeType,
+  STAGE_W, STAGE_H, needsLetterbox, pickMimeType,
   videoBitsPerSecond, AUDIO_BITS_PER_SECOND, sniffVideoCodec, presetById,
+  resolveExportSettings, exportVideoBitsPerSecond, exportFrameRect,
 } from './VideoExport.js';
 
+import { FrameCadence } from './FrameCadence.js';
 import { fitPixelRect } from './PixelPresentation.js';
 
 const FALLBACK_SAMPLE_FPS = 60;
@@ -95,6 +97,15 @@ export class SongRecorder {
     return MR ? pickMimeType((type) => MR.isTypeSupported(type)) : null;
   }
 
+  get settings() { return this._settings ? { ...this._settings } : null; }
+
+  get captureStats() {
+    const span = (this._lastFrameAt ?? 0) - (this._firstFrameAt ?? 0);
+    return { frames: this._capturedFrames || 0, requestedFps: this._settings?.fps || 60,
+      averageFps: span > 0 ? Math.max(0, this._capturedFrames - 1) * 1000 / span : 0,
+      timedSampling: this._pushesFrames === false };
+  }
+
   get elapsedMs() {
     return this.recording ? this._durationMs() : 0;
   }
@@ -150,7 +161,7 @@ export class SongRecorder {
    * with `this.error` set, because a failed export must not take the song
    * down with it.
    */
-  start({ presetId, deferFirstFrame = false } = {}) {
+  start({ presetId, settings, initialFrame = null, deferFirstFrame = false } = {}) {
     if (this.recording || this.finalizing) return false;
     this.error = null;
     const MR = this.scope?.MediaRecorder;
@@ -159,15 +170,21 @@ export class SongRecorder {
     const candidate = this.candidate;
     if (!candidate) { this.error = 'This browser cannot record video.'; return false; }
 
-    const preset = presetById(presetId);
+    this._settings = settings ? resolveExportSettings(settings) : null;
+    this._captureCadence = new FrameCadence();
+    this._capturedFrames = 0; this._firstFrameAt = null; this._lastFrameAt = null;
+    const preset = this._settings || presetById(presetId);
     try {
       this._setupCanvas(preset);
+      // captureStream emits an initial frame even at rate zero. Paint the
+      // completed scene before constructing it so that frame is not black.
+      if (initialFrame && !this._compositeFrame(initialFrame)) throw new Error('Could not capture the opening frame.');
       const stream = this._buildStream(preset);
       if (!stream) return false;
 
       this._recorder = new MR(stream, {
         mimeType: candidate.mimeType,
-        videoBitsPerSecond: videoBitsPerSecond(preset.width, preset.height),
+        videoBitsPerSecond: this._settings ? exportVideoBitsPerSecond(this._settings) : videoBitsPerSecond(preset.width, preset.height),
         audioBitsPerSecond: AUDIO_BITS_PER_SECOND,
       });
       this._chunks = [];
@@ -213,7 +230,7 @@ export class SongRecorder {
     this._canvas = canvas;
     this._ctx = canvas.getContext('2d', { alpha: false });
     this._lastCaptureFit = null;
-    this._fit = fitLetterbox(STAGE_W, STAGE_H, preset.width, preset.height);
+    this._fit = exportFrameRect(STAGE_W, STAGE_H, preset.width, preset.height, this._settings?.framing);
     this._bars = needsLetterbox(STAGE_W, STAGE_H, preset.width, preset.height);
     if (this._bars && this._ctx) {
       // Paint the bars once. Nothing draws over them afterwards, so they
@@ -235,7 +252,7 @@ export class SongRecorder {
     if (typeof this._videoTrack.requestFrame !== 'function') {
       // No manual frame pushing here; let the browser sample instead.
       this._videoTrack.stop();
-      const sampled = this._canvas.captureStream(FALLBACK_SAMPLE_FPS);
+      const sampled = this._canvas.captureStream(preset.fps || FALLBACK_SAMPLE_FPS);
       this._videoTrack = sampled.getVideoTracks()[0] || null;
       if (!this._videoTrack) { this.error = 'This browser will not capture the canvas.'; this._teardown(); return null; }
       this._pushesFrames = false;
@@ -271,19 +288,29 @@ export class SongRecorder {
    * Cheap by construction: one `drawImage` into a canvas of the export's
    * size. At the car preset that is a downscale into 800x480.
    */
-  captureFrame(source = {}) {
-    if (source == null) return;
+  captureFrame(source = {}, { alreadyPaced = false } = {}) {
+    if (source == null || !this.recording || this.paused) return;
+    if (this._settings && !alreadyPaced && !this._captureCadence.shouldDraw(this._durationMs(), this._settings.fps)) return;
+    if (this._compositeFrame(source)) {
+      this._noteCapturedFrame();
+      if (this._pushesFrames) this._videoTrack.requestFrame();
+    }
+  }
+
+  _compositeFrame(source) {
     const { canvas = this.stage, pixelated = false, scaling = 'fit' } = source;
-    if (!this.recording || this.paused || !this._ctx || !canvas) return;
+    if (!this._ctx || !canvas) return false;
     if (typeof source.drawCaptureFrame === 'function') {
       try {
-        if (source.drawCaptureFrame(this._ctx, this._canvas.width, this._canvas.height) && this._pushesFrames)
-          this._videoTrack.requestFrame();
+        // Pass the fit explicitly: the hybrid compositor resets transforms.
+        const drawn = source.drawCaptureFrame(this._ctx, this._canvas.width, this._canvas.height, this._settings ? this._fit : null);
         this._lastCaptureFit = null;
-      } catch { /* the next completed frame can still be recorded */ }
-      return;
+        return !!drawn;
+      } catch { return false; }
     }
-    const fit = pixelated ? fitPixelRect(canvas.width, canvas.height, this._canvas.width, this._canvas.height, scaling) : this._fit;
+    const fit = this._settings
+      ? exportFrameRect(canvas.width, canvas.height, this._canvas.width, this._canvas.height, this._settings.framing)
+      : pixelated ? fitPixelRect(canvas.width, canvas.height, this._canvas.width, this._canvas.height, scaling) : this._fit;
     if (JSON.stringify(fit) !== this._lastCaptureFit) {
       if (scaling === 'integer' || this._lastCaptureFit) {
         this._ctx.fillStyle = '#000000';
@@ -295,31 +322,59 @@ export class SongRecorder {
       const sourceCanvas = canvas;
       this._ctx.imageSmoothingEnabled = !pixelated;
       this._ctx.drawImage(sourceCanvas, fit.x, fit.y, fit.width, fit.height);
-      if (this._pushesFrames) this._videoTrack.requestFrame();
+      return true;
     } catch {
       // A canvas in a bad state for one frame is not worth ending a
       // recording over; the next frame usually works.
+      return false;
     }
+  }
+
+  _noteCapturedFrame() {
+    const at = this._durationMs();
+    this._firstFrameAt ??= at; this._lastFrameAt = at;
+    this._capturedFrames++;
   }
 
   /** Stop and resolve to `{blob, url, fileName-ready parts}` — or null if
    *  nothing was captured. */
-  stop() {
+  stop({ drain = false } = {}) {
     if (this.finalizing) return this._stopPromise;
     if (!this.recording) return null;
     this.recording = false;
     this.finalizing = true;
     const pending = this._stopPromise;
-    try {
-      this._recorder.stop();
-    } catch {
-      this._finish();
-    }
+    const recorder = this._recorder;
+    let encoderStopped = false;
+    const stopEncoder = () => {
+      if (encoderStopped || this._recorder !== recorder) return;
+      encoderStopped = true;
+      try { recorder.stop(); } catch { this._finish(); }
+    };
+    if (drain && this.scope?.requestAnimationFrame && this.scope?.setTimeout) {
+      // Freeze the picture and detach source audio immediately. Navigation
+      // may start a new song while the old encoder drains its final samples.
+      try { this.audioSource?.disconnect(this._audioDest); } catch { /* no tap */ }
+      // Finish queued GPU copies before timeline teardown can dispose their
+      // source canvases. The recording owns this completed surface afterward.
+      try {
+        this._ctx?.getImageData(0, 0, 1, 1);
+        if (this._pushesFrames) this._videoTrack.requestFrame();
+      } catch { /* canvas capture already reports unsupported/tainted sources */ }
+      // Hidden tabs can suspend animation callbacks entirely.
+      this.scope.setTimeout(stopEncoder, 1500);
+      this.scope.requestAnimationFrame(() => this.scope.requestAnimationFrame(() => {
+        // Two presentation callbacks alone lost the last VP9 samples on a
+        // software renderer. Keep the encoder open briefly after presentation.
+        this.scope.setTimeout(stopEncoder, 250);
+      }));
+    } else stopEncoder();
     return pending;
   }
 
   async _finish() {
     const durationMs = this._durationMs();
+    const capture = this.captureStats;
     const candidate = this._candidate;
     const chunks = this._chunks;
     const preset = this._preset;
@@ -347,6 +402,7 @@ export class SongRecorder {
       bytes: blob.size,
       durationMs,
       preset,
+      capture,
     });
   }
 

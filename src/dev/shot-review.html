@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scenic shot review</title>
+<style>
+  html, body { margin: 0; background: #20242a; color: #ddd; font: 12px system-ui, sans-serif; }
+  #status { padding: 8px; white-space: pre-wrap; }
+  img { display: block; max-width: 100%; }
+</style>
+</head>
+<body>
+<!-- Diagnostic page only (docs/scenic-tours.md, render stage): one view's
+     published terrain package, drawn with the production terrain material
+     under neutral light plus its forest (as range-scene-review's material
+     mode), from arbitrary candidate poses. Each render goes to an offscreen
+     target and is measured from the GPU readback (tools/lib/scenic-render.mjs).
+     Driven by openShotReview(); not linked from the app.
+       ?view=<catalog id>  [&paths=<url of JSON eye polylines>]  [&budget=desktop|mobile]  [&preview=0] -->
+<div id="status">loading…</div>
+<img id="frame" alt="">
+<script type="module">
+  import * as THREE from '../vendor/range/three-range.module.js';
+  import catalog from '../world/terrain/sceneCatalogData.js';
+  import { loadTerrainPackage } from '../world/alpine/RangeAssets.js';
+  import { createSurfaceTexture, terrainUniforms, createBandGeometries, createReviewMaterial, REVIEW_MODES } from '../world/alpine/TerrainGL.js';
+  import { terrainHeightAt } from '../world/alpine/TerrainMesh.js';
+  import { sceneUniforms, createSceneMaterial, createMaterialTextures, applyMaterial, setLinearFromHex } from '../world/alpine/TerrainMaterial.js';
+  import { loadMaterialPack, RULE_DEFAULTS } from '../world/alpine/MaterialPackage.js';
+  import { placeForest } from '../world/alpine/ForestCover.js';
+  import { createForest } from '../world/alpine/ForestGL.js';
+  import { scenePoseAt } from '../world/terrain/SceneTravel.js';
+  import { hashSeed } from '../utils/math.js';
+  import { SHOT_NEAR_M, SHOT_FAR_M, poseFrame, flipRows, alphaMask, decodeDepth, subjectSamples, shotMetrics } from '../../tools/lib/scenic-render.mjs';
+
+  const q = new URLSearchParams(location.search);
+  const status = document.getElementById('status');
+  const state = { ready: false, error: null };
+  window.__shotReview = state;
+  try {
+    const id = q.get('view') || 'monument-valley-163', budget = q.get('budget') || 'desktop';
+    const entry = catalog.views.find((v) => v.id === id);
+    if (!entry) throw new Error(`no catalog view ${id}`);
+    // The package's build record supplies the view (camera, landmarks);
+    // the catalog supplies the material and the package identity.
+    const assets = new URL('../assets/range/v2/', import.meta.url);
+    const manifestUrl = new URL(entry.terrainManifestUrl, assets);
+    const buildRes = await fetch(new URL(manifestUrl.href.replace(/\.terrain\.json$/, '.build.json')));
+    if (!buildRes.ok) throw new Error(`HTTP ${buildRes.status} for ${id} build record`);
+    const view = { ...(await buildRes.json()).view, id, terrainSourceId: entry.terrainSourceId, camera: entry.camera,
+      materialManifestUrl: entry.materialManifestUrl, materialRules: entry.materialRules || {} };
+    const [pkg, pack, paths] = await Promise.all([
+      loadTerrainPackage(manifestUrl.href, { expectManifestSha256: q.get('terrainSha') || entry.terrainManifestSha256 }),
+      loadMaterialPack(new URL(entry.materialManifestUrl, assets).href, { expectSha256: entry.materialManifestSha256 }),
+      q.get('paths') ? fetch(q.get('paths')).then((r) => r.json()) : [],
+    ]);
+    const data = pkg.data, g = data.grid;
+    const surface = createSurfaceTexture(THREE, data);
+    const base = terrainUniforms(THREE, data, surface);
+    const silhouette = createReviewMaterial(THREE, base);
+    silhouette.uniforms.uMode.value = REVIEW_MODES.silhouette;
+    const uniforms = sceneUniforms(THREE, base);
+    applyMaterial(uniforms, pack, createMaterialTextures(THREE, pack), view.materialRules);
+    const material = createSceneMaterial(THREE, uniforms, { budget });
+    // Neutral light: range-scene-review's material-mode defaults.
+    const lin = (hex) => setLinearFromHex(new THREE.Color(), hex);
+    uniforms.uSkyZenith.value.copy(lin('#21374e'));
+    uniforms.uSkyHorizon.value.copy(lin('#5d687a'));
+    uniforms.uAirColor.value.copy(lin('#465668'));
+    uniforms.uLightColor.value.copy(lin('#aab4c8')).multiplyScalar(0.9);
+    uniforms.uAirDensity.value = 1 / 42000;
+    uniforms.uLightDir.value.set(-0.35, 0.35, -0.87).normalize();
+    const { geometries, stats } = createBandGeometries(THREE, data, { budget });
+    const scene = new THREE.Scene();
+    const terrain = Object.values(geometries).map((geo) => { const m = new THREE.Mesh(geo, material); m.frustumCulled = false; scene.add(m); return m; });
+    // Forest for the rail plus any footprint polylines (ForestCover), in a
+    // colour group (material mode) and a depth-only group (depth mode).
+    const rules = { ...pack.manifest.rules, ...view.materialRules };
+    const trees = new THREE.Group(), treeDepth = new THREE.Group();
+    scene.add(trees, treeDepth);
+    let forest = null;
+    state.setPaths = (cameraPaths) => {
+      trees.clear(); treeDepth.clear(); forest?.dispose();
+      view.cameraPaths = cameraPaths || [];
+      forest = createForest(THREE, placeForest(data, view, rules, { seed: hashSeed(view.terrainSourceId || view.id) }), uniforms, { partitioned: false });
+      const treeMeshes = [...forest.byBand.far, ...forest.byBand.mid, ...forest.byBand.near];
+      if (treeMeshes.length) trees.add(...treeMeshes);
+      if (forest.depth.length) treeDepth.add(...forest.depth);
+      // RangeScene._setFarForest at quality rung 0 (shot tours play rail
+      // views: no tour cap): the 3D trees hand over to the terrain's canopy
+      // and far dots between 6.5 and 7.8 km, with the placement's seed.
+      const shown = Object.values(forest.counts).some((n) => n > 0);
+      uniforms.uFarForest.value.set(shown ? 6500 : 0, shown ? 7800 : 0, rules.treeScale ?? RULE_DEFAULTS.treeScale, 0);
+      uniforms.uForestSeed.value = hashSeed(view.terrainSourceId || view.id) >>> 0;
+      return (state.trees = forest.counts);
+    };
+    state.setPaths(paths);
+
+    const canvas = document.createElement('canvas');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: true });
+    renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+    renderer.setPixelRatio(1);
+    const gl = renderer.getContext(), info = gl.getExtension('WEBGL_debug_renderer_info');
+    state.renderer = info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+    const camera = new THREE.PerspectiveCamera(30, 16 / 9, SHOT_NEAR_M, SHOT_FAR_M);
+    // Window depth (Float32) packed bit-exactly into RGBA8 for readback.
+    const unpack = new THREE.Scene(), flat = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), tri = new THREE.BufferGeometry();
+    tri.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3));
+    const unpackMaterial = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, depthTest: false, depthWrite: false, uniforms: { uDepth: { value: null } },
+      vertexShader: 'void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }',
+      fragmentShader: `precision highp float; precision highp int;
+        uniform highp sampler2D uDepth; out vec4 outColor;
+        void main() {
+          uint b = floatBitsToUint(texelFetch(uDepth, ivec2(gl_FragCoord.xy), 0).r);
+          outColor = (vec4(float(b & 255u), float((b >> 8u) & 255u), float((b >> 16u) & 255u), float(b >> 24u)) + .25) / 255.0;
+        }` });
+    const quad = new THREE.Mesh(tri, unpackMaterial);
+    quad.frustumCulled = false;
+    unpack.add(quad);
+    let targets = null;
+    const targetsFor = (w, h) => {
+      if (targets?.w === w && targets.h === h) return targets;
+      if (targets) { targets.color.dispose(); targets.color.depthTexture.dispose(); targets.depth.dispose(); }
+      const color = new THREE.WebGLRenderTarget(w, h, { depthBuffer: true, depthTexture: new THREE.DepthTexture(w, h, THREE.FloatType) });
+      return (targets = { w, h, color, depth: new THREE.WebGLRenderTarget(w, h, { depthBuffer: false }) });
+    };
+    const read = (target, w, h) => { const out = new Uint8Array(w * h * 4); renderer.readRenderTargetPixels(target, 0, 0, w, h, out); return out; };
+    const heightAt = (x, z) => terrainHeightAt(data, x, z);
+    // Every DEM sample lies above the quantization offset (terrain-bake).
+    const floor = { floorY: data.manifest.quantization.offsetM,
+      extent: [g.originM[0], g.originM[1], g.originM[0] + (g.width - 1) * g.cellSizeM, g.originM[1] + (g.height - 1) * g.cellSizeM] };
+
+    /**
+     * Render and measure one pose. mode: 'material' (production terrain
+     * material + forest; returns a PNG), 'silhouette' (terrain only), or
+     * 'depth' (terrain + forest depth). Coverage, skyline and holes always
+     * come from a terrain-only silhouette pass; the depth histogram and the
+     * subject use the depth with trees. subject { kind, posM, radiusM,
+     * heightM } adds its visibility and projected height (depth is read in
+     * any mode).
+     */
+    state.renderPose = (pose, { width = 480, height = 270, mode = 'material', subject = null } = {}) => {
+      const t0 = performance.now();
+      const t = targetsFor(width, height);
+      camera.aspect = width / height;
+      camera.fov = pose.fovYDeg;
+      camera.position.set(...pose.eyeM);
+      camera.up.set(0, 1, 0);
+      camera.lookAt(...pose.targetM);
+      camera.updateProjectionMatrix();
+      camera.updateMatrixWorld();
+      uniforms.uCameraPos.value.copy(camera.position);
+      uniforms.uViewProj.value.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+      uniforms.uViewportPx.value.set(width, height);
+      const lit = mode === 'material';
+      const draw = (shaded, depthTrees) => {
+        for (const m of terrain) m.material = shaded ? material : silhouette;
+        trees.visible = shaded;
+        treeDepth.visible = depthTrees;
+        renderer.setRenderTarget(t.color);
+        renderer.render(scene, camera);
+      };
+      const readDepth = () => {
+        unpackMaterial.uniforms.uDepth.value = t.color.depthTexture;
+        renderer.setRenderTarget(t.depth);
+        renderer.render(unpack, flat);
+        return decodeDepth(read(t.depth, width, height), width, height, camera.near, camera.far);
+      };
+      renderer.setClearColor(0x000000, 0);
+      let rgba = null, depth = null, drawn = null;
+      if (mode !== 'silhouette') {
+        draw(lit, mode === 'depth');
+        if (lit) rgba = flipRows(read(t.color, width, height), width, height);
+        depth = readDepth();
+        drawn = Uint8Array.from(depth, (z) => (z < Infinity ? 1 : 0));
+      }
+      // Terrain alone (drawn last: it overwrites the depth attachment), so
+      // sky seen between tree crowns never counts as missing ground.
+      draw(false, false);
+      const mask = alphaMask(flipRows(read(t.color, width, height), width, height));
+      if (mode === 'silhouette' && subject) depth = readDepth();
+      renderer.setRenderTarget(null);
+      let png = null, image = null;
+      if (lit) {
+        const c = document.createElement('canvas');
+        c.width = width; c.height = height;
+        const ctx = c.getContext('2d');
+        image = ctx.createImageData(width, height);
+        // Premultiplied colour over range-scene-review's material sky (the
+        // target clears to transparent black).
+        for (let i = 0; i < rgba.length; i += 4) {
+          const k = 1 - rgba[i + 3] / 255;
+          image.data.set([rgba[i] + 0x3a * k, rgba[i + 1] + 0x4a * k, rgba[i + 2] + 0x5e * k, 255], i);
+        }
+        ctx.putImageData(image, 0, 0);
+        png = c.toDataURL('image/png').split(',')[1];
+        document.getElementById('frame').src = `data:image/png;base64,${png}`;
+      }
+      const metrics = shotMetrics({ frame: poseFrame(pose, width, height), mask, drawn: drawn || mask, depth, rgba: image?.data || null, floor,
+        subject: subject && { ...subject, ...subjectSamples(subject, heightAt) } });
+      return { png, metrics, ms: performance.now() - t0 };
+    };
+    Object.assign(state, { view: { id, camera: view.camera, landmarks: view.landmarks || [] }, stats, heightAt, bounds: data.manifest.boundsM, ready: true });
+    status.textContent = `${id}: ${stats.triangles} triangles, ${Object.values(state.trees).reduce((a, b) => a + b, 0)} trees · ${state.renderer}`;
+    if (q.get('preview') !== '0') state.renderPose(scenePoseAt(view, { progress01: 0.5 }), { width: 960, height: 540 });
+  } catch (err) {
+    state.error = String(err?.stack || err);
+    status.textContent = state.error;
+  }
+</script>
+</body>
+</html>

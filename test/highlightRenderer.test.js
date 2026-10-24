@@ -78,10 +78,9 @@ test('actual energy-inferred Drops have stable fixed-step evidence at every fram
   assert.deepEqual(histories[0], histories[1]); assert.deepEqual(histories[1], histories[2]);
 });
 
-test('reduced-flash Drops capture a live bloom but cannot capture fully shed effects', () => {
+test('Drops capture a live bloom but cannot capture fully shed effects', () => {
   for (const quality of [0, 6]) {
     const f = rendererFixture({ quality });
-    f.sim.reducedFlash = true; f.sim.reducedMotion = true;
     try {
       for (const time of [4900, 5000, 5100]) f.drawAt(time);
       const reel = f.sim.highlightReel;
