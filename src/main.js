@@ -3930,6 +3930,17 @@ const INERT_KEYS = new Set([
   'w', 'W', 'a', 'A', 's', 'S', 'd', 'D',
 ]);
 
+// Inputs that are controls rather than places to type.
+const NON_TEXT_INPUT_TYPES = new Set(['range', 'checkbox', 'radio', 'button', 'submit', 'reset', 'file', 'color', 'image']);
+// The keys such a control uses natively (Space/Enter are handled below).
+const CONTROL_NAV_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown']);
+
+function isTextEntry(el) {
+  if (!el) return false;
+  if (el.isContentEditable || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') return true;
+  return el.tagName === 'INPUT' && !NON_TEXT_INPUT_TYPES.has(String(el.type).toLowerCase());
+}
+
 window.addEventListener('keydown', (e) => {
   if (e.defaultPrevented) return;
   // A modal chooser owns keyboard input; every key retains native
@@ -3940,7 +3951,10 @@ window.addEventListener('keydown', (e) => {
   // Typing belongs to the field. Every shortcut below -- P, T, F/J, C and
   // the inert WASD/arrows -- otherwise ate letters and caret keys, so
   // "https://" in the URL loader toggled the FPS HUD and the track list.
-  if (e.target?.isContentEditable || e.target?.closest?.('input, textarea, select')) return;
+  // A slider or checkbox (the HUD's #rangeSeek keeps focus after a drag)
+  // takes only its own navigation keys; every shortcut still works there.
+  if (isTextEntry(e.target)) return;
+  if (e.target?.matches?.('input') && CONTROL_NAV_KEYS.has(e.key)) return;
   // Native controls must receive their Enter/Space default actions before
   // the gameplay handler's inert-key guard can suppress them.
   if ((e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar')
@@ -4016,9 +4030,10 @@ window.addEventListener('keydown', (e) => {
   if (INERT_KEYS.has(e.key)) { e.preventDefault(); return; }
 
   // Almost any other key resyncs the player's beat anchor (BeatAnchor.js) --
-  // ignore held-key auto-repeat and modifier chords (typing into a field
-  // already returned at the top).
+  // ignore held-key auto-repeat, modifier chords, and stray keys on a
+  // focused control (typing into a field already returned at the top).
   if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.target?.matches?.('input')) return;
   beatTap();
 });
 

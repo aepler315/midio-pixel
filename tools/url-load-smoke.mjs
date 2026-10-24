@@ -199,6 +199,26 @@ try {
     assert.deepEqual(await shortcutState(), before, 'the modal library owns the keyboard');
   });
 
+  await run('a focused slider keeps its arrows and leaves every shortcut working', async () => {
+    // The HUD's #rangeSeek keeps focus after a drag; F/J, C, P, T, F3/F4 and
+    // Escape must not go dead until the player clicks somewhere else.
+    await page.evaluate(() => {
+      const slider = document.createElement('input');
+      Object.assign(slider, { type: 'range', id: 'smokeSlider', min: '0', max: '10', value: '5' });
+      document.body.append(slider);
+    });
+    const before = await shortcutState();
+    await page.locator('#smokeSlider').focus();
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await page.locator('#smokeSlider').inputValue(), '6', 'the slider moves natively');
+    await page.keyboard.press('p');
+    const toggled = await shortcutState();
+    await page.keyboard.press('p');
+    await page.evaluate(() => document.getElementById('smokeSlider')?.remove());
+    assert.notEqual(toggled.hud, before.hud, 'P still toggles the HUD with the slider focused');
+    assert.deepEqual(await shortcutState(), before);
+  });
+
   await run('Space and Enter still activate a focused button', async () => {
     const clicks = await page.evaluate(async () => {
       const button = document.createElement('button');
