@@ -5,7 +5,15 @@ visual workflows are manual (`workflow_dispatch`) only; they have no push,
 pull-request, schedule, or reusable-workflow trigger. Do not dispatch hosted
 validation unless explicitly requested.
 
-Use Node 24 and the locked dependencies:
+Use Node 24 (`.nvmrc`; `.npmrc` sets `engine-strict`, so `npm ci` refuses
+other versions) and the locked dependencies. `npm run validate` runs the whole
+sequence below, including both browser checks against their own servers on
+free ports, and prints a summary to paste into the pull request (the PR
+template asks for it). `npm ci` also installs a pre-push hook
+(`.githooks/pre-push`, via the `prepare` script) that runs `npm run lint` and
+`npm test`; skip it once with `git push --no-verify`.
+
+The individual steps:
 
 ```sh
 npm ci --no-fund

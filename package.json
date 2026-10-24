@@ -11,6 +11,8 @@
     "lint": "eslint src tools test ridgeview",
     "test": "node --test --test-concurrency=1 test/*.js test/*.mjs",
     "test:all": "node --test",
+    "validate": "node tools/validate.mjs",
+    "prepare": "node tools/install-hooks.mjs",
     "test:smoke": "node tools/smoke.mjs",
     "test:bootstrap": "node tools/bootstrap-smoke.mjs",
     "test:routes": "node tools/current-routes-smoke.mjs",

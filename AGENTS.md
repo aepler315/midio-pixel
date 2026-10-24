@@ -45,6 +45,7 @@ which `test/lineEndings.test.js` reports. Refresh such a clone once:
 
 Never use `git add --renormalize`: for `-text` paths it stages the CRLF bytes.
 
-Run relevant behavior tests and `npm test`/`npm run lint` before completion.
+Run relevant behavior tests and `npm test`/`npm run lint` before completion;
+`npm run validate` runs the full local gate (docs/local-validation.md).
 Document unavailable browser/device checks accurately. For nonvisual changes,
 use the tests relevant to the change; a visual capture is unnecessary.

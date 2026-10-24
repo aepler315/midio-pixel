@@ -1,0 +1,7 @@
+#!/bin/sh
+# Local gate before anything leaves this machine (GitHub Actions do not run
+# for this repository). Installed by `npm install` / `npm ci` through the
+# `prepare` script (tools/install-hooks.mjs). Bypass once with
+# `git push --no-verify` when you know why.
+echo "pre-push: npm run lint && npm test (the full gate is npm run validate)"
+npm run lint && npm test
