@@ -314,9 +314,19 @@ beam search with lookahead over the moments; the final chorus and outro are
 planned as one passage. Costs: shot quality weighted by moment importance,
 repetition (subject, viewpoint, elevation, foreground, move type), link
 quality, timing error, and comfort (required speed against the shot's flow
-lane). Hard constraints: legal joins (links only), the speed/acceleration/
-yaw/flow limits, and every payoff inside a visible interval. Planning is
+lane). Hard constraints: legal joins (links only), the speed, tangential
+acceleration, yaw, climb and flow limits, and every payoff inside a visible interval. Planning is
 pure and seeded; `poseAt` is a pure function of heard time.
+
+Climb feasibility follows the drawn Catmull-Rom path and Hermite progress,
+including the supports supplied by the neighbours actually reached. A fresh
+Float32-key guard covers the full plan; a committed replan checks its rebuilt
+suffix while preserving frozen keys. A partial final shot earns its outro
+reward in proportion to the head it plays. When quick terminal-speed candidates
+all clamp to the same failed value, the search tries three distinct interior
+means through the existing physical predicate. These checks retain the configured
+limits and weights; their visual and pacing tradeoffs are recorded in the
+[current review](scenic-climb-pacing-review-2026-10-22.md).
 
 ### Runtime integration
 

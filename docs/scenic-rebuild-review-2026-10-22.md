@@ -1,5 +1,10 @@
 # Fresh scouting rebuild and application review
 
+The later [climb, pacing and ending review](scenic-climb-pacing-review-2026-10-22.md)
+records runtime enforcement, the corrected ending search and the new combined
+app-review batch. This document preserves the original R2 rebuild and its
+package, capture and publication identities.
+
 This follows the [scouting fixes](camera-scouting-fixes-2026-10-22.md) at
 `f51c27f7855ca6a3f163f77afaee4827438e2973` and begins the
 [first geographic expansion wave](scenic-expansion-wave1-2026-10-22.md).

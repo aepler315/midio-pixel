@@ -1,5 +1,10 @@
 # Scenic pacing, framing and ending follow-up
 
+The later [climb, pacing and ending review](scenic-climb-pacing-review-2026-10-22.md)
+continues the runtime investigation below, including configured climb enforcement,
+partial-outro reward and moonlit terrain readability. This record preserves the
+R3 geometry-only comparison and its source identities.
+
 The next iteration prioritizes camera quality before more locations. The offline
 link generator now hands over horizontal heading and elevation separately when
 its normal world-target interpolation cannot be used. Rebuilding Denali's
