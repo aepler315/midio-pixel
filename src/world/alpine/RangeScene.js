@@ -37,7 +37,7 @@ import { buildRockStage } from './RockStage.js';
 import { RockStageGL } from './RockStageGL.js';
 import { scenePoseAt } from '../terrain/SceneTravel.js';
 import { applyCameraMoves, rangeUserCamera } from './RangeCamera.js';
-import { BANDS, terrainFringeBytes, terrainHeightAt } from './TerrainMesh.js';
+import { BANDS, terrainFringeBytes, terrainHeightAt, SURFACE_BUILD_BYTES_PER_PIXEL } from './TerrainMesh.js';
 import { mistParams, mistDrift, easeMistSteps, tourMistCap, tourMistFade } from './RangeAtmosphere.js';
 import { mirrorSize, mirrorLevelFor, mirrorCameraFor, mirrorTextureMatrix, MIRROR_CLIP_M, MIRROR_LIFT } from './WaterMirror.js';
 import { scenicProjection, calibrateRangeMusic } from './RangeFrame.js';
@@ -681,6 +681,20 @@ export class RangeScene {
     return { key, reservation, bytes, plan };
   }
 
+  /** Static placement has returned compact records; its temporary chunks
+   * no longer belong to this phase. Keep records and the full existing
+   * grouping/asset allowances until forest construction completes. */
+  _retireForestPlacement(p, entry, placed) {
+    if (p.view.tour) return;
+    const records = [placed.meshDetail, placed.mesh, placed.billboard].reduce((sum, a) => sum + (a?.byteLength || 0), 0);
+    const bytes = records + forestGroupingBytes(placed.count) + FOREST_ASSET_BUILD_BYTES;
+    if (bytes > entry.bytes) throw new RangeAssetError('budget', 'Forest records exceed admitted build bound');
+    if (this.residency && !this.residency.shrinkReservation(entry.reservation, bytes)) {
+      throw new RangeAssetError('stale', 'Forest placement reservation retired');
+    }
+    entry.bytes = bytes;
+  }
+
   _requestTourRaw(p, index) {
     const entry = this._admitTerrainBuild(p, index);
     entry.coverageRevision = p.coverageRevision || 0;
@@ -973,14 +987,14 @@ export class RangeScene {
         } else buildEntry = this._admitTerrainBuild(buildOwner);
         const placed = rawWindow?.placed || await placeForestAsync(cpu.data, view, rules, { seed: hashSeed(view.terrainSourceId || view.id), signal });
         if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
+        if (!rawWindow) this._retireForestPlacement(buildOwner, buildEntry, placed);
         // CPU arrays stay on BufferAttributes after upload; charge both copies.
         // Instances plus the near conifer assets their batches build.
         const forestBytes = placed.count * 7 * 4 + forestAssetBytes() + FOREST_DETAIL_BYTES;
-        // Building the surface texture needs temporary height and flow
-        // arrays (6 B/px), its RGBA array (4 B/px) and dry receiver mask (1 B/px). The texture is
-        // uploaded at once and drops its RGBA copy after the upload (see
-        // createSurfaceTexture), so all eleven bytes are scratch, reserved
-        // only while it is built: the view owns both GPU textures.
+        // The surface build holds heights, spacing and RGBA (9 B/px).
+        // Its temporary lanes retire before receiver construction (RGBA +
+        // mask, 5 B/px). Upload drops both CPU texture copies; the view owns
+        // the GPU textures, while this build peak is charged as scratch.
         const textureStride = view.tour ? (this.budget === 'mobile' ? 4 : 2) : 1;
         const gridPx = ((cpu.data.grid.width - 1) / textureStride + 1) * ((cpu.data.grid.height - 1) / textureStride + 1);
         const featureBudgetBytes = 2 * 3 * 768 * 6 * 4;
@@ -1027,7 +1041,7 @@ export class RangeScene {
         await yieldToMain();
         if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
         const scratchKey = `range:surface-scratch:${view.id}`;
-        const scratch = this.residency?.reserve({ key: scratchKey, bytes: gridPx * 11, owner: 'range-scratch', generation }) || null;
+        const scratch = this.residency?.reserve({ key: scratchKey, bytes: gridPx * SURFACE_BUILD_BYTES_PER_PIXEL, owner: 'range-scratch', generation }) || null;
         if (this.residency && !scratch) throw new RangeAssetError('budget', `no room to build ${view.id} surface`);
         try {
           surface = await createSurfaceTextureAsync(THREE, cpu.data, { stride: textureStride, signal,
@@ -1645,6 +1659,10 @@ export class RangeScene {
     const THREE = this.THREE;
     const u = p.uniforms;
     const n = frame.narrative;
+    // Scoped receiver calibration for the retained Black static scenic scene.
+    // Receiver irradiance changes before albedo/AO; sky, key and water do not.
+    u.uReceiverFillMin.value = p.view.id === 'black-mountains-catawba'
+      && !p.view.tour && p.view.cameraPaths?.some(line => line?.length) ? .32 : 0;
     this._setFarForest(p, frame);
     u.uNarrative.value.set(n?.relief ?? 1, n?.atmosphere ?? 1, n?.materials ?? 1, n?.features ?? 1);
     u.uNarrativeInk.value = n ? (1 - n.materials) * (1 - n.skyDark) : 0;
@@ -1693,13 +1711,15 @@ export class RangeScene {
     // Keep moonlit receivers readable with the existing sheltered fill.
     // Existing horizon visibility blends the handoff while daylight and true gaps keep their fill.
     const moonShare = visibility(night) * visibility(bodies?.moon?.visibility) * (1 - visibility(bodies?.sun?.visibility));
-    u.uAmbientScale.value = 2.5 * (ambient + .65 * (1 - ambient) * moonShare);
+    u.uMoonAmbientScale.value = 2.5 * .65 * (1 - ambient) * moonShare;
+    u.uAmbientScale.value = 2.5 * ambient + u.uMoonAmbientScale.value;
     u.uStorm.value.set(storm.amount, storm.flash, storm.break01, storm.wet01);
     // Under the squall the sun is gone behind the deck; the sky's own
     // (darkened, below) radiance is most of what lights the land.
     u.uLightColor.value.multiplyScalar(1 - storm.amount * .92);
     u.uLightColor.value.add(new THREE.Color(.65, .77, 1).multiplyScalar(storm.flash * 1.6));
     u.uAmbientScale.value *= 1 - storm.amount * .15;
+    u.uMoonAmbientScale.value *= 1 - storm.amount * .15;
     // Lightning lights the land from inside the deck, where the sky draws it.
     // The rain veil projects through the main camera on every view, mirror or not.
     u.uViewProj.value.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);

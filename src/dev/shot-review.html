@@ -84,7 +84,8 @@
       trees.clear(); treeDepth.clear(); forest?.dispose();
       view.cameraPaths = cameraPaths || [];
       forest = createForest(THREE, placeForest(data, view, rules, { seed: hashSeed(view.terrainSourceId || view.id) }), uniforms, { partitioned: false });
-      trees.add(...forest.byBand.far, ...forest.byBand.mid, ...forest.byBand.near);
+      const treeMeshes = [...forest.byBand.far, ...forest.byBand.mid, ...forest.byBand.near];
+      if (treeMeshes.length) trees.add(...treeMeshes);
       if (forest.depth.length) treeDepth.add(...forest.depth);
       // RangeScene._setFarForest at quality rung 0 (shot tours play rail
       // views: no tour cap): the 3D trees hand over to the terrain's canopy

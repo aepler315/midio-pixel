@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { bakeTerrain } from '../tools/lib/terrain-bake.mjs';
 import * as Mesh from '../src/world/alpine/TerrainMesh.js';
 import * as Features from '../src/world/alpine/TerrainFeatures.js';
 import * as GL from '../src/world/alpine/TerrainGL.js';
@@ -90,4 +92,85 @@ test('retired staged geometry releases constructed buffers before the next band'
   }), { name: 'AbortError' });
   assert.equal(created, 1);
   assert.equal(disposed, 1);
+});
+
+// Observe real backing allocations without retaining those backing arrays or
+// changing their contents/prototypes. Fixtures are built before interception.
+async function surfaceAllocations(run) {
+  const originals = { Float32Array: globalThis.Float32Array, Uint8Array: globalThis.Uint8Array }, allocations = [];
+  for (const [kind, Type] of Object.entries(originals)) globalThis[kind] = new Proxy(Type, {
+    construct(target, args) {
+      const array = Reflect.construct(target, args);
+      allocations.push({ kind, bytes: array.byteLength });
+      return array;
+    },
+  });
+  try { return { result: await run(), allocations }; }
+  finally { Object.assign(globalThis, originals); }
+}
+
+test('surface preparation eliminates the separate flow backing and reserves its actual nine-byte peak', async () => {
+  const data = terrain();
+  for (const stride of [1, 2, 4]) {
+    const pixels = ((data.grid.width - 1) / stride + 1) ** 2;
+    const { result: surface, allocations } = await surfaceAllocations(() => Mesh.buildSurfaceTexture(data, { stride }));
+    assert.equal(allocations.reduce((n, a) => n + a.bytes, 0), pixels * 9, 'the real surface builder must allocate one fewer whole-grid byte backing');
+    assert.equal(allocations.filter(a => a.kind === 'Uint8Array' && a.bytes === pixels).length, 1, 'only sample spacing needs a one-byte working lane');
+    assert.equal(Mesh.SURFACE_BUILD_BYTES_PER_PIXEL * pixels, pixels * 9);
+    const receiver = await surfaceAllocations(() => Mesh.buildReceiverMask(surface));
+    assert.deepEqual(receiver.allocations, [{ kind: 'Uint8Array', bytes: pixels }]);
+    assert.equal(surface.data.byteLength + receiver.result.data.byteLength, pixels * 5, 'receiver construction retains only RGBA plus its mask');
+  }
+});
+
+test('surface cancellation never allocates GPU textures or resumes retired preparation', async () => {
+  const data = terrain(), controller = new AbortController(); let uploads = 0, turns = 0;
+  class Texture extends THREE.DataTexture { constructor(...args) { super(...args); uploads++; } }
+  const checked = await surfaceAllocations(async () => {
+    await assert.rejects(GL.createSurfaceTextureAsync({ ...THREE, DataTexture: Texture }, data, {
+      sliceMs: 0, signal: controller.signal, yieldTo: async () => { turns++; controller.abort(); },
+    }), { name: 'AbortError' });
+  });
+  assert.equal(turns, 1);
+  assert.equal(uploads, 0);
+  assert.ok(checked.allocations.reduce((n, a) => n + a.bytes, 0) <= data.grid.width * data.grid.height * 9, 'cancelled work stays within the same backing bound');
+  const alreadyAborted = await surfaceAllocations(async () => {
+    await assert.rejects(Mesh.buildSurfaceTextureAsync(data, { signal: controller.signal }), { name: 'AbortError' });
+  });
+  assert.deepEqual(alreadyAborted.allocations, []);
+});
+
+async function decodedSurfaceFixture() {
+  const width = 65, height = 65, cellSizeM = 10, originM = [0, 0];
+  const heightsM = new Float32Array(width * height), valid = new Uint8Array(width * height).fill(1);
+  for (let j = 0; j < height; j++) for (let i = 0; i < width; i++) {
+    heightsM[j * width + i] = i < 25 ? 1000 : 1000 + 0.05 * i + 10 * Math.sin(i / 6) * Math.cos(j / 8) + 0.3 * Math.sin(i * 2 + j);
+    if (i >= 48 && i <= 52 && j >= 30 && j <= 35) { valid[j * width + i] = 0; heightsM[j * width + i] = NaN; }
+  }
+  const grid = { width, height, cellSizeM, originM, heightsM, valid,
+    horizontalCrs: 'synthetic', verticalReference: 'synthetic', sourceResolutionM: 10, outputSpacingM: 10 };
+  const camera = { eyeStartM: [320, 1600, 1600], eyeEndM: [320, 1600, 1600], targetStartM: [320, 1000, 320], targetEndM: [320, 1000, 320], fovYDeg: 60 };
+  const baked = await bakeTerrain(grid, { id: 'surface-fixture', camera }, { tileCells: 16, keepHidden: true });
+  return Mesh.decodeTerrain(baked.manifest, baked.decoded);
+}
+
+// Recorded from the e07 original surface builder before the allocation change.
+const surfaceGolden = [
+  [1, 'afcdfae93fb917f50e4004ff502f9cc4b3207f3f1f70b4f39f5d34bcc9aeffc6', '9330859f8ce9bcd6589278681c0720541c5ec85a4fa743f59662d000968df5c5'],
+  [2, '804573a63000d64e23d0117029b30a462f1e16eadceee33739e36bb6bc17c184', 'e437bf5569a7b5ba3f6f43eaf0b8ead5ad159d9f369f2e699cffee41be74d4ca'],
+  [4, '20f8a57d464aca6f98392e572c18e61ff89b1caf9e8efa941e719ede595474a8', 'a254441026837219dfc6ee54d40450ff5f9cd957f0d0abff11fa965c6b8a322b'],
+];
+test('decoded shoreline, no-data and mixed-LOD surfaces preserve original bytes in synchronous and sliced builds', async () => {
+  const data = await decodedSurfaceFixture(), hash = bytes => createHash('sha256').update(bytes).digest('hex');
+  assert.ok(new Set([...data.tiles.values()].map(t => t.stride)).size > 1);
+  assert.ok([...data.tiles.values()].some(t => t.heightsM.some(h => !Number.isFinite(h))));
+  assert.ok([...data.tiles.values()].some(t => t.flowBytes.includes(255)));
+  for (const [stride, surfaceSha, receiverSha] of surfaceGolden) {
+    const surface = Mesh.buildSurfaceTexture(data, { stride });
+    assert.equal(hash(surface.data), surfaceSha);
+    assert.equal(hash(Mesh.buildReceiverMask(surface).data), receiverSha);
+    const sliced = await Mesh.buildSurfaceTextureAsync(data, { stride, sliceMs: 0, yieldTo: async () => {} });
+    assert.deepEqual(sliced, surface);
+    assert.equal(hash((await Mesh.buildReceiverMaskAsync(sliced, { sliceMs: 0, yieldTo: async () => {} })).data), receiverSha);
+  }
 });

@@ -420,3 +420,122 @@ test('a current retry reclaims completed future output before checking whether i
   p.windowCache.dispose();
   assert.equal(scene.residency.usedBytes, 0);
 });
+
+test('static scene surface reservation follows the real nine-byte working peak', async () => {
+  const { bakeTerrain } = await import('../tools/lib/terrain-bake.mjs');
+  const { RULE_DEFAULTS } = await import('../src/world/alpine/MaterialPackage.js');
+  const width = 65, pixels = width * width;
+  const grid = { width, height: width, cellSizeM: 10, originM: [-320, -320], heightsM: new Float32Array(pixels).fill(1000), valid: new Uint8Array(pixels).fill(1),
+    horizontalCrs: 'synthetic', verticalReference: 'synthetic', sourceResolutionM: 10, outputSpacingM: 10 };
+  const camera = { eyeStartM: [0, 1800, 900], eyeEndM: [100, 1800, 900], targetStartM: [0, 1000, 0], targetEndM: [100, 1000, 0], fovYDeg: 35 };
+  const baked = await bakeTerrain(grid, { id: 'surface-admission', camera });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async url => new Response(String(url).endsWith('.json') ? JSON.stringify(baked.manifest) : baked.payload);
+  const scene = Object.assign(Object.create(RangeScene.prototype), { budget: 'desktop', THREE,
+    residency: new GraphicsResidency({ budgetBytes: 1e9 }), prepared: new Map(), pending: new Map(), contextEpoch: 0 });
+  scene._acquireMaterial = async () => ({ key: 'test-material', pack: { manifest: { rules: { ...RULE_DEFAULTS, forestDensity: 0 } } } });
+  scene._releaseMaterial = () => {};
+  const reserve = scene.residency.reserve.bind(scene.residency); let scratchRequest;
+  scene.residency.reserve = options => {
+    if (options.owner === 'range-scratch') { scratchRequest = options; return null; }
+    return reserve(options);
+  };
+  try {
+    await assert.rejects(scene.prepare({ id: 'surface-admission', camera, terrainManifestUrl: 'surface-admission.json' },
+      { baseUrl: 'http://test/', generation: 88 }), e => e.reason === 'budget' && /surface/.test(e.message));
+    assert.equal(scratchRequest?.bytes, pixels * 9, 'the actual static preparation must charge the shared reduced backing bound');
+    assert.equal(scene.residency.usedBytes, 0, 'refused surface build retires earlier admitted resources');
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+
+test('completed static placement retires its temporary phase while full admission and measured 1280 surface charge remain intact', () => {
+  const { scene, p } = fixture(536870912);
+  assert.equal(typeof scene._retireForestPlacement, 'function');
+  p.view = { id: 'black-phase' };
+  scene._terrainBuildSpec = () => ({ bytes: 156606016 });
+  const entry = scene._admitTerrainBuild(p);
+  assert.equal(scene.residency.usedBytes, 156606016, 'full placement admitted first');
+  const other = scene.residency.reserve({ key: 'actual-other-owners', bytes: 335411147, evictable: false });
+  assert.ok(other);
+  assert.equal(scene.residency.reserve({ key: 'too-early-surface', bytes: 45198729 }), null);
+  const placed = { count: 2111789, meshDetail: new Float32Array(10504 * 8), mesh: new Float32Array(221825 * 8), billboard: new Float32Array(1879460 * 8), stride: 8 };
+  scene._retireForestPlacement(p, entry, placed);
+  assert.equal(entry.bytes, 109820016);
+  assert.equal(scene.residency.entries.get(entry.key).bytes, 109820016);
+  assert.deepEqual(scene.buildAdmission, { requestedBytes: 156606016, admittedBytes: 156606016, denials: 0, peakBytes: 156606016 });
+  const surface = scene.residency.reserve({ key: 'actual-1280-surface', bytes: 45198729 });
+  assert.ok(surface, 'unchanged actual surface reservation fits after the completed phase retires');
+  assert.equal(scene.residency.usedBytes, 490429892);
+  assert.equal(scene.residency.budgetBytes, 536870912);
+  scene.residency.releaseReservation(surface); scene.residency.releaseReservation(entry.reservation); scene.residency.releaseReservation(other);
+  assert.equal(scene.residency.usedBytes, 0);
+});
+
+test('static phase retirement respects streaming, empty forests, missing ownership and smaller admission', () => {
+  const { scene, p } = fixture();
+  assert.equal(typeof scene._retireForestPlacement, 'function');
+  const empty = { count: 0, meshDetail: new Float32Array(), mesh: new Float32Array(), billboard: new Float32Array(), stride: 8 };
+  const window = scene._admitTerrainBuild(p, 0), windowBytes = window.bytes;
+  scene._retireForestPlacement(p, window, empty);
+  assert.equal(window.bytes, windowBytes, 'streaming retained geometry/forest remains charged');
+  scene.residency.releaseReservation(window.reservation);
+  p.view = { id: 'empty-phase' };
+  scene._terrainBuildSpec = () => ({ bytes: 10000000 });
+  const entry = scene._admitTerrainBuild(p);
+  scene._retireForestPlacement(p, entry, empty);
+  assert.equal(entry.bytes, 8454144, 'empty forest preserves full grouping and asset-build allowances');
+  scene.residency.releaseReservation(entry.reservation);
+  const fresh = scene.residency.reserve({ key: entry.key, bytes: 10000000 });
+  assert.throws(() => scene._retireForestPlacement(p, entry, empty), e => e.reason === 'stale');
+  assert.equal(scene.residency.entries.get(entry.key).bytes, 10000000);
+  scene.residency.releaseReservation(fresh);
+  const small = { key: 'small', reservation: scene.residency.reserve({ key: 'small', bytes: 10 }), bytes: 10 };
+  assert.throws(() => scene._retireForestPlacement(p, small, empty), e => e.reason === 'budget');
+  assert.equal(small.bytes, 10); assert.equal(scene.residency.usedBytes, 10);
+  scene.residency.releaseReservation(small.reservation);
+});
+
+test('real static preparation retires placement after full admission and before the GPU reservation, with stale cleanup safe', async () => {
+  const { bakeTerrain } = await import('../tools/lib/terrain-bake.mjs');
+  const { RULE_DEFAULTS } = await import('../src/world/alpine/MaterialPackage.js');
+  const width = 65;
+  const grid = { width, height: width, cellSizeM: 10, originM: [-320, -320], heightsM: Float32Array.from({ length: width * width }, (_, i) => 1000 + 2 * (i % width) + Math.floor(i / width)), valid: new Uint8Array(width * width).fill(1),
+    horizontalCrs: 'synthetic', verticalReference: 'synthetic', sourceResolutionM: 10, outputSpacingM: 10 };
+  const camera = { eyeStartM: [0, 1800, 900], eyeEndM: [100, 1800, 900], targetStartM: [0, 1000, 0], targetEndM: [100, 1000, 0], fovYDeg: 35 };
+  const baked = await bakeTerrain(grid, { id: 'phase-prepare', camera });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async url => new Response(String(url).endsWith('.json') ? JSON.stringify(baked.manifest) : baked.payload);
+  try {
+    for (const reuse of [false, true]) {
+      const scene = Object.assign(Object.create(RangeScene.prototype), { budget: 'desktop', THREE,
+        residency: new GraphicsResidency({ budgetBytes: 1e9 }), prepared: new Map(), pending: new Map(), contextEpoch: 0 });
+      assert.equal(typeof scene._retireForestPlacement, 'function');
+      scene._acquireMaterial = async () => ({ key: 'test-material', pack: { manifest: { rules: { ...RULE_DEFAULTS, treelineM: 3000, forestMaxSlopeDeg: 40, forestDensity: 1 } } } });
+      scene._releaseMaterial = () => {};
+      const events = []; let replacement;
+      const admit = scene._admitTerrainBuild.bind(scene), retire = scene._retireForestPlacement.bind(scene), reserve = scene.residency.reserve.bind(scene.residency);
+      scene._admitTerrainBuild = (...args) => { const entry = admit(...args); events.push(['full', entry.bytes]); return entry; };
+      scene._retireForestPlacement = (owner, entry, placed) => {
+        assert.ok(placed.count > 0, 'actual placement promise returned real records');
+        if (reuse) { scene.residency.releaseReservation(entry.reservation); replacement = reserve({ key: entry.key, bytes: 123 }); }
+        retire(owner, entry, placed);
+        events.push(['retired', entry.bytes]);
+        assert.equal(scene.residency.entries.get(entry.key).bytes, entry.bytes);
+      };
+      scene.residency.reserve = options => { if (options.owner === 'range-terrain-gpu') { events.push(['gpu', options.bytes]); return null; } return reserve(options); };
+      await assert.rejects(scene.prepare({ id: 'phase-prepare', camera, terrainManifestUrl: 'phase-prepare.json' },
+        { baseUrl: 'http://test/', generation: 88 }), e => e.reason === (reuse ? 'stale' : 'budget'));
+      if (reuse) {
+        assert.deepEqual(events.map(e => e[0]), ['full']);
+        assert.equal(scene.residency.entries.get(replacement.key).id, replacement.id);
+        assert.equal(scene.residency.usedBytes, 123, 'stale cleanup does not release replacement owner');
+        scene.residency.releaseReservation(replacement);
+      } else {
+        assert.deepEqual(events.map(e => e[0]), ['full', 'retired', 'gpu']);
+        assert.ok(events[1][1] <= events[0][1]);
+      }
+      assert.equal(scene.residency.usedBytes, 0);
+    }
+  } finally { globalThis.fetch = originalFetch; }
+});

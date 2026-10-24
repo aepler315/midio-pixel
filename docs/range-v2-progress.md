@@ -39,6 +39,37 @@ blank-sky Denali transit while retaining open pacing, named-subject framing and
 ending concerns. The primary branch preserves all 39 approved-rail terrain/build
 files byte for byte.
 
+### R8 quality and compact shot clusters — 2026-10-23
+
+The [R8 follow-up](scenic-quality-clusters-review-2026-10-23.md) retains a compact
+Denali establish/shoulder/hero sequence after independent actual-app review and
+root inspection. Anthem transit falls 90.245 → 23.226 seconds; longest transfer
+falls 42.891 → 11.912 seconds, with natural 16/64.5/128-second payoffs and a
+mountain ending. Both plans have three listed payoffs; strong-impact alignment
+improves from two to three. The long hero hold and lost Foraker/regional variety
+remain explicit costs. Normal fit retains published terrain and original caps,
+with no planner modification. This first demonstrated cluster uses a preserved
+external authoring recipe; the generic scout is unchanged, and broader
+automated cluster generation remains unimplemented.
+
+Black restores the original R7 forest representation after all rendering
+experiments, including the final projected-crown fallback, failed actual-image
+review. Only a static 0.32 receiver fill floor and the phase/closure memory
+repairs remain. Retained full and detailed-grid captures improve the green
+foreground/ridge contours modestly and stay below the unchanged 512 MiB cap.
+The forest remains soft/stippled; forest iteration is closed. Collectibility
+of retired placement storage does not promise immediate RSS release.
+
+There are still 13 approved geographic views and 15 candidate libraries;
+approximately 30 approved views remains a goal. The global 60 MB gate stays
+removed, with regional, runtime, motion, clearance and LOD limits fixed.
+The final candidate contains 128 shots and 291 links in 64,927,022 Range asset
+bytes; only Denali’s two shot-package files change. The canonical suite reports
+5,071 pass, zero fail and six skipped out of 5,077; separate focused Chromium
+and staged Monument checks close all six skips without a full-suite rerun.
+Draft PR #38 remains open/unmerged; its description records exact publication
+refs. No owner approval or deployment is claimed.
+
 Plan: `docs/superpowers/plans/2026-09-29-range-geodata-master.md` (copied verbatim from the supplied package; removed, see [removed docs](removed-docs.md)).
 Reference image: `docs/evidence/range-v2/reference.webp` (1806×871, documentation only; never staged into `/src`).
 

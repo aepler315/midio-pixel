@@ -21,6 +21,15 @@ discovery and actual camera motion. These are the first three proposals within
 the five-location 13 → 18 batch, with two locations still to scout after this
 wave's failures and distinctness are understood.
 
+**2026-10-23 quality hold:** the [Panamint and Teton repair](scenic-transfer-endings-review-2026-10-23.md)
+takes priority over those two additional locations. A smaller transfer total
+does not establish a better tour: the first Panamint rebuild was rejected after
+actual-app review exposed a prolonged close-slope opening. Keep first payoff,
+intermediate scenery, climax, closing shot and unused return connections in the
+review gate. Report total delivery bytes separately from regional terrain fit,
+forest placement and simultaneous resident-view costs. The global 60 MB gate
+remains removed; the original regional constraints remain in force.
+
 ## What should grow
 
 Count an approved view as a curated geographic camera corridor with a sourced

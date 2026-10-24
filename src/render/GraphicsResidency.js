@@ -224,6 +224,11 @@ export class GraphicsResidency {
     return true;
   }
 
+  /** Retire temporary bytes only while this exact reservation owns them. */
+  shrinkReservation(reservation, bytes) {
+    return this._own(reservation) ? this.shrink(reservation.key, bytes) : false;
+  }
+
   /** Move a live or pending entry to another generation (a resource the
    *  next song keeps must not fall with the previous song's cancellation). */
   retag(key, generation) {

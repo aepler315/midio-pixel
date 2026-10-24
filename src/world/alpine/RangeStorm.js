@@ -24,6 +24,16 @@ export function rainCurtain(u, tSec = 0) {
  *  fixed to the land. */
 export const STORM_GLSL = /* glsl */`
   uniform float uRainShift;
+  uniform float uReceiverFillMin;
+  // Preserve sky chromaticity while lifting only low receiver irradiance.
+  // A true zero has no hue to preserve; do not invent emissive white fill.
+  vec3 receiverFill(vec3 hemi, float minimum) {
+    if (!(minimum > 0.0) || isnan(minimum) || isinf(minimum)) return hemi;
+    if (any(isnan(hemi)) || any(isinf(hemi))) return vec3(0.0);
+    float luminance = dot(hemi, vec3(0.2126, 0.7152, 0.0722));
+    if (!(luminance > 0.0) || luminance >= minimum) return hemi;
+    return hemi / luminance * minimum;
+  }
   float rainCurtain(float u, float t) {
     float a = 0.5 + 0.5 * sin(6.2832 * (u * 1.6 + t * 0.003) + 1.3);
     float b = 0.5 + 0.5 * sin(6.2832 * (u * 3.7 - t * 0.005) + 4.1);
@@ -46,6 +56,15 @@ export const STORM_GLSL = /* glsl */`
   float stormOpening(vec3 world) {
     if (uStorm.z <= 0.0) return 0.0; // only while the storm breaks
     return smoothstep(0.35, 0.72, stormNoise(world.xz / 1100.0 + vec2(uTime * 0.02, 0.0)));
+  }
+  float stormShadow(float opening) {
+    return 1.0 - uStorm.z * (1.0 - opening) * 0.5;
+  }
+  // The sheltered moon component is diffuse receiver fill. The moving
+  // clearing mask still shades the remaining sky fill and direct light.
+  float stormAmbient(float total, float sheltered, float opening) {
+    float shadow = stormShadow(opening);
+    return total * shadow + clamp(sheltered, 0.0, total) * (1.0 - shadow);
   }
   // Rain-washed air, lit from inside by lightning.
   vec3 rainColor() { return uAirColor * 1.1 + uLightColor * 0.04; }

@@ -281,7 +281,9 @@ and the Superstition west front. Catalog v20 has 13 approved rails and seven
 candidates, with 16 regional tour configurations on the expansion branch;
 the approved geographic count remains 13. The new three terrain packages add
 3,813,190 bytes. Source, candidate assets and review documentation are in
-[draft PR #32](https://github.com/aepler315/midio-pixel/pull/32). The
+[PR #32](https://github.com/aepler315/midio-pixel/pull/32), merged by the owner on
+2026-10-23. The later R4 review documentation remains in
+[draft PR #37](https://github.com/aepler315/midio-pixel/pull/37). The
 [fresh rebuild and app review](docs/scenic-rebuild-review-2026-10-22.md) records
 the new scouting runs, exact library identities, actual planned camera moves
 and remaining review gates. Candidate assets and local rebuilt libraries do
@@ -315,15 +317,57 @@ view keep it a candidate. The separate
 has 180 shots and 459 links across the same 15 useful libraries, with a
 64,853,210-byte asset tree. Camera quality takes priority over another location wave.
 
-The [climb, pacing and ending follow-up](docs/scenic-climb-pacing-review-2026-10-22.md)
-implements the configured vertical-speed limit, checks the delivered camera-key
-spline, and prorates a partial final shot's outro reward. It also retains a scoped
-moonlit terrain-fill response for dark endings. Together the runtime corrections
-change nine of the 15 Anthem routes. Matched app comparisons record lighting
-and framing gains alongside longer transfers, delayed payoffs and link endings.
-The record separates those editorial gates from motion checks, source tests
-and the preserved R3 package identities. Further locations remain on hold while
-these camera-quality gates are addressed.
+The [Panamint and Teton repair](docs/scenic-transfer-endings-review-2026-10-23.md)
+corrects the builder's duration estimates using the runtime's supported camera
+curves and refreshes cached link admission. It rebuilds those two candidate
+networks, restores a readable Panamint opening, keeps its hero summit through
+the ending, and adds a Teton middle payoff before reaching a closing shot.
+Matched full-song app captures and the rejected first Panamint opening are
+recorded in the review. A separate fixed-camera comparison retains a small
+moon-fill improvement; dark lower foreground and other editorial limits remain.
+The original regional budgets and the removed global 60 MB gate are unchanged.
+The source proposal preserves all 13 approved rails; fitted tour assets stay on
+a separate candidate branch. Further locations remain on hold.
+
+The [parallel camera wave](docs/scenic-camera-wave-review-2026-10-23.md)
+compares alternate networks at Black Mountains, White Mountains and Izta/Popo
+against the preserved R5 assets. Izta's retained candidate cuts Anthem transit
+from 85.957 to 40.421 seconds and holds Iztaccíhuatl through the ending; its
+close ridge opening remains unresolved. Black's new network was rejected for
+more total transit. White's first replacement improved the summit but was
+rejected for a downward opening crop. Its retained revision restores readable
+valley space from the first saved frame at 4 seconds and cuts transit from
+70.046 to 36.069 seconds, with a later 48-second first formal payoff. The final
+candidate set has 15 libraries, 144 shots and 335 links in a 64,125,061-byte
+Range asset tree.
+R6 changes candidate assets, with no new application behavior or rail approvals.
+The [R6 review asset branch](https://github.com/aepler315/midio-pixel/tree/review/scenic-camera-wave-20261023)
+carries the candidate packages. Further geographic expansion stays on hold.
+
+The [R7 framing and ending follow-up](docs/scenic-framing-endings-review-2026-10-23.md)
+retains a wider Izta opening and Black's more open closing skyline after
+matched full-song image review. Their payoffs and closing shots remain;
+Black adds 141.537 ms transit. Two rejected Black packages exposed a runtime
+memory refusal and forest partition mismatch. Reviewed fixes reduce surface
+arrays from 10 to 9 bytes per pixel and align tree draw bands with their owning
+terrain tiles, without changing placement or camera paths. Black's separate
+2.3 MB download allowance covers strict terrain/reflection detail. Softer
+forest representation, dark foreground and narrow runtime headroom remain
+limits. Local implementation and image gates are complete;
+[draft PR #38](https://github.com/aepler315/midio-pixel/pull/38) records source/candidate
+commit identities and publication status. Cameras remain unapproved, and
+further geographic expansion stays on hold.
+
+The [R8 quality and compact-cluster follow-up](docs/scenic-quality-clusters-review-2026-10-23.md)
+retains a three-shot Denali establish/shoulder/hero sequence after actual-app
+review, cutting Anthem transfer from 90.245 to 23.226 seconds and holding the
+mountain through the ending. Black retains a scoped lighting and memory repair;
+all forest representation experiments were rejected, and its soft/stippled
+forest remains unresolved with iteration closed. There are still 13 approved
+views and 15 candidate libraries; the approximately 30-view goal is unfinished.
+This first cluster uses a preserved external authoring recipe; the unchanged
+generic scout does not reproduce it, and automated cluster generation is unimplemented.
+PR #38 remains draft/open; its description records the publication pins.
 
 ## Version archive
 

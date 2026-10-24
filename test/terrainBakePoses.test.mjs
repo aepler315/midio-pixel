@@ -172,3 +172,49 @@ test('tile culling and reused scratch leave the occlusion raster unchanged', () 
     }
   }
 });
+
+test('extra rail reflection poses retain ordinary detail despite coarse core-only tour options', async () => {
+  const { grid } = fixture({ height: (x, z) => (z > -1000 ? 1000 : 1000 + 0.5 * (-1000 - z) + 5 * Math.sin(x / 41)) });
+  const mirror = mirroredPose({ eyeM: [0, 1300, 1500], targetM: [0, 1100, -2000], fovYDeg: 30 }, 1000);
+  const options = { poses: [mirror], poseErrorScale: 4, poseFramings: ['core'] };
+  const coarse = await bakeTerrain(grid, { id: 'lake' }, options);
+  const strict = await bakeTerrain(grid, { id: 'lake' }, { ...options, railPoses: [mirror] });
+  const ctx = (baked) => ({ grid, terrain: { manifest: baked.manifest, data: decodeTerrain(baked.manifest, baked.decoded) } });
+  for (const budget of ['desktop', 'mobile']) {
+    assert.equal(validatePoses(ctx(coarse), [mirror], { budget }).ok, false, 'the tour budget alone does not meet the ordinary rail limit');
+    const checked = validatePoses(ctx(strict), [mirror], { budget });
+    assert.equal(checked.ok, true, JSON.stringify(checked));
+  }
+  const reference = await bakeTerrain(grid, { id: 'lake' }, { poses: [mirror] });
+  assert.deepEqual(strict.manifest.tiles, reference.manifest.tiles, 'ordinary rail framings match the unscaled reference bake, including extended support');
+  assert.deepEqual(strict.manifest.lod.railPoses, { poseCount: 1, bakedPoses: 1 });
+  assert.ok(strict.manifest.tiles.some((t) => t.iz === 0), 'mirror clipping retains the reflected slope beyond the water');
+});
+
+test('empty extra rail poses leave rail-only and tour package bytes exactly unchanged', async () => {
+  const { grid, view } = fixture();
+  for (const options of [{}, { poses: [behind], poseErrorScale: 4, poseFramings: ['core'] }]) {
+    const legacy = await bakeTerrain(grid, view, options);
+    const empty = await bakeTerrain(grid, view, { ...options, railPoses: [] });
+    assert.deepEqual(empty.manifest, legacy.manifest);
+    assert.deepEqual(empty.decoded, legacy.decoded);
+    assert.deepEqual(empty.payload, legacy.payload);
+    assert.equal(Object.hasOwn(empty.manifest.lod, 'railPoses'), false);
+  }
+});
+
+test('rail-only mirror viewers clip lake occlusion with absent or empty tour poses', async () => {
+  const { grid } = fixture({ height: (x, z) => (z > -1000 ? 1000 : 1000 + 0.5 * (-1000 - z) + 5 * Math.sin(x / 41)) });
+  const mirror = mirroredPose({ eyeM: [0, 1300, 1500], targetM: [0, 1100, -2000], fovYDeg: 30 }, 1000);
+  const reference = await bakeTerrain(grid, { id: 'lake' }, { poses: [mirror] });
+  for (const options of [{ railPoses: [mirror] }, { poses: [], railPoses: [mirror] }]) {
+    const baked = await bakeTerrain(grid, { id: 'lake' }, options);
+    const ctx = { grid, terrain: { manifest: baked.manifest, data: decodeTerrain(baked.manifest, baked.decoded) } };
+    for (const budget of ['desktop', 'mobile']) {
+      const result = validatePoses(ctx, [mirror], { budget });
+      assert.equal(result.ok, true, JSON.stringify({ options, budget, result }));
+      assert.equal(result.worst.holeFrac, 0);
+    }
+    assert.deepEqual(baked.manifest.tiles, reference.manifest.tiles, 'independent rail mirrors retain the unscaled clipped reference coverage and detail');
+  }
+});
