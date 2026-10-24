@@ -6,6 +6,7 @@ import {
   PreviewSession, PREVIEW_SPAN_MS, PREVIEW_VERSION,
 } from '../src/ui/WorldPreview.js';
 import { buildWorldChoices, moveChoiceIndex } from '../src/ui/WorldChooser.js';
+import { listWorlds } from '../src/world/Worlds.js';
 
 function curvesWithShape(durationMs, loudFrom, loudTo) {
   const curves = new EnergyCurves(durationMs, 50);
@@ -49,27 +50,31 @@ test('missing energy falls back to proportional positions without inventing a be
 });
 
 test('explanatory copy is derived from measurements and never ranks the world', () => {
-  const bassHeavy = describeWorldResponse('abyssal', { bass: 0.7, onset: 0.2 });
-  assert.match(bassHeavy, /bass/i);
-  const sparseCity = describeWorldResponse('city', { onset: 0.1, groove: 0.2 });
-  assert.match(sparseCity, /quiet|sparse/i);
-  const naveNoLabels = describeWorldResponse('nave', { bass: 0.5 }, { hasLabels: false });
-  assert.match(naveNoLabels, /invent/i);
-  const naveLabels = describeWorldResponse('nave', { bass: 0.5 }, { hasLabels: true });
-  assert.match(naveLabels, /returning/i);
-  for (const kind of ['alpine', 'city', 'abyssal', 'airless', 'strip', 'foundry', 'overgrowth', 'nave']) {
-    const text = describeWorldResponse(kind, { onset: 0.5, bass: 0.5, groove: 0.5, phrase: 0.5 });
-    assert.equal(/%|best|score|match/i.test(text), false, kind);
+  const phrased = describeWorldResponse('alpine', { phrase: 0.7, bass: 0.6 });
+  assert.match(phrased, /phrase/i);
+  assert.match(phrased, /bass/i);
+  const atmospheric = describeWorldResponse('alpine', { phrase: 0.2 });
+  assert.match(atmospheric, /atmosphere/i);
+  const grooving = describeWorldResponse('alpine', { groove: 0.7 }, { experience: 'trio' });
+  assert.match(grooving, /kick/i);
+  const drifting = describeWorldResponse('alpine', { groove: 0.2 }, { experience: 'trio' });
+  assert.match(drifting, /space ridge/i);
+  const shaped = describeWorldResponse('unregistered-kind', { contrast: 0.6, form: 0.5 });
+  assert.match(shaped, /contrast/i);
+  const plain = describeWorldResponse('unregistered-kind', { contrast: 0.2, form: 0.2 });
+  assert.match(plain, /as measured/i);
+  assert.equal(new Set([phrased, atmospheric, grooving, drifting, shaped, plain]).size, 6);
+  for (const text of [phrased, atmospheric, grooving, drifting, shaped, plain]) {
+    assert.equal(/%|best|score|match/i.test(text), false, text);
   }
 });
 
-test('cache keys change with world, seed, timestamp and reduced-flash', () => {
+test('cache keys change with world, seed and timestamp', () => {
   const a = previewCacheKey({ worldId: 'alpine', seed: 315, tMs: 4000 });
-  const b = previewCacheKey({ worldId: 'nocturne', seed: 315, tMs: 4000 });
+  const b = previewCacheKey({ worldId: 'trio', seed: 315, tMs: 4000 });
   const c = previewCacheKey({ worldId: 'alpine', seed: 316, tMs: 4000 });
   const d = previewCacheKey({ worldId: 'alpine', seed: 315, tMs: 8000 });
-  const e = previewCacheKey({ worldId: 'alpine', seed: 315, tMs: 4000, reducedFlash: true });
-  assert.equal(new Set([a, b, c, d, e]).size, 5);
+  assert.equal(new Set([a, b, c, d]).size, 4);
   assert.match(a, new RegExp(`^${PREVIEW_VERSION}\\|`));
 });
 
@@ -80,7 +85,7 @@ test('session renders one still at a time, caches, and cancel drops the rest', a
     data: { durationMs: 20000 },
     features: { bass: 0.4 },
     seed: 315,
-    worldIds: ['alpine', 'nocturne', 'fathom'],
+    worldIds: ['alpine', 'trio', 'unregistered-world'],
     schedule: (fn) => { fn(); return () => {}; },
     renderStill: async ({ worldId }) => {
       concurrent++;
@@ -93,7 +98,7 @@ test('session renders one still at a time, caches, and cancel drops the rest', a
   });
   session.enqueueAll();
   await new Promise((r) => setTimeout(r, 10));
-  assert.deepEqual(order, ['alpine', 'nocturne', 'fathom']);
+  assert.deepEqual(order, ['alpine', 'trio', 'unregistered-world']);
   assert.equal(maxConcurrent, 1);
   assert.equal(session.cache.size, 3);
   const hits = [];
@@ -123,8 +128,7 @@ test('only one animated preview runs, and stopPreview releases it before play', 
   const session = new PreviewSession({
     data: { durationMs: 20000 },
     seed: 1,
-    reducedFlash: false,
-    worldIds: ['alpine', 'nocturne'],
+    worldIds: ['alpine', 'trio'],
     schedule: (fn) => { fn(); return () => {}; },
     now: () => clock,
     renderStill: ({ worldId }) => `data:${worldId}`,
@@ -139,8 +143,8 @@ test('only one animated preview runs, and stopPreview releases it before play', 
   });
   session.preview('alpine');
   assert.equal(session.activePreviewId, 'alpine');
-  session.preview('nocturne');
-  assert.equal(session.activePreviewId, 'nocturne');
+  session.preview('trio');
+  assert.equal(session.activePreviewId, 'trio');
   assert.ok(disposed.includes('alpine'));
   session.stopPreview();
   assert.equal(session.activePreviewId, null);
@@ -148,60 +152,28 @@ test('only one animated preview runs, and stopPreview releases it before play', 
   session.cancel();
 });
 
-test('reduced flash keeps a static still and does not start preview audio', () => {
-  const audio = { started: 0 };
-  let created = 0;
-  const session = new PreviewSession({
-    data: { durationMs: 20000 },
-    seed: 1,
-    reducedFlash: true,
-    worldIds: ['alpine'],
-    schedule: (fn) => { fn(); return () => {}; },
-    renderStill: () => 'data:x',
-    createWorld: () => { created++; return { canvas: {}, draw() {}, dispose() {} }; },
-    playAudio: () => { audio.started++; },
-  });
-  session.preview('alpine');
-  assert.equal(session.activePreviewId, 'alpine');
-  assert.equal(created, 0);
-  assert.equal(audio.started, 0);
-  session.cancel();
-});
-
 test('chooser cards stay one-per-world and carry a description instead of a score', () => {
   const worlds = [
-    { id: 'alpine', name: 'The Range', tagline: 'Mountains.', kind: 'alpine' },
-    { id: 'nocturne', name: 'After Hours', tagline: 'A city.', kind: 'city' },
+    { id: 'alpine', name: 'Landscape', tagline: 'Mountains.', kind: 'alpine', experience: 'landscape' },
+    { id: 'trio', name: 'Trio', tagline: 'The cast.', kind: 'alpine', experience: 'trio' },
   ];
   const choices = buildWorldChoices(worlds, {
-    id: 'custom', baseId: 'alpine', name: 'The Range', tagline: 'Mountains.', kind: 'alpine',
+    id: 'custom', baseId: 'alpine', name: 'Landscape', tagline: 'Mountains.', kind: 'alpine',
   }, { phrase: 0.8, bass: 0.6 });
   assert.equal(choices.length, 2);
   assert.equal(choices[0].playWorldId, 'custom');
-  assert.equal(choices[1].playWorldId, 'nocturne');
+  assert.equal(choices[1].playWorldId, 'trio');
+  assert.deepEqual(choices.map((c) => c.experience), ['landscape', 'trio']);
   assert.match(choices[0].description, /phrase|ridge/i);
+  assert.match(choices[1].description, /trio|Midasus/i);
   assert.equal(choices.every((c) => !('score' in c) && !('percent' in c)), true);
   assert.equal(moveChoiceIndex(0, -1, 2), 1);
   assert.equal(moveChoiceIndex(1, 1, 2), 0);
 });
 
-test('reduced motion alone skips preview clips and participates in the still cache (M3)', async () => {
-  let created = 0, audio = 0; const preferences = [];
-  const session = new PreviewSession({ data: { durationMs: 20000 }, reducedMotion: true, reducedFlash: false,
-    worldIds: ['alpine'], schedule: fn => { fn(); return () => {}; },
-    renderStill: args => { preferences.push(args.reducedMotion); return 'data:x'; },
-    createWorld: () => { created++; return { canvas: {}, draw() {}, dispose() {} }; },
-    playAudio: () => audio++ });
-  await session.preview('alpine');
-  await new Promise(r => setTimeout(r, 0));
-  assert.equal(created, 0); assert.equal(audio, 0);
-  assert.deepEqual(preferences, [true]);
-  assert.notEqual(previewCacheKey({ worldId: 'alpine' }), previewCacheKey({ worldId: 'alpine', reducedMotion: true }));
-  session.cancel();
-});
-
-test('the Range chooser explicitly identifies its legacy illustration (M8)', () => {
-  const choices = buildWorldChoices([{ id: 'range', name: 'The Range', kind: 'alpine' }, { id: 'city', kind: 'city' }]);
+test('the Landscape chooser card explicitly identifies its legacy illustration (M8)', () => {
+  const choices = buildWorldChoices(listWorlds());
+  assert.deepEqual(choices.map((c) => c.worldId), ['alpine', 'trio']);
   assert.match(choices[0].previewLabel, /illustration/i);
-  assert.equal(choices[1].previewLabel, null);
+  assert.equal(choices[1].previewLabel, null, 'Trio plays what its card shows');
 });

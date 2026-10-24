@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
 
-const url = process.argv[2] || 'http://127.0.0.1:8080/?worlds=all';
+const url = process.argv[2] || 'http://127.0.0.1:8080/';
 const browser = await chromium.launch({ headless: true,
   executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || '/usr/bin/chromium',
   args: ['--no-sandbox'] });
@@ -60,7 +60,6 @@ try {
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(url);
     await page.locator('#fileInput').waitFor({ state: 'attached' });
-    await page.locator('#titleWorld').selectOption('ask');
     const files = mode === 'stems' ? [wav('drums.wav'), wav('bass.wav', 110)] : wav('first.wav');
     await page.locator('#fileInput').setInputFiles(files);
     if (mode === 'replacement') {

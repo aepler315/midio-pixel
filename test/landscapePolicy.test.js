@@ -16,15 +16,15 @@ test('all real biomes have distinct, immutable landscape cover policies', () => 
   assert.equal(landscapePolicy('CUSTOM').moisture, 0);
 });
 
-test('alpine depth is painted into each layer while other worlds keep their passes', () => {
+test('alpine depth is painted into each layer while any other kind keeps the generic passes', () => {
   const base = '#314c40', sky = '#91abb2';
   const colors = ['L2', 'L3', 'L4', 'L5'].map(key => landscapeLayerColor(base, sky, key, 'RAINFOREST'));
   assert.equal(new Set(colors).size, 4);
   assert.equal(landscapePasses('alpine').scenicWire, false);
-  assert.equal(landscapePasses('city').scenicWire, true);
+  assert.equal(landscapePasses('unregistered-kind').scenicWire, true);
   assert.equal(landscapePasses('alpine').connector, false);
   assert.equal(landscapePasses('alpine').shimmerSlices, false);
-  assert.equal(landscapePasses('city').shimmerSlices, true);
+  assert.equal(landscapePasses('unregistered-kind').shimmerSlices, true);
   assert.ok(landscapeBudget(6).facetsPerLayer > 0);
 });
 
@@ -42,16 +42,16 @@ test('live palettes stay distinct across depth, biome and night', () => {
   const ice = resolveLandscapePalette({ profile: 'ICEFIELD', night01: 0, airColor: '#d8c7a4' });
   assert.notEqual(desert.ground.base, ice.ground.base);
   assert.equal(resolveLandscapePalette({ profile: 'NO-SUCH', night01: Number.NaN }).biomeKey, 'CUSTOM');
-  const mid = resolveRangePresentation({ salienceSky: 0.5, voyageWeight: 0.25, quality: 6, reducedFlash: false });
+  const mid = resolveRangePresentation({ salienceSky: 0.5, voyageWeight: 0.25, quality: 6 });
   for (const key of ['spaceRidge', 'liveWeaver', 'retainedWeaver', 'ensemble', 'beams', 'ambient', 'oceanMarks', 'film']) {
     assert.ok(mid[key] >= 0 && mid[key] <= 1);
   }
   assert.equal(mid.oceanRows, landscapeBudget(6).oceanRows);
   assert.deepEqual(
-    resolveRangePresentation({ night01: 0.2, salienceSky: 0.4, voyageWeight: 0.1, quality: 1, reducedFlash: true }),
-    resolveRangePresentation({ night01: 0.2, salienceSky: 0.4, voyageWeight: 0.1, quality: 1, reducedFlash: true }),
+    resolveRangePresentation({ night01: 0.2, salienceSky: 0.4, voyageWeight: 0.1, quality: 1 }),
+    resolveRangePresentation({ night01: 0.2, salienceSky: 0.4, voyageWeight: 0.1, quality: 1 }),
   );
-  assert.equal(resolveRangePresentation({ salienceSky: 0.2, voyageWeight: 1, reducedFlash: true }).spaceRidge, 1,
+  assert.equal(resolveRangePresentation({ salienceSky: 0.2, voyageWeight: 1 }).spaceRidge, 1,
     'the Range signature remains present while ambient sky yields');
 });
 

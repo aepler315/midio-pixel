@@ -132,6 +132,3 @@ select.tb option { background: #111; }
   .pips button { width: 22px; height: 22px; }
   .toolbar .tb[data-act=labels] { display: none; }
 }
-@media (prefers-reduced-motion: reduce) {
-  .title.show h1, .title.show .eyebrow, .title.show .sub, .title.show .viewinfo, .caption.go { animation-duration: 0.01s; }
-}

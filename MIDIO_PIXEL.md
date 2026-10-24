@@ -6,4 +6,4 @@ All 1,431 source files were reconstructed and verified against their original Gi
 
 The app preserves the existing audio, worlds, terrain, lighting, weather, reflections, palettes and export sizes. It defaults to Pixel / Classic / Auto / Depth. Depth uses physical camera distance to blend between nested 1×, 2× and 4× cells in Range v2 terrain. Uniform retains the original pixel sampling; existing saved choices migrate to Uniform. Other worlds and the legacy fallback retain their existing pixel rendering.
 
-See [display controls](docs/pixel-presentation.md) and [validation results](docs/pixel-validation.md). The inherited custom domain is removed and Pages deployment is manual.
+See [display controls](docs/pixel-presentation.md) and [validation results](docs/pixel-validation.md). Pages serves the `gh-pages` branch, published manually with `npm run publish:site` (staged site only).

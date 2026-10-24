@@ -14,9 +14,11 @@ export function createRenderReadyPlayback() {
       return Promise.resolve().then(() => {
         if (mine.signal.aborted || !isCurrent()) throw cancelled();
         return prepare(mine.signal);
-      }).then(() => {
+      }).then(async () => {
         if (owner !== mine || mine.signal.aborted || !isCurrent()) return { status: 'cancelled' };
-        start(); status = 'ready'; return { status };
+        await start();
+        if (owner !== mine || mine.signal.aborted || !isCurrent()) return { status: 'cancelled' };
+        status = 'ready'; return { status };
       }).catch(reason => {
         if (owner !== mine || mine.signal.aborted || !isCurrent()) return { status: 'cancelled' };
         status = 'failed'; error = reason; fail(reason); return { status, error: reason };

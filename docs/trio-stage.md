@@ -1,49 +1,57 @@
-# Trio Stage
+# Trio
 
-Display > Experience selects Landscape (default) or Trio Stage. The experience
-preference is independent of the world and pixel profile. `?experience=trio`
-overrides the saved choice for that visit. Pixel/Palette, Classic/Detailed,
-Auto/Economy and Fit/Integer continue to work. Stage uses uniform sampling;
-Landscape's saved depth choice remains available on return.
+The app has two worlds, picked per song from the chooser once the song is
+ready: **Landscape** (The Range on real terrain, presented by Range v2 and its
+tours) and **Trio**. A page opened with `?experience=landscape` or
+`?experience=trio` has already chosen, so songs start straight in that world;
+links, exports and the smoke tools use it. The **World** setting (in Settings
+on the title screen, and under Display during playback) switches worlds
+mid-song: the scene is rebuilt at the heard position through the same playback
+gate as a seek, and the recording keeps playing. The last choice is remembered
+under `midio-pixel:experience:v1`; it no longer skips the chooser. The Teton
+camera tour belongs to Landscape: in Trio its toggle is disabled and reads
+"Available in Landscape", and a saved tour preference is kept for Landscape.
 
-The pre-real-terrain Midio-5 implementation at commit
-3b64b7652813071b5984562a50a4501b0f56a654 supplies the platform/trio reference.
-Maintained Midio, Broshi, Midasus, JumpController, MidioPerformer and
-EnsembleDirector modules supply the choreography. TrioPerformance owns their
-private conductor and lifecycle; no score keeper, tap judge, obstacles or failure
-state are constructed. Shared Simulation continues to own the actual audio clock.
+Trio is the Range as it was in Midio-5 before real terrain arrived (the
+reference is Midio-5 `6b8130e`, the parent of the first terrain commit), with
+Midio, Midasus and Broshi performing on it:
 
-Midio's jumps use real kick times, with bounded lead-accent air jumps. Broshi's
-body follows its cast bass lane (or bass-role events), and Midasus follows the
-clean lane (or sufficiently confident melody). Missing lanes stay restrained.
-Flourishes are sparse energy transitions; silence keeps small idle movement.
-No voyage or burrow is triggered in this first stage release.
+- **The dancing ridge.** No terrain profiles are loaded, so every L2–L5 layer
+  is a procedural silhouette that dances with the kicks, groove and phrases
+  (MountainChoreo), and the horizon EQ ridge draws its live spectrum.
+- **The space ridge.** The crystalline node-and-segment line with its tumbling
+  icosahedron (`SpaceRidge.draw`), not Landscape's aurora form.
+- **The star system.** The generated star catalogue, the constellation weaver
+  and the seeded planets, comets and other sky artifacts (`SkyEnsemble`), the
+  whole planetary set rather than Landscape's single planet.
+- **Midasus traveling to space to draw.** `ExcursionDirector` sends her on at
+  most two deep-sky voyages per song, after the first 12 s and never in the
+  last 25 s, when the mood holds epic or calm for four seconds. She sky-writes
+  seeded mathematical figures (a chorus voyage writes its lyric), and finished
+  figures crystallize into her Star Atlas, which glints with the hype and
+  goes supernova four seconds before the end. `BiomeManager.drawDeepSky` draws
+  all of it behind the ranges.
 
-Ground samples used by both grounded performers also draw the continuous
-platform. The camera stays fixed; distant procedural silhouettes and platform
-seams provide scrolling. Reduced motion damps parallax and character travel;
-reduced flash preserves the existing restrained character rendering.
+`Worlds.js` registers Trio as its own world (`id: 'trio'`, kind `alpine`,
+the invented `BiomeProfiles` palettes, `experience: 'trio'`). The world
+decides the presentation: `Simulation` loads real terrain only for
+`realBiomes` worlds, and `LandscapePresentation` gives Trio performers, the sky
+ensemble and the crystalline space ridge. `TrioPerformance` owns the cast's
+choreography (Midio's kick jumps and lead accents, Broshi's bass hops,
+Midasus's melody flight and her voyages) and stands them on the world's own
+`GroundField`, with Midio's screen x as the world's origin, so the cast and
+the drawn ground agree. `Renderer._drawTrioCast` draws them with contact
+shadows after the scenery and before the foreground veil.
 
-Entering Stage constructs its performance at current heard time before releasing
-Range graphics. Returning to Landscape prepares the existing song's views while
-the trio continues, then releases actor listeners and switches the presentation.
-The Simulation, Conductor, AudioEngine and current audio source remain the same;
-recording and pause state continue. A replacement song cancels an obsolete switch.
-
-Destination reconstruction primes musical motion history and warms six seconds
-of companion physics. It clears effects from the discarded future. Repeated
-destination reconstruction is deterministic; it is not a claim that every spring,
-particle or random flourish matches an uninterrupted full-song replay byte for
-byte. Repeated paused draws do match.
-
-Chooser previews carry the experience and pixel profile. Bulk export accepts
-`--experience landscape|trio`; the default is Landscape:
+Bulk export accepts `--experience landscape|trio`; the default is Landscape:
 
 ```sh
 npm run export:bulk -- --experience trio --res 1080 --fps 30 --out exports song.wav
 ```
 
-`npm run test:trio -- http://127.0.0.1:8080` tests real upload/analysis, both grids,
-Pixel/Palette, paused draw parity, stage previews, live/paused switches and retained
-resource counts. It also rejects terrain/tour/material requests in Stage. The
-extended manual browser workflow runs it; captures remain outside Git.
+`npm run test:worlds -- http://127.0.0.1:8080` drives both worlds through the
+chooser, playback, seeking and a per-pass paint audit, and sends Midasus to
+deep space to check that the deep sky paints. `npm run test:trio -- http://127.0.0.1:8080`
+covers Trio's pixel/palette captures, its chooser preview, live and paused
+world switches, and rejects terrain, tour and material requests in Trio.
+Captures stay outside Git.

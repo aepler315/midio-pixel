@@ -788,3 +788,15 @@ test('governor accepts the FPS period roundtrip main.js actually passes', () => 
   for (let i = 0; i < 600; i++) g.sample(1000 / 30, i * 1000 / 30, { capFps });
   assert.equal(g.level, 0);
 });
+test('a general quality limit survives automatic recovery and still sheds under pressure', () => {
+  const g = new PerfGovernor({ minLevel: 3 });
+  assert.equal(g.level, 3);
+  for (let i = 0; i < 3600; i++) g.sample(16.67, i * 16.67);
+  assert.equal(g.level, 3);
+  for (let i = 0; i < 30; i++) g.sample(100, 60000 + i * 100);
+  assert.ok(g.level > 3);
+  g.setQualityLimit(0);
+  assert.equal(g.level, 0);
+  g.setQualityLimit(6);
+  assert.equal(g.level, 6);
+});

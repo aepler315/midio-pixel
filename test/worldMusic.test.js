@@ -14,12 +14,11 @@ test('percussion lights peak on the detected onset, never before it, then decay'
   assert.equal(sample({ nowMs: 2000, rhythm }).accent, 0);
 });
 
-test('missing rhythm never manufactures a pulse, but the scene keeps ambient light', () => {
+test('missing rhythm never manufactures a pulse', () => {
   for (const nowMs of [0, 500, 1000, 8000]) {
     const value = sample({ nowMs });
     assert.equal(value.accent, 0);
     assert.equal(value.bass, 0);
-    assert.ok(value.cityLight > 0 && value.waterLight > 0);
     assert.ok(Object.values(value).every(Number.isFinite));
   }
 });
@@ -44,7 +43,6 @@ test('dense percussion changes local accents without speeding up the water curre
   const a = sample({ nowMs: 4000, rhythm: { tMs: 4000, vel: 1 } });
   const b = sample({ nowMs: 4000, rhythm: { tMs: 3750, vel: 0.4 } });
   assert.equal(a.current, b.current);
-  assert.equal(a.waterLight, b.waterLight);
   assert.ok(a.accent > b.accent);
 });
 
@@ -68,25 +66,9 @@ test('only measured section boundaries produce a slow opening in the water light
   assert.equal(sample({ nowMs: 6000, section: { ...section, provenance: 'decorative' } }).reveal, 0);
 });
 
-test('reduced flashing suppresses moving currents and tempers local accents', () => {
-  const full = sample({ nowMs: 1000, rhythm });
-  const reduced = sample({ nowMs: 1000, rhythm, reducedFlash: true });
-  assert.equal(reduced.current, 0);
-  assert.ok(reduced.accent < full.accent / 2);
-  assert.equal(reduced.waterLight, full.waterLight);
-});
-
-test('WP04 motion-only current suppression preserves independent musical light', () => {
-  for (const reducedFlash of [false, true]) {
-    const mgr = { tSec: 4, worldRhythm: { tMs: 4000, vel: 0.9 }, reducedFlash };
-    const full = music.sampleManagerMusic(mgr);
-    const reduced = music.sampleManagerMusic({ ...mgr, reducedMotion: true });
-    assert.equal(reduced.current, 0);
-    for (const field of ['bass', 'energy', 'accent', 'reveal', 'cityLight', 'waterLight']) {
-      assert.equal(reduced[field], full[field], `${field} remains musical`);
-    }
-    if (!reducedFlash) assert.notEqual(full.current, 0);
-  }
+test('WP04 manager sampling keeps its moving current', () => {
+  const mgr = { tSec: 4, worldRhythm: { tMs: 4000, vel: 0.9 } };
+  assert.notEqual(music.sampleManagerMusic(mgr).current, 0);
 });
 
 test('sampling the same passage is deterministic and does not consume events', () => {

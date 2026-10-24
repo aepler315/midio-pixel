@@ -1,6 +1,6 @@
 {
   "about": "Range v2 scenic views: curated real terrain corridors with authored camera rails. Authoring source for tools/build-range-scene.mjs; the runtime catalog (src/assets/range/v2/catalog.json) is generated from it. Rail anchors are lon/lat (NAD83 for 3DEP sources) with an absolute height (heightM, metres above the source vertical datum) or a height above the DEM ground (aboveGroundM). status: candidate | approved | rejected; only approved views are production-eligible.",
-  "catalogVersion": 19,
+  "catalogVersion": 20,
   "views": [
     {
       "id": "nc-ross-lake-north",
@@ -1092,7 +1092,3552 @@
           "docs/evidence/range-v2/la-sal-castle-valley-nostage-10s.jpg",
           "docs/evidence/range-v2/no-stage-coverage.json"
         ]
-      }
+      },
+      "riverPolicy": {
+        "condition": "representative-no-runoff",
+        "terrainWater": "mapped-only",
+        "unknown": "unknown"
+      },
+      "rivers": [
+        {
+          "id": "castle-creek-77838713",
+          "name": "Castle Creek",
+          "permanence": "intermittent",
+          "state": "dry",
+          "condition": "representative-no-runoff",
+          "observedDischargeM3s": null,
+          "pathLonLat": [
+            [
+              -109.23413447,
+              38.54156441
+            ],
+            [
+              -109.23425341,
+              38.54149847
+            ],
+            [
+              -109.23430927,
+              38.54141607
+            ],
+            [
+              -109.23452567,
+              38.54088327
+            ],
+            [
+              -109.23465847,
+              38.54070741
+            ],
+            [
+              -109.23486821,
+              38.54060847
+            ],
+            [
+              -109.23498701,
+              38.54058647
+            ],
+            [
+              -109.23516201,
+              38.54060287
+            ],
+            [
+              -109.23563747,
+              38.54076747
+            ],
+            [
+              -109.23605727,
+              38.54104741
+            ],
+            [
+              -109.23655387,
+              38.54124501
+            ],
+            [
+              -109.23712741,
+              38.54139847
+            ],
+            [
+              -109.23763107,
+              38.54166187
+            ],
+            [
+              -109.23830261,
+              38.54193621
+            ],
+            [
+              -109.23858941,
+              38.54199661
+            ],
+            [
+              -109.23907187,
+              38.54200741
+            ],
+            [
+              -109.24012767,
+              38.54187501
+            ],
+            [
+              -109.24034461,
+              38.54192441
+            ],
+            [
+              -109.24102307,
+              38.54217127
+            ],
+            [
+              -109.24133081,
+              38.54218207
+            ],
+            [
+              -109.24192521,
+              38.54213787
+            ],
+            [
+              -109.24218387,
+              38.54214327
+            ],
+            [
+              -109.24245667,
+              38.54219807
+            ],
+            [
+              -109.24266647,
+              38.54227487
+            ],
+            [
+              -109.24286947,
+              38.54241207
+            ],
+            [
+              -109.24324727,
+              38.54268101
+            ],
+            [
+              -109.24380007,
+              38.54315861
+            ],
+            [
+              -109.24428981,
+              38.54342207
+            ],
+            [
+              -109.24443681,
+              38.54351527
+            ],
+            [
+              -109.24451367,
+              38.54360861
+            ],
+            [
+              -109.24454921,
+              38.54416881
+            ],
+            [
+              -109.24471067,
+              38.54505301
+            ],
+            [
+              -109.24467581,
+              38.54533861
+            ],
+            [
+              -109.24470401,
+              38.54549787
+            ],
+            [
+              -109.24492121,
+              38.54604161
+            ],
+            [
+              -109.24534121,
+              38.54664547
+            ],
+            [
+              -109.24557247,
+              38.54717807
+            ],
+            [
+              -109.24564321,
+              38.54818321
+            ],
+            [
+              -109.24563701,
+              38.54925421
+            ],
+            [
+              -109.24574927,
+              38.54973187
+            ],
+            [
+              -109.24585427,
+              38.54989121
+            ],
+            [
+              -109.24600861,
+              38.55037987
+            ],
+            [
+              -109.24596741,
+              38.55137961
+            ],
+            [
+              -109.24542987,
+              38.55274727
+            ],
+            [
+              -109.24519227,
+              38.55302201
+            ],
+            [
+              -109.24517141,
+              38.55315387
+            ],
+            [
+              -109.24521381,
+              38.55369767
+            ],
+            [
+              -109.24549447,
+              38.55496621
+            ],
+            [
+              -109.24552967,
+              38.55527927
+            ],
+            [
+              -109.24527867,
+              38.55632841
+            ],
+            [
+              -109.24532121,
+              38.55686107
+            ],
+            [
+              -109.24527941,
+              38.55731147
+            ]
+          ],
+          "widthM": 0.4887,
+          "depthM": 0.1,
+          "dischargeM3s": 0.01411199,
+          "velocityMps": 0.28875541,
+          "clippedLengthM": 2642.15,
+          "source": {
+            "provider": "U.S. Geological Survey",
+            "dataset": "NHDPlus High Resolution",
+            "url": "https://hydro.nationalmap.gov/arcgis/rest/services/NHDPlus_HR/MapServer/3/query?where=nhdplusid+%3D+41000200041591&outFields=%2A&outSR=4326&f=geojson",
+            "retrievedAt": "2026-10-21",
+            "featureDate": "2020-08-06",
+            "nhdplusId": "41000200041591",
+            "permanentIdentifier": "77838713",
+            "reachCode": "14030005000426",
+            "fcode": 46003,
+            "flowDirection": "with-digitized",
+            "hydroSequence": "41000200041193",
+            "downstreamHydroSequence": "41000200028696",
+            "flowEstimateField": "QEMA",
+            "velocityEstimateField": "VEMA",
+            "estimateKind": "modeled-mean-annual",
+            "unitsDocumentationUrl": "https://pubs.usgs.gov/sir/2025/5031/sir20255031.pdf",
+            "modelPeriod": null,
+            "modelPeriodNote": "Exact EROM period not confirmed for this service release; not a current flow observation.",
+            "rawQemaCfs": 0.49836007000000004,
+            "rawVemaFps": 0.9473602600000001,
+            "widthEstimateKind": "continuity-from-modeled-flow-and-velocity",
+            "depthEstimateKind": "assumed-representative-wetted-depth",
+            "geometryProcessing": "Reprojected WGS84 to terrain NAD83 transverse Mercator; intersected union of authored payload tiles; simplified 2m; transformed back to WGS84; downstream digitized order retained.",
+            "widthDepthNote": "Width and 0.1m representative mean wetted depth are unmeasured visualization estimates. Width = QEMA_m3s / (VEMA_mps * 0.1m); not bankfull dimensions.",
+            "rawResponseSha256": "722da9ded7ca460cc5cb7f5eb919e6ae251c449abe1c062ef1dea81d25171c4f"
+          }
+        },
+        {
+          "id": "castle-creek-77838493",
+          "name": "Castle Creek",
+          "permanence": "intermittent",
+          "state": "dry",
+          "condition": "representative-no-runoff",
+          "observedDischargeM3s": null,
+          "pathLonLat": [
+            [
+              -109.24527941,
+              38.55731147
+            ],
+            [
+              -109.24515401,
+              38.55775641
+            ],
+            [
+              -109.24521707,
+              38.55802561
+            ],
+            [
+              -109.24519627,
+              38.55836047
+            ],
+            [
+              -109.24500121,
+              38.55926687
+            ],
+            [
+              -109.24490367,
+              38.55990947
+            ],
+            [
+              -109.24448461,
+              38.56061821
+            ],
+            [
+              -109.24427487,
+              38.56091487
+            ],
+            [
+              -109.24409327,
+              38.56110167
+            ],
+            [
+              -109.24382047,
+              38.56122821
+            ],
+            [
+              -109.24336587,
+              38.56134921
+            ],
+            [
+              -109.24317007,
+              38.56143167
+            ],
+            [
+              -109.24309327,
+              38.56154161
+            ],
+            [
+              -109.24305141,
+              38.56170627
+            ],
+            [
+              -109.24308667,
+              38.56210727
+            ]
+          ],
+          "widthM": 0.6858,
+          "depthM": 0.1,
+          "dischargeM3s": 0.02114591,
+          "velocityMps": 0.30832875,
+          "clippedLengthM": 608.56,
+          "source": {
+            "provider": "U.S. Geological Survey",
+            "dataset": "NHDPlus High Resolution",
+            "url": "https://hydro.nationalmap.gov/arcgis/rest/services/NHDPlus_HR/MapServer/3/query?where=nhdplusid+%3D+41000200044017&outFields=%2A&outSR=4326&f=geojson",
+            "retrievedAt": "2026-10-21",
+            "featureDate": "2020-08-06",
+            "nhdplusId": "41000200044017",
+            "permanentIdentifier": "77838493",
+            "reachCode": "14030005000426",
+            "fcode": 46003,
+            "flowDirection": "with-digitized",
+            "hydroSequence": "41000200028696",
+            "downstreamHydroSequence": "41000200023478",
+            "flowEstimateField": "QEMA",
+            "velocityEstimateField": "VEMA",
+            "estimateKind": "modeled-mean-annual",
+            "unitsDocumentationUrl": "https://pubs.usgs.gov/sir/2025/5031/sir20255031.pdf",
+            "modelPeriod": null,
+            "modelPeriodNote": "Exact EROM period not confirmed for this service release; not a current flow observation.",
+            "rawQemaCfs": 0.74676085,
+            "rawVemaFps": 1.01157728,
+            "widthEstimateKind": "continuity-from-modeled-flow-and-velocity",
+            "depthEstimateKind": "assumed-representative-wetted-depth",
+            "geometryProcessing": "Reprojected WGS84 to terrain NAD83 transverse Mercator; intersected union of authored payload tiles; simplified 2m; transformed back to WGS84; downstream digitized order retained.",
+            "widthDepthNote": "Width and 0.1m representative mean wetted depth are unmeasured visualization estimates. Width = QEMA_m3s / (VEMA_mps * 0.1m); not bankfull dimensions.",
+            "rawResponseSha256": "722da9ded7ca460cc5cb7f5eb919e6ae251c449abe1c062ef1dea81d25171c4f"
+          }
+        },
+        {
+          "id": "castle-creek-77838405",
+          "name": "Castle Creek",
+          "permanence": "intermittent",
+          "state": "dry",
+          "condition": "representative-no-runoff",
+          "observedDischargeM3s": null,
+          "pathLonLat": [
+            [
+              -109.24308667,
+              38.56210727
+            ],
+            [
+              -109.24321281,
+              38.56248061
+            ],
+            [
+              -109.24316401,
+              38.56260161
+            ],
+            [
+              -109.24275167,
+              38.56315087
+            ],
+            [
+              -109.24269581,
+              38.56332667
+            ],
+            [
+              -109.24241641,
+              38.56383767
+            ],
+            [
+              -109.24223467,
+              38.56407927
+            ],
+            [
+              -109.24164761,
+              38.56462881
+            ],
+            [
+              -109.24147981,
+              38.56491447
+            ],
+            [
+              -109.24148707,
+              38.56520561
+            ],
+            [
+              -109.24165507,
+              38.56555701
+            ],
+            [
+              -109.24169727,
+              38.56583707
+            ],
+            [
+              -109.24154367,
+              38.56618321
+            ],
+            [
+              -109.24150887,
+              38.56639201
+            ],
+            [
+              -109.24153001,
+              38.56659507
+            ],
+            [
+              -109.24160007,
+              38.56673787
+            ],
+            [
+              -109.24171907,
+              38.56687507
+            ],
+            [
+              -109.24220201,
+              38.56721547
+            ],
+            [
+              -109.24235607,
+              38.56748447
+            ],
+            [
+              -109.24239861,
+              38.56814907
+            ],
+            [
+              -109.24190281,
+              38.56947287
+            ],
+            [
+              -109.24174227,
+              38.57003321
+            ],
+            [
+              -109.24164447,
+              38.57023101
+            ],
+            [
+              -109.24135801,
+              38.57064847
+            ],
+            [
+              -109.24104367,
+              38.57144487
+            ],
+            [
+              -109.24096687,
+              38.57170307
+            ],
+            [
+              -109.24094607,
+              38.57193387
+            ],
+            [
+              -109.24099541,
+              38.57248847
+            ],
+            [
+              -109.24091167,
+              38.57290601
+            ],
+            [
+              -109.24067441,
+              38.57354861
+            ],
+            [
+              -109.24063947,
+              38.57377381
+            ],
+            [
+              -109.24066767,
+              38.57398801
+            ],
+            [
+              -109.24094821,
+              38.57496547
+            ],
+            [
+              -109.24099061,
+              38.57547627
+            ],
+            [
+              -109.24083727,
+              38.57646501
+            ],
+            [
+              -109.24087241,
+              38.57666261
+            ],
+            [
+              -109.24094261,
+              38.57688781
+            ],
+            [
+              -109.24140501,
+              38.57782681
+            ],
+            [
+              -109.24146821,
+              38.57829907
+            ],
+            [
+              -109.24146881,
+              38.57911741
+            ],
+            [
+              -109.24180561,
+              38.58034761
+            ],
+            [
+              -109.24185467,
+              38.58064421
+            ],
+            [
+              -109.24198087,
+              38.58095707
+            ],
+            [
+              -109.24208607,
+              38.58135247
+            ],
+            [
+              -109.24254161,
+              38.58231341
+            ],
+            [
+              -109.24275167,
+              38.58256601
+            ],
+            [
+              -109.24316467,
+              38.58296667
+            ],
+            [
+              -109.24354281,
+              38.58320267
+            ],
+            [
+              -109.24383681,
+              38.58348267
+            ]
+          ],
+          "widthM": 0.8151,
+          "depthM": 0.1,
+          "dischargeM3s": 0.02657439,
+          "velocityMps": 0.32601241,
+          "clippedLengthM": 2541.46,
+          "source": {
+            "provider": "U.S. Geological Survey",
+            "dataset": "NHDPlus High Resolution",
+            "url": "https://hydro.nationalmap.gov/arcgis/rest/services/NHDPlus_HR/MapServer/3/query?where=nhdplusid+%3D+41000200044064&outFields=%2A&outSR=4326&f=geojson",
+            "retrievedAt": "2026-10-21",
+            "featureDate": "2020-08-06",
+            "nhdplusId": "41000200044064",
+            "permanentIdentifier": "77838405",
+            "reachCode": "14030005000426",
+            "fcode": 46003,
+            "flowDirection": "with-digitized",
+            "hydroSequence": "41000200023478",
+            "downstreamHydroSequence": "41000200014787",
+            "flowEstimateField": "QEMA",
+            "velocityEstimateField": "VEMA",
+            "estimateKind": "modeled-mean-annual",
+            "unitsDocumentationUrl": "https://pubs.usgs.gov/sir/2025/5031/sir20255031.pdf",
+            "modelPeriod": null,
+            "modelPeriodNote": "Exact EROM period not confirmed for this service release; not a current flow observation.",
+            "rawQemaCfs": 0.9384657200000001,
+            "rawVemaFps": 1.0695945100000002,
+            "widthEstimateKind": "continuity-from-modeled-flow-and-velocity",
+            "depthEstimateKind": "assumed-representative-wetted-depth",
+            "geometryProcessing": "Reprojected WGS84 to terrain NAD83 transverse Mercator; intersected union of authored payload tiles; simplified 2m; transformed back to WGS84; downstream digitized order retained.",
+            "widthDepthNote": "Width and 0.1m representative mean wetted depth are unmeasured visualization estimates. Width = QEMA_m3s / (VEMA_mps * 0.1m); not bankfull dimensions.",
+            "rawResponseSha256": "722da9ded7ca460cc5cb7f5eb919e6ae251c449abe1c062ef1dea81d25171c4f"
+          }
+        },
+        {
+          "id": "castle-creek-77838121",
+          "name": "Castle Creek",
+          "permanence": "perennial",
+          "state": "flowing",
+          "condition": "representative-no-runoff",
+          "observedDischargeM3s": null,
+          "pathLonLat": [
+            [
+              -109.24383681,
+              38.58348267
+            ],
+            [
+              -109.24480987,
+              38.58398761
+            ],
+            [
+              -109.24511087,
+              38.58425647
+            ],
+            [
+              -109.24520201,
+              38.58438841
+            ],
+            [
+              -109.24565001,
+              38.58466821
+            ],
+            [
+              -109.24625201,
+              38.58498647
+            ],
+            [
+              -109.24647601,
+              38.58516221
+            ],
+            [
+              -109.24667921,
+              38.58538181
+            ],
+            [
+              -109.24681221,
+              38.58559041
+            ],
+            [
+              -109.24686841,
+              38.58575507
+            ]
+          ],
+          "widthM": 1.3124,
+          "depthM": 0.1,
+          "dischargeM3s": 0.04578069,
+          "velocityMps": 0.34882912,
+          "clippedLengthM": 373.7,
+          "source": {
+            "provider": "U.S. Geological Survey",
+            "dataset": "NHDPlus High Resolution",
+            "url": "https://hydro.nationalmap.gov/arcgis/rest/services/NHDPlus_HR/MapServer/3/query?where=nhdplusid+%3D+41000200044011&outFields=%2A&outSR=4326&f=geojson",
+            "retrievedAt": "2026-10-21",
+            "featureDate": "2020-08-06",
+            "nhdplusId": "41000200044011",
+            "permanentIdentifier": "77838121",
+            "reachCode": "14030005000425",
+            "fcode": 46006,
+            "flowDirection": "with-digitized",
+            "hydroSequence": "41000200014787",
+            "downstreamHydroSequence": "41000200013699",
+            "flowEstimateField": "QEMA",
+            "velocityEstimateField": "VEMA",
+            "estimateKind": "modeled-mean-annual",
+            "unitsDocumentationUrl": "https://pubs.usgs.gov/sir/2025/5031/sir20255031.pdf",
+            "modelPeriod": null,
+            "modelPeriodNote": "Exact EROM period not confirmed for this service release; not a current flow observation.",
+            "rawQemaCfs": 1.6167299,
+            "rawVemaFps": 1.1444524900000002,
+            "widthEstimateKind": "continuity-from-modeled-flow-and-velocity",
+            "depthEstimateKind": "assumed-representative-wetted-depth",
+            "geometryProcessing": "Reprojected WGS84 to terrain NAD83 transverse Mercator; intersected union of authored payload tiles; simplified 2m; transformed back to WGS84; downstream digitized order retained.",
+            "widthDepthNote": "Width and 0.1m representative mean wetted depth are unmeasured visualization estimates. Width = QEMA_m3s / (VEMA_mps * 0.1m); not bankfull dimensions.",
+            "rawResponseSha256": "722da9ded7ca460cc5cb7f5eb919e6ae251c449abe1c062ef1dea81d25171c4f"
+          }
+        },
+        {
+          "id": "castle-creek-77838095",
+          "name": "Castle Creek",
+          "permanence": "perennial",
+          "state": "flowing",
+          "condition": "representative-no-runoff",
+          "observedDischargeM3s": null,
+          "pathLonLat": [
+            [
+              -109.24686841,
+              38.58575507
+            ],
+            [
+              -109.24685447,
+              38.58594741
+            ],
+            [
+              -109.24677067,
+              38.58611761
+            ],
+            [
+              -109.24663121,
+              38.58666687
+            ],
+            [
+              -109.24663827,
+              38.58684821
+            ],
+            [
+              -109.24670827,
+              38.58699647
+            ],
+            [
+              -109.24691141,
+              38.58717207
+            ],
+            [
+              -109.24715647,
+              38.58728727
+            ],
+            [
+              -109.24757641,
+              38.58737501
+            ],
+            [
+              -109.24766741,
+              38.58744087
+            ],
+            [
+              -109.24770247,
+              38.58753421
+            ],
+            [
+              -109.24769547,
+              38.58771547
+            ],
+            [
+              -109.24819267,
+              38.58807767
+            ],
+            [
+              -109.24854261,
+              38.58824241
+            ],
+            [
+              -109.24880861,
+              38.58831361
+            ],
+            [
+              -109.24902561,
+              38.58833001
+            ],
+            [
+              -109.24928441,
+              38.58827487
+            ],
+            [
+              -109.25006801,
+              38.58797787
+            ],
+            [
+              -109.25048781,
+              38.58787341
+            ],
+            [
+              -109.25086261,
+              38.58792041
+            ],
+            [
+              -109.25131841,
+              38.58788321
+            ],
+            [
+              -109.25212241,
+              38.58791721
+            ],
+            [
+              -109.25225621,
+              38.58788627
+            ]
+          ],
+          "widthM": 1.4628,
+          "depthM": 0.1,
+          "dischargeM3s": 0.05096148,
+          "velocityMps": 0.34838576,
+          "clippedLengthM": 703.29,
+          "source": {
+            "provider": "U.S. Geological Survey",
+            "dataset": "NHDPlus High Resolution",
+            "url": "https://hydro.nationalmap.gov/arcgis/rest/services/NHDPlus_HR/MapServer/3/query?where=nhdplusid+%3D+41000200044080&outFields=%2A&outSR=4326&f=geojson",
+            "retrievedAt": "2026-10-21",
+            "featureDate": "2020-08-06",
+            "nhdplusId": "41000200044080",
+            "permanentIdentifier": "77838095",
+            "reachCode": "14030005000425",
+            "fcode": 46006,
+            "flowDirection": "with-digitized",
+            "hydroSequence": "41000200013699",
+            "downstreamHydroSequence": "41000200012803",
+            "flowEstimateField": "QEMA",
+            "velocityEstimateField": "VEMA",
+            "estimateKind": "modeled-mean-annual",
+            "unitsDocumentationUrl": "https://pubs.usgs.gov/sir/2025/5031/sir20255031.pdf",
+            "modelPeriod": null,
+            "modelPeriodNote": "Exact EROM period not confirmed for this service release; not a current flow observation.",
+            "rawQemaCfs": 1.7996878200000002,
+            "rawVemaFps": 1.1429979000000001,
+            "widthEstimateKind": "continuity-from-modeled-flow-and-velocity",
+            "depthEstimateKind": "assumed-representative-wetted-depth",
+            "geometryProcessing": "Reprojected WGS84 to terrain NAD83 transverse Mercator; intersected union of authored payload tiles; simplified 2m; transformed back to WGS84; downstream digitized order retained.",
+            "widthDepthNote": "Width and 0.1m representative mean wetted depth are unmeasured visualization estimates. Width = QEMA_m3s / (VEMA_mps * 0.1m); not bankfull dimensions.",
+            "rawResponseSha256": "722da9ded7ca460cc5cb7f5eb919e6ae251c449abe1c062ef1dea81d25171c4f"
+          }
+        },
+        {
+          "id": "castle-creek-77838075",
+          "name": "Castle Creek",
+          "permanence": "perennial",
+          "state": "flowing",
+          "condition": "representative-no-runoff",
+          "observedDischargeM3s": null,
+          "pathLonLat": [
+            [
+              -109.25225621,
+              38.58788627
+            ],
+            [
+              -109.25284381,
+              38.58789501
+            ],
+            [
+              -109.25391087,
+              38.58775707
+            ],
+            [
+              -109.25493347,
+              38.58772301
+            ],
+            [
+              -109.25517741,
+              38.58777061
+            ],
+            [
+              -109.25590641,
+              38.58801207
+            ],
+            [
+              -109.25625241,
+              38.58817661
+            ],
+            [
+              -109.25654801,
+              38.58839521
+            ]
+          ],
+          "widthM": 1.6167,
+          "depthM": 0.1,
+          "dischargeM3s": 0.06054409,
+          "velocityMps": 0.3745013,
+          "clippedLengthM": 396.08,
+          "source": {
+            "provider": "U.S. Geological Survey",
+            "dataset": "NHDPlus High Resolution",
+            "url": "https://hydro.nationalmap.gov/arcgis/rest/services/NHDPlus_HR/MapServer/3/query?where=nhdplusid+%3D+41000200044014&outFields=%2A&outSR=4326&f=geojson",
+            "retrievedAt": "2026-10-21",
+            "featureDate": "2020-08-06",
+            "nhdplusId": "41000200044014",
+            "permanentIdentifier": "77838075",
+            "reachCode": "14030005000425",
+            "fcode": 46006,
+            "flowDirection": "with-digitized",
+            "hydroSequence": "41000200012803",
+            "downstreamHydroSequence": "41000200012048",
+            "flowEstimateField": "QEMA",
+            "velocityEstimateField": "VEMA",
+            "estimateKind": "modeled-mean-annual",
+            "unitsDocumentationUrl": "https://pubs.usgs.gov/sir/2025/5031/sir20255031.pdf",
+            "modelPeriod": null,
+            "modelPeriodNote": "Exact EROM period not confirmed for this service release; not a current flow observation.",
+            "rawQemaCfs": 2.1380942099999998,
+            "rawVemaFps": 1.2286788,
+            "widthEstimateKind": "continuity-from-modeled-flow-and-velocity",
+            "depthEstimateKind": "assumed-representative-wetted-depth",
+            "geometryProcessing": "Reprojected WGS84 to terrain NAD83 transverse Mercator; intersected union of authored payload tiles; simplified 2m; transformed back to WGS84; downstream digitized order retained.",
+            "widthDepthNote": "Width and 0.1m representative mean wetted depth are unmeasured visualization estimates. Width = QEMA_m3s / (VEMA_mps * 0.1m); not bankfull dimensions.",
+            "rawResponseSha256": "722da9ded7ca460cc5cb7f5eb919e6ae251c449abe1c062ef1dea81d25171c4f"
+          }
+        },
+        {
+          "id": "castle-creek-77838063",
+          "name": "Castle Creek",
+          "permanence": "perennial",
+          "state": "flowing",
+          "condition": "representative-no-runoff",
+          "observedDischargeM3s": null,
+          "pathLonLat": [
+            [
+              -109.25654801,
+              38.58839521
+            ],
+            [
+              -109.25690627,
+              38.58862567
+            ],
+            [
+              -109.25734987,
+              38.58880267
+            ],
+            [
+              -109.25769427,
+              38.58903307
+            ],
+            [
+              -109.25782441,
+              38.58915581
+            ],
+            [
+              -109.25878627,
+              38.58960407
+            ],
+            [
+              -109.25923847,
+              38.59001187
+            ],
+            [
+              -109.25979687,
+              38.59036067
+            ]
+          ],
+          "widthM": 1.7859,
+          "depthM": 0.1,
+          "dischargeM3s": 0.06682046,
+          "velocityMps": 0.37415635,
+          "clippedLengthM": 360.52,
+          "source": {
+            "provider": "U.S. Geological Survey",
+            "dataset": "NHDPlus High Resolution",
+            "url": "https://hydro.nationalmap.gov/arcgis/rest/services/NHDPlus_HR/MapServer/3/query?where=nhdplusid+%3D+41000200044000&outFields=%2A&outSR=4326&f=geojson",
+            "retrievedAt": "2026-10-21",
+            "featureDate": "2020-08-06",
+            "nhdplusId": "41000200044000",
+            "permanentIdentifier": "77838063",
+            "reachCode": "14030005000425",
+            "fcode": 46006,
+            "flowDirection": "with-digitized",
+            "hydroSequence": "41000200012048",
+            "downstreamHydroSequence": "41000200011393",
+            "flowEstimateField": "QEMA",
+            "velocityEstimateField": "VEMA",
+            "estimateKind": "modeled-mean-annual",
+            "unitsDocumentationUrl": "https://pubs.usgs.gov/sir/2025/5031/sir20255031.pdf",
+            "modelPeriod": null,
+            "modelPeriodNote": "Exact EROM period not confirmed for this service release; not a current flow observation.",
+            "rawQemaCfs": 2.35974215,
+            "rawVemaFps": 1.22754707,
+            "widthEstimateKind": "continuity-from-modeled-flow-and-velocity",
+            "depthEstimateKind": "assumed-representative-wetted-depth",
+            "geometryProcessing": "Reprojected WGS84 to terrain NAD83 transverse Mercator; intersected union of authored payload tiles; simplified 2m; transformed back to WGS84; downstream digitized order retained.",
+            "widthDepthNote": "Width and 0.1m representative mean wetted depth are unmeasured visualization estimates. Width = QEMA_m3s / (VEMA_mps * 0.1m); not bankfull dimensions.",
+            "rawResponseSha256": "722da9ded7ca460cc5cb7f5eb919e6ae251c449abe1c062ef1dea81d25171c4f"
+          }
+        },
+        {
+          "id": "castle-creek-77838015",
+          "name": "Castle Creek",
+          "permanence": "perennial",
+          "state": "flowing",
+          "condition": "representative-no-runoff",
+          "observedDischargeM3s": null,
+          "pathLonLat": [
+            [
+              -109.25979687,
+              38.59036067
+            ],
+            [
+              -109.26025827,
+              38.59067521
+            ],
+            [
+              -109.26059667,
+              38.59086147
+            ],
+            [
+              -109.26079567,
+              38.59102367
+            ],
+            [
+              -109.26096227,
+              38.59108661
+            ],
+            [
+              -109.26190221,
+              38.59128741
+            ],
+            [
+              -109.26270081,
+              38.59126081
+            ],
+            [
+              -109.26332247,
+              38.59130847
+            ],
+            [
+              -109.26445341,
+              38.59172081
+            ],
+            [
+              -109.26517681,
+              38.59190721
+            ],
+            [
+              -109.26598127,
+              38.59221581
+            ],
+            [
+              -109.26618821,
+              38.59233967
+            ],
+            [
+              -109.26626961,
+              38.59245081
+            ],
+            [
+              -109.26633367,
+              38.59269887
+            ],
+            [
+              -109.26666281,
+              38.59327507
+            ],
+            [
+              -109.26751301,
+              38.59429841
+            ],
+            [
+              -109.26767821,
+              38.59441621
+            ],
+            [
+              -109.26810121,
+              38.59486741
+            ],
+            [
+              -109.26863787,
+              38.59525441
+            ]
+          ],
+          "widthM": 1.9657,
+          "depthM": 0.1,
+          "dischargeM3s": 0.07414994,
+          "velocityMps": 0.37721047,
+          "clippedLengthM": 1008.1,
+          "source": {
+            "provider": "U.S. Geological Survey",
+            "dataset": "NHDPlus High Resolution",
+            "url": "https://hydro.nationalmap.gov/arcgis/rest/services/NHDPlus_HR/MapServer/3/query?where=nhdplusid+%3D+41000200044044&outFields=%2A&outSR=4326&f=geojson",
+            "retrievedAt": "2026-10-21",
+            "featureDate": "2020-08-06",
+            "nhdplusId": "41000200044044",
+            "permanentIdentifier": "77838015",
+            "reachCode": "14030005000425",
+            "fcode": 46006,
+            "flowDirection": "with-digitized",
+            "hydroSequence": "41000200011393",
+            "downstreamHydroSequence": "41000200010804",
+            "flowEstimateField": "QEMA",
+            "velocityEstimateField": "VEMA",
+            "estimateKind": "modeled-mean-annual",
+            "unitsDocumentationUrl": "https://pubs.usgs.gov/sir/2025/5031/sir20255031.pdf",
+            "modelPeriod": null,
+            "modelPeriodNote": "Exact EROM period not confirmed for this service release; not a current flow observation.",
+            "rawQemaCfs": 2.61858052,
+            "rawVemaFps": 1.23756717,
+            "widthEstimateKind": "continuity-from-modeled-flow-and-velocity",
+            "depthEstimateKind": "assumed-representative-wetted-depth",
+            "geometryProcessing": "Reprojected WGS84 to terrain NAD83 transverse Mercator; intersected union of authored payload tiles; simplified 2m; transformed back to WGS84; downstream digitized order retained.",
+            "widthDepthNote": "Width and 0.1m representative mean wetted depth are unmeasured visualization estimates. Width = QEMA_m3s / (VEMA_mps * 0.1m); not bankfull dimensions.",
+            "rawResponseSha256": "722da9ded7ca460cc5cb7f5eb919e6ae251c449abe1c062ef1dea81d25171c4f"
+          }
+        },
+        {
+          "id": "castle-creek-77837971",
+          "name": "Castle Creek",
+          "permanence": "perennial",
+          "state": "flowing",
+          "condition": "representative-no-runoff",
+          "observedDischargeM3s": null,
+          "pathLonLat": [
+            [
+              -109.26863787,
+              38.59525441
+            ],
+            [
+              -109.26943261,
+              38.59596927
+            ],
+            [
+              -109.26986561,
+              38.59630527
+            ],
+            [
+              -109.27022761,
+              38.59638747
+            ],
+            [
+              -109.27120861,
+              38.59692387
+            ],
+            [
+              -109.27143121,
+              38.59698207
+            ],
+            [
+              -109.27164087,
+              38.59699621
+            ],
+            [
+              -109.27200201,
+              38.59711687
+            ],
+            [
+              -109.27268861,
+              38.59737967
+            ],
+            [
+              -109.27356781,
+              38.59778821
+            ],
+            [
+              -109.27427707,
+              38.59797987
+            ],
+            [
+              -109.27438741,
+              38.59805301
+            ],
+            [
+              -109.27458967,
+              38.59808341
+            ],
+            [
+              -109.27486561,
+              38.59825221
+            ],
+            [
+              -109.27543127,
+              38.59830447
+            ],
+            [
+              -109.27586307,
+              38.59839327
+            ],
+            [
+              -109.27671161,
+              38.59833441
+            ],
+            [
+              -109.27703627,
+              38.59821827
+            ],
+            [
+              -109.27722847,
+              38.59808381
+            ],
+            [
+              -109.27766661,
+              38.59790901
+            ],
+            [
+              -109.27784881,
+              38.59790061
+            ],
+            [
+              -109.27813047,
+              38.59782787
+            ],
+            [
+              -109.27839721,
+              38.59779887
+            ],
+            [
+              -109.27934021,
+              38.59788407
+            ],
+            [
+              -109.28050367,
+              38.59752221
+            ],
+            [
+              -109.28155661,
+              38.59740027
+            ],
+            [
+              -109.28234141,
+              38.59736241
+            ],
+            [
+              -109.28321147,
+              38.59756741
+            ],
+            [
+              -109.28402821,
+              38.59766181
+            ],
+            [
+              -109.28423661,
+              38.59773081
+            ],
+            [
+              -109.28474027,
+              38.59803481
+            ],
+            [
+              -109.28496327,
+              38.59807647
+            ],
+            [
+              -109.28511561,
+              38.59815007
+            ],
+            [
+              -109.28517721,
+              38.59820601
+            ],
+            [
+              -109.28525721,
+              38.59837747
+            ],
+            [
+              -109.28567747,
+              38.59865281
+            ],
+            [
+              -109.28583647,
+              38.59873747
+            ],
+            [
+              -109.28597641,
+              38.59874501
+            ],
+            [
+              -109.28632201,
+              38.59893141
+            ],
+            [
+              -109.28646101,
+              38.59897181
+            ],
+            [
+              -109.28687261,
+              38.59902727
+            ],
+            [
+              -109.28720127,
+              38.59903761
+            ],
+            [
+              -109.28737707,
+              38.59900167
+            ],
+            [
+              -109.28762127,
+              38.59903827
+            ],
+            [
+              -109.28785947,
+              38.59903081
+            ],
+            [
+              -109.28847141,
+              38.59890787
+            ],
+            [
+              -109.28859687,
+              38.59893167
+            ],
+            [
+              -109.28872761,
+              38.59902701
+            ],
+            [
+              -109.28895741,
+              38.59907427
+            ],
+            [
+              -109.28914021,
+              38.59933521
+            ],
+            [
+              -109.28974361,
+              38.59956921
+            ],
+            [
+              -109.29034881,
+              38.60002301
+            ],
+            [
+              -109.29053247,
+              38.60024527
+            ],
+            [
+              -109.29085941,
+              38.60033261
+            ]
+          ],
+          "widthM": 2.0276,
+          "depthM": 0.1,
+          "dischargeM3s": 0.07637231,
+          "velocityMps": 0.37665652,
+          "clippedLengthM": 2193.52,
+          "source": {
+            "provider": "U.S. Geological Survey",
+            "dataset": "NHDPlus High Resolution",
+            "url": "https://hydro.nationalmap.gov/arcgis/rest/services/NHDPlus_HR/MapServer/3/query?where=nhdplusid+%3D+41000200044043&outFields=%2A&outSR=4326&f=geojson",
+            "retrievedAt": "2026-10-21",
+            "featureDate": "2020-08-06",
+            "nhdplusId": "41000200044043",
+            "permanentIdentifier": "77837971",
+            "reachCode": "14030005000425",
+            "fcode": 46006,
+            "flowDirection": "with-digitized",
+            "hydroSequence": "41000200010804",
+            "downstreamHydroSequence": "41000200010465",
+            "flowEstimateField": "QEMA",
+            "velocityEstimateField": "VEMA",
+            "estimateKind": "modeled-mean-annual",
+            "unitsDocumentationUrl": "https://pubs.usgs.gov/sir/2025/5031/sir20255031.pdf",
+            "modelPeriod": null,
+            "modelPeriodNote": "Exact EROM period not confirmed for this service release; not a current flow observation.",
+            "rawQemaCfs": 2.69706251,
+            "rawVemaFps": 1.23574975,
+            "widthEstimateKind": "continuity-from-modeled-flow-and-velocity",
+            "depthEstimateKind": "assumed-representative-wetted-depth",
+            "geometryProcessing": "Reprojected WGS84 to terrain NAD83 transverse Mercator; intersected union of authored payload tiles; simplified 2m; transformed back to WGS84; downstream digitized order retained.",
+            "widthDepthNote": "Width and 0.1m representative mean wetted depth are unmeasured visualization estimates. Width = QEMA_m3s / (VEMA_mps * 0.1m); not bankfull dimensions.",
+            "rawResponseSha256": "722da9ded7ca460cc5cb7f5eb919e6ae251c449abe1c062ef1dea81d25171c4f"
+          }
+        },
+        {
+          "id": "castle-creek-77837941",
+          "name": "Castle Creek",
+          "permanence": "perennial",
+          "state": "flowing",
+          "condition": "representative-no-runoff",
+          "observedDischargeM3s": null,
+          "pathLonLat": [
+            [
+              -109.29085941,
+              38.60033261
+            ],
+            [
+              -109.29156427,
+              38.60012861
+            ],
+            [
+              -109.29174881,
+              38.60002141
+            ],
+            [
+              -109.29188147,
+              38.59974321
+            ],
+            [
+              -109.29198987,
+              38.59959647
+            ],
+            [
+              -109.29211747,
+              38.59952687
+            ],
+            [
+              -109.29267167,
+              38.59948007
+            ],
+            [
+              -109.29284187,
+              38.59938367
+            ],
+            [
+              -109.29326507,
+              38.59925247
+            ],
+            [
+              -109.29337267,
+              38.59913881
+            ],
+            [
+              -109.29349981,
+              38.59909107
+            ],
+            [
+              -109.29403187,
+              38.59908787
+            ],
+            [
+              -109.29415921,
+              38.59903487
+            ],
+            [
+              -109.29428921,
+              38.59886647
+            ]
+          ],
+          "widthM": 2.3208,
+          "depthM": 0.1,
+          "dischargeM3s": 0.08345354,
+          "velocityMps": 0.35958564,
+          "clippedLengthM": 366.02,
+          "source": {
+            "provider": "U.S. Geological Survey",
+            "dataset": "NHDPlus High Resolution",
+            "url": "https://hydro.nationalmap.gov/arcgis/rest/services/NHDPlus_HR/MapServer/3/query?where=nhdplusid+%3D+41000200026360&outFields=%2A&outSR=4326&f=geojson",
+            "retrievedAt": "2026-10-21",
+            "featureDate": "2020-08-06",
+            "nhdplusId": "41000200026360",
+            "permanentIdentifier": "77837941",
+            "reachCode": "14030005000425",
+            "fcode": 46006,
+            "flowDirection": "with-digitized",
+            "hydroSequence": "41000200010465",
+            "downstreamHydroSequence": "41000200009850",
+            "flowEstimateField": "QEMA",
+            "velocityEstimateField": "VEMA",
+            "estimateKind": "modeled-mean-annual",
+            "unitsDocumentationUrl": "https://pubs.usgs.gov/sir/2025/5031/sir20255031.pdf",
+            "modelPeriod": null,
+            "modelPeriodNote": "Exact EROM period not confirmed for this service release; not a current flow observation.",
+            "rawQemaCfs": 2.9471339199999997,
+            "rawVemaFps": 1.17974292,
+            "widthEstimateKind": "continuity-from-modeled-flow-and-velocity",
+            "depthEstimateKind": "assumed-representative-wetted-depth",
+            "geometryProcessing": "Reprojected WGS84 to terrain NAD83 transverse Mercator; intersected union of authored payload tiles; simplified 2m; transformed back to WGS84; downstream digitized order retained.",
+            "widthDepthNote": "Width and 0.1m representative mean wetted depth are unmeasured visualization estimates. Width = QEMA_m3s / (VEMA_mps * 0.1m); not bankfull dimensions.",
+            "rawResponseSha256": "722da9ded7ca460cc5cb7f5eb919e6ae251c449abe1c062ef1dea81d25171c4f"
+          }
+        },
+        {
+          "id": "castle-creek-77837945",
+          "name": "Castle Creek",
+          "permanence": "perennial",
+          "state": "flowing",
+          "condition": "representative-no-runoff",
+          "observedDischargeM3s": null,
+          "pathLonLat": [
+            [
+              -109.29428921,
+              38.59886647
+            ],
+            [
+              -109.29472901,
+              38.59891127
+            ],
+            [
+              -109.29490841,
+              38.59872707
+            ],
+            [
+              -109.29520841,
+              38.59877001
+            ],
+            [
+              -109.29538927,
+              38.59881647
+            ],
+            [
+              -109.29544301,
+              38.59891067
+            ],
+            [
+              -109.29544727,
+              38.59902607
+            ],
+            [
+              -109.29551561,
+              38.59909847
+            ],
+            [
+              -109.29590927,
+              38.59902741
+            ],
+            [
+              -109.29627761,
+              38.59884587
+            ],
+            [
+              -109.29637587,
+              38.59883087
+            ],
+            [
+              -109.29655027,
+              38.59885541
+            ],
+            [
+              -109.29679961,
+              38.59897441
+            ],
+            [
+              -109.29692941,
+              38.59881147
+            ],
+            [
+              -109.29721581,
+              38.59883207
+            ],
+            [
+              -109.29734781,
+              38.59887801
+            ],
+            [
+              -109.29773341,
+              38.59885061
+            ],
+            [
+              -109.29786101,
+              38.59878661
+            ],
+            [
+              -109.29794201,
+              38.59861201
+            ],
+            [
+              -109.29803421,
+              38.59856387
+            ],
+            [
+              -109.29816767,
+              38.59854387
+            ],
+            [
+              -109.29826041,
+              38.59846827
+            ],
+            [
+              -109.29839467,
+              38.59841527
+            ],
+            [
+              -109.29863201,
+              38.59844067
+            ],
+            [
+              -109.29936181,
+              38.59836341
+            ],
+            [
+              -109.29959787,
+              38.59844927
+            ],
+            [
+              -109.30015427,
+              38.59830361
+            ],
+            [
+              -109.30027847,
+              38.59837667
+            ],
+            [
+              -109.30039161,
+              38.59832887
+            ],
+            [
+              -109.30070741,
+              38.59829507
+            ],
+            [
+              -109.30081487,
+              38.59819227
+            ],
+            [
+              -109.30087401,
+              38.59805581
+            ],
+            [
+              -109.30099281,
+              38.59806847
+            ],
+            [
+              -109.30117321,
+              38.59813707
+            ],
+            [
+              -109.30155301,
+              38.59835681
+            ],
+            [
+              -109.30174801,
+              38.59839261
+            ],
+            [
+              -109.30216301,
+              38.59831067
+            ],
+            [
+              -109.30237547,
+              38.59820401
+            ],
+            [
+              -109.30260527,
+              38.59825667
+            ],
+            [
+              -109.30281967,
+              38.59836407
+            ],
+            [
+              -109.30329427,
+              38.59842601
+            ],
+            [
+              -109.30348347,
+              38.59841767
+            ],
+            [
+              -109.30360367,
+              38.59836461
+            ],
+            [
+              -109.30374407,
+              38.59834461
+            ],
+            [
+              -109.30384841,
+              38.59837361
+            ],
+            [
+              -109.30431127,
+              38.59863301
+            ],
+            [
+              -109.30474967,
+              38.59874367
+            ],
+            [
+              -109.30576201,
+              38.59915387
+            ],
+            [
+              -109.30605941,
+              38.59930647
+            ],
+            [
+              -109.30624827,
+              38.59931467
+            ],
+            [
+              -109.30633667,
+              38.59942041
+            ],
+            [
+              -109.30660621,
+              38.59957261
+            ],
+            [
+              -109.30700027,
+              38.59947941
+            ],
+            [
+              -109.30734241,
+              38.59951741
+            ]
+          ],
+          "widthM": 2.3136,
+          "depthM": 0.1,
+          "dischargeM3s": 0.08558441,
+          "velocityMps": 0.36992097,
+          "clippedLengthM": 1305.7,
+          "source": {
+            "provider": "U.S. Geological Survey",
+            "dataset": "NHDPlus High Resolution",
+            "url": "https://hydro.nationalmap.gov/arcgis/rest/services/NHDPlus_HR/MapServer/3/query?where=nhdplusid+%3D+41000200044073&outFields=%2A&outSR=4326&f=geojson",
+            "retrievedAt": "2026-10-21",
+            "featureDate": "2020-08-06",
+            "nhdplusId": "41000200044073",
+            "permanentIdentifier": "77837945",
+            "reachCode": "14030005000425",
+            "fcode": 46006,
+            "flowDirection": "with-digitized",
+            "hydroSequence": "41000200009850",
+            "downstreamHydroSequence": "41000200009484",
+            "flowEstimateField": "QEMA",
+            "velocityEstimateField": "VEMA",
+            "estimateKind": "modeled-mean-annual",
+            "unitsDocumentationUrl": "https://pubs.usgs.gov/sir/2025/5031/sir20255031.pdf",
+            "modelPeriod": null,
+            "modelPeriodNote": "Exact EROM period not confirmed for this service release; not a current flow observation.",
+            "rawQemaCfs": 3.02238488,
+            "rawVemaFps": 1.21365146,
+            "widthEstimateKind": "continuity-from-modeled-flow-and-velocity",
+            "depthEstimateKind": "assumed-representative-wetted-depth",
+            "geometryProcessing": "Reprojected WGS84 to terrain NAD83 transverse Mercator; intersected union of authored payload tiles; simplified 2m; transformed back to WGS84; downstream digitized order retained.",
+            "widthDepthNote": "Width and 0.1m representative mean wetted depth are unmeasured visualization estimates. Width = QEMA_m3s / (VEMA_mps * 0.1m); not bankfull dimensions.",
+            "rawResponseSha256": "722da9ded7ca460cc5cb7f5eb919e6ae251c449abe1c062ef1dea81d25171c4f"
+          }
+        },
+        {
+          "id": "castle-creek-77837891",
+          "name": "Castle Creek",
+          "permanence": "perennial",
+          "state": "flowing",
+          "condition": "representative-no-runoff",
+          "observedDischargeM3s": null,
+          "pathLonLat": [
+            [
+              -109.30734241,
+              38.59951741
+            ],
+            [
+              -109.30758221,
+              38.59974047
+            ],
+            [
+              -109.30832407,
+              38.60004241
+            ],
+            [
+              -109.30854281,
+              38.60026521
+            ],
+            [
+              -109.30880587,
+              38.60038987
+            ],
+            [
+              -109.30910227,
+              38.60058647
+            ],
+            [
+              -109.30993587,
+              38.60145547
+            ],
+            [
+              -109.31028167,
+              38.60163067
+            ],
+            [
+              -109.31065601,
+              38.60149327
+            ],
+            [
+              -109.31076741,
+              38.60151687
+            ],
+            [
+              -109.31079307,
+              38.60161621
+            ],
+            [
+              -109.31088181,
+              38.60171627
+            ],
+            [
+              -109.31131507,
+              38.60204121
+            ],
+            [
+              -109.31155321,
+              38.60203907
+            ],
+            [
+              -109.31182747,
+              38.60198261
+            ],
+            [
+              -109.31195307,
+              38.60200087
+            ],
+            [
+              -109.31207767,
+              38.60206321
+            ],
+            [
+              -109.31220487,
+              38.60230667
+            ],
+            [
+              -109.31230181,
+              38.60235747
+            ],
+            [
+              -109.31246961,
+              38.60236541
+            ],
+            [
+              -109.31263467,
+              38.60248861
+            ],
+            [
+              -109.31266627,
+              38.60263187
+            ],
+            [
+              -109.31288607,
+              38.60281087
+            ]
+          ],
+          "widthM": 2.3349,
+          "depthM": 0.1,
+          "dischargeM3s": 0.08637399,
+          "velocityMps": 0.36992419,
+          "clippedLengthM": 663.66,
+          "source": {
+            "provider": "U.S. Geological Survey",
+            "dataset": "NHDPlus High Resolution",
+            "url": "https://hydro.nationalmap.gov/arcgis/rest/services/NHDPlus_HR/MapServer/3/query?where=nhdplusid+%3D+41000200043986&outFields=%2A&outSR=4326&f=geojson",
+            "retrievedAt": "2026-10-21",
+            "featureDate": "2020-08-06",
+            "nhdplusId": "41000200043986",
+            "permanentIdentifier": "77837891",
+            "reachCode": "14030005000425",
+            "fcode": 46006,
+            "flowDirection": "with-digitized",
+            "hydroSequence": "41000200009484",
+            "downstreamHydroSequence": "41000200009127",
+            "flowEstimateField": "QEMA",
+            "velocityEstimateField": "VEMA",
+            "estimateKind": "modeled-mean-annual",
+            "unitsDocumentationUrl": "https://pubs.usgs.gov/sir/2025/5031/sir20255031.pdf",
+            "modelPeriod": null,
+            "modelPeriodNote": "Exact EROM period not confirmed for this service release; not a current flow observation.",
+            "rawQemaCfs": 3.0502687699999997,
+            "rawVemaFps": 1.21366204,
+            "widthEstimateKind": "continuity-from-modeled-flow-and-velocity",
+            "depthEstimateKind": "assumed-representative-wetted-depth",
+            "geometryProcessing": "Reprojected WGS84 to terrain NAD83 transverse Mercator; intersected union of authored payload tiles; simplified 2m; transformed back to WGS84; downstream digitized order retained.",
+            "widthDepthNote": "Width and 0.1m representative mean wetted depth are unmeasured visualization estimates. Width = QEMA_m3s / (VEMA_mps * 0.1m); not bankfull dimensions.",
+            "rawResponseSha256": "722da9ded7ca460cc5cb7f5eb919e6ae251c449abe1c062ef1dea81d25171c4f"
+          }
+        },
+        {
+          "id": "castle-creek-77837857",
+          "name": "Castle Creek",
+          "permanence": "perennial",
+          "state": "flowing",
+          "condition": "representative-no-runoff",
+          "observedDischargeM3s": null,
+          "pathLonLat": [
+            [
+              -109.31288607,
+              38.60281087
+            ],
+            [
+              -109.31288281,
+              38.60295361
+            ],
+            [
+              -109.31278181,
+              38.60308401
+            ],
+            [
+              -109.31276547,
+              38.60318261
+            ],
+            [
+              -109.31286641,
+              38.60335441
+            ],
+            [
+              -109.31301787,
+              38.60346087
+            ],
+            [
+              -109.31312907,
+              38.60349547
+            ],
+            [
+              -109.31328327,
+              38.60348681
+            ],
+            [
+              -109.31356621,
+              38.60336447
+            ],
+            [
+              -109.31370687,
+              38.60333347
+            ],
+            [
+              -109.31387461,
+              38.60334687
+            ],
+            [
+              -109.31401987,
+              38.60342047
+            ],
+            [
+              -109.31407547,
+              38.60373441
+            ],
+            [
+              -109.31418467,
+              38.60385687
+            ],
+            [
+              -109.31445681,
+              38.60389367
+            ],
+            [
+              -109.31484367,
+              38.60381687
+            ],
+            [
+              -109.31503921,
+              38.60383621
+            ],
+            [
+              -109.31527367,
+              38.60398241
+            ],
+            [
+              -109.31575187,
+              38.60449461
+            ],
+            [
+              -109.31620127,
+              38.60473187
+            ],
+            [
+              -109.31651467,
+              38.60480221
+            ],
+            [
+              -109.31701021,
+              38.60516641
+            ],
+            [
+              -109.31715567,
+              38.60522887
+            ],
+            [
+              -109.31768221,
+              38.60516507
+            ],
+            [
+              -109.31801487,
+              38.60531267
+            ],
+            [
+              -109.31818267,
+              38.60532061
+            ],
+            [
+              -109.31873741,
+              38.60524621
+            ],
+            [
+              -109.31899827,
+              38.60516747
+            ],
+            [
+              -109.31913767,
+              38.60519141
+            ],
+            [
+              -109.31928287,
+              38.60527047
+            ],
+            [
+              -109.31945421,
+              38.60542681
+            ],
+            [
+              -109.31959301,
+              38.60548361
+            ]
+          ],
+          "widthM": 2.4617,
+          "depthM": 0.1,
+          "dischargeM3s": 0.09275017,
+          "velocityMps": 0.37677455,
+          "clippedLengthM": 782.58,
+          "source": {
+            "provider": "U.S. Geological Survey",
+            "dataset": "NHDPlus High Resolution",
+            "url": "https://hydro.nationalmap.gov/arcgis/rest/services/NHDPlus_HR/MapServer/3/query?where=nhdplusid+%3D+41000200045532&outFields=%2A&outSR=4326&f=geojson",
+            "retrievedAt": "2026-10-21",
+            "featureDate": "2020-08-06",
+            "nhdplusId": "41000200045532",
+            "permanentIdentifier": "77837857",
+            "reachCode": "14030005000424",
+            "fcode": 46006,
+            "flowDirection": "with-digitized",
+            "hydroSequence": "41000200009127",
+            "downstreamHydroSequence": "41000200008804",
+            "flowEstimateField": "QEMA",
+            "velocityEstimateField": "VEMA",
+            "estimateKind": "modeled-mean-annual",
+            "unitsDocumentationUrl": "https://pubs.usgs.gov/sir/2025/5031/sir20255031.pdf",
+            "modelPeriod": null,
+            "modelPeriodNote": "Exact EROM period not confirmed for this service release; not a current flow observation.",
+            "rawQemaCfs": 3.27544121,
+            "rawVemaFps": 1.23613697,
+            "widthEstimateKind": "continuity-from-modeled-flow-and-velocity",
+            "depthEstimateKind": "assumed-representative-wetted-depth",
+            "geometryProcessing": "Reprojected WGS84 to terrain NAD83 transverse Mercator; intersected union of authored payload tiles; simplified 2m; transformed back to WGS84; downstream digitized order retained.",
+            "widthDepthNote": "Width and 0.1m representative mean wetted depth are unmeasured visualization estimates. Width = QEMA_m3s / (VEMA_mps * 0.1m); not bankfull dimensions.",
+            "rawResponseSha256": "722da9ded7ca460cc5cb7f5eb919e6ae251c449abe1c062ef1dea81d25171c4f"
+          }
+        },
+        {
+          "id": "castle-creek-77837825",
+          "name": "Castle Creek",
+          "permanence": "perennial",
+          "state": "flowing",
+          "condition": "representative-no-runoff",
+          "observedDischargeM3s": null,
+          "pathLonLat": [
+            [
+              -109.31959301,
+              38.60548361
+            ],
+            [
+              -109.31969547,
+              38.60558947
+            ],
+            [
+              -109.31969847,
+              38.60575981
+            ],
+            [
+              -109.31978061,
+              38.60583787
+            ],
+            [
+              -109.32004321,
+              38.60599001
+            ],
+            [
+              -109.32016901,
+              38.60599727
+            ],
+            [
+              -109.32034107,
+              38.60612067
+            ],
+            [
+              -109.32077441,
+              38.60615441
+            ],
+            [
+              -109.32088807,
+              38.60607901
+            ],
+            [
+              -109.32123387,
+              38.60596307
+            ],
+            [
+              -109.32151361,
+              38.60597267
+            ],
+            [
+              -109.32170887,
+              38.60600287
+            ],
+            [
+              -109.32188181,
+              38.60609327
+            ],
+            [
+              -109.32246701,
+              38.60621701
+            ],
+            [
+              -109.32272967,
+              38.60635807
+            ],
+            [
+              -109.32286901,
+              38.60639307
+            ],
+            [
+              -109.32313021,
+              38.60629801
+            ],
+            [
+              -109.32333361,
+              38.60627887
+            ],
+            [
+              -109.32346141,
+              38.60620387
+            ],
+            [
+              -109.32390001,
+              38.60630901
+            ],
+            [
+              -109.32407981,
+              38.60640487
+            ],
+            [
+              -109.32413867,
+              38.60657607
+            ],
+            [
+              -109.32407107,
+              38.60677827
+            ],
+            [
+              -109.32406781,
+              38.60692107
+            ],
+            [
+              -109.32420627,
+              38.60698347
+            ],
+            [
+              -109.32432301,
+              38.60708407
+            ],
+            [
+              -109.32443887,
+              38.60721761
+            ],
+            [
+              -109.32447127,
+              38.60732787
+            ],
+            [
+              -109.32467561,
+              38.60757261
+            ],
+            [
+              -109.32492487,
+              38.60769147
+            ],
+            [
+              -109.32505021,
+              38.60772067
+            ],
+            [
+              -109.32546341,
+              38.60801781
+            ],
+            [
+              -109.32547447,
+              38.60814427
+            ],
+            [
+              -109.32551541,
+              38.60818881
+            ],
+            [
+              -109.32582767,
+              38.60830861
+            ],
+            [
+              -109.32626141,
+              38.60832027
+            ],
+            [
+              -109.32637181,
+              38.60838781
+            ],
+            [
+              -109.32643221,
+              38.60850401
+            ],
+            [
+              -109.32637321,
+              38.60862947
+            ],
+            [
+              -109.32611021,
+              38.60880161
+            ],
+            [
+              -109.32612161,
+              38.60891707
+            ],
+            [
+              -109.32622461,
+              38.60900087
+            ],
+            [
+              -109.32655267,
+              38.60903861
+            ],
+            [
+              -109.32657967,
+              38.60908301
+            ],
+            [
+              -109.32656381,
+              38.60916507
+            ],
+            [
+              -109.32661101,
+              38.60924267
+            ],
+            [
+              -109.32700021,
+              38.60936907
+            ],
+            [
+              -109.32735761,
+              38.60965441
+            ],
+            [
+              -109.32741801,
+              38.60976507
+            ],
+            [
+              -109.32744841,
+              38.61026541
+            ],
+            [
+              -109.32729247,
+              38.61064781
+            ],
+            [
+              -109.32731067,
+              38.61076887
+            ],
+            [
+              -109.32741401,
+              38.61084167
+            ],
+            [
+              -109.32753241,
+              38.61086541
+            ],
+            [
+              -109.32765247,
+              38.61082307
+            ],
+            [
+              -109.32770807,
+              38.61083487
+            ],
+            [
+              -109.32776987,
+              38.61089081
+            ],
+            [
+              -109.32777421,
+              38.61100621
+            ],
+            [
+              -109.32797061,
+              38.61129461
+            ],
+            [
+              -109.32781767,
+              38.61184727
+            ],
+            [
+              -109.32786421,
+              38.61195227
+            ],
+            [
+              -109.32803081,
+              38.61201507
+            ],
+            [
+              -109.32849961,
+              38.61202727
+            ],
+            [
+              -109.33016987,
+              38.61215547
+            ],
+            [
+              -109.33022681,
+              38.61211781
+            ],
+            [
+              -109.33023301,
+              38.61184881
+            ],
+            [
+              -109.33030361,
+              38.61182227
+            ],
+            [
+              -109.33063901,
+              38.61185447
+            ],
+            [
+              -109.33077667,
+              38.61195541
+            ],
+            [
+              -109.33086941,
+              38.61218201
+            ],
+            [
+              -109.33103407,
+              38.61232161
+            ],
+            [
+              -109.33127041,
+              38.61240187
+            ],
+            [
+              -109.33151561,
+              38.61238887
+            ],
+            [
+              -109.33191227,
+              38.61249347
+            ],
+            [
+              -109.33225727,
+              38.61271261
+            ],
+            [
+              -109.33242961,
+              38.61283041
+            ],
+            [
+              -109.33261281,
+              38.61308021
+            ],
+            [
+              -109.33273101,
+              38.61341701
+            ],
+            [
+              -109.33281981,
+              38.61351707
+            ],
+            [
+              -109.33278447,
+              38.61382967
+            ],
+            [
+              -109.33282241,
+              38.61401161
+            ],
+            [
+              -109.33293847,
+              38.61413407
+            ],
+            [
+              -109.33307007,
+              38.61419627
+            ],
+            [
+              -109.33335061,
+              38.61448047
+            ],
+            [
+              -109.33347487,
+              38.61455367
+            ],
+            [
+              -109.33364281,
+              38.61456161
+            ],
+            [
+              -109.33368407,
+              38.61458967
+            ],
+            [
+              -109.33381761,
+              38.61487167
+            ],
+            [
+              -109.33396061,
+              38.61504401
+            ],
+            [
+              -109.33396067,
+              38.61534607
+            ],
+            [
+              -109.33418587,
+              38.61559647
+            ],
+            [
+              -109.33447821,
+              38.61567207
+            ],
+            [
+              -109.33449821,
+              38.61571627
+            ],
+            [
+              -109.33443067,
+              38.61590761
+            ],
+            [
+              -109.33452741,
+              38.61596947
+            ],
+            [
+              -109.33459821,
+              38.61623421
+            ],
+            [
+              -109.33507861,
+              38.61665847
+            ],
+            [
+              -109.33530641,
+              38.61679361
+            ],
+            [
+              -109.33552221,
+              38.61685147
+            ],
+            [
+              -109.33577101,
+              38.61699241
+            ],
+            [
+              -109.33596261,
+              38.61718187
+            ],
+            [
+              -109.33637201,
+              38.61734147
+            ],
+            [
+              -109.33655581,
+              38.61756927
+            ],
+            [
+              -109.33656781,
+              38.61765747
+            ]
+          ],
+          "widthM": 2.5118,
+          "depthM": 0.1,
+          "dischargeM3s": 0.09388794,
+          "velocityMps": 0.37378558,
+          "clippedLengthM": 2492.09,
+          "source": {
+            "provider": "U.S. Geological Survey",
+            "dataset": "NHDPlus High Resolution",
+            "url": "https://hydro.nationalmap.gov/arcgis/rest/services/NHDPlus_HR/MapServer/3/query?where=nhdplusid+%3D+41000200045527&outFields=%2A&outSR=4326&f=geojson",
+            "retrievedAt": "2026-10-21",
+            "featureDate": "2020-08-06",
+            "nhdplusId": "41000200045527",
+            "permanentIdentifier": "77837825",
+            "reachCode": "14030005000424",
+            "fcode": 46006,
+            "flowDirection": "with-digitized",
+            "hydroSequence": "41000200008804",
+            "downstreamHydroSequence": "41000200008494",
+            "flowEstimateField": "QEMA",
+            "velocityEstimateField": "VEMA",
+            "estimateKind": "modeled-mean-annual",
+            "unitsDocumentationUrl": "https://pubs.usgs.gov/sir/2025/5031/sir20255031.pdf",
+            "modelPeriod": null,
+            "modelPeriodNote": "Exact EROM period not confirmed for this service release; not a current flow observation.",
+            "rawQemaCfs": 3.3156214,
+            "rawVemaFps": 1.2263306299999999,
+            "widthEstimateKind": "continuity-from-modeled-flow-and-velocity",
+            "depthEstimateKind": "assumed-representative-wetted-depth",
+            "geometryProcessing": "Reprojected WGS84 to terrain NAD83 transverse Mercator; intersected union of authored payload tiles; simplified 2m; transformed back to WGS84; downstream digitized order retained.",
+            "widthDepthNote": "Width and 0.1m representative mean wetted depth are unmeasured visualization estimates. Width = QEMA_m3s / (VEMA_mps * 0.1m); not bankfull dimensions.",
+            "rawResponseSha256": "722da9ded7ca460cc5cb7f5eb919e6ae251c449abe1c062ef1dea81d25171c4f"
+          }
+        },
+        {
+          "id": "castle-creek-77837649",
+          "name": "Castle Creek",
+          "permanence": "perennial",
+          "state": "flowing",
+          "condition": "representative-no-runoff",
+          "observedDischargeM3s": null,
+          "pathLonLat": [
+            [
+              -109.33656781,
+              38.61765747
+            ],
+            [
+              -109.33663381,
+              38.61783407
+            ],
+            [
+              -109.33660067,
+              38.61805341
+            ],
+            [
+              -109.33652747,
+              38.61818967
+            ],
+            [
+              -109.33655441,
+              38.61823947
+            ],
+            [
+              -109.33663081,
+              38.61826261
+            ],
+            [
+              -109.33678767,
+              38.61844607
+            ],
+            [
+              -109.33691167,
+              38.61853021
+            ],
+            [
+              -109.33790261,
+              38.61897827
+            ],
+            [
+              -109.33802481,
+              38.61914481
+            ],
+            [
+              -109.33818401,
+              38.61922387
+            ],
+            [
+              -109.33823681,
+              38.61936201
+            ],
+            [
+              -109.33828521,
+              38.61939021
+            ],
+            [
+              -109.33857701,
+              38.61948767
+            ],
+            [
+              -109.33870127,
+              38.61956087
+            ],
+            [
+              -109.33920881,
+              38.61972187
+            ],
+            [
+              -109.33937421,
+              38.61983961
+            ],
+            [
+              -109.33996427,
+              38.62035881
+            ],
+            [
+              -109.34016827,
+              38.62061987
+            ],
+            [
+              -109.34014687,
+              38.62094367
+            ],
+            [
+              -109.34015847,
+              38.62104827
+            ],
+            [
+              -109.34021321,
+              38.62110401
+            ],
+            [
+              -109.34041567,
+              38.62112341
+            ],
+            [
+              -109.34055221,
+              38.62128461
+            ],
+            [
+              -109.34063547,
+              38.62131321
+            ],
+            [
+              -109.34071227,
+              38.62132527
+            ],
+            [
+              -109.34092327,
+              38.62128441
+            ],
+            [
+              -109.34120121,
+              38.62137621
+            ],
+            [
+              -109.34147507,
+              38.62164367
+            ],
+            [
+              -109.34184787,
+              38.62187421
+            ],
+            [
+              -109.34212007,
+              38.62191647
+            ],
+            [
+              -109.34230047,
+              38.62198501
+            ],
+            [
+              -109.34238301,
+              38.62205207
+            ],
+            [
+              -109.34243427,
+              38.62225607
+            ],
+            [
+              -109.34283161,
+              38.62233861
+            ],
+            [
+              -109.34286581,
+              38.62236661
+            ],
+            [
+              -109.34307021,
+              38.62261661
+            ],
+            [
+              -109.34323167,
+              38.62289907
+            ],
+            [
+              -109.34339741,
+              38.62300027
+            ],
+            [
+              -109.34345641,
+              38.62317687
+            ],
+            [
+              -109.34334661,
+              38.62368621
+            ],
+            [
+              -109.34346507,
+              38.62401747
+            ],
+            [
+              -109.34354067,
+              38.62407901
+            ],
+            [
+              -109.34368827,
+              38.62405367
+            ],
+            [
+              -109.34382761,
+              38.62408847
+            ],
+            [
+              -109.34392327,
+              38.62418881
+            ]
+          ],
+          "widthM": 2.5196,
+          "depthM": 0.1,
+          "dischargeM3s": 0.09392813,
+          "velocityMps": 0.37279245,
+          "clippedLengthM": 1091.31,
+          "source": {
+            "provider": "U.S. Geological Survey",
+            "dataset": "NHDPlus High Resolution",
+            "url": "https://hydro.nationalmap.gov/arcgis/rest/services/NHDPlus_HR/MapServer/3/query?where=nhdplusid+%3D+41000200045556&outFields=%2A&outSR=4326&f=geojson",
+            "retrievedAt": "2026-10-21",
+            "featureDate": "2020-08-06",
+            "nhdplusId": "41000200045556",
+            "permanentIdentifier": "77837649",
+            "reachCode": "14030005000424",
+            "fcode": 46006,
+            "flowDirection": "with-digitized",
+            "hydroSequence": "41000200008494",
+            "downstreamHydroSequence": "41000200008218",
+            "flowEstimateField": "QEMA",
+            "velocityEstimateField": "VEMA",
+            "estimateKind": "modeled-mean-annual",
+            "unitsDocumentationUrl": "https://pubs.usgs.gov/sir/2025/5031/sir20255031.pdf",
+            "modelPeriod": null,
+            "modelPeriodNote": "Exact EROM period not confirmed for this service release; not a current flow observation.",
+            "rawQemaCfs": 3.3170406700000004,
+            "rawVemaFps": 1.2230723300000002,
+            "widthEstimateKind": "continuity-from-modeled-flow-and-velocity",
+            "depthEstimateKind": "assumed-representative-wetted-depth",
+            "geometryProcessing": "Reprojected WGS84 to terrain NAD83 transverse Mercator; intersected union of authored payload tiles; simplified 2m; transformed back to WGS84; downstream digitized order retained.",
+            "widthDepthNote": "Width and 0.1m representative mean wetted depth are unmeasured visualization estimates. Width = QEMA_m3s / (VEMA_mps * 0.1m); not bankfull dimensions.",
+            "rawResponseSha256": "722da9ded7ca460cc5cb7f5eb919e6ae251c449abe1c062ef1dea81d25171c4f"
+          }
+        },
+        {
+          "id": "castle-creek-77837547",
+          "name": "Castle Creek",
+          "permanence": "perennial",
+          "state": "flowing",
+          "condition": "representative-no-runoff",
+          "observedDischargeM3s": null,
+          "pathLonLat": [
+            [
+              -109.34392327,
+              38.62418881
+            ],
+            [
+              -109.34413967,
+              38.62421941
+            ],
+            [
+              -109.34440701,
+              38.62416267
+            ],
+            [
+              -109.34474007,
+              38.62429367
+            ],
+            [
+              -109.34490827,
+              38.62428507
+            ],
+            [
+              -109.34501281,
+              38.62431407
+            ],
+            [
+              -109.34514321,
+              38.62442581
+            ],
+            [
+              -109.34543601,
+              38.62478701
+            ],
+            [
+              -109.34587961,
+              38.62498547
+            ],
+            [
+              -109.34607827,
+              38.62514281
+            ],
+            [
+              -109.34631641,
+              38.62541727
+            ],
+            [
+              -109.34641447,
+              38.62545021
+            ]
+          ],
+          "widthM": 2.4588,
+          "depthM": 0.1,
+          "dischargeM3s": 0.09568584,
+          "velocityMps": 0.38915095,
+          "clippedLengthM": 279.58,
+          "source": {
+            "provider": "U.S. Geological Survey",
+            "dataset": "NHDPlus High Resolution",
+            "url": "https://hydro.nationalmap.gov/arcgis/rest/services/NHDPlus_HR/MapServer/3/query?where=nhdplusid+%3D+41000200045520&outFields=%2A&outSR=4326&f=geojson",
+            "retrievedAt": "2026-10-21",
+            "featureDate": "2020-08-06",
+            "nhdplusId": "41000200045520",
+            "permanentIdentifier": "77837547",
+            "reachCode": "14030005000424",
+            "fcode": 46006,
+            "flowDirection": "with-digitized",
+            "hydroSequence": "41000200008218",
+            "downstreamHydroSequence": "41000200007945",
+            "flowEstimateField": "QEMA",
+            "velocityEstimateField": "VEMA",
+            "estimateKind": "modeled-mean-annual",
+            "unitsDocumentationUrl": "https://pubs.usgs.gov/sir/2025/5031/sir20255031.pdf",
+            "modelPeriod": null,
+            "modelPeriodNote": "Exact EROM period not confirmed for this service release; not a current flow observation.",
+            "rawQemaCfs": 3.3791134400000002,
+            "rawVemaFps": 1.2767419599999998,
+            "widthEstimateKind": "continuity-from-modeled-flow-and-velocity",
+            "depthEstimateKind": "assumed-representative-wetted-depth",
+            "geometryProcessing": "Reprojected WGS84 to terrain NAD83 transverse Mercator; intersected union of authored payload tiles; simplified 2m; transformed back to WGS84; downstream digitized order retained.",
+            "widthDepthNote": "Width and 0.1m representative mean wetted depth are unmeasured visualization estimates. Width = QEMA_m3s / (VEMA_mps * 0.1m); not bankfull dimensions.",
+            "rawResponseSha256": "722da9ded7ca460cc5cb7f5eb919e6ae251c449abe1c062ef1dea81d25171c4f"
+          }
+        },
+        {
+          "id": "castle-creek-77837529",
+          "name": "Castle Creek",
+          "permanence": "perennial",
+          "state": "flowing",
+          "condition": "representative-no-runoff",
+          "observedDischargeM3s": null,
+          "pathLonLat": [
+            [
+              -109.34641447,
+              38.62545021
+            ],
+            [
+              -109.34654047,
+              38.62549407
+            ],
+            [
+              -109.34713581,
+              38.62585641
+            ],
+            [
+              -109.34810941,
+              38.62652067
+            ],
+            [
+              -109.34824947,
+              38.62664701
+            ],
+            [
+              -109.34834761,
+              38.62690507
+            ],
+            [
+              -109.34832687,
+              38.62740501
+            ],
+            [
+              -109.34836887,
+              38.62750927
+            ],
+            [
+              -109.34851601,
+              38.62766301
+            ],
+            [
+              -109.34946141,
+              38.62805807
+            ],
+            [
+              -109.34978367,
+              38.62837661
+            ],
+            [
+              -109.34991667,
+              38.62841501
+            ],
+            [
+              -109.35016881,
+              38.62841501
+            ],
+            [
+              -109.35060287,
+              38.62836527
+            ],
+            [
+              -109.35078481,
+              38.62832687
+            ],
+            [
+              -109.35089681,
+              38.62826087
+            ],
+            [
+              -109.35123987,
+              38.62822227
+            ],
+            [
+              -109.35139401,
+              38.62834861
+            ],
+            [
+              -109.35152007,
+              38.62860121
+            ],
+            [
+              -109.35152021,
+              38.62873847
+            ],
+            [
+              -109.35140127,
+              38.62898021
+            ],
+            [
+              -109.35170947,
+              38.62926021
+            ],
+            [
+              -109.35230481,
+              38.62957861
+            ],
+            [
+              -109.35288607,
+              38.62980907
+            ],
+            [
+              -109.35308221,
+              38.62985841
+            ],
+            [
+              -109.35327127,
+              38.62986941
+            ],
+            [
+              -109.35394341,
+              38.62985261
+            ],
+            [
+              -109.35420947,
+              38.62992941
+            ],
+            [
+              -109.35432161,
+              38.63000621
+            ],
+            [
+              -109.35436361,
+              38.63008307
+            ],
+            [
+              -109.35434267,
+              38.63025887
+            ],
+            [
+              -109.35425881,
+              38.63048407
+            ],
+            [
+              -109.35432187,
+              38.63053347
+            ],
+            [
+              -109.35445501,
+              38.63057187
+            ],
+            [
+              -109.35491007,
+              38.63061567
+            ],
+            [
+              -109.35498707,
+              38.63067607
+            ],
+            [
+              -109.35506427,
+              38.63097821
+            ],
+            [
+              -109.35511341,
+              38.63104401
+            ],
+            [
+              -109.35576481,
+              38.63142821
+            ]
+          ],
+          "widthM": 2.5882,
+          "depthM": 0.1,
+          "dischargeM3s": 0.09606354,
+          "velocityMps": 0.37115393,
+          "clippedLengthM": 1219.94,
+          "source": {
+            "provider": "U.S. Geological Survey",
+            "dataset": "NHDPlus High Resolution",
+            "url": "https://hydro.nationalmap.gov/arcgis/rest/services/NHDPlus_HR/MapServer/3/query?where=nhdplusid+%3D+41000200045518&outFields=%2A&outSR=4326&f=geojson",
+            "retrievedAt": "2026-10-21",
+            "featureDate": "2020-08-06",
+            "nhdplusId": "41000200045518",
+            "permanentIdentifier": "77837529",
+            "reachCode": "14030005000424",
+            "fcode": 46006,
+            "flowDirection": "with-digitized",
+            "hydroSequence": "41000200007945",
+            "downstreamHydroSequence": "41000200007695",
+            "flowEstimateField": "QEMA",
+            "velocityEstimateField": "VEMA",
+            "estimateKind": "modeled-mean-annual",
+            "unitsDocumentationUrl": "https://pubs.usgs.gov/sir/2025/5031/sir20255031.pdf",
+            "modelPeriod": null,
+            "modelPeriodNote": "Exact EROM period not confirmed for this service release; not a current flow observation.",
+            "rawQemaCfs": 3.3924519799999997,
+            "rawVemaFps": 1.2176966200000001,
+            "widthEstimateKind": "continuity-from-modeled-flow-and-velocity",
+            "depthEstimateKind": "assumed-representative-wetted-depth",
+            "geometryProcessing": "Reprojected WGS84 to terrain NAD83 transverse Mercator; intersected union of authored payload tiles; simplified 2m; transformed back to WGS84; downstream digitized order retained.",
+            "widthDepthNote": "Width and 0.1m representative mean wetted depth are unmeasured visualization estimates. Width = QEMA_m3s / (VEMA_mps * 0.1m); not bankfull dimensions.",
+            "rawResponseSha256": "722da9ded7ca460cc5cb7f5eb919e6ae251c449abe1c062ef1dea81d25171c4f"
+          }
+        },
+        {
+          "id": "castle-creek-77837401",
+          "name": "Castle Creek",
+          "permanence": "perennial",
+          "state": "flowing",
+          "condition": "representative-no-runoff",
+          "observedDischargeM3s": null,
+          "pathLonLat": [
+            [
+              -109.35576481,
+              38.63142821
+            ],
+            [
+              -109.35659121,
+              38.63180687
+            ],
+            [
+              -109.35681541,
+              38.63188367
+            ],
+            [
+              -109.35711641,
+              38.63191107
+            ],
+            [
+              -109.35757847,
+              38.63184487
+            ],
+            [
+              -109.35827847,
+              38.63152061
+            ],
+            [
+              -109.35847461,
+              38.63148207
+            ],
+            [
+              -109.35902767,
+              38.63147087
+            ],
+            [
+              -109.35945501,
+              38.63170141
+            ],
+            [
+              -109.35984707,
+              38.63176167
+            ],
+            [
+              -109.36001521,
+              38.63183301
+            ],
+            [
+              -109.36055467,
+              38.63240947
+            ],
+            [
+              -109.36072981,
+              38.63243141
+            ],
+            [
+              -109.36083481,
+              38.63238187
+            ],
+            [
+              -109.36116387,
+              38.63240367
+            ],
+            [
+              -109.36146507,
+              38.63254087
+            ],
+            [
+              -109.36157721,
+              38.63262867
+            ],
+            [
+              -109.36168241,
+              38.63289781
+            ],
+            [
+              -109.36206767,
+              38.63323821
+            ],
+            [
+              -109.36218681,
+              38.63344127
+            ],
+            [
+              -109.36255121,
+              38.63383107
+            ],
+            [
+              -109.36271941,
+              38.63385847
+            ],
+            [
+              -109.36291541,
+              38.63377607
+            ],
+            [
+              -109.36325841,
+              38.63369347
+            ],
+            [
+              -109.36344047,
+              38.63368787
+            ],
+            [
+              -109.36363647,
+              38.63378121
+            ],
+            [
+              -109.36397967,
+              38.63386887
+            ],
+            [
+              -109.36425287,
+              38.63390167
+            ],
+            [
+              -109.36470801,
+              38.63386861
+            ],
+            [
+              -109.36505807,
+              38.63393427
+            ],
+            [
+              -109.36586347,
+              38.63415921
+            ],
+            [
+              -109.36609461,
+              38.63419201
+            ],
+            [
+              -109.36636067,
+              38.63419187
+            ],
+            [
+              -109.36718681,
+              38.63406521
+            ],
+            [
+              -109.36727787,
+              38.63408161
+            ],
+            [
+              -109.36739001,
+              38.63417501
+            ],
+            [
+              -109.36763527,
+              38.63451527
+            ],
+            [
+              -109.36773341,
+              38.63455367
+            ],
+            [
+              -109.36788741,
+              38.63455921
+            ],
+            [
+              -109.36818847,
+              38.63450961
+            ],
+            [
+              -109.36837761,
+              38.63452041
+            ],
+            [
+              -109.36868581,
+              38.63467961
+            ],
+            [
+              -109.36912727,
+              38.63508581
+            ],
+            [
+              -109.36928141,
+              38.63518461
+            ],
+            [
+              -109.36937947,
+              38.63520101
+            ],
+            [
+              -109.36965947,
+              38.63516241
+            ]
+          ],
+          "widthM": 2.5923,
+          "depthM": 0.1,
+          "dischargeM3s": 0.09665538,
+          "velocityMps": 0.37285522,
+          "clippedLengthM": 1437.31,
+          "source": {
+            "provider": "U.S. Geological Survey",
+            "dataset": "NHDPlus High Resolution",
+            "url": "https://hydro.nationalmap.gov/arcgis/rest/services/NHDPlus_HR/MapServer/3/query?where=nhdplusid+%3D+41000200045645&outFields=%2A&outSR=4326&f=geojson",
+            "retrievedAt": "2026-10-21",
+            "featureDate": "2020-08-06",
+            "nhdplusId": "41000200045645",
+            "permanentIdentifier": "77837401",
+            "reachCode": "14030005000424",
+            "fcode": 46006,
+            "flowDirection": "with-digitized",
+            "hydroSequence": "41000200007695",
+            "downstreamHydroSequence": "41000200007466",
+            "flowEstimateField": "QEMA",
+            "velocityEstimateField": "VEMA",
+            "estimateKind": "modeled-mean-annual",
+            "unitsDocumentationUrl": "https://pubs.usgs.gov/sir/2025/5031/sir20255031.pdf",
+            "modelPeriod": null,
+            "modelPeriodNote": "Exact EROM period not confirmed for this service release; not a current flow observation.",
+            "rawQemaCfs": 3.41335247,
+            "rawVemaFps": 1.22327827,
+            "widthEstimateKind": "continuity-from-modeled-flow-and-velocity",
+            "depthEstimateKind": "assumed-representative-wetted-depth",
+            "geometryProcessing": "Reprojected WGS84 to terrain NAD83 transverse Mercator; intersected union of authored payload tiles; simplified 2m; transformed back to WGS84; downstream digitized order retained.",
+            "widthDepthNote": "Width and 0.1m representative mean wetted depth are unmeasured visualization estimates. Width = QEMA_m3s / (VEMA_mps * 0.1m); not bankfull dimensions.",
+            "rawResponseSha256": "722da9ded7ca460cc5cb7f5eb919e6ae251c449abe1c062ef1dea81d25171c4f"
+          }
+        },
+        {
+          "id": "castle-creek-77837317",
+          "name": "Castle Creek",
+          "permanence": "perennial",
+          "state": "flowing",
+          "condition": "representative-no-runoff",
+          "observedDischargeM3s": null,
+          "pathLonLat": [
+            [
+              -109.36965947,
+              38.63516241
+            ],
+            [
+              -109.37030387,
+              38.63554107
+            ],
+            [
+              -109.37093427,
+              38.63573301
+            ],
+            [
+              -109.37115167,
+              38.63611741
+            ],
+            [
+              -109.37172621,
+              38.63654547
+            ],
+            [
+              -109.37218181,
+              38.63705061
+            ],
+            [
+              -109.37235701,
+              38.63712741
+            ],
+            [
+              -109.37285427,
+              38.63725341
+            ]
+          ],
+          "widthM": 2.6147,
+          "depthM": 0.1,
+          "dischargeM3s": 0.09688156,
+          "velocityMps": 0.37052314,
+          "clippedLengthM": 376.32,
+          "source": {
+            "provider": "U.S. Geological Survey",
+            "dataset": "NHDPlus High Resolution",
+            "url": "https://hydro.nationalmap.gov/arcgis/rest/services/NHDPlus_HR/MapServer/3/query?where=nhdplusid+%3D+41000200044756&outFields=%2A&outSR=4326&f=geojson",
+            "retrievedAt": "2026-10-21",
+            "featureDate": "2020-08-06",
+            "nhdplusId": "41000200044756",
+            "permanentIdentifier": "77837317",
+            "reachCode": "14030005000424",
+            "fcode": 46006,
+            "flowDirection": "with-digitized",
+            "hydroSequence": "41000200007466",
+            "downstreamHydroSequence": "41000200007244",
+            "flowEstimateField": "QEMA",
+            "velocityEstimateField": "VEMA",
+            "estimateKind": "modeled-mean-annual",
+            "unitsDocumentationUrl": "https://pubs.usgs.gov/sir/2025/5031/sir20255031.pdf",
+            "modelPeriod": null,
+            "modelPeriodNote": "Exact EROM period not confirmed for this service release; not a current flow observation.",
+            "rawQemaCfs": 3.42133997,
+            "rawVemaFps": 1.2156271,
+            "widthEstimateKind": "continuity-from-modeled-flow-and-velocity",
+            "depthEstimateKind": "assumed-representative-wetted-depth",
+            "geometryProcessing": "Reprojected WGS84 to terrain NAD83 transverse Mercator; intersected union of authored payload tiles; simplified 2m; transformed back to WGS84; downstream digitized order retained.",
+            "widthDepthNote": "Width and 0.1m representative mean wetted depth are unmeasured visualization estimates. Width = QEMA_m3s / (VEMA_mps * 0.1m); not bankfull dimensions.",
+            "rawResponseSha256": "722da9ded7ca460cc5cb7f5eb919e6ae251c449abe1c062ef1dea81d25171c4f"
+          }
+        },
+        {
+          "id": "castle-creek-77837271",
+          "name": "Castle Creek",
+          "permanence": "perennial",
+          "state": "flowing",
+          "condition": "representative-no-runoff",
+          "observedDischargeM3s": null,
+          "pathLonLat": [
+            [
+              -109.37285427,
+              38.63725341
+            ],
+            [
+              -109.37311341,
+              38.63727521
+            ],
+            [
+              -109.37364567,
+              38.63746721
+            ],
+            [
+              -109.37387681,
+              38.63750001
+            ],
+            [
+              -109.37400987,
+              38.63754941
+            ],
+            [
+              -109.37440221,
+              38.63775787
+            ],
+            [
+              -109.37468247,
+              38.63793901
+            ],
+            [
+              -109.37481567,
+              38.63806527
+            ],
+            [
+              -109.37496967,
+              38.63814207
+            ],
+            [
+              -109.37567007,
+              38.63826247
+            ],
+            [
+              -109.37645901,
+              38.63873841
+            ],
+            [
+              -109.37694161,
+              38.63937581
+            ],
+            [
+              -109.37701141,
+              38.63964487
+            ],
+            [
+              -109.37710941,
+              38.63974381
+            ],
+            [
+              -109.37759241,
+              38.63992527
+            ],
+            [
+              -109.37769727,
+              38.64006261
+            ],
+            [
+              -109.37792141,
+              38.64011767
+            ],
+            [
+              -109.37807541,
+              38.64022767
+            ],
+            [
+              -109.37815907,
+              38.64044187
+            ],
+            [
+              -109.37816607,
+              38.64061767
+            ],
+            [
+              -109.37803967,
+              38.64089767
+            ],
+            [
+              -109.37812361,
+              38.64109001
+            ],
+            [
+              -109.37827761,
+              38.64123287
+            ]
+          ],
+          "widthM": 2.5975,
+          "depthM": 0.1,
+          "dischargeM3s": 0.09691853,
+          "velocityMps": 0.37312945,
+          "clippedLengthM": 713.38,
+          "source": {
+            "provider": "U.S. Geological Survey",
+            "dataset": "NHDPlus High Resolution",
+            "url": "https://hydro.nationalmap.gov/arcgis/rest/services/NHDPlus_HR/MapServer/3/query?where=nhdplusid+%3D+41000200044642&outFields=%2A&outSR=4326&f=geojson",
+            "retrievedAt": "2026-10-21",
+            "featureDate": "2020-08-06",
+            "nhdplusId": "41000200044642",
+            "permanentIdentifier": "77837271",
+            "reachCode": "14030005000424",
+            "fcode": 46006,
+            "flowDirection": "with-digitized",
+            "hydroSequence": "41000200007244",
+            "downstreamHydroSequence": "41000200007034",
+            "flowEstimateField": "QEMA",
+            "velocityEstimateField": "VEMA",
+            "estimateKind": "modeled-mean-annual",
+            "unitsDocumentationUrl": "https://pubs.usgs.gov/sir/2025/5031/sir20255031.pdf",
+            "modelPeriod": null,
+            "modelPeriodNote": "Exact EROM period not confirmed for this service release; not a current flow observation.",
+            "rawQemaCfs": 3.4226456400000003,
+            "rawVemaFps": 1.2241779799999999,
+            "widthEstimateKind": "continuity-from-modeled-flow-and-velocity",
+            "depthEstimateKind": "assumed-representative-wetted-depth",
+            "geometryProcessing": "Reprojected WGS84 to terrain NAD83 transverse Mercator; intersected union of authored payload tiles; simplified 2m; transformed back to WGS84; downstream digitized order retained.",
+            "widthDepthNote": "Width and 0.1m representative mean wetted depth are unmeasured visualization estimates. Width = QEMA_m3s / (VEMA_mps * 0.1m); not bankfull dimensions.",
+            "rawResponseSha256": "722da9ded7ca460cc5cb7f5eb919e6ae251c449abe1c062ef1dea81d25171c4f"
+          }
+        },
+        {
+          "id": "castle-creek-77837163",
+          "name": "Castle Creek",
+          "permanence": "perennial",
+          "state": "flowing",
+          "condition": "representative-no-runoff",
+          "observedDischargeM3s": null,
+          "pathLonLat": [
+            [
+              -109.37827761,
+              38.64123287
+            ],
+            [
+              -109.37856461,
+              38.64137027
+            ],
+            [
+              -109.37883067,
+              38.64135947
+            ],
+            [
+              -109.37946087,
+              38.64142567
+            ],
+            [
+              -109.37989487,
+              38.64157421
+            ],
+            [
+              -109.37999281,
+              38.64170601
+            ],
+            [
+              -109.38006267,
+              38.64190381
+            ],
+            [
+              -109.38016067,
+              38.64201367
+            ],
+            [
+              -109.38056667,
+              38.64215121
+            ],
+            [
+              -109.38120387,
+              38.64228327
+            ],
+            [
+              -109.38152587,
+              38.64239881
+            ],
+            [
+              -109.38170107,
+              38.64238241
+            ],
+            [
+              -109.38186207,
+              38.64243187
+            ],
+            [
+              -109.38197407,
+              38.64251441
+            ],
+            [
+              -109.38214207,
+              38.64252001
+            ],
+            [
+              -109.38226827,
+              38.64245407
+            ],
+            [
+              -109.38240127,
+              38.64246521
+            ],
+            [
+              -109.38253427,
+              38.64259147
+            ],
+            [
+              -109.38269507,
+              38.64281681
+            ],
+            [
+              -109.38276521,
+              38.64285521
+            ],
+            [
+              -109.38290521,
+              38.64286627
+            ],
+            [
+              -109.38312927,
+              38.64282247
+            ],
+            [
+              -109.38375967,
+              38.64278981
+            ],
+            [
+              -109.38396967,
+              38.64285027
+            ],
+            [
+              -109.38460133,
+              38.64286249
+            ]
+          ],
+          "widthM": 2.6513,
+          "depthM": 0.1,
+          "dischargeM3s": 0.09784435,
+          "velocityMps": 0.36903975,
+          "clippedLengthM": 629.78,
+          "source": {
+            "provider": "U.S. Geological Survey",
+            "dataset": "NHDPlus High Resolution",
+            "url": "https://hydro.nationalmap.gov/arcgis/rest/services/NHDPlus_HR/MapServer/3/query?where=nhdplusid+%3D+41000200044683&outFields=%2A&outSR=4326&f=geojson",
+            "retrievedAt": "2026-10-21",
+            "featureDate": "2020-08-06",
+            "nhdplusId": "41000200044683",
+            "permanentIdentifier": "77837163",
+            "reachCode": "14030005000424",
+            "fcode": 46006,
+            "flowDirection": "with-digitized",
+            "hydroSequence": "41000200007034",
+            "downstreamHydroSequence": "41000200006681",
+            "flowEstimateField": "QEMA",
+            "velocityEstimateField": "VEMA",
+            "estimateKind": "modeled-mean-annual",
+            "unitsDocumentationUrl": "https://pubs.usgs.gov/sir/2025/5031/sir20255031.pdf",
+            "modelPeriod": null,
+            "modelPeriodNote": "Exact EROM period not confirmed for this service release; not a current flow observation.",
+            "rawQemaCfs": 3.45534051,
+            "rawVemaFps": 1.2107603200000001,
+            "widthEstimateKind": "continuity-from-modeled-flow-and-velocity",
+            "depthEstimateKind": "assumed-representative-wetted-depth",
+            "geometryProcessing": "Reprojected WGS84 to terrain NAD83 transverse Mercator; intersected union of authored payload tiles; simplified 2m; transformed back to WGS84; downstream digitized order retained.",
+            "widthDepthNote": "Width and 0.1m representative mean wetted depth are unmeasured visualization estimates. Width = QEMA_m3s / (VEMA_mps * 0.1m); not bankfull dimensions.",
+            "rawResponseSha256": "722da9ded7ca460cc5cb7f5eb919e6ae251c449abe1c062ef1dea81d25171c4f"
+          }
+        }
+      ]
     },
     {
       "id": "panamint-dantes-view",
@@ -1410,7 +4955,524 @@
           "docs/evidence/range-v2/monument-valley-163-nostage-10s.jpg",
           "docs/evidence/range-v2/no-stage-coverage.json"
         ]
-      }
+      },
+      "riverPolicy": {
+        "condition": "representative-no-runoff",
+        "terrainWater": "mapped-only",
+        "unknown": "unknown"
+      },
+      "rivers": [
+        {
+          "id": "monument-78282542",
+          "name": "Gypsum Creek",
+          "permanence": "intermittent",
+          "state": "dry",
+          "condition": "representative-no-runoff",
+          "observedDischargeM3s": null,
+          "pathLonLat": [
+            [
+              -110.03423581,
+              36.94467988
+            ],
+            [
+              -110.03413307,
+              36.94468541
+            ],
+            [
+              -110.03410581,
+              36.94469628
+            ],
+            [
+              -110.03397561,
+              36.94471288
+            ],
+            [
+              -110.03380447,
+              36.94476221
+            ],
+            [
+              -110.03342107,
+              36.94480061
+            ],
+            [
+              -110.03325681,
+              36.94485001
+            ],
+            [
+              -110.03317461,
+              36.94489388
+            ],
+            [
+              -110.03292121,
+              36.94507521
+            ],
+            [
+              -110.03285267,
+              36.94509168
+            ],
+            [
+              -110.03281847,
+              36.94512468
+            ]
+          ],
+          "widthM": null,
+          "depthM": null,
+          "dischargeM3s": null,
+          "velocityMps": null,
+          "source": {
+            "provider": "U.S. Geological Survey",
+            "dataset": "NHDPlus High Resolution",
+            "url": "https://hydro.nationalmap.gov/arcgis/rest/services/NHDPlus_HR/MapServer/3/query?where=nhdplusid+%3D+41000500072051&outFields=%2A&outSR=4326&f=geojson",
+            "retrievedAt": "2026-10-21",
+            "featureDate": "2012-01-14",
+            "nhdplusId": "41000500072051",
+            "permanentIdentifier": "78282542",
+            "reachCode": "14080205000371",
+            "fcode": 46003,
+            "flowDirection": "with-digitized",
+            "hydroSequence": "41000500020961",
+            "downstreamHydroSequence": "41000500020500",
+            "flowEstimateField": null,
+            "velocityEstimateField": null,
+            "estimateKind": "ordinary-no-runoff-condition",
+            "unitsDocumentationUrl": "https://pubs.usgs.gov/sir/2025/5031/sir20255031.pdf",
+            "modelPeriod": null,
+            "modelPeriodNote": "Exact EROM period not confirmed for this service release; not a current flow observation.",
+            "policyEvidenceUrl": "https://pubs.usgs.gov/wri/wri994074/PDF/WRI99-4074plate01.pdf",
+            "note": "Mapped FCode46003 intermittent reach; chosen ordinary no-runoff dry visualization. Current wet/dry state and discharge are unobserved; null values are not zero.",
+            "rawResponseSha256": "0631027c04897979f94af16c3eb8925fb8ccf5727adcc762418898eda97ad719"
+          }
+        },
+        {
+          "id": "monument-78281638",
+          "name": "West Gypsum Creek",
+          "permanence": "intermittent",
+          "state": "dry",
+          "condition": "representative-no-runoff",
+          "observedDischargeM3s": null,
+          "pathLonLat": [
+            [
+              -110.09759507,
+              36.99484781
+            ],
+            [
+              -110.09697867,
+              36.99533148
+            ],
+            [
+              -110.09623907,
+              36.99595821
+            ],
+            [
+              -110.09606787,
+              36.99609561
+            ],
+            [
+              -110.09601987,
+              36.99612308
+            ],
+            [
+              -110.09598567,
+              36.99612861
+            ],
+            [
+              -110.09592407,
+              36.99616708
+            ],
+            [
+              -110.09585547,
+              36.99617808
+            ],
+            [
+              -110.09580081,
+              36.99622201
+            ],
+            [
+              -110.09573221,
+              36.99624401
+            ],
+            [
+              -110.09557467,
+              36.99626061
+            ],
+            [
+              -110.09515681,
+              36.99623868
+            ],
+            [
+              -110.09508827,
+              36.99622228
+            ],
+            [
+              -110.09485541,
+              36.99610688
+            ],
+            [
+              -110.09415647,
+              36.99560708
+            ],
+            [
+              -110.09403307,
+              36.99550261
+            ],
+            [
+              -110.09391661,
+              36.99536541
+            ],
+            [
+              -110.09387541,
+              36.99527188
+            ],
+            [
+              -110.09380687,
+              36.99517308
+            ],
+            [
+              -110.09371781,
+              36.99499721
+            ],
+            [
+              -110.09362867,
+              36.99477741
+            ],
+            [
+              -110.09361487,
+              36.99465648
+            ],
+            [
+              -110.09353261,
+              36.99434888
+            ],
+            [
+              -110.09350521,
+              36.99430488
+            ],
+            [
+              -110.09340241,
+              36.99418961
+            ],
+            [
+              -110.09322421,
+              36.99404668
+            ],
+            [
+              -110.09305981,
+              36.99403028
+            ],
+            [
+              -110.09278581,
+              36.99404128
+            ],
+            [
+              -110.09262127,
+              36.99407428
+            ],
+            [
+              -110.09214201,
+              36.99441508
+            ],
+            [
+              -110.09183381,
+              36.99449208
+            ],
+            [
+              -110.09156661,
+              36.99450868
+            ],
+            [
+              -110.09141587,
+              36.99449768
+            ],
+            [
+              -110.09045667,
+              36.99438261
+            ],
+            [
+              -110.08963467,
+              36.99416841
+            ],
+            [
+              -110.08960041,
+              36.99414641
+            ],
+            [
+              -110.08948387,
+              36.99411348
+            ],
+            [
+              -110.08935367,
+              36.99405301
+            ],
+            [
+              -110.08919621,
+              36.99396521
+            ],
+            [
+              -110.08866167,
+              36.99355321
+            ],
+            [
+              -110.08861381,
+              36.99354768
+            ],
+            [
+              -110.08855221,
+              36.99351468
+            ],
+            [
+              -110.08842201,
+              36.99342681
+            ],
+            [
+              -110.08827801,
+              36.99331141
+            ],
+            [
+              -110.08822321,
+              36.99319608
+            ],
+            [
+              -110.08808607,
+              36.99276201
+            ],
+            [
+              -110.08800381,
+              36.99263561
+            ],
+            [
+              -110.08788741,
+              36.99238288
+            ],
+            [
+              -110.08782567,
+              36.99228948
+            ],
+            [
+              -110.08781881,
+              36.99226208
+            ],
+            [
+              -110.08779141,
+              36.99223448
+            ],
+            [
+              -110.08777081,
+              36.99217961
+            ],
+            [
+              -110.08758581,
+              36.99184441
+            ],
+            [
+              -110.08751727,
+              36.99174561
+            ],
+            [
+              -110.08740761,
+              36.99164661
+            ],
+            [
+              -110.08719521,
+              36.99148181
+            ],
+            [
+              -110.08674307,
+              36.99142148
+            ],
+            [
+              -110.08666781,
+              36.99137748
+            ],
+            [
+              -110.08629781,
+              36.99109188
+            ],
+            [
+              -110.08577701,
+              36.99066881
+            ],
+            [
+              -110.08565367,
+              36.99058648
+            ],
+            [
+              -110.08561947,
+              36.99057548
+            ],
+            [
+              -110.08512621,
+              36.99023488
+            ],
+            [
+              -110.08433827,
+              36.98966348
+            ],
+            [
+              -110.08416707,
+              36.98955368
+            ],
+            [
+              -110.08403687,
+              36.98950968
+            ],
+            [
+              -110.08368067,
+              36.98949328
+            ],
+            [
+              -110.08333127,
+              36.98950428
+            ],
+            [
+              -110.08290661,
+              36.98946588
+            ],
+            [
+              -110.08251621,
+              36.98936161
+            ],
+            [
+              -110.08241341,
+              36.98934521
+            ],
+            [
+              -110.08181061,
+              36.98905388
+            ],
+            [
+              -110.08092687,
+              36.98847708
+            ],
+            [
+              -110.08080347,
+              36.98841121
+            ],
+            [
+              -110.08076241,
+              36.98840568
+            ],
+            [
+              -110.08074181,
+              36.98838921
+            ],
+            [
+              -110.08052267,
+              36.98829041
+            ],
+            [
+              -110.08020747,
+              36.98805408
+            ],
+            [
+              -110.08017327,
+              36.98800468
+            ],
+            [
+              -110.08007727,
+              36.98791128
+            ],
+            [
+              -110.07986487,
+              36.98775201
+            ],
+            [
+              -110.07969367,
+              36.98764748
+            ],
+            [
+              -110.07948821,
+              36.98753221
+            ],
+            [
+              -110.07894007,
+              36.98725201
+            ],
+            [
+              -110.07890587,
+              36.98724648
+            ],
+            [
+              -110.07879627,
+              36.98718061
+            ],
+            [
+              -110.07863187,
+              36.98713661
+            ],
+            [
+              -110.07859081,
+              36.98710921
+            ],
+            [
+              -110.07848807,
+              36.98708168
+            ],
+            [
+              -110.07813867,
+              36.98705428
+            ],
+            [
+              -110.07795381,
+              36.98709828
+            ],
+            [
+              -110.07793321,
+              36.98712021
+            ],
+            [
+              -110.07786467,
+              36.98713121
+            ],
+            [
+              -110.07772781,
+              36.98720268
+            ],
+            [
+              -110.07763181,
+              36.98723021
+            ],
+            [
+              -110.07744701,
+              36.98724121
+            ],
+            [
+              -110.07735101,
+              36.98721921
+            ],
+            [
+              -110.07732361,
+              36.98723021
+            ]
+          ],
+          "widthM": null,
+          "depthM": null,
+          "dischargeM3s": null,
+          "velocityMps": null,
+          "source": {
+            "provider": "U.S. Geological Survey",
+            "dataset": "NHDPlus High Resolution",
+            "url": "https://hydro.nationalmap.gov/arcgis/rest/services/NHDPlus_HR/MapServer/3/query?where=nhdplusid+%3D+41000500131148&outFields=%2A&outSR=4326&f=geojson",
+            "retrievedAt": "2026-10-21",
+            "featureDate": "2012-01-14",
+            "nhdplusId": "41000500131148",
+            "permanentIdentifier": "78281638",
+            "reachCode": "14080205000398",
+            "fcode": 46003,
+            "flowDirection": "with-digitized",
+            "hydroSequence": "41000500070804",
+            "downstreamHydroSequence": "41000500062448",
+            "flowEstimateField": null,
+            "velocityEstimateField": null,
+            "estimateKind": "ordinary-no-runoff-condition",
+            "unitsDocumentationUrl": "https://pubs.usgs.gov/sir/2025/5031/sir20255031.pdf",
+            "modelPeriod": null,
+            "modelPeriodNote": "Exact EROM period not confirmed for this service release; not a current flow observation.",
+            "policyEvidenceUrl": "https://pubs.usgs.gov/wri/wri994074/PDF/WRI99-4074plate01.pdf",
+            "note": "Mapped FCode46003 intermittent reach; chosen ordinary no-runoff dry visualization. Current wet/dry state and discharge are unobserved; null values are not zero.",
+            "rawResponseSha256": "0631027c04897979f94af16c3eb8925fb8ccf5727adcc762418898eda97ad719"
+          }
+        }
+      ]
     },
     {
       "id": "pend-oreille-valley",
@@ -1665,7 +5727,524 @@
       },
       "terrainSourceId": "monument-valley-163",
       "reviewPath": "docs/evidence/terrain-continuation/README.md",
-      "review": "Shallow-foreground composition pilot. Final compositor, music and device review pending; source camera and terrain unchanged."
+      "review": "Shallow-foreground composition pilot. Final compositor, music and device review pending; source camera and terrain unchanged.",
+      "riverPolicy": {
+        "condition": "representative-no-runoff",
+        "terrainWater": "mapped-only",
+        "unknown": "unknown"
+      },
+      "rivers": [
+        {
+          "id": "monument-78282542",
+          "name": "Gypsum Creek",
+          "permanence": "intermittent",
+          "state": "dry",
+          "condition": "representative-no-runoff",
+          "observedDischargeM3s": null,
+          "pathLonLat": [
+            [
+              -110.03423581,
+              36.94467988
+            ],
+            [
+              -110.03413307,
+              36.94468541
+            ],
+            [
+              -110.03410581,
+              36.94469628
+            ],
+            [
+              -110.03397561,
+              36.94471288
+            ],
+            [
+              -110.03380447,
+              36.94476221
+            ],
+            [
+              -110.03342107,
+              36.94480061
+            ],
+            [
+              -110.03325681,
+              36.94485001
+            ],
+            [
+              -110.03317461,
+              36.94489388
+            ],
+            [
+              -110.03292121,
+              36.94507521
+            ],
+            [
+              -110.03285267,
+              36.94509168
+            ],
+            [
+              -110.03281847,
+              36.94512468
+            ]
+          ],
+          "widthM": null,
+          "depthM": null,
+          "dischargeM3s": null,
+          "velocityMps": null,
+          "source": {
+            "provider": "U.S. Geological Survey",
+            "dataset": "NHDPlus High Resolution",
+            "url": "https://hydro.nationalmap.gov/arcgis/rest/services/NHDPlus_HR/MapServer/3/query?where=nhdplusid+%3D+41000500072051&outFields=%2A&outSR=4326&f=geojson",
+            "retrievedAt": "2026-10-21",
+            "featureDate": "2012-01-14",
+            "nhdplusId": "41000500072051",
+            "permanentIdentifier": "78282542",
+            "reachCode": "14080205000371",
+            "fcode": 46003,
+            "flowDirection": "with-digitized",
+            "hydroSequence": "41000500020961",
+            "downstreamHydroSequence": "41000500020500",
+            "flowEstimateField": null,
+            "velocityEstimateField": null,
+            "estimateKind": "ordinary-no-runoff-condition",
+            "unitsDocumentationUrl": "https://pubs.usgs.gov/sir/2025/5031/sir20255031.pdf",
+            "modelPeriod": null,
+            "modelPeriodNote": "Exact EROM period not confirmed for this service release; not a current flow observation.",
+            "policyEvidenceUrl": "https://pubs.usgs.gov/wri/wri994074/PDF/WRI99-4074plate01.pdf",
+            "note": "Mapped FCode46003 intermittent reach; chosen ordinary no-runoff dry visualization. Current wet/dry state and discharge are unobserved; null values are not zero.",
+            "rawResponseSha256": "0631027c04897979f94af16c3eb8925fb8ccf5727adcc762418898eda97ad719"
+          }
+        },
+        {
+          "id": "monument-78281638",
+          "name": "West Gypsum Creek",
+          "permanence": "intermittent",
+          "state": "dry",
+          "condition": "representative-no-runoff",
+          "observedDischargeM3s": null,
+          "pathLonLat": [
+            [
+              -110.09759507,
+              36.99484781
+            ],
+            [
+              -110.09697867,
+              36.99533148
+            ],
+            [
+              -110.09623907,
+              36.99595821
+            ],
+            [
+              -110.09606787,
+              36.99609561
+            ],
+            [
+              -110.09601987,
+              36.99612308
+            ],
+            [
+              -110.09598567,
+              36.99612861
+            ],
+            [
+              -110.09592407,
+              36.99616708
+            ],
+            [
+              -110.09585547,
+              36.99617808
+            ],
+            [
+              -110.09580081,
+              36.99622201
+            ],
+            [
+              -110.09573221,
+              36.99624401
+            ],
+            [
+              -110.09557467,
+              36.99626061
+            ],
+            [
+              -110.09515681,
+              36.99623868
+            ],
+            [
+              -110.09508827,
+              36.99622228
+            ],
+            [
+              -110.09485541,
+              36.99610688
+            ],
+            [
+              -110.09415647,
+              36.99560708
+            ],
+            [
+              -110.09403307,
+              36.99550261
+            ],
+            [
+              -110.09391661,
+              36.99536541
+            ],
+            [
+              -110.09387541,
+              36.99527188
+            ],
+            [
+              -110.09380687,
+              36.99517308
+            ],
+            [
+              -110.09371781,
+              36.99499721
+            ],
+            [
+              -110.09362867,
+              36.99477741
+            ],
+            [
+              -110.09361487,
+              36.99465648
+            ],
+            [
+              -110.09353261,
+              36.99434888
+            ],
+            [
+              -110.09350521,
+              36.99430488
+            ],
+            [
+              -110.09340241,
+              36.99418961
+            ],
+            [
+              -110.09322421,
+              36.99404668
+            ],
+            [
+              -110.09305981,
+              36.99403028
+            ],
+            [
+              -110.09278581,
+              36.99404128
+            ],
+            [
+              -110.09262127,
+              36.99407428
+            ],
+            [
+              -110.09214201,
+              36.99441508
+            ],
+            [
+              -110.09183381,
+              36.99449208
+            ],
+            [
+              -110.09156661,
+              36.99450868
+            ],
+            [
+              -110.09141587,
+              36.99449768
+            ],
+            [
+              -110.09045667,
+              36.99438261
+            ],
+            [
+              -110.08963467,
+              36.99416841
+            ],
+            [
+              -110.08960041,
+              36.99414641
+            ],
+            [
+              -110.08948387,
+              36.99411348
+            ],
+            [
+              -110.08935367,
+              36.99405301
+            ],
+            [
+              -110.08919621,
+              36.99396521
+            ],
+            [
+              -110.08866167,
+              36.99355321
+            ],
+            [
+              -110.08861381,
+              36.99354768
+            ],
+            [
+              -110.08855221,
+              36.99351468
+            ],
+            [
+              -110.08842201,
+              36.99342681
+            ],
+            [
+              -110.08827801,
+              36.99331141
+            ],
+            [
+              -110.08822321,
+              36.99319608
+            ],
+            [
+              -110.08808607,
+              36.99276201
+            ],
+            [
+              -110.08800381,
+              36.99263561
+            ],
+            [
+              -110.08788741,
+              36.99238288
+            ],
+            [
+              -110.08782567,
+              36.99228948
+            ],
+            [
+              -110.08781881,
+              36.99226208
+            ],
+            [
+              -110.08779141,
+              36.99223448
+            ],
+            [
+              -110.08777081,
+              36.99217961
+            ],
+            [
+              -110.08758581,
+              36.99184441
+            ],
+            [
+              -110.08751727,
+              36.99174561
+            ],
+            [
+              -110.08740761,
+              36.99164661
+            ],
+            [
+              -110.08719521,
+              36.99148181
+            ],
+            [
+              -110.08674307,
+              36.99142148
+            ],
+            [
+              -110.08666781,
+              36.99137748
+            ],
+            [
+              -110.08629781,
+              36.99109188
+            ],
+            [
+              -110.08577701,
+              36.99066881
+            ],
+            [
+              -110.08565367,
+              36.99058648
+            ],
+            [
+              -110.08561947,
+              36.99057548
+            ],
+            [
+              -110.08512621,
+              36.99023488
+            ],
+            [
+              -110.08433827,
+              36.98966348
+            ],
+            [
+              -110.08416707,
+              36.98955368
+            ],
+            [
+              -110.08403687,
+              36.98950968
+            ],
+            [
+              -110.08368067,
+              36.98949328
+            ],
+            [
+              -110.08333127,
+              36.98950428
+            ],
+            [
+              -110.08290661,
+              36.98946588
+            ],
+            [
+              -110.08251621,
+              36.98936161
+            ],
+            [
+              -110.08241341,
+              36.98934521
+            ],
+            [
+              -110.08181061,
+              36.98905388
+            ],
+            [
+              -110.08092687,
+              36.98847708
+            ],
+            [
+              -110.08080347,
+              36.98841121
+            ],
+            [
+              -110.08076241,
+              36.98840568
+            ],
+            [
+              -110.08074181,
+              36.98838921
+            ],
+            [
+              -110.08052267,
+              36.98829041
+            ],
+            [
+              -110.08020747,
+              36.98805408
+            ],
+            [
+              -110.08017327,
+              36.98800468
+            ],
+            [
+              -110.08007727,
+              36.98791128
+            ],
+            [
+              -110.07986487,
+              36.98775201
+            ],
+            [
+              -110.07969367,
+              36.98764748
+            ],
+            [
+              -110.07948821,
+              36.98753221
+            ],
+            [
+              -110.07894007,
+              36.98725201
+            ],
+            [
+              -110.07890587,
+              36.98724648
+            ],
+            [
+              -110.07879627,
+              36.98718061
+            ],
+            [
+              -110.07863187,
+              36.98713661
+            ],
+            [
+              -110.07859081,
+              36.98710921
+            ],
+            [
+              -110.07848807,
+              36.98708168
+            ],
+            [
+              -110.07813867,
+              36.98705428
+            ],
+            [
+              -110.07795381,
+              36.98709828
+            ],
+            [
+              -110.07793321,
+              36.98712021
+            ],
+            [
+              -110.07786467,
+              36.98713121
+            ],
+            [
+              -110.07772781,
+              36.98720268
+            ],
+            [
+              -110.07763181,
+              36.98723021
+            ],
+            [
+              -110.07744701,
+              36.98724121
+            ],
+            [
+              -110.07735101,
+              36.98721921
+            ],
+            [
+              -110.07732361,
+              36.98723021
+            ]
+          ],
+          "widthM": null,
+          "depthM": null,
+          "dischargeM3s": null,
+          "velocityMps": null,
+          "source": {
+            "provider": "U.S. Geological Survey",
+            "dataset": "NHDPlus High Resolution",
+            "url": "https://hydro.nationalmap.gov/arcgis/rest/services/NHDPlus_HR/MapServer/3/query?where=nhdplusid+%3D+41000500131148&outFields=%2A&outSR=4326&f=geojson",
+            "retrievedAt": "2026-10-21",
+            "featureDate": "2012-01-14",
+            "nhdplusId": "41000500131148",
+            "permanentIdentifier": "78281638",
+            "reachCode": "14080205000398",
+            "fcode": 46003,
+            "flowDirection": "with-digitized",
+            "hydroSequence": "41000500070804",
+            "downstreamHydroSequence": "41000500062448",
+            "flowEstimateField": null,
+            "velocityEstimateField": null,
+            "estimateKind": "ordinary-no-runoff-condition",
+            "unitsDocumentationUrl": "https://pubs.usgs.gov/sir/2025/5031/sir20255031.pdf",
+            "modelPeriod": null,
+            "modelPeriodNote": "Exact EROM period not confirmed for this service release; not a current flow observation.",
+            "policyEvidenceUrl": "https://pubs.usgs.gov/wri/wri994074/PDF/WRI99-4074plate01.pdf",
+            "note": "Mapped FCode46003 intermittent reach; chosen ordinary no-runoff dry visualization. Current wet/dry state and discharge are unobserved; null values are not zero.",
+            "rawResponseSha256": "0631027c04897979f94af16c3eb8925fb8ccf5727adcc762418898eda97ad719"
+          }
+        }
+      ]
     },
     {
       "id": "teton-range-tour",
@@ -1818,6 +6397,245 @@
       "materialPack": "dry-conifer",
       "tourManifestUrl": "tour/teton-range-tour.tour.json",
       "reviewPath": "docs/teton-tour-progress.md"
+    },
+    {
+      "id": "sawtooth-redfish-north",
+      "regionId": "sawtooth",
+      "biome": "CONIFER",
+      "status": "candidate",
+      "title": "Redfish Lake",
+      "place": "Sawtooth Mountains, Idaho",
+      "notes": "Expansion wave 1 candidate. Elevated over Redfish Lake north shore looking south-west to Heyburn Mountain and Grand Mogul. Camera anchors are authored estimates; named peak coordinates are USGS GNIS NAD83 primary points (gaz396651 and gaz382498). North Shore Recreation.gov facility232076 anchors the camera vicinity. See docs/scenic-expansion-wave1-2026-10-22.md. No rail or tour approval.",
+      "composition": {
+        "foreground": "none",
+        "nearLedgeMaxFrac": 0
+      },
+      "dem": {
+        "source": "3dep13",
+        "centerLonLat": [
+          -114.955,
+          44.113
+        ],
+        "extentM": [
+          32000,
+          32000
+        ],
+        "cellM": 20
+      },
+      "rail": {
+        "eyeStart": {
+          "lonLat": [
+            -114.911,
+            44.146
+          ],
+          "aboveGroundM": 350
+        },
+        "eyeEnd": {
+          "lonLat": [
+            -114.9,
+            44.14
+          ],
+          "aboveGroundM": 350
+        },
+        "targetStart": {
+          "lonLat": [
+            -114.966,
+            44.096
+          ],
+          "heightM": 2450
+        },
+        "targetEnd": {
+          "lonLat": [
+            -114.96,
+            44.092
+          ],
+          "heightM": 2450
+        },
+        "fovYDeg": 35
+      },
+      "landmarks": [
+        {
+          "name": "Heyburn Mountain",
+          "lonLat": [
+            -114.976695918,
+            44.100795363
+          ],
+          "note": "USGS GNIS gaz396651 (NAD83); no surveyed vertical value asserted."
+        },
+        {
+          "name": "Grand Mogul",
+          "lonLat": [
+            -114.959966494,
+            44.079674938
+          ],
+          "note": "USGS GNIS gaz382498 (NAD83); no surveyed vertical value asserted."
+        }
+      ],
+      "review": "Unreviewed candidate: source and rail/shot builds begin 2026-10-22. Need actual renderer, reflections, clearance, skyline and both directed transition checks before base approval.",
+      "reviewPath": "docs/scenic-expansion-wave1-2026-10-22.md"
+    },
+    {
+      "id": "shenandoah-stony-man-west",
+      "regionId": "shenandoah",
+      "biome": "BROADLEAF",
+      "status": "candidate",
+      "title": "Stony Man",
+      "place": "Shenandoah National Park, Virginia",
+      "notes": "Expansion wave 1 candidate. Elevated over the Shenandoah Valley west of Stony Man, looking east-south-east into the Blue Ridge escarpment. A compact 1 km lateral rail aims to make nearby broadleaf ridges useful in shorter visible windows. Camera coordinates/heights are authored estimates; named peak points use USGS GNIS NAD83. See docs/scenic-expansion-wave1-2026-10-22.md. No rail or tour approval. After the initial render showed the primary ridge masking the default 7 km far partition, the rail was moved approximately 2500 m west at the same endpoint AGL and lens; exact converted positions and new terrain bytes require fresh review.",
+      "composition": {
+        "foreground": "none",
+        "nearLedgeMaxFrac": 0
+      },
+      "water": false,
+      "dem": {
+        "source": "3dep13",
+        "centerLonLat": [
+          -78.385,
+          38.578
+        ],
+        "extentM": [
+          36000,
+          36000
+        ],
+        "cellM": 20
+      },
+      "rail": {
+        "eyeStart": {
+          "lonLat": [
+            -78.4737404,
+            38.611
+          ],
+          "aboveGroundM": 450
+        },
+        "eyeEnd": {
+          "lonLat": [
+            -78.4667376,
+            38.604
+          ],
+          "aboveGroundM": 450
+        },
+        "targetStart": {
+          "lonLat": [
+            -78.3733,
+            38.5982
+          ],
+          "heightM": 1050
+        },
+        "targetEnd": {
+          "lonLat": [
+            -78.3715,
+            38.5955
+          ],
+          "heightM": 1050
+        },
+        "fovYDeg": 35
+      },
+      "landmarks": [
+        {
+          "name": "Stony Man",
+          "lonLat": [
+            -78.373278436,
+            38.598160447
+          ],
+          "elevationM": 1222.5528,
+          "note": "USGS GNIS gaz1475210 point (NAD83); 4011 ft from National Park Service converted to metres, a published approximate elevation."
+        },
+        {
+          "name": "Hawksbill",
+          "lonLat": [
+            -78.395003105,
+            38.555393535
+          ],
+          "note": "USGS GNIS gaz1467849 (NAD83); no surveyed vertical value asserted."
+        },
+        {
+          "name": "Old Rag Mountain",
+          "lonLat": [
+            -78.316034348,
+            38.551715709
+          ],
+          "note": "USGS GNIS gaz1471867 (NAD83); no surveyed vertical value asserted."
+        }
+      ],
+      "review": "Unreviewed candidate: source and rail/shot builds begin 2026-10-22. Need actual renderer, near-ridge occlusion, clearance, skyline and both directed transition checks before base approval. Water deliberately disabled until mapped wet features would be added.",
+      "reviewPath": "docs/scenic-expansion-wave1-2026-10-22.md"
+    },
+    {
+      "id": "superstition-west-front",
+      "regionId": "superstition",
+      "biome": "DESERT",
+      "status": "candidate",
+      "title": "Superstition West Front",
+      "place": "Superstition Mountains, Arizona",
+      "notes": "Expansion wave 1 candidate. Short north-south move west of the volcanic front near Lost Dutchman State Park, looking south-east across the Sonoran Desert toward the Superstition ridge. Camera anchors are authored estimates based on the official park map vicinity; named points use USGS GNIS NAD83 (Superstition Peak gaz42805; Weavers Needle gaz35931). See docs/scenic-expansion-wave1-2026-10-22.md. No rail or tour approval. After the initial render showed the primary ridge masking the default 7 km far partition, the rail was moved approximately 4500 m west at the same endpoint AGL and lens; exact converted positions and new terrain bytes require fresh review.",
+      "composition": {
+        "foreground": "none",
+        "nearLedgeMaxFrac": 0
+      },
+      "water": false,
+      "dem": {
+        "source": "3dep13",
+        "centerLonLat": [
+          -111.425,
+          33.445
+        ],
+        "extentM": [
+          30000,
+          30000
+        ],
+        "cellM": 20
+      },
+      "rail": {
+        "eyeStart": {
+          "lonLat": [
+            -111.5324616,
+            33.473
+          ],
+          "aboveGroundM": 280
+        },
+        "eyeEnd": {
+          "lonLat": [
+            -111.528456,
+            33.463
+          ],
+          "aboveGroundM": 280
+        },
+        "targetStart": {
+          "lonLat": [
+            -111.435,
+            33.445
+          ],
+          "heightM": 1100
+        },
+        "targetEnd": {
+          "lonLat": [
+            -111.431,
+            33.435
+          ],
+          "heightM": 1100
+        },
+        "fovYDeg": 35
+      },
+      "landmarks": [
+        {
+          "name": "Superstition Peak",
+          "lonLat": [
+            -111.4006741,
+            33.4111562
+          ],
+          "note": "USGS GNIS gaz42805 (NAD83); no surveyed vertical value asserted."
+        },
+        {
+          "name": "Weavers Needle",
+          "lonLat": [
+            -111.3704066,
+            33.4331056
+          ],
+          "note": "USGS GNIS gaz35931 (NAD83); no surveyed vertical value asserted."
+        }
+      ],
+      "review": "Unreviewed candidate: source and rail/shot builds begin 2026-10-22. Need actual renderer, volcanic-front silhouette, source resolution at near pillars, clearance, skyline and both directed transition checks before base approval. No permanent surface water asserted; water disabled.",
+      "reviewPath": "docs/scenic-expansion-wave1-2026-10-22.md"
     }
   ]
 }

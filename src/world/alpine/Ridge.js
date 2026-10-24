@@ -1,15 +1,16 @@
 // The Range's musical envelope.
 //
 // The mountains already dance, grow with the song, and change scale with
-// each section. What they didn't have is the shared language the other
-// painterly worlds use: a kick is not a new massif, bass is weight, and a
-// decorative cut is not a new range.
+// each section. What they didn't have is a shared musical language: a kick
+// is not a new massif, bass is weight, and a decorative cut is not a new
+// range.
 //
 // Ambient travel of the ridge is an inverted-U on the 1.2s energy average
 // -- quiet songs keep a slow atmosphere, a groove breathes, dense material
 // settles so the skyline does not strobe. Large terrain movement is saved
-// for phrase boundaries that earned a lift (the same gate After Hours uses
-// for blooms). Bass, the same 1.2s low-band average, swells the flanks.
+// for phrase boundaries that earned a lift (WorldMusic.boundaryLift01, the
+// shared section-boundary gate). Bass, the same 1.2s low-band average,
+// swells the flanks.
 // Isolated accents sharpen a summit on a quiet song; dense material raises
 // the floor so only stronger hits mark the skyline.
 //
@@ -26,7 +27,6 @@ const WEIGHT_FLOOR = 0.10;
 const WEIGHT_CEIL = 0.78;
 
 const PHRASE_GAIN = 0.22;
-const PHRASE_GAIN_REDUCED = 0.08;
 
 const KICK_SPARSE = 1;
 const KICK_DENSE = 0.18;
@@ -35,15 +35,12 @@ export { boundaryLift01 };
 
 /**
  * Visual travel of the ridge, 0..1. Inverted-U so the densest material
- * settles instead of heaving harder. Reduced flash halves it.
+ * settles instead of heaving harder.
  */
-export function ambientDance(energy = 0, reducedFlash = false) {
+export function ambientDance(energy = 0) {
   const e = clamp01(energy);
-  let rate;
-  if (e <= PEAK_AT) rate = lerp(ATMOSPHERE, BREATHE, e / PEAK_AT);
-  else rate = lerp(BREATHE, SETTLE, (e - PEAK_AT) / (1 - PEAK_AT));
-  if (reducedFlash) rate *= 0.5;
-  return rate;
+  if (e <= PEAK_AT) return lerp(ATMOSPHERE, BREATHE, e / PEAK_AT);
+  return lerp(BREATHE, SETTLE, (e - PEAK_AT) / (1 - PEAK_AT));
 }
 
 /** Flank swell from sustained bass, never a single-frame sample. */
@@ -55,9 +52,8 @@ export function ridgeWeight(bass = 0) {
  * Extra height at an earned phrase opening. Decorative cuts arrive with
  * reveal 0 and do nothing; standing section scale is applied elsewhere.
  */
-export function phraseScale({ reveal = 0, lift = 0, reducedFlash = false } = {}) {
-  const gain = reducedFlash ? PHRASE_GAIN_REDUCED : PHRASE_GAIN;
-  return 1 + gain * clamp01(reveal) * clamp01(lift);
+export function phraseScale({ reveal = 0, lift = 0 } = {}) {
+  return 1 + PHRASE_GAIN * clamp01(reveal) * clamp01(lift);
 }
 
 /** How much of a kick the ridge is allowed to bounce, 0..1. */
@@ -78,13 +74,13 @@ export function summitGesture(accent = 0, energy = 0) {
 
 /** All Range dance inputs derived from one WorldMusic sample. */
 export function ridgeEnvelope({
-  energy = 0, bass = 0, accent = 0, reveal = 0, lift = 0, reducedFlash = false, reducedMotion = false,
+  energy = 0, bass = 0, accent = 0, reveal = 0, lift = 0,
 } = {}) {
   return {
-    groove: reducedMotion ? 0 : ambientDance(energy, reducedFlash),
+    groove: ambientDance(energy),
     sustain: ridgeWeight(bass),
-    scaleMul: reducedMotion ? 1 : phraseScale({ reveal, lift, reducedFlash }),
-    kickMul: reducedMotion ? 0 : kickGate(energy),
-    gesture: reducedMotion ? 0 : summitGesture(accent, energy),
+    scaleMul: phraseScale({ reveal, lift }),
+    kickMul: kickGate(energy),
+    gesture: summitGesture(accent, energy),
   };
 }

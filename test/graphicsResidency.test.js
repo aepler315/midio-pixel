@@ -271,3 +271,27 @@ test('a large touch device without deviceMemory receives the conservative mobile
   assert.deepEqual(residencyBudgetFor({ navigator: { maxTouchPoints: 5 }, screen: { width: 1366, height: 1024 } }),
     { name: 'mobile', bytes: 192 * MiB });
 });
+
+
+test('owned reservation shrink retires only current bytes and cannot affect reused or cancelled keys', () => {
+  const r = ledger(10);
+  assert.equal(typeof r.shrinkReservation, 'function');
+  const first = r.reserve({ key: 'phase', bytes: 100, generation: 17 });
+  assert.equal(r.shrinkReservation(first, 60), true);
+  assert.equal(r.usedBytes, 60);
+  for (const bytes of [61, NaN, Infinity, -1]) {
+    assert.equal(r.shrinkReservation(first, bytes), false);
+    assert.equal(r.usedBytes, 60);
+  }
+  r.releaseReservation(first);
+  const next = r.reserve({ key: 'phase', bytes: 80, generation: 18 });
+  assert.equal(r.shrinkReservation(first, 0), false);
+  assert.equal(r.usedBytes, 80, 'old handle cannot retire a new owner');
+  for (const missing of [null, undefined, { key: 'missing' }]) assert.equal(r.shrinkReservation(missing, 0), false);
+  r.cancelGeneration(18);
+  assert.equal(r.shrinkReservation(next, 0), false);
+  const live = r.reserve({ key: 'live-phase', bytes: 40 });
+  r.commit(live, {});
+  assert.equal(r.shrinkReservation(live, 20), true);
+  assert.equal(r.usedBytes, 20);
+});

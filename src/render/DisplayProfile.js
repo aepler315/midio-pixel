@@ -18,7 +18,7 @@ export function resolveDisplayPrefs({ saved, legacyStagePreset } = {}) {
     const defaults = { ...DEFAULT_DISPLAY_PREFS, ...(old ? { palette: 'range32', ditherMode: 'ordered' } : {}) };
     const choices = { look: ['pixel', 'palette'], quality: ['auto', 'economy'],
       palette: old ? ['range32', 'rgb332'] : ['world', 'range32', 'chroma32', 'rgb332'],
-      dither: [0, .35, 1], ditherMode: ['ordered', 'selective'], pixelGrid: ['classic', 'detailed'], scaling: ['fit', 'integer'] };
+      dither: [0, .35, 1], ditherMode: ['ordered', 'selective'], pixelGrid: ['classic', 'classicPlus', 'medium', 'mediumPlus', 'detailed'], scaling: ['fit', 'integer'] };
     for (const [key, values] of Object.entries(choices)) if (values.includes(prefs[key]) && !(old && ['ditherMode', 'pixelGrid'].includes(key))) defaults[key] = prefs[key];
     return defaults;
   }

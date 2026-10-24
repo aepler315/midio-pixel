@@ -1,15 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EnergyCurves } from '../src/audio/EnergyCurves.js';
-import { extractWatchFeatures, scoreWorlds, buildCustomWorld, buildWorldVariant, TIE_EPS, pickRecommended, formatFitDiagnostic, driveAfterResponse } from '../src/world/WorldScore.js';
+import { extractWatchFeatures, scoreWorlds, buildWorldVariant, TIE_EPS, pickRecommended, formatFitDiagnostic, driveAfterResponse } from '../src/world/WorldScore.js';
 import { getWorld, listWorlds, setCustomWorld, clearCustomWorld, DEFAULT_WORLD_ID } from '../src/world/Worlds.js';
+import { castBiomes } from '../src/world/Dramaturgy.js';
+import { REAL_BIOME_TEMPERATURE } from '../src/world/RealBiomes.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildingProfile, cityHeightField, windowOccupancy } from '../src/world/city/CitySilhouette.js';
-import { extractRidgePortrait } from '../src/world/RidgePortrait.js';
-import { castBiomes } from '../src/world/Dramaturgy.js';
-import { CITY_TEMPERATURE } from '../src/world/city/CityPalettes.js';
 import { clamp01, spread01 } from '../src/utils/math.js';
 
 function makeCurves({ durationMs = 120000, rateHz = 50, energyAt, bandsAt } = {}) {
@@ -42,34 +40,20 @@ function lofi() {
   });
 }
 
-test('world registry: alpine default, nocturne present, unknown falls back', () => {
+test('world registry: Landscape default, Trio present, unknown falls back', () => {
   assert.equal(DEFAULT_WORLD_ID, 'alpine');
-  assert.equal(getWorld('nocturne').kind, 'city');
+  assert.equal(getWorld('alpine').name, 'Landscape');
+  assert.equal(getWorld('trio').kind, 'alpine');
+  assert.equal(getWorld('trio').experience, 'trio');
   assert.equal(getWorld('nope').id, 'alpine');
-  assert.ok(listWorlds().length >= 2);
+  assert.equal(getWorld('nocturne').id, 'alpine', 'a removed world falls back to Landscape');
 });
 
-test('castBiomes accepts a city temperature map', () => {
-  const names = castBiomes([0.1, 0.9], 7, CITY_TEMPERATURE);
+test('castBiomes accepts a world\'s own temperature map', () => {
+  const names = castBiomes([0.1, 0.9], 7, REAL_BIOME_TEMPERATURE);
   assert.equal(names.length, 2);
-  assert.ok(names.every((n) => CITY_TEMPERATURE[n] != null));
+  assert.ok(names.every((n) => REAL_BIOME_TEMPERATURE[n] != null));
   assert.notEqual(names[0], names[1]);
-});
-
-test('a wall-of-sound mix prefers The Range; a warm mid-tempo mix prefers After Hours', () => {
-  const loud = metal();
-  const quiet = lofi();
-  const loudF = extractWatchFeatures({ energyCurves: loud.ec, durationMs: loud.durationMs, bpm: 160 });
-  const quietF = extractWatchFeatures({ energyCurves: quiet.ec, durationMs: quiet.durationMs, bpm: 86 });
-  const loudR = scoreWorlds(loudF);
-  const quietR = scoreWorlds(quietF);
-  const pick = (ranked, id) => ranked.find((r) => r.id === id).score;
-  assert.ok(pick(loudR, 'alpine') > pick(loudR, 'nocturne'),
-    `metal alpine ${pick(loudR, 'alpine')} vs city ${pick(loudR, 'nocturne')}`);
-  assert.ok(pick(quietR, 'nocturne') > pick(quietR, 'alpine'),
-    `lofi city ${pick(quietR, 'nocturne')} vs alpine ${pick(quietR, 'alpine')}`);
-  assert.ok(loudR[0].recommended);
-  assert.ok(loudR.every((r) => r.score >= 1 && r.score <= 99));
 });
 
 test('a confident rhythm profile supplies onset density and pulse to world scoring', () => {
@@ -92,49 +76,11 @@ test('a confident rhythm profile supplies onset density and pulse to world scori
     `expected beat-aligned rhythm to improve groove: ${withRhythm.groove} <= ${withoutRhythm.groove}`);
 });
 
-test('buildingProfile is rectangular with setbacks, not a mountain cone', () => {
-  assert.equal(buildingProfile(0), 1);
-  assert.equal(buildingProfile(0.4), 1);
-  assert.ok(buildingProfile(0.7) < 1 && buildingProfile(0.7) > 0.7);
-  assert.equal(buildingProfile(1), 0);
-  // A cone would be ~0.5 at d=0.5; a building is still full height.
-  assert.equal(buildingProfile(0.5), 1);
-});
-
-test('cityHeightField stays in 0..1, has flat-topped mass, and is deterministic', () => {
-  const { ec, durationMs } = lofi();
-  const portrait = extractRidgePortrait(ec, durationMs);
-  const n = 256, step = 8, width = n * step;
-  const a = cityHeightField(n, step, 42, width, portrait, 'L2');
-  const b = cityHeightField(n, step, 42, width, portrait, 'L2');
-  for (let i = 0; i < n; i++) {
-    assert.equal(a[i], b[i]);
-    assert.ok(a[i] >= 0 && a[i] <= 1);
-  }
-  // Flat roofs: a run of nearly-equal samples should exist (a building top).
-  let longest = 1, run = 1;
-  for (let i = 1; i < n; i++) {
-    run = Math.abs(a[i] - a[i - 1]) < 0.02 ? run + 1 : 1;
-    if (run > longest) longest = run;
-  }
-  assert.ok(longest >= 4, `expected a flat roof run, got ${longest}`);
-});
-
-test('generateSilhouette city profile returns a window strip', async () => {
-  if (typeof OffscreenCanvas === 'undefined' && typeof document === 'undefined') return;
-  const { generateSilhouette } = await import('../src/world/SilhouetteGenerator.js');
-  const strip = generateSilhouette({
-    seed: 9, width: 512, height: 160, color: '#101018', profile: 'city', step: 4,
-  });
-  assert.ok(strip.windows);
-  assert.equal(strip.ridge.profile, 'city');
-});
-
 test('every registered world is listed and has the required fields', () => {
   const worlds = listWorlds();
   // Exact, not >=: the count is the guard that catches a world silently
   // dropping out of the registry. Bump it deliberately when adding one.
-  assert.deepEqual(worlds.map(w => w.id), ['alpine', 'nocturne', 'farside', 'fathom', 'redline', 'foundry', 'understory', 'nave']);
+  assert.deepEqual(worlds.map(w => w.id), ['alpine', 'trio']);
   for (const w of worlds) {
     assert.ok(w.id, `missing id`);
     assert.ok(w.name, `${w.id} missing name`);
@@ -147,39 +93,16 @@ test('every registered world is listed and has the required fields', () => {
   }
 });
 
-test('farside wins for sparse, bright, cold songs', () => {
-  const { ec, durationMs } = makeCurves({
-    energyAt: () => 0.12,
-    bandsAt: () => [0.1, 0.2, 0.4, 0.8, 1.3, 1.5, 1.4],
-  });
-  const feat = extractWatchFeatures({ energyCurves: ec, durationMs, bpm: 72 });
-  const ranked = scoreWorlds(feat);
-  const farside = ranked.find((r) => r.id === 'farside');
-  assert.ok(farside, 'farside should be in rankings');
-  assert.ok(farside.score >= 50, `farside score ${farside.score} too low for sparse bright song`);
-});
-
-test('redline scores well for a fast, driving, groovy song', () => {
-  const { ec, durationMs } = makeCurves({
-    energyAt: (t) => 0.5 + 0.4 * Math.sin(t * Math.PI),
-    bandsAt: () => [0.6, 0.8, 1.2, 1.4, 1.3, 1.0, 0.7],
-  });
-  const feat = extractWatchFeatures({ energyCurves: ec, durationMs, bpm: 155 });
-  const ranked = scoreWorlds(feat);
-  const redline = ranked.find((r) => r.id === 'redline');
-  assert.ok(redline.score >= 55, `redline score ${redline.score} too low for fast song`);
-});
-
 // ── Per-world win/lose coverage ────────────────────────────────────
 //
 // scoreWorlds/comfortScore squashed toward the middle badly enough that a
-// world could sit in the registry and still lose every pickup, even one
-// tuned to its own book. These feed a full, hand-authored feature vector
-// straight to scoreWorlds (bypassing extractWatchFeatures/EnergyCurves —
-// those are already exercised above) so each case targets exactly the
-// "wins on" / "loses on" columns from docs/worlds.md §2, independent of
-// whatever the audio-analysis pipeline happens to produce for a given
-// synthetic curve.
+// world scored nearly as well on its stated weakness as on the song it was
+// tuned for. These feed a full, hand-authored feature vector straight to
+// scoreWorlds (bypassing extractWatchFeatures/EnergyCurves — those are
+// already exercised above), independent of whatever the audio-analysis
+// pipeline happens to produce for a given synthetic curve. Landscape and
+// Trio share one fit (the same comfort, prefer and affinity), so each is
+// held to its own book by score, not ranked against the other.
 function baseFeat(overrides = {}) {
   return {
     centroid: 0.5, bass: 0.35, air: 0.2, spread: 0.5, dyn: 0.4, energyMean: 0.4,
@@ -189,72 +112,27 @@ function baseFeat(overrides = {}) {
   };
 }
 
-function topId(feat) { return scoreWorlds(feat)[0].id; }
-function rankOf(feat, id) { return scoreWorlds(feat).findIndex((r) => r.id === id); }
-
-const WORLD_CASES = {
-  alpine: {
-    win: baseFeat({ arc: 0.72, dyn: 0.65, form: 0.65, contrast: 0.58, texture: 0.4, air: 0.35, onset: 0.4, tempoHeat: 0.45, drive: 0.59 }),
-    lose: baseFeat({ arc: 0.08, dyn: 0.1, onset: 0.05, contrast: 0.1, energyMean: 0.1, tempoHeat: 0.05, drive: 0.08, bass: 0.1 }),
-  },
-  nocturne: {
-    win: baseFeat({ warmth: 0.62, groove: 0.6, phrase: 0.55, tempoHeat: 0.42, drive: 0.42, centroid: 0.45, onset: 0.3 }),
-    lose: baseFeat({ air: 0.85, centroid: 0.85, warmth: 0.05, bass: 0.05, drive: 0.1, onset: 0.05 }),
-  },
-  farside: {
-    win: baseFeat({ air: 0.85, centroid: 0.8, warmth: 0.05, onset: 0.06, spread: 0.75, bass: 0.05, drive: 0.1 }),
-    lose: baseFeat({ groove: 0.85, bass: 0.8, onset: 0.75, drive: 0.75, tempoHeat: 0.8, warmth: 0.75 }),
-  },
-  fathom: {
-    win: baseFeat({ bass: 0.75, warmth: 0.78, phrase: 0.68, onset: 0.08, centroid: 0.15, contrast: 0.2, drive: 0.15 }),
-    lose: baseFeat({ onset: 0.85, centroid: 0.85, contrast: 0.8, drive: 0.72, warmth: 0.1 }),
-  },
-  redline: {
-    win: baseFeat({ tempoHeat: 0.85, groove: 0.75, onset: 0.65, centroid: 0.65, drive: 0.72, arc: 0.55 }),
-    lose: baseFeat({ tempoHeat: 0.05, groove: 0.1, onset: 0.05, drive: 0.08, arc: 0.1 }),
-  },
-  foundry: {
-    win: baseFeat({ onset: 0.78, energyMean: 0.78, dyn: 0.65, tempoHeat: 0.7, warmth: 0.62, bass: 0.6, drive: 0.85 }),
-    lose: baseFeat({ onset: 0.05, energyMean: 0.08, dyn: 0.08, tempoHeat: 0.1, drive: 0.08 }),
-  },
-  understory: {
-    win: baseFeat({ texture: 0.75, spread: 0.72, contrast: 0.18, air: 0.5, onset: 0.25, centroid: 0.5, drive: 0.32 }),
-    lose: baseFeat({ contrast: 0.85, onset: 0.8, texture: 0.1, spread: 0.15, drive: 0.75 }),
-  },
-  nave: {
-    win: baseFeat({ contrast: 0.72, form: 0.68, phrase: 0.7, bass: 0.5, arc: 0.5, centroid: 0.5, drive: 0.5 }),
-    lose: baseFeat({ form: 0.05, phrase: 0.05, contrast: 0.1, drive: 0.5, landmarks: 1 }),
-  },
+const RANGE_CASES = {
+  win: baseFeat({ arc: 0.72, dyn: 0.65, form: 0.65, contrast: 0.58, texture: 0.4, air: 0.35, onset: 0.4, tempoHeat: 0.45, drive: 0.59 }),
+  lose: baseFeat({ arc: 0.08, dyn: 0.1, onset: 0.05, contrast: 0.1, energyMean: 0.1, tempoHeat: 0.05, drive: 0.08, bass: 0.1 }),
 };
+const WORLD_CASES = { alpine: RANGE_CASES, trio: RANGE_CASES };
+
+function scoreOf(feat, id) { return scoreWorlds(feat).find((r) => r.id === id).score; }
 
 for (const [id, cases] of Object.entries(WORLD_CASES)) {
-  test(`${id} wins (or is a clear top pick) on its own intended song shape`, () => {
-    const ranked = scoreWorlds(cases.win);
-    const idx = rankOf(cases.win, id);
-    const top = ranked[0];
-    assert.ok(idx <= 1, `${id} ranked #${idx + 1} (${top.id} won) on its own dead-center song: ${ranked.map((r) => `${r.id}:${r.score}`).join(' ')}`);
-    const mine = ranked.find((r) => r.id === id);
-    assert.ok(mine.score >= 60, `${id} scored only ${mine.score} on its own intended song shape`);
+  test(`${id} scores well on its own intended song shape`, () => {
+    const mine = scoreOf(cases.win, id);
+    assert.ok(mine >= 60, `${id} scored only ${mine} on its own intended song shape`);
   });
 
-  test(`${id} loses (drops well down the ranking) on its stated weakness`, () => {
-    const ranked = scoreWorlds(cases.lose);
-    const idx = rankOf(cases.lose, id);
-    assert.ok(idx >= 3, `${id} ranked #${idx + 1} on a song matching its stated weakness — should sit well off the top: ${ranked.map((r) => `${r.id}:${r.score}`).join(' ')}`);
+  test(`${id} drops well down on its stated weakness`, () => {
+    const win = scoreOf(cases.win, id);
+    const lose = scoreOf(cases.lose, id);
+    assert.ok(lose < 60, `${id} scored ${lose} on a song matching its stated weakness`);
+    assert.ok(win - lose >= 20, `${id} barely separates its book (${win}) from its weakness (${lose})`);
   });
 }
-
-test('understory wins for textured, spread, low-contrast songs', () => {
-  const { ec, durationMs } = makeCurves({
-    energyAt: () => 0.32,
-    bandsAt: () => [0.8, 0.9, 1.0, 1.1, 1.1, 1.0, 0.9],
-  });
-  const feat = extractWatchFeatures({ energyCurves: ec, durationMs, bpm: 96 });
-  const ranked = scoreWorlds(feat);
-  const understory = ranked.find((r) => r.id === 'understory');
-  assert.ok(understory, 'understory should be in rankings');
-  assert.ok(understory.score >= 50, `understory score ${understory.score} too low for textured song`);
-});
 
 test('drive is actually spread01-corrected in the real pipeline, not just in isolation', () => {
   // extractWatchFeatures' `drive` is a 5-term weighted sum of arc/onset/
@@ -294,14 +172,7 @@ test('comfort bands partition drive space — no world covers full range', () =>
   }
 });
 
-test('window occupancy sits down on a quiet open and up on a fevered drop', () => {
-  const quiet = windowOccupancy({ energy: 0.1, openingGain: 0.4, orogeny: 0.1, fever: 0 });
-  const drop = windowOccupancy({ energy: 0.85, openingGain: 1, orogeny: 0.8, fever: 0.6 });
-  assert.ok(drop > quiet * 1.5, `drop ${drop} vs quiet ${quiet}`);
-  assert.ok(quiet > 0.05 && drop < 1);
-});
-
-// buildCustomWorld used to wrap DNA + palette synthesis + terrain shaping
+// World construction used to wrap DNA + palette synthesis + terrain shaping
 // in ONE shared try/catch: any failure, even one confined to palette color
 // synthesis, silently discarded terrainMods/characterScheme too, even
 // though deriveTerrainParams/pickCharacterScheme never depend on palette
@@ -331,8 +202,8 @@ test('a palette-synthesis-only failure still leaves terrain shaping intact, and 
   console.warn = (...args) => warnCalls.push(args);
   let result;
   try {
-    // Far Side: The Range's real biomes are never synthesized.
-    result = buildWorldVariant('farside', feat, data);
+    // Trio: Landscape's real biomes are never synthesized.
+    result = buildWorldVariant('trio', feat, data);
   } finally {
     console.warn = originalWarn;
   }
@@ -359,53 +230,42 @@ test('an adapted world keeps the base identity instead of constructing a 100 sco
       bandsAt: song.bands,
     });
     const feat = extractWatchFeatures({ energyCurves: ec, durationMs, bpm: song.bpm });
-    const { world, proof } = buildCustomWorld(feat);
+    for (const base of listWorlds()) {
+      const label = `${song.label}/${base.id}`;
+      const { world, proof } = buildWorldVariant(base.id, feat);
 
-    assert.notEqual(proof.score, 100, `${song.label}: adapted worlds must not construct a perfect score`);
-    assert.ok(proof.score >= 1 && proof.score <= 99, `${song.label}: score ${proof.score} out of range`);
-    assert.ok(world.kind, `${song.label}: missing kind`);
-    assert.ok(world.palettes?.length >= 3, `${song.label}: missing palettes`);
-    assert.ok(typeof world.cast === 'function', `${song.label}: missing cast`);
-    assert.ok(world.registeredId);
-    assert.ok(world.instanceId);
-    assert.notEqual(world.instanceId, world.registeredId);
+      assert.notEqual(proof.score, 100, `${label}: adapted worlds must not construct a perfect score`);
+      assert.ok(proof.score >= 1 && proof.score <= 99, `${label}: score ${proof.score} out of range`);
+      assert.equal(world.kind, base.kind, `${label}: lost its kind`);
+      assert.ok(world.palettes?.length >= 3, `${label}: missing palettes`);
+      assert.ok(typeof world.cast === 'function', `${label}: missing cast`);
+      assert.equal(world.registeredId, base.id);
+      assert.ok(world.instanceId);
+      assert.notEqual(world.instanceId, world.registeredId);
 
-    setCustomWorld(world);
-    assert.equal(getWorld(world.id).kind, world.kind);
-    clearCustomWorld();
-    assert.notEqual(getWorld('custom').id, 'custom');
+      setCustomWorld(world);
+      assert.equal(getWorld(world.id).kind, world.kind);
+      clearCustomWorld();
+      assert.notEqual(getWorld('custom').id, 'custom');
+    }
   }
-});
-
-test('custom world inherits best base world kind', () => {
-  // A loud, fast song should inherit a high-energy base world.
-  const { ec, durationMs } = makeCurves({
-    energyAt: (t) => 0.5 + 0.4 * Math.sin(t * Math.PI),
-    bandsAt: () => [0.6, 0.8, 1.2, 1.4, 1.3, 1.0, 0.7],
-  });
-  const feat = extractWatchFeatures({ energyCurves: ec, durationMs, bpm: 155 });
-  const ranked = scoreWorlds(feat);
-  const { world } = buildCustomWorld(feat);
-  assert.equal(world.baseId, ranked[0].id,
-    `custom base ${world.baseId} !== top ranked ${ranked[0].id}`);
-  assert.equal(world.kind, ranked[0].kind);
 });
 
 test('buildWorldVariant preserves the selected world while tailoring it to the song', () => {
   const feat = baseFeat({
     onset: 0.7, energyMean: 0.7, dyn: 0.6, tempoHeat: 0.65, drive: 0.7,
   });
-  const { world, proof } = buildWorldVariant('nocturne', feat);
+  const { world, proof } = buildWorldVariant('trio', feat);
 
   assert.equal(world.id, 'custom');
-  assert.equal(world.baseId, 'nocturne');
-  assert.equal(world.registeredId, 'nocturne');
-  assert.equal(world.kind, 'city');
-  assert.equal(world.name, 'After Hours');
+  assert.equal(world.baseId, 'trio');
+  assert.equal(world.registeredId, 'trio');
+  assert.equal(world.kind, 'alpine');
+  assert.equal(world.name, 'Trio');
+  assert.equal(world.experience, 'trio');
   assert.notEqual(proof.score, 100);
   assert.ok(world.response);
-  assert.equal(world.capabilities.geometry.includes('skyline'), true);
-  assert.equal(world.capabilities.geometry.includes('ridge'), false);
+  assert.equal(world.capabilities.geometry.includes('ridge'), true);
 });
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -470,7 +330,7 @@ test('ranking uses continuous fit, not the rounded display score', () => {
   }
 });
 
-test('near ties stay tied; Choose-for-me still returns one pick', () => {
+test('near ties stay tied; the fit readout still names one pick', () => {
   const feat = baseFeat({ drive: 0.5, onset: 0.4, arc: 0.5, groove: 0.5 });
   const clone = (id, name) => ({
     id, name, kind: 'alpine',
@@ -506,29 +366,17 @@ test('a unique winner exposes split diagnostic fields', () => {
   assert.ok(pick.parts.responseBand);
 });
 
-test('dense response does not invert metal: The Range still beats After Hours', () => {
-  const loud = metal();
-  const feat = extractWatchFeatures({ energyCurves: loud.ec, durationMs: loud.durationMs, bpm: 160 });
-  const ranked = scoreWorlds(feat);
-  const alpine = ranked.find((r) => r.id === 'alpine');
-  const city = ranked.find((r) => r.id === 'nocturne');
-  assert.ok(alpine.fit > city.fit, `metal alpine fit ${alpine.fit} vs city ${city.fit}`);
-  assert.ok(alpine.parts.driveUsed <= alpine.parts.drive + 1e-9, 'dense absorb must not lift drive');
-  assert.ok(city.parts.driveUsed <= city.parts.drive + 1e-9, 'dense absorb must not lift drive');
-  const cityHi = getWorld('nocturne').comfort.hi;
-  if (city.parts.drive > cityHi) {
-    assert.ok(city.parts.driveUsed > cityHi, 'city is not teleported into its comfort band');
-  }
-});
-
 test('quiet input is never lifted to manufacture activity', () => {
   const feat = baseFeat({ energyMean: 0.08, dyn: 0.10, onset: 0.05, drive: 0.10, arc: 0.08 });
-  const ranked = scoreWorlds(feat);
+  // A synthetic world that wants high drive: quiet input is reported as
+  // stillness there, not lifted to fit.
+  const highDrive = { ...getWorld('alpine'), id: 'high-drive-fixture', name: 'High drive', comfort: { lo: 0.6, hi: 0.9 } };
+  const ranked = scoreWorlds(feat, [...listWorlds(), highDrive]);
   for (const r of ranked) {
     assert.equal(r.parts.driveUsed, r.parts.drive);
   }
-  const foundry = ranked.find((r) => r.id === 'foundry');
-  assert.ok(foundry.parts.problems.some((p) => p.code === 'stillness'));
+  const fixture = ranked.find((r) => r.id === 'high-drive-fixture');
+  assert.ok(fixture.parts.problems.some((p) => p.code === 'stillness'));
 });
 
 test('diagnostics separate style affinity, analysis confidence, and predicted problems', () => {
@@ -546,7 +394,7 @@ test('diagnostics separate style affinity, analysis confidence, and predicted pr
   assert.ok(lines.some((l) => l.startsWith('problems:')));
 });
 
-test('manual-only worlds and explicit exclusions stay out of Choose-for-me', () => {
+test('manual-only worlds and explicit exclusions are never the pick', () => {
   const feat = baseFeat();
   const withManualOnly = scoreWorlds(feat, [...listWorlds(), { ...getWorld('alpine'), id: 'manual-fixture', manualOnly: true }]);
   const manualOnly = withManualOnly.find((r) => r.id === 'manual-fixture');

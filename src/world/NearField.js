@@ -1,4 +1,3 @@
-import { resolveLandscapePresentation } from './LandscapePresentation.js';
 // Near-field foreground occluders: the one classic side-scroller depth cue
 // this game didn't have -- something large sweeping past IN FRONT of the
 // characters. L7 (the old drawForeground) was three blurred white ellipses
@@ -79,7 +78,6 @@ export function nearFieldForSector(songSeed, sectorIdx, biomeName, prevOccupied 
 
 export class NearField {
   constructor(songSeed, world = null) {
-    this.presentation = resolveLandscapePresentation(world);
     this.identity = world ? identityFor(world) : null;
     this.songSeed = songSeed;
     this._cache = new Map(); // sectorIdx -> descriptor|null
@@ -87,7 +85,6 @@ export class NearField {
   }
 
   _sector(idx, biomeName) {
-    if (!this.presentation.artificialNearProps && ['city', 'strip', 'foundry', 'nave'].includes(this.identity?.kind)) return null;
     if (!this._cache.has(idx)) {
       // A consecutive run of eligible sectors alternates occupied/empty.
       // Walk only to the first failed roll, without caching unseen geometry.
@@ -121,7 +118,7 @@ export class NearField {
 
   /**
    * @param env {{tSec:number, kick:number, biomeName:string,
-   *   reducedMotion?:boolean, ratio?:number}} biomeName is the CURRENTLY
+   *   ratio?:number}} biomeName is the CURRENTLY
    *   dominant biome -- only consulted the first time a given sector comes
    *   into view. `ratio` overrides NEARFIELD_RATIO (CodaDirector's ending
    *   delamination nudges every layer's ratio apart from the rest).
@@ -141,13 +138,13 @@ export class NearField {
   _drawOne(ctx, canvas, d, x, env) {
     if (d.kind) {
       const height = canvas.height * this.identity.foreground.maxHeight * (d.scale / MAX_SCALE);
-      const motion = env.reducedMotion ? 0 : Math.sin(env.tSec * 0.6 + d.seed) * 2;
+      const motion = Math.sin(env.tSec * 0.6 + d.seed) * 2;
       ctx.save();
       ctx.translate(x + motion, d.hang ? 0 : canvas.height);
       // Narrow coverage leaves the landmark and cast visible between props.
       ctx.scale(Math.min(height * 0.65, canvas.width * 0.09) / 100 * (d.flip ? -1 : 1), height / 100 * (d.hang ? -1 : 1));
       ctx.fillStyle = env.silhouette ? hexLerp(env.silhouette, '#000000', TINT_TOWARD_BLACK) : this._colorFor(d.biomeName);
-      drawWorldProp(ctx, d.kind, d.seed);
+      drawWorldProp(ctx, d.seed);
       ctx.restore();
       return;
     }
@@ -157,9 +154,8 @@ export class NearField {
     // A little life so a huge static silhouette doesn't read as a cardboard
     // cutout: a slow sway, plus a small kick-synced nudge like everything
     // else in this file reacts to the beat.
-    const motionMul = env.reducedMotion ? 0.35 : 1;
-    const sway = Math.sin(env.tSec * 0.6 + d.seed) * 3 * motionMul;
-    const kickNudge = (env.kick || 0) * 4 * motionMul;
+    const sway = Math.sin(env.tSec * 0.6 + d.seed) * 3;
+    const kickNudge = (env.kick || 0) * 4;
 
     const paint = () => {
       // Outline first (bigger, near-black), real color on top at normal

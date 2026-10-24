@@ -22,7 +22,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
-import { withAllWorlds, withLegacyRange } from './lib/allWorlds.mjs';
+import { withLegacyRange } from './lib/allWorlds.mjs';
 import { landscapeOwnership, assertLandscapeOwnership } from './range-scene-smoke.mjs';
 import { seedBrowserConstruction, installSeedReceiver } from './lib/landscape-browser.mjs';
 import { snapshotSource } from './lib/visual-evaluation-server.mjs';
@@ -58,6 +58,17 @@ const inspect = async (page, bytes, mime, sampleTime = 2) => page.evaluate(async
       video.onerror = () => rej(new Error('the file will not decode'));
       setTimeout(() => rej(new Error('metadata timeout')), 20000);
     });
+    // A streamed WebM can lack container-duration metadata. Seeking past its
+    // last packet lets the browser establish the finite endpoint before the
+    // same duration/picture checks used for MP4.
+    if (!Number.isFinite(video.duration)) {
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('duration seek timeout')), 20000);
+        video.onseeked = () => { clearTimeout(timer); resolve(); };
+        video.currentTime = 1e9;
+      });
+      video.currentTime = 0;
+    }
     // Play a moment before sampling: the decoded-byte counters below are
     // the only way to tell a file with sound in it from a silent one, and
     // the audio tap on the master bus is exactly the kind of wiring that
@@ -186,7 +197,7 @@ try {
   if (v2) { entry.searchParams.set('rangeRenderer', 'v2'); entry.searchParams.set('rangeView', 'teton-jackson-lake'); }
   const webgl = process.env.EXPORT_RENDERER === 'webgl';
   if (webgl) entry.searchParams.set('renderer', 'webgl');
-  await page.goto(v2 ? withAllWorlds(entry.href) : withLegacyRange(withAllWorlds(entry.href)));
+  await page.goto(v2 ? entry.href : withLegacyRange(entry.href));
   await page.locator('#titleSettings').evaluate((node) => { node.open = true; });
   const lyrics = page.locator('#lyricGroundingBtn');
   if (await lyrics.getAttribute('aria-pressed') === 'true') await lyrics.click();
@@ -216,6 +227,9 @@ try {
   await page.waitForFunction(worldAnalysisReady, { throughMs }, { timeout: 180000 });
   check('recording cases use the complete admitted song analysis', await page.evaluate(worldAnalysisReady, { throughMs }), `through ${throughMs}ms`);
 
+  await page.evaluate(() => window.__SMW.renderReady);
+  await page.waitForFunction(() => window.__SMW.renderReadiness?.status === 'ready');
+  await page.evaluate(() => window.__SMW.renderer.draw(window.__SMW.sim, 0));
   assertLandscapeOwnership(await landscapeOwnership(page));
   if (v2) {
     await page.evaluate(async()=>{await window.__SMW.rangeReady({timeoutMs:120000});window.__SMW.seek(1500);await window.__SMW.rangeReady({timeoutMs:120000});window.__SMW.renderer.draw(window.__SMW.sim,0);});
@@ -283,18 +297,17 @@ try {
   // 12px away from the 60/420 image edges, where H.264 ringing otherwise
   // crosses the low brightness cutoff. The same rows must contain scene
   // content after Fit expands the image; stretching fails the first half.
-  await page.evaluate(async()=>{
-    // The completion menu is populated lazily; prepare its real presets
-    // before choosing the persisted target for a mid-song HUD recording.
-    const {RENDER_PRESETS}=await import('/src/render/VideoExport.js'),n=document.querySelector('#exportPreset');
-    if(!n.options.length)for(const p of RENDER_PRESETS)n.add(new Option(p.label,p.id));
-    n.value='car';n.dispatchEvent(new Event('change',{bubbles:true}));
+  await page.evaluate(() => {
+    const aspect = document.querySelector('[data-export="aspect"]');
+    aspect.value = '5:3'; aspect.dispatchEvent(new Event('change', { bubbles: true }));
   });
   for (const look of ['pixel','palette']) {
     await page.evaluate(()=>{window.__SMW.seek(1500);window.__SMW.carMode.simulateDisplaySleep(21000);});
     await clickHudButton('#displaySettingsBtn', displaySettingsOpen);
     await page.selectOption('#display-look',look);
-    await page.selectOption('#display-quality',look==='pixel'?'auto':'economy');
+    await page.locator('#generalQuality').evaluate((control, value) => {
+      control.value = value; control.dispatchEvent(new Event('input', { bubbles: true }));
+    }, look === 'pixel' ? '2' : '0');
     await page.selectOption('#display-pixelGrid','classic');
     await page.selectOption('#display-scaling','integer');
     if(look==='palette') {
@@ -331,9 +344,11 @@ try {
     check(`${look} transition recording keeps stable encoded dimensions`,decoded.width===800&&decoded.height===480,`${decoded.width}x${decoded.height}`);
     check(`${look} transition recording decodes meaningful scene content`,decoded.colors>8&&decoded.middleRowLit>.12,JSON.stringify(decoded));
     check(`${look} transition recording preserves bars with codec tolerance`,decoded.topRowLit<=.2&&decoded.bottomRowLit<=.2&&decoded.topRowPeak<=96&&decoded.bottomRowPeak<=96,JSON.stringify(decoded));
-    const barRows=[48,432];
-    const integerBars=barRows.map(y=>first.rows.find(r=>r.y===y)),fitImages=barRows.map(y=>decoded.rows.find(r=>r.y===y));
-    check(`${look} transition changes placement while preserving encoded size`,first.width===decoded.width&&first.height===decoded.height&&integerBars.every(row=>row.peak<=96&&row.lit<=.2)&&fitImages.every(row=>row.lit>.2),JSON.stringify({integerBars,fitImages}));
+    check(`${look} transition keeps export framing independent of live scaling`,
+      first.width === decoded.width && first.height === decoded.height
+      && first.topRowPeak <= 96 && first.bottomRowPeak <= 96 && first.middleRowLit > .12,
+      JSON.stringify({ first: { top: first.topRowPeak, bottom: first.bottomRowPeak, middle: first.middleRowLit },
+        last: { top: decoded.topRowPeak, bottom: decoded.bottomRowPeak, middle: decoded.middleRowLit } }));
     pixelRecordings.push({look,nextLook,requestedScaling:['integer','fit'],raw,first,decoded,backend:await page.evaluate(()=>window.__SMW.rangeState),file:path.basename(file),codec:candidate.mimeType});
   }
 
@@ -341,15 +356,18 @@ try {
   await page.evaluate(() => window.__SMW.seek(window.__SMW.durationMs - 3000));
   await setPlaybackPaused(false);
   await page.locator('#completePanel:not(.hidden)').waitFor({ timeout: 120000 });
-  await page.selectOption('#exportPreset', 'car');
-  check('the export note names the target and the format',
-    /head unit/i.test(await page.textContent('#exportNote')));
+  await page.locator('#playAgainBtn').click();
+  await page.locator('#exportEnabled').check();
+  await page.locator('[data-export="aspect"]').selectOption('5:3');
+  check('the export note names the format before selecting music',
+    /MP4|WebM|H\.264/i.test(await page.textContent('#exportNote')));
 
   const carDownload = page.waitForEvent('download', { timeout: 240000 });
-  await page.click('#exportBtn');
-  await page.waitForTimeout(1200);
-  check('a full-song export replays with the recorder armed',
-    await page.getAttribute('#recordBtn', 'aria-pressed') === 'true');
+  await page.locator('#fileInput').setInputFiles(wav);
+  await page.locator('#worldSelect[open]').waitFor({ timeout: 120000 });
+  await page.locator('.worldCardPlayBtn').first().click();
+  await page.waitForFunction(() => document.querySelector('#recordBtn').getAttribute('aria-pressed') === 'true', null, { timeout: 120000 });
+  check('a front-screen full-song export starts with the recorder armed', true);
   const carSaved = await carDownload;
   const carPath = path.join(out, 'car' + path.extname(carSaved.suggestedFilename()));
   await carSaved.saveAs(carPath);
@@ -385,7 +403,7 @@ try {
     `top ${car.topRowLit.toFixed(4)} (peak ${car.topRowPeak}) `
     + `middle ${car.middleRowLit.toFixed(2)} `
     + `bottom ${car.bottomRowLit.toFixed(4)} (peak ${car.bottomRowPeak})`);
-  check('the car export covers the whole song', car.duration > 15, `${car.duration.toFixed(1)}s`);
+  check('the car export covers the whole song', car.duration >= (Number(process.env.EXPORT_FIXTURE_SECONDS) || 120) - .2, `${car.duration.toFixed(1)}s`);
   check('the car export has sound in it', car.audioBytes === null || car.audioBytes > 0, `${car.audioBytes} audio bytes decoded`);
   check('the result line states what the file actually is',
     /Saved .*(H\.264|VP9|VP8|AV1|MP4|WEBM)/.test(await page.textContent('#exportNote')),

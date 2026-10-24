@@ -13,7 +13,7 @@ const LIFT_FULL = 0.22;
 // into a quiet section. This is the floor such a boundary keeps.
 const REL_FLOOR = 0.45;
 
-export function sampleWorldMusic({ nowMs = 0, energyCurves = null, rhythm = null, section = null, reducedFlash = false, reducedMotion = false, response = null, glowTame01 = 0 } = {}) {
+export function sampleWorldMusic({ nowMs = 0, energyCurves = null, rhythm = null, section = null, response = null, glowTame01 = 0 } = {}) {
   nowMs = Number.isFinite(nowMs) ? Math.max(0, nowMs) : 0;
   const windowMs = Number.isFinite(response?.smoothingMs) ? response.smoothingMs : 1200;
   const n = Math.max(8, Math.round(windowMs / 20));
@@ -35,13 +35,10 @@ export function sampleWorldMusic({ nowMs = 0, energyCurves = null, rhythm = null
   const accentGain = Number.isFinite(response?.accentGain) ? response.accentGain : 1;
   const age = nowMs - (rhythm?.tMs ?? -Infinity);
   const accent = age >= 0 && age < accentWindow
-    ? unit(rhythm.vel) * Math.exp(-age / accentDecay) * accentGain * (reducedFlash ? 0.25 : 1) : 0;
+    ? unit(rhythm.vel) * Math.exp(-age / accentDecay) * accentGain : 0;
   const macroMs = Number.isFinite(response?.macroMs) ? response.macroMs : 8000;
   const ambientScale = Number.isFinite(response?.ambientScale) ? response.ambientScale : 1;
-  const cityFloor = response && Number.isFinite(response.cityLightFloor) ? response.cityLightFloor : 0.18;
-  const waterFloor = response && Number.isFinite(response.waterLightFloor) ? response.waterLightFloor : 0.12;
   const tame = clamp01(Number.isFinite(glowTame01) ? glowTame01 : (section?.glowTame01 ?? 0));
-  const energyGlow = energy * (1 - 0.70 * tame);
   // Open over four seconds at an evidence-backed boundary. Pacing-only
   // cuts are visual scheduling, not evidence of a musical phrase.
   const elapsed = nowMs - (section?.startMs ?? 0);
@@ -53,11 +50,7 @@ export function sampleWorldMusic({ nowMs = 0, energyCurves = null, rhythm = null
     bass, energy, accent, reveal,
     glowTame: tame,
     group: rhythm && Number.isFinite(rhythm.tMs) ? Math.abs(Math.round(rhythm.tMs * 0.013)) % 4 : 0,
-    // Spatial consumers use motionScale; light retains the raw evidence above.
-    motionScale: reducedMotion ? 0 : 1,
-    current: reducedFlash || reducedMotion ? 0 : Math.sin(nowMs / macroMs) * (0.35 + 0.35 * bass) * ambientScale,
-    cityLight: cityFloor + 0.45 * energyGlow * ambientScale,
-    waterLight: waterFloor + 0.22 * bass * ambientScale,
+    current: Math.sin(nowMs / macroMs) * (0.35 + 0.35 * bass) * ambientScale,
   };
 }
 
@@ -69,8 +62,6 @@ export function sampleManagerMusic(mgr, extra = {}) {
     energyCurves: mgr?.energyCurves,
     rhythm: mgr?.worldRhythm,
     section,
-    reducedFlash: !!mgr?.reducedFlash,
-    reducedMotion: !!mgr?.reducedMotion,
     response: mgr?.world?.response,
     glowTame01: extra.glowTame01 ?? section?.glowTame01 ?? mgr?.buildGlowTame ?? 0,
     ...extra,

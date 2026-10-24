@@ -24,6 +24,16 @@ export function rainCurtain(u, tSec = 0) {
  *  fixed to the land. */
 export const STORM_GLSL = /* glsl */`
   uniform float uRainShift;
+  uniform float uReceiverFillMin;
+  // Preserve sky chromaticity while lifting only low receiver irradiance.
+  // A true zero has no hue to preserve; do not invent emissive white fill.
+  vec3 receiverFill(vec3 hemi, float minimum) {
+    if (!(minimum > 0.0) || isnan(minimum) || isinf(minimum)) return hemi;
+    if (any(isnan(hemi)) || any(isinf(hemi))) return vec3(0.0);
+    float luminance = dot(hemi, vec3(0.2126, 0.7152, 0.0722));
+    if (!(luminance > 0.0) || luminance >= minimum) return hemi;
+    return hemi / luminance * minimum;
+  }
   float rainCurtain(float u, float t) {
     float a = 0.5 + 0.5 * sin(6.2832 * (u * 1.6 + t * 0.003) + 1.3);
     float b = 0.5 + 0.5 * sin(6.2832 * (u * 3.7 - t * 0.005) + 4.1);
@@ -47,6 +57,15 @@ export const STORM_GLSL = /* glsl */`
     if (uStorm.z <= 0.0) return 0.0; // only while the storm breaks
     return smoothstep(0.35, 0.72, stormNoise(world.xz / 1100.0 + vec2(uTime * 0.02, 0.0)));
   }
+  float stormShadow(float opening) {
+    return 1.0 - uStorm.z * (1.0 - opening) * 0.5;
+  }
+  // The sheltered moon component is diffuse receiver fill. The moving
+  // clearing mask still shades the remaining sky fill and direct light.
+  float stormAmbient(float total, float sheltered, float opening) {
+    float shadow = stormShadow(opening);
+    return total * shadow + clamp(sheltered, 0.0, total) * (1.0 - shadow);
+  }
   // Rain-washed air, lit from inside by lightning.
   vec3 rainColor() { return uAirColor * 1.1 + uLightColor * 0.04; }
 `;
@@ -57,7 +76,7 @@ export function compileStorm({ energyCurves, sections = [], timeline = [], durat
   const strongest = [...episodes].sort((a, b) => b.energy01 - a.energy01 || a.startMs - b.startMs)[0];
   const section = strongest ? Object.freeze({ startMs: strongest.startMs, endMs: strongest.endMs }) : null;
   const strikes = episodes.flatMap(e => e.strikes);
-  return Object.freeze({ section, episodes, landscape, at(timeMs, { reducedFlash = false } = {}) {
+  return Object.freeze({ section, episodes, landscape, at(timeMs) {
     const t = Number.isFinite(timeMs) ? timeMs : 0;
     let amount = 0, break01 = 0, wet01 = 0;
     for (const { startMs: a, endMs: b, energy01 } of episodes) {
@@ -67,7 +86,7 @@ export function compileStorm({ energyCurves, sections = [], timeline = [], durat
       wet01 = Math.max(wet01, ease((t - a) / 6000) * (1 - ease((t - b) / 45000)));
     }
     let flash = 0, flashU = .5;
-    if (!reducedFlash && amount > .2) {
+    if (amount > .2) {
       let lo = 0, hi = strikes.length;
       while (lo < hi) { const m = (lo + hi) >>> 1; if (strikes[m].tMs <= t) lo = m + 1; else hi = m; }
       const hit = strikes[lo - 1], age = hit ? t - hit.tMs : Infinity;
@@ -95,9 +114,9 @@ export function stormAt(mgr, timeMs) {
     hit = { landscape, score: compileStorm({ energyCurves: mgr.energyCurves, timeline: mgr.conductor?.timeline || [], landscape }) };
     cache.set(mgr, hit);
   }
-  const state = hit.score.at(timeMs, { reducedFlash: !!mgr.reducedFlash });
+  const state = hit.score.at(timeMs);
   const override = mgr.stormOverride;
-  if (override && typeof override === 'object') return { ...state, ...override, flash: mgr.reducedFlash ? 0 : unit(override.flash ?? state.flash) };
+  if (override && typeof override === 'object') return { ...state, ...override, flash: unit(override.flash ?? state.flash) };
   return state;
 }
 /** Behind the terrain passes: the squall's sky. An overcast deck swallows
@@ -110,12 +129,11 @@ export function arrivingStorm(storm, arrival = 1) {
   const a = unit(arrival);
   return a >= 1 || !storm ? storm : { ...storm, amount: unit(storm.amount) * a, break01: unit(storm.break01) * a, flash: unit(storm.flash) * a };
 }
-export function drawStormSky(ctx, canvas, storm, { tSec = 0, seed = 0, pan = null, light, reducedMotion = false,
+export function drawStormSky(ctx, canvas, storm, { tSec = 0, seed = 0, pan = null, light,
   cloudPainter = drawRangeClouds, cloudBankFactory = null } = {}) {
   const amount = unit(storm?.amount), breaking = unit(storm?.break01), flash = unit(storm?.flash);
   if (amount < .001 && breaking < .001) return;
   const { width: w, height: h } = canvas;
-  const motion = reducedMotion ? 0 : tSec;
   const panX = (pan?.x || 0) / 2;
   ctx.save();
   // Overcast: slate from the zenith down to the rain-dimmed horizon, dense
@@ -127,7 +145,7 @@ export function drawStormSky(ctx, canvas, storm, { tSec = 0, seed = 0, pan = nul
   // The deck: heavy banks low over the peaks. As the storm breaks they thin
   // to scattered remnants with sunlit rims, the sky washed clean between.
   const banks = cloudBankFactory ? cloudBankFactory()
-    : rangeCloudBanks({ width: w, height: h, tSec: motion * .6, seed: (seed % 9973) + 17, panPx: (pan?.x || 0) * w / 2, panYPx: -(pan?.y || 0) * h / 2, count: 14 });
+    : rangeCloudBanks({ width: w, height: h, tSec: tSec * .6, seed: (seed % 9973) + 17, panPx: (pan?.x || 0) * w / 2, panYPx: -(pan?.y || 0) * h / 2, count: 14 });
   banks.forEach((b, i) => {
     // Camera culling changes the array ordinal, not a world's cloud identity.
     const identity = cloudBankFactory
@@ -160,7 +178,7 @@ export function drawStormSky(ctx, canvas, storm, { tSec = 0, seed = 0, pan = nul
     fall.addColorStop(0, `rgba(${c},0)`); fall.addColorStop(.18, `rgba(${c},1)`); fall.addColorStop(1, `rgba(${c},.8)`);
     ctx.fillStyle = fall;
     for (let x = 0; x < w; x += step) {
-      const k = rainCurtain((x + step * .5) / w - panX, motion);
+      const k = rainCurtain((x + step * .5) / w - panX, tSec);
       if (k < .01) continue;
       ctx.globalAlpha = k * amount * .5;
       ctx.fillRect(x, top, step, bottom - top);

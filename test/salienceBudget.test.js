@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { salienceBudgetFor } from '../src/render/SalienceBudget.js';
+import { getWorld } from '../src/world/Worlds.js';
 
 test('a dramatic subject protects landmark and terrain while reducing supporting spectacle', () => {
   const budget = salienceBudgetFor({
@@ -26,6 +27,17 @@ test('a drop keeps its own bloom while still reducing unrelated particles', () =
   assert.ok(budget.particles < 1);
 });
 
+test('a world keeps its structure and the drop its full bloom', () => {
+  for (const world of [getWorld('alpine'), getWorld('trio'), { kind: 'unregistered-kind' }]) {
+    const budget = salienceBudgetFor({ subject: 'drop', mul: () => 0.3 }, world);
+    assert.equal(budget.landmark, 1, world.kind);
+    assert.equal(budget.terrain, 1, world.kind);
+    assert.equal(budget.bloom, 1, world.kind);
+    assert.ok(budget.particles < 1, world.kind);
+    assert.equal(salienceBudgetFor(null, world).bloom, 1, world.kind);
+  }
+});
+
 test('ordinary playback is a no-op budget', () => {
   const budget = salienceBudgetFor(null);
   assert.deepEqual(budget, {
@@ -36,13 +48,4 @@ test('ordinary playback is a no-op budget', () => {
     particles: 1,
     bloom: 1,
   });
-});
-
-test('world-local structures take precedence over broad bloom even during a drop', () => {
-  for (const kind of ['city', 'nave', 'overgrowth', 'foundry', 'abyssal', 'airless']) {
-    const budget = salienceBudgetFor({ subject: 'drop', mul: () => 0.3 }, { kind });
-    assert.ok(budget.bloom < 0.8, kind + ' broad bloom must support local light');
-    assert.equal(budget.landmark, 1);
-    assert.equal(budget.terrain, 1);
-  }
 });

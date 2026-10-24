@@ -15,8 +15,9 @@ export function buildWorldChoices(worlds, customWorld = null, features = null, e
     name: world.name,
     tagline: world.tagline,
     kind: world.kind,
-    previewLabel: world.kind === 'alpine' ? 'Range illustration. Playback uses a 3D landscape.' : null,
-    description: describeWorldResponse(world.kind, features || {}, extras),
+    experience: world.experience === 'trio' ? 'trio' : 'landscape',
+    previewLabel: world.realBiomes ? 'Range illustration. Playback uses a 3D landscape.' : null,
+    description: describeWorldResponse(world.kind, features || {}, { ...extras, experience: world.experience }),
     identity: {
       landmark: identity.landmark,
       signatureMotion: identity.signatureMotion,

@@ -162,13 +162,13 @@ test('slab edges break: risers vanish along some stretches and stand along other
   assert.ok(flush > 20 && ledge > 20, `flush ${flush}, ledge ${ledge}`);
 });
 
-test('polygon contact rings retain hit strength and reduced motion suppresses rings', () => {
-  const opacity = (strength, reducedMotion = false) => {
+test('polygon contact rings retain hit strength', () => {
+  const opacity = strength => {
     const strokes = [];
     const ctx = { save() {}, restore() {}, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {}, clip() {}, ellipse() {},
       stroke() { strokes.push(this.strokeStyle); } };
     new GroundResponse().draw(ctx, { receivers: { wetMasks: [{ polygon: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 10 }], alpha: .5 }] },
-      nowMs: 1100, hits: [{ tMs: 1000, strength }], reducedMotion });
+      nowMs: 1100, hits: [{ tMs: 1000, strength }] });
     return strokes;
   };
   const strong = opacity(1), weak = opacity(.2);
@@ -176,5 +176,4 @@ test('polygon contact rings retain hit strength and reduced motion suppresses ri
   const alpha = x => Number(x[0].match(/,([.\d]+)\)$/)[1]);
   assert.ok(alpha(strong) > alpha(weak) * 4);
   assert.deepEqual(opacity(0), []);
-  assert.deepEqual(opacity(1, true), []);
 });

@@ -16,7 +16,7 @@ function schedule({ durationMs = 20000, secondTime = 14000, secondHeading = 110,
     tiers: [220, 700, 1100].map(yM => ({ yM, score: new Uint8Array(72).fill(255), pitch: new Int8Array(36).fill(5), fovIdx: new Uint8Array(18).fill(85) })) };
   const data = { points, field: { samples: [sample], edges: [] }, roles: ['verse', 'outro'], tunables: { aimSmoothSec: .6 } };
   const roleAt = time => time < switchMs ? 'verse' : 'outro';
-  const plan = { durationMs, reducedMotion: false, notes: [], previewPointId: 'first', heroes: [
+  const plan = { durationMs, notes: [], previewPointId: 'first', heroes: [
     { pointId: 'first', timeMs: 2000, passedAtRange: false },
     { pointId: 'second', timeMs: secondTime, passedAtRange: false },
   ], routeAt: time => ({ posM: [0, 0], floorY: 100, ceilY: 2000, speedMps: 0,
@@ -24,14 +24,14 @@ function schedule({ durationMs = 20000, secondTime = 14000, secondHeading = 110,
     stop: !!stop && time >= stop[0] && time <= stop[1] }) };
   return { data, plan, roleAt };
 }
-function assertMotion(tour, roleAt, reducedMotion = false) {
+function assertMotion(tour, roleAt) {
   let previous = tour.poseAt(0);
   for (let t = 100; t <= tour.durationMs + 99; t += 100) {
     const time = Math.min(t, tour.durationMs), pose = tour.poseAt(time), dt = (time - Math.min(t - 100, tour.durationMs)) / 1000;
-    const yaw = reducedMotion || ['outro', 'breakdown'].includes(roleAt(time)) ? 12 : 25;
+    const yaw = ['outro', 'breakdown'].includes(roleAt(time)) ? 12 : 25;
     assert.ok([...pose.eyeM, ...pose.targetM, pose.fovYDeg].every(Number.isFinite), `finite pose at ${time}`);
     assert.ok(pose.eyeM[1] >= 105 && pose.eyeM[1] <= 2000, `clearance at ${time}`);
-    assert.ok(Math.abs(pose.eyeM[1] - previous.eyeM[1]) <= (reducedMotion ? 15 : 30) * dt + .01, `climb at ${time}`);
+    assert.ok(Math.abs(pose.eyeM[1] - previous.eyeM[1]) <= 30 * dt + .01, `climb at ${time}`);
     assert.ok(Math.abs(delta(heading(pose), heading(previous))) <= yaw * dt + .02, `yaw at ${time}`);
     previous = pose;
   }
@@ -54,13 +54,11 @@ test('a blocking future lock is released legally even before its active window',
   assertMotion(tour, roleAt);
 });
 
-for (const reducedMotion of [false, true]) {
-  test(`fractional final frame respects actual elapsed yaw time, reduced motion ${reducedMotion}`, () => {
-    const { data, plan, roleAt } = schedule({ durationMs: 14951, secondHeading: 80 });
-    const tour = buildTourTimeline(data, plan, { reducedMotion });
-    assertMotion(tour, roleAt, reducedMotion);
-  });
-}
+test('fractional final frame respects actual elapsed yaw time', () => {
+  const { data, plan, roleAt } = schedule({ durationMs: 14951, secondHeading: 80 });
+  const tour = buildTourTimeline(data, plan);
+  assertMotion(tour, roleAt);
+});
 
 test('yaw capacity includes role transitions, stopped intervals and the final fractional frame', () => {
   const frames = [
@@ -68,10 +66,9 @@ test('yaw capacity includes role transitions, stopped intervals and the final fr
     { timeMs: 200, role: 'outro', stop: true }, { timeMs: 300, role: 'outro', stop: true },
     { timeMs: 351, role: 'verse' },
   ];
-  const normal = tourYawBudget(frames), reduced = tourYawBudget(frames, { reducedMotion: true });
+  const normal = tourYawBudget(frames);
   assert.ok(Math.abs(normal(0, 351) - (2.5 + 1.2 + 0 + 1.275)) < 1e-9);
   assert.ok(Math.abs(normal(50, 225) - (1.25 + 1.2)) < 1e-9);
-  assert.ok(Math.abs(reduced(0, 351) - (1.2 + 1.2 + 0 + .612)) < 1e-9);
   assert.equal(normal(300, 200), 0);
 });
 

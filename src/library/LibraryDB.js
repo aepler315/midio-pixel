@@ -17,7 +17,9 @@
 // enhancement -- dropping a file on the page must keep working when this
 // whole module is unavailable.
 const DB_NAME = 'midio-library';
-const DB_VERSION = 1;
+// The additive version fence prevents an older release reopening v1 and
+// pruning without scan ownership. Existing IDs, rows and stores are retained.
+const DB_VERSION = 2;
 const ROOTS = 'roots';
 const TRACKS = 'tracks';
 
@@ -57,9 +59,19 @@ function open(scope) {
         store.createIndex('rootId', 'rootId');
       }
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => resolve(null);
-    req.onblocked = () => resolve(null);
+    let settled = false;
+    const unavailable = () => { settled = true; resolve(null); };
+    req.onsuccess = () => {
+      const db = req.result;
+      // A blocked request may later succeed after its caller has moved on.
+      // It still owns a connection, which must not block future upgrades.
+      if (settled) { db.close(); return; }
+      settled = true;
+      db.onversionchange = () => db.close();
+      resolve(db);
+    };
+    req.onerror = unavailable;
+    req.onblocked = unavailable;
   });
 }
 
@@ -70,40 +82,54 @@ function wrap(request) {
   });
 }
 
-/** Did the write land? A `put`'s result is void, so `wrap` cannot tell a
- *  quota failure from success -- the same trap AnalysisCache documents. */
-function wrapOk(request) {
-  return new Promise((resolve) => {
-    request.onsuccess = () => resolve(true);
-    request.onerror = () => resolve(false);
-  });
-}
-
 /** Resolve when every write queued on `tx` has been committed. Callers that
  *  close the db as soon as the last `put` resolves can race the commit. */
 function done(tx) {
   return new Promise((resolve) => {
     tx.oncomplete = () => resolve(true);
-    tx.onerror = () => resolve(false);
+    // An error event precedes abort; wait for rollback to finish.
+    tx.onerror = () => {};
     tx.onabort = () => resolve(false);
   });
 }
 
-/** The stable id for a folder. Two pickers on the same folder should be the
- *  same root rather than two copies of the library, and the name is all the
- *  identity a handle exposes synchronously -- `isSameEntry` is async and
- *  needs both handles in hand, which the caller does not have at list time.
- *  Collisions (two different folders both called "Music") are possible and
- *  cost a merged listing, not data loss; `addRoot` keeps the newer handle. */
+function abortTransaction(tx) {
+  try { tx.abort(); } catch { /* already committed or aborted */ }
+}
+
+function abortWithSignal(tx, signal) {
+  const abort = () => abortTransaction(tx);
+  signal?.addEventListener('abort', abort, { once: true });
+  if (signal?.aborted) abort();
+  return () => signal?.removeEventListener('abort', abort);
+}
+
+/** The legacy base ID is retained when free. Same-name roots receive a
+ *  reserved suffix; directory identity is established by isSameEntry. */
 export function rootIdFor(name) {
   return `root:${String(name || 'music').toLowerCase()}`;
 }
 
+let revisionSequence = 0;
+function uniqueRevision(scope) {
+  for (const crypto of [scope?.crypto, globalThis.crypto]) {
+    try {
+      if (typeof crypto?.randomUUID === 'function') return crypto.randomUUID();
+      if (typeof crypto?.getRandomValues === 'function') {
+        return [...crypto.getRandomValues(new Uint32Array(4))].map(n => n.toString(16).padStart(8, '0')).join('');
+      }
+    } catch { /* an unavailable crypto source can use the next source */ }
+  }
+  // Last-resort support for older embedded browsers. The per-context counter
+  // also prevents collisions when their clocks and random sources repeat.
+  return `${Date.now().toString(36)}-${(++revisionSequence).toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+}
+
 function collisionSafeRootId(base, roots, scope) {
-  if (!roots.some((root) => root.id === base)) return base;
-  const uuid = scope?.crypto?.randomUUID?.() || globalThis.crypto?.randomUUID?.()
-    || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-  return `${base}:${uuid}`;
+  if (!roots.some(root => root.id === base)) return base;
+  let id;
+  do { id = `${base}:${uniqueRevision(scope)}`; } while (roots.some(root => root.id === id));
+  return id;
 }
 
 async function sameDirectory(a, b) {
@@ -113,56 +139,81 @@ async function sameDirectory(a, b) {
   try { return !!await a.isSameEntry(b); } catch { return false; }
 }
 
-/** Remember a folder. Returns the stored root record, or null if there is
- *  nowhere to store it. */
-async function putRoot(db, record) {
-  const tx = db.transaction(ROOTS, 'readwrite');
-  const committed = done(tx);
-  const request = tx.objectStore(ROOTS).put(record);
-  const requestOk = await wrapOk(request);
-  return requestOk && await committed;
+function sameRootIdentities(before, current) {
+  if (before.length !== current.length) return false;
+  const identities = new Map(before.map(root => [root.id, root.identityRevision]));
+  return current.every(root => identities.has(root.id) && identities.get(root.id) === root.identityRevision);
 }
 
-export async function addRoot({ name, handle = null, persistable = true }, scope = globalThis) {
+async function readRoots(db) {
+  const tx = db.transaction(ROOTS, 'readonly');
+  const committed = done(tx);
+  const roots = await wrap(tx.objectStore(ROOTS).getAll());
+  return await committed ? roots : null;
+}
+
+/** Compare directory handles outside a transaction, then reserve against
+ *  that exact identity snapshot in a write transaction. A concurrent picker
+ *  makes us retry comparison; it can never replace another root by name. */
+export async function addRoot({ name, handle = null, persistable = true }, scope = globalThis, { signal } = {}) {
+  if (signal?.aborted) return null;
   const db = await open(scope);
   if (!db) return null;
-  const roots = (await wrap(db.transaction(ROOTS, 'readonly').objectStore(ROOTS).getAll())) || [];
-  let prior = null;
-  if (handle) {
-    for (const candidate of roots) {
-      if (await sameDirectory(handle, candidate.handle)) { prior = candidate; break; }
-    }
-  }
-  const now = Date.now();
-  const selectedMs = Math.max(now, ...roots.map((root) => (root.lastSelectedMs || root.addedMs || 0) + 1));
-  const baseId = rootIdFor(name);
-  const record = {
-    id: prior?.id || collisionSafeRootId(baseId, roots, scope),
-    name: String(name || 'Music'),
-    handle,
-    persistable: !!persistable && !!handle,
-    addedMs: prior?.addedMs || now,
-    lastSelectedMs: selectedMs,
-  };
+  let withoutHandle = false;
   try {
-    // A handle the browser refuses to structured-clone rejects the write.
-    // Retry without it: a remembered listing that needs the folder
-    // re-picked still beats losing the library.
-    //
-    // The two failure shapes are NOT the same. A quota error arrives later
-    // as `onerror`; a DataCloneError is thrown out of `put()` synchronously,
-    // on the line below. Catching only the first left the second escaping
-    // to the outer handler, which returned null -- the fallback existed and
-    // could never run.
-    let stored = false;
-    try {
-      stored = await putRoot(db, record);
-    } catch {
-      stored = false;
+    for (;;) {
+      if (signal?.aborted) return null;
+      const snapshot = await readRoots(db);
+      if (!snapshot || signal?.aborted) return null;
+      let priorId = null;
+      if (handle) {
+        for (const candidate of snapshot) {
+          const same = await sameDirectory(handle, candidate.handle);
+          if (signal?.aborted) return null;
+          if (same) { priorId = candidate.id; break; }
+        }
+      }
+      const tx = db.transaction(ROOTS, 'readwrite');
+      const committed = done(tx);
+      const detach = abortWithSignal(tx, signal);
+      let record = null;
+      let retry = false;
+      const abort = () => { try { tx.abort(); } catch { /* already aborted */ } };
+      const store = tx.objectStore(ROOTS);
+      const request = store.getAll();
+      request.onerror = abort;
+      request.onsuccess = () => {
+        try {
+          if (signal?.aborted) { abort(); return; }
+          const roots = request.result;
+          if (!sameRootIdentities(snapshot, roots)) { retry = true; return; }
+          const prior = roots.find(root => root.id === priorId);
+          const now = Date.now();
+          record = {
+            ...prior,
+            id: prior?.id || collisionSafeRootId(rootIdFor(name), roots, scope),
+            name: String(name || 'Music'),
+            handle: withoutHandle ? null : handle,
+            persistable: !withoutHandle && !!persistable && !!handle,
+            addedMs: prior?.addedMs ?? now,
+            lastSelectedMs: Math.max(now, ...roots.map(root => (root.lastSelectedMs || root.addedMs || 0) + 1)),
+            identityRevision: uniqueRevision(scope),
+          };
+          store.put(record);
+        } catch { abort(); }
+      };
+      const stored = await committed;
+      detach();
+      if (signal?.aborted) return null;
+      if (stored) {
+        if (retry) continue;
+        return record;
+      }
+      // Both synchronous clone failures and asynchronous quota failures
+      // roll back first, then reserve the fallback under a fresh snapshot.
+      if (withoutHandle) return null;
+      withoutHandle = true;
     }
-    if (stored) return record;
-    const fallback = { ...record, handle: null, persistable: false };
-    return (await putRoot(db, fallback)) ? fallback : null;
   } catch {
     return null;
   } finally {
@@ -187,13 +238,128 @@ export async function removeRoot(rootId, scope = globalThis) {
   if (!db) return false;
   try {
     const tx = db.transaction([ROOTS, TRACKS], 'readwrite');
+    const committed = done(tx);
     tx.objectStore(ROOTS).delete(rootId);
     const keys = await wrap(tx.objectStore(TRACKS).index('rootId').getAllKeys(rootId));
     const store = tx.objectStore(TRACKS);
     for (const key of keys || []) store.delete(key);
-    return await done(tx);
+    return await committed;
   } catch {
     return false;
+  } finally {
+    db.close();
+  }
+}
+
+/** Start durable scan ownership. A unique revision also prevents an old
+ *  token matching a removed root whose legacy ID was later reused. */
+export async function beginRootScan(rootId, scope = globalThis, { signal, expectedRoot } = {}) {
+  return scanTransaction(rootId, null, scope, signal, (root, store) => {
+    // A caller may have waited before claiming its first scan token. The
+    // same legacy ID can now refer to a replacement/reselected root.
+    // Undefined identities still match an unchanged legacy record.
+    if (expectedRoot && root.identityRevision !== expectedRoot.identityRevision) return { status: 'stale' };
+    const token = { rootId, revision: uniqueRevision(scope) };
+    store.put({ ...root, scanRevision: token.revision });
+    return { status: 'committed', token };
+  });
+}
+
+/** Commit a batch only while its root and revision still own the scan.
+ *  Ownership, existing metadata and writes share the same transaction. */
+export async function putScanTracks(token, tracks, scope = globalThis, { signal } = {}) {
+  const list = [...(tracks || [])].filter(Boolean);
+  if (!token?.rootId || !token.revision || list.some(track => track.rootId !== token.rootId)) {
+    return { status: 'stale' };
+  }
+  return scanTransaction(token.rootId, token, scope, signal, (_root, _roots, store, guard) => {
+    const groups = new Map();
+    for (const track of list) {
+      if (!groups.has(track.key)) groups.set(track.key, []);
+      groups.get(track.key).push(track);
+    }
+    const rows = new Map();
+    for (const [key, fresh] of groups) {
+      const request = store.get(key);
+      request.onerror = guard.abort;
+      request.onsuccess = () => {
+        if (!guard.current()) return;
+        try {
+          let row = request.result || null;
+          // A malformed key must never replace a different root's row.
+          if (row && row.rootId !== token.rootId) { guard.stale(); return; }
+          for (const track of fresh) row = row ? carryForward(row, track) : track;
+          store.put(row);
+          rows.set(key, row);
+        } catch { guard.abort(); }
+      };
+    }
+    return { status: 'committed', get tracks() { return [...groups.keys()].map(key => rows.get(key)).filter(Boolean); } };
+  });
+}
+
+/** Only a completed traversal may call this. The revision and the rows to
+ *  delete are read under the same write lock as the deletions themselves. */
+export async function pruneScanTracks(token, keepPaths, scope = globalThis, { signal } = {}) {
+  if (!token?.rootId || !token.revision) return { status: 'stale' };
+  const keep = keepPaths instanceof Set ? keepPaths : new Set(keepPaths || []);
+  return scanTransaction(token.rootId, token, scope, signal, (_root, _roots, store, guard) => {
+    let count = 0;
+    const request = store.index('rootId').getAll(token.rootId);
+    request.onerror = guard.abort;
+    request.onsuccess = () => {
+      if (!guard.current()) return;
+      try {
+        for (const row of request.result || []) {
+          if (!keep.has(row.path)) { store.delete(row.key); count++; }
+        }
+      } catch { guard.abort(); }
+    };
+    return { status: 'committed', get count() { return count; } };
+  });
+}
+
+async function scanTransaction(rootId, token, scope, signal, mutate) {
+  if (signal?.aborted) return { status: 'stale' };
+  const db = await open(scope);
+  if (!db) return { status: 'unavailable' };
+  try {
+    if (signal?.aborted) return { status: 'stale' };
+    const tx = db.transaction([ROOTS, TRACKS], 'readwrite');
+    const committed = done(tx);
+    const detach = abortWithSignal(tx, signal);
+    let result = { status: 'unavailable' };
+    let failed = false;
+    let stale = false;
+    const guard = {
+      abort() { failed = true; abortTransaction(tx); },
+      stale() { stale = true; abortTransaction(tx); },
+      current() {
+        if (signal?.aborted) { guard.stale(); return false; }
+        return !failed && !stale;
+      },
+    };
+    try {
+      const roots = tx.objectStore(ROOTS);
+      const tracks = tx.objectStore(TRACKS);
+      const request = roots.get(rootId);
+      request.onerror = guard.abort;
+      request.onsuccess = () => {
+        if (!guard.current()) return;
+        const root = request.result;
+        if (!root) { result = { status: token ? 'stale' : 'missing' }; return; }
+        if (token && root.scanRevision !== token.revision) { result = { status: 'stale' }; return; }
+        try { result = mutate(root, roots, tracks, guard); } catch { guard.abort(); }
+      };
+    } catch { guard.abort(); }
+    const stored = await committed;
+    detach();
+    if (signal?.aborted || stale) return { status: 'stale' };
+    // Materialize batch/prune getters only after their queued requests and
+    // commit completed, never after a put request's provisional success.
+    return stored && !failed ? { ...result } : { status: 'unavailable' };
+  } catch {
+    return { status: signal?.aborted ? 'stale' : 'unavailable' };
   } finally {
     db.close();
   }
@@ -229,13 +395,19 @@ export async function pruneTracks(rootId, keepPaths, scope = globalThis) {
   const db = await open(scope);
   if (!db) return 0;
   try {
-    const rows = (await wrap(db.transaction(TRACKS, 'readonly').objectStore(TRACKS).index('rootId').getAll(rootId))) || [];
-    const stale = rows.filter((row) => !keep.has(row.path));
-    if (!stale.length) return 0;
+    // Read and delete in one transaction. Splitting these lets a newer
+    // writer replace a row between our snapshot and its deletion.
     const tx = db.transaction(TRACKS, 'readwrite');
+    const committed = done(tx);
     const store = tx.objectStore(TRACKS);
-    for (const row of stale) store.delete(row.key);
-    return (await done(tx)) ? stale.length : 0;
+    let count = 0;
+    const request = store.index('rootId').getAll(rootId);
+    request.onsuccess = () => {
+      for (const row of request.result || []) {
+        if (!keep.has(row.path)) { store.delete(row.key); count++; }
+      }
+    };
+    return await committed ? count : 0;
   } catch {
     return 0;
   } finally {
@@ -265,6 +437,7 @@ export async function replaceTracks(rootId, tracks, scope = globalThis) {
  *  rescan being free and a rescan being destructive. */
 export function carryForward(prior, fresh) {
   const merged = {
+    ...prior,
     ...fresh,
     addedMs: prior.addedMs || fresh.addedMs,
     playCount: prior.playCount || 0,

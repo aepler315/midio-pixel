@@ -87,8 +87,8 @@ jobs:
           retention-days: 14
 
   vfx-cases:
-    # The bounded VFX matrix (quality rungs, accessibility preferences,
-    # looks, lake and inland views): one job per case.
+    # The bounded VFX matrix (quality rungs, looks, lake and inland views,
+    # continuous history): one job per case.
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -146,7 +146,7 @@ jobs:
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `VFX ${comparisonKind}: reference ${baselineCommit} (${baselineDigest}); candidate ${candidateCommit} (${candidateDigest}). Pixel changes do not establish improvement.\n`);
           NODE
       # Gates: the capture fails on page/shader errors, an inactive or wrong
-      # Range backend, a wrong quality rung or preference, or a blank frame.
+      # Range backend, a wrong quality rung, or a blank frame.
       # There is no pixel-difference beauty threshold.
       - name: Capture case
         run: npm run visual:eval -- --manifest test/fixtures/visual-evaluation-vfx.json --case ${{ matrix.case }} --out .smoke/vfx/candidate

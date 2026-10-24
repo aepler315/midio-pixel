@@ -7,6 +7,7 @@ import { Midio } from '../src/sim/Midio.js';
 import { Broshi } from '../src/sim/Broshi.js';
 import { Midasus } from '../src/sim/Midasus.js';
 import { synthesizeEnergyCurves } from '../src/core/EnergyCurvesSynth.js';
+import { VoyagePhase } from '../src/sim/SkyVoyage.js';
 
 function scene(silent = false, experience = 'trio', withLead = false) {
   const timeline = silent ? [] : Array.from({ length: 60 }, (_, i) => [
@@ -23,7 +24,7 @@ function scene(silent = false, experience = 'trio', withLead = false) {
   return sim;
 }
 
-test('Trio Stage owns the three maintained performers without a score or failure state', () => {
+test('Trio owns the three maintained performers without a score or failure state', () => {
   const sim = scene();
   try {
     assert.equal(sim.experience, 'trio');
@@ -68,24 +69,76 @@ test('a destination seek reconstructs the active choreography and discards stale
   } finally { sim.dispose(); }
 });
 
-test('repeated experience changes preserve the shared transport and release all private actor listeners', () => {
-  const sim = scene(false, 'landscape');
+test('Landscape and Trio are separate worlds: only Trio builds a cast, and disposing it releases its listeners', () => {
+  const landscape = scene(false, 'landscape'), trio = scene();
   try {
-    sim.step(0, 12000);
-    const conductor = sim.conductor, time = sim.timeMs, heard = sim.heardTimeMs;
-    assert.equal(typeof sim.setExperience, 'function');
-    for (let i = 0; i < 6; i++) {
-      sim.setExperience('trio');
-      const stage = sim.trio;
-      assert.ok(stage.conductor.aheadRegs.length > 0);
-      sim.setExperience('landscape');
-      assert.equal(stage.conductor.aheadRegs.length, 0);
-      assert.equal(stage.disposed, true);
-      assert.equal(sim.trio, null);
-      assert.equal(sim.conductor, conductor);
-      assert.equal(sim.timeMs, time); assert.equal(sim.heardTimeMs, heard);
-      assert.equal(conductor.aheadRegs.length, 0);
+    assert.equal(landscape.worldId, 'alpine');
+    assert.equal(landscape.trio, null);
+    assert.equal(landscape.presentation.performers, false);
+    assert.equal(trio.worldId, 'trio');
+    assert.ok(trio.trio.conductor.aheadRegs.length > 0);
+  } finally { landscape.dispose(); trio.dispose(); }
+  assert.equal(trio.trio.disposed, true);
+  assert.equal(trio.trio.conductor.aheadRegs.length, 0);
+  assert.equal(trio.conductor.aheadRegs.length, 0);
+});
+
+test('Trio plays on the procedural pre-terrain range with its sky restored', () => {
+  const sim = scene();
+  try {
+    const biomes = sim.biomes;
+    assert.equal(biomes.terrainProfiles, null, 'no real terrain: every ridge layer stays procedural');
+    assert.equal(biomes.world.realBiomes, undefined);
+    assert.equal(biomes.presentation.performers, true, 'the deep sky draws the voyages of Midasus');
+    assert.equal(biomes.presentation.crystalSpaceRidge, true);
+    assert.equal(biomes.presentation.rangeSky, false, 'the pre-terrain sky, not The Range composition');
+    assert.equal(biomes.presentation.horizonEq, true, 'the dancing spectrum ridge rides the horizon');
+    assert.ok(biomes.skyEnsemble, 'seeded planets hang behind the celestial bodies');
+    assert.ok(biomes.spaceRidge && biomes.weaver && biomes.stars?.length > 0);
+  } finally { sim.dispose(); }
+});
+
+test('the cast stands on the ground the world draws, with Midio as its origin', () => {
+  const sim = scene();
+  try {
+    for (let t = 0; t <= 2000; t += 50) sim.step(50, t);
+    const trio = sim.trio;
+    assert.equal(trio.ground, sim.groundField);
+    assert.equal(sim.worldX, trio.worldX);
+    assert.equal(sim.stageAnchor.x, trio.midio.screenX);
+    assert.equal(trio.midio.groundY, sim.groundField.heightAt(trio.worldX));
+  } finally { sim.dispose(); }
+});
+
+test('a sustained epic stretch sends Midasus to space to draw, and she comes home before the end', () => {
+  const timeline = Array.from({ length: 240 }, (_, i) => [
+    { tMs: i * 500, durMs: 80, pitch: 36, vel: .85, role: 'RHYTHM', kick: true },
+    { tMs: i * 500 + 150, durMs: 250, pitch: 60 + i % 12, vel: .75, role: 'MELODY', lane: 'MIDASUS' },
+  ]).flat();
+  const conductor = new Conductor();
+  conductor.load({ timeline, durationMs: 120000, bpm: 120, barGrid: [] });
+  const sim = new Simulation(conductor, new ParamBus(), { experience: 'trio', songSeed: 315,
+    energyCurves: synthesizeEnergyCurves(timeline, 120000) });
+  sim.biomes.pumpStripPrewarm = () => {};
+  try {
+    const vibe = sim.trio.vibe;
+    vibe.update = () => {}; vibe.epic = .9; vibe.valence = .2;
+    let launchedAt = null, deep = false, shakes = 0;
+    const shake = sim.camera.shake.bind(sim.camera);
+    sim.camera.shake = (...args) => { shakes++; return shake(...args); };
+    for (let t = 0; t <= 40000; t += 50) {
+      sim.step(50, t);
+      const voyage = sim.trio.midasus.voyage;
+      if (voyage.active && launchedAt == null) launchedAt = t;
+      if (voyage.phase === VoyagePhase.DEEP_SPACE) deep = true;
     }
+    assert.ok(launchedAt != null && launchedAt >= 12000 && launchedAt <= 20000, `launched at ${launchedAt}`);
+    assert.ok(deep, 'she reaches deep space and draws there');
+    assert.ok(shakes >= 1, 'the send-off is felt');
+    assert.ok(sim.trio.midasus.voyage.atlas.length > 0 || sim.trio.midasus.voyage.constellations.length > 0,
+      'her figures stay written in the sky');
+    for (let t = 40050; t <= 100000; t += 50) sim.step(50, t);
+    assert.equal(sim.trio.midasus.voyage.active, false, 'everyone is home for the last 25 s');
   } finally { sim.dispose(); }
 });
 
@@ -107,22 +160,5 @@ test('seeking primes the full lead-accent budget as well as kick arcs', () => {
     sim.trio.seek(15000);
     assert.equal(sim.trio.lastAirJumpMs, last);
     assert.ok(Math.abs(sim.trio.jump.y - y) < .001);
-  } finally { sim.dispose(); }
-});
-
-test('a paused entry reconstructs the destination with current accessibility and particle preferences before any tick', () => {
-  const sim = scene(false, 'landscape');
-  try {
-    sim.timeMs = sim.heardTimeMs = 12000;
-    sim.reducedMotion = sim.reducedFlash = true;
-    sim.perf = { particleMul: .25 };
-    sim.setExperience('trio');
-    assert.equal(sim.trio.reducedMotion, true);
-    assert.equal(sim.trio.reducedFlash, true);
-    assert.equal(sim.trio.broshi.reducedFlash, true);
-    assert.equal(sim.trio.midasus.reducedFlash, true);
-    assert.equal(sim.trio.particleMul, .25);
-    assert.equal(sim.trio.clockMs, 12000);
-    assert.equal(sim.trio.lastFlourishMs, -Infinity);
   } finally { sim.dispose(); }
 });

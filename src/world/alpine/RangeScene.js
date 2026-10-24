@@ -2,7 +2,6 @@ import { cloudPuffs } from './CloudOcclusion.js';
 import { shaderFailureLog } from '../../render/GraphicsDiagnostics.js';
 import { applyLensFov } from '../../render/CameraLens.js';
 import { terrainShadingMode, terrainShadingForView } from './TerrainShadingExperiment.js';
-import { giantLayout, giantAmounts, mirrorGiantSpan, aheadOfEye } from './LandscapeGiants.js';
 import { resolveRangeComposition, compositionBars } from './RangeComposition.js';
 import { rangeRenderPolicy, supportedSamples, msaaOverride, sceneTargetBytes, sideTargetBytes, nearerMask } from './RangeRenderPolicy.js';
 // Range v2 GPU scene (plan §6, §7.2). One reusable WebGL2 context, owned
@@ -38,13 +37,15 @@ import { buildRockStage } from './RockStage.js';
 import { RockStageGL } from './RockStageGL.js';
 import { scenePoseAt } from '../terrain/SceneTravel.js';
 import { applyCameraMoves, rangeUserCamera } from './RangeCamera.js';
-import { BANDS, terrainFringeBytes, terrainHeightAt } from './TerrainMesh.js';
+import { BANDS, terrainFringeBytes, terrainHeightAt, SURFACE_BUILD_BYTES_PER_PIXEL } from './TerrainMesh.js';
 import { mistParams, mistDrift, easeMistSteps, tourMistCap, tourMistFade } from './RangeAtmosphere.js';
 import { mirrorSize, mirrorLevelFor, mirrorCameraFor, mirrorTextureMatrix, MIRROR_CLIP_M, MIRROR_LIFT } from './WaterMirror.js';
 import { scenicProjection, calibrateRangeMusic } from './RangeFrame.js';
 import { applyGlacierUniforms, glacierErrors, glacierSample } from './GlacierField.js';
-import { ActorsGL } from './ActorsGL.js';
+import { ActorsGL, SITE_LIGHTS_MAX } from './ActorsGL.js';
+import { buildRiverGeometry, riverGeometryBound, riverChannelErrors } from './RiverChannel.js';
 import { ACTOR_IDS, ACTOR_HUES, ACTOR_LOOK, ACTOR_START, actorRoutes, routePosition } from './RangeActors.js';
+import { castPlan, castWork, pathPosition, siteWalk } from './CastJobs.js';
 // Storm light, linear: the deck's underside, the rain-dimmed horizon, the rain air.
 // STORM_AIR meets the slate the sky paints at the horizon (drawStormSky) once displayed.
 const STORM_ZENITH = { r: .02, g: .026, b: .036 }, STORM_HORIZON = { r: .03, g: .038, b: .05 }, STORM_AIR = { r: .028, g: .036, b: .048 };
@@ -52,6 +53,7 @@ const STORM_ZENITH = { r: .02, g: .026, b: .036 }, STORM_HORIZON = { r: .03, g: 
 const BACKDROP_KEY = 'range:water-backdrop';
 // Full/lite pairs share instances and retain two scalar attributes per batch.
 const FOREST_DETAIL_BYTES = BANDS.length * FOREST_FAMILIES * FOREST_VARIANTS * 8;
+const RIVER_VERTICES_PER_SET = 60000; // primary surface and seam fill share one admitted bound
 /** ?rangeDebug=<mode> terrain diagnostics (uDebugMask in TerrainMaterial). */
 export const TERRAIN_DEBUG_MODES = Object.freeze({ masks: 1, slope: 2, albedo: 3, fill: 4, key: 5, roughness: 6, specular: 7, sun: 8 });
 
@@ -112,9 +114,6 @@ function waterLevel(data) {
   hs.sort((a, b) => a - b);
   return hs[hs.length >> 1];
 }
-
-/** Midio's mirrored sheet keeps this far ahead of a zoomed-in eye. */
-const MIDIO_MIN_AHEAD_M = 600;
 
 export class RangeScene {
   /** `THREE` is the local bundle; `residency` the shared ledger. */
@@ -190,10 +189,11 @@ export class RangeScene {
     this.pixelHeightPx = pixelated && pixelHeightPx > 0 ? pixelHeightPx : null;
     this.pixelScale = 'original';
     for (const p of this.prepared?.values() || []) {
-      if (!!p.material?.defines?.PIXEL_MATERIAL_SKIP !== this.pixelated && p.material) {
-        if (this.pixelated) p.material.defines.PIXEL_MATERIAL_SKIP = 1;
-        else delete p.material.defines.PIXEL_MATERIAL_SKIP;
-        p.material.needsUpdate = true;
+      for (const material of [p.material, p.riverMaterial]) {
+        if (!material || !!material.defines?.PIXEL_MATERIAL_SKIP === this.pixelated) continue;
+        if (this.pixelated) material.defines.PIXEL_MATERIAL_SKIP = 1;
+        else delete material.defines.PIXEL_MATERIAL_SKIP;
+        material.needsUpdate = true;
       }
     }
     const policy = rangeRenderPolicy({ widthPx: w, heightPx: h, quality, pixelated, budget: this.budget,
@@ -477,7 +477,7 @@ export class RangeScene {
   _prepareMirror(p, frame, side, viewId) {
     const u = p.uniforms;
     u.uViewportPx.value.set(this.size.width, this.size.height);
-    const ripple = (m) => (frame.reducedMotion ? 0.001 : 0.0012 + 0.0025 * (m?.groove ?? 0) + 0.004 * (m?.kick01 ?? 0));
+    const ripple = (m) => 0.0012 + 0.0025 * (m?.groove ?? 0) + 0.004 * (m?.kick01 ?? 0);
     const level = p.mirrorLevelM;
     const wanted = Number.isFinite(level) && rangeQuality(frame.qualityLevel).waterMirror
       && (frame.narrative?.materials ?? 1) > .01;
@@ -556,6 +556,16 @@ export class RangeScene {
     const p=this.prepared.get(view.id);if(!p?.windowCache)return;
     p.view=view;p.windowWorker.setTour(view.tour);
     this._invalidateTourWindows(p);
+  }
+
+  /** A shot tour's camera timeline for a prepared static view (null: its
+   *  authored rail). Prepared resources were built for the library's
+   *  footprint, so swapping a song's plan touches no GPU state. */
+  setCameraTour(viewId, tour) {
+    const p = this.prepared.get(viewId);
+    if (!p || p.windowCache || p.cameraTour === tour) return;
+    p.cameraTour = tour || null;
+    this._movedPoses = new WeakMap();
   }
 
   _invalidateTourWindows(p, { keepDetail = false } = {}) {
@@ -669,6 +679,20 @@ export class RangeScene {
     this.buildAdmission.admittedBytes += bytes;
     this.buildAdmission.peakBytes = Math.max(this.buildAdmission.peakBytes, bytes);
     return { key, reservation, bytes, plan };
+  }
+
+  /** Static placement has returned compact records; its temporary chunks
+   * no longer belong to this phase. Keep records and the full existing
+   * grouping/asset allowances until forest construction completes. */
+  _retireForestPlacement(p, entry, placed) {
+    if (p.view.tour) return;
+    const records = [placed.meshDetail, placed.mesh, placed.billboard].reduce((sum, a) => sum + (a?.byteLength || 0), 0);
+    const bytes = records + forestGroupingBytes(placed.count) + FOREST_ASSET_BUILD_BYTES;
+    if (bytes > entry.bytes) throw new RangeAssetError('budget', 'Forest records exceed admitted build bound');
+    if (this.residency && !this.residency.shrinkReservation(entry.reservation, bytes)) {
+      throw new RangeAssetError('stale', 'Forest placement reservation retired');
+    }
+    entry.bytes = bytes;
   }
 
   _requestTourRaw(p, index) {
@@ -904,7 +928,8 @@ export class RangeScene {
         } };
       let mat = null, res = null, published = false;
       const cpu = await prepareTerrainAssets(view, { baseUrl, residency: this.residency, generation, signal, isCurrent, owner: cpuOwner });
-      let surface, geos, material, depthMaterial, ownershipMaterials = null, horizon = null, forest, stageGL, featureMaterial, actors;
+      let surface, geos, material, riverMaterial, riverDepthMaterial, riverOwnershipMaterials = null, depthMaterial, ownershipMaterials = null, horizon = null, forest, stageGL, featureMaterial, actors;
+      const riverGeometries = {}, riverFringeGeometries = {}, riverDepthMeshes = {};
       let initialWindow = null, workerKey = null, windowReservation = null, buildEntry = null, workerReservation = null;
       const featureGeometries = {};
       // This preparation's hold on its material pack (see _acquireMaterial).
@@ -926,12 +951,15 @@ export class RangeScene {
         mat = await this._acquireMaterial(view, { baseUrl, signal, owner: materialOwner });
         if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
         const rules = { ...mat.pack.manifest.rules, ...(view.materialRules || {}) };
+        const riverErrors = (view.rivers || []).flatMap(r => riverChannelErrors(r));
+        if (riverErrors.length) throw new RangeAssetError('manifest', `${view.id}: ${riverErrors.join('; ')}`);
         const waterCheck = validateWaterRules(rules);
         if (!waterCheck.ok) throw new RangeAssetError('manifest', `material rules rejected for ${view.id}: ${waterCheck.errors.join('; ')}`);
         // Placement yields to the event loop as it goes: a view prepared
         // during playback must not freeze frames while its forest is laid.
         let rawWindow = null;
-        const waterLevelM = waterLevel(cpu.data), mirrorLevelM = mirrorLevelFor(cpu.data, waterLevelM);
+        const waterLevelM = view.riverPolicy?.terrainWater === 'mapped-only' ? null : waterLevel(cpu.data);
+        const mirrorLevelM = mirrorLevelFor(cpu.data, waterLevelM);
         const windowOptions = { budget: this.budget, heightPx: this.budget === 'mobile' ? 720 : 1080,
           coverage: terrainWindowCoverage(opts.scenicViewport), coverageRevision: 0,
           pixelHeightPx: (this.pixelated ?? opts.pixelated) && !view.glacier ? (this.pixelHeightPx ?? opts.pixelHeightPx ?? null) : null,
@@ -959,14 +987,14 @@ export class RangeScene {
         } else buildEntry = this._admitTerrainBuild(buildOwner);
         const placed = rawWindow?.placed || await placeForestAsync(cpu.data, view, rules, { seed: hashSeed(view.terrainSourceId || view.id), signal });
         if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
+        if (!rawWindow) this._retireForestPlacement(buildOwner, buildEntry, placed);
         // CPU arrays stay on BufferAttributes after upload; charge both copies.
         // Instances plus the near conifer assets their batches build.
         const forestBytes = placed.count * 7 * 4 + forestAssetBytes() + FOREST_DETAIL_BYTES;
-        // Building the surface texture needs temporary height and flow
-        // arrays (6 B/px), its RGBA array (4 B/px) and dry receiver mask (1 B/px). The texture is
-        // uploaded at once and drops its RGBA copy after the upload (see
-        // createSurfaceTexture), so all eleven bytes are scratch, reserved
-        // only while it is built: the view owns both GPU textures.
+        // The surface build holds heights, spacing and RGBA (9 B/px).
+        // Its temporary lanes retire before receiver construction (RGBA +
+        // mask, 5 B/px). Upload drops both CPU texture copies; the view owns
+        // the GPU textures, while this build peak is charged as scratch.
         const textureStride = view.tour ? (this.budget === 'mobile' ? 4 : 2) : 1;
         const gridPx = ((cpu.data.grid.width - 1) / textureStride + 1) * ((cpu.data.grid.height - 1) / textureStride + 1);
         const featureBudgetBytes = 2 * 3 * 768 * 6 * 4;
@@ -979,8 +1007,9 @@ export class RangeScene {
         // whose terrain streams; they keep the unshadowed key).
         const horizonOptions = { maxSize: this.budget === 'mobile' ? 192 : 256 };
         const horizonCost = view.tour || !cpu.data?.grid ? 0 : horizonBytes(cpu.data.grid, horizonOptions);
-        const bytes = view.tour ? Math.ceil(gridPx * (4 * 4 / 3 + 1)) + featureBudgetBytes + 2 * ActorsGL.bytes()
-          : 2 * ((est?.meshBytes || 0) + fringeBytes + forestBytes) + (est?.surfaceTextureBytes || 0) + gridPx + featureBudgetBytes + 2 * ActorsGL.bytes() + horizonCost;
+        const riverBound = 2 * riverGeometryBound(view, { maxVertices: RIVER_VERTICES_PER_SET });
+        const bytes = (view.tour ? Math.ceil(gridPx * (4 * 4 / 3 + 1)) + featureBudgetBytes + 2 * ActorsGL.bytes()
+          : 2 * ((est?.meshBytes || 0) + fringeBytes + forestBytes) + (est?.surfaceTextureBytes || 0) + gridPx + featureBudgetBytes + 2 * ActorsGL.bytes() + horizonCost) + 2 * riverBound;
         res = this.residency?.reserve({ key: gpuKey, bytes, owner: 'range-terrain-gpu', generation }) || null;
         if (this.residency && !res) throw new RangeAssetError('budget', `no GPU room for ${view.id}`);
         if (rawWindow) {
@@ -989,8 +1018,30 @@ export class RangeScene {
           buildEntry.retainedBytes = windowBytes;
         }
         geos = createBandGeometries(THREE, cpu.data, { budget: this.budget, ...(rawWindow ? { built: rawWindow.built } : {}) });
+        // Clip narrow mapped channels to the actual drawn triangles: the
+        // same LOD, tile boundaries and no-data gaps, with a small depth lift.
+        const riverOptions = { maxVertices: RIVER_VERTICES_PER_SET };
+        const rivers = buildRiverGeometry(cpu.data, view, geos, riverOptions);
+        const riverFringes = buildRiverGeometry(cpu.data, view, { geometries: geos.fringes }, riverOptions);
+        for (const [destination, built] of [[riverGeometries, rivers], [riverFringeGeometries, riverFringes]]) for (const band of BANDS) {
+          const raw = built.bands[band];
+          if (!raw.indices.length) continue;
+          const geometry = new THREE.BufferGeometry();
+          destination[band] = geometry;
+          geometry.setAttribute('position', new THREE.BufferAttribute(raw.positions, 3));
+          geometry.setAttribute('river', new THREE.BufferAttribute(raw.river, 3));
+          geometry.setAttribute('riverDirection', new THREE.BufferAttribute(raw.riverDirection, 2));
+          for (const key of ['terrainA', 'terrainB', 'terrainC']) geometry.setAttribute(key, new THREE.BufferAttribute(raw[key], 3));
+          geometry.setIndex(new THREE.BufferAttribute(raw.indices, 1));
+          geometry.computeBoundingSphere();
+        }
+        const riverStats = { ...rivers.stats, fringeTriangles: riverFringes.stats.triangles,
+          bytes: rivers.stats.bytes + riverFringes.stats.bytes };
+        if (res && riverBound) this.residency.shrink(gpuKey, bytes - 2 * riverBound + 2 * riverStats.bytes);
+        await yieldToMain();
+        if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
         const scratchKey = `range:surface-scratch:${view.id}`;
-        const scratch = this.residency?.reserve({ key: scratchKey, bytes: gridPx * 11, owner: 'range-scratch', generation }) || null;
+        const scratch = this.residency?.reserve({ key: scratchKey, bytes: gridPx * SURFACE_BUILD_BYTES_PER_PIXEL, owner: 'range-scratch', generation }) || null;
         if (this.residency && !scratch) throw new RangeAssetError('budget', `no room to build ${view.id} surface`);
         try {
           surface = await createSurfaceTextureAsync(THREE, cpu.data, { stride: textureStride, signal,
@@ -1019,13 +1070,22 @@ export class RangeScene {
         }
         material = createSceneMaterial(THREE, uniforms, { forestDebug: this.forestDebug, budget: this.budget,
           pixelated: this.pixelated ?? opts.pixelated ?? false,
+          mappedWaterOnly: view.riverPolicy?.terrainWater === 'mapped-only',
           terrainShading: terrainShadingForView(this.terrainShading, view.id) });
+        if (Object.keys(riverGeometries).length) {
+          riverMaterial = createSceneMaterial(THREE, uniforms, { budget: this.budget, riverSurface: true,
+            pixelated: this.pixelated ?? opts.pixelated ?? false });
+          riverMaterial.depthFunc = THREE.LessEqualDepth;
+          riverMaterial.depthWrite = false;
+        }
         featureMaterial = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms,
           vertexShader: SCENE_VERT, fragmentShader: FEATURE_FRAG, transparent: true,
           depthTest: true, depthWrite: false, depthFunc: THREE.LessEqualDepth });
         depthMaterial = createDepthMaterial(THREE, uniforms);
+        if (riverMaterial) riverDepthMaterial = createDepthMaterial(THREE, uniforms, { riverSurface: true });
         // The same pre-pass with each band's ownership colour (edge policy).
         ownershipMaterials = this._createOwnershipMaterials(uniforms, this.pixelated ?? opts.pixelated ?? false);
+        if (riverMaterial) riverOwnershipMaterials = this._createOwnershipMaterials(uniforms, this.pixelated ?? opts.pixelated ?? false, true);
         await yieldToMain();
         if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
         const meshes = {}, depthMeshes = {}, scenes = {};
@@ -1047,6 +1107,15 @@ export class RangeScene {
           depthMeshes[band] = new THREE.Mesh(geos.geometries[band], depthMaterial);
           depthMeshes[band].frustumCulled = false;
           depthScene.add(depthMeshes[band]);
+          if (riverGeometries[band]) {
+            const river = new THREE.Mesh(riverGeometries[band], riverMaterial);
+            river.frustumCulled = false;
+            scenes[band].add(river);
+            const depth = new THREE.Mesh(riverGeometries[band], riverDepthMaterial);
+            depth.frustumCulled = false;
+            riverDepthMeshes[band] = depth;
+            depthScene.add(depth);
+          }
         }
         // Seam fill: a nearer band's tiles that border a farther band also
         // draw in that farther pass (against the same depth pre-pass, so
@@ -1069,6 +1138,7 @@ export class RangeScene {
           scene.add(travel);
           fringeTravel.push({ band: BANDS[b], pass: BANDS[b - 1], scene });
         }
+        this._attachRiverFringes(riverFringeGeometries, riverMaterial, scenes, fringeMeshes, fringeTravel);
         material.depthFunc = THREE.LessEqualDepth;
         material.depthWrite = false;
         forest = createForest(THREE, placed, uniforms, { forestDebug: this.forestDebug });
@@ -1076,9 +1146,17 @@ export class RangeScene {
         for (const band of BANDS) for (const m of forest.byBand[band]) scenes[band].add(m);
         for (const d of forest.depth) depthScene.add(d);
         // The cast: lanterns and swarms, moved between band scenes as they
-        // travel (RangeActors.js picks their routes from what the rail sees).
+        // travel. CastJobs.js reads this view's job from what the rail sees
+        // (tours wander the routes RangeActors.js picks); the lights the
+        // job leaves stand in the band that owns the ground under them.
         actors = new ActorsGL(THREE, uniforms);
-        const routes = actorRoutes(cpu.data, view, { waterLevelM, seed: hashSeed(`${view.id}:cast`) });
+        const castSeed = hashSeed(`${view.id}:cast`);
+        const plan = castPlan(cpu.data, view, { waterLevelM, seed: castSeed });
+        // Wandering routes cost a second terrain pass: only a view that
+        // wanders gets them here (others build them only if ever needed).
+        const routes = plan.job === 'wander' ? actorRoutes(cpu.data, view, { waterLevelM, seed: castSeed }) : null;
+        const work = castWork(plan, { data: cpu.data, waterLevelM });
+        for (const band of BANDS) scenes[band].add(actors.sites.meshes[band], actors.threads.meshes[band]);
         // Per-band depth scenes for travel frames, where a side's nearer
         // bands are drawn only in some columns (same geometry and material;
         // a mesh has one parent, so these are separate mesh objects).
@@ -1088,6 +1166,11 @@ export class RangeScene {
           const dm = new THREE.Mesh(geos.geometries[band], depthMaterial);
           dm.frustumCulled = false;
           depthScenes[band].add(dm);
+          if (riverGeometries[band]) {
+            const riverDepth = new THREE.Mesh(riverGeometries[band], riverDepthMaterial);
+            riverDepth.frustumCulled = false;
+            depthScenes[band].add(riverDepth);
+          }
           for (const d of forest.depthByBand?.[band] || []) depthScenes[band].add(d);
         }
         // Three's compile() creates programs but does not reject a failed
@@ -1107,6 +1190,10 @@ export class RangeScene {
           for (const band of BANDS) {
             const om = new THREE.Mesh(geos.geometries[band], ownershipMaterials[band]);
             om.frustumCulled = false; ownershipScene.add(om);
+            if (riverGeometries[band]) {
+              const riverOwner = new THREE.Mesh(riverGeometries[band], riverOwnershipMaterials[band]);
+              riverOwner.frustumCulled = false; ownershipScene.add(riverOwner);
+            }
           }
           targets.push([ownershipScene]);
         }
@@ -1125,10 +1212,10 @@ export class RangeScene {
         const prepared = {
           view, generation, manifest: cpu.manifest, data: cpu.data, identity: cpu.identity, tourCpuKey: opts.tourCpuKey,
           surface, uniforms, material, depthMaterial, ownershipMaterials, horizon, depthBandMeshes: depthMeshes, geometries: geos.geometries, fringes: geos.fringes, fringeMeshes, fringeTravel, scenes, depthScene, depthScenes,
+          riverMaterial, riverDepthMaterial, riverOwnershipMaterials, riverGeometries, riverFringeGeometries, riverDepthMeshes, riverStats,
           forest, stageGL, featureGeometries, featureMaterial,
           stats: { ...geos.stats, trees: forest.counts, featureBytes: featureBudgetBytes }, gpuKey, cpuKey: cpu.key, cpuOwner,
-          giantLayout: giantLayout(cpu.data, view, [uniforms.uHeightRange.value.x, uniforms.uHeightRange.value.y], waterLevelM),
-          rules, waterLevelM, mirrorLevelM, materialKey: mat.key, materialOwner, actors, actorRoutes: routes,
+          rules, waterLevelM, mirrorLevelM, materialKey: mat.key, materialOwner, actors, actorRoutes: routes, castSeed, castPlan: plan, castWork: work,
         };
         if (windowWorker) {
           prepared.windowWorker = windowWorker;
@@ -1175,6 +1262,11 @@ export class RangeScene {
           actors?.dispose();
           stageGL?.dispose();
           material?.dispose();
+          riverMaterial?.dispose();
+          riverDepthMaterial?.dispose();
+          for (const m of Object.values(riverOwnershipMaterials || {})) m.dispose();
+          for (const g of Object.values(riverGeometries)) g.dispose();
+          for (const g of Object.values(riverFringeGeometries)) g.dispose();
           depthMaterial?.dispose();
           for (const m of Object.values(ownershipMaterials || {})) m.dispose();
           horizon?.texture?.dispose();
@@ -1202,7 +1294,7 @@ export class RangeScene {
     if (this.shaftViews?.includes(viewId)) this.releaseShafts();
     if (this.prepared.get(viewId) === p) {
       this.prepared.delete(viewId);
-      if (!p.cpuOwner) this.residency?.release(p.cpuKey);
+      if (!p.cpuOwner && !this._cpuKeyInUse(p.cpuKey)) this.residency?.release(p.cpuKey);
       if (!p.materialOwner) this._releaseMaterial(viewId);
     }
     // Only this preparation's own hold: a replacement under the same view
@@ -1236,6 +1328,25 @@ export class RangeScene {
       r.setRenderTarget(target);
     });
     this.stats.depthPasses++;
+  }
+
+  /** Channels need the same seam fill and scoped travel as the ground
+   * below them: their depth pre-pass must not punch a hole in the fill. */
+  _attachRiverFringes(geometries, material, scenes, meshes, travel) {
+    for (let b = 1; b < BANDS.length; b++) {
+      const band = BANDS[b], geometry = geometries[band];
+      if (!geometry) continue;
+      const mesh = new this.THREE.Mesh(geometry, material);
+      mesh.frustumCulled = false;
+      scenes[BANDS[b - 1]].add(mesh);
+      meshes.push(mesh);
+      const scoped = travel.find(f => f.band === band && f.pass === BANDS[b - 1]);
+      if (scoped) {
+        const copy = new this.THREE.Mesh(geometry, material);
+        copy.frustumCulled = false;
+        scoped.scene.add(copy);
+      }
+    }
   }
 
   /** A travel side's seam fill for one pass: each nearer band's border
@@ -1443,6 +1554,11 @@ export class RangeScene {
     p.surface?.texture?.dispose();
     p.surface?.receiverTexture?.dispose();
     p.material?.dispose();
+    p.riverMaterial?.dispose();
+    p.riverDepthMaterial?.dispose();
+    for (const m of Object.values(p.riverOwnershipMaterials || {})) m.dispose();
+    for (const g of Object.values(p.riverGeometries || {})) g.dispose();
+    for (const g of Object.values(p.riverFringeGeometries || {})) g.dispose();
     p.depthMaterial?.dispose();
     for (const m of Object.values(p.ownershipMaterials || {})) m.dispose();
     p.horizon?.texture?.dispose();
@@ -1456,9 +1572,18 @@ export class RangeScene {
     this.prepared.delete(viewId);
     this.residency?.release(p.gpuKey); // disposes via the committed dispose
     if (p.cpuOwner) p.cpuOwner.release();
-    else this.residency?.release(p.cpuKey);
+    else if (!this._cpuKeyInUse(p.cpuKey)) this.residency?.release(p.cpuKey);
     if (!this.residency) this._disposePrepared(p);
     this._releaseMaterial(viewId, p.materialOwner || null);
+  }
+
+  /** A source view and its composition variants share one CPU terrain
+   *  entry (RangeAssets.prepareTerrainAssets). Owned holds release their own
+   *  lease; an unowned release must not retire terrain another prepared view
+   *  still draws. */
+  _cpuKeyInUse(cpuKey) {
+    for (const q of this.prepared.values()) if (q.cpuKey === cpuKey) return true;
+    return false;
   }
 
   /** Camera for this frame: the view's rail pose, projected onto the whole
@@ -1480,7 +1605,8 @@ export class RangeScene {
    *  partition passes and the sky (RangePresentation._skyPan). */
   movedPose(view, frame, p = this.prepared.get(view.id) || null) {
     if (p?.windowCache) this._updateTourCoverage(p, frame);
-    const baseRail = scenePoseAt(view, { progress01: view.glacier && !frame.reducedMotion ? (frame.glacier?.journey01 ?? frame.progress01) : frame.progress01, timeMs: frame.timeMs });
+    const baseRail = scenePoseAt(view, { progress01: view.glacier ? (frame.glacier?.journey01 ?? frame.progress01) : frame.progress01, timeMs: frame.timeMs,
+      tour: p?.cameraTour || view.tour });
     const rail = { ...baseRail, fovYDeg: applyLensFov(baseRail.fovYDeg, frame.cameraEffects) };
     const proj = scenicProjection(rail.fovYDeg, frame.scenicViewport);
     // This view's VISIBLE frustum (the overscan margin excluded): the
@@ -1542,6 +1668,10 @@ export class RangeScene {
     const THREE = this.THREE;
     const u = p.uniforms;
     const n = frame.narrative;
+    // Scoped receiver calibration for the retained Black static scenic scene.
+    // Receiver irradiance changes before albedo/AO; sky, key and water do not.
+    u.uReceiverFillMin.value = p.view.id === 'black-mountains-catawba'
+      && !p.view.tour && p.view.cameraPaths?.some(line => line?.length) ? .32 : 0;
     this._setFarForest(p, frame);
     u.uNarrative.value.set(n?.relief ?? 1, n?.atmosphere ?? 1, n?.materials ?? 1, n?.features ?? 1);
     u.uNarrativeInk.value = n ? (1 - n.materials) * (1 - n.skyDark) : 0;
@@ -1559,7 +1689,7 @@ export class RangeScene {
     u.uDeformK.value = m.waveK;
     u.uDeformDir.value.set(m.waveDir[0], m.waveDir[1]);
     u.uDeformPhase.value = m.phaseRad;
-    u.uTime.value = frame.reducedMotion ? 0 : frame.timeMs / 1000;
+    u.uTime.value = frame.timeMs / 1000;
     m.gusts.forEach((g, i) => { u.uGustAge.value[i] = g.ageSec; u.uGustAmp.value[i] = g.amp01 * (1 + (frame.storm?.amount || 0) * .8); u.uGustDir.value[i] = g.dir; });
     syncGustUniforms(u);
     const rung = rangeQuality(frame.qualityLevel);
@@ -1584,13 +1714,21 @@ export class RangeScene {
     hexToLinear(THREE, c.colorHex, u.uLightColor.value).multiplyScalar(strength);
     // Receiver fill fades once; sky radiance also feeds air and water's
     // reflection, so it keeps the frame's authored environment colors.
-    u.uAmbientScale.value = 2.5 * (frame.light.ambientMultiplier ?? 1);
+    const ambient = frame.light.ambientMultiplier ?? 1;
+    const visibility = v => Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0;
+    const bodies = frame.light.state;
+    // Keep moonlit receivers readable with the existing sheltered fill.
+    // Existing horizon visibility blends the handoff while daylight and true gaps keep their fill.
+    const moonShare = visibility(night) * visibility(bodies?.moon?.visibility) * (1 - visibility(bodies?.sun?.visibility));
+    u.uMoonAmbientScale.value = 2.5 * .65 * (1 - ambient) * moonShare;
+    u.uAmbientScale.value = 2.5 * ambient + u.uMoonAmbientScale.value;
     u.uStorm.value.set(storm.amount, storm.flash, storm.break01, storm.wet01);
     // Under the squall the sun is gone behind the deck; the sky's own
     // (darkened, below) radiance is most of what lights the land.
     u.uLightColor.value.multiplyScalar(1 - storm.amount * .92);
     u.uLightColor.value.add(new THREE.Color(.65, .77, 1).multiplyScalar(storm.flash * 1.6));
     u.uAmbientScale.value *= 1 - storm.amount * .15;
+    u.uMoonAmbientScale.value *= 1 - storm.amount * .15;
     // Lightning lights the land from inside the deck, where the sky draws it.
     // The rain veil projects through the main camera on every view, mirror or not.
     u.uViewProj.value.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
@@ -1612,8 +1750,7 @@ export class RangeScene {
       // Environment tint stays separate from the resolved physical body
       // color. Air, mist and reflected sky share the same recipe.
       const tone = new THREE.Color().setHSL(frame.motif.hueDeg / 360, .65, .65);
-      const amount = frame.motif.intensity01 * (frame.reducedFlash ? .5 : 1);
-      const tint = new THREE.Color(1, 1, 1).lerp(tone, amount);
+      const tint = new THREE.Color(1, 1, 1).lerp(tone, frame.motif.intensity01);
       u.uSkyZenith.value.multiply(tint);
       u.uSkyHorizon.value.multiply(tint);
       u.uAirColor.value.multiply(tint);
@@ -1628,39 +1765,16 @@ export class RangeScene {
       u.uAirColor.value.lerp(STORM_AIR, k).add(new THREE.Color(.65, .77, 1).multiplyScalar(storm.flash * .35));
       u.uAirDensity.value *= 1 + storm.amount * .6 - storm.break01 * .35;
     }
-    const amounts = giantAmounts(frame);
-    const layout = p.giantLayout;
-    if (layout) {
-      u.uGiantPeak.value = amounts;
-      layout.centers.forEach((center, i) => u.uGiantCenter.value[i].set(...center));
-      layout.skyCenters.forEach((center, i) => u.uSkyGiantCenter.value[i].set(...center));
-      u.uGiantSpan.value = layout.spans;
-      if (layout.hasLake) {
-        const eye = this.camera.position.toArray();
-        const center = aheadOfEye(layout.centers[0], eye, layout.forward, MIDIO_MIN_AHEAD_M);
-        u.uGiantCenter.value[0].set(center[0], p.waterLevelM, center[2]);
-        const bottom = new THREE.Vector3(0, -.92, .5).unproject(this.camera).sub(this.camera.position);
-        u.uGiantSpan.value = [mirrorGiantSpan(eye, bottom.toArray(), center,
-          p.waterLevelM, MIRROR_LIFT, layout.spans[0]), ...layout.spans.slice(1)];
-      }
-      u.uMirrorAspect.value = layout.hasLake ? 1 / MIRROR_LIFT : 1;
-      u.uSkyGiantSpan.value = layout.skySpan;
-      u.uGiantRight.value.set(...layout.right); u.uGiantForward.value.set(...layout.forward);
-      // Broshi's lantern is carried just behind the viewer, so his shadow
-      // lands on the range in his own proportions (a Brocken spectre).
-      u.uShadowEye.value.copy(this.camera.position);
-      u.uMidioCloud.value = layout.hasLake && Number.isFinite(p.mirrorLevelM) ? 0 : 1;
-      u.uGiantTime.value = frame.reducedMotion ? 0 : frame.timeMs / 1000;
-    }
     // Valley mist: anchored at the view's water level, thicker in calm.
     const mp = mistParams({ rules: p.rules, waterLevelM: p.waterLevelM, heightRange: [u.uHeightRange.value.x, u.uHeightRange.value.y],
-      tSec: frame.reducedMotion ? 0 : frame.timeMs / 1000, calm01: 1 - (frame.music?.groove ?? 0),
-      sea01: Math.max(frame.cloudSea01 ?? 0, amounts[2] * .3, u.uMidioCloud.value * amounts[0] * .3), cameraY: this.camera.position.y });
+      tSec: frame.timeMs / 1000, calm01: 1 - (frame.music?.groove ?? 0),
+      sea01: frame.cloudSea01 ?? 0, cameraY: this.camera.position.y });
     const quality = rangeQuality(frame.qualityLevel);
-    if (p.view.tour) {
+    const cameraTour = p.view.tour || p.cameraTour;
+    if (cameraTour) {
       // The ceiling follows the route continuously, and the fog thins out
       // as it closes on the valley floor instead of switching off.
-      const routeCap = tourMistCap((t) => p.view.tour.poseAt(t), frame.timeMs, p.view.tour.durationMs);
+      const routeCap = tourMistCap((t) => cameraTour.poseAt(t), frame.timeMs, cameraTour.durationMs);
       mp.topM = Math.min(mp.topM, this.camera.position.y - 120, routeCap);
       const fade = tourMistFade(mp.topM, mp.baseM);
       mp.fill *= fade; mp.density *= fade;
@@ -1683,7 +1797,7 @@ export class RangeScene {
     u.uMistColor.value.g = Math.min(0.9, u.uMistColor.value.g);
     u.uMistColor.value.b = Math.min(0.9, u.uMistColor.value.b);
     u.uCameraPos.value.copy(this.camera.position);
-    u.uTourEnabled.value = p.view.tour ? 1 : 0;
+    u.uTourEnabled.value = p.view.tour || p.cameraTour ? 1 : 0;
     u.uTourEye.value.copy(this.camera.position);
     this._setCloudUniforms(p, frame);
     this._setActors(p, frame);
@@ -1710,10 +1824,12 @@ export class RangeScene {
   }
 
   /**
-   * Place the cast for this frame: each actor's lantern and swarm on its
-   * route (in the band scene that owns the ground under it), its light in
-   * the shared uniforms, Midio's wake and Broshi's parting. Absent actors
-   * (no route, no score yet, before the scene arrives) give no light.
+   * Place the cast for this frame: each actor's lantern and swarm where its
+   * job puts it (docs/landscape-cast.md) -- or on its wandering route in a
+   * tour -- in the band scene that owns the ground under it, its light in
+   * the shared uniforms, Midio's wake and Broshi's parting, and the lights
+   * the job has left in this view. Absent actors (no route or plan, no
+   * score yet, before the scene arrives) give no light.
    */
   _setActors(p, frame) {
     const THREE = this.THREE;
@@ -1726,20 +1842,27 @@ export class RangeScene {
     const tanHalf = Math.tan((cam.fov * Math.PI) / 360)
       * (cam.view?.enabled ? cam.view.height / cam.view.fullHeight : 1);
     const materials = frame.narrative?.materials ?? 1;
-    const tSec = frame.reducedMotion ? 0 : frame.timeMs / 1000;
+    const tSec = frame.timeMs / 1000;
     // The lights carry the dark: brightest before dawn and after sunset,
     // a soft shimmer at noon.
     const dark = Math.min(1, Math.max(0, frame.light?.night01 ?? 0));
+    const presence = (cast?.presence ?? 0) * (materials > .01 ? materials : 0);
     u.uWakeAmt.value = 0;
     u.uParting.value.w = 0;
+    // A shot tour over a rail view keeps the view's job (and every light it
+    // has left); only a tour view's own terrain wanders.
+    const job = p.view.tour ? null : this._castJob(p, frame);
+    const opts = { data: p.data, waterLevelM: p.waterLevelM };
+    // A planned view with no job state yet (no schedule) wanders meanwhile.
+    if (!job && !p.actorRoutes && p.castPlan && p.data) p.actorRoutes = actorRoutes(p.data, p.view, { ...opts, seed: p.castSeed ?? 0 });
     ACTOR_IDS.forEach((id, k) => {
       const group = p.actors?.groups[id];
       const route = p.actorRoutes?.[id];
       const s = cast?.[id];
       const look = ACTOR_LOOK[id];
-      const presence = (cast?.presence ?? 0) * (materials > .01 ? materials : 0);
-      const pos = route && s && presence > 0.001
-        ? routePosition(route, s.travel + (ACTOR_START[id] || 0), { data: p.data, waterLevelM: p.waterLevelM, hoverM: look.hoverM, bobSec: tSec + k * 2.1 }) : null;
+      const placed = job?.actors[id];
+      const pos = !s || presence <= 0.001 ? null : job ? placed?.pos
+        : route ? routePosition(route, s.travel + (ACTOR_START[id] || 0), { ...opts, hoverM: look.hoverM, bobSec: tSec + k * 2.1 }) : null;
       u.uActorColor.value[k].set(0, 0, 0);
       if (!group) return;
       // Lanterns, motes and companions must test the completed forest depth.
@@ -1747,38 +1870,42 @@ export class RangeScene {
       if (!pos) { group.visible = false; return; }
       const at = new THREE.Vector3(pos[0], pos[1], pos[2]);
       const dist = Math.max(1, at.distanceTo(cam.position));
-      const peak = frame.reducedFlash ? s.peak * 0.7 : s.peak;
       const display = new THREE.Color().setHSL(ACTOR_HUES[id] / 360, 0.85, 0.62);
-      // Light: linear, stronger as the lane plays and at its peak.
+      // Light: linear, stronger as the lane plays; dimmed while the team
+      // shelter from a storm; Midio's swells into the summit beacon.
       const lin = display.clone().convertSRGBToLinear();
-      const gain = look.lightGain * (0.35 + 0.65 * s.glow + 0.5 * peak) * presence * (0.45 + 1.15 * dark);
+      const beacon = id === 'midio' ? job?.beacon01 ?? 0 : 0;
+      const gain = look.lightGain * (0.35 + 0.65 * s.glow) * presence * (0.45 + 1.15 * dark)
+        * (job?.dim ?? 1) * (1 + beacon * ((job?.beaconGain ?? 2) - 1));
       u.uActorPos.value[k].copy(at);
       u.uActorColor.value[k].set(lin.r * gain, lin.g * gain, lin.b * gain);
-      u.uActorRadius.value[k] = look.lightM;
+      u.uActorRadius.value[k] = look.lightM * (1 + 2 * beacon);
       // The lantern and swarm draw a little toward the camera from the
       // light itself, so the ground it hovers over does not cut its halo.
       const mpp0 = (2 * dist * tanHalf) / 720;
-      const push = Math.min(dist * 0.25, 3 * look.haloPx * mpp0);
+      const haloPx = look.haloPx * (1 + 0.6 * beacon);
+      const push = Math.min(dist * 0.25, 3 * haloPx * mpp0);
       const toCam = cam.position.clone().sub(at).normalize();
       const v = p.actors.uniforms[id];
       v.uCenter.value.copy(at).addScaledVector(toCam, push);
       v.uRight.value.copy(right);
       v.uUp.value.copy(up);
       v.uMpp.value = mpp0 * (dist - push) / dist;
-      v.uHaloPx.value = look.haloPx;
+      v.uHaloPx.value = haloPx;
       v.uColor.value.copy(display);
-      v.uGlow.value = s.glow;
-      v.uPresence.value = presence * (0.55 + 0.45 * dark);
-      v.uCohere.value = peak;
+      v.uGlow.value = Math.max(s.glow, beacon);
+      v.uPresence.value = presence * (0.55 + 0.45 * dark) * (job?.dim ?? 1);
       v.uTime.value = tSec + k * 37;
       v.uWanderPx.value = look.wanderPx * (1 + 0.5 * s.glow);
-      v.uShapePx.value = look.shapePx;
-      v.uShapeLift.value = route.kind === 'air' ? 0 : 0.6;
-      // Companions trail along the same route, each a little behind and
+      // A kindling: motes stream from the lantern into the new light.
+      const fly = placed?.fly;
+      v.uFly.value = fly ? fly.t : 0;
+      if (fly) v.uFlyTarget.value.set(...fly.pos);
+      // Companions trail along the same way, each a little behind and
       // weaving about it.
       (p.actors.companions[id] || []).forEach((c, j) => {
-        const lag = routePosition(route, s.travel + (ACTOR_START[id] || 0) - (j + 1) * 0.5,
-          { data: p.data, waterLevelM: p.waterLevelM, hoverM: look.hoverM, bobSec: tSec + j * 1.3 });
+        const lag = job ? placed.lag?.[j] ?? pos
+          : routePosition(route, s.travel + (ACTOR_START[id] || 0) - (j + 1) * 0.5, { ...opts, hoverM: look.hoverM, bobSec: tSec + j * 1.3 });
         const w = tSec * (0.7 + 0.2 * j) + j * 2.1;
         const cp = new THREE.Vector3(lag[0], lag[1], lag[2])
           .addScaledVector(right, Math.sin(w) * 18 * mpp0).addScaledVector(up, Math.cos(w * 1.3) * 10 * mpp0);
@@ -1792,12 +1919,168 @@ export class RangeScene {
       const tile = this._tileAt(p.data, pos[0], pos[2]);
       const band = BANDS.includes(tile?.band) ? tile.band : 'far';
       if (group.parent !== p.scenes[band]) p.scenes[band].add(group);
-      if (id === 'midio' && route.kind === 'water' && Number.isFinite(cast.midio.trail)) {
-        const tail = routePosition(route, cast.midio.trail, { data: p.data, waterLevelM: p.waterLevelM });
+      // Midio's wake runs back along his heading on the water.
+      const tail = job ? placed.wakeTail
+        : id === 'midio' && route.kind === 'water' && Number.isFinite(cast.midio.trail) ? routePosition(route, cast.midio.trail, opts) : null;
+      if (id === 'midio' && tail) {
         u.uWake.value.set(pos[0], pos[2], tail[0], tail[2]);
         u.uWakeAmt.value = presence * (0.3 + 0.7 * s.glow);
       }
       if (id === 'broshi') u.uParting.value.set(pos[0], pos[2], 90, presence * (0.35 + 0.65 * s.glow));
+    });
+    this._setCastLights(p, frame, job, presence, dark, right, up, tanHalf);
+  }
+
+  /**
+   * This view's job at heard time: where each actor stands, what it is
+   * kindling, the beacon, and which lights are lit. Null with no job (a
+   * tour, a view with nowhere to work, or no schedule yet).
+   */
+  _castJob(p, frame) {
+    const plan = p.castPlan, work = p.castWork;
+    const state = frame.actors?.jobs?.[p.view.id];
+    const schedule = frame.actors?.schedule;
+    if (!plan || plan.job === 'wander' || !state || !schedule) return null;
+    const t = frame.timeMs;
+    const opts = { data: p.data, waterLevelM: p.waterLevelM };
+    const unit = x => Math.max(0, Math.min(1, x));
+    // When each light kindles (seek-safe: compiled once per schedule). A
+    // review's progress override lights what that progress has reached.
+    const times = schedule.kindleTimes(p.view.id, work.marks) || [];
+    const reached = (k) => {
+      const m = work.marks[k];
+      if (!state.override) return t >= times[k];
+      return Number.isFinite(m.p) ? m.p <= state.p : m.after.every(reached);
+    };
+    const since = (k) => (state.override ? (reached(k) ? Infinity : -1) : t - times[k]);
+    const flyFor = (actor) => {
+      let best = null;
+      for (const l of work.lights) {
+        const age = since(l.mark);
+        if (l.actor === actor && age >= 0 && age < 800 && (!best || age < best.age)) best = { age, pos: l.pos };
+      }
+      for (const th of work.threads) {
+        const age = since(th.mark);
+        if (actor === 'midasus' && age >= 0 && age < 800 && (!best || age < best.age)) best = { age, pos: th.b };
+      }
+      return best ? { t: best.age / 800, pos: best.pos } : null;
+    };
+    const p01 = state.p, shelter = state.shelter01;
+    const out = { actors: {}, beacon01: 0, beaconGain: state.climax ? 2 : 1.5, dim: 1, reached, since, state, times };
+    if (plan.job === 'ascent') {
+      out.dim = 1 - 0.4 * shelter;
+      out.beacon01 = state.payoff01;
+      const onWater = (x) => x < plan.waterU;
+      const lead = pathPosition(plan, p01, { ...opts, hoverM: onWater(p01) ? ACTOR_LOOK.midio.hoverM : ACTOR_LOOK.midio.climbM });
+      out.actors.midio = { pos: lead, fly: flyFor('midio'),
+        wakeTail: onWater(p01) ? pathPosition(plan, Math.max(0, p01 - 0.04), opts) : null };
+      // Broshi walks the shore to the landing while Midio is on the water.
+      const ub = Math.max(0, p01 - state.offsets.broshi);
+      let porter;
+      if (onWater(ub) && plan.shoreStart) {
+        const f = ub / plan.waterU, a = plan.shoreStart, b = plan.landing;
+        const x = a[0] + (b[0] - a[0]) * f, z = a[2] + (b[2] - a[2]) * f;
+        const h = terrainHeightAt(p.data, x, z);
+        porter = [x, (Number.isFinite(h) ? h : b[1]) + ACTOR_LOOK.broshi.hoverM, z];
+      } else porter = pathPosition(plan, Math.max(ub, plan.waterU), { ...opts, hoverM: ACTOR_LOOK.broshi.climbM });
+      out.actors.broshi = { pos: porter, fly: flyFor('broshi') };
+      // Midasus scouts ahead on the path, six feet up (her light washes the
+      // next pitch before the others reach it).
+      const um = Math.min(1, p01 + state.offsets.midasus);
+      const scout = (x) => pathPosition(plan, x, { ...opts, hoverM: ACTOR_LOOK.midasus.climbM });
+      out.actors.midasus = { pos: scout(um), lag: [1, 2, 3].map(j => scout(Math.max(0, um - 0.012 * j))), fly: flyFor('midasus') };
+    } else {
+      // In a storm they pause in place (the schedule slows them); no dimming.
+      out.beacon01 = 0;
+      const walk = (actor, hoverM) => {
+        const w = work.walkers[actor];
+        const at = w?.sites.length ? siteWalk(w.sites, w.dues, p01) : null;
+        return at ? [at[0], at[1] + hoverM, at[2]] : null;
+      };
+      out.actors.broshi = { pos: walk('broshi', ACTOR_LOOK.broshi.hoverM), fly: flyFor('broshi') };
+      const midio = walk('midio', ACTOR_LOOK.midio.hoverM);
+      out.actors.midio = { pos: midio, fly: flyFor('midio'),
+        wakeTail: work.walkers.midio?.water && midio ? siteWalk(work.walkers.midio.sites, work.walkers.midio.dues, Math.max(0, p01 - 0.02)) : null };
+      // Midasus flies the thread being surveyed along the ground, six feet
+      // up; between threads she waits at its far end (the next one's start).
+      const along = (th, f) => {
+        const pts = th.points, x = unit(f) * (pts.length - 1), i = Math.min(pts.length - 2, Math.floor(x)), g = x - i;
+        return pts[i].map((v, c) => v + (pts[i + 1][c] - v) * g);
+      };
+      let flown = null, f = 0;
+      for (const th of work.threads) {
+        const age = since(th.mark);
+        if (age < 0) break;
+        flown = th; f = unit(age / 1500);
+      }
+      const first = work.threads[0];
+      const scout = flown ? along(flown, f) : first ? first.a : null;
+      out.actors.midasus = { pos: scout, fly: flyFor('midasus'),
+        lag: scout ? [1, 2, 3].map(j => (flown ? along(flown, f - 0.04 * j) : scout)) : null };
+    }
+    return out;
+  }
+
+  /** The lights the job has left in this view, and Midasus's threads. */
+  _setCastLights(p, frame, job, presence, dark, right, up, tanHalf) {
+    const THREE = this.THREE;
+    const sites = p.actors?.sites, threads = p.actors?.threads;
+    if (!sites || !threads) return;
+    const work = p.castWork, schedule = frame.actors?.schedule;
+    // Lay the sites out once per schedule: the job's lights, then a camp
+    // light at each camp (known when the schedule is). The slots the lights
+    // leave hold the most recent camps made so far, so every camp stands
+    // while it is among them (in practice a view makes far fewer).
+    const lights = work?.lights || [];
+    const campSlots = Math.max(0, SITE_LIGHTS_MAX - lights.length);
+    const hue = (id, l = 0.62) => new THREE.Color().setHSL(ACTOR_HUES[id] / 360, 0.85, l).convertSRGBToLinear();
+    const bandAt = (pos) => this._tileAt(p.data, pos[0], pos[2])?.band;
+    if (p.castLayoutFor !== schedule || !p.castCamps) {
+      p.castLayoutFor = schedule;
+      const camps = p.castPlan?.job === 'ascent' ? schedule?.views?.[p.view.id]?.camps || [] : [];
+      p.castCamps = camps.map(c => pathPosition(p.castPlan, c.p, { data: p.data, waterLevelM: p.waterLevelM, hoverM: 3 }));
+      p.castCampFrom = null;
+      threads.setThreads((work?.threads || []).map(th => ({ a: th.a, b: th.b,
+        band: this._tileAt(p.data, (th.a[0] + th.b[0]) / 2, (th.a[2] + th.b[2]) / 2)?.band })));
+    }
+    const made = job?.state.camps ?? 0;
+    const campFrom = Math.max(0, Math.min(made, p.castCamps.length) - campSlots);
+    if (p.castCampFrom !== campFrom) {
+      p.castCampFrom = campFrom;
+      sites.setSites([
+        ...lights.map(l => ({ pos: l.pos, band: bandAt(l.pos), color: hue(l.actor), sizePx: l.kind === 'line' ? 5 : 9 })),
+        ...p.castCamps.slice(campFrom, campFrom + campSlots).map(pos => ({ pos, band: bandAt(pos), color: hue('midio', 0.7), ring: hue('broshi'), sizePx: 9 })),
+      ]);
+    }
+    sites.uniforms.uRight.value.copy(right);
+    sites.uniforms.uUp.value.copy(up);
+    sites.uniforms.uTanHalf.value = tanHalf;
+    // Placed lights follow the lanterns' day law at 40% of their gain.
+    const gain = 0.4 * (0.45 + 1.15 * dark) * presence;
+    sites.uniforms.uGain.value = gain * ACTOR_LOOK.broshi.lightGain;
+    // Threads are faint: a survey line, not a light.
+    threads.setLook(new THREE.Color().setHSL(ACTOR_HUES.midasus / 360, 0.85, 0.7).convertSRGBToLinear(), 0.6 * gain);
+    const low = rangeQuality(frame.qualityLevel).level >= 4;
+    const fuse = job?.state.fuse01 ?? 0;
+    lights.forEach((l, k) => {
+      if (!job || (low && l.kind === 'line' && !l.low)) { sites.setState(k, 0); return; }
+      const age = job.since(l.mark);
+      // A light comes up as its motes arrive, then never goes out. On the
+      // climax the fuse runs up the fixed lines, flaring each once.
+      const lit = age < 0 ? 0 : Math.min(1, age / 800);
+      const f = l.kind === 'line' && fuse > 0 && fuse < 1 ? Math.exp(-(((fuse - (l.u - p.castPlan.waterU) / (1 - p.castPlan.waterU)) / 0.06) ** 2)) : 0;
+      sites.setState(k, lit, f);
+    });
+    for (let j = 0; j < Math.min(campSlots, p.castCamps.length - campFrom); j++) sites.setState(lights.length + j, made > campFrom + j ? 1 : 0);
+    (work?.threads || []).forEach((th, k) => {
+      if (!job) { threads.setState(k, 0, 0); return; }
+      const age = job.since(th.mark);
+      const reveal = age < 0 ? 0 : Math.min(1, age / 1500);
+      // The finish: the closing thread first, then outward, each brightening
+      // once (the climax), or all settling to a steady glow.
+      const n = work.threads.length, order = Math.min(k + 1, n - 1 - k) / Math.max(1, n / 2);
+      const flare = job.state.climax && fuse > 0 && fuse < 1 ? Math.exp(-(((fuse - order) / 0.12) ** 2)) : 0;
+      threads.setState(k, reveal, (0.55 + 0.45 * (job.state.payoff01 ?? 0)) * (1 + 1.5 * flare));
     });
   }
 
@@ -1828,12 +2111,13 @@ export class RangeScene {
 
   /** The full-scene depth pre-pass, also recording which band owns each
    *  sample, then resolving that into `own` (cleared by the caller). */
-  _createOwnershipMaterials(uniforms, pixelated) {
+  _createOwnershipMaterials(uniforms, pixelated, riverSurface = false) {
     if (pixelated) return null;
     const THREE = this.THREE;
     return Object.fromEntries(BANDS.map(band => [band, new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3, vertexShader: SCENE_VERT,
       fragmentShader: OWNERSHIP_FRAG.replace('OWNER_COLOUR', OWNER_COLOURS[band]), uniforms,
+      ...(riverSurface ? { defines: { RIVER_SURFACE: 1 } } : {}),
     })]));
   }
 
@@ -1843,8 +2127,15 @@ export class RangeScene {
     p.ownershipMaterials ||= this._createOwnershipMaterials(p.uniforms, false);
     const meshes = p.depthBandMeshes || {};
     for (const band of BANDS) if (meshes[band] && p.ownershipMaterials?.[band]) meshes[band].material = p.ownershipMaterials[band];
+    if (Object.keys(p.riverDepthMeshes || {}).length) p.riverOwnershipMaterials ||= this._createOwnershipMaterials(p.uniforms, false, true);
+    for (const band of BANDS) if (p.riverDepthMeshes?.[band] && p.riverOwnershipMaterials?.[band]) p.riverDepthMeshes[band].material = p.riverOwnershipMaterials[band];
     try { r.render(p.depthScene, this.camera); }
-    finally { for (const band of BANDS) if (meshes[band]) meshes[band].material = p.depthMaterial; }
+    finally {
+      for (const band of BANDS) {
+        if (meshes[band]) meshes[band].material = p.depthMaterial;
+        if (p.riverDepthMeshes?.[band]) p.riverDepthMeshes[band].material = p.riverDepthMaterial;
+      }
+    }
     // The render resolved the samples into target.texture: keep that.
     r.setRenderTarget(own);
     r.setClearColor(0x000000, 0);
@@ -2033,6 +2324,7 @@ export class RangeScene {
   snapshot() {
     return {
       prepared: [...this.prepared.keys()], pending: [...this.pending.keys()], contextLost: this.contextLost,
+      rivers: [...this.prepared.values()].filter(p => p.view.rivers).map(p => ({ viewId: p.view.id, ...p.riverStats })),
       buildAdmission: { requestedBytes: 0, admittedBytes: 0, denials: 0, peakBytes: 0, ...this.buildAdmission },
       windows: [...this.prepared.values()].filter(p=>p.windowCache).map(p=>({id:p.view.id,index:p.windowIndex,resident:[...p.windowCache.resident.keys()],detail:p.activeWindow?.detail,coverage:p.windowCoverage,note:p.windowNote,stats:p.stats,forestDetail:p.forestDetailViews})),
       size: { ...this.size }, stats: { ...this.stats }, sideB: !!this.sideTargets.B,

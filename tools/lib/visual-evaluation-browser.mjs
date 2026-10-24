@@ -16,17 +16,9 @@ export function expectedTourPreparationFailure(request) {
 // Uses the real upload/analysis and existing export APIs. No synthetic control
 // bus is substituted for the decoded audio.
 export async function openEvaluationSong(browser, { url, audioPath, settings, diagnostics }) {
-  // The OS preference is pinned off and the requested preferences are stored
-  // before the app constructs anything, so the sim starts with them.
   const context = await browser.newContext({ viewport: { width: settings.width, height: settings.height },
-    deviceScaleFactor: 1, serviceWorkers: 'block', reducedMotion: 'no-preference' });
+    deviceScaleFactor: 1, serviceWorkers: 'block' });
   try {
-    await context.addInitScript(({ reducedFlash, reducedMotion }) => {
-      try {
-        localStorage.setItem('smw:reducedFlash', reducedFlash ? '1' : '0');
-        localStorage.setItem('smw:reducedMotion', reducedMotion ? '1' : '0');
-      } catch { /* verified below: a capture never proceeds on the wrong preference */ }
-    }, { reducedFlash: !!settings.reducedFlash, reducedMotion: !!settings.reducedMotion });
     await context.addInitScript(seedBrowserConstruction, settings.seed);
     await context.addInitScript(installSeedReceiver);
     const origin = new URL(url).origin;
@@ -42,7 +34,10 @@ export async function openEvaluationSong(browser, { url, audioPath, settings, di
       isExpectedRequestFailure: settings.tour === 'tetons' ? expectedTourPreparationFailure : undefined });
     const entry = new URL(url);
     for (const [key, value] of Object.entries({ bulkExport: 1, exportW: settings.width, exportH: settings.height,
-      experience: settings.experience, rangeRenderer: 'v2', rangeTour: settings.tour || 'off', rangeView: settings.view, seed: settings.seed, perf: 'high' })) {
+      // An unset tour leaves the page's default camera (shot tours where
+      // approved); VISUAL_RANGE_SHOTS=all also lets candidate libraries play.
+      experience: settings.experience, rangeRenderer: 'v2', rangeTour: settings.tour, rangeView: settings.view, seed: settings.seed, perf: 'high',
+      rangeShots: process.env.VISUAL_RANGE_SHOTS === 'all' ? 'all' : undefined })) {
       if (value != null) entry.searchParams.set(key, value);
     }
     for (const [key, value] of Object.entries(settings.debug || {})) if (value != null) entry.searchParams.set(key, value);
@@ -60,12 +55,6 @@ export async function openEvaluationSong(browser, { url, audioPath, settings, di
       window.__SMW.beginBulkExport({ width: settings.width, height: settings.height, presentation: settings.presentation });
       await window.__SMW.rangeReady({ timeoutMs: 120000 });
       window.__SMW.perf.setFixtureLevel(settings.quality);
-      const sim = window.__SMW.sim;
-      const effective = { reducedFlash: !!sim.reducedFlash && !!sim.biomes?.reducedFlash, reducedMotion: !!sim.reducedMotion && !!sim.biomes?.reducedMotion };
-      if (effective.reducedFlash !== !!settings.reducedFlash || effective.reducedMotion !== !!settings.reducedMotion
-        || !!sim.reducedFlash !== !!sim.biomes?.reducedFlash || !!sim.reducedMotion !== !!sim.biomes?.reducedMotion) {
-        throw new Error(`accessibility preferences not applied: ${JSON.stringify({ sim: [sim.reducedFlash, sim.reducedMotion], world: [sim.biomes?.reducedFlash, sim.biomes?.reducedMotion] })}`);
-      }
       const gl = window.__SMW.sim.biomes.rangePresentation?.scene?.renderer?.getContext();
       const debug = gl?.getExtension('WEBGL_debug_renderer_info');
       return { durationMs: window.__SMW.durationMs, seed: window.__SMW.songSeed, constructionSeed: window.__landscapeConstructionSeed,
@@ -92,12 +81,6 @@ export async function renderEvaluationFrame(page, point, settings) {
     if (Math.abs(clock.timeMs - point.timeMs) > 1000 / 60 + 0.01) throw new Error(`clock drift at ${point.timeMs}: ${clock.timeMs}`);
     if (clock.width !== settings.width || clock.height !== settings.height || clock.draws !== 1) throw new Error('wrong frame size or draw count');
     if (smw.perfLevel !== settings.quality) throw new Error('quality drift');
-    // Effective accessibility state, checked on every drawn frame.
-    const accessibility = { reducedFlash: !!smw.sim.reducedFlash, reducedMotion: !!smw.sim.reducedMotion };
-    if (accessibility.reducedFlash !== !!smw.sim.biomes?.reducedFlash || accessibility.reducedMotion !== !!smw.sim.biomes?.reducedMotion
-      || accessibility.reducedFlash !== !!settings.reducedFlash || accessibility.reducedMotion !== !!settings.reducedMotion) {
-      throw new Error(`accessibility drift at ${point.timeMs}: ${JSON.stringify(accessibility)}`);
-    }
     if (settings.experience === 'trio' && (smw.experience !== 'trio' || !smw.sim.trio || state.active)) throw new Error('Trio Stage is inactive or terrain is still active');
     if (settings.experience !== 'trio' && (state.mode !== 'v2' || !state.active || state.runtime !== 'ready')) throw new Error(`Range v2 inactive: ${JSON.stringify(state)}`);
     if (settings.experience !== 'trio' && settings.view && state.viewId !== settings.view) throw new Error(`wrong view ${state.viewId}`);
@@ -111,7 +94,7 @@ export async function renderEvaluationFrame(page, point, settings) {
     const thumbnail = [...ctx.getImageData(0, 0, 64, 36).data];
     const sim = smw.sim, frame = sim.biomes.rangePresentation?.frame;
     return { ...(settings.experience ? { experience: smw.experience } : {}), timeMs: point.timeMs, actualTimeMs: clock.timeMs, checkpoint: point.checkpoint, clips: point.clips,
-      pngData: canvas.toDataURL('image/png').split(',')[1], thumbnail, range: state, quality: smw.perfLevel, accessibility,
+      pngData: canvas.toDataURL('image/png').split(',')[1], thumbnail, range: state, quality: smw.perfLevel,
       audio: { heardTimeMs: sim.heardTimeMs, energy: sim.energyCurves?.globalEnergyNorm(sim.heardTimeMs) ?? null,
         bands: sim.energyCurves?.sampleAll(sim.heardTimeMs) ?? null },
       controls: { camera: sim.camera, cameraMove: frame?.cameraMove ?? null, storm: frame?.storm ?? null,
@@ -130,6 +113,16 @@ export async function renderEvaluationFrame(page, point, settings) {
           exposure: prepared?.uniforms?.uExposure?.value ?? null, lightDir: prepared?.uniforms?.uLightDir?.value?.toArray?.() ?? null,
           cameraPos: prepared?.uniforms?.uCameraPos?.value?.toArray?.() ?? null, horizonSize: prepared?.uniforms?.uHorizonSize?.value?.toArray?.() ?? null, forestKeep: prepared?.uniforms?.uForestKeep?.value ?? null,
           mirror: prepared?.uniforms?.uMirrorAmount?.value ?? null, shafts: !!scene?.shafts, trees: prepared?.stats?.trees ?? null };
+      })(),
+      // The perspective camera the scenic partitions were drawn with, and the
+      // tour shot that placed it (null on an authored rail).
+      camera: (() => {
+        const presentation = sim.biomes.rangePresentation, cam = presentation?.scene?.camera;
+        if (!cam?.position) return null;
+        const e = cam.matrixWorld?.elements;
+        return { eyeM: cam.position.toArray(), forward: e ? [-e[8], -e[9], -e[10]] : null, fovYDeg: cam.fov, aspect: cam.aspect,
+          near: cam.near, far: cam.far, viewOffset: cam.view?.enabled ? { ...cam.view } : null,
+          shot: presentation?.shotState?.(state.viewId, sim.heardTimeMs) ?? null };
       })(),
       generation: smw.generation, seed: smw.songSeed };
   }, { point, settings });

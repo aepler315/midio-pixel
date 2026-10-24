@@ -45,13 +45,21 @@ test('tune and holdout ids are disjoint, and no track stores audio bytes', () =>
 test('viewing order is the authored world list, with all surviving worlds, never a score ranking', () => {
   const order = viewingOrder();
   assert.deepEqual(order, listWorlds().map((w) => w.id));
-  assert.ok(order.includes('alpine'));
+  assert.deepEqual(order, ['alpine', 'trio']);
   const dense = corpus.tracks.find((t) => t.id === 'tune-wall-guitars');
   const sheet = evaluateTrack(dense);
   assert.deepEqual(sheet.viewingOrder, order);
+  // Both authored orders are kept as given while the heuristic ranks once,
+  // so at least one of them differs from the ranking: order is not a score.
   const ranked = sheet.heuristic.byWorld.map((w) => w.id);
-  assert.notDeepEqual(sheet.viewingOrder, ranked, 'gallery order must not follow the heuristic');
-  assert.ok(!sheet.heuristic.byWorld.some((w) => w.id === 'cathode'), 'removed world stays absent');
+  for (const worlds of [listWorlds(), [...listWorlds()].reverse()]) {
+    const authored = worlds.map((w) => w.id);
+    const reordered = evaluateTrack(dense, { worlds });
+    assert.deepEqual(reordered.viewingOrder, authored);
+    assert.deepEqual(reordered.reviews.map((r) => r.worldId), authored);
+    assert.deepEqual(reordered.heuristic.byWorld.map((w) => w.id), ranked, 'the ranking ignores the viewing order');
+  }
+  assert.deepEqual([...ranked].sort(), [...order].sort(), 'only surviving worlds are scored');
 });
 
 test('private scores are heuristics; 70–80 cases sit beside the winner without changing order', () => {

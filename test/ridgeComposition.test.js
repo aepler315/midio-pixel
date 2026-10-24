@@ -161,7 +161,7 @@ test('the fixed composition fit is alpine-only and preview keeps the source insp
   manager._heightStrips = { L3: shape };
   const canvas = { width: 1280, height: 720 };
   const natural = mountainStripDrawHeight(shape.height, 1, 720, 625);
-  manager.world = { kind: 'city' };
+  manager.world = { kind: 'unregistered-kind' };
   assert.equal(manager._rangeDh(canvas, shape, 'L3', 1, false), natural);
   manager.world = { kind: 'alpine' };
   assert.equal(manager._rangeDh(canvas, shape, 'L3', 1, false), Math.min(natural, 720 * .42) * .5);

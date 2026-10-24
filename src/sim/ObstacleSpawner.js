@@ -18,7 +18,6 @@
 import { Role } from '../core/NoteEvent.js';
 import { clamp, clamp01, mulberry32 } from '../utils/math.js';
 import { superformula } from '../render/oscillators.js';
-import { capFlashAlpha } from '../ui/Accessibility.js';
 import { hexToRgb } from '../utils/color.js';
 import { HAZARD_HEX } from '../render/ColorLaw.js';
 import { GUARDRAIL_MIN } from '../core/ParamBus.js';
@@ -256,7 +255,7 @@ export class ObstacleSpawner {
 
   draw(ctx, worldX, originX, groundY, {
     nowMs = 0, energyCurves = null, wind = { x: 0, y: 0 },
-    particleMul = 1, reducedFlash = false,
+    particleMul = 1,
   } = {}) {
     if (this.active.length === 0) return;
     // The color law: hazard is a protected hue, not the ambient biome's
@@ -301,11 +300,11 @@ export class ObstacleSpawner {
 
       if (presence > 0.01) {
         switch (o.archetype) {
-          case 'thorn': this._drawThorn(ctx, o, presence, emergence, rgb, tSec, reducedFlash, nearMoment, breathe); break;
-          case 'veil': this._drawVeil(ctx, o, presence, distanceAhead, rgb, tSec, wind, reducedFlash, breathe); break;
-          case 'geo': this._drawGeo(ctx, o, presence, emergence, pulse, rgb, tSec, reducedFlash); break;
-          case 'pipe': this._drawPipe(ctx, o, presence, emergence, nearMoment, rgb, tSec, reducedFlash, breathe); break;
-          default: this._drawEcho(ctx, o, presence, pulse, rgb, tSec, particleMul, reducedFlash, nearMoment); break;
+          case 'thorn': this._drawThorn(ctx, o, presence, emergence, rgb, tSec, nearMoment, breathe); break;
+          case 'veil': this._drawVeil(ctx, o, presence, distanceAhead, rgb, tSec, wind, breathe); break;
+          case 'geo': this._drawGeo(ctx, o, presence, emergence, pulse, rgb, tSec); break;
+          case 'pipe': this._drawPipe(ctx, o, presence, emergence, nearMoment, rgb, tSec, breathe); break;
+          default: this._drawEcho(ctx, o, presence, pulse, rgb, tSec, particleMul, nearMoment); break;
         }
       }
 
@@ -315,7 +314,7 @@ export class ObstacleSpawner {
       // event.
       const burstAgeMs = nowMs - o.tMs;
       if (burstAgeMs >= 0 && burstAgeMs < BURST_LIFE_MS) {
-        this._drawBeatBurst(ctx, o, burstAgeMs, rgb, particleMul, reducedFlash);
+        this._drawBeatBurst(ctx, o, burstAgeMs, rgb, particleMul);
       }
 
       ctx.restore();
@@ -326,7 +325,7 @@ export class ObstacleSpawner {
    *  to the obstacle's own scheduled beat rather than Midio's position --
    *  deterministic per (obstacle, mote index) via hash01 so it renders
    *  identically every frame with no per-obstacle RNG state to carry. */
-  _drawBeatBurst(ctx, o, ageMs, rgb, particleMul, reducedFlash) {
+  _drawBeatBurst(ctx, o, ageMs, rgb, particleMul) {
     const n = Math.max(1, Math.round(BURST_MOTE_COUNT * particleMul));
     const ageSec = ageMs / 1000;
     const globalLife = 1 - ageMs / BURST_LIFE_MS;
@@ -341,7 +340,7 @@ export class ObstacleSpawner {
       // burst thins out organically instead of every mote vanishing at once.
       const moteLife = clamp01(globalLife - hash01(seed + 99) * 0.3);
       if (moteLife <= 0) continue;
-      ctx.globalAlpha = capFlashAlpha(0.75 * moteLife, reducedFlash);
+      ctx.globalAlpha = 0.75 * moteLife;
       ctx.beginPath();
       ctx.arc(px, py, 1.3 + 1.3 * moteLife, 0, Math.PI * 2);
       ctx.fill();
@@ -353,11 +352,11 @@ export class ObstacleSpawner {
    *  spike with a slow internal shimmer riding its own hue, brightening as
    *  its own beat approaches (nearMoment, the pre-burst charge) and
    *  breathing with the track's overall energy (breathe). */
-  _drawThorn(ctx, o, presence, emergence, rgb, tSec, reducedFlash, nearMoment = 0, breathe = 1) {
+  _drawThorn(ctx, o, presence, emergence, rgb, tSec, nearMoment = 0, breathe = 1) {
     const scale = (0.25 + 0.75 * emergence) * breathe;
     ctx.scale(scale, scale);
     const shimmer = 0.5 + 0.5 * Math.sin(tSec * 1.6 + o.phase);
-    const alpha = capFlashAlpha((0.55 + 0.35 * nearMoment) * presence, reducedFlash);
+    const alpha = (0.55 + 0.35 * nearMoment) * presence;
     ctx.fillStyle = `rgba(20,14,22,${0.7 * presence})`;
     ctx.strokeStyle = `rgba(${rgb},${alpha + 0.2 * shimmer})`;
     ctx.lineWidth = 1.5;
@@ -377,13 +376,13 @@ export class ObstacleSpawner {
   /** A hanging ribbon of dissonance: nested translucent sine-curtains,
    *  swaying on the global wind, brightest as its own beat approaches, and
    *  breathing with the track's overall energy (breathe). */
-  _drawVeil(ctx, o, presence, distanceAhead, rgb, tSec, wind, reducedFlash, breathe = 1) {
+  _drawVeil(ctx, o, presence, distanceAhead, rgb, tSec, wind, breathe = 1) {
     const nearMoment = clamp01(1 - Math.abs(distanceAhead) / 40);
     const layers = 4;
     for (let li = 0; li < layers; li++) {
       const depth = li / (layers - 1);
       const sway = (wind.x || 0) * 0.02 + Math.sin(tSec * 0.8 + o.phase + li) * 6;
-      const alpha = capFlashAlpha((0.14 + 0.1 * depth + 0.35 * nearMoment) * presence * breathe, reducedFlash);
+      const alpha = (0.14 + 0.1 * depth + 0.35 * nearMoment) * presence * breathe;
       ctx.strokeStyle = `rgba(${rgb},${alpha})`;
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -403,13 +402,13 @@ export class ObstacleSpawner {
    *  (triangle/square/hexagon) standing on the ground, with a dark solid
    *  core and a bright, slowly-counter-rotating double edge -- deliberately
    *  hard-edged so the row reads as engineered, not organic. */
-  _drawGeo(ctx, o, presence, emergence, pulse, rgb, tSec, reducedFlash) {
+  _drawGeo(ctx, o, presence, emergence, pulse, rgb, tSec) {
     const scale = 0.3 + 0.7 * emergence;
     ctx.scale(scale, scale);
     const sides = o.sides || 4;
     const r = o.height * 0.5;
     const rot = tSec * 0.5 + o.phase;
-    const alpha = capFlashAlpha((0.55 + 0.25 * pulse) * presence, reducedFlash);
+    const alpha = (0.55 + 0.25 * pulse) * presence;
 
     const poly = (radius, spin) => {
       ctx.beginPath();
@@ -443,13 +442,13 @@ export class ObstacleSpawner {
    *  itself safely over. Same solid-dark-body-plus-halo-stroke language as
    *  `geo` (hard-edged, engineered), brightening as its own beat approaches
    *  and breathing with the track's overall energy like every archetype here. */
-  _drawPipe(ctx, o, presence, emergence, nearMoment, rgb, tSec, reducedFlash, breathe = 1) {
+  _drawPipe(ctx, o, presence, emergence, nearMoment, rgb, tSec, breathe = 1) {
     const scale = (0.3 + 0.7 * emergence) * breathe;
     ctx.scale(scale, scale);
     const h = o.height, w = o.width;
     const stemW = w * 0.62, collarW = w, collarH = h * 0.22;
     const top = -h / 2, bottom = h / 2, collarBottom = top + collarH;
-    const alpha = capFlashAlpha((0.55 + 0.3 * nearMoment) * presence, reducedFlash);
+    const alpha = (0.55 + 0.3 * nearMoment) * presence;
 
     ctx.fillStyle = `rgba(18,16,26,${0.78 * presence})`;
     ctx.strokeStyle = `rgba(${rgb},${alpha})`;
@@ -490,9 +489,9 @@ export class ObstacleSpawner {
   /** A floating cluster of orbiting shards around a core that inhales and
    *  exhales with the song's global energy, flaring as the jump window to
    *  clear it opens (nearMoment). */
-  _drawEcho(ctx, o, presence, pulse, rgb, tSec, particleMul, reducedFlash, nearMoment = 0) {
+  _drawEcho(ctx, o, presence, pulse, rgb, tSec, particleMul, nearMoment = 0) {
     const coreR = (6 + 5 * pulse) * (0.4 + 0.6 * presence) * (1 + 0.3 * nearMoment);
-    const coreAlpha = capFlashAlpha((0.25 + 0.35 * pulse + 0.3 * nearMoment) * presence, reducedFlash);
+    const coreAlpha = (0.25 + 0.35 * pulse + 0.3 * nearMoment) * presence;
     ctx.fillStyle = `rgba(${rgb},${coreAlpha})`;
     ctx.beginPath();
     ctx.arc(0, 0, coreR, 0, Math.PI * 2);
@@ -506,7 +505,7 @@ export class ObstacleSpawner {
       ctx.save();
       ctx.translate(sx, sy);
       ctx.rotate(a);
-      ctx.fillStyle = `rgba(${rgb},${capFlashAlpha(0.5 * presence, reducedFlash)})`;
+      ctx.fillStyle = `rgba(${rgb},${0.5 * presence})`;
       ctx.beginPath();
       for (let k = 0; k < 5; k++) {
         const phi = (k / 5) * Math.PI * 2;

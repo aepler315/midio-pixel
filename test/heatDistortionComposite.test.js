@@ -38,7 +38,6 @@ function makeSim() {
     biomes: { currentFxAlpha: () => 0 },
     fire: null,
     midio: { groundY: 625 },
-    reducedFlash: false,
     presentation: { performers: true },
   };
 }
@@ -59,7 +58,7 @@ test('heat distortion actually blits the frame back through its warp grid', () =
   assert.ok(blitOps.length > 10, `expected a grid of blits, got ${blitOps.length}`);
 });
 
-for (const kind of ['city', 'foundry', 'strip']) {
+for (const kind of ['alpine', 'unregistered-kind']) {
   test(`WP12 ${kind} landscape drop heat has no invisible performer origin, ambient fire remains`, () => {
     const sim = { ...makeSim(), presentation: resolveLandscapePresentation({ kind }),
       biomes: { world: { kind }, currentFxAlpha: () => 0 } };
@@ -155,25 +154,17 @@ test('a drop leaves the Range unwarped: there is no performer to radiate from', 
   assert.equal(blits.length, 0);
 });
 
-// A2: reduced motion removes the animated whole-frame warp at any time,
-// under either flash setting; reduced flash alone keeps a halved shimmer.
-test('heat warp honours reduced motion and reduced flash independently', () => {
-  const sweep = (reducedFlash, reducedMotion, timeMs) => {
+// An active wildfire keeps the animated whole-frame warp running at any
+// time, not only on a drop.
+test('heat warp shimmers under an active wildfire at any time', () => {
+  const sweep = (timeMs) => {
     const blits = [];
-    const ctx = makeCtx([]);
-    let maxShift = 0;
-    ctx.drawImage = (_src, sx, sy, _sw, _sh, dx, dy) => { blits.push(1); maxShift = Math.max(maxShift, Math.hypot(dx - sx, dy - sy)); };
-    const sim = { ...makeSim(), hype: null, fire: { active: true, intensity01: 1 }, reducedFlash, reducedMotion, timeMs };
-    Renderer.prototype._drawHeatDistortion.call({ _heatCanvas: makeHeatCanvas() }, ctx,
+    const sim = { ...makeSim(), hype: null, fire: { active: true, intensity01: 1 }, timeMs };
+    Renderer.prototype._drawHeatDistortion.call({ _heatCanvas: makeHeatCanvas() }, makeCtx(blits),
       { width: 1280, height: 720 }, sim, { midioDrawX: 300 }, { width: 1280, height: 720 });
-    return { blits: blits.length, maxShift };
+    return blits.length;
   };
   for (const t of [1000, 1730]) {
-    const normal = sweep(false, false, t), flash = sweep(true, false, t);
-    assert.ok(normal.blits > 10 && flash.blits > 10, `t=${t}: shimmer runs without reduced motion`);
-    assert.ok(flash.maxShift < normal.maxShift, `t=${t}: reduced flash halves the shove`);
-    for (const reducedFlash of [false, true]) {
-      assert.equal(sweep(reducedFlash, true, t).blits, 0, `t=${t}, flash=${reducedFlash}: no animated resampling under reduced motion`);
-    }
+    assert.ok(sweep(t) > 10, `t=${t}: the shimmer runs`);
   }
 });

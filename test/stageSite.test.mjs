@@ -4,6 +4,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { stageSite, verifyRangeRuntime } from '../tools/stage-site.mjs';
 
 async function fixture() {
@@ -24,9 +26,25 @@ test('stageSite writes only the public runtime contract', async (t) => {
   const { root, source, output } = await fixture();
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   await stageSite(source, output);
-  assert.deepEqual((await fs.readdir(output)).sort(), ['.nojekyll', 'CNAME', 'index.html', 'soundfonts', 'src']);
+  assert.deepEqual((await fs.readdir(output)).sort(), ['.nojekyll', 'CNAME', 'index.html', 'soundfonts', 'src', 'version.json']);
   assert.equal(await fs.readFile(path.join(output, 'src/main.js'), 'utf8'), 'export const boot = true;\n');
   await assert.rejects(fs.access(path.join(output, 'secret.txt')));
+  // A copied tree has no Git: the version says so instead of guessing.
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(output, 'version.json'), 'utf8')), { commit: null, ref: null });
+});
+
+test('stageSite carries the licence, notices and the published commit', async (t) => {
+  const { root, source, output } = await fixture();
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await fs.writeFile(path.join(source, 'LICENSE'), 'MIT License\n');
+  await fs.writeFile(path.join(source, 'NOTICE'), 'Elevation data attribution\n');
+  await fs.writeFile(path.join(source, 'AGENTS.md'), 'internal workflow notes\n');
+  const commit = 'a'.repeat(40);
+  await stageSite(source, output, { commit, ref: 'main' });
+  assert.equal(await fs.readFile(path.join(output, 'LICENSE'), 'utf8'), 'MIT License\n');
+  assert.equal(await fs.readFile(path.join(output, 'NOTICE'), 'utf8'), 'Elevation data attribution\n');
+  await assert.rejects(fs.access(path.join(output, 'AGENTS.md')), 'internal docs stay unpublished');
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(output, 'version.json'), 'utf8')), { commit, ref: 'main' });
 });
 
 test('stageSite fails when a required runtime input is missing', async (t) => {
@@ -41,7 +59,7 @@ test('stageSite supports a new repository without a custom domain', async (t) =>
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   await fs.rm(path.join(source, 'CNAME'));
   await stageSite(source, output);
-  assert.deepEqual((await fs.readdir(output)).sort(), ['.nojekyll', 'index.html', 'soundfonts', 'src']);
+  assert.deepEqual((await fs.readdir(output)).sort(), ['.nojekyll', 'index.html', 'soundfonts', 'src', 'version.json']);
 });
 
 test('stageSite refuses to clean a source directory or one of its ancestors', async (t) => {
@@ -71,7 +89,7 @@ test('stageSite follows symlinked ancestors when checking destructive overlap', 
 test('staging verifies the Range v2 runtime bundle and shipped terrain assets', async t => {
   const { verifyRangeRuntime } = await import('../tools/stage-site.mjs');
   const fsp = fs, p = path;
-  const root = p.resolve(p.dirname(new URL(import.meta.url).pathname), '..');
+  const root = fileURLToPath(new URL('..', import.meta.url));
   const out = await fsp.mkdtemp(p.join(os.tmpdir(), 'midio-stage-range-'));
   t.after(() => fsp.rm(out, { recursive: true, force: true }));
   await fsp.cp(p.join(root, 'src'), p.join(out, 'src'), { recursive: true });
@@ -89,6 +107,58 @@ test('staging verifies the Range v2 runtime bundle and shipped terrain assets', 
   await assert.rejects(verifyRangeRuntime(root, out), /scene catalog cannot be loaded/);
 });
 
+
+test('staging rejects decoded-identity and tour-package mismatches the runtime would refuse', async t => {
+  const root = fileURLToPath(new URL('..', import.meta.url));
+  const out = await fs.mkdtemp(path.join(os.tmpdir(), 'midio-stage-pins-'));
+  t.after(() => fs.rm(out, { recursive: true, force: true }));
+  await fs.cp(path.join(root, 'src'), path.join(out, 'src'), { recursive: true });
+  const v2 = path.join(out, 'src', 'assets', 'range', 'v2');
+  const catalogFile = path.join(out, 'src', 'world', 'terrain', 'sceneCatalogData.js');
+  const sha = (b) => createHash('sha256').update(b).digest('hex');
+  const { default: catalog } = await import(pathToFileURL(catalogFile).href);
+  const terrainView = catalog.views.find((v) => !v.terrainSourceId && !v.tourManifestUrl);
+  const tourView = catalog.views.find((v) => v.tourManifestUrl);
+  assert.ok(terrainView && tourView);
+
+  /** Rewrites a pinned JSON file and moves the catalog pin with it, so the
+   *  check under test (not the manifest hash) is what has to catch it. */
+  async function withRepinned(rel, mutate, expected) {
+    const file = path.join(v2, rel);
+    const before = await fs.readFile(file), catalogBefore = await fs.readFile(catalogFile, 'utf8');
+    const json = JSON.parse(before.toString('utf8'));
+    const restore = await mutate(json);
+    const after = Buffer.from(JSON.stringify(json));
+    await fs.writeFile(file, after);
+    await fs.writeFile(catalogFile, catalogBefore.replaceAll(sha(before), sha(after)));
+    try { await assert.rejects(verifyRangeRuntime(root, out), expected); } finally {
+      await fs.writeFile(file, before); await fs.writeFile(catalogFile, catalogBefore); await restore?.();
+    }
+  }
+
+  await withRepinned(terrainView.terrainManifestUrl, (m) => { m.payload.decodedSha256 = '0'.repeat(64); },
+    /terrain payload decoded bytes do not match/);
+  await withRepinned(terrainView.terrainManifestUrl, (m) => { m.payload.decodedByteLength += 1; },
+    /terrain payload decoded bytes do not match/);
+  await withRepinned(tourView.tourManifestUrl, (m) => { m.terrainViewId = 'another-view'; }, /tour is for terrain another-view/);
+  // A tour payload whose compressed pin is consistent but whose decoded bytes changed.
+  await withRepinned(tourView.tourManifestUrl, async (m) => {
+    const payloadFile = path.join(v2, path.dirname(tourView.tourManifestUrl), m.payload.url);
+    const original = await fs.readFile(payloadFile);
+    const decoded = gunzipSync(original); decoded[decoded.length - 1] ^= 0xff;
+    const regzipped = gzipSync(decoded);
+    await fs.writeFile(payloadFile, regzipped);
+    m.payload.byteLength = regzipped.byteLength; m.payload.sha256 = sha(regzipped);
+    return () => fs.writeFile(payloadFile, original);
+  }, /tour payload decoded bytes do not match/);
+  // An unpinned edit to the tour manifest fails on the catalog pin.
+  const tourFile = path.join(v2, tourView.tourManifestUrl);
+  const tourBytes = await fs.readFile(tourFile);
+  await fs.writeFile(tourFile, Buffer.concat([tourBytes, Buffer.from(' ')]));
+  await assert.rejects(verifyRangeRuntime(root, out), /tour manifest hash differs/);
+  await fs.writeFile(tourFile, tourBytes);
+  assert.equal((await verifyRangeRuntime(root, out)).checked, true, 'restored tree verifies again');
+});
 
 test('only a positively identified no-Range tree may skip runtime verification', async t => {
   const legacy = await fixture();
@@ -117,7 +187,7 @@ test('only a positively identified no-Range tree may skip runtime verification',
 async function rangeFixture(t) {
   const { root, source, output } = await fixture();
   t.after(() => fs.rm(root, { recursive: true, force: true }));
-  const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+  const repo = fileURLToPath(new URL('..', import.meta.url));
   const vendor = path.join(output, 'src/vendor/range');
   await fs.mkdir(vendor, { recursive: true });
   await fs.cp(path.join(repo, 'src/vendor/range'), vendor, { recursive: true });

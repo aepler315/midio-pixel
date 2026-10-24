@@ -19,12 +19,11 @@ function surface(width = 320, height = 180) {
   };
   return { width, height, draws, rects, getContext: () => ctx };
 }
-test('pixel heat offsets are integral and bounded; reduced motion always wins', () => {
+test('pixel heat offsets are integral and bounded', () => {
   assert.equal(typeof effects.pixelHeatOffset, 'function');
   for (const unit of [1, 2]) for (const value of [-99, -.6, 0, .6, 99, NaN, Infinity]) {
-    const offset = effects.pixelHeatOffset(value, { unit, reducedMotion: false });
+    const offset = effects.pixelHeatOffset(value, { unit });
     assert.ok(Number.isInteger(offset) && Math.abs(offset) <= unit);
-    assert.equal(effects.pixelHeatOffset(value, { unit, reducedMotion: true }), 0);
   }
 });
 test('pixel star footprints are deterministic and bounded integer clusters', () => {
@@ -38,19 +37,17 @@ test('pixel star footprints are deterministic and bounded integer clusters', () 
 });
 test('glow takes one owned snapshot and uses nearest-neighbor copies with bounded flash strength', () => {
   assert.equal(typeof effects.drawPixelGlow, 'function');
-  for (const reducedFlash of [false, true]) {
-    const residency = new GraphicsResidency({ budgetBytes: 1000000 });
-    const buffers = new CanvasBuffers({ residency, makeCanvas: () => surface(0, 0) });
-    const source = surface(), ctx = source.getContext();
-    assert.equal(effects.drawPixelGlow(ctx, source, { buffers, unit: 1, strength: 1, reducedFlash }), true);
-    const scratch = buffers.buffers.get('pixel-glow').canvas;
-    assert.equal(scratch.draws.filter(d => d.args[0] === source).length, 1);
-    assert.equal(source.draws.length, 4);
-    assert.ok(source.draws.every(d => d.args[0] === scratch && d.smooth === false && d.op === 'screen'));
-    assert.ok(source.draws.reduce((sum, d) => sum + d.alpha, 0) <= (reducedFlash ? .05 : .10));
-    assert.equal(residency.usedBytes, 320 * 180 * 4);
-    buffers.dispose(); assert.equal(scratch.width, 0); assert.equal(residency.usedBytes, 0);
-  }
+  const residency = new GraphicsResidency({ budgetBytes: 1000000 });
+  const buffers = new CanvasBuffers({ residency, makeCanvas: () => surface(0, 0) });
+  const source = surface(), ctx = source.getContext();
+  assert.equal(effects.drawPixelGlow(ctx, source, { buffers, unit: 1, strength: 1 }), true);
+  const scratch = buffers.buffers.get('pixel-glow').canvas;
+  assert.equal(scratch.draws.filter(d => d.args[0] === source).length, 1);
+  assert.equal(source.draws.length, 4);
+  assert.ok(source.draws.every(d => d.args[0] === scratch && d.smooth === false && d.op === 'screen'));
+  assert.ok(source.draws.reduce((sum, d) => sum + d.alpha, 0) <= .10);
+  assert.equal(residency.usedBytes, 320 * 180 * 4);
+  buffers.dispose(); assert.equal(scratch.width, 0); assert.equal(residency.usedBytes, 0);
 });
 test('denied glow admission allocates nothing and safely skips the optional effect', () => {
   assert.equal(typeof effects.drawPixelGlow, 'function');
@@ -77,7 +74,7 @@ test('pixel heat uses eight-pixel cells, heard time, and source-over coverage', 
   renderer._postBuffers.makeCanvas = () => surface(0, 0);
   renderer.pixelPolicy = pixelRenderPolicy({ pixelated: true });
   const sim = { timeMs: 1000, heardTimeMs: 5000, perf: { heavyPostFx: true }, presentation: { performers: false },
-    biomes: { world: { kind: 'foundry' }, currentFxAlpha: () => 1 }, midio: { groundY: 625 } };
+    biomes: { world: { kind: 'unregistered-kind' }, currentFxAlpha: () => 1 }, midio: { groundY: 625 } };
   const draw = timeMs => {
     canvas.draws.length = 0; sim.timeMs = timeMs;
     renderer._drawHeatDistortion(canvas.getContext(), canvas, sim, { midioDrawX: 220 }, { width: 1280, height: 720 });
@@ -88,16 +85,13 @@ test('pixel heat uses eight-pixel cells, heard time, and source-over coverage', 
   assert.ok(first.every(d => d.op === 'source-over' && d.smooth === false && d.args[2] === 10));
   for (const d of first) assert.ok(Number.isInteger(d.args[4] - d.args[0]) && Math.abs(d.args[4] - d.args[0]) <= 1);
   assert.deepEqual(draw(2000), first, 'heard time controls the distortion phase');
-  const heat = renderer._heatCanvas;
-  sim.reducedMotion = true;
-  assert.equal(draw(3000).length, 0); assert.equal(heat.width, 0);
   renderer.dispose();
 });
 test('pixel bloom owns only its glow scratch and releases it on shedding or Alpine', () => {
   const canvas = surface(), renderer = new Renderer(canvas);
   renderer._postBuffers.makeCanvas = () => surface(0, 0);
   renderer.pixelPolicy = pixelRenderPolicy({ pixelated: true });
-  const sim = { hype: { slam: 1, surge: 1 }, perf: { bloomEnabled: true }, biomes: { world: { kind: 'city' } } };
+  const sim = { hype: { slam: 1, surge: 1 }, perf: { bloomEnabled: true }, biomes: { world: { kind: 'unregistered-kind' } } };
   renderer._drawBloom(canvas.getContext(), canvas, sim);
   assert.ok(renderer._postBuffers.buffers.has('pixel-glow'));
   assert.equal(renderer._postBuffers.buffers.has('bloom'), false);

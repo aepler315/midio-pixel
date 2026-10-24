@@ -39,6 +39,9 @@ for (const { pixelGrid, experience = 'landscape', bulkExportSize = null, expecte
   { pixelGrid: 'detailed', expected: [1920, 1080] },
   { pixelGrid: 'classic', experience: 'trio', expected: [320, 180] },
   { pixelGrid: 'detailed', experience: 'trio', expected: [640, 360] },
+  { pixelGrid: 'classicPlus', experience: 'trio', expected: [400, 225] },
+  { pixelGrid: 'medium', experience: 'trio', expected: [480, 270] },
+  { pixelGrid: 'mediumPlus', experience: 'trio', expected: [560, 315] },
   { pixelGrid: 'classic', bulkExportSize: { w: 3840, h: 2160 }, expected: [3840, 2160] },
 ]) test(`actual fitCanvas keeps ${experience} ${pixelGrid}${bulkExportSize ? ' export' : ''} output separate from terrain`, () => {
   const active = resolvePresentation({ version: 2, look: 'pixel', pixelGrid });

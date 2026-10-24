@@ -52,7 +52,8 @@ function checkpoint(label, cond) {
 // hold anything) — same rationale as smoke-soundfont.mjs.
 await page.route('**/soundfonts/', (route) => route.fulfill({ contentType: 'application/json', body: '[]' }));
 
-await page.goto(url, { waitUntil: 'load' });
+// Start straight in Landscape; the world chooser is not under test here.
+await page.goto(new URL('?experience=landscape', url).href, { waitUntil: 'load' });
 
 // Boot audio + library WITHOUT starting a song yet: the demo button boots
 // everything, and we need fontLibrary to exist to inject fixtures.

@@ -180,14 +180,3 @@ spends six of them on the six ear taps, leaving two measures in which to
 collect six eye taps. The overlay would close mid-instruction and persist a
 trim built on a two-sample eye median — the exact noisy number the six-tap
 requirement exists to prevent.
-
-## Reduced flash
-
-The ring's pulse is the thing being timed, so reduced flash caps the swing
-rather than removing it: the floor comes up and the ceiling comes down,
-keeping the *onset* sharp — the edge is what a tap is timed against — while
-the flash stays well short of a full-brightness strobe. This is handled in
-`RecalibrationOverlay`, not CSS. The `prefers-reduced-motion` rule only ever
-governed the scale, which left an OS reduced-motion user with the
-full-strength brightness jump, and `getReducedFlash()` defaults to that OS
-preference when nothing is stored.

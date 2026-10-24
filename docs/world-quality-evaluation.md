@@ -2,10 +2,10 @@
 
 What “looks good” means, without a public score.
 
-The chooser presents equal cards. Internal fit is a heuristic, not visual
-quality, and must not set the viewing order. This protocol records that
-heuristic privately, captures the same three moments in every world, and
-asks a human to rate what they see.
+The chooser presents two equal cards, Landscape and Trio. Internal fit is a
+heuristic, not visual quality, and must not set the viewing order. This
+protocol records that heuristic privately, captures the same three moments
+in both worlds, and asks a human to rate what they see.
 
 ```sh
 npm run eval:worlds
@@ -28,7 +28,7 @@ The two id sets are disjoint. Keep them that way.
 
 ## Capture
 
-Every world sees the same three clocks, the same seed, and the same quality
+Both worlds see the same three clocks, the same seed, and the same quality
 preset (`EVAL_QUALITY` in `src/eval/WorldQuality.js`):
 
 | Passage | Meaning |
@@ -40,7 +40,8 @@ preset (`EVAL_QUALITY` in `src/eval/WorldQuality.js`):
 Annotated `passages` on a track win over derivation. A missing energy curve
 falls back to proportional positions. Never invent a beat from BPM.
 
-Stills use the same world instance playback will use. The gallery contains the eight surviving worlds.
+Stills use the same world instance playback will use. The gallery contains
+the two worlds, Landscape (`alpine`) and Trio (`trio`).
 
 ## Private heuristic
 
@@ -52,8 +53,11 @@ Fit is evaluated **after** the world's response configuration. A dense mix
 that already filters accents is not rejected for raw intensity. Ranking
 uses the continuous `fit` value; the integer `score` is display-only for
 the review sheet. Worlds within `TIE_EPS` (0.012) of the leader stay tied.
-Choose-for-me still returns one pick and records `pickReason` as `unique`
-or `near-tie`.
+The heuristic still names one recommended world per track
+(`recommendedId`, with `pickReason` `unique` or `near-tie`). It exists only
+here and in the debug overlay's fit readout: the chooser has no
+Choose-for-me and never shows it. It decides which world's ratings count
+toward the acceptance target below.
 
 Diagnostics on each row split three things that used to be mixed together:
 
@@ -61,7 +65,7 @@ Diagnostics on each row split three things that used to be mixed together:
 | --- | --- |
 | `parts.styleAffinity` | Does this world's material language like the song? |
 | `parts.analysisConfidence` | How much the tempo/key/structure read can be trusted |
-| `parts.problems` | Predicted response issues (`strobe-risk`, `stillness`, `low-confidence`, `manual-only`) |
+| `parts.problems` | Predicted response issues (`strobe-risk`, `stillness`, `low-confidence`) |
 
 A scored channel must name a renderer `consumer` (`file#symbol`). A channel
 with no consumer is not a measurement.
@@ -79,8 +83,8 @@ Rate each world independently, 1–5, on:
 | Climax headroom | Peak is already clipped or timid | Peak has somewhere to go |
 | Clutter | Unreadable | Dense but legible, or rightly sparse |
 
-Low motion is not automatic failure. A sparse piano in Far Side that stays
-still on purpose can score well on quiet interest.
+Low motion is not automatic failure. A sparse piano on a Landscape range
+that stays still on purpose can score well on quiet interest.
 
 Mark `blockingDefect` if the frame is broken (blank, unreadable type, wrong
 renderer, leaked preview audio). A blocking defect fails the pair regardless
@@ -135,8 +139,8 @@ heuristics, viewing order and metadata in the book are ignored. An unknown
 or duplicate id, or a malformed field, exits nonzero without a report.
 
 Filled `blockingDefect` reviews are exported as `exclusions` (track/world
-pairs). They are diagnostics: nothing wires them into Choose-for-me
-automatically. Manual selection is always available for registered worlds.
+pairs). They are diagnostics: nothing wires them into the chooser, which
+always offers both worlds.
 
 Section-boundary metrics remain a separate concern: see
 [analysis-evaluation.md](./analysis-evaluation.md) and `npm run bench:sections`.

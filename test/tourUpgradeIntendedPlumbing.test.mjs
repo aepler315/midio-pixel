@@ -48,7 +48,7 @@ test('the worker plans and refines with the requested setting and reports it', a
     await import('../src/world/terrain/tour-worker.js');
     const request = upgradeIntended => ({ data: tourFixture(), durationMs: 20000, energy: new Float32Array(81).fill(.5),
       sections: [{ startMs: 0, endMs: 20000, role: 'outro', relEnergy01: .5 }], roles: [],
-      reducedMotion: false, previous: null, committedThroughMs: 0, ...(upgradeIntended === undefined ? {} : { upgradeIntended }) });
+      previous: null, committedThroughMs: 0, ...(upgradeIntended === undefined ? {} : { upgradeIntended }) });
     for (const flag of [undefined, false, true]) globalThis.self.onmessage({ data: request(flag) });
     assert.deepEqual(messages.map(m => [m.error, m.tour?.upgradeIntended]), [[undefined, false], [undefined, false], [undefined, true]]);
     const previous = messages[2].tour;
@@ -103,8 +103,8 @@ test('a refinement inherits the upgrade setting and keeps its committed prefix',
 
 const tourViewId = 'teton-range-tour';
 const manager = () => ({ durationMs: 60000, sections: [{ startMs: 0, endMs: 60000, profile: { name: 'CONIFER' } }],
-  world: { kind: 'alpine' }, reducedMotion: false, tSec: 0, currentBlend: { from: 'CONIFER', to: 'CONIFER', t: 1 }, _profile: () => null });
-const previewTour = upgradeIntended => ({ durationMs: 60000, heroes: [], notes: [], reducedMotion: false, upgradeIntended,
+  world: { kind: 'alpine' }, tSec: 0, currentBlend: { from: 'CONIFER', to: 'CONIFER', t: 1 }, _profile: () => null });
+const previewTour = upgradeIntended => ({ durationMs: 60000, heroes: [], notes: [], upgradeIntended,
   previewPose: { eyeM: [0, 2000, 0], targetM: [0, 2000, -1000], fovYDeg: 35, tour: true } });
 function fakeScene() {
   const prepared = new Map();

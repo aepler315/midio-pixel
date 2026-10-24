@@ -3,7 +3,6 @@
 // the hue wheel, world-locked so the stroke stays where he drew it and
 // scrolls away with the terrain. Deliberately unsmoothed -- crisp square
 // dabs snapped to pixels are the whole aesthetic.
-import { flashCompositeOp } from '../ui/Accessibility.js';
 
 const MAX_DABS = 320;
 const LIFE_MS = 3200;
@@ -35,17 +34,14 @@ export class RainbowBrush {
    *  are skipped -- up to 320 dabs redrawn every frame is real cost even
    *  when most of a dense flurry's trail has scrolled out of view. Defaults
    *  to Infinity (cull nothing) for callers with no canvas width handy. */
-  draw(ctx, worldX, originX, nowMs, sizeMul = 1, reducedFlash = false, canvasWidth = Infinity) {
+  draw(ctx, worldX, originX, nowMs, sizeMul = 1, canvasWidth = Infinity) {
     while (this.dabs.length && nowMs - this.dabs[0].bornMs >= LIFE_MS) this.dabs.shift();
     if (this.dabs.length === 0) return;
     ctx.save();
     // Additive, like every other trail/glow in the game (afterimages, beat
     // flashes) -- overlapping dabs from a dense flurry of jumps melt into
     // soft light instead of stacking as an opaque, hard-edged patchwork.
-    // Under reduced-flash a dense flurry piling up dabs additively is
-    // exactly the kind of stacked-flash this toggle exists to prevent, so
-    // fall back to normal compositing (see Accessibility.js:flashCompositeOp).
-    ctx.globalCompositeOperation = flashCompositeOp(reducedFlash);
+    ctx.globalCompositeOperation = 'lighter';
     const margin = 20; // largest dab is ~9 * sizeMul(2 during Apotheosis) across
     for (const d of this.dabs) {
       const cx = d.wx - worldX + originX;

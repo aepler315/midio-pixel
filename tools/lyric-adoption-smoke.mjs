@@ -48,7 +48,7 @@ try {
     });
     await page.route('**/pending.wav', async route => { await downloadGate; await route.fulfill({ status: 500, body: 'failed download' }).catch(() => {}); });
     try {
-      await page.goto(url + '/?renderer=canvas&rangeRenderer=legacy', { waitUntil: 'domcontentloaded', timeout: 90000 });
+      await page.goto(url + '/?renderer=canvas&rangeRenderer=legacy&experience=landscape', { waitUntil: 'domcontentloaded', timeout: 90000 });
       // DOM readiness precedes module evaluation; uploads must wait for the
       // actual loader listeners and the instrumented ownership entrypoints.
       await page.waitForFunction(() => typeof window.__lyricProbe?.handleFiles === 'function', null, { timeout: 45000 });

@@ -87,10 +87,8 @@ test('only detected boundaries can nudge internal handoffs, preserving overall e
   assert.equal(detected.sample(140000).revelation, 1);
 });
 
-test('pressure survives hype, stays capped and loses pulse/contraction under reduced policies', () => {
+test('pressure survives hype and stays capped', () => {
   assert.equal(narrativePressure({ skyDark: 1 }, 1).edgeAlpha, .32);
-  assert.equal(narrativePressure({ skyDark: 1 }, 1, { reducedFlash: true }).edgeAlpha, .24);
-  assert.equal(narrativePressure({ skyDark: 1 }, 1, { reducedMotion: true }).contraction, 0);
   assert.equal(narrativePressure(null, 1).edgeAlpha, 0);
 });
 

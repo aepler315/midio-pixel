@@ -1,22 +1,31 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as worlds from '../src/world/Worlds.js';
-import { resolveTitleWorldChoice } from '../src/ui/TitleWorldChoice.js';
 import { Simulation } from '../src/sim/Simulation.js';
 import { Conductor } from '../src/core/Conductor.js';
 import { ParamBus } from '../src/core/ParamBus.js';
 
+const RETIRED = ['cathode', 'nocturne', 'farside', 'fathom', 'redline', 'foundry', 'understory', 'nave'];
+
 test('removed world choices normalize without affecting surviving worlds', () => {
-  assert.equal(worlds.listWorlds().some(w => w.id === 'cathode'), false);
-  assert.equal(worlds.resolveWorldId('cathode'), 'alpine');
-  assert.equal(worlds.getWorld('cathode').id, 'alpine');
-  assert.deepEqual(resolveTitleWorldChoice('cathode', worlds.listWorlds().map(w => w.id)), { mode: 'ask' });
+  assert.deepEqual(worlds.listWorlds().map(w => w.id), ['alpine', 'trio']);
+  for (const id of RETIRED) {
+    assert.equal(worlds.listWorlds().some(w => w.id === id), false, id);
+    assert.equal(worlds.resolveWorldId(id), 'alpine', id);
+    assert.equal(worlds.getWorld(id).id, 'alpine', id);
+    assert.equal(worlds.worldExperience(id), 'landscape', id);
+  }
   for (const w of worlds.listWorlds()) assert.equal(worlds.resolveWorldId(w.id), w.id);
 });
 test('active custom worlds require a registered kind', () => {
   try {
-    worlds.setCustomWorld({ ...worlds.getWorld('nocturne'), id: 'custom' });
+    worlds.setCustomWorld({ ...worlds.getWorld('trio'), id: 'custom' });
     assert.equal(worlds.resolveWorldId('custom'), 'custom');
+    assert.equal(worlds.worldExperience('custom'), 'trio');
+    for (const kind of ['cathode', 'city', 'nave']) {
+      worlds.setCustomWorld({ id: 'custom', kind });
+      assert.equal(worlds.getWorld('custom').id, 'alpine', kind);
+    }
     worlds.setCustomWorld({ id: 'custom', kind: 'cathode' });
     assert.equal(worlds.getWorld('custom').id, 'alpine');
     assert.equal(worlds.resolveWorldId('custom'), 'alpine');

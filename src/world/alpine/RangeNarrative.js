@@ -14,10 +14,17 @@ const LANES = { midio: 'MIDIO', broshi: 'BROSHI', midasus: 'MIDASUS' };
 const FALLBACK = { midio: 'BASS', broshi: 'MELODY', midasus: 'MELODY' };
 const DEFAULT_CASTING = { midio: 'bass', broshi: 'melody', midasus: 'melody' };
 
+/** The notes an actor's lane plays: its own lane when cast to one, else
+ *  the fallback role. */
+function laneNotes(events, id, casting) {
+  const lane = casting[id]?.endsWith('-lane');
+  return events.filter(e => lane ? e.lane === LANES[id] : e.role === FALLBACK[id]);
+}
+
 function sourceIndex(events, id, casting) {
   const lane = casting[id]?.endsWith('-lane');
   const source = lane ? `lane:${LANES[id]}` : `role:${FALLBACK[id]}`;
-  const notes = events.filter(e => lane ? e.lane === LANES[id] : e.role === FALLBACK[id]);
+  const notes = laneNotes(events, id, casting);
   const endPrefix = []; let end = 0;
   for (const e of notes) { end = Math.max(end, e.tMs + e.durMs + 120); endPrefix.push(end); }
   return timeMs => {
@@ -167,10 +174,10 @@ export function compileRangeNarrative({ durationMs = 0, energyCurves = null, tim
   });
 }
 
-export function narrativePressure(narrative, kick01 = 0, { reducedFlash = false, reducedMotion = false } = {}) {
-  const dark = unit(narrative?.skyDark), pulse = reducedFlash ? 0 : unit(kick01);
+export function narrativePressure(narrative, kick01 = 0) {
+  const dark = unit(narrative?.skyDark), pulse = unit(kick01);
   return { edgeAlpha: Math.min(.32, .24 * dark + .08 * dark * pulse),
-    contraction: reducedMotion ? 0 : .04 * dark * pulse };
+    contraction: .04 * dark * pulse };
 }
 
 /** Causal source lookup survives retirement of the full-song reveal arc.
@@ -180,7 +187,10 @@ export function compileLandscapeSources({ durationMs = 0, timeline = [], casting
     .map(e => ({ ...e, durMs: Math.max(90, Number.isFinite(e.durMs) ? e.durMs : 90) }))
     .sort((a, b) => a.tMs - b.tMs);
   const sources = Object.fromEntries(Object.keys(LANES).map(id => [id, sourceIndex(events, id, casting)]));
-  return Object.freeze({ durationMs, sample(timeMs = 0) {
+  // Each lane's note onsets (the cast kindle their lights on them).
+  const onsets = Object.freeze(Object.fromEntries(Object.keys(LANES).map(id =>
+    [id, Object.freeze([...new Set(laneNotes(events, id, casting).map(e => e.tMs))])])));
+  return Object.freeze({ durationMs, onsets, sample(timeMs = 0) {
     const at = Math.max(0, Number.isFinite(timeMs) ? timeMs : 0);
     return Object.freeze({ relief: 1, atmosphere: 1, materials: 1, features: 1,
       spaceAuthority: 1, skyDark: 1, traceResolution: 1, revelation: 1, progress: durationMs > 0 ? unit(at / durationMs) : 0,

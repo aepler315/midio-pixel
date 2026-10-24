@@ -49,40 +49,34 @@ Suggested task prompt:
 
 > Read AGENTS.md and docs/visual-evaluation-loop.md. Capture the specified manifest as a baseline. Inspect actual screenshots and listen to the corresponding clips. Choose the most consequential visible musical mismatch, explain its cause, and make one scoped improvement. Capture the identical manifest again, compare the results, and retain the change only if the target visibly improves without regressions in quiet passages, transitions, or framing. Report the evidence paths and exact song/time references. Do not infer visual success from unit tests or numeric controls alone.
 
-## Quality rungs, accessibility preferences and the VFX matrix
+## Quality rungs and the VFX matrix
 
-`settings.quality` accepts every governor rung, 0–6. `settings.reducedFlash`
-and `settings.reducedMotion` are explicit booleans (default `false`). They
-are stored before the app starts (with the OS preference pinned off), and
-every drawn frame verifies the effective state and records it as
-`frame.accessibility`; a mismatch fails the capture.
+`settings.quality` accepts every governor rung, 0–6.
 
-Older reports that predate these fields still validate: missing requested
-values read as the historical `false`, but their effective state is
-*unknown*. Two such reports compare as before. A historical baseline against
-a new, verified candidate compares with `accessibility.provenance:
-unmatched` and `freshBaselineRequired: true`: capture a fresh baseline
-before relying on matched flash/motion state. Differing requested or
-verified preferences are rejected as incompatible.
+Older reports that recorded flash and motion preferences, in their settings
+or per frame, still validate and compare: those retired fields are ignored,
+except that a capture which turned either one on is incompatible with one
+that did not.
 
 `test/fixtures/visual-evaluation-vfx.json` is a matrix of short cases that
-together cover q0 and every shedding boundary (q2–q6), all four
-flash/motion combinations, Natural/Pixel/Palette, and a lake
-(`teton-jackson-lake`) and an inland (`panamint-dantes-view`) view, plus two
-continuous history cases. It spreads those values across cases rather than
-running the Cartesian product. Run one case at a time:
+together cover q0 and every shedding boundary (q2–q6), Natural/Pixel/Palette,
+and a lake (`teton-jackson-lake`) and an inland (`panamint-dantes-view`)
+view, plus two continuous history cases. It spreads those values across
+cases rather than running the Cartesian product. Run one case at a time:
 
 ```sh
-npm run visual:eval -- --manifest test/fixtures/visual-evaluation-vfx.json --case q4-palette-inland-both --out .smoke/q4-base
+npm run visual:eval -- --manifest test/fixtures/visual-evaluation-vfx.json --case q4-palette-inland --out .smoke/q4-base
 ```
 
 CI runs each case in its own job: a capture, an identical repeat compared
-with `--require-identical`, and on pull requests a base-branch capture of
-the same case compared with the candidate for review. The gates are page
-and shader errors, an inactive or wrong backend, a wrong quality rung or
-preference, and blank frames. There is no pixel-difference beauty
-threshold; the base/candidate comparison is review material. Legacy and
-optional worlds stay in `npm run test:worlds` and `npm run test:retro`.
+with `--require-identical`, and, when the manually dispatched workflow is
+given a `baseline_ref`, a capture of that ref's source for the same case
+compared with the candidate for review. The gates are page
+and shader errors, an inactive or wrong backend, a wrong quality rung and
+blank frames. There is no pixel-difference beauty threshold; the
+base/candidate comparison is review material. Trio stays in
+`npm run test:trio` and `npm run test:worlds`, and the legacy Range path in
+`npm run test:retro`.
 
 ## Your own recordings
 
@@ -131,7 +125,7 @@ Choose at least a quiet/sparse recording, a rhythmically clear recording, and a 
 - An immutable in-memory snapshot of `index.html` and the entire public `src/` tree, including terrain assets and runtime code. Its hashes and git commit/dirty state are recorded. A source edit during the capture makes the run fail and preserves its evidence.
 - External page requests are blocked; lyrics lookup is disabled; service workers are blocked. Real upload, decode, analysis and rendering still run.
 
-`view: null` and `biome: null` exercise natural song casting. Use a separate manifest for this check; it is intentionally incompatible with a forced-view A/B run. Current assertions require Range v2 to stay active. A natural-casting case with legitimate legacy fallback is reported as a failed v2 case, not mislabeled high-fidelity evidence. Existing `test:worlds` remains the suite for the other seven worlds.
+`view: null` and `biome: null` exercise natural song casting. Use a separate manifest for this check; it is intentionally incompatible with a forced-view A/B run. Current assertions require Range v2 to stay active. A natural-casting case with legitimate legacy fallback is reported as a failed v2 case, not mislabeled high-fidelity evidence. A focused manifest can capture Trio instead with `settings.experience: "trio"`; the capture then requires Trio to be active and Range v2 terrain to stay inactive. `npm run test:worlds` drives both worlds through the chooser.
 
 ## Timing and interpretation
 
@@ -162,7 +156,7 @@ The `Visual evaluation` CI workflow captures the committed default fixtures and 
 
 A focused manifest may set `settings.presentation` to a complete version-1
 display profile (`look`, `quality`, `palette`, `dither`, `scaling`) or a complete
-version-2 profile, adding `pixelGrid` (`classic`/`detailed`) and `ditherMode`
+version-2 profile, adding `pixelGrid` (`classic`/`classicPlus`/`medium`/`mediumPlus`/`detailed`) and `ditherMode`
 (`ordered`/`selective`). v2 palette choices are `world`, `range32`, `chroma32`
 and `rgb332`. The manifest validator rejects unknown fields and values;
 valid v1 normalizes to Classic/Ordered while preserving its choices. This

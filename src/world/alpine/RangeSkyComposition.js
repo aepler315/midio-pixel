@@ -91,22 +91,24 @@ export function projectRailCelestials(state, snapshot, solar = null) {
 /** Project both celestial bodies through the terrain's resolved tour pose.
  * Azimuth follows the body's arc continuously; dawn/dusk never flips a
  * compass direction, and bounded elevation avoids a zenith dive through
- * the top edge of a narrow landscape lens. */
-export function projectRangeCelestials(state, pose, lensScale = 1, solar = null) {
+ * the top edge of a narrow landscape lens. `azimuthOffsetDeg` turns both
+ * arcs with a view's own reference heading (shot tours anchor them to the
+ * rail; 0 keeps the Teton highway's north-east arcs). */
+export function projectRangeCelestials(state, pose, lensScale = 1, solar = null, azimuthOffsetDeg = 0) {
   const bodies = {};
   for (const name of ['sun', 'moon']) {
     const source = state[name];
     // The published Teton flight looks northeast with a narrow lens and
     // a slightly downward aim. Sample a slow lunar arc over that skyline;
     // a 150-degree orbit or a zenith-height moon stays outside the flight.
-    const azimuth = name === 'moon' ? 50 + 30 * (source.azimuth01 ?? .5) : 100 + 150 * (source.azimuth01 ?? .5);
+    const azimuth = azimuthOffsetDeg + (name === 'moon' ? 50 + 30 * (source.azimuth01 ?? .5) : 100 + 150 * (source.azimuth01 ?? .5));
     const worldDirection = tourSkyDirection(azimuth, (name === 'moon' ? 4 : 32) * source.altitude01);
     bodies[name] = Object.freeze({ ...source, radiusFrac: source.radiusFrac / lensScale,
       ...projectSkyDirection(pose, worldDirection, pose.aspect), worldDirection: Object.freeze(worldDirection) });
   }
   if (solar) {
     const azimuth = (solar.xFrac - CELESTIAL_RISE_XFRAC) / (CELESTIAL_SET_XFRAC - CELESTIAL_RISE_XFRAC);
-    const sun = tourSkyDirection(100 + 150 * azimuth, 32 * solar.altSigned);
+    const sun = tourSkyDirection(azimuthOffsetDeg + 100 + 150 * azimuth, 32 * solar.altSigned);
     const moon = bodies.moon.worldDirection, { forward, right, up } = cameraBasis(pose);
     const dot = (a, b) => a.reduce((sum, v, i) => sum + v * b[i], 0);
     // Project the direction of sunlight in the moon's tangent plane. This

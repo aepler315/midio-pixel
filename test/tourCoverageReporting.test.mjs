@@ -13,7 +13,7 @@ test('worker and presentation carry intended, alternative and ending coverage to
     globalThis.self.onmessage({ data: {
       data: tourFixture(), durationMs: 20000, energy: new Float32Array(81).fill(.5),
       sections: [{ startMs: 0, endMs: 20000, role: 'outro', relEnergy01: .5 }], roles: [],
-      reducedMotion: false, previous: null, committedThroughMs: 0,
+      previous: null, committedThroughMs: 0,
     } });
     assert.equal(messages.length, 1);
     assert.equal(messages[0].error, undefined);

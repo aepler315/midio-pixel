@@ -243,7 +243,12 @@ binding to loopback keeps other machines out, but it does not keep other
 `127.0.0.1`, and every other site open on the device can do the same. With
 a wildcard, any of them could read the listing and download the music.
 Add development origins with
-`MUSIC_ALLOW_ORIGIN="http://127.0.0.1:8080,http://localhost:8080"`. It canonicalises its root directory at startup, which
+`MUSIC_ALLOW_ORIGIN="http://127.0.0.1:8080,http://localhost:8080"`. The
+origin list cannot stop DNS rebinding (a page that re-resolves its own name
+to `127.0.0.1` is same-origin and sends no `Origin`), so the server also
+answers only Host names that are loopback or an IP literal and replies 403
+to anything else; reach it by another name, such as `phone.local`, only
+after listing it in `MUSIC_ALLOW_HOST="phone.local"`. It canonicalises its root directory at startup, which
 matters here specifically: containment is checked against the `realpath` of
 each request, so a root that is *itself* a symlink — how shared storage is
 normally reached on Termux — would otherwise make every request, `/`

@@ -157,10 +157,9 @@ export function cameraMoveKeys(sections, durationMs, seed = 0) {
   return keys;
 }
 
-/** The cinematic move offset at heard time `timeMs`. Neutral for previews
- *  and under reduced motion. */
-export function rangeCameraMoveAt({ timeMs = 0, sections = null, durationMs = 0, seed = 0, reducedMotion = false, preview = false } = {}) {
-  if (reducedMotion || preview || !(durationMs > 0)) return NEUTRAL_MOVE;
+/** The cinematic move offset at heard time `timeMs`. Neutral for previews. */
+export function rangeCameraMoveAt({ timeMs = 0, sections = null, durationMs = 0, seed = 0, preview = false } = {}) {
+  if (preview || !(durationMs > 0)) return NEUTRAL_MOVE;
   const keys = cameraMoveKeys(sections, durationMs, seed);
   const t = clamp(Number(timeMs) || 0, 0, durationMs);
   // The key being travelled to (or held at): the last one that has begun.

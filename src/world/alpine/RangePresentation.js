@@ -24,6 +24,8 @@ import { cyclePhase01, sunScreenFrac } from '../DayNight.js';
 import { forcedSceneChoice } from '../terrain/SceneCatalog.js';
 import SCENE_CATALOG from '../terrain/sceneCatalogData.js';
 import { noteViewShown } from '../terrain/RangeHistory.js';
+import { RangeShotTours } from './RangeShotTours.js';
+import { headingPitch, lookDir } from '../terrain/ShotPath.js';
 
 export const RANGE_RENDERER_MODES = Object.freeze(['legacy', 'v2']);
 export const RANGE_DEFAULT_MODE = 'v2';
@@ -38,7 +40,11 @@ const RUNTIME_RETRY_MS = Object.freeze([2000, 8000]);
 const RUNTIME_COOLDOWN_MS = 60000;
 const retryUrl = (url, attempt) => (attempt ? `${url}?retry=${attempt}` : url);
 
-/** ?rangeRenderer=v2|legacy and ?rangeView=<id>. Default v2. */
+/** ?rangeRenderer=v2|legacy and ?rangeView=<id>. Default v2.
+ *  ?rangeTour=shots (the default) plays approved views' shot tours,
+ *  =off keeps every authored rail, =tetons forces the Teton highway tour;
+ *  the choice persists as localStorage 'range-tour'. ?rangeShots=all lets
+ *  candidate shot libraries play, for review only. */
 export function resolveRangeMode(search = (typeof location !== 'undefined' ? location.search : ''), storage = null) {
   try {
     const q = new URLSearchParams(String(search || '').replace(/^\?/, ''));
@@ -47,13 +53,16 @@ export function resolveRangeMode(search = (typeof location !== 'undefined' ? loc
     const diag = q.get('rangeDiag') === 'markers' ? 'markers' : null;
     let saved = null;
     try { saved = (storage || globalThis.localStorage)?.getItem('range-tour'); } catch { /* Private-mode storage can be unavailable. */ }
-    const tour = (q.has('rangeTour') ? q.get('rangeTour') : saved) === 'tetons' ? 'tetons' : null;
+    const choice = q.has('rangeTour') ? q.get('rangeTour') : saved;
+    const tour = choice === 'tetons' ? 'tetons' : null;
+    const shots = !tour && choice !== 'off';
     // ?rangeTourIntended=1 lets a tour shot framed by an alternative try its
     // intended subject. It replaces an accepted subject, so it is opt-in.
     const upgradeIntended = q.get('rangeTourIntended') === '1';
-    return { mode: tour ? 'v2' : RANGE_RENDERER_MODES.includes(raw) ? raw : RANGE_DEFAULT_MODE, forcedViewId: tour ? 'teton-range-tour' : forcedViewId, diag, tour, upgradeIntended };
+    return { mode: tour ? 'v2' : RANGE_RENDERER_MODES.includes(raw) ? raw : RANGE_DEFAULT_MODE, forcedViewId: tour ? 'teton-range-tour' : forcedViewId, diag, tour, upgradeIntended,
+      shots, shotCandidates: q.get('rangeShots') === 'all' };
   } catch {
-    return { mode: RANGE_DEFAULT_MODE, forcedViewId: null, diag: null, tour: null, upgradeIntended: false };
+    return { mode: RANGE_DEFAULT_MODE, forcedViewId: null, diag: null, tour: null, upgradeIntended: false, shots: true, shotCandidates: false };
   }
 }
 
@@ -101,19 +110,22 @@ function defaultCanvas(w, h) {
 }
 
 export class RangePresentation {
-  constructor({ mode = 'legacy', forcedViewId = null, tour = null, upgradeIntended = false, diag = null, residency = null, budget = 'desktop',
+  constructor({ mode = 'legacy', forcedViewId = null, tour = null, shots = true, shotCandidates = false, upgradeIntended = false, diag = null, residency = null, budget = 'desktop',
     loadRuntime = (attempt) => import(retryUrl(RUNTIME_URL, attempt)),
     loadScene = (attempt) => import(retryUrl('./RangeScene.js', attempt)),
     retryDelaysMs = RUNTIME_RETRY_MS, cooldownMs = RUNTIME_COOLDOWN_MS, sceneFactory = null, catalog = SCENE_CATALOG, assetBase = ASSET_BASE,
-    makeCanvas = defaultCanvas } = {}) {
+    makeCanvas = defaultCanvas, shotTours = null } = {}) {
     this.mode = mode;
     this.forcedViewId = forcedViewId;
     this.tourMode = tour;
     this.upgradeIntended = !!upgradeIntended;
+    // Scenic shot tours exclude the forced Teton highway tour.
+    this.shots = shotTours || new RangeShotTours({ enabled: shots && !tour, allowCandidates: shotCandidates, assetBase, residency });
+    this.cameraTourActive = false;
     this.tour = null;
     this.tourData = null;
     this._tourAbort = null;
-    this._tourPreparation = { state: tour ? 'idle' : 'off', generation: 0, reason: null, reducedMotion: false };
+    this._tourPreparation = { state: tour ? 'idle' : 'off', generation: 0, reason: null };
     this.diag = diag;
     this.residency = residency;
     this.budget = budget;
@@ -178,8 +190,12 @@ export class RangePresentation {
 
   get enabled() { return this.mode === 'v2'; }
 
+  /** 'tetons' forces the highway tour, 'shots' plays shot tours, null keeps
+   *  every authored rail. */
   setTourMode(tour, { terrain = null, mgr = null } = {}) {
     this.dispose();
+    this.shots.enabled = tour === 'shots';
+    tour = tour === 'tetons' ? 'tetons' : null;
     this.tourMode = tour;
     this.forcedViewId = tour ? 'teton-range-tour' : null;
     this.forced = tour ? forcedSceneChoice(this.catalog, this.forcedViewId) : null;
@@ -188,7 +204,7 @@ export class RangePresentation {
 
   /** A new song (or world): new generation, new assignments. Pending work
    *  of the previous generation is cancelled; its late results never land. */
-  setSong({ terrain = null, mgr = null, generation = this.generation + 1, exportMode = false } = {}) {
+  setSong({ terrain = null, mgr = null, generation = this.generation + 1, exportMode = false, cameraContinuation = null } = {}) {
     // Replays may reuse the load generation, but every reset supersedes
     // readiness loops that were preparing the previous song's views.
     this._readinessOwner = {};
@@ -210,9 +226,7 @@ export class RangePresentation {
     this.tour = null;
     this.tourData = null;
     this._tourSections = mgr?.sections;
-    this._tourMotion = !!mgr?.reducedMotion; // the preference the tour is planned with
-    this._tourManager = mgr;
-    this._tourPreparation = { state: this.tourMode ? 'idle' : 'off', generation, reason: null, reducedMotion: this._tourMotion };
+    this._tourPreparation = { state: this.tourMode ? 'idle' : 'off', generation, reason: null };
     this._replanAbort?.abort();
     // Export draws frames on request and waits for readiness: never fades,
     // never counts as the listener having seen a view.
@@ -253,7 +267,7 @@ export class RangePresentation {
       this._tourPromise = load
         .then(async pkg => {
           if (controller.signal.aborted || this.generation !== generation) return;
-          this._tourPreparation = { ...this._tourPreparation, state: 'planning', reducedMotion: !!mgr.reducedMotion };
+          this._tourPreparation = { ...this._tourPreparation, state: 'planning' };
           const tour = await prepareTourTimeline(pkg.data, mgr, { signal: controller.signal, upgradeIntended: this.upgradeIntended });
           if (controller.signal.aborted || this.generation !== generation) return;
           if (reservation) {
@@ -261,7 +275,7 @@ export class RangePresentation {
             this.residency.shrink(reservation.key, 32 * 1024 ** 2);
           }
           this.tour = tour; this.tourData = pkg.data;
-          this._tourPreparation = { ...this._tourPreparation, state: 'ready', reducedMotion: !!tour.reducedMotion };
+          this._tourPreparation = { ...this._tourPreparation, state: 'ready' };
           this.forced = { ...this.forced, view: { ...view, tour } };
           this.scene?.release(view.id);
         }).catch(error => {
@@ -274,6 +288,11 @@ export class RangePresentation {
           console.warn('[range tour] preparation failed', error);
         });
     }
+    // Shot tours: libraries and per-song plans for the views this song may
+    // show. A rebuild of the same song in place carries its committed camera.
+    this.cameraTourActive = false;
+    this.shots.setSong({ mgr, views: this._songViews(), choiceFor: (biome) => this._choiceFor(biome),
+      generation, exportMode: this.exportMode, continuation: cameraContinuation });
     // Views the new song still wants move to its generation before the old
     // one is cancelled; everything else of the old song is released.
     const keep = new Set(this._wantedViewIds());
@@ -377,6 +396,10 @@ export class RangePresentation {
     if (view.tourManifestUrl && !this.tour) return;
     if (view.tourManifestUrl) view = { ...view, tour: this.tour };
     if (!this.scene || this.scene.contextLost || this.failures.has(view.id) || this.scene.isReady(view.id) || this._preparing.has(view.id)) return;
+    // A shot-tour view is prepared for its library's camera footprint, so
+    // it waits (briefly) for the library; without one it keeps its rail.
+    view = this.shots.prepareView(view);
+    if (!view) return;
     const retryAt = this.deferred.get(view.id);
     if (retryAt != null && now < retryAt) return;
     this.deferred.delete(view.id);
@@ -467,7 +490,7 @@ export class RangePresentation {
       check();
       if (Date.now() >= deadline || this.scene.contextLost) break;
       this._prepare(v);
-      while (Date.now() < deadline && !this.scene.contextLost && !this.scene.isReady(v.id) && !this.failures.has(v.id)
+      while (Date.now() < deadline && !this.scene.contextLost && !(this.scene.isReady(v.id) && this.shots.settled(v.id)) && !this.failures.has(v.id)
         && (!this.deferred.has(v.id) || this.deferred.get(v.id) <= Date.now())) {
         await new Promise((r) => setTimeout(r, 25));
         check();
@@ -641,13 +664,11 @@ export class RangePresentation {
     const inputs = this.frameInputs;
     if (!inputs?.sim?.biomes) { this.reason = 'no-frame-inputs'; return false; }
     const mgr = inputs.sim.biomes;
-    // Replan the uncommitted tail when the song's sections or the listener's
-    // motion preference change. The newest request wins: an older worker is
-    // aborted, so its late reply never lands.
-    const tourMotion = !!mgr.reducedMotion;
-    if (this.tourMode && this.tour && (mgr.sections !== this._tourSections || tourMotion !== this._tourMotion)) {
+    // Replan the uncommitted tail when the song's sections change. The newest
+    // request wins: an older worker is aborted, so its late reply never lands.
+    this.shots.refine(mgr);
+    if (this.tourMode && this.tour && mgr.sections !== this._tourSections) {
       this._tourSections = mgr.sections;
-      this._tourMotion = tourMotion;
       this._replanAbort?.abort();
       const controller = new AbortController(), generation = this.generation;
       this._replanAbort = controller;
@@ -683,10 +704,8 @@ export class RangePresentation {
             if (count) previousNotes.set(note, count - 1);
             else if (/^Refinement (deferred|held):/.test(note)) deferredReason = note;
           }
-          const held = !!deferredReason || !!tour.reducedMotion !== tourMotion;
-          const reason = deferredReason || (held ? 'The tour retained its previous motion setting.' : null);
-          this._tourPreparation = { ...this._tourPreparation, replanning: false, reducedMotion: !!tour.reducedMotion,
-            refinement: { state: held ? 'held' : 'applied', reason } };
+          this._tourPreparation = { ...this._tourPreparation, replanning: false,
+            refinement: { state: deferredReason ? 'held' : 'applied', reason: deferredReason } };
           this.forced = { ...this.forced, view: { ...this.forced.view, tour } };
           this.scene.replaceTour?.(this.forced.view);
         }).catch(error => {
@@ -741,7 +760,7 @@ export class RangePresentation {
       view = from.view;
     } else if (blending && to.view.id !== from.view.id) {
       view = from.view;
-      if (!this.failures.has(to.view.id) && this.scene.isReady(to.view.id)) incoming = to.view;
+      if (!this.failures.has(to.view.id) && this.scene.isReady(to.view.id) && this.shots.settled(to.view.id)) incoming = to.view;
       // A frame of this travel drew the outgoing view alone: when the
       // incoming one does join, it joins late and fades in.
       else this._waitedFor = to.view.id;
@@ -760,6 +779,12 @@ export class RangePresentation {
     }
     if (this.failures.has(view.id)) { this.reason = this.failures.get(view.id); return false; }
     if (!this.scene.isReady(view.id)) { this.reason = this.scene.contextLost ? 'context-lost' : 'preparing'; return false; }
+    // A view's camera never switches from rail to tour mid-song: it is not
+    // drawn until its plan has settled (ready, or fallen back to the rail).
+    if (!this.shots.settled(view.id)) { this.reason = 'preparing: camera tour planning'; return false; }
+    this.scene.setCameraTour?.(view.id, this.shots.timeline(view.id));
+    if (incoming) this.scene.setCameraTour?.(incoming.id, this.shots.timeline(incoming.id));
+    this.cameraTourActive = !!this.shots.timeline(view.id);
     // What this frame draws stays resident (never evicted mid-use) -- pinned
     // before any reservation below, which may evict unpinned entries.
     const vp = inputs.scenicViewport;
@@ -813,7 +838,7 @@ export class RangePresentation {
     if ((this.skyPan.tourPose || this.skyPan.skyCamera) && mgr.celestialState) {
       const solar = sunScreenFrac(cyclePhase01(this.frame.timeMs, mgr._dayNightCycleMs));
       const state = this.skyPan.tourPose
-        ? projectRangeCelestials(mgr.celestialState, this.skyPan.tourPose, this.frame.cameraEffects.halfAngleScale, solar)
+        ? projectRangeCelestials(mgr.celestialState, this.skyPan.tourPose, this.frame.cameraEffects.halfAngleScale, solar, this.skyPan.celestialOffsetDeg ?? 0)
         : projectRailCelestials(mgr.celestialState, this.skyPan.skyCamera, solar);
       mgr.celestialState = state;
       const active = state[state.activeBody];
@@ -855,11 +880,18 @@ export class RangePresentation {
       let rail, proj, pose;
       if (typeof this.scene.movedPose === 'function') ({ rail, proj, pose } = this.scene.movedPose(v, frame));
       else {
-        rail = scenePoseAt(v, { progress01: v.glacier && !frame.reducedMotion ? (frame.glacier?.journey01 ?? frame.progress01) : frame.progress01, timeMs: frame.timeMs });
+        rail = scenePoseAt(v, { progress01: v.glacier ? (frame.glacier?.journey01 ?? frame.progress01) : frame.progress01, timeMs: frame.timeMs });
         proj = scenicProjection(rail.fovYDeg, vp);
         pose = applyCameraMoves(rail, frame.cameraMove, null);
       }
       if (v.tour) return { tourPose: { ...pose, fovYDeg: proj.fovYDeg, aspect: proj.aspect } };
+      // A shot tour turns anywhere: its sky and light are world-fixed, with
+      // the sun and moon arcs anchored to the view's own rail heading (the
+      // highway tour's arcs assume a north-east flight, 45 degrees).
+      if (this.shots.timeline(v.id)) {
+        const railHeading = headingPitch(lookDir(scenePoseAt(v, { progress01: .5 }))).headingDeg;
+        return { tourPose: { ...pose, fovYDeg: proj.fovYDeg, aspect: proj.aspect }, celestialOffsetDeg: railHeading - 45 };
+      }
       const turn = skyTurn(pose, cameraBasis(rail).forward);
       const referenceFov = Math.atan(Math.tan(proj.fovYDeg * Math.PI / 360) / (frame.cameraEffects?.halfAngleScale || 1)) * 360 / Math.PI;
       const skyCamera = { referencePose: { ...rail, fovYDeg: referenceFov }, pose: { ...pose, fovYDeg: proj.fovYDeg }, aspect: proj.aspect };
@@ -867,9 +899,16 @@ export class RangePresentation {
     };
     try {
       const a = one(view);
-      if (a.tourPose) return { x: 0, y: 0, tourPose: a.tourPose };
       const b = incoming ? one(incoming) : a;
       const k = incoming ? Math.min(1, Math.max(0, (this.seamP ?? 0) * (this.incomingFade ?? 1))) : 0;
+      // World-fixed and rail-relative skies cannot be blended: a travel that
+      // involves a tour hands the sky over at the seam's midpoint.
+      if (a.tourPose || b.tourPose) {
+        const side = k >= .5 ? b : a;
+        if (side.tourPose) return { x: 0, y: 0, tourPose: side.tourPose, ...(side.celestialOffsetDeg != null ? { celestialOffsetDeg: side.celestialOffsetDeg } : {}) };
+        if (!(side.tanY > 0 && side.aspect > 0)) return still;
+        return { x: side.x / (side.tanY * side.aspect), y: side.y / side.tanY, skyCamera: Object.freeze({ from: side.skyCamera, to: side.skyCamera, mix: 0 }) };
+      }
       const mix = (key) => a[key] + (b[key] - a[key]) * k;
       const tanY = mix('tanY'), aspect = mix('aspect');
       if (!(tanY > 0 && aspect > 0)) return still;
@@ -1147,12 +1186,18 @@ export class RangePresentation {
       tourMode: this.tourMode, active, viewId: active ? this.viewId : null, selectedViewId,
       runtime: this.runtimeState, runtimeReady, reason: this.reason, fallbackReason,
       tourPreparation: { ...this._tourPreparation,
-        requestedReducedMotion: this._tourManager ? !!this._tourManager.reducedMotion : null,
-        effectiveReducedMotion: this.tour ? !!this.tour.reducedMotion : null,
         requestedUpgradeIntended: this.upgradeIntended, effectiveUpgradeIntended: this.tour ? !!this.tour.upgradeIntended : null },
       generation: this.generation,
+      shotTours: { enabled: this.shots.enabled, active: this.active && this.cameraTourActive, views: this.shots.status() },
     };
   }
+
+  /** The shot tour state of one view at a heard time (capture diagnostics). */
+  shotState(viewId, timeMs) { return this.shots.stateAt(viewId, timeMs); }
+
+  /** The current tour timelines and committed horizon for an in-place
+   *  rebuild of the same song (full-analysis adoption). */
+  cameraContinuation(committedThroughMs) { return this.shots.continuation(committedThroughMs); }
 
   snapshot() {
     return {

@@ -290,12 +290,7 @@ export const MIST_GLSL = /* glsl */`
     float b = 0.55 * mistVnoise((hit.xz + 1.8 * uMistDrift[0]) / ${SEA_BILLOW_M.toFixed(1)})
       + 0.3 * mistVnoise((hit.xz + 1.8 * uMistDrift[1]) / ${SEA_BILLOW_M.toFixed(1)} * 2.3 + vec2(5.1, 1.7))
       + 0.15 * mistVnoise((hit.xz + 1.8 * uMistDrift[2]) / ${SEA_BILLOW_M.toFixed(1)} * 5.1 + vec2(-2.3, 8.4));
-    vec3 color=uMistColor * mix(1.0, 0.5 + 0.9 * b * b, uMistFill);
-    float giant=giantCloud(hit);
-    // Billowing crowns and shaded troughs form the figure on the cloud
-    // plane. The real ray/terrain intersection supplies its occlusion.
-    vec3 crown=max(uMistColor,vec3(.09,.13,.19))*(.85+b*.95);
-    return mix(color*(1.0-max(uGiantPeak[2],uGiantPeak[0]*uMidioCloud)*.25),crown,giant*.9);
+    return uMistColor * mix(1.0, 0.5 + 0.9 * b * b, uMistFill);
   }
 `;
 
@@ -332,8 +327,8 @@ export function tourMistCap(poseAt, tMs, durationMs, { backMs = 2000, aheadMs = 
 }
 
 /** Local light from an emitter on the rock stage: intensity bounded, and
- *  softened (not removed) under reduced flash and with height. */
-export function emitterStrength({ airbornePx = 0, reducedFlash = false } = {}) {
+ *  softened (not removed) with height. */
+export function emitterStrength({ airbornePx = 0 } = {}) {
   const lift = Math.min(1, Math.max(0, airbornePx / 160));
-  return (reducedFlash ? 0.12 : 0.22) * (1 - 0.6 * lift);
+  return 0.22 * (1 - 0.6 * lift);
 }

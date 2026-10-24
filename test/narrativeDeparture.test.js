@@ -23,7 +23,7 @@ test('SpaceRidge keeps its landscape but loses the satellite with Midasus', () =
     closePath() {}, fill() {}, arc() {}, createLinearGradient: () => ({ addColorStop() {} }),
     stroke() { strokes.push(this.lineWidth); } };
   const ridge = new SpaceRidge(4);
-  ridge.draw(ctx, { width: 1280, height: 720 }, '#abcdef', 50, false, 1, .5, false, 0);
+  ridge.draw(ctx, { width: 1280, height: 720 }, '#abcdef', 50, 1, .5, 0);
   assert.ok(strokes.length > 30, 'principal ridge survives');
   assert.ok(!strokes.includes(1.4), 'the tumbling satellite is absent');
 });

@@ -1,10 +1,10 @@
 // Watchability match: how well a song would play in a world's visual suite.
 //
-// Not "is this a city song." The question is: if we drive this world's
+// Not "is this a mountain song." The question is: if we drive this world's
 // channels with this song, does the show sit in a sweet spot — enough
-// going on to watch, not so much that every window strobes and every
-// peak clips. A drone leaves The Range sitting still (boring). A wall
-// of sound in After Hours lights every window at once (too intense).
+// going on to watch, not so much that every summit jolts and every
+// peak clips. A drone leaves the range sitting still (boring). A wall
+// of sound heaves every ridge at once (too intense).
 import { clamp01, clamp } from '../utils/math.js';
 import { listWorlds, getWorld } from './Worlds.js';
 import { buildSongProfile } from '../audio/SongProfile.js';
@@ -37,15 +37,14 @@ function comfortScore(drive, comfort) {
     return 0.78 + 0.22 * (1 - Math.abs(drive - mid) / half);
   }
   // Comfort bands overlap heavily in the middle of drive-space (see
-  // Worlds.js — up to five worlds' bands cover 0.30..0.52), so this
-  // out-of-range falloff is the only thing that can actually separate a
-  // well-matched world from a mismatched one for a typical song. The old
-  // coefficient (1.35) plus a 0.08 floor meant even a badly-mismatched
-  // world (dist ~0.3-0.4, common for real songs since drive rarely leaves
-  // 0.15..0.85) never scored below ~0.3-0.4 — nearly as high as a
-  // well-matched world's in-range floor of 0.78, which is what let
-  // farside/fathom lose pickups they should have won. Steeper falloff, no
-  // floor add-on: being outside a world's comfort band now costs real score.
+  // Worlds.js), so this out-of-range falloff is the only thing that can
+  // actually separate a well-matched world from a mismatched one for a
+  // typical song. The old coefficient (1.35) plus a 0.08 floor meant even a
+  // badly-mismatched world (dist ~0.3-0.4, common for real songs since
+  // drive rarely leaves 0.15..0.85) never scored below ~0.3-0.4 — nearly as
+  // high as a well-matched world's in-range floor of 0.78, so worlds with
+  // edge-of-range bands lost pickups they should have won. Steeper falloff,
+  // no floor add-on: being outside a world's comfort band now costs real score.
   // Quadratic, not linear: a near-miss (drive just past the edge of the
   // band) barely costs anything -- other components can still carry a
   // genuinely close song -- but a real mismatch (a song whose drive sits
@@ -149,7 +148,7 @@ export function predictedProblems(feat, world, response, confidence) {
     problems.push({
       code: 'manual-only',
       severity: 'block',
-      detail: 'kept out of Choose-for-me',
+      detail: 'chosen by hand only, never the recommended pick',
     });
   }
   return problems;
@@ -179,8 +178,8 @@ export function formatFitDiagnostic(ranked = [], { confidence = null } = {}) {
  *
  * `fit` is the continuous heuristic (0..1). `score` is the same value
  * mapped to 1–99 for the private review sheet — ranking uses `fit`,
- * never the rounded integer. Near ties stay tied; Choose-for-me still
- * needs one pick and records that as a tie-break, not certainty.
+ * never the rounded integer. Near ties stay tied; the fit readout still
+ * names one pick and records that as a tie-break, not certainty.
  *
  * Worlds flagged `manualOnly` are excluded from the default set. They are
  * chosen by hand or not at all. An explicit `worlds` argument is still
@@ -246,8 +245,8 @@ export function scoreWorlds(features, worlds = listWorlds().filter((w) => !w.man
 //
 // Construction lives in WorldAdaptation.adaptWorld. Scoring stays here
 // and is a heuristic, not a constructed 100. An adapted world keeps the
-// base world's channels, affinity, prefer and comfort, so Choose-for-me
-// can still compare apples to apples after adaptation.
+// base world's channels, affinity, prefer and comfort, so the fit readout
+// still compares apples to apples after adaptation.
 
 const SCORABLE_KEYS = [
   'arc', 'form', 'contrast', 'texture', 'air', 'onset',
@@ -298,19 +297,6 @@ export function buildWorldVariant(baseId, features, data = null) {
 
 export function pickRecommended(ranked = []) {
   return ranked.find((r) => r.recommended) || ranked.find((r) => r.eligible) || ranked[0] || null;
-}
-
-/**
- * Choose-for-me constructor: score, then adapt the winner. Not a privileged
- * gallery card — the chooser calls buildWorldVariant with the picked world.
- */
-export function buildCustomWorld(features, data = null) {
-  const feat = features && typeof features.drive === 'number'
-    ? features
-    : extractWatchFeatures(features || {});
-  const ranked = scoreWorlds(feat, undefined, { profile: data?.profile });
-  const pick = pickRecommended(ranked);
-  return buildWorldVariant(pick.id, feat, data);
 }
 
 function proveScore(features, world) {

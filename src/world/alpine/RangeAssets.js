@@ -150,29 +150,51 @@ function retireTerrain(prepared) {
 export async function prepareTerrainAssets(view, {
   baseUrl, residency, generation = 0, signal = null, isCurrent = () => true, fetchImpl, owner = null,
 } = {}) {
-  const key = `range:terrain-cpu:${view.id}`;
+  // A composition variant (e.g. `teton-jackson-lake-coherent`) reuses its
+  // source view's pinned terrain package unchanged; the package names that
+  // source. Both share one CPU entry, keyed by the terrain, so a song that
+  // shows the source and its variant decodes and charges the terrain once.
+  // Each holder keeps its own lease (retainTerrain), so releasing one view
+  // never retires terrain the other still draws.
+  const terrainId = view.terrainSourceId || view.id;
+  const key = `range:terrain-cpu:${terrainId}`;
   const stale = () => signal?.aborted || residency?.cancelled.has(generation) || !isCurrent(generation);
   if (stale()) throw new RangeAssetError('stale', `stale generation ${generation} for ${view.id}`);
   const live = residency?.get(key);
-  if (live) return retainTerrain(live, residency, owner);
+  if (live) {
+    // Reuse only the very content this view pins: a live entry verified
+    // against another manifest is never handed to it.
+    if (view.terrainManifestSha256 && live.manifestSha256 !== view.terrainManifestSha256) {
+      throw new RangeAssetError('hash', `${view.id} pins manifest ${view.terrainManifestSha256}, but the live ${terrainId} terrain is ${live.manifestSha256 || 'unpinned'}`);
+    }
+    return retainTerrain(live, residency, owner);
+  }
   const manifestUrl = new URL(view.terrainManifestUrl, baseUrl).href;
   const manifestBytes = await fetchBytes(manifestUrl, { signal, fetchImpl });
   if (stale()) throw new RangeAssetError('stale', `stale generation ${generation} for ${view.id}`);
-  if (view.terrainManifestSha256) {
-    const got = await sha256Hex(manifestBytes);
-    if (got !== view.terrainManifestSha256) throw new RangeAssetError('hash', `${view.id} manifest ${got} is not the catalog's ${view.terrainManifestSha256}`);
+  const manifestSha256 = await sha256Hex(manifestBytes);
+  if (view.terrainManifestSha256 && manifestSha256 !== view.terrainManifestSha256) {
+    throw new RangeAssetError('hash', `${view.id} manifest ${manifestSha256} is not the catalog's ${view.terrainManifestSha256}`);
   }
   let manifest;
   try { manifest = JSON.parse(new TextDecoder().decode(manifestBytes)); }
   catch { throw new RangeAssetError('manifest', `manifest is not JSON: ${manifestUrl}`); }
   const shape = validateTerrainManifest(manifest);
   if (!shape.ok) throw new RangeAssetError('manifest', `manifest rejected: ${shape.errors.slice(0, 3).join('; ')}`);
-  if (manifest.viewId !== view.id) throw new RangeAssetError('manifest', `manifest is for ${manifest.viewId}, not ${view.id}`);
-  const reservation = residency
+  if (manifest.viewId !== terrainId) throw new RangeAssetError('manifest', `manifest is for ${manifest.viewId}, not ${terrainId}`);
+  let reservation = null;
+  if (residency) {
     // A scene owner releases its exact charge after executing consumers have
     // stopped. Canceling a song cannot erase their still-owned shared lanes.
-    ? residency.reserve({ key, bytes: terrainCpuBytes(manifest), owner: 'range-terrain-cpu', generation: owner ? 0 : generation })
-    : null;
+    try {
+      reservation = residency.reserve({ key, bytes: terrainCpuBytes(manifest), owner: 'range-terrain-cpu', generation: owner ? 0 : generation });
+    } catch (err) {
+      // The shared key is pending for a source or variant prepared at the
+      // same moment (RangeScene dedups per view, not per terrain). A
+      // classified, retryable refusal, never a bare Error.
+      throw new RangeAssetError('busy', `${terrainId} terrain is already being prepared for another view: ${err?.message || err}`);
+    }
+  }
   if (residency && !reservation) throw new RangeAssetError('budget', `no room for ${view.id} terrain`);
   try {
     // The manifest is already verified; load the payload through the same path.
@@ -181,7 +203,8 @@ export async function prepareTerrainAssets(view, {
         ? new Response(manifestBytes) : (fetchImpl || globalThis.fetch)(url, init)),
     });
     if (stale()) throw new RangeAssetError('stale', `stale generation ${generation} for ${view.id}`);
-    const prepared = { viewId: view.id, generation, key, reservation, ...pkg };
+    // viewId names the terrain (shared by a source and its variants).
+    const prepared = { viewId: terrainId, manifestSha256, generation, key, reservation, ...pkg };
     if (reservation && !residency.commit(reservation, prepared, retireTerrain)) {
       throw new RangeAssetError('stale', `generation ${generation} cancelled during ${view.id}`);
     }

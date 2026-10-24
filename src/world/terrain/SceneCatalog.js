@@ -21,6 +21,7 @@ import { compositionErrors } from '../alpine/RangeComposition.js';
 import { AXES, axisDistance } from './RangeCharacter.js';
 import { seedTicket, songTerrainTarget } from './RangeMatcher.js';
 import { cameraRailErrors } from './SceneTravel.js';
+import { riverChannelErrors } from '../alpine/RiverChannel.js';
 
 export const SCENIC_FAIR_SHARE = 0.15;
 const KERNEL_WIDTH = 0.4;
@@ -41,9 +42,38 @@ export function sceneViewErrors(view) {
   if (view.tourManifestUrl) {
     if (!view.tourManifestUrl.endsWith('.json') || !/^[a-f0-9]{64}$/.test(view.tourManifestSha256 || '')) errors.push('tour package identity');
   } else errors.push(...cameraRailErrors(view.camera));
+  // Optional shot metadata is checked independently by shotTourIdentityErrors:
+  // a candidate or broken tour must never remove its approved fallback rail.
   errors.push(...compositionErrors(view));
   if (!view.characterScores || !AXES.every((a) => Number.isFinite(view.characterScores[a]))) errors.push('characterScores');
   if (!view.evidence || typeof view.evidence.reviewPath !== 'string') errors.push('evidence');
+  if (view.rivers != null) {
+    if (!Array.isArray(view.rivers)) errors.push('rivers must be an array');
+    else {
+      const ids = new Set();
+      for (const river of view.rivers) {
+        errors.push(...riverChannelErrors(river));
+        if (ids.has(river?.id)) errors.push('duplicate river id');
+        ids.add(river?.id);
+      }
+    }
+  }
+  if (view.riverPolicy != null && (view.riverPolicy.condition !== 'representative-no-runoff'
+    || view.riverPolicy.terrainWater !== 'mapped-only')) errors.push('riverPolicy');
+  return errors;
+}
+
+/** The tour's identity gate, independent of the base scene's validity and
+ * review status. Diagnostics may override status, never package identity. */
+export function shotTourIdentityErrors(view) {
+  if (!view || typeof view.shotsManifestUrl !== 'string' || !view.shotsManifestUrl.endsWith('.json') || view.tourManifestUrl) return ['shot library identity'];
+  const tour = view.shotTour;
+  if (!STATUSES.has(tour?.status)) return ['shot tour status'];
+  const errors = [];
+  for (const key of ['shotsManifestSha256', 'terrainManifestSha256', 'baseViewSha256']) {
+    if (!/^[a-f0-9]{64}$/.test(view[key] || '') || tour.identity?.[key] !== view[key]
+      || (tour.approval != null && tour.approval[key] !== view[key])) errors.push(`shot ${key}`);
+  }
   return errors;
 }
 

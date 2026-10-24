@@ -1,7 +1,7 @@
 // Assembled landscape correctness. Use installed Chrome explicitly for hardware
 // pixels; this fixed-step matrix never measures live playback performance.
 // node tools/landscape-performance-smoke.mjs --url URL --fixtures DIR --output DIR
-//   [--suite matrix|motion|handoff|shared|midi-travel|all] [--source-root DIR]
+//   [--suite matrix|motion|handoff|midi-travel|all] [--source-root DIR]
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -15,7 +15,7 @@ import { measureTerrainSnapshot } from './lib/range-motion-evidence.mjs';
 const args = {};
 for (let i = 2; i < process.argv.length; i += 2) args[process.argv[i].slice(2)] = process.argv[i + 1];
 assert.ok(args.url && args.fixtures && args.output, '--url, --fixtures, --output required');
-assert.ok(['all', 'matrix', 'motion', 'handoff', 'shared', 'midi-travel'].includes(args.suite || 'all'), 'unknown suite');
+assert.ok(['all', 'matrix', 'motion', 'handoff', 'midi-travel'].includes(args.suite || 'all'), 'unknown suite');
 const root = path.resolve(args['source-root'] || path.join(path.dirname(fileURLToPath(import.meta.url)), '..'));
 const out = path.resolve(args.output), fixtures = path.resolve(args.fixtures);
 await fs.mkdir(out, { recursive: true });
@@ -57,12 +57,8 @@ const trackedBrowser = { async newContext(options) {
   }));
   return c;
 } };
-async function row(page, label, t, { reducedMotion = false, reducedFlash = false, quality = 0, measureMotion = false } = {}) {
-  await page.evaluate(({ reducedMotion, reducedFlash, quality }) => {
-    const app = window.__SMW;
-    app.sim.setReducedMotion(reducedMotion); app.sim.setReducedFlash(reducedFlash);
-    app.perf?.setFixtureLevel(quality);
-  }, { reducedMotion, reducedFlash, quality });
+async function row(page, label, t, { quality = 0, measureMotion = false } = {}) {
+  await page.evaluate(quality => { window.__SMW.perf?.setFixtureLevel(quality); }, quality);
   const frame = await captureFrame(page, t);
   const ownership = await landscapeOwnership(page); assertLandscapeOwnership(ownership);
   const state = await page.evaluate(measureMotion => {
@@ -104,14 +100,10 @@ async function row(page, label, t, { reducedMotion = false, reducedFlash = false
     const r = frame.range.residency;
     assert.ok(r.liveBytes + r.pendingBytes <= r.budgetBytes); assert.equal(r.overcommits, 0);
   }
-  if (reducedMotion && state.music) {
-    for (const k of ['amplitudeM', 'kickM', 'gestureM', 'melodicM', 'structuralM']) assert.equal(state.music[k], 0, k);
-    assert.equal(state.ridges.dance.displacement01, 0); assert.equal(state.ridges.space.displacement01, 0);
-  }
   if (quality >= 3) assert.equal(state.shafts, false);
   await fs.writeFile(path.join(out, `${label}.png`), Buffer.from(frame.png, 'base64'));
   delete frame.png;
-  return { label, ...frame, ...state, ownership, reducedMotion, reducedFlash };
+  return { label, ...frame, ...state, ownership };
 }
 async function matrix() {
   const specs = [
@@ -135,13 +127,11 @@ async function matrix() {
       rows.push(value);
     }
     if (name === 'wide') {
-      for (const [label, options] of [['dense', {}], ['reduced-motion', { reducedMotion: true }], ['reduced-flash', { reducedFlash: true }]]) {
-        await opened.page.evaluate(() => { window.__resetLandscapeRandom(); window.__SMW.beginBulkExport(window.__SMW.exportSize); });
-        const value = await row(opened.page, label, 42000, options);
-        if (label === 'reduced-flash') assert.ok((value.music.source ?? value.music).amplitudeM > 0, 'reduced flash retains the heard mountain motion');
-        rows.push(value);
-      }
-      // Descending from the dense 42 s checks must rebuild the forward-only
+      await opened.page.evaluate(() => { window.__resetLandscapeRandom(); window.__SMW.beginBulkExport(window.__SMW.exportSize); });
+      const dense = await row(opened.page, 'dense', 42000);
+      assert.ok((dense.music.source ?? dense.music).amplitudeM > 0, 'the dense instant carries the heard mountain motion');
+      rows.push(dense);
+      // Descending from the dense 42 s check must rebuild the forward-only
       // clock. Both quality levels then draw the identical active-sun instant.
       await opened.page.evaluate(() => { window.__resetLandscapeRandom(); window.__SMW.beginBulkExport(window.__SMW.exportSize); });
       const baseline = await row(opened.page, 'quality0-sun', 21000);
@@ -201,45 +191,6 @@ async function motion() {
       await fs.writeFile(path.join(out, 'report.json'), JSON.stringify(report, null, 2));
     }
   }
-}
-
-async function sharedWorlds() {
-  const opened = await openSong(trackedBrowser, { url: args.url, wav: path.join(fixtures, 'pilot-120s.wav'), width: 960, height: 540,
-    params: { rangeRenderer: 'legacy', seed: String(report.seed) } });
-  await captureFrame(opened.page, 1000);
-  const rows = await opened.page.evaluate(async () => {
-    const [{ Simulation }, { Conductor }, { ParamBus }, { createRenderer }, { getWorld }] = await Promise.all([
-      import('/src/sim/Simulation.js'), import('/src/core/Conductor.js'), import('/src/core/ParamBus.js'),
-      import('/src/render/WebGLRenderer.js'), import('/src/world/Worlds.js')]);
-    const rows = [];
-    for (const [world, mode] of [['fathom', 'canvas'], ['farside', 'webgl']]) {
-      const c = new Conductor(); c.load({ timeline: window.__SMW.conductor.timeline, durationMs: 120000, bpm: 120, barGrid: [] });
-      const sim = new Simulation(c, new ParamBus(), { worldId: world, songSeed: 2917029651, energyCurves: window.__SMW.sim.energyCurves });
-      const canvas = document.createElement('canvas'); canvas.width = 960; canvas.height = 540; document.body.append(canvas);
-      const r = createRenderer(canvas, mode, getWorld(world)), painter = r.canvasRenderer || r;
-      let bossDraws = 0; const boss = r._drawBoss;
-      if (boss) r._drawBoss = function (...args) { bossDraws++; return boss.apply(this, args); };
-      const forbidden = ['_drawMidio', '_drawBroshi', '_drawMidasus', '_captureCastForReflections'];
-      for (const name of forbidden) if (typeof painter[name] === 'function') painter[name] = () => { throw new Error('retired draw called: ' + name); };
-      sim.startAt(20000); r.draw(sim, 1);
-      const rgba = canvas.getContext('2d').getImageData(0, 0, 960, 540).data, colors = new Set();
-      for (let i = 0; i < rgba.length; i += 64) colors.add(`${rgba[i]},${rgba[i+1]},${rgba[i+2]}`);
-      rows.push({ world, mode, backend: r.backend || 'canvas', actors: !!sim.broshi || !!sim.midasus || !!sim.ensemble || !!sim.focus,
-        policy: sim.presentation, bossDraws, bossCells: r._bossBody ? r._bossBody.w * r._bossBody.h : 0,
-        colors: colors.size, png: canvas.toDataURL('image/png').split(',')[1] });
-      sim.dispose(); r.dispose?.(); canvas.remove();
-    }
-    return rows;
-  });
-  for (const r of rows) {
-    assert.equal(r.actors, false); assert.ok(r.colors > 16);
-    if (r.mode === 'webgl') assert.equal(r.backend, 'webgl');
-    await fs.writeFile(path.join(out, `shared-${r.world}.png`), Buffer.from(r.png, 'base64')); delete r.png;
-  }
-  assert.deepEqual(opened.errors, []);
-  report.sharedWorlds = rows;
-  await Promise.all(pending);
-    await opened.context.close();
 }
 
 async function midiAndTravel() {
@@ -330,13 +281,13 @@ async function handoff() {
   page.on('console', m => { if (/Shader Error|program not valid/.test(m.text())) errors.push(m.text()); });
   await page.route('**/soundfonts/', route => route.fulfill({ json: [] }));
   await context.route(/^https:\/\//, route => route.abort());
-  const entry = new URL(args.url); entry.searchParams.set('seed', String(report.seed)); entry.searchParams.set('rangeView', 'teton-jackson-lake'); entry.searchParams.set('worlds', 'all');
+  const entry = new URL(args.url); entry.searchParams.set('seed', String(report.seed)); entry.searchParams.set('rangeView', 'teton-jackson-lake');
   await page.goto(entry.href);
   await page.locator('#titleSettings').evaluate(n => { n.open = true; });
   if (await page.locator('#lyricGroundingBtn').getAttribute('aria-pressed') === 'true') await page.locator('#lyricGroundingBtn').click();
   await page.locator('#fileInput').setInputFiles(path.join(fixtures, 'pilot-120s.wav'));
   await page.locator('#worldSelect[open]').waitFor({ timeout: 180000 });
-  await page.locator('.worldCard[data-world-id="alpine"]').click();
+  await page.locator('.worldCard[data-base-world-id="alpine"]').click();
   await page.waitForFunction(() => window.__SMW?.sim?.heardTimeMs > 1800, null, { timeout: 120000 });
   const before = await page.evaluate(() => {
     const a = window.__SMW, history = a.sim.biomes.ridgeMusicSession.primary;
@@ -407,7 +358,6 @@ try {
   if (!args.suite || ['all', 'matrix'].includes(args.suite)) await matrix();
   if (!args.suite || ['all', 'motion'].includes(args.suite)) await motion();
   if (!args.suite || ['all', 'midi-travel'].includes(args.suite)) await midiAndTravel();
-  if (!args.suite || ['all', 'shared'].includes(args.suite)) await sharedWorlds();
   if (!args.suite || ['all', 'handoff'].includes(args.suite)) await handoff();
   await Promise.all(pending);
   assert.deepEqual(report.sourceIdentityErrors || [], [], 'served source identity failed');

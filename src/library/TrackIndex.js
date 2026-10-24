@@ -7,6 +7,16 @@
 
 /** Numeric-aware and case-insensitive, so "Track 2" precedes "Track 10" and
  *  "abba" sorts with "ABBA" rather than after every capitalised name. */
+/** Uniform selection over all tracks, with no immediate repeat if possible. */
+export function randomTrack(tracks, previousId = null, random = Math.random) {
+  if (!tracks?.length) return null;
+  const alternatives = tracks.filter(track => track.key !== previousId);
+  const pool = alternatives.length ? alternatives : tracks;
+  const draw = random();
+  const index = Math.min(pool.length - 1, Math.max(0, Math.floor((Number.isFinite(draw) ? draw : 0) * pool.length)));
+  return pool[index];
+}
+
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 
 /** What to call a track that was never tagged: its filename, minus the

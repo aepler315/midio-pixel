@@ -11,7 +11,7 @@ function fixture() {
   const mgr = Object.assign(Object.create(BiomeManager.prototype), {
     currentBlend: { from: A, to: B, t: .35 }, _profile: x => x, lerpCache: new LerpCache(),
     world: getWorld('alpine'), _rotationCache: new Map(), _specShift: 27, sectionHueBias: 0,
-    _drawCompanions() {}, reducedFlash: true,
+    _drawCompanions() {},
   });
   return { mgr, A, B };
 }

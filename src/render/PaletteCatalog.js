@@ -19,6 +19,6 @@ export const PALETTES = Object.freeze({
 });
 /** A bounded, stable world choice; never reads biome, camera or frame colors. */
 export function resolvePaletteId(selection, worldKind = null) {
-  if (selection === 'world') return worldKind === 'alpine' || worldKind === 'overgrowth' ? 'range32' : 'chroma32';
+  if (selection === 'world') return worldKind === 'alpine' ? 'range32' : 'chroma32';
   return ['range32', 'chroma32', 'rgb332'].includes(selection) ? selection : 'none';
 }

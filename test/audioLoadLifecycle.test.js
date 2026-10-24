@@ -37,6 +37,7 @@ function harness() {
     AUDIO_LOAD_LIMITS, accumulateDecodedAudioBytes, accumulateDecodedByteLength, decodedAudioByteLength,
     accumulateEncodedAudioBytes, audioAbortError, validateAudioFiles, validateDecodedAudioBuffer, validateDecodedByteLength,
     AbortController, audioSelections: createAudioSelection(), normalizeSourceMetadata, ...sessionIdentity,
+    selectionExportSettings: new WeakMap(), exportSetup: { snapshot: () => null },
     cancelUrlLoad() {}, buildLyricSections: () => null,
     loadGen: 0, groove: new GrooveFingerprint(), lyricsDisabled: true,
     console, bootAudio: async () => {}, showProgress() {},

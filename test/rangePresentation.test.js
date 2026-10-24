@@ -129,12 +129,12 @@ test('glacial inland pilot suppresses distant sea throughout a biome handoff', (
 });
 
 test('mode resolution: v2 by default, explicit legacy opt-out and view/diagnostic flags', () => {
-  assert.deepEqual(resolveRangeMode(''), { mode: 'v2', forcedViewId: null, diag: null, tour: null, upgradeIntended: false });
-  assert.deepEqual(resolveRangeMode('?rangeRenderer=legacy'), { mode: 'legacy', forcedViewId: null, diag: null, tour: null, upgradeIntended: false });
+  assert.deepEqual(resolveRangeMode(''), { mode: 'v2', forcedViewId: null, diag: null, tour: null, shots: true, shotCandidates: false, upgradeIntended: false });
+  assert.deepEqual(resolveRangeMode('?rangeRenderer=legacy'), { mode: 'legacy', forcedViewId: null, diag: null, tour: null, shots: true, shotCandidates: false, upgradeIntended: false });
   assert.equal(resolveRangeMode('?rangeRenderer=LEGACY').mode, 'legacy');
-  assert.deepEqual(resolveRangeMode('?rangeRenderer=v2'), { mode: 'v2', forcedViewId: null, diag: null, tour: null, upgradeIntended: false });
+  assert.deepEqual(resolveRangeMode('?rangeRenderer=v2'), { mode: 'v2', forcedViewId: null, diag: null, tour: null, shots: true, shotCandidates: false, upgradeIntended: false });
   assert.deepEqual(resolveRangeMode('?rangeRenderer=V2&rangeView=nc-ross-lake-north&rangeDiag=markers'),
-    { mode: 'v2', forcedViewId: 'nc-ross-lake-north', diag: 'markers', tour: null, upgradeIntended: false });
+    { mode: 'v2', forcedViewId: 'nc-ross-lake-north', diag: 'markers', tour: null, shots: true, shotCandidates: false, upgradeIntended: false });
   assert.equal(resolveRangeMode('?rangeRenderer=webgl').mode, 'v2', 'unknown values take the default');
   assert.equal(resolveRangeMode('?renderer=webgl').mode, 'v2', 'the old overlay flag does not change the Range renderer');
 });
@@ -708,17 +708,15 @@ test('budget reclamation keeps the visible legacy strips the fallback will draw'
   m.dispose();
 });
 
-test('reduced flashing removes the full-frame cut flash over a composed v2 view (M1)', () => {
-  for (const reducedFlash of [false, true]) {
-    const { m } = manager(), ctx = anyCtx(), white = [];
-    m.rangePresentation = { ...fakePresentation(), hasViewComposition: true, arrival: 1 };
-    m._drawTransitionOverlays = BiomeManager.prototype._drawTransitionOverlays;
-    m._cutFlash = 1; m.reducedFlash = reducedFlash;
-    ctx.fillRect = (x, y, w, h) => { if (ctx.fillStyle === '#ffffff' && w === 1408 && h === 848) white.push(ctx.globalAlpha); };
-    m.draw(ctx, { width: 1408, height: 848 }, 0, 0, null, 1, null, groundView);
-    assert.deepEqual(white, reducedFlash ? [] : [.35]);
-    m.dispose();
-  }
+test('the full-frame cut flash draws over a composed v2 view (M1)', () => {
+  const { m } = manager(), ctx = anyCtx(), white = [];
+  m.rangePresentation = { ...fakePresentation(), hasViewComposition: true, arrival: 1 };
+  m._drawTransitionOverlays = BiomeManager.prototype._drawTransitionOverlays;
+  m._cutFlash = 1;
+  ctx.fillRect = (x, y, w, h) => { if (ctx.fillStyle === '#ffffff' && w === 1408 && h === 848) white.push(ctx.globalAlpha); };
+  m.draw(ctx, { width: 1408, height: 848 }, 0, 0, null, 1, null, groundView);
+  assert.deepEqual(white, [.35]);
+  m.dispose();
 });
 
 test('tour downloads retry only HTTP failures, with a bound and cancellation', async () => {

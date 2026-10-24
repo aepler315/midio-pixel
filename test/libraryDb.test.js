@@ -7,6 +7,7 @@
 // Tested against an in-memory IndexedDB. The module takes its `scope` as an
 // argument for exactly this reason, the same way AnalysisCache does.
 import { test } from 'node:test';
+import * as DB from '../src/library/LibraryDB.js';
 import assert from 'node:assert/strict';
 import {
   libraryDbSupported, directoryHandlesSupported, rootIdFor, addRoot, listRoots, removeRoot,
@@ -283,4 +284,240 @@ test('duplicate scan records carry earlier earned fields into the final committe
   assert.equal(rows[0].playCount, 4);
   assert.equal(rows[0].durationSec, 125);
   assert.deepEqual(await listTracks('r', scope), rows);
+});
+
+
+test('concurrent same-name directory selections reserve distinct durable roots', async () => {
+  const scope = fakeIdb();
+  const [one, two] = await Promise.all([
+    addRoot({ name: 'Music', handle: directoryHandle('Music', 'one') }, scope),
+    addRoot({ name: 'Music', handle: directoryHandle('Music', 'two') }, scope),
+  ]);
+  assert.notEqual(one.id, two.id);
+  assert.equal((await listRoots(scope)).length, 2);
+});
+
+test('concurrent selections of the same physical directory converge on one root', async () => {
+  const scope = fakeIdb();
+  const roots = await Promise.all(Array.from({ length: 3 }, () =>
+    addRoot({ name: 'Music', handle: directoryHandle('Music', 'same') }, scope)));
+  assert.equal(new Set(roots.map(root => root.id)).size, 1);
+  assert.equal((await listRoots(scope)).length, 1);
+});
+
+test('concurrent file-list selections with the same name remain separate roots', async () => {
+  const scope = fakeIdb();
+  const roots = await Promise.all(Array.from({ length: 3 }, () =>
+    addRoot({ name: 'Music', persistable: false }, scope)));
+  assert.equal(new Set(roots.map(root => root.id)).size, 3);
+  assert.equal((await listRoots(scope)).length, 3);
+});
+
+test('scan revisions reject a superseded batch and prune without changing newer rows', async () => {
+  const scope = fakeIdb();
+  const root = await addRoot({ name: 'Music' }, scope);
+  assert.equal(typeof DB.beginRootScan, 'function');
+  const first = await DB.beginRootScan(root.id, scope);
+  assert.equal(first.status, 'committed');
+  await DB.putScanTracks(first.token, [track({ rootId: root.id, path: 'old.mp3' })], scope);
+  const next = await DB.beginRootScan(root.id, scope);
+  assert.notEqual(next.token.revision, first.token.revision);
+  await DB.putScanTracks(next.token, [track({ rootId: root.id, path: 'new.mp3' })], scope);
+  assert.deepEqual(await DB.putScanTracks(first.token, [track({ rootId: root.id, path: 'late.mp3' })], scope), { status: 'stale' });
+  assert.deepEqual(await DB.pruneScanTracks(first.token, ['old.mp3'], scope), { status: 'stale' });
+  assert.deepEqual((await listTracks(root.id, scope)).map(row => row.path).sort(), ['new.mp3', 'old.mp3']);
+  assert.deepEqual(await DB.pruneScanTracks(next.token, ['new.mp3'], scope), { status: 'committed', count: 1 });
+});
+
+test('an aborted scan transaction rolls back its batch and reports stale ownership', async () => {
+  const controller = new AbortController();
+  const scope = fakeIdb({ rejectPut: (row, name) => {
+    if (name === 'tracks' && row.path === 'cancel.mp3') controller.abort();
+    return false;
+  } });
+  const root = await addRoot({ name: 'Music' }, scope);
+  assert.equal(typeof DB.beginRootScan, 'function');
+  const begun = await DB.beginRootScan(root.id, scope);
+  const result = await DB.putScanTracks(begun.token, [
+    track({ rootId: root.id, path: 'first.mp3' }), track({ rootId: root.id, path: 'cancel.mp3' }),
+  ], scope, { signal: controller.signal });
+  assert.deepEqual(result, { status: 'stale' });
+  assert.deepEqual(await listTracks(root.id, scope), []);
+});
+
+test('a removed and re-added root never accepts its old scan token', async () => {
+  const scope = fakeIdb();
+  const root = await addRoot({ name: 'Music' }, scope);
+  assert.equal(typeof DB.beginRootScan, 'function');
+  const old = await DB.beginRootScan(root.id, scope);
+  await removeRoot(root.id, scope);
+  assert.deepEqual(await DB.putScanTracks(old.token, [track({ rootId: root.id })], scope), { status: 'stale' });
+  const replacement = await addRoot({ name: 'Music' }, scope);
+  assert.equal(replacement.id, root.id);
+  const current = await DB.beginRootScan(replacement.id, scope);
+  assert.notEqual(current.token.revision, old.token.revision);
+  assert.deepEqual(await DB.pruneScanTracks(old.token, [], scope), { status: 'stale' });
+  assert.deepEqual(await listTracks(root.id, scope), []);
+});
+
+test('guarded scans distinguish missing roots, unavailable storage and committed empty batches', async () => {
+  assert.equal(typeof DB.beginRootScan, 'function');
+  assert.deepEqual(await DB.beginRootScan('missing', fakeIdb()), { status: 'missing' });
+  assert.deepEqual(await DB.beginRootScan('r', {}), { status: 'unavailable' });
+  const scope = fakeIdb();
+  const root = await addRoot({ name: 'Music' }, scope);
+  const { token } = await DB.beginRootScan(root.id, scope);
+  assert.deepEqual(await DB.putScanTracks(token, [], scope), { status: 'committed', tracks: [] });
+  assert.deepEqual(await DB.putScanTracks(token, [track({ rootId: 'other' })], scope), { status: 'stale' });
+  const controller = new AbortController();
+  controller.abort();
+  assert.deepEqual(await DB.beginRootScan(root.id, scope, { signal: controller.signal }), { status: 'stale' });
+  assert.deepEqual(await DB.pruneScanTracks(token, [], scope, { signal: controller.signal }), { status: 'stale' });
+});
+
+test('a failed guarded batch rolls back all rows and never reports committed', async () => {
+  const scope = fakeIdb({ rejectPut: (row, name) => name === 'tracks' && row.path === 'bad.mp3' });
+  const root = await addRoot({ name: 'Music' }, scope);
+  assert.equal(typeof DB.beginRootScan, 'function');
+  const { token } = await DB.beginRootScan(root.id, scope);
+  assert.deepEqual(await DB.putScanTracks(token, [track({ rootId: root.id }), track({ rootId: root.id, path: 'bad.mp3' })], scope), { status: 'unavailable' });
+  assert.deepEqual(await listTracks(root.id, scope), []);
+});
+
+test('a rescan preserves unknown earned fields while refreshing filesystem fields', () => {
+  const merged = carryForward(track({ customRating: 5, folder: 'old', name: 'old.mp3' }), track({ folder: 'new', name: 'new.mp3' }));
+  assert.equal(merged.customRating, 5);
+  assert.equal(merged.folder, 'new');
+  assert.equal(merged.name, 'new.mp3');
+});
+
+test('a canceled root selection cannot persist after an awaited identity comparison', async () => {
+  const scope = fakeIdb();
+  await addRoot({ name: 'Music', handle: directoryHandle('Music', 'original') }, scope);
+  const controller = new AbortController();
+  const handle = { async isSameEntry() { controller.abort(); return false; } };
+  assert.equal(await addRoot({ name: 'Other', handle }, scope, { signal: controller.signal }), null);
+  assert.deepEqual((await listRoots(scope)).map(root => root.name), ['Music']);
+});
+
+test('reselecting a directory preserves its current scan revision and unknown root fields', async () => {
+  const scope = fakeIdb();
+  const handle = directoryHandle('Music', 'same');
+  const root = await addRoot({ name: 'Music', handle }, scope);
+  const { token } = await DB.beginRootScan(root.id, scope);
+  const request = scope.indexedDB.open('midio-library', 2);
+  const db = await new Promise(resolve => { request.onsuccess = () => resolve(request.result); });
+  const tx = db.transaction('roots', 'readwrite');
+  const finished = new Promise(resolve => { tx.oncomplete = resolve; });
+  const get = tx.objectStore('roots').get(root.id);
+  get.onsuccess = () => tx.objectStore('roots').put({ ...get.result, customColor: 'violet' });
+  await finished;
+  db.close();
+  const refreshed = await addRoot({ name: 'Music', handle }, scope);
+  assert.equal(refreshed.id, root.id);
+  assert.equal(refreshed.scanRevision, token.revision);
+  assert.equal(refreshed.customColor, 'violet');
+  assert.equal((await DB.putScanTracks(token, [track({ rootId: root.id })], scope)).status, 'committed');
+});
+
+test('a guarded batch returns the committed metadata merge and composes duplicate keys', async () => {
+  const scope = fakeIdb();
+  const root = await addRoot({ name: 'Music' }, scope);
+  await putTracks([track({ rootId: root.id, customRating: 5 })], scope);
+  await updateTracks([{ key: `${root.id}\u0000a.mp3`, playCount: 7, title: 'Paid for', tagSource: 'auto' }], scope);
+  const { token } = await DB.beginRootScan(root.id, scope);
+  const result = await DB.putScanTracks(token, [track({ rootId: root.id }), track({ rootId: root.id, folder: 'new' })], scope);
+  assert.equal(result.status, 'committed');
+  assert.equal(result.tracks.length, 1);
+  assert.equal(result.tracks[0].playCount, 7);
+  assert.equal(result.tracks[0].title, 'Paid for');
+  assert.equal(result.tracks[0].customRating, 5);
+  assert.equal(result.tracks[0].folder, 'new');
+  assert.deepEqual(result.tracks, await listTracks(root.id, scope));
+});
+
+test('a prune cannot delete a row refreshed by a concurrent writer after its snapshot', async () => {
+  const scope = fakeIdb();
+  await putTracks([track({ path: 'old.mp3' })], scope);
+  const open = scope.indexedDB.open;
+  let armed = true;
+  scope.indexedDB.open = (...args) => {
+    const request = open(...args);
+    const outward = {};
+    request.onerror = () => outward.onerror?.();
+    request.onsuccess = () => {
+      const db = request.result;
+      outward.result = new Proxy(db, {
+        get(target, property) {
+          if (property !== 'transaction') return target[property];
+          return (names, mode) => {
+            const tx = target.transaction(names, mode);
+            if (!armed || names !== 'tracks') return tx;
+            const objectStore = tx.objectStore;
+            tx.objectStore = name => {
+              const store = objectStore(name);
+              const index = store.index;
+              store.index = field => {
+                const api = index(field);
+                const getAll = api.getAll;
+                api.getAll = value => {
+                  const rows = getAll(value);
+                  let handler;
+                  Object.defineProperty(rows, 'onsuccess', {
+                    set(fn) { handler = fn; },
+                    get() { return () => {
+                      if (armed) {
+                        armed = false;
+                        const newer = target.transaction('tracks', 'readwrite');
+                        // Refresh the same key into the path this prune keeps.
+                        newer.objectStore('tracks').put({ ...track({ path: 'kept.mp3' }), key: 'r\u0000old.mp3' });
+                      }
+                      handler?.();
+                    }; },
+                  });
+                  return rows;
+                };
+                return api;
+              };
+              return store;
+            };
+            return tx;
+          };
+        },
+      });
+      outward.onsuccess?.();
+    };
+    return outward;
+  };
+  await pruneTracks('r', ['kept.mp3'], scope);
+  const rows = await listTracks('r', scope);
+  assert.ok(rows.some(row => row.key === 'r\u0000old.mp3' && row.path === 'kept.mp3'));
+});
+
+test('a scan waiting to begin rejects a replaced root identity', async () => {
+  const scope = fakeIdb();
+  const old = await addRoot({ name: 'Music' }, scope);
+  await removeRoot(old.id, scope);
+  const replacement = await addRoot({ name: 'Music' }, scope);
+  assert.equal(replacement.id, old.id);
+  assert.deepEqual(await DB.beginRootScan(old.id, scope, { expectedRoot: old }), { status: 'stale' });
+  assert.equal((await DB.beginRootScan(replacement.id, scope, { expectedRoot: replacement })).status, 'committed');
+});
+
+test('an unchanged legacy root can begin a guarded scan without identity migration', async () => {
+  const scope = fakeIdb();
+  const legacy = { id: 'root:legacy', name: 'Legacy', addedMs: 1, customColor: 'green' };
+  const request = scope.indexedDB.open('midio-library', 2);
+  const db = await new Promise(resolve => { request.onsuccess = () => resolve(request.result); });
+  const tx = db.transaction('roots', 'readwrite');
+  const finished = new Promise(resolve => { tx.oncomplete = resolve; });
+  tx.objectStore('roots').put(legacy);
+  await finished;
+  db.close();
+  const begun = await DB.beginRootScan(legacy.id, scope, { expectedRoot: legacy });
+  assert.equal(begun.status, 'committed');
+  const [stored] = await listRoots(scope);
+  assert.equal(stored.id, 'root:legacy');
+  assert.equal(stored.identityRevision, undefined);
+  assert.equal(stored.customColor, 'green');
 });

@@ -4,6 +4,7 @@
 //
 //   node tools/build-range-scene.mjs --view <id> [--out DIR] [--publish] [--cell M]
 //   node tools/build-range-scene.mjs --approve <id> --evidence <file,file>
+//   node tools/build-range-scene.mjs --approve-tour <id> --evidence <file,file>
 //   node tools/build-range-scene.mjs --catalog
 //
 // Without --publish the output goes to .terrain-cache/views/<id>/ for review
@@ -14,15 +15,17 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { normalizeDem, readDemGrid } from './lib/terrain-source.mjs';
 import { bakeTerrain, viewSkyline, despikeGrid, smoothGentleGround } from './lib/terrain-bake.mjs';
 import { skylineFeatures, characterFromFeatures, archetypeOf } from '../src/world/terrain/RangeCharacter.js';
 import { cameraPoseAt } from '../src/world/terrain/SceneTravel.js';
 import { cameraRailErrors } from '../src/world/terrain/SceneTravel.js';
+import { loadShotLibrary } from '../src/world/terrain/ShotLibrary.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const AUTHORING = path.join(root, 'data', 'terrain', 'scenic-views.json');
+export const TOUR_AUTHORING = path.join(root, 'data', 'terrain', 'scenic-tours.json');
 export const RUNTIME_DIR = path.join(root, 'src', 'assets', 'range', 'v2');
 const CACHE = path.join(root, '.terrain-cache');
 
@@ -167,29 +170,46 @@ const DEFAULT_PACKS = {
 /** The runtime catalog: every non-rejected authored view whose package is
  *  published, as the SceneView contract (plan §7.1). Rejected views stay
  *  in the authoring file with their reasons and never ship. */
-export async function buildCatalog(doc) {
+export async function buildCatalog(doc, { tours = null, runtimeDir = RUNTIME_DIR } = {}) {
+  tours ??= JSON.parse(await fs.readFile(TOUR_AUTHORING, 'utf8'));
   const views = [];
   for (const v of doc.views) {
     if (v.status === 'rejected') continue;
     let build;
-    try { build = JSON.parse(await fs.readFile(path.join(RUNTIME_DIR, 'terrain', `${v.terrainSourceId || v.id}.build.json`), 'utf8')); }
+    try { build = JSON.parse(await fs.readFile(path.join(runtimeDir, 'terrain', `${v.terrainSourceId || v.id}.build.json`), 'utf8')); }
     catch { continue; } // not published yet
     // An approval holds only for the assets it reviewed: if the terrain
     // package, material pack or camera changed since, the view ships as a
     // candidate again until it is re-reviewed.
-    const hashes = await approvalHashes(v, build);
+    const hashes = await approvalHashes(v, build, { runtimeDir });
     if (hashes.terrainManifestSha256 !== build.manifestSha256) {
       console.warn(`${v.id}: published terrain manifest differs from its build record (interrupted publish?)`);
     }
     let status = v.status;
     if (status === 'approved') {
       const a = v.approval || {};
-      const keys = [...APPROVAL_KEYS, ...(v.tourManifestUrl || a.tourManifestSha256 ? ['tourManifestSha256'] : []), ...(v.glacier || a.glacierSha256 ? ['glacierSha256'] : []), ...(Object.hasOwn(v, 'composition') || a.compositionSha256 ? ['compositionSha256'] : [])];
+      const keys = baseApprovalKeys(v);
       const stale = keys.filter((k) => !a[k] || a[k] !== hashes[k]);
       if (stale.length) {
         console.warn(`${v.id}: approval is stale (${stale.join(', ')} changed); shipping as candidate`);
         status = 'candidate';
       }
+    }
+    let shotFields = {};
+    if (v.shotsManifestUrl) {
+      // A broken or missing optional library must leave the approved rail usable.
+      let shotsManifestSha256 = null;
+      try { shotsManifestSha256 = sha(await fs.readFile(path.join(runtimeDir, v.shotsManifestUrl))); }
+      catch { console.warn(`${v.id}: shot library missing; keeping the base rail`); }
+      const baseViewSha256 = sha(canonical(hashes));
+      const region = tours.regions?.[v.id];
+      const current = { shotsManifestSha256, terrainManifestSha256: hashes.terrainManifestSha256, baseViewSha256 };
+      const identity = region?.library || null;
+      const approval = region?.approval || null;
+      const reviewed = identityMatches(identity, current) && identityMatches(approval, current) && hasEvidence(approval);
+      const tourStatus = region?.status === 'approved' && !reviewed ? 'candidate' : region?.status || 'candidate';
+      shotFields = { shotsManifestUrl: v.shotsManifestUrl, shotsManifestSha256, baseViewSha256,
+        shotTour: { status: tourStatus, identity, approval } };
     }
     views.push({
       id: v.id, ...(v.terrainSourceId ? { terrainSourceId: v.terrainSourceId } : {}), regionId: v.regionId, biome: v.biome, status, catalogVersion: doc.catalogVersion,
@@ -198,12 +218,15 @@ export async function buildCatalog(doc) {
       terrainManifestUrl: `terrain/${v.terrainSourceId || v.id}.terrain.json`,
       terrainManifestSha256: hashes.terrainManifestSha256,
       ...(v.tourManifestUrl ? { tourManifestUrl: v.tourManifestUrl, tourManifestSha256: hashes.tourManifestSha256 } : {}),
+      ...shotFields,
       materialManifestUrl: `materials/${v.materialPack || DEFAULT_PACKS[v.biome]}.json`,
       materialManifestSha256: hashes.materialManifestSha256,
       materialRules: v.materialRules || {},
       camera: build.view.camera,
       ...(Object.hasOwn(v, 'composition') ? { composition: v.composition } : {}),
       ...(v.glacier ? { glacier: v.glacier } : {}),
+      ...(v.rivers ? { rivers: v.rivers } : {}),
+      ...(v.riverPolicy ? { riverPolicy: v.riverPolicy } : {}),
       characterScores: build.characterScores,
       archetype: build.archetype,
       evidence: {
@@ -221,6 +244,16 @@ export async function buildCatalog(doc) {
  * authored or previously approved, preserving metadata-free old approvals. */
 export const APPROVAL_KEYS = Object.freeze(['terrainManifestSha256', 'materialManifestSha256', 'materialRulesSha256', 'cameraSha256']);
 
+function baseApprovalKeys(v) {
+  const a = v.approval || {};
+  return [...APPROVAL_KEYS, ...(v.tourManifestUrl || a.tourManifestSha256 ? ['tourManifestSha256'] : []),
+    ...(v.glacier || a.glacierSha256 ? ['glacierSha256'] : []),
+    ...(Object.hasOwn(v, 'composition') || a.compositionSha256 ? ['compositionSha256'] : [])];
+}
+const TOUR_IDENTITY_KEYS = ['shotsManifestSha256', 'terrainManifestSha256', 'baseViewSha256'];
+const identityMatches = (a, b) => !!a && TOUR_IDENTITY_KEYS.every((k) => /^[a-f0-9]{64}$/.test(a[k] || '') && a[k] === b[k]);
+const hasEvidence = (a) => Array.isArray(a?.evidence) && a.evidence.length > 0 && a.evidence.every((s) => typeof s === 'string' && s.length > 0);
+
 /** Key-sorted JSON, so reordering an object never changes its hash. */
 const canonical = (x) => (Array.isArray(x) ? `[${x.map(canonical).join(',')}]`
   : x && typeof x === 'object' ? `{${Object.keys(x).sort().map((k) => `${JSON.stringify(k)}:${canonical(x[k])}`).join(',')}}`
@@ -229,17 +262,72 @@ const canonical = (x) => (Array.isArray(x) ? `[${x.map(canonical).join(',')}]`
 /** The hashes an approval is recorded against: the published terrain
  *  manifest as it is on disk (not the build record's copy of its hash), the
  *  material pack, the view's own material overrides, camera and optional ice. */
-export async function approvalHashes(v, build) {
+export async function approvalHashes(v, build, { runtimeDir = RUNTIME_DIR } = {}) {
   const matUrl = `materials/${v.materialPack || DEFAULT_PACKS[v.biome]}.json`;
-  const mat = await fs.readFile(path.join(RUNTIME_DIR, matUrl));
-  const terrain = await fs.readFile(path.join(RUNTIME_DIR, 'terrain', `${v.terrainSourceId || v.id}.terrain.json`));
+  const mat = await fs.readFile(path.join(runtimeDir, matUrl));
+  const terrain = await fs.readFile(path.join(runtimeDir, 'terrain', `${v.terrainSourceId || v.id}.terrain.json`));
   return {
     terrainManifestSha256: sha(terrain), materialManifestSha256: sha(mat),
     materialRulesSha256: sha(canonical(v.materialRules || {})), cameraSha256: sha(JSON.stringify(build.view.camera ?? null)),
-    ...(v.tourManifestUrl ? { tourManifestSha256: sha(await fs.readFile(path.join(RUNTIME_DIR, v.tourManifestUrl))) } : {}),
+    ...(v.tourManifestUrl ? { tourManifestSha256: sha(await fs.readFile(path.join(runtimeDir, v.tourManifestUrl))) } : {}),
     ...(Object.hasOwn(v, 'composition') || v.approval?.compositionSha256 ? { compositionSha256: sha(canonical(v.composition ?? null)) } : {}),
     ...(v.glacier ? { glacierSha256: sha(canonical(v.glacier)) } : {}),
   };
+}
+
+/** Verify the published library's payload and terrain before binding it to
+ * the base view. This is candidate metadata, never a review or promotion. */
+export async function shotLibraryIdentity(v, build, { runtimeDir = RUNTIME_DIR } = {}) {
+  if (!v.shotsManifestUrl || v.tourManifestUrl) throw new Error(`${v.id}: no published shot library beside a base rail`);
+  const hashes = await approvalHashes(v, build, { runtimeDir });
+  const manifestFile = path.join(runtimeDir, v.shotsManifestUrl);
+  const raw = await fs.readFile(manifestFile);
+  const shotsManifestSha256 = sha(raw);
+  const metadata = JSON.parse(raw);
+  const payloadUrl = new URL(metadata.payload?.url, pathToFileURL(manifestFile));
+  const payload = await fs.readFile(fileURLToPath(payloadUrl));
+  // The browser loader also accepts HTTP-decompressed bytes. Local approval
+  // sees the actual file and must verify its compressed publication identity.
+  if (payload.byteLength !== metadata.payload?.byteLength || sha(payload) !== metadata.payload?.sha256) {
+    throw new Error(`${v.id}: shot library payload hash mismatch`);
+  }
+  const { manifest } = await loadShotLibrary(pathToFileURL(manifestFile).href, {
+    expectManifestSha256: shotsManifestSha256, viewId: v.id,
+    fetchImpl: async (url) => new Response(await fs.readFile(fileURLToPath(url))),
+  });
+  if (manifest.terrainManifestSha256 !== hashes.terrainManifestSha256) throw new Error(`${v.id}: shot library terrain identity differs from the published package`);
+  return { shotsManifestSha256, terrainManifestSha256: hashes.terrainManifestSha256, baseViewSha256: sha(canonical(hashes)) };
+}
+
+async function requireEvidence(id, evidence) {
+  if (!Array.isArray(evidence) || !evidence.length || evidence.some((s) => typeof s !== 'string' || !s.length)) {
+    throw new Error(`${id}: --evidence <file,file> is required to approve a view or tour`);
+  }
+  for (const file of evidence) {
+    try { await fs.access(path.resolve(root, file)); } catch { throw new Error(`${id}: evidence file ${file} does not exist`); }
+  }
+}
+
+/** Explicitly promote one published tour; the base approval is untouched.
+ * The caller saves both authoring documents and regenerates the catalog. */
+export async function approveShotTour(doc, tours, id, { evidence = [], runtimeDir = RUNTIME_DIR } = {}) {
+  const v = doc.views.find((x) => x.id === id);
+  if (!v) throw new Error(`no view ${id} in scenic-views.json`);
+  const region = tours.regions?.[id];
+  if (!region) throw new Error(`${id}: no region block in scenic-tours.json`);
+  await requireEvidence(id, evidence);
+  const build = JSON.parse(await fs.readFile(path.join(runtimeDir, 'terrain', `${v.terrainSourceId || id}.build.json`), 'utf8'));
+  const hashes = await approvalHashes(v, build, { runtimeDir });
+  if (v.status !== 'approved' || baseApprovalKeys(v).some((k) => !v.approval?.[k] || v.approval[k] !== hashes[k])) {
+    throw new Error(`${id}: a current approved base view is required before approving its tour`);
+  }
+  const identity = await shotLibraryIdentity(v, build, { runtimeDir });
+  if (region.library && !identityMatches(region.library, identity)) throw new Error(`${id}: published tour identity is stale; republish and review the library`);
+  region.library = identity;
+  region.approval = { date: new Date().toISOString().slice(0, 10), ...identity, evidence: [...evidence] };
+  region.status = 'approved';
+  doc.catalogVersion = (doc.catalogVersion || 0) + 1;
+  return tours;
 }
 
 /** Mark a published view approved against its current assets. Evidence is
@@ -248,10 +336,7 @@ export async function approvalHashes(v, build) {
 export async function approveView(doc, id, { evidence = [] } = {}) {
   const v = doc.views.find((x) => x.id === id);
   if (!v) throw new Error(`no view ${id} in scenic-views.json`);
-  if (!evidence.length) throw new Error(`${id}: --evidence <file,file> is required to approve a view`);
-  for (const file of evidence) {
-    try { await fs.access(path.resolve(root, file)); } catch { throw new Error(`${id}: evidence file ${file} does not exist`); }
-  }
+  await requireEvidence(id, evidence);
   const build = JSON.parse(await fs.readFile(path.join(RUNTIME_DIR, 'terrain', `${v.terrainSourceId || id}.build.json`), 'utf8'));
   // Legacy parity: the far range stays readable at every rail station.
   const { viewExposure, pairExposure, MIN_FAR_EXPOSED, MIN_FAR_CREST_COLUMNS } = await import('./lib/range-exposure.mjs');
@@ -304,6 +389,15 @@ async function main() {
   const args = process.argv.slice(2);
   const opt = (k) => (args.includes(k) ? args[args.indexOf(k) + 1] : null);
   if (args.includes('--catalog')) { await writeCatalog(await readAuthoring()); return; }
+  if (opt('--approve-tour')) {
+    const doc = await readAuthoring();
+    const tours = JSON.parse(await fs.readFile(TOUR_AUTHORING, 'utf8'));
+    await approveShotTour(doc, tours, opt('--approve-tour'), { evidence: (opt('--evidence') || '').split(',').filter(Boolean) });
+    await fs.writeFile(TOUR_AUTHORING, JSON.stringify(tours, null, 2) + '\n');
+    await fs.writeFile(AUTHORING, JSON.stringify(doc, null, 2) + '\n');
+    await writeCatalog(doc);
+    return;
+  }
   if (opt('--approve')) {
     const doc = await readAuthoring();
     await approveView(doc, opt('--approve'), { evidence: (opt('--evidence') || '').split(',').filter(Boolean) });

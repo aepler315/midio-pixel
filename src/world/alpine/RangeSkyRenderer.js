@@ -144,7 +144,7 @@ export class RangeSkyRenderer {
     if (!project) return false;
     this._seed(frame.seed);
     const width = frame.sourceWidth, height = frame.sourceHeight;
-    const night = clamp(frame.night), time = frame.reducedMotion ? 0 : frame.timeSec;
+    const night = clamp(frame.night), time = frame.timeSec;
     ctx.save();
     // Pixel terrain presentation leaves nearest-neighbor sampling enabled.
     // Sky density/albedo textures belong to the smooth output layer.
@@ -158,23 +158,22 @@ export class RangeSkyRenderer {
     gradient.addColorStop(.65, frame.colors.mid);
     gradient.addColorStop(1, frame.colors.horizon);
     ctx.fillStyle = gradient; ctx.fillRect(0, 0, width, height);
-    this._stars(ctx, project, width, height, night, time, frame.reducedFlash);
+    this._stars(ctx, project, width, height, night, time);
     this._aurora(ctx, project, width, height, night, time, frame.authority);
-    if (frame.lightning) LightningFX.prototype.draw.call(frame.lightning, ctx, { width, height }, frame.timeSec * 1000, frame.reducedFlash);
+    if (frame.lightning) LightningFX.prototype.draw.call(frame.lightning, ctx, { width, height }, frame.timeSec * 1000);
     this._bodies(ctx, frame, width, height, night);
     this._clouds(ctx, frame.camera, width, height, night, time, frame.storm);
     // Keep the existing heard-time storm score and triggered bolts. Only
     // their target and the cloud shape change; terrain wetness stays native.
-    const storm = frame.reducedFlash && frame.storm ? { ...frame.storm, flash: 0 } : frame.storm;
-    drawStormSky(ctx, { width, height }, storm, { tSec: frame.timeSec, seed: frame.seed, pan: frame.camera,
-      light: frame.light, reducedMotion: frame.reducedMotion,
+    drawStormSky(ctx, { width, height }, frame.storm, { tSec: frame.timeSec, seed: frame.seed, pan: frame.camera,
+      light: frame.light,
       cloudBankFactory: () => cloudBanks({ camera: frame.camera, width, height,
-        timeSec: frame.timeSec, seed: frame.seed, storm: true, reducedMotion: frame.reducedMotion }),
+        timeSec: frame.timeSec, seed: frame.seed, storm: true }),
       cloudPainter: (target, banks, options) => this._stormClouds(target, banks, options) });
     ctx.restore();
     return true;
   }
-  _stars(ctx, project, width, height, night, time, reducedFlash) {
+  _stars(ctx, project, width, height, night, time) {
     const strength = .07 + .93 * smooth(night);
     if (strength < .01) return;
     ctx.save();
@@ -183,7 +182,7 @@ export class RangeSkyRenderer {
       const p = project(star.direction);
       if (!p.visible) continue;
       const x = p.xFrac * width, y = p.yFrac * height;
-      const scintillation = reducedFlash ? 1 : .94 + .06 * Math.sin(time * 1.3 + star.phase);
+      const scintillation = .94 + .06 * Math.sin(time * 1.3 + star.phase);
       const radius = Math.max(.32, star.radius * height / 850);
       ctx.fillStyle = `rgba(${STAR_COLORS[star.color]},${strength * star.brightness * scintillation})`;
       ctx.beginPath(); ctx.arc(x, y, radius, 0, TAU); ctx.fill();

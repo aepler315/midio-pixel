@@ -192,6 +192,7 @@ const SHADE = /* glsl */`
   uniform float uAirDensity;
   uniform float uAirHeightFalloff;
   uniform float uAmbientScale;
+  uniform float uMoonAmbientScale;
   uniform float uSolarTransmission;
   uniform float uExposure;
   uniform vec3 pForestNear;
@@ -226,14 +227,13 @@ const SHADE = /* glsl */`
     #endif
     float wrap = 0.3;
     float key = max((dot(n, uLightDir) + wrap) / (1.0 + wrap), 0.0);
-    vec3 hemi = mix(uSkyHorizon * 0.55, uSkyZenith, 0.5 + 0.5 * n.y) * uAmbientScale;
-    vec3 lit = base * (hemi * (0.55 + 0.45 * core) * gTreeOcc + uLightColor * key * mix(.6, 1.0, gTreeOcc));
-    lit += base * actorLight(world, n);
-    float giantShade = broshiShadow(world);
-    lit *= 1.0 - giantShade * .78;
-    // As the storm breaks, the same sunlit swathes as the ground beneath.
     float opening = stormOpening(world);
-    lit *= 1.0 - uStorm.z * (1.0 - opening) * 0.5;
+    float receiverShadow = stormShadow(opening);
+    vec3 hemi = mix(uSkyHorizon * 0.55, uSkyZenith, 0.5 + 0.5 * n.y) * stormAmbient(uAmbientScale, uMoonAmbientScale, opening);
+    hemi = receiverFill(hemi, uReceiverFillMin);
+    vec3 lit = base * (hemi * (0.55 + 0.45 * core) * gTreeOcc + uLightColor * key * mix(.6, 1.0, gTreeOcc) * receiverShadow);
+    lit += base * actorLight(world, n) * receiverShadow;
+    // As the storm breaks, the same sunlit swathes as the ground beneath.
     lit += base * uLightColor * key * uStorm.z * opening * 0.85;
     // Thin crown edges transmit a solar backlight. Both real conifers and
     // alpha-tested silhouettes use their own normal/core with this shared
@@ -254,8 +254,6 @@ const SHADE = /* glsl */`
     color = mix(color, rainColor(), rainVeil(world, dist) * 0.8);
     if (uDiag > 0.5) return vec4(1.0, 0.0, 1.0, 1.0);
     color = mix(uSkyHorizon, color, uNarrative.z);
-    // As on the ground: his shadow dims the haze in front of the trees too.
-    color *= 1.0 - giantShade * (.5 + .3 * clamp(air, 0.0, 1.0));
     return vec4(pow(max(color, 0.0), vec3(1.0 / 2.2)), 1.0);
   }
 `;
@@ -488,9 +486,11 @@ function instanced(THREE, base, instances, stride, indices) {
  * depthByBand: { far, mid, near } (depth meshes per band), bytes, counts, dispose }.
  */
 export function createForest(THREE, placed, uniforms, { partitioned = true, forestDebug = false } = {}) {
+  const instanceStride = placed.stride;
   const u = { ...uniforms, uTime: uniforms.uTime || { value: 0 }, uForestKeep: uniforms.uForestKeep || { value: 1 },
     uFarForest: uniforms.uFarForest || { value: new THREE.Vector4() },
     uStorm: uniforms.uStorm || { value: new THREE.Vector4() }, uRainShift: uniforms.uRainShift || { value: 0 },
+    uReceiverFillMin: uniforms.uReceiverFillMin || { value: 0 },
     uViewProj: uniforms.uViewProj || { value: new THREE.Matrix4() },
     uViewportPx: uniforms.uViewportPx || { value: new THREE.Vector2(1, 1) },
     ...(uniforms.uGustAge ? {} : gustUniforms()), ...(uniforms.uActorPos ? {} : actorUniforms(THREE)) };
@@ -544,7 +544,7 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
     let geo;
     if (from) geo = reinstanced(THREE, base, from);
     else {
-      const built = instanced(THREE, base, data, placed.stride, idx);
+      const built = instanced(THREE, base, data, instanceStride, idx);
       geo = built.geo;
       bytes += built.bytes;
       counts[kind] += idx.length;
@@ -585,11 +585,11 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
     ['mesh', placed.mesh, 1, materials.mesh, materials.meshDepth],
     ['billboard', placed.billboard, null, materials.board, materials.boardDepth],
   ]) {
-    const n = data.length / placed.stride;
+    const n = data.length / instanceStride;
     for (let b = 0; b < 3; b++) {
       if (lod == null) {
         const idx = [];
-        for (let i = 0; i < n; i++) if (data[i * placed.stride + 7] === b) idx.push(i);
+        for (let i = 0; i < n; i++) if (data[i * instanceStride + 7] === b) idx.push(i);
         if (idx.length) addBatch(kind, baseBoard, data, idx, b, colorMat, depthMat);
         continue;
       }
@@ -597,7 +597,7 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
       // picks its variant, its species the family (never per-frame).
       const groups = Array.from({ length: FOREST_FAMILIES * FOREST_VARIANTS }, () => []);
       for (let i = 0; i < n; i++) {
-        const o = i * placed.stride;
+        const o = i * instanceStride;
         if (data[o + 7] !== b) continue;
         groups[familyFor(data[o + 5]) * FOREST_VARIANTS + variantFor(data[o + 6])].push(i);
       }

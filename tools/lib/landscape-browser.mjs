@@ -42,8 +42,6 @@ export async function paintLandscapeFrame(spec) {
   }
   const { sim, renderer, perf } = window.__SMW;
   const mgr = sim.biomes;
-  sim.reducedFlash = !!spec.reducedFlash;
-  mgr.reducedFlash = !!spec.reducedFlash;
   // An explicit pin: export's full-quality hold would otherwise reset the
   // requested rung to 0 before the frame is drawn. Cleared in `finally`.
   if (perf) perf.setFixtureLevel(spec.level);

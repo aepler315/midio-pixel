@@ -34,9 +34,9 @@ function windowTargets(tour, timeMs) {
 
 // Every sampled interval, including the slerp inside each 100 ms frame,
 // stays within the shared yaw budget.
-function assertYawWithinBudget(tour, plan, reducedMotion, stepMs) {
+function assertYawWithinBudget(tour, plan, stepMs) {
   const frames = Array.from({ length: tour.fov.length }, (_, i) => ({ ...plan.routeAt(), timeMs: Math.min(tour.durationMs, i * 100) }));
-  const budget = tourYawBudget(frames, { reducedMotion });
+  const budget = tourYawBudget(frames);
   const heading = time => { const p = tour.poseAt(time); return Math.atan2(p.targetM[0] - p.eyeM[0], -(p.targetM[2] - p.eyeM[2])) * 180 / Math.PI; };
   let previous = heading(0), worst = 0;
   for (let time = stepMs; time <= tour.durationMs; time = Math.min(tour.durationMs, time + stepMs)) {
@@ -63,16 +63,16 @@ test('a subject already in frame is recorded without moving a held camera', () =
   assert.ok(hero.framedFraction >= .8 && hero.alternative && hero.intendedFramedFraction === 0, JSON.stringify(hero));
 });
 
-for (const [reducedMotion, bearing] of [[false, 170], [true, 100]]) {
-  test(`a miss reachable only at the full yaw rate is covered within the budget (reduced motion ${reducedMotion})`, () => {
+for (const [bearing] of [[170], [100]]) {
+  test(`a miss reachable only at the full yaw rate is covered within the budget (bearing ${bearing})`, () => {
     const { data, plan, subjects: [intended], place } = staticRoute(18000);
     place(intended, bearing);
-    const tour = buildTourTimeline(data, { ...plan, heroes: [passed(intended, 15000)] }, { reducedMotion });
+    const tour = buildTourTimeline(data, { ...plan, heroes: [passed(intended, 15000)] });
     const hero = tour.heroFraming[0];
     assert.equal(hero.framedPointId, intended.id);
     assert.equal(hero.reason, 'rate-limited-intended-subject');
     assert.ok(hero.framedFraction >= .8 && hero.intendedFramedFraction >= .8, JSON.stringify(hero));
-    for (const stepMs of [25, 50]) assertYawWithinBudget(tour, plan, reducedMotion, stepMs);
+    for (const stepMs of [25, 50]) assertYawWithinBudget(tour, plan, stepMs);
   });
 }
 
@@ -123,5 +123,5 @@ test('intended upgrades are off by default and replace only the alternative they
   assert.equal(hero.reason, 'rate-limited-intended-upgrade');
   assert.ok(hero.intendedFramedFraction >= .8, JSON.stringify(hero));
   assert.deepEqual(windowTargets(upgraded, 4000), windowTargets(absent, 4000), 'other covered windows are untouched');
-  for (const stepMs of [25, 50]) assertYawWithinBudget(upgraded, plan, false, stepMs);
+  for (const stepMs of [25, 50]) assertYawWithinBudget(upgraded, plan, stepMs);
 });

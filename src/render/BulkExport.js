@@ -279,7 +279,6 @@ export function parseBulkArgs(argv) {
     out: 'exports',
     resolutions: null,
     frameRates: null,
-    world: null,
     experience: 'landscape',
     seed: null,
     crf: 16,
@@ -326,12 +325,6 @@ export function parseBulkArgs(argv) {
       const got = takeOption(args, i, '--experience');
       if (!['landscape', 'trio'].includes(got.value)) throw new Error('--experience must be landscape or trio.');
       opts.experience = got.value; i = got.next; continue;
-    }
-    if (token === '--world' || token.startsWith('--world=')) {
-      const got = takeOption(args, i, '--world');
-      opts.world = got.value;
-      i = got.next;
-      continue;
     }
     if (token === '--seed' || token.startsWith('--seed=')) {
       const got = takeOption(args, i, '--seed');
@@ -383,7 +376,7 @@ export function parseBulkArgs(argv) {
     const displayKey = ['look', 'quality', 'palette', 'dither', 'dither-mode', 'pixel-grid', 'scaling'].find(key => token === `--${key}` || token.startsWith(`--${key}=`));
     if (displayKey) {
       const got = takeOption(args, i, `--${displayKey}`);
-      const choices = { look: ['pixel', 'palette'], quality: ['auto', 'economy'], palette: ['world', 'range32', 'chroma32', 'rgb332'], dither: ['off', 'subtle', 'full'], 'dither-mode': ['ordered', 'selective'], 'pixel-grid': ['classic', 'detailed'], scaling: ['fit', 'integer'] };
+      const choices = { look: ['pixel', 'palette'], quality: ['auto', 'economy'], palette: ['world', 'range32', 'chroma32', 'rgb332'], dither: ['off', 'subtle', 'full'], 'dither-mode': ['ordered', 'selective'], 'pixel-grid': ['classic', 'classicPlus', 'medium', 'mediumPlus', 'detailed'], scaling: ['fit', 'integer'] };
       if (!choices[displayKey].includes(got.value)) throw new Error(`--${displayKey} must be ${choices[displayKey].join(', ')}`);
       opts.presentation ??= { ...DEFAULT_DISPLAY_PREFS };
       const key = { 'dither-mode': 'ditherMode', 'pixel-grid': 'pixelGrid' }[displayKey] || displayKey;
@@ -415,9 +408,7 @@ Options
   --out <dir>           Output folder (default: exports)
   --res <list>          1080, 1440, 2160, 4k, or all (default: all)
   --fps <list>          30, 60, or all (default: all)
-  --experience <mode>  landscape (default) or trio
-  --world <id|name>     World id (alpine, city, ...) or card name.
-                        Default: the world's own recommendation.
+  --experience <mode>  World: landscape (default) or trio
   --seed <n>            Same performance seed for every file in the batch
   --crf <0-51>          Quality. x264 CRF, or NVENC CQ (default: 16)
   --preset <name>       x264 preset (default: medium)
@@ -432,7 +423,7 @@ Options
   --palette <name>     world, range32, chroma32, or rgb332
   --dither <amount>    off, subtle, or full
   --dither-mode <mode> selective or ordered (RGB332 always uses ordered)
-  --pixel-grid <grid>  classic (320×180) or detailed (640×360, four times the pixel work)
+  --pixel-grid <grid>  classic (320×180), classicPlus (400×225, 1.56× the pixel work), medium (480×270, 2.25× the pixel work), mediumPlus (560×315, 3.06×) or detailed (640×360, four times)
   --scaling <mode>     fit or integer
   --help
 

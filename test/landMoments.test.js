@@ -45,7 +45,6 @@ test('kicks, melody and gesture move nothing; the moment alone shapes the land',
   const swell = landMotion(loud, 1, { tSec: 12 });
   assert.ok(Math.abs(sceneDeformation(swell, 900, 400, 1800, [0, 2000])) > 1);
   assert.ok(swell.totalBoundM <= LAND_SWELL.waveM + LAND_SWELL.liftM);
-  assert.equal(sceneDeformation(landMotion(loud, 1, { tSec: 12, reducedMotion: true }), 900, 400, 1800, [0, 2000]), 0);
 });
 
 test('a louder repeat of the same part still never swells', () => {

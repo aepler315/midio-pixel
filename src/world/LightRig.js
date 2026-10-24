@@ -5,7 +5,6 @@
 // The classic cheap Canvas-2D fake-volumetric trick: a soft wide tapered
 // gradient triangle under a bright narrow one.
 import { clamp01, lerp, mulberry32 } from '../utils/math.js';
-import { capFlashAlpha } from '../ui/Accessibility.js';
 import { hexToRgb } from '../utils/color.js';
 
 const MAX_BEAMS = 5;
@@ -22,7 +21,7 @@ const PRESENCE_TAU = 0.55;       // seconds; beams 4-5 fade in/out rather than p
 const SNAP_ATTACK_MS = 90;
 const SNAP_RELEASE_MS = 320;
 const SNAP_FOCUS = 0.45;         // fraction the cone narrows at full snap
-const SNAP_BOOST = 2.4;          // alpha multiplier at full snap (routed through capFlashAlpha)
+const SNAP_BOOST = 2.4;          // alpha multiplier at full snap
 const BEAM_LEN_MUL = 1.25;       // x canvas.height
 const ALPHA_BODY = 0.10;
 const ALPHA_CORE = 0.26;
@@ -57,12 +56,10 @@ export function beamTrianglePoints(cx, cy, theta, halfAngle, length) {
   return { tip: { x: cx, y: cy }, left: edge(theta - halfAngle), right: edge(theta + halfAngle) };
 }
 
-/** A beam pass's alpha: scaled by presence/budget, boosted on a drop-snap,
- *  and always capped through the accessibility flash limiter -- this is
- *  what makes the snap's brightness spike respect reduced-flash. */
-export function beamAlpha(baseAlpha, presence, budget, snap, reducedFlash) {
-  const raw = baseAlpha * presence * (0.4 + 0.6 * clamp01(budget)) * (1 + (SNAP_BOOST - 1) * clamp01(snap));
-  return capFlashAlpha(raw, reducedFlash);
+/** A beam pass's alpha: scaled by presence/budget and boosted on a
+ *  drop-snap -- the snap's brightness spike. */
+export function beamAlpha(baseAlpha, presence, budget, snap) {
+  return baseAlpha * presence * (0.4 + 0.6 * clamp01(budget)) * (1 + (SNAP_BOOST - 1) * clamp01(snap));
 }
 
 export class LightRig {
@@ -114,7 +111,7 @@ export class LightRig {
     this.targetY = targetY;
   }
 
-  draw(ctx, canvas, cx, cy, haloColor, particleMul, reducedFlash, presentation = 1) {
+  draw(ctx, canvas, cx, cy, haloColor, particleMul, presentation = 1) {
     const { r, g, b } = hexToRgb(haloColor);
     const rgb = `${r},${g},${b}`;
     const halfAngleBase = lerp(HALF_ANGLE_CALM, HALF_ANGLE_HOT, this.heat);
@@ -137,7 +134,7 @@ export class LightRig {
       const halfAngle = halfAngleBase * (1 - SNAP_FOCUS * this.snap);
       const { tip, left, right } = beamTrianglePoints(cx, cy, theta, halfAngle, len);
 
-      const bodyAlpha = beamAlpha(ALPHA_BODY, beam.presence, this.budget, this.snap, reducedFlash);
+      const bodyAlpha = beamAlpha(ALPHA_BODY, beam.presence, this.budget, this.snap);
       const grad = ctx.createLinearGradient(tip.x, tip.y, (left.x + right.x) / 2, (left.y + right.y) / 2);
       grad.addColorStop(0, `rgba(${rgb},${bodyAlpha})`);
       grad.addColorStop(1, `rgba(${rgb},0)`);
@@ -145,7 +142,7 @@ export class LightRig {
       ctx.beginPath(); ctx.moveTo(tip.x, tip.y); ctx.lineTo(left.x, left.y); ctx.lineTo(right.x, right.y); ctx.closePath(); ctx.fill();
 
       if (drawCore) {
-        const coreAlpha = beamAlpha(ALPHA_CORE, beam.presence, this.budget, this.snap, reducedFlash);
+        const coreAlpha = beamAlpha(ALPHA_CORE, beam.presence, this.budget, this.snap);
         const { left: cl, right: cr } = beamTrianglePoints(cx, cy, theta, halfAngle * 0.35, len);
         const coreGrad = ctx.createLinearGradient(tip.x, tip.y, (cl.x + cr.x) / 2, (cl.y + cr.y) / 2);
         coreGrad.addColorStop(0, `rgba(${rgb},${coreAlpha})`);

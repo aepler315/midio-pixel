@@ -39,12 +39,9 @@ const BEATS_PER_MEASURE = 4;
 // Fade the instruction once the player has clearly read it; the count is the
 // useful part after that.
 const INSTRUCTION_MEASURES = 2;
-// The eye marker's pulse, as opacity. The reduced-flash pair keeps a legible
-// onset without the full-brightness swing (see update()).
+// The eye marker's pulse, as opacity (see update()).
 const MARKER_DIM = 0.12;
 const MARKER_LIT = 1;
-const MARKER_DIM_SOFT = 0.45;
-const MARKER_LIT_SOFT = 0.8;
 
 export class RecalibrationOverlay {
   /**
@@ -161,7 +158,7 @@ export class RecalibrationOverlay {
    *   should stop() and, if it likes, report the confidence delta).
    */
   update(nowMs, {
-    beatPeriodMs = null, confidence = 0, beatPulse01 = 0, reducedFlash = false,
+    beatPeriodMs = null, confidence = 0, beatPulse01 = 0,
   } = {}) {
     if (!this.active) return false;
     // Track live tempo so a drifting/retuning estimate doesn't desynchronize
@@ -214,23 +211,16 @@ export class RecalibrationOverlay {
       instruction.classList.add('faded');
     }
 
-    // The eye half's target, on the visual clock the caller hands in.
-    //
-    // Reduced flash caps the swing rather than removing it. The pulse is the
-    // thing being timed -- a marker that does not visibly change gives the
-    // player nothing to tap, and the pass would measure noise -- so the
-    // floor comes up and the ceiling comes down, keeping the ONSET sharp
-    // (the edge is what a tap is timed against) while the flash itself stays
-    // well short of a full-brightness strobe. The CSS media rule only ever
-    // suppressed the scale, which left the brightness jump untouched for
-    // anyone whose OS preference had turned this on by default.
+    // The eye half's target, on the visual clock the caller hands in. The
+    // pulse is the thing being timed -- a marker that does not visibly change
+    // gives the player nothing to tap, and the pass would measure noise -- so
+    // it swings the full way from dim to lit, keeping the ONSET sharp (the
+    // edge is what a tap is timed against).
     const { marker } = this.els;
     if (marker && this.phase === 'eye') {
       const lit = Math.max(0, Math.min(1, beatPulse01));
-      const low = reducedFlash ? MARKER_DIM_SOFT : MARKER_DIM;
-      const high = reducedFlash ? MARKER_LIT_SOFT : MARKER_LIT;
-      marker.style.opacity = (low + (high - low) * lit).toFixed(3);
-      const scale = reducedFlash ? 0.94 + 0.06 * lit : 0.82 + 0.28 * lit;
+      marker.style.opacity = (MARKER_DIM + (MARKER_LIT - MARKER_DIM) * lit).toFixed(3);
+      const scale = 0.82 + 0.28 * lit;
       marker.style.transform = `scale(${scale.toFixed(3)})`;
     }
     if (confFill) confFill.style.width = `${Math.round(Math.max(0, Math.min(1, confidence)) * 100)}%`;

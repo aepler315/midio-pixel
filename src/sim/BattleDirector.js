@@ -234,7 +234,7 @@ export class BattleDirector {
    *  apex-on-beat system in this codebase. canvasWidth: stage width, so
    *  enemies spawn hard offscreen past the right edge (default 1280 keeps
    *  callers that don't pass it working exactly as before). */
-  update(nowMs, dtMs, anchors, visualLagMs = 0, reducedFlash = false, canvasWidth = 1280) {
+  update(nowMs, dtMs, anchors, visualLagMs = 0, canvasWidth = 1280) {
     const vNow = nowMs - (visualLagMs || 0);
     this._advancePhase(nowMs, anchors);
     if (this.phase === 'BATTLE') this._spawn(nowMs, canvasWidth);

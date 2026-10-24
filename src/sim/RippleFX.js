@@ -6,7 +6,6 @@
 // draw time via worldX/originX).
 import { ObjectPool } from '../utils/ObjectPool.js';
 import { clamp01 } from '../utils/math.js';
-import { capFlashAlpha, flashCompositeOp } from '../ui/Accessibility.js';
 
 export const RIPPLE_RINGS = 3;
 export const RIPPLE_RING_STAGGER_MS = 90;
@@ -104,11 +103,11 @@ export class RippleFX {
    *  well off-screen are skipped rather than drawn every frame regardless.
    *  Defaults to Infinity (cull nothing) for callers with no canvas width
    *  handy. */
-  draw(ctx, worldX, originX, reducedFlash, canvasWidth = Infinity) {
+  draw(ctx, worldX, originX, canvasWidth = Infinity) {
     const toScreen = (wx) => wx - worldX + originX;
     const inView = (x, margin) => x > -margin && x < canvasWidth + margin;
     ctx.save();
-    ctx.globalCompositeOperation = flashCompositeOp(reducedFlash);
+    ctx.globalCompositeOperation = 'lighter';
 
     for (const r of this.rings.active) {
       if (r.age < 0) continue; // staggered start not yet reached
@@ -117,7 +116,7 @@ export class RippleFX {
       const radius = rippleRadius(r.age, r.I);
       const x = toScreen(r.wx);
       if (!inView(x, radius)) continue;
-      ctx.strokeStyle = `hsla(42, 85%, 65%, ${capFlashAlpha(alpha, reducedFlash).toFixed(3)})`;
+      ctx.strokeStyle = `hsla(42, 85%, 65%, ${alpha.toFixed(3)})`;
       ctx.lineWidth = Math.max(0.6, 3 * (1 - r.age / rippleLifeMs(r.I)));
       ctx.beginPath();
       ctx.ellipse(x, r.y, radius, radius * RIPPLE_SQUASH, 0, 0, Math.PI * 2);
@@ -133,7 +132,7 @@ export class RippleFX {
       const x = toScreen(p.wx);
       const segLen = 16 + 20 * clamp01(p.I);
       if (!inView(x, dist + segLen)) continue;
-      ctx.strokeStyle = `hsla(42, 95%, 75%, ${capFlashAlpha(alpha, reducedFlash).toFixed(3)})`;
+      ctx.strokeStyle = `hsla(42, 95%, 75%, ${alpha.toFixed(3)})`;
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(x + dist - segLen, p.y);
@@ -150,7 +149,7 @@ export class RippleFX {
       if (!inView(toScreen(puff.wx) + dx, 8)) continue;
       const r = 2 + 2.5 * clamp01(puff.I);
       ctx.fillStyle = puff.color;
-      ctx.globalAlpha = capFlashAlpha(alpha, reducedFlash);
+      ctx.globalAlpha = alpha;
       ctx.beginPath();
       ctx.arc(toScreen(puff.wx) + dx, puff.y + dy, r, 0, Math.PI * 2);
       ctx.fill();
