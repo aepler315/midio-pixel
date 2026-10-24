@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import { mkdtempSync, symlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { rawRequest } from './helpers/raw-http.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const serverFile = resolve(root, 'tools/serve.js');
@@ -97,10 +98,28 @@ test('tokenless bridge rejects untrusted Host headers and never returns configur
   });
   try {
     await waitForServer(baseUrl);
-    const rebinding = await fetch(`${baseUrl}/api/soulseek/status`, {
+    // rawRequest, not fetch: fetch silently replaces a Host header.
+    const rebinding = await rawRequest(`${baseUrl}/api/soulseek/status`, {
       headers: { Host: `audit.invalid:${port}`, Origin: `http://audit.invalid:${port}` },
     });
     assert.equal(rebinding.status, 401);
+    // A DNS-rebound page is same-origin with its own name, and names that
+    // merely start like loopback are attacker-controlled DNS names.
+    for (const host of [`audit.invalid:${port}`, `127.evil.example:${port}`, `127.0.0.1.nip.io:${port}`, `localhost.attacker.example:${port}`, `127.1:${port}x`]) {
+      const forged = await rawRequest(`${baseUrl}/api/soulseek/demo`, { headers: { Host: host } });
+      assert.equal(forged.status, 401, host);
+      const forgedSameOrigin = await rawRequest(`${baseUrl}/api/soulseek/demo`, { headers: { Host: host, Origin: `http://${host}` } });
+      assert.equal(forgedSameOrigin.status, 401, host);
+    }
+    // The real loopback spellings, with and without a matching Origin.
+    for (const host of [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`, `app.localhost:${port}`]) {
+      const plain = await rawRequest(`${baseUrl}/api/soulseek/demo`, { headers: { Host: host } });
+      assert.equal(plain.status, 200, host);
+      const sameOrigin = await rawRequest(`${baseUrl}/api/soulseek/demo`, { headers: { Host: host, Origin: `http://${host}` } });
+      assert.equal(sameOrigin.status, 200, host);
+      const crossOrigin = await rawRequest(`${baseUrl}/api/soulseek/demo`, { headers: { Host: host, Origin: 'https://evil.example' } });
+      assert.equal(crossOrigin.status, 401, host);
+    }
     const config = await fetch(`${baseUrl}/api/soulseek/config`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

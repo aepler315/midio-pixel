@@ -3,6 +3,7 @@ import { AUDIO_LOAD_LIMITS } from "../../src/audio/loadLimits.js";
 import { createPlexCatalog } from "./catalog.mjs";
 import { PlexError } from "./client.mjs";
 import { createPlexMedia } from "./media.mjs";
+import { requestHostAllowed } from "../lib/request-host.mjs";
 const invalid = () =>
   new PlexError("INVALID_INPUT", "Invalid request parameters", 400);
 function queries(url, allowed) {
@@ -48,6 +49,16 @@ export function createPlexServer({ config, client }) {
       res.end(JSON.stringify(body));
     };
     try {
+      // DNS rebinding: a page that re-resolves its own name to this adapter
+      // is same-origin and sends no Origin on GET; its Host header still
+      // names that page's domain (see tools/lib/request-host.mjs).
+      if (
+        !requestHostAllowed(req.headers.host, {
+          allowIpLiterals: true,
+          extraHosts: config.publicHosts || [],
+        })
+      )
+        throw new PlexError("HOST_DENIED", "Host not allowed", 403);
       let url;
       try {
         url = new URL(req.url, "http://adapter");

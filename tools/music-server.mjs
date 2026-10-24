@@ -37,6 +37,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { pipeline } from 'node:stream';
+import { hostList, requestHostAllowed } from './lib/request-host.mjs';
 
 // Canonicalised, not merely resolved. Containment is checked by comparing
 // against `fsp.realpath()` of each request path, so if ROOT is itself a
@@ -261,7 +262,20 @@ function sendFile(req, res, file, size, name = file) {
   streamToResponse(fs.createReadStream(file), res, file);
 }
 
+// WHICH NAMES MAY REACH THIS. The origin allowlist above does not stop DNS
+// rebinding: a page that re-resolves its own name to 127.0.0.1 reads this
+// server as same-origin and sends no Origin at all. Its Host header still
+// names the attacker's domain, so only loopback names, IP literals (a LAN
+// address under MUSIC_HOST=0.0.0.0) and names listed in MUSIC_ALLOW_HOST
+// are served.
+const EXTRA_ALLOWED_HOSTS = hostList(process.env.MUSIC_ALLOW_HOST);
+
 const server = http.createServer(async (req, res) => {
+  if (!requestHostAllowed(req.headers.host, { allowIpLiterals: true, extraHosts: EXTRA_ALLOWED_HOSTS })) {
+    res.writeHead(403, { 'Content-Type': 'text/plain' });
+    res.end('Host not allowed (set MUSIC_ALLOW_HOST to serve it by name)');
+    return;
+  }
   if (req.method === 'OPTIONS') {
     res.writeHead(204, corsHeaders(req));
     res.end();

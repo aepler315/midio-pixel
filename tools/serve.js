@@ -14,6 +14,7 @@ import {
   downloadResult,
   listDemoCatalog,
 } from './soulseek-bridge.mjs';
+import { isLoopbackHost, requestHostAllowed } from './lib/request-host.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(process.env.SITE_ROOT || path.join(__dirname, '..'));
@@ -22,23 +23,15 @@ const HOST = process.env.HOST || '127.0.0.1';
 const BRIDGE_TOKEN = process.env.MIDIO_BRIDGE_TOKEN?.trim() || '';
 const MAX_JSON_BODY_BYTES = 1e6;
 
+// A socket's peer address (always an IP, IPv4-mapped on a dual-stack bind).
 function isLoopbackAddress(address) {
-  const normalized = String(address || '').replace(/^::ffff:/i, '');
-  return normalized === '::1' || normalized === '127.0.0.1' || /^127\./.test(normalized);
+  return isLoopbackHost(String(address || '').replace(/^::ffff:/i, ''));
 }
 
-function isLoopbackHost(host) {
-  const normalized = String(host || '').toLowerCase().replace(/^\[|\]$/g, '');
-  return normalized === 'localhost' || isLoopbackAddress(normalized);
-}
-
+// Strict: `127.evil.example` and `127.0.0.1.nip.io` are DNS names an
+// attacker controls, not loopback (see tools/lib/request-host.mjs).
 function validLoopbackRequestHost(host) {
-  try {
-    const url = new URL(`http://${String(host || '').trim()}`);
-    return !url.username && !url.password && isLoopbackHost(url.hostname);
-  } catch {
-    return false;
-  }
+  return requestHostAllowed(host);
 }
 
 function sameSecret(actual, expected) {
