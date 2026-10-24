@@ -4,7 +4,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { stageSite, verifyRangeRuntime } from '../tools/stage-site.mjs';
 
 async function fixture() {
@@ -90,6 +91,58 @@ test('staging verifies the Range v2 runtime bundle and shipped terrain assets', 
   await assert.rejects(verifyRangeRuntime(root, out), /scene catalog cannot be loaded/);
 });
 
+
+test('staging rejects decoded-identity and tour-package mismatches the runtime would refuse', async t => {
+  const root = fileURLToPath(new URL('..', import.meta.url));
+  const out = await fs.mkdtemp(path.join(os.tmpdir(), 'midio-stage-pins-'));
+  t.after(() => fs.rm(out, { recursive: true, force: true }));
+  await fs.cp(path.join(root, 'src'), path.join(out, 'src'), { recursive: true });
+  const v2 = path.join(out, 'src', 'assets', 'range', 'v2');
+  const catalogFile = path.join(out, 'src', 'world', 'terrain', 'sceneCatalogData.js');
+  const sha = (b) => createHash('sha256').update(b).digest('hex');
+  const { default: catalog } = await import(pathToFileURL(catalogFile).href);
+  const terrainView = catalog.views.find((v) => !v.terrainSourceId && !v.tourManifestUrl);
+  const tourView = catalog.views.find((v) => v.tourManifestUrl);
+  assert.ok(terrainView && tourView);
+
+  /** Rewrites a pinned JSON file and moves the catalog pin with it, so the
+   *  check under test (not the manifest hash) is what has to catch it. */
+  async function withRepinned(rel, mutate, expected) {
+    const file = path.join(v2, rel);
+    const before = await fs.readFile(file), catalogBefore = await fs.readFile(catalogFile, 'utf8');
+    const json = JSON.parse(before.toString('utf8'));
+    const restore = await mutate(json);
+    const after = Buffer.from(JSON.stringify(json));
+    await fs.writeFile(file, after);
+    await fs.writeFile(catalogFile, catalogBefore.replaceAll(sha(before), sha(after)));
+    try { await assert.rejects(verifyRangeRuntime(root, out), expected); } finally {
+      await fs.writeFile(file, before); await fs.writeFile(catalogFile, catalogBefore); await restore?.();
+    }
+  }
+
+  await withRepinned(terrainView.terrainManifestUrl, (m) => { m.payload.decodedSha256 = '0'.repeat(64); },
+    /terrain payload decoded bytes do not match/);
+  await withRepinned(terrainView.terrainManifestUrl, (m) => { m.payload.decodedByteLength += 1; },
+    /terrain payload decoded bytes do not match/);
+  await withRepinned(tourView.tourManifestUrl, (m) => { m.terrainViewId = 'another-view'; }, /tour is for terrain another-view/);
+  // A tour payload whose compressed pin is consistent but whose decoded bytes changed.
+  await withRepinned(tourView.tourManifestUrl, async (m) => {
+    const payloadFile = path.join(v2, path.dirname(tourView.tourManifestUrl), m.payload.url);
+    const original = await fs.readFile(payloadFile);
+    const decoded = gunzipSync(original); decoded[decoded.length - 1] ^= 0xff;
+    const regzipped = gzipSync(decoded);
+    await fs.writeFile(payloadFile, regzipped);
+    m.payload.byteLength = regzipped.byteLength; m.payload.sha256 = sha(regzipped);
+    return () => fs.writeFile(payloadFile, original);
+  }, /tour payload decoded bytes do not match/);
+  // An unpinned edit to the tour manifest fails on the catalog pin.
+  const tourFile = path.join(v2, tourView.tourManifestUrl);
+  const tourBytes = await fs.readFile(tourFile);
+  await fs.writeFile(tourFile, Buffer.concat([tourBytes, Buffer.from(' ')]));
+  await assert.rejects(verifyRangeRuntime(root, out), /tour manifest hash differs/);
+  await fs.writeFile(tourFile, tourBytes);
+  assert.equal((await verifyRangeRuntime(root, out)).checked, true, 'restored tree verifies again');
+});
 
 test('only a positively identified no-Range tree may skip runtime verification', async t => {
   const legacy = await fixture();

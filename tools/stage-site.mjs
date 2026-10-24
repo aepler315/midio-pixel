@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
+import { gunzipSync } from 'node:zlib';
 import { writePlexPublicConfig } from './write-plex-public-config.mjs';
 
 const REQUIRED = ['index.html', 'src/main.js', 'soundfonts'];
@@ -107,6 +108,23 @@ function validateRuntimeMetadata(runtime) {
  * with the hashes the catalog and manifest declare -- no LFS pointers, no
  * unresolved slots. Skipped for trees that carry no Range v2 runtime.
  */
+/** A gzip payload must match its compressed pin and, once decoded, its
+ *  decoded pin: the runtime checks both, so a stage that checked only the
+ *  first could ship a package every client then refuses. */
+async function verifyPinnedPayload(label, dir, pin) {
+  const compressed = await fs.readFile(path.join(dir, pin.url));
+  if (compressed.byteLength !== pin.byteLength || sha256(compressed) !== pin.sha256) {
+    throw new Error(`${label} does not match its manifest`);
+  }
+  let decoded;
+  try { decoded = gunzipSync(compressed); } catch (error) {
+    throw new Error(`${label} does not decode: ${error.message}`, { cause: error });
+  }
+  if (decoded.byteLength !== pin.decodedByteLength || sha256(decoded) !== pin.decodedSha256) {
+    throw new Error(`${label} decoded bytes do not match decodedByteLength/decodedSha256`);
+  }
+}
+
 export async function verifyRangeRuntime(sourceDir, outputDir) {
   const vendor = path.join(outputDir, 'src', 'vendor', 'range');
   let runtime;
@@ -164,9 +182,15 @@ export async function verifyRangeRuntime(sourceDir, outputDir) {
       if (manifest.viewId !== (view.terrainSourceId || view.id)) {
         throw new Error(`${view.id} manifest is for ${manifest.viewId}, not ${view.terrainSourceId || view.id}`);
       }
-      const payload =await fs.readFile(path.join(root, path.dirname(view.terrainManifestUrl), manifest.payload.url));
-      if (payload.byteLength !== manifest.payload.byteLength || sha256(payload) !== manifest.payload.sha256) {
-        throw new Error(`${view.id} terrain payload does not match its manifest`);
+      await verifyPinnedPayload(`${view.id} terrain payload`, path.join(root, path.dirname(view.terrainManifestUrl)), manifest.payload);
+      // A tour view also ships its pinned camera-tour package; the runtime
+      // loads it with expectManifestSha256 and terrainViewId: view.id.
+      if (view.tourManifestUrl) {
+        const tourBuf = await fs.readFile(path.join(root, view.tourManifestUrl));
+        if (sha256(tourBuf) !== view.tourManifestSha256) throw new Error(`${view.id} tour manifest hash differs from the catalog`);
+        const tour = JSON.parse(tourBuf.toString('utf8'));
+        if (tour.terrainViewId !== view.id) throw new Error(`${view.id} tour is for terrain ${tour.terrainViewId}`);
+        await verifyPinnedPayload(`${view.id} tour payload`, path.join(root, path.dirname(view.tourManifestUrl)), tour.payload);
       }
       // The view's material pack and every data texture it names.
       const matBuf = await fs.readFile(path.join(root, view.materialManifestUrl));
