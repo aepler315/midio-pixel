@@ -11,6 +11,7 @@
 import { ACTOR_IDS, ACTOR_MOTES } from './RangeActors.js';
 import { BANDS } from './TerrainMesh.js';
 import { THREAD_SEGMENTS } from './CastJobs.js';
+import { MIST_GLSL, EMITTER_GLSL, MIST_SAMPLES } from './RangeAtmosphere.js';
 
 export const ACTOR_COUNT = 3;
 /** Small lights that follow an actor along its route. */
@@ -35,7 +36,9 @@ export function actorUniforms(THREE) {
 }
 
 /** Light from the actors at `p` on a surface facing `n` (linear radiance,
- *  multiplied by albedo by the caller), and its glint on water. */
+ *  multiplied by albedo by the caller), and its glint on water. Include
+ *  after MIST_GLSL: a lantern sunk under the cloud sea lights nothing that
+ *  stands above its top (RangeAtmosphere seaLightReach). */
 export const ACTOR_GLSL = /* glsl */`
   uniform vec3 uActorPos[${ACTOR_COUNT}];
   uniform vec3 uActorColor[${ACTOR_COUNT}];
@@ -47,6 +50,9 @@ export const ACTOR_GLSL = /* glsl */`
       vec3 d = uActorPos[i] - p;
       float r = length(d), R = uActorRadius[i];
       float fall = (1.0 - smoothstep(R * 2.5, R * 4.5, r)) / (1.0 + r * r / (R * R));
+      // Ground under the sea is already fogged where it is shaded; only
+      // light climbing out of the cloud to a receiver above it is cut.
+      if (uMistFill > 0.0) fall *= 1.0 - uMistFill * max(mistSubmersion(uActorPos[i].y) - mistSubmersion(p.y), 0.0);
       float facing = max(dot(n, d / max(r, 1e-3)) * 0.75 + 0.25, 0.0);
       sum += uActorColor[i] * fall * facing;
     }
@@ -93,6 +99,15 @@ const AIR = /* glsl */`
   }
 `;
 
+// The mist and cloud sea the terrain fades into, seen at a light's true
+// position (RangeAtmosphere emitterSeen): what drowns the ground under it
+// drowns the light too. Lanterns and motes take it from the CPU twin.
+const FOG = /* glsl */`
+  uniform vec4 uNarrative;
+  ${MIST_GLSL}
+  ${EMITTER_GLSL}
+`;
+
 const LANTERN_VERT = /* glsl */`
   ${AIR}
   uniform vec3 uCenter;
@@ -117,6 +132,7 @@ const LANTERN_FRAG = /* glsl */`
   uniform vec3 uColor;
   uniform float uGlow;
   uniform float uPresence;
+  uniform float uSeen;
   in vec2 vQ;
   in float vAir;
   out vec4 outColor;
@@ -125,7 +141,7 @@ const LANTERN_FRAG = /* glsl */`
     if (r > 1.0) discard;
     float core = exp(-r * r * 260.0);
     float halo = exp(-r * 4.5) * (1.0 - r) * (0.25 + 0.75 * uGlow);
-    vec3 c = (vec3(1.0) * core * 0.9 + uColor * (core * 0.6 + halo * 0.55)) * uPresence * (1.0 - 0.85 * vAir);
+    vec3 c = (vec3(1.0) * core * 0.9 + uColor * (core * 0.6 + halo * 0.55)) * uPresence * (1.0 - 0.85 * vAir) * uSeen;
     outColor = vec4(c, clamp(max(c.r, max(c.g, c.b)), 0.0, 1.0));
   }
 `;
@@ -142,10 +158,14 @@ const MOTE_VERT = /* glsl */`
   // the light at uFlyTarget (world) as uFly runs 0..1, and fade there.
   uniform vec3 uFlyTarget;
   uniform float uFly;
+  // How much of the fog lets the lantern and the light it kindles be seen.
+  uniform float uSeen;
+  uniform float uSeenFly;
   in vec4 aSeed;
   out vec2 vQ;
   out float vBright;
   out float vAir;
+  out float vSeen;
   void main() {
     float t = uTime * (0.25 + aSeed.y * 0.5);
     vec2 wander = vec2(sin(t + aSeed.z * 6.2832) + 0.5 * sin(t * 2.3 + aSeed.w * 9.0),
@@ -163,6 +183,7 @@ const MOTE_VERT = /* glsl */`
     vec3 p = c + (uRight * position.x + uUp * position.y) * 2.2 * 2.0 * mpp;
     vBright = (0.45 + 0.4 * fly * (1.0 - fly) * 4.0) * (0.75 + 0.25 * sin(uTime * 3.0 + aSeed.z * 40.0)) * (1.0 - smoothstep(0.85, 1.0, fly));
     vAir = airAt(c);
+    vSeen = mix(uSeen, uSeenFly, fly);
     gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
   }
 `;
@@ -174,12 +195,13 @@ const MOTE_FRAG = /* glsl */`
   in vec2 vQ;
   in float vBright;
   in float vAir;
+  in float vSeen;
   out vec4 outColor;
   void main() {
     float r = length(vQ);
     if (r > 1.0) discard;
     float dot1 = exp(-r * r * 5.0) * (1.0 - r);
-    vec3 c = mix(uColor, vec3(1.0), 0.35) * dot1 * vBright * uPresence * (1.0 - 0.85 * vAir);
+    vec3 c = mix(uColor, vec3(1.0), 0.35) * dot1 * vBright * uPresence * (1.0 - 0.85 * vAir) * vSeen;
     outColor = vec4(c, clamp(max(c.r, max(c.g, c.b)), 0.0, 1.0));
   }
 `;
@@ -188,6 +210,7 @@ const MOTE_FRAG = /* glsl */`
 // ring their core in a second hue. Sized in stage pixels at their depth.
 const SITE_VERT = /* glsl */`
   ${AIR}
+  ${FOG}
   uniform vec3 uRight;
   uniform vec3 uUp;
   uniform float uPxPerTan;
@@ -202,6 +225,7 @@ const SITE_VERT = /* glsl */`
   out float vLit;
   out float vAir;
   out float vTwo;
+  out float vSeen;
   void main() {
     vQ = position.xy * 2.0;
     vLit = aState.x * (1.0 + aState.y * 1.5);
@@ -217,6 +241,8 @@ const SITE_VERT = /* glsl */`
     vec3 c = aPos + normalize(uCameraPos - aPos) * push;
     vec3 p = c + (uRight * position.x + uUp * position.y) * 2.0 * px * mpp * (dist - push) / dist;
     vAir = airAt(aPos);
+    // Fog at the light itself, not at the halo's camera-ward centre.
+    vSeen = aState.x > 0.0 ? emitterSeen(aPos) : 0.0;
     gl_Position = aState.x > 0.0 ? projectionMatrix * viewMatrix * vec4(p, 1.0) : vec4(2.0, 2.0, 2.0, 1.0);
   }
 `;
@@ -230,6 +256,7 @@ const SITE_FRAG = /* glsl */`
   in float vLit;
   in float vAir;
   in float vTwo;
+  in float vSeen;
   out vec4 outColor;
   void main() {
     float r = length(vQ);
@@ -237,7 +264,7 @@ const SITE_FRAG = /* glsl */`
     float core = exp(-r * r * 90.0);
     float halo = exp(-r * 5.0) * (1.0 - r);
     vec3 ring = mix(vColor, vRing, vTwo * smoothstep(0.08, 0.22, r));
-    vec3 c = (vec3(1.0) * core * 0.7 + vColor * core * 0.5 + ring * halo * 0.6) * vLit * uGain * (1.0 - 0.85 * vAir);
+    vec3 c = (vec3(1.0) * core * 0.7 + vColor * core * 0.5 + ring * halo * 0.6) * vLit * uGain * (1.0 - 0.85 * vAir) * vSeen;
     outColor = vec4(c, clamp(max(c.r, max(c.g, c.b)), 0.0, 1.0));
   }
 `;
@@ -246,6 +273,7 @@ const SITE_FRAG = /* glsl */`
 // the other as she flies it.
 const THREAD_VERT = /* glsl */`
   ${AIR}
+  ${FOG}
   uniform float uReveal[${SURVEY_THREADS_MAX}];
   uniform float uBright[${SURVEY_THREADS_MAX}];
   in vec2 aThread;
@@ -253,7 +281,7 @@ const THREAD_VERT = /* glsl */`
   out float vAir;
   void main() {
     int k = int(aThread.x + 0.5);
-    vShow = aThread.y <= uReveal[k] + 1e-4 ? uBright[k] : 0.0;
+    vShow = aThread.y <= uReveal[k] + 1e-4 ? uBright[k] * emitterSeen(position) : 0.0;
     vAir = airAt(position);
     gl_Position = projectionMatrix * viewMatrix * vec4(position, 1.0);
   }
@@ -285,6 +313,22 @@ const blendFor = (THREE) => ({
   blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
 });
 
+/** The terrain's air, mist, cloud-sea and narrative uniforms the cast
+ *  shaders read, by reference (so one upload per frame reaches every cast
+ *  material), with clear-air stand-ins where `shared` lacks them. */
+function sharedSky(THREE, shared = {}) {
+  const ref = (key, make) => shared[key] || { value: make() };
+  return {
+    uCameraPos: ref('uCameraPos', () => new THREE.Vector3()), uAirDensity: ref('uAirDensity', () => 0),
+    uAirHeightFalloff: ref('uAirHeightFalloff', () => 0),
+    uMistDensity: ref('uMistDensity', () => 0), uMistSteps: ref('uMistSteps', () => MIST_SAMPLES),
+    uMistBase: ref('uMistBase', () => 0), uMistHeight: ref('uMistHeight', () => 220), uMistTime: ref('uMistTime', () => 0),
+    uMistDrift: ref('uMistDrift', () => [new THREE.Vector2(), new THREE.Vector2(), new THREE.Vector2()]),
+    uMistColor: ref('uMistColor', () => new THREE.Color()), uMistTop: ref('uMistTop', () => 1e9), uMistFill: ref('uMistFill', () => 0),
+    uNarrative: ref('uNarrative', () => new THREE.Vector4(1, 1, 1, 1)),
+  };
+}
+
 // A unit quad (the Range runtime bundles no PlaneGeometry).
 function unitQuad(THREE) {
   const quad = new THREE.BufferGeometry();
@@ -303,7 +347,7 @@ export class SiteLights {
   constructor(THREE, shared) {
     this.THREE = THREE;
     this.uniforms = {
-      uCameraPos: shared.uCameraPos, uAirDensity: shared.uAirDensity, uAirHeightFalloff: shared.uAirHeightFalloff,
+      ...sharedSky(THREE, shared),
       uRight: { value: new THREE.Vector3(1, 0, 0) }, uUp: { value: new THREE.Vector3(0, 1, 0) },
       uTanHalf: { value: 0.3 }, uPxPerTan: { value: 720 }, uGain: { value: 1 },
     };
@@ -378,9 +422,10 @@ export class SurveyThreads {
     this.meshes = {};
     this._bands = [];
     this.uniformsByBand = {};
+    const sky = sharedSky(THREE, shared);
     for (const band of BANDS) {
       const u = {
-        uCameraPos: shared.uCameraPos, uAirDensity: shared.uAirDensity, uAirHeightFalloff: shared.uAirHeightFalloff,
+        ...sky,
         uReveal: { value: new Array(SURVEY_THREADS_MAX).fill(0) }, uBright: { value: new Array(SURVEY_THREADS_MAX).fill(0) },
         uColor: { value: new THREE.Color() }, uGain: { value: 1 },
       };
@@ -450,15 +495,19 @@ export class ActorsGL {
     this._materials = [];
     const blend = blendFor(THREE);
     const quad = unitQuad(THREE);
+    const sky = sharedSky(THREE, shared);
     this._geometries.push(quad);
     ACTOR_IDS.forEach((id, k) => {
       const u = {
-        uCameraPos: shared.uCameraPos, uAirDensity: shared.uAirDensity, uAirHeightFalloff: shared.uAirHeightFalloff,
+        uCameraPos: sky.uCameraPos, uAirDensity: sky.uAirDensity, uAirHeightFalloff: sky.uAirHeightFalloff,
         uTime: { value: 0 },
         uCenter: { value: new THREE.Vector3() }, uRight: { value: new THREE.Vector3(1, 0, 0) }, uUp: { value: new THREE.Vector3(0, 1, 0) },
         uMpp: { value: 1 }, uHaloPx: { value: 30 }, uColor: { value: new THREE.Color() },
         uGlow: { value: 0 }, uPresence: { value: 0 }, uWanderPx: { value: 24 },
         uFlyTarget: { value: new THREE.Vector3() }, uFly: { value: 0 },
+        // Seen through the fog at the lantern, and at the light it kindles
+        // (RangeAtmosphere emitterVisibility, set per frame by the scene).
+        uSeen: { value: 1 }, uSeenFly: { value: 1 },
       };
       const lantern = new THREE.Mesh(quad, new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms: u,
         vertexShader: LANTERN_VERT, fragmentShader: LANTERN_FRAG, ...blend }));
@@ -477,7 +526,8 @@ export class ActorsGL {
       group.add(motes, lantern);
       // Midasus's three baby stars: tiny lanterns trailing her.
       this.companions[id] = Array.from({ length: ACTOR_COMPANIONS[id] || 0 }, () => {
-        const cu = { ...u, uCenter: { value: new THREE.Vector3() }, uMpp: { value: 1 }, uHaloPx: { value: 9 }, uGlow: { value: 0 } };
+        // Each trails at its own height, so each is fogged on its own.
+        const cu = { ...u, uCenter: { value: new THREE.Vector3() }, uMpp: { value: 1 }, uHaloPx: { value: 9 }, uGlow: { value: 0 }, uSeen: { value: 1 } };
         const m = new THREE.Mesh(quad, new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms: cu,
           vertexShader: LANTERN_VERT, fragmentShader: LANTERN_FRAG, ...blend }));
         m.frustumCulled = false; m.renderOrder = 3;

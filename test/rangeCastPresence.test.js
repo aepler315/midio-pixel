@@ -5,6 +5,8 @@ import {ActorsGL,actorUniforms,SITE_LIGHTS_MAX} from '../src/world/alpine/Actors
 import {ACTOR_IDS,ACTOR_MOTES} from '../src/world/alpine/RangeActors.js';
 import {castWork,pathPosition} from '../src/world/alpine/CastJobs.js';
 import * as THREE from '../src/vendor/range/three-range.module.js';
+import {emitterVisibility} from '../src/world/alpine/RangeAtmosphere.js';
+import {sceneUniforms} from '../src/world/alpine/TerrainMaterial.js';
 test('the cast spawns no giant landscape silhouettes',()=>{
  const shared=actorUniforms(THREE);
  for(const name of ['uGiantPeak','uGiantMask','uGiantCenter','uSkyGiantCenter','uMidioCloud'])assert.equal(name in shared,false,name);
@@ -144,4 +146,61 @@ test('off-axis terrain zoom preserves the prescribed cast size in screen pixels'
   const before=sizes();camera.setViewOffset(1280,720,512,144,512,288);
   sizes().forEach((size,i)=>assert.ok(Math.abs(size-before[i])<1e-9,'lanterns and motes keep their authored pixel scale'));
  } finally {actors.dispose();}
+});
+
+test('the cast sink into the cloud sea with the ground under them; their light is cut per receiver, not here',()=>{
+ const shared={...actorUniforms(THREE),uCameraPos:{value:new THREE.Vector3()},uAirDensity:{value:0},uAirHeightFalloff:{value:0}};
+ const actors=new ActorsGL(THREE,shared), camera=new THREE.PerspectiveCamera(35,16/9,1,100000);
+ camera.position.set(0,2200,0);camera.lookAt(0,1000,-10000);camera.updateMatrixWorld();
+ // Lamplighters on the valley floor at 1000 m, Midasus threading two cairns.
+ const plan={job:'lamplighters',cairns:[[-800,1000,-5000],[0,1000,-5200],[800,1000,-5000]],buoys:[]};
+ const work=castWork(plan);
+ const p={view:{id:'v'},actors,uniforms:shared,actorRoutes:{},castPlan:plan,castWork:work,data:null,scenes:{far:new THREE.Scene()}};
+ const scene={THREE,camera,_tileAt:()=>null,_castJob:RangeScene.prototype._castJob,_setCastLights:RangeScene.prototype._setCastLights};
+ // Two cairns kindled 200 ms ago: the motes are still flying into them.
+ const times=work.marks.map((m,k)=>k<2?19800:k===work.threads[0].mark?19900:Infinity);
+ const state={p:0.55,offsets:{broshi:0,midasus:0},shelter01:0,payoff01:0,fuse01:0,camps:0,climax:false};
+ const cast={presence:1,...Object.fromEntries(ACTOR_IDS.map(id=>[id,{glow:0.5,travel:1}])),jobs:{v:state},schedule:{kindleTimes:()=>times,views:{v:{camps:[]}}}};
+ const draw=mistNow=>{p.mistNow=mistNow;RangeScene.prototype._setActors.call(scene,p,{actors:cast,timeMs:20000,qualityLevel:0,light:{night01:1}});
+  return {seen:ACTOR_IDS.map(id=>actors.uniforms[id].uSeen.value),fly:ACTOR_IDS.map(id=>actors.uniforms[id].uSeenFly.value),
+   companions:actors.companions.midasus.map(c=>c.uSeen.value),light:shared.uActorColor.value.map(c=>c.clone())};};
+ const clear=draw(undefined);
+ assert.deepEqual(clear.seen,[1,1,1],'no fog state: fully seen (tests, first frame)');
+ assert.deepEqual(clear.companions,[1,1,1]);
+ const fog={density:1.5e-3,baseM:990,heightM:240,tSec:3,steps:6,fill:1,atm:1};
+ // The sea's top above the floor: everyone on it is gone.
+ const sunk=draw({...fog,topM:1700});
+ for(const v of [...sunk.seen,...sunk.companions])assert.ok(v<1e-6,`sunk lantern seen at ${v}`);
+ assert.ok(actors.uniforms.broshi.uFly.value>0,'a kindling is under way');
+ assert.ok(sunk.fly.every(v=>v<1e-6),'the light being kindled is under the sea too');
+ sunk.light.forEach((c,k)=>assert.ok(c.distanceTo(clear.light[k])<1e-9,'the light itself is cut per receiver in the terrain shaders'));
+ // The top below them: only the valley mist along the ray remains.
+ const above=draw({...fog,topM:900,fill:0.6});
+ const eye=camera.position.toArray();
+ ACTOR_IDS.forEach((id,k)=>{
+  const pos=shared.uActorPos.value[k].toArray();
+  assert.ok(Math.abs(above.seen[k]-emitterVisibility(eye,pos,{...fog,topM:900,fill:0.6}))<1e-12,id);
+  assert.ok(above.seen[k]>0.05&&above.seen[k]<1,`${id} seen through the mist at ${above.seen[k]}`);
+ });
+ // Companions are fogged where each one trails, the kindled light at the cairn.
+ const flyTo=actors.uniforms.broshi.uFlyTarget.value.toArray();
+ assert.ok(Math.abs(above.fly[1]-emitterVisibility(eye,flyTo,{...fog,topM:900,fill:0.6}))<1e-12);
+ actors.dispose();
+});
+
+test('site lights and threads read the terrain fog by reference, and fall back to clear air',()=>{
+ const shared=sceneUniforms(THREE,{});
+ const actors=new ActorsGL(THREE,shared);
+ for(const u of [actors.sites.uniforms,...Object.values(actors.threads.uniformsByBand)]){
+  for(const k of ['uMistDensity','uMistTop','uMistFill','uMistDrift','uMistSteps','uNarrative','uCameraPos'])assert.equal(u[k],shared[k],k);
+ }
+ assert.match(actors.sites.material.vertexShader,/vSeen = aState\.x > 0\.0 \? emitterSeen\(aPos\)/,'fogged at the light itself, not its pushed halo');
+ assert.match(actors.threads.meshes.far.material.vertexShader,/emitterSeen\(/);
+ assert.match(actors.groups.midio.children[1].material.fragmentShader,/\* uSeen;/);
+ assert.match(actors.groups.midio.children[0].material.vertexShader,/vSeen = mix\(uSeen, uSeenFly, fly\)/);
+ actors.dispose();
+ const bare=new ActorsGL(THREE,actorUniforms(THREE));
+ assert.equal(bare.sites.uniforms.uMistDensity.value,0,'clear air without terrain uniforms');
+ assert.equal(bare.threads.uniformsByBand.near.uMistFill.value,0);
+ bare.dispose();
 });

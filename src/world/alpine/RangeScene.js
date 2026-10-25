@@ -38,7 +38,7 @@ import { RockStageGL } from './RockStageGL.js';
 import { scenePoseAt } from '../terrain/SceneTravel.js';
 import { applyCameraMoves, rangeUserCamera } from './RangeCamera.js';
 import { BANDS, terrainFringeBytes, terrainHeightAt, SURFACE_BUILD_BYTES_PER_PIXEL } from './TerrainMesh.js';
-import { mistParams, mistDrift, easeMistSteps, tourMistCap, tourMistFade } from './RangeAtmosphere.js';
+import { mistParams, mistDrift, easeMistSteps, tourMistCap, tourMistFade, emitterVisibility } from './RangeAtmosphere.js';
 import { mirrorSize, mirrorLevelFor, mirrorCameraFor, mirrorTextureMatrix, MIRROR_CLIP_M, MIRROR_LIFT } from './WaterMirror.js';
 import { scenicProjection, calibrateRangeMusic } from './RangeFrame.js';
 import { applyGlacierUniforms, glacierErrors, glacierSample } from './GlacierField.js';
@@ -1791,6 +1791,11 @@ export class RangeScene {
     mistDrift(mp.tSec).forEach((d, i) => u.uMistDrift.value[i].set(d[0], d[1]));
     u.uMistTop.value = mp.topM;
     u.uMistFill.value = mp.fill;
+    // The fog as uploaded (tour fade included), for the lanterns' CPU twin
+    // of the shaders' emitterSeen (RangeAtmosphere emitterVisibility).
+    const fog = p.mistNow || (p.mistNow = {});
+    fog.density = u.uMistDensity.value; fog.baseM = mp.baseM; fog.heightM = mp.heightM; fog.tSec = mp.tSec;
+    fog.steps = p.mistSteps; fog.topM = mp.topM; fog.fill = mp.fill; fog.atm = n?.atmosphere ?? 1;
     // Lit mist: the air's colour lifted toward the key light (display domain).
     u.uMistColor.value.copy(u.uAirColor.value).multiplyScalar(1.2).add(u.uLightColor.value.clone().multiplyScalar(0.06));
     u.uMistColor.value.r = Math.min(0.9, u.uMistColor.value.r);
@@ -1847,6 +1852,14 @@ export class RangeScene {
     // a soft shimmer at noon.
     const dark = Math.min(1, Math.max(0, frame.light?.night01 ?? 0));
     const presence = (cast?.presence ?? 0) * (materials > .01 ? materials : 0);
+    // The lanterns are seen through the same mist and cloud sea as the
+    // ground under them, from their true positions (not the camera-ward
+    // centres their halos draw at). The light they cast is cut per receiver
+    // in the terrain shaders instead (ACTOR_GLSL). The lake mirror reuses
+    // the eye's value, so a reflection in a partial sea dims twice -- light
+    // through the cloud on the way down and up again.
+    const eye = cam.position.toArray(this._eyeScratch || (this._eyeScratch = [0, 0, 0]));
+    const fog = p.mistNow || null;
     u.uWakeAmt.value = 0;
     u.uParting.value.w = 0;
     // A shot tour over a rail view keeps the view's job (and every light it
@@ -1901,6 +1914,8 @@ export class RangeScene {
       const fly = placed?.fly;
       v.uFly.value = fly ? fly.t : 0;
       if (fly) v.uFlyTarget.value.set(...fly.pos);
+      v.uSeen.value = emitterVisibility(eye, pos, fog);
+      v.uSeenFly.value = fly ? emitterVisibility(eye, fly.pos, fog) : v.uSeen.value;
       // Companions trail along the same way, each a little behind and
       // weaving about it.
       (p.actors.companions[id] || []).forEach((c, j) => {
@@ -1914,6 +1929,7 @@ export class RangeScene {
         c.uCenter.value.copy(cp).addScaledVector(cam.position.clone().sub(cp).normalize(), cpush);
         c.uMpp.value = mpp0 * (cd - cpush) / cd;
         c.uGlow.value = s.glow * 0.6;
+        c.uSeen.value = emitterVisibility(eye, lag, fog);
       });
       group.visible = true;
       const tile = this._tileAt(p.data, pos[0], pos[2]);

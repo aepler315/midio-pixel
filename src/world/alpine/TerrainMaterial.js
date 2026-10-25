@@ -415,6 +415,8 @@ export const SCENE_FRAG = /* glsl */`
   // patches that cross the frame with each front and break the mirror.
   // Water reads the same six gusts as the forest, packed per front.
   uniform vec3 uWaterGust[${GUST_FRONTS}];
+  // Valley mist and cloud sea first: the lanterns' light reads its top.
+  ${MIST_GLSL}
   // The cast's lanterns (ActorsGL.js): their light, glints and Midio's wake.
   ${ACTOR_GLSL}
   ${WAKE_GLSL}
@@ -431,7 +433,6 @@ export const SCENE_FRAG = /* glsl */`
   // Filmic shoulder (Narkowicz ACES fit): snow and moonlit rock compress
   // instead of clipping; the dark blue-hour body keeps its separation.
   vec3 tonemap(vec3 x) { return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0); }
-  ${MIST_GLSL}
   ${STORM_GLSL}
   ${FAR_FOREST_GLSL}
   ${FAR_TREE_DOTS_GLSL}
