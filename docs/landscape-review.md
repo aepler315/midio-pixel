@@ -30,6 +30,11 @@ upload and analysis path. All recorded frames use Uniform raster scaling; old
 Depth preferences cannot activate the removed mode. Use `--audio recording.wav`
 for a representative recording, `--view teton-jackson-lake` for a static lake
 view, or `--start-ms 40000 --seconds 4 --fps 24` for another continuous passage.
+Use `--look cinematic` to review the experimental Cinematic Pixel Look;
+`--look pixel` remains the default. The selected Look applies to both the
+fixed-clock clips and optional live trace, and each checks the effective
+presentation diagnostics. `--grid classicPlus` selects the 400×225 native
+terrain raster without changing the Look.
 The default view is the authored Teton tour. Clip length is bounded at ten
 seconds; use the existing visual manifest workflow for larger corpora.
 
@@ -76,6 +81,12 @@ these old defects without treating their presence as candidate acceptance.
 The report also checks a paused presenter grid/backing-size round trip without
 advancing heard time or replacing the audio engine. This check does not replace
 the unit tests or the separate delayed-worker lifecycle fixture.
+
+Revision comparisons through `--baseline` require the same requested Look
+and every other matched setting. Capture Classic+ Pixel and Cinematic Pixel
+into separate, explicitly labelled reference folders for a visual comparison;
+their different Look requests cannot pass as an identical-settings revision
+comparison. Do not edit saved baseline settings to make them match.
 
 Optional live timing uses a separate real upload and waits for `renderReady`
 before measuring delivered frames. It uses the authored Teton tour and the

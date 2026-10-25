@@ -21,6 +21,15 @@ export function gpuReviewArgs(argv, now = Date.now()) {
   parseReviewArgs(args);
   return args;
 }
+export async function gpuReviewSourceMetadata(checkout) {
+  checkout = path.resolve(checkout);
+  const env = { ...process.env };
+  for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR']) delete env[key];
+  const git = async (...args) => (await exec('git', args, { cwd: checkout, env, encoding: 'utf8', windowsHide: true })).stdout.trim();
+  const [commit, dirty] = await Promise.all([git('rev-parse', '--verify', 'HEAD'), git('status', '--porcelain', '--untracked-files=normal')]);
+  if (!/^[a-f0-9]{40}$/.test(commit)) throw Error('GPU review source requires a 40-character Git commit');
+  return { label: 'Local RTX 3060 test', checkout, commit, dirty };
+}
 async function runChild(executable, args) {
   const child = spawn(executable, args, { cwd: root, stdio: 'inherit', windowsHide: true });
   const stop = signal => child.kill(signal);
@@ -52,10 +61,11 @@ export async function runGpuReview(argv) {
   try {
     if (!options.snapshot) {
       frozen = await snapshotSource(options.source);
+      const source = await gpuReviewSourceMetadata(options.source);
       const snapshot = path.join(temp, 'snapshot'); await fs.mkdir(snapshot);
       for (const bytes of frozen.files.values()) await fs.writeFile(path.join(snapshot, sha256(bytes)), bytes);
       await fs.writeFile(path.join(snapshot, 'manifest.json'), JSON.stringify({ digest: frozen.digest, hashes: frozen.hashes,
-        source: { label: 'Local RTX 3060 test', checkout: options.source } }));
+        source }));
       args.push('--snapshot', snapshot);
     }
     if (!options.browser) { await fs.access(chrome); args.push('--browser', chrome); }

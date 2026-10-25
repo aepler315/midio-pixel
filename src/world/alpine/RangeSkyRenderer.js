@@ -10,6 +10,10 @@ export { cloudDensity } from './RangeCloudTexture.js';
 
 const TAU = Math.PI * 2;
 const clamp = (x, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, x));
+/** Visible lunar area; exact new/full phases need no artificial floor. */
+export function moonIllumination(phase) {
+  return Number.isFinite(phase) ? .5 - .5 * Math.cos(TAU * clamp(phase)) : 0;
+}
 const smooth = x => { x = clamp(x); return x * x * (3 - 2 * x); };
 const hash = (x, y, seed) => {
   let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(seed | 0, 1274126177);
@@ -68,6 +72,30 @@ export function createSkyCatalogue(seed, count = 2600) {
 
 const STAR_COLORS = ['190,210,255', '218,229,255', '245,244,231', '255,226,188', '217,231,255'];
 
+// Three premultiplied cloud colours share one density: cool volume, warm
+// left light, warm right light. Continuous weights preserve its exact alpha
+// without direction buckets, frame history or rebuilding the optical field.
+export function cinematicCloudWeights(bank, frame, width, height) {
+  const m = bank.matrix, sun = frame.sun;
+  if (!m?.every(Number.isFinite) || !sun || sun.visible === false || !(sun.altitude01 > .005)) return [1, 0, 0];
+  const det = m[0] * m[3] - m[1] * m[2];
+  if (Math.abs(det) < 1e-8 || !Number.isFinite(sun.xFrac) || !Number.isFinite(sun.yFrac)) return [1, 0, 0];
+  const dx = sun.xFrac * width - m[4], dy = sun.yFrac * height - m[5];
+  const x = (m[3] * dx - m[2] * dy) / det, y = (-m[1] * dx + m[0] * dy) / det;
+  const right = .5 + .5 * x / Math.hypot(x, y, .5);
+  const light = .82 * (1 - clamp(frame.night || 0)) * clamp(sun.visibility ?? 1)
+    * clamp(frame.light?.intensity ?? 1) * (1 - .85 * clamp(frame.storm?.amount || 0));
+  return [1 - light, light * (1 - right), light * right];
+}
+
+function skyTint(hex, target, amount) {
+  const match = /^#([a-f\d]{3}|[a-f\d]{6})$/i.exec(hex || '');
+  if (!match) return hex;
+  const raw = match[1].length === 3 ? [...match[1]].map(c => c + c).join('') : match[1];
+  const value = parseInt(raw, 16);
+  return `rgb(${target.map((channel, i) => Math.round(((value >>> (16 - i * 8)) & 255) * (1 - amount) + channel * amount)).join(',')})`;
+}
+
 /** Full-resolution sky experiment. Cached density/albedo images are small,
  * accounted CanvasBuffers; the destination belongs to the presenter.
  * This painter never reads terrain pixels or changes the terrain grid. */
@@ -101,6 +129,7 @@ export class RangeSkyRenderer {
       this.cloudCache.delete(oldest);
       this.buffers.release(`cloud-${oldest}`);
       this.buffers.release(`storm-cloud-${oldest}`);
+      this.buffers.release(`cinematic-cloud-${oldest}`);
     }
     const canvas = this.buffers.ensure(`cloud-${index}`, 192, 128);
     if (!canvas || this.painted.has(canvas)) return canvas;
@@ -111,10 +140,59 @@ export class RangeSkyRenderer {
     this.painted.add(canvas);
     return canvas;
   }
+  /** Return optional storage before terrain streaming reserves its next
+   * window, including frames that cannot reach the final sky composite. */
+  setQualityLevel(level = 0) {
+    if (level >= 2) this._setCinematic(false);
+  }
+  _setCinematic(enabled) {
+    if (enabled === this._cinematicActive) return;
+    this._cinematicActive = enabled;
+    if (!enabled) for (const name of this.buffers.buffers.keys()) {
+      if (name.startsWith('cinematic-')) this.buffers.release(name);
+    }
+  }
+  _cinematicCloud(index, density) {
+    // The whole variant bundle is admitted together. A denied allocation
+    // leaves this frame's established density available to the caller.
+    const images = this.buffers.ensure(`cinematic-cloud-${index}`, 192, 128, 3);
+    if (!images || this.painted.has(images[0])) return images;
+    for (const [variant, image] of images.entries()) {
+      const target = image.getContext('2d');
+      target.clearRect(0, 0, image.width, image.height);
+      target.globalAlpha = 1; target.globalCompositeOperation = 'source-over';
+      const from = variant === 2 ? image.width : 0;
+      const to = variant === 1 ? image.width : 0;
+      const gradient = target.createLinearGradient(from, 0, to, image.height);
+      gradient.addColorStop(0, variant ? 'rgb(255,247,228)' : 'rgb(215,226,240)');
+      gradient.addColorStop(1, variant ? 'rgb(181,202,227)' : 'rgb(150,172,201)');
+      target.fillStyle = gradient; target.fillRect(0, 0, image.width, image.height);
+      target.globalCompositeOperation = 'multiply'; target.drawImage(density, 0, 0);
+      target.globalCompositeOperation = 'destination-in'; target.drawImage(density, 0, 0);
+      target.globalCompositeOperation = 'source-over';
+      this.painted.add(image);
+    }
+    return images;
+  }
+  _mixCinematicCloud(images, weights, canvas) {
+    const target = canvas.getContext('2d');
+    target.setTransform(1, 0, 0, 1, 0, 0);
+    target.clearRect(0, 0, canvas.width, canvas.height);
+    target.globalCompositeOperation = 'lighter';
+    for (const [i, image] of images.entries()) {
+      target.globalAlpha = weights[i]; target.drawImage(image, 0, 0);
+    }
+    target.globalCompositeOperation = 'source-over'; target.globalAlpha = 1;
+    return canvas;
+  }
   draw(ctx, frame) {
     const project = skyProjector(frame.camera);
     if (!project) return false;
     this._seed(frame.seed);
+    // Shed the optional tinted volumes with near tree detail. The grade,
+    // stars, aurora and established cloud densities retain the selected look.
+    const cinematicClouds = !!frame.cinematicPixel && (frame.qualityLevel ?? 0) < 2;
+    this._setCinematic(cinematicClouds);
     const width = frame.sourceWidth, height = frame.sourceHeight;
     const night = clamp(frame.night), time = frame.timeSec;
     ctx.save();
@@ -126,20 +204,20 @@ export class RangeSkyRenderer {
     const horizon = project(horizontal);
     const horizonY = clamp(horizon.yFrac, -.3, 1.8) * height;
     const gradient = ctx.createLinearGradient(0, Math.min(-height * .4, horizonY - height), 0, Math.max(height * .2, horizonY + height * .25));
-    gradient.addColorStop(0, frame.colors.top);
-    gradient.addColorStop(.65, frame.colors.mid);
+    gradient.addColorStop(0, frame.cinematicPixel ? skyTint(frame.colors.top, [11, 27, 53], .16 - .08 * night) : frame.colors.top);
+    gradient.addColorStop(.65, frame.cinematicPixel ? skyTint(frame.colors.mid, [66, 106, 146], .07 * (1 - night)) : frame.colors.mid);
     gradient.addColorStop(1, frame.colors.horizon);
     ctx.fillStyle = gradient; ctx.fillRect(0, 0, width, height);
     // The moon is screened onto the sky with no backing disc, so the stars
     // it covers are cut out here instead of painted over.
-    const moonDisc = this.celestial.prepareMoon(frame.moon, width, height, night, frame.phase);
-    this._stars(ctx, project, width, height, night, time, moonDisc);
-    this._aurora(ctx, project, width, height, night, time, frame.authority);
+    this.celestial.prepareMoon(frame.moon, width, height, night, frame.phase);
+    this._stars(ctx, project, width, height, night, time, !!frame.cinematicPixel);
+    this._aurora(ctx, project, width, height, night, time, frame.authority, !!frame.cinematicPixel);
     if (frame.lightning) LightningFX.prototype.draw.call(frame.lightning, ctx, { width, height }, frame.timeSec * 1000);
     // Output pixels per sky unit choose the moon texture's resolution.
     const matrix = ctx.getTransform?.();
     this._bodies(ctx, frame, width, height, night, matrix ? Math.hypot(matrix.a, matrix.b) || 1 : 1);
-    this._clouds(ctx, frame.camera, width, height, night, time, frame.storm);
+    this._clouds(ctx, frame.camera, width, height, night, time, frame.storm, cinematicClouds ? frame : null);
     // Keep the existing heard-time storm score and triggered bolts. Only
     // their target and the cloud shape change; terrain wetness stays native.
     drawStormSky(ctx, { width, height }, frame.storm, { tSec: frame.timeSec, seed: frame.seed, pan: frame.camera,
@@ -151,8 +229,9 @@ export class RangeSkyRenderer {
     ctx.restore();
     return true;
   }
-  _stars(ctx, project, width, height, night, time, moon = null) {
-    const strength = .07 + .93 * smooth(night);
+  /** `moon`: the disc the stars behind are cut out for (this frame's, prepared before). */
+  _stars(ctx, project, width, height, night, time, cinematic = false, moon = this.celestial.disc) {
+    const strength = (.07 + .93 * smooth(night)) * (cinematic ? .72 : 1);
     if (strength < .01) return;
     // Stars behind the moon fade with its disc and vanish once it is whole.
     const occluded = !!moon?.visible, mx = occluded ? moon.x : 0, my = occluded ? moon.y : 0;
@@ -160,6 +239,7 @@ export class RangeSkyRenderer {
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     for (const star of this.stars) {
+      if (cinematic && star.brightness < .28) continue;
       const p = project(star.direction);
       if (!p.visible) continue;
       const x = p.xFrac * width, y = p.yFrac * height;
@@ -184,8 +264,8 @@ export class RangeSkyRenderer {
     }
     ctx.restore();
   }
-  _aurora(ctx, project, width, height, night, time, authority = 1) {
-    const alpha = smooth((night - .18) / .7) * (.045 + .035 * clamp(authority));
+  _aurora(ctx, project, width, height, night, time, authority = 1, cinematic = false) {
+    const alpha = smooth((night - .18) / .7) * (.045 + .035 * clamp(authority)) * (cinematic ? .6 : 1);
     if (alpha < .005) return;
     ctx.save(); ctx.globalCompositeOperation = 'screen';
     for (let sheet = 0; sheet < 2; sheet++) {
@@ -245,7 +325,8 @@ export class RangeSkyRenderer {
   }
   _bodies(ctx, frame, width, height, night, outputScale = 1) {
     const storm = clamp(frame.storm?.amount ?? 0);
-    this.celestial.drawSun(ctx, frame.sun, width, height, storm);
+    // The cinematic look keeps a quieter halo around the sun.
+    this.celestial.drawSun(ctx, frame.sun, width, height, storm, { quiet: !!frame.cinematicPixel });
     this.celestial.drawMoon(ctx, frame.moon, frame.sun, width, height, night, frame.phase, outputScale, storm);
   }
   /** The bodies seen through the storm deck, painted over it. */
@@ -255,11 +336,18 @@ export class RangeSkyRenderer {
     this.celestial.drawVeiledSun(ctx, frame.sun, width, height, storm);
     this.celestial.drawVeiledMoon(ctx, frame.moon, width, height, night, frame.phase, storm);
   }
-  _clouds(ctx, camera, width, height, night, time, storm = 0) {
+
+  _clouds(ctx, camera, width, height, night, time, storm = 0, cinematic = null) {
     ctx.save();
     for (const bank of cloudBanks({ camera, width, height, timeSec: time, seed: this.seed })) {
-      const image = this._cloud(bank.shapeSeed ?? bank.index);
+      const index = bank.shapeSeed ?? bank.index;
+      let image = this._cloud(index);
       if (!image) continue;
+      if (cinematic) {
+        const mix = this.buffers.ensure('cinematic-cloud-mix', 192, 128);
+        const variants = mix && this._cinematicCloud(index, image);
+        if (variants) image = this._mixCinematicCloud(variants, cinematicCloudWeights(bank, cinematic, width, height), mix);
+      }
       ctx.save(); ctx.transform(...bank.matrix);
       ctx.globalAlpha = bank.alpha * (1 - night * .48) * (1 + clamp(storm?.amount ?? storm) * .35);
       ctx.drawImage(image, -.5, -.5, 1, 1);

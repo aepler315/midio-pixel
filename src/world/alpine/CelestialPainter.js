@@ -40,6 +40,14 @@ const flattening = altDeg => 1 - .17 * (1 - smooth(0, 3, altDeg));
 const moonShadeAltitudeDeg = moon => 60 * (moon?.altitude01 ?? .5);
 /** The moon's horizon tint never reaches the sun's. */
 const MOON_TINT_CAP = .6;
+/** Clip to the lit part of a disc of `radius` lit `illumination` toward +x
+ *  (rotate the context toward the light first). */
+function clipMoonPhase(ctx, radius, illumination) {
+  const terminator = 1 - 2 * illumination;
+  ctx.beginPath(); ctx.arc(0, 0, radius, -Math.PI / 2, Math.PI / 2);
+  ctx.ellipse(0, 0, Math.abs(terminator) * radius, radius, 0, Math.PI / 2, -Math.PI / 2, terminator > 0);
+  ctx.closePath(); ctx.clip();
+}
 /** How much a storm deck of `amount` (frame.storm.amount, the slate wash
  *  drawStormSky lays over the bodies) hides a body's clear-sky look: from a
  *  hazy deck, gone by the half-dense one. */
@@ -69,7 +77,7 @@ const MARIA = [
 ];
 // Young bright craters [x, y, radius, gain]: Tycho, Copernicus, Kepler.
 const TYCHO = [-.12, .72];
-const BRIGHT_CRATERS = [[TYCHO[0], TYCHO[1], .035, .35], [-.30, -.12, .03, .22], [-.52, -.10, .018, .2]];
+const BRIGHT_CRATERS = [[TYCHO[0], TYCHO[1], .035, .07], [-.30, -.12, .03, .045], [-.52, -.10, .018, .04]];
 
 /** Albedo of the near side, with no lighting baked in (shading is applied
  *  per phase): highland mottling, darker maria with ragged shores, fine
@@ -82,16 +90,18 @@ function albedoAt(nx, ny) {
     m += depth * Math.exp(-(qx * qx + qy * qy) * 1.15);
   }
   m = smooth(.30, .85, m + (fbm(nx * 3.4 + 9, ny * 3.4 + 4, 41) - .5) * .6);
-  let albedo = 1 + (fbm(nx * 5 + 2, ny * 5 + 7, 7) - .5) * .16;
-  albedo *= 1 - .36 * m;
-  albedo += (noise(nx * 16, ny * 16, 3) - .5) * .05 + (noise(nx * 34, ny * 34, 5) - .5) * .025;
+  let albedo = 1 + (fbm(nx * 5 + 2, ny * 5 + 7, 7) - .5) * .08;
+  // Maria stay subtle at this size: dark enough to read as the familiar
+  // face, never the giant blobs that a true-to-albedo contrast drew.
+  albedo *= 1 - .1 * m;
+  albedo += (noise(nx * 16, ny * 16, 3) - .5) * .03 + (noise(nx * 34, ny * 34, 5) - .5) * .015;
   for (const [cx, cy, r, gain] of BRIGHT_CRATERS) {
     const dx = (nx - cx) / r, dy = (ny - cy) / r;
     albedo += gain * Math.exp(-(dx * dx + dy * dy));
   }
   const tx = nx - TYCHO[0], ty = ny - TYCHO[1], td = Math.hypot(tx, ty), ta = Math.atan2(ty, tx);
   const ray = Math.max(0, Math.cos(ta * 7 + 1.3) * Math.cos(ta * 11)) ** 6;
-  return albedo + .10 * ray * Math.exp(-td * 1.6) * smooth(.04, .12, td);
+  return albedo + .03 * ray * Math.exp(-td * 1.6) * smooth(.04, .12, td);
 }
 
 /** Everything about the face that does not depend on the light, per texture
@@ -114,6 +124,8 @@ function bakeFace(size) {
 
 const WHITE_HOT = [255, 253, 246], WHITE = [255, 255, 252], EMBER = [232, 80, 34];
 const GLARE = [255, 246, 228], BLOOM = [255, 252, 240], DAY_SUN = [255, 243, 223];
+// The cinematic look's quieter solar halo: its strength and its reach.
+const QUIET_GLARE = .55, QUIET_GLARE_EXTENT = .65;
 // The white-hot heart of a setting sun.
 const SUNSET_HOT = [255, 236, 190];
 // Light through cloud: the sun a warm white that lights the deck broadly
@@ -152,11 +164,17 @@ export class CelestialPainter {
     // An authored Landscape moon carries discAlpha: zero while the sun is up.
     const cover = clamp(moon.discAlpha ?? moon.visibility ?? 1), r = (moon.radiusFrac || 0) * width;
     if (cover < .01 || !(r > 0)) return disc;
-    const f = Math.max(MOON_MIN_ILLUMINATION, moon.illumination ?? .5 - .5 * Math.cos(TAU * clamp(phase01)));
+    // A geometric phase (the moon beside the sun in a rail view or a tour)
+    // keeps the thinnest drawable crescent; a phase on the song's clock is
+    // drawn exactly, down to an invisible new moon.
+    const f = Number.isFinite(moon.illumination) ? Math.max(MOON_MIN_ILLUMINATION, moon.illumination)
+      : Number.isFinite(phase01) ? .5 - .5 * Math.cos(TAU * clamp(phase01)) : 0;
+    if (f < 1e-6) return disc;
     disc.visible = true; disc.x = moon.xFrac * width; disc.y = moon.yFrac * height; disc.r = r;
     disc.cover = cover; disc.illumination = f;
-    // Daylight lowers a real moon's contrast, and a thin day crescent is faint.
-    disc.strength = cover * (night + (1 - night) * .6 * (.35 + .65 * smooth(.1, .5, f)));
+    // Daylight lowers a real moon's contrast; a day crescent stays as clear
+    // as a day half moon (its own thinness already makes it slight).
+    disc.strength = cover * (night + (1 - night) * .62);
     return disc;
   }
 
@@ -175,8 +193,10 @@ export class CelestialPainter {
    *  down to the waterline, since the land in front is what hides a setting
    *  sun (a see-through disc behind a ridge read as a pale moon). A storm
    *  deck (`storm`, its amount) takes the hard disc and the clear-sky glare
-   *  away as it thickens: drawVeiledSun paints the sun over the deck. */
-  drawSun(ctx, sun, width, height, storm = 0) {
+   *  away as it thickens: drawVeiledSun paints the sun over the deck.
+   *  `quiet` (the cinematic look) restrains the glare to a smaller, fainter
+   *  halo, keeping the sky around the sun quiet. */
+  drawSun(ctx, sun, width, height, storm = 0, { quiet = false } = {}) {
     if (!sun || sun.visible === false || !(sun.altitude01 > 0)) return;
     const vis = clamp(sun.visibility ?? 1), clear = 1 - bodyVeil(storm);
     if (vis < .01 || clear < .01) return;
@@ -201,13 +221,13 @@ export class CelestialPainter {
     // ghost.
     const dim = sunDiscDim(vis);
     scale3(core, dim); scale3(limb, dim); scale3(centre, dim);
-    const k = vis * clear;
+    const k = vis * clear, q = quiet ? QUIET_GLARE : 1;
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
-    const G = height * (.26 + .14 * low);
+    const G = height * (.26 + .14 * low) * (quiet ? QUIET_GLARE_EXTENT : 1);
     let g = ctx.createRadialGradient(x, y, 0, x, y, G);
-    g.addColorStop(0, rgba(glare, .55 * k)); g.addColorStop(.06, rgba(glare, .30 * k));
-    g.addColorStop(.25, rgba(glare, .09 * k)); g.addColorStop(1, rgba(glare, 0));
+    g.addColorStop(0, rgba(glare, .55 * k * q)); g.addColorStop(.06, rgba(glare, .30 * k * q));
+    g.addColorStop(.25, rgba(glare, .09 * k * q)); g.addColorStop(1, rgba(glare, 0));
     ctx.fillStyle = g; ctx.fillRect(x - G, y - G, 2 * G, 2 * G); // bounded, never the whole frame
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = sunDiscAlpha(vis) * clear;
@@ -303,18 +323,24 @@ export class CelestialPainter {
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
     if (night > .05) {
-      const A = r * 3.4, k = .17 * night * disc.cover * clear * f ** 1.5;
-      const g = ctx.createRadialGradient(x, y, r * .95, x, y, A);
-      g.addColorStop(0, `rgba(200,214,236,${k})`); g.addColorStop(.3, `rgba(190,206,232,${k * .3})`); g.addColorStop(1, 'rgba(190,206,232,0)');
+      // Full at the limb and falling away from it; over the disc only a
+      // faint veil, so the dark side stays sky (a gradient begun at the limb
+      // extends its first colour across the whole disc).
+      const A = r * 3.4, k = .17 * night * disc.cover * clear * f ** 1.5, limb = r / A;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, A);
+      g.addColorStop(0, `rgba(200,214,236,${k * .2})`); g.addColorStop(limb * .95, `rgba(200,214,236,${k * .2})`);
+      g.addColorStop(limb, `rgba(200,214,236,${k})`); g.addColorStop(limb + .3 * (1 - limb), `rgba(190,206,232,${k * .3})`);
+      g.addColorStop(1, 'rgba(190,206,232,0)');
       ctx.fillStyle = g; ctx.fillRect(x - A, y - A, 2 * A, 2 * A);
     }
     ctx.globalAlpha = strength;
     ctx.translate(x, y); ctx.scale(1, flattening(alt));
     if (texture) ctx.drawImage(texture, -r, -r, r * 2, r * 2);
     else {
-      // Storage refused: a plain lit disc, still screened (no dark hole).
-      ctx.globalAlpha = strength * f;
-      ctx.fillStyle = 'rgb(238,236,226)'; ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill();
+      // Storage refused: a correctly phased silver silhouette, still
+      // screened (no dark hole).
+      ctx.rotate(angle); clipMoonPhase(ctx, r, f);
+      ctx.fillStyle = 'rgb(229,235,242)'; ctx.fillRect(-r, -r, r * 2, r * 2);
     }
     ctx.restore();
   }
@@ -352,9 +378,11 @@ export class CelestialPainter {
         if (!alpha) { px[o + 3] = 0; continue; }
         const nx = (x + .5) / half - 1, mu = nz[i];
         const mu0 = nx * sx + ny * sy + mu * sz + relief[i];
-        const ls = mu0 > 0 ? Math.min(1, (2 * mu0 / (mu0 + mu + 1e-4)) ** .7) : 0;
+        const ls = mu0 > 0 ? Math.min(1, (2 * mu0 / (mu0 + mu + 1e-4)) ** .45) : 0;
         const L = albedo[i] * (ls * lit + earthshine);
-        px[o] = tr * L; px[o + 1] = tg * L; px[o + 2] = tb * L; px[o + 3] = alpha;
+        // Screened, a dark texel adds nothing; it is also transparent, so the
+        // unlit side is truly empty wherever the sky is composited later.
+        px[o] = tr * L; px[o + 1] = tg * L; px[o + 2] = tb * L; px[o + 3] = alpha * clamp(L / .04);
       }
     }
     ctx.putImageData(face.image, 0, 0);

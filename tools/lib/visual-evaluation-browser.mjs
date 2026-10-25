@@ -110,6 +110,8 @@ export async function renderEvaluationFrame(page, point, settings) {
           scenicViewport: frame?.scenicViewport ? { backingWidth: frame.scenicViewport.backingWidth, backingHeight: frame.scenicViewport.backingHeight,
             logicalWidth: frame.scenicViewport.logicalWidth, logicalHeight: frame.scenicViewport.logicalHeight, overscanPx: frame.scenicViewport.overscanPx ?? 0,
             pixelRatio: frame.scenicViewport.pixelRatio ?? null } : null,
+          cinematicLight: prepared?.uniforms?.uCinematic?.value?.toArray?.() ?? null, cinematicAir: prepared?.uniforms?.uCinematicAir?.value?.toArray?.() ?? null,
+          mist: prepared?.uniforms ? { density: prepared.uniforms.uMistDensity?.value, fill: prepared.uniforms.uMistFill?.value, base: prepared.uniforms.uMistBase?.value } : null,
           exposure: prepared?.uniforms?.uExposure?.value ?? null, lightDir: prepared?.uniforms?.uLightDir?.value?.toArray?.() ?? null,
           cameraPos: prepared?.uniforms?.uCameraPos?.value?.toArray?.() ?? null, horizonSize: prepared?.uniforms?.uHorizonSize?.value?.toArray?.() ?? null, forestKeep: prepared?.uniforms?.uForestKeep?.value ?? null,
           mirror: prepared?.uniforms?.uMirrorAmount?.value ?? null, shafts: !!scene?.shafts, trees: prepared?.stats?.trees ?? null };

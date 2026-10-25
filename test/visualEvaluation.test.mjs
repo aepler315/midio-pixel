@@ -164,6 +164,24 @@ test('visual v2 profiles accept Chroma/world and strictly reject unknown fields'
   assert.equal(normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, pixelGrid: 'detailed' } } }).settings.presentation.pixelGrid, 'detailed');
   for (const change of [{ arbitrary: true }, { pixelGrid: 'arbitrary' }, { ditherMode: 'animated' }]) assert.throws(() => normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, ...change } } }));
 });
+test('Cinematic capture profiles retain the selected v2 look and grid without extending v1', () => {
+  const presentation = { version: 2, look: 'cinematic', quality: 'auto', palette: 'world', dither: .35,
+    ditherMode: 'selective', pixelGrid: 'classicPlus', pixelScale: 'original', scaling: 'fit' };
+  assert.deepEqual(normalizeManifest({ ...manifest(), settings: { presentation } }).settings.presentation, presentation);
+  const v1 = { version: 1, look: 'cinematic', quality: 'auto', palette: 'range32', dither: .35, scaling: 'fit' };
+  assert.throws(() => normalizeManifest({ ...manifest(), settings: { presentation: v1 } }), /look/);
+  assert.throws(() => normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, look: 'cinematics' } } }), /look/);
+});
+test('Cinematic and Pixel requests remain incompatible in matched revision comparisons', () => {
+  const a = report(), b = report();
+  const presentation = { version: 2, look: 'cinematic', quality: 'auto', palette: 'world', dither: .35,
+    ditherMode: 'selective', pixelGrid: 'classicPlus', pixelScale: 'original', scaling: 'fit' };
+  a.settings.presentation = presentation;
+  b.settings.presentation = { ...presentation, look: 'pixel' };
+  assert.throws(() => compareReports(a, b), /incompatible.*settings/);
+  b.settings.presentation.look = 'cinematic';
+  assert.equal(compareReports(a, b).frames.length, 1);
+});
 test('historical visual manifests retain recorded Depth metadata and reject unsupported scale modes', () => {
   const presentation = { version: 2, look: 'pixel', quality: 'auto', palette: 'world', dither: .35, ditherMode: 'selective', pixelGrid: 'classic', pixelScale: 'depth', scaling: 'fit' };
   assert.equal(normalizeManifest({ ...manifest(), settings: { presentation } }, { historical: true }).settings.presentation.pixelScale, 'depth');

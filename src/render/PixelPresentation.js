@@ -1,3 +1,4 @@
+import { CinematicPixelRenderer } from './CinematicPixel.js';
 import { applyPalette, compilePalette } from './PaletteQuantize.js';
 import { sharedResidency } from './GraphicsResidency.js';
 import { pixelGrid, PIXEL_POLICY_VERSION } from './PixelRenderPolicy.js';
@@ -19,11 +20,12 @@ export function fitPixelRect(srcW, srcH, dstW, dstH, scaling = 'fit', origin = {
   return { x, y, width, height, scale };
 }
 
-/** Recompose at the destination resolution: smooth sky, nearest native
- * frame, then smooth added light over it (`foreground`: the Landscape
- * cast, so its lights and lines are not stair-stepped with the terrain).
- * Recording must not resample the already combined picture. */
-export function compositePixelFrame(ctx, source, width, height, scaling, background = null, destination = null, foreground = null) {
+/** Recompose at the destination resolution: smooth sky, the native frame
+ * (nearest, unless `foreground` -- the cinematic cell reconstruction --
+ * draws it and returns true), then smooth added light over it (`overlay`:
+ * the Landscape cast, so its lights and lines are not stair-stepped with
+ * the terrain). Recording must not resample the already combined picture. */
+export function compositePixelFrame(ctx, source, width, height, scaling, background = null, destination = null, foreground = null, overlay = null) {
   const fit = destination ? { ...destination, scale: destination.width / source.width }
     : fitPixelRect(source.width, source.height, width, height, scaling);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -31,15 +33,15 @@ export function compositePixelFrame(ctx, source, width, height, scaling, backgro
   ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, width, height);
   const hybridSky = background ? !!background(ctx, fit) : false;
   ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(source, fit.x, fit.y, fit.width, fit.height);
-  let overlay = false;
-  if (foreground) {
+  if (!foreground?.(ctx, fit)) ctx.drawImage(source, fit.x, fit.y, fit.width, fit.height);
+  let overlaid = false;
+  if (overlay) {
     ctx.save();
     ctx.imageSmoothingEnabled = true;
     ctx.globalCompositeOperation = 'lighter';
-    try { overlay = !!foreground(ctx, fit); } finally { ctx.restore(); }
+    try { overlaid = !!overlay(ctx, fit); } finally { ctx.restore(); }
   }
-  return { hybridSky, fit, foreground: overlay };
+  return { hybridSky, fit, overlay: overlaid };
 }
 let nextOwner = 0;
 /** Owns only the bounded working buffer. The output belongs to the caller. */
@@ -74,13 +76,14 @@ export class PixelPresentation {
     this._invalidateCapture();
     if (JSON.stringify(presentation) === JSON.stringify(this.presentation)) return;
     this.presentation = { ...presentation };
+    if (!presentation.cinematicPixel) this.cinematic?.suspend();
     this.grid = presentation.grid;
     this._preparePalette();
     this.generation++;
     this._securityGeneration = null;
     this._maskDeniedGeneration = null;
     this._ditherFallbackReason = null;
-    this.diagnostics = { requestedLook: presentation.paletteId === 'none' ? 'pixel' : 'palette',
+    this.diagnostics = { requestedLook: presentation.cinematicPixel ? 'cinematic' : presentation.paletteId === 'none' ? 'pixel' : 'palette',
       effectiveLook: 'pixel', paletteStatus: { applied: false, reason: null, pixels: 0 }, paletteCpuMs: 0, readbackCpuMs: 0,
       requestedGrid: this.grid.id, effectiveGrid: this.grid, pixelScale: presentation.pixelScale, pixelPolicyVersion: PIXEL_POLICY_VERSION,
       requestedPalette: presentation.paletteId || 'none', resolvedPalette: this._resolvedPaletteId, effectivePalette: 'none',
@@ -197,7 +200,24 @@ export class PixelPresentation {
       this.failFrame('source-unavailable'); return null;
     }
   }
-  finishFrame({ background = null, foreground = null } = {}) {
+  drawForeground(ctx, source, fit, capture = false) {
+    if (!this.presentation.cinematicPixel) return false;
+    const diagnostic = capture ? 'captureReconstruction' : 'cinematicReconstruction';
+    if ((this.qualityLevel || 0) >= 2) {
+      this.cinematic?.suspend();
+      this.diagnostics[diagnostic] = { applied: false, reason: 'quality', bytes: 0 };
+      return false;
+    }
+    this.cinematic ||= new CinematicPixelRenderer({ residency: this.residency,
+      makeCanvas: () => (this.canvas.ownerDocument || globalThis.document).createElement('canvas') });
+    const applied = this.cinematic.draw(ctx, source, fit);
+    this.diagnostics[diagnostic] = { applied, reason: this.cinematic.reason, bytes: this.cinematic.bytes };
+    if (capture) this.diagnostics.ownedPixelScratchBytes = (this.working ? this.grid.pixels * 4 : 0)
+      + (this.ditherWeights?.byteLength || 0) + this.cinematic.bytes + (this.diagnostics.pixelEffectScratchBytes || 0);
+    return applied;
+  }
+  /** `overlay`: smooth light added over the composed frame (the cast). */
+  finishFrame({ background = null, overlay = null } = {}) {
     const started = performance.now();
     if (!this.source || !this._pending || this._disposed) {
       return this.diagnostics.frame?.presented === false ? this.diagnostics.frame : this.failFrame('not-rendered');
@@ -211,7 +231,7 @@ export class PixelPresentation {
     try {
       const sourceContext = source.getContext('2d'), outputContext = this.canvas.getContext('2d');
       if (!sourceContext || sourceContext.isContextLost?.() || !outputContext || outputContext.isContextLost?.()) return this.failFrame('context-lost');
-      this.diagnostics.effectiveLook = 'pixel';
+      this.diagnostics.effectiveLook = p.cinematicPixel ? 'cinematic' : 'pixel';
       let status = { applied: false, reason: null, pixels: 0 };
       if (this._resolvedPaletteId !== 'none') {
         if (this._securityGeneration === this.generation) status = { applied: false, reason: 'security', pixels: source.width * source.height };
@@ -233,12 +253,14 @@ export class PixelPresentation {
       if (source !== this.canvas) {
         const ctx = this.canvas.getContext('2d');
         if (!ctx) return this.failFrame('output-context');
-        const composite = compositePixelFrame(ctx, source, this.canvas.width, this.canvas.height, p.scaling, background, null, foreground);
+        const composite = compositePixelFrame(ctx, source, this.canvas.width, this.canvas.height, p.scaling, background, null,
+          p.cinematicPixel ? (ctx, fit) => this.drawForeground(ctx, source, fit) : null, overlay);
         const { fit, hybridSky } = composite;
         this.diagnostics.hybridSky = hybridSky;
-        this.diagnostics.castForeground = composite.foreground;
+        this.diagnostics.castForeground = composite.overlay;
         this.diagnostics.skyResolution = this.diagnostics.hybridSky ? { width: Math.round(fit.width), height: Math.round(fit.height) } : null;
       }
+      this.diagnostics.ownedPixelScratchBytes += this.cinematic?.bytes || 0;
       this._pending = null;
       const result = { presented: true, generation: this.generation, frameId: ++this.frameId };
       this.diagnostics.frame = result;
@@ -263,7 +285,7 @@ export class PixelPresentation {
   }
   dispose() {
     if (this._disposed) return;
-    this._disposed = true; this._releaseWorking(); this._releaseDitherWeights();
+    this._disposed = true; this.cinematic?.dispose(); this.cinematic = null; this._releaseWorking(); this._releaseDitherWeights();
     this.diagnostics.ownedPixelScratchBytes = 0;
     this.diagnostics.frame = { presented: false, generation: this.generation, reason: 'disposed' };
   }

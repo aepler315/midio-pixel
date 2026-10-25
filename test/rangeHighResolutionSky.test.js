@@ -332,7 +332,7 @@ test('stars behind the moon are cut out, and fade with a fading disc', () => {
   const project = direction => direction === behind ? { xFrac: .5, yFrac: .5, visible: true } : { xFrac: .1, yFrac: .1, visible: true };
   const alphas = disc => {
     const { ctx, ops } = recordingContext();
-    sky._stars(ctx, project, 1408, 848, 1, 0, disc);
+    sky._stars(ctx, project, 1408, 848, 1, 0, false, disc);
     return ops.filter(op => op.op === 'fill').map(op => alphaOf(op.style));
   };
   const disc = cover => ({ visible: true, x: 704, y: 424, r: 20, cover });

@@ -1,4 +1,5 @@
 import { cloudPuffs } from './CloudOcclusion.js';
+import { cinematicLightingProfile } from './CinematicLighting.js';
 import { shaderFailureLog } from '../../render/GraphicsDiagnostics.js';
 import { applyLensFov } from '../../render/CameraLens.js';
 import { terrainShadingMode, terrainShadingForView } from './TerrainShadingExperiment.js';
@@ -185,10 +186,11 @@ export class RangeScene {
 
   /** Physical backing size of the partition images. `pixelRatio` is
    *  evidence/LOD context only; widthPx/heightPx are already physical. */
-  resize({ widthPx, heightPx, pixelRatio = 1, quality = 0, pixelated = false, pixelHeightPx = null }) {
+  resize({ widthPx, heightPx, pixelRatio = 1, quality = 0, pixelated = false, pixelHeightPx = null, cinematicPixel = false }) {
     const w = Math.max(2, Math.round(widthPx)), h = Math.max(2, Math.round(heightPx));
     this.pixelRatio = pixelRatio;
     this.pixelated = !!pixelated;
+    this.cinematicPixel = !!cinematicPixel;
     this.pixelHeightPx = pixelated && pixelHeightPx > 0 ? pixelHeightPx : null;
     this.pixelScale = 'original';
     for (const p of this.prepared?.values() || []) {
@@ -1716,6 +1718,9 @@ export class RangeScene {
     u.uLightDir.value.copy(dir.normalize());
     const night = frame.light.night01;
     const storm = frame.storm || { amount: 0, flash: 0, wet01: 0, break01: 0 };
+    const cinematic = cinematicLightingProfile({ enabled: this.cinematicPixel, night01: night, storm01: storm.amount });
+    u.uCinematic.value.set(...cinematic.light);
+    u.uCinematicAir.value.set(...cinematic.air);
     const strength = c.body ? c.intensity : 0;
     hexToLinear(THREE, c.colorHex, u.uLightColor.value).multiplyScalar(strength);
     // Receiver fill fades once; sky radiance also feeds air and water's

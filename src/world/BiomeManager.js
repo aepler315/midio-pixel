@@ -3772,6 +3772,8 @@ export class BiomeManager {
     }) : null;
     this.rangeSkyLayer = Object.freeze({
       sourceWidth: canvas.width, sourceHeight: canvas.height,
+      cinematicPixel: !!this.cinematicPixel,
+      qualityLevel: this.rangePresentation?.frame?.qualityLevel ?? 0,
       scenicTransform: Object.freeze([matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f]),
       camera, seed: this.songSeed || 0, timeSec: this.tSec,
       night,
@@ -3788,6 +3790,12 @@ export class BiomeManager {
     // The old ellipse-bank occluder cannot describe the new density clouds.
     if (this.rangePresentation?.scene) this.rangePresentation.scene.skyClouds = null;
     return true;
+  }
+
+  /** Quality admission runs before terrain/window allocations; a failed
+   * terrain frame must not retain the previous sky's optional storage. */
+  setCinematicQuality(level) {
+    this._highResolutionSkyRenderer?.setQualityLevel(level);
   }
 
   /** Draw behind the upscaled terrain. `transform` maps the original scenic

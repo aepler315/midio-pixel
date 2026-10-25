@@ -27,23 +27,27 @@ class PresentingRenderer {
   get diagnostics() { return this.output.diagnostics; }
   setPresentation(value) {
     this._requestedPresentation = value;
-    this.output.setPresentation(this._experience === 'trio' ? { ...value, pixelScale: 'original' } : value);
+    this.output.setPresentation(this._experience === 'trio' ? { ...value, cinematicPixel: false, pixelScale: 'original' } : value);
   }
   getCaptureSource() {
     const source = this._disposed ? null : this.output.getCaptureSource();
-    // Recording and export consume the completed hybrid picture (smooth sky
-    // and/or the smooth cast over the pixel frame). Palette diagnostics can
-    // still inspect the native terrain raster separately.
-    const background = this._captureBackground, foreground = this._captureForeground;
+    // Recording and export consume the completed hybrid picture (smooth sky,
+    // the cinematic cell reconstruction and/or the smooth cast over the
+    // pixel frame). Palette diagnostics can still inspect the native
+    // terrain raster separately.
+    const background = this._captureBackground, overlay = this._captureOverlay;
     const { hybridSky, castForeground } = this.output.diagnostics;
-    return source && (hybridSky || castForeground) ? { ...source, canvas: this.canvas,
+    const cinematicPixel = !!this.output.presentation.cinematicPixel;
+    return source && (hybridSky || castForeground || cinematicPixel) ? { ...source, canvas: this.canvas,
       pixelCanvas: source.canvas, width: this.canvas.width, height: this.canvas.height,
-      pixelated: false, terrainPixelated: true, hybridSky: !!hybridSky, castForeground: !!castForeground,
+      pixelated: false, terrainPixelated: true, hybridSky: !!hybridSky, castForeground: !!castForeground, cinematicPixel,
       drawCaptureFrame: (ctx, width, height, destination) => {
         if (this._disposed || this.output.getCaptureSource() !== source) return false;
         const drawn = compositePixelFrame(ctx, source.canvas, width, height, source.scaling,
-          hybridSky ? background : null, destination, castForeground ? foreground : null);
-        return (!hybridSky || drawn.hybridSky) && (!castForeground || drawn.foreground);
+          hybridSky ? background : null, destination,
+          cinematicPixel ? (ctx, fit) => this.output.drawForeground(ctx, source.canvas, fit, true) : null,
+          castForeground ? overlay : null);
+        return (!hybridSky || drawn.hybridSky) && (!castForeground || drawn.overlay);
       } } : source;
   }
   draw(sim, alpha, { preparing = false } = {}) {
@@ -53,6 +57,11 @@ class PresentingRenderer {
     }
     this.output.setFrameContext?.({ worldKind: sim?.biomes?.world?.kind ?? null });
     const manager = sim?.biomes;
+    const cinematicPixel = !!this.output.presentation.cinematicPixel && this._experience !== 'trio';
+    if (manager) {
+      manager.cinematicPixel = cinematicPixel;
+      manager.setCinematicQuality?.(sim?.perf?.level ?? 0);
+    }
     const range = this.inner.rangePresentation;
     const landscape = this._experience !== 'trio' && manager?.world?.kind === 'alpine' && !!range?.enabled;
     const hybridSky = landscape && typeof manager.drawHighResolutionSky === 'function';
@@ -61,6 +70,7 @@ class PresentingRenderer {
     // buffer must stay separate from the output (as for the sky).
     const castOverlay = landscape && typeof range.drawCastForeground === 'function';
     if (range && 'castForeground' in range) range.castForeground = castOverlay;
+    this.output.qualityLevel = sim?.perf?.level ?? 0;
     const source = this.output.beginFrame({ separate: hybridSky || castOverlay });
     if (!source) return this.output.diagnostics.frame;
     const scene = this.canvasRenderer;
@@ -70,7 +80,7 @@ class PresentingRenderer {
     scene.deferSceneCaptures = hybridSky || castOverlay || preparing;
     scene.pixelPolicy = pixelRenderPolicy(this.output.presentation);
     this.inner.presentationPixelated = this.output.presentation.pixelated;
-    if (range) { range.pixelated = !!this.output.presentation.pixelated; range.pixelPolicy = scene.pixelPolicy; }
+    if (range) { range.pixelated = !!this.output.presentation.pixelated; range.pixelPolicy = scene.pixelPolicy; range.cinematicPixel = cinematicPixel; }
     try { this.inner.draw(sim, alpha); }
     catch (err) { scene.discardFrameCaptures?.(); this.output.failFrame('scene-draw'); throw err; }
     if (this._experience !== 'trio' && this.inner.rangePresentation?.enabled && manager?._awaitingTerrain) {
@@ -87,10 +97,10 @@ class PresentingRenderer {
     } : null;
     // The caption's plate is in the working buffer: the cast shows through it.
     const caption = scene.pixelCaptionLayout;
-    const foreground = castOverlay ? (ctx, fit) => range.drawCastForeground(ctx, fit, caption) : null;
-    const result = this.output.finishFrame({ background, foreground });
+    const overlay = castOverlay ? (ctx, fit) => range.drawCastForeground(ctx, fit, caption) : null;
+    const result = this.output.finishFrame({ background, overlay });
     this._captureBackground = result?.presented ? background : null;
-    this._captureForeground = result?.presented ? foreground : null;
+    this._captureOverlay = result?.presented ? overlay : null;
     if (result?.presented && !preparing) scene.completeFrameCaptures?.(this.canvas);
     else scene.discardFrameCaptures?.();
     let effectBytes = 0;
