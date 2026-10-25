@@ -190,7 +190,7 @@ test('the moon stays in the visible sky of the published Teton opening and retur
 });
 
 test('the moon\'s phase comes from its angle to the signed sun, in tours and rail views alike', async () => {
-  const { rangeMoonOrbit, projectRangeCelestials, projectRailCelestials, rangeMoonIllumination, tourSkyDirection, MOON_MIN_ILLUMINATION } =
+  const { rangeMoonOrbit, projectRangeCelestials, projectRailCelestials, railMoonIllumination, tourSkyDirection, MOON_MIN_ILLUMINATION } =
     await import('../src/world/alpine/RangeSkyComposition.js');
   const { resolveCelestialState } = await import('../src/world/CelestialState.js');
   const { songSkyClock, sunScreenFrac, cyclePhase01, CELESTIAL_RISE_XFRAC, CELESTIAL_SET_XFRAC } = await import('../src/world/DayNight.js');
@@ -219,10 +219,33 @@ test('the moon\'s phase comes from its angle to the signed sun, in tours and rai
     const expected = (1 - sun.reduce((sum, v, i) => sum + v * tour.worldDirection[i], 0)) / 2;
     assert.ok(Math.abs(tour.illumination - expected) < 1e-12);
     assert.ok(Math.abs(projectRangeCelestials(state, pose, 1, solar, 77).moon.illumination - expected) < 1e-12, 'a shot tour\'s heading turns both arcs');
-    assert.ok(Math.abs(rangeMoonIllumination(solar, state.moon) - expected) < 1e-12, 'the camera-free helper agrees');
-    const railMoon = projectRailCelestials(state, { from: rail, to: rail, mix: 0 }, solar).moon;
-    assert.ok(Math.abs(railMoon.illumination - expected) < 1e-12, 'rail views share the tours\' phase');
   }
+  // A rail view places both bodies in its own image (projectRailSky): the
+  // lit amount comes from that same geometry as the lit side. Shown only
+  // before dawn and after sunset, its moon stands beside the rising or the
+  // set sun there, so it is a crescent toward it -- never the full moon the
+  // compass arcs gave beside the afterglow.
+  const lift = (p, cam) => {
+    const t = Math.tan(cam.referencePose.fovYDeg * Math.PI / 360), x = (p.xFrac * 2 - 1) * t * cam.aspect, y = (1 - p.yFrac * 2) * t;
+    const f = [700, 60, -700].map(v => v / Math.hypot(700, 60, 700)), r = [-f[2], 0, f[0]].map(v => v / Math.hypot(f[0], f[2]));
+    const u = [r[1] * f[2] - r[2] * f[1], r[2] * f[0] - r[0] * f[2], r[0] * f[1] - r[1] * f[0]];
+    const d = f.map((v, i) => v + r[i] * x + u[i] * y), n = Math.hypot(...d);
+    return d.map(v => v / n);
+  };
+  for (const s of [0, 10, 20, 230, 240]) {
+    const { solar, state, tour } = at(s);
+    assert.ok(state.moon.discAlpha > 0, `${s}s: the moon is shown`);
+    const railMoon = projectRailCelestials(state, { from: rail, to: rail, mix: 0 }, solar).moon;
+    const a = lift(solar, rail), b = lift(state.moon, rail);
+    const expected = (1 - a.reduce((sum, v, i) => sum + v * b[i], 0)) / 2;
+    assert.ok(Math.abs(railMoon.illumination - expected) < 1e-9, `${s}s: from the rail's own image`);
+    assert.ok(railMoon.illumination < .05 && railMoon.illumination < tour.illumination, `${s}s: a crescent beside the sun, ${railMoon.illumination}`);
+    assert.equal(railMoonIllumination(solar, state.moon, { from: rail, to: rail, mix: 0 }), railMoon.illumination);
+  }
+  // Across a travel the phase blends with the two rails' images.
+  const { solar: s0, state: st0 } = at(235), other = { ...rail, referencePose: { ...rail.referencePose, fovYDeg: 60 } };
+  const from = railMoonIllumination(s0, st0.moon, { from: rail }), to = railMoonIllumination(s0, st0.moon, { from: other });
+  assert.ok(Math.abs(railMoonIllumination(s0, st0.moon, { from: rail, to: other, mix: .25 }) - (from + (to - from) * .25)) < 1e-12);
   const parked = at(10);
   const parkedElongation = parked.tour.worldDirection.reduce((sum, v, i) => sum + v * projectRangeCelestials(parked.state, pose).sun.worldDirection[i], 0);
   assert.ok((1 - parkedElongation) / 2 > .9 && parked.tour.illumination < .3, 'the parked sun would have drawn a predawn full moon');

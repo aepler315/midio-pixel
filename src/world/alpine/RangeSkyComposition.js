@@ -89,21 +89,9 @@ function solarDirection(solar, offsetDeg = 0) {
   return arcDirection(SUN_ARC, azimuth01, solar.altSigned, offsetDeg);
 }
 
-/** Lit fraction of the moon from its angle to the signed sun, on the same
- * arcs a tour projects. Camera-free, so rail views (which have no world
- * directions of their own) share the tours' phase; a common azimuth offset
- * cancels in the dot product. */
-export function rangeMoonIllumination(solar, moon) {
-  const sun = solarDirection(solar), direction = arcDirection(MOON_ARC, moon.azimuth01 ?? .5, moon.altitude01);
-  return (1 - dot3(sun, direction)) / 2;
-}
-
 const railSkyFrames = new WeakMap();
 
-/** Normal views author sky anchors in the unmoved rail's image. Lift each
- * anchor into that rail's direction basis, then use the actual terrain
- * pose/lens/crop. Both partitions project before a travel blend. */
-export function projectRailSky(point, snapshot) {
+function railFrame(snapshot) {
   let frame = railSkyFrames.get(snapshot);
   if (!frame) {
     const prepare = camera => ({ ...camera, reference: cameraBasis(camera.referencePose),
@@ -114,14 +102,41 @@ export function projectRailSky(point, snapshot) {
     frame = { from: prepare(snapshot.from), to: snapshot.to ? prepare(snapshot.to) : null };
     railSkyFrames.set(snapshot, frame);
   }
-  const one = camera => {
-    const { pose, aspect, reference: { forward, right, up }, tan, projection } = camera;
-    const x = (point.xFrac * 2 - 1) * tan * aspect, y = (1 - point.yFrac * 2) * tan;
-    return projectSkyDirection(pose, forward.map((v, i) => v + right[i] * x + up[i] * y), aspect, projection);
-  };
+  return frame;
+}
+
+/** A rail-image anchor as a direction in its rail's reference basis. */
+function railLift(camera, point) {
+  const { aspect, reference: { forward, right, up }, tan } = camera;
+  const x = (point.xFrac * 2 - 1) * tan * aspect, y = (1 - point.yFrac * 2) * tan;
+  return forward.map((v, i) => v + right[i] * x + up[i] * y);
+}
+
+/** Normal views author sky anchors in the unmoved rail's image. Lift each
+ * anchor into that rail's direction basis, then use the actual terrain
+ * pose/lens/crop. Both partitions project before a travel blend. */
+export function projectRailSky(point, snapshot) {
+  const frame = railFrame(snapshot);
+  const one = camera => projectSkyDirection(camera.pose, railLift(camera, point), camera.aspect, camera.projection);
   const a = one(frame.from), b = frame.to ? one(frame.to) : a, k = snapshot.mix || 0;
   return { xFrac: a.xFrac + (b.xFrac - a.xFrac) * k, yFrac: a.yFrac + (b.yFrac - a.yFrac) * k,
     visible: k < .5 ? a.visible : b.visible };
+}
+
+/** Lit fraction of a rail view's moon from its angle to the signed sun as
+ * the rail's image places them both: the geometry that also sets its lit
+ * side (projectRailSky), so a moon drawn beside the sun that has just set
+ * is a thin crescent lit toward it, never full. (The compass arcs a tour
+ * uses span 150 degrees where the rail's image spans its lens, and gave
+ * the rail the opposite phase at the song's two ends.) */
+export function railMoonIllumination(solar, moon, snapshot) {
+  const frame = railFrame(snapshot);
+  const one = camera => {
+    const s = railLift(camera, solar), m = railLift(camera, moon);
+    return (1 - dot3(s, m) / Math.sqrt(dot3(s, s) * dot3(m, m))) / 2;
+  };
+  const a = one(frame.from), k = snapshot.mix || 0;
+  return frame.to && k ? a + (one(frame.to) - a) * k : a;
 }
 
 export function projectRailCelestials(state, snapshot, solar = null) {
@@ -136,7 +151,7 @@ export function projectRailCelestials(state, snapshot, solar = null) {
   for (const name of ['sun', 'moon']) bodies[name] = Object.freeze({ ...state[name],
     ...projectRailSky(state[name], snapshot), radiusFrac: radiusFor(state[name]) });
   if (solar) bodies.moon = Object.freeze({ ...bodies.moon, illuminant: Object.freeze(projectRailSky(solar, snapshot)),
-    illumination: rangeMoonIllumination(solar, state.moon) });
+    illumination: railMoonIllumination(solar, state.moon, snapshot) });
   return Object.freeze({ ...state, ...bodies });
 }
 
