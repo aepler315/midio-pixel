@@ -2,6 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseReviewArgs, makeReviewManifest, validateReviewFrame, requireHardwareRenderer } from '../tools/landscape-review.mjs';
 
+// SwiftShader and RTX 3060 as earlier review runs recorded them; WARP is the same
+// constant the route gate tests use (ANGLE's D3D11 form, not seen on this machine).
+const SWIFTSHADER = 'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)';
+const RTX_3060 = 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 (0x00002504) Direct3D11 vs_5_0 ps_5_0, D3D11)';
+const WARP = 'ANGLE (Microsoft, Microsoft Basic Render Driver (0x0000008C) Direct3D11 vs_5_0 ps_5_0, D3D11)';
+
 test('review defaults are bounded, Uniform, continuous and headless only', () => {
   const args = parseReviewArgs(['--out', '.smoke/review']);
   assert.deepEqual(args.grids, ['classic', 'detailed']);
@@ -25,6 +31,13 @@ test('hardware review verifies actual renderer and cannot relabel software outpu
   for (const renderer of [null, '', 'ANGLE SwiftShader', 'llvmpipe', 'Software Rasterizer']) assert.throws(() => requireHardwareRenderer(renderer));
   assert.doesNotThrow(() => requireHardwareRenderer('ANGLE NVIDIA GeForce RTX 3060 Direct3D11', 'RTX 3060'));
   assert.throws(() => requireHardwareRenderer('ANGLE NVIDIA GeForce RTX 3060 Direct3D11', 'different GPU'));
+});
+test('hardware review rejects Windows WARP and the masked renderer string, which cannot show what rendered', () => {
+  assert.doesNotThrow(() => requireHardwareRenderer(RTX_3060));
+  assert.doesNotThrow(() => requireHardwareRenderer(RTX_3060, 'RTX 3060'));
+  for (const renderer of [WARP, 'WebKit WebGL', SWIFTSHADER]) {
+    assert.throws(() => requireHardwareRenderer(renderer), /Hardware GPU unavailable/, renderer);
+  }
 });
 test('review checks effective grid, Uniform scale, readiness and output rather than requested settings', () => {
   const frame = { presentation: { pixelScale: 'original', effectiveGrid: { id: 'classic' } },

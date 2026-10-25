@@ -123,9 +123,10 @@ npm run test:gpu -- --audio path/to/song.wav --start-ms 0 --live-seconds 30
 ```
 
 This local command requires the actual WebGL renderer to contain `RTX 3060` and
-rejects software rendering. It captures both Classic and Detailed Landscape
-output with a fresh, headless, muted browser and saves a new `.smoke/gpu-*`
-report. It never opens a window or report or dispatches a hosted workflow.
+rejects software rendering (including Windows WARP) and the masked renderer
+string, with the same check as the route gate's hardware configuration. It
+captures both Classic and Detailed Landscape output with a fresh, headless,
+muted browser and saves a new `.smoke/gpu-*` report. It never opens a window or report or dispatches a hosted workflow.
 Pass `--out DIR` to save elsewhere. The optional live trace is separate from
 fixed-clock visual captures; short runs are not a five-minute performance gate.
 

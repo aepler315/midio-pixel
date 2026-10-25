@@ -32,13 +32,10 @@ export function routeGateConfiguration({ hardwareGpu = false, gpuMatch = null, b
       hardwareRequired: false, gpuMatch: null, args: [...SWIFTSHADER_ARGS], executablePath };
 }
 
-// landscape-review rejects SwiftShader, llvmpipe and softpipe. Also reject
-// Windows WARP (Chromium's D3D11 software fallback) and the masked renderer
-// string, which cannot show what rendered.
-export function requireRouteHardwareRenderer(renderer, match) {
-  assert.ok(!/basic render driver|\bwarp\b|^webkit webgl$/i.test(String(renderer ?? '')), `Hardware GPU unavailable: ${renderer}`);
-  requireHardwareRenderer(renderer, match);
-}
+// The same check as landscape-review --hardware-gpu (and so test:gpu), not a
+// copy: it rejects SwiftShader, llvmpipe, softpipe, Windows WARP and the masked
+// renderer string.
+export const requireRouteHardwareRenderer = requireHardwareRenderer;
 
 // Landscape and tours sample the range presentation's own WebGL context. Trio
 // draws through Canvas 2D and has none, so it relies on the browser probes.
