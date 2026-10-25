@@ -186,8 +186,10 @@ export class CelestialPainter {
     const tint = this._sunTint(sun.colorHex);
     const core = mixInto(this._core, WHITE_HOT, tint, low ** 1.3);
     // A high sun's limb only leans to its colour (at full strength it ringed
-    // the white disc); low down it is the colour, reddening to ember.
-    const limb = mixInto(this._limb, mixInto(this._limb, WHITE_HOT, tint, .5 + .5 * low), EMBER, .45 * low);
+    // the white disc); low down it is the colour, reddening a little toward
+    // ember (a deep ember limb kept its contrast through the dawn haze while
+    // the centre washed out, and read as a ring).
+    const limb = mixInto(this._limb, mixInto(this._limb, WHITE_HOT, tint, .5 + .5 * low), EMBER, .2 * low);
     // Low down the centre stays a warm white-hot, so the disc outshines the
     // twilight around it (all tint, it was a flat orange plate no brighter
     // than the glow behind it).
@@ -212,7 +214,7 @@ export class CelestialPainter {
     ctx.save();
     ctx.translate(x, y); ctx.scale(1, flattening(alt));
     g = ctx.createRadialGradient(0, 0, 0, 0, 0, radius); // limb darkening, warmer at the edge
-    g.addColorStop(0, rgba(centre, 1)); g.addColorStop(.7 - .1 * low, rgba(core, 1)); g.addColorStop(1, rgba(limb, 1));
+    g.addColorStop(0, rgba(centre, 1)); g.addColorStop(.75, rgba(core, 1)); g.addColorStop(1, rgba(limb, 1));
     ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, radius, 0, TAU); ctx.fill();
     ctx.restore();
     // A tight bloom AFTER the disc softens its limb the way glare does. It
