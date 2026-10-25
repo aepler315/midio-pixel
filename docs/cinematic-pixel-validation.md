@@ -70,3 +70,10 @@ No captured media or report JSON was committed. The deliverables contain source/
 5. Camera composition scoring for foreground framing, quiet sky and multiple distinct landscape layers.
 
 Streaming/frame-delivery work is a separate performance priority before claiming60 fps on this tour. Retain only changes supported by matched moving footage and measured cost.
+
+
+## Moon correction — 2026-10-25
+
+The shared smooth-sky moon now uses pale low-contrast procedural albedo, exact phase coverage and gently shaded lit-side compositing. The opaque blue-black backing sphere and artificial 16% minimum illuminated area are removed. Daytime unlit pixels remain sky-transparent; reflected earthlight is limited to a faint night limb. The existing projected solar tangent, body size/position, song phase clock and terrain illumination remain authoritative. One additional 192×192 accounted scratch shades the moon without per-frame pixel readback; reservation refusal draws a correctly phased silver silhouette.
+
+The native Canvas regression checks seven phases in day/night, new/full/quarter area, shadow transparency, restrained full-moon texture, solar-facing orientation, allocation refusal and disposal. A matched Ross Lake capture uses the same 45-second dry diagnostic/audio/camera as the original evidence. This intentional shared-moon change affects Pixel and Cinematic; the earlier five-frame byte-identical Classic regression describes the original Cinematic implementation before this correction.
