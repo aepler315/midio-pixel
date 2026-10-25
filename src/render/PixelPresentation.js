@@ -66,7 +66,7 @@ export class PixelPresentation {
     this._invalidateCapture();
     if (JSON.stringify(presentation) === JSON.stringify(this.presentation)) return;
     this.presentation = { ...presentation };
-    if (!presentation.cinematicPixel) { this.cinematic?.dispose(); this.cinematic = null; }
+    if (!presentation.cinematicPixel) this.cinematic?.suspend();
     this.grid = presentation.grid;
     this._preparePalette();
     this.generation++;
@@ -194,7 +194,7 @@ export class PixelPresentation {
     if (!this.presentation.cinematicPixel) return false;
     const diagnostic = capture ? 'captureReconstruction' : 'cinematicReconstruction';
     if ((this.qualityLevel || 0) >= 2) {
-      this.cinematic?.dispose(); this.cinematic = null;
+      this.cinematic?.suspend();
       this.diagnostics[diagnostic] = { applied: false, reason: 'quality', bytes: 0 };
       return false;
     }

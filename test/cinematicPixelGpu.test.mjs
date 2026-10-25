@@ -6,7 +6,7 @@ import { chromium } from 'playwright';
 
 const executablePath = process.env.PLAYWRIGHT_CHROMIUM_PATH || chromium.executablePath();
 
-test('Cinematic WebGL cells preserve orientation, alpha and numerical ramps through context restoration', {
+test('Cinematic WebGL cells preserve pixels through suspension and context restoration', {
   skip: !existsSync(executablePath) && 'Chromium unavailable; set PLAYWRIGHT_CHROMIUM_PATH', timeout: 20000,
 }, async t => {
   const files = new Map(await Promise.all(['CinematicPixel.js', 'GraphicsResidency.js'].map(async name =>
@@ -59,6 +59,24 @@ test('Cinematic WebGL cells preserve orientation, alpha and numerical ramps thro
         outputContext.clearRect(0, 0, 50, 50);
         if (!pass.draw(outputContext, source, fit)) throw new Error(pass.reason);
         const alpha = { source: pixel(sourceContext, 2, 2), left: pixel(outputContext, 20, 25), right: pixel(outputContext, 29, 25), transparent: pixel(outputContext, 19, 25) };
+        let suspendedLosses = 0;
+        const suspendedLoss = () => { suspendedLosses++; };
+        const originalCanvas = pass.canvas;
+        originalCanvas.addEventListener('webglcontextlost', suspendedLoss);
+        const suspension = [];
+        for (let cycle = 0; cycle < 3; cycle++) {
+          const texture = pass.texture, program = pass.program, buffer = pass.buffer;
+          pass.suspend();
+          const suspended = { bytes: pass.bytes, ledger: residency.usedBytes, size: [originalCanvas.width, originalCanvas.height],
+            sameContext: pass.gl === gl, textureLive: gl.isTexture(texture), programLive: gl.isProgram(program), bufferLive: gl.isBuffer(buffer) };
+          // Deliberate loseContext() dispatches asynchronously; allow it to surface.
+          await new Promise(resolve => setTimeout(resolve, 50));
+          outputContext.clearRect(0, 0, 50, 50);
+          const resumedDraw = pass.draw(outputContext, source, fit);
+          suspension.push({ suspended, resumedDraw, sameContext: pass.gl === gl, sameCanvas: pass.canvas === originalCanvas,
+            pixel: pixel(outputContext, 25, 25), resumedBytes: residency.usedBytes, contextLost: gl.isContextLost() });
+        }
+        originalCanvas.removeEventListener('webglcontextlost', suspendedLoss);
         const lose = gl.getExtension('WEBGL_lose_context');
         if (!lose) throw new Error('Cinematic GPU fixture requires WEBGL_lose_context');
         const event = name => new Promise((resolve, reject) => {
@@ -73,7 +91,10 @@ test('Cinematic WebGL cells preserve orientation, alpha and numerical ramps thro
         outputContext.clearRect(0, 0, 50, 50);
         const restoredDraw = pass.draw(outputContext, source, fit), restoredReason = pass.reason;
         const restoredPixel = pixel(outputContext, 25, 25);
+        let disposalLosses = 0;
+        originalCanvas.addEventListener('webglcontextlost', () => { disposalLosses++; });
         pass.dispose();
+        await new Promise(resolve => setTimeout(resolve, 50));
         const pressureResidency = new GraphicsResidency({ budgetBytes: 40000 });
         const pressurePass = new CinematicPixelRenderer({ residency: pressureResidency });
         let pressure;
@@ -84,7 +105,8 @@ test('Cinematic WebGL cells preserve orientation, alpha and numerical ramps thro
           pressure = { denied, reason: pressurePass.reason, bytes: pressurePass.bytes, ledger: pressureResidency.usedBytes,
             textureLive: pressurePass.gl.isTexture(texture), programLive: pressurePass.gl.isProgram(program), bufferLive: pressurePass.gl.isBuffer(buffer) };
         } finally { pressurePass.dispose(); }
-        return { gpu, orientation, ramp, alpha, lostDraw, restoredDraw, restoredReason, restoredPixel, pressure, finalBytes: residency.usedBytes };
+        return { gpu, orientation, ramp, alpha, suspension, suspendedLosses, disposalLosses,
+          lostDraw, restoredDraw, restoredReason, restoredPixel, pressure, finalBytes: residency.usedBytes };
       } finally { pass.dispose(); }
     });
     t.diagnostic(`Actual renderer: ${result.gpu}`);
@@ -93,6 +115,18 @@ test('Cinematic WebGL cells preserve orientation, alpha and numerical ramps thro
     assert.deepEqual(result.alpha.left, result.alpha.source);
     assert.deepEqual(result.alpha.right, result.alpha.source);
     assert.deepEqual(result.alpha.transparent, [0, 0, 0, 0]);
+    for (const cycle of result.suspension) {
+      assert.deepEqual(cycle.suspended, { bytes: 0, ledger: 0, size: [0, 0], sameContext: true,
+        textureLive: false, programLive: false, bufferLive: false });
+      assert.equal(cycle.resumedDraw, true, 'the first resumed draw must succeed');
+      assert.equal(cycle.sameContext, true, 'quality recovery must reuse its existing WebGL context');
+      assert.equal(cycle.sameCanvas, true);
+      assert.deepEqual(cycle.pixel, result.alpha.source);
+      assert.ok(cycle.resumedBytes > 0, 'resumed ownership must be admitted again');
+      assert.equal(cycle.contextLost, false);
+    }
+    assert.equal(result.suspendedLosses, 0, 'quality shedding must not emit native context-loss events');
+    assert.equal(result.disposalLosses, 0, 'normal disposal must not deliberately lose the context');
     assert.equal(result.lostDraw, false, 'a lost context must use the nearest fallback');
     assert.equal(result.restoredDraw, true, result.restoredReason);
     assert.deepEqual(result.restoredPixel, result.alpha.source);

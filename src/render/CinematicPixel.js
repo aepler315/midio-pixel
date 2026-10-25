@@ -113,5 +113,12 @@ export class CinematicPixelRenderer {
       this.reason=null;return true;
     }catch(error){this.reason=error.message;return false;}
   }
-  dispose(){if(this.disposed)return;this.disposed=true;this.residency.release(this.key);this.bytes=0;this.signature=null;this._deleteObjects();this.gl?.getExtension('WEBGL_lose_context')?.loseContext();this.canvas=null;this.gl=null;}
+  suspend(){
+    if(this.disposed)return;
+    this.residency.release(this.key);this.bytes=0;this.signature=null;this._deleteObjects();
+    // Keep one idle context for quality/mode round trips; intentional context
+    // loss is observable as a real renderer failure to clients and diagnostics.
+    if(this.canvas)this.canvas.width=this.canvas.height=0;
+  }
+  dispose(){if(this.disposed)return;this.suspend();this.disposed=true;this.canvas=null;this.gl=null;}
 }
