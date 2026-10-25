@@ -35,7 +35,14 @@ CelestialState.js), so sun and moon never share the sky: the moon fades out
 just before sunrise and returns a second or two after sunset. Its phase
 comes from its angle to the signed sun (`moon.illumination`), both discs
 subtend one lens-relative angle (`BODY_ANGULAR_RADIUS_DEG`), and the hybrid
-sky paints them with `CelestialPainter.js`.
+sky paints them with `CelestialPainter.js`. The sun's disc stays solid down
+to the last of its waterline fade (the land in front hides a setting sun;
+only its glare fades over the horizon band), and its bloom falls from the
+centre with no ring at the limb. A storm deck takes the clear-sky sun and
+the moon's face away as it thickens (`bodyVeil`, on `storm.amount`), and
+both are painted over the deck as light through cloud: a soft, bright
+watery sun or a moon glow through a thin deck, a faint patch through the
+full one. Under the deck's slate the old hard disc read as a grey moon.
 
 ## Verification
 

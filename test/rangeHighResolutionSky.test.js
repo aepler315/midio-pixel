@@ -169,8 +169,13 @@ test('a Landscape moon hidden by daylight paints nothing; the sun\'s glare fades
     // ridge read as a pale moon.
     assert.equal(disc(full), 1);
     assert.equal(disc(half), 1, 'half way down its horizon band the disc is still solid');
-    const last = disc(paints({ sun: { ...sun, visibility: .1 } }));
+    assert.equal(disc(paints({ sun: { ...sun, visibility: .2 } })), 1);
+    const last = disc(paints({ sun: { ...sun, visibility: .05 } }));
     assert.ok(last > 0 && last < .5, `only the last of the fade thins it: ${last}`);
+    // Sinking, it dims the way a setting sun does instead.
+    const centre = ops => ops.find(op => op.op === 'fill').style.stops[0][1].match(/[\d.]+/g).slice(0, 3).map(Number);
+    const lit = centre(full), dimmed = centre(paints({ sun: { ...sun, visibility: .2 } }));
+    assert.ok(dimmed.every((v, i) => v < lit[i]) && dimmed[0] > .5 * lit[0], `dimmer, not gone: ${dimmed} of ${lit}`);
   } finally { sky.dispose(); }
 });
 
@@ -300,8 +305,11 @@ test('the sun takes its colour from colorHex, warms at the horizon and keeps its
   };
   try {
     const high = stopsOf({ altitude01: .6, colorHex: '#3366ff' });
-    assert.deepEqual(high.at(-1), [51, 102, 255], 'the high sun\'s limb is the biome\'s sun colour');
+    assert.deepEqual(high.at(-1), [153, 178, 251], 'the high sun\'s limb leans half way to the biome\'s sun colour, never a ring of it');
     assert.deepEqual(high[0], [255, 255, 252], 'with a white-hot centre');
+    const low = stopsOf({ altitude01: .02, colorHex: '#3366ff' }).at(-1);
+    const fromWhite = c => c.reduce((s, v, i) => s + Math.abs([255, 253, 246][i] - v), 0);
+    assert.ok(fromWhite(low) > 1.5 * fromWhite(high.at(-1)), `low down the limb is deep in colour, not leaning: ${low}`);
     const setting = stopsOf({ altitude01: .02, colorHex: '#ff7136' });
     assert.ok(setting[0][0] > 250 && setting[0][2] < 120, `a low sun is warm through its core, no white centre: ${setting[0]}`);
     assert.notDeepEqual(stopsOf({ altitude01: .02, colorHex: '#ffffff' }), setting, 'the warm colour comes from colorHex');

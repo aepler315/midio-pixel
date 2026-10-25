@@ -47,8 +47,10 @@ export const bodyVeil = amount => smooth(.12, .55, clamp(amount));
 /** How much of the veiled body the deck swallows, down to a patch of light. */
 const deckThickness = amount => smooth(.5, .95, clamp(amount));
 /** The sun disc's opacity over its horizon visibility: solid until the last
- *  of the waterline fade. */
-export const sunDiscAlpha = vis => smooth(0, .35, vis);
+ *  of the waterline fade... */
+export const sunDiscAlpha = vis => smooth(0, .2, vis);
+/** ...and its brightness, dimming as it sinks through the band. */
+export const sunDiscDim = vis => .55 + .45 * smooth(0, .6, vis);
 const sunRadius = (sun, width, height) => Math.max(height * .006, (sun.radiusFrac || 0) * width);
 
 // Quanta for the lit texture: illumination, sun angle (2 degrees), horizon
@@ -111,8 +113,9 @@ function bakeFace(size) {
 
 const WHITE_HOT = [255, 253, 246], WHITE = [255, 255, 252], EMBER = [232, 80, 34];
 const GLARE = [255, 246, 228], BLOOM = [255, 252, 240], DAY_SUN = [255, 243, 223];
-// Light through cloud: the sun goes a cool white, the moon a grey-blue.
-const VEILED_SUN = [246, 246, 240], VEILED_MOON = [196, 204, 220];
+// Light through cloud: the sun a warm white that lights the deck broadly
+// (what tells it from a hazy moon in a storm-dark sky), the moon a grey-blue.
+const VEILED_SUN = [255, 247, 226], VEILED_MOON = [196, 204, 220];
 const mixInto = (out, a, b, t) => {
   out[0] = a[0] + (b[0] - a[0]) * t; out[1] = a[1] + (b[1] - a[1]) * t; out[2] = a[2] + (b[2] - a[2]) * t;
   return out;
@@ -178,10 +181,16 @@ export class CelestialPainter {
     // colorHex is the biome's sun, already reddened toward the horizon.
     const tint = this._sunTint(sun.colorHex);
     const core = mixInto(this._core, WHITE_HOT, tint, low ** 1.3);
-    const limb = mixInto(this._limb, tint, EMBER, .45 * low);
+    // A high sun's limb only leans to its colour (at full strength it ringed
+    // the white disc); low down it is the colour, reddening to ember.
+    const limb = mixInto(this._limb, mixInto(this._limb, WHITE_HOT, tint, .5 + .5 * low), EMBER, .45 * low);
     const centre = mixInto(this._centre, WHITE, core, low ** .7);
     const glare = mixInto(this._glare, GLARE, tint, .25 + .75 * low);
     const bloom = mixInto(this._bloom, BLOOM, core, low);
+    // Sinking through its horizon band the disc dims as a setting sun does,
+    // staying solid (sunDiscAlpha); a see-through disc read as a ghost.
+    const dim = sunDiscDim(vis);
+    for (const c of [core, limb, centre]) { c[0] *= dim; c[1] *= dim; c[2] *= dim; }
     const k = vis * clear;
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
@@ -195,7 +204,7 @@ export class CelestialPainter {
     ctx.save();
     ctx.translate(x, y); ctx.scale(1, flattening(alt));
     g = ctx.createRadialGradient(0, 0, 0, 0, 0, radius); // limb darkening, warmer at the edge
-    g.addColorStop(0, rgba(centre, 1)); g.addColorStop(.6, rgba(core, 1)); g.addColorStop(1, rgba(limb, 1));
+    g.addColorStop(0, rgba(centre, 1)); g.addColorStop(.7 - .1 * low, rgba(core, 1)); g.addColorStop(1, rgba(limb, 1));
     ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, radius, 0, TAU); ctx.fill();
     ctx.restore();
     // A tight bloom AFTER the disc softens its limb the way glare does. It
@@ -223,10 +232,10 @@ export class CelestialPainter {
     const alt = bodyAltitudeDeg(sun), low = lowness(alt);
     const c = mixInto(this._glare, VEILED_SUN, this._sunTint(sun.colorHex), .55 * low);
     const thick = deckThickness(storm);
-    const patch = veil * vis * (.5 - .3 * thick), disc = veil * vis * (1 - thick);
+    const patch = veil * vis * (.7 - .45 * thick), disc = veil * vis * (1 - thick);
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
-    const G = height * (.3 + .12 * thick);
+    const G = height * (.36 + .1 * thick);
     let g = ctx.createRadialGradient(x, y, 0, x, y, G);
     g.addColorStop(0, rgba(c, .5 * patch)); g.addColorStop(.15, rgba(c, .24 * patch));
     g.addColorStop(.5, rgba(c, .06 * patch)); g.addColorStop(1, rgba(c, 0));

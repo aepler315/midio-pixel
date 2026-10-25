@@ -208,7 +208,9 @@ At `p = 1`, the last thread closes the network back to the first cairn.
   hides it exactly; the presenter lays that layer bilinear over the
   nearest-upscaled pixel frame, in full colour, so its lights and lines are
   not stair-stepped (`CastRaster.js` filters every light over each pixel, so
-  nothing twinkles with sub-pixel motion). It therefore sits above the 2D
+  nothing twinkles with sub-pixel motion; a thread or rope is a double-sided
+  ribbon whose centre line is as bright as the 1-px line it replaced,
+  `THREAD_PEAK`). It therefore sits above the 2D
   layers the working buffer holds (far vignettes and mid-depth life between
   partitions; the cut flash, bloom, film finish and an in-frame HUD after
   them). A travel, and a caller with no smooth layer, keep it in the band
