@@ -117,6 +117,24 @@ async function probeBrowserRenderer(browser) {
   } finally { await context.close(); }
 }
 
+/** The route's evidence image, taken after its playback evidence passed.
+ *  A page screenshot first. Under software WebGL the Teton tour draws a
+ *  few frames a second and can starve the compositor capture past its
+ *  timeout although the page is live; the presented stage canvas (the
+ *  frame playbackSample just measured) is then saved instead, and the
+ *  report says which. */
+async function routeEvidenceImage(page, file) {
+  try {
+    await page.screenshot({ path: file, timeout: 30000 });
+    return 'page-screenshot';
+  } catch (error) {
+    const dataUrl = await bestEffort(page.evaluate(() => document.getElementById('stage')?.toDataURL('image/png') || null), 15000);
+    if (!dataUrl) throw error;
+    await fs.writeFile(file, Buffer.from(dataUrl.split(',')[1], 'base64'));
+    return 'stage-canvas (page screenshot timed out)';
+  }
+}
+
 async function exerciseRoute(browser, url, audioPath, row, timeoutMs, outDir, configuration) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 720 },
     deviceScaleFactor: 1, serviceWorkers: 'block' });
@@ -131,22 +149,26 @@ async function exerciseRoute(browser, url, audioPath, row, timeoutMs, outDir, co
         ? route.continue() : route.abort();
     });
     const run = async () => {
-      await page.goto(url + '/');
+      // Camera tours are on by default (each approved view's shot tour); the
+      // Teton highway tour is chosen by ?rangeTour=tetons, or by a saved
+      // 'range-tour' preference, never by the toggle (which writes shots/off).
+      // See resolveRangeMode in src/world/alpine/RangePresentation.js.
+      if (row.id === 'tour-persisted') {
+        controls.setPhase('persisted-preference');
+        await page.goto(url + '/');
+        await page.evaluate(() => localStorage.setItem('range-tour', 'tetons'));
+      }
+      await page.goto(url + (row.id === 'tour-selected' ? '/?rangeTour=tetons' : '/'));
       await page.locator('#titleSettings').evaluate(node => { node.open = true; });
       const lyrics = page.locator('#lyricGroundingBtn');
       if (await lyrics.getAttribute('aria-pressed') === 'true') await lyrics.click();
       await page.locator('#display-pixelGrid').selectOption('classic');
       if (row.id.startsWith('tour-')) {
-        await page.locator('#range-tour-toggle').check();
-        assert.equal(await page.evaluate(() => localStorage.getItem('range-tour')), 'tetons');
+        assert.equal(await page.locator('#range-tour-toggle').isChecked(), true, 'the Teton tour counts as tours on');
         if (row.id === 'tour-persisted') {
-          controls.setPhase('persisted-reload');
-          // The actual UI wrote the preference. Reload cleanly, without the
-          // query override that the toggle adds, and keep this same profile.
-          await page.goto(url + '/');
-          await page.locator('#titleSettings').evaluate(node => { node.open = true; });
-          assert.equal(await page.locator('#range-tour-toggle').isChecked(), true);
+          // A clean load with no query honours the saved choice.
           assert.equal(new URL(page.url()).searchParams.has('rangeTour'), false);
+          assert.equal(await page.evaluate(() => localStorage.getItem('range-tour')), 'tetons');
         }
       }
       row.entry = { url: page.url(), tourChecked: await page.locator('#range-tour-toggle').isChecked(),
@@ -187,7 +209,7 @@ async function exerciseRoute(browser, url, audioPath, row, timeoutMs, outDir, co
       row.samples.push(await playbackSample(page));
       validateRoutePlayback(row.id, row.samples);
       if (configuration.hardwareRequired) verifyHardwareRoute(row, configuration.gpuMatch);
-      await page.screenshot({ path: path.join(outDir, `${row.id}.png`) });
+      row.evidenceImage = await routeEvidenceImage(page, path.join(outDir, `${row.id}.png`));
       assert.deepEqual(row.errors, [], 'browser diagnostics contain failures');
       assert.ok(accepting, 'late route completion cannot overwrite a timeout');
       row.status = 'passed';
