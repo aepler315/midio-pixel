@@ -199,9 +199,22 @@ At `p = 1`, the last thread closes the network back to the first cairn.
   the song.
 - **Lighting budget.** Only the three lanterns light the terrain, through the
   existing `uActorPos` / `uActorColor` slots. Fixed lines, camps, cairns,
-  buoys and threads are emissive billboards and line strips only. They take
-  part in the band passes, so they are occluded, hazed and mirrored, but they
-  add no per-fragment light loop.
+  buoys and threads are emissive billboards and ribbons only (the fixed line
+  is also a rope ribbon up to the light Broshi is fixing). They add no
+  per-fragment light loop. A lantern under the cloud sea lights nothing that
+  stands above its top.
+- **Drawing.** The cast draws in a pass of its own after the near partition,
+  against every band's depth and the trees' crown cut, so the land in front
+  hides it exactly; the presenter lays that layer bilinear over the
+  nearest-upscaled pixel frame, in full colour, so its lights and lines are
+  not stair-stepped (`CastRaster.js` filters every light over each pixel, so
+  nothing twinkles with sub-pixel motion). It therefore sits above the 2D
+  layers the working buffer holds (far vignettes and mid-depth life between
+  partitions; the cut flash, bloom, film finish and an in-frame HUD after
+  them). A travel, and a caller with no smooth layer, keep it in the band
+  passes; the lake mirror always reflects it with each band. Every light
+  fades into the valley mist and cloud sea exactly as the ground under it
+  does, and is gone under a full sea's top (`emitterVisibility`).
 - **Analysis refresh.** When the full analysis replaces the opening one during
   play, the schedule takes `previous` and `committedThroughMs`, the same way
   `compileLandscapeScore` does. Work, camps and lights already heard are

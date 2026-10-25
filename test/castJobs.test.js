@@ -2,10 +2,32 @@
 // frame, or light the shore where none does.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { castPlan, castWork, classifyCastJob, flowAt, pathPosition, siteWalk, MIDASUS_HOVER_M, ASCENT_STEPS, ASCENT_WATER_U, CAIRN_BINS } from '../src/world/alpine/CastJobs.js';
+import { castPlan, castWork, classifyCastJob, flowAt, pathPosition, siteWalk, threadSegments, MIDASUS_HOVER_M, ASCENT_STEPS, ASCENT_WATER_U, CAIRN_BINS, THREAD_SEGMENTS, THREAD_SEGMENTS_MAX } from '../src/world/alpine/CastJobs.js';
+import fs from 'node:fs';
+import { gunzipSync } from 'node:zlib';
+import { decodeTerrain } from '../src/world/alpine/TerrainMesh.js';
+import { hashSeed } from '../src/utils/math.js';
+import catalog from '../src/world/terrain/sceneCatalogData.js';
 import { scenePoseAt, projectPoint } from '../src/world/terrain/SceneTravel.js';
 import { seenFrom } from '../src/world/alpine/LineOfSight.js';
 import { terrainHeightAt } from '../src/world/alpine/TerrainMesh.js';
+
+/** A catalog view's real terrain, its water level found as RangeScene.prepare finds it. */
+function realView(id) {
+  const view = catalog.views.find((v) => v.id === id);
+  const root = 'src/assets/range/v2/terrain/';
+  const manifest = JSON.parse(fs.readFileSync(`${root}${id}.terrain.json`, 'utf8'));
+  const data = decodeTerrain(manifest, new Uint8Array(gunzipSync(fs.readFileSync(`${root}${id}.terrain.bin.gz`))));
+  const hs = [];
+  for (const t of data.tiles.values()) {
+    if (!t.flowBytes) continue;
+    for (let i = 0; i < t.flowBytes.length; i += 7) if (t.flowBytes[i] === 255 && Number.isFinite(t.heightsM[i])) hs.push(t.heightsM[i]);
+  }
+  hs.sort((a, b) => a - b);
+  const waterLevelM = view.riverPolicy?.terrainWater === 'mapped-only' || !hs.length ? null : hs[hs.length >> 1];
+  return { view, data, waterLevelM };
+}
+const LAMPLIGHTER_VIEWS = ['panamint-dantes-view', 'monument-valley-163', 'black-mountains-catawba', 'san-gabriel-baldy', 'superstition-west-front'];
 
 const LEVEL = 1000;
 /** A 12.8 km square of terrain from `height(x, z)` and `wet(x, z)`, seen
@@ -120,4 +142,61 @@ test('a shore is found by position, across tile seams and never across rows', ()
   assert.equal(flowAt(data, 1600, 800), 10, 'the first column of tile 1');
   assert.equal(flowAt(data, 1575, 800), null, 'between samples');
   assert.equal(flowAt(data, -50, 800), null, 'off the terrain');
+});
+
+test('every cairn stands where the rail can see it, and every thread lies on terrain', () => {
+  // Black Mountains used to light eight cairns the rail never sees (the
+  // lowest ground sat behind nearer ridges); San Gabriel strung two threads
+  // across ground with no terrain at all.
+  for (const id of LAMPLIGHTER_VIEWS) {
+    const { view, data, waterLevelM } = realView(id);
+    const plan = castPlan(data, view, { waterLevelM, seed: hashSeed(`${id}:cast`) });
+    assert.equal(plan.job, 'lamplighters', id);
+    assert.ok(plan.cairns.length >= 2 && plan.cairns.length <= CAIRN_BINS, `${id}: ${plan.cairns.length} cairns`);
+    const eye = scenePoseAt(view, { progress01: 0.5 }).eyeM;
+    for (const c of plan.cairns) assert.ok(seenFrom(data, eye, [c[0], c[1] + 2, c[2]]), `${id}: cairn ${c} hidden from the rail`);
+    const work = castWork(plan, { data, waterLevelM });
+    assert.ok(work.threads.length >= 1, id);
+    for (const th of work.threads) {
+      assert.ok(th.points.length - 1 >= THREAD_SEGMENTS && th.points.length - 1 <= THREAD_SEGMENTS_MAX);
+      for (const q of th.points) assert.ok(Number.isFinite(terrainHeightAt(data, q[0], q[2])), `${id}: thread over missing terrain at ${q}`);
+    }
+  }
+});
+
+test('a basin seen through a notch lights its cairns in the notch, and one seen not at all wanders', () => {
+  // A wall 250-690 m in front of the eye (too near for a site) hides the
+  // whole basin except through a notch.
+  const view = { id: 'walled', camera: { eyeStartM: [6400, 1300, 1000], eyeEndM: [6410, 1300, 1000],
+    targetStartM: [6400, 1005, 8000], targetEndM: [6410, 1005, 8000], fovYDeg: 40 } };
+  const wall = (notch) => (x, z) => LEVEL + 5 + (z >= 1250 && z <= 1690 && !(notch && Math.abs(x - 6400) < 160) ? 600 : 0);
+  const eye = scenePoseAt(view, { progress01: 0.5 }).eyeM;
+  const { data } = world(wall(true));
+  const plan = castPlan(data, view, { waterLevelM: null, seed: 3 });
+  assert.equal(plan.job, 'lamplighters');
+  assert.ok(plan.cairns.length >= 2);
+  for (const c of plan.cairns) assert.ok(seenFrom(data, eye, [c[0], c[1] + 2, c[2]]), `cairn ${c} behind the wall`);
+  assert.equal(castPlan(world(wall(false)).data, view, { waterLevelM: null, seed: 3 }).job, 'wander');
+});
+
+test('a survey thread follows the drawn mesh cell by cell, and none hangs across missing terrain', () => {
+  const { data } = world(() => LEVEL + 5);
+  // 50 m cells: one segment per cell, never fewer than the old 16, capped.
+  assert.equal(threadSegments(data, [1000, 0, 1000], [3000, 0, 1000]), 40);
+  assert.equal(threadSegments(data, [1000, 0, 1000], [1300, 0, 1000]), THREAD_SEGMENTS);
+  assert.equal(threadSegments(data, [100, 0, 100], [9000, 0, 9000]), THREAD_SEGMENTS_MAX);
+  assert.equal(threadSegments(null, [0, 0, 0], [5000, 0, 0]), THREAD_SEGMENTS);
+  // A coarser runtime stride draws coarser cells.
+  for (const t of data.tiles.values()) t.lod = { desktop: 2 };
+  assert.equal(threadSegments(data, [1000, 0, 1000], [3000, 0, 1000]), 20);
+  // Take a tile (x and z 1600..3200 m) out: the thread across it is not
+  // drawn, the others are.
+  data.byIndex.delete('1,1');
+  const plan = { job: 'lamplighters', cairns: [[500, 0, 500], [500, 0, 2500], [3500, 0, 2500], [3500, 0, 500]], buoys: [] };
+  const work = castWork(plan, { data, waterLevelM: null });
+  assert.deepEqual(work.threads.map((th) => [th.a[0], th.a[2], th.b[0], th.b[2]]), [[500, 500, 500, 2500], [3500, 2500, 3500, 500], [3500, 500, 500, 500]]);
+  assert.equal(work.threads.at(-1).closing, true);
+  for (const th of work.threads) for (const q of th.points) assert.ok(Number.isFinite(terrainHeightAt(data, q[0], q[2])));
+  // Without terrain (no data) every thread is kept, straight.
+  assert.equal(castWork(plan).threads.length, 4);
 });

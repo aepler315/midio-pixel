@@ -99,6 +99,8 @@ export const V2_TRAVEL_BANDS = 16;
 /** Residency key of the travel composition buffer (one stage-sized canvas
  *  the two sides are blended in before the single copy to the stage). */
 export const TRAVEL_SCRATCH_KEY = 'range:travel-scratch';
+/** The cast layer the presenter lays smoothly over the pixel frame. */
+export const CAST_LAYER_KEY = 'range:cast-layer';
 
 const fade01 = (u) => (u <= 0 ? 0 : u >= 1 ? 1 : u * u * (3 - 2 * u));
 
@@ -152,6 +154,12 @@ export class RangePresentation {
     this.incomingFade = 1;
     this._handoff = null; // { outgoing, incoming } views while a late join fades
     this._waitedFor = null; // incoming view id a travel frame drew without
+    // Set by the presenting renderer each frame: it will lay the cast over
+    // the upscaled pixel frame (drawCastForeground). Without one the cast
+    // draws in the band passes, on the grid.
+    this.castForeground = false;
+    this.castLayer = null; // this frame's cast, for drawCastForeground
+    this._castCanvas = null;
     this.scene = null;
     this.runtimeState = mode === 'v2' ? 'idle' : 'off'; // idle | loading | ready | failed | off
     this._runtimeEpoch = 0; // see _ensureRuntime
@@ -654,6 +662,7 @@ export class RangePresentation {
 
   _beginScenic() {
     this.stage = null;
+    this.castLayer = null;
     this.active = false;
     this.incomingViewId = null;
     this.frame = null;
@@ -788,7 +797,7 @@ export class RangePresentation {
     // What this frame draws stays resident (never evicted mid-use) -- pinned
     // before any reservation below, which may evict unpinned entries.
     const vp = inputs.scenicViewport;
-    this.scene.pinView?.(incoming ? [view.id, incoming.id] : view.id, [TRAVEL_SCRATCH_KEY]);
+    this.scene.pinView?.(incoming ? [view.id, incoming.id] : view.id, [TRAVEL_SCRATCH_KEY, CAST_LAYER_KEY]);
     try {
       // Quality rung and look decide the target's multisampling
       // (RangeRenderPolicy); Pixel/Palette never smooth their grid.
@@ -816,10 +825,14 @@ export class RangePresentation {
       this._releaseScratch();
     }
     this.incomingViewId = incoming?.id ?? null;
+    // A travel keeps the cast in the band passes: each side's nearer bands
+    // draw only in some columns, which one smooth layer cannot follow.
+    this.scene.castInBands = !this.castForeground || !!incoming;
+    if (!this.castForeground) this._releaseCastCanvas();
     this.seamP = holding ? 1 : blend.travel ? (blend.travelP ?? t) : t;
     this._updateIncomingFade(incoming, inputs.sim);
     this._handoff = incoming && this.incomingFade < 1 ? { outgoing: view, incoming } : null;
-    this.scene.pinView?.(incoming ? [view.id, incoming.id] : view.id, incoming ? [TRAVEL_SCRATCH_KEY] : []);
+    this.scene.pinView?.(incoming ? [view.id, incoming.id] : view.id, incoming ? [TRAVEL_SCRATCH_KEY] : [CAST_LAYER_KEY]);
     this.timings.frameId = this.frameId + 1;
     this.timings.frameRenderMs = 0;
     this.timings.frameCopyMs = 0;
@@ -1026,7 +1039,104 @@ export class RangePresentation {
     this.lastPartition = { pass, image: img, width: img.width, height: img.height,
       arrival: this.arrival, shafted: !!this.scene.lastShafted };
     this._noteTiming(t1 - t0, performance.now() - t1);
+    if (pass === 'near' && this.castForeground && !this.scene.castInBands) this._keepCast(ctx, stage);
     return true;
+  }
+
+  /**
+   * After the near partition: the scene draws the cast in its own pass
+   * (RangeScene.renderCast) and it is kept here, with the stage transform
+   * in effect, for the presenter to lay over the upscaled frame. Without
+   * room for the layer it is added to the grid right here instead.
+   */
+  _keepCast(ctx, stage) {
+    const c0 = performance.now();
+    const img = this.scene.renderCast?.(this.frame, this.viewId);
+    if (!img) return;
+    const t = ctx.getTransform?.();
+    const layer = t ? this._ensureCastCanvas(img.width, img.height) : null;
+    if (!layer) {
+      ctx.save();
+      ctx.globalAlpha = this.arrival;
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.drawImage(img, 0, 0, stage.width, stage.height);
+      ctx.restore();
+    } else {
+      const lctx = layer.getContext('2d');
+      lctx.setTransform(1, 0, 0, 1, 0, 0);
+      lctx.globalAlpha = 1;
+      lctx.globalCompositeOperation = 'copy';
+      lctx.drawImage(img, 0, 0);
+      lctx.globalCompositeOperation = 'source-over';
+      this.castLayer = { canvas: layer, width: img.width, height: img.height, transform: [t.a, t.b, t.c, t.d, t.e, t.f],
+        stageWidth: stage.width, stageHeight: stage.height, alpha: this.arrival };
+    }
+    const ms = performance.now() - c0;
+    this.timings.castMs = ms;
+    this.timings.frameRenderMs += ms;
+  }
+
+  /**
+   * The presenter's foreground hook (compositePixelFrame): this frame's
+   * cast, bilinear over the nearest-upscaled pixel frame (`fit` places
+   * the working buffer in the output), added as light. True when the
+   * composite is complete (also with no cast to add).
+   *
+   * Two things knowingly change from drawing it into the working buffer.
+   * The layer is in full colour: palette quantization and dither run on
+   * the working buffer before this composite, and the cast's few hues
+   * would only band. And it lands above everything the working buffer
+   * holds: the far vignettes and mid-depth life drawn between partitions
+   * (which a far or mid cast light used to sit behind), and whatever is
+   * painted after the near partition -- the cut flash, bloom, film finish
+   * and an in-frame HUD strip. Landscape draws no ground stage, flood,
+   * veil or near-field props over its partitions.
+   */
+  drawCastForeground(ctx, fit) {
+    const layer = this.castLayer;
+    // (A layer released since -- evicted, resized -- has no pixels left.)
+    if (!layer || !(layer.alpha > 0.001) || !(layer.canvas.width > 0)) return true;
+    const m = layer.transform, s = fit.scale;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(fit.x, fit.y, fit.width, fit.height);
+    ctx.clip();
+    ctx.setTransform(s * m[0], s * m[1], s * m[2], s * m[3], fit.x + s * m[4], fit.y + s * m[5]);
+    ctx.globalAlpha = layer.alpha;
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.imageSmoothingEnabled = true;
+    try { ctx.drawImage(layer.canvas, 0, 0, layer.width, layer.height, 0, 0, layer.stageWidth, layer.stageHeight); }
+    finally { ctx.restore(); }
+    return true;
+  }
+
+  /** The cast layer's canvas at the scenic backing size, reserved before it
+   *  exists; null when the budget refuses it. */
+  _ensureCastCanvas(w, h) {
+    if (this._castCanvas && this._castCanvas.width === w && this._castCanvas.height === h
+      && (!this.residency || this.residency.get?.(CAST_LAYER_KEY) === this._castCanvas)) return this._castCanvas;
+    this._releaseCastCanvas();
+    let res = null;
+    if (this.residency) {
+      res = this.residency.reserve({ key: CAST_LAYER_KEY, bytes: w * h * 4, owner: 'range-targets' });
+      if (!res) return null;
+    }
+    const canvas = this._makeCanvas(w, h);
+    this._castCanvas = canvas;
+    if (res) {
+      this.residency.commit(res, canvas, (c) => {
+        if (this._castCanvas === c) this._castCanvas = null;
+        c.width = 0; c.height = 0;
+      });
+    }
+    return canvas;
+  }
+
+  _releaseCastCanvas() {
+    this.castLayer = null;
+    if (!this._castCanvas) return;
+    if (this.residency) this.residency.release(CAST_LAYER_KEY);
+    this._castCanvas = null;
   }
 
   /** One pass's render and copy cost: kept as the last pass and summed
@@ -1217,6 +1327,7 @@ export class RangePresentation {
     this._tourAbort?.abort();
     this._replanAbort?.abort();
     this._releaseScratch();
+    this._releaseCastCanvas();
     if (this.residency && this.generation) this.residency.cancelGeneration(this.generation);
     this.scene?.dispose();
     this.scene = null;

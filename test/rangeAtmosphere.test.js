@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   mistAmount, mistMask, mistParams, mistDrift, emitterStrength, MIST_GLSL, MIST_NOISE_M, MIST_DRIFT, SEA_DENSITY,
   meanLayer, easeMistSteps, tourMistCap, tourMistFade, MIST_OCTAVE_ROTATION, MIST_SAMPLES, MIST_STEP_EASE_SEC,
+  emitterVisibility, seaSubmersion, seaLightReach, EMITTER_GLSL, EMITTER_SUBMERGE, SEA_TOP_SOFT_BELOW_M, SEA_TOP_SOFT_ABOVE_M,
 } from '../src/world/alpine/RangeAtmosphere.js';
 
 const cam = [0, 1500, 0];
@@ -88,6 +89,82 @@ test('a cloud sea floods the valley below a flat top that stays under the eye', 
   const cam = [0, 2200, 0];
   assert.ok(mistAmount(cam, [0, 900, -3000], p) > 0.8, 'the valley floor is under cloud');
   assert.ok(mistAmount(cam, [0, full.topM + 200, -1500], p) < mistAmount(cam, [0, 900, -1500], p) * 0.5, 'a peak above the top stands clear');
+});
+
+test('a light is seen through the same mist as the ground under it', () => {
+  const view = { rules: { wetness: 0.5 }, waterLevelM: 800, heightRange: [750, 2300], cameraY: 2200 };
+  const eye = [0, 2200, 0];
+  // Valley mist only (no sea): exactly the terrain's mist, atmosphere applied again.
+  const calm = { ...mistParams({ ...view, calm01: 1 }), steps: MIST_SAMPLES, atm: 0.7 };
+  for (const p of [[0, 820, -4000], [2500, 1100, -9000], [-600, 1800, -2000]]) {
+    const seen = emitterVisibility(eye, p, calm);
+    assert.ok(Math.abs(seen - (1 - mistAmount(eye, p, calm) * 0.7)) < 1e-12, `parity at ${p}`);
+    assert.ok(seen < 1 && seen > 0);
+  }
+  // Clear air, or no fog state at all, hides nothing.
+  assert.equal(emitterVisibility(eye, [0, 820, -4000], null), 1);
+  assert.equal(emitterVisibility(eye, [0, 820, -4000], { density: 0, fill: 0, topM: 1e9 }), 1);
+});
+
+test('a light sunk under a full cloud sea is gone, one standing above its top is not', () => {
+  const view = { rules: { wetness: 0.5 }, waterLevelM: 800, heightRange: [750, 2300], cameraY: 2200 };
+  const eye = [0, 2200, 0];
+  const full = { ...mistParams({ ...view, sea01: 1 }), steps: MIST_SAMPLES, atm: 1 };
+  assert.equal(EMITTER_SUBMERGE, 1, 'they disappear under the sea');
+  // A lantern on the lake 2 km out: the ground beside it keeps a trace
+  // through the thin near cloud, the lantern itself does not.
+  const lake = [0, 802, -2000];
+  assert.ok(mistAmount(eye, lake, full) < 0.98, 'the ground keeps a trace');
+  assert.ok(emitterVisibility(eye, lake, full) < 1e-6, 'the lantern is gone');
+  // On the face above the top the sea takes nothing.
+  const face = [0, full.topM + SEA_TOP_SOFT_ABOVE_M + 50, -2500];
+  assert.equal(seaSubmersion(face[1], full), 0);
+  assert.ok(Math.abs(emitterVisibility(eye, face, full) - (1 - mistAmount(eye, face, full))) < 1e-12);
+  // Half a sea: a floor lantern fades with the fill, continuously.
+  const half = { ...mistParams({ ...view, sea01: 0.5 }), steps: MIST_SAMPLES, atm: 1 };
+  assert.ok(Math.abs(seaSubmersion(lake[1], half) - 0.5) < 1e-9);
+  const a = emitterVisibility(eye, lake, half);
+  assert.ok(a > 0 && a < 0.5 * (1 - mistAmount(eye, lake, half)) + 1e-12);
+  // Across the top's soft edge the light comes back smoothly.
+  let last = -1;
+  for (let y = full.topM - SEA_TOP_SOFT_BELOW_M - 10; y <= full.topM + SEA_TOP_SOFT_ABOVE_M + 10; y += 5) {
+    const sub = seaSubmersion(y, full);
+    assert.ok(sub >= 0 && sub <= 1);
+    const seen = 1 - sub;
+    assert.ok(seen >= last - 1e-12, `no dip at ${y}`);
+    last = seen;
+  }
+});
+
+test('a lantern under the cloud sea lights nothing that stands above its top', () => {
+  const m = { topM: 1500, fill: 1 };
+  const under = 1500 - SEA_TOP_SOFT_BELOW_M - 20, above = 1500 + SEA_TOP_SOFT_ABOVE_M + 20;
+  assert.equal(seaLightReach(under, above, m), 0, 'a peak above the cloud gets no light from below it');
+  assert.equal(seaLightReach(under, under - 50, m), 1, 'ground under the sea keeps its pool (the terrain fogs it)');
+  assert.equal(seaLightReach(above, under, m), 1, 'a light above the sea still reaches down');
+  assert.equal(seaLightReach(under, above, { topM: 1500, fill: 0.4 }), 0.6);
+  assert.equal(seaLightReach(under, above, null), 1);
+});
+
+test('the emitter and lantern-light shader twins use the same constants', async () => {
+  assert.ok(MIST_GLSL.includes('float mistSubmersion(float y)'));
+  assert.ok(MIST_GLSL.includes(`uMistTop - ${SEA_TOP_SOFT_BELOW_M.toFixed(1)}`) && MIST_GLSL.includes(`uMistTop + ${SEA_TOP_SOFT_ABOVE_M.toFixed(1)}`));
+  assert.ok(EMITTER_GLSL.includes('mistAmount(uCameraPos, p) * uNarrative.y'));
+  assert.ok(EMITTER_GLSL.includes(`${EMITTER_SUBMERGE.toFixed(3)} * sub`));
+  const { ACTOR_GLSL } = await import('../src/world/alpine/ActorsGL.js');
+  assert.ok(ACTOR_GLSL.includes('fall *= 1.0 - uMistFill * max(mistSubmersion(uActorPos[i].y) - mistSubmersion(p.y), 0.0)'));
+  // actorLight reads the sea's top: the mist uniforms must be declared above it.
+  const { SCENE_FRAG } = await import('../src/world/alpine/TerrainMaterial.js');
+  const { createForest } = await import('../src/world/alpine/ForestGL.js');
+  const THREE = await import('../src/vendor/range/three-range.module.js');
+  const placed = { mesh: new Float32Array([0, 0, 0, 20, 10, 0, .5, 2]), billboard: new Float32Array(), stride: 8, count: 1 };
+  const forest = createForest(THREE, placed, {});
+  for (const [name, frag] of [['terrain', SCENE_FRAG], ['forest', forest.byBand.near[0].material.fragmentShader]]) {
+    const top = frag.indexOf('uniform float uMistTop;'), light = frag.indexOf('vec3 actorLight(');
+    assert.ok(top >= 0 && light > top, `${name}: MIST_GLSL precedes ACTOR_GLSL`);
+    assert.equal(frag.split('uniform float uMistTop;').length, 2, `${name}: declared once`);
+  }
+  for (const m of [...Object.values(forest.byBand).flat(), ...forest.depth]) m.geometry.dispose();
 });
 
 test('local light is bounded and softened with height', () => {

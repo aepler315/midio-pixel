@@ -20,8 +20,10 @@ export function fitPixelRect(srcW, srcH, dstW, dstH, scaling = 'fit', origin = {
 }
 
 /** Recompose at the destination resolution: smooth sky, nearest native
- * foreground. Recording must not resample the already combined picture. */
-export function compositePixelFrame(ctx, source, width, height, scaling, background = null, destination = null) {
+ * frame, then smooth added light over it (`foreground`: the Landscape
+ * cast, so its lights and lines are not stair-stepped with the terrain).
+ * Recording must not resample the already combined picture. */
+export function compositePixelFrame(ctx, source, width, height, scaling, background = null, destination = null, foreground = null) {
   const fit = destination ? { ...destination, scale: destination.width / source.width }
     : fitPixelRect(source.width, source.height, width, height, scaling);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -30,7 +32,14 @@ export function compositePixelFrame(ctx, source, width, height, scaling, backgro
   const hybridSky = background ? !!background(ctx, fit) : false;
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(source, fit.x, fit.y, fit.width, fit.height);
-  return { hybridSky, fit };
+  let overlay = false;
+  if (foreground) {
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    ctx.globalCompositeOperation = 'lighter';
+    try { overlay = !!foreground(ctx, fit); } finally { ctx.restore(); }
+  }
+  return { hybridSky, fit, foreground: overlay };
 }
 let nextOwner = 0;
 /** Owns only the bounded working buffer. The output belongs to the caller. */
@@ -188,7 +197,7 @@ export class PixelPresentation {
       this.failFrame('source-unavailable'); return null;
     }
   }
-  finishFrame({ background = null } = {}) {
+  finishFrame({ background = null, foreground = null } = {}) {
     const started = performance.now();
     if (!this.source || !this._pending || this._disposed) {
       return this.diagnostics.frame?.presented === false ? this.diagnostics.frame : this.failFrame('not-rendered');
@@ -197,6 +206,7 @@ export class PixelPresentation {
     if (pending.generation !== this.generation || pending.outputSize !== `${this.canvas.width}x${this.canvas.height}`
       || source === this.working && this.residency.get(this.key) !== source) return this.failFrame('stale-frame');
     this.diagnostics.hybridSky = false;
+    this.diagnostics.castForeground = false;
     this.diagnostics.skyResolution = null;
     try {
       const sourceContext = source.getContext('2d'), outputContext = this.canvas.getContext('2d');
@@ -223,8 +233,10 @@ export class PixelPresentation {
       if (source !== this.canvas) {
         const ctx = this.canvas.getContext('2d');
         if (!ctx) return this.failFrame('output-context');
-        const { fit, hybridSky } = compositePixelFrame(ctx, source, this.canvas.width, this.canvas.height, p.scaling, background);
+        const composite = compositePixelFrame(ctx, source, this.canvas.width, this.canvas.height, p.scaling, background, null, foreground);
+        const { fit, hybridSky } = composite;
         this.diagnostics.hybridSky = hybridSky;
+        this.diagnostics.castForeground = composite.foreground;
         this.diagnostics.skyResolution = this.diagnostics.hybridSky ? { width: Math.round(fit.width), height: Math.round(fit.height) } : null;
       }
       this._pending = null;
