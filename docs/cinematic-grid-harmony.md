@@ -92,11 +92,24 @@ Live, on the RTX 3060:
 
 **The grid barely moves the cost.** Most of a 1080p frame is GPU-process work
 at output resolution: the full-resolution sky, the composite and the
-cross-context copy. The governor sheds to rung 4 on every grid, and the
-reconstruction sheds at rung 2 and above. So on this machine the cell pass
-never runs live at any grid, and choosing a coarser grid would not bring it
-back. Every grid is over the 18.5 ms budget. Making the cinematic output
-pipeline cheaper is the next lever; the grid is not.
+cross-context copy.
+
+**Live traces.** These ran the Teton tour at 1080p, the path
+`review:landscape` always uses. The governor settled at rung 4 on every
+grid, and the reconstruction sheds at rung 2 and above, so there it was
+shed at every grid.
+
+**Rail views.** These were measured only as fenced 1080p export frames:
+about 30–35 ms, also over the 18.5 ms budget. So the cell pass most
+likely sheds live there too. That is inferred, not traced, and a smaller
+window may differ.
+
+**Exports.** In-app exports freeze the governor at the live rung, so after
+live play they shed the pass too. CLI bulk exports, which arm a fresh page
+at rung 0, keep it.
+
+Choosing a coarser grid would not bring the pass back. Making the cinematic
+output pipeline cheaper is the next lever; the grid is not.
 
 With cost a tie, structure and image quality decide. 640×360 has:
 - whole-number scaling at every common output;
@@ -161,10 +174,16 @@ the 3.6 ms noise.
 
 - **Mobile web.** 640×360 is four times Classic's scene fill, and mobile web
   is the second-priority platform. It has not been measured on a device.
-- **The live cell pass.** It sheds on this desktop at every grid. The
-  1080p output pipeline (sky, composite, copies), not the grid, holds the
-  frame over budget. Profiling and slimming that pipeline is the next step if
-  the reconstruction is to be seen live.
+- **The live cell pass.** It sheds on this desktop's Teton-tour trace at
+  every grid, and in-app exports inherit that rung. The 1080p output
+  pipeline (sky, composite, copies), not the grid, holds the frame over
+  budget. Profiling and slimming that pipeline, or decoupling the pass's
+  shed rung from the scene's, is the next step if the reconstruction is to
+  be seen live.
+- **Trio.** Trio shares the one grid preference, so choosing Cinematic also
+  moves Trio, which ignores the cinematic look, to Detailed. That is four
+  times its pixel work. The level is supported there; it is a side effect,
+  not a bug.
 - **Software-rendered image metrics.** The image metrics came from software
   WebGL. Their trends match the hardware frames inspected by eye, but
   absolute values may differ slightly.
