@@ -591,6 +591,16 @@ test('the cast is drawn once after the near partition and kept with its stage tr
   assert.equal(p.drawCastForeground(octx, { x: 40, y: 20, width: 1280, height: 720, scale: 4 }), true);
   assert.deepEqual(out, [['clip', 40, 20, 1280, 720], ['transform', 1, 0, 0, 1, 40 - 64, 20 - 64],
     ['draw', true, 0, 0, 352, 212, 0, 0, 1408, 848, true, 'lighter']]);
+  // Under the range caption's plate the cast shows through it, as it would
+  // beneath it, instead of lighting the name.
+  out.length = 0;
+  const clips = [];
+  octx.clip = (rule) => clips.push(rule);
+  octx.drawImage = function () { out.push(['alpha', this.globalAlpha]); };
+  p.drawCastForeground(octx, { x: 40, y: 20, width: 1280, height: 720, scale: 4 }, { bounds: { x: 10, y: 150, width: 100, height: 20 }, plate: .72 });
+  assert.deepEqual(out, [['clip', 40, 20, 1280, 720], ['clip', 80, 620, 400, 80], ['transform', 1, 0, 0, 1, -24, -44], ['alpha', 1],
+    ['clip', 80, 620, 400, 80], ['transform', 1, 0, 0, 1, -24, -44], ['alpha', 1 - .72]]);
+  assert.deepEqual(clips, ['evenodd', 'nonzero'], 'the frame less the plate, then the plate');
   // A new frame forgets the old cast until its own near partition.
   p.setFrameInputs(inputs());
   p.beginScenic();

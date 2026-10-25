@@ -2646,6 +2646,9 @@ export class BiomeManager {
     // baked (and their composition fitted) when the legacy stack draws.
     const v2 = this.world?.kind === 'alpine' && !this.terrainPreview && !!this.rangePresentation?.beginScenic?.();
     this._rangeV2Active = v2;
+    // A frame that skips the Range scene (the terrain preview never begins
+    // it) keeps no cast layer from the last one for the presenter to add.
+    if (!v2 && this.rangePresentation) this.rangePresentation.castLayer = null;
     this._awaitingTerrain = this.world?.kind === 'alpine' && !this.terrainPreview && !!this.rangePresentation?.enabled && !v2;
     if (this._awaitingTerrain) {
       this._rangeV2Arriving = false;

@@ -85,7 +85,9 @@ class PresentingRenderer {
       try { return manager.drawHighResolutionSky(ctx, this.canvas, { transform }); }
       finally { ctx.restore(); }
     } : null;
-    const foreground = castOverlay ? (ctx, fit) => range.drawCastForeground(ctx, fit) : null;
+    // The caption's plate is in the working buffer: the cast shows through it.
+    const caption = scene.pixelCaptionLayout;
+    const foreground = castOverlay ? (ctx, fit) => range.drawCastForeground(ctx, fit, caption) : null;
     const result = this.output.finishFrame({ background, foreground });
     this._captureBackground = result?.presented ? background : null;
     this._captureForeground = result?.presented ? foreground : null;

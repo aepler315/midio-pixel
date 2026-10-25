@@ -65,7 +65,9 @@ export function drawPixelCaption(ctx, captions, songMs, { grid = pixelGrid() } =
   ctx.fillStyle = '#f2f0f8';
   for (const line of layout.lines) drawPixelText(ctx, line.text, line.x, line.y, unit);
   ctx.restore();
-  return layout;
+  // `plate`: the box's opacity, for layers composited over the frame later
+  // (the Landscape cast) to show through it as they would beneath it.
+  return { ...layout, plate: alpha * .72 };
 }
 const detailsCaptions = new WeakMap();
 export function setCaptionDetails(element, caption) {

@@ -1090,23 +1090,35 @@ export class RangePresentation {
    * (which a far or mid cast light used to sit behind), and whatever is
    * painted after the near partition -- the cut flash, bloom, film finish
    * and an in-frame HUD strip. Landscape draws no ground stage, flood,
-   * veil or near-field props over its partitions.
+   * veil or near-field props over its partitions. The range caption is the
+   * exception kept: given its layout (`caption`, working-buffer pixels, with
+   * its plate's opacity) the cast shows through the plate as it would
+   * beneath it, instead of lighting the name.
    */
-  drawCastForeground(ctx, fit) {
+  drawCastForeground(ctx, fit, caption = null) {
     const layer = this.castLayer;
     // (A layer released since -- evicted, resized -- has no pixels left.)
     if (!layer || !(layer.alpha > 0.001) || !(layer.canvas.width > 0)) return true;
-    const m = layer.transform, s = fit.scale;
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(fit.x, fit.y, fit.width, fit.height);
-    ctx.clip();
-    ctx.setTransform(s * m[0], s * m[1], s * m[2], s * m[3], fit.x + s * m[4], fit.y + s * m[5]);
-    ctx.globalAlpha = layer.alpha;
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.imageSmoothingEnabled = true;
-    try { ctx.drawImage(layer.canvas, 0, 0, layer.width, layer.height, 0, 0, layer.stageWidth, layer.stageHeight); }
-    finally { ctx.restore(); }
+    const m = layer.transform, s = fit.scale, b = caption?.plate > 0 ? caption.bounds : null;
+    const box = b ? [fit.x + s * b.x, fit.y + s * b.y, s * b.width, s * b.height] : null;
+    const draw = (inside) => {
+      ctx.save();
+      ctx.beginPath();
+      if (inside) ctx.rect(...box);
+      else {
+        ctx.rect(fit.x, fit.y, fit.width, fit.height);
+        if (box) ctx.rect(...box); // even-odd: the frame less the plate
+      }
+      ctx.clip(box && !inside ? 'evenodd' : 'nonzero');
+      ctx.setTransform(s * m[0], s * m[1], s * m[2], s * m[3], fit.x + s * m[4], fit.y + s * m[5]);
+      ctx.globalAlpha = layer.alpha * (inside ? 1 - caption.plate : 1);
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.imageSmoothingEnabled = true;
+      try { ctx.drawImage(layer.canvas, 0, 0, layer.width, layer.height, 0, 0, layer.stageWidth, layer.stageHeight); }
+      finally { ctx.restore(); }
+    };
+    draw(false);
+    if (box) draw(true);
     return true;
   }
 
