@@ -31,15 +31,19 @@ class PresentingRenderer {
   }
   getCaptureSource() {
     const source = this._disposed ? null : this.output.getCaptureSource();
-    // Recording and export consume the completed hybrid picture. Palette
-    // diagnostics can still inspect the native terrain raster separately.
-    const background = this._captureBackground;
-    return source && this.output.diagnostics.hybridSky ? { ...source, canvas: this.canvas,
+    // Recording and export consume the completed hybrid picture (smooth sky
+    // and/or the smooth cast over the pixel frame). Palette diagnostics can
+    // still inspect the native terrain raster separately.
+    const background = this._captureBackground, foreground = this._captureForeground;
+    const { hybridSky, castForeground } = this.output.diagnostics;
+    return source && (hybridSky || castForeground) ? { ...source, canvas: this.canvas,
       pixelCanvas: source.canvas, width: this.canvas.width, height: this.canvas.height,
-      pixelated: false, terrainPixelated: true, hybridSky: true,
+      pixelated: false, terrainPixelated: true, hybridSky: !!hybridSky, castForeground: !!castForeground,
       drawCaptureFrame: (ctx, width, height, destination) => {
         if (this._disposed || this.output.getCaptureSource() !== source) return false;
-        return compositePixelFrame(ctx, source.canvas, width, height, source.scaling, background, destination).hybridSky;
+        const drawn = compositePixelFrame(ctx, source.canvas, width, height, source.scaling,
+          hybridSky ? background : null, destination, castForeground ? foreground : null);
+        return (!hybridSky || drawn.hybridSky) && (!castForeground || drawn.foreground);
       } } : source;
   }
   draw(sim, alpha, { preparing = false } = {}) {
@@ -49,17 +53,21 @@ class PresentingRenderer {
     }
     this.output.setFrameContext?.({ worldKind: sim?.biomes?.world?.kind ?? null });
     const manager = sim?.biomes;
-    const hybridSky = this._experience !== 'trio' && manager?.world?.kind === 'alpine'
-      && !!this.inner.rangePresentation?.enabled && typeof manager.drawHighResolutionSky === 'function';
+    const range = this.inner.rangePresentation;
+    const landscape = this._experience !== 'trio' && manager?.world?.kind === 'alpine' && !!range?.enabled;
+    const hybridSky = landscape && typeof manager.drawHighResolutionSky === 'function';
     if (manager) manager.highResolutionSky = hybridSky;
-    const source = this.output.beginFrame({ separate: hybridSky });
+    // The cast is laid smoothly over the upscaled frame, so the working
+    // buffer must stay separate from the output (as for the sky).
+    const castOverlay = landscape && typeof range.drawCastForeground === 'function';
+    if (range && 'castForeground' in range) range.castForeground = castOverlay;
+    const source = this.output.beginFrame({ separate: hybridSky || castOverlay });
     if (!source) return this.output.diagnostics.frame;
     const scene = this.canvasRenderer;
     scene.canvas = source; scene.ctx = source.getContext('2d');
     scene.deferSceneCaptures = hybridSky || preparing;
     scene.pixelPolicy = pixelRenderPolicy(this.output.presentation);
     this.inner.presentationPixelated = this.output.presentation.pixelated;
-    const range = this.inner.rangePresentation;
     if (range) { range.pixelated = !!this.output.presentation.pixelated; range.pixelPolicy = scene.pixelPolicy; }
     try { this.inner.draw(sim, alpha); }
     catch (err) { scene.discardFrameCaptures?.(); this.output.failFrame('scene-draw'); throw err; }
@@ -75,8 +83,10 @@ class PresentingRenderer {
       try { return manager.drawHighResolutionSky(ctx, this.canvas, { transform }); }
       finally { ctx.restore(); }
     } : null;
-    const result = this.output.finishFrame({ background });
+    const foreground = castOverlay ? (ctx, fit) => range.drawCastForeground(ctx, fit) : null;
+    const result = this.output.finishFrame({ background, foreground });
     this._captureBackground = result?.presented ? background : null;
+    this._captureForeground = result?.presented ? foreground : null;
     if (result?.presented && !preparing) scene.completeFrameCaptures?.(this.canvas);
     else scene.discardFrameCaptures?.();
     let effectBytes = 0;

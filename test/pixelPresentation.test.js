@@ -466,6 +466,64 @@ test('unready terrain holds the last completed output instead of publishing load
   adapter.dispose();
 });
 
+/** A 2D context whose smoothing and compositing follow save/restore. */
+function stateful(canvas, order, name) {
+  const ctx = canvas.getContext(), stack = [];
+  Object.assign(ctx, { globalCompositeOperation: 'source-over',
+    save() { stack.push([this.imageSmoothingEnabled, this.globalCompositeOperation]); },
+    restore() { [this.imageSmoothingEnabled, this.globalCompositeOperation] = stack.pop(); },
+    beginPath() {}, rect() {}, clip() {} });
+  const draw = ctx.drawImage;
+  ctx.drawImage = function (...args) { order.push([name, 'pixels', this.imageSmoothingEnabled, this.globalCompositeOperation]); return draw.apply(this, args); };
+  return ctx;
+}
+
+test('the Landscape cast is laid smoothly over the upscaled pixel frame, as added light, and recorded with it', () => {
+  const canvas = surface(1280, 720), order = [];
+  stateful(canvas, order, 'live');
+  const range = { enabled: true, castForeground: false,
+    drawCastForeground(ctx, fit) {
+      order.push([ctx === canvas.getContext() ? 'live' : 'recorded', 'cast', ctx.imageSmoothingEnabled, ctx.globalCompositeOperation, fit.scale]);
+      return true;
+    } };
+  const manager = { world: { kind: 'alpine' } }; // no smooth sky this frame
+  const inner = { rangePresentation: range, draw(sim) { assert.equal(range.castForeground, sim.experience !== 'trio', 'told before the scene draws'); }, dispose() {} };
+  const adapter = createPresentingRenderer({ canvas, presentation: pixel, rendererFactory: () => inner });
+  assert.equal(adapter.draw({ biomes: manager }, 0).presented, true);
+  // The nearest-upscaled pixel frame first, then the cast, smoothed and added.
+  assert.deepEqual(order, [['live', 'pixels', false, 'source-over'], ['live', 'cast', true, 'lighter', 4]]);
+  assert.equal(canvas.getContext().globalCompositeOperation, 'source-over', 'the output state is restored');
+  assert.equal(adapter.diagnostics.castForeground, true);
+  assert.equal(adapter.diagnostics.hybridSky, false);
+  // Recordings and exports take the same composite, cast included.
+  const capture = adapter.getCaptureSource();
+  assert.equal(capture.canvas, canvas);
+  assert.equal(capture.castForeground, true);
+  assert.equal(capture.pixelated, false);
+  const recorded = surface(640, 360);
+  stateful(recorded, order, 'recorded');
+  order.length = 0;
+  assert.equal(capture.drawCaptureFrame(recorded.getContext(), 640, 360), true);
+  assert.deepEqual(order, [['recorded', 'pixels', false, 'source-over'], ['recorded', 'cast', true, 'lighter', 2]]);
+  // Trio has no cast layer: no hook, the frame is the pixel frame.
+  order.length = 0;
+  adapter.draw({ experience: 'trio', biomes: manager }, 0);
+  assert.equal(range.castForeground, false);
+  assert.ok(!order.some(([, what]) => what === 'cast'));
+  assert.equal(adapter.diagnostics.castForeground, false);
+  adapter.dispose();
+});
+
+test('a grid-sized output still keeps the cast off the pixel grid', () => {
+  const canvas = surface(320, 180), order = [];
+  stateful(canvas, order, 'live');
+  const range = { enabled: true, castForeground: false, drawCastForeground: (ctx) => { order.push(['live', 'cast', ctx.imageSmoothingEnabled]); return true; } };
+  const adapter = createPresentingRenderer({ canvas, presentation: pixel, rendererFactory: () => ({ rangePresentation: range, draw() {}, dispose() {} }) });
+  assert.equal(adapter.draw({ biomes: { world: { kind: 'alpine' } } }, 0).presented, true);
+  assert.deepEqual(order.map(([, what]) => what), ['pixels', 'cast'], 'a separate working buffer is composited, then the cast');
+  adapter.dispose();
+});
+
 test('a pending Landscape flag cannot prevent Trio from drawing after a mode switch', () => {
   const manager = { world: { kind: 'alpine' }, _awaitingTerrain: true };
   const adapter = createPresentingRenderer({ canvas: surface(), presentation: pixel,

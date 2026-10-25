@@ -97,6 +97,31 @@ test('endpoints: before the travel only the outgoing view draws, after it only t
   }
 });
 
+test('a travel keeps the cast in each side\'s band passes; the smooth cast pass resumes after it', async () => {
+  const { p, scene } = await presentation();
+  const casts = [];
+  scene.renderCast = (frame, id) => { casts.push(id); return { width: W, height: H }; };
+  p.castForeground = true;
+  const start = inputs(0); start.sim.biomes.currentBlend = { from: 'RAINFOREST', to: 'TAIGA', t: 0.001, travel: true, travelP: 0 };
+  p.setFrameInputs(start);
+  p.beginScenic();
+  p.setFrameInputs(inputs(0.5));
+  assert.equal(p.beginScenic(), true);
+  assert.equal(p.snapshot().incomingViewId, 'b');
+  assert.equal(scene.castInBands, true, 'one smooth layer cannot follow the seam');
+  p.drawPartition(recordingCtx(), 'near', { width: W, height: H });
+  assert.deepEqual(casts, []);
+  assert.equal(p.castLayer, null);
+  p.setFrameInputs(inputs(1));
+  assert.equal(p.beginScenic(), true);
+  assert.equal(scene.castInBands, false);
+  const ctx = recordingCtx();
+  ctx.getTransform = () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 });
+  p.drawPartition(ctx, 'near', { width: W, height: H });
+  assert.deepEqual(casts, ['b']);
+  assert.ok(p.castLayer);
+});
+
 test('25/50/75%: both sides render; the seam moves right to left, nearest layers first; the blend stays opaque', async () => {
   const { p, scene } = await presentation();
   // The incoming view is ready before its seam enters the frame (no fade).

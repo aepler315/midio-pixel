@@ -550,6 +550,81 @@ test('frame timings sum every pass of a frame and restart with the next frame', 
   assert.equal(b.frameId, a.frameId + 1);
 });
 
+test('the cast is drawn once after the near partition and kept with its stage transform for the smooth foreground', async () => {
+  const order = [];
+  const scene = fakeScene();
+  scene.renderPartition = (frame, pass) => { order.push(`gpu:${pass}`); return { width: 352, height: 212 }; };
+  scene.renderCast = (frame, id) => { order.push(`cast:${id}`); return { width: 352, height: 212, gl: true }; };
+  const layers = [];
+  const makeCanvas = (width, height) => {
+    const c = { width, height, draws: [] };
+    const ctx = { setTransform() {}, globalAlpha: 1, globalCompositeOperation: 'source-over',
+      drawImage(...a) { c.draws.push({ args: a, op: this.globalCompositeOperation }); } };
+    c.getContext = () => ctx;
+    layers.push(c);
+    return c;
+  };
+  const p = presentationWith(scene, { makeCanvas });
+  p.setSong({ terrain: { sceneByBiome: new Map([['RAINFOREST', { view: catalog.views[0], fallbackReason: null }]]) }, generation: 1 });
+  await p.whenReady();
+  p.castForeground = true;
+  p.setFrameInputs(inputs());
+  assert.equal(p.beginScenic(), true);
+  assert.equal(scene.castInBands, false, 'the partitions leave the cast out');
+  const stage = { width: 1408, height: 848 };
+  const ctx = { save() {}, restore() {}, drawImage() { order.push('draw'); },
+    getTransform: () => ({ a: 0.25, b: 0, c: 0, d: 0.25, e: -16, f: -16 }) };
+  for (const pass of ['far', 'mid', 'near']) assert.equal(p.drawPartition(ctx, pass, stage), true);
+  // Rendered after the near image is on the stage (the GL canvas is shared).
+  assert.deepEqual(order, ['gpu:far', 'draw', 'gpu:mid', 'draw', 'gpu:near', 'draw', 'cast:v']);
+  const layer = p.castLayer;
+  assert.equal(layer.canvas, layers[0]);
+  assert.equal(layers[0].draws[0].args[0].gl, true);
+  assert.equal(layers[0].draws[0].op, 'copy', 'the layer is replaced, not accumulated');
+  assert.deepEqual(layer.transform, [0.25, 0, 0, 0.25, -16, -16]);
+  assert.deepEqual([layer.width, layer.height, layer.stageWidth, layer.stageHeight, layer.alpha], [352, 212, 1408, 848, 1]);
+  // Composited where the working buffer lands in the output, smoothed and added.
+  const out = [];
+  const octx = { save() {}, restore() {}, beginPath() {}, rect(...a) { out.push(['clip', ...a]); }, clip() {},
+    setTransform(...a) { out.push(['transform', ...a]); },
+    drawImage(...a) { out.push(['draw', a[0] === layer.canvas, ...a.slice(1), this.imageSmoothingEnabled, this.globalCompositeOperation]); } };
+  assert.equal(p.drawCastForeground(octx, { x: 40, y: 20, width: 1280, height: 720, scale: 4 }), true);
+  assert.deepEqual(out, [['clip', 40, 20, 1280, 720], ['transform', 1, 0, 0, 1, 40 - 64, 20 - 64],
+    ['draw', true, 0, 0, 352, 212, 0, 0, 1408, 848, true, 'lighter']]);
+  // A new frame forgets the old cast until its own near partition.
+  p.setFrameInputs(inputs());
+  p.beginScenic();
+  assert.equal(p.castLayer, null);
+  assert.equal(p.drawCastForeground(octx, { x: 0, y: 0, width: 1, height: 1, scale: 1 }), true, 'nothing to add is still a complete frame');
+  // Without a smooth foreground the cast stays in the band passes.
+  p.castForeground = false;
+  p.setFrameInputs(inputs());
+  p.beginScenic();
+  assert.equal(scene.castInBands, true);
+  order.length = 0;
+  p.drawPartition(ctx, 'near', stage);
+  assert.deepEqual(order, ['gpu:near', 'draw']);
+});
+
+test('without room for the cast layer the cast is added to the grid right after the near partition', async () => {
+  const scene = fakeScene();
+  scene.renderCast = () => ({ width: 2, height: 2, gl: true });
+  const residency = { reserve: () => null, release() {}, get: () => undefined, pin() {}, cancelGeneration() {} };
+  const p = presentationWith(scene, { residency });
+  p.setSong({ terrain: { sceneByBiome: new Map([['RAINFOREST', { view: catalog.views[0], fallbackReason: null }]]) }, generation: 1 });
+  await p.whenReady();
+  p.castForeground = true;
+  p.setFrameInputs(inputs());
+  assert.equal(p.beginScenic(), true);
+  const drawn = [];
+  const ctx = { globalCompositeOperation: 'source-over', save() {}, restore() {}, getTransform: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }),
+    drawImage(img) { drawn.push([img.gl ? 'cast' : 'near', this.globalCompositeOperation]); } };
+  p.drawPartition(ctx, 'near', { width: 2, height: 2 });
+  assert.deepEqual(drawn.map(([what]) => what), ['near', 'cast']);
+  assert.equal(drawn[1][1], 'lighter');
+  assert.equal(p.castLayer, null);
+});
+
 test('a view built across a context loss is retried, not failed; a refused render target asks for room', async () => {
   const scene = fakeScene();
   let tries = 0;

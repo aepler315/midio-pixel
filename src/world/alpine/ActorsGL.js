@@ -2,12 +2,16 @@
 // how bright). Each actor is a lantern -- a small core and halo billboard
 // at its real position -- and a swarm of motes that wander around it. When
 // an actor kindles a light, a few of its motes leave the lantern and settle
-// into it. The lights the cast leave in a view (SiteLights) and Midasus's
-// survey threads (SurveyThreads) are emissive only: they light nothing.
-// Everything is drawn inside the terrain's band passes, so the land in
-// front hides it, the air dims it, and the lake mirror (which renders the
-// same band scenes) reflects it. Only the three lanterns light the ground,
-// trees and water, through the shared uniforms below (ACTOR_GLSL).
+// into it. The lights the cast leave in a view (SiteLights), Midasus's
+// survey threads and an ascent's fixed line (SurveyThreads) are emissive
+// only: they light nothing. Everything lives on CAST_LAYER in the band
+// scenes: RangeScene draws it in one pass of its own after the near
+// partition, against the full scene's depth (so the land in front hides it
+// exactly), for a smooth composite over the pixel frame; the lake mirror
+// (which renders the same band scenes) reflects it, and a travel draws it
+// in the band passes. The air and the valley mist dim it. Only the three
+// lanterns light the ground, trees and water, through the shared uniforms
+// below (ACTOR_GLSL).
 import { ACTOR_IDS, ACTOR_MOTES } from './RangeActors.js';
 import { BANDS } from './TerrainMesh.js';
 import { THREAD_SEGMENTS, THREAD_SEGMENTS_MAX } from './CastJobs.js';
@@ -23,6 +27,10 @@ export const ACTOR_FLY_MOTES = 12;
 /** Placed lights (per view, over every band) and threads. */
 export const SITE_LIGHTS_MAX = 48;
 export const SURVEY_THREADS_MAX = 12;
+/** The camera layer every cast mesh is on, apart from the terrain's 0..3:
+ *  the main camera draws it in a pass of its own (or, during a travel, in
+ *  the band passes), and the mirror camera with each band. */
+export const CAST_LAYER = 4;
 /** The looks are sized in pixels of a 720 px stage. */
 const STAGE_PX = 720;
 /** Core radius of a lantern and of a placed light (fractions of radius). */
@@ -495,7 +503,7 @@ export class SiteLights {
       g.setAttribute('aState', attr(2));
       g.instanceCount = 0;
       const mesh = new THREE.Mesh(g, this.material);
-      mesh.frustumCulled = false; mesh.renderOrder = 3; mesh.layers.set(3);
+      mesh.frustumCulled = false; mesh.renderOrder = 3; mesh.layers.set(CAST_LAYER);
       this.meshes[band] = mesh;
     }
   }
@@ -576,7 +584,7 @@ export class SurveyThreads {
       g.setDrawRange(0, 0);
       const mesh = new THREE.Mesh(g, new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms: u,
         vertexShader: THREAD_VERT, fragmentShader: THREAD_FRAG, ...blendFor(THREE) }));
-      mesh.frustumCulled = false; mesh.renderOrder = 3; mesh.layers.set(3);
+      mesh.frustumCulled = false; mesh.renderOrder = 3; mesh.layers.set(CAST_LAYER);
       this.meshes[band] = mesh;
       this.uniformsByBand[band] = u;
     }
@@ -696,6 +704,7 @@ export class ActorsGL {
         group.add(m);
         return cu;
       });
+      group.traverse((object) => object.layers.set(CAST_LAYER));
       group.visible = false;
       this.groups[id] = group;
       this.uniforms[id] = u;

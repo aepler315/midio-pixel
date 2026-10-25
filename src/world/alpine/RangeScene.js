@@ -42,7 +42,7 @@ import { mistParams, mistDrift, easeMistSteps, tourMistCap, tourMistFade, emitte
 import { mirrorSize, mirrorLevelFor, mirrorCameraFor, mirrorTextureMatrix, MIRROR_CLIP_M, MIRROR_LIFT } from './WaterMirror.js';
 import { scenicProjection, calibrateRangeMusic } from './RangeFrame.js';
 import { applyGlacierUniforms, glacierErrors, glacierSample } from './GlacierField.js';
-import { ActorsGL, SITE_LIGHTS_MAX } from './ActorsGL.js';
+import { ActorsGL, SITE_LIGHTS_MAX, CAST_LAYER } from './ActorsGL.js';
 import { buildRiverGeometry, riverGeometryBound, riverChannelErrors } from './RiverChannel.js';
 import { ACTOR_IDS, ACTOR_HUES, ACTOR_LOOK, ACTOR_START, actorRoutes, routePosition } from './RangeActors.js';
 import { castPlan, castWork, pathPosition, siteWalk } from './CastJobs.js';
@@ -154,7 +154,10 @@ export class RangeScene {
     this.depthCache = { A: { frame: -1, view: null }, B: { frame: -1, view: null } };
     this.size = { width: 0, height: 0 };
     this.contextLost = false;
-    this.stats = { depthPasses: 0, partitions: 0, lastPartitionMs: 0 };
+    this.stats = { depthPasses: 0, partitions: 0, lastPartitionMs: 0, castPasses: 0 };
+    // The cast draws in the band passes unless the presentation takes it
+    // from renderCast to lay over the pixel frame itself (it clears this).
+    this.castInBands = true;
     this._copy = this._createCopy();
     // Each loss and each restore starts a new context epoch: a preparation
     // that straddles either built GPU objects (and dropped the surface
@@ -504,8 +507,10 @@ export class RangeScene {
       r.setClearColor(0x000000, 0);
       r.clear(true, true, false);
       const softForest = Object.values(p.forest?.counts || {}).some(n => n > 0);
+      // The lake reflects the cast with each band (it never takes the main
+      // camera's separate cast pass).
       this.mirrorCamera.layers.set(0);
-      if (!softForest) this.mirrorCamera.layers.enable(3);
+      if (!softForest) { this.mirrorCamera.layers.enable(3); this.mirrorCamera.layers.enable(CAST_LAYER); }
       r.render(p.depthScene, this.mirrorCamera);
       for (const band of BANDS) r.render(p.scenes[band], this.mirrorCamera);
       if (softForest) {
@@ -514,6 +519,7 @@ export class RangeScene {
         this.mirrorCamera.layers.set(2);
         r.render(p.depthScene, this.mirrorCamera);
         this.mirrorCamera.layers.set(3);
+        this.mirrorCamera.layers.enable(CAST_LAYER);
         for (const band of BANDS) r.render(p.scenes[band], this.mirrorCamera);
       }
       this.mirrorCamera.layers.set(0); this.mirrorCamera.layers.enable(3);
@@ -1878,8 +1884,9 @@ export class RangeScene {
         : route ? routePosition(route, s.travel + (ACTOR_START[id] || 0), { ...opts, hoverM: look.hoverM, bobSec: tSec + k * 2.1 }) : null;
       u.uActorColor.value[k].set(0, 0, 0);
       if (!group) return;
-      // Lanterns, motes and companions must test the completed forest depth.
-      if (!group.layers.isEnabled(3)) group.traverse(object => object.layers.set(3));
+      // Lanterns, motes and companions draw with the cast, after the
+      // completed forest depth (renderCast, or the band passes' layer 3).
+      if (!group.layers.isEnabled(CAST_LAYER)) group.traverse(object => object.layers.set(CAST_LAYER));
       if (!pos) { group.visible = false; return; }
       const at = new THREE.Vector3(pos[0], pos[1], pos[2]);
       const dist = Math.max(1, at.distanceTo(cam.position));
@@ -2210,11 +2217,16 @@ export class RangeScene {
     this._prepareMirror(p, frame, side, viewId);
     this._updateForestDetail(p, frame, this.camera, this.size.width, this.size.height, 'main');
     const softForest = Object.values(p.forest?.counts || {}).some(n => n > 0);
+    // The cast draws once, after the near partition (renderCast), against
+    // the whole scene's depth. A travel frame (each side's nearer bands
+    // only in some columns) and a caller with no smooth layer to put it in
+    // (castInBands, set by the presentation) keep it in the band passes.
+    const castInBands = this.castInBands !== false || !!bandColumns;
     this.camera.layers.set(0);
-    if (!softForest) this.camera.layers.enable(3);
+    if (!softForest) { this.camera.layers.enable(3); if (castInBands) this.camera.layers.enable(CAST_LAYER); }
     const source = pass === 'far' && rangeQuality(frame.qualityLevel).sunShafts ? shaftSource(frame) : null;
     const forestDepth = p.uniforms.uNarrativeInk.value >= .005
-      || Object.values(p.actors?.groups || {}).some(group => group.visible)
+      || (castInBands && this._castShown(p))
       || !!(source && this.shafts);
     // The backdrop holds the far partition itself: far water reflecting it
     // would feed back into the next copy, so it keeps the ground mirror only.
@@ -2263,9 +2275,13 @@ export class RangeScene {
         else r.render(p.depthScene, this.camera);
         depth.frame = -1;
         this.camera.layers.set(3);
+        if (castInBands) this.camera.layers.enable(CAST_LAYER);
         r.render(p.scenes[pass], this.camera);
       }
     }
+    // What the cast pass will find in this side's target after the near
+    // partition: whose depth, and whether the trees' crown cut is in it.
+    if (pass === 'near') depth.cast = bandColumns ? null : { frame: frame.frameId, view: viewId, forest: !softForest || forestDepth };
     this.camera.layers.set(0); this.camera.layers.enable(3);
     // Far is the single solar boundary, before the inserted Dancing Ridge.
     // During travel its depth was just rebuilt with this side's real columns.
@@ -2281,6 +2297,52 @@ export class RangeScene {
     this.lastShafted = !!scattering;
     this.stats.partitions++;
     this.stats.lastPartitionMs = performance.now() - t0;
+    return this.canvas;
+  }
+
+  /** Whether any of a view's cast would draw a pixel this frame. */
+  _castShown(p) {
+    const a = p.actors;
+    if (!a) return false;
+    if (Object.values(a.groups || {}).some(group => group.visible)) return true;
+    return [a.sites, a.threads, a.rope].some(set => set && Object.values(set.meshes || {}).some(m => m.visible));
+  }
+
+  /**
+   * The cast alone -- lanterns, motes, companions, placed lights, threads
+   * and the fixed line -- for `frame`, drawn right after this side's near
+   * partition into the same target with only its colour cleared: the depth
+   * there is still every band's pre-pass (plus the trees' crown cut, added
+   * here if the near partition did not need it), so the land and trees in
+   * front hide it exactly and no later partition paints over it. Returns
+   * the canvas holding it (valid until the next render call) for the
+   * presentation to lay smoothly over the pixel frame, or null when there
+   * is nothing to draw or the target no longer holds that near partition.
+   */
+  renderCast(frame, viewId = frame.viewFromId, { side = 'A' } = {}) {
+    const p = this.prepared.get(viewId);
+    const target = side === 'B' ? this.sideTargets.B : this.target;
+    const depth = this.depthCache[side], near = depth?.cast;
+    if (!p || this.contextLost || !target || near?.frame !== frame.frameId || near.view !== viewId) return null;
+    depth.cast = null; // one cast pass per near partition
+    if (!this._castShown(p)) return null;
+    const r = this.renderer;
+    r.setRenderTarget(target);
+    if (!near.forest) {
+      this.camera.layers.set(2);
+      r.render(p.depthScene, this.camera);
+      depth.frame = -1; // no longer plain opaque depth
+    }
+    r.setClearColor(0x000000, 0);
+    r.clear(true, false, false);
+    this.camera.layers.set(CAST_LAYER);
+    for (const band of BANDS) r.render(p.scenes[band], this.camera);
+    this.camera.layers.set(0); this.camera.layers.enable(3);
+    r.setRenderTarget(null);
+    this._setCanvasSize(this.size.width, this.size.height);
+    r.clear(true, true, false);
+    this._copyTexture(target.texture);
+    this.stats.castPasses = (this.stats.castPasses || 0) + 1;
     return this.canvas;
   }
 

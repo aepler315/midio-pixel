@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {RangeScene} from '../src/world/alpine/RangeScene.js';
-import {ActorsGL,actorUniforms,SITE_LIGHTS_MAX,threadShown,THREAD_FRONT,THREAD_PUSH_PX} from '../src/world/alpine/ActorsGL.js';
+import {ActorsGL,actorUniforms,SITE_LIGHTS_MAX,threadShown,THREAD_FRONT,THREAD_PUSH_PX,CAST_LAYER} from '../src/world/alpine/ActorsGL.js';
 import {ACTOR_IDS,ACTOR_MOTES} from '../src/world/alpine/RangeActors.js';
 import {castWork,pathPosition} from '../src/world/alpine/CastJobs.js';
 import * as THREE from '../src/vendor/range/three-range.module.js';
@@ -33,7 +33,7 @@ test('tour lanterns wander their routes at full and reduced quality',()=>{
  for(const qualityLevel of [0,6]){
   RangeScene.prototype._setActors.call(scene,p,{actors:cast,timeMs:20000,qualityLevel,light:{night01:1}});
   for(const id of ACTOR_IDS){assert.equal(actors.groups[id].visible,true);assert.equal(actors.uniforms[id].uFly.value,0);
-   actors.groups[id].traverse(object=>assert.equal(object.layers.mask,1<<3,'cast lights draw after forest depth'));
+   actors.groups[id].traverse(object=>assert.equal(object.layers.mask,1<<CAST_LAYER,'cast lights draw in their own pass, after forest depth'));
   }
  }
  actors.dispose();
