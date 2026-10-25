@@ -978,6 +978,11 @@ html, body {
    back up rather than also acting on whatever's underneath. */
 #hudRight {
   display: flex;
+  /* Wraps rather than pushing Record, Sync and Fullscreen off a portrait
+     phone; the rows stay right-aligned beside the Bluetooth chip. */
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
   align-items: flex-start;
   gap: var(--space-2);
   pointer-events: auto;
@@ -1006,6 +1011,14 @@ html, body {
 #snapshotBtn[aria-busy="true"] {
   opacity: 0.6;
   cursor: progress;
+}
+/* While a snapshot holds the moment, only Stop stays live (main.js). */
+#hudRight.snapshotBusy button:not(#stopBtn) {
+  opacity: 0.5;
+  cursor: progress;
+}
+@media (max-width: 600px) {
+  .detailLevel { min-width: 4.5em; font-size: 0.9em; }
 }
 
 /* On-device FPS HUD (mobile performance round): small, always-on-top,

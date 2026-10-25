@@ -22,7 +22,7 @@ for (const paused of [true, false]) test(`grid controls preserve song time and $
   const control = { value: 'classic', addEventListener(name, fn) { handler = fn; } };
   const context = vm.createContext({ displayControls: { pixelGrid: control }, displayPrefs: prefs, presentation: resolvePresentation(prefs),
     writeDisplayPrefs, displayStorage: () => null, resolvePresentation, syncDisplayControls() {}, perfGovernor: null,
-    paused, sim, renderer, bulkExportArmed: false, console,
+    paused, sim, renderer, bulkExportArmed: false, console, snapshotBusy: false,
     songRecorder: { recording: true, captureFrame() { assert.ok(renderer.getCaptureSource()); recorded++; } },
     playbackPreparing: false,
     fitCanvas() { renderer.setPresentation(context.presentation); canvas.width = context.presentation.grid.width; canvas.height = context.presentation.grid.height; },
@@ -33,4 +33,18 @@ for (const paused of [true, false]) test(`grid controls preserve song time and $
   if (paused) { assert.equal(renderer.getCaptureSource()?.width, 640); assert.equal(recorded, 1); }
   else { assert.equal(renderer.getCaptureSource(), null); assert.equal(recorded, 0); renderer.draw(sim, 1); assert.equal(renderer.getCaptureSource().width, 640); }
   renderer.dispose();
+});
+
+test('a Display change during a snapshot is ignored, never saved over the player\'s level', () => {
+  let handler, writes = 0;
+  const control = { value: 'classic', addEventListener(name, fn) { handler = fn; } };
+  const prefs = { ...DEFAULT_DISPLAY_PREFS, look: 'pixel' };
+  const context = vm.createContext({ displayControls: { pixelGrid: control }, displayPrefs: prefs, presentation: resolvePresentation(prefs),
+    writeDisplayPrefs() { writes++; }, displayStorage: () => null, resolvePresentation, syncDisplayControls() {}, perfGovernor: null,
+    paused: true, sim: null, renderer: null, bulkExportArmed: false, console, songRecorder: null, playbackPreparing: false,
+    fitCanvas() {}, snapshotBusy: true });
+  vm.runInContext(binding, context);
+  control.value = 'detailed'; handler();
+  assert.equal(writes, 0);
+  assert.equal(context.displayPrefs.pixelGrid, prefs.pixelGrid);
 });

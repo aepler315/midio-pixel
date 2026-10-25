@@ -564,6 +564,7 @@ function syncDetailControls() {
     snapshotBtnEl.disabled = snapshotBusy;
     snapshotBtnEl.setAttribute('aria-busy', snapshotBusy ? 'true' : 'false');
   }
+  document.getElementById('hudRight')?.classList.toggle('snapshotBusy', snapshotBusy);
 }
 
 function storedFpsCap() {
@@ -741,6 +742,10 @@ function randomizeSeed() {
 /** One display preference changed, from the Display menu or the HUD's
  *  detail stepper: persist it, re-present, and redraw a paused frame. */
 function applyDisplayPref(key, value) {
+  // A snapshot owns the presentation until it restores the player's own
+  // (its finally re-syncs the menu); a change now would save its
+  // temporary level and then be undone.
+  if (snapshotBusy) return;
   displayPrefs = { ...displayPrefs, [key]: value };
   presentation = resolvePresentation(displayPrefs);
   writeDisplayPrefs(displayStorage(), displayPrefs);
@@ -841,23 +846,34 @@ async function saveDetailSnapshots() {
     showErrorBanner('Snapshots are unavailable while the song is preparing, exporting or recording.');
     return;
   }
-  snapshotBusy = true;
-  syncDetailControls();
   const wasPaused = paused;
   if (!wasPaused) togglePause(); // the moment holds still while every level is drawn
+  // Busy from here: the Display menu, Pause, Record and Sync wait (Stop
+  // cancels), so all five files are this one moment.
+  snapshotBusy = true;
+  syncDetailControls();
   const savedPrefs = displayPrefs, savedPresentation = presentation;
   const stamp = new Date();
+  const stopped = () => !running || !sim || !renderer;
+  let cancelled = false;
   try {
     await captureDetailSnapshots({
       levels: DETAIL_LEVELS,
       render: async (level) => {
-        displayPrefs = { ...savedPrefs, pixelGrid: level };
+        if (stopped()) { cancelled = true; throw new Error('the song was stopped'); }
+        // Fit scaling: every grid fills the full frame (integer scaling
+        // would letterbox Classic+ and Medium+ inside 1920×1080).
+        displayPrefs = { ...savedPrefs, pixelGrid: level, scaling: 'fit' };
         presentation = resolvePresentation(displayPrefs);
         bulkExportSize = SNAPSHOT_SIZE;
         fitCanvas();
+        if (canvas.width !== SNAPSHOT_SIZE.w || canvas.height !== SNAPSHOT_SIZE.h) {
+          throw new Error(`there is no room for a ${SNAPSHOT_SIZE.w}×${SNAPSHOT_SIZE.h} frame right now`);
+        }
         // A level whose targets are still being sized can miss a frame;
         // wait a few animation frames for a completed one.
         for (let attempt = 0; attempt < 30; attempt++) {
+          if (stopped()) { cancelled = true; throw new Error('the song was stopped'); }
           const frame = renderer.draw(sim, 1, { preparing: false });
           if (frame?.presented) return canvas;
           await nextAnimationFrame();
@@ -871,21 +887,31 @@ async function saveDetailSnapshots() {
       },
     });
   } catch (err) {
-    console.error('[snapshot]', err);
-    showErrorBanner(`Could not save the snapshots: ${err?.message || err}`);
+    if (!cancelled) {
+      console.error('[snapshot]', err);
+      showErrorBanner(`Could not save the snapshots: ${err?.message || err}`);
+    }
   } finally {
     bulkExportSize = null;
     displayPrefs = savedPrefs;
     presentation = savedPresentation;
-    fitCanvas();
-    try { renderer.draw(sim, 1, { preparing: playbackPreparing }); } catch (err) { console.warn('[snapshot] redraw', err); }
-    if (!wasPaused && paused) togglePause();
     snapshotBusy = false;
-    syncDetailControls();
+    syncDisplayControls();
+    fitCanvas();
+    if (!stopped()) {
+      try { renderer.draw(sim, 1, { preparing: playbackPreparing }); } catch (err) { console.warn('[snapshot] redraw', err); }
+      if (!wasPaused && paused) togglePause();
+    }
     wakeHud();
   }
 }
 snapshotBtnEl?.addEventListener('click', () => { wakeHud(); saveDetailSnapshots(); });
+// While a snapshot holds the moment, every other HUD button but Stop waits.
+document.getElementById('hudRight')?.addEventListener('click', (e) => {
+  if (!snapshotBusy) return;
+  const button = e.target?.closest?.('button');
+  if (button && button.id !== 'stopBtn') { e.preventDefault(); e.stopImmediatePropagation(); }
+}, true);
 
 
 let bootAudioInFlight = null;

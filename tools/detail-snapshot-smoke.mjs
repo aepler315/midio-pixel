@@ -114,6 +114,8 @@ try {
     // Five full-HD software renders keep the page busy for seconds, longer
     // than Playwright's click bookkeeping tolerates; press it from the page.
     await page.locator('#snapshotBtn').evaluate((button) => button.click());
+    // Pause pressed mid-snapshot waits: all five files stay one moment.
+    await page.locator('#pauseBtn').evaluate((button) => button.click());
     await page.waitForFunction(() => document.getElementById('snapshotBtn').getAttribute('aria-busy') === 'false'
       && !document.getElementById('snapshotBtn').disabled, null, { timeout: 120_000 });
     for (let i = 0; i < 50 && downloads.length < 5; i++) await page.waitForTimeout(100);
@@ -140,6 +142,18 @@ try {
     const state = await page.evaluate(() => ({ paused: window.__SMW.paused, playing: window.__SMW.audioEngine.playing, w: document.getElementById('stage').width }));
     assert.equal(state.paused, false, 'playback resumed');
     assert.notEqual(state.w, 1920, 'the stage is back to its live size');
+  });
+
+  await check('on a portrait phone every HUD control stays on screen', async () => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForTimeout(500);
+    if (!await hudAwake()) await page.locator('#stage').click({ position: { x: 195, y: 300 } });
+    const offscreen = await page.evaluate(() => [...document.querySelectorAll('#hudRight > button, #hudRight > .detailControls > button')]
+      .filter((b) => b.offsetParent !== null)
+      .map((b) => ({ id: b.id, right: b.getBoundingClientRect().right }))
+      .filter((b) => b.right > window.innerWidth + 0.5));
+    assert.deepEqual(offscreen, []);
+    await page.setViewportSize({ width: 1280, height: 720 });
   });
 
   await check('no page errors', () => assert.deepEqual(errors, []));
