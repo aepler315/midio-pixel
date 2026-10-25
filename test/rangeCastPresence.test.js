@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {RangeScene} from '../src/world/alpine/RangeScene.js';
-import {ActorsGL,actorUniforms,SITE_LIGHTS_MAX} from '../src/world/alpine/ActorsGL.js';
+import {ActorsGL,actorUniforms,SITE_LIGHTS_MAX,threadShown,THREAD_FRONT,THREAD_PUSH_PX} from '../src/world/alpine/ActorsGL.js';
 import {ACTOR_IDS,ACTOR_MOTES} from '../src/world/alpine/RangeActors.js';
 import {castWork,pathPosition} from '../src/world/alpine/CastJobs.js';
 import * as THREE from '../src/vendor/range/three-range.module.js';
@@ -194,7 +194,7 @@ test('site lights and threads read the terrain fog by reference, and fall back t
  for(const u of [actors.sites.uniforms,...Object.values(actors.threads.uniformsByBand)]){
   for(const k of ['uMistDensity','uMistTop','uMistFill','uMistDrift','uMistSteps','uNarrative','uCameraPos'])assert.equal(u[k],shared[k],k);
  }
- assert.match(actors.sites.material.vertexShader,/vSeen = aState\.x > 0\.0 \? emitterSeen\(aPos\)/,'fogged at the light itself, not its pushed halo');
+ assert.match(actors.sites.material.vertexShader,/vSeen = aState\.x > 0\.0 \? emitterSeen\(at\)/,'fogged at the light itself, not its pushed halo');
  assert.match(actors.threads.meshes.far.material.vertexShader,/emitterSeen\(/);
  assert.match(actors.groups.midio.children[1].material.fragmentShader,/\* uSeen;/);
  assert.match(actors.groups.midio.children[0].material.vertexShader,/vSeen = mix\(uSeen, uSeenFly, fly\)/);
@@ -252,5 +252,53 @@ test('Midasus glides to a thread that starts elsewhere instead of jumping there'
  assert.ok(at(20000).distanceTo(start)<1e-6,'there as it starts');
  let last=at(18500);
  for(let t=18550;t<=20000;t+=50){const q=at(t);assert.ok(q.distanceTo(last)<start.distanceTo(end)/10,`no jump at ${t}`);last=q;}
+ actors.dispose();
+});
+
+test('the cast ride the drawn ground as it swells, from their true positions',()=>{
+ const shared=sceneUniforms(THREE,{uReceiver:{value:null},uHeightRange:{value:new THREE.Vector2(0,3000)},uGridOrigin:{value:new THREE.Vector2()}});
+ const actors=new ActorsGL(THREE,shared);
+ const lantern=actors.groups.midio.children[1].material, motes=actors.groups.midio.children[0].material;
+ for(const m of [lantern,motes,actors.sites.material,actors.threads.meshes.mid.material,...actors.groups.midasus.children.slice(2).map(c=>c.material)]){
+  assert.match(m.vertexShader,/float groundLift\(vec3 p\)/);
+  for(const k of ['uDeformAmp','uDeformKick','uReceiver','uGridOrigin','uGlacierEnabled','uTourEye'])assert.equal(m.uniforms[k],shared[k],k);
+ }
+ assert.match(lantern.vertexShader,/uCenter \+ vec3\(0\.0, groundLift\(uAnchor\), 0\.0\)/,'lifted at the light, not at its camera-ward centre');
+ assert.match(motes.vertexShader,/target\.y \+= groundLift\(uFlyTarget\)/,'a kindled light is lifted too');
+ assert.match(actors.sites.material.vertexShader,/at\.y \+= groundLift\(aPos\)/);
+ assert.match(actors.threads.meshes.near.material.vertexShader,/q\.y \+= groundLift\(position\)/);
+ // Threads lean 1.5 native pixels toward the eye, sized by the target's height.
+ assert.ok(actors.threads.meshes.near.material.vertexShader.includes(`${THREAD_PUSH_PX.toFixed(2)} * mpp`));
+ assert.equal(actors.threads.uniformsByBand.far.uTanHalf,actors.sites.uniforms.uTanHalf,'one view upload serves sites and threads');
+ assert.equal(actors.threads.uniformsByBand.far.uViewportPx,shared.uViewportPx);
+ // The scene hands each lantern and companion its true position.
+ const camera=new THREE.PerspectiveCamera(35,16/9,1,100000);
+ camera.position.set(0,1000,0);camera.lookAt(0,1000,-10000);camera.updateMatrixWorld();
+ const route={kind:'air',points:[[0,1000,-5000],[100,1000,-5000]],lengths:[100],total:100};
+ const p={view:{id:'tour',tour:true},actors,uniforms:shared,actorRoutes:Object.fromEntries(ACTOR_IDS.map(id=>[id,route])),data:null,scenes:{far:new THREE.Scene()}};
+ const scene={THREE,camera,_tileAt:()=>null,_castJob:RangeScene.prototype._castJob,_setCastLights:RangeScene.prototype._setCastLights};
+ RangeScene.prototype._setActors.call(scene,p,{actors:{presence:1,...Object.fromEntries(ACTOR_IDS.map(id=>[id,{glow:1,travel:1}]))},timeMs:20000,qualityLevel:0,light:{night01:1}});
+ ACTOR_IDS.forEach((id,k)=>{
+  const u=actors.uniforms[id];
+  assert.ok(u.uAnchor.value.distanceTo(shared.uActorPos.value[k])<1e-9,`${id} anchored at its light`);
+  assert.ok(u.uCenter.value.distanceTo(u.uAnchor.value)>1,'its halo still draws toward the eye');
+ });
+ for(const c of actors.companions.midasus)assert.ok(c.uAnchor.value.distanceTo(c.uCenter.value)>0.1&&c.uAnchor.value.length()>0);
+ actors.dispose();
+});
+
+test('a thread is drawn up to Midasus, smoothly, from nothing to all of it',()=>{
+ for(let s=0;s<=1;s+=1/64){assert.equal(threadShown(s,0),0,`nothing at reveal 0 (s ${s})`);assert.equal(threadShown(s,1),1,`all of it at reveal 1 (s ${s})`);}
+ for(const r of [0.1,0.37,0.5,0.9]){
+  assert.equal(threadShown(r-THREAD_FRONT,r),1,'lit behind her');
+  assert.equal(threadShown(r+THREAD_FRONT,r),0,'dark ahead of her');
+  assert.ok(threadShown(r-THREAD_FRONT/2,r)>=0.5&&threadShown(r+THREAD_FRONT/2,r)<=0.5,'half-bright within half a head of her');
+  // The front glides: a 1% step of reveal changes any point by about a third at most.
+  for(let s=0;s<=1;s+=0.005)assert.ok(Math.abs(threadShown(s,r+0.01)-threadShown(s,r))<=0.01*(1+THREAD_FRONT)/THREAD_FRONT+1e-9);
+ }
+ const shared=sceneUniforms(THREE,{});
+ const actors=new ActorsGL(THREE,shared);
+ const frag=actors.threads.meshes.far.material.fragmentShader;
+ assert.ok(frag.includes(`(vReveal * ${(1+THREAD_FRONT).toFixed(3)} - vS) / ${THREAD_FRONT.toFixed(3)}`),'per fragment, the same front');
  actors.dispose();
 });

@@ -1,5 +1,4 @@
 import { cloudUniforms, CLOUD_OCCLUSION_GLSL } from './CloudOcclusion.js';
-import { LAND_TOUR_FADE_END_M } from './LandMotionLimits.js';
 import { hexToLinear, RULE_DEFAULTS, validateWaterRules } from './MaterialPackage.js';
 import { GUST_FRONTS, GUST_IDLE_SEC, GUST_SWEEP_SEC } from './Gust.js';
 import { RangeAssetError } from './RangeAssets.js';
@@ -18,7 +17,7 @@ export { materialDetailPosition } from './MaterialDetailDomain.js';
 
 // GLSL twin of RangeFrame.sceneDeformation -- keep the two in step.
 import { MIST_GLSL, MIST_SAMPLES } from './RangeAtmosphere.js';
-import { GLACIER_GLSL } from './GlacierField.js';
+import { DEFORM_GLSL } from './TerrainDeform.js';
 import { FOREST_HASH_GLSL, FOREST_TRAITS_GLSL } from './ForestCover.js';
 import { CROWN_GLSL } from './ForestProfile.js';
 import { HORIZON_GLSL } from './TerrainOcclusion.js';
@@ -251,47 +250,9 @@ export const FAR_TREE_DOTS_GLSL = /* glsl */`
   }
 `;
 
-export const DEFORM_GLSL = /* glsl */`
-  ${GLACIER_GLSL}
-  uniform vec2 uHeightRange;
-  uniform vec2 uGridOrigin;
-  uniform vec2 uGridExtent;
-  uniform vec2 uTexel;
-  uniform sampler2D uReceiver;
-  uniform float uDeformAmp;
-  uniform float uDeformKick;
-  uniform float uDeformGesture;
-  uniform float uDeformMelodic;
-  uniform float uDeformStructural;
-  uniform float uDeformK;
-  uniform vec2 uDeformDir;
-  uniform float uDeformPhase;
-  uniform float uMelodyK;
-  uniform vec2 uMelodyDir;
-  uniform float uMelodyPhase;
-  uniform float uTourEnabled;
-  uniform vec3 uTourEye;
-  float deformField(float h, float along, float across) {
-    return h * h * (uDeformAmp * sin(along * uDeformK - uDeformPhase)
-      + uDeformKick + uDeformStructural + uDeformMelodic * sin(across * uMelodyK - uMelodyPhase)
-      + h * h * uDeformGesture);
-  }
-  float deformAt(vec3 p) {
-    vec2 uv = (p.xz - uGridOrigin) / uGridExtent;
-    float receiver = texture(uReceiver, uv * (1.0 - uTexel) + 0.5 * uTexel).r;
-    float h = clamp((p.y - uHeightRange.x) / max(1.0, uHeightRange.y - uHeightRange.x), 0.0, 1.0);
-    float tourFade = mix(1.0, smoothstep(1500.0, ${LAND_TOUR_FADE_END_M.toFixed(1)}, distance(p, uTourEye)), uTourEnabled);
-    return receiver * tourFade * deformField(h, dot(p.xz, uDeformDir), dot(p.xz, uMelodyDir));
-  }
-  // Full field derivatives include the receiver shoulder and height lift.
-  // The inverse Jacobian carries terrain normals through the same field.
-  vec3 deformGrad(vec3 p) {
-    float e = 1.0;
-    return vec3(deformAt(p + vec3(e, 0.0, 0.0)) - deformAt(p - vec3(e, 0.0, 0.0)),
-      deformAt(p + vec3(0.0, e, 0.0)) - deformAt(p - vec3(0.0, e, 0.0)),
-      deformAt(p + vec3(0.0, 0.0, e)) - deformAt(p - vec3(0.0, 0.0, e))) / (2.0 * e);
-  }
-`;
+// The shared musical deformation lives in TerrainDeform.js so the cast
+// (ActorsGL, which this module imports) can ride it too.
+export { DEFORM_GLSL };
 
 export const SCENE_VERT = /* glsl */`
   invariant gl_Position;

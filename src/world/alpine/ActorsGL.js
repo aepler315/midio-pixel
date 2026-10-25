@@ -12,6 +12,7 @@ import { ACTOR_IDS, ACTOR_MOTES } from './RangeActors.js';
 import { BANDS } from './TerrainMesh.js';
 import { THREAD_SEGMENTS, THREAD_SEGMENTS_MAX } from './CastJobs.js';
 import { MIST_GLSL, EMITTER_GLSL, MIST_SAMPLES } from './RangeAtmosphere.js';
+import { DEFORM_GLSL, GROUND_LIFT_GLSL, deformUniforms } from './TerrainDeform.js';
 
 export const ACTOR_COUNT = 3;
 /** Small lights that follow an actor along its route. */
@@ -108,9 +109,19 @@ const FOG = /* glsl */`
   ${EMITTER_GLSL}
 `;
 
+// The drawn ground's lift under a light (the land swell, the glacier): the
+// CPU places the cast on the source heights, the shaders lift it with the
+// mesh so a swelling summit never swallows it (TerrainDeform.js).
+const LIFT = /* glsl */`
+  ${DEFORM_GLSL}
+  ${GROUND_LIFT_GLSL}
+`;
+
 const LANTERN_VERT = /* glsl */`
   ${AIR}
+  ${LIFT}
   uniform vec3 uCenter;
+  uniform vec3 uAnchor; // the light itself (uCenter is drawn toward the eye)
   uniform vec3 uRight;
   uniform vec3 uUp;
   uniform float uMpp;
@@ -119,8 +130,9 @@ const LANTERN_VERT = /* glsl */`
   out float vAir;
   void main() {
     vQ = position.xy * 2.0;
-    vec3 p = uCenter + (uRight * position.x + uUp * position.y) * 2.0 * uHaloPx * uMpp;
-    vAir = airAt(uCenter);
+    vec3 center = uCenter + vec3(0.0, groundLift(uAnchor), 0.0);
+    vec3 p = center + (uRight * position.x + uUp * position.y) * 2.0 * uHaloPx * uMpp;
+    vAir = airAt(center);
     gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
   }
 `;
@@ -148,7 +160,9 @@ const LANTERN_FRAG = /* glsl */`
 
 const MOTE_VERT = /* glsl */`
   ${AIR}
+  ${LIFT}
   uniform vec3 uCenter;
+  uniform vec3 uAnchor;
   uniform vec3 uRight;
   uniform vec3 uUp;
   uniform float uMpp;
@@ -171,13 +185,15 @@ const MOTE_VERT = /* glsl */`
     vec2 wander = vec2(sin(t + aSeed.z * 6.2832) + 0.5 * sin(t * 2.3 + aSeed.w * 9.0),
                        cos(t * 0.8 + aSeed.y * 6.2832) + 0.4 * sin(t * 1.7 + aSeed.z * 5.0))
       * uWanderPx * (0.35 + 0.65 * aSeed.w);
-    vec3 base = uCenter + (uRight * wander.x + uUp * wander.y) * uMpp;
+    vec3 base = uCenter + vec3(0.0, groundLift(uAnchor), 0.0) + (uRight * wander.x + uUp * wander.y) * uMpp;
     float fly = 0.0;
+    vec3 target = uFlyTarget;
     if (gl_InstanceID < ${ACTOR_FLY_MOTES} && uFly > 0.0 && uFly < 1.0) {
       // Each mote leaves at its own moment, so they stream into the light.
       fly = smoothstep(aSeed.x * 0.35, aSeed.x * 0.35 + 0.65, uFly);
+      target.y += groundLift(uFlyTarget);
     }
-    vec3 c = mix(base, uFlyTarget, fly);
+    vec3 c = mix(base, target, fly);
     float mpp = mix(uMpp, uMpp * length(uFlyTarget - uCameraPos) / max(length(uCenter - uCameraPos), 1.0), fly);
     vQ = position.xy * 2.0;
     vec3 p = c + (uRight * position.x + uUp * position.y) * 2.2 * 2.0 * mpp;
@@ -211,6 +227,7 @@ const MOTE_FRAG = /* glsl */`
 const SITE_VERT = /* glsl */`
   ${AIR}
   ${FOG}
+  ${LIFT}
   uniform vec3 uRight;
   uniform vec3 uUp;
   uniform float uPxPerTan;
@@ -232,17 +249,19 @@ const SITE_VERT = /* glsl */`
     vColor = aColor;
     vRing = aLook.yzw;
     vTwo = dot(aLook.yzw, aLook.yzw) > 0.0 ? 1.0 : 0.0;
-    float dist = max(1.0, length(aPos - uCameraPos));
+    vec3 at = aPos;
+    if (aState.x > 0.0) at.y += groundLift(aPos);
+    float dist = max(1.0, length(at - uCameraPos));
     // Metres per stage pixel at this depth, and a nudge toward the camera
     // so the ground it stands on does not cut its halo.
     float mpp = 2.0 * dist * uTanHalf / uPxPerTan;
     float px = aLook.x * (1.0 + aState.y * 0.8);
     float push = min(dist * 0.25, 3.0 * px * mpp);
-    vec3 c = aPos + normalize(uCameraPos - aPos) * push;
+    vec3 c = at + normalize(uCameraPos - at) * push;
     vec3 p = c + (uRight * position.x + uUp * position.y) * 2.0 * px * mpp * (dist - push) / dist;
-    vAir = airAt(aPos);
+    vAir = airAt(at);
     // Fog at the light itself, not at the halo's camera-ward centre.
-    vSeen = aState.x > 0.0 ? emitterSeen(aPos) : 0.0;
+    vSeen = aState.x > 0.0 ? emitterSeen(at) : 0.0;
     gl_Position = aState.x > 0.0 ? projectionMatrix * viewMatrix * vec4(p, 1.0) : vec4(2.0, 2.0, 2.0, 1.0);
   }
 `;
@@ -269,21 +288,47 @@ const SITE_FRAG = /* glsl */`
   }
 `;
 
+/** Native pixels a thread is drawn toward the eye: the coarser mesh between
+ *  its drape points and the depth buffer's step never cut it. */
+export const THREAD_PUSH_PX = 1.5;
+/** Length of the drawing front's soft head (fraction of the thread). */
+export const THREAD_FRONT = 0.03;
+
+/** How much of a thread shows at index fraction `s` with reveal `reveal`:
+ *  nothing at 0, the whole thread at 1, and between them a front that
+ *  glides with Midasus (within half a head of her) instead of stepping a
+ *  segment at a time. The JS twin of THREAD_FRAG's front. */
+export function threadShown(s, reveal) {
+  return Math.min(1, Math.max(0, (reveal * (1 + THREAD_FRONT) - s) / THREAD_FRONT));
+}
+
 // A survey thread: a faint line in Midasus's hue, drawn from one end to
 // the other as she flies it.
 const THREAD_VERT = /* glsl */`
   ${AIR}
   ${FOG}
+  ${LIFT}
   uniform float uReveal[${SURVEY_THREADS_MAX}];
   uniform float uBright[${SURVEY_THREADS_MAX}];
+  uniform float uTanHalf;
+  uniform vec2 uViewportPx;
   in vec2 aThread;
-  out float vShow;
+  out float vS;
+  out float vReveal;
+  out float vBright;
   out float vAir;
   void main() {
     int k = int(aThread.x + 0.5);
-    vShow = aThread.y <= uReveal[k] + 1e-4 ? uBright[k] * emitterSeen(position) : 0.0;
-    vAir = airAt(position);
-    gl_Position = projectionMatrix * viewMatrix * vec4(position, 1.0);
+    vec3 q = position;
+    q.y += groundLift(position);
+    float dist = max(1.0, length(q - uCameraPos));
+    float mpp = 2.0 * dist * uTanHalf / max(uViewportPx.y, 1.0);
+    q += normalize(uCameraPos - q) * min(dist * 0.25, ${THREAD_PUSH_PX.toFixed(2)} * mpp);
+    vS = aThread.y;
+    vReveal = uReveal[k];
+    vBright = uReveal[k] > 0.0 ? uBright[k] * emitterSeen(q) : 0.0;
+    vAir = airAt(q);
+    gl_Position = projectionMatrix * viewMatrix * vec4(q, 1.0);
   }
 `;
 
@@ -291,12 +336,15 @@ const THREAD_FRAG = /* glsl */`
   precision highp float;
   uniform vec3 uColor;
   uniform float uGain;
-  in float vShow;
+  in float vS;
+  in float vReveal;
+  in float vBright;
   in float vAir;
   out vec4 outColor;
   void main() {
-    if (vShow <= 0.0) discard;
-    vec3 c = uColor * vShow * uGain * (1.0 - 0.85 * vAir);
+    float shown = clamp((vReveal * ${(1 + THREAD_FRONT).toFixed(3)} - vS) / ${THREAD_FRONT.toFixed(3)}, 0.0, 1.0) * vBright;
+    if (shown <= 0.0) discard;
+    vec3 c = uColor * shown * uGain * (1.0 - 0.85 * vAir);
     outColor = vec4(c, clamp(max(c.r, max(c.g, c.b)), 0.0, 1.0));
   }
 `;
@@ -313,12 +361,15 @@ const blendFor = (THREE) => ({
   blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
 });
 
-/** The terrain's air, mist, cloud-sea and narrative uniforms the cast
- *  shaders read, by reference (so one upload per frame reaches every cast
- *  material), with clear-air stand-ins where `shared` lacks them. */
+/** The terrain's air, mist, cloud-sea, narrative, viewport and ground-lift
+ *  uniforms the cast shaders read, by reference (so one upload per frame
+ *  reaches every cast material), with clear-air, still-ground stand-ins
+ *  where `shared` lacks them. */
 function sharedSky(THREE, shared = {}) {
   const ref = (key, make) => shared[key] || { value: make() };
   return {
+    ...deformUniforms(THREE, shared),
+    uViewportPx: ref('uViewportPx', () => new THREE.Vector2(1280, 720)),
     uCameraPos: ref('uCameraPos', () => new THREE.Vector3()), uAirDensity: ref('uAirDensity', () => 0),
     uAirHeightFalloff: ref('uAirHeightFalloff', () => 0),
     uMistDensity: ref('uMistDensity', () => 0), uMistSteps: ref('uMistSteps', () => MIST_SAMPLES),
@@ -418,15 +469,18 @@ export class SiteLights {
  * fraction, the way Midasus flies them.
  */
 export class SurveyThreads {
+  /** `shared.uTanHalf`: the frame's vertical half-angle tangent (the site
+   *  lights' own, so one upload serves both). */
   constructor(THREE, shared) {
     this.THREE = THREE;
     this.meshes = {};
     this._bands = [];
     this.uniformsByBand = {};
     const sky = sharedSky(THREE, shared);
+    const tanHalf = shared.uTanHalf || { value: 0.3 };
     for (const band of BANDS) {
       const u = {
-        ...sky,
+        ...sky, uTanHalf: tanHalf,
         uReveal: { value: new Array(SURVEY_THREADS_MAX).fill(0) }, uBright: { value: new Array(SURVEY_THREADS_MAX).fill(0) },
         uColor: { value: new THREE.Color() }, uGain: { value: 1 },
       };
@@ -504,9 +558,9 @@ export class ActorsGL {
     this._geometries.push(quad);
     ACTOR_IDS.forEach((id, k) => {
       const u = {
-        uCameraPos: sky.uCameraPos, uAirDensity: sky.uAirDensity, uAirHeightFalloff: sky.uAirHeightFalloff,
+        ...sky,
         uTime: { value: 0 },
-        uCenter: { value: new THREE.Vector3() }, uRight: { value: new THREE.Vector3(1, 0, 0) }, uUp: { value: new THREE.Vector3(0, 1, 0) },
+        uCenter: { value: new THREE.Vector3() }, uAnchor: { value: new THREE.Vector3() }, uRight: { value: new THREE.Vector3(1, 0, 0) }, uUp: { value: new THREE.Vector3(0, 1, 0) },
         uMpp: { value: 1 }, uHaloPx: { value: 30 }, uColor: { value: new THREE.Color() },
         uGlow: { value: 0 }, uPresence: { value: 0 }, uWanderPx: { value: 24 },
         uFlyTarget: { value: new THREE.Vector3() }, uFly: { value: 0 },
@@ -532,7 +586,8 @@ export class ActorsGL {
       // Midasus's three baby stars: tiny lanterns trailing her.
       this.companions[id] = Array.from({ length: ACTOR_COMPANIONS[id] || 0 }, () => {
         // Each trails at its own height, so each is fogged on its own.
-        const cu = { ...u, uCenter: { value: new THREE.Vector3() }, uMpp: { value: 1 }, uHaloPx: { value: 9 }, uGlow: { value: 0 }, uSeen: { value: 1 } };
+        const cu = { ...u, uCenter: { value: new THREE.Vector3() }, uAnchor: { value: new THREE.Vector3() },
+          uMpp: { value: 1 }, uHaloPx: { value: 9 }, uGlow: { value: 0 }, uSeen: { value: 1 } };
         const m = new THREE.Mesh(quad, new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms: cu,
           vertexShader: LANTERN_VERT, fragmentShader: LANTERN_FRAG, ...blend }));
         m.frustumCulled = false; m.renderOrder = 3;
@@ -545,7 +600,7 @@ export class ActorsGL {
       this.uniforms[id] = u;
     });
     this.sites = new SiteLights(THREE, shared);
-    this.threads = new SurveyThreads(THREE, shared);
+    this.threads = new SurveyThreads(THREE, { ...shared, uTanHalf: this.sites.uniforms.uTanHalf });
   }
 
   /** Bytes of the instance buffers (residency accounting). */

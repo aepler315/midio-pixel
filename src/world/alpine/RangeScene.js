@@ -1901,6 +1901,7 @@ export class RangeScene {
       const toCam = cam.position.clone().sub(at).normalize();
       const v = p.actors.uniforms[id];
       v.uCenter.value.copy(at).addScaledVector(toCam, push);
+      v.uAnchor.value.copy(at);
       v.uRight.value.copy(right);
       v.uUp.value.copy(up);
       v.uMpp.value = mpp0 * (dist - push) / dist;
@@ -1927,6 +1928,7 @@ export class RangeScene {
         const cd = Math.max(1, cp.distanceTo(cam.position));
         const cpush = Math.min(cd * 0.25, 30 * mpp0);
         c.uCenter.value.copy(cp).addScaledVector(cam.position.clone().sub(cp).normalize(), cpush);
+        c.uAnchor.value.set(lag[0], lag[1], lag[2]);
         c.uMpp.value = mpp0 * (cd - cpush) / cd;
         c.uGlow.value = s.glow * 0.6;
         c.uSeen.value = emitterVisibility(eye, lag, fog);
