@@ -1,6 +1,7 @@
 import { CanvasBuffers } from '../../render/CanvasResidency.js';
 import { cameraBasis } from '../terrain/SceneTravel.js';
 import { projectSkyDirection, tourSkyDirection } from './RangeSkyComposition.js';
+import { CelestialPainter } from './CelestialPainter.js';
 import { drawStormSky } from './RangeStorm.js';
 import { LightningFX } from '../Lightning.js';
 import { cloudBanks } from './RangeCloudField.js';
@@ -20,10 +21,6 @@ function noise(x, y, seed) {
   const top = hash(ix, iy, seed) * (1 - a) + hash(ix + 1, iy, seed) * a;
   const bottom = hash(ix, iy + 1, seed) * (1 - a) + hash(ix + 1, iy + 1, seed) * a;
   return top * (1 - b) + bottom * b;
-}
-function fractal(x, y, seed) {
-  return noise(x, y, seed) * .54 + noise(x * 2.13 + 7, y * 2.13, seed + 1) * .27
-    + noise(x * 4.61, y * 4.61 + 3, seed + 2) * .13 + noise(x * 9.7, y * 9.7, seed + 3) * .06;
 }
 
 /** Sky content shares the resolved terrain camera, lens and pointer crop.
@@ -82,6 +79,7 @@ export class RangeSkyRenderer {
     this.painted = new WeakSet();
     this.stormTints = new WeakMap();
     this.cloudCache = new Map();
+    this.celestial = new CelestialPainter({ buffers: this.buffers });
   }
   _seed(seed) {
     if (seed === this.seed) return;
@@ -91,6 +89,7 @@ export class RangeSkyRenderer {
     this.painted = new WeakSet();
     this.stormTints = new WeakMap();
     this.cloudCache = new Map();
+    this.celestial.reset();
   }
   _cloud(index) {
     // Stable world identities replace the six repeating stamps. Evict both
@@ -108,33 +107,6 @@ export class RangeSkyRenderer {
     const ctx = canvas.getContext('2d'), image = ctx.createImageData(canvas.width, canvas.height);
     const seed = this.seed + index * 71;
     image.data.set(buildCloudTexture(seed, canvas.width, canvas.height));
-    ctx.putImageData(image, 0, 0);
-    this.painted.add(canvas);
-    return canvas;
-  }
-  _moon() {
-    const canvas = this.buffers.ensure('moon', 192, 192);
-    if (!canvas || this.painted.has(canvas)) return canvas;
-    const ctx = canvas.getContext('2d'), image = ctx.createImageData(canvas.width, canvas.height);
-    const craters = Array.from({ length: 35 }, (_, i) => ({
-      x: (hash(i, 20, 739) - .5) * 1.7, y: (hash(i, 21, 739) - .5) * 1.7,
-      r: .018 + hash(i, 22, 739) ** 3 * .13,
-    }));
-    for (let y = 0; y < 192; y++) for (let x = 0; x < 192; x++) {
-      const nx = (x + .5) / 96 - 1, ny = (y + .5) / 96 - 1, r2 = nx * nx + ny * ny;
-      if (r2 > 1) continue;
-      const nz = Math.sqrt(1 - r2);
-      const maria = smooth((fractal(nx * 2.4 + 10, ny * 2.4 + 10, 791) - .42) * 4.5);
-      let albedo = .93 - maria * .32 + (noise(nx * 58, ny * 58, 812) - .5) * .11;
-      for (const crater of craters) {
-        const distance = Math.hypot(nx - crater.x, ny - crater.y) / crater.r;
-        if (distance < 1.4) albedo += .09 * Math.exp(-(((distance - 1) * 7) ** 2)) - .075 * Math.exp(-distance * distance * 2);
-      }
-      const brightness = albedo * (.62 + .38 * nz);
-      const i = (y * 192 + x) * 4;
-      image.data[i] = 243 * brightness; image.data[i + 1] = 239 * brightness;
-      image.data[i + 2] = 222 * brightness; image.data[i + 3] = clamp((1 - Math.sqrt(r2)) * 96) * 255;
-    }
     ctx.putImageData(image, 0, 0);
     this.painted.add(canvas);
     return canvas;
@@ -158,10 +130,15 @@ export class RangeSkyRenderer {
     gradient.addColorStop(.65, frame.colors.mid);
     gradient.addColorStop(1, frame.colors.horizon);
     ctx.fillStyle = gradient; ctx.fillRect(0, 0, width, height);
-    this._stars(ctx, project, width, height, night, time);
+    // The moon is screened onto the sky with no backing disc, so the stars
+    // it covers are cut out here instead of painted over.
+    const moonDisc = this.celestial.prepareMoon(frame.moon, width, height, night, frame.phase);
+    this._stars(ctx, project, width, height, night, time, moonDisc);
     this._aurora(ctx, project, width, height, night, time, frame.authority);
     if (frame.lightning) LightningFX.prototype.draw.call(frame.lightning, ctx, { width, height }, frame.timeSec * 1000);
-    this._bodies(ctx, frame, width, height, night);
+    // Output pixels per sky unit choose the moon texture's resolution.
+    const matrix = ctx.getTransform?.();
+    this._bodies(ctx, frame, width, height, night, matrix ? Math.hypot(matrix.a, matrix.b) || 1 : 1);
     this._clouds(ctx, frame.camera, width, height, night, time, frame.storm);
     // Keep the existing heard-time storm score and triggered bolts. Only
     // their target and the cloud shape change; terrain wetness stays native.
@@ -173,22 +150,33 @@ export class RangeSkyRenderer {
     ctx.restore();
     return true;
   }
-  _stars(ctx, project, width, height, night, time) {
+  _stars(ctx, project, width, height, night, time, moon = null) {
     const strength = .07 + .93 * smooth(night);
     if (strength < .01) return;
+    // Stars behind the moon fade with its disc and vanish once it is whole.
+    const occluded = !!moon?.visible, mx = occluded ? moon.x : 0, my = occluded ? moon.y : 0;
+    const reach = occluded ? moon.r * moon.r * 1.0816 : 0, cover = occluded ? moon.cover : 0; // (1.04 R)^2
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     for (const star of this.stars) {
       const p = project(star.direction);
       if (!p.visible) continue;
       const x = p.xFrac * width, y = p.yFrac * height;
+      let shown = strength;
+      if (occluded) {
+        const dx = x - mx, dy = y - my;
+        if (dx * dx + dy * dy < reach) {
+          if (cover > .99) continue;
+          shown *= 1 - cover;
+        }
+      }
       const scintillation = .94 + .06 * Math.sin(time * 1.3 + star.phase);
       const radius = Math.max(.32, star.radius * height / 850);
-      ctx.fillStyle = `rgba(${STAR_COLORS[star.color]},${strength * star.brightness * scintillation})`;
+      ctx.fillStyle = `rgba(${STAR_COLORS[star.color]},${shown * star.brightness * scintillation})`;
       ctx.beginPath(); ctx.arc(x, y, radius, 0, TAU); ctx.fill();
       if (star.brightness > .7) {
         const halo = ctx.createRadialGradient(x, y, 0, x, y, radius * 4);
-        halo.addColorStop(0, `rgba(${STAR_COLORS[star.color]},${strength * .18})`);
+        halo.addColorStop(0, `rgba(${STAR_COLORS[star.color]},${shown * .18})`);
         halo.addColorStop(1, `rgba(${STAR_COLORS[star.color]},0)`);
         ctx.fillStyle = halo; ctx.fillRect(x - radius * 4, y - radius * 4, radius * 8, radius * 8);
       }
@@ -254,42 +242,9 @@ export class RangeSkyRenderer {
     }
     ctx.restore();
   }
-  _bodies(ctx, frame, width, height, night) {
-    const sun = frame.sun;
-    if (sun && sun.visible !== false && sun.altitude01 > .005) {
-      const x = sun.xFrac * width, y = sun.yFrac * height, radius = Math.max(height * .006, sun.radiusFrac * width * .65);
-      const glow = ctx.createRadialGradient(x, y, radius, x, y, height * .28);
-      glow.addColorStop(0, 'rgba(255,230,179,.33)'); glow.addColorStop(.2, 'rgba(255,198,137,.1)');
-      glow.addColorStop(1, 'rgba(255,174,126,0)');
-      ctx.fillStyle = glow; ctx.fillRect(x - height, y - height, height * 2, height * 2);
-      ctx.fillStyle = '#fff7df'; ctx.beginPath(); ctx.arc(x, y, radius, 0, TAU); ctx.fill();
-    }
-    const moon = frame.moon;
-    if (!moon || moon.visible === false || !(moon.altitude01 > .001)) return;
-    const x = moon.xFrac * width, y = moon.yFrac * height, radius = moon.radiusFrac * width;
-    if (!(radius > 0)) return;
-    const texture = this._moon(), visibility = (moon.visibility ?? 1) * (.3 + .7 * night);
-    ctx.save(); ctx.globalAlpha = visibility;
-    const glow = ctx.createRadialGradient(x, y, radius * .9, x, y, radius * 4.5);
-    glow.addColorStop(0, 'rgba(205,223,242,.11)'); glow.addColorStop(.35, 'rgba(188,209,238,.025)');
-    glow.addColorStop(1, 'rgba(188,209,238,0)');
-    ctx.fillStyle = glow; ctx.fillRect(x - radius * 5, y - radius * 5, radius * 10, radius * 10);
-    ctx.fillStyle = '#101a29'; ctx.beginPath(); ctx.arc(x, y, radius, 0, TAU); ctx.fill();
-    if (texture) {
-      ctx.globalAlpha = visibility * .12; ctx.drawImage(texture, x - radius, y - radius, radius * 2, radius * 2);
-    }
-    const light = moon.illuminant || sun || { xFrac: moon.xFrac + 1, yFrac: moon.yFrac + 1 };
-    const angle = Math.atan2((light.yFrac - moon.yFrac) * height, (light.xFrac - moon.xFrac) * width);
-    const phase = Math.max(.16, .5 - .5 * Math.cos(TAU * clamp(frame.phase)));
-    const terminator = 1 - 2 * phase;
-    ctx.translate(x, y); ctx.rotate(angle);
-    ctx.beginPath(); ctx.arc(0, 0, radius, -Math.PI / 2, Math.PI / 2);
-    ctx.ellipse(0, 0, Math.abs(terminator) * radius, radius, 0, Math.PI / 2, -Math.PI / 2, terminator > 0);
-    ctx.closePath(); ctx.clip(); ctx.rotate(-angle);
-    ctx.globalAlpha = visibility;
-    if (texture) ctx.drawImage(texture, -radius, -radius, radius * 2, radius * 2);
-    else { ctx.fillStyle = '#e7e5d9'; ctx.fillRect(-radius, -radius, radius * 2, radius * 2); }
-    ctx.restore();
+  _bodies(ctx, frame, width, height, night, outputScale = 1) {
+    this.celestial.drawSun(ctx, frame.sun, width, height);
+    this.celestial.drawMoon(ctx, frame.moon, frame.sun, width, height, night, frame.phase, outputScale);
   }
   _clouds(ctx, camera, width, height, night, time, storm = 0) {
     ctx.save();
@@ -349,5 +304,6 @@ export class RangeSkyRenderer {
   dispose() {
     this.buffers.dispose(); this.stars = []; this.seed = null;
     this.painted = new WeakSet(); this.stormTints = new WeakMap(); this.cloudCache.clear();
+    this.celestial.dispose();
   }
 }

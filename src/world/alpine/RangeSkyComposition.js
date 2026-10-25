@@ -51,6 +51,53 @@ export function rangeMoonOrbit(timeMs, durationMs) {
   return { azimuth01: .12 + .76 * p, altitude01: .4 + .35 * Math.sin(Math.PI * p) };
 }
 
+/** Angular radius both discs share. The real sun and moon are about 0.26
+ * degrees; this keeps the moon's established look (3.5% of the frame width
+ * at the median runtime tour lens, fovY about 38 degrees over the 848 px
+ * logical stage) while letting both bodies zoom with the land. */
+export const BODY_ANGULAR_RADIUS_DEG = 1.15;
+const BODY_TAN = Math.tan(BODY_ANGULAR_RADIUS_DEG * Math.PI / 180);
+/** Disc radius bounds, as fractions of the logical stage height. */
+export const BODY_RADIUS_BOUNDS = Object.freeze([0.016, 0.055]);
+
+/** A celestial disc's radius through a resolved lens, as a fraction of the
+ * logical stage width (radiusFrac): the shared angle over the pose's focal
+ * length (fovY over the logical height, crop magnification included). */
+export function bodyRadiusFrac(pose, aspect = pose.aspect || 16 / 9, approachScale = 1) {
+  const tanHalf = Math.tan(pose.fovYDeg * Math.PI / 360) * (1 - (pose.viewOffset?.fx || 0));
+  const approach = Math.min(1.25, Math.max(.85, approachScale ?? 1));
+  const height = BODY_TAN * approach / (2 * tanHalf);
+  return Math.min(BODY_RADIUS_BOUNDS[1], Math.max(BODY_RADIUS_BOUNDS[0], height)) / aspect;
+}
+
+/** The thinnest crescent either moon painter draws. A true new moon is
+ * invisible, which reads as a missing moon rather than as astronomy. */
+export const MOON_MIN_ILLUMINATION = 0.16;
+
+// The compass arcs the sky samples, in degrees: the sun's day arc, and a
+// slow lunar arc held low over the north-east skyline of the Teton flight.
+const SUN_ARC = Object.freeze({ azimuth: 100, sweep: 150, altitude: 32 });
+const MOON_ARC = Object.freeze({ azimuth: 50, sweep: 30, altitude: 4 });
+const arcDirection = (arc, azimuth01, altitude, offsetDeg = 0) =>
+  tourSkyDirection(offsetDeg + arc.azimuth + arc.sweep * azimuth01, arc.altitude * altitude);
+const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+/** The signed sun (DayNight.sunScreenFrac: below the horizon all night) on
+ * its compass arc. Never the resolved sun body, which parks on the horizon
+ * at night and would light a predawn moon as if it were opposite. */
+function solarDirection(solar, offsetDeg = 0) {
+  const azimuth01 = (solar.xFrac - CELESTIAL_RISE_XFRAC) / (CELESTIAL_SET_XFRAC - CELESTIAL_RISE_XFRAC);
+  return arcDirection(SUN_ARC, azimuth01, solar.altSigned, offsetDeg);
+}
+
+/** Lit fraction of the moon from its angle to the signed sun, on the same
+ * arcs a tour projects. Camera-free, so rail views (which have no world
+ * directions of their own) share the tours' phase; a common azimuth offset
+ * cancels in the dot product. */
+export function rangeMoonIllumination(solar, moon) {
+  const sun = solarDirection(solar), direction = arcDirection(MOON_ARC, moon.azimuth01 ?? .5, moon.altitude01);
+  return (1 - dot3(sun, direction)) / 2;
+}
+
 const railSkyFrames = new WeakMap();
 
 /** Normal views author sky anchors in the unmoved rail's image. Lift each
@@ -78,13 +125,18 @@ export function projectRailSky(point, snapshot) {
 }
 
 export function projectRailCelestials(state, snapshot, solar = null) {
-  const scaleFor = c => Math.tan(c.referencePose.fovYDeg * Math.PI / 360)
-    / Math.tan(c.pose.fovYDeg * Math.PI / 360) / (1 - (c.pose.viewOffset?.fx || 0));
-  const k = snapshot.mix || 0, a = scaleFor(snapshot.from), b = snapshot.to ? scaleFor(snapshot.to) : a;
+  // Both discs subtend the same angle through each rail's actual lens,
+  // blended across a travel the way their positions are.
+  const k = snapshot.mix || 0, to = snapshot.to || snapshot.from;
+  const radiusFor = source => {
+    const a = bodyRadiusFrac(snapshot.from.pose, snapshot.from.aspect, source.scale);
+    return k ? a + (bodyRadiusFrac(to.pose, to.aspect, source.scale) - a) * k : a;
+  };
   const bodies = {};
   for (const name of ['sun', 'moon']) bodies[name] = Object.freeze({ ...state[name],
-    ...projectRailSky(state[name], snapshot), radiusFrac: state[name].radiusFrac * (a + (b - a) * k) });
-  if (solar) bodies.moon = Object.freeze({ ...bodies.moon, illuminant: Object.freeze(projectRailSky(solar, snapshot)) });
+    ...projectRailSky(state[name], snapshot), radiusFrac: radiusFor(state[name]) });
+  if (solar) bodies.moon = Object.freeze({ ...bodies.moon, illuminant: Object.freeze(projectRailSky(solar, snapshot)),
+    illumination: rangeMoonIllumination(solar, state.moon) });
   return Object.freeze({ ...state, ...bodies });
 }
 
@@ -93,7 +145,9 @@ export function projectRailCelestials(state, snapshot, solar = null) {
  * compass direction, and bounded elevation avoids a zenith dive through
  * the top edge of a narrow landscape lens. `azimuthOffsetDeg` turns both
  * arcs with a view's own reference heading (shot tours anchor them to the
- * rail; 0 keeps the Teton highway's north-east arcs). */
+ * rail; 0 keeps the Teton highway's north-east arcs). Disc size follows
+ * the pose's lens, which already includes the lens pulse; `lensScale` is
+ * no longer applied (dividing by it again would size the pulse twice). */
 export function projectRangeCelestials(state, pose, lensScale = 1, solar = null, azimuthOffsetDeg = 0) {
   const bodies = {};
   for (const name of ['sun', 'moon']) {
@@ -101,24 +155,23 @@ export function projectRangeCelestials(state, pose, lensScale = 1, solar = null,
     // The published Teton flight looks northeast with a narrow lens and
     // a slightly downward aim. Sample a slow lunar arc over that skyline;
     // a 150-degree orbit or a zenith-height moon stays outside the flight.
-    const azimuth = azimuthOffsetDeg + (name === 'moon' ? 50 + 30 * (source.azimuth01 ?? .5) : 100 + 150 * (source.azimuth01 ?? .5));
-    const worldDirection = tourSkyDirection(azimuth, (name === 'moon' ? 4 : 32) * source.altitude01);
-    bodies[name] = Object.freeze({ ...source, radiusFrac: source.radiusFrac / lensScale,
+    const worldDirection = arcDirection(name === 'moon' ? MOON_ARC : SUN_ARC, source.azimuth01 ?? .5, source.altitude01, azimuthOffsetDeg);
+    bodies[name] = Object.freeze({ ...source, radiusFrac: bodyRadiusFrac(pose, pose.aspect, source.scale),
       ...projectSkyDirection(pose, worldDirection, pose.aspect), worldDirection: Object.freeze(worldDirection) });
   }
   if (solar) {
-    const azimuth = (solar.xFrac - CELESTIAL_RISE_XFRAC) / (CELESTIAL_SET_XFRAC - CELESTIAL_RISE_XFRAC);
-    const sun = tourSkyDirection(azimuthOffsetDeg + 100 + 150 * azimuth, 32 * solar.altSigned);
-    const moon = bodies.moon.worldDirection, { forward, right, up } = cameraBasis(pose);
-    const dot = (a, b) => a.reduce((sum, v, i) => sum + v * b[i], 0);
+    const sun = solarDirection(solar, azimuthOffsetDeg);
+    const moon = bodies.moon.worldDirection, { forward, right, up } = cameraBasis(pose), dot = dot3;
     // Project the direction of sunlight in the moon's tangent plane. This
     // works even when the sun is behind the camera or below the horizon;
     // projecting its point directly would return an offscreen sentinel.
     const depth = dot(moon, forward), sunDepth = dot(sun, forward);
     const dx = dot(sun, right) * depth - dot(moon, right) * sunDepth;
     const dy = dot(sun, up) * depth - dot(moon, up) * sunDepth;
+    // The lit amount comes from the same sun that sets the lit side.
     bodies.moon = Object.freeze({ ...bodies.moon, illuminant: Object.freeze({
-      xFrac: bodies.moon.xFrac + dx / (pose.aspect || 16 / 9), yFrac: bodies.moon.yFrac - dy }) });
+      xFrac: bodies.moon.xFrac + dx / (pose.aspect || 16 / 9), yFrac: bodies.moon.yFrac - dy }),
+    illumination: (1 - dot(sun, moon)) / 2 });
   }
   return Object.freeze({ ...state, ...bodies });
 }

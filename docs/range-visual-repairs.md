@@ -29,6 +29,14 @@ through sunrise, avoiding a bright-limb flip. The Teton lunar arc stays within
 the visible flight composition; terrain and clouds still occlude it naturally.
 The Range star catalogue retains a daylight brightness floor after loading.
 
+Update (2026-10-24): the orbit still never sets, but the moon's paint and
+light are now gated by the sun's depression (`moon.discAlpha`,
+CelestialState.js), so sun and moon never share the sky: the moon fades out
+just before sunrise and returns a second or two after sunset. Its phase
+comes from its angle to the signed sun (`moon.illumination`), both discs
+subtend one lens-relative angle (`BODY_ANGULAR_RADIUS_DEG`), and the hybrid
+sky paints them with `CelestialPainter.js`.
+
 ## Verification
 
 The final serial full suite ran 4,599 tests: 4,592 passed, six skipped and one

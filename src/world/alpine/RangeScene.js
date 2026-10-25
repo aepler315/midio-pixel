@@ -1719,7 +1719,9 @@ export class RangeScene {
     const bodies = frame.light.state;
     // Keep moonlit receivers readable with the existing sheltered fill.
     // Existing horizon visibility blends the handoff while daylight and true gaps keep their fill.
-    const moonShare = visibility(night) * visibility(bodies?.moon?.visibility) * (1 - visibility(bodies?.sun?.visibility));
+    // An authored Landscape moon is lit only as far as its disc shows (discAlpha).
+    const moon = bodies?.moon;
+    const moonShare = visibility(night) * visibility(moon?.discAlpha ?? moon?.visibility) * (1 - visibility(bodies?.sun?.visibility));
     u.uMoonAmbientScale.value = 2.5 * .65 * (1 - ambient) * moonShare;
     u.uAmbientScale.value = 2.5 * ambient + u.uMoonAmbientScale.value;
     u.uStorm.value.set(storm.amount, storm.flash, storm.break01, storm.wet01);
