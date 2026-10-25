@@ -991,6 +991,22 @@ html, body {
 #settingsBtn, #fullscreenBtn {
   line-height: 1;
 }
+/* Pixel detail stepper: - Medium + (main.js, src/ui/DetailSnapshots.js). */
+.detailControls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.detailLevel {
+  min-width: 5.5em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+#snapshotBtn[aria-busy="true"] {
+  opacity: 0.6;
+  cursor: progress;
+}
 
 /* On-device FPS HUD (mobile performance round): small, always-on-top,
    toggled by the P key or the ?fps URL param -- deliberately much lighter

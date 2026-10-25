@@ -54,6 +54,7 @@ import { PerfGovernor, resolvePerfStartLevel, MAX_LEVEL as PERF_MAX_LEVEL } from
 import { sharedResidency } from './render/GraphicsResidency.js';
 import { RangePresentation, resolveRangeMode } from './world/alpine/RangePresentation.js';
 import { rangeTourControlState } from './ui/RangeTourControl.js';
+import { DETAIL_LEVELS, stepDetail, snapshotFileName, captureDetailSnapshots, canvasToPng } from './ui/DetailSnapshots.js';
 import { residencyBudgetFor } from './render/GraphicsResidency.js';
 import { shouldSuggestLandscape } from './render/StagePresets.js';
 import { createPresentingRenderer } from './render/PresentingRenderer.js';
@@ -412,6 +413,12 @@ const experienceStatus = document.getElementById('experience-status');
 if (experienceControl) experienceControl.value = experience;
 let experienceRequest = 0;
 const displayControls = Object.fromEntries(['look', 'palette', 'dither', 'ditherMode', 'pixelGrid', 'scaling'].map(key => [key, document.getElementById(`display-${key}`)]));
+// HUD pixel-detail stepper and the every-level snapshot (src/ui/DetailSnapshots.js).
+const detailDownBtnEl = document.getElementById('detailDownBtn');
+const detailUpBtnEl = document.getElementById('detailUpBtn');
+const detailLevelEl = document.getElementById('detailLevel');
+const snapshotBtnEl = document.getElementById('snapshotBtn');
+let snapshotBusy = false;
 const STAGE_FPS_KEY = 'smw:stageFps';
 let simTime = 0;
 let acc = 0;
@@ -541,6 +548,22 @@ function syncDisplayControls() {
   const grid = document.getElementById('pixelGridHint');
   const selectedGrid = presentation.grid;
   if (grid) { grid.hidden = false; grid.textContent = `${selectedGrid.width} × ${selectedGrid.height} grid`; }
+  syncDetailControls();
+}
+
+/** The HUD stepper shows the Display menu's own label for the level
+ *  ("Classic+ — 400×225" -> "Classic+") and stops at either end. */
+function syncDetailControls() {
+  const level = displayPrefs.pixelGrid;
+  const option = displayControls.pixelGrid?.querySelector(`option[value="${level}"]`);
+  if (detailLevelEl) detailLevelEl.textContent = (option?.textContent || level).split(' — ')[0];
+  const at = DETAIL_LEVELS.indexOf(level);
+  if (detailDownBtnEl) detailDownBtnEl.disabled = snapshotBusy || at <= 0;
+  if (detailUpBtnEl) detailUpBtnEl.disabled = snapshotBusy || at >= DETAIL_LEVELS.length - 1;
+  if (snapshotBtnEl) {
+    snapshotBtnEl.disabled = snapshotBusy;
+    snapshotBtnEl.setAttribute('aria-busy', snapshotBusy ? 'true' : 'false');
+  }
 }
 
 function storedFpsCap() {
@@ -715,25 +738,29 @@ function randomizeSeed() {
   return s;
 }
 
+/** One display preference changed, from the Display menu or the HUD's
+ *  detail stepper: persist it, re-present, and redraw a paused frame. */
+function applyDisplayPref(key, value) {
+  displayPrefs = { ...displayPrefs, [key]: value };
+  presentation = resolvePresentation(displayPrefs);
+  writeDisplayPrefs(displayStorage(), displayPrefs);
+  syncDisplayControls();
+  perfGovernor?.forgetRecoveryHistory();
+  fitCanvas();
+  if (paused && sim && renderer && !bulkExportArmed) {
+    try {
+      const frame = renderer.draw(sim, 1, { preparing: playbackPreparing });
+      if (frame?.presented) songRecorder?.captureFrame(renderer.getCaptureSource());
+    } catch (err) { console.warn('[display presentation]', err); }
+  }
+}
+
 // Stored display preferences on boot.
 {
   for (const [key, control] of Object.entries(displayControls)) {
     if (!control) continue;
     control.value = String(displayPrefs[key]);
-    control.addEventListener('change', () => {
-      displayPrefs = { ...displayPrefs, [key]: key === 'dither' ? Number(control.value) : control.value };
-      presentation = resolvePresentation(displayPrefs);
-      writeDisplayPrefs(displayStorage(), displayPrefs);
-      syncDisplayControls();
-      perfGovernor?.forgetRecoveryHistory();
-      fitCanvas();
-      if (paused && sim && renderer && !bulkExportArmed) {
-        try {
-          const frame = renderer.draw(sim, 1, { preparing: playbackPreparing });
-          if (frame?.presented) songRecorder?.captureFrame(renderer.getCaptureSource());
-        } catch (err) { console.warn('[display presentation]', err); }
-      }
-    });
+    control.addEventListener('change', () => applyDisplayPref(key, key === 'dither' ? Number(control.value) : control.value));
   }
   syncDisplayControls();
   if (stageFpsEl) {
@@ -775,6 +802,91 @@ function randomizeSeed() {
     window.addEventListener('orientationchange', onResize);
   }
 }
+
+// HUD detail stepper: one level coarser or finer, through the same path as
+// the Display menu (persisted, re-presented, a paused frame redrawn).
+detailDownBtnEl?.addEventListener('click', () => {
+  wakeHud();
+  if (!snapshotBusy) applyDisplayPref('pixelGrid', stepDetail(displayPrefs.pixelGrid, -1));
+});
+detailUpBtnEl?.addEventListener('click', () => {
+  wakeHud();
+  if (!snapshotBusy) applyDisplayPref('pixelGrid', stepDetail(displayPrefs.pixelGrid, 1));
+});
+
+// Every-level snapshot: hold the current moment, render it once per pixel
+// detail level at full output size (1920×1080, nearest-neighbour from each
+// grid), and save each as a lossless PNG named midio_YYYYMMDD_<level>.png.
+// The bulk-export output size is borrowed for the duration so the stage is
+// full resolution rather than the native 320–640px grid; the player's own
+// level, pause state and canvas are restored afterwards.
+const SNAPSHOT_SIZE = Object.freeze({ w: 1920, h: 1080 });
+const nextAnimationFrame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
+
+function saveSnapshotFile(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  // Give the browser time to start the download before the URL goes.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+async function saveDetailSnapshots() {
+  if (snapshotBusy || !running || !sim || !renderer) return;
+  if (playbackPreparing || bulkExportArmed || songRecorder?.recording) {
+    showErrorBanner('Snapshots are unavailable while the song is preparing, exporting or recording.');
+    return;
+  }
+  snapshotBusy = true;
+  syncDetailControls();
+  const wasPaused = paused;
+  if (!wasPaused) togglePause(); // the moment holds still while every level is drawn
+  const savedPrefs = displayPrefs, savedPresentation = presentation;
+  const stamp = new Date();
+  try {
+    await captureDetailSnapshots({
+      levels: DETAIL_LEVELS,
+      render: async (level) => {
+        displayPrefs = { ...savedPrefs, pixelGrid: level };
+        presentation = resolvePresentation(displayPrefs);
+        bulkExportSize = SNAPSHOT_SIZE;
+        fitCanvas();
+        // A level whose targets are still being sized can miss a frame;
+        // wait a few animation frames for a completed one.
+        for (let attempt = 0; attempt < 30; attempt++) {
+          const frame = renderer.draw(sim, 1, { preparing: false });
+          if (frame?.presented) return canvas;
+          await nextAnimationFrame();
+        }
+        throw new Error(`the ${level} frame did not finish drawing`);
+      },
+      save: async (level, output) => {
+        saveSnapshotFile(await canvasToPng(output), snapshotFileName(stamp, level));
+        // Browsers drop rapid back-to-back downloads; space them out.
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      },
+    });
+  } catch (err) {
+    console.error('[snapshot]', err);
+    showErrorBanner(`Could not save the snapshots: ${err?.message || err}`);
+  } finally {
+    bulkExportSize = null;
+    displayPrefs = savedPrefs;
+    presentation = savedPresentation;
+    fitCanvas();
+    try { renderer.draw(sim, 1, { preparing: playbackPreparing }); } catch (err) { console.warn('[snapshot] redraw', err); }
+    if (!wasPaused && paused) togglePause();
+    snapshotBusy = false;
+    syncDetailControls();
+    wakeHud();
+  }
+}
+snapshotBtnEl?.addEventListener('click', () => { wakeHud(); saveDetailSnapshots(); });
+
 
 let bootAudioInFlight = null;
 
@@ -3826,6 +3938,8 @@ function hudIdleTick(nowRafMs) {
   // and hunting for a control that has faded under the canvas is the
   // interruption the whole overlay is built to avoid.
   if (recalibration.active) { hudSleepAtMs = nowRafMs + HUD_FADE_MS; return; }
+  // So does a snapshot: its button shows it is busy until all five are saved.
+  if (snapshotBusy) { hudSleepAtMs = nowRafMs + HUD_FADE_MS; return; }
   // An open editor is being used, whatever the idle timer thinks. Fading
   // the Bluetooth chip out from under a half-typed value is the exact
   // complaint that kept this cluster pinned open in the first place; the

@@ -7,7 +7,9 @@ import { DEFAULT_DISPLAY_PREFS, resolvePresentation, writeDisplayPrefs } from '.
 import { createPresentingRenderer } from '../src/render/PresentingRenderer.js';
 import { GraphicsResidency } from '../src/render/GraphicsResidency.js';
 const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
-const start = main.indexOf('// Stored display preferences on boot.');
+// The shared applyDisplayPref (Display menu and HUD detail stepper) and the
+// boot block that binds each control to it.
+const start = main.indexOf('/** One display preference changed');
 const binding = main.slice(start, main.indexOf('  syncDisplayControls();\n  if (stageFpsEl)', start)) + '}';
 for (const paused of [true, false]) test(`grid controls preserve song time and ${paused ? 'redraw a paused completed frame' : 'invalidate until the next live frame'}`, () => {
   const ctx = { imageSmoothingEnabled: true }, canvas = { width: 320, height: 180, getContext: () => ctx };

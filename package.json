@@ -30,6 +30,7 @@
     "export:bulk": "node tools/bulk-export.mjs",
     "test:car": "node tools/car-mode-smoke.mjs",
     "test:urlload": "node tools/url-load-smoke.mjs",
+    "test:snapshot": "node tools/detail-snapshot-smoke.mjs",
     "music-server": "node tools/music-server.mjs",
     "bench:sections": "node tools/benchmark-segmentation.mjs",
     "eval:worlds": "node tools/evaluate-worlds.mjs",
