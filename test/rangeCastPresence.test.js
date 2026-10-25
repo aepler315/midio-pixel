@@ -204,3 +204,53 @@ test('site lights and threads read the terrain fog by reference, and fall back t
  assert.equal(bare.threads.uniformsByBand.near.uMistFill.value,0);
  bare.dispose();
 });
+
+test('threads go up with their drape, each in the nearest band it lies over',()=>{
+ const shared={...actorUniforms(THREE),uCameraPos:{value:new THREE.Vector3()},uAirDensity:{value:0},uAirHeightFalloff:{value:0}};
+ const actors=new ActorsGL(THREE,shared), camera=new THREE.PerspectiveCamera(35,16/9,1,100000);
+ camera.position.set(0,1000,0);camera.lookAt(0,1000,-10000);camera.updateMatrixWorld();
+ const plan={job:'lamplighters',cairns:[[-800,1000,-5000],[0,1000,-5200],[800,1000,-5000]],buoys:[]};
+ const work=castWork(plan);
+ // A ridge under the first thread's middle: its drape climbs over it.
+ work.threads[0].points=work.threads[0].points.map((q,j,a)=>[q[0],q[1]+120*Math.sin(Math.PI*j/(a.length-1)),q[2]]);
+ const p={view:{id:'v'},actors,uniforms:shared,actorRoutes:{},castPlan:plan,castWork:work,data:{},scenes:{far:new THREE.Scene()}};
+ // Ground east of x = 0 belongs to the near band.
+ const scene={THREE,camera,_tileAt:(d,x)=>({band:x>1?'near':'far'}),_castJob:RangeScene.prototype._castJob,_setCastLights:RangeScene.prototype._setCastLights};
+ const times=work.marks.map(()=>0);
+ const state={p:1,offsets:{broshi:0,midasus:0},shelter01:0,payoff01:0,fuse01:0,camps:0,climax:false};
+ const cast={presence:1,...Object.fromEntries(ACTOR_IDS.map(id=>[id,{glow:0.5,travel:1}])),jobs:{v:state},schedule:{kindleTimes:()=>times,views:{v:{camps:[]}}}};
+ RangeScene.prototype._setActors.call(scene,p,{actors:cast,timeMs:20000,qualityLevel:0,light:{night01:1}});
+ const far=actors.threads.meshes.far.geometry, near=actors.threads.meshes.near.geometry;
+ const n0=work.threads[0].points.length-1;
+ assert.equal(far.drawRange.count,n0*2,'only the western thread stays far');
+ assert.equal(near.drawRange.count,(work.threads[1].points.length-1+work.threads[2].points.length-1)*2,'the closing thread crosses near ground');
+ for(let j=0;j<n0;j++){
+  const q=work.threads[0].points[j], pos=far.attributes.position;
+  assert.deepEqual([pos.getX(2*j),pos.getY(2*j),pos.getZ(2*j)].map(v=>+v.toFixed(3)),q.map(v=>+v.toFixed(3)),`drape point ${j}`);
+  assert.equal(far.attributes.aThread.getY(2*j),Math.fround(j/n0),'revealed by index fraction, as Midasus flies it');
+ }
+ actors.dispose();
+});
+
+test('Midasus glides to a thread that starts elsewhere instead of jumping there',()=>{
+ const shared={...actorUniforms(THREE),uCameraPos:{value:new THREE.Vector3()},uAirDensity:{value:0},uAirHeightFalloff:{value:0}};
+ const actors=new ActorsGL(THREE,shared), camera=new THREE.PerspectiveCamera(35,16/9,1,100000);
+ camera.position.set(0,1000,0);camera.lookAt(0,1000,-10000);camera.updateMatrixWorld();
+ const plan={job:'lamplighters',cairns:[[-900,1000,-5000],[-300,1000,-5200],[300,1000,-5200],[900,1000,-5000]],buoys:[]};
+ const work=castWork(plan);
+ work.threads.splice(1,1); // the second cairn's thread had no ground to lie on
+ const [a,b]=work.threads;
+ const times=work.marks.map((m,k)=>k<4?0:k===a.mark?10000:k===b.mark?20000:Infinity);
+ const p={view:{id:'v'},actors,uniforms:shared,actorRoutes:{},castPlan:plan,castWork:work,data:null,scenes:{far:new THREE.Scene()}};
+ const scene={THREE,camera,_tileAt:()=>null,_castJob:RangeScene.prototype._castJob,_setCastLights:RangeScene.prototype._setCastLights};
+ const state={p:0.6,offsets:{broshi:0,midasus:0},shelter01:0,payoff01:0,fuse01:0,camps:0,climax:false};
+ const at=t=>{RangeScene.prototype._setActors.call(scene,p,{actors:{presence:1,...Object.fromEntries(ACTOR_IDS.map(id=>[id,{glow:0.5,travel:1}])),jobs:{v:state},schedule:{kindleTimes:()=>times,views:{v:{camps:[]}}}},timeMs:t,qualityLevel:0,light:{night01:1}});
+  return shared.uActorPos.value[2].clone();};
+ const end=new THREE.Vector3(...a.b), start=new THREE.Vector3(...b.a);
+ assert.ok(at(18000).distanceTo(end)<1e-6,'waits at the end of her last thread');
+ assert.ok(at(19250).distanceTo(end.clone().lerp(start,0.5))<1e-6,'halfway over 750 ms before the next starts');
+ assert.ok(at(20000).distanceTo(start)<1e-6,'there as it starts');
+ let last=at(18500);
+ for(let t=18550;t<=20000;t+=50){const q=at(t);assert.ok(q.distanceTo(last)<start.distanceTo(end)/10,`no jump at ${t}`);last=q;}
+ actors.dispose();
+});

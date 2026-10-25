@@ -2023,14 +2023,21 @@ export class RangeScene {
         const pts = th.points, x = unit(f) * (pts.length - 1), i = Math.min(pts.length - 2, Math.floor(x)), g = x - i;
         return pts[i].map((v, c) => v + (pts[i + 1][c] - v) * g);
       };
-      let flown = null, f = 0;
+      let flown = null, f = 0, next = null;
       for (const th of work.threads) {
         const age = since(th.mark);
-        if (age < 0) break;
+        if (age < 0) { next = th; break; }
         flown = th; f = unit(age / 1500);
       }
       const first = work.threads[0];
-      const scout = flown ? along(flown, f) : first ? first.a : null;
+      let scout = flown ? along(flown, f) : first ? first.a : null;
+      // A thread with no ground to lie on is never drawn (castWork), so the
+      // next may start at another cairn: she glides over to it in the
+      // 1.5 s before it starts instead of jumping there when it does.
+      if (flown && next && f >= 1 && flown.b.some((v, c) => v !== next.a[c])) {
+        const g = unit(1 + since(next.mark) / 1500), e = g * g * (3 - 2 * g);
+        scout = flown.b.map((v, c) => v + (next.a[c] - v) * e);
+      }
       out.actors.midasus = { pos: scout, fly: flyFor('midasus'),
         lag: scout ? [1, 2, 3].map(j => (flown ? along(flown, f - 0.04 * j) : scout)) : null };
     }
@@ -2056,8 +2063,11 @@ export class RangeScene {
       const camps = p.castPlan?.job === 'ascent' ? schedule?.views?.[p.view.id]?.camps || [] : [];
       p.castCamps = camps.map(c => pathPosition(p.castPlan, c.p, { data: p.data, waterLevelM: p.waterLevelM, hoverM: 3 }));
       p.castCampFrom = null;
-      threads.setThreads((work?.threads || []).map(th => ({ a: th.a, b: th.b,
-        band: this._tileAt(p.data, (th.a[0] + th.b[0]) / 2, (th.a[2] + th.b[2]) / 2)?.band })));
+      // Each thread keeps its drape, in the nearest band any of it lies
+      // over: every partition tests against all bands' depth, so only a
+      // nearer partition drawn later could paint over a stretch of it.
+      threads.setThreads((work?.threads || []).map(th => ({ points: th.points, a: th.a, b: th.b,
+        band: BANDS[Math.max(-1, ...th.points.map(q => BANDS.indexOf(bandAt(q))))] })));
     }
     const made = job?.state.camps ?? 0;
     const campFrom = Math.max(0, Math.min(made, p.castCamps.length) - campSlots);

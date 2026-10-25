@@ -29,6 +29,9 @@ const SUMMIT_CANDIDATES = 160;
 /** Lake samples given a line-of-sight test when finding the water leg's
  *  start (bounds the synchronous cost of preparing a view). */
 const MAX_LAKE_SIGHT_TESTS = 96;
+/** Ground samples given a line-of-sight test when choosing cairn sites
+ *  (per pool: the shore, then the rest of the ground). */
+const MAX_SITE_SIGHT_TESTS = 256;
 /** Path: greedy steps, headings tried each step, the slope it prefers, and
  *  the share of waypoints the middle station must see. */
 export const ASCENT_STEPS = 24;
@@ -201,17 +204,33 @@ export function ascentPlan(data, view, summit, samples, { waterLevelM = null } =
   });
 }
 
+/** The samples of `pool` the middle station can see, testing at most
+ *  MAX_SITE_SIGHT_TESTS of them spread evenly across the frame (so every
+ *  screen-x bin keeps candidates). */
+function seenSamples(data, samples, pool) {
+  const sorted = [...pool].sort((a, b) => a.sx - b.sx);
+  const every = Math.max(1, Math.ceil(sorted.length / MAX_SITE_SIGHT_TESTS));
+  return sorted.filter((s, i) => i % every === 0 && seenFrom(data, samples.eye, [s.x, s.y + 2, s.z]));
+}
+
 /**
  * The Lamplighters' geometry: cairn sites along the shore (else low open
  * ground) and buoy sites on the mirror lake, each picked across the frame
- * and swept left to right.
+ * and swept left to right. Cairns stand only where the rail can see them:
+ * the sight test runs before the shore and low-ground cuts (the lowest
+ * ground of a basin is often what nearer ridges hide). With fewer seen
+ * sites than bins the view gets fewer cairns, and under two it wanders.
  */
 export function lampPlan(data, view, samples, { seed = 0 } = {}) {
   const within = (far) => samples.all.filter((s) => !s.water && framedEverywhere(s, GROUND_Y)
     && s.q.every((q) => q.depth >= SITE_DEPTH_M[0] && q.depth <= far));
-  let ground = within(SITE_DEPTH_M[1]);
-  if (ground.length < 2 * CAIRN_BINS) ground = within(SITE_FAR_M);
-  const shore = ground.filter((s) => s.shore);
+  let all = within(SITE_DEPTH_M[1]);
+  let ground = seenSamples(data, samples, all);
+  if (ground.length < 2 * CAIRN_BINS) {
+    all = within(SITE_FAR_M);
+    ground = seenSamples(data, samples, all);
+  }
+  const shore = seenSamples(data, samples, all.filter((s) => s.shore));
   const low = () => {
     const ys = ground.map((s) => s.y).sort((a, b) => a - b);
     const cut = ys[Math.floor(ys.length * 0.3)];
@@ -289,8 +308,29 @@ export function siteWalk(sites, dues, p) {
 /** Midasus flies, but keeps to the ground like the others: this far (six
  *  feet) above it, and her survey threads lie draped at the same height. */
 export const MIDASUS_HOVER_M = 1.83;
-/** Segments a survey thread is draped over the ground in. */
+/** Segments a survey thread is draped over the ground in: one per drawn
+ *  mesh cell along it (so it follows the ground the mesh draws), within
+ *  these bounds. */
 export const THREAD_SEGMENTS = 16;
+export const THREAD_SEGMENTS_MAX = 64;
+
+/** Spacing (m) of the drawn terrain mesh at (x, z): the tile's runtime
+ *  desktop stride, or its baked stride; Infinity off the terrain. */
+function meshSpacingAt(data, x, z) {
+  const { grid, cells } = data;
+  const tile = data.byIndex?.get(`${Math.floor((x - grid.originM[0]) / grid.cellSizeM / cells)},${Math.floor((z - grid.originM[1]) / grid.cellSizeM / cells)}`);
+  return tile ? (tile.lod?.desktop ?? tile.stride) * grid.cellSizeM : Infinity;
+}
+
+/** Segments for a thread from `a` to `b` (see THREAD_SEGMENTS). */
+export function threadSegments(data, a, b) {
+  if (!data) return THREAD_SEGMENTS;
+  const len = Math.hypot(b[0] - a[0], b[2] - a[2]);
+  let spacing = Infinity;
+  for (const f of [0, 0.25, 0.5, 0.75, 1]) spacing = Math.min(spacing, meshSpacingAt(data, a[0] + (b[0] - a[0]) * f, a[2] + (b[2] - a[2]) * f));
+  if (!Number.isFinite(spacing)) return THREAD_SEGMENTS;
+  return Math.max(THREAD_SEGMENTS, Math.min(THREAD_SEGMENTS_MAX, Math.ceil(len / spacing)));
+}
 
 /**
  * What a plan builds, as the schedule needs it: `lights` (fixed lines on an
@@ -332,18 +372,27 @@ export function castWork(plan, { data = null, waterLevelM = null } = {}) {
     });
     // Survey threads join neighbouring cairns once both are lit; the last
     // closes the network back to the first at the finish. Each lies draped
-    // over the ground (or water) between them, where Midasus flies it.
-    const drape = (a, b) => Array.from({ length: THREAD_SEGMENTS + 1 }, (_, s) => {
-      const f = s / THREAD_SEGMENTS, x = a[0] + (b[0] - a[0]) * f, z = a[2] + (b[2] - a[2]) * f;
-      const h = data ? terrainHeightAt(data, x, z) : NaN;
-      const ground = Number.isFinite(h) ? h : a[1] + (b[1] - a[1]) * f - 1.5;
-      return [x, (Number.isFinite(waterLevelM) ? Math.max(ground, waterLevelM) : ground) + MIDASUS_HOVER_M, z];
-    });
+    // over the ground (or water) between them, where Midasus flies it. A
+    // thread whose way leaves the terrain (no tile to lie on) is not drawn:
+    // it would hang across the gap on a straight chord.
+    const drape = (a, b) => {
+      const n = threadSegments(data, a, b);
+      let gap = false;
+      const points = Array.from({ length: n + 1 }, (_, s) => {
+        const f = s / n, x = a[0] + (b[0] - a[0]) * f, z = a[2] + (b[2] - a[2]) * f;
+        const h = data ? terrainHeightAt(data, x, z) : NaN;
+        if (data && !Number.isFinite(h)) gap = true;
+        const ground = Number.isFinite(h) ? h : a[1] + (b[1] - a[1]) * f - 1.5;
+        return [x, (Number.isFinite(waterLevelM) ? Math.max(ground, waterLevelM) : ground) + MIDASUS_HOVER_M, z];
+      });
+      return gap ? null : points;
+    };
     for (let k = 1; k <= nc; k++) {
       const closing = k === nc;
       if (closing && nc < 3) break;
       const i = k - 1, j = closing ? 0 : k;
       const points = drape(lights[i].pos, lights[j].pos);
+      if (!points) continue;
       threads.push({ a: points[0], b: points.at(-1), points, closing, mark: marks.length });
       marks.push(closing ? { p: 1, lane: 'midasus' } : { after: [lights[i].mark, lights[j].mark], lane: 'midasus' });
     }

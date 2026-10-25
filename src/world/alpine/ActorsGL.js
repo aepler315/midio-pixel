@@ -10,7 +10,7 @@
 // trees and water, through the shared uniforms below (ACTOR_GLSL).
 import { ACTOR_IDS, ACTOR_MOTES } from './RangeActors.js';
 import { BANDS } from './TerrainMesh.js';
-import { THREAD_SEGMENTS } from './CastJobs.js';
+import { THREAD_SEGMENTS, THREAD_SEGMENTS_MAX } from './CastJobs.js';
 import { MIST_GLSL, EMITTER_GLSL, MIST_SAMPLES } from './RangeAtmosphere.js';
 
 export const ACTOR_COUNT = 3;
@@ -412,9 +412,10 @@ export class SiteLights {
 
 /**
  * Midasus's survey threads in one view: line strips draped between site
- * pairs, one set per band (by the thread's midpoint). `setThreads(list)`
- * lays them out ({ points: THREAD_SEGMENTS + 1 of them, band }, or a
- * straight { a, b }); `setState(k, reveal, bright)`.
+ * pairs, one set per band. `setThreads(list)` lays them out ({ points, band }
+ * -- up to THREAD_SEGMENTS_MAX + 1 points -- or a straight { a, b });
+ * `setState(k, reveal, bright)`, where reveal runs along the points' index
+ * fraction, the way Midasus flies them.
  */
 export class SurveyThreads {
   constructor(THREE, shared) {
@@ -430,8 +431,8 @@ export class SurveyThreads {
         uColor: { value: new THREE.Color() }, uGain: { value: 1 },
       };
       const g = new THREE.BufferGeometry();
-      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(SURVEY_THREADS_MAX * THREAD_SEGMENTS * 2 * 3), 3));
-      g.setAttribute('aThread', new THREE.BufferAttribute(new Float32Array(SURVEY_THREADS_MAX * THREAD_SEGMENTS * 2 * 2), 2));
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(SURVEY_THREADS_MAX * THREAD_SEGMENTS_MAX * 2 * 3), 3));
+      g.setAttribute('aThread', new THREE.BufferAttribute(new Float32Array(SURVEY_THREADS_MAX * THREAD_SEGMENTS_MAX * 2 * 2), 2));
       g.setDrawRange(0, 0);
       const mesh = new THREE.LineSegments(g, new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms: u,
         vertexShader: THREAD_VERT, fragmentShader: THREAD_FRAG, ...blendFor(THREE) }));
@@ -441,27 +442,31 @@ export class SurveyThreads {
     }
   }
 
-  static bytes() { return BANDS.length * SURVEY_THREADS_MAX * THREAD_SEGMENTS * 2 * (3 + 2) * 4; }
+  static bytes() { return BANDS.length * SURVEY_THREADS_MAX * THREAD_SEGMENTS_MAX * 2 * (3 + 2) * 4; }
 
   setThreads(list) {
     const counts = Object.fromEntries(BANDS.map((b) => [b, 0]));
+    const used = Object.fromEntries(BANDS.map((b) => [b, 0])); // vertices
     this._bands = list.slice(0, SURVEY_THREADS_MAX).map((thread) => {
       const band = BANDS.includes(thread.band) ? thread.band : 'far';
       const k = counts[band]++;
       const g = this.meshes[band].geometry, pos = g.attributes.position, tag = g.attributes.aThread;
-      const at = (s) => thread.points?.[Math.round(s * THREAD_SEGMENTS)]
-        ?? [0, 1, 2].map((c) => thread.a[c] + (thread.b[c] - thread.a[c]) * s);
-      for (let j = 0; j < THREAD_SEGMENTS; j++) {
-        const v = (k * THREAD_SEGMENTS + j) * 2;
-        const s0 = j / THREAD_SEGMENTS, s1 = (j + 1) / THREAD_SEGMENTS;
-        pos.setXYZ(v, ...at(s0)); pos.setXYZ(v + 1, ...at(s1));
-        tag.setXY(v, k, s0); tag.setXY(v + 1, k, s1);
+      // Each thread keeps its own drape (castWork sizes it to the mesh).
+      const pts = thread.points?.length >= 2 ? thread.points : null;
+      const n = pts ? Math.min(THREAD_SEGMENTS_MAX, pts.length - 1) : THREAD_SEGMENTS;
+      const at = (j) => pts ? pts[Math.round((j / n) * (pts.length - 1))]
+        : [0, 1, 2].map((c) => thread.a[c] + (thread.b[c] - thread.a[c]) * (j / n));
+      for (let j = 0; j < n; j++) {
+        const v = used[band] + j * 2;
+        pos.setXYZ(v, ...at(j)); pos.setXYZ(v + 1, ...at(j + 1));
+        tag.setXY(v, k, j / n); tag.setXY(v + 1, k, (j + 1) / n);
       }
+      used[band] += n * 2;
       return { band, k };
     });
     for (const band of BANDS) {
       const g = this.meshes[band].geometry;
-      g.setDrawRange(0, counts[band] * THREAD_SEGMENTS * 2);
+      g.setDrawRange(0, used[band]);
       g.attributes.position.needsUpdate = true; g.attributes.aThread.needsUpdate = true;
       this.meshes[band].visible = counts[band] > 0;
     }
