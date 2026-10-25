@@ -4673,8 +4673,10 @@ export class BiomeManager {
     // anything sitting behind an unlit crescent moon stayed almost fully
     // visible right through its own disc. Same alpha as the moon itself so
     // it fades out in step at moonrise/moonset instead of ever occluding
-    // more than the visible moon does.
-    ctx.globalAlpha = alpha;
+    // more than the visible moon does. Only as dark as the night, though:
+    // a moon in a bright sky has a sky-coloured dark side, not a black hole.
+    // (The cycle moon is only ever up while night is 1, so it is unchanged.)
+    ctx.globalAlpha = alpha * clamp01(this._night01 ?? 1);
     ctx.fillStyle = '#000000';
     ctx.beginPath();
     ctx.arc(cx, cy, R, 0, Math.PI * 2);

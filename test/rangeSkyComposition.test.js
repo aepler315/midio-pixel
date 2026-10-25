@@ -252,6 +252,29 @@ test('sun and moon subtend one angle that zooms with the tour and rail lenses', 
   assert.ok(Math.abs(rail(23.1, 42.9, .25).moon.radiusFrac * W - (px(pose(23.1)) * .75 + px(pose(42.9)) * .25)) < 1e-9, 'and blends across a travel');
 });
 
+test('the native moon\'s black backing is only as dark as the night, which the cycle moon never leaves', async () => {
+  const { dayNight } = await import('../src/world/DayNight.js');
+  const fills = [];
+  const ctx = new Proxy({ globalAlpha: 1, fillStyle: '' }, { get: (target, key) => key in target ? target[key]
+    : key === 'fill' ? () => fills.push([target.fillStyle, target.globalAlpha])
+      : /^create(Linear|Radial)Gradient$/.test(key) ? () => ({ addColorStop() {} }) : () => {},
+  set: (target, key, value) => { target[key] = value; return true; } });
+  const manager = Object.assign(Object.create(BiomeManager.prototype), { world: { kind: 'alpine' } });
+  const moon = { xFrac: .5, yFrac: .3, radiusFrac: .02, scale: 1, visible: true, illumination: .3 };
+  const backing = night => {
+    fills.length = 0; manager._night01 = night;
+    manager._drawMoon(ctx, { width: 1000, height: 600 }, .3, .8, 0, .5, .9, .9, .5, moon);
+    return fills.find(([style]) => style === '#000000')[1];
+  };
+  assert.ok(Math.abs(backing(1) - .8) < 1e-12, 'a night moon still hides the stars behind it');
+  assert.ok(Math.abs(backing(.25) - .2) < 1e-12);
+  assert.equal(backing(0), 0, 'a moon in a bright sky is no darker than the sky');
+  for (let t = 0; t < 100000; t += 50) {
+    const dn = dayNight(t, 100000);
+    if (dn.moonAlt > 0) assert.equal(dn.night, 1, `the cycle moon at ${t}ms is up only in full night`);
+  }
+});
+
 test('the native moon painter takes the geometric phase and the shared crescent floor', () => {
   const halfWidths = [];
   const ctx = new Proxy({}, { get: (target, key) => key in target ? target[key]
