@@ -106,8 +106,8 @@ test('forest mirror accumulates soft colour before hard depth while using the mi
   });
   scene._prepareMirror(p, { qualityLevel: 0, frameId: 1 }, 'A', 'view');
   assert.deepEqual(footprints, Array.from({ length: 11 }, () => [320, 180]));
-  // The last three: ink (layer 3) with the cast (layer 4), which the lake
-  // reflects with each band.
-  assert.deepEqual(layers, [1, 1, 1, 1, 2, 2, 2, 4, 8 | 16, 8 | 16, 8 | 16], 'paint receivers and all soft coverage before hard depth, ink and the cast');
+  // The last three: ink (layer 3) with the cast's lights and ribbons
+  // (layers 4 and 5), which the lake reflects with each band.
+  assert.deepEqual(layers, [1, 1, 1, 1, 2, 2, 2, 4, 8 | 16 | 32, 8 | 16 | 32, 8 | 16 | 32], 'paint receivers and all soft coverage before hard depth, ink and the cast');
   assert.deepEqual(uniforms.uViewportPx.value.toArray(), [640, 360]);
 });

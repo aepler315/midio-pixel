@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {RangeScene} from '../src/world/alpine/RangeScene.js';
-import {ActorsGL,actorUniforms,SITE_LIGHTS_MAX,threadShown,THREAD_FRONT,THREAD_PUSH_PX,CAST_LAYER} from '../src/world/alpine/ActorsGL.js';
+import {ActorsGL,actorUniforms,SITE_LIGHTS_MAX,threadShown,THREAD_FRONT,THREAD_PUSH_PX,CAST_LAYER,CAST_RIBBON_LAYER} from '../src/world/alpine/ActorsGL.js';
 import {ACTOR_IDS,ACTOR_MOTES} from '../src/world/alpine/RangeActors.js';
 import {castWork,pathPosition} from '../src/world/alpine/CastJobs.js';
 import * as THREE from '../src/vendor/range/three-range.module.js';
@@ -273,7 +273,9 @@ test('ribbons keep their brightest layer where they fold, on the cast layer only
   renderer:{setRenderTarget(){},setClearColor(){},clear(){},render(){seen.push(eq());}},
   _copy:{mesh:{material:{uniforms:{uColor:{}}}},scene:'copy',camera},_setCanvasSize(){}});
  scene.renderCast({frameId:1},'v');
- assert.ok(seen.slice(0,3).every(e=>e.every(x=>x===THREE.MaxEquation)),'max while the bands draw the cast');
+ assert.ok(seen.slice(0,3).every(e=>e.every(x=>x===THREE.MaxEquation)),'max while the bands draw the ribbons');
+ assert.ok(seen.slice(3,6).every(e=>e.every(x=>x===THREE.AddEquation)),'then the lights add over them: a halo never maxes a thread end');
+ for(const s of sets)for(const m of Object.values(s.meshes))assert.equal(m.layers.mask,1<<CAST_RIBBON_LAYER,'the ribbons on their own layer');
  assert.ok(eq().every(e=>e===THREE.AddEquation),'added again afterwards');
  actors.dispose();
 });

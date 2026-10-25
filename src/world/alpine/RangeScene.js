@@ -42,7 +42,7 @@ import { mistParams, mistDrift, easeMistSteps, tourMistCap, tourMistFade } from 
 import { mirrorSize, mirrorLevelFor, mirrorCameraFor, mirrorTextureMatrix, MIRROR_CLIP_M, MIRROR_LIFT } from './WaterMirror.js';
 import { scenicProjection, calibrateRangeMusic } from './RangeFrame.js';
 import { applyGlacierUniforms, glacierErrors, glacierSample } from './GlacierField.js';
-import { ActorsGL, SITE_LIGHTS_MAX, CAST_LAYER } from './ActorsGL.js';
+import { ActorsGL, SITE_LIGHTS_MAX, CAST_LAYER, CAST_RIBBON_LAYER, enableCastLayers } from './ActorsGL.js';
 import { buildRiverGeometry, riverGeometryBound, riverChannelErrors } from './RiverChannel.js';
 import { ACTOR_IDS, ACTOR_HUES, ACTOR_LOOK, ACTOR_START, actorRoutes, routePosition } from './RangeActors.js';
 import { castPlan, castWork, pathPosition, siteWalk } from './CastJobs.js';
@@ -510,7 +510,7 @@ export class RangeScene {
       // The lake reflects the cast with each band (it never takes the main
       // camera's separate cast pass).
       this.mirrorCamera.layers.set(0);
-      if (!softForest) { this.mirrorCamera.layers.enable(3); this.mirrorCamera.layers.enable(CAST_LAYER); }
+      if (!softForest) { this.mirrorCamera.layers.enable(3); enableCastLayers(this.mirrorCamera); }
       r.render(p.depthScene, this.mirrorCamera);
       for (const band of BANDS) r.render(p.scenes[band], this.mirrorCamera);
       if (softForest) {
@@ -519,7 +519,7 @@ export class RangeScene {
         this.mirrorCamera.layers.set(2);
         r.render(p.depthScene, this.mirrorCamera);
         this.mirrorCamera.layers.set(3);
-        this.mirrorCamera.layers.enable(CAST_LAYER);
+        enableCastLayers(this.mirrorCamera);
         for (const band of BANDS) r.render(p.scenes[band], this.mirrorCamera);
       }
       this.mirrorCamera.layers.set(0); this.mirrorCamera.layers.enable(3);
@@ -2213,7 +2213,7 @@ export class RangeScene {
     // (castInBands, set by the presentation) keep it in the band passes.
     const castInBands = this.castInBands !== false || !!bandColumns;
     this.camera.layers.set(0);
-    if (!softForest) { this.camera.layers.enable(3); if (castInBands) this.camera.layers.enable(CAST_LAYER); }
+    if (!softForest) { this.camera.layers.enable(3); if (castInBands) enableCastLayers(this.camera); }
     const source = pass === 'far' && rangeQuality(frame.qualityLevel).sunShafts ? shaftSource(frame) : null;
     const forestDepth = p.uniforms.uNarrativeInk.value >= .005
       || (castInBands && this._castShown(p))
@@ -2265,7 +2265,7 @@ export class RangeScene {
         else r.render(p.depthScene, this.camera);
         depth.frame = -1;
         this.camera.layers.set(3);
-        if (castInBands) this.camera.layers.enable(CAST_LAYER);
+        if (castInBands) enableCastLayers(this.camera);
         r.render(p.scenes[pass], this.camera);
       }
     }
@@ -2327,14 +2327,18 @@ export class RangeScene {
     }
     r.setClearColor(0x000000, 0);
     r.clear(true, false, false);
-    this.camera.layers.set(CAST_LAYER);
-    // On this cleared layer a ribbon folding over itself keeps its
-    // brightest layer instead of summing into beads (SurveyThreads
-    // setOverlap); over the land they add as light again.
+    // On this cleared layer every ribbon draws first, and where one folds
+    // over itself (or crosses another) it keeps its brightest layer instead
+    // of summing into beads (SurveyThreads setOverlap); then every light is
+    // added over them, as it is over the land. (No depth is written, so
+    // band order never changes what hides what.)
     const ribbons = [p.actors?.threads, p.actors?.rope].filter(Boolean);
     for (const set of ribbons) set.setOverlap(this.THREE.MaxEquation);
+    this.camera.layers.set(CAST_RIBBON_LAYER);
     try { for (const band of BANDS) r.render(p.scenes[band], this.camera); }
     finally { for (const set of ribbons) set.setOverlap(this.THREE.AddEquation); }
+    this.camera.layers.set(CAST_LAYER);
+    for (const band of BANDS) r.render(p.scenes[band], this.camera);
     this.camera.layers.set(0); this.camera.layers.enable(3);
     r.setRenderTarget(null);
     this._setCanvasSize(this.size.width, this.size.height);

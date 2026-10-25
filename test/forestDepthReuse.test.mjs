@@ -56,8 +56,8 @@ test('a stand containing only either mesh LOD uses soft coverage and hard depth 
     const { s, draws } = fixture({ ink: .02 });
     s.prepared.get('probe').forest.counts = { billboard: 0, mesh: 0, meshDetail: 0, [kind]: 1 };
     s.renderPartition(frame, 'near', 'probe');
-    // Layer 3 (ink), with the cast (layer 4) where no smooth cast pass takes it.
-    assert.deepEqual(draws.filter(([scene]) => scene === 'near'), [['near', 1], ['near', 2], ['near', 8 | 16]]);
+    // Layer 3 (ink), with the cast (layers 4 and 5) where no smooth cast pass takes it.
+    assert.deepEqual(draws.filter(([scene]) => scene === 'near'), [['near', 1], ['near', 2], ['near', 8 | 16 | 32]]);
     assert.deepEqual(draws.filter(([scene]) => scene === 'depth'), [['depth', 1], ['depth', 4]]);
   }
 });
@@ -71,14 +71,15 @@ test('with a smooth cast pass the partitions leave the cast out, and it draws on
   for (const pass of ['far', 'mid', 'near']) s.renderPartition(frame, pass, 'probe');
   // The lanterns no longer cut combined depth into every partition.
   assert.equal(s.stats.depthPasses, 1);
-  assert.ok(draws.every(([, mask]) => typeof mask !== 'number' || !(mask & 16)), 'no partition draws the cast layer');
+  assert.ok(draws.every(([, mask]) => typeof mask !== 'number' || !(mask & 48)), 'no partition draws the cast layers');
   draws.length = 0;
   assert.equal(s.renderCast(frame, 'probe'), s.canvas);
   assert.deepEqual(draws, [
     ['target', 'scene'],
     ['depth', 4], // the trees' crown cut joins the opaque depth once
     ['clear', '100'], // colour only: every band's depth stays
-    ['far', 16], ['mid', 16], ['near', 16],
+    ['far', 32], ['mid', 32], ['near', 32], // every ribbon first (their overlaps keep the brightest)
+    ['far', 16], ['mid', 16], ['near', 16], // then every light added over them
     ['target', 'canvas'], ['clear', '110'], ['copy', 9],
   ]);
   assert.equal(s.stats.castPasses, 1);
@@ -90,14 +91,14 @@ test('with a smooth cast pass the partitions leave the cast out, and it draws on
   inked.draws.length = 0;
   inked.s.renderCast(frame, 'probe');
   assert.deepEqual(inked.draws.filter(([scene]) => scene === 'depth'), []);
-  assert.deepEqual(inked.draws.filter(([scene]) => ['far', 'mid', 'near'].includes(scene)), [['far', 16], ['mid', 16], ['near', 16]]);
+  assert.deepEqual(inked.draws.filter(([scene]) => ['far', 'mid', 'near'].includes(scene)), [['far', 32], ['mid', 32], ['near', 32], ['far', 16], ['mid', 16], ['near', 16]]);
 });
 
 test('placed lights alone (no lantern on screen) still draw after the crown cut, and a travel keeps the cast in its bands', () => {
   const { s, draws } = fixture();
   s.prepared.get('probe').actors.sites = { drawn: () => true };
   s.renderPartition(frame, 'near', 'probe');
-  assert.deepEqual(draws.filter(([scene]) => scene === 'near'), [['near', 1], ['near', 2], ['near', 8 | 16]]);
+  assert.deepEqual(draws.filter(([scene]) => scene === 'near'), [['near', 1], ['near', 2], ['near', 8 | 16 | 32]]);
   // Laid out but dark (none kindled yet, or the cast absent): no crown cut
   // and no cast pass for nothing.
   const dark = fixture();
@@ -117,7 +118,7 @@ test('placed lights alone (no lantern on screen) still draw after the crown cut,
   travel.s._travelDepth = () => {};
   travel.s._travelFringe = () => {};
   travel.s.renderPartition(frame, 'near', 'probe', { bandColumns: { mid: [0, 1], near: [0, 1] } });
-  assert.deepEqual(travel.draws.filter(([scene]) => scene === 'near').at(-1), ['near', 8 | 16]);
+  assert.deepEqual(travel.draws.filter(([scene]) => scene === 'near').at(-1), ['near', 8 | 16 | 32]);
   assert.equal(travel.s.renderCast(frame, 'probe'), null);
 });
 

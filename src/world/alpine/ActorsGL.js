@@ -31,6 +31,15 @@ export const SURVEY_THREADS_MAX = 12;
  *  the main camera draws it in a pass of its own (or, during a travel, in
  *  the band passes), and the mirror camera with each band. */
 export const CAST_LAYER = 4;
+/** The threads' and the fixed line's own layer beside it: the cast pass
+ *  draws every ribbon first (their overlaps keep the brightest layer), then
+ *  every light over them as added light. Everywhere else both are drawn. */
+export const CAST_RIBBON_LAYER = 5;
+/** Enable both cast layers on `camera` (the band passes, the lake mirror). */
+export function enableCastLayers(camera) {
+  camera.layers.enable(CAST_LAYER);
+  camera.layers.enable(CAST_RIBBON_LAYER);
+}
 /** The looks are sized in pixels of a 720 px stage. */
 const STAGE_PX = 720;
 /** Core radius of a lantern and of a placed light (fractions of radius). */
@@ -63,7 +72,8 @@ export const ACTOR_GLSL = /* glsl */`
   // How much of actor i's light the cloud sea leaves: as much as of its
   // lantern (emitterSeen's sea term), read where the lantern is drawn, on
   // the lifted ground. A pool or a glint with no lantern over it read as
-  // light from nowhere.
+  // light from nowhere. The same for every fragment, so it is paid only
+  // where the light reaches.
   float actorShown(int i) {
     if (uMistFill <= 0.0) return 1.0;
     vec3 s = uActorPos[i];
@@ -75,7 +85,9 @@ export const ACTOR_GLSL = /* glsl */`
       if (dot(uActorColor[i], uActorColor[i]) < 1e-8) continue;
       vec3 d = uActorPos[i] - p;
       float r = length(d), R = uActorRadius[i];
-      float fall = (1.0 - smoothstep(R * 2.5, R * 4.5, r)) / (1.0 + r * r / (R * R)) * actorShown(i);
+      float fall = (1.0 - smoothstep(R * 2.5, R * 4.5, r)) / (1.0 + r * r / (R * R));
+      if (fall <= 0.0) continue;
+      fall *= actorShown(i);
       float facing = max(dot(n, d / max(r, 1e-3)) * 0.75 + 0.25, 0.0);
       sum += uActorColor[i] * fall * facing;
     }
@@ -88,8 +100,10 @@ export const ACTOR_GLSL = /* glsl */`
       if (dot(uActorColor[i], uActorColor[i]) < 1e-8) continue;
       vec3 d = uActorPos[i] - p;
       float r = length(d), R = min(uActorRadius[i] * 14.0, 2500.0);
+      float reach = 1.0 - smoothstep(R * 0.5, R, r);
+      if (reach <= 0.0) continue;
       vec3 H = normalize(d / max(r, 1e-3) + V);
-      sum += uActorColor[i] * pow(max(dot(H, n), 0.0), 160.0) * (1.0 - smoothstep(R * 0.5, R, r)) * actorShown(i);
+      sum += uActorColor[i] * pow(max(dot(H, n), 0.0), 160.0) * reach * actorShown(i);
     }
     return sum;
   }
@@ -607,7 +621,7 @@ export class SurveyThreads {
       // and the lake mirror's camera flips that.
       const mesh = new THREE.Mesh(g, new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms: u,
         vertexShader: THREAD_VERT, fragmentShader: THREAD_FRAG, side: THREE.DoubleSide, ...blendFor(THREE) }));
-      mesh.frustumCulled = false; mesh.renderOrder = 3; mesh.layers.set(CAST_LAYER);
+      mesh.frustumCulled = false; mesh.renderOrder = 3; mesh.layers.set(CAST_RIBBON_LAYER);
       this.meshes[band] = mesh;
       this.uniformsByBand[band] = u;
     }
@@ -680,9 +694,10 @@ export class SurveyThreads {
 
   /** How overlapping fragments of the ribbons combine: THREE.AddEquation as
    *  light over the land (the band passes, the lake mirror), or
-   *  THREE.MaxEquation alone on the cast's own cleared layer, where a strip
-   *  folding over itself at a short, turning drape step (its corners reach
-   *  past the next point) would otherwise sum into bright beads. */
+   *  THREE.MaxEquation alone on the cast's own cleared layer, drawn before
+   *  its lights (CAST_RIBBON_LAYER), where a strip folding over itself at a
+   *  short, turning drape step (its corners reach past the next point)
+   *  would otherwise sum into bright beads. */
   setOverlap(equation) {
     for (const m of Object.values(this.meshes)) m.material.blendEquation = equation;
   }

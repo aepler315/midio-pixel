@@ -159,7 +159,8 @@ test('the emitter and lantern-light shader twins use the same constants', async 
   const { ACTOR_GLSL } = await import('../src/world/alpine/ActorsGL.js');
   assert.ok(ACTOR_GLSL.includes(`1.0 - ${EMITTER_SUBMERGE.toFixed(3)} * uMistFill * mistSubmersion(s.y + groundLift(s))`),
     'the light goes with its lantern, read on the lifted ground');
-  assert.ok(ACTOR_GLSL.split('* actorShown(i)').length === 3, 'both the pool and the glints');
+  assert.ok(ACTOR_GLSL.includes('if (fall <= 0.0) continue;\n      fall *= actorShown(i);'), 'the pool, paid only where the light reaches');
+  assert.ok(ACTOR_GLSL.includes('if (reach <= 0.0) continue;') && ACTOR_GLSL.includes('* reach * actorShown(i)'), 'and the glints');
   // actorLight reads the sea's top at the lifted ground: the mist uniforms
   // and groundLift must be declared above it, once.
   const { SCENE_FRAG } = await import('../src/world/alpine/TerrainMaterial.js');
