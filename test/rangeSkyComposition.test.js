@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SpaceRidge } from '../src/world/SpaceRidge.js';
-import { createRangeSkyComposition, rangeMoonRadius, tourCloudBanks } from '../src/world/alpine/RangeSkyComposition.js';
+import { createRangeSkyComposition, rangeMoonRadius, tourCloudBanks, MOON_MIN_ILLUMINATION } from '../src/world/alpine/RangeSkyComposition.js';
 import { BiomeManager } from '../src/world/BiomeManager.js';
 import * as catalogue from '../src/world/StarCatalogue.js';
 import { ParticleField } from '../src/world/ParticleField.js';
@@ -182,7 +182,65 @@ test('the moon stays in the visible sky of the published Teton opening and retur
     const pose = { eyeM: [0, 0, 0], targetM: [Math.sin(h) * Math.cos(p), Math.sin(p), -Math.cos(h) * Math.cos(p)], fovYDeg, aspect: 16 / 9 };
     const state = { sun: { azimuth01: 0, altitude01: 0, radiusFrac: .01 }, moon: { ...rangeMoonOrbit(timeMs, 96000), radiusFrac: .0175 } };
     const moon = projectRangeCelestials(state, pose).moon;
+    // Position only: at midday (45 s) daylight hides the disc (discAlpha),
+    // but the orbit stays framed so the moon is in place whenever it shows.
     assert.ok(moon.visible && moon.xFrac > .05 && moon.xFrac < .95 && moon.yFrac > .12 && moon.yFrac < .45,
-      `the actual ${timeMs}ms camera must retain the full moon above its horizon after 64px overscan is cropped`);
+      `the actual ${timeMs}ms camera must keep the moon's orbit position above its horizon after 64px overscan is cropped`);
+  }
+});
+
+test('the moon\'s phase comes from its angle to the signed sun, in tours and rail views alike', async () => {
+  const { rangeMoonOrbit, projectRangeCelestials, projectRailCelestials, rangeMoonIllumination, tourSkyDirection, MOON_MIN_ILLUMINATION } =
+    await import('../src/world/alpine/RangeSkyComposition.js');
+  const { resolveCelestialState } = await import('../src/world/CelestialState.js');
+  const { songSkyClock, sunScreenFrac, cyclePhase01, CELESTIAL_RISE_XFRAC, CELESTIAL_SET_XFRAC } = await import('../src/world/DayNight.js');
+  const durationMs = 240000, clock = songSkyClock(durationMs);
+  const pose = { eyeM: [0, 0, 0], targetM: [700, 60, -700], fovYDeg: 38, aspect: 1408 / 848 };
+  const rail = { referencePose: { ...pose, fovYDeg: 36 }, pose, aspect: pose.aspect };
+  const at = seconds => {
+    const timeMs = seconds * 1000, solar = sunScreenFrac(cyclePhase01(timeMs, clock));
+    const state = resolveCelestialState({ timeMs, cycleMs: clock, viewport: { width: 1408, height: 848 }, moonOrbit: rangeMoonOrbit(timeMs, durationMs) });
+    return { solar, state, tour: projectRangeCelestials(state, pose, 1, solar, 0).moon };
+  };
+  let previous = 1;
+  for (let s = 0; s <= 20; s++) {
+    const { tour } = at(s);
+    assert.ok(tour.illumination >= .17 && tour.illumination <= .32, `predawn ${s}s is a crescent toward the rising sun: ${tour.illumination}`);
+    assert.ok(tour.illumination < previous, 'the predawn crescent wanes toward sunrise');
+    previous = tour.illumination;
+  }
+  for (let s = 195; s <= 240; s += 5) assert.ok(at(s).tour.illumination >= .95, `the moon opposite the setting sun is full at ${s}s`);
+  for (const s of [0, 10, 120, 230]) {
+    const { solar, state, tour } = at(s);
+    // The signed sun that sets the lit side, not the resolved sun body,
+    // which parks on the horizon all night (a false predawn full moon).
+    const az = (solar.xFrac - CELESTIAL_RISE_XFRAC) / (CELESTIAL_SET_XFRAC - CELESTIAL_RISE_XFRAC);
+    const sun = tourSkyDirection(100 + 150 * az, 32 * solar.altSigned);
+    const expected = (1 - sun.reduce((sum, v, i) => sum + v * tour.worldDirection[i], 0)) / 2;
+    assert.ok(Math.abs(tour.illumination - expected) < 1e-12);
+    assert.ok(Math.abs(projectRangeCelestials(state, pose, 1, solar, 77).moon.illumination - expected) < 1e-12, 'a shot tour\'s heading turns both arcs');
+    assert.ok(Math.abs(rangeMoonIllumination(solar, state.moon) - expected) < 1e-12, 'the camera-free helper agrees');
+    const railMoon = projectRailCelestials(state, { from: rail, to: rail, mix: 0 }, solar).moon;
+    assert.ok(Math.abs(railMoon.illumination - expected) < 1e-12, 'rail views share the tours\' phase');
+  }
+  const parked = at(10);
+  const parkedElongation = parked.tour.worldDirection.reduce((sum, v, i) => sum + v * projectRangeCelestials(parked.state, pose).sun.worldDirection[i], 0);
+  assert.ok((1 - parkedElongation) / 2 > .9 && parked.tour.illumination < .3, 'the parked sun would have drawn a predawn full moon');
+  assert.equal('illumination' in projectRangeCelestials(parked.state, pose).moon, false, 'without a solar reference the painter keeps its fallback');
+  assert.equal(MOON_MIN_ILLUMINATION, .16);
+});
+
+test('the native moon painter takes the geometric phase and the shared crescent floor', () => {
+  const halfWidths = [];
+  const ctx = new Proxy({}, { get: (target, key) => key in target ? target[key]
+    : key === 'ellipse' ? (x, y, rx) => halfWidths.push(rx)
+      : /^create(Linear|Radial)Gradient$/.test(key) ? () => ({ addColorStop() {} }) : () => {},
+  set: (target, key, value) => { target[key] = value; return true; } });
+  const manager = Object.assign(Object.create(BiomeManager.prototype), { world: { kind: 'alpine' }, _night01: 1 });
+  const moon = illumination => ({ xFrac: .5, yFrac: .3, radiusFrac: .02, scale: 1, visible: true, illumination });
+  for (const [illumination, f] of [[.9, .9], [.05, MOON_MIN_ILLUMINATION], [.5, .5]]) {
+    halfWidths.length = 0;
+    manager._drawMoon(ctx, { width: 1000, height: 600 }, .3, 1, 0, .5, .2, .9, .5, moon(illumination));
+    assert.ok(Math.abs(halfWidths[0] - 20 * Math.abs(1 - 2 * f)) < 1e-9, `terminator for a ${illumination} lit moon`);
   }
 });

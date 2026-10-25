@@ -1,6 +1,6 @@
 import { CanvasBuffers } from '../../render/CanvasResidency.js';
 import { cameraBasis } from '../terrain/SceneTravel.js';
-import { projectSkyDirection, tourSkyDirection } from './RangeSkyComposition.js';
+import { projectSkyDirection, tourSkyDirection, MOON_MIN_ILLUMINATION } from './RangeSkyComposition.js';
 import { drawStormSky } from './RangeStorm.js';
 import { LightningFX } from '../Lightning.js';
 import { cloudBanks } from './RangeCloudField.js';
@@ -286,7 +286,8 @@ export class RangeSkyRenderer {
     }
     const light = moon.illuminant || sun || { xFrac: moon.xFrac + 1, yFrac: moon.yFrac + 1 };
     const angle = Math.atan2((light.yFrac - moon.yFrac) * height, (light.xFrac - moon.xFrac) * width);
-    const phase = Math.max(.16, .5 - .5 * Math.cos(TAU * clamp(frame.phase)));
+    // Geometric phase from the moon's angle to the sun when the sky has it.
+    const phase = Math.max(MOON_MIN_ILLUMINATION, moon.illumination ?? .5 - .5 * Math.cos(TAU * clamp(frame.phase)));
     const terminator = 1 - 2 * phase;
     ctx.translate(x, y); ctx.rotate(angle);
     ctx.beginPath(); ctx.arc(0, 0, radius, -Math.PI / 2, Math.PI / 2);

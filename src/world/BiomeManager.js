@@ -20,7 +20,7 @@ import { VisualMusicHistory } from './VisualMusicHistory.js';
 import { ridgeEnvelope, boundaryLift01 } from './alpine/Ridge.js';
 import { travelSeam, TRAVEL_FEATHER, TRAVEL_BANDS } from './TravelSeam.js';
 import { landscapeLayerColor, landscapePasses, landscapePolicy, landscapeBudget, landscapeSnowAllowed, resolveLandscapePalette, resolveRangePresentation, rangeDrawsSea } from './alpine/LandscapePolicy.js';
-import { createRangeSkyComposition, rangeMoonOrbit, rangeMoonRadius, rangeV2MoonRadius, drawMoonMaria, rangeCloudBanks, tourCloudBanks, drawRangeClouds, tourSkyDirection, projectSkyDirection, projectRailSky } from './alpine/RangeSkyComposition.js';
+import { createRangeSkyComposition, rangeMoonOrbit, rangeMoonRadius, rangeV2MoonRadius, drawMoonMaria, rangeCloudBanks, tourCloudBanks, drawRangeClouds, tourSkyDirection, projectSkyDirection, projectRailSky, MOON_MIN_ILLUMINATION } from './alpine/RangeSkyComposition.js';
 import { RangeSkyRenderer } from './alpine/RangeSkyRenderer.js';
 import { rangeSkyState, usesHighResolutionRangeSky } from './alpine/RangeFrame.js';
 import { withNarrativeAlpha, drawNarrativeMarks } from '../render/NarrativeDraw.js';
@@ -4589,7 +4589,7 @@ export class BiomeManager {
    *  "day" already is.
    *
    *  The song opens near new and waxes to full at the midpoint. See
-   *  MOON_MIN_ILLUM in _drawMoon for why it never actually reaches new. */
+   *  MOON_MIN_ILLUMINATION in _drawMoon for why it never actually reaches new. */
   _moonPhase01() {
     // Warped away from exact quarter, because exact quarter is a straight
     // line.
@@ -4699,9 +4699,10 @@ export class BiomeManager {
     // would mean no moon at all through the opening of every song, which
     // reads as a missing feature rather than as astronomy. A thin crescent
     // is the same shape a new moon is a day either side of new, so this
-    // costs nothing in fidelity.
-    const MOON_MIN_ILLUM = 0.16;
-    const f = Math.max(MOON_MIN_ILLUM, 0.5 - 0.5 * Math.cos(2 * Math.PI * clamp01(phase01)));
+    // costs nothing in fidelity. The hybrid sky shares the same floor.
+    // A projected Landscape moon carries its geometric phase (its angle to
+    // the sun); the cycle moon keeps the song-long synodic term.
+    const f = Math.max(MOON_MIN_ILLUMINATION, resolved?.illumination ?? 0.5 - 0.5 * Math.cos(2 * Math.PI * clamp01(phase01)));
     const k = R * (1 - 2 * f);
 
     // Point +x at the sun, so the bright limb faces it.
