@@ -1,4 +1,5 @@
 import { cloudUniforms, CLOUD_OCCLUSION_GLSL } from './CloudOcclusion.js';
+import { CINEMATIC_LIGHTING_GLSL } from './CinematicLighting.js';
 import { LAND_TOUR_FADE_END_M } from './LandMotionLimits.js';
 import { hexToLinear, RULE_DEFAULTS, validateWaterRules } from './MaterialPackage.js';
 import { GUST_FRONTS, GUST_IDLE_SEC, GUST_SWEEP_SEC } from './Gust.js';
@@ -437,6 +438,7 @@ export const SCENE_FRAG = /* glsl */`
   ${FAR_TREE_DOTS_GLSL}
   ${HORIZON_GLSL}
   ${TERRAIN_LIGHTING_GLSL}
+  ${CINEMATIC_LIGHTING_GLSL}
   float hash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
   // Smooth value noise: a per-cell hash alone steps at every cell edge,
   // which a threshold (snow line, tree line) turns into a visible grid.
@@ -730,6 +732,11 @@ export const SCENE_FRAG = /* glsl */`
       // its own ripples.
       vec3 detail = dn * mix(0.15, 1.0, rockMask) * (1.0 - crowns);
       detail = mix(detail, sn.dn * 0.4, snow);
+      if (uCinematic.x > .5) {
+        // At a broad pixel footprint, geological faces carry the shape.
+        float footprint = max(length(dFdx(detailPosition)), length(dFdy(detailPosition)));
+        detail *= mix(1.0, .68, smoothstep(6.0, 40.0, footprint));
+      }
       nShade = normalize(n + detail);
       nShade = normalize(mix(nShade, farCrownNormal, farCrownWeight));
       rough = mix(mix(0.9, macro.b, rockMask), 0.6, snow);
@@ -786,6 +793,10 @@ export const SCENE_FRAG = /* glsl */`
     // and bounced off the lit relief around it (warm, directional), not only
     // the cold sky fill: keep a residual share so relief reads in shadow.
     float key = max((dot(nShade, uLightDir) + wrap) / (1.0 + wrap), 0.0) * mix(${SHADOW_RESIDUAL.toFixed(2)}, 1.0, sunVis);
+    if (uCinematic.x > .5 && !water) {
+      wrap = mix(uCinematic.w, uCinematic.w + .10, farCrownWeight);
+      key = max((dot(nShade, uLightDir) + wrap) / (1.0 + wrap), 0.0) * mix(uCinematic.z, 1.0, sunVis);
+    }
     // The opening relief shares the physical key. A dormant direction
     // must not change even its neutral surface shading during a gap.
     float keyOn = step(1e-10, dot(uLightColor, uLightColor));
@@ -802,9 +813,13 @@ export const SCENE_FRAG = /* glsl */`
     float receiverShadow = water ? 1.0 : stormShadow(opening);
     float ambientScale = water ? uAmbientScale : stormAmbient(uAmbientScale, uMoonAmbientScale, opening);
     vec3 hemi = mix(uSkyHorizon * 0.55, uSkyZenith, 0.5 + 0.5 * nShade.y) * ambientScale;
+    if (uCinematic.x > .5 && !water) hemi = cinematicFill(hemi, key);
     if (!water) hemi = receiverFill(hemi, uReceiverFillMin);
     float moonTransmission = moonCloudTransmission(vRenderedWorld, uLightDir);
     vec3 lit = albedo * (hemi * ao + uLightColor * moonTransmission * key * mix(0.85, 1.0, ao) * receiverShadow);
+    if (uCinematic.x > .5 && !water) {
+      lit = albedo * (hemi * ao + cinematicKey(uLightColor) * moonTransmission * key * mix(0.85, 1.0, ao) * receiverShadow);
+    }
     // The cast's lanterns light the ground around them.
     lit += albedo * actorLight(vRenderedWorld, nShade) * receiverShadow;
     // Broken cloud transmits the real solar key in broad moving swathes
@@ -878,13 +893,24 @@ export const SCENE_FRAG = /* glsl */`
     // distance air over everything, mist included.
     vec3 neutral = vec3(.42) * (.45 + .55 * key);
     vec3 physical = mix(neutral, tonemap(lit * uExposure), uNarrative.z);
+    if (uCinematic.x > .5) physical = cinematicGrade(physical);
     if (water || ice.y > .01) physical = mix(neutral, physical, uNarrative.w);
     vec3 color = mix(uSkyHorizon, physical, uNarrative.x);
     float mist = mistAmount(uCameraPos, vRenderedWorld) * uNarrative.y;
-    color = mix(color, mistColorAt(uCameraPos, vRenderedWorld), mist);
+    if (uCinematic.x > .5) {
+      mist = cinematicMistAmount(mist, dist, uMistFill);
+      air = cinematicAirAmount(dist, heightTerm, uAirDensity);
+    }
+    vec3 mistColor = mistColorAt(uCameraPos, vRenderedWorld);
+    vec3 airColor = uAirColor;
+    if (uCinematic.x > .5) {
+      mistColor = cinematicMistColor(mistColor, uSkyZenith, dist);
+      airColor = cinematicMistColor(airColor, uSkyZenith, dist);
+    }
+    color = mix(color, mistColor, mist);
     // Under a cloud sea the lake's mirror and glints are hidden with it.
     float clear = 1.0 - mist * uMistFill;
-    color = mix(color, uAirColor, clamp(air, 0.0, 0.96) * uNarrative.y);
+    color = mix(color, airColor, clamp(air, 0.0, 0.96) * uNarrative.y);
     color = mix(color, rainColor(), rainVeil(vRenderedWorld, dist) * 0.8 * uNarrative.y);
     // The lake mirrors the ground above it. The mirror image already holds
     // the air along its own (longer) path, so it replaces the water's colour
@@ -1011,6 +1037,8 @@ export function sceneUniforms(THREE, base) {
     uForestKeep: { value: 1 },
     uFarForest: { value: new THREE.Vector4(0, 0, RULE_DEFAULTS.treeScale, 0) },
     uForestSeed: { value: 0 },
+    uCinematic: { value: new THREE.Vector4(0, 1, .5, .18) },
+    uCinematicAir: { value: new THREE.Vector4(1, 1, 0, 0) },
     uExposure: { value: 2.0 },
     uNarrative: { value: new THREE.Vector4(1, 1, 1, 1) },
     uNarrativeInk: { value: 0 },

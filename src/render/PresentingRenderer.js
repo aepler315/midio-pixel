@@ -27,19 +27,21 @@ class PresentingRenderer {
   get diagnostics() { return this.output.diagnostics; }
   setPresentation(value) {
     this._requestedPresentation = value;
-    this.output.setPresentation(this._experience === 'trio' ? { ...value, pixelScale: 'original' } : value);
+    this.output.setPresentation(this._experience === 'trio' ? { ...value, cinematicPixel: false, pixelScale: 'original' } : value);
   }
   getCaptureSource() {
     const source = this._disposed ? null : this.output.getCaptureSource();
     // Recording and export consume the completed hybrid picture. Palette
     // diagnostics can still inspect the native terrain raster separately.
     const background = this._captureBackground;
-    return source && this.output.diagnostics.hybridSky ? { ...source, canvas: this.canvas,
+    return source && (this.output.diagnostics.hybridSky || this.output.presentation.cinematicPixel) ? { ...source, canvas: this.canvas,
       pixelCanvas: source.canvas, width: this.canvas.width, height: this.canvas.height,
-      pixelated: false, terrainPixelated: true, hybridSky: true,
+      pixelated: false, terrainPixelated: true, hybridSky: !!this.output.diagnostics.hybridSky, cinematicPixel: !!this.output.presentation.cinematicPixel,
       drawCaptureFrame: (ctx, width, height, destination) => {
         if (this._disposed || this.output.getCaptureSource() !== source) return false;
-        return compositePixelFrame(ctx, source.canvas, width, height, source.scaling, background, destination).hybridSky;
+        compositePixelFrame(ctx, source.canvas, width, height, source.scaling, background, destination,
+          this.output.presentation.cinematicPixel ? (ctx, fit) => this.output.drawForeground(ctx, source.canvas, fit, true) : null);
+        return true;
       } } : source;
   }
   draw(sim, alpha, { preparing = false } = {}) {
@@ -49,9 +51,15 @@ class PresentingRenderer {
     }
     this.output.setFrameContext?.({ worldKind: sim?.biomes?.world?.kind ?? null });
     const manager = sim?.biomes;
+    const cinematicPixel = !!this.output.presentation.cinematicPixel && this._experience !== 'trio';
+    if (manager) {
+      manager.cinematicPixel = cinematicPixel;
+      manager.setCinematicQuality?.(sim?.perf?.level ?? 0);
+    }
     const hybridSky = this._experience !== 'trio' && manager?.world?.kind === 'alpine'
       && !!this.inner.rangePresentation?.enabled && typeof manager.drawHighResolutionSky === 'function';
     if (manager) manager.highResolutionSky = hybridSky;
+    this.output.qualityLevel = sim?.perf?.level ?? 0;
     const source = this.output.beginFrame({ separate: hybridSky });
     if (!source) return this.output.diagnostics.frame;
     const scene = this.canvasRenderer;
@@ -60,7 +68,7 @@ class PresentingRenderer {
     scene.pixelPolicy = pixelRenderPolicy(this.output.presentation);
     this.inner.presentationPixelated = this.output.presentation.pixelated;
     const range = this.inner.rangePresentation;
-    if (range) { range.pixelated = !!this.output.presentation.pixelated; range.pixelPolicy = scene.pixelPolicy; }
+    if (range) { range.pixelated = !!this.output.presentation.pixelated; range.pixelPolicy = scene.pixelPolicy; range.cinematicPixel = cinematicPixel; }
     try { this.inner.draw(sim, alpha); }
     catch (err) { scene.discardFrameCaptures?.(); this.output.failFrame('scene-draw'); throw err; }
     if (this._experience !== 'trio' && this.inner.rangePresentation?.enabled && manager?._awaitingTerrain) {

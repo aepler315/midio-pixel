@@ -17,6 +17,7 @@ const help = `npm run review:landscape -- --out .smoke/review [--audio song.wav]
   --source DIR         Public source checkout (default: this repository)
   --snapshot DIR       Verified hash-addressed manifest.json + byte files (preserves case)
   --baseline DIR       Compare with a previous review using the same controls
+  --look LOOK          pixel or cinematic (default: pixel)
   --grid GRID          classic, classicPlus, medium, mediumPlus, detailed or both (default: both)
   --view ID            Default: teton-range-tour; other IDs select a static catalog view
   --start-ms N         Continuous capture start (default12000)
@@ -32,8 +33,8 @@ const help = `npm run review:landscape -- --out .smoke/review [--audio song.wav]
 Always headless. No --open or headful option. Output must be new. Artistic judgment remains unreviewed.
 `;
 export function parseReviewArgs(argv) {
-  const a = { source: root, grids: ['classic', 'detailed'], view: 'teton-range-tour', startMs: 12000, seconds: 2, fps: 12, liveSeconds: 0, mp4: true };
-  const values = { '--out': 'out', '--source': 'source', '--snapshot': 'snapshot', '--baseline': 'baseline', '--audio': 'audio', '--grid': 'grid', '--view': 'view', '--start-ms': 'startMs', '--seconds': 'seconds', '--fps': 'fps', '--live-seconds': 'liveSeconds', '--browser': 'browser', '--gpu-match': 'gpuMatch' };
+  const a = { source: root, look: 'pixel', grids: ['classic', 'detailed'], view: 'teton-range-tour', startMs: 12000, seconds: 2, fps: 12, liveSeconds: 0, mp4: true };
+  const values = { '--out': 'out', '--source': 'source', '--snapshot': 'snapshot', '--baseline': 'baseline', '--audio': 'audio', '--look': 'look', '--grid': 'grid', '--view': 'view', '--start-ms': 'startMs', '--seconds': 'seconds', '--fps': 'fps', '--live-seconds': 'liveSeconds', '--browser': 'browser', '--gpu-match': 'gpuMatch' };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     if (k === '--help' || k === '-h') return { help: true };
@@ -45,6 +46,7 @@ export function parseReviewArgs(argv) {
     const v = argv[++i]; if (!v || v.startsWith('--')) throw Error(`${k} requires a value`); a[values[k]] = v;
   }
   assert.ok(a.out, '--out is required');
+  assert.ok(['pixel', 'cinematic'].includes(a.look), 'look must be pixel or cinematic');
   for (const k of ['startMs', 'seconds', 'fps', 'liveSeconds']) a[k] = Number(a[k]);
   assert.ok(Number.isFinite(a.startMs) && a.startMs >= 0, 'invalid start-ms');
   assert.ok(a.seconds > 0 && a.seconds <= 10, 'seconds must be >0 through10');
@@ -58,7 +60,7 @@ export function makeReviewManifest(a, grid) {
   return normalizeManifest({ version: 1, settings: { width: 1280, height: 720, seed: 315, quality: 0,
     experience: 'landscape', view: a.view, ...(a.view === 'teton-range-tour' ? { tour: 'tetons' } : {}),
     fps: a.fps, mode: 'continuous', startMs: a.startMs,
-    presentation: { version: 2, look: 'pixel', quality: 'auto', palette: 'world', dither: .35,
+    presentation: { version: 2, look: a.look, quality: 'auto', palette: 'world', dither: .35,
       ditherMode: 'selective', pixelGrid: grid, pixelScale: 'original', scaling: 'fit' } },
   songs: [{ id: 'review-audio', fixture: 'contrast', seconds: Math.max(90, a.liveSeconds + 15, Math.ceil((a.startMs / 1000 + a.seconds + 1))),
     timesMs: [a.startMs, a.startMs + a.seconds * 1000], clips: [{ startMs: a.startMs, durationMs: a.seconds * 1000 }] }] });
@@ -70,13 +72,14 @@ export function requireHardwareRenderer(renderer, match) {
   assert.ok(typeof renderer === 'string' && renderer.length && !/swiftshader|software|llvmpipe|softpipe|basic render driver|\bwarp\b|^webkit webgl$/i.test(renderer), `Hardware GPU unavailable: ${renderer}`);
   if (match) assert.ok(renderer.toLowerCase().includes(match.toLowerCase()), `Actual GPU does not match ${match}: ${renderer}`);
 }
-export function validateReviewFrame(frame, grid) {
+export function validateReviewFrame(frame, grid, look = 'pixel') {
+  assert.equal(frame.presentation?.effectiveLook, look, 'actual selected look');
   assert.equal(frame.presentation?.pixelScale, 'original', 'actual Uniform scale');
   assert.equal(frame.presentation?.effectiveGrid?.id, grid, 'actual selected grid');
   assert.equal(frame.range?.active, true, 'actual terrain active'); assert.equal(frame.range?.runtime, 'ready');
   assert.deepEqual(frame.output, { width: 1280, height: 720 });
 }
-export function liveReviewGates({delivery,state,errors,seconds,startHeardMs}) {
+export function liveReviewGates({delivery,state,errors,seconds,startHeardMs,look = 'pixel'}) {
   const d=delivery?.delivered,r=state?.residency;
   return { noFailedPresentations: delivery?.failedPresentations===0, deliveredFrames: Number.isFinite(d?.frames)&&d.frames>0,
     deliveredP95: Number.isFinite(d?.p95Ms)&&d.p95Ms<=20,
@@ -84,6 +87,7 @@ export function liveReviewGates({delivery,state,errors,seconds,startHeardMs}) {
     visible: delivery?.excluded?.hidden===0,
     graphicsBudget: !!r&&Number.isFinite(r.budgetBytes)&&r.budgetBytes>0&&r.overcommits===0&&r.peakBytes<=r.budgetBytes&&r.budgetBytes<=512*1048576&&r.liveBytes+r.pendingBytes<=r.budgetBytes,
     heardClockAdvanced: Number.isFinite(state?.heardMs)&&Number.isFinite(startHeardMs)&&state.heardMs-startHeardMs>=seconds*1000*.9&&state.paused===false,
+    selectedLook: state?.presentation?.effectiveLook === look,
     browserErrors: Array.isArray(errors)&&errors.length===0 };
 }
 export async function loadReviewSnapshot(args) {
@@ -192,7 +196,7 @@ async function saveMedia(page, dir, row, settings, mp4, owner) {
 }
 async function liveReview(browser, url, audio, args, dir) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 720 }, serviceWorkers: 'block' });
-  const result = { status: 'failed', seconds: args.liveSeconds, errors: [], warnings: [], events: [], scope: 'Separate headless live delivery after the real upload and render-ready audio gate; initial asset wait is separate. No physical-display or foreground/OSfullscreen timing claim.' };
+  const result = { status: 'failed', look: args.look, seconds: args.liveSeconds, errors: [], warnings: [], events: [], scope: 'Separate headless live delivery after the real upload and render-ready audio gate; initial asset wait is separate. No physical-display or foreground/OSfullscreen timing claim.' };
   let browserDiagnostics;
   let failed = false;
   try {
@@ -203,7 +207,7 @@ async function liveReview(browser, url, audio, args, dir) {
     await page.goto(url + '/?experience=landscape&rangeTour=tetons&rangeRenderer=v2&seed=315');
     await page.locator('#titleSettings').evaluate(n => { n.open = true; });
     await page.locator('#lyricGroundingBtn').evaluate(n => { if (n.getAttribute('aria-pressed') === 'true') n.click(); });
-    await page.locator('#display-look').selectOption('pixel');await page.locator('#display-pixelGrid').selectOption(args.grids[0]);await page.locator('#stageFps').selectOption('60');if(await page.locator('#display-pixelScale').count())await page.locator('#display-pixelScale').selectOption('original');
+    await page.locator('#display-look').selectOption(args.look);await page.locator('#display-pixelGrid').selectOption(args.grids[0]);await page.locator('#stageFps').selectOption('60');if(await page.locator('#display-pixelScale').count())await page.locator('#display-pixelScale').selectOption('original');
     browserDiagnostics.setPhase('audio-analysis');
     const started = Date.now(); await page.locator('#fileInput').setInputFiles(audio);
     await page.waitForFunction(() => window.__SMW?.sim && (window.__SMW.renderReady || window.__SMW.rangeState?.active), null, { timeout: 180000 });
@@ -222,7 +226,7 @@ async function liveReview(browser, url, audio, args, dir) {
     }, args.liveSeconds);
     browserDiagnostics.setPhase('live-acceptance');
     const state = await diagnostics(page);if(args.hardware)requireHardwareRenderer(state.gpu,args.gpuMatch); assert.equal(state.playbackPreparing, false); assert.deepEqual(errors, []);
-    assert.equal(state.presentation.pixelScale, 'original');assert.equal(state.presentation.effectiveGrid.id,args.grids[0]);
+    assert.equal(state.presentation.effectiveLook,args.look,'actual selected look');assert.equal(state.presentation.pixelScale, 'original');assert.equal(state.presentation.effectiveGrid.id,args.grids[0]);
     Object.assign(result,{uploadToReadyMs,ready,delivery,state,errors,startHeardMs:ready.heardMs});result.targets={deliveredP95Ms:20,gapsOver100msPerMinute:1,maxAccountedGraphicsMiB:512,minHeardAdvanceFraction:.9};result.gates=liveReviewGates(result);result.status=Object.values(result.gates).every(Boolean)?'passed':'failed';assert.equal(result.status,'passed','live delivery or residency targets failed; observed metrics retained');return result;
   } catch(error) { failed = true; result.failure={message:error.message,stack:error.stack};throw error; }
   finally {
@@ -274,7 +278,7 @@ export async function runLandscapeReview(args, { launch = options => chromium.la
         run.environment = loaded.environment;console.log(`Actual renderer: ${loaded.environment.gl}`); if (args.hardware) requireHardwareRenderer(loaded.environment.gl, args.gpuMatch);
         row.durationMs = loaded.durationMs; row.schedule = captureSchedule(song, row.durationMs, settings); loaded.browserDiagnostics.setPhase('review-instrumentation'); await instrumentReview(loaded.page);
         for (const point of row.schedule) { loaded.browserDiagnostics.setPhase(`capture:${point.timeMs}ms`); const frame = await renderEvaluationFrame(loaded.page, point, settings); if (!frame) continue;
-          validateReviewFrame(frame, grid); assert.equal(blankFrame(frame.thumbnail), false); frame.review = await diagnostics(loaded.page);
+          validateReviewFrame(frame, grid, args.look); assert.equal(blankFrame(frame.thumbnail), false); frame.review = await diagnostics(loaded.page);
           const bytes = Buffer.from(frame.pngData, 'base64'); delete frame.pngData; frame.png = `${song.id}/frame-${String(row.frames.length).padStart(5, '0')}.png`; frame.sha256 = sha256(bytes); await fs.writeFile(path.join(dir, frame.png), bytes); row.frames.push(frame);if(args.ablateAurora&&row.frames.length===1)run.auroraAblation=await auroraAblation(loaded.page,dir,frame,point,settings); }
         loaded.browserDiagnostics.setPhase('paused-lifecycle'); run.lifecycle = await pausedLifecycle(loaded.page, grid); assert.equal(run.lifecycle.unchanged, true);
         run.absenceChecks = await loaded.page.evaluate(() => window.__landscapeReviewPaint); if (!args.recordBaseline) assert.ok(Object.values(run.absenceChecks).every(v => v.paints === 0), 'removed overlay painted');
