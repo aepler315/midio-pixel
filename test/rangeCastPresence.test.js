@@ -222,8 +222,8 @@ test('threads go up with their drape, each in the nearest band it lies over',()=
  RangeScene.prototype._setActors.call(scene,p,{actors:cast,timeMs:20000,qualityLevel:0,light:{night01:1}});
  const far=actors.threads.meshes.far.geometry, near=actors.threads.meshes.near.geometry;
  const n0=work.threads[0].points.length-1;
- assert.equal(far.drawRange.count,n0*2,'only the western thread stays far');
- assert.equal(near.drawRange.count,(work.threads[1].points.length-1+work.threads[2].points.length-1)*2,'the closing thread crosses near ground');
+ assert.equal(far.drawRange.count,n0*6,'only the western thread stays far');
+ assert.equal(near.drawRange.count,(work.threads[1].points.length-1+work.threads[2].points.length-1)*6,'the closing thread crosses near ground');
  for(let j=0;j<n0;j++){
   const q=work.threads[0].points[j], pos=far.attributes.position;
   assert.deepEqual([pos.getX(2*j),pos.getY(2*j),pos.getZ(2*j)].map(v=>+v.toFixed(3)),q.map(v=>+v.toFixed(3)),`drape point ${j}`);
@@ -266,7 +266,8 @@ test('the cast ride the drawn ground as it swells, from their true positions',()
  assert.match(lantern.vertexShader,/uCenter \+ vec3\(0\.0, groundLift\(uAnchor\), 0\.0\)/,'lifted at the light, not at its camera-ward centre');
  assert.match(motes.vertexShader,/target\.y \+= groundLift\(uFlyTarget\)/,'a kindled light is lifted too');
  assert.match(actors.sites.material.vertexShader,/at\.y \+= groundLift\(aPos\)/);
- assert.match(actors.threads.meshes.near.material.vertexShader,/q\.y \+= groundLift\(position\)/);
+ assert.match(actors.threads.meshes.near.material.vertexShader,/vec3 seat\(vec3 p\) \{ return p \+ vec3\(0\.0, groundLift\(p\), 0\.0\); \}/);
+ assert.match(actors.threads.meshes.near.material.vertexShader,/vec3 here = seat\(position\)/);
  // Threads lean 1.5 native pixels toward the eye, sized by the target's height.
  assert.ok(actors.threads.meshes.near.material.vertexShader.includes(`${THREAD_PUSH_PX.toFixed(2)} * mpp`));
  assert.equal(actors.threads.uniformsByBand.far.uTanHalf,actors.sites.uniforms.uTanHalf,'one view upload serves sites and threads');
@@ -300,5 +301,69 @@ test('a thread is drawn up to Midasus, smoothly, from nothing to all of it',()=>
  const actors=new ActorsGL(THREE,shared);
  const frag=actors.threads.meshes.far.material.fragmentShader;
  assert.ok(frag.includes(`(vReveal * ${(1+THREAD_FRONT).toFixed(3)} - vS) / ${THREAD_FRONT.toFixed(3)}`),'per fragment, the same front');
+ actors.dispose();
+});
+
+test('threads are mitred ribbons: every drape point a pair of vertices, segments sharing edges',()=>{
+ const actors=new ActorsGL(THREE,sceneUniforms(THREE,{}));
+ const pts=[[0,0,0],[100,10,0],[200,0,50],[300,5,50]];
+ actors.threads.setThreads([{points:pts,band:'mid'},{a:[0,0,0],b:[50,0,0],band:'mid'}]);
+ const g=actors.threads.meshes.mid.geometry, a=g.attributes, n=pts.length-1;
+ assert.equal(actors.threads.meshes.mid.isMesh,true,'triangles, not 1-px GL lines');
+ for(let j=0;j<=n;j++)for(const side of [0,1]){
+  const v=2*j+side;
+  assert.deepEqual([a.position.getX(v),a.position.getY(v),a.position.getZ(v)],pts[j]);
+  assert.deepEqual([a.aPrev.getX(v),a.aPrev.getY(v),a.aPrev.getZ(v)],pts[Math.max(0,j-1)],'its heading in');
+  assert.deepEqual([a.aNext.getX(v),a.aNext.getY(v),a.aNext.getZ(v)],pts[Math.min(n,j+1)],'and out (an end repeats itself)');
+  assert.equal(a.aSide.getX(v),side?1:-1);
+ }
+ // Two triangles per segment over its four corners; the next segment starts
+ // on the same pair of vertices, so no overlap beads the line.
+ const idx=Array.from({length:6},(_,i)=>g.index.getX(i));
+ assert.deepEqual(idx,[0,1,2,1,3,2]);
+ assert.deepEqual(Array.from({length:6},(_,i)=>g.index.getX(6+i)),[2,3,4,3,5,4]);
+ // A straight {a, b} thread follows, at the old 16 segments.
+ assert.equal(g.drawRange.count,(n+16)*6);
+ assert.equal(g.index.getX(n*6),(n+1)*2);
+ const vert=actors.threads.meshes.mid.material.vertexShader;
+ assert.match(vert,/c\.xy \+= m \* across \/ max\(dot\(m, nA\), 0\.5\)/,'mitred in target pixels');
+ assert.match(actors.threads.meshes.mid.material.fragmentShader,/ribbonCoverage\(vAcrossW \/ vW\)/,'the filtered profile across it');
+ actors.dispose();
+});
+
+test('lanterns, motes and placed lights are filtered over each pixel, never cut to a sub-pixel dot',()=>{
+ const actors=new ActorsGL(THREE,sceneUniforms(THREE,{}));
+ const [motes,lantern]=actors.groups.midio.children.map(c=>c.material);
+ for(const m of [motes,lantern,actors.sites.material])assert.doesNotMatch(m.fragmentShader,/discard/,'the quad holds the whole filtered light');
+ assert.match(lantern.fragmentShader,/spot\(vPx, 0\.0439 \* vR\)/);
+ assert.match(lantern.vertexShader,/float extent = spriteExtent\(vR\)/);
+ assert.match(motes.fragmentShader,/spot\(vPx, 0\.245 \* vR\)/);
+ assert.match(actors.sites.material.fragmentShader,/spot\(vPx, 0\.0745 \* vR\)/);
+ assert.match(actors.sites.material.fragmentShader,/spriteHalo\(vPx, vR\)/);
+ for(const m of [motes,lantern,actors.sites.material,actors.threads.meshes.far.material])assert.equal(m.uniforms.uViewportPx.value.isVector2,true);
+ actors.dispose();
+});
+
+test('an ascent strings its fixed line up to the light Broshi is fixing, and the fuse runs along it',()=>{
+ const shared={...actorUniforms(THREE),uCameraPos:{value:new THREE.Vector3()},uAirDensity:{value:0},uAirHeightFalloff:{value:0}};
+ const actors=new ActorsGL(THREE,shared), camera=new THREE.PerspectiveCamera(35,16/9,1,100000);
+ camera.position.set(0,1000,0);camera.lookAt(0,1000,-10000);camera.updateMatrixWorld();
+ const plan={job:'ascent',points:[[0,1000,-5000],[0,1500,-6000]],us:[0,1],waterU:0,landing:[0,1000,-5000],shoreStart:null};
+ const work=castWork(plan);
+ assert.equal(work.rope.length,65);
+ assert.ok(new THREE.Vector3(...work.rope[0]).distanceTo(new THREE.Vector3(...pathPosition(plan,0,{hoverM:1.5})))<1e-9);
+ const p={view:{id:'v'},actors,uniforms:shared,actorRoutes:{},castPlan:plan,castWork:work,data:null,scenes:{far:new THREE.Scene()}};
+ const scene={THREE,camera,_tileAt:()=>null,_castJob:RangeScene.prototype._castJob,_setCastLights:RangeScene.prototype._setCastLights};
+ // Lights 0..9 lit long ago, light 10 coming up for 400 of its 800 ms.
+ const times=work.marks.map((m,k)=>k<10?0:k===10?19600:Infinity);
+ const state={p:0.6,offsets:{broshi:0.05,midasus:0.1},shelter01:0,payoff01:0,fuse01:0,camps:0,climax:false};
+ const draw=(st)=>RangeScene.prototype._setActors.call(scene,p,{actors:{presence:1,...Object.fromEntries(ACTOR_IDS.map(id=>[id,{glow:0.5,travel:1}])),jobs:{v:st},schedule:{kindleTimes:()=>times,views:{v:{camps:[]}}}},timeMs:20000,qualityLevel:0,light:{night01:1}});
+ draw(state);
+ const u=actors.rope.uniformsByBand.far;
+ assert.equal(actors.rope.meshes.far.visible,true);
+ assert.ok(Math.abs(u.uReveal.value[0]-(10.5/33))<1e-9,`front ${u.uReveal.value[0]}: halfway from light 9 to light 10`);
+ assert.equal(u.uFlare.value[0],-10,'no fuse');
+ draw({...state,fuse01:0.4,climax:true});
+ assert.equal(u.uFlare.value[0],0.4,'the fuse runs along the rope');
  actors.dispose();
 });

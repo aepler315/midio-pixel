@@ -13,6 +13,7 @@ import { BANDS } from './TerrainMesh.js';
 import { THREAD_SEGMENTS, THREAD_SEGMENTS_MAX } from './CastJobs.js';
 import { MIST_GLSL, EMITTER_GLSL, MIST_SAMPLES } from './RangeAtmosphere.js';
 import { DEFORM_GLSL, GROUND_LIFT_GLSL, deformUniforms } from './TerrainDeform.js';
+import { CAST_RASTER_GLSL, THREAD_HALF_PX } from './CastRaster.js';
 
 export const ACTOR_COUNT = 3;
 /** Small lights that follow an actor along its route. */
@@ -22,6 +23,12 @@ export const ACTOR_FLY_MOTES = 12;
 /** Placed lights (per view, over every band) and threads. */
 export const SITE_LIGHTS_MAX = 48;
 export const SURVEY_THREADS_MAX = 12;
+/** The looks are sized in pixels of a 720 px stage. */
+const STAGE_PX = 720;
+/** Core radius of a lantern and of a placed light (fractions of radius). */
+const LANTERN_CORE = 0.0439, SITE_CORE = 0.0745;
+/** A mote's dot (fraction of its radius). */
+const MOTE_DOT = 0.245;
 
 /** Shared light, wake and parting uniforms (merged into the terrain's). */
 export function actorUniforms(THREE) {
@@ -126,33 +133,43 @@ const LANTERN_VERT = /* glsl */`
   uniform vec3 uUp;
   uniform float uMpp;
   uniform float uHaloPx;
-  out vec2 vQ;
+  uniform vec2 uViewportPx;
+  out vec2 vPx; // from the lantern's centre, in target pixels
+  out float vR; // its radius, in target pixels
   out float vAir;
+  ${CAST_RASTER_GLSL}
   void main() {
-    vQ = position.xy * 2.0;
+    // Target pixels per stage pixel, and a quad wide enough for the
+    // filtered glow however small the lantern is on the grid.
+    float k = uViewportPx.y / ${STAGE_PX.toFixed(1)};
+    vR = uHaloPx * k;
+    float extent = spriteExtent(vR);
+    vPx = position.xy * 2.0 * extent;
     vec3 center = uCenter + vec3(0.0, groundLift(uAnchor), 0.0);
-    vec3 p = center + (uRight * position.x + uUp * position.y) * 2.0 * uHaloPx * uMpp;
+    vec3 p = center + (uRight * position.x + uUp * position.y) * 2.0 * extent * uMpp / k;
     vAir = airAt(center);
     gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
   }
 `;
 
 // Display-domain output, premultiplied: added over the land, and over the
-// empty sky as a glow the partition copy lays on what is behind.
+// empty sky as a glow the partition copy lays on what is behind. Filtered
+// over each pixel (CastRaster.js), so it keeps its brightness wherever it
+// falls on the grid.
 const LANTERN_FRAG = /* glsl */`
   precision highp float;
   uniform vec3 uColor;
   uniform float uGlow;
   uniform float uPresence;
   uniform float uSeen;
-  in vec2 vQ;
+  in vec2 vPx;
+  in float vR;
   in float vAir;
   out vec4 outColor;
+  ${CAST_RASTER_GLSL}
   void main() {
-    float r = length(vQ);
-    if (r > 1.0) discard;
-    float core = exp(-r * r * 260.0);
-    float halo = exp(-r * 4.5) * (1.0 - r) * (0.25 + 0.75 * uGlow);
+    float core = spot(vPx, ${LANTERN_CORE.toFixed(4)} * vR);
+    float halo = spriteHalo(vPx, vR) * (0.25 + 0.75 * uGlow);
     vec3 c = (vec3(1.0) * core * 0.9 + uColor * (core * 0.6 + halo * 0.55)) * uPresence * (1.0 - 0.85 * vAir) * uSeen;
     outColor = vec4(c, clamp(max(c.r, max(c.g, c.b)), 0.0, 1.0));
   }
@@ -175,11 +192,14 @@ const MOTE_VERT = /* glsl */`
   // How much of the fog lets the lantern and the light it kindles be seen.
   uniform float uSeen;
   uniform float uSeenFly;
+  uniform vec2 uViewportPx;
   in vec4 aSeed;
-  out vec2 vQ;
+  out vec2 vPx;
+  out float vR;
   out float vBright;
   out float vAir;
   out float vSeen;
+  ${CAST_RASTER_GLSL}
   void main() {
     float t = uTime * (0.25 + aSeed.y * 0.5);
     vec2 wander = vec2(sin(t + aSeed.z * 6.2832) + 0.5 * sin(t * 2.3 + aSeed.w * 9.0),
@@ -195,8 +215,11 @@ const MOTE_VERT = /* glsl */`
     }
     vec3 c = mix(base, target, fly);
     float mpp = mix(uMpp, uMpp * length(uFlyTarget - uCameraPos) / max(length(uCenter - uCameraPos), 1.0), fly);
-    vQ = position.xy * 2.0;
-    vec3 p = c + (uRight * position.x + uUp * position.y) * 2.2 * 2.0 * mpp;
+    float k = uViewportPx.y / ${STAGE_PX.toFixed(1)};
+    vR = 2.2 * k;
+    float extent = spriteExtent(vR);
+    vPx = position.xy * 2.0 * extent;
+    vec3 p = c + (uRight * position.x + uUp * position.y) * 2.0 * extent * mpp / k;
     vBright = (0.45 + 0.4 * fly * (1.0 - fly) * 4.0) * (0.75 + 0.25 * sin(uTime * 3.0 + aSeed.z * 40.0)) * (1.0 - smoothstep(0.85, 1.0, fly));
     vAir = airAt(c);
     vSeen = mix(uSeen, uSeenFly, fly);
@@ -208,15 +231,17 @@ const MOTE_FRAG = /* glsl */`
   precision highp float;
   uniform vec3 uColor;
   uniform float uPresence;
-  in vec2 vQ;
+  in vec2 vPx;
+  in float vR;
   in float vBright;
   in float vAir;
   in float vSeen;
   out vec4 outColor;
+  ${CAST_RASTER_GLSL}
   void main() {
-    float r = length(vQ);
-    if (r > 1.0) discard;
-    float dot1 = exp(-r * r * 5.0) * (1.0 - r);
+    // Far below a pixel on the grid: drawn at the filter's width with its
+    // own energy, so a mote glides between pixels instead of popping.
+    float dot1 = spot(vPx, ${MOTE_DOT.toFixed(3)} * vR);
     vec3 c = mix(uColor, vec3(1.0), 0.35) * dot1 * vBright * uPresence * (1.0 - 0.85 * vAir) * vSeen;
     outColor = vec4(c, clamp(max(c.r, max(c.g, c.b)), 0.0, 1.0));
   }
@@ -232,19 +257,21 @@ const SITE_VERT = /* glsl */`
   uniform vec3 uUp;
   uniform float uPxPerTan;
   uniform float uTanHalf;
+  uniform vec2 uViewportPx;
   in vec3 aPos;
   in vec3 aColor;
   in vec4 aLook;
   in vec2 aState;
-  out vec2 vQ;
+  out vec2 vPx;
+  out float vR;
   out vec3 vColor;
   out vec3 vRing;
   out float vLit;
   out float vAir;
   out float vTwo;
   out float vSeen;
+  ${CAST_RASTER_GLSL}
   void main() {
-    vQ = position.xy * 2.0;
     vLit = aState.x * (1.0 + aState.y * 1.5);
     vColor = aColor;
     vRing = aLook.yzw;
@@ -258,7 +285,11 @@ const SITE_VERT = /* glsl */`
     float px = aLook.x * (1.0 + aState.y * 0.8);
     float push = min(dist * 0.25, 3.0 * px * mpp);
     vec3 c = at + normalize(uCameraPos - at) * push;
-    vec3 p = c + (uRight * position.x + uUp * position.y) * 2.0 * px * mpp * (dist - push) / dist;
+    float k = uViewportPx.y / uPxPerTan;
+    vR = px * k;
+    float extent = spriteExtent(vR);
+    vPx = position.xy * 2.0 * extent;
+    vec3 p = c + (uRight * position.x + uUp * position.y) * 2.0 * extent / k * mpp * (dist - push) / dist;
     vAir = airAt(at);
     // Fog at the light itself, not at the halo's camera-ward centre.
     vSeen = aState.x > 0.0 ? emitterSeen(at) : 0.0;
@@ -269,7 +300,8 @@ const SITE_VERT = /* glsl */`
 const SITE_FRAG = /* glsl */`
   precision highp float;
   uniform float uGain;
-  in vec2 vQ;
+  in vec2 vPx;
+  in float vR;
   in vec3 vColor;
   in vec3 vRing;
   in float vLit;
@@ -277,11 +309,11 @@ const SITE_FRAG = /* glsl */`
   in float vTwo;
   in float vSeen;
   out vec4 outColor;
+  ${CAST_RASTER_GLSL}
   void main() {
-    float r = length(vQ);
-    if (r > 1.0) discard;
-    float core = exp(-r * r * 90.0);
-    float halo = exp(-r * 5.0) * (1.0 - r);
+    float r = length(vPx) / vR;
+    float core = spot(vPx, ${SITE_CORE.toFixed(4)} * vR);
+    float halo = spriteHalo(vPx, vR);
     vec3 ring = mix(vColor, vRing, vTwo * smoothstep(0.08, 0.22, r));
     vec3 c = (vec3(1.0) * core * 0.7 + vColor * core * 0.5 + ring * halo * 0.6) * vLit * uGain * (1.0 - 0.85 * vAir) * vSeen;
     outColor = vec4(c, clamp(max(c.r, max(c.g, c.b)), 0.0, 1.0));
@@ -303,32 +335,70 @@ export function threadShown(s, reveal) {
 }
 
 // A survey thread: a faint line in Midasus's hue, drawn from one end to
-// the other as she flies it.
+// the other as she flies it. A ribbon THREAD_HALF_PX either side of its
+// centre in target pixels, mitred at every drape point so neighbouring
+// segments share edges (added light, so an overlap would bead the line),
+// with the filtered profile across it (CastRaster ribbonCoverage).
 const THREAD_VERT = /* glsl */`
   ${AIR}
   ${FOG}
   ${LIFT}
   uniform float uReveal[${SURVEY_THREADS_MAX}];
   uniform float uBright[${SURVEY_THREADS_MAX}];
+  uniform float uFlare[${SURVEY_THREADS_MAX}];
   uniform float uTanHalf;
   uniform vec2 uViewportPx;
+  in vec3 aPrev;
+  in vec3 aNext;
+  in float aSide;
   in vec2 aThread;
   out float vS;
   out float vReveal;
   out float vBright;
+  out float vFlare;
   out float vAir;
-  void main() {
-    int k = int(aThread.x + 0.5);
-    vec3 q = position;
-    q.y += groundLift(position);
+  // Distance across the ribbon (px) times w, and w: their ratio interpolates
+  // linearly on screen (GLSL ES 3.00 has no noperspective).
+  out float vAcrossW;
+  out float vW;
+  // On the drawn ground (lifted with the mesh).
+  vec3 seat(vec3 p) { return p + vec3(0.0, groundLift(p), 0.0); }
+  // ...then a little toward the eye, so the coarser mesh between drape
+  // points and the depth step never cut it.
+  vec4 toClip(vec3 q) {
     float dist = max(1.0, length(q - uCameraPos));
     float mpp = 2.0 * dist * uTanHalf / max(uViewportPx.y, 1.0);
     q += normalize(uCameraPos - q) * min(dist * 0.25, ${THREAD_PUSH_PX.toFixed(2)} * mpp);
+    return projectionMatrix * viewMatrix * vec4(q, 1.0);
+  }
+  vec2 toPx(vec4 c) { return c.xy / c.w * 0.5 * uViewportPx; }
+  void main() {
+    int k = int(aThread.x + 0.5);
+    vec3 here = seat(position);
+    vec4 c = toClip(here);
+    vec4 cp = toClip(seat(aPrev)), cn = toClip(seat(aNext));
+    if (cp.w <= 0.0) cp = c;
+    if (cn.w <= 0.0) cn = c;
+    vec2 s = toPx(c), dA = s - toPx(cp), dB = toPx(cn) - s;
+    // An end takes its one segment's heading.
+    if (dot(dA, dA) < 1e-8) dA = dB;
+    if (dot(dB, dB) < 1e-8) dB = dA;
+    if (dot(dA, dA) < 1e-8) { dA = vec2(1.0, 0.0); dB = dA; }
+    vec2 nA = normalize(vec2(-dA.y, dA.x)), nB = normalize(vec2(-dB.y, dB.x));
+    vec2 m = nA + nB;
+    m = dot(m, m) < 1e-6 ? nA : normalize(m);
+    // The mitre's corner lies THREAD_HALF_PX from both segments' centre
+    // lines; a hairpin's is clamped (a slight overlap there).
+    float across = aSide * ${THREAD_HALF_PX.toFixed(3)};
+    c.xy += m * across / max(dot(m, nA), 0.5) / (0.5 * uViewportPx) * c.w;
+    vAcrossW = across * c.w;
+    vW = c.w;
     vS = aThread.y;
     vReveal = uReveal[k];
-    vBright = uReveal[k] > 0.0 ? uBright[k] * emitterSeen(q) : 0.0;
-    vAir = airAt(q);
-    gl_Position = projectionMatrix * viewMatrix * vec4(q, 1.0);
+    vFlare = uFlare[k];
+    vBright = uReveal[k] > 0.0 ? uBright[k] * emitterSeen(here) : 0.0;
+    vAir = airAt(here);
+    gl_Position = c;
   }
 `;
 
@@ -339,12 +409,19 @@ const THREAD_FRAG = /* glsl */`
   in float vS;
   in float vReveal;
   in float vBright;
+  in float vFlare;
   in float vAir;
+  in float vAcrossW;
+  in float vW;
   out vec4 outColor;
+  ${CAST_RASTER_GLSL}
   void main() {
     float shown = clamp((vReveal * ${(1 + THREAD_FRONT).toFixed(3)} - vS) / ${THREAD_FRONT.toFixed(3)}, 0.0, 1.0) * vBright;
     if (shown <= 0.0) discard;
-    vec3 c = uColor * shown * uGain * (1.0 - 0.85 * vAir);
+    // A brightness that runs along the line (the fixed line's fuse).
+    float f = (vS - vFlare) / 0.06;
+    float flare = 1.0 + 1.5 * exp(-f * f);
+    vec3 c = uColor * shown * ribbonCoverage(vAcrossW / vW) * flare * uGain * (1.0 - 0.85 * vAir);
     outColor = vec4(c, clamp(max(c.r, max(c.g, c.b)), 0.0, 1.0));
   }
 `;
@@ -462,33 +539,42 @@ export class SiteLights {
 }
 
 /**
- * Midasus's survey threads in one view: line strips draped between site
- * pairs, one set per band. `setThreads(list)` lays them out ({ points, band }
- * -- up to THREAD_SEGMENTS_MAX + 1 points -- or a straight { a, b });
- * `setState(k, reveal, bright)`, where reveal runs along the points' index
- * fraction, the way Midasus flies them.
+ * Midasus's survey threads in one view (and, with `max` 1, an ascent's
+ * fixed line): ribbons draped between site pairs, one set per band.
+ * `setThreads(list)` lays them out ({ points, band } -- up to
+ * THREAD_SEGMENTS_MAX + 1 points -- or a straight { a, b });
+ * `setState(k, reveal, bright, flareAt)`, where reveal and flareAt run along
+ * the points' index fraction, the way Midasus flies them.
  */
 export class SurveyThreads {
   /** `shared.uTanHalf`: the frame's vertical half-angle tangent (the site
    *  lights' own, so one upload serves both). */
-  constructor(THREE, shared) {
+  constructor(THREE, shared, { max = SURVEY_THREADS_MAX } = {}) {
     this.THREE = THREE;
+    this.max = max;
     this.meshes = {};
     this._bands = [];
     this.uniformsByBand = {};
     const sky = sharedSky(THREE, shared);
     const tanHalf = shared.uTanHalf || { value: 0.3 };
+    // Every drape point is two vertices, one either side of the ribbon.
+    const verts = max * (THREAD_SEGMENTS_MAX + 1) * 2;
     for (const band of BANDS) {
       const u = {
         ...sky, uTanHalf: tanHalf,
         uReveal: { value: new Array(SURVEY_THREADS_MAX).fill(0) }, uBright: { value: new Array(SURVEY_THREADS_MAX).fill(0) },
+        uFlare: { value: new Array(SURVEY_THREADS_MAX).fill(-10) },
         uColor: { value: new THREE.Color() }, uGain: { value: 1 },
       };
       const g = new THREE.BufferGeometry();
-      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(SURVEY_THREADS_MAX * THREAD_SEGMENTS_MAX * 2 * 3), 3));
-      g.setAttribute('aThread', new THREE.BufferAttribute(new Float32Array(SURVEY_THREADS_MAX * THREAD_SEGMENTS_MAX * 2 * 2), 2));
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(verts * 3), 3));
+      g.setAttribute('aPrev', new THREE.BufferAttribute(new Float32Array(verts * 3), 3));
+      g.setAttribute('aNext', new THREE.BufferAttribute(new Float32Array(verts * 3), 3));
+      g.setAttribute('aSide', new THREE.BufferAttribute(new Float32Array(verts), 1));
+      g.setAttribute('aThread', new THREE.BufferAttribute(new Float32Array(verts * 2), 2));
+      g.setIndex(new THREE.BufferAttribute(new Uint16Array(max * THREAD_SEGMENTS_MAX * 6), 1));
       g.setDrawRange(0, 0);
-      const mesh = new THREE.LineSegments(g, new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms: u,
+      const mesh = new THREE.Mesh(g, new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms: u,
         vertexShader: THREAD_VERT, fragmentShader: THREAD_FRAG, ...blendFor(THREE) }));
       mesh.frustumCulled = false; mesh.renderOrder = 3; mesh.layers.set(3);
       this.meshes[band] = mesh;
@@ -496,42 +582,57 @@ export class SurveyThreads {
     }
   }
 
-  static bytes() { return BANDS.length * SURVEY_THREADS_MAX * THREAD_SEGMENTS_MAX * 2 * (3 + 2) * 4; }
+  static bytes(max = SURVEY_THREADS_MAX) {
+    return BANDS.length * max * ((THREAD_SEGMENTS_MAX + 1) * 2 * (3 + 3 + 3 + 1 + 2) * 4 + THREAD_SEGMENTS_MAX * 6 * 2);
+  }
 
   setThreads(list) {
     const counts = Object.fromEntries(BANDS.map((b) => [b, 0]));
     const used = Object.fromEntries(BANDS.map((b) => [b, 0])); // vertices
-    this._bands = list.slice(0, SURVEY_THREADS_MAX).map((thread) => {
+    const drawn = Object.fromEntries(BANDS.map((b) => [b, 0])); // indices
+    this._bands = list.slice(0, this.max).map((thread) => {
       const band = BANDS.includes(thread.band) ? thread.band : 'far';
       const k = counts[band]++;
-      const g = this.meshes[band].geometry, pos = g.attributes.position, tag = g.attributes.aThread;
+      const g = this.meshes[band].geometry, a = g.attributes, index = g.index;
       // Each thread keeps its own drape (castWork sizes it to the mesh).
       const pts = thread.points?.length >= 2 ? thread.points : null;
       const n = pts ? Math.min(THREAD_SEGMENTS_MAX, pts.length - 1) : THREAD_SEGMENTS;
-      const at = (j) => pts ? pts[Math.round((j / n) * (pts.length - 1))]
-        : [0, 1, 2].map((c) => thread.a[c] + (thread.b[c] - thread.a[c]) * (j / n));
-      for (let j = 0; j < n; j++) {
-        const v = used[band] + j * 2;
-        pos.setXYZ(v, ...at(j)); pos.setXYZ(v + 1, ...at(j + 1));
-        tag.setXY(v, k, j / n); tag.setXY(v + 1, k, (j + 1) / n);
+      const at = (j) => pts ? pts[Math.round((Math.max(0, Math.min(n, j)) / n) * (pts.length - 1))]
+        : [0, 1, 2].map((c) => thread.a[c] + (thread.b[c] - thread.a[c]) * (Math.max(0, Math.min(n, j)) / n));
+      const v0 = used[band];
+      for (let j = 0; j <= n; j++) {
+        for (const side of [0, 1]) {
+          const v = v0 + j * 2 + side;
+          a.position.setXYZ(v, ...at(j)); a.aPrev.setXYZ(v, ...at(j - 1)); a.aNext.setXYZ(v, ...at(j + 1));
+          a.aSide.setX(v, side ? 1 : -1);
+          a.aThread.setXY(v, k, j / n);
+        }
+        if (j === n) break;
+        // Two triangles per segment over its four corners.
+        const l0 = v0 + j * 2, i = drawn[band] + j * 6;
+        index.setX(i, l0); index.setX(i + 1, l0 + 1); index.setX(i + 2, l0 + 2);
+        index.setX(i + 3, l0 + 1); index.setX(i + 4, l0 + 3); index.setX(i + 5, l0 + 2);
       }
-      used[band] += n * 2;
+      used[band] += (n + 1) * 2;
+      drawn[band] += n * 6;
       return { band, k };
     });
     for (const band of BANDS) {
       const g = this.meshes[band].geometry;
-      g.setDrawRange(0, used[band]);
-      g.attributes.position.needsUpdate = true; g.attributes.aThread.needsUpdate = true;
+      g.setDrawRange(0, drawn[band]);
+      for (const attr of Object.values(g.attributes)) attr.needsUpdate = true;
+      g.index.needsUpdate = true;
       this.meshes[band].visible = counts[band] > 0;
     }
   }
 
-  setState(k, reveal, bright) {
+  setState(k, reveal, bright, flareAt = -10) {
     const slot = this._bands[k];
     if (!slot) return;
     const u = this.uniformsByBand[slot.band];
     u.uReveal.value[slot.k] = reveal;
     u.uBright.value[slot.k] = bright;
+    u.uFlare.value[slot.k] = flareAt;
   }
 
   setLook(color, gain) {
@@ -601,10 +702,13 @@ export class ActorsGL {
     });
     this.sites = new SiteLights(THREE, shared);
     this.threads = new SurveyThreads(THREE, { ...shared, uTanHalf: this.sites.uniforms.uTanHalf });
+    // An ascent's fixed line: one rope from the landing up to the lights
+    // Broshi has fixed, the lights themselves its beads.
+    this.rope = new SurveyThreads(THREE, { ...shared, uTanHalf: this.sites.uniforms.uTanHalf }, { max: 1 });
   }
 
   /** Bytes of the instance buffers (residency accounting). */
-  static bytes() { return ACTOR_IDS.length * ACTOR_MOTES * 4 * 4 + 180 + SiteLights.bytes() + SurveyThreads.bytes(); }
+  static bytes() { return ACTOR_IDS.length * ACTOR_MOTES * 4 * 4 + 180 + SiteLights.bytes() + SurveyThreads.bytes() + SurveyThreads.bytes(1); }
 
   dispose() {
     for (const g of Object.values(this.groups)) g.removeFromParent();
@@ -612,5 +716,6 @@ export class ActorsGL {
     for (const g of this._geometries) g.dispose();
     this.sites.dispose();
     this.threads.dispose();
+    this.rope.dispose();
   }
 }

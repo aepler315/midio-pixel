@@ -334,13 +334,15 @@ export function threadSegments(data, a, b) {
 
 /**
  * What a plan builds, as the schedule needs it: `lights` (fixed lines on an
- * ascent; cairns and buoys for lamplighters), `threads` (lamplighters), and
+ * ascent; cairns and buoys for lamplighters), `threads` (lamplighters), the
+ * ascent's fixed-line `rope` (points, or null), and
  * `marks`, one per light then per thread, for CastSchedule.kindleTimes.
  * Lamplighters also get each walker's sites and the progress it reaches
  * them at. Positions are on the drawn ground or water.
  */
 export function castWork(plan, { data = null, waterLevelM = null } = {}) {
   const lights = [], threads = [], marks = [], walkers = {};
+  let rope = null;
   if (plan?.job === 'ascent') {
     const low = new Set(Array.from({ length: FIXED_LIGHTS_LOW }, (_, j) => Math.round(((j + 0.5) * FIXED_LIGHTS) / FIXED_LIGHTS_LOW - 0.5)));
     for (let k = 0; k < FIXED_LIGHTS; k++) {
@@ -348,6 +350,11 @@ export function castWork(plan, { data = null, waterLevelM = null } = {}) {
       lights.push({ pos: pathPosition(plan, u, { data, waterLevelM, hoverM: 1.5 }), kind: 'line', actor: 'broshi', u, low: low.has(k), mark: marks.length });
       marks.push({ p: u, follow: 'broshi', lane: 'broshi' });
     }
+    // The fixed line itself, from the landing to the summit at the lights'
+    // height: its index fraction is the climb's, (u - waterU) / (1 - waterU),
+    // so light k sits on it at (k + 1) / (FIXED_LIGHTS + 1).
+    rope = Array.from({ length: THREAD_SEGMENTS_MAX + 1 }, (_, i) =>
+      pathPosition(plan, plan.waterU + ((1 - plan.waterU) * i) / THREAD_SEGMENTS_MAX, { data, waterLevelM, hoverM: 1.5 }));
   } else if (plan?.job === 'lamplighters') {
     const lake = plan.buoys.length > 0;
     const nc = plan.cairns.length, nb = plan.buoys.length;
@@ -397,5 +404,5 @@ export function castWork(plan, { data = null, waterLevelM = null } = {}) {
       marks.push(closing ? { p: 1, lane: 'midasus' } : { after: [lights[i].mark, lights[j].mark], lane: 'midasus' });
     }
   }
-  return Object.freeze({ lights, threads, marks, walkers });
+  return Object.freeze({ lights, threads, marks, walkers, rope });
 }

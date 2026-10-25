@@ -1156,7 +1156,7 @@ export class RangeScene {
         // wanders gets them here (others build them only if ever needed).
         const routes = plan.job === 'wander' ? actorRoutes(cpu.data, view, { waterLevelM, seed: castSeed }) : null;
         const work = castWork(plan, { data: cpu.data, waterLevelM });
-        for (const band of BANDS) scenes[band].add(actors.sites.meshes[band], actors.threads.meshes[band]);
+        for (const band of BANDS) scenes[band].add(actors.sites.meshes[band], actors.threads.meshes[band], actors.rope.meshes[band]);
         // Per-band depth scenes for travel frames, where a side's nearer
         // bands are drawn only in some columns (same geometry and material;
         // a mesh has one parent, so these are separate mesh objects).
@@ -2049,7 +2049,7 @@ export class RangeScene {
   /** The lights the job has left in this view, and Midasus's threads. */
   _setCastLights(p, frame, job, presence, dark, right, up, tanHalf) {
     const THREE = this.THREE;
-    const sites = p.actors?.sites, threads = p.actors?.threads;
+    const sites = p.actors?.sites, threads = p.actors?.threads, rope = p.actors?.rope;
     if (!sites || !threads) return;
     const work = p.castWork, schedule = frame.actors?.schedule;
     // Lay the sites out once per schedule: the job's lights, then a camp
@@ -2068,8 +2068,9 @@ export class RangeScene {
       // Each thread keeps its drape, in the nearest band any of it lies
       // over: every partition tests against all bands' depth, so only a
       // nearer partition drawn later could paint over a stretch of it.
-      threads.setThreads((work?.threads || []).map(th => ({ points: th.points, a: th.a, b: th.b,
-        band: BANDS[Math.max(-1, ...th.points.map(q => BANDS.indexOf(bandAt(q))))] })));
+      const nearest = (points) => BANDS[Math.max(-1, ...points.map(q => BANDS.indexOf(bandAt(q))))];
+      threads.setThreads((work?.threads || []).map(th => ({ points: th.points, a: th.a, b: th.b, band: nearest(th.points) })));
+      rope?.setThreads(work?.rope ? [{ points: work.rope, band: nearest(work.rope) }] : []);
     }
     const made = job?.state.camps ?? 0;
     const campFrom = Math.max(0, Math.min(made, p.castCamps.length) - campSlots);
@@ -2100,6 +2101,24 @@ export class RangeScene {
       sites.setState(k, lit, f);
     });
     for (let j = 0; j < Math.min(campSlots, p.castCamps.length - campFrom); j++) sites.setState(lights.length + j, made > campFrom + j ? 1 : 0);
+    if (rope && work?.rope) {
+      // The rope runs up to the light Broshi is fixing, growing into it as
+      // it comes up, and to the summit with the payoff; the fuse runs along it.
+      const climb = (u) => (u - p.castPlan.waterU) / (1 - p.castPlan.waterU);
+      let front = 0, done = 0, last = 0;
+      lights.forEach((l, k) => {
+        if (!job || l.kind !== 'line') return;
+        const age = job.since(l.mark), from = k ? climb(lights[k - 1].u) : 0;
+        last = climb(l.u);
+        if (age < 0) return;
+        front = Math.max(front, from + (last - from) * Math.min(1, age / 800));
+        done++;
+      });
+      const payoff = job?.state.payoff01 ?? 0;
+      if (done && done === lights.length) front = Math.max(front, last + (1 - last) * payoff);
+      rope.setState(0, front, 0.55 + 0.45 * payoff, fuse > 0 && fuse < 1 ? fuse : -10);
+      rope.setLook(hue('broshi', 0.7), 0.6 * gain);
+    }
     (work?.threads || []).forEach((th, k) => {
       if (!job) { threads.setState(k, 0, 0); return; }
       const age = job.since(th.mark);
