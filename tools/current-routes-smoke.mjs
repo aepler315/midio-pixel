@@ -117,6 +117,24 @@ async function probeBrowserRenderer(browser) {
   } finally { await context.close(); }
 }
 
+/** The route's evidence image, taken after its playback evidence passed.
+ *  A page screenshot first. Under software WebGL the Teton tour draws a
+ *  few frames a second and can starve the compositor capture past its
+ *  timeout although the page is live; the presented stage canvas (the
+ *  frame playbackSample just measured) is then saved instead, and the
+ *  report says which. */
+async function routeEvidenceImage(page, file) {
+  try {
+    await page.screenshot({ path: file, timeout: 30000 });
+    return 'page-screenshot';
+  } catch (error) {
+    const dataUrl = await bestEffort(page.evaluate(() => document.getElementById('stage')?.toDataURL('image/png') || null), 15000);
+    if (!dataUrl) throw error;
+    await fs.writeFile(file, Buffer.from(dataUrl.split(',')[1], 'base64'));
+    return 'stage-canvas (page screenshot timed out)';
+  }
+}
+
 async function exerciseRoute(browser, url, audioPath, row, timeoutMs, outDir, configuration) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 720 },
     deviceScaleFactor: 1, serviceWorkers: 'block' });
@@ -191,7 +209,7 @@ async function exerciseRoute(browser, url, audioPath, row, timeoutMs, outDir, co
       row.samples.push(await playbackSample(page));
       validateRoutePlayback(row.id, row.samples);
       if (configuration.hardwareRequired) verifyHardwareRoute(row, configuration.gpuMatch);
-      await page.screenshot({ path: path.join(outDir, `${row.id}.png`) });
+      row.evidenceImage = await routeEvidenceImage(page, path.join(outDir, `${row.id}.png`));
       assert.deepEqual(row.errors, [], 'browser diagnostics contain failures');
       assert.ok(accepting, 'late route completion cannot overwrite a timeout');
       row.status = 'passed';
