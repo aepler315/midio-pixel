@@ -92,3 +92,64 @@ test('a moonless night is darkness: the night fill drops and the low sun turns r
   const red = parseInt(low.sun.colorHex.slice(1, 3), 16), blue = parseInt(low.sun.colorHex.slice(5, 7), 16);
   assert.ok(red > 200 && blue < 120, low.sun.colorHex);
 });
+
+test('a Landscape moon orbit never shares the sky with the sun and is back after sunset', async () => {
+  const { resolveCelestialState } = await import('../src/world/CelestialState.js');
+  const { songSkyClock } = await import('../src/world/DayNight.js');
+  const { rangeMoonOrbit } = await import('../src/world/alpine/RangeSkyComposition.js');
+  const viewport = { width: 1408, height: 848 };
+  for (const durationMs of [60000, 96000, 180000, 240000]) {
+    const clock = songSkyClock(durationMs);
+    const at = timeMs => resolveCelestialState({ timeMs, cycleMs: clock, viewport, moonOrbit: rangeMoonOrbit(timeMs, durationMs) });
+    let overlap = 0, previous = null;
+    for (let t = 0; t <= durationMs; t += 250) {
+      const state = at(t);
+      // The authored orbit itself never sets; only the paint and light gate.
+      assert.equal(state.moon.visibility, 1);
+      if (state.sun.visibility > 0 || state.sun.altitude01 > 0) overlap += state.moon.discAlpha > 0 ? .25 : 0;
+      if (state.moon.discAlpha === 0) assert.notEqual(state.activeBody, 'moon', `${durationMs}: no key light from a hidden moon at ${t}ms`);
+      close(state.moon.directGain, .25 * state.moon.discAlpha);
+      if (previous != null) assert.ok(Math.abs(state.moon.discAlpha - previous) < .2, `${durationMs}: the moon fades rather than pops at ${t}ms`);
+      previous = state.moon.discAlpha;
+    }
+    assert.equal(overlap, 0, `${durationMs}: seconds with both sun and moon in the sky`);
+    assert.equal(at(0).moon.discAlpha, 1, 'the dark opening keeps its moon');
+    assert.equal(at(0).activeBody, 'moon');
+    assert.equal(at(clock.sunriseMs).moon.discAlpha, 0, 'the moon is gone by sunrise');
+    assert.equal(at(durationMs).moon.discAlpha, 1, 'the afterglow brings the moon back');
+  }
+});
+
+test('the cycle (Trio) moon keeps its own visibility and light', async () => {
+  const { resolveCelestialState } = await import('../src/world/CelestialState.js');
+  for (const timeMs of [21000, 45000, 71000, 96000]) {
+    const state = resolveCelestialState({ timeMs, cycleMs: 100000, viewport });
+    assert.equal('discAlpha' in state.moon, false, 'only an authored orbit carries a paint gate');
+    close(state.moon.directGain, .25 * state.moon.visibility);
+    assert.equal(state.activeBody, state.sun.visibility > 0 ? 'sun' : state.moon.visibility > 0 ? 'moon' : null);
+  }
+});
+
+test('the moonlit fill follows the painted Landscape moon, not its never-setting orbit', async () => {
+  const THREE = await import('three');
+  const { RangeScene } = await import('../src/world/alpine/RangeScene.js');
+  const { sceneUniforms } = await import('../src/world/alpine/TerrainMaterial.js');
+  const { rangeMusicState } = await import('../src/world/alpine/RangeFrame.js');
+  const camera = new THREE.PerspectiveCamera(40, 16 / 9, .1, 100000);
+  camera.position.set(0, 1000, 1000); camera.lookAt(0, 0, 0); camera.updateMatrixWorld();
+  const scene = Object.assign(Object.create(RangeScene.prototype), { THREE, camera });
+  const view = { camera: { eyeStartM: [0, 1000, 1000], eyeEndM: [0, 1000, 1000], targetStartM: [0, 0, 0], targetEndM: [0, 0, 0], fovYDeg: 40 } };
+  const moonFill = moon => {
+    const u = sceneUniforms(THREE, { uHeightRange: { value: new THREE.Vector2(0, 2000) } });
+    scene._setUniforms({ uniforms: u, view }, { timeMs: 0, progress01: 0, music: rangeMusicState({}), qualityLevel: 0,
+      scenicViewport: { nominalHeight: 720 }, light: { night01: 1, ambientMultiplier: .35,
+        celestial: { xFrac: .5, yFrac: .2, body: 'moon', colorHex: '#c8d8ff', intensity: .1 },
+        state: { sun: { visibility: 0 }, moon } } });
+    return u.uMoonAmbientScale.value;
+  };
+  const cycle = moonFill({ visibility: 1 });
+  assert.ok(cycle > 0);
+  assert.equal(moonFill({ visibility: 1, discAlpha: 0 }), 0, 'a hidden Landscape moon lights nothing');
+  close(moonFill({ visibility: 1, discAlpha: .5 }), cycle / 2);
+  close(moonFill({ visibility: 1, discAlpha: 1 }), cycle);
+});

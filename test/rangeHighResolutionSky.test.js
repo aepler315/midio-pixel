@@ -120,6 +120,53 @@ test('the star catalogue and cloud density reconstruct after seeks without frame
   assert.notDeepEqual(density, reflected, 'the cloud has an upper silhouette and a distinct lower base');
 });
 
+/** A 2D context that records every paint with its effective state. */
+function recordingContext() {
+  const ops = [], stack = [];
+  const gradient = kind => { const stops = []; return { kind, stops, addColorStop: (offset, color) => stops.push([offset, color]) }; };
+  const paint = (ctx, op, extra = {}) => ops.push({ op, alpha: ctx.globalAlpha, mode: ctx.globalCompositeOperation, style: ctx.fillStyle, ...extra });
+  const ctx = {
+    globalAlpha: 1, globalCompositeOperation: 'source-over', fillStyle: '#000000',
+    save() { stack.push([this.globalAlpha, this.globalCompositeOperation, this.fillStyle]); },
+    restore() { [this.globalAlpha, this.globalCompositeOperation, this.fillStyle] = stack.pop(); },
+    getTransform: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }),
+    createRadialGradient: () => gradient('radial'), createLinearGradient: () => gradient('linear'),
+    translate() {}, scale() {}, rotate() {}, beginPath() {}, arc() {}, ellipse() {}, closePath() {}, clip() {},
+    fillRect(...rect) { paint(this, 'fillRect', { rect }); },
+    fill() { paint(this, 'fill'); },
+    drawImage(image, ...rect) { paint(this, 'drawImage', { image, rect }); },
+  };
+  return { ctx, ops };
+}
+const alphaOf = color => { const m = /rgba\([^)]*,\s*([\d.]+)\s*\)/.exec(color); return m ? Number(m[1]) : 1; };
+/** The strongest opacity a recorded paint can reach. */
+const peakAlpha = op => op.alpha * (typeof op.style === 'string' || op.op === 'drawImage' ? (op.op === 'drawImage' ? 1 : alphaOf(op.style))
+  : Math.max(...op.style.stops.map(([, color]) => alphaOf(color))));
+function bakingCanvas() {
+  const canvas = { width: 0, height: 0, bakes: 0 };
+  canvas.getContext = () => ({
+    createImageData: (w, h) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }),
+    putImageData(image) { canvas.bakes++; canvas.pixels = image.data.slice(); },
+  });
+  return canvas;
+}
+
+test('a Landscape moon hidden by daylight paints nothing; the sun fades with its horizon visibility', () => {
+  const sky = new RangeSkyRenderer({ makeCanvas: bakingCanvas });
+  sky._seed(7);
+  const moon = { xFrac: .6, yFrac: .3, altitude01: .6, radiusFrac: .02, visibility: 1, visible: true };
+  const sun = { xFrac: .3, yFrac: .4, altitude01: .5, radiusFrac: .02, visibility: 1, visible: true, colorHex: '#fff3df' };
+  const paints = frame => { const { ctx, ops } = recordingContext(); sky._bodies(ctx, { phase: .5, ...frame }, 1408, 848, 0); return ops; };
+  try {
+    assert.deepEqual(paints({ moon: { ...moon, discAlpha: 0 } }), [], 'no disc, backing or glow from a gated moon');
+    assert.ok(paints({ moon: { ...moon, discAlpha: 1 } }).length > 0);
+    assert.deepEqual(paints({ sun: { ...sun, visibility: 0 } }), [], 'a sun on the waterline has faded out');
+    const full = Math.max(...paints({ sun }).map(peakAlpha));
+    const half = Math.max(...paints({ sun: { ...sun, visibility: .5 } }).map(peakAlpha));
+    assert.ok(full > .5 && Math.abs(half - full / 2) < 1e-9, `the sun fades with visibility: ${half} of ${full}`);
+  } finally { sky.dispose(); }
+});
+
 test('sky image caches reserve bounded canvas storage and release it on disposal', () => {
   const residency = new GraphicsResidency({ budgetBytes: 2 * 1024 ** 2 });
   const sky = new RangeSkyRenderer({ residency, makeCanvas: () => ({ width: 0, height: 0 }) });

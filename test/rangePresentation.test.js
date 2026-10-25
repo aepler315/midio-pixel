@@ -824,21 +824,29 @@ test('the Range moon is visible during the predawn opening of a long song', asyn
   m.dispose();
 });
 
-test('the visible moon keeps its bright limb continuous across the long-song sunrise', async () => {
-  const { songSkyClock } = await import('../src/world/DayNight.js');
+test('the moon\'s illuminant stays continuous across the long-song sunrise, where the moon has already gone', async () => {
+  const { songSkyClock, sunScreenFrac, cyclePhase01 } = await import('../src/world/DayNight.js');
   const { m } = manager();
-  m.durationMs = 180000; m._dayNightCycleMs = songSkyClock(180000);
+  const clock = songSkyClock(180000);
+  m.durationMs = 180000; m._dayNightCycleMs = clock;
   m.rangePresentation = fakePresentation();
-  const angles = [];
+  const drawn = [];
   m._drawMoon = (ctx, canvas, cy, alpha, offset, cx, sunX, sunY, phase, resolved) => {
-    angles.push(Math.atan2((sunY - resolved.yFrac) * canvas.height, (sunX - resolved.xFrac) * canvas.width));
+    drawn.push({ alpha, angle: Math.atan2((sunY - resolved.yFrac) * canvas.height, (sunX - resolved.xFrac) * canvas.width) });
   };
-  for (const tMs of [23999, 24000]) {
+  const illuminant = [];
+  for (const tMs of [10000, 23999, 24000]) {
     m.tSec = tMs / 1000;
     m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, null, 1, null, groundView);
+    // The direction the lit limb would face, straight from the signed sun.
+    const sun = sunScreenFrac(cyclePhase01(tMs, clock)), moon = m.celestialState.moon;
+    illuminant.push(Math.atan2((sun.yFrac - moon.yFrac) * 848, (sun.xFrac - moon.xFrac) * 1408));
   }
-  assert.equal(angles.length, 2);
-  const delta = Math.atan2(Math.sin(angles[1] - angles[0]), Math.cos(angles[1] - angles[0]));
+  assert.equal(drawn.length, 3);
+  assert.ok(drawn[0].alpha > .3, 'the deep predawn moon paints');
+  assert.ok(drawn[1].alpha <= .02 && drawn[2].alpha <= .02, 'the moon has faded out before the sun rises');
+  const delta = Math.atan2(Math.sin(illuminant[2] - illuminant[1]), Math.cos(illuminant[2] - illuminant[1]));
   assert.ok(Math.abs(delta) < .01, 'sunrise cannot instantly rotate the lunar crescent');
+  assert.ok(Math.abs(drawn[2].angle - illuminant[2]) < 1e-9, 'the painter receives that same illuminant');
   m.dispose();
 });

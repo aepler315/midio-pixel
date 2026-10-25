@@ -2785,8 +2785,10 @@ export class BiomeManager {
       // Where the sun really is -- below the horizon all night, which is the
       // whole point: it's what makes the moon read as lit from underneath.
       const sun = moon?.illuminant || sunScreenFrac(cyclePhase01(this.tSec * 1000, this._dayNightCycleMs));
+      // An authored Landscape moon paints only as far as discAlpha lets it
+      // (gone while the sun is up); a cycle moon keeps its own visibility.
       this._drawMoon(
-        c, canvas, celestialYFracFor(moon?.altitude01 ?? dn.moonAlt), (moon?.visibility ?? horizonFade(dn.moonAlt)) * (.35 + .65 * dn.night),
+        c, canvas, celestialYFracFor(moon?.altitude01 ?? dn.moonAlt), (moon?.discAlpha ?? moon?.visibility ?? horizonFade(dn.moonAlt)) * (.35 + .65 * dn.night),
         0,
         celestialXFracFor(dn.moonAz01),
         sun.xFrac, sun.yFrac, this._moonPhase01(), this.celestialState?.moon,
@@ -3778,7 +3780,7 @@ export class BiomeManager {
       lightning,
     });
     const moon = this.rangeSkyLayer.moon;
-    this._moonDisc = moon?.visible !== false && moon?.altitude01 > .001
+    this._moonDisc = moon?.visible !== false && moon?.altitude01 > .001 && (moon.discAlpha ?? 1) > .02
       ? { x: moon.xFrac * canvas.width, y: moon.yFrac * canvas.height, R: moon.radiusFrac * canvas.width } : null;
     // The old ellipse-bank occluder cannot describe the new density clouds.
     if (this.rangePresentation?.scene) this.rangePresentation.scene.skyClouds = null;

@@ -255,20 +255,26 @@ export class RangeSkyRenderer {
     ctx.restore();
   }
   _bodies(ctx, frame, width, height, night) {
-    const sun = frame.sun;
-    if (sun && sun.visible !== false && sun.altitude01 > .005) {
+    const sun = frame.sun, sunVisibility = sun?.visibility ?? 1;
+    if (sun && sun.visible !== false && sun.altitude01 > 0 && sunVisibility >= .01) {
+      // Fade with the horizon band instead of popping at the waterline.
       const x = sun.xFrac * width, y = sun.yFrac * height, radius = Math.max(height * .006, sun.radiusFrac * width * .65);
+      ctx.save(); ctx.globalAlpha = sunVisibility;
       const glow = ctx.createRadialGradient(x, y, radius, x, y, height * .28);
       glow.addColorStop(0, 'rgba(255,230,179,.33)'); glow.addColorStop(.2, 'rgba(255,198,137,.1)');
       glow.addColorStop(1, 'rgba(255,174,126,0)');
       ctx.fillStyle = glow; ctx.fillRect(x - height, y - height, height * 2, height * 2);
       ctx.fillStyle = '#fff7df'; ctx.beginPath(); ctx.arc(x, y, radius, 0, TAU); ctx.fill();
+      ctx.restore();
     }
     const moon = frame.moon;
     if (!moon || moon.visible === false || !(moon.altitude01 > .001)) return;
     const x = moon.xFrac * width, y = moon.yFrac * height, radius = moon.radiusFrac * width;
     if (!(radius > 0)) return;
-    const texture = this._moon(), visibility = (moon.visibility ?? 1) * (.3 + .7 * night);
+    // An authored Landscape moon carries discAlpha: zero while the sun is up.
+    const visibility = (moon.discAlpha ?? moon.visibility ?? 1) * (.3 + .7 * night);
+    if (visibility < .01) return;
+    const texture = this._moon();
     ctx.save(); ctx.globalAlpha = visibility;
     const glow = ctx.createRadialGradient(x, y, radius * .9, x, y, radius * 4.5);
     glow.addColorStop(0, 'rgba(205,223,242,.11)'); glow.addColorStop(.35, 'rgba(188,209,238,.025)');
