@@ -76,3 +76,18 @@ test('cinematic grade retains neutral highlights and finite near-black separatio
   assert.ok(snow.every(x => x > .85 && x <= 1), 'snow keeps highlight headroom');
   assert.ok(Math.max(...cinematicGrade([.99, .99, .99])) - Math.min(...cinematicGrade([.99, .99, .99])) < .025);
 });
+
+test('cinematic mist color uses cool near sky radiance and restores luminous far banks', async () => {
+  const { cinematicMistColor } = await import('../src/world/alpine/CinematicLighting.js');
+  const mist = [.3, .32, .35], sky = [.04, .12, .25];
+  const near = cinematicMistColor(mist, sky, 500);
+  assert.ok(near[0] < .04 && near[1] < .10 && near[2] < .20, 'foreground mist becomes materially deeper');
+  assert.ok(near[2] > near[0] * 3, 'the near tint inherits the cool sky');
+  assert.deepEqual(cinematicMistColor(mist, sky, 18000), mist, 'distant banks retain their original luminous color');
+  assert.deepEqual(cinematicMistColor([0, 0, 0], sky, 500), [0, 0, 0], 'a black mist source invents no light');
+  assert.deepEqual(cinematicMistColor(mist, [0, 0, 0], 500), [0, 0, 0], 'a black near environment invents no light');
+  for (const distance of [0, 1800, 4000, 10000, 18000, 1e6, NaN]) {
+    const c = cinematicMistColor(mist, sky, distance);
+    c.forEach((x, i) => assert.ok(Number.isFinite(x) && x >= 0 && x <= mist[i]));
+  }
+});

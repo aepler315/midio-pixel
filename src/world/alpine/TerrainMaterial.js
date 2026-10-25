@@ -901,10 +901,16 @@ export const SCENE_FRAG = /* glsl */`
       mist = cinematicMistAmount(mist, dist, uMistFill);
       air = cinematicAirAmount(dist, heightTerm, uAirDensity);
     }
-    color = mix(color, mistColorAt(uCameraPos, vRenderedWorld), mist);
+    vec3 mistColor = mistColorAt(uCameraPos, vRenderedWorld);
+    vec3 airColor = uAirColor;
+    if (uCinematic.x > .5) {
+      mistColor = cinematicMistColor(mistColor, uSkyZenith, dist);
+      airColor = cinematicMistColor(airColor, uSkyZenith, dist);
+    }
+    color = mix(color, mistColor, mist);
     // Under a cloud sea the lake's mirror and glints are hidden with it.
     float clear = 1.0 - mist * uMistFill;
-    color = mix(color, uAirColor, clamp(air, 0.0, 0.96) * uNarrative.y);
+    color = mix(color, airColor, clamp(air, 0.0, 0.96) * uNarrative.y);
     color = mix(color, rainColor(), rainVeil(vRenderedWorld, dist) * 0.8 * uNarrative.y);
     // The lake mirrors the ground above it. The mirror image already holds
     // the air along its own (longer) path, so it replaces the water's colour

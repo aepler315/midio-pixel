@@ -156,8 +156,8 @@ export class RangeSkyRenderer {
       const from = variant === 2 ? image.width : 0;
       const to = variant === 1 ? image.width : 0;
       const gradient = target.createLinearGradient(from, 0, to, image.height);
-      gradient.addColorStop(0, variant ? 'rgb(255,247,228)' : 'rgb(180,197,218)');
-      gradient.addColorStop(1, variant ? 'rgb(138,155,185)' : 'rgb(90,111,147)');
+      gradient.addColorStop(0, variant ? 'rgb(255,247,228)' : 'rgb(215,226,240)');
+      gradient.addColorStop(1, variant ? 'rgb(181,202,227)' : 'rgb(150,172,201)');
       target.fillStyle = gradient; target.fillRect(0, 0, image.width, image.height);
       target.globalCompositeOperation = 'multiply'; target.drawImage(density, 0, 0);
       target.globalCompositeOperation = 'destination-in'; target.drawImage(density, 0, 0);

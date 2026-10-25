@@ -190,12 +190,20 @@ export class PixelPresentation {
       this.failFrame('source-unavailable'); return null;
     }
   }
-  drawForeground(ctx, source, fit) {
+  drawForeground(ctx, source, fit, capture = false) {
     if (!this.presentation.cinematicPixel) return false;
+    const diagnostic = capture ? 'captureReconstruction' : 'cinematicReconstruction';
+    if ((this.qualityLevel || 0) >= 2) {
+      this.cinematic?.dispose(); this.cinematic = null;
+      this.diagnostics[diagnostic] = { applied: false, reason: 'quality', bytes: 0 };
+      return false;
+    }
     this.cinematic ||= new CinematicPixelRenderer({ residency: this.residency,
       makeCanvas: () => (this.canvas.ownerDocument || globalThis.document).createElement('canvas') });
     const applied = this.cinematic.draw(ctx, source, fit);
-    this.diagnostics.cinematicReconstruction = { applied, reason: this.cinematic.reason, bytes: this.cinematic.bytes };
+    this.diagnostics[diagnostic] = { applied, reason: this.cinematic.reason, bytes: this.cinematic.bytes };
+    if (capture) this.diagnostics.ownedPixelScratchBytes = (this.working ? this.grid.pixels * 4 : 0)
+      + (this.ditherWeights?.byteLength || 0) + this.cinematic.bytes + (this.diagnostics.pixelEffectScratchBytes || 0);
     return applied;
   }
   finishFrame({ background = null } = {}) {

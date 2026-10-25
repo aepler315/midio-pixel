@@ -40,7 +40,7 @@ class PresentingRenderer {
       drawCaptureFrame: (ctx, width, height, destination) => {
         if (this._disposed || this.output.getCaptureSource() !== source) return false;
         compositePixelFrame(ctx, source.canvas, width, height, source.scaling, background, destination,
-          this.output.presentation.cinematicPixel ? (ctx, fit) => this.output.drawForeground(ctx, source.canvas, fit) : null);
+          this.output.presentation.cinematicPixel ? (ctx, fit) => this.output.drawForeground(ctx, source.canvas, fit, true) : null);
         return true;
       } } : source;
   }
@@ -56,6 +56,7 @@ class PresentingRenderer {
     const hybridSky = this._experience !== 'trio' && manager?.world?.kind === 'alpine'
       && !!this.inner.rangePresentation?.enabled && typeof manager.drawHighResolutionSky === 'function';
     if (manager) manager.highResolutionSky = hybridSky;
+    this.output.qualityLevel = sim?.perf?.level ?? 0;
     const source = this.output.beginFrame({ separate: hybridSky });
     if (!source) return this.output.diagnostics.frame;
     const scene = this.canvasRenderer;

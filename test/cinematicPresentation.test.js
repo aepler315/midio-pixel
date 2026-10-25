@@ -40,3 +40,19 @@ test('a live Look switch reaches the terrain and sky on that draw and resets on 
   assert.equal(renderer.diagnostics.effectiveLook, 'pixel');
   renderer.dispose();
 });
+
+test('quality shedding keeps cinematic shading while skipping optional output reconstruction', async () => {
+  const { PixelPresentation } = await import('../src/render/PixelPresentation.js');
+  const { GraphicsResidency } = await import('../src/render/GraphicsResidency.js');
+  let allocations = 0;
+  const canvas = { width: 1280, height: 720, ownerDocument: { createElement() { allocations++; throw Error('must not allocate'); } } };
+  const residency = new GraphicsResidency();
+  const owner = new PixelPresentation({canvas, residency, presentation:resolvePresentation({...DEFAULT_DISPLAY_PREFS,look:'cinematic'})});
+  owner.qualityLevel=2;
+  assert.equal(owner.drawForeground({}, {width:320,height:180}, {width:1280,height:720}),false);
+  assert.deepEqual(owner.diagnostics.cinematicReconstruction, {applied:false,reason:'quality',bytes:0});
+  assert.equal(owner.presentation.cinematicPixel,true);
+  assert.equal(allocations,0);
+  assert.equal(residency.usedBytes,0);
+  owner.dispose();
+});

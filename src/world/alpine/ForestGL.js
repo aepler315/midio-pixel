@@ -262,7 +262,11 @@ const SHADE = /* glsl */`
     lit += base * uLightColor * (uSolarTransmission * backlight * backface * crown * thin) * sunVis;
     // A passing gust turns the crowns' pale sides up to the sky and key
     // light. Added rather than scaled, so it reads at night too.
-    lit += (uSkyHorizon * uAmbientScale * 0.5 + uLightColor * 0.5 * sunVis) * (${GUST_SHEEN.toFixed(3)} * vGust * crown);
+    if (uCinematic.x > .5) {
+      lit += (cinematicFill(uSkyHorizon * uAmbientScale * 0.5, key) + uLightColor * 0.5 * sunVis) * (${GUST_SHEEN.toFixed(3)} * vGust * crown);
+    } else {
+      lit += (uSkyHorizon * uAmbientScale * 0.5 + uLightColor * 0.5) * (${GUST_SHEEN.toFixed(3)} * vGust * crown);
+    }
     float heightTerm = exp(-max(0.0, world.y - uCameraPos.y * 0.25) * uAirHeightFalloff);
     float air = 1.0 - exp(-dist * uAirDensity * (0.35 + 0.65 * heightTerm));
     float mist = mistAmount(uCameraPos, world);
@@ -272,8 +276,14 @@ const SHADE = /* glsl */`
       surface = cinematicGrade(surface);
       air = cinematicAirAmount(dist, heightTerm, uAirDensity);
     }
-    vec3 color = mix(surface, mistColorAt(uCameraPos, world), mist);
-    color = mix(color, uAirColor, clamp(air, 0.0, 0.96));
+    vec3 mistColor = mistColorAt(uCameraPos, world);
+    vec3 airColor = uAirColor;
+    if (uCinematic.x > .5) {
+      mistColor = cinematicMistColor(mistColor, uSkyZenith, dist);
+      airColor = cinematicMistColor(airColor, uSkyZenith, dist);
+    }
+    vec3 color = mix(surface, mistColor, mist);
+    color = mix(color, airColor, clamp(air, 0.0, 0.96));
     color = mix(color, rainColor(), rainVeil(world, dist) * 0.8);
     if (uDiag > 0.5) return vec4(1.0, 0.0, 1.0, 1.0);
     color = mix(uSkyHorizon, color, uNarrative.z);

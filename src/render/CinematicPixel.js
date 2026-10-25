@@ -47,7 +47,11 @@ export class CinematicPixelRenderer {
     if(!gl) throw Error('webgl-unavailable');
     this.gl=gl;
     this.canvas.addEventListener?.('webglcontextlost',event=>{event.preventDefault();this.lost=true;this.reason='context-lost';});
-    this.canvas.addEventListener?.('webglcontextrestored',()=>{this.lost=false;this.failed=false;this._deleteObjects();});
+    this.canvas.addEventListener?.('webglcontextrestored',()=>{
+      // Restored contexts cannot delete handles from their previous epoch.
+      // Forget them; the next draw recreates this context's own objects.
+      this.lost=false;this.failed=false;this.program=this.texture=this.buffer=null;
+    });
     this._createObjects();
   }
   _createObjects() {
@@ -69,7 +73,15 @@ export class CinematicPixelRenderer {
     for(const filter of [gl.TEXTURE_MIN_FILTER,gl.TEXTURE_MAG_FILTER])gl.texParameteri(gl.TEXTURE_2D,filter,gl.NEAREST);
     this.position=gl.getAttribLocation(this.program,'position');this.size=gl.getUniformLocation(this.program,'size');
   }
-  _deleteObjects(){const gl=this.gl;if(!gl)return;if(this.program)gl.deleteProgram(this.program);if(this.texture)gl.deleteTexture(this.texture);if(this.buffer)gl.deleteBuffer(this.buffer);this.program=this.texture=this.buffer=null;}
+  _deleteObjects(){
+    const gl=this.gl;if(!gl)return;
+    // Deleting a current program defers its retirement until it is unbound.
+    gl.useProgram(null);gl.bindTexture(gl.TEXTURE_2D,null);gl.bindBuffer(gl.ARRAY_BUFFER,null);
+    if(this.program)gl.deleteProgram(this.program);
+    if(this.texture)gl.deleteTexture(this.texture);
+    if(this.buffer)gl.deleteBuffer(this.buffer);
+    this.program=this.texture=this.buffer=null;
+  }
   draw(ctx,source,fit) {
     if(this.disposed||this.failed||this.lost)return false;
     const scale=Math.min(1,CINEMATIC_CELLS.maxWidth/fit.width,CINEMATIC_CELLS.maxHeight/fit.height);
@@ -79,7 +91,7 @@ export class CinematicPixelRenderer {
       this.residency.release(this.key);this.bytes=0;this.signature=null;
       const bytes=w*h*12+source.width*source.height*4+4096;
       const reservation=this.residency.reserve({key:this.key,bytes,owner:'cinematic-cells',evictable:false});
-      if(!reservation){this.reason='allocation-denied';return false;}
+      if(!reservation){this._deleteObjects();this.reason='allocation-denied';return false;}
       try{
         if(!this.gl)this._initialize();
         this.canvas.width=w;this.canvas.height=h;

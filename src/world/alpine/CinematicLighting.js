@@ -8,6 +8,7 @@ export const CINEMATIC_LIGHTING = Object.freeze({
   dayFill: .72, nightFill: .96, dayShadow: .18, nightShadow: .42,
   dayWrap: .09, nightWrap: .15, dayAir: .68, nightAir: .84,
   dayMist: .58, nightMist: .82, airStartM: 900, mistNearM: 1200,
+  mistNearSkyGain: .72, mistColorNearM: 1800, mistColorFarM: 18000,
 });
 
 /** Two packed vectors, shared by terrain and every resident forest window.
@@ -34,6 +35,19 @@ export function cinematicMistAmount({ amount = 0, distanceM = 0, fill = 0, scale
   const weight = mix(scale * smooth(0, nearM, distanceM), 1, unit(fill));
   if (weight === 1) return unit(amount);
   return 1 - Math.pow(Math.max(1 - unit(amount), 1e-6), weight);
+}
+
+/** Near atmospheric light comes from the actual zenith; far banks retain
+ * the authored horizon light. This changes color, never the cloud-sea volume. */
+export function cinematicMistColor(mistColor, skyZenith, distanceM) {
+  const p = CINEMATIC_LIGHTING;
+  const distance = Number.isFinite(distanceM) ? Math.max(0, distanceM) : 0;
+  const far = smooth(p.mistColorNearM, p.mistColorFarM, distance);
+  return mistColor.map((value, i) => {
+    const original = Number.isFinite(value) ? Math.max(0, value) : 0;
+    const sky = Number.isFinite(skyZenith[i]) ? Math.max(0, skyZenith[i]) : 0;
+    return mix(Math.min(original, sky * p.mistNearSkyGain), original, far);
+  });
 }
 
 export function cinematicGrade(color) {
@@ -64,6 +78,10 @@ export const CINEMATIC_LIGHTING_GLSL = /* glsl */`
     // Scale optical depth, not opacity: a deep bank still converges.
     if (weight >= 1.0) return amount;
     return 1.0 - pow(max(1.0 - amount, 1e-6), weight);
+  }
+  vec3 cinematicMistColor(vec3 mistColor, vec3 skyZenith, float distanceM) {
+    vec3 nearColor = min(mistColor, max(skyZenith, vec3(0.0)) * ${CINEMATIC_LIGHTING.mistNearSkyGain.toFixed(2)});
+    return mix(nearColor, mistColor, smoothstep(${CINEMATIC_LIGHTING.mistColorNearM.toFixed(1)}, ${CINEMATIC_LIGHTING.mistColorFarM.toFixed(1)}, distanceM));
   }
   vec3 cinematicGrade(vec3 c) {
     float luma = dot(c, vec3(.2126, .7152, .0722));
