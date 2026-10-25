@@ -3767,6 +3767,7 @@ export class BiomeManager {
     }) : null;
     this.rangeSkyLayer = Object.freeze({
       sourceWidth: canvas.width, sourceHeight: canvas.height,
+      cinematicPixel: !!this.cinematicPixel,
       scenicTransform: Object.freeze([matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f]),
       camera, seed: this.songSeed || 0, timeSec: this.tSec,
       night,

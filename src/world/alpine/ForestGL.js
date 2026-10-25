@@ -1,4 +1,6 @@
 import { CROWN_GLSL } from './ForestProfile.js';
+import { HORIZON_GLSL } from './TerrainOcclusion.js';
+import { CINEMATIC_LIGHTING_GLSL } from './CinematicLighting.js';
 export { CROWN_GLSL, crownHalfWidth } from './ForestProfile.js';
 // Range v2 forest instances on the GPU (Task 10): near conifers as small
 // instanced meshes, the middle distance as instanced camera-facing
@@ -184,6 +186,10 @@ const BOARD_VERT = /* glsl */`
 
 const SHADE = /* glsl */`
   ${FOREST_DISTANCE_GLSL}
+  ${CINEMATIC_LIGHTING_GLSL}
+  ${HORIZON_GLSL}
+  uniform vec2 uGridOrigin;
+  uniform vec2 uGridExtent;
   uniform vec3 uLightDir;
   uniform vec3 uLightColor;
   uniform vec3 uSkyZenith;
@@ -227,11 +233,21 @@ const SHADE = /* glsl */`
     #endif
     float wrap = 0.3;
     float key = max((dot(n, uLightDir) + wrap) / (1.0 + wrap), 0.0);
+    float sunVis = 1.0;
+    if (uCinematic.x > .5) {
+      sunVis = sunHorizonVisibility((world.xz - uGridOrigin) / uGridExtent, uLightDir);
+      wrap = uCinematic.w + .10;
+      key = max((dot(n, uLightDir) + wrap) / (1.0 + wrap), 0.0) * mix(uCinematic.z, 1.0, sunVis);
+    }
     float opening = stormOpening(world);
     float receiverShadow = stormShadow(opening);
     vec3 hemi = mix(uSkyHorizon * 0.55, uSkyZenith, 0.5 + 0.5 * n.y) * stormAmbient(uAmbientScale, uMoonAmbientScale, opening);
+    if (uCinematic.x > .5) hemi = cinematicFill(hemi, key);
     hemi = receiverFill(hemi, uReceiverFillMin);
     vec3 lit = base * (hemi * (0.55 + 0.45 * core) * gTreeOcc + uLightColor * key * mix(.6, 1.0, gTreeOcc) * receiverShadow);
+    if (uCinematic.x > .5) {
+      lit = base * (hemi * (0.55 + 0.45 * core) * gTreeOcc + cinematicKey(uLightColor) * key * mix(.6, 1.0, gTreeOcc) * receiverShadow);
+    }
     lit += base * actorLight(world, n) * receiverShadow;
     // As the storm breaks, the same sunlit swathes as the ground beneath.
     lit += base * uLightColor * key * uStorm.z * opening * 0.85;
@@ -243,13 +259,20 @@ const SHADE = /* glsl */`
     float backface = max(-dot(n, uLightDir), 0.0);
     float crown = smoothstep(0.15, 0.8, vLocal.y);
     float thin = mix(0.35, 1.0, 1.0 - core);
-    lit += base * uLightColor * (uSolarTransmission * backlight * backface * crown * thin);
+    lit += base * uLightColor * (uSolarTransmission * backlight * backface * crown * thin) * sunVis;
     // A passing gust turns the crowns' pale sides up to the sky and key
     // light. Added rather than scaled, so it reads at night too.
-    lit += (uSkyHorizon * uAmbientScale * 0.5 + uLightColor * 0.5) * (${GUST_SHEEN.toFixed(3)} * vGust * crown);
+    lit += (uSkyHorizon * uAmbientScale * 0.5 + uLightColor * 0.5 * sunVis) * (${GUST_SHEEN.toFixed(3)} * vGust * crown);
     float heightTerm = exp(-max(0.0, world.y - uCameraPos.y * 0.25) * uAirHeightFalloff);
     float air = 1.0 - exp(-dist * uAirDensity * (0.35 + 0.65 * heightTerm));
-    vec3 color = mix(tonemap(lit * uExposure), mistColorAt(uCameraPos, world), mistAmount(uCameraPos, world));
+    float mist = mistAmount(uCameraPos, world);
+    vec3 surface = tonemap(lit * uExposure);
+    if (uCinematic.x > .5) {
+      mist = cinematicMistAmount(mist, dist, uMistFill);
+      surface = cinematicGrade(surface);
+      air = cinematicAirAmount(dist, heightTerm, uAirDensity);
+    }
+    vec3 color = mix(surface, mistColorAt(uCameraPos, world), mist);
     color = mix(color, uAirColor, clamp(air, 0.0, 0.96));
     color = mix(color, rainColor(), rainVeil(world, dist) * 0.8);
     if (uDiag > 0.5) return vec4(1.0, 0.0, 1.0, 1.0);
@@ -489,6 +512,10 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
   const instanceStride = placed.stride;
   const u = { ...uniforms, uTime: uniforms.uTime || { value: 0 }, uForestKeep: uniforms.uForestKeep || { value: 1 },
     uFarForest: uniforms.uFarForest || { value: new THREE.Vector4() },
+    uCinematic: uniforms.uCinematic || { value: new THREE.Vector4(0, 1, .5, .18) },
+    uCinematicAir: uniforms.uCinematicAir || { value: new THREE.Vector4(1, 1, 0, 0) },
+    uHorizon: uniforms.uHorizon || { value: null }, uHorizonSize: uniforms.uHorizonSize || { value: new THREE.Vector2() },
+    uGridOrigin: uniforms.uGridOrigin || { value: new THREE.Vector2() }, uGridExtent: uniforms.uGridExtent || { value: new THREE.Vector2(1, 1) },
     uStorm: uniforms.uStorm || { value: new THREE.Vector4() }, uRainShift: uniforms.uRainShift || { value: 0 },
     uReceiverFillMin: uniforms.uReceiverFillMin || { value: 0 },
     uViewProj: uniforms.uViewProj || { value: new THREE.Matrix4() },
