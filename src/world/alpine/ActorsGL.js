@@ -582,8 +582,11 @@ export class SurveyThreads {
       g.setAttribute('aThread', new THREE.BufferAttribute(new Float32Array(verts * 2), 2));
       g.setIndex(new THREE.BufferAttribute(new Uint16Array(max * THREAD_SEGMENTS_MAX * 6), 1));
       g.setDrawRange(0, 0);
+      // Both faces: the strip winds one way along its heading on screen
+      // (clockwise, which a front-face cull drops everywhere but a fold),
+      // and the lake mirror's camera flips that.
       const mesh = new THREE.Mesh(g, new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms: u,
-        vertexShader: THREAD_VERT, fragmentShader: THREAD_FRAG, ...blendFor(THREE) }));
+        vertexShader: THREAD_VERT, fragmentShader: THREAD_FRAG, side: THREE.DoubleSide, ...blendFor(THREE) }));
       mesh.frustumCulled = false; mesh.renderOrder = 3; mesh.layers.set(CAST_LAYER);
       this.meshes[band] = mesh;
       this.uniformsByBand[band] = u;

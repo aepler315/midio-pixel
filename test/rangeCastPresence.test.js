@@ -232,6 +232,25 @@ test('threads go up with their drape, each in the nearest band it lies over',()=
  actors.dispose();
 });
 
+test('a thread ribbon draws whichever way it winds on screen',()=>{
+ const actors=new ActorsGL(THREE,actorUniforms(THREE));
+ const g=actors.threads.meshes.far.geometry;
+ actors.threads.setThreads([{a:[0,0,0],b:[100,0,0],band:'far'}]);
+ const side=g.attributes.aSide, idx=g.index;
+ // On screen, heading +x: THREAD_VERT moves a corner aSide half-widths
+ // along the heading's left normal (+y), so corner v sits at (drape, aSide).
+ const at=(v)=>[v>>1,side.getX(v)];
+ const wind=(t)=>{
+  const [a,b,c]=[0,1,2].map(i=>at(idx.getX(3*t+i)));
+  return (b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);
+ };
+ const signs=new Set(Array.from({length:g.drawRange.count/3},(_,t)=>Math.sign(wind(t))));
+ assert.equal(signs.size,1,'every triangle winds the same way, so overlaps never bead the line');
+ for(const m of [...Object.values(actors.threads.meshes),...Object.values(actors.rope.meshes)])
+  assert.equal(m.material.side,THREE.DoubleSide,'a one-way strip, and the mirror flips it: a front-face cull drops it');
+ actors.dispose();
+});
+
 test('Midasus glides to a thread that starts elsewhere instead of jumping there',()=>{
  const shared={...actorUniforms(THREE),uCameraPos:{value:new THREE.Vector3()},uAirDensity:{value:0},uAirHeightFalloff:{value:0}};
  const actors=new ActorsGL(THREE,shared), camera=new THREE.PerspectiveCamera(35,16/9,1,100000);
