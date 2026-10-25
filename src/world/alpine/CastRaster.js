@@ -65,6 +65,11 @@ export function ribbonCoverage(across) {
   return boxGauss(across, THREAD_SIGMA);
 }
 
+/** Gain that brings a ribbon's centre line up to the full brightness of the
+ *  1-px line it replaced: spread over its filter at that line's energy it
+ *  read at 0.6 of it, and the smooth upscale softened it further. */
+export const THREAD_PEAK = 1 / ribbonCoverage(0);
+
 export const CAST_RASTER_GLSL = /* glsl */`
   float castErf(float x) {
     float t = 1.0 / (1.0 + 0.3275911 * abs(x));

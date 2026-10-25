@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   boxGauss, spot, spriteHalo, spriteExtent, ribbonCoverage, erf, CAST_RASTER_GLSL,
-  SPRITE_MIN_SIGMA, THREAD_SIGMA, THREAD_HALF_PX, HALO,
+  SPRITE_MIN_SIGMA, THREAD_SIGMA, THREAD_HALF_PX, THREAD_PEAK, HALO,
 } from '../src/world/alpine/CastRaster.js';
 
 /** Total a sprite deposits on the grid with its centre at (ox, oy) px from
@@ -79,6 +79,8 @@ test('a thread is at least 1.5 px wide and as bright per unit length at any offs
   // The ribbon reaches far enough out that nothing visible is cut off.
   assert.ok(ribbonCoverage(THREAD_HALF_PX) < 0.01 * peak);
   assert.equal(THREAD_HALF_PX, 0.5 + 3 * THREAD_SIGMA);
+  // Drawn, its centre line is as bright as the 1-px line it replaced.
+  assert.ok(Math.abs(peak * THREAD_PEAK - 1) < 1e-12 && THREAD_PEAK > 1.5, `peak gain ${THREAD_PEAK}`);
   assert.ok(Math.abs(boxGauss(0.3, 2) - boxGauss(-0.3, 2)) < 1e-12, 'symmetric');
 });
 

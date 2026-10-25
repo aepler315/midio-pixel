@@ -17,7 +17,7 @@ import { BANDS } from './TerrainMesh.js';
 import { THREAD_SEGMENTS, THREAD_SEGMENTS_MAX } from './CastJobs.js';
 import { MIST_GLSL, EMITTER_GLSL, MIST_SAMPLES } from './RangeAtmosphere.js';
 import { DEFORM_GLSL, GROUND_LIFT_GLSL, deformUniforms } from './TerrainDeform.js';
-import { CAST_RASTER_GLSL, THREAD_HALF_PX } from './CastRaster.js';
+import { CAST_RASTER_GLSL, THREAD_HALF_PX, THREAD_PEAK } from './CastRaster.js';
 
 export const ACTOR_COUNT = 3;
 /** Small lights that follow an actor along its route. */
@@ -429,7 +429,7 @@ const THREAD_FRAG = /* glsl */`
     // A brightness that runs along the line (the fixed line's fuse).
     float f = (vS - vFlare) / 0.06;
     float flare = 1.0 + 1.5 * exp(-f * f);
-    vec3 c = uColor * shown * ribbonCoverage(vAcrossW / vW) * flare * uGain * (1.0 - 0.85 * vAir);
+    vec3 c = uColor * shown * ribbonCoverage(vAcrossW / vW) * ${THREAD_PEAK.toFixed(4)} * flare * uGain * (1.0 - 0.85 * vAir);
     outColor = vec4(c, clamp(max(c.r, max(c.g, c.b)), 0.0, 1.0));
   }
 `;
