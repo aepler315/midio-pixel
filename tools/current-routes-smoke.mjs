@@ -131,22 +131,26 @@ async function exerciseRoute(browser, url, audioPath, row, timeoutMs, outDir, co
         ? route.continue() : route.abort();
     });
     const run = async () => {
-      await page.goto(url + '/');
+      // Camera tours are on by default (each approved view's shot tour); the
+      // Teton highway tour is chosen by ?rangeTour=tetons, or by a saved
+      // 'range-tour' preference, never by the toggle (which writes shots/off).
+      // See resolveRangeMode in src/world/alpine/RangePresentation.js.
+      if (row.id === 'tour-persisted') {
+        controls.setPhase('persisted-preference');
+        await page.goto(url + '/');
+        await page.evaluate(() => localStorage.setItem('range-tour', 'tetons'));
+      }
+      await page.goto(url + (row.id === 'tour-selected' ? '/?rangeTour=tetons' : '/'));
       await page.locator('#titleSettings').evaluate(node => { node.open = true; });
       const lyrics = page.locator('#lyricGroundingBtn');
       if (await lyrics.getAttribute('aria-pressed') === 'true') await lyrics.click();
       await page.locator('#display-pixelGrid').selectOption('classic');
       if (row.id.startsWith('tour-')) {
-        await page.locator('#range-tour-toggle').check();
-        assert.equal(await page.evaluate(() => localStorage.getItem('range-tour')), 'tetons');
+        assert.equal(await page.locator('#range-tour-toggle').isChecked(), true, 'the Teton tour counts as tours on');
         if (row.id === 'tour-persisted') {
-          controls.setPhase('persisted-reload');
-          // The actual UI wrote the preference. Reload cleanly, without the
-          // query override that the toggle adds, and keep this same profile.
-          await page.goto(url + '/');
-          await page.locator('#titleSettings').evaluate(node => { node.open = true; });
-          assert.equal(await page.locator('#range-tour-toggle').isChecked(), true);
+          // A clean load with no query honours the saved choice.
           assert.equal(new URL(page.url()).searchParams.has('rangeTour'), false);
+          assert.equal(await page.evaluate(() => localStorage.getItem('range-tour')), 'tetons');
         }
       }
       row.entry = { url: page.url(), tourChecked: await page.locator('#range-tour-toggle').isChecked(),
