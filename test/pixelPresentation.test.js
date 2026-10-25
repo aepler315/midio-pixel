@@ -487,7 +487,10 @@ test('the Landscape cast is laid smoothly over the upscaled pixel frame, as adde
       return true;
     } };
   const manager = { world: { kind: 'alpine' } }; // no smooth sky this frame
-  const inner = { rangePresentation: range, draw(sim) { assert.equal(range.castForeground, sim.experience !== 'trio', 'told before the scene draws'); }, dispose() {} };
+  const inner = { rangePresentation: range, draw(sim) {
+    assert.equal(range.castForeground, sim.experience !== 'trio', 'told before the scene draws');
+    assert.equal(this.deferSceneCaptures, sim.experience !== 'trio', 'scene captures wait for the composite with the cast');
+  }, dispose() {} };
   const adapter = createPresentingRenderer({ canvas, presentation: pixel, rendererFactory: () => inner });
   assert.equal(adapter.draw({ biomes: manager }, 0).presented, true);
   // The nearest-upscaled pixel frame first, then the cast, smoothed and added.

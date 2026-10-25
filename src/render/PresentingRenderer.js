@@ -65,7 +65,9 @@ class PresentingRenderer {
     if (!source) return this.output.diagnostics.frame;
     const scene = this.canvasRenderer;
     scene.canvas = source; scene.ctx = source.getContext('2d');
-    scene.deferSceneCaptures = hybridSky || preparing;
+    // Scene captures (opening assembly, freeze, highlight reel) take the
+    // finished composite, smooth sky and cast included.
+    scene.deferSceneCaptures = hybridSky || castOverlay || preparing;
     scene.pixelPolicy = pixelRenderPolicy(this.output.presentation);
     this.inner.presentationPixelated = this.output.presentation.pixelated;
     if (range) { range.pixelated = !!this.output.presentation.pixelated; range.pixelPolicy = scene.pixelPolicy; }
