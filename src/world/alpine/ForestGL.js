@@ -189,8 +189,10 @@ const SHADE = /* glsl */`
   ${FOREST_DISTANCE_GLSL}
   ${CINEMATIC_LIGHTING_GLSL}
   ${HORIZON_GLSL}
-  uniform vec2 uGridOrigin;
-  uniform vec2 uGridExtent;
+  // The grid (uGridOrigin/uGridExtent, for the baked horizon) and the drawn
+  // ground's lift the lanterns' light reads the sea at.
+  ${DEFORM_GLSL}
+  ${GROUND_LIFT_GLSL}
   uniform vec3 uLightDir;
   uniform vec3 uLightColor;
   uniform vec3 uSkyZenith;
@@ -211,9 +213,6 @@ const SHADE = /* glsl */`
   uniform float uTime;
   in float vGust;
   ${MIST_GLSL}
-  // The lanterns' light reads the sea at the lifted ground they stand on.
-  ${DEFORM_GLSL}
-  ${GROUND_LIFT_GLSL}
   ${ACTOR_GLSL}
   ${STORM_GLSL}
   vec3 tonemap(vec3 x) { return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0); }
