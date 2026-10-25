@@ -49,8 +49,9 @@ const deckThickness = amount => smooth(.5, .95, clamp(amount));
 /** The sun disc's opacity over its horizon visibility: solid until the last
  *  of the waterline fade... */
 export const sunDiscAlpha = vis => smooth(0, .2, vis);
-/** ...and its brightness, dimming as it sinks through the band. */
-export const sunDiscDim = vis => .55 + .45 * smooth(0, .6, vis);
+/** ...and its brightness, dimming a little as it sinks through the band
+ *  (never below the twilight it sets into). */
+export const sunDiscDim = vis => .85 + .15 * smooth(0, .6, vis);
 const sunRadius = (sun, width, height) => Math.max(height * .006, (sun.radiusFrac || 0) * width);
 
 // Quanta for the lit texture: illumination, sun angle (2 degrees), horizon
@@ -113,6 +114,8 @@ function bakeFace(size) {
 
 const WHITE_HOT = [255, 253, 246], WHITE = [255, 255, 252], EMBER = [232, 80, 34];
 const GLARE = [255, 246, 228], BLOOM = [255, 252, 240], DAY_SUN = [255, 243, 223];
+// The white-hot heart of a setting sun.
+const SUNSET_HOT = [255, 236, 190];
 // Light through cloud: the sun a warm white that lights the deck broadly
 // (what tells it from a hazy moon in a storm-dark sky), the moon a grey-blue.
 const VEILED_SUN = [255, 247, 226], VEILED_MOON = [196, 204, 220];
@@ -121,6 +124,7 @@ const mixInto = (out, a, b, t) => {
   return out;
 };
 const rgba = (c, alpha) => `rgba(${Math.round(c[0])},${Math.round(c[1])},${Math.round(c[2])},${alpha})`;
+const scale3 = (c, k) => { c[0] *= k; c[1] *= k; c[2] *= k; };
 
 export class CelestialPainter {
   /** `buffers` is the sky's CanvasBuffers: the lit moon is accounted there. */
@@ -135,7 +139,7 @@ export class CelestialPainter {
     this._tintHex = null;
     this._tint = [...DAY_SUN];
     this._core = [0, 0, 0]; this._limb = [0, 0, 0]; this._centre = [0, 0, 0];
-    this._glare = [0, 0, 0]; this._bloom = [0, 0, 0];
+    this._glare = [0, 0, 0]; this._bloom = [0, 0, 0]; this._hot = [0, 0, 0];
   }
 
   /** The moon disc this frame (shared with the star cut-out), in the sky's
@@ -184,13 +188,17 @@ export class CelestialPainter {
     // A high sun's limb only leans to its colour (at full strength it ringed
     // the white disc); low down it is the colour, reddening to ember.
     const limb = mixInto(this._limb, mixInto(this._limb, WHITE_HOT, tint, .5 + .5 * low), EMBER, .45 * low);
-    const centre = mixInto(this._centre, WHITE, core, low ** .7);
+    // Low down the centre stays a warm white-hot, so the disc outshines the
+    // twilight around it (all tint, it was a flat orange plate no brighter
+    // than the glow behind it).
+    const centre = mixInto(this._centre, WHITE, mixInto(this._hot, core, SUNSET_HOT, .65 * low), low ** .7);
     const glare = mixInto(this._glare, GLARE, tint, .25 + .75 * low);
     const bloom = mixInto(this._bloom, BLOOM, core, low);
-    // Sinking through its horizon band the disc dims as a setting sun does,
-    // staying solid (sunDiscAlpha); a see-through disc read as a ghost.
+    // Sinking through its horizon band the disc dims a little as a setting
+    // sun does, staying solid (sunDiscAlpha); a see-through disc read as a
+    // ghost.
     const dim = sunDiscDim(vis);
-    for (const c of [core, limb, centre]) { c[0] *= dim; c[1] *= dim; c[2] *= dim; }
+    scale3(core, dim); scale3(limb, dim); scale3(centre, dim);
     const k = vis * clear;
     ctx.save();
     ctx.globalCompositeOperation = 'screen';

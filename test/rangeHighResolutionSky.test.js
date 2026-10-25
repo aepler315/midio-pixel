@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { skyProjector, createSkyCatalogue, cloudDensity, RangeSkyRenderer } from '../src/world/alpine/RangeSkyRenderer.js';
 import { GraphicsResidency } from '../src/render/GraphicsResidency.js';
+import { TWILIGHT } from '../src/world/DayNight.js';
 
 test('sky directions use the terrain perspective including its off-axis camera crop', () => {
   const pose = { eyeM: [400, 1000, 1200], targetM: [100, 1200, 0], fovYDeg: 42,
@@ -311,7 +312,15 @@ test('the sun takes its colour from colorHex, warms at the horizon and keeps its
     const fromWhite = c => c.reduce((s, v, i) => s + Math.abs([255, 253, 246][i] - v), 0);
     assert.ok(fromWhite(low) > 1.5 * fromWhite(high.at(-1)), `low down the limb is deep in colour, not leaning: ${low}`);
     const setting = stopsOf({ altitude01: .02, colorHex: '#ff7136' });
-    assert.ok(setting[0][0] > 250 && setting[0][2] < 120, `a low sun is warm through its core, no white centre: ${setting[0]}`);
+    assert.ok(setting[0][0] > 250 && setting[0][1] < 215 && setting[0][2] < 165, `a low sun is warm through its core, no white centre: ${setting[0]}`);
+    // ...yet a warm white-hot heart: a setting sun outshines the twilight it
+    // sets into, even dimmed in its horizon band (an all-tint disc was a flat
+    // plate no brighter than the glow behind it).
+    const lum = ([r, g, b]) => .2126 * r + .7152 * g + .0722 * b;
+    const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+    const sinking = stopsOf({ altitude01: .02, colorHex: '#ff5f24', visibility: .2 })[0];
+    for (const [name, sky] of [['dawn horizon', TWILIGHT.dawn.horizon], ['dusk glow', TWILIGHT.dusk.glow], ['dusk horizon', TWILIGHT.dusk.horizon]])
+      assert.ok(lum(sinking) > 1.15 * lum(hex(sky)), `brighter than the ${name}: ${lum(sinking).toFixed(0)} vs ${lum(hex(sky)).toFixed(0)}`);
     assert.notDeepEqual(stopsOf({ altitude01: .02, colorHex: '#ffffff' }), setting, 'the warm colour comes from colorHex');
   } finally { sky.dispose(); }
 });
