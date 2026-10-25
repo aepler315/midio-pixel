@@ -59,6 +59,21 @@ test('the hybrid descriptor retains immutable full weather and existing music/cu
   assert.equal(snapshot(manager).lightning, null, 'the original narrative exclusion remains in force');
 });
 
+test('the hybrid snapshot carries the moon\'s daylight gate and geometric phase, frozen', () => {
+  const moon = { xFrac: .6, yFrac: .3, altitude01: .6, radiusFrac: .02, visibility: 1, discAlpha: 0, illumination: .42,
+    illuminant: { xFrac: .2, yFrac: .9 } };
+  const sun = { xFrac: .3, yFrac: .4, altitude01: .5, radiusFrac: .02, visibility: 1, colorHex: '#fff3df' };
+  const manager = managerFixture({}, { celestialState: { sun, moon, activeBody: 'sun' } });
+  const frame = snapshot(manager);
+  assert.equal(frame.moon.discAlpha, 0);
+  assert.equal(frame.moon.illumination, .42);
+  assert.ok(Object.isFrozen(frame.moon) && Object.isFrozen(frame.moon.illuminant));
+  assert.equal(manager._moonDisc, null, 'a moon hidden by daylight occludes nothing');
+  manager.celestialState = { sun, moon: { ...moon, discAlpha: 1 }, activeBody: 'moon' };
+  snapshot(manager);
+  assert.ok(manager._moonDisc && Math.abs(manager._moonDisc.R - 1280 * .02) < 1e-9, 'the shown moon keeps its occluder');
+});
+
 test('actual weak/strong scheduled attacks survive the hybrid sky draw and random access', () => {
   const score = compileStorm({ durationMs: 120000,
     energyCurves: { globalEnergyNorm: time => time >= 40000 && time < 60000 ? .95 : .25 },
