@@ -211,7 +211,7 @@ export class PixelPresentation {
     this.cinematic ||= new CinematicPixelRenderer({ residency: this.residency,
       makeCanvas: () => (this.canvas.ownerDocument || globalThis.document).createElement('canvas') });
     const applied = this.cinematic.draw(ctx, source, fit);
-    this.diagnostics[diagnostic] = { applied, reason: this.cinematic.reason, bytes: this.cinematic.bytes };
+    this.diagnostics[diagnostic] = { applied, reason: this.cinematic.reason, bytes: this.cinematic.bytes, strength: applied ? this.cinematic.strength : null };
     if (capture) this.diagnostics.ownedPixelScratchBytes = (this.working ? this.grid.pixels * 4 : 0)
       + (this.ditherWeights?.byteLength || 0) + this.cinematic.bytes + (this.diagnostics.pixelEffectScratchBytes || 0);
     return applied;

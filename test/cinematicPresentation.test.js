@@ -20,6 +20,24 @@ test('Cinematic Pixel survives storage and export without changing grid or quali
   assert.equal(resolvePresentation(DEFAULT_DISPLAY_PREFS).cinematicPixel, undefined);
 });
 
+test('Cinematic runs at its own detail level when none is chosen; a chosen one is kept', async () => {
+  const { CINEMATIC_PIXEL_GRID, defaultGridFor } = await import('../src/render/DisplayProfile.js');
+  assert.equal(CINEMATIC_PIXEL_GRID, 'detailed');
+  assert.equal(defaultGridFor('cinematic'), 'detailed');
+  for (const look of ['pixel', 'palette']) assert.equal(defaultGridFor(look), 'classic', `${look} keeps Classic`);
+  // A record or export request without a valid grid takes the look's own.
+  assert.equal(resolveDisplayPrefs({ saved: { version: 2, look: 'cinematic' } }).pixelGrid, 'detailed');
+  assert.equal(resolveDisplayPrefs({ saved: { version: 2, look: 'cinematic', pixelGrid: 'broken' } }).pixelGrid, 'detailed');
+  assert.equal(resolveDisplayPrefs({ saved: { version: 2, look: 'pixel' } }).pixelGrid, 'classic');
+  assert.equal(parseBulkArgs(['--look', 'cinematic', 'song.wav']).presentation.pixelGrid, 'detailed');
+  assert.equal(resolvePresentation({ version: 2, look: 'cinematic' }).grid.id, 'detailed');
+  // Explicit choices, saved or requested, stay.
+  assert.equal(resolveDisplayPrefs({ saved: { ...DEFAULT_DISPLAY_PREFS, look: 'cinematic', pixelGrid: 'classic' } }).pixelGrid, 'classic');
+  const { parseReviewArgs } = await import('../tools/landscape-review.mjs');
+  assert.deepEqual(parseReviewArgs(['--out', 'x', '--look', 'cinematic']).grids, ['detailed']);
+  assert.deepEqual(parseReviewArgs(['--out', 'x']).grids, ['classic', 'detailed'], 'Pixel reviews keep both');
+});
+
 test('a live Look switch reaches the terrain and sky on that draw and resets on return', () => {
   const range = {}, manager = { world: { kind: 'alpine' } }, contexts = [];
   const makeCanvas = () => {

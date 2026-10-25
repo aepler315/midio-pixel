@@ -1,4 +1,4 @@
-import { DEFAULT_DISPLAY_PREFS } from './DisplayProfile.js';
+import { DEFAULT_DISPLAY_PREFS, defaultGridFor } from './DisplayProfile.js';
 // Planning for tools/bulk-export.mjs.
 //
 // The live recorder (SongRecorder.js) captures whatever the screen managed
@@ -274,6 +274,7 @@ function takeOption(args, index, name) {
 
 /** argv after the node script name. `--help` sets `help`. */
 export function parseBulkArgs(argv) {
+  let gridChosen = false;
   const opts = {
     help: false,
     out: 'exports',
@@ -381,6 +382,7 @@ export function parseBulkArgs(argv) {
       opts.presentation ??= { ...DEFAULT_DISPLAY_PREFS };
       const key = { 'dither-mode': 'ditherMode', 'pixel-grid': 'pixelGrid' }[displayKey] || displayKey;
       opts.presentation[key] = displayKey === 'dither' ? { off: 0, subtle: .35, full: 1 }[got.value] : got.value;
+      if (key === 'pixelGrid') gridChosen = true;
       i = got.next;
       continue;
     }
@@ -390,6 +392,8 @@ export function parseBulkArgs(argv) {
   }
   if (!opts.resolutions) opts.resolutions = parseResolutions('all');
   if (!opts.frameRates) opts.frameRates = parseFrameRates('all');
+  // Without --pixel-grid the look runs at its own detail level.
+  if (opts.presentation && !gridChosen) opts.presentation.pixelGrid = defaultGridFor(opts.presentation.look);
   return opts;
 }
 
@@ -423,7 +427,7 @@ Options
   --palette <name>     world, range32, chroma32, or rgb332
   --dither <amount>    off, subtle, or full
   --dither-mode <mode> selective or ordered (RGB332 always uses ordered)
-  --pixel-grid <grid>  classic (320×180), classicPlus (400×225, 1.56× the pixel work), medium (480×270, 2.25× the pixel work), mediumPlus (560×315, 3.06×) or detailed (640×360, four times)
+  --pixel-grid <grid>  classic (320×180), classicPlus (400×225, 1.56× the pixel work), medium (480×270, 2.25× the pixel work), mediumPlus (560×315, 3.06×) or detailed (640×360, four times); default classic, or detailed with --look cinematic
   --scaling <mode>     fit or integer
   --help
 
