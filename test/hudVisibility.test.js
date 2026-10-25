@@ -7,7 +7,7 @@ const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
 const start = main.indexOf('const HUD_FADE_MS =');
 const binding = main.slice(start, main.indexOf('// Mountain seekbar:', start));
 
-function hud({ open = false, hidden = false, focused = false } = {}) {
+function hud({ open = false, hidden = false, focused = false, snapshotBusy = false } = {}) {
   const element = () => {
     const classes = new Set(), events = new Map();
     return { classList: { add: name => classes.add(name), remove: name => classes.delete(name), contains: name => classes.has(name) },
@@ -16,7 +16,7 @@ function hud({ open = false, hidden = false, focused = false } = {}) {
   const right = element(), left = element(), details = { ...element(), open, hidden, contains: target => target === details };
   let now = 0;
   const context = vm.createContext({ hudRightEl: right, hudLeftEl: left, rangeCaptionDetailsEl: details,
-    songRecorder: null, recalibration: { active: false }, btLatencyPopoverEl: null,
+    songRecorder: null, recalibration: { active: false }, btLatencyPopoverEl: null, snapshotBusy,
     document: { activeElement: focused ? details : null }, performance: { now: () => now } });
   vm.runInContext(binding, context);
   return { right, details, document: context.document,
@@ -53,4 +53,10 @@ test('a hidden details view and an unfocused closed summary preserve normal HUD 
     state.tick(3000);
     assert.equal(state.right.classList.contains('hud-faded'), true);
   }
+});
+
+test('a snapshot in progress holds the HUD open until it finishes', () => {
+  const state = hud({ snapshotBusy: true });
+  state.tick(3000); state.tick(9000);
+  assert.equal(state.right.classList.contains('hud-faded'), false);
 });
