@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   mistAmount, mistMask, mistParams, mistDrift, emitterStrength, MIST_GLSL, MIST_NOISE_M, MIST_DRIFT, SEA_DENSITY,
   meanLayer, easeMistSteps, tourMistCap, tourMistFade, MIST_OCTAVE_ROTATION, MIST_SAMPLES, MIST_STEP_EASE_SEC,
-  emitterVisibility, seaSubmersion, seaLightReach, EMITTER_GLSL, EMITTER_SUBMERGE, SEA_TOP_SOFT_BELOW_M, SEA_TOP_SOFT_ABOVE_M,
+  emitterVisibility, seaSubmersion, actorLightShown, EMITTER_GLSL, EMITTER_SUBMERGE, SEA_TOP_SOFT_BELOW_M, SEA_TOP_SOFT_ABOVE_M,
 } from '../src/world/alpine/RangeAtmosphere.js';
 
 const cam = [0, 1500, 0];
@@ -136,14 +136,19 @@ test('a light sunk under a full cloud sea is gone, one standing above its top is
   }
 });
 
-test('a lantern under the cloud sea lights nothing that stands above its top', () => {
+test('a lantern sunk under the cloud sea lights nothing, as much gone as the lantern itself', () => {
   const m = { topM: 1500, fill: 1 };
   const under = 1500 - SEA_TOP_SOFT_BELOW_M - 20, above = 1500 + SEA_TOP_SOFT_ABOVE_M + 20;
-  assert.equal(seaLightReach(under, above, m), 0, 'a peak above the cloud gets no light from below it');
-  assert.equal(seaLightReach(under, under - 50, m), 1, 'ground under the sea keeps its pool (the terrain fogs it)');
-  assert.equal(seaLightReach(above, under, m), 1, 'a light above the sea still reaches down');
-  assert.equal(seaLightReach(under, above, { topM: 1500, fill: 0.4 }), 0.6);
-  assert.equal(seaLightReach(under, above, null), 1);
+  // No pool and no glints with no lantern over them, above the top or below.
+  assert.equal(actorLightShown(under, m), 0);
+  assert.equal(actorLightShown(above, m), 1, 'a light above the sea still reaches down');
+  assert.ok(Math.abs(actorLightShown(under, { topM: 1500, fill: 0.4 }) - 0.6) < 1e-12);
+  assert.equal(actorLightShown(under, null), 1);
+  // It follows the lantern's own sea term exactly (emitterVisibility, no mist).
+  for (const y of [1400, 1460, 1480, 1500, 1520, 1600]) {
+    const seen = emitterVisibility([0, 3000, 0], [0, y, -100], { density: 0, topM: 1500, fill: 0.7 });
+    assert.ok(Math.abs(actorLightShown(y, { topM: 1500, fill: 0.7 }) - seen) < 1e-12, `${y}`);
+  }
 });
 
 test('the emitter and lantern-light shader twins use the same constants', async () => {
@@ -152,8 +157,11 @@ test('the emitter and lantern-light shader twins use the same constants', async 
   assert.ok(EMITTER_GLSL.includes('mistAmount(uCameraPos, p) * uNarrative.y'));
   assert.ok(EMITTER_GLSL.includes(`${EMITTER_SUBMERGE.toFixed(3)} * sub`));
   const { ACTOR_GLSL } = await import('../src/world/alpine/ActorsGL.js');
-  assert.ok(ACTOR_GLSL.includes('fall *= 1.0 - uMistFill * max(mistSubmersion(uActorPos[i].y) - mistSubmersion(p.y), 0.0)'));
-  // actorLight reads the sea's top: the mist uniforms must be declared above it.
+  assert.ok(ACTOR_GLSL.includes(`1.0 - ${EMITTER_SUBMERGE.toFixed(3)} * uMistFill * mistSubmersion(s.y + groundLift(s))`),
+    'the light goes with its lantern, read on the lifted ground');
+  assert.ok(ACTOR_GLSL.split('* actorShown(i)').length === 3, 'both the pool and the glints');
+  // actorLight reads the sea's top at the lifted ground: the mist uniforms
+  // and groundLift must be declared above it, once.
   const { SCENE_FRAG } = await import('../src/world/alpine/TerrainMaterial.js');
   const { createForest } = await import('../src/world/alpine/ForestGL.js');
   const THREE = await import('../src/vendor/range/three-range.module.js');
@@ -163,6 +171,10 @@ test('the emitter and lantern-light shader twins use the same constants', async 
     const top = frag.indexOf('uniform float uMistTop;'), light = frag.indexOf('vec3 actorLight(');
     assert.ok(top >= 0 && light > top, `${name}: MIST_GLSL precedes ACTOR_GLSL`);
     assert.equal(frag.split('uniform float uMistTop;').length, 2, `${name}: declared once`);
+    const lift = frag.indexOf('float groundLift(vec3 p)');
+    assert.ok(lift >= 0 && light > lift, `${name}: groundLift precedes ACTOR_GLSL`);
+    for (const decl of ['float groundLift(vec3 p)', 'uniform sampler2D uReceiver;', 'uniform float uGlacierEnabled;'])
+      assert.equal(frag.split(decl).length, 2, `${name}: ${decl} once`);
   }
   for (const m of [...Object.values(forest.byBand).flat(), ...forest.depth]) m.geometry.dispose();
 });

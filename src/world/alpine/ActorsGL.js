@@ -15,7 +15,7 @@
 import { ACTOR_IDS, ACTOR_MOTES } from './RangeActors.js';
 import { BANDS } from './TerrainMesh.js';
 import { THREAD_SEGMENTS, THREAD_SEGMENTS_MAX } from './CastJobs.js';
-import { MIST_GLSL, EMITTER_GLSL, MIST_SAMPLES } from './RangeAtmosphere.js';
+import { MIST_GLSL, EMITTER_GLSL, MIST_SAMPLES, EMITTER_SUBMERGE } from './RangeAtmosphere.js';
 import { DEFORM_GLSL, GROUND_LIFT_GLSL, deformUniforms } from './TerrainDeform.js';
 import { CAST_RASTER_GLSL, THREAD_HALF_PX, THREAD_PEAK } from './CastRaster.js';
 
@@ -53,22 +53,29 @@ export function actorUniforms(THREE) {
 
 /** Light from the actors at `p` on a surface facing `n` (linear radiance,
  *  multiplied by albedo by the caller), and its glint on water. Include
- *  after MIST_GLSL: a lantern sunk under the cloud sea lights nothing that
- *  stands above its top (RangeAtmosphere seaLightReach). */
+ *  after MIST_GLSL and GROUND_LIFT_GLSL (with DEFORM_GLSL): a lantern sunk
+ *  under the cloud sea is gone, and so are its pool and glints
+ *  (RangeAtmosphere actorLightShown). */
 export const ACTOR_GLSL = /* glsl */`
   uniform vec3 uActorPos[${ACTOR_COUNT}];
   uniform vec3 uActorColor[${ACTOR_COUNT}];
   uniform float uActorRadius[${ACTOR_COUNT}];
+  // How much of actor i's light the cloud sea leaves: as much as of its
+  // lantern (emitterSeen's sea term), read where the lantern is drawn, on
+  // the lifted ground. A pool or a glint with no lantern over it read as
+  // light from nowhere.
+  float actorShown(int i) {
+    if (uMistFill <= 0.0) return 1.0;
+    vec3 s = uActorPos[i];
+    return 1.0 - ${EMITTER_SUBMERGE.toFixed(3)} * uMistFill * mistSubmersion(s.y + groundLift(s));
+  }
   vec3 actorLight(vec3 p, vec3 n) {
     vec3 sum = vec3(0.0);
     for (int i = 0; i < ${ACTOR_COUNT}; i++) {
       if (dot(uActorColor[i], uActorColor[i]) < 1e-8) continue;
       vec3 d = uActorPos[i] - p;
       float r = length(d), R = uActorRadius[i];
-      float fall = (1.0 - smoothstep(R * 2.5, R * 4.5, r)) / (1.0 + r * r / (R * R));
-      // Ground under the sea is already fogged where it is shaded; only
-      // light climbing out of the cloud to a receiver above it is cut.
-      if (uMistFill > 0.0) fall *= 1.0 - uMistFill * max(mistSubmersion(uActorPos[i].y) - mistSubmersion(p.y), 0.0);
+      float fall = (1.0 - smoothstep(R * 2.5, R * 4.5, r)) / (1.0 + r * r / (R * R)) * actorShown(i);
       float facing = max(dot(n, d / max(r, 1e-3)) * 0.75 + 0.25, 0.0);
       sum += uActorColor[i] * fall * facing;
     }
@@ -82,7 +89,7 @@ export const ACTOR_GLSL = /* glsl */`
       vec3 d = uActorPos[i] - p;
       float r = length(d), R = min(uActorRadius[i] * 14.0, 2500.0);
       vec3 H = normalize(d / max(r, 1e-3) + V);
-      sum += uActorColor[i] * pow(max(dot(H, n), 0.0), 160.0) * (1.0 - smoothstep(R * 0.5, R, r));
+      sum += uActorColor[i] * pow(max(dot(H, n), 0.0), 160.0) * (1.0 - smoothstep(R * 0.5, R, r)) * actorShown(i);
     }
     return sum;
   }
@@ -116,8 +123,8 @@ const AIR = /* glsl */`
 `;
 
 // The mist and cloud sea the terrain fades into, seen at a light's true
-// position (RangeAtmosphere emitterSeen): what drowns the ground under it
-// drowns the light too. Lanterns and motes take it from the CPU twin.
+// position on the drawn (lifted) ground (RangeAtmosphere emitterSeen): what
+// drowns the ground under it drowns the light too.
 const FOG = /* glsl */`
   uniform vec4 uNarrative;
   ${MIST_GLSL}
@@ -134,6 +141,7 @@ const LIFT = /* glsl */`
 
 const LANTERN_VERT = /* glsl */`
   ${AIR}
+  ${FOG}
   ${LIFT}
   uniform vec3 uCenter;
   uniform vec3 uAnchor; // the light itself (uCenter is drawn toward the eye)
@@ -145,6 +153,7 @@ const LANTERN_VERT = /* glsl */`
   out vec2 vPx; // from the lantern's centre, in target pixels
   out float vR; // its radius, in target pixels
   out float vAir;
+  out float vSeen;
   ${CAST_RASTER_GLSL}
   void main() {
     // Target pixels per stage pixel, and a quad wide enough for the
@@ -153,9 +162,12 @@ const LANTERN_VERT = /* glsl */`
     vR = uHaloPx * k;
     float extent = spriteExtent(vR);
     vPx = position.xy * 2.0 * extent;
-    vec3 center = uCenter + vec3(0.0, groundLift(uAnchor), 0.0);
+    vec3 lift = vec3(0.0, groundLift(uAnchor), 0.0);
+    vec3 center = uCenter + lift;
     vec3 p = center + (uRight * position.x + uUp * position.y) * 2.0 * extent * uMpp / k;
     vAir = airAt(center);
+    // Fogged at the light itself, where its sites and threads are.
+    vSeen = emitterSeen(uAnchor + lift);
     gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
   }
 `;
@@ -169,22 +181,23 @@ const LANTERN_FRAG = /* glsl */`
   uniform vec3 uColor;
   uniform float uGlow;
   uniform float uPresence;
-  uniform float uSeen;
   in vec2 vPx;
   in float vR;
   in float vAir;
+  in float vSeen;
   out vec4 outColor;
   ${CAST_RASTER_GLSL}
   void main() {
     float core = spot(vPx, ${LANTERN_CORE.toFixed(4)} * vR);
     float halo = spriteHalo(vPx, vR) * (0.25 + 0.75 * uGlow);
-    vec3 c = (vec3(1.0) * core * 0.9 + uColor * (core * 0.6 + halo * 0.55)) * uPresence * (1.0 - 0.85 * vAir) * uSeen;
+    vec3 c = (vec3(1.0) * core * 0.9 + uColor * (core * 0.6 + halo * 0.55)) * uPresence * (1.0 - 0.85 * vAir) * vSeen;
     outColor = vec4(c, clamp(max(c.r, max(c.g, c.b)), 0.0, 1.0));
   }
 `;
 
 const MOTE_VERT = /* glsl */`
   ${AIR}
+  ${FOG}
   ${LIFT}
   uniform vec3 uCenter;
   uniform vec3 uAnchor;
@@ -197,9 +210,6 @@ const MOTE_VERT = /* glsl */`
   // the light at uFlyTarget (world) as uFly runs 0..1, and fade there.
   uniform vec3 uFlyTarget;
   uniform float uFly;
-  // How much of the fog lets the lantern and the light it kindles be seen.
-  uniform float uSeen;
-  uniform float uSeenFly;
   uniform vec2 uViewportPx;
   in vec4 aSeed;
   out vec2 vPx;
@@ -213,7 +223,8 @@ const MOTE_VERT = /* glsl */`
     vec2 wander = vec2(sin(t + aSeed.z * 6.2832) + 0.5 * sin(t * 2.3 + aSeed.w * 9.0),
                        cos(t * 0.8 + aSeed.y * 6.2832) + 0.4 * sin(t * 1.7 + aSeed.z * 5.0))
       * uWanderPx * (0.35 + 0.65 * aSeed.w);
-    vec3 base = uCenter + vec3(0.0, groundLift(uAnchor), 0.0) + (uRight * wander.x + uUp * wander.y) * uMpp;
+    vec3 lift = vec3(0.0, groundLift(uAnchor), 0.0);
+    vec3 base = uCenter + lift + (uRight * wander.x + uUp * wander.y) * uMpp;
     float fly = 0.0;
     vec3 target = uFlyTarget;
     if (gl_InstanceID < ${ACTOR_FLY_MOTES} && uFly > 0.0 && uFly < 1.0) {
@@ -221,6 +232,8 @@ const MOTE_VERT = /* glsl */`
       fly = smoothstep(aSeed.x * 0.35, aSeed.x * 0.35 + 0.65, uFly);
       target.y += groundLift(uFlyTarget);
     }
+    // Fogged on its way from the lantern itself to the light it kindles.
+    vSeen = emitterSeen(mix(uAnchor + lift, target, fly));
     vec3 c = mix(base, target, fly);
     float mpp = mix(uMpp, uMpp * length(uFlyTarget - uCameraPos) / max(length(uCenter - uCameraPos), 1.0), fly);
     float k = uViewportPx.y / ${STAGE_PX.toFixed(1)};
@@ -230,7 +243,6 @@ const MOTE_VERT = /* glsl */`
     vec3 p = c + (uRight * position.x + uUp * position.y) * 2.0 * extent * mpp / k;
     vBright = (0.45 + 0.4 * fly * (1.0 - fly) * 4.0) * (0.75 + 0.25 * sin(uTime * 3.0 + aSeed.z * 40.0)) * (1.0 - smoothstep(0.85, 1.0, fly));
     vAir = airAt(c);
-    vSeen = mix(uSeen, uSeenFly, fly);
     gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
   }
 `;
@@ -247,8 +259,8 @@ const MOTE_FRAG = /* glsl */`
   out vec4 outColor;
   ${CAST_RASTER_GLSL}
   void main() {
-    // Far below a pixel on the grid: drawn at the filter's width with its
-    // own energy, so a mote glides between pixels instead of popping.
+    // Far below a pixel on the grid: drawn at the filter's width, so a mote
+    // glides between pixels instead of popping (CastRaster spot).
     float dot1 = spot(vPx, ${MOTE_DOT.toFixed(3)} * vR);
     vec3 c = mix(uColor, vec3(1.0), 0.35) * dot1 * vBright * uPresence * (1.0 - 0.85 * vAir) * vSeen;
     outColor = vec4(c, clamp(max(c.r, max(c.g, c.b)), 0.0, 1.0));
@@ -329,8 +341,10 @@ const SITE_FRAG = /* glsl */`
 `;
 
 /** Native pixels a thread is drawn toward the eye: the coarser mesh between
- *  its drape points and the depth buffer's step never cut it. */
-export const THREAD_PUSH_PX = 1.5;
+ *  its drape points and the depth buffer's step never cut it, nor the
+ *  ground just below its centre line the lower half of its ribbon (widened
+ *  on screen at the centre's depth) lies over on shallow slopes. */
+export const THREAD_PUSH_PX = THREAD_HALF_PX + 0.5;
 /** Length of the drawing front's soft head (fraction of the thread). */
 export const THREAD_FRONT = 0.03;
 
@@ -539,6 +553,12 @@ export class SiteLights {
     a.needsUpdate = true;
   }
 
+  /** Whether any light is laid out, lit and given any gain. */
+  drawn() {
+    if (!(this.uniforms.uGain.value > 0)) return false;
+    return (this._slots || []).some(({ band, i }) => this.meshes[band].geometry.attributes.aState.getX(i) > 0);
+  }
+
   dispose() {
     for (const m of Object.values(this.meshes)) { m.removeFromParent(); m.geometry.dispose(); }
     this._quad.dispose();
@@ -650,6 +670,23 @@ export class SurveyThreads {
     for (const u of Object.values(this.uniformsByBand)) { u.uColor.value.copy(color); u.uGain.value = gain; }
   }
 
+  /** Whether any thread laid out has some of it shown, bright, with gain. */
+  drawn() {
+    return (this._bands || []).some(({ band, k }) => {
+      const u = this.uniformsByBand[band];
+      return u.uGain.value > 0 && u.uReveal.value[k] > 0 && u.uBright.value[k] > 0;
+    });
+  }
+
+  /** How overlapping fragments of the ribbons combine: THREE.AddEquation as
+   *  light over the land (the band passes, the lake mirror), or
+   *  THREE.MaxEquation alone on the cast's own cleared layer, where a strip
+   *  folding over itself at a short, turning drape step (its corners reach
+   *  past the next point) would otherwise sum into bright beads. */
+  setOverlap(equation) {
+    for (const m of Object.values(this.meshes)) m.material.blendEquation = equation;
+  }
+
   dispose() {
     for (const m of Object.values(this.meshes)) { m.removeFromParent(); m.geometry.dispose(); m.material.dispose(); }
   }
@@ -676,9 +713,6 @@ export class ActorsGL {
         uMpp: { value: 1 }, uHaloPx: { value: 30 }, uColor: { value: new THREE.Color() },
         uGlow: { value: 0 }, uPresence: { value: 0 }, uWanderPx: { value: 24 },
         uFlyTarget: { value: new THREE.Vector3() }, uFly: { value: 0 },
-        // Seen through the fog at the lantern, and at the light it kindles
-        // (RangeAtmosphere emitterVisibility, set per frame by the scene).
-        uSeen: { value: 1 }, uSeenFly: { value: 1 },
       };
       const lantern = new THREE.Mesh(quad, new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms: u,
         vertexShader: LANTERN_VERT, fragmentShader: LANTERN_FRAG, ...blend }));
@@ -697,9 +731,9 @@ export class ActorsGL {
       group.add(motes, lantern);
       // Midasus's three baby stars: tiny lanterns trailing her.
       this.companions[id] = Array.from({ length: ACTOR_COMPANIONS[id] || 0 }, () => {
-        // Each trails at its own height, so each is fogged on its own.
+        // Each trails at its own place (uAnchor), so each is fogged on its own.
         const cu = { ...u, uCenter: { value: new THREE.Vector3() }, uAnchor: { value: new THREE.Vector3() },
-          uMpp: { value: 1 }, uHaloPx: { value: 9 }, uGlow: { value: 0 }, uSeen: { value: 1 } };
+          uMpp: { value: 1 }, uHaloPx: { value: 9 }, uGlow: { value: 0 } };
         const m = new THREE.Mesh(quad, new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms: cu,
           vertexShader: LANTERN_VERT, fragmentShader: LANTERN_FRAG, ...blend }));
         m.frustumCulled = false; m.renderOrder = 3;

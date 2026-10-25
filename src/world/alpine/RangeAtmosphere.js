@@ -172,14 +172,12 @@ export function emitterVisibility(cam, p, m) {
   return Math.max(0, (1 - mist) * (1 - EMITTER_SUBMERGE * seaSubmersion(p[1], m)));
 }
 
-/** Share of a lantern's light at height `sourceY` that reaches a receiver
- *  at `receiverY`: a lantern under the cloud sea lights nothing standing
- *  above its top (ground under the sea is fogged by the terrain itself).
- *  The JS twin of actorLight's cut (ActorsGL ACTOR_GLSL). */
-export function seaLightReach(sourceY, receiverY, m) {
-  if (!(m?.fill > 0)) return 1;
-  const s = seaSubmersion(sourceY, { topM: m.topM, fill: 1 }), r = seaSubmersion(receiverY, { topM: m.topM, fill: 1 });
-  return 1 - m.fill * Math.max(s - r, 0);
+/** Share of a lantern's light (its pool and its glints) the cloud sea
+ *  leaves when the lantern stands at height `sourceY` on the drawn ground:
+ *  as much as of the lantern itself, so a sunk lantern lights nothing, above
+ *  the top or below it. The JS twin of ACTOR_GLSL's actorShown. */
+export function actorLightShown(sourceY, m) {
+  return 1 - EMITTER_SUBMERGE * seaSubmersion(sourceY, m || undefined);
 }
 
 /** The banks' mean along the ray from `n` samples, weighted by the layer. */

@@ -8,7 +8,10 @@
 //   square (a box filter) and never narrower than SPRITE_MIN_SIGMA. Pixel
 //   squares tile the plane, so a light's total brightness is the same
 //   wherever it falls on the grid; the minimum keeps it spread over a few
-//   pixels so it glides between them instead of hopping.
+//   pixels so it glides between them instead of hopping. A light finer
+//   than the minimum keeps a peak in proportion to its size, not its area:
+//   spread at its own energy, a mote or a far fixed-line light peaked at a
+//   few percent of a pixel and vanished.
 // - Lines are ribbons at least THREAD_HALF_PX either side of their centre,
 //   with the same box-filtered Gaussian across them, so their brightness per
 //   unit length is constant at any position and angle.
@@ -42,11 +45,12 @@ export function boxGauss(x, sigma) {
 }
 
 /** What one pixel at offset (dx, dy) px from a light's centre receives of a
- *  unit-peak Gaussian of radius `sigma` px: its peak where it is wide, and
- *  the same total (2 pi sigma^2) where it is finer than the grid. */
+ *  unit-peak Gaussian of radius `sigma` px: its peak where it is wide; finer
+ *  than SPRITE_MIN_SIGMA, drawn that wide with a total of 2 pi sigma s (its
+ *  peak scales with sigma / s instead of (sigma / s)^2). */
 export function spot(dx, dy, sigma) {
   const s = Math.max(sigma, SPRITE_MIN_SIGMA);
-  return 2 * Math.PI * sigma * sigma * boxGauss(dx, s) * boxGauss(dy, s);
+  return 2 * Math.PI * sigma * s * boxGauss(dx, s) * boxGauss(dy, s);
 }
 
 /** A sprite's halo of radius `R` px at offset (dx, dy). */
@@ -82,7 +86,7 @@ export const CAST_RASTER_GLSL = /* glsl */`
   }
   float spot(vec2 d, float sigma) {
     float s = max(sigma, ${SPRITE_MIN_SIGMA.toFixed(3)});
-    return 6.2831853 * sigma * sigma * boxGauss(d.x, s) * boxGauss(d.y, s);
+    return 6.2831853 * sigma * s * boxGauss(d.x, s) * boxGauss(d.y, s);
   }
   float spriteHalo(vec2 d, float R) {
     return ${HALO.w1.toFixed(3)} * spot(d, ${HALO.s1.toFixed(3)} * R) + ${HALO.w2.toFixed(3)} * spot(d, ${HALO.s2.toFixed(3)} * R);

@@ -15,7 +15,7 @@ export {
   SRGBColorSpace, LinearSRGBColorSpace, NoColorSpace,
   FrontSide, BackSide, DoubleSide,
   NoBlending, NormalBlending, AdditiveBlending, CustomBlending,
-  OneFactor, ZeroFactor, OneMinusSrcAlphaFactor, SrcAlphaFactor, AddEquation,
+  OneFactor, ZeroFactor, OneMinusSrcAlphaFactor, SrcAlphaFactor, AddEquation, MaxEquation,
   LessEqualDepth, EqualDepth, AlwaysDepth,
   NoToneMapping, DynamicDrawUsage, REVISION,
 } from 'three';

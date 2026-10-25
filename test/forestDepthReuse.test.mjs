@@ -95,12 +95,20 @@ test('with a smooth cast pass the partitions leave the cast out, and it draws on
 
 test('placed lights alone (no lantern on screen) still draw after the crown cut, and a travel keeps the cast in its bands', () => {
   const { s, draws } = fixture();
-  s.prepared.get('probe').actors.sites = { meshes: { far: { visible: true } } };
+  s.prepared.get('probe').actors.sites = { drawn: () => true };
   s.renderPartition(frame, 'near', 'probe');
   assert.deepEqual(draws.filter(([scene]) => scene === 'near'), [['near', 1], ['near', 2], ['near', 8 | 16]]);
+  // Laid out but dark (none kindled yet, or the cast absent): no crown cut
+  // and no cast pass for nothing.
+  const dark = fixture();
+  dark.s.prepared.get('probe').actors.sites = { drawn: () => false };
+  dark.s.renderPartition(frame, 'near', 'probe');
+  assert.deepEqual(dark.draws.filter(([scene]) => scene === 'depth'), [['depth', 1]]);
+  dark.s.castInBands = false;
+  assert.equal(dark.s.renderCast(frame, 'probe'), null);
   const smooth = fixture();
   smooth.s.castInBands = false;
-  smooth.s.prepared.get('probe').actors.sites = { meshes: { far: { visible: true } } };
+  smooth.s.prepared.get('probe').actors.sites = { drawn: () => true };
   smooth.s.renderPartition(frame, 'near', 'probe');
   assert.equal(smooth.s.renderCast(frame, 'probe'), smooth.s.canvas);
   const travel = fixture({ actor: true });

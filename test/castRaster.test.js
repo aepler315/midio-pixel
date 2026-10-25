@@ -29,7 +29,7 @@ test('a light deposits the same energy wherever it falls between pixel centres',
   // The old single-sampled core of a fixed-line light (0.11 px) swung x9 in
   // energy with sub-pixel phase, and motes vanished; filtered, nothing moves.
   for (const sigma of [0.05, 0.11, 0.39, SPRITE_MIN_SIGMA, 1.5, 4]) {
-    const expected = 2 * Math.PI * sigma * sigma;
+    const expected = 2 * Math.PI * sigma * Math.max(sigma, SPRITE_MIN_SIGMA);
     const extent = 0.5 + 3 * Math.max(sigma, SPRITE_MIN_SIGMA);
     let lo = Infinity, hi = -Infinity, peakHi = 0, peakLo = Infinity;
     for (let i = 0; i <= 10; i++) for (let j = 0; j <= 10; j++) {
@@ -43,6 +43,14 @@ test('a light deposits the same energy wherever it falls between pixel centres',
   }
 });
 
+test('a light finer than the filter keeps a peak in proportion to its size, not its area', () => {
+  // A mote at the Classic grid (sigma 0.13 px) spread at its own energy
+  // peaked near 0.04 of a pixel: gone. Now it falls only linearly.
+  const peak = sigma => spot(0, 0, sigma) / spot(0, 0, SPRITE_MIN_SIGMA);
+  for (const sigma of [0.05, 0.13, 0.3]) assert.ok(Math.abs(peak(sigma) - sigma / SPRITE_MIN_SIGMA) < 1e-12, `sigma ${sigma}: ${peak(sigma)}`);
+  assert.ok(spot(0, 0, 0.13) > 0.15, `a Classic mote's centre: ${spot(0, 0, 0.13)}`);
+});
+
 test('a wide light keeps its designed profile at pixel centres', () => {
   const sigma = 4;
   for (const d of [0, 1, 3, 6]) assert.ok(Math.abs(spot(d, 0, sigma) - Math.exp(-d * d / (2 * sigma * sigma))) < 0.01, `${d}`);
@@ -52,7 +60,8 @@ test('a sprite halo keeps its energy and fits its quad at any size', () => {
   for (const R of [0.65, 1.47, 2.65, 8.8, 17.7]) {
     const extent = spriteExtent(R);
     assert.ok(extent >= R && extent >= 0.5 + 3 * Math.max(HALO.s2 * R, SPRITE_MIN_SIGMA) - 1e-9);
-    const expected = 2 * Math.PI * R * R * (HALO.w1 * HALO.s1 ** 2 + HALO.w2 * HALO.s2 ** 2);
+    const lobe = (w, f) => w * 2 * Math.PI * f * R * Math.max(f * R, SPRITE_MIN_SIGMA);
+    const expected = lobe(HALO.w1, HALO.s1) + lobe(HALO.w2, HALO.s2);
     for (const [ox, oy] of [[0, 0], [0.5, 0.5], [0.25, 0.8]]) {
       let sum = 0;
       for (let y = -Math.ceil(extent); y <= Math.ceil(extent); y++) for (let x = -Math.ceil(extent); x <= Math.ceil(extent); x++) {
@@ -86,7 +95,7 @@ test('a thread is at least 1.5 px wide and as bright per unit length at any offs
 
 test('the shader twin uses the same filter and constants', () => {
   for (const k of ['0.3275911', '1.061405429', `max(sigma, ${SPRITE_MIN_SIGMA.toFixed(3)})`, `boxGauss(across, ${THREAD_SIGMA.toFixed(3)})`,
-    `${HALO.w1.toFixed(3)} * spot(d, ${HALO.s1.toFixed(3)} * R)`, `${HALO.w2.toFixed(3)} * spot(d, ${HALO.s2.toFixed(3)} * R)`, '6.2831853 * sigma * sigma']) {
+    `${HALO.w1.toFixed(3)} * spot(d, ${HALO.s1.toFixed(3)} * R)`, `${HALO.w2.toFixed(3)} * spot(d, ${HALO.s2.toFixed(3)} * R)`, '6.2831853 * sigma * s * boxGauss']) {
     assert.ok(CAST_RASTER_GLSL.includes(k), `GLSL lacks ${k}`);
   }
   const code = CAST_RASTER_GLSL.replace(/\/\/[^\n]*/g, '');

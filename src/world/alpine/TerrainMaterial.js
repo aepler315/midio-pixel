@@ -17,7 +17,7 @@ export { materialDetailPosition } from './MaterialDetailDomain.js';
 
 // GLSL twin of RangeFrame.sceneDeformation -- keep the two in step.
 import { MIST_GLSL, MIST_SAMPLES } from './RangeAtmosphere.js';
-import { DEFORM_GLSL } from './TerrainDeform.js';
+import { DEFORM_GLSL, GROUND_LIFT_GLSL } from './TerrainDeform.js';
 import { FOREST_HASH_GLSL, FOREST_TRAITS_GLSL } from './ForestCover.js';
 import { CROWN_GLSL } from './ForestProfile.js';
 import { HORIZON_GLSL } from './TerrainOcclusion.js';
@@ -376,8 +376,10 @@ export const SCENE_FRAG = /* glsl */`
   // patches that cross the frame with each front and break the mirror.
   // Water reads the same six gusts as the forest, packed per front.
   uniform vec3 uWaterGust[${GUST_FRONTS}];
-  // Valley mist and cloud sea first: the lanterns' light reads its top.
+  // Valley mist and cloud sea first: the lanterns' light reads its top, at
+  // the lifted ground the lanterns are drawn on.
   ${MIST_GLSL}
+  ${GROUND_LIFT_GLSL}
   // The cast's lanterns (ActorsGL.js): their light, glints and Midio's wake.
   ${ACTOR_GLSL}
   ${WAKE_GLSL}

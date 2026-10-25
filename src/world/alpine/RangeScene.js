@@ -38,7 +38,7 @@ import { RockStageGL } from './RockStageGL.js';
 import { scenePoseAt } from '../terrain/SceneTravel.js';
 import { applyCameraMoves, rangeUserCamera } from './RangeCamera.js';
 import { BANDS, terrainFringeBytes, terrainHeightAt, SURFACE_BUILD_BYTES_PER_PIXEL } from './TerrainMesh.js';
-import { mistParams, mistDrift, easeMistSteps, tourMistCap, tourMistFade, emitterVisibility } from './RangeAtmosphere.js';
+import { mistParams, mistDrift, easeMistSteps, tourMistCap, tourMistFade } from './RangeAtmosphere.js';
 import { mirrorSize, mirrorLevelFor, mirrorCameraFor, mirrorTextureMatrix, MIRROR_CLIP_M, MIRROR_LIFT } from './WaterMirror.js';
 import { scenicProjection, calibrateRangeMusic } from './RangeFrame.js';
 import { applyGlacierUniforms, glacierErrors, glacierSample } from './GlacierField.js';
@@ -1799,11 +1799,6 @@ export class RangeScene {
     mistDrift(mp.tSec).forEach((d, i) => u.uMistDrift.value[i].set(d[0], d[1]));
     u.uMistTop.value = mp.topM;
     u.uMistFill.value = mp.fill;
-    // The fog as uploaded (tour fade included), for the lanterns' CPU twin
-    // of the shaders' emitterSeen (RangeAtmosphere emitterVisibility).
-    const fog = p.mistNow || (p.mistNow = {});
-    fog.density = u.uMistDensity.value; fog.baseM = mp.baseM; fog.heightM = mp.heightM; fog.tSec = mp.tSec;
-    fog.steps = p.mistSteps; fog.topM = mp.topM; fog.fill = mp.fill; fog.atm = n?.atmosphere ?? 1;
     // Lit mist: the air's colour lifted toward the key light (display domain).
     u.uMistColor.value.copy(u.uAirColor.value).multiplyScalar(1.2).add(u.uLightColor.value.clone().multiplyScalar(0.06));
     u.uMistColor.value.r = Math.min(0.9, u.uMistColor.value.r);
@@ -1860,14 +1855,10 @@ export class RangeScene {
     // a soft shimmer at noon.
     const dark = Math.min(1, Math.max(0, frame.light?.night01 ?? 0));
     const presence = (cast?.presence ?? 0) * (materials > .01 ? materials : 0);
-    // The lanterns are seen through the same mist and cloud sea as the
-    // ground under them, from their true positions (not the camera-ward
-    // centres their halos draw at). The light they cast is cut per receiver
-    // in the terrain shaders instead (ACTOR_GLSL). The lake mirror reuses
-    // the eye's value, so a reflection in a partial sea dims twice -- light
-    // through the cloud on the way down and up again.
-    const eye = cam.position.toArray(this._eyeScratch || (this._eyeScratch = [0, 0, 0]));
-    const fog = p.mistNow || null;
+    // The lanterns, motes and companions are seen through the same mist and
+    // cloud sea as the ground under them, at their true positions on the
+    // lifted ground (their shaders' emitterSeen, as for the sites and
+    // threads); the light they cast goes with them (ACTOR_GLSL actorShown).
     u.uWakeAmt.value = 0;
     u.uParting.value.w = 0;
     // A shot tour over a rail view keeps the view's job (and every light it
@@ -1924,8 +1915,6 @@ export class RangeScene {
       const fly = placed?.fly;
       v.uFly.value = fly ? fly.t : 0;
       if (fly) v.uFlyTarget.value.set(...fly.pos);
-      v.uSeen.value = emitterVisibility(eye, pos, fog);
-      v.uSeenFly.value = fly ? emitterVisibility(eye, fly.pos, fog) : v.uSeen.value;
       // Companions trail along the same way, each a little behind and
       // weaving about it.
       (p.actors.companions[id] || []).forEach((c, j) => {
@@ -1940,7 +1929,6 @@ export class RangeScene {
         c.uAnchor.value.set(lag[0], lag[1], lag[2]);
         c.uMpp.value = mpp0 * (cd - cpush) / cd;
         c.uGlow.value = s.glow * 0.6;
-        c.uSeen.value = emitterVisibility(eye, lag, fog);
       });
       group.visible = true;
       const tile = this._tileAt(p.data, pos[0], pos[2]);
@@ -2302,12 +2290,14 @@ export class RangeScene {
     return this.canvas;
   }
 
-  /** Whether any of a view's cast would draw a pixel this frame. */
+  /** Whether any of a view's cast would draw a pixel this frame: a lantern
+   *  out, or a light or thread laid out and lit (laid out but dark, as
+   *  before the first kindling or with the cast absent, draws nothing). */
   _castShown(p) {
     const a = p.actors;
     if (!a) return false;
     if (Object.values(a.groups || {}).some(group => group.visible)) return true;
-    return [a.sites, a.threads, a.rope].some(set => set && Object.values(set.meshes || {}).some(m => m.visible));
+    return [a.sites, a.threads, a.rope].some(set => set?.drawn?.());
   }
 
   /**
@@ -2338,7 +2328,13 @@ export class RangeScene {
     r.setClearColor(0x000000, 0);
     r.clear(true, false, false);
     this.camera.layers.set(CAST_LAYER);
-    for (const band of BANDS) r.render(p.scenes[band], this.camera);
+    // On this cleared layer a ribbon folding over itself keeps its
+    // brightest layer instead of summing into beads (SurveyThreads
+    // setOverlap); over the land they add as light again.
+    const ribbons = [p.actors?.threads, p.actors?.rope].filter(Boolean);
+    for (const set of ribbons) set.setOverlap(this.THREE.MaxEquation);
+    try { for (const band of BANDS) r.render(p.scenes[band], this.camera); }
+    finally { for (const set of ribbons) set.setOverlap(this.THREE.AddEquation); }
     this.camera.layers.set(0); this.camera.layers.enable(3);
     r.setRenderTarget(null);
     this._setCanvasSize(this.size.width, this.size.height);

@@ -5,7 +5,7 @@ import {ActorsGL,actorUniforms,SITE_LIGHTS_MAX,threadShown,THREAD_FRONT,THREAD_P
 import {ACTOR_IDS,ACTOR_MOTES} from '../src/world/alpine/RangeActors.js';
 import {castWork,pathPosition} from '../src/world/alpine/CastJobs.js';
 import * as THREE from '../src/vendor/range/three-range.module.js';
-import {emitterVisibility} from '../src/world/alpine/RangeAtmosphere.js';
+import {THREAD_HALF_PX,THREAD_PEAK} from '../src/world/alpine/CastRaster.js';
 import {sceneUniforms} from '../src/world/alpine/TerrainMaterial.js';
 test('the cast spawns no giant landscape silhouettes',()=>{
  const shared=actorUniforms(THREE);
@@ -148,43 +148,44 @@ test('off-axis terrain zoom preserves the prescribed cast size in screen pixels'
  } finally {actors.dispose();}
 });
 
-test('the cast sink into the cloud sea with the ground under them; their light is cut per receiver, not here',()=>{
+test('lanterns, motes and companions sink into the cloud sea in their shaders, at the light itself on the lifted ground',()=>{
+ // Fogged on the CPU at the source height, a lantern drawn on swelling
+ // ground (or on a glacier's ice) disagreed with its own lights and rope.
+ const shared=sceneUniforms(THREE,{});
+ const actors=new ActorsGL(THREE,shared);
+ const [motes,lantern]=actors.groups.midio.children, companion=actors.groups.midasus.children[2];
+ for(const m of [lantern,motes,companion].map(o=>o.material)){
+  for(const k of ['uMistDensity','uMistTop','uMistFill','uMistDrift','uMistSteps','uNarrative','uCameraPos','uDeformAmp','uGlacierEnabled'])
+   assert.equal(m.uniforms[k],shared[k],k);
+  assert.ok(!('uSeen' in m.uniforms)&&!('uSeenFly' in m.uniforms),'no CPU twin to fall out of step');
+  assert.match(m.fragmentShader,/\* vSeen;/);
+ }
+ assert.match(lantern.material.vertexShader,/vec3 lift = vec3\(0\.0, groundLift\(uAnchor\), 0\.0\);[\s\S]*vSeen = emitterSeen\(uAnchor \+ lift\);/,
+  'at the light, not the camera-ward centre its halo draws at');
+ assert.equal(companion.material.vertexShader,lantern.material.vertexShader,'each companion at its own anchor');
+ assert.match(motes.material.vertexShader,/vSeen = emitterSeen\(mix\(uAnchor \+ lift, target, fly\)\);/,'from the lantern to the light it kindles');
+ actors.dispose();
+});
+
+test('the scene places each lantern and companion at its light, for the shaders to fog and lift',()=>{
  const shared={...actorUniforms(THREE),uCameraPos:{value:new THREE.Vector3()},uAirDensity:{value:0},uAirHeightFalloff:{value:0}};
  const actors=new ActorsGL(THREE,shared), camera=new THREE.PerspectiveCamera(35,16/9,1,100000);
  camera.position.set(0,2200,0);camera.lookAt(0,1000,-10000);camera.updateMatrixWorld();
- // Lamplighters on the valley floor at 1000 m, Midasus threading two cairns.
  const plan={job:'lamplighters',cairns:[[-800,1000,-5000],[0,1000,-5200],[800,1000,-5000]],buoys:[]};
  const work=castWork(plan);
  const p={view:{id:'v'},actors,uniforms:shared,actorRoutes:{},castPlan:plan,castWork:work,data:null,scenes:{far:new THREE.Scene()}};
  const scene={THREE,camera,_tileAt:()=>null,_castJob:RangeScene.prototype._castJob,_setCastLights:RangeScene.prototype._setCastLights};
- // Two cairns kindled 200 ms ago: the motes are still flying into them.
  const times=work.marks.map((m,k)=>k<2?19800:k===work.threads[0].mark?19900:Infinity);
  const state={p:0.55,offsets:{broshi:0,midasus:0},shelter01:0,payoff01:0,fuse01:0,camps:0,climax:false};
  const cast={presence:1,...Object.fromEntries(ACTOR_IDS.map(id=>[id,{glow:0.5,travel:1}])),jobs:{v:state},schedule:{kindleTimes:()=>times,views:{v:{camps:[]}}}};
- const draw=mistNow=>{p.mistNow=mistNow;RangeScene.prototype._setActors.call(scene,p,{actors:cast,timeMs:20000,qualityLevel:0,light:{night01:1}});
-  return {seen:ACTOR_IDS.map(id=>actors.uniforms[id].uSeen.value),fly:ACTOR_IDS.map(id=>actors.uniforms[id].uSeenFly.value),
-   companions:actors.companions.midasus.map(c=>c.uSeen.value),light:shared.uActorColor.value.map(c=>c.clone())};};
- const clear=draw(undefined);
- assert.deepEqual(clear.seen,[1,1,1],'no fog state: fully seen (tests, first frame)');
- assert.deepEqual(clear.companions,[1,1,1]);
- const fog={density:1.5e-3,baseM:990,heightM:240,tSec:3,steps:6,fill:1,atm:1};
- // The sea's top above the floor: everyone on it is gone.
- const sunk=draw({...fog,topM:1700});
- for(const v of [...sunk.seen,...sunk.companions])assert.ok(v<1e-6,`sunk lantern seen at ${v}`);
- assert.ok(actors.uniforms.broshi.uFly.value>0,'a kindling is under way');
- assert.ok(sunk.fly.every(v=>v<1e-6),'the light being kindled is under the sea too');
- sunk.light.forEach((c,k)=>assert.ok(c.distanceTo(clear.light[k])<1e-9,'the light itself is cut per receiver in the terrain shaders'));
- // The top below them: only the valley mist along the ray remains.
- const above=draw({...fog,topM:900,fill:0.6});
- const eye=camera.position.toArray();
+ RangeScene.prototype._setActors.call(scene,p,{actors:cast,timeMs:20000,qualityLevel:0,light:{night01:1}});
  ACTOR_IDS.forEach((id,k)=>{
-  const pos=shared.uActorPos.value[k].toArray();
-  assert.ok(Math.abs(above.seen[k]-emitterVisibility(eye,pos,{...fog,topM:900,fill:0.6}))<1e-12,id);
-  assert.ok(above.seen[k]>0.05&&above.seen[k]<1,`${id} seen through the mist at ${above.seen[k]}`);
+  const u=actors.uniforms[id];
+  assert.ok(u.uAnchor.value.distanceTo(shared.uActorPos.value[k])<1e-9,`${id}: anchored at its light`);
+  assert.ok(u.uCenter.value.distanceTo(u.uAnchor.value)>0,`${id}: the halo draws toward the eye from it`);
  });
- // Companions are fogged where each one trails, the kindled light at the cairn.
- const flyTo=actors.uniforms.broshi.uFlyTarget.value.toArray();
- assert.ok(Math.abs(above.fly[1]-emitterVisibility(eye,flyTo,{...fog,topM:900,fill:0.6}))<1e-12);
+ assert.ok(actors.uniforms.broshi.uFly.value>0,'a kindling is under way, its target set for the motes');
+ for(const c of actors.companions.midasus)assert.ok(c.uAnchor.value.length()>0,'each companion anchored where it trails');
  actors.dispose();
 });
 
@@ -196,8 +197,8 @@ test('site lights and threads read the terrain fog by reference, and fall back t
  }
  assert.match(actors.sites.material.vertexShader,/vSeen = aState\.x > 0\.0 \? emitterSeen\(at\)/,'fogged at the light itself, not its pushed halo');
  assert.match(actors.threads.meshes.far.material.vertexShader,/emitterSeen\(/);
- assert.match(actors.groups.midio.children[1].material.fragmentShader,/\* uSeen;/);
- assert.match(actors.groups.midio.children[0].material.vertexShader,/vSeen = mix\(uSeen, uSeenFly, fly\)/);
+ assert.match(actors.groups.midio.children[1].material.fragmentShader,/\* vSeen;/);
+ assert.match(actors.groups.midio.children[0].material.vertexShader,/vSeen = emitterSeen\(/);
  actors.dispose();
  const bare=new ActorsGL(THREE,actorUniforms(THREE));
  assert.equal(bare.sites.uniforms.uMistDensity.value,0,'clear air without terrain uniforms');
@@ -246,8 +247,50 @@ test('a thread ribbon draws whichever way it winds on screen',()=>{
  };
  const signs=new Set(Array.from({length:g.drawRange.count/3},(_,t)=>Math.sign(wind(t))));
  assert.equal(signs.size,1,'every triangle winds the same way, so overlaps never bead the line');
- for(const m of [...Object.values(actors.threads.meshes),...Object.values(actors.rope.meshes)])
+ for(const m of [...Object.values(actors.threads.meshes),...Object.values(actors.rope.meshes)]){
   assert.equal(m.material.side,THREE.DoubleSide,'a one-way strip, and the mirror flips it: a front-face cull drops it');
+  assert.ok(m.material.fragmentShader.includes(`ribbonCoverage(vAcrossW / vW) * ${THREAD_PEAK.toFixed(4)} *`),'its centre line as bright as the line it replaced');
+ }
+ actors.dispose();
+});
+
+test('ribbons keep their brightest layer where they fold, on the cast layer only',()=>{
+ const actors=new ActorsGL(THREE,actorUniforms(THREE));
+ // The runtime bundle must carry the constant (the renderer maps it to MAX).
+ assert.ok(Number.isInteger(THREE.MaxEquation)&&THREE.MaxEquation!==THREE.AddEquation,'MaxEquation is bundled');
+ const sets=[actors.threads,actors.rope], eq=()=>sets.flatMap(s=>Object.values(s.meshes).map(m=>m.material.blendEquation));
+ assert.ok(eq().every(e=>e===THREE.AddEquation),'added as light over the land (band passes, lake mirror)');
+ for(const s of sets)s.setOverlap(THREE.MaxEquation);
+ assert.ok(eq().every(e=>e===THREE.MaxEquation));
+ // The scene sets it around its own cast pass, and restores it.
+ const seen=[];
+ const p={actors:{groups:{},sites:null,threads:actors.threads,rope:actors.rope},scenes:{far:'far',mid:'mid',near:'near'}};
+ for(const s of sets)s.setOverlap(THREE.AddEquation);
+ actors.threads.drawn=()=>true;
+ const camera=new THREE.PerspectiveCamera();
+ const scene=Object.assign(Object.create(RangeScene.prototype),{THREE,camera,target:{},canvas:{},size:{width:2,height:2},
+  prepared:new Map([['v',p]]),depthCache:{A:{frame:-1,cast:{frame:1,view:'v',forest:true}}},stats:{},
+  renderer:{setRenderTarget(){},setClearColor(){},clear(){},render(){seen.push(eq());}},
+  _copy:{mesh:{material:{uniforms:{uColor:{}}}},scene:'copy',camera},_setCanvasSize(){}});
+ scene.renderCast({frameId:1},'v');
+ assert.ok(seen.slice(0,3).every(e=>e.every(x=>x===THREE.MaxEquation)),'max while the bands draw the cast');
+ assert.ok(eq().every(e=>e===THREE.AddEquation),'added again afterwards');
+ actors.dispose();
+});
+
+test('laid out but dark, the cast draws nothing: no cast pass and no crown cut for it',()=>{
+ const actors=new ActorsGL(THREE,actorUniforms(THREE));
+ actors.sites.setSites([{pos:[0,0,0],band:'far',color:new THREE.Color(1,1,1),sizePx:9}]);
+ actors.threads.setThreads([{a:[0,0,0],b:[100,0,0],band:'far'}]);
+ actors.sites.uniforms.uGain.value=1;actors.threads.setLook(new THREE.Color(1,1,1),1);
+ assert.equal(actors.sites.drawn(),false,'a light not yet kindled');
+ assert.equal(actors.threads.drawn(),false,'a thread not yet flown');
+ actors.sites.setState(0,1);actors.threads.setState(0,0.3,1);
+ assert.equal(actors.sites.drawn(),true);assert.equal(actors.threads.drawn(),true);
+ actors.sites.uniforms.uGain.value=0;actors.threads.setLook(new THREE.Color(1,1,1),0);
+ assert.equal(actors.sites.drawn(),false,'no gain (the cast absent)');assert.equal(actors.threads.drawn(),false);
+ const shown=RangeScene.prototype._castShown.call({},{actors});
+ assert.equal(shown,false,'nothing to draw: the scene skips the pass');
  actors.dispose();
 });
 
@@ -282,13 +325,16 @@ test('the cast ride the drawn ground as it swells, from their true positions',()
   assert.match(m.vertexShader,/float groundLift\(vec3 p\)/);
   for(const k of ['uDeformAmp','uDeformKick','uReceiver','uGridOrigin','uGlacierEnabled','uTourEye'])assert.equal(m.uniforms[k],shared[k],k);
  }
- assert.match(lantern.vertexShader,/uCenter \+ vec3\(0\.0, groundLift\(uAnchor\), 0\.0\)/,'lifted at the light, not at its camera-ward centre');
+ assert.match(lantern.vertexShader,/vec3 lift = vec3\(0\.0, groundLift\(uAnchor\), 0\.0\);\s*vec3 center = uCenter \+ lift;/,'lifted at the light, not at its camera-ward centre');
  assert.match(motes.vertexShader,/target\.y \+= groundLift\(uFlyTarget\)/,'a kindled light is lifted too');
  assert.match(actors.sites.material.vertexShader,/at\.y \+= groundLift\(aPos\)/);
  assert.match(actors.threads.meshes.near.material.vertexShader,/vec3 seat\(vec3 p\) \{ return p \+ vec3\(0\.0, groundLift\(p\), 0\.0\); \}/);
  assert.match(actors.threads.meshes.near.material.vertexShader,/vec3 here = seat\(position\)/);
- // Threads lean 1.5 native pixels toward the eye, sized by the target's height.
+ // Threads lean toward the eye by more than their ribbon's half-width
+ // (native pixels, sized by the target's height): the ground below the
+ // centre line never cuts the lower half of the profile.
  assert.ok(actors.threads.meshes.near.material.vertexShader.includes(`${THREAD_PUSH_PX.toFixed(2)} * mpp`));
+ assert.ok(THREAD_PUSH_PX>THREAD_HALF_PX,`push ${THREAD_PUSH_PX} vs half-width ${THREAD_HALF_PX}`);
  assert.equal(actors.threads.uniformsByBand.far.uTanHalf,actors.sites.uniforms.uTanHalf,'one view upload serves sites and threads');
  assert.equal(actors.threads.uniformsByBand.far.uViewportPx,shared.uViewportPx);
  // The scene hands each lantern and companion its true position.
