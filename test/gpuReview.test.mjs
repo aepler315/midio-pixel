@@ -19,3 +19,11 @@ test('GPU test preserves explicit paths and rejects foreground or different-GPU 
   for (const input of [['--headful'], ['--open'], ['--gpu-match', 'SwiftShader']]) assert.throws(() => gpuReviewArgs(input));
   assert.equal(gpuReviewArgs(['--help']), null);
 });
+
+test('GPU review preserves the Cinematic look through its strict review parser', () => {
+  const args = parseReviewArgs(gpuReviewArgs(['--out', 'cinematic-gpu', '--look', 'cinematic', '--grid', 'classicPlus']));
+  assert.equal(args.look, 'cinematic');
+  assert.deepEqual(args.grids, ['classicPlus']);
+  assert.equal(args.hardware, true);
+  assert.throws(() => gpuReviewArgs(['--look', 'unknown']));
+});

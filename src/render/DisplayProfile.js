@@ -7,7 +7,7 @@ export const DEFAULT_DISPLAY_PREFS = Object.freeze({ version: 2, look: 'pixel', 
 function parseRecord(saved) {
   try { return typeof saved === 'string' ? JSON.parse(saved) : saved; } catch { return null; }
 }
-function validRecord(prefs) { return prefs && [1, 2].includes(prefs.version) && ['natural', 'pixel', 'palette'].includes(prefs.look); }
+function validRecord(prefs) { return prefs && [1, 2].includes(prefs.version) && ['natural', 'pixel', 'palette', 'cinematic'].includes(prefs.look); }
 
 export function resolveDisplayPrefs({ saved, legacyStagePreset } = {}) {
   const prefs = parseRecord(saved);
@@ -16,7 +16,7 @@ export function resolveDisplayPrefs({ saved, legacyStagePreset } = {}) {
     // Keep the canonical field for saved records and diagnostics. Depth was
     // removed; old selections migrate to the same uniform raster as new ones.
     const defaults = { ...DEFAULT_DISPLAY_PREFS, ...(old ? { palette: 'range32', ditherMode: 'ordered' } : {}) };
-    const choices = { look: ['pixel', 'palette'], quality: ['auto', 'economy'],
+    const choices = { look: old ? ['pixel', 'palette'] : ['pixel', 'palette', 'cinematic'], quality: ['auto', 'economy'],
       palette: old ? ['range32', 'rgb332'] : ['world', 'range32', 'chroma32', 'rgb332'],
       dither: [0, .35, 1], ditherMode: ['ordered', 'selective'], pixelGrid: ['classic', 'classicPlus', 'medium', 'mediumPlus', 'detailed'], scaling: ['fit', 'integer'] };
     for (const [key, values] of Object.entries(choices)) if (values.includes(prefs[key]) && !(old && ['ditherMode', 'pixelGrid'].includes(key))) defaults[key] = prefs[key];
@@ -42,6 +42,6 @@ export function writeDisplayPrefs(storage, prefs) {
 }
 export function resolvePresentation(prefs) {
   const p = resolveDisplayPrefs({ saved: prefs });
-  return { pixelated: true, grid: pixelGrid(p.pixelGrid),
+  return { pixelated: true, ...(p.look === 'cinematic' ? { cinematicPixel: true } : {}), grid: pixelGrid(p.pixelGrid),
     paletteId: p.look === 'palette' ? p.palette : 'none', dither: p.dither, ditherMode: p.ditherMode, quality: p.quality, scaling: p.scaling, pixelScale: p.pixelScale };
 }

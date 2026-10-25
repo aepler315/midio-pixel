@@ -11,6 +11,7 @@ const WARP = 'ANGLE (Microsoft, Microsoft Basic Render Driver (0x0000008C) Direc
 test('review defaults are bounded, Uniform, continuous and headless only', () => {
   const args = parseReviewArgs(['--out', '.smoke/review']);
   assert.deepEqual(args.grids, ['classic', 'detailed']);
+  assert.equal(args.look, 'pixel');
   const manifest = makeReviewManifest(args, 'classic');
   assert.equal(manifest.settings.mode, 'continuous');
   assert.equal(manifest.settings.startMs, 12000);
@@ -18,6 +19,19 @@ test('review defaults are bounded, Uniform, continuous and headless only', () =>
   assert.deepEqual(manifest.songs[0].clips, [{ startMs: 12000, durationMs: 2000 }]);
   assert.equal(args.liveSeconds, 0);assert.equal(parseReviewArgs(['--out','x','--ablate-aurora']).ablateAurora,true);
   for (const option of ['--headful', '--open', '--pixel-scale']) assert.throws(() => parseReviewArgs(['--out', 'x', option]), /Unknown/);
+});
+test('review selects Cinematic explicitly and retains the same bounded Classic+ controls', () => {
+  const args = parseReviewArgs(['--out', 'x', '--look', 'cinematic', '--grid', 'classicPlus', '--live-seconds', '30']);
+  const manifest = makeReviewManifest(args, 'classicPlus');
+  assert.equal(args.look, 'cinematic');
+  assert.equal(manifest.settings.presentation.look, 'cinematic');
+  assert.equal(manifest.settings.presentation.pixelGrid, 'classicPlus');
+  assert.equal(manifest.settings.presentation.pixelScale, 'original');
+  assert.equal(manifest.settings.mode, 'continuous');
+  assert.deepEqual(manifest.songs[0].clips, [{ startMs: 12000, durationMs: 2000 }]);
+  for (const look of ['palette', 'natural', 'cinematics', '']) {
+    assert.throws(() => parseReviewArgs(['--out', 'x', '--look', look]));
+  }
 });
 test('review rejects unbounded clips and invalid grids or live durations before launching a browser', () => {
   for (const args of [['--seconds', '0'], ['--seconds', '11'], ['--grid', 'other'], ['--fps', '0'], ['--live-seconds', '301'], ['--start-ms', '-1']]) {
@@ -40,7 +54,7 @@ test('hardware review rejects Windows WARP and the masked renderer string, which
   }
 });
 test('review checks effective grid, Uniform scale, readiness and output rather than requested settings', () => {
-  const frame = { presentation: { pixelScale: 'original', effectiveGrid: { id: 'classic' } },
+  const frame = { presentation: { effectiveLook: 'pixel', pixelScale: 'original', effectiveGrid: { id: 'classic' } },
     range: { active: true, runtime: 'ready' }, output: { width: 1280, height: 720 } };
   assert.doesNotThrow(() => validateReviewFrame(frame, 'classic'));
   for (const alter of [f => { f.presentation.pixelScale = 'depth'; }, f => { f.presentation.effectiveGrid.id = 'detailed'; },
@@ -48,15 +62,26 @@ test('review checks effective grid, Uniform scale, readiness and output rather t
     const changed = structuredClone(frame); alter(changed); assert.throws(() => validateReviewFrame(changed, 'classic'));
   }
 });
+test('review rejects an ignored Cinematic request and checks the effective look in both directions', () => {
+  const frame = { presentation: { requestedLook: 'cinematic', effectiveLook: 'pixel', pixelScale: 'original', effectiveGrid: { id: 'classicPlus' } },
+    range: { active: true, runtime: 'ready' }, output: { width: 1280, height: 720 } };
+  assert.throws(() => validateReviewFrame(frame, 'classicPlus', 'cinematic'), /actual selected look/);
+  frame.presentation.effectiveLook = 'cinematic';
+  assert.doesNotThrow(() => validateReviewFrame(frame, 'classicPlus', 'cinematic'));
+  assert.throws(() => validateReviewFrame(frame, 'classicPlus', 'pixel'), /actual selected look/);
+  delete frame.presentation.effectiveLook;
+  assert.throws(() => validateReviewFrame(frame, 'classicPlus', 'cinematic'), /actual selected look/);
+});
 
 test('a completed live trace cannot pass with stalled delivery, hidden time, exhausted residency or a stopped heard clock', async () => {
   const { liveReviewGates } = await import('../tools/landscape-review.mjs');
-  const good = { seconds: 60, startHeardMs: 0, errors: [], delivery: { failedPresentations: 0, delivered: { frames: 3600, p95Ms: 16.7, stallsOver100ms: 0 }, excluded: { hidden: 0 } },
-    state: { heardMs: 60000, paused: false, residency: { peakBytes: 500, budgetBytes: 1000, liveBytes: 400, pendingBytes: 0, overcommits: 0 } } };
+  const good = { seconds: 60, startHeardMs: 0, errors: [], look: 'cinematic', delivery: { failedPresentations: 0, delivered: { frames: 3600, p95Ms: 16.7, stallsOver100ms: 0 }, excluded: { hidden: 0 } },
+    state: { heardMs: 60000, paused: false, presentation: { effectiveLook: 'cinematic' }, residency: { peakBytes: 500, budgetBytes: 1000, liveBytes: 400, pendingBytes: 0, overcommits: 0 } } };
   assert.ok(Object.values(liveReviewGates(good)).every(Boolean));
   for (const alter of [r => { r.delivery.failedPresentations=1; }, r => { r.delivery.delivered.p95Ms = 70; }, r => { r.delivery.delivered.stallsOver100ms = 5; },
     r => { r.delivery.excluded.hidden = 1; }, r => { r.state.residency.peakBytes = 1001; }, r => { r.state.residency.overcommits = 1; },
-    r => { r.state.heardMs = 0; }, r => { r.state.paused = true; }, r => { r.errors.push('renderer failed'); }]) {
+    r => { r.state.heardMs = 0; }, r => { r.state.paused = true; }, r => { r.errors.push('renderer failed'); },
+    r => { r.state.presentation.effectiveLook = 'pixel'; }, r => { delete r.state.presentation.effectiveLook; }]) {
     const failed = structuredClone(good); alter(failed); assert.ok(Object.values(liveReviewGates(failed)).some(v => !v));
   }
 });

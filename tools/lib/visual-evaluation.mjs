@@ -37,7 +37,7 @@ export function normalizeManifest(value, { historical = false } = {}) {
     const old = p.version === 1;
     keys(p, ['version', 'look', 'quality', 'palette', 'dither', 'scaling', ...(old ? [] : ['ditherMode', 'pixelGrid', 'pixelScale'])], 'presentation');
     assert.ok([1, 2].includes(p.version), 'invalid presentation version');
-    assert.ok(['pixel', 'palette'].includes(p.look), 'invalid pixel-only look');
+    assert.ok((old ? ['pixel', 'palette'] : ['pixel', 'palette', 'cinematic']).includes(p.look), 'invalid pixel-only look');
     assert.ok(['auto', 'economy'].includes(p.quality), 'invalid quality');
     assert.ok((old ? ['range32', 'rgb332'] : ['world', 'range32', 'chroma32', 'rgb332']).includes(p.palette), 'invalid palette');
     assert.ok([0, .35, 1].includes(p.dither), 'invalid dither');

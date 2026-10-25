@@ -376,7 +376,7 @@ export function parseBulkArgs(argv) {
     const displayKey = ['look', 'quality', 'palette', 'dither', 'dither-mode', 'pixel-grid', 'scaling'].find(key => token === `--${key}` || token.startsWith(`--${key}=`));
     if (displayKey) {
       const got = takeOption(args, i, `--${displayKey}`);
-      const choices = { look: ['pixel', 'palette'], quality: ['auto', 'economy'], palette: ['world', 'range32', 'chroma32', 'rgb332'], dither: ['off', 'subtle', 'full'], 'dither-mode': ['ordered', 'selective'], 'pixel-grid': ['classic', 'classicPlus', 'medium', 'mediumPlus', 'detailed'], scaling: ['fit', 'integer'] };
+      const choices = { look: ['pixel', 'palette', 'cinematic'], quality: ['auto', 'economy'], palette: ['world', 'range32', 'chroma32', 'rgb332'], dither: ['off', 'subtle', 'full'], 'dither-mode': ['ordered', 'selective'], 'pixel-grid': ['classic', 'classicPlus', 'medium', 'mediumPlus', 'detailed'], scaling: ['fit', 'integer'] };
       if (!choices[displayKey].includes(got.value)) throw new Error(`--${displayKey} must be ${choices[displayKey].join(', ')}`);
       opts.presentation ??= { ...DEFAULT_DISPLAY_PREFS };
       const key = { 'dither-mode': 'ditherMode', 'pixel-grid': 'pixelGrid' }[displayKey] || displayKey;
@@ -418,7 +418,7 @@ Options
   --url <origin>        App origin (default: http://127.0.0.1:8080)
   --lyrics              Look up timed lyrics. Off by default, so a batch
                         does not wait on the network.
-  --look <mode>        pixel or palette (default: remembered look)
+  --look <mode>        pixel, cinematic or palette (default: remembered look)
   --quality <mode>     auto or economy
   --palette <name>     world, range32, chroma32, or rgb332
   --dither <amount>    off, subtle, or full
