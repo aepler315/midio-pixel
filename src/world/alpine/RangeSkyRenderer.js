@@ -147,6 +147,7 @@ export class RangeSkyRenderer {
       cloudBankFactory: () => cloudBanks({ camera: frame.camera, width, height,
         timeSec: frame.timeSec, seed: frame.seed, storm: true }),
       cloudPainter: (target, banks, options) => this._stormClouds(target, banks, options) });
+    this._veiledBodies(ctx, frame, width, height, night);
     ctx.restore();
     return true;
   }
@@ -243,8 +244,16 @@ export class RangeSkyRenderer {
     ctx.restore();
   }
   _bodies(ctx, frame, width, height, night, outputScale = 1) {
-    this.celestial.drawSun(ctx, frame.sun, width, height);
-    this.celestial.drawMoon(ctx, frame.moon, frame.sun, width, height, night, frame.phase, outputScale);
+    const storm = clamp(frame.storm?.amount ?? 0);
+    this.celestial.drawSun(ctx, frame.sun, width, height, storm);
+    this.celestial.drawMoon(ctx, frame.moon, frame.sun, width, height, night, frame.phase, outputScale, storm);
+  }
+  /** The bodies seen through the storm deck, painted over it. */
+  _veiledBodies(ctx, frame, width, height, night) {
+    const storm = clamp(frame.storm?.amount ?? 0);
+    if (storm < .01) return;
+    this.celestial.drawVeiledSun(ctx, frame.sun, width, height, storm);
+    this.celestial.drawVeiledMoon(ctx, frame.moon, width, height, night, frame.phase, storm);
   }
   _clouds(ctx, camera, width, height, night, time, storm = 0) {
     ctx.save();

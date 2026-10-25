@@ -40,6 +40,16 @@ const flattening = altDeg => 1 - .17 * (1 - smooth(0, 3, altDeg));
 const moonShadeAltitudeDeg = moon => 60 * (moon?.altitude01 ?? .5);
 /** The moon's horizon tint never reaches the sun's. */
 const MOON_TINT_CAP = .6;
+/** How much a storm deck of `amount` (frame.storm.amount, the slate wash
+ *  drawStormSky lays over the bodies) hides a body's clear-sky look: from a
+ *  hazy deck, gone by the half-dense one. */
+export const bodyVeil = amount => smooth(.12, .55, clamp(amount));
+/** How much of the veiled body the deck swallows, down to a patch of light. */
+const deckThickness = amount => smooth(.5, .95, clamp(amount));
+/** The sun disc's opacity over its horizon visibility: solid until the last
+ *  of the waterline fade. */
+export const sunDiscAlpha = vis => smooth(0, .35, vis);
+const sunRadius = (sun, width, height) => Math.max(height * .006, (sun.radiusFrac || 0) * width);
 
 // Quanta for the lit texture: illumination, sun angle (2 degrees), horizon
 // tint and night. The key is one number, so a steady moon costs no rebake
@@ -101,6 +111,8 @@ function bakeFace(size) {
 
 const WHITE_HOT = [255, 253, 246], WHITE = [255, 255, 252], EMBER = [232, 80, 34];
 const GLARE = [255, 246, 228], BLOOM = [255, 252, 240], DAY_SUN = [255, 243, 223];
+// Light through cloud: the sun goes a cool white, the moon a grey-blue.
+const VEILED_SUN = [246, 246, 240], VEILED_MOON = [196, 204, 220];
 const mixInto = (out, a, b, t) => {
   out[0] = a[0] + (b[0] - a[0]) * t; out[1] = a[1] + (b[1] - a[1]) * t; out[2] = a[2] + (b[2] - a[2]) * t;
   return out;
@@ -152,12 +164,16 @@ export class CelestialPainter {
 
   /** A white-hot, limb-darkened disc in a glare that brightens the sky
    *  toward white (screen, never grey), warming and flattening toward the
-   *  horizon and fading out over its horizon band instead of popping. */
-  drawSun(ctx, sun, width, height) {
+   *  horizon. The glare fades over the horizon band; the disc stays solid
+   *  down to the waterline, since the land in front is what hides a setting
+   *  sun (a see-through disc behind a ridge read as a pale moon). A storm
+   *  deck (`storm`, its amount) takes the hard disc and the clear-sky glare
+   *  away as it thickens: drawVeiledSun paints the sun over the deck. */
+  drawSun(ctx, sun, width, height, storm = 0) {
     if (!sun || sun.visible === false || !(sun.altitude01 > 0)) return;
-    const vis = clamp(sun.visibility ?? 1);
-    if (vis < .01) return;
-    const x = sun.xFrac * width, y = sun.yFrac * height, radius = Math.max(height * .006, (sun.radiusFrac || 0) * width);
+    const vis = clamp(sun.visibility ?? 1), clear = 1 - bodyVeil(storm);
+    if (vis < .01 || clear < .01) return;
+    const x = sun.xFrac * width, y = sun.yFrac * height, radius = sunRadius(sun, width, height);
     const alt = bodyAltitudeDeg(sun), low = lowness(alt);
     // colorHex is the biome's sun, already reddened toward the horizon.
     const tint = this._sunTint(sun.colorHex);
@@ -166,38 +182,96 @@ export class CelestialPainter {
     const centre = mixInto(this._centre, WHITE, core, low ** .7);
     const glare = mixInto(this._glare, GLARE, tint, .25 + .75 * low);
     const bloom = mixInto(this._bloom, BLOOM, core, low);
+    const k = vis * clear;
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
     const G = height * (.26 + .14 * low);
     let g = ctx.createRadialGradient(x, y, 0, x, y, G);
-    g.addColorStop(0, rgba(glare, .55 * vis)); g.addColorStop(.06, rgba(glare, .30 * vis));
-    g.addColorStop(.25, rgba(glare, .09 * vis)); g.addColorStop(1, rgba(glare, 0));
+    g.addColorStop(0, rgba(glare, .55 * k)); g.addColorStop(.06, rgba(glare, .30 * k));
+    g.addColorStop(.25, rgba(glare, .09 * k)); g.addColorStop(1, rgba(glare, 0));
     ctx.fillStyle = g; ctx.fillRect(x - G, y - G, 2 * G, 2 * G); // bounded, never the whole frame
     ctx.globalCompositeOperation = 'source-over';
-    ctx.globalAlpha = vis;
+    ctx.globalAlpha = sunDiscAlpha(vis) * clear;
     ctx.save();
     ctx.translate(x, y); ctx.scale(1, flattening(alt));
     g = ctx.createRadialGradient(0, 0, 0, 0, 0, radius); // limb darkening, warmer at the edge
     g.addColorStop(0, rgba(centre, 1)); g.addColorStop(.6, rgba(core, 1)); g.addColorStop(1, rgba(limb, 1));
     ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, radius, 0, TAU); ctx.fill();
     ctx.restore();
-    // A tight bloom AFTER the disc softens its limb the way glare does; it
-    // takes the core's hue low down, so a setting sun gets no white ring.
+    // A tight bloom AFTER the disc softens its limb the way glare does. It
+    // falls from the centre outward with no step at the limb (one starting
+    // at the limb ringed the disc), in the core's hue low down.
     ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'screen';
-    const B = radius * 3.2, k = vis * (1 - .55 * low);
-    g = ctx.createRadialGradient(x, y, radius * .75, x, y, B);
-    g.addColorStop(0, rgba(bloom, .8 * k)); g.addColorStop(.3, rgba(bloom, .22 * k)); g.addColorStop(1, rgba(bloom, 0));
+    const B = radius * 3.2, b = k * (1 - .55 * low);
+    g = ctx.createRadialGradient(x, y, 0, x, y, B);
+    g.addColorStop(0, rgba(bloom, .42 * b)); g.addColorStop(.31, rgba(bloom, .26 * b));
+    g.addColorStop(.5, rgba(bloom, .09 * b)); g.addColorStop(1, rgba(bloom, 0));
     ctx.fillStyle = g; ctx.fillRect(x - B, y - B, 2 * B, 2 * B);
+    ctx.restore();
+  }
+
+  /** The sun through the storm deck, painted over it (screen): through a
+   *  thin deck a pale, soft-edged disc, as through altostratus, in a broad
+   *  patch of brighter cloud; under the full deck only the patch, faint.
+   *  Never a hard disc, which under the deck's slate read as a grey moon. */
+  drawVeiledSun(ctx, sun, width, height, storm = 0) {
+    const veil = bodyVeil(storm);
+    if (veil < .01 || !sun || sun.visible === false || !(sun.altitude01 > 0)) return;
+    const vis = clamp(sun.visibility ?? 1);
+    if (vis < .01) return;
+    const x = sun.xFrac * width, y = sun.yFrac * height, radius = sunRadius(sun, width, height);
+    const alt = bodyAltitudeDeg(sun), low = lowness(alt);
+    const c = mixInto(this._glare, VEILED_SUN, this._sunTint(sun.colorHex), .55 * low);
+    const thick = deckThickness(storm);
+    const patch = veil * vis * (.5 - .3 * thick), disc = veil * vis * (1 - thick);
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    const G = height * (.3 + .12 * thick);
+    let g = ctx.createRadialGradient(x, y, 0, x, y, G);
+    g.addColorStop(0, rgba(c, .5 * patch)); g.addColorStop(.15, rgba(c, .24 * patch));
+    g.addColorStop(.5, rgba(c, .06 * patch)); g.addColorStop(1, rgba(c, 0));
+    ctx.fillStyle = g; ctx.fillRect(x - G, y - G, 2 * G, 2 * G);
+    if (disc > .01) {
+      // The disc's edge blurs out to 1.9 radii: diffused, not cut.
+      const S = radius * 1.9;
+      ctx.translate(x, y); ctx.scale(1, flattening(alt));
+      g = ctx.createRadialGradient(0, 0, 0, 0, 0, S);
+      g.addColorStop(0, rgba(c, .82 * disc)); g.addColorStop(.4, rgba(c, .74 * disc));
+      g.addColorStop(.56, rgba(c, .34 * disc)); g.addColorStop(.75, rgba(c, .08 * disc)); g.addColorStop(1, rgba(c, 0));
+      ctx.fillStyle = g; ctx.fillRect(-S, -S, 2 * S, 2 * S);
+    }
+    ctx.restore();
+  }
+
+  /** The moon through the storm deck, over it: a soft glow where a thin
+   *  deck lets its light through, and nothing under the full deck. */
+  drawVeiledMoon(ctx, moon, width, height, night, phase01 = .5, storm = 0) {
+    const veil = bodyVeil(storm);
+    if (veil < .01) return;
+    const disc = this.prepareMoon(moon, width, height, night, phase01);
+    if (!disc.visible) return;
+    const { x, y, r, illumination: f, strength } = disc;
+    const k = veil * (1 - deckThickness(storm)) * strength * (.25 + .75 * f);
+    if (k < .01) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    const S = r * 2.6;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, S);
+    g.addColorStop(0, rgba(VEILED_MOON, .5 * k)); g.addColorStop(.3, rgba(VEILED_MOON, .38 * k));
+    g.addColorStop(.45, rgba(VEILED_MOON, .12 * k)); g.addColorStop(1, rgba(VEILED_MOON, 0));
+    ctx.fillStyle = g; ctx.fillRect(x - S, y - S, 2 * S, 2 * S);
     ctx.restore();
   }
 
   /** The moon: its lit face screened onto the sky with no backing disc, so
    *  the dark side is sky (earthshine only at night) and a daytime moon is
-   *  pale and low in contrast; a soft aureole at night. */
-  drawMoon(ctx, moon, sun, width, height, night, phase01 = .5, outputScale = 1) {
+   *  pale and low in contrast; a soft aureole at night. A storm deck takes
+   *  the face away as it thickens (drawVeiledMoon paints over the deck). */
+  drawMoon(ctx, moon, sun, width, height, night, phase01 = .5, outputScale = 1, storm = 0) {
     const disc = this.prepareMoon(moon, width, height, night, phase01);
-    if (!disc.visible) return;
-    const { x, y, r, illumination: f, strength } = disc;
+    const clear = 1 - bodyVeil(storm);
+    if (!disc.visible || clear < .01) return;
+    const { x, y, r, illumination: f } = disc, strength = disc.strength * clear;
     const alt = moonShadeAltitudeDeg(moon), low = Math.min(MOON_TINT_CAP, lowness(alt));
     const light = moon.illuminant || sun;
     const angle = light ? Math.atan2((light.yFrac - moon.yFrac) * height, (light.xFrac - moon.xFrac) * width) : Math.atan2(height, width);
@@ -210,7 +284,7 @@ export class CelestialPainter {
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
     if (night > .05) {
-      const A = r * 3.4, k = .17 * night * disc.cover * f ** 1.5;
+      const A = r * 3.4, k = .17 * night * disc.cover * clear * f ** 1.5;
       const g = ctx.createRadialGradient(x, y, r * .95, x, y, A);
       g.addColorStop(0, `rgba(200,214,236,${k})`); g.addColorStop(.3, `rgba(190,206,232,${k * .3})`); g.addColorStop(1, 'rgba(190,206,232,0)');
       ctx.fillStyle = g; ctx.fillRect(x - A, y - A, 2 * A, 2 * A);

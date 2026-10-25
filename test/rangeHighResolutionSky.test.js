@@ -130,7 +130,7 @@ function recordingContext() {
     save() { stack.push([this.globalAlpha, this.globalCompositeOperation, this.fillStyle]); },
     restore() { [this.globalAlpha, this.globalCompositeOperation, this.fillStyle] = stack.pop(); },
     getTransform: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }),
-    createRadialGradient: () => gradient('radial'), createLinearGradient: () => gradient('linear'),
+    createRadialGradient: (...args) => Object.assign(gradient('radial'), { args }), createLinearGradient: () => gradient('linear'),
     translate() {}, scale() {}, rotate() {}, beginPath() {}, arc() {}, ellipse() {}, closePath() {}, clip() {},
     fillRect(...rect) { paint(this, 'fillRect', { rect }); },
     fill() { paint(this, 'fill'); },
@@ -151,19 +151,73 @@ function bakingCanvas() {
   return canvas;
 }
 
-test('a Landscape moon hidden by daylight paints nothing; the sun fades with its horizon visibility', () => {
+test('a Landscape moon hidden by daylight paints nothing; the sun\'s glare fades with its horizon visibility, its disc stays solid', () => {
   const sky = new RangeSkyRenderer({ makeCanvas: bakingCanvas });
   sky._seed(7);
   const moon = { xFrac: .6, yFrac: .3, altitude01: .6, radiusFrac: .02, visibility: 1, visible: true };
   const sun = { xFrac: .3, yFrac: .4, altitude01: .5, radiusFrac: .02, visibility: 1, visible: true, colorHex: '#fff3df' };
   const paints = frame => { const { ctx, ops } = recordingContext(); sky._bodies(ctx, { phase: .5, ...frame }, 1408, 848, 0); return ops; };
+  const glow = ops => Math.max(...ops.filter(op => op.mode === 'screen').map(peakAlpha));
+  const disc = ops => ops.find(op => op.op === 'fill')?.alpha ?? 0;
   try {
     assert.deepEqual(paints({ moon: { ...moon, discAlpha: 0 } }), [], 'no disc, backing or glow from a gated moon');
     assert.ok(paints({ moon: { ...moon, discAlpha: 1 } }).length > 0);
     assert.deepEqual(paints({ sun: { ...sun, visibility: 0 } }), [], 'a sun on the waterline has faded out');
-    const full = Math.max(...paints({ sun }).map(peakAlpha));
-    const half = Math.max(...paints({ sun: { ...sun, visibility: .5 } }).map(peakAlpha));
-    assert.ok(full > .5 && Math.abs(half - full / 2) < 1e-9, `the sun fades with visibility: ${half} of ${full}`);
+    const full = paints({ sun }), half = paints({ sun: { ...sun, visibility: .5 } });
+    assert.ok(glow(full) > .5 && Math.abs(glow(half) - glow(full) / 2) < 1e-9, `the glare fades with visibility: ${glow(half)} of ${glow(full)}`);
+    // The land in front hides a setting sun; a see-through disc behind a
+    // ridge read as a pale moon.
+    assert.equal(disc(full), 1);
+    assert.equal(disc(half), 1, 'half way down its horizon band the disc is still solid');
+    const last = disc(paints({ sun: { ...sun, visibility: .1 } }));
+    assert.ok(last > 0 && last < .5, `only the last of the fade thins it: ${last}`);
+  } finally { sky.dispose(); }
+});
+
+test('the sun\'s bloom falls from its centre, with no bright ring at the limb', () => {
+  const sky = new RangeSkyRenderer({ makeCanvas: bakingCanvas });
+  try {
+    for (const altitude01 of [.6, .02]) {
+      const { ctx, ops } = recordingContext();
+      sky._bodies(ctx, { sun: { xFrac: .4, yFrac: .4, radiusFrac: .02, visibility: 1, visible: true, altitude01, colorHex: '#ff9a5a' } }, 1408, 848, 0);
+      const glows = ops.filter(op => op.mode === 'screen' && op.style.kind === 'radial');
+      assert.equal(glows.length, 2, 'glare and bloom');
+      for (const op of glows) {
+        assert.equal(op.style.args[2], 0, 'every glow starts at the centre, never at a ring');
+        const alphas = op.style.stops.map(([, color]) => alphaOf(color));
+        assert.ok(alphas.every((a, i) => !i || a <= alphas[i - 1]), `altitude ${altitude01}: monotonic falloff ${alphas}`);
+      }
+    }
+  } finally { sky.dispose(); }
+});
+
+test('a storm deck veils the sun and moon: no hard disc under it, a soft glow over it, nothing through the full deck', () => {
+  const sky = new RangeSkyRenderer({ makeCanvas: bakingCanvas });
+  sky._seed(7);
+  const sun = { xFrac: .4, yFrac: .3, altitude01: .5, radiusFrac: .02, visibility: 1, visible: true, colorHex: '#fff3df' };
+  const moon = { xFrac: .6, yFrac: .3, altitude01: .6, radiusFrac: .02, visibility: 1, visible: true, illumination: .9, illuminant: { xFrac: .1, yFrac: .5 } };
+  const under = (frame, night = 0) => { const { ctx, ops } = recordingContext(); sky._bodies(ctx, { phase: .5, ...frame }, 1408, 848, night); return ops; };
+  const over = (frame, night = 0) => { const { ctx, ops } = recordingContext(); sky._veiledBodies(ctx, { phase: .5, ...frame }, 1408, 848, night); return ops; };
+  const storm = amount => ({ amount, flash: 0, break01: 0, wet01: 0 });
+  try {
+    assert.ok(under({ sun, storm: storm(0) }).some(op => op.op === 'fill'), 'clear sky: the solid disc');
+    assert.deepEqual(over({ sun, storm: storm(0) }), [], 'nothing over a clear sky');
+    assert.deepEqual(over({ sun, storm: { amount: 0, break01: 1 } }), [], 'a broken storm is clear sky again');
+    const thin = storm(.6);
+    assert.deepEqual(under({ sun, storm: thin }), [], 'under a half-dense deck the hard disc is gone');
+    const veiled = over({ sun, storm: thin });
+    assert.ok(veiled.length === 2 && veiled.every(op => op.mode === 'screen' && op.op === 'fillRect'), 'a soft patch and a soft disc, screened over the deck');
+    const soft = veiled.at(-1).style.stops.map(([, color]) => alphaOf(color));
+    assert.ok(soft[0] > .6 && soft.at(-1) === 0, `a bright watery disc that blurs out: ${soft}`);
+    const full = over({ sun, storm: storm(1) });
+    assert.equal(full.length, 1, 'the full deck shows only a patch of light');
+    assert.ok(peakAlpha(full[0]) < .15, `and a faint one: ${peakAlpha(full[0])}`);
+    const between = storm(.3);
+    assert.ok(under({ sun, storm: between }).some(op => op.op === 'fill') && over({ sun, storm: between }).length, 'a hazy deck crossfades the two');
+    // The moon follows the same deck.
+    assert.ok(!under({ moon, storm: storm(.7) }, 1).length, 'no lit face under the deck');
+    assert.ok(over({ moon, storm: storm(.7) }, 1).length === 1, 'a soft glow through it');
+    assert.deepEqual(over({ moon, storm: storm(1) }, 1), [], 'nothing through the full deck');
   } finally { sky.dispose(); }
 });
 
