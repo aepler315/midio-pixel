@@ -114,7 +114,7 @@ export class CinematicPixelRenderer {
     }catch(error){this.reason=error.message;return false;}
   }
   suspend(){
-    if(this.disposed)return;
+    if(this.disposed || (!this.bytes && !this.program && !this.texture && !this.buffer && !this.signature))return;
     this.residency.release(this.key);this.bytes=0;this.signature=null;this._deleteObjects();
     // Keep one idle context for quality/mode round trips; intentional context
     // loss is observable as a real renderer failure to clients and diagnostics.

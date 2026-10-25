@@ -137,6 +137,11 @@ export class RangeSkyRenderer {
     this.painted.add(canvas);
     return canvas;
   }
+  /** Return optional storage before terrain streaming reserves its next
+   * window, including frames that cannot reach the final sky composite. */
+  setQualityLevel(level = 0) {
+    if (level >= 2) this._setCinematic(false);
+  }
   _setCinematic(enabled) {
     if (enabled === this._cinematicActive) return;
     this._cinematicActive = enabled;
@@ -208,7 +213,10 @@ export class RangeSkyRenderer {
     const project = skyProjector(frame.camera);
     if (!project) return false;
     this._seed(frame.seed);
-    this._setCinematic(!!frame.cinematicPixel);
+    // Shed the optional tinted volumes with near tree detail. The grade,
+    // stars, aurora and established cloud densities retain the selected look.
+    const cinematicClouds = !!frame.cinematicPixel && (frame.qualityLevel ?? 0) < 2;
+    this._setCinematic(cinematicClouds);
     const width = frame.sourceWidth, height = frame.sourceHeight;
     const night = clamp(frame.night), time = frame.timeSec;
     ctx.save();
@@ -228,7 +236,7 @@ export class RangeSkyRenderer {
     this._aurora(ctx, project, width, height, night, time, frame.authority, !!frame.cinematicPixel);
     if (frame.lightning) LightningFX.prototype.draw.call(frame.lightning, ctx, { width, height }, frame.timeSec * 1000);
     this._bodies(ctx, frame, width, height, night);
-    this._clouds(ctx, frame.camera, width, height, night, time, frame.storm, frame.cinematicPixel ? frame : null);
+    this._clouds(ctx, frame.camera, width, height, night, time, frame.storm, cinematicClouds ? frame : null);
     // Keep the existing heard-time storm score and triggered bolts. Only
     // their target and the cloud shape change; terrain wetness stays native.
     drawStormSky(ctx, { width, height }, frame.storm, { tSec: frame.timeSec, seed: frame.seed, pan: frame.camera,

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { BiomeManager } from '../src/world/BiomeManager.js';
 import { RangeSkyRenderer, cinematicCloudWeights } from '../src/world/alpine/RangeSkyRenderer.js';
 import { GraphicsResidency } from '../src/render/GraphicsResidency.js';
+import { cloudBanks } from '../src/world/alpine/RangeCloudField.js';
 
 const camera = { tourPose: { eyeM: [0, 2500, 0], targetM: [0, 3500, -40000], fovYDeg: 50, aspect: 16 / 9 } };
 const frame = { camera, seed: 315, sourceWidth: 1280, sourceHeight: 720, night: 0, timeSec: 12,
@@ -47,12 +48,16 @@ test('hybrid snapshot freezes the cinematic gate and leaves Classic disabled by 
   manager._prepareHighResolutionSky(ctx, { width: 1280, height: 720 }, profile, profile, 0, 0);
   assert.equal(manager.rangeSkyLayer.cinematicPixel, false);
   manager.cinematicPixel = true;
+  manager.rangePresentation.frame.qualityLevel = 2;
   manager._prepareHighResolutionSky(ctx, { width: 1280, height: 720 }, profile, profile, 0, 0);
   const snapshot = manager.rangeSkyLayer;
   assert.equal(snapshot.cinematicPixel, true);
+  assert.equal(snapshot.qualityLevel, 2);
   assert.ok(Object.isFrozen(snapshot));
   manager.cinematicPixel = false;
+  manager.rangePresentation.frame.qualityLevel = 0;
   assert.equal(snapshot.cinematicPixel, true, 'capture cannot read a later preference into an older frame');
+  assert.equal(snapshot.qualityLevel, 2, 'capture keeps this frame\'s effective quality');
 });
 
 test('cloud light weights follow the projected sun continuously and preserve optical coverage', () => {
@@ -146,4 +151,73 @@ test('cinematic sparse stars depend on authored brightness rather than animated 
     assert.equal(draw(0, true).length, 2);
     assert.deepEqual(draw(100, true), draw(0, true), 'twinkle never toggles a star identity or position');
   } finally { sky.dispose(); }
+});
+
+test('quality shedding releases cloud variants and mix while retaining cinematic sky and live density', () => {
+  const f = cacheFixture(), calls = [];
+  f.sky._seed(frame.seed);
+  for (const name of ['_stars', '_aurora', '_bodies']) f.sky[name] = (...args) => calls.push([name, args]);
+  const banks = cloudBanks({ camera, width: 1280, height: 720, timeSec: frame.timeSec, seed: frame.seed });
+  assert.ok(banks.length > 0);
+  const densities = banks.map(bank => {
+    const index = bank.shapeSeed ?? bank.index;
+    const density = f.sky.buffers.ensure(`cloud-${index}`, 192, 128);
+    f.sky.painted.add(density); f.sky._cloud(index);
+    return density;
+  });
+  const draw = qualityLevel => {
+    const out = outputFixture();
+    f.sky.draw(out.ctx, { ...frame, cinematicPixel: true, qualityLevel });
+    return out;
+  };
+  const cinematicNames = () => [...f.sky.buffers.buffers.keys()].filter(name => name.startsWith('cinematic-'));
+  try {
+    const full = draw(0), richBytes = f.residency.usedBytes, paints = f.paints();
+    assert.ok(cinematicNames().length > 1 && richBytes > banks.length * 192 * 128 * 4);
+    draw(1);
+    assert.equal(f.paints(), paints, 'q0/q1 share the exact prepared tint recipe');
+    assert.equal(f.residency.usedBytes, richBytes);
+    const shed = draw(2);
+    assert.deepEqual(cinematicNames(), [], 'q2 immediately gives back every tint and mix allocation');
+    assert.equal(f.residency.usedBytes, banks.length * 192 * 128 * 4);
+    assert.deepEqual(shed.images.map(item => item.image), densities, 'the current established densities still draw');
+    assert.deepEqual(shed.gradients, full.gradients, 'the inexpensive cinematic sky grade is retained');
+    assert.equal(calls.filter(([name]) => name === '_stars').at(-1)[1].at(-1), true);
+    assert.equal(calls.filter(([name]) => name === '_aurora').at(-1)[1].at(-1), true);
+    draw(6);
+    assert.deepEqual(cinematicNames(), []);
+    assert.equal(f.paints(), paints, 'shed frames cannot rebuild hidden tint resources');
+    const recovered = draw(0);
+    assert.equal(f.residency.usedBytes, richBytes, 'q0 reconstructs only its admitted current variants');
+    assert.deepEqual(recovered.gradients, full.gradients);
+    assert.equal(f.paints(), paints * 2);
+    draw(2);
+    assert.deepEqual(cinematicNames(), [], 'the next shed releases recovered resources again');
+  } finally { f.sky.dispose(); }
+  assert.equal(f.residency.usedBytes, 0);
+});
+
+test('manager quality admission releases optional cloud storage before another frame can draw', () => {
+  const f = cacheFixture();
+  const manager = Object.assign(Object.create(BiomeManager.prototype), { _highResolutionSkyRenderer: f.sky });
+  f.sky._seed(frame.seed); f.sky._setCinematic(true);
+  f.sky.draw = () => assert.fail('quality shedding cannot wait for a successful sky draw');
+  try {
+    const density = f.sky.buffers.ensure('cloud-7', 192, 128);
+    f.sky.painted.add(density); f.sky._cloud(7);
+    f.sky._cinematicCloud(7, density);
+    f.sky.buffers.ensure('cinematic-cloud-mix', 192, 128);
+    assert.equal(f.residency.usedBytes, 5 * 192 * 128 * 4);
+    manager.setCinematicQuality(1);
+    assert.equal(f.residency.usedBytes, 5 * 192 * 128 * 4, 'q1 keeps the unchanged recipe');
+    manager.setCinematicQuality(2);
+    assert.equal(f.residency.usedBytes, 192 * 128 * 4, 'q2 returns bytes before terrain/window admission');
+    assert.ok([...f.sky.buffers.buffers.keys()].every(name => !name.startsWith('cinematic-')));
+    manager.setCinematicQuality(0);
+    assert.equal(f.residency.usedBytes, 192 * 128 * 4, 'quality recovery allocates only when a sky actually draws');
+    const cold = Object.assign(Object.create(BiomeManager.prototype), {});
+    cold.setCinematicQuality(6);
+    assert.equal(cold._highResolutionSkyRenderer, undefined, 'quality notification cannot initialize a hidden renderer');
+  } finally { f.sky.dispose(); }
+  assert.equal(f.residency.usedBytes, 0);
 });

@@ -52,7 +52,10 @@ class PresentingRenderer {
     this.output.setFrameContext?.({ worldKind: sim?.biomes?.world?.kind ?? null });
     const manager = sim?.biomes;
     const cinematicPixel = !!this.output.presentation.cinematicPixel && this._experience !== 'trio';
-    if (manager) manager.cinematicPixel = cinematicPixel;
+    if (manager) {
+      manager.cinematicPixel = cinematicPixel;
+      manager.setCinematicQuality?.(sim?.perf?.level ?? 0);
+    }
     const hybridSky = this._experience !== 'trio' && manager?.world?.kind === 'alpine'
       && !!this.inner.rangePresentation?.enabled && typeof manager.drawHighResolutionSky === 'function';
     if (manager) manager.highResolutionSky = hybridSky;

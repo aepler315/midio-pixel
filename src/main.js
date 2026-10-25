@@ -710,7 +710,9 @@ function readBulkExportFromUrl() {
 function fitCanvas() {
   const active = effectivePresentation();
   renderer?.setPresentation(active);
-  titlePresentation?.setPresentation(active);
+  // The title is a legacy illustration; keep optional scene optics out of its
+  // hidden buffer when the full landscape starts streaming terrain.
+  titlePresentation?.setPresentation({ ...active, cinematicPixel: false });
   fitPixelLayout();
   if (perfGovernor) {
     perfGovernor.economy = active.quality === 'economy';
@@ -3723,7 +3725,7 @@ function titleFrame(tRaf) {
   // was constructed with, so one built for a 1920x1080 buffer draws almost
   // entirely off-frame after a switch to 320x180 -- and the control that
   // makes that switch lives on this very screen.
-  titlePresentation ??= new PixelPresentation({ canvas, presentation: effectivePresentation(), residency: sharedResidency() });
+  titlePresentation ??= new PixelPresentation({ canvas, presentation: { ...effectivePresentation(), cinematicPixel: false }, residency: sharedResidency() });
   titlePresentation.setFrameContext({ worldKind: null });
   const source = titlePresentation.beginFrame();
   if (!source) { titleRafHandle = requestAnimationFrame(titleFrame); return; }
