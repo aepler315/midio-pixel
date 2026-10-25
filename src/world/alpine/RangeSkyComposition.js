@@ -51,6 +51,25 @@ export function rangeMoonOrbit(timeMs, durationMs) {
   return { azimuth01: .12 + .76 * p, altitude01: .4 + .35 * Math.sin(Math.PI * p) };
 }
 
+/** Angular radius both discs share. The real sun and moon are about 0.26
+ * degrees; this keeps the moon's established look (3.5% of the frame width
+ * at the median runtime tour lens, fovY about 38 degrees over the 848 px
+ * logical stage) while letting both bodies zoom with the land. */
+export const BODY_ANGULAR_RADIUS_DEG = 1.15;
+const BODY_TAN = Math.tan(BODY_ANGULAR_RADIUS_DEG * Math.PI / 180);
+/** Disc radius bounds, as fractions of the logical stage height. */
+export const BODY_RADIUS_BOUNDS = Object.freeze([0.016, 0.055]);
+
+/** A celestial disc's radius through a resolved lens, as a fraction of the
+ * logical stage width (radiusFrac): the shared angle over the pose's focal
+ * length (fovY over the logical height, crop magnification included). */
+export function bodyRadiusFrac(pose, aspect = pose.aspect || 16 / 9, approachScale = 1) {
+  const tanHalf = Math.tan(pose.fovYDeg * Math.PI / 360) * (1 - (pose.viewOffset?.fx || 0));
+  const approach = Math.min(1.25, Math.max(.85, approachScale ?? 1));
+  const height = BODY_TAN * approach / (2 * tanHalf);
+  return Math.min(BODY_RADIUS_BOUNDS[1], Math.max(BODY_RADIUS_BOUNDS[0], height)) / aspect;
+}
+
 /** The thinnest crescent either moon painter draws. A true new moon is
  * invisible, which reads as a missing moon rather than as astronomy. */
 export const MOON_MIN_ILLUMINATION = 0.16;
@@ -106,12 +125,16 @@ export function projectRailSky(point, snapshot) {
 }
 
 export function projectRailCelestials(state, snapshot, solar = null) {
-  const scaleFor = c => Math.tan(c.referencePose.fovYDeg * Math.PI / 360)
-    / Math.tan(c.pose.fovYDeg * Math.PI / 360) / (1 - (c.pose.viewOffset?.fx || 0));
-  const k = snapshot.mix || 0, a = scaleFor(snapshot.from), b = snapshot.to ? scaleFor(snapshot.to) : a;
+  // Both discs subtend the same angle through each rail's actual lens,
+  // blended across a travel the way their positions are.
+  const k = snapshot.mix || 0, to = snapshot.to || snapshot.from;
+  const radiusFor = source => {
+    const a = bodyRadiusFrac(snapshot.from.pose, snapshot.from.aspect, source.scale);
+    return k ? a + (bodyRadiusFrac(to.pose, to.aspect, source.scale) - a) * k : a;
+  };
   const bodies = {};
   for (const name of ['sun', 'moon']) bodies[name] = Object.freeze({ ...state[name],
-    ...projectRailSky(state[name], snapshot), radiusFrac: state[name].radiusFrac * (a + (b - a) * k) });
+    ...projectRailSky(state[name], snapshot), radiusFrac: radiusFor(state[name]) });
   if (solar) bodies.moon = Object.freeze({ ...bodies.moon, illuminant: Object.freeze(projectRailSky(solar, snapshot)),
     illumination: rangeMoonIllumination(solar, state.moon) });
   return Object.freeze({ ...state, ...bodies });
@@ -122,7 +145,9 @@ export function projectRailCelestials(state, snapshot, solar = null) {
  * compass direction, and bounded elevation avoids a zenith dive through
  * the top edge of a narrow landscape lens. `azimuthOffsetDeg` turns both
  * arcs with a view's own reference heading (shot tours anchor them to the
- * rail; 0 keeps the Teton highway's north-east arcs). */
+ * rail; 0 keeps the Teton highway's north-east arcs). Disc size follows
+ * the pose's lens, which already includes the lens pulse; `lensScale` is
+ * no longer applied (dividing by it again would size the pulse twice). */
 export function projectRangeCelestials(state, pose, lensScale = 1, solar = null, azimuthOffsetDeg = 0) {
   const bodies = {};
   for (const name of ['sun', 'moon']) {
@@ -131,7 +156,7 @@ export function projectRangeCelestials(state, pose, lensScale = 1, solar = null,
     // a slightly downward aim. Sample a slow lunar arc over that skyline;
     // a 150-degree orbit or a zenith-height moon stays outside the flight.
     const worldDirection = arcDirection(name === 'moon' ? MOON_ARC : SUN_ARC, source.azimuth01 ?? .5, source.altitude01, azimuthOffsetDeg);
-    bodies[name] = Object.freeze({ ...source, radiusFrac: source.radiusFrac / lensScale,
+    bodies[name] = Object.freeze({ ...source, radiusFrac: bodyRadiusFrac(pose, pose.aspect, source.scale),
       ...projectSkyDirection(pose, worldDirection, pose.aspect), worldDirection: Object.freeze(worldDirection) });
   }
   if (solar) {

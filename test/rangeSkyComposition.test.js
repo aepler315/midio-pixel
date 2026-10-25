@@ -230,6 +230,28 @@ test('the moon\'s phase comes from its angle to the signed sun, in tours and rai
   assert.equal(MOON_MIN_ILLUMINATION, .16);
 });
 
+test('sun and moon subtend one angle that zooms with the tour and rail lenses', async () => {
+  const { projectRangeCelestials, projectRailCelestials, rangeV2MoonRadius, BODY_RADIUS_BOUNDS } = await import('../src/world/alpine/RangeSkyComposition.js');
+  const W = 1408, H = 848, aspect = W / H;
+  const state = { sun: { azimuth01: .5, altitude01: .5, radiusFrac: .01, scale: 1 }, moon: { azimuth01: .3, altitude01: .6, radiusFrac: .01, scale: 1 } };
+  const pose = fovYDeg => ({ eyeM: [0, 0, 0], targetM: [0, .1, -1], fovYDeg, aspect });
+  const px = (p, lensScale = 1) => { const s = projectRangeCelestials(state, p, lensScale); assert.equal(s.sun.radiusFrac, s.moon.radiusFrac); return s.moon.radiusFrac * W; };
+  // The median runtime tour lens (hfov 55 over the 848 px logical stage)
+  // keeps the moon's established 3.5%-of-width size.
+  assert.ok(Math.abs(px(pose(38)) - rangeV2MoonRadius(W)) < .5, `median lens radius ${px(pose(38))}`);
+  const tan = f => Math.tan(f * Math.PI / 360);
+  assert.ok(Math.abs(px(pose(23.1)) / px(pose(42.9)) - tan(42.9) / tan(23.1)) < 1e-9, 'the discs magnify with the land');
+  assert.equal(px(pose(38), .7), px(pose(38)), 'the pose already carries the lens pulse');
+  assert.ok(Math.abs(px({ ...pose(38), viewOffset: { fx: .2, rx: 0, uy: 0 } }) - px(pose(38)) / .8) < 1e-9, 'a pointer crop magnifies the disc');
+  assert.ok(Math.abs(px(pose(4)) - BODY_RADIUS_BOUNDS[1] * H) < 1e-9 && Math.abs(px(pose(120)) - BODY_RADIUS_BOUNDS[0] * H) < 1e-9, 'bounded at extreme lenses');
+  assert.ok(Math.abs(px(pose(38)) * 1.25 - projectRangeCelestials({ ...state, moon: { ...state.moon, scale: 2 } }, pose(38)).moon.radiusFrac * W) < 1e-9,
+    'the approach still grows the discs, within its bound');
+  const camera = fovYDeg => ({ referencePose: pose(30), pose: pose(fovYDeg), aspect });
+  const rail = (from, to, mix) => projectRailCelestials(state, { from: camera(from), to: camera(to), mix });
+  assert.ok(Math.abs(rail(23.1, 23.1, 0).moon.radiusFrac - px(pose(23.1)) / W) < 1e-12, 'a rail view uses its own lens');
+  assert.ok(Math.abs(rail(23.1, 42.9, .25).moon.radiusFrac * W - (px(pose(23.1)) * .75 + px(pose(42.9)) * .25)) < 1e-9, 'and blends across a travel');
+});
+
 test('the native moon painter takes the geometric phase and the shared crescent floor', () => {
   const halfWidths = [];
   const ctx = new Proxy({}, { get: (target, key) => key in target ? target[key]
