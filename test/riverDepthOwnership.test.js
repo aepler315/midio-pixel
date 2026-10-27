@@ -63,7 +63,7 @@ test('channel seam fill reaches the farther partition and the same travel column
     assert.equal(scenes.far.children[0].geometry, mid);
     assert.equal(scenes.mid.children[0].geometry, near);
     assert.equal(fringeMeshes.length, 2, 'ordinary fill must hide with terrain fill during travel');
-    const target = { scissor: new THREE.Vector4(), scissorTest: false };
+    const target = { width: 100, height: 50, scissor: new THREE.Vector4(), scissorTest: false };
     let draws = 0;
     scene.renderer = { setRenderTarget() {}, render(actual) {
       assert.equal(actual, fringeTravel[0].scene);
