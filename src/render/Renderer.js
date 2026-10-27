@@ -584,7 +584,7 @@ export class Renderer {
     // Color-regime peaks come from song evidence in heard time (the clock
     // the sky, storm and palettes are painted on); only this composed frame
     // can confirm the regime is on screen. Snapshot before the freeze below.
-    const highlightFrame = sim.highlightReel
+    const highlightFrame = sim.highlightReel && !sim.highlightReel.complete
       ? highlightFrameState(sim, biomeManager, { performers: presentation.performers }) : null;
 
     if (fracture && fracture.isAboutToFreeze)

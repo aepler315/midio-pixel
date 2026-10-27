@@ -102,15 +102,13 @@ function arrange(slots) {
   return null;
 }
 
-/** Up to MAX_FRAMES peaks, at most one per regime, at least MIN_GAP_MS
- * apart in song time. `fixed` (already reached or decided) keeps its exact
- * time. The pool then fills greedily by score: a peak is admitted when it
- * and everything already admitted still fit, each sliding as little as
- * needed within its near-maximum hold (holdFromMs..holdToMs); otherwise its
- * regime falls back to its next-best peak. Returned in song order, and
- * selecting a selection returns it unchanged. */
-export function selectHighlightCandidates(events, fixed = []) {
-  const chosen = [], ids = new Set(), categories = new Set();
+/** A selection decided without a frame (never drawn, regime hidden, or the
+ * capture failed). It stays in the plan as a record but no longer holds a
+ * slot, a regime or a gap, so a standby peak still ahead may take them. */
+const LOST = new Set(['missed', 'rejected', 'failed']);
+
+function pickHighlights(events, fixed) {
+  const chosen = [], lost = [], ids = new Set(), categories = new Set();
   let times = [];
   const admit = (event, slide) => {
     if (chosen.length >= MAX_FRAMES || ids.has(event.id) || categories.has(event.category)) return;
@@ -122,26 +120,50 @@ export function selectHighlightCandidates(events, fixed = []) {
     chosen.push({ event, slot }); times = placed;
     ids.add(event.id); categories.add(event.category);
   };
-  for (const event of fixed.filter(validCandidate).sort(compareTime)) admit(event, false);
+  for (const event of fixed.filter(validCandidate).sort(compareTime)) {
+    if (!LOST.has(event.status)) admit(event, false);
+    else if (!ids.has(event.id)) { ids.add(event.id); lost.push(Object.isFrozen(event) ? event : Object.freeze({ ...event })); }
+  }
   for (const event of [...events].filter(validCandidate).sort(compareScore)) admit(event, true);
-  return Object.freeze(chosen.map(({ event }, i) => {
+  const list = chosen.map(({ event }, i) => {
     const shift = times[i] - event.eventAtMs;
     if (shift === 0) return Object.isFrozen(event) ? event : Object.freeze({ ...event });
     return Object.freeze({ ...event, id: `${event.category}:${times[i]}`, eventAtMs: times[i],
       visibleStartMs: event.visibleStartMs + shift, visibleEndMs: event.visibleEndMs + shift });
-  }).sort(compareTime));
+  });
+  return { list: [...list, ...lost].sort(compareTime), used: new Set(chosen.map(c => c.event)) };
+}
+
+/** Up to MAX_FRAMES peaks, at most one per regime, at least MIN_GAP_MS
+ * apart in song time. `fixed` (already reached or decided) keeps its exact
+ * time; a fixed selection that was lost (missed, rejected, failed) is kept
+ * as a record without holding a slot. The pool then fills greedily by
+ * score: a peak is admitted when it and everything already admitted still
+ * fit, each sliding as little as needed within its near-maximum hold
+ * (holdFromMs..holdToMs); otherwise its regime falls back to its next-best
+ * peak. Returned in song order, and selecting a selection returns it
+ * unchanged. */
+export function selectHighlightCandidates(events, fixed = []) {
+  return Object.freeze(pickHighlights(events, fixed).list);
+}
+
+function sampleTimes(durationMs, stepMs = SAMPLE_MS) {
+  const times = [];
+  for (let t = 0; t <= durationMs; t += stepMs) times.push(t);
+  return times;
 }
 
 /** Local maxima of a 0..1 curve sampled over the song, with topographic
- * prominence. Each peak's time is the middle of its near-maximum hold
- * (within PEAK_TOLERANCE), clipped to [startMs, endMs - windowMs] so the
- * whole visible window lies inside the playable, unfrozen song. */
+ * prominence. `sample` is a function of song time, or the curve already
+ * sampled every stepMs from 0. Each peak's time is the middle of its
+ * near-maximum hold (within PEAK_TOLERANCE), clipped to [startMs, endMs -
+ * windowMs] so the whole visible window lies inside the playable, unfrozen
+ * song. */
 export function curvePeaks(sample, { durationMs, startMs = START_MS, endMs = durationMs,
   windowMs = REGIME_WINDOW_MS, stepMs = SAMPLE_MS, tolerance = PEAK_TOLERANCE } = {}, stats = null) {
   if (!(durationMs > 0) || !Number.isFinite(durationMs)) return [];
-  const times = [];
-  for (let t = 0; t <= durationMs; t += stepMs) times.push(t);
-  const values = times.map(t => unit(sample(t)));
+  const times = sampleTimes(durationMs, stepMs);
+  const values = typeof sample === 'function' ? times.map(t => unit(sample(t))) : times.map((_, k) => unit(sample[k]));
   if (stats) stats.samples = (stats.samples || 0) + values.length;
   const n = values.length, latest = endMs - windowMs, peaks = [];
   for (let i = 0; i < n;) {
@@ -161,7 +183,8 @@ export function curvePeaks(sample, { durationMs, startMs = START_MS, endMs = dur
       while (hi < n - 1 && values[hi + 1] >= v - tolerance) hi++;
       const a = Math.max(times[lo], startMs), b = Math.min(times[hi], latest);
       if (prominence > 0 && a <= b) peaks.push({ atMs: Math.round((a + b) / 2), value: v, prominence,
-        holdMs: b - a, holdFromMs: a, holdToMs: b, holdStartMs: times[lo], holdEndMs: times[hi] });
+        holdMs: b - a, holdFromMs: a, holdToMs: b, holdStartMs: times[lo], holdEndMs: times[hi],
+        holdIndex: [lo, hi], topIndex: [i, j] });
     }
     i = j + 1;
   }
@@ -181,61 +204,124 @@ export function paletteWarmth(profile) {
   return unit(.5 + colors.reduce((sum, [r, , b]) => sum + (r - b) / 255, 0) / colors.length);
 }
 
-/** The song's regime curves (0..1 over heard time) from its evidence.
- * Absent regimes are left out: Trio has no squall, a single-palette song
- * has no warmest section, a song without energy curves has no climax. */
-export function highlightRegimeCurves({ durationMs = 0, cycle = null, energyCurves = null,
-  sections = null, palettes = null, travel = false, storm = null } = {}) {
+/** Whether the world paints sunrise and sunset with DayNight's twilight
+ * (the Range narrative's sky, glow and crest light: Landscape). Trio, and
+ * any world without that narrative, paints dayNight's flat dawn and dusk
+ * washes instead. No world (pure evidence) reads as Landscape. */
+export function paintsTwilight(world) {
+  return !world || (world.kind === 'alpine' && world.experience !== 'trio');
+}
+
+/** Whether the cast palettes are painted in their own colors. Only real
+ * biomes are; every other world hue-rotates each palette color by the live
+ * key (One Spectrum, BiomeManager._rotated), a tonic only known as the song
+ * plays, so a palette's painted warmth cannot be read ahead of time. */
+export function paintsOwnPalette(world) {
+  return !world || !!world.realBiomes;
+}
+
+// dayNight's dawn and dusk washes peak at these alphas.
+const DAWN_WASH_MAX = 0.16, DUSK_WASH_MAX = 0.18;
+
+/** The four sky regimes at one instant, before any storm overcast. */
+function skyRegimesAt(t, sky, twilight) {
+  const dn = dayNight(t, sky);
+  // Night only once the sun is down: dayNight's night starts darkening
+  // while the sun is still well up.
+  const dark = dn.sunAlt > 0 ? 0 : dn.night;
+  if (!twilight) {
+    return { noon: dn.sunAlt, dawn: unit(dn.dawnAlpha / DAWN_WASH_MAX),
+      sunset: unit(dn.duskAlpha / DUSK_WASH_MAX), night: dark };
+  }
+  const tw = twilightAt(cyclePhase01(t, sky));
+  // The twilight glow lingers after sunset; night is the sky with it gone.
+  return { noon: dn.sunAlt, dawn: tw.rising ? tw.amount01 : 0, sunset: tw.rising ? 0 : tw.amount01,
+    night: dark * (1 - tw.amount01) };
+}
+const SKY_REGIMES = ['noon', 'dawn', 'sunset', 'night'];
+const OVERCAST = new Set(['noon', 'dawn', 'sunset']);
+
+const skyClockFor = (durationMs, cycle) => cycle ?? songSkyClock(durationMs) ?? repeatingCycleMs(durationMs);
+
+function paletteSampler(sections, palettes, travel) {
   const warmth = Object.fromEntries((Array.isArray(palettes) ? palettes : [])
     .map(profile => [profile?.name, paletteWarmth(profile)]).filter(([name, value]) => name && value != null));
-  const curves = {};
-  const sky = cycle ?? songSkyClock(durationMs) ?? repeatingCycleMs(durationMs);
-  const day = t => {
-    const dn = dayNight(t, sky), tw = twilightAt(cyclePhase01(t, sky));
-    return { dn, tw };
+  if (!(Array.isArray(sections) && sections.length > 1 && sections.every(s => Number.isFinite(warmth[s.profile])))) return null;
+  // The palettes crossfade exactly as BiomeManager blends them.
+  return t => {
+    const b = blendSections(sections, t, { travel });
+    return b ? { heat: warmth[b.from] + (warmth[b.to] - warmth[b.from]) * b.t, settled: b.t === 1 ? b.to : null }
+      : { heat: 0, settled: null };
   };
+}
+
+function smoothedEnergy(energyCurves, times) {
+  const read = energyCurves?.globalEnergyNorm?.bind(energyCurves) || energyCurves?.globalEnergy?.bind(energyCurves);
+  if (!read || !times.length) return null;
+  const raw = times.map(t => unit(read(t)));
+  const reach = Math.round(ENERGY_SMOOTH_MS / SAMPLE_MS);
+  return raw.map((_, i) => {
+    let sum = 0, count = 0;
+    for (let k = Math.max(0, i - reach); k <= Math.min(raw.length - 1, i + reach); k++) { sum += raw[k]; count++; }
+    return sum / count;
+  });
+}
+
+/** The song's regime curves (0..1 over heard time) from its evidence, as
+ * the active `world` paints them. Absent regimes are left out: Trio has no
+ * squall and rotates its palettes by the live key, a single-palette song has
+ * no warmest section, a song without energy curves has no climax. */
+export function highlightRegimeCurves({ durationMs = 0, cycle = null, energyCurves = null,
+  sections = null, palettes = null, travel = false, storm = null, world = null } = {}) {
+  const curves = {};
+  const sky = skyClockFor(durationMs, cycle), twilight = paintsTwilight(world);
   // The squall's overcast swallows the sun: sunlit regimes count only
   // where the deck leaves the sky clear.
   const clear = storm ? t => 1 - unit(storm.at(t).amount) : () => 1;
-  curves.noon = t => day(t).dn.sunAlt * clear(t);
-  curves.dawn = t => { const { tw } = day(t); return tw.rising ? tw.amount01 * clear(t) : 0; };
-  curves.sunset = t => { const { tw } = day(t); return tw.rising ? 0 : tw.amount01 * clear(t); };
-  // Dark sky with the twilight glow gone (it lingers after sunset).
-  curves.night = t => { const { dn, tw } = day(t); return dn.night * (1 - tw.amount01); };
+  for (const category of SKY_REGIMES) {
+    curves[category] = OVERCAST.has(category) ? t => skyRegimesAt(t, sky, twilight)[category] * clear(t)
+      : t => skyRegimesAt(t, sky, twilight)[category];
+  }
   if (storm) {
-    curves.storm = t => storm.at(t).amount;
+    curves.storm = t => unit(storm.at(t).amount);
     // Sun through the torn deck: RangeStorm's own `sun` mix.
     curves.clearing = t => { const s = storm.at(t); return unit(s.break01) * (1 - unit(s.amount)); };
   }
-  if (Array.isArray(sections) && sections.length > 1
-      && sections.every(s => Number.isFinite(warmth[s.profile]))) {
-    // The palettes crossfade exactly as BiomeManager blends them.
-    const heat = t => {
-      const b = blendSections(sections, t, { travel });
-      return b ? warmth[b.from] + (warmth[b.to] - warmth[b.from]) * b.t : 0;
-    };
-    curves.warmest = heat;
-    curves.coolest = t => 1 - heat(t);
+  const palette = paintsOwnPalette(world) ? paletteSampler(sections, palettes, !!travel) : null;
+  if (palette) {
+    curves.warmest = t => palette(t).heat;
+    curves.coolest = t => 1 - palette(t).heat;
   }
-  const read = energyCurves?.globalEnergyNorm?.bind(energyCurves) || energyCurves?.globalEnergy?.bind(energyCurves);
-  if (read && durationMs > 0) {
-    const raw = [];
-    for (let t = 0; t <= durationMs; t += SAMPLE_MS) raw.push(unit(read(t)));
-    const reach = Math.round(ENERGY_SMOOTH_MS / SAMPLE_MS);
-    const smooth = raw.map((_, i) => {
-      let sum = 0, count = 0;
-      for (let k = Math.max(0, i - reach); k <= Math.min(raw.length - 1, i + reach); k++) { sum += raw[k]; count++; }
-      return sum / count;
-    });
-    curves.climax = t => smooth[Math.max(0, Math.min(smooth.length - 1, Math.round(t / SAMPLE_MS)))];
-  }
+  const smooth = durationMs > 0 ? smoothedEnergy(energyCurves, sampleTimes(durationMs)) : null;
+  if (smooth) curves.climax = t => smooth[Math.max(0, Math.min(smooth.length - 1, Math.round(t / SAMPLE_MS)))];
   return curves;
 }
 
+/** A palette peak narrowed to where one palette is fully on screen: the
+ * longest settled run of the palette at the curve's maximum inside the
+ * peak's hold, so its whole window misses every crossfade. Null when no
+ * such run holds a full window. */
+function settlePalettePeak(peak, settled, times, { startMs, latestMs, windowMs }) {
+  let palette = null;
+  for (let k = peak.topIndex[0]; k <= peak.topIndex[1] && !palette; k++) palette = settled[k];
+  if (!palette) return null;
+  let run = null;
+  for (let k = peak.holdIndex[0]; k <= peak.holdIndex[1]; k++) {
+    if (settled[k] !== palette) continue;
+    let e = k;
+    while (e + 1 <= peak.holdIndex[1] && settled[e + 1] === palette) e++;
+    if (!run || e - k > run[1] - run[0]) run = [k, e];
+    k = e;
+  }
+  const a = Math.max(times[run[0]], startMs), b = Math.min(times[run[1]] - windowMs, latestMs);
+  if (a > b) return null;
+  return { ...peak, palette, atMs: Math.round((a + b) / 2), holdMs: b - a, holdFromMs: a, holdToMs: b };
+}
+
 function regimeEvent(category, atMs, windowMs, value, prominence,
-  { detail = null, palette = null, holdMs = 0, holdFromMs = atMs, holdToMs = atMs } = {}) {
+  { detail = null, palette = null, label = REGIMES[category].label, holdMs = 0, holdFromMs = atMs, holdToMs = atMs } = {}) {
   const regime = REGIMES[category];
-  return { id: `${category}:${atMs}`, category, label: regime.label, ...(detail ? { detail } : {}),
+  return { id: `${category}:${atMs}`, category, label, ...(detail ? { detail } : {}),
     ...(palette ? { palette } : {}),
     source: 'regime', eventAtMs: atMs, visibleStartMs: atMs, visibleEndMs: atMs + windowMs,
     holdFromMs, holdToMs, peakValue: value, prominence, holdMs, score: regime.weight * Math.min(1, prominence) };
@@ -243,49 +329,110 @@ function regimeEvent(category, atMs, windowMs, value, prominence,
 
 /** Every regime's peaks from completed song evidence, then the selection.
  * `preserved` candidates at or before committedThroughMs stay exactly as
- * decided; only later peaks may be added. */
-export function buildHighlightCandidates({ preserved = [], committedThroughMs = -Infinity, ...evidence } = {}, stats = null) {
-  const events = highlightPeaks({ ...evidence, committedThroughMs }, stats);
-  const selected = selectHighlightCandidates(events, preserved.filter(c => c.eventAtMs <= committedThroughMs));
-  if (stats) Object.assign(stats, { peaks: events.length, selected: selected.length });
-  return selected;
+ * decided; only later peaks may be added. The returned selection carries
+ * `standby`: the pool's other peaks, best first, which the reel promotes
+ * when a selected peak is lost. `cache` (an object owned by the caller)
+ * keeps each regime group's peaks across rebuilds whose evidence for that
+ * group is unchanged. */
+export function buildHighlightCandidates({ preserved = [], committedThroughMs = -Infinity, ...evidence } = {}, stats = null, cache = null) {
+  const events = highlightPeaks({ ...evidence, committedThroughMs }, stats, cache);
+  const { list, used } = pickHighlights(events, preserved.filter(c => c.eventAtMs <= committedThroughMs));
+  const standby = events.filter(event => !used.has(event)).sort(compareScore).map(event => Object.freeze(event));
+  Object.defineProperty(list, 'standby', { value: Object.freeze(standby) });
+  if (stats) Object.assign(stats, { peaks: events.length, selected: list.length });
+  return Object.freeze(list);
 }
 
 /** The candidate pool: up to MAX_PEAKS_PER_REGIME prominent peaks of each
  * regime the evidence can produce, after committedThroughMs. */
-export function highlightPeaks({ durationMs = 0, finale = null, committedThroughMs = -Infinity, ...evidence } = {}, stats = null) {
+export function highlightPeaks({ durationMs = 0, finale = null, committedThroughMs = -Infinity, cycle = null,
+  energyCurves = null, sections = null, palettes = null, travel = false, storm = null, world = null } = {},
+  stats = null, cache = null) {
   if (!(durationMs > 0) || !Number.isFinite(durationMs)) return [];
   // The finale freezes and shatters the picture: no regime frame after it.
   const endMs = Number.isFinite(finale?.freezeAtMs)
     ? Math.min(durationMs, Math.max(0, finale.freezeAtMs - FINALE_FREEZE_LEAD_MS)) : durationMs;
-  const curves = highlightRegimeCurves({ durationMs, ...evidence });
+  // Each regime group is cached under the evidence it reads, so (say) new
+  // lyric sections re-read only the palettes, not the sky clock.
+  const memo = (name, deps, compute) => {
+    const hit = cache?.[name];
+    if (hit && hit.deps.length === deps.length && hit.deps.every((dep, i) => Object.is(dep, deps[i]))) return hit.value;
+    const value = compute();
+    if (cache) cache[name] = { deps, value };
+    return value;
+  };
+  const opts = { durationMs, endMs };
+  const twilight = paintsTwilight(world);
+  const times = memo('times', [durationMs], () => sampleTimes(durationMs));
+  const skySamples = memo('sky', [times, cycle, twilight], () => {
+    const sky = skyClockFor(durationMs, cycle), out = Object.fromEntries(SKY_REGIMES.map(c => [c, []]));
+    for (const t of times) {
+      const at = skyRegimesAt(t, sky, twilight);
+      for (const category of SKY_REGIMES) out[category].push(at[category]);
+    }
+    return out;
+  });
+  const stormSamples = memo('storm', [times, storm ? storm.key ?? storm : null], () => {
+    if (!storm) return null;
+    const amount = [], clearing = [];
+    for (const t of times) {
+      const s = storm.at(t);
+      amount.push(unit(s.amount)); clearing.push(unit(s.break01) * (1 - unit(s.amount)));
+    }
+    return { amount, clearing };
+  });
+  const skyPeaks = memo('skyPeaks', [skySamples, stormSamples, endMs], () => Object.fromEntries(SKY_REGIMES.map(category => {
+    const raw = skySamples[category];
+    const values = stormSamples && OVERCAST.has(category) ? raw.map((v, k) => v * (1 - stormSamples.amount[k])) : raw;
+    return [category, curvePeaks(values, opts, stats)];
+  })));
+  const weatherPeaks = memo('weather', [stormSamples, endMs], () => {
+    if (!stormSamples) return { peaks: {}, strikes: [] };
+    // A strike flashes at its attack: amp x the deck's amount (RangeStorm).
+    const strikes = (storm.strikes || []).map(strike => {
+      const amount = storm.at(strike.tMs).amount;
+      return { atMs: strike.tMs, value: amount > .2 ? unit(strike.amp) * amount : 0 };
+    }).filter(s => s.value >= MIN_PROMINENCE && s.atMs >= START_MS && s.atMs + FLASH_WINDOW_MS <= endMs)
+      .sort((a, b) => b.value - a.value || a.atMs - b.atMs);
+    return { peaks: { storm: curvePeaks(stormSamples.amount, opts, stats), clearing: curvePeaks(stormSamples.clearing, opts, stats) }, strikes };
+  });
+  const ownPalette = paintsOwnPalette(world);
+  const palettePeaks = memo('palette', [times, sections, palettes, !!travel, ownPalette, endMs], () => {
+    const sampler = ownPalette ? paletteSampler(sections, palettes, !!travel) : null;
+    if (!sampler) return {};
+    const heat = [], settled = [];
+    for (const t of times) { const s = sampler(t); heat.push(s.heat); settled.push(s.settled); }
+    const settle = { startMs: START_MS, latestMs: endMs - REGIME_WINDOW_MS, windowMs: REGIME_WINDOW_MS };
+    return Object.fromEntries([['warmest', heat], ['coolest', heat.map(h => 1 - h)]].map(([category, values]) => [category,
+      curvePeaks(values, opts, stats).map(peak => settlePalettePeak(peak, settled, times, settle)).filter(Boolean)]));
+  });
+  const climaxPeaks = memo('climax', [times, energyCurves, endMs], () => {
+    const smooth = smoothedEnergy(energyCurves, times);
+    return smooth ? { climax: curvePeaks(smooth, opts, stats) } : {};
+  });
+
   // Only the unheard future may gain a peak; a slide cannot reach back.
   const futureFromMs = Number.isFinite(committedThroughMs) ? Math.floor(committedThroughMs) + 1 : -Infinity;
   const events = [];
-  for (const [category, curve] of Object.entries(curves)) {
-    const peaks = curvePeaks(curve, { durationMs, endMs }, stats)
-      .filter(peak => peak.prominence >= MIN_PROMINENCE && peak.atMs >= futureFromMs)
+  const groups = { ...skyPeaks, ...weatherPeaks.peaks, ...palettePeaks, ...climaxPeaks };
+  for (const [category, all] of Object.entries(groups)) {
+    const peaks = all.filter(peak => peak.prominence >= MIN_PROMINENCE && peak.atMs >= futureFromMs)
       .slice(0, MAX_PEAKS_PER_REGIME);
     for (const peak of peaks) {
-      let detail = null, palette = null;
-      if (PALETTE.has(category)) {
-        palette = blendSections(evidence.sections, peak.atMs, { travel: !!evidence.travel })?.to ?? null;
-        const profile = evidence.palettes?.find(p => p?.name === palette);
-        detail = profile?.title || (palette ? titleCase(palette) : null);
+      let detail = null;
+      if (peak.palette) {
+        const profile = palettes?.find(p => p?.name === peak.palette);
+        detail = profile?.title || titleCase(peak.palette);
       }
+      // Trio's dusk is dayNight's indigo wash, not a burning sunset.
+      const label = category === 'sunset' && !twilight ? 'Dusk' : REGIMES[category].label;
       events.push(regimeEvent(category, peak.atMs, REGIME_WINDOW_MS, peak.value, peak.prominence,
-        { detail, palette, holdMs: peak.holdMs, holdFromMs: Math.max(peak.holdFromMs, futureFromMs), holdToMs: peak.holdToMs }));
+        { detail, label, palette: peak.palette ?? null, holdMs: peak.holdMs,
+          holdFromMs: Math.max(peak.holdFromMs, futureFromMs), holdToMs: peak.holdToMs }));
     }
   }
-  if (evidence.storm?.strikes?.length) {
-    // A strike flashes at its attack: amp x the deck's amount (RangeStorm).
-    const strikes = evidence.storm.strikes.map(strike => {
-      const amount = evidence.storm.at(strike.tMs).amount;
-      return { atMs: strike.tMs, value: amount > .2 ? unit(strike.amp) * amount : 0 };
-    }).filter(s => s.value >= MIN_PROMINENCE && s.atMs >= START_MS && s.atMs + FLASH_WINDOW_MS <= endMs
-      && s.atMs > committedThroughMs)
-      .sort((a, b) => b.value - a.value || a.atMs - b.atMs).slice(0, MAX_PEAKS_PER_REGIME);
-    for (const s of strikes) events.push(regimeEvent('lightning', s.atMs, FLASH_WINDOW_MS, s.value, s.value));
+  for (const s of weatherPeaks.strikes.filter(s => s.atMs > committedThroughMs).slice(0, MAX_PEAKS_PER_REGIME)) {
+    events.push(regimeEvent('lightning', s.atMs, FLASH_WINDOW_MS, s.value, s.value));
   }
   return events;
 }
@@ -300,11 +447,12 @@ function evidenceFor(sim) {
     palettes: biomes?.profiles ?? null, world, landscape, finale: sim.fracture?.finale ?? null };
 }
 
-function buildFromEvidence(sim, evidence, preserved, committedThroughMs) {
-  const { world, landscape, ...rest } = evidence;
-  const storm = landscape ? { at: t => stormAt(sim.biomes, t),
+function buildFromEvidence(sim, evidence, preserved, committedThroughMs, cache) {
+  const { landscape, ...rest } = evidence;
+  const storm = landscape ? { key: landscape, at: t => stormAt(sim.biomes, t),
     strikes: landscape.episodes.flatMap(e => e.strikes || []) } : null;
-  return buildHighlightCandidates({ ...rest, travel: !!world?.realBiomes, storm, preserved, committedThroughMs });
+  return buildHighlightCandidates({ ...rest, travel: !!rest.world?.realBiomes, storm, preserved, committedThroughMs },
+    null, cache);
 }
 
 export function highlightCandidatesFor(sim, producerTimeMs = null) {
@@ -320,13 +468,14 @@ export function highlightCandidatesFor(sim, producerTimeMs = null) {
   };
   const cached = songCandidates.get(sim);
   if (cached && Object.keys(evidence).every(key => evidence[key] === cached.evidence[key])) return remember(cached);
+  const peakCache = cached?.peakCache ?? {};
   let preserved = [], committedThroughMs = -Infinity;
   if (cached) {
     committedThroughMs = Math.max(sim.heardTimeMs ?? sim.timeMs, cached.producerThroughMs);
     preserved = cached.candidates.filter(candidate => candidate.eventAtMs <= committedThroughMs);
   } else if (session?.primary && historyCandidates.has(session.primary)) {
     const prior = historyCandidates.get(session.primary);
-    return remember({ evidence, candidates: prior.candidates, producerThroughMs: prior.producerThroughMs });
+    return remember({ evidence, candidates: prior.candidates, producerThroughMs: prior.producerThroughMs, peakCache });
   } else if (session?.previous) {
     // The song-owned history survives the full-analysis scene
     // reconstruction. Its public admission boundary fixes the heard past,
@@ -336,8 +485,8 @@ export function highlightCandidatesFor(sim, producerTimeMs = null) {
     committedThroughMs = Math.max(session.stateKey.handoffStartMs, prior?.producerThroughMs ?? -Infinity);
     preserved = prior?.candidates.filter(candidate => candidate.eventAtMs <= committedThroughMs) ?? [];
   }
-  const candidates = buildFromEvidence(sim, evidence, preserved, committedThroughMs);
-  return remember({ evidence, candidates, producerThroughMs: committedThroughMs });
+  const candidates = buildFromEvidence(sim, evidence, preserved, committedThroughMs, peakCache);
+  return remember({ evidence, candidates, producerThroughMs: committedThroughMs, peakCache });
 }
 
 /** What this drawn frame can show, snapshotted when it is composed (before
@@ -380,12 +529,20 @@ export class HighlightReel {
     return this.frames.length < MAX_FRAMES && eventAtMs - this._lastCaptureMs >= MIN_GAP_MS;
   }
 
+  /** Every frame is taken: no later draw or evidence can change the reel. */
+  get complete() {
+    return this.frames.length >= MAX_FRAMES;
+  }
+
   /** Observe a composed frame. Visible windows are half-open in producer
    * (heard) time. A window passed without a visible frame is recorded as
    * missed (never drawn) or rejected (drawn, regime hidden); backseeks
-   * cannot change a recorded decision or manufacture a new peak. */
+   * cannot change a recorded decision or manufacture a new peak. A lost
+   * peak frees its slot: the best standby peak (`candidates.standby`) whose
+   * window is still ahead and that fits the rest of the plan takes it. */
   notify(candidates, canvas, heardTimeMs, { frameTimeMs = heardTimeMs,
     producerTimeMs = heardTimeMs, isVisible = () => true } = {}) {
+    let freed = false;
     if (!this._initialized) {
       this.selections = Object.freeze(selectHighlightCandidates(candidates).map(candidate => Object.freeze({ ...candidate, status: 'pending' })));
       this._initialized = true;
@@ -394,6 +551,7 @@ export class HighlightReel {
       const future = candidates.filter(candidate => candidate.eventAtMs > producerTimeMs);
       this.selections = Object.freeze(selectHighlightCandidates(future, past)
         .map(candidate => candidate.status ? candidate : Object.freeze({ ...candidate, status: 'pending' })));
+      freed = true;
     }
     this._candidateInput = candidates;
     let captured = false;
@@ -402,6 +560,7 @@ export class HighlightReel {
       if (producerTimeMs >= candidate.visibleEndMs) {
         const status = this._captureFailed.has(candidate.id) ? 'failed'
           : this._observed.has(candidate.id) ? 'rejected' : 'missed';
+        freed = true;
         return Object.freeze({ ...candidate, status, observedAtMs: heardTimeMs, observedFrameMs: frameTimeMs });
       }
       this._observed.add(candidate.id);
@@ -415,8 +574,23 @@ export class HighlightReel {
         observedFrameMs: frameTimeMs, capturedAtMs: frameTimeMs });
     });
     if (next.some((candidate, index) => candidate !== this.selections[index])) this.selections = Object.freeze(next);
+    if (freed) this._promoteStandby(candidates?.standby, producerTimeMs);
     if (this.selections.every(candidate => candidate.status !== 'pending')) this._releaseCanvas();
     return captured;
+  }
+
+  _promoteStandby(standby, producerTimeMs) {
+    if (!standby?.length || !this.selections.some(candidate => LOST.has(candidate.status))) return;
+    // Only the unheard future: a standby may not slide back into the past.
+    const fromMs = Math.floor(producerTimeMs) + 1;
+    const future = standby.filter(candidate => candidate.eventAtMs > producerTimeMs)
+      .map(candidate => candidate.holdFromMs < fromMs ? { ...candidate, holdFromMs: fromMs } : candidate);
+    if (!future.length) return;
+    const filled = selectHighlightCandidates(future, this.selections);
+    if (filled.length !== this.selections.length) {
+      this.selections = Object.freeze(filled.map(candidate => candidate.status ? candidate
+        : Object.freeze({ ...candidate, status: 'pending' })));
+    }
   }
 
   capture(canvas, heardTimeMs, label, candidate = null, frameTimeMs = heardTimeMs) {

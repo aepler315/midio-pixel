@@ -5,6 +5,9 @@ import {
   highlightFrameState, highlightVisible, MAX_FRAMES, MIN_GAP_MS, START_MS, REGIMES, PEAK_TOLERANCE,
   REGIME_WINDOW_MS, paletteWarmth,
 } from '../src/render/HighlightReel.js';
+import { blendSections } from '../src/world/BiomeSchedule.js';
+import { dayNight } from '../src/world/DayNight.js';
+import { getWorld } from '../src/world/Worlds.js';
 import { compileStorm } from '../src/world/alpine/RangeStorm.js';
 import { FINALE_FREEZE_LEAD_MS } from '../src/core/SongFinale.js';
 import { songSkyClock } from '../src/world/DayNight.js';
@@ -275,4 +278,118 @@ test('frame visibility: freeze, assembly, arrival and cuts hide every regime; we
     [{}, { ...v2, _awaitingTerrain: true }]]) {
     assert.equal(highlightVisible({ category: 'noon' }, highlightFrameState(sim, mgr)), false);
   }
+});
+
+const LANDSCAPE = getWorld('alpine'), TRIO = getWorld('trio');
+
+test('a palette peak sits inside one settled palette, never across a crossfade', () => {
+  // CONIFER (.283) and ICEFIELD (.284) are nearly equally cool, so the
+  // near-maximum hold spans both and the 4-bar crossfade between them.
+  const sections = ['DESERT', 'CONIFER', 'ICEFIELD', 'CANYON'].map((profile, i) => ({
+    startMs: i * 30000, profile, barMs: 2000, transition: 'fade' }));
+  for (const travel of [false, true]) {
+    const events = highlightPeaks({ durationMs: 120000, sections, palettes: REAL_BIOMES, travel, cycle: 1e12, world: LANDSCAPE })
+      .filter(e => e.category === 'warmest' || e.category === 'coolest');
+    assert.ok(events.some(e => e.category === 'coolest'), 'the coolest palette still has a frame');
+    for (const e of events) {
+      for (const at of [e.visibleStartMs, e.visibleEndMs - 1, e.holdFromMs, e.holdToMs + REGIME_WINDOW_MS - 1]) {
+        const blend = blendSections(sections, at, { travel });
+        assert.equal(blend.t, 1, `${e.id} settled at ${at} (travel ${travel})`);
+        assert.equal(blend.to, e.palette);
+      }
+    }
+  }
+});
+
+test('deepest night is only scheduled once the sun is down', () => {
+  for (const durationMs of [60000, 180000, 300000]) {
+    const clock = songSkyClock(durationMs);
+    for (const [world, committedThroughMs] of [[null, -Infinity], [null, 6000], [TRIO, 6000], [LANDSCAPE, 6000]]) {
+      const events = highlightPeaks({ durationMs, world, committedThroughMs, finale: { freezeAtMs: durationMs - 8000 } });
+      for (const e of events.filter(e => e.category === 'night')) {
+        for (const at of [e.eventAtMs, e.holdFromMs, e.holdToMs]) assert.equal(dayNight(at, clock).sunAlt, 0, `${durationMs} ${e.id}`);
+      }
+    }
+  }
+});
+
+test('Trio\'s first light and dusk peak with the washes Trio paints', () => {
+  for (const durationMs of [180000, 300000]) {
+    const clock = songSkyClock(durationMs), argmax = key => {
+      let best = 0, at = 0;
+      for (let t = 0; t <= durationMs; t += 250) { const v = dayNight(t, clock)[key]; if (v > best) { best = v; at = t; } }
+      return at;
+    };
+    const events = highlightPeaks({ durationMs, world: TRIO });
+    const dawn = events.find(e => e.category === 'dawn'), dusk = events.find(e => e.category === 'sunset');
+    assert.ok(Math.abs(dawn.eventAtMs - argmax('dawnAlpha')) <= 250, `dawn ${dawn.eventAtMs}`);
+    assert.ok(Math.abs(dusk.eventAtMs - argmax('duskAlpha')) <= 250, `dusk ${dusk.eventAtMs}`);
+    assert.equal(dusk.label, 'Dusk', 'the indigo wash is a dusk, not a burning sunset');
+    // Landscape paints DayNight's twilight instead: its peaks are elsewhere.
+    const range = highlightPeaks({ durationMs, world: LANDSCAPE });
+    assert.equal(range.find(e => e.category === 'sunset').label, 'Sunset');
+    assert.ok(Math.abs(range.find(e => e.category === 'dawn').eventAtMs - dawn.eventAtMs) > 5000);
+  }
+});
+
+test('Trio rotates its palettes by the live key, so it has no palette regimes', () => {
+  const sections = [{ startMs: 0, profile: 'ARCTIC', barMs: 500, transition: 'fade' },
+    { startMs: 8000, profile: 'SOLAR', barMs: 500, transition: 'fade' }];
+  const curves = highlightRegimeCurves({ durationMs: 24000, sections, palettes: BIOMES, world: TRIO });
+  assert.equal(curves.warmest, undefined);
+  assert.equal(curves.coolest, undefined);
+  assert.ok(highlightRegimeCurves({ durationMs: 24000, sections, palettes: BIOMES }).warmest, 'evidence without a world keeps them');
+});
+
+test('regime groups are cached: new sections re-read only the palettes', () => {
+  const durationMs = 300000, cache = {};
+  const sectionsAt = offset => ['DESERT', 'ICEFIELD', 'CANYON', 'CONIFER'].map((profile, i) => ({
+    startMs: i * 70000 + offset, profile, barMs: 2000, transition: 'fade' }));
+  const evidence = { durationMs, palettes: REAL_BIOMES, world: LANDSCAPE, travel: true,
+    energyCurves: { globalEnergyNorm: t => t > 120000 && t < 140000 ? .9 : .2 }, finale: { freezeAtMs: 296000 } };
+  const cold = {};
+  buildHighlightCandidates({ ...evidence, sections: sectionsAt(0) }, cold, cache);
+  const warm = {};
+  const rebuilt = buildHighlightCandidates({ ...evidence, sections: sectionsAt(4000) }, warm, cache);
+  const samples = Math.floor(durationMs / 250) + 1;
+  assert.equal(warm.samples, 2 * samples, 'only warmest and coolest are re-sampled');
+  assert.ok(cold.samples > warm.samples);
+  assert.deepEqual(signature(rebuilt), signature(buildHighlightCandidates({ ...evidence, sections: sectionsAt(4000) })),
+    'a cached rebuild equals a fresh one');
+});
+
+test('a lost peak frees its slot for the best standby still ahead', () => {
+  // A repeating 60 s sky cycle: every sky regime peaks three times.
+  const durationMs = 180000, { energyCurves } = stormySong(durationMs);
+  const schedule = buildHighlightCandidates({ durationMs, cycle: 60000, energyCurves, finale: { freezeAtMs: 176000 } });
+  assert.ok(schedule.standby.length > 0, 'the pool keeps standby peaks');
+  assert.ok(schedule.standby.every(Object.isFrozen));
+  const run = () => {
+    const reel = new HighlightReel(), first = schedule[0];
+    reel.notify(schedule, source, first.visibleStartMs, { isVisible: () => false });
+    reel.notify(schedule, source, first.visibleEndMs, { isVisible: () => false });
+    return reel;
+  };
+  const reel = run(), [lost] = reel.selections;
+  assert.equal(lost.status, 'rejected');
+  const live = reel.selections.filter(e => e.status === 'pending');
+  assert.equal(live.length, Math.min(MAX_FRAMES, schedule.length - 1 + schedule.standby.length), 'the freed slot is filled');
+  assertSchedule(live);
+  const promoted = live.filter(e => !schedule.some(s => s.id === e.id));
+  assert.equal(promoted.length, 1);
+  assert.ok(promoted[0].eventAtMs > lost.visibleEndMs, 'only from the unheard future');
+  assert.deepEqual(signature(run().selections), signature(reel.selections), 'deterministic for one capture history');
+  // A backseek neither revives the lost peak nor promotes again.
+  const before = signature(reel.selections);
+  reel.notify(schedule, source, lost.eventAtMs);
+  reel.notify(schedule, source, lost.visibleEndMs + 10);
+  assert.deepEqual(signature(reel.selections), before);
+  assert.equal(reel.selections[0].status, 'rejected');
+});
+
+test('the reel is complete once every frame is taken', () => {
+  const reel = new HighlightReel();
+  const events = CATEGORIES.slice(0, MAX_FRAMES).map((category, i) => candidate(`${category}:${i * 5000}`, i * 5000, category));
+  for (const event of events) { assert.equal(reel.complete, false); reel.notify(events, source, event.eventAtMs); }
+  assert.equal(reel.complete, true);
 });

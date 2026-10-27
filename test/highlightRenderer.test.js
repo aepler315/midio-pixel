@@ -176,3 +176,25 @@ test('RidgeMusic handoff without a prepared prior reel admits only full-analysis
     assert.equal(f.sim.highlightReel.frames.length, 0);
   } finally { f.dispose(); }
 });
+
+test('a night peak lost to loading terrain is replaced by a standby still ahead', () => {
+  const f = rendererFixture({ cues: [], durationMs: 60000, lastImpactMs: 58000,
+    energyCurves: energyFixture(time => time > 30000 && time < 34000 ? .95 : .1) });
+  try {
+    const reel = f.drawAt(0), [night] = reel.selections, planned = new Set(reel.selections.map(event => event.id));
+    assert.equal(night.category, 'night');
+    assert.equal(reel.selections.length, MAX_FRAMES);
+    // Landscape's terrain is still loading through the opening night.
+    let loading = true;
+    Object.defineProperty(f.sim.biomes, '_awaitingTerrain', { get: () => loading, set() {}, configurable: true });
+    for (const time of cadence(30, night.visibleStartMs - 100, night.visibleEndMs + 50)) f.drawAt(time);
+    loading = false;
+    assert.equal(reel.selections[0].status, 'rejected');
+    const live = reel.selections.filter(event => event.status === 'pending');
+    assert.equal(live.length, MAX_FRAMES, 'a standby takes the freed slot');
+    const promoted = live.filter(event => !planned.has(event.id));
+    assert.equal(promoted.length, 1);
+    assert.ok(promoted[0].eventAtMs > night.visibleEndMs);
+    for (let i = 1; i < live.length; i++) assert.ok(live[i].eventAtMs - live[i - 1].eventAtMs >= MIN_GAP_MS);
+  } finally { f.dispose(); }
+});
