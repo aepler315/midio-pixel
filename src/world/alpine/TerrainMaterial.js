@@ -318,6 +318,7 @@ export const SHADOW_RESIDUAL = 0.5;
  *  is ~0.02). Restrained but shore-holding from a high camera; was 0.3. A
  *  compile-time constant: the terrain shader is at the mobile uniform budget. */
 export const WATER_REFLECT_FLOOR = 0.2;
+const WATER_MUSIC_ACCENTS = 4;
 
 export const SCENE_FRAG = /* glsl */`
   ${CLOUD_OCCLUSION_GLSL}
@@ -379,6 +380,10 @@ export const SCENE_FRAG = /* glsl */`
   // patches that cross the frame with each front and break the mirror.
   // Water reads the same six gusts as the forest, packed per front.
   uniform vec3 uWaterGust[${GUST_FRONTS}];
+  // Low pressure, kick, high percussion/melody and phrase lift. The four
+  // accent slots hold heard-time age, strength, stable seed and voice.
+  uniform vec4 uWaterMusic;
+  uniform vec4 uWaterAccent[${WATER_MUSIC_ACCENTS}];
   // Valley mist and cloud sea first: the lanterns' light reads its top, at
   // the lifted ground the lanterns are drawn on.
   ${MIST_GLSL}
@@ -498,6 +503,38 @@ export const SCENE_FRAG = /* glsl */`
       slope += dir * W[i].w * cos(phase) * fade;
     }
     return slope;
+  }
+  float waterAccentEnvelope(float age) {
+    if (age < 0.0 || age >= 4.0) return 0.0;
+    return smoothstep(0.0, 0.08, age) * exp(-age * 1.65) * (1.0 - smoothstep(3.0, 4.0, age));
+  }
+  float waterAccentPhase(float distanceM, float age, float wavelength, float seed) {
+    return (distanceM - age * 70.0) * 6.2831853 / wavelength + seed * 6.2831853;
+  }
+  // Each attack launches a short train of ripples across the lake, in a
+  // seeded world direction. The phase is evaluated from the event's age,
+  // never integrated, so the mirror, capture and a seek share one surface.
+  vec2 waterAccentSlope(vec2 xz) {
+    vec2 slope = vec2(0.0);
+    for (int i = 0; i < ${WATER_MUSIC_ACCENTS}; i++) {
+      vec4 a = uWaterAccent[i];
+      if (a.y <= 0.0) continue;
+      float angle = a.z * 6.2831853;
+      vec2 direction = vec2(cos(angle), sin(angle));
+      float wavelength = a.w < 0.5 ? 140.0 : (a.w < 1.5 ? 48.0 : 86.0);
+      float phase = waterAccentPhase(dot(xz, direction), a.x, wavelength, a.z);
+      float resolved = 1.0 - smoothstep(.35, 1.2, fwidth(phase));
+      float envelope = waterAccentEnvelope(a.x) * a.y;
+      slope += direction * cos(phase) * envelope * resolved * (a.w < .5 ? .65 : .35);
+    }
+    return slope;
+  }
+  float waterMusicRoughness(float paw, float low, float kick) {
+    return (0.03 + 0.06 * paw) * (1.0 + 0.9 * low + 0.7 * kick);
+  }
+  float waterMusicGlint(float cosine, float activity, float keyEnergy) {
+    if (keyEnergy < 1e-10 || activity <= 0.0) return 0.0;
+    return pow(max(cosine, 0.0), 80.0) * activity * 0.14;
   }
   float waterGlint(float cosine, float gain, float keyEnergy) {
     if (keyEnergy < 1e-10 || gain <= 0.0) return 0.0;
@@ -823,7 +860,8 @@ export const SCENE_FRAG = /* glsl */`
       #ifdef RIVER_SURFACE
       waterSwell = riverSlope(uTime);
       #endif
-      vec2 ripple = waterSwell * (0.03 + 0.06 * paw);
+      waterSwell += waterAccentSlope(vWorld.xz);
+      vec2 ripple = waterSwell * waterMusicRoughness(paw, uWaterMusic.x, uWaterMusic.y);
       vec3 waterNormal = normalize(vec3(ripple.x, 1.0, ripple.y));
       waterN = waterNormal;
       float fres = 0.02 + 0.98 * pow(1.0 - max(dot(vec3(0.0, 1.0, 0.0), V), 0.0), 5.0);
@@ -833,6 +871,7 @@ export const SCENE_FRAG = /* glsl */`
       vec3 halfVector = uLightDir + V;
       vec3 H = halfVector / max(length(halfVector), 1e-10);
       float glint = waterGlint(dot(H, waterNormal), rWaterGlintGain, dot(uLightColor, uLightColor));
+      glint += waterMusicGlint(dot(H, waterNormal), uWaterMusic.z, dot(uLightColor, uLightColor)) * min(1.0, rWaterGlintGain);
       // The lake mirrors the sky above the far shore, not only its pale
       // horizon band: an all-horizon mirror turned broad lakes into a
       // flat white sheet that outshone the mountains.
@@ -844,6 +883,11 @@ export const SCENE_FRAG = /* glsl */`
       skyHere = fres;
       #endif
       lit = mix(lit, skyReflect * rWaterSkyMix, skyHere) + uLightColor * glint * moonTransmission;
+      // Treble catches the resolved crests, especially in disturbed water.
+      // It borrows the available light rather than emitting a white wash.
+      float crest = smoothstep(.55, 1.05, length(waterSwell));
+      lit += (uSkyHorizon * .12 + uLightColor * .025 * moonTransmission)
+        * crest * uWaterMusic.z * (.25 + .75 * paw);
       #ifdef RIVER_SURFACE
       // Gentle advected surface variation remains readable under ambient
       // light. Filtered-out ripples retain their mean rather than flashing.
@@ -890,6 +934,7 @@ export const SCENE_FRAG = /* glsl */`
       // with distance as the waves shrink on screen. Groove and kicks still
       // set the amount (uMirrorRipple).
       vec2 shiver = vec2(0.3 * waterSwell.x, waterSwell.y) * uMirrorRipple * 1.6 * (1.0 + 3.0 * paw)
+        * (1.0 + .4 * uWaterMusic.x + .35 * uWaterMusic.y)
         * mix(1.0, .35, smoothstep(600.0, 7000.0, dist));
       // The backdrop, met by the view ray reflected off flat water (it is far
       // enough away to treat as the sky), then the ground mirrored over it.
@@ -912,6 +957,10 @@ export const SCENE_FRAG = /* glsl */`
       // The floor keeps a believable shore relationship from a high camera
       // (physical water would show almost none); a cat's paw roughens it.
       float reflectance = clamp(${WATER_REFLECT_FLOOR.toFixed(3)} + ${(1 - WATER_REFLECT_FLOOR).toFixed(3)} * waterFres, 0.0, 0.88) * (1.0 - 0.4 * paw);
+      // A phrase opens a little more mirror between passing crests; the
+      // shoreline coverage, depth and real reflected image stay unchanged.
+      reflectance = min(.88, reflectance + (.035 * uWaterMusic.x + .025 * uWaterMusic.w)
+        * smoothstep(.2, .8, abs(waterSwell.y)));
       color = mix(color, mirrored * 0.9, reflectance * smoothstep(.5, .9, waterCoverage) * have * clear * uNarrative.z * uNarrative.w);
     }
     #endif
@@ -961,6 +1010,21 @@ export function syncGustUniforms(u) {
   }
 }
 
+/** The current frozen effects frame owns all water response. Clearing every
+ * slot also removes a prior view's attacks on silence, seeks or score loss. */
+export function syncWaterMusicUniforms(u, effects) {
+  const unit = value => Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
+  u.uWaterMusic.value.set(.7 * unit(effects?.bass) + .3 * unit(effects?.energy), unit(effects?.kick),
+    .65 * unit(effects?.treble) + .75 * unit(effects?.snare) + .2 * unit(effects?.melody), unit(effects?.lift));
+  const accents = Array.isArray(effects?.accents) ? effects.accents.slice(0, 64).filter(a => a && Number.isFinite(a.ageSec)
+    && a.ageSec >= 0 && a.ageSec < 4 && unit(a.strength) > 0 && ['kick', 'snare', 'melody'].includes(a.kind))
+    .sort((a, b) => a.ageSec - b.ageSec) : [];
+  for (let i = 0; i < WATER_MUSIC_ACCENTS; i++) {
+    const a = accents[i];
+    u.uWaterAccent.value[i].set(a?.ageSec ?? 4, unit(a?.strength), unit(a?.seed), a?.kind === 'melody' ? 2 : a?.kind === 'snare' ? 1 : 0);
+  }
+}
+
 /** Shared uniforms for the production terrain (values set per frame). */
 export function sceneUniforms(THREE, base) {
   return {
@@ -1001,6 +1065,8 @@ export function sceneUniforms(THREE, base) {
     // Gust fronts in flight: age (s), strength, and way across the frame.
     ...gustUniforms(),
     uWaterGust: { value: Array.from({ length: GUST_FRONTS }, () => new THREE.Vector3(GUST_IDLE_SEC, 0, 1)) },
+    uWaterMusic: { value: new THREE.Vector4() },
+    uWaterAccent: { value: Array.from({ length: WATER_MUSIC_ACCENTS }, () => new THREE.Vector4(4, 0, 0, 0)) },
     uForestKeep: { value: 1 },
     uFarForest: { value: new THREE.Vector4(0, 0, RULE_DEFAULTS.treeScale, 0) },
     uForestSeed: { value: 0 },

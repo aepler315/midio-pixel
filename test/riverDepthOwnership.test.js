@@ -63,13 +63,14 @@ test('channel seam fill reaches the farther partition and the same travel column
     assert.equal(scenes.far.children[0].geometry, mid);
     assert.equal(scenes.mid.children[0].geometry, near);
     assert.equal(fringeMeshes.length, 2, 'ordinary fill must hide with terrain fill during travel');
-    const target = { scissor: new THREE.Vector4(), scissorTest: false };
+    // Smooth water can target a different backing size than native terrain.
+    const target = { width: 200, height: 100, scissor: new THREE.Vector4(), scissorTest: false };
     let draws = 0;
     scene.renderer = { setRenderTarget() {}, render(actual) {
       assert.equal(actual, fringeTravel[0].scene);
       assert.equal(actual.children[0].geometry, mid);
       assert.equal(actual.children[0].material, material);
-      assert.deepEqual(target.scissor.toArray(), [20, 0, 60, 50]); draws++;
+      assert.deepEqual(target.scissor.toArray(), [40, 0, 120, 100]); draws++;
     } };
     scene._travelFringe({ fringeTravel }, target, 'far', { mid: [.2, .8] });
     assert.equal(draws, 1);

@@ -21,7 +21,7 @@ import { rangeRenderPolicy, supportedSamples, msaaOverride, sceneTargetBytes, si
 // reserved here before creation and released through dispose().
 import { prepareTerrainAssets, RangeAssetError } from './RangeAssets.js';
 import { createSurfaceTextureAsync, terrainUniforms, createBandGeometries, createBandGeometriesAsync } from './TerrainGL.js';
-import { syncGustUniforms, sceneUniforms, createSceneMaterial, createDepthMaterial, setLinearFromHex, createMaterialTextures, applyMaterial, SCENE_VERT, FEATURE_FRAG } from './TerrainMaterial.js';
+import { syncGustUniforms, syncWaterMusicUniforms, sceneUniforms, createSceneMaterial, createDepthMaterial, setLinearFromHex, createMaterialTextures, applyMaterial, SCENE_VERT, FEATURE_FRAG } from './TerrainMaterial.js';
 import { terrainFeatureSegmentsAsync } from './TerrainFeatures.js';
 import { loadMaterialPack, materialGpuBytes, RULE_DEFAULTS, validateWaterRules } from './MaterialPackage.js';
 import { placeForestAsync, forestPlacementBound } from './ForestCover.js';
@@ -1709,6 +1709,7 @@ export class RangeScene {
     u.uTime.value = frame.timeMs / 1000;
     m.gusts.forEach((g, i) => { u.uGustAge.value[i] = g.ageSec; u.uGustAmp.value[i] = g.amp01 * (1 + (frame.storm?.amount || 0) * .8); u.uGustDir.value[i] = g.dir; });
     syncGustUniforms(u);
+    syncWaterMusicUniforms(u, frame.effects);
     const rung = rangeQuality(frame.qualityLevel);
     u.uForestKeep.value = rung.forestKeep;
     // Trees show with the narrative's materials; the detail ring shows one

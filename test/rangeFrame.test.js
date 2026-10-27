@@ -45,6 +45,52 @@ const pose = { worldX: 1000, midioX: 400, midioDrawX: 402, midioY: 500 };
 const vp = (w, h, bw, bh) => viewportState({ logicalWidth: w, logicalHeight: h, backingWidth: bw, backingHeight: bh, overscanPx: 64 });
 const scenes = new Map([['RAINFOREST', { view: { id: 'nc-ross-lake-north' }, fallbackReason: null }]]);
 
+test('effects share final heard time and freeze music independently of terrain motion', () => {
+  const sim = fakeSim(2);
+  sim.heardTimeMs = 10100;
+  const calls = [];
+  sim.biomes.ridgeMusicSession = { sample(at) {
+    calls.push(at);
+    return { bands: [.8, .7, .3, .4, .4, .5, .8], pressureEnergy01: .7,
+      bassPressure01: .75, rhythmAccent01: .8, kick01: .9, activity01: .8,
+      motionPresence01: 1, motionMelody: { activity: .6, pitch01: .7 } };
+  } };
+  sim.biomes.conductor = { timeline: [
+    { tMs: 10000, role: 'RHYTHM', kick: true, vel: 1, src: 'midi' },
+    { tMs: 11000, role: 'RHYTHM', kick: true, vel: 1, src: 'midi' },
+  ] };
+  const first = buildRangeFrame({ frameId: 1, sim, pose });
+  assert.ok(first.effects?.kick > .1);
+  assert.ok(first.effects.bass > .1);
+  assert.ok(first.effects.accents.every(a => a.ageSec >= 0));
+  assert.ok(Object.isFrozen(first.effects) && Object.isFrozen(first.effects.accents));
+  assert.ok(calls.includes(10100));
+  assert.equal(first.music.kickM, 0, 'fast accents belong to the atmosphere');
+  sim.biomes.tSec = 90;
+  sim.biomes.calmLevel = 1;
+  const repeated = buildRangeFrame({ frameId: 2, sim, pose });
+  assert.deepEqual(repeated.effects, first.effects);
+  sim.biomes.terrainPreview = true;
+  const preview = buildRangeFrame({ frameId: 3, sim, pose });
+  assert.equal(preview.effects.kick, 0);
+  assert.deepEqual(preview.effects.accents, []);
+});
+
+test('frame prefers generation-owned effects to the conductor updated during analysis', () => {
+  const sim = fakeSim(8);
+  sim.heardTimeMs = 1050;
+  const retained = Object.freeze({ energy: .5, bass: .2, treble: .7, kick: 0,
+    snare: .7, melody: 0, lift: 0, accents: Object.freeze([]) });
+  sim.biomes.conductor = { timeline: [{ tMs: 1000, role: 'RHYTHM', kick: true, vel: 1, src: 'midi' }] };
+  sim.biomes.ridgeMusicSession = { sampleEffects(at, options) {
+    assert.equal(at, 1050);
+    assert.equal(options.seed, 42);
+    assert.equal(options.calmLevel, undefined, 'owned calm cues remain authoritative');
+    return retained;
+  }, sample() { return null; } };
+  assert.equal(buildRangeFrame({ frameId: 1, sim, pose }).effects, retained);
+});
+
 test('camera lens reaches the shared frame', () => {
   const sim = fakeSim(20);
   sim.biomes.sections = [{ startMs: 0, relEnergy01: .3 }, { startMs: 20000, role: 'chorus', relEnergy01: .9 }];
