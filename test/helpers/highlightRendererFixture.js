@@ -37,14 +37,14 @@ export function energyFixture(value = () => .1) {
 
 export function rendererFixture({ cues = [{ id: 'drop', tMs: 5000, kind: 'drop', value: 1 }],
   durationMs = 24000, lastImpactMs = 22000, energyCurves = energyFixture(), timeline = null, quality = 0,
-  ridgeMusicSession = null } = {}) {
+  ridgeMusicSession = null, worldId = 'alpine' } = {}) {
   const conductor = new Conductor();
   conductor.load({ durationMs, bpm: 120,
     timeline: timeline ?? [1000, lastImpactMs].map((tMs, i) => ({ id: `note:${i}`, tMs, durMs: 80,
       role: Role.RHYTHM, kick: true, vel: .8, pitch: 36 })),
     barGrid: Array.from({ length: Math.ceil(durationMs / 2000) }, (_, i) => ({ ms: i * 2000, tick: i * 4,
       numerator: 4, denominator: 4 })) });
-  const sim = new Simulation(conductor, new ParamBus(), { worldId: 'alpine', songSeed: 315,
+  const sim = new Simulation(conductor, new ParamBus(), { worldId, songSeed: 315,
     energyCurves, conductorCues: { liveCues: cues, scheduleCues: [] }, ridgeMusicSession });
   // Background strip prerendering is unrelated to the highlight contract.
   sim.biomes.pumpStripPrewarm = () => {};

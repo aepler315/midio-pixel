@@ -12,6 +12,7 @@
 import { MAX_LEVEL } from '../render/PerfGovernor.js';
 import { FLAT_WEIGHTS } from '../audio/bands.js';
 import { VISION_PROVIDERS } from '../vision/providers.js';
+import { MAX_FRAMES as HIGHLIGHT_MAX_FRAMES } from '../render/HighlightReel.js';
 
 const TRACE_W = 460, TRACE_H = 86;
 const TRACE_SMOOTH = 7; // display-only moving average, in trace pixels
@@ -236,7 +237,9 @@ export class DebugOverlay {
     }
     lines.push(`visual style: Midio (single house look)`);
     if (this.sim.highlightReel) {
-      lines.push(`highlight reel: ${this.sim.highlightReel.frames.length}/8 captured`);
+      const reel = this.sim.highlightReel;
+      const plan = (reel.selections || []).map(s => `${s.label} ${(s.eventAtMs / 1000).toFixed(1)}s ${s.status}`).join(', ');
+      lines.push(`highlight reel: ${reel.frames.length}/${HIGHLIGHT_MAX_FRAMES} captured${plan ? ` (${plan})` : ''}`);
     }
 
     // --- movement intensity: is the energy signal saying what you hear? ---
