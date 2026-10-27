@@ -41,6 +41,20 @@ function weatherOnly(sky) {
   return sky;
 }
 
+test('sky reuses the completed Range music score after simulation advances', () => {
+  const effects = Object.freeze({ energy: .7, bass: .8, treble: .4, kick: .9, snare: .3,
+    melody: .6, lift: .2, accents: Object.freeze([Object.freeze({ ageSec: .1, strength: .9, kind: 'kick', seed: .3 })]) });
+  const manager = managerFixture();
+  manager.rangePresentation.frame.effects = effects;
+  manager.rangePresentation.frame.timeMs = 45020;
+  const frame = snapshot(manager);
+  assert.equal(frame.effects, effects);
+  manager.tSec = 80;
+  manager.rangePresentation.frame = { effects: Object.freeze({ energy: 0 }), timeMs: 80000 };
+  assert.equal(frame.effects.kick, .9);
+  assert.equal(frame.timeSec, 45.02);
+});
+
 test('the hybrid descriptor retains immutable full weather and existing music/cue lightning', () => {
   const storm = { amount: 1, flash: .8, flashU: .37, break01: .2, wet01: .9 };
   const manager = managerFixture(storm);

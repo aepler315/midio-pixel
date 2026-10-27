@@ -6,6 +6,7 @@ import { drawStormSky } from './RangeStorm.js';
 import { LightningFX } from '../Lightning.js';
 import { cloudBanks } from './RangeCloudField.js';
 import { buildCloudTexture } from './RangeCloudTexture.js';
+import { sampleSkyPerformance } from './SkyPerformance.js';
 export { cloudDensity } from './RangeCloudTexture.js';
 
 const TAU = Math.PI * 2;
@@ -66,7 +67,8 @@ export function createSkyCatalogue(seed, count = 4000) {
       : 31 + 25 * Math.sin(az * Math.PI / 180 + .5) + (hash(i, 2, seed) - .5) * 15;
     const bright = hash(i, 3, seed) ** 5;
     return { direction: tourSkyDirection(az, alt), brightness: .12 + .88 * bright,
-      radius: .35 + .85 * bright, phase: hash(i, 4, seed) * TAU, color: Math.floor(hash(i, 5, seed) * 5) };
+      radius: .35 + .85 * bright, phase: hash(i, 4, seed) * TAU, color: Math.floor(hash(i, 5, seed) * 5),
+      glintFamily: Math.floor(hash(i, 11, seed) * 32) };
   });
 }
 
@@ -212,6 +214,7 @@ export class RangeSkyRenderer {
     this._setCinematic(cinematicClouds);
     const width = frame.sourceWidth, height = frame.sourceHeight;
     const night = clamp(frame.night), time = frame.timeSec;
+    const performance = sampleSkyPerformance(frame.effects, frame.qualityLevel ?? 0);
     ctx.save();
     // Pixel terrain presentation leaves nearest-neighbor sampling enabled.
     // Sky density/albedo textures belong to the smooth output layer.
@@ -228,9 +231,15 @@ export class RangeSkyRenderer {
     // The moon is screened onto the sky with no backing disc, so the stars
     // it covers are cut out here instead of painted over.
     this.celestial.prepareMoon(frame.moon, width, height, night, frame.phase);
+    if (performance) this._musicAtmosphere(ctx, project, width, height, night, performance);
     if ((frame.qualityLevel ?? 0) < 3) this._milkyWay(ctx, project, width, height, night, frame.storm);
-    this._stars(ctx, project, width, height, night, time, !!frame.cinematicPixel);
-    this._aurora(ctx, project, width, height, night, time, frame.authority, !!frame.cinematicPixel);
+    if (performance) {
+      this._stars(ctx, project, width, height, night, time, !!frame.cinematicPixel, this.celestial.disc, performance);
+      this._aurora(ctx, project, width, height, night, time, frame.authority, !!frame.cinematicPixel, performance);
+    } else {
+      this._stars(ctx, project, width, height, night, time, !!frame.cinematicPixel);
+      this._aurora(ctx, project, width, height, night, time, frame.authority, !!frame.cinematicPixel);
+    }
     if (frame.lightning) LightningFX.prototype.draw.call(frame.lightning, ctx, { width, height }, frame.timeSec * 1000);
     // Output pixels per sky unit choose the moon texture's resolution.
     const matrix = ctx.getTransform?.();
@@ -280,7 +289,7 @@ export class RangeSkyRenderer {
     ctx.restore();
   }
   /** `moon`: the disc the stars behind are cut out for (this frame's, prepared before). */
-  _stars(ctx, project, width, height, night, time, cinematic = false, moon = this.celestial.disc) {
+  _stars(ctx, project, width, height, night, time, cinematic = false, moon = this.celestial.disc, performance = null) {
     // As the sky brightens the faint points disappear instead of lingering
     // as daytime specks. The catalogue stays fixed across time and seeks.
     const strength = smooth((night - .12) / .78) * (cinematic ? .85 : 1);
@@ -309,27 +318,38 @@ export class RangeSkyRenderer {
       const air = 1 - clamp(star.direction[1]);
       const scintillation = 1 - .07 * air + .07 * air *
         (.65 * Math.sin(time * 1.3 + star.phase) + .35 * Math.sin(time * 2.17 + star.phase * 2));
-      const radius = Math.max(.28 / outputScale, star.radius * height / 1000);
-      ctx.fillStyle = `rgba(${STAR_COLORS[star.color]},${shown * star.brightness * scintillation})`;
+      const glint = performance?.glints[star.glintFamily] || 0;
+      const radius = Math.max(.28 / outputScale, star.radius * height / 1000) * (1 + 1.8 * glint);
+      ctx.fillStyle = `rgba(${STAR_COLORS[star.color]},${shown * clamp(star.brightness * scintillation + glint * .9)})`;
       ctx.beginPath(); ctx.arc(x, y, radius, 0, TAU); ctx.fill();
-      if (star.brightness > .7) {
+      if (star.brightness > .7 || glint > .08) {
         const halo = ctx.createRadialGradient(x, y, 0, x, y, radius * 5);
-        halo.addColorStop(0, `rgba(${STAR_COLORS[star.color]},${shown * star.brightness * .15})`);
+        halo.addColorStop(0, `rgba(${STAR_COLORS[star.color]},${shown * (star.brightness * .15 + glint * .3)})`);
         halo.addColorStop(1, `rgba(${STAR_COLORS[star.color]},0)`);
         ctx.fillStyle = halo; ctx.fillRect(x - radius * 5, y - radius * 5, radius * 10, radius * 10);
+      }
+      if (glint > .35) {
+        const reach = radius * (2 + 3 * glint), thin = .5 / outputScale;
+        ctx.fillStyle = `rgba(${STAR_COLORS[star.color]},${shown * glint * .26})`;
+        ctx.fillRect(x - reach, y - thin / 2, reach * 2, thin);
+        ctx.fillRect(x - thin / 2, y - reach * .65, thin, reach * 1.3);
       }
     }
     ctx.restore();
   }
-  _aurora(ctx, project, width, height, night, time, authority = 1, cinematic = false) {
-    const alpha = smooth((night - .18) / .7) * (.045 + .035 * clamp(authority)) * (cinematic ? .6 : 1);
+  _aurora(ctx, project, width, height, night, time, authority = 1, cinematic = false, performance = null) {
+    const open = performance?.open || 0, folding = performance?.fold || 0, travel = performance?.travel || 0;
+    const alpha = smooth((night - .18) / .7) * (.045 + .035 * clamp(authority)) * (cinematic ? .6 : 1)
+      * (1 + (performance?.radiance || 0) * 3.4);
     if (alpha < .005) return;
     ctx.save(); ctx.globalCompositeOperation = 'screen';
     for (let sheet = 0; sheet < 2; sheet++) {
       const sample = az => {
-        const wave = Math.sin(az * .052 + sheet + time * .025) + .32 * Math.sin(az * .17 - time * .018);
-        const base = 9 + sheet * 7 + wave * 3;
-        const top = base + 12 + 7 * (.5 + .5 * Math.sin(az * .081 + time * .013));
+        const wave = Math.sin(az * .052 + sheet + time * .025) + .32 * Math.sin(az * .17 - time * .018)
+          + folding * Math.sin(az * .095 - time * .65 + sheet) * 1.7 + travel * Math.cos(az * .06 + sheet);
+        const base = 9 + sheet * 7 + wave * 3 + open * (1 + 2 * Math.sin(az * .035 + sheet));
+        const top = base + 12 + 7 * (.5 + .5 * Math.sin(az * .081 + time * .013))
+          + open * (9 + 7 * Math.sin(az * .045 + sheet + travel)) + (performance?.lift || 0) * 5;
         const a = project(tourSkyDirection(az, base)), b = project(tourSkyDirection(az, top));
         return { az, x: a.xFrac * width, y: a.yFrac * height, tx: b.xFrac * width, ty: b.yFrac * height,
           visible: a.inFront && b.inFront };
@@ -350,7 +370,7 @@ export class RangeSkyRenderer {
         } else {
           const az = (previous.az + current.az) / 2;
           const middle = sample(az), seed = (this.seed || 0) + sheet * 91;
-          const fold = .3 + .7 * noise(az * .14 + time * .015, sheet * 13, seed + 51);
+          const fold = .3 + .7 * noise(az * .14 + time * .015 + travel * .5, sheet * 13, seed + 51);
           const ray = smooth((noise(az * 1.35 + time * .012, sheet * 7 + 4, seed + 81) - .2) / .6);
           const emission = alpha * fold * (.12 + .88 * ray * ray);
           const gradient = ctx.createLinearGradient(middle.x, middle.y, middle.tx, middle.ty);
@@ -376,6 +396,42 @@ export class RangeSkyRenderer {
         const current = sample(i * 360 / 160);
         paint(previous, current);
         previous = current;
+      }
+    }
+    ctx.restore();
+  }
+  /** Short, angular light sweeps read in daylight too. Each event has six
+   * fixed compass echoes, with culling before gradients. They travel through
+   * the landscape camera rather than sticking to a screen coordinate. */
+  _musicAtmosphere(ctx, project, width, height, night, performance, moon = this.celestial.disc) {
+    if (!performance?.sweeps.length || !Number.isFinite(project.focal)) return;
+    ctx.save(); ctx.globalCompositeOperation = 'screen';
+    if (moon?.visible && moon.cover > .99) {
+      ctx.beginPath(); ctx.rect(0, 0, width, height);
+      ctx.arc(moon.x, moon.y, moon.r * 1.04, 0, TAU); ctx.clip('evenodd');
+    }
+    const daylight = 1 - smooth((night - .15) / .7);
+    for (const sweep of performance.sweeps) {
+      const emission = sweep.strength * (.12 + .3 * daylight) * performance.detail;
+      const color = sweep.kind === 'snare' ? '218,239,255' : '255,208,139';
+      for (let echo = 0; echo < 6; echo++) {
+        const az = sweep.phase * 360 + echo * 60 + sweep.age * 24;
+        // Stay above the skyline but inside the tour's narrow lake lens for
+        // the note's first beat; a fast high arc left that view almost at once.
+        const altitude = 7 + sweep.age * 4 + performance.lift * 1.5;
+        const p = project(tourSkyDirection(az, altitude));
+        if (!p.inFront) continue;
+        const x = p.xFrac * width, y = p.yFrac * height;
+        const r = Math.min(height * .32, height * project.focal * (.14 + sweep.age * .035));
+        if (x + r * 1.6 < 0 || x - r * 1.6 > width || y + r * .5 < 0 || y - r * .5 > height) continue;
+        // The warm ellipse lifts above the horizon as the phrase opens.
+        // Make its gradient in the same transformed space as its footprint.
+        ctx.save(); ctx.translate(x, y); ctx.scale(1.6, .5); ctx.translate(-x, -y);
+        const glow = ctx.createRadialGradient(x, y, 0, x, y, r);
+        glow.addColorStop(0, `rgba(${color},${emission})`);
+        glow.addColorStop(.3, `rgba(${color},${emission * .42})`);
+        glow.addColorStop(1, `rgba(${color},0)`);
+        ctx.fillStyle = glow; ctx.fillRect(x - r, y - r, r * 2, r * 2); ctx.restore();
       }
     }
     ctx.restore();

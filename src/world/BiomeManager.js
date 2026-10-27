@@ -3843,7 +3843,10 @@ export class BiomeManager {
       cinematicPixel: !!this.cinematicPixel,
       qualityLevel: this.rangePresentation?.frame?.qualityLevel ?? 0,
       scenicTransform: Object.freeze([matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f]),
-      camera, seed: this.songSeed || 0, timeSec: this.tSec,
+      camera, seed: this.songSeed || 0, timeSec: (this.rangePresentation?.frame?.timeMs ?? this.tSec * 1000) / 1000,
+      // Reuse the same immutable heard-time score as the water, including
+      // when the completed sky is replayed later for a capture.
+      effects: this.rangePresentation?.frame?.effects ?? null,
       night,
       colors: Object.freeze(rangeSkyState(this, A, B, t, night, this.rangeNarrative)),
       sun: body(this.celestialState?.sun), moon: body(this.celestialState?.moon),
