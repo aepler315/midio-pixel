@@ -9,6 +9,7 @@ import { Midasus } from '../src/sim/Midasus.js';
 import { synthesizeEnergyCurves } from '../src/core/EnergyCurvesSynth.js';
 import { VoyagePhase } from '../src/sim/SkyVoyage.js';
 import { MIDIO_MIN, MIDIO_MAX } from '../src/sim/TrioWander.js';
+import { TrioPerformance } from '../src/sim/TrioPerformance.js';
 
 function scene(silent = false, experience = 'trio', withLead = false) {
   const timeline = silent ? [] : Array.from({ length: 60 }, (_, i) => [
@@ -23,6 +24,23 @@ function scene(silent = false, experience = 'trio', withLead = false) {
     energyCurves: synthesizeEnergyCurves(timeline, 30000) });
   sim.biomes.pumpStripPrewarm = () => {};
   return sim;
+}
+
+// A long 120 bpm song (kick, bass and melody every 500 ms) played straight
+// into a TrioPerformance, for multi-seed checks longer than scene()'s 30 s.
+const LONG_MS = 125000;
+function longTimeline(silent) {
+  if (silent) return [];
+  return Array.from({ length: LONG_MS / 500 }, (_, i) => [
+    { tMs: i * 500, durMs: 80, pitch: 36, vel: .85, role: 'RHYTHM', kick: true },
+    { tMs: i * 500, durMs: 300, pitch: 36 + i % 5, vel: .8, role: 'BASS', lane: 'BROSHI' },
+    { tMs: i * 500 + 150, durMs: 250, pitch: 60 + i % 12, vel: .75, role: 'MELODY', lane: 'MIDASUS' },
+  ]).flat().sort((a, b) => a.tMs - b.tMs);
+}
+function performance(seed, silent = false) {
+  const timeline = longTimeline(silent);
+  return new TrioPerformance({ timeline, durationMs: LONG_MS, bpm: 120, barGrid: [],
+    energyCurves: synthesizeEnergyCurves(timeline, LONG_MS), paramBus: new ParamBus(), seed });
 }
 
 test('Trio owns the three maintained performers without a score or failure state', () => {
@@ -202,11 +220,33 @@ test('wandering is a pure function of seed and heard time: a seek lands where co
         assert.ok(typeof a === 'number' ? Math.abs(a - b) < 1e-6 : a === b, `Broshi's plan.${k} at ${want.t}`);
       }
       assert.ok(Math.abs(tr.broshi.renderX - want.broshi) < 1, `Broshi at ${want.t}: ${tr.broshi.renderX} vs ${want.broshi}`);
-      assert.ok(Math.abs(tr.broshi.facing - want.facing) < 1e-6);
+      assert.ok(Math.abs(tr.broshi.facing - want.facing) < 1e-3, `Broshi's facing at ${want.t}`);
       // A seek starts a new excursion budget, so only compare her at home.
       if (!want.away && !tr.midasus.voyage.active) {
         assert.ok(Math.hypot(tr.midasus.p.x - want.midasus.x, tr.midasus.p.y - want.midasus.y) < 2,
           `Midasus at ${want.t}: ${JSON.stringify(tr.midasus.p)} vs ${JSON.stringify(want.midasus)}`);
+      }
+    } finally { sought.dispose(); }
+  }
+});
+
+test('a seek puts Broshi where continuous play does, on the same side of Midio, for any seed', () => {
+  const STEP = 1000 / 120;
+  for (const seed of [1, 7, 99, 315, 1234]) {
+    const live = performance(seed), seen = [];
+    try {
+      for (let t = 0, next = 1000; next <= 60000; t += STEP) {
+        live.update(t);
+        if (Math.abs(t - next) < STEP / 2) { seen.push({ t, x: live.broshi.renderX, side: live.wander.broshi.side }); next += 1000; }
+      }
+    } finally { live.dispose(); }
+    const sought = performance(seed);
+    try {
+      for (const want of seen) {
+        sought.seek(want.t);
+        assert.ok(Math.abs(sought.broshi.renderX - want.x) < 1.5,
+          `seed ${seed} at ${Math.round(want.t)}: ${sought.broshi.renderX} vs ${want.x}`);
+        assert.equal(sought.wander.broshi.side, want.side);
       }
     } finally { sought.dispose(); }
   }
@@ -237,9 +277,71 @@ test('the wandering cast keep to the stage: Midio in his window, Broshi on scree
   }
 });
 
+test('over two minutes and many seeds, Midasus never hangs over Midio and Broshi walks the way he faces', () => {
+  const STEP = 1000 / 120;
+  for (const seed of [1, 42, 315, 1234, 4242, 77777]) {
+    for (const silent of [false, true]) {
+      const tr = performance(seed, silent);
+      try {
+        let run = 0, longest = 0, fast = 0, backwards = 0, prevX = null;
+        for (let t = 0; t <= 120000; t += STEP) {
+          tr.update(t);
+          const m = tr.midio, b = tr.broshi, f = tr.midasus;
+          if (!f.voyage.active && Math.abs(f.p.x - m.screenX) < 90) { run += STEP; longest = Math.max(longest, run); } else run = 0;
+          if (prevX != null) {
+            const v = (b.renderX - prevX) / (STEP / 1000);
+            if (Math.abs(v) > 20) { fast++; if (Math.abs(b.facing) > .5 && Math.sign(v) !== Math.sign(b.facing)) backwards++; }
+          }
+          prevX = b.renderX;
+        }
+        assert.ok(longest < 2500, `seed ${seed} (silent=${silent}): Midasus hung over Midio for ${Math.round(longest)} ms`);
+        assert.ok(backwards / fast < .1, `seed ${seed} (silent=${silent}): Broshi moved against his facing in ${(100 * backwards / fast).toFixed(1)}% of moving frames`);
+      } finally { tr.dispose(); }
+    }
+  }
+});
+
+test('Midio-anchored effects start from Midio himself while the ground keeps its fixed origin', () => {
+  const sim = scene();
+  try {
+    const tr = sim.trio;
+    let glows = 0, poses = 0;
+    for (let t = 0; t <= 20000; t += 50) {
+      sim.step(50, t);
+      const pose = sim.lerpState(1);
+      assert.equal(pose.midioDrawX, tr.midio.screenX, 'drop speed-lines and the heat lens start at Midio');
+      assert.equal(pose.midioX, tr.originX, 'the ground is still drawn from its origin');
+      assert.equal(pose.originX, tr.originX);
+      assert.equal(sim.biomes.spotX, tr.midio.screenX, 'the spotlight snaps onto Midio');
+      assert.equal(sim.biomes.midioX, tr.originX);
+      if (Math.abs(tr.midio.screenX - tr.originX) > 100) {
+        poses++;
+        // The kick glow (a ground light) lands under Midio, then rides the
+        // scrolling ground: within one 50 ms step of scroll (~11 px).
+        const fresh = sim.groundField._glows.filter(g => g.startMs >= t - 50);
+        for (const g of fresh) {
+          const x = g.originWorldX - sim.worldX + tr.originX;
+          assert.ok(Math.abs(x - tr.midio.screenX) < 30, `glow at ${x}, Midio at ${tr.midio.screenX}`);
+          glows++;
+        }
+      }
+    }
+    assert.ok(poses > 20 && glows > 5, JSON.stringify({ poses, glows }));
+  } finally { sim.dispose(); }
+});
+
 test('a malformed or empty timeline still wanders on finite ground', () => {
   const bad = [{ tMs: NaN, role: 'RHYTHM', kick: true, vel: 1 }, { tMs: 400, pitch: NaN, vel: .9, role: 'MELODY', lane: 'MIDASUS' },
-    { tMs: 800, vel: .9, role: 'BASS', lane: 'BROSHI' }];
+    { tMs: 800, vel: .9, role: 'BASS', lane: 'BROSHI' }, { tMs: 1200, pitch: 64, role: 'MELODY', lane: 'MIDASUS' },
+    { tMs: 1300, pitch: 66, vel: NaN, role: 'MELODY', lane: 'MIDASUS' }];
+  // A melody note with no velocity used to NaN Midasus's flight.
+  const noVel = [{ tMs: 400, pitch: 64, role: 'MELODY', lane: 'MIDASUS' }, { tMs: 900, pitch: 40, role: 'BASS', lane: 'BROSHI' },
+    { tMs: 1000, pitch: 36, role: 'RHYTHM', kick: true, vel: NaN }];
+  const tr = new TrioPerformance({ timeline: noVel, durationMs: 10000, paramBus: new ParamBus(), seed: 3 });
+  try {
+    for (let t = 0; t <= 4000; t += 1000 / 120) tr.update(t);
+    assert.ok(Number.isFinite(tr.midasus.p.x) && Number.isFinite(tr.midasus.p.y), JSON.stringify(tr.midasus.p));
+  } finally { tr.dispose(); }
   for (const timeline of [[], bad]) {
     const conductor = new Conductor();
     conductor.load({ timeline, durationMs: 10000, bpm: 120, barGrid: [] });

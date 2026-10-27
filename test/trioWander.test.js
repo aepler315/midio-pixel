@@ -87,3 +87,56 @@ test('plans stay on stage for any seed, and survive a broken energy curve', () =
     }
   }
 });
+
+test('quiet passages idle more: stays chain, and Midio spends real time watching his friends and the sky', () => {
+  const share = (energy) => {
+    const stay = [0, 0, 0], looking = [0, 0, 0];
+    let n = 0;
+    for (let seed = 1; seed <= 12; seed++) {
+      const p = new TrioWander(seed * 131, { stageW: W, stageH: H, energyCurves: { globalEnergyNorm: () => energy } });
+      for (let t = 0; t < 4 * 60000; t += 100) {
+        p.update(t); n++;
+        p._segs.forEach((seg, c) => {
+          if (!seg.row.move) stay[c]++;
+          if ([Look.BROSHI, Look.MIDASUS, Look.SKY, Look.MIDIO].includes(seg.row.look)) looking[c]++;
+        });
+      }
+    }
+    return { stay: stay.map(s => s / n), looking: looking.map(s => s / n) };
+  };
+  const quiet = share(0), loud = share(1);
+  for (let c = 0; c < 3; c++) {
+    assert.ok(quiet.stay[c] > loud.stay[c] + .15, `character ${c} idles more in quiet (${JSON.stringify({ quiet, loud })})`);
+  }
+  assert.ok(quiet.stay[0] > .5, `Midio mostly idles in a quiet passage (${quiet.stay[0]})`);
+  for (const s of [quiet, loud]) assert.ok(s.looking[0] >= .3, `Midio watches Broshi, Midasus or the sky (${s.looking[0]})`);
+});
+
+test('Broshi\'s side of Midio is part of the plan: his own side when clear of Midio, never zero', () => {
+  for (const seed of [1, 7, 99, 315, 1234]) {
+    const p = new TrioWander(seed, { stageW: W, stageH: H });
+    const sides = new Set();
+    let flips = 0, prev = null;
+    for (let t = 0; t < 3 * 60000; t += 50) {
+      const { midio: m, broshi: b } = p.update(t);
+      assert.ok(b.side === 1 || b.side === -1, `side ${b.side}`);
+      if (Math.abs(b.x - m.x) >= 165) assert.equal(b.side, Math.sign(b.x - m.x));
+      if (prev != null && prev !== b.side) flips++;
+      prev = b.side; sides.add(b.side);
+    }
+    assert.equal(sides.size, 2, 'he spends time on both sides of Midio');
+    assert.ok(flips < 3 * 60 / 2, `the side changes as he crosses, not every beat (${flips})`);
+  }
+});
+
+test('Midasus\'s plan does not linger over Midio, whatever the seed', () => {
+  for (const seed of [1, 42, 315, 1234, 4242, 77777]) {
+    const p = new TrioWander(seed, { stageW: W, stageH: H });
+    let run = 0, longest = 0;
+    for (let t = 0; t < 3 * 60000; t += 50) {
+      const { midio: m, midasus: f } = p.update(t);
+      if (Math.abs(f.x - m.x) < 90) { run += 50; longest = Math.max(longest, run); } else run = 0;
+    }
+    assert.ok(longest < 1500, `seed ${seed}: over Midio for ${longest} ms`);
+  }
+});

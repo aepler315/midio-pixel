@@ -67,7 +67,13 @@ const MIDIO_LO = .2, MIDIO_HI = .56;          // where his goals sit
 export const MIDIO_MIN = .18, MIDIO_MAX = .6; // where he can ever be
 const BROSHI_LO = .08, BROSHI_HI = .92;
 const SKY_X_LO = .1, SKY_X_HI = .92, SKY_Y_LO = .14, SKY_Y_HI = .46;
-const MIDASUS_SEP = .17; // her goals keep this far (x) from Midio's
+const MIDASUS_SEP = .17; // she keeps this far (x) from Midio when lingering
+// Broshi's keep-out half-width around Midio's landing column (Broshi.js
+// KEEPOUT_HALF): inside it, which side he settles on comes from the plan.
+const BROSHI_KEEPOUT = 165;
+// A stay holds the spot of the latest travelling segment this far back;
+// a longer run of stays settles on a hashed home spot instead.
+const STAY_LOOKBACK = 6;
 
 /** Stateless 0..1 hash of four integers. */
 export function hash01(a, b, c, d) {
@@ -83,7 +89,7 @@ const smootherD = u => 30 * u * u * (1 - u) * (1 - u);
 
 function makeSeg() {
   return { k: NaN, start: 0, end: 0, row: null, x0: 0, y0: 0, x1: 0, y1: 0,
-    travelMs: 1, phase: 0, side: 1, skyX: 0 };
+    travelMs: 1, phase: 0, side: 1, skyX: 0, near: 1 };
 }
 
 export class TrioWander {
@@ -96,7 +102,7 @@ export class TrioWander {
     this._segs = [makeSeg(), makeSeg(), makeSeg()];
     // The plan at the last update(). Preallocated, written in place.
     this.midio = { x: stageW * .34, vx: 0, leanDeg: 0, intent: 'wander', look: Look.SCAN, lookW: 0, phase: 0, skyX: 0 };
-    this.broshi = { x: stageW * .6, vx: 0, facing: 1, look: 0, intent: 'wander', lookAt: Look.SCAN, lookW: 0 };
+    this.broshi = { x: stageW * .6, vx: 0, facing: 1, side: 1, look: 0, intent: 'wander', lookAt: Look.SCAN, lookW: 0 };
     this.midasus = { x: stageW * .7, y: stageH * .3, tilt: 0, intent: 'drift', look: Look.SCAN, lookW: 0 };
   }
 
@@ -123,7 +129,7 @@ export class TrioWander {
     return k0;
   }
 
-  _rawRow(c, k) {
+  _row(c, k) {
     const table = TABLES[c];
     const e = this._energy(Math.max(0, this._boundary(c, k)));
     let total = 0;
@@ -136,12 +142,18 @@ export class TrioWander {
     return table[table.length - 1];
   }
 
-  /** A stay only follows a travelling segment, so a stay's goal (the one
-   *  before it) is always reached without walking back any further. */
-  _row(c, k) {
-    const r = this._rawRow(c, k);
-    if (r.move || this._rawRow(c, k - 1).move) return r;
-    return TABLES[c][0];
+  /** Where a stay idles: the goal of the latest travelling segment (stays
+   *  chain, so a quiet stretch can idle through several looks in a row),
+   *  or a hashed home spot after a long run of them. */
+  _stayBase(c, k, approach) {
+    for (let j = 1; j <= STAY_LOOKBACK; j++) {
+      if (this._row(c, k - j).move) return this._goal(c, k - j, approach);
+    }
+    const s = this.seed, w = this.w, h = this.h, bucket = Math.floor(k / 8);
+    if (c === MIDIO) return { x: w * (MIDIO_LO + (MIDIO_HI - MIDIO_LO) * hash01(s, c, bucket, 16)), y: 0 };
+    if (c === BROSHI) return { x: w * (BROSHI_LO + (BROSHI_HI - BROSHI_LO) * hash01(s, c, bucket, 16)), y: 0 };
+    return { x: w * (SKY_X_LO + (SKY_X_HI - SKY_X_LO) * hash01(s, c, bucket, 16)),
+      y: h * (SKY_Y_LO + (SKY_Y_HI - SKY_Y_LO) * hash01(s, c, bucket, 17)) };
   }
 
   /** Where character c is heading in segment k. `approach` false treats a
@@ -151,7 +163,7 @@ export class TrioWander {
     const w = this.w, h = this.h, s = this.seed;
     const end = this._boundary(c, k + 1);
     if (!row.move) {
-      const prev = this._goal(c, k - 1, approach);
+      const prev = this._stayBase(c, k, approach);
       const dx = (2 * hash01(s, c, k, 3) - 1) * 28;
       if (c === MIDIO) return { x: clamp(prev.x + dx, w * MIDIO_LO, w * MIDIO_HI), y: 0 };
       if (c === BROSHI) return { x: clamp(prev.x + dx, w * BROSHI_LO, w * BROSHI_HI), y: 0 };
@@ -182,12 +194,12 @@ export class TrioWander {
     // Midasus
     let x, y;
     if (approach && row.approach === MIDIO) {
-      const m = this._goal(MIDIO, this._segIndex(MIDIO, end), false).x;
+      const m = this._goal(MIDIO, this._segIndex(MIDIO, end)).x;
       const off = w * MIDASUS_SEP + 50 * hash01(s, c, k, 10);
       x = m + (m + off <= w * SKY_X_HI && hash01(s, c, k, 11) < .7 ? off : -off);
       y = this.groundY - 290 + 40 * (hash01(s, c, k, 12) - .5);
     } else if (approach && row.approach === BROSHI) {
-      const b = this._goal(BROSHI, this._segIndex(BROSHI, end), false).x;
+      const b = this._goal(BROSHI, this._segIndex(BROSHI, end)).x;
       x = b + 120 * (hash01(s, c, k, 10) - .5);
       y = this.groundY - 270 + 40 * (hash01(s, c, k, 12) - .5);
     } else {
@@ -198,10 +210,13 @@ export class TrioWander {
     return { x: this._clearOfMidio(x, end), y: clamp(y, h * SKY_Y_LO, h * .5) };
   }
 
-  /** Midasus's goals keep clear of where Midio will be standing, so she
-   *  is never parked over him (passing over on the way is fine). */
+  /** Midasus's goals keep clear of where Midio will really be standing
+   *  (his own visits included), so she is not parked over him; update()
+   *  also eases her aside if he strolls in under her. Passing over on the
+   *  way is fine. (Midio's goal looks at most at Broshi's non-approach
+   *  goal, which never comes back here, so this cannot recurse forever.) */
   _clearOfMidio(x, atMs) {
-    const m = this._goal(MIDIO, this._segIndex(MIDIO, atMs), false).x;
+    const m = this._goal(MIDIO, this._segIndex(MIDIO, atMs)).x;
     const sep = this.w * MIDASUS_SEP;
     if (Math.abs(x - m) >= sep) return x;
     const right = m + sep, left = m - sep;
@@ -224,6 +239,12 @@ export class TrioWander {
     seg.phase = hash01(this.seed, c, k, 13) * Math.PI * 2;
     seg.side = hash01(this.seed, c, k, 14) < .5 ? -1 : 1;
     seg.skyX = this.w * (.2 + .6 * hash01(this.seed, c, k, 15));
+    // Broshi: the side of Midio he means to end up on (his goal against
+    // Midio's at the end of the segment), for when the two come close.
+    if (c === BROSHI) {
+      const d = p1.x - this._goal(MIDIO, this._segIndex(MIDIO, seg.end)).x;
+      seg.near = Math.abs(d) > 1 ? Math.sign(d) : seg.side;
+    }
     return seg;
   }
 
@@ -263,6 +284,12 @@ export class TrioWander {
     b.x = bs.x0 + bdx * smoother(bu) + Math.min(14, .08 * Math.abs(bdx)) * Math.sin(Math.PI * bu) * Math.sin(2 * Math.PI * bu + bs.phase);
     b.vx = bu < 1 ? bdx * smootherD(bu) * 1000 / bs.travelMs : 0;
     b.intent = bs.row.name; b.lookAt = bs.row.look; b.lookW = this._lookW(bs, t);
+    // Which side of Midio he keeps: plainly his plan's side when clear of
+    // Midio's landing column, else the side he means to end up on. A pure
+    // function of time (Broshi.js reads it in place of his own history), so
+    // a seek puts him on the same side continuous play does.
+    const bm = b.x - m.x;
+    b.side = Math.abs(bm) >= BROSHI_KEEPOUT ? Math.sign(bm) : bs.near;
 
     // Midasus: a drifting sky path, bowed so she never flies rail-straight,
     // with a slow idle bob.
@@ -274,6 +301,17 @@ export class TrioWander {
     const f = this.midasus;
     f.x = clamp(fs.x0 + fdx * smoother(fu) - fdy / len * bow, w * .06, w * .94);
     f.y = clamp(fs.y0 + fdy * smoother(fu) + fdx / len * bow + 9 * Math.sin(t * .0013 + fs.phase), h * .08, h * .52);
+    // Not parked over Midio: once she has (nearly) arrived somewhere and he
+    // strolls in under her, she eases aside, on her own side of him or the
+    // side with room. Pure in time like the rest, so seeks still agree.
+    const sep = w * MIDASUS_SEP, fd = f.x - m.x;
+    if (Math.abs(fd) < sep) {
+      let side = Math.sign(fd) || Math.sign(fs.x1 - m.x) || 1;
+      if (m.x + side * sep > w * SKY_X_HI) side = -1;
+      else if (m.x + side * sep < w * SKY_X_LO) side = 1;
+      const settle = fs.row.move ? smoothstep(.55, .95, fu) : 1;
+      f.x += (m.x + side * sep - f.x) * settle;
+    }
     f.intent = fs.row.name; f.look = fs.row.look; f.lookW = this._lookW(fs, t);
 
     // Midio's carriage: leaning into his stroll, tilting toward whatever

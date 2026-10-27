@@ -85,12 +85,17 @@ const TAIL_BASE_HZ = 1.3, TAIL_CALM_HZ = 0.32;
 const TAIL_BASE_DEG = 9, TAIL_CALM_DEG = 18;
 const DRAW_SCALE = 2.15; // render-only; physics footprint stays the mesh's local span
 const WEAVE_PX = 6;      // predatory side-to-side drift while trailing
-// Free roaming (the Trio: see TrioWander): a surge is an excited scamper
-// the way he faces, crossing Midio is a leapfrog over his landing column,
-// and he turns round at this rate (full facings per second).
-const SCAMPER_PX = 80;
+// Free roaming (the Trio: see TrioWander): crossing Midio is a leapfrog
+// over his landing column, and he turns round at this rate (full facings
+// per second).
 const LEAPFROG_H = 58;
 const TURN_RATE = 4.5;
+// Free roaming springs in absolute screen space, damped close to critical
+// (2*sqrt(K) ~ 9.4) so he walks to his spot instead of bouncing round it,
+// and faces the way he is actually moving once faster than FACE_V_PX_S.
+const C_FREE = 8.5;
+const FACE_V_PX_S = 22;
+const FACE_V_TAU = 0.12; // smoothing of the velocity that decides it (s)
 const LOOK_DEG = 16;     // how far his head lifts (or dips to sniff) when looking
 // BROSHI_BODY+BROSHI_HEAD combined local-space x-span (snout spike to
 // swept tail spike, see meshes.js) -- the only source of truth for his
@@ -244,6 +249,9 @@ export class Broshi {
     // where his head is (+1 up at the sky, -1 nose down). 1/0 otherwise.
     this.facing = 1;
     this._look = 0;
+    this._prevMidioX = NaN; // Midio's screen x last step (free roaming's absolute frame)
+    this._prevBodyX = NaN;
+    this._vAbs = 0;         // smoothed on-screen velocity of his body (px/s)
     this._ensPhase = null;
     this._melt = 0;
     this._swell = 1; // shared build-up swell (EnsembleDirector.swell) -- 1 until the first update()
@@ -454,6 +462,15 @@ export class Broshi {
     // Free roaming: trailX is his own wandering plan, anywhere on the floor
     // and on either side of Midio, not a formation offset to hold.
     const free = !!(ensemble && ensemble.free && Number.isFinite(ensemble.trailX));
+    // Free roaming: which side of Midio he keeps comes from the plan, a pure
+    // function of time, rather than his own history -- so a seek rebuilds
+    // him on the same side continuous play reached.
+    const planSide = free && (ensemble.broshiSide === 1 || ensemble.broshiSide === -1) ? ensemble.broshiSide : 0;
+    if (planSide) this._lastSide = planSide;
+    // ... and his spring works in absolute screen space: xRel is re-based
+    // onto Midio's new spot, so Midio strolling does not carry him along.
+    if (free && Number.isFinite(this._prevMidioX)) this.xRel -= midio.screenX - this._prevMidioX;
+    this._prevMidioX = midio.screenX;
     const roam = ensemble ? (free ? ensemble.trailX - midio.screenX : clamp(ensemble.trailX - midio.screenX, -420, 320)) : D_TRAIL;
     // Clamp the set-point in BOTH cases, not just when an ensemble is roaming
     // him: the fixed -200 default already puts him at screen x=0 whenever
@@ -538,16 +555,21 @@ export class Broshi {
     if (this.state === 'SURGE' && this._lastState !== 'SURGE') this._pounceStartMs = nowMs;
     this._lastState = this.state;
 
-    // Facing (free roaming): turns toward where his plan says, through
-    // edge-on, at TURN_RATE. Otherwise he always faces forward.
-    const faceTarget = free && ensemble.broshiFacing < 0 ? -1 : 1;
+    // Facing (free roaming): the way he is actually moving when he moves,
+    // else where his plan says to look, turning through edge-on at
+    // TURN_RATE. Otherwise he always faces forward.
+    let faceTarget = 1;
+    if (free) {
+      faceTarget = ensemble.broshiFacing < 0 ? -1 : 1;
+      if (Math.abs(this._vAbs) > FACE_V_PX_S) faceTarget = this._vAbs < 0 ? -1 : 1;
+    }
     this.facing += clamp(faceTarget - this.facing, -TURN_RATE * dtSec, TURN_RATE * dtSec);
     this._look = free && Number.isFinite(ensemble.broshiLook) ? clamp(ensemble.broshiLook, -1, 1) : 0;
-    const faceSign = this.facing < 0 ? -1 : 1;
 
-    let rawDStar = this.state === 'SURGE'
-      ? (free ? this._trailTarget + faceSign * SCAMPER_PX : D_SURGE)
-      : this._trailTarget;
+    // Free roaming: a surge is the pounce coil alone (below). Surges count
+    // bars from his construction, so a displacement here would differ
+    // between a seek and continuous play.
+    let rawDStar = this.state === 'SURGE' && !free ? D_SURGE : this._trailTarget;
     if (darting && this.state === 'TRAIL') rawDStar = this._trailTarget + 180;
 
     // Side-crossing discipline: a target that would flip which side of
@@ -568,8 +590,16 @@ export class Broshi {
     // stiffness (his legs) is untouched but he genuinely can't shed speed,
     // so he overshoots the formation and slides back. Floor keeps the
     // spring visibly underdamped, never divergent.
-    const cEff = C * (0.35 + 0.65 * (this.traction ?? 1));
-    const accel = -K * (this.xRel - dStar) - cEff * this.xRelVel;
+    const cEff = (free ? C_FREE : C) * (0.35 + 0.65 * (this.traction ?? 1));
+    // Free roaming damps relative to how fast his target moves (his plan's
+    // stroll, or Midio's when keep-out holds him beside Midio), so he walks
+    // with it instead of lagging a spring's length behind.
+    let vRef = 0;
+    if (free) {
+      const v = dStar !== rawDStar ? ensemble.midioVx : (this._trailTarget === roam ? ensemble.broshiVx : 0);
+      vRef = Number.isFinite(v) ? v : 0;
+    }
+    const accel = -K * (this.xRel - dStar) - cEff * (this.xRelVel - vRef);
     this.xRelVel += accel * dtSec;
     // Soft personal space: ease off Midio (and Midasus when she crowds the
     // floor band) without a hard teleport — strength falls off quadratically.
@@ -796,7 +826,8 @@ export class Broshi {
       this.hopY += LEAPFROG_H * Math.cos((Math.PI / 2) * (renderOff / KEEPOUT_HALF));
     }
     if (!crossing && Math.abs(renderOff) < RENDER_KEEPOUT_HALF) {
-      const side = renderOff === 0 ? (this._lastSide < 0 ? -1 : 1) : Math.sign(renderOff);
+      const side = free ? Math.sign(dStar) || (this._lastSide < 0 ? -1 : 1)
+        : renderOff === 0 ? (this._lastSide < 0 ? -1 : 1) : Math.sign(renderOff);
       const target = midio.screenX + side * RENDER_KEEPOUT_HALF;
       const k = 1 - Math.exp(-dtSec / RENDER_KEEPOUT_TAU);
       this.renderX += (target - this.renderX) * k;
@@ -822,6 +853,13 @@ export class Broshi {
       this.screenX = midio.screenX + this.xRel;
       if (pushedOut) this.xRelVel = 0;
     }
+    // His body's true on-screen velocity (keep-out eases included, the
+    // skitter excluded), which free roaming turns him to face.
+    const bodyX = this.renderX - weave;
+    if (Number.isFinite(this._prevBodyX) && dtSec > 0) {
+      this._vAbs += ((bodyX - this._prevBodyX) / dtSec - this._vAbs) * (1 - Math.exp(-dtSec / FACE_V_TAU));
+    }
+    this._prevBodyX = bodyX;
 
     // Midasus style: ease his spectral color toward his line's latest note,
     // advance the note-slashes, and -- now that his rendered position is

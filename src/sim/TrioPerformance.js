@@ -76,7 +76,7 @@ export class TrioPerformance {
       hopFilter: e => bassLane ? e.lane === Lane.BROSHI : e.role === 'BASS' });
     this.midasus = new Midasus(this.song.timeline, this.midio, { seed: this.seed + 2,
       stageW: this.w, stageH: this.h, groundY: this.midio.groundY, ceilingY: 70,
-      noteFilter: e => Number.isFinite(e.tMs) && Number.isFinite(e.pitch)
+      noteFilter: e => Number.isFinite(e.tMs) && Number.isFinite(e.pitch) && Number.isFinite(e.vel)
         && (melodyLane ? e.lane === Lane.MIDASUS : e.role === 'MELODY')
         && (e.pitchConfidence == null || e.pitchConfidence >= .45 || e.src === 'midi') });
     while (this.midasus.i < this.midasus.q.length && this.midasus.q[this.midasus.i].tMs < startMs - 250) this.midasus.i++;
@@ -86,6 +86,7 @@ export class TrioPerformance {
     this.energySlow = this.energyCurves?.globalEnergyNorm?.(startMs) || 0;
     this.clockMs = startMs;
     this.worldX = startMs * .22;
+    this.midioWorldX = this.worldX + this.midio.screenX - this.originX;
   }
 
   /** Rebuild only a bounded recent window; old notes never burst at the
@@ -160,12 +161,14 @@ export class TrioPerformance {
       discCue: this.ensemble.discCue, phase: this.ensemble.phase(1), melt: 0,
       // free: they roam their own plan rather than holding formation
       // offsets around Midio (Broshi.js, Midasus.js).
-      free: true, trailX: plan.broshi.x, broshiFacing: plan.broshi.facing, broshiLook: plan.broshi.look,
+      free: true, trailX: plan.broshi.x, broshiVx: plan.broshi.vx, broshiSide: plan.broshi.side,
+      broshiFacing: plan.broshi.facing, broshiLook: plan.broshi.look, midioVx: plan.midio.vx,
       midasusX: plan.midasus.x, midasusY: plan.midasus.y, tilt: plan.midasus.tilt,
       stageW: this.w, worldSpeed: 220, epic: this.vibe.epic, midioY: this.midio.y };
     // Midio's own place on the world's ground: Broshi's spring (and a
-    // burrow's hole) are measured from it.
-    const midioWorldX = this.worldX + this.midio.screenX - this.originX;
+    // burrow's hole) are measured from it, and Simulation lands the kick
+    // glow and ground pulses there, under him rather than at the origin.
+    const midioWorldX = this.midioWorldX = this.worldX + this.midio.screenX - this.originX;
     // Decided before either companion updates, so a launch animates this step.
     this.excursions.update(nowMs, dt, { vibe: this.vibe, calm: this.calm, hype: this.hype,
       energyCurves: this.energyCurves, conductor: this.conductor, midasus: this.midasus, broshi: this.broshi,

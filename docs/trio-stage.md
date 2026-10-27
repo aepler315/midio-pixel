@@ -41,19 +41,27 @@ choreography (Midio's kick jumps and lead accents, Broshi's bass hops,
 Midasus's melody flight and her voyages) and stands them on the world's own
 `GroundField`: the ground is drawn from a fixed origin (`TrioPerformance.originX`)
 and each of the cast stands on it at their own screen x, so the cast and the
-drawn ground agree. `Renderer._drawTrioCast` draws them with contact shadows
+drawn ground agree. Effects anchored on Midio (the kick glow and ground
+pulses, the drop speed-lines and heat lens, the spotlight snap) start from
+where he stands (`TrioPerformance.midioWorldX`, `lerpState().midioDrawX`,
+`BiomeManager.spotX`), not from the ground's origin. `Renderer._drawTrioCast` draws them with contact shadows
 after the scenery and before the foreground veil.
 
 Between the beats the cast wander rather than hold a formation around Midio.
 `TrioWander` cuts each character's time into seeded intent segments (stroll
 to a spot, pause and idle, watch a companion or the sky, wander over to
 investigate one another; Broshi also sniffs about, Midasus visits and
-stargazes), with travel likelier in loud passages and idling in quiet ones.
+stargazes), with travel likelier in loud passages and idling in quiet ones
+(stays can follow stays, so a quiet stretch idles through several looks).
 Each plan is a pure function of seed and heard time, so a seek lands where
-continuous play would. Midio's spot and carriage come straight from it (his
-eye is aimed through `TrioGaze`); Broshi's spring and Midasus's flight follow
-it in their `free` modes, where Broshi turns to face where he is going or
-what he is watching and leapfrogs Midio's landing column to cross him. The
+continuous play would; that includes which side of Midio Broshi keeps.
+Midio's spot and carriage come straight from it (his eye is aimed through
+`TrioGaze`); Broshi's spring and Midasus's flight follow it in their `free`
+modes. Broshi springs in absolute screen space (Midio's stroll does not drag
+him), faces the way he is moving or else what he is watching, and leapfrogs
+Midio's landing column to cross him; his bar surges keep only the pounce
+coil, since a displacement counted from his own bar history would differ
+after a seek. Midasus eases aside when Midio strolls in under her. The
 music still owns the moves themselves. None of them leaves a drawn path:
 Midio's jump ghosts, Broshi's comet motes and Midasus's flight ribbon are
 gone (her note bursts, slashes, debris and baby stars remain).

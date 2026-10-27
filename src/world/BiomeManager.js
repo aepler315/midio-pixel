@@ -889,6 +889,11 @@ export class BiomeManager {
     // reasonable rather than at (0,0).
     this.midioX = this.w * 0.5;
     this.midioY = this.groundY;
+    // Where Midio actually stands, when that is not the world origin
+    // (Trio's cast wander over a ground drawn from a fixed origin); null
+    // means he stands at midioX/midioY.
+    this.spotX = null;
+    this.spotY = null;
     // Reward bursts: milestone/drop counts scale with perf headroom
     // (defaults to 1 so BiomeManager works standalone in tests with no
     // wired Simulation/PerfGovernor) and the song's intensity budget.
@@ -2235,7 +2240,7 @@ export class BiomeManager {
         // A lyric-identified instrumental/solo section gets the same
         // spotlight snap a hype drop does -- the show notices the vocals
         // stepping back just as much as it notices them stepping forward.
-        if (sec.kind === 'instrumental') this.lightRig.trigger(nowMs, this.midioX, this.midioY);
+        if (sec.kind === 'instrumental') this.lightRig.trigger(nowMs, this.spotX ?? this.midioX, this.spotY ?? this.midioY);
         this.sectionJustChanged = true;
         this.lastTransitionStyle = sec.transition;
       }
@@ -2475,7 +2480,7 @@ export class BiomeManager {
     if (Number.isFinite(this.dropAtMs) && this.dropAtMs !== this._lastSeenDropAtMs) {
       this._lastSeenDropAtMs = this.dropAtMs;
       this.lakeRing.excite(22);
-      if (fx.lightRig) this.lightRig.trigger(nowMs, this.midioX, this.midioY);
+      if (fx.lightRig) this.lightRig.trigger(nowMs, this.spotX ?? this.midioX, this.spotY ?? this.midioY);
       if (fx.meteors) this._triggerMeteors(nowMs, DROP_METEOR_BASE);
       // A drop also throws a bonus tsunami wall across the ocean, if one
       // hasn't rolled through recently. Worlds without a sea ignore it.

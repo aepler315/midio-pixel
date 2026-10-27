@@ -140,12 +140,13 @@ export class Midasus {
     // Floor raised (was yFloor-120) -- her lowest notes used to sit inside
     // Midio's own body; now even the deepest pitch keeps clear headroom.
     const y = lerp(this.yFloor - 210, this.yCeiling + 60, norm);
+    const vel = Number.isFinite(n.vel) ? n.vel : 0.5; // a malformed note must not NaN her flight
     // Free roaming (the Trio, see TrioWander): she darts about her own
     // wandering spot, not a fixed offset off Midio's shoulder.
     if (this._ens && this._ens.free) {
-      return { x: this._ens.x + 50 * (n.vel - 0.5), y: y + clamp(this._ens.y - y, -110, 110) * 0.35 };
+      return { x: this._ens.x + 50 * (vel - 0.5), y: y + clamp(this._ens.y - y, -110, 110) * 0.35 };
     }
-    const x = this.midio.screenX + 150 + 55 * n.vel;
+    const x = this.midio.screenX + 150 + 55 * vel;
     // The ensemble pulls her across the stage; pitch stays primary vertically.
     if (this._ens) {
       return {
