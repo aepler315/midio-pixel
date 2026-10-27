@@ -2878,6 +2878,7 @@ export class BiomeManager {
       this._drawLegacyWaterBackground(ctx, canvas, { worldX, A, B, t, phenomenaFull, night: dn.night });
     }
     };
+    if (separateRangeSky && this.directFullResolution) this.drawHighResolutionSky(ctx, canvas);
     if (!separateSky) drawLegacySky(ctx);
     else if (separateLegacySky && scenicMatrix) {
       this.rangeSkyLayer = {
@@ -2981,6 +2982,9 @@ export class BiomeManager {
     // station and their speed so a finite profile lasts the song. L5 stays
     // procedural and on world parallax. View width is the canvas being
     // drawn, not the construction-time stage, so the fit matches the frame.
+    const terrain = paint => {
+      if (!(this.directFullResolution && this.rangePresentation?.drawLegacyTerrain?.(ctx, paint))) paint(ctx);
+    };
     const viewW = canvas.width;
     const scrollX0 = this._terrainScroll('L2', worldX, viewW);
     const scrollX1 = this._terrainScroll('L3', worldX, viewW);
@@ -3034,30 +3038,30 @@ export class BiomeManager {
     // label, and there the swap is a different mountain range appearing
     // instantly. Dissolve between them instead.
     if (A.name === B.name || t <= 0 || t >= 1) {
-      this._drawDistantWave(ctx, canvas, { scrollX0, scrollX1, scrollX2 }, A, B, t);
+      terrain(c => this._drawDistantWave(c, canvas, { scrollX0, scrollX1, scrollX2 }, A, B, t));
     } else {
-      this._drawDistantWave(ctx, canvas, { scrollX0, scrollX1, scrollX2 }, A, A, t, 1 - t);
-      this._drawDistantWave(ctx, canvas, { scrollX0, scrollX1, scrollX2 }, B, B, t, t);
+      terrain(c => this._drawDistantWave(c, canvas, { scrollX0, scrollX1, scrollX2 }, A, A, t, 1 - t));
+      terrain(c => this._drawDistantWave(c, canvas, { scrollX0, scrollX1, scrollX2 }, B, B, t, t));
     }
-    this._drawLayer(ctx, canvas, 'L2', scrollX0, tintL2, t, A, B);
+    terrain(c => this._drawLayer(c, canvas, 'L2', scrollX0, tintL2, t, A, B));
     if (hazeLayers >= 3) this._drawHaze(ctx, canvas, 'L2', A, B, t, arc);
     if (!skipShared) this._drawFarVignettes(ctx, canvas, worldX, A, B, t, phenomenaFull, tintL2);
-    this._drawLayer(ctx, canvas, 'L3', scrollX1, tintL3, t, A, B);
+    terrain(c => this._drawLayer(c, canvas, 'L3', scrollX1, tintL3, t, A, B));
     this._drawHaze(ctx, canvas, 'L3', A, B, t, arc);
     this._drawCastShadow(ctx, canvas, 'L2', 'L3', scrollX0, scrollX1, A, B, t);
 
     if (!skipShared) this._drawMidDepthLife(ctx, canvas, frame, { worldX, originX, phenomenaFull, particleMul, mandalaColor });
     this._drawFogBanks(ctx, canvas);
 
-    this._drawLayer(ctx, canvas, 'L4', scrollX2, tintL4, t, A, B);
+    terrain(c => this._drawLayer(c, canvas, 'L4', scrollX2, tintL4, t, A, B));
     if (hazeLayers >= 3) this._drawHaze(ctx, canvas, 'L4', A, B, t, arc);
     this._drawCastShadow(ctx, canvas, 'L3', 'L4', scrollX1, scrollX2, A, B, t);
     // Green country bridging the sightline wherever the dancing far skyline
     // has ducked behind the hills in front of it. Between L4 and L5 so the
     // nearest hills still overlap it and it reads as depth rather than as a
     // pane laid over the scene.
-    this._drawConnectorHills(ctx, canvas, { scrollX0, scrollX1, scrollX2 }, A, B, t);
-    this._drawLayer(ctx, canvas, 'L5', scrollX3, tintL5, t, A, B);
+    terrain(c => this._drawConnectorHills(c, canvas, { scrollX0, scrollX1, scrollX2 }, A, B, t));
+    terrain(c => this._drawLayer(c, canvas, 'L5', scrollX3, tintL5, t, A, B));
     this._drawCastShadow(ctx, canvas, 'L4', 'L5', scrollX2, scrollX3, A, B, t);
     if (this.world?.kind === 'alpine') {
       this._recordLandscapeGeometry(canvas, { L2: scrollX0, L3: scrollX1, L4: scrollX2, L5: scrollX3 }, A, B);

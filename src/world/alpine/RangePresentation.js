@@ -27,6 +27,15 @@ import { noteViewShown } from '../terrain/RangeHistory.js';
 import { RangeShotTours } from './RangeShotTours.js';
 import { headingPitch, lookDir } from '../terrain/ShotPath.js';
 
+/** Native terrain backing for a full-resolution composition. The selected
+ * grid is fitted to the same aspect-preserving output rectangle. */
+export function directTerrainViewport(viewport, grid, outputSize) {
+  if (!grid || !(outputSize?.width > 0 && outputSize?.height > 0)) return viewport;
+  const scale = Math.max(grid.width / outputSize.width, grid.height / outputSize.height);
+  return { ...viewport, backingWidth: Math.max(2, Math.round(viewport.backingWidth * scale)),
+    backingHeight: Math.max(2, Math.round(viewport.backingHeight * scale)) };
+}
+
 export const RANGE_RENDERER_MODES = Object.freeze(['legacy', 'v2']);
 export const RANGE_DEFAULT_MODE = 'v2';
 const ASSET_BASE = new URL('../../assets/range/v2/', import.meta.url).href;
@@ -102,6 +111,7 @@ export const TRAVEL_SCRATCH_KEY = 'range:travel-scratch';
 /** The cast layer the presenter lays smoothly over the pixel frame. */
 export const CAST_LAYER_KEY = 'range:cast-layer';
 const WATER_LAYER_KEY = 'range:water-layer';
+const ARRIVAL_LAYER_KEY = 'range:direct-arrival';
 const WATER_EFFECT_MASK_KEY = 'range:water-effect-mask';
 const WATER_SHORE_MASK_KEY = 'range:water-shore-mask';
 const NEAR_OCCLUSION_KEY = 'range:near-occlusion-mask';
@@ -812,10 +822,13 @@ export class RangePresentation {
     try {
       // Quality rung and look decide the target's multisampling
       // (RangeRenderPolicy); Pixel/Palette never smooth their grid.
-      this.scene.resize({ widthPx: vp.backingWidth, heightPx: vp.backingHeight, pixelRatio: vp.pixelRatio || 1,
+      const terrainVp = this.directTerrainMode ? directTerrainViewport(vp, this.pixelPolicy?.grid, this.outputSize) : vp;
+      this.scene.resize({ widthPx: terrainVp.backingWidth, heightPx: terrainVp.backingHeight, pixelRatio: vp.pixelRatio || 1,
         quality: inputs.sim.perf?.level ?? 0, pixelated: !!this.pixelated, cinematicPixel: !!this.cinematicPixel, pixelScale: 'original',
         pixelHeightPx: this.pixelPolicy?.grid?.height ?? null });
-      this.scene.waterOutputScale = this.waterOutputSize && this.pixelPolicy?.grid
+      this.scene.waterOutputScale = this.directTerrainMode
+        ? Math.max(1, vp.backingWidth / terrainVp.backingWidth, vp.backingHeight / terrainVp.backingHeight)
+        : this.waterOutputSize && this.pixelPolicy?.grid
         ? Math.min(4, this.waterOutputSize.width / this.pixelPolicy.grid.width, this.waterOutputSize.height / this.pixelPolicy.grid.height)
         : 1;
     } catch (err) {
@@ -828,7 +841,10 @@ export class RangePresentation {
     // The incoming side needs its own target and a composition buffer,
     // reserved before they exist; without room the outgoing view carries on
     // alone.
-    if (incoming && !(this.scene.ensureSide?.('B') && this._ensureScratch(vp))) {
+    const scratchVp = this.directTerrainMode && this.outputSize ? { ...vp,
+      backingWidth: Math.max(vp.backingWidth, this.outputSize.width),
+      backingHeight: Math.max(vp.backingHeight, this.outputSize.height) } : vp;
+    if (incoming && !(this.scene.ensureSide?.('B') && this._ensureScratch(scratchVp))) {
       // A frame drew the outgoing view alone: if room appears later in this
       // travel, the incoming view joins late and fades in.
       this._waitedFor = incoming.id;
@@ -841,12 +857,21 @@ export class RangePresentation {
     this.incomingViewId = incoming?.id ?? null;
     // A travel keeps the cast in the band passes: each side's nearer bands
     // draw only in some columns, which one smooth layer cannot follow.
-    this.scene.castInBands = !this.castForeground || !!incoming;
+    this.scene.directTerrainMode = !!this.directTerrainMode;
+    this.directCastAvailable = false;
+    if (this.directTerrainMode && this.scene._waterRenderTarget && this.scene.size) {
+      const scale = this.scene.waterOutputScale || 1;
+      try { this.directCastAvailable = !!this.scene._waterRenderTarget(
+        Math.max(2, Math.round(this.scene.size.width * scale)), Math.max(2, Math.round(this.scene.size.height * scale))); }
+      catch { this.directCastAvailable = false; }
+    }
+    this.scene.castInBands = this.directTerrainMode ? !this.directCastAvailable : !this.castForeground || !!incoming;
     if (!this.castForeground) this._releaseCastCanvas();
     this.seamP = holding ? 1 : blend.travel ? (blend.travelP ?? t) : t;
     this._updateIncomingFade(incoming, inputs.sim);
     this._handoff = incoming && this.incomingFade < 1 ? { outgoing: view, incoming } : null;
-    this.scene.pinView?.(incoming ? [view.id, incoming.id] : view.id, incoming ? [TRAVEL_SCRATCH_KEY] : [CAST_LAYER_KEY]);
+    this.scene.pinView?.(incoming ? [view.id, incoming.id] : view.id,
+      [...(incoming ? [TRAVEL_SCRATCH_KEY] : [CAST_LAYER_KEY]), ...(this.directCastAvailable ? ['range:water-output'] : [])]);
     this.timings.frameId = this.frameId + 1;
     this.timings.frameRenderMs = 0;
     this.timings.frameCopyMs = 0;
@@ -1021,7 +1046,7 @@ export class RangePresentation {
     // ranges, the far terrain) is the backdrop the lake reflects.
     if (pass === 'mid') {
       const manager = this.frameInputs?.sim?.biomes;
-      const drawSky = manager?.highResolutionSky && manager.rangeSkyLayer ? (target, width, height) =>
+      const drawSky = !this.directTerrainMode && manager?.highResolutionSky && manager.rangeSkyLayer ? (target, width, height) =>
         manager.drawHighResolutionSky(target, target.canvas, { transform: [width / stage.width, 0, 0, height / stage.height, 0, 0] }) : null;
       this.scene.captureBackdrop?.(ctx, stage, this.frame, drawSky);
     }
@@ -1039,26 +1064,160 @@ export class RangePresentation {
       this._noteTiming(renderMs, performance.now() - t0 - renderMs);
       if (drawn) {
         this.lastPartition = { pass, ...this._lastComposite, arrival: this.arrival, shafted: !!this.scene.lastShafted };
-        if (pass === 'near') this._recordNearOcclusion(ctx, stage, this._lastComposite.image, this._lastComposite.width, this._lastComposite.height);
+        if (!this.directTerrainMode && pass === 'near') this._recordNearOcclusion(ctx, stage, this._lastComposite.image, this._lastComposite.width, this._lastComposite.height);
+        if (this.directTerrainMode) {
+          if (pass === 'far') this._drawDirectShaft(ctx, stage, cols);
+          this._drawDirectWater(ctx, stage, pass, cols);
+          if (pass === 'near') this._drawDirectCast(ctx, stage, cols);
+        }
       }
       return drawn;
     }
     const img = this.scene.renderPartition(this.frame, pass, this.viewId);
     const t1 = performance.now();
     if (!img) return false;
-    ctx.save();
-    ctx.globalAlpha = this.arrival;
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.drawImage(img, 0, 0, stage.width, stage.height);
-    ctx.restore();
+    const assembled = this.directTerrainMode && this.arrival < .999 && this._drawDirectArrival(ctx, stage, pass, img);
+    if (!assembled) {
+      ctx.save();
+      ctx.globalAlpha = this.arrival;
+      ctx.globalCompositeOperation = 'source-over';
+      if (!this.directTerrainMode || !this.drawTerrainImage?.(ctx, img, stage, { width: img.width, height: img.height })) {
+        if (this.directTerrainMode) ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(img, 0, 0, stage.width, stage.height);
+      }
+      ctx.restore();
+    }
     // The partition's own pixels, valid until the next partition renders:
     // light that belongs on this terrain can use them as its mask.
     this.lastPartition = { pass, image: img, width: img.width, height: img.height,
       arrival: this.arrival, shafted: !!this.scene.lastShafted };
-    if (pass === 'near') this._recordNearOcclusion(ctx, stage, img, img.width, img.height);
+    if (!this.directTerrainMode && pass === 'near') this._recordNearOcclusion(ctx, stage, img, img.width, img.height);
     this._noteTiming(t1 - t0, performance.now() - t1);
-    if (pass === 'near' && this.castForeground && !this.scene.castInBands) this._keepCast(ctx, stage);
-    if (pass === 'near') this._keepWater(ctx, stage);
+    if (!this.directTerrainMode && pass === 'near' && this.castForeground && !this.scene.castInBands) this._keepCast(ctx, stage);
+    if (this.directTerrainMode) {
+      if (pass === 'far') this._drawDirectShaft(ctx, stage);
+      if (!assembled) this._drawDirectWater(ctx, stage, pass);
+      if (pass === 'near') this._drawDirectCast(ctx, stage);
+    }
+    else if (pass === 'near') this._keepWater(ctx, stage);
+    return true;
+  }
+
+  /** Blend a late-arriving band once after its terrain and water are united. */
+  _drawDirectArrival(ctx, stage, pass, image) {
+    const w = ctx.canvas.width, h = ctx.canvas.height;
+    let layer = this._arrivalCanvas;
+    if (!layer || layer.width !== w || layer.height !== h || this.residency && this.residency.get(ARRIVAL_LAYER_KEY) !== layer) {
+      if (this.residency) this.residency.release(ARRIVAL_LAYER_KEY);
+      else if (layer) layer.width = layer.height = 0;
+      this._arrivalCanvas = null;
+      const res = this.residency?.reserve({ key: ARRIVAL_LAYER_KEY, bytes: w * h * 4, owner: 'range-water',
+        protect: [...this.residency.entries.keys()] });
+      if (this.residency && !res) return false;
+      layer = this._makeCanvas(w, h); this._arrivalCanvas = layer;
+      if (res && !this.residency.commit(res, layer, x => { x.width = x.height = 0; if (this._arrivalCanvas === x) this._arrivalCanvas = null; })) {
+        this._arrivalCanvas = null; return false;
+      }
+    }
+    const lc = layer.getContext('2d');
+    if (!lc) return false;
+    lc.setTransform(1, 0, 0, 1, 0, 0); lc.clearRect(0, 0, w, h);
+    lc.globalCompositeOperation = 'source-over'; lc.globalAlpha = 1;
+    const t = ctx.getTransform(); lc.setTransform(t.a, t.b, t.c, t.d, t.e, t.f);
+    if (!this.drawTerrainImage?.(lc, image, stage, { width: image.width, height: image.height })) return false;
+    const water = this._renderDirectWater(lc, stage, pass, this.viewId);
+    lc.setTransform(1, 0, 0, 1, 0, 0);
+    if (water) lc.drawImage(water, 0, 0);
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = this.arrival;
+    ctx.globalCompositeOperation = 'source-over'; ctx.drawImage(layer, 0, 0); ctx.restore();
+    return true;
+  }
+
+  /** Draw this band's water immediately after its pixel terrain, before the
+   * next depth layer. A native water mask keeps the shoreline on the same
+   * cells as land while its interior and reflected sky use display pixels. */
+  _drawDirectWater(ctx, stage, pass, columns = null) {
+    if (!this.scene?.renderWater || !this.scene?.size || this.arrival < .999) return false;
+    if (this.incomingViewId && columns) return this._compositeSides(ctx, stage, PASS_LAYER[pass] || 'L3',
+      () => this._renderDirectWater(ctx, stage, pass, this.viewId, 'A', columns.A),
+      () => this._renderDirectWater(ctx, stage, pass, this.incomingViewId, 'B', columns.B), null,
+      { smooth: true, screenSpace: true });
+    const out = this._renderDirectWater(ctx, stage, pass, this.viewId);
+    if (!out) return false;
+    ctx.save(); ctx.globalAlpha = this.arrival; ctx.globalCompositeOperation = 'source-over';
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.imageSmoothingEnabled = true; ctx.drawImage(out, 0, 0); ctx.restore();
+    return true;
+  }
+
+  _renderDirectWater(ctx, stage, pass, viewId, side = 'A', bandColumns = null) {
+    if (this.scene.hasWater && !this.scene.hasWater(viewId)) return null;
+    const nw = this.scene.size.width, nh = this.scene.size.height;
+    const scale = Math.max(1, this.scene.waterOutputScale || 1);
+    const w = Math.max(2, Math.round(nw * scale)), h = Math.max(2, Math.round(nh * scale));
+    const acquire = (property, key, width, height) => {
+      let c = this[property];
+      if (c && c.width === width && c.height === height && (!this.residency || this.residency.get(key) === c)) return c;
+      if (this.residency) this.residency.release(key);
+      else if (c) c.width = c.height = 0;
+      this[property] = null;
+      const protect = [...(this.residency?.entries.keys() || [])];
+      const res = this.residency?.reserve({ key, bytes: width * height * 4, owner: 'range-water', protect });
+      if (this.residency && !res) return null;
+      c = this._makeCanvas(width, height);
+      this[property] = c;
+      if (res && !this.residency.commit(res, c, x => { x.width = x.height = 0; if (this[property] === x) this[property] = null; })) {
+        this[property] = null; return null;
+      }
+      return c;
+    };
+    const mask = acquire('_waterShoreMask', WATER_SHORE_MASK_KEY, ctx.canvas.width, ctx.canvas.height);
+    const out = acquire('_waterCanvas', WATER_LAYER_KEY, ctx.canvas.width, ctx.canvas.height);
+    const mc = mask?.getContext('2d'), oc = out?.getContext('2d');
+    if (!mc || !oc) return null;
+    const low = this.scene.renderWater(this.frame, viewId, nw, nh, { pass, side, bandColumns });
+    if (!low) return null;
+    mc.setTransform(1, 0, 0, 1, 0, 0); mc.clearRect(0, 0, mask.width, mask.height);
+    const t = ctx.getTransform();
+    mc.setTransform(t.a, t.b, t.c, t.d, t.e, t.f);
+    if (!this.drawTerrainImage?.(mc, low, stage, { width: nw, height: nh })) return null;
+    const high = this.scene.renderWater(this.frame, viewId, w, h, { pass, side, bandColumns });
+    if (!high) return null;
+    oc.setTransform(1, 0, 0, 1, 0, 0); oc.globalCompositeOperation = 'source-over';
+    oc.clearRect(0, 0, out.width, out.height);
+    oc.setTransform(t.a, t.b, t.c, t.d, t.e, t.f);
+    oc.drawImage(high, 0, 0, stage.width, stage.height);
+    oc.setTransform(1, 0, 0, 1, 0, 0);
+    oc.globalCompositeOperation = 'destination-in'; oc.imageSmoothingEnabled = false;
+    oc.drawImage(mask, 0, 0); oc.globalCompositeOperation = 'source-over';
+    return out;
+  }
+
+  _drawDirectShaft(ctx, stage, columns = null) {
+    if (!this.scene?.renderDirectShaft || !this.scene.size) return false;
+    const scale = Math.max(1, this.scene.waterOutputScale || 1);
+    const w = this.scene.size.width * scale, h = this.scene.size.height * scale;
+    const render = side => this.scene.renderDirectShaft(this.frame, w, h, { side });
+    if (this.incomingViewId && columns) return this._compositeSides(ctx, stage, 'L2',
+      () => render('A'), () => render('B'), null, { smooth: true });
+    const image = render('A');
+    if (!image) return false;
+    ctx.save(); ctx.globalAlpha = this.arrival; ctx.globalCompositeOperation = 'source-over';
+    ctx.imageSmoothingEnabled = true; ctx.drawImage(image, 0, 0, stage.width, stage.height); ctx.restore();
+    return true;
+  }
+
+  _drawDirectCast(ctx, stage, columns = null) {
+    if (!this.directCastAvailable || !this.scene?.renderDirectCast || !this.scene.size) return false;
+    const scale = Math.max(1, this.scene.waterOutputScale || 1);
+    const w = this.scene.size.width * scale, h = this.scene.size.height * scale;
+    const render = (id, side, bandColumns) => this.scene.renderDirectCast(this.frame, id, w, h, { side, bandColumns });
+    if (this.incomingViewId && columns) return this._compositeSides(ctx, stage, 'L5',
+      () => render(this.viewId, 'A', columns.A), () => render(this.incomingViewId, 'B', columns.B), null,
+      { smooth: true, additive: true });
+    const image = render(this.viewId, 'A', null);
+    if (!image) return false;
+    ctx.save(); ctx.globalAlpha = this.arrival; ctx.globalCompositeOperation = 'lighter';
+    ctx.imageSmoothingEnabled = true; ctx.drawImage(image, 0, 0, stage.width, stage.height); ctx.restore();
     return true;
   }
 
@@ -1109,6 +1268,7 @@ export class RangePresentation {
    * over particles or weather which belonged above a middle-distance lake. */
   drawMidDepthForWater(ctx, frame, draw) {
     this.waterEffectMask = null;
+    if (this.directTerrainMode) { draw(frame); return; }
     if (!this.waterOutputSize || this.incomingViewId || this.arrival < .999 || !ctx.canvas
       || (this.frame?.qualityLevel ?? 0) >= 4 || this.scene?.hasWater && !this.scene.hasWater(this.viewId)) { draw(frame); return; }
     const w = ctx.canvas.width, h = ctx.canvas.height;
@@ -1154,6 +1314,9 @@ export class RangePresentation {
     if (this.residency) this.residency.release(WATER_CAPTURE_KEY);
     else if (this._waterCaptureCanvas) this._waterCaptureCanvas.width = this._waterCaptureCanvas.height = 0;
     this._waterCaptureCanvas = null;
+    if (this.residency) this.residency.release(ARRIVAL_LAYER_KEY);
+    else if (this._arrivalCanvas) this._arrivalCanvas.width = this._arrivalCanvas.height = 0;
+    this._arrivalCanvas = null;
     if (this.residency) this.residency.release(WATER_LAYER_KEY);
     else if (this._waterCanvas) this._waterCanvas.width = this._waterCanvas.height = 0;
     this._waterCanvas = null;
@@ -1413,7 +1576,7 @@ export class RangePresentation {
    * leave the bands up to 25% see-through. Each render returns the shared
    * drawing buffer, so A is fully drawn before B is rendered.
    */
-  _compositeSides(ctx, stage, layerKey, renderA, renderB, backing = null) {
+  _compositeSides(ctx, stage, layerKey, renderA, renderB, backing = null, { smooth = false, additive = false, screenSpace = false } = {}) {
     const { lo, hi, bands } = travelSpans(stage.width, layerKey, this.seamP ?? 0, V2_TRAVEL_BANDS);
     const fadeB = this.incomingFade ?? 1;
     const far = stage.width * 2;
@@ -1427,7 +1590,8 @@ export class RangePresentation {
     // of the buffer (reserved at the scenic backing size, which the ground
     // image -- same scale, smaller stage -- never exceeds), so the buffer is
     // not reallocated between the two composites of one frame.
-    const W = Math.min(out.width, backing?.backingWidth || a?.width || out.width), H = Math.min(out.height, backing?.backingHeight || a?.height || out.height);
+    const W = screenSpace ? ctx.canvas.width : Math.min(out.width, backing?.backingWidth || a?.width || out.width);
+    const H = screenSpace ? ctx.canvas.height : Math.min(out.height, backing?.backingHeight || a?.height || out.height);
     const sctx = out.getContext('2d');
     const sx = W / stage.width;
     sctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -1442,8 +1606,11 @@ export class RangePresentation {
       if (!(cx1 > cx0)) return;
       sctx.save();
       sctx.beginPath();
-      sctx.rect(cx0, 0, cx1 - cx0, H);
-      sctx.clip();
+      if (screenSpace) {
+        const t = ctx.getTransform(); sctx.setTransform(t.a, t.b, t.c, t.d, t.e, t.f);
+        sctx.rect(x0, 0, x1 - x0, stage.height); sctx.clip();
+        sctx.setTransform(1, 0, 0, 1, 0, 0);
+      } else { sctx.rect(cx0, 0, cx1 - cx0, H); sctx.clip(); }
       sctx.globalAlpha = Math.min(1, alpha);
       sctx.globalCompositeOperation = op;
       sctx.drawImage(img, 0, 0, W, H);
@@ -1455,8 +1622,14 @@ export class RangePresentation {
     if (!a && !b) return false;
     ctx.save();
     ctx.globalAlpha = this.arrival;
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.drawImage(out, 0, 0, W, H, 0, 0, stage.width, stage.height);
+    ctx.globalCompositeOperation = additive ? 'lighter' : 'source-over';
+    if (screenSpace) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.drawImage(out, 0, 0, W, H, 0, 0, W, H);
+    } else if (smooth || !this.directTerrainMode || !this.drawTerrainImage?.(ctx, out, stage, { width: W, height: H })) {
+      if (this.directTerrainMode) ctx.imageSmoothingEnabled = smooth;
+      ctx.drawImage(out, 0, 0, W, H, 0, 0, stage.width, stage.height);
+    }
     ctx.restore();
     this._lastComposite = { image: out, width: W, height: H };
     return true;
@@ -1469,7 +1642,9 @@ export class RangePresentation {
     const needsGround = id => this.frame.compositions?.[id]?.foreground === 'ledge';
     const needsA = needsGround(this.viewId), needsB = this.incomingViewId && needsGround(this.incomingViewId);
     if (!needsA && !needsB) { this.scene.releaseGroundTarget?.(); return true; }
-    const render = id => needsGround(id) ? this.scene.renderGround(this.frame, id) : null;
+    const groundViewport = this.directTerrainMode
+      ? directTerrainViewport(this.frame.groundViewport, this.pixelPolicy?.grid, this.outputSize) : null;
+    const render = id => needsGround(id) ? this.scene.renderGround(this.frame, id, { viewport: groundViewport }) : null;
     if (this.incomingViewId) {
       // The rock stage wears each side's material through the nearest seam;
       // its receivers (pools) come from whichever side holds the centre.
@@ -1497,7 +1672,10 @@ export class RangePresentation {
     ctx.save();
     ctx.globalAlpha = this.arrival;
     ctx.globalCompositeOperation = 'source-over';
-    ctx.drawImage(out.canvas, 0, 0, stage.width, stage.height);
+    if (!this.directTerrainMode || !this.drawTerrainImage?.(ctx, out.canvas, stage, { width: out.canvas.width, height: out.canvas.height })) {
+      if (this.directTerrainMode) ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(out.canvas, 0, 0, stage.width, stage.height);
+    }
     ctx.restore();
     this.timings.frameRenderMs += g1 - g0;
     this.timings.frameCopyMs += performance.now() - g1;

@@ -58,6 +58,7 @@ import { DETAIL_LEVELS, stepDetail, snapshotFileName, captureDetailSnapshots, ca
 import { residencyBudgetFor } from './render/GraphicsResidency.js';
 import { shouldSuggestLandscape } from './render/StagePresets.js';
 import { createPresentingRenderer } from './render/PresentingRenderer.js';
+import { directTerrainExperiment } from './render/DirectTerrainExperiment.js';
 import { createRenderReadyPlayback, waitForScenicReady } from './render/RenderReadyPlayback.js';
 import { stageOutputSize } from './render/RenderOutputSize.js';
 import { PixelPresentation, fitPixelRect } from './render/PixelPresentation.js';
@@ -596,7 +597,9 @@ let bulkPresentation = null;
 let titlePresentation = null;
 function effectivePresentation() {
   const requested = bulkPresentation || presentation;
-  return experience === 'trio' ? { ...requested, pixelScale: 'original' } : requested;
+  const experimental = directTerrainExperiment(typeof location === 'undefined' ? '' : location.search);
+  return experience === 'trio' ? { ...requested, pixelScale: 'original' }
+    : experimental ? { ...requested, directTerrain: true } : requested;
 }
 /** Point the page at one world's presentation. Landscape owns the page's one
  *  Range v2 presentation (and its GPU context); Trio owns none. */

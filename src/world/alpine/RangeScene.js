@@ -1327,7 +1327,7 @@ export class RangeScene {
   _travelDepth(p, target, pass, bandColumns, { clear = true } = {}) {
     const r = this.renderer;
     const at = BANDS.indexOf(pass);
-    const { width: W, height: H } = this.size;
+    const { width: W, height: H } = target;
     r.setRenderTarget(target);
     r.setClearColor(0x000000, 0);
     if (clear) r.clear(true, true, false);
@@ -1370,7 +1370,7 @@ export class RangeScene {
    *  tiles, inside that band's own columns only. */
   _travelFringe(p, target, pass, bandColumns) {
     const r = this.renderer;
-    const { width: W, height: H } = this.size;
+    const { width: W, height: H } = target;
     for (const f of p.fringeTravel || []) {
       const cols = f.pass === pass && bandColumns[f.band];
       if (!cols) continue;
@@ -2295,12 +2295,23 @@ export class RangeScene {
     r.clear(true, true, false);
     const owned = !bandColumns && depth.owned && this.ownership?.[side];
     this._copyTexture(target.texture, owned ? { own: owned.texture, pass } : null);
-    if (scattering) this.shafts.compositeToScreen(r, side, source);
+    if (scattering && !this.directTerrainMode) this.shafts.compositeToScreen(r, side, source);
     // Whether translucent sky light now shares the returned image with the
     // terrain: an alpha mask taken from it must not trust faint pixels.
     this.lastShafted = !!scattering;
     this.stats.partitions++;
     this.stats.lastPartitionMs = performance.now() - t0;
+    return this.canvas;
+  }
+
+  /** Resolve the already accumulated shaft field at output resolution. The
+   * depth guard stays tied to the terrain grid, retaining its hard edges. */
+  renderDirectShaft(frame, width, height, { side = 'A' } = {}) {
+    const source = shaftSource(frame);
+    if (!source || !this.shafts?.buffers?.[side] || !this.shafts?.targets?.[side]) return null;
+    const r = this.renderer;
+    r.setRenderTarget(null); this._setCanvasSize(Math.max(2, Math.round(width)), Math.max(2, Math.round(height)));
+    r.clear(true, true, false); this.shafts.compositeToScreen(r, side, source);
     return this.canvas;
   }
 
@@ -2362,13 +2373,7 @@ export class RangeScene {
     return this.canvas;
   }
 
-  /** Render water at display resolution against the complete terrain and
-   * forest depth. The caller must copy the returned transient canvas before
-   * another scene render. A refused allocation leaves the native pass intact. */
-  renderWater(frame, viewId, width, height, { capture = false } = {}) {
-    const p = this.prepared.get(viewId);
-    if (!p || this.contextLost || !this.target || !(width > 0 && height > 0)) return null;
-    const w = Math.max(2, Math.round(width)), h = Math.max(2, Math.round(height));
+  _waterRenderTarget(w, h, { capture = false } = {}) {
     const native = !capture && w === this.size.width && h === this.size.height;
     const property = capture ? 'captureWaterTarget' : native ? 'nativeWaterTarget' : 'waterTarget';
     const key = capture ? 'range:water-capture-output' : native ? 'range:water-native-mask' : 'range:water-output';
@@ -2385,30 +2390,46 @@ export class RangeScene {
         t.dispose(); if (this[property] === t) this[property] = null;
       })) { this[property] = null; target.dispose(); return null; }
     }
+    return this[property];
+  }
+
+  /** Render water at display resolution against the complete terrain and
+   * forest depth. The caller must copy the returned transient canvas before
+   * another scene render. A refused allocation leaves the native pass intact. */
+  renderWater(frame, viewId, width, height, { pass = null, side = 'A', bandColumns = null, capture = false } = {}) {
+    const p = this.prepared.get(viewId);
+    if (!p || this.contextLost || !this.target || !(width > 0 && height > 0)) return null;
+    const w = Math.max(2, Math.round(width)), h = Math.max(2, Math.round(height));
+    const outputTarget = (this._waterRenderTarget || RangeScene.prototype._waterRenderTarget).call(this, w, h, { capture });
+    if (!outputTarget) return null;
     const r = this.renderer, u = p.uniforms, hidden = [];
     this._setCamera(p.view, frame, p);
     this._setUniforms(p, frame);
-    this._prepareMirror(p, frame, 'A', viewId);
+    this._prepareMirror(p, frame, side, viewId);
     u.uViewportPx.value.set(w, h);
-    r.setRenderTarget(this[property]);
+    r.setRenderTarget(outputTarget);
     r.setClearColor(0x000000, 0);
     r.clear(true, true, false);
     try {
       // Terrain and the hard forest cut hide water behind land and trees.
       this.camera.layers.set(0); this.camera.layers.enable(2);
-      r.render(p.depthScene, this.camera);
+      if (bandColumns && pass && p.depthScenes) this._travelDepth(p, outputTarget, pass, bandColumns, { clear: false });
+      else r.render(p.depthScene, this.camera);
       this.camera.layers.set(0);
       // Non-partitioned forest meshes share layer 0 with terrain.
       for (const band of BANDS) for (const mesh of p.forest?.byBand?.[band] || []) {
         hidden.push([mesh, mesh.visible]); mesh.visible = false;
       }
       u.uWaterOnly.value = 1;
-      for (const band of BANDS) r.render(p.scenes[band], this.camera);
+      for (const band of pass ? [pass] : BANDS) {
+        r.render(p.scenes[band], this.camera);
+        if (bandColumns) this._travelFringe(p, outputTarget, band, bandColumns);
+      }
       u.uWaterOnly.value = 0;
       r.setRenderTarget(null);
       this._setCanvasSize(w, h);
       r.clear(true, true, false);
-      this._copyTexture(this[property].texture);
+      this._copyTexture(outputTarget.texture);
       return this.canvas;
     } finally {
       u.uWaterOnly.value = 0;
@@ -2416,6 +2437,38 @@ export class RangeScene {
       for (const [mesh, visible] of hidden) mesh.visible = visible;
       this.camera.layers.set(0); this.camera.layers.enable(3);
       r.setRenderTarget(null);
+    }
+  }
+
+  /** Full-resolution cast, with the same terrain/forest depth and optional
+   * travel ownership as the scenic band it follows. */
+  renderDirectCast(frame, viewId, width, height, { side = 'A', bandColumns = null } = {}) {
+    const p = this.prepared.get(viewId);
+    if (!p || this.contextLost || !this.target || !this._castShown(p)) return null;
+    const w = Math.max(2, Math.round(width)), h = Math.max(2, Math.round(height));
+    const target = this._waterRenderTarget(w, h);
+    if (!target) return null;
+    const r = this.renderer, u = p.uniforms;
+    this._setCamera(p.view, frame, p); this._setUniforms(p, frame);
+    u.uViewportPx.value.set(w, h);
+    r.setRenderTarget(target); r.setClearColor(0x000000, 0); r.clear(true, true, false);
+    try {
+      this.camera.layers.set(0); this.camera.layers.enable(2);
+      if (bandColumns && p.depthScenes) this._travelDepth(p, target, 'near', bandColumns, { clear: false });
+      else r.render(p.depthScene, this.camera);
+      r.clear(true, false, false);
+      const ribbons = [p.actors?.threads, p.actors?.rope].filter(Boolean);
+      for (const set of ribbons) set.setOverlap(this.THREE.MaxEquation);
+      this.camera.layers.set(CAST_RIBBON_LAYER);
+      try { for (const band of BANDS) r.render(p.scenes[band], this.camera); }
+      finally { for (const set of ribbons) set.setOverlap(this.THREE.AddEquation); }
+      this.camera.layers.set(CAST_LAYER);
+      for (const band of BANDS) r.render(p.scenes[band], this.camera);
+      r.setRenderTarget(null); this._setCanvasSize(w, h); r.clear(true, true, false);
+      this._copyTexture(target.texture); return this.canvas;
+    } finally {
+      u.uViewportPx.value.set(this.size.width, this.size.height);
+      this.camera.layers.set(0); this.camera.layers.enable(3); r.setRenderTarget(null);
     }
   }
 
@@ -2432,13 +2485,13 @@ export class RangeScene {
    * size and return { canvas, stage } -- the canvas valid until the next
    * render call, the stage carrying exact pool polygons (wet masks).
    */
-  renderGround(frame, viewId = frame.viewFromId) {
+  renderGround(frame, viewId = frame.viewFromId, { viewport = null } = {}) {
     if (frame.compositions?.[viewId]?.foreground === 'none') return null;
     const p = this.prepared.get(viewId);
     if (!p?.stageGL || this.contextLost) return null;
     const composition = frame.compositions?.[viewId] ?? resolveRangeComposition(p.view);
     if (composition?.foreground === 'none') return null;
-    const vp = frame.groundViewport;
+    const vp = viewport || frame.groundViewport;
     const w = Math.max(2, Math.round(vp.backingWidth)), h = Math.max(2, Math.round(vp.backingHeight));
     if (!this.groundTarget || this.groundTarget.width !== w || this.groundTarget.height !== h) {
       const key = 'range:ground-target';

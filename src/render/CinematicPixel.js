@@ -94,9 +94,9 @@ export class CinematicPixelRenderer {
     if(this.buffer)gl.deleteBuffer(this.buffer);
     this.program=this.texture=this.buffer=null;
   }
-  draw(ctx,source,fit) {
+  draw(ctx,source,fit, outputScale=1) {
     if(this.disposed||this.failed||this.lost)return false;
-    const scale=Math.min(1,CINEMATIC_CELLS.maxWidth/fit.width,CINEMATIC_CELLS.maxHeight/fit.height);
+    const scale=Math.min(outputScale,CINEMATIC_CELLS.maxWidth/fit.width,CINEMATIC_CELLS.maxHeight/fit.height);
     const w=Math.max(1,Math.round(fit.width*scale)),h=Math.max(1,Math.round(fit.height*scale));
     const signature=`${w}:${h}:${source.width}:${source.height}`;
     if(signature!==this.signature || !this.residency.get(this.key)){
