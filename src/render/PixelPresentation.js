@@ -211,6 +211,33 @@ export class PixelPresentation {
       this.failFrame('source-unavailable'); return null;
     }
   }
+  /** Begin a frame painted at output resolution, with terrain quantized at its own draw boundaries. */
+  beginDirectFrame() {
+    this._invalidateCapture();
+    if (this._disposed) { this.failFrame('disposed'); return null; }
+    const canvas = this.canvas, size = `${canvas.width}x${canvas.height}`;
+    if (this._outputSize !== size) { this._outputSize = size; this.generation++; }
+    if (!(canvas.width > 0 && canvas.height > 0) || !canvas.getContext('2d') || canvas.getContext('2d').isContextLost?.()) {
+      this.failFrame('output-context'); return null;
+    }
+    this.source = canvas;
+    this._pending = { generation: this.generation, outputSize: size };
+    this.diagnostics.frame = { presented: false, generation: this.generation, reason: 'in-progress' };
+    this.diagnostics.output = { width: canvas.width, height: canvas.height };
+    return canvas;
+  }
+  finishDirectFrame() {
+    const pending = this._pending, canvas = this.canvas;
+    if (!pending || pending.generation !== this.generation || pending.outputSize !== `${canvas.width}x${canvas.height}`) return this.failFrame('stale-frame');
+    this._pending = null;
+    const result = { presented: true, generation: this.generation, frameId: ++this.frameId };
+    this.diagnostics.frame = result;
+    this.diagnostics.directTerrain = true;
+    this._capture = { ...result, canvas, pixelated: false, terrainPixelated: true,
+      scaling: this.presentation.scaling, width: canvas.width, height: canvas.height,
+      outputSize: pending.outputSize, grid: this.grid, pixelPolicyVersion: PIXEL_POLICY_VERSION };
+    return result;
+  }
   drawForeground(ctx, source, fit, capture = false) {
     if (!this.presentation.cinematicPixel) return false;
     const diagnostic = capture ? 'captureReconstruction' : 'cinematicReconstruction';

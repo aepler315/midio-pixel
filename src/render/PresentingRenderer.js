@@ -1,6 +1,10 @@
 import { createRenderer } from './WebGLRenderer.js';
 import { PixelPresentation, compositePixelFrame, fitPixelRect } from './PixelPresentation.js';
 import { pixelRenderPolicy } from './PixelRenderPolicy.js';
+import { CanvasBuffers } from './CanvasResidency.js';
+import { CinematicPixelRenderer } from './CinematicPixel.js';
+import { quantizeImageData, quantizePalette } from './PaletteQuantize.js';
+import { buildDitherWeights } from './PixelDither.js';
 
 export function createPresentingRenderer({ canvas, mode = 'canvas', presentation, residency, rendererFactory = createRenderer }) {
   return new PresentingRenderer({ canvas, mode, presentation, residency, rendererFactory });
@@ -31,6 +35,7 @@ class PresentingRenderer {
   }
   getCaptureSource() {
     const source = this._disposed ? null : this.output.getCaptureSource();
+    if (source && this._directFrame) return source;
     // Recording and export consume the completed hybrid picture (smooth sky,
     // the cinematic cell reconstruction and/or the smooth cast over the
     // pixel frame). Palette diagnostics can still inspect the native
@@ -65,6 +70,11 @@ class PresentingRenderer {
     }
     const range = this.inner.rangePresentation;
     const landscape = this._experience !== 'trio' && manager?.world?.kind === 'alpine' && !!range?.enabled;
+    if (landscape && this._requestedPresentation?.directTerrain === true) return this._drawDirect(sim, alpha, { preparing, manager, range });
+    this._directFrame = false;
+    this._releaseDirect();
+    if (manager) manager.directFullResolution = false;
+    if (range) { range.directTerrainMode = false; range.drawTerrainImage = null; range.drawLegacyTerrain = null; }
     const hybridSky = this._experience !== 'trio' && typeof manager?.drawHighResolutionSky === 'function';
     if (manager) manager.highResolutionSky = hybridSky;
     // The cast is laid smoothly over the upscaled frame, so the working
@@ -137,5 +147,116 @@ class PresentingRenderer {
     this.output.diagnostics.qualityLevel = sim?.perf?.level ?? null;
     return result;
   }
-  dispose() { if (this._disposed) return; this._disposed = true; try { this.inner.dispose(); } finally { this.output.dispose(); } }
+  _drawDirect(sim, alpha, { preparing, manager, range }) {
+    this._directFrame = false;
+    const canvas = this.output.beginDirectFrame();
+    if (!canvas) return this.output.diagnostics.frame;
+    this._directBuffers ||= new CanvasBuffers({ residency: this.output.residency, owner: 'direct-terrain',
+      makeCanvas: () => (this.canvas.ownerDocument || globalThis.document).createElement('canvas') });
+    const stage = this._directBuffers.ensure('stage', canvas.width, canvas.height);
+    if (!stage?.getContext('2d')) return this.output.failFrame('allocation-denied');
+    const scene = this.canvasRenderer;
+    const policy = pixelRenderPolicy(this.output.presentation);
+    scene.canvas = stage; scene.ctx = stage.getContext('2d');
+    scene.pixelPolicy = pixelRenderPolicy({ pixelated: false });
+    scene.deferPostEffects = false; scene.deferSceneCaptures = preparing;
+    this.inner.presentationPixelated = false;
+    manager.directFullResolution = true; manager.highResolutionSky = true;
+    manager.highResolutionMidEffects = false; manager.midEffectsOutputSize = null;
+    range.directTerrainMode = true; range.pixelated = true; range.pixelPolicy = policy;
+    range.cinematicPixel = !!this.output.presentation.cinematicPixel;
+    range.outputSize = { width: canvas.width, height: canvas.height };
+    range.waterOutputSize = { width: canvas.width, height: canvas.height };
+    range.castForeground = false;
+    range.drawTerrainImage = (ctx, image, stage, region) => this._drawDirectTerrain(ctx, image, stage, region, sim?.perf?.level ?? 0);
+    range.drawLegacyTerrain = (ctx, paint) => this._drawDirectGrid(ctx, paint, sim?.perf?.level ?? 0);
+    try { this.inner.draw(sim, alpha); }
+    catch (error) { scene.discardFrameCaptures?.(); this.output.failFrame('scene-draw'); throw error; }
+    if (manager._awaitingTerrain) { scene.discardFrameCaptures?.(); return this.output.failFrame('terrain-not-ready'); }
+    const output = canvas.getContext('2d');
+    output.save();
+    try {
+      output.setTransform(1, 0, 0, 1, 0, 0); output.globalAlpha = 1;
+      output.globalCompositeOperation = 'copy'; output.drawImage(stage, 0, 0);
+    } finally { output.restore(); }
+    const result = this.output.finishDirectFrame();
+    this._directFrame = !!result.presented;
+    if (preparing) scene.discardFrameCaptures?.();
+    return result;
+  }
+  _drawDirectTerrain(ctx, image, stage, region = image, quality = 0) {
+    if (!(region.width > 0 && region.height > 0)) return false;
+    return this._drawDirectGrid(ctx, target => target.drawImage(image, 0, 0, region.width, region.height, 0, 0, stage.width, stage.height), quality);
+  }
+  _drawDirectGrid(ctx, paint, quality = 0) {
+    const p = this.output.presentation, grid = this.output.grid;
+    const out = this.canvas, fit = fitPixelRect(grid.width, grid.height, out.width, out.height, 'fit');
+    if (!(fit.scale > 0)) return false;
+    // Rasterize the transformed partition on the screen's stable pixel grid.
+    // The current clip remains on the destination when the result is copied.
+    const width = Math.ceil((out.width - fit.x) / fit.scale);
+    const height = Math.ceil((out.height - fit.y) / fit.scale);
+    this._directBuffers ||= new CanvasBuffers({ residency: this.output.residency, owner: 'direct-terrain',
+      makeCanvas: () => (this.canvas.ownerDocument || globalThis.document).createElement('canvas') });
+    const source = this._directBuffers.ensure('partition', width, height);
+    const sctx = source?.getContext('2d');
+    if (!sctx) return false;
+    const m = ctx.getTransform?.() || { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+    sctx.setTransform(1, 0, 0, 1, 0, 0); sctx.globalAlpha = 1;
+    sctx.globalCompositeOperation = 'source-over'; sctx.clearRect(0, 0, width, height);
+    sctx.setTransform(m.a / fit.scale, (m.b || 0) / fit.scale, (m.c || 0) / fit.scale,
+      (m.d ?? 1) / fit.scale, ((m.e || 0) - fit.x) / fit.scale, ((m.f || 0) - fit.y) / fit.scale);
+    sctx.imageSmoothingEnabled = false;
+    paint(sctx);
+    sctx.setTransform(1, 0, 0, 1, 0, 0);
+    const needsPalette = this.output._resolvedPaletteId !== 'none';
+    if (needsPalette) {
+      try {
+        const data = sctx.getImageData(0, 0, width, height);
+        if (this.output._resolvedPaletteId === 'rgb332') quantizeImageData(data, { dither: p.dither });
+        else if (this.output.compiledPalette) {
+          let weights = null;
+          if (p.ditherMode === 'selective' && p.dither > 0) {
+            weights = this._directDitherWeights(width * height);
+            if (weights) buildDitherWeights(data, weights);
+          }
+          quantizePalette(data, this.output.compiledPalette, { dither: p.dither, weights });
+        }
+        sctx.putImageData(data, 0, 0);
+      } catch { /* Keep the unquantized terrain if pixel readback is denied. */ }
+    }
+    const needsCinematic = !!p.cinematicPixel && quality < 2;
+    if (!needsCinematic) this._directCinematic?.suspend();
+    ctx.save();
+    try {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      const destination = { x: fit.x, y: fit.y, width: width * fit.scale, height: height * fit.scale };
+      if (needsCinematic) {
+        this._directCinematic ||= new CinematicPixelRenderer({ residency: this.output.residency,
+          makeCanvas: () => (this.canvas.ownerDocument || globalThis.document).createElement('canvas') });
+        if (this._directCinematic.draw(ctx, source, destination)) return true;
+      }
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(source, destination.x, destination.y, destination.width, destination.height);
+      return true;
+    } finally { ctx.restore(); }
+  }
+  _directDitherWeights(length) {
+    const key = `${this.output.key}:direct-weights`, residency = this.output.residency;
+    if (this._directWeights?.length === length && residency.get(key) === this._directWeights) return this._directWeights;
+    residency.release(key); this._directWeights = null;
+    const reservation = residency.reserve({ key, bytes: length, owner: 'direct-terrain-dither', evictable: false });
+    if (!reservation) return null;
+    try {
+      const weights = new Uint8Array(length);
+      if (residency.commit(reservation, weights, data => data.fill(0))) return (this._directWeights = weights);
+    } catch { /* Use ordered dither if the optional buffer is unavailable. */ }
+    residency.releaseReservation(reservation); return null;
+  }
+  _releaseDirect() {
+    this._directBuffers?.dispose(); this._directBuffers = null;
+    this._directCinematic?.suspend();
+    this.output.residency?.release(`${this.output.key}:direct-weights`); this._directWeights = null;
+  }
+  dispose() { if (this._disposed) return; this._disposed = true; this._releaseDirect(); this._directCinematic?.dispose(); try { this.inner.dispose(); } finally { this.output.dispose(); } }
 }
