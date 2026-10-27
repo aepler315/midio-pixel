@@ -348,3 +348,35 @@ test('Broshi rho ring shape is stable for one frame time and seed', () => {
   assert.deepEqual(pts(a), pts(a));
   assert.deepEqual(pts(a), pts(b));
 });
+
+test('free roaming (Trio): he follows his own plan to either side, turning round and leapfrogging Midio\'s column to cross', () => {
+  const b = new Broshi(fakeConductor(), {}, { seed: 11 });
+  const midio = { screenX: 500 };
+  const ensemble = (trailX, broshiFacing) => ({ free: true, trailX, broshiFacing, broshiLook: 0, stageW: 1280,
+    phase: 0, melt: 0, midioAirborne: false, midioY: 0, justLanded: false, justClean: false, worldSpeed: 220 });
+  let ms = 0;
+  const run = (secs, trailX, facing, each = () => {}) => {
+    for (const end = ms + secs * 1000; ms < end; ms += 1000 / 120) {
+      b.update(ms, 1 / 120, midio, null, ms * .22, 600, 0, ensemble(trailX, facing), null);
+      each();
+    }
+  };
+  run(4, 860, 1);
+  assert.ok(Math.abs(b.renderX - 860) < 25, `settles on his own spot ahead (${b.renderX})`);
+  assert.equal(b.facing, 1);
+  let peakLeap = 0, sawEdgeOn = false;
+  run(6, 180, -1, () => {
+    if (Math.abs(b.renderX - midio.screenX) < 40) peakLeap = Math.max(peakLeap, b.hopY);
+    if (Math.abs(b.facing) < .2) sawEdgeOn = true;
+  });
+  assert.ok(Math.abs(b.renderX - 180) < 25, `crosses to his plan behind Midio (${b.renderX})`);
+  assert.equal(b.facing, -1, 'and faces the way he went');
+  assert.ok(sawEdgeOn, 'turning round passes edge-on rather than snapping');
+  assert.ok(peakLeap > 40, `he leapfrogs Midio's landing column (${peakLeap})`);
+  // A head turned up at the sky lifts the neck; sniffing dips it.
+  b.update(ms, 1 / 120, midio, null, ms * .22, 600, 0, { ...ensemble(180, -1), broshiLook: 1 }, null);
+  const up = b.neckAngle;
+  b.update(ms + 1, 1 / 120, midio, null, ms * .22, 600, 0, { ...ensemble(180, -1), broshiLook: -1 }, null);
+  assert.ok(up < b.neckAngle - 20, `${up} vs ${b.neckAngle}`);
+  assert.doesNotThrow(() => b.draw(fakeCtx(), { x: 0, y: 0 }));
+});

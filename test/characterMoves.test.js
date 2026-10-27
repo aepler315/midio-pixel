@@ -183,9 +183,22 @@ test('a note impact bursts in ITS OWN pitch color, not the hue of a note she is 
   const timeline = [melodyNote(1000, 60, 0.6), melodyNote(1100, 64, 0.6)];
   const m = new Midasus(timeline, midio, { groundY: 540 });
   m.update(1005, 1 / 120, 0, null, 1, null); // darts both; impacts note A only
-  // Bursts spawn at size 4; her ambient trail streaks (size 3) legitimately
-  // ride the current dart hue, so only the bursts are under test.
-  const burstHues = new Set(m.particles.active.filter((p) => p.size === 4).map((p) => p.hue));
+  // Her particles are note bursts only now (she leaves no ribbon behind).
+  assert.ok(m.particles.active.length > 0 && m.particles.active.every((p) => p.size === 4));
+  const burstHues = new Set(m.particles.active.map((p) => p.hue));
   assert.ok(burstHues.has(0), 'note A\'s burst carries note A\'s hue');
   assert.ok(!burstHues.has(120), 'note B has not been heard yet -- its hue must not appear in a burst');
+});
+
+test('free roaming (Trio): her melody darts gather on her own wandering spot, not off Midio\'s shoulder', () => {
+  const dartX = (free, midioX) => {
+    const midio = { screenX: midioX, groundY: 540, y: 0 };
+    const m = new Midasus([melodyNote(1000, 64, 0.8), melodyNote(3000, 67, 0.8)], midio, { groundY: 540 });
+    const ens = { free, x: 900, y: 200, phase: 0, melt: 0, epic: 0 };
+    for (let t = 0; t <= 1600; t += 1000 / 120) m.update(t, 1 / 120, 0, ens, 1, null);
+    return m.p.x;
+  };
+  assert.ok(Math.abs(dartX(true, 200) - dartX(true, 500)) < 1, 'where Midio stands does not move her');
+  assert.ok(Math.abs(dartX(false, 200) - dartX(false, 500)) > 50, 'the formation path still follows him');
+  assert.ok(Math.abs(dartX(true, 200) - 900) < 60);
 });

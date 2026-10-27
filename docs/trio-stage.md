@@ -39,9 +39,24 @@ decides the presentation: `Simulation` loads real terrain only for
 ensemble and the crystalline space ridge. `TrioPerformance` owns the cast's
 choreography (Midio's kick jumps and lead accents, Broshi's bass hops,
 Midasus's melody flight and her voyages) and stands them on the world's own
-`GroundField`, with Midio's screen x as the world's origin, so the cast and
-the drawn ground agree. `Renderer._drawTrioCast` draws them with contact
-shadows after the scenery and before the foreground veil.
+`GroundField`: the ground is drawn from a fixed origin (`TrioPerformance.originX`)
+and each of the cast stands on it at their own screen x, so the cast and the
+drawn ground agree. `Renderer._drawTrioCast` draws them with contact shadows
+after the scenery and before the foreground veil.
+
+Between the beats the cast wander rather than hold a formation around Midio.
+`TrioWander` cuts each character's time into seeded intent segments (stroll
+to a spot, pause and idle, watch a companion or the sky, wander over to
+investigate one another; Broshi also sniffs about, Midasus visits and
+stargazes), with travel likelier in loud passages and idling in quiet ones.
+Each plan is a pure function of seed and heard time, so a seek lands where
+continuous play would. Midio's spot and carriage come straight from it (his
+eye is aimed through `TrioGaze`); Broshi's spring and Midasus's flight follow
+it in their `free` modes, where Broshi turns to face where he is going or
+what he is watching and leapfrogs Midio's landing column to cross him. The
+music still owns the moves themselves. None of them leaves a drawn path:
+Midio's jump ghosts, Broshi's comet motes and Midasus's flight ribbon are
+gone (her note bursts, slashes, debris and baby stars remain).
 
 Bulk export accepts `--experience landscape|trio`; the default is Landscape:
 

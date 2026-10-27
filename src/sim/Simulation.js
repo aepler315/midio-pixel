@@ -417,7 +417,8 @@ export class Simulation {
   }
 
   /** The cast performs first; the world then scrolls to where they are.
-   *  Midio stands at his own screen x, so that is the world's origin. */
+   *  The ground is drawn from the Trio's fixed origin, and the cast wander
+   *  over it, each standing on the ground at their own screen x. */
   _stepTrio() {
     const trio = this.trio, biomes = this.biomes;
     const chorus = biomes.currentKind === 'chorus';
@@ -425,7 +426,7 @@ export class Simulation {
       chorusText: chorus ? biomes.currentSectionText : null,
       lyricSymbol: chorus ? biomes.currentSectionSymbol : null });
     this.worldX = trio.worldX;
-    this.stageAnchor.x = trio.midio.screenX;
+    this.stageAnchor.x = trio.originX;
     const voyage = trio.midasus.voyage;
     if (trio.voyageEvents.launched || trio.voyageEvents.landed) this.camera.shake(4);
     // The sky notices her: the celestial's mandala swells while she dances near it.

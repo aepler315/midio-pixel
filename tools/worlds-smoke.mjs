@@ -195,7 +195,7 @@ try {
           const colors = new Set();
           for (let i = 0; i < pixels.length; i += 4) colors.add(pixels.slice(i, i + 3).join(','));
           const cast = sim.trio ? { midioX: sim.trio.midio.screenX, midioGroundY: sim.trio.midio.groundY,
-            drawnGroundY: sim.groundField.heightAt(sim.trio.worldX) } : null;
+            drawnGroundY: sim.groundField.heightAt(sim.trio.worldX + sim.trio.midio.screenX - sim.trio.originX) } : null;
           return { timeMs: mgr.tSec * 1000, music, colors: colors.size, cast };
         });
         assert.ok(sample.colors > 16, name + ' renders a composed ' + label + ' scene');

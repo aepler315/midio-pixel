@@ -1,5 +1,5 @@
-// Midio's stage presence (follow-up item 6): apex tricks, motion-streak
-// afterimages, a landing flourish on hot combos, beat-synced idle strut,
+// Midio's stage presence (follow-up item 6): apex tricks, a landing
+// flourish on hot combos, beat-synced idle strut,
 // and a gold flash + HUD pulse at combo milestones. Layered on top of
 // JumpController/TelegraphScanner rather than replacing them -- this class
 // only ever *adds* to midio.leanDeg/scaleY or briefly overrides scale
@@ -29,8 +29,6 @@ const PIROUETTE_COMBO = 4;
 const PIROUETTE_CHANCE = 0.35;
 const FLOURISH_COMBO_THRESHOLD = 2.0;
 const GOLD_FLASH_DECAY_SEC = 0.6;
-const AFTERIMAGE_INTERVAL_MS = 28;
-const AFTERIMAGE_COUNT = 4;
 export const GOLD_AFTERIMAGE_LIFE_MS = 1000;
 const GOLD_AFTERIMAGE_MAX = 6;
 // Restraint pass. A "ferocity pass" had pushed the always-on grounded
@@ -78,11 +76,8 @@ export class MidioPerformer {
     this.goldFlash = 0;
     this.lastMilestone = null; // {idx, atMs} -- persists for the meteor volley
 
-    this.afterimages = [];
-    this._lastCaptureMs = -Infinity;
-
     // Apotheosis-only: one gold snapshot per kick while transformed, held
-    // regardless of airborne state (unlike the trick-jump streaks above).
+    // regardless of airborne state.
     this.goldAfterimages = [];
 
     this.blinkScale = 1; // 1 = eye open, 0 = fully closed
@@ -306,13 +301,6 @@ export class MidioPerformer {
 
     this.goldFlash = Math.max(0, this.goldFlash - dtSec / GOLD_FLASH_DECAY_SEC);
     while (this.goldAfterimages.length && nowMs - this.goldAfterimages[0].bornMs > GOLD_AFTERIMAGE_LIFE_MS) this.goldAfterimages.shift();
-
-    if (jump.airborne && nowMs - this._lastCaptureMs >= AFTERIMAGE_INTERVAL_MS) {
-      this._lastCaptureMs = nowMs;
-      this.afterimages.push({ y: midio.renderY, scaleX: midio.scaleX, scaleY: midio.scaleY, rot: midio.leanDeg });
-      if (this.afterimages.length > AFTERIMAGE_COUNT) this.afterimages.shift();
-    }
-    if (!jump.airborne && this.afterimages.length) this.afterimages.length = 0;
 
     // Hold slide: while a hold note is being ridden (grounded), the pose is
     // owned outright — a low, wide power-slide leaning back into the roll —
