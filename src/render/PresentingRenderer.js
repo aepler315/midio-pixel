@@ -79,7 +79,7 @@ class PresentingRenderer {
     if (range) range.waterOutputSize = waterOverlay ? { width: this.canvas.width, height: this.canvas.height } : null;
     const scene = this.canvasRenderer;
     // Optical effects and HUD draw after the completed Landscape composite.
-    const postEffects = this._experience !== 'trio' && typeof scene.drawDeferredPostEffects === 'function';
+    const postEffects = this._experience !== 'trio' && !!manager?.world && typeof scene.drawDeferredPostEffects === 'function';
     scene.deferPostEffects = postEffects;
     if (range && 'castForeground' in range) range.castForeground = castOverlay;
     this.output.qualityLevel = sim?.perf?.level ?? 0;
