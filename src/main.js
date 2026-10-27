@@ -4331,9 +4331,19 @@ function replaySong({ songSeed } = {}) {
   }
 }
 
-/** The Reel: the COMPLETE panel's highlight filmstrip -- proof of what the
- *  song just did. Click a frame to enlarge it; the modal offers a
- *  per-frame download link. */
+/** A reel frame's caption: its color regime, the cast palette when it has
+ *  one, and where in the song it peaked. */
+function filmstripCaption(frame) {
+  const at = Number.isFinite(frame.eventAtMs) ? frame.eventAtMs : frame.atMs;
+  const s = Math.max(0, Math.round((at || 0) / 1000));
+  const time = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  return `${frame.label}${frame.detail ? ` · ${frame.detail}` : ''} · ${time}`;
+}
+
+/** The Reel: the COMPLETE panel's highlight filmstrip -- the peak of each
+ *  major color regime the song passed through (HighlightReel.js), in song
+ *  order. Click a frame to enlarge it; the modal offers a per-frame
+ *  download link. */
 function renderFilmstrip(frames) {
   if (!filmstripEl) return;
   if (!frames.length) {
@@ -4343,14 +4353,15 @@ function renderFilmstrip(frames) {
   }
   filmstripEl.classList.remove('hidden');
   filmstripEl.innerHTML = frames.map((f, i) =>
-    `<button type="button" class="filmstripFrame" data-index="${i}" title="${escapeHtml(f.label)}">`
-    + `<img src="${f.dataUrl}" alt="${escapeHtml(f.label)}" /></button>`,
+    `<button type="button" class="filmstripFrame" data-index="${i}" title="${escapeHtml(filmstripCaption(f))}">`
+    + `<img src="${f.dataUrl}" alt="${escapeHtml(f.label)}" />`
+    + `<span class="filmstripLabel">${escapeHtml(f.label)}</span></button>`,
   ).join('');
 }
 
 function openFilmstripModal(frame) {
   if (!filmstripModalEl) return;
-  filmstripModalTitleEl.textContent = frame.label;
+  filmstripModalTitleEl.textContent = filmstripCaption(frame);
   filmstripModalImgEl.src = frame.dataUrl;
   filmstripModalImgEl.alt = frame.label;
   const slug = frame.label.toLowerCase().replace(/[^a-z0-9]+/g, '-');

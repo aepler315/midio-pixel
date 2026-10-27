@@ -191,8 +191,9 @@ export class Simulation {
       this.groundField.kickGlow(this._midioWorldX(), evt.tMs, evt.vel);
     })];
     this.snowCover = 0;
-    // Candidate-only song replay belongs to construction, before audio starts.
-    // Draws read this immutable schedule rather than warming it on stage.
+    // The highlight reel's color-regime schedule (sky, squall, palettes) is
+    // read from song evidence at construction, before audio starts. Draws
+    // read this immutable schedule rather than warming it on stage.
     highlightCandidatesFor(this);
     // Trio: Midio, Midasus and Broshi perform on the world's own ground.
     this.trio = this.experience === 'trio' ? new TrioPerformance({ timeline: conductor.timeline,
