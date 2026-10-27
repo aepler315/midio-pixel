@@ -66,6 +66,55 @@ the plan (one live frame per regime, 5 s apart) takes it. This matters most
 for the opening night, which often falls while Landscape's terrain is still
 loading. Once five frames are taken the renderer stops consulting the reel.
 
+## Saving at 4K
+
+The strip keeps 320×180 JPEG thumbnails. Saving a frame draws that moment
+again at 3840×2160 and saves it as a lossless PNG: the modal's
+**Save 3840×2160 PNG** button saves the open frame, **Save all in 4K** under
+the strip saves every frame, and **Thumbnail** still downloads the JPEG.
+Code: `src/ui/ReelExport.js` (pure: plan, size ladder, stepping chunks, file
+names, the report) and `saveReelFrames` in `src/main.js`.
+
+- **What a frame records.** `HighlightReel.capture` stores `moment` on each
+  frame: its heard time (`atMs`), the run's `songSeed` and `worldId`, the
+  player's display preferences (`displayPrefs`, including the pixel grid)
+  and the quality floor they chose (`qualityLevel`). main.js supplies them
+  through `highlightReel.describeMoment`. A frame without `moment` keeps its
+  thumbnail but cannot be redrawn, and the save says so.
+- **How the moment is drawn again.** When the COMPLETE panel shows, the
+  live sim has played through the finale and cannot go back. The save
+  rebuilds the song the way a bulk export does (`beginBulkExport`: same
+  seed, world, display preferences, decoded audio and chapter plan), steps
+  it from 0 with `stepExportClock` (in 2 s chunks, yielding to the page
+  between them, which takes the same fixed steps as one run), draws the last
+  six 60 fps frames before the instant so motion blur and echo have their
+  history, and draws again after `rangePresentation.settle()` as bulk export
+  does. Frames sharing a run and look are drawn in one rebuild, in song
+  order. Each rebuild draws with Fit scaling, so every pixel grid fills the
+  frame.
+- **When.** Only from the COMPLETE panel, after the song and any recording
+  have finished. Nothing is playing, so the save cannot cause a playback
+  hitch. The panel's buttons wait while it runs, and a second save is
+  refused while one is running. A new song, Title or replay cancels it.
+- **Size limits.** If the stage cannot be armed at 3840×2160, the frame
+  does not finish drawing, or the PNG cannot be encoded, the save tries
+  2560×1440 and then 1920×1080. The file name and a banner give the size
+  actually saved. Nothing is upscaled or relabeled.
+- **File name.** `midio_<song>_<regime>_<mmss>_<W>x<H>.png`, for example
+  `midio_heroes_sunset_0307_3840x2160.png`.
+- **Afterwards.** The rebuild is torn down, and the COMPLETE panel, world,
+  seed, pause state, audio level and display presentation are restored.
+  `window.__SMW` still names the torn-down rebuild until the next song
+  starts.
+- **What can differ from the thumbnail.** The redraw is the song's
+  deterministic performance at that heard time, the frame a bulk export
+  draws. It does not replay live-only input: the listener's zoom, beat taps
+  and pointer, or a groove fingerprint changed during the song. It also
+  draws at the quality floor the player chose, not at a level the
+  performance governor shed to. A song that ended on its opening analysis
+  alone cannot be redrawn until the whole analysis has landed, and
+  `beginBulkExport` reports that.
+
 The reel has no browser or device acceptance yet. `tools/highlight-reel-smoke.mjs`
 runs a headless Trio fixture and writes to an output directory. Keep that
 directory under `.smoke/` and never commit it.

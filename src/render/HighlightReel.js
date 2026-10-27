@@ -523,6 +523,11 @@ export class HighlightReel {
     this._captureFailed = new Set();
     this._lastCaptureMs = -Infinity;
     this._thumbCanvas = null;
+    /** Optional () => { songSeed, worldId, displayPrefs, qualityLevel }:
+     *  the page's description of the run and look being drawn. Each frame
+     *  keeps it with its heard time as `moment`, so the frame can be drawn
+     *  again later at another size (ReelExport.js). */
+    this.describeMoment = null;
   }
 
   canCapture(eventAtMs) {
@@ -605,13 +610,28 @@ export class HighlightReel {
       ctx.drawImage(canvas, 0, 0, THUMB_W, THUMB_H);
       const dataUrl = this._thumbCanvas.toDataURL('image/jpeg', JPEG_QUALITY);
       this.frames.push({ dataUrl, atMs: heardTimeMs, label, eventAtMs, detail: candidate?.detail ?? null,
-        eventId: candidate?.id ?? null, category: candidate?.category ?? null, capturedAtMs: frameTimeMs });
+        eventId: candidate?.id ?? null, category: candidate?.category ?? null, capturedAtMs: frameTimeMs,
+        moment: this._moment(heardTimeMs) });
       this._lastCaptureMs = eventAtMs;
       if (this.frames.length === MAX_FRAMES) this._releaseCanvas();
       return true;
     } catch {
       this._releaseCanvas();
       return false;
+    }
+  }
+
+  /** The frame's heard time with the page's description of what drew it,
+   *  or null when the page gives none (or its description throws). */
+  _moment(heardTimeMs) {
+    if (typeof this.describeMoment !== 'function') return null;
+    try {
+      const described = this.describeMoment();
+      if (!described || typeof described !== 'object') return null;
+      return Object.freeze({ ...described, displayPrefs: described.displayPrefs ? Object.freeze({ ...described.displayPrefs }) : null,
+        atMs: heardTimeMs });
+    } catch {
+      return null;
     }
   }
 

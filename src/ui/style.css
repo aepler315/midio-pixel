@@ -1476,6 +1476,20 @@ html, body {
   pointer-events: none;
 }
 
+/* "Save all in 4K" and the save's progress line, under the strip. */
+.filmstripActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+}
+.filmstripStatus {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+.filmstripStatus:empty { display: none; }
+
 .filmstripModalPanel { width: min(720px, 92vw); }
 #filmstripModalImg { width: 100%; display: block; background: #000; }
 
