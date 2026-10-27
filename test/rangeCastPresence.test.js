@@ -196,6 +196,8 @@ test('site lights and threads read the terrain fog by reference, and fall back t
   for(const k of ['uMistDensity','uMistTop','uMistFill','uMistDrift','uMistSteps','uNarrative','uCameraPos'])assert.equal(u[k],shared[k],k);
  }
  assert.match(actors.sites.material.vertexShader,/vSeen = aState\.x > 0\.0 \? emitterSeen\(at\)/,'fogged at the light itself, not its pushed halo');
+ // Resolved on Detailed, a site core passes 1: scaled, not clipped per channel.
+ assert.match(actors.sites.material.fragmentShader,/c \/= max\(1\.0, max\(c\.r, max\(c\.g, c\.b\)\)\);/);
  assert.match(actors.threads.meshes.far.material.vertexShader,/emitterSeen\(/);
  assert.match(actors.groups.midio.children[1].material.fragmentShader,/\* vSeen;/);
  assert.match(actors.groups.midio.children[0].material.vertexShader,/vSeen = emitterSeen\(/);

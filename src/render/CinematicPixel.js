@@ -3,19 +3,30 @@ import { sharedResidency } from './GraphicsResidency.js';
 // Reconstruction is deliberately conservative: nearest coverage owns the cell;
 // only a monotone, low-contrast colour slope can vary inside it. No history,
 // pixel jitter, frame readback or interpolation of alpha/silhouette geometry.
-export const CINEMATIC_CELLS = Object.freeze({ strength: .8, edgeStart: .04, edgeEnd: .18, maxWidth: 3840, maxHeight: 2160 });
+// `strength` is the slope gain validated on Classic+ at 720p (cells
+// `referenceCell` output px wide): there a cell boundary keeps a step 1.8x
+// the step inside a cell. cellStrength holds that ratio at any cell width.
+export const CINEMATIC_CELLS = Object.freeze({ strength: .8, referenceCell: 3.2, edgeStart: .04, edgeEnd: .18, maxWidth: 3840, maxHeight: 2160 });
+/** Boundary step over in-cell step on a reconstructed ramp: 1 + k(1-g)/g. */
+export const CELL_RESIDUAL = 1 + CINEMATIC_CELLS.referenceCell * (1 - CINEMATIC_CELLS.strength) / CINEMATIC_CELLS.strength;
+/** The slope gain for cells `k` output px wide that leaves CELL_RESIDUAL at
+ *  every grid and output size (a fixed gain left wide cells, Classic or a
+ *  4K export, with their boundaries standing out, and narrow ones blurred). */
+export function cellStrength(k) {
+  return Number.isFinite(k) && k > 0 ? k / (k + CELL_RESIDUAL - 1) : CINEMATIC_CELLS.strength;
+}
 const smooth = x => { x = Math.max(0, Math.min(1, x)); return x*x*(3-2*x); };
 const minmod = (a,b) => a*b > 0 ? Math.sign(a)*Math.min(Math.abs(a),Math.abs(b)) : 0;
 /** Numerical reference for the GPU reconstruction, with straight RGBA 0..1. */
-export function cinematicCellColor(center, left, right, down, up, offset) {
+export function cinematicCellColor(center, left, right, down, up, offset, strength = CINEMATIC_CELLS.strength) {
   if (center[3] < .999) return [...center];
   const compatible = c => (c[3] >= .999 ? 1 : 0) * (1-smooth((Math.hypot(...center.slice(0,3).map((v,i)=>v-c[i]))-CINEMATIC_CELLS.edgeStart)/(CINEMATIC_CELLS.edgeEnd-CINEMATIC_CELLS.edgeStart)));
   const gx = compatible(left)*compatible(right), gy = compatible(down)*compatible(up);
-  return [...center.slice(0,3).map((v,i) => Math.max(0,Math.min(1,v + CINEMATIC_CELLS.strength*(gx*minmod(v-left[i],right[i]-v)*offset[0]+gy*minmod(v-down[i],up[i]-v)*offset[1])))),center[3]];
+  return [...center.slice(0,3).map((v,i) => Math.max(0,Math.min(1,v + strength*(gx*minmod(v-left[i],right[i]-v)*offset[0]+gy*minmod(v-down[i],up[i]-v)*offset[1])))),center[3]];
 }
 const VERT = `attribute vec2 position; varying vec2 uv; void main(){uv=position*.5+.5;gl_Position=vec4(position,0.,1.);}`;
 const FRAG = `precision highp float;
-  uniform sampler2D image; uniform vec2 size; varying vec2 uv;
+  uniform sampler2D image; uniform vec2 size; uniform float strength; varying vec2 uv;
   float compatibility(vec4 c,vec4 n){return step(.999,n.a)*(1.-smoothstep(${CINEMATIC_CELLS.edgeStart},${CINEMATIC_CELLS.edgeEnd},length(c.rgb-n.rgb)));}
   vec3 minmod(vec3 a,vec3 b){return step(vec3(0.00000001),a*b)*sign(a)*min(abs(a),abs(b));}
   void main(){
@@ -28,7 +39,7 @@ const FRAG = `precision highp float;
       vec2 local=fract(p)-.5;
       vec3 gx=minmod(c.rgb-l.rgb,r.rgb-c.rgb)*compatibility(c,l)*compatibility(c,r);
       vec3 gy=minmod(c.rgb-d.rgb,u.rgb-c.rgb)*compatibility(c,d)*compatibility(c,u);
-      rgb=clamp(rgb+${CINEMATIC_CELLS.strength}*(gx*local.x+gy*local.y),0.,1.);
+      rgb=clamp(rgb+strength*(gx*local.x+gy*local.y),0.,1.);
     }
     gl_FragColor=vec4(rgb*c.a,c.a);
   }`;
@@ -72,6 +83,7 @@ export class CinematicPixelRenderer {
     for(const axis of [gl.TEXTURE_WRAP_S,gl.TEXTURE_WRAP_T])gl.texParameteri(gl.TEXTURE_2D,axis,gl.CLAMP_TO_EDGE);
     for(const filter of [gl.TEXTURE_MIN_FILTER,gl.TEXTURE_MAG_FILTER])gl.texParameteri(gl.TEXTURE_2D,filter,gl.NEAREST);
     this.position=gl.getAttribLocation(this.program,'position');this.size=gl.getUniformLocation(this.program,'size');
+    this.strengthLocation=gl.getUniformLocation(this.program,'strength');
   }
   _deleteObjects(){
     const gl=this.gl;if(!gl)return;
@@ -107,7 +119,9 @@ export class CinematicPixelRenderer {
       gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,this.texture);
       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);
       gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,source);
-      gl.uniform2f(this.size,source.width,source.height);gl.drawArrays(gl.TRIANGLES,0,3);
+      // Cells as wide as they are drawn here (the capped output, if capped).
+      this.strength=cellStrength(w/source.width);
+      gl.uniform2f(this.size,source.width,source.height);gl.uniform1f(this.strengthLocation,this.strength);gl.drawArrays(gl.TRIANGLES,0,3);
       if(gl.getError()!==gl.NO_ERROR){this.reason='draw-failed';return false;}
       ctx.imageSmoothingEnabled=false;ctx.drawImage(this.canvas,fit.x,fit.y,fit.width,fit.height);
       this.reason=null;return true;

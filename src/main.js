@@ -62,7 +62,7 @@ import { createRenderReadyPlayback, waitForScenicReady } from './render/RenderRe
 import { stageOutputSize } from './render/RenderOutputSize.js';
 import { PixelPresentation, fitPixelRect } from './render/PixelPresentation.js';
 import { FrameCadence } from './render/FrameCadence.js';
-import { readDisplayPrefs, writeDisplayPrefs, resolvePresentation, resolveDisplayPrefs } from './render/DisplayProfile.js';
+import { readDisplayPrefs, writeDisplayPrefs, resolvePresentation, resolveDisplayPrefs, defaultGridFor } from './render/DisplayProfile.js';
 import { emaFps, resolveFpsHudVisible, PresentedFpsMeter } from './render/FpsMeter.js';
 import { LoadingShow } from './ui/LoadingShow.js';
 import { TitleBackdrop } from './ui/TitleBackdrop.js';
@@ -748,7 +748,15 @@ function applyDisplayPref(key, value) {
   // (its finally re-syncs the menu); a change now would save its
   // temporary level and then be undone.
   if (snapshotBusy) return;
+  const previous = displayPrefs;
   displayPrefs = { ...displayPrefs, [key]: value };
+  // Each look runs at its own detail level: choosing Cinematic takes its
+  // grid; leaving it returns to the new look's own unless another level was
+  // chosen meanwhile.
+  if (key === 'look' && value !== previous.look) {
+    if (value === 'cinematic') displayPrefs.pixelGrid = defaultGridFor('cinematic');
+    else if (previous.look === 'cinematic' && previous.pixelGrid === defaultGridFor('cinematic')) displayPrefs.pixelGrid = defaultGridFor(value);
+  }
   presentation = resolvePresentation(displayPrefs);
   writeDisplayPrefs(displayStorage(), displayPrefs);
   syncDisplayControls();

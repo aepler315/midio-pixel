@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import { DEFAULT_DISPLAY_PREFS, resolvePresentation, writeDisplayPrefs } from '../src/render/DisplayProfile.js';
+import { DEFAULT_DISPLAY_PREFS, resolvePresentation, writeDisplayPrefs, defaultGridFor } from '../src/render/DisplayProfile.js';
 import { createPresentingRenderer } from '../src/render/PresentingRenderer.js';
 import { GraphicsResidency } from '../src/render/GraphicsResidency.js';
 const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
@@ -33,6 +33,26 @@ for (const paused of [true, false]) test(`grid controls preserve song time and $
   if (paused) { assert.equal(renderer.getCaptureSource()?.width, 640); assert.equal(recorded, 1); }
   else { assert.equal(renderer.getCaptureSource(), null); assert.equal(recorded, 0); renderer.draw(sim, 1); assert.equal(renderer.getCaptureSource().width, 640); }
   renderer.dispose();
+});
+
+test('choosing Cinematic takes its detail level, and leaving it returns to the next look\'s own', () => {
+  const handlers = {};
+  const control = key => ({ value: '', addEventListener(name, fn) { handlers[key] = fn; } });
+  const controls = { look: control('look'), pixelGrid: control('pixelGrid') };
+  const prefs = { ...DEFAULT_DISPLAY_PREFS, look: 'pixel' };
+  const context = vm.createContext({ displayControls: controls, displayPrefs: prefs, presentation: resolvePresentation(prefs),
+    writeDisplayPrefs() {}, displayStorage: () => null, resolvePresentation, defaultGridFor, syncDisplayControls() {}, perfGovernor: null,
+    paused: true, sim: null, renderer: null, bulkExportArmed: false, console, songRecorder: null, playbackPreparing: false,
+    fitCanvas() {}, snapshotBusy: false });
+  vm.runInContext(binding, context);
+  const set = (key, value) => { controls[key].value = value; handlers[key](); };
+  set('look', 'cinematic');
+  assert.equal(context.displayPrefs.pixelGrid, 'detailed');
+  assert.equal(context.presentation.grid.id, 'detailed');
+  set('look', 'pixel');
+  assert.equal(context.displayPrefs.pixelGrid, 'classic', 'back to Pixel\'s own');
+  set('look', 'cinematic'); set('pixelGrid', 'medium'); set('look', 'palette');
+  assert.equal(context.displayPrefs.pixelGrid, 'medium', 'a level chosen meanwhile stays');
 });
 
 test('a Display change during a snapshot is ignored, never saved over the player\'s level', () => {

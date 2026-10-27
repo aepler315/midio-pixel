@@ -350,6 +350,9 @@ const SITE_FRAG = /* glsl */`
     float halo = spriteHalo(vPx, vR);
     vec3 ring = mix(vColor, vRing, vTwo * smoothstep(0.08, 0.22, r));
     vec3 c = (vec3(1.0) * core * 0.7 + vColor * core * 0.5 + ring * halo * 0.6) * vLit * uGain * (1.0 - 0.85 * vAir) * vSeen;
+    // Resolved on finer grids (Detailed and up) the core passes 1: scale the
+    // whole colour down rather than let one channel clip and shift its hue.
+    c /= max(1.0, max(c.r, max(c.g, c.b)));
     outColor = vec4(c, clamp(max(c.r, max(c.g, c.b)), 0.0, 1.0));
   }
 `;

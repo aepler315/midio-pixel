@@ -10,6 +10,7 @@ import { snapshotSource, serveSnapshot, sha256 } from './lib/visual-evaluation-s
 import { normalizeManifest, captureSchedule, compareReports, blankFrame } from './lib/visual-evaluation.mjs';
 import { openEvaluationSong, renderEvaluationFrame, expectedTourPreparationFailure } from './lib/visual-evaluation-browser.mjs';
 import { attachBrowserDiagnostics, finalizeBrowserDiagnostics } from './lib/browser-diagnostics.mjs';
+import { defaultGridFor } from '../src/render/DisplayProfile.js';
 import { renderRunReport, renderComparisonReport } from './lib/visual-evaluation-report.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -18,7 +19,7 @@ const help = `npm run review:landscape -- --out .smoke/review [--audio song.wav]
   --snapshot DIR       Verified hash-addressed manifest.json + byte files (preserves case)
   --baseline DIR       Compare with a previous review using the same controls
   --look LOOK          pixel or cinematic (default: pixel)
-  --grid GRID          classic, classicPlus, medium, mediumPlus, detailed or both (default: both)
+  --grid GRID          classic, classicPlus, medium, mediumPlus, detailed or both (default: both; detailed for --look cinematic)
   --view ID            Default: teton-range-tour; other IDs select a static catalog view
   --start-ms N         Continuous capture start (default12000)
   --seconds N          Clip length, >0 through10 (default2)
@@ -53,6 +54,8 @@ export function parseReviewArgs(argv) {
   assert.ok(Number.isInteger(a.fps) && a.fps >= 1 && a.fps <= 60, 'fps must be1 through60');
   assert.ok(Number.isInteger(a.liveSeconds) && a.liveSeconds >= 0 && a.liveSeconds <= 300, 'live-seconds must be0 through300');
   if (a.grid) { assert.ok(['classic', 'classicPlus', 'medium', 'mediumPlus', 'detailed', 'both'].includes(a.grid), 'invalid grid'); a.grids = a.grid === 'both' ? ['classic', 'detailed'] : [a.grid]; }
+  // Cinematic runs at its own detail level unless a grid is named.
+  else if (a.look === 'cinematic') a.grids = [defaultGridFor('cinematic')];
   if (a.gpuMatch) assert.ok(a.hardware, '--gpu-match requires --hardware-gpu');
   return a;
 }
