@@ -21,8 +21,18 @@ export const START_MS = 1500;
 const SAMPLE_MS = 250;
 /** A regime holds for seconds: a frame anywhere in this window shows it. */
 export const REGIME_WINDOW_MS = 1500;
-/** A lightning flash decays in 65-165 ms; the window matches its attack. */
-export const FLASH_WINDOW_MS = 100;
+/** A lightning flash decays in 65-165 ms; its window is the attack, while
+ * the painted flash holds at least this share of the strike's peak. */
+export const FLASH_HOLD = 0.5;
+const FLASH_STEP_MS = 5, FLASH_MAX_MS = 200;
+
+/** How long the storm's own flash envelope stays at FLASH_HOLD of the
+ * strike's peak, so a late first draw cannot capture a dark sky. */
+export function flashHoldMs(storm, atMs, peak) {
+  let ms = 0;
+  while (ms + FLASH_STEP_MS <= FLASH_MAX_MS && unit(storm.at(atMs + ms + FLASH_STEP_MS).flash) >= FLASH_HOLD * peak) ms += FLASH_STEP_MS;
+  return ms;
+}
 /** A curve whose peak rises less than this above its surroundings has no
  * real excursion, so the song never visibly reaches that regime. */
 export const MIN_PROMINENCE = 0.2;
@@ -391,8 +401,9 @@ export function highlightPeaks({ durationMs = 0, finale = null, committedThrough
     // A strike flashes at its attack: amp x the deck's amount (RangeStorm).
     const strikes = (storm.strikes || []).map(strike => {
       const amount = storm.at(strike.tMs).amount;
-      return { atMs: strike.tMs, value: amount > .2 ? unit(strike.amp) * amount : 0 };
-    }).filter(s => s.value >= MIN_PROMINENCE && s.atMs >= START_MS && s.atMs + FLASH_WINDOW_MS <= endMs)
+      const value = amount > .2 ? unit(strike.amp) * amount : 0;
+      return { atMs: strike.tMs, value, windowMs: value > 0 ? flashHoldMs(storm, strike.tMs, value) : 0 };
+    }).filter(s => s.value >= MIN_PROMINENCE && s.windowMs > 0 && s.atMs >= START_MS && s.atMs + s.windowMs <= endMs)
       .sort((a, b) => b.value - a.value || a.atMs - b.atMs);
     return { peaks: { storm: curvePeaks(stormSamples.amount, opts, stats), clearing: curvePeaks(stormSamples.clearing, opts, stats) }, strikes };
   });
@@ -432,7 +443,7 @@ export function highlightPeaks({ durationMs = 0, finale = null, committedThrough
     }
   }
   for (const s of weatherPeaks.strikes.filter(s => s.atMs > committedThroughMs).slice(0, MAX_PEAKS_PER_REGIME)) {
-    events.push(regimeEvent('lightning', s.atMs, FLASH_WINDOW_MS, s.value, s.value));
+    events.push(regimeEvent('lightning', s.atMs, s.windowMs, s.value, s.value));
   }
   return events;
 }

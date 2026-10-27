@@ -54,8 +54,10 @@ the live key (One Spectrum), which is not known before the song plays.
 
 ## Capture
 
-The visible window is half-open in heard time: 1.5 s, or 100 ms for a
-lightning strike. A drawn frame inside the window captures unless the finale
+The visible window is half-open in heard time: 1.5 s, or, for a lightning
+strike, only as long as the storm's own flash holds half the strike's peak
+(5-200 ms, sampled from `RangeStorm`), so a late first draw never captures a
+dark sky. A drawn frame inside the window captures unless the finale
 freeze, the opening assembly, a scene arrival, awaited terrain or a cut flash
 hides the picture. Weather regimes also need the drawn Range sky, and palette
 regimes need their settled palette on screen. A window that passes without a

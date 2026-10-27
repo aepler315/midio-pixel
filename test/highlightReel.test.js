@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   HighlightReel, buildHighlightCandidates, selectHighlightCandidates, curvePeaks, highlightRegimeCurves, highlightPeaks,
   highlightFrameState, highlightVisible, MAX_FRAMES, MIN_GAP_MS, START_MS, REGIMES, PEAK_TOLERANCE,
-  REGIME_WINDOW_MS, paletteWarmth,
+  REGIME_WINDOW_MS, paletteWarmth, FLASH_HOLD,
 } from '../src/render/HighlightReel.js';
 import { blendSections } from '../src/world/BiomeSchedule.js';
 import { dayNight } from '../src/world/DayNight.js';
@@ -186,7 +186,14 @@ test('a Landscape squall adds storm regimes and hides the sun behind its deck', 
   assert.ok(storm.strikes.some(s => s.tMs === strike.eventAtMs), 'at a strike attack');
   assert.ok(Math.abs(strike.peakValue - brightest) < 1e-9);
   assert.ok(Math.abs(strike.peakValue - storm.at(strike.eventAtMs).flash) < 1e-9, 'the renderer\'s own flash at that instant');
-  assert.equal(strike.visibleEndMs - strike.visibleStartMs, 100);
+  // Every lightning window ends while the painted flash still holds half
+  // the strike's peak: a late first draw cannot capture a dark sky.
+  for (const e of highlightPeaks({ durationMs, storm, energyCurves }).filter(e => e.category === 'lightning')) {
+    assert.ok(e.visibleEndMs > e.visibleStartMs);
+    for (let t = e.visibleStartMs; t < e.visibleEndMs; t += 1) {
+      assert.ok(storm.at(t).flash >= FLASH_HOLD * e.peakValue - 1e-9, `flash held at ${t}`);
+    }
+  }
   // Without the squall evidence (Trio) the same song has no weather frames.
   assert.ok(buildHighlightCandidates({ durationMs, energyCurves }).every(e => !['storm', 'lightning', 'clearing'].includes(e.category)));
 });
