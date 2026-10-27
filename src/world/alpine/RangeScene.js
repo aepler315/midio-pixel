@@ -368,7 +368,8 @@ export class RangeScene {
   /** The side's mirror image target, reserved as optional light: it may
    *  not evict anything resident to fit, and anything may evict it. */
   _ensureMirror(side) {
-    const { width, height } = mirrorSize(this.size.width, this.size.height);
+    const scale = Math.max(1, this.waterOutputScale || 1);
+    const { width, height } = mirrorSize(this.size.width * scale, this.size.height * scale);
     const identity = `${width}x${height}:${this.contextEpoch}`;
     const have = this.mirrors[side];
     if (have && have.identity === identity) return have;
@@ -410,7 +411,8 @@ export class RangeScene {
     const wanted = !this.contextLost && rangeQuality(frame?.qualityLevel).waterMirror
       && [...this.prepared.values()].some((p) => Number.isFinite(p.mirrorLevelM));
     if (!wanted || !ctx?.canvas || !(stage?.width > 0)) { this.releaseBackdrop(); return false; }
-    const { width, height } = mirrorSize(this.size.width, this.size.height);
+    const scale = Math.max(1, this.waterOutputScale || 1);
+    const { width, height } = mirrorSize(this.size.width * scale, this.size.height * scale);
     let b = this.backdrop;
     if (!b || b.width !== width || b.height !== height || b.epoch !== this.contextEpoch) {
       this.releaseBackdrop();
@@ -559,6 +561,13 @@ export class RangeScene {
   }
 
   isReady(viewId) { return this.prepared.has(viewId) && !this.contextLost; }
+
+  /** Conservative capability check: sampled lake water or mapped river
+   * geometry. A dry view must not pay for the optional water passes. */
+  hasWater(viewId) {
+    const p = this.prepared.get(viewId);
+    return !!p && (Number.isFinite(p.waterLevelM) || (p.riverStats?.triangles || 0) > 0);
+  }
 
   replaceTour(view) {
     const p=this.prepared.get(view.id);if(!p?.windowCache)return;
@@ -2353,6 +2362,71 @@ export class RangeScene {
     return this.canvas;
   }
 
+  /** Render water at display resolution against the complete terrain and
+   * forest depth. The caller must copy the returned transient canvas before
+   * another scene render. A refused allocation leaves the native pass intact. */
+  renderWater(frame, viewId, width, height, { capture = false } = {}) {
+    const p = this.prepared.get(viewId);
+    if (!p || this.contextLost || !this.target || !(width > 0 && height > 0)) return null;
+    const w = Math.max(2, Math.round(width)), h = Math.max(2, Math.round(height));
+    const native = !capture && w === this.size.width && h === this.size.height;
+    const property = capture ? 'captureWaterTarget' : native ? 'nativeWaterTarget' : 'waterTarget';
+    const key = capture ? 'range:water-capture-output' : native ? 'range:water-native-mask' : 'range:water-output';
+    if (!this[property] || this[property].width !== w || this[property].height !== h) {
+      if (this.residency) this.residency.release(key); else this[property]?.dispose();
+      this[property] = null;
+      const protect = [...(this.residency?.entries.keys() || [])];
+      // Colour, depth and drawing buffer. Never evict the terrain to add water.
+      const res = this.residency?.reserve({ key, bytes: w * h * 12, owner: 'range-water-output', protect });
+      if (this.residency && !res) return null;
+      const target = this._scenicTarget(w, h);
+      this[property] = target;
+      if (res && !this.residency.commit(res, target, t => {
+        t.dispose(); if (this[property] === t) this[property] = null;
+      })) { this[property] = null; target.dispose(); return null; }
+    }
+    const r = this.renderer, u = p.uniforms, hidden = [];
+    this._setCamera(p.view, frame, p);
+    this._setUniforms(p, frame);
+    this._prepareMirror(p, frame, 'A', viewId);
+    u.uViewportPx.value.set(w, h);
+    r.setRenderTarget(this[property]);
+    r.setClearColor(0x000000, 0);
+    r.clear(true, true, false);
+    try {
+      // Terrain and the hard forest cut hide water behind land and trees.
+      this.camera.layers.set(0); this.camera.layers.enable(2);
+      r.render(p.depthScene, this.camera);
+      this.camera.layers.set(0);
+      // Non-partitioned forest meshes share layer 0 with terrain.
+      for (const band of BANDS) for (const mesh of p.forest?.byBand?.[band] || []) {
+        hidden.push([mesh, mesh.visible]); mesh.visible = false;
+      }
+      u.uWaterOnly.value = 1;
+      for (const band of BANDS) r.render(p.scenes[band], this.camera);
+      u.uWaterOnly.value = 0;
+      r.setRenderTarget(null);
+      this._setCanvasSize(w, h);
+      r.clear(true, true, false);
+      this._copyTexture(this[property].texture);
+      return this.canvas;
+    } finally {
+      u.uWaterOnly.value = 0;
+      u.uViewportPx.value.set(this.size.width, this.size.height);
+      for (const [mesh, visible] of hidden) mesh.visible = visible;
+      this.camera.layers.set(0); this.camera.layers.enable(3);
+      r.setRenderTarget(null);
+    }
+  }
+
+  releaseWaterTarget() {
+    if (this.residency) { this.residency.release('range:water-output'); this.residency.release('range:water-native-mask'); this.residency.release('range:water-capture-output'); }
+    else { this.waterTarget?.dispose(); this.nativeWaterTarget?.dispose(); this.captureWaterTarget?.dispose(); }
+    this.waterTarget = null;
+    this.nativeWaterTarget = null;
+    this.captureWaterTarget = null;
+  }
+
   /**
    * Render the fixed-ground rock stage for `frame` at the ground backing
    * size and return { canvas, stage } -- the canvas valid until the next
@@ -2417,6 +2491,7 @@ export class RangeScene {
   }
 
   _invalidateContext() {
+    this.releaseWaterTarget();
     this.releaseShafts();
     this.releaseBackdrop();
     this.releaseMirror('A');
@@ -2449,6 +2524,7 @@ export class RangeScene {
   }
 
   dispose() {
+    this.releaseWaterTarget();
     this.releaseShafts();
     this.releaseBackdrop();
     this.releaseMirror('A');

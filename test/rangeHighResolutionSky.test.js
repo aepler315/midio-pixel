@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { skyProjector, createSkyCatalogue, cloudDensity, RangeSkyRenderer } from '../src/world/alpine/RangeSkyRenderer.js';
+import { skyProjector, createSkyCatalogue, createGalacticClouds, cloudDensity, RangeSkyRenderer } from '../src/world/alpine/RangeSkyRenderer.js';
 import { GraphicsResidency } from '../src/render/GraphicsResidency.js';
 import { TWILIGHT } from '../src/world/DayNight.js';
 
@@ -56,14 +56,14 @@ test('sky textures use smooth sampling even after native pixel terrain presentat
     createLinearGradient() { return { addColorStop() {} }; }, fillRect() {},
   };
   let inspected = 0;
-  for (const method of ['_stars', '_aurora', '_bodies', '_clouds']) sky[method] = c => {
+  for (const method of ['_milkyWay', '_stars', '_aurora', '_bodies', '_clouds']) sky[method] = c => {
     assert.equal(c.imageSmoothingEnabled, true);
     assert.equal(c.imageSmoothingQuality, 'high');
     inspected++;
   };
   sky.draw(ctx, { camera: { tourPose: { eyeM: [0, 0, 0], targetM: [0, 0, -1], fovYDeg: 50, aspect: 16 / 9 } },
     seed: 3, sourceWidth: 1280, sourceHeight: 720, night: 1, timeSec: 1, colors: { top: '#000', mid: '#123', horizon: '#456' } });
-  assert.equal(inspected, 4);
+  assert.equal(inspected, 5);
   assert.equal(ctx.imageSmoothingEnabled, false, 'the caller retains its native terrain sampling policy');
   sky.dispose();
 });
@@ -114,6 +114,9 @@ test('the star catalogue and cloud density reconstruct after seeks without frame
   const stars = createSkyCatalogue(41);
   assert.ok(stars.length >= 1500);
   for (const star of stars) assert.ok(Math.abs(Math.hypot(...star.direction) - 1) < 1e-10);
+  assert.deepEqual(createGalacticClouds(41), createGalacticClouds(41));
+  assert.notDeepEqual(createGalacticClouds(41), createGalacticClouds(42));
+  assert.equal(createGalacticClouds(41).length, 432);
   const density = Array.from({ length: 64 }, (_, i) => cloudDensity(i % 8 / 7, Math.floor(i / 8) / 7, 41));
   assert.ok(density.every(Number.isFinite));
   assert.ok(density.some(d => d > .25) && density.some(d => d === 0), 'clouds contain opaque structure and open gaps');
@@ -132,7 +135,7 @@ function recordingContext() {
     restore() { [this.globalAlpha, this.globalCompositeOperation, this.fillStyle] = stack.pop(); },
     getTransform: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }),
     createRadialGradient: (...args) => Object.assign(gradient('radial'), { args }), createLinearGradient: () => gradient('linear'),
-    translate() {}, scale() {}, rotate() {}, beginPath() {}, arc() {}, ellipse() {}, closePath() {}, clip() {},
+    translate() {}, scale() {}, rotate() {}, beginPath() {}, rect() {}, arc() {}, ellipse() {}, closePath() {}, clip() {},
     fillRect(...rect) { paint(this, 'fillRect', { rect }); },
     fill() { paint(this, 'fill'); },
     drawImage(image, ...rect) { paint(this, 'drawImage', { image, rect }); },
@@ -343,10 +346,63 @@ test('stars behind the moon are cut out, and fade with a fading disc', () => {
   assert.deepEqual(alphas({ ...disc(1), visible: false }), [open, other]);
 });
 
+test('stars fade in through twilight and are absent in daylight', () => {
+  const sky = new RangeSkyRenderer();
+  sky.stars = [{ direction: [0, .5, -1], brightness: .5, radius: .5, phase: 0, color: 0 }];
+  const project = () => ({ xFrac: .4, yFrac: .2, visible: true });
+  const alpha = night => {
+    const { ctx, ops } = recordingContext();
+    sky._stars(ctx, project, 1280, 720, night, 0, true, null);
+    return ops.filter(op => op.op === 'fill').reduce((sum, op) => sum + alphaOf(op.style), 0);
+  };
+  assert.equal(alpha(0), 0);
+  assert.ok(alpha(.5) > 0);
+  assert.ok(alpha(1) > alpha(.5));
+  sky.dispose();
+});
+
+test('star footprints have the same output size across native pixel grids', () => {
+  const sky = new RangeSkyRenderer();
+  sky.stars = [{ direction: [0, .5, -1], brightness: .5, radius: .35, phase: 0, color: 0 }];
+  const project = () => ({ xFrac: .4, yFrac: .2, visible: true });
+  const outputRadius = (height, scale) => {
+    const { ctx } = recordingContext();
+    ctx.getTransform = () => ({ a: scale, b: 0 });
+    let radius = null;
+    ctx.arc = (x, y, r) => { radius = r; };
+    sky._stars(ctx, project, height * 16 / 9, height, 1, 0, true, null);
+    return radius * scale;
+  };
+  assert.ok(Math.abs(outputRadius(180, 4) - outputRadius(360, 2)) < 1e-12);
+  sky.dispose();
+});
+
+test('galactic clouds fade with daylight and storm and respect the moon mask', () => {
+  const sky = new RangeSkyRenderer();
+  sky.galacticClouds = [{ direction: [0, .5, -1], opacity: 1, radius: .1, warm: false }];
+  const project = () => ({ xFrac: .5, yFrac: .3, inFront: true });
+  project.focal = 1;
+  const render = (night, storm, moon) => {
+    const { ctx, ops } = recordingContext();
+    let clipped = false;
+    ctx.clip = rule => { assert.equal(rule, 'evenodd'); clipped = true; };
+    sky._milkyWay(ctx, project, 1280, 720, night, storm, moon);
+    return { clipped, opacity: ops.filter(op => op.op === 'fillRect').reduce((sum, op) => sum + peakAlpha(op), 0) };
+  };
+  assert.equal(render(0, null, null).opacity, 0);
+  const clear = render(1, null, null);
+  assert.ok(clear.opacity > 0);
+  assert.ok(render(1, { amount: 1 }, null).opacity < clear.opacity);
+  const covered = render(1, null, { visible: true, x: 100, y: 100, r: 20, cover: 1 });
+  assert.ok(covered.clipped);
+  assert.equal(covered.opacity, clear.opacity);
+  sky.dispose();
+});
+
 test('the sky passes its output scale to the bodies', () => {
   const sky = new RangeSkyRenderer();
   let scale = null;
-  for (const method of ['_stars', '_aurora', '_clouds']) sky[method] = () => {};
+  for (const method of ['_milkyWay', '_stars', '_aurora', '_clouds']) sky[method] = () => {};
   sky._bodies = (ctx, frame, width, height, night, outputScale) => { scale = outputScale; };
   const { ctx } = recordingContext();
   ctx.getTransform = () => ({ a: 0, b: 2, c: -2, d: 0, e: 5, f: 5 });

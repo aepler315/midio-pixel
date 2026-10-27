@@ -367,6 +367,8 @@ export const SCENE_FRAG = /* glsl */`
   uniform float uMirrorLevel;
   uniform float uMirrorRipple;
   uniform float uClipBelow;
+  // An optional full-resolution pass draws only water from the same geometry.
+  uniform float uWaterOnly;
   uniform vec2 uViewportPx;
   // The 2D backdrop (sky, aurora, distant ranges) as the stage shows it,
   // and the camera's view-projection to find where a reflected ray meets it.
@@ -572,6 +574,7 @@ export const SCENE_FRAG = /* glsl */`
     waterCoverage = 1.0;
     #endif
     bool water = waterCoverage > .5 && ice.y < 0.01;
+    if (uWaterOnly > 0.5 && !water) discard;
     float flowN = clamp(flow / 254.0, 0.0, 1.0);
     float h = vWorld.y;
     vec3 albedo;
@@ -1008,7 +1011,7 @@ export function sceneUniforms(THREE, base) {
     uNarrativeInk: { value: 0 },
     // Lake mirror (WaterMirror.js), off until the scene draws one.
     uMirror: { value: null }, uMirrorMatrix: { value: new THREE.Matrix4() }, uMirrorAmount: { value: 0 },
-    uMirrorLevel: { value: 0 }, uMirrorRipple: { value: 0 }, uClipBelow: { value: -1e9 },
+    uMirrorLevel: { value: 0 }, uMirrorRipple: { value: 0 }, uClipBelow: { value: -1e9 }, uWaterOnly: { value: 0 },
     uViewportPx: { value: new THREE.Vector2(1, 1) },
     uBackdrop: { value: null }, uBackdropAmount: { value: 0 }, uViewProj: { value: new THREE.Matrix4() },
     tRock: { value: null }, sRock: { value: 150 }, tRockNear: { value: null }, sRockNear: { value: 6 },

@@ -37,7 +37,7 @@ function snapshot(manager) {
   return manager.rangeSkyLayer;
 }
 function weatherOnly(sky) {
-  for (const method of ['_stars', '_aurora', '_bodies', '_clouds']) sky[method] = () => {};
+  for (const method of ['_milkyWay', '_stars', '_aurora', '_bodies', '_clouds']) sky[method] = () => {};
   return sky;
 }
 

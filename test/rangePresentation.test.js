@@ -935,3 +935,43 @@ test('the moon\'s illuminant stays continuous across the long-song sunrise, wher
   assert.ok(Math.abs(drawn[2].angle - illuminant[2]) < 1e-9, 'the painter receives that same illuminant');
   m.dispose();
 });
+
+test('water pass uses native shoreline mask and clears its previous frame during travel', () => {
+  const operations = [];
+  const makeCanvas = (width, height) => {
+    const c = { width, height };
+    const context = {
+      setTransform() {}, clearRect() {},
+      drawImage() { operations.push(this.globalCompositeOperation || 'source-over'); },
+      globalCompositeOperation: 'source-over',
+    };
+    c.getContext = () => context;
+    return c;
+  };
+  const p = new RangePresentation({ makeCanvas });
+  const calls = [];
+  p.scene = { size: { width: 320, height: 180 }, renderWater(frame, id, w, h) {
+    calls.push([w, h]); return { width: w, height: h };
+  } };
+  p.frame = {}; p.viewId = 'test'; p.arrival = 1;
+  p.waterOutputSize = { width: 960, height: 540 };
+  p.waterEffectMask = makeCanvas(320, 180);
+  const context = { canvas: { width: 320, height: 180 }, getTransform: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }) };
+  p._keepWater(context, { width: 320, height: 180 });
+  assert.deepEqual(calls, [[320, 180], [960, 540]]);
+  assert.ok(operations.includes('destination-in'));
+  assert.ok(operations.includes('destination-out'));
+  assert.ok(p.waterLayer);
+  const captured = p._captureWaterLayer(1920, 1080);
+  assert.ok(captured);
+  assert.deepEqual(calls, [[320, 180], [960, 540], [1920, 1080]]);
+  assert.equal(p._captureWaterLayer(1920, 1080), captured);
+  assert.equal(calls.length, 3, 'repeat capture of one completed frame reuses the layer');
+  p.setFrameInputs({});
+  assert.equal(p.waterLayer, null);
+  assert.equal(p._captureWaterLayer(1920, 1080), null);
+  p.incomingViewId = 'next';
+  p._keepWater(context, { width: 320, height: 180 });
+  assert.equal(p.waterLayer, null);
+  assert.equal(calls.length, 3);
+});

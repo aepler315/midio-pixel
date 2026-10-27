@@ -101,6 +101,11 @@ export const V2_TRAVEL_BANDS = 16;
 export const TRAVEL_SCRATCH_KEY = 'range:travel-scratch';
 /** The cast layer the presenter lays smoothly over the pixel frame. */
 export const CAST_LAYER_KEY = 'range:cast-layer';
+const WATER_LAYER_KEY = 'range:water-layer';
+const WATER_EFFECT_MASK_KEY = 'range:water-effect-mask';
+const WATER_SHORE_MASK_KEY = 'range:water-shore-mask';
+const NEAR_OCCLUSION_KEY = 'range:near-occlusion-mask';
+const WATER_CAPTURE_KEY = 'range:water-capture-layer';
 
 const fade01 = (u) => (u <= 0 ? 0 : u >= 1 ? 1 : u * u * (3 - 2 * u));
 
@@ -159,6 +164,8 @@ export class RangePresentation {
     // draws in the band passes, on the grid.
     this.castForeground = false;
     this.castLayer = null; // this frame's cast, for drawCastForeground
+    this.waterLayer = null;
+    this.waterOutputSize = null;
     this._castCanvas = null;
     this.scene = null;
     this.runtimeState = mode === 'v2' ? 'idle' : 'off'; // idle | loading | ready | failed | off
@@ -589,6 +596,10 @@ export class RangePresentation {
 
   /** Renderer: this frame's inputs, before BiomeManager.draw. */
   setFrameInputs({ sim, pose, scenicViewport, groundViewport }) {
+    this.waterLayer = null;
+    this.waterEffectMask = null;
+    this.waterRecipe = null;
+    this.nearOcclusionMask = null;
     this.frameInputs = { sim, pose, scenicViewport, groundViewport };
   }
 
@@ -804,6 +815,9 @@ export class RangePresentation {
       this.scene.resize({ widthPx: vp.backingWidth, heightPx: vp.backingHeight, pixelRatio: vp.pixelRatio || 1,
         quality: inputs.sim.perf?.level ?? 0, pixelated: !!this.pixelated, cinematicPixel: !!this.cinematicPixel, pixelScale: 'original',
         pixelHeightPx: this.pixelPolicy?.grid?.height ?? null });
+      this.scene.waterOutputScale = this.waterOutputSize && this.pixelPolicy?.grid
+        ? Math.min(4, this.waterOutputSize.width / this.pixelPolicy.grid.width, this.waterOutputSize.height / this.pixelPolicy.grid.height)
+        : 1;
     } catch (err) {
       this.reason = `budget: ${err.message}`;
       // The render target was refused room: let the owner free fallback
@@ -1023,7 +1037,10 @@ export class RangePresentation {
         timed(() => this.scene.renderPartition(this.frame, pass, this.viewId, { side: 'A', bandColumns: cols.A })),
         timed(() => this.scene.renderPartition(this.frame, pass, this.incomingViewId, { side: 'B', bandColumns: cols.B })));
       this._noteTiming(renderMs, performance.now() - t0 - renderMs);
-      if (drawn) this.lastPartition = { pass, ...this._lastComposite, arrival: this.arrival, shafted: !!this.scene.lastShafted };
+      if (drawn) {
+        this.lastPartition = { pass, ...this._lastComposite, arrival: this.arrival, shafted: !!this.scene.lastShafted };
+        if (pass === 'near') this._recordNearOcclusion(ctx, stage, this._lastComposite.image, this._lastComposite.width, this._lastComposite.height);
+      }
       return drawn;
     }
     const img = this.scene.renderPartition(this.frame, pass, this.viewId);
@@ -1038,8 +1055,213 @@ export class RangePresentation {
     // light that belongs on this terrain can use them as its mask.
     this.lastPartition = { pass, image: img, width: img.width, height: img.height,
       arrival: this.arrival, shafted: !!this.scene.lastShafted };
+    if (pass === 'near') this._recordNearOcclusion(ctx, stage, img, img.width, img.height);
     this._noteTiming(t1 - t0, performance.now() - t1);
     if (pass === 'near' && this.castForeground && !this.scene.castInBands) this._keepCast(ctx, stage);
+    if (pass === 'near') this._keepWater(ctx, stage);
+    return true;
+  }
+
+  /** Reserve the mask before mid-depth effects are diverted. An empty mask
+   * is valid if this frame has no drawable near partition. */
+  prepareNearOcclusion(ctx) {
+    this.nearOcclusionMask = null;
+    if (!ctx.canvas) return false;
+    const w = ctx.canvas.width, h = ctx.canvas.height;
+    let canvas = this._nearOcclusionCanvas;
+    if (!canvas || canvas.width !== w || canvas.height !== h || this.residency && this.residency.get(NEAR_OCCLUSION_KEY) !== canvas) {
+      this._releaseNearOcclusion();
+      const res = this.residency?.reserve({ key: NEAR_OCCLUSION_KEY, bytes: w * h * 4, owner: 'range-near-occlusion', evictable: false });
+      if (this.residency && !res) return false;
+      canvas = this._makeCanvas(w, h); this._nearOcclusionCanvas = canvas;
+      if (res && !this.residency.commit(res, canvas, c => { c.width = c.height = 0; if (this._nearOcclusionCanvas === c) this._nearOcclusionCanvas = null; })) {
+        this._nearOcclusionCanvas = null; return false;
+      }
+    }
+    const out = canvas.getContext('2d');
+    if (!out) return false;
+    out.setTransform(1, 0, 0, 1, 0, 0); out.clearRect(0, 0, w, h);
+    this.nearOcclusionMask = canvas;
+    return true;
+  }
+
+  /** Preserve the near partition's actual native alpha immediately, before
+   * the shared scene canvas is reused. During travel this is the already
+   * blended near seam, including its incoming and arrival fades. */
+  _recordNearOcclusion(ctx, stage, image, width, height) {
+    if (!this.nearOcclusionMask || !image || !ctx.getTransform) return;
+    const canvas = this.nearOcclusionMask, out = canvas.getContext('2d'), t = ctx.getTransform();
+    if (!out) { this.nearOcclusionMask = null; return; }
+    out.setTransform(t.a, t.b, t.c, t.d, t.e, t.f);
+    out.globalAlpha = this.arrival; out.globalCompositeOperation = 'source-over'; out.imageSmoothingEnabled = false;
+    out.drawImage(image, 0, 0, width, height, 0, 0, stage.width, stage.height);
+    out.globalAlpha = 1;
+  }
+
+  _releaseNearOcclusion() {
+    this.nearOcclusionMask = null;
+    if (this.residency) this.residency.release(NEAR_OCCLUSION_KEY);
+    else if (this._nearOcclusionCanvas) this._nearOcclusionCanvas.width = this._nearOcclusionCanvas.height = 0;
+    this._nearOcclusionCanvas = null;
+  }
+
+  /** Record mid-depth 2D coverage so a later smooth water pass cannot paint
+   * over particles or weather which belonged above a middle-distance lake. */
+  drawMidDepthForWater(ctx, frame, draw) {
+    this.waterEffectMask = null;
+    if (!this.waterOutputSize || this.incomingViewId || this.arrival < .999 || !ctx.canvas
+      || (this.frame?.qualityLevel ?? 0) >= 4 || this.scene?.hasWater && !this.scene.hasWater(this.viewId)) { draw(frame); return; }
+    const w = ctx.canvas.width, h = ctx.canvas.height;
+    let c = this._waterEffectCanvas;
+    if (!c || c.width !== w || c.height !== h || this.residency && this.residency.get(WATER_EFFECT_MASK_KEY) !== c) {
+      this._releaseWaterEffects();
+      const res = this.residency?.reserve({ key: WATER_EFFECT_MASK_KEY, bytes: w * h * 4, owner: 'range-water' });
+      if (this.residency && !res) { draw(frame); return; }
+      c = this._makeCanvas(w, h); this._waterEffectCanvas = c;
+      if (res && !this.residency.commit(res, c, x => { x.width = x.height = 0; if (this._waterEffectCanvas === x) this._waterEffectCanvas = null; })) {
+        this._waterEffectCanvas = null; draw(frame); return;
+      }
+    }
+    const effect = c.getContext('2d');
+    if (!effect) { draw(frame); return; }
+    effect.setTransform(1, 0, 0, 1, 0, 0); effect.clearRect(0, 0, w, h);
+    const t = ctx.getTransform(); effect.setTransform(t.a, t.b, t.c, t.d, t.e, t.f);
+    // Keep the original blend against the scene. The second draw records
+    // only coverage; its colours never enter the completed frame.
+    draw(frame);
+    draw({ ...frame, ctx: effect });
+    // Partial alpha would blend the native effect a second time when water
+    // is overlaid. Keep the already-composited native pixel wherever any
+    // effect touched it, including antialiased edges.
+    try {
+      const pixels = effect.getImageData(0, 0, w, h);
+      for (let i = 3; i < pixels.data.length; i += 4) if (pixels.data[i]) pixels.data[i] = 255;
+      effect.setTransform(1, 0, 0, 1, 0, 0); effect.putImageData(pixels, 0, 0);
+    } catch { return; }
+    this.waterEffectMask = c;
+  }
+
+  _releaseWaterEffects() {
+    this.waterEffectMask = null;
+    if (this.residency) this.residency.release(WATER_EFFECT_MASK_KEY);
+    else if (this._waterEffectCanvas) this._waterEffectCanvas.width = this._waterEffectCanvas.height = 0;
+    this._waterEffectCanvas = null;
+  }
+
+  _releaseWater() {
+    this.waterLayer = null;
+    this.waterRecipe = null;
+    if (this.residency) this.residency.release(WATER_CAPTURE_KEY);
+    else if (this._waterCaptureCanvas) this._waterCaptureCanvas.width = this._waterCaptureCanvas.height = 0;
+    this._waterCaptureCanvas = null;
+    if (this.residency) this.residency.release(WATER_LAYER_KEY);
+    else if (this._waterCanvas) this._waterCanvas.width = this._waterCanvas.height = 0;
+    this._waterCanvas = null;
+    if (this.residency) this.residency.release(WATER_SHORE_MASK_KEY);
+    else if (this._waterShoreMask) this._waterShoreMask.width = this._waterShoreMask.height = 0;
+    this._waterShoreMask = null;
+    this.scene?.releaseWaterTarget?.();
+  }
+
+  _keepWater(ctx, stage) {
+    this.waterLayer = null;
+    if (!this.waterOutputSize || !this.waterEffectMask || this.incomingViewId || this.arrival < .999 || !this.scene?.renderWater) return;
+    const scale = Math.min(this.waterOutputSize.width / ctx.canvas.width, this.waterOutputSize.height / ctx.canvas.height,
+      1920 / ctx.canvas.width, 1080 / ctx.canvas.height);
+    const w = Math.max(2, Math.round(ctx.canvas.width * scale)), h = Math.max(2, Math.round(ctx.canvas.height * scale));
+    let c = this._waterCanvas;
+    if (!c || c.width !== w || c.height !== h || this.residency && this.residency.get(WATER_LAYER_KEY) !== c) {
+      this._releaseWater();
+      const res = this.residency?.reserve({ key: WATER_LAYER_KEY, bytes: w * h * 4, owner: 'range-water' });
+      if (this.residency && !res) return;
+      c = this._makeCanvas(w, h); this._waterCanvas = c;
+      if (res && !this.residency.commit(res, c, x => { x.width = x.height = 0; if (this._waterCanvas === x) this._waterCanvas = null; })) {
+        this._waterCanvas = null; return;
+      }
+    }
+    const nativeWidth = ctx.canvas.width, nativeHeight = ctx.canvas.height;
+    let mask = this._waterShoreMask;
+    if (!mask || mask.width !== nativeWidth || mask.height !== nativeHeight || this.residency && this.residency.get(WATER_SHORE_MASK_KEY) !== mask) {
+      if (this.residency) this.residency.release(WATER_SHORE_MASK_KEY);
+      const res = this.residency?.reserve({ key: WATER_SHORE_MASK_KEY, bytes: nativeWidth * nativeHeight * 4, owner: 'range-water' });
+      if (this.residency && !res) return;
+      mask = this._makeCanvas(nativeWidth, nativeHeight); this._waterShoreMask = mask;
+      if (res && !this.residency.commit(res, mask, x => { x.width = x.height = 0; if (this._waterShoreMask === x) this._waterShoreMask = null; })) {
+        this._waterShoreMask = null; return;
+      }
+    }
+    const low = this.scene.renderWater(this.frame, this.viewId, this.scene.size.width, this.scene.size.height);
+    if (!low) return;
+    const maskCtx = mask.getContext('2d'), t = ctx.getTransform();
+    maskCtx.setTransform(1, 0, 0, 1, 0, 0); maskCtx.clearRect(0, 0, nativeWidth, nativeHeight);
+    maskCtx.imageSmoothingEnabled = false;
+    maskCtx.setTransform(t.a, t.b, t.c, t.d, t.e, t.f);
+    maskCtx.drawImage(low, 0, 0, stage.width, stage.height);
+    const img = this.scene.renderWater(this.frame, this.viewId, this.scene.size.width * scale, this.scene.size.height * scale);
+    if (!img) return;
+    const out = c.getContext('2d');
+    out.setTransform(1, 0, 0, 1, 0, 0); out.clearRect(0, 0, w, h);
+    out.setTransform(scale * t.a, scale * t.b, scale * t.c, scale * t.d, scale * t.e, scale * t.f);
+    out.drawImage(img, 0, 0, stage.width, stage.height);
+    out.setTransform(1, 0, 0, 1, 0, 0); out.globalCompositeOperation = 'destination-in';
+    out.imageSmoothingEnabled = false; out.drawImage(mask, 0, 0, w, h);
+    out.setTransform(1, 0, 0, 1, 0, 0); out.globalCompositeOperation = 'destination-out';
+    out.imageSmoothingEnabled = false; out.drawImage(this.waterEffectMask, 0, 0, w, h);
+    out.globalCompositeOperation = 'source-over';
+    this.waterLayer = c;
+    this.waterRecipe = { frame: this.frame, viewId: this.viewId, nativeWidth, nativeHeight,
+      stageWidth: stage.width, stageHeight: stage.height, matrix: [t.a, t.b, t.c, t.d, t.e, t.f],
+      shoreMask: mask, effectMask: this.waterEffectMask, sceneWidth: this.scene.size.width, sceneHeight: this.scene.size.height };
+  }
+
+  /** Captures can exceed the live window. Re-run the same frame and camera
+   * at capture size, while retaining the exact native shoreline and effect
+   * masks. On budget/context failure the already completed layer remains. */
+  _captureWaterLayer(width, height) {
+    const recipe = this.waterRecipe;
+    if (!recipe || recipe.frame !== this.frame || !recipe.shoreMask?.width || !recipe.effectMask?.width) return null;
+    const scale = Math.min(width / recipe.nativeWidth, height / recipe.nativeHeight);
+    const w = Math.max(2, Math.round(recipe.nativeWidth * scale)), h = Math.max(2, Math.round(recipe.nativeHeight * scale));
+    if (w <= this.waterLayer.width && h <= this.waterLayer.height) return this.waterLayer;
+    let canvas = this._waterCaptureCanvas;
+    if (!canvas || canvas.width !== w || canvas.height !== h || this.residency && this.residency.get(WATER_CAPTURE_KEY) !== canvas) {
+      if (this.residency) this.residency.release(WATER_CAPTURE_KEY);
+      else if (canvas) canvas.width = canvas.height = 0;
+      this._waterCaptureCanvas = null;
+      recipe.captureWidth = recipe.captureHeight = null;
+      const protect = [...(this.residency?.entries.keys() || [])];
+      const res = this.residency?.reserve({ key: WATER_CAPTURE_KEY, bytes: w * h * 4, owner: 'range-water-capture', protect });
+      if (this.residency && !res) return null;
+      canvas = this._makeCanvas(w, h); this._waterCaptureCanvas = canvas;
+      if (res && !this.residency.commit(res, canvas, c => { c.width = c.height = 0; if (this._waterCaptureCanvas === c) this._waterCaptureCanvas = null; })) {
+        this._waterCaptureCanvas = null; return null;
+      }
+    }
+    if (recipe.captureWidth === w && recipe.captureHeight === h) return canvas;
+    const img = this.scene.renderWater(recipe.frame, recipe.viewId, recipe.sceneWidth * scale, recipe.sceneHeight * scale, { capture: true });
+    if (!img) return null;
+    const out = canvas.getContext('2d'), m = recipe.matrix;
+    if (!out) return null;
+    out.setTransform(1, 0, 0, 1, 0, 0); out.clearRect(0, 0, w, h);
+    out.setTransform(scale * m[0], scale * m[1], scale * m[2], scale * m[3], scale * m[4], scale * m[5]);
+    out.drawImage(img, 0, 0, recipe.stageWidth, recipe.stageHeight);
+    out.setTransform(1, 0, 0, 1, 0, 0); out.imageSmoothingEnabled = false;
+    out.globalCompositeOperation = 'destination-in'; out.drawImage(recipe.shoreMask, 0, 0, w, h);
+    out.globalCompositeOperation = 'destination-out'; out.drawImage(recipe.effectMask, 0, 0, w, h);
+    out.globalCompositeOperation = 'source-over';
+    recipe.captureWidth = w; recipe.captureHeight = h;
+    return canvas;
+  }
+
+  drawWaterForeground(ctx, fit, caption = null, { capture = false } = {}) {
+    const c = this.waterLayer && (capture ? this._captureWaterLayer(fit.width, fit.height) || this.waterLayer : this.waterLayer);
+    if (!c?.width) return true;
+    const b = caption?.plate > 0 ? caption.bounds : null, s = fit.scale;
+    ctx.save(); ctx.beginPath(); ctx.rect(fit.x, fit.y, fit.width, fit.height);
+    if (b) ctx.rect(fit.x + s * b.x, fit.y + s * b.y, s * b.width, s * b.height);
+    ctx.clip(b ? 'evenodd' : 'nonzero');
+    ctx.globalCompositeOperation = 'source-over'; ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(c, fit.x, fit.y, fit.width, fit.height); ctx.restore();
     return true;
   }
 
@@ -1335,6 +1557,9 @@ export class RangePresentation {
   }
 
   dispose() {
+    this._releaseNearOcclusion();
+    this._releaseWater();
+    this._releaseWaterEffects();
     this._readinessOwner = {};
     this._tourAbort?.abort();
     this._replanAbort?.abort();

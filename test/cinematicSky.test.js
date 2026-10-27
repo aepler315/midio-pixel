@@ -121,9 +121,9 @@ test('cinematic tint allocation refusal paints the established current cloud wit
   assert.equal(f.residency.usedBytes, 0);
 });
 
-test('cinematic sky leaves the Classic gradient recipe exact and reduces faint sky activity', () => {
+test('cinematic sky leaves the Classic gradient recipe exact and selects its sky treatment', () => {
   const sky = new RangeSkyRenderer(), seen = [];
-  for (const name of ['_stars', '_aurora', '_bodies', '_clouds']) sky[name] = (...args) => seen.push([name, args]);
+  for (const name of ['_milkyWay', '_stars', '_aurora', '_bodies', '_clouds']) sky[name] = (...args) => seen.push([name, args]);
   const classic = outputFixture(), cinematic = outputFixture();
   try {
     sky.draw(classic.ctx, frame);
@@ -136,7 +136,7 @@ test('cinematic sky leaves the Classic gradient recipe exact and reduces faint s
   } finally { sky.dispose(); }
 });
 
-test('cinematic sparse stars depend on authored brightness rather than animated twinkle', () => {
+test('cinematic sky preserves faint stars and their positions while brightness twinkles', () => {
   const sky = new RangeSkyRenderer();
   sky.stars = [.12, .2, .4, .9].map(brightness => ({ brightness, radius: .5, phase: 0, color: 0, direction: [0, .2, -1] }));
   const draw = (time, cinematic) => {
@@ -148,8 +148,21 @@ test('cinematic sparse stars depend on authored brightness rather than animated 
   };
   try {
     assert.equal(draw(0, false).length, 4);
-    assert.equal(draw(0, true).length, 2);
+    assert.equal(draw(0, true).length, 4);
     assert.deepEqual(draw(100, true), draw(0, true), 'twinkle never toggles a star identity or position');
+  } finally { sky.dispose(); }
+});
+
+test('optional galactic glow sheds at quality level three without suppressing stars', () => {
+  const sky = new RangeSkyRenderer(), calls = [];
+  for (const name of ['_milkyWay', '_stars', '_aurora', '_bodies', '_clouds']) sky[name] = () => calls.push(name);
+  try {
+    sky.draw(outputFixture().ctx, { ...frame, qualityLevel: 2 });
+    assert.ok(calls.includes('_milkyWay'));
+    calls.length = 0;
+    sky.draw(outputFixture().ctx, { ...frame, qualityLevel: 3 });
+    assert.ok(!calls.includes('_milkyWay'));
+    assert.ok(calls.includes('_stars'));
   } finally { sky.dispose(); }
 });
 
