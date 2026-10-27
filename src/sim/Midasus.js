@@ -75,8 +75,9 @@ export class Midasus {
 
     this.rand = mulberry32(seed);
     this.phi = 0;
-    this.particles = new ObjectPool(() => ({}), (o, init) => Object.assign(o, init, { age: 0 }), 600);
-    this._emitAccum = 0;
+    // Note-onset bursts (see _burst): a spray of motes on each note's
+    // impact. She leaves no ribbon behind her as she flies.
+    this.particles = new ObjectPool(() => ({}), (o, init) => Object.assign(o, init, { age: 0 }), 240);
 
     this._meshRest = computeRestLengths(MIDASUS_MESH);
     this.pulse = 1;
@@ -139,7 +140,13 @@ export class Midasus {
     // Floor raised (was yFloor-120) -- her lowest notes used to sit inside
     // Midio's own body; now even the deepest pitch keeps clear headroom.
     const y = lerp(this.yFloor - 210, this.yCeiling + 60, norm);
-    const x = this.midio.screenX + 150 + 55 * n.vel;
+    const vel = Number.isFinite(n.vel) ? n.vel : 0.5; // a malformed note must not NaN her flight
+    // Free roaming (the Trio, see TrioWander): she darts about her own
+    // wandering spot, not a fixed offset off Midio's shoulder.
+    if (this._ens && this._ens.free) {
+      return { x: this._ens.x + 50 * (vel - 0.5), y: y + clamp(this._ens.y - y, -110, 110) * 0.35 };
+    }
+    const x = this.midio.screenX + 150 + 55 * vel;
     // The ensemble pulls her across the stage; pitch stays primary vertically.
     if (this._ens) {
       return {
@@ -154,7 +161,8 @@ export class Midasus {
     const ax = this._ens ? this._ens.x : this.midio.screenX;
     // Raised (was -130) -- her rest orbit used to sit low enough to overlap
     // Midio when he's grounded; now it clears him by a real margin.
-    const ay = this.midio.groundY - this.midio.y - 230;
+    // Free roaming rests where her own wandering has taken her instead.
+    const ay = this._ens && this._ens.free ? this._ens.y : this.midio.groundY - this.midio.y - 230;
     const t = nowMs / 1000;
     // Calm sections: the orbit widens and slows -- a lazier, dreamier drift
     // instead of the tighter, quicker figure she traces when energetic.
@@ -179,18 +187,6 @@ export class Midasus {
         size: 4, hue, life: 0.3 + 0.2 * this.rand(),
       });
     }
-  }
-
-  _emitStreak(speed) {
-    const jitter = 25;
-    // Calm sections get a longer, fainter ribbon instead of a short, punchy trail.
-    const calmLevel = this._calmLevel || 0;
-    this.particles.spawn({
-      x: this.p.x, y: this.p.y,
-      vx: this.v.x * 0.3 + (this.rand() * 2 - 1) * jitter,
-      vy: this.v.y * 0.3 + (this.rand() * 2 - 1) * jitter,
-      size: 3, hue: this.hue, life: ((260 + 160 * this.rand()) * (1 + 0.6 * calmLevel)) / 1000,
-    });
   }
 
   update(nowMs, dtSec, calmLevel = 0, ensemble = null, particleMul = 1, wind = null) {
@@ -337,14 +333,8 @@ export class Midasus {
     this.p.x += this.v.x * dtSec;
     this.p.y += this.v.y * dtSec;
 
-    const speed = Math.hypot(this.v.x, this.v.y);
-    const rateMul = 0.15 + 0.85 * (1 - this.rest);
-    const rate = (2 + 26 * Math.min(1, speed / 1400)) * rateMul * particleMul;
-    this._emitAccum += rate * dtSec * 60;
-    while (this._emitAccum >= 1) { this._emitAccum -= 1; this._emitStreak(speed); }
-
-    // The settling stardust rides the same global wind everything else
-    // does -- one sample for the whole trail, not per-mote.
+    // The settling burst motes ride the same global wind everything else
+    // does -- one sample for the whole spray, not per-mote.
     const windX = wind ? wind.x : 0, windY = wind ? wind.y : 0;
     this.particles.step(dtSec, (o, dt) => {
       o.x += (o.vx + windX) * dt; o.y += (o.vy + windY) * dt; o.age += dt;
@@ -368,25 +358,6 @@ export class Midasus {
     if (this.voyage.active) {
       this.p = { ...this.voyage.p };
       this.hue = this.voyage.hue;
-      // A lengthened comet streak through the climb: the normal streak
-      // above rides `this.v`, the PD-pursuit velocity, which is stale/
-      // irrelevant once the voyage owns her position -- this one rides her
-      // TRUE frame-to-frame voyage displacement, with a longer life than
-      // the everyday trail so ASCENT specifically reads as racing away.
-      if (this.voyage.phase === VoyagePhase.ASCENT && this._prevVoyageP) {
-        const dt = Math.max(dtSec, 1e-4);
-        const vx = (this.p.x - this._prevVoyageP.x) / dt;
-        const vy = (this.p.y - this._prevVoyageP.y) / dt;
-        this.particles.spawn({
-          x: this.p.x, y: this.p.y,
-          vx: -vx * 0.25 + (this.rand() * 2 - 1) * 12,
-          vy: -vy * 0.25 + (this.rand() * 2 - 1) * 12,
-          size: 3, hue: this.hue, life: 0.6 + 0.3 * this.rand(),
-        });
-      }
-      this._prevVoyageP = { x: this.p.x, y: this.p.y };
-    } else {
-      this._prevVoyageP = null;
     }
     // The babies track her wherever the frame puts her (ensemble, darts,
     // even voyage return points). They render at the mains' intensity (her
@@ -440,7 +411,7 @@ export class Midasus {
   }
 
   /** Conservative logical box around everything draw() paints this frame:
-   *  core and glow, her particle ribbon and the orbiting debris, for
+   *  core and glow, her note-burst motes and the orbiting debris, for
    *  single-draw capture. Null when draw() paints nothing (deep space). */
   drawBounds() {
     if (this.voyage.phase === VoyagePhase.DEEP_SPACE) return null;
@@ -477,10 +448,8 @@ export class Midasus {
     // Midio's single-axis pinch, spans x and y equally).
     const presScale = this.voyage.presentationScale * swell * this._discScale;
     const sat = Math.round(58 - 28 * this.rest); // spectral: pale, never candy
-    this.debris.draw(ctx, this.hue, this.rest, particleMul); // behind her core and trail
-    // Calm sections fade the ribbon rather than shortening it -- the longer
-    // reach comes from _emitStreak's extended particle life, this is the
-    // "fainter" half of that same trade.
+    this.debris.draw(ctx, this.hue, this.rest, particleMul); // behind her core and burst motes
+    // Calm sections soften the note bursts.
     const calmFade = 1 - 0.4 * (this._calmLevel || 0);
     for (const p of this.particles.active) {
       const t = p.age / p.life;
@@ -515,7 +484,7 @@ export class Midasus {
     // Banking: she rolls into her darts like something with mass, and her
     // pulse breathes on her ensemble phase -- in step when the trio locks.
     const bank = clamp(this.v.x * BANK_GAIN, -BANK_MAX, BANK_MAX)
-      + (this._ens ? 0.08 * Math.sin(this._ens.phase) : 0);
+      + (this._ens ? 0.08 * Math.sin(this._ens.phase) + (this._ens.tilt || 0) : 0); // tilt: tipping toward whoever she's come to see
 
     const rot = bank + this.rollExtra + this._discRoll; // pirouette + disc spin ride on top of the banking
 
