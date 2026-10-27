@@ -6,6 +6,7 @@ import { ridgeKickEnv } from './MountainChoreo.js';
 import { EnergyCurves } from '../audio/EnergyCurves.js';
 import { FLAT_WEIGHTS } from '../audio/bands.js';
 import { clamp01, smoothstep } from '../utils/math.js';
+import { sampleEffectsMusic, blendEffectsMusic } from './alpine/EffectsMusic.js';
 
 const freeze = a => Object.freeze(a);
 const zero = () => ({ bands: Array(7).fill(0), levels: Array(7).fill(0), depths: Array(7).fill(0), armed: Array(7).fill(true), flashMs: Array(7).fill(-Infinity), energy: 0, motionPresence01: 0, melodyActivity: 0, melodyPitchWeight: 0 });
@@ -170,6 +171,22 @@ export class RidgeMotionHistory {
     this.#cache.set(at, sample);
     return sample;
   }
+
+  /** Effects share this generation's immutable evidence, including when a
+   * final analysis has replaced the simulation's public curves and timeline. */
+  sampleEffects(heardTimeMs = 0, { seed = 0, sections = [], preview = false, calmLevel } = {}) {
+    const at = Math.min(this.durationMs, Math.max(0, Number.isFinite(heardTimeMs) ? heardTimeMs : 0));
+    const canonical = this.sample(at);
+    let calm = Number.isFinite(calmLevel) ? clamp01(calmLevel) : 1 - smoothstep(.25, .55, canonical.pressureEnergy01);
+    if (!Number.isFinite(calmLevel)) for (const cue of this.#cues) {
+      const age = at - cue.tMs;
+      if (age < 0 || age > 10000) continue;
+      const strength = cue.strength ?? (typeof cue.value === 'number' ? cue.value : 1);
+      if (Number.isFinite(strength)) calm = Math.max(calm, clamp01(strength) * (age <= 6000 ? 1 : 1 - (age - 6000) / 4000));
+    }
+    return sampleEffectsMusic({ timeMs: at, ridgeSample: canonical,
+      timeline: this.#events, energyCurves: this.#curves, seed, sections, preview, calmLevel: calm });
+  }
 }
 
 export function createRidgeMusicSampler({ primary, previous = null, handoffStartMs = null, handoffDurationMs = 500 }) {
@@ -208,6 +225,11 @@ export function createRidgeMusicSampler({ primary, previous = null, handoffStart
       motionPresence01: lerp(a.motionPresence01, b.motionPresence01),
       rhythmAccent01: lerp(a.rhythmAccent01, b.rhythmAccent01), activity01: lerp(a.activity01, b.activity01), kick01: lerp(a.kick01, b.kick01), kickAmp: lerp(a.kickAmp, b.kickAmp),
       kickMs: mix < 1 ? a.kickMs : b.kickMs, sources, sourceContributions });
+  }, sampleEffects(timeMs, options) {
+    if (!previous || timeMs >= handoffStartMs + handoffDurationMs) return primary.sampleEffects(timeMs, options);
+    if (timeMs <= handoffStartMs) return previous.sampleEffects(timeMs, options);
+    const u = clamp01((timeMs - handoffStartMs) / handoffDurationMs), mix = u * u * (3 - 2 * u);
+    return blendEffectsMusic(previous.sampleEffects(timeMs, options), primary.sampleEffects(timeMs, options), mix);
   } });
 }
 

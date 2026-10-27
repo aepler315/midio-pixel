@@ -29,6 +29,7 @@ import { cloudSeaAt } from './CloudSea.js';
 import { rangeActorsAt } from './RangeActors.js';
 import { rangeUserCamera } from './RangeCamera.js';
 import { hexLerp } from '../../utils/color.js';
+import { sampleEffectsMusic } from './EffectsMusic.js';
 
 const NIGHT_SKY = '#05060d';
 
@@ -360,6 +361,13 @@ export function buildRangeFrame({
   const sampled = sampleWorldMusic({ nowMs: timeMs, energyCurves: mgr.energyCurves,
     rhythm: mgr.worldRhythm, section, response: mgr.world?.response });
   const ridgeSample = mgr.ridgeMusicSession?.sample(timeMs);
+  const effectsOptions = { sections: mgr.sections || [], seed: sim.songSeed ?? 0, preview: !!mgr.terrainPreview };
+  const effects = mgr.ridgeMusicSession?.sampleEffects?.(timeMs, effectsOptions) ?? sampleEffectsMusic({ timeMs, ridgeSample,
+    timeline: mgr.conductor?.timeline || sim.conductor?.timeline || [],
+    energyCurves: mgr.energyCurves, ...effectsOptions,
+    // A reconstructed frame must not inherit CalmDirector's integration
+    // state from whichever playback position happened to render last.
+    calmLevel: 1 - smoothstep(.25, .55, ridgeSample?.pressureEnergy01 ?? sampled.energy) });
   if (ridgeSample) {
     sampled.energy = ridgeSample.pressureEnergy01;
     sampled.bass = ridgeSample.bassPressure01;
@@ -427,7 +435,7 @@ export function buildRangeFrame({
     cameraMove: performance.camera,
     userCamera: sim.userCameraEnabled ? rangeUserCamera.sample() : null,
     scenicViewport, groundViewport,
-    light: lightState, music: land, ridges, narrative, groundBars, emitters,
+    light: lightState, music: land, effects, ridges, narrative, groundBars, emitters,
     waterHits: recentConductorHits(mgr.conductor?.timeline || sim.conductor?.timeline || [], timeMs),
     // World anchoring for fixed-ground dressing (rock stage, pools).
     worldX: pose.worldX, originX: pose.midioX,
