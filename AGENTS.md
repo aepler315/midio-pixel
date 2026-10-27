@@ -8,18 +8,17 @@ windows on Windows. Save reports and clips without automatically opening them.
 Do not launch a headed browser, focus a user window, or attach to the user's
 Chrome session unless the user explicitly requests that interaction.
 
-For work that changes rendered appearance or its relationship to music, use
-`docs/visual-evaluation-loop.md` before editing. Capture a baseline with
-`npm run visual:eval -- --out .smoke/<unique-baseline>`, inspect the actual
-images and matching audio, make a scoped change, then capture the identical
-manifest as a candidate and run `--compare`.
+For changes to rendered appearance or its relationship to music,
+`docs/visual-evaluation-loop.md` describes an optional visual comparison
+workflow. A baseline or visual capture is not a prerequisite for editing or
+completing a change. When useful and available, compare matching captures and
+inspect the rendered images and audio; use continuous capture to assess render
+history, since sparse captures skip draws between windows.
 
-State the song and timestamp for each finding. Judge musical legibility,
-composition and motion from rendered evidence. Numeric controls, passing
-unit tests, or changed pixels alone are not visual acceptance. Use continuous
-capture when changing render history; sparse captures skip draws between
-windows. Preserve baseline evidence and unrelated work. Do not auto-promote
-an aesthetic change merely because the capture command passed.
+For visual findings, identify the song and timestamp and distinguish observed
+results from unverified expectations. Passing tests or changed pixels alone do
+not establish visual quality. Preserve any existing evidence and unrelated work,
+and report unavailable visual or device checks accurately.
 
 Never commit captured evidence (PNG, GIF, MP4, ZIP, HTML reports, capture
 JSON) to the repository: every byte stays in git history forever. Keep it in

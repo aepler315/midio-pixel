@@ -518,11 +518,18 @@ export class Renderer {
     // and drop impact included), and bloom then blooms the smeared result.
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     if (presentation.performers) this._drawDropMotionBlur(ctx, canvas, sim, camera, sx, sy);
-    this._drawBloom(ctx, canvas, sim, salience);
+    // Landscape's sky and terrain are assembled by the presenter at output
+    // resolution. Its screen-space effects must see that completed image.
+    const deferPost = !!this.deferPostEffects;
+    this._deferredPostEffects = deferPost ? { sim, pose, salience, viewStage: { ...viewStage },
+      film: !!(narrative || (sim.filmFinish && (perf ? perf.heavyPostFx : true))),
+      captions: sim.rangeCaptions || sim.rangeCaption, grid: this.pixelPolicy?.grid,
+      hud: sim.conductor && this.hudInFrame && !narrative ? { width: nominalW, height: nominalH } : null } : null;
+    if (!deferPost) this._drawBloom(ctx, canvas, sim, salience);
     // After bloom, not before: heat is a lens on the whole scene, so it
     // should bend the glow bloom just added too, not just the world under it.
-    this._drawHeatDistortion(ctx, canvas, sim, pose, viewStage, outputFit);
-    if (narrative || (sim.filmFinish && (perf ? perf.heavyPostFx : true))) {
+    if (!deferPost) this._drawHeatDistortion(ctx, canvas, sim, pose, viewStage, outputFit);
+    if (!deferPost && (narrative || (sim.filmFinish && (perf ? perf.heavyPostFx : true)))) {
       // Film finish was authored in logical space; scale its fill rects.
       ctx.setTransform(sx, 0, 0, sy, outputFit.x, outputFit.y);
       this._drawFilmFinish(ctx, viewStage, sim);
@@ -536,28 +543,9 @@ export class Renderer {
     // content, and main.js's hitTest already converts pointer coords into
     // the nominal STAGE_W/STAGE_H space -- drawing it against the zoomed
     // stage would desync the visible strip from where clicks land.
-    if (sim.conductor && this.hudInFrame && !narrative) {
-      const sxN = outputFit.scale;
-      const syN = sxN;
-      const nominalStage = this._nominalStageView
-        || (this._nominalStageView = { width: nominalW, height: nominalH });
-      nominalStage.width = nominalW;
-      nominalStage.height = nominalH;
-      ctx.setTransform(sxN, 0, 0, syN, outputFit.x, outputFit.y);
-      if (!this.composer) {
-        const holds = sim.noteChart ? sim.noteChart.notes.filter((n) => n.type === 'hold') : [];
-        const sections = sim.biomes?.sections || [];
-        this.composer = new ComposerStrip(
-          sim.conductor.timeline, sim.conductor.barGrid, sim.conductor.durationMs, holds, sections, sim.audioOverview,
-        );
-        this.composer.estimatedDuration = !!sim.estimatedDuration;
-      } else if (sim.biomes?.sections) {
-        this.composer.setSections(sim.biomes.sections);
-      }
-      this.composer.analysisOpening = sim.analysisOpening || null;
-      this.composer.draw(ctx, nominalStage, sim.timeMs, {
-        showLabels: !!(sim.showSectionLabels || sim.paramBus?.showSectionLabels),
-      });
+    if (!deferPost && sim.conductor && this.hudInFrame && !narrative) {
+      ctx.setTransform(outputFit.scale, 0, 0, outputFit.scale, outputFit.x, outputFit.y);
+      this._drawComposerHud(ctx, { width: nominalW, height: nominalH }, sim);
       ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
 
@@ -565,7 +553,7 @@ export class Renderer {
     // the picture, so it is drawn whether or not the HUD is in frame, and
     // recordings and bulk exports carry it.
     this.pixelCaptionLayout = null;
-    if (sim.rangeCaption || sim.rangeCaptions) {
+    if (!deferPost && (sim.rangeCaption || sim.rangeCaptions)) {
       ctx.setTransform(sxFixed, 0, 0, syFixed, outputFit.x, outputFit.y);
       const captionStage = this._captionStageView || (this._captionStageView = { width: nominalW, height: nominalH });
       captionStage.width = nominalW;
@@ -869,6 +857,59 @@ export class Renderer {
     ctx.restore();
   }
 
+  /** HUD chrome follows optical effects in both live and recorded frames. */
+  _drawComposerHud(ctx, stage, sim) {
+    if (!this.composer) {
+      const holds = sim.noteChart ? sim.noteChart.notes.filter((n) => n.type === 'hold') : [];
+      const sections = sim.biomes?.sections || [];
+      this.composer = new ComposerStrip(
+        sim.conductor.timeline, sim.conductor.barGrid, sim.conductor.durationMs, holds, sections, sim.audioOverview,
+      );
+      this.composer.estimatedDuration = !!sim.estimatedDuration;
+    } else if (sim.biomes?.sections) {
+      this.composer.setSections(sim.biomes.sections);
+    }
+    this.composer.analysisOpening = sim.analysisOpening || null;
+    this.composer.draw(ctx, stage, sim.timeMs, {
+      showLabels: !!(sim.showSectionLabels || sim.paramBus?.showSectionLabels),
+    });
+  }
+
+  /** Apply the Landscape's optical effects to the completed hybrid image.
+   * The same operation is replayed at a recorder's own output size. Captions
+   * follow the effects, as they did in the native compositor. */
+  drawDeferredPostEffects(ctx, fit) {
+    const frame = this._deferredPostEffects;
+    if (!frame) return;
+    ctx.save();
+    const policy = this.pixelPolicy;
+    try {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.beginPath(); ctx.rect(fit.x, fit.y, fit.width, fit.height); ctx.clip();
+      // Heat's native-pixel path quantizes offsets. Use continuous offsets
+      // here because the target is the already composed optical image.
+      this.pixelPolicy = null;
+      this._drawBloom(ctx, ctx.canvas, frame.sim, frame.salience);
+      this._drawHeatDistortion(ctx, ctx.canvas, frame.sim, frame.pose, frame.viewStage, fit, fit.width / 1280);
+      if (frame.film) {
+        const sx = fit.width / frame.viewStage.width, sy = fit.height / frame.viewStage.height;
+        ctx.setTransform(sx, 0, 0, sy, fit.x, fit.y);
+        this._drawFilmFinish(ctx, frame.viewStage, frame.sim);
+      }
+      if (frame.hud) {
+        ctx.setTransform(fit.width / frame.hud.width, 0, 0, fit.height / frame.hud.height, fit.x, fit.y);
+        this._drawComposerHud(ctx, frame.hud, frame.sim);
+      }
+      if (frame.captions && frame.grid) {
+        ctx.setTransform(fit.width / frame.grid.width, 0, 0, fit.height / frame.grid.height, fit.x, fit.y);
+        drawPixelCaption(ctx, frame.captions, frame.sim.timeMs, { grid: frame.grid });
+      }
+    } finally {
+      this.pixelPolicy = policy;
+      ctx.restore();
+    }
+  }
+
   /** Fever aura: above the threshold, the screen edges glow inward -- an
    *  inverse vignette (bright at the rim, clear toward center) so a hot
    *  streak visibly ignites the whole frame, not just Midio and the
@@ -982,7 +1023,7 @@ export class Renderer {
    *  light sideways as it convects upward off the ground, not the sky).
    *  Sheds under PerfGovernor pressure like its siblings -- a flourish,
    *  never core feedback. */
-  _drawHeatDistortion(ctx, canvas, sim, pose, viewStage, outputFit = null) {
+  _drawHeatDistortion(ctx, canvas, sim, pose, viewStage, outputFit = null, outputScale = null) {
     const perf = sim.perf;
     if (perf && !perf.heavyPostFx) { this._postBuffers?.release('heat'); this._heatCanvas = null; return; }
 
@@ -995,9 +1036,11 @@ export class Renderer {
     if (dropS <= 0.02 && ambient <= 0.02) return;
 
     const pixelUnit = this.pixelPolicy?.active ? this.pixelPolicy.unit : 0;
-    const dropAmpPx = HEAT_DROP_MAX_PX * dropS * (pixelUnit || 1);
-    const ambientAmpPx = HEAT_AMBIENT_MAX_PX * ambient * (pixelUnit || 1);
-    if (dropAmpPx < 0.15 && ambientAmpPx < 0.15) return;
+    const detailScale = pixelUnit || (outputScale > 0 ? outputScale : 1);
+    const thresholdScale = !pixelUnit && outputScale > 0 ? outputScale : 1;
+    const dropAmpPx = HEAT_DROP_MAX_PX * dropS * detailScale;
+    const ambientAmpPx = HEAT_AMBIENT_MAX_PX * ambient * detailScale;
+    if (dropAmpPx < 0.15 * thresholdScale && ambientAmpPx < 0.15 * thresholdScale) return;
 
     if (this._postBuffers) {
       this._heatCanvas = this._postBuffers.ensure('heat', canvas.width, canvas.height);
@@ -1016,8 +1059,8 @@ export class Renderer {
 
     // Coarser grid at higher resolutions -- same cost, same apparent cell
     // size on screen, matching bloom's own downscale-by-canvas-width steps.
-    const cell = pixelUnit ? 8 * pixelUnit : HEAT_GRID_PX * (canvas.width > 2560 ? 2.2 : canvas.width > 1920 ? 1.6 : 1);
-    const pad = pixelUnit || HEAT_PAD_PX;
+    const cell = pixelUnit ? 8 * pixelUnit : HEAT_GRID_PX * (outputScale > 0 ? outputScale : canvas.width > 2560 ? 2.2 : canvas.width > 1920 ? 1.6 : 1);
+    const pad = pixelUnit || HEAT_PAD_PX * detailScale;
     const picture = outputFit || { x: 0, y: 0, width: canvas.width, height: canvas.height };
     const cols = Math.ceil(picture.width / cell);
     const rows = Math.ceil(picture.height / cell);
@@ -1046,22 +1089,22 @@ export class Renderer {
       for (let rx = 0; rx < cols; rx++) {
         const cx = picture.x + rx * cell + cell / 2;
         let offX = 0, offY = 0;
-        if (dropAmpPx > 0.05) {
+        if (dropAmpPx > 0.05 * thresholdScale) {
           const dx = cx - originX, dy = cy - originY;
           const dist = Math.hypot(dx, dy);
           const nx = dist > 1e-3 ? dx / dist : 0, ny = dist > 1e-3 ? dy / dist : 0;
-          const radial = Math.sin(dist / (pixelUnit || 1) * 0.05 - t * 9) * dropAmpPx;
+          const radial = Math.sin(dist / detailScale * 0.05 - t * 9) * dropAmpPx;
           offX += radial * nx;
           offY += radial * ny;
         }
-        if (ambientAmpPx > 0.05) {
+        if (ambientAmpPx > 0.05 * thresholdScale) {
           // Canvas Y grows downward. Reach full sway at the actual ground
           // in backing-store coordinates, with the weaker floor above it.
           const heightFrac = clamp01((cy - picture.y) / Math.max(1, originY - picture.y));
-          offX += Math.sin((cx - picture.x) / (pixelUnit || 1) * 0.045 + t * 2.4 + (cy - picture.y) / (pixelUnit || 1) * 0.03) * ambientAmpPx * (0.35 + 0.65 * heightFrac);
+          offX += Math.sin((cx - picture.x) / detailScale * 0.045 + t * 2.4 + (cy - picture.y) / detailScale * 0.03) * ambientAmpPx * (0.35 + 0.65 * heightFrac);
         }
         if (pixelUnit) { offX = pixelHeatOffset(offX, { unit: pixelUnit }); offY = pixelHeatOffset(offY, { unit: pixelUnit }); }
-        if (Math.abs(offX) < 0.05 && Math.abs(offY) < 0.05) continue; // no-op cell -- skip the blit entirely
+        if (Math.abs(offX) < 0.05 * thresholdScale && Math.abs(offY) < 0.05 * thresholdScale) continue; // no-op cell -- skip the blit entirely
         const sx = picture.x + rx * cell - pad, sy = picture.y + ry * cell - pad;
         const sw = cell + pad * 2, sh = cell + pad * 2;
         ctx.drawImage(src, sx, sy, sw, sh, sx + offX, sy + offY, sw, sh);

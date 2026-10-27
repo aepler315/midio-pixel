@@ -59,7 +59,7 @@ export function skyProjector(camera) {
 
 /** A fixed, repeatable sphere, with a richer band of faint galactic stars.
  * Bright objects are uncommon; no positions are integrated frame to frame. */
-export function createSkyCatalogue(seed, count = 2600) {
+export function createSkyCatalogue(seed, count = 4000) {
   return Array.from({ length: count }, (_, i) => {
     const az = hash(i, 0, seed) * 360;
     const alt = i % 3 ? Math.asin(hash(i, 1, seed)) * 180 / Math.PI
@@ -71,6 +71,21 @@ export function createSkyCatalogue(seed, count = 2600) {
 }
 
 const STAR_COLORS = ['190,210,255', '218,229,255', '245,244,231', '255,226,188', '217,231,255'];
+
+// A fixed field of overlapping, faint stellar clouds along the same band as
+// the star catalogue. The dim central channel suggests obscuring dust without
+// painting black over the sky or stars. No texture or frame history is kept.
+export function createGalacticClouds(seed) {
+  return Array.from({ length: 432 }, (_, i) => {
+    const az = (i % 144) * 2.5 + (hash(i, 6, seed) - .5) * 3;
+    const lane = Math.sin(az * Math.PI / 72 + .7) * 2;
+    const offset = (Math.floor(i / 144) - 1) * 5 + (hash(i, 7, seed) - .5) * 5;
+    const alt = 31 + 25 * Math.sin(az * Math.PI / 180 + .5) + offset;
+    const dust = .2 + .8 * smooth(Math.abs(offset - lane) / 4);
+    return { direction: tourSkyDirection(az, alt), opacity: (.32 + .68 * hash(i, 8, seed)) * dust,
+      radius: .095 + .035 * hash(i, 9, seed), warm: hash(i, 10, seed) > .7 };
+  });
+}
 
 // Three premultiplied cloud colours share one density: cool volume, warm
 // left light, warm right light. Continuous weights preserve its exact alpha
@@ -104,6 +119,7 @@ export class RangeSkyRenderer {
     this.buffers = new CanvasBuffers({ residency, makeCanvas, owner: 'range-sky-detail' });
     this.seed = null;
     this.stars = [];
+    this.galacticClouds = [];
     this.painted = new WeakSet();
     this.stormTints = new WeakMap();
     this.cloudCache = new Map();
@@ -113,6 +129,7 @@ export class RangeSkyRenderer {
     if (seed === this.seed) return;
     this.seed = seed;
     this.stars = createSkyCatalogue(seed);
+    this.galacticClouds = createGalacticClouds(seed);
     this.buffers.dispose();
     this.painted = new WeakSet();
     this.stormTints = new WeakMap();
@@ -211,6 +228,7 @@ export class RangeSkyRenderer {
     // The moon is screened onto the sky with no backing disc, so the stars
     // it covers are cut out here instead of painted over.
     this.celestial.prepareMoon(frame.moon, width, height, night, frame.phase);
+    if ((frame.qualityLevel ?? 0) < 3) this._milkyWay(ctx, project, width, height, night, frame.storm);
     this._stars(ctx, project, width, height, night, time, !!frame.cinematicPixel);
     this._aurora(ctx, project, width, height, night, time, frame.authority, !!frame.cinematicPixel);
     if (frame.lightning) LightningFX.prototype.draw.call(frame.lightning, ctx, { width, height }, frame.timeSec * 1000);
@@ -229,17 +247,52 @@ export class RangeSkyRenderer {
     ctx.restore();
     return true;
   }
+  _milkyWay(ctx, project, width, height, night, storm, moon = this.celestial.disc) {
+    const strength = smooth((night - .3) / .6) * (1 - .8 * clamp(storm?.amount || 0));
+    if (strength < .005 || !Number.isFinite(project.focal)) return;
+    const paint = opacity => {
+      if (opacity <= 0) return;
+      for (const cloud of this.galacticClouds) {
+        const p = project(cloud.direction);
+        if (!p.inFront) continue;
+        const x = p.xFrac * width, y = p.yFrac * height;
+        const r = cloud.radius * height * project.focal;
+        if (!(r > 0) || x + r < 0 || x - r > width || y + r < 0 || y - r > height) continue;
+        const color = cloud.warm ? '203,187,175' : '180,199,224';
+        const gradient = ctx.createRadialGradient(x, y, 0, x, y, r);
+        gradient.addColorStop(0, `rgba(${color},${.025 * strength * opacity * cloud.opacity})`);
+        gradient.addColorStop(1, `rgba(${color},0)`);
+        ctx.fillStyle = gradient; ctx.fillRect(x - r, y - r, 2 * r, 2 * r);
+      }
+    };
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    const cover = moon?.visible ? clamp(moon.cover) : 0;
+    paint(1 - cover);
+    if (cover > 0) {
+      // The lunar image is screened over the sky, so mask its background in
+      // the same way as the discrete stars, including partial disc fades.
+      ctx.beginPath(); ctx.rect(0, 0, width, height);
+      ctx.arc(moon.x, moon.y, moon.r * 1.04, 0, TAU);
+      ctx.clip('evenodd');
+      paint(cover);
+    }
+    ctx.restore();
+  }
   /** `moon`: the disc the stars behind are cut out for (this frame's, prepared before). */
   _stars(ctx, project, width, height, night, time, cinematic = false, moon = this.celestial.disc) {
-    const strength = (.07 + .93 * smooth(night)) * (cinematic ? .72 : 1);
+    // As the sky brightens the faint points disappear instead of lingering
+    // as daytime specks. The catalogue stays fixed across time and seeks.
+    const strength = smooth((night - .12) / .78) * (cinematic ? .85 : 1);
     if (strength < .01) return;
     // Stars behind the moon fade with its disc and vanish once it is whole.
     const occluded = !!moon?.visible, mx = occluded ? moon.x : 0, my = occluded ? moon.y : 0;
     const reach = occluded ? moon.r * moon.r * 1.0816 : 0, cover = occluded ? moon.cover : 0; // (1.04 R)^2
+    const matrix = ctx.getTransform?.();
+    const outputScale = matrix ? Math.hypot(matrix.a, matrix.b) || 1 : 1;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     for (const star of this.stars) {
-      if (cinematic && star.brightness < .28) continue;
       const p = project(star.direction);
       if (!p.visible) continue;
       const x = p.xFrac * width, y = p.yFrac * height;
@@ -251,15 +304,19 @@ export class RangeSkyRenderer {
           shown *= 1 - cover;
         }
       }
-      const scintillation = .94 + .06 * Math.sin(time * 1.3 + star.phase);
-      const radius = Math.max(.32, star.radius * height / 850);
+      // Atmospheric scintillation is strongest near the horizon. Two slow,
+      // incommensurate oscillations avoid a synchronized blinking pattern.
+      const air = 1 - clamp(star.direction[1]);
+      const scintillation = 1 - .07 * air + .07 * air *
+        (.65 * Math.sin(time * 1.3 + star.phase) + .35 * Math.sin(time * 2.17 + star.phase * 2));
+      const radius = Math.max(.28 / outputScale, star.radius * height / 1000);
       ctx.fillStyle = `rgba(${STAR_COLORS[star.color]},${shown * star.brightness * scintillation})`;
       ctx.beginPath(); ctx.arc(x, y, radius, 0, TAU); ctx.fill();
       if (star.brightness > .7) {
-        const halo = ctx.createRadialGradient(x, y, 0, x, y, radius * 4);
-        halo.addColorStop(0, `rgba(${STAR_COLORS[star.color]},${shown * .18})`);
+        const halo = ctx.createRadialGradient(x, y, 0, x, y, radius * 5);
+        halo.addColorStop(0, `rgba(${STAR_COLORS[star.color]},${shown * star.brightness * .15})`);
         halo.addColorStop(1, `rgba(${STAR_COLORS[star.color]},0)`);
-        ctx.fillStyle = halo; ctx.fillRect(x - radius * 4, y - radius * 4, radius * 8, radius * 8);
+        ctx.fillStyle = halo; ctx.fillRect(x - radius * 5, y - radius * 5, radius * 10, radius * 10);
       }
     }
     ctx.restore();
@@ -399,7 +456,7 @@ export class RangeSkyRenderer {
     ctx.restore();
   }
   dispose() {
-    this.buffers.dispose(); this.stars = []; this.seed = null;
+    this.buffers.dispose(); this.stars = []; this.galacticClouds = []; this.seed = null;
     this.painted = new WeakSet(); this.stormTints = new WeakMap(); this.cloudCache.clear();
     this.celestial.dispose();
   }

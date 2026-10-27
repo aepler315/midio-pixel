@@ -22,6 +22,7 @@ import { travelSeam, TRAVEL_FEATHER, TRAVEL_BANDS } from './TravelSeam.js';
 import { landscapeLayerColor, landscapePasses, landscapePolicy, landscapeBudget, landscapeSnowAllowed, resolveLandscapePalette, resolveRangePresentation, rangeDrawsSea } from './alpine/LandscapePolicy.js';
 import { createRangeSkyComposition, rangeMoonOrbit, rangeMoonRadius, rangeV2MoonRadius, drawMoonMaria, rangeCloudBanks, tourCloudBanks, drawRangeClouds, tourSkyDirection, projectSkyDirection, projectRailSky, MOON_MIN_ILLUMINATION } from './alpine/RangeSkyComposition.js';
 import { RangeSkyRenderer } from './alpine/RangeSkyRenderer.js';
+import { RangeMidEffects, captureRangeParticles } from './alpine/RangeMidEffects.js';
 import { rangeSkyState, usesHighResolutionRangeSky } from './alpine/RangeFrame.js';
 import { withNarrativeAlpha, drawNarrativeMarks } from '../render/NarrativeDraw.js';
 import { buildRidgeSurface } from './alpine/RidgeSurface.js';
@@ -980,6 +981,8 @@ export class BiomeManager {
 
   /** Undo every conductor subscription made at construction. */
   dispose() {
+    this._rangeMidEffects?.dispose();
+    this._rangeMidEffects = null;
     this._highResolutionSkyRenderer?.dispose();
     this._highResolutionSkyRenderer = null;
     this.rangeSkyLayer = null;
@@ -2523,6 +2526,8 @@ export class BiomeManager {
   }
 
   draw(ctx, canvas, worldX, originX = 0, skyVoyage = null, particleMul = 1, perf = null, groundView = null) {
+    this._rangeMidEffects?.reset();
+    this._rangeMidTransition = null;
     // Deeper PerfGovernor rungs (mobile performance round): the optional
     // phenomena layer and the depth-haze layer count both read this for
     // the rest of the frame, so it's stashed on `this` rather than threaded
@@ -2675,19 +2680,27 @@ export class BiomeManager {
     // output, underneath this transparent native-grid terrain frame.
     // Direct canvas callers keep their established complete sky draw.
     this.rangeSkyLayer = null;
-    const separateSky = !!this.highResolutionSky && v2
+    const separateRangeSky = !!this.highResolutionSky && v2
       && this._prepareHighResolutionSky(ctx, canvas, A, B, t, dn.night);
+    // Legacy worlds share the same full-resolution sky boundary. Their
+    // scenery still paints into the native terrain grid over this layer.
+    const separateLegacySky = !!this.highResolutionSky && this.world?.kind !== 'alpine' && !!ctx.getTransform?.();
+    const separateSky = separateRangeSky || separateLegacySky;
+    const legacyPasses = !v2 || v2Arriving;
     const skyA = styleDials(this.visualStyle).skyWireAlpha ?? 1;
     const mandalaColor = this._rotated(this.lerpCache.get(A.celestial.haloColor, B.celestial.haloColor, t));
+    const scenicMatrix = ctx.getTransform?.();
     ctx.save();
-    if (!separateSky) {
     // The infinite sky shares the ordinary Range lens. Tour bodies already
     // use its projected world directions, so they must not be scaled twice.
     const skyLens = v2 && !this.rangePresentation?.tourMode && !this.rangePresentation?.skyPan?.skyCamera && !this.rangePresentation?.skyPan?.tourPose
       ? this.rangePresentation?.frame?.cameraEffects?.halfAngleScale || 1 : 1;
-    ctx.translate(canvas.width / 2, canvas.height / 2);
-    ctx.scale(1 / skyLens, 1 / skyLens);
-    ctx.translate(-canvas.width / 2, -canvas.height / 2);
+    if (!separateRangeSky) {
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.scale(1 / skyLens, 1 / skyLens);
+      ctx.translate(-canvas.width / 2, -canvas.height / 2);
+    }
+    const drawLegacySky = (ctx) => {
     this._drawSky(ctx, canvas, A, B, t, dn.night);
     // The Range's sky is real sky: the narrative's coloured glyph arcs read
     // as marks on a chart, so they only draw where there is no Range sky.
@@ -2859,6 +2872,18 @@ export class BiomeManager {
       this.ribbon.draw(ctx, canvas.width * 0.22, canvas.height * 0.30, canvas.height * 0.075 * (this._ribbonScaleMul || 1), mandalaColor);
       this.ribbon.intensity = prevR;
     }
+    // Water and its surface effects share the smooth background, behind all
+    // nearer terrain. The distant shore stays in the native terrain raster.
+    if (separateLegacySky) {
+      this._drawLegacyWaterBackground(ctx, canvas, { worldX, A, B, t, phenomenaFull, night: dn.night });
+    }
+    };
+    if (!separateSky) drawLegacySky(ctx);
+    else if (separateLegacySky && scenicMatrix) {
+      this.rangeSkyLayer = {
+        scenicTransform: [scenicMatrix.a, scenicMatrix.b, scenicMatrix.c, scenicMatrix.d, scenicMatrix.e, scenicMatrix.f],
+        drawLegacySky, skyLens, width: canvas.width, height: canvas.height,
+      };
     }
     // The ordinary sea remains a distant background plane. The real terrain
     // partitions paint over it, and inland lake/river receivers retain their
@@ -2866,16 +2891,15 @@ export class BiomeManager {
     // While the scene is still fading in over legacy scenery these legacy
     // passes keep drawing underneath it, so nothing vanishes on the fade's
     // first frame; they hand over when the fade completes.
-    const legacyPasses = !v2 || v2Arriving;
     if (legacyPasses) {
       this._drawFarShore(ctx, canvas, worldX, A, B, t); // beyond the ocean, behind the water itself
-      if (!this._rangeSky) this._drawFataMorgana(ctx, canvas, worldX, A, B, t);
+      if (!this._rangeSky && !separateLegacySky) this._drawFataMorgana(ctx, canvas, worldX, A, B, t);
     }
     // Inland v2 views (all but an explicit seaHorizon view) have no sea at
     // their horizon; the legacy plane read there as a flat teal strip.
     const inland = v2 && !rangeDrawsSea([A.name, B.name].map((name) => this.rangePresentation.captionViewFor?.(name) ?? null));
-    if (!inland) withNarrativeAlpha(ctx, this.rangeNarrative?.features ?? 1, c => this._drawOcean(c, canvas, worldX, A, B, t, phenomenaFull, dn.night));
-    if (legacyPasses) this._drawOceanLife(ctx, canvas, worldX, A, B, t, phenomenaFull);
+    if (!inland && !separateLegacySky) withNarrativeAlpha(ctx, this.rangeNarrative?.features ?? 1, c => this._drawOcean(c, canvas, worldX, A, B, t, phenomenaFull, dn.night));
+    if (legacyPasses && !separateLegacySky) this._drawOceanLife(ctx, canvas, worldX, A, B, t, phenomenaFull);
     // The horizon EQ belongs to the v2 sequence (between far and mid)
     // whenever v2 draws, arriving or not.
     if (!v2) this._drawHorizonEQ(ctx, canvas, worldX, A, B, t);
@@ -2928,7 +2952,21 @@ export class BiomeManager {
     // into frame and the strip they run along turns out to be an isthmus.
     if (!this.rangePresentation?.hasViewComposition) this._drawForegroundSwell(ctx, groundCanvas, worldX, A, B, t);
     // Deferred like the flood: a cut flash must cover the shore too.
-    if (!this.inhabitedShore) this._drawTransitionOverlays(ctx, groundCanvas, B);
+    if (!this.inhabitedShore) {
+      if (this._rangeMidEffects?.frame && ctx.getTransform) {
+        const m = ctx.getTransform();
+        this._rangeMidTransition = { transform: [m.a, m.b, m.c, m.d, m.e, m.f],
+          width: groundCanvas.width, height: groundCanvas.height, alpha: this._cutFlash > .01 ? .35 * this._cutFlash : 0 };
+      } else this._drawTransitionOverlays(ctx, groundCanvas, B);
+    }
+  }
+
+  /** Paint smooth open water and atmospheric features behind the pixel terrain. */
+  _drawLegacyWaterBackground(ctx, canvas, { worldX, A, B, t, phenomenaFull, night }) {
+    if (!this._rangeSky) this._drawFataMorgana(ctx, canvas, worldX, A, B, t);
+    withNarrativeAlpha(ctx, this.rangeNarrative?.features ?? 1, c =>
+      this._drawOcean(c, canvas, worldX, A, B, t, phenomenaFull, night));
+    this._drawOceanLife(ctx, canvas, worldX, A, B, t, phenomenaFull);
   }
 
   /** The legacy scenic stack: scanned/procedural L2-L5 strips with their
@@ -3040,7 +3078,15 @@ export class BiomeManager {
     pres.drawPartition(ctx, 'far', canvas);
     this._drawFarVignettes(ctx, canvas, worldX, A, B, t, phenomenaFull, farTint);
     pres.drawPartition(ctx, 'mid', canvas);
-    this._drawMidDepthLife(ctx, canvas, frame, { worldX, originX, phenomenaFull, particleMul, mandalaColor });
+    const midDepth = (f) => this._drawMidDepthLife(f.ctx, canvas, f, { worldX, originX, phenomenaFull, particleMul, mandalaColor });
+    let separate = false;
+    if (this.highResolutionMidEffects && this._rangeSky && !pres.arriving && this.midEffectsOutputSize) {
+      this._rangeMidEffects ||= new RangeMidEffects({ residency: this.residency });
+      const paint = captureRangeParticles(this, frame, { worldX, originX, mandalaColor });
+      separate = this._rangeMidEffects.prepare(ctx, frame, paint, this.midEffectsOutputSize, pres);
+    }
+    if (pres.drawMidDepthForWater) pres.drawMidDepthForWater(ctx, frame, separate ? () => {} : midDepth);
+    else if (!separate) midDepth(frame);
     pres.drawPartition(ctx, 'near', canvas);
     return tint;
   }
@@ -3067,6 +3113,24 @@ export class BiomeManager {
       sky: this._rotated(this.lerpCache.get(A.sky[1], B.sky[1], t)),
       halo: this._rotated(this.lerpCache.get(A.celestial.haloColor, B.celestial.haloColor, t)),
     });
+  }
+
+  /** Repaint the frozen mid-depth weather at the output resolution, behind
+   * the captured near partition. The cut flash still covers the result. */
+  drawHighResolutionMidEffects(ctx, fit) {
+    if (!this._rangeMidEffects?.draw(ctx, fit)) return !this._rangeMidEffects?.frame;
+    const flash = this._rangeMidTransition;
+    if (flash?.alpha > 0) {
+      const m = flash.transform, s = fit.scale;
+      ctx.save();
+      try {
+        ctx.beginPath(); ctx.rect(fit.x, fit.y, fit.width, fit.height); ctx.clip();
+        ctx.setTransform(s * m[0], s * m[1], s * m[2], s * m[3], fit.x + s * m[4], fit.y + s * m[5]);
+        ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = flash.alpha;
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, flash.width, flash.height);
+      } finally { ctx.restore(); }
+    }
+    return true;
   }
 
   /** Mid-depth life shared by both scenic stacks: ambient particles,
@@ -3803,9 +3867,16 @@ export class BiomeManager {
   drawHighResolutionSky(ctx, canvas, { transform = null } = {}) {
     const frame = this.rangeSkyLayer;
     if (!this.highResolutionSky || !frame) return false;
-    this._highResolutionSkyRenderer ||= new RangeSkyRenderer({ residency: this.residency });
     ctx.save();
     if (transform) ctx.setTransform(...transform);
+    if (frame.drawLegacySky) {
+      ctx.translate(frame.width / 2, frame.height / 2);
+      ctx.scale(1 / frame.skyLens, 1 / frame.skyLens);
+      ctx.translate(-frame.width / 2, -frame.height / 2);
+      this._smoothLegacySky = true;
+      try { frame.drawLegacySky(ctx); return true; } finally { this._smoothLegacySky = false; ctx.restore(); }
+    }
+    this._highResolutionSkyRenderer ||= new RangeSkyRenderer({ residency: this.residency });
     // Without an explicit transform, use the caller's existing stage CTM.
     // Destination size never feeds back into the terrain camera or pixel grid.
     void canvas;
@@ -4120,12 +4191,17 @@ export class BiomeManager {
     // A logical 1px point becomes only 1/16 of a Classic pixel's area in
     // the compositor. Map centres through its actual transform and paint
     // one aligned native pixel. Brightness, not subpixel blur, carries depth.
-    const nativeTransform = this._rangeSky && this.rangePresentation?.pixelPolicy?.active ? ctx.getTransform() : null;
+    const smoothStars = !!this._smoothLegacySky;
+    const starTransform = smoothStars ? ctx.getTransform() : null;
+    // Keep celestial points approximately one output pixel across, independent
+    // of the terrain grid's scale. Their centres remain at fractional positions.
+    const starScale = starTransform ? Math.max(.001, Math.hypot(starTransform.a, starTransform.b)) : 1;
+    const nativeTransform = !smoothStars && this._rangeSky && this.rangePresentation?.pixelPolicy?.active ? ctx.getTransform() : null;
     if (nativeTransform) ctx.setTransform(1, 0, 0, 1, 0, 0);
     const point = (x, y) => nativeTransform
       ? [Math.floor(nativeTransform.a * x + nativeTransform.c * y + nativeTransform.e),
         Math.floor(nativeTransform.b * x + nativeTransform.d * y + nativeTransform.f)]
-      : [x - 0.5, y - 0.5];
+      : smoothStars ? [x, y] : [x - 0.5, y - 0.5];
     const starBuckets = this._starBuckets;
     // Cheap dots for the field; soft glow only for hero stars (layer 2).
     for (let starIndex = 0; starIndex < this.stars.length; starIndex++) {
@@ -4178,7 +4254,7 @@ export class BiomeManager {
       }
       if (this._rangeSky) a *= this._rangeSky.starBrightnessAt(x, y);
       if (a < 0.004) continue;
-      const sz = 1;
+      const sz = smoothStars ? (s.layer === 2 ? 0.8 : 0.52) / starScale : 1;
       const [px, py] = point(x, y);
 
       // The same air path that dimmed it also scatters its blue out first,
@@ -4191,7 +4267,8 @@ export class BiomeManager {
       if (s.layer === 2) {
         ctx.globalAlpha = a;
         ctx.fillStyle = useHue ? `hsl(${hue},55%,88%)` : '#ffffff';
-        ctx.fillRect(px, py, sz, sz);
+        if (smoothStars) { ctx.beginPath(); ctx.arc(px, py, sz, 0, Math.PI * 2); ctx.fill(); }
+        else ctx.fillRect(px, py, sz, sz);
         if (s.companion) {
           ctx.globalAlpha = a * 0.45;
           const companion = (tourPose || skyCamera) ? projectStar(s.xFrac + s.companion.dx / canvas.width,
@@ -4199,7 +4276,8 @@ export class BiomeManager {
           if (!companion || companion.visible) {
             const [cx, cy] = point(companion ? companion.xFrac * canvas.width : x + s.companion.dx,
               companion ? companion.yFrac * canvas.height : y + s.companion.dy);
-            ctx.fillRect(cx, cy, 1, 1);
+            if (smoothStars) { ctx.beginPath(); ctx.arc(cx, cy, .48 / starScale, 0, Math.PI * 2); ctx.fill(); }
+            else ctx.fillRect(cx, cy, 1, 1);
           }
         }
       } else {
@@ -4239,7 +4317,10 @@ export class BiomeManager {
       ctx.globalAlpha = bucket.alpha;
       ctx.fillStyle = bucket.style;
       ctx.beginPath();
-      for (let i = 0; i < r.length; i += 3) ctx.rect(r[i], r[i + 1], r[i + 2], r[i + 2]);
+      for (let i = 0; i < r.length; i += 3) {
+        if (smoothStars) { ctx.moveTo(r[i] + r[i + 2], r[i + 1]); ctx.arc(r[i], r[i + 1], r[i + 2], 0, Math.PI * 2); }
+        else ctx.rect(r[i], r[i + 1], r[i + 2], r[i + 2]);
+      }
       ctx.fill();
       r.length = 0;
     }

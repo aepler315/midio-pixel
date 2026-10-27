@@ -446,12 +446,81 @@ test('a full-resolution sky is composed behind the pixel terrain and exported wi
   adapter.dispose();
 });
 
+test('Landscape screen effects run after the composite at live and recording resolutions', () => {
+  const canvas = surface(1280, 720), order = [];
+  stateful(canvas, order, 'live');
+  const manager = { world: { kind: 'alpine' }, drawHighResolutionSky() { return true; } };
+  const inner = { hudInFrame: true, rangePresentation: { enabled: true }, draw() {
+    assert.equal(this.deferPostEffects, true);
+    manager.rangeSkyLayer = { scenicTransform: [1, 0, 0, 1, 0, 0] };
+  }, drawDeferredPostEffects(ctx, fit) {
+    order.push([ctx === canvas.getContext() ? 'live' : 'recorded', 'effects', fit.width, fit.height]);
+  }, dispose() {} };
+  const adapter = createPresentingRenderer({ canvas, presentation: pixel, rendererFactory: () => inner });
+  assert.equal(adapter.draw({ biomes: manager }, 0).presented, true);
+  assert.deepEqual(order.at(-1), ['live', 'effects', 1280, 720]);
+  const capture = adapter.getCaptureSource(), recorded = surface(640, 360);
+  stateful(recorded, order, 'recorded');
+  assert.equal(capture.drawCaptureFrame(recorded.getContext(), 640, 360), true);
+  assert.deepEqual(order.at(-1), ['recorded', 'effects', 640, 360]);
+  adapter.dispose();
+});
+
+test('Landscape water composites before added light in live and recorded output', () => {
+  const canvas = surface(1280, 720), order = [];
+  stateful(canvas, order, 'live');
+  const range = { enabled: true, castForeground: false,
+    drawWaterForeground(ctx, fit) {
+      order.push([ctx === canvas.getContext() ? 'live' : 'recorded', 'water', ctx.globalCompositeOperation, fit.width]); return true;
+    },
+    drawCastForeground(ctx, fit) {
+      order.push([ctx === canvas.getContext() ? 'live' : 'recorded', 'cast', ctx.globalCompositeOperation, fit.width]); return true;
+    } };
+  const inner = { rangePresentation: range, draw() { assert.deepEqual(range.waterOutputSize, { width: 1280, height: 720 }); }, dispose() {} };
+  const adapter = createPresentingRenderer({ canvas, presentation: pixel, rendererFactory: () => inner });
+  assert.equal(adapter.draw({ biomes: { world: { kind: 'alpine' } } }, 0).presented, true);
+  assert.deepEqual(order.slice(-2), [['live', 'water', 'source-over', 1280], ['live', 'cast', 'lighter', 1280]]);
+  const recorded = surface(640, 360); stateful(recorded, order, 'recorded');
+  assert.equal(adapter.getCaptureSource().drawCaptureFrame(recorded.getContext(), 640, 360), true);
+  assert.deepEqual(order.slice(-2), [['recorded', 'water', 'source-over', 640], ['recorded', 'cast', 'lighter', 640]]);
+  adapter.dispose();
+});
+
 test('a grid-sized hybrid output retains a separate transparent foreground buffer', () => {
   const canvas = surface(320, 180), owner = new PixelPresentation({ canvas, presentation: pixel });
   const source = owner.beginFrame({ separate: true });
   assert.notEqual(source, canvas, 'painting the sky cannot destroy an aliased terrain source');
   assert.equal(source.width, 320); assert.equal(source.height, 180);
   owner.dispose();
+});
+
+test('smooth mid-depth effects compose above water and below cast in live and recording frames', () => {
+  const canvas = surface(1280, 720), order = [];
+  stateful(canvas, order, 'live');
+  const range = { enabled: true, drawWaterForeground() { order.push('water'); return true; },
+    drawCastForeground() { order.push('cast'); return true; } };
+  const manager = { world: { kind: 'alpine' }, drawHighResolutionMidEffects(ctx, fit) {
+    order.push(['mid', ctx.globalCompositeOperation, fit.width]); return true;
+  } };
+  const inner = { rangePresentation: range, draw() { assert.equal(manager.highResolutionMidEffects, true); }, dispose() {} };
+  const adapter = createPresentingRenderer({ canvas, presentation: pixel, rendererFactory: () => inner });
+  assert.equal(adapter.draw({ biomes: manager }, 0).presented, true);
+  assert.deepEqual(order.slice(-3), ['water', ['mid', 'source-over', 1280], 'cast']);
+  const recorded = surface(640, 360); stateful(recorded, order, 'recorded');
+  assert.equal(adapter.getCaptureSource().drawCaptureFrame(recorded.getContext(), 640, 360), true);
+  assert.deepEqual(order.slice(-3), ['water', ['mid', 'source-over', 640], 'cast']);
+  adapter.dispose();
+});
+
+test('a refused smooth effect composite is reported instead of publishing missing weather', () => {
+  const canvas = surface(1280, 720);
+  stateful(canvas, [], 'live');
+  const adapter = createPresentingRenderer({ canvas, presentation: pixel,
+    rendererFactory: () => ({ draw() {}, dispose() {} }) });
+  const manager = { world: { kind: 'alpine' }, drawHighResolutionMidEffects() { return false; } };
+  assert.equal(adapter.draw({ biomes: manager }, 0).presented, false);
+  assert.equal(adapter.getCaptureSource(), null);
+  adapter.dispose();
 });
 
 test('unready terrain holds the last completed output instead of publishing loading scenery', () => {

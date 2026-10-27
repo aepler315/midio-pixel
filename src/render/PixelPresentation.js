@@ -22,10 +22,9 @@ export function fitPixelRect(srcW, srcH, dstW, dstH, scaling = 'fit', origin = {
 
 /** Recompose at the destination resolution: smooth sky, the native frame
  * (nearest, unless `foreground` -- the cinematic cell reconstruction --
- * draws it and returns true), then smooth added light over it (`overlay`:
- * the Landscape cast, so its lights and lines are not stair-stepped with
- * the terrain). Recording must not resample the already combined picture. */
-export function compositePixelFrame(ctx, source, width, height, scaling, background = null, destination = null, foreground = null, overlay = null) {
+ * draws it and returns true), then an optional water layer and smooth added
+ * cast light. Recording must not resample the already combined picture. */
+export function compositePixelFrame(ctx, source, width, height, scaling, background = null, destination = null, foreground = null, overlay = null, water = null, effects = null) {
   const fit = destination ? { ...destination, scale: destination.width / source.width }
     : fitPixelRect(source.width, source.height, width, height, scaling);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -34,6 +33,18 @@ export function compositePixelFrame(ctx, source, width, height, scaling, backgro
   const hybridSky = background ? !!background(ctx, fit) : false;
   ctx.imageSmoothingEnabled = false;
   if (!foreground?.(ctx, fit)) ctx.drawImage(source, fit.x, fit.y, fit.width, fit.height);
+  let waterDrawn = false;
+  if (water) {
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    ctx.globalCompositeOperation = 'source-over';
+    try { waterDrawn = !!water(ctx, fit); } finally { ctx.restore(); }
+  }
+  let effectsDrawn = false;
+  if (effects) {
+    ctx.save(); ctx.imageSmoothingEnabled = true; ctx.globalCompositeOperation = 'source-over';
+    try { effectsDrawn = !!effects(ctx, fit); } finally { ctx.restore(); }
+  }
   let overlaid = false;
   if (overlay) {
     ctx.save();
@@ -41,7 +52,7 @@ export function compositePixelFrame(ctx, source, width, height, scaling, backgro
     ctx.globalCompositeOperation = 'lighter';
     try { overlaid = !!overlay(ctx, fit); } finally { ctx.restore(); }
   }
-  return { hybridSky, fit, overlay: overlaid };
+  return { hybridSky, fit, overlay: overlaid, water: waterDrawn, effects: effectsDrawn };
 }
 let nextOwner = 0;
 /** Owns only the bounded working buffer. The output belongs to the caller. */
@@ -216,8 +227,8 @@ export class PixelPresentation {
       + (this.ditherWeights?.byteLength || 0) + this.cinematic.bytes + (this.diagnostics.pixelEffectScratchBytes || 0);
     return applied;
   }
-  /** `overlay`: smooth light added over the composed frame (the cast). */
-  finishFrame({ background = null, overlay = null } = {}) {
+  /** `water` is source-over; `overlay` is smooth added cast light. */
+  finishFrame({ background = null, overlay = null, water = null, effects = null } = {}) {
     const started = performance.now();
     if (!this.source || !this._pending || this._disposed) {
       return this.diagnostics.frame?.presented === false ? this.diagnostics.frame : this.failFrame('not-rendered');
@@ -227,6 +238,8 @@ export class PixelPresentation {
       || source === this.working && this.residency.get(this.key) !== source) return this.failFrame('stale-frame');
     this.diagnostics.hybridSky = false;
     this.diagnostics.castForeground = false;
+    this.diagnostics.waterForeground = false;
+    this.diagnostics.smoothEffects = false;
     this.diagnostics.skyResolution = null;
     try {
       const sourceContext = source.getContext('2d'), outputContext = this.canvas.getContext('2d');
@@ -254,10 +267,13 @@ export class PixelPresentation {
         const ctx = this.canvas.getContext('2d');
         if (!ctx) return this.failFrame('output-context');
         const composite = compositePixelFrame(ctx, source, this.canvas.width, this.canvas.height, p.scaling, background, null,
-          p.cinematicPixel ? (ctx, fit) => this.drawForeground(ctx, source, fit) : null, overlay);
+          p.cinematicPixel ? (ctx, fit) => this.drawForeground(ctx, source, fit) : null, overlay, water, effects);
+        if (effects && !composite.effects) return this.failFrame('effects-layer-failed');
         const { fit, hybridSky } = composite;
         this.diagnostics.hybridSky = hybridSky;
         this.diagnostics.castForeground = composite.overlay;
+        this.diagnostics.waterForeground = composite.water;
+        this.diagnostics.smoothEffects = composite.effects;
         this.diagnostics.skyResolution = this.diagnostics.hybridSky ? { width: Math.round(fit.width), height: Math.round(fit.height) } : null;
       }
       this.diagnostics.ownedPixelScratchBytes += this.cinematic?.bytes || 0;
