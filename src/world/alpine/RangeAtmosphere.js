@@ -145,6 +145,41 @@ export function mistAmount(cam, p, { density = 0, baseM = 0, heightM = 220, tSec
   return 1 - Math.exp(-od);
 }
 
+/** How far under the cloud sea's top a point at height `y` sits (0..1),
+ *  times how full the sea is: the slab profile the layer itself uses. */
+export function seaSubmersion(y, { topM = 1e9, fill = 0 } = {}) {
+  if (!(fill > 0)) return 0;
+  return fill * (1 - smoothstep(topM - SEA_TOP_SOFT_BELOW_M, topM + SEA_TOP_SOFT_ABOVE_M, y));
+}
+
+/** How completely an emitter under the cloud sea's top drops out of sight
+ *  (0 = it follows the ground under it exactly). At 1 a lantern sunk under
+ *  a full sea is gone, while the ground beside it can keep a trace through
+ *  the thin near cloud: the lanterns are what the eye looks for. */
+export const EMITTER_SUBMERGE = 1;
+
+/**
+ * How much of a light at its true position `p` the camera `cam` sees
+ * through the valley mist and the cloud sea (0..1): the same mist the
+ * terrain under it receives (narrative atmosphere applied again, as the
+ * terrain applies it), and EMITTER_SUBMERGE of the sea above it. `m` is the
+ * mist as uploaded ({ density, baseM, heightM, tSec, steps, topM, fill,
+ * atm }); without one the air is clear.
+ */
+export function emitterVisibility(cam, p, m) {
+  if (!m) return 1;
+  const mist = mistAmount(cam, p, m) * (m.atm ?? 1);
+  return Math.max(0, (1 - mist) * (1 - EMITTER_SUBMERGE * seaSubmersion(p[1], m)));
+}
+
+/** Share of a lantern's light (its pool and its glints) the cloud sea
+ *  leaves when the lantern stands at height `sourceY` on the drawn ground:
+ *  as much as of the lantern itself, so a sunk lantern lights nothing, above
+ *  the top or below it. The JS twin of ACTOR_GLSL's actorShown. */
+export function actorLightShown(sourceY, m) {
+  return 1 - EMITTER_SUBMERGE * seaSubmersion(sourceY, m || undefined);
+}
+
 /** The banks' mean along the ray from `n` samples, weighted by the layer. */
 function mistBanks(cam, p, n, drift, baseM, heightM, topM, fill) {
   const dx = p[0] - cam[0], dy = p[1] - cam[1], dz = p[2] - cam[2];
@@ -279,6 +314,11 @@ export const MIST_GLSL = /* glsl */`
     float od = uMistDensity * length(d) * mistMeanLayer(cam.y, p.y) * banks;
     return 1.0 - exp(-od);
   }
+  // How far under the cloud sea's top height y sits (0..1, before fill);
+  // see seaSubmersion. Callers skip it while the sea is empty.
+  float mistSubmersion(float y) {
+    return 1.0 - smoothstep(uMistTop - ${SEA_TOP_SOFT_BELOW_M.toFixed(1)}, uMistTop + ${SEA_TOP_SOFT_ABOVE_M.toFixed(1)}, y);
+  }
   // The mist's colour: under a cloud sea, read where the view ray meets its
   // top, with brighter crowns and shaded troughs.
   vec3 mistColorAt(vec3 cam, vec3 p) {
@@ -291,6 +331,15 @@ export const MIST_GLSL = /* glsl */`
       + 0.3 * mistVnoise((hit.xz + 1.8 * uMistDrift[1]) / ${SEA_BILLOW_M.toFixed(1)} * 2.3 + vec2(5.1, 1.7))
       + 0.15 * mistVnoise((hit.xz + 1.8 * uMistDrift[2]) / ${SEA_BILLOW_M.toFixed(1)} * 5.1 + vec2(-2.3, 8.4));
     return uMistColor * mix(1.0, 0.5 + 0.9 * b * b, uMistFill);
+  }
+`;
+
+/** GLSL twin of emitterVisibility for lights placed per vertex (the cast's
+ *  site lights and threads). Needs MIST_GLSL, uCameraPos and uNarrative. */
+export const EMITTER_GLSL = /* glsl */`
+  float emitterSeen(vec3 p) {
+    float sub = uMistFill > 0.0 ? uMistFill * mistSubmersion(p.y) : 0.0;
+    return max(0.0, (1.0 - mistAmount(uCameraPos, p) * uNarrative.y) * (1.0 - ${EMITTER_SUBMERGE.toFixed(3)} * sub));
   }
 `;
 

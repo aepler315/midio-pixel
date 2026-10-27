@@ -43,7 +43,7 @@ import { mistParams, mistDrift, easeMistSteps, tourMistCap, tourMistFade } from 
 import { mirrorSize, mirrorLevelFor, mirrorCameraFor, mirrorTextureMatrix, MIRROR_CLIP_M, MIRROR_LIFT } from './WaterMirror.js';
 import { scenicProjection, calibrateRangeMusic } from './RangeFrame.js';
 import { applyGlacierUniforms, glacierErrors, glacierSample } from './GlacierField.js';
-import { ActorsGL, SITE_LIGHTS_MAX } from './ActorsGL.js';
+import { ActorsGL, SITE_LIGHTS_MAX, CAST_LAYER, CAST_RIBBON_LAYER, enableCastLayers } from './ActorsGL.js';
 import { buildRiverGeometry, riverGeometryBound, riverChannelErrors } from './RiverChannel.js';
 import { ACTOR_IDS, ACTOR_HUES, ACTOR_LOOK, ACTOR_START, actorRoutes, routePosition } from './RangeActors.js';
 import { castPlan, castWork, pathPosition, siteWalk } from './CastJobs.js';
@@ -155,7 +155,10 @@ export class RangeScene {
     this.depthCache = { A: { frame: -1, view: null }, B: { frame: -1, view: null } };
     this.size = { width: 0, height: 0 };
     this.contextLost = false;
-    this.stats = { depthPasses: 0, partitions: 0, lastPartitionMs: 0 };
+    this.stats = { depthPasses: 0, partitions: 0, lastPartitionMs: 0, castPasses: 0 };
+    // The cast draws in the band passes unless the presentation takes it
+    // from renderCast to lay over the pixel frame itself (it clears this).
+    this.castInBands = true;
     this._copy = this._createCopy();
     // Each loss and each restore starts a new context epoch: a preparation
     // that straddles either built GPU objects (and dropped the surface
@@ -506,8 +509,10 @@ export class RangeScene {
       r.setClearColor(0x000000, 0);
       r.clear(true, true, false);
       const softForest = Object.values(p.forest?.counts || {}).some(n => n > 0);
+      // The lake reflects the cast with each band (it never takes the main
+      // camera's separate cast pass).
       this.mirrorCamera.layers.set(0);
-      if (!softForest) this.mirrorCamera.layers.enable(3);
+      if (!softForest) { this.mirrorCamera.layers.enable(3); enableCastLayers(this.mirrorCamera); }
       r.render(p.depthScene, this.mirrorCamera);
       for (const band of BANDS) r.render(p.scenes[band], this.mirrorCamera);
       if (softForest) {
@@ -516,6 +521,7 @@ export class RangeScene {
         this.mirrorCamera.layers.set(2);
         r.render(p.depthScene, this.mirrorCamera);
         this.mirrorCamera.layers.set(3);
+        enableCastLayers(this.mirrorCamera);
         for (const band of BANDS) r.render(p.scenes[band], this.mirrorCamera);
       }
       this.mirrorCamera.layers.set(0); this.mirrorCamera.layers.enable(3);
@@ -1158,7 +1164,7 @@ export class RangeScene {
         // wanders gets them here (others build them only if ever needed).
         const routes = plan.job === 'wander' ? actorRoutes(cpu.data, view, { waterLevelM, seed: castSeed }) : null;
         const work = castWork(plan, { data: cpu.data, waterLevelM });
-        for (const band of BANDS) scenes[band].add(actors.sites.meshes[band], actors.threads.meshes[band]);
+        for (const band of BANDS) scenes[band].add(actors.sites.meshes[band], actors.threads.meshes[band], actors.rope.meshes[band]);
         // Per-band depth scenes for travel frames, where a side's nearer
         // bands are drawn only in some columns (same geometry and material;
         // a mesh has one parent, so these are separate mesh objects).
@@ -1724,7 +1730,9 @@ export class RangeScene {
     const bodies = frame.light.state;
     // Keep moonlit receivers readable with the existing sheltered fill.
     // Existing horizon visibility blends the handoff while daylight and true gaps keep their fill.
-    const moonShare = visibility(night) * visibility(bodies?.moon?.visibility) * (1 - visibility(bodies?.sun?.visibility));
+    // An authored Landscape moon is lit only as far as its disc shows (discAlpha).
+    const moon = bodies?.moon;
+    const moonShare = visibility(night) * visibility(moon?.discAlpha ?? moon?.visibility) * (1 - visibility(bodies?.sun?.visibility));
     u.uMoonAmbientScale.value = 2.5 * .65 * (1 - ambient) * moonShare;
     u.uAmbientScale.value = 2.5 * ambient + u.uMoonAmbientScale.value;
     u.uStorm.value.set(storm.amount, storm.flash, storm.break01, storm.wet01);
@@ -1852,6 +1860,10 @@ export class RangeScene {
     // a soft shimmer at noon.
     const dark = Math.min(1, Math.max(0, frame.light?.night01 ?? 0));
     const presence = (cast?.presence ?? 0) * (materials > .01 ? materials : 0);
+    // The lanterns, motes and companions are seen through the same mist and
+    // cloud sea as the ground under them, at their true positions on the
+    // lifted ground (their shaders' emitterSeen, as for the sites and
+    // threads); the light they cast goes with them (ACTOR_GLSL actorShown).
     u.uWakeAmt.value = 0;
     u.uParting.value.w = 0;
     // A shot tour over a rail view keeps the view's job (and every light it
@@ -1870,8 +1882,9 @@ export class RangeScene {
         : route ? routePosition(route, s.travel + (ACTOR_START[id] || 0), { ...opts, hoverM: look.hoverM, bobSec: tSec + k * 2.1 }) : null;
       u.uActorColor.value[k].set(0, 0, 0);
       if (!group) return;
-      // Lanterns, motes and companions must test the completed forest depth.
-      if (!group.layers.isEnabled(3)) group.traverse(object => object.layers.set(3));
+      // Lanterns, motes and companions draw with the cast, after the
+      // completed forest depth (renderCast, or the band passes' layer 3).
+      if (!group.layers.isEnabled(CAST_LAYER)) group.traverse(object => object.layers.set(CAST_LAYER));
       if (!pos) { group.visible = false; return; }
       const at = new THREE.Vector3(pos[0], pos[1], pos[2]);
       const dist = Math.max(1, at.distanceTo(cam.position));
@@ -1893,6 +1906,7 @@ export class RangeScene {
       const toCam = cam.position.clone().sub(at).normalize();
       const v = p.actors.uniforms[id];
       v.uCenter.value.copy(at).addScaledVector(toCam, push);
+      v.uAnchor.value.copy(at);
       v.uRight.value.copy(right);
       v.uUp.value.copy(up);
       v.uMpp.value = mpp0 * (dist - push) / dist;
@@ -1917,6 +1931,7 @@ export class RangeScene {
         const cd = Math.max(1, cp.distanceTo(cam.position));
         const cpush = Math.min(cd * 0.25, 30 * mpp0);
         c.uCenter.value.copy(cp).addScaledVector(cam.position.clone().sub(cp).normalize(), cpush);
+        c.uAnchor.value.set(lag[0], lag[1], lag[2]);
         c.uMpp.value = mpp0 * (cd - cpush) / cd;
         c.uGlow.value = s.glow * 0.6;
       });
@@ -2012,14 +2027,21 @@ export class RangeScene {
         const pts = th.points, x = unit(f) * (pts.length - 1), i = Math.min(pts.length - 2, Math.floor(x)), g = x - i;
         return pts[i].map((v, c) => v + (pts[i + 1][c] - v) * g);
       };
-      let flown = null, f = 0;
+      let flown = null, f = 0, next = null;
       for (const th of work.threads) {
         const age = since(th.mark);
-        if (age < 0) break;
+        if (age < 0) { next = th; break; }
         flown = th; f = unit(age / 1500);
       }
       const first = work.threads[0];
-      const scout = flown ? along(flown, f) : first ? first.a : null;
+      let scout = flown ? along(flown, f) : first ? first.a : null;
+      // A thread with no ground to lie on is never drawn (castWork), so the
+      // next may start at another cairn: she glides over to it in the
+      // 1.5 s before it starts instead of jumping there when it does.
+      if (flown && next && f >= 1 && flown.b.some((v, c) => v !== next.a[c])) {
+        const g = unit(1 + since(next.mark) / 1500), e = g * g * (3 - 2 * g);
+        scout = flown.b.map((v, c) => v + (next.a[c] - v) * e);
+      }
       out.actors.midasus = { pos: scout, fly: flyFor('midasus'),
         lag: scout ? [1, 2, 3].map(j => (flown ? along(flown, f - 0.04 * j) : scout)) : null };
     }
@@ -2029,7 +2051,7 @@ export class RangeScene {
   /** The lights the job has left in this view, and Midasus's threads. */
   _setCastLights(p, frame, job, presence, dark, right, up, tanHalf) {
     const THREE = this.THREE;
-    const sites = p.actors?.sites, threads = p.actors?.threads;
+    const sites = p.actors?.sites, threads = p.actors?.threads, rope = p.actors?.rope;
     if (!sites || !threads) return;
     const work = p.castWork, schedule = frame.actors?.schedule;
     // Lay the sites out once per schedule: the job's lights, then a camp
@@ -2045,8 +2067,12 @@ export class RangeScene {
       const camps = p.castPlan?.job === 'ascent' ? schedule?.views?.[p.view.id]?.camps || [] : [];
       p.castCamps = camps.map(c => pathPosition(p.castPlan, c.p, { data: p.data, waterLevelM: p.waterLevelM, hoverM: 3 }));
       p.castCampFrom = null;
-      threads.setThreads((work?.threads || []).map(th => ({ a: th.a, b: th.b,
-        band: this._tileAt(p.data, (th.a[0] + th.b[0]) / 2, (th.a[2] + th.b[2]) / 2)?.band })));
+      // Each thread keeps its drape, in the nearest band any of it lies
+      // over: every partition tests against all bands' depth, so only a
+      // nearer partition drawn later could paint over a stretch of it.
+      const nearest = (points) => BANDS[Math.max(-1, ...points.map(q => BANDS.indexOf(bandAt(q))))];
+      threads.setThreads((work?.threads || []).map(th => ({ points: th.points, a: th.a, b: th.b, band: nearest(th.points) })));
+      rope?.setThreads(work?.rope ? [{ points: work.rope, band: nearest(work.rope) }] : []);
     }
     const made = job?.state.camps ?? 0;
     const campFrom = Math.max(0, Math.min(made, p.castCamps.length) - campSlots);
@@ -2077,6 +2103,24 @@ export class RangeScene {
       sites.setState(k, lit, f);
     });
     for (let j = 0; j < Math.min(campSlots, p.castCamps.length - campFrom); j++) sites.setState(lights.length + j, made > campFrom + j ? 1 : 0);
+    if (rope && work?.rope) {
+      // The rope runs up to the light Broshi is fixing, growing into it as
+      // it comes up, and to the summit with the payoff; the fuse runs along it.
+      const climb = (u) => (u - p.castPlan.waterU) / (1 - p.castPlan.waterU);
+      let front = 0, done = 0, last = 0;
+      lights.forEach((l, k) => {
+        if (!job || l.kind !== 'line') return;
+        const age = job.since(l.mark), from = k ? climb(lights[k - 1].u) : 0;
+        last = climb(l.u);
+        if (age < 0) return;
+        front = Math.max(front, from + (last - from) * Math.min(1, age / 800));
+        done++;
+      });
+      const payoff = job?.state.payoff01 ?? 0;
+      if (done && done === lights.length) front = Math.max(front, last + (1 - last) * payoff);
+      rope.setState(0, front, 0.55 + 0.45 * payoff, fuse > 0 && fuse < 1 ? fuse : -10);
+      rope.setLook(hue('broshi', 0.7), 0.6 * gain);
+    }
     (work?.threads || []).forEach((th, k) => {
       if (!job) { threads.setState(k, 0, 0); return; }
       const age = job.since(th.mark);
@@ -2168,11 +2212,16 @@ export class RangeScene {
     this._prepareMirror(p, frame, side, viewId);
     this._updateForestDetail(p, frame, this.camera, this.size.width, this.size.height, 'main');
     const softForest = Object.values(p.forest?.counts || {}).some(n => n > 0);
+    // The cast draws once, after the near partition (renderCast), against
+    // the whole scene's depth. A travel frame (each side's nearer bands
+    // only in some columns) and a caller with no smooth layer to put it in
+    // (castInBands, set by the presentation) keep it in the band passes.
+    const castInBands = this.castInBands !== false || !!bandColumns;
     this.camera.layers.set(0);
-    if (!softForest) this.camera.layers.enable(3);
+    if (!softForest) { this.camera.layers.enable(3); if (castInBands) enableCastLayers(this.camera); }
     const source = pass === 'far' && rangeQuality(frame.qualityLevel).sunShafts ? shaftSource(frame) : null;
     const forestDepth = p.uniforms.uNarrativeInk.value >= .005
-      || Object.values(p.actors?.groups || {}).some(group => group.visible)
+      || (castInBands && this._castShown(p))
       || !!(source && this.shafts);
     // The backdrop holds the far partition itself: far water reflecting it
     // would feed back into the next copy, so it keeps the ground mirror only.
@@ -2221,9 +2270,13 @@ export class RangeScene {
         else r.render(p.depthScene, this.camera);
         depth.frame = -1;
         this.camera.layers.set(3);
+        if (castInBands) enableCastLayers(this.camera);
         r.render(p.scenes[pass], this.camera);
       }
     }
+    // What the cast pass will find in this side's target after the near
+    // partition: whose depth, and whether the trees' crown cut is in it.
+    if (pass === 'near') depth.cast = bandColumns ? null : { frame: frame.frameId, view: viewId, forest: !softForest || forestDepth };
     this.camera.layers.set(0); this.camera.layers.enable(3);
     // Far is the single solar boundary, before the inserted Dancing Ridge.
     // During travel its depth was just rebuilt with this side's real columns.
@@ -2239,6 +2292,64 @@ export class RangeScene {
     this.lastShafted = !!scattering;
     this.stats.partitions++;
     this.stats.lastPartitionMs = performance.now() - t0;
+    return this.canvas;
+  }
+
+  /** Whether any of a view's cast would draw a pixel this frame: a lantern
+   *  out, or a light or thread laid out and lit (laid out but dark, as
+   *  before the first kindling or with the cast absent, draws nothing). */
+  _castShown(p) {
+    const a = p.actors;
+    if (!a) return false;
+    if (Object.values(a.groups || {}).some(group => group.visible)) return true;
+    return [a.sites, a.threads, a.rope].some(set => set?.drawn?.());
+  }
+
+  /**
+   * The cast alone -- lanterns, motes, companions, placed lights, threads
+   * and the fixed line -- for `frame`, drawn right after this side's near
+   * partition into the same target with only its colour cleared: the depth
+   * there is still every band's pre-pass (plus the trees' crown cut, added
+   * here if the near partition did not need it), so the land and trees in
+   * front hide it exactly and no later partition paints over it. Returns
+   * the canvas holding it (valid until the next render call) for the
+   * presentation to lay smoothly over the pixel frame, or null when there
+   * is nothing to draw or the target no longer holds that near partition.
+   */
+  renderCast(frame, viewId = frame.viewFromId, { side = 'A' } = {}) {
+    const p = this.prepared.get(viewId);
+    const target = side === 'B' ? this.sideTargets.B : this.target;
+    const depth = this.depthCache[side], near = depth?.cast;
+    if (!p || this.contextLost || !target || near?.frame !== frame.frameId || near.view !== viewId) return null;
+    depth.cast = null; // one cast pass per near partition
+    if (!this._castShown(p)) return null;
+    const r = this.renderer;
+    r.setRenderTarget(target);
+    if (!near.forest) {
+      this.camera.layers.set(2);
+      r.render(p.depthScene, this.camera);
+      depth.frame = -1; // no longer plain opaque depth
+    }
+    r.setClearColor(0x000000, 0);
+    r.clear(true, false, false);
+    // On this cleared layer every ribbon draws first, and where one folds
+    // over itself (or crosses another) it keeps its brightest layer instead
+    // of summing into beads (SurveyThreads setOverlap); then every light is
+    // added over them, as it is over the land. (No depth is written, so
+    // band order never changes what hides what.)
+    const ribbons = [p.actors?.threads, p.actors?.rope].filter(Boolean);
+    for (const set of ribbons) set.setOverlap(this.THREE.MaxEquation);
+    this.camera.layers.set(CAST_RIBBON_LAYER);
+    try { for (const band of BANDS) r.render(p.scenes[band], this.camera); }
+    finally { for (const set of ribbons) set.setOverlap(this.THREE.AddEquation); }
+    this.camera.layers.set(CAST_LAYER);
+    for (const band of BANDS) r.render(p.scenes[band], this.camera);
+    this.camera.layers.set(0); this.camera.layers.enable(3);
+    r.setRenderTarget(null);
+    this._setCanvasSize(this.size.width, this.size.height);
+    r.clear(true, true, false);
+    this._copyTexture(target.texture);
+    this.stats.castPasses = (this.stats.castPasses || 0) + 1;
     return this.canvas;
   }
 

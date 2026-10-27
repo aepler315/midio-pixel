@@ -20,7 +20,7 @@ import { VisualMusicHistory } from './VisualMusicHistory.js';
 import { ridgeEnvelope, boundaryLift01 } from './alpine/Ridge.js';
 import { travelSeam, TRAVEL_FEATHER, TRAVEL_BANDS } from './TravelSeam.js';
 import { landscapeLayerColor, landscapePasses, landscapePolicy, landscapeBudget, landscapeSnowAllowed, resolveLandscapePalette, resolveRangePresentation, rangeDrawsSea } from './alpine/LandscapePolicy.js';
-import { createRangeSkyComposition, rangeMoonOrbit, rangeMoonRadius, rangeV2MoonRadius, drawMoonMaria, rangeCloudBanks, tourCloudBanks, drawRangeClouds, tourSkyDirection, projectSkyDirection, projectRailSky } from './alpine/RangeSkyComposition.js';
+import { createRangeSkyComposition, rangeMoonOrbit, rangeMoonRadius, rangeV2MoonRadius, drawMoonMaria, rangeCloudBanks, tourCloudBanks, drawRangeClouds, tourSkyDirection, projectSkyDirection, projectRailSky, MOON_MIN_ILLUMINATION } from './alpine/RangeSkyComposition.js';
 import { RangeSkyRenderer } from './alpine/RangeSkyRenderer.js';
 import { rangeSkyState, usesHighResolutionRangeSky } from './alpine/RangeFrame.js';
 import { withNarrativeAlpha, drawNarrativeMarks } from '../render/NarrativeDraw.js';
@@ -2646,6 +2646,9 @@ export class BiomeManager {
     // baked (and their composition fitted) when the legacy stack draws.
     const v2 = this.world?.kind === 'alpine' && !this.terrainPreview && !!this.rangePresentation?.beginScenic?.();
     this._rangeV2Active = v2;
+    // A frame that skips the Range scene (the terrain preview never begins
+    // it) keeps no cast layer from the last one for the presenter to add.
+    if (!v2 && this.rangePresentation) this.rangePresentation.castLayer = null;
     this._awaitingTerrain = this.world?.kind === 'alpine' && !this.terrainPreview && !!this.rangePresentation?.enabled && !v2;
     if (this._awaitingTerrain) {
       this._rangeV2Arriving = false;
@@ -2785,8 +2788,10 @@ export class BiomeManager {
       // Where the sun really is -- below the horizon all night, which is the
       // whole point: it's what makes the moon read as lit from underneath.
       const sun = moon?.illuminant || sunScreenFrac(cyclePhase01(this.tSec * 1000, this._dayNightCycleMs));
+      // An authored Landscape moon paints only as far as discAlpha lets it
+      // (gone while the sun is up); a cycle moon keeps its own visibility.
       this._drawMoon(
-        c, canvas, celestialYFracFor(moon?.altitude01 ?? dn.moonAlt), (moon?.visibility ?? horizonFade(dn.moonAlt)) * (.35 + .65 * dn.night),
+        c, canvas, celestialYFracFor(moon?.altitude01 ?? dn.moonAlt), (moon?.discAlpha ?? moon?.visibility ?? horizonFade(dn.moonAlt)) * (.35 + .65 * dn.night),
         0,
         celestialXFracFor(dn.moonAz01),
         sun.xFrac, sun.yFrac, this._moonPhase01(), this.celestialState?.moon,
@@ -3780,7 +3785,7 @@ export class BiomeManager {
       lightning,
     });
     const moon = this.rangeSkyLayer.moon;
-    this._moonDisc = moon?.visible !== false && moon?.altitude01 > .001
+    this._moonDisc = moon?.visible !== false && moon?.altitude01 > .001 && (moon.discAlpha ?? 1) > .02
       ? { x: moon.xFrac * canvas.width, y: moon.yFrac * canvas.height, R: moon.radiusFrac * canvas.width } : null;
     // The old ellipse-bank occluder cannot describe the new density clouds.
     if (this.rangePresentation?.scene) this.rangePresentation.scene.skyClouds = null;
@@ -4595,7 +4600,7 @@ export class BiomeManager {
    *  "day" already is.
    *
    *  The song opens near new and waxes to full at the midpoint. See
-   *  MOON_MIN_ILLUM in _drawMoon for why it never actually reaches new. */
+   *  MOON_MIN_ILLUMINATION in _drawMoon for why it never actually reaches new. */
   _moonPhase01() {
     // Warped away from exact quarter, because exact quarter is a straight
     // line.
@@ -4679,8 +4684,10 @@ export class BiomeManager {
     // anything sitting behind an unlit crescent moon stayed almost fully
     // visible right through its own disc. Same alpha as the moon itself so
     // it fades out in step at moonrise/moonset instead of ever occluding
-    // more than the visible moon does.
-    ctx.globalAlpha = alpha;
+    // more than the visible moon does. Only as dark as the night, though:
+    // a moon in a bright sky has a sky-coloured dark side, not a black hole.
+    // (The cycle moon is only ever up while night is 1, so it is unchanged.)
+    ctx.globalAlpha = alpha * clamp01(this._night01 ?? 1);
     ctx.fillStyle = '#000000';
     ctx.beginPath();
     ctx.arc(cx, cy, R, 0, Math.PI * 2);
@@ -4705,9 +4712,10 @@ export class BiomeManager {
     // would mean no moon at all through the opening of every song, which
     // reads as a missing feature rather than as astronomy. A thin crescent
     // is the same shape a new moon is a day either side of new, so this
-    // costs nothing in fidelity.
-    const MOON_MIN_ILLUM = 0.16;
-    const f = Math.max(MOON_MIN_ILLUM, 0.5 - 0.5 * Math.cos(2 * Math.PI * clamp01(phase01)));
+    // costs nothing in fidelity. The hybrid sky shares the same floor.
+    // A projected Landscape moon carries its geometric phase (its angle to
+    // the sun); the cycle moon keeps the song-long synodic term.
+    const f = Math.max(MOON_MIN_ILLUMINATION, resolved?.illumination ?? 0.5 - 0.5 * Math.cos(2 * Math.PI * clamp01(phase01)));
     const k = R * (1 - 2 * f);
 
     // Point +x at the sun, so the bright limb faces it.

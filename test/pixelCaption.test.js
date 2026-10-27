@@ -74,8 +74,9 @@ test('punctuation, shipped diacritics and explicit Unicode fallbacks draw integr
   const caption = { rows: [{ name: 'Iztaccíhuatl – México (48°) / Élan & Ås' }], credit: '© AWS · CC BY 4.0' };
   const calls = [];
   const ctx = { save() {}, restore() {}, fillRect(...args) { calls.push(args); } };
-  const result = pixelCaption.drawPixelCaption(ctx, [{ atMs: 2000, caption }], 6500, { grid });
+  const { plate, ...result } = pixelCaption.drawPixelCaption(ctx, [{ atMs: 2000, caption }], 6500, { grid });
   assert.deepEqual(result, layout(caption, 4500));
+  assert.ok(plate > 0 && plate <= .72, `the plate's opacity is reported: ${plate}`);
   assert.ok(calls.length > 50);
   assert.ok(calls.every(rect => rect.every(Number.isInteger)));
   assert.ok(layout({ rows: [{ name: '東京' }] }).accessibleText.includes('東京'));

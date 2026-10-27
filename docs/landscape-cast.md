@@ -199,9 +199,31 @@ At `p = 1`, the last thread closes the network back to the first cairn.
   the song.
 - **Lighting budget.** Only the three lanterns light the terrain, through the
   existing `uActorPos` / `uActorColor` slots. Fixed lines, camps, cairns,
-  buoys and threads are emissive billboards and line strips only. They take
-  part in the band passes, so they are occluded, hazed and mirrored, but they
-  add no per-fragment light loop.
+  buoys and threads are emissive billboards and ribbons only (the fixed line
+  is also a rope ribbon up to the light Broshi is fixing). They add no
+  per-fragment light loop. A lantern sunk under the cloud sea lights nothing:
+  its pool and its glints go with it (`actorShown`).
+- **Drawing.** The cast draws in a pass of its own after the near partition,
+  against every band's depth and the trees' crown cut, so the land in front
+  hides it exactly, and only while some of it can show (a lantern out, or a
+  light or thread lit); the presenter lays that layer bilinear over the
+  nearest-upscaled pixel frame, in full colour, so its lights and lines are
+  not stair-stepped. `CastRaster.js` filters every light over each pixel, so
+  nothing twinkles with sub-pixel motion, and a light finer than a pixel
+  keeps a peak in proportion to its size, so motes and far lights stay
+  visible. A thread or rope is a double-sided ribbon whose centre line is as
+  bright as the 1-px line it replaced (`THREAD_PEAK`); on the cast's layer
+  its overlaps keep the brightest layer (max blending) instead of beading
+  where a short, turning drape step folds it. The layer therefore sits
+  above the 2D layers the working buffer holds (far vignettes and mid-depth
+  life between partitions; the cut flash, bloom, film finish and an in-frame
+  HUD after them), except the range caption, whose plate it shows through.
+  A travel, and a caller with no smooth layer, keep it in the band passes;
+  the lake mirror always reflects it with each band. Every light, lanterns
+  and motes included, is fogged in its shader at its true position on the
+  drawn (lifted) ground: through the valley mist as the ground under it is,
+  and more completely by the cloud sea -- under a full sea's top it is gone
+  while the ground beside it may keep a trace (`emitterVisibility`).
 - **Analysis refresh.** When the full analysis replaces the opening one during
   play, the schedule takes `previous` and `committedThroughMs`, the same way
   `compileLandscapeScore` does. Work, camps and lights already heard are

@@ -29,7 +29,35 @@ through sunrise, avoiding a bright-limb flip. The Teton lunar arc stays within
 the visible flight composition; terrain and clouds still occlude it naturally.
 The Range star catalogue retains a daylight brightness floor after loading.
 
+Update (2026-10-24): the orbit still never sets, but the moon's paint and
+light are now gated by the sun's depression (`moon.discAlpha`,
+CelestialState.js), so sun and moon never share the sky: the moon fades out
+just before sunrise and returns a second or two after sunset. Its phase
+comes from its angle to the signed sun (`moon.illumination`): in a tour on
+the compass arcs the tour projects, in a rail view from the rail's own image
+(`railMoonIllumination`), the geometry that also sets its lit side. A rail
+view shows the moon only before dawn and after sunset, beside the rising or
+the set sun, so there it is a thin crescent lit toward the sun (the compass
+phase had drawn it full beside the afterglow). Both discs subtend one
+lens-relative angle (`BODY_ANGULAR_RADIUS_DEG`), and the hybrid sky paints
+them with `CelestialPainter.js`. The sun keeps a warm white-hot heart down
+to the horizon, so it outshines the twilight it sets into. Its disc stays
+solid until the last fifth of its waterline fade (the land in front hides a
+setting sun), dimming to about 85% as it sinks, while its glare and bloom
+fade with its horizon visibility; the bloom falls from the centre with no
+ring at the limb. A storm deck takes the clear-sky sun and the moon's face
+away as it thickens (`bodyVeil`, on `storm.amount`), and both are painted
+over the deck as light through cloud: a soft, bright watery sun or a moon
+glow through a thin deck, a faint patch through the full one. Under the
+deck's slate the old hard disc read as a grey moon.
+
 ## Verification
+
+This section records the baseline repair above, captured before the
+2026-10-24 update: under the daylight gate the Teton tour no longer paints
+the moon between sunrise (24 s) and sunset (88 s), so of its checkpoints only
+1, 6, 12 and 94 seconds show it now. Evidence for the update is in its pull
+request.
 
 The final serial full suite ran 4,599 tests: 4,592 passed, six skipped and one
 failed. The sole failure, `test/slskdCompose.test.js`, also fails on the unchanged

@@ -564,6 +564,7 @@ export class Renderer {
     // The real range's name (RangeCaption.js). Not HUD chrome: it is part of
     // the picture, so it is drawn whether or not the HUD is in frame, and
     // recordings and bulk exports carry it.
+    this.pixelCaptionLayout = null;
     if (sim.rangeCaption || sim.rangeCaptions) {
       ctx.setTransform(sxFixed, 0, 0, syFixed, outputFit.x, outputFit.y);
       const captionStage = this._captionStageView || (this._captionStageView = { width: nominalW, height: nominalH });

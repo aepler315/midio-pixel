@@ -76,6 +76,17 @@ test('direct, unresolved and preview callers retain diagnostic ridges and the id
   }
 });
 
+test('a frame that skips the Range scene leaves no cast layer from the last one to composite', () => {
+  for (const overrides of [{ terrainPreview: true }, { world: { kind: 'canyon' } }]) {
+    const stale = { canvas: { width: 1 }, alpha: 1 };
+    const { manager } = fixture({ ...overrides, rangePresentation: { enabled: true, skyPan: camera, castLayer: stale } });
+    manager.rangePresentation.beginScenic = () => assert.fail('the preview never begins the Range scene');
+    try { manager.draw({ save() { throw new Error('scenic boundary'); }, getTransform: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }) }, viewport, 0); }
+    catch (err) { if (err.message !== 'scenic boundary') throw err; }
+    assert.equal(manager.rangePresentation.castLayer, null, `${JSON.stringify(overrides)}: the presenter adds nothing stale`);
+  }
+});
+
 test('standalone hybrid frames skip the fallback even with an old legacy diagnostic snapshot', () => {
   for (const _frameRidges of [null, { stale: true }]) {
     const { manager, samples } = fixture({ _frameRidges });
