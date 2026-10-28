@@ -285,6 +285,10 @@ const SHADE = /* glsl */`
       mistColor = cinematicMistColor(mistColor, uSkyZenith, dist);
       airColor = cinematicMistColor(airColor, uSkyZenith, dist);
     }
+    // Forward scatter toward the key, as the ground's mist (no cloud
+    // transmission reaches the trees).
+    mistColor = min(mistColor + uLightColor * 0.07 * mistPhase(normalize(world - uCameraPos), uLightDir)
+      * (1.0 - uStorm.x), vec3(0.9));
     vec3 color = mix(surface, mistColor, mist);
     color = mix(color, airColor, clamp(air, 0.0, 0.96));
     color = mix(color, rainColor(), rainVeil(world, dist) * 0.8);

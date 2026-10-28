@@ -443,3 +443,33 @@ test('the score\'s hold on the valley air is neutral in silence and bounded unde
     assert.ok(m.mistDensityMul >= .75 && m.mistDensityMul <= 1 && m.mistGlow >= 0 && m.mistGlow <= .06 && m.shaftGain >= 1 && m.shaftGain <= 1.4);
   }
 });
+
+test('mist forward scatter peaks into the light, is zero for isotropic scatter and never negative', async () => {
+  const { mistForwardScatter, MIST_SCATTER_G } = await import('../src/world/alpine/RangeAtmosphere.js');
+  assert.equal(MIST_SCATTER_G, .6);
+  assert.ok(Math.abs(mistForwardScatter(1) - 1) < 1e-12);
+  let prior = -1;
+  for (let c = -1; c <= 1.0001; c += .02) {
+    const v = mistForwardScatter(c);
+    assert.ok(v >= 0 && v <= 1, `bounded at ${c}`);
+    assert.ok(v >= prior, `monotonic at ${c}`);
+    prior = v;
+  }
+  assert.equal(mistForwardScatter(-1), 0, 'below isotropic clamps to 0');
+  for (const bad of [NaN, Infinity, -Infinity, undefined]) assert.equal(mistForwardScatter(bad), 0);
+  assert.ok(mistForwardScatter(.95) > .2 && mistForwardScatter(.5) < .1, 'a forward lobe');
+});
+
+test('the mist phase is a MIST_GLSL function of its arguments, applied after the cinematic mist colour', async () => {
+  assert.match(MIST_GLSL, /float mistPhase\(vec3 view, vec3 lightDir\)/);
+  assert.doesNotMatch(MIST_GLSL, /uniform[^;]*uLightDir/, 'ActorsGL also includes MIST_GLSL; no new uniform');
+  const { SCENE_FRAG } = await import('../src/world/alpine/TerrainMaterial.js');
+  const forest = await import('node:fs').then(fs => fs.readFileSync(new URL('../src/world/alpine/ForestGL.js', import.meta.url), 'utf8'));
+  for (const [name, source] of [['terrain', SCENE_FRAG], ['forest', forest]]) {
+    const grade = source.lastIndexOf('mistColor = cinematicMistColor(');
+    const phase = source.indexOf('mistPhase(normalize(');
+    assert.ok(grade > 0 && phase > grade, `${name} adds forward scatter after the cinematic mist colour`);
+    assert.match(source.slice(phase - 120, phase + 200), /uLightColor \* 0\.07 \* mistPhase\([^;]*\(1\.0 - uStorm\.x\)[^;]*vec3\(0\.9\)\)/);
+  }
+  assert.match(SCENE_FRAG, /mistPhase\(normalize\(vRenderedWorld - uCameraPos\), uLightDir\)\s*\* \(1\.0 - uStorm\.x\) \* moonTransmission/);
+});

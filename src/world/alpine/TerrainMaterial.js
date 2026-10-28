@@ -919,6 +919,10 @@ export const SCENE_FRAG = /* glsl */`
       mistColor = cinematicMistColor(mistColor, uSkyZenith, dist);
       airColor = cinematicMistColor(airColor, uSkyZenith, dist);
     }
+    // Mist glows toward the key light (forward scatter), through the same
+    // cloud as the key; the squall's deck swallows it. Mist only, not air.
+    mistColor = min(mistColor + uLightColor * 0.07 * mistPhase(normalize(vRenderedWorld - uCameraPos), uLightDir)
+      * (1.0 - uStorm.x) * moonTransmission, vec3(0.9));
     color = mix(color, mistColor, mist);
     // Under a cloud sea the lake's mirror and glints are hidden with it.
     float clear = 1.0 - mist * uMistFill;
