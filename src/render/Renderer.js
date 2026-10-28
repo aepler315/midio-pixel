@@ -19,7 +19,9 @@ import { GOLD_AFTERIMAGE_LIFE_MS } from '../sim/MidioPerformer.js';
 import { clamp01 } from '../utils/math.js';
 import { LerpCache, hexToRgb } from '../utils/color.js';
 import { spectralFamily } from './spectral.js';
-import { hypeFrameStyle } from '../sim/HypeDirector.js';
+import { hypeFrameStyle, trioHypeFrameStyle } from '../sim/HypeDirector.js';
+import { landscapeFinish } from './FilmFinish.js';
+import { fillCastLights, groundGlowLights, characterGlowLight } from './LightField.js';
 import { salienceBudgetFor } from './SalienceBudget.js';
 import { styleDials } from './VisualStyle.js';
 import { GroundResponse, recentConductorHits } from '../world/alpine/GroundResponse.js';
@@ -37,6 +39,9 @@ import { highlightCandidatesFor, highlightFrameState, highlightVisible } from '.
 export const SHAKE_MARGIN_PX = 64;
 
 const MIDIO_DRAW_SCALE = 1.935; // 10% smaller than 2.15; physics footprint stays 23px half-width
+// Midio's glowing core (the body mesh hub, 30 mesh units above his foot) as
+// a light on his companions.
+const MIDIO_CORE_LIFT_PX = 30 * MIDIO_DRAW_SCALE;
 
 // Fever aura: a screen-edge glow that only shows up once the player's earned
 // it -- silent below the threshold so it never competes with the vignette
@@ -149,6 +154,15 @@ function rangeViewWeight(presentation) {
   if (!presentation?.enabled || !presentation.active) return 0;
   const a = Number(presentation.arrival);
   return Number.isFinite(a) ? clamp01(a) : 1;
+}
+
+/** The zoom the stage is widened by. CameraDirector's universe pull-back
+ *  (`camera.universeDip`, the dip it subtracted from `zoom` this frame) is
+ *  added back as a Range view arrives: Range views fly their own lens, and
+ *  the pull-back would cancel part of its push-in. 0 or missing
+ *  universeDip leaves `camera.zoom` as it is. */
+export function stageZoomFor(camera, presentation) {
+  return camera.zoom + (camera.universeDip || 0) * rangeViewWeight(presentation);
 }
 
 export function presentationCamera(camera, presentation, biomes) {
@@ -270,7 +284,8 @@ export class Renderer {
     // alternative (translating to re-center) opens a gap on the opposite
     // edge for every non-tiled full-bleed layer (sky gradient, vignette),
     // which is a worse artifact than an off-center reveal.
-    const zoom = (sim.camera && sim.camera.zoom) || 1;
+    // stageZoomFor restores the universe pull-back on Range views (see there).
+    const zoom = (sim.camera && stageZoomFor(sim.camera, this.rangePresentation)) || 1;
     const baseStageW = zoom < 1 ? nominalW / zoom : nominalW;
     const baseStageH = zoom < 1 ? nominalH / zoom : nominalH;
     // Shake overscan: camera.shakeX/Y (impact shake, calm drift, beat sway)
@@ -521,7 +536,10 @@ export class Renderer {
     // Landscape's sky and terrain are assembled by the presenter at output
     // resolution. Its screen-space effects must see that completed image.
     const deferPost = !!this.deferPostEffects;
-    this._deferredPostEffects = deferPost ? { sim, pose, salience, viewStage: { ...viewStage },
+    // Landscape's vignette reads the shared score of this frame. A replay
+    // for capture must not re-read live state, so the inputs are snapshotted.
+    const finish = narrative ? this._landscapeFinishInputs(sim) : null;
+    this._deferredPostEffects = deferPost ? { sim, pose, salience, viewStage: { ...viewStage }, finish,
       film: !!(narrative || (sim.filmFinish && (perf ? perf.heavyPostFx : true))),
       captions: sim.rangeCaptions || sim.rangeCaption, grid: this.pixelPolicy?.grid,
       hud: sim.conductor && this.hudInFrame && !narrative ? { width: nominalW, height: nominalH } : null } : null;
@@ -532,7 +550,7 @@ export class Renderer {
     if (!deferPost && (narrative || (sim.filmFinish && (perf ? perf.heavyPostFx : true)))) {
       // Film finish was authored in logical space; scale its fill rects.
       ctx.setTransform(sx, 0, 0, sy, outputFit.x, outputFit.y);
-      this._drawFilmFinish(ctx, viewStage, sim);
+      this._drawFilmFinish(ctx, viewStage, sim, finish);
       ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
     // HUD seekbar AFTER post-FX so vignette/bloom never bury it. paramBus is
@@ -789,14 +807,40 @@ export class Renderer {
     ctx.restore();
   }
 
+  /** Landscape vignette inputs from the shared score: `{energy, lift, kick,
+   *  stormAmount}` read from `this.rangePresentation.frame` (its `effects`
+   *  and `storm`). Null unless that frame was built within 250 ms of this
+   *  heard time; a stale frame must not steer the vignette. The returned
+   *  object is renderer-owned and rewritten once per draw. */
+  _landscapeFinishInputs(sim) {
+    const frame = this.rangePresentation?.frame;
+    const heardMs = sim.heardTimeMs ?? sim.timeMs;
+    if (!frame || !(Math.abs(frame.timeMs - heardMs) <= 250)) return null;
+    const effects = frame.effects || null;
+    const out = this._finishInputs || (this._finishInputs = { energy: 0, lift: 0, kick: 0, stormAmount: 0 });
+    out.energy = effects?.energy || 0;
+    out.lift = effects?.lift || 0;
+    out.kick = effects?.kick || 0;
+    out.stormAmount = frame.storm?.amount || 0;
+    return out;
+  }
+
   /** Film finish: the last cinematography pass before the HUD. A soft-light
    *  color grade wash (warm push when hot/high-budget, cool push when
    *  calm) drawn first, then a radial-gradient vignette on top -- grade-
    *  then-vignette matches a real post pipeline, where the vignette is a
-   *  neutral lens artifact applied after grading. Neither channel ever
-   *  spikes upward on a kick/drop: edgeAlpha only ever opens on hype, and
-   *  gradeAlpha has no percussive term at all. */
-  _drawFilmFinish(ctx, canvas, sim) {
+   *  neutral lens artifact applied after grading. gradeAlpha has no
+   *  percussive term at all.
+   *
+   *  Landscape (a narrative with `finish`, the score snapshot from
+   *  _landscapeFinishInputs): the vignette is landscapeFinish, a pure
+   *  function of that frame's score -- deeper in quiet passages, opened by a
+   *  section lift, slightly closed by a storm, its onset widened (never its
+   *  alpha raised) by a kick. It holds no history, so it matches after a
+   *  seek and in a deferred capture replay. Trio, other worlds, and a
+   *  Landscape frame without a fresh score keep the dt-integrated FilmFinish
+   *  depth (and, for a narrative, the narrative pressure edge). */
+  _drawFilmFinish(ctx, canvas, sim, finish = null) {
     const narrative = sim.rangeNarrativeAt?.() || null;
     if (!narrative && sim.biomes?._pass?.('film') === false) return;
     const ff = sim.filmFinish || { warmth: .3, vignetteDepth: 0 };
@@ -833,14 +877,22 @@ export class Renderer {
 
     const cx = canvas.width / 2, cy = canvas.height / 2;
     const outerR = Math.hypot(cx, cy);
-    const depth = Math.min(1, ff.vignetteDepth * vigMul);
-    const heardMs = sim.heardTimeMs ?? sim.timeMs;
-    const hits = narrative ? recentConductorHits(sim.conductor?.timeline, heardMs) : [];
-    const kick = hits.length ? hits[0].strength * Math.exp(-(heardMs - hits[0].tMs) / 180) : 0;
-    const pressure = narrativePressure(narrative, kick, sim);
-    const onset = narrative ? .56 - pressure.contraction : VIGNETTE_ONSET_MAX - (VIGNETTE_ONSET_MAX - VIGNETTE_ONSET_MIN) * depth;
-    const filmEdge = heavy ? VIGNETTE_MIN_ALPHA + (VIGNETTE_MAX_ALPHA - VIGNETTE_MIN_ALPHA) * depth : 0;
-    const edgeAlpha = narrative ? composedNarrativeEdge(pressure.edgeAlpha, filmEdge * narrative.skyDark) : filmEdge;
+    let onset, edgeAlpha;
+    if (narrative && finish) {
+      const lf = landscapeFinish(finish, { heavy, vignetteDepthMul: vigMul },
+        this._landscapeFinishOut || (this._landscapeFinishOut = { edgeAlpha: 0, onset: 0 }));
+      onset = lf.onset;
+      edgeAlpha = lf.edgeAlpha;
+    } else {
+      const depth = Math.min(1, ff.vignetteDepth * vigMul);
+      const heardMs = sim.heardTimeMs ?? sim.timeMs;
+      const hits = narrative ? recentConductorHits(sim.conductor?.timeline, heardMs) : [];
+      const kick = hits.length ? hits[0].strength * Math.exp(-(heardMs - hits[0].tMs) / 180) : 0;
+      const pressure = narrativePressure(narrative, kick, sim);
+      onset = narrative ? .56 - pressure.contraction : VIGNETTE_ONSET_MAX - (VIGNETTE_ONSET_MAX - VIGNETTE_ONSET_MIN) * depth;
+      const filmEdge = heavy ? VIGNETTE_MIN_ALPHA + (VIGNETTE_MAX_ALPHA - VIGNETTE_MIN_ALPHA) * depth : 0;
+      edgeAlpha = narrative ? composedNarrativeEdge(pressure.edgeAlpha, filmEdge * narrative.skyDark) : filmEdge;
+    }
     ctx.save();
     ctx.globalCompositeOperation = 'source-over';
     const vg = ctx.createRadialGradient(cx, cy, outerR * onset, cx, cy, outerR);
@@ -888,7 +940,7 @@ export class Renderer {
       if (frame.film) {
         const sx = fit.width / frame.viewStage.width, sy = fit.height / frame.viewStage.height;
         ctx.setTransform(sx, 0, 0, sy, fit.x, fit.y);
-        this._drawFilmFinish(ctx, frame.viewStage, frame.sim);
+        this._drawFilmFinish(ctx, frame.viewStage, frame.sim, frame.finish ?? null);
       }
       if (frame.hud) {
         ctx.setTransform(fit.width / frame.hud.width, 0, 0, fit.height / frame.hud.height, fit.x, fit.y);
@@ -933,62 +985,71 @@ export class Renderer {
   /** Drop impact pack: a brief RGB-split shock (two color-isolated copies of
    *  the already-composited frame, nudged apart on the 'lighter' blend --
    *  same self-blit family as the hype echo and the lake reflection) plus
-   *  radial speed-lines thrown from Midio. Both live only for
-   *  DROP_IMPACT_LIFE_MS after hype.dropAtMs, and both skip entirely once
-   *  PerfGovernor has shed particle budget -- this is squarely a "budget
-   *  allowing" flourish, not core feedback. */
+   *  radial speed-lines thrown from Midio's foot. Both live only for
+   *  DROP_IMPACT_LIFE_MS after hype.dropAtMs, evaluated at heard time (the
+   *  same clock as the heat lens and the motion blur). Shedding keeps the
+   *  cheap part: the shock copies the whole frame twice, so it needs both
+   *  the full-frame rung (fullFrameFxEnabled) and the full particle budget,
+   *  and releases its buffer otherwise; the speed-lines always draw, thinned
+   *  with particleMul (never below 6). A "budget allowing" flourish, not
+   *  core feedback. */
   _drawDropImpact(ctx, canvas, sim, pose) {
     const perf = sim.perf;
-    if (perf?.particleMul < 1) {
-      this._postBuffers?.release('shock'); this._shockCanvas = null;
-      return;
-    }
+    const shockOn = !perf || (perf.fullFrameFxEnabled && perf.particleMul >= 1);
+    if (!shockOn) { this._postBuffers?.release('shock'); this._shockCanvas = null; }
     const hype = sim.hype;
+    // dropAtMs is a song position stamped on the dispatch clock; reading it
+    // at heard time lands the impact when the drop is heard.
+    const heardMs = sim.heardTimeMs ?? sim.timeMs;
     // This IS the drop's own vocabulary, so folding focusMul into the
     // source strength scales every downstream alpha in this function at
     // once (the RGB-split shock and the speed-lines both derive from `s`).
-    const s = dropImpactStrength(sim.timeMs, hype.dropAtMs) * (sim.focus ? sim.focus.mul('drop') : 1);
+    const s = dropImpactStrength(heardMs, hype.dropAtMs) * (sim.focus ? sim.focus.mul('drop') : 1);
     if (s <= 0) return;
 
-    // Chromatic shock — half-res offscreen: the RGB split is a soft additive
-    // glow, so the upscale blur is actually desirable and saves 4x fill.
-    const src = ctx.canvas;
-    const shockScale = src.width > 1920 ? 2 : 1;
-    const shockW = Math.round(src.width / shockScale);
-    const shockH = Math.round(src.height / shockScale);
-    if (this._postBuffers) {
-      this._shockCanvas = this._postBuffers.ensure('shock', shockW, shockH);
-      if (!this._shockCanvas) return;
-    }
-    if (!this._shockCanvas) this._shockCanvas = document.createElement('canvas');
-    const off = this._shockCanvas;
-    if (off.width !== shockW || off.height !== shockH) {
-      off.width = shockW;
-      off.height = shockH;
-    }
-    const offCtx = off.getContext('2d');
-    const offsetPx = SHOCK_MAX_OFFSET_PX * s;
-    const shockAlpha = SHOCK_MAX_ALPHA * s;
-    for (const [color, dir] of [['rgba(255,60,60,1)', 1], ['rgba(60,220,255,1)', -1]]) {
-      offCtx.globalCompositeOperation = 'copy';
-      offCtx.drawImage(src, 0, 0, shockW, shockH);
-      offCtx.globalCompositeOperation = 'multiply';
-      offCtx.fillStyle = color;
-      offCtx.fillRect(0, 0, shockW, shockH);
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.globalAlpha = shockAlpha;
-      // Device-pixel source back into the logical rect the transform expects,
-      // shifted by a logical-space offset so the split is the same visual
-      // width at every stage resolution.
-      ctx.drawImage(off, dir * offsetPx, 0, canvas.width, canvas.height);
-      ctx.restore();
+    if (shockOn) {
+      // Chromatic shock — half-res offscreen: the RGB split is a soft additive
+      // glow, so the upscale blur is actually desirable and saves 4x fill.
+      const src = ctx.canvas;
+      const shockScale = src.width > 1920 ? 2 : 1;
+      const shockW = Math.round(src.width / shockScale);
+      const shockH = Math.round(src.height / shockScale);
+      if (this._postBuffers) this._shockCanvas = this._postBuffers.ensure('shock', shockW, shockH);
+      else if (!this._shockCanvas) this._shockCanvas = document.createElement('canvas');
+      const off = this._shockCanvas; // null when the buffer could not be allocated
+      if (off) {
+        if (off.width !== shockW || off.height !== shockH) {
+          off.width = shockW;
+          off.height = shockH;
+        }
+        const offCtx = off.getContext('2d');
+        const offsetPx = SHOCK_MAX_OFFSET_PX * s;
+        const shockAlpha = SHOCK_MAX_ALPHA * s;
+        for (const [color, dir] of [['rgba(255,60,60,1)', 1], ['rgba(60,220,255,1)', -1]]) {
+          offCtx.globalCompositeOperation = 'copy';
+          offCtx.drawImage(src, 0, 0, shockW, shockH);
+          offCtx.globalCompositeOperation = 'multiply';
+          offCtx.fillStyle = color;
+          offCtx.fillRect(0, 0, shockW, shockH);
+          ctx.save();
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.globalAlpha = shockAlpha;
+          // Device-pixel source back into the logical rect the transform expects,
+          // shifted by a logical-space offset so the split is the same visual
+          // width at every stage resolution.
+          ctx.drawImage(off, dir * offsetPx, 0, canvas.width, canvas.height);
+          ctx.restore();
+        }
+      }
     }
 
-    // Radial speed-lines from Midio.
-    const count = Math.max(6, Math.round(SPEED_LINE_COUNT * (perf ? perf.particleMul : 1)));
+    // Radial speed-lines from Midio's foot: in Trio he stands on the ground
+    // under his own screen x (and may be airborne), not on the ground at the
+    // world's origin.
+    const count = Math.max(6, Math.round(SPEED_LINE_COUNT * (perf?.particleMul ?? 1)));
     const maxR = Math.hypot(canvas.width, canvas.height) * 0.42;
-    const cx = pose.midioDrawX, cy = sim.midio.groundY - 60;
+    const footY = sim.trio ? sim.trio.midio.groundY - sim.trio.midio.y : sim.midio.groundY;
+    const cx = pose.midioDrawX, cy = footY - 60;
     const segs = speedLineSegments(cx, cy, count, s, hype.dropCount, maxR);
     const lineAlpha = SPEED_LINE_MAX_ALPHA * s;
     ctx.save();
@@ -1015,18 +1076,25 @@ export class Renderer {
    *  lens centered on Midio; a wildfire/ember's is a slow horizontal sway,
    *  strongest low in frame and fading toward the top (real heat haze bends
    *  light sideways as it convects upward off the ground, not the sky).
+   *  Both run on heard time, like the drop impact and motion blur.
    *  Sheds under PerfGovernor pressure like its siblings -- a flourish,
    *  never core feedback. */
   _drawHeatDistortion(ctx, canvas, sim, pose, viewStage, outputFit = null, outputScale = null) {
     const perf = sim.perf;
     if (perf && !perf.heavyPostFx) { this._postBuffers?.release('heat'); this._heatCanvas = null; return; }
 
-    // A performer shock requires a visible performer. Landscape presentation
-    // keeps fire and ember heat, whose visible owners remain in the scene.
-    const dropS = sim.presentation?.performers && sim.hype && sim.biomes?.world?.kind !== 'alpine'
-      ? dropImpactStrength(sim.timeMs, sim.hype.dropAtMs) : 0;
+    // Heat needs a visible owner. The drop lens radiates from a performer, so
+    // it runs only where the cast is drawn (Trio). The wildfire is painted
+    // only by BiomeManager.drawForeground, which returns early for alpine
+    // worlds, so neither Landscape nor Trio shows a fire to bend light over.
+    // EMBER's ambient haze keeps its own owner, the ember sky.
+    const heardMs = sim.heardTimeMs ?? sim.timeMs;
+    // dropAtMs is already a song position: evaluate at heard time, unshifted.
+    const dropS = sim.presentation?.performers && sim.hype
+      ? dropImpactStrength(heardMs, sim.hype.dropAtMs) : 0;
+    const fireVisible = sim.biomes?.world?.kind !== 'alpine';
     const emberFxAlpha = sim.biomes && sim.biomes.currentFxAlpha ? sim.biomes.currentFxAlpha('emberGlow') : 0;
-    const ambient = heatAmbient01(!!(sim.fire && sim.fire.active), sim.fire ? sim.fire.intensity01 : 0, emberFxAlpha);
+    const ambient = heatAmbient01(!!(fireVisible && sim.fire && sim.fire.active), sim.fire ? sim.fire.intensity01 : 0, emberFxAlpha);
     if (dropS <= 0.02 && ambient <= 0.02) return;
 
     const pixelUnit = this.pixelPolicy?.active ? this.pixelPolicy.unit : 0;
@@ -1058,14 +1126,17 @@ export class Renderer {
     const picture = outputFit || { x: 0, y: 0, width: canvas.width, height: canvas.height };
     const cols = Math.ceil(picture.width / cell);
     const rows = Math.ceil(picture.height / cell);
-    const t = (pixelUnit ? (sim.heardTimeMs ?? sim.timeMs) : sim.timeMs) / 1000;
-    // pose.midioDrawX / sim.midio.groundY are logical (viewStage) coords;
-    // this pass runs post identity-reset against the full physical canvas,
-    // so rescale by the same sx/sy the rest of draw() uses for that jump.
+    const t = heardMs / 1000;
+    // pose.midioDrawX / the ground y are logical (viewStage) coords; this
+    // pass runs post identity-reset against the full physical canvas, so
+    // rescale by the same sx/sy the rest of draw() uses for that jump.
+    // In Trio the lens sits on the ground under Midio where he stands (not
+    // his airborne foot, and not the ground at the world's origin).
     const scaleX = viewStage && viewStage.width ? picture.width / viewStage.width : 1;
     const scaleY = viewStage && viewStage.height ? picture.height / viewStage.height : 1;
+    const lensGroundY = sim.trio ? sim.trio.midio.groundY : sim.midio?.groundY;
     const originX = picture.x + (pose ? pose.midioDrawX * scaleX : picture.width / 2);
-    const originY = picture.y + (sim.midio ? sim.midio.groundY * scaleY : picture.height * 0.7);
+    const originY = picture.y + (lensGroundY != null ? lensGroundY * scaleY : picture.height * 0.7);
 
     ctx.save();
     // NOT 'copy'. Under 'copy' each drawImage discards the ENTIRE destination
@@ -1185,12 +1256,18 @@ export class Renderer {
   /** The energy frame: a thin border that breathes with the track, slams on
    * kicks, and echoes the whole frame during a drop surge. Calm sections
    * nearly extinguish the idle rim and kick strobe (see hypeFrameStyle) so
-   * quiet music doesn't flash the edges. */
+   * quiet music doesn't flash the edges. In Trio the slam and surge are
+   * read at heard time from the cast's own kick list (trioHypeFrameStyle),
+   * and the echo's side alternates with heard time, so a frame depends only
+   * on what is heard, not on how many frames were drawn. */
   _drawHypeFrame(ctx, canvas, sim) {
     const hype = sim.hype;
     const color = sim.biomes && sim.biomes.currentHaloColor ? sim.biomes.currentHaloColor() : '#ffffff';
     const calmLevel = sim.calm ? sim.calm.level : 0;
-    const style = hypeFrameStyle(hype, calmLevel);
+    const heardMs = sim.heardTimeMs ?? sim.timeMs ?? 0;
+    const style = sim.trio
+      ? trioHypeFrameStyle(hype, calmLevel, heardMs, sim.trio.kicks)
+      : hypeFrameStyle(hype, calmLevel);
     // This IS the drop's own vocabulary, so it reads full strength when
     // focus picks 'drop' and dampens like everything else otherwise.
     const focusMul = sim.focus ? sim.focus.mul('drop') : 1;
@@ -1214,9 +1291,11 @@ export class Renderer {
       // the echo fires. The source is the real backing store; the
       // destination rect is in logical units because we are under the sx/sy
       // transform, which maps it back 1:1.
-      ctx.drawImage(ctx.canvas, this._echoFlip ? off : -off, 0, canvas.width, canvas.height);
+      // The side alternates every 50 ms of heard time (was a per-call toggle,
+      // which depended on frame rate and on replays).
+      const flip = Math.floor(heardMs / 50) & 1;
+      ctx.drawImage(ctx.canvas, flip ? off : -off, 0, canvas.width, canvas.height);
       ctx.restore();
-      this._echoFlip = !this._echoFlip;
     }
 
     if (style.alpha < 0.02) return; // fully calm, no rim stroke
@@ -1300,8 +1379,9 @@ export class Renderer {
     if (history.some(c => !c)) { this._motionHistory = null; return; }
 
     const hype = sim.hype;
+    // Heard time, the same clock as the drop impact and the heat lens.
     const strength = hype
-      ? dropMotionBlurStrength(sim.timeMs, hype.dropAtMs, Math.hypot(vx, vy))
+      ? dropMotionBlurStrength(sim.heardTimeMs ?? sim.timeMs, hype.dropAtMs, Math.hypot(vx, vy))
       : 0;
     // This IS the drop's own vocabulary, so it reads full strength when
     // focus picks 'drop' and dampens like everything else otherwise.
@@ -1370,20 +1450,56 @@ export class Renderer {
 
   /** Midio, Midasus and Broshi on the world's ground, after the scenery and
    *  before the foreground veil, each with a contact shadow beneath. Broshi
-   *  and Midasus stand on the same ground field the world just drew. */
+   *  and Midasus stand on the same ground field the world just drew.
+   *
+   *  Lighting (Movement VII): each character is lit by the celestial (the
+   *  ground-space light, `biomes._groundLight`) and the active kick-glow
+   *  ground pulses, plus the other characters' glow, never its own: Midio by
+   *  Midasus's core (unless she is away on a voyage), Midasus by Midio's
+   *  beat flash, Broshi by both. The lists are renderer-owned and refilled in
+   *  place each frame; null at the rim-light rung, like the other light
+   *  consumers. Contact shadows are thrown away from the same light, with an
+   *  alpha that follows its intensity (floored, so a dim sky still grounds
+   *  the cast), and shed at the contact-shadow rung. */
   _drawTrioCast(ctx, sim, particleMul = 1) {
     const trio = sim.trio, m = trio.midio, b = trio.broshi, f = trio.midasus;
     const pose = trio.pose();
-    if (b.burrow.depth <= 0.02) this._drawContactShadow(ctx, contactShadow(b.renderX, b.groundY, b.hopY, b.shadowWidthPx));
-    b.draw(ctx, pose, null, 1);
-    this._drawContactShadow(ctx, contactShadow(m.screenX, m.groundY, m.y, m.halfWidth * 2));
+    const perf = sim.perf || null;
+    const biomes = sim.biomes || null;
+    const light = (biomes && (biomes._groundLight || biomes.light)) || null;
+    let midioLights = null, broshiLights = null, midasusLights = null;
+    if (!perf || perf.rimLightEnabled) {
+      const base = fillCastLights(this._castBaseLights || (this._castBaseLights = []), light, null);
+      const glows = sim.groundField?.activeGlowScreenLights?.(pose.worldX, pose.originX);
+      if (glows && glows.length) {
+        const halo = biomes?.currentHaloColor ? biomes.currentHaloColor() : '#ffffff';
+        for (const glow of groundGlowLights(glows, halo)) base.push(glow);
+      }
+      const midasusGlow = f.voyage?.depth > 0 ? null : characterGlowLight(f.p.x, f.p.y, f.hue, 0.5 * f.pulse);
+      const midioGlow = characterGlowLight(m.screenX, m.groundY - m.y - MIDIO_CORE_LIFT_PX, MIDIO_IDENTITY_HUE,
+        0.5 * (trio.performer?.beatFlash || 0));
+      midioLights = fillCastLights(this._castMidioLights || (this._castMidioLights = []), null, base);
+      midasusLights = fillCastLights(this._castMidasusLights || (this._castMidasusLights = []), null, base);
+      broshiLights = fillCastLights(this._castBroshiLights || (this._castBroshiLights = []), null, base);
+      if (midasusGlow) { midioLights.push(midasusGlow); broshiLights.push(midasusGlow); }
+      if (midioGlow) { midasusLights.push(midioGlow); broshiLights.push(midioGlow); }
+    }
+    const shadows = !perf || perf.contactShadowsEnabled;
+    const shadowStrength = light ? light.intensity : 1;
+    if (shadows && b.burrow.depth <= 0.02) {
+      this._drawContactShadow(ctx, contactShadow(b.renderX, b.groundY, b.hopY, b.shadowWidthPx, light, shadowStrength));
+    }
+    b.draw(ctx, pose, broshiLights, 1);
+    if (shadows) this._drawContactShadow(ctx, contactShadow(m.screenX, m.groundY, m.y, m.halfWidth * 2, light, shadowStrength));
     const beat = sim.songBeat.snapshotAt(sim.heardTimeMs);
     // trio.gaze: what his wandering has him looking at (TrioWander).
-    this._drawMidio(ctx, pose, trio.performer, trio.clockMs / 1000, 0, null, MIDIO_IDENTITY_HUE, trio.ensemble, null, 1, trio.gaze,
+    this._drawMidio(ctx, pose, trio.performer, trio.clockMs / 1000, 0, null, MIDIO_IDENTITY_HUE, trio.ensemble, midioLights, 1, trio.gaze,
       beat.freeTime ? null : beat.phase01);
     // Away on a voyage she is drawn by the deep sky, not here.
-    if (f.voyage.depth <= 0) this._drawContactShadow(ctx, contactShadow(f.p.x, f.yFloor, f.yFloor - f.p.y, f.shadowWidthPx));
-    f.draw(ctx, particleMul);
+    if (shadows && f.voyage.depth <= 0) {
+      this._drawContactShadow(ctx, contactShadow(f.p.x, f.yFloor, f.yFloor - f.p.y, f.shadowWidthPx, light, shadowStrength));
+    }
+    f.draw(ctx, particleMul, midasusLights);
   }
 
   /** One contact-shadow ellipse. 'multiply' darkens whatever terrain color

@@ -25,6 +25,28 @@ test('full-resolution heat preserves its normalized pattern and displacement at 
   }
 });
 
+test('heat runs on heard time: equal heard times give identical offsets whatever the dispatch clock', () => {
+  const run = (sim) => {
+    const draws = [];
+    const canvas = { width: 1280, height: 720 };
+    const scratch = { width: 1280, height: 720, getContext: () => ({ drawImage() {} }) };
+    const ctx = { canvas, save() {}, restore() {}, drawImage(...args) { draws.push(args.slice(1)); } };
+    const renderer = Object.create(Renderer.prototype);
+    renderer.pixelPolicy = null;
+    renderer._postBuffers = { ensure: () => scratch };
+    renderer._drawHeatDistortion(ctx, canvas, sim, { midioDrawX: 400 }, { width: 1280, height: 720 });
+    return draws;
+  };
+  // Ambient (a visible wildfire in a non-alpine world) and a performer drop.
+  const base = { fire: { active: true, intensity01: 1 }, biomes: { world: { kind: 'unregistered-kind' }, currentFxAlpha: () => 0 },
+    midio: { groundY: 625 }, presentation: { performers: true }, hype: { dropAtMs: 4950 } };
+  const a = run({ ...base, timeMs: 5000, heardTimeMs: 5000 });
+  const b = run({ ...base, timeMs: 5300, heardTimeMs: 5000 });
+  assert.ok(a.length > 10);
+  assert.deepEqual(b, a);
+  assert.notDeepEqual(run({ ...base, timeMs: 5300, heardTimeMs: 5100 }), a, 'heard time does move the pattern');
+});
+
 test('deferred optical effects draw the HUD after film at the destination resolution', () => {
   const order = [], renderer = Object.create(Renderer.prototype);
   const ctx = { canvas: {}, save() {}, restore() {}, setTransform() {}, beginPath() {}, rect() {}, clip() {} };

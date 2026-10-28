@@ -28,7 +28,7 @@ Midio, Midasus and Broshi performing on it:
   most two deep-sky voyages per song, after the first 12 s and never in the
   last 25 s, when the mood holds epic or calm for four seconds. She sky-writes
   seeded mathematical figures (a chorus voyage writes its lyric), and finished
-  figures crystallize into her Star Atlas, which glints with the hype and
+  figures crystallize into her Star Atlas, which glints on the heard kicks and
   goes supernova four seconds before the end. `BiomeManager.drawDeepSky` draws
   all of it behind the ranges.
 
@@ -78,3 +78,40 @@ deep space to check that the deep sky paints. `npm run test:trio -- http://127.0
 covers Trio's pixel/palette captures, its chooser preview, live and paused
 world switches, and rejects terrain, tour and material requests in Trio.
 Captures stay outside Git.
+
+## Light, shadows and the drop
+
+The cast is lit like the rest of the world. `_drawTrioCast` gives each
+character the celestial (`BiomeManager._groundLight`, the ground-space light)
+and the active kick-glow ground pulses, plus the others' glow and never its
+own: Midio is lit by Midasus's core (not while she is away on a voyage),
+Midasus by Midio's beat flash, Broshi by both. The light lists are
+renderer-owned and refilled each frame (`LightField.fillCastLights`); they
+are dropped at the rim-light rung (`perf.rimLightEnabled`). Contact shadows
+are thrown away from the same light, with an alpha that follows its
+intensity, floored at 45% so a dim or night sky still grounds the cast, and
+all three shed at the contact-shadow rung (`perf.contactShadowsEnabled`).
+
+The drop impact's speed-lines radiate from Midio's foot (his own ground minus
+his jump height), and the drop heat lens sits on the ground under him. When
+the governor sheds, the impact keeps its cheap speed-lines, thinned with the
+particle budget, and drops the chromatic shock, which copies the whole frame
+twice: the shock needs both `fullFrameFxEnabled` and the full particle budget.
+Bloom stays off in Trio: the procedural ranges' luminous crest lines would be
+washed out by it.
+
+## Heard time
+
+Trio's cast performs on heard time (`Simulation.heardTimeMs`), while the
+hype director integrates on the dispatch clock, which runs up to 350 ms
+ahead on Bluetooth outputs. So Trio reads the hype at heard time instead of
+from the director's state: the hype frame's slam and surge
+(`trioHypeFrameStyle`, from `TrioPerformance.kicks` and the drop's song
+position), the Star Atlas glint (`slamAt`, per performance step), and the
+drop impact, drop motion blur and drop heat lens, which evaluate the drop at
+heard time. The hype frame's echo alternates sides every 50 ms of heard time,
+so a redraw or capture replay of one instant is identical.
+
+Some effects still run on the dispatch clock and can lead the audio by the
+output latency: camera shake (`CameraDirector`), the film finish's
+dt-integrated vignette and grade (`FilmFinish`), and the quake.

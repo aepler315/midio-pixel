@@ -59,18 +59,41 @@ test('heat distortion actually blits the frame back through its warp grid', () =
 });
 
 for (const kind of ['alpine', 'unregistered-kind']) {
-  test(`WP12 ${kind} landscape drop heat has no invisible performer origin, ambient fire remains`, () => {
+  test(`WP12 ${kind} landscape drop heat has no invisible performer origin`, () => {
     const sim = { ...makeSim(), presentation: resolveLandscapePresentation({ kind }),
       biomes: { world: { kind }, currentFxAlpha: () => 0 } };
     const blits = [], ctx = makeCtx(blits), self = { _heatCanvas: makeHeatCanvas() };
     const canvas = { width: 1280, height: 720 };
     Renderer.prototype._drawHeatDistortion.call(self, ctx, canvas, sim, { midioDrawX: 300 }, canvas);
     assert.equal(blits.length, 0, 'retired actor does not own landscape heat');
-    sim.fire = { active: true, intensity01: 1 };
-    Renderer.prototype._drawHeatDistortion.call(self, ctx, canvas, sim, { midioDrawX: 300 }, canvas);
-    assert.ok(blits.length > 10, 'physical ambient heat stays visible');
   });
 }
+
+// The wildfire is painted only by BiomeManager.drawForeground, which returns
+// early for alpine worlds: Landscape and Trio never show the fire, so its heat
+// haze would bend light over nothing.
+test('wildfire heat warps only worlds that draw the fire', () => {
+  const canvas = { width: 1280, height: 720 };
+  const run = kind => {
+    const sim = { ...makeSim(), hype: null, presentation: resolveLandscapePresentation({ kind }),
+      biomes: { world: { kind }, currentFxAlpha: () => 0 }, fire: { active: true, intensity01: 1 } };
+    const blits = [];
+    Renderer.prototype._drawHeatDistortion.call({ _heatCanvas: makeHeatCanvas() }, makeCtx(blits), canvas, sim,
+      { midioDrawX: 300 }, canvas);
+    return blits.length;
+  };
+  assert.equal(run('alpine'), 0, 'an alpine wildfire is never drawn, so it casts no heat');
+  assert.ok(run('unregistered-kind') > 10, 'a visible wildfire keeps its heat haze');
+});
+
+test('EMBER haze still warps an alpine world with its own visible owner', () => {
+  const blits = [];
+  const sim = { ...makeSim(), hype: null, presentation: { performers: false },
+    biomes: { world: { kind: 'alpine' }, currentFxAlpha: () => 1 } };
+  Renderer.prototype._drawHeatDistortion.call({ _heatCanvas: makeHeatCanvas() }, makeCtx(blits),
+    { width: 1280, height: 720 }, sim, { midioDrawX: 300 }, { width: 1280, height: 720 });
+  assert.ok(blits.length > 10);
+});
 
 test('heat distortion never blits cells under a destructive composite op', () => {
   const { blitOps } = runPass();
@@ -145,13 +168,27 @@ test('portrait output heat grid and shock origin use the fitted picture offsets'
   assert.ok(Math.abs(first.dy - first.sy - radial * dy / dist) < 1e-9);
 });
 
-test('a drop leaves the Range unwarped: there is no performer to radiate from', () => {
-  const blits = [];
-  const sim = makeSim();
-  sim.biomes = { ...sim.biomes, world: { kind: 'alpine' } };
-  Renderer.prototype._drawHeatDistortion.call({ _heatCanvas: makeHeatCanvas() }, makeCtx(blits),
-    { width: 1280, height: 720 }, sim, { midioDrawX: 300 }, { width: 1280, height: 720 });
-  assert.equal(blits.length, 0);
+test('a Trio drop warps the alpine frame from Midio; Landscape, with no performer, stays unwarped', () => {
+  const lens = presentation => {
+    const blits = [];
+    const ctx = makeCtx([]);
+    ctx.drawImage = (_src, sx, sy, sw, sh, dx, dy) => blits.push({ cx: sx + sw / 2, cy: sy + sh / 2, ox: dx - sx, oy: dy - sy });
+    const sim = { ...makeSim(), presentation, biomes: { world: { kind: 'alpine' }, currentFxAlpha: () => 0 },
+      // Trio: Midio wandered off the origin; the lens sits on the ground under him.
+      trio: { midio: { groundY: 600, y: 120 } } };
+    Renderer.prototype._drawHeatDistortion.call({ _heatCanvas: makeHeatCanvas() }, ctx,
+      { width: 1280, height: 720 }, sim, { midioDrawX: 700 }, { width: 1280, height: 720 });
+    return blits;
+  };
+  const trio = lens(resolveLandscapePresentation({ kind: 'alpine', experience: 'trio' }));
+  assert.ok(trio.length > 10, 'the drop lens runs in Trio');
+  // Radial: every offset points along the line from (midioDrawX, Midio's ground).
+  for (const b of trio) {
+    const dx = b.cx - 700, dy = b.cy - 600, cross = dx * b.oy - dy * b.ox;
+    assert.ok(Math.abs(cross) < 1e-6 * Math.max(1, Math.hypot(dx, dy) * Math.hypot(b.ox, b.oy)),
+      `cell (${b.cx},${b.cy}) is pushed radially from Midio's ground`);
+  }
+  assert.equal(lens(resolveLandscapePresentation({ kind: 'alpine' })).length, 0, 'Landscape has no performer');
 });
 
 // An active wildfire keeps the animated whole-frame warp running at any

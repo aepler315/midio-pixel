@@ -31,6 +31,9 @@ export const SHADOW_CAST_PER_PX = 0.38;
 export const SHADOW_HORIZON_STRETCH = 0.55;
 export const SHADOW_ZENITH_YFRAC = 0.12;
 export const SHADOW_HORIZON_YFRAC = 0.26;
+// Light strength floor: a dim or night celestial still grounds the cast. A
+// shadow that vanished whenever the light dimmed would read as floating.
+export const SHADOW_STRENGTH_FLOOR = 0.45;
 
 /**
  * @param {number} screenX          character's screen-space x (shadow center)
@@ -40,9 +43,12 @@ export const SHADOW_HORIZON_YFRAC = 0.26;
  * @param {{x:number,y:number,celestialYFrac?:number}|null} [light]
  *        optional celestial (or any screen-space light). Omitted / null
  *        reproduces the original underfoot ellipse exactly.
+ * @param {number} [strength=1] the light's strength (e.g. its `intensity`),
+ *        clamped to [SHADOW_STRENGTH_FLOOR, 1]; the default reproduces the
+ *        original alpha exactly.
  * @returns {{cx:number, cy:number, rx:number, ry:number, alpha:number}}
  */
-export function contactShadow(screenX, groundY, heightAbove, characterWidthPx, light = null) {
+export function contactShadow(screenX, groundY, heightAbove, characterWidthPx, light = null, strength = 1) {
   const h = Number.isFinite(heightAbove) ? Math.max(0, heightAbove) : 0;
   const visibility = 1 - smoothstep(0, SHADOW_FADE_HEIGHT_PX, h);
   if (visibility <= 0) {
@@ -70,5 +76,11 @@ export function contactShadow(screenX, groundY, heightAbove, characterWidthPx, l
   }
 
   const ry = rx * SHADOW_ASPECT;
-  return { cx, cy: groundY, rx, ry, alpha: SHADOW_ALPHA_MAX * visibility };
+  return { cx, cy: groundY, rx, ry, alpha: SHADOW_ALPHA_MAX * visibility * shadowStrength(strength) };
+}
+
+/** A light strength as a shadow alpha multiplier: clamped to 0..1, floored
+ *  at SHADOW_STRENGTH_FLOOR. A non-finite strength is full strength. */
+export function shadowStrength(strength) {
+  return Number.isFinite(strength) ? Math.max(SHADOW_STRENGTH_FLOOR, clamp(strength, 0, 1)) : 1;
 }

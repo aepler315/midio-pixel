@@ -97,3 +97,33 @@ test('PerfGovernor fixture pin rejects non-integer and out-of-range levels', asy
   }
   assert.equal(perf.fixtureLevel, null);
 });
+
+// Renderer._drawTrioCast consumes rimLightEnabled (cast lights) and
+// contactShadowsEnabled (the three contact shadows) from the real ladder.
+test('Renderer trio cast sheds its lights at the rim-light rung and its shadows at the contact-shadow rung', async () => {
+  const { PerfGovernor } = await import('../src/render/PerfGovernor.js');
+  const { Renderer } = await import('../src/render/Renderer.js');
+  const run = (level) => {
+    const perf = new PerfGovernor();
+    perf.setFixtureLevel(level);
+    const got = { shadows: 0 };
+    const trio = {
+      midio: { screenX: 500, groundY: 600, y: 0, halfWidth: 23 },
+      broshi: { burrow: { depth: 0 }, renderX: 400, groundY: 600, hopY: 0, shadowWidthPx: 60, draw(_c, _p, lights) { got.lights = lights; } },
+      midasus: { p: { x: 600, y: 540 }, hue: 200, pulse: 1, voyage: { depth: 0 }, yFloor: 600, shadowWidthPx: 30, draw() {} },
+      performer: { beatFlash: 0 }, clockMs: 0,
+      pose: () => ({ midioDrawX: 500, midioY: 600, worldX: 0, originX: 435 }),
+    };
+    const r = Object.create(Renderer.prototype);
+    r._drawMidio = () => {};
+    const ctx = fakeCtx();
+    ctx.ellipse = () => { got.shadows++; };
+    r._drawTrioCast(ctx, { trio, perf, songBeat: { snapshotAt: () => ({ freeTime: true }) },
+      biomes: { _groundLight: { x: 0, y: 0, intensity: 1 }, currentHaloColor: () => '#fff' } }, perf.particleMul);
+    return got;
+  };
+  assert.ok(Array.isArray(run(1).lights));
+  assert.equal(run(2).lights, null);
+  assert.equal(run(2).shadows, 3);
+  assert.equal(run(3).shadows, 0);
+});

@@ -11,6 +11,7 @@ import { VibeDirector } from './VibeDirector.js';
 import { ExcursionDirector } from './ExcursionDirector.js';
 import { GroundField } from '../world/GroundField.js';
 import { TrioWander, TrioGaze } from './TrioWander.js';
+import { slamAt } from './HypeDirector.js';
 
 const STEP = 1000 / 120;
 // Performer consumes this legacy scalar to choose its trick repertoire;
@@ -186,7 +187,9 @@ export class TrioPerformance {
       b.burrow.depth > .02 ? null : this._lookB, this._lookF);
     // While she is away the ensemble feels the hole she leaves.
     this.ensemble.setPresence(2, voyage.active ? 0 : 1);
-    voyage.atlasPulse = this.hype?.slam ?? 0;
+    // The atlas glints on the kicks as they are HEARD: this step's own
+    // heard time, not the hype director's dispatch-clock slam.
+    voyage.atlasPulse = slamAt(this.kicks, nowMs);
     if (voyage.justLaunched) this.voyageEvents.launched = true;
     if (voyage.justLanded) this.voyageEvents.landed = true;
     const end = this.song.durationMs || 0;

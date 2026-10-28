@@ -127,3 +127,15 @@ export function characterGlowLight(x, y, hueDeg, intensity, radius = CHARACTER_L
   if (!(intensity > 0.02)) return null;
   return { x, y, hueDeg, intensity, radius };
 }
+
+/** Refill a caller-owned light list in place: `light` (the celestial, if
+ *  any) then every truthy entry of `glowLights`. The same assembly as
+ *  `[light, ...glowLights].filter(Boolean)` (WorldDraw, RangeMidEffects),
+ *  without allocating a new array each frame, so the list keeps its
+ *  identity across frames. Returns `out`. */
+export function fillCastLights(out, light, glowLights) {
+  out.length = 0;
+  if (light) out.push(light);
+  if (glowLights) for (let i = 0; i < glowLights.length; i++) if (glowLights[i]) out.push(glowLights[i]);
+  return out;
+}
