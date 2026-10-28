@@ -233,9 +233,14 @@ const unit = value => Number.isFinite(value) ? Math.max(0, Math.min(1, value)) :
 /** The atmosphere with no music: today's mist and shafts exactly. */
 export const ATMOSPHERE_NEUTRAL = Object.freeze({ mistDensityMul: 1, mistGlow: 0, shaftGain: 1 });
 const ATMOSPHERE_SCRATCH = { mistDensityMul: 1, mistGlow: 0, shaftGain: 1 };
-/** The score's hold on the valley air, from the heard effects frame: a
- *  lift thins the mist a little and lights it from within, and lifts the
- *  sun's shafts; bass adds weight. Pure in the frozen effects frame, so
+/** The score's hold on the valley air, from the heard effects frame: the
+ *  music's energy thins the mist a little and lights it from within, and
+ *  lifts the sun's shafts; a section lift adds to both and bass adds weight.
+ *  The air leans on the slow channels (energy and bass are trailing
+ *  averages); `lift` has a 100 ms attack, so its weight stays small enough
+ *  that a section boundary swells the whole valley rather than popping it
+ *  (at most about .02 of mist density per 33 ms frame). Pure in the frozen
+ *  effects frame, so
  *  seek, pause, display and capture agree. Null or silent music returns the
  *  frozen ATMOSPHERE_NEUTRAL; otherwise one reused object (no per-frame
  *  allocation), valid until the next call. */
@@ -243,9 +248,9 @@ export function atmosphereMusic(effects) {
   if (!effects) return ATMOSPHERE_NEUTRAL;
   const lift = unit(effects.lift), bass = unit(effects.bass), energy = unit(effects.energy);
   if (lift < .001 && bass < .001 && energy < .001) return ATMOSPHERE_NEUTRAL;
-  ATMOSPHERE_SCRATCH.mistDensityMul = Math.max(.75, 1 - .18 * lift - .05 * bass);
-  ATMOSPHERE_SCRATCH.mistGlow = .04 * lift + .02 * energy;
-  ATMOSPHERE_SCRATCH.shaftGain = Math.min(1.4, 1 + .4 * lift + .1 * bass);
+  ATMOSPHERE_SCRATCH.mistDensityMul = Math.max(.75, 1 - .12 * energy - .06 * lift - .05 * bass);
+  ATMOSPHERE_SCRATCH.mistGlow = .02 * lift + .04 * energy;
+  ATMOSPHERE_SCRATCH.shaftGain = Math.min(1.4, 1 + .25 * energy + .15 * lift + .1 * bass);
   return ATMOSPHERE_SCRATCH;
 }
 

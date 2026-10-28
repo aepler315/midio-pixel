@@ -7,6 +7,7 @@ import {
   emitterVisibility, seaSubmersion, actorLightShown, EMITTER_GLSL, EMITTER_SUBMERGE, SEA_TOP_SOFT_BELOW_M, SEA_TOP_SOFT_ABOVE_M,
   atmosphereMusic, ATMOSPHERE_NEUTRAL,
 } from '../src/world/alpine/RangeAtmosphere.js';
+import { sampleEffectsMusic } from '../src/world/alpine/EffectsMusic.js';
 
 const cam = [0, 1500, 0];
 const params = { density: 4e-4, baseM: 480, heightM: 250, tSec: 12 };
@@ -442,6 +443,30 @@ test('the score\'s hold on the valley air is neutral in silence and bounded unde
     assert.ok(Object.values(m).every(Number.isFinite));
     assert.ok(m.mistDensityMul >= .75 && m.mistDensityMul <= 1 && m.mistGlow >= 0 && m.mistGlow <= .06 && m.shaftGain >= 1 && m.shaftGain <= 1.4);
   }
+});
+
+test('a section boundary swells the valley air instead of popping it', () => {
+  // lift has a 100 ms attack; the air must not follow it within a few frames.
+  const sections = [{ startMs: 0, endMs: 10000, meanEnergy: .2, provenance: 'detected', confidence: 1 },
+    { startMs: 10000, endMs: 30000, meanEnergy: .9, provenance: 'detected', confidence: 1 }];
+  const ridgeSample = { motionPresence01: 1, activity01: 1, pressureEnergy01: .5, bassPressure01: .3, bands: [0, 0, 0, 0, .2, .2, .2] };
+  let prior = null, peakLift = 0;
+  for (let t = 9800; t < 13000; t += 1000 / 30) {
+    const effects = sampleEffectsMusic({ timeMs: t, ridgeSample, sections });
+    peakLift = Math.max(peakLift, effects.lift);
+    const m = { ...atmosphereMusic(effects) };
+    if (prior) {
+      assert.ok(Math.abs(m.mistDensityMul - prior.mistDensityMul) <= .02, `mist density at ${t}`);
+      assert.ok(Math.abs(m.mistGlow - prior.mistGlow) <= .01, `mist glow at ${t}`);
+      assert.ok(Math.abs(m.shaftGain - prior.shaftGain) <= .05, `shaft gain at ${t}`);
+    }
+    prior = m;
+  }
+  assert.ok(peakLift > .5, 'the fixture crosses a real section lift');
+  // Even a full-scale lift arriving inside one 33 ms frame stays bounded.
+  const base = { energy: .5, bass: .3 };
+  const a = atmosphereMusic({ ...base, lift: 0 }).mistDensityMul, b = atmosphereMusic({ ...base, lift: 1 / 3 }).mistDensityMul;
+  assert.ok(a - b <= .02 + 1e-12);
 });
 
 test('mist forward scatter peaks into the light, is zero for isotropic scatter and never negative', async () => {
