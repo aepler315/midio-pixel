@@ -12,7 +12,8 @@
 // generation -- takes the legacy path for that frame with a recorded
 // reason; the cast and music never wait on the GPU.
 import { travelSpans } from '../TravelSeam.js';
-import { buildRangeFrame, viewportState, scenicProjection } from './RangeFrame.js';
+import { buildRangeFrame, viewportState, scenicProjection, rangeSideFrame } from './RangeFrame.js';
+import { compileSceneRailPlan, sceneRailPlanFromSnapshot, withSceneRailPace } from '../terrain/SceneRailPlan.js';
 import { scenePoseAt, cameraBasis } from '../terrain/SceneTravel.js';
 import { loadTourPackage } from '../terrain/TourPackage.js';
 import { prepareTourTimeline } from '../terrain/TourRuntime.js';
@@ -189,6 +190,8 @@ export class RangePresentation {
     this._runtimeEpoch = 0; // see _ensureRuntime
     this.generation = 0;
     this.sceneByBiome = null;
+    this.railPlan = null;
+    this._sideFrames = null;
     this.forced = forcedViewId ? forcedSceneChoice(catalog, forcedViewId) : null;
     this.frame = null;
     this.frameInputs = null;
@@ -222,6 +225,14 @@ export class RangePresentation {
 
   get enabled() { return this.mode === 'v2'; }
 
+  get cameraSchedule() { return this.railPlan?.snapshot ?? null; }
+
+  /** Run owners provide the committed heard high-water; draws never commit. */
+  setRailPace(multiplier, committedThroughMs) {
+    if (this.railPlan) this.railPlan = withSceneRailPace(this.railPlan, multiplier, committedThroughMs);
+    return this.cameraSchedule;
+  }
+
   /** 'tetons' forces the highway tour, 'shots' plays shot tours, null keeps
    *  every authored rail. */
   setTourMode(tour, { terrain = null, mgr = null } = {}) {
@@ -236,7 +247,8 @@ export class RangePresentation {
 
   /** A new song (or world): new generation, new assignments. Pending work
    *  of the previous generation is cancelled; its late results never land. */
-  setSong({ terrain = null, mgr = null, generation = this.generation + 1, exportMode = false, cameraContinuation = null } = {}) {
+  setSong({ terrain = null, mgr = null, generation = this.generation + 1, exportMode = false, cameraContinuation = null,
+    cameraSchedule = null, requestedMultiplier = 3, cameraRefineThroughMs = null } = {}) {
     // Replays may reuse the load generation, but every reset supersedes
     // readiness loops that were preparing the previous song's views.
     this._readinessOwner = {};
@@ -272,6 +284,13 @@ export class RangePresentation {
     this._handoff = null;
     this._waitedFor = null;
     this.sceneByBiome = terrain?.sceneByBiome || null;
+    const restored = cameraSchedule ? sceneRailPlanFromSnapshot(cameraSchedule) : null;
+    this.railPlan = restored && !Number.isFinite(cameraRefineThroughMs) ? restored : mgr ? compileSceneRailPlan({
+      sections: mgr.sections, choiceFor: biome => this._choiceFor(biome), durationMs: mgr.durationMs,
+      curves: mgr.energyCurves, response: mgr.world?.response, seed: mgr.songSeed, worldId: mgr.worldId,
+      requestedMultiplier, previous: restored, committedThroughMs: cameraRefineThroughMs ?? -1,
+    }) : restored;
+    this._sideFrames = null;
     this.failures.clear();
     this.deferred.clear();
     this.assetFailures.clear();
@@ -363,8 +382,7 @@ export class RangePresentation {
   }
 
   _wantedViewIds() {
-    if (this.forced?.view) return [this.forced.view.id];
-    return [...(this.sceneByBiome?.values?.() || [])].map((c) => c?.view?.id).filter(Boolean);
+    return this._songViews().map(view => view.id);
   }
 
   /** Load the GPU runtime. Each load belongs to a runtime epoch (distinct
@@ -549,10 +567,38 @@ export class RangePresentation {
 
   /** The song's views in song order (the biome order), each once. */
   _songViews() {
-    const views = this.forced?.view ? [this.forced.view]
+    const views = this.railPlan ? this.railPlan.occurrences.map(occurrence => this._viewForOccurrence(occurrence)).filter(Boolean)
+      : this.forced?.view ? [this.forced.view]
       : [...(this.sceneByBiome?.values?.() || [])].map((c) => c?.view).filter(Boolean);
     return [...new Map(views.map((v) => [v.id, v])).values()];
   }
+
+  _viewForOccurrence(occurrence) {
+    return this.forced?.view?.id === occurrence?.viewId ? this.forced.view
+      : this.catalog.views.find(view => view.id === occurrence?.viewId) || null;
+  }
+
+  _railState(side, frame) {
+    const state = this.railPlan?.railStateAt(side?.occurrence?.id, frame.timeMs);
+    if (!state) return null;
+    const view = side.view;
+    const prepared = this.scene.prepared?.get(view.id);
+    const preview = this.frameInputs.sim.biomes.terrainPreview || !(this.railPlan.snapshot.durationMs > 0);
+    const policy = preview ? 'preview' : view.glacier ? 'glacier'
+      : prepared?.cameraTour || view.tour || this.shots.timeline(view.id) ? 'tour'
+      : view.status === 'approved' ? 'rail' : 'candidate';
+    if (policy === 'rail') return state;
+    return Object.freeze({ ...state, policy,
+      progress01: policy === 'preview' ? .5 : policy === 'glacier' ? frame.glacier.journey01 : frame.progress01,
+      effectiveMultiplier: 1, coverage01: 1, capped: false });
+  }
+
+  _deriveSideFrames(key) {
+    this._sideFrames = { A: rangeSideFrame(this.frame, this.frame.railSides?.A, key),
+      B: this.incomingViewId ? rangeSideFrame(this.frame, this.frame.railSides?.B, key) : null };
+  }
+
+  _sideFrame(side = 'A') { return this._sideFrames?.[side] || this.frame; }
 
   /**
    * Export: after a frame, wait for the views that frame wanted on screen
@@ -698,6 +744,7 @@ export class RangePresentation {
     this.active = false;
     this.incomingViewId = null;
     this.frame = null;
+    this._sideFrames = null;
     if (!this.enabled) { this.reason = 'legacy-mode'; return false; }
     if (this.runtimeState === 'failed' && this._runtimeRetryAt != null && Date.now() >= this._runtimeRetryAt) this.runtimeState = 'idle';
     if (this.runtimeState === 'idle') this._ensureRuntime();
@@ -755,10 +802,13 @@ export class RangePresentation {
           this.tour.notes.push(`Refinement held: ${error.message}`);
         });
     }
-    const blend = mgr.currentBlend || {};
+    const selection = this.railPlan?.selectionAt(inputs.sim.heardTimeMs ?? (mgr.tSec || 0) * 1000);
+    const blend = selection ? { t: selection.transition01, travel: true, travelP: selection.travelP } : mgr.currentBlend || {};
     const name = (p) => (typeof p === 'string' ? p : p?.name ?? null);
-    const from = this._choiceFor(name(blend.from) ?? mgr.sections?.[0]?.profile?.name);
-    const to = this._choiceFor(name(blend.to) ?? name(blend.from));
+    const record = occurrence => ({ view: this._viewForOccurrence(occurrence), occurrence });
+    const from = selection ? record(selection.from) : this._choiceFor(name(blend.from) ?? name(mgr.sections?.[0]?.profile));
+    const to = selection ? record(selection.to) : this._choiceFor(name(blend.to) ?? name(blend.from));
+    const sideId = side => side?.occurrence?.id ?? side?.view?.id;
     const now = Date.now();
     const wanted = [...new Map([from, to].map((c) => c?.view).filter(Boolean).map((v) => [v.id, v])).values()];
     // Reservations below must be able to evict a completed section's view.
@@ -766,8 +816,8 @@ export class RangePresentation {
     // the previous frame's pins through every budget retry. Keep both travel
     // sides, including an outgoing side still finishing its late-join fade.
     const hold = this._handoff, join = this._incomingJoin, tNow = Number(mgr.tSec);
-    const fading = !!join && join.id === hold?.incoming.id && tNow >= join.tSec && tNow - join.tSec < ARRIVAL_SEC;
-    const retained = fading && wanted.some(v => v.id === hold.incoming.id) ? [hold.outgoing.id] : [];
+    const fading = !!join && join.id === sideId(hold?.incoming) && tNow >= join.tSec && tNow - join.tSec < ARRIVAL_SEC;
+    const retained = fading && [from, to].some(side => sideId(side) === sideId(hold.incoming)) ? [hold.outgoing.view.id] : [];
     this.scene.pinView?.([...wanted.map(v => v.id), ...retained], [TRAVEL_SCRATCH_KEY]);
     for (const v of wanted) this._prepare(v, now);
     // What this frame would draw but cannot yet (export settles these).
@@ -777,7 +827,7 @@ export class RangePresentation {
     // A destination without a view (partial catalog coverage) is legacy
     // scenery: the blend toward it, and the section after it, draw legacy.
     const t = blend.t ?? 1;
-    const blending = t > 0 && t < 1 && to !== from;
+    const blending = t > 0 && t < 1 && (selection ? selection.from.id !== selection.to.id : to !== from);
     // Leaving for a destination without a view (partial catalog coverage):
     // the outgoing view keeps drawing over the legacy stack and fades out
     // across the blend, instead of cutting to legacy on its first frame.
@@ -790,34 +840,36 @@ export class RangePresentation {
     if (t >= 1 && !to?.view) { this.reason = to?.fallbackReason || 'no-view-assigned'; return false; }
     // The late-join marker belongs to one travel: forget it once that travel
     // is over (or another has begun), unless a held handoff still runs.
-    const travellingTo = blending && to?.view && to.view.id !== from.view.id ? to.view.id : null;
+    const travellingTo = blending && to?.view && sideId(to) !== sideId(from) ? sideId(to) : null;
     if (this._waitedFor && this._waitedFor !== travellingTo && !this._handoff) this._waitedFor = null;
     // View-to-view travel: the outgoing view stays valid for the whole
     // blend and the incoming one joins through the travel seam once it is
     // prepared -- a cancelled, failed or still-loading incoming view simply
     // leaves the outgoing one drawing, never a legacy flash.
-    let view, incoming = null;
+    let outgoingSide, incomingSide = null;
     if (departing) {
-      view = from.view;
-    } else if (blending && to.view.id !== from.view.id) {
-      view = from.view;
-      if (!this.failures.has(to.view.id) && this.scene.isReady(to.view.id) && this.shots.settled(to.view.id)) incoming = to.view;
+      outgoingSide = from;
+    } else if (blending && sideId(to) !== sideId(from)) {
+      outgoingSide = from;
+      if (!this.failures.has(to.view.id) && this.scene.isReady(to.view.id) && this.shots.settled(to.view.id)) incomingSide = to;
       // A frame of this travel drew the outgoing view alone: when the
       // incoming one does join, it joins late and fades in.
-      else this._waitedFor = to.view.id;
+      else this._waitedFor = sideId(to);
     } else {
-      view = t >= 1 ? to.view : from.view;
+      outgoingSide = t >= 1 ? to : from;
     }
     // A view that joined late and is still fading in when the travel ends
     // keeps the A/B handoff (seam fully across, B at its fade) until the fade
     // completes, instead of replacing A in one frame.
     let holding = false;
-    if (!incoming && hold && fading && view.id === hold.incoming.id && hold.outgoing.id !== view.id
-      && !this.failures.has(hold.outgoing.id) && this.scene.isReady(hold.outgoing.id)) {
-      incoming = view;
-      view = hold.outgoing;
+    if (!incomingSide && hold && fading && sideId(outgoingSide) === sideId(hold.incoming) && sideId(hold.outgoing) !== sideId(outgoingSide)
+      && !this.failures.has(hold.outgoing.view.id) && this.scene.isReady(hold.outgoing.view.id)) {
+      incomingSide = outgoingSide;
+      outgoingSide = hold.outgoing;
       holding = true;
     }
+    const view = outgoingSide.view;
+    let incoming = incomingSide?.view ?? null;
     if (this.failures.has(view.id)) { this.reason = this.failures.get(view.id); return false; }
     if (!this.scene.isReady(view.id)) { this.reason = this.scene.contextLost ? 'context-lost' : 'preparing'; return false; }
     // A view's camera never switches from rail to tour mid-song: it is not
@@ -858,8 +910,9 @@ export class RangePresentation {
     if (incoming && !(this.scene.ensureSide?.('B') && this._ensureScratch(scratchVp))) {
       // A frame drew the outgoing view alone: if room appears later in this
       // travel, the incoming view joins late and fades in.
-      this._waitedFor = incoming.id;
+      this._waitedFor = sideId(incomingSide);
       incoming = null;
+      incomingSide = null;
     }
     if (!incoming) {
       this.scene.releaseSide?.('B');
@@ -879,8 +932,8 @@ export class RangePresentation {
     this.scene.castInBands = this.directTerrainMode ? !this.directCastAvailable : !this.castForeground || !!incoming;
     if (!this.castForeground) this._releaseCastCanvas();
     this.seamP = holding ? 1 : blend.travel ? (blend.travelP ?? t) : t;
-    this._updateIncomingFade(incoming, inputs.sim);
-    this._handoff = incoming && this.incomingFade < 1 ? { outgoing: view, incoming } : null;
+    this._updateIncomingFade(incomingSide ? { id: sideId(incomingSide) } : null, inputs.sim);
+    this._handoff = incoming && this.incomingFade < 1 ? { outgoing: outgoingSide, incoming: incomingSide } : null;
     this.scene.pinView?.(incoming ? [view.id, incoming.id] : view.id,
       [...(incoming ? [TRAVEL_SCRATCH_KEY] : [CAST_LAYER_KEY]), ...(this.directCastAvailable ? ['range:water-output'] : [])]);
     this.timings.frameId = this.frameId + 1;
@@ -892,7 +945,11 @@ export class RangePresentation {
       scenicViewport: inputs.scenicViewport, groundViewport: inputs.groundViewport,
       sceneAssignments: this.sceneByBiome, forcedView: this.forced, renderedViews: [view, incoming].filter(Boolean),
     });
-    if (this.scene.prepareFrameCoverage?.(view, this.frame) === false) {
+    this.frame = Object.freeze({ ...this.frame, cameraScheduleId: this.railPlan?.snapshot.id ?? null,
+      railSides: Object.freeze({ A: this._railState(outgoingSide, this.frame), B: this._railState(incomingSide, this.frame) }) });
+    const cameraFrameKey = Object.freeze({});
+    this._deriveSideFrames(cameraFrameKey);
+    if (this.scene.prepareFrameCoverage?.(view, this._sideFrame()) === false) {
       this.reason = 'budget: tour terrain coverage is preparing';
       this._budgetRefused(view.id);
       return false;
@@ -914,6 +971,7 @@ export class RangePresentation {
         this.frame = Object.freeze({ ...this.frame, light: Object.freeze({ ...this.frame.light, state,
           celestial: Object.freeze({ ...active, body: state.activeBody, intensity: this.frame.light.celestial.intensity }),
           ground: Object.freeze({ ...mgr._groundLight }) }) });
+        this._deriveSideFrames(cameraFrameKey);
       }
     }
     this.scene.prepareShafts?.(this.frame, incoming ? [view.id, incoming.id] : [view.id]);
@@ -945,11 +1003,13 @@ export class RangePresentation {
     const still = { x: 0, y: 0 };
     if (!frame?.cameraMove || !frame.scenicViewport) return still;
     const vp = frame.scenicViewport;
-    const one = (v) => {
+    const one = (v, side) => {
+      const sideFrame = this._sideFrames?.[side] || frame;
       let rail, proj, pose;
-      if (typeof this.scene.movedPose === 'function') ({ rail, proj, pose } = this.scene.movedPose(v, frame));
+      if (typeof this.scene.movedPose === 'function') ({ rail, proj, pose } = this.scene.movedPose(v, sideFrame));
       else {
-        rail = scenePoseAt(v, { progress01: v.glacier ? (frame.glacier?.journey01 ?? frame.progress01) : frame.progress01, timeMs: frame.timeMs });
+        rail = scenePoseAt(v, { progress01: v.glacier ? (sideFrame.glacier?.journey01 ?? sideFrame.progress01) : sideFrame.progress01,
+          timeMs: sideFrame.timeMs, tour: this.shots.timeline(v.id) || v.tour });
         proj = scenicProjection(rail.fovYDeg, vp);
         pose = applyCameraMoves(rail, frame.cameraMove, null);
       }
@@ -967,8 +1027,8 @@ export class RangePresentation {
       return { ...turn, skyCamera, tanY: Math.tan((proj.fovYDeg * Math.PI) / 360) / (frame.cameraEffects?.halfAngleScale || 1), aspect: proj.aspect };
     };
     try {
-      const a = one(view);
-      const b = incoming ? one(incoming) : a;
+      const a = one(view, 'A');
+      const b = incoming ? one(incoming, 'B') : a;
       const k = incoming ? Math.min(1, Math.max(0, (this.seamP ?? 0) * (this.incomingFade ?? 1))) : 0;
       // World-fixed and rail-relative skies cannot be blended: a travel that
       // involves a tour hands the sky over at the seam's midpoint.
@@ -1043,7 +1103,7 @@ export class RangePresentation {
   drawSkyGiants(ctx, stage) {
     if (!this.active || !this.frame) return false;
     const cols = this.incomingViewId ? this._travelBandColumns(stage.width) : null;
-    const render = (id, side) => this.scene.renderSkyGiants?.(this.frame, id, { side, bandColumns: cols?.[side] });
+    const render = (id, side) => this.scene.renderSkyGiants?.(this._sideFrame(side), id, { side, bandColumns: cols?.[side] });
     if (this.incomingViewId) return this._compositeSides(ctx, stage, 'L2',
       () => render(this.viewId, 'A'), () => render(this.incomingViewId, 'B'));
     const image = render(this.viewId, 'A');
@@ -1076,8 +1136,8 @@ export class RangePresentation {
       let renderMs = 0;
       const timed = (fn) => () => { const r0 = performance.now(); const r = fn(); renderMs += performance.now() - r0; return r; };
       const drawn = this._compositeSides(ctx, stage, layerKey,
-        timed(() => this.scene.renderPartition(this.frame, pass, this.viewId, { side: 'A', bandColumns: cols.A })),
-        timed(() => this.scene.renderPartition(this.frame, pass, this.incomingViewId, { side: 'B', bandColumns: cols.B })));
+        timed(() => this.scene.renderPartition(this._sideFrame('A'), pass, this.viewId, { side: 'A', bandColumns: cols.A })),
+        timed(() => this.scene.renderPartition(this._sideFrame('B'), pass, this.incomingViewId, { side: 'B', bandColumns: cols.B })));
       this._noteTiming(renderMs, performance.now() - t0 - renderMs);
       if (drawn) {
         this.lastPartition = { pass, ...this._lastComposite, arrival: this.arrival, shafted: !!this.scene.lastShafted };
@@ -1090,7 +1150,7 @@ export class RangePresentation {
       }
       return drawn;
     }
-    const img = this.scene.renderPartition(this.frame, pass, this.viewId);
+    const img = this.scene.renderPartition(this._sideFrame(), pass, this.viewId);
     const t1 = performance.now();
     if (!img) return false;
     const assembled = this.directTerrainMode && this.arrival < .999 && this._drawDirectArrival(ctx, stage, pass, img);
@@ -1223,13 +1283,13 @@ export class RangePresentation {
     const out = acquire('_waterCanvas', WATER_LAYER_KEY, ctx.canvas.width, ctx.canvas.height);
     const mc = mask?.getContext('2d'), oc = out?.getContext('2d');
     if (!mc || !oc) return null;
-    const low = this.scene.renderWater(this.frame, viewId, nw, nh, { pass, side, bandColumns });
+    const low = this.scene.renderWater(this._sideFrame(side), viewId, nw, nh, { pass, side, bandColumns });
     if (!low) return null;
     mc.setTransform(1, 0, 0, 1, 0, 0); mc.clearRect(0, 0, mask.width, mask.height);
     const t = ctx.getTransform();
     mc.setTransform(t.a, t.b, t.c, t.d, t.e, t.f);
     if (!this.drawTerrainImage?.(mc, low, stage, { width: nw, height: nh })) return null;
-    const high = this.scene.renderWater(this.frame, viewId, w, h, { pass, side, bandColumns });
+    const high = this.scene.renderWater(this._sideFrame(side), viewId, w, h, { pass, side, bandColumns });
     if (!high) return null;
     oc.setTransform(1, 0, 0, 1, 0, 0); oc.globalCompositeOperation = 'source-over';
     oc.clearRect(0, 0, out.width, out.height);
@@ -1259,7 +1319,7 @@ export class RangePresentation {
     if (!this.directCastAvailable || !this.scene?.renderDirectCast || !this.scene.size) return false;
     const scale = Math.max(1, this.scene.waterOutputScale || 1);
     const w = this.scene.size.width * scale, h = this.scene.size.height * scale;
-    const render = (id, side, bandColumns) => this.scene.renderDirectCast(this.frame, id, w, h, { side, bandColumns });
+    const render = (id, side, bandColumns) => this.scene.renderDirectCast(this._sideFrame(side), id, w, h, { side, bandColumns });
     if (this.incomingViewId && columns) return this._compositeSides(ctx, stage, 'L5',
       () => render(this.viewId, 'A', columns.A), () => render(this.incomingViewId, 'B', columns.B), null,
       { smooth: true, additive: true });
@@ -1402,14 +1462,14 @@ export class RangePresentation {
         this._waterShoreMask = null; return;
       }
     }
-    const low = this.scene.renderWater(this.frame, this.viewId, this.scene.size.width, this.scene.size.height);
+    const low = this.scene.renderWater(this._sideFrame(), this.viewId, this.scene.size.width, this.scene.size.height);
     if (!low) return;
     const maskCtx = mask.getContext('2d'), t = ctx.getTransform();
     maskCtx.setTransform(1, 0, 0, 1, 0, 0); maskCtx.clearRect(0, 0, nativeWidth, nativeHeight);
     maskCtx.imageSmoothingEnabled = false;
     maskCtx.setTransform(t.a, t.b, t.c, t.d, t.e, t.f);
     maskCtx.drawImage(low, 0, 0, stage.width, stage.height);
-    const img = this.scene.renderWater(this.frame, this.viewId, this.scene.size.width * scale, this.scene.size.height * scale);
+    const img = this.scene.renderWater(this._sideFrame(), this.viewId, this.scene.size.width * scale, this.scene.size.height * scale);
     if (!img) return;
     const out = c.getContext('2d');
     out.setTransform(1, 0, 0, 1, 0, 0); out.clearRect(0, 0, w, h);
@@ -1421,7 +1481,7 @@ export class RangePresentation {
     out.imageSmoothingEnabled = false; out.drawImage(this.waterEffectMask, 0, 0, w, h);
     out.globalCompositeOperation = 'source-over';
     this.waterLayer = c;
-    this.waterRecipe = { frame: this.frame, viewId: this.viewId, nativeWidth, nativeHeight,
+    this.waterRecipe = { frame: this.frame, sideFrame: this._sideFrame(), viewId: this.viewId, nativeWidth, nativeHeight,
       stageWidth: stage.width, stageHeight: stage.height, matrix: [t.a, t.b, t.c, t.d, t.e, t.f],
       shoreMask: mask, effectMask: this.waterEffectMask, sceneWidth: this.scene.size.width, sceneHeight: this.scene.size.height };
   }
@@ -1450,7 +1510,7 @@ export class RangePresentation {
       }
     }
     if (recipe.captureWidth === w && recipe.captureHeight === h) return canvas;
-    const img = this.scene.renderWater(recipe.frame, recipe.viewId, recipe.sceneWidth * scale, recipe.sceneHeight * scale, { capture: true });
+    const img = this.scene.renderWater(recipe.sideFrame || recipe.frame, recipe.viewId, recipe.sceneWidth * scale, recipe.sceneHeight * scale, { capture: true });
     if (!img) return null;
     const out = canvas.getContext('2d'), m = recipe.matrix;
     if (!out) return null;
@@ -1485,7 +1545,7 @@ export class RangePresentation {
    */
   _keepCast(ctx, stage) {
     const c0 = performance.now();
-    const img = this.scene.renderCast?.(this.frame, this.viewId);
+    const img = this.scene.renderCast?.(this._sideFrame(), this.viewId);
     if (!img) return;
     const t = ctx.getTransform?.();
     const layer = t ? this._ensureCastCanvas(img.width, img.height) : null;
@@ -1693,7 +1753,7 @@ export class RangePresentation {
     if (!needsA && !needsB) { this.scene.releaseGroundTarget?.(); return true; }
     const groundViewport = this.directTerrainMode
       ? directTerrainViewport(this.frame.groundViewport, this.pixelPolicy?.grid, this.outputSize) : null;
-    const render = id => needsGround(id) ? this.scene.renderGround(this.frame, id, { viewport: groundViewport }) : null;
+    const render = (id, side = 'A') => needsGround(id) ? this.scene.renderGround(this._sideFrame(side), id, { viewport: groundViewport }) : null;
     if (this.incomingViewId) {
       // The rock stage wears each side's material through the nearest seam;
       // its receivers (pools) come from whichever side holds the centre.
@@ -1702,7 +1762,7 @@ export class RangePresentation {
       const timed = (fn) => () => { const r0 = performance.now(); const r = fn(); renderMs += performance.now() - r0; return r; };
       const drawn = this._compositeSides(ctx, stage, 'L5',
         timed(() => (outA = render(this.viewId))?.canvas),
-        timed(() => (outB = render(this.incomingViewId))?.canvas), this.frame.groundViewport);
+        timed(() => (outB = render(this.incomingViewId, 'B'))?.canvas), this.frame.groundViewport);
       this.timings.frameRenderMs += renderMs;
       this.timings.frameCopyMs += performance.now() - g0 - renderMs;
       // Receivers (pools, wet masks) follow the side that visibly holds the
@@ -1759,6 +1819,8 @@ export class RangePresentation {
       tourPreparation: { ...this._tourPreparation,
         requestedUpgradeIntended: this.upgradeIntended, effectiveUpgradeIntended: this.tour ? !!this.tour.upgradeIntended : null },
       generation: this.generation,
+      cameraRails: { scheduleId: this.cameraSchedule?.id ?? null, requestedMultiplier: this.cameraSchedule?.requestedMultiplier ?? 3,
+        from: active ? this.frame?.railSides?.A ?? null : null, to: active ? this.frame?.railSides?.B ?? null : null },
       shotTours: { enabled: this.shots.enabled, active: this.active && this.cameraTourActive, views: this.shots.status() },
     };
   }

@@ -1,8 +1,21 @@
 // Evidence only. A calibration target is not a measurement: compare matching
 // projected surface anchors with the camera/time held fixed, then normalize.
-import { calibrateRangeMusic, sceneDeformation } from '../../src/world/alpine/RangeFrame.js';
+import { calibrateRangeMusic, sceneDeformation, rangeCameraCalibration } from '../../src/world/alpine/RangeFrame.js';
 import { buildSurfaceTexture, buildReceiverMask, sampleReceiverMask } from '../../src/world/alpine/TerrainMesh.js';
 import { glacierSample } from '../../src/world/alpine/GlacierField.js';
+
+/** Capture one actual render side, independent of which side drew last.
+ * Called after composition; it changes no run history or readiness. */
+export function captureRangeMotionSnapshot(presentation, side = 'A') {
+  const scene = presentation?.scene;
+  const viewId = side === 'B' ? presentation?.incomingViewId : presentation?.viewId;
+  const prepared = scene?.prepared.get(viewId);
+  const frame = presentation?._sideFrame(side);
+  if (!presentation?.active || !prepared || !frame || !scene.camera) return null;
+  const pose = scene._setCamera(prepared.view, frame, prepared);
+  return { view: prepared.view, frame, budget: scene.budget,
+    camera: { world: scene.camera.matrixWorld.toArray(), projection: scene.camera.projectionMatrix.toArray(), pose } };
+}
 
 export function measureProjectedMotion({ neutralPoints, activePoints, visibleMask, nominalHeight }) {
   if (!(Number.isFinite(nominalHeight) && nominalHeight > 0)) throw new Error('nominal height must be positive and finite');
@@ -42,7 +55,7 @@ function receiverSampler(data) {
  * atmosphere and final compositor pixels are not modeled; this is geometric
  * evidence, not a screenshot or an artistic acceptance result.
  */
-export function sampleProjectedTerrainMotion({ THREE, prepared, frame, camera,
+export function sampleProjectedTerrainMotion({ THREE, prepared, frame, camera, cameraPose = camera.userData?.rangeCameraPose,
   receiverAt = null, columns = 24, rows = 18, outputWidth = null, outputHeight = null,
   foregroundMaxFrac = 0 }) {
   if (!(Number.isInteger(columns) && columns > 0 && Number.isInteger(rows) && rows > 0)) throw new Error('positive sampling dimensions required');
@@ -55,6 +68,7 @@ export function sampleProjectedTerrainMotion({ THREE, prepared, frame, camera,
     left: (outputWidth - nominalWidth * fit) / 2, top: (outputHeight - nominalHeight * fit) / 2 };
   const heightRange = [prepared.uniforms.uHeightRange.value.x, prepared.uniforms.uHeightRange.value.y];
   const music = calibrateRangeMusic(frame.music, { view: prepared.view, progress01: frame.progress01,
+    ...(cameraPose ? rangeCameraCalibration(cameraPose) : {}),
     heightRange, nominalHeight: vp.nominalHeight || 720 });
   receiverAt ||= receiverSampler(prepared.data);
   const fixedCamera = camera.clone(); fixedCamera.updateMatrixWorld(true);
@@ -124,7 +138,8 @@ export function sampleProjectedTerrainMotion({ THREE, prepared, frame, camera,
       classification: 'CPU projection of prepared terrain; terrain self-visibility, not final composited pixels',
       cameraComparison: 'fixed camera, time, glacier and lighting; music displacement only',
       viewId: prepared.view.id, timeMs: frame.timeMs, progress01: frame.progress01,
-      camera: { world: fixedCamera.matrixWorld.toArray(), projection: fixedCamera.projectionMatrix.toArray() },
+      occurrenceId: frame.occurrenceId ?? null, railState: frame.railState ?? null,
+      camera: { world: fixedCamera.matrixWorld.toArray(), projection: fixedCamera.projectionMatrix.toArray(), pose: cameraPose ?? null },
       sampling: { columns, rows, outputWidth, outputHeight, fittedStage, normalizedHeight: 720, foregroundMaxFrac,
         groups: { crest: 'first visible sampled terrain in each column, excluding near band',
           flank: 'remaining far/mid terrain hits', near: 'hits owned by the near terrain band' } },

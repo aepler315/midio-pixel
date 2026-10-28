@@ -61,7 +61,7 @@ async function row(page, label, t, { quality = 0, measureMotion = false } = {}) 
   await page.evaluate(quality => { window.__SMW.perf?.setFixtureLevel(quality); }, quality);
   const frame = await captureFrame(page, t);
   const ownership = await landscapeOwnership(page); assertLandscapeOwnership(ownership);
-  const state = await page.evaluate(measureMotion => {
+  const state = await page.evaluate(async measureMotion => {
     const app = window.__SMW, m = app.sim.biomes, p = m.rangePresentation, s = p?.scene, f = p?.frame;
     const gl = s?.renderer?.getContext(), e = gl?.getExtension('WEBGL_debug_renderer_info');
     // Read the actual scenic/stage receiver uniforms after the draw, rather
@@ -73,8 +73,8 @@ async function row(page, label, t, { quality = 0, measureMotion = false } = {}) 
       stageKeyColor: stage.uKeyColor.value.toArray(), stageKeyDir: stage.uKeyDir.value.toArray(),
     } : null;
     const shaftEntry = s?.residency?.entries.get('range:sun-shafts');
-    const motionSnapshot = measureMotion && prepared && f ? { view: prepared.view, frame: f, budget: s.budget,
-      camera: { world: s.camera.matrixWorld.toArray(), projection: s.camera.projectionMatrix.toArray() } } : null;
+    const motionSnapshot = measureMotion && prepared && f
+      ? (await import('/tools/lib/range-motion-metrics.mjs')).captureRangeMotionSnapshot(p, 'A') : null;
     return { motionSnapshot, stateKey: app.ridgeStateKey, music: f?.music, ridges: f?.ridges && {
       dance: { displacement01: f.ridges.dance.displacement01, velocity01: f.ridges.dance.velocity01 },
       space: { displacement01: f.ridges.space.displacement01, velocity01: f.ridges.space.velocity01 } },

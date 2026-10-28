@@ -103,3 +103,19 @@ test('letterboxed portrait evidence normalizes by fitted stage height rather tha
   assert.ok(Math.abs(portrait.groups.near.medianPx - wide.groups.near.medianPx) < 1e-9,
     'letterboxing must not be mistaken for weaker terrain response');
 });
+
+test('motion sampling identifies its occurrence and uses the exact serialized camera pose for calibration', () => {
+  const frame = { ...planeFrame(), occurrenceId: 'retained-a', railState: { occurrenceId: 'retained-a', progress01: .2 } };
+  const pose = { eyeM: [0, 18, 16], targetM: [0, 10, 0], fovYDeg: 40 };
+  const prepared = planePrepared();
+  // The wrong whole-song/view rail is deliberately far away. Calibration
+  // must stay with the actual frozen camera rather than resampling this rail.
+  prepared.view.camera = { ...prepared.view.camera, eyeStartM: [0, 1800, 1600], eyeEndM: [0, 1800, 1600] };
+  const result = sampleProjectedTerrainMotion({ THREE, prepared, frame, camera: planeCamera(), cameraPose: pose,
+    receiverAt: () => 1, columns: 2, rows: 2 });
+  const depth = Math.hypot(8, 16), focal = 360 / Math.tan(40 * Math.PI / 360);
+  const gain = Math.min(20 * depth / focal / 106.7, .65 / 106.7);
+  assert.ok(Math.abs(result.calibration.gain - gain) < 1e-12);
+  assert.equal(result.occurrenceId, 'retained-a');
+  assert.deepEqual(result.railState, frame.railState);
+});

@@ -21,6 +21,15 @@ function fixture({ ink = 0, actor = false, shafts = false } = {}) {
 }
 const frame = { frameId: 1, qualityLevel: 0, light: { celestial: { body: 'sun', visibility: 1, intensity: 1, xFrac: .5, yFrac: .2 } } };
 
+test('a smooth cast cannot reuse depth from another occurrence of the same view', () => {
+  const { s } = fixture({ actor: true });
+  s.castInBands = false;
+  const first = { ...frame, occurrenceId: 'first' };
+  s.renderPartition(first, 'near', 'probe');
+  assert.equal(s.renderCast({ ...frame, occurrenceId: 'return' }, 'probe'), null);
+  assert.equal(s.renderCast(first, 'probe'), s.canvas);
+});
+
 test('empty post-forest stages retain opaque depth across all three partitions', () => {
   const { s, draws } = fixture();
   for (const pass of ['far', 'mid', 'near']) s.renderPartition(frame, pass, 'probe');

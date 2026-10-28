@@ -315,6 +315,7 @@ export function usesHighResolutionRangeSky(manager) {
  */
 export function buildRangeFrame({
   frameId, generation = 0, sim, pose, scenicViewport, groundViewport, sceneAssignments = null, forcedView = null, renderedViews = null,
+  railSides = null, cameraScheduleId = null,
 }) {
   const mgr = sim.biomes;
   const blend = mgr.currentBlend || { from: mgr.sections?.[0]?.profile, to: mgr.sections?.[0]?.profile, t: 1 };
@@ -421,9 +422,10 @@ export function buildRangeFrame({
     motifId: motif.id, chapterId: section?.chapterId ?? null, motif,
     biomeFrom, biomeTo, transition01: t,
     compositions: Object.fromEntries((renderedViews || [from?.view, to?.view]).filter(Boolean).map(v => [v.id, resolveRangeComposition(v)])),
-    viewFromId: from?.view?.id ?? null, viewToId: to?.view?.id ?? null,
+    viewFromId: renderedViews?.[0]?.id ?? from?.view?.id ?? null,
+    viewToId: renderedViews ? (renderedViews[1] || renderedViews[0])?.id ?? null : to?.view?.id ?? null,
     forcedCandidate: !!forcedView?.forcedCandidate,
-    progress01, glacier, qualityLevel: sim.perf?.level ?? 0,
+    progress01, glacier, railSides, cameraScheduleId, qualityLevel: sim.perf?.level ?? 0,
     // How much of the Forest Service map under the land shows (quiet passages).
     cloudSea01: cloudSeaAt(mgr, timeMs),
     storm: stormAt(mgr, timeMs),
@@ -441,6 +443,19 @@ export function buildRangeFrame({
     // World anchoring for fixed-ground dressing (rock stage, pools).
     worldX: pose.worldX, originX: pose.midioX,
   });
+}
+
+/** A camera side shares the environment but owns one occurrence's station.
+ * The stable key survives light reprojection without resampling its camera. */
+export function rangeSideFrame(frame, railState = null, cameraFrameKey = frame) {
+  return Object.freeze({ ...frame, songProgress01: frame.progress01,
+    occurrenceId: railState?.occurrenceId ?? null, railState, cameraFrameKey,
+    progress01: railState?.progress01 ?? frame.progress01 });
+}
+
+/** Geographic depth and nominal lens from the exact camera used to draw. */
+export function rangeCameraCalibration(pose) {
+  return { depthM: Math.hypot(...pose.eyeM.map((value, i) => value - pose.targetM[i])), fovYDeg: pose.fovYDeg };
 }
 
 /**
