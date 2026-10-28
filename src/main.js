@@ -55,6 +55,8 @@ import { sharedResidency } from './render/GraphicsResidency.js';
 import { RangePresentation, resolveRangeMode } from './world/alpine/RangePresentation.js';
 import { rangeTourControlState } from './ui/RangeTourControl.js';
 import { DETAIL_LEVELS, stepDetail, snapshotFileName, captureDetailSnapshots, canvasToPng } from './ui/DetailSnapshots.js';
+import { REEL_TARGET_SIZE, sizeLabel, reelFileName, planReelRenders, stepTargets, warmupTimes, describeReelSave,
+  createReelSaver, ReelSaveCancelled, ReelSizeError, classifyArmError } from './ui/ReelExport.js';
 import { residencyBudgetFor } from './render/GraphicsResidency.js';
 import { shouldSuggestLandscape } from './render/StagePresets.js';
 import { createPresentingRenderer } from './render/PresentingRenderer.js';
@@ -223,6 +225,13 @@ const filmstripModalTitleEl = document.getElementById('filmstripModalTitle');
 const filmstripModalCloseEl = document.getElementById('filmstripModalClose');
 const filmstripModalImgEl = document.getElementById('filmstripModalImg');
 const filmstripModalDownloadEl = document.getElementById('filmstripModalDownload');
+const filmstripModalSaveEl = document.getElementById('filmstripModalSave');
+const filmstripModalStatusEl = document.getElementById('filmstripModalStatus');
+const filmstripActionsEl = document.getElementById('filmstripActions');
+const filmstripSaveAllEl = document.getElementById('filmstripSaveAll');
+const filmstripStatusEl = document.getElementById('filmstripStatus');
+const filmstripFilesEl = document.getElementById('filmstripFiles');
+const filmstripModalFilesEl = document.getElementById('filmstripModalFiles');
 const auditionPanelEl = document.getElementById('auditionPanel');
 const auditionHeadingEl = document.getElementById('auditionHeading');
 const auditionCanvasEl = document.getElementById('auditionCanvas');
@@ -420,6 +429,17 @@ const detailUpBtnEl = document.getElementById('detailUpBtn');
 const detailLevelEl = document.getElementById('detailLevel');
 const snapshotBtnEl = document.getElementById('snapshotBtn');
 let snapshotBusy = false;
+/** The player's own display preferences while a snapshot borrows the stage. */
+let snapshotPlayerPrefs = null;
+/** The COMPLETE panel's reel frames. Held here, not read from the sim: a 4K
+ *  save rebuilds the song (and its sim) to draw them again. */
+let completedReelFrames = [];
+const reelSaver = createReelSaver();
+/** The last save's PNGs, offered as links the player clicks: a download
+ *  started seconds after the click that asked for it has no user activation,
+ *  and browsers block or drop such downloads (several at once especially). */
+let reelFiles = [];
+let openReelIndex = -1;
 const STAGE_FPS_KEY = 'smw:stageFps';
 let simTime = 0;
 let acc = 0;
@@ -866,6 +886,7 @@ async function saveDetailSnapshots() {
   snapshotBusy = true;
   syncDetailControls();
   const savedPrefs = displayPrefs, savedPresentation = presentation;
+  snapshotPlayerPrefs = savedPrefs;
   const stamp = new Date();
   const stopped = () => !running || !sim || !renderer;
   let cancelled = false;
@@ -908,6 +929,7 @@ async function saveDetailSnapshots() {
     bulkExportSize = null;
     displayPrefs = savedPrefs;
     presentation = savedPresentation;
+    snapshotPlayerPrefs = null;
     snapshotBusy = false;
     syncDisplayControls();
     fitCanvas();
@@ -1726,7 +1748,7 @@ function abortBulkExport() {
 /** Rebuild the current song at an exact frame size and arm the export clock.
  *  The seed and the decoded buffer carry over, so each resolution is the
  *  same performance. */
-function beginBulkExport({ width, height, presentation: override } = {}) {
+function beginBulkExport({ width, height, presentation: override, qualityLevel = null } = {}) {
   const size = evenExportSize({ w: width, h: height });
   if (!size) throw new Error(`Export size must be even and at least 2×2 (got ${width}×${height}).`);
   if (!lastTimelineData) throw new Error('Load a song before exporting.');
@@ -1738,7 +1760,7 @@ function beginBulkExport({ width, height, presentation: override } = {}) {
     exportMode: true,
     exportSize: size,
     exportPresentation: override ? resolvePresentation(resolveDisplayPrefs({ saved: override })) : { ...effectivePresentation() },
-    exportQualityLevel: perfGovernor?.level ?? perfStartLevel,
+    exportQualityLevel: Number.isInteger(qualityLevel) && qualityLevel >= 0 ? qualityLevel : perfGovernor?.level ?? perfStartLevel,
     startAtMs: 0,
     fitDiagnostic: lastFitDiagnostic,
   };
@@ -2016,6 +2038,26 @@ function startTimeline(timelineData, extra = {}) {
     return;
   }
   sim.audioOverview = timelineData.audioOverview || null;
+  // Each highlight frame records the run and look that drew it, so the
+  // COMPLETE panel can draw it again at 4K (ReelExport.js). An export's own
+  // reel is never shown.
+  if (!exportMode && sim.highlightReel) {
+    const runSeed = sim.songSeed, runWorldId = timelineData.worldId;
+    // How this scene was built, which a from-0 redraw cannot reproduce: a
+    // start part-way in (seek, in-room start, the mid-song rebuild on the
+    // whole analysis, a world or tour switch), a continued chapter plan /
+    // camera tours / landscape history, and the analysis it was built on
+    // (the song object is upgraded in place when the whole analysis lands).
+    const sceneStartMs = Math.max(0, startAtMs || 0);
+    const continued = !!extra.chapterState;
+    const analysis = timelineData.opening ? 'opening' : 'full';
+    sim.highlightReel.describeMoment = () => ({
+      songSeed: runSeed, worldId: runWorldId,
+      displayPrefs: { ...(snapshotPlayerPrefs || displayPrefs) },
+      qualityLevel: renderQualityLevel(generalQuality),
+      sceneStartMs, continued, analysis,
+    });
+  }
   // The listener's zoom (scroll wheel, pinch) is live-only: exports and
   // captures draw the authored camera. A new song starts unzoomed; a seek
   // or a mid-song rebuild keeps the zoom where it is.
@@ -2073,6 +2115,8 @@ function startTimeline(timelineData, extra = {}) {
   debugOverlay.onVisionConfigChange = persistVisionConfig;
   renderTracks(timelineData.tracks, timelineData.pairs);
   if (filmstripEl) { filmstripEl.innerHTML = ''; filmstripEl.classList.add('hidden'); }
+  // A new song's COMPLETE panel starts without the last song's 4K files.
+  if (!reelSaver.busy) showReelFiles([]);
 
   acc = 0;
   lastRafMs = null;
@@ -2189,7 +2233,9 @@ function startTimeline(timelineData, extra = {}) {
         throw new Error(result?.reason || 'no completed frame');
     } catch (err) {
       abortBulkExport();
-      throw failBulkExport(`Export presentation failed on the first frame: ${err?.message || err}`);
+      const failure = failBulkExport(`Export presentation failed on the first frame: ${err?.message || err}`);
+      failure.presentationFailure = true; // a smaller frame may still present (reel 4K saves)
+      throw failure;
     }
   } else if (!waitForLandscape) {
     rafHandle = requestAnimationFrame(frame);
@@ -4302,7 +4348,8 @@ function onSongComplete() {
   }
   if (completeSeedEl) completeSeedEl.textContent = formatSeed(sim.songSeed);
   renderResultsGrid(buildRunStats(sim));
-  renderFilmstrip(sim.highlightReel?.frames || []);
+  completedReelFrames = sim.highlightReel?.frames || [];
+  renderFilmstrip(completedReelFrames);
   completePanelEl.classList.remove('hidden');
   // A full-song export ends where the song does. Awaiting it here would
   // hold up the panel, so it saves itself and writes its own line.
@@ -4312,6 +4359,8 @@ function onSongComplete() {
 /** Restart the last-loaded song. Pass songSeed to pin the world; omit for
  *  the song-derived default. Explicit completion-screen seeds still override it. */
 function replaySong({ songSeed } = {}) {
+  // A 4K reel save is drawing on the stage; its buttons say so (disabled).
+  if (reelSaver.busy) return;
   if (!lastTimelineData) { window.location.reload(); return; }
   // Capture buffer before rebuild — startTimeline stops the AudioContext source
   // via stopTimeline, but must not lose the decoded song for the restart.
@@ -4342,10 +4391,12 @@ function filmstripCaption(frame) {
 
 /** The Reel: the COMPLETE panel's highlight filmstrip -- the peak of each
  *  major color regime the song passed through (HighlightReel.js), in song
- *  order. Click a frame to enlarge it; the modal offers a per-frame
- *  download link. */
+ *  order. Click a frame to enlarge it; the modal saves that moment as a 4K
+ *  PNG (or offers the 320x180 thumbnail), and "Save all in 4K" saves every
+ *  frame. */
 function renderFilmstrip(frames) {
   if (!filmstripEl) return;
+  filmstripActionsEl?.classList.toggle('hidden', !frames.length);
   if (!frames.length) {
     filmstripEl.innerHTML = '';
     filmstripEl.classList.add('hidden');
@@ -4357,31 +4408,251 @@ function renderFilmstrip(frames) {
     + `<img src="${f.dataUrl}" alt="${escapeHtml(f.label)}" />`
     + `<span class="filmstripLabel">${escapeHtml(f.label)}</span></button>`,
   ).join('');
+  syncReelSaveControls();
 }
 
-function openFilmstripModal(frame) {
-  if (!filmstripModalEl) return;
+function openFilmstripModal(index) {
+  const frame = completedReelFrames[index];
+  if (!filmstripModalEl || !frame) return;
+  openReelIndex = index;
   filmstripModalTitleEl.textContent = filmstripCaption(frame);
   filmstripModalImgEl.src = frame.dataUrl;
   filmstripModalImgEl.alt = frame.label;
   const slug = frame.label.toLowerCase().replace(/[^a-z0-9]+/g, '-');
   filmstripModalDownloadEl.href = frame.dataUrl;
   filmstripModalDownloadEl.download = `super-midio-world-${slug}-${Math.round(frame.atMs)}ms.jpg`;
+  if (filmstripModalSaveEl) filmstripModalSaveEl.textContent = `Save ${sizeLabel(REEL_TARGET_SIZE)} PNG`;
   filmstripModalEl.classList.remove('hidden');
+  syncReelSaveControls();
 }
 
 function closeFilmstripModal() {
   filmstripModalEl?.classList.add('hidden');
 }
 
+/** While a 4K save holds the stage, the COMPLETE panel's buttons wait:
+ *  each would start a song on top of the rebuild drawing the frames. */
+function syncReelSaveControls(status) {
+  const busy = reelSaver.busy;
+  for (const el of [filmstripModalSaveEl, filmstripSaveAllEl]) {
+    if (!el) continue;
+    el.disabled = busy;
+    el.setAttribute('aria-busy', busy ? 'true' : 'false');
+  }
+  for (const el of [replaySameSeedBtnEl, replayNewSeedBtnEl, playAgainBtnEl, completeNewSeedStartBtnEl]) {
+    if (el) el.disabled = busy;
+  }
+  if (status !== undefined) {
+    for (const el of [filmstripStatusEl, filmstripModalStatusEl]) if (el) el.textContent = status;
+  }
+}
+
+/** Offer the save's PNGs as links (one click, one real download each).
+ *  The previous save's links and their blob URLs go. */
+function showReelFiles(files) {
+  for (const f of reelFiles) URL.revokeObjectURL(f.url);
+  reelFiles = files.map((f) => ({ ...f, url: URL.createObjectURL(f.blob) }));
+  const html = reelFiles.map((f) => `<a class="ghostbtn chipbtn" href="${f.url}" download="${escapeHtml(f.name)}" `
+    + `title="${escapeHtml(f.name)}">${escapeHtml(f.caption)}</a>`).join('');
+  for (const el of [filmstripFilesEl, filmstripModalFilesEl]) {
+    if (!el) continue;
+    el.innerHTML = html;
+    el.classList.toggle('hidden', !reelFiles.length);
+  }
+}
+
+const yieldToPage = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+/** Rebuild the song through the bulk export clock at `size`, for one run
+ *  and look of the plan (planReelRenders). The rebuild is the one a bulk
+ *  export makes: the run's seed and world, the frame's display preferences
+ *  (Fit scaling, so every grid fills the frame), the quality floor the
+ *  player had chosen, no listener zoom. A stage that comes up at another
+ *  size throws ReelSizeError (a smaller size may work); anything else, such
+ *  as the world failing to build, is thrown as it is. */
+function beginReelRender(data, group, size, restore) {
+  data.worldId = group.worldId;
+  if (group.worldId === restore.worldId && restore.hadChapter) data.chapterState = restore.chapterState;
+  else delete data.chapterState;
+  lastSongSeed = group.songSeed;
+  try {
+    beginBulkExport({ width: size.w, height: size.h, presentation: { ...group.displayPrefs, scaling: 'fit' },
+      qualityLevel: group.qualityLevel });
+  } catch (err) {
+    throw classifyArmError(err, { armed: !!sim && bulkExportArmed, stage: { w: canvas.width, h: canvas.height }, size });
+  }
+  // The rebuild is drawn here, frame by frame; playback controls and the
+  // keyboard stay inert, and the COMPLETE panel stays up over the stage.
+  running = false;
+  syncKeepAwake();
+  hudEl.classList.add('hidden');
+  rangeNavigationEl?.classList.add('hidden');
+  completePanelEl.classList.remove('hidden');
+  renderFilmstrip(completedReelFrames);
+  return sim;
+}
+
+/** Step the armed export sim forward to `atMs` and draw it. The stepping is
+ *  stepExportClock's, in chunks with a yield to the page between them; the
+ *  last few frames before the instant are drawn as well, so the renderer's
+ *  frame history holds what led into it. */
+async function drawReelMoment(atMs, size, check) {
+  const step = (dt, at) => sim.step(dt, at);
+  let result = null;
+  for (const t of warmupTimes(atMs, { fromMs: simTime })) {
+    for (const target of stepTargets(simTime, t)) {
+      simTime = stepExportClock({ simTime, targetMs: target, stepMs: STEP_MS, step }).simTime;
+      await yieldToPage();
+      check();
+    }
+    result = renderer.draw(sim, 0);
+  }
+  // Range v2 prepares a section's view as the song reaches it; a frame drawn
+  // before its view was ready is drawn again once it is (bulk export does
+  // the same).
+  if (rangePresentation && await rangePresentation.settle()) {
+    check();
+    result = renderer.draw(sim, 0);
+  }
+  if (!result?.presented || !renderer.getCaptureSource()) {
+    throw new ReelSizeError(`the frame did not finish drawing (${result?.reason || 'no completed frame'})`);
+  }
+  if (canvas.width !== size.w || canvas.height !== size.h) {
+    throw new ReelSizeError(`the stage is ${canvas.width}×${canvas.height}, not ${sizeLabel(size)}`);
+  }
+}
+
+/** Put the COMPLETE panel back as it was: the rebuild torn down, the
+ *  player's world, seed, pause and audio state restored, the display back
+ *  on the player's own presentation, the title loader as it was (a world
+ *  that failed to build shows it). */
+function endReelRender(data, restore) {
+  bulkExportArmed = false;
+  bulkExportSize = null;
+  bulkPresentation = null;
+  stopTimeline({ preservePause: true });
+  data.worldId = restore.worldId;
+  if (restore.hadChapter) data.chapterState = restore.chapterState;
+  else delete data.chapterState;
+  lastStartExtra = restore.lastStartExtra;
+  lastSongSeed = restore.lastSongSeed;
+  if (experience !== restore.experience) applyExperience(restore.experience);
+  paused = restore.paused;
+  if (audioEngine?.master && Number.isFinite(restore.gain)) audioEngine.master.gain.value = restore.gain;
+  if (restore.ctxRunning) audioEngine?.ctx?.resume();
+  updatePauseButtonUI();
+  fitCanvas();
+  progressEl.classList.add('hidden');
+  loaderEl.classList.toggle('hidden', restore.loaderHidden);
+  hudEl.classList.add('hidden');
+  rangeNavigationEl?.classList.add('hidden');
+  completePanelEl.classList.remove('hidden');
+  renderFilmstrip(completedReelFrames);
+}
+
+/**
+ * Draw reel frames again at 4K: each at its heard time, at 3840×2160, as a
+ * lossless PNG. `indices` picks frames; null takes them all. Only from the
+ * COMPLETE panel, after the song: the song is rebuilt through the bulk
+ * export clock (the live sim cannot go back), so nothing is playing to
+ * hitch. The loop (sizes, retries, cancel, busy guard) is
+ * ReelExport.createReelSaver's; this is the page's part of it. The PNGs are
+ * offered as links to click, not downloaded on their own (showReelFiles).
+ */
+async function saveReelFrames(indices = null) {
+  if (reelSaver.busy) return;
+  if (running || snapshotBusy || bulkExportArmed || songRecorder?.recording || songRecorder?.finalizing
+    || pendingCaptureOptions || !lastTimelineData) {
+    showErrorBanner('Highlights are saved in 4K from the Complete screen, once the song and any recording have finished.');
+    return;
+  }
+  if (lastTimelineData.opening) {
+    showErrorBanner('Still analysing the whole song. Try the 4K save again in a few seconds.');
+    return;
+  }
+  const plan = planReelRenders(completedReelFrames, { indices, analysis: 'full' });
+  if (!plan.groups.length) {
+    showErrorBanner(describeReelSave({ unavailable: plan.unavailable }).message || 'There is no highlight to save.');
+    return;
+  }
+  const data = lastTimelineData, gen = loadGen;
+  const songName = sessionSongName(data, lastSongName);
+  const restore = {
+    worldId: data.worldId, hadChapter: Object.hasOwn(data, 'chapterState'), chapterState: data.chapterState,
+    lastStartExtra, lastSongSeed, paused, experience, loaderHidden: loaderEl.classList.contains('hidden'),
+    ctxRunning: audioEngine?.ctx?.state === 'running', gain: audioEngine?.master?.gain.value,
+  };
+  const total = plan.groups.reduce((n, g) => n + g.items.length, 0);
+  const files = [];
+  let ownSim = null;
+  // Anything else that takes the page (a new song, the title, a replay)
+  // wins; the save stops without touching it.
+  const superseded = () => loadGen !== gen || lastTimelineData !== data || (!!ownSim && sim !== ownSim);
+  const check = () => { if (superseded()) throw new ReelSaveCancelled(); };
+  showReelFiles([]);
+  const run = reelSaver.run({
+    plan,
+    available: (group) => resolveWorldId(group.worldId) === group.worldId,
+    begin: async (group, size) => {
+      ownSim = null;
+      ownSim = beginReelRender(data, group, size, restore);
+      if (rangePresentation) await rangePresentation.whenReady();
+    },
+    draw: (item, size) => drawReelMoment(item.atMs, size, check),
+    encode: async () => {
+      const width = canvas.width, height = canvas.height;
+      try {
+        return { blob: await canvasToPng(canvas), width, height };
+      } catch (err) {
+        throw new ReelSizeError(err?.message || 'the frame could not be encoded');
+      }
+    },
+    save: (item, file) => {
+      const name = reelFileName({ songName, frame: item.frame, width: file.width, height: file.height });
+      files.push({ blob: file.blob, name, caption: `${filmstripCaption(item.frame)} · ${file.width}×${file.height}${item.approximate.length ? ' (approx.)' : ''}`, index: item.index });
+    },
+    check,
+    end: () => endReelRender(data, restore),
+    cancel: () => {
+      // Leave whatever took the page alone; only an export this save armed
+      // and nobody replaced is put down.
+      if (ownSim && sim === ownSim) stopTimeline({ preservePause: true });
+      if (!sim || sim === ownSim) { bulkExportArmed = false; bulkExportSize = null; bulkPresentation = null; fitCanvas(); }
+    },
+    onProgress: ({ saved }) => syncReelSaveControls(`Drawn ${saved} of ${total}…`),
+  });
+  // run() marked the saver busy before its first await.
+  syncReelSaveControls(`Drawing ${total === 1 ? 'the frame' : `${total} frames`} at ${sizeLabel(REEL_TARGET_SIZE)}…`);
+  let result;
+  try {
+    result = await run;
+  } catch (err) {
+    // Only end()/cancel() can throw out of run(); the page may be half restored.
+    console.error('[reel 4K]', err);
+    showErrorBanner(`The 4K save could not put the page back: ${err?.message || err}`);
+    syncReelSaveControls('');
+    return;
+  }
+  if (result.status === 'cancelled') { syncReelSaveControls(''); return; }
+  if (result.error) console.error('[reel 4K]', result.error);
+  for (const f of result.failures) console.warn(`[reel 4K] ${sizeLabel(f.size)}`, f.reason);
+  files.sort((a, b) => a.index - b.index);
+  showReelFiles(files);
+  if (!result.report.ok) showErrorBanner(result.report.message);
+  syncReelSaveControls(files.length
+    ? `${files.length === 1 ? 'One PNG is' : `${files.length} PNGs are`} ready; click ${files.length === 1 ? 'it' : 'each'} to save.`
+    : 'Nothing was drawn.');
+}
+
 if (filmstripEl) {
   filmstripEl.addEventListener('click', (e) => {
     const btn = e.target.closest('.filmstripFrame');
     if (!btn) return;
-    const frame = sim?.highlightReel?.frames?.[Number(btn.dataset.index)];
-    if (frame) openFilmstripModal(frame);
+    openFilmstripModal(Number(btn.dataset.index));
   });
 }
+filmstripModalSaveEl?.addEventListener('click', () => { if (openReelIndex >= 0) saveReelFrames([openReelIndex]); });
+filmstripSaveAllEl?.addEventListener('click', () => saveReelFrames(null));
 if (filmstripModalCloseEl) filmstripModalCloseEl.addEventListener('click', closeFilmstripModal);
 if (filmstripModalEl) {
   filmstripModalEl.addEventListener('click', (e) => { if (e.target === filmstripModalEl) closeFilmstripModal(); });
