@@ -1,5 +1,5 @@
 // Start npm run dev first. Representative Range frames with authored camera
-// cues; generated audio is a fixture, not a claim about automatic segmentation.
+// cues with scenic punch Off; generated audio is a fixture, not a claim about automatic segmentation.
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -68,9 +68,9 @@ try {
       report.frames.push({ timeMs, state, parity, identity: frame.identity, range: frame.range });
       console.log(`Effects ${timeMs}ms: FOV ${state.fov.toFixed(2)}, all three cast groups enabled, maximum held-frame delta ${parity.maxByteDelta}`);
     }
-    assert.equal(report.frames[0].state.effect.halfAngleScale, 1);
-    assert.ok(report.frames[1].state.effect.halfAngleScale < .95);
-    assert.equal(report.frames[2].state.effect.halfAngleScale, 1);
+    for (const frame of report.frames) {
+      assert.deepEqual(frame.state.effect, { halfAngleScale: 1, zoomPulse: 0, cueIndex: -1 }, 'Landscape scenic punch stays Off');
+    }
     assert.equal(report.frames[3].state.moonClouds, 1);
     assert.ok(report.frames[3].state.cloudCount > 0);
     report.errors = errors; assert.deepEqual(errors, []);
@@ -79,7 +79,7 @@ try {
 } finally {
   await browser.close();
   report.sourceHashes = {};
-  for (const file of ['src/render/CameraLens.js', 'src/world/alpine/CloudOcclusion.js', 'src/world/alpine/RangeFrame.js', 'src/world/alpine/RangeScene.js', 'src/world/alpine/RangePresentation.js', 'src/world/alpine/TerrainMaterial.js', 'src/world/alpine/ActorsGL.js', 'src/world/alpine/RangeSkyComposition.js', 'src/world/BiomeManager.js']) {
+  for (const file of ['src/render/CameraLens.js', 'src/sim/Simulation.js', 'src/world/alpine/LandscapeScore.js', 'src/world/alpine/CloudOcclusion.js', 'src/world/alpine/RangeFrame.js', 'src/world/alpine/RangeScene.js', 'src/world/alpine/RangePresentation.js', 'src/world/alpine/TerrainMaterial.js', 'src/world/alpine/ActorsGL.js', 'src/world/alpine/RangeSkyComposition.js', 'src/world/BiomeManager.js']) {
     report.sourceHashes[file] = createHash('sha256').update(await fs.readFile(path.join(root, file))).digest('hex');
   }
   await fs.writeFile(path.join(out, 'browser-smoke.json'), `${JSON.stringify(report, null, 2)}\n`);

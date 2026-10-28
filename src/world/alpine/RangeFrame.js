@@ -323,7 +323,7 @@ export function buildRangeFrame({
   const choice = (b) => forcedView || sceneAssignments?.get?.(b) || null;
   const timeMs = sim.heardTimeMs ?? (mgr.tSec || 0) * 1000;
   const narrative = sim.rangeNarrativeAt?.(timeMs) || null;
-  const performance = landscapeScoreFor(mgr).at(timeMs, { preview: !!mgr.terrainPreview });
+  const performance = { ...landscapeScoreFor(mgr).at(timeMs, { preview: !!mgr.terrainPreview }), lens: NEUTRAL_LENS };
   const progress01 = mgr.terrainPreview ? SCENE_PREVIEW_PROGRESS : sceneProgressAt({
     timeMs, curves: mgr.energyCurves, durationMs: mgr.durationMs, response: mgr.world?.response,
   });
@@ -343,8 +343,8 @@ export function buildRangeFrame({
   const light = mgr._scenicLight || computeLight({ canvasWidth: scenicViewport?.logicalWidth || 1280,
     canvasHeight: scenicViewport?.logicalHeight || 720, celestialState: state });
   const active = state[state.activeBody] || state.sun;
-  // The score's trusted lens cues, held across a re-analysis handoff.
-  const lens = performance.lens || NEUTRAL_LENS;
+  // Scenic punch is Off across every consumer of the Landscape snapshot.
+  const lens = performance.lens;
   const skyScale = mgr.rangePresentation?.tourMode || mgr.rangePresentation?.cameraTourActive ? 1 : lens.halfAngleScale;
   const celestial = skyScale === 1 ? active : { ...active, xFrac: .5 + ((active.xFrac ?? .5) - .5) / skyScale,
     yFrac: .5 + ((active.yFrac ?? .5) - .5) / skyScale };
