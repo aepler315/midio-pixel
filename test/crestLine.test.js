@@ -6,7 +6,7 @@ import {
   nearProtectedHue, linkShoreChains, SHORE_SHAPE, shoreShape, solidShoreEdges, smoothShoreChain, gaussianSmooth, shoreNoise,
   smoothHeldShore,
 } from '../src/render/CrestLine.js';
-import { RangeCrest, CREST_GRID_SCAN_LEVEL, CREST_PIXEL_SPLIT_LEVEL } from '../src/world/alpine/RangeCrest.js';
+import { RangeCrest, CREST_GRID_SCAN_LEVEL, CREST_PIXEL_SPLIT_LEVEL, CREST_VIEW_FADE_SEC } from '../src/world/alpine/RangeCrest.js';
 import { PROBE_BAND_ROWS, PROBE_ROWS, PROBE_WATER_ROW, PROBE_WATER_SLOTS, probeRow } from '../src/world/alpine/CrestProbe.js';
 import { compositePixelFrame } from '../src/render/PixelPresentation.js';
 import { createPresentingRenderer } from '../src/render/PresentingRenderer.js';
@@ -370,7 +370,7 @@ test('crest chunks meet at shared pixel columns with no gap or overlap at a bend
   for (let c = 1; c < chunks.length; c++) assert.ok(moves[c][1] < rects[c][1], `chunk ${c} path starts before its clip`);
 });
 
-test('seeking, a gap or a new view resets the temporal state; quality changes fade before switching', () => {
+test('seeking, a gap or a new view resets the temporal state; the heavy rungs keep the line with a light probe', () => {
   const crest = new RangeCrest();
   const run = (f, t, opts = {}) => crest.update({ probe: probe(64, bands(t)), frameId: f, timeMs: opts.timeMs ?? f * 1000 / 60, viewId: opts.view || 'v',
     transform: ID, stage: STAGE, grid: GRID, qualityLevel: opts.quality ?? 0 });
@@ -385,28 +385,66 @@ test('seeking, a gap or a new view resets the temporal state; quality changes fa
   run(34, 1, { timeMs: 99999 + 33 });
   assert.equal(crest.diagnostics.lastReset, 'gap');
   run(35, 1, { timeMs: 99999 + 50, view: 'w' });
-  assert.equal(crest.diagnostics.lastReset, 'view'); assert.ok(crest.snapshot.fade < 0.1, 'a new view fades in');
-  for (let f = 36; f < 80; f++) run(f, 1, { timeMs: 99999 + 50 + (f - 35) * 1000 / 60 });
-  assert.equal(crest.snapshot.fade, 1); assert.equal(crest.mode, 'refined');
-  let f = 80, fades = [];
-  while (crest.mode === 'refined' && f < 200) { run(f, 1, { timeMs: 99999 + 50 + (f - 35) * 1000 / 60, quality: CREST_GRID_SCAN_LEVEL }); fades.push(crest.fade); f++; }
-  assert.equal(crest.mode, 'grid');
-  assert.ok(fades.length >= 25 && fades.length <= 35, `fade out took ${fades.length} frames: ${fades}`);
-  for (let i = 1; i < fades.length; i++) assert.ok(fades[i] <= fades[i - 1]);
-  run(f, 1, { timeMs: 99999 + 50 + (f - 35) * 1000 / 60, quality: CREST_GRID_SCAN_LEVEL });
-  assert.equal(crest.probeMode, null, 'the grid-scan rungs render no probe');
-  assert.equal(crest.snapshot, null, 'without a palette frame to scan (Pixel look) there is no line');
+  assert.equal(crest.diagnostics.lastReset, 'view'); assert.ok(crest.snapshot.fade < 0.2, 'a new view fades in, live');
+  let f = 36;
+  for (; crest.snapshot.fade < 1 && f < 80; f++) run(f, 1, { timeMs: 99999 + 50 + (f - 35) * 1000 / 60 });
+  assert.ok(f - 36 <= CREST_VIEW_FADE_SEC * 60 + 1, `the view fade-in took ${f - 36} frames`);
+  for (; f < 80; f++) run(f, 1, { timeMs: 99999 + 50 + (f - 35) * 1000 / 60 });
+  assert.equal(crest.snapshot.fade, 1); assert.equal(crest.mode, 'refined'); assert.equal(crest.probeMode, 'refined');
+  // The heavy rungs: the probe goes light at once and the line holds at full
+  // strength, with no reset (no fade out, no blank frame, no restart).
+  const resets = crest.diagnostics.resets, line = crest._grid.far.line.slice();
+  run(f, 1, { timeMs: 99999 + 50 + (f - 35) * 1000 / 60, quality: CREST_GRID_SCAN_LEVEL }); f++;
+  assert.equal(crest.mode, 'grid'); assert.equal(crest.probeMode, 'grid', 'a light probe still runs');
+  assert.equal(crest.snapshot.fade, 1); assert.equal(crest.diagnostics.resets, resets);
+  assert.ok(crest._grid.far.line.every((v, i) => Object.is(v, line[i]) || Math.abs(v - line[i]) < 1e-6), 'the line holds through the switch');
+  const ops = recorder();
+  crest.drawCrest(ops, { x: 0, y: 0, width: 1280, height: 720, scale: 20 }, f - 1);
+  assert.ok(ops.ops.some(op => op[0] === 'stroke'), 'without a palette (Pixel, Cinematic) the line is still drawn');
+  run(f, 1, { timeMs: 99999 + 50 + (f - 35) * 1000 / 60, quality: 0 });
+  assert.equal(crest.mode, 'refined'); assert.equal(crest.snapshot.fade, 1); assert.equal(crest.diagnostics.resets, resets);
 });
 
-test('the grid-scan fallback takes the skyline from the palette frame, with no probe and no split cells', () => {
-  const crest = new RangeCrest({ makeCanvas: () => { throw new Error('no split canvas on the grid-scan rungs'); } });
+test('an isolated export frame draws the crest at full strength from the raw crest', () => {
+  const makeCanvas = (w, h) => ({ width: w, height: h, getContext: () => ({ createImageData: (a, b) => ({ width: a, height: b, data: new Uint8ClampedArray(a * b * 4) }), putImageData() {} }) });
+  const W = 64, H = 36, pr = probe(64, { far: j => 10 + Math.floor(j / 5) });
+  const pixels = grid(W, H, j => 10 + Math.floor(j / 5), () => [70, 80, 60], [0, 0, 0, 0]);
+  const ctx = () => { const px = pixels.slice(); return { getImageData: (x, y, w, h) => ({ data: px.slice(y * W * 4, (y + h) * W * 4) }), putImageData() {} }; };
+  for (const [name, frames] of [['a cold first frame', [[1, 0]]], ['an eval redraw after a seek', [[1, 0], [2, 40000]]],
+    ['a reel re-render with a few warm-up frames', [[1, 0], [2, 16.7], [3, 33.3], [4, 50], [5, 66.7], [6, 83.3], [7, 30000]]]]) {
+    const crest = new RangeCrest({ makeCanvas });
+    for (const [frameId, timeMs] of frames) crest.update({ probe: pr, instant: true, frameId, timeMs, viewId: 'v', transform: ID, stage: STAGE, grid: GRID });
+    assert.equal(crest.snapshot.fade, 1, `${name}: line at full strength`);
+    assert.equal(crest.snapshot.splitFade, 1, `${name}: split cells at full strength`);
+    assert.ok(crest.prepareGrid({ ctx: ctx() }));
+    assert.equal(crest.snapshot.splitAlpha, 1, `${name}: split halves drawn opaque`);
+    const raw = reconstructCrest(Float32Array.from({ length: 64 }, (_, j) => 10 + Math.floor(j / 5)));
+    assert.ok(crest._grid.far.line.every((v, i) => Math.abs(v - raw[i]) < 1e-6), `${name}: steadied state starts at the raw crest`);
+    const ops = recorder();
+    crest.drawCrest(ops, { x: 0, y: 0, width: 1280, height: 720, scale: 20 }, frames.at(-1)[0]);
+    const alphas = ops.ops.filter(op => op[0] === 'set' && op[1] === 'globalAlpha').map(op => op[2]);
+    assert.ok(alphas.length && alphas.every(a => a >= 0.85), `${name}: stroke opacity ${alphas}`);
+  }
+  // Live, the same cold frame fades in; a continuous export frame keeps the
+  // live fades too (export still matches playback).
+  const live = new RangeCrest({ makeCanvas });
+  live.update({ probe: pr, frameId: 1, timeMs: 0, viewId: 'v', transform: ID, stage: STAGE, grid: GRID });
+  assert.ok(live.snapshot.fade < 0.2);
+  const exported = new RangeCrest({ makeCanvas });
+  exported.update({ probe: pr, instant: true, frameId: 1, timeMs: 0, viewId: 'v', transform: ID, stage: STAGE, grid: GRID });
+  exported.update({ probe: pr, instant: true, frameId: 2, timeMs: 1000 / 60, viewId: 'v', transform: ID, stage: STAGE, grid: GRID });
+  assert.equal(exported.snapshot.fade, 1);
+  exported.update({ probe: pr, instant: true, frameId: 3, timeMs: 2000 / 60, viewId: 'v', transform: ID, stage: STAGE, grid: GRID, qualityLevel: CREST_PIXEL_SPLIT_LEVEL });
+  assert.ok(exported.snapshot.splitFade > 0.9 && exported.snapshot.splitFade < 1, 'a continuous export frame sheds split cells with the live fade');
+});
+
+test('the grid-scan fallback takes the skyline from the palette frame when no probe arrives, with no split cells', () => {
+  const crest = new RangeCrest({ makeCanvas: () => { throw new Error('no split canvas without a probe'); } });
   const compiled = compilePalette(['#000000', '#ffffff', '#806040', '#5a6e8c']);
-  // Already in grid mode (the switch itself is covered above).
-  crest.mode = 'grid';
   const W = 64, H = 36, pixels = grid(W, H, j => 12 + Math.floor(j / 8), () => [128, 96, 64], [0, 0, 0, 0]);
   let drawn = 0;
   for (let f = 1; f <= 40; f++) {
-    const snap = crest.update({ probe: probe(64, bands()), scan: true, frameId: f, timeMs: f * 1000 / 60, viewId: 'v', qualityLevel: CREST_GRID_SCAN_LEVEL,
+    const snap = crest.update({ probe: null, scan: true, frameId: f, timeMs: f * 1000 / 60, viewId: 'v', qualityLevel: CREST_GRID_SCAN_LEVEL,
       grid: GRID, palette: compiled });
     assert.equal(snap.split, false); assert.deepEqual(snap.shores, []);
     assert.equal(crest.prepareGrid({ frame: { width: W, height: H, data: pixels } }), true);
@@ -417,10 +455,12 @@ test('the grid-scan fallback takes the skyline from the palette frame, with no p
   assert.ok(drawn > 0, 'a skyline is drawn');
   assert.equal(crest.diagnostics.readback, 'palette-frame');
   assert.ok(Math.abs(crest._grid.far.line[20] - 14) < 1e-6, String(crest._grid.far.line[20]));
-  assert.ok(Number.isNaN(crest._grid.mid.line[20]), 'the probe was ignored');
+  assert.ok(Number.isNaN(crest._grid.mid.line[20]));
+  const cut = recorder();
+  assert.equal(crest.drawTerrain(cut, { x: 0, y: 0, width: 1280, height: 720, scale: 20 }, 40, () => cut.ops.push(['terrain'])), true, 'the scanned skyline is cut too');
 });
 
-test('split cells fade with the line across a quality switch instead of popping', () => {
+test('split cells fade out and back in across the Pixel split rung instead of popping; a palette keeps them on every rung', () => {
   const makeCanvas = (w, h) => ({ width: w, height: h, getContext: () => ({ createImageData: (a, b) => ({ width: a, height: b, data: new Uint8ClampedArray(a * b * 4) }), putImageData() {} }) });
   const crest = new RangeCrest({ makeCanvas });
   const W = 64, H = 36, pr = probe(64, { far: j => 10 + Math.floor(j / 5) });
@@ -440,29 +480,30 @@ test('split cells fade with the line across a quality switch instead of popping'
   const full = edit(f++, 0);
   assert.ok(full.diff > 0 && full.alpha === 1);
   const out = [];
-  while (crest.mode === 'refined' && f < 200) out.push(edit(f++, CREST_GRID_SCAN_LEVEL));
-  assert.ok(out.length > 20, 'the switch took the fade');
+  for (let n = 0; n < 40; n++) out.push(edit(f++, CREST_PIXEL_SPLIT_LEVEL));
+  const steps = out.findIndex(o => o.diff === 0);
+  assert.ok(steps >= 25 && steps <= 35, `the shed took the fade (${steps} frames)`);
   for (let i = 1; i < out.length; i++) {
     assert.ok(out[i].diff <= out[i - 1].diff + 1e-9, `the grid edit shrinks with the fade (${out[i - 1].diff} -> ${out[i].diff})`);
-    assert.ok(out[i].alpha <= out[i].fade + 1e-9, 'split halves never outlast the line');
+    assert.equal(out[i].fade, 1, 'the line stays');
   }
-  const mid = out[Math.floor(out.length / 2)];
+  const mid = out[Math.floor(steps / 2)];
   assert.ok(mid.diff > 0.2 * full.diff && mid.diff < 0.8 * full.diff, `half way through the fade the edit is partial (${mid.diff} of ${full.diff})`);
-  assert.ok(out.at(-1).diff < 0.1 * full.diff, 'nearly nothing left to pop when the mode switches');
-  assert.equal(crest._split, null, 'the grid-scan rungs give the split canvas back');
-  // Back to the refined rung: the edit grows again from nothing.
-  crest.update({ probe: null, frameId: f, timeMs: f * 1000 / 60, viewId: 'v', qualityLevel: 0 }); f++;
+  assert.equal(crest.diagnostics.readRows, 0);
+  assert.equal(crest._split, null, 'shed split cells give the canvas (and its residency hold) back');
   const back = [];
   for (let n = 0; n < 40; n++) back.push(edit(f++, 0));
   assert.ok(back[0].diff < 0.2 * full.diff, `split cells came back at ${back[0].diff} of ${full.diff}`);
   assert.ok(back.at(-1).diff >= full.diff - 1e-9);
-  // The Pixel look sheds split cells (and their row readback) from
-  // CREST_PIXEL_SPLIT_LEVEL with the same fade, keeping the line.
-  const shed = [];
-  for (let n = 0; n < 40; n++) shed.push(edit(f++, CREST_PIXEL_SPLIT_LEVEL));
-  assert.ok(shed[0].diff > 0 && shed.at(-1).diff === 0 && crest.snapshot.fade === 1);
-  assert.equal(crest.diagnostics.readRows, 0);
-  assert.equal(crest._split, null, 'shed split cells give the canvas (and its residency hold) back');
+  // A palette look reads its whole frame anyway: split cells on every rung.
+  const compiled = compilePalette(['#000000', '#ffffff', '#46503c', '#5a6e8c']);
+  const pal = new RangeCrest({ makeCanvas });
+  for (let g = 1; g <= 40; g++) {
+    pal.update({ probe: pr, frameId: g, timeMs: g * 1000 / 60, viewId: 'v', transform: ID, stage: STAGE, grid: GRID, qualityLevel: 6, palette: compiled });
+    assert.ok(pal.prepareGrid({ frame: { width: W, height: H, data: base.slice() } }));
+  }
+  assert.equal(pal.mode, 'grid'); assert.equal(pal.snapshot.split, true); assert.equal(pal.snapshot.splitFade, 1);
+  assert.ok(pal.diagnostics.splitCells > 0); assert.equal(pal.diagnostics.readback, 'probe+palette-frame');
 });
 
 test('a frame without a probe draws nothing and breaks the filter chain', () => {
@@ -846,4 +887,235 @@ test('a clean near cove is drawn on its edge, ends included', () => {
     const j = p[2 * i] - 0.5;
     assert.ok(Math.abs(p[2 * i + 1] - (truth(j) + 0.5)) <= 1.1, `column ${j}: ${p[2 * i + 1]} vs edge ${truth(j) + 0.5}`);
   }
+});
+
+// --- Terrain cut at output resolution ----------------------------------------
+
+/** A 2D context that keeps paths, clips and fills as polygons, so a frame
+ *  composited by compositePixelFrame/RangeCrest can be sampled point by
+ *  point: what shows at (x, y) after the smooth sky ('sky'), the grid
+ *  (`terrain`: the native frame, or the Cinematic stand-in), split canvases
+ *  and pocket fills. */
+function rasterCtx(gridData, W, scale) {
+  const state = { clips: [], alpha: 1, fill: null };
+  const stack = [], layers = [];
+  let path = [], sub = null;
+  const ctx = {
+    canvas: { width: W * scale, height: 0 },
+    save() { stack.push({ ...state, clips: state.clips.slice() }); },
+    restore() { Object.assign(state, stack.pop()); },
+    setTransform() {}, fillRect() {}, stroke() {},
+    beginPath() { path = []; sub = null; },
+    moveTo(x, y) { sub = [[x, y]]; path.push(sub); },
+    lineTo(x, y) { if (!sub) { sub = [[x, y]]; path.push(sub); } else sub.push([x, y]); },
+    closePath() { if (sub) sub = [sub[0].slice()]; path.push(sub); },
+    rect(x, y, w, h) { path.push([[x, y], [x + w, y], [x + w, y + h], [x, y + h]]); sub = null; },
+    clip(rule = 'nonzero') { state.clips = [...state.clips, { path: path.map(p => p.slice()), rule }]; },
+    fill(rule = 'nonzero') { layers.push({ kind: 'fill', path: path.map(p => p.slice()), rule, clips: state.clips, alpha: state.alpha }); },
+    drawImage(image) { layers.push({ kind: 'image', data: image.data || null, clips: state.clips, alpha: state.alpha }); },
+    terrain() { layers.push({ kind: 'terrain', clips: state.clips, alpha: state.alpha }); return true; },
+    get globalAlpha() { return state.alpha; }, set globalAlpha(v) { state.alpha = v; },
+    get fillStyle() { return state.fill; }, set fillStyle(v) { state.fill = v; },
+  };
+  const inside = ({ path: p, rule }, x, y) => {
+    let wind = 0, cross = 0;
+    for (const poly of p) for (let k = 0; k < poly.length; k++) {
+      const [x0, y0] = poly[k], [x1, y1] = poly[(k + 1) % poly.length];
+      if ((y0 <= y) !== (y1 <= y)) {
+        const xi = x0 + (y - y0) / (y1 - y0) * (x1 - x0);
+        if (xi > x) { cross++; wind += y1 > y0 ? 1 : -1; }
+      }
+    }
+    return rule === 'evenodd' ? cross % 2 === 1 : wind !== 0;
+  };
+  const at = (x, y) => {
+    let shown = 'sky';
+    const cell = (Math.floor(y / scale) * W + Math.floor(x / scale)) * 4;
+    for (const layer of layers) {
+      if (layer.alpha < 0.5 || !layer.clips.every(c => inside(c, x, y))) continue;
+      if (layer.kind === 'fill') { if (inside(layer, x, y)) shown = 'land'; }
+      else if (layer.kind === 'terrain') { if (gridData[cell + 3] >= 128) shown = 'land'; }
+      else if (layer.data && layer.data[cell + 3] >= 128) shown = 'land';
+    }
+    return shown;
+  };
+  return { ctx, layers, at };
+}
+
+/** Sample every cell n×n against the drawn line: land above it, sky below
+ *  it inside the band's land or in the cells split cells would fill. */
+function sampleAgainstLine(at, line, raw, W, H, scale, n = 6) {
+  const lineAt = (x) => {
+    if (x < 0.5) return line[0];
+    if (x > W - 0.5) return line[W - 1];
+    const c = Math.floor(x - 0.5), d = Math.min(W - 1, c + 1);
+    return line[c] + (line[d] - line[c]) * (x - 0.5 - c);
+  };
+  const above = [], holes = [];
+  for (let i = 1; i < W - 1; i++) for (let r = 0; r < H; r++) for (let a = 0; a < n; a++) for (let b = 0; b < n; b++) {
+    const x = i + (a + 0.5) / n, y = r + (b + 0.5) / n, L = lineAt(x);
+    if (!Number.isFinite(L)) continue;
+    const shown = at(x * scale, y * scale);
+    if (y < L - 0.02) { if (shown === 'land') above.push([i, r]); continue; }
+    const [, bottom] = crestSpan(line, i);
+    if (y > L + 0.02 && (r >= raw[i] || r <= Math.floor(bottom) + 1) && shown === 'sky') holes.push([i, r]);
+  }
+  return { above, holes };
+}
+
+// A stair-stepped skyline with a one-cell spire and a sharp notch.
+const STAIR = j => (j === 30 ? 6 : j === 45 ? 22 : 10 + Math.floor(j / 6));
+
+function shedFrame({ quality, palette = null, lagRows = 0, frames = 40 }) {
+  const W = 64, H = 36, scale = 20;
+  const made = [];
+  const makeCanvas = (w, h) => {
+    const canvas = { width: w, height: h, data: null };
+    canvas.getContext = () => ({ createImageData: (a, b) => ({ width: a, height: b, data: new Uint8ClampedArray(a * b * 4) }),
+      putImageData: (image) => { canvas.data = image.data; } });
+    made.push(canvas); return canvas;
+  };
+  const crest = new RangeCrest({ makeCanvas });
+  const pr = probe(W, { far: STAIR });
+  let pixels;
+  for (let f = 1; f <= frames; f++) {
+    crest.update({ probe: { ...pr, lag: lagRows ? 1 : 0, mode: lagRows ? 'async' : 'sync' }, frameId: f, timeMs: f * 1000 / 60, viewId: 'v',
+      transform: ID, stage: STAGE, grid: GRID, qualityLevel: quality, palette });
+    // The grid shows this frame's terrain: `lagRows` above the probe's frame.
+    pixels = grid(W, H, j => STAIR(j) - lagRows, () => [110, 92, 70], [0, 0, 0, 0]);
+    const ctx = { getImageData: (x, y, w, h) => ({ data: pixels.slice(y * W * 4, (y + h) * W * 4) }),
+      putImageData: (image, x, y) => pixels.set(image.data, y * W * 4) };
+    if (palette) crest.prepareGrid({ frame: { width: W, height: H, data: pixels } });
+    else crest.prepareGrid({ ctx });
+  }
+  return { crest, pixels, W, H, scale, made };
+}
+
+function composite({ crest, pixels, W, scale }, frameId, cinematic = false) {
+  const { ctx, layers, at } = rasterCtx(pixels, W, scale);
+  const terrain = (c, fit, draw) => crest.drawTerrain(c, fit, frameId, draw);
+  const r = compositePixelFrame(ctx, { width: W, height: 36 }, W * scale, 36 * scale, 'fit', () => true, null,
+    cinematic ? (c) => c.terrain() : null, null, null, null, (c, fit, options) => crest.drawCrest(c, fit, frameId, options), null, terrain);
+  if (!cinematic) for (const layer of layers) if (layer.kind === 'image' && !layer.data) layer.kind = 'terrain';
+  return { r, at, layers };
+}
+
+test('at the shed rungs no stepped block shows above the line: the terrain is cut at output resolution (Pixel, Cinematic)', () => {
+  for (const quality of [CREST_PIXEL_SPLIT_LEVEL, 3, CREST_GRID_SCAN_LEVEL, 6]) for (const cinematic of [false, true]) {
+    const frame = shedFrame({ quality });
+    const { crest, W, H, scale } = frame;
+    assert.equal(crest.snapshot.split, false, 'no split cells (no grid row write-back) on this rung');
+    assert.equal(crest.snapshot.fade, 1, 'the line is drawn');
+    const { r, at, layers } = composite(frame, 40, cinematic);
+    assert.equal(r.cut, true, 'the terrain went through the cut');
+    assert.ok(layers.some(l => l.kind === 'terrain'));
+    const g = crest._grid.far;
+    const { above, holes } = sampleAgainstLine(at, g.line, Float32Array.from({ length: W }, (_, j) => STAIR(j)), W, H, scale);
+    const name = `${cinematic ? 'Cinematic' : 'Pixel'} level ${quality}`;
+    assert.equal(above.length, 0, `${name}: land above the line at ${JSON.stringify(above.slice(0, 6))}`);
+    assert.equal(holes.length, 0, `${name}: sky below the line at ${JSON.stringify(holes.slice(0, 6))}`);
+    assert.ok(crest.diagnostics.cutColumns > 50);
+  }
+  // Without the cut (no smooth sky under it) the stepped blocks show: the
+  // check above is not vacuous.
+  const frame = shedFrame({ quality: CREST_PIXEL_SPLIT_LEVEL });
+  const { ctx, at } = rasterCtx(frame.pixels, frame.W, frame.scale);
+  ctx.terrain();
+  const { above } = sampleAgainstLine(at, frame.crest._grid.far.line, Float32Array.from({ length: 64 }, (_, j) => STAIR(j)), 64, 36, 20);
+  assert.ok(above.length > 100, `${above.length} land samples above the line uncut`);
+});
+
+test('a palette look on the heavy rungs keeps split cells: no land above the line', () => {
+  const compiled = compilePalette(['#000000', '#ffffff', '#6e5c46', '#5a6e8c']);
+  const frame = shedFrame({ quality: 6, palette: compiled });
+  const { crest, W, H, scale } = frame;
+  crest.finishGrid({ quantize: rgb => rgb });
+  assert.equal(crest.snapshot.split, true); assert.equal(crest.snapshot.splitReady, true);
+  const { at } = composite(frame, 40);
+  const { above, holes } = sampleAgainstLine(at, crest._grid.far.line, Float32Array.from({ length: W }, (_, j) => STAIR(j)), W, H, scale);
+  assert.equal(above.length, 0, `land above the line at ${JSON.stringify(above.slice(0, 6))}`);
+  assert.equal(holes.length, 0, `sky below the line at ${JSON.stringify(holes.slice(0, 6))}`);
+});
+
+test('a probe a frame behind the grid is aligned to the grid: split cells cut the terrain the grid shows', () => {
+  for (const lagRows of [1, -1, 2]) {
+    const frame = shedFrame({ quality: 0, lagRows });
+    const { crest, pixels, W, H } = frame;
+    assert.equal(crest.diagnostics.lagShift, -lagRows, `lag ${lagRows}: the common shift was found`);
+    assert.ok(crest.diagnostics.aligned > 40);
+    const g = crest._grid.far;
+    const split = crest._split.image.data;
+    const raw = Float32Array.from({ length: W }, (_, j) => STAIR(j) - lagRows);
+    // Grid and split halves alone (no output-resolution cut): split cells by themselves follow the moved terrain.
+    const { above, holes } = compositeAgainstLine({ data: pixels, split, line: g.line, raw, crossed: g.crossed, crossedEnd: g.crossedEnd, W, H });
+    assert.equal(above.length, 0, `lag ${lagRows}: land above the line at ${JSON.stringify(above.slice(0, 4))}`);
+    assert.equal(holes.length, 0, `lag ${lagRows}: sky below the line at ${JSON.stringify(holes.slice(0, 4))}`);
+    const lineNow = reconstructCrest(raw);
+    assert.ok(g.line.every((v, i) => !Number.isFinite(v) || i === 30 || i === 45 || Math.abs(v - lineNow[i]) < 0.51), `lag ${lagRows}: the line sits on this frame's terrain`);
+  }
+  // A synchronous probe (export) is never shifted.
+  const sync = shedFrame({ quality: 0 });
+  assert.equal(sync.crest.diagnostics.lagShift, 0); assert.equal(sync.crest.diagnostics.aligned, 0);
+});
+
+test('the terrain cut fades in with the line and is redrawn identically for a recording', () => {
+  const frame = shedFrame({ quality: CREST_PIXEL_SPLIT_LEVEL, frames: 1 });
+  const { crest } = frame;
+  assert.ok(crest.snapshot.fade < 1);
+  const { layers } = composite(frame, 1);
+  const terrain = layers.filter(l => l.kind === 'terrain');
+  assert.equal(terrain.length, 2, 'cut terrain plus the cut rows at 1 - fade');
+  assert.ok(Math.abs(terrain[1].alpha - (1 - crest.snapshot.fade)) < 1e-9);
+  const live = recorder(), capture = recorder();
+  crest.drawTerrain(live, { x: 0, y: 0, width: 1280, height: 720, scale: 20 }, 1, () => {});
+  crest.drawTerrain(capture, { x: 0, y: 0, width: 1280, height: 720, scale: 20 }, 1, () => {});
+  assert.deepEqual(capture.ops, live.ops);
+  assert.equal(crest.drawTerrain(recorder(), { x: 0, y: 0, width: 1280, height: 720, scale: 20 }, 2, () => {}), false, 'another frame draws plainly');
+});
+
+test('compositePixelFrame cuts the terrain only over a smooth sky and tells the crest', () => {
+  const calls = [];
+  const ctx = { setTransform() {}, fillRect() {}, drawImage() { calls.push('native'); }, save() {}, restore() {} };
+  const terrain = (c, fit, draw) => { calls.push('cut'); draw(); return true; };
+  const crest = (c, fit, options) => { calls.push(`crest:${options.cut}`); return true; };
+  let r = compositePixelFrame(ctx, { width: 320, height: 180 }, 1280, 720, 'fit', () => true, null, null, null, null, null, crest, null, terrain);
+  assert.deepEqual(calls, ['cut', 'native', 'crest:true']); assert.equal(r.cut, true);
+  calls.length = 0;
+  r = compositePixelFrame(ctx, { width: 320, height: 180 }, 1280, 720, 'fit', null, null, null, null, null, null, crest, null, terrain);
+  assert.deepEqual(calls, ['native', 'crest:false'], 'no smooth sky under it: drawn plainly'); assert.equal(r.cut, false);
+  calls.length = 0;
+  r = compositePixelFrame(ctx, { width: 320, height: 180 }, 1280, 720, 'fit', () => true, null, () => { calls.push('cinematic'); return true; }, null, null, null, crest, null, terrain);
+  assert.deepEqual(calls, ['cut', 'cinematic', 'crest:true'], 'the Cinematic reconstruction is drawn through the cut'); assert.equal(r.cut, true);
+});
+
+test('a small roll keeps split cells; a large one sheds them', () => {
+  const crest = new RangeCrest({ makeCanvas: (w, h) => ({ width: w, height: h, getContext: () => ({ createImageData: (a, b) => ({ width: a, height: b, data: new Uint8ClampedArray(a * b * 4) }), putImageData() {} }) }) });
+  const roll = (theta) => [Math.cos(theta), Math.sin(theta), -Math.sin(theta), Math.cos(theta), 0, 0];
+  for (let f = 1; f <= 20; f++) crest.update({ probe: probe(64, bands()), frameId: f, timeMs: f * 1000 / 60, viewId: 'v', transform: roll(0.002), stage: STAGE, grid: GRID });
+  assert.equal(crest.snapshot.split, true, 'a landing ring-down roll (0.002 rad) keeps split cells');
+  crest.update({ probe: probe(64, bands()), frameId: 21, timeMs: 21 * 1000 / 60, viewId: 'v', transform: roll(0.05), stage: STAGE, grid: GRID });
+  assert.equal(crest.snapshot.split, false);
+});
+
+test('export draws pass instant to the crest; live draws do not', async () => {
+  const { RangePresentation } = await import('../src/world/alpine/RangePresentation.js');
+  for (const exportMode of [true, false]) {
+    let seen = null, readSync = null;
+    const self = { frame: { frameId: 7, timeMs: 1000, qualityLevel: 0 }, arrival: 1, exportMode, viewId: 'v', _crestTimeline: 1, crestPalette: null,
+      scene: { crestProbeMode: 'refined', readCrestProbe: (id, { sync }) => { readSync = sync; return probe(64, bands()); } },
+      crest: { update: (args) => { seen = args; } } };
+    RangePresentation.prototype._finishCrest.call(self, { getTransform: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }), canvas: GRID }, STAGE);
+    assert.equal(readSync, exportMode); assert.equal(seen.instant, exportMode);
+  }
+});
+
+test('where split cells already cut the edge (levels 0-1, palettes) the terrain is not clipped again', () => {
+  const fit = { x: 0, y: 0, width: 1280, height: 720, scale: 20 };
+  for (const lagRows of [0, 1]) {
+    const { crest } = shedFrame({ quality: 0, lagRows });
+    assert.equal(crest.snapshot.splitAlpha, 1);
+    assert.equal(crest.drawTerrain(recorder(), fit, 40, () => {}), false, `lag ${lagRows}: no clip`);
+  }
+  const shed = shedFrame({ quality: CREST_PIXEL_SPLIT_LEVEL });
+  assert.equal(shed.crest.drawTerrain(recorder(), fit, 40, () => {}), true, 'split cells shed: clipped');
 });
