@@ -426,3 +426,16 @@ test('the reel is complete once every frame is taken', () => {
   for (const event of events) { assert.equal(reel.complete, false); reel.notify(events, source, event.eventAtMs); }
   assert.equal(reel.complete, true);
 });
+
+test('captured camera snapshot is detached and frozen through future pace changes', () => {
+  const reel = new HighlightReel();
+  const schedule = { id: 'old', occurrences: [{ fit: { gain: 3 } }] };
+  reel.describeMoment = () => ({ songSeed: 42, cameraSchedule: schedule });
+  assert.equal(reel.capture(source, 0, 'Sunset'), true);
+  schedule.occurrences[0].fit.gain = 4;
+  schedule.id = 'new';
+  assert.equal(reel.frames[0].moment.cameraSchedule.id, 'old');
+  assert.equal(reel.frames[0].moment.cameraSchedule.occurrences[0].fit.gain, 3);
+  assert.ok(Object.isFrozen(reel.frames[0].moment.cameraSchedule.occurrences[0].fit));
+  assert.deepEqual(JSON.parse(JSON.stringify(reel.frames[0].moment)).cameraSchedule, { id: 'old', occurrences: [{ fit: { gain: 3 } }] });
+});

@@ -5,6 +5,7 @@
 // lives in main.js. This module is the pure part, kept free of the DOM so it
 // can be tested on its own: which moments to draw and in what order, the
 // size ladder, the stepping chunks and the file names.
+import { sceneRailPlanFromSnapshot } from '../world/terrain/SceneRailPlan.js';
 import { BULK_RESOLUTIONS } from '../render/BulkExport.js';
 
 /** Output sizes, largest first: 3840x2160, then 2560x1440, then 1920x1080. */
@@ -83,8 +84,15 @@ export function reelMoment(frame) {
   if (!Number.isFinite(atMs) || atMs < 0) return null;
   if (!isSeed(m.songSeed) || typeof m.worldId !== 'string' || !m.worldId) return null;
   if (!m.displayPrefs || typeof m.displayPrefs !== 'object') return null;
+  let cameraSchedule = null;
+  if (m.cameraSchedule) {
+    try { cameraSchedule = sceneRailPlanFromSnapshot(m.cameraSchedule).snapshot; }
+    catch { /* An old or damaged camera record is approximate, still redrawable. */ }
+  }
   return {
     atMs,
+    ...(cameraSchedule ? { cameraSchedule } : {}),
+    ...(['off', 'shots', 'tetons'].includes(m.cameraTourMode) ? { cameraTourMode: m.cameraTourMode } : {}),
     songSeed: m.songSeed,
     worldId: m.worldId,
     displayPrefs: { ...m.displayPrefs },
@@ -114,6 +122,7 @@ export function reelMoment(frame) {
 export function approximationReasons(moment, { analysis = null } = {}) {
   const reasons = [];
   if (!moment) return reasons;
+  if (!moment.cameraSchedule) reasons.push('camera');
   if (moment.sceneStartMs > 0 || moment.continued) reasons.push('scene');
   if (!moment.analysis || !analysis || moment.analysis !== analysis) reasons.push('analysis');
   return reasons;
@@ -125,7 +134,7 @@ const stable = (value) => (value && typeof value === 'object' && !Array.isArray(
 
 /** Frames drawn in one rebuild share a run (seed, world) and a look. */
 export function momentKey(moment) {
-  return stable({ songSeed: moment.songSeed, worldId: moment.worldId, displayPrefs: moment.displayPrefs, qualityLevel: moment.qualityLevel });
+  return stable({ songSeed: moment.songSeed, worldId: moment.worldId, displayPrefs: moment.displayPrefs, qualityLevel: moment.qualityLevel, cameraScheduleId: moment.cameraSchedule?.id ?? null, cameraTourMode: moment.cameraTourMode ?? null });
 }
 
 /**
@@ -151,7 +160,7 @@ export function planReelRenders(frames, { indices = null, analysis = 'full' } = 
     const key = momentKey(moment);
     if (!groups.has(key)) {
       groups.set(key, { songSeed: moment.songSeed, worldId: moment.worldId, displayPrefs: moment.displayPrefs,
-        qualityLevel: moment.qualityLevel, items: [] });
+        qualityLevel: moment.qualityLevel, cameraSchedule: moment.cameraSchedule || null, cameraTourMode: moment.cameraTourMode, items: [] });
     }
     groups.get(key).items.push({ index, atMs: moment.atMs, frame: list[index],
       approximate: approximationReasons(moment, { analysis }) });
@@ -205,6 +214,8 @@ export function describeReelSave({ target = REEL_TARGET_SIZE, saved = [], failur
     const sizes = [...new Set(small.map((s) => `${s.width}×${s.height}`))].join(', ');
     parts.push(`${frames(small.length, 'One frame was', '# frames were')} drawn at ${sizes}, because ${sizeLabel(target)} did not work here${reason ? ` (${reason})` : ''}.`);
   }
+  const camera = saved.filter((s) => s.approximate?.includes('camera')).length;
+  if (camera) parts.push(`${frames(camera, 'One frame has', '# frames have')} no saved camera schedule; camera motion is approximate.`);
   const scene = saved.filter((s) => s.approximate?.includes('scene')).length;
   if (scene) {
     parts.push(`${frames(scene, 'One frame was', '# frames were')} captured in a scene rebuilt part-way through the song (a seek, a world switch or the whole analysis arriving); the redraw plays the song from the start, so the camera and landscape may differ from the thumbnail.`);
