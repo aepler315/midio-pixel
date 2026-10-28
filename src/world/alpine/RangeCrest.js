@@ -79,6 +79,7 @@ export class RangeCrest {
     this._shore = null;
     this._last = null; // { frameId, timeMs, viewId }
     this._split = null; // { canvas, image, dirty: [y0, y1] }
+    this._splitHold = null; // residency retain() release for the split canvas
     this._splitUpload = null;
     this._orig = null;
     this._sky = null;
@@ -409,10 +410,17 @@ export class RangeCrest {
     const image = ctx.createImageData ? ctx.createImageData(width, height) : { width, height, data: new Uint8ClampedArray(width * height * 4) };
     if (res && !this.residency.commit(res, canvas, x => { x.width = x.height = 0; if (this._split?.canvas === x) this._split = null; })) return null;
     this._split = { canvas, image, dirty: null };
+    // Held against pressure eviction while it exists: prepareGrid edits the
+    // grid cells it crosses, and only this canvas restores their lower
+    // halves for display and capture. An eviction between those two steps
+    // (e.g. a Cinematic reservation) would leave the grid edited with no
+    // lower halves. Pixel sheds split cells from its own rung instead.
+    this._splitHold = this.residency?.retain(CREST_SPLIT_KEY) ?? null;
     return this._split;
   }
 
   _releaseSplit() {
+    this._splitHold?.(); this._splitHold = null;
     if (!this._split) return;
     if (this.residency) this.residency.release(CREST_SPLIT_KEY);
     else this._split.canvas.width = this._split.canvas.height = 0;

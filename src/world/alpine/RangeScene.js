@@ -529,6 +529,9 @@ export class RangeScene {
     const dtSec = (frame.timeMs - (p.mirrorEaseAtMs ?? -Infinity)) / 1000;
     p.mirrorFade = easeRungAmount(p.mirrorFade, m ? 1 : 0, dtSec, { down: 'snap' });
     p.mirrorEaseAtMs = frame.timeMs;
+    // The water's surface shiver reads this with or without a planar mirror
+    // (rivers, q4 and denied mirrors still reflect the sky backdrop).
+    u.uMirrorRipple.value = ripple(frame.music);
     if (!m) {
       u.uMirrorAmount.value = 0; u.uMirror.value = null;
       this._bindBackdrop(u, frame);
@@ -585,7 +588,6 @@ export class RangeScene {
     this._bindBackdrop(u, frame);
     u.uViewProj.value.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
     u.uMirrorLevel.value = level;
-    u.uMirrorRipple.value = ripple(frame.music);
     u.uMirrorAmount.value = p.mirrorFade;
   }
 

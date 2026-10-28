@@ -11,6 +11,7 @@ import { compositePixelFrame } from '../src/render/PixelPresentation.js';
 import { createPresentingRenderer } from '../src/render/PresentingRenderer.js';
 import { compilePalette, quantizePalette, quantizeImageData, quantizeTexel } from '../src/render/PaletteQuantize.js';
 import { rgbToHsl } from '../src/utils/color.js';
+import { GraphicsResidency } from '../src/render/GraphicsResidency.js';
 
 const DT = 1 / 60;
 
@@ -622,4 +623,21 @@ test('shorelines hold still under 1-2 px music waves but move with the camera', 
   const y0 = point();
   run(f++, heave, shoreAt(() => 22));
   assert.ok(Math.abs(point() - y0 - 2) < 0.3, `shore moved ${point() - y0} with a 2-row heave`);
+});
+
+test('pressure eviction cannot take the split canvas from under an edited grid', () => {
+  const W = 64, H = 36, bytes = W * H * 8;
+  const residency = new GraphicsResidency({ budgetBytes: bytes + 1000, name: 'test' });
+  const makeCanvas = (w, h) => ({ width: w, height: h, getContext: () => ({ createImageData: (a, b) => ({ width: a, height: b, data: new Uint8ClampedArray(a * b * 4) }), putImageData() {} }) });
+  const crest = new RangeCrest({ makeCanvas, residency });
+  const split = crest._ensureSplit(W, H);
+  assert.ok(split, 'the split canvas is committed');
+  // A later reservation (e.g. the Cinematic cell buffer) that would need the
+  // split's bytes is denied instead of evicting it mid-frame.
+  assert.equal(residency.reserve({ key: 'cinematic:cells', bytes: 4000, owner: 'cinematic' }), null);
+  assert.equal(crest._split, split);
+  assert.equal(crest._ensureSplit(W, H), split, 'still live and reused');
+  // Releasing the crest gives the bytes back.
+  crest.release();
+  assert.ok(residency.reserve({ key: 'cinematic:cells', bytes: 4000, owner: 'cinematic' }));
 });

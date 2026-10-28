@@ -141,6 +141,21 @@ test('water binds the current sky backdrop at q4 with no mirror', async () => {
   assert.equal(uniforms.uBackdrop.value, null);
 });
 
+test('the backdrop reflection keeps its musical shiver without a planar mirror', async () => {
+  const { RangeScene } = await import('../src/world/alpine/RangeScene.js');
+  const uniforms = sceneUniforms(THREE, {});
+  const scene = Object.assign(Object.create(RangeScene.prototype), { THREE, size: { width: 640, height: 360 }, mirrors: {},
+    backdrop: { frame: 7, texture: new THREE.Texture() } });
+  const music = { groove: 1, kick01: 1 };
+  // A river-only view: no water level, so no mirror is ever drawn.
+  scene._prepareMirror({ uniforms, mirrorLevelM: NaN }, { qualityLevel: 0, frameId: 7, timeMs: 1000, music }, 'A', 'river');
+  assert.equal(uniforms.uBackdropAmount.value, 1);
+  assert.ok(Math.abs(uniforms.uMirrorRipple.value - (0.0012 + 0.0025 + 0.004)) < 1e-12, 'groove and kick shiver the river');
+  // A lake at q4 follows the current music, not its last mirrored frame.
+  scene._prepareMirror({ uniforms, mirrorLevelM: 1900 }, { qualityLevel: 4, frameId: 7, timeMs: 1016, music: {} }, 'A', 'lake');
+  assert.ok(Math.abs(uniforms.uMirrorRipple.value - 0.0012) < 1e-12);
+});
+
 test('lightning lifts the reflected sky in place, but never flashes a narrative frame that shows no land', async () => {
   const { RangeScene } = await import('../src/world/alpine/RangeScene.js');
   const { rangeMusicState } = await import('../src/world/alpine/RangeFrame.js');
