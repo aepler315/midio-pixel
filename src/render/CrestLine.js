@@ -15,13 +15,15 @@ export const CREST_BANDS = Object.freeze(['far', 'mid', 'near']);
 
 /** Width (output px at 1080 lines) and opacity ranges, lowest to highest
  *  rank. Each band's range is entered by `e` (crestE). The skyline (a crest
- *  whose upper side is sky) outranks every band. Never driven by music. */
+ *  whose upper side is sky) outranks every band in opacity, at a thinner
+ *  width than the near band. Never driven by music. */
 export const CREST_TIERS = Object.freeze({
   far: Object.freeze({ width: [1.0, 1.5], alpha: [0.35, 0.50] }),
   mid: Object.freeze({ width: [1.5, 2.25], alpha: [0.50, 0.70] }),
   near: Object.freeze({ width: [2.0, 3.0], alpha: [0.70, 0.90] }),
-  // Starts where near ends: every skyline stroke outranks every near one.
-  skyline: Object.freeze({ width: [3.0, 3.5], alpha: [0.90, 0.95] }),
+  // Outranks every near stroke in opacity. Its width is half the 3.0-3.5 px
+  // it first had: a thinner line against the sky reads cleaner (owner's call).
+  skyline: Object.freeze({ width: [1.5, 1.75], alpha: [0.90, 0.95] }),
 });
 export const CREST_TIER_ORDER = Object.freeze(['far', 'mid', 'near', 'skyline']);
 /** Fraction of the stroke width that sits on the land side of the boundary. */

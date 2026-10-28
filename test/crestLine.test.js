@@ -102,7 +102,8 @@ test('the width and opacity schedule is monotonic by hierarchy, scales with outp
     let prev = null;
     for (const tier of CREST_TIER_ORDER) {
       const s = crestStroke(tier, e, 1080);
-      if (prev) { assert.ok(s.width >= prev.width, `${tier} width at e=${e}`); assert.ok(s.alpha >= prev.alpha, `${tier} alpha at e=${e}`); }
+      // Bands widen with rank; the skyline is the thin exception (opacity still ranks it highest).
+      if (prev) { if (tier !== 'skyline') assert.ok(s.width >= prev.width, `${tier} width at e=${e}`); assert.ok(s.alpha >= prev.alpha, `${tier} alpha at e=${e}`); }
       prev = s;
     }
   }
@@ -120,12 +121,15 @@ test('the width and opacity schedule is monotonic by hierarchy, scales with outp
   assert.deepEqual(crestStroke('near', 0.4, 720), crestStroke('near', 0.4, 720), 'band, rank and output height only: no music input');
   assert.equal(crestE(1, 0), 0.6); assert.equal(crestE(0, 1), 0.4); assert.equal(crestE(NaN, 0.7), 0.7);
   // The skyline is the highest-ranked line: every skyline stroke is at least
-  // as wide and as opaque as any near stroke, whatever either one's e.
+  // as opaque as any near stroke, whatever either one's e. Its width is half
+  // its original 3.0-3.5 px at 1080 lines.
   const nearMax = crestStroke('near', 1, 1080), skyMin = crestStroke('skyline', 0, 1080);
-  assert.ok(skyMin.width >= nearMax.width && skyMin.alpha >= nearMax.alpha, `skyline ${JSON.stringify(skyMin)} vs near ${JSON.stringify(nearMax)}`);
+  assert.ok(skyMin.alpha >= nearMax.alpha, `skyline ${JSON.stringify(skyMin)} vs near ${JSON.stringify(nearMax)}`);
+  assert.deepEqual(CREST_TIERS.skyline.width, [1.5, 1.75]);
   for (let i = 1; i < CREST_TIER_ORDER.length; i++) {
     const lower = CREST_TIERS[CREST_TIER_ORDER[i - 1]], upper = CREST_TIERS[CREST_TIER_ORDER[i]];
-    assert.ok(upper.width[1] >= lower.width[1] && upper.alpha[1] >= lower.alpha[1], `${CREST_TIER_ORDER[i]} tops ${CREST_TIER_ORDER[i - 1]}`);
+    assert.ok(upper.alpha[1] >= lower.alpha[1], `${CREST_TIER_ORDER[i]} tops ${CREST_TIER_ORDER[i - 1]}`);
+    if (CREST_TIER_ORDER[i] !== 'skyline') assert.ok(upper.width[1] >= lower.width[1], `${CREST_TIER_ORDER[i]} is at least as wide as ${CREST_TIER_ORDER[i - 1]}`);
   }
   assert.ok(shoreStroke(1).alpha > shoreStroke(0.5).alpha && shoreStroke(0.5).alpha > shoreStroke(0).alpha, 'near shores strongest');
 });
