@@ -80,3 +80,17 @@ test('a live backdrop bound to another view is not unbound by an unrelated relea
   assert.ok(other.uBackdrop.value, 'only the released texture is unbound');
   assert.equal(other.uBackdropAmount.value, 1);
 }));
+
+test('the sky backdrop outlives the mirror by one rung and serves river-only views', () => withCanvas(() => {
+  const { s, uniforms } = scene();
+  assert.equal(s.captureBackdrop(ctx, stage, { qualityLevel: 4, frameId: 3 }), true, 'q4 sheds the mirror, keeps the backdrop');
+  bind(s, uniforms);
+  assert.equal(s.captureBackdrop(ctx, stage, { qualityLevel: 5, frameId: 4 }), false, 'q5 releases it');
+  assert.equal(s.backdrop, null);
+  assert.equal(uniforms.uBackdrop.value, null);
+  const river = scene();
+  river.s.prepared.set('lake', { mirrorLevelM: NaN, riverStats: { triangles: 1200 }, uniforms: river.uniforms });
+  assert.equal(river.s.captureBackdrop(ctx, stage, { qualityLevel: 4, frameId: 5 }), true, 'a river-only view reflects the sky');
+  river.s.prepared.set('lake', { mirrorLevelM: NaN, riverStats: { triangles: 0 }, uniforms: river.uniforms });
+  assert.equal(river.s.captureBackdrop(ctx, stage, { qualityLevel: 0, frameId: 6 }), false, 'no water, no copy');
+}));

@@ -5,7 +5,9 @@ import {
   mistAmount, mistMask, mistParams, mistDrift, emitterStrength, MIST_GLSL, MIST_NOISE_M, MIST_DRIFT, SEA_DENSITY,
   meanLayer, easeMistSteps, tourMistCap, tourMistFade, MIST_OCTAVE_ROTATION, MIST_SAMPLES, MIST_STEP_EASE_SEC,
   emitterVisibility, seaSubmersion, actorLightShown, EMITTER_GLSL, EMITTER_SUBMERGE, SEA_TOP_SOFT_BELOW_M, SEA_TOP_SOFT_ABOVE_M,
+  atmosphereMusic, ATMOSPHERE_NEUTRAL,
 } from '../src/world/alpine/RangeAtmosphere.js';
+import { sampleEffectsMusic } from '../src/world/alpine/EffectsMusic.js';
 
 const cam = [0, 1500, 0];
 const params = { density: 4e-4, baseM: 480, heightM: 250, tSec: 12 };
@@ -419,4 +421,80 @@ test('the fog GLSL declares no identifier that GLSL ES 3.00 reserves', () => {
     'class', 'template', 'this', 'goto', 'inline', 'noinline', 'public', 'static', 'extern', 'external', 'interface'];
   const code = MIST_GLSL.replace(/\/\/[^\n]*/g, '');
   for (const word of reserved) assert.doesNotMatch(code, new RegExp(`\\b${word}\\b`), `GLSL uses reserved word ${word}`);
+});
+
+test('the score\'s hold on the valley air is neutral in silence and bounded under any input', () => {
+  const SILENT = { energy: 0, bass: 0, treble: 0, kick: 0, snare: 0, melody: 0, lift: 0, accents: [] };
+  for (const e of [null, undefined, SILENT, { lift: .0004, bass: .0009, energy: 0 }]) {
+    assert.equal(atmosphereMusic(e), ATMOSPHERE_NEUTRAL);
+  }
+  assert.deepEqual({ ...ATMOSPHERE_NEUTRAL }, { mistDensityMul: 1, mistGlow: 0, shaftGain: 1 });
+  assert.ok(Object.isFrozen(ATMOSPHERE_NEUTRAL));
+  let prior = { ...atmosphereMusic({ lift: 0, bass: .3, energy: .5 }) };
+  for (let lift = .1; lift <= 1.0001; lift += .1) {
+    const next = { ...atmosphereMusic({ lift, bass: .3, energy: .5 }) };
+    assert.ok(next.mistDensityMul <= prior.mistDensityMul && next.mistGlow >= prior.mistGlow && next.shaftGain >= prior.shaftGain, `monotone at ${lift}`);
+    prior = next;
+  }
+  const full = { ...atmosphereMusic({ lift: 9, bass: 9, energy: 9 }) };
+  assert.deepEqual(full, { mistDensityMul: .77, mistGlow: .06, shaftGain: 1.4 });
+  for (const e of [{ lift: NaN, bass: Infinity, energy: -Infinity }, { lift: -5, bass: NaN, energy: 2 }]) {
+    const m = atmosphereMusic(e);
+    assert.ok(Object.values(m).every(Number.isFinite));
+    assert.ok(m.mistDensityMul >= .75 && m.mistDensityMul <= 1 && m.mistGlow >= 0 && m.mistGlow <= .06 && m.shaftGain >= 1 && m.shaftGain <= 1.4);
+  }
+});
+
+test('a section boundary swells the valley air instead of popping it', () => {
+  // lift has a 100 ms attack; the air must not follow it within a few frames.
+  const sections = [{ startMs: 0, endMs: 10000, meanEnergy: .2, provenance: 'detected', confidence: 1 },
+    { startMs: 10000, endMs: 30000, meanEnergy: .9, provenance: 'detected', confidence: 1 }];
+  const ridgeSample = { motionPresence01: 1, activity01: 1, pressureEnergy01: .5, bassPressure01: .3, bands: [0, 0, 0, 0, .2, .2, .2] };
+  let prior = null, peakLift = 0;
+  for (let t = 9800; t < 13000; t += 1000 / 30) {
+    const effects = sampleEffectsMusic({ timeMs: t, ridgeSample, sections });
+    peakLift = Math.max(peakLift, effects.lift);
+    const m = { ...atmosphereMusic(effects) };
+    if (prior) {
+      assert.ok(Math.abs(m.mistDensityMul - prior.mistDensityMul) <= .02, `mist density at ${t}`);
+      assert.ok(Math.abs(m.mistGlow - prior.mistGlow) <= .01, `mist glow at ${t}`);
+      assert.ok(Math.abs(m.shaftGain - prior.shaftGain) <= .05, `shaft gain at ${t}`);
+    }
+    prior = m;
+  }
+  assert.ok(peakLift > .5, 'the fixture crosses a real section lift');
+  // Even a full-scale lift arriving inside one 33 ms frame stays bounded.
+  const base = { energy: .5, bass: .3 };
+  const a = atmosphereMusic({ ...base, lift: 0 }).mistDensityMul, b = atmosphereMusic({ ...base, lift: 1 / 3 }).mistDensityMul;
+  assert.ok(a - b <= .02 + 1e-12);
+});
+
+test('mist forward scatter peaks into the light, is zero for isotropic scatter and never negative', async () => {
+  const { mistForwardScatter, MIST_SCATTER_G } = await import('../src/world/alpine/RangeAtmosphere.js');
+  assert.equal(MIST_SCATTER_G, .6);
+  assert.ok(Math.abs(mistForwardScatter(1) - 1) < 1e-12);
+  let prior = -1;
+  for (let c = -1; c <= 1.0001; c += .02) {
+    const v = mistForwardScatter(c);
+    assert.ok(v >= 0 && v <= 1, `bounded at ${c}`);
+    assert.ok(v >= prior, `monotonic at ${c}`);
+    prior = v;
+  }
+  assert.equal(mistForwardScatter(-1), 0, 'below isotropic clamps to 0');
+  for (const bad of [NaN, Infinity, -Infinity, undefined]) assert.equal(mistForwardScatter(bad), 0);
+  assert.ok(mistForwardScatter(.95) > .2 && mistForwardScatter(.5) < .1, 'a forward lobe');
+});
+
+test('the mist phase is a MIST_GLSL function of its arguments, applied after the cinematic mist colour', async () => {
+  assert.match(MIST_GLSL, /float mistPhase\(vec3 view, vec3 lightDir\)/);
+  assert.doesNotMatch(MIST_GLSL, /uniform[^;]*uLightDir/, 'ActorsGL also includes MIST_GLSL; no new uniform');
+  const { SCENE_FRAG } = await import('../src/world/alpine/TerrainMaterial.js');
+  const forest = await import('node:fs').then(fs => fs.readFileSync(new URL('../src/world/alpine/ForestGL.js', import.meta.url), 'utf8'));
+  for (const [name, source] of [['terrain', SCENE_FRAG], ['forest', forest]]) {
+    const grade = source.lastIndexOf('mistColor = cinematicMistColor(');
+    const phase = source.indexOf('mistPhase(normalize(');
+    assert.ok(grade > 0 && phase > grade, `${name} adds forward scatter after the cinematic mist colour`);
+    assert.match(source.slice(phase - 120, phase + 200), /uLightColor \* 0\.07 \* mistPhase\([^;]*\(1\.0 - uStorm\.x\)[^;]*vec3\(0\.9\)\)/);
+  }
+  assert.match(SCENE_FRAG, /mistPhase\(normalize\(vRenderedWorld - uCameraPos\), uLightDir\)\s*\* \(1\.0 - uStorm\.x\) \* moonTransmission/);
 });

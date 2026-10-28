@@ -1,3 +1,5 @@
+import { FOREST_MAX_LEAN } from './ForestWind.js';
+
 // Small crowns keep their authored placements and lighter mesh; only the
 // branch complexity changes. A broad, stateless pixel interval reconstructs
 // identically after a seek and gives each reflection its own target size.
@@ -25,7 +27,7 @@ export function forestBatchFootprintPx(geometry, camera, width, height, deformat
     const height01 = Math.max(0, Math.min(1, (rootY - (deformation.heightMin ?? 0)) / Math.max(1, deformation.heightSpan ?? 1)));
     const h2 = height01 * height01;
     const rootLift = h2 * ((deformation.amplitudeM || 0) + h2 * (deformation.gestureM || 0));
-    const radius = Math.hypot(h * .5, w * .75 + h * .30) + rootLift;
+    const radius = Math.hypot(h * .5, w * .75 + h * FOREST_MAX_LEAN) + rootLift;
     const cx = v[0] * x + v[4] * y + v[8] * z + v[12];
     const cy = v[1] * x + v[5] * y + v[9] * z + v[13];
     const cz = v[2] * x + v[6] * y + v[10] * z + v[14], depth = -cz;

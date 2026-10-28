@@ -72,3 +72,28 @@ test('a gust rolls across the forest over seconds, one at a time', () => {
   assert.ok(GUST_SWEEP_SEC >= 5, `a front crosses the frame in ${GUST_SWEEP_SEC} s`);
   assert.ok(GUST_FRONT_SPACING_MS >= 2000, 'kicks closer than two seconds ride the same gust');
 });
+
+test('the trees\' sway reads the score\'s wind and keeps its heard-time phase', async () => {
+  const { forestWindAt, WIND_DIR, WIND_MAX_GAIN, STORM_LEAN } = await import('../src/world/alpine/ForestWind.js');
+  const windAt = TREE_COMMON.match(/vec2 windAt\(float y01\) \{([\s\S]*?)\n {2}\}/)[1];
+  assert.match(TREE_COMMON, /uniform vec2 uWind;/);
+  assert.match(windAt, /sin\(uTime \* 0\.65 \+ ph\)/, 'the idle sway keeps its uTime phase');
+  assert.match(windAt, /vec2 sway = vec2\(s, s \* 0\.4\) \* 0\.012 \* uWind\.x;/);
+  assert.match(windAt, new RegExp(`vec2\\(${WIND_DIR[0].toFixed(6)}, ${WIND_DIR[1].toFixed(6)}\\) \\* uWind\\.y`), 'downwind along the world wind');
+  assert.ok(Math.abs(WIND_DIR[0] / WIND_DIR[1] - 10 / 3) < 1e-12, 'the clouds\' drift, not camera right');
+  const out = [9, 9];
+  assert.equal(forestWindAt(null, null, out), out, 'writes in place');
+  assert.deepEqual(out, [1, 0]);
+  assert.deepEqual(forestWindAt({ energy: 0, bass: 0, lift: 0 }, { amount: 0, break01: 0 }), [1, 0]);
+  assert.deepEqual(forestWindAt({ energy: NaN, lift: Infinity, bass: -1 }, { amount: NaN, break01: NaN }), [1, 0]);
+  assert.deepEqual(forestWindAt({ energy: 1, lift: 1, bass: 1 }, { amount: 1, break01: 0 }), [WIND_MAX_GAIN, STORM_LEAN]);
+  let prior = forestWindAt({ energy: .2 }, { amount: 0 }, [0, 0]).slice();
+  for (let a = .1; a <= 1.0001; a += .1) {
+    const next = forestWindAt({ energy: .2 }, { amount: a, break01: .3 }, [0, 0]).slice();
+    assert.ok(next[0] >= prior[0] && next[1] >= prior[1], `monotone in storm at ${a}`);
+    assert.ok(next[0] <= WIND_MAX_GAIN && next[1] <= STORM_LEAN);
+    prior = next;
+  }
+  assert.ok(forestWindAt(null, { amount: 1, break01: 1 })[1] === 0, 'a breaking storm stands the trees back up');
+  assert.deepEqual(forestWindAt({ lift: .5 }, { amount: .5 }), forestWindAt({ lift: .5 }, { amount: .5 }), 'pure');
+});

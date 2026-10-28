@@ -40,6 +40,50 @@ and candidate reports. Inspect actual frames, camera turns and travel rather
 than treating changed pixels or structural texture tests as visual acceptance.
 
 Water continues to consume the existing production sky backdrop and distant-ray
-lookup. This repair does not introduce a separate physical cloud render through
+lookup. The backdrop no longer depends on the lake mirror. It is captured
+whenever a prepared view has lake or river water, up to rung 4 (`waterBackdrop:
+q < 5`, one rung after `waterMirror`). It is bound to the water as soon as the
+frame's copy exists, whatever the water level, and the mirror's ground image
+fades in over it. Rivers reflect the backdrop alone, with the shiver stretched
+along the current. Without a bound backdrop (rung 5 and above, and the far
+partition, whose water would otherwise reflect its own copy), water reflects
+`skyReflectAt`: the horizon band at grazing angles, rising toward the zenith,
+lifted by lightning in place. The far partition's water keeps that open-sky
+fallback; it is not part of this change. This repair does not introduce a separate physical cloud render through
 the reflected camera. Fixed-clock camera probes do not establish live frame
 pacing; the earlier full-resolution sky performance gate remains separate.
+
+## Cloud shadows on the land
+
+On the default high-resolution sky path (no painted legacy `skyClouds`), the
+fair-weather banks also shade the ground. `cloudShadowCasters` uses the same
+cell placement (`cloudCell`), seed, salt and heard-time wind as `cloudBanks`,
+so a shadow falls under the cloud the sky places. It selects the banks around
+the eye's footprint moved toward the light (a card centre about 9.5 km up
+shades the ground that far back along the light), splits each into three soft
+elliptical sub-discs along the fixed wind axis and keeps whole banks only, at
+most 16 discs (5 banks), ordered by distance and then cell id. A bank's
+opacity thins with rank and reaches 0 at the distance of the first bank left
+out, so travel and a moving light swap banks without a pop. It writes into a
+caller-owned `Float32Array`; RangeScene fills the existing uniform arrays in
+place.
+
+The sky does not paint banks within about 20 km of the eye (cloudBanks fades
+them out so no billboard hangs overhead). Casters deliberately ignore that
+fade: under a high sun the shadows near the eye come from those overhead
+banks, which sit above the frame, and fading them would leave the near land
+unshaded at midday. The placement is still the same lattice the sky uses.
+
+`CloudOcclusion` switches on `uCloudMode`. Mode 0 is the legacy moon-only
+painted-puff occlusion, unchanged. Mode 1 intersects each disc's altitude
+plane along the key light, multiplies soft disc coverage, and applies one
+shared breakup noise per fragment. `uCloudStrength` is
+`.4 * (1 - storm.amount) * light visibility`, capped at .4, and it fades out as
+the light approaches the horizon (`dir.y` from .15 down to .05). Water receivers
+keep full transmission. The quality ladder drops the shadows at rung 4
+(`cloudShadows: q < 4`), together with the lake mirror; the strength eases
+out and back in over 1.5 s of heard time (`easeRungAmount`) rather than
+popping.
+
+Limitation: ForestGL trees do not receive cloud transmission. Crowns under a
+shadow keep the full key, while the ground between them is shaded.

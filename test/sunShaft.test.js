@@ -4,7 +4,7 @@ import { RangeScene } from '../src/world/alpine/RangeScene.js';
 import { rangeQuality } from '../src/world/alpine/RangeQuality.js';
 import * as THREE from 'three';
 import { resolveCelestialState } from '../src/world/CelestialState.js';
-import { SunShaftGL, shaftSize } from '../src/world/alpine/SunShaftGL.js';
+import { SunShaftGL, shaftSize, shaftSource, shaftGain } from '../src/world/alpine/SunShaftGL.js';
 import { GraphicsResidency } from '../src/render/GraphicsResidency.js';
 
 test('the first expensive quality rung sheds solar scattering independently of pool illumination', () => {
@@ -57,16 +57,102 @@ test('a denied A/B bundle cannot sacrifice base views, targets or travel scratch
   assert.equal(s.residency.snapshot().overcommits,0);
 });
 
-test('quality, celestial gaps and context loss shed the optional bundle and invalidate cached depth',()=>{
+test('a quality shed fades the shafts out over heard time, then releases the optional bundle',()=>{
   const s=scene();
-  for(const fr of [{...day,qualityLevel:3},{...day,light:{celestial:{body:'moon',visibility:1,intensity:.25}}},
+  const at=(timeMs,extra={})=>({...day,timeMs,...extra});
+  assert.ok(s.prepareShafts(at(1000),['a']));assert.equal(s.shaftPresence,1);
+  const bundle=s.shafts;
+  let presence=1;
+  for(let t=1000+1000/60;t<1000+1490;t+=1000/60){
+    assert.ok(s.prepareShafts(at(t,{qualityLevel:3}),['a']),`the bundle survives the fade at ${t}`);
+    assert.equal(s.shafts,bundle);
+    assert.ok(s.shaftPresence<presence&&s.shaftPresence>0);presence=s.shaftPresence;
+    assert.ok(Math.abs(s._shaftSource(at(t,{qualityLevel:3})).stormGain-presence)<1e-12,'scaled, not cut');
+  }
+  s.depthCache.A.frame=99;
+  for(let t=2500;t<2700&&s.shafts;t+=1000/60)s.prepareShafts(at(t,{qualityLevel:3}),['a']);
+  assert.equal(s.shafts,null,'released once the fade reaches 0');assert.equal(s.shaftPresence,0);
+  assert.equal(s.depthCache.A.frame,-1);assert.equal(s.residency.usedBytes,5000);
+  assert.equal(s._shaftSource(at(2700,{qualityLevel:3})),null);
+  // Recovery fades back in from zero.
+  const last=s.shaftEaseAtMs;
+  assert.ok(s.prepareShafts(at(last+1000/60),['a']));assert.ok(s.shaftPresence>0&&s.shaftPresence<.1);
+});
+
+function sizedScene(){
+  const s=Object.create(RangeScene.prototype);
+  Object.assign(s,{THREE,residency:new GraphicsResidency({budgetBytes:512*1024*1024}),budget:'desktop',contextEpoch:0,
+    renderer:{setPixelRatio(){},setSize(){}},size:{width:0,height:0},target:null,sideTargets:{B:null},
+    ownership:{A:null,B:null},mirrors:{A:null,B:null},depthCache:{A:{frame:-1},B:{frame:-1}},prepared:new Map(),materials:new Map(),
+    edge:{capability:4,override:null,samples:0,reason:'not-sized'}});
+  return s;
+}
+
+test('a same-size MSAA reallocation at the shed rung keeps the shaft fade (resize before prepareShafts)',()=>{
+  const s=sizedScene();const size={widthPx:640,heightPx:360};
+  s.resize({...size,quality:1});assert.equal(s.target.samples,4);
+  assert.ok(s.prepareShafts({...day,qualityLevel:1,timeMs:1000},['a']));assert.equal(s.shaftPresence,1);
+  // q1 -> q2: 4 -> 2 samples, shafts still allowed: presence stays 1.
+  s.resize({...size,quality:2});assert.equal(s.target.samples,2);
+  assert.ok(s.prepareShafts({...day,qualityLevel:2,timeMs:1016},['a']));assert.equal(s.shaftPresence,1,'no dip on a sample change');
+  // q2 -> q3: 2 -> 0 samples, the shed the fade exists for.
+  s.resize({...size,quality:3});assert.equal(s.target.samples,0);
+  assert.ok(s.prepareShafts({...day,qualityLevel:3,timeMs:1032},['a']));
+  assert.ok(s.shaftPresence>0&&s.shaftPresence<1,`fading, not cut (${s.shaftPresence})`);
+  // A real size change still ends the fade.
+  s.resize({widthPx:800,heightPx:450,quality:3});assert.equal(s.shaftPresence,0);
+});
+
+test('allocating and freeing the travel side leaves the shaft fade untouched',()=>{
+  const s=sizedScene();const size={widthPx:640,heightPx:360};
+  s.resize({...size,quality:2});
+  assert.ok(s.prepareShafts({...day,qualityLevel:2,timeMs:1000},['a']));
+  s.prepareShafts({...day,qualityLevel:3,timeMs:1300},['a']);
+  const held=s.shaftPresence;assert.ok(held>0&&held<1);
+  assert.ok(s.ensureSide('B'));assert.equal(s.shaftPresence,held);assert.equal(s.shafts,null,'rebuilt against both sides');
+  assert.ok(s.prepareShafts({...day,qualityLevel:3,timeMs:1300},['a','b']));assert.equal(s.shaftPresence,held);
+  s.releaseSide('B');assert.equal(s.shaftPresence,held);
+});
+
+test('celestial gaps and context loss still shed the optional bundle at once',()=>{
+  const s=scene();let t=1000;
+  for(const fr of [{...day,light:{celestial:{body:'moon',visibility:1,intensity:.25}}},
     {...day,light:{celestial:{body:null,visibility:0,intensity:0}}}]){
-    assert.ok(s.prepareShafts(day,['a']));s.depthCache.A.frame=99;
-    assert.equal(s.prepareShafts(fr,['a']),false);assert.equal(s.shafts,null);
+    assert.ok(s.prepareShafts({...day,timeMs:t+=16},['a']));s.depthCache.A.frame=99;
+    assert.equal(s.prepareShafts({...fr,timeMs:t+=16},['a']),false);assert.equal(s.shafts,null);assert.equal(s.shaftPresence,0);
     assert.equal(s.depthCache.A.frame,-1);assert.equal(s.residency.usedBytes,5000);
   }
-  assert.ok(s.prepareShafts(day,['a']));s.contextLost=true;
-  assert.equal(s.prepareShafts(day,['a']),false);assert.equal(s.shafts,null);
+  assert.ok(s.prepareShafts({...day,timeMs:5000},['a']));s.contextLost=true;
+  assert.equal(s.prepareShafts({...day,timeMs:5016},['a']),false);assert.equal(s.shafts,null);
+});
+
+test('a paused frame holds the shaft fade and a seek snaps it',()=>{
+  const s=scene();
+  assert.ok(s.prepareShafts({...day,timeMs:1000},['a']));
+  s.prepareShafts({...day,qualityLevel:3,timeMs:1300},['a']);
+  const held=s.shaftPresence;assert.ok(held>0&&held<1);
+  for(let i=0;i<5;i++)s.prepareShafts({...day,qualityLevel:3,timeMs:1300},['a','b']);
+  assert.equal(s.shaftPresence,held,'pause and the B view hold');
+  assert.equal(s.prepareShafts({...day,qualityLevel:3,timeMs:60000},['a']),false,'a seek snaps');
+  assert.equal(s.shafts,null);
+  assert.ok(s.prepareShafts({...day,timeMs:1000},['a']));assert.equal(s.shaftPresence,1,'a seek back snaps in');
+});
+
+test('the far pass and renderDirectShaft scatter the same faded light',()=>{
+  const s=scene();
+  assert.ok(s.prepareShafts({...day,timeMs:1000},['a']));
+  const frame={...day,qualityLevel:3,timeMs:1500};s.prepareShafts(frame,['a']);
+  const seen=[];
+  s.shafts={...s.shafts,buffers:{A:{}},targets:{A:{}},render:(r,side,source)=>{seen.push(source.stormGain);return true;},
+    compositeToScreen:(r,side,source)=>seen.push(source.stormGain)};
+  s.renderer={setRenderTarget(){},setClearColor(){},clear(){},render(){}};s.canvas={};s._setCanvasSize=()=>{};
+  s.renderDirectShaft(frame,640,360);
+  const p={view:{},uniforms:{uNarrativeInk:{value:0},uBackdropAmount:{value:0},uDiag:{value:0}},forest:{counts:{}},depthScene:'d',scenes:{far:'far'}};
+  Object.assign(s,{camera:new THREE.PerspectiveCamera(),depthCache:{A:{frame:-1}},prepared:new Map([['a',p]]),stats:{depthPasses:0},
+    _copy:{mesh:{material:{uniforms:{uColor:{}}}},scene:'copy'},_setCamera(){},_setUniforms(){},_prepareMirror(){},_setCanvasSize(){},_copyTexture(){}});
+  s.renderPartition(frame,'far','a');
+  assert.equal(seen.length,3);assert.ok(seen[0]>0&&seen[0]<1);
+  assert.ok(seen.every(v=>v===seen[0]),'display and capture agree');
 });
 
 test('essential allocation may evict shafts and its callback clears attachment and cache ownership',()=>{
@@ -109,4 +195,18 @@ for (const [name, width, height, backingWidth, backingHeight] of [
   assert.ok(Math.abs(effect.uniforms.uRadius.value.x * width - 26) < 1e-12, 'horizontal aperture reaches the visible disc edge');
   assert.ok(Math.abs(effect.uniforms.uRadius.value.y * height - 26) < 1e-12, 'vertical aperture reaches the visible disc edge');
   effect.dispose();target.dispose();
+});
+
+test('the score lifts the shafts but never opens the squall deck', () => {
+  const light = { celestial: { body: 'sun', visibility: 1, intensity: 1.6, xFrac: .5, yFrac: .2 } };
+  const quiet = shaftSource({ light, storm: { amount: 0 } });
+  assert.equal(quiet.musicGain, 1);
+  assert.equal(shaftGain(quiet), .55, 'silence keeps today\'s gain');
+  const lifted = shaftSource({ light, storm: { amount: 0 }, effects: { lift: 1, bass: 1, energy: 1 } });
+  assert.equal(lifted.musicGain, 1.4);
+  assert.ok(Math.abs(shaftGain(lifted) - .77) < 1e-12);
+  assert.equal(shaftSource({ light, storm: { amount: 1 }, effects: { lift: 1, bass: 1 } }), null, 'still none under a full storm');
+  const breaking = shaftSource({ light, storm: { amount: 0, break01: 1 }, effects: { lift: 1 } });
+  assert.equal(shaftGain(breaking), .55 * 3.8, 'a storm break keeps its established scatter');
+  assert.ok(shaftGain({ ...quiet, stormGain: 1.5, musicGain: 1.4 }) <= .9, 'music never pushes the scatter past .9');
 });
