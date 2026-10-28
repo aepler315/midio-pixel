@@ -1,6 +1,6 @@
 import { landscapeScoreFor } from './LandscapeScore.js';
 import { LAND_MAX_DISPLACEMENT_M, LAND_WAVE_K } from './LandMotionLimits.js';
-import { cameraLensAt } from '../../render/CameraLens.js';
+import { NEUTRAL_LENS } from '../../render/CameraLens.js';
 import { stormAt } from './RangeStorm.js';
 import { resolveRangeComposition } from './RangeComposition.js';
 import { sampleHorizonRidge, sampleSpaceRidge } from './RidgeMotion.js';
@@ -343,7 +343,8 @@ export function buildRangeFrame({
   const light = mgr._scenicLight || computeLight({ canvasWidth: scenicViewport?.logicalWidth || 1280,
     canvasHeight: scenicViewport?.logicalHeight || 720, celestialState: state });
   const active = state[state.activeBody] || state.sun;
-  const lens = cameraLensAt({ sections: mgr.sections, timeMs, durationMs: mgr.durationMs, preview: mgr.terrainPreview });
+  // The score's trusted lens cues, held across a re-analysis handoff.
+  const lens = performance.lens || NEUTRAL_LENS;
   const skyScale = mgr.rangePresentation?.tourMode || mgr.rangePresentation?.cameraTourActive ? 1 : lens.halfAngleScale;
   const celestial = skyScale === 1 ? active : { ...active, xFrac: .5 + ((active.xFrac ?? .5) - .5) / skyScale,
     yFrac: .5 + ((active.yFrac ?? .5) - .5) / skyScale };

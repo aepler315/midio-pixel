@@ -1,6 +1,8 @@
 // A song's phrase, camera and weather decisions share one heard-time score.
 // Nothing here advances on draw, dispatches notes or owns graphics resources.
 import { rangeCameraMoveAt } from './RangeCamera.js';
+import { lastAudibleMs, sectionTrust } from './EffectsMusic.js';
+import { compileLensCues, lensFromCues, LENS_ANTICIPATION_MS, LENS_MIN_GAP_MS } from '../../render/CameraLens.js';
 
 const unit = x => Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : 0;
 const ease = x => { const t = unit(x); return t * t * (3 - 2 * t); };
@@ -14,7 +16,7 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
   seed = 0, previous = null, committedThroughMs = -1 } = {}) {
   const duration = Math.max(0, Number(durationMs) || 0);
   const read = energyCurves?.globalEnergyNorm?.bind(energyCurves) || energyCurves?.globalEnergy?.bind(energyCurves) || (() => 0);
-  const trusted = sections.filter(s => s.provenance !== 'decorative' && s.confidence !== 0
+  const trusted = sections.filter(s => sectionTrust(s) > 0
     && Number.isFinite(s.startMs) && Number.isFinite(s.endMs) && s.endMs > s.startMs);
   const phrases = Object.freeze(trusted.map((s, i) => Object.freeze({
     startMs: Math.max(0, s.startMs), endMs: Math.min(duration, s.endMs),
@@ -76,6 +78,16 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
     }
     return Object.freeze(strikes.map(s => Object.freeze(s)));
   };
+  // Lens cues come from the raw sections (the phrases above carry no
+  // provenance or level steps). A cue heard, or underway, at the handoff
+  // plays out from the previous score; a new cue never starts mid-pulse.
+  const heldCues = previous ? (previous.lensCues || []).filter(c => c.timeMs - LENS_ANTICIPATION_MS <= freezeThroughMs) : [];
+  const lastHeldMs = heldCues.at(-1)?.timeMs ?? -Infinity;
+  const lensCues = Object.freeze([...heldCues, ...compileLensCues(sections, duration).filter(c => !previous
+    || (c.timeMs - LENS_ANTICIPATION_MS > freezeThroughMs && c.timeMs - lastHeldMs >= LENS_MIN_GAP_MS))]
+    .map((c, index) => c.index === index ? c : Object.freeze({ ...c, index })));
+  // The music's own end: the closing camera move arrives on it, not on padding.
+  const cadenceMs = lastAudibleMs(energyCurves, duration);
   const protectedEpisodes = previous ? previous.episodes.filter(e => e.startMs - 6000 <= freezeThroughMs) : [];
   const weather = Object.freeze([...protectedEpisodes, ...episodes.filter(e => !previous || e.startMs - 6000 > freezeThroughMs)]
     .sort((a, b) => a.startMs - b.startMs).map(e => Object.freeze({ ...e, strikes: e.strikes || strikesFor(e) })));
@@ -85,15 +97,16 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
     const phrase = phrases.find(p => t >= p.startMs && t < p.endMs);
     const energy01 = unit(read(t));
     const camera = { ...rangeCameraMoveAt({ timeMs: t, sections: phrases, durationMs: duration, seed,
-      preview: !!options.preview }) };
+      cadenceMs, preview: !!options.preview }) };
     if (previous && t < freezeThroughMs + 6000) {
       const old = previous.at(t, options).camera, k = ease((t - freezeThroughMs) / 6000);
       for (const key of ['dolly', 'yaw', 'crane', 'truck']) camera[key] = old[key] + (camera[key] - old[key]) * k;
     }
     return Object.freeze({ energy01, motifId: phrase?.motifId || 'quiet',
-      intensity01: phrase?.relEnergy01 ?? energy01, camera: Object.freeze(camera) });
+      intensity01: phrase?.relEnergy01 ?? energy01, camera: Object.freeze(camera),
+      lens: lensFromCues(lensCues, t, !!options.preview) });
   };
-  return Object.freeze({ durationMs: duration, phrases, episodes: weather, freezeThroughMs, at: stateAt });
+  return Object.freeze({ durationMs: duration, phrases, episodes: weather, freezeThroughMs, lensCues, cadenceMs, at: stateAt });
 }
 
 const cache = new WeakMap();

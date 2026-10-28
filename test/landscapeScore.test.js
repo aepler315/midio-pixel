@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { compileStorm } from '../src/world/alpine/RangeStorm.js';
+import { compileLandscapeScore } from '../src/world/alpine/LandscapeScore.js';
+import { NEUTRAL_LENS } from '../src/render/CameraLens.js';
 
 const sections = [0, 20000, 40000, 60000, 80000, 100000].map((startMs, i) => ({
   startMs, endMs: startMs + 20000, provenance: 'detected', motifId: i % 2 ? 'chorus' : 'verse',
@@ -76,4 +78,42 @@ test('an unsegmented final build closes at the exact decoded duration between we
   assert.equal(storm.landscape.episodes.length, 1);
   assert.equal(storm.landscape.episodes[0].startMs, 15000);
   assert.equal(storm.landscape.episodes[0].endMs, 30001);
+});
+
+test('analysis adoption inside a lens accent holds it, then plays it out without a jump', () => {
+  // Boundaries without phrase ends and a quiet song: nothing extends the
+  // freeze past the committed time, so the handoff lands mid-pulse.
+  const part = (startMs, role, level, extra = {}) => ({ startMs, role, relEnergy01: level, meanEnergy: level,
+    provenance: 'detected', confidence: .8, ...extra });
+  const song = { energyCurves: { globalEnergyNorm: () => .2 }, durationMs: 120000 };
+  const first = compileLandscapeScore({ ...song, sections: [part(0, 'verse', .3), part(20000, 'chorus', .9),
+    part(40000, 'verse', .3), part(60000, 'chorus', .9)] });
+  assert.ok(first.at(20800).lens.zoomPulse > .3, 'the handoff lands inside a pulse');
+  // The full analysis moves the first chorus and the second one later.
+  const next = compileLandscapeScore({ ...song, sections: [part(0, 'verse', .3), part(21000, 'chorus', .9),
+    part(40000, 'verse', .3), part(61000, 'chorus', .9)], previous: first, committedThroughMs: 20800 });
+  assert.equal(next.freezeThroughMs, 20800);
+  assert.deepEqual(next.at(20800), first.at(20800));
+  for (let t = 20800; t < 24000; t += 16) {
+    assert.deepEqual(next.at(t).lens, first.at(t).lens, `held accent at ${t}`);
+    assert.ok(Math.abs(next.at(t + 16).lens.halfAngleScale - next.at(t).lens.halfAngleScale) < .035, `jump at ${t}`);
+  }
+  assert.equal(next.at(21500).lens.cueIndex, 0, 'the refined boundary cannot restart the accent mid-pulse');
+  assert.equal(next.at(30000).lens, NEUTRAL_LENS);
+  assert.ok(next.at(61000).lens.zoomPulse > .9, 'later accents follow the new analysis');
+  assert.equal(next.at(61000).lens.cueIndex, 1);
+  assert.equal(next.at(60000).lens, NEUTRAL_LENS, 'the superseded later boundary is gone');
+  assert.equal(next.at(61000, { preview: true }).lens, NEUTRAL_LENS);
+});
+
+test('the closing camera move arrives on the music\'s cadence, not the file\'s padding', () => {
+  const rate = 50, n = 120 * rate + 1;
+  const audible = i => i * 20 < 100000;
+  const energyCurves = { rateHz: rate, n, globalEnergyNorm: t => t < 100000 ? .5 : 0,
+    bands: Array.from({ length: 7 }, () => Float32Array.from({ length: n }, (_, i) => audible(i) ? .5 : 0)) };
+  const score = compileLandscapeScore({ energyCurves, sections, durationMs: 120000 });
+  assert.equal(score.cadenceMs, 100000);
+  assert.equal(score.at(100000).camera.kind, 'hold', 'arrived');
+  assert.deepEqual(score.at(110000).camera, score.at(100000).camera, 'holds through the silent tail');
+  assert.equal(score.at(85000).camera.kind, 'finale');
 });
