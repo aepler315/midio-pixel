@@ -17,8 +17,10 @@ export const PALETTES = Object.freeze({
   range32: Object.freeze({ id: 'range32', name: 'Landscape', colors: RANGE32_COLORS }),
   chroma32: Object.freeze({ id: 'chroma32', name: 'Chroma', colors: CHROMA32_COLORS }),
 });
-/** A bounded, stable world choice; never reads biome, camera or frame colors. */
-export function resolvePaletteId(selection, worldKind = null) {
-  if (selection === 'world') return worldKind === 'alpine' ? 'range32' : 'chroma32';
+/** A bounded, stable world choice; never reads biome, camera or frame colors.
+ * Trio shares Landscape's alpine kind but keeps its violet, rose and cyan
+ * cast, so `experience` 'trio' selects Chroma32. */
+export function resolvePaletteId(selection, worldKind = null, experience = null) {
+  if (selection === 'world') return experience !== 'trio' && worldKind === 'alpine' ? 'range32' : 'chroma32';
   return ['range32', 'chroma32', 'rgb332'].includes(selection) ? selection : 'none';
 }

@@ -116,14 +116,14 @@ export class PixelPresentation {
     if (!this._needsDitherWeights() || this.ditherWeights && this.ditherWeights.length !== this.grid.pixels) this._releaseDitherWeights();
   }
   _preparePalette() {
-    this._resolvedPaletteId = resolvePaletteId(this.presentation.paletteId, this.worldKind);
+    this._resolvedPaletteId = resolvePaletteId(this.presentation.paletteId, this.worldKind, this.experience);
     const colors = PALETTES[this._resolvedPaletteId]?.colors;
     this.compiledPalette = colors ? compilePalette(colors) : null;
   }
-  setFrameContext({ worldKind = null } = {}) {
-    if (worldKind === this.worldKind) return;
-    this.worldKind = worldKind;
-    const next = resolvePaletteId(this.presentation.paletteId, worldKind);
+  setFrameContext({ worldKind = null, experience = null } = {}) {
+    if (worldKind === this.worldKind && experience === this.experience) return;
+    this.worldKind = worldKind; this.experience = experience;
+    const next = resolvePaletteId(this.presentation.paletteId, worldKind, experience);
     if (next === this._resolvedPaletteId) return;
     this._invalidateCapture();
     this.generation++; this._securityGeneration = null;
@@ -332,7 +332,7 @@ export class PixelPresentation {
       this.diagnostics.frame = result;
       this.diagnostics.presentationCpuMs = (this._beginCpuMs || 0) + performance.now() - started;
       this._capture = { ...result, canvas: source, pixelated: true, scaling: p.scaling, pixelScale: p.pixelScale,
-        grid: this.grid, paletteId: this.diagnostics.effectivePalette, worldKind: this.worldKind ?? null,
+        grid: this.grid, paletteId: this.diagnostics.effectivePalette, worldKind: this.worldKind ?? null, experience: this.experience ?? null,
         ditherMode: this.diagnostics.effectiveDitherMode, pixelPolicyVersion: PIXEL_POLICY_VERSION,
         width: source.width, height: source.height, outputSize: pending.outputSize };
       return result;
