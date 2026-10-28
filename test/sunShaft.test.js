@@ -57,16 +57,67 @@ test('a denied A/B bundle cannot sacrifice base views, targets or travel scratch
   assert.equal(s.residency.snapshot().overcommits,0);
 });
 
-test('quality, celestial gaps and context loss shed the optional bundle and invalidate cached depth',()=>{
+test('a quality shed fades the shafts out over heard time, then releases the optional bundle',()=>{
   const s=scene();
-  for(const fr of [{...day,qualityLevel:3},{...day,light:{celestial:{body:'moon',visibility:1,intensity:.25}}},
+  const at=(timeMs,extra={})=>({...day,timeMs,...extra});
+  assert.ok(s.prepareShafts(at(1000),['a']));assert.equal(s.shaftPresence,1);
+  const bundle=s.shafts;
+  let presence=1;
+  for(let t=1000+1000/60;t<1000+1490;t+=1000/60){
+    assert.ok(s.prepareShafts(at(t,{qualityLevel:3}),['a']),`the bundle survives the fade at ${t}`);
+    assert.equal(s.shafts,bundle);
+    assert.ok(s.shaftPresence<presence&&s.shaftPresence>0);presence=s.shaftPresence;
+    assert.ok(Math.abs(s._shaftSource(at(t,{qualityLevel:3})).stormGain-presence)<1e-12,'scaled, not cut');
+  }
+  s.depthCache.A.frame=99;
+  for(let t=2500;t<2700&&s.shafts;t+=1000/60)s.prepareShafts(at(t,{qualityLevel:3}),['a']);
+  assert.equal(s.shafts,null,'released once the fade reaches 0');assert.equal(s.shaftPresence,0);
+  assert.equal(s.depthCache.A.frame,-1);assert.equal(s.residency.usedBytes,5000);
+  assert.equal(s._shaftSource(at(2700,{qualityLevel:3})),null);
+  // Recovery fades back in from zero.
+  const last=s.shaftEaseAtMs;
+  assert.ok(s.prepareShafts(at(last+1000/60),['a']));assert.ok(s.shaftPresence>0&&s.shaftPresence<.1);
+});
+
+test('celestial gaps and context loss still shed the optional bundle at once',()=>{
+  const s=scene();let t=1000;
+  for(const fr of [{...day,light:{celestial:{body:'moon',visibility:1,intensity:.25}}},
     {...day,light:{celestial:{body:null,visibility:0,intensity:0}}}]){
-    assert.ok(s.prepareShafts(day,['a']));s.depthCache.A.frame=99;
-    assert.equal(s.prepareShafts(fr,['a']),false);assert.equal(s.shafts,null);
+    assert.ok(s.prepareShafts({...day,timeMs:t+=16},['a']));s.depthCache.A.frame=99;
+    assert.equal(s.prepareShafts({...fr,timeMs:t+=16},['a']),false);assert.equal(s.shafts,null);assert.equal(s.shaftPresence,0);
     assert.equal(s.depthCache.A.frame,-1);assert.equal(s.residency.usedBytes,5000);
   }
-  assert.ok(s.prepareShafts(day,['a']));s.contextLost=true;
-  assert.equal(s.prepareShafts(day,['a']),false);assert.equal(s.shafts,null);
+  assert.ok(s.prepareShafts({...day,timeMs:5000},['a']));s.contextLost=true;
+  assert.equal(s.prepareShafts({...day,timeMs:5016},['a']),false);assert.equal(s.shafts,null);
+});
+
+test('a paused frame holds the shaft fade and a seek snaps it',()=>{
+  const s=scene();
+  assert.ok(s.prepareShafts({...day,timeMs:1000},['a']));
+  s.prepareShafts({...day,qualityLevel:3,timeMs:1300},['a']);
+  const held=s.shaftPresence;assert.ok(held>0&&held<1);
+  for(let i=0;i<5;i++)s.prepareShafts({...day,qualityLevel:3,timeMs:1300},['a','b']);
+  assert.equal(s.shaftPresence,held,'pause and the B view hold');
+  assert.equal(s.prepareShafts({...day,qualityLevel:3,timeMs:60000},['a']),false,'a seek snaps');
+  assert.equal(s.shafts,null);
+  assert.ok(s.prepareShafts({...day,timeMs:1000},['a']));assert.equal(s.shaftPresence,1,'a seek back snaps in');
+});
+
+test('the far pass and renderDirectShaft scatter the same faded light',()=>{
+  const s=scene();
+  assert.ok(s.prepareShafts({...day,timeMs:1000},['a']));
+  const frame={...day,qualityLevel:3,timeMs:1500};s.prepareShafts(frame,['a']);
+  const seen=[];
+  s.shafts={...s.shafts,buffers:{A:{}},targets:{A:{}},render:(r,side,source)=>{seen.push(source.stormGain);return true;},
+    compositeToScreen:(r,side,source)=>seen.push(source.stormGain)};
+  s.renderer={setRenderTarget(){},setClearColor(){},clear(){},render(){}};s.canvas={};s._setCanvasSize=()=>{};
+  s.renderDirectShaft(frame,640,360);
+  const p={view:{},uniforms:{uNarrativeInk:{value:0},uBackdropAmount:{value:0},uDiag:{value:0}},forest:{counts:{}},depthScene:'d',scenes:{far:'far'}};
+  Object.assign(s,{camera:new THREE.PerspectiveCamera(),depthCache:{A:{frame:-1}},prepared:new Map([['a',p]]),stats:{depthPasses:0},
+    _copy:{mesh:{material:{uniforms:{uColor:{}}}},scene:'copy'},_setCamera(){},_setUniforms(){},_prepareMirror(){},_setCanvasSize(){},_copyTexture(){}});
+  s.renderPartition(frame,'far','a');
+  assert.equal(seen.length,3);assert.ok(seen[0]>0&&seen[0]<1);
+  assert.ok(seen.every(v=>v===seen[0]),'display and capture agree');
 });
 
 test('essential allocation may evict shafts and its callback clears attachment and cache ownership',()=>{

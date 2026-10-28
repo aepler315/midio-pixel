@@ -966,7 +966,8 @@ export const SCENE_FRAG = /* glsl */`
       // shoreline coverage, depth and real reflected image stay unchanged.
       reflectance = min(.88, reflectance + (.035 * uWaterMusic.x + .025 * uWaterMusic.w)
         * smoothstep(.2, .8, abs(waterSwell.y)));
-      color = mix(color, mirrored * 0.9, reflectance * smoothstep(.5, .9, waterCoverage) * have * clear * uNarrative.z * uNarrative.w);
+      color = mix(color, mirrored * 0.9, reflectance * smoothstep(.5, .9, waterCoverage) * have * clear * uNarrative.z * uNarrative.w
+        * uMirrorAmount);
     }
     #endif
     if (water) {

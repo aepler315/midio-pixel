@@ -27,7 +27,7 @@ import { terrainFeatureSegmentsAsync } from './TerrainFeatures.js';
 import { loadMaterialPack, materialGpuBytes, RULE_DEFAULTS, validateWaterRules } from './MaterialPackage.js';
 import { placeForestAsync, forestPlacementBound } from './ForestCover.js';
 import { SunShaftGL, SHAFT_KEY, shaftSize, shaftSource } from './SunShaftGL.js';
-import { rangeQuality } from './RangeQuality.js';
+import { rangeQuality, easeRungAmount } from './RangeQuality.js';
 import { hashSeed } from '../../utils/math.js';
 import { createForest, FOREST_ASSET_BUILD_BYTES, forestGroupingBytes } from './ForestGL.js';
 import { forestAssetBytes, FOREST_FAMILIES, FOREST_VARIANTS } from './ForestSpeciesAssets.js';
@@ -344,14 +344,23 @@ export class RangeScene {
   /** Optional attachments are admitted only after all active base targets,
    * views and travel scratch. No partial A/B bundle can be published. */
   prepareShafts(frame, viewIds) {
-    if (this.contextLost || !rangeQuality(frame.qualityLevel).sunShafts || !shaftSource(frame) || !this.target) {
-      this.releaseShafts(); return false;
+    // No sun, no context or no target: nothing to fade, release at once
+    // (a returning sun then fades in from zero).
+    if (this.contextLost || !shaftSource(frame) || !this.target) {
+      this.releaseShafts(); this.shaftEaseAtMs = frame.timeMs; return false;
     }
+    // A rung shed or recovery fades the shafts over heard time (A and B
+    // views share one presence, advanced once per heard frame); the bundle
+    // is released only once the fade reaches 0.
+    const dtSec = (frame.timeMs - (this.shaftEaseAtMs ?? -Infinity)) / 1000;
+    this.shaftPresence = easeRungAmount(this.shaftPresence, rangeQuality(frame.qualityLevel).sunShafts ? 1 : 0, dtSec);
+    this.shaftEaseAtMs = frame.timeMs;
+    if (!(this.shaftPresence > 0)) { this.releaseShafts(); return false; }
     const ids = [].concat(viewIds);
     const targets = ids.length > 1 && this.sideTargets.B ? { A: this.target, B: this.sideTargets.B } : { A: this.target };
     const identity = `${ids.join('|')}:${this.size.width}:${this.size.height}:${this.contextEpoch}`;
     if (this.shafts && this.shaftIdentity === identity) return true;
-    this.releaseShafts();
+    this.releaseShafts({ keepPresence: true });
     const { width, height } = shaftSize(this.size.width, this.size.height);
     const bytes = width * height * 4 * Object.keys(targets).length + 36;
     // Protect every currently resident essential range entry, including an
@@ -362,7 +371,7 @@ export class RangeScene {
     const shafts = new SunShaftGL(this.THREE, targets);
     const dispose = (effect) => {
       effect.dispose();
-      if (this.shafts === effect) { this.shafts = null; this.shaftIdentity = null; }
+      if (this.shafts === effect) { this.shafts = null; this.shaftIdentity = null; this.shaftPresence = 0; }
       if (this.depthCache) this.depthCache.A.frame = this.depthCache.B.frame = -1;
     };
     if (res && !this.residency.commit(res, shafts, dispose)) return false;
@@ -495,6 +504,11 @@ export class RangeScene {
     const wanted = Number.isFinite(level) && rangeQuality(frame.qualityLevel).waterMirror
       && (frame.narrative?.materials ?? 1) > .01;
     const m = wanted ? this._ensureMirror(side) : null;
+    // A recovered mirror fades in over heard time; a shed drops it at once
+    // (keeping it would prolong the overload). Once per heard frame.
+    const dtSec = (frame.timeMs - (p.mirrorEaseAtMs ?? -Infinity)) / 1000;
+    p.mirrorFade = easeRungAmount(p.mirrorFade, m ? 1 : 0, dtSec, { down: 'snap' });
+    p.mirrorEaseAtMs = frame.timeMs;
     if (!m) { u.uMirrorAmount.value = 0; u.uBackdropAmount.value = 0; if (!wanted) this.releaseMirror(side); return; }
     if (m.frame !== frame.frameId || m.view !== viewId) {
       const r = this.renderer;
@@ -547,13 +561,32 @@ export class RangeScene {
     u.uViewProj.value.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
     u.uMirrorLevel.value = level;
     u.uMirrorRipple.value = ripple(frame.music);
-    u.uMirrorAmount.value = 1;
+    u.uMirrorAmount.value = p.mirrorFade;
   }
 
-  releaseShafts() {
-    if (!this.shafts) return;
+  /** The frame's sun-shaft source scaled by the rung fade (null at 0).
+   *  The far pass and renderDirectShaft both read it, so display and
+   *  capture scatter the same light. */
+  _shaftSource(frame) {
+    // Before any prepareShafts the rung alone decides, as it always did.
+    const presence = this.shaftPresence ?? (rangeQuality(frame.qualityLevel).sunShafts ? 1 : 0);
+    if (!(presence > 0)) return null;
+    const src = shaftSource(frame);
+    return src && { ...src, stormGain: src.stormGain * presence };
+  }
+
+  /** Free the shaft bundle. Eviction, context loss, view retirement and
+   *  resize also end the fade (presence 0); only a re-allocation inside
+   *  prepareShafts keeps it. */
+  releaseShafts({ keepPresence = false } = {}) {
+    if (!keepPresence) this.shaftPresence = 0;
+    const shafts = this.shafts;
+    if (!shafts) return;
+    // Detach first: the ledger's dispose callback treats a still attached
+    // bundle as an eviction (which ends the fade).
+    this.shafts = null;
     if (this.residency) this.residency.release(SHAFT_KEY);
-    else { this.shafts.dispose(); this.shafts = null; }
+    else shafts.dispose();
     if (this.depthCache) this.depthCache.A.frame = this.depthCache.B.frame = -1;
     this.shaftIdentity = null;
   }
@@ -2157,15 +2190,21 @@ export class RangeScene {
     // Threads are faint: a survey line, not a light.
     threads.setLook(new THREE.Color().setHSL(ACTOR_HUES.midasus / 360, 0.85, 0.7).convertSRGBToLinear(), 0.6 * gain);
     const low = rangeQuality(frame.qualityLevel).level >= 4;
+    // Rung 4 keeps 12 of the 32 fixed-line lights; the rest fade out (and
+    // back in on recovery) over heard time instead of popping.
+    const dtSec = (frame.timeMs - (p.castFadeAtMs ?? -Infinity)) / 1000;
+    p.castFade = easeRungAmount(p.castFade, low ? 0 : 1, dtSec);
+    p.castFadeAtMs = frame.timeMs;
     const fuse = job?.state.fuse01 ?? 0;
     lights.forEach((l, k) => {
-      if (!job || (low && l.kind === 'line' && !l.low)) { sites.setState(k, 0); return; }
+      const fade = l.kind === 'line' && !l.low ? p.castFade : 1;
+      if (!job || !(fade > 0)) { sites.setState(k, 0); return; }
       const age = job.since(l.mark);
       // A light comes up as its motes arrive, then never goes out. On the
       // climax the fuse runs up the fixed lines, flaring each once.
       const lit = age < 0 ? 0 : Math.min(1, age / 800);
       const f = l.kind === 'line' && fuse > 0 && fuse < 1 ? Math.exp(-(((fuse - (l.u - p.castPlan.waterU) / (1 - p.castPlan.waterU)) / 0.06) ** 2)) : 0;
-      sites.setState(k, lit, f);
+      sites.setState(k, lit * fade, f * fade);
     });
     for (let j = 0; j < Math.min(campSlots, p.castCamps.length - campFrom); j++) sites.setState(lights.length + j, made > campFrom + j ? 1 : 0);
     if (rope && work?.rope) {
@@ -2284,7 +2323,7 @@ export class RangeScene {
     const castInBands = this.castInBands !== false || !!bandColumns;
     this.camera.layers.set(0);
     if (!softForest) { this.camera.layers.enable(3); if (castInBands) enableCastLayers(this.camera); }
-    const source = pass === 'far' && rangeQuality(frame.qualityLevel).sunShafts ? shaftSource(frame) : null;
+    const source = pass === 'far' ? this._shaftSource(frame) : null;
     const forestDepth = p.uniforms.uNarrativeInk.value >= .005
       || (castInBands && this._castShown(p))
       || !!(source && this.shafts);
@@ -2363,7 +2402,7 @@ export class RangeScene {
   /** Resolve the already accumulated shaft field at output resolution. The
    * depth guard stays tied to the terrain grid, retaining its hard edges. */
   renderDirectShaft(frame, width, height, { side = 'A' } = {}) {
-    const source = shaftSource(frame);
+    const source = this._shaftSource(frame);
     if (!source || !this.shafts?.buffers?.[side] || !this.shafts?.targets?.[side]) return null;
     const r = this.renderer;
     r.setRenderTarget(null); this._setCanvasSize(Math.max(2, Math.round(width)), Math.max(2, Math.round(height)));

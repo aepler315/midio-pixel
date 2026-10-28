@@ -17,6 +17,23 @@ import { MIST_SAMPLES } from './RangeAtmosphere.js';
 // instead, which changed the look without saving any work.
 const MIST_STEPS = [MIST_SAMPLES, MIST_SAMPLES, MIST_SAMPLES, 4, 4, 3, 2];
 
+/** Fade seconds for an optional layer the ladder sheds or restores. */
+export const RUNG_FADE_SEC = 1.5;
+/** Ease an optional layer's presence (0..1) toward a rung's target over
+ *  heard time, so a shed or a recovery fades instead of popping. Holds
+ *  while paused (dtSec 0); snaps on a seek or a first frame (current not
+ *  finite, or dtSec outside (0, .5]). down: 'snap' drops at once when the
+ *  target falls (a shed that must free its cost now), easing only up. */
+export function easeRungAmount(current, target01, dtSec, { sec = RUNG_FADE_SEC, down = 'ease' } = {}) {
+  const target = Number.isFinite(target01) ? Math.max(0, Math.min(1, target01)) : 0;
+  if (!Number.isFinite(current)) return target;
+  if (dtSec === 0) return current;
+  if (!(dtSec > 0 && dtSec <= .5)) return target;
+  if (down === 'snap' && target < current) return target;
+  const step = dtSec / Math.max(1e-6, sec);
+  return current < target ? Math.min(target, current + step) : Math.max(target, current - step);
+}
+
 /** What the scene draws at a governor level. */
 export function rangeQuality(level = 0) {
   const q = Math.max(0, Math.min(6, level | 0));

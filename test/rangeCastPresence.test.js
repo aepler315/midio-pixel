@@ -436,3 +436,39 @@ test('an ascent strings its fixed line up to the light Broshi is fixing, and the
  assert.equal(u.uFlare.value[0],0.4,'the fuse runs along the rope');
  actors.dispose();
 });
+
+test('a rung 4 shed fades the fixed lines it drops, and keeps the twelve low lines',()=>{
+ const shared={...actorUniforms(THREE),uCameraPos:{value:new THREE.Vector3()},uAirDensity:{value:0},uAirHeightFalloff:{value:0}};
+ const actors=new ActorsGL(THREE,shared), camera=new THREE.PerspectiveCamera(35,16/9,1,100000);
+ camera.position.set(0,1000,0);camera.lookAt(0,1000,-10000);camera.updateMatrixWorld();
+ const plan={job:'ascent',points:[[0,1000,-5000],[0,1500,-6000]],us:[0,1],waterU:0,landing:[0,1000,-5000],shoreStart:null};
+ const work=castWork(plan);
+ const p={view:{id:'v'},actors,uniforms:shared,actorRoutes:{},castPlan:plan,castWork:work,data:null,scenes:{far:new THREE.Scene()}};
+ const scene={THREE,camera,_tileAt:()=>null,_castJob:RangeScene.prototype._castJob,_setCastLights:RangeScene.prototype._setCastLights};
+ const schedule={kindleTimes:()=>work.marks.map(()=>0),views:{v:{camps:[]}}};
+ const state={p:1,offsets:{broshi:0,midasus:0},shelter01:0,payoff01:0,fuse01:0,camps:0,climax:false};
+ const draw=(timeMs,qualityLevel)=>{
+  RangeScene.prototype._setActors.call(scene,p,{actors:{presence:1,...Object.fromEntries(ACTOR_IDS.map(id=>[id,{glow:.5,travel:1}])),jobs:{v:state},schedule},timeMs,qualityLevel,light:{night01:1}});
+  const a=actors.sites.meshes.far.geometry.attributes.aState;
+  return work.lights.map((_,k)=>a.getX(k));
+ };
+ const dropped=work.lights.map((l,k)=>l.kind==='line'&&!l.low?k:-1).filter(k=>k>=0);
+ const kept=work.lights.map((l,k)=>l.kind==='line'&&l.low?k:-1).filter(k=>k>=0);
+ assert.ok(dropped.length&&kept.length,'the fixture has both kinds of fixed line');
+ const full=draw(20000,3);
+ assert.ok(dropped.every(k=>full[k]===1));
+ let prior=full, mid=false;
+ for(let t=20000+1000/30;t<=21600;t+=1000/30){
+  const now=draw(t,4);
+  for(const k of dropped)assert.ok(now[k]<=prior[k],'monotone fade');
+  for(const k of kept)assert.equal(now[k],1,'the low lines stay lit');
+  if(now[dropped[0]]>0&&now[dropped[0]]<1)mid=true;
+  prior=now;
+ }
+ assert.ok(mid,'intermediate light while the shed fades');
+ assert.ok(dropped.every(k=>prior[k]===0),'gone within the fade');
+ // Recovery fades back in.
+ const back=draw(21600+1000/30,3);
+ assert.ok(dropped.every(k=>back[k]>0&&back[k]<.1));
+ actors.dispose();
+});
