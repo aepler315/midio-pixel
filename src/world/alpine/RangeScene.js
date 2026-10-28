@@ -1942,10 +1942,16 @@ export class RangeScene {
       return;
     }
     const light = u.uLightDir?.value;
-    if (!u.uCloudMode || !light || !c?.body || !rangeQuality(frame.qualityLevel).cloudShadows || !(light.y > .05)) return;
+    if (!u.uCloudMode) return;
+    // A rung shed or recovery fades the shadows over heard time instead of
+    // popping them across the land (held on pause, snapped on a seek).
+    const dtSec = (frame.timeMs - (p.cloudFadeAtMs ?? -Infinity)) / 1000;
+    p.cloudFade = easeRungAmount(p.cloudFade, rangeQuality(frame.qualityLevel).cloudShadows ? 1 : 0, dtSec);
+    p.cloudFadeAtMs = frame.timeMs;
+    if (!light || !c?.body || !(p.cloudFade > 0) || !(light.y > .05)) return;
     const unit = v => Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0;
     const visible = unit(c.body === 'moon' ? (frame.light.state?.moon?.discAlpha ?? c.visibility ?? 1) : (c.visibility ?? 1));
-    const strength = CLOUD_SHADOW_MAX * (1 - unit(frame.storm?.amount)) * visible * (c.intensity > 0 ? 1 : 0);
+    const strength = CLOUD_SHADOW_MAX * (1 - unit(frame.storm?.amount)) * visible * (c.intensity > 0 ? 1 : 0) * p.cloudFade;
     if (!(strength > 0)) return;
     const eye = this.camera.position;
     CASTER_EYE[0] = eye.x; CASTER_EYE[1] = eye.y; CASTER_EYE[2] = eye.z;

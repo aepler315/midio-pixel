@@ -125,6 +125,26 @@ test('no cloud shadows below the horizon, at q4, or with a painted legacy sky',a
  set(sunFrame(42000));
  assert.equal(uniforms.uCloudCount.value,0);assert.equal(uniforms.uCloudStrength.value,0);
 });
+test('a q3 to q4 shed fades the cloud shadows out over heard time, and recovery fades them back',async()=>{
+ const {uniforms}=await shadowScene();
+ const {RangeScene}=await import('../src/world/alpine/RangeScene.js');
+ const camera=new (await import('../src/vendor/range/three-range.module.js')).PerspectiveCamera(40,16/9,20,150000);
+ camera.position.set(500,2200,800);camera.lookAt(0,1500,-8000);camera.updateMatrixWorld();
+ const p={uniforms};const set=frame=>RangeScene.prototype._setCloudUniforms.call({camera,skyClouds:null},p,frame);
+ set(sunFrame(42000,{qualityLevel:3}));assert.ok(Math.abs(uniforms.uCloudStrength.value-.4)<1e-12);
+ let last=.4,t=42000;
+ for(let i=0;i<30;i++){
+  set(sunFrame(t+=1000/60,{qualityLevel:4}));
+  const s=uniforms.uCloudStrength.value;
+  assert.ok(s>0&&s<last,`fading at ${t}: ${s}`);assert.equal(uniforms.uCloudMode.value,1);last=s;
+ }
+ set(sunFrame(t,{qualityLevel:4}));assert.equal(uniforms.uCloudStrength.value,last,'a paused frame holds');
+ for(let i=0;i<120&&uniforms.uCloudCount.value;i++)set(sunFrame(t+=1000/60,{qualityLevel:4}));
+ assert.equal(uniforms.uCloudCount.value,0,'count 0 at q4 once the fade ends');assert.equal(uniforms.uCloudMode.value,0);
+ set(sunFrame(t+=1000/60,{qualityLevel:3}));
+ const s=uniforms.uCloudStrength.value;assert.ok(s>0&&s<.05,`recovery fades in (${s})`);
+ set(sunFrame(t+60000,{qualityLevel:3}));assert.ok(Math.abs(uniforms.uCloudStrength.value-.4)<1e-12,'a seek snaps');
+});
 test('the GLSL keeps the legacy moon path as mode 0 and caps world shadows',()=>{
  const glsl=cloud.CLOUD_OCCLUSION_GLSL;
  assert.match(glsl,/float celestialCloudTransmission\(vec3 p, vec3 dir\)\s*\{\s*if \(uCloudMode < 0\.5\) return moonCloudTransmission\(p, dir\);/);
