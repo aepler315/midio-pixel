@@ -1,4 +1,5 @@
-import { cloudPuffs } from './CloudOcclusion.js';
+import { cloudPuffs, MAX_CLOUD_PUFFS, CLOUD_SHADOW_MAX } from './CloudOcclusion.js';
+import { cloudShadowCasters, CLOUD_CASTER_STRIDE, CLOUD_WIND_AXIS } from './RangeCloudField.js';
 import { cinematicLightingProfile } from './CinematicLighting.js';
 import { shaderFailureLog } from '../../render/GraphicsDiagnostics.js';
 import { applyLensFov } from '../../render/CameraLens.js';
@@ -52,6 +53,10 @@ import { flashScreenPoint, rainSeed01, stormKindRow } from './RangeStorm.js';
 // rain air, per episode kind (RangeStorm STORM_KINDS zenith/horizon/air).
 // The air meets the slate the sky paints at the horizon (drawStormSky).
 
+// Fair-weather shadow casters (RangeCloudField), filled in place per frame.
+const CLOUD_SHADOW_CASTERS = 16;
+const CASTERS = new Float32Array(CLOUD_SHADOW_CASTERS * CLOUD_CASTER_STRIDE);
+const CASTER_LIGHT = [0, 1, 0], CASTER_EYE = [0, 0, 0];
 const BACKDROP_KEY = 'range:water-backdrop';
 // Full/lite pairs share instances and retain two scalar attributes per batch.
 const FOREST_DETAIL_BYTES = BANDS.length * FOREST_FAMILIES * FOREST_VARIANTS * 8;
@@ -1837,24 +1842,60 @@ export class RangeScene {
     this._setActors(p, frame);
   }
 
+  /** The key light through the sky's clouds (CloudOcclusion). A painted
+   *  legacy sky (skyClouds) keeps its moon-only puffs in mode 0; otherwise
+   *  the fair-weather banks the high-resolution sky draws cast world-plane
+   *  shadows (mode 1) where the rung allows and the light is up. Pure in
+   *  heard time and the song seed, so seeks match continuous play. */
   _setCloudUniforms(p, frame) {
     const u = p.uniforms;
     if (!u.uCloudCount) return;
-    u.uMoonClouds.value = frame.light?.celestial?.body === 'moon' ? 1 : 0;
+    const c = frame.light?.celestial;
+    u.uMoonClouds.value = c?.body === 'moon' ? 1 : 0;
     u.uCloudCount.value = 0;
-    if (!this.skyClouds || !u.uMoonClouds.value) return;
-    const e = this.camera.matrixWorld.elements;
-    const right = [e[0], e[1], e[2]], up = [e[4], e[5], e[6]], forward = [-e[8], -e[9], -e[10]];
-    const eyeM = this.camera.position.toArray();
-    const pose = { eyeM, targetM: eyeM.map((v,k) => v + forward[k]), fovYDeg: this.camera.fov, view: this.camera.view };
-    const puffs = cloudPuffs(this.skyClouds.banks, { ...this.skyClouds.options, pose });
-    u.uCloudRight.value.set(...right); u.uCloudUp.value.set(...up); u.uCloudForward.value.set(...forward);
-    u.uCloudCount.value = puffs.length;
-    puffs.forEach((puff,i) => {
-      u.uCloudCenterRadius.value[i].set(...puff.centerM, puff.radiusXM);
-      const shape = u.uCloudShape.value[Math.floor(i / 2)], component = (i % 2) * 2;
-      shape.setComponent(component, puff.radiusYM).setComponent(component + 1, puff.opacity);
-    });
+    if (u.uCloudMode) u.uCloudMode.value = 0;
+    if (u.uCloudStrength) u.uCloudStrength.value = 0;
+    if (this.skyClouds) {
+      if (!u.uMoonClouds.value) return;
+      const e = this.camera.matrixWorld.elements;
+      const eyeM = this.camera.position.toArray();
+      const pose = { eyeM, targetM: [eyeM[0] - e[8], eyeM[1] - e[9], eyeM[2] - e[10]], fovYDeg: this.camera.fov, view: this.camera.view };
+      const puffs = cloudPuffs(this.skyClouds.banks, { ...this.skyClouds.options, pose });
+      u.uCloudRight.value.set(e[0], e[1], e[2]); u.uCloudUp.value.set(e[4], e[5], e[6]); u.uCloudForward.value.set(-e[8], -e[9], -e[10]);
+      u.uCloudCount.value = puffs.length;
+      for (let i = 0; i < puffs.length; i++) {
+        const puff = puffs[i];
+        u.uCloudCenterRadius.value[i].set(puff.centerM[0], puff.centerM[1], puff.centerM[2], puff.radiusXM);
+        const shape = u.uCloudShape.value[i >> 1], component = (i % 2) * 2;
+        shape.setComponent(component, puff.radiusYM).setComponent(component + 1, puff.opacity);
+      }
+      return;
+    }
+    const light = u.uLightDir?.value;
+    if (!u.uCloudMode || !light || !c?.body || !rangeQuality(frame.qualityLevel).cloudShadows || !(light.y > .05)) return;
+    const unit = v => Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0;
+    const visible = unit(c.body === 'moon' ? (frame.light.state?.moon?.discAlpha ?? c.visibility ?? 1) : (c.visibility ?? 1));
+    const strength = CLOUD_SHADOW_MAX * (1 - unit(frame.storm?.amount)) * visible * (c.intensity > 0 ? 1 : 0);
+    if (!(strength > 0)) return;
+    const eye = this.camera.position;
+    CASTER_EYE[0] = eye.x; CASTER_EYE[1] = eye.y; CASTER_EYE[2] = eye.z;
+    CASTER_LIGHT[0] = light.x; CASTER_LIGHT[1] = light.y; CASTER_LIGHT[2] = light.z;
+    const timeSec = frame.timeMs / 1000;
+    const count = cloudShadowCasters({ eyeM: CASTER_EYE, timeSec, seed: frame.seed ?? 0, lightDir: CASTER_LIGHT,
+      max: Math.min(CLOUD_SHADOW_CASTERS, MAX_CLOUD_PUFFS), out: CASTERS });
+    for (let i = 0; i < count; i++) {
+      const o = i * CLOUD_CASTER_STRIDE;
+      u.uCloudCenterRadius.value[i].set(CASTERS[o], CASTERS[o + 1], CASTERS[o + 2], CASTERS[o + 3]);
+      const shape = u.uCloudShape.value[i >> 1], component = (i % 2) * 2;
+      shape.setComponent(component, CASTERS[o + 4]).setComponent(component + 1, CASTERS[o + 5]);
+    }
+    u.uCloudRight.value.set(CLOUD_WIND_AXIS[0], 0, CLOUD_WIND_AXIS[1]);
+    u.uCloudUp.value.set(-CLOUD_WIND_AXIS[1], 0, CLOUD_WIND_AXIS[0]);
+    // The clouds' own wind drift (RangeCloudField) carries the breakup.
+    u.uCloudForward.value.set(Number.isFinite(timeSec) ? timeSec * 10 : 0, 0, Number.isFinite(timeSec) ? timeSec * 3 : 0);
+    u.uCloudCount.value = count;
+    u.uCloudMode.value = count ? 1 : 0;
+    u.uCloudStrength.value = count ? strength : 0;
   }
 
   /**

@@ -43,3 +43,27 @@ Water continues to consume the existing production sky backdrop and distant-ray
 lookup. This repair does not introduce a separate physical cloud render through
 the reflected camera. Fixed-clock camera probes do not establish live frame
 pacing; the earlier full-resolution sky performance gate remains separate.
+
+## Cloud shadows on the land
+
+On the default high-resolution sky path (no painted legacy `skyClouds`), the
+fair-weather banks also shade the ground. `cloudShadowCasters` uses the same
+cell placement (`cloudCell`), seed, salt and heard-time wind as `cloudBanks`,
+so a shadow falls under the cloud the sky draws. It selects the banks around
+the eye's footprint moved toward the light (a card centre about 9.5 km up
+shades the ground that far back along the light), splits each into three soft
+elliptical sub-discs along the fixed wind axis and keeps at most 16 discs,
+ordered by distance and then cell id. It writes into a caller-owned
+`Float32Array`; RangeScene fills the existing uniform arrays in place.
+
+`CloudOcclusion` switches on `uCloudMode`. Mode 0 is the legacy moon-only
+painted-puff occlusion, unchanged. Mode 1 intersects each disc's altitude
+plane along the key light, multiplies soft disc coverage, and applies one
+shared breakup noise per fragment. `uCloudStrength` is
+`.4 * (1 - storm.amount) * light visibility`, capped at .4, and it fades out as
+the light approaches the horizon (`dir.y` from .15 down to .05). Water receivers
+keep full transmission. The quality ladder drops the shadows at rung 4
+(`cloudShadows: q < 4`), together with the lake mirror.
+
+Limitation: ForestGL trees do not receive cloud transmission. Crowns under a
+shadow keep the full key, while the ground between them is shaded.

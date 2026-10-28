@@ -32,5 +32,7 @@ export function rangeQuality(level = 0) {
     sunShafts: q < 3,
     waterMirror: q < 4,
     landscapeGiants: q < 4,
+    // Fair-weather cloud shadows on the land (CloudOcclusion mode 1).
+    cloudShadows: q < 4,
   };
 }

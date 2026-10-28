@@ -6,7 +6,9 @@ import { MIST_SAMPLES } from '../src/world/alpine/RangeAtmosphere.js';
 
 test('the ladder sheds foliage first, then fog sampling, then pool reflections; level 0 is full quality', () => {
   const q = [0, 1, 2, 3, 4, 5, 6].map(rangeQuality);
-  assert.deepEqual(q[0], { level: 0, forestKeep: 1, nearDetail: true, mistSteps: MIST_SAMPLES, poolReflections: true, sunShafts: true, landscapeGiants: true, waterMirror: true });
+  assert.deepEqual(q[0], { level: 0, forestKeep: 1, nearDetail: true, mistSteps: MIST_SAMPLES, poolReflections: true, sunShafts: true, landscapeGiants: true, waterMirror: true,
+    cloudShadows: true });
+  for (let i = 0; i < q.length; i++) assert.equal(q[i].cloudShadows, i < 4, 'cloud shadows go with the lake mirror');
   for (let i = 1; i < q.length; i++) {
     assert.ok(q[i].forestKeep <= q[i - 1].forestKeep, 'foliage never returns while shedding');
     assert.ok(q[i].mistSteps <= q[i - 1].mistSteps, 'fog sampling never returns while shedding');

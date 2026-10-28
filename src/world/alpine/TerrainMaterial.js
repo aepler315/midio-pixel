@@ -819,7 +819,8 @@ export const SCENE_FRAG = /* glsl */`
     vec3 hemi = mix(uSkyHorizon * 0.55, uSkyZenith, 0.5 + 0.5 * nShade.y) * ambientScale;
     if (uCinematic.x > .5 && !water) hemi = cinematicFill(hemi, key);
     if (!water) hemi = receiverFill(hemi, uReceiverFillMin);
-    float moonTransmission = moonCloudTransmission(vRenderedWorld, uLightDir);
+    // Water keeps the open sky's key under fair-weather cloud shadows.
+    float moonTransmission = water && uCloudMode > 0.5 ? 1.0 : celestialCloudTransmission(vRenderedWorld, uLightDir);
     vec3 lit = albedo * (hemi * ao + uLightColor * moonTransmission * key * mix(0.85, 1.0, ao) * receiverShadow);
     if (uCinematic.x > .5 && !water) {
       lit = albedo * (hemi * ao + cinematicKey(uLightColor) * moonTransmission * key * mix(0.85, 1.0, ao) * receiverShadow);
