@@ -917,8 +917,8 @@ export class RangePresentation {
       }
     }
     this.scene.prepareShafts?.(this.frame, incoming ? [view.id, incoming.id] : [view.id]);
-    // The crest probe runs only on a steady single view drawn into the grid,
-    // and not at all on the heavy governor rungs (grid-scan fallback).
+    // The crest probe runs only on a steady single view drawn into the grid
+    // (light, crest rows only, on the heavy governor rungs).
     const crestOn = this.crestEnabled && this.pixelated && !this.directTerrainMode && !incoming;
     this.scene.crestProbeMode = crestOn ? this.crest.probeMode : null;
     this._crestScan = crestOn && this.crest.mode === 'grid';
@@ -1135,7 +1135,9 @@ export class RangePresentation {
       ? this.scene.readCrestProbe?.(this.frame.frameId, { sync, viewId: this.viewId, timeline: this._crestTimeline ?? 0,
         timeMs: this.frame.timeMs }) : null;
     const t = ctx.getTransform?.();
-    this.crest.update({ probe, frameId: this.frame.frameId, timeMs: this.frame.timeMs, viewId: this.viewId,
+    // An export draw with no history (a seek, a new view, an isolated frame)
+    // draws the crest at full strength instead of starting its fade.
+    this.crest.update({ probe, instant: sync, frameId: this.frame.frameId, timeMs: this.frame.timeMs, viewId: this.viewId,
       qualityLevel: this.frame.qualityLevel ?? 0, transform: t ? [t.a, t.b, t.c, t.d, t.e, t.f] : null,
       stage: { width: stage.width, height: stage.height },
       grid: { width: ctx.canvas.width, height: ctx.canvas.height },
@@ -1149,7 +1151,10 @@ export class RangePresentation {
 
   /** Presenter hooks at output resolution: the crest after the terrain,
    * shorelines after the water; live and for recordings alike. */
-  drawCrestForeground(ctx, fit) { return !this.active || this.crest.drawCrest(ctx, fit, this.frameId); }
+  drawCrestForeground(ctx, fit, options) { return !this.active || this.crest.drawCrest(ctx, fit, this.frameId, options); }
+  /** Presenter hook: draw the terrain (`draw`) clipped below the skyline
+   * (RangeCrest.drawTerrain). False when it drew nothing. */
+  drawCrestTerrain(ctx, fit, draw) { return !!this.active && this.crestEnabled && this.crest.drawTerrain(ctx, fit, this.frameId, draw); }
   drawShoreForeground(ctx, fit) { return !this.active || this.crest.drawShore(ctx, fit, this.frameId); }
 
   /** Blend a late-arriving band once after its terrain and water are united. */
