@@ -4,7 +4,7 @@ import { RangeScene } from '../src/world/alpine/RangeScene.js';
 import { rangeQuality } from '../src/world/alpine/RangeQuality.js';
 import * as THREE from 'three';
 import { resolveCelestialState } from '../src/world/CelestialState.js';
-import { SunShaftGL, shaftSize } from '../src/world/alpine/SunShaftGL.js';
+import { SunShaftGL, shaftSize, shaftSource, shaftGain } from '../src/world/alpine/SunShaftGL.js';
 import { GraphicsResidency } from '../src/render/GraphicsResidency.js';
 
 test('the first expensive quality rung sheds solar scattering independently of pool illumination', () => {
@@ -109,4 +109,18 @@ for (const [name, width, height, backingWidth, backingHeight] of [
   assert.ok(Math.abs(effect.uniforms.uRadius.value.x * width - 26) < 1e-12, 'horizontal aperture reaches the visible disc edge');
   assert.ok(Math.abs(effect.uniforms.uRadius.value.y * height - 26) < 1e-12, 'vertical aperture reaches the visible disc edge');
   effect.dispose();target.dispose();
+});
+
+test('the score lifts the shafts but never opens the squall deck', () => {
+  const light = { celestial: { body: 'sun', visibility: 1, intensity: 1.6, xFrac: .5, yFrac: .2 } };
+  const quiet = shaftSource({ light, storm: { amount: 0 } });
+  assert.equal(quiet.musicGain, 1);
+  assert.equal(shaftGain(quiet), .55, 'silence keeps today\'s gain');
+  const lifted = shaftSource({ light, storm: { amount: 0 }, effects: { lift: 1, bass: 1, energy: 1 } });
+  assert.equal(lifted.musicGain, 1.4);
+  assert.ok(Math.abs(shaftGain(lifted) - .77) < 1e-12);
+  assert.equal(shaftSource({ light, storm: { amount: 1 }, effects: { lift: 1, bass: 1 } }), null, 'still none under a full storm');
+  const breaking = shaftSource({ light, storm: { amount: 0, break01: 1 }, effects: { lift: 1 } });
+  assert.equal(shaftGain(breaking), .55 * 3.8, 'a storm break keeps its established scatter');
+  assert.ok(shaftGain({ ...quiet, stormGain: 1.5, musicGain: 1.4 }) <= .9, 'music never pushes the scatter past .9');
 });

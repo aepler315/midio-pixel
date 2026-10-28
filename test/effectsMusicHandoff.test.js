@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EnergyCurves } from '../src/audio/EnergyCurves.js';
 import { RidgeMotionHistory, createRidgeMusicSampler } from '../src/world/RidgeMotionHistory.js';
+import { atmosphereMusic } from '../src/world/alpine/RangeAtmosphere.js';
+import { shaftSource } from '../src/world/alpine/SunShaftGL.js';
 
 const channels = ['energy', 'bass', 'treble', 'kick', 'snare', 'melody', 'lift'];
 function curves(value = .8) {
@@ -115,4 +117,17 @@ test('coincident melodic notes share one onset trajectory without gaining streng
   assert.ok(a.accents[0].strength > .79 && a.accents[0].strength <= .8);
   assert.equal(mixed.accents.length, 1);
   near(mixed.accents[0].strength, (a.accents[0].strength + b.accents[0].strength) / 2, 'no duplicate contribution');
+});
+
+test('the mist and shafts replay the same score values for the same heard frame', () => {
+  const owner = history([note(1000, 'kick'), note(1500, 'melody', .8)]);
+  const light = { celestial: { body: 'sun', visibility: 1, intensity: 1.6, xFrac: .5, yFrac: .2 } };
+  const at = timeMs => {
+    const effects = sample(owner, timeMs);
+    return { air: { ...atmosphereMusic(effects) }, shaft: shaftSource({ light, storm: { amount: 0 }, effects }).musicGain };
+  };
+  const first = [1100, 1600, 4000].map(at);
+  at(9000); // play on, then seek back
+  assert.deepEqual([1100, 1600, 4000].map(at), first);
+  assert.ok(first.some(v => v.air.mistGlow > 0), 'heard music reaches the air');
 });

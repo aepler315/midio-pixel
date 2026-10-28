@@ -1,3 +1,4 @@
+import { atmosphereMusic } from './RangeAtmosphere.js';
 // Optional screen-space solar scattering. Coverage comes from the same full
 // resolution terrain/forest depth twins used by the scenic partitions. No
 // angle fan or independent light animation is involved.
@@ -10,8 +11,18 @@ export function shaftSource(frame) {
   const source = frame.light?.celestial;
   // Under the full squall deck no sun scatters: skip the passes entirely.
   const stormGain = (1 - (frame.storm?.amount || 0)) * (1 + (frame.storm?.break01 || 0) * 2.8);
+  // The score lifts the shafts (atmosphereMusic); it never opens the deck.
+  const musicGain = atmosphereMusic(frame.effects).shaftGain;
   return source?.body === 'sun' && source.visibility > 0 && source.intensity > 0 && stormGain > 0
-    && Number.isFinite(source.xFrac) && Number.isFinite(source.yFrac) ? { ...source, stormGain } : null;
+    && Number.isFinite(source.xFrac) && Number.isFinite(source.yFrac) ? { ...source, stormGain, musicGain } : null;
+}
+/** The scatter pass's gain. The score's lift may raise it only up to .9;
+ *  a storm break's brighter scatter (stormGain) is kept exactly as before,
+ *  and silence (musicGain 1) leaves today's gain unchanged. */
+export function shaftGain(source) {
+  const base = .55 * Math.min(1, source.intensity / 1.6) * (source.stormGain ?? 1);
+  const music = Number.isFinite(source.musicGain) ? Math.max(1, source.musicGain) : 1;
+  return music > 1 ? Math.max(base, Math.min(.9, base * music)) : base;
 }
 const VERT = /* glsl */`
   out vec2 vUv;
@@ -142,7 +153,7 @@ export class SunShaftGL {
     // Backing pixels can scale X/Y differently during export, so keep the
     // same logical disc before that shared display transform is applied.
     u.uRadius.value.set(radius, radius * scenicViewport.logicalWidth / scenicViewport.logicalHeight);
-    u.uGain.value = .55 * Math.min(1, source.intensity / 1.6) * (source.stormGain ?? 1);
+    u.uGain.value = shaftGain(source);
     this.mesh.material = this.scatter;
     renderer.setRenderTarget(buffer);
     renderer.render(this.scene, this.camera);

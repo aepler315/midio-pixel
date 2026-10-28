@@ -93,3 +93,18 @@ test('musical roughness preserves calm water and remains bounded during strong b
   assert.ok(glint(.99, 1, 1, clamp, smoothstep) > 0);
   assert.ok(glint(1, 1.6, 1, clamp, smoothstep) < .3);
 });
+
+test('the score thins and lights the valley mist, and silence restores it exactly', async () => {
+  const { uniforms: u, draw } = await receiver();
+  const snap = () => [u.uMistDensity.value, ...u.uMistColor.value.toArray()];
+  draw(null);
+  const quiet = snap();
+  draw({ energy: 0, bass: 0, treble: 0, kick: 0, snare: 0, melody: 0, lift: 0 });
+  assert.deepEqual(snap(), quiet);
+  draw({ energy: 1, bass: 1, lift: 1 });
+  const lifted = snap();
+  assert.ok(quiet[0] > 0 && Math.abs(lifted[0] - quiet[0] * .77) < 1e-9 * quiet[0], 'thinner mist under a lift');
+  assert.ok(lifted.slice(1).every((v, i) => v >= quiet[i + 1] && v <= .9), 'lit from within, still clamped');
+  draw(null);
+  assert.deepEqual(snap(), quiet);
+});

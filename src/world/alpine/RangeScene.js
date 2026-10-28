@@ -40,7 +40,7 @@ import { RockStageGL } from './RockStageGL.js';
 import { scenePoseAt } from '../terrain/SceneTravel.js';
 import { applyCameraMoves, rangeUserCamera } from './RangeCamera.js';
 import { BANDS, terrainFringeBytes, terrainHeightAt, SURFACE_BUILD_BYTES_PER_PIXEL } from './TerrainMesh.js';
-import { mistParams, mistDrift, easeMistSteps, tourMistCap, tourMistFade } from './RangeAtmosphere.js';
+import { mistParams, mistDrift, easeMistSteps, tourMistCap, tourMistFade, atmosphereMusic } from './RangeAtmosphere.js';
 import { mirrorSize, mirrorLevelFor, mirrorCameraFor, mirrorTextureMatrix, MIRROR_CLIP_M, MIRROR_LIFT } from './WaterMirror.js';
 import { scenicProjection, calibrateRangeMusic } from './RangeFrame.js';
 import { applyGlacierUniforms, glacierErrors, glacierSample } from './GlacierField.js';
@@ -1818,7 +1818,9 @@ export class RangeScene {
       const fade = tourMistFade(mp.topM, mp.baseM);
       mp.fill *= fade; mp.density *= fade;
     }
-    u.uMistDensity.value = mp.density * (n?.atmosphere ?? 1);
+    // The score thins and lights the mist (atmosphereMusic; neutral when silent).
+    const am = atmosphereMusic(frame.effects);
+    u.uMistDensity.value = mp.density * (n?.atmosphere ?? 1) * am.mistDensityMul;
     // A rung change eases the fog's sampling over heard time (seek snaps).
     const dtSec = (frame.timeMs - (p.mistEaseAtMs ?? -Infinity)) / 1000;
     p.mistSteps = easeMistSteps(p.mistSteps, quality.mistSteps, dtSec);
@@ -1831,7 +1833,8 @@ export class RangeScene {
     u.uMistTop.value = mp.topM;
     u.uMistFill.value = mp.fill;
     // Lit mist: the air's colour lifted toward the key light (display domain).
-    u.uMistColor.value.copy(u.uAirColor.value).multiplyScalar(1.2).add(u.uLightColor.value.clone().multiplyScalar(0.06));
+    u.uMistColor.value.copy(u.uAirColor.value).multiplyScalar(1.2)
+      .add(this._scratch().color2.copy(u.uLightColor.value).multiplyScalar(0.06 + am.mistGlow));
     u.uMistColor.value.r = Math.min(0.9, u.uMistColor.value.r);
     u.uMistColor.value.g = Math.min(0.9, u.uMistColor.value.g);
     u.uMistColor.value.b = Math.min(0.9, u.uMistColor.value.b);

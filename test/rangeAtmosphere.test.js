@@ -5,6 +5,7 @@ import {
   mistAmount, mistMask, mistParams, mistDrift, emitterStrength, MIST_GLSL, MIST_NOISE_M, MIST_DRIFT, SEA_DENSITY,
   meanLayer, easeMistSteps, tourMistCap, tourMistFade, MIST_OCTAVE_ROTATION, MIST_SAMPLES, MIST_STEP_EASE_SEC,
   emitterVisibility, seaSubmersion, actorLightShown, EMITTER_GLSL, EMITTER_SUBMERGE, SEA_TOP_SOFT_BELOW_M, SEA_TOP_SOFT_ABOVE_M,
+  atmosphereMusic, ATMOSPHERE_NEUTRAL,
 } from '../src/world/alpine/RangeAtmosphere.js';
 
 const cam = [0, 1500, 0];
@@ -419,4 +420,26 @@ test('the fog GLSL declares no identifier that GLSL ES 3.00 reserves', () => {
     'class', 'template', 'this', 'goto', 'inline', 'noinline', 'public', 'static', 'extern', 'external', 'interface'];
   const code = MIST_GLSL.replace(/\/\/[^\n]*/g, '');
   for (const word of reserved) assert.doesNotMatch(code, new RegExp(`\\b${word}\\b`), `GLSL uses reserved word ${word}`);
+});
+
+test('the score\'s hold on the valley air is neutral in silence and bounded under any input', () => {
+  const SILENT = { energy: 0, bass: 0, treble: 0, kick: 0, snare: 0, melody: 0, lift: 0, accents: [] };
+  for (const e of [null, undefined, SILENT, { lift: .0004, bass: .0009, energy: 0 }]) {
+    assert.equal(atmosphereMusic(e), ATMOSPHERE_NEUTRAL);
+  }
+  assert.deepEqual({ ...ATMOSPHERE_NEUTRAL }, { mistDensityMul: 1, mistGlow: 0, shaftGain: 1 });
+  assert.ok(Object.isFrozen(ATMOSPHERE_NEUTRAL));
+  let prior = { ...atmosphereMusic({ lift: 0, bass: .3, energy: .5 }) };
+  for (let lift = .1; lift <= 1.0001; lift += .1) {
+    const next = { ...atmosphereMusic({ lift, bass: .3, energy: .5 }) };
+    assert.ok(next.mistDensityMul <= prior.mistDensityMul && next.mistGlow >= prior.mistGlow && next.shaftGain >= prior.shaftGain, `monotone at ${lift}`);
+    prior = next;
+  }
+  const full = { ...atmosphereMusic({ lift: 9, bass: 9, energy: 9 }) };
+  assert.deepEqual(full, { mistDensityMul: .77, mistGlow: .06, shaftGain: 1.4 });
+  for (const e of [{ lift: NaN, bass: Infinity, energy: -Infinity }, { lift: -5, bass: NaN, energy: 2 }]) {
+    const m = atmosphereMusic(e);
+    assert.ok(Object.values(m).every(Number.isFinite));
+    assert.ok(m.mistDensityMul >= .75 && m.mistDensityMul <= 1 && m.mistGlow >= 0 && m.mistGlow <= .06 && m.shaftGain >= 1 && m.shaftGain <= 1.4);
+  }
 });
