@@ -167,3 +167,19 @@ test('static traits and representations stay stable while default and streaming 
     assert.deepEqual(forestPlacementBound(data, v, rules), { count: 35465, lattice: 38809, placementBytes: 3056192 });
   }
 });
+
+test('the detail footprint bound covers the trees\' largest possible lean', async () => {
+  const wind = await import('../src/world/alpine/ForestWind.js');
+  const forest = await import('../src/world/alpine/ForestGL.js');
+  for (const name of ['WIND_SWAY', 'GUST_LEAN', 'PARTING_LEAN', 'STORM_LEAN', 'WIND_MAX_GAIN', 'FOREST_MAX_LEAN']) {
+    assert.equal(forest[name], wind[name], `${name} is exported from ForestGL`);
+  }
+  // The sway's two sines peak at .6 + .25 along (1, .4); gust, parting and
+  // the squall's lean can all coincide with the strongest score.
+  const sway = wind.WIND_SWAY * .85 * Math.hypot(1, .4) * wind.WIND_MAX_GAIN;
+  const maximum = sway + wind.GUST_LEAN + wind.PARTING_LEAN + wind.STORM_LEAN;
+  assert.ok(wind.FOREST_MAX_LEAN >= maximum - 1e-12);
+  assert.ok(wind.FOREST_MAX_LEAN > .3 && wind.FOREST_MAX_LEAN < .34, 'about a third of the height');
+  const { forestBatchFootprintPx } = await import('../src/world/alpine/ForestDetail.js');
+  assert.match(forestBatchFootprintPx.toString(), /h \* FOREST_MAX_LEAN/, 'the margin is derived, not a fixed .30');
+});

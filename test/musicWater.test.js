@@ -161,3 +161,14 @@ test('lightning lifts the reflected sky in place, but never flashes a narrative 
   const off = { relief: 0, atmosphere: 1, materials: 1, features: 1, skyDark: 0 };
   assert.deepEqual(sky({ amount: 1, flash: .5, flashU: .5, break01: 0, wet01: 1 }, off), sky({ amount: 1, flash: 0, flashU: .5, break01: 0, wet01: 1 }, off));
 });
+
+test('the forest wind follows the heard frame and is still again in silence', async () => {
+  const { uniforms: u, draw } = await receiver();
+  draw({ energy: 1, lift: 1, bass: 1 });
+  assert.ok(Math.abs(u.uWind.value.x - 1.8) < 1e-12 && u.uWind.value.y === 0);
+  draw({ energy: 0, bass: 0, treble: 0, kick: 0, snare: 0, melody: 0, lift: 0 });
+  assert.deepEqual(u.uWind.value.toArray(), [1, 0]);
+  draw({ energy: .5 });
+  draw(null);
+  assert.deepEqual(u.uWind.value.toArray(), [1, 0]);
+});

@@ -20,6 +20,8 @@ import { MIST_GLSL } from './RangeAtmosphere.js';
 import { ACTOR_GLSL, actorUniforms } from './ActorsGL.js';
 import { buildConiferAsset, familyFor, variantFor, FOREST_FAMILIES, FOREST_VARIANTS } from './ForestSpeciesAssets.js';
 import { forestBatchFootprintPx, forestDetailWeight } from './ForestDetail.js';
+import { WIND_SWAY, GUST_LEAN, PARTING_LEAN, STORM_LEAN, WIND_DIR, WIND_MAX_GAIN, FOREST_MAX_LEAN } from './ForestWind.js';
+export { WIND_SWAY, GUST_LEAN, PARTING_LEAN, STORM_LEAN, WIND_DIR, WIND_MAX_GAIN, FOREST_MAX_LEAN };
 
 // Match the terrain canopy's actual-camera handoff, including mirrors.
 // Placement uses the closest point on the entire route, so its 8 km edge
@@ -34,13 +36,9 @@ const FOREST_DISTANCE_GLSL = /* glsl */`
 
 const GUST_ATTACK_SEC = 0.7;
 const GUST_DECAY_SEC = 2.4;
-/** Crown lean at a full gust, as a fraction of tree height. */
-const GUST_LEAN = 0.08;
 /** Crown brightening at a full gust: needles turning their pale sides up. */
 const GUST_SHEEN = 0.05;
 const GUST_SHEEN_DECAY_SEC = 1.0;
-/** Crown lean away from Broshi as he passes, as a fraction of height. */
-const PARTING_LEAN = 0.2;
 
 export const TREE_COMMON = /* glsl */`
   ${DEFORM_GLSL}
@@ -55,6 +53,8 @@ export const TREE_COMMON = /* glsl */`
   // Broshi passing: xz, radius (m), amount. Crowns lean away and show
   // their pale sides, as in a gust.
   uniform vec4 uParting;
+  // The score and storm's wind (ForestWind): x sway gain, y downwind lean.
+  uniform vec2 uWind;
   in vec3 iPos;
   in vec2 iSize;   // height, width (metres)
   in vec2 iVar;    // variant, id 0..1
@@ -93,7 +93,7 @@ export const TREE_COMMON = /* glsl */`
   vec2 windAt(float y01) {
     float ph = iVar.y * 6.2831;
     float s = sin(uTime * 0.65 + ph) * 0.6 + sin(uTime * 1.45 + ph * 1.7) * 0.25;
-    vec2 sway = vec2(s, s * 0.4) * 0.012;
+    vec2 sway = vec2(s, s * 0.4) * ${WIND_SWAY.toFixed(3)} * uWind.x;
     // The gust leans crowns the way the front travels (camera right in xz).
     vec2 gust = gustAt();
     vec2 away = iPos.xz - uParting.xy;
@@ -102,6 +102,8 @@ export const TREE_COMMON = /* glsl */`
     vGust = max(gust.y, part * 0.8);
     vec2 lean = normalize(vec2(viewMatrix[0][0], viewMatrix[2][0]) + 1e-5) * gust.x * ${GUST_LEAN.toFixed(3)};
     lean += away / max(dAway, 1.0) * part * ${PARTING_LEAN.toFixed(3)};
+    // Downwind along the fixed world wind the clouds drift on, not camera right.
+    lean += vec2(${WIND_DIR[0].toFixed(6)}, ${WIND_DIR[1].toFixed(6)}) * uWind.y;
     return (sway + lean) * iSize.x * y01 * y01;
   }
 `;
@@ -534,7 +536,7 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
     uHorizon: uniforms.uHorizon || { value: null }, uHorizonSize: uniforms.uHorizonSize || { value: new THREE.Vector2() },
     uGridOrigin: uniforms.uGridOrigin || { value: new THREE.Vector2() }, uGridExtent: uniforms.uGridExtent || { value: new THREE.Vector2(1, 1) },
     uStorm: uniforms.uStorm || { value: new THREE.Vector4() }, uRainShift: uniforms.uRainShift || { value: 0 },
-    uRainSeed: uniforms.uRainSeed || { value: 0 },
+    uRainSeed: uniforms.uRainSeed || { value: 0 }, uWind: uniforms.uWind || { value: new THREE.Vector2(1, 0) },
     uReceiverFillMin: uniforms.uReceiverFillMin || { value: 0 },
     uViewProj: uniforms.uViewProj || { value: new THREE.Matrix4() },
     uViewportPx: uniforms.uViewportPx || { value: new THREE.Vector2(1, 1) },

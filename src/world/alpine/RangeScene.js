@@ -49,6 +49,7 @@ import { buildRiverGeometry, riverGeometryBound, riverChannelErrors } from './Ri
 import { ACTOR_IDS, ACTOR_HUES, ACTOR_LOOK, ACTOR_START, actorRoutes, routePosition } from './RangeActors.js';
 import { castPlan, castWork, pathPosition, siteWalk } from './CastJobs.js';
 import { flashScreenPoint, rainSeed01, stormKindRow } from './RangeStorm.js';
+import { forestWindAt } from './ForestWind.js';
 // Storm light, linear: the deck's underside, the rain-dimmed horizon, the
 // rain air, per episode kind (RangeStorm STORM_KINDS zenith/horizon/air).
 // The air meets the slate the sky paints at the horizon (drawStormSky).
@@ -1740,7 +1741,7 @@ export class RangeScene {
   _scratch() {
     const THREE = this.THREE;
     return this._scratchState ||= { v3: new THREE.Vector3(), color: new THREE.Color(), color2: new THREE.Color(),
-      wind: new Float32Array(2) };
+      wind: [1, 0] };
   }
 
   _setUniforms(p, frame) {
@@ -1771,6 +1772,10 @@ export class RangeScene {
     u.uTime.value = frame.timeMs / 1000;
     m.gusts.forEach((g, i) => { u.uGustAge.value[i] = g.ageSec; u.uGustAmp.value[i] = g.amp01 * (1 + (frame.storm?.amount || 0) * .8); u.uGustDir.value[i] = g.dir; });
     syncGustUniforms(u);
+    if (u.uWind) {
+      const wind = forestWindAt(frame.effects, frame.storm, this._scratch().wind);
+      u.uWind.value.set(wind[0], wind[1]);
+    }
     syncWaterMusicUniforms(u, frame.effects);
     const rung = rangeQuality(frame.qualityLevel);
     u.uForestKeep.value = rung.forestKeep;

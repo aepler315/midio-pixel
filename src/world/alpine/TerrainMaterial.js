@@ -1085,6 +1085,8 @@ export function sceneUniforms(THREE, base) {
     uDiag: { value: 0 },
     uHasMaterial: { value: 0 },
     uStorm: { value: new THREE.Vector4() }, uRainShift: { value: 0 }, uRainSeed: { value: 0 },
+    // Forest sway gain and downwind lean (ForestWind), still until set.
+    uWind: { value: new THREE.Vector2(1, 0) },
     uAmbientScale: { value: 2.5 },
     uMoonAmbientScale: { value: 0 },
     uReceiverFillMin: { value: 0 },
