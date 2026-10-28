@@ -423,8 +423,10 @@ export class RangeScene {
    * is released.
    */
   captureBackdrop(ctx, stage, frame, drawSky = null) {
-    const wanted = !this.contextLost && rangeQuality(frame?.qualityLevel).waterMirror
-      && [...this.prepared.values()].some((p) => Number.isFinite(p.mirrorLevelM));
+    // Any lake or river reflects the sky backdrop, mirror or not, until
+    // the rung after the mirror's (waterBackdrop).
+    const wanted = !this.contextLost && rangeQuality(frame?.qualityLevel).waterBackdrop
+      && [...this.prepared.values()].some((p) => Number.isFinite(p.mirrorLevelM) || (p.riverStats?.triangles || 0) > 0);
     if (!wanted || !ctx?.canvas || !(stage?.width > 0)) { this.releaseBackdrop(); return false; }
     const scale = Math.max(1, this.waterOutputScale || 1);
     const { width, height } = mirrorSize(this.size.width * scale, this.size.height * scale);
@@ -457,6 +459,15 @@ export class RangeScene {
     b.texture.needsUpdate = true;
     b.frame = frame?.frameId ?? -1;
     return true;
+  }
+
+  /** Water samples this frame's captured sky backdrop whenever one exists,
+   *  independent of the water level and of the mirror (every release path
+   *  still unbinds it through _unbindBackdrop). */
+  _bindBackdrop(u, frame) {
+    const b = this.backdrop?.frame === frame.frameId ? this.backdrop : null;
+    u.uBackdrop.value = b?.texture || null;
+    u.uBackdropAmount.value = b ? 1 : 0;
   }
 
   releaseBackdrop() {
@@ -509,7 +520,12 @@ export class RangeScene {
     const dtSec = (frame.timeMs - (p.mirrorEaseAtMs ?? -Infinity)) / 1000;
     p.mirrorFade = easeRungAmount(p.mirrorFade, m ? 1 : 0, dtSec, { down: 'snap' });
     p.mirrorEaseAtMs = frame.timeMs;
-    if (!m) { u.uMirrorAmount.value = 0; u.uBackdropAmount.value = 0; if (!wanted) this.releaseMirror(side); return; }
+    if (!m) {
+      u.uMirrorAmount.value = 0; u.uMirror.value = null;
+      this._bindBackdrop(u, frame);
+      if (!wanted) this.releaseMirror(side);
+      return;
+    }
     if (m.frame !== frame.frameId || m.view !== viewId) {
       const r = this.renderer;
       const THREE = this.THREE;
@@ -517,6 +533,8 @@ export class RangeScene {
       mirrorTextureMatrix(THREE, this.mirrorCamera, m.matrix);
       for (const fm of p.fringeMeshes || []) fm.visible = false;
       u.uMirrorAmount.value = 0;
+      // The mirror pass's own water does not read the main view's backdrop.
+      u.uBackdropAmount.value = 0;
       // A disabled reflection still has an active sampler. Unbind the
       // previous image before drawing into it to avoid framebuffer feedback.
       u.uMirror.value = null;
@@ -555,9 +573,7 @@ export class RangeScene {
     u.uViewportPx.value.set(this.size.width, this.size.height);
     u.uMirror.value = m.target.texture;
     u.uMirrorMatrix.value.copy(m.matrix);
-    const b = this.backdrop?.frame === frame.frameId ? this.backdrop : null;
-    u.uBackdrop.value = b?.texture || null;
-    u.uBackdropAmount.value = b ? 1 : 0;
+    this._bindBackdrop(u, frame);
     u.uViewProj.value.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
     u.uMirrorLevel.value = level;
     u.uMirrorRipple.value = ripple(frame.music);
@@ -1836,6 +1852,14 @@ export class RangeScene {
       u.uSkyHorizon.value.lerp(row.horizon, k);
       u.uAirColor.value.lerp(row.air, k).add(this._scratch().color.setRGB(.65, .77, 1).multiplyScalar(storm.flash * .35));
       u.uAirDensity.value *= 1 + storm.amount * .6 - storm.break01 * .35;
+      // The deck's lightning reaches the sky the water reflects (and the
+      // fill). Scaled by the land actually shown, so a narrative frame that
+      // is all uSkyHorizon does not flash as a whole.
+      const skyFlash = storm.flash * .12 * (n ? Math.min(visibility(n.relief ?? 1), visibility(n.materials ?? 1)) : 1);
+      if (skyFlash > 0) {
+        u.uSkyZenith.value.addScalar(skyFlash);
+        u.uSkyHorizon.value.addScalar(skyFlash);
+      }
     }
     // Valley mist: anchored at the view's water level, thicker in calm.
     const mp = mistParams({ rules: p.rules, waterLevelM: p.waterLevelM, heightRange: [u.uHeightRange.value.x, u.uHeightRange.value.y],

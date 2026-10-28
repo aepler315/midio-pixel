@@ -40,7 +40,16 @@ and candidate reports. Inspect actual frames, camera turns and travel rather
 than treating changed pixels or structural texture tests as visual acceptance.
 
 Water continues to consume the existing production sky backdrop and distant-ray
-lookup. This repair does not introduce a separate physical cloud render through
+lookup. The backdrop no longer depends on the lake mirror. It is captured
+whenever a prepared view has lake or river water, up to rung 4 (`waterBackdrop:
+q < 5`, one rung after `waterMirror`). It is bound to the water as soon as the
+frame's copy exists, whatever the water level, and the mirror's ground image
+fades in over it. Rivers reflect the backdrop alone, with the shiver stretched
+along the current. Without a bound backdrop (rung 5 and above, and the far
+partition, whose water would otherwise reflect its own copy), water reflects
+`skyReflectAt`: the horizon band at grazing angles, rising toward the zenith,
+lifted by lightning in place. The far partition's water keeps that open-sky
+fallback; it is not part of this change. This repair does not introduce a separate physical cloud render through
 the reflected camera. Fixed-clock camera probes do not establish live frame
 pacing; the earlier full-resolution sky performance gate remains separate.
 

@@ -473,6 +473,12 @@ export const SCENE_FRAG = /* glsl */`
   }
   #endif
   vec3 srgbToLinear(vec3 c) { return pow(max(c, 0.0), vec3(2.2)); }
+  // The open sky a water surface reflects, by the reflected ray's height:
+  // the horizon band at grazing angles, toward the zenith higher up. Used
+  // wherever no captured sky backdrop is bound (every rung and partition).
+  vec3 skyReflectAt(float reflectedY) {
+    return mix(uSkyHorizon, uSkyZenith, smoothstep(0.0, 0.6, reflectedY)) * 0.5;
+  }
   // How rough the water is here from the passing gust fronts: each front
   // reaches a screen column when the forest's does, rises fast and settles
   // over ~1.5 s, in drifting patches rather than a solid band.
@@ -873,16 +879,13 @@ export const SCENE_FRAG = /* glsl */`
       vec3 H = halfVector / max(length(halfVector), 1e-10);
       float glint = waterGlint(dot(H, waterNormal), rWaterGlintGain, dot(uLightColor, uLightColor));
       glint += waterMusicGlint(dot(H, waterNormal), uWaterMusic.z, dot(uLightColor, uLightColor)) * min(1.0, rWaterGlintGain);
-      // The lake mirrors the sky above the far shore, not only its pale
-      // horizon band: an all-horizon mirror turned broad lakes into a
-      // flat white sheet that outshone the mountains.
-      vec3 skyReflect = mix(uSkyZenith, uSkyHorizon, 0.3) * 0.5;
-      // With the backdrop to reflect, the sky arrives with the mirror below.
-      float skyHere = fres * (1.0 - uBackdropAmount * uMirrorAmount);
-      #ifdef RIVER_SURFACE
-      // Descending reaches have no single planar lake reflection.
-      skyHere = fres;
-      #endif
+      // The water mirrors the sky above the far shore, not only its pale
+      // horizon band (an all-horizon mirror turned broad lakes into a flat
+      // white sheet): the reflected ray's height picks the band.
+      vec3 skyReflect = skyReflectAt(reflect(-V, waterNormal).y);
+      // With the captured sky backdrop bound (lakes and rivers alike), the
+      // sky arrives with it below instead, so it is not counted twice.
+      float skyHere = fres * (1.0 - uBackdropAmount);
       lit = mix(lit, skyReflect * rWaterSkyMix, skyHere) + uLightColor * glint * moonTransmission;
       // Treble catches the resolved crests, especially in disturbed water.
       // It borrows the available light rather than emitting a white wash.
@@ -932,30 +935,37 @@ export const SCENE_FRAG = /* glsl */`
     // the air along its own (longer) path, so it replaces the water's colour
     // by the water's reflectance, as the sky reflection did in lit. Groove
     // and kicks shiver it in horizontal bands; a cat's paw breaks it up.
+    // Groove and kicks still set the shiver amount (uMirrorRipple).
+    float shiverGain = uMirrorRipple * 1.6 * (1.0 + 3.0 * paw) * (1.0 + .4 * uWaterMusic.x + .35 * uWaterMusic.y)
+      * mix(1.0, .35, smoothstep(600.0, 7000.0, dist));
+    // The backdrop, met by the view ray reflected off flat water (it is far
+    // enough away to treat as the sky). Seen from high above, the true
+    // reflection of distant ranges lies beyond the far shore; magical
+    // naturalism lowers the reflected ray (MIRROR_LIFT, as the mirror
+    // camera does) so the water holds them.
+    vec3 lowered = normalize(vRenderedWorld - uCameraPos);
+    lowered = normalize(vec3(lowered.x, abs(lowered.y) * ${MIRROR_LIFT.toFixed(3)}, lowered.z));
     #ifndef RIVER_SURFACE
-    if (water && uMirrorAmount > 0.0) {
+    if (water && (uBackdropAmount > 0.0 || uMirrorAmount > 0.0)) {
       // The reflection wavers with the surface itself: the same world-fixed
       // swells (not screen rows) displace it, more in a cat's paw, and less
-      // with distance as the waves shrink on screen. Groove and kicks still
-      // set the amount (uMirrorRipple).
-      vec2 shiver = vec2(0.3 * waterSwell.x, waterSwell.y) * uMirrorRipple * 1.6 * (1.0 + 3.0 * paw)
-        * (1.0 + .4 * uWaterMusic.x + .35 * uWaterMusic.y)
-        * mix(1.0, .35, smoothstep(600.0, 7000.0, dist));
-      // The backdrop, met by the view ray reflected off flat water (it is far
-      // enough away to treat as the sky), then the ground mirrored over it.
-      // Seen from high above a lake, the true reflection of distant ranges
-      // lies beyond its far shore; magical naturalism lowers the reflected
-      // ray (MIRROR_LIFT, as the mirror camera does) so the water holds them.
-      vec3 ray = normalize(vRenderedWorld - uCameraPos);
-      vec3 up = vec3(ray.x, abs(ray.y) * ${MIRROR_LIFT.toFixed(3)}, ray.z);
-      vec4 bc = uViewProj * vec4(uCameraPos + normalize(up) * 60000.0, 1.0);
-      vec3 mirrored = srgbToLinear(texture(uBackdrop, clamp(bc.xy / bc.w * 0.5 + 0.5 + shiver, vec2(0.001), vec2(0.999))).rgb);
-      float have = uBackdropAmount;
+      // with distance as the waves shrink on screen.
+      vec2 shiver = vec2(0.3 * waterSwell.x, waterSwell.y) * shiverGain;
+      // The sky backdrop first (bound on every rung that keeps it, with or
+      // without a mirror), then the ground mirrored over it as it fades in.
+      vec3 mirrored = vec3(0.0);
+      float have = 0.0;
+      if (uBackdropAmount > 0.0) {
+        vec4 bc = uViewProj * vec4(uCameraPos + lowered * 60000.0, 1.0);
+        mirrored = srgbToLinear(texture(uBackdrop, clamp(bc.xy / bc.w * 0.5 + 0.5 + shiver, vec2(0.001), vec2(0.999))).rgb);
+        have = uBackdropAmount;
+      }
       vec4 mc = uMirrorMatrix * vec4(vRenderedWorld, 1.0);
-      if (mc.w > 0.0 && abs(vWorld.y - uMirrorLevel) < 3.0) {
+      if (uMirrorAmount > 0.0 && mc.w > 0.0 && abs(vWorld.y - uMirrorLevel) < 3.0) {
         vec4 m = texture(uMirror, clamp(mc.xy / mc.w + shiver, vec2(0.001), vec2(0.999)));
-        if (m.a > 0.004) mirrored = mix(mirrored, srgbToLinear(m.rgb / m.a), have > 0.0 ? m.a : 1.0);
-        have = max(have, m.a);
+        float ground = m.a * uMirrorAmount;
+        if (m.a > 0.004) mirrored = mix(mirrored, srgbToLinear(m.rgb / m.a), have > 0.0 ? ground : 1.0);
+        have = max(have, ground);
       }
       // Stiller and glossier than physical water: a lake seen from high
       // above still holds its shores (magical naturalism, like the lift).
@@ -966,8 +976,22 @@ export const SCENE_FRAG = /* glsl */`
       // shoreline coverage, depth and real reflected image stay unchanged.
       reflectance = min(.88, reflectance + (.035 * uWaterMusic.x + .025 * uWaterMusic.w)
         * smoothstep(.2, .8, abs(waterSwell.y)));
-      color = mix(color, mirrored * 0.9, reflectance * smoothstep(.5, .9, waterCoverage) * have * clear * uNarrative.z * uNarrative.w
-        * uMirrorAmount);
+      color = mix(color, mirrored * 0.9, reflectance * smoothstep(.5, .9, waterCoverage) * have * clear * uNarrative.z * uNarrative.w);
+    }
+    #else
+    // Descending reaches have no single planar lake reflection: a river
+    // holds only the captured sky, its shiver stretched along the current.
+    if (water && uBackdropAmount > 0.0) {
+      vec4 a = uViewProj * vec4(vRenderedWorld, 1.0);
+      vec2 flow = normalize(vRiverDirection);
+      vec4 b = uViewProj * vec4(vRenderedWorld + vec3(flow.x, 0.0, flow.y) * 10.0, 1.0);
+      vec2 along = b.xy / b.w - a.xy / a.w;
+      along = dot(along, along) > 1e-12 ? normalize(along) : vec2(0.0, 1.0);
+      vec2 shiver = (along * waterSwell.x + vec2(-along.y, along.x) * 0.2 * waterSwell.y) * shiverGain;
+      vec4 bc = uViewProj * vec4(uCameraPos + lowered * 60000.0, 1.0);
+      vec3 skyImage = srgbToLinear(texture(uBackdrop, clamp(bc.xy / bc.w * 0.5 + 0.5 + shiver, vec2(0.001), vec2(0.999))).rgb);
+      float reflectance = clamp(${WATER_REFLECT_FLOOR.toFixed(3)} + ${(1 - WATER_REFLECT_FLOOR).toFixed(3)} * waterFres, 0.0, 0.88) * (1.0 - 0.4 * paw);
+      color = mix(color, skyImage * 0.9, reflectance * smoothstep(.5, .9, waterCoverage) * uBackdropAmount * clear * uNarrative.z * uNarrative.w);
     }
     #endif
     if (water) {
