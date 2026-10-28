@@ -5,6 +5,7 @@ import {
   reelMoment, planReelRenders, stepTargets, warmupTimes, describeReelSave, approximationReasons,
   createReelSaver, ReelSaveCancelled, ReelSizeError, classifyArmError,
 } from '../src/ui/ReelExport.js';
+import { compileSceneRailPlan } from '../src/world/terrain/SceneRailPlan.js';
 import { stepExportClock } from '../src/render/BulkExport.js';
 
 const prefs = { look: 'pixel', pixelGrid: 'medium', scaling: 'integer', dither: 0 };
@@ -117,13 +118,13 @@ test('the report is honest about smaller sizes, failures and frames without a re
 
 test('a frame from a scene built part-way in, or on another analysis, is flagged approximate', () => {
   const m = (over) => reelMoment(frame(9000, { moment: { ...frame(9000).moment, ...over } }));
-  assert.deepEqual(approximationReasons(m({}), { analysis: 'full' }), []);
-  assert.deepEqual(approximationReasons(m({ sceneStartMs: 4200 }), { analysis: 'full' }), ['scene']);
-  assert.deepEqual(approximationReasons(m({ continued: true }), { analysis: 'full' }), ['scene']);
-  assert.deepEqual(approximationReasons(m({ analysis: 'opening' }), { analysis: 'full' }), ['analysis']);
-  assert.deepEqual(approximationReasons(m({ analysis: undefined }), { analysis: 'full' }), ['analysis']);
+  assert.deepEqual(approximationReasons(m({}), { analysis: 'full' }), ['camera']);
+  assert.deepEqual(approximationReasons(m({ sceneStartMs: 4200 }), { analysis: 'full' }), ['camera', 'scene']);
+  assert.deepEqual(approximationReasons(m({ continued: true }), { analysis: 'full' }), ['camera', 'scene']);
+  assert.deepEqual(approximationReasons(m({ analysis: 'opening' }), { analysis: 'full' }), ['camera', 'analysis']);
+  assert.deepEqual(approximationReasons(m({ analysis: undefined }), { analysis: 'full' }), ['camera', 'analysis']);
   const plan = planReelRenders([frame(1000), frame(8000, { moment: { ...frame(8000).moment, sceneStartMs: 5000, continued: true } })]);
-  assert.deepEqual(plan.groups[0].items.map((i) => i.approximate), [[], ['scene']]);
+  assert.deepEqual(plan.groups[0].items.map((i) => i.approximate), [['camera'], ['camera', 'scene']]);
   const report = describeReelSave({ saved: [{ index: 0, width: 3840, height: 2160, approximate: ['scene'] },
     { index: 1, width: 3840, height: 2160, approximate: ['analysis'] }] });
   assert.equal(report.ok, false);
@@ -234,4 +235,60 @@ test('a first frame that fails to present while arming is a size failure, so sma
   assert.equal(classifyArmError(other, { armed: true, stage: { ...size }, size }), other);
   const cancelled = new ReelSaveCancelled();
   assert.equal(classifyArmError(cancelled, { armed: true, stage: { w: 1, h: 1 }, size }), cancelled);
+});
+
+test('different immutable camera schedules form separate rebuilds and survive JSON restoration', () => {
+  const a = compileSceneRailPlan({ sections: [{ startMs: 0, profile: 'A' }], choiceFor: () => ({ view: { id: 'A' } }), durationMs: 60000, requestedMultiplier: 3 }).snapshot;
+  const b = compileSceneRailPlan({ sections: [{ startMs: 0, profile: 'A' }], choiceFor: () => ({ view: { id: 'A' } }), durationMs: 60000, requestedMultiplier: 4 }).snapshot;
+  const frames = [a, b, a].map((cameraSchedule, i) => frame(i * 1000, { moment: { ...frame(i * 1000).moment, cameraSchedule: JSON.parse(JSON.stringify(cameraSchedule)) } }));
+  const plan = planReelRenders(frames);
+  assert.equal(plan.groups.length, 2);
+  assert.deepEqual(plan.groups[0].cameraSchedule, a);
+  assert.deepEqual(plan.groups[0].items.map(i => i.index), [0, 2]);
+  assert.equal(Object.isFrozen(plan.groups[0].cameraSchedule.occurrences), true);
+});
+
+test('legacy moments keep reconstruction with an explicit camera approximation', () => {
+  const moment = reelMoment(frame(1000));
+  assert.ok(approximationReasons(moment, { analysis: 'full' }).includes('camera'));
+  assert.match(describeReelSave({ saved: [{ width: 3840, height: 2160, approximate: ['camera'] }] }).message, /camera/i);
+});
+
+
+test('captured tour policy travels with each render group and keeps distinct policies separate', () => {
+  const schedule = compileSceneRailPlan({ sections: [{ startMs: 0, profile: 'A' }], choiceFor: () => ({ view: { id: 'A' } }), durationMs: 60000 }).snapshot;
+  const frames = ['off', 'shots', 'tetons'].map((cameraTourMode, i) => frame(i * 1000, { moment: { ...frame(i * 1000).moment, cameraSchedule: schedule, cameraTourMode } }));
+  const groups = planReelRenders(frames).groups;
+  assert.equal(groups.length, 3);
+  assert.deepEqual(groups.map(group => group.cameraTourMode), ['off', 'shots', 'tetons']);
+});
+
+test('every size retry receives the captured camera schedule and tour policy', async () => {
+  const cameraSchedule = compileSceneRailPlan({ sections: [{ startMs: 0, profile: 'A' }], choiceFor: () => ({ view: { id: 'A' } }), durationMs: 60000, requestedMultiplier: 4 }).snapshot;
+  const captured = frame(1000, { moment: { ...frame(1000).moment, cameraSchedule, cameraTourMode: 'off' } });
+  const plan = planReelRenders([captured]);
+  const received = [];
+  let size;
+  const result = await createReelSaver().run({ plan,
+    begin: (group, next) => { received.push({ cameraSchedule: group.cameraSchedule, cameraTourMode: group.cameraTourMode }); size = next; },
+    draw: () => { if (size.w === 3840) throw new ReelSizeError('no room'); },
+    encode: () => ({ blob: {}, width: size.w, height: size.h }), save: () => {}, end: () => {},
+  });
+  assert.equal(result.status, 'done');
+  assert.equal(received.length, 2);
+  assert.ok(received.every(value => value.cameraSchedule.id === cameraSchedule.id && value.cameraTourMode === 'off'));
+});
+
+test('fresh full-analysis Trio highlights need no Landscape camera schedule or approximation', () => {
+  const trio = frame(1000, { moment: { ...frame(1000).moment, worldId: 'trio', cameraSchedule: null } });
+  const plan = planReelRenders([trio], { analysis: 'full' });
+  const approximate = plan.groups[0].items[0].approximate;
+  assert.deepEqual(approximate, []);
+  assert.deepEqual(describeReelSave({ saved: [{ width: 3840, height: 2160, approximate }] }), { ok: true, message: '' });
+  assert.deepEqual(approximationReasons(reelMoment({ moment: { ...trio.moment, sceneStartMs: 100, analysis: 'opening' } }), { analysis: 'full' }), ['scene', 'analysis']);
+});
+
+test('registered legacy Landscape highlights still warn when the camera schedule is absent', () => {
+  const landscape = frame(1000, { moment: { ...frame(1000).moment, worldId: 'alpine', cameraSchedule: null } });
+  assert.deepEqual(planReelRenders([landscape], { analysis: 'full' }).groups[0].items[0].approximate, ['camera']);
 });

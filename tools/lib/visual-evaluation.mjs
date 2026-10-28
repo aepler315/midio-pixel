@@ -28,9 +28,10 @@ const keys = (obj, allowed, label) => {
 export function normalizeManifest(value, { historical = false } = {}) {
   keys(value, ['version', 'settings', 'songs'], 'manifest');
   assert.equal(value.version, 1, 'manifest version must be 1');
-  keys(value.settings || {}, [...Object.keys(DEFAULT_SETTINGS), 'presentation', 'startMs', 'debug', 'experience', 'tour'], 'settings');
-  const settings = { ...DEFAULT_SETTINGS, ...value.settings };
+  keys(value.settings || {}, [...Object.keys(DEFAULT_SETTINGS), 'presentation', 'startMs', 'debug', 'experience', 'tour', 'pace'], 'settings');
+  const settings = { ...DEFAULT_SETTINGS, pace: 3, ...value.settings };
   if (settings.experience != null) assert.ok(['landscape', 'trio'].includes(settings.experience), 'invalid experience');
+  integer(settings.pace, 1, 4, 'pace');
   if (settings.tour != null) assert.ok(['tetons', 'shots', 'off'].includes(settings.tour), 'invalid tour');
   if (settings.presentation != null) {
     const p = settings.presentation;
@@ -91,7 +92,8 @@ export function normalizeManifest(value, { historical = false } = {}) {
       assert.ok(Array.isArray(song.clips), 'invalid clips');
       for (const clip of song.clips) {
         keys(clip, ['startMs', 'durationMs'], 'clip');
-        integer(clip.startMs, 0, 86400000, 'clip.startMs'); integer(clip.durationMs, 100, 30000, 'clip.durationMs');
+        integer(clip.startMs, 0, 86400000, 'clip.startMs');
+        assert.ok(Number.isFinite(clip.durationMs) && clip.durationMs > 0 && clip.durationMs <= 180000, 'invalid clip.durationMs');
       }
     }
     return { ...song, ...(song.fixture ? { seconds: song.seconds ?? 24 } : {}) };
@@ -214,6 +216,9 @@ export function compareReports(before, after) {
   same(before.status, 'passed', 'baseline status'); same(after.status, 'passed', 'candidate status');
   const retired = settings => RETIRED_SETTINGS.map(key => !!settings?.[key]);
   same(retired(before.settings), retired(after.settings), 'settings');
+  // Unrecorded historical controls cannot be relabelled as a pinned request.
+  same(before.settings.pace, after.settings.pace, 'settings pace');
+  same(before.settings.tour, after.settings.tour, 'settings tour');
   const requested = settings => normalizeManifest({ version: 1, settings: normalizeHistoricalSettings(settings), songs: [{ id: 'validation', fixture: 'silence' }] }, { historical: true }).settings;
   same(requested(before.settings), requested(after.settings), 'settings'); same(before.browser, after.browser, 'browser');
   same(before.environment, after.environment, 'render environment');

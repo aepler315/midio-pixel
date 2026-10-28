@@ -43,7 +43,7 @@ import { applyCameraMoves, rangeUserCamera } from './RangeCamera.js';
 import { BANDS, terrainFringeBytes, terrainHeightAt, SURFACE_BUILD_BYTES_PER_PIXEL } from './TerrainMesh.js';
 import { mistParams, mistDrift, easeMistSteps, tourMistCap, tourMistFade, atmosphereMusic } from './RangeAtmosphere.js';
 import { mirrorSize, mirrorLevelFor, mirrorCameraFor, mirrorTextureMatrix, MIRROR_CLIP_M, MIRROR_LIFT } from './WaterMirror.js';
-import { scenicProjection, calibrateRangeMusic } from './RangeFrame.js';
+import { scenicProjection, calibrateRangeMusic, rangeCameraCalibration } from './RangeFrame.js';
 import { applyGlacierUniforms, glacierErrors, glacierSample } from './GlacierField.js';
 import { ActorsGL, SITE_LIGHTS_MAX, CAST_LAYER, CAST_RIBBON_LAYER, enableCastLayers } from './ActorsGL.js';
 import { buildRiverGeometry, riverGeometryBound, riverChannelErrors } from './RiverChannel.js';
@@ -507,7 +507,7 @@ export class RangeScene {
    */
   _updateForestDetail(p, frame, camera, width, height, kind) {
     if (!p.forest?.updateDetailView) return;
-    const key = `${frame.frameId}:${kind}:${width}:${height}`;
+    const key = `${frame.frameId}:${frame.occurrenceId ?? p.view.id}:${kind}:${width}:${height}`;
     if (p.forestDetailState?.forest === p.forest && p.forestDetailState.key === key) return;
     const state = p.forest.updateDetailView({ camera, width, height, pixelated: !!this.pixelated,
       nearDetail: rangeQuality(frame.qualityLevel).nearDetail });
@@ -538,7 +538,7 @@ export class RangeScene {
       if (!wanted) this.releaseMirror(side);
       return;
     }
-    if (m.frame !== frame.frameId || m.view !== viewId) {
+    if (m.frame !== frame.frameId || m.view !== viewId || m.occurrenceId !== frame.occurrenceId) {
       const r = this.renderer;
       const THREE = this.THREE;
       mirrorCameraFor(THREE, this.camera, level, this.mirrorCamera, MIRROR_LIFT);
@@ -580,6 +580,7 @@ export class RangeScene {
       u.uClipBelow.value = -1e9;
       m.frame = frame.frameId;
       m.view = viewId;
+      m.occurrenceId = frame.occurrenceId;
       this.stats.mirrorPasses = (this.stats.mirrorPasses || 0) + 1;
     }
     u.uViewportPx.value.set(this.size.width, this.size.height);
@@ -1689,6 +1690,11 @@ export class RangeScene {
    *  partition passes and the sky (RangePresentation._skyPan). */
   movedPose(view, frame, p = this.prepared.get(view.id) || null) {
     if (p?.windowCache) this._updateTourCoverage(p, frame);
+    const key = frame.cameraFrameKey ?? frame;
+    let poses = this._movedPoses.get(key);
+    if (!poses) this._movedPoses.set(key, poses = new Map());
+    const occurrenceId = frame.occurrenceId ?? view.id;
+    if (poses.has(occurrenceId)) return poses.get(occurrenceId);
     const baseRail = scenePoseAt(view, { progress01: view.glacier ? (frame.glacier?.journey01 ?? frame.progress01) : frame.progress01, timeMs: frame.timeMs,
       tour: p?.cameraTour || view.tour });
     const rail = { ...baseRail, fovYDeg: applyLensFov(baseRail.fovYDeg, frame.cameraEffects) };
@@ -1701,24 +1707,23 @@ export class RangeScene {
     const tanY = Math.tan((proj.fovYDeg * Math.PI) / 360) * (visH / vp.logicalHeight), tanX = tanY * (visW / visH);
     // Cinematic section moves and the listener's zoom (RangeCamera.js),
     // computed once per frame and view: the partition passes reuse it.
-    let poses = this._movedPoses.get(frame);
-    if (!poses) this._movedPoses.set(frame, poses = new Map());
-    let pose = poses.get(view.id);
-    if (!pose) {
-      pose = applyCameraMoves(rail, frame.cameraMove, frame.userCamera, {
+    const pose = applyCameraMoves(rail, frame.cameraMove, frame.userCamera, {
         heightAt: p?.data ? this._renderedGround(view, frame, p.data) : null, waterLevelM: p?.waterLevelM,
         sampleStepM: p?.data?.grid?.cellSizeM, cone: { tanX, tanY },
         heightRangeM: p?.uniforms ? [p.uniforms.uHeightRange.value.x, p.uniforms.uHeightRange.value.y] : null,
         zoomMode: 'projection' });
-      poses.set(view.id, pose);
-      this._ensureTourWindow(p, frame.timeMs, { pose, proj });
-    }
-    return { rail, proj, pose, tanX, tanY };
+    const resolved = { rail, proj, pose, tanX, tanY };
+    poses.set(occurrenceId, resolved);
+    this._ensureTourWindow(p, frame.timeMs, { pose, proj });
+    return resolved;
   }
 
   _setCamera(view, frame, p = null) {
     const { proj, pose, tanX, tanY } = this.movedPose(view, frame, p);
     const cam = this.camera;
+    cam.userData ||= {};
+    cam.userData.rangeCameraPose = pose;
+    cam.userData.rangeOccurrenceId = frame.occurrenceId ?? null;
     if (frame.userCamera) rangeUserCamera.noteFrame({ tanX, tanY, userScale: pose.userScale, frameId: frame.frameId });
     cam.fov = proj.fovYDeg;
     cam.aspect = proj.aspect;
@@ -1767,7 +1772,11 @@ export class RangeScene {
     u.uNarrative.value.set(n?.relief ?? 1, n?.atmosphere ?? 1, n?.materials ?? 1, n?.features ?? 1);
     u.uNarrativeInk.value = n ? (1 - n.materials) * (1 - n.skyDark) : 0;
     applyGlacierUniforms(u, p.view.glacier, frame.glacier);
-    const m = calibrateRangeMusic(frame.music, { view: p.view, progress01: frame.progress01,
+    // Standalone uniform consumers may supply only nominal dimensions. Every
+    // rendered side has a full viewport and uses the cached, moved camera.
+    const calibration = frame.scenicViewport?.logicalWidth > 0 && frame.scenicViewport?.logicalHeight > 0
+      ? rangeCameraCalibration(this.movedPose(p.view, frame, p).pose) : { view: p.view, progress01: frame.progress01 };
+    const m = calibrateRangeMusic(frame.music, { ...calibration,
       heightRange: [u.uHeightRange.value.x, u.uHeightRange.value.y], nominalHeight: frame.scenicViewport?.nominalHeight || 720 });
     u.uDeformAmp.value = m.amplitudeM;
     u.uDeformKick.value = m.kickM;
@@ -2392,7 +2401,7 @@ export class RangeScene {
       this._travelDepth(p, target, pass, bandColumns);
       depth.frame = -1;
       depth.owned = false;
-    } else if (depth.frame !== frame.frameId || depth.view !== viewId) {
+    } else if (depth.frame !== frame.frameId || depth.view !== viewId || depth.occurrenceId !== frame.occurrenceId) {
       r.setRenderTarget(target);
       r.setClearColor(0x000000, 0);
       r.clear(true, true, false);
@@ -2402,6 +2411,7 @@ export class RangeScene {
       depth.owned = !!own;
       depth.frame = frame.frameId;
       depth.view = viewId;
+      depth.occurrenceId = frame.occurrenceId;
       this.stats.depthPasses++;
     }
     // During travel a side's nearer bands draw only in some columns: its
@@ -2433,7 +2443,8 @@ export class RangeScene {
     }
     // What the cast pass will find in this side's target after the near
     // partition: whose depth, and whether the trees' crown cut is in it.
-    if (pass === 'near') depth.cast = bandColumns ? null : { frame: frame.frameId, view: viewId, forest: !softForest || forestDepth };
+    if (pass === 'near') depth.cast = bandColumns ? null : { frame: frame.frameId, view: viewId,
+      occurrenceId: frame.occurrenceId, forest: !softForest || forestDepth };
     if (this.crestProbeMode && side === 'A' && !bandColumns && this.pixelated) this._probeCrest(frame, target, p, pass);
     this.camera.layers.set(0); this.camera.layers.enable(3);
     // Far is the single solar boundary, before the inserted Dancing Ridge.
@@ -2489,9 +2500,12 @@ export class RangeScene {
     const p = this.prepared.get(viewId);
     const target = side === 'B' ? this.sideTargets.B : this.target;
     const depth = this.depthCache[side], near = depth?.cast;
-    if (!p || this.contextLost || !target || near?.frame !== frame.frameId || near.view !== viewId) return null;
+    if (!p || this.contextLost || !target || near?.frame !== frame.frameId || near.view !== viewId
+      || near.occurrenceId !== frame.occurrenceId) return null;
     depth.cast = null; // one cast pass per near partition
     if (!this._castShown(p)) return null;
+    this._setCamera(p.view, frame, p);
+    this._setUniforms(p, frame);
     const r = this.renderer;
     r.setRenderTarget(target);
     if (!near.forest) {

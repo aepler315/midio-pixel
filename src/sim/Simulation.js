@@ -431,10 +431,12 @@ export class Simulation {
     this.curr = this._snapshot();
   }
 
-  /** The lens accent at heard time: the shared score's trusted cues (held
-   *  across a re-analysis handoff) when the song has sections and curves,
+  /** Landscape keeps automatic scenic punch Off, before camera framing is
+   *  computed (including loading and fallback paths). Trio uses the shared
+   *  score's trusted cues, held across a re-analysis handoff, with sections and curves,
    *  else the same cue rule over the sections alone. Neutral in previews. */
   _lensAt(timeMs) {
+    if (this.experience === 'landscape') return NEUTRAL_LENS;
     const biomes = this.biomes, preview = !!biomes?.terrainPreview;
     if (biomes?.sections?.length && biomes.energyCurves) {
       return landscapeScoreFor(biomes).at(timeMs, { preview }).lens || NEUTRAL_LENS;

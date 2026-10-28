@@ -193,9 +193,12 @@
 
               <label for="display-pixelGrid">Pixel detail</label>
               <select id="display-pixelGrid" title="Classic+ uses 1.56×, Medium 2.25×, Medium+ 3.06× and Detailed four times the pixel work. Quality remains independent."><option value="classic">Classic — 320×180</option><option value="classicPlus">Classic+ — 400×225</option><option value="medium">Medium — 480×270</option><option value="mediumPlus">Medium+ — 560×315</option><option value="detailed">Detailed — 640×360</option></select>
+              <label for="range-pace">Landscape pace</label>
+              <select id="range-pace" aria-describedby="range-pace-status"><option value="1">1x</option><option value="2">2x</option><option value="3" selected>3x</option><option value="4">4x</option></select>
               <label><input id="range-tour-toggle" type="checkbox" aria-describedby="range-tour-description range-tour-status"> Camera tours</label>
               <span id="pixelGridHint" hidden>320 × 180 grid</span>
             </div>
+            <p class="hint" id="range-pace-status" role="status" aria-live="polite">Applies to the next unplayed landscape or replay.</p>
             <p class="hint" id="range-tour-description">Music-timed camera tours through each landscape's own subjects; off keeps the authored camera rails. <span id="range-tour-status" role="status" aria-live="polite" data-state="off">Off</span></p>
             <div class="resRow displayRow">
               <label for="display-palette">Palette</label>

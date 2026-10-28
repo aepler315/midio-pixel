@@ -53,6 +53,8 @@ import { getVisualStyle, resolveVisualStyle } from './render/VisualStyle.js';
 import { PerfGovernor, resolvePerfStartLevel, MAX_LEVEL as PERF_MAX_LEVEL } from './render/PerfGovernor.js';
 import { sharedResidency } from './render/GraphicsResidency.js';
 import { RangePresentation, resolveRangeMode } from './world/alpine/RangePresentation.js';
+import { openCameraRun, cameraSongOptions, readRailPace, persistRailPace, railPaceControlState } from './ui/CameraRun.js';
+import { applyTerrainTourPolicy, captureTourTerrainState, restoreTourTerrainState } from './ui/TourTerrain.js';
 import { rangeTourControlState } from './ui/RangeTourControl.js';
 import { DETAIL_LEVELS, stepDetail, snapshotFileName, captureDetailSnapshots, canvasToPng } from './ui/DetailSnapshots.js';
 import { REEL_TARGET_SIZE, sizeLabel, reelFileName, planReelRenders, stepTargets, warmupTimes, describeReelSave,
@@ -396,6 +398,11 @@ let lastTimelineData = null;
 let fullAnalysisPending = null;
 // What the running song was started with, so an in-place rebuild keeps it.
 let lastStartExtra = {};
+// Camera history belongs to a run, beyond disposable Simulation rebuilds.
+let bulkExportArmed = false;
+let cameraRun = null;
+let activeCameraSchedule = null;
+let requestedRailPace = readRailPace(location.search, displayStorage());
 let lastAudioBuffer = null;
 let lastWorldId = DEFAULT_WORLD_ID;
 let pendingWorldStart = null;
@@ -469,6 +476,40 @@ let rangePresentation = experience === 'landscape' && rangeMode.mode === 'v2'
   ? new RangePresentation({ mode: 'v2', tour: rangeMode.tour, upgradeIntended: rangeMode.upgradeIntended, shots: rangeMode.shots, shotCandidates: rangeMode.shotCandidates, forcedViewId: rangeMode.forcedViewId, diag: rangeMode.diag, residency: sharedResidency(), budget: residencyBudgetFor().name })
   : null;
 
+const rangePaceSelect = document.getElementById('range-pace');
+const rangePaceStatus = document.getElementById('range-pace-status');
+function currentCameraTourMode() {
+  return rangePresentation?.tourMode === 'tetons' ? 'tetons' : rangePresentation?.shots?.enabled ? 'shots' : 'off';
+}
+function cameraScheduleKey(worldId = lastTimelineData?.worldId) {
+  return rangePresentation?.tourMode === 'tetons' ? `${worldId}:tetons` : worldId;
+}
+function syncRangePaceControl() {
+  const status = rangePresentation?.status();
+  const state = railPaceControlState({ experience, tourMode: status?.tourMode || (status?.shotTours?.active ? 'shots' : null),
+    policy: status?.cameraRails?.to?.policy || status?.cameraRails?.from?.policy });
+  if (rangePaceSelect) {
+    rangePaceSelect.value = String(requestedRailPace);
+    rangePaceSelect.disabled = state.disabled || bulkExportArmed || reelSaver.busy;
+  }
+  if (rangePaceStatus) rangePaceStatus.textContent = state.text;
+}
+rangePaceSelect?.addEventListener('change', () => {
+  if (bulkExportArmed || reelSaver.busy) return;
+  requestedRailPace = readRailPace(`?rangePace=${rangePaceSelect.value}`);
+  persistRailPace(requestedRailPace, { href: location.href, storage: displayStorage(),
+    replace: url => history.replaceState(null, '', url) });
+  if (cameraRun) {
+    cameraRun.reach(sim?.heardTimeMs);
+    activeCameraSchedule = cameraRun.setPace(requestedRailPace, cameraScheduleKey());
+    if (rangePresentation && activeCameraSchedule) {
+      rangePresentation.setRailPace(requestedRailPace, cameraRun.highWaterMs);
+      activeCameraSchedule = cameraRun.install(cameraScheduleKey(), rangePresentation.cameraSchedule);
+    }
+  }
+  syncRangePaceControl();
+});
+
 const rangeTourToggle = document.getElementById('range-tour-toggle');
 const rangeTourStatus = document.getElementById('range-tour-status');
 function currentTourControlState() {
@@ -480,6 +521,7 @@ function rangeStateSnapshot() {
     tourPreparation: { state: 'off' }, fallbackReason: 'legacy-mode' };
 }
 function syncRangeTourControl() {
+  syncRangePaceControl();
   if (rangeTourToggle) rangeTourToggle.disabled = experience === 'trio';
   if (!rangeTourStatus) return;
   if (experience === 'trio') {
@@ -497,16 +539,11 @@ if (rangeTourToggle) {
   rangeTourToggle.checked = !!(rangeMode.tour || rangeMode.shots);
   rangeTourToggle.addEventListener('change', () => {
     const choice = rangeTourToggle.checked ? (rangePresentation?.tourMode === 'tetons' ? 'tetons' : 'shots') : 'off';
-    const tour = choice === 'tetons' ? 'tetons' : null;
     try { localStorage.setItem('range-tour', choice); } catch { /* Storage may be blocked. */ }
     const url = new URL(location.href); url.searchParams.set('rangeTour', choice); history.replaceState(null, '', url);
     rangePresentation ||= new RangePresentation({ mode: 'v2', upgradeIntended: rangeMode.upgradeIntended, residency: sharedResidency(), budget: residencyBudgetFor().name });
     if (renderer) renderer.rangePresentation = rangePresentation;
-    const terrain = lastTimelineData?.terrain;
-    if (terrain) {
-      if (tour && getWorld(lastTimelineData.worldId)?.kind === 'alpine') { terrain._rangeTourOriginalBiomes ||= [...terrain.biomes]; terrain.biomes = ['CONIFER']; }
-      else if (terrain._rangeTourOriginalBiomes) { terrain.biomes = terrain._rangeTourOriginalBiomes; delete terrain._rangeTourOriginalBiomes; }
-    }
+    applyTerrainTourPolicy(lastTimelineData?.terrain, choice, getWorld(lastTimelineData?.worldId)?.kind);
     rangePresentation.setTourMode(choice === 'off' ? null : choice);
     if (running && sim && audioEngine && lastTimelineData) {
       const wasPaused=paused;
@@ -514,7 +551,7 @@ if (rangeTourToggle) {
       startTimeline(lastTimelineData, {
         ...lastStartExtra, songSeed:sim.songSeed,
         startAtMs:Math.max(0,audioEngine.nowMs), keepAudio:true,
-        keepUserCamera:true, preservePause:wasPaused, chapterState:null,
+        keepUserCamera:true, preservePause:wasPaused, chapterState:null, cameraRunIntent:'preserve',
       });
       if(wasPaused){paused=true;updatePauseButtonUI();}
     }
@@ -612,7 +649,6 @@ function playbackFps() {
 /** Exact backing-store size while tools/bulk-export.mjs is driving frames.
  *  Display-fit and the perf ladder both stand aside for it. */
 let bulkExportSize = null;
-let bulkExportArmed = false;
 let bulkPresentation = null;
 let titlePresentation = null;
 function effectivePresentation() {
@@ -671,7 +707,7 @@ async function changeExperience(value) {
       delete lastTimelineData.chapterState;
       startTimeline(lastTimelineData, {
         ...lastStartExtra, songSeed: owner.songSeed, startAtMs: Math.max(0, audioEngine.nowMs),
-        keepAudio: true, keepUserCamera: true, preservePause: paused, chapterState: null,
+        keepAudio: true, keepUserCamera: true, preservePause: paused, chapterState: null, cameraRunIntent: 'preserve',
       });
     } else {
       applyExperience(next);
@@ -1334,6 +1370,7 @@ function backToTitle() {
   lyricsRowEl?.classList.add('hidden');
   cancelUrlLoad();
   loadGen++;
+  cameraRun = null; activeCameraSchedule = null;
   stopTimeline();
   completePanelEl.classList.add('hidden');
   hudEl.classList.add('hidden');
@@ -1753,7 +1790,7 @@ function abortBulkExport() {
 /** Rebuild the current song at an exact frame size and arm the export clock.
  *  The seed and the decoded buffer carry over, so each resolution is the
  *  same performance. */
-function beginBulkExport({ width, height, presentation: override, qualityLevel = null } = {}) {
+function beginBulkExport({ width, height, presentation: override, qualityLevel = null, cameraSchedule = undefined, cameraTourMode = undefined } = {}) {
   const size = evenExportSize({ w: width, h: height });
   if (!size) throw new Error(`Export size must be even and at least 2×2 (got ${width}×${height}).`);
   if (!lastTimelineData) throw new Error('Load a song before exporting.');
@@ -1763,6 +1800,8 @@ function beginBulkExport({ width, height, presentation: override, qualityLevel =
   const extra = {
     playBuffer: lastAudioBuffer || undefined,
     exportMode: true,
+    cameraSchedule: cameraSchedule === undefined ? cameraRun?.scheduleFor(cameraScheduleKey()) || null : cameraSchedule,
+    cameraTourMode: cameraTourMode ?? currentCameraTourMode(),
     exportSize: size,
     exportPresentation: override ? resolvePresentation(resolveDisplayPrefs({ saved: override })) : { ...effectivePresentation() },
     exportQualityLevel: Number.isInteger(qualityLevel) && qualityLevel >= 0 ? qualityLevel : perfGovernor?.level ?? perfStartLevel,
@@ -1780,6 +1819,7 @@ function beginBulkExport({ width, height, presentation: override, qualityLevel =
     height: canvas.height,
     seed: sim.songSeed,
     worldId: sim.worldId,
+    cameraSchedule: activeCameraSchedule,
   };
 }
 
@@ -1900,15 +1940,21 @@ function syncCaptionDetails() {
 }
 
 function startTimeline(timelineData, extra = {}) {
+  // Snapshot progress before teardown; exports never advance the live owner.
+  if (!extra.exportMode && !bulkExportArmed && cameraRun?.data === lastTimelineData) cameraRun.reach(sim?.heardTimeMs);
   const {
     songSeed: seedOverride = undefined, playBuffer, live = false,
     startAtMs = 0, startAtWallMs = 0, preservePause = false, captureMode: captureModeFlag = false,
     exportMode: exportModeFlag = false, exportSize = null, keepAudio = false,
   } = extra;
-  lastStartExtra = { ...extra, beforePlayback: undefined, chapterState: null, keepAudio: false, startAtMs: 0, startAtWallMs: 0, keepUserCamera: false };
+  lastStartExtra = { ...extra, cameraSchedule: undefined, cameraTourMode: undefined, cameraRunIntent: undefined, exportMode: false, exportSize: null, exportPresentation: undefined, exportQualityLevel: undefined, beforePlayback: undefined, chapterState: null, keepAudio: false, startAtMs: 0, startAtWallMs: 0, keepUserCamera: false };
   // The world decides the presentation, before anything below reads it.
   timelineData.worldId = resolveWorldId(timelineData.worldId || lastWorldId || DEFAULT_WORLD_ID);
   applyExperience(worldExperience(timelineData.worldId));
+  // Temporary render policy never writes the listener's URL or storage.
+  if (extra.cameraTourMode !== undefined && rangePresentation && currentCameraTourMode() !== extra.cameraTourMode) {
+    rangePresentation.setTourMode(extra.cameraTourMode === 'off' ? null : extra.cameraTourMode);
+  }
   const fromUrl = exportModeFlag ? null : readBulkExportFromUrl();
   const exportMode = !!(exportModeFlag || fromUrl);
   const waitForLandscape = !exportMode && experience === 'landscape' && rangePresentation?.enabled
@@ -1983,10 +2029,7 @@ function startTimeline(timelineData, extra = {}) {
   // Seed: explicit replay override, otherwise the song-derived default.
   const pinned = seedOverride !== undefined ? seedOverride : null;
   try {
-    if (rangePresentation?.tourMode && timelineData.terrain && getWorld(timelineData.worldId)?.kind === 'alpine') {
-      timelineData.terrain._rangeTourOriginalBiomes ||= [...timelineData.terrain.biomes];
-      timelineData.terrain.biomes = ['CONIFER'];
-    }
+    applyTerrainTourPolicy(timelineData.terrain, currentCameraTourMode(), getWorld(timelineData.worldId)?.kind);
     sim = new Simulation(conductor, paramBus, {
       experience,
       bpm: timelineData.bpm || 120,
@@ -2042,12 +2085,16 @@ function startTimeline(timelineData, extra = {}) {
     showErrorBanner('Could not build the world: ' + (err?.message || err));
     return;
   }
+  if (!exportMode) cameraRun = openCameraRun(cameraRun, { data: timelineData, seed: sim.songSeed,
+    intent: extra.cameraRunIntent || 'fresh', requestedMultiplier: requestedRailPace });
+  activeCameraSchedule = null;
   sim.audioOverview = timelineData.audioOverview || null;
   // Each highlight frame records the run and look that drew it, so the
   // COMPLETE panel can draw it again at 4K (ReelExport.js). An export's own
   // reel is never shown.
   if (!exportMode && sim.highlightReel) {
-    const runSeed = sim.songSeed, runWorldId = timelineData.worldId;
+    const runSeed = sim.songSeed, runWorldId = timelineData.worldId, scheduleKey = cameraScheduleKey(runWorldId);
+    const cameraTourMode = currentCameraTourMode();
     // How this scene was built, which a from-0 redraw cannot reproduce: a
     // start part-way in (seek, in-room start, the mid-song rebuild on the
     // whole analysis, a world or tour switch), a continued chapter plan /
@@ -2060,7 +2107,7 @@ function startTimeline(timelineData, extra = {}) {
       songSeed: runSeed, worldId: runWorldId,
       displayPrefs: { ...(snapshotPlayerPrefs || displayPrefs) },
       qualityLevel: renderQualityLevel(generalQuality),
-      sceneStartMs, continued, analysis,
+      sceneStartMs, continued, analysis, cameraTourMode, cameraSchedule: cameraRun?.scheduleFor(scheduleKey) || null,
     });
   }
   // The listener's zoom (scroll wheel, pinch) is live-only: exports and
@@ -2072,8 +2119,8 @@ function startTimeline(timelineData, extra = {}) {
   if (!extra.keepUserCamera) rangeUserCamera.reset();
   sim.analysisOpening = timelineData.opening || null;
   // This snapshot belongs to the song, beyond Simulation teardown/rebuild.
-  if (!timelineData.opening) timelineData.rangeNarrative = sim.rangeNarrative;
-  if (sim.biomes.chapterPlan) timelineData.chapterState = {
+  if (!exportMode && !timelineData.opening) timelineData.rangeNarrative = sim.rangeNarrative;
+  if (!exportMode && sim.biomes.chapterPlan) timelineData.chapterState = {
     seed: sim.songSeed, previous: sim.biomes.chapterPlan, committedThroughMs: timelineData.durationMs,
   };
   lastSongSeed = sim.songSeed;
@@ -2107,7 +2154,12 @@ function startTimeline(timelineData, extra = {}) {
   renderer = createPresentingRenderer({ canvas, mode: rendererMode, presentation: effectivePresentation(), residency: sharedResidency() });
   if (rangePresentation) {
     rangePresentation.setSong({ terrain: timelineData.terrain || null, mgr: sim.biomes, generation: loadGen, exportMode,
-      cameraContinuation: extra.chapterState?.cameraTours || null });
+      cameraContinuation: extra.chapterState?.cameraTours || null,
+      ...cameraSongOptions(cameraRun, cameraScheduleKey(timelineData.worldId), exportMode ? 'export' : extra.cameraRunIntent,
+        exportMode ? extra.cameraSchedule ?? null : undefined),
+      requestedMultiplier: requestedRailPace });
+    activeCameraSchedule = rangePresentation.cameraSchedule;
+    if (!exportMode && activeCameraSchedule) cameraRun.install(cameraScheduleKey(timelineData.worldId), activeCameraSchedule);
     renderer.rangePresentation = rangePresentation;
   }
   // An exported frame is the picture, not the player: no seekbar strip.
@@ -2157,6 +2209,7 @@ function startTimeline(timelineData, extra = {}) {
   // On the heard clock, as the first rebuilt frame samples it (Simulation.step).
   if (keepAudio) sim.biomes?.commitLandRejoin?.(visualNow(startedAt + presentationLeadMs, choreographyOutputLatencyMs()));
   if (startedAt > 0) sim.startAt(startedAt + presentationLeadMs);
+  if (!exportMode) cameraRun?.reach(sim.heardTimeMs);
   // Both seeded in led time (see frame()), or the first frame would see the
   // whole lead as a delta and spend it on fixed steps nobody asked for.
   simTime = startedAt + presentationLeadMs;
@@ -2285,6 +2338,8 @@ function startTimeline(timelineData, extra = {}) {
     // tools/bulk-export.mjs drives these: arm at an exact size, then ask for
     // each output frame by time. See docs/video-export.md, "Bulk export".
     get exportReady() { return bulkExportArmed; },
+    get cameraRunState() { return { requestedMultiplier: requestedRailPace, highWaterMs: cameraRun?.highWaterMs ?? 0,
+      cameraSchedule: cameraRun?.scheduleFor(cameraScheduleKey()) || null, activeCameraSchedule }; },
     get durationMs() { return conductor?.durationMs || 0; },
     get exportSize() { return { width: canvas.width, height: canvas.height }; },
     get presentationDiagnostics() { return renderer?.diagnostics || titlePresentation?.diagnostics; },
@@ -3571,6 +3626,9 @@ function frame(tRaf) {
     }
   }
 
+  // Heard history commits even when this callback skips GPU drawing.
+  if (!bulkExportArmed) cameraRun?.reach(sim?.heardTimeMs);
+
   // FPS cap: skip the draw when we're ahead of the target frame period.
   // The sim still steps at full rate so audio sync stays tight; only the
   // GPU-bound draw is throttled.
@@ -3852,6 +3910,7 @@ function adoptFullAnalysisLive(data) {
     startAtMs: Math.max(0, audioEngine.nowMs),
     keepAudio: true,
     keepUserCamera: true,
+    cameraRunIntent: 'adopt',
     preservePause: wasPaused,
     fitDiagnostic: sim.fitDiagnostic,
     chapterState: { previous: sim.biomes.chapterPlan, committedThroughMs: sim.heardTimeMs ?? audioEngine.nowMs, landSections: sim.biomes.sections,
@@ -3880,7 +3939,7 @@ function seekSong(ms) {
   const selectedSection = renderer?.composer?.selectedSection;
   const hudInFrame = !!renderer?.hudInFrame;
   const showSectionLabels = !!sim.showSectionLabels;
-  startTimeline(lastTimelineData, { songSeed: seed, startAtMs: t, keepUserCamera: true,
+  startTimeline(lastTimelineData, { songSeed: seed, startAtMs: t, keepUserCamera: true, cameraRunIntent: 'preserve',
     playBuffer: buffer || undefined, preservePause: wasPaused, fitDiagnostic: sim.fitDiagnostic });
   if (!running || !sim) return;
   renderer.hudInFrame = hudInFrame;
@@ -4482,7 +4541,7 @@ function beginReelRender(data, group, size, restore) {
   lastSongSeed = group.songSeed;
   try {
     beginBulkExport({ width: size.w, height: size.h, presentation: { ...group.displayPrefs, scaling: 'fit' },
-      qualityLevel: group.qualityLevel });
+      qualityLevel: group.qualityLevel, cameraSchedule: group.cameraSchedule, cameraTourMode: group.cameraTourMode });
   } catch (err) {
     throw classifyArmError(err, { armed: !!sim && bulkExportArmed, stage: { w: canvas.width, h: canvas.height }, size });
   }
@@ -4537,11 +4596,20 @@ function endReelRender(data, restore) {
   bulkPresentation = null;
   stopTimeline({ preservePause: true });
   data.worldId = restore.worldId;
+  restoreTourTerrainState(restore.terrainTourState);
   if (restore.hadChapter) data.chapterState = restore.chapterState;
   else delete data.chapterState;
+  cameraRun = restore.cameraRun; activeCameraSchedule = restore.activeCameraSchedule;
+  if (restore.hadCameraSchedule) data.cameraSchedule = restore.cameraSchedule;
+  else delete data.cameraSchedule;
+  if (restore.hadRangeNarrative) data.rangeNarrative = restore.rangeNarrative;
+  else delete data.rangeNarrative;
   lastStartExtra = restore.lastStartExtra;
   lastSongSeed = restore.lastSongSeed;
   if (experience !== restore.experience) applyExperience(restore.experience);
+  if (rangePresentation && currentCameraTourMode() !== restore.cameraTourMode) {
+    rangePresentation.setTourMode(restore.cameraTourMode === 'off' ? null : restore.cameraTourMode);
+  }
   paused = restore.paused;
   if (audioEngine?.master && Number.isFinite(restore.gain)) audioEngine.master.gain.value = restore.gain;
   if (restore.ctxRunning) audioEngine?.ctx?.resume();
@@ -4583,7 +4651,10 @@ async function saveReelFrames(indices = null) {
   const data = lastTimelineData, gen = loadGen;
   const songName = sessionSongName(data, lastSongName);
   const restore = {
+    terrainTourState: captureTourTerrainState(data.terrain),
     worldId: data.worldId, hadChapter: Object.hasOwn(data, 'chapterState'), chapterState: data.chapterState,
+    cameraRun, activeCameraSchedule, cameraTourMode: currentCameraTourMode(), hadCameraSchedule: Object.hasOwn(data, 'cameraSchedule'), cameraSchedule: data.cameraSchedule,
+    hadRangeNarrative: Object.hasOwn(data, 'rangeNarrative'), rangeNarrative: data.rangeNarrative,
     lastStartExtra, lastSongSeed, paused, experience, loaderHidden: loaderEl.classList.contains('hidden'),
     ctxRunning: audioEngine?.ctx?.state === 'running', gain: audioEngine?.master?.gain.value,
   };
@@ -4592,7 +4663,7 @@ async function saveReelFrames(indices = null) {
   let ownSim = null;
   // Anything else that takes the page (a new song, the title, a replay)
   // wins; the save stops without touching it.
-  const superseded = () => loadGen !== gen || lastTimelineData !== data || (!!ownSim && sim !== ownSim);
+  const superseded = () => loadGen !== gen || lastTimelineData !== data || cameraRun !== restore.cameraRun || (!!ownSim && sim !== ownSim);
   const check = () => { if (superseded()) throw new ReelSaveCancelled(); };
   showReelFiles([]);
   const run = reelSaver.run({

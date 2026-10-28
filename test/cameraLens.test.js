@@ -89,11 +89,11 @@ test('cues carry their index and the lens is the same in any sampling order',()=
  assert.equal(lens.cameraLensAt({sections:song,timeMs:60100,durationMs:120000}).cueIndex,1);
  assert.equal(lens.cameraLensAt({sections:song,timeMs:30000,durationMs:120000}),lens.NEUTRAL_LENS,'idle reuses the frozen neutral');
 });
-test('the simulation lens follows the score, and is neutral in previews',async()=>{
+test('the Trio simulation lens follows the score, and is neutral in previews',async()=>{
  const {Simulation}=await import('../src/sim/Simulation.js');
  const song=[verse,chorusAt(20000,{endMs:40000}),{...verse,startMs:40000,endMs:120000}];
  const biomes={sections:song,energyCurves:{globalEnergyNorm:()=>.3},durationMs:120000,tSec:20,conductor:{timeline:[]}};
- const at=(timeMs,extra={})=>Simulation.prototype._lensAt.call({biomes:{...biomes,...extra}},timeMs);
+ const at=(timeMs,extra={})=>Simulation.prototype._lensAt.call({experience:'trio',biomes:{...biomes,...extra}},timeMs);
  assert.deepEqual(at(20000),lens.cameraLensAt({sections:song,timeMs:20000,durationMs:120000}));
  assert.ok(at(20000).zoomPulse>.9);
  assert.equal(at(20000,{terrainPreview:true}).zoomPulse,0);

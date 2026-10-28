@@ -36,6 +36,7 @@ export async function measureTerrainSnapshot({ root, view, frame, camera, budget
   fixedCamera.projectionMatrixInverse.copy(fixedCamera.projectionMatrix).invert();
   const foregroundMaxFrac = view.composition?.foreground === 'ledge' ? view.composition.nearLedgeMaxFrac : 0;
   return { ...sampleProjectedTerrainMotion({ THREE, prepared: { ...prepared, view }, frame, camera: fixedCamera,
+    cameraPose: camera.pose,
     outputWidth, outputHeight, foregroundMaxFrac, columns, rows }),
   assetHashes: prepared.assetHashes, budget };
 }

@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Renderer, applyFixedGroundTransform } from '../src/render/Renderer.js';
 import { displayLimitedSize } from '../src/render/StagePresets.js';
+import { Simulation } from '../src/sim/Simulation.js';
+import { CameraDirector } from '../src/render/CameraDirector.js';
 
 // Replace only the Canvas boundary: production Renderer owns every transform,
 // viewport, clip and post-processing call exercised below.
@@ -29,16 +31,16 @@ function canvasFixture(width, height) {
   return { canvas, ctx, events, circles, text };
 }
 
-function renderFixture(width, height, { zoom = 1, retro = false } = {}) {
+function renderFixture(width, height, { zoom = 1, retro = false, camera = null, presentation = {} } = {}) {
   const fixture = canvasFixture(width, height), renderer = new Renderer(fixture.canvas);
   let frameInputs;
-  renderer.rangePresentation = { enabled: true, setFrameInputs(inputs) { frameInputs = inputs; } };
+  renderer.rangePresentation = { enabled: true, ...presentation, setFrameInputs(inputs) { frameInputs = inputs; } };
   renderer.hudInFrame = true;
   renderer.composer = { draw(ctx) { ctx.arc(640, 360, 40, 0, Math.PI * 2); } };
   renderer._drawFilmFinish = ctx => ctx.arc(640 / zoom, 360 / zoom, 40, 0, Math.PI * 2);
   const sim = {
     stageW: 1280, stageH: 720, timeMs: 4000,
-    camera: { zoom, roll: 0, shakeX: 0, shakeY: 0 },
+    camera: camera || { zoom, roll: 0, shakeX: 0, shakeY: 0 },
     lerpState: () => ({ worldX: 0, midioX: 220, midioDrawX: 220 }),
     perf: { particleMul: 1, heavyPostFx: true, bloomEnabled: false, retroPalette: retro },
     conductor: { timeline: [], barGrid: [], durationMs: 12000 }, filmFinish: {},
@@ -84,6 +86,30 @@ test('camera zoom preserves fitting while fixed ground and HUD remain at nominal
   assert.ok(Math.abs(f.circles[1].rx - 16.875) < 1e-9);
   assert.ok(Math.abs(f.circles[3].rx - 16.875) < 1e-9);
   for (const p of f.circles) assert.ok(Math.abs(p.rx - p.ry) < 1e-9);
+});
+
+test('Landscape cue leaves final compositor framing and scenic viewport unchanged while loading or arriving', () => {
+  const sim = { experience: 'landscape', biomes: { durationMs: 60000, sections: [
+    { startMs: 0, role: 'verse', relEnergy01: .3, meanEnergy: .3, provenance: 'detected', confidence: .8 },
+    { startMs: 20000, role: 'chorus', relEnergy01: .9, meanEnergy: .9, provenance: 'detected', confidence: .8 },
+  ] } };
+  const lens = Simulation.prototype._lensAt.call(sim, 20000);
+  for (const presentation of [{ enabled: false }, { active: false },
+    { active: true, arrival: .5 }, { active: true, arrival: 1 }]) {
+    const camera = new CameraDirector();
+    camera.update(.016, 0, null, 0, lens.zoomPulse, lens.cueIndex);
+    const f = renderFixture(1280, 720, { camera, presentation });
+    assert.equal(f.renderer._stageView.width, 1408);
+    assert.equal(f.renderer._stageView.height, 848);
+    if (f.frameInputs) assert.deepEqual(f.frameInputs.scenicViewport.transform, [1, 0, 0, 1, -64, -64]);
+    for (const circle of f.circles) {
+      assert.equal(circle.rx, 40);
+      assert.equal(circle.ry, 40);
+      assert.equal(circle.x, 640);
+      assert.equal(circle.y, 360);
+    }
+    f.renderer.dispose();
+  }
 });
 
 test('fixed-ground output offsets remain in device space with shake, roll and ledge offset', () => {

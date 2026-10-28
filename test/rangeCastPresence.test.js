@@ -273,7 +273,7 @@ test('ribbons keep their brightest layer where they fold, on the cast layer only
  const scene=Object.assign(Object.create(RangeScene.prototype),{THREE,camera,target:{},canvas:{},size:{width:2,height:2},
   prepared:new Map([['v',p]]),depthCache:{A:{frame:-1,cast:{frame:1,view:'v',forest:true}}},stats:{},
   renderer:{setRenderTarget(){},setClearColor(){},clear(){},render(){seen.push(eq());}},
-  _copy:{mesh:{material:{uniforms:{uColor:{}}}},scene:'copy',camera},_setCanvasSize(){}});
+  _copy:{mesh:{material:{uniforms:{uColor:{}}}},scene:'copy',camera},_setCanvasSize(){},_setCamera(){},_setUniforms(){}});
  scene.renderCast({frameId:1},'v');
  assert.ok(seen.slice(0,3).every(e=>e.every(x=>x===THREE.MaxEquation)),'max while the bands draw the ribbons');
  assert.ok(seen.slice(3,6).every(e=>e.every(x=>x===THREE.AddEquation)),'then the lights add over them: a halo never maxes a thread end');

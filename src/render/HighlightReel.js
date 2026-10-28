@@ -1,3 +1,12 @@
+const frozenJson = value => {
+  const copy = JSON.parse(JSON.stringify(value));
+  const freeze = item => {
+    if (item && typeof item === 'object') { Object.values(item).forEach(freeze); Object.freeze(item); }
+    return item;
+  };
+  return freeze(copy);
+};
+
 // The end-of-song filmstrip: one frame at the peak of each major change in
 // the picture's color scheme (high sun, sunset, deepest night, the storm...).
 //
@@ -640,7 +649,7 @@ export class HighlightReel {
     try {
       const described = this.describeMoment();
       if (!described || typeof described !== 'object') return null;
-      return Object.freeze({ ...described, displayPrefs: described.displayPrefs ? Object.freeze({ ...described.displayPrefs }) : null,
+      return Object.freeze({ ...described, ...(described.cameraSchedule ? { cameraSchedule: frozenJson(described.cameraSchedule) } : {}), displayPrefs: described.displayPrefs ? Object.freeze({ ...described.displayPrefs }) : null,
         atMs: heardTimeMs });
     } catch {
       return null;

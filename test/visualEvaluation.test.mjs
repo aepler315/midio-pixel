@@ -278,3 +278,55 @@ test('a uniform thumbnail is a blank frame; any real picture is not', async () =
   assert.equal(blankFrame([]), true);
   assert.equal(blankFrame([0, 0, 0, 255, 40, 60, 90, 255]), false);
 });
+
+
+test('camera manifest validates pace choices and explicit clips up to 180 seconds', () => {
+  for (const pace of [1, 2, 3, 4]) assert.equal(normalizeManifest({ ...manifest(), settings: { pace } }).settings.pace, pace);
+  for (const pace of [0, 5, 1.5, '3', null, NaN, Infinity]) assert.throws(() => normalizeManifest({ ...manifest(), settings: { pace } }), /pace/);
+  for (const durationMs of [50, 30001, 180000]) assert.equal(normalizeManifest(manifest({ clips: [{ startMs: 0, durationMs }] })).songs[0].clips[0].durationMs, durationMs);
+  for (const durationMs of [0, -1, 180001, NaN, Infinity]) assert.throws(() => normalizeManifest(manifest({ clips: [{ startMs: 0, durationMs }] })), /durationMs/);
+});
+
+test('matched camera comparisons reject differing requested pace or tour', () => {
+  const before = report(); before.settings.pace = 1; before.settings.tour = 'off';
+  assert.doesNotThrow(() => compareReports(before, structuredClone(before)));
+  for (const change of [{ pace: 2 }, { tour: 'shots' }, { tour: 'tetons' }]) {
+    const after = structuredClone(before); Object.assign(after.settings, change);
+    assert.throws(() => compareReports(before, after), /incompatible settings/);
+  }
+  for (const missing of ['pace', 'tour']) {
+    const historical = structuredClone(before); delete historical.settings[missing];
+    assert.throws(() => compareReports(historical, before), /incompatible settings/, `unrecorded ${missing} cannot become explicit metadata`);
+  }
+});
+
+test('fixed and live entry URLs preserve requested camera controls and omit natural view pins', () => {
+  assert.equal(typeof evaluationBrowser.evaluationEntryUrl, 'function');
+  for (const bulkExport of [true, false]) {
+    const fixed = new URL(evaluationBrowser.evaluationEntryUrl('http://localhost:8080/', {
+      experience: 'landscape', width: 1280, height: 720, seed: 315, pace: 4, tour: 'off', view: 'teton-jackson-lake'
+    }, { bulkExport }));
+    assert.equal(fixed.searchParams.get('rangePace'), '4');
+    assert.equal(fixed.searchParams.get('rangeTour'), 'off');
+    assert.equal(fixed.searchParams.get('rangeView'), 'teton-jackson-lake');
+    assert.equal(fixed.searchParams.get('bulkExport'), bulkExport ? '1' : null);
+    assert.equal(fixed.searchParams.get('seed'), '315');
+    const natural = new URL(evaluationBrowser.evaluationEntryUrl('http://localhost:8080/?rangeView=stale', { pace: 2, tour: 'shots', view: null }, { bulkExport }));
+    assert.equal(natural.searchParams.get('rangePace'), '2');
+    assert.equal(natural.searchParams.get('rangeTour'), 'shots');
+    assert.equal(natural.searchParams.has('rangeView'), false);
+  }
+});
+
+test('fixed camera validation follows the Teton tour override and still rejects ignored ordinary views', async () => {
+  const previousWindow = globalThis.window;
+  const settings = { width: 640, height: 360, quality: 0, experience: 'landscape', view: 'teton-jackson-lake', tour: 'tetons' };
+  try {
+    globalThis.window = { __SMW: { renderExportFrame: timeMs => ({ timeMs, width: 640, height: 360, draws: 1 }),
+      rangeSettle: async () => false, perfLevel: 0, sim: { biomes: {} },
+      rangeState: { mode: 'v2', active: true, runtime: 'ready', viewId: 'teton-range-tour' } } };
+    const page = { evaluate: (fn, args) => fn(args) };
+    assert.equal(await evaluationBrowser.renderEvaluationFrame(page, { timeMs: 12000, save: false }, settings), null);
+    await assert.rejects(evaluationBrowser.renderEvaluationFrame(page, { timeMs: 12000, save: false }, { ...settings, tour: 'off' }), /wrong view/);
+  } finally { if (previousWindow === undefined) delete globalThis.window; else globalThis.window = previousWindow; }
+});

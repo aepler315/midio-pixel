@@ -46,7 +46,7 @@ for (const id of ids) {
       if (label === 'isolated-kick') { music.amplitudeM = 0; music.totalBoundM = music.kickM; }
       const frame = { timeMs, progress01, music, glacier: glacierStateAt({ timeMs, durationMs: 120000, progress01 }),
         scenicViewport: { logicalWidth: 1280, logicalHeight: 720, nominalWidth: 1280, nominalHeight: 720, transform: [1, 0, 0, 1, 0, 0] } };
-      const result = await measureTerrainSnapshot({ root, view, frame, camera: { world: camera.matrixWorld.toArray(), projection: camera.projectionMatrix.toArray() },
+      const result = await measureTerrainSnapshot({ root, view, frame, camera: { world: camera.matrixWorld.toArray(), projection: camera.projectionMatrix.toArray(), pose },
         columns: Number(args.columns || 24), rows: Number(args.rows || 18) });
       report.rows.push({ label, ...result });
       console.error(`${id} ${progress01} ${label}: flank median ${result.groups.flank.medianPx.toFixed(3)} px (${result.groups.flank.visibleCount} anchors)`);

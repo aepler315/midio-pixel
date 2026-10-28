@@ -28,15 +28,38 @@ continuous window beginning at 12 seconds, 12 saved frames per second, both
 Classic and Detailed grids, and fixed quality 0. The app still takes its normal
 upload and analysis path. All recorded frames use Uniform raster scaling; old
 Depth preferences cannot activate the removed mode. Use `--audio recording.wav`
-for a representative recording, `--view teton-jackson-lake` for a static lake
-view, or `--start-ms 40000 --seconds 4 --fps 24` for another continuous passage.
+for a representative recording, `--tour off --view teton-jackson-lake` for the
+authored lake rail, or `--start-ms 40000 --seconds 4 --fps 24` for another continuous passage.
 Use `--look cinematic` to review the experimental Cinematic Pixel Look;
 `--look pixel` remains the default. The selected Look applies to both the
 fixed-clock clips and optional live trace, and each checks the effective
 presentation diagnostics. `--grid classicPlus` selects the 400×225 native
 terrain raster without changing the Look.
-The default view is the authored Teton tour. Clip length is bounded at ten
-seconds; use the existing visual manifest workflow for larger corpora.
+The default view remains the authored Teton tour, with requested Landscape
+pace 3. Use `--pace 1|2|3|4` and `--tour off|shots|tetons` explicitly when
+reviewing rail pace. Pace affects ordinary approved authored rails. Tours keep
+their heard-time planners, glacier journeys keep their coupled clocks, and
+previews keep their midpoint policy. A requested 4x does not guarantee 4x
+motion: progress may cap at the authored rail's end. The report records the
+effective multiplier, coverage and policy; no loop, reversal or path extension
+is added.
+
+```sh
+npm run review:landscape -- --out .smoke/rail-pace3 --grid classic \
+  --tour off --view teton-jackson-lake --pace 3 --start-ms 12000 --seconds 4
+# Clear both view and fixture biome pins to review automatic scene transitions.
+npm run review:landscape -- --out .smoke/rail-transition --grid classic \
+  --tour off --view natural --pace 3 --start-ms 40000 --seconds 8
+# Longer held-scene motion review is opt-in; retain consecutive draws.
+npm run review:landscape -- --out .smoke/rail-held --grid classic \
+  --tour off --view teton-jackson-lake --pace 3 --seconds 180
+```
+
+`--seconds` accepts positive durations through 180 seconds in both the CLI and
+visual manifest clip contract. The two-second, 12 FPS default stays unchanged;
+a longer clip can take substantially longer to render and saves more evidence.
+Use a recording long enough to include the requested start and clip. Generated
+fixtures extend automatically to cover the fixed clip and optional live trace.
 
 The tool freezes and hashes public runtime files before serving its own
 loopback snapshot. For a retained snapshot, `--snapshot DIR` reads
@@ -45,8 +68,10 @@ loopback snapshot. For a retained snapshot, `--snapshot DIR` reads
 hashes. Optional `source` metadata records the original commit/dirty state.
 Every byte is verified before use. This format preserves case-distinct source
 paths on hosts where a normal directory copy would merge them. It records the source commit and dirty state, browser,
-actual renderer, actual grid and Uniform setting, resolved camera projection
-and position, heard time, sky mode, window coverage and detail, forest counts,
+actual renderer, actual grid and Uniform setting, requested pace and tour,
+serialized range state, effective camera schedule identity, per-side occurrence
+progress/multipliers/coverage/policy, camera FOV and pose, heard time, sky mode,
+window coverage and detail, forest counts,
 and graphics ledger. A source change during capture fails the run. Output must
 be a new directory; evidence is never silently replaced.
 
@@ -82,19 +107,26 @@ The report also checks a paused presenter grid/backing-size round trip without
 advancing heard time or replacing the audio engine. This check does not replace
 the unit tests or the separate delayed-worker lifecycle fixture.
 
-Revision comparisons through `--baseline` require the same requested Look
-and every other matched setting. Capture Classic+ Pixel and Cinematic Pixel
+Revision comparisons through `--baseline` require the same requested Look,
+pace, tour and every other matched setting. Capture Classic+ Pixel and Cinematic Pixel
 into separate, explicitly labelled reference folders for a visual comparison;
 their different Look requests cannot pass as an identical-settings revision
-comparison. Do not edit saved baseline settings to make them match.
+comparison. For an intentional pace 1/2/3/4 comparison, capture separate labelled
+folders (for example `.smoke/rail-pace1` through `.smoke/rail-pace4`) with the
+same recording, heard time, seed, scene, grid and quality. Inspect those folders
+side by side; differing pace requests intentionally fail the `--baseline`
+equality gate. Historical reports missing pace or tour cannot be relabelled as
+an explicit matched request. Do not edit saved baseline settings to make them
+match.
 
 Optional live timing uses a separate real upload and waits for `renderReady`
-before measuring delivered frames. It uses the authored Teton tour and the
-first selected grid; a `--view` choice applies to the fixed-clock clips:
+before measuring delivered frames. It uses the same pace, tour and view controls
+as the fixed-clock clips and the first selected grid:
 
 ```sh
 npm run review:landscape -- --out .smoke/landscape-live --hardware-gpu \
-  --audio long-enough-recording.wav --live-seconds 300
+  --audio long-enough-recording.wav --tour off --view teton-jackson-lake \
+  --pace 3 --live-seconds 300
 ```
 
 The startup wait and readiness result are recorded separately from the live
