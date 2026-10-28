@@ -84,3 +84,93 @@ test('a near-zero alpha (body below the horizon) draws nothing at all', async ()
   bm._drawOneCelestial(ctx, 300, 100, { radius: 40, color: '#fff', haloColor: '#fff', dominant: true }, 0.01);
   assert.equal(ctx.arcs.length, 0);
 });
+
+// The Range sky's CelestialPainter plays along with the sky score: the slow
+// radiance reaches only the wide glare, the note pulse only the tight sun
+// bloom and the moon's night aureole. Gradients in creation order.
+function bodyRecorder() {
+  const gradients = [], faces = [];
+  const ctx = { globalAlpha: 1, globalCompositeOperation: 'source-over',
+    save() {}, restore() {}, translate() {}, scale() {}, rotate() {}, beginPath() {}, arc() {}, ellipse() {},
+    closePath() {}, clip() {}, fill() {},
+    createRadialGradient(...args) { const g = { args, stops: [], addColorStop(at, color) { this.stops.push([at, color]); } }; gradients.push(g); return g; },
+    fillRect(...rect) { if (typeof this.fillStyle === 'string') faces.push(this.globalAlpha); },
+    drawImage() { faces.push(this.globalAlpha); },
+  };
+  return { ctx, gradients, faces };
+}
+const alphaOf = color => Number(/,([^,]+)\)$/.exec(color)[1]);
+const SUN = Object.freeze({ xFrac: .5, yFrac: .3, altitude01: .5, visibility: 1, radiusFrac: .012, colorHex: '#ffeecc' });
+const MOON = Object.freeze({ xFrac: .3, yFrac: .2, altitude01: .5, radiusFrac: .02, illumination: .9 });
+
+async function paintSun(music, options = {}) {
+  const { CelestialPainter } = await import('../src/world/alpine/CelestialPainter.js');
+  const { ctx, gradients } = bodyRecorder();
+  new CelestialPainter({ buffers: { ensure: () => null } }).drawSun(ctx, SUN, 1280, 720, 0,
+    music === undefined ? options : { ...options, music });
+  assert.equal(gradients.length, 3);
+  const [glare, disc, bloom] = gradients.map(({ args, stops }) => ({ args, stops }));
+  return { glare, disc, bloom };
+}
+async function paintMoon(music) {
+  const { CelestialPainter } = await import('../src/world/alpine/CelestialPainter.js');
+  const { ctx, gradients, faces } = bodyRecorder();
+  const painter = new CelestialPainter({ buffers: { ensure: () => null } });
+  if (music === undefined) painter.drawMoon(ctx, MOON, SUN, 1280, 720, 1, .5, 1, 0);
+  else painter.drawMoon(ctx, MOON, SUN, 1280, 720, 1, .5, 1, 0, { music });
+  assert.equal(gradients.length, 1);
+  return { aureole: { args: gradients[0].args, stops: gradients[0].stops }, faces };
+}
+
+test('sun and moon without a score are unchanged, and an expired note is no score', async () => {
+  const { sampleSkyPerformance } = await import('../src/world/alpine/SkyPerformance.js');
+  const plain = await paintSun(undefined);
+  assert.deepEqual(await paintSun(null), plain);
+  for (const quiet of [false, true]) assert.deepEqual(await paintSun(null, { quiet }), await paintSun(undefined, { quiet }));
+  const expired = sampleSkyPerformance({ accents: [{ ageSec: 1.1, kind: 'kick', seed: .3, strength: 1 }] });
+  assert.equal(expired, null, 'a kick past its duration leaves no score');
+  assert.deepEqual(await paintSun(expired), plain);
+  assert.deepEqual(await paintMoon(null), await paintMoon(undefined));
+});
+
+test('a kick lifts only the tight sun bloom; radiance caps the glare; the disc never moves', async () => {
+  const plain = await paintSun(null);
+  const kick = await paintSun({ pulse: 1, detail: 1, radiance: 0, open: 1 });
+  assert.deepEqual(kick.glare, plain.glare, 'kick and open never pump the wide glare');
+  assert.deepEqual(kick.disc, plain.disc);
+  assert.notDeepEqual(kick.bloom.stops, plain.bloom.stops);
+  assert.deepEqual(kick.bloom.args, plain.bloom.args, 'the bloom brightens, it does not grow');
+  for (const [i, [, color]] of kick.bloom.stops.entries()) {
+    assert.ok(alphaOf(color) <= alphaOf(plain.bloom.stops[i][1]) * 1.5 + 1e-12);
+  }
+  const radiant = await paintSun({ pulse: 0, detail: 1, radiance: 1 });
+  assert.deepEqual(radiant.bloom, plain.bloom);
+  assert.deepEqual(radiant.disc, plain.disc);
+  assert.ok(radiant.glare.args[5] > plain.glare.args[5]);
+  assert.ok(radiant.glare.args[5] <= plain.glare.args[5] * 1.08 + 1e-9, 'glare extent within +8%');
+  for (const [i, [, color]] of radiant.glare.stops.entries()) {
+    assert.ok(alphaOf(color) <= alphaOf(plain.glare.stops[i][1]) * 1.15 + 1e-12, 'glare alpha within +15%');
+  }
+  const loud = await paintSun({ pulse: 1, detail: 1, radiance: 1 });
+  for (const g of [loud.glare, loud.bloom, loud.disc]) for (const [, color] of g.stops) assert.ok(alphaOf(color) <= 1);
+  // The quiet look halves both responses.
+  const quietPlain = await paintSun(null, { quiet: true }), quietLoud = await paintSun({ pulse: 1, detail: 1, radiance: 1 }, { quiet: true });
+  const lift = (a, b) => alphaOf(b.stops[0][1]) / alphaOf(a.stops[0][1]) - 1;
+  assert.ok(Math.abs(lift(quietPlain.bloom, quietLoud.bloom) - .25) < 1e-3);
+  assert.ok(Math.abs(lift(quietPlain.glare, quietLoud.glare) - .075) < 1e-3);
+  // Reduced detail scales the bloom response.
+  const reduced = await paintSun({ pulse: 1, detail: .7, radiance: 0 });
+  assert.ok(Math.abs(lift(plain.bloom, reduced.bloom) - .35) < 1e-3);
+});
+
+test('a note pulse lifts only the moon aureole at night, never its face or radius', async () => {
+  const plain = await paintMoon(null), hit = await paintMoon({ pulse: 1, detail: 1, radiance: 1 });
+  assert.deepEqual(hit.faces, plain.faces, 'the face alpha is unchanged');
+  assert.deepEqual(hit.aureole.args, plain.aureole.args, 'the aureole radius is unchanged');
+  assert.notDeepEqual(hit.aureole.stops, plain.aureole.stops);
+  assert.deepEqual(hit.aureole.stops.map(([at]) => at), plain.aureole.stops.map(([at]) => at));
+  for (const [i, [, color]] of hit.aureole.stops.entries()) {
+    const before = alphaOf(plain.aureole.stops[i][1]), after = alphaOf(color);
+    assert.ok(after <= 1 && Math.abs(after - Math.min(1, before * 1.5)) < 1e-12);
+  }
+});

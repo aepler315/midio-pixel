@@ -195,8 +195,13 @@ export class CelestialPainter {
    *  deck (`storm`, its amount) takes the hard disc and the clear-sky glare
    *  away as it thickens: drawVeiledSun paints the sun over the deck.
    *  `quiet` (the cinematic look) restrains the glare to a smaller, fainter
-   *  halo, keeping the sky around the sun quiet. */
-  drawSun(ctx, sun, width, height, storm = 0, { quiet = false } = {}) {
+   *  halo, keeping the sky around the sun quiet.
+   *  `music` (sampleSkyPerformance's score, optional) lets the sun play
+   *  along without a global brightness pump: only the slow radiance widens
+   *  and lifts the wide glare a little, and the note pulse (scaled by the
+   *  score's detail) lifts only the tight bloom. Never `open` or the kick
+   *  on the glare; the disc and the terrain light are unchanged. */
+  drawSun(ctx, sun, width, height, storm = 0, { quiet = false, music = null } = {}) {
     if (!sun || sun.visible === false || !(sun.altitude01 > 0)) return;
     const vis = clamp(sun.visibility ?? 1), clear = 1 - bodyVeil(storm);
     if (vis < .01 || clear < .01) return;
@@ -222,12 +227,17 @@ export class CelestialPainter {
     const dim = sunDiscDim(vis);
     scale3(core, dim); scale3(limb, dim); scale3(centre, dim);
     const k = vis * clear, q = quiet ? QUIET_GLARE : 1;
+    // Scalar responses (1 without a score); the quiet look halves them.
+    const respond = quiet ? .5 : 1, radiance = music ? clamp(music.radiance || 0) * respond : 0;
+    const glareGain = 1 + .15 * radiance, glareReach = 1 + .08 * radiance;
+    const bloomGain = music ? 1 + .5 * clamp(music.pulse || 0) * clamp(music.detail ?? 1) * respond : 1;
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
-    const G = height * (.26 + .14 * low) * (quiet ? QUIET_GLARE_EXTENT : 1);
+    const G = height * (.26 + .14 * low) * (quiet ? QUIET_GLARE_EXTENT : 1) * glareReach;
     let g = ctx.createRadialGradient(x, y, 0, x, y, G);
-    g.addColorStop(0, rgba(glare, .55 * k * q)); g.addColorStop(.06, rgba(glare, .30 * k * q));
-    g.addColorStop(.25, rgba(glare, .09 * k * q)); g.addColorStop(1, rgba(glare, 0));
+    g.addColorStop(0, rgba(glare, Math.min(1, .55 * k * q * glareGain)));
+    g.addColorStop(.06, rgba(glare, Math.min(1, .30 * k * q * glareGain)));
+    g.addColorStop(.25, rgba(glare, Math.min(1, .09 * k * q * glareGain))); g.addColorStop(1, rgba(glare, 0));
     ctx.fillStyle = g; ctx.fillRect(x - G, y - G, 2 * G, 2 * G); // bounded, never the whole frame
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = sunDiscAlpha(vis) * clear;
@@ -243,8 +253,9 @@ export class CelestialPainter {
     ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'screen';
     const B = radius * 3.2, b = k * (1 - .55 * low);
     g = ctx.createRadialGradient(x, y, 0, x, y, B);
-    g.addColorStop(0, rgba(bloom, .42 * b)); g.addColorStop(.31, rgba(bloom, .26 * b));
-    g.addColorStop(.5, rgba(bloom, .09 * b)); g.addColorStop(1, rgba(bloom, 0));
+    g.addColorStop(0, rgba(bloom, Math.min(1, .42 * b * bloomGain)));
+    g.addColorStop(.31, rgba(bloom, Math.min(1, .26 * b * bloomGain)));
+    g.addColorStop(.5, rgba(bloom, Math.min(1, .09 * b * bloomGain))); g.addColorStop(1, rgba(bloom, 0));
     ctx.fillStyle = g; ctx.fillRect(x - B, y - B, 2 * B, 2 * B);
     ctx.restore();
   }
@@ -305,8 +316,10 @@ export class CelestialPainter {
   /** The moon: its lit face screened onto the sky with no backing disc, so
    *  the dark side is sky (earthshine only at night) and a daytime moon is
    *  pale and low in contrast; a soft aureole at night. A storm deck takes
-   *  the face away as it thickens (drawVeiledMoon paints over the deck). */
-  drawMoon(ctx, moon, sun, width, height, night, phase01 = .5, outputScale = 1, storm = 0) {
+   *  the face away as it thickens (drawVeiledMoon paints over the deck).
+   *  `music` (optional) lifts only the night aureole with the note pulse;
+   *  the face's alpha and every radius are unchanged. */
+  drawMoon(ctx, moon, sun, width, height, night, phase01 = .5, outputScale = 1, storm = 0, { music = null } = {}) {
     const disc = this.prepareMoon(moon, width, height, night, phase01);
     const clear = 1 - bodyVeil(storm);
     if (!disc.visible || clear < .01) return;
@@ -326,10 +339,13 @@ export class CelestialPainter {
       // Full at the limb and falling away from it; over the disc only a
       // faint veil, so the dark side stays sky (a gradient begun at the limb
       // extends its first colour across the whole disc).
-      const A = r * 3.4, k = .17 * night * disc.cover * clear * f ** 1.5, limb = r / A;
+      const pulseGain = music ? 1 + .5 * clamp(music.pulse || 0) * smooth(.05, .5, night) : 1;
+      const A = r * 3.4, k = .17 * night * disc.cover * clear * f ** 1.5 * pulseGain, limb = r / A;
       const g = ctx.createRadialGradient(x, y, 0, x, y, A);
-      g.addColorStop(0, `rgba(200,214,236,${k * .2})`); g.addColorStop(limb * .95, `rgba(200,214,236,${k * .2})`);
-      g.addColorStop(limb, `rgba(200,214,236,${k})`); g.addColorStop(limb + .3 * (1 - limb), `rgba(190,206,232,${k * .3})`);
+      g.addColorStop(0, `rgba(200,214,236,${Math.min(1, k * .2)})`);
+      g.addColorStop(limb * .95, `rgba(200,214,236,${Math.min(1, k * .2)})`);
+      g.addColorStop(limb, `rgba(200,214,236,${Math.min(1, k)})`);
+      g.addColorStop(limb + .3 * (1 - limb), `rgba(190,206,232,${Math.min(1, k * .3)})`);
       g.addColorStop(1, 'rgba(190,206,232,0)');
       ctx.fillStyle = g; ctx.fillRect(x - A, y - A, 2 * A, 2 * A);
     }
