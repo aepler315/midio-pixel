@@ -7,6 +7,7 @@ import { LightningFX } from '../Lightning.js';
 import { cloudBanks } from './RangeCloudField.js';
 import { buildCloudTexture } from './RangeCloudTexture.js';
 import { sampleSkyPerformance } from './SkyPerformance.js';
+import { CELESTIAL_RISE_XFRAC, CELESTIAL_SET_XFRAC } from '../DayNight.js';
 export { cloudDensity } from './RangeCloudTexture.js';
 
 const TAU = Math.PI * 2;
@@ -21,6 +22,27 @@ const fract = x => x - Math.floor(x);
 const MILKY_FADE_SEC = 1.5;
 /** Flash-lit storm sprites kept beside the deck tints (LRU). */
 const FLASH_TINT_POOL = 8;
+/** Degrees the tour sun's compass arc spans from rise to set: the sweep
+ *  of RangeSkyComposition's SUN_ARC (pinned by rangeSkyTwilight.test.js). */
+const SUN_ARC_SWEEP_DEG = 150;
+const RAD = 180 / Math.PI;
+const azimuthOf = dir => dir && Number.isFinite(dir[0]) && Number.isFinite(dir[2]) && (dir[0] || dir[2])
+  ? Math.atan2(dir[0], -dir[2]) * RAD : null;
+/** Compass azimuth of the signed sun that twilight belongs to, or null
+ *  without a tour projection. The resolved sun body parks at its set
+ *  azimuth all night, so predawn twilight would glow at the sunset side
+ *  and jump 150 degrees at sunrise. Prefer a published signed direction
+ *  (`sun.solarDirection`); otherwise move the parked body along its own arc
+ *  to the signed sun's place (twilight.xFrac, DayNight.sunScreenFrac),
+ *  which also keeps the view's heading offset the body already carries. */
+function twilightAzimuth(sun, twilight) {
+  const signed = azimuthOf(sun?.solarDirection);
+  if (signed !== null) return signed;
+  const az = azimuthOf(sun?.worldDirection);
+  if (az === null || !Number.isFinite(twilight?.xFrac) || !Number.isFinite(sun.azimuth01)) return az;
+  const solar01 = (twilight.xFrac - CELESTIAL_RISE_XFRAC) / (CELESTIAL_SET_XFRAC - CELESTIAL_RISE_XFRAC);
+  return az + SUN_ARC_SWEEP_DEG * (solar01 - sun.azimuth01);
+}
 const hash = (x, y, seed) => {
   let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(seed | 0, 1274126177);
   h = Math.imul(h ^ h >>> 13, 1274126177);
@@ -302,9 +324,7 @@ export class RangeSkyRenderer {
     const tw = frame.twilight, amount = clamp(tw?.amount01 || 0);
     if (amount <= .01) return;
     const storm = clamp(frame.storm?.amount || 0), clear = 1 - storm;
-    const f = project.forward, dir = frame.sun?.worldDirection;
-    const az = dir && Number.isFinite(dir[0]) && Number.isFinite(dir[2]) && (dir[0] || dir[2])
-      ? Math.atan2(dir[0], -dir[2]) * 180 / Math.PI : null;
+    const f = project.forward, az = twilightAzimuth(frame.sun, tw);
     const sunAlt = clamp(frame.sun?.altitude01 || 0);
     // drawSun's glare takes over as the sun climbs: no double brightening.
     const alpha = .55 * amount * (1 - .6 * smooth(sunAlt / .12)) * clear * (frame.cinematicPixel ? .7 : 1);
@@ -334,23 +354,24 @@ export class RangeSkyRenderer {
     }
     // The Belt of Venus: pink over the blue-grey earth shadow, opposite the
     // sun. Only the tour projection knows where that is.
-    const belt = .22 * amount * clear;
-    if (az === null || belt < .002 || !f) return;
-    const anti = project(tourSkyDirection(az + 180, 4));
-    if (!anti.inFront || !Number.isFinite(anti.xFrac)) return;
+    // It spans the whole frame width (no side edges) and fades with how
+    // directly the heading faces the antisolar azimuth: full within about
+    // 37 degrees of it, gone from about 78.
+    const fh = f ? Math.hypot(f[0], f[2]) : 0;
+    if (az === null || !(fh > 0)) return;
+    const anti = (az + 180) / RAD, facing = (f[0] * Math.sin(anti) - f[2] * Math.cos(anti)) / fh;
+    const belt = .22 * amount * clear * smooth((facing - .2) / .6);
+    if (!(belt >= .002)) return;
     const horizon = project([f[0], 0, f[2]]);
     const base = clamp(Number.isFinite(horizon.yFrac) ? horizon.yFrac : .62, -.3, 1.8) * height;
-    // About +-60 degrees of horizon, never narrower than 0.9 of the frame.
-    const half = Math.max(.45 * width, 1.05 * (project.focal ?? 1) * height), cx = anti.xFrac * width;
-    const x0 = Math.max(0, cx - half), x1 = Math.min(width, cx + half);
     const top = base - .12 * height, y0 = Math.max(0, top), y1 = Math.min(height, base);
-    if (!(x1 > x0 && y1 > y0)) return;
+    if (!(y1 > y0)) return;
     const band = ctx.createLinearGradient(0, top, 0, base);
     band.addColorStop(0, 'rgba(232,170,190,0)'); band.addColorStop(.45, `rgba(232,170,190,${belt})`);
     band.addColorStop(1, `rgba(120,130,160,${belt})`);
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
-    ctx.fillStyle = band; ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+    ctx.fillStyle = band; ctx.fillRect(0, y0, width, y1 - y0);
     ctx.restore();
   }
   /** A rare night meteor for a strong melody note (or any note in a lift):

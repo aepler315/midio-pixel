@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BiomeManager, rangeSkyTwilight } from '../src/world/BiomeManager.js';
-import { TWILIGHT, twilightAt } from '../src/world/DayNight.js';
+import { TWILIGHT, twilightAt, dayNight, sunScreenFrac, CELESTIAL_RISE_XFRAC, CELESTIAL_SET_XFRAC } from '../src/world/DayNight.js';
 import { RangeSkyRenderer, skyProjector } from '../src/world/alpine/RangeSkyRenderer.js';
-import { tourSkyDirection } from '../src/world/alpine/RangeSkyComposition.js';
+import { tourSkyDirection, projectRangeCelestials } from '../src/world/alpine/RangeSkyComposition.js';
 import { sampleSkyPerformance } from '../src/world/alpine/SkyPerformance.js';
 
 const camera = { tourPose: { eyeM: [0, 0, 0], targetM: [0, .22, -1], fovYDeg: 50, aspect: 16 / 9 } };
@@ -138,7 +138,8 @@ test('(c) facing away from the sun shows the Belt of Venus, not a glow', () => {
   assert.match(band.style.stops[1][1], /^rgba\(232,170,190,/);
   assert.match(band.style.stops[2][1], /^rgba\(120,130,160,/);
   assert.ok(Math.abs(Number(/,([^,]+)\)$/.exec(band.style.stops[2][1])[1]) - .22 * DUSK.amount01) < 1e-12);
-  assert.ok(band.rect[2] >= W * .9 - 1e-9 && band.rect[2] <= W, 'bounded, at least 0.9 of the frame');
+  assert.equal(band.rect[0], 0, 'no left edge inside the frame');
+  assert.equal(band.rect[2], W, 'no right edge inside the frame');
   assert.ok(band.rect[3] <= H * .12 + 1e-9, 'a horizon strip, not a wash');
   // Without the tour's world direction there is no antisolar point.
   const rail = glow({ twilight: DUSK, sun: { xFrac: .5, yFrac: .7, altitude01: 0 } });
@@ -149,6 +150,85 @@ test('(c) facing away from the sun shows the Belt of Venus, not a glow', () => {
   assert.equal(clamped.radial[0].args[0], 1.2 * W);
   const none = glow({ twilight: { ...DUSK, xFrac: null }, sun: { altitude01: 0 } });
   assert.deepEqual(none.ops, [], 'no position, no glow');
+});
+
+const beltAlpha = offDeg => {
+  const band = glow({ twilight: DUSK, sun: sunAt(180 + offDeg, -3, 0) }).ops.find(op => op.op === 'screen');
+  if (!band) return 0;
+  assert.equal(band.rect[0], 0);
+  assert.equal(band.rect[2], W);
+  return Number(/,([^,]+)\)$/.exec(band.style.stops[2][1])[1]);
+};
+
+test('(c) the band fades as the heading turns from the antisolar point, never cut', () => {
+  let previous = Infinity;
+  for (let off = 0; off <= 80; off += 5) {
+    const alpha = beltAlpha(off);
+    assert.ok(alpha <= previous + 1e-15, `${off} deg off: ${alpha} after ${previous}`);
+    previous = alpha;
+  }
+  assert.ok(Math.abs(beltAlpha(0) - .22 * DUSK.amount01) < 1e-12);
+  assert.ok(beltAlpha(60) > 0 && beltAlpha(60) < beltAlpha(30), 'still there, fainter, at 60 deg');
+  assert.equal(beltAlpha(80), 0, 'gone before it would face across the sun');
+  assert.ok(Math.abs(beltAlpha(-45) - beltAlpha(45)) < 1e-12, 'symmetric about the antisolar heading');
+});
+
+// The tour bodies as RangePresentation projects them at cycle phase p:
+// the resolved (parked) sun body, and the signed sun for the moon.
+const CYCLE = 600000, POSE = camera.tourPose;
+const tourSun = (p, offsetDeg) => {
+  const dn = dayNight(p * CYCLE, CYCLE), moon = { azimuth01: .5, altitude01: .3, scale: 1 };
+  return projectRangeCelestials({ sun: { azimuth01: dn.sunAz01, altitude01: dn.sunAlt, scale: 1 }, moon },
+    POSE, 1, sunScreenFrac(p), offsetDeg).sun;
+};
+// The signed sun's compass azimuth, from the same arc mapping.
+const solarAzimuth = (p, offsetDeg) => {
+  const solar01 = (sunScreenFrac(p).xFrac - CELESTIAL_RISE_XFRAC) / (CELESTIAL_SET_XFRAC - CELESTIAL_RISE_XFRAC);
+  const dir = projectRangeCelestials({ sun: { azimuth01: solar01, altitude01: 0, scale: 1 },
+    moon: { azimuth01: .5, altitude01: .3, scale: 1 } }, POSE, 1, null, offsetDeg).sun.worldDirection;
+  return Math.atan2(dir[0], -dir[2]) * 180 / Math.PI;
+};
+
+test('predawn twilight glows at the sunrise azimuth, not where the sun body parked at sunset', () => {
+  const offset = -100; // the sunrise end of the arc straight ahead
+  for (const p of [.97, .98, .99]) {
+    const sun = tourSun(p, offset), twilight = rangeSkyTwilight(twilightAt(p));
+    assert.equal(sun.azimuth01, 1, 'the resolved body is parked at its set azimuth');
+    assert.ok(twilight && twilight.rising);
+    const { radial } = glow({ twilight, sun });
+    assert.equal(radial.length, 1, `p ${p}: a predawn glow`);
+    const expected = project(tourSkyDirection(solarAzimuth(p, offset), 2));
+    assert.ok(Math.abs(radial[0].args[0] - expected.xFrac * W) < 1e-6, `p ${p}: centred on the signed sun`);
+    assert.ok(Math.abs(radial[0].args[1] - expected.yFrac * H) < 1e-6);
+  }
+  // Across the sunrise wrap (sunAz01 1 -> 0) the glow does not jump.
+  const centre = p => glow({ twilight: rangeSkyTwilight(twilightAt(p)), sun: tourSun(p, offset) }).radial[0].args[0];
+  assert.ok(Math.abs(centre(.999) - centre(.001)) < .02 * W, `${centre(.999)} -> ${centre(.001)}`);
+  // Dusk: the band sits opposite the signed sun, so it faces away from sunrise.
+  const dawnBand = glow({ twilight: rangeSkyTwilight(twilightAt(.98)), sun: tourSun(.98, offset) });
+  assert.equal(dawnBand.linear.length, 0, 'the antisolar band is behind a view facing the sunrise');
+});
+
+test('a published signed solar direction is used as is', () => {
+  const sun = Object.freeze({ ...sunAt(170, -3, 0), azimuth01: 1, solarDirection: Object.freeze(tourSkyDirection(12, -5)) });
+  const { radial } = glow({ twilight: DUSK, sun });
+  assert.equal(radial.length, 1);
+  assert.ok(Math.abs(radial[0].args[0] - project(tourSkyDirection(12, 2)).xFrac * W) < 1e-6);
+});
+
+test('the renderer\'s sun arc sweep matches the tour projection', () => {
+  // Offset so that mid-arc lies straight ahead.
+  const az = a01 => {
+    const dir = projectRangeCelestials({ sun: { azimuth01: a01, altitude01: 0, scale: 1 },
+      moon: { azimuth01: .5, altitude01: .3, scale: 1 } }, POSE, 1, null, -175).sun.worldDirection;
+    return Math.atan2(dir[0], -dir[2]) * 180 / Math.PI;
+  };
+  // Mid-arc twilight x moves a parked body by exactly the arc's sweep.
+  const sun = Object.freeze({ altitude01: 0, azimuth01: 1, worldDirection: Object.freeze(tourSkyDirection(az(1), 0)) });
+  const mid = (CELESTIAL_RISE_XFRAC + CELESTIAL_SET_XFRAC) / 2; // half way along the arc
+  const { radial } = glow({ twilight: { ...DUSK, xFrac: mid }, sun });
+  const expected = project(tourSkyDirection(az(.5), 2));
+  assert.ok(Math.abs(radial[0].args[0] - expected.xFrac * W) < 1e-6);
 });
 
 test('(d) a frozen frame paints identically every time', () => {

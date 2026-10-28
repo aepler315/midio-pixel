@@ -225,6 +225,27 @@ test('a clearing repaints the deck only when a painted integer channel changes',
   } finally { f.sky.dispose(); }
 });
 
+test('a clearing gain that leaves every painted channel alone does not repaint', () => {
+  const f = tintFixture();
+  const dark = [41, 47, 55], lit = [200, 190, 170];
+  try {
+    // Past 1 the gain is clamped: the painted light never changes.
+    for (let i = 0; i <= 60; i++) f.draw({ dark, lit, directGain: 1 + i * .01 });
+    assert.equal(f.paints(), 1, 'a clamped gain sweep paints once');
+  } finally { f.sky.dispose(); }
+  const g = tintFixture();
+  try {
+    const tuples = new Set();
+    for (let i = 0; i < 60; i++) {
+      const directGain = .35 + i * 1e-4;
+      tuples.add(lit.map((v, c) => Math.round(dark[c] + (v - dark[c]) * directGain)).join());
+      g.draw({ dark, lit, directGain });
+    }
+    assert.ok(tuples.size < 10, `${tuples.size} distinct painted tints`);
+    assert.equal(g.paints(), tuples.size, 'one paint per distinct painted tint, not per gain');
+  } finally { g.sky.dispose(); }
+});
+
 test('flash tints live in a small pool and leave with their evicted shape', () => {
   const residency = new GraphicsResidency({ budgetBytes: 64 * 1024 ** 2 });
   const sky = new RangeSkyRenderer({ residency, makeCanvas: () => {
