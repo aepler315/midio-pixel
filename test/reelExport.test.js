@@ -278,3 +278,17 @@ test('every size retry receives the captured camera schedule and tour policy', a
   assert.equal(received.length, 2);
   assert.ok(received.every(value => value.cameraSchedule.id === cameraSchedule.id && value.cameraTourMode === 'off'));
 });
+
+test('fresh full-analysis Trio highlights need no Landscape camera schedule or approximation', () => {
+  const trio = frame(1000, { moment: { ...frame(1000).moment, worldId: 'trio', cameraSchedule: null } });
+  const plan = planReelRenders([trio], { analysis: 'full' });
+  const approximate = plan.groups[0].items[0].approximate;
+  assert.deepEqual(approximate, []);
+  assert.deepEqual(describeReelSave({ saved: [{ width: 3840, height: 2160, approximate }] }), { ok: true, message: '' });
+  assert.deepEqual(approximationReasons(reelMoment({ moment: { ...trio.moment, sceneStartMs: 100, analysis: 'opening' } }), { analysis: 'full' }), ['scene', 'analysis']);
+});
+
+test('registered legacy Landscape highlights still warn when the camera schedule is absent', () => {
+  const landscape = frame(1000, { moment: { ...frame(1000).moment, worldId: 'alpine', cameraSchedule: null } });
+  assert.deepEqual(planReelRenders([landscape], { analysis: 'full' }).groups[0].items[0].approximate, ['camera']);
+});

@@ -5,6 +5,7 @@
 // lives in main.js. This module is the pure part, kept free of the DOM so it
 // can be tested on its own: which moments to draw and in what order, the
 // size ladder, the stepping chunks and the file names.
+import { worldExperience } from '../world/Worlds.js';
 import { sceneRailPlanFromSnapshot } from '../world/terrain/SceneRailPlan.js';
 import { BULK_RESOLUTIONS } from '../render/BulkExport.js';
 
@@ -122,7 +123,7 @@ export function reelMoment(frame) {
 export function approximationReasons(moment, { analysis = null } = {}) {
   const reasons = [];
   if (!moment) return reasons;
-  if (!moment.cameraSchedule) reasons.push('camera');
+  if (worldExperience(moment.worldId) === 'landscape' && !moment.cameraSchedule) reasons.push('camera');
   if (moment.sceneStartMs > 0 || moment.continued) reasons.push('scene');
   if (!moment.analysis || !analysis || moment.analysis !== analysis) reasons.push('analysis');
   return reasons;

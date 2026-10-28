@@ -25,9 +25,11 @@ timing and progress curves before refining the future.
 
 Bulk export uses the effective scene schedule, including pace changes made
 during the run. Highlights save their own immutable schedule and camera-tour
-policy for redraw. Older moments without a schedule are explicitly marked
-as approximate. Existing analysis/history approximation notices remain:
-these camera records do not reproduce live input or every other scene effect.
+policy for redraw. Saved rail progress and view timing are retained. Existing
+slow structural camera moves may recompute when analysis or scene history
+differs; the retained scene/analysis approximation notices cover that limit.
+Older Landscape moments without a schedule are explicitly marked as approximate.
+These camera records do not reproduce live input or every other scene effect.
 
 Prepared shot tours and the Teton highway tour retain their music timing.
 The glacier retains its coupled camera/ice journey. Terrain previews remain
