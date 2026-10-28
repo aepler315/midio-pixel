@@ -1308,7 +1308,12 @@ function togglePause() {
     updatePauseButtonUI(); return;
   }
   if (paused) { songRecorder?.pause(); audioEngine.ctx.suspend(); }
-  else { songRecorder?.resume(); resumeRecordingAfterTerrain(); audioEngine.ctx.resume(); lastRafMs = null; }
+  else {
+    songRecorder?.resume(); resumeRecordingAfterTerrain(); audioEngine.ctx.resume(); lastRafMs = null;
+    // Paused time is not clean evidence: without this, the clean run from
+    // before the pause spans it and the first sample recovers a rung.
+    perfGovernor?.beginWarmup(performance.now());
+  }
   updatePauseButtonUI();
 }
 
