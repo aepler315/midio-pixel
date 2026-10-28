@@ -126,7 +126,12 @@ export function quantizeCanvas(ctx, canvas) {
   }
 }
 
-export function applyPalette(ctx, canvas, { paletteId = 'rgb332', dither = 1, ditherMode = 'ordered', weights = null, grid = null, compiled = null } = {}) {
+/** `prepare({ frame })`, when given, edits the read-back frame before it is
+ *  quantized (the Landscape crest re-owns its cells there), so the palette
+ *  pass stays the only grid readback. `finish({ frame, quantize })` runs
+ *  after quantization; `quantize(rgb, x, y)` returns what this pass puts at
+ *  grid cell (x, y) for colour `rgb` (same palette, metric and dither). */
+export function applyPalette(ctx, canvas, { paletteId = 'rgb332', dither = 1, ditherMode = 'ordered', weights = null, grid = null, compiled = null, prepare = null, finish = null } = {}) {
   const pixels = (canvas?.width || 0) * (canvas?.height || 0);
   if (!pixels) return { applied: false, reason: 'empty', pixels };
   if (pixels > MAX_PIXEL_PIXELS) return { applied: false, reason: 'oversize', pixels };
@@ -137,13 +142,19 @@ export function applyPalette(ctx, canvas, { paletteId = 'rgb332', dither = 1, di
   try {
     const start = performance.now();
     const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    if (prepare && (PALETTES[paletteId] || paletteId === 'rgb332')) prepare({ frame });
     const transformStart = performance.now();
     const selective = !!PALETTES[paletteId] && ditherMode === 'selective' && dither > 0 && !!weights;
     if (selective) buildDitherWeights(frame, weights);
     const maskEnd = performance.now();
-    if (PALETTES[paletteId]) quantizePalette(frame, compiled || compilePalette(PALETTES[paletteId].colors), { dither, weights: selective ? weights : null });
+    const table = PALETTES[paletteId] ? compiled || compilePalette(PALETTES[paletteId].colors) : null;
+    if (table) quantizePalette(frame, table, { dither, weights: selective ? weights : null });
     else if (paletteId === 'rgb332') quantizeImageData(frame, { dither });
     else return { applied: false, reason: 'unavailable', pixels };
+    if (finish) {
+      const options = { compiled: table, dither, weights: selective ? weights : null, width: frame.width };
+      finish({ frame, quantize: (rgb, x, y) => quantizeTexel(rgb, x, y, options) });
+    }
     const transformEnd = performance.now();
     ctx.putImageData(frame, 0, 0);
     const end = performance.now();
@@ -189,6 +200,25 @@ export function compilePalette(colors) {
   const compiled = { signature, rgb, exact, first, second, mix };
   COMPILED.set(colors, compiled);
   return compiled;
+}
+/** One texel exactly as quantizeImageData (compiled null: RGB332) or
+ *  quantizePalette would write it at grid cell (x, y). `weights` (selective
+ *  dither) is indexed by y · width + x. */
+export function quantizeTexel(rgb, x, y, { compiled = null, dither = 1, weights = null, width = 0 } = {}) {
+  if (!compiled) {
+    const [redGreen, blue] = RGB_LUTS.get(dither) || RGB_LUTS.get(1);
+    const cell = ((y & 3) * 4 + (x & 3)) * 256;
+    return [redGreen[cell + rgb[0]], redGreen[cell + rgb[1]], blue[cell + rgb[2]]];
+  }
+  const strength = [0, .35, 1].includes(dither) ? dither : .35;
+  let index = compiled.exact.get((rgb[0] << 16) | (rgb[1] << 8) | rgb[2]);
+  if (index === undefined) {
+    const key = ((rgb[0] >> 3) << 10) | ((rgb[1] >> 3) << 5) | (rgb[2] >> 3);
+    const threshold = (BAYER_4X4[(y & 3) * 4 + (x & 3)] + .5) / 16;
+    const weight = weights ? weights[y * width + x] / 255 : 1;
+    index = threshold < compiled.mix[key] * strength * weight ? compiled.second[key] : compiled.first[key];
+  }
+  return compiled.rgb[index].slice(0, 3);
 }
 export function quantizePalette(imageData, compiled, { dither = .35, weights = null } = {}) {
   const { data, width, height } = imageData;

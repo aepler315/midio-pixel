@@ -26,6 +26,7 @@ import SCENE_CATALOG from '../terrain/sceneCatalogData.js';
 import { noteViewShown } from '../terrain/RangeHistory.js';
 import { RangeShotTours } from './RangeShotTours.js';
 import { headingPitch, lookDir } from '../terrain/ShotPath.js';
+import { RangeCrest } from './RangeCrest.js';
 
 /** Native terrain backing for a full-resolution composition. The selected
  * grid is fitted to the same aspect-preserving output rectangle. */
@@ -177,6 +178,12 @@ export class RangePresentation {
     this.waterLayer = null;
     this.waterOutputSize = null;
     this._castCanvas = null;
+    // Crest line and shorelines (RangeCrest.js), set by the presenting
+    // renderer each frame: enabled only for the separate pixel composite.
+    this.crestEnabled = false;
+    this._crestScan = false;
+    this.crestPalette = null;
+    this.crest = new RangeCrest({ makeCanvas, residency });
     this.scene = null;
     this.runtimeState = mode === 'v2' ? 'idle' : 'off'; // idle | loading | ready | failed | off
     this._runtimeEpoch = 0; // see _ensureRuntime
@@ -906,6 +913,12 @@ export class RangePresentation {
       }
     }
     this.scene.prepareShafts?.(this.frame, incoming ? [view.id, incoming.id] : [view.id]);
+    // The crest probe runs only on a steady single view drawn into the grid,
+    // and not at all on the heavy governor rungs (grid-scan fallback).
+    const crestOn = this.crestEnabled && this.pixelated && !this.directTerrainMode && !incoming;
+    this.scene.crestProbeMode = crestOn ? this.crest.probeMode : null;
+    this._crestScan = crestOn && this.crest.mode === 'grid';
+    if (!crestOn) this.crest.update({ frameId: this.frame.frameId, timeMs: this.frame.timeMs, viewId: view.id, qualityLevel: this.frame.qualityLevel ?? 0 });
     this.scene.skyPan = this.skyPan; // rain curtains and lightning stand where the sky draws them
     this.viewId = view.id;
     this.active = true;
@@ -1100,8 +1113,33 @@ export class RangePresentation {
       if (pass === 'near') this._drawDirectCast(ctx, stage);
     }
     else if (pass === 'near') this._keepWater(ctx, stage);
+    if (!this.directTerrainMode && pass === 'near') this._finishCrest(ctx, stage);
     return true;
   }
+
+  /** After the near partition (and its water): read the frame's crest probe
+   * once and freeze the crest line and shorelines this frame draws. */
+  _finishCrest(ctx, stage) {
+    if (!this.frame || !(this.scene?.crestProbeMode || this._crestScan)) return;
+    const steady = this.arrival >= .999;
+    const probe = steady && this.scene.crestProbeMode ? this.scene.readCrestProbe?.(this.frame.frameId) : null;
+    const t = ctx.getTransform?.();
+    this.crest.update({ probe, frameId: this.frame.frameId, timeMs: this.frame.timeMs, viewId: this.viewId,
+      qualityLevel: this.frame.qualityLevel ?? 0, transform: t ? [t.a, t.b, t.c, t.d, t.e, t.f] : null,
+      stage: { width: stage.width, height: stage.height },
+      grid: { width: ctx.canvas.width, height: ctx.canvas.height },
+      sky: this.frameInputs?.sim?.biomes?._airColor ?? null, palette: this.crestPalette, scan: steady && !!this._crestScan });
+  }
+
+  /** Presenter hook, before palette quantization (RangeCrest.prepareGrid). */
+  prepareCrestGrid(options) { return this.crestEnabled ? this.crest.prepareGrid(options) : false; }
+  /** Presenter hook, after palette quantization (RangeCrest.finishGrid). */
+  finishCrestGrid(options) { return this.crestEnabled ? this.crest.finishGrid(options) : false; }
+
+  /** Presenter hooks at output resolution: the crest after the terrain,
+   * shorelines after the water; live and for recordings alike. */
+  drawCrestForeground(ctx, fit) { return !this.active || this.crest.drawCrest(ctx, fit, this.frameId); }
+  drawShoreForeground(ctx, fit) { return !this.active || this.crest.drawShore(ctx, fit, this.frameId); }
 
   /** Blend a late-arriving band once after its terrain and water are united. */
   _drawDirectArrival(ctx, stage, pass, image) {
@@ -1731,10 +1769,12 @@ export class RangePresentation {
       scene: this.scene?.snapshot?.() || null, residency: this.residency?.snapshot?.() || null,
       narrative: this.frame?.narrative || null,
       timings: { ...this.timings }, catalogVersion: this.catalog.catalogVersion,
+      crest: { ...this.crest.diagnostics, enabled: this.crestEnabled, probe: this.scene?.crestProbeMode ?? null },
     };
   }
 
   dispose() {
+    this.crest.release();
     this._releaseNearOcclusion();
     this._releaseWater();
     this._releaseWaterEffects();

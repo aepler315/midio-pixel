@@ -23,6 +23,7 @@ import { prepareTerrainAssets, RangeAssetError } from './RangeAssets.js';
 import { createSurfaceTextureAsync, terrainUniforms, createBandGeometries, createBandGeometriesAsync } from './TerrainGL.js';
 import { syncGustUniforms, syncWaterMusicUniforms, sceneUniforms, createSceneMaterial, createDepthMaterial, setLinearFromHex, createMaterialTextures, applyMaterial, SCENE_VERT, FEATURE_FRAG } from './TerrainMaterial.js';
 import { terrainFeatureSegmentsAsync } from './TerrainFeatures.js';
+import { CrestProbe } from './CrestProbe.js';
 import { loadMaterialPack, materialGpuBytes, RULE_DEFAULTS, validateWaterRules } from './MaterialPackage.js';
 import { placeForestAsync, forestPlacementBound } from './ForestCover.js';
 import { SunShaftGL, SHAFT_KEY, shaftSize, shaftSource } from './SunShaftGL.js';
@@ -159,6 +160,10 @@ export class RangeScene {
     // The cast draws in the band passes unless the presentation takes it
     // from renderCast to lay over the pixel frame itself (it clears this).
     this.castInBands = true;
+    // Crest line probe (CrestProbe.js): 'refined' | 'grid' | null, set by
+    // the presentation each frame; the probe itself is made on first use.
+    this.crestProbeMode = null;
+    this.crestProbe = null;
     this._copy = this._createCopy();
     // Each loss and each restore starts a new context epoch: a preparation
     // that straddles either built GPU objects (and dropped the surface
@@ -2287,6 +2292,7 @@ export class RangeScene {
     // What the cast pass will find in this side's target after the near
     // partition: whose depth, and whether the trees' crown cut is in it.
     if (pass === 'near') depth.cast = bandColumns ? null : { frame: frame.frameId, view: viewId, forest: !softForest || forestDepth };
+    if (this.crestProbeMode && side === 'A' && !bandColumns && this.pixelated) this._probeCrest(frame, target, p, pass);
     this.camera.layers.set(0); this.camera.layers.enable(3);
     // Far is the single solar boundary, before the inserted Dancing Ridge.
     // During travel its depth was just rebuilt with this side's real columns.
@@ -2394,6 +2400,25 @@ export class RangeScene {
     return this[property];
   }
 
+  /** Probe this band's crest columns (CrestProbe.js) from its own target. */
+  _probeCrest(frame, target, p, pass) {
+    try {
+      this.crestProbe ||= new CrestProbe(this.THREE, this.renderer);
+      this.crestProbe.begin(frame.frameId, target.width, target.height);
+      this.crestProbe.useDepth = this.crestProbeMode === 'refined';
+      this.crestProbe.band(target, this.camera, p.uniforms?.uHeightRange?.value || null, pass);
+    } catch { this.crestProbe?.dispose(); this.crestProbe = null; this.crestProbeMode = null; }
+  }
+
+  /** This frame's probe rows (one small synchronous readback), or null. */
+  readCrestProbe(frameId) {
+    if (!this.crestProbe || this.contextLost) return null;
+    try { return this.crestProbe.read(frameId); }
+    finally { this.renderer.setRenderTarget(null); }
+  }
+
+  releaseCrestProbe() { this.crestProbe?.dispose(); this.crestProbe = null; }
+
   /** Render water at display resolution against the complete terrain and
    * forest depth. The caller must copy the returned transient canvas before
    * another scene render. A refused allocation leaves the native pass intact. */
@@ -2427,6 +2452,10 @@ export class RangeScene {
         if (bandColumns) this._travelFringe(p, outputTarget, band, bandColumns);
       }
       u.uWaterOnly.value = 0;
+      if (this.crestProbeMode === 'refined' && !capture && !pass && !bandColumns && side === 'A'
+        && w === this.size.width && h === this.size.height && this.crestProbe?.frameId === frame.frameId) {
+        try { this.crestProbe.water(outputTarget, this.camera); } catch { /* shorelines are optional */ }
+      }
       r.setRenderTarget(null);
       this._setCanvasSize(w, h);
       r.clear(true, true, false);
@@ -2545,6 +2574,7 @@ export class RangeScene {
   }
 
   _invalidateContext() {
+    this.releaseCrestProbe();
     this.releaseWaterTarget();
     this.releaseShafts();
     this.releaseBackdrop();
@@ -2578,6 +2608,7 @@ export class RangeScene {
   }
 
   dispose() {
+    this.releaseCrestProbe();
     this.releaseWaterTarget();
     this.releaseShafts();
     this.releaseBackdrop();
