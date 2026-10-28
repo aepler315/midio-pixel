@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compileStorm, stormAt, rainCurtain, STORM_GLSL, arrivingStorm, drawStormSky } from '../src/world/alpine/RangeStorm.js';
+import { compileStorm, stormAt, rainCurtain, rainCurtainAz, rainSeed01, skyColumnAzimuth, flashScreenPoint, STORM_GLSL, arrivingStorm, drawStormSky } from '../src/world/alpine/RangeStorm.js';
 const energyCurves = { globalEnergyNorm: t => t >= 40000 && t < 60000 ? .95 : .25 };
 const sections = [{ startMs: 0, endMs: 40000 }, { startMs: 40000, endMs: 60000 }, { startMs: 60000, endMs: 120000 }];
 const timeline = [{ tMs: 45000, pitch: 38, role: 'RHYTHM', vel: .9 }, { tMs: 45100, pitch: 40, channel: 9, vel: 1 }, { tMs: 47000, pitch: 36, role: 'RHYTHM', vel: 1 }];
@@ -154,4 +154,68 @@ test('projected cloud banks retain world placement and weather identity when cam
     for (const key of ['x', 'y', 'w', 'h']) assert.equal(projected[key], all[i][key], 'no fixed screen-height deck override');
     assert.ok(projected.alpha > 0 && projected.alpha <= all[i].alpha, 'projected distance fade survives weather grading');
   }
+});
+
+test('world rain curtains close seamlessly around the eye and keep the song seed', () => {
+  for (const t of [0, 13.5, 240]) for (const seed of [0, 315, 99991]) {
+    assert.ok(Math.abs(rainCurtainAz(0, t, seed) - rainCurtainAz(1, t, seed)) < 1e-9, 'no seam at the atan wrap');
+  }
+  const ring = seed => Array.from({ length: 360 }, (_, i) => rainCurtainAz(i / 360, 42, seed));
+  assert.deepEqual(ring(315), ring(315));
+  assert.notDeepEqual(ring(315), ring(316), 'neighbouring songs hang different curtains');
+  const samples = ring(7);
+  assert.ok(samples.some(v => v > .9) && samples.some(v => v < .05) && samples.every(v => v >= 0 && v <= 1));
+  assert.equal(rainSeed01(-1), 9972 / 9973);
+  assert.equal(rainSeed01(9973 + 5), 5 / 9973);
+});
+
+test('the GLSL world curtain is the twin of the sky\'s, keyed by the eye and uRainSeed', () => {
+  for (const term of ['uniform float uRainSeed;', 'az01 * 8.0 + t * 0.003', 'az01 * 19.0 - t * 0.005',
+    'k * 0.6180339887', 'k * 0.7548776662 + 0.5', 'atan(d.x, -d.y)', 'world.xz - uCameraPos.xz',
+    'rainCurtainAz(az01, uTime, uRainSeed)']) assert.ok(STORM_GLSL.includes(term), term);
+});
+
+test('the sky\'s rain curtains turn with a tour yaw as the world does', () => {
+  const pose = deg => { const a = deg * Math.PI / 180; return { eyeM: [0, 1000, 0], targetM: [Math.sin(a) * 5000, 1000, -Math.cos(a) * 5000], fovYDeg: 40, aspect: 16 / 9 }; };
+  const record = (camera) => {
+    const cols = [];
+    const ctx = { globalAlpha: 1, save() {}, restore() {}, createLinearGradient: () => ({ addColorStop() {} }),
+      fillRect(x, y, w) { if (y > 0 && w <= 8) cols.push([x, this.globalAlpha]); } };
+    drawStormSky(ctx, { width: 1280, height: 720 }, { amount: 1, flash: 0, break01: 0 }, {
+      tSec: 30, seed: 315, pan: { x: 0, y: 0, tourPose: camera }, cloudBankFactory: () => [], cloudPainter() {} });
+    return new Map(cols);
+  };
+  const delta = 6, a = record(pose(20)), b = record(pose(20 + delta));
+  const shift = Math.tan(delta * Math.PI / 180) / (Math.tan(20 * Math.PI / 180) * 16 / 9) * 640;
+  const peak = m => [...m].filter(([x]) => x > 300 && x < 980).sort((p, q) => q[1] - p[1])[0];
+  const pa = peak(a);
+  assert.ok(pa[1] > .1, 'a curtain hangs in view');
+  // The same world curtain: B shows A's peak shifted left by the projected yaw.
+  const window = [...b].filter(([x]) => Math.abs(x - (pa[0] - shift)) < 40).sort((p, q) => q[1] - p[1])[0];
+  assert.ok(Math.abs(window[0] - (pa[0] - shift)) <= 12, `peak ${pa[0]} -> ${window[0]}, expected ${pa[0] - shift}`);
+  assert.ok(Math.abs(window[1] - pa[1]) < .05);
+  // Without a camera (fixtures) the frame-width curtain remains.
+  assert.equal(skyColumnAzimuth(null), null);
+});
+
+test('a rail sky camera blend turns the columns between its two poses', () => {
+  const pose = deg => { const a = deg * Math.PI / 180; return { eyeM: [0, 0, 0], targetM: [Math.sin(a), 0, -Math.cos(a)], fovYDeg: 40 }; };
+  const from = { pose: pose(0), aspect: 2 }, to = { pose: pose(10), aspect: 2 };
+  const az = mix => skyColumnAzimuth({ skyCamera: { from, to, mix } })(.5);
+  assert.ok(Math.abs(az(0) - .5) < 1e-9);
+  assert.ok(Math.abs(az(1) - (.5 + 10 / 360)) < 1e-9);
+  assert.ok(Math.abs(az(.5) - (.5 + 5 / 360)) < 1e-9);
+});
+
+test('the sky glow, the land flash and the stage key share one lightning point', () => {
+  const storm = { flashU: .3 }, pan = { x: .4 };
+  assert.deepEqual(flashScreenPoint(storm, pan, 1000, 500), { x: 500, y: 75 });
+  assert.deepEqual(flashScreenPoint({}, null, 2, 2), { x: 1, y: .3 });
+  let flashOptions;
+  const ctx = { save() {}, restore() {}, fillRect() {}, createLinearGradient: () => ({ addColorStop() {} }) };
+  drawStormSky(ctx, { width: 1000, height: 500 }, { amount: 1, flash: .8, flashU: .3, break01: 0 }, { pan,
+    cloudBankFactory: () => [{ id: 'world:1:1', x: 500, y: 75, w: 100, h: 50, alpha: 1 }],
+    cloudPainter: (_, banks, options) => { if (options.variant) flashOptions = options; } });
+  assert.equal(flashOptions.variant, 'flash', 'contract C1: the flash repaint names its variant');
+  assert.deepEqual(flashOptions.light, { x: 500, y: 75 });
 });

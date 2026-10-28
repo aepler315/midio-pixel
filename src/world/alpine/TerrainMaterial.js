@@ -1054,7 +1054,7 @@ export function sceneUniforms(THREE, base) {
     uCameraPos: { value: new THREE.Vector3() },
     uDiag: { value: 0 },
     uHasMaterial: { value: 0 },
-    uStorm: { value: new THREE.Vector4() }, uRainShift: { value: 0 },
+    uStorm: { value: new THREE.Vector4() }, uRainShift: { value: 0 }, uRainSeed: { value: 0 },
     uAmbientScale: { value: 2.5 },
     uMoonAmbientScale: { value: 0 },
     uReceiverFillMin: { value: 0 },

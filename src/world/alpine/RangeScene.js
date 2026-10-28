@@ -47,6 +47,7 @@ import { ActorsGL, SITE_LIGHTS_MAX, CAST_LAYER, CAST_RIBBON_LAYER, enableCastLay
 import { buildRiverGeometry, riverGeometryBound, riverChannelErrors } from './RiverChannel.js';
 import { ACTOR_IDS, ACTOR_HUES, ACTOR_LOOK, ACTOR_START, actorRoutes, routePosition } from './RangeActors.js';
 import { castPlan, castWork, pathPosition, siteWalk } from './CastJobs.js';
+import { flashScreenPoint, rainSeed01 } from './RangeStorm.js';
 // Storm light, linear: the deck's underside, the rain-dimmed horizon, the rain air.
 // STORM_AIR meets the slate the sky paints at the horizon (drawStormSky) once displayed.
 const STORM_ZENITH = { r: .02, g: .026, b: .036 }, STORM_HORIZON = { r: .03, g: .038, b: .05 }, STORM_AIR = { r: .028, g: .036, b: .048 };
@@ -1681,6 +1682,13 @@ export class RangeScene {
     p.uniforms.uForestSeed.value = hashSeed(p.view.terrainSourceId || p.view.id) >>> 0;
   }
 
+  /** Per-scene scratch: uniform code allocates nothing per frame. */
+  _scratch() {
+    const THREE = this.THREE;
+    return this._scratchState ||= { v3: new THREE.Vector3(), color: new THREE.Color(), color2: new THREE.Color(),
+      wind: new Float32Array(2) };
+  }
+
   _setUniforms(p, frame) {
     const THREE = this.THREE;
     const u = p.uniforms;
@@ -1757,9 +1765,12 @@ export class RangeScene {
     u.uViewProj.value.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
     const skyPan = this.skyPan || { x: 0, y: 0 };
     u.uRainShift.value = (skyPan.x || 0) / 2;
+    // Rain curtains are world-anchored (STORM_GLSL rainVeil); the seed is
+    // the sky's (drawStormSky's song seed), so land and sky hang the same.
+    if (u.uRainSeed) u.uRainSeed.value = rainSeed01(frame.seed ?? 0);
     if (storm.flash > 0) {
-      const fx = ((storm.flashU ?? .5) + u.uRainShift.value) * 2 - 1;
-      const flashDir = new THREE.Vector3(fx, .7, 0.5).unproject(this.camera).sub(this.camera.position).normalize();
+      const at = flashScreenPoint(storm, skyPan, 1, 1);
+      const flashDir = this._scratch().v3.set(at.x * 2 - 1, 1 - at.y * 2, 0.5).unproject(this.camera).sub(this.camera.position).normalize();
       u.uLightDir.value.lerp(flashDir, Math.min(1, storm.flash * 3)).normalize();
     }
     u.uSolarTransmission.value = c.body === 'sun' && strength > 0 ? .18 : 0;
@@ -2514,8 +2525,9 @@ export class RangeScene {
     const THREE = this.THREE;
     // A lightning flash lights the stage from its strike, as it does the land.
     const storm = frame.storm, strike = Math.min(1, (storm?.flash || 0) * 3);
-    const key = strike > 0 ? { x: frame.light.ground.x + (((storm.flashU ?? .5) + (u.uRainShift?.value || 0)) * vp.logicalWidth - frame.light.ground.x) * strike,
-      y: frame.light.ground.y + (vp.logicalHeight * .15 - frame.light.ground.y) * strike } : frame.light.ground;
+    const at = strike > 0 ? flashScreenPoint(storm, this.skyPan, vp.logicalWidth, vp.logicalHeight) : null;
+    const key = at ? { x: frame.light.ground.x + (at.x - frame.light.ground.x) * strike,
+      y: frame.light.ground.y + (at.y - frame.light.ground.y) * strike } : frame.light.ground;
     // Stage normals use +Y upward; the recorded ground anchor is Canvas
     // +Y downward. Keep the existing shallow depth/rock calibration.
     const lightDir = new THREE.Vector3((key.x - vp.logicalWidth * .5) / vp.logicalHeight,

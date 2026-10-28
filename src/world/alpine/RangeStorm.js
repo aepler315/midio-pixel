@@ -2,6 +2,7 @@ import { compileLandscapeScore, landscapeScoreFor } from './LandscapeScore.js';
 // Musical weather episodes. All envelopes are evaluated at heard time; playback,
 // pause, seeking and offline exports share exactly the same weather.
 import { rangeCloudBanks, drawRangeClouds } from './RangeSkyComposition.js';
+import { cameraBasis } from '../terrain/SceneTravel.js';
 const unit = x => Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : 0;
 const ease = x => { const t = unit(x); return t * t * (3 - 2 * t); };
 const EMPTY = Object.freeze({ amount: 0, flash: 0, flashU: .5, break01: 0, wet01: 0 });
@@ -17,6 +18,60 @@ export function rainCurtain(u, tSec = 0) {
   return smooth(.32, .86, a * .65 + b * .35);
 }
 
+const TAU = Math.PI * 2;
+const fract = x => x - Math.floor(x);
+/** The song seed folded to 0..1 exactly as RangeScene sets uRainSeed. */
+export function rainSeed01(seed = 0) {
+  const s = Number.isFinite(seed) ? Math.trunc(seed) % 9973 : 0;
+  return (s < 0 ? s + 9973 : s) / 9973;
+}
+/** World-anchored rain curtains around the eye. az01 is the view ray's
+ *  compass azimuth as a fraction of a turn (atan2(dx, -dz) / 2pi + .5, the
+ *  tourSkyDirection convention). Integer cycles per revolution (8 and 19)
+ *  leave no seam where the azimuth wraps; the seed only shifts the phases.
+ *  The folded seed (rainSeed01) recovers the integer song seed in float32,
+ *  so the GLSL twin (STORM_GLSL rainCurtainAz) computes the same phases. */
+export function rainCurtainAz(az01, tSec = 0, seed = 0) {
+  const k = Math.round(rainSeed01(seed) * 9973);
+  const pa = TAU * fract(k * .6180339887), pb = TAU * fract(k * .7548776662 + .5);
+  const a = .5 + .5 * Math.sin(TAU * (az01 * 8 + tSec * .003) + 1.3 + pa);
+  const b = .5 + .5 * Math.sin(TAU * (az01 * 19 - tSec * .005) + 4.1 + pb);
+  return smooth(.32, .86, a * .65 + b * .35);
+}
+/** Compass azimuth (0..1 of a turn) of each screen column's view ray, from
+ *  the same pose selection the sky projector uses (frame.camera.tourPose,
+ *  or the rail skyCamera from/to blend). Null without a camera. */
+export function skyColumnAzimuth(camera) {
+  const entries = camera?.tourPose ? [{ pose: camera.tourPose, aspect: camera.tourPose.aspect || 16 / 9 }]
+    : [camera?.skyCamera?.from, camera?.skyCamera?.to].filter(Boolean);
+  const prepared = entries.filter(e => e.pose?.eyeM && e.pose?.targetM && e.pose.fovYDeg > 0).map(e => {
+    const { forward, right } = cameraBasis(e.pose), aspect = e.aspect || e.pose.aspect || 16 / 9;
+    const tan = Math.tan(e.pose.fovYDeg * Math.PI / 360), { fx = 0, rx = 0 } = e.pose.viewOffset || {};
+    return { forward, right, spread: tan * aspect, fx, rx: rx / (tan * aspect) };
+  });
+  if (!prepared.length || !prepared.every(e => e.forward.every(Number.isFinite) && e.right.every(Number.isFinite))) return null;
+  const mix = prepared.length > 1 ? unit(camera?.skyCamera?.mix || 0) : 0;
+  const one = (e, xFrac) => {
+    // Inverse of projectSkyDirection's horizontal mapping, incl. view offset.
+    const x = ((xFrac * 2 - 1) * (1 - e.fx) + e.rx) * e.spread;
+    return Math.atan2(e.forward[0] + e.right[0] * x, -(e.forward[2] + e.right[2] * x));
+  };
+  return xFrac => {
+    let az = one(prepared[0], xFrac);
+    if (mix > 0) {
+      const b = one(prepared[1], xFrac);
+      az += (Math.atan2(Math.sin(b - az), Math.cos(b - az))) * mix;
+    }
+    return fract(az / TAU + .5);
+  };
+}
+/** Where a lightning strike lights the frame, in the frame's own pixels.
+ *  The sky glow, the land's flash key (uLightDir) and the rock stage's key
+ *  all read this one point so they cannot drift apart. */
+export function flashScreenPoint(storm, pan, w = 1, h = 1) {
+  return { x: ((storm?.flashU ?? .5) + (pan?.x || 0) / 2) * w, y: h * .15 };
+}
+
 /** Shared by the terrain and forest shaders, which declare uStorm,
  *  uViewProj, uTime and uCameraPos. The rain hangs in the distance (it
  *  veils far land, not the near shore) inside the same curtains the sky
@@ -24,6 +79,7 @@ export function rainCurtain(u, tSec = 0) {
  *  fixed to the land. */
 export const STORM_GLSL = /* glsl */`
   uniform float uRainShift;
+  uniform float uRainSeed;
   uniform float uReceiverFillMin;
   // Preserve sky chromaticity while lifting only low receiver irradiance.
   // A true zero has no hue to preserve; do not invent emissive white fill.
@@ -39,11 +95,20 @@ export const STORM_GLSL = /* glsl */`
     float b = 0.5 + 0.5 * sin(6.2832 * (u * 3.7 - t * 0.005) + 4.1);
     return smoothstep(0.32, 0.86, a * 0.65 + b * 0.35);
   }
+  float rainCurtainAz(float az01, float t, float seed01) {
+    float k = floor(seed01 * 9973.0 + 0.5);
+    float pa = 6.283185307 * fract(k * 0.6180339887), pb = 6.283185307 * fract(k * 0.7548776662 + 0.5);
+    float a = 0.5 + 0.5 * sin(6.283185307 * (az01 * 8.0 + t * 0.003) + 1.3 + pa);
+    float b = 0.5 + 0.5 * sin(6.283185307 * (az01 * 19.0 - t * 0.005) + 4.1 + pb);
+    return smoothstep(0.32, 0.86, a * 0.65 + b * 0.35);
+  }
+  // World-anchored: the curtain at this point's compass azimuth from the
+  // eye, the same curtain the sky draws along that view ray.
   float rainVeil(vec3 world, float dist) {
-    if (uStorm.x < 0.001) return 0.0;
-    vec4 c = uViewProj * vec4(world, 1.0);
-    float u = c.x / max(c.w, 1e-4) * 0.5 + 0.5 - uRainShift;
-    return uStorm.x * rainCurtain(u, uTime) * smoothstep(2500.0, 14000.0, dist);
+    if (uStorm.x < 0.001 || dist < 2500.0) return 0.0;
+    vec2 d = world.xz - uCameraPos.xz;
+    float az01 = atan(d.x, -d.y) / 6.283185307 + 0.5;
+    return uStorm.x * rainCurtainAz(az01, uTime, uRainSeed) * smoothstep(2500.0, 14000.0, dist);
   }
   float stormNoise(vec2 p) {
     vec2 i = floor(p), f = fract(p);
@@ -135,6 +200,7 @@ export function drawStormSky(ctx, canvas, storm, { tSec = 0, seed = 0, pan = nul
   if (amount < .001 && breaking < .001) return;
   const { width: w, height: h } = canvas;
   const panX = (pan?.x || 0) / 2;
+  const columnAz = skyColumnAzimuth(pan);
   ctx.save();
   // Overcast: slate from the zenith down to the rain-dimmed horizon, dense
   // enough to hide the sun. The land's air (RangeScene STORM_AIR) meets it.
@@ -164,10 +230,10 @@ export function drawStormSky(ctx, canvas, storm, { tSec = 0, seed = 0, pan = nul
   if (flash > .001) {
     // Lightning inside the cloud: the banks near the strike are painted
     // again in its light, so only the deck itself glows (no screen flash).
-    const fx = ((storm.flashU ?? .5) + panX) * w, fy = h * .15, reach = w * .32;
+    const { x: fx, y: fy } = flashScreenPoint(storm, pan, w, h), reach = w * .32;
     const lit = banks.map(b => ({ ...b, alpha: b.alpha * flash * Math.max(0, 1 - Math.hypot(b.x - fx, (b.y - fy) * 2) / reach) }))
       .filter(b => b.alpha > .01);
-    cloudPainter(ctx, lit, { dark: [150, 168, 215], lit: [222, 232, 255], light: { x: fx, y: fy }, directGain: 1.2 });
+    cloudPainter(ctx, lit, { dark: [150, 168, 215], lit: [222, 232, 255], light: { x: fx, y: fy }, directGain: 1.2, variant: 'flash' });
   }
   // Rain curtains hanging from the deck's base; the terrain passes continue
   // them in front of the far land, so they hang plumb like the veil does.
@@ -178,7 +244,10 @@ export function drawStormSky(ctx, canvas, storm, { tSec = 0, seed = 0, pan = nul
     fall.addColorStop(0, `rgba(${c},0)`); fall.addColorStop(.18, `rgba(${c},1)`); fall.addColorStop(1, `rgba(${c},.8)`);
     ctx.fillStyle = fall;
     for (let x = 0; x < w; x += step) {
-      const k = rainCurtain((x + step * .5) / w - panX, tSec);
+      // Each column's view ray finds its world curtain (as the land's veil
+      // does); without a camera (fixtures) the old frame-width curtain.
+      const k = columnAz ? rainCurtainAz(columnAz((x + step * .5) / w), tSec, seed)
+        : rainCurtain((x + step * .5) / w - panX, tSec);
       if (k < .01) continue;
       ctx.globalAlpha = k * amount * .5;
       ctx.fillRect(x, top, step, bottom - top);
