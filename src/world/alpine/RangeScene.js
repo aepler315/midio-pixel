@@ -1791,7 +1791,9 @@ export class RangeScene {
     const c = frame.light.celestial;
     // Unproject the celestial's stage position into a world direction.
     const ndcX = c.xFrac * 2 - 1, ndcY = 1 - c.yFrac * 2;
-    const dir = c.worldDirection ? new THREE.Vector3(...c.worldDirection) : new THREE.Vector3(ndcX, ndcY, 0.5).unproject(this.camera).sub(this.camera.position).normalize();
+    const scratch = this._scratch();
+    const dir = c.worldDirection ? scratch.v3.set(c.worldDirection[0], c.worldDirection[1], c.worldDirection[2])
+      : scratch.v3.set(ndcX, ndcY, 0.5).unproject(this.camera).sub(this.camera.position).normalize();
     u.uLightDir.value.copy(dir.normalize());
     const night = frame.light.night01;
     const storm = frame.storm || { amount: 0, flash: 0, wet01: 0, break01: 0 };
@@ -1816,7 +1818,7 @@ export class RangeScene {
     // Under the squall the sun is gone behind the deck; the sky's own
     // (darkened, below) radiance is most of what lights the land.
     u.uLightColor.value.multiplyScalar(1 - storm.amount * .92);
-    u.uLightColor.value.add(new THREE.Color(.65, .77, 1).multiplyScalar(storm.flash * 1.6));
+    u.uLightColor.value.add(scratch.color.setRGB(.65, .77, 1).multiplyScalar(storm.flash * 1.6));
     u.uAmbientScale.value *= 1 - storm.amount * .15;
     u.uMoonAmbientScale.value *= 1 - storm.amount * .15;
     // Lightning lights the land from inside the deck, where the sky draws it.
@@ -1842,8 +1844,8 @@ export class RangeScene {
       // A restrained, steady colour recipe marks repeated verses/choruses.
       // Environment tint stays separate from the resolved physical body
       // color. Air, mist and reflected sky share the same recipe.
-      const tone = new THREE.Color().setHSL(frame.motif.hueDeg / 360, .65, .65);
-      const tint = new THREE.Color(1, 1, 1).lerp(tone, frame.motif.intensity01);
+      const tone = scratch.color.setHSL(frame.motif.hueDeg / 360, .65, .65);
+      const tint = scratch.color2.setRGB(1, 1, 1).lerp(tone, frame.motif.intensity01);
       u.uSkyZenith.value.multiply(tint);
       u.uSkyHorizon.value.multiply(tint);
       u.uAirColor.value.multiply(tint);
