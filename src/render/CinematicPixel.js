@@ -44,13 +44,22 @@ const FRAG = `precision highp float;
     gl_FragColor=vec4(rgb*c.a,c.a);
   }`;
 let nextPass=0;
+/** Consecutive draws that never need the whole drawing buffer before it
+ *  shrinks to what they used; also how many draws a denied growth is not
+ *  retried for. */
+export const CINEMATIC_BUFFER_SHRINK_DRAWS=120;
 /** Optional output-space pass. One native colour upload and five nearest taps.
  * Drawing-buffer and source-texture estimates share the scene residency budget.
- * Driver/context overhead remains outside these estimates, as for RangeScene. */
+ * Driver/context overhead remains outside these estimates, as for RangeScene.
+ * Display and capture can ask for different output sizes in one frame (a
+ * recording at encoder size). They share one context and one drawing buffer
+ * grown to the union of those sizes; each draw renders into the buffer's
+ * bottom-left w x h and copies that region out, so neither resizes it. */
 export class CinematicPixelRenderer {
   constructor({ residency=sharedResidency(), makeCanvas=()=>document.createElement('canvas') }={}) {
     this.residency=residency; this.makeCanvas=makeCanvas; this.key=`cinematic-cells:${++nextPass}`;
-    this.reason=null; this.bytes=0; this.signature=null; this.failed=false;
+    this.reason=null; this.bytes=0; this.failed=false; this.denied=null;
+    this.bufW=this.bufH=this.srcW=this.srcH=0; this.peakW=this.peakH=this.underDraws=0;
   }
   _initialize() {
     this.canvas=this.makeCanvas();
@@ -94,23 +103,52 @@ export class CinematicPixelRenderer {
     if(this.buffer)gl.deleteBuffer(this.buffer);
     this.program=this.texture=this.buffer=null;
   }
+  _releaseBuffer(){
+    this.residency.release(this.key);this.bytes=0;
+    this.bufW=this.bufH=this.srcW=this.srcH=0;this.peakW=this.peakH=this.underDraws=0;
+  }
+  /** Admit a drawing buffer that holds w x h for this source. Reallocates only
+   *  to grow past the held buffer, for a new source size, or to shrink after
+   *  CINEMATIC_BUFFER_SHRINK_DRAWS draws that never needed all of it. */
+  _ensureBuffer(w,h,srcW,srcH){
+    if(this.denied&&--this.denied.draws<=0)this.denied=null;
+    const held=this.bufW>0&&!!this.residency.get(this.key);
+    const covers=held&&srcW===this.srcW&&srcH===this.srcH&&w<=this.bufW&&h<=this.bufH;
+    let bufW=w,bufH=h;
+    if(covers){
+      this.peakW=Math.max(this.peakW,w);this.peakH=Math.max(this.peakH,h);
+      if(this.peakW>=this.bufW&&this.peakH>=this.bufH){this.peakW=this.peakH=this.underDraws=0;return true;}
+      if(++this.underDraws<CINEMATIC_BUFFER_SHRINK_DRAWS)return true;
+      bufW=this.peakW;bufH=this.peakH;
+    }else if(held){
+      bufW=Math.max(w,this.bufW);bufH=Math.max(h,this.bufH);
+      // A growth denied moments ago is not retried every frame; the held
+      // buffer keeps serving the draws it is big enough for.
+      const d=this.denied;
+      if(d&&bufW>=d.w&&bufH>=d.h&&srcW*srcH>=d.pixels){this.reason='allocation-denied';return false;}
+    }
+    const bytes=bufW*bufH*12+srcW*srcH*4+4096;
+    if(held&&!this.residency.canFit(bytes-this.bytes)){
+      if(covers){this.peakW=this.peakH=this.underDraws=0;return true;}
+      this.denied={w:bufW,h:bufH,pixels:srcW*srcH,draws:CINEMATIC_BUFFER_SHRINK_DRAWS};
+      this._releaseBuffer();this._deleteObjects();this.reason='allocation-denied';return false;
+    }
+    this._releaseBuffer();
+    const reservation=this.residency.reserve({key:this.key,bytes,owner:'cinematic-cells',evictable:false});
+    if(!reservation){this._deleteObjects();this.reason='allocation-denied';return false;}
+    try{
+      if(!this.gl)this._initialize();
+      this.canvas.width=bufW;this.canvas.height=bufH;
+      if(!this.residency.commit(reservation,this.canvas,canvas=>{canvas.width=canvas.height=0;}))throw Error('allocation-stale');
+      this.bufW=bufW;this.bufH=bufH;this.srcW=srcW;this.srcH=srcH;this.bytes=bytes;
+      return true;
+    }catch(error){this.residency.releaseReservation(reservation);this.residency.release(this.key);this._deleteObjects();this.failed=true;this.reason=error.message;if(this.canvas)this.canvas.width=this.canvas.height=0;return false;}
+  }
   draw(ctx,source,fit, outputScale=1) {
     if(this.disposed||this.failed||this.lost)return false;
     const scale=Math.min(outputScale,CINEMATIC_CELLS.maxWidth/fit.width,CINEMATIC_CELLS.maxHeight/fit.height);
     const w=Math.max(1,Math.round(fit.width*scale)),h=Math.max(1,Math.round(fit.height*scale));
-    const signature=`${w}:${h}:${source.width}:${source.height}`;
-    if(signature!==this.signature || !this.residency.get(this.key)){
-      this.residency.release(this.key);this.bytes=0;this.signature=null;
-      const bytes=w*h*12+source.width*source.height*4+4096;
-      const reservation=this.residency.reserve({key:this.key,bytes,owner:'cinematic-cells',evictable:false});
-      if(!reservation){this._deleteObjects();this.reason='allocation-denied';return false;}
-      try{
-        if(!this.gl)this._initialize();
-        this.canvas.width=w;this.canvas.height=h;
-        if(!this.residency.commit(reservation,this.canvas,canvas=>{canvas.width=canvas.height=0;}))throw Error('allocation-stale');
-        this.signature=signature;this.bytes=bytes;
-      }catch(error){this.residency.releaseReservation(reservation);this.residency.release(this.key);this._deleteObjects();this.failed=true;this.reason=error.message;if(this.canvas)this.canvas.width=this.canvas.height=0;return false;}
-    }
+    if(!this._ensureBuffer(w,h,source.width,source.height))return false;
     try{
       const gl=this.gl;if(gl.isContextLost()){this.reason='context-lost';return false;}
       if(!this.program)this._createObjects();
@@ -119,17 +157,21 @@ export class CinematicPixelRenderer {
       gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,this.texture);
       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);
       gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,source);
-      // Cells as wide as they are drawn here (the capped output, if capped).
+      // Cells as wide as they are drawn here (the capped output, if capped),
+      // never as wide as the shared buffer.
       this.strength=cellStrength(w/source.width);
       gl.uniform2f(this.size,source.width,source.height);gl.uniform1f(this.strengthLocation,this.strength);gl.drawArrays(gl.TRIANGLES,0,3);
       if(gl.getError()!==gl.NO_ERROR){this.reason='draw-failed';return false;}
-      ctx.imageSmoothingEnabled=false;ctx.drawImage(this.canvas,fit.x,fit.y,fit.width,fit.height);
+      // GL's origin is bottom-left: the viewport is the canvas's bottom rows.
+      // Copied in the same task, so the unpreserved buffer is still intact.
+      ctx.imageSmoothingEnabled=false;ctx.drawImage(this.canvas,0,this.canvas.height-h,w,h,fit.x,fit.y,fit.width,fit.height);
       this.reason=null;return true;
     }catch(error){this.reason=error.message;return false;}
   }
   suspend(){
-    if(this.disposed || (!this.bytes && !this.program && !this.texture && !this.buffer && !this.signature))return;
-    this.residency.release(this.key);this.bytes=0;this.signature=null;this._deleteObjects();
+    this.denied=null;
+    if(this.disposed || (!this.bytes && !this.program && !this.texture && !this.buffer && !this.bufW))return;
+    this._releaseBuffer();this._deleteObjects();
     // Keep one idle context for quality/mode round trips; intentional context
     // loss is observable as a real renderer failure to clients and diagnostics.
     if(this.canvas)this.canvas.width=this.canvas.height=0;
