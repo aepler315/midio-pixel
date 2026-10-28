@@ -55,6 +55,10 @@ const SHORE_MATCH_PX = 4;
 // Edge visibility (colour contrast across the line, 0..1 per channel mean).
 const VIS_LOW = 0.02, VIS_HIGH = 0.09, VIS_TAU_SEC = 0.3, VIS_UNKNOWN = 0.35;
 const FALLBACK_LAND = Object.freeze([60, 60, 60]);
+// A grid cell this opaque is land; anything fainter on the sky side (a glow
+// or haze layer drawn into the grid) is carried into the terrain cut.
+const LAND_ALPHA = 250;
+const GLOW_ROWS = 3; // rows above the raw crest checked for such content
 // Without split cells (Pixel look, CREST_PIXEL_SPLIT_LEVEL and above) the
 // grid rows are still read, without a write-back, this often (and at once
 // after a reset), so the line keeps the land colour the viewer sees.
@@ -84,6 +88,12 @@ export class RangeCrest {
     this.makeCanvas = makeCanvas;
     this.residency = residency;
     this.mode = 'refined';
+    // Economy / 8-bit (PerfGovernor `economy`, pinned to the cheapest rung):
+    // the heavy rungs keep the old no-probe path. No probe passes or
+    // readback, no terrain cut; a palette look scans its own frame for the
+    // line (integer rows), Pixel and Cinematic draw no line. Set by the
+    // presenter each frame.
+    this.economy = false;
     this.fade = 0;
     this.splitFade = 0;
     this._viewFade = false;
@@ -101,9 +111,11 @@ export class RangeCrest {
     this._sky = null;
     this._palette = null;
     this._sampleAge = Infinity; // seconds since the last grid reading
+    this._origRead = null; // { frameId, groups }: rows of `_orig` this frame read
+    this._glow = null; // translucent content above the skyline at the last reading (null: unknown)
     this.diagnostics = { mode: this.mode, fade: 0, splitFade: 0, splitStrength: 0, resets: 0, lastReset: null, probeMs: 0, probeRead: 'none', probeLag: 0, updateMs: 0, prepareMs: 0,
       drawMs: 0, shoreMs: 0, splitCells: 0, columns: 0, shoreChains: 0, shoreDropped: 0, readback: 'none', readRows: 0, readbackMs: 0,
-      lagShift: 0, aligned: 0, cutColumns: 0, cutMs: 0, pockets: 0 };
+      lagShift: 0, lagLineShift: 0, aligned: 0, cutColumns: 0, cutMs: 0, pockets: 0, glowRefill: 0 };
   }
 
   /** Drop the temporal state: the next frame starts from its raw crest. */
@@ -117,8 +129,9 @@ export class RangeCrest {
   }
 
   /** The probe mode the next frame should render: 'refined' (depth,
-   *  elevation, water) or 'grid' (crest rows and colours only). */
-  get probeMode() { return this.mode; }
+   *  elevation, water), 'grid' (crest rows and colours only) or null (none:
+   *  the economy floor on the heavy rungs, see `economy`). */
+  get probeMode() { return this.economy && this.mode === 'grid' ? null : this.mode; }
 
   _ensure(targetWidth, grid) {
     if (targetWidth && this._targetWidth !== targetWidth) {
@@ -152,6 +165,10 @@ export class RangeCrest {
     const last = this._last;
     const rawDt = last && Number.isFinite(timeMs) ? (timeMs - last.timeMs) / 1000 : 0;
     const dt = rawDt > 0 && rawDt < SEEK_JUMP_MS / 1000 ? rawDt : 1 / 60;
+    const seek = !!last && (rawDt < -0.001 || rawDt > SEEK_JUMP_MS / 1000);
+    // Consecutive history: the frame right after the last one drawn (a
+    // travel or arrival frame counts: it is drawn, with no crest), no seek.
+    const consecutive = !!last && last.drawnId === frameId - 1 && !seek;
     // The probe runs light from CREST_GRID_SCAN_LEVEL. The line holds
     // across the switch (same rows, same filter); only elevation (held) and
     // shorelines (refined only) differ.
@@ -159,8 +176,9 @@ export class RangeCrest {
     if (desired !== this.mode) this.mode = desired;
     this.diagnostics.mode = this.mode;
     const scanning = !probe && !!scan && this.mode === 'grid' && !!palette;
-    // A frame without a probe or scan (travel, arrival) breaks the filter's chain.
-    this._last = { frameId: probe || scanning ? frameId : NaN, timeMs, viewId };
+    // A frame without a probe or scan (travel, arrival) breaks the filter's
+    // chain, but still counts as drawn history for `instant`.
+    this._last = { frameId: probe || scanning ? frameId : NaN, drawnId: frameId, timeMs, viewId };
     if (!(probe || scanning) || !grid?.width || probe && (!transform || !stage?.width)) {
       this.snapshot = null;
       this.diagnostics.fade = this.fade;
@@ -168,20 +186,19 @@ export class RangeCrest {
       return null;
     }
     this._ensure(probe ? probe.width : 0, grid);
-    let discontinuous = true;
     if (!last || last.viewId !== viewId) { this.reset('view'); this.fade = this.splitFade = 0; this._viewFade = true; }
     else if (last.frameId !== frameId - 1) this.reset('gap');
-    else if (rawDt < -0.001 || rawDt > SEEK_JUMP_MS / 1000) this.reset('seek');
-    else discontinuous = false;
+    else if (seek) this.reset('seek');
     // Split cells need a probe. The Pixel and Cinematic looks read grid rows
     // back for them, so they shed them from CREST_PIXEL_SPLIT_LEVEL (with
     // the fade); a palette look reads its whole frame anyway and keeps them.
     const splitWanted = !!probe && (!!palette || qualityLevel < CREST_PIXEL_SPLIT_LEVEL);
-    if (instant && discontinuous) {
+    if (instant && !consecutive) {
       // An isolated export frame (visual evaluation, the 4K reel re-render, a
       // seek inside an export) has no history to fade from: full strength,
-      // from the raw crest (the reset above). A continuous export keeps the
-      // live fades, so it still matches live playback.
+      // from the raw crest (the reset above). A continuous export (each
+      // frame right after the last drawn one) keeps the live fades, a view
+      // change included, so it still matches live playback.
       this.fade = 1; this.splitFade = splitWanted ? 1 : 0; this._viewFade = false;
     } else {
       const fadeIn = dt / (this._viewFade ? CREST_VIEW_FADE_SEC : CREST_FADE_SEC);
@@ -203,7 +220,7 @@ export class RangeCrest {
     // nor its capture needs the canvas. Give it, and its hold, back.
     if (!split && !(this.splitFade > 0)) this._releaseSplit();
     this.snapshot = Object.freeze({ frameId, dt, grid: { width: grid.width, height: grid.height }, mode: this.mode, fade: this.fade,
-      splitFade: this.splitFade, split, scan: scanning, prepared: false, splitPending: false, splitReady: false, splitAlpha: 0, palette, shores,
+      splitFade: this.splitFade, split, scan: scanning, cut: !(scanning && this.economy), prepared: false, splitPending: false, splitReady: false, splitAlpha: 0, palette, shores,
       lag: probe ? probe.lag || 0 : 0, aligned: 0 });
     this.diagnostics.fade = this.fade;
     this.diagnostics.splitFade = this.splitFade;
@@ -575,6 +592,8 @@ export class RangeCrest {
         try { ctx.putImageData(image.read, 0, y0); } catch { return false; }
       }
     }
+    this._origRead = { frameId: snap.frameId, groups };
+    this._glow = this._findGlow(W, (r, i) => groups.some(gr => r >= gr.y0 && r < gr.y1) ? this._orig[(r * W + i) * 4 + 3] : -1);
     this._recolor();
     let ready = false;
     if (split) {
@@ -587,6 +606,7 @@ export class RangeCrest {
     this.snapshot = Object.freeze({ ...snap, prepared: true, splitPending: !!split && !!frame, splitReady: ready, splitAlpha: split ? strength : 0,
       aligned: aligned?.columns || 0 });
     this.diagnostics.lagShift = aligned?.shift || 0;
+    this.diagnostics.lagLineShift = aligned?.lineShift || 0;
     this.diagnostics.aligned = aligned?.columns || 0;
     this.diagnostics.splitCells = cells;
     this.diagnostics.splitStrength = split ? strength : 0;
@@ -603,9 +623,11 @@ export class RangeCrest {
    * first opaque row below a transparent one (the sky is drawn separately)
    * within LAG_ROWS of the probe's raw crest. Their common offset (most
    * columns agreeing on one whole row) is the camera or heave shift since
-   * the probe's frame: every band's line, raw crest and nearer-band clip
-   * move by it, and skyline columns then take their grid crest exactly, so
-   * split cells are classified against the terrain this grid shows.
+   * the probe's frame: every band's raw crest moves by that whole row and
+   * skyline columns then take their grid crest exactly, so split cells are
+   * classified against the terrain this grid shows. The drawn line and the
+   * nearer-band clip move by the sub-row mean offset of those columns
+   * instead, so steady motion never flips the stroke by a whole row.
    */
   _alignToGrid(W, H, groups) {
     const orig = this._orig;
@@ -629,14 +651,31 @@ export class RangeCrest {
     }
     let shift = 0, best = 0;
     for (const [d, c] of counts) if (c > best) { best = c; shift = d; }
-    if (n < 8 || best * 2 <= n) return { shift: 0, columns: 0 };
+    if (n < 8 || best * 2 <= n) return { shift: 0, lineShift: 0, columns: 0 };
+    // The drawn line moves by the sub-row mean of the columns near the
+    // majority offset: each column's offset is quantized to whole rows, but
+    // across a sloped skyline their mean follows the true motion, so steady
+    // motion of a fraction of a row per frame moves the stroke steadily
+    // instead of flipping it a whole row between 0 and 1.
+    let sum = 0, m = 0;
+    for (const band of CREST_BANDS) {
+      const g = this._grid[band], at = found[band];
+      for (let i = 0; i < W; i++) {
+        if (!Number.isFinite(at[i])) continue;
+        const d = at[i] - g.raw[i];
+        if (Math.abs(d - shift) <= 1) { sum += d; m++; }
+      }
+    }
+    const lineShift = Math.max(-LAG_ROWS, Math.min(LAG_ROWS, m ? sum / m : shift));
     let columns = 0;
     for (const band of CREST_BANDS) {
       const g = this._grid[band], at = found[band];
-      if (shift) for (let i = 0; i < W; i++) { g.line[i] += shift; g.raw[i] += shift; g.minNearer[i] += shift; }
+      // Classification (raw crest, split-cell spans) snaps to whole rows.
+      if (shift) for (let i = 0; i < W; i++) g.raw[i] += shift;
+      if (lineShift) for (let i = 0; i < W; i++) { g.line[i] += lineShift; g.minNearer[i] += lineShift; }
       for (let i = 0; i < W; i++) if (Number.isFinite(at[i]) && Math.abs(at[i] - g.raw[i]) <= 1) { g.raw[i] = at[i]; columns++; }
     }
-    return { shift, columns };
+    return { shift, lineShift, columns };
   }
 
   /** After palette quantization: the split cells' lower halves go through
@@ -689,6 +728,8 @@ export class RangeCrest {
     this._rank(g, g, W, 1 - Math.exp(-(snap.dt || 1 / 60) / SLOW_TAU_SEC), null);
     this._visibility(g, data, W, 0, H, 1 - Math.exp(-(snap.dt || 1 / 60) / VIS_TAU_SEC));
     this._sampleLand(g, data, W, 0, H);
+    this._origRead = null;
+    this._glow = this._findGlow(W, (r, i) => (r >= 0 && r < H ? data[(r * W + i) * 4 + 3] : -1));
     g.chunks = this._chunks('far', null, g, W);
     this.snapshot = Object.freeze({ ...snap, prepared: true });
     this.diagnostics.readback = 'palette-frame';
@@ -740,6 +781,21 @@ export class RangeCrest {
     }
   }
 
+  /** Whether any skyline column holds translucent content (0 < alpha <
+   *  LAND_ALPHA) in the GLOW_ROWS above its raw crest. `alphaAt(r, i)`: −1
+   *  where nothing was read. */
+  _findGlow(W, alphaAt) {
+    for (const band of CREST_BANDS) {
+      const g = this._grid[band];
+      for (let i = 0; i < W; i++) {
+        const R = g.raw[i];
+        if (!g.skyline[i] || g.skip[i] || !Number.isFinite(R)) continue;
+        for (let r = R - GLOW_ROWS; r < R; r++) { const a = alphaAt(r, i); if (a > 0 && a < LAND_ALPHA) return true; }
+      }
+    }
+    return false;
+  }
+
   /**
    * Skyline columns the terrain cut applies to: per grid column the band
    * (index into CREST_BANDS, −1 none) whose line has only sky above it and
@@ -781,9 +837,9 @@ export class RangeCrest {
    * 1 − fade, so the silhouette never pops. False (nothing drawn) when there
    * is nothing to cut.
    */
-  drawTerrain(ctx, fit, frameId, draw) {
+  drawTerrain(ctx, fit, frameId, draw, source = null) {
     const snap = this.snapshot;
-    if (!snap || snap.frameId !== frameId || !(snap.fade > 0) || !(fit?.scale > 0) || typeof draw !== 'function') return false;
+    if (!snap || !snap.cut || snap.frameId !== frameId || !(snap.fade > 0) || !(fit?.scale > 0) || typeof draw !== 'function') return false;
     // Split cells at full strength on terrain this grid shows (a synchronous
     // probe, or one aligned to the grid) already cut every crossed cell:
     // nothing is left to clip, and the clip's raster cost is saved.
@@ -826,6 +882,7 @@ export class RangeCrest {
       ctx.clip('evenodd');
       draw();
     } finally { ctx.restore(); }
+    this.diagnostics.glowRefill = source ? this._refillGlow(ctx, source, X, Y, s, W, strips, snap) : 0;
     if (snap.fade < 1) {
       ctx.save();
       try {
@@ -836,6 +893,49 @@ export class RangeCrest {
     }
     this.diagnostics.cutMs = performance.now() - t0;
     return true;
+  }
+
+  /**
+   * Translucent sky-side content drawn into the grid (a glow or haze layer)
+   * lies over the cut rows too, and the clip removed it with the land: the
+   * cut's stepped top would show as a staircase of bare sky against the
+   * glow-tinted sky above it. Each cut column's cell just above its cut top
+   * (`source`, the native grid) is stretched down over the cut, under the
+   * same strips; only where that cell is translucent (alpha below
+   * LAND_ALPHA) when this frame read it, else wherever the last reading saw
+   * such content near the skyline (it is above the raw crest by
+   * construction). Returns the number of columns refilled.
+   */
+  _refillGlow(ctx, source, X, Y, s, W, strips, snap) {
+    const fresh = this._origRead?.frameId === snap.frameId ? this._origRead.groups : null;
+    if (!fresh && this._glow === false) return 0;
+    const c = this._cut, orig = this._orig;
+    const ok = (i) => {
+      const r = c.top[i] - 1;
+      if (c.band[i] < 0 || !(r >= 0)) return false;
+      if (!fresh) return true;
+      if (!fresh.some(gr => r >= gr.y0 && r < gr.y1)) return false;
+      const a = orig[(r * W + i) * 4 + 3];
+      return a > 0 && a < LAND_ALPHA;
+    };
+    let refilled = 0;
+    ctx.save();
+    try {
+      ctx.beginPath(); strips(); ctx.clip();
+      ctx.imageSmoothingEnabled = false;
+      ctx.globalAlpha = snap.fade;
+      let i = 0;
+      while (i < W) {
+        if (!ok(i)) { i++; continue; }
+        const top = c.top[i];
+        let j = i, bottom = c.spanBottom[i];
+        while (j + 1 < W && c.band[j + 1] === c.band[i] && c.top[j + 1] === top && ok(j + 1)) { j++; bottom = Math.max(bottom, c.spanBottom[j]); }
+        const rows = Math.floor(bottom) + 2 - top;
+        if (rows > 0) { ctx.drawImage(source, i, top - 1, j - i + 1, 1, X(i), Y(top), (j - i + 1) * s, rows * s); refilled += j - i + 1; }
+        i = j + 1;
+      }
+    } finally { ctx.restore(); }
+    return refilled;
   }
 
   /** Sky pockets just below the line in cut columns (the line smoothed a
@@ -1002,5 +1102,5 @@ export class RangeCrest {
     return true;
   }
 
-  release() { this._releaseSplit(); this.snapshot = null; this._orig = null; }
+  release() { this._releaseSplit(); this.snapshot = null; this._orig = null; this._origRead = null; }
 }

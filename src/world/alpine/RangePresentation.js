@@ -920,6 +920,7 @@ export class RangePresentation {
     // The crest probe runs only on a steady single view drawn into the grid
     // (light, crest rows only, on the heavy governor rungs).
     const crestOn = this.crestEnabled && this.pixelated && !this.directTerrainMode && !incoming;
+    this.crest.economy = !!inputs.sim?.perf?.economy;
     this.scene.crestProbeMode = crestOn ? this.crest.probeMode : null;
     this._crestScan = crestOn && this.crest.mode === 'grid';
     if (!crestOn) this.crest.update({ frameId: this.frame.frameId, timeMs: this.frame.timeMs, viewId: view.id, qualityLevel: this.frame.qualityLevel ?? 0 });
@@ -1153,8 +1154,8 @@ export class RangePresentation {
    * shorelines after the water; live and for recordings alike. */
   drawCrestForeground(ctx, fit, options) { return !this.active || this.crest.drawCrest(ctx, fit, this.frameId, options); }
   /** Presenter hook: draw the terrain (`draw`) clipped below the skyline
-   * (RangeCrest.drawTerrain). False when it drew nothing. */
-  drawCrestTerrain(ctx, fit, draw) { return !!this.active && this.crestEnabled && this.crest.drawTerrain(ctx, fit, this.frameId, draw); }
+   * (RangeCrest.drawTerrain; `source` is the native grid). False when it drew nothing. */
+  drawCrestTerrain(ctx, fit, draw, source = null) { return !!this.active && this.crestEnabled && this.crest.drawTerrain(ctx, fit, this.frameId, draw, source); }
   drawShoreForeground(ctx, fit) { return !this.active || this.crest.drawShore(ctx, fit, this.frameId); }
 
   /** Blend a late-arriving band once after its terrain and water are united. */

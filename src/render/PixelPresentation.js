@@ -24,9 +24,11 @@ export function fitPixelRect(srcW, srcH, dstW, dstH, scaling = 'fit', origin = {
  * (nearest, unless `foreground` -- the cinematic cell reconstruction --
  * draws it and returns true), then an optional water layer and smooth added
  * cast light. Recording must not resample the already combined picture.
- * `terrain(ctx, fit, draw)` may draw the native frame itself (`draw()`)
- * through a clip, over the smooth sky only (the Landscape crest's skyline
- * cut, RangeCrest.drawTerrain); it returns false when it drew nothing. */
+ * `terrain(ctx, fit, draw, source)` may draw the native frame itself
+ * (`draw()`) through a clip, over the smooth sky only (the Landscape crest's
+ * skyline cut, RangeCrest.drawTerrain, which also reads `source` to carry
+ * translucent sky-side cells into the cut); it returns false when it drew
+ * nothing. */
 export function compositePixelFrame(ctx, source, width, height, scaling, background = null, destination = null, foreground = null, overlay = null, water = null, effects = null, crest = null, shore = null, terrain = null) {
   const fit = destination ? { ...destination, scale: destination.width / source.width }
     : fitPixelRect(source.width, source.height, width, height, scaling);
@@ -39,7 +41,7 @@ export function compositePixelFrame(ctx, source, width, height, scaling, backgro
   let cut = false;
   if (terrain && hybridSky) {
     ctx.save();
-    try { cut = !!terrain(ctx, fit, drawNative); } finally { ctx.restore(); }
+    try { cut = !!terrain(ctx, fit, drawNative, source); } finally { ctx.restore(); }
   }
   if (!cut) drawNative();
   // The Landscape crest line: split cells and strokes over the upscaled
