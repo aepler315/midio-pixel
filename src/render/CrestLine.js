@@ -301,6 +301,24 @@ function oklab(c) {
 // --- Split-cell re-ownership -------------------------------------------------
 
 const LAND_ALPHA = 250, SKY_ALPHA = 128;
+/** At most this many rows of one column are re-owned (a spire the filter has
+ *  not caught up with yet; larger moves pass the filter straight through). */
+export const REOWN_MAX_ROWS = 16;
+
+/** The extent of the drawn line over column i's cell span [i, i+1]. The
+ *  stroke and the split clip are one polyline through the column centres
+ *  (i + 0.5, line[i]); at a cell edge it is the mean of the two centres, so
+ *  over one cell it runs edge → centre → edge, and its lowest and highest
+ *  points there are among those three. Returns [top, bottom] (grid rows,
+ *  top < bottom numerically) in `out`. */
+export function crestSpan(line, i, out = [0, 0]) {
+  const L = line[i], a = line[i - 1], b = line[i + 1];
+  const l = Number.isFinite(a) ? (a + L) / 2 : L, r = Number.isFinite(b) ? (b + L) / 2 : L;
+  out[0] = Math.min(l, L, r); out[1] = Math.max(l, L, r);
+  return out;
+}
+
+let spanTop = new Float32Array(0), spanBottom = new Float32Array(0);
 
 /**
  * Make the grid follow the smoothed line, before palette quantization.
@@ -309,26 +327,42 @@ const LAND_ALPHA = 250, SKY_ALPHA = 128;
  * `orig` is an untouched copy of `image.data` (the rule reads only it).
  * `line[i]` is the smoothed boundary at column i's centre, `raw[i]` the
  * first row this band actually covers (both in grid rows); `skip[i]` drops
- * a column (a nearer band's line is within reach). Cells within ±1 of the
- * line change owner; a cell the line crosses keeps its UPPER colour in the
- * grid and its LOWER colour in `split` (same layout as `data`), which the
- * presenter draws at output resolution below the line only.
+ * a column (a nearer band's line is within reach).
+ *
+ * Cells are classified against the drawn polyline over their whole width
+ * (crestSpan), not just at the column centre: a peak cell whose centre sits
+ * on the line still has corners above it where the line falls away to both
+ * sides. Every cell of this band's land above the line (from its raw crest,
+ * however far the filter has smoothed a spire below it) becomes what lies
+ * above; every cell the line crosses keeps its UPPER colour in the grid and
+ * its LOWER colour in `split` (same layout as `data`), which the presenter
+ * draws at output resolution below the line only. `crossed[i]`/`crossedEnd[i]`
+ * receive the first and last crossed row of column i (−1: none).
  *
  * Each half takes the colour of the nearest cell fully on its own side
  * (equidistant same-side cells are averaged). Lower candidates must be
  * opaque land rows of this band, so sky is never sampled into land; an
  * upper candidate that is transparent (a separately drawn sky) makes the
- * upper half transparent: cut away to show the smooth sky. Returns the
- * number of cells written.
+ * upper half transparent: cut away to show the smooth sky. With no such
+ * neighbour the upper half takes what lies above the column's raw crest
+ * (transparent above the image), and the lower half of a land cell keeps
+ * its own colour: no crossed land cell keeps land above the line. Returns
+ * the number of cells written.
  */
-export function reownCrestCells(image, orig, split, line, raw, skip = null, crossed = null) {
+export function reownCrestCells(image, orig, split, line, raw, skip = null, crossed = null, crossedEnd = null) {
   const { data, width, y0, rows } = image;
+  if (spanTop.length < width) { spanTop = new Float32Array(width); spanBottom = new Float32Array(width); }
+  const span = [0, 0];
+  for (let i = 0; i < width; i++) {
+    if (Number.isFinite(line[i])) { crestSpan(line, i, span); spanTop[i] = span[0]; spanBottom[i] = span[1]; }
+    else spanTop[i] = spanBottom[i] = NaN;
+  }
   const qualifies = (i, r, lower) => {
     if (i < 0 || i >= width || r < y0 || r >= y0 + rows) return false;
-    const L = line[i], R = raw[i];
-    if (!Number.isFinite(L) || !Number.isFinite(R)) return false;
+    const R = raw[i];
+    if (!Number.isFinite(spanTop[i]) || !Number.isFinite(R)) return false;
     const a = orig[((r - y0) * width + i) * 4 + 3];
-    return lower ? r >= L && r >= R && a >= LAND_ALPHA : r + 1 <= L && r < R;
+    return lower ? r >= spanBottom[i] && r >= R && a >= LAND_ALPHA : r + 1 <= spanTop[i] && r < R;
   };
   const acc = [0, 0, 0, 0];
   // Candidate rings in order of distance: 1 (axial), √2 (diagonal), 2
@@ -351,6 +385,21 @@ export function reownCrestCells(image, orig, split, line, raw, skip = null, cros
     }
     return null;
   };
+  // Upper fallback: what lies directly above the column's own raw crest.
+  const above = (i, r) => {
+    const y = Math.min(r, raw[i]) - 1;
+    if (y < y0) { acc[3] = 0; return acc; }
+    const k = ((y - y0) * width + i) * 4;
+    if (orig[k + 3] < SKY_ALPHA) { acc[3] = 0; return acc; }
+    acc[0] = orig[k]; acc[1] = orig[k + 1]; acc[2] = orig[k + 2]; acc[3] = 255;
+    return acc;
+  };
+  const own = (i, r) => {
+    const k = ((r - y0) * width + i) * 4;
+    if (r < raw[i] || orig[k + 3] < LAND_ALPHA) return null;
+    acc[0] = orig[k]; acc[1] = orig[k + 1]; acc[2] = orig[k + 2]; acc[3] = 255;
+    return acc;
+  };
   const put = (target, i, r, c) => {
     const k = ((r - y0) * width + i) * 4;
     if (c[3] === 0) { target[k] = target[k + 1] = target[k + 2] = target[k + 3] = 0; return; }
@@ -359,21 +408,23 @@ export function reownCrestCells(image, orig, split, line, raw, skip = null, cros
   let written = 0;
   for (let i = 0; i < width; i++) {
     if (crossed) crossed[i] = -1;
-    const L = line[i], R = raw[i];
-    if (!Number.isFinite(L) || !Number.isFinite(R) || skip?.[i]) continue;
-    const r0 = Math.floor(L);
-    for (let r = r0 - 1; r <= r0 + 1; r++) {
+    if (crossedEnd) crossedEnd[i] = -1;
+    const top = spanTop[i], bottom = spanBottom[i], R = raw[i];
+    if (!Number.isFinite(top) || !Number.isFinite(R) || skip?.[i]) continue;
+    const last = Math.floor(bottom) + 1;
+    const first = Math.max(Math.min(Math.floor(top), R) - 1, last - REOWN_MAX_ROWS);
+    for (let r = first; r <= last; r++) {
       if (r < y0 || r >= y0 + rows) continue;
-      const above = r + 1 <= L, below = r >= L, land = r >= R;
-      if (above && land) { const c = sideColor(i, r, false); if (c) { put(data, i, r, c); written++; } }
-      else if (below && !land) { const c = sideColor(i, r, true); if (c) { put(data, i, r, c); written++; } }
-      else if (!above && !below) {
-        const lo = sideColor(i, r, true);
-        if (!lo) continue; // no land colour to show below the line: leave the cell alone
+      const isAbove = r + 1 <= top, isBelow = r >= bottom, land = r >= R;
+      if (isAbove && land) { put(data, i, r, sideColor(i, r, false) || above(i, r)); written++; }
+      else if (isBelow && !land) { const c = sideColor(i, r, true); if (c) { put(data, i, r, c); written++; } }
+      else if (!isAbove && !isBelow) {
+        const lo = sideColor(i, r, true) || own(i, r);
+        if (!lo) continue; // no land to show below the line here: leave the cell alone
         put(split, i, r, lo);
-        if (crossed) crossed[i] = r;
-        const up = sideColor(i, r, false);
-        if (up) put(data, i, r, up);
+        if (crossed && crossed[i] < 0) crossed[i] = r;
+        if (crossedEnd) crossedEnd[i] = r;
+        put(data, i, r, sideColor(i, r, false) || above(i, r));
         written++;
       }
     }
@@ -384,31 +435,217 @@ const SPLIT_RINGS = [[0, 1, -1, 0, 1, 0], [-1, 1, 1, 1], [0, 2]];
 
 // --- Shorelines --------------------------------------------------------------
 
-/** Link shore transitions of adjacent columns into chains. `cols` is an
- *  array (per column) of arrays of { y, kind } (kind 1: water below the
- *  edge, 2: water above). Returns chains as arrays of [column, slotIndex]. */
-export function linkShoreChains(cols, maxStep = 2) {
+/** Shoreline shape rules, by nearness (0 far, 1 near; each [far, near]
+ *  pair is interpolated). A near waterline meets the beach at a grazing
+ *  angle, so small terrain bumps and music waves move its raster edge by
+ *  several rows from column to column: near chains link over larger steps,
+ *  must be longer and are smoothed over more columns.
+ *  - minRunRows: a transition with another one this close in its column
+ *    bounds a sliver (a wave crest over a sandbar, a trough), not a shore.
+ *  - maxStep: rows per column between linked edges; maxGap: empty columns
+ *    a chain may bridge.
+ *  - minColumns: shorter chains are dropped (fragments, not a coherent shore).
+ *  - sigma: the widest smoothing along the chain (columns), used at
+ *    noiseRows of raster noise or more; a cleaner chain is smoothed less
+ *    (a clean one not at all), so real slopes, bends and coves survive.
+ *  - endRidge: how far a noisy chain's end slope leans (× noise²) on a
+ *    fit twice as wide, so jitter near an end does not tilt it; a clean
+ *    chain's ends are exact.
+ *  - maxCurvature: limit on |y[i−1] − 2y[i] + y[i+1]| for a chain at full
+ *    noise; it relaxes as the noise falls.
+ *  - maxResidual: RMS rows between the smoothed and the raw chain above
+ *    which the chain is too jagged to be one shore and is dropped. */
+export const SHORE_SHAPE = Object.freeze({ minRunRows: 3, maxStep: [2, 5], maxGap: 6, minColumns: [5, 16], sigma: [1, 5],
+  noiseRows: 0.5, endRidge: 20, maxCurvature: 0.25, maxResidual: 1.75 });
+
+/** SHORE_SHAPE at `nearness`. */
+export function shoreShape(nearness) {
+  const n = clamp01(nearness);
+  return { maxStep: lerp(SHORE_SHAPE.maxStep[0], SHORE_SHAPE.maxStep[1], n),
+    minColumns: Math.round(lerp(SHORE_SHAPE.minColumns[0], SHORE_SHAPE.minColumns[1], n)),
+    sigma: lerp(SHORE_SHAPE.sigma[0], SHORE_SHAPE.sigma[1], n) };
+}
+
+/** Keep the shore transitions of one column that bound a real land/water
+ *  region on both sides: `edges` is the column's transitions in row order
+ *  ({ row, shore }), all of them (shore or not), so a sliver between a
+ *  shore edge and a non-shore one is seen too; `height` the target height.
+ *  Returns the indices kept. */
+export function solidShoreEdges(edges, height, minRun = SHORE_SHAPE.minRunRows) {
+  const kept = [];
+  for (let s = 0; s < edges.length; s++) {
+    const e = edges[s];
+    if (!e.shore || e.row <= 0 || e.row >= height - 1) continue;
+    if (s > 0 && e.row - edges[s - 1].row < minRun) continue;
+    if (s + 1 < edges.length && edges[s + 1].row - e.row < minRun) continue;
+    kept.push(s);
+  }
+  return kept;
+}
+
+/** Gaussian-weighted local linear regression of `a` (sigma in samples)
+ *  into `out`: inside the chain it equals a Gaussian, and at the ends the
+ *  local line keeps any slope instead of pulling the end toward the
+ *  interior (a truncated, renormalized kernel would). `out` may be `a`.
+ *  Options: `weights` (per sample) down-weight outliers; `ridge` (per unit
+ *  weight) pulls the local slope toward `prior` (per sample, default 0)
+ *  where few samples set it (a noisy chain's ends); `slopes` receives the
+ *  local slopes. */
+export function gaussianSmooth(a, sigma, out = new Float32Array(a.length), { weights = null, ridge = 0, prior = null, slopes = null } = {}) {
+  const n = a.length;
+  if (!(sigma > 0)) { if (out !== a) out.set(a); slopes?.fill(0); return out; }
+  const src = out === a ? Float32Array.from(a) : a, radius = Math.max(1, Math.ceil(2.5 * sigma));
+  const kernel = Float32Array.from({ length: radius + 1 }, (_, d) => Math.exp(-(d * d) / (2 * sigma * sigma)));
+  for (let p = 0; p < n; p++) {
+    let sw = 0, sx = 0, sy = 0;
+    const lo = Math.max(0, p - radius), hi = Math.min(n - 1, p + radius);
+    for (let q = lo; q <= hi; q++) {
+      const w = kernel[Math.abs(q - p)] * (weights ? weights[q] : 1);
+      sw += w; sx += w * (q - p); sy += w * src[q];
+    }
+    if (!(sw > 0)) { out[p] = src[p]; if (slopes) slopes[p] = 0; continue; }
+    const mx = sx / sw, my = sy / sw;
+    let sxx = 0, sxy = 0;
+    for (let q = lo; q <= hi; q++) {
+      const w = kernel[Math.abs(q - p)] * (weights ? weights[q] : 1), dx = q - p - mx;
+      sxx += w * dx * dx; sxy += w * dx * (src[q] - my);
+    }
+    const lam = ridge * sw, m0 = prior ? prior[p] : 0;
+    const slope = sxx + lam > 1e-9 ? (sxy + lam * m0) / (sxx + lam) : 0;
+    out[p] = my - slope * mx;
+    if (slopes) slopes[p] = slope;
+  }
+  return out;
+}
+
+/** Limit |y[i−1] − 2y[i] + y[i+1]| to `k` in place (local relaxation). */
+export function limitCurvature(ys, k) {
+  if (!(k < Infinity)) return ys;
+  for (let pass = 0; pass < 64; pass++) {
+    let worst = 0;
+    for (let p = 1; p < ys.length - 1; p++) {
+      const c = ys[p - 1] - 2 * ys[p] + ys[p + 1], over = Math.abs(c) - k;
+      if (over > 0) { ys[p] += Math.sign(c) * over / 2; if (over > worst) worst = over; }
+    }
+    if (worst < 1e-3) break;
+  }
+  return ys;
+}
+
+const medianOf = v => {
+  const w = Array.from(v).sort((x, y) => x - y), n = w.length;
+  return n ? (n % 2 ? w[n >> 1] : (w[n / 2 - 1] + w[n / 2]) / 2) : 0;
+};
+
+/** Jitter of a chain (rows): a robust estimate of its per-column scatter
+ *  from second differences (median, scaled for white noise), so a clean
+ *  slope, bend or cove scores ~0 however steep it is. A rasterized clean
+ *  edge steps by floor or ceil of its slope (|second difference| <= 1):
+ *  that much is quantization, not jitter, and is not counted. */
+export function shoreNoise(ys) {
+  const n = ys.length;
+  if (n < 3) return 0;
+  const d2 = new Float32Array(n - 2);
+  for (let p = 1; p < n - 1; p++) d2[p - 1] = Math.max(0, Math.abs(ys[p - 1] - 2 * ys[p] + ys[p + 1]) - 1);
+  return 1.4826 * medianOf(d2) / Math.sqrt(6);
+}
+
+/** Replace single-column spikes in place: a sample both neighbours'
+ *  linear extrapolations agree on missing by more than `thr` rows. A cove
+ *  or point (both legs extrapolate to the vertex) and a bend are kept. At
+ *  the chain's ends one side's extrapolation decides (a one-column leg is
+ *  no shape to keep). */
+function removeSpikes(a, thr = 1.5) {
+  const n = a.length, src = Float32Array.from(a), at = p => src[p];
+  const off = (p, v) => Math.abs(src[p] - v) > thr;
+  for (let p = 1; p < n - 1; p++) {
+    const l = p >= 2 ? 2 * at(p - 1) - at(p - 2) : NaN, r = p < n - 2 ? 2 * at(p + 1) - at(p + 2) : NaN, mid = (at(p - 1) + at(p + 1)) / 2;
+    if ((Number.isNaN(l) || off(p, l)) && (Number.isNaN(r) || off(p, r)) && off(p, mid)) a[p] = mid;
+  }
+  // An end sample off a straight run of its next three (within raster
+  // quantization) by more than `thr`, from the line and from its neighbour.
+  const straight = (b, c, d) => Math.abs(b - 2 * c + d) <= 1;
+  if (n >= 4) {
+    const r0 = 2 * a[1] - a[2], rn = 2 * a[n - 2] - a[n - 3];
+    if (straight(a[1], a[2], a[3]) && Math.abs(a[0] - r0) > thr && Math.abs(a[0] - a[1]) > thr) a[0] = r0;
+    if (straight(a[n - 2], a[n - 3], a[n - 4]) && Math.abs(a[n - 1] - rn) > thr && Math.abs(a[n - 1] - a[n - 2]) > thr) a[n - 1] = rn;
+  }
+  return a;
+}
+
+/** Shape one shore chain from its integer rows: sub-cell reconstruction,
+ *  single-column spike removal, then a robust Gaussian-weighted local
+ *  linear fit whose width scales with the chain's raster noise (up to
+ *  `sigma` columns at SHORE_SHAPE.noiseRows), so a jittery waterline is
+ *  smoothed while a clean slope, bend or cove keeps its shape and its end
+ *  points. The curvature limit relaxes the same way (none for a clean
+ *  chain). Returns { ys, residual, noise, sigma, maxCurvature }: residual is
+ *  the RMS rows from the reconstruction (jaggedness: ~0 for a clean edge). */
+export function smoothShoreChain(rows, sigma, maxCurvature = SHORE_SHAPE.maxCurvature) {
+  const n = rows.length, recon = reconstructCrest(rows), ys = new Float32Array(n);
+  const noise = shoreNoise(recon), amount = clamp01(noise / SHORE_SHAPE.noiseRows);
+  const s = sigma * amount, k = amount > 0 ? maxCurvature / amount : Infinity, ridge = SHORE_SHAPE.endRidge * noise * noise;
+  const raw = Float32Array.from(recon);
+  removeSpikes(recon);
+  // A noisy chain's end slopes lean on a fit twice as wide (no lean on a
+  // straight line, much less end scatter than a narrow fit alone).
+  const prior = new Float32Array(n);
+  if (ridge > 0) gaussianSmooth(recon, 2 * s, new Float32Array(n), { slopes: prior });
+  gaussianSmooth(recon, s, ys, { ridge, prior });
+  if (s > 0) {
+    // One robust pass (bisquare on the residuals) so outliers do not pull the fit.
+    const e = new Float32Array(n);
+    for (let p = 0; p < n; p++) e[p] = Math.abs(recon[p] - ys[p]);
+    const scale = 6 * Math.max(0.25, medianOf(e)), w = new Float32Array(n);
+    for (let p = 0; p < n; p++) { const u = e[p] / scale; w[p] = u < 1 ? (1 - u * u) ** 2 : 0; }
+    gaussianSmooth(recon, s, ys, { weights: w, ridge, prior });
+  }
+  limitCurvature(ys, k);
+  let sq = 0;
+  for (let p = 0; p < n; p++) sq += (ys[p] - raw[p]) ** 2;
+  return { ys, residual: n ? Math.sqrt(sq / n) : 0, noise, sigma: s, maxCurvature: k };
+}
+
+/** The least smoothing (columns) of the drawn shore points: enough to
+ *  merge neighbouring per-column deadbands, little enough that a clean
+ *  slope-2 cove's vertex moves about a row. */
+export const SHORE_HELD_SIGMA = 0.75;
+
+/** Smooth the drawn shore points `held` in place (through a scratch copy,
+ *  so the filter stays symmetric) and apply the chain's curvature limit. */
+export function smoothHeldShore(held, sigma, maxCurvature = SHORE_SHAPE.maxCurvature) {
+  held.set(gaussianSmooth(held, sigma, new Float32Array(held.length)));
+  return limitCurvature(held, maxCurvature);
+}
+
+/** Link shore transitions of nearby columns into chains. `cols` is an
+ *  array (per column) of arrays of { y, kind, maxStep? } (kind 1: water
+ *  below the edge, 2: water above; `maxStep` overrides the default rows per
+ *  column for that edge). An edge joins the chain whose last edge (same
+ *  kind) is nearest in rows within maxStep per column crossed, across at
+ *  most `maxGap` empty columns (a column whose only edge was a sliver).
+ *  Returns chains as arrays of [column, slotIndex]. */
+export function linkShoreChains(cols, maxStep = 2, maxGap = 0) {
   const chains = [];
-  let prevChains = [];
+  let tails = []; // { chain, x, y, kind }
   for (let x = 0; x < cols.length; x++) {
-    const here = cols[x] || [], prev = x > 0 ? cols[x - 1] || [] : [];
-    const nextChains = new Array(here.length);
-    let used = 0; // bitmask of consumed previous slots (at most a few per column)
+    const here = cols[x] || [];
+    tails = tails.filter(t => x - t.x <= maxGap + 1);
+    const taken = new Set(), next = [];
     for (let s = 0; s < here.length; s++) {
-      const t = here[s];
-      let best = -1, bestD = maxStep + 1e-6;
-      for (let p = 0; p < prev.length; p++) {
-        if (used & (1 << p) || prev[p].kind !== t.kind) continue;
-        const d = Math.abs(prev[p].y - t.y);
-        if (d <= bestD) { bestD = d; best = p; }
+      const e = here[s];
+      let best = null, bestD = Infinity;
+      for (const t of tails) {
+        if (taken.has(t) || t.kind !== e.kind) continue;
+        const d = Math.abs(t.y - e.y);
+        if (d <= (e.maxStep ?? maxStep) * (x - t.x) + 1e-6 && d + (x - t.x - 1) < bestD) { bestD = d + (x - t.x - 1); best = t; }
       }
       let chain;
-      if (best >= 0 && prevChains[best]) { used |= 1 << best; chain = prevChains[best]; }
-      else { chain = []; chains.push(chain); }
+      if (best) { taken.add(best); chain = best.chain; } else { chain = []; chains.push(chain); }
       chain.push([x, s]);
-      nextChains[s] = chain;
+      next.push({ chain, x, y: e.y, kind: e.kind });
     }
-    prevChains = nextChains;
+    tails = tails.filter(t => !taken.has(t)).concat(next);
   }
   return chains;
 }

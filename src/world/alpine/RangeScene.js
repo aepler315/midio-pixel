@@ -2552,12 +2552,18 @@ export class RangeScene {
     } catch { this.crestProbe?.dispose(); this.crestProbe = null; this.crestProbeMode = null; }
   }
 
-  /** This frame's probe rows (one small synchronous readback), or null. */
-  readCrestProbe(frameId) {
+  /** This frame's crest probe data, or null: the newest completed
+   * asynchronous readback (live), or this frame's rows read synchronously
+   * (`sync`: export draws; or no usable asynchronous result). See CrestProbe.read. */
+  readCrestProbe(frameId, options = {}) {
     if (!this.crestProbe || this.contextLost) return null;
-    try { return this.crestProbe.read(frameId); }
+    try { return this.crestProbe.read(frameId, options); }
     finally { this.renderer.setRenderTarget(null); }
   }
+
+  /** Discard the crest probe's asynchronous results (a new song). Seeks
+   * and view changes are found by CrestProbe.read itself. */
+  resetCrestProbe() { this.crestProbe?.reset(); }
 
   releaseCrestProbe() { this.crestProbe?.dispose(); this.crestProbe = null; }
 

@@ -9,6 +9,20 @@
 // small target (width x PROBE_ROWS, RGBA8) that is read back once a frame:
 // no grid-sized readback is needed for the line itself.
 //
+// Readback. Live frames read asynchronously (WebGL2: readPixels into a
+// PIXEL_PACK_BUFFER, a fence polled without waiting, then getBufferSubData),
+// triple buffered: a frame uses the newest completed result, normally one or
+// two frames old, and never blocks on the GPU. The frame freezes whatever it
+// used (RangeCrest snapshot), so display and capture stay identical. Export
+// draws (bulk export, highlight re-renders, visual evaluation: `sync`) and
+// contexts without WebGL2 fences read synchronously, so exported frames are
+// reproducible. A result from another view, song or target size, from
+// before a seek, or more than PROBE_MAX_LAG_FRAMES old is discarded with
+// everything still in flight; with none usable the frame falls back to a
+// synchronous read. Seeks are found from the clocks (timelineJump: song time
+// running backwards, or ahead of the wall clock), so a slow device that
+// renders a few frames a second still reads asynchronously.
+//
 // Row layout: far 0-1, mid 2-3, near 4-5 (crest, colour), water 6-9 (edge
 // info), 10-13 (water colour at each edge).
 
@@ -16,6 +30,14 @@ export const PROBE_BAND_ROWS = Object.freeze({ far: 0, mid: 2, near: 4 });
 export const PROBE_WATER_ROW = 6;
 export const PROBE_WATER_SLOTS = 4;
 export const PROBE_ROWS = 14;
+/** Readback buffers in flight at once, and the oldest result (in frames) a
+ *  live frame still uses; past it the frame reads synchronously. */
+export const PROBE_READBACK_SLOTS = 3;
+export const PROBE_MAX_LAG_FRAMES = 3;
+/** Song time may advance by up to this many times the wall time between
+ *  two probe reads, plus PROBE_SEEK_SLACK_MS, before it counts as a seek. */
+export const PROBE_SEEK_RATE = 1.5;
+export const PROBE_SEEK_SLACK_MS = 50;
 
 const PROBE_VERT = /* glsl */`
   void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }
@@ -103,6 +125,112 @@ export function probeRow(data, offset) {
     depth: data[offset + 3] > 200, value: data[offset + 2] / 255 };
 }
 
+/** True when `gl` can read back asynchronously (WebGL2 fences and pixel pack buffers). */
+export function asyncReadbackSupported(gl) {
+  return !!gl && typeof gl.fenceSync === 'function' && typeof gl.clientWaitSync === 'function'
+    && typeof gl.getBufferSubData === 'function' && typeof gl.createBuffer === 'function' && gl.PIXEL_PACK_BUFFER !== undefined;
+}
+
+/**
+ * Ring of asynchronous readbacks (plain WebGL2 calls, testable with a fake
+ * context). submit() copies the bound read framebuffer into a free pixel
+ * pack buffer and fences it; poll() collects every finished copy without
+ * waiting and keeps the newest as `latest`; reset() drops `latest` and makes
+ * everything in flight stale (its copies are thrown away when they finish).
+ */
+export class ProbeReadback {
+  constructor(gl, slots = PROBE_READBACK_SLOTS) {
+    this.gl = gl;
+    this.slots = Array.from({ length: slots }, () => ({ buffer: null, bytes: 0, data: null, sync: null, meta: null }));
+    this.latest = null;
+    this.epoch = 0;
+    this.seq = 0;
+    this.skipped = 0; // frames not queued because every slot was in flight
+  }
+
+  get inFlight() { return this.slots.filter(s => s.sync).length; }
+
+  /** Queue a copy of rows 0..rows−1 (width × rows RGBA8) of the bound read
+   *  framebuffer, tagged with `meta`. False when every slot is in flight. */
+  submit(meta, width, rows) {
+    const gl = this.gl, slot = this.slots.find(s => !s.sync);
+    if (!slot) { this.skipped++; return false; }
+    const bytes = width * rows * 4;
+    if (!slot.buffer || slot.bytes !== bytes) {
+      if (slot.buffer) gl.deleteBuffer(slot.buffer);
+      slot.buffer = gl.createBuffer();
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, slot.buffer);
+      gl.bufferData(gl.PIXEL_PACK_BUFFER, bytes, gl.STREAM_READ);
+      slot.bytes = bytes;
+      slot.data = new Uint8Array(bytes);
+    } else gl.bindBuffer(gl.PIXEL_PACK_BUFFER, slot.buffer);
+    try { gl.readPixels(0, 0, width, rows, gl.RGBA, gl.UNSIGNED_BYTE, 0); }
+    finally { gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null); }
+    const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+    if (!sync) return false;
+    gl.flush();
+    slot.sync = sync;
+    slot.meta = { ...meta, width, epoch: this.epoch, seq: this.seq++ };
+    return true;
+  }
+
+  /** Collect finished copies, never waiting. Returns how many were kept. */
+  poll() {
+    const gl = this.gl;
+    let kept = 0;
+    for (const slot of this.slots) {
+      if (!slot.sync) continue;
+      const status = gl.clientWaitSync(slot.sync, 0, 0);
+      if (status === gl.TIMEOUT_EXPIRED) continue;
+      gl.deleteSync(slot.sync);
+      slot.sync = null;
+      if (status === gl.WAIT_FAILED || slot.meta.epoch !== this.epoch) continue;
+      if (this.latest && this.latest.seq > slot.meta.seq) continue;
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, slot.buffer);
+      try { gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, slot.data); }
+      finally { gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null); }
+      this.latest = { ...slot.meta, data: slot.data };
+      kept++;
+    }
+    return kept;
+  }
+
+  reset() { this.epoch++; this.latest = null; }
+
+  dispose() {
+    const gl = this.gl;
+    for (const slot of this.slots) {
+      if (slot.sync) gl.deleteSync(slot.sync);
+      if (slot.buffer) gl.deleteBuffer(slot.buffer);
+      slot.sync = slot.buffer = slot.data = slot.meta = null; slot.bytes = 0;
+    }
+    this.latest = null;
+  }
+}
+
+/** Whether the timeline jumped between two probe reads `prev` and `cur`
+ *  ({ timeMs: song time, wallMs: wall clock }): song time ran backwards, or
+ *  ahead of the wall clock (a forward seek). A pause, a slow frame or a
+ *  hidden tab is continuous at any frame rate. */
+export function timelineJump(prev, cur) {
+  if (!prev || !Number.isFinite(prev.timeMs) || !Number.isFinite(cur.timeMs)) return false;
+  const dt = cur.timeMs - prev.timeMs, wall = Number.isFinite(prev.wallMs) && Number.isFinite(cur.wallMs) ? Math.max(0, cur.wallMs - prev.wallMs) : Infinity;
+  return dt < -1 || dt > PROBE_SEEK_RATE * wall + PROBE_SEEK_SLACK_MS;
+}
+
+/** Whether an asynchronous result `r` may stand in for frame `frameId` of
+ *  view `viewId` and `timeline` at `timeMs` (probe target `width` ×
+ *  `height`). Seeks are discarded by reset() before this runs; song time
+ *  running backwards is still refused here. */
+export function acceptProbeResult(r, { frameId, viewId = null, timeline = null, timeMs = NaN, width, height }) {
+  if (!r || r.width !== width || r.viewId !== viewId || (r.timeline ?? null) !== timeline) return false;
+  if (height !== undefined && r.height !== height) return false;
+  const lag = frameId - r.frameId;
+  if (!(lag >= 1 && lag <= PROBE_MAX_LAG_FRAMES)) return false;
+  if (Number.isFinite(timeMs) && Number.isFinite(r.timeMs) && timeMs - r.timeMs < -1) return false;
+  return true;
+}
+
 export class CrestProbe {
   constructor(THREE, renderer) {
     this.THREE = THREE;
@@ -115,6 +243,10 @@ export class CrestProbe {
     this.rows = 0; // bitmask of probe rows written this frame
     this.useDepth = true;
     this.readMs = 0;
+    this.clock = null; // { viewId, timeline, timeMs, wallMs } of the last read
+    let gl;
+    try { gl = renderer.getContext?.() || null; } catch { gl = null; }
+    this.async = asyncReadbackSupported(gl) ? new ProbeReadback(gl) : null;
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3));
     this.material = new THREE.ShaderMaterial({
@@ -185,17 +317,50 @@ export class CrestProbe {
     return true;
   }
 
-  /** One synchronous readback of this frame's probe rows. */
-  read(frameId) {
+  /**
+   * This frame's crest data. `sync` (export draws) reads this frame's rows
+   * synchronously. Otherwise this frame's rows are queued for an
+   * asynchronous readback and the newest completed result of an earlier
+   * frame of the same view and timeline is returned (`lag` frames old); when
+   * none qualifies, everything in flight is discarded and this frame is read
+   * synchronously.
+   */
+  read(frameId, { sync = false, viewId = null, timeline = null, timeMs = NaN, wallMs = performance.now() } = {}) {
     if (!this.target || this.frameId !== frameId || !this.rows) return null;
-    const t0 = performance.now();
+    const t0 = performance.now(), prev = this.clock;
+    this.clock = { viewId, timeline, timeMs, wallMs };
+    // A new view or song, or a seek: everything older (in flight too) goes.
+    if (prev && (prev.viewId !== viewId || prev.timeline !== timeline || timelineJump(prev, this.clock))) this.reset();
+    if (this.async && !sync) {
+      try {
+        this.async.poll();
+        const r = this.async.latest, ok = acceptProbeResult(r, { frameId, viewId, timeline, timeMs, width: this.width, height: this.height });
+        // A stall or a resize: nothing older is usable.
+        if (r && !ok) this.async.reset();
+        this.renderer.setRenderTarget(this.target);
+        this.async.submit({ frameId, viewId, timeline, timeMs, height: this.height, rows: this.rows }, this.width, PROBE_ROWS);
+        if (ok) {
+          this.readMs = performance.now() - t0;
+          return { width: r.width, height: r.height, data: r.data, rows: r.rows, readMs: this.readMs, frameId: r.frameId,
+            lag: frameId - r.frameId, mode: 'async' };
+        }
+      } catch {
+        try { this.async.dispose(); } catch { /* context lost */ }
+        this.async = null;
+      }
+    } else if (this.async) this.async.reset(); // an export frame: live results restart after it
     try { this.renderer.readRenderTargetPixels(this.target, 0, 0, this.width, PROBE_ROWS, this.data); }
     catch { return null; }
     this.readMs = performance.now() - t0;
-    return { width: this.width, height: this.height, data: this.data, rows: this.rows, readMs: this.readMs };
+    return { width: this.width, height: this.height, data: this.data, rows: this.rows, readMs: this.readMs, frameId, lag: 0, mode: 'sync' };
   }
 
+  /** Discard every asynchronous result (a seek, a new song or view). */
+  reset() { this.async?.reset(); }
+
   dispose() {
+    try { this.async?.dispose(); } catch { /* context lost */ }
+    this.async = null;
     this.target?.dispose(); this.target = null;
     this.mesh.geometry.dispose(); this.material.dispose();
     this.data = null; this.width = 0;
