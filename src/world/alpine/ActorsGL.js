@@ -220,6 +220,11 @@ const MOTE_VERT = /* glsl */`
   uniform float uMpp;
   uniform float uTime;
   uniform float uWanderPx;
+  // The lane's score (RangeActors): each note's pulse (0..1) steadies the
+  // twinkle and lifts the swarm; its smoothed pitch (0.75..1.25) stretches
+  // the swarm's rise and fall. 0 and 1 leave the swarm as it was.
+  uniform float uPulse;
+  uniform float uSpread;
   // A kindling: the first ${ACTOR_FLY_MOTES} motes fly from the lantern into
   // the light at uFlyTarget (world) as uFly runs 0..1, and fade there.
   uniform vec3 uFlyTarget;
@@ -236,7 +241,7 @@ const MOTE_VERT = /* glsl */`
     float t = uTime * (0.25 + aSeed.y * 0.5);
     vec2 wander = vec2(sin(t + aSeed.z * 6.2832) + 0.5 * sin(t * 2.3 + aSeed.w * 9.0),
                        cos(t * 0.8 + aSeed.y * 6.2832) + 0.4 * sin(t * 1.7 + aSeed.z * 5.0))
-      * uWanderPx * (0.35 + 0.65 * aSeed.w);
+      * uWanderPx * (0.35 + 0.65 * aSeed.w) * vec2(1.0, uSpread);
     vec3 lift = vec3(0.0, groundLift(uAnchor), 0.0);
     vec3 base = uCenter + lift + (uRight * wander.x + uUp * wander.y) * uMpp;
     float fly = 0.0;
@@ -255,7 +260,8 @@ const MOTE_VERT = /* glsl */`
     float extent = spriteExtent(vR);
     vPx = position.xy * 2.0 * extent;
     vec3 p = c + (uRight * position.x + uUp * position.y) * 2.0 * extent * mpp / k;
-    vBright = (0.45 + 0.4 * fly * (1.0 - fly) * 4.0) * (0.75 + 0.25 * sin(uTime * 3.0 + aSeed.z * 40.0)) * (1.0 - smoothstep(0.85, 1.0, fly));
+    vBright = (0.45 + 0.4 * fly * (1.0 - fly) * 4.0) * mix(0.75 + 0.25 * sin(uTime * 3.0 + aSeed.z * 40.0), 1.0, uPulse)
+      * (1.0 + 0.25 * uPulse) * (1.0 - smoothstep(0.85, 1.0, fly));
     vAir = airAt(c);
     gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
   }
@@ -731,6 +737,9 @@ export class ActorsGL {
         uMpp: { value: 1 }, uHaloPx: { value: 30 }, uColor: { value: new THREE.Color() },
         uGlow: { value: 0 }, uPresence: { value: 0 }, uWanderPx: { value: 24 },
         uFlyTarget: { value: new THREE.Vector3() }, uFly: { value: 0 },
+        // The lane's note pulse and pitch spread (RangeActors), read by the
+        // motes; companions share them unread.
+        uPulse: { value: 0 }, uSpread: { value: 1 },
       };
       const lantern = new THREE.Mesh(quad, new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms: u,
         vertexShader: LANTERN_VERT, fragmentShader: LANTERN_FRAG, ...blend }));
