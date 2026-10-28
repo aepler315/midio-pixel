@@ -535,7 +535,7 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
     uCinematicAir: uniforms.uCinematicAir || { value: new THREE.Vector4(1, 1, 0, 0) },
     uHorizon: uniforms.uHorizon || { value: null }, uHorizonSize: uniforms.uHorizonSize || { value: new THREE.Vector2() },
     uGridOrigin: uniforms.uGridOrigin || { value: new THREE.Vector2() }, uGridExtent: uniforms.uGridExtent || { value: new THREE.Vector2(1, 1) },
-    uStorm: uniforms.uStorm || { value: new THREE.Vector4() }, uRainShift: uniforms.uRainShift || { value: 0 },
+    uStorm: uniforms.uStorm || { value: new THREE.Vector4() },
     uRainSeed: uniforms.uRainSeed || { value: 0 }, uWind: uniforms.uWind || { value: new THREE.Vector2(1, 0) },
     uReceiverFillMin: uniforms.uReceiverFillMin || { value: 0 },
     uViewProj: uniforms.uViewProj || { value: new THREE.Matrix4() },

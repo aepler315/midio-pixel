@@ -89,9 +89,12 @@ test('rain curtains leave gaps between them and drift slowly on the wind', () =>
   assert.ok(drift > 0 && drift < .1);
 });
 
-test('the GLSL rain curtain stays the twin of the sky\'s', () => {
-  for (const term of ['u * 1.6 + t * 0.003', 'u * 3.7 - t * 0.005', 'smoothstep(0.32, 0.86, a * 0.65 + b * 0.35)'])
-    assert.ok(STORM_GLSL.includes(term), term);
+test('the land veil carries no screen-space curtain or pan uniform', () => {
+  // The world-anchored rainCurtainAz replaced them; a dead uniform costs
+  // terrain budget on mobile.
+  assert.ok(!STORM_GLSL.includes('uRainShift'));
+  assert.ok(!/float rainCurtain\(/.test(STORM_GLSL));
+  assert.ok(STORM_GLSL.includes('smoothstep(0.32, 0.86, a * 0.65 + b * 0.35)'), 'same curtain shape as the JS twins');
 });
 
 test('an arriving scene brings its storm sky in at its own alpha', () => {

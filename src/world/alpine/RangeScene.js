@@ -1829,7 +1829,6 @@ export class RangeScene {
     // The rain veil projects through the main camera on every view, mirror or not.
     u.uViewProj.value.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
     const skyPan = this.skyPan || { x: 0, y: 0 };
-    u.uRainShift.value = (skyPan.x || 0) / 2;
     // Rain curtains are world-anchored (STORM_GLSL rainVeil); the seed is
     // the sky's (drawStormSky's song seed), so land and sky hang the same.
     if (u.uRainSeed) u.uRainSeed.value = rainSeed01(frame.seed ?? 0);

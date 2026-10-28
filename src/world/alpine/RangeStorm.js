@@ -10,8 +10,9 @@ const hash01 = i => { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return
 const smooth = (a, b, x) => ease((x - a) / (b - a));
 
 /** Where rain curtains hang, across the sky (u: 0..1 of the frame's width
- *  in the sky's own coordinates, so they turn with the camera like the
- *  clouds), slowly drifting on the wind. GLSL twin: STORM_GLSL rainCurtain. */
+ *  in the sky's own coordinates), slowly drifting on the wind. Only the
+ *  sky's no-camera fallback uses it; the world-anchored curtains are
+ *  rainCurtainAz, whose GLSL twin is STORM_GLSL rainCurtainAz. */
 export function rainCurtain(u, tSec = 0) {
   const a = .5 + .5 * Math.sin(6.2832 * (u * 1.6 + tSec * .003) + 1.3);
   const b = .5 + .5 * Math.sin(6.2832 * (u * 3.7 - tSec * .005) + 4.1);
@@ -78,7 +79,6 @@ export function flashScreenPoint(storm, pan, w = 1, h = 1) {
  *  draws; after the storm, broken cloud lets the sun through in swathes
  *  fixed to the land. */
 export const STORM_GLSL = /* glsl */`
-  uniform float uRainShift;
   uniform float uRainSeed;
   uniform float uReceiverFillMin;
   // Preserve sky chromaticity while lifting only low receiver irradiance.
@@ -89,11 +89,6 @@ export const STORM_GLSL = /* glsl */`
     float luminance = dot(hemi, vec3(0.2126, 0.7152, 0.0722));
     if (!(luminance > 0.0) || luminance >= minimum) return hemi;
     return hemi / luminance * minimum;
-  }
-  float rainCurtain(float u, float t) {
-    float a = 0.5 + 0.5 * sin(6.2832 * (u * 1.6 + t * 0.003) + 1.3);
-    float b = 0.5 + 0.5 * sin(6.2832 * (u * 3.7 - t * 0.005) + 4.1);
-    return smoothstep(0.32, 0.86, a * 0.65 + b * 0.35);
   }
   float rainCurtainAz(float az01, float t, float seed01) {
     float k = floor(seed01 * 9973.0 + 0.5);
