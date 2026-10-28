@@ -3461,7 +3461,7 @@ export class BiomeManager {
 
     // The Star Atlas draws whether or not she's away: every crystallized
     // constellation stays in the sky for the rest of the song, twinkling
-    // per-star and glinting with the beat (atlasPulse rides hype.slam).
+    // per-star and glinting with the beat (atlasPulse rides the heard-time slamAt).
     if (voyage.atlas.length) {
       const pulse = voyage.atlasPulse || 0;
       ctx.save();

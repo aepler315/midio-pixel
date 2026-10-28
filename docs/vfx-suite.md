@@ -1,7 +1,8 @@
 # Visual Effects Suite — implementation and verification
 
 Checked against the implementation on October 13, 2026, and updated for the
-two worlds (Landscape and Trio) on October 21, 2026. This document separates
+two worlds (Landscape and Trio) on October 21, 2026, and for the VFX audit
+packages merged on October 28, 2026. This document separates
 what the default Range draws today from what Trio adds, from Canvas modules
 that are present but dormant, and from the optional WebGL overlay. Audio
 analysis lives elsewhere; the renderers consume its output rather than
@@ -19,20 +20,29 @@ few Canvas passes around it.
 | Effect | Owner | Notes |
 | --- | --- | --- |
 | Terrain (far / mid / near partitions) | `RangeScene`, `TerrainMaterial`, `TerrainMesh` | One shared depth pre-pass; current Pixel/Palette do not enable the historical Natural/MSAA path (`RangeRenderPolicy`) |
-| Forest | `ForestCover`, `ForestGL` | Near instanced conifers, mid silhouettes, canopy texture beyond; wind and gust fronts at heard time |
-| Water | `WaterMirror`, `WetReflection` | Lake mirror (dropped at q4; the water keeps its sky reflection) |
-| Fog, mist, cloud sea | `RangeAtmosphere`, `ValleyAtmosphere`, `CloudSea` | Fog samples per pixel fall at q3, q5 and q6 |
-| Clouds, storm, rain, lightning | `RangeSkyComposition`, `RangeStorm` | One squall per song, evaluated at heard time; cloud lightning flickers inside the banks |
-| Sun shafts | `SunShaftGL` | Optional; dropped at q3 |
-| Lane lanterns and motes | `RangeActors`, `ActorsGL` | Drawn inside the band passes, so nearer land hides them and the mirror reflects them |
-| Finishing | `Renderer._drawBloom`, `_drawHeatDistortion`, `_drawFilmFinish` | On the physical backing store, in the order listed below |
-| Crest line and shorelines | `RangeCrest`, `CrestProbe`, `CrestLine` | Steadied dark crest per band and pale shorelines at output resolution, split cells before palette (Pixel sheds them from q2); probe off and palette-frame skyline scan from q4 ([pixel-presentation.md](pixel-presentation.md#crest-line-landscape)) |
-| Final presentation | `PresentingRenderer`, `PixelPresentation` | Natural, Pixel or Palette; display and capture read the same finished source |
+| Forest | `ForestCover`, `ForestGL`, `ForestWind` | Near instanced conifers, mid silhouettes, canopy texture beyond; wind and gust fronts at heard time. The score and the storm set the sway's gain, and storms lean the crowns downwind along the clouds' wind (`forestWindAt`) |
+| Water | `WaterMirror`, `WetReflection`, `TerrainMaterial` | Lake mirror (q0–q3; eases in on recovery, drops at once on a shed). Water and rivers reflect a height-graded sky (`skyReflectAt`) and, through q4, the captured sky backdrop, independent of the mirror; lightning lifts the reflected sky |
+| Fog, mist, cloud sea | `RangeAtmosphere`, `ValleyAtmosphere`, `CloudSea` | Fog samples per pixel fall at q3, q5 and q6. The score's slow energy thins and lights the mist, section lifts add only a small share (`atmosphereMusic`), and mist glows toward the key light (`mistPhase`) |
+| Sky | `RangeSkyRenderer`, `SkyPerformance` | Twilight glow at the azimuth of the sun's real position, also below the horizon (not where the body parks overnight), plus a full-width Belt of Venus that fades as the heading turns from the antisolar point. Sun glare follows only the slow radiance (at most +15% alpha, +8% extent); the note pulse lifts only the sun's tight bloom and the moon's night aureole. One daylight sweep from q2; night melody streaks (one hairline at a time) shed from q3; the Milky Way fades over 1.5 s across q3 |
+| Clouds, storm, rain, lightning | `RangeSkyComposition`, `RangeStorm`, `CloudOcclusion` | Each weather episode is a shower, downpour or thunderstorm (`STORM_KINDS`), evaluated at heard time; showers stay at or under 0.6 and never flash. Rain curtains are world-anchored (`rainCurtainAz`, compass azimuth and song seed) and turn with the deck; sky glow, land key and stage key share `flashScreenPoint`, and the flash repaint uses its own 8-sprite tint pool. Fair-weather banks cast soft world-plane shadows on the land (at most 0.4, q0–q3, fading over 1.5 s on a rung change) |
+| Sun shafts | `SunShaftGL` | Optional; fade out at q3 over heard time (`easeRungAmount`), surviving same-size target reallocations. The score lifts their gain (at most 1.4) |
+| Lane lanterns and motes | `RangeActors`, `ActorsGL` | Drawn inside the band passes, so nearer land hides them and the mirror reflects them. Each lane's note onsets pulse its halo and motes (180 ms decay, damped on busy runs); its smoothed pitch, scaled to its own range, sets the swarm's vertical spread (0.75–1.25). Their light on the land never pulses |
+| Lens accent and reframe | `CameraLens`, `LandscapeScore`, `CameraDirector` | Narrows the FOV (half-angle to .82) at a loud chorus/drop or rising boundary the analysis trusts: never at decorative or zero-confidence cuts or a returning part with no level step; half strength at inferred boundaries. Compiled once in the Landscape score at heard time, held across a re-analysis handoff, neutral in previews. The 2D pull-back and tilt ride the same cue (tilt side from the cue index); `camera.universeDip` lets Range views keep only the GPU lens |
+| Finishing | `Renderer._drawBloom`, `_drawHeatDistortion`, `_drawFilmFinish` | On the physical backing store, in the order listed below. Bloom skips alpine worlds, so it is off in both. Landscape's vignette is `landscapeFinish` over the frame's shared score |
+| Crest line and shorelines | `RangeCrest`, `CrestProbe`, `CrestLine` | Steadied dark crest per band and pale shorelines at output resolution, split cells before palette (Pixel sheds them from q2); the skyline line is 1.5–1.75 px at 1080 lines, the most opaque but thinner than the near band's; probe off and palette-frame skyline scan from q4 ([pixel-presentation.md](pixel-presentation.md#crest-line-landscape)) |
+| Final presentation | `PresentingRenderer`, `PixelPresentation` | Natural, Pixel or Palette; display and capture read the same finished source. The opt-in World palette follows the experience (Landscape32 in Landscape, Chroma32 in Trio). Cinematic display and capture share one union-sized cell buffer, so recording at another size does not reallocate it each frame |
 
 The Range quality ladder (`RangeQuality.rangeQuality`): q2 lighter near-tree
 assets and 2x MSAA, q3 fewer fog samples, no shafts and no MSAA, q4 no lake
-mirror, and 12 of the cast's 32 fixed-line lights ([landscape-cast.md](landscape-cast.md)). Rock-stage pools are dormant on catalog v2 views. Landform structure,
-ground contact and the musical signatures are never shed.
+mirror or cloud shadows, and 12 of the cast's 32 fixed-line lights
+([landscape-cast.md](landscape-cast.md)), q5 no water sky backdrop.
+Shafts, cloud shadows and the dropped fixed-line lights fade over 1.5 s of
+heard time (`easeRungAmount`); the mirror fades only on recovery.
+Rock-stage pools are dormant on catalog v2 views. Landform structure,
+ground contact and the musical signatures are never shed. With no trusted
+phrases the cast keeps its section stays, so views camp and resume; only the
+climax moves to the energy climax, and a climax view borrowed from a
+neighbouring section finishes in the stay it was borrowed from.
 
 ### Current composition order
 
@@ -43,8 +53,13 @@ Pinned by `test/rendererComposition.test.js`, which runs the production
 2. Sky, then scenic partitions far → mid → near, with the Canvas passes
    that belong between them (`test/rangePresentation.test.js` pins those).
 3. Ground response and legacy foreground hooks (dormant after catalog-view arrival).
-4. Finishing on the physical backing store: bloom → heat distortion → film
-   finish. HUD (when shown) and the range caption follow.
+4. Finishing on the physical backing store: bloom (skipped in alpine
+   worlds) → heat distortion → film finish. Landscape's vignette is
+   `landscapeFinish` over the frame's shared score (energy, lift, kick,
+   storm amount), snapshotted with the deferred post frame so a capture
+   replay matches the display: the edge stays within .10–.36, deepens in
+   quiet passages, opens on a section lift, and a kick widens only the
+   onset. HUD (when shown) and the range caption follow.
 5. `PresentingRenderer` finishes the frame (Natural/Pixel/Palette) from the
    same source the capture reads: crest split cells before palette, then
    sky → terrain → crest line → water → shorelines → mid effects → cast.
@@ -128,7 +143,13 @@ cannot read beyond the collection.
 
 `LightField` resolves a shared celestial light and local ground/character
 lights. Celestial intensity is
-`budget * (1 - unravel) * (1 - 0.5 * dayArcAlpha)`.
+`budget * (1 - unravel) * (1 - 0.5 * dayArcAlpha)`. `unravel`
+(`CodaDirector`, heard time) eases 0→1 over 14 s, ending 1.5 s after the
+song's cadence: its last audible frame by the shared EffectsMusic silence
+gate (`lastAudibleMs`), and never later than 4 s before the file's end.
+Without usable curves, or on an opening analysis, it keeps the file-clock arc
+[duration − 18 s, duration − 4 s]. The Landscape camera finale starts 20 s
+before the same cadence and arrives on it.
 
 Song adaptation preserves each stock palette's `edgeLight` (the ridge wire
 some palettes carry); intentionally unlit stock palettes stay unlit. Both
@@ -152,14 +173,24 @@ The show contains flashing lights, camera shake and sudden cuts. These
 implementation notes do not constitute a photosensitivity certification or
 exhaustive flash audit.
 
+Lantern note pulses are local to the motes and halos. On a note a mote's
+twinkle steadies to full and lifts 25%, reaching about 1.7x its average
+brightness (up to 2.5x at a twinkle trough), and the halo grows up to 18%.
+Dense lanes are damped to 0.8 of a single note's pulse, so a 16th-note line
+peaks near 1.5x and swings about 1.25–1.5x at the note rate. The lanterns'
+ground light, terrain and hues do not pulse. Showers never flash; lightning
+belongs to downpours and thunderstorms.
+
 ## Performance governor
 
 `PerfGovernor.sample()` receives the **rAF frame period**, including vsync
 wait, not JavaScript draw cost. Its threshold is **18.5 ms at 60 FPS**, or the selected 30 FPS period plus
 the same 1.83 ms jitter allowance (about **35.17 ms**).
 
-- Song/world construction starts **2,500 ms warmup grace**; those frames do
-  not vote on shedding.
+- Song/world construction, returning from a hidden tab, playback
+  preparation and resuming from pause each start a **2,500 ms warmup
+  grace**; those frames do not vote on shedding, and paused time never
+  counts toward a clean recovery window.
 - Each period above budget adds `min(6, deltaMs / budgetMs)` load units. At 60
   units it sheds one level and clears the accumulator.
 - A clean period removes 0.5 load units, bounded at zero. Intermittent judder
@@ -172,8 +203,8 @@ the same 1.83 ms jitter allowance (about **35.17 ms**).
 | Level | Additional degradation |
 | --- | --- |
 | 1 | Disable vision self-tuning; widen dancing-strip columns 16→32 px |
-| 2 | Particle multiplier 0.6; disable rim lighting |
-| 3 | Disable contact shadows, crack-glow capability and bloom; columns 64 px |
+| 2 | Particle multiplier 0.6; disable rim lighting (including Trio's cast lights) and the drop shock (speed-lines stay, thinned) |
+| 3 | Disable contact shadows (Trio's cast), crack-glow capability and bloom; columns 64 px |
 | 4 | Disable L7 veil |
 | 5 | Disable optional phenomena and RainbowBrush |
 | 6 | Haze 3→1 layers; disable heavy finishing/echo/blur; reduce terrain shading to its retained catchlight |
@@ -201,23 +232,31 @@ Trio is the one world with `performers` enabled. The boundaries in
    ground view for ground, footing and flood.
 2. The cast (`_drawTrioCast`) on that ground: Broshi, then Midio, then
    Midasus with her orbital debris, each after its own contact shadow.
-   Midasus away on a voyage is drawn by the deep sky instead.
+   Midasus away on a voyage is drawn by the deep sky instead. Each
+   character is also lit by the others' glow (Midasus's core, Midio's beat
+   flash), and its contact shadow follows the light, never below .45
+   strength.
 3. The foreground veil, then the transposition wave. Fracture drawing has
    been removed; its simulation timing still exists.
 4. After restoring the camera transform, an opening assembly would capture
    the clean world composite **before post-processing and HUD**. Neither
    world constructs one, so this hook is dormant.
-5. Hype frame → drop impact → drop motion blur → bloom → heat distortion →
-   film finish. Pixel-sampling passes use the physical backing store at
-   identity transform; logical overlays use the stage transform. Landscape
-   skips the first three, which are performer passes.
+5. Hype frame → drop impact → drop motion blur → heat distortion → film
+   finish. Bloom is off in both worlds: `_drawBloom` skips alpine worlds to
+   keep the luminous crest lines clear. Pixel-sampling passes use the
+   physical backing store at identity transform; logical overlays use the
+   stage transform. Landscape skips the first three, which are performer
+   passes. In Trio the hype frame, drop impact, drop motion blur and drop
+   heat lens run on heard time.
 6. HUD/seek strip follows post-processing; the dormant assembly's shards
    would follow the HUD. The Palette look is applied afterwards, in
    `PixelPresentation`. Freeze and highlight capture use the completed frame.
 
 Ambient heat distortion grows toward the ground in backing-store coordinates;
 it is no longer strongest at the top. Radial drop distortion remains a
-separate contribution.
+separate contribution. Wildfire heat applies only where the fire is drawn
+(never in alpine worlds). The radial drop lens needs visible performers
+(Trio) and centres on the ground under Midio. Both run on heard time.
 
 ## Seeking and lifecycle
 
@@ -228,6 +267,9 @@ state are retained. Skipped events are advanced silently, destination scene
 state and interpolation are initialized, and future anticipation is primed.
 Score/holds and spatial origin restart as a new performance segment. This
 is a fresh destination state, not replay of every earlier random particle.
+Lens accents, the reframe's tilt side and the coda are pure functions of
+heard time and song analysis, so a seek lands on the same state as
+continuous play.
 
 ## Verification and remaining acceptance work
 
@@ -238,10 +280,18 @@ is a fresh destination state, not replay of every earlier random particle.
 | Brush lifetime, scaling, culling and future timestamps | `test/rainbowBrush.test.js` |
 | Hype border, both shockwave rings, shock blits and speed-line opacity/compositing | `test/rendererFlash.test.js` |
 | Backing-store sampling and blur | `test/rendererDrawables.test.js` |
-| Governor shedding, grace and recovery | `test/perf-governor.test.js` |
+| Governor shedding, grace (including resume from pause) and recovery | `test/perf-governor.test.js` |
 | Observed particle draw counts | `test/perfGovernorConsumers.test.js` |
 | Open-sky astronomical layers | `test/interiorSky.test.js` |
 | Heat displacement envelope | `test/heatDistortionComposite.test.js` |
+| Trio cast lights and contact shadows | `test/trioCastLighting.test.js` |
+| Landscape vignette on the shared score | `test/filmFinish.test.js`, `test/landscapeFilm.test.js` |
+| Universe dip restored on Range views (C3) | `test/stageZoom.test.js` |
+| Range sky twilight, sweeps and streaks | `test/rangeSkyTwilight.test.js`, `test/skyPerformance.test.js` |
+| Storm kinds, world-anchored rain and flash point | `test/rangeStorm.test.js` |
+| Cloud shadows, shaft and mist music, rung fades | `test/cloudOcclusion.test.js`, `test/sunShaft.test.js`, `test/rangeAtmosphere.test.js`, `test/rangeQuality.test.js` |
+| Lantern pulse and spread | `test/rangeActors.test.js` |
+| Lens trust and handoff, cadence-anchored coda | `test/cameraLens.test.js`, `test/landscapeScore.test.js`, `test/codaDirector.test.js`, `test/effectsMusic.test.js` |
 | Production composition order and presentation/capture boundary | `test/rendererComposition.test.js` |
 | Range capture across q0–q6, Natural/Pixel/Palette, lake and inland | `npm run visual:eval -- --manifest test/fixtures/visual-evaluation-vfx.json --case <id>` |
 | Static shading containment | `npm run test:shading` |
@@ -269,8 +319,8 @@ Still required:
 - A device/scene matrix covering 1080p/4K, long tracks, sustained overload and
   recovery, plus complete simulation/audio/compositor costs. Repeated draws
   of one state measure JS submission only, not FPS or GPU completion.
-- Review across songs of Trio's character outlines, trails and bloom over
-  the procedural ranges. Overlay dominance is an art-direction observation,
+- Review across songs of Trio's character outlines and trails over the
+  procedural ranges. Overlay dominance is an art-direction observation,
   not a demonstrated defect for every song.
 - Manual screen-reader and broader assistive-technology review of the chooser,
   and a final-frame flash assessment. The composition test pins the top-level

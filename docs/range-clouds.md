@@ -21,7 +21,8 @@ turbulent 3D field, with broad upper lighting rather than circular dark centres.
 A 48-entry least-recently-used cache retains shapes across frames and releases
 both density and tint together on eviction. Returning to an evicted bank
 reconstructs the same pixels. Density and tint storage is bounded to 9 MiB
-combined (plus the moon), subject to the shared graphics budget. Runtime drawing still
+combined, plus at most 768 KiB of flash-lit tints (an 8-sprite pool) and the
+moon, subject to the shared graphics budget. Runtime drawing still
 uses 2D sprites. Storm tinting multiplies the
 sprite's internal luminance before restoring its alpha mask. It does not replace
 the volume with a flat gradient or stretch the bank to a fixed screen height.

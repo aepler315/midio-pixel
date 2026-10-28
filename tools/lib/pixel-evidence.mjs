@@ -23,8 +23,8 @@ export async function inspectPixelFrame({ paletteId = 'none' } = {}) {
   const capture = smw.renderer?.getCaptureSource();
   if (!capture) throw new Error('pixel evidence requires a completed capture');
   const expectedPalette = paletteId;
-  paletteId = capture.paletteId ?? smw.presentationDiagnostics?.effectivePalette ?? resolvePaletteId(paletteId, smw.sim?.biomes?.world?.kind);
-  if (expectedPalette !== 'none' && paletteId !== resolvePaletteId(expectedPalette, capture.worldKind ?? smw.sim?.biomes?.world?.kind)) throw new Error('completed frame does not use the expected palette');
+  paletteId = capture.paletteId ?? smw.presentationDiagnostics?.effectivePalette ?? resolvePaletteId(paletteId, smw.sim?.biomes?.world?.kind, capture.experience ?? null);
+  if (expectedPalette !== 'none' && paletteId !== resolvePaletteId(expectedPalette, capture.worldKind ?? smw.sim?.biomes?.world?.kind, capture.experience ?? null)) throw new Error('completed frame does not use the expected palette');
   const canvas = document.querySelector('#stage');
   const px = canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data;
   const colors = new Set(); let lit = 0, sum = 0, opaque = true;
