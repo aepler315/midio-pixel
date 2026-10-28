@@ -943,8 +943,7 @@ export const SCENE_FRAG = /* glsl */`
     // reflection of distant ranges lies beyond the far shore; magical
     // naturalism lowers the reflected ray (MIRROR_LIFT, as the mirror
     // camera does) so the water holds them.
-    vec3 lowered = normalize(vRenderedWorld - uCameraPos);
-    lowered = normalize(vec3(lowered.x, abs(lowered.y) * ${MIRROR_LIFT.toFixed(3)}, lowered.z));
+    #define LOWERED_RAY(ray) normalize(vec3((ray).x, abs((ray).y) * ${MIRROR_LIFT.toFixed(3)}, (ray).z))
     #ifndef RIVER_SURFACE
     if (water && (uBackdropAmount > 0.0 || uMirrorAmount > 0.0)) {
       // The reflection wavers with the surface itself: the same world-fixed
@@ -956,7 +955,7 @@ export const SCENE_FRAG = /* glsl */`
       vec3 mirrored = vec3(0.0);
       float have = 0.0;
       if (uBackdropAmount > 0.0) {
-        vec4 bc = uViewProj * vec4(uCameraPos + lowered * 60000.0, 1.0);
+        vec4 bc = uViewProj * vec4(uCameraPos + LOWERED_RAY(normalize(vRenderedWorld - uCameraPos)) * 60000.0, 1.0);
         mirrored = srgbToLinear(texture(uBackdrop, clamp(bc.xy / bc.w * 0.5 + 0.5 + shiver, vec2(0.001), vec2(0.999))).rgb);
         have = uBackdropAmount;
       }
@@ -988,7 +987,7 @@ export const SCENE_FRAG = /* glsl */`
       vec2 along = b.xy / b.w - a.xy / a.w;
       along = dot(along, along) > 1e-12 ? normalize(along) : vec2(0.0, 1.0);
       vec2 shiver = (along * waterSwell.x + vec2(-along.y, along.x) * 0.2 * waterSwell.y) * shiverGain;
-      vec4 bc = uViewProj * vec4(uCameraPos + lowered * 60000.0, 1.0);
+      vec4 bc = uViewProj * vec4(uCameraPos + LOWERED_RAY(normalize(vRenderedWorld - uCameraPos)) * 60000.0, 1.0);
       vec3 skyImage = srgbToLinear(texture(uBackdrop, clamp(bc.xy / bc.w * 0.5 + 0.5 + shiver, vec2(0.001), vec2(0.999))).rgb);
       float reflectance = clamp(${WATER_REFLECT_FLOOR.toFixed(3)} + ${(1 - WATER_REFLECT_FLOOR).toFixed(3)} * waterFres, 0.0, 0.88) * (1.0 - 0.4 * paw);
       color = mix(color, skyImage * 0.9, reflectance * smoothstep(.5, .9, waterCoverage) * uBackdropAmount * clear * uNarrative.z * uNarrative.w);
