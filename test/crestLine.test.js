@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   CREST_FILTER, CREST_TIER_ORDER, CREST_TIERS, CREST_DARKEN, PROTECTED_HUES, PROTECTED_HUE_GAP, crestE, crestStroke, shoreStroke,
-  filterCrest, filterAux, reconstructCrest, reownCrestCells, crestLineColor, shoreColor, snapCrestColor,
-  nearProtectedHue, linkShoreChains,
+  filterCrest, filterAux, reconstructCrest, reownCrestCells, crestSpan, crestLineColor, shoreColor, snapCrestColor,
+  nearProtectedHue, linkShoreChains, SHORE_SHAPE, shoreShape, solidShoreEdges, smoothShoreChain,
 } from '../src/render/CrestLine.js';
 import { RangeCrest, CREST_GRID_SCAN_LEVEL, CREST_PIXEL_SPLIT_LEVEL } from '../src/world/alpine/RangeCrest.js';
 import { PROBE_BAND_ROWS, PROBE_ROWS, PROBE_WATER_ROW, PROBE_WATER_SLOTS, probeRow } from '../src/world/alpine/CrestProbe.js';
@@ -151,23 +151,74 @@ test('split cells never sample sky into land and cut the sky half away', () => {
   const raw = Float32Array.from({ length: W }, (_, i) => 8 + (i > 5 ? 1 : 0));
   const line = Float32Array.from({ length: W }, (_, i) => 7.6 + 0.25 * i);
   const data = grid(W, H, i => raw[i], landColor, [0, 0, 0, 0]);
-  const orig = data.slice(), split = new Uint8ClampedArray(data.length), crossed = new Int16Array(W);
-  const written = reownCrestCells({ data, width: W, y0: 0, rows: H }, orig, split, line, raw, null, crossed);
+  const orig = data.slice(), split = new Uint8ClampedArray(data.length), crossed = new Int16Array(W), crossedEnd = new Int16Array(W);
+  const written = reownCrestCells({ data, width: W, y0: 0, rows: H }, orig, split, line, raw, null, crossed, crossedEnd);
   assert.ok(written > 0);
   for (let i = 0; i < W; i++) for (let r = 0; r < H; r++) {
-    const k = (r * W + i) * 4, L = line[i];
+    const k = (r * W + i) * 4, [top, bottom] = crestSpan(line, i);
     if (data[k + 3]) assert.ok(landColors.has(`${data[k]},${data[k + 1]},${data[k + 2]}`) || [...landColors].some(c => {
       const [a, b, cc] = c.split(',').map(Number); return Math.abs(a - data[k]) <= 1 && Math.abs(b - data[k + 1]) <= 1 && cc === data[k + 2];
     }), `grid cell ${i},${r} holds a non-land colour`);
-    if (r + 1 <= L) assert.equal(data[k + 3], 0, `cell ${i},${r} fully above the line must be sky`);
-    if (r >= L && r <= Math.floor(L) + 1) assert.equal(data[k + 3], 255, `cell ${i},${r} fully below the line must be land`);
+    if (r + 1 <= top) assert.equal(data[k + 3], 0, `cell ${i},${r} fully above the line must be sky`);
+    if (r >= bottom && r <= Math.floor(bottom) + 1) assert.equal(data[k + 3], 255, `cell ${i},${r} fully below the line must be land`);
     if (split[k + 3]) {
-      assert.equal(r, crossed[i]);
+      assert.ok(r >= crossed[i] && r <= crossedEnd[i]);
       assert.equal(data[k + 3], 0, 'a crossed cell keeps its upper (sky) half in the grid');
       assert.ok(split[k] >= 80 && split[k + 1] >= 120 && split[k + 2] === 60, 'the lower half is land only');
     }
   }
   assert.ok([...crossed].some(r => r >= 0));
+});
+
+/** Composite a re-owned grid and its split halves the way drawCrest does,
+ *  sampling `n`×`n` points per cell: above the drawn polyline only the grid
+ *  shows; below it, inside a crossed cell, the split half does. Returns the
+ *  samples above the line that show land, and those below it inside the
+ *  band's land that show sky. */
+function compositeAgainstLine({ data, split, line, raw, crossed, crossedEnd, W, H }, n = 8) {
+  const lineAt = (x) => {
+    const c = Math.min(W - 1, Math.max(0, Math.floor(x - 0.5)));
+    const d = Math.min(W - 1, c + 1), u = Math.min(1, Math.max(0, x - 0.5 - c));
+    if (x < 0.5) return line[0];
+    if (x > W - 0.5) return line[W - 1];
+    return line[c] + (line[d] - line[c]) * u;
+  };
+  const above = [], holes = [];
+  for (let i = 0; i < W; i++) for (let r = 0; r < H; r++) for (let a = 0; a < n; a++) for (let b = 0; b < n; b++) {
+    const x = i + (a + 0.5) / n, y = r + (b + 0.5) / n, k = (r * W + i) * 4;
+    if (y < lineAt(x)) { if (data[k + 3]) above.push([i, r, x, y]); continue; }
+    const inSplit = crossed[i] >= 0 && r >= crossed[i] && r <= crossedEnd[i] && split[k + 3];
+    if (r >= raw[i] && !inSplit && !data[k + 3]) holes.push([i, r]);
+  }
+  return { above, holes };
+}
+
+test('no land texel shows above the line at a one-cell spire or a sharp V', () => {
+  const H = 16, land = () => [120, 90, 70];
+  const cases = {
+    // A one-cell spire the filter has smoothed well below (two cells).
+    spire: { raw: [8, 8, 8, 8, 4, 8, 8, 8, 8, 8], line: [8, 8, 8, 7.5, 6, 7.5, 8, 8, 8, 8] },
+    // A raw spire the line still follows exactly: its cell's upper corners
+    // lie above the polyline that falls away on both sides.
+    peak: { raw: [9, 9, 8, 7, 5, 7, 8, 9, 9, 9], line: [9, 9, 8, 7, 5, 7, 8, 9, 9, 9] },
+    // A sharp V (a notch) and a steep side.
+    vee: { raw: [4, 5, 6, 7, 9, 7, 6, 5, 4, 4], line: [4.2, 5.1, 6, 7.2, 8.6, 7.1, 6, 5.2, 4.3, 4] },
+  };
+  for (const [name, { raw: r, line: l }] of Object.entries(cases)) {
+    const W = r.length, raw = Float32Array.from(r), line = Float32Array.from(l);
+    const data = grid(W, H, i => raw[i], land, [0, 0, 0, 0]);
+    const orig = data.slice(), split = new Uint8ClampedArray(data.length);
+    const crossed = new Int16Array(W), crossedEnd = new Int16Array(W);
+    reownCrestCells({ data, width: W, y0: 0, rows: H }, orig, split, line, raw, null, crossed, crossedEnd);
+    const { above, holes } = compositeAgainstLine({ data, split, line, raw, crossed, crossedEnd, W, H });
+    assert.equal(above.length, 0, `${name}: land above the line at ${JSON.stringify(above.slice(0, 4))}`);
+    assert.equal(holes.length, 0, `${name}: sky below the line inside the land at ${JSON.stringify(holes.slice(0, 4))}`);
+  }
+  // A spire taller than its neighbours' rings still finds what lies above it.
+  const W = 5, raw = Float32Array.from([10, 10, 3, 10, 10]), line = Float32Array.from([10, 10, 9, 10, 10]);
+  const data = grid(W, H, i => raw[i], land, [0, 0, 0, 0]), orig = data.slice();
+  reownCrestCells({ data, width: W, y0: 0, rows: H }, orig, new Uint8ClampedArray(data.length), line, raw);
+  for (let r = 3; r < 9; r++) assert.equal(data[(r * W + 2) * 4 + 3], 0, `spire row ${r} cut to sky`);
 });
 
 test('split halves average only equidistant cells on their own side', () => {
@@ -292,6 +343,29 @@ test('the crest freezes per frame: a recording redraw reproduces the live draw e
   crest.drawCrest(stale, fit, 41);
   assert.equal(stale.ops.length, 0, 'another frame never redraws this snapshot');
   assert.equal(crest.snapshot.fade, 1);
+});
+
+test('crest chunks meet at shared pixel columns with no gap or overlap at a bend', () => {
+  const crest = new RangeCrest();
+  // A zigzag crest: every chunk boundary sits on a bend.
+  const zig = { far: j => 12 + (Math.floor(j / 4) % 2 ? j % 4 : 4 - (j % 4)) * 2 };
+  for (let f = 1; f <= 30; f++) crest.update({ probe: probe(64, zig), frameId: f, timeMs: f * 1000 / 60, viewId: 'v', transform: ID, stage: STAGE, grid: GRID });
+  const fit = { x: 0, y: 0, width: 1280, height: 720, scale: 20 };
+  const ops = recorder();
+  crest.drawCrest(ops, fit, 30);
+  assert.ok(ops.ops.some(op => op[0] === 'set' && op[1] === 'lineCap' && op[2] === 'round'));
+  const rects = ops.ops.filter(op => op[0] === 'rect').slice(1); // after the fit clip
+  const chunks = crest._grid.far.chunks;
+  assert.ok(chunks.length > 4);
+  assert.equal(rects.length, chunks.length);
+  for (let c = 1; c < rects.length; c++) {
+    const [, x0, , w0] = rects[c - 1], [, x1] = rects[c];
+    assert.equal(x0 + w0, x1, `chunk ${c - 1} ends where chunk ${c} starts`);
+    assert.equal(x1, chunks[c].start * fit.scale, 'on a pixel column');
+  }
+  // Each interior chunk strokes past its clip on both sides (continuous joins).
+  const moves = ops.ops.filter(op => op[0] === 'moveTo').slice(-chunks.length);
+  for (let c = 1; c < chunks.length; c++) assert.ok(moves[c][1] < rects[c][1], `chunk ${c} path starts before its clip`);
 });
 
 test('seeking, a gap or a new view resets the temporal state; quality changes fade before switching', () => {
@@ -622,4 +696,66 @@ test('shorelines hold still under 1-2 px music waves but move with the camera', 
   const y0 = point();
   run(f++, heave, shoreAt(() => 22));
   assert.ok(Math.abs(point() - y0 - 2) < 0.3, `shore moved ${point() - y0} with a 2-row heave`);
+});
+
+test('only edges bounding real land and water on both sides count as shore', () => {
+  const e = (row, shore = true) => ({ row, shore });
+  // A wave crest over a sandbar: a 1-row water sliver above the shore.
+  assert.deepEqual(solidShoreEdges([e(40), e(41), e(60)], 100), [2]);
+  // A sliver against a non-shore edge (reflection boundary) is still a sliver.
+  assert.deepEqual(solidShoreEdges([e(40, false), e(42), e(70)], 100), [2]);
+  // The frame's own bottom row is not a shore; thick regions are.
+  assert.deepEqual(solidShoreEdges([e(30), e(50), e(99)], 100), [0, 1]);
+  assert.deepEqual(solidShoreEdges([e(30), e(30 + SHORE_SHAPE.minRunRows)], 100), [0, 1]);
+});
+
+test('near shore chains link larger steps, need more columns and are smoothed more', () => {
+  const far = shoreShape(0), near = shoreShape(1);
+  assert.ok(near.maxStep > far.maxStep && near.minColumns > far.minColumns && near.sigma > far.sigma);
+  assert.equal(linkShoreChains([[{ y: 10, kind: 2 }], [{ y: 13, kind: 2 }]]).length, 2, 'default step 2');
+  assert.equal(linkShoreChains([[{ y: 10, kind: 2, maxStep: 4 }], [{ y: 13, kind: 2, maxStep: 4 }]]).length, 1);
+  // Bridging empty columns, with the step allowance growing per column.
+  const gap = [[{ y: 10, kind: 2 }], [], [], [{ y: 13, kind: 2 }]];
+  assert.equal(linkShoreChains(gap, 2, 0).length, 2);
+  assert.equal(linkShoreChains(gap, 2, 2).length, 1);
+  assert.equal(linkShoreChains([[{ y: 10, kind: 2 }], [], [{ y: 16, kind: 2 }]], 2, 2).length, 2, 'too steep across the gap');
+});
+
+test('a jittery near waterline becomes one smooth curve; an incoherent chain is rejected', () => {
+  // A gentle true shore with ±2-3 row raster jitter (waves at a grazing angle).
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const n = 80, truth = p => 150 + 6 * Math.sin(p / 25);
+  const rows = Float32Array.from({ length: n }, (_, p) => Math.round(truth(p) + (rnd() - 0.5) * 5));
+  const { ys, residual } = smoothShoreChain(rows, shoreShape(0.75).sigma);
+  assert.ok(residual < SHORE_SHAPE.maxResidual, `residual ${residual}`);
+  for (let p = 1; p < n - 1; p++) assert.ok(Math.abs(ys[p - 1] - 2 * ys[p] + ys[p + 1]) <= SHORE_SHAPE.maxCurvature + 1e-3, `curvature at ${p}`);
+  for (let p = 0; p < n; p++) assert.ok(Math.abs(ys[p] - truth(p)) < 1.6, `point ${p}: ${ys[p]} vs ${truth(p)}`);
+  // Edges scattered over ±8 rows are not one shore.
+  const junk = Float32Array.from({ length: n }, () => Math.round(150 + (rnd() - 0.5) * 16));
+  assert.ok(smoothShoreChain(junk, shoreShape(0.75).sigma).residual > SHORE_SHAPE.maxResidual);
+});
+
+test('the near shore is drawn as one coherent line, not squiggle fragments', () => {
+  const crest = new RangeCrest();
+  let seed = 3;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const jitter = Array.from({ length: 64 }, () => Math.round((rnd() - 0.5) * 4));
+  // Near shore (water above, land below) with ±2-row raster jitter (steps
+  // of up to 4 rows, which broke it into fragments before) and a 1-row
+  // wave sliver above it in some columns (whose column then has no shore).
+  const water = j => {
+    if (j < 4 || j > 60) return [];
+    const y = 28 + Math.round(j / 20) + jitter[j];
+    return j % 9 === 0 ? [{ row: y - 6, kind: 1 }, { row: y - 5, kind: 2 }] : j % 13 === 0 ? [{ row: y - 1, kind: 1 }, { row: y, kind: 2 }] : [{ row: y, kind: 2 }];
+  };
+  const run = f => crest.update({ probe: probe(64, { far: () => 8 }, water), frameId: f, timeMs: f * 1000 / 60, viewId: 'v', transform: ID, stage: STAGE, grid: GRID });
+  for (let f = 1; f <= 20; f++) run(f);
+  const shores = crest.snapshot.shores;
+  assert.equal(shores.length, 1, `${shores.length} chains: ${JSON.stringify(shores.map(c => [c.kind, c.points.length / 2, c.points[0], c.points.at(-2)]))}`);
+  const p = shores[0].points, m = p.length / 2;
+  assert.ok(m >= 45 && p[0] < 6 && p.at(-2) > 58, `${m} columns from ${p[0]} to ${p.at(-2)}`);
+  let worst = 0;
+  for (let i = 1; i < m - 1; i++) worst = Math.max(worst, Math.abs(p[2 * i - 1] - 2 * p[2 * i + 1] + p[2 * i + 3]));
+  assert.ok(worst <= SHORE_SHAPE.maxCurvature + 0.05, `curvature ${worst}`);
 });

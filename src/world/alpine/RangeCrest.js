@@ -5,7 +5,7 @@
 //     sub-cell crest per band, steady it in time, map it into the pixel
 //     grid and freeze everything the frame draws into `snapshot`.
 //  2. prepareGrid(): before palette quantization, re-own the grid cells
-//     within ±1 of each smoothed line (split-cell rule, CrestLine.js), and
+//     around each smoothed line (split-cell rule, CrestLine.js), and
 //     read the line's land colour and the edge's visibility from the grid.
 //     On the grid-scan rungs it instead takes the skyline from the palette
 //     pass's frame (no probe, no extra readback).
@@ -18,6 +18,7 @@
 import {
   CREST_BANDS, CREST_FILTER, SHORE_FILTER, CREST_LAND_SIDE, crestE, crestStroke, shoreStroke, filterCrest, filterSample, filterAux,
   resetFilter, medianShift, reconstructCrest, crestLineColor, shoreColor, snapCrestColor, reownCrestCells, linkShoreChains,
+  REOWN_MAX_ROWS, SHORE_SHAPE, shoreShape, solidShoreEdges, smoothShoreChain, gaussianSmooth, limitCurvature,
 } from '../../render/CrestLine.js';
 import { PROBE_BAND_ROWS, PROBE_WATER_ROW, PROBE_WATER_SLOTS, probeRow } from './CrestProbe.js';
 
@@ -36,7 +37,6 @@ const SLOW_TAU_SEC = 1.0; // elevation / band-foot smoothing
 const SEEK_JUMP_MS = 250;
 const CUT_PX = 6; // a raw move this large in most columns is a cut, not a kick
 const SHORE_MATCH_PX = 4;
-const SHORE_SMOOTH_PASSES = 4;
 // Edge visibility (colour contrast across the line, 0..1 per channel mean).
 const VIS_LOW = 0.02, VIS_HIGH = 0.09, VIS_TAU_SEC = 0.3, VIS_UNKNOWN = 0.35;
 const FALLBACK_LAND = Object.freeze([60, 60, 60]);
@@ -59,7 +59,7 @@ function bandState(n) {
 }
 function gridBand(n) {
   return { line: new Float32Array(n), raw: new Float32Array(n), e: new Float32Array(n), skyline: new Uint8Array(n),
-    minNearer: new Float32Array(n), skip: new Uint8Array(n), crossed: new Int16Array(n), colorAt: new Int32Array(n), chunks: [],
+    minNearer: new Float32Array(n), skip: new Uint8Array(n), crossed: new Int16Array(n), crossedEnd: new Int16Array(n), colorAt: new Int32Array(n), chunks: [],
     vis: new Float32Array(n).fill(NaN), land: new Uint8Array(n * 3), landOk: new Uint8Array(n),
     scan: filterState(n), scanRaw: new Float32Array(n), foot: NaN, top: NaN };
 }
@@ -84,8 +84,8 @@ export class RangeCrest {
     this._sky = null;
     this._palette = null;
     this._sampleAge = Infinity; // seconds since the last grid reading
-    this.diagnostics = { mode: this.mode, fade: 0, splitFade: 0, splitStrength: 0, resets: 0, lastReset: null, probeMs: 0, updateMs: 0, prepareMs: 0,
-      drawMs: 0, shoreMs: 0, splitCells: 0, columns: 0, shoreChains: 0, readback: 'none', readRows: 0, readbackMs: 0 };
+    this.diagnostics = { mode: this.mode, fade: 0, splitFade: 0, splitStrength: 0, resets: 0, lastReset: null, probeMs: 0, probeRead: 'none', probeLag: 0, updateMs: 0, prepareMs: 0,
+      drawMs: 0, shoreMs: 0, splitCells: 0, columns: 0, shoreChains: 0, shoreDropped: 0, readback: 'none', readRows: 0, readbackMs: 0 };
   }
 
   /** Drop the temporal state: the next frame starts from its raw crest. */
@@ -166,7 +166,7 @@ export class RangeCrest {
     if (probe) ({ rotated, columns, shores } = this._fromProbe(probe, dt, transform, stage, grid));
     else for (const band of CREST_BANDS) {
       const g = this._grid[band];
-      g.line.fill(NaN); g.raw.fill(NaN); g.skip.fill(1); g.crossed.fill(-1); g.colorAt.fill(-1); g.chunks = [];
+      g.line.fill(NaN); g.raw.fill(NaN); g.skip.fill(1); g.crossed.fill(-1); g.crossedEnd.fill(-1); g.colorAt.fill(-1); g.chunks = [];
     }
     const split = !!probe && !rotated && !!this.makeCanvas && this.splitFade > 0;
     this.snapshot = Object.freeze({ frameId, dt, grid: { width: grid.width, height: grid.height }, mode: this.mode, fade: this.fade,
@@ -175,6 +175,8 @@ export class RangeCrest {
     this.diagnostics.splitFade = this.splitFade;
     this.diagnostics.columns = columns;
     this.diagnostics.probeMs = probe ? probe.readMs || 0 : 0;
+    this.diagnostics.probeRead = probe ? probe.mode || 'sync' : 'none';
+    this.diagnostics.probeLag = probe ? probe.lag || 0 : 0;
     this.diagnostics.readback = probe ? 'probe' : 'none';
     this.diagnostics.readRows = 0;
     this.diagnostics.readbackMs = 0;
@@ -259,7 +261,7 @@ export class RangeCrest {
         g.skyline[i] = farther ? 0 : 1;
         g.minNearer[i] = nearer;
         g.skip[i] = !Number.isFinite(L) || nearer < L + 1.5 ? 1 : 0;
-        g.crossed[i] = -1;
+        g.crossed[i] = -1; g.crossedEnd[i] = -1;
       }
     }
     for (const band of CREST_BANDS) this._grid[band].chunks = this._chunks(band, this._bands[band], this._grid[band], Wg);
@@ -336,35 +338,43 @@ export class RangeCrest {
     if (cut) { st.y.fill(NaN); st.kind.fill(0); }
     else if (Number.isFinite(carry) && carry) for (let q = 0; q < st.y.length; q++) if (Number.isFinite(st.y[q])) st.y[q] += carry;
     // 1. This frame's raw shore edges per column.
-    const cols = new Array(W);
+    // Only edges that bound a real land/water region on both sides (not a
+    // sliver: a wave crest over a sandbar, a trough) and that are not the
+    // frame's own edge (solidShoreEdges).
+    const cols = new Array(W), edges = [], H = probe.height || Infinity;
     for (let j = 0; j < W; j++) {
       const list = [];
+      edges.length = 0;
       for (let s = 0; valid && s < PROBE_WATER_SLOTS; s++) {
         const info = probeRow(data, ((PROBE_WATER_ROW + s) * W + j) * 4);
         if (info.row < 0) break;
-        if (!info.shore || info.row <= 0) continue;
-        const ci = ((PROBE_WATER_ROW + PROBE_WATER_SLOTS + s) * W + j) * 4;
-        list.push({ y: info.row, kind: info.kind, nearness: info.value, rgb: [data[ci], data[ci + 1], data[ci + 2]] });
+        edges.push(info);
+      }
+      for (const s of solidShoreEdges(edges, H)) {
+        const info = edges[s], ci = ((PROBE_WATER_ROW + PROBE_WATER_SLOTS + s) * W + j) * 4;
+        list.push({ y: info.row, kind: info.kind, nearness: info.value, maxStep: shoreShape(info.value).maxStep,
+          rgb: [data[ci], data[ci + 1], data[ci + 2]] });
       }
       cols[j] = list;
     }
-    // 2. Chains across columns, rebuilt to sub-cell positions and smoothed
-    // along their length (a water mask edge is noisier than land).
+    // 2. Chains across columns (near edges link over larger steps), shaped
+    // along their length with smoothing that grows with nearness; chains too
+    // short or too jagged to be one coherent shore are dropped (SHORE_SHAPE).
     // 3. Each point then follows the same edge from the last frame (same
     // column and kind, nearest row) through the shore filter: a wide
     // deadband and a low cutoff, so music water waves never ripple it.
     const step = dt > 0 ? Math.min(dt, 1 / 15) : 1 / 60;
     const chains = [];
-    for (const chain of linkShoreChains(cols)) {
-      if (chain.length < 3) continue;
+    let dropped = 0;
+    for (const chain of linkShoreChains(cols, 2, SHORE_SHAPE.maxGap)) {
       const n = chain.length, rows = new Float32Array(n);
-      chain.forEach(([j, s], p) => { rows[p] = cols[j][s].y; });
-      const ys = reconstructCrest(rows);
-      for (let pass = 0; pass < SHORE_SMOOTH_PASSES; pass++) {
-        let prev = ys[0];
-        for (let p = 1; p < n - 1; p++) { const cur = ys[p]; ys[p] = (prev + 2 * cur + ys[p + 1]) / 4; prev = cur; }
-      }
-      const pts = new Float32Array(n * 2);
+      let nearness = 0;
+      chain.forEach(([j, s], p) => { rows[p] = cols[j][s].y; nearness += cols[j][s].nearness; });
+      const shape = shoreShape(nearness / n);
+      if (n < shape.minColumns) { dropped++; continue; }
+      const { ys, residual } = smoothShoreChain(rows, shape.sigma);
+      if (residual > SHORE_SHAPE.maxResidual) { dropped++; continue; }
+      const pts = new Float32Array(n * 2), held = new Float32Array(n);
       let near = 0;
       const rgb = [0, 0, 0];
       const kind = cols[chain[0][0]][chain[0][1]].kind;
@@ -382,16 +392,23 @@ export class RangeCrest {
         if (best >= 0) st.kind[best] = 0; // consumed
         filterSample(st.nextY, st.nextD, slot, ys[p], step, SHORE_FILTER);
         st.nextKind[slot] = kind;
-        const y = st.nextY[slot], x = j + 0.5;
+        held[p] = st.nextY[slot];
+        near += t.nearness; rgb[0] += t.rgb[0]; rgb[1] += t.rgb[1]; rgb[2] += t.rgb[2];
+      });
+      // Per-column deadbands hold neighbouring points up to half a row
+      // apart: the drawn chain is shaped again (the held state is not).
+      limitCurvature(gaussianSmooth(held, Math.max(1, shape.sigma / 2), held), SHORE_SHAPE.maxCurvature);
+      chain.forEach(([j], p) => {
+        const y = held[p], x = j + 0.5;
         pts[p * 2] = m.a * m.sx * x + m.c * m.sy * y + m.e;
         pts[p * 2 + 1] = m.b * m.sx * x + m.d * m.sy * y + m.f;
-        near += t.nearness; rgb[0] += t.rgb[0]; rgb[1] += t.rgb[1]; rgb[2] += t.rgb[2];
       });
       chains.push(Object.freeze({ points: pts, kind, nearness: near / n,
         color: css(snapCrestColor(shoreColor(rgb.map(v => v / n)), palette)) }));
     }
     st.y.set(st.nextY); st.d.set(st.nextD); st.kind.set(st.nextKind);
     this.diagnostics.shoreMs = performance.now() - t0;
+    this.diagnostics.shoreDropped = dropped;
     return chains;
   }
 
@@ -420,7 +437,7 @@ export class RangeCrest {
   }
 
   /**
-   * Before palette quantization: re-own the grid cells within ±1 of each
+   * Before palette quantization: re-own the grid cells around each
    * smoothed line, fading the edit in and out with the line, and read the
    * line's land colour and visibility. `frame` is the whole grid's
    * ImageData when the palette pass has already read it back (free: done
@@ -439,12 +456,18 @@ export class RangeCrest {
     const sampleOnly = !(strength > 0) && !frame;
     if (sampleOnly && (!ctx || this._sampleAge < SAMPLE_EVERY_SEC)) return false;
     const { width: W, height: H } = snap.grid;
-    // Each band's rows, merged where they meet.
+    // Each band's rows (its lines and any raw crest above them, e.g. a
+    // spire the line has smoothed away), merged where they meet.
     const spans = [];
     for (const band of CREST_BANDS) {
       const g = this._grid[band];
       let lo = Infinity, hi = -Infinity;
-      for (let i = 0; i < W; i++) { const L = g.line[i]; if (L < lo) lo = L; if (L > hi) hi = L; }
+      for (let i = 0; i < W; i++) {
+        const L = g.line[i];
+        if (!Number.isFinite(L)) continue;
+        const R = g.raw[i], top = Number.isFinite(R) && R < L ? Math.max(R, L - REOWN_MAX_ROWS) : L;
+        if (top < lo) lo = top; if (L > hi) hi = L;
+      }
       if (Number.isFinite(lo)) spans.push({ y0: Math.max(0, Math.floor(lo) - 3), y1: Math.min(H, Math.floor(hi) + 4), bands: [band] });
     }
     spans.sort((p, q) => p.y0 - q.y0);
@@ -481,7 +504,7 @@ export class RangeCrest {
         const g = this._grid[band];
         this._visibility(g, orig, W, y0, y1, kv);
         this._sampleLand(g, orig, W, y0, y1);
-        if (split) cells += reownCrestCells(image, orig, sdata.subarray(y0 * W * 4, y1 * W * 4), g.line, g.raw, g.skip, g.crossed);
+        if (split) cells += reownCrestCells(image, orig, sdata.subarray(y0 * W * 4, y1 * W * 4), g.line, g.raw, g.skip, g.crossed, g.crossedEnd);
       }
       if (split && strength < 1) {
         // Fading: the re-owned cells blend back toward the raw grid.
@@ -521,12 +544,13 @@ export class RangeCrest {
     for (const band of CREST_BANDS) {
       const g = this._grid[band];
       for (let i = 0; i < W; i++) {
-        const r = g.crossed[i];
-        if (r < 0) continue;
-        const q = (r * W + i) * 4;
-        if (!sdata[q + 3]) continue;
-        const c = quantize([sdata[q], sdata[q + 1], sdata[q + 2]], i, r);
-        sdata[q] = c[0]; sdata[q + 1] = c[1]; sdata[q + 2] = c[2];
+        if (g.crossed[i] < 0) continue;
+        for (let r = g.crossed[i]; r <= g.crossedEnd[i]; r++) {
+          const q = (r * W + i) * 4;
+          if (!sdata[q + 3]) continue;
+          const c = quantize([sdata[q], sdata[q + 1], sdata[q + 2]], i, r);
+          sdata[q] = c[0]; sdata[q + 1] = c[1]; sdata[q + 2] = c[2];
+        }
       }
     }
     const ready = this._uploadSplit();
@@ -556,7 +580,7 @@ export class RangeCrest {
     }
     filterCrest(g.scan, g.scanRaw, snap.dt, CREST_FILTER);
     g.line.set(g.scan.y); g.raw.set(g.scanRaw);
-    g.skyline.fill(1); g.minNearer.fill(Infinity); g.skip.fill(1); g.crossed.fill(-1); g.colorAt.fill(-1);
+    g.skyline.fill(1); g.minNearer.fill(Infinity); g.skip.fill(1); g.crossed.fill(-1); g.crossedEnd.fill(-1); g.colorAt.fill(-1);
     this._rank(g, g, W, 1 - Math.exp(-(snap.dt || 1 / 60) / SLOW_TAU_SEC), null);
     this._visibility(g, data, W, 0, H, 1 - Math.exp(-(snap.dt || 1 / 60) / VIS_TAU_SEC));
     this._sampleLand(g, data, W, 0, H);
@@ -623,7 +647,12 @@ export class RangeCrest {
     try {
       ctx.beginPath(); ctx.rect(fit.x, fit.y, fit.width, fit.height); ctx.clip();
       if (snap.splitReady && this._split && snap.splitAlpha > 0) this._drawSplit(ctx, fit, X, Y, snap.splitAlpha);
-      ctx.lineJoin = 'round'; ctx.lineCap = 'butt';
+      // One continuous polyline per run of columns, cut into chunks (each
+      // its own colour, width and opacity) by abutting column clips: each
+      // chunk strokes the run's path two vertices past its ends and is
+      // clipped to its own cells, so neighbours meet at a shared pixel
+      // column with no butt-cap wedge at a bend and no doubled overlap.
+      ctx.lineJoin = 'round'; ctx.lineCap = 'round';
       for (const band of CREST_BANDS) {
         const g = this._grid[band];
         if (!g.chunks.length) continue;
@@ -647,17 +676,25 @@ export class RangeCrest {
           const seen = nv ? vis / nv : chunk.tier === 'skyline' ? 1 : VIS_UNKNOWN;
           if (!(seen > 0.01)) continue;
           const shift = (CREST_LAND_SIDE - 0.5) * width;
+          ctx.save();
+          const x0 = chunk.start > 0 && Number.isFinite(g.line[chunk.start - 1]) ? Math.round(X(chunk.start)) : fit.x;
+          const x1 = chunk.last + 1 < snap.grid.width && Number.isFinite(g.line[chunk.last + 1]) ? Math.round(X(chunk.last + 1)) : fit.x + fit.width;
+          ctx.beginPath(); ctx.rect(x0, fit.y, x1 - x0, fit.height); ctx.clip();
           ctx.globalAlpha = alpha * seen * snap.fade;
           ctx.strokeStyle = chunk.color; ctx.lineWidth = width;
           ctx.beginPath();
-          for (let i = chunk.start; i <= chunk.end; i++) {
+          let a = chunk.start, b = chunk.last;
+          while (a > chunk.start - 2 && Number.isFinite(g.line[a - 1])) a--;
+          while (b < chunk.last + 2 && Number.isFinite(g.line[b + 1])) b++;
+          for (let i = a; i <= b; i++) {
             const prev = Number.isFinite(g.line[i - 1]) ? g.line[i - 1] : g.line[i];
             const next = Number.isFinite(g.line[i + 1]) ? g.line[i + 1] : g.line[i];
             const dx = 2 * s, dy = (next - prev) * s, len = Math.hypot(dx, dy) || 1;
             const px = X(i + 0.5) - (dy / len) * shift, py = Y(g.line[i]) + (dx / len) * shift;
-            if (i === chunk.start) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+            if (i === a) ctx.moveTo(px, py); else ctx.lineTo(px, py);
           }
           ctx.stroke();
+          ctx.restore();
         }
         ctx.restore();
       }
@@ -678,12 +715,13 @@ export class RangeCrest {
         if (g.crossed[i] < 0) { i++; continue; }
         let j = i;
         while (j + 1 < W && g.crossed[j + 1] >= 0) j++;
-        // Top: the line across the run; bottom: the crossed cells' lower edges.
+        // Top: the line across the run (the same polyline as the stroke);
+        // bottom: the lowest crossed cell's lower edge per column.
         const mid = (x, y) => (Number.isFinite(g.line[x]) ? (g.line[x] + y) / 2 : y);
         ctx.moveTo(X(i), Y(mid(i - 1, g.line[i])));
         for (let x = i; x <= j; x++) ctx.lineTo(X(x + 0.5), Y(g.line[x]));
         ctx.lineTo(X(j + 1), Y(mid(j + 1, g.line[j])));
-        for (let x = j; x >= i; x--) { ctx.lineTo(X(x + 1), Y(g.crossed[x] + 1)); ctx.lineTo(X(x), Y(g.crossed[x] + 1)); }
+        for (let x = j; x >= i; x--) { ctx.lineTo(X(x + 1), Y(g.crossedEnd[x] + 1)); ctx.lineTo(X(x), Y(g.crossedEnd[x] + 1)); }
         ctx.closePath();
         any = true;
         i = j + 1;

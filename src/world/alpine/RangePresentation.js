@@ -1122,7 +1122,13 @@ export class RangePresentation {
   _finishCrest(ctx, stage) {
     if (!this.frame || !(this.scene?.crestProbeMode || this._crestScan)) return;
     const steady = this.arrival >= .999;
-    const probe = steady && this.scene.crestProbeMode ? this.scene.readCrestProbe?.(this.frame.frameId) : null;
+    // Live frames take the newest finished asynchronous probe readback (one
+    // or two frames old); export draws (bulk export, highlight re-renders,
+    // visual evaluation) read their own frame synchronously, so exports are
+    // reproducible. Either way the frame freezes what it used.
+    const sync = !!(this.exportMode || this.frameInputs?.sim?.exportMode);
+    const probe = steady && this.scene.crestProbeMode
+      ? this.scene.readCrestProbe?.(this.frame.frameId, { sync, viewId: this.viewId, timeMs: this.frame.timeMs }) : null;
     const t = ctx.getTransform?.();
     this.crest.update({ probe, frameId: this.frame.frameId, timeMs: this.frame.timeMs, viewId: this.viewId,
       qualityLevel: this.frame.qualityLevel ?? 0, transform: t ? [t.a, t.b, t.c, t.d, t.e, t.f] : null,
