@@ -111,3 +111,27 @@ test('forest mirror accumulates soft colour before hard depth while using the mi
   assert.deepEqual(layers, [1, 1, 1, 1, 2, 2, 2, 4, 8 | 16 | 32, 8 | 16 | 32, 8 | 16 | 32], 'paint receivers and all soft coverage before hard depth, ink and the cast');
   assert.deepEqual(uniforms.uViewportPx.value.toArray(), [640, 360]);
 });
+
+test('a recovered mirror fades in over heard time and a shed drops it at once', () => {
+  const uniforms = sceneUniforms(THREE, {});
+  const mirror = { target: { texture: new THREE.Texture(), width: 320, height: 180 }, matrix: new THREE.Matrix4(), frame: -1 };
+  const p = { uniforms, mirrorLevelM: 2055, depthScene: {}, scenes: { far: {}, mid: {}, near: {} } };
+  const scene = Object.assign(Object.create(RangeScene.prototype), {
+    THREE, camera: camera(), mirrorCamera: new THREE.PerspectiveCamera(), size: { width: 640, height: 360 }, stats: {}, mirrors: {},
+    _ensureMirror: () => mirror, renderer: { setRenderTarget() {}, setClearColor() {}, clear() {}, render() {} },
+  });
+  let frameId = 0;
+  const draw = (timeMs, qualityLevel) => { scene._prepareMirror(p, { qualityLevel, timeMs, frameId: ++frameId }, 'A', 'view'); return uniforms.uMirrorAmount.value; };
+  assert.equal(draw(1000, 3), 1, 'first frame: present at once');
+  assert.equal(draw(1016, 4), 0, 'shed: gone at once');
+  const seen = [];
+  for (let t = 1032; t <= 2600; t += 16) seen.push(draw(t, 3));
+  assert.ok(seen.some(v => v > 0 && v < 1), 'recovery passes through intermediate amounts');
+  assert.ok(seen.every((v, i) => i === 0 || v >= seen[i - 1]));
+  assert.equal(seen.at(-1), 1);
+  assert.equal(draw(2616, 4), 0);
+  assert.ok(draw(2632, 3) < .05);
+  scene._prepareMirror(p, { qualityLevel: 3, timeMs: 2632, frameId }, 'A', 'view');
+  assert.ok(uniforms.uMirrorAmount.value < .05, 'the same heard frame (another partition) does not advance the fade');
+  assert.equal(draw(90000, 3), 1, 'a seek snaps');
+});

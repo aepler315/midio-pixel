@@ -24,7 +24,7 @@ export function fitPixelRect(srcW, srcH, dstW, dstH, scaling = 'fit', origin = {
  * (nearest, unless `foreground` -- the cinematic cell reconstruction --
  * draws it and returns true), then an optional water layer and smooth added
  * cast light. Recording must not resample the already combined picture. */
-export function compositePixelFrame(ctx, source, width, height, scaling, background = null, destination = null, foreground = null, overlay = null, water = null, effects = null) {
+export function compositePixelFrame(ctx, source, width, height, scaling, background = null, destination = null, foreground = null, overlay = null, water = null, effects = null, crest = null, shore = null) {
   const fit = destination ? { ...destination, scale: destination.width / source.width }
     : fitPixelRect(source.width, source.height, width, height, scaling);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -33,12 +33,24 @@ export function compositePixelFrame(ctx, source, width, height, scaling, backgro
   const hybridSky = background ? !!background(ctx, fit) : false;
   ctx.imageSmoothingEnabled = false;
   if (!foreground?.(ctx, fit)) ctx.drawImage(source, fit.x, fit.y, fit.width, fit.height);
+  // The Landscape crest line: split cells and strokes over the upscaled
+  // terrain, below water (RangeCrest.js).
+  let crestDrawn = false;
+  if (crest) {
+    ctx.save(); ctx.globalCompositeOperation = 'source-over';
+    try { crestDrawn = !!crest(ctx, fit); } finally { ctx.restore(); }
+  }
   let waterDrawn = false;
   if (water) {
     ctx.save();
     ctx.imageSmoothingEnabled = true;
     ctx.globalCompositeOperation = 'source-over';
     try { waterDrawn = !!water(ctx, fit); } finally { ctx.restore(); }
+  }
+  let shoreDrawn = false;
+  if (shore) {
+    ctx.save(); ctx.imageSmoothingEnabled = true; ctx.globalCompositeOperation = 'source-over';
+    try { shoreDrawn = !!shore(ctx, fit); } finally { ctx.restore(); }
   }
   let effectsDrawn = false;
   if (effects) {
@@ -52,7 +64,7 @@ export function compositePixelFrame(ctx, source, width, height, scaling, backgro
     ctx.globalCompositeOperation = 'lighter';
     try { overlaid = !!overlay(ctx, fit); } finally { ctx.restore(); }
   }
-  return { hybridSky, fit, overlay: overlaid, water: waterDrawn, effects: effectsDrawn };
+  return { hybridSky, fit, overlay: overlaid, water: waterDrawn, effects: effectsDrawn, crest: crestDrawn, shore: shoreDrawn };
 }
 let nextOwner = 0;
 /** Owns only the bounded working buffer. The output belongs to the caller. */
@@ -104,14 +116,14 @@ export class PixelPresentation {
     if (!this._needsDitherWeights() || this.ditherWeights && this.ditherWeights.length !== this.grid.pixels) this._releaseDitherWeights();
   }
   _preparePalette() {
-    this._resolvedPaletteId = resolvePaletteId(this.presentation.paletteId, this.worldKind);
+    this._resolvedPaletteId = resolvePaletteId(this.presentation.paletteId, this.worldKind, this.experience);
     const colors = PALETTES[this._resolvedPaletteId]?.colors;
     this.compiledPalette = colors ? compilePalette(colors) : null;
   }
-  setFrameContext({ worldKind = null } = {}) {
-    if (worldKind === this.worldKind) return;
-    this.worldKind = worldKind;
-    const next = resolvePaletteId(this.presentation.paletteId, worldKind);
+  setFrameContext({ worldKind = null, experience = null } = {}) {
+    if (worldKind === this.worldKind && experience === this.experience) return;
+    this.worldKind = worldKind; this.experience = experience;
+    const next = resolvePaletteId(this.presentation.paletteId, worldKind, experience);
     if (next === this._resolvedPaletteId) return;
     this._invalidateCapture();
     this.generation++; this._securityGeneration = null;
@@ -254,8 +266,11 @@ export class PixelPresentation {
       + (this.ditherWeights?.byteLength || 0) + this.cinematic.bytes + (this.diagnostics.pixelEffectScratchBytes || 0);
     return applied;
   }
-  /** `water` is source-over; `overlay` is smooth added cast light. */
-  finishFrame({ background = null, overlay = null, water = null, effects = null } = {}) {
+  /** `water` is source-over; `overlay` is smooth added cast light. `prepare`
+   * edits the native grid before palette quantization and `finish` runs
+   * after it (with the palette's own texel quantizer); `crest` and `shore`
+   * draw at output resolution after the terrain and after the water. */
+  finishFrame({ background = null, overlay = null, water = null, effects = null, prepare = null, finish = null, crest = null, shore = null } = {}) {
     const started = performance.now();
     if (!this.source || !this._pending || this._disposed) {
       return this.diagnostics.frame?.presented === false ? this.diagnostics.frame : this.failFrame('not-rendered');
@@ -267,19 +282,25 @@ export class PixelPresentation {
     this.diagnostics.castForeground = false;
     this.diagnostics.waterForeground = false;
     this.diagnostics.smoothEffects = false;
+    this.diagnostics.crestForeground = false;
+    this.diagnostics.shoreForeground = false;
     this.diagnostics.skyResolution = null;
     try {
       const sourceContext = source.getContext('2d'), outputContext = this.canvas.getContext('2d');
       if (!sourceContext || sourceContext.isContextLost?.() || !outputContext || outputContext.isContextLost?.()) return this.failFrame('context-lost');
       this.diagnostics.effectiveLook = p.cinematicPixel ? 'cinematic' : 'pixel';
       let status = { applied: false, reason: null, pixels: 0 };
+      // Grid edits need the separate composite that draws their other half.
+      let prepared = !prepare || source === this.canvas;
+      const prepareFrame = prepare && !prepared ? (args) => { prepared = true; prepare(args); } : null;
       if (this._resolvedPaletteId !== 'none') {
         if (this._securityGeneration === this.generation) status = { applied: false, reason: 'security', pixels: source.width * source.height };
         else status = applyPalette(source.getContext('2d'), source, { paletteId: this._resolvedPaletteId, dither: p.dither, compiled: this.compiledPalette,
-          ditherMode: p.ditherMode, weights: this.ditherWeights, grid: this.grid });
+          ditherMode: p.ditherMode, weights: this.ditherWeights, grid: this.grid, prepare: prepareFrame, finish: prepareFrame ? finish : null });
         if (status.reason === 'security') this._securityGeneration = this.generation;
         if (status.applied) this.diagnostics.effectiveLook = 'palette';
       }
+      if (!prepared && status.reason !== 'security') { prepared = true; prepare({ ctx: sourceContext, canvas: source }); }
       this.diagnostics.paletteStatus = status;
       this.diagnostics.effectivePalette = status.applied ? this._resolvedPaletteId : 'none';
       this.diagnostics.effectiveDitherMode = status.ditherMode || 'ordered';
@@ -294,13 +315,15 @@ export class PixelPresentation {
         const ctx = this.canvas.getContext('2d');
         if (!ctx) return this.failFrame('output-context');
         const composite = compositePixelFrame(ctx, source, this.canvas.width, this.canvas.height, p.scaling, background, null,
-          p.cinematicPixel ? (ctx, fit) => this.drawForeground(ctx, source, fit) : null, overlay, water, effects);
+          p.cinematicPixel ? (ctx, fit) => this.drawForeground(ctx, source, fit) : null, overlay, water, effects, crest, shore);
         if (effects && !composite.effects) return this.failFrame('effects-layer-failed');
         const { fit, hybridSky } = composite;
         this.diagnostics.hybridSky = hybridSky;
         this.diagnostics.castForeground = composite.overlay;
         this.diagnostics.waterForeground = composite.water;
         this.diagnostics.smoothEffects = composite.effects;
+        this.diagnostics.crestForeground = composite.crest;
+        this.diagnostics.shoreForeground = composite.shore;
         this.diagnostics.skyResolution = this.diagnostics.hybridSky ? { width: Math.round(fit.width), height: Math.round(fit.height) } : null;
       }
       this.diagnostics.ownedPixelScratchBytes += this.cinematic?.bytes || 0;
@@ -309,7 +332,7 @@ export class PixelPresentation {
       this.diagnostics.frame = result;
       this.diagnostics.presentationCpuMs = (this._beginCpuMs || 0) + performance.now() - started;
       this._capture = { ...result, canvas: source, pixelated: true, scaling: p.scaling, pixelScale: p.pixelScale,
-        grid: this.grid, paletteId: this.diagnostics.effectivePalette, worldKind: this.worldKind ?? null,
+        grid: this.grid, paletteId: this.diagnostics.effectivePalette, worldKind: this.worldKind ?? null, experience: this.experience ?? null,
         ditherMode: this.diagnostics.effectiveDitherMode, pixelPolicyVersion: PIXEL_POLICY_VERSION,
         width: source.width, height: source.height, outputSize: pending.outputSize };
       return result;

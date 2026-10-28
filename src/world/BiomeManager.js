@@ -463,6 +463,14 @@ export function windSpeedScaleFor(worldKind) {
 export function drawnWeatherKindFor(worldKind, kind) {
   return WORLD_WEATHER_KINDS[worldKind]?.[kind] ?? kind;
 }
+/** The high-resolution sky's frozen twilight (DayNight's twilightAt), or
+ *  null when faint. Colours are copied strings, never the TWILIGHT palette. */
+export function rangeSkyTwilight(tw) {
+  const amount01 = tw?.colors && Number.isFinite(tw.amount01) ? Math.min(1, tw.amount01) : 0;
+  if (amount01 <= 0.01) return null;
+  return Object.freeze({ amount01, rising: !!tw.rising, xFrac: Number.isFinite(tw.xFrac) ? tw.xFrac : null,
+    glow: String(tw.colors.glow), horizon: String(tw.colors.horizon), mid: String(tw.colors.mid ?? tw.colors.horizon) });
+}
 
 export class BiomeManager {
   constructor({ conductor, energyCurves, durationMs, canvasWidth, canvasHeight, groundY, songSeed, groundField = null, fire = null, flood = null, customBiome = null, lyricSections = null, syncedLyrics = null, lyricSession = null, structure = null, conductorSchedule = null, worldId = null, terrainProfiles = null, songTerrain = null, residency = null, chapterState = null, ridgeMusicSession = null, ridgeCasting, ridgeCalmCues }) {
@@ -3453,7 +3461,7 @@ export class BiomeManager {
 
     // The Star Atlas draws whether or not she's away: every crystallized
     // constellation stays in the sky for the rest of the song, twinkling
-    // per-star and glinting with the beat (atlasPulse rides hype.slam).
+    // per-star and glinting with the beat (atlasPulse rides the heard-time slamAt).
     if (voyage.atlas.length) {
       const pulse = voyage.atlasPulse || 0;
       ctx.save();
@@ -3859,6 +3867,8 @@ export class BiomeManager {
       storm: weather ? Object.freeze({ ...weather }) : null,
       light: this._scenicLight ? Object.freeze({ ...this._scenicLight }) : null,
       lightning,
+      // Copied strings only: never a reference to the shared TWILIGHT palette.
+      twilight: rangeSkyTwilight(this._twilight),
     });
     const moon = this.rangeSkyLayer.moon;
     this._moonDisc = moon?.visible !== false && moon?.altitude01 > .001 && (moon.discAlpha ?? 1) > .02

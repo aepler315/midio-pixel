@@ -41,9 +41,10 @@ class PresentingRenderer {
     // pixel frame). Palette diagnostics can still inspect the native
     // terrain raster separately.
     const background = this._captureBackground, overlay = this._captureOverlay, water = this._captureWater, post = this._capturePost, effects = this._captureEffects;
-    const { hybridSky, castForeground, waterForeground, smoothEffects } = this.output.diagnostics;
+    const crest = this._captureCrest, shore = this._captureShore;
+    const { hybridSky, castForeground, waterForeground, smoothEffects, crestForeground, shoreForeground } = this.output.diagnostics;
     const cinematicPixel = !!this.output.presentation.cinematicPixel;
-    return source && (hybridSky || castForeground || waterForeground || smoothEffects || cinematicPixel || post) ? { ...source, canvas: this.canvas,
+    return source && (hybridSky || castForeground || waterForeground || smoothEffects || crestForeground || shoreForeground || cinematicPixel || post) ? { ...source, canvas: this.canvas,
       pixelCanvas: source.canvas, width: this.canvas.width, height: this.canvas.height,
       pixelated: false, terrainPixelated: true, hybridSky: !!hybridSky, castForeground: !!castForeground, cinematicPixel,
       drawCaptureFrame: (ctx, width, height, destination) => {
@@ -51,9 +52,11 @@ class PresentingRenderer {
         const drawn = compositePixelFrame(ctx, source.canvas, width, height, source.scaling,
           hybridSky ? background : null, destination,
           cinematicPixel ? (ctx, fit) => this.output.drawForeground(ctx, source.canvas, fit, true) : null,
-          castForeground ? overlay : null, waterForeground ? (ctx, fit) => water(ctx, fit, true) : null, smoothEffects ? effects : null);
+          castForeground ? overlay : null, waterForeground ? (ctx, fit) => water(ctx, fit, true) : null, smoothEffects ? effects : null,
+          crestForeground ? crest : null, shoreForeground ? shore : null);
         if (post) post(ctx, drawn.fit);
-        return (!hybridSky || drawn.hybridSky) && (!castForeground || drawn.overlay) && (!waterForeground || drawn.water) && (!smoothEffects || drawn.effects);
+        return (!hybridSky || drawn.hybridSky) && (!castForeground || drawn.overlay) && (!waterForeground || drawn.water) && (!smoothEffects || drawn.effects)
+          && (!crestForeground || drawn.crest) && (!shoreForeground || drawn.shore);
       } } : source;
   }
   draw(sim, alpha, { preparing = false } = {}) {
@@ -61,7 +64,7 @@ class PresentingRenderer {
     if ((sim?.experience || 'landscape') !== this._experience) {
       this._experience = sim?.experience || 'landscape'; this.setPresentation(this._requestedPresentation);
     }
-    this.output.setFrameContext?.({ worldKind: sim?.biomes?.world?.kind ?? null });
+    this.output.setFrameContext?.({ worldKind: sim?.biomes?.world?.kind ?? null, experience: this._experience });
     const manager = sim?.biomes;
     const cinematicPixel = !!this.output.presentation.cinematicPixel && this._experience !== 'trio';
     if (manager) {
@@ -81,6 +84,13 @@ class PresentingRenderer {
     // buffer must stay separate from the output (as for the sky).
     const castOverlay = landscape && typeof range.drawCastForeground === 'function';
     const waterOverlay = landscape && typeof range.drawWaterForeground === 'function';
+    // The crest line (RangeCrest.js) needs the separate output composite too.
+    const crestOverlay = landscape && typeof range.drawCrestForeground === 'function';
+    if (range && 'crestEnabled' in range) {
+      range.crestEnabled = crestOverlay;
+      const id = this.output._resolvedPaletteId;
+      range.crestPalette = !id || id === 'none' ? null : id === 'rgb332' ? 'rgb332' : this.output.compiledPalette || null;
+    }
     const smoothEffects = this._experience !== 'trio' && typeof manager?.drawHighResolutionMidEffects === 'function';
     if (manager) {
       manager.highResolutionMidEffects = smoothEffects;
@@ -93,12 +103,12 @@ class PresentingRenderer {
     scene.deferPostEffects = postEffects;
     if (range && 'castForeground' in range) range.castForeground = castOverlay;
     this.output.qualityLevel = sim?.perf?.level ?? 0;
-    const source = this.output.beginFrame({ separate: hybridSky || castOverlay || waterOverlay || postEffects || smoothEffects });
+    const source = this.output.beginFrame({ separate: hybridSky || castOverlay || waterOverlay || postEffects || smoothEffects || crestOverlay });
     if (!source) return this.output.diagnostics.frame;
     scene.canvas = source; scene.ctx = source.getContext('2d');
     // Scene captures (opening assembly, freeze, highlight reel) take the
     // finished composite, smooth sky and cast included.
-    scene.deferSceneCaptures = hybridSky || castOverlay || waterOverlay || postEffects || smoothEffects || preparing;
+    scene.deferSceneCaptures = hybridSky || castOverlay || waterOverlay || postEffects || smoothEffects || crestOverlay || preparing;
     scene.pixelPolicy = pixelRenderPolicy(this.output.presentation);
     this.inner.presentationPixelated = this.output.presentation.pixelated;
     if (range) { range.pixelated = !!this.output.presentation.pixelated; range.pixelPolicy = scene.pixelPolicy; range.cinematicPixel = cinematicPixel; }
@@ -122,7 +132,11 @@ class PresentingRenderer {
     const overlay = castOverlay ? (ctx, fit) => range.drawCastForeground(ctx, fit, caption) : null;
     const water = waterOverlay ? (ctx, fit, capture = false) => range.drawWaterForeground(ctx, fit, caption, { capture }) : null;
     const effects = smoothEffects ? (ctx, fit) => manager.drawHighResolutionMidEffects(ctx, fit) : null;
-    const result = this.output.finishFrame({ background, overlay, water, effects });
+    const crest = crestOverlay ? (ctx, fit) => range.drawCrestForeground(ctx, fit) : null;
+    const shore = crestOverlay && typeof range.drawShoreForeground === 'function' ? (ctx, fit) => range.drawShoreForeground(ctx, fit) : null;
+    const prepare = crestOverlay && typeof range.prepareCrestGrid === 'function' ? (args) => range.prepareCrestGrid(args) : null;
+    const finish = prepare && typeof range.finishCrestGrid === 'function' ? (args) => range.finishCrestGrid(args) : null;
+    const result = this.output.finishFrame({ background, overlay, water, effects, prepare, finish, crest, shore });
     const post = postEffects ? (ctx, fit) => scene.drawDeferredPostEffects(ctx, fit) : null;
     if (result?.presented && post) {
       try {
@@ -134,6 +148,8 @@ class PresentingRenderer {
     this._captureOverlay = result?.presented ? overlay : null;
     this._captureWater = result?.presented ? water : null;
     this._captureEffects = result?.presented ? effects : null;
+    this._captureCrest = result?.presented ? crest : null;
+    this._captureShore = result?.presented ? shore : null;
     this._capturePost = result?.presented ? post : null;
     if (result?.presented && !preparing) scene.completeFrameCaptures?.(this.canvas);
     else scene.discardFrameCaptures?.();
@@ -168,6 +184,9 @@ class PresentingRenderer {
     range.outputSize = { width: canvas.width, height: canvas.height };
     range.waterOutputSize = { width: canvas.width, height: canvas.height };
     range.castForeground = false;
+    // The direct-terrain experiment keeps its own output-resolution terrain
+    // edges and draws no crest line (docs/direct-terrain-experiment.md).
+    if ('crestEnabled' in range) range.crestEnabled = false;
     range.drawTerrainImage = (ctx, image, stage, region) => this._drawDirectTerrain(ctx, image, stage, region, sim?.perf?.level ?? 0);
     range.drawLegacyTerrain = (ctx, paint) => this._drawDirectGrid(ctx, paint, sim?.perf?.level ?? 0);
     try { this.inner.draw(sim, alpha); }

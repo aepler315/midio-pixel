@@ -156,14 +156,19 @@ test('unchanged storm tint reuses pixels while bank placement and opacity remain
   assert.equal(f.residency.usedBytes, 0);
 });
 
-test('storm tint invalidates on exact gain, every color, density, flash and storage replacement', () => {
+test('storm tint invalidates on every painted channel, density, flash and storage replacement', () => {
   const f = tintFixture();
   try {
     f.draw();
+    f.draw({ ...f.style, directGain: .35000000001 });
+    f.draw({ ...f.style, directGain: .351 });
+    assert.equal(f.paints(), 1, 'a gain change that leaves the painted light unchanged reuses the pixels');
+    f.draw();
     const styles = [
-      { ...f.style, directGain: .35000000001 },
+      { ...f.style, directGain: .4 },
       ...[0, 1, 2].map(channel => ({ ...f.style, dark: f.style.dark.map((value, i) => value + (i === channel ? 1 : 0)) })),
-      ...[0, 1, 2].map(channel => ({ ...f.style, lit: f.style.lit.map((value, i) => value + (i === channel ? 1 : 0)) })),
+      // At gain .35, +3 on `lit` moves each painted light channel by at least 1.
+      ...[0, 1, 2].map(channel => ({ ...f.style, lit: f.style.lit.map((value, i) => value + (i === channel ? 3 : 0)) })),
       { dark: [150, 168, 215], lit: [222, 232, 255], directGain: 1.2 },
       f.style,
     ];
@@ -184,4 +189,86 @@ test('storm tint invalidates on exact gain, every color, density, flash and stor
     f.draw();
     assert.equal(f.paints(), styles.length + 5, 'seed changes recreate the output sprite');
   } finally { f.sky.dispose(); }
+});
+
+test('deck and flash tints keep separate sprites, so alternating them never repaints', () => {
+  const f = tintFixture();
+  const flash = { dark: [150, 168, 215], lit: [222, 232, 255], directGain: 1.2, variant: 'flash' };
+  try {
+    f.draw(); f.draw(flash);
+    assert.equal(f.paints(), 2);
+    for (let i = 0; i < 4; i++) { f.draw(); f.draw(flash); }
+    assert.equal(f.paints(), 2, 'deck, flash, deck, flash reuses both sprites');
+    assert.equal(f.draw(flash)[0].pixels.stops[0][1], 'rgb(222,232,255)');
+    assert.equal(f.draw()[0].pixels.stops[0][1], 'rgb(41,47,55)');
+    f.sky.buffers.release('storm-flash-cloud-0');
+    f.draw(flash);
+    assert.equal(f.paints(), 3, 'released flash storage repaints');
+    f.sky._seed(316);
+    f.draw(); f.draw(flash);
+    assert.equal(f.paints(), 5, 'a seed change repaints both');
+  } finally { f.sky.dispose(); }
+});
+
+test('a clearing repaints the deck only when a painted integer channel changes', () => {
+  const f = tintFixture();
+  const mix = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
+  try {
+    const tuples = new Set();
+    for (let i = 0; i < 60; i++) {
+      const sun = i / 59, dark = mix([26, 31, 39], [104, 114, 128], sun), lit = mix([70, 76, 86], [240, 228, 206], sun);
+      const directGain = .35 + sun * 1.2, gain = Math.min(1, directGain);
+      tuples.add([...dark, ...lit.map((v, c) => Math.round(dark[c] + (v - dark[c]) * gain))].join());
+      f.draw({ dark, lit, directGain });
+    }
+    assert.ok(f.paints() <= tuples.size, `${f.paints()} paints for ${tuples.size} distinct tints`);
+  } finally { f.sky.dispose(); }
+});
+
+test('a clearing gain that leaves every painted channel alone does not repaint', () => {
+  const f = tintFixture();
+  const dark = [41, 47, 55], lit = [200, 190, 170];
+  try {
+    // Past 1 the gain is clamped: the painted light never changes.
+    for (let i = 0; i <= 60; i++) f.draw({ dark, lit, directGain: 1 + i * .01 });
+    assert.equal(f.paints(), 1, 'a clamped gain sweep paints once');
+  } finally { f.sky.dispose(); }
+  const g = tintFixture();
+  try {
+    const tuples = new Set();
+    for (let i = 0; i < 60; i++) {
+      const directGain = .35 + i * 1e-4;
+      tuples.add(lit.map((v, c) => Math.round(dark[c] + (v - dark[c]) * directGain)).join());
+      g.draw({ dark, lit, directGain });
+    }
+    assert.ok(tuples.size < 10, `${tuples.size} distinct painted tints`);
+    assert.equal(g.paints(), tuples.size, 'one paint per distinct painted tint, not per gain');
+  } finally { g.sky.dispose(); }
+});
+
+test('flash tints live in a small pool and leave with their evicted shape', () => {
+  const residency = new GraphicsResidency({ budgetBytes: 64 * 1024 ** 2 });
+  const sky = new RangeSkyRenderer({ residency, makeCanvas: () => {
+    const canvas = { width: 0, height: 0 };
+    const ctx = { clearRect() {}, fillRect() {}, drawImage() {},
+      createLinearGradient: () => ({ addColorStop() {} }) };
+    canvas.getContext = () => ctx;
+    return canvas;
+  } });
+  const ctx = { save() {}, restore() {}, drawImage() {} };
+  const flash = { dark: [150, 168, 215], lit: [222, 232, 255], directGain: 1.2, variant: 'flash' };
+  const owned = () => [...sky.buffers.buffers.keys()].filter(name => name.startsWith('storm-flash-cloud-'));
+  try {
+    sky._seed(315);
+    // Skip the density bake: only buffer ownership is under test.
+    sky.painted = { has: () => true, add() {} };
+    sky._stormClouds(ctx, [{ shapeSeed: 0, x: 0, y: 0, w: 10, h: 10, alpha: 1 }], flash);
+    assert.deepEqual(owned(), ['storm-flash-cloud-0']);
+    for (let i = 1; i <= 48; i++) sky._cloud(i);
+    assert.deepEqual(owned(), [], 'evicting shape 0 released its flash tint');
+    for (let i = 100; i < 110; i++) sky._stormClouds(ctx, [{ shapeSeed: i, x: 0, y: 0, w: 10, h: 10, alpha: 1 }], flash);
+    assert.equal(owned().length, 8, 'the flash pool holds at most eight sprites');
+    assert.ok(!owned().includes('storm-flash-cloud-100') && !owned().includes('storm-flash-cloud-101'));
+  } finally { sky.dispose(); }
+  assert.equal(residency.usedBytes, 0);
 });

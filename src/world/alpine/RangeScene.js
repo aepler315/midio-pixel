@@ -1,4 +1,5 @@
-import { cloudPuffs } from './CloudOcclusion.js';
+import { cloudPuffs, MAX_CLOUD_PUFFS, CLOUD_SHADOW_MAX } from './CloudOcclusion.js';
+import { cloudShadowCasters, CLOUD_CASTER_STRIDE, CLOUD_WIND_AXIS } from './RangeCloudField.js';
 import { cinematicLightingProfile } from './CinematicLighting.js';
 import { shaderFailureLog } from '../../render/GraphicsDiagnostics.js';
 import { applyLensFov } from '../../render/CameraLens.js';
@@ -23,10 +24,11 @@ import { prepareTerrainAssets, RangeAssetError } from './RangeAssets.js';
 import { createSurfaceTextureAsync, terrainUniforms, createBandGeometries, createBandGeometriesAsync } from './TerrainGL.js';
 import { syncGustUniforms, syncWaterMusicUniforms, sceneUniforms, createSceneMaterial, createDepthMaterial, setLinearFromHex, createMaterialTextures, applyMaterial, SCENE_VERT, FEATURE_FRAG } from './TerrainMaterial.js';
 import { terrainFeatureSegmentsAsync } from './TerrainFeatures.js';
+import { CrestProbe } from './CrestProbe.js';
 import { loadMaterialPack, materialGpuBytes, RULE_DEFAULTS, validateWaterRules } from './MaterialPackage.js';
 import { placeForestAsync, forestPlacementBound } from './ForestCover.js';
 import { SunShaftGL, SHAFT_KEY, shaftSize, shaftSource } from './SunShaftGL.js';
-import { rangeQuality } from './RangeQuality.js';
+import { rangeQuality, easeRungAmount } from './RangeQuality.js';
 import { hashSeed } from '../../utils/math.js';
 import { createForest, FOREST_ASSET_BUILD_BYTES, forestGroupingBytes } from './ForestGL.js';
 import { forestAssetBytes, FOREST_FAMILIES, FOREST_VARIANTS } from './ForestSpeciesAssets.js';
@@ -39,7 +41,7 @@ import { RockStageGL } from './RockStageGL.js';
 import { scenePoseAt } from '../terrain/SceneTravel.js';
 import { applyCameraMoves, rangeUserCamera } from './RangeCamera.js';
 import { BANDS, terrainFringeBytes, terrainHeightAt, SURFACE_BUILD_BYTES_PER_PIXEL } from './TerrainMesh.js';
-import { mistParams, mistDrift, easeMistSteps, tourMistCap, tourMistFade } from './RangeAtmosphere.js';
+import { mistParams, mistDrift, easeMistSteps, tourMistCap, tourMistFade, atmosphereMusic } from './RangeAtmosphere.js';
 import { mirrorSize, mirrorLevelFor, mirrorCameraFor, mirrorTextureMatrix, MIRROR_CLIP_M, MIRROR_LIFT } from './WaterMirror.js';
 import { scenicProjection, calibrateRangeMusic } from './RangeFrame.js';
 import { applyGlacierUniforms, glacierErrors, glacierSample } from './GlacierField.js';
@@ -47,10 +49,16 @@ import { ActorsGL, SITE_LIGHTS_MAX, CAST_LAYER, CAST_RIBBON_LAYER, enableCastLay
 import { buildRiverGeometry, riverGeometryBound, riverChannelErrors } from './RiverChannel.js';
 import { ACTOR_IDS, ACTOR_HUES, ACTOR_LOOK, ACTOR_START, actorRoutes, routePosition } from './RangeActors.js';
 import { castPlan, castWork, pathPosition, siteWalk } from './CastJobs.js';
-// Storm light, linear: the deck's underside, the rain-dimmed horizon, the rain air.
-// STORM_AIR meets the slate the sky paints at the horizon (drawStormSky) once displayed.
-const STORM_ZENITH = { r: .02, g: .026, b: .036 }, STORM_HORIZON = { r: .03, g: .038, b: .05 }, STORM_AIR = { r: .028, g: .036, b: .048 };
+import { flashScreenPoint, rainSeed01, stormKindRow } from './RangeStorm.js';
+import { forestWindAt } from './ForestWind.js';
+// Storm light, linear: the deck's underside, the rain-dimmed horizon, the
+// rain air, per episode kind (RangeStorm STORM_KINDS zenith/horizon/air).
+// The air meets the slate the sky paints at the horizon (drawStormSky).
 
+// Fair-weather shadow casters (RangeCloudField), filled in place per frame.
+const CLOUD_SHADOW_CASTERS = 16;
+const CASTERS = new Float32Array(CLOUD_SHADOW_CASTERS * CLOUD_CASTER_STRIDE);
+const CASTER_LIGHT = [0, 1, 0], CASTER_EYE = [0, 0, 0];
 const BACKDROP_KEY = 'range:water-backdrop';
 // Full/lite pairs share instances and retain two scalar attributes per batch.
 const FOREST_DETAIL_BYTES = BANDS.length * FOREST_FAMILIES * FOREST_VARIANTS * 8;
@@ -159,6 +167,10 @@ export class RangeScene {
     // The cast draws in the band passes unless the presentation takes it
     // from renderCast to lay over the pixel frame itself (it clears this).
     this.castInBands = true;
+    // Crest line probe (CrestProbe.js): 'refined' | 'grid' | null, set by
+    // the presentation each frame; the probe itself is made on first use.
+    this.crestProbeMode = null;
+    this.crestProbe = null;
     this._copy = this._createCopy();
     // Each loss and each restore starts a new context epoch: a preparation
     // that straddles either built GPU objects (and dropped the surface
@@ -218,7 +230,9 @@ export class RangeScene {
       this.edge.reason = policy.reason;
       return;
     }
-    this.releaseShafts();
+    // A same-size reallocation (a rung's MSAA change) keeps the shaft fade;
+    // only a real size change ends it.
+    this.releaseShafts({ keepPresence: sameSize });
     const key = 'range:render-target';
     if (this.residency) this.residency.release(key);
     else { this.target?.dispose(); this.ownership?.A?.dispose(); }
@@ -300,7 +314,8 @@ export class RangeScene {
     if (side !== 'B') return !!this.target;
     if (this.sideTargets.B) return true;
     if (!this.target) return false;
-    this.releaseShafts();
+    // The bundle is rebuilt against both sides; the fade carries on.
+    this.releaseShafts({ keepPresence: true });
     const { width: w, height: h } = this.size;
     const key = 'range:render-target-B';
     // The incoming side matches the main target's samples, so both sides
@@ -327,7 +342,7 @@ export class RangeScene {
     if (side !== 'B') return;
     this.releaseMirror('B');
     if (!this.sideTargets?.B) return;
-    this.releaseShafts();
+    this.releaseShafts({ keepPresence: true });
     const t = this.sideTargets.B;
     if (this.residency) this.residency.release('range:render-target-B');
     else { t.dispose(); this.ownership?.B?.dispose(); }
@@ -338,14 +353,23 @@ export class RangeScene {
   /** Optional attachments are admitted only after all active base targets,
    * views and travel scratch. No partial A/B bundle can be published. */
   prepareShafts(frame, viewIds) {
-    if (this.contextLost || !rangeQuality(frame.qualityLevel).sunShafts || !shaftSource(frame) || !this.target) {
-      this.releaseShafts(); return false;
+    // No sun, no context or no target: nothing to fade, release at once
+    // (a returning sun then fades in from zero).
+    if (this.contextLost || !shaftSource(frame) || !this.target) {
+      this.releaseShafts(); this.shaftEaseAtMs = frame.timeMs; return false;
     }
+    // A rung shed or recovery fades the shafts over heard time (A and B
+    // views share one presence, advanced once per heard frame); the bundle
+    // is released only once the fade reaches 0.
+    const dtSec = (frame.timeMs - (this.shaftEaseAtMs ?? -Infinity)) / 1000;
+    this.shaftPresence = easeRungAmount(this.shaftPresence, rangeQuality(frame.qualityLevel).sunShafts ? 1 : 0, dtSec);
+    this.shaftEaseAtMs = frame.timeMs;
+    if (!(this.shaftPresence > 0)) { this.releaseShafts(); return false; }
     const ids = [].concat(viewIds);
     const targets = ids.length > 1 && this.sideTargets.B ? { A: this.target, B: this.sideTargets.B } : { A: this.target };
     const identity = `${ids.join('|')}:${this.size.width}:${this.size.height}:${this.contextEpoch}`;
     if (this.shafts && this.shaftIdentity === identity) return true;
-    this.releaseShafts();
+    this.releaseShafts({ keepPresence: true });
     const { width, height } = shaftSize(this.size.width, this.size.height);
     const bytes = width * height * 4 * Object.keys(targets).length + 36;
     // Protect every currently resident essential range entry, including an
@@ -356,7 +380,7 @@ export class RangeScene {
     const shafts = new SunShaftGL(this.THREE, targets);
     const dispose = (effect) => {
       effect.dispose();
-      if (this.shafts === effect) { this.shafts = null; this.shaftIdentity = null; }
+      if (this.shafts === effect) { this.shafts = null; this.shaftIdentity = null; this.shaftPresence = 0; }
       if (this.depthCache) this.depthCache.A.frame = this.depthCache.B.frame = -1;
     };
     if (res && !this.residency.commit(res, shafts, dispose)) return false;
@@ -408,8 +432,10 @@ export class RangeScene {
    * is released.
    */
   captureBackdrop(ctx, stage, frame, drawSky = null) {
-    const wanted = !this.contextLost && rangeQuality(frame?.qualityLevel).waterMirror
-      && [...this.prepared.values()].some((p) => Number.isFinite(p.mirrorLevelM));
+    // Any lake or river reflects the sky backdrop, mirror or not, until
+    // the rung after the mirror's (waterBackdrop).
+    const wanted = !this.contextLost && rangeQuality(frame?.qualityLevel).waterBackdrop
+      && [...this.prepared.values()].some((p) => Number.isFinite(p.mirrorLevelM) || (p.riverStats?.triangles || 0) > 0);
     if (!wanted || !ctx?.canvas || !(stage?.width > 0)) { this.releaseBackdrop(); return false; }
     const scale = Math.max(1, this.waterOutputScale || 1);
     const { width, height } = mirrorSize(this.size.width * scale, this.size.height * scale);
@@ -442,6 +468,15 @@ export class RangeScene {
     b.texture.needsUpdate = true;
     b.frame = frame?.frameId ?? -1;
     return true;
+  }
+
+  /** Water samples this frame's captured sky backdrop whenever one exists,
+   *  independent of the water level and of the mirror (every release path
+   *  still unbinds it through _unbindBackdrop). */
+  _bindBackdrop(u, frame) {
+    const b = this.backdrop?.frame === frame.frameId ? this.backdrop : null;
+    u.uBackdrop.value = b?.texture || null;
+    u.uBackdropAmount.value = b ? 1 : 0;
   }
 
   releaseBackdrop() {
@@ -489,7 +524,20 @@ export class RangeScene {
     const wanted = Number.isFinite(level) && rangeQuality(frame.qualityLevel).waterMirror
       && (frame.narrative?.materials ?? 1) > .01;
     const m = wanted ? this._ensureMirror(side) : null;
-    if (!m) { u.uMirrorAmount.value = 0; u.uBackdropAmount.value = 0; if (!wanted) this.releaseMirror(side); return; }
+    // A recovered mirror fades in over heard time; a shed drops it at once
+    // (keeping it would prolong the overload). Once per heard frame.
+    const dtSec = (frame.timeMs - (p.mirrorEaseAtMs ?? -Infinity)) / 1000;
+    p.mirrorFade = easeRungAmount(p.mirrorFade, m ? 1 : 0, dtSec, { down: 'snap' });
+    p.mirrorEaseAtMs = frame.timeMs;
+    // The water's surface shiver reads this with or without a planar mirror
+    // (rivers, q4 and denied mirrors still reflect the sky backdrop).
+    u.uMirrorRipple.value = ripple(frame.music);
+    if (!m) {
+      u.uMirrorAmount.value = 0; u.uMirror.value = null;
+      this._bindBackdrop(u, frame);
+      if (!wanted) this.releaseMirror(side);
+      return;
+    }
     if (m.frame !== frame.frameId || m.view !== viewId) {
       const r = this.renderer;
       const THREE = this.THREE;
@@ -497,6 +545,8 @@ export class RangeScene {
       mirrorTextureMatrix(THREE, this.mirrorCamera, m.matrix);
       for (const fm of p.fringeMeshes || []) fm.visible = false;
       u.uMirrorAmount.value = 0;
+      // The mirror pass's own water does not read the main view's backdrop.
+      u.uBackdropAmount.value = 0;
       // A disabled reflection still has an active sampler. Unbind the
       // previous image before drawing into it to avoid framebuffer feedback.
       u.uMirror.value = null;
@@ -535,19 +585,36 @@ export class RangeScene {
     u.uViewportPx.value.set(this.size.width, this.size.height);
     u.uMirror.value = m.target.texture;
     u.uMirrorMatrix.value.copy(m.matrix);
-    const b = this.backdrop?.frame === frame.frameId ? this.backdrop : null;
-    u.uBackdrop.value = b?.texture || null;
-    u.uBackdropAmount.value = b ? 1 : 0;
+    this._bindBackdrop(u, frame);
     u.uViewProj.value.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
     u.uMirrorLevel.value = level;
-    u.uMirrorRipple.value = ripple(frame.music);
-    u.uMirrorAmount.value = 1;
+    u.uMirrorAmount.value = p.mirrorFade;
   }
 
-  releaseShafts() {
-    if (!this.shafts) return;
+  /** The frame's sun-shaft source scaled by the rung fade (null at 0).
+   *  The far pass and renderDirectShaft both read it, so display and
+   *  capture scatter the same light. */
+  _shaftSource(frame) {
+    // Before any prepareShafts the rung alone decides, as it always did.
+    const presence = this.shaftPresence ?? (rangeQuality(frame.qualityLevel).sunShafts ? 1 : 0);
+    if (!(presence > 0)) return null;
+    const src = shaftSource(frame);
+    return src && { ...src, stormGain: src.stormGain * presence };
+  }
+
+  /** Free the shaft bundle. Eviction, context loss, view retirement and
+   *  a size change also end the fade (presence 0); a same-size target
+   *  reallocation, a travel side change and a re-allocation inside
+   *  prepareShafts keep it. */
+  releaseShafts({ keepPresence = false } = {}) {
+    if (!keepPresence) this.shaftPresence = 0;
+    const shafts = this.shafts;
+    if (!shafts) return;
+    // Detach first: the ledger's dispose callback treats a still attached
+    // bundle as an eviction (which ends the fade).
+    this.shafts = null;
     if (this.residency) this.residency.release(SHAFT_KEY);
-    else { this.shafts.dispose(); this.shafts = null; }
+    else shafts.dispose();
     if (this.depthCache) this.depthCache.A.frame = this.depthCache.B.frame = -1;
     this.shaftIdentity = null;
   }
@@ -1681,6 +1748,13 @@ export class RangeScene {
     p.uniforms.uForestSeed.value = hashSeed(p.view.terrainSourceId || p.view.id) >>> 0;
   }
 
+  /** Per-scene scratch: uniform code allocates nothing per frame. */
+  _scratch() {
+    const THREE = this.THREE;
+    return this._scratchState ||= { v3: new THREE.Vector3(), color: new THREE.Color(), color2: new THREE.Color(),
+      wind: [1, 0] };
+  }
+
   _setUniforms(p, frame) {
     const THREE = this.THREE;
     const u = p.uniforms;
@@ -1709,6 +1783,10 @@ export class RangeScene {
     u.uTime.value = frame.timeMs / 1000;
     m.gusts.forEach((g, i) => { u.uGustAge.value[i] = g.ageSec; u.uGustAmp.value[i] = g.amp01 * (1 + (frame.storm?.amount || 0) * .8); u.uGustDir.value[i] = g.dir; });
     syncGustUniforms(u);
+    if (u.uWind) {
+      const wind = forestWindAt(frame.effects, frame.storm, this._scratch().wind);
+      u.uWind.value.set(wind[0], wind[1]);
+    }
     syncWaterMusicUniforms(u, frame.effects);
     const rung = rangeQuality(frame.qualityLevel);
     u.uForestKeep.value = rung.forestKeep;
@@ -1724,7 +1802,9 @@ export class RangeScene {
     const c = frame.light.celestial;
     // Unproject the celestial's stage position into a world direction.
     const ndcX = c.xFrac * 2 - 1, ndcY = 1 - c.yFrac * 2;
-    const dir = c.worldDirection ? new THREE.Vector3(...c.worldDirection) : new THREE.Vector3(ndcX, ndcY, 0.5).unproject(this.camera).sub(this.camera.position).normalize();
+    const scratch = this._scratch();
+    const dir = c.worldDirection ? scratch.v3.set(c.worldDirection[0], c.worldDirection[1], c.worldDirection[2])
+      : scratch.v3.set(ndcX, ndcY, 0.5).unproject(this.camera).sub(this.camera.position).normalize();
     u.uLightDir.value.copy(dir.normalize());
     const night = frame.light.night01;
     const storm = frame.storm || { amount: 0, flash: 0, wet01: 0, break01: 0 };
@@ -1749,17 +1829,19 @@ export class RangeScene {
     // Under the squall the sun is gone behind the deck; the sky's own
     // (darkened, below) radiance is most of what lights the land.
     u.uLightColor.value.multiplyScalar(1 - storm.amount * .92);
-    u.uLightColor.value.add(new THREE.Color(.65, .77, 1).multiplyScalar(storm.flash * 1.6));
+    u.uLightColor.value.add(scratch.color.setRGB(.65, .77, 1).multiplyScalar(storm.flash * 1.6));
     u.uAmbientScale.value *= 1 - storm.amount * .15;
     u.uMoonAmbientScale.value *= 1 - storm.amount * .15;
     // Lightning lights the land from inside the deck, where the sky draws it.
     // The rain veil projects through the main camera on every view, mirror or not.
     u.uViewProj.value.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
     const skyPan = this.skyPan || { x: 0, y: 0 };
-    u.uRainShift.value = (skyPan.x || 0) / 2;
+    // Rain curtains are world-anchored (STORM_GLSL rainVeil); the seed is
+    // the sky's (drawStormSky's song seed), so land and sky hang the same.
+    if (u.uRainSeed) u.uRainSeed.value = rainSeed01(frame.seed ?? 0);
     if (storm.flash > 0) {
-      const fx = ((storm.flashU ?? .5) + u.uRainShift.value) * 2 - 1;
-      const flashDir = new THREE.Vector3(fx, .7, 0.5).unproject(this.camera).sub(this.camera.position).normalize();
+      const at = flashScreenPoint(storm, skyPan, 1, 1);
+      const flashDir = this._scratch().v3.set(at.x * 2 - 1, 1 - at.y * 2, 0.5).unproject(this.camera).sub(this.camera.position).normalize();
       u.uLightDir.value.lerp(flashDir, Math.min(1, storm.flash * 3)).normalize();
     }
     u.uSolarTransmission.value = c.body === 'sun' && strength > 0 ? .18 : 0;
@@ -1772,8 +1854,8 @@ export class RangeScene {
       // A restrained, steady colour recipe marks repeated verses/choruses.
       // Environment tint stays separate from the resolved physical body
       // color. Air, mist and reflected sky share the same recipe.
-      const tone = new THREE.Color().setHSL(frame.motif.hueDeg / 360, .65, .65);
-      const tint = new THREE.Color(1, 1, 1).lerp(tone, frame.motif.intensity01);
+      const tone = scratch.color.setHSL(frame.motif.hueDeg / 360, .65, .65);
+      const tint = scratch.color2.setRGB(1, 1, 1).lerp(tone, frame.motif.intensity01);
       u.uSkyZenith.value.multiply(tint);
       u.uSkyHorizon.value.multiply(tint);
       u.uAirColor.value.multiply(tint);
@@ -1782,11 +1864,19 @@ export class RangeScene {
     if (storm.amount > 0 || storm.break01 > 0) {
       // Slate storm light in the sky, the air and the water's reflection;
       // thick rain air under the squall, then rain-washed clarity after it.
-      const k = storm.amount * .95;
-      u.uSkyZenith.value.lerp(STORM_ZENITH, k);
-      u.uSkyHorizon.value.lerp(STORM_HORIZON, k);
-      u.uAirColor.value.lerp(STORM_AIR, k).add(new THREE.Color(.65, .77, 1).multiplyScalar(storm.flash * .35));
+      const k = storm.amount * .95, row = stormKindRow(storm);
+      u.uSkyZenith.value.lerp(row.zenith, k);
+      u.uSkyHorizon.value.lerp(row.horizon, k);
+      u.uAirColor.value.lerp(row.air, k).add(this._scratch().color.setRGB(.65, .77, 1).multiplyScalar(storm.flash * .35));
       u.uAirDensity.value *= 1 + storm.amount * .6 - storm.break01 * .35;
+      // The deck's lightning reaches the sky the water reflects (and the
+      // fill). Scaled by the land actually shown, so a narrative frame that
+      // is all uSkyHorizon does not flash as a whole.
+      const skyFlash = storm.flash * .12 * (n ? Math.min(visibility(n.relief ?? 1), visibility(n.materials ?? 1)) : 1);
+      if (skyFlash > 0) {
+        u.uSkyZenith.value.addScalar(skyFlash);
+        u.uSkyHorizon.value.addScalar(skyFlash);
+      }
     }
     // Valley mist: anchored at the view's water level, thicker in calm.
     const mp = mistParams({ rules: p.rules, waterLevelM: p.waterLevelM, heightRange: [u.uHeightRange.value.x, u.uHeightRange.value.y],
@@ -1802,7 +1892,9 @@ export class RangeScene {
       const fade = tourMistFade(mp.topM, mp.baseM);
       mp.fill *= fade; mp.density *= fade;
     }
-    u.uMistDensity.value = mp.density * (n?.atmosphere ?? 1);
+    // The score thins and lights the mist (atmosphereMusic; neutral when silent).
+    const am = atmosphereMusic(frame.effects);
+    u.uMistDensity.value = mp.density * (n?.atmosphere ?? 1) * am.mistDensityMul;
     // A rung change eases the fog's sampling over heard time (seek snaps).
     const dtSec = (frame.timeMs - (p.mistEaseAtMs ?? -Infinity)) / 1000;
     p.mistSteps = easeMistSteps(p.mistSteps, quality.mistSteps, dtSec);
@@ -1815,7 +1907,8 @@ export class RangeScene {
     u.uMistTop.value = mp.topM;
     u.uMistFill.value = mp.fill;
     // Lit mist: the air's colour lifted toward the key light (display domain).
-    u.uMistColor.value.copy(u.uAirColor.value).multiplyScalar(1.2).add(u.uLightColor.value.clone().multiplyScalar(0.06));
+    u.uMistColor.value.copy(u.uAirColor.value).multiplyScalar(1.2)
+      .add(this._scratch().color2.copy(u.uLightColor.value).multiplyScalar(0.06 + am.mistGlow));
     u.uMistColor.value.r = Math.min(0.9, u.uMistColor.value.r);
     u.uMistColor.value.g = Math.min(0.9, u.uMistColor.value.g);
     u.uMistColor.value.b = Math.min(0.9, u.uMistColor.value.b);
@@ -1826,24 +1919,66 @@ export class RangeScene {
     this._setActors(p, frame);
   }
 
+  /** The key light through the sky's clouds (CloudOcclusion). A painted
+   *  legacy sky (skyClouds) keeps its moon-only puffs in mode 0; otherwise
+   *  the fair-weather banks the high-resolution sky draws cast world-plane
+   *  shadows (mode 1) where the rung allows and the light is up. Pure in
+   *  heard time and the song seed, so seeks match continuous play. */
   _setCloudUniforms(p, frame) {
     const u = p.uniforms;
     if (!u.uCloudCount) return;
-    u.uMoonClouds.value = frame.light?.celestial?.body === 'moon' ? 1 : 0;
+    const c = frame.light?.celestial;
+    u.uMoonClouds.value = c?.body === 'moon' ? 1 : 0;
     u.uCloudCount.value = 0;
-    if (!this.skyClouds || !u.uMoonClouds.value) return;
-    const e = this.camera.matrixWorld.elements;
-    const right = [e[0], e[1], e[2]], up = [e[4], e[5], e[6]], forward = [-e[8], -e[9], -e[10]];
-    const eyeM = this.camera.position.toArray();
-    const pose = { eyeM, targetM: eyeM.map((v,k) => v + forward[k]), fovYDeg: this.camera.fov, view: this.camera.view };
-    const puffs = cloudPuffs(this.skyClouds.banks, { ...this.skyClouds.options, pose });
-    u.uCloudRight.value.set(...right); u.uCloudUp.value.set(...up); u.uCloudForward.value.set(...forward);
-    u.uCloudCount.value = puffs.length;
-    puffs.forEach((puff,i) => {
-      u.uCloudCenterRadius.value[i].set(...puff.centerM, puff.radiusXM);
-      const shape = u.uCloudShape.value[Math.floor(i / 2)], component = (i % 2) * 2;
-      shape.setComponent(component, puff.radiusYM).setComponent(component + 1, puff.opacity);
-    });
+    if (u.uCloudMode) u.uCloudMode.value = 0;
+    if (u.uCloudStrength) u.uCloudStrength.value = 0;
+    if (this.skyClouds) {
+      if (!u.uMoonClouds.value) return;
+      const e = this.camera.matrixWorld.elements;
+      const eyeM = this.camera.position.toArray();
+      const pose = { eyeM, targetM: [eyeM[0] - e[8], eyeM[1] - e[9], eyeM[2] - e[10]], fovYDeg: this.camera.fov, view: this.camera.view };
+      const puffs = cloudPuffs(this.skyClouds.banks, { ...this.skyClouds.options, pose });
+      u.uCloudRight.value.set(e[0], e[1], e[2]); u.uCloudUp.value.set(e[4], e[5], e[6]); u.uCloudForward.value.set(-e[8], -e[9], -e[10]);
+      u.uCloudCount.value = puffs.length;
+      for (let i = 0; i < puffs.length; i++) {
+        const puff = puffs[i];
+        u.uCloudCenterRadius.value[i].set(puff.centerM[0], puff.centerM[1], puff.centerM[2], puff.radiusXM);
+        const shape = u.uCloudShape.value[i >> 1], component = (i % 2) * 2;
+        shape.setComponent(component, puff.radiusYM).setComponent(component + 1, puff.opacity);
+      }
+      return;
+    }
+    const light = u.uLightDir?.value;
+    if (!u.uCloudMode) return;
+    // A rung shed or recovery fades the shadows over heard time instead of
+    // popping them across the land (held on pause, snapped on a seek).
+    const dtSec = (frame.timeMs - (p.cloudFadeAtMs ?? -Infinity)) / 1000;
+    p.cloudFade = easeRungAmount(p.cloudFade, rangeQuality(frame.qualityLevel).cloudShadows ? 1 : 0, dtSec);
+    p.cloudFadeAtMs = frame.timeMs;
+    if (!light || !c?.body || !(p.cloudFade > 0) || !(light.y > .05)) return;
+    const unit = v => Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0;
+    const visible = unit(c.body === 'moon' ? (frame.light.state?.moon?.discAlpha ?? c.visibility ?? 1) : (c.visibility ?? 1));
+    const strength = CLOUD_SHADOW_MAX * (1 - unit(frame.storm?.amount)) * visible * (c.intensity > 0 ? 1 : 0) * p.cloudFade;
+    if (!(strength > 0)) return;
+    const eye = this.camera.position;
+    CASTER_EYE[0] = eye.x; CASTER_EYE[1] = eye.y; CASTER_EYE[2] = eye.z;
+    CASTER_LIGHT[0] = light.x; CASTER_LIGHT[1] = light.y; CASTER_LIGHT[2] = light.z;
+    const timeSec = frame.timeMs / 1000;
+    const count = cloudShadowCasters({ eyeM: CASTER_EYE, timeSec, seed: frame.seed ?? 0, lightDir: CASTER_LIGHT,
+      max: Math.min(CLOUD_SHADOW_CASTERS, MAX_CLOUD_PUFFS), out: CASTERS });
+    for (let i = 0; i < count; i++) {
+      const o = i * CLOUD_CASTER_STRIDE;
+      u.uCloudCenterRadius.value[i].set(CASTERS[o], CASTERS[o + 1], CASTERS[o + 2], CASTERS[o + 3]);
+      const shape = u.uCloudShape.value[i >> 1], component = (i % 2) * 2;
+      shape.setComponent(component, CASTERS[o + 4]).setComponent(component + 1, CASTERS[o + 5]);
+    }
+    u.uCloudRight.value.set(CLOUD_WIND_AXIS[0], 0, CLOUD_WIND_AXIS[1]);
+    u.uCloudUp.value.set(-CLOUD_WIND_AXIS[1], 0, CLOUD_WIND_AXIS[0]);
+    // The clouds' own wind drift (RangeCloudField) carries the breakup.
+    u.uCloudForward.value.set(Number.isFinite(timeSec) ? timeSec * 10 : 0, 0, Number.isFinite(timeSec) ? timeSec * 3 : 0);
+    u.uCloudCount.value = count;
+    u.uCloudMode.value = count ? 1 : 0;
+    u.uCloudStrength.value = count ? strength : 0;
   }
 
   /**
@@ -1912,6 +2047,10 @@ export class RangeScene {
       // light itself, so the ground it hovers over does not cut its halo.
       const mpp0 = (2 * dist * tanHalf) / 720;
       const haloPx = look.haloPx * (1 + 0.6 * beacon);
+      // The lantern's musical pulse (contract C2, RangeActors pulse01 and
+      // spread; absent until the score provides them). The push toward the
+      // camera stays on the steady halo.
+      const pulse = s.pulse01 || 0;
       const push = Math.min(dist * 0.25, 3 * haloPx * mpp0);
       const toCam = cam.position.clone().sub(at).normalize();
       const v = p.actors.uniforms[id];
@@ -1920,7 +2059,9 @@ export class RangeScene {
       v.uRight.value.copy(right);
       v.uUp.value.copy(up);
       v.uMpp.value = mpp0 * (dist - push) / dist;
-      v.uHaloPx.value = haloPx;
+      v.uHaloPx.value = haloPx * (1 + .18 * pulse);
+      if (v.uPulse) v.uPulse.value = pulse;
+      if (v.uSpread) v.uSpread.value = s.spread ?? 1;
       v.uColor.value.copy(display);
       v.uGlow.value = Math.max(s.glow, beacon);
       v.uPresence.value = presence * (0.55 + 0.45 * dark) * (job?.dim ?? 1);
@@ -2102,15 +2243,21 @@ export class RangeScene {
     // Threads are faint: a survey line, not a light.
     threads.setLook(new THREE.Color().setHSL(ACTOR_HUES.midasus / 360, 0.85, 0.7).convertSRGBToLinear(), 0.6 * gain);
     const low = rangeQuality(frame.qualityLevel).level >= 4;
+    // Rung 4 keeps 12 of the 32 fixed-line lights; the rest fade out (and
+    // back in on recovery) over heard time instead of popping.
+    const dtSec = (frame.timeMs - (p.castFadeAtMs ?? -Infinity)) / 1000;
+    p.castFade = easeRungAmount(p.castFade, low ? 0 : 1, dtSec);
+    p.castFadeAtMs = frame.timeMs;
     const fuse = job?.state.fuse01 ?? 0;
     lights.forEach((l, k) => {
-      if (!job || (low && l.kind === 'line' && !l.low)) { sites.setState(k, 0); return; }
+      const fade = l.kind === 'line' && !l.low ? p.castFade : 1;
+      if (!job || !(fade > 0)) { sites.setState(k, 0); return; }
       const age = job.since(l.mark);
       // A light comes up as its motes arrive, then never goes out. On the
       // climax the fuse runs up the fixed lines, flaring each once.
       const lit = age < 0 ? 0 : Math.min(1, age / 800);
       const f = l.kind === 'line' && fuse > 0 && fuse < 1 ? Math.exp(-(((fuse - (l.u - p.castPlan.waterU) / (1 - p.castPlan.waterU)) / 0.06) ** 2)) : 0;
-      sites.setState(k, lit, f);
+      sites.setState(k, lit * fade, f * fade);
     });
     for (let j = 0; j < Math.min(campSlots, p.castCamps.length - campFrom); j++) sites.setState(lights.length + j, made > campFrom + j ? 1 : 0);
     if (rope && work?.rope) {
@@ -2229,7 +2376,7 @@ export class RangeScene {
     const castInBands = this.castInBands !== false || !!bandColumns;
     this.camera.layers.set(0);
     if (!softForest) { this.camera.layers.enable(3); if (castInBands) enableCastLayers(this.camera); }
-    const source = pass === 'far' && rangeQuality(frame.qualityLevel).sunShafts ? shaftSource(frame) : null;
+    const source = pass === 'far' ? this._shaftSource(frame) : null;
     const forestDepth = p.uniforms.uNarrativeInk.value >= .005
       || (castInBands && this._castShown(p))
       || !!(source && this.shafts);
@@ -2287,6 +2434,7 @@ export class RangeScene {
     // What the cast pass will find in this side's target after the near
     // partition: whose depth, and whether the trees' crown cut is in it.
     if (pass === 'near') depth.cast = bandColumns ? null : { frame: frame.frameId, view: viewId, forest: !softForest || forestDepth };
+    if (this.crestProbeMode && side === 'A' && !bandColumns && this.pixelated) this._probeCrest(frame, target, p, pass);
     this.camera.layers.set(0); this.camera.layers.enable(3);
     // Far is the single solar boundary, before the inserted Dancing Ridge.
     // During travel its depth was just rebuilt with this side's real columns.
@@ -2308,7 +2456,7 @@ export class RangeScene {
   /** Resolve the already accumulated shaft field at output resolution. The
    * depth guard stays tied to the terrain grid, retaining its hard edges. */
   renderDirectShaft(frame, width, height, { side = 'A' } = {}) {
-    const source = shaftSource(frame);
+    const source = this._shaftSource(frame);
     if (!source || !this.shafts?.buffers?.[side] || !this.shafts?.targets?.[side]) return null;
     const r = this.renderer;
     r.setRenderTarget(null); this._setCanvasSize(Math.max(2, Math.round(width)), Math.max(2, Math.round(height)));
@@ -2394,6 +2542,31 @@ export class RangeScene {
     return this[property];
   }
 
+  /** Probe this band's crest columns (CrestProbe.js) from its own target. */
+  _probeCrest(frame, target, p, pass) {
+    try {
+      this.crestProbe ||= new CrestProbe(this.THREE, this.renderer);
+      this.crestProbe.begin(frame.frameId, target.width, target.height);
+      this.crestProbe.useDepth = this.crestProbeMode === 'refined';
+      this.crestProbe.band(target, this.camera, p.uniforms?.uHeightRange?.value || null, pass);
+    } catch { this.crestProbe?.dispose(); this.crestProbe = null; this.crestProbeMode = null; }
+  }
+
+  /** This frame's crest probe data, or null: the newest completed
+   * asynchronous readback (live), or this frame's rows read synchronously
+   * (`sync`: export draws; or no usable asynchronous result). See CrestProbe.read. */
+  readCrestProbe(frameId, options = {}) {
+    if (!this.crestProbe || this.contextLost) return null;
+    try { return this.crestProbe.read(frameId, options); }
+    finally { this.renderer.setRenderTarget(null); }
+  }
+
+  /** Discard the crest probe's asynchronous results (a new song). Seeks
+   * and view changes are found by CrestProbe.read itself. */
+  resetCrestProbe() { this.crestProbe?.reset(); }
+
+  releaseCrestProbe() { this.crestProbe?.dispose(); this.crestProbe = null; }
+
   /** Render water at display resolution against the complete terrain and
    * forest depth. The caller must copy the returned transient canvas before
    * another scene render. A refused allocation leaves the native pass intact. */
@@ -2427,6 +2600,10 @@ export class RangeScene {
         if (bandColumns) this._travelFringe(p, outputTarget, band, bandColumns);
       }
       u.uWaterOnly.value = 0;
+      if (this.crestProbeMode === 'refined' && !capture && !pass && !bandColumns && side === 'A'
+        && w === this.size.width && h === this.size.height && this.crestProbe?.frameId === frame.frameId) {
+        try { this.crestProbe.water(outputTarget, this.camera); } catch { /* shorelines are optional */ }
+      }
       r.setRenderTarget(null);
       this._setCanvasSize(w, h);
       r.clear(true, true, false);
@@ -2514,8 +2691,9 @@ export class RangeScene {
     const THREE = this.THREE;
     // A lightning flash lights the stage from its strike, as it does the land.
     const storm = frame.storm, strike = Math.min(1, (storm?.flash || 0) * 3);
-    const key = strike > 0 ? { x: frame.light.ground.x + (((storm.flashU ?? .5) + (u.uRainShift?.value || 0)) * vp.logicalWidth - frame.light.ground.x) * strike,
-      y: frame.light.ground.y + (vp.logicalHeight * .15 - frame.light.ground.y) * strike } : frame.light.ground;
+    const at = strike > 0 ? flashScreenPoint(storm, this.skyPan, vp.logicalWidth, vp.logicalHeight) : null;
+    const key = at ? { x: frame.light.ground.x + (at.x - frame.light.ground.x) * strike,
+      y: frame.light.ground.y + (at.y - frame.light.ground.y) * strike } : frame.light.ground;
     // Stage normals use +Y upward; the recorded ground anchor is Canvas
     // +Y downward. Keep the existing shallow depth/rock calibration.
     const lightDir = new THREE.Vector3((key.x - vp.logicalWidth * .5) / vp.logicalHeight,
@@ -2545,6 +2723,7 @@ export class RangeScene {
   }
 
   _invalidateContext() {
+    this.releaseCrestProbe();
     this.releaseWaterTarget();
     this.releaseShafts();
     this.releaseBackdrop();
@@ -2578,6 +2757,7 @@ export class RangeScene {
   }
 
   dispose() {
+    this.releaseCrestProbe();
     this.releaseWaterTarget();
     this.releaseShafts();
     this.releaseBackdrop();

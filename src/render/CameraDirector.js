@@ -122,6 +122,9 @@ export class CameraDirector {
     this._rollSign = 1;
 
     this.zoom = 1; // 1 = normal framing; the Renderer widens the logical stage view by 1/zoom
+    // The part of 1 - zoom that is the lens accent's pull-back this frame (0
+    // idle). A Range view has its own GPU lens and adds this back (contract C3).
+    this.universeDip = 0;
     this._zoomTarget = 1;
     this._zoomBase = 1; // the eased off-frame-pullback value, BEFORE the universe-pulse dip below
     this.floatTilt = 0; // radians, the per-layer-scaled base value -- see FLOAT_TILT_MAX
@@ -153,8 +156,10 @@ export class CameraDirector {
    *    very first frame). @param beatEnergy 0..1 how much the current
    *    section musically justifies extra motion (vibe.epic/hype.surge).
    *  @param universePulse 0..1, CameraLens.zoomPulse -- a selected musical
-   *    accent with anticipation, hold and eased recovery. */
-  update(dtSec, calmLevel = 0, beatTauMs = null, beatEnergy = 0, universePulse = 0) {
+   *    accent with anticipation, hold and eased recovery.
+   *  @param cueIndex CameraLens.cueIndex, the accent's place in the song's
+   *    cue list (-1 none); it picks the tilt side, so seeking agrees with play. */
+  update(dtSec, calmLevel = 0, beatTauMs = null, beatEnergy = 0, universePulse = 0, cueIndex = -1) {
     let shakeX = 0, shakeY = 0;
     if (this._shakeAmp > 0.01) {
       this._shakeT += dtSec;
@@ -226,9 +231,10 @@ export class CameraDirector {
     this._zoomBase += zoomAlpha * (this._zoomTarget - this._zoomBase);
 
     // Universe-shift reframe: a brief pull-back + tilt on top of whatever
-    // zoom/roll the frame already has, riding the director's own pulse
-    // envelope. New sign each time a fresh pulse starts, same alternating-
-    // side discipline as the beat sway above.
+    // zoom/roll the frame already has, riding the lens accent's envelope.
+    // Accents alternate sides by their index in the song, a pure function of
+    // heard time; only a caller without an index falls back to toggling on
+    // each fresh pulse, which depends on what this director has seen.
     //
     // The dip is computed fresh from _zoomBase every frame (never
     // accumulated into this.zoom/_zoomBase itself) -- pulse stays elevated
@@ -238,9 +244,11 @@ export class CameraDirector {
     const pulse = clamp01(universePulse);
     if (pulse > 0 && (this._lastUniversePulse ?? 0) <= 0) this._universeRollSign = -this._universeRollSign;
     this._lastUniversePulse = pulse;
-    this.zoom = this._zoomBase - UNIVERSE_ZOOM_DIP * pulse;
+    const rollSign = Number.isInteger(cueIndex) && cueIndex >= 0 ? (cueIndex % 2 ? 1 : -1) : this._universeRollSign;
+    this.universeDip = UNIVERSE_ZOOM_DIP * pulse;
+    this.zoom = this._zoomBase - this.universeDip;
     if (pulse > 0) {
-      this.roll += UNIVERSE_ROLL_MAX * pulse * this._universeRollSign;
+      this.roll += UNIVERSE_ROLL_MAX * pulse * rollSign;
     }
 
     // Float tilt: 0 at zoom=1 (normal framing), ramping to FLOAT_TILT_MAX as

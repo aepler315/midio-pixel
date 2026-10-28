@@ -229,6 +229,43 @@ export function mistParams({ rules = {}, waterLevelM = null, heightRange = [0, 1
   };
 }
 
+const unit = value => Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
+/** The atmosphere with no music: today's mist and shafts exactly. */
+export const ATMOSPHERE_NEUTRAL = Object.freeze({ mistDensityMul: 1, mistGlow: 0, shaftGain: 1 });
+const ATMOSPHERE_SCRATCH = { mistDensityMul: 1, mistGlow: 0, shaftGain: 1 };
+/** The score's hold on the valley air, from the heard effects frame: the
+ *  music's energy thins the mist a little and lights it from within, and
+ *  lifts the sun's shafts; a section lift adds to both and bass adds weight.
+ *  The air leans on the slow channels (energy and bass are trailing
+ *  averages); `lift` has a 100 ms attack, so its weight stays small enough
+ *  that a section boundary swells the whole valley rather than popping it
+ *  (at most about .02 of mist density per 33 ms frame). Pure in the frozen
+ *  effects frame, so
+ *  seek, pause, display and capture agree. Null or silent music returns the
+ *  frozen ATMOSPHERE_NEUTRAL; otherwise one reused object (no per-frame
+ *  allocation), valid until the next call. */
+export function atmosphereMusic(effects) {
+  if (!effects) return ATMOSPHERE_NEUTRAL;
+  const lift = unit(effects.lift), bass = unit(effects.bass), energy = unit(effects.energy);
+  if (lift < .001 && bass < .001 && energy < .001) return ATMOSPHERE_NEUTRAL;
+  ATMOSPHERE_SCRATCH.mistDensityMul = Math.max(.75, 1 - .12 * energy - .06 * lift - .05 * bass);
+  ATMOSPHERE_SCRATCH.mistGlow = .02 * lift + .04 * energy;
+  ATMOSPHERE_SCRATCH.shaftGain = Math.min(1.4, 1 + .25 * energy + .15 * lift + .1 * bass);
+  return ATMOSPHERE_SCRATCH;
+}
+
+/** Forward scatter of the key light in mist (Henyey-Greenstein, g = .6),
+ *  normalised so isotropic scatter is 0 and looking straight into the
+ *  light (cosTheta = 1) is 1; never negative. GLSL twin: MIST_GLSL
+ *  mistPhase. cosTheta = dot(view ray from the eye, direction to light). */
+export const MIST_SCATTER_G = .6;
+export function mistForwardScatter(cosTheta, g = MIST_SCATTER_G) {
+  if (!Number.isFinite(cosTheta) || !Number.isFinite(g) || !(g > 0 && g < 1)) return 0;
+  const c = Math.max(-1, Math.min(1, cosTheta));
+  const hg = (1 - g * g) / (1 + g * g - 2 * g * c) ** 1.5, peak = (1 + g) / ((1 - g) * (1 - g));
+  return Math.min(1, Math.max(0, (hg - 1) / (peak - 1)));
+}
+
 export const MIST_GLSL = /* glsl */`
   uniform float uMistDensity;
   uniform float uMistSteps; // 1..MIST_SAMPLES: the quality ladder's fog sampling
@@ -265,6 +302,15 @@ export const MIST_GLSL = /* glsl */`
     return smoothstep(0.35, 0.75, n);
   }
   float mistMask(vec2 xz) { return mistMaskAt(xz, 0.0); }
+  // Forward scatter toward the light (mistForwardScatter): 0 isotropic,
+  // 1 looking into it. The light direction is an argument, not a uniform.
+  float mistPhase(vec3 view, vec3 lightDir) {
+    float c = clamp(dot(view, lightDir), -1.0, 1.0);
+    float g = ${MIST_SCATTER_G.toFixed(2)};
+    float hg = (1.0 - g * g) / pow(1.0 + g * g - 2.0 * g * c, 1.5);
+    float peak = (1.0 + g) / ((1.0 - g) * (1.0 - g));
+    return clamp((hg - 1.0) / (peak - 1.0), 0.0, 1.0);
+  }
   float mistExpInt(float y) { return y <= uMistBase ? y : uMistBase + uMistHeight * (1.0 - exp(-(y - uMistBase) / uMistHeight)); }
   float mistSlabInt(float y) {
     float lo = uMistTop - ${SEA_TOP_SOFT_BELOW_M.toFixed(1)}, hi = uMistTop + ${SEA_TOP_SOFT_ABOVE_M.toFixed(1)}, w = hi - lo;

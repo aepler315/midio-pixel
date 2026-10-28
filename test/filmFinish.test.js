@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { FilmFinish, vignetteTarget, gradeTarget } from '../src/render/FilmFinish.js';
+import { FilmFinish, vignetteTarget, gradeTarget, landscapeFinish } from '../src/render/FilmFinish.js';
 
 function fakeHype({ surge = 0, slam = 0, fast = 0 } = {}) {
   return { surge, slam, fast };
@@ -114,4 +114,62 @@ test('FilmFinish.hit: an unknown kind snaps the vignette but leaves warmth untou
   ff.hit('not-a-real-moment');
   assert.equal(ff.vignetteDepth, 1);
   assert.equal(ff.warmth, before);
+});
+
+// Landscape's vignette: a pure function of the shared score.
+const SILENT = Object.freeze({ energy: 0, lift: 0, kick: 0, stormAmount: 0 });
+const finish = (score, opts) => landscapeFinish(score, opts, {});
+
+test('landscapeFinish is pure: equal inputs give equal outputs, written into the caller\'s object', () => {
+  const score = { energy: 0.4, lift: 0.3, kick: 0.6, stormAmount: 0.5 };
+  const out = { edgeAlpha: -1, onset: -1 };
+  assert.equal(landscapeFinish(score, { vignetteDepthMul: 1.08 }, out), out, 'writes into out, no new object');
+  assert.deepEqual(finish(score, { vignetteDepthMul: 1.08 }), { ...out });
+  assert.deepEqual(finish({ ...score }, { vignetteDepthMul: 1.08 }), { ...out });
+});
+
+test('landscapeFinish: the silent score rests at the resting edge, and shedding keeps that edge', () => {
+  const rest = finish(SILENT);
+  assert.ok(Math.abs(rest.edgeAlpha - 0.32) < 1e-12, `resting edge ${rest.edgeAlpha}`);
+  assert.equal(rest.onset, 0.56);
+  assert.deepEqual(finish({}), rest, 'missing fields read as silence');
+  const loud = { energy: 1, lift: 1, kick: 1, stormAmount: 1 };
+  const shed = finish(loud, { heavy: false });
+  assert.deepEqual(shed, rest, 'heavy off ignores the music and returns the resting edge');
+  assert.ok(shed.edgeAlpha > 0, 'still a vignette, never zero');
+});
+
+test('landscapeFinish: a section lift strictly opens the edge', () => {
+  for (const energy of [0, 0.4, 1]) {
+    for (const stormAmount of [0, 1]) {
+      const closed = finish({ energy, lift: 0, stormAmount }).edgeAlpha;
+      const open = finish({ energy, lift: 1, stormAmount }).edgeAlpha;
+      assert.ok(open < closed, `energy ${energy} storm ${stormAmount}: ${open} < ${closed}`);
+    }
+  }
+});
+
+test('landscapeFinish: a kick only widens the onset and never raises the edge', () => {
+  for (const energy of [0, 0.3, 0.5, 1]) {
+    const base = finish({ energy, lift: 0.2 });
+    for (const kick of [0.1, 0.5, 1]) {
+      const hit = finish({ energy, lift: 0.2, kick });
+      assert.ok(hit.edgeAlpha <= base.edgeAlpha, 'kick never darkens the frame');
+      assert.equal(hit.edgeAlpha, base.edgeAlpha);
+      assert.ok(hit.onset > base.onset, 'kick pushes the onset outward');
+    }
+  }
+});
+
+test('landscapeFinish follows energy with several distinct edges, always within [.10, .36]', () => {
+  const edges = new Set();
+  for (let i = 0; i <= 20; i++) edges.add(finish({ energy: i / 20 }).edgeAlpha.toFixed(4));
+  assert.ok(edges.size >= 3, `distinct edges across energy: ${[...edges]}`);
+  assert.ok(finish({ energy: 1 }).edgeAlpha < finish({ energy: 0 }).edgeAlpha, 'quiet passages are deeper');
+  for (const energy of [0, 0.3, 0.6, 1]) for (const lift of [0, 1]) for (const stormAmount of [0, 1])
+    for (const kick of [0, 1]) for (const vignetteDepthMul of [0, 0.5, 1, 1.08, 3]) for (const heavy of [true, false]) {
+      const { edgeAlpha, onset } = finish({ energy, lift, kick, stormAmount }, { heavy, vignetteDepthMul });
+      assert.ok(edgeAlpha >= 0.10 && edgeAlpha <= 0.36, `edge ${edgeAlpha}`);
+      assert.ok(onset >= 0.56 && onset <= 0.585 + 1e-12, `onset ${onset}`);
+    }
 });

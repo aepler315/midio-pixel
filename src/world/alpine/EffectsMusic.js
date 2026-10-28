@@ -14,6 +14,7 @@ const DECAY_MS = { kick: 240, snare: 125, melody: 650 };
 const CHANNELS = ['energy', 'bass', 'treble', 'kick', 'snare', 'melody', 'lift'];
 const timelineCache = new WeakMap();
 const floorCache = new WeakMap();
+const cadenceCache = new WeakMap();
 
 function eventKind(event) {
   if (event.role === 'RHYTHM' || event.channel === 9) {
@@ -61,9 +62,10 @@ function through(list, timeMs, key = 'tMs') {
   return lo;
 }
 
-// The fallback uses the same physical quiet-floor policy as RidgeMotionHistory.
-// Normalized bands alone cannot distinguish music from amplified recording hiss.
-function physicalFloor(curves) {
+// The fallback uses the same physical quiet-floor policy as RidgeMotionHistory
+// and RangeNarrative. Normalized bands alone cannot distinguish music from
+// amplified recording hiss.
+export function physicalFloor(curves) {
   if (!curves?.rmsBands) return null;
   let cached = floorCache.get(curves);
   if (cached?.bands === curves.rmsBands) return cached.floor;
@@ -90,14 +92,49 @@ function curveAt(curves, timeMs, floor) {
   return { energy, bands: audible ? bands : Array(7).fill(0), audible };
 }
 
+/** The song's cadence: the end of the last analysis frame the shared silence
+ * gate (curveAt) still hears, so the ending follows the music rather than the
+ * file's padding. Without frame data, or with curves that stop short of the
+ * declared duration (an opening analysis), the declared end is the only
+ * honest one. Pure of the song analysis; cached per curves. */
+export function lastAudibleMs(curves, durationMs) {
+  const duration = positive(durationMs);
+  if (!curves || !(duration > 0)) return duration;
+  const cached = cadenceCache.get(curves);
+  if (cached?.duration === duration && cached.bands === curves.bands && cached.rms === curves.rmsBands) return cached.value;
+  const rate = Number.isFinite(curves.rateHz) && curves.rateHz > 0 ? curves.rateHz : 50;
+  const lengths = [...(Array.isArray(curves.rmsBands) ? curves.rmsBands : []), ...(Array.isArray(curves.bands) ? curves.bands : [])]
+    .map(band => band?.length || 0);
+  const frames = lengths.length ? Math.max(...lengths) : Number.isInteger(curves.n) ? Math.max(0, curves.n) : 0;
+  const readable = Array.isArray(curves.bands) || typeof curves.sample === 'function';
+  let value = duration;
+  if (readable && frames > 0 && (frames - 1) * 1000 / rate >= duration - 1000) {
+    const floor = physicalFloor(curves);
+    for (let i = Math.min(frames, Math.ceil(duration * rate / 1000)) - 1; i >= 0; i--) {
+      if (!curveAt(curves, i * 1000 / rate, floor).audible) continue;
+      value = Math.min(duration, (i + 1) * 1000 / rate);
+      break;
+    }
+  }
+  cadenceCache.set(curves, { duration, bands: curves.bands, rms: curves.rmsBands, value });
+  return value;
+}
+
+/** How far a section boundary is musical evidence: decorative pacing cuts and
+ * zero-confidence boundaries are none, inferred (band-energy novelty) half,
+ * every other boundary full. Lift, the landscape score and the lens share it. */
+export function sectionTrust(section) {
+  if (!section || section.provenance === 'decorative' || section.confidence === 0) return 0;
+  return section.provenance === 'inferred' ? .5 : 1;
+}
+
 function sectionLift(sections, timeMs) {
   if (!Array.isArray(sections)) return 0;
   const index = through(sections, timeMs, 'startMs') - 1;
   if (index < 1) return 0;
   const section = sections[index], prior = sections[index - 1];
   const age = timeMs - section.startMs;
-  const trust = section.confidence === 0 ? 0 : section.provenance === 'inferred' ? .5
-    : ['detected', 'authored'].includes(section.provenance) ? 1 : 0;
+  const trust = sectionTrust(section);
   if (!trust || age < 0 || age >= EVENTS_MS || !Number.isFinite(section.meanEnergy) || !Number.isFinite(prior?.meanEnergy)) return 0;
   const opening = unit(age / 100);
   const release = (1 - age / EVENTS_MS) ** 1.5;

@@ -612,7 +612,7 @@ test('novae expire after their delay + life, aging even while the voyage is idle
 test('atlasPulse defaults to 0 and is a plain writable field for the Simulation', () => {
   const v = new SkyVoyage(53);
   assert.equal(v.atlasPulse, 0);
-  v.atlasPulse = 0.7; // Simulation writes hype.slam here each step
+  v.atlasPulse = 0.7; // TrioPerformance writes slamAt(kicks, heard time) here each step
   assert.equal(v.atlasPulse, 0.7);
 });
 

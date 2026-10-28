@@ -20,15 +20,16 @@ async function receiver() {
 
 // Execute the production GLSL's scalar math, with GLSL built-ins given their
 // scalar semantics. This catches broken envelopes/advection without a GPU.
-function shaderScalar(name, args) {
-  const match = SCENE_FRAG.match(new RegExp(`float ${name}\\([^)]*\\) \\{([\\s\\S]*?)\\n\\s*\\}`));
+function shaderScalar(name, args, type = 'float') {
+  const match = SCENE_FRAG.match(new RegExp(`${type} ${name}\\([^)]*\\) \\{([\\s\\S]*?)\\n\\s*\\}`));
   assert.ok(match, `production water shader must provide ${name}`);
   const body = match[1].replace(/\bfloat\s+/g, 'let ').replace(/\b(pow|exp|max|min|cos|sin)\(/g, 'Math.$1(');
-  return new Function(...args, 'clamp', 'smoothstep', body);
+  return new Function(...args, 'clamp', 'smoothstep', 'mix', body);
 }
 
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+const mix = (a, b, t) => a + (b - a) * t;
 
 test('water receives distinct musical channels even when the quality ladder sheds its mirror', async () => {
   assert.ok(sceneUniforms(THREE, {}).uWaterMusic, 'surface music must have per-view uniforms');
@@ -92,4 +93,97 @@ test('musical roughness preserves calm water and remains bounded during strong b
   assert.equal(glint(1, 0, 1, clamp, smoothstep), 0, 'silence retains the old direct highlight');
   assert.ok(glint(.99, 1, 1, clamp, smoothstep) > 0);
   assert.ok(glint(1, 1.6, 1, clamp, smoothstep) < .3);
+});
+
+test('the score thins and lights the valley mist, and silence restores it exactly', async () => {
+  const { uniforms: u, draw } = await receiver();
+  const snap = () => [u.uMistDensity.value, ...u.uMistColor.value.toArray()];
+  draw(null);
+  const quiet = snap();
+  draw({ energy: 0, bass: 0, treble: 0, kick: 0, snare: 0, melody: 0, lift: 0 });
+  assert.deepEqual(snap(), quiet);
+  draw({ energy: 1, bass: 1, lift: 1 });
+  const lifted = snap();
+  assert.ok(quiet[0] > 0 && Math.abs(lifted[0] - quiet[0] * .77) < 1e-9 * quiet[0], 'thinner mist under a lift');
+  assert.ok(lifted.slice(1).every((v, i) => v >= quiet[i + 1] && v <= .9), 'lit from within, still clamped');
+  draw(null);
+  assert.deepEqual(snap(), quiet);
+});
+
+test('the open sky water reflects rises from the horizon band toward the zenith', () => {
+  // Evaluated per colour channel: the uniforms enter as scalar arguments.
+  const at = shaderScalar('skyReflectAt', ['reflectedY', 'uSkyHorizon', 'uSkyZenith'], 'vec3');
+  const sky = y => at(y, .6, .2, clamp, smoothstep, mix);
+  assert.equal(sky(0), .3, 'horizon * .5 at a grazing reflection');
+  assert.ok(Math.abs(sky(.6) - .1) < 1e-12 && sky(1) === sky(.6), 'zenith * .5 overhead');
+  for (let y = .02; y <= 1; y += .02) assert.ok(sky(y) <= sky(y - .02), `monotone toward the zenith at ${y}`);
+  assert.doesNotMatch(SCENE_FRAG, /mix\(uSkyZenith, uSkyHorizon, 0\.3\) \* 0\.5/, 'the fixed sky fallback is gone');
+  assert.match(SCENE_FRAG, /float skyHere = fres \* \(1\.0 - uBackdropAmount\);/);
+});
+
+test('water binds the current sky backdrop at q4 with no mirror', async () => {
+  const { RangeScene } = await import('../src/world/alpine/RangeScene.js');
+  const uniforms = sceneUniforms(THREE, {});
+  const texture = new THREE.Texture();
+  uniforms.uMirror.value = new THREE.Texture();
+  const scene = Object.assign(Object.create(RangeScene.prototype), { THREE, size: { width: 640, height: 360 }, mirrors: {},
+    backdrop: { frame: 7, texture } });
+  const p = { uniforms, mirrorLevelM: 1900 };
+  scene._prepareMirror(p, { qualityLevel: 4, frameId: 7, timeMs: 1000 }, 'A', 'lake');
+  assert.equal(uniforms.uBackdropAmount.value, 1);
+  assert.equal(uniforms.uBackdrop.value, texture);
+  assert.equal(uniforms.uMirrorAmount.value, 0);
+  assert.equal(uniforms.uMirror.value, null);
+  scene._prepareMirror({ uniforms, mirrorLevelM: NaN }, { qualityLevel: 0, frameId: 7, timeMs: 1016 }, 'A', 'river');
+  assert.equal(uniforms.uBackdropAmount.value, 1, 'independent of the water level');
+  scene._prepareMirror(p, { qualityLevel: 4, frameId: 8, timeMs: 1032 }, 'A', 'lake');
+  assert.equal(uniforms.uBackdropAmount.value, 0, 'a stale copy is not bound');
+  assert.equal(uniforms.uBackdrop.value, null);
+});
+
+test('the backdrop reflection keeps its musical shiver without a planar mirror', async () => {
+  const { RangeScene } = await import('../src/world/alpine/RangeScene.js');
+  const uniforms = sceneUniforms(THREE, {});
+  const scene = Object.assign(Object.create(RangeScene.prototype), { THREE, size: { width: 640, height: 360 }, mirrors: {},
+    backdrop: { frame: 7, texture: new THREE.Texture() } });
+  const music = { groove: 1, kick01: 1 };
+  // A river-only view: no water level, so no mirror is ever drawn.
+  scene._prepareMirror({ uniforms, mirrorLevelM: NaN }, { qualityLevel: 0, frameId: 7, timeMs: 1000, music }, 'A', 'river');
+  assert.equal(uniforms.uBackdropAmount.value, 1);
+  assert.ok(Math.abs(uniforms.uMirrorRipple.value - (0.0012 + 0.0025 + 0.004)) < 1e-12, 'groove and kick shiver the river');
+  // A lake at q4 follows the current music, not its last mirrored frame.
+  scene._prepareMirror({ uniforms, mirrorLevelM: 1900 }, { qualityLevel: 4, frameId: 7, timeMs: 1016, music: {} }, 'A', 'lake');
+  assert.ok(Math.abs(uniforms.uMirrorRipple.value - 0.0012) < 1e-12);
+});
+
+test('lightning lifts the reflected sky in place, but never flashes a narrative frame that shows no land', async () => {
+  const { RangeScene } = await import('../src/world/alpine/RangeScene.js');
+  const { rangeMusicState } = await import('../src/world/alpine/RangeFrame.js');
+  const camera = new THREE.PerspectiveCamera(40, 16 / 9, .1, 100000);
+  camera.position.set(0, 1000, 1000); camera.lookAt(0, 0, 0); camera.updateMatrixWorld();
+  const scene = Object.assign(Object.create(RangeScene.prototype), { THREE, camera });
+  const uniforms = sceneUniforms(THREE, { uHeightRange: { value: new THREE.Vector2(0, 2000) } });
+  const view = { camera: { eyeStartM: [0, 1000, 1000], eyeEndM: [0, 1000, 1000], targetStartM: [0, 0, 0], targetEndM: [0, 0, 0], fovYDeg: 40 } };
+  const sky = (storm, narrative) => {
+    scene._setUniforms({ uniforms, view }, { timeMs: 9000, progress01: .3, music: rangeMusicState({}), qualityLevel: 0, storm, narrative,
+      scenicViewport: { nominalHeight: 720 }, light: { celestial: { xFrac: .7, yFrac: .08, body: 'sun', colorHex: '#ffffff', intensity: 1.6 },
+        night01: 0, ambientMultiplier: 1, sky: { top: '#334455', horizon: '#778899', air: '#556677' } } });
+    return [...uniforms.uSkyZenith.value.toArray(), ...uniforms.uSkyHorizon.value.toArray()];
+  };
+  const calm = sky({ amount: 1, flash: 0, flashU: .5, break01: 0, wet01: 1 });
+  const lit = sky({ amount: 1, flash: .5, flashU: .5, break01: 0, wet01: 1 });
+  lit.forEach((v, i) => assert.ok(Math.abs(v - calm[i] - .06) < 1e-9, 'storm.flash * .12 on every channel'));
+  const off = { relief: 0, atmosphere: 1, materials: 1, features: 1, skyDark: 0 };
+  assert.deepEqual(sky({ amount: 1, flash: .5, flashU: .5, break01: 0, wet01: 1 }, off), sky({ amount: 1, flash: 0, flashU: .5, break01: 0, wet01: 1 }, off));
+});
+
+test('the forest wind follows the heard frame and is still again in silence', async () => {
+  const { uniforms: u, draw } = await receiver();
+  draw({ energy: 1, lift: 1, bass: 1 });
+  assert.ok(Math.abs(u.uWind.value.x - 1.8) < 1e-12 && u.uWind.value.y === 0);
+  draw({ energy: 0, bass: 0, treble: 0, kick: 0, snare: 0, melody: 0, lift: 0 });
+  assert.deepEqual(u.uWind.value.toArray(), [1, 0]);
+  draw({ energy: .5 });
+  draw(null);
+  assert.deepEqual(u.uWind.value.toArray(), [1, 0]);
 });

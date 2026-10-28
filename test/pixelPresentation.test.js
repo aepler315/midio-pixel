@@ -142,6 +142,61 @@ test('world palette context resolves before drawing and changes only on an effec
   assert.equal(owner.diagnostics.effectivePalette, 'range32');
   owner.dispose();
 });
+test('world palette follows the experience with one generation per effective switch', () => {
+  const owner = new PixelPresentation({ canvas: surface(), presentation: { ...pixel, paletteId: 'world' } });
+  owner.setFrameContext({ worldKind: 'alpine', experience: 'trio' });
+  owner.beginFrame(); owner.finishFrame();
+  assert.equal(owner.diagnostics.effectivePalette, 'chroma32');
+  assert.equal(owner.getCaptureSource().experience, 'trio');
+  assert.equal(owner.getCaptureSource().worldKind, 'alpine');
+  for (const [experience, palette] of [['landscape', 'range32'], ['trio', 'chroma32'], ['landscape', 'range32']]) {
+    const generation = owner.generation, compiled = owner.compiledPalette;
+    owner.setFrameContext({ worldKind: 'alpine', experience });
+    assert.equal(owner.generation, generation + 1, `one bump switching to ${experience}`);
+    assert.equal(owner.getCaptureSource(), null);
+    assert.notEqual(owner.compiledPalette, compiled);
+    assert.equal(owner.diagnostics.resolvedPalette, palette);
+    owner.beginFrame(); owner.finishFrame();
+    const capture = owner.getCaptureSource(), settled = owner.generation, recompiled = owner.compiledPalette;
+    assert.equal(owner.diagnostics.effectivePalette, palette);
+    assert.equal(capture.paletteId, palette);
+    assert.equal(capture.experience, experience);
+    // Repeating the same context neither bumps, invalidates nor recompiles.
+    owner.setFrameContext({ worldKind: 'alpine', experience });
+    assert.equal(owner.generation, settled);
+    assert.equal(owner.getCaptureSource(), capture);
+    assert.equal(owner.compiledPalette, recompiled);
+  }
+  // An experience change that keeps the effective palette is not a new generation.
+  const generation = owner.generation, capture = owner.getCaptureSource();
+  owner.setFrameContext({ worldKind: 'alpine', experience: null });
+  assert.equal(owner.generation, generation);
+  assert.equal(owner.getCaptureSource(), capture);
+  owner.dispose();
+});
+test('explicit palettes ignore the experience', () => {
+  const owner = new PixelPresentation({ canvas: surface(), presentation: { ...pixel, paletteId: 'range32' } });
+  owner.setFrameContext({ worldKind: 'alpine', experience: 'landscape' }); owner.beginFrame(); owner.finishFrame();
+  const generation = owner.generation;
+  owner.setFrameContext({ worldKind: 'alpine', experience: 'trio' }); owner.beginFrame(); owner.finishFrame();
+  assert.equal(owner.generation, generation);
+  assert.equal(owner.diagnostics.effectivePalette, 'range32');
+  assert.equal(owner.getCaptureSource().experience, 'trio');
+  owner.dispose();
+});
+test('the presenting renderer resolves World by the frame experience', () => {
+  const inner = { backend: 'canvas', drawCount: 0, draw() {}, dispose() {} };
+  const adapter = createPresentingRenderer({ canvas: surface(), presentation: { ...pixel, paletteId: 'world' }, rendererFactory: canvas => { inner.canvas = canvas; return inner; } });
+  const world = { kind: 'alpine' };
+  assert.equal(adapter.draw({ experience: 'trio', biomes: { world } }, 0).presented, true);
+  assert.equal(adapter.diagnostics.effectivePalette, 'chroma32');
+  assert.equal(adapter.getCaptureSource().experience, 'trio');
+  assert.equal(adapter.draw({ experience: 'landscape', biomes: { world } }, 0).presented, true);
+  assert.equal(adapter.diagnostics.effectivePalette, 'range32');
+  assert.equal(adapter.draw({ biomes: { world } }, 0).presented, true);
+  assert.equal(adapter.diagnostics.effectivePalette, 'range32', 'a sim without an experience is Landscape');
+  adapter.dispose();
+});
 test('same effective world palette keeps taint backoff and Natural/Pixel compile no palette', () => {
   const canvas = surface(320, 180); let attempts = 0;
   canvas.getContext().getImageData = () => { attempts++; throw Object.assign(Error('tainted'), { name: 'SecurityError' }); };

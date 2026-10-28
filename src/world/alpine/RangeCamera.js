@@ -38,7 +38,8 @@ export const MOVE_TRAVEL_MS = Object.freeze([12000, 30000]);
 // An energy change at a boundary at least this big makes it a push in
 // (rising) or a pull back (falling); smaller ones orbit or drift.
 const ENERGY_TURN = 0.15;
-// The closing move (the sunset shot) starts this long before the end.
+// The closing move (the sunset shot) starts this long before the music's
+// end (its cadence, else the file's end) and arrives on it.
 export const FINALE_MS = 20000;
 // Amplitudes, as fractions of the rail's eye-to-target distance D (yaw in
 // radians). D is kilometres, so these are big on the ground and small on
@@ -98,14 +99,17 @@ function structuralTurns(list, finaleAt) {
 const travelMs = (span) => Math.min(span, clamp(MOVE_TRAVEL_FRAC * span, MOVE_TRAVEL_MS[0], MOVE_TRAVEL_MS[1]));
 
 /** Keyframes {fromMs, tMs, dolly, yaw, crane, truck, kind}: the camera
- *  holds key k-1 until fromMs, eases to key k by tMs, then holds. */
-export function cameraMoveKeys(sections, durationMs, seed = 0) {
+ *  holds key k-1 until fromMs, eases to key k by tMs, then holds.
+ *  `cadenceMs` is the music's last audible moment (EffectsMusic.lastAudibleMs);
+ *  without one the finale is anchored to the file's end. */
+export function cameraMoveKeys(sections, durationMs, seed = 0, cadenceMs = null) {
   const dur = Number(durationMs) || 0;
   if (!(dur > 0)) return [{ fromMs: 0, tMs: 0, ...NEUTRAL_MOVE }];
+  const cadence = Number.isFinite(cadenceMs) ? clamp(cadenceMs, 0, dur) : dur;
   const cached = Array.isArray(sections) && keyCache.get(sections);
-  if (cached && cached.dur === dur && cached.seed === seed) return cached.keys;
+  if (cached && cached.dur === dur && cached.seed === seed && cached.cadence === cadence) return cached.keys;
   const list = Array.isArray(sections) ? sections : [];
-  const finaleAt = Math.max(0, dur - FINALE_MS);
+  const finaleAt = clamp(cadence - FINALE_MS, 0, dur);
   const energyOf = (s) => clamp(Number(s?.relEnergy01 ?? 0.5) || 0, 0, 1);
   const rand = mulberry32(hashSeed(`range-camera:${seed}`));
   // Orbits and drifts alternate sides; the seed picks the first one.
@@ -150,17 +154,18 @@ export function cameraMoveKeys(sections, durationMs, seed = 0) {
     keys.push(next);
   }
   // The finale (the sunset): pull back wide and rise, easing the orbit
-  // halfway home, arriving as the song ends.
+  // halfway home, arriving as the music ends and holding through any tail.
   const last = keys.at(-1);
-  keys.push({ fromMs: Math.max(finaleAt, last.tMs), tMs: dur, ...FINALE, yaw: last.yaw * 0.5, kind: 'finale' });
-  if (Array.isArray(sections)) keyCache.set(sections, { dur, seed, keys });
+  const finaleFrom = Math.max(finaleAt, last.tMs);
+  keys.push({ fromMs: finaleFrom, tMs: Math.max(finaleFrom, cadence), ...FINALE, yaw: last.yaw * 0.5, kind: 'finale' });
+  if (Array.isArray(sections)) keyCache.set(sections, { dur, seed, cadence, keys });
   return keys;
 }
 
 /** The cinematic move offset at heard time `timeMs`. Neutral for previews. */
-export function rangeCameraMoveAt({ timeMs = 0, sections = null, durationMs = 0, seed = 0, preview = false } = {}) {
+export function rangeCameraMoveAt({ timeMs = 0, sections = null, durationMs = 0, seed = 0, cadenceMs = null, preview = false } = {}) {
   if (preview || !(durationMs > 0)) return NEUTRAL_MOVE;
-  const keys = cameraMoveKeys(sections, durationMs, seed);
+  const keys = cameraMoveKeys(sections, durationMs, seed, cadenceMs);
   const t = clamp(Number(timeMs) || 0, 0, durationMs);
   // The key being travelled to (or held at): the last one that has begun.
   let k = 1;

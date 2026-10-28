@@ -94,7 +94,19 @@ test('frame prefers generation-owned effects to the conductor updated during ana
 test('camera lens reaches the shared frame', () => {
   const sim = fakeSim(20);
   sim.biomes.sections = [{ startMs: 0, relEnergy01: .3 }, { startMs: 20000, role: 'chorus', relEnergy01: .9 }];
-  assert.ok(buildRangeFrame({ frameId: 1, sim, pose }).cameraEffects.halfAngleScale < .95);
+  const frame = buildRangeFrame({ frameId: 1, sim, pose });
+  assert.ok(frame.cameraEffects.halfAngleScale < .95);
+  assert.deepEqual(frame.cameraEffects, frame.performance.lens, 'the lens is the shared score\'s');
+  assert.equal(frame.cameraEffects.cueIndex, 0);
+  sim.biomes.terrainPreview = true;
+  assert.equal(buildRangeFrame({ frameId: 2, sim, pose }).cameraEffects.halfAngleScale, 1);
+});
+
+test('an untrusted boundary leaves the frame lens alone', () => {
+  const sim = fakeSim(20);
+  sim.biomes.sections = [{ startMs: 0, relEnergy01: .3, provenance: 'detected' },
+    { startMs: 20000, role: 'chorus', relEnergy01: .9, provenance: 'decorative' }];
+  assert.equal(buildRangeFrame({ frameId: 1, sim, pose }).cameraEffects.zoomPulse, 0);
 });
 
 test('glacier journey spans the song and reconstructs independently of quality and DPR', () => {

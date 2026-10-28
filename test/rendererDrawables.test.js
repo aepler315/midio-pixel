@@ -17,6 +17,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Renderer } from '../src/render/Renderer.js';
+import { PerfGovernor } from '../src/render/PerfGovernor.js';
+import { HypeDirector } from '../src/sim/HypeDirector.js';
 
 const STAGE_W = 1280, STAGE_H = 720;
 const DEVICE_W = 2560, DEVICE_H = 1440; // a 2x backing store
@@ -139,6 +141,113 @@ test('no drop in flight means no shock at all', () => {
   sim.hype.dropAtMs = -Infinity; // HypeDirector's initial state
   r._drawDropImpact(ctx, stageView(), sim, { midioDrawX: 300 });
   assert.equal(calls.length, 0);
+});
+
+// --- Drop impact shedding, anchor and clock --------------------------------
+
+/** Counts what the drop impact pack does: shock copies and speed-lines. */
+function impactRecorder() {
+  const rec = { offCopies: 0, ensured: [], released: [], moves: [], strokes: 0 };
+  const r = Object.create(Renderer.prototype);
+  r._postBuffers = {
+    ensure: (name) => {
+      rec.ensured.push(name);
+      return { width: 0, height: 0, getContext: () => ({ drawImage: () => { rec.offCopies++; }, fillRect() {} }) };
+    },
+    release: (name) => rec.released.push(name),
+  };
+  const { ctx } = recordingCtx();
+  ctx.moveTo = (x, y) => rec.moves.push({ x, y });
+  ctx.stroke = () => { rec.strokes++; };
+  return { r, ctx, rec };
+}
+
+test('shed particles keep the cheap speed-lines (thinned) and drop the full-frame shock', () => {
+  const { r, ctx, rec } = impactRecorder();
+  r._drawDropImpact(ctx, stageView(), hypeSim({ particleMul: 0.6 }), { midioDrawX: 300 });
+  assert.equal(rec.moves.length, 14, 'round(24 * .6) segments');
+  assert.equal(rec.strokes, 1);
+  assert.deepEqual(rec.ensured, [], 'no shock buffer is ensured');
+  assert.equal(rec.offCopies, 0);
+  assert.ok(rec.released.includes('shock'), 'and a held shock buffer is released');
+});
+
+test('the shock needs the full-frame rung: fullFrameFxEnabled=false makes no copy at full particles', () => {
+  const { r, ctx, rec } = impactRecorder();
+  const sim = hypeSim();
+  sim.perf.fullFrameFxEnabled = false;
+  r._drawDropImpact(ctx, stageView(), sim, { midioDrawX: 300 });
+  assert.equal(rec.offCopies, 0);
+  assert.deepEqual(rec.ensured, []);
+  assert.equal(rec.moves.length, 24, 'speed-lines still draw at full count');
+});
+
+test('an ordinary 1080p desktop at level 0 keeps the shock', () => {
+  const perf = new PerfGovernor();
+  perf.canvasWidth = 1920; perf.targetCanvasWidth = 1920;
+  assert.equal(perf.level, 0);
+  assert.equal(perf.fullFrameFxEnabled, true);
+  assert.equal(perf.particleMul, 1);
+  const { r, ctx, rec } = impactRecorder();
+  r._drawDropImpact(ctx, stageView(), { ...hypeSim(), perf }, { midioDrawX: 300 });
+  assert.equal(rec.offCopies, 2, 'two colour-isolated copies');
+  assert.equal(rec.moves.length, 24);
+});
+
+test('in Trio the speed-lines radiate from Midio\'s foot, not from the ground at the origin', () => {
+  const { r, ctx, rec } = impactRecorder();
+  const sim = { ...hypeSim(), midio: { groundY: 625 }, trio: { midio: { groundY: 600, y: 90 } } };
+  sim.hype.dropCount = 1;
+  r._drawDropImpact(ctx, stageView(), sim, { midioDrawX: 700 });
+  // Evenly spaced inner endpoints average to the centre.
+  const cx = rec.moves.reduce((a, m) => a + m.x, 0) / rec.moves.length;
+  const cy = rec.moves.reduce((a, m) => a + m.y, 0) / rec.moves.length;
+  assert.ok(Math.abs(cx - 700) < 1e-9, `centre x ${cx}`);
+  assert.ok(Math.abs(cy - (600 - 90 - 60)) < 1e-9, `centre y ${cy}`);
+});
+
+test('a drop detected at D stays dark until it is heard: impact, motion blur and heat share heard time', () => {
+  const D = 10000;
+  const hype = new HypeDirector();
+  hype.cueDrop(D); // stamped with the dispatch clock, a song position
+  hype.slam = 1; hype.surge = 1; hype.fast = 1;
+  assert.equal(hype.dropAtMs, D);
+  const at = (heardTimeMs) => {
+    const sim = { ...hypeSim(), hype, timeMs: D + 200, heardTimeMs, presentation: { performers: true } };
+    const impact = impactRecorder();
+    impact.r._drawDropImpact(impact.ctx, stageView(), sim, { midioDrawX: 300 });
+    const blur = Object.create(Renderer.prototype);
+    const ghosts = [];
+    const slot = () => ({ width: DEVICE_W / 4, height: DEVICE_H / 4, getContext: () => ({ setTransform() {}, clearRect() {}, drawImage() {} }) });
+    blur._motionHistory = [slot(), slot(), slot()];
+    blur._motionRing = 0;
+    blur._lastShakeX = 0; blur._lastShakeY = 0;
+    const blurCtx = { save() {}, restore() {}, drawImage: (...a) => ghosts.push(a), globalAlpha: 1 };
+    blur._drawDropMotionBlur(blurCtx, { width: DEVICE_W, height: DEVICE_H }, sim, { shakeX: 7, shakeY: 0 }, 2, 2);
+    const heat = [];
+    const heatCtx = { save() {}, restore() {}, drawImage: (...a) => heat.push(a) };
+    const heatR = Object.create(Renderer.prototype);
+    heatR._postBuffers = { ensure: () => ({ width: 1280, height: 720, getContext: () => ({ drawImage() {} }) }) };
+    heatR._drawHeatDistortion(heatCtx, { width: 1280, height: 720 }, sim, { midioDrawX: 300 }, stageView());
+    return { lines: impact.rec.moves.length, ghosts: ghosts.length, heat: heat.length };
+  };
+  assert.deepEqual(at(D - 1), { lines: 0, ghosts: 0, heat: 0 }, 'not yet heard: nothing fires on the dispatch clock');
+  const heard = at(D);
+  assert.ok(heard.lines > 0 && heard.ghosts > 0 && heard.heat > 0, JSON.stringify(heard));
+});
+
+test('the hype echo side depends only on heard time, not on how often the frame is drawn', () => {
+  const sideAt = (heardTimeMs, r = Object.create(Renderer.prototype)) => {
+    const { ctx, calls } = recordingCtx();
+    r._drawHypeFrame(ctx, stageView(), { ...hypeSim(), heardTimeMs, timeMs: heardTimeMs + 200 });
+    return Math.sign(calls[0][1]);
+  };
+  const r = Object.create(Renderer.prototype);
+  const first = sideAt(1010, r);
+  assert.equal(sideAt(1010, r), first, 'a redraw (or a capture replay) of the same instant keeps its side');
+  assert.equal(sideAt(1010, r), first);
+  assert.equal(sideAt(1060), -first, 'the next 50 ms window takes the other side');
+  assert.equal(sideAt(1110), first);
 });
 
 // --- The same bug class in BiomeManager ----------------------------------

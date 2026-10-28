@@ -3,8 +3,11 @@ import assert from 'node:assert/strict';
 import { EnergyCurves } from '../src/audio/EnergyCurves.js';
 import { RidgeMotionHistory } from '../src/world/RidgeMotionHistory.js';
 
-let sampleEffectsMusic;
-try { ({ sampleEffectsMusic } = await import('../src/world/alpine/EffectsMusic.js')); }
+import { compileRangeNarrative } from '../src/world/alpine/RangeNarrative.js';
+import { compileLandscapeScore } from '../src/world/alpine/LandscapeScore.js';
+
+let sampleEffectsMusic, lastAudibleMs, physicalFloor, sectionTrust;
+try { ({ sampleEffectsMusic, lastAudibleMs, physicalFloor, sectionTrust } = await import('../src/world/alpine/EffectsMusic.js')); }
 catch (error) { if (error.code !== 'ERR_MODULE_NOT_FOUND') throw error; }
 const sample = options => {
   assert.equal(typeof sampleEffectsMusic, 'function', 'shared effects response is available');
@@ -132,4 +135,52 @@ test('MIDI fallback retains a long authored sustain beyond the accent window and
   assert.deepEqual(sustained.accents, [], 'a sustain never invents another onset');
   const ended = sample({ timeMs: 9500, timeline });
   for (const key of channels) assert.equal(ended[key], 0, key);
+});
+
+test('one section trust rule: decorative and zero-confidence none, inferred half, the rest full', () => {
+  assert.equal(sectionTrust({ provenance: 'decorative', confidence: 1 }), 0);
+  assert.equal(sectionTrust({ provenance: 'detected', confidence: 0 }), 0);
+  assert.equal(sectionTrust({ provenance: 'inferred', confidence: 0 }), 0);
+  assert.equal(sectionTrust({ provenance: 'inferred', confidence: .4 }), .5);
+  assert.equal(sectionTrust({ provenance: 'detected', confidence: .7 }), 1);
+  assert.equal(sectionTrust({ provenance: 'authored' }), 1);
+  assert.equal(sectionTrust(null), 0);
+  // Lift scales by it, and the landscape score keeps exactly the trusted phrases.
+  const base = { startMs: 0, endMs: 2000, meanEnergy: .2, relEnergy01: .2, provenance: 'detected' };
+  const rise = { startMs: 2000, endMs: 4000, meanEnergy: .8, relEnergy01: .9 };
+  const lift = provenance => sample({ timeMs: 2300, ridgeSample: active, sections: [base, { ...rise, provenance, confidence: .5 }] }).lift;
+  assert.ok(Math.abs(lift('inferred') - lift('detected') / 2) < 1e-9);
+  assert.equal(lift('decorative'), 0);
+  const all = ['detected', 'inferred', 'decorative', 'authored'].map((provenance, i) => ({ startMs: i * 1000, endMs: i * 1000 + 1000,
+    provenance, confidence: i === 3 ? 0 : .5, motifId: provenance }));
+  assert.deepEqual(compileLandscapeScore({ sections: all, durationMs: 4000 }).phrases.map(p => p.motifId), ['detected', 'inferred']);
+});
+
+test('the cadence is the end of the last frame the shared silence gate hears', () => {
+  const c = curves(Array(7).fill(.5), .02);
+  const tail = Math.ceil(4000 / 20);
+  c.bands.forEach(b => b.fill(0, tail));
+  c.rmsBands.forEach(b => b.fill(0, tail));
+  assert.equal(lastAudibleMs(c, 6000), 4000);
+  assert.equal(lastAudibleMs(c, 6000), 4000, 'cached');
+  c.rmsBands = c.rmsBands.map(b => Float32Array.from(b, (v, i) => i >= 150 ? 1e-7 : v));
+  assert.equal(lastAudibleMs(c, 6000), 3000, 'replaced bands rebuild; quiet noise below the physical floor is silence');
+  assert.equal(lastAudibleMs(curves(), 6000), 6000, 'music to the last frame');
+  assert.equal(lastAudibleMs(null, 6000), 6000);
+  assert.equal(lastAudibleMs({ globalEnergyNorm: () => .5 }, 6000), 6000, 'no frame data, no evidence');
+  assert.equal(lastAudibleMs(c, 60000), 60000, 'curves that stop short of the song cannot place its end');
+  assert.equal(lastAudibleMs(c, 0), 0);
+  const plain = curves(Array(7).fill(.5));
+  plain.rmsBands = null;
+  plain.bands.forEach(b => b.fill(0, 100));
+  assert.equal(lastAudibleMs(plain, 6000), 2000, 'normalized fallback without physical RMS');
+});
+
+test('the narrative and the effects share one physical silence floor', () => {
+  for (const level of [1e-5, .0005, .02]) {
+    const c = new EnergyCurves(120000);
+    for (let i = 0; i < c.n; i++) c.setFrame(i, Array(7).fill(i < 3000 ? .01 : .8));
+    c.rmsBands = Array.from({ length: 7 }, () => Float32Array.from({ length: c.n }, (_, i) => i < 3000 ? level : .1));
+    assert.equal(compileRangeNarrative({ durationMs: 120000, energyCurves: c }).silenceFloor, physicalFloor(c), `rms ${level}`);
+  }
 });

@@ -387,3 +387,47 @@ test('Trio steps never reach for Math.random or the wall clock', () => {
     sim.trio.seek(20000);
   } finally { Math.random = random; Date.now = now; sim.dispose(); }
 });
+
+test('with a 200 ms output lag the atlas glints when the kick is heard, and a seek lands on continuous play', () => {
+  const SONG_MS = 12000;
+  const timeline = longTimeline(false).filter(e => e.tMs < SONG_MS);
+  const energyCurves = synthesizeEnergyCurves(timeline, SONG_MS);
+  const conductor = new Conductor();
+  conductor.load({ timeline, durationMs: SONG_MS, bpm: 120, barGrid: [] });
+  const sim = new Simulation(conductor, new ParamBus(), { experience: 'trio', songSeed: 315,
+    energyCurves, outputLatencyMs: () => 200 });
+  sim.biomes.pumpStripPrewarm = () => {};
+  const solo = () => new TrioPerformance({ timeline, durationMs: SONG_MS, bpm: 120, barGrid: [],
+    energyCurves, paramBus: new ParamBus(), seed: 315 });
+  try {
+    const KICK = 5000; // a kick every 500 ms; look at one well inside the song
+    let peak = { pulse: -1 }, early = 0, earlySlam = 0;
+    for (let t = 4000; t <= 6000; t += 1000 / 60) {
+      sim.step(1000 / 60, t);
+      assert.equal(sim.heardTimeMs, t - 200);
+      const pulse = sim.trio.midasus.voyage.atlasPulse;
+      if (sim.heardTimeMs >= KICK - 250 && sim.heardTimeMs < KICK + 250 && pulse > peak.pulse) {
+        peak = { pulse, heardMs: sim.heardTimeMs };
+      }
+      if (sim.timeMs >= KICK && sim.heardTimeMs < KICK) {
+        early++;
+        earlySlam = Math.max(earlySlam, sim.hype.slam);
+        assert.ok(pulse < 0.5, `not yet heard: the atlas waits (heard ${sim.heardTimeMs}, pulse ${pulse})`);
+      }
+    }
+    assert.ok(early > 5, 'the dispatch clock runs ahead of what is heard');
+    assert.ok(earlySlam > 0.8, 'the director already slammed on the dispatch clock');
+    assert.ok(peak.heardMs >= KICK && peak.heardMs < KICK + 1000 / 60, `peak at heard ${peak.heardMs}`);
+    assert.ok(peak.pulse > 0.9);
+    // seek(t) equals continuous play at t.
+    for (const t of [KICK + 10, KICK + 120, KICK + 260]) {
+      const sought = solo(), played = solo();
+      sought.seek(t);
+      for (let u = 0; u < t; u += 1000 / 60) played.update(u);
+      played.update(t);
+      assert.equal(sought.midasus.voyage.atlasPulse, played.midasus.voyage.atlasPulse, `t=${t}`);
+      assert.ok(t > KICK + 220 || played.midasus.voyage.atlasPulse > 0, 'inside the kick window it glints');
+      sought.dispose(); played.dispose();
+    }
+  } finally { sim.dispose(); }
+});

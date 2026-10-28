@@ -7,7 +7,7 @@
 //                  punched open by a hype surge/slam/fast spike
 //   warmth         how amber-vs-teal the grade reads -- driven by calm
 //                  and the song's staged intensity budget
-import { clamp01 } from '../utils/math.js';
+import { clamp, clamp01, smoothstep } from '../utils/math.js';
 
 const VIGNETTE_TAU_SEC = 0.6; // slower than a kick, fast enough a real drop visibly opens the frame
 const GRADE_TAU_SEC = 1.2;    // a slow film-stock shift tied to song section, not a reactive light
@@ -39,6 +39,42 @@ export function gradeTarget(calmLevel, budget) {
   const energetic = 1 - clamp01(calmLevel);
   const b = clamp01(budget);
   return clamp01(GRADE_CALM_WEIGHT * energetic + GRADE_BUDGET_WEIGHT * b);
+}
+
+// Landscape's vignette reads the shared musical score (RangeFrame.effects and
+// the storm) at heard time instead of the dt-integrated depth above, so it
+// matches after a seek and in a replayed capture.
+const LANDSCAPE_EDGE_MIN = 0.10;
+const LANDSCAPE_EDGE_MAX = 0.36;
+const LANDSCAPE_EDGE_BASE = 0.12;    // edge darkness in a full passage
+const LANDSCAPE_EDGE_REST = 0.2;     // extra darkness a quiet passage adds
+const LANDSCAPE_LIFT_OPEN = 0.45;    // fraction a section lift opens the edge
+const LANDSCAPE_STORM_EDGE = 0.03;   // a squall closes the frame slightly
+const LANDSCAPE_ONSET = 0.56;        // onset fraction of the corner radius
+const LANDSCAPE_KICK_ONSET = 0.025;  // a kick widens the clear centre only
+
+/** Landscape vignette from the shared score: a pure function of
+ *  `{energy, lift, kick, stormAmount}` (all 0..1) that writes
+ *  `{edgeAlpha, onset}` into `out` without allocating. Quiet passages carry a
+ *  deeper edge, a section lift opens it and a storm closes it slightly. A kick
+ *  only pushes the onset outward, so it never darkens the frame. With
+ *  `heavy` false (post-FX shed) the resting edge is returned unchanged by the
+ *  music. Storm flash is deliberately ignored: the project removed flashing. */
+export function landscapeFinish({ energy = 0, lift = 0, kick = 0, stormAmount = 0 } = {},
+  { heavy = true, vignetteDepthMul = 1 } = {}, out = {}) {
+  const mul = Number.isFinite(vignetteDepthMul) ? vignetteDepthMul : 1;
+  if (!heavy) {
+    out.edgeAlpha = clamp((LANDSCAPE_EDGE_BASE + LANDSCAPE_EDGE_REST) * mul, LANDSCAPE_EDGE_MIN, LANDSCAPE_EDGE_MAX);
+    out.onset = LANDSCAPE_ONSET;
+    return out;
+  }
+  const rest = 1 - smoothstep(0.25, 0.55, clamp01(energy));
+  let edge = (LANDSCAPE_EDGE_BASE + LANDSCAPE_EDGE_REST * rest) * mul;
+  edge *= 1 - LANDSCAPE_LIFT_OPEN * clamp01(lift);
+  edge += LANDSCAPE_STORM_EDGE * clamp01(stormAmount);
+  out.edgeAlpha = clamp(edge, LANDSCAPE_EDGE_MIN, LANDSCAPE_EDGE_MAX);
+  out.onset = LANDSCAPE_ONSET + LANDSCAPE_KICK_ONSET * clamp01(kick);
+  return out;
 }
 
 export class FilmFinish {

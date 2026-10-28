@@ -154,7 +154,7 @@ export class SkyVoyage {
     // The Star Atlas: constellations don't die, they crystallize. When a
     // bright constellation's 6s fade ends it commits here as a permanent
     // dim star-map entry -- the song's sky slowly accumulates a mythology
-    // of her voyages. atlasPulse (fed hype.slam by the Simulation) lets
+    // of her voyages. atlasPulse (TrioPerformance's heard-time slamAt) lets
     // the whole atlas glint with the beat.
     this.atlas = []; // {stars:[{x, y, phase}], hue}
     this.atlasPulse = 0;
