@@ -472,3 +472,30 @@ test('a rung 4 shed fades the fixed lines it drops, and keeps the twelve low lin
  assert.ok(dropped.every(k=>back[k]>0&&back[k]<.1));
  actors.dispose();
 });
+
+test('lantern pulse and spread reach the halo through guarded uniforms (contract C2)',()=>{
+ const shared={...actorUniforms(THREE),uCameraPos:{value:new THREE.Vector3()},uAirDensity:{value:0},uAirHeightFalloff:{value:0}};
+ const actors=new ActorsGL(THREE,shared), camera=new THREE.PerspectiveCamera(35,16/9,1,100000);
+ camera.position.set(0,1000,0);camera.lookAt(0,1000,-10000);camera.updateMatrixWorld();
+ const route={kind:'air',points:[[0,1000,-5000],[100,1000,-5000]],lengths:[100],total:100};
+ const p={view:{id:'tour',tour:true},actors,uniforms:shared,actorRoutes:Object.fromEntries(ACTOR_IDS.map(id=>[id,route])),data:null,scenes:{far:new THREE.Scene()}};
+ const scene={THREE,camera,_tileAt:()=>null,_castJob:RangeScene.prototype._castJob,_setCastLights:RangeScene.prototype._setCastLights};
+ const draw=extra=>{
+  const cast={presence:1,...Object.fromEntries(ACTOR_IDS.map(id=>[id,{glow:1,travel:1,...extra}]))};
+  RangeScene.prototype._setActors.call(scene,p,{actors:cast,timeMs:20000,qualityLevel:0,light:{night01:1}});
+  return Object.fromEntries(ACTOR_IDS.map(id=>{const v=actors.uniforms[id];return [id,{halo:v.uHaloPx.value,center:v.uCenter.value.clone(),pulse:v.uPulse?.value,spread:v.uSpread?.value}];}));
+ };
+ const before=draw({});
+ const pulsed=draw({pulse01:1,spread:1.2});
+ for(const id of ACTOR_IDS){
+  assert.ok(Math.abs(pulsed[id].halo-before[id].halo*1.18)<1e-9,'the halo swells with the pulse');
+  assert.ok(pulsed[id].center.distanceTo(before[id].center)<1e-9,'the push stays on the steady halo');
+ }
+ // Stub per-actor uniforms (as P6 adds them) receive the fields.
+ for(const id of ACTOR_IDS)Object.assign(actors.uniforms[id],{uPulse:{value:0},uSpread:{value:1}});
+ const wired=draw({pulse01:.5,spread:.8});
+ for(const id of ACTOR_IDS){assert.equal(wired[id].pulse,.5);assert.equal(wired[id].spread,.8);}
+ const plain=draw({});
+ for(const id of ACTOR_IDS){assert.equal(plain[id].pulse,0);assert.equal(plain[id].spread,1);assert.equal(plain[id].halo,before[id].halo);}
+ actors.dispose();
+});

@@ -2029,6 +2029,10 @@ export class RangeScene {
       // light itself, so the ground it hovers over does not cut its halo.
       const mpp0 = (2 * dist * tanHalf) / 720;
       const haloPx = look.haloPx * (1 + 0.6 * beacon);
+      // The lantern's musical pulse (contract C2, RangeActors pulse01 and
+      // spread; absent until the score provides them). The push toward the
+      // camera stays on the steady halo.
+      const pulse = s.pulse01 || 0;
       const push = Math.min(dist * 0.25, 3 * haloPx * mpp0);
       const toCam = cam.position.clone().sub(at).normalize();
       const v = p.actors.uniforms[id];
@@ -2037,7 +2041,9 @@ export class RangeScene {
       v.uRight.value.copy(right);
       v.uUp.value.copy(up);
       v.uMpp.value = mpp0 * (dist - push) / dist;
-      v.uHaloPx.value = haloPx;
+      v.uHaloPx.value = haloPx * (1 + .18 * pulse);
+      if (v.uPulse) v.uPulse.value = pulse;
+      if (v.uSpread) v.uSpread.value = s.spread ?? 1;
       v.uColor.value.copy(display);
       v.uGlow.value = Math.max(s.glow, beacon);
       v.uPresence.value = presence * (0.55 + 0.45 * dark) * (job?.dim ?? 1);
