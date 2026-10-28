@@ -191,6 +191,29 @@ test('no phrases: an energy peak in an unviewed section goes to the nearest view
   assert.equal(early.views.va.finishMs, 90000);
 });
 
+test('no phrases: a borrowed climax view finishes in the stay it was borrowed from, not its last one', () => {
+  const pick = (x) => VIEW[x.label] || null;
+  // Before: A 0-90 s, no view 90-120 s, B 120-160 s, A 160-240 s, peak near 105 s.
+  const before = [{ label: 'A', startMs: 0, endMs: 90000 }, { startMs: 90000, endMs: 120000 },
+    { label: 'B', startMs: 120000, endMs: 160000 }, { label: 'A', startMs: 160000, endMs: 240000 }];
+  const b = compileCastSchedule({ ...base, sections: before, viewForSection: pick, phrases: [], durationMs: 240000,
+    energyAt: (t) => (t > 103000 && t < 107000 ? 1 : 0.2) });
+  assert.equal(b.climaxViewId, 'va');
+  assert.deepEqual(b.views.va.stays, [{ startMs: 0, endMs: 90000 }, { startMs: 160000, endMs: 240000 }]);
+  assert.equal(b.views.va.finishMs, 90000);
+  assert.equal(b.stateOf('va', 90000).p, 1);
+  // After: no view 0-100 s, then B has two stays after the peak near 80 s;
+  // the finish is the start of the first one.
+  const after = [{ startMs: 0, endMs: 100000 }, { label: 'B', startMs: 100000, endMs: 130000 },
+    { label: 'A', startMs: 130000, endMs: 160000 }, { label: 'B', startMs: 160000, endMs: 200000 },
+    { label: 'A', startMs: 200000, endMs: 240000 }];
+  const a = compileCastSchedule({ ...base, sections: after, viewForSection: pick, phrases: [], durationMs: 240000,
+    energyAt: (t) => (t > 78000 && t < 82000 ? 1 : 0.2) });
+  assert.equal(a.climaxViewId, 'vb');
+  assert.equal(a.views.vb.stays.length, 2);
+  assert.equal(a.views.vb.finishMs, 100000);
+});
+
 test('no phrases: a section shorter than two camps compiles with bounded camps', () => {
   const brief = [
     { label: 'A', startMs: 0, endMs: 60000 }, { label: 'B', startMs: 60000, endMs: 63000 },

@@ -131,7 +131,7 @@ export function compileCastSchedule({ sections = [], viewForSection = () => null
   const climaxMs = short ? D * CAST_FINISH_FRACTION : climax
     ? climax.startMs + Math.min(CAST_CLIMAX_ARRIVE_MS, CAST_CLIMAX_ARRIVE_FRACTION * (climax.endMs - climax.startMs))
     : energyClimaxMs(energyAt, D);
-  let climaxViewId = null;
+  let climaxViewId = null, anchorMs = null;
   if (!short && climax) {
     const hit = ordered.find(({ s }) => climax.startMs >= s.startMs - 1 && climax.startMs < s.endMs);
     climaxViewId = hit ? viewForSection(hit.s, hit.i) : null;
@@ -140,9 +140,14 @@ export function compileCastSchedule({ sections = [], viewForSection = () => null
     // else of the nearest viewed section before it, then after it.
     let k = ordered.findIndex(({ s }) => climaxMs >= s.startMs - 1 && climaxMs < s.endMs);
     if (k < 0) k = ordered.findLastIndex(({ s }) => s.startMs <= climaxMs);
-    const viewAt = (j) => viewForSection(ordered[j].s, ordered[j].i) || null;
-    for (let j = k; j >= 0 && !climaxViewId; j--) climaxViewId = viewAt(j);
-    for (let j = k + 1; j < ordered.length && !climaxViewId; j++) climaxViewId = viewAt(j);
+    // anchorMs remembers the section the view came from, so its finish
+    // lands in that stay rather than in the view's last one.
+    const take = (j) => {
+      climaxViewId = viewForSection(ordered[j].s, ordered[j].i) || null;
+      if (climaxViewId) anchorMs = ordered[j].s.startMs;
+    };
+    for (let j = k; j >= 0 && !climaxViewId; j--) take(j);
+    for (let j = k + 1; j < ordered.length && !climaxViewId; j++) take(j);
   }
   if (oneStay && !short && viewIds.length === 1) climaxViewId = viewIds[0];
   // The summit push (the stay holding the climax view's finish) goes on
@@ -156,7 +161,8 @@ export function compileCastSchedule({ sections = [], viewForSection = () => null
       finish.set(v, Math.min(D, climaxMs));
       climaxStay.set(v, { startMs: climax ? climax.startMs : climaxMs - 2 * CAST_STORM_BUILD_MS, endMs: D });
     } else if (v === climaxViewId) {
-      const stay = list.find((s) => climaxMs >= s.startMs && climaxMs <= s.endMs) || list.at(-1);
+      const stay = list.find((s) => climaxMs >= s.startMs && climaxMs <= s.endMs)
+        || (anchorMs != null && list.find((s) => anchorMs >= s.startMs && anchorMs < s.endMs)) || list.at(-1);
       finish.set(v, Math.max(stay.startMs, Math.min(stay.endMs, climaxMs)));
       climaxStay.set(v, stay);
     } else {
