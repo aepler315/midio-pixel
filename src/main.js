@@ -56,7 +56,7 @@ import { RangePresentation, resolveRangeMode } from './world/alpine/RangePresent
 import { rangeTourControlState } from './ui/RangeTourControl.js';
 import { DETAIL_LEVELS, stepDetail, snapshotFileName, captureDetailSnapshots, canvasToPng } from './ui/DetailSnapshots.js';
 import { REEL_TARGET_SIZE, sizeLabel, reelFileName, planReelRenders, stepTargets, warmupTimes, describeReelSave,
-  createReelSaver, ReelSaveCancelled, ReelSizeError } from './ui/ReelExport.js';
+  createReelSaver, ReelSaveCancelled, ReelSizeError, classifyArmError } from './ui/ReelExport.js';
 import { residencyBudgetFor } from './render/GraphicsResidency.js';
 import { shouldSuggestLandscape } from './render/StagePresets.js';
 import { createPresentingRenderer } from './render/PresentingRenderer.js';
@@ -2233,7 +2233,9 @@ function startTimeline(timelineData, extra = {}) {
         throw new Error(result?.reason || 'no completed frame');
     } catch (err) {
       abortBulkExport();
-      throw failBulkExport(`Export presentation failed on the first frame: ${err?.message || err}`);
+      const failure = failBulkExport(`Export presentation failed on the first frame: ${err?.message || err}`);
+      failure.presentationFailure = true; // a smaller frame may still present (reel 4K saves)
+      throw failure;
     }
   } else if (!waitForLandscape) {
     rafHandle = requestAnimationFrame(frame);
@@ -4477,10 +4479,7 @@ function beginReelRender(data, group, size, restore) {
     beginBulkExport({ width: size.w, height: size.h, presentation: { ...group.displayPrefs, scaling: 'fit' },
       qualityLevel: group.qualityLevel });
   } catch (err) {
-    if (sim && bulkExportArmed && (canvas.width !== size.w || canvas.height !== size.h)) {
-      throw new ReelSizeError(`the stage came up at ${canvas.width}×${canvas.height}, not ${sizeLabel(size)}`);
-    }
-    throw err;
+    throw classifyArmError(err, { armed: !!sim && bulkExportArmed, stage: { w: canvas.width, h: canvas.height }, size });
   }
   // The rebuild is drawn here, frame by frame; playback controls and the
   // keyboard stay inert, and the COMPLETE panel stays up over the stage.

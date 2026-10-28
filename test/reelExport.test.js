@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   REEL_SIZES, REEL_TARGET_SIZE, REEL_WARMUP_FRAMES, sizeLadder, sizeLabel, slugify, mmss, reelFileName,
   reelMoment, planReelRenders, stepTargets, warmupTimes, describeReelSave, approximationReasons,
-  createReelSaver, ReelSaveCancelled, ReelSizeError,
+  createReelSaver, ReelSaveCancelled, ReelSizeError, classifyArmError,
 } from '../src/ui/ReelExport.js';
 import { stepExportClock } from '../src/render/BulkExport.js';
 
@@ -219,4 +219,19 @@ test('a group whose world is gone is unsaved without a rebuild', async () => {
   const result = await createReelSaver().run({ plan: twoFrames(), ...page, available: () => false });
   assert.deepEqual(page.log, [['end']]);
   assert.deepEqual(result.unsaved, [0, 1]);
+});
+
+test('a first frame that fails to present while arming is a size failure, so smaller sizes are tried', () => {
+  const size = { w: 3840, h: 2160 };
+  // The export tears itself down before throwing, so nothing is armed any more.
+  const failure = Object.assign(new Error('Export presentation failed on the first frame: lost'), { presentationFailure: true });
+  const sized = classifyArmError(failure, { armed: false, stage: { w: 300, h: 150 }, size });
+  assert.ok(sized instanceof ReelSizeError);
+  assert.match(sized.message, /first frame/);
+  assert.ok(classifyArmError(new Error('x'), { armed: true, stage: { w: 1920, h: 1080 }, size }) instanceof ReelSizeError);
+  const other = new Error('Still loading the song\'s biomes.');
+  assert.equal(classifyArmError(other, { armed: false, stage: { w: 300, h: 150 }, size }), other);
+  assert.equal(classifyArmError(other, { armed: true, stage: { ...size }, size }), other);
+  const cancelled = new ReelSaveCancelled();
+  assert.equal(classifyArmError(cancelled, { armed: true, stage: { w: 1, h: 1 }, size }), cancelled);
 });

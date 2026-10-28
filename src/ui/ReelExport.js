@@ -235,6 +235,19 @@ export class ReelSizeError extends Error {
   constructor(message) { super(message); this.name = 'ReelSizeError'; }
 }
 
+/** Classify an error thrown while arming the rebuild at `size`. The first
+ *  frame failing to present (the export tears itself down before throwing,
+ *  so the error carries `presentationFailure`) and a stage armed at another
+ *  size are size failures; anything else is thrown as it is. */
+export function classifyArmError(err, { armed = false, stage = null, size = null } = {}) {
+  if (err instanceof ReelSizeError || err instanceof ReelSaveCancelled) return err;
+  if (err?.presentationFailure) return new ReelSizeError(err.message || 'the first frame did not present');
+  if (armed && stage && size && (stage.w !== size.w || stage.h !== size.h)) {
+    return new ReelSizeError(`the stage came up at ${stage.w}×${stage.h}, not ${size.w}×${size.h}`);
+  }
+  return err;
+}
+
 /**
  * The save loop, with the page's work passed in as callbacks so it can be
  * tested without a DOM. One saver runs one save at a time: `run` while a
