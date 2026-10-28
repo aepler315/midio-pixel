@@ -16,6 +16,11 @@ export function moonIllumination(phase) {
   return Number.isFinite(phase) ? .5 - .5 * Math.cos(TAU * clamp(phase)) : 0;
 }
 const smooth = x => { x = clamp(x); return x * x * (3 - 2 * x); };
+const fract = x => x - Math.floor(x);
+/** Seconds over which the Milky Way eases in or out across the q3 rung. */
+const MILKY_FADE_SEC = 1.5;
+/** Flash-lit storm sprites kept beside the deck tints (LRU). */
+const FLASH_TINT_POOL = 8;
 const hash = (x, y, seed) => {
   let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(seed | 0, 1274126177);
   h = Math.imul(h ^ h >>> 13, 1274126177);
@@ -125,7 +130,12 @@ export class RangeSkyRenderer {
     this.painted = new WeakSet();
     this.stormTints = new WeakMap();
     this.cloudCache = new Map();
+    this.flashCache = new Map();
     this.celestial = new CelestialPainter({ buffers: this.buffers });
+    // The Milky Way's eased presence across quality rungs (heard time).
+    this._milkyFade = NaN;
+    this._milkyAtSec = NaN;
+    this._milkyTarget = NaN;
   }
   _seed(seed) {
     if (seed === this.seed) return;
@@ -136,6 +146,7 @@ export class RangeSkyRenderer {
     this.painted = new WeakSet();
     this.stormTints = new WeakMap();
     this.cloudCache = new Map();
+    this.flashCache = new Map();
     this.celestial.reset();
   }
   _cloud(index) {
@@ -149,6 +160,7 @@ export class RangeSkyRenderer {
       this.buffers.release(`cloud-${oldest}`);
       this.buffers.release(`storm-cloud-${oldest}`);
       this.buffers.release(`cinematic-cloud-${oldest}`);
+      if (this.flashCache.delete(oldest)) this.buffers.release(`storm-flash-cloud-${oldest}`);
     }
     const canvas = this.buffers.ensure(`cloud-${index}`, 192, 128);
     if (!canvas || this.painted.has(canvas)) return canvas;
@@ -228,22 +240,33 @@ export class RangeSkyRenderer {
     gradient.addColorStop(.65, frame.cinematicPixel ? skyTint(frame.colors.mid, [66, 106, 146], .07 * (1 - night)) : frame.colors.mid);
     gradient.addColorStop(1, frame.colors.horizon);
     ctx.fillStyle = gradient; ctx.fillRect(0, 0, width, height);
+    // Dusk and dawn burn around the (possibly set) sun, under every layer.
+    if (frame.twilight) this._twilightGlow(ctx, project, width, height, frame);
     // The moon is screened onto the sky with no backing disc, so the stars
     // it covers are cut out here instead of painted over.
     this.celestial.prepareMoon(frame.moon, width, height, night, frame.phase);
     if (performance) this._musicAtmosphere(ctx, project, width, height, night, performance);
-    if ((frame.qualityLevel ?? 0) < 3) this._milkyWay(ctx, project, width, height, night, frame.storm);
+    // Shedding the Milky Way at q3 eases over 1.5 s instead of popping.
+    const milky = this._milkyFadeAt(frame);
+    if (milky > 0) {
+      const alpha = ctx.globalAlpha;
+      ctx.globalAlpha = alpha * milky;
+      this._milkyWay(ctx, project, width, height, night, frame.storm);
+      ctx.globalAlpha = alpha;
+    }
+    // Output pixels per sky unit: hairlines and the moon texture's resolution.
+    const matrix = ctx.getTransform?.();
+    const outputScale = matrix ? Math.hypot(matrix.a, matrix.b) || 1 : 1;
     if (performance) {
       this._stars(ctx, project, width, height, night, time, !!frame.cinematicPixel, this.celestial.disc, performance);
       this._aurora(ctx, project, width, height, night, time, frame.authority, !!frame.cinematicPixel, performance);
+      this._streaks(ctx, project, width, height, night, performance, outputScale);
     } else {
       this._stars(ctx, project, width, height, night, time, !!frame.cinematicPixel);
       this._aurora(ctx, project, width, height, night, time, frame.authority, !!frame.cinematicPixel);
     }
     if (frame.lightning) LightningFX.prototype.draw.call(frame.lightning, ctx, { width, height }, frame.timeSec * 1000);
-    // Output pixels per sky unit choose the moon texture's resolution.
-    const matrix = ctx.getTransform?.();
-    this._bodies(ctx, frame, width, height, night, matrix ? Math.hypot(matrix.a, matrix.b) || 1 : 1);
+    this._bodies(ctx, frame, width, height, night, outputScale, performance);
     this._clouds(ctx, frame.camera, width, height, night, time, frame.storm, cinematicClouds ? frame : null);
     // Keep the existing heard-time storm score and triggered bolts. Only
     // their target and the cloud shape change; terrain wetness stays native.
@@ -255,6 +278,106 @@ export class RangeSkyRenderer {
     this._veiledBodies(ctx, frame, width, height, night);
     ctx.restore();
     return true;
+  }
+  /** The Milky Way's presence: 1 below q3, 0 from it, eased over 1.5 s of
+   *  heard time. A repeated time (pause, the water mirror's second draw)
+   *  holds; a seek, the first frame or a backwards step snaps. A rung
+   *  change at an unchanged heard time (a paused preset change) has no
+   *  time to ease over, so it snaps too. */
+  _milkyFadeAt(frame) {
+    const target = (frame.qualityLevel ?? 0) < 3 ? 1 : 0, at = frame.timeSec;
+    const dt = at - this._milkyAtSec, current = this._milkyFade, retarget = target !== this._milkyTarget;
+    this._milkyAtSec = at; this._milkyTarget = target;
+    if (Number.isFinite(current) && dt === 0 && !retarget) return current;
+    if (!Number.isFinite(current) || !(dt > 0 && dt <= .5)) return (this._milkyFade = target);
+    const step = dt / MILKY_FADE_SEC;
+    return (this._milkyFade = current < target ? Math.min(target, current + step) : Math.max(target, current - step));
+  }
+  /** Twilight in the high-resolution sky (frame.twilight, BiomeManager's
+   *  frozen copy of DayNight's twilightAt): a warm glow on the horizon
+   *  around the sun's azimuth, also while it is still below the horizon,
+   *  plus the antisolar Belt of Venus for headings that face away from it.
+   *  Absent or faint twilight paints nothing at all. */
+  _twilightGlow(ctx, project, width, height, frame) {
+    const tw = frame.twilight, amount = clamp(tw?.amount01 || 0);
+    if (amount <= .01) return;
+    const storm = clamp(frame.storm?.amount || 0), clear = 1 - storm;
+    const f = project.forward, dir = frame.sun?.worldDirection;
+    const az = dir && Number.isFinite(dir[0]) && Number.isFinite(dir[2]) && (dir[0] || dir[2])
+      ? Math.atan2(dir[0], -dir[2]) * 180 / Math.PI : null;
+    const sunAlt = clamp(frame.sun?.altitude01 || 0);
+    // drawSun's glare takes over as the sun climbs: no double brightening.
+    const alpha = .55 * amount * (1 - .6 * smooth(sunAlt / .12)) * clear * (frame.cinematicPixel ? .7 : 1);
+    let x = null, y = null;
+    if (az !== null) {
+      const p = project(tourSkyDirection(az, 2));
+      if (p.inFront) { x = p.xFrac * width; y = p.yFrac * height; }
+    } else {
+      const xFrac = Number.isFinite(tw.xFrac) ? tw.xFrac : frame.sun?.xFrac;
+      if (Number.isFinite(xFrac)) {
+        x = clamp(xFrac, -.2, 1.2) * width;
+        const ahead = f && (f[0] || f[2]) ? project(tourSkyDirection(Math.atan2(f[0], -f[2]) * 180 / Math.PI, 2)) : null;
+        y = ahead?.inFront && Number.isFinite(ahead.yFrac) ? ahead.yFrac * height : height * .62;
+      }
+    }
+    if (x !== null && Number.isFinite(x) && Number.isFinite(y) && alpha > .001) {
+      const r = clamp(.7 * width * (project.focal ?? 1), .35 * width, 1.1 * width);
+      const x0 = Math.max(0, x - r), x1 = Math.min(width, x + r), y0 = Math.max(0, y - r), y1 = Math.min(height, y + r);
+      if (x1 > x0 && y1 > y0) {
+        const glow = ctx.createRadialGradient(x, y, 0, x, y, r);
+        glow.addColorStop(0, tw.glow); glow.addColorStop(.35, tw.horizon); glow.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = alpha;
+        ctx.fillStyle = glow; ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+        ctx.restore();
+      }
+    }
+    // The Belt of Venus: pink over the blue-grey earth shadow, opposite the
+    // sun. Only the tour projection knows where that is.
+    const belt = .22 * amount * clear;
+    if (az === null || belt < .002 || !f) return;
+    const anti = project(tourSkyDirection(az + 180, 4));
+    if (!anti.inFront || !Number.isFinite(anti.xFrac)) return;
+    const horizon = project([f[0], 0, f[2]]);
+    const base = clamp(Number.isFinite(horizon.yFrac) ? horizon.yFrac : .62, -.3, 1.8) * height;
+    // About +-60 degrees of horizon, never narrower than 0.9 of the frame.
+    const half = Math.max(.45 * width, 1.05 * (project.focal ?? 1) * height), cx = anti.xFrac * width;
+    const x0 = Math.max(0, cx - half), x1 = Math.min(width, cx + half);
+    const top = base - .12 * height, y0 = Math.max(0, top), y1 = Math.min(height, base);
+    if (!(x1 > x0 && y1 > y0)) return;
+    const band = ctx.createLinearGradient(0, top, 0, base);
+    band.addColorStop(0, 'rgba(232,170,190,0)'); band.addColorStop(.45, `rgba(232,170,190,${belt})`);
+    band.addColorStop(1, `rgba(120,130,160,${belt})`);
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    ctx.fillStyle = band; ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+    ctx.restore();
+  }
+  /** A rare night meteor for a strong melody note (or any note in a lift):
+   *  one stroked line whose head moves fast and then slows, its tail lagging,
+   *  all a pure function of the note's heard age. The moon paints over it. */
+  _streaks(ctx, project, width, height, night, performance, outputScale = 1) {
+    const streak = performance?.streaks?.[0];
+    if (!streak) return;
+    const a = smooth((night - .3) / .5) * performance.detail * clamp(streak.strength);
+    if (a < .005) return;
+    const seed = streak.seed, az = seed * 360, alt = 12 + 16 * fract(seed * 7.3);
+    const side = fract(seed * 13.1) < .5 ? -1 : 1;
+    // Most of the travel in the first quarter second.
+    const p = 1 - (1 - clamp(streak.age / .45)) ** 3, q = p * .35;
+    const head = project(tourSkyDirection(az + side * 9 * p, alt - 4 * p));
+    const tail = project(tourSkyDirection(az + side * 9 * q, alt - 4 * q));
+    if (!head.inFront || !tail.inFront) return;
+    const hx = head.xFrac * width, hy = head.yFrac * height, tx = tail.xFrac * width, ty = tail.yFrac * height;
+    if (Math.max(hx, tx) < 0 || Math.min(hx, tx) > width || Math.max(hy, ty) < 0 || Math.min(hy, ty) > height) return;
+    const trail = ctx.createLinearGradient(hx, hy, tx, ty);
+    trail.addColorStop(0, `rgba(235,240,255,${clamp(a)})`); trail.addColorStop(1, 'rgba(235,240,255,0)');
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = trail; ctx.lineCap = 'round';
+    ctx.lineWidth = Math.max(.5 / outputScale, height * .0016);
+    ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(tx, ty); ctx.stroke();
+    ctx.restore();
   }
   _milkyWay(ctx, project, width, height, night, storm, moon = this.celestial.disc) {
     const strength = smooth((night - .3) / .6) * (1 - .8 * clamp(storm?.amount || 0));
@@ -436,13 +559,17 @@ export class RangeSkyRenderer {
     }
     ctx.restore();
   }
-  _bodies(ctx, frame, width, height, night, outputScale = 1) {
+  _bodies(ctx, frame, width, height, night, outputScale = 1, performance = null) {
     const storm = clamp(frame.storm?.amount ?? 0);
-    // The cinematic look keeps a quieter halo around the sun.
-    this.celestial.drawSun(ctx, frame.sun, width, height, storm, { quiet: !!frame.cinematicPixel });
-    this.celestial.drawMoon(ctx, frame.moon, frame.sun, width, height, night, frame.phase, outputScale, storm);
+    // The cinematic look keeps a quieter halo around the sun. The score
+    // (sampled once in draw) reaches only the glare, bloom and aureole.
+    this.celestial.drawSun(ctx, frame.sun, width, height, storm, { quiet: !!frame.cinematicPixel, music: performance });
+    this.celestial.drawMoon(ctx, frame.moon, frame.sun, width, height, night, frame.phase, outputScale, storm,
+      { music: performance });
   }
-  /** The bodies seen through the storm deck, painted over it. */
+  /** The bodies seen through the storm deck, painted over it. These stay
+   *  deaf to the score: a pulsing patch in a storm deck would read as
+   *  lightning. */
   _veiledBodies(ctx, frame, width, height, night) {
     const storm = clamp(frame.storm?.amount ?? 0);
     if (storm < .01) return;
@@ -468,29 +595,48 @@ export class RangeSkyRenderer {
     }
     ctx.restore();
   }
-  _stormClouds(ctx, banks, { dark, lit, directGain = 1 }) {
-    const images = new Map();
+  /** `variant` 'flash' (RangeStorm's lightning-lit repaint) tints its own
+   *  small LRU pool, so deck and flash never evict each other's pixels. */
+  _flashTint(index) {
+    this.flashCache.delete(index);
+    this.flashCache.set(index, true);
+    if (this.flashCache.size > FLASH_TINT_POOL) {
+      const oldest = this.flashCache.keys().next().value;
+      this.flashCache.delete(oldest);
+      this.buffers.release(`storm-flash-cloud-${oldest}`);
+    }
+    return this.buffers.ensure(`storm-flash-cloud-${index}`, 192, 128);
+  }
+  _stormClouds(ctx, banks, { dark, lit, directGain = 1, variant = 'deck' }) {
+    const images = new Map(), flash = variant === 'flash';
+    const gain = Math.min(1, directGain);
+    // The painted colours, as integers: a clearing that moves directGain
+    // repaints only when one of these channels actually changes.
+    const d0 = Math.round(dark[0]), d1 = Math.round(dark[1]), d2 = Math.round(dark[2]);
+    const l0 = Math.round(dark[0] + (lit[0] - dark[0]) * gain);
+    const l1 = Math.round(dark[1] + (lit[1] - dark[1]) * gain);
+    const l2 = Math.round(dark[2] + (lit[2] - dark[2]) * gain);
     ctx.save();
     for (const [i, bank] of banks.entries()) {
       const index = bank.shapeSeed ?? bank.index ?? Number(String(bank.id || `bank${i}`).slice(4)) % 6;
       let image = images.get(index);
       if (!image) {
         const density = this._cloud(index);
-        image = this.buffers.ensure(`storm-cloud-${index}`, 192, 128);
+        image = density && (flash ? this._flashTint(index) : this.buffers.ensure(`storm-cloud-${index}`, 192, 128));
         if (!density || !image) continue;
         // Density and tint determine these pixels exactly. Bank motion and
         // opacity affect only the destination draw below, so stable weather
         // need not repaint owned scratch canvases every frame.
-        const key = [density, ...dark, ...lit, directGain];
         const prior = this.stormTints.get(image);
-        if (!prior || prior.length !== key.length || !prior.every((value, i) => Object.is(value, key[i]))) {
+        if (!prior || prior[0] !== density || prior[1] !== variant || prior[2] !== d0 || prior[3] !== d1
+          || prior[4] !== d2 || prior[5] !== l0 || prior[6] !== l1 || prior[7] !== l2) {
           const target = image.getContext('2d');
           target.clearRect(0, 0, image.width, image.height);
           target.globalCompositeOperation = 'source-over';
-          const light = lit.map((value, channel) => Math.round(dark[channel] + (value - dark[channel]) * Math.min(1, directGain)));
+          const light = [l0, l1, l2];
           const gradient = target.createLinearGradient(0, 0, 0, image.height);
           gradient.addColorStop(0, `rgb(${light.join(',')})`);
-          gradient.addColorStop(1, `rgb(${dark.join(',')})`);
+          gradient.addColorStop(1, `rgb(${d0},${d1},${d2})`);
           target.fillStyle = gradient; target.fillRect(0, 0, image.width, image.height);
           // Preserve each billow's internal light and shadow. An alpha-only
           // mask flattens the volume into a mottled slab, even with a new shape.
@@ -499,7 +645,7 @@ export class RangeSkyRenderer {
           target.globalCompositeOperation = 'destination-in';
           target.drawImage(density, 0, 0);
           target.globalCompositeOperation = 'source-over';
-          this.stormTints.set(image, key);
+          this.stormTints.set(image, [density, variant, d0, d1, d2, l0, l1, l2]);
         }
         images.set(index, image);
       }
@@ -513,7 +659,7 @@ export class RangeSkyRenderer {
   }
   dispose() {
     this.buffers.dispose(); this.stars = []; this.galacticClouds = []; this.seed = null;
-    this.painted = new WeakSet(); this.stormTints = new WeakMap(); this.cloudCache.clear();
+    this.painted = new WeakSet(); this.stormTints = new WeakMap(); this.cloudCache.clear(); this.flashCache.clear();
     this.celestial.dispose();
   }
 }
