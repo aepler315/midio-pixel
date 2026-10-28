@@ -8,7 +8,7 @@ import { chromium } from 'playwright';
 import { ReviewRunOwner } from './lib/landscape-review-lifecycle.mjs';
 import { snapshotSource, serveSnapshot, sha256 } from './lib/visual-evaluation-server.mjs';
 import { normalizeManifest, captureSchedule, compareReports, blankFrame } from './lib/visual-evaluation.mjs';
-import { openEvaluationSong, renderEvaluationFrame, expectedTourPreparationFailure } from './lib/visual-evaluation-browser.mjs';
+import { openEvaluationSong, renderEvaluationFrame, expectedTourPreparationFailure, evaluationEntryUrl } from './lib/visual-evaluation-browser.mjs';
 import { attachBrowserDiagnostics, finalizeBrowserDiagnostics } from './lib/browser-diagnostics.mjs';
 import { defaultGridFor } from '../src/render/DisplayProfile.js';
 import { renderRunReport, renderComparisonReport } from './lib/visual-evaluation-report.mjs';
@@ -20,9 +20,11 @@ const help = `npm run review:landscape -- --out .smoke/review [--audio song.wav]
   --baseline DIR       Compare with a previous review using the same controls
   --look LOOK          pixel or cinematic (default: pixel)
   --grid GRID          classic, classicPlus, medium, mediumPlus, detailed or both (default: both; detailed for --look cinematic)
-  --view ID            Default: teton-range-tour; other IDs select a static catalog view
+  --view ID            Default: teton-range-tour; natural allows automatic landscape changes
+  --pace N             Requested Landscape rail pace, 1|2|3|4 (default3)
+  --tour MODE          off (authored rails), shots or tetons (default follows view)
   --start-ms N         Continuous capture start (default12000)
-  --seconds N          Clip length, >0 through10 (default2)
+  --seconds N          Clip length, >0 through180 (default2)
   --fps N              Fixed export sampling rate,1 through60 (default12)
   --hardware-gpu       Require an actual hardware renderer; otherwise explicit software WebGL
   --gpu-match TEXT     Additionally require this substring in the actual renderer
@@ -34,8 +36,8 @@ const help = `npm run review:landscape -- --out .smoke/review [--audio song.wav]
 Always headless. No --open or headful option. Output must be new. Artistic judgment remains unreviewed.
 `;
 export function parseReviewArgs(argv) {
-  const a = { source: root, look: 'pixel', grids: ['classic', 'detailed'], view: 'teton-range-tour', startMs: 12000, seconds: 2, fps: 12, liveSeconds: 0, mp4: true };
-  const values = { '--out': 'out', '--source': 'source', '--snapshot': 'snapshot', '--baseline': 'baseline', '--audio': 'audio', '--look': 'look', '--grid': 'grid', '--view': 'view', '--start-ms': 'startMs', '--seconds': 'seconds', '--fps': 'fps', '--live-seconds': 'liveSeconds', '--browser': 'browser', '--gpu-match': 'gpuMatch' };
+  const a = { source: root, look: 'pixel', grids: ['classic', 'detailed'], view: 'teton-range-tour', pace: 3, startMs: 12000, seconds: 2, fps: 12, liveSeconds: 0, mp4: true };
+  const values = { '--out': 'out', '--source': 'source', '--snapshot': 'snapshot', '--baseline': 'baseline', '--audio': 'audio', '--look': 'look', '--grid': 'grid', '--view': 'view', '--pace': 'pace', '--tour': 'tour', '--start-ms': 'startMs', '--seconds': 'seconds', '--fps': 'fps', '--live-seconds': 'liveSeconds', '--browser': 'browser', '--gpu-match': 'gpuMatch' };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     if (k === '--help' || k === '-h') return { help: true };
@@ -48,11 +50,15 @@ export function parseReviewArgs(argv) {
   }
   assert.ok(a.out, '--out is required');
   assert.ok(['pixel', 'cinematic'].includes(a.look), 'look must be pixel or cinematic');
-  for (const k of ['startMs', 'seconds', 'fps', 'liveSeconds']) a[k] = Number(a[k]);
+  for (const k of ['startMs', 'seconds', 'fps', 'liveSeconds', 'pace']) a[k] = Number(a[k]);
   assert.ok(Number.isFinite(a.startMs) && a.startMs >= 0, 'invalid start-ms');
-  assert.ok(a.seconds > 0 && a.seconds <= 10, 'seconds must be >0 through10');
+  assert.ok(Number.isFinite(a.seconds) && a.seconds > 0 && a.seconds <= 180, 'seconds must be >0 through180');
   assert.ok(Number.isInteger(a.fps) && a.fps >= 1 && a.fps <= 60, 'fps must be1 through60');
   assert.ok(Number.isInteger(a.liveSeconds) && a.liveSeconds >= 0 && a.liveSeconds <= 300, 'live-seconds must be0 through300');
+  assert.ok([1, 2, 3, 4].includes(a.pace), 'pace must be1|2|3|4');
+  a.tour ??= a.view === 'teton-range-tour' ? 'tetons' : 'shots';
+  assert.ok(['off', 'shots', 'tetons'].includes(a.tour), 'tour must be off|shots|tetons');
+  if (a.view === 'natural') a.view = null;
   if (a.grid) { assert.ok(['classic', 'classicPlus', 'medium', 'mediumPlus', 'detailed', 'both'].includes(a.grid), 'invalid grid'); a.grids = a.grid === 'both' ? ['classic', 'detailed'] : [a.grid]; }
   // Cinematic runs at its own detail level unless a grid is named.
   else if (a.look === 'cinematic') a.grids = [defaultGridFor('cinematic')];
@@ -61,12 +67,12 @@ export function parseReviewArgs(argv) {
 }
 export function makeReviewManifest(a, grid) {
   return normalizeManifest({ version: 1, settings: { width: 1280, height: 720, seed: 315, quality: 0,
-    experience: 'landscape', view: a.view, ...(a.view === 'teton-range-tour' ? { tour: 'tetons' } : {}),
+    experience: 'landscape', view: a.view, pace: a.pace, tour: a.tour, ...(a.view === null ? { biome: null } : {}),
     fps: a.fps, mode: 'continuous', startMs: a.startMs,
     presentation: { version: 2, look: a.look, quality: 'auto', palette: 'world', dither: .35,
       ditherMode: 'selective', pixelGrid: grid, pixelScale: 'original', scaling: 'fit' } },
   songs: [{ id: 'review-audio', fixture: 'contrast', seconds: Math.max(90, a.liveSeconds + 15, Math.ceil((a.startMs / 1000 + a.seconds + 1))),
-    timesMs: [a.startMs, a.startMs + a.seconds * 1000], clips: [{ startMs: a.startMs, durationMs: a.seconds * 1000 }] }] });
+    timesMs: [a.startMs, Math.ceil(a.startMs + a.seconds * 1000)], clips: [{ startMs: a.startMs, durationMs: a.seconds * 1000 }] }] });
 }
 // Shared with the route gate's hardware configuration. Rejects software
 // rasterizers (SwiftShader, llvmpipe, softpipe, Windows WARP, which is Chromium's
@@ -82,9 +88,10 @@ export function validateReviewFrame(frame, grid, look = 'pixel') {
   assert.equal(frame.range?.active, true, 'actual terrain active'); assert.equal(frame.range?.runtime, 'ready');
   assert.deepEqual(frame.output, { width: 1280, height: 720 });
 }
-export function liveReviewGates({delivery,state,errors,seconds,startHeardMs,look = 'pixel'}) {
+export function liveReviewGates({delivery,state,errors,seconds,startHeardMs,ready,recordBaseline = false,look = 'pixel'}) {
   const d=delivery?.delivered,r=state?.residency;
-  return { noFailedPresentations: delivery?.failedPresentations===0, deliveredFrames: Number.isFinite(d?.frames)&&d.frames>0,
+  return { renderReady: (ready?.result?.status === 'ready' || recordBaseline && ready?.result?.status === 'legacy-ready') && ready?.preparing === false,
+    noFailedPresentations: delivery?.failedPresentations===0, deliveredFrames: Number.isFinite(d?.frames)&&d.frames>0,
     deliveredP95: Number.isFinite(d?.p95Ms)&&d.p95Ms<=20,
     gapsOver100ms: Number.isFinite(seconds)&&seconds>0&&Number.isFinite(d?.stallsOver100ms)&&d.stallsOver100ms/(seconds/60)<=1,
     visible: delivery?.excluded?.hidden===0,
@@ -131,12 +138,13 @@ async function instrumentReview(page) {
     }
   });
 }
-async function diagnostics(page) {
+export async function reviewDiagnostics(page) {
   return page.evaluate(() => {
     const s = window.__SMW, p = s.sim.biomes.rangePresentation, scene = p.scene, gl=scene.renderer.getContext(),debug=gl.getExtension('WEBGL_debug_renderer_info');
-    return { gpu:gl.getParameter(debug?.UNMASKED_RENDERER_WEBGL||gl.RENDERER), heardMs: s.sim.heardTimeMs, playheadMs: s.sim.timeMs, paused: s.paused, presentation: structuredClone(s.presentationDiagnostics),
+    const rangeState = structuredClone(s.rangeState ?? null);
+    return { rangeState, cameraRails: rangeState?.cameraRails ?? null, gpu:gl.getParameter(debug?.UNMASKED_RENDERER_WEBGL||gl.RENDERER), heardMs: s.sim.heardTimeMs, playheadMs: s.sim.timeMs, paused: s.paused, presentation: structuredClone(s.presentationDiagnostics),
       skyMode: s.presentationDiagnostics.hybridSky ? 'high-resolution-sky/native-grid-terrain' : 'native-grid-all', sky: s.sim.biomes.rangeSkyLayer ? {sourceWidth:s.sim.biomes.rangeSkyLayer.sourceWidth,sourceHeight:s.sim.biomes.rangeSkyLayer.sourceHeight,timeSec:s.sim.biomes.rangeSkyLayer.timeSec,night:s.sim.biomes.rangeSkyLayer.night,sun:s.sim.biomes.rangeSkyLayer.sun,moon:s.sim.biomes.rangeSkyLayer.moon,authority:s.sim.biomes.rangeSkyLayer.authority,storm:s.sim.biomes.rangeSkyLayer.storm,stormLight:s.sim.biomes.rangeSkyLayer.stormLight,output:s.presentationDiagnostics.output} : null, renderReadiness: s.renderReadiness ?? null,
-      playbackPreparing: !!s.playbackPreparing, pose: scene.camera ? { eye: scene.camera.position.toArray(), projection: scene.camera.projectionMatrix.toArray() } : null,
+      playbackPreparing: !!s.playbackPreparing, pose: scene.camera ? { eye: scene.camera.position.toArray(), fovYDeg: scene.camera.fov, projection: scene.camera.projectionMatrix.toArray() } : null,
       forbiddenOverlayPaint: structuredClone(window.__landscapeReviewPaint),
       windows: scene.snapshot().windows.map(w => ({ index: w.index, coverage: w.coverage,
         detail: Object.fromEntries(Object.entries(w.detail || {}).filter(([k]) => !['strides', 'visible', 'poses'].includes(k))), forestDetail: w.forestDetail })),
@@ -198,16 +206,17 @@ async function saveMedia(page, dir, row, settings, mp4, owner) {
   return media;
 }
 async function liveReview(browser, url, audio, args, dir) {
+  const settings = makeReviewManifest(args, args.grids[0]).settings;
   const context = await browser.newContext({ viewport: { width: 1280, height: 720 }, serviceWorkers: 'block' });
-  const result = { status: 'failed', look: args.look, seconds: args.liveSeconds, errors: [], warnings: [], events: [], scope: 'Separate headless live delivery after the real upload and render-ready audio gate; initial asset wait is separate. No physical-display or foreground/OSfullscreen timing claim.' };
+  const result = { status: 'failed', settings, recordBaseline: !!args.recordBaseline, look: args.look, seconds: args.liveSeconds, errors: [], warnings: [], events: [], scope: 'Separate headless live delivery after the real upload and render-ready audio gate; initial asset wait is separate. No physical-display or foreground/OSfullscreen timing claim.' };
   let browserDiagnostics;
   let failed = false;
   try {
     const page = await context.newPage(), errors = result.errors;
     browserDiagnostics = await attachBrowserDiagnostics(page, { ...result, loadedFiles: new Set() }, {
-      origin: new URL(url).origin, isExpectedRequestFailure: expectedTourPreparationFailure });
+      origin: new URL(url).origin, isExpectedRequestFailure: settings.tour === 'tetons' ? expectedTourPreparationFailure : undefined });
     await context.addInitScript(() => { const Native = window.AudioContext; window.AudioContext = class extends Native { constructor(o = {}) { super({ ...o, sampleRate: 48000 }); } }; });
-    await page.goto(url + '/?experience=landscape&rangeTour=tetons&rangeRenderer=v2&seed=315');
+    await page.goto(evaluationEntryUrl(url, settings, { bulkExport: false }));
     await page.locator('#titleSettings').evaluate(n => { n.open = true; });
     await page.locator('#lyricGroundingBtn').evaluate(n => { if (n.getAttribute('aria-pressed') === 'true') n.click(); });
     await page.locator('#display-look').selectOption(args.look);await page.locator('#display-pixelGrid').selectOption(args.grids[0]);await page.locator('#stageFps').selectOption('60');if(await page.locator('#display-pixelScale').count())await page.locator('#display-pixelScale').selectOption('original');
@@ -227,12 +236,16 @@ async function liveReview(browser, url, audio, args, dir) {
         if (wallMs - start < seconds * 1000) requestAnimationFrame(tick); else resolve(); }; requestAnimationFrame(tick); });
       return meter.summary();
     }, args.liveSeconds);
+    result.delivery = delivery;
     browserDiagnostics.setPhase('live-acceptance');
-    const state = await diagnostics(page);if(args.hardware)requireHardwareRenderer(state.gpu,args.gpuMatch); assert.equal(state.playbackPreparing, false); assert.deepEqual(errors, []);
+    const state = await reviewDiagnostics(page); result.state = state;if(args.hardware)requireHardwareRenderer(state.gpu,args.gpuMatch); assert.equal(state.playbackPreparing, false); assert.deepEqual(errors, []);
     assert.equal(state.presentation.effectiveLook,args.look,'actual selected look');assert.equal(state.presentation.pixelScale, 'original');assert.equal(state.presentation.effectiveGrid.id,args.grids[0]);
     Object.assign(result,{uploadToReadyMs,ready,delivery,state,errors,startHeardMs:ready.heardMs});result.targets={deliveredP95Ms:20,gapsOver100msPerMinute:1,maxAccountedGraphicsMiB:512,minHeardAdvanceFraction:.9};result.gates=liveReviewGates(result);result.status=Object.values(result.gates).every(Boolean)?'passed':'failed';assert.equal(result.status,'passed','live delivery or residency targets failed; observed metrics retained');return result;
   } catch(error) { failed = true; result.failure={message:error.message,stack:error.stack};throw error; }
   finally {
+    result.gates ??= liveReviewGates(result);
+    result.checks = { readiness: result.ready ? (result.gates.renderReady ? 'passed' : 'failed') : 'unavailable',
+      delivery: result.delivery ? (['noFailedPresentations', 'deliveredFrames', 'deliveredP95', 'gapsOver100ms', 'visible'].every(key => result.gates[key]) ? 'passed' : 'failed') : 'not-measured' };
     result.finishedAt=new Date().toISOString();await context.close();await browserDiagnostics?.dispose();
     try { finalizeBrowserDiagnostics(result, result, { preserveFailure: failed }); }
     finally { await json(path.join(dir,'live-report.json'),result); }
@@ -281,7 +294,7 @@ export async function runLandscapeReview(args, { launch = options => chromium.la
         run.environment = loaded.environment;console.log(`Actual renderer: ${loaded.environment.gl}`); if (args.hardware) requireHardwareRenderer(loaded.environment.gl, args.gpuMatch);
         row.durationMs = loaded.durationMs; row.schedule = captureSchedule(song, row.durationMs, settings); loaded.browserDiagnostics.setPhase('review-instrumentation'); await instrumentReview(loaded.page);
         for (const point of row.schedule) { loaded.browserDiagnostics.setPhase(`capture:${point.timeMs}ms`); const frame = await renderEvaluationFrame(loaded.page, point, settings); if (!frame) continue;
-          validateReviewFrame(frame, grid, args.look); assert.equal(blankFrame(frame.thumbnail), false); frame.review = await diagnostics(loaded.page);
+          validateReviewFrame(frame, grid, args.look); assert.equal(blankFrame(frame.thumbnail), false); frame.review = await reviewDiagnostics(loaded.page);
           const bytes = Buffer.from(frame.pngData, 'base64'); delete frame.pngData; frame.png = `${song.id}/frame-${String(row.frames.length).padStart(5, '0')}.png`; frame.sha256 = sha256(bytes); await fs.writeFile(path.join(dir, frame.png), bytes); row.frames.push(frame);if(args.ablateAurora&&row.frames.length===1)run.auroraAblation=await auroraAblation(loaded.page,dir,frame,point,settings); }
         loaded.browserDiagnostics.setPhase('paused-lifecycle'); run.lifecycle = await pausedLifecycle(loaded.page, grid); assert.equal(run.lifecycle.unchanged, true);
         run.absenceChecks = await loaded.page.evaluate(() => window.__landscapeReviewPaint); if (!args.recordBaseline) assert.ok(Object.values(run.absenceChecks).every(v => v.paints === 0), 'removed overlay painted');

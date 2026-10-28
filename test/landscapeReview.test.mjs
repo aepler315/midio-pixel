@@ -34,7 +34,7 @@ test('review selects Cinematic explicitly and retains the same bounded Classic+ 
   }
 });
 test('review rejects unbounded clips and invalid grids or live durations before launching a browser', () => {
-  for (const args of [['--seconds', '0'], ['--seconds', '11'], ['--grid', 'other'], ['--fps', '0'], ['--live-seconds', '301'], ['--start-ms', '-1']]) {
+  for (const args of [['--seconds', '0'], ['--seconds', '181'], ['--grid', 'other'], ['--fps', '0'], ['--live-seconds', '301'], ['--start-ms', '-1']]) {
     assert.throws(() => parseReviewArgs(['--out', 'x', ...args]));
   }
   const live = parseReviewArgs(['--out', 'x', '--live-seconds', '300']);
@@ -75,10 +75,12 @@ test('review rejects an ignored Cinematic request and checks the effective look 
 
 test('a completed live trace cannot pass with stalled delivery, hidden time, exhausted residency or a stopped heard clock', async () => {
   const { liveReviewGates } = await import('../tools/landscape-review.mjs');
-  const good = { seconds: 60, startHeardMs: 0, errors: [], look: 'cinematic', delivery: { failedPresentations: 0, delivered: { frames: 3600, p95Ms: 16.7, stallsOver100ms: 0 }, excluded: { hidden: 0 } },
+  const good = { ready: { result: { status: 'ready' }, preparing: false }, seconds: 60, startHeardMs: 0, errors: [], look: 'cinematic', delivery: { failedPresentations: 0, delivered: { frames: 3600, p95Ms: 16.7, stallsOver100ms: 0 }, excluded: { hidden: 0 } },
     state: { heardMs: 60000, paused: false, presentation: { effectiveLook: 'cinematic' }, residency: { peakBytes: 500, budgetBytes: 1000, liveBytes: 400, pendingBytes: 0, overcommits: 0 } } };
   assert.ok(Object.values(liveReviewGates(good)).every(Boolean));
-  for (const alter of [r => { r.delivery.failedPresentations=1; }, r => { r.delivery.delivered.p95Ms = 70; }, r => { r.delivery.delivered.stallsOver100ms = 5; },
+  assert.equal(liveReviewGates({ ...good, ready: { result: { status: 'failed' }, preparing: false } }).renderReady, false);
+  assert.equal(liveReviewGates({ ...good, ready: { result: { status: 'failed' }, preparing: false } }).deliveredFrames, true);
+  for (const alter of [r => { r.ready.preparing = true; }, r => { r.delivery.failedPresentations=1; }, r => { r.delivery.delivered.p95Ms = 70; }, r => { r.delivery.delivered.stallsOver100ms = 5; },
     r => { r.delivery.excluded.hidden = 1; }, r => { r.state.residency.peakBytes = 1001; }, r => { r.state.residency.overcommits = 1; },
     r => { r.state.heardMs = 0; }, r => { r.state.paused = true; }, r => { r.errors.push('renderer failed'); },
     r => { r.state.presentation.effectiveLook = 'pixel'; }, r => { delete r.state.presentation.effectiveLook; }]) {
@@ -135,4 +137,63 @@ test('serialized grid provenance can be compared only after verifying source imm
     await assert.rejects(verifyReviewSource({ snapshot: dir }, digest, run.source), /source changed/);
     assert.equal(run.source.changedDuringRun, true);
   } finally { await fs.rm(dir, { recursive: true, force: true }); }
+});
+
+
+test('review pins pace and explicit tour choices without changing the short tour default', () => {
+  const defaults = makeReviewManifest(parseReviewArgs(['--out', 'x']), 'classic');
+  assert.equal(defaults.settings.pace, 3);
+  assert.equal(defaults.settings.tour, 'tetons');
+  assert.equal(defaults.settings.view, 'teton-range-tour');
+  assert.equal(defaults.settings.fps, 12);
+  for (const pace of [1, 2, 3, 4]) for (const tour of ['off', 'shots', 'tetons']) {
+    const args = parseReviewArgs(['--out', 'x', '--pace', String(pace), '--tour', tour, '--view', 'teton-jackson-lake']);
+    const settings = makeReviewManifest(args, 'classic').settings;
+    assert.equal(settings.pace, pace);
+    assert.equal(settings.tour, tour);
+    assert.equal(settings.view, 'teton-jackson-lake');
+  }
+  for (const pace of ['0', '5', '1.5', 'NaN', 'Infinity']) assert.throws(() => parseReviewArgs(['--out', 'x', '--pace', pace]), /pace/);
+  for (const tour of ['none', 'auto', '1']) assert.throws(() => parseReviewArgs(['--out', 'x', '--tour', tour]), /tour/);
+});
+
+test('natural view allows automatic landscape selection and disables the fixture biome pin', () => {
+  const settings = makeReviewManifest(parseReviewArgs(['--out', 'x', '--view', 'natural', '--tour', 'off']), 'classic').settings;
+  assert.equal(settings.view, null);
+  assert.equal(settings.biome, null);
+  assert.equal(settings.tour, 'off');
+});
+
+test('explicit review clips support positive durations through 180 seconds', () => {
+  for (const seconds of [0.05, 11, 30, 180]) {
+    const m = makeReviewManifest(parseReviewArgs(['--out', 'x', '--seconds', String(seconds)]), 'classic');
+    assert.equal(m.songs[0].clips[0].durationMs, seconds * 1000);
+    assert.ok(m.songs[0].seconds * 1000 > 12000 + seconds * 1000);
+  }
+  for (const seconds of ['0', '-1', '180.001', 'NaN', 'Infinity']) assert.throws(() => parseReviewArgs(['--out', 'x', '--seconds', seconds]), /seconds/);
+});
+
+test('review diagnostics serialize effective camera state independently from readiness', async () => {
+  const { reviewDiagnostics } = await import('../tools/landscape-review.mjs');
+  assert.equal(typeof reviewDiagnostics, 'function');
+  const rangeState = { active: true, runtime: 'ready', cameraRails: { scheduleId: 'schedule-a', requestedMultiplier: 4, from: { occurrenceId: 'scene-a', viewId: 'teton-jackson-lake', progress01: .7,
+      requestedMultiplier: 4, effectiveMultiplier: 2, coverage01: 1, capped: true, policy: 'rail' }, to: null } };
+  const schedule = { version: 1, id: 'schedule-a', requestedMultiplier: 4, occurrences: [] };
+  const previousWindow = globalThis.window;
+  try {
+    const scene = { renderer: { getContext: () => ({ getExtension: () => null, RENDERER: 1, getParameter: () => 'test' }) },
+      camera: { position: { toArray: () => [1, 2, 3] }, projectionMatrix: { toArray: () => [4, 5, 6] }, fov: 35 },
+      snapshot: () => ({ windows: [] }), prepared: new Map() };
+    globalThis.window = { __SMW: { sim: { heardTimeMs: 12000, timeMs: 12000,
+      biomes: { rangePresentation: { scene, cameraSchedule: schedule, residency: { snapshot: () => ({}) } } } },
+      rangeState, renderReadiness: { status: 'failed', reason: 'asset-timeout' }, presentationDiagnostics: {}, playbackPreparing: true, paused: true }, __landscapeReviewPaint: {} };
+    const result = await reviewDiagnostics({ evaluate: fn => fn() });
+    assert.deepEqual(result.rangeState, rangeState);
+    assert.deepEqual(result.cameraRails, rangeState.cameraRails);
+    assert.equal(Object.hasOwn(result, 'cameraSchedule'), false, 'full schedule tables are not repeated per frame');
+    assert.equal(result.pose.fovYDeg, 35);
+    assert.equal(result.renderReadiness.status, 'failed');
+    rangeState.cameraRails.from.progress01 = .1;
+    assert.equal(result.cameraRails.from.progress01, .7, 'retained evidence must not change after later runtime updates');
+  } finally { if (previousWindow === undefined) delete globalThis.window; else globalThis.window = previousWindow; }
 });

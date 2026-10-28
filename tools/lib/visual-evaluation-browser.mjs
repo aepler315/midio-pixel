@@ -13,6 +13,21 @@ export function expectedTourPreparationFailure(request) {
     && `cancelled tour preparation request ${url.pathname}`;
 }
 
+// Both fixed-clock and live reviews use the same product camera controls.
+export function evaluationEntryUrl(url, settings, { bulkExport = true } = {}) {
+  const entry = new URL(url);
+  const controls = { bulkExport: bulkExport ? 1 : null,
+    exportW: bulkExport ? settings.width : null, exportH: bulkExport ? settings.height : null,
+    experience: settings.experience, rangeRenderer: 'v2', rangeTour: settings.tour,
+    rangePace: settings.pace, rangeView: settings.view, seed: settings.seed, perf: 'high',
+    rangeShots: process.env.VISUAL_RANGE_SHOTS === 'all' ? 'all' : null };
+  for (const [key, value] of Object.entries({ ...controls, ...settings.debug })) {
+    if (value != null) entry.searchParams.set(key, value);
+    else entry.searchParams.delete(key);
+  }
+  return entry.href;
+}
+
 // Uses the real upload/analysis and existing export APIs. No synthetic control
 // bus is substituted for the decoded audio.
 export async function openEvaluationSong(browser, { url, audioPath, settings, diagnostics }) {
@@ -32,16 +47,7 @@ export async function openEvaluationSong(browser, { url, audioPath, settings, di
       // Analysis revisions cancel old tour preparation fetches; the active
       // backend is still verified per frame. Other cancellations remain fatal.
       isExpectedRequestFailure: settings.tour === 'tetons' ? expectedTourPreparationFailure : undefined });
-    const entry = new URL(url);
-    for (const [key, value] of Object.entries({ bulkExport: 1, exportW: settings.width, exportH: settings.height,
-      // An unset tour leaves the page's default camera (shot tours where
-      // approved); VISUAL_RANGE_SHOTS=all also lets candidate libraries play.
-      experience: settings.experience, rangeRenderer: 'v2', rangeTour: settings.tour, rangeView: settings.view, seed: settings.seed, perf: 'high',
-      rangeShots: process.env.VISUAL_RANGE_SHOTS === 'all' ? 'all' : undefined })) {
-      if (value != null) entry.searchParams.set(key, value);
-    }
-    for (const [key, value] of Object.entries(settings.debug || {})) if (value != null) entry.searchParams.set(key, value);
-    await page.goto(entry.href);
+    await page.goto(evaluationEntryUrl(url, settings));
     await page.locator('#titleSettings').evaluate(node => { node.open = true; });
     const lyrics = page.locator('#lyricGroundingBtn');
     if (await lyrics.getAttribute('aria-pressed') === 'true') await lyrics.click();
@@ -77,13 +83,14 @@ export async function renderEvaluationFrame(page, point, settings) {
     };
     let clock = smw.renderExportFrame(point.timeMs, { beforeDraw });
     if (await smw.rangeSettle({ timeoutMs: 120000 })) clock = smw.renderExportFrame(point.timeMs, { beforeDraw });
-    const state = smw.rangeState;
+    const state = structuredClone(smw.rangeState);
     if (Math.abs(clock.timeMs - point.timeMs) > 1000 / 60 + 0.01) throw new Error(`clock drift at ${point.timeMs}: ${clock.timeMs}`);
     if (clock.width !== settings.width || clock.height !== settings.height || clock.draws !== 1) throw new Error('wrong frame size or draw count');
     if (smw.perfLevel !== settings.quality) throw new Error('quality drift');
     if (settings.experience === 'trio' && (smw.experience !== 'trio' || !smw.sim.trio || state.active)) throw new Error('Trio Stage is inactive or terrain is still active');
     if (settings.experience !== 'trio' && (state.mode !== 'v2' || !state.active || state.runtime !== 'ready')) throw new Error(`Range v2 inactive: ${JSON.stringify(state)}`);
-    if (settings.experience !== 'trio' && settings.view && state.viewId !== settings.view) throw new Error(`wrong view ${state.viewId}`);
+    const expectedView = settings.tour === 'tetons' ? 'teton-range-tour' : settings.view;
+    if (settings.experience !== 'trio' && expectedView && state.viewId !== expectedView) throw new Error(`wrong view ${state.viewId}`);
     // The rung the scene actually drew with, not only the governor's value.
     const rangeFrame = smw.sim.biomes.rangePresentation?.frame;
     if (rangeFrame && (rangeFrame.qualityLevel ?? 0) !== settings.quality) throw new Error(`effective quality ${rangeFrame.qualityLevel} != ${settings.quality}`);
@@ -94,7 +101,8 @@ export async function renderEvaluationFrame(page, point, settings) {
     const thumbnail = [...ctx.getImageData(0, 0, 64, 36).data];
     const sim = smw.sim, frame = sim.biomes.rangePresentation?.frame;
     return { ...(settings.experience ? { experience: smw.experience } : {}), timeMs: point.timeMs, actualTimeMs: clock.timeMs, checkpoint: point.checkpoint, clips: point.clips,
-      pngData: canvas.toDataURL('image/png').split(',')[1], thumbnail, range: state, quality: smw.perfLevel,
+      pngData: canvas.toDataURL('image/png').split(',')[1], thumbnail, range: state, cameraRails: state.cameraRails ?? null,
+      renderReadiness: structuredClone(smw.renderReadiness ?? null), quality: smw.perfLevel,
       audio: { heardTimeMs: sim.heardTimeMs, energy: sim.energyCurves?.globalEnergyNorm(sim.heardTimeMs) ?? null,
         bands: sim.energyCurves?.sampleAll(sim.heardTimeMs) ?? null },
       controls: { camera: sim.camera, cameraMove: frame?.cameraMove ?? null, storm: frame?.storm ?? null,
