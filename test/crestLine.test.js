@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {
   CREST_FILTER, CREST_TIER_ORDER, CREST_TIERS, CREST_DARKEN, PROTECTED_HUES, PROTECTED_HUE_GAP, crestE, crestStroke, shoreStroke,
   filterCrest, filterAux, reconstructCrest, reownCrestCells, crestSpan, crestLineColor, shoreColor, snapCrestColor,
-  nearProtectedHue, linkShoreChains, SHORE_SHAPE, shoreShape, solidShoreEdges, smoothShoreChain,
+  nearProtectedHue, linkShoreChains, SHORE_SHAPE, shoreShape, solidShoreEdges, smoothShoreChain, gaussianSmooth, shoreNoise,
+  smoothHeldShore,
 } from '../src/render/CrestLine.js';
 import { RangeCrest, CREST_GRID_SCAN_LEVEL, CREST_PIXEL_SPLIT_LEVEL } from '../src/world/alpine/RangeCrest.js';
 import { PROBE_BAND_ROWS, PROBE_ROWS, PROBE_WATER_ROW, PROBE_WATER_SLOTS, probeRow } from '../src/world/alpine/CrestProbe.js';
@@ -730,7 +731,9 @@ test('a jittery near waterline becomes one smooth curve; an incoherent chain is 
   const { ys, residual } = smoothShoreChain(rows, shoreShape(0.75).sigma);
   assert.ok(residual < SHORE_SHAPE.maxResidual, `residual ${residual}`);
   for (let p = 1; p < n - 1; p++) assert.ok(Math.abs(ys[p - 1] - 2 * ys[p] + ys[p + 1]) <= SHORE_SHAPE.maxCurvature + 1e-3, `curvature at ${p}`);
-  for (let p = 0; p < n; p++) assert.ok(Math.abs(ys[p] - truth(p)) < 1.6, `point ${p}: ${ys[p]} vs ${truth(p)}`);
+  // The ends follow the local trend of the data (no pull toward the
+  // interior), so their scatter is a little wider than the interior's.
+  for (let p = 0; p < n; p++) assert.ok(Math.abs(ys[p] - truth(p)) < (p < 3 || p > n - 4 ? 2 : 1.6), `point ${p}: ${ys[p]} vs ${truth(p)}`);
   // Edges scattered over ±8 rows are not one shore.
   const junk = Float32Array.from({ length: n }, () => Math.round(150 + (rnd() - 0.5) * 16));
   assert.ok(smoothShoreChain(junk, shoreShape(0.75).sigma).residual > SHORE_SHAPE.maxResidual);
@@ -755,7 +758,72 @@ test('the near shore is drawn as one coherent line, not squiggle fragments', () 
   assert.equal(shores.length, 1, `${shores.length} chains: ${JSON.stringify(shores.map(c => [c.kind, c.points.length / 2, c.points[0], c.points.at(-2)]))}`);
   const p = shores[0].points, m = p.length / 2;
   assert.ok(m >= 45 && p[0] < 6 && p.at(-2) > 58, `${m} columns from ${p[0]} to ${p.at(-2)}`);
+  for (const i of [0, m - 1]) {
+    const j = p[2 * i] - 0.5;
+    assert.ok(Math.abs(p[2 * i + 1] - (28.5 + j / 20)) < 1.5, `end at column ${j}: ${p[2 * i + 1]}`);
+  }
   let worst = 0;
   for (let i = 1; i < m - 1; i++) worst = Math.max(worst, Math.abs(p[2 * i - 1] - 2 * p[2 * i + 1] + p[2 * i + 3]));
   assert.ok(worst <= SHORE_SHAPE.maxCurvature + 0.05, `curvature ${worst}`);
+});
+
+const sampleRows = (truth, n) => Float32Array.from({ length: n }, (_, p) => Math.round(truth(p)));
+const worstOff = (ys, truth) => ys.reduce((w, y, p) => Math.max(w, Math.abs(y - truth(p))), 0);
+
+test('clean sloped, bent and cove shores survive shaping with their ends on the edge', () => {
+  const cases = [];
+  for (const nearness of [0, 0.5, 1]) for (const slope of [1, 1.5, 2, 2.5, 3, 4, -2, 0.3]) cases.push([`slope ${slope} at ${nearness}`, nearness, 40, p => 100.3 + slope * p]);
+  cases.push(['flat then slope 2, near', 1, 40, p => 100 + (p < 20 ? 0 : 2 * (p - 20))]);
+  cases.push(['slope-3 bend, far (8 + 8 columns)', 0, 16, p => 100 + 3 * Math.abs(p - 8)]);
+  cases.push(['±2 rows/column cove at 0.3', 0.3, 31, p => 100 + 2 * Math.abs(p - 15)]);
+  cases.push(['1.5 rows/column point, near', 1, 41, p => 130.2 - 1.5 * Math.abs(p - 20)]);
+  cases.push(['gentle curve, near', 1, 60, p => 100 + 12 * Math.sin(p / 15)]);
+  for (const [name, nearness, n, truth] of cases) {
+    const { ys, residual } = smoothShoreChain(sampleRows(truth, n), shoreShape(nearness).sigma);
+    assert.ok(residual < 0.5 && residual < SHORE_SHAPE.maxResidual, `${name}: residual ${residual.toFixed(2)}`);
+    assert.ok(worstOff(ys, truth) <= 1, `${name}: ${worstOff(ys, truth).toFixed(2)} rows off`);
+    assert.ok(Math.abs(ys[0] - truth(0)) <= 1 && Math.abs(ys[n - 1] - truth(n - 1)) <= 1, `${name}: ends ${ys[0]}, ${ys[n - 1]}`);
+  }
+});
+
+test('a far chain with a real zigzag keeps it; raster quantization alone is not jitter', () => {
+  for (const [legs, slope] of [[4, 1], [4, 1.5], [6, 1.5], [8, 2]]) {
+    const truth = p => 100.2 + slope * Math.abs((p % (2 * legs)) - legs), n = 48;
+    const { ys, residual } = smoothShoreChain(sampleRows(truth, n), shoreShape(0).sigma);
+    assert.ok(residual < SHORE_SHAPE.maxResidual, `legs ${legs}: residual ${residual}`);
+    assert.ok(worstOff(ys, truth) <= 1, `legs ${legs} slope ${slope}: flattened by ${worstOff(ys, truth).toFixed(2)} rows`);
+  }
+  assert.equal(shoreNoise(sampleRows(p => 3.7 + 1.37 * p, 50)), 0, 'a rasterized straight edge');
+  let seed = 11;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  assert.ok(shoreNoise(Float32Array.from({ length: 50 }, () => 100 + Math.round((rnd() - 0.5) * 5))) > SHORE_SHAPE.noiseRows, '±2-row jitter');
+});
+
+test('shore smoothing is symmetric in place and keeps a slope at the ends', () => {
+  const step = Float32Array.from({ length: 40 }, (_, p) => 100 + (p < 20 ? 0 : 2 * (p - 20)) + (p % 3 === 0 ? 0.4 : 0));
+  const out = gaussianSmooth(step, 2.5), inPlace = Float32Array.from(step);
+  gaussianSmooth(inPlace, 2.5, inPlace);
+  assert.deepEqual([...inPlace], [...out]);
+  const line = Float32Array.from({ length: 30 }, (_, p) => 10 + 3 * p), sm = gaussianSmooth(line, 5);
+  for (let p = 0; p < 30; p++) assert.ok(Math.abs(sm[p] - line[p]) < 1e-3, `point ${p}: ${sm[p]}`);
+  const held = Float32Array.from(step), copy = gaussianSmooth(step, 1.25);
+  smoothHeldShore(held, 1.25, Infinity);
+  assert.deepEqual([...held], [...copy]);
+});
+
+test('a clean near cove is drawn on its edge, ends included', () => {
+  const crest = new RangeCrest();
+  const truth = j => 8.2 + 1.5 * Math.abs(j - 24);
+  const water = j => (j >= 8 && j <= 40 ? [{ row: Math.round(truth(j)), kind: 2 }] : []);
+  for (let f = 1; f <= 20; f++) {
+    crest.update({ probe: probe(64, { far: () => 2 }, water), frameId: f, timeMs: f * 1000 / 60, viewId: 'v', transform: ID, stage: STAGE, grid: GRID });
+  }
+  const shores = crest.snapshot.shores;
+  assert.equal(shores.length, 1, `${shores.length} chains, ${crest.diagnostics.shoreDropped} dropped`);
+  const p = shores[0].points, m = p.length / 2;
+  assert.equal(m, 33);
+  for (let i = 0; i < m; i++) {
+    const j = p[2 * i] - 0.5;
+    assert.ok(Math.abs(p[2 * i + 1] - (truth(j) + 0.5)) <= 1.1, `column ${j}: ${p[2 * i + 1]} vs edge ${truth(j) + 0.5}`);
+  }
 });

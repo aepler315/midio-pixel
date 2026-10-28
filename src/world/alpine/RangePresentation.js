@@ -240,6 +240,10 @@ export class RangePresentation {
     // Replays may reuse the load generation, but every reset supersedes
     // readiness loops that were preparing the previous song's views.
     this._readinessOwner = {};
+    // Every song (a replay too) is a new crest timeline: asynchronous probe
+    // results of the previous one, in flight or finished, are discarded.
+    this._crestTimeline = (this._crestTimeline || 0) + 1;
+    this.scene?.resetCrestProbe?.();
     this.stage = null;
     this.active = false;
     this.frame = null;
@@ -1128,7 +1132,8 @@ export class RangePresentation {
     // reproducible. Either way the frame freezes what it used.
     const sync = !!(this.exportMode || this.frameInputs?.sim?.exportMode);
     const probe = steady && this.scene.crestProbeMode
-      ? this.scene.readCrestProbe?.(this.frame.frameId, { sync, viewId: this.viewId, timeMs: this.frame.timeMs }) : null;
+      ? this.scene.readCrestProbe?.(this.frame.frameId, { sync, viewId: this.viewId, timeline: this._crestTimeline ?? 0,
+        timeMs: this.frame.timeMs }) : null;
     const t = ctx.getTransform?.();
     this.crest.update({ probe, frameId: this.frame.frameId, timeMs: this.frame.timeMs, viewId: this.viewId,
       qualityLevel: this.frame.qualityLevel ?? 0, transform: t ? [t.a, t.b, t.c, t.d, t.e, t.f] : null,

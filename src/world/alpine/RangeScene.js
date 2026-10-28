@@ -2559,6 +2559,10 @@ export class RangeScene {
     finally { this.renderer.setRenderTarget(null); }
   }
 
+  /** Discard the crest probe's asynchronous results (a new song). Seeks
+   * and view changes are found by CrestProbe.read itself. */
+  resetCrestProbe() { this.crestProbe?.reset(); }
+
   releaseCrestProbe() { this.crestProbe?.dispose(); this.crestProbe = null; }
 
   /** Render water at display resolution against the complete terrain and

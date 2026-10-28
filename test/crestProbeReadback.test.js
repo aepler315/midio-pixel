@@ -4,6 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   CrestProbe, ProbeReadback, PROBE_ROWS, PROBE_READBACK_SLOTS, PROBE_MAX_LAG_FRAMES, acceptProbeResult, asyncReadbackSupported,
+  timelineJump,
 } from '../src/world/alpine/CrestProbe.js';
 
 const W = 8;
@@ -144,14 +145,64 @@ test('without WebGL2 fences the probe reads synchronously', () => {
   assert.equal(q.async, null);
 });
 
-test('only results of the same view, width and timeline within the lag stand in for a frame', () => {
-  const r = { frameId: 10, viewId: 'v', timeMs: 1000, width: 64 };
-  const at = (o) => acceptProbeResult(r, { frameId: 11, viewId: 'v', timeMs: 1016, width: 64, ...o });
+test('only results of the same view, song, target size and timeline within the lag stand in for a frame', () => {
+  const r = { frameId: 10, viewId: 'v', timeline: 1, timeMs: 1000, width: 64, height: 36 };
+  const at = (o) => acceptProbeResult(r, { frameId: 11, viewId: 'v', timeline: 1, timeMs: 1016, width: 64, height: 36, ...o });
   assert.equal(at({}), true);
   assert.equal(at({ frameId: 10 }), false, 'never the same frame');
   assert.equal(at({ frameId: 10 + PROBE_MAX_LAG_FRAMES + 1 }), false);
   assert.equal(at({ viewId: 'w' }), false);
+  assert.equal(at({ timeline: 2 }), false, 'another song (or a replay of it)');
   assert.equal(at({ width: 65 }), false);
-  assert.equal(at({ timeMs: 990 }), false, 'a backward seek');
-  assert.equal(at({ timeMs: 1400 }), false, 'a forward seek');
+  assert.equal(at({ height: 40 }), false, 'a resize of the height alone');
+  assert.equal(at({ timeMs: 990 }), false, 'song time ran backwards');
+  // Frame rate does not matter: a result 3 frames old at 5 fps stands in.
+  assert.equal(at({ frameId: 13, timeMs: 1600 }), true);
+});
+
+test('seeks are found from the clocks at any frame rate', () => {
+  const at = (timeMs, wallMs) => timelineJump({ timeMs: 1000, wallMs: 5000 }, { timeMs, wallMs });
+  assert.equal(at(1016, 5016), false, '60 fps play');
+  assert.equal(at(1200, 5200), false, '5 fps play');
+  assert.equal(at(1000, 5016), false, 'a pause');
+  assert.equal(at(3000, 7000), false, 'a hidden tab that kept playing');
+  assert.equal(at(990, 5016), true, 'a backward seek');
+  assert.equal(at(1116, 5016), true, 'a 100 ms forward seek at 60 fps');
+  assert.equal(at(1800, 5200), true, 'a forward seek at 5 fps');
+  assert.equal(timelineJump(null, { timeMs: 0, wallMs: 0 }), false);
+});
+
+test('a slow device (200 ms per frame) still reads asynchronously', () => {
+  const gl = fakeGL(), p = probeOn(gl);
+  const modes = [];
+  for (let f = 1; f <= 10; f++) {
+    gl.finish(); render(p, gl, f);
+    const r = p.read(f, { viewId: 'v', timeline: 1, timeMs: f * 200, wallMs: 10000 + f * 200 });
+    modes.push(r.mode);
+    if (f > 1) assert.equal(r.lag, 1);
+  }
+  assert.deepEqual(modes, ['sync', ...Array(9).fill('async')]);
+  assert.equal(p.renderer.syncReads, 1);
+  // The GPU stalls for three frames at 5 fps: lag 2 and 3 are still served.
+  const lags = [];
+  for (let f = 11; f <= 13; f++) { render(p, gl, f); const r = p.read(f, { viewId: 'v', timeline: 1, timeMs: f * 200, wallMs: 10000 + f * 200 }); lags.push([r.mode, r.lag]); }
+  assert.deepEqual(lags, [['async', 2], ['async', 3], ['sync', 0]]);
+});
+
+test('a short forward seek, a new song at the same time or a height change discards older results', () => {
+  const gl = fakeGL(), p = probeOn(gl);
+  const live = (f, o = {}) => { gl.finish(); render(p, gl, f); return p.read(f, { viewId: 'v', timeline: 1, timeMs: f * 16, wallMs: f * 16, ...o }); };
+  for (let f = 1; f <= 3; f++) live(f);
+  assert.equal(live(4).mode, 'async');
+  // A 100 ms forward seek (well under any fixed time window).
+  const seek = live(5, { timeMs: 5 * 16 + 100 });
+  assert.equal(seek.mode, 'sync', 'a pre-seek result is never shown');
+  assert.equal(live(6, { timeMs: 6 * 16 + 100 }).frameId, 5, 'the first read after the seek');
+  // A replay of the song: same view, a similar time, a new timeline.
+  assert.equal(live(7, { timeline: 2, timeMs: 6 * 16 + 116 }).mode, 'sync');
+  assert.equal(live(8, { timeline: 2, timeMs: 6 * 16 + 132 }).mode, 'async');
+  // A resize of the target height alone.
+  p.height = 40;
+  assert.equal(live(9, { timeline: 2, timeMs: 6 * 16 + 148 }).mode, 'sync', 'a result of the old height is not used');
+  assert.equal(live(10, { timeline: 2, timeMs: 6 * 16 + 164 }).mode, 'async');
 });

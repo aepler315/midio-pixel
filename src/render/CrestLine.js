@@ -445,12 +445,18 @@ const SPLIT_RINGS = [[0, 1, -1, 0, 1, 0], [-1, 1, 1, 1], [0, 2]];
  *  - maxStep: rows per column between linked edges; maxGap: empty columns
  *    a chain may bridge.
  *  - minColumns: shorter chains are dropped (fragments, not a coherent shore).
- *  - sigma: Gaussian smoothing along the chain (columns), after a median.
- *  - maxCurvature: limit on |y[i−1] − 2y[i] + y[i+1]| after smoothing.
+ *  - sigma: the widest smoothing along the chain (columns), used at
+ *    noiseRows of raster noise or more; a cleaner chain is smoothed less
+ *    (a clean one not at all), so real slopes, bends and coves survive.
+ *  - endRidge: how far a noisy chain's end slope leans (× noise²) on a
+ *    fit twice as wide, so jitter near an end does not tilt it; a clean
+ *    chain's ends are exact.
+ *  - maxCurvature: limit on |y[i−1] − 2y[i] + y[i+1]| for a chain at full
+ *    noise; it relaxes as the noise falls.
  *  - maxResidual: RMS rows between the smoothed and the raw chain above
  *    which the chain is too jagged to be one shore and is dropped. */
 export const SHORE_SHAPE = Object.freeze({ minRunRows: 3, maxStep: [2, 5], maxGap: 6, minColumns: [5, 16], sigma: [1, 5],
-  maxCurvature: 0.25, maxResidual: 1.75 });
+  noiseRows: 0.5, endRidge: 20, maxCurvature: 0.25, maxResidual: 1.75 });
 
 /** SHORE_SHAPE at `nearness`. */
 export function shoreShape(nearness) {
@@ -477,29 +483,44 @@ export function solidShoreEdges(edges, height, minRun = SHORE_SHAPE.minRunRows) 
   return kept;
 }
 
-const median5 = (a, p, n) => {
-  const lo = Math.max(0, p - 2), hi = Math.min(n - 1, p + 2), w = [];
-  for (let q = lo; q <= hi; q++) w.push(a[q]);
-  w.sort((x, y) => x - y);
-  return w.length % 2 ? w[w.length >> 1] : (w[w.length / 2 - 1] + w[w.length / 2]) / 2;
-};
-
-/** Gaussian smoothing of `a` (sigma in samples), truncated at the ends
- *  and renormalized there, into `out`. */
-export function gaussianSmooth(a, sigma, out = new Float32Array(a.length)) {
-  const n = a.length, radius = Math.max(1, Math.ceil(2.5 * sigma));
+/** Gaussian-weighted local linear regression of `a` (sigma in samples)
+ *  into `out`: inside the chain it equals a Gaussian, and at the ends the
+ *  local line keeps any slope instead of pulling the end toward the
+ *  interior (a truncated, renormalized kernel would). `out` may be `a`.
+ *  Options: `weights` (per sample) down-weight outliers; `ridge` (per unit
+ *  weight) pulls the local slope toward `prior` (per sample, default 0)
+ *  where few samples set it (a noisy chain's ends); `slopes` receives the
+ *  local slopes. */
+export function gaussianSmooth(a, sigma, out = new Float32Array(a.length), { weights = null, ridge = 0, prior = null, slopes = null } = {}) {
+  const n = a.length;
+  if (!(sigma > 0)) { if (out !== a) out.set(a); slopes?.fill(0); return out; }
+  const src = out === a ? Float32Array.from(a) : a, radius = Math.max(1, Math.ceil(2.5 * sigma));
+  const kernel = Float32Array.from({ length: radius + 1 }, (_, d) => Math.exp(-(d * d) / (2 * sigma * sigma)));
   for (let p = 0; p < n; p++) {
-    let sum = 0, wsum = 0;
-    for (let q = Math.max(0, p - radius); q <= Math.min(n - 1, p + radius); q++) {
-      const w = Math.exp(-((q - p) ** 2) / (2 * sigma * sigma)); sum += w * a[q]; wsum += w;
+    let sw = 0, sx = 0, sy = 0;
+    const lo = Math.max(0, p - radius), hi = Math.min(n - 1, p + radius);
+    for (let q = lo; q <= hi; q++) {
+      const w = kernel[Math.abs(q - p)] * (weights ? weights[q] : 1);
+      sw += w; sx += w * (q - p); sy += w * src[q];
     }
-    out[p] = sum / wsum;
+    if (!(sw > 0)) { out[p] = src[p]; if (slopes) slopes[p] = 0; continue; }
+    const mx = sx / sw, my = sy / sw;
+    let sxx = 0, sxy = 0;
+    for (let q = lo; q <= hi; q++) {
+      const w = kernel[Math.abs(q - p)] * (weights ? weights[q] : 1), dx = q - p - mx;
+      sxx += w * dx * dx; sxy += w * dx * (src[q] - my);
+    }
+    const lam = ridge * sw, m0 = prior ? prior[p] : 0;
+    const slope = sxx + lam > 1e-9 ? (sxy + lam * m0) / (sxx + lam) : 0;
+    out[p] = my - slope * mx;
+    if (slopes) slopes[p] = slope;
   }
   return out;
 }
 
 /** Limit |y[i−1] − 2y[i] + y[i+1]| to `k` in place (local relaxation). */
 export function limitCurvature(ys, k) {
+  if (!(k < Infinity)) return ys;
   for (let pass = 0; pass < 64; pass++) {
     let worst = 0;
     for (let p = 1; p < ys.length - 1; p++) {
@@ -511,18 +532,90 @@ export function limitCurvature(ys, k) {
   return ys;
 }
 
-/** Shape one shore chain from its integer rows: sub-cell reconstruction, a
- *  5-tap median (single-column spikes), a Gaussian of `sigma` columns
- *  (truncated at the chain's ends, renormalized) and a curvature limit.
- *  Returns { ys, residual } (residual: RMS rows from the reconstruction). */
+const medianOf = v => {
+  const w = Array.from(v).sort((x, y) => x - y), n = w.length;
+  return n ? (n % 2 ? w[n >> 1] : (w[n / 2 - 1] + w[n / 2]) / 2) : 0;
+};
+
+/** Jitter of a chain (rows): a robust estimate of its per-column scatter
+ *  from second differences (median, scaled for white noise), so a clean
+ *  slope, bend or cove scores ~0 however steep it is. A rasterized clean
+ *  edge steps by floor or ceil of its slope (|second difference| <= 1):
+ *  that much is quantization, not jitter, and is not counted. */
+export function shoreNoise(ys) {
+  const n = ys.length;
+  if (n < 3) return 0;
+  const d2 = new Float32Array(n - 2);
+  for (let p = 1; p < n - 1; p++) d2[p - 1] = Math.max(0, Math.abs(ys[p - 1] - 2 * ys[p] + ys[p + 1]) - 1);
+  return 1.4826 * medianOf(d2) / Math.sqrt(6);
+}
+
+/** Replace single-column spikes in place: a sample both neighbours'
+ *  linear extrapolations agree on missing by more than `thr` rows. A cove
+ *  or point (both legs extrapolate to the vertex) and a bend are kept. At
+ *  the chain's ends one side's extrapolation decides (a one-column leg is
+ *  no shape to keep). */
+function removeSpikes(a, thr = 1.5) {
+  const n = a.length, src = Float32Array.from(a), at = p => src[p];
+  const off = (p, v) => Math.abs(src[p] - v) > thr;
+  for (let p = 1; p < n - 1; p++) {
+    const l = p >= 2 ? 2 * at(p - 1) - at(p - 2) : NaN, r = p < n - 2 ? 2 * at(p + 1) - at(p + 2) : NaN, mid = (at(p - 1) + at(p + 1)) / 2;
+    if ((Number.isNaN(l) || off(p, l)) && (Number.isNaN(r) || off(p, r)) && off(p, mid)) a[p] = mid;
+  }
+  // An end sample off a straight run of its next three (within raster
+  // quantization) by more than `thr`, from the line and from its neighbour.
+  const straight = (b, c, d) => Math.abs(b - 2 * c + d) <= 1;
+  if (n >= 4) {
+    const r0 = 2 * a[1] - a[2], rn = 2 * a[n - 2] - a[n - 3];
+    if (straight(a[1], a[2], a[3]) && Math.abs(a[0] - r0) > thr && Math.abs(a[0] - a[1]) > thr) a[0] = r0;
+    if (straight(a[n - 2], a[n - 3], a[n - 4]) && Math.abs(a[n - 1] - rn) > thr && Math.abs(a[n - 1] - a[n - 2]) > thr) a[n - 1] = rn;
+  }
+  return a;
+}
+
+/** Shape one shore chain from its integer rows: sub-cell reconstruction,
+ *  single-column spike removal, then a robust Gaussian-weighted local
+ *  linear fit whose width scales with the chain's raster noise (up to
+ *  `sigma` columns at SHORE_SHAPE.noiseRows), so a jittery waterline is
+ *  smoothed while a clean slope, bend or cove keeps its shape and its end
+ *  points. The curvature limit relaxes the same way (none for a clean
+ *  chain). Returns { ys, residual, noise, sigma, maxCurvature }: residual is
+ *  the RMS rows from the reconstruction (jaggedness: ~0 for a clean edge). */
 export function smoothShoreChain(rows, sigma, maxCurvature = SHORE_SHAPE.maxCurvature) {
-  const n = rows.length, recon = reconstructCrest(rows), med = new Float32Array(n), ys = new Float32Array(n);
-  for (let p = 0; p < n; p++) med[p] = median5(recon, p, n);
-  gaussianSmooth(med, sigma, ys);
-  limitCurvature(ys, maxCurvature);
+  const n = rows.length, recon = reconstructCrest(rows), ys = new Float32Array(n);
+  const noise = shoreNoise(recon), amount = clamp01(noise / SHORE_SHAPE.noiseRows);
+  const s = sigma * amount, k = amount > 0 ? maxCurvature / amount : Infinity, ridge = SHORE_SHAPE.endRidge * noise * noise;
+  const raw = Float32Array.from(recon);
+  removeSpikes(recon);
+  // A noisy chain's end slopes lean on a fit twice as wide (no lean on a
+  // straight line, much less end scatter than a narrow fit alone).
+  const prior = new Float32Array(n);
+  if (ridge > 0) gaussianSmooth(recon, 2 * s, new Float32Array(n), { slopes: prior });
+  gaussianSmooth(recon, s, ys, { ridge, prior });
+  if (s > 0) {
+    // One robust pass (bisquare on the residuals) so outliers do not pull the fit.
+    const e = new Float32Array(n);
+    for (let p = 0; p < n; p++) e[p] = Math.abs(recon[p] - ys[p]);
+    const scale = 6 * Math.max(0.25, medianOf(e)), w = new Float32Array(n);
+    for (let p = 0; p < n; p++) { const u = e[p] / scale; w[p] = u < 1 ? (1 - u * u) ** 2 : 0; }
+    gaussianSmooth(recon, s, ys, { weights: w, ridge, prior });
+  }
+  limitCurvature(ys, k);
   let sq = 0;
-  for (let p = 0; p < n; p++) sq += (ys[p] - recon[p]) ** 2;
-  return { ys, residual: n ? Math.sqrt(sq / n) : 0 };
+  for (let p = 0; p < n; p++) sq += (ys[p] - raw[p]) ** 2;
+  return { ys, residual: n ? Math.sqrt(sq / n) : 0, noise, sigma: s, maxCurvature: k };
+}
+
+/** The least smoothing (columns) of the drawn shore points: enough to
+ *  merge neighbouring per-column deadbands, little enough that a clean
+ *  slope-2 cove's vertex moves about a row. */
+export const SHORE_HELD_SIGMA = 0.75;
+
+/** Smooth the drawn shore points `held` in place (through a scratch copy,
+ *  so the filter stays symmetric) and apply the chain's curvature limit. */
+export function smoothHeldShore(held, sigma, maxCurvature = SHORE_SHAPE.maxCurvature) {
+  held.set(gaussianSmooth(held, sigma, new Float32Array(held.length)));
+  return limitCurvature(held, maxCurvature);
 }
 
 /** Link shore transitions of nearby columns into chains. `cols` is an

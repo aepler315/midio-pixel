@@ -16,9 +16,12 @@
 // used (RangeCrest snapshot), so display and capture stay identical. Export
 // draws (bulk export, highlight re-renders, visual evaluation: `sync`) and
 // contexts without WebGL2 fences read synchronously, so exported frames are
-// reproducible. A result from another view, from before a seek, too old or
-// of another width is discarded with everything still in flight; with none
-// usable the frame falls back to a synchronous read.
+// reproducible. A result from another view, song or target size, from
+// before a seek, or more than PROBE_MAX_LAG_FRAMES old is discarded with
+// everything still in flight; with none usable the frame falls back to a
+// synchronous read. Seeks are found from the clocks (timelineJump: song time
+// running backwards, or ahead of the wall clock), so a slow device that
+// renders a few frames a second still reads asynchronously.
 //
 // Row layout: far 0-1, mid 2-3, near 4-5 (crest, colour), water 6-9 (edge
 // info), 10-13 (water colour at each edge).
@@ -31,9 +34,10 @@ export const PROBE_ROWS = 14;
  *  live frame still uses; past it the frame reads synchronously. */
 export const PROBE_READBACK_SLOTS = 3;
 export const PROBE_MAX_LAG_FRAMES = 3;
-/** A result further than this behind the frame's time (or after it) is
- *  from before a seek. */
-export const PROBE_MAX_LAG_MS = 250;
+/** Song time may advance by up to this many times the wall time between
+ *  two probe reads, plus PROBE_SEEK_SLACK_MS, before it counts as a seek. */
+export const PROBE_SEEK_RATE = 1.5;
+export const PROBE_SEEK_SLACK_MS = 50;
 
 const PROBE_VERT = /* glsl */`
   void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }
@@ -204,16 +208,26 @@ export class ProbeReadback {
   }
 }
 
+/** Whether the timeline jumped between two probe reads `prev` and `cur`
+ *  ({ timeMs: song time, wallMs: wall clock }): song time ran backwards, or
+ *  ahead of the wall clock (a forward seek). A pause, a slow frame or a
+ *  hidden tab is continuous at any frame rate. */
+export function timelineJump(prev, cur) {
+  if (!prev || !Number.isFinite(prev.timeMs) || !Number.isFinite(cur.timeMs)) return false;
+  const dt = cur.timeMs - prev.timeMs, wall = Number.isFinite(prev.wallMs) && Number.isFinite(cur.wallMs) ? Math.max(0, cur.wallMs - prev.wallMs) : Infinity;
+  return dt < -1 || dt > PROBE_SEEK_RATE * wall + PROBE_SEEK_SLACK_MS;
+}
+
 /** Whether an asynchronous result `r` may stand in for frame `frameId` of
- *  view `viewId` at `timeMs` (probe target `width`). */
-export function acceptProbeResult(r, { frameId, viewId = null, timeMs = NaN, width }) {
-  if (!r || r.width !== width || r.viewId !== viewId) return false;
+ *  view `viewId` and `timeline` at `timeMs` (probe target `width` ×
+ *  `height`). Seeks are discarded by reset() before this runs; song time
+ *  running backwards is still refused here. */
+export function acceptProbeResult(r, { frameId, viewId = null, timeline = null, timeMs = NaN, width, height }) {
+  if (!r || r.width !== width || r.viewId !== viewId || (r.timeline ?? null) !== timeline) return false;
+  if (height !== undefined && r.height !== height) return false;
   const lag = frameId - r.frameId;
   if (!(lag >= 1 && lag <= PROBE_MAX_LAG_FRAMES)) return false;
-  if (Number.isFinite(timeMs) && Number.isFinite(r.timeMs)) {
-    const dt = timeMs - r.timeMs;
-    if (dt < -1 || dt > PROBE_MAX_LAG_MS) return false;
-  }
+  if (Number.isFinite(timeMs) && Number.isFinite(r.timeMs) && timeMs - r.timeMs < -1) return false;
   return true;
 }
 
@@ -229,6 +243,7 @@ export class CrestProbe {
     this.rows = 0; // bitmask of probe rows written this frame
     this.useDepth = true;
     this.readMs = 0;
+    this.clock = null; // { viewId, timeline, timeMs, wallMs } of the last read
     let gl;
     try { gl = renderer.getContext?.() || null; } catch { gl = null; }
     this.async = asyncReadbackSupported(gl) ? new ProbeReadback(gl) : null;
@@ -310,17 +325,20 @@ export class CrestProbe {
    * none qualifies, everything in flight is discarded and this frame is read
    * synchronously.
    */
-  read(frameId, { sync = false, viewId = null, timeMs = NaN } = {}) {
+  read(frameId, { sync = false, viewId = null, timeline = null, timeMs = NaN, wallMs = performance.now() } = {}) {
     if (!this.target || this.frameId !== frameId || !this.rows) return null;
-    const t0 = performance.now();
+    const t0 = performance.now(), prev = this.clock;
+    this.clock = { viewId, timeline, timeMs, wallMs };
+    // A new view or song, or a seek: everything older (in flight too) goes.
+    if (prev && (prev.viewId !== viewId || prev.timeline !== timeline || timelineJump(prev, this.clock))) this.reset();
     if (this.async && !sync) {
       try {
         this.async.poll();
-        const r = this.async.latest, ok = acceptProbeResult(r, { frameId, viewId, timeMs, width: this.width });
-        // Another view, a seek, a stall or a resize: nothing older is usable.
+        const r = this.async.latest, ok = acceptProbeResult(r, { frameId, viewId, timeline, timeMs, width: this.width, height: this.height });
+        // A stall or a resize: nothing older is usable.
         if (r && !ok) this.async.reset();
         this.renderer.setRenderTarget(this.target);
-        this.async.submit({ frameId, viewId, timeMs, height: this.height, rows: this.rows }, this.width, PROBE_ROWS);
+        this.async.submit({ frameId, viewId, timeline, timeMs, height: this.height, rows: this.rows }, this.width, PROBE_ROWS);
         if (ok) {
           this.readMs = performance.now() - t0;
           return { width: r.width, height: r.height, data: r.data, rows: r.rows, readMs: this.readMs, frameId: r.frameId,
@@ -337,7 +355,7 @@ export class CrestProbe {
     return { width: this.width, height: this.height, data: this.data, rows: this.rows, readMs: this.readMs, frameId, lag: 0, mode: 'sync' };
   }
 
-  /** Discard every asynchronous result (a seek or a view change). */
+  /** Discard every asynchronous result (a seek, a new song or view). */
   reset() { this.async?.reset(); }
 
   dispose() {

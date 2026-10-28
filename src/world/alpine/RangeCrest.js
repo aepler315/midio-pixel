@@ -18,7 +18,7 @@
 import {
   CREST_BANDS, CREST_FILTER, SHORE_FILTER, CREST_LAND_SIDE, crestE, crestStroke, shoreStroke, filterCrest, filterSample, filterAux,
   resetFilter, medianShift, reconstructCrest, crestLineColor, shoreColor, snapCrestColor, reownCrestCells, linkShoreChains,
-  REOWN_MAX_ROWS, SHORE_SHAPE, shoreShape, solidShoreEdges, smoothShoreChain, gaussianSmooth, limitCurvature,
+  REOWN_MAX_ROWS, SHORE_SHAPE, shoreShape, solidShoreEdges, smoothShoreChain, smoothHeldShore, SHORE_HELD_SIGMA,
 } from '../../render/CrestLine.js';
 import { PROBE_BAND_ROWS, PROBE_WATER_ROW, PROBE_WATER_SLOTS, probeRow } from './CrestProbe.js';
 
@@ -372,7 +372,7 @@ export class RangeCrest {
       chain.forEach(([j, s], p) => { rows[p] = cols[j][s].y; nearness += cols[j][s].nearness; });
       const shape = shoreShape(nearness / n);
       if (n < shape.minColumns) { dropped++; continue; }
-      const { ys, residual } = smoothShoreChain(rows, shape.sigma);
+      const { ys, residual, maxCurvature, sigma } = smoothShoreChain(rows, shape.sigma);
       if (residual > SHORE_SHAPE.maxResidual) { dropped++; continue; }
       const pts = new Float32Array(n * 2), held = new Float32Array(n);
       let near = 0;
@@ -396,8 +396,10 @@ export class RangeCrest {
         near += t.nearness; rgb[0] += t.rgb[0]; rgb[1] += t.rgb[1]; rgb[2] += t.rgb[2];
       });
       // Per-column deadbands hold neighbouring points up to half a row
-      // apart: the drawn chain is shaped again (the held state is not).
-      limitCurvature(gaussianSmooth(held, Math.max(1, shape.sigma / 2), held), SHORE_SHAPE.maxCurvature);
+      // apart: the drawn chain is smoothed again (out of place, local
+      // linear, so ends and slopes stay put), as lightly as a clean chain
+      // allows; the held state is not changed.
+      smoothHeldShore(held, Math.max(SHORE_HELD_SIGMA, sigma / 2), maxCurvature);
       chain.forEach(([j], p) => {
         const y = held[p], x = j + 0.5;
         pts[p * 2] = m.a * m.sx * x + m.c * m.sy * y + m.e;
