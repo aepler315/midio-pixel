@@ -449,6 +449,7 @@ test('split cells fade with the line across a quality switch instead of popping'
   const mid = out[Math.floor(out.length / 2)];
   assert.ok(mid.diff > 0.2 * full.diff && mid.diff < 0.8 * full.diff, `half way through the fade the edit is partial (${mid.diff} of ${full.diff})`);
   assert.ok(out.at(-1).diff < 0.1 * full.diff, 'nearly nothing left to pop when the mode switches');
+  assert.equal(crest._split, null, 'the grid-scan rungs give the split canvas back');
   // Back to the refined rung: the edit grows again from nothing.
   crest.update({ probe: null, frameId: f, timeMs: f * 1000 / 60, viewId: 'v', qualityLevel: 0 }); f++;
   const back = [];
@@ -461,6 +462,7 @@ test('split cells fade with the line across a quality switch instead of popping'
   for (let n = 0; n < 40; n++) shed.push(edit(f++, CREST_PIXEL_SPLIT_LEVEL));
   assert.ok(shed[0].diff > 0 && shed.at(-1).diff === 0 && crest.snapshot.fade === 1);
   assert.equal(crest.diagnostics.readRows, 0);
+  assert.equal(crest._split, null, 'shed split cells give the canvas (and its residency hold) back');
 });
 
 test('a frame without a probe draws nothing and breaks the filter chain', () => {

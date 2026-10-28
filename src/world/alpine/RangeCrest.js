@@ -170,6 +170,10 @@ export class RangeCrest {
       g.line.fill(NaN); g.raw.fill(NaN); g.skip.fill(1); g.crossed.fill(-1); g.crossedEnd.fill(-1); g.colorAt.fill(-1); g.chunks = [];
     }
     const split = !!probe && !rotated && !!this.makeCanvas && this.splitFade > 0;
+    // Split cells fully shed (Pixel from its split rung, grid-scan rungs):
+    // this frame's snapshot draws no lower halves, so neither its display
+    // nor its capture needs the canvas. Give it, and its hold, back.
+    if (!split && !(this.splitFade > 0)) this._releaseSplit();
     this.snapshot = Object.freeze({ frameId, dt, grid: { width: grid.width, height: grid.height }, mode: this.mode, fade: this.fade,
       splitFade: this.splitFade, split, scan: scanning, prepared: false, splitPending: false, splitReady: false, splitAlpha: 0, palette, shores });
     this.diagnostics.fade = this.fade;
