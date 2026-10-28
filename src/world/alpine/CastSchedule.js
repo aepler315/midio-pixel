@@ -107,13 +107,13 @@ export function compileCastSchedule({ sections = [], viewForSection = () => null
   const viewIds = [...new Set(ordered.map(({ s, i }) => viewForSection(s, i)).filter(Boolean))];
   const short = D < CAST_SHORT_SONG_MS;
   const climax = climaxPhrase(phrases);
-  const single = short || !climax || viewIds.length <= 1;
+  const oneStay = short || viewIds.length <= 1;
 
-  // Stays: runs of consecutive sections in the same view. A short song,
-  // one with no trusted phrases, or one that never leaves its view is a
-  // single stay per view: the whole song.
+  // Stays: runs of consecutive sections in the same view. A short song, or
+  // one that never leaves its view, is a single stay per view: the whole
+  // song. Untrusted phrases do not change the stays; only the climax moves.
   const stays = new Map(viewIds.map((v) => [v, []]));
-  if (single) for (const v of viewIds) stays.get(v).push({ startMs: 0, endMs: D });
+  if (oneStay) for (const v of viewIds) stays.get(v).push({ startMs: 0, endMs: D });
   else {
     // A section with no view does not break a stay.
     let prior = null;
@@ -135,8 +135,16 @@ export function compileCastSchedule({ sections = [], viewForSection = () => null
   if (!short && climax) {
     const hit = ordered.find(({ s }) => climax.startMs >= s.startMs - 1 && climax.startMs < s.endMs);
     climaxViewId = hit ? viewForSection(hit.s, hit.i) : null;
+  } else if (!oneStay) {
+    // No trusted phrases: the view of the section holding the energy climax,
+    // else of the nearest viewed section before it, then after it.
+    let k = ordered.findIndex(({ s }) => climaxMs >= s.startMs - 1 && climaxMs < s.endMs);
+    if (k < 0) k = ordered.findLastIndex(({ s }) => s.startMs <= climaxMs);
+    const viewAt = (j) => viewForSection(ordered[j].s, ordered[j].i) || null;
+    for (let j = k; j >= 0 && !climaxViewId; j--) climaxViewId = viewAt(j);
+    for (let j = k + 1; j < ordered.length && !climaxViewId; j++) climaxViewId = viewAt(j);
   }
-  if (single && !short && viewIds.length === 1) climaxViewId = viewIds[0];
+  if (oneStay && !short && viewIds.length === 1) climaxViewId = viewIds[0];
   // The summit push (the stay holding the climax view's finish) goes on
   // through a storm. When that stay is the whole song, the push is the
   // climax phrase onward.
@@ -144,7 +152,7 @@ export function compileCastSchedule({ sections = [], viewForSection = () => null
   for (const [v, list] of stays) {
     if (!list.length) continue;
     if (short) { finish.set(v, D * CAST_FINISH_FRACTION); continue; }
-    if (single) {
+    if (oneStay) {
       finish.set(v, Math.min(D, climaxMs));
       climaxStay.set(v, { startMs: climax ? climax.startMs : climaxMs - 2 * CAST_STORM_BUILD_MS, endMs: D });
     } else if (v === climaxViewId) {
@@ -198,7 +206,7 @@ export function compileCastSchedule({ sections = [], viewForSection = () => null
     }
     const camps = short ? [] : list.filter((s) => s.endMs < D - 1).map((s) => ({ atMs: s.endMs }));
     plans.set(v, { stays: list.map(({ startMs, endMs }) => Object.freeze({ startMs, endMs })), work, weather, camps,
-      finishMs: finish.get(v), climax: !short && (single || v === climaxViewId) });
+      finishMs: finish.get(v), climax: !short && (oneStay || v === climaxViewId) });
   }
 
   // Refresh: the future is re-normalized from where the earlier schedule
