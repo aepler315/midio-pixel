@@ -260,6 +260,9 @@ const MOTE_VERT = /* glsl */`
     float extent = spriteExtent(vR);
     vPx = position.xy * 2.0 * extent;
     vec3 p = c + (uRight * position.x + uUp * position.y) * 2.0 * extent * mpp / k;
+    // On a note the twinkle steadies to full and lifts 25%: at uPulse 1 a mote
+    // is ~1.67x its mean brightness (2.5x at a twinkle trough); a damped
+    // 16th-note lane peaks ~1.52x and swings ~1.25-1.52x at the note rate.
     vBright = (0.45 + 0.4 * fly * (1.0 - fly) * 4.0) * mix(0.75 + 0.25 * sin(uTime * 3.0 + aSeed.z * 40.0), 1.0, uPulse)
       * (1.0 + 0.25 * uPulse) * (1.0 - smoothstep(0.85, 1.0, fly));
     vAir = airAt(c);
