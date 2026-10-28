@@ -130,3 +130,50 @@ export function hypeFrameStyle(hype, calmLevel = 0) {
   );
   return { alpha, lineWidth, echo, inset: 5 + 2.5 * slam };
 }
+
+// Trio reads the hype on HEARD time. HypeDirector's own slam/surge are
+// integrated on the dispatch clock, which runs up to MAX_LATENCY_MS ahead of
+// what the listener hears; Landscape consumers share that state, so Trio
+// derives its own values from the song position instead of changing it.
+const SLAM_WINDOW_MS = SLAM_DECAY_SEC * 1000;
+const _trioHype = { fast: 0, slam: 0, surge: 0 };
+
+/** Kick slam at heard time `heardMs`, from a tMs-sorted kick list: the
+ *  strongest kick with 0 <= age < SLAM_WINDOW_MS, as
+ *  `(0.35 + 0.65 * vel) * (1 - age / SLAM_WINDOW_MS)`. 0 before the first kick
+ *  (never a lookahead). A pure function of heard time, so a seek, a frame
+ *  rate change or a step size change cannot alter it. */
+export function slamAt(kicks, heardMs) {
+  if (!kicks || !kicks.length || !Number.isFinite(heardMs)) return 0;
+  // Last kick at or before heardMs.
+  let lo = 0, hi = kicks.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (kicks[mid].tMs <= heardMs) lo = mid + 1; else hi = mid;
+  }
+  let slam = 0;
+  for (let i = lo - 1; i >= 0; i--) {
+    const kick = kicks[i];
+    const age = heardMs - kick.tMs;
+    if (!(age < SLAM_WINDOW_MS)) break;
+    if (!(age >= 0)) continue;
+    const vel = clamp01(kick.vel);
+    slam = Math.max(slam, (0.35 + 0.65 * vel) * (1 - age / SLAM_WINDOW_MS));
+  }
+  return slam;
+}
+
+/** Drop surge at heard time: 1 at the drop, decaying linearly over
+ *  SURGE_DECAY_SEC, 0 before it. `dropAtMs` is already a song position. */
+export function surgeAt(dropAtMs, heardMs) {
+  return dropAtMs <= heardMs ? Math.max(0, 1 - (heardMs - dropAtMs) / (SURGE_DECAY_SEC * 1000)) : 0;
+}
+
+/** hypeFrameStyle for Trio, with slam and surge evaluated at heard time.
+ *  `fast` (the energy EMA) still comes from the director. */
+export function trioHypeFrameStyle(hype, calmLevel, heardMs, kicks) {
+  _trioHype.fast = hype ? hype.fast : 0;
+  _trioHype.slam = slamAt(kicks, heardMs);
+  _trioHype.surge = hype ? surgeAt(hype.dropAtMs, heardMs) : 0;
+  return hypeFrameStyle(_trioHype, calmLevel);
+}

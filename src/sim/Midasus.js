@@ -506,7 +506,7 @@ export class Midasus {
     }, this.hue, {
       satBase: sat, lightBase: 70, outline: true,
       widthBase: 2.1, widthGlow: 2.4,
-      lights, // Movement VII: celestial + ground pulses (never her own glow -- see Renderer.draw)
+      lights, // Movement VII: celestial + ground pulses + Midio (never her own glow -- see Renderer._drawTrioCast)
     });
 
     // The baby stars ride on top of her pass — small enough never to mask her.

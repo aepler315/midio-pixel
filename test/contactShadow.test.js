@@ -4,6 +4,7 @@ import {
   contactShadow, SHADOW_FADE_HEIGHT_PX, SHADOW_WIDTH_FRAC, SHADOW_ASPECT,
   SHADOW_RX_MIN, SHADOW_RX_MAX, SHADOW_ALPHA_MAX, SHADOW_CAST_PER_PX,
   SHADOW_HORIZON_STRETCH, SHADOW_ZENITH_YFRAC, SHADOW_HORIZON_YFRAC,
+  SHADOW_STRENGTH_FLOOR, shadowStrength,
 } from '../src/world/ContactShadow.js';
 
 test('grounded (heightAbove=0, and slightly negative) is the alpha/size ceiling', () => {
@@ -103,4 +104,36 @@ test('a low celestial stretches rx; a zenith one does not', () => {
   assert.ok(lowSun.rx > highSun.rx, 'a low sun lengthens the footprint');
   assert.ok(Math.abs(lowSun.rx / highSun.rx - (1 + SHADOW_HORIZON_STRETCH)) < 1e-9);
   assert.ok(Math.abs(lowSun.ry / lowSun.rx - SHADOW_ASPECT) < 1e-9, 'stretch keeps the aspect ratio');
+});
+
+test('light strength scales the shadow alpha and nothing else', () => {
+  const light = { x: 0, y: 0, celestialYFrac: 0.2 };
+  for (const h of [0, 40]) {
+    const full = contactShadow(300, 480, h, 60, light);
+    const dim = contactShadow(300, 480, h, 60, light, 0.6);
+    assert.ok(Math.abs(dim.alpha - full.alpha * 0.6) < 1e-12, `h=${h}`);
+    assert.deepEqual({ ...dim, alpha: 0 }, { ...full, alpha: 0 }, 'position and size unchanged');
+  }
+});
+
+test('the default strength is today\'s alpha exactly', () => {
+  for (const h of [0, 20, 80]) {
+    const s = contactShadow(100, 480, h, 60);
+    assert.equal(contactShadow(100, 480, h, 60, null, 1).alpha, s.alpha);
+    assert.equal(contactShadow(100, 480, h, 60, null, undefined).alpha, s.alpha);
+    assert.equal(contactShadow(100, 480, h, 60, null, NaN).alpha, s.alpha, 'a non-finite strength is full strength');
+  }
+  assert.equal(contactShadow(100, 480, 0, 60).alpha, SHADOW_ALPHA_MAX);
+});
+
+test('strength clamps to 1 and is floored, so a dim or night light still grounds the cast', () => {
+  assert.equal(contactShadow(100, 480, 0, 60, null, 3).alpha, SHADOW_ALPHA_MAX, 'never darker than today');
+  for (const dim of [0.45, 0.2, 0, -1]) {
+    const alpha = contactShadow(100, 480, 0, 60, null, dim).alpha;
+    assert.ok(Math.abs(alpha - SHADOW_ALPHA_MAX * SHADOW_STRENGTH_FLOOR) < 1e-12, `strength ${dim}`);
+  }
+  assert.equal(shadowStrength(0.7), 0.7);
+  assert.equal(shadowStrength(0), SHADOW_STRENGTH_FLOOR);
+  assert.equal(shadowStrength(2), 1);
+  assert.equal(SHADOW_STRENGTH_FLOOR, 0.45);
 });
