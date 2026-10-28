@@ -523,7 +523,8 @@ export class HighlightReel {
     this._captureFailed = new Set();
     this._lastCaptureMs = -Infinity;
     this._thumbCanvas = null;
-    /** Optional () => { songSeed, worldId, displayPrefs, qualityLevel }:
+    /** Optional () => { songSeed, worldId, displayPrefs, qualityLevel,
+     *  sceneStartMs, continued, analysis }:
      *  the page's description of the run and look being drawn. Each frame
      *  keeps it with its heard time as `moment`, so the frame can be drawn
      *  again later at another size (ReelExport.js). */
