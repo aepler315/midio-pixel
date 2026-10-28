@@ -74,3 +74,36 @@ test('quality shedding keeps cinematic shading while skipping optional output re
   assert.equal(residency.usedBytes,0);
   owner.dispose();
 });
+
+test('recording at another size shares the display reconstruction buffer instead of resizing it twice a frame', async () => {
+  const { PixelPresentation } = await import('../src/render/PixelPresentation.js');
+  const { GraphicsResidency } = await import('../src/render/GraphicsResidency.js');
+  let resizes = 0, contexts = 0;
+  const gl = new Proxy({ NO_ERROR: 0 }, { get(target, name) {
+    if (name in target) return target[name];
+    if (typeof name === 'string' && /^[A-Z_0-9]+$/.test(name)) return name;
+    if (name === 'getError') return () => 0;
+    if (name === 'isContextLost') return () => false;
+    if (/^get(Shader|Program)Parameter$/.test(name)) return () => true;
+    return () => ({});
+  } });
+  const makeCanvas = () => {
+    let width = 0;
+    return { height: 0, getContext: () => { contexts++; return gl; }, get width() { return width; }, set width(v) { width = v; resizes++; } };
+  };
+  const canvas = { width: 1920, height: 1080, ownerDocument: { createElement: makeCanvas } };
+  const residency = new GraphicsResidency();
+  const owner = new PixelPresentation({ canvas, residency, presentation: resolvePresentation({ ...DEFAULT_DISPLAY_PREFS, look: 'cinematic' }) });
+  const source = { width: 640, height: 360 }, ctx = { drawImage() {} };
+  const display = { x: 0, y: 0, width: 1920, height: 1080 }, capture = { x: 0, y: 0, width: 1280, height: 720 };
+  for (let frame = 0; frame < 30; frame++) {
+    assert.equal(owner.drawForeground(ctx, source, display), true);
+    assert.equal(owner.drawForeground(ctx, source, capture, true), true);
+  }
+  assert.equal(contexts, 1);
+  assert.equal(resizes, 1, 'one drawing buffer, sized once for both');
+  assert.equal(owner.diagnostics.cinematicReconstruction.bytes, owner.diagnostics.captureReconstruction.bytes);
+  assert.equal(residency.usedBytes, 1920 * 1080 * 12 + 640 * 360 * 4 + 4096);
+  owner.dispose();
+  assert.equal(residency.usedBytes, 0);
+});

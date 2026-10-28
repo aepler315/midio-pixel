@@ -66,6 +66,20 @@ test('world palette choice is stable by world kind with deterministic custom/tit
   for (const kind of ['unregistered-kind', 'custom', null]) assert.equal(catalog.resolvePaletteId('world', kind), 'chroma32');
   for (const id of ['range32', 'chroma32', 'rgb332', 'none']) assert.equal(catalog.resolvePaletteId(id, 'alpine'), id);
 });
+test('world palette follows the experience: Trio keeps Chroma32 on the shared alpine kind', () => {
+  assert.equal(catalog.resolvePaletteId('world', 'alpine', 'trio'), 'chroma32');
+  assert.equal(catalog.resolvePaletteId('world', 'alpine', 'landscape'), 'range32');
+  // A null experience keeps the kind-only mapping (title screen, legacy callers).
+  assert.equal(catalog.resolvePaletteId('world', 'alpine', null), 'range32');
+  for (const kind of ['unregistered-kind', 'custom', null]) {
+    assert.equal(catalog.resolvePaletteId('world', kind, null), 'chroma32');
+    assert.equal(catalog.resolvePaletteId('world', kind, 'trio'), 'chroma32');
+  }
+  for (const experience of ['trio', 'landscape', null]) {
+    for (const id of ['range32', 'chroma32', 'rgb332', 'none']) assert.equal(catalog.resolvePaletteId(id, 'alpine', experience), id);
+    assert.equal(catalog.resolvePaletteId('unknown-selection', 'alpine', experience), 'none');
+  }
+});
 test('Canvas palette pass resolves the Chroma catalog without a second readback', () => {
   const grid = pixelGrid(), data = new Uint8ClampedArray(grid.pixels * 4); data.set([94, 200, 196, 255]);
   const ctx = {

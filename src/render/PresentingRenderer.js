@@ -64,7 +64,7 @@ class PresentingRenderer {
     if ((sim?.experience || 'landscape') !== this._experience) {
       this._experience = sim?.experience || 'landscape'; this.setPresentation(this._requestedPresentation);
     }
-    this.output.setFrameContext?.({ worldKind: sim?.biomes?.world?.kind ?? null });
+    this.output.setFrameContext?.({ worldKind: sim?.biomes?.world?.kind ?? null, experience: this._experience });
     const manager = sim?.biomes;
     const cinematicPixel = !!this.output.presentation.cinematicPixel && this._experience !== 'trio';
     if (manager) {

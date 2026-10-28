@@ -16,7 +16,7 @@ Display settings are available on the title screen and from **Display** during p
 
 Palette and dither controls are enabled for Palette. Style is disabled for RGB332 and Off. Pixel detail and scaling apply to both looks. The grid hint reflects the selected grid. There is no Natural look or Stage resolution control in this fork. Changing display settings while paused draws a new completed frame without advancing song time.
 
-World uses Landscape32 for Alpine and Overgrowth and Chroma32 for the other six shipped worlds. Title and unknown/custom world kinds use Chroma32. It follows the stable world kind, not the camera, biome, song energy or image histogram. Chroma32 retains distinct cyan, blue, violet and rose accents. Both authored palettes have 32 fixed colors; RGB332 keeps its legacy quantizer.
+World is a Palette choice; it applies only under the Palette look. The two shipped worlds share the alpine kind, so World follows the experience as well as the stable world kind: Landscape uses Landscape32, and Trio uses Chroma32 so its violet, rose and cyan cast survives quantization. Title and unknown/custom world kinds use Chroma32. It never reads the camera, biome, song energy or image histogram; an experience switch that changes the resolved palette starts a new presentation generation, and the capture record carries the experience. Chroma32 retains distinct cyan, blue, violet and rose accents. Both authored palettes have 32 fixed colors; RGB332 keeps its legacy quantizer.
 
 Preferences live in `midio-pixel:display:v1` (profile schema version 2):
 

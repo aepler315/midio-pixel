@@ -285,6 +285,49 @@ test('beginWarmup re-arms the grace for a new song', async () => {
   assert.equal(g.level, 0, 'the second song\'s bake must be absorbed too');
 });
 
+// Pause stops sampling (main.js frame() returns early), so the clean run
+// from before a pause would otherwise span it: the first sample after
+// resuming reads a minute of "clean" time and recovers a rung at once.
+test('resuming from pause re-arms the warm-up: paused time is not clean recovery evidence', async () => {
+  const { WARMUP_MS } = await import('../src/render/PerfGovernor.js');
+  const pausedFor = (resume) => {
+    const gov = new PerfGovernor({ startLevel: 3 });
+    const t = feedFrames(gov, 100, 5, 0, 90); // ~9 s clean, just short of the 10 s window
+    assert.equal(gov.level, 3);
+    const resumeAt = t + 60000; // a minute paused, no samples meanwhile
+    resume?.(gov, resumeAt);
+    return { gov, resumeAt };
+  };
+  const bare = pausedFor(null);
+  bare.gov.sample(5, bare.resumeAt);
+  assert.equal(bare.gov.level, 2, 'sanity: without the warm-up the pause itself buys the rung back');
+
+  const { gov, resumeAt } = pausedFor((g, at) => g.beginWarmup(at)); // what togglePause does on resume
+  const warmEnd = resumeAt + WARMUP_MS;
+  let t = resumeAt;
+  while (gov.level === 3 && t < warmEnd + 30000) { gov.sample(5, t); if (gov.level === 3) t += 90; }
+  assert.equal(gov.level, 2, 'clean frames after the warm-up still recover');
+  assert.ok(t - warmEnd >= 10000, `recovered only ${t - warmEnd} ms after the warm-up ended`);
+  assert.ok(t - warmEnd < 10000 + 2 * 90, `recovery took ${t - warmEnd} ms after the warm-up ended`);
+});
+
+test('main.js re-arms the warm-up when playback resumes from pause', async () => {
+  // DOM wiring, so source-scanned (as in qualityControlsWiring.test.js);
+  // the behaviour is the test above.
+  const { readFileSync } = await import('node:fs');
+  const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  const start = main.indexOf('function togglePause()');
+  assert.notEqual(start, -1, 'togglePause not found');
+  const body = main.slice(start, main.indexOf('\n}\n', start));
+  const preparing = body.indexOf('if (playbackPreparing)'), resume = body.indexOf('else {', body.indexOf('if (paused) {', preparing));
+  assert.ok(preparing !== -1 && resume > preparing, 'togglePause has a playback-preparing branch, then a pause/resume branch');
+  const resumeBranch = body.slice(resume);
+  assert.match(resumeBranch, /lastRafMs = null/);
+  assert.match(resumeBranch, /perfGovernor\?\.beginWarmup\(performance\.now\(\)\)/,
+    'resuming must re-arm the warm-up, as visibilitychange and playback preparation do');
+  assert.doesNotMatch(body.slice(preparing, resume), /beginWarmup/, 'the playback-preparing branch is left alone');
+});
+
 test('a machine holding a steady 60fps must never shed a rung', () => {
   // sample() is fed the raw rAF-to-rAF delta, which is the frame PERIOD
   // (~16.67ms on a 60Hz display), not the time spent working inside it.

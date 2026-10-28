@@ -66,8 +66,15 @@ like `LandscapeScore`):
 Fallbacks:
 
 - **One view for the whole song**: a single job, finishing on the climax.
-- **No trusted phrases**: the climax is the maximum of a 3 s trailing
-  `globalEnergyNorm` after 25% of the song, and the whole song is one stay.
+- **No trusted phrases** (for example, every section has confidence 0):
+  the stays still come from the sections, as above, so views camp and
+  resume. Only the climax changes: it is the maximum of a 3 s trailing
+  `globalEnergyNorm` after 25% of the song. The climax view is the view of
+  the section holding that time; if that section has no view, the nearest
+  viewed section before it, then after it. That view finishes at the
+  climax, clamped into its stay; every other view finishes 85% of the way
+  through its last stay. A song with one view (or under 30 s) keeps its
+  single whole-song stay, as above.
 - **Songs under 30 s**: one job, no camps, finishing at 85% of the song.
 
 ## Choosing a job per view
@@ -415,11 +422,6 @@ view per run, so every run is one job (no camps or returns).
   This needs a representative recording; a storm hold, since this
   song has no storm episode; `tombstone-north-klondike` and
   `monument-valley-163` on screen; and listening to whether the arrival
-  lands with the music.
-
-Open question: in a song whose sections are untrusted (no phrases) but
-still switch views by label, the no-phrase fallback makes every view's stay
-the whole song. Each view then advances while it is off screen, with no
-camps and nothing to resume. The proposal's wording allows this. Keeping
-section-based stays and taking only the climax from energy would match the
-model better.
+  lands with the music. Untrusted sections now keep their stays (see
+  Fallbacks), so such a song exercises camps and returns too once it leaves
+  its view; that path has not been judged visually either.
