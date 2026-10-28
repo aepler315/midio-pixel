@@ -58,12 +58,21 @@ pacing; the earlier full-resolution sky performance gate remains separate.
 On the default high-resolution sky path (no painted legacy `skyClouds`), the
 fair-weather banks also shade the ground. `cloudShadowCasters` uses the same
 cell placement (`cloudCell`), seed, salt and heard-time wind as `cloudBanks`,
-so a shadow falls under the cloud the sky draws. It selects the banks around
+so a shadow falls under the cloud the sky places. It selects the banks around
 the eye's footprint moved toward the light (a card centre about 9.5 km up
 shades the ground that far back along the light), splits each into three soft
-elliptical sub-discs along the fixed wind axis and keeps at most 16 discs,
-ordered by distance and then cell id. It writes into a caller-owned
-`Float32Array`; RangeScene fills the existing uniform arrays in place.
+elliptical sub-discs along the fixed wind axis and keeps whole banks only, at
+most 16 discs (5 banks), ordered by distance and then cell id. A bank's
+opacity thins with rank and reaches 0 at the distance of the first bank left
+out, so travel and a moving light swap banks without a pop. It writes into a
+caller-owned `Float32Array`; RangeScene fills the existing uniform arrays in
+place.
+
+The sky does not paint banks within about 20 km of the eye (cloudBanks fades
+them out so no billboard hangs overhead). Casters deliberately ignore that
+fade: under a high sun the shadows near the eye come from those overhead
+banks, which sit above the frame, and fading them would leave the near land
+unshaded at midday. The placement is still the same lattice the sky uses.
 
 `CloudOcclusion` switches on `uCloudMode`. Mode 0 is the legacy moon-only
 painted-puff occlusion, unchanged. Mode 1 intersects each disc's altitude
@@ -72,7 +81,9 @@ shared breakup noise per fragment. `uCloudStrength` is
 `.4 * (1 - storm.amount) * light visibility`, capped at .4, and it fades out as
 the light approaches the horizon (`dir.y` from .15 down to .05). Water receivers
 keep full transmission. The quality ladder drops the shadows at rung 4
-(`cloudShadows: q < 4`), together with the lake mirror.
+(`cloudShadows: q < 4`), together with the lake mirror; the strength eases
+out and back in over 1.5 s of heard time (`easeRungAmount`) rather than
+popping.
 
 Limitation: ForestGL trees do not receive cloud transmission. Crowns under a
 shadow keep the full key, while the ground between them is shaded.

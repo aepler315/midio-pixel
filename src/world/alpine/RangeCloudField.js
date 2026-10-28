@@ -107,15 +107,19 @@ export const CLOUD_WIND_AXIS = Object.freeze([10 / Math.hypot(10, 3), 3 / Math.h
  *  the same cells, salt and wind as cloudBanks(storm=false), selected
  *  around the eye's footprint moved toward the light (a cloud at altitude
  *  h shades the ground h / lightDir.y back along the light). Each bank is
- *  three soft elliptical sub-discs along the wind axis. Writes up to `max`
- *  discs into `out` as [x, altitude, z, radiusAlongM, radiusAcrossM,
- *  opacity] and returns the count, ordered by distance then cell id. */
+ *  three soft elliptical sub-discs along the wind axis. Writes whole banks,
+ *  at most `max` discs, into `out` as [x, altitude, z, radiusAlongM,
+ *  radiusAcrossM, opacity] and returns the count, ordered by distance then
+ *  cell id. Opacity thins with rank, reaching 0 at the distance of the
+ *  first bank left out, so the selection changes without a pop. */
 export function cloudShadowCasters({ eyeM, timeSec = 0, seed = 0, lightDir, max = 16, out } = {}) {
   if (!out || !eyeM || !lightDir || !(lightDir[1] > 0) || !Number.isFinite(eyeM[0]) || !Number.isFinite(eyeM[2])
     || !Number.isFinite(lightDir[0]) || !Number.isFinite(lightDir[2])) return 0;
   const time = Number.isFinite(timeSec) ? timeSec : 0, windX = time * 10, windZ = time * 3, salt = seed | 0;
+  // Whole banks only: a lone sub-disc would jump between banks.
   const limit = Math.min(max | 0, Math.floor(out.length / CLOUD_CASTER_STRIDE));
-  if (!(limit > 0)) return 0;
+  const bankLimit = Math.floor(limit / SUB_DISCS.length);
+  if (!(bankLimit > 0)) return 0;
   // Typical fair-weather card-centre altitude (base 5500-7500 m plus half
   // a 4-9 km card), carried back along the light to the eye's footprint.
   const reach = Math.min(60000, 9500 / Math.max(.05, lightDir[1]));
@@ -136,11 +140,16 @@ export function cloudShadowCasters({ eyeM, timeSec = 0, seed = 0, lightDir, max 
     }
     CANDIDATES[k * 3] = d; CANDIDATES[k * 3 + 1] = ix; CANDIDATES[k * 3 + 2] = iz;
   }
+  // Rank-continuous: a bank's shadow thins to 0 by the distance of the
+  // first bank left out, so a bank swapping in or out never pops.
+  const banks = Math.min(n, bankLimit), dCut = banks < n ? CANDIDATES[banks * 3] : Infinity;
   let count = 0;
-  for (let c = 0; c < n && count < limit; c++) {
+  for (let c = 0; c < banks; c++) {
     cloudCell(CANDIDATES[c * 3 + 1], CANDIDATES[c * 3 + 2], salt, false, windX, windZ, CELL);
-    const opacity = Math.min(1, CELL.alpha / .64);
-    for (let s = 0; s < SUB_DISCS.length && count < limit; s++, count++) {
+    const d = CANDIDATES[c * 3];
+    const rank = dCut < Infinity && dCut > 0 ? 1 - smooth((d - .6 * dCut) / (.4 * dCut)) : 1;
+    const opacity = Math.min(1, CELL.alpha / .64) * rank;
+    for (let s = 0; s < SUB_DISCS.length; s++, count++) {
       const o = count * CLOUD_CASTER_STRIDE, along = SUB_DISCS[s] * CELL.widthM;
       out[o] = CELL.x + CLOUD_WIND_AXIS[0] * along; out[o + 1] = CELL.y; out[o + 2] = CELL.z + CLOUD_WIND_AXIS[1] * along;
       out[o + 3] = ALONG * CELL.widthM; out[o + 4] = ACROSS * CELL.widthM; out[o + 5] = opacity;

@@ -87,6 +87,21 @@ test('cloud shadow casters are a pure function of heard time',()=>{
  assert.notDeepEqual(run(61.5)[1],run(1.5)[1],'the banks drift on the wind');
  assert.equal(field.cloudShadowCasters({eyeM:[0,0,0],lightDir:[0,-1,0],out:new Float32Array(96)}),0,'no light from below');
 });
+test('a travelling eye never pops a whole cloud shadow in or out',()=>{
+ // Summed shadow (opacity x footprint area, km^2) per heard frame while
+ // the eye crosses ~190 km of tour: banks swap in and out of the selection
+ // many times, but only ever through a 0-opacity rank.
+ const out=new Float32Array(16*field.CLOUD_CASTER_STRIDE);
+ let prev=null,worst=0,peak=0;
+ for(let f=0;f<6000;f++){
+  const n=field.cloudShadowCasters({eyeM:[f*30,2000,-f*12],timeSec:10+f/60,seed:315,lightDir:sunUp,out});
+  assert.equal(n%3,0,'whole banks only');
+  let sum=0;for(let i=0;i<n;i++)sum+=out[i*6+5]*out[i*6+3]*out[i*6+4]/1e6;
+  if(prev!==null)worst=Math.max(worst,Math.abs(sum-prev));prev=sum;peak=Math.max(peak,sum);
+ }
+ assert.ok(peak>0);
+ assert.ok(worst<.01*peak,`per-frame change ${worst} of peak ${peak}`);
+});
 const shadowScene=async()=>{
  const {RangeScene}=await import('../src/world/alpine/RangeScene.js');
  const THREE=await import('../src/vendor/range/three-range.module.js');
