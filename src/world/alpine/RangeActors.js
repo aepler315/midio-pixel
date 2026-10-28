@@ -32,41 +32,92 @@ export const ACTOR_DRIFT = 0.2;
 export const ACTOR_WAKE_MS = 4000;
 /** The lights arrive with the scene. */
 export const ACTOR_ARRIVE_MS = [3000, 7000];
+/** Each note the lane plays: a pulse of 1 at its onset, decaying with this
+ *  time constant (the glow above is too slow to show single notes). */
+export const ACTOR_PULSE_MS = 180;
+/** A busy lane's pulse is damped by its onsets in this window up to the
+ *  latest one: each past three costs a quarter, so a 16th-note line
+ *  shimmers instead of strobing. */
+export const ACTOR_PULSE_DENSE_MS = 500;
+/** The swarm's height follows the lane's pitch, smoothed (attack and
+ *  release) with this time constant: under .02 of spread per 50 ms step. */
+export const ACTOR_PITCH_MS = 1250;
+/** The swarm's vertical spread, from the lane's lowest pitch to its highest. */
+export const ACTOR_SPREAD = Object.freeze([0.75, 1.25]);
 
 const unit = (x) => (Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : 0);
-const EMPTY_ACTOR = Object.freeze({ glow: 0, travel: 0 });
+const EMPTY_ACTOR = Object.freeze({ glow: 0, travel: 0, pulse01: 0, spread: 1 });
+/** How many of sorted `arr` are at or before `t`. */
+const countThrough = (arr, t) => {
+  let lo = 0, hi = arr.length;
+  while (lo < hi) { const m = (lo + hi) >>> 1; if (arr[m] <= t) lo = m + 1; else hi = m; }
+  return lo;
+};
+/** A lane's note pulse at heard time `t` from its sorted onsets: only onsets
+ *  at or before `t` count. The density is that of the window ending at the
+ *  latest onset, so between notes the pulse only decays. */
+const pulseAt = (onsets, t) => {
+  const k = countThrough(onsets, t);
+  if (!k) return 0;
+  const last = onsets[k - 1];
+  const dense = k - countThrough(onsets, last - ACTOR_PULSE_DENSE_MS);
+  return Math.exp(-(t - last) / ACTOR_PULSE_MS) / (1 + Math.max(0, dense - 3) * 0.25);
+};
+/** A lane's onsets as a sorted, finite, distinct array (compiled once). */
+const laneOnsets = (list) => {
+  const sorted = Float64Array.from(Array.isArray(list) ? list.filter(Number.isFinite) : []).sort();
+  return sorted.filter((v, i) => i === 0 || v !== sorted[i - 1]);
+};
 
 /**
  * Compile the cast's score for a song from `narrative` (compileLandscapeSources:
- * { durationMs, sample(t).sources[id].activity }). Returns
- * { durationMs, at(timeMs) -> { midio: { glow, travel }, ... } }.
+ * { durationMs, onsets[id], sample(t).sources[id].{ activity, pitch01,
+ * pitchActivity } }). Returns { durationMs, at(timeMs) -> { midio: { glow,
+ * travel, pulse01, spread }, ... } }: `pulse01` (0..1) flares on each of
+ * the lane's notes, and `spread` (ACTOR_SPREAD, 1 when unknown) follows its
+ * pitch, normalised to the lane's own range over the song.
  * Every value is a function of heard time only, so seeks read the same.
  */
 export function compileActorScore(narrative) {
   const durationMs = narrative?.durationMs || 0;
   if (typeof narrative?.sample !== 'function' || !(durationMs > 0)) {
-    return Object.freeze({ durationMs: 0, at: () => Object.fromEntries(ACTOR_IDS.map((id) => [id, EMPTY_ACTOR])) });
+    return Object.freeze({ durationMs: 0, at: () => Object.fromEntries(ACTOR_IDS.map((id) => [id, { ...EMPTY_ACTOR }])) });
   }
   const n = Math.ceil(durationMs / ACTOR_STEP_MS) + 1;
   const act = Object.fromEntries(ACTOR_IDS.map((id) => [id, new Float32Array(n)]));
+  // Voiced pitch per step (NaN where the lane has none).
+  const pitch = Object.fromEntries(ACTOR_IDS.map((id) => [id, new Float32Array(n)]));
   for (let i = 0; i < n; i++) {
     const s = narrative.sample(Math.min(i * ACTOR_STEP_MS, durationMs))?.sources || {};
-    for (const id of ACTOR_IDS) act[id][i] = unit(s[id]?.activity);
+    for (const id of ACTOR_IDS) {
+      act[id][i] = unit(s[id]?.activity);
+      pitch[id][i] = unit(s[id]?.pitchActivity) > 0 && Number.isFinite(s[id]?.pitch01) ? unit(s[id].pitch01) : NaN;
+    }
   }
   const dt = ACTOR_STEP_MS / 1000;
   const up = 1 - Math.exp(-ACTOR_STEP_MS / ACTOR_GLOW_ATTACK_MS), down = 1 - Math.exp(-ACTOR_STEP_MS / ACTOR_GLOW_RELEASE_MS);
+  const along = 1 - Math.exp(-ACTOR_STEP_MS / ACTOR_PITCH_MS);
+  const [spreadLo, spreadHi] = ACTOR_SPREAD;
   const curves = {};
   for (const id of ACTOR_IDS) {
-    const a = act[id];
-    const glow = new Float32Array(n), travel = new Float32Array(n);
-    let g = 0, tr = 0;
+    const a = act[id], pr = pitch[id];
+    const glow = new Float32Array(n), travel = new Float32Array(n), spread = new Float32Array(n);
+    // The lane's own pitch range, so Broshi's bass spreads as a melody does.
+    // Under half a semitone (pitch01 is 60 semitones) it is one pitch.
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < n; i++) if (Number.isFinite(pr[i])) { lo = Math.min(lo, pr[i]); hi = Math.max(hi, pr[i]); }
+    const span = hi - lo > 1 / 120 ? hi - lo : 0;
+    let g = 0, tr = 0, ps = 0.5;
     for (let i = 0; i < n; i++) {
       g += (a[i] - g) * (a[i] > g ? up : down);
       glow[i] = g;
       travel[i] = tr;
       tr += (ACTOR_DRIFT + (1 - ACTOR_DRIFT) * g) * dt;
+      // Only voiced steps move it: the last pitch holds through a rest.
+      if (Number.isFinite(pr[i])) ps += ((span ? (pr[i] - lo) / span : 0.5) - ps) * along;
+      spread[i] = spreadLo + (spreadHi - spreadLo) * ps;
     }
-    curves[id] = { glow, travel };
+    curves[id] = { glow, travel, spread, onsets: laneOnsets(narrative.onsets?.[id] || []) };
   }
   const read = (arr, x) => {
     const i = Math.floor(x), f = x - i;
@@ -75,9 +126,13 @@ export function compileActorScore(narrative) {
   return Object.freeze({
     durationMs,
     at(timeMs) {
-      const x = Math.min(n - 1, Math.max(0, (Number.isFinite(timeMs) ? timeMs : 0) / ACTOR_STEP_MS));
+      const t = Number.isFinite(timeMs) ? timeMs : 0;
+      const x = Math.min(n - 1, Math.max(0, t / ACTOR_STEP_MS));
       const out = {};
-      for (const id of ACTOR_IDS) out[id] = { glow: read(curves[id].glow, x), travel: read(curves[id].travel, x) };
+      for (const id of ACTOR_IDS) {
+        const c = curves[id];
+        out[id] = { glow: read(c.glow, x), travel: read(c.travel, x), pulse01: pulseAt(c.onsets, t), spread: read(c.spread, x) };
+      }
       return out;
     },
   });
