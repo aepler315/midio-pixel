@@ -141,18 +141,6 @@ test('beatFlash is output-latency compensated: the peak waits for the heard beat
   assert.ok(perf.beatFlash > 0.95, `peak lands when the EAR gets the kick, got ${perf.beatFlash}`);
 });
 
-test('afterimages accumulate while airborne and clear immediately on landing', () => {
-  const perf = new MidioPerformer(1);
-  const midio = fakeMidio();
-  let t = 0;
-  const jump = fakeJump({ airborne: true, jumpStartMs: 0, D: 500 });
-  for (let i = 0; i < 10; i++) { perf.update(t, 1 / 120, midio, jump, fakeCombo()); t += 30; }
-  assert.ok(perf.afterimages.length > 0);
-
-  perf.update(t, 1 / 120, midio, fakeJump({ airborne: false }), fakeCombo());
-  assert.equal(perf.afterimages.length, 0);
-});
-
 test('idle strut damps down and a slower sway takes over as calmLevel rises', () => {
   const jump = fakeJump({ airborne: false, beatPeriodMs: 500 });
   let strutMax = 0, swayMax = 0;

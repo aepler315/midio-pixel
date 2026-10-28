@@ -188,11 +188,12 @@ export class Simulation {
       if (!evt.kick) return;
       this.hype.onKick(evt.vel);
       if (!this.songBeat.freeTime) this.syncMonitor.onKick(evt.tMs, this.songBeat.snapshotAt(evt.tMs).periodMs, this.beatAnchor.anchorMs);
-      this.groundField.kickGlow(this.worldX, evt.tMs, evt.vel);
+      this.groundField.kickGlow(this._midioWorldX(), evt.tMs, evt.vel);
     })];
     this.snowCover = 0;
-    // Candidate-only song replay belongs to construction, before audio starts.
-    // Draws read this immutable schedule rather than warming it on stage.
+    // The highlight reel's color-regime schedule (sky, squall, palettes) is
+    // read from song evidence at construction, before audio starts. Draws
+    // read this immutable schedule rather than warming it on stage.
     highlightCandidatesFor(this);
     // Trio: Midio, Midasus and Broshi perform on the world's own ground.
     this.trio = this.experience === 'trio' ? new TrioPerformance({ timeline: conductor.timeline,
@@ -228,12 +229,18 @@ export class Simulation {
           this.camera.shake(3 + 9 * strength);
           break;
         case CueKind.GROUND_PULSE:
-          this.groundField.impulse(this.worldX, strength, nowMs);
+          this.groundField.impulse(this._midioWorldX(), strength, nowMs);
           break;
         default:
           break;
       }
     }
+  }
+
+  /** Midio's own place on the world's ground: the world origin, except in
+   *  Trio, where he wanders over a ground drawn from a fixed origin. */
+  _midioWorldX() {
+    return this.trio ? this.trio.midioWorldX : this.worldX;
   }
 
   setPointer(x, y) {
@@ -392,6 +399,9 @@ export class Simulation {
 
       fever: this.energyCurves?.globalEnergyNorm(this.heardTimeMs) ?? 0,
       midioX: this.stageAnchor.x, midioY: this.stageAnchor.groundY,
+      // The spotlight snaps onto Midio himself (Trio: wherever he wandered).
+      spotX: this.trio ? this.trio.midio.screenX : null,
+      spotY: this.trio ? this.trio.midio.groundY : null,
       weatherState: this.weather.state, dustLevel01: this.quake.dustLevel01, smokeLevel01: this.fire.smokeLevel01,
       universeHueDeg: this.parallelUniverse.hueDeg, universeHazeMul: this.parallelUniverse.hazeMul,
       universeWindMul: this.parallelUniverse.windMul, universeTerrainMul: this.parallelUniverse.terrainMul,
@@ -417,7 +427,8 @@ export class Simulation {
   }
 
   /** The cast performs first; the world then scrolls to where they are.
-   *  Midio stands at his own screen x, so that is the world's origin. */
+   *  The ground is drawn from the Trio's fixed origin, and the cast wander
+   *  over it, each standing on the ground at their own screen x. */
   _stepTrio() {
     const trio = this.trio, biomes = this.biomes;
     const chorus = biomes.currentKind === 'chorus';
@@ -425,7 +436,7 @@ export class Simulation {
       chorusText: chorus ? biomes.currentSectionText : null,
       lyricSymbol: chorus ? biomes.currentSectionSymbol : null });
     this.worldX = trio.worldX;
-    this.stageAnchor.x = trio.midio.screenX;
+    this.stageAnchor.x = trio.originX;
     const voyage = trio.midasus.voyage;
     if (trio.voyageEvents.launched || trio.voyageEvents.landed) this.camera.shake(4);
     // The sky notices her: the celestial's mandala swells while she dances near it.
@@ -452,7 +463,9 @@ export class Simulation {
       worldX: lerp(p.worldX, c.worldX),
       originX: this.stageAnchor.x,
       midioX: this.stageAnchor.x,
-      midioDrawX: this.stageAnchor.x + lerp(p.slipX ?? 0, c.slipX ?? 0),
+      // Trio: Midio-anchored effects (drop speed-lines, heat lens) start
+      // from Midio himself, while midioX/originX stay the ground's origin.
+      midioDrawX: this.trio ? this.trio.midio.screenX : this.stageAnchor.x + lerp(p.slipX ?? 0, c.slipX ?? 0),
       midioY: lerp(p.midioY, c.midioY),
       scaleX: lerp(p.scaleX, c.scaleX),
       scaleY: lerp(p.scaleY, c.scaleY),

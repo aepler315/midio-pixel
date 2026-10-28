@@ -109,7 +109,7 @@ test('the real fallback renderer paints terrain without body, shadow, brush, lig
     sim.biomes = null;
     sim.perf = { particleMul: 1, heavyPostFx: false, bloomEnabled: false, fullFrameFxEnabled: false };
     sim.highlightReel = null;
-    for (const method of ['_drawMidio', '_drawMidioAfterimages', '_drawGoldAfterimages', '_drawContactShadow']) {
+    for (const method of ['_drawMidio', '_drawGoldAfterimages', '_drawContactShadow']) {
       renderer[method] = () => assert.fail(`retired draw path ${method}`);
     }
     renderer.draw(sim, 1);

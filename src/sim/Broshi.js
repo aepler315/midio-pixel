@@ -85,6 +85,18 @@ const TAIL_BASE_HZ = 1.3, TAIL_CALM_HZ = 0.32;
 const TAIL_BASE_DEG = 9, TAIL_CALM_DEG = 18;
 const DRAW_SCALE = 2.15; // render-only; physics footprint stays the mesh's local span
 const WEAVE_PX = 6;      // predatory side-to-side drift while trailing
+// Free roaming (the Trio: see TrioWander): crossing Midio is a leapfrog
+// over his landing column, and he turns round at this rate (full facings
+// per second).
+const LEAPFROG_H = 58;
+const TURN_RATE = 4.5;
+// Free roaming springs in absolute screen space, damped close to critical
+// (2*sqrt(K) ~ 9.4) so he walks to his spot instead of bouncing round it,
+// and faces the way he is actually moving once faster than FACE_V_PX_S.
+const C_FREE = 8.5;
+const FACE_V_PX_S = 22;
+const FACE_V_TAU = 0.12; // smoothing of the velocity that decides it (s)
+const LOOK_DEG = 16;     // how far his head lifts (or dips to sniff) when looking
 // BROSHI_BODY+BROSHI_HEAD combined local-space x-span (snout spike to
 // swept tail spike, see meshes.js) -- the only source of truth for his
 // on-screen width, used by the contact shadow.
@@ -203,11 +215,6 @@ export class Broshi {
     this.spittle = new ObjectPool(() => ({}), (o, i) => Object.assign(o, i, { age: 0 }), 60);
     this.drool = new ObjectPool(() => ({}), (o, i) => Object.assign(o, i, { age: 0 }), 60);
     this._droolAccum = 0;
-    // A comet-star trail (Midasus's stardust ribbon, his own version): a
-    // stream of fading motes off the tail on hops and rolls, thicker the
-    // more rabid he's running.
-    this.trail = new ObjectPool(() => ({}), (o, i) => Object.assign(o, i, { age: 0 }), 120);
-    this._trailAccum = 0;
 
     // Midasus style: a pale pitch-class SPECTRAL color (eased toward the hue
     // of his own line's latest note) replaces the old green->red raptor skin,
@@ -238,6 +245,13 @@ export class Broshi {
     this.beatFlash = 0;
     this._nowMs = 0;
     this._trailTarget = D_TRAIL;
+    // Free roaming only: which way he faces (-1..1, through 0 mid-turn) and
+    // where his head is (+1 up at the sky, -1 nose down). 1/0 otherwise.
+    this.facing = 1;
+    this._look = 0;
+    this._prevMidioX = NaN; // Midio's screen x last step (free roaming's absolute frame)
+    this._prevBodyX = NaN;
+    this._vAbs = 0;         // smoothed on-screen velocity of his body (px/s)
     this._ensPhase = null;
     this._melt = 0;
     this._swell = 1; // shared build-up swell (EnsembleDirector.swell) -- 1 until the first update()
@@ -445,7 +459,19 @@ export class Broshi {
     // its target. Clamping the TARGET (rather than only the final position)
     // means the spring never fights a wall it can't see.
     this._stageW = ensemble && ensemble.stageW > 0 ? ensemble.stageW : this._stageW;
-    const roam = ensemble ? clamp(ensemble.trailX - midio.screenX, -420, 320) : D_TRAIL;
+    // Free roaming: trailX is his own wandering plan, anywhere on the floor
+    // and on either side of Midio, not a formation offset to hold.
+    const free = !!(ensemble && ensemble.free && Number.isFinite(ensemble.trailX));
+    // Free roaming: which side of Midio he keeps comes from the plan, a pure
+    // function of time, rather than his own history -- so a seek rebuilds
+    // him on the same side continuous play reached.
+    const planSide = free && (ensemble.broshiSide === 1 || ensemble.broshiSide === -1) ? ensemble.broshiSide : 0;
+    if (planSide) this._lastSide = planSide;
+    // ... and his spring works in absolute screen space: xRel is re-based
+    // onto Midio's new spot, so Midio strolling does not carry him along.
+    if (free && Number.isFinite(this._prevMidioX)) this.xRel -= midio.screenX - this._prevMidioX;
+    this._prevMidioX = midio.screenX;
+    const roam = ensemble ? (free ? ensemble.trailX - midio.screenX : clamp(ensemble.trailX - midio.screenX, -420, 320)) : D_TRAIL;
     // Clamp the set-point in BOTH cases, not just when an ensemble is roaming
     // him: the fixed -200 default already puts him at screen x=0 whenever
     // Midio stands at 200, which is the "falls back off the screen" report.
@@ -496,7 +522,7 @@ export class Broshi {
     // Calm play-dart: bored and relaxed, he occasionally darts ahead and
     // drifts back -- seeded so it's not a metronome. Keep-out (below) still
     // applies to wherever this sends the spring's target.
-    if (nowMs >= this._nextDartCheckMs) {
+    if (!free && nowMs >= this._nextDartCheckMs) {
       this._nextDartCheckMs = nowMs + 1000;
       if (calmLevel > 0.6 && nowMs >= this._dartUntilMs && this.rand() < (1 / 7)) this._dartUntilMs = nowMs + 1200;
     }
@@ -529,7 +555,21 @@ export class Broshi {
     if (this.state === 'SURGE' && this._lastState !== 'SURGE') this._pounceStartMs = nowMs;
     this._lastState = this.state;
 
-    let rawDStar = this.state === 'SURGE' ? D_SURGE : this._trailTarget;
+    // Facing (free roaming): the way he is actually moving when he moves,
+    // else where his plan says to look, turning through edge-on at
+    // TURN_RATE. Otherwise he always faces forward.
+    let faceTarget = 1;
+    if (free) {
+      faceTarget = ensemble.broshiFacing < 0 ? -1 : 1;
+      if (Math.abs(this._vAbs) > FACE_V_PX_S) faceTarget = this._vAbs < 0 ? -1 : 1;
+    }
+    this.facing += clamp(faceTarget - this.facing, -TURN_RATE * dtSec, TURN_RATE * dtSec);
+    this._look = free && Number.isFinite(ensemble.broshiLook) ? clamp(ensemble.broshiLook, -1, 1) : 0;
+
+    // Free roaming: a surge is the pounce coil alone (below). Surges count
+    // bars from his construction, so a displacement here would differ
+    // between a seek and continuous play.
+    let rawDStar = this.state === 'SURGE' && !free ? D_SURGE : this._trailTarget;
     if (darting && this.state === 'TRAIL') rawDStar = this._trailTarget + 180;
 
     // Side-crossing discipline: a target that would flip which side of
@@ -539,7 +579,8 @@ export class Broshi {
     // moment of landing.
     const naturalSide = rawDStar === 0 ? this._lastSide : Math.sign(rawDStar);
     let dStar = rawDStar;
-    if (midioAirborne && naturalSide !== this._lastSide) {
+    // Free roaming crosses by leapfrogging instead (see the hop below).
+    if (!free && midioAirborne && naturalSide !== this._lastSide) {
       dStar = this._lastSide >= 0 ? Math.abs(rawDStar) : -Math.abs(rawDStar);
     }
     // Keep-out: never ask the spring to rest inside the landing column.
@@ -549,8 +590,16 @@ export class Broshi {
     // stiffness (his legs) is untouched but he genuinely can't shed speed,
     // so he overshoots the formation and slides back. Floor keeps the
     // spring visibly underdamped, never divergent.
-    const cEff = C * (0.35 + 0.65 * (this.traction ?? 1));
-    const accel = -K * (this.xRel - dStar) - cEff * this.xRelVel;
+    const cEff = (free ? C_FREE : C) * (0.35 + 0.65 * (this.traction ?? 1));
+    // Free roaming damps relative to how fast his target moves (his plan's
+    // stroll, or Midio's when keep-out holds him beside Midio), so he walks
+    // with it instead of lagging a spring's length behind.
+    let vRef = 0;
+    if (free) {
+      const v = dStar !== rawDStar ? ensemble.midioVx : (this._trailTarget === roam ? ensemble.broshiVx : 0);
+      vRef = Number.isFinite(v) ? v : 0;
+    }
+    const accel = -K * (this.xRel - dStar) - cEff * (this.xRelVel - vRef);
     this.xRelVel += accel * dtSec;
     // Soft personal space: ease off Midio (and Midasus when she crowds the
     // floor band) without a hard teleport — strength falls off quadratically.
@@ -733,6 +782,8 @@ export class Broshi {
       : 0;
     // Watch him fly: tilts up on top of the head-bob while Midio's airborne.
     this.neckAngle -= this._watchLift * 18;
+    // Curiosity (free roaming): head up at the sky or Midasus, down to sniff.
+    this.neckAngle -= this._look * LOOK_DEG;
 
     // --- rabid aura / drool ---
     if (this.rabid) {
@@ -745,21 +796,6 @@ export class Broshi {
 
     this.spittle.step(dtSec, (o, dtt) => { o.x += o.vx * dtt; o.y += o.vy * dtt; o.vy += 400 * dtt; o.age += dtt; return o.age < o.life; });
     this.drool.step(dtSec, (o, dtt) => { o.y += o.vy * dtt; o.age += dtt; return o.age < o.life; });
-
-    // Comet trail: rate scales with speed and rabid-ness, motes drift
-    // behind him (world-relative, since they should stay in place as he
-    // runs on) and fade over ~0.4s.
-    const trailSpeed = Math.abs(this.xRelVel);
-    const trailRate = (4 + 26 * Math.min(1, trailSpeed / 250)) * (1 + 1.2 * this.rho) * this._particleMul;
-    this._trailAccum += trailRate * dtSec;
-    while (this._trailAccum >= 1) {
-      this._trailAccum -= 1;
-      this.trail.spawn({
-        x: -18 - 4 * this.rand(), y: -13 + (this.rand() * 2 - 1) * 5,
-        life: 0.28 + 0.18 * this.rand(),
-      });
-    }
-    this.trail.step(dtSec, (o, dtt) => { o.age += dtt; return o.age < o.life; });
 
     // Beat flash: the mountains' own kickEnv anchored on the kick's true
     // onset -- identical shape and phase to the ranges' bounce, and it
@@ -776,14 +812,22 @@ export class Broshi {
     // are untouched. Hoisted here (rather than computed inline in draw())
     // so Renderer can read his true rendered x for the contact shadow
     // without reaching into underscore-prefixed internals.
-    const weave = WEAVE_PX * (1 - 0.5 * this._calmLevel) * Math.sin(this._ensPhase != null ? this._ensPhase : nowMs * 0.006)
+    // Free roaming drops the stalking weave; the rabid skitter stays.
+    const weave = (free ? 0 : WEAVE_PX * (1 - 0.5 * this._calmLevel) * Math.sin(this._ensPhase != null ? this._ensPhase : nowMs * 0.006))
       + 3.5 * this.rho * Math.sin(nowMs * 0.031);
     this.renderX = this.screenX + weave;
     // Soft keep-out on the drawn pose: ease out of Midio's landing column
     // instead of hard-clamping (instant clamp was a visible teleport).
+    // Free roaming lets him through when his plan is on Midio's far side:
+    // he leapfrogs the column, peaking right over it.
     const renderOff = this.renderX - midio.screenX;
-    if (Math.abs(renderOff) < RENDER_KEEPOUT_HALF) {
-      const side = renderOff === 0 ? (this._lastSide < 0 ? -1 : 1) : Math.sign(renderOff);
+    const crossing = free && Math.abs(dStar) >= KEEPOUT_HALF && Math.sign(dStar) !== Math.sign(renderOff);
+    if (free && Math.abs(renderOff) < KEEPOUT_HALF) {
+      this.hopY += LEAPFROG_H * Math.cos((Math.PI / 2) * (renderOff / KEEPOUT_HALF));
+    }
+    if (!crossing && Math.abs(renderOff) < RENDER_KEEPOUT_HALF) {
+      const side = free ? Math.sign(dStar) || (this._lastSide < 0 ? -1 : 1)
+        : renderOff === 0 ? (this._lastSide < 0 ? -1 : 1) : Math.sign(renderOff);
       const target = midio.screenX + side * RENDER_KEEPOUT_HALF;
       const k = 1 - Math.exp(-dtSec / RENDER_KEEPOUT_TAU);
       this.renderX += (target - this.renderX) * k;
@@ -809,6 +853,13 @@ export class Broshi {
       this.screenX = midio.screenX + this.xRel;
       if (pushedOut) this.xRelVel = 0;
     }
+    // His body's true on-screen velocity (keep-out eases included, the
+    // skitter excluded), which free roaming turns him to face.
+    const bodyX = this.renderX - weave;
+    if (Number.isFinite(this._prevBodyX) && dtSec > 0) {
+      this._vAbs += ((bodyX - this._prevBodyX) / dtSec - this._vAbs) * (1 - Math.exp(-dtSec / FACE_V_TAU));
+    }
+    this._prevBodyX = bodyX;
 
     // Midasus style: ease his spectral color toward his line's latest note,
     // advance the note-slashes, and -- now that his rendered position is
@@ -925,6 +976,9 @@ export class Broshi {
     const baseHue = this.hue;
     const x = this.renderX;
     const y = this.groundY - this.hopY;
+    // Which way he faces: mirrors his whole glyph (and the tongue, spittle
+    // and drool hanging off his snout), narrowing edge-on through a turn.
+    const fx = (this.facing < 0 ? -1 : 1) * Math.max(0.12, Math.abs(this.facing));
 
     ctx.save();
     // Baseline for FocusDirector's dampening -- everything below that
@@ -934,7 +988,7 @@ export class Broshi {
     // otherwise clobber this baseline.
     ctx.globalAlpha = focusMul;
     ctx.translate(x, y);
-    ctx.scale(DRAW_SCALE, DRAW_SCALE);
+    ctx.scale(DRAW_SCALE * fx, DRAW_SCALE);
 
     if (this.rho > 0.02) {
       // The serration re-rolls at RING_JITTER_HZ of heard time, as it
@@ -974,20 +1028,6 @@ export class Broshi {
       ctx.fillRect(6 + p.x - 1, -16 + p.y - 1, 2.4, 2.4); // sparks, not droplets
     }
 
-    // Comet trail: fading motes behind him, drawn before the body so his
-    // silhouette sits on top of his own tail of light.
-    if (this.trail.active.length) {
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      for (const p of this.trail.active) {
-        const u = p.age / p.life;
-        ctx.fillStyle = `hsla(${baseHue},60%,72%,${(1 - u) * 0.55})`;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 2.2 * (1 - u), 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.restore();
-    }
     ctx.restore(); // done with the ctx.translate-relative aura/tongue/spittle drawing
 
     // Body/head/jaw/eye as a low-poly wireframe (follow-up item 1): manually
@@ -997,8 +1037,8 @@ export class Broshi {
     // bodyRoll tumbles the whole glyph (barrel roll / tail-chase); the
     // pounce squash coils it. Both render-only, like everything else here.
     const group = {
-      tx: x, ty: y, rot: neckRad + this.bodyRoll + this._discRoll,
-      scaleX: DRAW_SCALE * this.squashX * this._swell * this._discScaleX,
+      tx: x, ty: y, rot: (fx < 0 ? -neckRad : neckRad) + this.bodyRoll + this._discRoll,
+      scaleX: DRAW_SCALE * this.squashX * this._swell * this._discScaleX * fx,
       scaleY: DRAW_SCALE * this.squashY * this._swell * this._discScaleY,
       rotX: this._tumbleRotX || 0, rotY: this._tumbleRotY || 0,
     };
@@ -1020,7 +1060,7 @@ export class Broshi {
     // Modest under-glow — big halos washed him out next to Midio.
     const glowAlpha = 0.12 + 0.18 * this.rho + 0.22 * this.beatFlash;
     const glowCenter = applyTransform(bodyHub, group);
-    drawGlowHalo(ctx, glowCenter.x, glowCenter.y, 22 * group.scaleX, 18 * group.scaleY, baseHue, glowAlpha, { sat: 36, light: 72 });
+    drawGlowHalo(ctx, glowCenter.x, glowCenter.y, 22 * Math.abs(group.scaleX), 18 * group.scaleY, baseHue, glowAlpha, { sat: 36, light: 72 });
 
     // Ink contour under the crisp strokes: silhouette stays sharp.
     drawMeshPart(ctx, bodyMeshClean, this._bodyRest, group, baseHue, { ...glyphOpts, outline: { widthAdd: 3.2 } });
@@ -1098,7 +1138,7 @@ export class Broshi {
 
     ctx.save();
     ctx.translate(x, y);
-    ctx.scale(DRAW_SCALE, DRAW_SCALE);
+    ctx.scale(DRAW_SCALE * fx, DRAW_SCALE);
     for (const d of this.drool.active) {
       ctx.fillStyle = 'rgba(150,220,255,0.7)';
       ctx.beginPath();

@@ -26,7 +26,7 @@ import { GroundResponse, recentConductorHits } from '../world/alpine/GroundRespo
 import { viewportState } from '../world/alpine/RangeFrame.js';
 import { composedNarrativeEdge } from './NarrativeDraw.js';
 import { narrativePressure } from '../world/alpine/RangeNarrative.js';
-import { highlightCandidatesFor } from './HighlightReel.js';
+import { highlightCandidatesFor, highlightFrameState, highlightVisible } from './HighlightReel.js';
 
 // Reserve margin (logical stage px) around the visible frame that camera
 // shake/drift/sway/roll are free to pan into without ever exposing raw,
@@ -581,28 +581,22 @@ export class Renderer {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     this._drawOutputBars(ctx, canvas, outputFit);
 
+    // Color-regime peaks come from song evidence in heard time (the clock
+    // the sky, storm and palettes are painted on); only this composed frame
+    // can confirm the regime is on screen. Snapshot before the freeze below.
+    const highlightFrame = sim.highlightReel && !sim.highlightReel.complete
+      ? highlightFrameState(sim, biomeManager, { performers: presentation.performers }) : null;
+
     if (fracture && fracture.isAboutToFreeze)
       this._captureSceneFrame(canvas, source => fracture.captureFreeze(source, sim.timeMs));
 
-    // Semantic winners come from song evidence; only the current composed
-    // frame can confirm that their producer was admitted and is visible.
-    // captureFreeze has already consumed isAboutToFreeze, so retain its
-    // actual capture frame separately from the immutable Finale time.
-    if (sim.highlightReel) this._captureSceneFrame(canvas, source => {
-      const heardMs = sim.heardTimeMs ?? sim.timeMs;
-      const dropAgeMs = sim.timeMs - (sim.hype?.dropAtMs ?? -Infinity);
-      const bloomVisible = (!!this._pixelGlowVisible || !!this._bloomA && !!this._bloomB) && biomeManager?.world?.kind !== 'alpine'
-        && (perf?.bloomEnabled ?? true)
-        && bloomStrength(sim.hype, sim.fever, sim.opening?.gain ?? 1, salience.bloom) > BLOOM_BASE + .005;
-      const filmVisible = !!sim.filmFinish && (perf?.heavyPostFx ?? true) && biomeManager?._pass?.('film') !== false;
-      sim.highlightReel.notify(highlightCandidatesFor(sim, sim.timeMs), source, heardMs, {
-        frameTimeMs: sim.timeMs,
-        producerTimeMs: sim.timeMs,
-        isVisible: candidate => candidate.category === 'finale'
-          ? !!fracture && (fracture.isAboutToFreeze || fracture.freezeMs === sim.timeMs && !!fracture.freezeFrame)
-          : dropAgeMs >= 0 && dropAgeMs < 100 && sim.hype?.surge > 0 && (bloomVisible || filmVisible),
-      });
-    });
+    if (highlightFrame) {
+      const heardMs = sim.heardTimeMs ?? sim.timeMs, frameMs = sim.timeMs;
+      this._captureSceneFrame(canvas, source => sim.highlightReel.notify(highlightCandidatesFor(sim, heardMs), source, heardMs, {
+        frameTimeMs: frameMs, producerTimeMs: heardMs,
+        isVisible: candidate => highlightVisible(candidate, highlightFrame),
+      }));
+    }
   }
 
   _drawOutputBars(ctx, canvas, fit) {
@@ -1384,7 +1378,8 @@ export class Renderer {
     b.draw(ctx, pose, null, 1);
     this._drawContactShadow(ctx, contactShadow(m.screenX, m.groundY, m.y, m.halfWidth * 2));
     const beat = sim.songBeat.snapshotAt(sim.heardTimeMs);
-    this._drawMidio(ctx, pose, trio.performer, trio.clockMs / 1000, 0, null, MIDIO_IDENTITY_HUE, trio.ensemble, null, 1, null,
+    // trio.gaze: what his wandering has him looking at (TrioWander).
+    this._drawMidio(ctx, pose, trio.performer, trio.clockMs / 1000, 0, null, MIDIO_IDENTITY_HUE, trio.ensemble, null, 1, trio.gaze,
       beat.freeTime ? null : beat.phase01);
     // Away on a voyage she is drawn by the deep sky, not here.
     if (f.voyage.depth <= 0) this._drawContactShadow(ctx, contactShadow(f.p.x, f.yFloor, f.yFloor - f.p.y, f.shadowWidthPx));
@@ -1578,27 +1573,8 @@ export class Renderer {
     }
   }
 
-  /** Motion-streak ghosts trailing a fast jump (follow-up item 6). */
-  _drawMidioAfterimages(ctx, performer, midioX, baseHue = MIDIO_IDENTITY_HUE) {
-    const frames = performer.afterimages;
-    const n = frames.length;
-    if (n === 0) return;
-    ctx.save();
-    for (let i = 0; i < n; i++) {
-      const f = frames[i];
-      const alpha = 0.28 * ((i + 1) / n);
-      ctx.globalAlpha = alpha;
-      drawMeshPart(ctx, MIDIO_MESH, this._midioRestLengths, {
-        tx: midioX, ty: f.y, rot: (f.rot * Math.PI) / 180,
-        scaleX: f.scaleX * MIDIO_DRAW_SCALE, scaleY: f.scaleY * MIDIO_DRAW_SCALE,
-      }, baseHue, { alpha: 1, satBase: 22, lightBase: 64 });
-    }
-    ctx.restore();
-  }
-
   /** Apotheosis-only: gold, beat-quantized afterimages (captured on every
-   * kick while transformed, independent of MidioPerformer's airborne-only
-   * trick-jump streaks above). */
+   * kick while transformed). */
   _drawGoldAfterimages(ctx, performer, midioX, nowMs) {
     const frames = performer.goldAfterimages;
     if (!frames.length) return;
