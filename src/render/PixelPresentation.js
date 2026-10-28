@@ -267,9 +267,10 @@ export class PixelPresentation {
     return applied;
   }
   /** `water` is source-over; `overlay` is smooth added cast light. `prepare`
-   * edits the native grid before palette quantization; `crest` and `shore`
+   * edits the native grid before palette quantization and `finish` runs
+   * after it (with the palette's own texel quantizer); `crest` and `shore`
    * draw at output resolution after the terrain and after the water. */
-  finishFrame({ background = null, overlay = null, water = null, effects = null, prepare = null, crest = null, shore = null } = {}) {
+  finishFrame({ background = null, overlay = null, water = null, effects = null, prepare = null, finish = null, crest = null, shore = null } = {}) {
     const started = performance.now();
     if (!this.source || !this._pending || this._disposed) {
       return this.diagnostics.frame?.presented === false ? this.diagnostics.frame : this.failFrame('not-rendered');
@@ -295,7 +296,7 @@ export class PixelPresentation {
       if (this._resolvedPaletteId !== 'none') {
         if (this._securityGeneration === this.generation) status = { applied: false, reason: 'security', pixels: source.width * source.height };
         else status = applyPalette(source.getContext('2d'), source, { paletteId: this._resolvedPaletteId, dither: p.dither, compiled: this.compiledPalette,
-          ditherMode: p.ditherMode, weights: this.ditherWeights, grid: this.grid, prepare: prepareFrame });
+          ditherMode: p.ditherMode, weights: this.ditherWeights, grid: this.grid, prepare: prepareFrame, finish: prepareFrame ? finish : null });
         if (status.reason === 'security') this._securityGeneration = this.generation;
         if (status.applied) this.diagnostics.effectiveLook = 'palette';
       }

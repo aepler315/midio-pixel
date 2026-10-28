@@ -26,7 +26,7 @@ few Canvas passes around it.
 | Sun shafts | `SunShaftGL` | Optional; dropped at q3 |
 | Lane lanterns and motes | `RangeActors`, `ActorsGL` | Drawn inside the band passes, so nearer land hides them and the mirror reflects them |
 | Finishing | `Renderer._drawBloom`, `_drawHeatDistortion`, `_drawFilmFinish` | On the physical backing store, in the order listed below |
-| Crest line and shorelines | `RangeCrest`, `CrestProbe`, `CrestLine` | Steadied dark crest per band and pale shorelines at output resolution, split cells before palette; grid-scan fallback from q4 ([pixel-presentation.md](pixel-presentation.md#crest-line-landscape)) |
+| Crest line and shorelines | `RangeCrest`, `CrestProbe`, `CrestLine` | Steadied dark crest per band and pale shorelines at output resolution, split cells before palette (Pixel sheds them from q2); probe off and palette-frame skyline scan from q4 ([pixel-presentation.md](pixel-presentation.md#crest-line-landscape)) |
 | Final presentation | `PresentingRenderer`, `PixelPresentation` | Natural, Pixel or Palette; display and capture read the same finished source |
 
 The Range quality ladder (`RangeQuality.rangeQuality`): q2 lighter near-tree

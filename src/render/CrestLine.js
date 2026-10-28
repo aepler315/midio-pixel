@@ -20,7 +20,8 @@ export const CREST_TIERS = Object.freeze({
   far: Object.freeze({ width: [1.0, 1.5], alpha: [0.35, 0.50] }),
   mid: Object.freeze({ width: [1.5, 2.25], alpha: [0.50, 0.70] }),
   near: Object.freeze({ width: [2.0, 3.0], alpha: [0.70, 0.90] }),
-  skyline: Object.freeze({ width: [2.25, 3.0], alpha: [0.78, 0.92] }),
+  // Starts where near ends: every skyline stroke outranks every near one.
+  skyline: Object.freeze({ width: [3.0, 3.5], alpha: [0.90, 0.95] }),
 });
 export const CREST_TIER_ORDER = Object.freeze(['far', 'mid', 'near', 'skyline']);
 /** Fraction of the stroke width that sits on the land side of the boundary. */
@@ -33,8 +34,18 @@ export const CREST_AERIAL = Object.freeze({ far: 0.25, mid: 0.10, near: 0 });
 export const PROTECTED_HUE_GAP = 20;
 export const PROTECTED_HUES = Object.freeze([MIDIO_IDENTITY_HUE, HAZARD_HUE, REWARD_HUE]);
 
-/** Temporal filter (per column One-Euro with a backlash deadband). */
-export const CREST_FILTER = Object.freeze({ minCutoffHz: 1.2, beta: 3, derivativeCutoffHz: 15, deadbandPx: 0.35, fastPx: 1.5 });
+/** Temporal filter (per column One-Euro with a backlash deadband). A raw
+ *  move above kickPx in a column that held still for steadySec, made by at
+ *  least coherentFrac of the band's columns in the same direction (a heave,
+ *  not a local row flip), passes within the frame, as does the move right
+ *  after it (the kick's return). */
+export const CREST_FILTER = Object.freeze({ minCutoffHz: 1.2, beta: 3, derivativeCutoffHz: 15, deadbandPx: 0.35, fastPx: 1.5,
+  kickPx: 0.7, steadySec: 0.1, coherentFrac: 0.3 });
+/** Shorelines: a very low fixed cutoff (time constant ~1.6 s), a deadband
+ *  and no fast path, so music water waves (1-2 px at 0.5-3 Hz) never ripple
+ *  them. Camera motion and heave are carried separately (the crest bands'
+ *  common shift, applied exactly) and cuts reset the state. */
+export const SHORE_FILTER = Object.freeze({ minCutoffHz: 0.1, beta: 0, derivativeCutoffHz: 15, deadbandPx: 0.5, fastPx: Infinity });
 
 const clamp01 = v => (v <= 0 ? 0 : v >= 1 ? 1 : v);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -64,18 +75,36 @@ export function shoreStroke(nearness, outputHeight = 1080) {
 
 const smoothing = (cutoffHz, dt) => { const tau = 1 / (2 * Math.PI * cutoffHz); return 1 / (1 + tau / dt); };
 
-/** One filtered sample. `state` holds y (output) and d (derivative, px/s)
- *  at `index`; returns true when the fast path passed `x` straight through.
- *  - |x − y| > fastPx (a kick, a camera cut): y = x, no lag.
+/** Per-column kick-detection state for filterSample/filterCrest. */
+export function filterAux(n) {
+  return { raw: new Float32Array(n).fill(NaN), still: new Float32Array(n), kick: new Uint8Array(n) };
+}
+
+/** One filtered sample. `y` holds the output and `d` the derivative (px/s)
+ *  at `index`; returns true when `x` was passed straight through.
+ *  - |x − y| > fastPx (a big kick, a camera cut): y = x, no lag.
+ *  - a kick (`aux` given, see CREST_FILTER; `kickDir` is the band's common
+ *    move direction this frame, 0 when none): y = x.
  *  - within ±deadbandPx: held (sub-pixel crawl and ±1-cell flicker vanish).
  *  - otherwise: a One-Euro step toward x whose cutoff rises with sustained
  *    speed, so leaving the deadband never jumps and musical motion keeps up,
  *    while a reversal (row flicker) restarts the speed estimate at zero. */
-export function filterSample(y, d, index, x, dt, opts = CREST_FILTER) {
-  const prev = y[index], diff = x - prev;
-  if (!Number.isFinite(prev) || Math.abs(diff) > opts.fastPx) {
+export function filterSample(y, d, index, x, dt, opts = CREST_FILTER, aux = null, kickDir = 0) {
+  const prev = y[index], diff = x - prev, fresh = !Number.isFinite(prev);
+  let pass = fresh || Math.abs(diff) > opts.fastPx, follow = false;
+  if (aux) {
+    const last = aux.raw[index], moved = x - last;
+    if (!pass && kickDir && Math.abs(moved) > opts.kickPx && Math.sign(moved) === kickDir && Math.abs(diff) > opts.deadbandPx) {
+      if (aux.still[index] >= opts.steadySec) pass = true;
+      else if (aux.kick[index]) pass = follow = true;
+    }
+    aux.still[index] = Number.isFinite(moved) && Math.abs(moved) < 0.1 ? aux.still[index] + dt : 0;
+    aux.raw[index] = x;
+    aux.kick[index] = pass && !fresh && !follow ? 1 : 0;
+  }
+  if (pass) {
     // Passed straight through; a continuing move keeps its speed.
-    y[index] = x; d[index] = Number.isFinite(prev) ? diff / dt : 0; return true;
+    y[index] = x; d[index] = fresh ? 0 : diff / dt; return true;
   }
   const target = Math.abs(diff) <= opts.deadbandPx ? prev : x;
   const dRaw = (target - prev) / dt;
@@ -89,18 +118,54 @@ export function filterSample(y, d, index, x, dt, opts = CREST_FILTER) {
   return false;
 }
 
+/** The band's common raw move direction this frame (+1 down, −1 up, 0 none):
+ *  at least `coherentFrac` of the present columns moved over kickPx that way. */
+export function kickDirection(aux, input, opts = CREST_FILTER) {
+  let up = 0, down = 0, present = 0;
+  for (let i = 0; i < input.length; i++) {
+    const m = input[i] - aux.raw[i];
+    if (!Number.isFinite(m)) continue;
+    present++;
+    if (m > opts.kickPx) down++; else if (m < -opts.kickPx) up++;
+  }
+  const need = Math.max(1, present * (opts.coherentFrac ?? 0.3));
+  return down >= need && down > up ? 1 : up >= need && up > down ? -1 : 0;
+}
+
 /** Filter a whole crest in place: `state` = { y, d } Float32Arrays of the
- *  crest's length. Missing columns (NaN) clear their state so a crest that
- *  reappears starts from its raw value. Returns the count of fast passes. */
+ *  crest's length, plus `aux` (filterAux) for kick detection. Missing
+ *  columns (NaN) clear their state so a crest that reappears starts from its
+ *  raw value. Returns the count of passes. */
 export function filterCrest(state, input, dt, opts = CREST_FILTER) {
   const step = dt > 0 ? Math.min(dt, 1 / 15) : 1 / 60;
+  const aux = state.aux || null, dir = aux ? kickDirection(aux, input, opts) : 0;
   let fast = 0;
   for (let i = 0; i < input.length; i++) {
     const x = input[i];
-    if (!Number.isFinite(x)) { state.y[i] = NaN; state.d[i] = 0; continue; }
-    if (filterSample(state.y, state.d, i, x, step, opts)) fast++;
+    if (!Number.isFinite(x)) {
+      state.y[i] = NaN; state.d[i] = 0;
+      if (aux) { aux.raw[i] = NaN; aux.still[i] = 0; aux.kick[i] = 0; }
+      continue;
+    }
+    if (filterSample(state.y, state.d, i, x, step, opts, aux, dir)) fast++;
   }
   return fast;
+}
+
+/** Clear a filter state (and its aux) in place. */
+export function resetFilter(state) {
+  state.y.fill(NaN); state.d.fill(0);
+  if (state.aux) { state.aux.raw.fill(NaN); state.aux.still.fill(0); state.aux.kick.fill(0); }
+}
+
+/** The median of the finite values of `a − b` (a common shift), using
+ *  `scratch` (same length) as storage. NaN when fewer than `min` pairs. */
+export function medianShift(a, b, scratch, min = 8) {
+  let n = 0;
+  for (let i = 0; i < a.length; i++) { const v = a[i] - b[i]; if (Number.isFinite(v)) scratch[n++] = v; }
+  if (n < min) return NaN;
+  const s = scratch.subarray(0, n).sort();
+  return n % 2 ? s[n >> 1] : (s[n / 2 - 1] + s[n / 2]) / 2;
 }
 
 // --- Sub-cell reconstruction ----------------------------------------------
@@ -182,7 +247,8 @@ const LINEAR = Float32Array.from({ length: 256 }, (_, i) => { const v = i / 255;
 const RGB332 = { r: [0, 36, 73, 109, 146, 182, 219, 255], b: [0, 85, 170, 255] };
 const nearestLevel = (levels, v) => levels.reduce((best, l) => (Math.abs(l - v) < Math.abs(best - v) ? l : best), levels[0]);
 
-/** Snap a line/split colour to the active palette: `palette` is null (no
+/** Snap a line colour to the active palette (split-cell halves are terrain
+ *  and go through the grid's own quantizer instead, PaletteQuantize.js): `palette` is null (no
  *  palette: hue guard only), 'rgb332', or a compiled palette ({ rgb }).
  *  The nearest entry that keeps PROTECTED_HUE_GAP from protected hues wins
  *  (achromatic entries always qualify). */

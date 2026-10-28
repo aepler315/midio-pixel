@@ -135,7 +135,8 @@ class PresentingRenderer {
     const crest = crestOverlay ? (ctx, fit) => range.drawCrestForeground(ctx, fit) : null;
     const shore = crestOverlay && typeof range.drawShoreForeground === 'function' ? (ctx, fit) => range.drawShoreForeground(ctx, fit) : null;
     const prepare = crestOverlay && typeof range.prepareCrestGrid === 'function' ? (args) => range.prepareCrestGrid(args) : null;
-    const result = this.output.finishFrame({ background, overlay, water, effects, prepare, crest, shore });
+    const finish = prepare && typeof range.finishCrestGrid === 'function' ? (args) => range.finishCrestGrid(args) : null;
+    const result = this.output.finishFrame({ background, overlay, water, effects, prepare, finish, crest, shore });
     const post = postEffects ? (ctx, fit) => scene.drawDeferredPostEffects(ctx, fit) : null;
     if (result?.presented && post) {
       try {

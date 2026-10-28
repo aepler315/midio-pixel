@@ -181,6 +181,7 @@ export class RangePresentation {
     // Crest line and shorelines (RangeCrest.js), set by the presenting
     // renderer each frame: enabled only for the separate pixel composite.
     this.crestEnabled = false;
+    this._crestScan = false;
     this.crestPalette = null;
     this.crest = new RangeCrest({ makeCanvas, residency });
     this.scene = null;
@@ -912,10 +913,12 @@ export class RangePresentation {
       }
     }
     this.scene.prepareShafts?.(this.frame, incoming ? [view.id, incoming.id] : [view.id]);
-    // The crest probe runs only on a steady single view drawn into the grid.
-    this.scene.crestProbeMode = this.crestEnabled && this.pixelated && !this.directTerrainMode && !incoming
-      ? this.crest.probeMode : null;
-    if (!this.scene.crestProbeMode) this.crest.update({ frameId: this.frame.frameId, timeMs: this.frame.timeMs, viewId: view.id, qualityLevel: this.frame.qualityLevel ?? 0 });
+    // The crest probe runs only on a steady single view drawn into the grid,
+    // and not at all on the heavy governor rungs (grid-scan fallback).
+    const crestOn = this.crestEnabled && this.pixelated && !this.directTerrainMode && !incoming;
+    this.scene.crestProbeMode = crestOn ? this.crest.probeMode : null;
+    this._crestScan = crestOn && this.crest.mode === 'grid';
+    if (!crestOn) this.crest.update({ frameId: this.frame.frameId, timeMs: this.frame.timeMs, viewId: view.id, qualityLevel: this.frame.qualityLevel ?? 0 });
     this.scene.skyPan = this.skyPan; // rain curtains and lightning stand where the sky draws them
     this.viewId = view.id;
     this.active = true;
@@ -1117,19 +1120,21 @@ export class RangePresentation {
   /** After the near partition (and its water): read the frame's crest probe
    * once and freeze the crest line and shorelines this frame draws. */
   _finishCrest(ctx, stage) {
-    if (!this.scene?.crestProbeMode || !this.frame) return;
+    if (!this.frame || !(this.scene?.crestProbeMode || this._crestScan)) return;
     const steady = this.arrival >= .999;
-    const probe = steady ? this.scene.readCrestProbe?.(this.frame.frameId) : null;
+    const probe = steady && this.scene.crestProbeMode ? this.scene.readCrestProbe?.(this.frame.frameId) : null;
     const t = ctx.getTransform?.();
     this.crest.update({ probe, frameId: this.frame.frameId, timeMs: this.frame.timeMs, viewId: this.viewId,
       qualityLevel: this.frame.qualityLevel ?? 0, transform: t ? [t.a, t.b, t.c, t.d, t.e, t.f] : null,
       stage: { width: stage.width, height: stage.height },
       grid: { width: ctx.canvas.width, height: ctx.canvas.height },
-      sky: this.frameInputs?.sim?.biomes?._airColor ?? null, palette: this.crestPalette });
+      sky: this.frameInputs?.sim?.biomes?._airColor ?? null, palette: this.crestPalette, scan: steady && !!this._crestScan });
   }
 
   /** Presenter hook, before palette quantization (RangeCrest.prepareGrid). */
   prepareCrestGrid(options) { return this.crestEnabled ? this.crest.prepareGrid(options) : false; }
+  /** Presenter hook, after palette quantization (RangeCrest.finishGrid). */
+  finishCrestGrid(options) { return this.crestEnabled ? this.crest.finishGrid(options) : false; }
 
   /** Presenter hooks at output resolution: the crest after the terrain,
    * shorelines after the water; live and for recordings alike. */
