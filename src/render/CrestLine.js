@@ -343,7 +343,9 @@ let spanTop = new Float32Array(0), spanBottom = new Float32Array(0);
  * (equidistant same-side cells are averaged). Lower candidates must be
  * opaque land rows of this band, so sky is never sampled into land; an
  * upper candidate that is transparent (a separately drawn sky) makes the
- * upper half transparent: cut away to show the smooth sky. With no such
+ * upper half transparent: cut away to show the smooth sky, keeping any
+ * translucent content drawn there (a glow layer: the alpha-weighted mean of
+ * the transparent candidates), so the cut shows no step in it. With no such
  * neighbour the upper half takes what lies above the column's raw crest
  * (transparent above the image), and the lower half of a land cell keeps
  * its own colour: no crossed land cell keeps land above the line. Returns
@@ -365,22 +367,31 @@ export function reownCrestCells(image, orig, split, line, raw, skip = null, cros
     return lower ? r >= spanBottom[i] && r >= R && a >= LAND_ALPHA : r + 1 <= spanTop[i] && r < R;
   };
   const acc = [0, 0, 0, 0];
+  // Alpha-weighted mean of n sky-side cells (sums premultiplied by alpha).
+  const translucent = (r, g, b, a, n) => {
+    if (!(a > 0)) { acc[0] = acc[1] = acc[2] = acc[3] = 0; return acc; }
+    acc[0] = r / a; acc[1] = g / a; acc[2] = b / a; acc[3] = a / n;
+    return acc;
+  };
   // Candidate rings in order of distance: 1 (axial), √2 (diagonal), 2
   // (axial), as [dx, dy·side] pairs.
   const sideColor = (i, r, lower) => {
     const dir = lower ? 1 : -1;
     for (let ring = 0; ring < SPLIT_RINGS.length; ring++) {
       const offsets = SPLIT_RINGS[ring];
-      let n = 0, transparent = false;
+      let n = 0, transparent = 0, tr = 0, tg = 0, tb = 0, ta = 0;
       acc[0] = acc[1] = acc[2] = 0;
       for (let o = 0; o < offsets.length; o += 2) {
         const x = i + offsets[o], y = r + offsets[o + 1] * dir;
         if (!qualifies(x, y, lower)) continue;
-        const k = ((y - y0) * width + x) * 4;
-        if (orig[k + 3] < SKY_ALPHA) { transparent = true; continue; }
+        const k = ((y - y0) * width + x) * 4, a = orig[k + 3];
+        if (a < SKY_ALPHA) { transparent++; tr += orig[k] * a; tg += orig[k + 1] * a; tb += orig[k + 2] * a; ta += a; continue; }
         acc[0] += orig[k]; acc[1] += orig[k + 1]; acc[2] += orig[k + 2]; n++;
       }
-      if (!lower && transparent) { acc[3] = 0; return acc; }
+      // Sky side: transparent over the separate sky, but translucent content
+      // drawn into the grid there (a glow or haze layer) carries on into the
+      // cut cell, so the cut never shows as a step in it.
+      if (!lower && transparent) return translucent(tr, tg, tb, ta, transparent);
       if (n) { acc[0] /= n; acc[1] /= n; acc[2] /= n; acc[3] = 255; return acc; }
     }
     return null;
@@ -389,8 +400,8 @@ export function reownCrestCells(image, orig, split, line, raw, skip = null, cros
   const above = (i, r) => {
     const y = Math.min(r, raw[i]) - 1;
     if (y < y0) { acc[3] = 0; return acc; }
-    const k = ((y - y0) * width + i) * 4;
-    if (orig[k + 3] < SKY_ALPHA) { acc[3] = 0; return acc; }
+    const k = ((y - y0) * width + i) * 4, a = orig[k + 3];
+    if (a < SKY_ALPHA) return translucent(orig[k] * a, orig[k + 1] * a, orig[k + 2] * a, a, 1);
     acc[0] = orig[k]; acc[1] = orig[k + 1]; acc[2] = orig[k + 2]; acc[3] = 255;
     return acc;
   };
@@ -402,8 +413,9 @@ export function reownCrestCells(image, orig, split, line, raw, skip = null, cros
   };
   const put = (target, i, r, c) => {
     const k = ((r - y0) * width + i) * 4;
-    if (c[3] === 0) { target[k] = target[k + 1] = target[k + 2] = target[k + 3] = 0; return; }
-    target[k] = Math.round(c[0]); target[k + 1] = Math.round(c[1]); target[k + 2] = Math.round(c[2]); target[k + 3] = 255;
+    const a = Math.round(c[3]);
+    if (a === 0) { target[k] = target[k + 1] = target[k + 2] = target[k + 3] = 0; return; }
+    target[k] = Math.round(c[0]); target[k + 1] = Math.round(c[1]); target[k + 2] = Math.round(c[2]); target[k + 3] = a;
   };
   let written = 0;
   for (let i = 0; i < width; i++) {

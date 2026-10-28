@@ -133,7 +133,7 @@ class PresentingRenderer {
     const water = waterOverlay ? (ctx, fit, capture = false) => range.drawWaterForeground(ctx, fit, caption, { capture }) : null;
     const effects = smoothEffects ? (ctx, fit) => manager.drawHighResolutionMidEffects(ctx, fit) : null;
     const crest = crestOverlay ? (ctx, fit, options) => range.drawCrestForeground(ctx, fit, options) : null;
-    const terrain = crestOverlay && typeof range.drawCrestTerrain === 'function' ? (ctx, fit, draw) => range.drawCrestTerrain(ctx, fit, draw) : null;
+    const terrain = crestOverlay && typeof range.drawCrestTerrain === 'function' ? (ctx, fit, draw, source) => range.drawCrestTerrain(ctx, fit, draw, source) : null;
     const shore = crestOverlay && typeof range.drawShoreForeground === 'function' ? (ctx, fit) => range.drawShoreForeground(ctx, fit) : null;
     const prepare = crestOverlay && typeof range.prepareCrestGrid === 'function' ? (args) => range.prepareCrestGrid(args) : null;
     const finish = prepare && typeof range.finishCrestGrid === 'function' ? (args) => range.finishCrestGrid(args) : null;
