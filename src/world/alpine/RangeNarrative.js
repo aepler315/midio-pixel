@@ -1,5 +1,6 @@
 // One immutable, song-indexed arc. Full-song normalization sets pacing;
 // gestures only read events at or before heard time. Never integrate on draw.
+import { physicalFloor } from './EffectsMusic.js';
 const unit = x => Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : 0;
 export function narrativeEase(a, b, x) {
   const u = unit((x - a) / Math.max(1e-9, b - a));
@@ -90,8 +91,9 @@ export function compileRangeNarrative({ durationMs = 0, energyCurves = null, tim
   // amplify room/encoding noise. Below -90 dBFS, put the gate above that
   // measured floor. Otherwise protect quiet music from later loud sections;
   // normalized activity alone has no calibrated dBFS silence authority.
-  const silenceFloor = energyCurves?.rmsBands && floor < 3e-5
-    ? Math.max(3e-5, floor * 1.5) : Math.max(1e-9, floor * .25);
+  // Physical curves share EffectsMusic's floor, so the two gates cannot drift.
+  const silenceFloor = hasCurves && energyCurves.rmsBands ? physicalFloor(energyCurves)
+    : energyCurves?.rmsBands && floor < 3e-5 ? Math.max(3e-5, floor * 1.5) : Math.max(1e-9, floor * .25);
   const q = new Float64Array(n + 1), u = new Float64Array(n + 1);
   const window = Math.max(1, Math.round(1200 / stepMs));
   let sumE = 0, sumB = 0, lastAudible = -Infinity, midiActive = 0;

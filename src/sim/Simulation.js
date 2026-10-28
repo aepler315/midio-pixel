@@ -1,5 +1,6 @@
 import { TrioPerformance } from './TrioPerformance.js';
-import { cameraLensAt } from '../render/CameraLens.js';
+import { cameraLensAt, NEUTRAL_LENS } from '../render/CameraLens.js';
+import { landscapeScoreFor } from '../world/alpine/LandscapeScore.js';
 // Listening simulation owns transport, musical context, scenery and tap calibration.
 // Stage coordinates are independent of any performer or presentation backend.
 import { Role } from '../core/NoteEvent.js';
@@ -126,7 +127,10 @@ export class Simulation {
     this.filmFinish = new FilmFinish();
     this.vibe = new VibeDirector(conductor.timeline, tonalityTimeline);
     this.keyDirector = new KeyDirector();
-    this.coda = new CodaDirector(conductor.durationMs || 0);
+    // The coda listens for the song's cadence in its curves -- unless they
+    // are an opening analysis's, which stop short of the end (SongFinale.js).
+    const partialAnalysis = analyzedThroughMs != null && analyzedThroughMs < (conductor.durationMs || 0) - 1;
+    this.coda = new CodaDirector(conductor.durationMs || 0, partialAnalysis ? null : energyCurves);
     this.groundField = new GroundField(this.stageAnchor.groundY, {
       conductor, durationMs: conductor.durationMs, songSeed,
     });
@@ -363,7 +367,7 @@ export class Simulation {
     if (this.trio) this._stepTrio();
     this.keyDirector.update(nowMs, dtSec, { tonic: this.vibe.tonic, tonicConfidence: this.vibe.tonicConfidence, conductor: this.conductor });
     if (this.keyDirector.justKeyChange) this.biomes.mandala.reseed(this.keyDirector.lastKeyChange.to);
-    this.coda.update(nowMs);
+    this.coda.update(this.heardTimeMs);
     this.groundField.flatten = this.coda.unravel;
     this.weather.update(nowMs, dtSec, { valence: this.vibe.valence, epic: this.vibe.epic, calm: this.calm.level,
       energySlow: this.hype.slow, surge: this.hype.surge, unravel: this.coda.unravel });
@@ -420,10 +424,22 @@ export class Simulation {
     this.biomes.orogenyGrowth = this.orogeny.growth;
     const period = Math.max(1, this.beatAnchor.periodMs);
     const tau = ((this.heardTimeMs - this.beatAnchor.anchorMs) % period + period) % period;
+    const lens = this._lensAt(this.heardTimeMs);
     this.camera.update(dtSec, this.calm.level, tau,
-      this.songBeat.freeTime ? 0 : Math.max(this.vibe.epic, this.hype.surge), cameraLensAt({ sections: this.biomes.sections, timeMs: this.heardTimeMs, durationMs: this.biomes.durationMs }).zoomPulse);
+      this.songBeat.freeTime ? 0 : Math.max(this.vibe.epic, this.hype.surge), lens.zoomPulse, lens.cueIndex);
     this.paramBus.step();
     this.curr = this._snapshot();
+  }
+
+  /** The lens accent at heard time: the shared score's trusted cues (held
+   *  across a re-analysis handoff) when the song has sections and curves,
+   *  else the same cue rule over the sections alone. Neutral in previews. */
+  _lensAt(timeMs) {
+    const biomes = this.biomes, preview = !!biomes?.terrainPreview;
+    if (biomes?.sections?.length && biomes.energyCurves) {
+      return landscapeScoreFor(biomes).at(timeMs, { preview }).lens || NEUTRAL_LENS;
+    }
+    return cameraLensAt({ sections: biomes?.sections, timeMs, durationMs: biomes?.durationMs, preview });
   }
 
   /** The cast performs first; the world then scrolls to where they are.

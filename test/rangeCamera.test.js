@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   applyCameraMoves, cameraMoveKeys, rangeCameraMoveAt, RangeUserCamera,
-  NEUTRAL_MOVE, OPENING_MOVE, MOVE_LIMITS, MIN_MOVE_MS, MOVE_TRAVEL_MS, USER_FX_MAX,
+  NEUTRAL_MOVE, OPENING_MOVE, MOVE_LIMITS, MIN_MOVE_MS, MOVE_TRAVEL_MS, USER_FX_MAX, FINALE_MS,
 } from '../src/world/alpine/RangeCamera.js';
 import { wheelZoomFactor } from '../src/ui/RangeZoomInput.js';
 import { cameraBasis, projectPoint } from '../src/world/terrain/SceneTravel.js';
@@ -241,4 +241,32 @@ test('a low view keeps the deformation pad over high ground, not over its floor'
   assert.ok(out.eyeM[1] >= 1300 + 50 + 180 - 1e-9);
   const flat = applyCameraMoves(low, null, { fx: 0.3, rx: 0, uy: 0 }, { heightAt: () => 1000, heightRangeM: [1000, 1300] });
   assert.ok(flat.userScale > 0.9);
+});
+
+test('the finale starts FINALE_MS before the music\'s cadence and arrives on it', () => {
+  const cadence = DUR - 25000;
+  const keys = cameraMoveKeys(SECTIONS, DUR, 7, cadence);
+  const finale = keys.at(-1);
+  assert.equal(finale.kind, 'finale');
+  assert.equal(finale.fromMs, cadence - FINALE_MS);
+  assert.equal(finale.tMs, cadence);
+  for (let i = 1; i < keys.length; i++) assert.ok(keys[i].fromMs >= keys[i - 1].tMs, 'moves never overlap');
+  const at = (t) => rangeCameraMoveAt({ timeMs: t, sections: SECTIONS, durationMs: DUR, seed: 7, cadenceMs: cadence });
+  assert.deepEqual(at(cadence), at(DUR), 'the camera holds through the silent tail');
+  assert.equal(at(DUR - 1000).kind, 'hold');
+  // Clamped into the song; a missing cadence is the file's end.
+  assert.equal(cameraMoveKeys(SECTIONS, DUR, 7, 5000).at(-1).fromMs, 0);
+  assert.equal(cameraMoveKeys(SECTIONS, DUR, 7, DUR * 2).at(-1).fromMs, DUR - FINALE_MS);
+  assert.equal(cameraMoveKeys(SECTIONS, DUR, 7, NaN).at(-1).tMs, DUR);
+});
+
+test('the key cache follows the cadence', () => {
+  const secs = SECTIONS.map((s) => ({ ...s }));
+  const plain = cameraMoveKeys(secs, DUR, 7);
+  assert.equal(cameraMoveKeys(secs, DUR, 7), plain, 'cached for the same song');
+  const early = cameraMoveKeys(secs, DUR, 7, DUR - 30000);
+  assert.notEqual(early, plain);
+  assert.equal(early.at(-1).fromMs, DUR - 30000 - FINALE_MS);
+  assert.equal(cameraMoveKeys(secs, DUR, 7, DUR - 30000), early);
+  assert.equal(cameraMoveKeys(secs, DUR, 7).at(-1).fromMs, DUR - FINALE_MS, 'invalidated again without a cadence');
 });

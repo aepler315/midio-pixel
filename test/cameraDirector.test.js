@@ -210,7 +210,41 @@ test('the reframe scales linearly with pulse strength', () => {
   assert.ok(Math.abs(halfDip - fullDip / 2) < 1e-6, `expected half the dip at half pulse, got ${halfDip} vs ${fullDip}`);
 });
 
-test('consecutive shifts alternate which way the reframe tilts', () => {
+test('consecutive lens cues alternate which way the reframe tilts', () => {
+  const cam = new CameraDirector();
+  const tiltFor = (cueIndex, pulse = 1) => { cam.update(1 / 60, 0, null, 0, pulse, cueIndex); return Math.sign(cam.roll); };
+  tiltFor(-1, 0); // idle
+  const first = tiltFor(0);
+  tiltFor(-1, 0);
+  const second = tiltFor(1);
+  assert.equal(first, -1, 'cue 0 tilts one way');
+  assert.equal(second, -first, 'the next cue tilts the other');
+  assert.equal(tiltFor(2), first);
+});
+
+test('a cue tilts the same way after a seek as in continuous play, with the documented dip', () => {
+  const played = new CameraDirector();
+  // Continuous play through cues 0..4, with an extra idle pulse-less stretch
+  // and a cue that rose from a non-zero pulse (the legacy toggle would drift).
+  for (let cue = 0; cue <= 4; cue++) {
+    for (const pulse of [0, .3, 1, .4, cue === 2 ? .2 : 0]) played.update(1 / 60, 0, null, 0, pulse, pulse > 0 ? cue : -1);
+  }
+  for (const cue of [3, 4, 7]) {
+    const seeked = new CameraDirector();
+    const pulse = .6;
+    seeked.update(1 / 60, 0, null, 0, pulse, cue);
+    played.update(1 / 60, 0, null, 0, pulse, cue);
+    assert.equal(Math.sign(seeked.roll), Math.sign(played.roll), `cue ${cue}`);
+    assert.equal(Math.sign(seeked.roll), cue % 2 ? 1 : -1);
+    assert.ok(Math.abs(seeked.universeDip - UNIVERSE_ZOOM_DIP * pulse) < 1e-12);
+    assert.ok(Math.abs(seeked.zoom - (seeked._zoomBase - seeked.universeDip)) < 1e-12);
+  }
+  played.update(1 / 60, 0, null, 0, 0, -1);
+  assert.equal(played.universeDip, 0, 'no dip at rest');
+  assert.equal(new CameraDirector().universeDip, 0);
+});
+
+test('without a cue index, a fresh pulse still alternates the tilt (legacy callers)', () => {
   const cam = new CameraDirector();
   cam.update(1 / 60, 0, null, 0, 0); // pulse starts at 0 -- no shift yet
   cam.update(1 / 60, 0, null, 0, 1); // pulse rises from 0 -- first shift
