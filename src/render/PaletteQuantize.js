@@ -126,7 +126,10 @@ export function quantizeCanvas(ctx, canvas) {
   }
 }
 
-export function applyPalette(ctx, canvas, { paletteId = 'rgb332', dither = 1, ditherMode = 'ordered', weights = null, grid = null, compiled = null } = {}) {
+/** `prepare({ frame })`, when given, edits the read-back frame before it is
+ *  quantized (the Landscape crest re-owns its cells there), so the palette
+ *  pass stays the only grid readback. */
+export function applyPalette(ctx, canvas, { paletteId = 'rgb332', dither = 1, ditherMode = 'ordered', weights = null, grid = null, compiled = null, prepare = null } = {}) {
   const pixels = (canvas?.width || 0) * (canvas?.height || 0);
   if (!pixels) return { applied: false, reason: 'empty', pixels };
   if (pixels > MAX_PIXEL_PIXELS) return { applied: false, reason: 'oversize', pixels };
@@ -137,6 +140,7 @@ export function applyPalette(ctx, canvas, { paletteId = 'rgb332', dither = 1, di
   try {
     const start = performance.now();
     const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    if (prepare && (PALETTES[paletteId] || paletteId === 'rgb332')) prepare({ frame });
     const transformStart = performance.now();
     const selective = !!PALETTES[paletteId] && ditherMode === 'selective' && dither > 0 && !!weights;
     if (selective) buildDitherWeights(frame, weights);
