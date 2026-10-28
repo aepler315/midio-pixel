@@ -219,7 +219,7 @@ test('the largest tree leaving the frustum cannot pop the other trees in its bat
   const c = camera();
   // The close crown's conservative sphere is almost outside the right
   // edge. Its remaining sliver cannot resolve full branch complexity.
-  const f = fixture([[0, 0, -300, 20, 6, 1, .5, 2], [51, 0, -30, 20, 6, 1, .5, 2]]);
+  const f = fixture([[0, 0, -300, 20, 6, 1, .5, 2], [52, 0, -30, 20, 6, 1, .5, 2]]);
   try {
     const state = f.updateDetailView({ camera: c, width: 320, height: 180, pixelated: true, nearDetail: true });
     assert.equal(state.liteBatches, 1);
