@@ -225,7 +225,9 @@ export class RangeScene {
       this.edge.reason = policy.reason;
       return;
     }
-    this.releaseShafts();
+    // A same-size reallocation (a rung's MSAA change) keeps the shaft fade;
+    // only a real size change ends it.
+    this.releaseShafts({ keepPresence: sameSize });
     const key = 'range:render-target';
     if (this.residency) this.residency.release(key);
     else { this.target?.dispose(); this.ownership?.A?.dispose(); }
@@ -307,7 +309,8 @@ export class RangeScene {
     if (side !== 'B') return !!this.target;
     if (this.sideTargets.B) return true;
     if (!this.target) return false;
-    this.releaseShafts();
+    // The bundle is rebuilt against both sides; the fade carries on.
+    this.releaseShafts({ keepPresence: true });
     const { width: w, height: h } = this.size;
     const key = 'range:render-target-B';
     // The incoming side matches the main target's samples, so both sides
@@ -334,7 +337,7 @@ export class RangeScene {
     if (side !== 'B') return;
     this.releaseMirror('B');
     if (!this.sideTargets?.B) return;
-    this.releaseShafts();
+    this.releaseShafts({ keepPresence: true });
     const t = this.sideTargets.B;
     if (this.residency) this.residency.release('range:render-target-B');
     else { t.dispose(); this.ownership?.B?.dispose(); }
@@ -593,8 +596,9 @@ export class RangeScene {
   }
 
   /** Free the shaft bundle. Eviction, context loss, view retirement and
-   *  resize also end the fade (presence 0); only a re-allocation inside
-   *  prepareShafts keeps it. */
+   *  a size change also end the fade (presence 0); a same-size target
+   *  reallocation, a travel side change and a re-allocation inside
+   *  prepareShafts keep it. */
   releaseShafts({ keepPresence = false } = {}) {
     if (!keepPresence) this.shaftPresence = 0;
     const shafts = this.shafts;

@@ -79,6 +79,41 @@ test('a quality shed fades the shafts out over heard time, then releases the opt
   assert.ok(s.prepareShafts(at(last+1000/60),['a']));assert.ok(s.shaftPresence>0&&s.shaftPresence<.1);
 });
 
+function sizedScene(){
+  const s=Object.create(RangeScene.prototype);
+  Object.assign(s,{THREE,residency:new GraphicsResidency({budgetBytes:512*1024*1024}),budget:'desktop',contextEpoch:0,
+    renderer:{setPixelRatio(){},setSize(){}},size:{width:0,height:0},target:null,sideTargets:{B:null},
+    ownership:{A:null,B:null},mirrors:{A:null,B:null},depthCache:{A:{frame:-1},B:{frame:-1}},prepared:new Map(),materials:new Map(),
+    edge:{capability:4,override:null,samples:0,reason:'not-sized'}});
+  return s;
+}
+
+test('a same-size MSAA reallocation at the shed rung keeps the shaft fade (resize before prepareShafts)',()=>{
+  const s=sizedScene();const size={widthPx:640,heightPx:360};
+  s.resize({...size,quality:1});assert.equal(s.target.samples,4);
+  assert.ok(s.prepareShafts({...day,qualityLevel:1,timeMs:1000},['a']));assert.equal(s.shaftPresence,1);
+  // q1 -> q2: 4 -> 2 samples, shafts still allowed: presence stays 1.
+  s.resize({...size,quality:2});assert.equal(s.target.samples,2);
+  assert.ok(s.prepareShafts({...day,qualityLevel:2,timeMs:1016},['a']));assert.equal(s.shaftPresence,1,'no dip on a sample change');
+  // q2 -> q3: 2 -> 0 samples, the shed the fade exists for.
+  s.resize({...size,quality:3});assert.equal(s.target.samples,0);
+  assert.ok(s.prepareShafts({...day,qualityLevel:3,timeMs:1032},['a']));
+  assert.ok(s.shaftPresence>0&&s.shaftPresence<1,`fading, not cut (${s.shaftPresence})`);
+  // A real size change still ends the fade.
+  s.resize({widthPx:800,heightPx:450,quality:3});assert.equal(s.shaftPresence,0);
+});
+
+test('allocating and freeing the travel side leaves the shaft fade untouched',()=>{
+  const s=sizedScene();const size={widthPx:640,heightPx:360};
+  s.resize({...size,quality:2});
+  assert.ok(s.prepareShafts({...day,qualityLevel:2,timeMs:1000},['a']));
+  s.prepareShafts({...day,qualityLevel:3,timeMs:1300},['a']);
+  const held=s.shaftPresence;assert.ok(held>0&&held<1);
+  assert.ok(s.ensureSide('B'));assert.equal(s.shaftPresence,held);assert.equal(s.shafts,null,'rebuilt against both sides');
+  assert.ok(s.prepareShafts({...day,qualityLevel:3,timeMs:1300},['a','b']));assert.equal(s.shaftPresence,held);
+  s.releaseSide('B');assert.equal(s.shaftPresence,held);
+});
+
 test('celestial gaps and context loss still shed the optional bundle at once',()=>{
   const s=scene();let t=1000;
   for(const fr of [{...day,light:{celestial:{body:'moon',visibility:1,intensity:.25}}},
