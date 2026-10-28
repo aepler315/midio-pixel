@@ -1476,6 +1476,29 @@ html, body {
   pointer-events: none;
 }
 
+/* "Save all in 4K" and the save's progress line, under the strip. */
+.filmstripActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+}
+.filmstripStatus {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+.filmstripStatus:empty { display: none; }
+/* The drawn PNGs, one link each: a click is the download's user gesture. */
+.filmstripFiles {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+  max-width: 100%;
+}
+.filmstripFiles a { overflow-wrap: anywhere; }
+
 .filmstripModalPanel { width: min(720px, 92vw); }
 #filmstripModalImg { width: 100%; display: block; background: #000; }
 

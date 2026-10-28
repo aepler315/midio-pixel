@@ -261,6 +261,32 @@ test('five selected frames reuse and release one bounded thumbnail canvas', () =
   assert.equal(reel._thumbCanvas, null);
 });
 
+test('each frame records the moment that drew it, at its own heard time', () => {
+  const reel = new HighlightReel();
+  let prefs = { pixelGrid: 'medium', look: 'pixel' };
+  reel.describeMoment = () => ({ songSeed: 42, worldId: 'range', displayPrefs: prefs, qualityLevel: 1 });
+  const events = [candidate('sunset:0', 0, 'sunset'), candidate('noon:5000', 5000, 'noon')];
+  reel.notify(events, source, 90, { frameTimeMs: 140 });
+  prefs = { pixelGrid: 'detailed', look: 'pixel' };
+  reel.notify(events, source, 5000, { frameTimeMs: 5050 });
+  assert.deepEqual(reel.frames.map(f => f.moment),
+    [{ songSeed: 42, worldId: 'range', displayPrefs: { pixelGrid: 'medium', look: 'pixel' }, qualityLevel: 1, atMs: 90 },
+      { songSeed: 42, worldId: 'range', displayPrefs: { pixelGrid: 'detailed', look: 'pixel' }, qualityLevel: 1, atMs: 5000 }]);
+  assert.ok(reel.frames.every(f => Object.isFrozen(f.moment) && Object.isFrozen(f.moment.displayPrefs)));
+  prefs.pixelGrid = 'classic';
+  assert.equal(reel.frames[1].moment.displayPrefs.pixelGrid, 'detailed');
+});
+
+test('a frame without a describer, or with a failing one, still captures with no moment', () => {
+  const plain = new HighlightReel();
+  assert.equal(plain.capture(source, 0, 'High sun'), true);
+  assert.equal(plain.frames[0].moment, null);
+  const failing = new HighlightReel();
+  failing.describeMoment = () => { throw new Error('no page'); };
+  assert.equal(failing.capture(source, 0, 'High sun'), true);
+  assert.equal(failing.frames[0].moment, null);
+});
+
 test('direct capture preserves its bounded public gate', () => {
   const reel = new HighlightReel();
   assert.equal(reel.capture(source, 0, 'High sun'), true);

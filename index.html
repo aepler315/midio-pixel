@@ -388,6 +388,11 @@
         </div>
         <div id="resultsGrid" class="resultsGrid"></div>
         <div id="filmstrip" class="hidden"></div>
+        <div id="filmstripActions" class="filmstripActions hidden">
+          <button id="filmstripSaveAll" type="button" class="ghostbtn chipbtn" title="Draw every highlight again at 3840×2160 as PNGs, then click each to save">Save all in 4K</button>
+          <span id="filmstripStatus" class="filmstripStatus" aria-live="polite"></span>
+        </div>
+        <div id="filmstripFiles" class="filmstripFiles hidden" aria-label="4K PNGs ready to save"></div>
 
 
         <div class="completeActions">
@@ -412,8 +417,11 @@
         </div>
         <img id="filmstripModalImg" alt="" />
         <div class="modalFooter">
-          <a id="filmstripModalDownload" class="ghostbtn" download>Download</a>
+          <span id="filmstripModalStatus" class="filmstripStatus" aria-live="polite"></span>
+          <a id="filmstripModalDownload" class="ghostbtn" download title="The 320×180 thumbnail shown here">Thumbnail</a>
+          <button id="filmstripModalSave" type="button" title="Draw this moment again at 3840×2160 as a PNG, then click it to save">Save 3840×2160 PNG</button>
         </div>
+        <div id="filmstripModalFiles" class="filmstripFiles hidden" aria-label="4K PNGs ready to save"></div>
       </div>
     </div>
 
