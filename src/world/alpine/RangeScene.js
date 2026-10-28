@@ -47,10 +47,10 @@ import { ActorsGL, SITE_LIGHTS_MAX, CAST_LAYER, CAST_RIBBON_LAYER, enableCastLay
 import { buildRiverGeometry, riverGeometryBound, riverChannelErrors } from './RiverChannel.js';
 import { ACTOR_IDS, ACTOR_HUES, ACTOR_LOOK, ACTOR_START, actorRoutes, routePosition } from './RangeActors.js';
 import { castPlan, castWork, pathPosition, siteWalk } from './CastJobs.js';
-import { flashScreenPoint, rainSeed01 } from './RangeStorm.js';
-// Storm light, linear: the deck's underside, the rain-dimmed horizon, the rain air.
-// STORM_AIR meets the slate the sky paints at the horizon (drawStormSky) once displayed.
-const STORM_ZENITH = { r: .02, g: .026, b: .036 }, STORM_HORIZON = { r: .03, g: .038, b: .05 }, STORM_AIR = { r: .028, g: .036, b: .048 };
+import { flashScreenPoint, rainSeed01, stormKindRow } from './RangeStorm.js';
+// Storm light, linear: the deck's underside, the rain-dimmed horizon, the
+// rain air, per episode kind (RangeStorm STORM_KINDS zenith/horizon/air).
+// The air meets the slate the sky paints at the horizon (drawStormSky).
 
 const BACKDROP_KEY = 'range:water-backdrop';
 // Full/lite pairs share instances and retain two scalar attributes per batch.
@@ -1793,10 +1793,10 @@ export class RangeScene {
     if (storm.amount > 0 || storm.break01 > 0) {
       // Slate storm light in the sky, the air and the water's reflection;
       // thick rain air under the squall, then rain-washed clarity after it.
-      const k = storm.amount * .95;
-      u.uSkyZenith.value.lerp(STORM_ZENITH, k);
-      u.uSkyHorizon.value.lerp(STORM_HORIZON, k);
-      u.uAirColor.value.lerp(STORM_AIR, k).add(new THREE.Color(.65, .77, 1).multiplyScalar(storm.flash * .35));
+      const k = storm.amount * .95, row = stormKindRow(storm);
+      u.uSkyZenith.value.lerp(row.zenith, k);
+      u.uSkyHorizon.value.lerp(row.horizon, k);
+      u.uAirColor.value.lerp(row.air, k).add(this._scratch().color.setRGB(.65, .77, 1).multiplyScalar(storm.flash * .35));
       u.uAirDensity.value *= 1 + storm.amount * .6 - storm.break01 * .35;
     }
     // Valley mist: anchored at the view's water level, thicker in calm.
