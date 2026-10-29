@@ -103,6 +103,9 @@ import { skylineFromAlpha, smoothSkyline } from './alpine/RangeSkyline.js';
 export { medianBeatSec } from './BiomeSchedule.js';
 
 const LAYER_RATIOS = { L1: 0.05, L2: 0.10, L3: 0.18, L4: 0.30, L5: 0.65, L6: 1.00, L7: 1.20 };
+/** Offscreen ridge sides are painted at this multiple of the scene's device
+ *  scale (BiomeManager._travelSurfaceScale). */
+export const TRAVEL_SURFACE_SUPERSAMPLE = 2;
 // Star catalogue spans down to the sea horizon, not the whole frame. An
 // earlier cut generated only over the top 78% so stars "behind" the
 // mountains were not wasted — but valleys and shorter biomes both
@@ -368,6 +371,27 @@ const LYRIC_GLYPH_FALLBACK_MS = 6000;
 // while still letting hundreds of stars share
 // a single fillStyle/globalAlpha pair instead of each setting their own.
 const STAR_ALPHA_STEPS = 64;
+/** Largest target (pixels) the starfield is drawn on as one uploaded image
+ *  (_blitStarBuckets): the Detailed grid. Larger targets keep path fills. */
+const STAR_LAYER_MAX_PIXELS = 640 * 360;
+/** Star bucket keys: layer buckets below this, hue buckets above it. */
+const STAR_HUE_KEY_BASE = 1e6;
+
+/** A bucket's fill style ('#rrggbb' or 'hsl(h,s%,l%)') as 0..1 RGB. */
+function starStyleRgb(style) {
+  const hsl = /^hsl\(\s*([-\d.]+)\s*,\s*([\d.]+)%\s*,\s*([\d.]+)%\s*\)$/.exec(style);
+  if (hsl) {
+    const h = ((Number(hsl[1]) % 360) + 360) % 360 / 360, sat = Number(hsl[2]) / 100, l = Number(hsl[3]) / 100;
+    const q = l < 0.5 ? l * (1 + sat) : l + sat - l * sat, p = 2 * l - q;
+    const ch = (t) => {
+      t = t < 0 ? t + 1 : t > 1 ? t - 1 : t;
+      return t < 1 / 6 ? p + (q - p) * 6 * t : t < 1 / 2 ? q : t < 2 / 3 ? p + (q - p) * (2 / 3 - t) * 6 : p;
+    };
+    return [ch(h + 1 / 3), ch(h), ch(h - 1 / 3)];
+  }
+  const { r, g, b } = hexToRgb(String(style || '#ffffff'));
+  return [r / 255, g / 255, b / 255];
+}
 const OCEAN_WATER_BLUE = '#3ec8f5'; // vivid teal-cyan sea (ocean vibe first)
 const OCEAN_DEEP_BLUE = '#0d3a5c'; // abyssal under-tint
 const NIGHT_SKY_COLOR = '#060814'; // near-black space, slightly cool
@@ -4277,7 +4301,12 @@ export class BiomeManager {
       if (this._rangeSky) a *= this._rangeSky.starBrightnessAt(x, y);
       if (a < 0.004) continue;
       const sz = smoothStars ? (s.layer === 2 ? 0.8 : 0.52) / starScale : 1;
-      const [px, py] = point(x, y);
+      // point(x, y), without an array per star.
+      let px, py;
+      if (nativeTransform) {
+        px = Math.floor(nativeTransform.a * x + nativeTransform.c * y + nativeTransform.e);
+        py = Math.floor(nativeTransform.b * x + nativeTransform.d * y + nativeTransform.f);
+      } else if (smoothStars) { px = x; py = y; } else { px = x - 0.5; py = y - 0.5; }
 
       // The same air path that dimmed it also scatters its blue out first,
       // so what survives is warmer. Pull the star's own spectral hue toward
@@ -4318,9 +4347,11 @@ export class BiomeManager {
         // below the threshold of a 1px dot -- alpha to 1/64, hue to 7.5
         // degrees.
         const aQ = Math.min(STAR_ALPHA_STEPS - 1, (a * STAR_ALPHA_STEPS) | 0);
+        // Numeric keys (hue buckets above every layer bucket): no string
+        // built per star per frame.
         const key = useHue
-          ? `h${Math.round(hue / 7.5)}_${aQ}`
-          : `l${s.layer === 1 ? 1 : 0}_${aQ}`;
+          ? STAR_HUE_KEY_BASE + Math.round(hue / 7.5) * STAR_ALPHA_STEPS + aQ
+          : (s.layer === 1 ? STAR_ALPHA_STEPS : 0) + aQ;
         let bucket = starBuckets.get(key);
         if (!bucket) {
           bucket = { style: null, alpha: (aQ + 0.5) / STAR_ALPHA_STEPS, rects: [] };
@@ -4333,18 +4364,22 @@ export class BiomeManager {
       }
     }
 
-    for (const bucket of starBuckets.values()) {
-      const r = bucket.rects;
-      if (!r.length) continue;
-      ctx.globalAlpha = bucket.alpha;
-      ctx.fillStyle = bucket.style;
-      ctx.beginPath();
-      for (let i = 0; i < r.length; i += 3) {
-        if (smoothStars) { ctx.moveTo(r[i] + r[i + 2], r[i + 1]); ctx.arc(r[i], r[i + 1], r[i + 2], 0, Math.PI * 2); }
-        else ctx.rect(r[i], r[i + 1], r[i + 2], r[i + 2]);
+    // An object lending only this painter (no _blitStarBuckets) keeps the
+    // per-bucket rects, as every target the blit declines does.
+    if (smoothStars || !this._blitStarBuckets?.(ctx, starBuckets)) {
+      for (const bucket of starBuckets.values()) {
+        const r = bucket.rects;
+        if (!r.length) continue;
+        ctx.globalAlpha = bucket.alpha;
+        ctx.fillStyle = bucket.style;
+        ctx.beginPath();
+        for (let i = 0; i < r.length; i += 3) {
+          if (smoothStars) { ctx.moveTo(r[i] + r[i + 2], r[i + 1]); ctx.arc(r[i], r[i + 1], r[i + 2], 0, Math.PI * 2); }
+          else ctx.rect(r[i], r[i + 1], r[i + 2], r[i + 2]);
+        }
+        ctx.fill();
+        r.length = 0;
       }
-      ctx.fill();
-      r.length = 0;
     }
 
     // Planets, over the stars: brighter than anything near them, obviously
@@ -4375,6 +4410,101 @@ export class BiomeManager {
       ctx.fill();
     }
     ctx.restore();
+  }
+
+  /** The field's ordinary (bucketed) square stars as ONE additive image
+   *  instead of a path fill per bucket. Those ~150 fills of up to a few
+   *  dozen sub-pixel rects each were the largest single cost of a Trio
+   *  frame on the GPU (path rendering, not pixels: each fill is a general
+   *  path to the rasterizer). The light per pixel is the same: every star
+   *  adds its colour x alpha x the area its rect covers of that pixel,
+   *  which is what the rects' anti-aliased coverage added under 'lighter'
+   *  (additive light is order-free, and the canvas clamps it the same way).
+   *  Consumes the buckets and returns true, or returns false -- leaving them
+   *  to the caller's rects -- when the transform rotates (an impact roll),
+   *  or the target is too large for a per-frame upload. */
+  _blitStarBuckets(ctx, buckets) {
+    const target = ctx.canvas, W = target?.width | 0, H = target?.height | 0;
+    if (!(W > 0 && H > 0) || W * H > STAR_LAYER_MAX_PIXELS || typeof ctx.getTransform !== 'function'
+      || typeof ImageData === 'undefined') return false;
+    const m = ctx.getTransform();
+    if (Math.abs(m.b) > 1e-9 || Math.abs(m.c) > 1e-9) return false;
+    const layer = this._starLayer(W, H);
+    if (!layer) return false;
+    const acc = layer.acc, touched = layer.touched;
+    let x0 = W, y0 = H, x1 = -1, y1 = -1, n = 0;
+    for (const bucket of buckets.values()) {
+      const r = bucket.rects;
+      if (!r.length) continue;
+      const rgb = bucket.rgb ||= starStyleRgb(bucket.style);
+      const a = bucket.alpha, cr = rgb[0] * a, cg = rgb[1] * a, cb = rgb[2] * a;
+      for (let i = 0; i < r.length; i += 3) {
+        let left = m.a * r[i] + m.e, top = m.d * r[i + 1] + m.f;
+        let w = m.a * r[i + 2], h = m.d * r[i + 2];
+        if (w < 0) { left += w; w = -w; }
+        if (h < 0) { top += h; h = -h; }
+        const right = Math.min(W, left + w), bottom = Math.min(H, top + h);
+        if (left < 0) left = 0;
+        if (top < 0) top = 0;
+        if (!(right > left && bottom > top)) continue;
+        const px0 = Math.floor(left), py0 = Math.floor(top), px1 = Math.ceil(right) - 1, py1 = Math.ceil(bottom) - 1;
+        for (let py = py0; py <= py1; py++) {
+          const cy = Math.min(bottom, py + 1) - Math.max(top, py);
+          for (let px = px0; px <= px1; px++) {
+            const cov = cy * (Math.min(right, px + 1) - Math.max(left, px));
+            if (!(cov > 0)) continue;
+            const k = (py * W + px) * 4;
+            if (acc[k + 3] === 0 && n < touched.length) touched[n++] = k;
+            acc[k] += cr * cov; acc[k + 1] += cg * cov; acc[k + 2] += cb * cov; acc[k + 3] += a * cov;
+          }
+        }
+        if (px0 < x0) x0 = px0;
+        if (py0 < y0) y0 = py0;
+        if (px1 > x1) x1 = px1;
+        if (py1 > y1) y1 = py1;
+      }
+      r.length = 0;
+    }
+    if (x1 < x0 || y1 < y0) return true;
+    // Premultiplied sums to straight colour. Additive canvas compositing
+    // clamps each premultiplied channel at 1, so a pixel whose light sums
+    // past full alpha is opaque with min(1, sum) colour; below that the
+    // straight colour is sum / alpha. Only the pixels a star touched are
+    // written; the image is otherwise kept clear.
+    const data = layer.image.data;
+    for (let i = 0; i < n; i++) {
+      const k = touched[i], al = acc[k + 3], inv = al > 1 ? 255 : 255 / al;
+      data[k] = acc[k] * inv; data[k + 1] = acc[k + 1] * inv; data[k + 2] = acc[k + 2] * inv;
+      data[k + 3] = (al < 1 ? al : 1) * 255;
+      acc[k] = acc[k + 1] = acc[k + 2] = acc[k + 3] = 0;
+    }
+    const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+    layer.ctx.putImageData(layer.image, 0, 0, x0, y0, bw, bh);
+    for (let i = 0; i < n; i++) { const k = touched[i]; data[k] = data[k + 1] = data[k + 2] = data[k + 3] = 0; }
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(layer.canvas, x0, y0, bw, bh, x0, y0, bw, bh);
+    ctx.restore();
+    return true;
+  }
+
+  /** The star image's canvas (residency-accounted like the other scratch
+   *  surfaces), its pixels and a float accumulator, at the target's size. */
+  _starLayer(W, H) {
+    if (this._scratchDisposed || typeof document === 'undefined' || !document.createElement) return null;
+    this._canvasBuffers ||= new CanvasBuffers({ ...(this.residency ? { residency: this.residency } : {}), owner: 'legacy-scratch' });
+    const canvas = this._canvasBuffers.ensure('stars', W, H);
+    const ctx = canvas?.getContext?.('2d');
+    if (!ctx || typeof ctx.putImageData !== 'function') { this._canvasBuffers.release('stars'); this._starPixels = null; return null; }
+    let px = this._starPixels;
+    if (!px || px.canvas !== canvas || px.w !== W || px.h !== H) {
+      px = this._starPixels = { canvas, ctx, w: W, h: H, image: new ImageData(W, H), acc: new Float32Array(W * H * 4),
+        touched: new Int32Array(W * H) };
+    }
+    return px;
   }
 
   /** Soft pastel gas clouds for NEBULA — additive blobs that drift slowly. */
@@ -6094,10 +6224,11 @@ export class BiomeManager {
 
   /** A reusable full-view surface for one side of a biome travel. Null when
    *  this environment cannot allocate a canvas; the caller keeps the
-   *  per-band path in that case. */
-  _acquireTravelSurface(canvas, slot) {
-    const width = canvas?.width || 0;
-    const height = canvas?.height || 0;
+   *  per-band path in that case. `scale` is surface pixels per logical unit
+   *  (_travelSurfaceScale). */
+  _acquireTravelSurface(canvas, slot, scale = 1) {
+    const width = Math.ceil((canvas?.width || 0) * scale);
+    const height = Math.ceil((canvas?.height || 0) * scale);
     if (!(width > 0) || !(height > 0)) return null;
     if (this._scratchDisposed || typeof document === 'undefined' || !document.createElement) return null;
     // Three bounded slots stay warm for this manager's lifetime; resize and
@@ -6114,29 +6245,51 @@ export class BiomeManager {
     return surface;
   }
 
-  _paintTravelSide(surface, paint) {
+  /** Surface pixels per logical unit for this frame's offscreen ridge
+   *  sides: twice the scene's own device scale (the transform `ctx` carries
+   *  into the stage), never more than one per logical unit.
+   *
+   *  The sides used to be painted at the full logical stage (1408x848) on
+   *  every frame, for every range layer, then drawn into the scene with
+   *  nearest sampling -- on the Classic grid's 352x212 that is sixteen
+   *  pixels painted, cleared, recoloured and composited for each one shown,
+   *  the bulk of Trio's GPU time on a phone. Twice the device scale keeps
+   *  the point-sampled crispness of the pixel look at a quarter (Classic)
+   *  of the pixels. */
+  _travelSurfaceScale(ctx) {
+    const m = ctx?.getTransform?.();
+    if (!m) return 1;
+    const device = Math.max(Math.hypot(m.a, m.b), Math.hypot(m.c, m.d));
+    return Number.isFinite(device) && device > 0 ? Math.min(1, TRAVEL_SURFACE_SUPERSAMPLE * device) : 1;
+  }
+
+  _paintTravelSide(surface, paint, scale = 1) {
     const sctx = surface.getContext('2d');
     if (!sctx) return;
     if (sctx.setTransform) sctx.setTransform(1, 0, 0, 1, 0, 0);
     sctx.globalCompositeOperation = 'source-over';
     sctx.globalAlpha = 1;
     if (sctx.clearRect) sctx.clearRect(0, 0, surface.width, surface.height);
+    if (scale !== 1 && sctx.setTransform) sctx.setTransform(scale, 0, 0, scale, 0, 0);
     paint();
   }
 
   /** Mix the fully painted side canvases before they meet the scene. Canvas
    *  lighter adds premultiplied colors and alphas, so overlapping opaque
    *  sides remain opaque through the feather. */
-  _compositeTravelSides(ctx, canvas, surfA, surfB, layerKey, travelP) {
+  _compositeTravelSides(ctx, canvas, surfA, surfB, layerKey, travelP, scale = 1) {
     const seam = travelSeam(canvas.width, layerKey, travelP);
     const feather = canvas.width * TRAVEL_FEATHER;
     const lo = seam - feather / 2;
     const hi = seam + feather / 2;
-    const mix = this._acquireTravelSurface(canvas, 'mix');
+    // Every side shares one pixel size; it is drawn back over the logical
+    // area it covers (surface pixels / scale).
+    const place = (surface) => ctx.drawImage(surface, 0, 0, surface.width / scale, surface.height / scale);
+    const mix = this._acquireTravelSurface(canvas, 'mix', scale);
     if (!mix) {
       ctx.save();
       ctx.globalCompositeOperation = 'source-over';
-      ctx.drawImage(travelP < 0.5 ? surfA : surfB, 0, 0);
+      place(travelP < 0.5 ? surfA : surfB);
       ctx.restore();
       return;
     }
@@ -6144,13 +6297,16 @@ export class BiomeManager {
     mixed.setTransform(1, 0, 0, 1, 0, 0);
     mixed.globalCompositeOperation = 'source-over';
     mixed.globalAlpha = 1;
-    mixed.clearRect(0, 0, canvas.width, canvas.height);
+    mixed.clearRect(0, 0, mix.width, mix.height);
     const clip = (x0, x1, fn) => {
       if (!(x1 > x0)) return;
       mixed.save();
+      // The seam bands are logical; the blits below are pixel for pixel.
+      mixed.setTransform(scale, 0, 0, scale, 0, 0);
       mixed.beginPath();
       mixed.rect(x0, -canvas.height, x1 - x0, canvas.height * 3);
       mixed.clip();
+      mixed.setTransform(1, 0, 0, 1, 0, 0);
       fn();
       mixed.restore();
     };
@@ -6172,7 +6328,7 @@ export class BiomeManager {
     ctx.save();
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
-    ctx.drawImage(mix, 0, 0);
+    place(mix);
     ctx.restore();
   }
 
@@ -6201,13 +6357,17 @@ export class BiomeManager {
   _paintAlpineLayer(ctx, canvas, layerKey, job) {
     const { drawSet, A, B, t, stripsA, stripsB, heightMulA, heightMulB, snowLineA, snowLineB, blend } = job;
     const handoff = B !== A && (!!blend?.travel || t > 0.02);
-    const surfA = this._acquireTravelSurface(canvas, 'A');
-    const surfB = handoff ? this._acquireTravelSurface(canvas, 'B') : null;
+    const scale = this._travelSurfaceScale(ctx);
+    const surfA = this._acquireTravelSurface(canvas, 'A', scale);
+    const surfB = handoff ? this._acquireTravelSurface(canvas, 'B', scale) : null;
+    // Painted in logical units (the surface carries `scale`), against the
+    // logical stage: every helper reads only its dimensions.
     const paintSide = (surf, profile, strips, heightMul, snowLine) => {
       this._paintTravelSide(surf, () => {
-        drawSet(profile, strips, 1, heightMul, snowLine, surf.getContext('2d'), surf);
-      });
+        drawSet(profile, strips, 1, heightMul, snowLine, surf.getContext('2d'), canvas);
+      }, scale);
     };
+    const place = (surf) => ctx.drawImage(surf, 0, 0, surf.width / scale, surf.height / scale);
     if (!surfA || (handoff && !surfB)) {
       drawSet(A, stripsA, 1, heightMulA, snowLineA);
       if (handoff && !blend?.travel && t > 0.02) drawSet(B, stripsB, t, heightMulB, snowLineB);
@@ -6216,18 +6376,18 @@ export class BiomeManager {
     paintSide(surfA, A, stripsA, heightMulA, snowLineA);
     if (blend?.travel && B !== A) {
       paintSide(surfB, B, stripsB, heightMulB, snowLineB);
-      this._compositeTravelSides(ctx, canvas, surfA, surfB, layerKey, blend.travelP);
+      this._compositeTravelSides(ctx, canvas, surfA, surfB, layerKey, blend.travelP, scale);
       return;
     }
     ctx.save();
     ctx.globalAlpha = 1;
-    ctx.drawImage(surfA, 0, 0);
+    place(surfA);
     ctx.restore();
     if (handoff && t > 0.02) {
       paintSide(surfB, B, stripsB, heightMulB, snowLineB);
       ctx.save();
       ctx.globalAlpha = t;
-      ctx.drawImage(surfB, 0, 0);
+      place(surfB);
       ctx.restore();
     }
   }
