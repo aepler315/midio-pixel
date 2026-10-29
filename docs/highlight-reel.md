@@ -70,7 +70,7 @@ loading. Once five frames are taken the renderer stops consulting the reel.
 
 ## Saving at 4K
 
-The strip keeps 320×180 JPEG thumbnails. Saving a frame draws that moment
+The strip keeps 320×180 JPEG thumbnails. A capture is only a 320×180 canvas copy; the JPEG is encoded the first time something reads the frame's `dataUrl` (the strip, the modal or **Thumbnail**), once, and the copy is then released, so no encode runs on the main thread while the song plays. Saving a frame draws that moment
 again at 3840×2160 as a lossless PNG: the modal's **Save 3840×2160 PNG**
 button draws the open frame, **Save all in 4K** under the strip draws every
 frame, and **Thumbnail** still downloads the JPEG. Code: `src/ui/ReelExport.js`

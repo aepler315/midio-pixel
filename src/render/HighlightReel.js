@@ -71,6 +71,22 @@ const PALETTE = new Set(['warmest', 'coolest']);
 const songCandidates = new WeakMap();
 const historyCandidates = new WeakMap();
 
+/** `frame.dataUrl` encodes `thumb` the first time it is read, then releases
+ *  the copy; later reads return the same string. */
+function withDeferredImage(frame, thumb) {
+  let dataUrl = null;
+  return Object.defineProperty(frame, 'dataUrl', {
+    enumerable: true, configurable: true,
+    get() {
+      if (dataUrl === null) {
+        try { dataUrl = thumb.toDataURL('image/jpeg', JPEG_QUALITY); } catch { dataUrl = ''; }
+        thumb.width = 0; thumb.height = 0; thumb = null;
+      }
+      return dataUrl;
+    },
+  });
+}
+
 const unit = x => Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : 0;
 const titleCase = name => String(name).toLowerCase().split(/[_\s]+/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
@@ -622,22 +638,26 @@ export class HighlightReel {
   capture(canvas, heardTimeMs, label, candidate = null, frameTimeMs = heardTimeMs) {
     const eventAtMs = candidate?.eventAtMs ?? heardTimeMs;
     if (!this.canCapture(eventAtMs)) return false;
+    let thumb = null;
     try {
-      if (!this._thumbCanvas) {
-        this._thumbCanvas = document.createElement('canvas');
-        this._thumbCanvas.width = THUMB_W; this._thumbCanvas.height = THUMB_H;
-      }
-      const ctx = this._thumbCanvas.getContext('2d');
+      // A copy, not an encode. toDataURL here read the composed frame back
+      // from the GPU and JPEG-encoded it on the main thread mid-song: a
+      // visible stall on exactly the moments the reel exists to keep, worst
+      // on the phones and head units that can least afford one. Each frame
+      // keeps its own small copy (MAX_FRAMES at most) until its image is
+      // first asked for -- the COMPLETE panel, after the song -- which
+      // encodes it once and releases the copy.
+      thumb = document.createElement('canvas');
+      thumb.width = THUMB_W; thumb.height = THUMB_H;
+      const ctx = thumb.getContext('2d');
       ctx.drawImage(canvas, 0, 0, THUMB_W, THUMB_H);
-      const dataUrl = this._thumbCanvas.toDataURL('image/jpeg', JPEG_QUALITY);
-      this.frames.push({ dataUrl, atMs: heardTimeMs, label, eventAtMs, detail: candidate?.detail ?? null,
+      this.frames.push(withDeferredImage({ atMs: heardTimeMs, label, eventAtMs, detail: candidate?.detail ?? null,
         eventId: candidate?.id ?? null, category: candidate?.category ?? null, capturedAtMs: frameTimeMs,
-        moment: this._moment(heardTimeMs) });
+        moment: this._moment(heardTimeMs) }, thumb));
       this._lastCaptureMs = eventAtMs;
-      if (this.frames.length === MAX_FRAMES) this._releaseCanvas();
       return true;
     } catch {
-      this._releaseCanvas();
+      if (thumb) { thumb.width = 0; thumb.height = 0; }
       return false;
     }
   }
@@ -656,8 +676,9 @@ export class HighlightReel {
     }
   }
 
+  /** Each frame owns its thumbnail copy (withDeferredImage), so there is no
+   *  shared canvas left to free once capture ends; the field stays null. */
   _releaseCanvas() {
-    if (this._thumbCanvas) { this._thumbCanvas.width = 0; this._thumbCanvas.height = 0; }
     this._thumbCanvas = null;
   }
 }

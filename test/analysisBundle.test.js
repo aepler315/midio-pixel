@@ -63,6 +63,38 @@ test('base64 round-trips arbitrary bytes including the padding cases', () => {
   }
 });
 
+// The platform btoa/atob path and the portable loops must agree byte for
+// byte: a bundle written by one is read by the other (a cached bundle from an
+// older app version, a test in node, a future server).
+function withoutPlatformBase64(fn) {
+  const saved = ['btoa', 'atob'].map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]);
+  for (const [name] of saved) delete globalThis[name];
+  try { return fn(); } finally { for (const [name, d] of saved) if (d) Object.defineProperty(globalThis, name, d); }
+}
+
+test('platform and portable base64 agree across chunk boundaries and read each other', () => {
+  assert.equal(typeof btoa, 'function', 'the fast path is the one under test');
+  for (const len of [0, 1, 2, 3, 0x7fff, 0x8000, 0x8001, 0x10002]) {
+    const bytes = Uint8Array.from({ length: len }, (_, i) => (i * 131 + (i >> 8) * 7) & 0xff);
+    const fast = bytesToB64(bytes);
+    const portable = withoutPlatformBase64(() => bytesToB64(bytes));
+    assert.equal(fast, portable, `length ${len}`);
+    assert.deepEqual(Array.from(withoutPlatformBase64(() => b64ToBytes(fast))), Array.from(bytes), `portable reads platform, length ${len}`);
+    assert.deepEqual(Array.from(b64ToBytes(portable)), Array.from(bytes), `platform reads portable, length ${len}`);
+  }
+});
+
+test('base64 input the platform decoder rejects is still read tolerantly', () => {
+  // Over-padded, short-padded and stray characters: the hand-written reader
+  // always skipped what it did not know, and it still does.
+  for (const text of ['QUJD===', 'QUI=', 'QU JD\n', 'QU*JD', 'QUJD=QQ==']) {
+    assert.deepEqual(Array.from(b64ToBytes(text)), Array.from(withoutPlatformBase64(() => b64ToBytes(text))), text);
+  }
+  assert.deepEqual(Array.from(b64ToBytes('QUI=')), [65, 66]);
+  assert.deepEqual(Array.from(b64ToBytes('')), []);
+  assert.deepEqual(Array.from(b64ToBytes(null)), []);
+});
+
 test('scalars survive the round trip', () => {
   const out = unpackBundle(packBundle(makeAnalysis(), { fingerprint: FP }));
   assert.equal(out.durationMs, DURATION);
