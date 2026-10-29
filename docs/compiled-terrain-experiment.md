@@ -61,15 +61,19 @@ npm run build:compiled-terrain -- --verify        # compile twice, require ident
 
 - **Inputs.** The build reads the same normalized DEM as the production
   bake. It comes from `.terrain-cache/`; on a miss it is normalized again,
-  which needs GDAL Python and network access to the USGS bucket.
+  which needs GDAL Python and network access to the USGS bucket. Every
+  build also decodes the material's rock and snow detail textures (WebP)
+  with Python 3 and Pillow (`python3`, or `MIDIO_GDAL_PYTHON`).
 - **Despike.** It applies the production despike step to that DEM.
 - **Identity checks.** It refuses a DEM whose hash differs from the shipped
   package's (`--allow-dem-mismatch` overrides this). It also checks the
   catalog's terrain and material hashes and the texture hashes.
 - **Output.** Packs are written to `src/assets/range/v2/compiled/` (a profile
-  gets a sub-folder). That folder is git-ignored: generated packs are
-  30–35 MB per profile. On this machine the default profile took about 45 s
-  to build and the lean profile about 25 s.
+  gets a sub-folder). That folder is git-ignored. Generated packs total
+  about 37 MB for the default profile (both representations) and about
+  17 MB for lean. Source snapshots (`snapshotSource`) and `stage:site` leave
+  the folder out; only the comparison harness opts in. On this machine the
+  default profile took about 45 s to build and the lean profile about 25 s.
 
 The app selects a mode from URL flags:
 
@@ -177,8 +181,9 @@ A merged edge interpolates its corners: its gap under the swell is at most
 `L²/8 · A·k²`.
 
 - **Landscape's channels:** the wave at 50 m × the view's calibration, with
-  wavelength 4.8 km. A 160 m block bounds the gap at **0.093 m**, inside the
-  declared 0.1 m tolerance.
+  wavelength 4.8 km. A 160 m block bounds the gap at **0.091 m** (recorded
+  in each manifest's `deform.gapBoundM`), inside the declared 0.1 m
+  tolerance.
 - **Every channel at the cap,** including the melodic tilt, which Landscape
   zeroes: about 0.97 m.
 
@@ -208,12 +213,13 @@ it keeps:
 
 - a wrap-diffuse key with production's GGX lobe, so the ground glints when
   rain wets it;
+- the storm's shadow, clearing and sheltered ambient;
 - the cast's light;
 - the sky hemisphere;
-- exposure, tonemap and the narrative fades;
+- exposure, tonemap, the cinematic grade and the narrative fades;
 - valley mist, from production's exact layer integral with the noise banks
   at their mean (no ray-march);
-- distance air.
+- distance air and the rain veil.
 
 It does **not** reproduce:
 
@@ -256,8 +262,10 @@ D3D12 path (`GALLIUM_DRIVER=d3d12`) reaches the GPU, but loses the WebGL and
 2D contexts after the first exported frames, in every mode including the
 existing renderer.
 
-The harness runs every mode in a fresh context with the same song, seed,
-output size, grid, pinned quality rung, look and pace. It records:
+The harness runs every mode in a fresh browser (cold shader, driver and
+HTTP caches) with the same song, seed, output size, grid, pinned quality
+rung, look and pace. Live runs start only after the whole-song analysis is
+adopted. It records:
 
 - **Cold load:** the view's preparation time and phases, and the first frame,
   where GPU upload happens.
@@ -276,25 +284,182 @@ output size, grid, pinned quality rung, look and pace. It records:
 Not run: no Android device was available. Device performance is
 **unverified**.
 
-1. Build both profiles on a workstation (above). Serve the checkout on the
-   LAN with `npm start`, which runs `tools/serve.js` on port 8080.
-2. On the head unit, open Chrome at
-   `http://<workstation>:8080/?rangeView=monument-valley-163&rangeTour=off&perf=high`.
-   Add `&compiledTerrain=columns`, `…=mesh` (optionally
+1. Build both profiles on a workstation (above) and run `npm start`
+   (`tools/serve.js`, loopback port 8080).
+2. Connect the unit by USB with debugging enabled and run
+   `adb reverse tcp:8080 tcp:8080`. Under WSL2, run adb on the Windows side
+   or use mirrored networking. Serving over plain LAN HTTP does not work:
+   the page is then not a secure context, `crypto.subtle` is missing, and
+   every pack and package hash check fails, so every mode falls back.
+3. On the unit, open Chrome at
+   `http://localhost:8080/?rangeView=monument-valley-163&rangeTour=off&perf=high`,
+   adding `&compiledTerrain=columns` or `…=mesh` (optionally
    `&compiledTerrainProfile=lean`), or nothing for the existing renderer.
-3. Connect `chrome://inspect` from the workstation (USB debugging). Load the
-   same song in every mode.
-4. Pin the rung with `__SMW.perf.setFixtureLevel(1)`, or the rung the
-   unit's governor settles at, the same in every mode.
-5. After 20 s of playback, run the live segment of
-   `tools/compiled-terrain-compare.mjs` in the console: `FrameDeliveryAggregator`
-   over 30 s.
-6. Record `__SMW.rangeState.scene.compiledTerrain`, `.prepareLog` and
-   `.residency`, and the GPU string (`WEBGL_debug_renderer_info`).
-7. Repeat at pace 4 (`#range-pace`).
-8. Compare delivered fps, p95 interval, stalls over 100 ms and preparation
-   time. Confirm that `drawn` shows the requested mode.
+4. Connect `chrome://inspect` from the workstation. Load the same song in
+   every mode, and wait until `__SMW.sim.analysisOpening` is null (the
+   whole-song analysis is adopted).
+5. Pin the rung the unit's governor settles at, the same in every mode,
+   with `__SMW.perf.setFixtureLevel(1)` (or that level).
+6. Measure 30 s of delivery in the DevTools console:
+
+   ```js
+   const { FrameDeliveryAggregator } = await import('/src/render/FrameDelivery.js');
+   const meter = new FrameDeliveryAggregator(), start = performance.now();
+   await new Promise(done => { const tick = w => { const s = __SMW, f = s.presentationDiagnostics.frame;
+     meter.push({ wallMs: w, generation: s.generation, frameId: `${f.generation}:${f.frameId}`, presented: f.presented,
+       attempted: f.reason !== 'not-rendered', paused: s.paused, hidden: document.hidden, capFps: s.fpsCap });
+     w - start < 30000 ? requestAnimationFrame(tick) : done(); }; requestAnimationFrame(tick); });
+   copy(JSON.stringify(meter.summary()));
+   ```
+
+7. Record `__SMW.rangeState.scene.compiledTerrain` (confirm `drawn` shows the
+   requested mode), `.prepareLog`, `__SMW.rangeState.residency`, and the GPU
+   string (`WEBGL_debug_renderer_info`).
+8. Repeat at pace 4 (`#range-pace`), then compare delivered fps, p95
+   interval, stalls over 100 ms and preparation time.
 
 ## Results
 
-*(Filled in below from the measured runs.)*
+Measured on 2026-10-29 at commit `dfd10f2` plus the harness as committed.
+The setup, the same in every mode:
+
+- the `contrast` pilot song (90 s, seed 315);
+- 1280×720 output on the Classic (320×180) grid, Pixel look;
+- quality rung 0 pinned, effects as in production;
+- 4 × 4 draw batching unless stated.
+
+The evidence (PNG frames, `report.json`, `summary.md`) is in `.smoke/ct-A`,
+`ct-B1`, `ct-B2`, `ct-Blean` and `ct-C`, kept out of Git.
+
+**Hardware:** `ANGLE (NVIDIA GeForce RTX 3060, Direct3D11)`, headless
+Chromium 1243 on Windows. **Software:** `SwiftShader` in WSL (CPU
+rasterization); its milliseconds are CPU time, not GPU time, and are
+reported separately.
+
+### Steady-state terrain cost (fixed clock, 180 frames)
+
+The default camera, at the start of the song's steady section. "Surface"
+counts the terrain meshes only; the terrain scenes also draw trees and the
+cast. GPU times come from timer queries on the scene's context.
+
+| mode | surface draws | surface triangles | RTX GPU ms p50 (p95) | SwiftShader ms p50 |
+|---|---:|---:|---:|---:|
+| existing | 11 | 2.80 M | 1.16 (5.64) | 336 |
+| columns | 59 | 1.74 M | 1.28 (5.15) | 132 |
+| mesh | 59 | 2.78 M | 0.64 (3.92) | 205 |
+| columns, lean | 59 | 1.04 M | 0.80 (1.59) | – |
+| mesh, lean | 59 | 1.67 M | 0.75 (1.30) | – |
+| columns, 1 × 1 batching | 455 | 1.32 M | 1.09 (2.80) | – |
+| mesh, 1 × 1 batching | 455 | 1.93 M | 0.84 (1.67) | – |
+
+- **Reverse camera, RTX:** existing 0.83 ms (2.80 M triangles), columns
+  1.68 ms (2.79 M), mesh 1.13 ms (4.33 M). Coarse batching culls less from
+  this angle.
+- **Mesh vs existing:** at an equal triangle count, the mesh's baked
+  appearance and light shader remove about 40 % of the terrain work in the
+  software proxy.
+- **Columns vs existing:** with 38 % fewer triangles, the columns remove
+  about 60 %.
+- **RTX:** terrain is a millisecond or two in every mode, so the desktop
+  GPU cannot separate them.
+
+### Whole-frame delivery (live, RTX)
+
+Each segment is 20 s after the whole-song analysis was adopted, with the
+rung pinned at 0, at pace 3 then 4.
+
+| mode | pace | delivered fps | interval p50 / p95 / max ms | stalls > 100 ms |
+|---|---:|---:|---:|---:|
+| existing | 3 | 59.1 | 16.7 / 16.8 / 33 | 0 |
+| existing | 4 | 59.7 | 16.7 / 16.8 / 83 | 0 |
+| columns | 3 | 58.8 | 16.7 / 16.8 / 34 | 0 |
+| columns | 4 | 59.8 | 16.7 / 16.8 / 83 | 0 |
+| mesh | 3 | 57.7 | 16.7 / 16.8 / 34 | 0 |
+| mesh | 4 | 59.8 | 16.7 / 16.8 / 83 | 0 |
+
+The lean packs delivered 55.1 and 59.6 fps (columns) and 58.7 and 58.6 fps
+(mesh), with no stalls.
+
+- **Pause, seek and resume:** in every mode, pausing held the heard clock,
+  seeking to 30 s, 52 s and back to 30 s reproduced the same camera pose and
+  swell amplitude, and resume continued. The stage pixels after the seek
+  round trip differ in every mode, the existing renderer included, so that
+  is not a regression.
+- **Software live:** SwiftShader delivered about 1 fps; the compiled runs
+  timed out waiting for the analysis, and no software live comparison
+  exists.
+
+### Load, bytes and memory
+
+| | existing | columns | mesh | columns, lean | mesh, lean |
+|---|---:|---:|---:|---:|---:|
+| download for this view | 0.86 MB terrain + 5.5 MB textures | 19.0 MB | 16.9 MB | 7.7 MB | 8.1 MB |
+| covered area | 128 tiles | 744 tiles | 744 tiles | 744 tiles | 744 tiles |
+| view preparation, cold browser (RTX) | 4.35 s | 1.33 s | 1.25 s | 1.17 s | 1.17 s |
+| view preparation, SwiftShader | 1.47 s | 0.56 s | 0.53 s | – | – |
+| GPU bytes (vertices, indices, atlas, receiver) | – | 53.6 MB | 38.9 MB | 25.7 MB | 20.4 MB |
+| accounted residency, live / peak | 95 / 175 MiB | 130 / 225 MiB | 112 / 190 MiB | 67 / 124 MiB | 59 / 110 MiB |
+
+- **Preparation:** the compiled views spend about 1 s of their preparation
+  linking programs in the cold browser, whatever the pack size. Download,
+  verification and decoding take 0.1–0.25 s on loopback. The existing
+  renderer builds its meshes, the 2241² surface texture and the horizon on
+  the CPU.
+- **Download size:** the compiled packs are several times larger to
+  download, because they carry six times the area and precomputed
+  geometry.
+
+### What the frames show
+
+These compare matched frames at 12, 24 and 45 s, the swell at 33.25 s, the
+zoom, and the reverse camera.
+
+- **Mesh (default):** reproduces the landscape closely. It has the same butte
+  silhouettes, mist, cast light, and wet-ground moon glints under rain.
+  Missing: cloud and horizon shadows and the rock detail normals. Distant
+  cliffs are slightly flatter in tone.
+- **Columns:** the buttes stay recognizable but become stacks of 20–40 m
+  blocks. From the rail's 60 m eye height, the 5 m steps on the gently
+  rising desert floor show as dark camera-facing risers between lit tops.
+  These contour bands dominate the lower half of the frame where production
+  shows hazed ground. They come from the representation (the share of
+  visible riser does not depend on the step size), not from a defect. Small
+  ledge tops on stepped cliffs read as bluish dashes.
+- **Lean profile:** the 80 m far cells visibly damage the landmarks. The
+  mesh's left Mitten becomes a spike, and the columns' mesa rim steps.
+- **Reverse camera:**
+  - The existing renderer shows sky where the mesa under the camera and the
+    horizon beyond the buttes should be: the shipped package never contained
+    them.
+  - Both compiled modes draw complete terrain from the same source samples,
+    including the buttes' far faces.
+
+## Recommendation
+
+**Reject the stepped column surface** as the head-unit route for real-terrain
+landscapes. **Keep, and revise, the triangulated control with baked
+appearance.**
+
+- **Columns:** they did cost the least in the software proxy, but only
+  through fewer triangles. They carry twice the control's vertices and the
+  largest packs and memory, and they change the landscape the most: the
+  terraced foreground and blocky buttes replace the hazed desert floor and
+  smooth silhouettes. At the eye heights the rails use, the step size cannot
+  fix the terracing.
+- **Mesh control:** at the same triangle count as production, the baked
+  material with a light shader already removed about 40 % of the measured
+  terrain work and kept the landscape, rail, swell and effects intact.
+  Next steps, in order:
+  1. A level-of-detail error budget for the 320×180 grid instead of 1080p
+     (the shipped mesh's budget), aiming for the lean triangle counts without
+     the lean profile's silhouette damage.
+  2. Occlusion-aware coverage, or the shipped tile set for the default
+     camera, to bring packs and memory below production's.
+  3. Restoring cloud and horizon shadows if the device budget allows.
+  4. Measuring on the head unit with the procedure above.
+- **Pre-rendered view atlases** stay a later fallback. Geometry with baked
+  appearance kept free camera movement, zoom, swell and complete reverse
+  views. Nothing measured here requires giving those up.
+
+All device conclusions remain unverified until the procedure above runs on
+the JOYING unit.
