@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 import { writePlexPublicConfig } from './write-plex-public-config.mjs';
+import { GENERATED_SOURCE_DIRS } from './lib/visual-evaluation-server.mjs';
 
 const REQUIRED = ['index.html', 'src/main.js', 'soundfonts'];
 
@@ -256,7 +257,12 @@ export async function stageSite(sourceDir, outputDir, { commit = null, ref = nul
     // travel with the published code and data.
     ...['CNAME', 'LICENSE', 'NOTICE'].map(name => exists(path.join(source, name)).then(present => present
       ? fs.copyFile(path.join(source, name), path.join(output, name)) : undefined)),
-    fs.cp(path.join(source, 'src'), path.join(output, 'src'), { recursive: true }),
+    // Generated experiment packs (git-ignored) are never published.
+    fs.cp(path.join(source, 'src'), path.join(output, 'src'), { recursive: true,
+      filter: from => !GENERATED_SOURCE_DIRS.some(dir => {
+        const rel = path.relative(path.join(source, dir), from);
+        return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+      }) }),
     fs.cp(path.join(source, 'soundfonts'), path.join(output, 'soundfonts'), { recursive: true }),
     fs.writeFile(path.join(output, '.nojekyll'), ''),
   ]);

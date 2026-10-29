@@ -4,6 +4,8 @@ import { cinematicLightingProfile } from './CinematicLighting.js';
 import { shaderFailureLog } from '../../render/GraphicsDiagnostics.js';
 import { applyLensFov } from '../../render/CameraLens.js';
 import { terrainShadingMode, terrainShadingForView } from './TerrainShadingExperiment.js';
+import { compiledTerrainRequest, compiledViewUnsupported, compiledCameraView } from './CompiledTerrain.js';
+import { prepareCompiledView } from './CompiledTerrainScene.js';
 import { resolveRangeComposition, compositionBars } from './RangeComposition.js';
 import { rangeRenderPolicy, supportedSamples, msaaOverride, sceneTargetBytes, sideTargetBytes, nearerMask } from './RangeRenderPolicy.js';
 // Range v2 GPU scene (plan §6, §7.2). One reusable WebGL2 context, owned
@@ -135,6 +137,11 @@ export class RangeScene {
     // Developer-only representation probe; normal shaders compile it out.
     this.forestDebug = new URLSearchParams(globalThis.location?.search || '').get('forestDebug') === '1';
     this.terrainShading = terrainShadingMode();
+    // Developer-only compiled terrain experiment (?compiledTerrain=, see
+    // docs/compiled-terrain-experiment.md): what was asked, and per view
+    // what was actually drawn and why.
+    this.compiledTerrain = { request: compiledTerrainRequest(globalThis.location?.search || ''), views: {} };
+    this._cameraViews = new WeakMap();
     // Developer-only terrain views (?rangeDebug=roughness etc.).
     this.debugMask = TERRAIN_DEBUG_MODES[new URLSearchParams(globalThis.location?.search || '').get('rangeDebug')] ?? 0;
     this.residency = residency;
@@ -1057,6 +1064,12 @@ export class RangeScene {
     if (this.contextLost) return Promise.reject(new RangeAssetError('context-lost', `GPU context lost; ${view.id} waits for restore`));
     const epoch = this.contextEpoch;
     const job = (async () => {
+      // Off by default: the production path is untouched (not even a tick).
+      const compiledRequest = this.compiledTerrain?.request;
+      if (compiledRequest && (compiledRequest.mode !== 'original' || compiledRequest.invalid)) {
+        const compiled = await this._prepareCompiled(view, opts, epoch);
+        if (compiled) return compiled;
+      }
       let windowWorker = null;
       const cpuOwner = { holderKey: `range:terrain-gpu:${view.id}:${this.budget}`,
         onRetire: () => {
@@ -1421,8 +1434,54 @@ export class RangeScene {
       }
     })();
     this.pending.set(view.id, { generation, job });
+    // Wall time from request to settlement, per view (cold-load evidence).
+    const startedMs = performance.now();
+    job.then(p => { (this.prepareLog ||= {})[view.id] = { ms: performance.now() - startedMs, compiled: p?.compiled?.representation ?? null }; }, () => {});
     job.finally(() => { if (this.pending.get(view.id)?.job === job) this.pending.delete(view.id); }).catch(() => {});
     return job;
+  }
+
+  /** The compiled-terrain experiment's preparation of `view`, or null when
+   *  the production renderer must draw it: not requested, unsupported, or a
+   *  missing/invalid/incompatible pack or budget denial (each recorded in
+   *  compiledTerrain.views, so a fallback never passes for the prototype). */
+  async _prepareCompiled(view, opts, epoch) {
+    const { mode, invalid } = this.compiledTerrain.request;
+    if (mode === 'original') {
+      if (invalid) this.compiledTerrain.views[view.id] = { requested: invalid, selected: 'original', reason: `unknown compiledTerrain value ${invalid}` };
+      return null;
+    }
+    const note = (record) => { this.compiledTerrain.views[view.id] = { requested: mode, ...record }; };
+    const unsupported = compiledViewUnsupported(view);
+    if (unsupported) { note({ selected: 'original', reason: unsupported }); return null; }
+    const { signal = null, generation = 0, isCurrent = () => true } = opts;
+    const stale = () => {
+      if (this.contextEpoch !== epoch) throw new RangeAssetError('context-lost', `GPU context changed while preparing ${view.id}`);
+      return signal?.aborted || this.residency?.cancelled.has(generation) || !isCurrent(generation);
+    };
+    try {
+      const prepared = await prepareCompiledView(this, view, mode, opts, { epoch, stale });
+      this.prepared.set(view.id, prepared);
+      note({ selected: mode, reason: null, manifestSha256: prepared.compiled.manifestSha256, payloadSha256: prepared.compiled.payloadSha256,
+        compilerVersion: prepared.compiled.compilerVersion, chunks: prepared.compiled.stats.chunks, triangles: prepared.compiled.stats.triangles,
+        vertices: prepared.compiled.stats.vertices, gpuBytes: prepared.compiled.gpuBytes, bytes: prepared.compiled.bytes, timings: prepared.compiled.timings });
+      return prepared;
+    } catch (err) {
+      if (!(err instanceof RangeAssetError) || ['stale', 'aborted', 'context-lost'].includes(err.reason)) throw err;
+      note({ selected: 'original', reason: `${err.reason}: ${err.message}` });
+      console.warn(`[range v2] ${view.id}: compiled ${mode} unavailable, drawing the existing renderer (${err.reason}: ${err.message})`);
+      return null;
+    }
+  }
+
+  /** The view whose rail the camera follows: the pilot's declared test rail
+   *  when ?compiledTerrainCamera= asks for it (in every renderer mode). */
+  _cameraView(view) {
+    const camera = this.compiledTerrain?.request.camera;
+    if (!camera) return view;
+    let v = this._cameraViews.get(view);
+    if (!v) this._cameraViews.set(view, v = compiledCameraView(view, camera));
+    return v;
   }
 
   /** A prepared view's GPU entry was released (evicted, cancelled or
@@ -1699,6 +1758,7 @@ export class RangeScene {
     p.depthMaterial?.dispose();
     for (const m of Object.values(p.ownershipMaterials || {})) m.dispose();
     p.horizon?.texture?.dispose();
+    p.compiledDispose?.();
   }
 
   /** Release one view's GPU and CPU ownership. */
@@ -1747,7 +1807,8 @@ export class RangeScene {
     if (!poses) this._movedPoses.set(key, poses = new Map());
     const occurrenceId = frame.occurrenceId ?? view.id;
     if (poses.has(occurrenceId)) return poses.get(occurrenceId);
-    const baseRail = scenePoseAt(view, { progress01: view.glacier ? (frame.glacier?.journey01 ?? frame.progress01) : frame.progress01, timeMs: frame.timeMs,
+    const railView = this.compiledTerrain?.request.camera ? this._cameraView(view) : view;
+    const baseRail = scenePoseAt(railView, { progress01: view.glacier ? (frame.glacier?.journey01 ?? frame.progress01) : frame.progress01, timeMs: frame.timeMs,
       tour: p?.cameraTour || view.tour });
     const rail = { ...baseRail, fovYDeg: applyLensFov(baseRail.fovYDeg, frame.cameraEffects) };
     const proj = scenicProjection(rail.fovYDeg, frame.scenicViewport);
@@ -2378,11 +2439,11 @@ export class RangeScene {
 
   /** The full-scene depth pre-pass, also recording which band owns each
    *  sample, then resolving that into `own` (cleared by the caller). */
-  _createOwnershipMaterials(uniforms, pixelated, riverSurface = false) {
+  _createOwnershipMaterials(uniforms, pixelated, riverSurface = false, vertexShader = SCENE_VERT) {
     if (pixelated) return null;
     const THREE = this.THREE;
     return Object.fromEntries(BANDS.map(band => [band, new THREE.ShaderMaterial({
-      glslVersion: THREE.GLSL3, vertexShader: SCENE_VERT,
+      glslVersion: THREE.GLSL3, vertexShader,
       fragmentShader: OWNERSHIP_FRAG.replace('OWNER_COLOUR', OWNER_COLOURS[band]), uniforms,
       ...(riverSurface ? { defines: { RIVER_SURFACE: 1 } } : {}),
     })]));
@@ -2391,15 +2452,16 @@ export class RangeScene {
   _renderOwnership(p, target, own) {
     const r = this.renderer;
     // Legacy nonpixel callers can enable multisampling after preparation.
-    p.ownershipMaterials ||= this._createOwnershipMaterials(p.uniforms, false);
-    const meshes = p.depthBandMeshes || {};
-    for (const band of BANDS) if (meshes[band] && p.ownershipMaterials?.[band]) meshes[band].material = p.ownershipMaterials[band];
+    p.ownershipMaterials ||= this._createOwnershipMaterials(p.uniforms, false, false, p.ownershipVertexShader);
+    // A band's depth meshes: one merged mesh, or a compiled pack's chunks.
+    const meshes = Object.fromEntries(BANDS.map(band => [band, [].concat(p.depthBandMeshes?.[band] || [])]));
+    for (const band of BANDS) if (p.ownershipMaterials?.[band]) for (const m of meshes[band]) m.material = p.ownershipMaterials[band];
     if (Object.keys(p.riverDepthMeshes || {}).length) p.riverOwnershipMaterials ||= this._createOwnershipMaterials(p.uniforms, false, true);
     for (const band of BANDS) if (p.riverDepthMeshes?.[band] && p.riverOwnershipMaterials?.[band]) p.riverDepthMeshes[band].material = p.riverOwnershipMaterials[band];
     try { r.render(p.depthScene, this.camera); }
     finally {
       for (const band of BANDS) {
-        if (meshes[band]) meshes[band].material = p.depthMaterial;
+        for (const m of meshes[band]) m.material = p.depthMaterial;
         if (p.riverDepthMeshes?.[band]) p.riverDepthMeshes[band].material = p.riverDepthMaterial;
       }
     }
@@ -2818,6 +2880,9 @@ export class RangeScene {
       buildAdmission: { requestedBytes: 0, admittedBytes: 0, denials: 0, peakBytes: 0, ...this.buildAdmission },
       windows: [...this.prepared.values()].filter(p=>p.windowCache).map(p=>({id:p.view.id,index:p.windowIndex,resident:[...p.windowCache.resident.keys()],detail:p.activeWindow?.detail,coverage:p.windowCoverage,note:p.windowNote,stats:p.stats,forestDetail:p.forestDetailViews})),
       size: { ...this.size }, stats: { ...this.stats }, sideB: !!this.sideTargets.B,
+      prepareLog: structuredClone(this.prepareLog || {}),
+      compiledTerrain: { request: { ...this.compiledTerrain?.request }, views: structuredClone(this.compiledTerrain?.views || {}),
+        drawn: Object.fromEntries([...this.prepared.values()].map(p => [p.view.id, p.compiled?.representation ?? 'original'])) },
       edge: { samples: this.edge?.samples ?? 0, requestedSamples: this.edge?.requestedSamples ?? 0, reason: this.edge?.reason ?? null, capability: this.edge?.capability ?? 0 },
     };
   }

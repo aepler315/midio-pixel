@@ -33,6 +33,7 @@
     "test:snapshot": "node tools/detail-snapshot-smoke.mjs",
     "music-server": "node tools/music-server.mjs",
     "bench:sections": "node tools/benchmark-segmentation.mjs",
+    "build:compiled-terrain": "node --max-old-space-size=8192 tools/build-compiled-terrain.mjs",
     "eval:worlds": "node tools/evaluate-worlds.mjs",
     "slskd": "docker compose up -d slskd",
     "slskd:down": "docker compose down",
