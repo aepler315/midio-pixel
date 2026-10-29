@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { createPresentingRenderer } from '../src/render/PresentingRenderer.js';
 import { resolvePresentation } from '../src/render/DisplayProfile.js';
+import { PerfGovernor } from '../src/render/PerfGovernor.js';
 
 const { stageOutputSize } = await import('../src/render/RenderOutputSize.js').catch(error => {
   if (error.code !== 'ERR_MODULE_NOT_FOUND') throw error;
@@ -23,6 +24,26 @@ test('hybrid output matches the displayed content density with a 1080p ceiling',
 test('portrait output spends its resolution on the contained landscape picture', () => {
   assert.deepEqual(size({ hybrid: true, cssWidth: 390, cssHeight: 844, dpr: 3 }), { w: 1170, h: 658 });
   assert.deepEqual(size({ hybrid: true, cssWidth: 0, cssHeight: 0, dpr: 1 }), { w: 320, h: 180 });
+});
+
+test('heavier quality rungs buy pixels first, in whole terrain cells', () => {
+  // The ladder's own resolution scale, as fitCanvas passes it.
+  const scaleAt = level => { const gov = new PerfGovernor(); gov.setFixtureLevel(level); return gov.resolutionScale(180, { adaptive: true }); };
+  // A phone at DPR 2.6 (915x412 CSS): the full 1080p hybrid output at rungs
+  // 0-1, then 900, 720 and 540 lines -- multiples of the 180-row grid.
+  const phone = level => size({ hybrid: true, cssWidth: 915, cssHeight: 412, dpr: 2.625, scale: scaleAt(level) });
+  assert.deepEqual([0, 1, 2, 3, 4, 5, 6].map(level => phone(level).h), [1080, 1080, 900, 720, 540, 540, 540]);
+  assert.deepEqual(phone(6), { w: 960, h: 540 });
+  // Never below two output rows per grid row, nor above the display.
+  const car = level => size({ hybrid: true, cssWidth: 800, cssHeight: 480, dpr: 1, scale: scaleAt(level) });
+  assert.deepEqual([0, 1, 2, 4, 6].map(level => car(level).h), [450, 450, 360, 360, 360]);
+  const detailed = size({ hybrid: true, grid: { width: 640, height: 360 }, cssWidth: 1920, cssHeight: 1080, dpr: 1, scale: scaleAt(6) });
+  assert.deepEqual(detailed, { w: 1280, h: 720 });
+  const tiny = size({ hybrid: true, cssWidth: 480, cssHeight: 270, dpr: 1, scale: scaleAt(6) });
+  assert.deepEqual(tiny, { w: 480, h: 270 }, 'a display under two rows per cell keeps its own size');
+  // Exports and uniform pixel scenes are unaffected by the rung.
+  assert.deepEqual(size({ hybrid: true, exportSize: { w: 3840, h: 2160 }, scale: scaleAt(6) }), { w: 3840, h: 2160 });
+  assert.deepEqual(size({ hybrid: false, cssWidth: 3840, cssHeight: 2160, dpr: 2, scale: scaleAt(6) }), { w: 320, h: 180 });
 });
 
 test('uniform pixel scenes retain their native grid and exports retain exact requested dimensions', () => {

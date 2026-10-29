@@ -12,14 +12,17 @@ import {
 } from '../src/audio/AnalysisCache.js';
 
 /** Enough of IndexedDB for this module: one keyPath store, get/put/delete/
- *  getAll/clear, and the async request shape. */
+ *  getAll/count/clear, a key-only cursor over the usedMs index, and the
+ *  async request shape. `reads` counts every request that hands a stored
+ *  value (a bundle) back to the page. */
 function fakeIdb({ failOpen = false, failPut = false, lateAbort = false } = {}) {
   const data = new Map();
+  const reads = { get: 0, getAll: 0 };
   const fire = (req, prop, value) => {
     queueMicrotask(() => { req.result = value; req[prop]?.(); });
   };
   const store = {
-    get: (key) => { const r = {}; fire(r, 'onsuccess', data.get(key)); return r; },
+    get: (key) => { reads.get++; const r = {}; fire(r, 'onsuccess', data.get(key)); return r; },
     put: (row) => {
       const r = {};
       if (failPut) queueMicrotask(() => r.onerror?.());
@@ -27,9 +30,23 @@ function fakeIdb({ failOpen = false, failPut = false, lateAbort = false } = {}) 
       return r;
     },
     delete: (key) => { const r = {}; data.delete(key); fire(r, 'onsuccess', undefined); return r; },
-    getAll: () => { const r = {}; fire(r, 'onsuccess', [...data.values()]); return r; },
+    getAll: () => { reads.getAll++; const r = {}; fire(r, 'onsuccess', [...data.values()]); return r; },
+    count: () => { const r = {}; fire(r, 'onsuccess', data.size); return r; },
     clear: () => { const r = {}; data.clear(); fire(r, 'onsuccess', undefined); return r; },
     createIndex: () => {},
+    // Like IndexedDB, rows without a usedMs are not in the index.
+    index: (name) => ({
+      openKeyCursor: () => {
+        const r = {};
+        const keys = [...data.values()].filter((row) => Number.isFinite(row[name]))
+          .sort((a, b) => a[name] - b[name] || String(a.key).localeCompare(String(b.key))).map((row) => row.key);
+        let i = 0;
+        const step = () => fire(r, 'onsuccess', i < keys.length
+          ? { primaryKey: keys[i], key: data.get(keys[i])?.[name], continue: () => { i++; step(); } } : null);
+        step();
+        return r;
+      },
+    }),
   };
   const db = {
     objectStoreNames: { contains: () => true },
@@ -43,6 +60,7 @@ function fakeIdb({ failOpen = false, failPut = false, lateAbort = false } = {}) 
   };
   return {
     _data: data,
+    _reads: reads,
     indexedDB: {
       open: () => {
         const req = {};
@@ -151,6 +169,22 @@ test('eviction keeps the most recently used, not the most recently added', async
   assert.ok(scope._data.has('old0'), 'the frequently played song must survive');
   assert.ok(scope._data.has('fresh'), 'the new song must be kept');
   assert.ok(!scope._data.has('old1'), 'the least recently used must be the one dropped');
+});
+
+test('eviction never reads a stored bundle back', async () => {
+  // A full cache used to be read in its entirety (getAll) after every new
+  // song: up to MAX_ENTRIES bundles deserialized on the main thread while
+  // that song was already playing.
+  const scope = fakeIdb();
+  for (let i = 0; i < MAX_ENTRIES + 3; i++) {
+    scope._data.set(`old${i}`, { key: `old${i}`, bundle: bundleFor(`old${i}`), usedMs: 1000 + i });
+  }
+  await putBundle('fresh', bundleFor('fresh'), scope);
+  assert.equal(scope._reads.getAll, 0, 'no getAll');
+  assert.equal(scope._reads.get, 0, 'no get');
+  assert.equal(scope._data.size, MAX_ENTRIES);
+  for (let i = 0; i < 4; i++) assert.ok(!scope._data.has(`old${i}`), `old${i} was the least recently used`);
+  assert.ok(scope._data.has('old4') && scope._data.has('fresh'));
 });
 
 test('nothing is evicted while under the cap', async () => {

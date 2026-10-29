@@ -45,11 +45,25 @@ const ROLES = [Role.MELODY, Role.RHYTHM, Role.BASS, Role.PAD];
 const LANES = [null, Lane.MIDASUS, Lane.MIDIO, Lane.BROSHI];
 
 // --- base64 for typed arrays ----------------------------------------------
-// Neither btoa nor Buffer exists in both a browser and node, and this module
-// is used from both (the engine packs; the tests read).
+// This module is used from a browser and from node (the engine packs; the
+// tests read). Both directions use the platform's btoa/atob where there is
+// one -- every current browser, Node 16+ -- because the character-at-a-time
+// loops below took about a quarter of a second per 2 MB on a desktop, longer
+// on a phone, on the main thread while the song just analysed is playing.
+// The loops stay as the fallback, and as the tolerant reader for input atob
+// rejects. Same alphabet and padding either way.
 const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+const CHUNK = 0x8000;
 
 export function bytesToB64(bytes) {
+  if (typeof btoa === 'function') {
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      const part = bytes.subarray ? bytes.subarray(i, i + CHUNK) : Array.prototype.slice.call(bytes, i, i + CHUNK);
+      binary += String.fromCharCode.apply(null, part);
+    }
+    return btoa(binary);
+  }
   let out = '';
   for (let i = 0; i < bytes.length; i += 3) {
     const a = bytes[i], b = bytes[i + 1], c = bytes[i + 2];
@@ -62,6 +76,15 @@ export function bytesToB64(bytes) {
 }
 
 export function b64ToBytes(str) {
+  if (typeof atob === 'function') {
+    let binary = null;
+    try { binary = atob(String(str || '')); } catch { /* not canonical base64: the tolerant reader below */ }
+    if (binary !== null) {
+      const out = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+      return out;
+    }
+  }
   const clean = String(str || '').replace(/=+$/, '');
   const out = new Uint8Array(Math.floor((clean.length * 3) / 4));
   let o = 0, acc = 0, bits = 0;

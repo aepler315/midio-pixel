@@ -139,12 +139,31 @@ export async function putBundle(key, bundle, scope = globalThis) {
   }
 }
 
+/** Trim the store to MAX_ENTRIES, least recently used first.
+ *
+ *  Never reads a bundle. This runs after every new song's analysis is
+ *  stored -- usually while that song is already playing -- and reading the
+ *  rows (getAll) deserialized every cached bundle on the main thread: up to
+ *  a hundred of them, a multi-second freeze on a phone once the cache was
+ *  full. A count and a key-only cursor over the usedMs index touch no
+ *  values at all. */
 async function evict(db) {
-  const rows = await wrap(tx(db, 'readonly').getAll());
-  if (!rows || rows.length <= MAX_ENTRIES) return;
-  rows.sort((a, b) => (a.usedMs || 0) - (b.usedMs || 0));
+  const count = await wrap(tx(db, 'readonly').count());
+  let excess = (Number(count) || 0) - MAX_ENTRIES;
+  if (!(excess > 0)) return;
   const store = tx(db, 'readwrite');
-  for (let i = 0; i < rows.length - MAX_ENTRIES; i++) store.delete(rows[i].key);
+  await new Promise((resolve) => {
+    let req;
+    try { req = store.index('usedMs').openKeyCursor(); } catch { resolve(); return; }
+    req.onsuccess = () => {
+      const cursor = req.result;
+      if (!cursor || excess <= 0) { resolve(); return; }
+      store.delete(cursor.primaryKey);
+      excess--;
+      cursor.continue();
+    };
+    req.onerror = () => resolve();
+  });
 }
 
 /** Every stored bundle's metadata, newest use first. For a future "songs this

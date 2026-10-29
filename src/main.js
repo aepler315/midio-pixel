@@ -649,6 +649,8 @@ function playbackFps() {
 /** Exact backing-store size while tools/bulk-export.mjs is driving frames.
  *  Display-fit and the perf ladder both stand aside for it. */
 let bulkExportSize = null;
+/** The governor rung the stage backing was last sized for (fitCanvas). */
+let fittedPerfLevel = 0;
 let bulkPresentation = null;
 let titlePresentation = null;
 function effectivePresentation() {
@@ -782,8 +784,12 @@ function fitCanvas() {
     || getWorld(lastTimelineData?.worldId || lastWorldId || DEFAULT_WORLD_ID)?.kind;
   const hybrid = experience === 'landscape' && worldKind === 'alpine' && !!rangePresentation?.enabled;
   const box = canvas.getBoundingClientRect();
+  // The quality rung this output was sized for: heavier rungs draw the
+  // smooth layers at fewer pixels (the ladder's resolution scale).
+  fittedPerfLevel = perfGovernor?.level ?? 0;
   const size = stageOutputSize({ grid: active.grid, hybrid, cssWidth: box.width, cssHeight: box.height,
-    dpr: window.devicePixelRatio || 1, exportSize: bulkExportSize });
+    dpr: window.devicePixelRatio || 1, exportSize: bulkExportSize,
+    scale: perfGovernor?.resolutionScale(active.grid.height, { adaptive: true }) ?? 1 });
   resizeStageCanvas(canvas, size.w, size.h);
   // Canvas resets clear context state, including nearest-neighbor sampling.
   const ctx2d = canvas.getContext('2d');
@@ -3573,7 +3579,6 @@ function frame(tRaf) {
   if (lastRafMs !== null) {
     const rafDeltaMs = tRaf - lastRafMs;
     noteFrameGap(rafDeltaMs);
-    const prevLevel = perfGovernor.level;
     // A hidden page's frame timing says nothing about how expensive the
     // scene is. Chrome stops rAF outright for a hidden tab, but an embedded
     // WebView may instead throttle it to about 1Hz -- and a run of 1000ms
@@ -3581,7 +3586,10 @@ function frame(tRaf) {
     // believe, so it would shed rung after rung while nothing was being
     // drawn at all, and hand the player back a degraded show on return.
     if (!document.hidden) perfGovernor.sample(rafDeltaMs, tRaf, { capFps: playbackFps() });
-    if (perfGovernor.level !== prevLevel) fitCanvas();
+    // Compared with the rung the stage was sized for, not the previous
+    // frame's: a General quality change between frames moves the level
+    // too, and the output resolution follows the level.
+    if (perfGovernor.level !== fittedPerfLevel) fitCanvas();
     fpsEma = emaFps(fpsEma, rafDeltaMs);
     if (fpsHudVisible && fpsHudEl) {
       fpsHudEl.textContent = `${Math.round(presentedFps.fps)} presented fps  ·  ${Math.round(fpsEma)} callback fps  ·  perf ${perfGovernor.level}/${PERF_MAX_LEVEL}`;

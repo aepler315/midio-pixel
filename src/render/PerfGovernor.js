@@ -468,7 +468,9 @@ export class PerfGovernor {
 
   /** Resolution scale for Auto mode. Manual presets are promises and stay
    *  fixed; Auto progressively buys pixels before level 5 removes the
-   *  world-defining phenomena layer. */
+   *  world-defining phenomena layer. Landscape's hybrid output applies it
+   *  (fitCanvas -> RenderOutputSize.stageOutputSize, in whole terrain
+   *  cells); the pixel grid itself never changes. */
   resolutionScale(_presetH, { adaptive = false } = {}) {
     if (!adaptive) return 1;
     if (this.level >= 4) return 0.625;

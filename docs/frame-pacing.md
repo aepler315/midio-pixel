@@ -174,3 +174,44 @@ Worth re-checking on real hardware before anyone goes looking further.
 ## Display profiles (October 2026)
 
 Look and workload now have independent controls. Economy pins rung 6; Pixel and Palette alone do not pin quality. The same 30/60 cap gates title and playback draws without changing the simulation clock. Palette processing has one presentation boundary and a 57,600-pixel ceiling, with readback and transform timings reported separately. See [pixel presentation](pixel-presentation.md) and its current evidence; the earlier measurements above remain historical.
+
+## Phones and car head units (October 2026)
+
+Reported: Landscape and Trio playback on phones and car head units run at a
+low frame rate throughout, with periodic stalls and input lag. Long-standing.
+
+Measured in headless Chromium 153 with SwiftShader on two CPU cores, under
+phone (915×412 CSS at DPR 2.625), car (800×480) and 320×180 emulation. **No
+phone, head unit or GPU was measured.** SwiftShader rasterizes on the CPU, so
+its milliseconds are inflated and say nothing about GPU time; the GPU-side
+claims below rest on work counts (drawing-buffer resizes, readbacks, fill
+area, draw calls, vertices), which do transfer. Node timings are CPU-only.
+
+| Fault | Measured | Fix |
+| --- | --- | --- |
+| `RangeScene` resized the WebGL drawing buffer between the native terrain size and the output size, twice a frame (Landscape) | car: 352×212 ↔ 880×530 twice a frame, now never; on a 1080p phone the output side is 2112×1272 | The buffer only grows; each pass draws into a viewport/scissor region and consumers read that region (`imageRect`). Slack is trimmed after 90 frames. |
+| The mid-depth water mask was read back (`getImageData`/`putImageData`) every frame to saturate its alpha (Landscape) | one synchronous readback, a GPU sync, per frame | `saturateMaskAlpha`: eight additive self-draws saturate the same pixels without leaving the GPU |
+| The highlight reel encoded a JPEG (`toDataURL`) on the main thread for every captured moment, mid-song | captures stalled up to 1.8 s; now about 13 ms | A capture is a canvas copy; the JPEG is encoded once, on first read (the end-of-song strip) |
+| After each newly cached song, analysis-cache eviction read and deserialized every stored bundle (`getAll`, up to 100) | — | `count()`, then a key cursor on the `usedMs` index; no bundle is read |
+| Bundle base64 was built one character at a time | 2 MB: 247 → 30 ms (Node 22) | `btoa`/`atob` in 32 KiB chunks; the loops remain as fallback and as the tolerant reader |
+| The ridge music history recomputed every query from its last 2 s checkpoint (both worlds) | `sampleHorizonRidge` 3.0 → 0.31 ms a frame (Node, synthetic song) | Reached tick states and raw frames are memoized; 3,000 random queries match the previous implementation exactly |
+| Trio painted each ridge layer offscreen at the full logical stage (1408×848) every frame: 16 pixels for each one shown on Classic | Trio rows together: 2D fill 9.3 → 2.5 Mpx a frame | Travel surfaces follow the scene's device scale ×2, capped at 1 (`TRAVEL_SURFACE_SUPERSAMPLE`) |
+| Trio's starfield filled one path of sub-pixel rects per colour/alpha bucket | Trio rows together: stage-canvas calls 7,900 → 4,470 a frame | Stars accumulate into one image composited additively (`_blitStarBuckets`); the light per pixel is kept |
+| The ladder's resolution scale was computed and never applied, so Landscape's smooth layers stayed at full display density on every rung | 1080p Classic at rung 4: 1920×1080 → 960×540 | `fitCanvas` applies `PerfGovernor.resolutionScale` to the hybrid output, in whole terrain cells ([pixel presentation](pixel-presentation.md)) |
+
+Trio on the phone emulation with every change: median frame interval 650 →
+283 ms. Against the previous build, Trio export frames differ only along
+ridge edges (the supersampled surfaces) and in star pixels (up to 14/255 per
+channel, total brightness kept); Landscape export frames are pixel-identical.
+
+**Still open: Landscape geometry.** At the phone start rung (1), one Landscape
+frame of the view measured submitted about 53 M vertex indices: the smooth
+water layer 27 M (two `renderWater` calls, each a full-terrain depth pre-pass
+plus every band in water-only mode), the lake mirror 12.8 M, the terrain
+partitions themselves 13.5 M. Rung 4 sheds the mirror and the smooth water,
+leaving about 13.5 M. Vertex work does not depend on output size, so the
+resolution scale does not touch it, and the ladder's contract keeps landform
+and LOD. Two exact reductions are possible but not made: water-only passes
+that draw only tiles with water or next to it (0–78% of a view's triangles;
+dry views already skip water), and sharing one depth pre-pass between
+passes. Both need a design decision and timing on a real GPU.

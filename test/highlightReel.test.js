@@ -15,9 +15,10 @@ import { BIOMES } from '../src/world/BiomeProfiles.js';
 import { REAL_BIOMES } from '../src/world/RealBiomes.js';
 
 const canvases = [];
+let encodes = 0;
 globalThis.document = { createElement: () => {
   const canvas = { width: 0, height: 0, getContext: () => ({ drawImage() {} }),
-    toDataURL: () => 'data:image/jpeg;base64,fake' };
+    toDataURL: () => { encodes++; return 'data:image/jpeg;base64,fake'; } };
   canvases.push(canvas);
   return canvas;
 } };
@@ -249,16 +250,24 @@ test('candidate snapshot is immutable and repeated draws/seeks do not duplicate 
   assert.ok(reel.selections.every(Object.isFrozen));
 });
 
-test('five selected frames reuse and release one bounded thumbnail canvas', () => {
-  const before = canvases.length, reel = new HighlightReel();
+test('five selected frames copy without encoding mid-song, then encode once and release on first read', () => {
+  const before = canvases.length, encodesBefore = encodes, reel = new HighlightReel();
   const events = CATEGORIES.map((category, i) => candidate(`${category}:${i * 5000}`, i * 5000, category, { score: 1 - i * .01 }));
   const selected = selectHighlightCandidates(events);
   for (const event of selected) reel.notify(events, source, event.eventAtMs);
   assert.equal(reel.selections.length, MAX_FRAMES);
   assert.equal(reel.frames.length, MAX_FRAMES);
-  assert.equal(canvases.length - before, 1);
-  assert.equal(canvases.at(-1).width, 0);
+  // Bounded: one small copy per frame, and no readback or encode while playing.
+  const thumbs = canvases.slice(before);
+  assert.equal(thumbs.length, MAX_FRAMES);
+  assert.equal(encodes - encodesBefore, 0, 'capturing must not encode');
+  assert.ok(thumbs.every(c => c.width === 320 && c.height === 180));
   assert.equal(reel._thumbCanvas, null);
+  // The COMPLETE panel reads each image: encoded once, then the copy goes.
+  assert.ok(reel.frames.every(f => f.dataUrl === 'data:image/jpeg;base64,fake'));
+  assert.ok(reel.frames.every(f => f.dataUrl === 'data:image/jpeg;base64,fake'));
+  assert.equal(encodes - encodesBefore, MAX_FRAMES, 'one encode per frame');
+  assert.ok(thumbs.every(c => c.width === 0 && c.height === 0), 'every copy released');
 });
 
 test('each frame records the moment that drew it, at its own heard time', () => {
