@@ -121,6 +121,42 @@ const WATER_CAPTURE_KEY = 'range:water-capture-layer';
 
 const fade01 = (u) => (u <= 0 ? 0 : u >= 1 ? 1 : u * u * (3 - 2 * u));
 
+/** The drawImage source rectangle holding a scene render: the scene's
+ *  drawing buffer can be larger than the render (RangeScene._setCanvasSize). */
+function sceneRect(scene, image) {
+  return scene?.imageRect ? scene.imageRect(image) : { x: 0, y: 0, width: image.width, height: image.height };
+}
+
+/** Draw a scene render (only its filled region) into dx, dy, dw, dh. */
+function drawScene(ctx, scene, image, dx, dy, dw, dh) {
+  const r = sceneRect(scene, image);
+  ctx.drawImage(image, r.x, r.y, r.width, r.height, dx, dy, dw, dh);
+}
+
+/** Make every nonzero alpha in `mask` (the canvas `ctx` draws into) fully
+ *  opaque, on the GPU: eight additive self-blits double every alpha eight
+ *  times, so any coverage of at least 1/255 saturates to 255 and zero stays
+ *  zero -- the same alpha as reading the pixels back and setting them,
+ *  without the readback. That readback (getImageData on a GPU-backed canvas,
+ *  every frame a lake was in view) made the CPU wait for the GPU to finish
+ *  everything queued so far. Colour channels are not preserved; callers use
+ *  the result as an alpha mask only. */
+export function saturateMaskAlpha(ctx, mask) {
+  try {
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.imageSmoothingEnabled = false;
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 8; i++) ctx.drawImage(mask, 0, 0);
+    ctx.restore();
+    return true;
+  } catch {
+    try { ctx.restore(); } catch { /* the mask is simply not used */ }
+    return false;
+  }
+}
+
 function defaultCanvas(w, h) {
   if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(w, h);
   const c = document.createElement('canvas');
@@ -1109,7 +1145,7 @@ export class RangePresentation {
     const image = render(this.viewId, 'A');
     if (!image) return false;
     ctx.save(); ctx.globalAlpha = this.arrival; ctx.globalCompositeOperation = 'source-over';
-    ctx.drawImage(image, 0, 0, stage.width, stage.height); ctx.restore();
+    drawScene(ctx, this.scene, image, 0, 0, stage.width, stage.height); ctx.restore();
     return true;
   }
 
@@ -1153,22 +1189,24 @@ export class RangePresentation {
     const img = this.scene.renderPartition(this._sideFrame(), pass, this.viewId);
     const t1 = performance.now();
     if (!img) return false;
+    const rect = sceneRect(this.scene, img);
     const assembled = this.directTerrainMode && this.arrival < .999 && this._drawDirectArrival(ctx, stage, pass, img);
     if (!assembled) {
       ctx.save();
       ctx.globalAlpha = this.arrival;
       ctx.globalCompositeOperation = 'source-over';
-      if (!this.directTerrainMode || !this.drawTerrainImage?.(ctx, img, stage, { width: img.width, height: img.height })) {
+      if (!this.directTerrainMode || !this.drawTerrainImage?.(ctx, img, stage, { width: rect.width, height: rect.height })) {
         if (this.directTerrainMode) ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(img, 0, 0, stage.width, stage.height);
+        ctx.drawImage(img, rect.x, rect.y, rect.width, rect.height, 0, 0, stage.width, stage.height);
       }
       ctx.restore();
     }
     // The partition's own pixels, valid until the next partition renders:
-    // light that belongs on this terrain can use them as its mask.
-    this.lastPartition = { pass, image: img, width: img.width, height: img.height,
+    // light that belongs on this terrain can use them as its mask (the
+    // top-left width x height of `image`).
+    this.lastPartition = { pass, image: img, width: rect.width, height: rect.height,
       arrival: this.arrival, shafted: !!this.scene.lastShafted };
-    if (!this.directTerrainMode && pass === 'near') this._recordNearOcclusion(ctx, stage, img, img.width, img.height);
+    if (!this.directTerrainMode && pass === 'near') this._recordNearOcclusion(ctx, stage, img, rect.width, rect.height);
     this._noteTiming(t1 - t0, performance.now() - t1);
     if (!this.directTerrainMode && pass === 'near' && this.castForeground && !this.scene.castInBands) this._keepCast(ctx, stage);
     if (this.directTerrainMode) {
@@ -1238,7 +1276,8 @@ export class RangePresentation {
     lc.setTransform(1, 0, 0, 1, 0, 0); lc.clearRect(0, 0, w, h);
     lc.globalCompositeOperation = 'source-over'; lc.globalAlpha = 1;
     const t = ctx.getTransform(); lc.setTransform(t.a, t.b, t.c, t.d, t.e, t.f);
-    if (!this.drawTerrainImage?.(lc, image, stage, { width: image.width, height: image.height })) return false;
+    const rect = sceneRect(this.scene, image);
+    if (!this.drawTerrainImage?.(lc, image, stage, { width: rect.width, height: rect.height })) return false;
     const water = this._renderDirectWater(lc, stage, pass, this.viewId);
     lc.setTransform(1, 0, 0, 1, 0, 0);
     if (water) lc.drawImage(water, 0, 0);
@@ -1299,7 +1338,7 @@ export class RangePresentation {
     oc.setTransform(1, 0, 0, 1, 0, 0); oc.globalCompositeOperation = 'source-over';
     oc.clearRect(0, 0, out.width, out.height);
     oc.setTransform(t.a, t.b, t.c, t.d, t.e, t.f);
-    oc.drawImage(high, 0, 0, stage.width, stage.height);
+    drawScene(oc, this.scene, high, 0, 0, stage.width, stage.height);
     oc.setTransform(1, 0, 0, 1, 0, 0);
     oc.globalCompositeOperation = 'destination-in'; oc.imageSmoothingEnabled = false;
     oc.drawImage(mask, 0, 0); oc.globalCompositeOperation = 'source-over';
@@ -1316,7 +1355,7 @@ export class RangePresentation {
     const image = render('A');
     if (!image) return false;
     ctx.save(); ctx.globalAlpha = this.arrival; ctx.globalCompositeOperation = 'source-over';
-    ctx.imageSmoothingEnabled = true; ctx.drawImage(image, 0, 0, stage.width, stage.height); ctx.restore();
+    ctx.imageSmoothingEnabled = true; drawScene(ctx, this.scene, image, 0, 0, stage.width, stage.height); ctx.restore();
     return true;
   }
 
@@ -1331,7 +1370,7 @@ export class RangePresentation {
     const image = render(this.viewId, 'A', null);
     if (!image) return false;
     ctx.save(); ctx.globalAlpha = this.arrival; ctx.globalCompositeOperation = 'lighter';
-    ctx.imageSmoothingEnabled = true; ctx.drawImage(image, 0, 0, stage.width, stage.height); ctx.restore();
+    ctx.imageSmoothingEnabled = true; drawScene(ctx, this.scene, image, 0, 0, stage.width, stage.height); ctx.restore();
     return true;
   }
 
@@ -1407,11 +1446,7 @@ export class RangePresentation {
     // Partial alpha would blend the native effect a second time when water
     // is overlaid. Keep the already-composited native pixel wherever any
     // effect touched it, including antialiased edges.
-    try {
-      const pixels = effect.getImageData(0, 0, w, h);
-      for (let i = 3; i < pixels.data.length; i += 4) if (pixels.data[i]) pixels.data[i] = 255;
-      effect.setTransform(1, 0, 0, 1, 0, 0); effect.putImageData(pixels, 0, 0);
-    } catch { return; }
+    if (!saturateMaskAlpha(effect, c)) return;
     this.waterEffectMask = c;
   }
 
@@ -1473,13 +1508,13 @@ export class RangePresentation {
     maskCtx.setTransform(1, 0, 0, 1, 0, 0); maskCtx.clearRect(0, 0, nativeWidth, nativeHeight);
     maskCtx.imageSmoothingEnabled = false;
     maskCtx.setTransform(t.a, t.b, t.c, t.d, t.e, t.f);
-    maskCtx.drawImage(low, 0, 0, stage.width, stage.height);
+    drawScene(maskCtx, this.scene, low, 0, 0, stage.width, stage.height);
     const img = this.scene.renderWater(this._sideFrame(), this.viewId, this.scene.size.width * scale, this.scene.size.height * scale);
     if (!img) return;
     const out = c.getContext('2d');
     out.setTransform(1, 0, 0, 1, 0, 0); out.clearRect(0, 0, w, h);
     out.setTransform(scale * t.a, scale * t.b, scale * t.c, scale * t.d, scale * t.e, scale * t.f);
-    out.drawImage(img, 0, 0, stage.width, stage.height);
+    drawScene(out, this.scene, img, 0, 0, stage.width, stage.height);
     out.setTransform(1, 0, 0, 1, 0, 0); out.globalCompositeOperation = 'destination-in';
     out.imageSmoothingEnabled = false; out.drawImage(mask, 0, 0, w, h);
     out.setTransform(1, 0, 0, 1, 0, 0); out.globalCompositeOperation = 'destination-out';
@@ -1521,7 +1556,7 @@ export class RangePresentation {
     if (!out) return null;
     out.setTransform(1, 0, 0, 1, 0, 0); out.clearRect(0, 0, w, h);
     out.setTransform(scale * m[0], scale * m[1], scale * m[2], scale * m[3], scale * m[4], scale * m[5]);
-    out.drawImage(img, 0, 0, recipe.stageWidth, recipe.stageHeight);
+    drawScene(out, this.scene, img, 0, 0, recipe.stageWidth, recipe.stageHeight);
     out.setTransform(1, 0, 0, 1, 0, 0); out.imageSmoothingEnabled = false;
     out.globalCompositeOperation = 'destination-in'; out.drawImage(recipe.shoreMask, 0, 0, w, h);
     out.globalCompositeOperation = 'destination-out'; out.drawImage(recipe.effectMask, 0, 0, w, h);
@@ -1552,22 +1587,23 @@ export class RangePresentation {
     const c0 = performance.now();
     const img = this.scene.renderCast?.(this._sideFrame(), this.viewId);
     if (!img) return;
+    const rect = sceneRect(this.scene, img);
     const t = ctx.getTransform?.();
-    const layer = t ? this._ensureCastCanvas(img.width, img.height) : null;
+    const layer = t ? this._ensureCastCanvas(rect.width, rect.height) : null;
     if (!layer) {
       ctx.save();
       ctx.globalAlpha = this.arrival;
       ctx.globalCompositeOperation = 'lighter';
-      ctx.drawImage(img, 0, 0, stage.width, stage.height);
+      ctx.drawImage(img, rect.x, rect.y, rect.width, rect.height, 0, 0, stage.width, stage.height);
       ctx.restore();
     } else {
       const lctx = layer.getContext('2d');
       lctx.setTransform(1, 0, 0, 1, 0, 0);
       lctx.globalAlpha = 1;
       lctx.globalCompositeOperation = 'copy';
-      lctx.drawImage(img, 0, 0);
+      lctx.drawImage(img, rect.x, rect.y, rect.width, rect.height, 0, 0, rect.width, rect.height);
       lctx.globalCompositeOperation = 'source-over';
-      this.castLayer = { canvas: layer, width: img.width, height: img.height, transform: [t.a, t.b, t.c, t.d, t.e, t.f],
+      this.castLayer = { canvas: layer, width: rect.width, height: rect.height, transform: [t.a, t.b, t.c, t.d, t.e, t.f],
         stageWidth: stage.width, stageHeight: stage.height, alpha: this.arrival };
     }
     const ms = performance.now() - c0;
@@ -1704,8 +1740,9 @@ export class RangePresentation {
     // of the buffer (reserved at the scenic backing size, which the ground
     // image -- same scale, smaller stage -- never exceeds), so the buffer is
     // not reallocated between the two composites of one frame.
-    const W = screenSpace ? ctx.canvas.width : Math.min(out.width, backing?.backingWidth || a?.width || out.width);
-    const H = screenSpace ? ctx.canvas.height : Math.min(out.height, backing?.backingHeight || a?.height || out.height);
+    const aRect = a ? sceneRect(this.scene, a) : null;
+    const W = screenSpace ? ctx.canvas.width : Math.min(out.width, backing?.backingWidth || aRect?.width || out.width);
+    const H = screenSpace ? ctx.canvas.height : Math.min(out.height, backing?.backingHeight || aRect?.height || out.height);
     const sctx = out.getContext('2d');
     const sx = W / stage.width;
     sctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -1727,7 +1764,9 @@ export class RangePresentation {
       } else { sctx.rect(cx0, 0, cx1 - cx0, H); sctx.clip(); }
       sctx.globalAlpha = Math.min(1, alpha);
       sctx.globalCompositeOperation = op;
-      sctx.drawImage(img, 0, 0, W, H);
+      // A scene render is read where it was drawn, right after it (b
+      // replaces a's pixels in the scene's drawing buffer).
+      drawScene(sctx, this.scene, img, 0, 0, W, H);
       sctx.restore();
     };
     for (const sp of spans) put(a, sp.x0, sp.x1, 1 - sp.w, 'source-over');
@@ -1786,9 +1825,10 @@ export class RangePresentation {
     ctx.save();
     ctx.globalAlpha = this.arrival;
     ctx.globalCompositeOperation = 'source-over';
-    if (!this.directTerrainMode || !this.drawTerrainImage?.(ctx, out.canvas, stage, { width: out.canvas.width, height: out.canvas.height })) {
+    const rect = sceneRect(this.scene, out.canvas);
+    if (!this.directTerrainMode || !this.drawTerrainImage?.(ctx, out.canvas, stage, { width: rect.width, height: rect.height })) {
       if (this.directTerrainMode) ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(out.canvas, 0, 0, stage.width, stage.height);
+      ctx.drawImage(out.canvas, rect.x, rect.y, rect.width, rect.height, 0, 0, stage.width, stage.height);
     }
     ctx.restore();
     this.timings.frameRenderMs += g1 - g0;

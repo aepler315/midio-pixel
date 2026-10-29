@@ -60,6 +60,9 @@ const CLOUD_SHADOW_CASTERS = 16;
 const CASTERS = new Float32Array(CLOUD_SHADOW_CASTERS * CLOUD_CASTER_STRIDE);
 const CASTER_LIGHT = [0, 1, 0], CASTER_EYE = [0, 0, 0];
 const BACKDROP_KEY = 'range:water-backdrop';
+/** Presented frames a drawing buffer may stay larger than every render
+ *  needs before it shrinks (RangeScene._trimCanvas). */
+export const CANVAS_TRIM_FRAMES = 90;
 // Full/lite pairs share instances and retain two scalar attributes per batch.
 const FOREST_DETAIL_BYTES = BANDS.length * FOREST_FAMILIES * FOREST_VARIANTS * 8;
 const RIVER_VERTICES_PER_SET = 60000; // primary surface and seam fill share one admitted bound
@@ -200,6 +203,8 @@ export class RangeScene {
    *  evidence/LOD context only; widthPx/heightPx are already physical. */
   resize({ widthPx, heightPx, pixelRatio = 1, quality = 0, pixelated = false, pixelHeightPx = null, cinematicPixel = false }) {
     const w = Math.max(2, Math.round(widthPx)), h = Math.max(2, Math.round(heightPx));
+    // Called once per presented frame: the drawing buffer's slack check.
+    this._trimCanvas();
     this.pixelRatio = pixelRatio;
     this.pixelated = !!pixelated;
     this.cinematicPixel = !!cinematicPixel;
@@ -620,12 +625,59 @@ export class RangeScene {
     this.shaftIdentity = null;
   }
 
-  /** The one drawing buffer is shared by scenic and ground images of
-   *  different sizes; resize it only when the next copy needs another. */
+  /** Point the one drawing buffer, shared by scenic and ground images of
+   *  different sizes, at a w x h render: the render lands in its top-left
+   *  `canvasRegion` (imageRect).
+   *
+   *  The buffer only grows. It used to be resized to each render's exact
+   *  size, and a frame with water renders at two sizes (the scene grid for
+   *  the partitions and the cast, the output size for the water), so the
+   *  WebGL drawing buffer was reallocated -- with the GPU synchronisation
+   *  that implies -- twice every frame. A buffer left larger than the frames
+   *  need for CANVAS_TRIM_FRAMES presented frames shrinks once (_trimCanvas). */
   _setCanvasSize(w, h) {
-    if (this.canvasSize?.width === w && this.canvasSize?.height === h) return;
-    this.renderer.setSize(w, h, false);
-    this.canvasSize = { width: w, height: h };
+    const need = this._canvasNeed;
+    this._canvasNeed = need ? { width: Math.max(need.width, w), height: Math.max(need.height, h) } : { width: w, height: h };
+    const cw = Math.max(w, this.canvasSize?.width || 0), ch = Math.max(h, this.canvasSize?.height || 0);
+    if (this.canvasSize?.width !== cw || this.canvasSize?.height !== ch) {
+      this.renderer.setSize(cw, ch, false);
+      this.canvasSize = { width: cw, height: ch };
+    }
+    // GL's origin is bottom-left: the image's top-left w x h is the
+    // buffer's top rows.
+    this.renderer.setViewport?.(0, ch - h, w, h);
+    this.renderer.setScissor?.(0, ch - h, w, h);
+    this.canvasRegion = { x: 0, y: 0, width: w, height: h };
+  }
+
+  /** Clear the region the next default-framebuffer render fills (not the
+   *  whole, possibly larger, drawing buffer). */
+  _clearCanvas() {
+    const r = this.renderer;
+    r.setScissorTest?.(true);
+    try { r.clear(true, true, false); } finally { r.setScissorTest?.(false); }
+  }
+
+  /** Shrink a drawing buffer that has been larger than every render needed
+   *  for CANVAS_TRIM_FRAMES frames in a row (the output got smaller). */
+  _trimCanvas() {
+    const need = this._canvasNeed, size = this.canvasSize;
+    this._canvasNeed = null;
+    if (!need || !size || (need.width >= size.width && need.height >= size.height)) { this._canvasSlack = 0; return; }
+    this._canvasSlackNeed = this._canvasSlack ? {
+      width: Math.max(this._canvasSlackNeed.width, need.width), height: Math.max(this._canvasSlackNeed.height, need.height) } : need;
+    if (++this._canvasSlack < CANVAS_TRIM_FRAMES) return;
+    const { width, height } = this._canvasSlackNeed;
+    this._canvasSlack = 0;
+    this.renderer.setSize(width, height, false);
+    this.canvasSize = { width, height };
+  }
+
+  /** The rectangle of `image` (drawImage source coordinates) holding the
+   *  last render into it: this scene's canvasRegion, else the whole image. */
+  imageRect(image) {
+    return image && image === this.canvas && this.canvasRegion ? this.canvasRegion
+      : { x: 0, y: 0, width: image?.width || 0, height: image?.height || 0 };
   }
 
   isReady(viewId) { return this.prepared.has(viewId) && !this.contextLost; }
@@ -2452,7 +2504,7 @@ export class RangeScene {
     const scattering = source && this.shafts?.render(r, side, source, this.camera, frame.scenicViewport);
     r.setRenderTarget(null);
     this._setCanvasSize(this.size.width, this.size.height);
-    r.clear(true, true, false);
+    this._clearCanvas();
     const owned = !bandColumns && depth.owned && this.ownership?.[side];
     this._copyTexture(target.texture, owned ? { own: owned.texture, pass } : null);
     if (scattering && !this.directTerrainMode) this.shafts.compositeToScreen(r, side, source);
@@ -2471,7 +2523,7 @@ export class RangeScene {
     if (!source || !this.shafts?.buffers?.[side] || !this.shafts?.targets?.[side]) return null;
     const r = this.renderer;
     r.setRenderTarget(null); this._setCanvasSize(Math.max(2, Math.round(width)), Math.max(2, Math.round(height)));
-    r.clear(true, true, false); this.shafts.compositeToScreen(r, side, source);
+    this._clearCanvas(); this.shafts.compositeToScreen(r, side, source);
     return this.canvas;
   }
 
@@ -2530,7 +2582,7 @@ export class RangeScene {
     this.camera.layers.set(0); this.camera.layers.enable(3);
     r.setRenderTarget(null);
     this._setCanvasSize(this.size.width, this.size.height);
-    r.clear(true, true, false);
+    this._clearCanvas();
     this._copyTexture(target.texture);
     this.stats.castPasses = (this.stats.castPasses || 0) + 1;
     return this.canvas;
@@ -2620,7 +2672,7 @@ export class RangeScene {
       }
       r.setRenderTarget(null);
       this._setCanvasSize(w, h);
-      r.clear(true, true, false);
+      this._clearCanvas();
       this._copyTexture(outputTarget.texture);
       return this.canvas;
     } finally {
@@ -2656,7 +2708,7 @@ export class RangeScene {
       finally { for (const set of ribbons) set.setOverlap(this.THREE.AddEquation); }
       this.camera.layers.set(CAST_LAYER);
       for (const band of BANDS) r.render(p.scenes[band], this.camera);
-      r.setRenderTarget(null); this._setCanvasSize(w, h); r.clear(true, true, false);
+      r.setRenderTarget(null); this._setCanvasSize(w, h); this._clearCanvas();
       this._copyTexture(target.texture); return this.canvas;
     } finally {
       u.uViewportPx.value.set(this.size.width, this.size.height);
@@ -2725,7 +2777,7 @@ export class RangeScene {
     r.clear(true, true, false);
     r.render(p.stageGL.scene, p.stageGL.camera);
     r.setRenderTarget(null);
-    r.clear(true, true, false);
+    this._clearCanvas();
     this._copyTexture(this.groundTarget.texture);
     return { canvas: this.canvas, stage };
   }
