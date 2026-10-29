@@ -81,23 +81,29 @@ export function localCamera(view, points) {
 }
 const round = (v) => Math.round(v * 10) / 10;
 
-export async function buildView(view, { outDir, cell = null, log = console.log } = {}) {
-  if (view.terrainSourceId) throw new Error(`${view.id}: shared terrain; rebuild ${view.terrainSourceId}, then regenerate --catalog`);
+/** A view's normalized DEM grid (undespiked), read from the cache keyed by
+ *  its DEM parameters and rail points, or normalized there on a miss. */
+export async function loadViewGrid(view, { cell = null, log = console.log } = {}) {
   const dem = { ...view.dem, cellM: cell || view.dem.cellM };
   const points = viewPoints(view);
   const key = sha(JSON.stringify({ dem, points })).slice(0, 16);
   const prefix = path.join(CACHE, 'views', `${view.id}-${key}`);
-  let grid;
   try {
-    grid = await readDemGrid(prefix);
+    const grid = await readDemGrid(prefix);
     log(`${view.id}: cached DEM ${path.relative(root, prefix)}`);
+    return grid;
   } catch {
     log(`${view.id}: normalizing ${dem.source} ${dem.extentM.join('x')} m at ${dem.cellM} m`);
-    grid = await normalizeDem(dem.source, {
+    return normalizeDem(dem.source, {
       out: prefix, centerLonLat: dem.centerLonLat, extentM: dem.extentM, offsetM: dem.offsetM,
       cellM: dem.cellM, zoom: dem.zoom, cache: CACHE, points, fill: dem.fill, fillZoom: dem.fillZoom,
     });
   }
+}
+
+export async function buildView(view, { outDir, cell = null, log = console.log } = {}) {
+  if (view.terrainSourceId) throw new Error(`${view.id}: shared terrain; rebuild ${view.terrainSourceId}, then regenerate --catalog`);
+  const grid = await loadViewGrid(view, { cell, log });
   // Single-sample spikes in the elevation source (seen in Terrain Tiles)
   // would draw as needles; they are lowered to their neighbours, and the
   // count is recorded.
@@ -105,7 +111,7 @@ export async function buildView(view, { outDir, cell = null, log = console.log }
   if (despiked) log(`${view.id}: despiked ${despiked} sample(s)`);
   // Terrain Tiles is a coarse global mosaic: soften its resampling steps on
   // gentle ground (3DEP sources are left as they are).
-  const smoothedM = dem.source === 'terrarium' ? smoothGentleGround(grid) : null;
+  const smoothedM = view.dem.source === 'terrarium' ? smoothGentleGround(grid) : null;
   if (smoothedM != null) log(`${view.id}: gentle ground smoothed (mean change ${smoothedM.toFixed(2)} m)`);
   const camera = localCamera(view, grid.points);
   const landmarks = (view.landmarks || []).map((l) => {

@@ -4,14 +4,20 @@ import http from 'node:http';
 import { createHash } from 'node:crypto';
 export const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 
+// Generated, git-ignored compiled terrain packs (npm run
+// build:compiled-terrain): left out of source snapshots unless a harness
+// asks for them, so they never enter unrelated digests or captures.
+export const GENERATED_SOURCE_DIRS = Object.freeze(['src/assets/range/v2/compiled']);
+
 // A frozen public tree prevents a wrong/stale server or edits during capture
 // from changing the bytes behind an already-recorded commit label.
-export async function snapshotSource(root) {
+export async function snapshotSource(root, { include = [] } = {}) {
   const files = new Map();
   const walk = async relative => {
     for (const entry of (await fs.readdir(path.join(root, relative), { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
       if (entry.name.startsWith('.')) continue;
       const name = path.posix.join(relative, entry.name);
+      if (GENERATED_SOURCE_DIRS.includes(name) && !include.includes(name)) continue;
       if (entry.isDirectory()) await walk(name);
       else if (entry.isFile()) files.set('/' + name, await fs.readFile(path.join(root, name)));
       else throw new Error(`unsupported public source entry ${name}`);

@@ -61,9 +61,12 @@ function sampleAt(tile, u, v) {
 
 /**
  * Metres at local (x, z) from the finest stored samples, bilinear inside
- * the covering tile. NaN outside the package or next to no-data.
+ * the covering tile. NaN outside the package or next to no-data. Terrain
+ * data that draws another surface (CompiledTerrain.js columns) supplies its
+ * own `groundAt`, so everything standing on the land follows what is drawn.
  */
 export function terrainHeightAt(data, x, z) {
+  if (data.groundAt) return data.groundAt(x, z);
   const { grid, cells } = data;
   const gx = (x - grid.originM[0]) / grid.cellSizeM;
   const gz = (z - grid.originM[1]) / grid.cellSizeM;

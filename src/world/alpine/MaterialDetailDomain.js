@@ -6,7 +6,8 @@ function hash(x, y) {
   const d = p.reduce((n, v, i) => n + v * (p[(i + 1) % 3] + 33.33), 0);
   return fract((p[0] + p[1] + 2 * d) * (p[2] + d));
 }
-function noise(x, y) {
+/** The shader's vnoise12, in JS (offline material bakes use it too). */
+export function noise(x, y) {
   const ix = Math.floor(x), iy = Math.floor(y);
   const fx = fract(x), fy = fract(y), u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy);
   const a = hash(ix, iy), b = hash(ix + 1, iy), c = hash(ix, iy + 1), d = hash(ix + 1, iy + 1);
