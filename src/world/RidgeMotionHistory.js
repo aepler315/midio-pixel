@@ -13,6 +13,9 @@ const zero = () => ({ bands: Array(7).fill(0), levels: Array(7).fill(0), depths:
 const copy = s => ({ bands: [...s.bands], levels: [...s.levels], depths: [...s.depths], armed: [...s.armed], flashMs: [...s.flashMs], energy: s.energy, motionPresence01: s.motionPresence01, melodyActivity: s.melodyActivity, melodyPitchWeight: s.melodyPitchWeight });
 const follow = (v, raw, dt, attack, release) => v + (1 - Math.exp(-dt / (raw > v ? attack : release))) * (raw - v);
 let sessionId = 0;
+/** Recent 20 ms filter states and source frames each history keeps (a few
+ *  seconds either way of the heard time). */
+const TICK_STATE_MEMO = 256, RAW_FRAME_MEMO = 512;
 
 /** Musical scrolling belongs to heard time, never a Simulation's reset origin. */
 export function ridgeAdvectionPxAt(heardTimeMs) {
@@ -21,6 +24,15 @@ export function ridgeAdvectionPxAt(heardTimeMs) {
 
 export class RidgeMotionHistory {
   #curves; #events; #visual; #sources; #checkpoints; #floor; #cal; #cues; #midi; #ends; #cache = new Map();
+  // Exact filter states at recent 20 ms ticks, and source frames already
+  // read. A frame asks for a dozen nearby times (the horizon ridge's motion
+  // taps, the space ridge, effects) and the next frame for the same ones
+  // shifted by a frame. Each used to re-integrate up to two seconds of
+  // filter from its checkpoint and re-read a 1.2 s pressure window; now
+  // they continue from the nearest state already reached. A state reached
+  // tick by tick from the same checkpoint is the same state, so results
+  // are unchanged (and still independent of query order).
+  #ticks = new Map(); #rawFrames = new Map();
   constructor({ energyCurves = null, timeline = [], response = null, durationMs = 0, generation = 'analysis', stepMs = 20, casting, conductorCues = [] } = {}) {
     if (stepMs !== 20) throw new RangeError('Ridge history uses the canonical 20 ms clock');
     this.generation = generation;
@@ -64,6 +76,18 @@ export class RidgeMotionHistory {
   #raw(at) {
     const c = this.#curves;
     const index = c ? Math.max(0, Math.floor(at * c.rateHz / 1000 + 1e-10)) : 0;
+    // Without MIDI the reading depends on the source frame alone.
+    if (this.#midi.length || !this.#rawFrames) return this.#readRaw(at, index);
+    let raw = this.#rawFrames.get(index);
+    if (!raw) {
+      raw = this.#readRaw(at, index);
+      if (this.#rawFrames.size >= RAW_FRAME_MEMO) this.#rawFrames.delete(this.#rawFrames.keys().next().value);
+      this.#rawFrames.set(index, raw);
+    }
+    return raw;
+  }
+  #readRaw(at, index) {
+    const c = this.#curves;
     const read = b => b?.[Math.min(index, b.length - 1)] || 0;
     const bands = Array.from({ length: 7 }, (_, b) => clamp01(read(c?.bands[b])));
     let midi = 0, lo = 0, hi = this.#midi.length;
@@ -119,6 +143,21 @@ export class RidgeMotionHistory {
       at = end;
     }
   }
+  /** A fresh copy of the filter state at `tick` x 20 ms: advanced tick by
+   *  tick from the nearest state at or before it in the same checkpoint
+   *  span (exactly what advancing from the checkpoint itself computes). */
+  #stateAtTick(tick) {
+    const cp = Math.min(this.#checkpoints.length - 1, Math.floor(tick / 100)), first = cp * 100;
+    let from = tick, known = null;
+    for (; from > first; from--) if ((known = this.#ticks.get(from))) break;
+    const state = copy(known || this.#checkpoints[cp]);
+    for (let t = from; t < tick; t++) {
+      this.#advance(state, t * 20, (t + 1) * 20);
+      if (this.#ticks.size >= TICK_STATE_MEMO) this.#ticks.delete(this.#ticks.keys().next().value);
+      this.#ticks.set(t + 1, copy(state));
+    }
+    return state;
+  }
   #kick01(at) {
     const kicks = this.#visual.kicks;
     let lo = 0, hi = kicks.length;
@@ -142,9 +181,8 @@ export class RidgeMotionHistory {
   sample(heardTimeMs = 0) {
     const at = Math.min(this.durationMs, Math.max(0, Number.isFinite(heardTimeMs) ? heardTimeMs : 0));
     if (this.#cache.has(at)) return this.#cache.get(at);
-    const tick = Math.floor(at / 20), cp = Math.min(this.#checkpoints.length - 1, Math.floor(tick / 100));
-    const state = copy(this.#checkpoints[cp]);
-    for (let t = cp * 100; t < tick; t++) this.#advance(state, t * 20, (t + 1) * 20);
+    const tick = Math.floor(at / 20);
+    const state = this.#stateAtTick(tick);
     this.#advance(state, tick * 20, at);
     const kick = this.#visual.sample(at), raw = this.#raw(at);
     let pressureEnergy01 = 0, bassPressure01 = 0;

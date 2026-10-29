@@ -349,3 +349,25 @@ test('actual physical melodic geometry releases across silence while raw source 
     assert.equal(blend.sample(750).motionMelody.activity, h.sample(750).motionMelody.activity / 2);
   } finally { sim.dispose(); }
 });
+
+test('nearby and out-of-order queries reuse reached states without changing any sample', () => {
+  // A frame asks for a dozen nearby times, the next frame for the same set
+  // shifted by a frame; the history continues from states it has already
+  // reached. Every answer must equal a fresh history's, in any order and
+  // across checkpoint spans (every 2 s), for audio and for MIDI timelines.
+  for (const src of ['audio', 'midi']) {
+    const c = curves(.4, .01);
+    c.bands.forEach((b, k) => { for (let i = 0; i < b.length; i++) b[i] = (Math.sin(i * (k + 1) * .37) + 1) / 2; });
+    const timeline = Array.from({ length: 90 }, (_, i) => ({ ...note, src, tMs: 60 + i * 130, kick: i % 2 === 0,
+      role: i % 2 ? 'MELODY' : 'RHYTHM', vel: .3 + (i % 5) * .15 }));
+    const input = { energyCurves: c, timeline, durationMs: 12000 };
+    const reused = make(input);
+    const times = [];
+    for (let frame = 0; frame < 40; frame++) {
+      const heard = 1700 + frame * 1000 / 60;
+      for (let tap = 0; tap < 5; tap++) times.push(heard - tap * 20, heard - tap * 20 - 50);
+    }
+    times.push(9100.5, 1990, 2010, 3999.9, 4000, 120, 11999, 6000.25);
+    for (const t of times) assert.deepEqual(reused.sample(t), make(input).sample(t), `${src} sample at ${t}`);
+  }
+});
