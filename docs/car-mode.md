@@ -102,6 +102,15 @@ at input recency (`FULLSCREEN_DROP_GRACE_MS`, 2s):
 
 ## Testing
 
+`node tools/head-unit-smoke.mjs` checks title scroll clearance, ordinary
+multi-file music selection, paused fullscreen entry/exit and a single Android
+PNG snapshot at 800×480 and portrait DPR2. It uses an Android user agent with
+the bounded legacy terrain fixture, in isolated, muted headless Chromium.
+Set `PLAYWRIGHT_CHROMIUM_PATH` to use an installed Chromium. Exit 2 means the
+browser is unavailable; the report marks every browser assertion unverified.
+It does not verify an Android file manager, device download stability or
+Range v2 GPU scenery.
+
 * `test/keepAwake.test.js` — lock acquire / re-arm / release / fallback and
   the timing predicates, against injected fakes.
 * `npm run test:car` (`tools/car-mode-smoke.mjs`) — a real browser: a

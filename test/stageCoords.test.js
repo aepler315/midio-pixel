@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
 import { clientToStageCoords } from '../src/ui/StageCoords.js';
 
 const STAGE_W = 1280, STAGE_H = 720;
@@ -65,4 +67,31 @@ test('an offset (non-zero left/top) box is handled correctly, not just a viewpor
 test('a zero-size box returns null defensively', () => {
   assert.equal(clientToStageCoords(10, 10, { left: 0, top: 0, width: 0, height: 0 }, STAGE_W, STAGE_H), null);
   assert.equal(clientToStageCoords(10, 10, null, STAGE_W, STAGE_H), null);
+});
+
+for (const { rect, client, expected } of [
+  { rect: { left: 20, top: 30, width: 2560, height: 1080 }, client: [120, 570], expected: [50, 360] },
+  { rect: { left: 0, top: 0, width: 800, height: 480 }, client: [400, 470], expected: [640, 705] },
+]) test(`cover maps the visible edges of a ${rect.width}x${rect.height} fullscreen stage`, () => {
+  const point = clientToStageCoords(...client, rect, STAGE_W, STAGE_H, 'cover');
+  assert.ok(point, 'the filled display has no inactive bars');
+  assert.ok(Math.abs(point.x - expected[0]) < 1e-6);
+  assert.ok(Math.abs(point.y - expected[1]) < 1e-6);
+  assert.equal(clientToStageCoords(rect.left - 1, rect.top, rect, STAGE_W, STAGE_H, 'cover'), null);
+});
+
+test('the page maps pointers through its active fullscreen cover and restores contained mapping', () => {
+  const source = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  const code = source.match(/function clientToStage\(e\) \{[\s\S]*?\n\}/)[0];
+  let scaling = 'cover';
+  const context = vm.createContext({ clientToStageCoords, STAGE_W, STAGE_H,
+    canvas: { getBoundingClientRect: () => ({ left: 0, top: 0, width: 2560, height: 1080 }) },
+    effectivePresentation: () => ({ scaling }) });
+  vm.runInContext(code, context);
+  const point = context.clientToStage({ clientX: 100, clientY: 540 });
+  assert.ok(point);
+  assert.equal(point.x, 50);
+  assert.equal(point.y, 360);
+  scaling = 'fit';
+  assert.equal(context.clientToStage({ clientX: 100, clientY: 540 }), null);
 });

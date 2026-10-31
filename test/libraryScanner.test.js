@@ -425,6 +425,40 @@ test('a webkitdirectory pick produces the same paths the handle walk would', asy
   assert.ok(handles.get('loose.mp3'));
 });
 
+test('flat-file names stay distinct without taking another file’s original or directory path', async () => {
+  const files = [
+    new File(['first'], 'Artist - Song.mp3'),
+    new File(['second'], 'Artist - Song.mp3'),
+    new File(['literal suffix'], 'Artist - Song (2).mp3'),
+    Object.assign(new File(['directory suffix'], 'Artist - Song (3).mp3'), {
+      webkitRelativePath: 'Music/Artist - Song (3).mp3',
+    }),
+    new File(['flat collision'], 'loose.mp3'),
+    Object.assign(new File(['directory collision'], 'loose.mp3'), { webkitRelativePath: 'Music/loose.mp3' }),
+  ];
+  const published = new Map();
+  const { tracks, handles } = await scanFileList('r', files, {
+    batchSize: 1,
+    onBatch: (batch, batchFiles) => {
+      for (const track of batch) published.set(track.path, batchFiles.get(track.path));
+    },
+  });
+
+  assert.equal(new Set(tracks.map((track) => track.key)).size, 6);
+  assert.equal(handles.size, 6);
+  assert.equal(published.size, 6);
+  for (let i = 0; i < files.length; i++) {
+    assert.equal(handles.get(tracks[i].path), files[i]);
+    assert.equal(published.get(tracks[i].path), files[i]);
+    assert.equal(tracks[i].name, files[i].name);
+  }
+  assert.equal(tracks[0].title, 'Song');
+  assert.equal(tracks[1].title, 'Song');
+  assert.equal(tracks[2].path, 'Artist - Song (2).mp3');
+  assert.equal(tracks[3].path, 'Artist - Song (3).mp3');
+  assert.equal(tracks[5].path, 'loose.mp3');
+});
+
 test('tracks are handed over while the walk runs, not all at the end', async () => {
   // The bug this exists for: a real music folder takes minutes to walk, and
   // a library that shows nothing until the last file is read looks exactly

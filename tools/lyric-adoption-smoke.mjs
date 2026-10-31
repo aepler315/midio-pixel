@@ -30,11 +30,7 @@ try {
     const downloadGate = new Promise(r => { releaseDownload = r; });
     await page.route('**/src/main.js*', async route => {
       const response = await route.fetch();
-      await route.fulfill({ response, body: await response.text() + '\nwindow.__lyricProbe = { loadUrlAudio, cancelUrlLoad, handleFiles, startRecording, finishRecording, togglePause, get recording() { return !!songRecorder?.recording; }, get data() { return lastTimelineData; } };' });
-    });
-    await page.route('**/src/render/VideoExport.js*', async route => {
-      const response = await route.fetch();
-      await route.fulfill({ response, body: (await response.text()).replace("export function exportFileName({ songName = 'song', presetId = '', ext = 'mp4', date = new Date() } = {}) {", "$&\n globalThis.__exportNameInput = songName;") });
+      await route.fulfill({ response, body: await response.text() + '\nwindow.__lyricProbe = { loadUrlAudio, cancelUrlLoad, handleFiles, togglePause, get data() { return lastTimelineData; } };' });
     });
     await page.route('**/lrclib.net/**', async route => {
       requests.push({ url: route.request().url(), at: Date.now() });
@@ -112,19 +108,11 @@ try {
       if (['failure', 'timeout', 'disabled'].includes(mode)) assert.equal(await page.evaluate(() => window.__SMW.sim.biomes._syncedLyrics), null);
       if (['immediate', 'source', 'untagged', 'stem', 'long'].includes(mode)) assert.equal(await page.evaluate(() => window.__SMW.sim.biomes._syncedLyrics?.length), 3);
       console.log(`ADOPTED ${mode}`);
-      // Exercise actual recording completion and the actual exportFileName input.
-      await page.evaluate(() => { window.__SMW.seek(0); window.__lyricProbe.startRecording('landscape-720'); });
-      await page.waitForFunction(() => window.__lyricProbe.recording, null, { timeout: 15000 });
-      await page.waitForTimeout(1200);
-      await page.evaluate(() => window.__lyricProbe.finishRecording());
-      await page.waitForFunction(() => window.__exportNameInput, null, { timeout: 15000 });
-      assert.equal(await page.evaluate(() => window.__exportNameInput), title);
-      console.log(`RECORDED ${mode}`);
       await page.evaluate(() => window.__SMW.seek(window.__SMW.durationMs - 100));
       await page.locator('#completePanel').waitFor({ state: 'visible', timeout: 15000 });
       assert.equal(await page.locator('#completeSongName').textContent(), title);
       assert.deepEqual(errors, []);
-      console.log(`PASS ${mode}: identity, live/history policy, actual Complete and export filename input`);
+      console.log(`PASS ${mode}: identity, live/history policy and actual Complete`);
     } catch (e) { failures++; console.error(`FAIL ${mode}: ${e.stack}`, requests, await page.evaluate(() => ({ identity: window.__SMW?.trackIdentity, admissions: window.__lyricProbe?.data?.lyricSession, lyrics: window.__SMW?.sim.biomes._syncedLyrics, time: window.__SMW?.sim.heardTimeMs, now: Date.now() })).catch(() => null)); }
     finally { releaseLyrics(); releaseDownload(); await context.close(); }
   }

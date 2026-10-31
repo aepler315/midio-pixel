@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MusicLibrary } from '../src/library/MusicLibrary.js';
 import { addRoot, listRoots, listTracks, updateTrack } from '../src/library/LibraryDB.js';
+import { displayTitle } from '../src/library/TrackIndex.js';
 import { fakeIdb } from './helpers/fakeLibraryIdb.js';
 
 function fakeFile(name, { lastModified = 1 } = {}) {
@@ -182,6 +183,25 @@ test('folder import remains playable when IndexedDB is unavailable', async () =>
   assert.equal(lib.sessionFiles.size, 1);
   assert.equal(lib.scanning, false);
   assert.equal(await lib.openFile(lib.tracks[0]), file);
+});
+
+test('identically named file selections remain separately playable with their original labels', async (t) => {
+  for (const [name, scope] of [['stored', fakeIdb()], ['session', {}]]) {
+    await t.test(name, async () => {
+      const files = [new File(['first song'], 'Artist - Song.mp3'), new File(['second song'], 'Artist - Song.mp3')];
+      const lib = new MusicLibrary({ scope, fetchFn: null });
+      await lib.adoptFileList(files);
+
+      assert.equal(lib.tracks.length, 2);
+      assert.equal(new Set(lib.tracks.map((track) => track.path)).size, 2);
+      assert.equal(lib.sessionFiles.size, 2);
+      for (let i = 0; i < files.length; i++) {
+        assert.equal(await lib.openFile(lib.tracks[i]), files[i]);
+        assert.equal(lib.tracks[i].name, 'Artist - Song.mp3');
+        assert.equal(displayTitle(lib.tracks[i]), 'Song');
+      }
+    });
+  }
 });
 
 test('auto-tagging writes only what it found, and only over guesses', async () => {

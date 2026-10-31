@@ -358,3 +358,23 @@ test('a stored verdict carries a timestamp so it can be aged', async () => {
   await verdict;
   assert.equal(storage.getItem('smw:fileChooser'), 'absent:12345');
 });
+
+test('ordinary-file probes ignore legacy folder failures and remember their own verdict', async () => {
+  const stamp = 12345;
+  const storage = fakeStorage({ 'smw:fileChooser': `absent:${stamp}` });
+  const h = harness();
+  const options = { storage, storageKey: 'smw:fileChooser:files', userAgent: '',
+    probeDeps: h.deps, now: () => stamp };
+  const support = new FileChooserSupport(options);
+  const result = support.open(h.input);
+  assert.equal(h.clicks, 1, 'an old folder failure must not suppress the ordinary-file probe');
+  h.elapse();
+  assert.equal(await result, CHOOSER_ABSENT);
+  assert.equal(storage.getItem('smw:fileChooser:files'), `absent:${stamp}`);
+  const reloaded = new FileChooserSupport(options);
+  await reloaded.open(h.input);
+  assert.equal(h.clicks, 1, 'a verified ordinary-file failure still suppresses dead clicks');
+  reloaded.reset();
+  assert.equal(storage.getItem('smw:fileChooser:files'), null);
+  assert.equal(storage.getItem('smw:fileChooser'), `absent:${stamp}`);
+});

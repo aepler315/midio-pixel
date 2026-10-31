@@ -24,6 +24,9 @@ test('pixel fitting preserves aspect, integer scale and sub-grid targets', () =>
   assert.equal(fitPixelRect(320, 180, 1920, 1080, 'integer').scale, 6);
   assert.equal(fitPixelRect(320, 180, 540, 960, 'fit').height, 303.75);
 });
+test('fullscreen cover fills a non-16:9 viewport without stretching or black bars', () => {
+  assert.deepEqual(fitPixelRect(320, 180, 800, 600, 'cover'), { x: -133.33333333333337, y: 0, width: 1066.6666666666667, height: 600, scale: 600 / 180 });
+});
 test('one bounded palette pass precedes the nearest-neighbor output composite', () => {
   const output = surface();
   const owner = new PixelPresentation({ canvas: output, presentation: { ...pixel, paletteId: 'rgb332' } });

@@ -115,29 +115,10 @@ browse what is in it. `tools/music-server.mjs` serves a music folder for
 that purpose. See
 [docs/chooserless-webviews.md](docs/chooserless-webviews.md).
 
-## Saving a video
+## Offline rendering
 
-The show can be recorded to a file: the record dot in the HUD captures from
-wherever you are, and **Save a video** on the complete screen replays the
-song and records it end to end. Picture and sound come out in one file, in
-sync, with no mirroring or projection in between.
-
-Presets cover 480p, 720p and 1080p, plus **Car display** (800×480) for a
-double-DIN head unit, letterboxed rather than stretched. Chrome and Edge
-produce H.264 MP4, which plays anywhere; Firefox produces WebM and some
-Chromium builds produce VP9 in an MP4 wrapper, neither of which most car
-stereos or TVs will decode. The app checks the finished file and tells you
-which one you got rather than trusting the extension.
-
-Recording runs in real time — a four-minute song takes four minutes.
-
-To render a folder of songs at 1080p, 1440p, or 2160p, and at 30 or 60 fps:
-
-```
-node tools/bulk-export.mjs --out exports --res 1080,1440,2160 --fps 30,60 path\to\songs
-```
-
-That path steps every frame and muxes H.264 with ffmpeg. See [docs/video-export.md](docs/video-export.md) for the details.
+The browser no longer offers video recording. For offline, developer-driven
+batch rendering with ffmpeg, use `node tools/bulk-export.mjs --help`.
 
 ## Controls and preferences
 

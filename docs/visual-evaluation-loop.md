@@ -206,14 +206,6 @@ must not be mixed in a matched comparison.
 four DPRs and eight resized viewports, then checks the default Range v2 and explicit legacy path.
 It rejects silent v2 fallback, blank/frozen controlled sequences, missing
 capture, nonpalette raw pixels, incorrect scene bars and failed exports.
-`tools/export-smoke.mjs` records and decodes live Pixel and Palette transitions,
-including Classic-to-Detailed, through SongRecorder, preserving encoded dimensions.
-Start a local app server separately and pass its URL and a fresh output
-directory; an optional third script argument `v2` requires the actual v2
-backend (see [display presentation](pixel-presentation.md)). Opaque raw palette
-membership is exact; decoded H.264 bars permit peak RGB sum <=96 and <=20%
-weakly lit pixels away from the boundary (<=35% at the adjacent boundary).
-These codec tolerances do not establish exact palette membership after loss.
 The browser CI jobs have time bounds and retain failed diagnostics.
 
 ## Diagnostic renders and render provenance

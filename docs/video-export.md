@@ -1,4 +1,8 @@
-# Saving a performance as a video
+# Video export implementation notes (historical)
+
+The browser video-export UI and recording controls have been removed. The
+recorder notes below describe the former interface; the offline bulk-rendering
+tool remains available for development.
 
 Choose **Export video** on the front screen before choosing a song. Configure
 resolution, aspect ratio, FPS, encoding quality and Fit/Fill framing, then drop a

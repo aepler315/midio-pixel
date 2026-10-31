@@ -48,7 +48,7 @@ import { mirrorSize, mirrorLevelFor, mirrorCameraFor, mirrorTextureMatrix, MIRRO
 import { scenicProjection, calibrateRangeMusic, rangeCameraCalibration } from './RangeFrame.js';
 import { applyGlacierUniforms, glacierErrors, glacierSample } from './GlacierField.js';
 import { ActorsGL, SITE_LIGHTS_MAX, CAST_LAYER, CAST_RIBBON_LAYER, enableCastLayers } from './ActorsGL.js';
-import { buildRiverGeometry, riverGeometryBound, riverChannelErrors } from './RiverChannel.js';
+import { riverChannelErrors } from './RiverChannel.js';
 import { ACTOR_IDS, ACTOR_HUES, ACTOR_LOOK, ACTOR_START, actorRoutes, routePosition } from './RangeActors.js';
 import { castPlan, castWork, pathPosition, siteWalk } from './CastJobs.js';
 import { flashScreenPoint, rainSeed01, stormKindRow } from './RangeStorm.js';
@@ -67,7 +67,6 @@ const BACKDROP_KEY = 'range:water-backdrop';
 export const CANVAS_TRIM_FRAMES = 90;
 // Full/lite pairs share instances and retain two scalar attributes per batch.
 const FOREST_DETAIL_BYTES = BANDS.length * FOREST_FAMILIES * FOREST_VARIANTS * 8;
-const RIVER_VERTICES_PER_SET = 60000; // primary surface and seam fill share one admitted bound
 /** ?rangeDebug=<mode> terrain diagnostics (uDebugMask in TerrainMaterial). */
 export const TERRAIN_DEBUG_MODES = Object.freeze({ masks: 1, slope: 2, albedo: 3, fill: 4, key: 5, roughness: 6, specular: 7, sun: 8 });
 
@@ -1157,9 +1156,8 @@ export class RangeScene {
         // whose terrain streams; they keep the unshadowed key).
         const horizonOptions = { maxSize: this.budget === 'mobile' ? 192 : 256 };
         const horizonCost = view.tour || !cpu.data?.grid ? 0 : horizonBytes(cpu.data.grid, horizonOptions);
-        const riverBound = 2 * riverGeometryBound(view, { maxVertices: RIVER_VERTICES_PER_SET });
         const bytes = (view.tour ? Math.ceil(gridPx * (4 * 4 / 3 + 1)) + featureBudgetBytes + 2 * ActorsGL.bytes()
-          : 2 * ((est?.meshBytes || 0) + fringeBytes + forestBytes) + (est?.surfaceTextureBytes || 0) + gridPx + featureBudgetBytes + 2 * ActorsGL.bytes() + horizonCost) + 2 * riverBound;
+          : 2 * ((est?.meshBytes || 0) + fringeBytes + forestBytes) + (est?.surfaceTextureBytes || 0) + gridPx + featureBudgetBytes + 2 * ActorsGL.bytes() + horizonCost);
         res = this.residency?.reserve({ key: gpuKey, bytes, owner: 'range-terrain-gpu', generation }) || null;
         if (this.residency && !res) throw new RangeAssetError('budget', `no GPU room for ${view.id}`);
         if (rawWindow) {
@@ -1168,26 +1166,9 @@ export class RangeScene {
           buildEntry.retainedBytes = windowBytes;
         }
         geos = createBandGeometries(THREE, cpu.data, { budget: this.budget, ...(rawWindow ? { built: rawWindow.built } : {}) });
-        // Clip narrow mapped channels to the actual drawn triangles: the
-        // same LOD, tile boundaries and no-data gaps, with a small depth lift.
-        const riverOptions = { maxVertices: RIVER_VERTICES_PER_SET };
-        const rivers = buildRiverGeometry(cpu.data, view, geos, riverOptions);
-        const riverFringes = buildRiverGeometry(cpu.data, view, { geometries: geos.fringes }, riverOptions);
-        for (const [destination, built] of [[riverGeometries, rivers], [riverFringeGeometries, riverFringes]]) for (const band of BANDS) {
-          const raw = built.bands[band];
-          if (!raw.indices.length) continue;
-          const geometry = new THREE.BufferGeometry();
-          destination[band] = geometry;
-          geometry.setAttribute('position', new THREE.BufferAttribute(raw.positions, 3));
-          geometry.setAttribute('river', new THREE.BufferAttribute(raw.river, 3));
-          geometry.setAttribute('riverDirection', new THREE.BufferAttribute(raw.riverDirection, 2));
-          for (const key of ['terrainA', 'terrainB', 'terrainC']) geometry.setAttribute(key, new THREE.BufferAttribute(raw[key], 3));
-          geometry.setIndex(new THREE.BufferAttribute(raw.indices, 1));
-          geometry.computeBoundingSphere();
-        }
-        const riverStats = { ...rivers.stats, fringeTriangles: riverFringes.stats.triangles,
-          bytes: rivers.stats.bytes + riverFringes.stats.bytes };
-        if (res && riverBound) this.residency.shrink(gpuKey, bytes - 2 * riverBound + 2 * riverStats.bytes);
+        // Keep lakes and their reflections, but do not add flowing river
+        // surfaces to the landscape.
+        const riverStats = { triangles: 0, fringeTriangles: 0, bytes: 0 };
         await yieldToMain();
         if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
         const scratchKey = `range:surface-scratch:${view.id}`;

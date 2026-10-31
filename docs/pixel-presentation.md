@@ -43,7 +43,7 @@ Drawing returns an explicit `presented` result. Capture is nullable until a fram
 
 Title and playback keep independent phase-preserving draw deadlines. The playback HUD labels delivered presentation FPS separately from callback FPS; the governor still receives raw callback timing. Integer layout resolves both origin and scale in physical pixels, including the parent's origin and DPR, and applies the logical image dimensions through a transform to avoid CSS layout rounding at fractional DPR.
 
-`npm run test:retro` verifies default Range v2 and explicit legacy, shader/context failures, both-grid checkerboard raster boundaries at four DPRs/eight layouts, meaningful content and temporal changes, exact opaque pre-encode palettes, and export rejection. Live recording/decode needs a running local app server; its optional `v2` argument requests and verifies the actual v2 backend. Lossy decoded frames use stated brightness/coverage tolerances for bars rather than exact palette membership. The bounded pixel browser CI job preserves diagnostic artifacts on failure.
+`npm run test:retro` verifies default Range v2 and explicit legacy, shader/context failures, both-grid checkerboard raster boundaries at four DPRs/eight layouts, meaningful content and temporal changes, exact opaque pre-encode palettes, and export rejection. The bounded pixel browser CI job preserves diagnostic artifacts on failure.
 
 ```sh
 npm test
@@ -51,11 +51,6 @@ npm run lint
 npm run test:retro
 node tools/palette-bench.mjs
 node tools/bulk-export.mjs --help
-node tools/serve.js 8091
-# In another terminal:
-node tools/export-smoke.mjs http://127.0.0.1:8091 .smoke/pixel-export
-# Optional production Range v2 recording check:
-node tools/export-smoke.mjs http://127.0.0.1:8091 .smoke/pixel-export-v2 v2
 ```
 
 The bulk CLI supports `--look`, `--quality`, `--palette world|range32|chroma32|rgb332`, `--dither off|subtle|full`, `--dither-mode ordered|selective`, `--pixel-grid classic|classicPlus|medium|mediumPlus|detailed` and `--scaling fit|integer`.
@@ -83,7 +78,9 @@ Range v2 terrain crests and lake/river shorelines get a steadied, anti-aliased l
 
 Alpine Landscape paints moon, sun, stars, aurora, clouds and musical weather into a separate smooth sky layer using the same resolved camera, crop and scenic transform as the terrain. Terrain and its native material responses remain pixelated. Pixel/Palette and Classic/Detailed still control the foreground; the sky stays full-colour and is not palette-quantized.
 
-The live output follows the contained stage CSS size times DPR, capped at 1920×1080, and then the quality ladder's resolution scale (`PerfGovernor.resolutionScale`: 1 at rungs 0–1, 0.85 at rung 2, 0.75 at rung 3, 0.625 from rung 4). A reduced height is rounded down to whole terrain cells and kept at two or more output rows per grid row, or at the display's own height when that is smaller (`RenderOutputSize.stageOutputSize`). A 1080-line Classic stage therefore draws 1080, 900, 720 and 540 lines at rungs 1, 2, 3 and 4–6; Detailed holds 720 from rung 2. A rung change refits the stage; the terrain grid never changes with it. Classic, Classic+, Medium, Medium+ and Detailed keep their 320×180, 400×225, 480×270, 560×315 and 640×360 terrain buffers. Trio retains its native grid, and offline exports use their requested dimensions. The sky does not use nearest-neighbour CSS stretching. Above the live cap the completed picture is scaled to the display.
+Windowed live output follows the contained stage CSS size times DPR, capped at 1920×1080, and then the quality ladder's resolution scale (`PerfGovernor.resolutionScale`: 1 at rungs 0–1, 0.85 at rung 2, 0.75 at rung 3, 0.625 from rung 4). A reduced height is rounded down to whole terrain cells and kept at two or more output rows per grid row, or at the display's own height when that is smaller (`RenderOutputSize.stageOutputSize`). A 1080-line Classic stage therefore draws 1080, 900, 720 and 540 lines at rungs 1, 2, 3 and 4–6; Detailed holds 720 from rung 2. A rung change refits the stage; the terrain grid never changes with it. Classic, Classic+, Medium, Medium+ and Detailed keep their 320×180, 400×225, 480×270, 560×315 and 640×360 terrain buffers. Trio retains its native grid, and offline exports use their requested dimensions. The sky does not use nearest-neighbour CSS stretching. Above the windowed cap the completed picture is scaled to the display.
+
+Landscape fullscreen instead uses the actual viewport dimensions times DPR, including at reduced quality rungs. It fills the display with uniform cover scaling, cropping the authored scene at the edges where the screen aspect differs. Entering or leaving fullscreen refits and redraws paused playback, and leaving restores the saved scaling preference. This deliberately spends more output pixels than adaptive windowed mode. Android snapshots save only the current detail level at the live backing size; desktop snapshots retain the five full-HD detail captures.
 
 Sky density and lunar textures have bounded, accounted canvas ownership and release on song teardown. The experiment adds no terrain readback or full-frame sky cache. Existing water backdrop storage captures the same sky before far terrain, preserving reflections. Sampleable scenic depth remains required for real depth consumers such as water and shafts, despite removal of the Depth pixel effect.
 

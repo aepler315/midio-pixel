@@ -85,10 +85,10 @@ function defaultStorage() {
  * says `absent`, so upgrading re-probes once rather than honouring a
  * verdict of unknown age.
  */
-function readStoredVerdict(storage, now = Date.now()) {
+function readStoredVerdict(storage, now = Date.now(), storageKey = VERDICT_KEY) {
   let raw;
   try {
-    raw = storage?.getItem(VERDICT_KEY);
+    raw = storage?.getItem(storageKey);
   } catch {
     return null; // private mode / disabled storage: probe again, don't crash
   }
@@ -102,9 +102,9 @@ function readStoredVerdict(storage, now = Date.now()) {
   return verdict;
 }
 
-function writeStoredVerdict(storage, verdict, now = Date.now()) {
+function writeStoredVerdict(storage, verdict, now = Date.now(), storageKey = VERDICT_KEY) {
   try {
-    storage?.setItem(VERDICT_KEY, `${verdict}:${now}`);
+    storage?.setItem(storageKey, `${verdict}:${now}`);
   } catch { /* nothing to do; the verdict just won't be remembered */ }
 }
 
@@ -185,15 +185,17 @@ export class FileChooserSupport {
   /**
    * @param {object} [options]
    * @param {Storage} [options.storage]
+   * @param {string} [options.storageKey] isolate verdicts for distinct picker routes
    * @param {string}  [options.userAgent]
    * @param {object}  [options.probeDeps]  forwarded to probeFileChooser
    */
-  constructor({ storage = undefined, userAgent = undefined, probeDeps = {}, now = undefined } = {}) {
+  constructor({ storage = undefined, storageKey = VERDICT_KEY, userAgent = undefined, probeDeps = {}, now = undefined } = {}) {
     this.storage = storage === undefined ? defaultStorage() : storage;
+    this.storageKey = storageKey;
     this.userAgent = userAgent === undefined ? globalThis.navigator?.userAgent : userAgent;
     this.probeDeps = probeDeps;
     this.now = now || (() => Date.now());
-    this.verdict = readStoredVerdict(this.storage, this.now());
+    this.verdict = readStoredVerdict(this.storage, this.now(), this.storageKey);
     this.pending = null;
   }
 
@@ -235,7 +237,7 @@ export class FileChooserSupport {
     }
     const verdict = await this.pending;
     this.verdict = verdict;
-    writeStoredVerdict(this.storage, verdict, this.now());
+    writeStoredVerdict(this.storage, verdict, this.now(), this.storageKey);
     if (verdict === CHOOSER_ABSENT) {
       // Dismiss the keyboard the dead click raised. Blurring the focused
       // element is what lowers the Android IME; there is no direct API.
@@ -248,6 +250,6 @@ export class FileChooserSupport {
   /** Test/support hook: forget the remembered verdict and probe again. */
   reset() {
     this.verdict = null;
-    try { this.storage?.removeItem(VERDICT_KEY); } catch { /* not stored anyway */ }
+    try { this.storage?.removeItem(this.storageKey); } catch { /* not stored anyway */ }
   }
 }

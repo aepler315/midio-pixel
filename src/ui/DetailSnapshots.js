@@ -6,6 +6,16 @@
 /** Coarsest to finest, the order of the Display menu's Pixel detail. */
 export const DETAIL_LEVELS = Object.freeze(['classic', 'classicPlus', 'medium', 'mediumPlus', 'detailed']);
 
+/** Android head units have limited memory and often block multiple downloads.
+ * Save the current frame once, at its live size, instead of allocating five
+ * full-HD render targets and starting five downloads in quick succession. */
+export function snapshotCapturePlan(userAgent, currentLevel) {
+  if (/Android/i.test(userAgent || '')) {
+    return { levels: [DETAIL_LEVELS.includes(currentLevel) ? currentLevel : 'classic'], size: null };
+  }
+  return { levels: DETAIL_LEVELS, size: { w: 1920, h: 1080 } };
+}
+
 /** The level `delta` steps from `current`, held at either end. */
 export function stepDetail(current, delta) {
   const at = DETAIL_LEVELS.indexOf(current);
