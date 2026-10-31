@@ -1,5 +1,7 @@
 # WP01: current staged routes and diagnostic acceptance
 
+> Historical record. The scope, preservation rules, approval/hold decisions and validation steps below describe this past task, not current development prerequisites. Experiments and local commits follow the [current development policy](../experimental-development.md). Recorded results and runtime eligibility remain evidence of the version reviewed.
+
 Date: October 20, 2026. Implementation base: `cace36893003e4161b243f22a69204be17181df6`.
 
 This implements the first package in the [independent consolidated roadmap](https://github.com/aepler315/midio-pixel/blob/b469304bebb1cb3f8ed27e46dfb5ca61a5ced933/docs/audits/2026-10-20-astra-sol-independent-consolidated-audit.md). It strengthens C40 route coverage, C42 graphics diagnostics and C39 source-comparison provenance. Changes are limited to validation tools, tests, documentation and manual workflows. Application source and rendered behavior are unchanged.

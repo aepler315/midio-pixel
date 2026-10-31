@@ -434,11 +434,13 @@ zoom, and the reverse camera.
   - Both compiled modes draw complete terrain from the same source samples,
     including the buttes' far faces.
 
-## Recommendation
+## Recommendation from this experiment
 
-**Reject the stepped column surface** as the head-unit route for real-terrain
-landscapes. **Keep, and revise, the triangulated control with baked
-appearance.**
+The measured results favored **rejecting the stepped column surface** as the
+head-unit route for these real-terrain landscapes and **revising the triangulated
+control with baked appearance**. These are conclusions from the recorded
+experiment, open to further task-authorized investigation under the
+[experimental development policy](experimental-development.md).
 
 - **Columns:** they did cost the least in the software proxy, but only
   through fewer triangles. They carry twice the control's vertices and the
@@ -449,7 +451,7 @@ appearance.**
 - **Mesh control:** at the same triangle count as production, the baked
   material with a light shader already removed about 40 % of the measured
   terrain work and kept the landscape, rail, swell and effects intact.
-  Next steps, in order:
+  Suggested next steps from that experiment:
   1. A level-of-detail error budget for the 320×180 grid instead of 1080p
      (the shipped mesh's budget), aiming for the lean triangle counts without
      the lean profile's silhouette damage.
@@ -457,8 +459,8 @@ appearance.**
      camera, to bring packs and memory below production's.
   3. Restoring cloud and horizon shadows if the device budget allows.
   4. Measuring on the head unit with the procedure above.
-- **Pre-rendered view atlases** stay a later fallback. Geometry with baked
-  appearance kept free camera movement, zoom, swell and complete reverse
+- **Pre-rendered view atlases** were deferred as a fallback in this experiment.
+  Geometry with baked appearance kept free camera movement, zoom, swell and complete reverse
   views. Nothing measured here requires giving those up.
 
 All device conclusions remain unverified until the procedure above runs on

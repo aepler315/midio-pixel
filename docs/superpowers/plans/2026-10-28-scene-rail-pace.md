@@ -1,5 +1,7 @@
 # Scene rail pace implementation plan
 
+> Historical record. The scope, preservation rules, approval/hold decisions and validation steps below describe this past task, not current development prerequisites. Experiments and local commits follow the [current development policy](../../experimental-development.md). Recorded results and runtime eligibility remain evidence of the version reviewed.
+
 Approved conversation spec: per-scene rails requested 3x, coordinated automatic scenic punch Off, persistence and review controls in aepler315/midio-pixel. Inspected baseline 6b47a080dc1d6d23ed049cdfa3cd877eb4883bcf. Routes and restrained zoom are deferred.
 
 ## Global constraints

@@ -1,5 +1,7 @@
 # WP03 follow-up: tour route stalls, mirror backdrop release and ending reachability
 
+> Historical record. The scope, preservation rules, approval/hold decisions and validation steps below describe this past task, not current development prerequisites. Experiments and local commits follow the [current development policy](../experimental-development.md). Recorded results and runtime eligibility remain evidence of the version reviewed.
+
 This follow-up independently verifies the published WP03 checkpoint and investigates its two remaining problems: the persisted-Tetons screenshot failure in the staged four-route gate, and the remaining ending misses. It makes one application fix (a WebGL error found during the investigation), adds two diagnostic tools, and documents a composition experiment that was measured and deliberately not shipped.
 
 Branch: `impl/wp03-followup-tour-verification`. Sole parent: WP03 `ac5db24a49c96645f377366dd7e753494c1f04ab` (itself on WP01 `1f36735e2ff84fbdd8150dd7c05f733a3d00e18e`; WP02 is not included). The remote WP03 branch was verified at that SHA before work began, and its local worktree was clean. The WP03 branch is unchanged. The tour planner (`TourTimeline.js`, `TourMotion.js`, `TourPlanner.js`) is byte-identical to WP03, so WP03's replay and holdout results still describe this branch's planner.

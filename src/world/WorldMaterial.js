@@ -2,13 +2,13 @@
 //
 // The Halloween read — black cutout ridges, a creamy moonlight rim, purple-
 // orange night, a void underfoot with roots hanging into it — is what you
-// get when every landform is a HOLE in the sky. We do not replace that with
-// photoreal rock. We replace it with limited-value scenic painting: WPA
+// get when every landform is a HOLE in the sky. This recipe uses
+// limited-value scenic painting: WPA
 // travel posters, woodblock prints, animation background plates. Colored
 // masses, a ground that is a different material from the ridge, rims in the
 // world's own light, no moonlight edge on cardboard teeth.
 //
-// A world is still a landform contract (docs/worlds.md). This file is the
+// Current world landforms are described in docs/worlds.md. This file is the
 // paint and the bake recipe those landforms use. Landscape and Trio are both
 // the alpine kind; an unknown kind reads the alpine recipe.
 import { clamp01 } from '../utils/math.js';

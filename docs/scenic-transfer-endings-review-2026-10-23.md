@@ -1,5 +1,7 @@
 # Panamint and Teton transfer and ending repair
 
+> Historical record. The scope, preservation rules, approval/hold decisions and validation steps below describe this past task, not current development prerequisites. Experiments and local commits follow the [current development policy](experimental-development.md). Recorded results and runtime eligibility remain evidence of the version reviewed.
+
 This pass starts from main `1b46e5e3fad38b7b8c75d2391af2e6b79500bfff`.
 It shortens the two priority transfers, restores a readable Panamint opening,
 and replaces both unfinished closing links with shot endings in the reviewed

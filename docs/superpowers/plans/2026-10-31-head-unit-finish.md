@@ -1,5 +1,7 @@
 # Head-unit fixes completion plan
 
+> Historical record. The scope, preservation rules, approval/hold decisions and validation steps below describe this past task, not current development prerequisites. Experiments and local commits follow the [current development policy](../../experimental-development.md). Recorded results and runtime eligibility remain evidence of the version reviewed.
+
 **Goal:** Finish the previously requested Android head-unit fixes from local commit `42dff0a` on current main.
 
 **Scope:** Bottom scroll clearance, fullscreen at physical viewport dimensions, one live-sized Android screenshot, a working multiple-file music fallback, and removal of video export controls and flowing river geometry. Keep lakes, oceans, reflections, existing camera work and the opt-in compiled terrain experiment.

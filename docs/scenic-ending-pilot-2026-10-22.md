@@ -1,5 +1,7 @@
 # Denali ending and transit pilot
 
+> Historical record. The scope, preservation rules, approval/hold decisions and validation steps below describe this past task, not current development prerequisites. Experiments and local commits follow the [current development policy](experimental-development.md). Recorded results and runtime eligibility remain evidence of the version reviewed.
+
 **Decision: keep the evidence and reject the higher ending penalty as a default
 change.** The actual app reaches a useful final shot, but the changed route has
 a more sky-heavy main transfer, less move variety and no clear improvement in

@@ -1,5 +1,12 @@
 # Scenic shot tours
 
+This document combines implementation contracts with dated development findings.
+Historical holds, deferred work and preserved settings describe those revisions;
+they do not veto further task-authorized camera, terrain, catalog or budget
+experiments. Follow the [experimental development policy](experimental-development.md).
+Runtime approval and identity checks below describe current tooling, whose
+behavior can also evolve with corresponding compatibility and integrity checks.
+
 **Original delivery baseline checked 2026-10-22:** tooling merged in PRs
 [#24](https://github.com/aepler315/midio-pixel/pull/24) and
 [#25](https://github.com/aepler315/midio-pixel/pull/25). At main
@@ -77,7 +84,8 @@ remains unresolved. The final review set has 15 libraries, 144 shots and
 335 links in a 64,125,061-byte Range asset tree on the separate
 [R6 review asset branch](https://github.com/aepler315/midio-pixel/tree/review/scenic-camera-wave-20261023).
 The R5 inventory and historical results below remain their dated baselines.
-The approved geographic count stays 13; geographic expansion remains on hold.
+The approved geographic count stayed 13 in that review, which placed geographic
+expansion on hold for that iteration. Later task-authorized expansion may proceed.
 
 The [R7 framing and ending follow-up](scenic-framing-endings-review-2026-10-23.md)
 retains Izta's wider opening and Black's late-rise ending within the reviewed
@@ -114,7 +122,7 @@ library and is the fallback whenever a library or plan is unavailable.
 - **Rejected (4):** kept in `data/terrain/scenic-views.json`, never shipped.
 - **Legacy skyline-only ranges:** 83 scanned range modules; 13 host an
   approved view, 70 are skyline-only. They supply the musical ridges for
-  every song and are out of scope for tours.
+  every song and were outside the initial tour implementation.
 
 ## Current delivery and reported builds
 
@@ -630,8 +638,8 @@ coverage and old visible terrain detail; triangle, forest, runtime residency,
 motion and quality limits remain unchanged. See the
 [R7 review](scenic-framing-endings-review-2026-10-23.md#black-terrain-repair-and-explicit-download-tradeoff).
 Regional allowances remain separate from the removed global Range asset-size
-gate. A compact tile table could reduce manifest cost; it remains a later
-format change.
+gate. A compact tile table could reduce manifest cost; it was deferred in that
+revision and remains available for further experimentation.
 
 The fallback rail is already present, but its final reflection requirements
 cannot be assumed to add no coverage. Every final decoded package determines

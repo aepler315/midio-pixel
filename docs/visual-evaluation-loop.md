@@ -2,6 +2,12 @@
 
 Use actual audio and actual rendered output to guide changes. Unit tests establish correctness; they do not establish that the scene looks good or follows the music clearly.
 
+This is a review workflow, not a prerequisite for development. Follow the
+[experimental development policy](experimental-development.md): task-authorized
+experiments may proceed with the tools and evidence available. Missing captures,
+hardware or a fully passing baseline are validation gaps to report, not standing
+blocks on implementation, iteration or local review commits.
+
 For a bounded Landscape review that always stays in the background, use
 [`npm run review:landscape`](landscape-review.md). It saves exact PNG/audio
 clips, contact sheets, control checks and an optional separate live trace; it
@@ -26,15 +32,15 @@ motion sample in both passes and comparing identical inputs with
 `--require-identical`: any PNG that differs between the two passes fails
 the job, since software WebGL renders identical inputs byte-for-byte. For tight
 iterations, use a focused manifest with one recording and a few windows;
-use the full corpus for acceptance.
+broaden coverage when the change and the claims being reviewed warrant it.
 
-The default versioned corpus contains three generated 24-second recordings: silence, isolated kicks, and quiet/loud/quiet instrumental contrast. The contrast track uses the existing pilot generator. These are controlled diagnostic inputs, not coverage of real genres or proof of instrument recognition. Run your representative recordings before accepting an artistic change.
+The default versioned corpus contains three generated 24-second recordings: silence, isolated kicks, and quiet/loud/quiet instrumental contrast. The contrast track uses the existing pilot generator. These are controlled diagnostic inputs, not coverage of real genres or proof of instrument recognition. Representative recordings provide stronger evidence for artistic judgments; identify their absence when reporting a result.
 
 ## The coding-model loop
 
-1. Capture a baseline before editing. Read the JSON status and errors; open the PNGs and inspect consecutive frames; listen to the matching passage. A failed capture is a harness/runtime problem to diagnose, not an acceptable baseline.
+1. Capture a baseline when practical. Read the JSON status and errors; open the PNGs and inspect consecutive frames; listen to the matching passage. A failed capture is a harness/runtime problem to record and diagnose, not a passing baseline. Development can continue while that gap remains explicit.
 2. Write one falsifiable observation with a song ID and timestamp: for example, “The ridge response vanishes at the storm maximum at 12.0 seconds.” Distinguish an audio-derived control from an ambient clock. State what visible evidence would show improvement.
-3. Change the smallest relevant component. Preserve the original baseline. Run the relevant behavior tests.
+3. Choose an implementation scope appropriate to the experiment. Preserve any recorded baseline and run relevant behavior checks proportional to the change.
 4. Run **the same manifest** into a new directory:
 
    ```sh
@@ -43,11 +49,11 @@ The default versioned corpus contains three generated 24-second recordings: sile
    ```
 
 5. Open the comparison and both audio-backed motion reports. Check quiet, attack, climax and return passages. A large pixel difference does not mean better; identical pixels can reveal that the code change never reached the image.
-6. Record a retain/revert decision, the observation it addresses, regressions checked, and remaining uncertainty. If an iteration does not improve the stated observation, revert only that iteration's changes. Keep unrelated user work intact. Stop when the selected acceptance criteria are met; do not keep adding spectacle to increase a score.
+6. Record a retain/revise/revert decision, the observation it addresses, regressions checked, and remaining uncertainty. An inconclusive iteration may remain available for further work with its limitations recorded. Keep unrelated user work intact and let the current task determine when to stop or broaden the experiment.
 
 Suggested task prompt:
 
-> Read AGENTS.md and docs/visual-evaluation-loop.md. Capture the specified manifest as a baseline. Inspect actual screenshots and listen to the corresponding clips. Choose the most consequential visible musical mismatch, explain its cause, and make one scoped improvement. Capture the identical manifest again, compare the results, and retain the change only if the target visibly improves without regressions in quiet passages, transitions, or framing. Report the evidence paths and exact song/time references. Do not infer visual success from unit tests or numeric controls alone.
+> Read AGENTS.md, docs/experimental-development.md and docs/visual-evaluation-loop.md. Use the available captures and matching audio to identify a consequential visible musical mismatch, or state the hypothesis when capture is unavailable. Implement an experiment with scope appropriate to the task. When practical, compare the same manifest before and after; report evidence paths, exact song/time references, regressions and unavailable checks. Continue iteration when evidence is incomplete without claiming visual success from unit tests or numeric controls alone.
 
 ## Quality rungs and the VFX matrix
 

@@ -1,5 +1,7 @@
 # Izta opening and Black ending repair R7
 
+> Historical record. The scope, preservation rules, approval/hold decisions and validation steps below describe this past task, not current development prerequisites. Experiments and local commits follow the [current development policy](experimental-development.md). Recorded results and runtime eligibility remain evidence of the version reviewed.
+
 R7 locally retains a wider Izta/Popo opening and a more open Black Mountains
 ending after matched Anthem image review. Two earlier Black packages remain
 rejected: their forest/detail bands persisted through a stricter terrain bake

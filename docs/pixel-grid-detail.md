@@ -1,5 +1,10 @@
 # Geometry and material work at the pixel grid
 
+The bounds and preservation choices below describe the current implementation.
+Further geometry, density, grid and budget experiments may revise them under
+the [experimental development policy](experimental-development.md), with
+corresponding compatibility checks and evidence.
+
 Pixel preparation omits the three multisample ownership materials and their
 startup compilation. The ordinary terrain depth prepass remains active.
 The pixel terrain material skips snow detail when its contribution is zero

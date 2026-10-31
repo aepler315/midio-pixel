@@ -2,10 +2,14 @@
 
 What “looks good” means, without a public score.
 
-The chooser presents two equal cards, Landscape and Trio. Internal fit is a
-heuristic, not visual quality, and must not set the viewing order. This
+The current chooser presents two equal cards, Landscape and Trio. Internal fit
+is a heuristic and does not set their viewing order in this implementation. This
 protocol records that heuristic privately, captures the same three moments
 in both worlds, and asks a human to rate what they see.
+
+The chooser and evaluation design may evolve through
+[experimental development](experimental-development.md). Keep tuning and
+held-out evidence distinct when making acceptance claims.
 
 ```sh
 npm run eval:worlds

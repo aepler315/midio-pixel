@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       baseline_ref:
-        description: Optional source ref; empty repeats the dispatched source. Phase 1 stays fixed.
+        description: Optional reference source; empty repeats the dispatched source.
         required: false
         default: ''
         type: string

@@ -1,50 +1,55 @@
-# Midio-5 coding workflow
+# Midio Pixel development
 
-Run browser review in the background without interrupting the user's work.
-For bounded Landscape captures, use `npm run review:landscape -- --out
-.smoke/<unique-run>` and `docs/landscape-review.md`. Keep Chromium headless,
-retain its isolated temporary profile and muted audio, and hide helper-process
-windows on Windows. Save reports and clips without automatically opening them.
-Do not launch a headed browser, focus a user window, or attach to the user's
-Chrome session unless the user explicitly requests that interaction.
+Midio Pixel is an experimental music visualizer. Follow the current user task
+and [experimental-development policy](docs/experimental-development.md).
+Earlier plans, audits, preservation lists, review holds and rejected trials
+record their own revisions; they do not freeze future development.
 
-For changes to rendered appearance or its relationship to music,
-`docs/visual-evaluation-loop.md` describes an optional visual comparison
-workflow. A baseline or visual capture is not a prerequisite for editing or
-completing a change. When useful and available, compare matching captures and
-inspect the rendered images and audio; use continuous capture to assess render
-history, since sparse captures skip draws between windows.
+## Experiment and iterate
 
-For visual findings, identify the song and timestamp and distinguish observed
-results from unverified expectations. Passing tests or changed pixels alone do
-not establish visual quality. Preserve any existing evidence and unrelated work,
-and report unavailable visual or device checks accurately.
+- Implement requested experiments and make routine technical decisions without
+  repeatedly seeking approval. Keep work reviewable and explain material choices.
+- Renderers, terrain representations, pixel treatments, looks, cameras, scenes,
+  audio/visual relationships, weather, quality budgets, defaults and optional
+  features may evolve. Existing architecture and numerical limits are starting
+  points, not permanent design requirements.
+- Use branches, small pilots, comparisons or feature switches when they help
+  the work. A separate prototype, fixed pilot order or opt-in switch is not a
+  universal prerequisite. Preserve unrelated user work.
+- Candidate experiments may be built and reviewed before full visual or device
+  validation. Keep actual runtime eligibility and approval metadata accurate;
+  changing a flag does not create missing evidence. Runtime checks may be
+  intentionally redesigned with their consumers and tests.
 
-Never commit captured evidence (PNG, GIF, MP4, ZIP, HTML reports, capture
-JSON) to the repository: every byte stays in git history forever. Keep it in
-`.smoke/`, retain it as a CI artifact (`actions/upload-artifact`), or attach
-anything that must outlive artifact retention to a GitHub Release, and link
-it from the PR description. `docs/evidence/` is closed to new files; see its
-README.
+## Verify what changed
 
-Checkouts are LF everywhere (`.gitattributes`), and pinned Range/vendor bytes
-are never converted. A clone made before that rule may still hold CRLF files,
-which `test/lineEndings.test.js` reports. Refresh such a clone once:
+Choose checks proportionate to the change. Run focused behavior tests and lint
+for executable changes; use the full suite and browser/device tools when they
+help assess integration or release readiness. Documentation-only edits normally
+need consistency, link and whitespace checks rather than a full rendering run.
+[`npm run validate`](docs/local-validation.md) remains a convenient comprehensive
+check, not a prerequisite for every experiment, local commit or draft review.
 
-1. Commit or stash your own work first; the steps below rewrite files.
-2. `git status` may still list files under `src/vendor`, `ridgeview/vendor`
-   or `src/assets/range/v2`. Those paths can hold real work, so a modified
-   status alone proves nothing. Discard them only after
-   `git diff --ignore-cr-at-eol --quiet -- src/vendor ridgeview/vendor src/assets/range/v2`
-   exits 0 (the differences are line endings only), with
-   `git checkout -- src/vendor ridgeview/vendor src/assets/range/v2`.
-   Never commit those CRLF bytes.
-3. When `git status --porcelain` prints nothing, rewrite every tracked
-   file from HEAD: `git rm --cached -r -q . && git checkout HEAD -- .`.
+Use [visual comparisons](docs/visual-evaluation-loop.md) when useful. Capturing
+a baseline, completing an artistic review, reaching a clean full suite or having
+a particular GPU/device is not required before editing or continuing an
+experiment. Report failures, baseline failures, unavailable tools and unrun
+checks. Claim visual, musical or device outcomes only when actually observed;
+include the song and timestamp for specific visual findings.
 
-Never use `git add --renormalize`: for `-text` paths it stages the CRLF bytes.
+## Work carefully
 
-Run relevant behavior tests and `npm test`/`npm run lint` before completion;
-`npm run validate` runs the full local gate (docs/local-validation.md).
-Document unavailable browser/device checks accurately. For nonvisual changes,
-use the tests relevant to the change; a visual capture is unnecessary.
+Default automated browser work to an isolated, headless, muted session and save
+reports without opening them. Use `npm run review:landscape -- --out
+.smoke/<unique-run>` for bounded captures. Respect the user's browser preference
+and avoid interrupting their active session.
+
+Keep generated evidence in `.smoke/` or external artifacts rather than adding
+large captures to Git. Retain attribution, licenses, private credentials and
+unrelated files. Respect `.gitattributes`; avoid accidental line-ending changes
+to vendor or pinned assets. Intentional asset/runtime changes should update the
+corresponding pins, manifests and verification tools together.
+
+Publishing, merging and other external actions follow the current user's
+authorization and the host's permissions. These docs do not grant additional
+platform permissions or turn an unrun check into a passing result.

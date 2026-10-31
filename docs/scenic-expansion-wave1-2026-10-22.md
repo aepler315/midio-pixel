@@ -1,5 +1,7 @@
 # First scenic expansion wave
 
+> Historical record. The scope, preservation rules, approval/hold decisions and validation steps below describe this past task, not current development prerequisites. Experiments and local commits follow the [current development policy](experimental-development.md). Recorded results and runtime eligibility remain evidence of the version reviewed.
+
 Work started 2026-10-22 with three new geographic **candidates** toward the
 [13 → 18 → 24 → 30 direction](scenic-view-expansion.md). The approved geographic
 count remains 13. These entries add source acquisition, authored fallback rails

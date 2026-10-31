@@ -1,5 +1,12 @@
 # Teton Song Highway validation
 
+This record describes the named implementation and its observed limits. Its
+candidate status, retained settings and validation targets are not standing
+restrictions on further planner, camera, terrain or budget experiments. Follow
+the [experimental development policy](experimental-development.md): continue
+task-authorized development with proportional checks and report unavailable
+captures, devices or unresolved baseline failures without claiming they passed.
+
 Implementation branch: `teton-song-highway-resume`. Enable The Range's
 **Camera tour: Tetons** Display preference, or open `?rangeTour=tetons`.
 `?rangeTour=off` overrides the saved preference. The authored Teton catalog

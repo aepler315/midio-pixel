@@ -1,5 +1,12 @@
 # Expanding scenic views from 13 toward 30
 
+This document records a dated proposal and its follow-ups. Its sequence, holds,
+preservation lists and budgets are historical planning context, not standing
+limits on task-authorized experiments. The
+[experimental development policy](experimental-development.md) permits further
+camera, terrain, catalog, feature and budget changes with proportional validation
+and explicit reporting of runtime eligibility and remaining evidence gaps.
+
 **Proposal dated 2026-10-22**, based on main
 `05725b8b753f18234ab9f3aa21b7c5c6cc4d12ac`.
 This remains an initial geographic expansion direction. The [implementation
@@ -21,14 +28,16 @@ discovery and actual camera motion. These are the first three proposals within
 the five-location 13 → 18 batch, with two locations still to scout after this
 wave's failures and distinctness are understood.
 
-**2026-10-23 quality hold:** the [Panamint and Teton repair](scenic-transfer-endings-review-2026-10-23.md)
-takes priority over those two additional locations. A smaller transfer total
+**Historical 2026-10-23 quality hold:** the [Panamint and Teton repair](scenic-transfer-endings-review-2026-10-23.md)
+took priority over those two additional locations in that review. A smaller
+transfer total
 does not establish a better tour: the first Panamint rebuild was rejected after
 actual-app review exposed a prolonged close-slope opening. Keep first payoff,
 intermediate scenery, climax, closing shot and unused return connections in the
 review gate. Report total delivery bytes separately from regional terrain fit,
 forest placement and simultaneous resident-view costs. The global 60 MB gate
-remains removed; the original regional constraints remain in force.
+remains removed; the original regional constraints were retained in that revision
+and may be revised intentionally in later work.
 
 ## What should grow
 
@@ -46,18 +55,19 @@ one would not necessarily add another geographic location.
 The runtime already draws among multiple approved views per biome using a
 deterministic 15% equal-share / 85% character-weighted lottery, excluding recent
 views and regions while alternatives exist (`SceneCatalog.js:113-175`).
-Preserve that policy initially. Geographic catalog expansion and the number of
-different views shown within one song are separate product decisions.
+That policy is the implementation baseline, open to further experiments.
+Geographic catalog expansion and the number of different views shown within one
+song are separate product decisions.
 
 ## Recommended sequence
 
-Use **13 → 18 → 24 → 30 approved views** as planning milestones, with review waves
-of two or three inside each batch. These are proposed milestones, not current
+The proposal used **13 → 18 → 24 → 30 approved views** as planning milestones,
+with review waves of two or three inside each batch. These are proposed milestones, not current
 acceptance. Retaining all four existing candidates would make the total runtime
 catalog 22, 28 and 34 entries at those milestones, before additional candidates.
 
-1. **Prove the expansion contract before adding assets.** The source fixes
-   retire the global asset-size hard gate, retain byte reporting, separate base
+1. **Develop the expansion contract alongside asset work.** The recorded source
+   fixes retire the global asset-size hard gate, retain byte reporting, separate base
    and tour approvals, preserve valid approved rails during candidate-library
    work, and stratify discovery within its existing budget. Validate fresh
    builds and retain reviews keyed to exact source and package/library
@@ -68,17 +78,18 @@ catalog 22, 28 and 34 entries at those milestones, before additional candidates.
 2. **13 → 18: prove the workflow on five distinct gaps.** Prioritize currently
    singleton biomes, with contrasting relief, camera orientation and source
    conditions. Include both a compact route suited to short visible windows and
-   a broad scenic corridor. Review the first two or three before completing five.
+   a broad scenic corridor. Early reviews can inform later scouting without
+   preventing parallel authoring or implementation.
 3. **18 → 24: improve the weakest coverage.** Aim first for two credible geographic
    choices in every biome. Nine biomes currently have one approved view; ICEFIELD
    and CANYON have two. Filling those singleton gaps would reach 22; use the next
    two slots where the measured composition/character gaps remain greatest.
-4. **24 → 30: fill demonstrated variety gaps.** Add six after comparing selection
+4. **24 → 30: fill demonstrated variety gaps.** Use comparisons of selection
    frequency, near copies, performance and review effort across the earlier
-   batches. Extra slots should earn their place through different geography and
-   composition, not make every biome's count equal.
+   batches to guide further additions. Extra slots should earn their place through
+   different geography and composition, not make every biome's count equal.
 
-Choose real locations only after checking elevation-source coverage, attribution,
+When choosing real locations, check elevation-source coverage, attribution,
 resolution, extent, water/ice data where relevant and review cost. This proposal
 does not assert DEM availability or recommend unresearched place names.
 The 83 legacy skyline range modules can supply leads, but they are not 83 baked,
@@ -259,13 +270,16 @@ for cache reuse. A new eligibility check applied to a retained Pareto front
 cannot recover variants discarded before that front was cached; distinguish
 that reselection from fresh variant generation when interpreting comparisons.
 
-## Acceptance for each wave
+## Evidence for each wave
 
-A wave is ready for review only when the following are concrete and linked:
+Use the following checklist to assess and report a wave. Partial builds and
+incomplete evidence can be reviewed and iterated; identify the missing checks
+rather than treating this whole checklist as a prerequisite for development:
 
 - Every location is sourced; normalized data, camera, materials and optional
-  water/ice identities are recorded. Source drift is resolved or stays blocked.
-  Tombstone remains rail only until that existing gate is separately resolved.
+  water/ice identities are recorded. Source drift and its resolution are explicit.
+  The recorded Tombstone source drift left that build rail only; further work
+  can investigate a revised source, package or approval path.
 - Rails pass clearance, skyline exposure and both transition directions.
   Compare existing approved rails whenever a rebake changes their package.
 - Reviewed cameras cover the intended angle/elevation/lens categories.
@@ -285,7 +299,8 @@ A wave is ready for review only when the following are concrete and linked:
 
 The first sourced wave is now the three candidates linked above. Fresh builds,
 exact review identities, rendered rail comparisons and visible-window pacing
-evidence should refine the remaining catalog before adding the other 14 needed
-for 30 approved geographic views. That remaining count assumes all three
+evidence can refine the remaining catalog while work continues on the other 14
+needed for 30 approved geographic views. That remaining count assumes all three
 candidates are eventually accepted. Tombstone source drift and whole-song
-aesthetic acceptance remain separate gates.
+aesthetic acceptance are separate findings to track, not standing blocks on
+further expansion experiments.

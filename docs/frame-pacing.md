@@ -159,7 +159,10 @@ frame was correct — so this is not the drawing code. That leaves the
 compositor presenting tiles that raster has not caught up with, which is
 consistent with the second-long frames above and with the report saying it
 happened *while loading* at 4K. If so, Fault 2's fix should take it with it.
-Worth re-checking on real hardware before anyone goes looking further.
+A real-hardware recheck would help distinguish the remaining hypotheses.
+Investigation and experiments can continue with available tools under the
+[experimental development policy](experimental-development.md), with the missing
+hardware evidence reported explicitly.
 
 ## If it stalls again, do this first
 

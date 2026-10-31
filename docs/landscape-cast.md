@@ -94,7 +94,8 @@ where `actorRoutes` runs today (`RangeScene` ~line 1140). It returns
    test in `LandscapeGiants.seenFrom`, exported for this purpose.
 
 Tour views (`view.tour`) move the eye too far for either job to stay in
-frame. They keep plain wandering lanterns with no peaks (see Out of scope).
+frame. They keep plain wandering lanterns with no peaks (see
+[Scope of the recorded implementation](#scope-of-the-recorded-implementation)).
 
 ## The Ascent
 
@@ -256,7 +257,7 @@ At `p = 1`, the last thread closes the network back to the first cairn.
   Those call sites go too. `seenFrom` moves to a small shared module, and the
   matching tests in `landscapeGiants.test.js` are removed.
 - `actorRoutes` / `routePosition` back-and-forth routes, except for tour
-  views (see Out of scope).
+  views (see [Scope of the recorded implementation](#scope-of-the-recorded-implementation)).
 
 ## Implementation plan
 
@@ -326,11 +327,15 @@ Views to cover:
 - `monument-valley-163`: whichever the classifier picks. Check that the
   choice reads well.
 
-## Out of scope
+## Scope of the recorded implementation
 
 - **Tour views** (`view.tour`, e.g. `teton-range-tour`): they keep plain
   wandering lanterns, with the peaks removed.
 - **Trio**: Trio's cast choreography (`TrioPerformance`) is unchanged.
+
+These describe this implementation's coverage, not permanent exclusions.
+Further task-authorized cast, tour or Trio experiments follow the
+[experimental development policy](experimental-development.md).
 
 ## Tunables chosen without review
 

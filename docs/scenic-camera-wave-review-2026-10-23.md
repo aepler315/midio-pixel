@@ -1,5 +1,7 @@
 # Black, White and Izta/Popo alternate camera review
 
+> Historical record. The scope, preservation rules, approval/hold decisions and validation steps below describe this past task, not current development prerequisites. Experiments and local commits follow the [current development policy](experimental-development.md). Recorded results and runtime eligibility remain evidence of the version reviewed.
+
 **Later follow-up:** [R7 framing and ending repair](scenic-framing-endings-review-2026-10-23.md)
 addresses this review's Izta opening and Black ending concerns. R7 locally
 retains both improvements with limits after memory and forest partition fixes

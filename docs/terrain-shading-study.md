@@ -1,5 +1,10 @@
 # Mount Moran terrain shading study
 
+The scope and unchanged features below describe this study's recorded revision.
+Further task-authorized material, terrain, camera or presentation experiments
+follow the [experimental development policy](experimental-development.md);
+capture or device availability does not restrict implementation or iteration.
+
 One default-off experiment in the Jackson Lake view. The aim is to make
 the existing mountain's snow boundaries and rock faces easier to read at
 the normal pixel grid, without adding an independent texture pattern.

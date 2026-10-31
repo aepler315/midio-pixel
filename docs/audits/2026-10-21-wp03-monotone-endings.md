@@ -1,5 +1,7 @@
 # Monotone second composition pass for tour endings
 
+> Historical record. The scope, preservation rules, approval/hold decisions and validation steps below describe this past task, not current development prerequisites. Experiments and local commits follow the [current development policy](../experimental-development.md). Recorded results and runtime eligibility remain evidence of the version reviewed.
+
 Branch `impl/wp03-monotone-endings`, based on `7b59de6362617154d151f3b3efb6f6ed2336857b` (the published WP03 follow-up). This is a reviewable candidate, not merged or deployed. It applies the rate-limited chase measured in the WP03 follow-up **without losing any coverage the WP03 planner already provides**. It ships two modes: the default (misses only), and an opt-in intended-upgrade mode wired end to end and enabled by `?rangeTourIntended=1`.
 
 ## Design

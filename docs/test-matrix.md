@@ -5,6 +5,11 @@ This is the QA-001 contract: a workflow-to-test map with explicit
 thresholds, supported environments, and unverified cases. It is not a
 claim that product assurance is complete.
 
+The [experimental development policy](experimental-development.md) governs how
+these checks are used. Select relevant validation for the change and report
+failures or unavailable coverage; full-suite, hosted-CI and physical-device
+results are not prerequisites for experimental development or local review commits.
+
 Workflow map updated for midio-pixel. Historical audit counts below are not live gates.
 
 ## Supported environments (measured)
@@ -60,7 +65,7 @@ failure remains unresolved externally; local green tests cannot establish CI hea
 
 ## Thresholds that are measured today
 
-- Root CI: the `test` job must be green. The 20432ab audit recorded 2,735
+- Root CI: a passing root-CI claim requires a green `test` job. The 20432ab audit recorded 2,735
   passing root tests on that commit; later main may differ. Do not treat
   the audit count as a live gate.
 - Browser smoke: generated ~24 s PCM fixture, 720p, lyrics off, timeline

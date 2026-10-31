@@ -4,19 +4,21 @@
 
 ## Validation
 
-GitHub Actions do not run for this repository; validation is local. Paste the
-summary `npm run validate` prints (also saved as `summary.md` in its output
-folder under `.smoke/`):
+GitHub Actions do not run for this repository; validation is local. Report the
+checks actually run, their results, and relevant commands. If used,
+`npm run validate` saves its summary under `.smoke/`.
 
-```
-<npm run validate summary>
-```
+Experimental PRs can be opened with focused checks and explicit limitations;
+captures, a full green suite and device review are evidence for the claims being
+made, not prerequisites for a draft. See [development policy](../docs/experimental-development.md).
 
-- [ ] `npm run validate` passed on Node 24 (`.nvmrc`)
-- [ ] Behavior tests for this change were run and named here
-- [ ] Visual changes: `npm run visual:eval` baseline and candidate compared (docs/visual-evaluation-loop.md); song and timestamp stated for each finding
-- [ ] No captured evidence (PNG, GIF, MP4, ZIP, HTML reports, capture JSON) is committed
+- Checks run and results:
+- Existing failures, skipped checks or unavailable tools/devices:
+- Visual/audio evidence, when captured: source/settings, song and timestamps,
+  observations and limitations. Link large captures from `.smoke/`, artifacts or
+  Releases as appropriate.
 
 ## Not verified
 
-<!-- Device, hardware, audio or visual acceptance this change still needs. -->
+<!-- Remaining checks needed for a release or a stronger device, performance,
+audio or visual claim. State those separately from the scope of this experiment. -->

@@ -1,8 +1,10 @@
 # Midio Pixel
 
-An independent, private copy of [Midio-5](https://github.com/aepler315/Midio-5), pinned at `e53db1e0663ce0f8db6d9d89d168dc6d6dbdb308`. Its source assets, audio integrations and modern rendering systems are preserved; of its worlds, two remain (below). The original project is unchanged.
+A music visualizer with real terrain, pixel landscapes, smooth skies and music-driven camera, weather and lighting. It began as an independent copy of [Midio-5](https://github.com/aepler315/Midio-5); [MIDIO_PIXEL.md](MIDIO_PIXEL.md) records that provenance.
 
-**Pixel only:** Pixel and Palette looks, Classic (320×180), Medium (480×270) and Detailed (640×360) grids, Auto quality, Fit/Integer scaling, and Uniform pixel sampling. Saved Depth selections migrate to Uniform; the current renderer has no Depth pixel effect. Existing saved display choices migrate without changing Midio-5 settings.
+This is an experimental project. Renderers, terrain, looks, cameras, worlds, defaults and performance policies can evolve with the current task. [Experimental development](docs/experimental-development.md) and [AGENTS.md](AGENTS.md) describe the workflow; old preservation lists and review holds do not freeze new work.
+
+Current presentation includes Pixel, Palette and Cinematic looks, five terrain grids from Classic (320×180) to Detailed (640×360), automatic quality and Fit/Integer preferences. Landscape combines pixel terrain with smooth sky, water and effects. Uniform is the current pixel sampling mode; old Depth selections migrate to it. These are implementation facts, not permanent design restrictions.
 
 Hosting: supermaudio.com is GitHub Pages serving the `gh-pages` branch, which `npm run publish:site` fills with only the staged site (see [Local validation and publishing](docs/local-validation.md)). The current limits are documented in [the validation matrix](docs/test-matrix.md).
 
@@ -36,9 +38,7 @@ npm ci
 npm start
 ```
 
-Root development and validation target native Node.js 24.x. Other major versions
-are outside the tested root contract; npm's engines warning is not a runtime
-preflight. Ridgeview retains its separate package contract in
+Root development and validation use Node.js 24.x; the locked installation enforces that version through `engine-strict`. Toolchain experiments may revise the package contract intentionally and should report their actual environment. Ridgeview has its separate package contract in
 [`ridgeview/package.json`](ridgeview/package.json).
 
 Open [localhost:8080](http://localhost:8080). The server binds to
@@ -84,10 +84,7 @@ private environment inputs, public endpoint configuration, limits, and
 verification steps. The adapter reads the library used by Plexamp; playback
 runs in Midio's normal audio and visualizer path.
 
-**Use a music folder** remembers a folder you choose, so a returning visit
-opens on your own music instead of an empty dropzone. Nothing is uploaded
-and nothing is copied: the browser hands the page a durable reference to a
-folder already on your disk, and a file is read only when you play it.
+**Use a music folder** can retain a durable folder handle where the browser supports it. The library reads files from your device. Android browsers with limited directory selection instead offer **Select music files**, using ordinary multiple-file selection for the visit; select those files again after reloading.
 
 The library sorts by title, artist, album, folder, date added, last played,
 play count or length; filters as you type (`artist:radiohead`,
@@ -96,10 +93,7 @@ between one flat list and the folders as they are on disk. **Auto-tag**
 fills in titles and artists for tracks that only have a filename, using the
 free MusicBrainz API at the one request per second it asks for.
 
-Chromium-based browsers can reopen the folder by themselves. Firefox and
-Safari cannot, so there the listing is remembered and the folder is picked
-again once per visit before anything plays from it. Where the browser has no
-storage at all, there is simply no library and dropping a song still works.
+Browsers with persistent directory handles can reopen the folder after permission is granted. Other browsers need it selected again. Without persistent storage, the library remains playable for the current visit. Identically named files selected from different folders retain separate track identities.
 
 See [docs/library.md](docs/library.md) for the details.
 
@@ -126,10 +120,9 @@ batch rendering with ffmpeg, use `node tools/bulk-export.mjs --help`.
 | --- | --- |
 | Pause / Resume | Freeze or continue the performance and audio together |
 | Stop | Stop playback and return to the upload screen |
-| Fullscreen button | Expand the performance |
-| **Record** (HUD dot) | Record the show to a video file from this moment; press again to stop and save |
-| **Save a video** (complete screen) | Replay the song with the same seed and record it start to finish |
-| **Use a music folder** / **Change folder** | Choose the folder your library reads from; remembered between sessions |
+| Fullscreen button | Fill the Landscape viewport at physical output dimensions; restore the saved scaling preference on exit |
+| **Use a music folder** / **Select music files** | Choose a persistent folder or session files, according to browser support |
+| Snapshot button | Save one current-level, live-sized PNG on Android; save the five detail levels at full HD on desktop |
 | **Browse library** | Open the library: search, sort, folder view, auto-tag. `Esc` closes it |
 | **Timed lyric grounding: on/off** | Enable or skip lyric lookup; remembered between sessions |
 | **World** (Settings, or Display during playback) | Switch between Landscape and Trio mid-song; the song keeps playing |
@@ -184,7 +177,7 @@ The world registry holds two worlds. The seven other landscape styles and the
 earlier Cathode have been removed; their old playback IDs resolve to
 Landscape.
 
-- **Landscape** — real mountains that breathe with the mix: The Range on real terrain, drawn by Range v2. The **Camera tour: Tetons** setting (or `?rangeTour=tetons`) enables a song-timed flight through real Teton terrain. Use `?rangeTour=off` to override the saved preference. The tour belongs to Landscape: in Trio its toggle is disabled and the saved preference waits. The tour remains a candidate; [validation and review evidence](docs/teton-tour-validation.md) record its limits.
+- **Landscape** — real mountains that breathe with the mix: The Range on real terrain, drawn by Range v2. The **Camera tour: Tetons** setting (or `?rangeTour=tetons`) enables a song-timed flight through real Teton terrain. Use `?rangeTour=off` to override the saved preference. The tour belongs to Landscape: in Trio its toggle is disabled and the saved preference waits. [Validation and review evidence](docs/teton-tour-validation.md) record findings at their tested revisions. Further tour development is open to experimentation.
 - **Trio** — Midio, Midasus and Broshi on the dancing range: invented palettes on procedural ridges, the crystalline space ridge, a full sky of planets, and Midasus's voyages to the deep sky. See [Trio](docs/trio-stage.md).
 
 The chooser shows one equal card per world, in authored order. A
@@ -228,127 +221,15 @@ provider. Its provider/model/endpoint settings live in the debug overlay;
 external providers can require a user-supplied API key. Playback does not
 require this feature.
 
-## Scenic views and cameras
+## Scenic views, cameras and experiments
 
-Landscape has **13 approved geographic views across 11 biomes**, selected for
-each song from the catalog. Each has an authored camera rail. The separate
-Teton highway tour remains a forced candidate; it is not the camera system for
-all scenic views.
+Landscape selects geographic views from its scene catalog. Authored rails, per-scene rail pacing and the Teton highway tour provide different camera paths. The ordinary rail pace defaults to 3× with 1×–4× choices; finite authored routes can cap the effective pace. Automatic Landscape punch zoom is disabled; manual zoom remains available. See [the camera guide](docs/landscape-camera.md).
 
-Scenic shot discovery and music-aware tour tooling were merged in PRs
-[#24](https://github.com/aepler315/midio-pixel/pull/24) and
-[#25](https://github.com/aepler315/midio-pixel/pull/25). At the audited main
-revision on **2026-10-22**, all 13 regional tour configurations are candidates,
-and no shot libraries are committed or enabled in the production catalog.
-Claude's reported 12-region builds and the retained review evidence are listed
-in [scenic tours](docs/scenic-tours.md#current-delivery-and-reported-builds).
+The catalog distinguishes runtime-eligible views from candidates through its existing metadata and identity checks. Those states describe what the current loader can select. New locations, routes, shot libraries, camera techniques and eligibility policies may be developed under the current task; historical view counts, expansion waves and quality holds are not development caps.
 
-The [camera scouting audit](docs/camera-scouting-audit-2026-10-22.md) records
-angle discovery, rail and tour approval, evidence identity and pacing at its
-audited revision. The [implementation follow-up](docs/camera-scouting-fixes-2026-10-22.md)
-documents the current fixes: broader discovery within the existing candidate
-budget, separate rail and tour approvals, review results tied to exact library
-bytes, and removal of the inherited global 60 MB hard gate. Asset growth,
-download costs and runtime memory remain separate measurements. These changes
-merged through [PR #29](https://github.com/aepler315/midio-pixel/pull/29).
-That source-only implementation added no assets or camera approvals; deployment
-was not verified.
+Developer paths include [direct terrain](docs/direct-terrain-experiment.md), [compiled terrain](docs/compiled-terrain-experiment.md), and [terrain shading](docs/terrain-shading-study.md). Their query switches and current limitations are documented with each implementation. A trial's rejected result or initial scope can inform another trial without prohibiting it.
 
-The [expansion proposal](docs/scenic-view-expansion.md) considers **13 → 18 → 24 →
-30 approved geographic views**, with review waves of two or three. The
-[first sourced wave](docs/scenic-expansion-wave1-2026-10-22.md) adds candidate
-terrain and rails for Redfish Lake in the Sawtooths, Stony Man in Shenandoah,
-and the Superstition west front. Catalog v20 has 13 approved rails and seven
-candidates, with 16 regional tour configurations on the expansion branch;
-the approved geographic count remains 13. The new three terrain packages add
-3,813,190 bytes. Source, candidate assets and review documentation are in
-[PR #32](https://github.com/aepler315/midio-pixel/pull/32), merged by the owner on
-2026-10-23. The later R4 review documentation remains in
-[draft PR #37](https://github.com/aepler315/midio-pixel/pull/37). The
-[fresh rebuild and app review](docs/scenic-rebuild-review-2026-10-22.md) records
-the new scouting runs, exact library identities, actual planned camera moves
-and remaining review gates. Candidate assets and local rebuilt libraries do
-not enable a production shot tour by themselves.
-
-The completed R2 batch has **15 useful candidate libraries: 179 shots and 462
-links**, including libraries for all three new locations. Tombstone remains a
-blocked rail-only result. The complete review asset tree is **65,023,144 bytes**;
-the global 60 MB ceiling is gone, while regional fit and graphics constraints
-remain. Actual app review found and corrected a sampled blank-sky Denali transit;
-long transfers, named-subject framing and dark endings still need editorial
-work. The approved geographic count remains 13.
-The fitted packages are preserved on the separate
-[candidate review asset branch](https://github.com/aepler315/midio-pixel/tree/review/scenic-library-rebuild-20261022);
-see the [diagnostic playback instructions](docs/scenic-rebuild-review-2026-10-22.md#candidate-asset-branch-and-diagnostic-playback).
-Its rebaked bases and attached tours remain candidates.
-
-A subsequent [Denali ending pilot](docs/scenic-ending-pilot-2026-10-22.md)
-tested a stronger ending-in-transit penalty in matched actual-app captures.
-It improved the opening and reached a final shot, but made the main transfer
-more sky-heavy and left the ending dark. The experiment was rejected as a
-default change; production planning and camera approvals remain unchanged.
-
-The [next camera iteration](docs/scenic-motion-fixes-2026-10-22.md) corrects a
-skyward detour in fallback link aiming and regenerates Denali's connections from
-the same scored shots. Matched actual-app review reaches the configured Denali
-shot at the climax and holds it through the ending, with 24.309 seconds less
-transit. The remaining 69.915-second transfer, close snow crest and dark final
-view keep it a candidate. The separate
-[R3 review asset branch](https://github.com/aepler315/midio-pixel/tree/review/scenic-denali-heading-20261022)
-has 180 shots and 459 links across the same 15 useful libraries, with a
-64,853,210-byte asset tree. Camera quality takes priority over another location wave.
-
-The [Panamint and Teton repair](docs/scenic-transfer-endings-review-2026-10-23.md)
-corrects the builder's duration estimates using the runtime's supported camera
-curves and refreshes cached link admission. It rebuilds those two candidate
-networks, restores a readable Panamint opening, keeps its hero summit through
-the ending, and adds a Teton middle payoff before reaching a closing shot.
-Matched full-song app captures and the rejected first Panamint opening are
-recorded in the review. A separate fixed-camera comparison retains a small
-moon-fill improvement; dark lower foreground and other editorial limits remain.
-The original regional budgets and the removed global 60 MB gate are unchanged.
-The source proposal preserves all 13 approved rails; fitted tour assets stay on
-a separate candidate branch. Further locations remain on hold.
-
-The [parallel camera wave](docs/scenic-camera-wave-review-2026-10-23.md)
-compares alternate networks at Black Mountains, White Mountains and Izta/Popo
-against the preserved R5 assets. Izta's retained candidate cuts Anthem transit
-from 85.957 to 40.421 seconds and holds Iztaccíhuatl through the ending; its
-close ridge opening remains unresolved. Black's new network was rejected for
-more total transit. White's first replacement improved the summit but was
-rejected for a downward opening crop. Its retained revision restores readable
-valley space from the first saved frame at 4 seconds and cuts transit from
-70.046 to 36.069 seconds, with a later 48-second first formal payoff. The final
-candidate set has 15 libraries, 144 shots and 335 links in a 64,125,061-byte
-Range asset tree.
-R6 changes candidate assets, with no new application behavior or rail approvals.
-The [R6 review asset branch](https://github.com/aepler315/midio-pixel/tree/review/scenic-camera-wave-20261023)
-carries the candidate packages. Further geographic expansion stays on hold.
-
-The [R7 framing and ending follow-up](docs/scenic-framing-endings-review-2026-10-23.md)
-retains a wider Izta opening and Black's more open closing skyline after
-matched full-song image review. Their payoffs and closing shots remain;
-Black adds 141.537 ms transit. Two rejected Black packages exposed a runtime
-memory refusal and forest partition mismatch. Reviewed fixes reduce surface
-arrays from 10 to 9 bytes per pixel and align tree draw bands with their owning
-terrain tiles, without changing placement or camera paths. Black's separate
-2.3 MB download allowance covers strict terrain/reflection detail. Softer
-forest representation, dark foreground and narrow runtime headroom remain
-limits. Local implementation and image gates are complete;
-[draft PR #38](https://github.com/aepler315/midio-pixel/pull/38) records source/candidate
-commit identities and publication status. Cameras remain unapproved, and
-further geographic expansion stays on hold.
-
-The [R8 quality and compact-cluster follow-up](docs/scenic-quality-clusters-review-2026-10-23.md)
-retains a three-shot Denali establish/shoulder/hero sequence after actual-app
-review, cutting Anthem transfer from 90.245 to 23.226 seconds and holding the
-mountain through the ending. Black retains a scoped lighting and memory repair;
-all forest representation experiments were rejected, and its soft/stippled
-forest remains unresolved with iteration closed. There are still 13 approved
-views and 15 candidate libraries; the approximately 30-view goal is unfinished.
-This first cluster uses a preserved external authoring recipe; the unchanged
-generic scout does not reproduce it, and automated cluster generation is unimplemented.
-PR #38 remains draft/open; its description records the publication pins.
+Older [scenic-tour records](docs/scenic-tours.md), [scouting audit](docs/camera-scouting-audit-2026-10-22.md) and [rebuild review](docs/scenic-rebuild-review-2026-10-22.md) retain source identities, observations and unfinished questions at those revisions. Consult current code for delivered behavior and the [development policy](docs/experimental-development.md) for current workflow.
 
 ## Version archive
 
@@ -394,6 +275,12 @@ GitHub Pages serves the `gh-pages` branch, which holds only the staged site
 `https://supermaudio.com/version.json` names the published commit. It does not
 run the Node bridge.
 
+## Development and validation
+
+Start from the current task, make a useful change and test the behavior it affects. Focused tests and lint support code iteration; docs-only changes normally need consistency, link and whitespace checks. `npm run validate` remains available for comprehensive integration and release checks. Baseline captures, full visual/device signoff, a particular GPU and an entirely green suite are not prerequisites for experimental work or a local review commit. Record what ran, known baseline failures and unavailable checks accurately.
+
+Use [bounded Landscape review](docs/landscape-review.md) or [matched visual comparisons](docs/visual-evaluation-loop.md) when they answer the experiment's question. Concrete visual or music-response findings should name their recording, timestamp and rendering environment. Old captures and unit tests establish only their measured results.
+
 ## Testing
 
 The main app suite:
@@ -403,8 +290,7 @@ npm ci
 npm test
 ```
 
-`npm test` runs the Node tests under `test/` (`test/*.js`, `test/*.mjs`,
-and `test/helpers/*.js`). To discover any nested packages instead:
+`npm test` runs the Node tests under `test/` (`test/*.js` and `test/*.mjs`). To discover any nested packages instead:
 
 ```sh
 npm run test:all

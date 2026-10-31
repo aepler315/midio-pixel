@@ -1,5 +1,7 @@
 # Camera scouting fixes — 2026-10-22
 
+> Historical record. The scope, preservation rules, approval/hold decisions and validation steps below describe this past task, not current development prerequisites. Experiments and local commits follow the [current development policy](experimental-development.md). Recorded results and runtime eligibility remain evidence of the version reviewed.
+
 Implementation follow-up to the [camera scouting audit](camera-scouting-audit-2026-10-22.md),
 on base `8a5a1e362e4da2dda21a4cc523909b1eeb0bfda1`. This report describes the
 source changes at `f51c27f7855ca6a3f163f77afaee4827438e2973`. Verification results

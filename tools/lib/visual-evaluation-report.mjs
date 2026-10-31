@@ -59,7 +59,7 @@ export function renderComparisonReport(diff, before, after) {
   };
   return document(`Midio ${title.toLowerCase()}`, `<p class="status">${escapeHtml(title)} · Visual judgment: unreviewed</p>
   <p>Inputs, capture schedule, settings and browser match. ${escapeHtml(scope)}<br>
-  Pixel differences show change, not improvement. Listen to the matching audio in the baseline and candidate reports before accepting a change.</p>
+  Pixel differences show change, not improvement. The matching audio and motion in both reports can help assess the musical and visual result.</p>
   ${identity('before')}${identity('after')}
   <p><a href="baseline/index.html">Baseline with audio and motion</a> · <a href="candidate/index.html">Candidate with audio and motion</a></p>
   ${diff.frames.map((f, i) => `<section><h2>${escapeHtml(f.songId)} · ${(f.timeMs / 1000).toFixed(3)}s</h2>

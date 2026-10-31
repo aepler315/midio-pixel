@@ -8,7 +8,7 @@ The user wants to submit an audio recording and a description written after huma
 
 The proposed unit of knowledge is a versioned recording–annotation–analysis case. This design, the human guide, schema, and sample files are prepared for review. No importer, analyzer modification, emotion model, or automatic learning job has been implemented. No real song was supplied for comparison. The example is deliberately illustrative.
 
-Assumptions: one primary listener initially; plain listening language with optional musical detail; original audio stored outside the source repository; annotation and evaluation first; rendering changes only after analysis evidence justifies them. These are proposed defaults, not additional requests attributed to the user.
+Assumptions: one primary listener initially; plain listening language with optional musical detail; original audio stored outside the source repository; annotation and evaluation informing rendering experiments. These are proposed defaults, not additional requests attributed to the user. Analysis and rendering development may proceed together under the [experimental development policy](../experimental-development.md); this proposal does not make a completed analysis study a prerequisite for visual experiments.
 
 ## Approach selection
 

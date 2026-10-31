@@ -1,5 +1,7 @@
 # Panamint and Teton transfer and ending repair
 
+> Historical record. The scope, preservation rules, approval/hold decisions and validation steps below describe this past task, not current development prerequisites. Experiments and local commits follow the [current development policy](experimental-development.md). Recorded results and runtime eligibility remain evidence of the version reviewed.
+
 The user authorized implementation, rebuilding and actual-app review, with Panamint and Teton first and further locations on hold. This pass starts from main `1b46e5e3fad38b7b8c75d2391af2e6b79500bfff` and retains the exact R3 candidate assets as the comparison baseline. The preceding R4 source and evidence remain preserved separately.
 
 ## Design and choices
