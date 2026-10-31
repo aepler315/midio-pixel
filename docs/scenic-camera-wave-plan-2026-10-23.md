@@ -1,5 +1,7 @@
 # Alternate camera wave: Black, White and Izta/Popo
 
+> Historical record. The scope, preservation rules, approval/hold decisions and validation steps below describe this past task, not current development prerequisites. Experiments and local commits follow the [current development policy](experimental-development.md). Recorded results and runtime eligibility remain evidence of the version reviewed.
+
 The user authorized parallel subagents to create additional camera views while the existing camera repair remains active. This wave changes camera networks at three existing locations; geographic expansion stays on hold. Source starts at `f7b7b16de158014b20d0b6f52f48644fe5d2e555`, with the exact R5 asset baseline `830d1213caa64bb8b2d1e5c6261da5ca957387a6`. The separate Panamint and Teton repairs remain preserved.
 
 ## Global constraints

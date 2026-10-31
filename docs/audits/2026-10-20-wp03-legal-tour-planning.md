@@ -1,5 +1,7 @@
 # WP03: legal tour planning and bounded hero-shot repair
 
+> Historical record. The scope, preservation rules, approval/hold decisions and validation steps below describe this past task, not current development prerequisites. Experiments and local commits follow the [current development policy](../experimental-development.md). Recorded results and runtime eligibility remain evidence of the version reviewed.
+
 This implements WP03 from the [consolidated audit roadmap](2026-10-20-astra-sol-consolidated-audit.md): repair C01's planning failure, then C28's semantic coverage and bounded distant-shot repair. It preserves safe short-song fallback, motion constraints, committed poses and accepted subjects. It does not promise that every musical hero can be framed legally.
 
 Branch: `impl/wp03-legal-tour-planning`. Sole implementation parent: WP01 `1f36735e2ff84fbdd8150dd7c05f733a3d00e18e`, tree `d830169c5b7628798f6970a29a6ac179b1794df9`. WP01 is the roadmap's explicit prerequisite. Main was verified at `cace36893003e4161b243f22a69204be17181df6`; this branch intentionally includes WP01's diagnostics and excludes the independent WP02 library implementation. Existing audit reports remain historical evidence rather than being rewritten as proof of fixes.

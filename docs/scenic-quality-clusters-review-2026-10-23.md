@@ -1,5 +1,7 @@
 # Black quality and compact cinematic shot clusters R8
 
+> Historical record. The scope, preservation rules, approval/hold decisions and validation steps below describe this past task, not current development prerequisites. Experiments and local commits follow the [current development policy](experimental-development.md). Recorded results and runtime eligibility remain evidence of the version reviewed.
+
 R8 retains a compact three-shot Denali sequence after actual-app review. Total
 Anthem transfer falls **90.245 → 23.226 seconds**, with a broad establish,
 useful shoulder context and a tight mountain view held through the ending.

@@ -12,6 +12,8 @@
 // library (and any re-culled terrain) into src/assets/range/v2 and records
 // shotsManifestUrl in data/terrain/scenic-views.json; approval is a
 // separate, reviewed step (tools/build-range-scene.mjs --approve).
+// These statuses control normal runtime selection, not permission to build or
+// test candidates; development diagnostics can force candidate views/tours.
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';

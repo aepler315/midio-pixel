@@ -1,5 +1,7 @@
 # WP02 implementation: preserve library metadata and folder identity
 
+> Historical record. The scope, preservation rules, approval/hold decisions and validation steps below describe this past task, not current development prerequisites. Experiments and local commits follow the [current development policy](../experimental-development.md). Recorded results and runtime eligibility remain evidence of the version reviewed.
+
 Date: 2026-10-20. Base: `cace36893003e4161b243f22a69204be17181df6` (`main`). Branch: `impl/wp02-library-integrity`.
 
 This change implements the requested WP02 scope: incomplete-scan metadata preservation (C02), stale-prune protection (C03), and concurrent folder identity reservation. It includes defensive selection, initialization and permission ownership checks related to C05. The [consolidated audit](2026-10-20-astra-sol-consolidated-audit.md) remains the historical account of the original evidence; its findings are not silently rewritten as implementation claims.

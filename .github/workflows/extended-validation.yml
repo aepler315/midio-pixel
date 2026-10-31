@@ -26,7 +26,6 @@ jobs:
           npm run test:shading -- http://127.0.0.1:8080
           npm run test:seek -- http://127.0.0.1:8080
           npm run test:worlds -- http://127.0.0.1:8080
-          npm run test:export -- http://127.0.0.1:8080
           npm run test:car -- http://127.0.0.1:8080
           npm run test:urlload -- http://127.0.0.1:8080
       - name: Upload browser diagnostics

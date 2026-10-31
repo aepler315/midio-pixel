@@ -38,3 +38,13 @@ test('a snapshot renders and saves every level in order, stopping at a failure',
     save: async () => {},
   }), /frame did not finish/);
 });
+
+test('Android captures only the current detail at the existing output size', async () => {
+  const { snapshotCapturePlan } = await import('../src/ui/DetailSnapshots.js');
+  assert.deepEqual(snapshotCapturePlan('Mozilla/5.0 (Linux; Android 13)', 'mediumPlus'), {
+    levels: ['mediumPlus'], size: null,
+  });
+  assert.deepEqual(snapshotCapturePlan('Mozilla/5.0 (X11; Linux x86_64)', 'mediumPlus'), {
+    levels: DETAIL_LEVELS, size: { w: 1920, h: 1080 },
+  });
+});

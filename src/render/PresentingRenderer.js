@@ -98,6 +98,7 @@ class PresentingRenderer {
     }
     if (range) range.waterOutputSize = waterOverlay ? { width: this.canvas.width, height: this.canvas.height } : null;
     const scene = this.canvasRenderer;
+    scene.outputCover = false;
     // Optical effects and HUD draw after the completed Landscape composite.
     const postEffects = this._experience !== 'trio' && !!manager?.world && typeof scene.drawDeferredPostEffects === 'function';
     scene.deferPostEffects = postEffects;
@@ -174,6 +175,7 @@ class PresentingRenderer {
     const stage = this._directBuffers.ensure('stage', canvas.width, canvas.height);
     if (!stage?.getContext('2d')) return this.output.failFrame('allocation-denied');
     const scene = this.canvasRenderer;
+    scene.outputCover = this.output.presentation.scaling === 'cover';
     const policy = pixelRenderPolicy(this.output.presentation);
     scene.canvas = stage; scene.ctx = stage.getContext('2d');
     scene.pixelPolicy = pixelRenderPolicy({ pixelated: false });
@@ -211,7 +213,8 @@ class PresentingRenderer {
   }
   _drawDirectGrid(ctx, paint, quality = 0) {
     const p = this.output.presentation, grid = this.output.grid;
-    const out = this.canvas, fit = fitPixelRect(grid.width, grid.height, out.width, out.height, 'fit');
+    const out = this.canvas, fit = fitPixelRect(grid.width, grid.height, out.width, out.height,
+      p.scaling === 'cover' ? 'cover' : 'fit');
     if (!(fit.scale > 0)) return false;
     // Rasterize the transformed partition on the screen's stable pixel grid.
     // The current clip remains on the destination when the result is copied.

@@ -1,10 +1,12 @@
 // Range v2: which curated scenic view a biome's sections play against.
 //
-// The pool is the catalog's APPROVED views only (plan §4.3). A candidate or
-// rejected view is never chosen for a song, and a biome with no approved
+// Normal song selection currently uses the catalog's APPROVED views only.
+// Diagnostic overrides can select candidate views for experiments. A candidate or
+// rejected view is not chosen by this normal pool, and a biome with no approved
 // view gets `view: null` with an explicit fallback reason -- the legacy
 // scanned-skyline renderer covers it -- never a view borrowed from another
-// biome and never an invented ridge.
+// biome and never an invented ridge. This describes current selection behavior;
+// it does not restrict experiments with the selection policy or renderer.
 //
 // Inside the pool: SCENIC_FAIR_SHARE of every draw is split equally, the
 // rest leans toward views whose character (the same four axes songs and

@@ -1,5 +1,7 @@
 # Fresh scouting rebuild and application review
 
+> Historical record. The scope, preservation rules, approval/hold decisions and validation steps below describe this past task, not current development prerequisites. Experiments and local commits follow the [current development policy](experimental-development.md). Recorded results and runtime eligibility remain evidence of the version reviewed.
+
 The later [climb, pacing and ending review](scenic-climb-pacing-review-2026-10-22.md)
 records runtime enforcement, the corrected ending search and the new combined
 app-review batch. This document preserves the original R2 rebuild and its

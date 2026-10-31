@@ -1,5 +1,10 @@
 # Cinematic Pixel (experimental)
 
+This page describes the implemented experiment. Its retained scene features and
+rendering architecture are a baseline for further work, not a permanent
+preservation list. Task-authorized look, renderer, terrain and camera experiments
+follow the [experimental development policy](experimental-development.md).
+
 Select **Display → Look → Cinematic Pixel (experimental)**. It runs at **Detailed — 640×360** unless another level is chosen; [choosing its detail level](cinematic-grid-harmony.md) records why. Pixel detail stays adjustable: select **Classic+ — 400×225** for a direct comparison with Pixel at Classic+. The saved default remains Pixel at Classic. Cinematic Pixel uses continuous color rather than palette quantization; choose Palette to retain the existing fixed-palette workflow. Trio keeps its established presentation.
 
 The implementation uses real geometry and live procedural shading. It retains the existing terrain packages, forest placement, camera/tours, music clock, water, actors, weather, material LOD and scene ownership. No reference bitmap is used in rendering.

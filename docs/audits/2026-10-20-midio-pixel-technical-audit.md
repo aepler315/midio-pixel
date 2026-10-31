@@ -1,5 +1,7 @@
 # Midio Pixel technical audit and implementation roadmap
 
+> Historical record. The scope, preservation rules, approval/hold decisions and validation steps below describe this past task, not current development prerequisites. Experiments and local commits follow the [current development policy](../experimental-development.md). Recorded results and runtime eligibility remain evidence of the version reviewed.
+
 > **Publication note — October 20, 2026.** This is the completed read-only audit of commit `8f7c10fecdb9c436f7e789ec094c79efe88eff31`, published as documentation after the investigation. The audit was not rerun or updated to make new application findings. Statements below about no GitHub branches being changed describe the original investigation; this publication adds only audit documentation on a new branch. All 22 findings, source references, technical analysis, qualifications, recommendations and roadmap phases are preserved. The sole change within the original report body replaces the local PNG embed with its original artifact path and checksum. The publication appendix supplies retained textual evidence, reproduction details and artifact hashes. Captured images/audio/HTML/capture JSON/archive bytes remain in the original local evidence bundle rather than Git history, as required by `AGENTS.md`. Evidence filenames below refer to that bundle unless explicitly linked to a repository file.
 >
 > **Sortable implementation roadmap:** [2026-10-20-midio-pixel-prioritized-roadmap.csv](2026-10-20-midio-pixel-prioritized-roadmap.csv).

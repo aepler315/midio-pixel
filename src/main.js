@@ -56,7 +56,7 @@ import { RangePresentation, resolveRangeMode } from './world/alpine/RangePresent
 import { openCameraRun, cameraSongOptions, readRailPace, persistRailPace, railPaceControlState } from './ui/CameraRun.js';
 import { applyTerrainTourPolicy, captureTourTerrainState, restoreTourTerrainState } from './ui/TourTerrain.js';
 import { rangeTourControlState } from './ui/RangeTourControl.js';
-import { DETAIL_LEVELS, stepDetail, snapshotFileName, captureDetailSnapshots, canvasToPng } from './ui/DetailSnapshots.js';
+import { DETAIL_LEVELS, stepDetail, snapshotFileName, captureDetailSnapshots, canvasToPng, snapshotCapturePlan } from './ui/DetailSnapshots.js';
 import { REEL_TARGET_SIZE, sizeLabel, reelFileName, planReelRenders, stepTargets, warmupTimes, describeReelSave,
   createReelSaver, ReelSaveCancelled, ReelSizeError, classifyArmError } from './ui/ReelExport.js';
 import { residencyBudgetFor } from './render/GraphicsResidency.js';
@@ -103,7 +103,6 @@ import { readVisionConfig, persistVisionConfig } from './vision/config.js';
 import { packBundle, unpackBundle } from './audio/AnalysisBundle.js';
 import { analysisCacheKey, getBundle, putBundle } from './audio/AnalysisCache.js';
 import { SongRecorder, MAX_RECORDING_BYTES } from './render/SongRecorder.js';
-import { ExportSetup } from './ui/ExportSetup.js';
 import { readRenderQuality, writeRenderQuality, RENDER_QUALITIES, renderQualityLevel } from './render/RenderQuality.js';
 import {
   estimateExportBytes,
@@ -113,6 +112,7 @@ import { stepExportClock, evenExportSize } from './render/BulkExport.js';
 import { rangeUserCamera } from './world/alpine/RangeCamera.js';
 import { attachRangeZoomInput } from './ui/RangeZoomInput.js';
 import { MusicLibrary } from './library/MusicLibrary.js';
+import { folderPickerMode } from './library/FolderPickerMode.js';
 import { LibraryPanel } from './ui/LibraryPanel.js';
 import { createAudioSelection } from './audio/AudioSelection.js';
 import { normalizeSourceMetadata } from './audio/SourceMetadata.js';
@@ -656,8 +656,9 @@ let titlePresentation = null;
 function effectivePresentation() {
   const requested = bulkPresentation || presentation;
   const experimental = directTerrainExperiment(typeof location === 'undefined' ? '' : location.search);
-  return experience === 'trio' ? { ...requested, pixelScale: 'original' }
-    : experimental ? { ...requested, directTerrain: true } : requested;
+  if (experience === 'trio') return { ...requested, pixelScale: 'original' };
+  return { ...requested, ...(experimental ? { directTerrain: true } : {}),
+    ...(!bulkExportSize && typeof document !== 'undefined' && isFullscreen() ? { scaling: 'cover' } : {}) };
 }
 /** Point the page at one world's presentation. Landscape owns the page's one
  *  Range v2 presentation (and its GPU context); Trio owns none. */
@@ -788,6 +789,7 @@ function fitCanvas() {
   // smooth layers at fewer pixels (the ladder's resolution scale).
   fittedPerfLevel = perfGovernor?.level ?? 0;
   const size = stageOutputSize({ grid: active.grid, hybrid, cssWidth: box.width, cssHeight: box.height,
+    fullscreen: experience === 'landscape' && typeof document !== 'undefined' && isFullscreen(),
     dpr: window.devicePixelRatio || 1, exportSize: bulkExportSize,
     scale: perfGovernor?.resolutionScale(active.grid.height, { adaptive: true }) ?? 1 });
   resizeStageCanvas(canvas, size.w, size.h);
@@ -799,6 +801,14 @@ function fitCanvas() {
     'is-visible',
     !bulkExportSize && shouldSuggestLandscape(canvas.clientWidth, canvas.clientHeight),
   );
+}
+
+function fitCanvasAndRedraw() {
+  fitCanvas();
+  if (paused && sim && renderer && !bulkExportArmed) {
+    try { renderer.draw(sim, 1, { preparing: playbackPreparing }); }
+    catch (err) { console.warn('[display resize]', err); }
+  }
 }
 
 function randomizeSeed() {
@@ -876,7 +886,7 @@ function applyDisplayPref(key, value) {
     let resizeRaf = null;
     const onResize = () => {
       if (resizeRaf !== null) return;
-      resizeRaf = requestAnimationFrame(() => { resizeRaf = null; fitCanvas(); });
+      resizeRaf = requestAnimationFrame(() => { resizeRaf = null; fitCanvasAndRedraw(); });
     };
     window.addEventListener('resize', onResize);
     window.addEventListener('orientationchange', onResize);
@@ -894,13 +904,14 @@ detailUpBtnEl?.addEventListener('click', () => {
   if (!snapshotBusy) applyDisplayPref('pixelGrid', stepDetail(displayPrefs.pixelGrid, 1));
 });
 
-// Every-level snapshot: hold the current moment, render it once per pixel
-// detail level at full output size (1920×1080, nearest-neighbour from each
-// grid), and save each as a lossless PNG named midio_YYYYMMDD_<level>.png.
-// The bulk-export output size is borrowed for the duration so the stage is
-// full resolution rather than the native 320–640px grid; the player's own
-// level, pause state and canvas are restored afterwards.
-const SNAPSHOT_SIZE = Object.freeze({ w: 1920, h: 1080 });
+// Hold the current moment and save lossless PNGs. Desktop captures each
+// detail level at 1920×1080; Android captures the current live-sized frame to
+// avoid the memory and download pressure of five full-HD renders.
+const isAndroidSnapshot = /Android/i.test(navigator.userAgent);
+if (isAndroidSnapshot && snapshotBtnEl) {
+  snapshotBtnEl.title = 'Save the current frame as a PNG';
+  snapshotBtnEl.setAttribute('aria-label', 'Save the current frame as a PNG');
+}
 const nextAnimationFrame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
 
 function saveSnapshotFile(blob, fileName) {
@@ -922,29 +933,32 @@ async function saveDetailSnapshots() {
     return;
   }
   const wasPaused = paused;
-  if (!wasPaused) togglePause(); // the moment holds still while every level is drawn
+  if (!wasPaused) togglePause(); // the moment holds still while captures are drawn
   // Busy from here: the Display menu, Pause, Record and Sync wait (Stop
-  // cancels), so all five files are this one moment.
+  // cancels), so all captured files are this one moment.
   snapshotBusy = true;
   syncDetailControls();
   const savedPrefs = displayPrefs, savedPresentation = presentation;
   snapshotPlayerPrefs = savedPrefs;
   const stamp = new Date();
+  const plan = snapshotCapturePlan(navigator.userAgent, savedPrefs.pixelGrid);
   const stopped = () => !running || !sim || !renderer;
   let cancelled = false;
   try {
     await captureDetailSnapshots({
-      levels: DETAIL_LEVELS,
+      levels: plan.levels,
       render: async (level) => {
         if (stopped()) { cancelled = true; throw new Error('the song was stopped'); }
         // Fit scaling: every grid fills the full frame (integer scaling
         // would letterbox Classic+ and Medium+ inside 1920×1080).
-        displayPrefs = { ...savedPrefs, pixelGrid: level, scaling: 'fit' };
-        presentation = resolvePresentation(displayPrefs);
-        bulkExportSize = SNAPSHOT_SIZE;
-        fitCanvas();
-        if (canvas.width !== SNAPSHOT_SIZE.w || canvas.height !== SNAPSHOT_SIZE.h) {
-          throw new Error(`there is no room for a ${SNAPSHOT_SIZE.w}×${SNAPSHOT_SIZE.h} frame right now`);
+        if (plan.size) {
+          displayPrefs = { ...savedPrefs, pixelGrid: level, scaling: 'fit' };
+          presentation = resolvePresentation(displayPrefs);
+          bulkExportSize = plan.size;
+          fitCanvas();
+          if (canvas.width !== plan.size.w || canvas.height !== plan.size.h) {
+            throw new Error(`there is no room for a ${plan.size.w}×${plan.size.h} frame right now`);
+          }
         }
         // A level whose targets are still being sized can miss a frame;
         // wait a few animation frames for a completed one.
@@ -959,13 +973,13 @@ async function saveDetailSnapshots() {
       save: async (level, output) => {
         saveSnapshotFile(await canvasToPng(output), snapshotFileName(stamp, level));
         // Browsers drop rapid back-to-back downloads; space them out.
-        await new Promise((resolve) => setTimeout(resolve, 300));
+        if (plan.levels.length > 1) await new Promise((resolve) => setTimeout(resolve, 300));
       },
     });
   } catch (err) {
     if (!cancelled) {
       console.error('[snapshot]', err);
-      showErrorBanner(`Could not save the snapshots: ${err?.message || err}`);
+      showErrorBanner(`Could not save ${plan.levels.length === 1 ? 'the snapshot' : 'the snapshots'}: ${err?.message || err}`);
     }
   } finally {
     bulkExportSize = null;
@@ -1169,6 +1183,7 @@ function syncKeepAwake() {
 
 function onFullscreenChange() {
   updateFullscreenBtn();
+  fitCanvasAndRedraw();
   if (isFullscreen()) fullscreenDropped = false;
   else if (isSystemFullscreenDrop(lastInputMs, performance.now())) fullscreenDropped = true;
   syncKeepAwake();
@@ -3087,7 +3102,9 @@ fileInputEl?.addEventListener('change', (e) => {
 // such app. Nothing this page serves can add a chooser there, so instead
 // the dead click is detected once, suppressed from then on, and the URL
 // loader below is offered in its place. See src/ui/FileChooserProbe.js.
-const fileChooser = new FileChooserSupport();
+// Earlier releases shared a verdict with directory selection. Probe ordinary
+// files once under their own key so a failed folder chooser cannot block them.
+const fileChooser = new FileChooserSupport({ storageKey: 'smw:fileChooser:files' });
 
 /** Every route to the picker goes through here, so a browser with no
  *  chooser reveals the alternative instead of raising a keyboard. */
@@ -3821,22 +3838,12 @@ function renderResultsGrid(stats) {
 // Pointer is tracked so star-children can notice the user; never moves camera.
 // Map client coords through the CSS rect into logical 1280×720 stage space.
 //
-// #stage is `object-fit: contain` (style.css): its bounding box fills its
-// container, but the actual rendered 16:9 image is letterboxed/pillarboxed
-// INSIDE that box whenever the container's own aspect ratio isn't exactly
-// 16:9 -- which is the common case, not the exception (a 2000x900 window
-// pillarboxes ~200px of dead space on each side). getBoundingClientRect()
-// reports the full box, bars included, so dividing straight through it (as
-// this used to) silently assumed the box's aspect was always 16:9. Every
-// off-center tap was off by however wide the bars are -- measured at over
-// 60px of strip-space error on a moderately widescreen window, worse on
-// wider ones -- which is exactly the reported "seek lands ~100px from where
-// I tapped." Clicks landing in the bars themselves (dead space, no stage
-// content there at all) now correctly report no hit instead of being
-// silently mapped onto the nearest stage edge.
+// Windowed output excludes the contained picture's bars. Fullscreen cover
+// instead fills and crops the stage; invert that same mapping so pointer
+// anchors stay aligned with the visible scene, including the screen edges.
 function clientToStage(e) {
   const rect = canvas.getBoundingClientRect();
-  return clientToStageCoords(e.clientX, e.clientY, rect, STAGE_W, STAGE_H);
+  return clientToStageCoords(e.clientX, e.clientY, rect, STAGE_W, STAGE_H, effectivePresentation().scaling);
 }
 
 /** The title screen's living backdrop: a slow, seeded starfield + nebula +
@@ -4809,6 +4816,15 @@ const libraryFolderInputEl = document.getElementById('libraryFolderInput');
 const libraryFolderHintEl = document.querySelector('.libraryFolderHint');
 
 const musicLibrary = new MusicLibrary();
+// Directory and ordinary file choosers may differ on Android. A failed
+// folder probe must not disable the working Browse files control.
+const folderChooser = new FileChooserSupport({ storage: null });
+const fallbackUsesFiles = folderPickerMode({ userAgent: navigator.userAgent }) === 'files';
+if (fallbackUsesFiles && libraryFolderInputEl) {
+  libraryFolderInputEl.removeAttribute('webkitdirectory');
+  libraryFolderInputEl.removeAttribute('directory');
+  libraryFolderInputEl.accept = '.mp3,.wav,.flac,.ogg,.m4a,.aac,audio/*';
+}
 const randomSongBtn = document.getElementById('randomSongBtn');
 let lastLibraryTrackId = null;
 randomSongBtn?.addEventListener('click', async () => {
@@ -4857,13 +4873,20 @@ function renderLibraryHome() {
   // Once there IS a folder, the row below stops being an invitation and
   // becomes a way to swap it -- so it says that instead of re-pitching the
   // privacy line to someone who already accepted it.
-  const folderLabel = hasLibrary ? 'Change folder' : 'Use a music folder';
+  const useFiles = !musicLibrary.persistable && fallbackUsesFiles;
+  const folderLabel = useFiles
+    ? (hasLibrary ? 'Choose music files again' : 'Select music files')
+    : (hasLibrary ? 'Change folder' : 'Use a music folder');
   if (libraryFolderBtnEl) libraryFolderBtnEl.textContent = folderLabel;
   if (libraryFolderFallbackEl) libraryFolderFallbackEl.textContent = folderLabel;
   if (libraryFolderHintEl) {
-    libraryFolderHintEl.textContent = hasLibrary
-      ? `Reading from ${musicLibrary.root?.name || 'your folder'}.`
-      : 'Choose it once and it stays. Your files never leave the device — the folder is read straight off your disk.';
+    libraryFolderHintEl.textContent = useFiles
+      ? 'Select multiple songs in your music folder. They stay on this device; select them again after reloading.'
+      : (hasLibrary
+        ? `Reading from ${musicLibrary.root?.name || 'your folder'}.`
+        : (musicLibrary.persistable
+          ? 'Choose it once and it stays. Your files never leave the device — the folder is read straight off your disk.'
+          : 'Choose a folder from this device. Select it again after reloading to play its songs.'));
   }
   if (!hasLibrary) return;
 
@@ -4980,15 +5003,17 @@ async function playLibraryTrack(track) {
 }
 
 async function chooseMusicFolder() {
-  if (!musicLibrary.supported) {
-    showErrorBanner('This browser has no storage available, so a library can’t be kept here. Dropping a song still works.');
-    return;
-  }
   if (!musicLibrary.persistable) {
-    // The `webkitdirectory` fallback is still an <input type="file">, so a
-    // browser with no chooser cannot open it either -- same route, same
-    // suppression, same alternative offered.
-    openFilePicker(libraryFolderInputEl);
+    if (!fallbackUsesFiles && libraryFolderInputEl) {
+      libraryFolderInputEl.setAttribute('webkitdirectory', '');
+      libraryFolderInputEl.setAttribute('directory', '');
+      libraryFolderInputEl.removeAttribute('accept');
+    }
+    // Folder chooser support can differ from ordinary file selection.
+    if (fallbackUsesFiles) openFilePicker(libraryFolderInputEl);
+    else folderChooser.open(libraryFolderInputEl, () => {
+      showErrorBanner('This browser could not open a folder chooser. Select music files instead.');
+    });
     return;
   }
   try {
@@ -5082,6 +5107,9 @@ libraryFolderInputEl?.addEventListener('change', async (e) => {
   libraryPanel?.setBusy(true, 'Reading folder…');
   try {
     await musicLibrary.adoptFileList(files, { onRootChosen: () => openLibrary() });
+  } catch (err) {
+    console.warn('[library] file selection failed', err);
+    showErrorBanner('Could not read those music files: ' + (err?.message || err));
   } finally {
     libraryPanel?.setBusy(false);
     libraryPanel?.render();
@@ -5096,7 +5124,23 @@ libraryPanelEl?.addEventListener('cancel', (e) => {
   closeLibrary();
 });
 
+// Some Android browsers expose a folder chooser that their file manager
+// cannot actually complete. Keep an ordinary multi-select route alongside it.
+if (/Android/i.test(navigator.userAgent) && !musicLibrary.persistable && !fallbackUsesFiles && libraryFolderInputEl) {
+  const selectFilesBtn = document.createElement('button');
+  selectFilesBtn.type = 'button';
+  selectFilesBtn.className = 'ghostbtn libraryFolderBtn';
+  selectFilesBtn.textContent = 'Select music files instead';
+  selectFilesBtn.addEventListener('click', () => {
+    libraryFolderInputEl.removeAttribute('webkitdirectory');
+    libraryFolderInputEl.removeAttribute('directory');
+    libraryFolderInputEl.accept = '.mp3,.wav,.flac,.ogg,.m4a,.aac,audio/*';
+    openFilePicker(libraryFolderInputEl);
+  });
+  libraryFolderFallbackEl?.after(selectFilesBtn);
+}
 syncFolderControls();
+renderLibraryHome();
 musicLibrary.init().catch((err) => console.warn('[library] could not be loaded', err));
 
 // ===================================================================
@@ -5119,7 +5163,10 @@ musicLibrary.init().catch((err) => console.warn('[library] could not be loaded',
 const recordBtnEl = document.getElementById('recordBtn');
 const recordStatusEl = document.getElementById('recordStatus');
 const cancelExportBtn = document.getElementById('cancelExportBtn');
-const exportSetup = new ExportSetup({ root: document.getElementById('exportSetup'), storage: displayStorage() });
+// Video recording is no longer offered. Keep legacy playback hooks inert while
+// the capture pipeline remains available to offline tooling.
+const exportSetup = { snapshot: () => null, setBusy: () => {}, setDuration: () => {},
+  render: () => {}, candidate: null, toggle: { checked: false } };
 const exportNoteEl = document.getElementById('exportNote');
 
 

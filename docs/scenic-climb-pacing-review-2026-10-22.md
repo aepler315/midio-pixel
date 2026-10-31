@@ -1,5 +1,7 @@
 # Scenic climb, pacing and ending review
 
+> Historical record. The scope, preservation rules, approval/hold decisions and validation steps below describe this past task, not current development prerequisites. Experiments and local commits follow the [current development policy](experimental-development.md). Recorded results and runtime eligibility remain evidence of the version reviewed.
+
 Camera quality remains the priority before further geographic expansion. This
 iteration implements the configured climb limit, corrects the pacing regression
 that its enforcement exposed, and retains a scoped moonlit terrain-fill change

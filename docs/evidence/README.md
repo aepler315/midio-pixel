@@ -1,8 +1,14 @@
 # Evidence archive
 
-New evidence is not committed here (see `AGENTS.md`). Captures belong in
-`.smoke/`, in a CI artifact, or attached to a GitHub Release and linked
-from the PR.
+These retained files record historical runs and view provenance. Their review
+states, measurements and limitations describe the versions captured, not current
+development prerequisites; see the [current development policy](../experimental-development.md).
+This context also applies to the JSON reports in the retained folders.
+
+Large new captures are normally kept in `.smoke/`, a CI artifact or a GitHub
+Release and linked from the PR, keeping source history small. Captures are useful
+review evidence when relevant; they are not required before experimentation or
+local commits.
 
 Two folders stay, because `src/world/terrain/sceneCatalogData.js` cites
 them as view provenance:
@@ -12,7 +18,7 @@ them as view provenance:
 
 Every other folder was removed from the working tree; git history keeps
 it. The last commit that holds the complete archive is `4952a45` (main,
-2026-10-10). Restore a folder locally without committing it:
+2026-10-10). To inspect an old folder locally:
 
 ```sh
 git checkout 4952a45 -- docs/evidence/<folder>   # e.g. pixel-repair

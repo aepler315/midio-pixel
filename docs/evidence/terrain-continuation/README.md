@@ -1,5 +1,7 @@
 # Coherent terrain continuation — 2026-10-01
 
+> Historical record. The scope, preservation rules, approval/hold decisions and validation steps below describe this past task, not current development prerequisites. Experiments and local commits follow the [current development policy](../../experimental-development.md). Recorded results and runtime eligibility remain evidence of the version reviewed.
+
 Implemented on `codex/coherent-terrain-performance-20261001`, from `c7c22e850a92bdea6313653ab03903f587e03e28`. Production and evidence-tool source is frozen at `bc2b82d`; later commits add evidence documentation only. This branch is ready for visual review, with browser, export and physical-device acceptance pending. No new catalog approval, merge or deployment is implied.
 
 ## What changed

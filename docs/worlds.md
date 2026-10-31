@@ -64,10 +64,13 @@ adapted to the song. Its public id is `custom` and it records the world it
 came from as `baseId`. The adapted instance is the card's play target, never
 a second card. A dense mix is filtered rather than amplified.
 
-What must survive adaptation is the world's identity (`WorldIdentity.js`):
+The current adaptation contract preserves the world's identity (`WorldIdentity.js`):
 its landmark, signature motion, light source, palette floor and the shared
 effects its setting allows. Adaptation may change color, timing and terrain
-variation; it may not lose those.
+variation while retaining those elements. This describes the implemented
+contract; task-authorized identity or adaptation experiments may evolve it under
+the [experimental development policy](experimental-development.md), with relevant
+compatibility and behavior checks updated alongside the change.
 
 ## The chooser
 

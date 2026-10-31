@@ -1,5 +1,11 @@
 # Range v2 device runs
 
+These procedures establish device-specific evidence, not permission to develop.
+Task-authorized experiments may continue without the listed devices under the
+[experimental development policy](experimental-development.md). Report missing
+hardware measurements explicitly and reserve device-performance claims for
+measurements on the identified hardware.
+
 Task 16 of the Range v2 plan asks for real-device measurements of steady-state and cold/transition behaviour, including a 10-minute phone run. This build was developed without a physical phone or GPU: every timing measured here is from Chromium SwiftShader (software WebGL2) and is **not** a device measurement. **Device acceptance is unverified** until the runs below are done on real hardware and their reports are added to the table at the end.
 
 ## What to run

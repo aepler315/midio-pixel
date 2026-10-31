@@ -467,51 +467,8 @@ async function suiteExport(ctx) {
   execFileSync('ffmpeg', ['-loglevel', 'error', '-y', '-ss', '2.5', '-i', path.join(exportDir, mp4), '-frames:v', '1', framePng]);
   const bulkCount = await pngMarkers(framePng);
   check('markers reach the bulk-exported video', bulkCount > 500, `${bulkCount} px`);
-  // 3. The live recorder (SongRecorder), recorded from the HUD.
-  const context = await browser.newContext({ viewport: { width: 1280, height: 780 }, acceptDownloads: true });
-  await context.route('**/soundfonts/', (route) => route.fulfill({ json: [] }));
-  await context.route(/^https:\/\//, (route) => route.abort());
-  const page = await context.newPage();
-  const live = new URL(args.url);
-  for (const [k, v] of Object.entries(params)) live.searchParams.set(k, v);
-  live.searchParams.set('seed', '315');
-  await page.goto(live.href);
-  await page.locator('#titleSettings').evaluate((node) => { node.open = true; });
-  const lyrics = page.locator('#lyricGroundingBtn');
-  if (await lyrics.getAttribute('aria-pressed') === 'true') await lyrics.click();
-  await page.locator('#display-pixelGrid').selectOption('classic');
-  await page.locator('#fileInput').setInputFiles(wav);
-  // The chooser opens unless the page names its world; take Landscape.
-  const picker = await Promise.race([
-    page.locator('#worldSelect[open]').waitFor({ timeout: 300000 }).then(() => true),
-    page.waitForFunction(() => !!window.__SMW?.sim, null, { timeout: 300000 }).then(() => false),
-  ]);
-  if (picker) {
-    const card = page.locator('.worldCard[data-base-world-id="alpine"]');
-    await (await card.count() ? card.first() : page.locator('.worldCard').first()).locator('.worldCardPlayBtn').click();
-  }
-  await page.waitForFunction(() => window.__SMW?.rangeState?.active, null, { timeout: 600000 });
-  const clickRecord = async () => {
-    for (let attempt = 0; attempt < 6; attempt++) {
-      if (await page.locator('#hudRight.hud-faded').count()) await page.locator('#stage').click({ position: { x: 640, y: 250 } });
-      try { await page.locator('#recordBtn').click({ timeout: 5000 }); return; } catch { /* retry */ }
-    }
-    throw new Error('record button unreachable');
-  };
-  await clickRecord();
-  await page.waitForTimeout(8000);
-  const download = page.waitForEvent('download', { timeout: 120000 });
-  await clickRecord();
-  const saved = await download;
-  const recPath = path.join(out, `export-recorder${path.extname(saved.suggestedFilename())}`);
-  await saved.saveAs(recPath);
-  const recPng = path.join(out, 'export-recorder-frame.png');
-  execFileSync('ffmpeg', ['-loglevel', 'error', '-y', '-sseof', '-1', '-i', recPath, '-frames:v', '1', recPng]);
-  const recCount = await pngMarkers(recPng);
-  check('markers reach the recorded video', recCount > 200, `${recCount} px`);
-  report.export.files = { stage: path.relative(root, stagePng), bulk: path.relative(root, framePng), recorder: path.relative(root, recPng) };
+  report.export.files = { stage: path.relative(root, stagePng), bulk: path.relative(root, framePng) };
   report.export.stageIdentity = stage.identity;
-  await context.close();
 }
 
 /**

@@ -1,5 +1,7 @@
 # Route gate: opt-in hardware-GPU configuration
 
+> Historical record. The scope, preservation rules, approval/hold decisions and validation steps below describe this past task, not current development prerequisites. Experiments and local commits follow the [current development policy](../experimental-development.md). Recorded results and runtime eligibility remain evidence of the version reviewed.
+
 The WP03 follow-up ([report](2026-10-21-wp03-followup-tour-verification.md)) diagnosed the persisted-Tetons `page.screenshot` timeout in the staged four-route gate as a software-rasterizer limit. Under SwiftShader, single tour frames cost 20–50 s of GPU-process time, so the default gate fails intermittently. On the local RTX 3060 the same routes passed. This change adds an explicit, opt-in hardware-GPU configuration to [current-routes-smoke.mjs](../../tools/current-routes-smoke.mjs). The hardware configuration is reported separately, verifies that it really ran on hardware, and leaves the default SwiftShader gate as it was.
 
 Branch: `impl/route-gate-hardware-gpu`. Sole parent: `impl/wp03-followup-tour-verification` at `7b59de6362617154d151f3b3efb6f6ed2336857b`. No application source (`index.html`, `src/`) changed. This branch's staged digest is therefore the follow-up's `99e7db4296f6afefbfb834d3d1fef56e3823e331cf6829652565134941cd10be`. Not merged and not deployed.

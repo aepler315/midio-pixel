@@ -60,6 +60,24 @@ test('direct frame captures become stale on resize and failed frames', () => {
   renderer.dispose();
 });
 
+for (const [width, height] of [[2560, 1080], [800, 600]]) {
+  test(`fullscreen direct terrain covers the complete ${width}x${height} output`, () => {
+    const out = canvas(width, height), scene = {}, range = { enabled: true };
+    const inner = { canvasRenderer: scene, rangePresentation: range, dispose() {}, draw() {
+      assert.equal(scene.outputCover, true);
+      range.drawTerrainImage(scene.ctx, { width: 320, height: 180 }, { width: 1280, height: 720 });
+      const [x, y, paintedWidth, paintedHeight] = scene.canvas.calls.at(-1).args.slice(1);
+      assert.ok(x <= 0 && y <= 0, 'terrain must start at or outside the top-left screen edge');
+      assert.ok(x + paintedWidth >= width && y + paintedHeight >= height,
+        'terrain must extend through the bottom-right screen edge');
+    } };
+    const renderer = createPresentingRenderer({ canvas: out,
+      presentation: { ...presentation, scaling: 'cover', paletteId: 'none' }, rendererFactory: () => inner });
+    assert.equal(renderer.draw({ biomes: { world: { kind: 'alpine' } } }, 0).presented, true);
+    renderer.dispose();
+  });
+}
+
 
 test('terrain grid is aligned to output despite camera rotation and translation', () => {
   const out = canvas(), scene = {}, range = { enabled: true };

@@ -265,7 +265,7 @@ export async function resolveFile(rootHandle, path) {
 }
 
 /**
- * Build track records from a `<input type="file" webkitdirectory>` drop.
+ * Build track records from a directory or ordinary multi-file pick.
  *
  * The fallback for browsers with no persistable directory handle. The files
  * are real and playable for this session; what cannot be saved is the way
@@ -279,6 +279,16 @@ export async function scanFileList(rootId, files, {
 } = {}) {
   const tracks = [];
   const handles = new Map();
+  const selections = [...(files || [])].map((file) => {
+    const full = file?.webkitRelativePath || file?.name || '';
+    const path = full.includes('/') ? full.slice(full.indexOf('/') + 1) : full;
+    return { file, path, directory: !!file?.webkitRelativePath };
+  });
+  // Reserve original paths before assigning session names: a flat pick can
+  // contain matching names from different folders, and a later input may
+  // already be named like a generated suffix. Directory paths stay intact.
+  const originalPaths = new Set(selections.map((selection) => selection.path));
+  const directoryPaths = new Set(selections.filter((selection) => selection.directory).map((selection) => selection.path));
   let batch = [];
   let lastFlushMs = now();
   let batchFiles = new Map();
@@ -295,15 +305,21 @@ export async function scanFileList(rootId, files, {
     await onBatch?.(sending, sendingFiles);
   };
 
-  for (const file of [...(files || [])]) {
+  for (const { file, path: originalPath, directory } of selections) {
     if (signal?.aborted) break;
     if (!file || !isAudioName(file.name)) continue;
     // webkitRelativePath leads with the chosen folder's own name; the
     // library's paths are relative to that folder, exactly as the
     // directory-handle walk produces them.
-    const full = file.webkitRelativePath || file.name;
-    const path = full.includes('/') ? full.slice(full.indexOf('/') + 1) : full;
+    let path = originalPath;
     if (path.split('/').some((part) => part.startsWith('.'))) continue;
+    if (!directory && (directoryPaths.has(path) || handles.has(path))) {
+      const dot = path.lastIndexOf('.');
+      const stem = path.slice(0, dot), extension = path.slice(dot);
+      let suffix = 2;
+      do { path = `${stem} (${suffix++})${extension}`; }
+      while (originalPaths.has(path) || handles.has(path));
+    }
     let tagReadFailed = false;
     const identity = await readTags(file, { path, onIssue: (issue) => {
       tagReadFailed = true;

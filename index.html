@@ -18,7 +18,6 @@
       <button id="errorBannerClose" type="button" class="errorBannerClose" aria-label="Dismiss">&times;</button>
     </div>
 
-    <div id="exportSaved" class="exportSaved" role="status" hidden></div>
 
     <div id="loader" class="panel titleScreen">
       <div class="titleBg" aria-hidden="true">
@@ -64,27 +63,6 @@
           <button id="randomSongBtn" type="button" class="ghostbtn randomSongBtn">↝ Random song</button>
           <span class="hint">A surprise from your music library</span>
         </div>
-
-        <section id="exportSetup" class="exportSetup" aria-labelledby="exportSetupTitle">
-          <label class="exportToggle" for="exportEnabled">
-            <span><strong id="exportSetupTitle">Export video</strong><small>Save this song’s world from beginning to end</small></span>
-            <input id="exportEnabled" type="checkbox" aria-controls="exportFields" />
-          </label>
-          <fieldset id="exportFields" class="exportFields" hidden>
-            <legend class="sr-only">Video export settings</legend>
-            <div class="exportControls">
-              <label>Resolution<select data-export="resolution" aria-label="Export resolution"></select></label>
-              <label>Aspect ratio<select data-export="aspect" aria-label="Export aspect ratio"></select></label>
-              <label>Frame rate<select data-export="fps" aria-label="Export frame rate"></select></label>
-              <label>Encoding quality<select data-export="encoding" aria-label="Video encoding quality"></select></label>
-              <label class="exportFraming">Framing<select data-export="framing" aria-label="Export framing"></select></label>
-            </div>
-            <div class="exportPreviewWrap"><div id="exportPreview" class="exportPreview" role="img"><div id="exportPreviewScene" class="exportPreviewScene"></div></div><p class="hint">Framing preview</p></div>
-            <p id="exportSummary" class="exportSummary" role="status" aria-live="polite"></p>
-            <p class="hint exportDetailHint">Resolution sets file dimensions. Encoding quality controls compression. General quality in Settings controls scene detail.</p>
-          </fieldset>
-          <p id="exportNote" class="hint exportNote" role="status" aria-live="polite"></p>
-        </section>
 
         <div id="dropzone" tabindex="0" role="button" aria-label="Drop or choose a music file">
           <div class="dropzoneInner">
@@ -182,7 +160,7 @@
               <label for="generalQuality">General quality <output id="generalQualityValue" for="generalQuality">High</output></label>
               <input id="generalQuality" type="range" min="0" max="2" step="1" value="2" aria-describedby="generalQualityHint" />
               <div class="qualityTicks" aria-hidden="true"><span>Low</span><span>Medium</span><span>High</span></div>
-              <p id="generalQualityHint" class="hint">Scene detail and effects. Lower it for smoother playback; video resolution and compression stay separate.</p>
+              <p id="generalQualityHint" class="hint">Scene detail and effects. Lower it for smoother playback.</p>
             </div>
             <div class="resRow displayRow">
               <label for="display-experience">World</label>
@@ -305,14 +283,6 @@
         <button id="fullscreenBtn" class="ghostbtn iconbtn" type="button" title="Fullscreen (F11)">&#9974;</button>
         <button id="calibrateBtn" class="ghostbtn" type="button" title="Guided tap calibration -- tap along with the beat so taps register right on time. Same as the C key. The only way to reach this on a phone.">Sync</button>
 
-        <!-- Record from here. The full-song export lives on the complete
-             screen, where you already know you want to keep this one. -->
-        <button id="recordBtn" class="ghostbtn iconbtn recordBtn" type="button" aria-pressed="false"
-          title="Record the show to a video file from this moment. Press again to stop and save.">&#9679;</button>
-        <button id="cancelExportBtn" type="button" class="ghostbtn chipbtn hidden">Cancel export</button>
-        <span id="recordStatus" class="recordStatus hidden" role="status"></span>
-
-        
         <div id="trackBadge" class="hidden">
           <button id="trackBadgeBtn" type="button"></button>
           <div id="trackList"></div>

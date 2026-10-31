@@ -1,5 +1,11 @@
 # Display presentation
 
+This page describes the current presentation behavior and compatibility rules.
+Looks, defaults, rendering architecture and budgets may evolve through
+task-authorized experiments under the
+[experimental development policy](experimental-development.md); the descriptions
+below do not impose permanent preservation requirements.
+
 Display settings are available on the title screen and from **Display** during playback. Look and quality are independent:
 
 | Setting | Behavior |
@@ -27,11 +33,11 @@ Preferences live in `midio-pixel:display:v1` (profile schema version 2):
 
 Read the new key first, then legacy `smw:display:v2`, then `smw:display:v1`, then the old Stage preset. Never write or delete Midio-5 keys. Every current profile uses `original` (Uniform). Saved Depth selections migrate to Uniform; there is no Depth control or shader branch. Stale Natural settings migrate to Pixel. Migrated v1 choices retain their look, quality, palette, strength and scaling, adding Classic/Ordered; v1 is not deleted. Old `8bit` presets migrate to Pixel/Economy/Classic/Ordered; `8bit-intensive` migrates to Palette/Economy/RGB332/Full/Classic/Ordered. Optional fields are validated independently so a bad grid or style does not discard a valid look. Blocked storage uses usable defaults. Cathode is retired; stale saved world IDs resolve to The Range, including replay and previews. Registered custom worlds still work.
 
-`PixelRenderPolicy` owns both frozen grids and pixel-space dimensions. `PresentingRenderer` supplies that policy to Canvas and Range before drawing and resolves the current world palette before `beginFrame`. Repeating the same effective palette does not invalidate capture or compile another lookup. Product presentation is always pixelated, including stale raw export overrides. Shared internal rendering utilities remain available to the pixel scene.
+`PixelRenderPolicy` owns both frozen grids and pixel-space dimensions. `PresentingRenderer` supplies that policy to Canvas and Range before drawing and resolves the current world palette before `beginFrame`. Repeating the same effective palette does not invalidate capture or compile another lookup. The current pixel presentation path stays pixelated, including stale raw export overrides. Shared internal rendering utilities remain available to the pixel scene.
 
 Pixel captions use a bundled 5×7 bitmap body at integer native coordinates, doubled at Detailed. Names and required credits wrap into at most six lines per page (54 Classic pixels); longer captions page through the existing hold interval using caption-local song time. Required text is never silently truncated or shrunk. Unsupported characters display a readable `[U+XXXX]` spelling; **Landscape details** retains the original names, regions, statistics, ecoregion and credits. It stays visible while open or focused. Captions are drawn after effects and before quantization, in the captured composition.
 
-Illustrated-world glow uses one instantaneous admitted highlight snapshot and four integer neighboring copies, with total strength capped at 0.10. Alpine glow remains disabled. Heat uses eight-native-pixel cells and integer offsets limited to one Classic pixel or two Detailed pixels, using heard time when available. Title stars retain their seeded layout and transparent backing, with fixed grid clusters and brightness twinkle. The scenic terrain keeps its native grid. Additional terrain and near-tree simplification must satisfy that grid’s projection-error bounds while protecting skyline and shoreline geometry, placements and forest density. Pixel materials skip unused preparation and discarded surface texture samples.
+Illustrated-world glow uses one instantaneous admitted highlight snapshot and four integer neighboring copies, with total strength capped at 0.10. Alpine glow remains disabled. Heat uses eight-native-pixel cells and integer offsets limited to one Classic pixel or two Detailed pixels, using heard time when available. Title stars retain their seeded layout and transparent backing, with fixed grid clusters and brightness twinkle. The scenic terrain keeps its native grid. The current terrain and near-tree simplification policy uses that grid’s projection-error bounds and protects skyline and shoreline geometry, placements and forest density. Experiments may revise those tradeoffs with corresponding behavior checks and explicit evidence. Pixel materials skip unused preparation and discarded surface texture samples.
 
 Title, playback, live recording and bulk export share the presentation profile. A non-grid pixel output reserves one native-grid working canvas through GraphicsResidency before allocation. Palette processing accepts only a supported native grid and at most 230,400 pixels, never the enlarged output. Selective owns one admitted byte mask (57,600 or 230,400 bytes), computed from the original RGB in the same readback before quantization. Bayer phase is fixed at the grid origin; there is no time term or frame history. Mask admission/commit failure falls back to Ordered for that generation and reports its reason, without retrying every frame. Off, Pixel and RGB332 allocate no edge mask. Scratch surfaces and masks release on grid changes or disposal.
 
@@ -43,7 +49,7 @@ Drawing returns an explicit `presented` result. Capture is nullable until a fram
 
 Title and playback keep independent phase-preserving draw deadlines. The playback HUD labels delivered presentation FPS separately from callback FPS; the governor still receives raw callback timing. Integer layout resolves both origin and scale in physical pixels, including the parent's origin and DPR, and applies the logical image dimensions through a transform to avoid CSS layout rounding at fractional DPR.
 
-`npm run test:retro` verifies default Range v2 and explicit legacy, shader/context failures, both-grid checkerboard raster boundaries at four DPRs/eight layouts, meaningful content and temporal changes, exact opaque pre-encode palettes, and export rejection. Live recording/decode needs a running local app server; its optional `v2` argument requests and verifies the actual v2 backend. Lossy decoded frames use stated brightness/coverage tolerances for bars rather than exact palette membership. The bounded pixel browser CI job preserves diagnostic artifacts on failure.
+`npm run test:retro` verifies default Range v2 and explicit legacy, shader/context failures, both-grid checkerboard raster boundaries at four DPRs/eight layouts, meaningful content and temporal changes, exact opaque pre-encode palettes, and export rejection. The bounded pixel browser CI job preserves diagnostic artifacts on failure.
 
 ```sh
 npm test
@@ -51,11 +57,6 @@ npm run lint
 npm run test:retro
 node tools/palette-bench.mjs
 node tools/bulk-export.mjs --help
-node tools/serve.js 8091
-# In another terminal:
-node tools/export-smoke.mjs http://127.0.0.1:8091 .smoke/pixel-export
-# Optional production Range v2 recording check:
-node tools/export-smoke.mjs http://127.0.0.1:8091 .smoke/pixel-export-v2 v2
 ```
 
 The bulk CLI supports `--look`, `--quality`, `--palette world|range32|chroma32|rgb332`, `--dither off|subtle|full`, `--dither-mode ordered|selective`, `--pixel-grid classic|classicPlus|medium|mediumPlus|detailed` and `--scaling fit|integer`.
@@ -83,7 +84,9 @@ Range v2 terrain crests and lake/river shorelines get a steadied, anti-aliased l
 
 Alpine Landscape paints moon, sun, stars, aurora, clouds and musical weather into a separate smooth sky layer using the same resolved camera, crop and scenic transform as the terrain. Terrain and its native material responses remain pixelated. Pixel/Palette and Classic/Detailed still control the foreground; the sky stays full-colour and is not palette-quantized.
 
-The live output follows the contained stage CSS size times DPR, capped at 1920×1080, and then the quality ladder's resolution scale (`PerfGovernor.resolutionScale`: 1 at rungs 0–1, 0.85 at rung 2, 0.75 at rung 3, 0.625 from rung 4). A reduced height is rounded down to whole terrain cells and kept at two or more output rows per grid row, or at the display's own height when that is smaller (`RenderOutputSize.stageOutputSize`). A 1080-line Classic stage therefore draws 1080, 900, 720 and 540 lines at rungs 1, 2, 3 and 4–6; Detailed holds 720 from rung 2. A rung change refits the stage; the terrain grid never changes with it. Classic, Classic+, Medium, Medium+ and Detailed keep their 320×180, 400×225, 480×270, 560×315 and 640×360 terrain buffers. Trio retains its native grid, and offline exports use their requested dimensions. The sky does not use nearest-neighbour CSS stretching. Above the live cap the completed picture is scaled to the display.
+Windowed live output follows the contained stage CSS size times DPR, capped at 1920×1080, and then the quality ladder's resolution scale (`PerfGovernor.resolutionScale`: 1 at rungs 0–1, 0.85 at rung 2, 0.75 at rung 3, 0.625 from rung 4). A reduced height is rounded down to whole terrain cells and kept at two or more output rows per grid row, or at the display's own height when that is smaller (`RenderOutputSize.stageOutputSize`). A 1080-line Classic stage therefore draws 1080, 900, 720 and 540 lines at rungs 1, 2, 3 and 4–6; Detailed holds 720 from rung 2. A rung change refits the stage; the terrain grid never changes with it. Classic, Classic+, Medium, Medium+ and Detailed keep their 320×180, 400×225, 480×270, 560×315 and 640×360 terrain buffers. Trio retains its native grid, and offline exports use their requested dimensions. The sky does not use nearest-neighbour CSS stretching. Above the windowed cap the completed picture is scaled to the display.
+
+Landscape fullscreen instead uses the actual viewport dimensions times DPR, including at reduced quality rungs. It fills the display with uniform cover scaling, cropping the authored scene at the edges where the screen aspect differs. Entering or leaving fullscreen refits and redraws paused playback, and leaving restores the saved scaling preference. This deliberately spends more output pixels than adaptive windowed mode. Android snapshots save only the current detail level at the live backing size; desktop snapshots retain the five full-HD detail captures.
 
 Sky density and lunar textures have bounded, accounted canvas ownership and release on song teardown. The experiment adds no terrain readback or full-frame sky cache. Existing water backdrop storage captures the same sky before far terrain, preserving reflections. Sampleable scenic depth remains required for real depth consumers such as water and shafts, despite removal of the Depth pixel effect.
 

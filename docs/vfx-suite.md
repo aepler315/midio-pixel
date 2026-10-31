@@ -95,7 +95,7 @@ composed source before `PixelPresentation.finishFrame()`, so the display,
 recordings and exports show the same frame; Pixel/Palette get no wash. Its
 energy is a pure function of heard time. A lost context skips the wash
 (never a stale image) and restoration rebuilds its program and buffers
-(`test/webglRenderer.test.js`; `EXPORT_RENDERER=webgl npm run test:export`).
+(`test/webglRenderer.test.js`).
 
 ### Impact and trail inventory (dormant)
 

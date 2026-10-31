@@ -53,7 +53,7 @@ export default {
    "archetype": "brooding",
    "evidence": {
     "reviewPath": "docs/range-v2-progress.md",
-    "review": "2026-09-29 geometry/camera review (Task 4): 21 stations + continuous traverse, neutral/silhouette/depth/crop-edge modes. Connected real relief (Ross Lake chain, Jack Mountain spurs, Sourdough flanks); no crop-edge skyline, no cracks; terrain coverage 0.62-0.64, skyline top 0.28 of frame height. Geometry approved for material pilot; production status stays candidate until the Task 13 full pilot.",
+    "review": "2026-09-29 geometry/camera review (Task 4): 21 stations + continuous traverse, neutral/silhouette/depth/crop-edge modes. Connected real relief (Ross Lake chain, Jack Mountain spurs, Sourdough flanks); no crop-edge skyline, no cracks; terrain coverage 0.62-0.64, skyline top 0.28 of frame height. Geometry approved for material pilot; At that revision production status remained candidate pending the Task 13 full pilot; the current status and approval fields record subsequent state.",
     "approval": {
      "date": "2026-10-01",
      "terrainManifestSha256": "32ee5822fccba5a474d0298cd8eb4e941cbb4858e7f1679b4e6ae9fa338aa4d2",
@@ -6619,7 +6619,7 @@ export default {
    "archetype": "serene",
    "evidence": {
     "reviewPath": "docs/scenic-expansion-wave1-2026-10-22.md",
-    "review": "Unreviewed candidate: source and rail/shot builds begin 2026-10-22. Need actual renderer, reflections, clearance, skyline and both directed transition checks before base approval.",
+    "review": "Historical 2026-10-22 candidate checklist: actual renderer, reflections, clearance, skyline and both directed transition checks were listed for base review. Candidate experimentation may continue before that review is complete.",
     "approval": null,
     "sourceHashes": [
      "e74ccd223967d153f5b098fb0847d0cf205f005c9de9159c2063f25e2e538ce6",
@@ -6680,7 +6680,7 @@ export default {
    "archetype": "serene",
    "evidence": {
     "reviewPath": "docs/scenic-expansion-wave1-2026-10-22.md",
-    "review": "Unreviewed candidate: source and rail/shot builds begin 2026-10-22. Need actual renderer, near-ridge occlusion, clearance, skyline and both directed transition checks before base approval. Water deliberately disabled until mapped wet features would be added.",
+    "review": "Historical 2026-10-22 candidate checklist: actual renderer, near-ridge occlusion, clearance, skyline and both directed transition checks were listed for base review. Candidate experimentation may continue before that review is complete. Water deliberately disabled until mapped wet features would be added.",
     "approval": null,
     "sourceHashes": [
      "9d237b713ef42927b3cea1fa04a23f119be63c7f70342c0bab7e005aa9c74538",
@@ -6738,7 +6738,7 @@ export default {
    "archetype": "serene",
    "evidence": {
     "reviewPath": "docs/scenic-expansion-wave1-2026-10-22.md",
-    "review": "Unreviewed candidate: source and rail/shot builds begin 2026-10-22. Need actual renderer, volcanic-front silhouette, source resolution at near pillars, clearance, skyline and both directed transition checks before base approval. No permanent surface water asserted; water disabled.",
+    "review": "Historical 2026-10-22 candidate checklist: actual renderer, volcanic-front silhouette, source resolution at near pillars, clearance, skyline and both directed transition checks were listed for base review. Candidate experimentation may continue before that review is complete. No permanent surface water asserted; water disabled.",
     "approval": null,
     "sourceHashes": [
      "7f32518c35ff76b6177bd9964917fcbab5d956ecfcc924159e14c477e01ff247",

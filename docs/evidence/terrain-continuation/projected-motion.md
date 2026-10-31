@@ -1,5 +1,7 @@
 # Projected terrain motion
 
+> Historical record. The scope, preservation rules, approval/hold decisions and validation steps below describe this past task, not current development prerequisites. Experiments and local commits follow the [current development policy](../../experimental-development.md). Recorded results and runtime eligibility remain evidence of the version reviewed.
+
 This is a geometric diagnostic of the three forced terrain pilots, not a visual approval. It measures source terrain anchors projected through one fixed camera, with music displacement enabled and disabled. Both sides retain the same heard time, glacier state, camera matrix and lighting. The report records the source hashes, asset hashes, camera matrices, synthetic channel inputs, calibration gain, geological cap, projected bound and measured distributions.
 
 ## Reproduce

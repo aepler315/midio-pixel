@@ -1,5 +1,6 @@
 /** The terrain grid stays independent of the final display backing. Hybrid
- * skies use the contained picture's physical size, bounded to 1080p live.
+ * skies use the contained picture's physical size, bounded to 1080p windowed.
+ * Fullscreen uses the physical viewport, overriding adaptive output scaling.
  *
  * `scale` is the quality ladder's resolution scale
  * (PerfGovernor.resolutionScale, adaptive: 1 at rungs 0-1, then 0.85, 0.75
@@ -8,9 +9,12 @@
  * line, mid-depth effects and the final composite at full display density
  * -- 1920x1080 on a phone at DPR 2-3, the largest area in the frame. Now
  * the ladder spends those pixels before it reaches the deepest rungs. */
-export function stageOutputSize({ grid, hybrid = false, cssWidth, cssHeight, dpr = 1, exportSize = null, scale = 1 }) {
+export function stageOutputSize({ grid, hybrid = false, fullscreen = false, cssWidth, cssHeight, dpr = 1, exportSize = null, scale = 1 }) {
   if (exportSize) return { w: exportSize.w, h: exportSize.h };
   const native = { w: grid.width, h: grid.height };
+  if (fullscreen && cssWidth > 0 && cssHeight > 0 && dpr > 0) {
+    return { w: Math.max(1, Math.round(cssWidth * dpr)), h: Math.max(1, Math.round(cssHeight * dpr)) };
+  }
   if (!hybrid || !(cssWidth > 0) || !(cssHeight > 0) || !(dpr > 0)) return native;
   const aspect = 16 / 9;
   let height = Math.min(1080, Math.min(cssHeight, cssWidth / aspect) * dpr);

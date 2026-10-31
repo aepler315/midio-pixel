@@ -188,8 +188,8 @@ export function groundPresentationOffsetY(presentation, biomes, height, supportY
 
 /** Fit the authored stage without rounding its axes independently. Backing
  * buffers may round their sizes; the final Canvas mapping stays uniform. */
-export function fitStageOutput(width, height, outputWidth, outputHeight) {
-  const scale = Math.min(outputWidth / width, outputHeight / height);
+export function fitStageOutput(width, height, outputWidth, outputHeight, cover = false) {
+  const scale = (cover ? Math.max : Math.min)(outputWidth / width, outputHeight / height);
   const fittedWidth = width * scale, fittedHeight = height * scale;
   return { scale, x: (outputWidth - fittedWidth) / 2, y: (outputHeight - fittedHeight) / 2,
     width: fittedWidth, height: fittedHeight };
@@ -306,7 +306,7 @@ export class Renderer {
     const stage = this._stageView || (this._stageView = { width: stageW, height: stageH });
     stage.width = stageW;
     stage.height = stageH;
-    const outputFit = fitStageOutput(nominalW, nominalH, canvas.width, canvas.height);
+    const outputFit = fitStageOutput(nominalW, nominalH, canvas.width, canvas.height, this.outputCover);
     const sx = outputFit.scale * nominalW / baseStageW;
     const sy = sx;
     // Unpadded counterpart for everything drawn AFTER the shake transform is

@@ -1,5 +1,7 @@
 # Feature status
 
+> Historical record. The scope, preservation rules, approval/hold decisions and validation steps below describe this past task, not current development prerequisites. Experiments and local commits follow the [current development policy](experimental-development.md). Recorded results and runtime eligibility remain evidence of the version reviewed.
+
 Candidate branch: `codex/finish-midio5-plan`
 Functional candidate: this document's containing commit
 Checked: 2026-09-22

@@ -1,5 +1,12 @@
 # Range v2 progress
 
+This is a historical progress record, including dated inventories, constraints
+and experiment outcomes. Its closed iterations and preserved settings do not
+restrict later task-authorized work. Follow the
+[experimental development policy](experimental-development.md) for further
+renderer, forest, camera, terrain, feature and budget experiments; report current
+runtime eligibility and validation gaps separately from these earlier findings.
+
 ## Current camera status — 2026-10-22
 
 This file retains the historical Range rollout and its evidence. The expansion
@@ -57,12 +64,14 @@ experiments, including the final projected-crown fallback, failed actual-image
 review. Only a static 0.32 receiver fill floor and the phase/closure memory
 repairs remain. Retained full and detailed-grid captures improve the green
 foreground/ridge contours modestly and stay below the unchanged 512 MiB cap.
-The forest remains soft/stippled; forest iteration is closed. Collectibility
+The forest remained soft/stippled when that iteration ended; further forest
+experiments are available under the current task. Collectibility
 of retired placement storage does not promise immediate RSS release.
 
 There are still 13 approved geographic views and 15 candidate libraries;
 approximately 30 approved views remains a goal. The global 60 MB gate stays
-removed, with regional, runtime, motion, clearance and LOD limits fixed.
+removed; regional, runtime, motion, clearance and LOD limits were unchanged in
+that revision and may evolve in later experiments.
 The final candidate contains 128 shots and 291 links in 64,927,022 Range asset
 bytes; only Denali’s two shot-package files change. The canonical suite reports
 5,071 pass, zero fail and six skipped out of 5,077; separate focused Chromium

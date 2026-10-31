@@ -1,8 +1,13 @@
 # Graphics validation
 
-## Current candidate
+This record describes the named revisions and their validation limits. Follow
+the [experimental development policy](../experimental-development.md) for further
+work: missing captures, devices or a fully passing baseline do not prevent
+experimental implementation, iteration or local review commits.
 
-The current registry retains eight public worlds. Cathode is retired; removed IDs normalize to The Range. Terrain work is confined to The Range's optional real-profile path; missing profiles still use procedural terrain.
+## Recorded candidate
+
+The recorded candidate registry retained eight public worlds. Cathode was retired; removed IDs normalized to The Range. That terrain work affected The Range's optional real-profile path; missing profiles still used procedural terrain.
 
 Local checks at functional candidate `e158f3dddf1e3db804cf27e81f36e451cd0edf96`:
 
@@ -11,7 +16,7 @@ Local checks at functional candidate `e158f3dddf1e3db804cf27e81f36e451cd0edf96`:
 - Focused terrain profile, builder, travel, strip-cache, library, clock, and recorder regressions: passed.
 - Staged artifact allowlist test: passed.
 
-The local executor could not install Playwright Chromium because its CDN returned empty archives. Browser captures and the staged Browse probe are therefore CI gates, not local claims.
+The local executor could not install Playwright Chromium because its CDN returned empty archives. Browser captures and the staged Browse probe were therefore pending checks, not local claims or prerequisites for further development.
 
 ## Historical comparison evidence
 

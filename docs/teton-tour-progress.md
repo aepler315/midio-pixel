@@ -1,5 +1,9 @@
 # Teton Song Highway progress
 
+Historical progress log. Its task order, source-access blockers and review gates
+describe the recorded revisions. Follow [experimental development](experimental-development.md)
+for new work; the old sequence does not restrict further tour experiments.
+
 Current implementation: branch `teton-song-highway-resume`; real assets and runtime are implemented. See [current validation, evidence and limitations](teton-tour-validation.md). The dated entries below preserve the earlier blocked-source history and do not describe the current source-access state.
 
 Plan: `docs/superpowers/plans/2026-10-08-teton-song-highway.md` (removed; see [removed docs](removed-docs.md)).

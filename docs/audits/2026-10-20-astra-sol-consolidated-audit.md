@@ -1,5 +1,7 @@
 # Midio Pixel: independently verified Astra / Sol consolidated audit
 
+> Historical record. The scope, preservation rules, approval/hold decisions and validation steps below describe this past task, not current development prerequisites. Experiments and local commits follow the [current development policy](../experimental-development.md). Recorded results and runtime eligibility remain evidence of the version reviewed.
+
 **Date:** October 20, 2026 (America/Los_Angeles)
 
 **Repository:** `aepler315/midio-pixel`

@@ -1,9 +1,16 @@
 # Local validation and publishing
 
+Choose validation proportional to the change under the
+[experimental development policy](experimental-development.md). The commands
+below describe available checks and their pass conditions. A missing browser or
+device, a baseline failure, or an unrun broad suite does not block experimental
+implementation, iteration or local review commits; report those limits accurately.
+
 Routine validation runs locally, without GitHub Actions minutes. All test and
 visual workflows are manual (`workflow_dispatch`) only; they have no push,
-pull-request, schedule, or reusable-workflow trigger. Do not dispatch hosted
-validation unless explicitly requested.
+pull-request, schedule, or reusable-workflow trigger. Hosted validation is
+optional and is not required for routine local development; choose it when it
+serves the current task and its resource use is authorized.
 
 Use Node 24 (`.nvmrc`; `.npmrc` sets `engine-strict`, so `npm ci` refuses
 other versions) and the locked dependencies. `npm run validate` runs the whole
@@ -42,15 +49,16 @@ isolated frozen server from staged `index.html` and `src/`; it needs no running
 server and exercises ordinary Landscape v2, selected and persisted Tetons, and
 Trio upload/play. Its report preserves source/audio identities, actual route,
 decoded audio and completed-frame evidence, and browser diagnostics with
-severity and phase. Every route must pass. Optional soundfont discovery is
-empty. Pass `--audio PATH` for a recording; the default is generated audio.
+severity and phase. A passing suite result requires every route to pass. Optional
+soundfont discovery is empty. Pass `--audio PATH` for a recording; the default is generated audio.
 Use a new output directory for each run. Browser checks are headless. Retain
 logs and captures outside Git.
 
 The current-route suite covers startup and observed live playback. It does
 not replace the legacy suite's pause/resume/replace/stop coverage or the
 specialized seek, export and context-recovery suites. Those transition and
-device matrices remain separate completion gates.
+device matrices provide separate evidence for their covered behavior and
+environments; they are not universal development prerequisites.
 
 The default route gate renders with SwiftShader. Under SwiftShader the tour's
 detailed terrain windows can cost 20–50 s of GPU-process time per frame, so its
@@ -74,8 +82,9 @@ Windows Node (`MIDIO_WINDOWS_NODE`) with the WSL-installed Playwright and needs
 a Windows Chromium (`--browser` or `MIDIO_WINDOWS_CHROME`). Windows Git cannot
 read a WSL worktree, so the report records the checkout identity as unavailable
 and the adjacent `launcher.json` records the WSL checkout and checks the staged
-digest. A hardware result is reported separately and never stands in for the
-default SwiftShader gate.
+digest. Report hardware and SwiftShader results separately so each result
+identifies the environment actually tested. Either can guide further iteration;
+neither establishes the result in the other environment.
 
 `test/tourPlannerRegression.test.mjs` separately characterizes audit C01 using
 the published tour package and a minimized role schedule. The 60- and

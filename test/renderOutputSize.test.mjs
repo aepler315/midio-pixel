@@ -21,6 +21,12 @@ test('hybrid output matches the displayed content density with a 1080p ceiling',
   assert.deepEqual(size({ hybrid: true, cssWidth: 960, cssHeight: 600, dpr: 1.25 }), { w: 1200, h: 675 });
 });
 
+test('fullscreen landscape output matches physical viewport dimensions', () => {
+  assert.deepEqual(size({ hybrid: true, fullscreen: true, cssWidth: 1024, cssHeight: 600, dpr: 1.5 }), { w: 1536, h: 900 });
+  assert.deepEqual(size({ hybrid: true, fullscreen: true, cssWidth: 2560, cssHeight: 1440, dpr: 1 }), { w: 2560, h: 1440 });
+  assert.deepEqual(size({ hybrid: true, fullscreen: true, cssWidth: 800, cssHeight: 480, dpr: 1, scale: 0.625 }), { w: 800, h: 480 });
+});
+
 test('portrait output spends its resolution on the contained landscape picture', () => {
   assert.deepEqual(size({ hybrid: true, cssWidth: 390, cssHeight: 844, dpr: 3 }), { w: 1170, h: 658 });
   assert.deepEqual(size({ hybrid: true, cssWidth: 0, cssHeight: 0, dpr: 1 }), { w: 320, h: 180 });
@@ -53,9 +59,42 @@ test('uniform pixel scenes retain their native grid and exports retain exact req
 });
 
 const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+test('fullscreen landscape selects cover and restores the saved fit on exit', () => {
+  const start = main.indexOf('function effectivePresentation()');
+  const code = main.slice(start, main.indexOf('\n}\n', start) + 3);
+  const context = vm.createContext({ bulkPresentation: null, presentation: { scaling: 'fit' },
+    directTerrainExperiment: () => false, location: { search: '' }, experience: 'landscape',
+    bulkExportSize: null, document: {}, isFullscreen: () => true });
+  vm.runInContext(code, context);
+  assert.equal(context.effectivePresentation().scaling, 'cover');
+  context.isFullscreen = () => false;
+  assert.equal(context.effectivePresentation().scaling, 'fit');
+});
 const start = main.indexOf('function fitCanvas()');
 const fitCanvas = main.slice(start, main.indexOf('\n}\n', start) + 3);
-for (const { pixelGrid, experience = 'landscape', bulkExportSize = null, expected } of [
+test('fullscreen entry and exit resize the landscape while retaining the saved scaling preference', () => {
+  const prefStart = main.indexOf('function effectivePresentation()');
+  const prefCode = main.slice(prefStart, main.indexOf('\n}\n', prefStart) + 3);
+  let fullscreen = false, selected;
+  const canvas = { width: 320, height: 180, classList: { toggle() {} },
+    getBoundingClientRect: () => ({ width: 1024, height: 600 }), getContext: () => ({}) };
+  const context = vm.createContext({ bulkPresentation: null, presentation: { scaling: 'fit', grid: { width: 320, height: 180 } },
+    directTerrainExperiment: () => false, location: { search: '' }, experience: 'landscape',
+    document: {}, isFullscreen: () => fullscreen, renderer: { setPresentation(value) { selected = value; } },
+    titlePresentation: null, fitPixelLayout() {}, perfGovernor: null, bulkExportSize: null, canvas, stageOutputSize,
+    sim: { biomes: { world: { kind: 'alpine' } } }, rangePresentation: { enabled: true },
+    lastTimelineData: null, lastWorldId: 'alpine', DEFAULT_WORLD_ID: 'alpine', getWorld: () => ({ kind: 'alpine' }),
+    window: { devicePixelRatio: 1.5 }, landscapeHintEl: null,
+    resizeStageCanvas(target, w, h) { target.width = w; target.height = h; },
+  });
+  vm.runInContext(prefCode + '\n' + fitCanvas, context);
+  fullscreen = true; context.fitCanvas();
+  assert.deepEqual([canvas.width, canvas.height, selected.scaling], [1536, 900, 'cover']);
+  fullscreen = false; context.fitCanvas();
+  assert.deepEqual([canvas.width, canvas.height, selected.scaling], [1536, 864, 'fit']);
+  assert.equal(context.presentation.scaling, 'fit');
+});
+for (const { pixelGrid, experience = 'landscape', bulkExportSize = null, fullscreen = false, expected } of [
   { pixelGrid: 'classic', expected: [1920, 1080] },
   { pixelGrid: 'detailed', expected: [1920, 1080] },
   { pixelGrid: 'classic', experience: 'trio', expected: [320, 180] },
@@ -64,6 +103,7 @@ for (const { pixelGrid, experience = 'landscape', bulkExportSize = null, expecte
   { pixelGrid: 'medium', experience: 'trio', expected: [480, 270] },
   { pixelGrid: 'mediumPlus', experience: 'trio', expected: [560, 315] },
   { pixelGrid: 'classic', bulkExportSize: { w: 3840, h: 2160 }, expected: [3840, 2160] },
+  { pixelGrid: 'classic', fullscreen: true, expected: [1920, 1080] },
 ]) test(`actual fitCanvas keeps ${experience} ${pixelGrid}${bulkExportSize ? ' export' : ''} output separate from terrain`, () => {
   const active = resolvePresentation({ version: 2, look: 'pixel', pixelGrid });
   const flags = new Map(), outputCtx = { setTransform() {}, fillRect() {}, drawImage() {} };
@@ -79,7 +119,7 @@ for (const { pixelGrid, experience = 'landscape', bulkExportSize = null, expecte
     fitPixelLayout() { laidOut = true; }, perfGovernor: null, bulkExportSize, canvas, stageOutputSize,
     experience, sim: { timeMs: 15950, biomes: { world: { kind: 'alpine' } } }, rangePresentation: { enabled: true },
     lastTimelineData: null, lastWorldId: 'alpine', DEFAULT_WORLD_ID: 'alpine', getWorld: () => ({ kind: 'alpine' }),
-    window: { devicePixelRatio: 1.5 }, landscapeHintEl: null,
+    window: { devicePixelRatio: 1.5 }, document: {}, isFullscreen: () => fullscreen, landscapeHintEl: null,
     resizeStageCanvas(target, w, h) { target.width = w; target.height = h; },
   });
   try {

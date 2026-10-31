@@ -1,5 +1,7 @@
 # Midio Pixel implementation plan
 
+> Historical record. The scope, preservation rules, approval/hold decisions and validation steps below describe this past task, not current development prerequisites. Experiments and local commits follow the [current development policy](../../experimental-development.md). Recorded results and runtime eligibility remain evidence of the version reviewed.
+
 > Historical plan: the user subsequently removed Depth scaling and requested a smooth Landscape sky experiment. Current behavior is documented in [Display presentation](../../pixel-presentation.md).
 
 **Goal:** Deliver the separate pixel-only repository without losing upstream pixel capabilities, adding physical depth scale.

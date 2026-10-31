@@ -14,14 +14,14 @@
 // splits KICK/HAT/SNARE on fixed band-share thresholds that are the same for
 // everybody and every genre.
 //
-// Design constraints, all deliberate:
+// Current implementation:
 //   * Pure. No DOM, no wall clock, no storage -- timestamps and features are
 //     passed in, serialization is the caller's problem (see toJSON/fromJSON).
 //     Same discipline as BeatAnchor.js and SyncMonitor.js, and the reason this
 //     is testable at all.
 //   * Inert until earned. Below MIN_ROLE_SAMPLES a role's template is not
-//     consulted and callers get exactly today's behavior. A cold-start player
-//     must not be experimented on.
+//     consulted and callers get the baseline behavior. Cold starts use the
+//     built-in rules until enough player taps have been collected.
 //   * Blended in, never switched on. Influence scales with sample count, so a
 //     profile maturing mid-song eases in instead of lurching the world.
 //   * Robust to a fumbled tap. The timing offset is a MEDIAN, so one wild tap

@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       baseline_ref:
-        description: Optional preservation ref for stills; empty checks repeatability.
+        description: Optional reference source for stills; empty checks repeatability.
         required: false
         default: ''
         type: string
@@ -30,7 +30,7 @@ jobs:
           browser: true
       - name: Check opt-in, actual GLSL and matched-state contracts
         run: node --test test/terrainShading*.js test/terrainShading*.mjs
-      - name: Check out the selected preservation source or identical repeat
+      - name: Check out the selected reference source or identical repeat
         if: matrix.case == 'stills'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -59,7 +59,7 @@ jobs:
             baselineCommit, candidateCommit, comparisonKind,
             baselineDigest, candidateDigest,
             toggleCommit: candidateCommit,
-            purpose: process.env.CASE === 'stills' ? 'Default OFF preservation or identical-source repeat; OFF/ON toggle captures use the candidate source.' : 'OFF/ON toggle captures use the same candidate source; no independent source baseline.'
+            purpose: process.env.CASE === 'stills' ? 'Default-OFF reference comparison or identical-source repeat; OFF/ON toggle captures use the candidate source.' : 'OFF/ON toggle captures use the same candidate source; no independent source baseline.'
           }, null, 2) + '\n');
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Terrain ${process.env.CASE} ${comparisonKind}: reference ${baselineCommit} (${baselineDigest}); candidate ${candidateCommit} (${candidateDigest}). Pixel changes do not establish improvement.\n`);
           NODE

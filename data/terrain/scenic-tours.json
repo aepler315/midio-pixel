@@ -1,5 +1,5 @@
 {
-  "about": "Regional configuration for scenic shot tours (docs/scenic-tours.md). Geography, named-subject preferences, route anchors and region-dependent parameters live here; DEM sources stay in scenic-views.json. A region's status is its tour's own review state: a view plays its tour in production only when the view and its tour are both approved. Subject lonLat values marked approximate are snapped to the nearest matching DEM feature within snapRadiusM.",
+  "about": "Regional configuration for scenic shot tours (docs/scenic-tours.md). Geography, named-subject preferences, route anchors and region-dependent parameters live here; DEM sources stay in scenic-views.json. A region's status is its tour's own review state: a view plays its tour in production only when the view and its tour are both approved. Subject lonLat values marked approximate are snapped to the nearest matching DEM feature within snapRadiusM. These are current runtime selection semantics, not prerequisites for authoring or experimenting with a tour; see docs/experimental-development.md.",
   "version": 1,
   "defaults": {
     "lensFovYDeg": { "wide": 36, "normal": 26, "tele": 16 },
@@ -52,7 +52,7 @@
       "hero": ["Denali"]
     },
     "tombstone-north-klondike": {
-      "blocker": "Source drift: the rail-only bake no longer reproduces the approved package (a rebake changes 3.3% of rail pixels), so the package is kept, and it covers no tour shot. Needs the DEM source re-pinned to the approved build (or the rebaked rail re-reviewed and re-approved); then rebuild with scenic tours.",
+      "blocker": "Source drift recorded in the earlier package review: the rail-only bake no longer reproduces the approved package (a rebake changes 3.3% of rail pixels), so the package is kept, and it covers no tour shot. The recorded resolution options were re-pinning the DEM source or reviewing the rebaked rail, followed by a scenic-tour rebuild. Source, rail and tour experiments may continue while compatibility and eligibility work is reported.",
       "status": "candidate",
       "landform": "alpine",
       "notes": "Granite spires of the Tombstone Range above tundra valleys of the North Klondike.",
@@ -71,7 +71,7 @@
       "hero": []
     },
     "izta-popo-west": {
-      "historicalExcludedShots": { "ids": ["reveal-valley-e1960-n3020-354","reveal-peak-e9110-n5080-219","reveal-peak-e13280-n9070-494"], "note": "Marked broken in the rendered review of the libraries (docs/scenic-tours.md, Rendered review). Historical pre-stratification IDs only; not applied to fresh discovery. Re-review rebuilt bytes before excluding or promoting shots." },
+      "historicalExcludedShots": { "ids": ["reveal-valley-e1960-n3020-354","reveal-peak-e9110-n5080-219","reveal-peak-e13280-n9070-494"], "note": "Marked broken in the rendered review of the libraries (docs/scenic-tours.md, Rendered review). Historical pre-stratification IDs only; not applied to fresh discovery. Those results apply to the old bytes only. Use observations of rebuilt bytes for new review claims; the historical exclusions do not restrict new shot experiments." },
       "overrides": { "budget": { "assetBytes": 1400000 } },
       "budgetNote": "Wide views: each shot brings hundreds of distant tiles (mostly manifest entries), so the default 800 KB fits only 3-8 shots; raised within the shared Range asset headroom.",
       "status": "candidate",
@@ -105,7 +105,7 @@
       "hero": ["Mount San Antonio"]
     },
     "white-mountains-owens": {
-      "historicalExcludedShots": { "ids": ["approach-peak-e9490-n7510-064"], "note": "Marked broken in the rendered review of the libraries (docs/scenic-tours.md, Rendered review). Historical pre-stratification IDs only; not applied to fresh discovery. Re-review rebuilt bytes before excluding or promoting shots." },
+      "historicalExcludedShots": { "ids": ["approach-peak-e9490-n7510-064"], "note": "Marked broken in the rendered review of the libraries (docs/scenic-tours.md, Rendered review). Historical pre-stratification IDs only; not applied to fresh discovery. Those results apply to the old bytes only. Use observations of rebuilt bytes for new review claims; the historical exclusions do not restrict new shot experiments." },
       "status": "candidate",
       "landform": "escarpment",
       "notes": "The White Mountains' fault scarp over Owens Valley, White Mountain Peak at the crest.",
@@ -137,7 +137,7 @@
       "hero": ["Telescope Peak"]
     },
     "chugach-matanuska": {
-      "historicalExcludedShots": { "ids": ["reveal-peak-e790-s16030-196"], "note": "Marked broken in the rendered review of the libraries (docs/scenic-tours.md, Rendered review). Historical pre-stratification IDs only; not applied to fresh discovery. Re-review rebuilt bytes before excluding or promoting shots." },
+      "historicalExcludedShots": { "ids": ["reveal-peak-e790-s16030-196"], "note": "Marked broken in the rendered review of the libraries (docs/scenic-tours.md, Rendered review). Historical pre-stratification IDs only; not applied to fresh discovery. Those results apply to the old bytes only. Use observations of rebuilt bytes for new review claims; the historical exclusions do not restrict new shot experiments." },
       "status": "candidate",
       "landform": "glacier-valley",
       "notes": "The Matanuska Glacier valley in the Chugach; glaciated peaks on both sides of a broad valley floor.",

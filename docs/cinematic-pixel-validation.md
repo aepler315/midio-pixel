@@ -1,5 +1,11 @@
 # Cinematic Pixel validation — 2026-10-24
 
+This record describes the named revisions and their evidence. Its preservation
+lists and suggested next steps do not restrict later experiments; follow the
+[experimental development policy](experimental-development.md). Missing moving
+footage, hardware measurements or a fully passing baseline does not prevent
+further implementation or local review commits, and remains explicit in reports.
+
 Repository base: `387f9631b43e254c56eb2d6e1545aef140f4392e`. Rendering implementation through `9d1f4b5`; final documentation commit is listed in the delivery manifest. Work is local on `feat/cinematic-pixel`. No merge, deployment or physical-display acceptance is implied.
 
 ## Observed visual result
@@ -69,7 +75,7 @@ No captured media or report JSON was committed. The deliverables contain source/
 4. Directional cloud/mist scattering and less rimmed cloud light, using existing sun authority and terrain depth.
 5. Camera composition scoring for foreground framing, quiet sky and multiple distinct landscape layers.
 
-Streaming/frame-delivery work is a separate performance priority before claiming60 fps on this tour. Retain only changes supported by matched moving footage and measured cost.
+Streaming/frame-delivery work is a separate performance priority before claiming60 fps on this tour. Matched moving footage and measured cost can support retain/revise/revert decisions; report missing evidence without treating it as a block on further iteration.
 
 
 ## Moon correction — 2026-10-25

@@ -6,7 +6,7 @@ import { PALETTES, resolvePaletteId } from './PaletteCatalog.js';
 
 export function fitPixelRect(srcW, srcH, dstW, dstH, scaling = 'fit', origin = { x: 0, y: 0 }) {
   if (!(srcW > 0 && srcH > 0 && dstW > 0 && dstH > 0)) return { x: 0, y: 0, width: 0, height: 0, scale: 0 };
-  const fit = Math.min(dstW / srcW, dstH / srcH);
+  const fit = (scaling === 'cover' ? Math.max : Math.min)(dstW / srcW, dstH / srcH);
   const scale = scaling === 'integer' && fit >= 1 ? Math.floor(fit) : fit;
   const width = srcW * scale, height = srcH * scale;
   let x = (dstW - width) / 2, y = (dstH - height) / 2;
