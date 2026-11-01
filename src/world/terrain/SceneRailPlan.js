@@ -1,9 +1,12 @@
 import { travelMs } from '../BiomeSchedule.js';
-import { sceneProgressAt } from './SceneTravel.js';
+import { sceneFitRate, sceneProgressAt } from './SceneTravel.js';
 
 export const DEFAULT_RAIL_PACE = 3;
 export const RAIL_PACES = Object.freeze([1, 2, 3, 4]);
 const STEP_MS = 20;
+// Version 2 occurrences record their natural travel. Version 1 fits, saved or
+// spliced into a later plan, have none and keep the whole-song rule.
+const SNAPSHOT_VERSION = 2;
 const VISIBLE_ALLOWANCE_MS = 8200;
 const clamp01 = value => Math.max(0, Math.min(1, value));
 const durationOf = value => Number.isFinite(value) && value > 0 ? value : 0;
@@ -58,17 +61,24 @@ function sampleBase(base, timeMs) {
   return base.progress[i] + (base.progress[i + 1] - base.progress[i]) * fraction;
 }
 
-function fitWindow(base, startMs, endMs, multiplier) {
+// 2-4x multiplies the appearance's natural energy-driven travel, then fits that
+// to the rail, so a chapter does not inherit the whole song's slowdown. 1x is
+// the whole-song base itself. The gain stays uniform over the appearance, so a
+// capped move is one continuous pass.
+function fitWindow(base, startMs, endMs, multiplier, naturalDelta = null) {
   const baseStart = sampleBase(base, startMs);
   const baseDelta = Math.max(0, sampleBase(base, endMs) - baseStart);
-  const targetDelta = Math.min(multiplier * baseDelta, 1);
+  const natural = multiplier > 1 && naturalDelta !== null;
+  const requestedDelta = multiplier * (natural ? naturalDelta : baseDelta);
+  const targetDelta = Math.min(requestedDelta, 1);
   const gain = baseDelta > 0 ? targetDelta / baseDelta : 1;
   return freeze({
     baseStart, baseDelta, targetDelta,
     start: Math.max(0, Math.min(baseStart, 1 - targetDelta)),
-    gain, effectiveMultiplier: gain,
-    coverage01: baseDelta > 0 ? targetDelta / (multiplier * baseDelta) : 1,
-    capped: multiplier * baseDelta > 1,
+    gain, effectiveMultiplier: natural && naturalDelta > 0 ? targetDelta / naturalDelta : gain,
+    coverage01: requestedDelta > 0 ? targetDelta / requestedDelta : 1,
+    capped: requestedDelta > 1,
+    ...(naturalDelta === null ? {} : { naturalDelta }),
   });
 }
 
@@ -115,24 +125,25 @@ function resolveRuns(sections, choiceFor, durationMs) {
   return merged;
 }
 
-function makeOccurrence(run, base, requestedMultiplier, durationMs, seed, worldId) {
+function makeOccurrence(run, base, fitRate, requestedMultiplier, durationMs, seed, worldId) {
   const endMs = run.nominalEndMs >= durationMs ? durationMs : Math.min(durationMs, run.nominalEndMs + VISIBLE_ALLOWANCE_MS);
   const data = {
     viewId: run.viewId, biome: run.biome, startMs: run.startMs,
     nominalEndMs: run.nominalEndMs, endMs, transitionMs: run.transitionMs,
   };
+  const naturalDelta = Math.max(0, sampleBase(base, endMs) - sampleBase(base, data.startMs)) / fitRate;
   return freeze({
     id: identity('occ', { ...data, seed, worldId }), ...data,
     baseId: base.id, requestedMultiplier,
-    fit: fitWindow(base, data.startMs, endMs, requestedMultiplier),
+    fit: fitWindow(base, data.startMs, endMs, requestedMultiplier, naturalDelta),
   });
 }
 
-function makePlan({ durationMs, seed, worldId, requestedMultiplier, bases, occurrences }) {
+function makePlan({ version = SNAPSHOT_VERSION, durationMs, seed, worldId, requestedMultiplier, bases, occurrences }) {
   // Drop fresh/old tables that are no longer referenced after a splice.
   const used = new Set(occurrences.map(occurrence => occurrence.baseId));
   const unique = new Map(bases.filter(base => used.has(base.id)).map(base => [base.id, base]));
-  const data = { version: 1, durationMs, seed, worldId, requestedMultiplier, bases: [...unique.values()], occurrences };
+  const data = { version, durationMs, seed, worldId, requestedMultiplier, bases: [...unique.values()], occurrences };
   const snapshot = freeze({ id: identity('rail', data), ...data });
   const byId = new Map(occurrences.map(occurrence => [occurrence.id, occurrence]));
   return Object.freeze({
@@ -180,6 +191,7 @@ export function compileSceneRailPlan({
   const safeSeed = Number.isFinite(seed) ? seed : 0;
   const safeWorld = typeof worldId === 'string' ? worldId : null;
   const base = makeBase(duration, curves, response);
+  const fitRate = sceneFitRate({ curves, durationMs: duration, response });
   const runs = resolveRuns(sections, choiceFor, duration);
   // A midpoint preview has no heard motion to protect. Once song bounds are
   // known, its zero-length occurrence cannot serve as its own splice anchor.
@@ -203,7 +215,7 @@ export function compileSceneRailPlan({
       }
     }
   }
-  const occurrences = [...protectedRuns, ...tail.map(run => makeOccurrence(run, base, multiplier, duration, safeSeed, safeWorld))];
+  const occurrences = [...protectedRuns, ...tail.map(run => makeOccurrence(run, base, fitRate, multiplier, duration, safeSeed, safeWorld))];
   return makePlan({ durationMs: duration, seed: safeSeed, worldId: safeWorld,
     requestedMultiplier: multiplier, bases: [...(old?.bases ?? []), base], occurrences });
 }
@@ -216,7 +228,7 @@ export function withSceneRailPace(plan, requestedMultiplier, committedThroughMs 
   const occurrences = snapshot.occurrences.map(occurrence => {
     if (occurrence.startMs <= committedThroughMs || occurrence.requestedMultiplier === multiplier) return occurrence;
     return freeze({ ...occurrence, requestedMultiplier: multiplier,
-      fit: fitWindow(bases.get(occurrence.baseId), occurrence.startMs, occurrence.endMs, multiplier) });
+      fit: fitWindow(bases.get(occurrence.baseId), occurrence.startMs, occurrence.endMs, multiplier, occurrence.fit.naturalDelta ?? null) });
   });
   return makePlan({ ...snapshot, requestedMultiplier: multiplier, occurrences });
 }
@@ -227,7 +239,7 @@ const finite = (value, label) => { if (!Number.isFinite(value)) invalid(label); 
 
 /** Restore only plain data; no curve identity or original sampler is retained. */
 export function sceneRailPlanFromSnapshot(snapshot) {
-  if (snapshot?.version !== 1) invalid('unsupported version');
+  if (snapshot?.version !== 1 && snapshot?.version !== SNAPSHOT_VERSION) invalid('unsupported version');
   if (!Number.isFinite(snapshot.durationMs) || snapshot.durationMs < 0) invalid('duration');
   if (!Number.isFinite(snapshot.seed) || !(snapshot.worldId === null || typeof snapshot.worldId === 'string')) invalid('seed/world');
   if (!RAIL_PACES.includes(snapshot.requestedMultiplier)) invalid('pace');
@@ -261,6 +273,8 @@ export function sceneRailPlanFromSnapshot(snapshot) {
     if (!fit || typeof fit.capped !== 'boolean') invalid('fit');
     for (const key of ['baseStart', 'baseDelta', 'targetDelta', 'start', 'gain', 'effectiveMultiplier', 'coverage01']) finite(fit[key], `fit.${key}`);
     if (fit.baseStart < 0 || fit.baseStart > 1 || fit.baseDelta < 0 || fit.targetDelta < 0 || fit.targetDelta > 1 || fit.start < 0 || fit.start > 1 || fit.gain < 0 || fit.effectiveMultiplier < 0 || fit.coverage01 < 0 || fit.coverage01 > 1) invalid('fit bounds');
+    const hasNatural = fit.naturalDelta !== undefined;
+    if (hasNatural && (snapshot.version === 1 || !Number.isFinite(fit.naturalDelta) || fit.naturalDelta < 0)) invalid('fit natural travel');
     return freeze({
       id: occurrence.id, viewId: occurrence.viewId, biome: occurrence.biome,
       startMs: occurrence.startMs, nominalEndMs: occurrence.nominalEndMs, endMs: occurrence.endMs,
@@ -268,10 +282,10 @@ export function sceneRailPlanFromSnapshot(snapshot) {
       requestedMultiplier: occurrence.requestedMultiplier,
       fit: { baseStart: fit.baseStart, baseDelta: fit.baseDelta, targetDelta: fit.targetDelta,
         start: fit.start, gain: fit.gain, effectiveMultiplier: fit.effectiveMultiplier,
-        coverage01: fit.coverage01, capped: fit.capped },
+        coverage01: fit.coverage01, capped: fit.capped, ...(hasNatural ? { naturalDelta: fit.naturalDelta } : {}) },
     });
   });
-  const plan = makePlan({ durationMs: snapshot.durationMs, seed: snapshot.seed, worldId: snapshot.worldId,
+  const plan = makePlan({ version: snapshot.version, durationMs: snapshot.durationMs, seed: snapshot.seed, worldId: snapshot.worldId,
     requestedMultiplier: snapshot.requestedMultiplier, bases, occurrences });
   if (plan.snapshot.id !== snapshot.id) invalid('content id');
   return plan;

@@ -10,11 +10,15 @@ landscape appearance. Adjacent sections showing the same view share one
 move. Incoming and outgoing landscapes have independent progress through
 transitions, including the outgoing late-arrival allowance.
 
-The selected number is a multiplier of the existing rail-progress rate,
-not a guarantee of screen-space speed. A long held scene can run out of
-approved path. Its pace is then reduced uniformly over the complete move;
-the camera does not rush to the endpoint and stop early. No route is
-extended, looped or reversed. Longer reviewed routes are separate work.
+At 2×, 3× and 4× the number multiplies each appearance's own natural,
+energy-driven travel before that travel is fitted to the finite rail, so a
+short chapter in a long song does not inherit the whole song's slowdown. At
+1× the camera keeps the whole-song fitted rate. The number is not a guarantee
+of screen-space speed. A long held scene can run out of approved path. Its
+pace is then reduced uniformly over the complete move; the camera does not
+rush to the endpoint and stop early. No route is extended, looped or reversed.
+Longer reviewed routes are separate work. Schedules saved by earlier versions
+keep their original fits and pace rule.
 
 Changing pace applies to the next **unplayed** landscape or a fresh replay.
 The run remembers its highest reached heard time: rewinding does not unlock
