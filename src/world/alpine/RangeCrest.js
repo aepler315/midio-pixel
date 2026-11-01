@@ -1141,24 +1141,29 @@ export class RangeCrest {
   }
 
   _drawSplit(ctx, fit, X, Y, alpha) {
-    const W = this._split.canvas.width;
+    const W = this._split.canvas.width, c = this._skyline(W, fit) ? this._cut : null;
     ctx.save();
     ctx.beginPath();
     let any = false;
-    for (const band of CREST_BANDS) {
-      const g = this._grid[band];
+    for (let b = 0; b < CREST_BANDS.length; b++) {
+      const g = this._grid[CREST_BANDS[b]];
+      // The same polyline as the stroke and the terrain clip where this band
+      // is the skyline.
+      const lineAt = (x) => (c?.band[x] === b ? c.y[x] : g.line[x]);
       let i = 0;
       while (i < W) {
         if (g.crossed[i] < 0) { i++; continue; }
         let j = i;
         while (j + 1 < W && g.crossed[j + 1] >= 0) j++;
-        // Top: the line across the run (the same polyline as the stroke);
-        // bottom: the lowest crossed cell's lower edge per column.
-        const mid = (x, y) => (Number.isFinite(g.line[x]) ? (g.line[x] + y) / 2 : y);
-        ctx.moveTo(X(i), Y(mid(i - 1, g.line[i])));
-        for (let x = i; x <= j; x++) ctx.lineTo(X(x + 0.5), Y(g.line[x]));
-        ctx.lineTo(X(j + 1), Y(mid(j + 1, g.line[j])));
-        for (let x = j; x >= i; x--) { ctx.lineTo(X(x + 1), Y(g.crossedEnd[x] + 1)); ctx.lineTo(X(x), Y(g.crossedEnd[x] + 1)); }
+        // Top: the line across the run; bottom: a row past the lowest crossed
+        // cell, and a pixel past the run's ends. The canvas is empty out
+        // there, and an antialiased clip edge on a fractional cell boundary
+        // (Classic+, Medium+) would let the sky through as a hairline.
+        const mid = (x, y) => (Number.isFinite(lineAt(x)) ? (lineAt(x) + y) / 2 : y);
+        ctx.moveTo(X(i) - 1, Y(mid(i - 1, lineAt(i))));
+        for (let x = i; x <= j; x++) ctx.lineTo(X(x + 0.5), Y(lineAt(x)));
+        ctx.lineTo(X(j + 1) + 1, Y(mid(j + 1, lineAt(j))));
+        for (let x = j; x >= i; x--) { ctx.lineTo(X(x + 1) + (x === j ? 1 : 0), Y(g.crossedEnd[x] + 2)); ctx.lineTo(X(x) - (x === i ? 1 : 0), Y(g.crossedEnd[x] + 2)); }
         ctx.closePath();
         any = true;
         i = j + 1;

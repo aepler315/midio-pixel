@@ -560,7 +560,7 @@ test('shorelines come from probe edges, are pale on the water side and are drawn
   assert.equal(ops.ops.filter(op => op[0] === 'stroke').length, 2);
 });
 
-test('composite order: terrain, crest, water, shore; live and recorded alike', () => {
+test('composite order: terrain, crest, water, shore, and the skyline last; live and recorded alike', () => {
   const order = [];
   const make = (w, h, name) => {
     const canvas = { width: w, height: h };
@@ -579,17 +579,18 @@ test('composite order: terrain, crest, water, shore; live and recorded alike', (
     prepareCrestGrid({ ctx, frame }) { prepared++; assert.ok(ctx || frame); return true; },
     drawCrestForeground(ctx, fit) { order.push([ctx === canvas.getContext() ? 'live' : 'recorded', 'crest', ctx.globalCompositeOperation, fit.width]); return true; },
     drawWaterForeground(ctx, fit) { order.push([ctx === canvas.getContext() ? 'live' : 'recorded', 'water', fit.width]); return true; },
-    drawShoreForeground(ctx, fit) { order.push([ctx === canvas.getContext() ? 'live' : 'recorded', 'shore', fit.width]); return true; } };
+    drawShoreForeground(ctx, fit) { order.push([ctx === canvas.getContext() ? 'live' : 'recorded', 'shore', fit.width]); return true; },
+    drawSkylineForeground(ctx, fit) { order.push([ctx === canvas.getContext() ? 'live' : 'recorded', 'skyline', fit.width]); return true; } };
   const inner = { rangePresentation: range, draw() { assert.equal(range.crestEnabled, true); assert.equal(range.crestPalette, null); }, dispose() {} };
   const adapter = createPresentingRenderer({ canvas, rendererFactory: () => inner,
     presentation: { pixelated: true, grid: { width: 320, height: 180 }, paletteId: 'none', dither: 1, quality: 'auto', scaling: 'fit' } });
   assert.equal(adapter.draw({ biomes: { world: { kind: 'alpine' } } }, 0).presented, true);
   assert.equal(prepared, 1, 'the grid is prepared once, before the composite');
-  assert.deepEqual(order.slice(-4), [['live', 'pixels'], ['live', 'crest', 'source-over', 1280], ['live', 'water', 1280], ['live', 'shore', 1280]]);
+  assert.deepEqual(order.slice(-5), [['live', 'pixels'], ['live', 'crest', 'source-over', 1280], ['live', 'water', 1280], ['live', 'shore', 1280], ['live', 'skyline', 1280]]);
   assert.equal(adapter.diagnostics.crestForeground, true);
   const recorded = make(640, 360, 'recorded');
   assert.equal(adapter.getCaptureSource().drawCaptureFrame(recorded.getContext(), 640, 360), true);
-  assert.deepEqual(order.slice(-4), [['recorded', 'pixels'], ['recorded', 'crest', 'source-over', 640], ['recorded', 'water', 640], ['recorded', 'shore', 640]]);
+  assert.deepEqual(order.slice(-5), [['recorded', 'pixels'], ['recorded', 'crest', 'source-over', 640], ['recorded', 'water', 640], ['recorded', 'shore', 640], ['recorded', 'skyline', 640]]);
   assert.equal(prepared, 1, 'a recording never prepares the grid again');
   adapter.dispose();
 });
@@ -1393,6 +1394,17 @@ test('line, terrain clip and pocket fill share one polyline at output resolution
   const flats = strokes(line).flatMap(s => s.path).filter(([, y], i, all) => i && y === all[i - 1][1]);
   assert.ok(flats.length > 5);
   for (const [, y] of flats) assert.equal(y % 1, 0.5, 'flat runs sit on pixel centres');
+});
+
+test('split halves are clipped past their cells, so a fractional cell edge cannot let the sky through', () => {
+  const { crest } = shedFrame({ quality: 0 }), scale = 4.8, fit = { x: 0, y: 0, width: 64 * scale, height: 36 * scale, scale };
+  crest.snapshot = Object.freeze({ ...crest.snapshot, splitReady: true, splitAlpha: 1 });
+  const g = crest._grid.far, ctx = recorder();
+  crest._drawSplit(ctx, fit, x => x * scale, y => y * scale, 1);
+  const ys = new Set(ctx.ops.filter(op => op[0] === 'lineTo').map(op => op[2]));
+  const i = [...g.crossed].findIndex(v => v >= 0);
+  assert.ok(i >= 0 && ys.has(Math.round((g.crossedEnd[i] + 2) * scale * 1000) / 1000));
+  assert.ok(!ys.has(Math.round((g.crossedEnd[i] + 1) * scale * 1000) / 1000));
 });
 
 test('the terrain is clipped along the skyline on every frame, split cells or not', () => {
