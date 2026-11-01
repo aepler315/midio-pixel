@@ -1,6 +1,8 @@
 // The production water pass, restricted and whole, on a real GPU: the same
 // frame must come back with identical bytes. Each frame renders whole, then
 // restricted, then whole again, so an unstable frame cannot pass as a match.
+// Mirror frames leave the seam draws hidden, so this shows them explicitly and
+// covers the combined pass and each band's direct pass.
 //   node tools/water-colour-smoke.mjs WAV_FILE [--url http://127.0.0.1:8195] [--view teton-jackson-lake] [--out .smoke/water-colour]
 // Add --mobile for the mobile budget, --swiftshader for software rendering. Serve this tree with tools/serve.js.
 import assert from 'node:assert/strict';
@@ -33,18 +35,21 @@ try {
       const draws = [];
       const native = gl.drawElements;
       gl.drawElements = function (mode, count, type, offset) { draws.push(count); return native.call(this, mode, count, type, offset); };
-      const shot = (restricted, width, height) => {
+      const seams = (p.fringeMeshes || []).map(mesh => [mesh, mesh.visible]);
+      const shot = (restricted, width, height, pass) => {
         p.waterColour = restricted ? ranges : null;
         draws.length = 0;
-        const canvas = scene.renderWater(base, pres.viewId, width, height);
+        const canvas = scene.renderWater(base, pres.viewId, width, height, { pass });
         const copy = new OffscreenCanvas(canvas.width, canvas.height), ctx = copy.getContext('2d', { willReadFrequently: true });
         ctx.drawImage(canvas, 0, 0);
         return { pixels: ctx.getImageData(0, 0, copy.width, copy.height).data, draws: [...draws] };
       };
       try {
         const sizes = [[scene.size.width, scene.size.height], [1280, 720]], results = [];
-        for (const [width, height] of sizes) {
-          const a = shot(false, width, height), b = shot(true, width, height), c = shot(false, width, height);
+        shot(false, ...sizes[0], null); // Refresh the mirror once, then hold every shot to the same inputs.
+        for (const [mesh] of seams) mesh.visible = true;
+        for (const [width, height] of sizes) for (const pass of [null, 'far', 'mid', 'near']) {
+          const a = shot(false, width, height, pass), b = shot(true, width, height, pass), c = shot(false, width, height, pass);
           let wet = 0, stable = true, equal = true;
           for (let i = 0; i < a.pixels.length; i++) {
             if (a.pixels[i] !== c.pixels[i]) stable = false;
@@ -52,16 +57,17 @@ try {
             if (i % 4 === 3 && a.pixels[i]) wet++;
           }
           const sum = list => list.reduce((n, v) => n + v, 0);
-          results.push({ width, height, wetPixels: wet, stable, equal, wholeDraws: c.draws.length, wholeIndices: sum(c.draws), restrictedDraws: b.draws.length, restrictedIndices: sum(b.draws) });
+          results.push({ width, height, pass, wetPixels: wet, stable, equal, wholeDraws: c.draws.length, wholeIndices: sum(c.draws), restrictedDraws: b.draws.length, restrictedIndices: sum(b.draws) });
         }
         return { viewId: pres.viewId, frameId: base.frameId, budget: scene.budget, renderer: debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : null, groups: ranges?.map(e => e.groups.length), results };
       } finally {
         p.waterColour = ranges;
+        for (const [mesh, visible] of seams) mesh.visible = visible;
         gl.drawElements = native;
       }
     });
     report.frames.push({ timeMs, ...frame });
-    for (const r of frame.results) assert.ok(r.equal, `${timeMs} ms ${r.width}x${r.height}: restricted water differs (stable control: ${r.stable})`);
+    for (const r of frame.results) assert.ok(r.equal, `${timeMs} ms ${r.width}x${r.height} ${r.pass}: restricted water differs (stable control: ${r.stable})`);
   }
   report.errors = opened.errors;
   await opened.context.close();
