@@ -15,15 +15,14 @@ export const CREST_BANDS = Object.freeze(['far', 'mid', 'near']);
 
 /** Width (output px at 1080 lines) and opacity ranges, lowest to highest
  *  rank. Each band's range is entered by `e` (crestE). The skyline (a crest
- *  whose upper side is sky) outranks every band in opacity, at a thinner
- *  width than the near band. Never driven by music. */
+ *  whose upper side is sky) is one opaque output pixel at every output size,
+ *  whatever its rank. Never driven by music. */
 export const CREST_TIERS = Object.freeze({
   far: Object.freeze({ width: [1.0, 1.5], alpha: [0.35, 0.50] }),
   mid: Object.freeze({ width: [1.5, 2.25], alpha: [0.50, 0.70] }),
   near: Object.freeze({ width: [2.0, 3.0], alpha: [0.70, 0.90] }),
-  // Outranks every near stroke in opacity. Its width is half the 3.0-3.5 px
-  // it first had: a thinner line against the sky reads cleaner (owner's call).
-  skyline: Object.freeze({ width: [1.5, 1.75], alpha: [0.90, 0.95] }),
+  // Fixed in output pixels, not scaled with the output: see crestStroke.
+  skyline: Object.freeze({ width: [1, 1], alpha: [1, 1] }),
 });
 export const CREST_TIER_ORDER = Object.freeze(['far', 'mid', 'near', 'skyline']);
 /** Fraction of the stroke width that sits on the land side of the boundary. */
@@ -62,6 +61,7 @@ export function crestE(elevation01, aboveFoot01) {
 /** Stroke width (output px) and opacity for `tier` at rank `e`, scaled with
  *  the output height, never thinner than one output pixel. */
 export function crestStroke(tier, e, outputHeight = 1080) {
+  if (tier === 'skyline') return { width: 1, alpha: 1 };
   const t = CREST_TIERS[tier] || CREST_TIERS.far, u = clamp01(e);
   const width = Math.max(1, lerp(t.width[0], t.width[1], u) * (outputHeight > 0 ? outputHeight : 1080) / 1080);
   return { width, alpha: lerp(t.alpha[0], t.alpha[1], u) };
@@ -296,6 +296,51 @@ function oklab(c) {
   const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
   return [0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s, 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
     0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s];
+}
+
+// --- The skyline -------------------------------------------------------------
+
+/** How much better (as a contrast ratio) the other ink must be before a held
+ *  ink gives way, so a sky near the crossover never flips the line. */
+export const SKYLINE_INK_BAND = 1.15;
+export const SKYLINE_INK = Object.freeze({ black: '#000000', white: '#ffffff' });
+
+/** WCAG-style contrast of black and white ink against `sky`, in linear light. */
+export function inkContrast(sky) {
+  const L = 0.2126 * LINEAR[sky[0] | 0] + 0.7152 * LINEAR[sky[1] | 0] + 0.0722 * LINEAR[sky[2] | 0];
+  return { black: (L + 0.05) / 0.05, white: 1.05 / (L + 0.05) };
+}
+
+/** Pure black or white against the resolved sky. `held` is the last frame's
+ *  ink (null: no history, plain best contrast). */
+export function skylineInk(sky, held = null) {
+  const c = inkContrast(sky), best = c.black >= c.white ? 'black' : 'white';
+  if (held !== 'black' && held !== 'white' || held === best) return best;
+  return c[best] > c[held] * SKYLINE_INK_BAND ? best : held;
+}
+
+/** A span is flat within this many rows of its start: the transform and a
+ *  Float32 line leave a few thousandths of a row between equal grid rows. */
+const FLAT_ROWS = 0.02;
+
+/** The drawn line: `line` (grid rows) with exactly flat spans moved to the
+ *  centre of the output row they fall in, so a one-pixel stroke fills that
+ *  row at full opacity. `y0` and `scale` map rows to output px. Slopes keep
+ *  their sub-pixel positions and their antialiasing. */
+export function snapFlatSpans(line, y0, scale, out = new Float64Array(line.length)) {
+  const n = line.length;
+  for (let i = 0; i < n; i++) out[i] = line[i];
+  let a = 0;
+  while (a < n) {
+    let b = a;
+    while (b + 1 < n && Math.abs(line[b + 1] - line[a]) < FLAT_ROWS) b++;
+    if (b > a) {
+      const row = Math.floor(y0 + line[a] * scale);
+      for (let i = a; i <= b; i++) out[i] = (row + 0.5 - y0) / scale;
+    }
+    a = b + 1;
+  }
+  return out;
 }
 
 // --- Split-cell re-ownership -------------------------------------------------

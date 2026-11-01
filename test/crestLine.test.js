@@ -4,12 +4,13 @@ import {
   CREST_FILTER, CREST_TIER_ORDER, CREST_TIERS, CREST_DARKEN, PROTECTED_HUES, PROTECTED_HUE_GAP, crestE, crestStroke, shoreStroke,
   filterCrest, filterAux, reconstructCrest, reownCrestCells, crestSpan, crestLineColor, shoreColor, snapCrestColor,
   nearProtectedHue, linkShoreChains, SHORE_SHAPE, shoreShape, solidShoreEdges, smoothShoreChain, gaussianSmooth, shoreNoise,
-  smoothHeldShore,
+  smoothHeldShore, skylineInk, inkContrast, snapFlatSpans, SKYLINE_INK_BAND,
 } from '../src/render/CrestLine.js';
 import { RangeCrest, CREST_GRID_SCAN_LEVEL, CREST_PIXEL_SPLIT_LEVEL, CREST_VIEW_FADE_SEC } from '../src/world/alpine/RangeCrest.js';
 import { PROBE_BAND_ROWS, PROBE_ROWS, PROBE_WATER_ROW, PROBE_WATER_SLOTS, probeRow } from '../src/world/alpine/CrestProbe.js';
 import { compositePixelFrame } from '../src/render/PixelPresentation.js';
 import { createPresentingRenderer } from '../src/render/PresentingRenderer.js';
+import { Renderer } from '../src/render/Renderer.js';
 import { compilePalette, quantizePalette, quantizeImageData, quantizeTexel } from '../src/render/PaletteQuantize.js';
 import { rgbToHsl } from '../src/utils/color.js';
 import { GraphicsResidency } from '../src/render/GraphicsResidency.js';
@@ -123,11 +124,10 @@ test('the width and opacity schedule is monotonic by hierarchy, scales with outp
   assert.deepEqual(crestStroke('near', 0.4, 720), crestStroke('near', 0.4, 720), 'band, rank and output height only: no music input');
   assert.equal(crestE(1, 0), 0.6); assert.equal(crestE(0, 1), 0.4); assert.equal(crestE(NaN, 0.7), 0.7);
   // The skyline is the highest-ranked line: every skyline stroke is at least
-  // as opaque as any near stroke, whatever either one's e. Its width is half
-  // its original 3.0-3.5 px at 1080 lines.
+  // as opaque as any near stroke, whatever either one's e, at one output pixel.
   const nearMax = crestStroke('near', 1, 1080), skyMin = crestStroke('skyline', 0, 1080);
   assert.ok(skyMin.alpha >= nearMax.alpha, `skyline ${JSON.stringify(skyMin)} vs near ${JSON.stringify(nearMax)}`);
-  assert.deepEqual(CREST_TIERS.skyline.width, [1.5, 1.75]);
+  assert.deepEqual(CREST_TIERS.skyline.width, [1, 1]);
   for (let i = 1; i < CREST_TIER_ORDER.length; i++) {
     const lower = CREST_TIERS[CREST_TIER_ORDER[i - 1]], upper = CREST_TIERS[CREST_TIER_ORDER[i]];
     assert.ok(upper.alpha[1] >= lower.alpha[1], `${CREST_TIER_ORDER[i]} tops ${CREST_TIER_ORDER[i - 1]}`);
@@ -350,14 +350,14 @@ test('the crest freezes per frame: a recording redraw reproduces the live draw e
 test('crest chunks meet at shared pixel columns with no gap or overlap at a bend', () => {
   const crest = new RangeCrest();
   // A zigzag crest: every chunk boundary sits on a bend.
-  const zig = { far: j => 12 + (Math.floor(j / 4) % 2 ? j % 4 : 4 - (j % 4)) * 2 };
+  const zig = { far: () => 3, mid: j => 12 + (Math.floor(j / 4) % 2 ? j % 4 : 4 - (j % 4)) * 2 };
   for (let f = 1; f <= 30; f++) crest.update({ probe: probe(64, zig), frameId: f, timeMs: f * 1000 / 60, viewId: 'v', transform: ID, stage: STAGE, grid: GRID });
   const fit = { x: 0, y: 0, width: 1280, height: 720, scale: 20 };
   const ops = recorder();
   crest.drawCrest(ops, fit, 30);
   assert.ok(ops.ops.some(op => op[0] === 'set' && op[1] === 'lineCap' && op[2] === 'round'));
   const rects = ops.ops.filter(op => op[0] === 'rect').slice(1); // after the fit clip
-  const chunks = crest._grid.far.chunks;
+  const chunks = crest._grid.mid.chunks;
   assert.ok(chunks.length > 4);
   assert.equal(rects.length, chunks.length);
   for (let c = 1; c < rects.length; c++) {
@@ -449,7 +449,7 @@ test('the grid-scan fallback takes the skyline from the palette frame when no pr
     assert.equal(snap.split, false); assert.deepEqual(snap.shores, []);
     assert.equal(crest.prepareGrid({ frame: { width: W, height: H, data: pixels } }), true);
     const ops = recorder();
-    crest.drawCrest(ops, { x: 0, y: 0, width: 1280, height: 720, scale: 20 }, f);
+    crest.drawSkyline(ops, { x: 0, y: 0, width: 1280, height: 720, scale: 20 }, f);
     drawn = ops.ops.filter(op => op[0] === 'stroke').length;
   }
   assert.ok(drawn > 0, 'a skyline is drawn');
@@ -614,7 +614,7 @@ test('a band boundary lost in haze gets no line; a contrasting one does', () => 
   const run = (upper) => {
     const makeCanvas = (w, h) => ({ width: w, height: h, getContext: () => ({ createImageData: (a, b) => ({ width: a, height: b, data: new Uint8ClampedArray(a * b * 4) }), putImageData() {} }) });
     const crest = new RangeCrest({ makeCanvas });
-    const pr = probe(64, { mid: j => 12 + Math.floor(j / 6) });
+    const pr = probe(64, { far: () => 3, mid: j => 12 + Math.floor(j / 6) });
     const W = 64, H = 36, pixels = grid(W, H, j => 12 + Math.floor(j / 6), () => [100, 100, 100], upper);
     const ctx = { getImageData: (x, y, w, h) => ({ data: pixels.slice(y * W * 4, (y + h) * W * 4) }), putImageData() {} };
     for (let f = 1; f <= 30; f++) {
@@ -627,7 +627,6 @@ test('a band boundary lost in haze gets no line; a contrasting one does', () => 
   };
   assert.equal(run([101, 100, 99, 255]), 0, 'an invisible boundary is not outlined');
   assert.ok(run([60, 80, 140, 255]) > 0, 'a visible boundary is');
-  assert.ok(run([0, 0, 0, 0]) > 0, 'a skyline over the separate sky is');
 });
 
 test('the line darkens the land the viewer sees in the grid, not the raw band render', () => {
@@ -1109,17 +1108,6 @@ test('export draws pass instant to the crest; live draws do not', async () => {
   }
 });
 
-test('where split cells already cut the edge (levels 0-1, palettes) the terrain is not clipped again', () => {
-  const fit = { x: 0, y: 0, width: 1280, height: 720, scale: 20 };
-  for (const lagRows of [0, 1]) {
-    const { crest } = shedFrame({ quality: 0, lagRows });
-    assert.equal(crest.snapshot.splitAlpha, 1);
-    assert.equal(crest.drawTerrain(recorder(), fit, 40, () => {}), false, `lag ${lagRows}: no clip`);
-  }
-  const shed = shedFrame({ quality: CREST_PIXEL_SPLIT_LEVEL });
-  assert.equal(shed.crest.drawTerrain(recorder(), fit, 40, () => {}), true, 'split cells shed: clipped');
-});
-
 test('a continuous export frame on a new view (hard cut, travel handoff) fades in like live playback', () => {
   const makeCanvas = (w, h) => ({ width: w, height: h, getContext: () => ({ createImageData: (a, b) => ({ width: a, height: b, data: new Uint8ClampedArray(a * b * 4) }), putImageData() {} }) });
   const pr = probe(64, bands());
@@ -1177,17 +1165,18 @@ test('under steady sub-row motion the aligned line moves steadily, without whole
   }
 });
 
-test('economy (8-bit) keeps the heavy rungs on the old no-probe path: no light probe, no terrain cut', () => {
+test('economy (8-bit) keeps the heavy rungs on the old no-probe path: no light probe; the scanned line still cuts the terrain', () => {
   const crest = new RangeCrest();
   crest.economy = true;
   crest.update({ probe: probe(64, bands()), frameId: 1, timeMs: 0, viewId: 'v', transform: ID, stage: STAGE, grid: GRID, qualityLevel: 6 });
   assert.equal(crest.mode, 'grid'); assert.equal(crest.probeMode, null, 'no probe passes or readback on the economy floor');
-  // A palette look scans its own frame for the line, with no cut.
+  // A palette look scans its own frame for the line, which is the clip edge
+  // there as anywhere (path work only, no extra readback).
   const W = 64, H = 36, pixels = grid(W, H, STAIR, () => [110, 92, 70], [0, 0, 0, 0]);
   crest.update({ probe: null, scan: true, frameId: 2, timeMs: 1000 / 60, viewId: 'v', grid: GRID, qualityLevel: 6, palette: 'rgb332' });
   assert.equal(crest.snapshot.scan, true);
   assert.ok(crest.prepareGrid({ frame: { width: W, height: H, data: pixels } }));
-  assert.equal(crest.drawTerrain(recorder(), { x: 0, y: 0, width: 1280, height: 720, scale: 20 }, 2, () => {}), false);
+  assert.equal(crest.drawTerrain(recorder(), { x: 0, y: 0, width: 1280, height: 720, scale: 20 }, 2, () => {}), true);
   // Auto quality on the same rung keeps the light probe.
   crest.economy = false;
   assert.equal(crest.probeMode, 'grid');
@@ -1279,4 +1268,186 @@ test('the terrain cut carries translucent sky-side content into the cut: no step
   const ops = recorder();
   crest.drawTerrain(ops, { x: 0, y: 0, width: 1280, height: 720, scale: 20 }, 40, () => {}, { width: 64, height: 36 });
   assert.equal(ops.ops.filter(op => op[0] === 'drawImage').length, 0); assert.equal(crest.diagnostics.glowRefill, 0);
+});
+
+// --- The skyline: one output pixel of pure ink, and the terrain's clip edge --
+
+const strokes = ctx => {
+  // Each stroke with the state it was drawn under.
+  const out = [], state = {}, stack = [];
+  let path = [];
+  for (const op of ctx.ops) {
+    if (op[0] === 'set') state[op[1]] = op[2];
+    else if (op[0] === 'save') stack.push({ ...state });
+    else if (op[0] === 'restore') { const s = stack.pop(); for (const k of Object.keys(state)) delete state[k]; Object.assign(state, s); }
+    else if (op[0] === 'beginPath') path = [];
+    else if (op[0] === 'moveTo' || op[0] === 'lineTo') path.push([op[1], op[2]]);
+    else if (op[0] === 'stroke') out.push({ ...state, path });
+  }
+  return out;
+};
+const framedCrest = (b = bands(), options = {}) => {
+  const crest = new RangeCrest();
+  for (let f = 1; f <= 40; f++) crest.update({ probe: probe(64, b), frameId: f, timeMs: f * 1000 / 60, viewId: 'v', transform: ID, stage: STAGE, grid: GRID, sky: '#8899aa', ...options });
+  return crest;
+};
+
+test('the skyline stroke is one opaque output pixel at every output size; interior tiers keep their schedule', () => {
+  for (const h of [720, 1080, 2160]) for (const e of [0, 0.5, 1]) assert.deepEqual(crestStroke('skyline', e, h), { width: 1, alpha: 1 });
+  assert.ok(crestStroke('near', 1, 2160).width > 5, 'interior ridges still scale with the output');
+  assert.ok(crestStroke('far', 0, 1080).alpha < 1);
+});
+
+test('ink is chosen by linear-light contrast, and a 15% preference band holds it through chatter', () => {
+  assert.equal(skylineInk([250, 240, 230]), 'black');
+  assert.equal(skylineInk([20, 30, 60]), 'white');
+  // sRGB mid grey is far below 0.5 in linear light: black wins well under 128.
+  assert.equal(skylineInk([128, 128, 128]), 'black');
+  assert.equal(skylineInk([90, 90, 90]), 'white');
+  const grey = v => [v, v, v], contrast = v => inkContrast(grey(v));
+  let cross = 0;
+  while (contrast(cross).black < contrast(cross).white) cross++;
+  assert.equal(skylineInk(grey(cross)), 'black');
+  assert.equal(skylineInk(grey(cross), 'white'), 'white', 'the held ink survives a just-better rival');
+  assert.equal(skylineInk(grey(cross - 1), 'black'), 'black');
+  let far = cross;
+  while (contrast(far).black <= contrast(far).white * SKYLINE_INK_BAND) far++;
+  assert.equal(skylineInk(grey(far), 'white'), 'black', 'past the band it flips');
+  assert.equal(skylineInk(grey(far - 1), 'white'), 'white');
+});
+
+test('exactly flat spans land on output pixel centres; a slope is left unsnapped', () => {
+  const line = Float32Array.of(10, 10, 10, 10.5, 11, 12, 12, NaN, 7);
+  const out = snapFlatSpans(line, 3.25, 6);
+  const Y = v => 3.25 + v * 6;
+  for (const i of [0, 1, 2, 5, 6]) assert.equal(Y(out[i]) % 1, 0.5, `column ${i} on a pixel centre`);
+  assert.equal(out[3], line[3]); assert.equal(out[4], line[4]);
+  assert.ok(Math.abs(Y(out[0]) - Y(10)) <= 0.5);
+  assert.ok(Number.isNaN(out[7])); assert.equal(out[8], 7, 'a lone column is not a span');
+});
+
+test('chunks break where the skyline changes hands, so no skyline column is stroked as an interior ridge', () => {
+  // mid rises above far in the middle of an 8-column chunk's reach.
+  const b = { far: () => 10, mid: j => (j >= 11 && j < 29 ? 6 : 16) };
+  const crest = framedCrest(b), g = crest._grid;
+  for (const band of ['far', 'mid']) for (const chunk of g[band].chunks) {
+    const first = g[band].skyline[chunk.start];
+    for (let i = chunk.start; i <= chunk.last; i++) assert.equal(g[band].skyline[i], first, `${band} chunk ${chunk.start}-${chunk.last}`);
+    assert.equal(chunk.tier === 'skyline', !!first);
+  }
+});
+
+test('the skyline is drawn as pure ink at full strength with no land, aerial or palette tint', () => {
+  const fit = { x: 0, y: 0, width: 1920, height: 1080, scale: 30 };
+  for (const palette of [null, 'rgb332', compilePalette(['#102030', '#a08060', '#607050'])]) {
+    const crest = framedCrest(bands(), { palette, skyAt: () => [230, 200, 170] });
+    const ctx = recorder();
+    assert.equal(crest.drawSkyline(ctx, fit, 40), true);
+    const s = strokes(ctx);
+    assert.ok(s.length >= 1);
+    for (const stroke of s) {
+      assert.equal(stroke.strokeStyle, '#000000'); assert.equal(stroke.lineWidth, 1);
+      assert.equal(stroke.globalAlpha ?? 1, 1);
+    }
+  }
+  const night = framedCrest(bands(), { skyAt: () => [20, 30, 50] }), ctx = recorder();
+  night.drawSkyline(ctx, fit, 40);
+  assert.ok(strokes(ctx).every(s => s.strokeStyle === '#ffffff'));
+});
+
+test('the crest layer keeps interior ridges in their own style and leaves the skyline to its own layer', () => {
+  const fit = { x: 0, y: 0, width: 1920, height: 1080, scale: 30 };
+  const crest = framedCrest(), ctx = recorder();
+  crest.drawCrest(ctx, fit, 40);
+  const s = strokes(ctx);
+  assert.ok(s.length > 0);
+  for (const stroke of s) {
+    assert.ok(!['#000000', '#ffffff'].includes(stroke.strokeStyle));
+    assert.ok(stroke.lineWidth > 1 && stroke.globalAlpha < 1);
+  }
+});
+
+test('no history picks plain best contrast; continuous frames hold the ink', () => {
+  const crest = new RangeCrest();
+  const at = (f, rgb) => crest.update({ probe: probe(64, bands()), frameId: f, timeMs: f * 1000 / 60, viewId: 'v', transform: ID, stage: STAGE, grid: GRID, skyAt: () => rgb });
+  const grey = [120, 120, 120], c = inkContrast(grey);
+  assert.ok(Math.max(c.black, c.white) < Math.min(c.black, c.white) * SKYLINE_INK_BAND, 'inside the band');
+  at(1, [20, 30, 50]); assert.equal(crest.snapshot.ink, 'white');
+  // The sky is read a few times a second, by song time.
+  for (let f = 2; f <= 20; f++) { at(f, grey); assert.equal(crest.snapshot.ink, 'white', 'held'); }
+  at(60, grey); assert.equal(crest.snapshot.ink, 'black', 'a gap has no history: best contrast');
+  assert.equal(skylineInk(grey), 'black');
+});
+
+test('line, terrain clip and pocket fill share one polyline at output resolution', () => {
+  const W = 64, scale = 20, fit = { x: 0, y: 0.25, width: W * scale, height: 36 * scale, scale };
+  // A stair with flat runs, shed so the clip is drawn from the same path too.
+  const { crest } = shedFrame({ quality: CREST_PIXEL_SPLIT_LEVEL });
+  const line = recorder(), clip = recorder();
+  crest.drawSkyline(line, fit, 40);
+  crest.drawTerrain(clip, fit, 40, () => {});
+  const stroked = new Set(strokes(line).flatMap(s => s.path).map(p => p.join()));
+  const clipped = clip.ops.filter(op => op[0] === 'lineTo').map(op => `${op[1]},${op[2]}`);
+  assert.ok(stroked.size > W);
+  assert.ok([...stroked].filter(p => !clipped.includes(p)).length <= 1, 'every stroke vertex is a clip vertex');
+  const flats = strokes(line).flatMap(s => s.path).filter(([, y], i, all) => i && y === all[i - 1][1]);
+  assert.ok(flats.length > 5);
+  for (const [, y] of flats) assert.equal(y % 1, 0.5, 'flat runs sit on pixel centres');
+});
+
+test('the terrain is clipped along the skyline on every frame, split cells or not', () => {
+  const fit = { x: 0, y: 0, width: 1280, height: 720, scale: 20 };
+  for (const lagRows of [0, 1]) {
+    const { crest } = shedFrame({ quality: 0, lagRows });
+    assert.equal(crest.snapshot.splitAlpha, 1);
+    assert.equal(crest.drawTerrain(recorder(), fit, 40, () => {}), true, `lag ${lagRows}: clipped`);
+  }
+});
+
+test('the skyline runs along the top of all bands, joined where it changes band', () => {
+  const b = { far: () => 10, mid: j => (j >= 20 && j < 40 ? 6 : 16) };
+  const crest = framedCrest(b), ctx = recorder();
+  crest.drawSkyline(ctx, { x: 0, y: 0, width: 640, height: 360, scale: 10 }, 40);
+  const s = strokes(ctx);
+  assert.equal(s.length, 1, 'one continuous line');
+  const atX = x => s[0].path.reduce((best, p) => (Math.abs(p[0] - x) < Math.abs(best[0] - x) ? p : best))[1];
+  assert.ok(Math.abs(atX(100) - 100) <= 1); assert.ok(Math.abs(atX(300) - 60) <= 1);
+});
+
+test('a capture redraw snaps flat spans to the capture\'s own pixels', () => {
+  const crest = framedCrest({ far: () => 10 });
+  const small = recorder(), large = recorder();
+  crest.drawSkyline(small, { x: 0, y: 0, width: 1280, height: 720, scale: 20 }, 40);
+  crest.drawSkyline(large, { x: 0, y: 0.5, width: 3840, height: 2160, scale: 60 }, 40);
+  for (const ctx of [small, large]) {
+    const s = strokes(ctx);
+    assert.equal(s[0].lineWidth, 1);
+    assert.ok(s[0].path.every(([, y]) => y % 1 === 0.5));
+  }
+});
+
+test('direct terrain: the crest runs on the partition grid, with no split cells or interior lines', () => {
+  const crest = framedCrest(bands(), { direct: true, palette: 'rgb332', skyAt: () => [230, 200, 170] });
+  assert.equal(crest.snapshot.split, false);
+  const fit = { x: 0, y: 0, width: 1920, height: 1080, scale: 30 };
+  const repaint = [], ctx = recorder();
+  assert.equal(crest.cutSky(ctx, fit, 40, () => repaint.push('sky')), true);
+  assert.deepEqual(repaint, ['sky'], 'the sky is put back above the line');
+  assert.ok(ctx.ops.some(op => op[0] === 'clip'));
+  const line = recorder();
+  crest.drawSkyline(line, fit, 40);
+  assert.ok(strokes(line).every(s => s.strokeStyle === '#000000' && s.lineWidth === 1));
+});
+
+test('presenter order: the skyline goes last in the optical stack, under HUD and captions, live and recorded', () => {
+  const calls = [];
+  const ctx = new Proxy({}, { get: (t, k) => (k === 'canvas' ? {} : () => {}), set: () => true });
+  const scene = Object.create(Renderer.prototype);
+  Object.assign(scene, { _deferredPostEffects: { sim: {}, film: true, viewStage: { width: 1280, height: 720 }, hud: { width: 1, height: 1 } },
+    _drawBloom() { calls.push('bloom'); }, _drawHeatDistortion() { calls.push('heat'); }, _drawFilmFinish() { calls.push('film'); }, _drawComposerHud() { calls.push('hud'); } });
+  scene.drawDeferredPostEffects(ctx, { x: 0, y: 0, width: 1280, height: 720 }, () => calls.push('skyline'));
+  assert.deepEqual(calls, ['bloom', 'heat', 'film', 'skyline', 'hud']);
+  calls.length = 0; scene._deferredPostEffects = null;
+  scene.drawDeferredPostEffects(ctx, { x: 0, y: 0, width: 1280, height: 720 }, () => calls.push('skyline'));
+  assert.deepEqual(calls, ['skyline'], 'with no deferred frame the skyline still draws');
 });

@@ -38,6 +38,9 @@ export function directTerrainViewport(viewport, grid, outputSize) {
     backingHeight: Math.max(2, Math.round(viewport.backingHeight * scale)) };
 }
 
+/** The CPU canvas the sky behind the skyline is sampled on. */
+const SKY_SAMPLE = Object.freeze({ width: 32, height: 18 });
+
 export const RANGE_RENDERER_MODES = Object.freeze(['legacy', 'v2']);
 export const RANGE_DEFAULT_MODE = 'v2';
 const ASSET_BASE = new URL('../../assets/range/v2/', import.meta.url).href;
@@ -1013,10 +1016,10 @@ export class RangePresentation {
     this.scene.prepareShafts?.(this.frame, incoming ? [view.id, incoming.id] : [view.id]);
     // The crest probe runs only on a steady single view drawn into the grid
     // (light, crest rows only, on the heavy governor rungs).
-    const crestOn = this.crestEnabled && this.pixelated && !this.directTerrainMode && !incoming;
+    const crestOn = this.crestEnabled && this.pixelated && !incoming;
     this.crest.economy = !!inputs.sim?.perf?.economy;
     this.scene.crestProbeMode = crestOn ? this.crest.probeMode : null;
-    this._crestScan = crestOn && this.crest.mode === 'grid';
+    this._crestScan = crestOn && this.crest.mode === 'grid' && !this.directTerrainMode;
     if (!crestOn) this.crest.update({ frameId: this.frame.frameId, timeMs: this.frame.timeMs, viewId: view.id, qualityLevel: this.frame.qualityLevel ?? 0 });
     this.scene.skyPan = this.skyPan; // rain curtains and lightning stand where the sky draws them
     this.viewId = view.id;
@@ -1213,7 +1216,7 @@ export class RangePresentation {
     if (this.directTerrainMode) {
       if (pass === 'far') this._drawDirectShaft(ctx, stage);
       if (!assembled) this._drawDirectWater(ctx, stage, pass);
-      if (pass === 'near') this._drawDirectCast(ctx, stage);
+      if (pass === 'near') { this._drawDirectCast(ctx, stage); this._finishDirectCrest(ctx, stage); }
     }
     else if (pass === 'near') this._keepWater(ctx, stage);
     if (!this.directTerrainMode && pass === 'near') this._finishCrest(ctx, stage);
@@ -1234,13 +1237,54 @@ export class RangePresentation {
       ? this.scene.readCrestProbe?.(this.frame.frameId, { sync, viewId: this.viewId, timeline: this._crestTimeline ?? 0,
         timeMs: this.frame.timeMs }) : null;
     const t = ctx.getTransform?.();
+    const direct = !!this.directTerrainMode, fit = this.directFit, mgr = this.frameInputs?.sim?.biomes, layer = mgr?.rangeSkyLayer;
+    let transform = t ? [t.a, t.b, t.c, t.d, t.e, t.f] : null;
+    // Direct terrain paints the stage at output size: the crest's grid is the
+    // one the partitions are sampled on, fitted to the output.
+    if (direct && transform && fit?.scale > 0) transform = [t.a / fit.scale, t.b / fit.scale, t.c / fit.scale, t.d / fit.scale, (t.e - fit.x) / fit.scale, (t.f - fit.y) / fit.scale];
     // An export draw with no history (a seek, a new view, an isolated frame)
     // draws the crest at full strength instead of starting its fade.
     this.crest.update({ probe, instant: sync, frameId: this.frame.frameId, timeMs: this.frame.timeMs, viewId: this.viewId,
-      qualityLevel: this.frame.qualityLevel ?? 0, transform: t ? [t.a, t.b, t.c, t.d, t.e, t.f] : null,
+      qualityLevel: this.frame.qualityLevel ?? 0, transform,
       stage: { width: stage.width, height: stage.height },
-      grid: { width: ctx.canvas.width, height: ctx.canvas.height },
-      sky: this.frameInputs?.sim?.biomes?._airColor ?? null, palette: this.crestPalette, scan: steady && !!this._crestScan });
+      grid: direct ? { width: this.pixelPolicy?.grid?.width, height: this.pixelPolicy?.grid?.height } : { width: ctx.canvas.width, height: ctx.canvas.height },
+      sky: mgr?._airColor ?? null, palette: this.crestPalette, scan: steady && !!this._crestScan, direct,
+      skyAt: mgr?.highResolutionSky && layer ? (row) => this._sampleSky(mgr, layer, ctx.canvas, direct && fit ? fit.y + row * fit.scale : row) : null });
+  }
+
+  /**
+   * The finished sky around canvas row `y`, for the skyline's ink: the sky
+   * drawn small on a CPU canvas and read back, so it holds whatever is really
+   * up there (twilight, moon glow, cloud decks, legacy or Range sky). The air
+   * colour is the mist's and can be the opposite of the sky behind the line.
+   */
+  _sampleSky(mgr, layer, canvas, y) {
+    const m = layer.scenicTransform, W = SKY_SAMPLE.width, H = SKY_SAMPLE.height;
+    try {
+      this._skySample ||= this._makeCanvas?.(W, H);
+      const ctx = this._skySample?.getContext('2d', { willReadFrequently: true });
+      if (!ctx || !m) return null;
+      const sx = W / canvas.width, sy = H / canvas.height;
+      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, W, H);
+      mgr.drawHighResolutionSky(ctx, this._skySample, { transform: [sx * m[0], sy * m[1], sx * m[2], sy * m[3], sx * m[4], sy * m[5]] });
+      const row = Math.max(0, Math.min(H - 1, Math.round(y * sy) - 1)), data = ctx.getImageData(0, row, W, 1).data, rgb = [0, 0, 0];
+      let n = 0;
+      for (let k = 0; k < data.length; k += 4) if (data[k + 3]) { rgb[0] += data[k]; rgb[1] += data[k + 1]; rgb[2] += data[k + 2]; n++; }
+      return n ? rgb.map(v => v / n) : null;
+    } catch { return null; }
+  }
+
+  /** Direct terrain has already painted its partitions on the stage: the sky
+   * goes back over what stands above the line, at output resolution. */
+  _finishDirectCrest(ctx, stage) {
+    this._finishCrest(ctx, stage);
+    const mgr = this.frameInputs?.sim?.biomes, m = mgr?.rangeSkyLayer?.scenicTransform;
+    if (!this.crestEnabled || !m || !this.directFit) return;
+    ctx.save();
+    try {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      this.crest.cutSky(ctx, this.directFit, this.frame.frameId, () => mgr.drawHighResolutionSky(ctx, ctx.canvas, { transform: m }));
+    } finally { ctx.restore(); }
   }
 
   /** Presenter hook, before palette quantization (RangeCrest.prepareGrid). */
@@ -1255,6 +1299,8 @@ export class RangePresentation {
    * (RangeCrest.drawTerrain; `source` is the native grid). False when it drew nothing. */
   drawCrestTerrain(ctx, fit, draw, source = null) { return !!this.active && this.crestEnabled && this.crest.drawTerrain(ctx, fit, this.frameId, draw, source); }
   drawShoreForeground(ctx, fit) { return !this.active || this.crest.drawShore(ctx, fit, this.frameId); }
+  /** Presenter hook: the skyline, the last ink on the finished image. */
+  drawSkylineForeground(ctx, fit) { return !this.active || !this.crestEnabled || this.crest.drawSkyline(ctx, fit, this.frameId); }
 
   /** Blend a late-arriving band once after its terrain and water are united. */
   _drawDirectArrival(ctx, stage, pass, image) {

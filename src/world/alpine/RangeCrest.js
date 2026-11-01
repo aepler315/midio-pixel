@@ -18,12 +18,16 @@
 //     them. No readback: it works on every rung and look.
 //  5. drawCrest() / drawShore(): at output resolution, inside the presenter's
 //     composite, live and again for a recording, from the same snapshot.
+//  6. drawSkyline(): the last ink on the finished image. The skyline is the
+//     top of all the bands: one polyline (_skyline) that is at once the line
+//     and the terrain's clip edge, redone at each output's own pixels.
 //
 // Nothing here advances on a redraw: a recording reproduces the frame.
 import {
   CREST_BANDS, CREST_FILTER, SHORE_FILTER, CREST_LAND_SIDE, crestE, crestSpan, crestStroke, shoreStroke, filterCrest, filterSample, filterAux,
   resetFilter, medianShift, reconstructCrest, crestLineColor, shoreColor, snapCrestColor, reownCrestCells, linkShoreChains,
   REOWN_MAX_ROWS, SHORE_SHAPE, shoreShape, solidShoreEdges, smoothShoreChain, smoothHeldShore, SHORE_HELD_SIGMA,
+  SKYLINE_INK, skylineInk, snapFlatSpans,
 } from '../../render/CrestLine.js';
 import { PROBE_BAND_ROWS, PROBE_WATER_ROW, PROBE_WATER_SLOTS, probeRow } from './CrestProbe.js';
 
@@ -63,6 +67,7 @@ const GLOW_ROWS = 3; // rows above the raw crest checked for such content
 // grid rows are still read, without a write-back, this often (and at once
 // after a reset), so the line keeps the land colour the viewer sees.
 const SAMPLE_EVERY_SEC = 0.5;
+const SKY_EVERY_SEC = 0.25; // how often the sky behind the skyline is read
 
 const hexRgb = (v) => {
   if (Array.isArray(v)) return v;
@@ -113,6 +118,9 @@ export class RangeCrest {
     this._sampleAge = Infinity; // seconds since the last grid reading
     this._origRead = null; // { frameId, groups }: rows of `_orig` this frame read
     this._glow = null; // translucent content above the skyline at the last reading (null: unknown)
+    this._ink = null; // the skyline's held ink; null: no history
+    this._skySeen = null; // the last sky read for it
+    this._skyAge = Infinity;
     this.diagnostics = { mode: this.mode, fade: 0, splitFade: 0, splitStrength: 0, resets: 0, lastReset: null, probeMs: 0, probeRead: 'none', probeLag: 0, updateMs: 0, prepareMs: 0,
       drawMs: 0, shoreMs: 0, splitCells: 0, columns: 0, shoreChains: 0, shoreDropped: 0, readback: 'none', readRows: 0, readbackMs: 0,
       lagShift: 0, lagLineShift: 0, aligned: 0, cutColumns: 0, cutMs: 0, pockets: 0, glowRefill: 0 };
@@ -124,6 +132,7 @@ export class RangeCrest {
     if (this._shore) { this._shore.y.fill(NaN); this._shore.kind.fill(0); }
     if (this._grid) for (const g of Object.values(this._grid)) { g.vis.fill(NaN); g.landOk.fill(0); resetFilter(g.scan); g.foot = g.top = NaN; }
     this._sampleAge = Infinity;
+    this._ink = null;
     this.diagnostics.resets++;
     this.diagnostics.lastReset = reason;
   }
@@ -158,9 +167,12 @@ export class RangeCrest {
    * is drawn at. `palette` is null, 'rgb332' or a compiled palette. `scan`
    * marks a steady frame on the heavy rungs: should no probe arrive, the
    * crest then comes from the palette frame in prepareGrid(). `instant`
-   * (export draws) starts a discontinuous frame at full strength.
+   * (export draws) starts a discontinuous frame at full strength. `skyAt(row)`
+   * is the sky's own colour at a grid row, for the skyline's ink (without it,
+   * `sky`, the air colour). `direct` (direct terrain) has no grid to edit:
+   * the line and the cut only.
    */
-  update({ probe, frameId, timeMs = 0, viewId = null, qualityLevel = 0, transform, stage, grid, sky = null, palette = null, scan = false, instant = false } = {}) {
+  update({ probe, frameId, timeMs = 0, viewId = null, qualityLevel = 0, transform, stage, grid, sky = null, palette = null, scan = false, instant = false, skyAt = null, direct = false } = {}) {
     const t0 = performance.now();
     const last = this._last;
     const rawDt = last && Number.isFinite(timeMs) ? (timeMs - last.timeMs) / 1000 : 0;
@@ -192,7 +204,7 @@ export class RangeCrest {
     // Split cells need a probe. The Pixel and Cinematic looks read grid rows
     // back for them, so they shed them from CREST_PIXEL_SPLIT_LEVEL (with
     // the fade); a palette look reads its whole frame anyway and keeps them.
-    const splitWanted = !!probe && (!!palette || qualityLevel < CREST_PIXEL_SPLIT_LEVEL);
+    const splitWanted = !!probe && !direct && (!!palette || qualityLevel < CREST_PIXEL_SPLIT_LEVEL);
     if (instant && !consecutive) {
       // An isolated export frame (visual evaluation, the 4K reel re-render, a
       // seek inside an export) has no history to fade from: full strength,
@@ -208,20 +220,22 @@ export class RangeCrest {
     }
     this._sky = hexRgb(sky);
     this._palette = palette;
+    this._skyAt = skyAt;
+    this._skyAge += dt;
     let rotated = false, columns = 0, shores = [];
     if (probe) ({ rotated, columns, shores } = this._fromProbe(probe, dt, transform, stage, grid));
     else for (const band of CREST_BANDS) {
       const g = this._grid[band];
       g.line.fill(NaN); g.raw.fill(NaN); g.skip.fill(1); g.crossed.fill(-1); g.crossedEnd.fill(-1); g.colorAt.fill(-1); g.chunks = [];
     }
-    const split = !!probe && !rotated && !!this.makeCanvas && this.splitFade > 0;
+    const split = !!probe && !direct && !rotated && !!this.makeCanvas && this.splitFade > 0;
     // Split cells fully shed (Pixel from its split rung, grid-scan rungs):
     // this frame's snapshot draws no lower halves, so neither its display
     // nor its capture needs the canvas. Give it, and its hold, back.
     if (!split && !(this.splitFade > 0)) this._releaseSplit();
     this.snapshot = Object.freeze({ frameId, dt, grid: { width: grid.width, height: grid.height }, mode: this.mode, fade: this.fade,
-      splitFade: this.splitFade, split, scan: scanning, cut: !(scanning && this.economy), prepared: false, splitPending: false, splitReady: false, splitAlpha: 0, palette, shores,
-      lag: probe ? probe.lag || 0 : 0, aligned: 0 });
+      splitFade: this.splitFade, split, scan: scanning, cut: true, prepared: false, splitPending: false, splitReady: false, splitAlpha: 0, palette, shores,
+      lag: probe ? probe.lag || 0 : 0, aligned: 0, ink: probe ? this._resolveInk(grid.width) : null });
     this.diagnostics.fade = this.fade;
     this.diagnostics.splitFade = this.splitFade;
     this.diagnostics.columns = columns;
@@ -350,11 +364,13 @@ export class RangeCrest {
     while (i < Wg) {
       if (!Number.isFinite(g.line[i])) { i++; continue; }
       let j = i;
-      while (j + 1 < Wg && Number.isFinite(g.line[j + 1]) && j + 1 - i < CHUNK) j++;
-      let e = 0, sky1 = 0;
-      for (let x = i; x <= j; x++) { e += g.e[x]; sky1 += g.skyline[x]; }
+      // A chunk ends where the skyline changes hands: its columns are drawn
+      // by drawSkyline, in ink, not as an interior ridge.
+      while (j + 1 < Wg && Number.isFinite(g.line[j + 1]) && j + 1 - i < CHUNK && g.skyline[j + 1] === g.skyline[i]) j++;
+      let e = 0;
+      for (let x = i; x <= j; x++) e += g.e[x];
       const count = j - i + 1;
-      const tier = sky1 * 2 > count ? 'skyline' : band;
+      const tier = g.skyline[i] ? 'skyline' : band;
       // A chunk continues into the next column so strokes join.
       const end = j + 1 < Wg && Number.isFinite(g.line[j + 1]) ? j + 1 : j;
       out.push({ start: i, end, last: j, tier, e: e / count, ...this._chunkColor(band, s, g, i, j) });
@@ -731,7 +747,7 @@ export class RangeCrest {
     this._origRead = null;
     this._glow = this._findGlow(W, (r, i) => (r >= 0 && r < H ? data[(r * W + i) * 4 + 3] : -1));
     g.chunks = this._chunks('far', null, g, W);
-    this.snapshot = Object.freeze({ ...snap, prepared: true });
+    this.snapshot = Object.freeze({ ...snap, prepared: true, ink: this._resolveInk(W) });
     this.diagnostics.readback = 'palette-frame';
     this.diagnostics.readRows = 0;
     this.diagnostics.readbackMs = 0;
@@ -797,32 +813,83 @@ export class RangeCrest {
   }
 
   /**
-   * Skyline columns the terrain cut applies to: per grid column the band
-   * (index into CREST_BANDS, −1 none) whose line has only sky above it and
-   * no nearer band within reach, and the top row of the cut there: the raw
-   * crest (or the line's own top, if lower), less LAG_CUT_ROWS when the
-   * probe was a frame old, never more than REOWN_MAX_ROWS above the line.
-   * Rows from there down to the line are this band's land (or sky) above
-   * the line, which split cells would make transparent.
+   * This frame's ink against the sky behind the skyline (at its mean row),
+   * through the preference band. The sky is read every SKY_EVERY_SEC of song
+   * time, so a recording makes the same choices. reset() clears the held ink:
+   * a frame with no history reads the sky and takes plain best contrast.
    */
-  _cutColumns(W) {
-    const c = this._cut?.band.length === W ? this._cut : (this._cut = { band: new Int8Array(W), top: new Float32Array(W), spanTop: new Float32Array(W), spanBottom: new Float32Array(W) });
+  _resolveInk(W) {
+    if (this._skyAt && (!this._ink || this._skyAge >= SKY_EVERY_SEC)) {
+      let sum = 0, n = 0;
+      for (let i = 0; i < W; i++) {
+        let L = Infinity;
+        for (const band of CREST_BANDS) { const v = this._grid[band].line[i]; if (v < L) L = v; }
+        if (L < Infinity) { sum += L; n++; }
+      }
+      if (n) { this._skySeen = this._skyAt(sum / n) || this._skySeen; this._skyAge = 0; }
+    }
+    const sky = (this._skyAt && this._skySeen) || this._sky;
+    if (!sky) return this._ink;
+    return (this._ink = skylineInk(sky, this._ink));
+  }
+
+  /**
+   * The skyline for output `fit`: per grid column the band whose line is
+   * highest (-1: none), and the one polyline the stroke, the terrain clip and
+   * the pocket fill all follow, its exactly flat spans on pixel centres of
+   * this output. `top` is the top row of the cut there: the highest raw crest
+   * (or the line's own top, if lower), less LAG_CUT_ROWS when the probe was a
+   * frame old, never more than REOWN_MAX_ROWS above the line. Rows from there
+   * down to the line are land (or sky) above the line, which split cells
+   * would make transparent. Returns the number of columns.
+   */
+  _skyline(W, fit) {
+    const c = this._cut?.band.length === W ? this._cut : (this._cut = { band: new Int8Array(W), line: new Float32Array(W), raw: new Float32Array(W), y: new Float64Array(W),
+      top: new Float32Array(W), spanTop: new Float32Array(W), spanBottom: new Float32Array(W) });
     const snap = this.snapshot, margin = snap.lag > 0 && !snap.aligned ? LAG_CUT_ROWS : 0, span = [0, 0];
     let n = 0;
-    c.band.fill(-1);
     for (let i = 0; i < W; i++) {
+      let best = -1, L = Infinity, R = Infinity;
       for (let b = 0; b < CREST_BANDS.length; b++) {
-        const g = this._grid[CREST_BANDS[b]], L = g.line[i];
-        if (!Number.isFinite(L) || !g.skyline[i] || g.skip[i]) continue;
-        crestSpan(g.line, i, span);
-        const R = g.raw[i], top = Math.floor(span[0]);
-        c.band[i] = b; c.spanTop[i] = span[0]; c.spanBottom[i] = span[1];
-        c.top[i] = Math.max(0, top - REOWN_MAX_ROWS, (Number.isFinite(R) ? Math.min(R, top) : top) - margin);
-        n++;
-        break;
+        const g = this._grid[CREST_BANDS[b]], v = g.line[i], r = g.raw[i];
+        if (v < L) { L = v; best = b; }
+        if (r < R) R = r;
       }
+      c.band[i] = best; c.line[i] = best < 0 ? NaN : L; c.raw[i] = R;
+      if (best >= 0) n++;
+    }
+    if (!n) return 0;
+    snapFlatSpans(c.line, fit.y, fit.scale, c.y);
+    for (let i = 0; i < W; i++) {
+      if (c.band[i] < 0) continue;
+      crestSpan(c.y, i, span);
+      const R = c.raw[i], top = Math.floor(span[0]);
+      c.spanTop[i] = span[0]; c.spanBottom[i] = span[1];
+      c.top[i] = Math.max(0, top - REOWN_MAX_ROWS, (R < Infinity ? Math.min(R, top) : top) - margin);
     }
     return n;
+  }
+
+  /** Each run of skyline columns as one closed strip: stepped along each
+   *  column's cut top, back along the line's polyline. (One vertex pair per
+   *  change of row: the clip's raster cost grows with its edges.) */
+  _strips(ctx, W, X, Y) {
+    const c = this._cut, line = c.y;
+    const mid = (x, y) => (Number.isFinite(line[x]) ? (line[x] + y) / 2 : y);
+    let i = 0;
+    while (i < W) {
+      if (c.band[i] < 0) { i++; continue; }
+      let j = i;
+      while (j + 1 < W && c.band[j + 1] >= 0) j++;
+      ctx.moveTo(X(i), Y(c.top[i]));
+      for (let x = i + 1; x <= j; x++) if (c.top[x] !== c.top[x - 1]) { ctx.lineTo(X(x), Y(c.top[x - 1])); ctx.lineTo(X(x), Y(c.top[x])); }
+      ctx.lineTo(X(j + 1), Y(c.top[j]));
+      ctx.lineTo(X(j + 1), Y(mid(j + 1, line[j])));
+      for (let x = j; x >= i; x--) ctx.lineTo(X(x + 0.5), Y(line[x]));
+      ctx.lineTo(X(i), Y(mid(i - 1, line[i])));
+      ctx.closePath();
+      i = j + 1;
+    }
   }
 
   /**
@@ -840,40 +907,13 @@ export class RangeCrest {
   drawTerrain(ctx, fit, frameId, draw, source = null) {
     const snap = this.snapshot;
     if (!snap || !snap.cut || snap.frameId !== frameId || !(snap.fade > 0) || !(fit?.scale > 0) || typeof draw !== 'function') return false;
-    // Split cells at full strength on terrain this grid shows (a synchronous
-    // probe, or one aligned to the grid) already cut every crossed cell:
-    // nothing is left to clip, and the clip's raster cost is saved.
     this.diagnostics.cutColumns = 0;
-    if (snap.splitReady && snap.splitAlpha >= 1 && this._split && (!(snap.lag > 0) || snap.aligned > 0)) return false;
     const t0 = performance.now();
-    const W = snap.grid.width, cut = this._cutColumns(W);
+    const W = snap.grid.width, cut = this._skyline(W, fit);
     this.diagnostics.cutColumns = cut;
     if (!cut) return false;
     const s = fit.scale, X = x => fit.x + x * s, Y = y => fit.y + y * s;
-    const c = this._cut;
-    const strips = () => {
-      let i = 0;
-      while (i < W) {
-        const b = c.band[i];
-        if (b < 0) { i++; continue; }
-        let j = i;
-        while (j + 1 < W && c.band[j + 1] === b) j++;
-        const line = this._grid[CREST_BANDS[b]].line;
-        const mid = (x, y) => (Number.isFinite(line[x]) ? (line[x] + y) / 2 : y);
-        // Top: stepped along each column's cut top; bottom: the line's own
-        // polyline (the stroke's and the split clip's), back to the start.
-        // (one vertex pair per change of row: the clip's raster cost grows
-        // with its edges)
-        ctx.moveTo(X(i), Y(c.top[i]));
-        for (let x = i + 1; x <= j; x++) if (c.top[x] !== c.top[x - 1]) { ctx.lineTo(X(x), Y(c.top[x - 1])); ctx.lineTo(X(x), Y(c.top[x])); }
-        ctx.lineTo(X(j + 1), Y(c.top[j]));
-        ctx.lineTo(X(j + 1), Y(mid(j + 1, line[j])));
-        for (let x = j; x >= i; x--) ctx.lineTo(X(x + 0.5), Y(line[x]));
-        ctx.lineTo(X(i), Y(mid(i - 1, line[i])));
-        ctx.closePath();
-        i = j + 1;
-      }
-    };
+    const strips = () => this._strips(ctx, W, X, Y);
     ctx.save();
     try {
       ctx.beginPath();
@@ -938,11 +978,12 @@ export class RangeCrest {
     return refilled;
   }
 
-  /** Sky pockets just below the line in cut columns (the line smoothed a
-   *  notch upward; split cells would fill them with the land beside them):
-   *  filled with each chunk's land colour, as deep as split cells reach. */
-  _drawPockets(ctx, X, Y, alpha) {
-    const c = this._cut, W = c.band.length;
+  /** Sky pockets just below the line (the line smoothed a notch upward, or a
+   *  column split cells did not reach): filled with each chunk's land colour
+   *  down to the land, so no sky opens between the line and the terrain.
+   *  `splitDone`: split cells have this frame's crossed columns covered. */
+  _drawPockets(ctx, X, Y, alpha, splitDone = false) {
+    const c = this._cut, W = c.band.length, line = c.y;
     let pockets = 0;
     ctx.save();
     ctx.globalAlpha = alpha;
@@ -951,11 +992,11 @@ export class RangeCrest {
       for (const chunk of g.chunks) {
         let any = false;
         for (let x = chunk.start; x <= chunk.last && x < W; x++) {
-          if (c.band[x] !== b) continue;
-          const R = g.raw[x], top = c.spanTop[x], bottom = c.spanBottom[x];
-          if (!(R > top)) continue;
-          const depth = Math.max(bottom, Math.min(R, Math.floor(bottom) + 2));
-          const L = g.line[x], l = Number.isFinite(g.line[x - 1]) ? (g.line[x - 1] + L) / 2 : L, r = Number.isFinite(g.line[x + 1]) ? (g.line[x + 1] + L) / 2 : L;
+          if (c.band[x] !== b || splitDone && g.crossed[x] >= 0) continue;
+          const R = c.raw[x], top = c.spanTop[x], bottom = c.spanBottom[x];
+          if (!(R > top) || R === Infinity) continue;
+          const depth = Math.max(bottom, Math.min(R, bottom + REOWN_MAX_ROWS));
+          const L = line[x], l = Number.isFinite(line[x - 1]) ? (line[x - 1] + L) / 2 : L, r = Number.isFinite(line[x + 1]) ? (line[x + 1] + L) / 2 : L;
           if (!any) { ctx.beginPath(); any = true; }
           ctx.moveTo(X(x), Y(l)); ctx.lineTo(X(x + 0.5), Y(L)); ctx.lineTo(X(x + 1), Y(r));
           ctx.lineTo(X(x + 1), Y(depth)); ctx.lineTo(X(x), Y(depth)); ctx.closePath();
@@ -966,6 +1007,66 @@ export class RangeCrest {
     }
     ctx.restore();
     this.diagnostics.pockets = pockets;
+  }
+
+  /** Direct terrain's cut: the partitions are already on the stage, so
+   *  `paint()` puts the sky back above the line through the same strips, and
+   *  sky pockets below it are filled. False when there is nothing to cut. */
+  cutSky(ctx, fit, frameId, paint) {
+    const snap = this.snapshot;
+    if (!snap || !snap.cut || snap.frameId !== frameId || !(snap.fade > 0) || !(fit?.scale > 0)) return false;
+    const t0 = performance.now(), W = snap.grid.width, cut = this._skyline(W, fit);
+    this.diagnostics.cutColumns = cut;
+    if (!cut) return false;
+    const s = fit.scale, X = x => fit.x + x * s, Y = y => fit.y + y * s;
+    ctx.save();
+    try {
+      ctx.beginPath(); this._strips(ctx, W, X, Y); ctx.clip();
+      ctx.globalAlpha = snap.fade;
+      paint();
+    } finally { ctx.restore(); }
+    this._drawPockets(ctx, X, Y, snap.fade);
+    this.diagnostics.cutMs = performance.now() - t0;
+    return true;
+  }
+
+  /**
+   * The skyline at output resolution: one pixel of pure ink along the top of
+   * all the bands, on the clip edge itself. No palette, land or air colour
+   * reaches it, and it fades only with the line. Exactly flat spans fill one
+   * row at full opacity; slopes antialias. Draws this frame's frozen snapshot,
+   * at the pixels of whatever output it is given.
+   */
+  drawSkyline(ctx, fit, frameId) {
+    const snap = this.snapshot;
+    if (!snap || snap.frameId !== frameId || !(snap.fade > 0) || !(fit?.scale > 0)) return true;
+    const W = snap.grid.width;
+    if (!this._skyline(W, fit)) return true;
+    const t0 = performance.now(), s = fit.scale, X = x => fit.x + x * s, Y = y => fit.y + y * s;
+    const c = this._cut, line = c.y;
+    const mid = (x, y) => (Number.isFinite(line[x]) ? (line[x] + y) / 2 : y);
+    ctx.save();
+    try {
+      ctx.beginPath(); ctx.rect(fit.x, fit.y, fit.width, fit.height); ctx.clip();
+      ctx.lineJoin = 'round'; ctx.lineCap = 'butt'; ctx.lineWidth = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      if (snap.fade < 1) ctx.globalAlpha = snap.fade;
+      ctx.strokeStyle = SKYLINE_INK[snap.ink] || SKYLINE_INK.black;
+      ctx.beginPath();
+      let i = 0;
+      while (i < W) {
+        if (c.band[i] < 0) { i++; continue; }
+        let j = i;
+        while (j + 1 < W && c.band[j + 1] >= 0) j++;
+        ctx.moveTo(X(i), Y(mid(i - 1, line[i])));
+        for (let x = i; x <= j; x++) ctx.lineTo(X(x + 0.5), Y(line[x]));
+        ctx.lineTo(X(j + 1), Y(mid(j + 1, line[j])));
+        i = j + 1;
+      }
+      ctx.stroke();
+    } finally { ctx.restore(); }
+    this.diagnostics.skylineMs = performance.now() - t0;
+    return true;
   }
 
   /** Split cells and crest strokes at output resolution (after the terrain,
@@ -983,7 +1084,7 @@ export class RangeCrest {
       const splitAlpha = snap.splitReady && this._split && snap.splitAlpha > 0 ? snap.splitAlpha : 0;
       if (splitAlpha > 0) this._drawSplit(ctx, fit, X, Y, splitAlpha);
       this.diagnostics.pockets = 0;
-      if (cut && this._cut && splitAlpha < 1) this._drawPockets(ctx, X, Y, snap.fade * (1 - splitAlpha));
+      if (cut && this._cut) this._drawPockets(ctx, X, Y, snap.fade * (splitAlpha >= 1 ? 1 : 1 - splitAlpha), splitAlpha >= 1);
       // One continuous polyline per run of columns, cut into chunks (each
       // its own colour, width and opacity) by abutting column clips: each
       // chunk strokes the run's path two vertices past its ends and is
@@ -1005,12 +1106,11 @@ export class RangeCrest {
           ctx.lineTo(X(snap.grid.width), fit.y - 4); ctx.closePath(); ctx.clip();
         }
         for (const chunk of g.chunks) {
+          if (chunk.tier === 'skyline') continue;
           const { width, alpha } = crestStroke(chunk.tier, chunk.e, outH);
           let vis = 0, nv = 0;
           for (let i = chunk.start; i <= chunk.end; i++) if (Number.isFinite(g.vis[i])) { vis += g.vis[i]; nv++; }
-          // Without a grid reading (grid-scan fallback, first frame) only the
-          // skyline is assumed visible.
-          const seen = nv ? vis / nv : chunk.tier === 'skyline' ? 1 : VIS_UNKNOWN;
+          const seen = nv ? vis / nv : VIS_UNKNOWN;
           if (!(seen > 0.01)) continue;
           const shift = (CREST_LAND_SIDE - 0.5) * width;
           ctx.save();

@@ -924,9 +924,15 @@ export class Renderer {
   /** Apply the Landscape's optical effects to the completed hybrid image.
    * The same operation is replayed at a recorder's own output size. Captions
    * follow the effects, as they did in the native compositor. */
-  drawDeferredPostEffects(ctx, fit) {
+  /** `skyline(ctx, fit)` paints after every optical effect (bloom, heat,
+   *  film) and under the HUD and captions: the Landscape skyline is ink on
+   *  the finished image, and must reach the output pure and one pixel wide. */
+  drawDeferredPostEffects(ctx, fit, skyline = null) {
     const frame = this._deferredPostEffects;
-    if (!frame) return;
+    if (!frame) {
+      if (skyline) { ctx.save(); try { ctx.setTransform(1, 0, 0, 1, 0, 0); skyline(ctx, fit); } finally { ctx.restore(); } }
+      return;
+    }
     ctx.save();
     const policy = this.pixelPolicy;
     try {
@@ -942,6 +948,7 @@ export class Renderer {
         ctx.setTransform(sx, 0, 0, sy, fit.x, fit.y);
         this._drawFilmFinish(ctx, frame.viewStage, frame.sim, frame.finish ?? null);
       }
+      if (skyline) { ctx.setTransform(1, 0, 0, 1, 0, 0); skyline(ctx, fit); }
       if (frame.hud) {
         ctx.setTransform(fit.width / frame.hud.width, 0, 0, fit.height / frame.hud.height, fit.x, fit.y);
         this._drawComposerHud(ctx, frame.hud, frame.sim);

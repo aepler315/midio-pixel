@@ -15,9 +15,12 @@ const size = options => {
   return stageOutputSize({ grid: { width: 320, height: 180 }, ...options });
 };
 
-test('hybrid output matches the displayed content density with a 1080p ceiling', () => {
+test('hybrid output matches the displayed content density up to 4K: the browser never upscales the frame the line is drawn in', () => {
   assert.deepEqual(size({ hybrid: true, cssWidth: 1280, cssHeight: 720, dpr: 1.5 }), { w: 1920, h: 1080 });
-  assert.deepEqual(size({ hybrid: true, cssWidth: 3840, cssHeight: 2160, dpr: 2 }), { w: 1920, h: 1080 });
+  assert.deepEqual(size({ hybrid: true, cssWidth: 2560, cssHeight: 1440, dpr: 1 }), { w: 2560, h: 1440 });
+  assert.deepEqual(size({ hybrid: true, cssWidth: 1920, cssHeight: 1080, dpr: 2 }), { w: 3840, h: 2160 });
+  assert.deepEqual(size({ hybrid: true, cssWidth: 3840, cssHeight: 2160, dpr: 1 }), { w: 3840, h: 2160 });
+  assert.deepEqual(size({ hybrid: true, cssWidth: 3840, cssHeight: 2160, dpr: 2 }), { w: 3840, h: 2160 });
   assert.deepEqual(size({ hybrid: true, cssWidth: 960, cssHeight: 600, dpr: 1.25 }), { w: 1200, h: 675 });
 });
 
@@ -36,9 +39,10 @@ test('heavier quality rungs buy pixels first, in whole terrain cells', () => {
   // The ladder's own resolution scale, as fitCanvas passes it.
   const scaleAt = level => { const gov = new PerfGovernor(); gov.setFixtureLevel(level); return gov.resolutionScale(180, { adaptive: true }); };
   // A phone at DPR 2.6 (915x412 CSS): the full 1080p hybrid output at rungs
-  // 0-1, then 900, 720 and 540 lines -- multiples of the 180-row grid.
+  // 0-1 (its 1082 physical lines), then 900, 720 and 540 lines -- multiples
+  // of the 180-row grid.
   const phone = level => size({ hybrid: true, cssWidth: 915, cssHeight: 412, dpr: 2.625, scale: scaleAt(level) });
-  assert.deepEqual([0, 1, 2, 3, 4, 5, 6].map(level => phone(level).h), [1080, 1080, 900, 720, 540, 540, 540]);
+  assert.deepEqual([0, 1, 2, 3, 4, 5, 6].map(level => phone(level).h), [1082, 1082, 900, 720, 540, 540, 540]);
   assert.deepEqual(phone(6), { w: 960, h: 540 });
   // Never below two output rows per grid row, nor above the display.
   const car = level => size({ hybrid: true, cssWidth: 800, cssHeight: 480, dpr: 1, scale: scaleAt(level) });

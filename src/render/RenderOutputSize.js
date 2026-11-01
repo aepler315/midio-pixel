@@ -1,5 +1,11 @@
+/** Most lines of a windowed hybrid output. */
+const WINDOWED_MAX_LINES = 2160;
+
 /** The terrain grid stays independent of the final display backing. Hybrid
- * skies use the contained picture's physical size, bounded to 1080p windowed.
+ * skies use the contained picture's physical size, up to 4K: a smaller
+ * backing is upscaled by the browser (`image-rendering: auto`) after the
+ * composite, which softens and thickens everything drawn one output pixel
+ * wide, the Landscape skyline first of all.
  * Fullscreen uses the physical viewport, overriding adaptive output scaling.
  *
  * `scale` is the quality ladder's resolution scale
@@ -17,7 +23,7 @@ export function stageOutputSize({ grid, hybrid = false, fullscreen = false, cssW
   }
   if (!hybrid || !(cssWidth > 0) || !(cssHeight > 0) || !(dpr > 0)) return native;
   const aspect = 16 / 9;
-  let height = Math.min(1080, Math.min(cssHeight, cssWidth / aspect) * dpr);
+  let height = Math.min(WINDOWED_MAX_LINES, Math.min(cssHeight, cssWidth / aspect) * dpr);
   if (scale > 0 && scale < 1) height = reducedHybridHeight(height, scale, grid.height);
   return { w: Math.max(1, Math.round(height * aspect)), h: Math.max(1, Math.round(height)) };
 }

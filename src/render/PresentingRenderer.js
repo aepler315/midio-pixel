@@ -139,7 +139,9 @@ class PresentingRenderer {
     const prepare = crestOverlay && typeof range.prepareCrestGrid === 'function' ? (args) => range.prepareCrestGrid(args) : null;
     const finish = prepare && typeof range.finishCrestGrid === 'function' ? (args) => range.finishCrestGrid(args) : null;
     const result = this.output.finishFrame({ background, overlay, water, effects, prepare, finish, crest, shore, terrain });
-    const post = postEffects ? (ctx, fit) => scene.drawDeferredPostEffects(ctx, fit) : null;
+    // The skyline is the last thing on the image (Renderer.drawDeferredPostEffects).
+    const skyline = crestOverlay && typeof range.drawSkylineForeground === 'function' ? (ctx, fit) => range.drawSkylineForeground(ctx, fit) : null;
+    const post = postEffects ? (ctx, fit) => scene.drawDeferredPostEffects(ctx, fit, skyline) : skyline;
     if (result?.presented && post) {
       try {
         const fit = fitPixelRect(source.width, source.height, this.canvas.width, this.canvas.height, this.output.presentation.scaling);
@@ -188,9 +190,12 @@ class PresentingRenderer {
     range.outputSize = { width: canvas.width, height: canvas.height };
     range.waterOutputSize = { width: canvas.width, height: canvas.height };
     range.castForeground = false;
-    // The direct-terrain experiment keeps its own output-resolution terrain
-    // edges and draws no crest line (docs/direct-terrain-experiment.md).
-    if ('crestEnabled' in range) range.crestEnabled = false;
+    // The direct-terrain experiment keeps its own output-resolution interior
+    // terrain edges; the skyline and its cut work here as anywhere else
+    // (RangePresentation._finishDirectCrest). Interior ridges draw no line.
+    const fit = fitPixelRect(this.output.grid.width, this.output.grid.height, canvas.width, canvas.height,
+      this.output.presentation.scaling === 'cover' ? 'cover' : 'fit');
+    if ('crestEnabled' in range) { range.crestEnabled = true; range.directFit = fit; range.crestPalette = null; }
     range.drawTerrainImage = (ctx, image, stage, region) => this._drawDirectTerrain(ctx, image, stage, region, sim?.perf?.level ?? 0);
     range.drawLegacyTerrain = (ctx, paint) => this._drawDirectGrid(ctx, paint, sim?.perf?.level ?? 0);
     try { this.inner.draw(sim, alpha); }
@@ -201,6 +206,8 @@ class PresentingRenderer {
     try {
       output.setTransform(1, 0, 0, 1, 0, 0); output.globalAlpha = 1;
       output.globalCompositeOperation = 'copy'; output.drawImage(stage, 0, 0);
+      output.globalCompositeOperation = 'source-over';
+      if (typeof range.drawSkylineForeground === 'function') range.drawSkylineForeground(output, fit);
     } finally { output.restore(); }
     const result = this.output.finishDirectFrame();
     this._directFrame = !!result.presented;
