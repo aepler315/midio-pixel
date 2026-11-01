@@ -70,3 +70,22 @@ can race the fixture cleanup and fail with ENOENT, independently of scene code.
 Captures, matching audio, device traces and review reports stay outside Git as
 required by AGENTS.md. See the PR/chat evidence for the exact tested revision,
 completed comparisons and remaining external CI/Pages configuration limits.
+
+## Water colour ranges
+
+The water pass repeats the terrain colour draw and discards every dry fragment.
+A static view submits only the index ranges that can reach water
+(`WaterColourRanges.js`): each triangle's surface texel rectangle, widened by a
+guard texel, is tested against a transient summed-area table of the hydro
+marker. The ranges are three.js groups over the existing index buffers, applied
+to the existing terrain and seam meshes around the colour draw alone. The depth
+pre-pass, mirror, rivers, index order, positions and GL state do not change, and
+no GPU buffer or texture is added.
+
+Each geometry takes at most four groups, a dry gap must span a tile's worth of
+indices to earn a draw, and a saving below 5% keeps the original draw. A
+`mapped-only` view has no terrain water, so its terrain colour draw disappears.
+Tour views, swapped windows and travel columns keep the original draw.
+`tools/water-geometry-check.mjs` compares all terrain arrays with a baseline
+commit and samples dropped triangles; `tools/water-colour-smoke.mjs` compares
+restricted and whole water pixels in a real frame.
