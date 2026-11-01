@@ -23,6 +23,11 @@ export { cameraFootprint };
 /** Planning may take this long (wall clock) before the rail is kept. */
 export const SHOT_PLAN_TIMEOUT_MS = 8000;
 
+/** A failed replan of a heard camera is tried this many more times for the
+ *  same sections, this long apart. New sections always try again. */
+export const SHOT_REPLAN_RETRIES = 3;
+export const SHOT_REPLAN_RETRY_MS = 2000;
+
 /** Whether a catalog view may play its shot tour. Candidates play only
  *  for diagnostics (?rangeShots=all), mirroring forcedCandidate. */
 export function shotTourEligible(view, { allowCandidates = false } = {}) {
@@ -146,11 +151,23 @@ export class RangeShotTours {
 
   _visible(s, mgr = this.mgr) { return visibleIntervals(s.viewId, mgr, this.choiceFor, this.occurrences); }
 
-  /** Keep the camera already heard; `retry` replans from the newest horizon. */
-  _hold(s, previous, reason, retry = false) {
+  /** Keep the camera already heard and let refine() replan from the newest
+   *  horizon: at once if playback only outran the reply (`rejected`), else
+   *  after a delay, a bounded number of times, so a dead worker cannot loop. */
+  _hold(s, previous, reason, rejected = false) {
     s.timeline = previous; s.state = 'ready'; s.reason = null;
-    s.refinement = { state: 'held', reason };
-    if (retry) this.sections = null;
+    if (!rejected) s.failures = (s.failures || 0) + 1;
+    const retrying = rejected || s.failures <= SHOT_REPLAN_RETRIES;
+    s.retryAt = retrying ? this._now() + (rejected ? 0 : SHOT_REPLAN_RETRY_MS) : null;
+    s.refinement = { state: 'held', reason, retrying };
+  }
+
+  /** A timeline replied to `previous`: held, or null if it may be admitted. */
+  _holdReply(s, previous, timeline) {
+    if (timeline.fallback) this._hold(s, previous, `shot plan: ${timeline.fallback}`);
+    else if (!retainsHeardCamera(previous, timeline, this._heardMs())) this._hold(s, previous, 'replan arrived beyond its committed camera', true);
+    else return false;
+    return true;
   }
 
   _startPlan(s, generation, { previous = s.previous } = {}) {
@@ -166,9 +183,9 @@ export class RangeShotTours {
       .then((timeline) => {
         if (controller.signal.aborted || generation !== this.generation) return;
         s.planMs = this._now() - started;
-        if (previous && (timeline.fallback || !retainsHeardCamera(previous, timeline, this._heardMs()))) { this._hold(s, previous, 'replan arrived beyond its committed camera', true); return; }
+        if (previous && this._holdReply(s, previous, timeline)) return;
         if (timeline.fallback) { s.state = 'failed'; s.reason = `shot plan: ${timeline.fallback}`; s.timeline = null; return; }
-        s.timeline = timeline; s.state = 'ready'; s.reason = null;
+        s.timeline = timeline; s.state = 'ready'; s.reason = null; s.failures = 0; s.retryAt = null;
       }).catch((error) => {
         if (controller.signal.aborted || generation !== this.generation) return;
         if (previous) { this._hold(s, previous, error.message); return; }
@@ -204,15 +221,24 @@ export class RangeShotTours {
   /** The camera timeline a view draws with (null: its rail). */
   timeline(viewId) { return this.views.get(viewId)?.timeline || null; }
 
-  /** Replan the unheard tail when the song's sections are refined. The result
-   *  is admitted only if it keeps every camera key heard by the time it lands. */
+  /** Replan the unheard tail when the song's sections are refined, or when a
+   *  held view is due another try. The result is admitted only if it keeps
+   *  every camera key heard by the time it lands. Runs every frame. */
   refine(mgr) {
-    if (!this.views.size || mgr.sections === this.sections) return;
+    if (!this.views.size) return;
+    const changed = mgr.sections !== this.sections, now = this._now();
     this.sections = mgr.sections;
     const generation = this.generation, heardMs = this._heardMs();
     for (const s of this.views.values()) {
-      if (s.state !== 'ready' || !s.timeline) continue;
+      if (changed) { s.failures = 0; s.retryAt = null; }
+      if (!changed && !this.exportMode && s.refinement?.state === 'pending' && now - s.refineStartedAt > SHOT_PLAN_TIMEOUT_MS) {
+        s.refineAbort?.abort();
+        this._hold(s, s.timeline, 'replan timed out');
+      }
+      if (!changed && !(s.retryAt != null && now >= s.retryAt)) continue;
+      if (s.state !== 'ready' || !s.timeline || !s.library) continue;
       const before = s.timeline;
+      s.retryAt = null; s.refineStartedAt = now;
       s.refinement = { state: 'pending', reason: null };
       const controller = new AbortController();
       s.refineAbort?.abort(); s.refineAbort = controller;
@@ -220,12 +246,12 @@ export class RangeShotTours {
         seed: mgr?.songSeed ?? 0, previous: before, committedThroughMs: heardMs })
         .then((timeline) => {
           if (controller.signal.aborted || generation !== this.generation || s.timeline !== before) return;
-          if (timeline.fallback || !retainsHeardCamera(before, timeline, this._heardMs())) { this._hold(s, before, 'refinement arrived beyond its committed camera', true); return; }
-          s.timeline = timeline; s.refinement = { state: 'applied', reason: null };
+          if (this._holdReply(s, before, timeline)) return;
+          s.timeline = timeline; s.refinement = { state: 'applied', reason: null }; s.failures = 0;
           this.onTimelineChange?.(s.viewId, timeline);
         }).catch((error) => {
-          if (controller.signal.aborted || generation !== this.generation) return;
-          s.refinement = { state: 'held', reason: error.message };
+          if (controller.signal.aborted || generation !== this.generation || s.timeline !== before) return;
+          this._hold(s, before, error.message);
         });
     }
   }

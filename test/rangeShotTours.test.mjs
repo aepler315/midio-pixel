@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { RangeShotTours, shotTourEligible, visibleIntervals, retainsHeardCamera, cameraFootprint, SHOT_PLAN_TIMEOUT_MS } from '../src/world/alpine/RangeShotTours.js';
+import { RangeShotTours, shotTourEligible, visibleIntervals, retainsHeardCamera, cameraFootprint, SHOT_PLAN_TIMEOUT_MS, SHOT_REPLAN_RETRIES, SHOT_REPLAN_RETRY_MS } from '../src/world/alpine/RangeShotTours.js';
 import { resolveRangeMode } from '../src/world/alpine/RangePresentation.js';
 import { samplePath } from '../src/world/terrain/ShotPath.js';
 import { compileSceneRailPlan } from '../src/world/terrain/SceneRailPlan.js';
@@ -257,6 +257,80 @@ test('a continued rebuild never gives up heard history to a failed, late or fall
   now = SHOT_PLAN_TIMEOUT_MS + 1;
   assert.equal(slow.settled('a'), true);
   assert.equal(slow.timeline('a'), committed);
+});
+
+// A tour with a settled camera whose planner the test scripts reply by reply.
+const replanning = async (reply) => {
+  let now = 0, calls = [];
+  const plan = (lib, m, options) => { calls.push(options); return reply(calls.length, options); };
+  const tours = new RangeShotTours({ assetBase: 'http://x/', load: async () => ({ library }), plan, now: () => now });
+  const m = mgr(), committed = timeline();
+  const continuation = { timelines: new Map([['a', committed]]), committedThroughMs: 30000 };
+  return { tours, m, committed, calls, continuation, advance: (ms) => { now += ms; } };
+};
+const newSections = (m) => { m.sections = [...m.sections]; };
+const failed = async () => { throw new Error('worker died'); };
+
+test('a failed or timed-out continued plan is replanned from the newer horizon', async () => {
+  const fixed = keyed(50000);
+  const r = await replanning((n) => (n === 1 ? failed() : Promise.resolve(fixed)));
+  r.tours.setSong({ mgr: r.m, views: [view('a')], generation: 2, continuation: r.continuation });
+  await settle(); await settle();
+  assert.equal(r.tours.timeline('a'), r.committed);
+  assert.equal(r.calls.length, 1);
+  r.tours.refine(r.m);
+  assert.equal(r.calls.length, 1, 'a retry waits out its delay');
+  r.advance(SHOT_REPLAN_RETRY_MS); r.tours.reach(35000);
+  r.tours.refine(r.m);
+  assert.equal(r.calls.length, 2);
+  assert.equal(r.calls[1].committedThroughMs, 35000);
+  assert.equal(r.calls[1].previous, r.committed);
+  await settle(); await settle();
+  assert.equal(r.tours.timeline('a'), fixed);
+  assert.equal(r.tours.status().a.refinement.state, 'applied');
+
+  const late = await replanning((n) => (n === 1 ? new Promise(() => {}) : Promise.resolve(fixed)));
+  late.tours.setSong({ mgr: late.m, views: [view('a')], generation: 2, continuation: late.continuation });
+  await settle();
+  late.advance(SHOT_PLAN_TIMEOUT_MS + 1);
+  assert.equal(late.tours.settled('a'), true);
+  late.advance(SHOT_REPLAN_RETRY_MS);
+  late.tours.refine(late.m);
+  assert.equal(late.calls.length, 2);
+});
+
+test('replan retries are bounded, and new sections reopen them', async () => {
+  for (const reply of [failed, async () => ({ ...timeline(), fallback: 'no feasible sequence' })]) {
+    const r = await replanning(reply);
+    r.tours.setSong({ mgr: r.m, views: [view('a')], generation: 2, continuation: r.continuation });
+    await settle(); await settle();
+    for (let i = 0; i < SHOT_REPLAN_RETRIES + 3; i++) {
+      r.advance(SHOT_REPLAN_RETRY_MS); r.tours.refine(r.m);
+      await settle(); await settle();
+    }
+    assert.equal(r.calls.length, SHOT_REPLAN_RETRIES + 1);
+    assert.equal(r.tours.timeline('a'), r.committed);
+    assert.equal(r.tours.status().a.refinement.retrying, false);
+    newSections(r.m); r.tours.refine(r.m);
+    assert.equal(r.calls.length, SHOT_REPLAN_RETRIES + 2);
+  }
+});
+
+test('a refinement that never replies times out, holds the camera and retries', async () => {
+  const fixed = keyed(50000);
+  const r = await replanning((n) => (n === 1 ? Promise.resolve(r.committed) : n === 2 ? new Promise(() => {}) : Promise.resolve(fixed)));
+  r.tours.setSong({ mgr: r.m, views: [view('a')], generation: 1 });
+  await settle(); await settle();
+  newSections(r.m); r.tours.refine(r.m);
+  r.tours.refine(r.m);
+  assert.equal(r.tours.status().a.refinement.state, 'pending');
+  r.advance(SHOT_PLAN_TIMEOUT_MS + 1); r.tours.refine(r.m);
+  assert.equal(r.tours.status().a.refinement.state, 'held');
+  assert.equal(r.calls.length, 2);
+  r.advance(SHOT_REPLAN_RETRY_MS); r.tours.refine(r.m);
+  assert.equal(r.calls.length, 3);
+  await settle(); await settle();
+  assert.equal(r.tours.timeline('a'), fixed);
 });
 
 test('a second rebuild before the first plan replies still carries heard history and horizon', async () => {

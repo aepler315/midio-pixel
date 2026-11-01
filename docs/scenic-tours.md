@@ -361,8 +361,12 @@ limits and weights; their visual and pacing tradeoffs are recorded in the
   commit horizon is the run's heard high-water, not the playhead, so a rewind
   or seek reopens nothing. A reply is admitted only if it keeps the eye, target
   and FOV keys heard by the time it lands, including the two later keys that
-  interpolate the last heard pose; otherwise, or if a replan fails, the heard
-  camera stays and the tail is replanned from the newer horizon.
+  interpolate the last heard pose; otherwise the heard camera stays and the
+  tail is replanned at once from the newer horizon. A replan that fails, times
+  out or falls back also keeps the heard camera and is tried again from the
+  newer horizon, up to three more times 2 s apart. After that the tail stays
+  planned against the old sections until the sections next change, and
+  `status().shotTours[viewId].refinement.retrying` is false.
 - A tour plans over its view's scheduled appearances, from their first frame
   through the outgoing allowance, with no pre-chapter margin.
 
