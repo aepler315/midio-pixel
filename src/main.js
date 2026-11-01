@@ -545,6 +545,7 @@ if (rangeTourToggle) {
     if (renderer) renderer.rangePresentation = rangePresentation;
     applyTerrainTourPolicy(lastTimelineData?.terrain, choice, getWorld(lastTimelineData?.worldId)?.kind);
     rangePresentation.setTourMode(choice === 'off' ? null : choice);
+    cameraRun?.forgetTours();
     if (running && sim && audioEngine && lastTimelineData) {
       const wasPaused=paused;
       delete lastTimelineData.chapterState;
@@ -1963,6 +1964,8 @@ function syncCaptionDetails() {
 function startTimeline(timelineData, extra = {}) {
   // Snapshot progress before teardown; exports never advance the live owner.
   if (!extra.exportMode && !bulkExportArmed && cameraRun?.data === lastTimelineData) cameraRun.reach(sim?.heardTimeMs);
+  // The heard tours, before a tour-mode change or setSong replaces them.
+  const heardTours = rangePresentation?.cameraContinuation?.(cameraRun?.highWaterMs ?? 0) || null;
   const {
     songSeed: seedOverride = undefined, playBuffer, live = false,
     startAtMs = 0, startAtWallMs = 0, preservePause = false, captureMode: captureModeFlag = false,
@@ -2106,7 +2109,6 @@ function startTimeline(timelineData, extra = {}) {
     showErrorBanner('Could not build the world: ' + (err?.message || err));
     return;
   }
-  const heardTours = rangePresentation?.cameraContinuation?.(cameraRun?.highWaterMs ?? 0) || null;
   if (exportMode) cameraRun?.retainTours(heardTours);
   else cameraRun = openCameraRun(cameraRun, { data: timelineData, seed: sim.songSeed,
     intent: extra.cameraRunIntent || 'fresh', requestedMultiplier: requestedRailPace, tours: heardTours });

@@ -48,6 +48,9 @@ export class CameraRun {
     for (const [viewId, timeline] of continuation?.timelines || []) this.tours.set(viewId, timeline);
   }
 
+  /** A listener's tour-mode change starts the tours over. */
+  forgetTours() { this.tours.clear(); }
+
   tourContinuation() {
     return this.tours.size ? { timelines: new Map(this.tours), committedThroughMs: this.highWaterMs } : null;
   }

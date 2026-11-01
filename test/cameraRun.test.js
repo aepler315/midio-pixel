@@ -113,6 +113,9 @@ test('a preserved run carries heard tour timelines to the rebuild at its high-wa
   const carried = run.tourContinuation();
   assert.equal(carried.committedThroughMs, 40000);
   assert.deepEqual([...carried.timelines], [['a', refined], ['b', other]]);
+  run.forgetTours();
+  assert.equal(run.tourContinuation(), null, 'a tour-mode change does not bring the old tour back');
+  run.retainTours({ timelines: new Map([['a', refined]]) });
   const replay = openCameraRun(run, { data, seed: 7, intent: 'fresh', tours: { timelines: new Map([['a', refined]]) } });
   assert.notEqual(replay, run);
   assert.equal(replay.tourContinuation(), null);
