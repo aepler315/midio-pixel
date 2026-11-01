@@ -383,7 +383,7 @@ export class RangePresentation {
     // show. A rebuild of the same song in place carries its committed camera.
     this.cameraTourActive = false;
     this.shots.setSong({ mgr, views: this._songViews(), choiceFor: (biome) => this._choiceFor(biome),
-      generation, exportMode: this.exportMode, continuation: cameraContinuation });
+      generation, exportMode: this.exportMode, continuation: cameraContinuation, occurrences: this.railPlan?.occurrences });
     // Views the new song still wants move to its generation before the old
     // one is cancelled; everything else of the old song is released.
     const keep = new Set(this._wantedViewIds());
@@ -790,6 +790,7 @@ export class RangePresentation {
     const mgr = inputs.sim.biomes;
     // Replan the uncommitted tail when the song's sections change. The newest
     // request wins: an older worker is aborted, so its late reply never lands.
+    this.shots.reach(inputs.sim.heardTimeMs ?? (mgr.tSec || 0) * 1000);
     this.shots.refine(mgr);
     if (this.tourMode && this.tour && mgr.sections !== this._tourSections) {
       this._tourSections = mgr.sections;
@@ -1875,8 +1876,8 @@ export class RangePresentation {
   shotState(viewId, timeMs) { return this.shots.stateAt(viewId, timeMs); }
 
   /** The current tour timelines and committed horizon for an in-place
-   *  rebuild of the same song (full-analysis adoption). */
-  cameraContinuation(committedThroughMs) { return this.shots.continuation(committedThroughMs); }
+   *  rebuild of the same song. An export's own plans were never heard. */
+  cameraContinuation(committedThroughMs) { return this.exportMode ? null : this.shots.continuation(committedThroughMs); }
 
   snapshot() {
     return {

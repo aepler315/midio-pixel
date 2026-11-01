@@ -125,8 +125,18 @@ function resolveRuns(sections, choiceFor, durationMs) {
   return merged;
 }
 
+const visibleEndMs = (nominalEndMs, durationMs) => (nominalEndMs >= durationMs ? durationMs : Math.min(durationMs, nominalEndMs + VISIBLE_ALLOWANCE_MS));
+
+/** Where each actual view can be on screen before a plan exists: its runs
+ *  from their first frame through the outgoing allowance. Compiled plans
+ *  carry the same fields on their occurrences. */
+export function sceneViewWindows(sections, choiceFor, durationMs) {
+  const duration = durationOf(durationMs);
+  return resolveRuns(sections, choiceFor, duration).map(({ viewId, startMs, nominalEndMs }) => ({ viewId, startMs, endMs: visibleEndMs(nominalEndMs, duration) }));
+}
+
 function makeOccurrence(run, base, fitRate, requestedMultiplier, durationMs, seed, worldId) {
-  const endMs = run.nominalEndMs >= durationMs ? durationMs : Math.min(durationMs, run.nominalEndMs + VISIBLE_ALLOWANCE_MS);
+  const endMs = visibleEndMs(run.nominalEndMs, durationMs);
   const data = {
     viewId: run.viewId, biome: run.biome, startMs: run.startMs,
     nominalEndMs: run.nominalEndMs, endMs, transitionMs: run.transitionMs,

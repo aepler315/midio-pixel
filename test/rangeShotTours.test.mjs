@@ -1,8 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { RangeShotTours, shotTourEligible, visibleIntervals, cameraFootprint, SHOT_PLAN_TIMEOUT_MS } from '../src/world/alpine/RangeShotTours.js';
+import { RangeShotTours, shotTourEligible, visibleIntervals, retainsHeardCamera, cameraFootprint, SHOT_PLAN_TIMEOUT_MS } from '../src/world/alpine/RangeShotTours.js';
 import { resolveRangeMode } from '../src/world/alpine/RangePresentation.js';
 import { samplePath } from '../src/world/terrain/ShotPath.js';
+import { compileSceneRailPlan } from '../src/world/terrain/SceneRailPlan.js';
+import { handleShotMessage } from '../src/world/terrain/shot-worker.js';
+import { shotPlanRequest } from '../src/world/terrain/ShotRuntime.js';
+import { restoreShotTimeline } from '../src/world/terrain/ShotTimeline.js';
+import { shotLibraryFixture, anthemSong } from './fixtures/shot-library-fixture.mjs';
 
 const sha = 'a'.repeat(64);
 const view = (id, status = 'approved') => ({ id, status, shotsManifestUrl: `tour/${id}.shots.json`, shotsManifestSha256: sha,
@@ -146,12 +151,171 @@ test('refinement is admitted only when it continues the camera heard now', async
   assert.notEqual(tours.timeline('a'), first);
 });
 
-test('visible intervals follow the chapters that show the view, widened by the seam', () => {
+test('visible intervals follow the chapters that show the view, through the outgoing allowance', () => {
   const sections = [{ startMs: 0, endMs: 40000, profile: { name: 'CONIFER' } }, { startMs: 40000, endMs: 90000, profile: { name: 'ICEFIELD' } },
     { startMs: 90000, endMs: 120000, profile: { name: 'CONIFER' } }];
   const choice = (b) => ({ view: { id: b === 'CONIFER' ? 'teton' : 'denali' } });
-  assert.deepEqual(visibleIntervals('teton', { durationMs: 120000, sections }, choice), [{ startMs: 0, endMs: 46000 }, { startMs: 84000, endMs: 120000 }]);
-  assert.deepEqual(visibleIntervals('denali', { durationMs: 120000, sections }, choice), [{ startMs: 34000, endMs: 96000 }]);
+  assert.deepEqual(visibleIntervals('teton', { durationMs: 120000, sections }, choice), [{ startMs: 0, endMs: 48200 }, { startMs: 90000, endMs: 120000 }]);
+  assert.deepEqual(visibleIntervals('denali', { durationMs: 120000, sections }, choice), [{ startMs: 40000, endMs: 98200 }]);
   assert.deepEqual(visibleIntervals('elsewhere', { durationMs: 120000, sections }, choice), [{ startMs: 0, endMs: 120000 }], 'a forced view is visible throughout');
   assert.equal(cameraFootprint(library, 200)[0].length >= 2, true);
+});
+
+// Break caught: a tour planned for chapters the rail schedule never shows.
+test('visible intervals read the actual schedule, including its committed views', () => {
+  const sections = [{ startMs: 0, endMs: 20000, profile: 'A' }, { startMs: 20000, endMs: 40000, profile: 'B' }, { startMs: 40000, endMs: 60000, profile: 'A' }];
+  const choiceFor = (b) => ({ view: { id: b } });
+  const old = compileSceneRailPlan({ sections, choiceFor, durationMs: 60000 });
+  const adopted = compileSceneRailPlan({ sections: [{ startMs: 0, endMs: 60000, profile: 'B' }], choiceFor, durationMs: 60000, previous: old, committedThroughMs: 5000 });
+  const m = { durationMs: 60000, sections: adopted.occurrences && [{ startMs: 0, endMs: 60000, profile: 'B' }] };
+  assert.deepEqual(visibleIntervals('A', m, choiceFor, adopted.occurrences), [{ startMs: 0, endMs: 28200 }]);
+  assert.deepEqual(visibleIntervals('B', m, choiceFor, adopted.occurrences), [{ startMs: 20000, endMs: 60000 }]);
+});
+
+test('plans and refinements receive the schedule windows, not a pre-chapter margin', async () => {
+  const calls = [];
+  const tours = new RangeShotTours({ assetBase: 'http://x/', load: async () => ({ library }), plan: async (l, m, o) => { calls.push(o.visible); return timeline(); } });
+  const sections = [{ startMs: 0, endMs: 20000, profile: { name: 'CONIFER' } }, { startMs: 20000, endMs: 60000, profile: { name: 'ICEFIELD' } }];
+  const m = mgr(sections), choiceFor = (b) => ({ view: { id: b === 'CONIFER' ? 'a' : 'b' } });
+  const plan = compileSceneRailPlan({ sections, choiceFor, durationMs: 60000 });
+  tours.setSong({ mgr: m, views: [view('b')], choiceFor, generation: 1, occurrences: plan.occurrences });
+  await settle(); await settle();
+  m.sections = [{ startMs: 0, endMs: 60000, profile: { name: 'ICEFIELD' } }];
+  tours.refine(m);
+  await settle(); await settle();
+  assert.deepEqual(calls, [[{ startMs: 20000, endMs: 60000 }], [{ startMs: 20000, endMs: 60000 }]]);
+});
+
+// keyed(from, by): a timeline equal to timeline() before `from`, offset after.
+const keyed = (from, by = 3) => ({ ...timeline(), poseAt: (t) => ({ ...timeline().poseAt(t), eyeM: [t / 100 + (t >= from ? by : 0), 500, 0] }) });
+
+test('heard history is compared key by key through its Catmull-Rom support', () => {
+  const a = timeline();
+  assert.equal(retainsHeardCamera(a, timeline(), 10050), true);
+  assert.equal(retainsHeardCamera(a, keyed(10300), 10050), true, 'the third key after 10050 ms shapes nothing heard');
+  assert.equal(retainsHeardCamera(a, keyed(10200), 10050), false, 'the last heard interval reads key 10200');
+  assert.equal(retainsHeardCamera(a, keyed(4000), 10050), false, 'an earlier heard key counts even though the present matches');
+  const fov = { ...timeline(), poseAt: (t) => ({ ...timeline().poseAt(t), fovYDeg: t === 5000 ? 30.001 : 30 }) };
+  assert.equal(retainsHeardCamera(a, fov, 10050), false);
+  const target = { ...timeline(), poseAt: (t) => ({ ...timeline().poseAt(t), targetM: t === 5000 ? [.01, 400, -5000] : [0, 400, -5000] }) };
+  assert.equal(retainsHeardCamera(a, target, 10050), false);
+  assert.equal(retainsHeardCamera(a, timeline(), 59990), true, 'support clips at the song end');
+});
+
+// Break caught: a refinement after a rewind re-planning what was already heard.
+test('a refinement after a rewind commits the heard high-water, not the playhead', async () => {
+  const commits = [];
+  const tours = new RangeShotTours({ assetBase: 'http://x/', load: async () => ({ library }), plan: async (l, m, o) => { commits.push(o.committedThroughMs); return timeline(); } });
+  const m = mgr();
+  tours.setSong({ mgr: m, views: [view('a')], generation: 1 });
+  await settle(); await settle();
+  m.tSec = 50; tours.reach(50000);
+  m.tSec = 12; tours.reach(12000);
+  m.sections = [...m.sections];
+  tours.refine(m);
+  await settle(); await settle();
+  assert.deepEqual(commits, [-1, 50000]);
+});
+
+test('a late reply that rewrites a heard key is held and retried, even if the present matches', async () => {
+  let next = timeline(), held;
+  const tours = new RangeShotTours({ assetBase: 'http://x/', load: async () => ({ library }), plan: () => new Promise((r) => { held = r; }) });
+  const m = mgr();
+  tours.setSong({ mgr: m, views: [view('a')], generation: 1 });
+  await settle(); held(next); await settle();
+  const first = tours.timeline('a');
+  m.sections = [...m.sections]; tours.refine(m);
+  tours.reach(40000); m.tSec = 20; // heard to 40 s, rewound to 20 s while the worker ran
+  held(keyed(30000)); await settle();
+  assert.equal(tours.timeline('a'), first);
+  assert.equal(tours.status().a.refinement.state, 'held');
+  let asked = false; const original = tours._plan;
+  tours._plan = (...args) => { asked = true; return original(...args); };
+  tours.refine(m);
+  assert.equal(asked, true, 'the held refinement retries from the newer horizon');
+  held(keyed(40300)); await settle();
+  assert.equal(tours.status().a.refinement.state, 'applied');
+});
+
+test('a continued rebuild never gives up heard history to a failed, late or fallback plan', async () => {
+  const committed = timeline();
+  const continuation = { timelines: new Map([['a', committed]]), committedThroughMs: 30000 };
+  const replies = [async () => { throw new Error('worker died'); }, async () => ({ ...timeline(), fallback: 'no feasible sequence' }), async () => keyed(20000)];
+  for (const plan of replies) {
+    const tours = new RangeShotTours({ assetBase: 'http://x/', load: async () => ({ library }), plan });
+    tours.setSong({ mgr: mgr(), views: [view('a')], generation: 2, continuation });
+    await settle(); await settle();
+    assert.equal(tours.timeline('a'), committed);
+    assert.equal(tours.settled('a'), true);
+    assert.equal(tours.status().a.state, 'ready');
+    assert.equal(tours.status().a.refinement.state, 'held');
+  }
+  let now = 0;
+  const slow = new RangeShotTours({ assetBase: 'http://x/', load: async () => ({ library }), plan: () => new Promise(() => {}), now: () => now });
+  slow.setSong({ mgr: mgr(), views: [view('a')], generation: 2, continuation });
+  await settle();
+  now = SHOT_PLAN_TIMEOUT_MS + 1;
+  assert.equal(slow.settled('a'), true);
+  assert.equal(slow.timeline('a'), committed);
+});
+
+test('a second rebuild before the first plan replies still carries heard history and horizon', async () => {
+  const committed = timeline(), seen = [];
+  const tours = new RangeShotTours({ assetBase: 'http://x/', load: async () => ({ library }), plan: (l, m, o) => { seen.push([o.previous, o.committedThroughMs]); return new Promise(() => {}); } });
+  tours.setSong({ mgr: mgr(), views: [view('a')], generation: 2, continuation: { timelines: new Map([['a', committed]]), committedThroughMs: 30000 } });
+  await settle();
+  const carried = tours.continuation(12000);
+  assert.equal(carried.timelines.get('a'), committed);
+  assert.equal(carried.committedThroughMs, 30000);
+  tours.setSong({ mgr: mgr(), views: [view('a')], generation: 3, continuation: carried });
+  await settle();
+  assert.deepEqual(seen, [[committed, 30000], [committed, 30000]]);
+});
+
+test('a committed timeline of another length is not treated as heard history', async () => {
+  const seen = [];
+  const tours = new RangeShotTours({ assetBase: 'http://x/', load: async () => ({ library }), plan: async (l, m, o) => { seen.push(o.previous); return timeline(); } });
+  tours.setSong({ mgr: mgr(), views: [view('a')], generation: 2,
+    continuation: { timelines: new Map([['a', { ...timeline(), durationMs: 50000 }]]), committedThroughMs: 30000 } });
+  await settle(); await settle();
+  assert.deepEqual(seen, [null]);
+  assert.equal(tours.status().a.state, 'ready');
+});
+
+test('export frames never commit heard time', async () => {
+  const tours = new RangeShotTours({ assetBase: 'http://x/', load: async () => ({ library }), plan: async () => timeline() });
+  tours.setSong({ mgr: mgr(), views: [view('a')], generation: 1, exportMode: true });
+  tours.reach(40000);
+  assert.equal(tours.heardThroughMs, 0);
+});
+
+// The real worker: every pose heard before a rewind survives a refinement
+// requested after it, off the key lattice and through interpolation.
+test('poses through the high-water are identical after a worker refinement requested from a rewind', async () => {
+  const lib = { ...shotLibraryFixture(), terrainManifestSha256: sha }, song = anthemSong();
+  const curves = { globalEnergy: (t) => song.energy[Math.round(t / 100)] };
+  const m = { sections: song.sections, durationMs: song.durationMs, energyCurves: curves, songSeed: 0, tSec: 0 };
+  const plan = async (l, g, { signal: _signal, ...options }) => {
+    const { message } = handleShotMessage(structuredClone(shotPlanRequest(l, g, options)));
+    assert.ok(message.timeline, message.error);
+    return restoreShotTimeline(message.timeline);
+  };
+  const v = view('a');
+  const tours = new RangeShotTours({ assetBase: 'http://x/', load: async () => ({ library: lib }), plan });
+  tours.setSong({ mgr: m, views: [v], generation: 1 });
+  await settle(); await settle();
+  const before = tours.timeline('a');
+  assert.ok(before?.fov, tours.status().a.reason);
+  tours.reach(70000);
+  m.tSec = 20;
+  const moved = song.sections.map((s, i) => ({ ...s, startMs: i ? s.startMs + (i % 2 ? 1500 : -1500) : 0 }));
+  m.sections = moved.map((s, i) => ({ ...s, endMs: moved[i + 1]?.startMs ?? song.durationMs }));
+  tours.refine(m);
+  await settle(); await settle();
+  assert.equal(tours.status().a.refinement.state, 'applied');
+  const after = tours.timeline('a');
+  for (let t = 0; t <= 70000; t += 37.3) {
+    const a = before.poseAt(t), b = after.poseAt(t);
+    assert.deepEqual([a.eyeM, a.targetM, a.fovYDeg], [b.eyeM, b.targetM, b.fovYDeg], `pose at ${t}`);
+  }
 });

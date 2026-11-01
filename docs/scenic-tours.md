@@ -357,7 +357,14 @@ limits and weights; their visual and pacing tradeoffs are recorded in the
   on the rendering thread only clones library data and any cached tables.
 - Ending search tries every retained outgoing link alternative, including
   alternatives that differ in bend, flow and join feasibility.
-- Refinement replans keep every committed pose (the Teton contract).
+- Refinement replans keep every committed pose (the Teton contract). The
+  commit horizon is the run's heard high-water, not the playhead, so a rewind
+  or seek reopens nothing. A reply is admitted only if it keeps the eye, target
+  and FOV keys heard by the time it lands, including the two later keys that
+  interpolate the last heard pose; otherwise, or if a replan fails, the heard
+  camera stays and the tail is replanned from the newer horizon.
+- A tour plans over its view's scheduled appearances, from their first frame
+  through the outgoing allowance, with no pre-chapter margin.
 
 ### Budgets and approval
 
