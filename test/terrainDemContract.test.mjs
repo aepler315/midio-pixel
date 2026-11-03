@@ -3,11 +3,13 @@
 // discoverable python3); the payload-validation cases always run.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { findGdalPython, normalizeDem, readDemGrid, sampleHeight } from '../tools/lib/terrain-source.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -91,6 +93,49 @@ gdalTest('downsampling averages instead of inventing resolution', async () => {
   }
   const crestX = fine.originM[0] + best * fine.cellSizeM;
   assert.ok(Math.abs(crestX - labels.branched.ridgeEastingOffsetM) < 15, `crest at ${crestX}`);
+});
+
+// Two 3DEP-style 1/3 arc-second tiles meeting at 121 W, each running 6
+// pixels past its edge as 3DEP tiles do, with a 0.4 m step between them so
+// the order the warp applies them in shows at the seam.
+const SEAM_TILES = `
+import sys
+import numpy as np
+from osgeo import gdal, osr
+gdal.UseExceptions()
+px = 1 / 10800
+srs = osr.SpatialReference(); srs.ImportFromEPSG(4269)
+for name, west, east, bias in (('n49w122', -121.02, -121.0, 0.0), ('n49w121', -121.0, -120.98, 0.4)):
+    west -= 6 * px; east += 6 * px
+    north, south = 49.0 + 6 * px, 48.96
+    cols, rows = round((east - west) / px), round((north - south) / px)
+    lon, lat = np.meshgrid(west + (np.arange(cols) + 0.5) * px, north - (np.arange(rows) + 0.5) * px)
+    x, z = (lon + 121) * 73000.0, (lat - 48.98) * 111320.0
+    data = 1500 + 0.6 * x + 0.3 * z + 40 * np.sin(x / 37.0) * np.cos(z / 53.0) + bias
+    ds = gdal.GetDriverByName('GTiff').Create(f'{sys.argv[1]}/{name}.tif', cols, rows, 1, gdal.GDT_Float32)
+    ds.SetGeoTransform([west, px, 0, north, 0, -px]); ds.SetProjection(srs.ExportToWkt())
+    ds.GetRasterBand(1).SetNoDataValue(-999999.0); ds.GetRasterBand(1).WriteArray(data.astype('float32')); ds = None
+`;
+
+gdalTest('a tile-window 3DEP cache warps tile seams exactly as reading the tiles directly', async (t) => {
+  const dir = await fs.mkdtemp(path.join(tmp, 'seam-'));
+  await promisify(execFile)(python, ['-I', '-c', SEAM_TILES, dir]);
+  const files = { n49w122: path.join(dir, 'n49w122.tif'), n49w121: path.join(dir, 'n49w121.tif') };
+  const at = { centerLonLat: [-121.0, 48.98], extentM: [1200, 800], cellM: 20, python, retrievedAt: '2026-11-03' };
+  const pinned = (name, windowCache) => normalizeDem('3dep13', { ...at, out: path.join(dir, name), pin: files, cache: path.join(dir, `cache-${windowCache}`), windowCache });
+  const heights = (g) => createHash('sha256').update(Buffer.from(g.heightsM.buffer)).digest('hex');
+  const direct = await normalizeDem([files.n49w122, files.n49w121], { ...at, out: path.join(dir, 'direct') });
+  const first = await pinned('tile-1', 'tile');
+  const cached = await pinned('tile-2', 'tile');
+  assert.equal(first.meta.resampling, 'average');
+  assert.deepEqual(first.provenance.tileIds, ['n49w122', 'n49w121'], 'the view must straddle the seam');
+  assert.ok(cached.provenance.files.every((f) => f.readFrom === 'cache' && f.cacheLayout === 'tile'));
+  assert.equal(heights(first), heights(direct), 'tile-window cache differs from the direct read');
+  assert.equal(heights(cached), heights(direct), 'a cache hit differs from the direct read');
+  // The envelope layout (the default, kept so grids built with it since
+  // 2026-09-30 reproduce) lets GDAL average partial coverage over the seam.
+  const envelope = await pinned('envelope', 'envelope');
+  t.diagnostic(`envelope layout ${heights(envelope) === heights(direct) ? 'matches' : 'differs from'} the direct read on this GDAL`);
 });
 
 async function writeFake(prefix, { width = 3, height = 2, heights, valid, tamper = {} } = {}) {

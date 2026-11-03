@@ -31,6 +31,7 @@ reference machine; see docs/range-v2-assets.md).
 """
 import argparse
 import datetime
+import email.utils
 import hashlib
 import io
 import json
@@ -114,6 +115,10 @@ def lonlat_envelope(tm, bounds, datum, pad_deg=0.002):
 
 
 def head(url):
+    if os.path.isabs(url):  # a tile pinned to a local copy of its file
+        st = os.stat(url)
+        return {'ETag': None, 'Last-Modified': email.utils.formatdate(st.st_mtime, usegmt=True),
+                'Content-Length': str(st.st_size)}
     req = urllib.request.Request(url, method='HEAD')
     with urllib.request.urlopen(req, timeout=60) as res:
         return {k: res.headers.get(k) for k in ('ETag', 'Last-Modified', 'Content-Length')}
@@ -222,7 +227,7 @@ def source_3dep(env, cache_dir, pinned=None, layout='envelope'):
     tiles = threedep_tiles(env, pinned)
     paths, prov = [], []
     for t in tiles:
-        vsi = f'/vsicurl/{t["url"]}'
+        vsi = t['url'] if os.path.isabs(t['url']) else f'/vsicurl/{t["url"]}'
         # The native window is kept outside the runtime tree, named by tile,
         # requested envelope and layout, with its acquisition provenance and
         # a file hash beside it. A later normalization of the same envelope
@@ -394,7 +399,7 @@ def main(argv=None):
     ap.add_argument('--cache', default='.terrain-cache')
     ap.add_argument('--window-cache', choices=WINDOW_CACHE_LAYOUTS, default='envelope',
                     help='how cached 3DEP tile windows are cropped (see source_3dep)')
-    ap.add_argument('--pin', default=None, help='JSON file mapping 3DEP tile -> dated URL')
+    ap.add_argument('--pin', default=None, help='JSON file mapping 3DEP tile -> dated URL (or an absolute path to a local copy)')
     ap.add_argument('--retrieved-at', default=None, help='override the recorded retrieval date')
     ap.add_argument('--fill', choices=['terrarium'], default=None,
                     help='fill cells the primary source leaves invalid (e.g. 3DEP beyond the U.S. border)')
