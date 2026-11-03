@@ -101,6 +101,34 @@ test('the module-graph check catches each way a module fails to load', async (t)
       'export const lost = (n) => import(retry(LOST_URL, n));',
     ].join('\n'),
     'src/worker.js': "import { ACTOR_IDS } from './actors.js';\nself.onmessage = () => postMessage(ACTOR_IDS);\n",
+    // Module-only syntax that a line-start regex would miss.
+    'src/banner-worker.js': '/* banner */ export const x = 1;\nself.onmessage = () => postMessage(x);\n',
+    'src/classic-worker.js': 'self.onmessage = () => postMessage(1);\n',
+    'src/worker-consts.js': [
+      "const SCRIPT = '/src/worker.js';",
+      "const GONE = '/src/gone-worker.js';",
+      "const CLASSIC = '/src/classic-worker.js';",
+      "export const a = () => new Worker(SCRIPT, { type: 'module' });",
+      'export const b = () => new Worker(GONE);',
+      'export const c = () => new Worker(CLASSIC);',
+      "export const d = () => new Worker(new URL('./banner-worker.js', import.meta.url));",
+      'export const e = (pick) => new Worker(pick());',
+    ].join('\n'),
+    // A page: its module script must exist, and an inline module is checked
+    // like a file, with lines counted in the page.
+    'src/page.html': [
+      '<!doctype html>',
+      '<script type="module" src="./missing-entry.js"></script>',
+      '<script type="module">',
+      "  import { ACTOR_IDS } from './actors.js';",
+      "  import { ACTOR_NOPE } from './actors.js';",
+      '</script>',
+      '<script>console.log("classic, not checked")</script>',
+    ].join('\n'),
+    // Dev pages run under tool servers that serve the whole checkout.
+    'src/dev/review.html': "<script type=\"module\">\n  import x from '../../tools/helper.js';\n  console.log(x);\n</script>\n",
+    // The versions site's index.html: its ./src/ paths start at the root.
+    'src/ui/history-shell.html': '<script type="module" src="./src/ui/picker.js"></script>\n',
     'src/worker-client.js': [
       "export const good = () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });",
       "export const bad = () => new Worker(new URL('./no-worker.js', import.meta.url), { type: 'module' });",
@@ -136,6 +164,8 @@ test('the module-graph check catches each way a module fails to load', async (t)
     'src/missing-export.js:2 link',
     'src/no-default.js:1 link',
     'src/outside.js:1 import',
+    'src/page.html:2 html',
+    'src/page.html:5 link',
     'src/scene.js:2 parse',
     'src/shader.js:3 conflict marker',
     'src/shared.js:1 import',
@@ -146,6 +176,9 @@ test('the module-graph check catches each way a module fails to load', async (t)
     'src/worker-client.js:4 worker',
     'src/worker-client.js:5 module URL',
     'src/worker-client.js:6 worker',
+    'src/worker-consts.js:5 worker',
+    'src/worker-consts.js:7 worker',
+    'src/worker-consts.js:8 worker',
     'src/wrong-case.js:1 import',
   ], describe(result.problems));
   const message = (file, kind) => result.problems.find(p => p.file === file && (!kind || p.kind === kind)).message;
@@ -159,6 +192,12 @@ test('the module-graph check catches each way a module fails to load', async (t)
   assert.match(message('src/worker-client.js', 'worker'), /classic script.*type: 'module'/);
   assert.match(message('src/ui/picker.js'), /served at \/history-worker\.js/);
   assert.match(message('src/json-untyped.js'), /type: 'json'/);
+  assert.match(message('src/page.html', 'html'), /missing-entry\.js.*does not exist/);
+  assert.match(message('src/page.html', 'link'), /does not provide an export named 'ACTOR_NOPE'/);
+  const worker = (line) => result.problems.find(p => p.file === 'src/worker-consts.js' && p.line === line).message;
+  assert.match(worker(5), /src\/gone-worker\.js does not exist/);
+  assert.match(worker(7), /starts src\/banner-worker\.js as a classic script/);
+  assert.match(worker(8), /cannot follow/);
 });
 
 test('the module-graph check can require every module to be tracked by git', async (t) => {
@@ -177,10 +216,11 @@ test('the module-graph check can require every module to be tracked by git', asy
   assert.deepEqual(check(root, '--tracked').problems, []);
 });
 
-test('the module-graph check knows where the history worker is served from', async () => {
-  // tools/module-graph-check.mjs SERVED_AT resolves the worker's imports from
-  // the site root, where tools/stage-history.mjs copies it. If that copy
-  // moves, update SERVED_AT with it.
+test('the module-graph check knows where the history worker and shell are served from', async () => {
+  // tools/module-graph-check.mjs SERVED_AT resolves the history worker's and
+  // shell's imports from the site root, where tools/stage-history.mjs copies
+  // them. If those copies move, update SERVED_AT with them.
   const stage = await fs.readFile(path.join(ROOT, 'tools', 'stage-history.mjs'), 'utf8');
   assert.match(stage, /'src\/ui\/history-worker\.js'\),\s*path\.join\(staged, 'history-worker\.js'\)/);
+  assert.match(stage, /'src\/ui\/history-shell\.html'\),\s*path\.join\(staged, 'index\.html'\)/);
 });

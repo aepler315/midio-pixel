@@ -22,8 +22,12 @@
 //   - every dynamic import() names its target in a way this check can
 //     follow: a string literal, or a `new URL('….js', import.meta.url)`
 //     constant. Every such URL, and every Worker, SharedWorker or service
-//     worker script, names a module that exists. A worker whose script uses
-//     import/export is started with { type: 'module' };
+//     worker script (a literal, a string constant or a URL), names a module
+//     that exists. A worker whose script only compiles as a module (import,
+//     export, import.meta) is started with { type: 'module' };
+//   - every <script type="module"> in index.html and the pages under src/
+//     loads: a src= must name a module that exists, and an inline script is
+//     parsed, resolved and linked like a file;
 //   - no file under src/ (shaders inside template literals included) and
 //     no index.html keeps a conflict marker line.
 // Not checked: evaluation. A module that throws while it runs (a TDZ read in
@@ -47,14 +51,21 @@ import { Linter } from 'eslint';
 // Relative imports resolve against the served URL, so they are checked
 // from there, and a reference to the src/ copy is an error.
 export const SERVED_AT = new Map([
-  // Copied to the site root by tools/stage-history.mjs and registered from
-  // there by src/ui/HistoryPicker.js, so its imports start with ./src/.
+  // tools/stage-history.mjs copies both to the root of the versions site:
+  // the worker is registered from there by src/ui/HistoryPicker.js, and the
+  // shell becomes that site's index.html. Their paths start with ./src/.
   ['src/ui/history-worker.js', 'history-worker.js'],
+  ['src/ui/history-shell.html', 'index.html'],
 ]);
-const SERVED_FROM = new Map([...SERVED_AT].map(([rel, at]) => [at, rel]));
+// Pages under src/dev/ are opened by tool harnesses (tools/lib/scenic-render.mjs
+// and others) whose servers serve the whole checkout, so the modules they
+// reach may live outside src/.
+const DEV_PAGES = 'src/dev/';
 
 const SITE = new URL('https://site.invalid/');
 const MODULE_FILE = /\.m?js$/;
+// Served path -> module, for the module entries of SERVED_AT.
+const SERVED_FROM = new Map([...SERVED_AT].filter(([rel]) => MODULE_FILE.test(rel)).map(([rel, at]) => [at, rel]));
 const TEXT_FILE = /\.(?:m?js|html|css|json|glsl|svg)$/;
 const SPECIFIER_PATH = /^\.{0,2}\//; // module specifiers that are URL paths
 const CONFLICT_MARKER = /^(?:<{7}|>{7}|\|{7})(?:[ \t].*)?$|^={7}$/;
@@ -67,7 +78,7 @@ const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const lineOf = (code, index) => (index < 0 ? undefined : code.slice(0, index).split('\n').length);
 
 /** Where a served URL lives in the repo, or why it can't load from there. */
-function siteFile(url) {
+function siteFile(url, { anywhere = false } = {}) {
   if (url.origin !== SITE.origin) return { error: `${url.href} is not on the site` };
   let served = url.pathname.slice(1);
   try { served = decodeURIComponent(served); } catch { /* keep it encoded */ }
@@ -75,7 +86,7 @@ function siteFile(url) {
   if (SERVED_AT.has(served)) {
     return { error: `${served} is served at /${SERVED_AT.get(served)}, and its own imports only resolve from there` };
   }
-  if (!served.startsWith('src/')) return { error: `${served} is outside src/, which is all the site serves for modules` };
+  if (!anywhere && !served.startsWith('src/')) return { error: `${served} is outside src/, which is all the site serves for modules` };
   return { rel: served };
 }
 
@@ -245,16 +256,30 @@ function moduleReferences(linter, code, rel) {
       .some(n => (n.type === 'Identifier' || isUrlCall(n)) && MODULE_FILE.test(urlOf(n)?.pathname ?? ''));
     if (!followed) found.push({ kind: 'dynamic import', unfollowed: true, line });
   }
+  // A string constant (`const SCRIPT = '/src/w.js'`) counts as its literal.
+  const constString = (node, seen = new Set()) => {
+    if (node?.type === 'Identifier') {
+      if (seen.has(node.name)) return null;
+      seen.add(node.name);
+      return constString(urlConsts.get(node.name), seen);
+    }
+    return leading(node)?.complete ? stringValue(node) : null;
+  };
   for (const w of workers) {
-    const literal = leading(w.script)?.complete ? stringValue(w.script) : null;
-    // A plain string is document-relative; the app's document is /index.html.
+    const line = w.node.loc.start.line;
     let url = urlOf(w.script);
-    if (!url && literal != null) { try { url = new URL(literal, SITE); } catch { url = null; } }
-    if (!url) continue;
+    // A URL object naming a .js file is already checked as a module URL.
+    const checkExists = !(url && MODULE_FILE.test(url.pathname));
+    if (!url) {
+      // A plain string is document-relative; the app's document is /index.html.
+      const literal = constString(w.script);
+      if (literal != null) { try { url = new URL(literal, SITE); } catch { url = null; } }
+    }
+    if (!url) { found.push({ kind: 'worker', unfollowed: true, line, what: w.what }); continue; }
     const typeProp = w.options?.type === 'ObjectExpression'
       ? w.options.properties.find(p => p.type === 'Property' && !p.computed && (p.key.name ?? p.key.value) === 'type') : null;
     const isModule = w.alwaysModule || (typeProp?.value.type === 'Literal' && typeProp.value.value === 'module');
-    found.push({ kind: 'worker', url, line: w.node.loc.start.line, what: w.what, isModule, checkExists: !urlOf(w.script) });
+    found.push({ kind: 'worker', url, line, what: w.what, isModule, checkExists });
   }
   return found;
 }
@@ -288,7 +313,10 @@ export async function checkModuleGraph(root = process.cwd(), { srcDir = 'src', t
   const linter = new Linter({ configType: 'flat' });
   const problems = [];
   const seen = new Set();
-  const report = (problem) => {
+  const inline = new Map(); // "page.html#module-N" -> { page, offset }
+  const report = (raw) => {
+    const at = inline.get(raw.file);
+    const problem = at ? { ...raw, file: at.page, ...(raw.line ? { line: raw.line + at.offset } : {}) } : raw;
     const key = `${problem.file}\0${problem.line}\0${problem.message}`;
     if (!seen.has(key)) { seen.add(key); problems.push(problem); }
   };
@@ -300,19 +328,49 @@ export async function checkModuleGraph(root = process.cwd(), { srcDir = 'src', t
   };
 
   /** Resolve a URL to a module file, or say why it can't load. */
-  const target = async (url) => {
-    const site = siteFile(url);
+  // Modules reached from a dev page (or from outside src/, which only a dev
+  // page can reach) may import anything in the checkout.
+  const devOnly = (rel) => rel.startsWith(DEV_PAGES) || !rel.startsWith(`${srcDir}/`);
+  const target = async (url, from = '') => {
+    const site = siteFile(url, { anywhere: devOnly(from) });
     if (site.error) return site;
     if (!await isFile(site.rel)) return { error: `${site.rel} does not exist (names must match exactly, case included)` };
     if (trackedSet && !trackedSet.has(site.rel)) return { error: `${site.rel} is not tracked by git, so it is not published` };
     return { rel: site.rel };
   };
 
+  // 0. Pages: a <script type="module" src> must load, and an inline module
+  // script is checked like a file (as "page.html#module-N").
+  const roots = [...files];
+  for (const page of [...all.filter(r => r.endsWith('.html')), 'index.html']) {
+    const html = await source(page);
+    if (html == null) continue;
+    let n = 0;
+    for (const m of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)) {
+      const [whole, attrs, body] = m;
+      if (!/\btype\s*=\s*["']?module\b/i.test(attrs)) continue;
+      const line = lineOf(html, m.index);
+      const srcAttr = /\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(attrs);
+      if (srcAttr) {
+        const spec = srcAttr[1] ?? srcAttr[2] ?? srcAttr[3];
+        const found = await target(new URL(spec, servedUrl(page)), page);
+        if (found.error) report({ file: page, line, kind: 'html', message: `<script type="module" src="${spec}"> cannot load: ${found.error}` });
+        else if (!MODULE_FILE.test(found.rel)) report({ file: page, line, kind: 'html', message: `<script type="module" src="${spec}"> is not a .js module` });
+        else roots.push(found.rel);
+        continue;
+      }
+      const id = `${page}#module-${++n}`;
+      sources.set(id, Promise.resolve(body));
+      inline.set(id, { page, offset: lineOf(html, m.index + whole.indexOf('>') + 1) - 1 });
+      roots.push(id);
+    }
+  }
+
   // 1. Parse every module once and resolve its own imports.
   const parsed = new Map(); // rel -> { code, requests: [{ spec, type, rel }] }
   const jsonValues = new Map();
   const bad = new Set();
-  const queue = [...files];
+  const queue = [...roots];
   for (let i = 0; i < queue.length; i++) {
     const rel = queue[i];
     if (parsed.has(rel) || bad.has(rel)) continue;
@@ -329,7 +387,7 @@ export async function checkModuleGraph(root = process.cwd(), { srcDir = 'src', t
       const line = lineOf(code, code.search(new RegExp(`(['"])${escapeRegExp(spec)}\\1`)));
       const fail = (message) => { report({ file: rel, ...(line ? { line } : {}), kind: 'import', message }); bad.add(rel); };
       if (!SPECIFIER_PATH.test(spec)) { fail(`imports "${spec}", which is not a ./, ../ or / path; there is no import map`); continue; }
-      const found = await target(new URL(spec, servedUrl(rel)));
+      const found = await target(new URL(spec, servedUrl(rel)), rel);
       if (found.error) { fail(`imports "${spec}", but ${found.error}`); continue; }
       const type = attributes?.type;
       if (type === 'json') {
@@ -340,7 +398,7 @@ export async function checkModuleGraph(root = process.cwd(), { srcDir = 'src', t
       requests.push({ spec, type, rel: found.rel });
       if (!type) queue.push(found.rel);
     }
-    parsed.set(rel, { code, requests, moduleSyntax: requests.length > 0 || /\bimport\.meta\b|^\s*export\b/m.test(code) });
+    parsed.set(rel, { code, requests });
   }
 
   // 2. Link. A graph holding a module already reported is skipped, so the
@@ -370,7 +428,7 @@ export async function checkModuleGraph(root = process.cwd(), { srcDir = 'src', t
     return moduleFor(request.rel, request.type);
   };
   fresh();
-  for (const rel of files) {
+  for (const rel of roots) {
     if (!clean(rel)) continue;
     const module = moduleFor(rel);
     if (module.status !== 'unlinked') continue;
@@ -387,15 +445,28 @@ export async function checkModuleGraph(root = process.cwd(), { srcDir = 'src', t
     }
   }
 
-  // 3. Dynamic imports, module URLs and workers.
-  for (const rel of files) {
+  // 3. Dynamic imports, module URLs and workers. A classic worker parses its
+  // script as a Script, so the browser's own question is whether V8 can
+  // compile it as one (import, export, import.meta and top-level await can't).
+  const classicFails = new Map();
+  const needsModule = (rel) => {
+    if (!classicFails.has(rel)) {
+      let fails = false;
+      try { void new vm.Script(parsed.get(rel).code, { filename: rel }); } catch (err) { fails = err?.name === 'SyntaxError'; }
+      classicFails.set(rel, fails);
+    }
+    return classicFails.get(rel);
+  };
+  for (const rel of roots) {
     if (rel.startsWith(`${srcDir}/vendor/`)) continue; // generated bundles
     const code = parsed.get(rel)?.code;
     if (!code || !/\bimport\s*\(|\bimport\.meta\b|\bWorker\b|\.register\s*\(|\.addModule\s*\(/.test(code)) continue;
     for (const ref of moduleReferences(linter, code, rel)) {
       const at = { file: rel, line: ref.line, kind: ref.kind };
       if (ref.unfollowed) {
-        report({ ...at, message: "import() of an expression this check cannot follow; name the target with a string literal or a new URL('….js', import.meta.url) constant" });
+        report({ ...at, message: ref.kind === 'worker'
+          ? `${ref.what} with a script URL this check cannot follow; use a string literal or a new URL('….js', import.meta.url) constant`
+          : "import() of an expression this check cannot follow; name the target with a string literal or a new URL('….js', import.meta.url) constant" });
         continue;
       }
       if (ref.kind === 'dynamic import' && !SPECIFIER_PATH.test(ref.spec)) {
@@ -404,9 +475,9 @@ export async function checkModuleGraph(root = process.cwd(), { srcDir = 'src', t
       }
       const url = ref.url ?? new URL(ref.spec, servedUrl(rel));
       if (ref.kind === 'worker' && !ref.checkExists && ref.isModule) continue; // the URL itself was checked as a module URL
-      const found = await target(url);
+      const found = await target(url, rel);
       if (found.error) { if (ref.kind !== 'worker' || ref.checkExists) report({ ...at, message: `${ref.spec ? `"${ref.spec}"` : url.pathname} names a module that cannot load: ${found.error}` }); continue; }
-      if (ref.kind === 'worker' && !ref.isModule && parsed.get(found.rel)?.moduleSyntax) {
+      if (ref.kind === 'worker' && !ref.isModule && parsed.has(found.rel) && needsModule(found.rel)) {
         report({ ...at, message: `${ref.what} starts ${found.rel} as a classic script, but it uses import/export; pass { type: 'module' }` });
       }
     }
