@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { sessionSongName } from '../src/audio/AudioSessionIdentity.js';
-import { exportFileName } from '../src/render/VideoExport.js';
+import { exportFileName, describeEarlyStop } from '../src/render/VideoExport.js';
 
 const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
 const finish = main.slice(main.indexOf('function finishRecording('), main.indexOf('\nfunction abortRecording('));
@@ -13,7 +13,7 @@ test('actual recording finalization keeps the captured source title across an as
   const stopped = new Promise(resolve => { settle = resolve; });
   const namesUsed = [], downloads = [], order = [];
   const context = vm.createContext({
-    sessionSongName,
+    sessionSongName, describeEarlyStop,
     songRecorder: { recording: true, stop(options) { assert.equal(options.drain, true); order.push('stop'); return stopped; } },
     pendingCaptureOptions: null, fullSongRecording: true,
     document: { getElementById: () => ({}) }, setTimeout() {},
