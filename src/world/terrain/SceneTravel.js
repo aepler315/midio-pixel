@@ -13,7 +13,7 @@
 //                      it; aspect-ratio framing is a projection concern.
 //
 // Local scene axes: X east, Y up, Z south, metres (plan §7.1).
-import { terrainScrollPx } from './ProfileTravel.js';
+import { terrainScrollPx, profileTravelPx, fitRidge } from './ProfileTravel.js';
 
 export const SCENE_STRIP_WIDTH = 8192;
 export const SCENE_REFERENCE_WINDOW = 1280;
@@ -47,6 +47,15 @@ export function sceneProgressAt({ timeMs = 0, curves = null, durationMs = 0, res
     depth: 1, fit: { viewWidth: SCENE_REFERENCE_WINDOW, maxDepth: 1 },
   });
   return clamp01(scrollPx / SCENE_ROOM);
+}
+
+/** The whole-song slowdown inside sceneProgressAt: fitted progress per unit
+ *  of natural travel. Progress is affine in natural travel, so dividing a
+ *  fitted progress delta by this recovers the natural one. */
+export function sceneFitRate({ curves = null, durationMs = 0, response = null } = {}) {
+  const dur = Number(durationMs) || 0;
+  if (!(dur > 0)) return 1;
+  return fitRidge({ totalPx: profileTravelPx(dur / 1000, curves, response), room: SCENE_ROOM }).rate;
 }
 
 /** Validate a view's camera rail. Returns a list of problems (empty = ok). */

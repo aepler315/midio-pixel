@@ -545,6 +545,7 @@ if (rangeTourToggle) {
     if (renderer) renderer.rangePresentation = rangePresentation;
     applyTerrainTourPolicy(lastTimelineData?.terrain, choice, getWorld(lastTimelineData?.worldId)?.kind);
     rangePresentation.setTourMode(choice === 'off' ? null : choice);
+    cameraRun?.forgetTours();
     if (running && sim && audioEngine && lastTimelineData) {
       const wasPaused=paused;
       delete lastTimelineData.chapterState;
@@ -1963,6 +1964,8 @@ function syncCaptionDetails() {
 function startTimeline(timelineData, extra = {}) {
   // Snapshot progress before teardown; exports never advance the live owner.
   if (!extra.exportMode && !bulkExportArmed && cameraRun?.data === lastTimelineData) cameraRun.reach(sim?.heardTimeMs);
+  // The heard tours, before a tour-mode change or setSong replaces them.
+  const heardTours = rangePresentation?.cameraContinuation?.(cameraRun?.highWaterMs ?? 0) || null;
   const {
     songSeed: seedOverride = undefined, playBuffer, live = false,
     startAtMs = 0, startAtWallMs = 0, preservePause = false, captureMode: captureModeFlag = false,
@@ -2106,8 +2109,9 @@ function startTimeline(timelineData, extra = {}) {
     showErrorBanner('Could not build the world: ' + (err?.message || err));
     return;
   }
-  if (!exportMode) cameraRun = openCameraRun(cameraRun, { data: timelineData, seed: sim.songSeed,
-    intent: extra.cameraRunIntent || 'fresh', requestedMultiplier: requestedRailPace });
+  if (exportMode) cameraRun?.retainTours(heardTours);
+  else cameraRun = openCameraRun(cameraRun, { data: timelineData, seed: sim.songSeed,
+    intent: extra.cameraRunIntent || 'fresh', requestedMultiplier: requestedRailPace, tours: heardTours });
   activeCameraSchedule = null;
   sim.audioOverview = timelineData.audioOverview || null;
   // Each highlight frame records the run and look that drew it, so the
@@ -2175,7 +2179,7 @@ function startTimeline(timelineData, extra = {}) {
   renderer = createPresentingRenderer({ canvas, mode: rendererMode, presentation: effectivePresentation(), residency: sharedResidency() });
   if (rangePresentation) {
     rangePresentation.setSong({ terrain: timelineData.terrain || null, mgr: sim.biomes, generation: loadGen, exportMode,
-      cameraContinuation: extra.chapterState?.cameraTours || null,
+      cameraContinuation: extra.chapterState?.cameraTours || (exportMode ? null : cameraRun?.tourContinuation()) || null,
       ...cameraSongOptions(cameraRun, cameraScheduleKey(timelineData.worldId), exportMode ? 'export' : extra.cameraRunIntent,
         exportMode ? extra.cameraSchedule ?? null : undefined),
       requestedMultiplier: requestedRailPace });
@@ -3929,7 +3933,7 @@ function adoptFullAnalysisLive(data) {
     preservePause: wasPaused,
     fitDiagnostic: sim.fitDiagnostic,
     chapterState: { previous: sim.biomes.chapterPlan, committedThroughMs: sim.heardTimeMs ?? audioEngine.nowMs, landSections: sim.biomes.sections,
-      cameraTours: rangePresentation?.cameraContinuation?.(sim.heardTimeMs ?? audioEngine.nowMs) || null,
+      cameraTours: rangePresentation?.cameraContinuation?.(Math.max(cameraRun?.highWaterMs ?? 0, sim.heardTimeMs ?? audioEngine.nowMs)) || null,
       landscapeHistory: { previous: sim.biomes.landscapeScore, committedThroughMs: sim.heardTimeMs ?? audioEngine.nowMs } },
   });
   if (!running || !sim) return;

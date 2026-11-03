@@ -4,7 +4,8 @@ import {
   DEFAULT_RAIL_PACE, RAIL_PACES, normalizeRailPace, compileSceneRailPlan,
   sceneRailPlanFromSnapshot, withSceneRailPace,
 } from '../src/world/terrain/SceneRailPlan.js';
-import { sceneProgressAt } from '../src/world/terrain/SceneTravel.js';
+import { sceneProgressAt, SCENE_ROOM } from '../src/world/terrain/SceneTravel.js';
+import { profileTravelPx } from '../src/world/terrain/ProfileTravel.js';
 
 const choiceFor = name => name === 'missing' ? null : { view: { id: name === 'alias' ? 'A' : name } };
 const section = (startMs, profile, extra = {}) => ({ startMs, profile, barMs: 1000, ...extra });
@@ -105,7 +106,7 @@ test('facade, snapshot tables, occurrences, fits, selection and rail states are 
 
 test('snapshot restore explicitly rejects versions, nonfinite curves and invalid references', () => {
   const source = compile().snapshot;
-  for (const mutate of [s => { s.version = 2; }, s => { s.bases[0].progress[2] = Infinity; },
+  for (const mutate of [s => { s.version = 3; }, s => { s.bases[0].progress[2] = Infinity; },
     s => { s.occurrences[0].baseId = 'unknown'; }, s => { s.occurrences[0].fit.gain = NaN; }]) {
     const invalid = json(source); mutate(invalid);
     assert.throws(() => sceneRailPlanFromSnapshot(invalid), /invalid|unsupported/i);
@@ -271,4 +272,123 @@ test('adopting a known duration treats an old midpoint preview as fresh uncommit
     assert.deepEqual(restored.snapshot, fresh.snapshot);
     close(state(restored, 0, 7000).progress01, state(fresh, 0, 7000).progress01);
   }
+});
+
+// A ten-minute song: the whole-song fit slows the base to about a third.
+const tenMinutes = { durationMs: 600000, curves: { globalEnergyNorm: t => .4 + .15 * Math.sin(t / 7000) } };
+const longSong = (extra = {}) => compile({ ...tenMinutes,
+  sections: [section(0, 'A'), section(20000, 'B'), section(90000, 'A'), section(240000, 'C')], ...extra });
+const naturalDelta = (a, b, curves = tenMinutes.curves) => (profileTravelPx(b / 1000, curves) - profileTravelPx(a / 1000, curves)) / SCENE_ROOM;
+
+// Identities are private; a saved schedule has to be reproduced byte for byte.
+function hashed(prefix, value) {
+  const source = JSON.stringify(value);
+  let a = 2166136261, b = 3339675911;
+  for (let i = 0; i < source.length; i++) {
+    a = Math.imul(a ^ source.charCodeAt(i), 16777619);
+    b = Math.imul(b ^ source.charCodeAt(i), 2246822519);
+  }
+  return `${prefix}-${(a >>> 0).toString(16).padStart(8, '0')}${(b >>> 0).toString(16).padStart(8, '0')}`;
+}
+
+/** A schedule as version 1 saved it: whole-song gain, no natural travel. */
+function versionOne(plan) {
+  const data = json(plan.snapshot);
+  delete data.id;
+  const base = data.bases[0];
+  const baseAt = t => {
+    const i = Math.min(Math.floor(t / 20), base.progress.length - 1);
+    return i === base.progress.length - 1 ? base.progress[i] : base.progress[i] + (base.progress[i + 1] - base.progress[i]) * (t / 20 - i);
+  };
+  data.version = 1;
+  for (const occurrence of data.occurrences) {
+    const m = occurrence.requestedMultiplier, baseStart = baseAt(occurrence.startMs);
+    const baseDelta = Math.max(0, baseAt(occurrence.endMs) - baseStart), targetDelta = Math.min(m * baseDelta, 1);
+    const gain = baseDelta > 0 ? targetDelta / baseDelta : 1;
+    occurrence.fit = { baseStart, baseDelta, targetDelta, start: Math.max(0, Math.min(baseStart, 1 - targetDelta)), gain,
+      effectiveMultiplier: gain, coverage01: baseDelta > 0 ? targetDelta / (m * baseDelta) : 1, capped: m * baseDelta > 1 };
+  }
+  return { id: hashed('rail', data), ...data };
+}
+
+// Break caught: a chapter inheriting the whole song's slowdown.
+test('2x, 3x and 4x pace a short chapter from its own natural travel, not the whole-song fit', () => {
+  const fitted = sceneProgressAt({ timeMs: 11000, ...tenMinutes }) - sceneProgressAt({ timeMs: 10000, ...tenMinutes });
+  assert.ok(fitted < .5 * naturalDelta(10000, 11000), 'the fixture must be slowed by the whole-song fit');
+  for (const requestedMultiplier of [2, 3, 4]) {
+    const plan = longSong({ requestedMultiplier });
+    const moved = state(plan, 0, 11000).progress01 - state(plan, 0, 10000).progress01;
+    close(moved, requestedMultiplier * naturalDelta(10000, 11000), 1e-9);
+    assert.equal(state(plan, 0, 10000).capped, false);
+    close(state(plan, 0, 10000).effectiveMultiplier, requestedMultiplier, 1e-9);
+    close(state(plan, 0, 10000).coverage01, 1);
+  }
+});
+
+test('1x in a long song keeps the fitted whole-song rate exactly', () => {
+  const plan = longSong({ requestedMultiplier: 1 });
+  for (const [i, timeMs] of [[0, 3.7], [0, 10000], [1, 55000.3], [3, 400001]]) {
+    close(state(plan, i, timeMs).progress01, sceneProgressAt({ timeMs, ...tenMinutes }));
+  }
+  assert.equal(state(plan, 0, 10000).effectiveMultiplier, 1);
+});
+
+// Break caught: fitting per second instead of over the appearance.
+test('a long held scene stays one continuous finite pass at uniform reduced pace', () => {
+  const plan = compile({ ...tenMinutes, sections: [section(0, 'A'), section(240000, 'B')], requestedMultiplier: 3 });
+  const held = plan.occurrences[0], span = held.endMs - held.startMs;
+  const s = t => state(plan, 0, t);
+  assert.ok(s(0).capped && s(0).coverage01 < 1);
+  close(s(0).progress01, 0);
+  close(s(held.endMs).progress01, 1);
+  const samples = Array.from({ length: 41 }, (_, i) => s(i * span / 40).progress01);
+  for (let i = 1; i < samples.length; i++) assert.ok(samples[i] > samples[i - 1], 'no hold before the end');
+  close(samples[10] / naturalDelta(0, span / 4), s(0).effectiveMultiplier, 1e-3);
+  assert.ok(s(0).effectiveMultiplier < 3);
+});
+
+test('a pace change refits unheard appearances from a restored snapshot without its curves', () => {
+  let available = true;
+  const curves = { globalEnergyNorm: t => { assert.ok(available); return tenMinutes.curves.globalEnergyNorm(t); } };
+  const fresh = longSong({ curves, requestedMultiplier: 2 });
+  const expected = longSong({ curves, requestedMultiplier: 4 });
+  available = false;
+  const restored = sceneRailPlanFromSnapshot(json(fresh.snapshot));
+  assert.deepEqual(withSceneRailPace(restored, 4).snapshot, expected.snapshot);
+  assert.equal(withSceneRailPace(restored, 1).occurrences[0].fit.gain, 1);
+});
+
+// Break caught: a saved highlight or run silently changing its camera.
+test('a saved version 1 journey restores, samples and repaces by its old rule', () => {
+  const saved = versionOne(longSong());
+  const plan = sceneRailPlanFromSnapshot(json(saved));
+  assert.deepEqual(json(plan.snapshot), saved);
+  assert.equal(plan.snapshot.id, saved.id);
+  for (const [i, t] of [[0, 10000], [0, 11000], [2, 200000]]) {
+    const fit = saved.occurrences[i].fit;
+    close(state(plan, i, t).progress01, fit.start + fit.gain * (sceneProgressAt({ timeMs: t, ...tenMinutes }) - fit.baseStart), 1e-6);
+  }
+  const moved = state(plan, 0, 11000).progress01 - state(plan, 0, 10000).progress01;
+  close(moved / (sceneProgressAt({ timeMs: 11000, ...tenMinutes }) - sceneProgressAt({ timeMs: 10000, ...tenMinutes })), 3, 1e-6);
+  const repaced = withSceneRailPace(plan, 2);
+  assert.equal(repaced.snapshot.version, 1);
+  close(repaced.occurrences[0].fit.gain, 2);
+  assert.deepEqual(sceneRailPlanFromSnapshot(json(repaced.snapshot)).snapshot, repaced.snapshot);
+});
+
+test('adopting a version 1 run keeps its heard fits and paces only the fresh tail', () => {
+  const old = sceneRailPlanFromSnapshot(json(versionOne(longSong())));
+  const updated = longSong({ previous: old, committedThroughMs: 5000 });
+  assert.equal(updated.snapshot.version, 2);
+  assert.deepEqual(updated.occurrences[0], old.occurrences[0]);
+  assert.equal(updated.occurrences[0].fit.naturalDelta, undefined);
+  const tail = updated.occurrences[1];
+  close(tail.fit.naturalDelta, naturalDelta(tail.startMs, tail.endMs), 1e-9);
+  const restored = sceneRailPlanFromSnapshot(json(updated.snapshot));
+  assert.deepEqual(restored.snapshot, updated.snapshot);
+  assert.equal(withSceneRailPace(restored, 2, 5000).occurrences[0], restored.occurrences[0]);
+  assert.throws(() => sceneRailPlanFromSnapshot({ ...json(old.snapshot), version: 3 }), /unsupported/);
+  const mixed = json(old.snapshot);
+  mixed.occurrences[0].fit.naturalDelta = .1;
+  assert.throws(() => sceneRailPlanFromSnapshot(mixed), /invalid/);
 });
