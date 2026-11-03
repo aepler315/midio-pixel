@@ -135,21 +135,21 @@
    "lengthKm": 45.15290147636537
   }
  ],
- "manifestSha256": "579bc3bf004d53b1273a13cb6308d9bb83682a9a772d5ee3c8c2c87e058dd1f2",
- "payloadSha256": "fce83322d7ec98be5f507ca822be2248a517ffe5b787aee0905921bd6840e211",
- "payloadBytes": 2373287,
+ "manifestSha256": "6b89a70356c0d64ae2b40dd7323a9925ab2adf95db7583a7854a8807bd2b1586",
+ "payloadSha256": "5c5a4f45e4f18e15c838cfe96a20b1c42656cdcdf70e2845cddc74906cd2d87e",
+ "payloadBytes": 2521330,
  "stats": {
   "tiles": 1100,
   "desktop": {
-   "vertices": 1321091,
-   "triangles": 2537818,
-   "meshBytes": 46306908,
+   "vertices": 1408547,
+   "triangles": 2707642,
+   "meshBytes": 49394268,
    "surfaceTextureBytes": 27579072
   },
   "mobile": {
-   "vertices": 339837,
-   "triangles": 638158,
-   "meshBytes": 11735940,
+   "vertices": 412649,
+   "triangles": 779182,
+   "meshBytes": 14301972,
    "surfaceTextureBytes": 27579072
   }
  },
@@ -189,7 +189,7 @@
  },
  "despikedSamples": 0,
  "tourFootprint": {
-  "shotsManifestSha256": "6eef1dbd48058e382c67a045bbed144a87d4a568f575c7ded9c744f417685149",
+  "shotsManifestSha256": "ced5366309ea6b73dfaf8fd50996eaa7141da865c3ee3113158cff455c696eb7",
   "poses": {
    "poseCount": 91,
    "bakedPoses": 79,

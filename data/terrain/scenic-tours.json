@@ -133,13 +133,13 @@
         "Mount Moran"
       ],
       "library": {
-        "shotsManifestSha256": "d76719374242401335fdc8c8ea788c76a2f0ffe094bfaf55e7f8580ffb13c112",
-        "terrainManifestSha256": "5dfe7d3fdb33a5bb2829e6dfe0796c89d37c200a7fc9ebe9c9fdb1861de04811",
-        "baseViewSha256": "313462cadbde1cff45ff4f30395d6c26df917dde4392073f6c3c1735b602918f"
+        "shotsManifestSha256": "909decbb8a8a946ef21a6a9ea15a5fee2a0a05912804820fbb10507a2d258f24",
+        "terrainManifestSha256": "b2913f4bdf662da9417520b46cfd80d4514e035521094fc684ec5d32a8400957",
+        "baseViewSha256": "22a020ad45bbdbef3e2bf01b78e9ec24693700c10fc7eee03c714e7e69c74f6d"
       }
     },
     "denali-wonder-lake": {
-      "status": "approved",
+      "status": "candidate",
       "landform": "massif",
       "notes": "Denali and Mount Foraker above the McKinley River bar and Wonder Lake; enormous relief at long range.",
       "subjects": [
@@ -158,19 +158,9 @@
         "Denali"
       ],
       "library": {
-        "shotsManifestSha256": "db02a268b013b4cde2dbe76c45547db6d07227e4e321a25ba821133a8f3b9e37",
-        "terrainManifestSha256": "2f1db89690fbd7ad6f134ea7ccc3fe60c99f0fc9059a208debe83970305507d7",
-        "baseViewSha256": "2cb8ee88361419dea1828eb10394181823a55c94e28ef21eb0f38cb1920af3d7"
-      },
-      "approval": {
-        "date": "2026-11-03",
-        "shotsManifestSha256": "db02a268b013b4cde2dbe76c45547db6d07227e4e321a25ba821133a8f3b9e37",
-        "terrainManifestSha256": "2f1db89690fbd7ad6f134ea7ccc3fe60c99f0fc9059a208debe83970305507d7",
-        "baseViewSha256": "2cb8ee88361419dea1828eb10394181823a55c94e28ef21eb0f38cb1920af3d7",
-        "evidence": [
-          "docs/camera-tour-promotion-2026-11-03.md",
-          "docs/scenic-framing-endings-review-2026-10-23.md"
-        ]
+        "shotsManifestSha256": "23f0c57588211e75420689092fe00ee31e46ac987a9d7208eff8c2fc94b6c7a5",
+        "terrainManifestSha256": "48d5b809252162728e388ede919d0aae824f7c8a1d2c2c2a6e567f276ef10632",
+        "baseViewSha256": "963cd0137c438fbaa70e20e59e2accf0310c2578ab05b342da10617de1b646c4"
       }
     },
     "tombstone-north-klondike": {
@@ -190,7 +180,7 @@
       ]
     },
     "muncho-lake-south": {
-      "status": "approved",
+      "status": "candidate",
       "landform": "lake-valley",
       "notes": "Muncho Lake in its valley between the Terminal and Sentinel ranges; the lake is the subject as much as the peaks.",
       "subjects": [
@@ -207,19 +197,9 @@
       ],
       "hero": [],
       "library": {
-        "shotsManifestSha256": "69a2c6aad8a20b5566346cd01676fc45a7f4fea9c46b77f6662e816ab1d4a754",
-        "terrainManifestSha256": "86d76cad77a60e38fb8af6bfeef43cc65baece34f4d9aaf04d3632c22a209581",
-        "baseViewSha256": "13ed5399c79d2abf20ec0cc375e7560c6a3efe975c9ccd9476825a1063d82cb1"
-      },
-      "approval": {
-        "date": "2026-11-03",
-        "shotsManifestSha256": "69a2c6aad8a20b5566346cd01676fc45a7f4fea9c46b77f6662e816ab1d4a754",
-        "terrainManifestSha256": "86d76cad77a60e38fb8af6bfeef43cc65baece34f4d9aaf04d3632c22a209581",
-        "baseViewSha256": "13ed5399c79d2abf20ec0cc375e7560c6a3efe975c9ccd9476825a1063d82cb1",
-        "evidence": [
-          "docs/camera-tour-promotion-2026-11-03.md",
-          "docs/scenic-framing-endings-review-2026-10-23.md"
-        ]
+        "shotsManifestSha256": "c6ac13ef0b62797e4c8bb5a8121e34caa720e290185e27135e66dd1266b4ac8c",
+        "terrainManifestSha256": "f4f0ef2c94ffdcc79fb76b8e8579f99ce0c312386c58b6d6b5b486f57163527a",
+        "baseViewSha256": "43452cd76d3a49cf3a586c7d4cd05b25062945282a98a61d90c0e23665e4503f"
       }
     },
     "izta-popo-west": {
@@ -237,7 +217,7 @@
         }
       },
       "budgetNote": "Wide views: each shot brings hundreds of distant tiles (mostly manifest entries), so the default 800 KB fits only 3-8 shots; raised within the shared Range asset headroom.",
-      "status": "approved",
+      "status": "candidate",
       "landform": "volcano",
       "notes": "Iztaccihuatl and Popocatepetl from the west: two isolated stratovolcanoes over high plateau.",
       "subjects": [
@@ -257,19 +237,9 @@
         "Iztaccíhuatl"
       ],
       "library": {
-        "shotsManifestSha256": "fc33efd6aa8c19776231f7bacd0f8e41876e0566d8208a87a0672abbe316de4c",
-        "terrainManifestSha256": "4517e44172a26853372fd4bd672924e40de73935c625ef351710664fffed507c",
-        "baseViewSha256": "5340516a2d2aeac97a00cc1be279324509188b84017782831f855cde9cbea9ac"
-      },
-      "approval": {
-        "date": "2026-11-03",
-        "shotsManifestSha256": "fc33efd6aa8c19776231f7bacd0f8e41876e0566d8208a87a0672abbe316de4c",
-        "terrainManifestSha256": "4517e44172a26853372fd4bd672924e40de73935c625ef351710664fffed507c",
-        "baseViewSha256": "5340516a2d2aeac97a00cc1be279324509188b84017782831f855cde9cbea9ac",
-        "evidence": [
-          "docs/camera-tour-promotion-2026-11-03.md",
-          "docs/scenic-framing-endings-review-2026-10-23.md"
-        ]
+        "shotsManifestSha256": "b4ce95d76b31b5a5b7b986710f191b9c4c455dbe627a29602f93d7ee13e1f19c",
+        "terrainManifestSha256": "5440e738cfacff6707c5af386da857e08748877e28a5b3c1d9d0547fe800a297",
+        "baseViewSha256": "28879943bd02030df3f67488015b48033af0ea2b910a5b64768292f38e806b0c"
       }
     },
     "black-mountains-catawba": {
@@ -293,13 +263,13 @@
         "Mount Mitchell"
       ],
       "library": {
-        "shotsManifestSha256": "c73de00cce114b47b71f88180a8ebfada5d801bbde659b7e6c0947274cd56d15",
-        "terrainManifestSha256": "02e2cd163a3163d04647912fed06285baac4229b4c117cb727dd006d51a9b502",
-        "baseViewSha256": "68660373caf01882e8c0afd6c22a5ed906e71851a1d8ddd0483d8ab27d98583a"
+        "shotsManifestSha256": "d69fdd031e6bbedeee9d225b7c9cdc36efdf5ff8e7fe761aa702036b3a1c6d0a",
+        "terrainManifestSha256": "1d66f5ad57156fffc034a620930a9f5f4add8b19f891eae20e2d81796edd6a2e",
+        "baseViewSha256": "42a131fe86b87630e9720864432bf07bdbfce734bf77d87375fb41cffadeb95e"
       }
     },
     "san-gabriel-baldy": {
-      "status": "approved",
+      "status": "candidate",
       "landform": "alpine-ridge",
       "notes": "Steep chaparral ridges of the San Gabriels around Mount San Antonio (Baldy) and Baden-Powell.",
       "subjects": [
@@ -318,19 +288,9 @@
         "Mount San Antonio"
       ],
       "library": {
-        "shotsManifestSha256": "a7fe7c98811bf441a4c2d7c47cf1cac599222fefd6eb168c6af77f45f1ab6658",
-        "terrainManifestSha256": "daac1e66caf61d2b3f28765fca3ec2d5c748f52bf7630923e9e01a826d6fd132",
-        "baseViewSha256": "b7c657d9a6297d00fae9e034f803349ae57c12e281307991b14877e0f27eefcd"
-      },
-      "approval": {
-        "date": "2026-11-03",
-        "shotsManifestSha256": "a7fe7c98811bf441a4c2d7c47cf1cac599222fefd6eb168c6af77f45f1ab6658",
-        "terrainManifestSha256": "daac1e66caf61d2b3f28765fca3ec2d5c748f52bf7630923e9e01a826d6fd132",
-        "baseViewSha256": "b7c657d9a6297d00fae9e034f803349ae57c12e281307991b14877e0f27eefcd",
-        "evidence": [
-          "docs/camera-tour-promotion-2026-11-03.md",
-          "docs/scenic-framing-endings-review-2026-10-23.md"
-        ]
+        "shotsManifestSha256": "281b5e64cd8fe318bfe7fc11ebe5ebb1f11f21aefd3da7cd86054e913a6854c7",
+        "terrainManifestSha256": "4cfd4e21153f4537c9b5ed099389827ef86cb6e277c3ff4f9e0e944f00e70056",
+        "baseViewSha256": "ade7b4065a080c516ddbacb8e7d795dac617c4c1544f946afc6c4e7c68759431"
       }
     },
     "white-mountains-owens": {
@@ -354,9 +314,9 @@
         "White Mountain Peak"
       ],
       "library": {
-        "shotsManifestSha256": "c286f796ce7ba0fb386be0a77d72972f35a2dd0dda0e488f3f8872da6a0478c5",
-        "terrainManifestSha256": "65f8da894ecae3f6deee0ec2e58570bb0fc93e450458c67ba0fc62d68db42935",
-        "baseViewSha256": "adec29852f607aa5824a62394f6c915f2adeff9ef76c41e1aa8958f881c39878"
+        "shotsManifestSha256": "7627c7d32597d4c697550c2a1f70da84a459bda98152736d23b0136abe735103",
+        "terrainManifestSha256": "b8b11c3f81b924614d3c89d2ea407e267732067018208fbffa5915bc798eab8f",
+        "baseViewSha256": "9851f7bf4da1ed201480a01c388a2f7a55ed7f88f02eb360d4b4a5e38a28a68b"
       }
     },
     "la-sal-castle-valley": {
@@ -386,13 +346,13 @@
         "Mount Peale"
       ],
       "library": {
-        "shotsManifestSha256": "84da20f13a2ae6ca9e4c3db6e447bc9aed5894ce8975ed3e03fd87d379382fc4",
-        "terrainManifestSha256": "f19ff7eb29d342abbfa2850431d97df0fcb45ef36cc68fa97392d6a3f3fc1f5c",
-        "baseViewSha256": "0f081b3ee4597a9d8a3ccd4e77f098592d72fa529320e726670e19ee3a20ca9d"
+        "shotsManifestSha256": "b72d4482c0c56b3db8418ee911aaf35144be55a626f040f8ceb78ca10ef95a0a",
+        "terrainManifestSha256": "928d028854bc2389b174f0970768f464c81e176c65432c6c2a06674275b8455c",
+        "baseViewSha256": "97505e599740a0702cdc4da25db4b621e17906da013d4e8d290733b466c2a20e"
       }
     },
     "panamint-dantes-view": {
-      "status": "approved",
+      "status": "candidate",
       "landform": "escarpment-basin",
       "notes": "Death Valley's salt basin under the Panamint escarpment, Telescope Peak opposite Dantes View.",
       "subjects": [
@@ -411,19 +371,9 @@
         "Telescope Peak"
       ],
       "library": {
-        "shotsManifestSha256": "6eef1dbd48058e382c67a045bbed144a87d4a568f575c7ded9c744f417685149",
-        "terrainManifestSha256": "579bc3bf004d53b1273a13cb6308d9bb83682a9a772d5ee3c8c2c87e058dd1f2",
-        "baseViewSha256": "993a16b0416a8125fd39ff73e28ac08d9d3ef08a8709fed1df7f0f54953dd142"
-      },
-      "approval": {
-        "date": "2026-11-03",
-        "shotsManifestSha256": "6eef1dbd48058e382c67a045bbed144a87d4a568f575c7ded9c744f417685149",
-        "terrainManifestSha256": "579bc3bf004d53b1273a13cb6308d9bb83682a9a772d5ee3c8c2c87e058dd1f2",
-        "baseViewSha256": "993a16b0416a8125fd39ff73e28ac08d9d3ef08a8709fed1df7f0f54953dd142",
-        "evidence": [
-          "docs/camera-tour-promotion-2026-11-03.md",
-          "docs/scenic-framing-endings-review-2026-10-23.md"
-        ]
+        "shotsManifestSha256": "ced5366309ea6b73dfaf8fd50996eaa7141da865c3ee3113158cff455c696eb7",
+        "terrainManifestSha256": "6b89a70356c0d64ae2b40dd7323a9925ab2adf95db7583a7854a8807bd2b1586",
+        "baseViewSha256": "26e29345912f4fa3884aca9d31bc72fad7a14087413f6b40500294e891c4a6c0"
       }
     },
     "chugach-matanuska": {
@@ -450,9 +400,9 @@
       ],
       "hero": [],
       "library": {
-        "shotsManifestSha256": "72e9836af77a1c527078df727ca565578121e0445fa9342d64bcc74745869654",
-        "terrainManifestSha256": "f90832356d40d25363500670fac82e03eed7984e97151f00b0566784afbbc07f",
-        "baseViewSha256": "a08c15384125dbaffa40cf1f9d2712ab91694b3dc049c583d155a6d9c2a67256"
+        "shotsManifestSha256": "6687cb2bc542f0787e207c81f8461fc4dd5f2bd20bc29ffbafb070c2a2148a32",
+        "terrainManifestSha256": "82403cc87022fe0aacc451b155f0fd62cdafe0d522ed8a1546944fee5e3b1f1d",
+        "baseViewSha256": "687350116d5c39aa4f2d8820f2f1b64e62685c2f19ce380fd83a3247f9ec3ef9"
       }
     },
     "monument-valley-163": {
@@ -482,9 +432,9 @@
         "The Mittens and Merrick Butte"
       ],
       "library": {
-        "shotsManifestSha256": "c3a71c93d4d53da4c42f16cfbd66e5c71c7b50baf6a2e82a2c6c26ad94440073",
-        "terrainManifestSha256": "d69ae461ea46a508ab163c72af8d3c7b6f60d26daf530ca891395bd8670df419",
-        "baseViewSha256": "7ea478b8c20e30f8f1020fef3cba52934e3734d348cfc9347e74ad40cdd5da0a"
+        "shotsManifestSha256": "abc4c8c2265678e6a63e0cb78e3c62b41b7509716661b5e25ca48cce02bed4bd",
+        "terrainManifestSha256": "447806e9d070af24819d27c9661f939981926d6e10246e59e076ec96700bc0ec",
+        "baseViewSha256": "9ee346350341ef607bd5823393db71890867f834d7111491a0c4aa2abb0b5697"
       }
     },
     "sawtooth-redfish-north": {
@@ -518,9 +468,9 @@
         "Grand Mogul"
       ],
       "library": {
-        "shotsManifestSha256": "d16fdca6dac93766da2228e46887c6e2da3f7329b31e2672fd38aeff609ee956",
-        "terrainManifestSha256": "df578cd81fba4827f88e491af03b513a44029adafe32fcdcf3e0c30c510e527d",
-        "baseViewSha256": "057d0b03ba371b6a48bb36d173d7b4524c095d89f61c066f2ed0e9a9f5f24b26"
+        "shotsManifestSha256": "70534b174bef6f73f63ad02c74ab939bf06a2edf547200269a400c0dd6c9da3b",
+        "terrainManifestSha256": "82eb645e4bff0704456f8feb45a02b54d74fb1a8e978a2bb1d117b40502bca7e",
+        "baseViewSha256": "c07573e865724aa5ca7cd6eb07e89c22b728d9998b4b3e5a00b1f52bc4fe67cb"
       }
     },
     "shenandoah-stony-man-west": {
@@ -548,9 +498,9 @@
         "Stony Man"
       ],
       "library": {
-        "shotsManifestSha256": "fe2a601e78424e15a56197c9c7d2b3ca63aea631deac27feea2e79c29bc20cfc",
-        "terrainManifestSha256": "2a3d064c03dc548a33353953e562acd1acee06020a7cce16f49ebe02e1a4ca0a",
-        "baseViewSha256": "05afd73f7274570ccbd0f22087b8012249242d779bb2b4fcb97bb3a55f31ddde"
+        "shotsManifestSha256": "58bdf03b84e758d0b9ef1399e9dd41a83ef25f7f8d47dd1c7235ca9cbd2e4f3d",
+        "terrainManifestSha256": "d76b14445aaaf5467340c2e5fa4f8f0f341c31ba27b4c2b0a9304e365efb9eb1",
+        "baseViewSha256": "3bed2f9cc0732563e19cad423871c30ebe6084d21359716b775e5ca17fd78557"
       }
     },
     "superstition-west-front": {
@@ -574,9 +524,9 @@
         "Weavers Needle"
       ],
       "library": {
-        "shotsManifestSha256": "abfd321eefc588e87c30d00635c6f86dcedfcdc49a0c428e8970e7cdaa1bad82",
-        "terrainManifestSha256": "accf401119907073d494a85c988d164fef9976ae94b32b24a332d1e7f7797fe4",
-        "baseViewSha256": "901ce53e153bd4d82560ed62152a26082d34f40d2a449ef7273541d9d245a05b"
+        "shotsManifestSha256": "b3fe35c76889a205129ce671db3408a8a05e20c6b835c90376ad3ab9e14f4b39",
+        "terrainManifestSha256": "26fa8deb8b7e8122850974ebcf901f3005582e08273e1629b42300559b488116",
+        "baseViewSha256": "ed4cf918f90881a9aa46b7112caf55dfeca6f419f1ac7372324deb2c24e801c3"
       }
     }
   }

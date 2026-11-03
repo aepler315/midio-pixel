@@ -154,16 +154,16 @@ export default {
    "place": "Jackson Lake, Wyoming",
    "credit": "Elevation: USGS 3DEP 1/3 arc-second DEM",
    "terrainManifestUrl": "terrain/teton-jackson-lake.terrain.json",
-   "terrainManifestSha256": "5dfe7d3fdb33a5bb2829e6dfe0796c89d37c200a7fc9ebe9c9fdb1861de04811",
+   "terrainManifestSha256": "b2913f4bdf662da9417520b46cfd80d4514e035521094fc684ec5d32a8400957",
    "shotsManifestUrl": "tour/teton-jackson-lake.shots.json",
-   "shotsManifestSha256": "d76719374242401335fdc8c8ea788c76a2f0ffe094bfaf55e7f8580ffb13c112",
-   "baseViewSha256": "313462cadbde1cff45ff4f30395d6c26df917dde4392073f6c3c1735b602918f",
+   "shotsManifestSha256": "909decbb8a8a946ef21a6a9ea15a5fee2a0a05912804820fbb10507a2d258f24",
+   "baseViewSha256": "22a020ad45bbdbef3e2bf01b78e9ec24693700c10fc7eee03c714e7e69c74f6d",
    "shotTour": {
     "status": "candidate",
     "identity": {
-     "shotsManifestSha256": "d76719374242401335fdc8c8ea788c76a2f0ffe094bfaf55e7f8580ffb13c112",
-     "terrainManifestSha256": "5dfe7d3fdb33a5bb2829e6dfe0796c89d37c200a7fc9ebe9c9fdb1861de04811",
-     "baseViewSha256": "313462cadbde1cff45ff4f30395d6c26df917dde4392073f6c3c1735b602918f"
+     "shotsManifestSha256": "909decbb8a8a946ef21a6a9ea15a5fee2a0a05912804820fbb10507a2d258f24",
+     "terrainManifestSha256": "b2913f4bdf662da9417520b46cfd80d4514e035521094fc684ec5d32a8400957",
+     "baseViewSha256": "22a020ad45bbdbef3e2bf01b78e9ec24693700c10fc7eee03c714e7e69c74f6d"
     },
     "approval": null
    },
@@ -211,7 +211,7 @@ export default {
     "sourceHashes": [
      "09930a44096be83c6023c6d853c12d1571f428878691e4bfba81cdd17d9077b9",
      "a19a985ea1d6370572bfaac2b7850bd90b49f28e9d10e3ad37c5ac17d4880e8f",
-     "e4e26d0415499501f95b4691492d4a91ef930e57f2005213b45d54e5038a18be"
+     "7cf1e311606e69748c3b75b283b6ea41da13d1150d474199d0799b72d473485c"
     ]
    }
   },
@@ -219,33 +219,24 @@ export default {
    "id": "denali-wonder-lake",
    "regionId": "alaska-range",
    "biome": "ICEFIELD",
-   "status": "approved",
+   "status": "candidate",
    "catalogVersion": 30,
    "title": "Denali",
    "place": "Denali National Park, Alaska",
    "credit": "Elevation: AWS Terrain Tiles",
    "terrainManifestUrl": "terrain/denali-wonder-lake.terrain.json",
-   "terrainManifestSha256": "2f1db89690fbd7ad6f134ea7ccc3fe60c99f0fc9059a208debe83970305507d7",
+   "terrainManifestSha256": "48d5b809252162728e388ede919d0aae824f7c8a1d2c2c2a6e567f276ef10632",
    "shotsManifestUrl": "tour/denali-wonder-lake.shots.json",
-   "shotsManifestSha256": "db02a268b013b4cde2dbe76c45547db6d07227e4e321a25ba821133a8f3b9e37",
-   "baseViewSha256": "2cb8ee88361419dea1828eb10394181823a55c94e28ef21eb0f38cb1920af3d7",
+   "shotsManifestSha256": "23f0c57588211e75420689092fe00ee31e46ac987a9d7208eff8c2fc94b6c7a5",
+   "baseViewSha256": "963cd0137c438fbaa70e20e59e2accf0310c2578ab05b342da10617de1b646c4",
    "shotTour": {
-    "status": "approved",
+    "status": "candidate",
     "identity": {
-     "shotsManifestSha256": "db02a268b013b4cde2dbe76c45547db6d07227e4e321a25ba821133a8f3b9e37",
-     "terrainManifestSha256": "2f1db89690fbd7ad6f134ea7ccc3fe60c99f0fc9059a208debe83970305507d7",
-     "baseViewSha256": "2cb8ee88361419dea1828eb10394181823a55c94e28ef21eb0f38cb1920af3d7"
+     "shotsManifestSha256": "23f0c57588211e75420689092fe00ee31e46ac987a9d7208eff8c2fc94b6c7a5",
+     "terrainManifestSha256": "48d5b809252162728e388ede919d0aae824f7c8a1d2c2c2a6e567f276ef10632",
+     "baseViewSha256": "963cd0137c438fbaa70e20e59e2accf0310c2578ab05b342da10617de1b646c4"
     },
-    "approval": {
-     "date": "2026-11-03",
-     "shotsManifestSha256": "db02a268b013b4cde2dbe76c45547db6d07227e4e321a25ba821133a8f3b9e37",
-     "terrainManifestSha256": "2f1db89690fbd7ad6f134ea7ccc3fe60c99f0fc9059a208debe83970305507d7",
-     "baseViewSha256": "2cb8ee88361419dea1828eb10394181823a55c94e28ef21eb0f38cb1920af3d7",
-     "evidence": [
-      "docs/camera-tour-promotion-2026-11-03.md",
-      "docs/scenic-framing-endings-review-2026-10-23.md"
-     ]
-    }
+    "approval": null
    },
    "materialManifestUrl": "materials/icefield.json",
    "materialManifestSha256": "ac0da317cbbc611f7b9a47755b4d66705d11b37b4fbceab783d918a79d6d49ae",
@@ -287,18 +278,7 @@ export default {
    "evidence": {
     "reviewPath": "docs/range-v2-progress.md",
     "review": null,
-    "approval": {
-     "date": "2026-11-03",
-     "terrainManifestSha256": "2f1db89690fbd7ad6f134ea7ccc3fe60c99f0fc9059a208debe83970305507d7",
-     "materialManifestSha256": "ac0da317cbbc611f7b9a47755b4d66705d11b37b4fbceab783d918a79d6d49ae",
-     "materialRulesSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
-     "cameraSha256": "538b92f2099b226251f8298e1473bd80ef2717336b70279c9154bb63b4b52731",
-     "compositionSha256": "42aabcc21fc899222ba1c8263d48fd22f58d0b94716e47f9a127c1e84b12a1f1",
-     "evidence": [
-      "docs/camera-tour-promotion-2026-11-03.md",
-      "docs/scenic-framing-endings-review-2026-10-23.md"
-     ]
-    },
+    "approval": null,
     "sourceHashes": [
      "5d1d94b570d9c971ed5567c7949f2e5249df45488087bc47d00ebe059bac10c5",
      "5131452ca5fa42058aa7527a74b75ec3b13a03c1ebd00a1e6489b238317f9d75",
@@ -848,33 +828,24 @@ export default {
    "id": "muncho-lake-south",
    "regionId": "tower-of-london-range",
    "biome": "TAIGA",
-   "status": "approved",
+   "status": "candidate",
    "catalogVersion": 30,
    "title": "Muncho Lake",
    "place": "Northern Rockies, British Columbia",
    "credit": "Elevation: AWS Terrain Tiles",
    "terrainManifestUrl": "terrain/muncho-lake-south.terrain.json",
-   "terrainManifestSha256": "86d76cad77a60e38fb8af6bfeef43cc65baece34f4d9aaf04d3632c22a209581",
+   "terrainManifestSha256": "f4f0ef2c94ffdcc79fb76b8e8579f99ce0c312386c58b6d6b5b486f57163527a",
    "shotsManifestUrl": "tour/muncho-lake-south.shots.json",
-   "shotsManifestSha256": "69a2c6aad8a20b5566346cd01676fc45a7f4fea9c46b77f6662e816ab1d4a754",
-   "baseViewSha256": "13ed5399c79d2abf20ec0cc375e7560c6a3efe975c9ccd9476825a1063d82cb1",
+   "shotsManifestSha256": "c6ac13ef0b62797e4c8bb5a8121e34caa720e290185e27135e66dd1266b4ac8c",
+   "baseViewSha256": "43452cd76d3a49cf3a586c7d4cd05b25062945282a98a61d90c0e23665e4503f",
    "shotTour": {
-    "status": "approved",
+    "status": "candidate",
     "identity": {
-     "shotsManifestSha256": "69a2c6aad8a20b5566346cd01676fc45a7f4fea9c46b77f6662e816ab1d4a754",
-     "terrainManifestSha256": "86d76cad77a60e38fb8af6bfeef43cc65baece34f4d9aaf04d3632c22a209581",
-     "baseViewSha256": "13ed5399c79d2abf20ec0cc375e7560c6a3efe975c9ccd9476825a1063d82cb1"
+     "shotsManifestSha256": "c6ac13ef0b62797e4c8bb5a8121e34caa720e290185e27135e66dd1266b4ac8c",
+     "terrainManifestSha256": "f4f0ef2c94ffdcc79fb76b8e8579f99ce0c312386c58b6d6b5b486f57163527a",
+     "baseViewSha256": "43452cd76d3a49cf3a586c7d4cd05b25062945282a98a61d90c0e23665e4503f"
     },
-    "approval": {
-     "date": "2026-11-03",
-     "shotsManifestSha256": "69a2c6aad8a20b5566346cd01676fc45a7f4fea9c46b77f6662e816ab1d4a754",
-     "terrainManifestSha256": "86d76cad77a60e38fb8af6bfeef43cc65baece34f4d9aaf04d3632c22a209581",
-     "baseViewSha256": "13ed5399c79d2abf20ec0cc375e7560c6a3efe975c9ccd9476825a1063d82cb1",
-     "evidence": [
-      "docs/camera-tour-promotion-2026-11-03.md",
-      "docs/scenic-framing-endings-review-2026-10-23.md"
-     ]
-    }
+    "approval": null
    },
    "materialManifestUrl": "materials/taiga.json",
    "materialManifestSha256": "c44b2272c56122a84854f3f8bb2376fad740401588242ed4e0fecb8ed15f564c",
@@ -916,18 +887,7 @@ export default {
    "evidence": {
     "reviewPath": "docs/range-v2-progress.md",
     "review": null,
-    "approval": {
-     "date": "2026-11-03",
-     "terrainManifestSha256": "86d76cad77a60e38fb8af6bfeef43cc65baece34f4d9aaf04d3632c22a209581",
-     "materialManifestSha256": "c44b2272c56122a84854f3f8bb2376fad740401588242ed4e0fecb8ed15f564c",
-     "materialRulesSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
-     "cameraSha256": "3176be5cc31e5e46d4e85ad26d0869e90b41bc1f274f1b22586d51a968f1398f",
-     "compositionSha256": "42aabcc21fc899222ba1c8263d48fd22f58d0b94716e47f9a127c1e84b12a1f1",
-     "evidence": [
-      "docs/camera-tour-promotion-2026-11-03.md",
-      "docs/scenic-framing-endings-review-2026-10-23.md"
-     ]
-    },
+    "approval": null,
     "sourceHashes": [
      "dab05fbf9d8f924ebc399dcbd082a0b4f7c44ae2de49706f6a57c5cc85df01df",
      "ad688fb5c989b5ccc448565eb92f1e0f873b8e3b0ae2e321acd0fa6e19f1c4b7",
@@ -1037,33 +997,24 @@ export default {
    "id": "izta-popo-west",
    "regionId": "trans-mexican-volcanic-belt",
    "biome": "PINE_OAK",
-   "status": "approved",
+   "status": "candidate",
    "catalogVersion": 30,
    "title": "Iztaccíhuatl and Popocatépetl",
    "place": "Trans-Mexican Volcanic Belt, México",
    "credit": "Elevation: AWS Terrain Tiles",
    "terrainManifestUrl": "terrain/izta-popo-west.terrain.json",
-   "terrainManifestSha256": "4517e44172a26853372fd4bd672924e40de73935c625ef351710664fffed507c",
+   "terrainManifestSha256": "5440e738cfacff6707c5af386da857e08748877e28a5b3c1d9d0547fe800a297",
    "shotsManifestUrl": "tour/izta-popo-west.shots.json",
-   "shotsManifestSha256": "fc33efd6aa8c19776231f7bacd0f8e41876e0566d8208a87a0672abbe316de4c",
-   "baseViewSha256": "5340516a2d2aeac97a00cc1be279324509188b84017782831f855cde9cbea9ac",
+   "shotsManifestSha256": "b4ce95d76b31b5a5b7b986710f191b9c4c455dbe627a29602f93d7ee13e1f19c",
+   "baseViewSha256": "28879943bd02030df3f67488015b48033af0ea2b910a5b64768292f38e806b0c",
    "shotTour": {
-    "status": "approved",
+    "status": "candidate",
     "identity": {
-     "shotsManifestSha256": "fc33efd6aa8c19776231f7bacd0f8e41876e0566d8208a87a0672abbe316de4c",
-     "terrainManifestSha256": "4517e44172a26853372fd4bd672924e40de73935c625ef351710664fffed507c",
-     "baseViewSha256": "5340516a2d2aeac97a00cc1be279324509188b84017782831f855cde9cbea9ac"
+     "shotsManifestSha256": "b4ce95d76b31b5a5b7b986710f191b9c4c455dbe627a29602f93d7ee13e1f19c",
+     "terrainManifestSha256": "5440e738cfacff6707c5af386da857e08748877e28a5b3c1d9d0547fe800a297",
+     "baseViewSha256": "28879943bd02030df3f67488015b48033af0ea2b910a5b64768292f38e806b0c"
     },
-    "approval": {
-     "date": "2026-11-03",
-     "shotsManifestSha256": "fc33efd6aa8c19776231f7bacd0f8e41876e0566d8208a87a0672abbe316de4c",
-     "terrainManifestSha256": "4517e44172a26853372fd4bd672924e40de73935c625ef351710664fffed507c",
-     "baseViewSha256": "5340516a2d2aeac97a00cc1be279324509188b84017782831f855cde9cbea9ac",
-     "evidence": [
-      "docs/camera-tour-promotion-2026-11-03.md",
-      "docs/scenic-framing-endings-review-2026-10-23.md"
-     ]
-    }
+    "approval": null
    },
    "materialManifestUrl": "materials/pine-oak.json",
    "materialManifestSha256": "8959b57b89150274c889b241bd4656a0cdfafd28d31f675f4fd4011abaa7a38f",
@@ -1105,18 +1056,7 @@ export default {
    "evidence": {
     "reviewPath": "docs/range-v2-progress.md",
     "review": null,
-    "approval": {
-     "date": "2026-11-03",
-     "terrainManifestSha256": "4517e44172a26853372fd4bd672924e40de73935c625ef351710664fffed507c",
-     "materialManifestSha256": "8959b57b89150274c889b241bd4656a0cdfafd28d31f675f4fd4011abaa7a38f",
-     "materialRulesSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
-     "cameraSha256": "2cd58f7fbb35e1bff5a99481f350fa40401a561156c55257a618e9f47502bf4d",
-     "compositionSha256": "42aabcc21fc899222ba1c8263d48fd22f58d0b94716e47f9a127c1e84b12a1f1",
-     "evidence": [
-      "docs/camera-tour-promotion-2026-11-03.md",
-      "docs/scenic-framing-endings-review-2026-10-23.md"
-     ]
-    },
+    "approval": null,
     "sourceHashes": [
      "f225b989957eebdf5f62a32985e6aad172500604898497723a671ba460e177dc",
      "05f934da3e3cc38c2a6d0197188bd355298cf229a6a424a4df3fa1d4a6b95d25",
@@ -1167,7 +1107,7 @@ export default {
      "4dda0a11f80862e3b765901f3cc88eff55218891d874f01edcafc6732ca48ad5",
      "42bdc77b7846b8cefd54858ab6d6de55f961f9c1bd755d8717b5c125bc028206",
      "05ea6952b8c8b6e91306e1719a9a67e0fc0469bffa7a489b3fa9e5d61f11bfa6",
-     "8a4a2ca6f0220825946bde37f323586a26936df98a209f803fc6603629e5b9ca"
+     "37a8e56e10f1204f08a2f9988a14d86d81ba5ce06f4945374227c93724f249a8"
     ]
    }
   },
@@ -1181,16 +1121,16 @@ export default {
    "place": "Blue Ridge, North Carolina",
    "credit": "Elevation: USGS 3DEP 1/3 arc-second DEM",
    "terrainManifestUrl": "terrain/black-mountains-catawba.terrain.json",
-   "terrainManifestSha256": "02e2cd163a3163d04647912fed06285baac4229b4c117cb727dd006d51a9b502",
+   "terrainManifestSha256": "1d66f5ad57156fffc034a620930a9f5f4add8b19f891eae20e2d81796edd6a2e",
    "shotsManifestUrl": "tour/black-mountains-catawba.shots.json",
-   "shotsManifestSha256": "c73de00cce114b47b71f88180a8ebfada5d801bbde659b7e6c0947274cd56d15",
-   "baseViewSha256": "68660373caf01882e8c0afd6c22a5ed906e71851a1d8ddd0483d8ab27d98583a",
+   "shotsManifestSha256": "d69fdd031e6bbedeee9d225b7c9cdc36efdf5ff8e7fe761aa702036b3a1c6d0a",
+   "baseViewSha256": "42a131fe86b87630e9720864432bf07bdbfce734bf77d87375fb41cffadeb95e",
    "shotTour": {
     "status": "candidate",
     "identity": {
-     "shotsManifestSha256": "c73de00cce114b47b71f88180a8ebfada5d801bbde659b7e6c0947274cd56d15",
-     "terrainManifestSha256": "02e2cd163a3163d04647912fed06285baac4229b4c117cb727dd006d51a9b502",
-     "baseViewSha256": "68660373caf01882e8c0afd6c22a5ed906e71851a1d8ddd0483d8ab27d98583a"
+     "shotsManifestSha256": "d69fdd031e6bbedeee9d225b7c9cdc36efdf5ff8e7fe761aa702036b3a1c6d0a",
+     "terrainManifestSha256": "1d66f5ad57156fffc034a620930a9f5f4add8b19f891eae20e2d81796edd6a2e",
+     "baseViewSha256": "42a131fe86b87630e9720864432bf07bdbfce734bf77d87375fb41cffadeb95e"
     },
     "approval": null
    },
@@ -1237,7 +1177,7 @@ export default {
     "approval": null,
     "sourceHashes": [
      "15e50505492c81247f71df96083d67bbd9fed46d7d8580e613d8db4fa620ffd7",
-     "3465b1fa6433ec27a7049d9f3b2b131751d0a3161f112a32682757bb2946aeb9"
+     "d6f429cbe95e21eccdcbba41e04dc2af124742769201e2478da9c3e6753ae9da"
     ]
    }
   },
@@ -1245,33 +1185,24 @@ export default {
    "id": "san-gabriel-baldy",
    "regionId": "san-gabriel-mountains",
    "biome": "CHAPARRAL",
-   "status": "approved",
+   "status": "candidate",
    "catalogVersion": 30,
    "title": "San Gabriel Mountains",
    "place": "Angeles National Forest, California",
    "credit": "Elevation: USGS 3DEP 1/3 arc-second DEM",
    "terrainManifestUrl": "terrain/san-gabriel-baldy.terrain.json",
-   "terrainManifestSha256": "daac1e66caf61d2b3f28765fca3ec2d5c748f52bf7630923e9e01a826d6fd132",
+   "terrainManifestSha256": "4cfd4e21153f4537c9b5ed099389827ef86cb6e277c3ff4f9e0e944f00e70056",
    "shotsManifestUrl": "tour/san-gabriel-baldy.shots.json",
-   "shotsManifestSha256": "a7fe7c98811bf441a4c2d7c47cf1cac599222fefd6eb168c6af77f45f1ab6658",
-   "baseViewSha256": "b7c657d9a6297d00fae9e034f803349ae57c12e281307991b14877e0f27eefcd",
+   "shotsManifestSha256": "281b5e64cd8fe318bfe7fc11ebe5ebb1f11f21aefd3da7cd86054e913a6854c7",
+   "baseViewSha256": "ade7b4065a080c516ddbacb8e7d795dac617c4c1544f946afc6c4e7c68759431",
    "shotTour": {
-    "status": "approved",
+    "status": "candidate",
     "identity": {
-     "shotsManifestSha256": "a7fe7c98811bf441a4c2d7c47cf1cac599222fefd6eb168c6af77f45f1ab6658",
-     "terrainManifestSha256": "daac1e66caf61d2b3f28765fca3ec2d5c748f52bf7630923e9e01a826d6fd132",
-     "baseViewSha256": "b7c657d9a6297d00fae9e034f803349ae57c12e281307991b14877e0f27eefcd"
+     "shotsManifestSha256": "281b5e64cd8fe318bfe7fc11ebe5ebb1f11f21aefd3da7cd86054e913a6854c7",
+     "terrainManifestSha256": "4cfd4e21153f4537c9b5ed099389827ef86cb6e277c3ff4f9e0e944f00e70056",
+     "baseViewSha256": "ade7b4065a080c516ddbacb8e7d795dac617c4c1544f946afc6c4e7c68759431"
     },
-    "approval": {
-     "date": "2026-11-03",
-     "shotsManifestSha256": "a7fe7c98811bf441a4c2d7c47cf1cac599222fefd6eb168c6af77f45f1ab6658",
-     "terrainManifestSha256": "daac1e66caf61d2b3f28765fca3ec2d5c748f52bf7630923e9e01a826d6fd132",
-     "baseViewSha256": "b7c657d9a6297d00fae9e034f803349ae57c12e281307991b14877e0f27eefcd",
-     "evidence": [
-      "docs/camera-tour-promotion-2026-11-03.md",
-      "docs/scenic-framing-endings-review-2026-10-23.md"
-     ]
-    }
+    "approval": null
    },
    "materialManifestUrl": "materials/chaparral.json",
    "materialManifestSha256": "f3357cb770f82d0525600484c2e29132ac827dc07e799cec03e54a13a6004168",
@@ -1313,18 +1244,7 @@ export default {
    "evidence": {
     "reviewPath": "docs/range-v2-progress.md",
     "review": null,
-    "approval": {
-     "date": "2026-11-03",
-     "terrainManifestSha256": "daac1e66caf61d2b3f28765fca3ec2d5c748f52bf7630923e9e01a826d6fd132",
-     "materialManifestSha256": "f3357cb770f82d0525600484c2e29132ac827dc07e799cec03e54a13a6004168",
-     "materialRulesSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
-     "cameraSha256": "cb64a315752973c009513304687399ce1173b9c516e4462a35668c68392ae9bf",
-     "compositionSha256": "42aabcc21fc899222ba1c8263d48fd22f58d0b94716e47f9a127c1e84b12a1f1",
-     "evidence": [
-      "docs/camera-tour-promotion-2026-11-03.md",
-      "docs/scenic-framing-endings-review-2026-10-23.md"
-     ]
-    },
+    "approval": null,
     "sourceHashes": [
      "b8b1f0f8e90ec3c80ceef5f15531751545db1bcc80795679804a70b939700e07",
      "b2ca72fcd5974c1af16d172f9045aaddede54303b24772172e52db9eaed9c7cc"
@@ -1341,16 +1261,16 @@ export default {
    "place": "Owens Valley, California",
    "credit": "Elevation: USGS 3DEP 1/3 arc-second DEM",
    "terrainManifestUrl": "terrain/white-mountains-owens.terrain.json",
-   "terrainManifestSha256": "65f8da894ecae3f6deee0ec2e58570bb0fc93e450458c67ba0fc62d68db42935",
+   "terrainManifestSha256": "b8b11c3f81b924614d3c89d2ea407e267732067018208fbffa5915bc798eab8f",
    "shotsManifestUrl": "tour/white-mountains-owens.shots.json",
-   "shotsManifestSha256": "c286f796ce7ba0fb386be0a77d72972f35a2dd0dda0e488f3f8872da6a0478c5",
-   "baseViewSha256": "adec29852f607aa5824a62394f6c915f2adeff9ef76c41e1aa8958f881c39878",
+   "shotsManifestSha256": "7627c7d32597d4c697550c2a1f70da84a459bda98152736d23b0136abe735103",
+   "baseViewSha256": "9851f7bf4da1ed201480a01c388a2f7a55ed7f88f02eb360d4b4a5e38a28a68b",
    "shotTour": {
     "status": "candidate",
     "identity": {
-     "shotsManifestSha256": "c286f796ce7ba0fb386be0a77d72972f35a2dd0dda0e488f3f8872da6a0478c5",
-     "terrainManifestSha256": "65f8da894ecae3f6deee0ec2e58570bb0fc93e450458c67ba0fc62d68db42935",
-     "baseViewSha256": "adec29852f607aa5824a62394f6c915f2adeff9ef76c41e1aa8958f881c39878"
+     "shotsManifestSha256": "7627c7d32597d4c697550c2a1f70da84a459bda98152736d23b0136abe735103",
+     "terrainManifestSha256": "b8b11c3f81b924614d3c89d2ea407e267732067018208fbffa5915bc798eab8f",
+     "baseViewSha256": "9851f7bf4da1ed201480a01c388a2f7a55ed7f88f02eb360d4b4a5e38a28a68b"
     },
     "approval": null
    },
@@ -1397,7 +1317,7 @@ export default {
     "approval": null,
     "sourceHashes": [
      "c888770207f27ef836b91b02f2848650c49d9f156e82d494f736f97b3de384ee",
-     "bfa47b182a6cd3a5d5f67256bc76e42801988a9994f77a04570d44dc441a069f"
+     "d3ae9026563b20501c1a3c00657be57e83a20d5ac2c05d702d46a4547d014864"
     ]
    }
   },
@@ -1411,16 +1331,16 @@ export default {
    "place": "Castle Valley, Utah",
    "credit": "Elevation: USGS 3DEP 1/3 arc-second DEM",
    "terrainManifestUrl": "terrain/la-sal-castle-valley.terrain.json",
-   "terrainManifestSha256": "f19ff7eb29d342abbfa2850431d97df0fcb45ef36cc68fa97392d6a3f3fc1f5c",
+   "terrainManifestSha256": "928d028854bc2389b174f0970768f464c81e176c65432c6c2a06674275b8455c",
    "shotsManifestUrl": "tour/la-sal-castle-valley.shots.json",
-   "shotsManifestSha256": "84da20f13a2ae6ca9e4c3db6e447bc9aed5894ce8975ed3e03fd87d379382fc4",
-   "baseViewSha256": "0f081b3ee4597a9d8a3ccd4e77f098592d72fa529320e726670e19ee3a20ca9d",
+   "shotsManifestSha256": "b72d4482c0c56b3db8418ee911aaf35144be55a626f040f8ceb78ca10ef95a0a",
+   "baseViewSha256": "97505e599740a0702cdc4da25db4b621e17906da013d4e8d290733b466c2a20e",
    "shotTour": {
     "status": "candidate",
     "identity": {
-     "shotsManifestSha256": "84da20f13a2ae6ca9e4c3db6e447bc9aed5894ce8975ed3e03fd87d379382fc4",
-     "terrainManifestSha256": "f19ff7eb29d342abbfa2850431d97df0fcb45ef36cc68fa97392d6a3f3fc1f5c",
-     "baseViewSha256": "0f081b3ee4597a9d8a3ccd4e77f098592d72fa529320e726670e19ee3a20ca9d"
+     "shotsManifestSha256": "b72d4482c0c56b3db8418ee911aaf35144be55a626f040f8ceb78ca10ef95a0a",
+     "terrainManifestSha256": "928d028854bc2389b174f0970768f464c81e176c65432c6c2a06674275b8455c",
+     "baseViewSha256": "97505e599740a0702cdc4da25db4b621e17906da013d4e8d290733b466c2a20e"
     },
     "approval": null
    },
@@ -5012,7 +4932,7 @@ export default {
     "approval": null,
     "sourceHashes": [
      "4fcbc4955bef84eb70c1c7d402268c131533e9e830fe2be5c40db13b2c78a955",
-     "dcb5b94579cce65afbf98e6a5b8621a25e6101eba63cb7141dfff8e06fbd3d8b"
+     "4747fc4ed51c59edfe8bbcd9d61f8736869c66b6e34127d4ba55b6952315f6f6"
     ]
    }
   },
@@ -5020,33 +4940,24 @@ export default {
    "id": "panamint-dantes-view",
    "regionId": "panamint-range",
    "biome": "DESERT",
-   "status": "approved",
+   "status": "candidate",
    "catalogVersion": 30,
    "title": "Panamint Range",
    "place": "Death Valley, California",
    "credit": "Elevation: USGS 3DEP 1/3 arc-second DEM",
    "terrainManifestUrl": "terrain/panamint-dantes-view.terrain.json",
-   "terrainManifestSha256": "579bc3bf004d53b1273a13cb6308d9bb83682a9a772d5ee3c8c2c87e058dd1f2",
+   "terrainManifestSha256": "6b89a70356c0d64ae2b40dd7323a9925ab2adf95db7583a7854a8807bd2b1586",
    "shotsManifestUrl": "tour/panamint-dantes-view.shots.json",
-   "shotsManifestSha256": "6eef1dbd48058e382c67a045bbed144a87d4a568f575c7ded9c744f417685149",
-   "baseViewSha256": "993a16b0416a8125fd39ff73e28ac08d9d3ef08a8709fed1df7f0f54953dd142",
+   "shotsManifestSha256": "ced5366309ea6b73dfaf8fd50996eaa7141da865c3ee3113158cff455c696eb7",
+   "baseViewSha256": "26e29345912f4fa3884aca9d31bc72fad7a14087413f6b40500294e891c4a6c0",
    "shotTour": {
-    "status": "approved",
+    "status": "candidate",
     "identity": {
-     "shotsManifestSha256": "6eef1dbd48058e382c67a045bbed144a87d4a568f575c7ded9c744f417685149",
-     "terrainManifestSha256": "579bc3bf004d53b1273a13cb6308d9bb83682a9a772d5ee3c8c2c87e058dd1f2",
-     "baseViewSha256": "993a16b0416a8125fd39ff73e28ac08d9d3ef08a8709fed1df7f0f54953dd142"
+     "shotsManifestSha256": "ced5366309ea6b73dfaf8fd50996eaa7141da865c3ee3113158cff455c696eb7",
+     "terrainManifestSha256": "6b89a70356c0d64ae2b40dd7323a9925ab2adf95db7583a7854a8807bd2b1586",
+     "baseViewSha256": "26e29345912f4fa3884aca9d31bc72fad7a14087413f6b40500294e891c4a6c0"
     },
-    "approval": {
-     "date": "2026-11-03",
-     "shotsManifestSha256": "6eef1dbd48058e382c67a045bbed144a87d4a568f575c7ded9c744f417685149",
-     "terrainManifestSha256": "579bc3bf004d53b1273a13cb6308d9bb83682a9a772d5ee3c8c2c87e058dd1f2",
-     "baseViewSha256": "993a16b0416a8125fd39ff73e28ac08d9d3ef08a8709fed1df7f0f54953dd142",
-     "evidence": [
-      "docs/camera-tour-promotion-2026-11-03.md",
-      "docs/scenic-framing-endings-review-2026-10-23.md"
-     ]
-    }
+    "approval": null
    },
    "materialManifestUrl": "materials/desert.json",
    "materialManifestSha256": "2beecf1f1647994f69a65b655ee5e48a3e771117bb7bcd1efd4c12ec67cfc14d",
@@ -5088,24 +4999,13 @@ export default {
    "evidence": {
     "reviewPath": "docs/range-v2-progress.md",
     "review": null,
-    "approval": {
-     "date": "2026-11-03",
-     "terrainManifestSha256": "579bc3bf004d53b1273a13cb6308d9bb83682a9a772d5ee3c8c2c87e058dd1f2",
-     "materialManifestSha256": "2beecf1f1647994f69a65b655ee5e48a3e771117bb7bcd1efd4c12ec67cfc14d",
-     "materialRulesSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
-     "cameraSha256": "350965c0ebfbe143a39b682af6e3a429228d69b34fb455b530bf2f903b6685a7",
-     "compositionSha256": "42aabcc21fc899222ba1c8263d48fd22f58d0b94716e47f9a127c1e84b12a1f1",
-     "evidence": [
-      "docs/camera-tour-promotion-2026-11-03.md",
-      "docs/scenic-framing-endings-review-2026-10-23.md"
-     ]
-    },
+    "approval": null,
     "sourceHashes": [
      "558cded13c38f12e556835895e238d72b1801327c4155eb813379369a0d2b33d",
      "c2706d9902b7829cbd8d8b4eaa1163249786efd7a5c7838640820987be670fe8",
      "dc3df0c08c7832b8f5db5939983a2ccc76fe46a4de6448ebb5166eac9b77c277",
      "614865dc9f955a54ace9c63ffbcaed137d682a952dd82c1ad86c7b8a2e545fe8",
-     "fce83322d7ec98be5f507ca822be2248a517ffe5b787aee0905921bd6840e211"
+     "5c5a4f45e4f18e15c838cfe96a20b1c42656cdcdf70e2845cddc74906cd2d87e"
     ]
    }
   },
@@ -5119,16 +5019,16 @@ export default {
    "place": "Matanuska Glacier, Alaska",
    "credit": "Elevation: AWS Terrain Tiles",
    "terrainManifestUrl": "terrain/chugach-matanuska.terrain.json",
-   "terrainManifestSha256": "f90832356d40d25363500670fac82e03eed7984e97151f00b0566784afbbc07f",
+   "terrainManifestSha256": "82403cc87022fe0aacc451b155f0fd62cdafe0d522ed8a1546944fee5e3b1f1d",
    "shotsManifestUrl": "tour/chugach-matanuska.shots.json",
-   "shotsManifestSha256": "72e9836af77a1c527078df727ca565578121e0445fa9342d64bcc74745869654",
-   "baseViewSha256": "a08c15384125dbaffa40cf1f9d2712ab91694b3dc049c583d155a6d9c2a67256",
+   "shotsManifestSha256": "6687cb2bc542f0787e207c81f8461fc4dd5f2bd20bc29ffbafb070c2a2148a32",
+   "baseViewSha256": "687350116d5c39aa4f2d8820f2f1b64e62685c2f19ce380fd83a3247f9ec3ef9",
    "shotTour": {
     "status": "candidate",
     "identity": {
-     "shotsManifestSha256": "72e9836af77a1c527078df727ca565578121e0445fa9342d64bcc74745869654",
-     "terrainManifestSha256": "f90832356d40d25363500670fac82e03eed7984e97151f00b0566784afbbc07f",
-     "baseViewSha256": "a08c15384125dbaffa40cf1f9d2712ab91694b3dc049c583d155a6d9c2a67256"
+     "shotsManifestSha256": "6687cb2bc542f0787e207c81f8461fc4dd5f2bd20bc29ffbafb070c2a2148a32",
+     "terrainManifestSha256": "82403cc87022fe0aacc451b155f0fd62cdafe0d522ed8a1546944fee5e3b1f1d",
+     "baseViewSha256": "687350116d5c39aa4f2d8820f2f1b64e62685c2f19ce380fd83a3247f9ec3ef9"
     },
     "approval": null
    },
@@ -5295,7 +5195,7 @@ export default {
      "5fec6c83f0b71e8ae1d50d3ea1997c67c16eff95ed693c7d6e012a70e814a104",
      "00b83a689542c8c593834f7e6bb409716df1481f43fa52f7ba27a7929321914c",
      "b5243041bd37884a346e1c983e12110efdf4d5200988bcd42e0293cd849a23e9",
-     "fb4ad8f1d2ab37fec0006f62015730d8b70f02ca66cc58a49a859f97066c9f3e"
+     "12d354e6f4ba2497a0230a412c2fba828554c35afccbdf3ae5c6f614e0b199ea"
     ]
    }
   },
@@ -5309,16 +5209,16 @@ export default {
    "place": "Navajo Nation, Utah and Arizona",
    "credit": "Elevation: USGS 3DEP 1/3 arc-second DEM",
    "terrainManifestUrl": "terrain/monument-valley-163.terrain.json",
-   "terrainManifestSha256": "d69ae461ea46a508ab163c72af8d3c7b6f60d26daf530ca891395bd8670df419",
+   "terrainManifestSha256": "447806e9d070af24819d27c9661f939981926d6e10246e59e076ec96700bc0ec",
    "shotsManifestUrl": "tour/monument-valley-163.shots.json",
-   "shotsManifestSha256": "c3a71c93d4d53da4c42f16cfbd66e5c71c7b50baf6a2e82a2c6c26ad94440073",
-   "baseViewSha256": "7ea478b8c20e30f8f1020fef3cba52934e3734d348cfc9347e74ad40cdd5da0a",
+   "shotsManifestSha256": "abc4c8c2265678e6a63e0cb78e3c62b41b7509716661b5e25ca48cce02bed4bd",
+   "baseViewSha256": "9ee346350341ef607bd5823393db71890867f834d7111491a0c4aa2abb0b5697",
    "shotTour": {
     "status": "candidate",
     "identity": {
-     "shotsManifestSha256": "c3a71c93d4d53da4c42f16cfbd66e5c71c7b50baf6a2e82a2c6c26ad94440073",
-     "terrainManifestSha256": "d69ae461ea46a508ab163c72af8d3c7b6f60d26daf530ca891395bd8670df419",
-     "baseViewSha256": "7ea478b8c20e30f8f1020fef3cba52934e3734d348cfc9347e74ad40cdd5da0a"
+     "shotsManifestSha256": "abc4c8c2265678e6a63e0cb78e3c62b41b7509716661b5e25ca48cce02bed4bd",
+     "terrainManifestSha256": "447806e9d070af24819d27c9661f939981926d6e10246e59e076ec96700bc0ec",
+     "baseViewSha256": "9ee346350341ef607bd5823393db71890867f834d7111491a0c4aa2abb0b5697"
     },
     "approval": null
    },
@@ -5887,7 +5787,7 @@ export default {
      "dc7c415a970682759cd65907ee0b68e9c216e0f2af0acbc12e3d1d74b8f5b806",
      "ec7dcd2d11304f041b9d91672873fd3b81c0ed7728d30650588fc1ac5351fe64",
      "169278ce11a8a7b813f83819d8a0636ffc537d69bd774f990495c9f4e8460562",
-     "4b68016c14bf755af2d8f41dd0381dadf150982b4aceb13aef20ae89f2ad10e2"
+     "a774846c668e08b4c2150358427617ab28cf8affbcb6987f444df3b8036d8c0c"
     ]
    }
   },
@@ -5989,7 +5889,7 @@ export default {
    "place": "Jackson Lake, Wyoming",
    "credit": "Elevation: USGS 3DEP 1/3 arc-second DEM",
    "terrainManifestUrl": "terrain/teton-jackson-lake.terrain.json",
-   "terrainManifestSha256": "5dfe7d3fdb33a5bb2829e6dfe0796c89d37c200a7fc9ebe9c9fdb1861de04811",
+   "terrainManifestSha256": "b2913f4bdf662da9417520b46cfd80d4514e035521094fc684ec5d32a8400957",
    "materialManifestUrl": "materials/dry-conifer.json",
    "materialManifestSha256": "6afff55ebe7762475b09f09fa8f60627714d051f9f117ffffd8e124894281175",
    "materialRules": {
@@ -6037,7 +5937,7 @@ export default {
     "sourceHashes": [
      "09930a44096be83c6023c6d853c12d1571f428878691e4bfba81cdd17d9077b9",
      "a19a985ea1d6370572bfaac2b7850bd90b49f28e9d10e3ad37c5ac17d4880e8f",
-     "e4e26d0415499501f95b4691492d4a91ef930e57f2005213b45d54e5038a18be"
+     "7cf1e311606e69748c3b75b283b6ea41da13d1150d474199d0799b72d473485c"
     ]
    }
   },
@@ -6052,7 +5952,7 @@ export default {
    "place": "Navajo Nation, Utah and Arizona",
    "credit": "Elevation: USGS 3DEP 1/3 arc-second DEM",
    "terrainManifestUrl": "terrain/monument-valley-163.terrain.json",
-   "terrainManifestSha256": "d69ae461ea46a508ab163c72af8d3c7b6f60d26daf530ca891395bd8670df419",
+   "terrainManifestSha256": "447806e9d070af24819d27c9661f939981926d6e10246e59e076ec96700bc0ec",
    "materialManifestUrl": "materials/canyon.json",
    "materialManifestSha256": "ca6259b1e0cd2b10e4aae9e84abbe9c95b32976767ef372aa3caac4e73c326ce",
    "materialRules": {
@@ -6618,7 +6518,7 @@ export default {
      "dc7c415a970682759cd65907ee0b68e9c216e0f2af0acbc12e3d1d74b8f5b806",
      "ec7dcd2d11304f041b9d91672873fd3b81c0ed7728d30650588fc1ac5351fe64",
      "169278ce11a8a7b813f83819d8a0636ffc537d69bd774f990495c9f4e8460562",
-     "4b68016c14bf755af2d8f41dd0381dadf150982b4aceb13aef20ae89f2ad10e2"
+     "a774846c668e08b4c2150358427617ab28cf8affbcb6987f444df3b8036d8c0c"
     ]
    }
   },
@@ -6668,16 +6568,16 @@ export default {
    "place": "Sawtooth Mountains, Idaho",
    "credit": "Elevation: USGS 3DEP 1/3 arc-second DEM",
    "terrainManifestUrl": "terrain/sawtooth-redfish-north.terrain.json",
-   "terrainManifestSha256": "df578cd81fba4827f88e491af03b513a44029adafe32fcdcf3e0c30c510e527d",
+   "terrainManifestSha256": "82eb645e4bff0704456f8feb45a02b54d74fb1a8e978a2bb1d117b40502bca7e",
    "shotsManifestUrl": "tour/sawtooth-redfish-north.shots.json",
-   "shotsManifestSha256": "d16fdca6dac93766da2228e46887c6e2da3f7329b31e2672fd38aeff609ee956",
-   "baseViewSha256": "057d0b03ba371b6a48bb36d173d7b4524c095d89f61c066f2ed0e9a9f5f24b26",
+   "shotsManifestSha256": "70534b174bef6f73f63ad02c74ab939bf06a2edf547200269a400c0dd6c9da3b",
+   "baseViewSha256": "c07573e865724aa5ca7cd6eb07e89c22b728d9998b4b3e5a00b1f52bc4fe67cb",
    "shotTour": {
     "status": "candidate",
     "identity": {
-     "shotsManifestSha256": "d16fdca6dac93766da2228e46887c6e2da3f7329b31e2672fd38aeff609ee956",
-     "terrainManifestSha256": "df578cd81fba4827f88e491af03b513a44029adafe32fcdcf3e0c30c510e527d",
-     "baseViewSha256": "057d0b03ba371b6a48bb36d173d7b4524c095d89f61c066f2ed0e9a9f5f24b26"
+     "shotsManifestSha256": "70534b174bef6f73f63ad02c74ab939bf06a2edf547200269a400c0dd6c9da3b",
+     "terrainManifestSha256": "82eb645e4bff0704456f8feb45a02b54d74fb1a8e978a2bb1d117b40502bca7e",
+     "baseViewSha256": "c07573e865724aa5ca7cd6eb07e89c22b728d9998b4b3e5a00b1f52bc4fe67cb"
     },
     "approval": null
    },
@@ -6727,7 +6627,7 @@ export default {
      "0620bfa61bf4192a6b3f774d42d752210ad6c3275d3a0c585fc0fa392cb824b1",
      "b9adba7fea91a214991368b780dfaff387d6c00f52156963cf97f8da98d097bf",
      "5ee9631802371f315a3f542c2afe982d5090102e7b313fa1162d84a0def5ef80",
-     "32c42be54987228d2fb209d664769101954c9495c07da9c61eb2a59b4986faff"
+     "88eb32d8c12cf8e026c41531f7df3f942521e8034373a6ffc486a3dd4e89a7c2"
     ]
    }
   },
@@ -6741,16 +6641,16 @@ export default {
    "place": "Shenandoah National Park, Virginia",
    "credit": "Elevation: USGS 3DEP 1/3 arc-second DEM",
    "terrainManifestUrl": "terrain/shenandoah-stony-man-west.terrain.json",
-   "terrainManifestSha256": "2a3d064c03dc548a33353953e562acd1acee06020a7cce16f49ebe02e1a4ca0a",
+   "terrainManifestSha256": "d76b14445aaaf5467340c2e5fa4f8f0f341c31ba27b4c2b0a9304e365efb9eb1",
    "shotsManifestUrl": "tour/shenandoah-stony-man-west.shots.json",
-   "shotsManifestSha256": "fe2a601e78424e15a56197c9c7d2b3ca63aea631deac27feea2e79c29bc20cfc",
-   "baseViewSha256": "05afd73f7274570ccbd0f22087b8012249242d779bb2b4fcb97bb3a55f31ddde",
+   "shotsManifestSha256": "58bdf03b84e758d0b9ef1399e9dd41a83ef25f7f8d47dd1c7235ca9cbd2e4f3d",
+   "baseViewSha256": "3bed2f9cc0732563e19cad423871c30ebe6084d21359716b775e5ca17fd78557",
    "shotTour": {
     "status": "candidate",
     "identity": {
-     "shotsManifestSha256": "fe2a601e78424e15a56197c9c7d2b3ca63aea631deac27feea2e79c29bc20cfc",
-     "terrainManifestSha256": "2a3d064c03dc548a33353953e562acd1acee06020a7cce16f49ebe02e1a4ca0a",
-     "baseViewSha256": "05afd73f7274570ccbd0f22087b8012249242d779bb2b4fcb97bb3a55f31ddde"
+     "shotsManifestSha256": "58bdf03b84e758d0b9ef1399e9dd41a83ef25f7f8d47dd1c7235ca9cbd2e4f3d",
+     "terrainManifestSha256": "d76b14445aaaf5467340c2e5fa4f8f0f341c31ba27b4c2b0a9304e365efb9eb1",
+     "baseViewSha256": "3bed2f9cc0732563e19cad423871c30ebe6084d21359716b775e5ca17fd78557"
     },
     "approval": null
    },
@@ -6797,7 +6697,7 @@ export default {
     "approval": null,
     "sourceHashes": [
      "9d237b713ef42927b3cea1fa04a23f119be63c7f70342c0bab7e005aa9c74538",
-     "f2caf8fec5866439bec3495c00bf18a4fd278928940bfb3acd7430da4e5775e5"
+     "d7b942fcc2aed307438802eff781cbcdc8dcde9a4d9a909509e7218246111926"
     ]
    }
   },
@@ -6811,16 +6711,16 @@ export default {
    "place": "Superstition Mountains, Arizona",
    "credit": "Elevation: USGS 3DEP 1/3 arc-second DEM",
    "terrainManifestUrl": "terrain/superstition-west-front.terrain.json",
-   "terrainManifestSha256": "accf401119907073d494a85c988d164fef9976ae94b32b24a332d1e7f7797fe4",
+   "terrainManifestSha256": "26fa8deb8b7e8122850974ebcf901f3005582e08273e1629b42300559b488116",
    "shotsManifestUrl": "tour/superstition-west-front.shots.json",
-   "shotsManifestSha256": "abfd321eefc588e87c30d00635c6f86dcedfcdc49a0c428e8970e7cdaa1bad82",
-   "baseViewSha256": "901ce53e153bd4d82560ed62152a26082d34f40d2a449ef7273541d9d245a05b",
+   "shotsManifestSha256": "b3fe35c76889a205129ce671db3408a8a05e20c6b835c90376ad3ab9e14f4b39",
+   "baseViewSha256": "ed4cf918f90881a9aa46b7112caf55dfeca6f419f1ac7372324deb2c24e801c3",
    "shotTour": {
     "status": "candidate",
     "identity": {
-     "shotsManifestSha256": "abfd321eefc588e87c30d00635c6f86dcedfcdc49a0c428e8970e7cdaa1bad82",
-     "terrainManifestSha256": "accf401119907073d494a85c988d164fef9976ae94b32b24a332d1e7f7797fe4",
-     "baseViewSha256": "901ce53e153bd4d82560ed62152a26082d34f40d2a449ef7273541d9d245a05b"
+     "shotsManifestSha256": "b3fe35c76889a205129ce671db3408a8a05e20c6b835c90376ad3ab9e14f4b39",
+     "terrainManifestSha256": "26fa8deb8b7e8122850974ebcf901f3005582e08273e1629b42300559b488116",
+     "baseViewSha256": "ed4cf918f90881a9aa46b7112caf55dfeca6f419f1ac7372324deb2c24e801c3"
     },
     "approval": null
    },
@@ -6867,7 +6767,7 @@ export default {
     "approval": null,
     "sourceHashes": [
      "7f32518c35ff76b6177bd9964917fcbab5d956ecfcc924159e14c477e01ff247",
-     "31b9c562fdb695be8e1fe457712a38e67f54c4a9e4252e98aad9d0f7e2c71ca8"
+     "033435ee72bfe6b5d162c92c649f2fa8e2aafedf10188da751bcaffd652778c9"
     ]
    }
   }
