@@ -2941,8 +2941,8 @@ export class RangeScene {
     // the chunk culling (TerrainChunks.js) drops all terrain outside it.
     // The native pass keeps its whole depth (the crest probe reads it).
     const above = capture || w !== this.size.width || h !== this.size.height;
-    const scissor = above && !bandColumns ? this._waterScissor(p, w, h) : null;
-    if (above) this.stats.waterScissor = scissor ? scissor.width * scissor.height / (w * h) : 1;
+    const scissor = above && !bandColumns && p.waterSubsets ? this._waterScissor(p, w, h) : null;
+    if (above && this.stats) this.stats.waterScissor = scissor ? scissor.width * scissor.height / (w * h) : 1;
     if (scissor) {
       outputTarget.scissor.set(scissor.x, scissor.y, scissor.width, scissor.height);
       outputTarget.scissorTest = true;
