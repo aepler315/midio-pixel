@@ -153,3 +153,13 @@ test('a ridge at any angle shapes the spine band, not the lattice directions', (
   }
   assert.ok(worst < 1, `spine centre strays ${worst.toFixed(2)} cells from the ridge`);
 });
+
+test('the dance stays a breath: small share of the motion, barely any kick', () => {
+  const loud = landDance(landMotion(rangeMusicState({ env: { groove: 1, sustain: 1, scaleMul: 1.3, kickMul: 1 }, evaluatedKick01: 1, activity01: 1 }), 1), { dance01: 1, beats: 0 });
+  assert.ok((loud.spineM + loud.drainM) / RANGE_MOTION_REFERENCE_M <= .16, 'dance share of the motion reference');
+  const still = landDance(landMotion(rangeMusicState({ env: {} }), 0), { dance01: 1 });
+  const kicked = landDance(landMotion(rangeMusicState({ env: {}, evaluatedKick01: 1 }), 0), { dance01: 1 });
+  assert.ok(kicked.spineM - still.spineM <= 2, `a lone kick lifts the spines ${kicked.spineM - still.spineM} m`);
+  // A full wave takes at least four bars to pass.
+  assert.ok(LAND_DANCE.beatsPerWave >= 16);
+});
