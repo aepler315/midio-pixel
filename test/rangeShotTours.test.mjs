@@ -333,6 +333,20 @@ test('a refinement that never replies times out, holds the camera and retries', 
   assert.equal(r.tours.timeline('a'), fixed);
 });
 
+test('sections refined while the first plan is still running are planned once it lands', async () => {
+  let release;
+  const r = await replanning((n) => (n === 1 ? new Promise((done) => { release = done; }) : Promise.resolve(keyed(50000))));
+  r.tours.setSong({ mgr: r.m, views: [view('a')], generation: 1 });
+  await settle(); await settle();
+  newSections(r.m); r.tours.refine(r.m);
+  assert.equal(r.calls.length, 1, 'a view still planning is not refined yet');
+  release(r.committed); await settle(); await settle();
+  r.tours.refine(r.m);
+  assert.equal(r.calls.length, 2);
+  r.tours.refine(r.m);
+  assert.equal(r.calls.length, 2, 'the change is replanned once');
+});
+
 test('a second rebuild before the first plan replies still carries heard history and horizon', async () => {
   const committed = timeline(), seen = [];
   const tours = new RangeShotTours({ assetBase: 'http://x/', load: async () => ({ library }), plan: (l, m, o) => { seen.push([o.previous, o.committedThroughMs]); return new Promise(() => {}); } });

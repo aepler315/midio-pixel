@@ -101,7 +101,6 @@ export class RangeShotTours {
     this.exportMode = exportMode;
     this.occurrences = occurrences;
     this.heardThroughMs = Math.max(0, continuation?.committedThroughMs ?? 0);
-    this.sections = mgr?.sections;
     if (!this.enabled || !(mgr?.durationMs > 0)) return;
     for (const view of views) {
       if (!shotTourEligible(view, { allowCandidates: this.allowCandidates })) continue;
@@ -176,7 +175,7 @@ export class RangeShotTours {
     s.abort = controller;
     const mgr = this.mgr;
     const visible = this._visible(s);
-    s.visible = visible;
+    s.visible = visible; s.sections = mgr?.sections;
     const started = this._now();
     return this._plan(s.library, mgr, { signal: controller.signal, visible, seed: mgr?.songSeed ?? 0,
       previous: previous || null, committedThroughMs: previous ? this._heardMs() : -1 })
@@ -226,10 +225,11 @@ export class RangeShotTours {
    *  every camera key heard by the time it lands. Runs every frame. */
   refine(mgr) {
     if (!this.views.size) return;
-    const changed = mgr.sections !== this.sections, now = this._now();
-    this.sections = mgr.sections;
-    const generation = this.generation, heardMs = this._heardMs();
+    const now = this._now(), generation = this.generation, heardMs = this._heardMs();
     for (const s of this.views.values()) {
+      // Sections are compared per view, against those it last planned with,
+      // so a change during a view's first plan is refined once it lands.
+      const changed = s.state === 'ready' && mgr.sections !== s.sections;
       if (changed) { s.failures = 0; s.retryAt = null; }
       if (!changed && !this.exportMode && s.refinement?.state === 'pending' && now - s.refineStartedAt > SHOT_PLAN_TIMEOUT_MS) {
         s.refineAbort?.abort();
@@ -238,7 +238,7 @@ export class RangeShotTours {
       if (!changed && !(s.retryAt != null && now >= s.retryAt)) continue;
       if (s.state !== 'ready' || !s.timeline || !s.library) continue;
       const before = s.timeline;
-      s.retryAt = null; s.refineStartedAt = now;
+      s.retryAt = null; s.refineStartedAt = now; s.sections = mgr.sections;
       s.refinement = { state: 'pending', reason: null };
       const controller = new AbortController();
       s.refineAbort?.abort(); s.refineAbort = controller;
