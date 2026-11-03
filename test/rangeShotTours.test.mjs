@@ -13,7 +13,9 @@ const path = (x0) => ({ ...samplePath({ eyes: [[x0, 500, 0], [x0 + 1000, 500, 0]
 const library = { terrainManifestSha256: sha, shots: [{ id: 's1', path: path(0) }, { id: 's2', path: path(3000) }], links: [{ id: 'l1', path: path(1000) }] };
 const mgr = (sections = [{ startMs: 0, endMs: 60000, profile: { name: 'CONIFER' } }]) => ({ durationMs: 60000, sections, songSeed: 7, tSec: 0 });
 const settle = () => new Promise((r) => setTimeout(r, 0));
-const timeline = (offset = 0) => ({ durationMs: 60000, items: [{}, {}, {}], payoffs: [], diagnostics: {},
+// A plan that beats the rail (CameraChoice.js): all shot keys, one payoff.
+const timeline = (offset = 0) => ({ durationMs: 60000, items: [{}, {}, {}], meta: new Uint8Array(601 * 4),
+  payoffs: [{ plannedMs: 30000, actualMs: 30000 }], diagnostics: {},
   poseAt: (t) => ({ eyeM: [t / 100 + offset, 500, 0], targetM: [0, 400, -5000], fovYDeg: 30, tour: true }), stateAt: () => ({ kind: 'shot' }) });
 
 test('only approved views with a complete shot identity are eligible; candidates only for review', () => {
