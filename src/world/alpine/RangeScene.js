@@ -26,7 +26,7 @@ import { prepareTerrainAssets, RangeAssetError } from './RangeAssets.js';
 import { createSurfaceTextureAsync, terrainUniforms, createBandGeometries, createBandGeometriesAsync } from './TerrainGL.js';
 import { syncGustUniforms, syncWaterMusicUniforms, sceneUniforms, createSceneMaterial, createDepthMaterial, setLinearFromHex, createMaterialTextures, applyMaterial, SCENE_VERT, FEATURE_FRAG } from './TerrainMaterial.js';
 import { terrainFeatureSegmentsAsync } from './TerrainFeatures.js';
-import { CrestProbe } from './CrestProbe.js';
+import { CrestProbe, PROBE_FINE_K, FINE_FRAG } from './CrestProbe.js';
 import { loadMaterialPack, materialGpuBytes, RULE_DEFAULTS, validateWaterRules } from './MaterialPackage.js';
 import { placeForestAsync, forestPlacementBound } from './ForestCover.js';
 import { SunShaftGL, SHAFT_KEY, shaftSize, shaftSource } from './SunShaftGL.js';
@@ -1782,6 +1782,7 @@ export class RangeScene {
     for (const g of Object.values(p.riverFringeGeometries || {})) g.dispose();
     p.depthMaterial?.dispose();
     for (const m of Object.values(p.ownershipMaterials || {})) m.dispose();
+    for (const m of Object.values(p.fineMaterials || {})) m.dispose();
     p.horizon?.texture?.dispose();
     p.hierarchy?.texture?.dispose();
     p.compiledDispose?.();
@@ -2709,7 +2710,48 @@ export class RangeScene {
       this.crestProbe.begin(frame.frameId, target.width, target.height);
       this.crestProbe.useDepth = this.crestProbeMode === 'refined';
       this.crestProbe.band(target, this.camera, p.uniforms?.uHeightRange?.value || null, pass);
-    } catch { this.crestProbe?.dispose(); this.crestProbe = null; this.crestProbeMode = null; }
+    } catch { this.crestProbe?.dispose(); this.crestProbe = null; this.crestProbeMode = null; return; }
+    // After the last band: the fine crest (CrestProbe.js), refined probes only.
+    if (pass === 'near' && this.crestProbeMode === 'refined') {
+      try { this._probeFineCrest(target, p); } catch { /* the line keeps the grid crest */ }
+    }
+  }
+
+  /** The terrain's band and distance at PROBE_FINE_K times the grid
+   *  (FINE_FRAG), read by the crest probe's fine rows (the crest to an
+   *  output pixel instead of a grid row) and edge cells (terrain over
+   *  terrain at output resolution). One extra pass, flat shading. */
+  _probeFineCrest(target, p) {
+    const THREE = this.THREE, r = this.renderer;
+    const w = target.width * PROBE_FINE_K, h = target.height * PROBE_FINE_K;
+    if (!this._fineTarget || this._fineTarget.width !== w || this._fineTarget.height !== h) {
+      this._fineTarget?.dispose();
+      this._fineTarget = new THREE.WebGLRenderTarget(w, h, { depthBuffer: true, stencilBuffer: false,
+        type: THREE.UnsignedByteType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
+    }
+    p.fineMaterials ||= Object.fromEntries(BANDS.map((band, i) => [band, new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3, vertexShader: p.ownershipVertexShader || SCENE_VERT, fragmentShader: FINE_FRAG,
+      uniforms: p.uniforms, defines: { FINE_BAND: `${i + 1}.0` } })]));
+    if (!p.depthScene) return false;
+    const meshes = Object.fromEntries(BANDS.map(band => [band, [].concat(p.depthBandMeshes?.[band] || [])]));
+    const layers = this.camera.layers.mask;
+    for (const band of BANDS) for (const m of meshes[band]) m.material = p.fineMaterials[band];
+    const hidden = [];
+    for (const m of Object.values(p.riverDepthMeshes || {})) if (m.visible) { m.visible = false; hidden.push(m); }
+    try {
+      this.camera.layers.set(0);
+      r.setRenderTarget(this._fineTarget);
+      r.setClearColor(0x000000, 0);
+      r.clear(true, true, false);
+      r.render(p.depthScene, this.camera);
+    } finally {
+      for (const band of BANDS) for (const m of meshes[band]) m.material = p.depthMaterial;
+      for (const m of hidden) m.visible = true;
+      this.camera.layers.mask = layers;
+    }
+    const ok = this.crestProbe.fine(this._fineTarget);
+    r.setRenderTarget(target);
+    return ok;
   }
 
   /** This frame's crest probe data, or null: the newest completed
@@ -2725,7 +2767,7 @@ export class RangeScene {
    * and view changes are found by CrestProbe.read itself. */
   resetCrestProbe() { this.crestProbe?.reset(); }
 
-  releaseCrestProbe() { this.crestProbe?.dispose(); this.crestProbe = null; }
+  releaseCrestProbe() { this.crestProbe?.dispose(); this.crestProbe = null; this._fineTarget?.dispose(); this._fineTarget = null; }
 
   /** Render water at display resolution against the complete terrain and
    * forest depth. The caller must copy the returned transient canvas before
@@ -2831,6 +2873,11 @@ export class RangeScene {
       if (this.crestProbeMode === 'refined' && !capture && !pass && !bandColumns && side === 'A'
         && w === this.size.width && h === this.size.height && this.crestProbe?.frameId === frame.frameId) {
         try { this.crestProbe.water(outputTarget, this.camera); } catch { /* shorelines are optional */ }
+      }
+      // The output-resolution layer: its dry pixels in wet grid cells (CrestProbe.js, water edge cells).
+      if (this.crestProbeMode === 'refined' && !capture && !pass && !bandColumns && side === 'A'
+        && w > this.size.width && this.crestProbe?.frameId === frame.frameId) {
+        try { this.crestProbe.waterEdges(outputTarget); } catch { /* the shore keeps the grid's steps */ }
       }
       r.setRenderTarget(null);
       this._setCanvasSize(w, h);

@@ -46,20 +46,22 @@ networks and fields for any baked view.
 Two channels, added to the existing field in the same vertex function
 (`danceField` in `DEFORM_GLSL`, CPU twin `danceDisplacement`):
 
-- **Spine heave.** Ridge spines lift on the kick (75 %), the groove (25 %)
-  and the section moment, scaled by relief. A gate walks down the ridge
+- **Spine breath.** Ridge spines rise with the music's energy (55 %), the
+  section moment (50 %) and only a trace of the kick (15 %), capped at 1 and
+  scaled by relief. (The first version heaved 75 % on the kick at 32 m;
+  Ashton found it read as the ridges retching.) A gate walks down the ridge
   orders with energy: quiet music moves only the highest-order spines, a
   loud section or a section change opens every spur.
 - **Downstream wave.** `relief · sin(k·d + φ)` with `d` the flow distance and
-  `φ = 2π · beats / 4`: a 2.2 km wave runs down every drainage, one
-  wavelength per bar, locked to the song's beat transport (heard time, so
+  `φ = 2π · beats / 16`: a 6 km wave runs down every drainage, one
+  wavelength per four bars, locked to the song's beat transport (heard time, so
   seeking and export reproduce it). Free-time songs fall back to 2 beats/s.
 
 Both are multiplied by the receiver mask and the tour fade like the rest of
 the field, and by relief, which is zero on drainage.
 
-**Budget.** At full dance the section swell gives up half its share
-(`LAND_DANCE.swellYield`), and spine (32 m) plus wave (18 m) take it: the
+**Budget.** At full dance the section swell gives up 15 % of its share
+(`LAND_DANCE.swellYield`), and spine (10 m) plus wave (6 m) take it: the
 summed bound stays under `RANGE_MOTION_REFERENCE_M`, so the calibrated
 on-screen motion (8–20 px), `LAND_MAX_DISPLACEMENT_M`, the camera's
 `DEFORM_PAD_M` and the forest's detail bound all hold unchanged.

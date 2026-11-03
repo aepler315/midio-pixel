@@ -34,7 +34,7 @@ export const CHANNEL_AREA_M2 = 250000;
 /** Ascent area that starts a ridge (m^2). */
 export const RIDGE_AREA_M2 = 120000;
 /** Wavelength of the downstream wave along the drainage (m). */
-export const DRAIN_WAVELENGTH_M = 2200;
+export const DRAIN_WAVELENGTH_M = 6000;
 /** Least rise per metre a ridge ascent follows. */
 const MIN_RIDGE_SLOPE = .03;
 /** Ridges stand at least this share of the relief reference above drainage. */

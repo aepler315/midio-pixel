@@ -237,21 +237,26 @@ export function landMotion(music, moment01, { tSec = 0, seed = 0 } = {}) {
  *     open the gate down the ridge orders.
  *   - drain: a wave runs down every drainage, one wavelength per bar,
  *     locked to the song's beat. Valley floors and water never move. */
-export const LAND_DANCE = Object.freeze({ swellYield: .5, spineM: 32, drainM: 18, beatsPerWave: 4 });
+// Ashton (2026-11-03): the first cut (spines 32 m on every kick, a 2.2 km
+// wave once per bar) read as the ridges retching. Now a breath, not a pulse:
+// small metres, the spines follow energy and the section moment rather than
+// each kick, and a long wave takes four bars to pass.
+export const LAND_DANCE = Object.freeze({ swellYield: .15, spineM: 10, drainM: 6, beatsPerWave: 16 });
 
 export function landDance(land, { dance01 = 0, beats = null, tSec = 0 } = {}) {
   const d = unit(dance01);
   if (!d || !land) return land;
   const src = land.source || land;
   const moment = unit(land.landMoment01);
-  const energy = unit(Math.max(src.groove ?? 0, src.sustain ?? 0, src.activity01 ?? 0));
+  // Sustained energy only: activity01 also jumps with every kick.
+  const energy = unit(Math.max(src.groove ?? 0, src.sustain ?? 0));
   const kick = unit(src.kick01);
   const presence = unit(src.motionPresence01 ?? 1);
   const yieldK = 1 - LAND_DANCE.swellYield * d;
   const beat = Number.isFinite(beats) ? beats : tSec * 2;
   const out = { ...land, landDance01: d,
     amplitudeM: land.amplitudeM * yieldK, structuralM: land.structuralM * yieldK,
-    spineM: LAND_DANCE.spineM * d * presence * Math.min(1, .25 * energy + .75 * kick + .5 * moment),
+    spineM: LAND_DANCE.spineM * d * presence * Math.min(1, .55 * energy + .15 * kick + .5 * moment),
     spineGate01: .85 - .55 * Math.max(energy * energy, moment),
     drainM: LAND_DANCE.drainM * d * presence * (.3 + .7 * energy),
     drainPhaseRad: 2 * Math.PI * beat / LAND_DANCE.beatsPerWave };

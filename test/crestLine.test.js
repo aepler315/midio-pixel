@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  CREST_FILTER, CREST_TIER_ORDER, CREST_TIERS, CREST_DARKEN, PROTECTED_HUES, PROTECTED_HUE_GAP, crestE, crestStroke, shoreStroke,
+  CREST_FILTER, CREST_TIER_ORDER, CREST_TIERS, PROTECTED_HUES, PROTECTED_HUE_GAP, crestE, crestStroke, shoreStroke,
   filterCrest, filterAux, reconstructCrest, reownCrestCells, crestSpan, crestLineColor, shoreColor, snapCrestColor,
   nearProtectedHue, linkShoreChains, SHORE_SHAPE, shoreShape, solidShoreEdges, smoothShoreChain, gaussianSmooth, shoreNoise,
   smoothHeldShore,
@@ -242,13 +242,13 @@ test('split halves average only equidistant cells on their own side', () => {
   assert.deepEqual(skipped, so, 'skipped columns (a nearer line within reach) are untouched');
 });
 
-test('line colours keep hue at 0.55 lightness, recede toward the sky, and respect palette and protected hues', () => {
+test('line colours are the mean of the two sides and respect palette and protected hues', () => {
   const land = [100, 120, 70], sky = [150, 180, 220];
   const near = crestLineColor(land, sky, 'near'), far = crestLineColor(land, sky, 'far');
-  const a = rgbToHsl(...land), b = rgbToHsl(...near);
-  assert.ok(Math.abs(a.h - b.h) < 3, 'hue kept');
-  assert.ok(Math.abs(b.l - a.l * CREST_DARKEN) < 0.02, 'lightness at 0.55x');
-  assert.ok(far[2] > near[2], 'far lines lean toward the sky');
+  assert.deepEqual(near, [125, 150, 145], 'mean of the land below and the sky above');
+  assert.deepEqual(far, near, 'every band and tier takes the same rule');
+  assert.deepEqual(crestLineColor(land, [60, 80, 40], 'near'), [80, 100, 55], 'a farther ridge above counts as the upper side');
+  assert.deepEqual(crestLineColor(land, null, 'near'), land, 'nothing known above: the land itself');
   // Protected hues: an aquamarine land colour is rotated out of the band.
   const aqua = crestLineColor([60, 200, 190], sky, 'near');
   assert.equal(nearProtectedHue(aqua), false);
@@ -630,7 +630,7 @@ test('a band boundary lost in haze gets no line; a contrasting one does', () => 
   assert.ok(run([0, 0, 0, 0]) > 0, 'a skyline over the separate sky is');
 });
 
-test('the line darkens the land the viewer sees in the grid, not the raw band render', () => {
+test('the line takes the land the viewer sees in the grid, not the raw band render', () => {
   const makeCanvas = (w, h) => ({ width: w, height: h, getContext: () => ({ createImageData: (a, b) => ({ width: a, height: b, data: new Uint8ClampedArray(a * b * 4) }), putImageData() {} }) });
   const crest = new RangeCrest({ makeCanvas });
   // The probe reports the raw band colour (70, 110, 60); after haze and
@@ -646,7 +646,8 @@ test('the line darkens the land the viewer sees in the grid, not the raw band re
   for (const chunk of crest._grid.near.chunks) {
     const c = rgbToHsl(...chunk.color.match(/\d+/g).map(Number));
     assert.ok(hueDistance(c.h, want.h) < 4, `line hue ${c.h.toFixed(1)} vs land ${want.h.toFixed(1)}`);
-    assert.ok(Math.abs(c.l / want.l - CREST_DARKEN) < 0.03, `line lightness ${(c.l / want.l).toFixed(3)}x of the land`);
+    // No sky given and sky above: the mean is the land itself.
+    assert.ok(Math.abs(c.l / want.l - 1) < 0.03, `line lightness ${(c.l / want.l).toFixed(3)}x of the land`);
   }
   // Without a grid reading (Pixel look past CREST_PIXEL_SPLIT_LEVEL) the
   // last reading is kept rather than falling back to the raw render.
@@ -662,7 +663,7 @@ test('the line darkens the land the viewer sees in the grid, not the raw band re
     crest.prepareGrid({ ctx: counting });
     if (f === 22) {
       const fresh = rgbToHsl(...crest._grid.near.chunks[0].color.match(/\d+/g).map(Number));
-      assert.ok(hueDistance(fresh.h, want.h) < 4 && Math.abs(fresh.l / want.l - CREST_DARKEN) < 0.03, 'the first frame after a reset reads the grid');
+      assert.ok(hueDistance(fresh.h, want.h) < 4 && Math.abs(fresh.l / want.l - 1) < 0.03, 'the first frame after a reset reads the grid');
       assert.equal(crest.diagnostics.readback, 'probe+crest-sample');
     }
   }
