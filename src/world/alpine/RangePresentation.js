@@ -43,6 +43,7 @@ export const RANGE_RENDERER_MODES = Object.freeze(['legacy', 'v2']);
 export const RANGE_DEFAULT_MODE = 'v2';
 const ASSET_BASE = new URL('../../assets/range/v2/', import.meta.url).href;
 const RUNTIME_URL = new URL('../../vendor/range/three-range.module.js', import.meta.url).href;
+const SCENE_URL = new URL('./RangeScene.js', import.meta.url).href;
 // Downloading the renderer modules can fail on a flaky (mobile) connection.
 // Each load tries again after these waits; a retry adds ?retry=N to the
 // top module's URL because the browser keeps a failed module URL failed for
@@ -170,7 +171,7 @@ function defaultCanvas(w, h) {
 export class RangePresentation {
   constructor({ mode = 'legacy', forcedViewId = null, tour = null, shots = true, shotCandidates = false, upgradeIntended = false, diag = null, residency = null, budget = 'desktop',
     loadRuntime = (attempt) => import(retryUrl(RUNTIME_URL, attempt)),
-    loadScene = (attempt) => import(retryUrl('./RangeScene.js', attempt)),
+    loadScene = (attempt) => import(retryUrl(SCENE_URL, attempt)),
     retryDelaysMs = RUNTIME_RETRY_MS, cooldownMs = RUNTIME_COOLDOWN_MS, sceneFactory = null, catalog = SCENE_CATALOG, assetBase = ASSET_BASE,
     makeCanvas = defaultCanvas, shotTours = null } = {}) {
     this.mode = mode;
