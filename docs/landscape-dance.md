@@ -1,7 +1,8 @@
 # Landscape dance: the ridge/drainage hierarchy
 
-Status: prototype behind `?landDance=` (0..1, `?landDance` alone = 1). Off by
-default; with it off every frame is unchanged.
+Status: prototype, **on by default** for static views. `?landDance=0` (or a
+0..1 value) remains only as an opt-out for side-by-side checks; with it at 0
+every frame is unchanged.
 
 ## Why a hierarchy
 
@@ -26,9 +27,16 @@ roughly 0.5 s per view in Node, built in slices during view preparation):
 | Contributing area, drainage order | accumulation in flood order; Strahler order over cells above 0.25 km² | channel network |
 | Height above nearest drainage (HAND) | Rennó et al. 2008, followed down the D8 tree | `relief01`: 0 on valley floors, lakes and channels |
 | Flow distance to outlet | summed along the D8 tree | phase of the downstream wave |
-| Ridge network, ridge order | D8 steepest *ascent* on raw heights (≥ 3 % rise), ascent area above 0.12 km², Strahler order; only where relief ≥ 12 % of the reference | `spine01` |
+| Ridge network, ridge order | D8 steepest *ascent* on raw heights (≥ 3 % rise), ascent area above 0.12 km², Strahler order; only where relief ≥ 12 % of the reference | order of `spine01` |
+| Crest convexity | minus the Laplacian of heights smoothed over ~1 cell, over its 90th percentile | shape of `spine01` |
 
-Packed into one RGBA8 texture (R relief, G spine band, B/A cos/sin of the
+D8 only knows eight directions, so a band built from its cells steps at 45°.
+The network therefore supplies only the ridge *order* (dilated and blurred);
+the band's *shape* is the crest convexity, which follows a ridge at any angle
+(`test/terrainHierarchy.test.mjs`: a 30° ridge stays within one cell). For
+drawing, `networkPolylines` walks either tree and Chaikin-smooths each link.
+
+Packed into one RGBA8 texture (R relief, G spine band (order × convexity), B/A cos/sin of the
 flow-distance phase, blurred so divides and confluences fade instead of
 tearing). `tools/terrain-hierarchy-preview.mjs` writes PNG panels of the
 networks and fields for any baked view.
@@ -72,7 +80,7 @@ on-screen motion (8–20 px), `LAND_MAX_DISPLACEMENT_M`, the camera's
 - **Uniform budget.** One `vec4` and one sampler: the terrain fragment scan
   goes from 245 to 247 of the 248-vector ceiling. The next addition needs to
   pack something.
-- **Cost when off.** A uniform branch; no texture fetch, no residency charge.
+- **Cost when opted out.** A uniform branch; no texture fetch, no residency charge.
   Pilot song, 1280×720, 8 frames 4 s–39 s via `tools/render-hotspots.mjs`:
   7 of 8 frames byte-identical to the water-cost branch with the dance off.
   The 9 s frame differs between two runs of that base branch too, so it is
