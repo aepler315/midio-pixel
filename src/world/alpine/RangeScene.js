@@ -50,6 +50,8 @@ import { scenicProjection, calibrateRangeMusic, rangeCameraCalibration, requeste
 import { applyGlacierUniforms, glacierErrors, glacierSample } from './GlacierField.js';
 import { ActorsGL, SITE_LIGHTS_MAX, CAST_LAYER, CAST_RIBBON_LAYER, enableCastLayers } from './ActorsGL.js';
 import { riverChannelErrors } from './RiverChannel.js';
+import { restrictWaterColour, waterColourRangesAsync } from './WaterColourRanges.js';
+import { ACTOR_IDS, ACTOR_HUES, ACTOR_LOOK, ACTOR_START, actorRoutes, routePosition } from './RangeActors.js';
 import { ACTOR_IDS, ACTOR_HUES, ACTOR_LOOK, ACTOR_NOTE_AGE_CAP_MS, ACTOR_START, actorRoutes, routePosition } from './RangeActors.js';
 import { castPlan, castWork, pathPosition, siteWalk } from './CastJobs.js';
 import { flashScreenPoint, rainSeed01, stormKindRow } from './RangeStorm.js';
@@ -1195,17 +1197,31 @@ export class RangeScene {
         const riverStats = { triangles: 0, fringeTriangles: 0, bytes: 0 };
         await yieldToMain();
         if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
+        const mappedWaterOnly = view.riverPolicy?.terrainWater === 'mapped-only';
+        // Tour windows stream geometry after this surface has left the CPU:
+        // they keep the original water draw.
+        const waterGroups = new Map();
         const scratchKey = `range:surface-scratch:${view.id}`;
         const scratch = this.residency?.reserve({ key: scratchKey, bytes: gridPx * SURFACE_BUILD_BYTES_PER_PIXEL, owner: 'range-scratch', generation }) || null;
         if (this.residency && !scratch) throw new RangeAssetError('budget', `no room to build ${view.id} surface`);
         try {
-          surface = await createSurfaceTextureAsync(THREE, cpu.data, { stride: textureStride, signal,
-            checkCurrent: () => { if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`); } });
+          const checkCurrent = () => { if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`); };
+          surface = await createSurfaceTextureAsync(THREE, cpu.data, { stride: textureStride, signal, checkCurrent,
+            waterTexels: !view.tour && !mappedWaterOnly });
           // Read the wet texels before the upload drops the CPU copy.
           if (!view.tour) waterSubsets = await this._buildWaterSubsets(THREE, cpu.data, surface, geos, {
             mappedOnly: view.riverPolicy?.terrainWater === 'mapped-only', stale: () => stale() || signal?.aborted });
           this.renderer?.initTexture?.(surface.texture);
           this.renderer?.initTexture?.(surface.receiverTexture);
+          // The table replaces the uploaded RGBA in the scratch charge.
+          if (!view.tour) {
+            for (const geometry of [...Object.values(geos.geometries), ...Object.values(geos.fringes)]) {
+              const groups = await waterColourRangesAsync(geometry.attributes.position.array, geometry.index.array,
+                surface.waterTexels, cpu.data.grid, { signal, checkCurrent });
+              if (groups) waterGroups.set(geometry, groups);
+            }
+          }
+          surface.waterTexels = null;
         } finally { if (scratch) this.residency.release(scratchKey); }
         await yieldToMain();
         const base = terrainUniforms(THREE, cpu.data, surface);
@@ -1242,7 +1258,7 @@ export class RangeScene {
         }
         material = createSceneMaterial(THREE, uniforms, { forestDebug: this.forestDebug, budget: this.budget,
           pixelated: this.pixelated ?? opts.pixelated ?? false,
-          mappedWaterOnly: view.riverPolicy?.terrainWater === 'mapped-only',
+          mappedWaterOnly,
           terrainShading: terrainShadingForView(this.terrainShading, view.id) });
         if (Object.keys(riverGeometries).length) {
           riverMaterial = createSceneMaterial(THREE, uniforms, { budget: this.budget, riverSurface: true,
@@ -1297,6 +1313,7 @@ export class RangeScene {
         // During travel a side draws its nearer bands only in some columns,
         // so there the fill draws from its own scene under the same scissor.
         const fringeMeshes = [], fringeTravel = [];
+        const terrainMeshes = Object.values(meshes);
         for (let b = 1; b < BANDS.length; b++) {
           const g = geos.fringes?.[BANDS[b]];
           if (!g) continue;
@@ -1304,6 +1321,7 @@ export class RangeScene {
           fm.frustumCulled = false;
           scenes[BANDS[b - 1]].add(fm);
           fringeMeshes.push(fm);
+          terrainMeshes.push(fm);
           const travel = new THREE.Mesh(g, material);
           travel.frustumCulled = false;
           const scene = new THREE.Scene();
@@ -1311,6 +1329,8 @@ export class RangeScene {
           fringeTravel.push({ band: BANDS[b], pass: BANDS[b - 1], scene });
         }
         this._attachRiverFringes(riverFringeGeometries, riverMaterial, scenes, fringeMeshes, fringeTravel);
+        const waterColour = terrainMeshes.filter(m => waterGroups.has(m.geometry))
+          .map(mesh => ({ mesh, geometry: mesh.geometry, groups: waterGroups.get(mesh.geometry) }));
         material.depthFunc = THREE.LessEqualDepth;
         material.depthWrite = false;
         forest = createForest(THREE, placed, uniforms, { forestDebug: this.forestDebug });
@@ -1387,7 +1407,7 @@ export class RangeScene {
           riverMaterial, riverDepthMaterial, riverOwnershipMaterials, riverGeometries, riverFringeGeometries, riverDepthMeshes, riverStats,
           forest, stageGL, featureGeometries, featureMaterial,
           stats: { ...geos.stats, trees: forest.counts, featureBytes: featureBudgetBytes }, gpuKey, cpuKey: cpu.key, cpuOwner,
-          waterSubsets, rules, waterLevelM, mirrorLevelM, materialKey: mat.key, materialOwner, actors, actorRoutes: routes, castSeed, castPlan: plan, castWork: work,
+          waterSubsets, rules, waterLevelM, mirrorLevelM, waterColour, materialKey: mat.key, materialOwner, actors, actorRoutes: routes, castSeed, castPlan: plan, castWork: work,
         };
         if (windowWorker) {
           prepared.windowWorker = windowWorker;
@@ -2865,10 +2885,14 @@ export class RangeScene {
         if (!sub.index.count) mesh.visible = false;
       }
       u.uWaterOnly.value = 1;
-      for (const band of pass ? [pass] : BANDS) {
-        r.render(p.scenes[band], this.camera);
-        if (bandColumns) this._travelFringe(p, outputTarget, band, bandColumns);
-      }
+      // Travel columns draw their own seam copies whole; so does this pass.
+      const restore = bandColumns ? null : restrictWaterColour(p.waterColour);
+      try {
+        for (const band of pass ? [pass] : BANDS) {
+          r.render(p.scenes[band], this.camera);
+          if (bandColumns) this._travelFringe(p, outputTarget, band, bandColumns);
+        }
+      } finally { restore?.(); }
       u.uWaterOnly.value = 0;
       if (this.crestProbeMode === 'refined' && !capture && !pass && !bandColumns && side === 'A'
         && w === this.size.width && h === this.size.height && this.crestProbe?.frameId === frame.frameId) {
