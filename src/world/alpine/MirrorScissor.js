@@ -97,8 +97,40 @@ function culled(vp, corners) {
  * main camera cannot see hold no drawn fragment.
  */
 export function mirrorScissor(boxes, matrix, viewProj, lift, shiver, width, height) {
+  if (![shiver.x, shiver.y].every(Number.isFinite)) return null;
+  // The fetch clamps to [0.001, 0.999].
+  return projectedRect(boxes, matrix, viewProj, lift, shiver, width, height, t => Math.min(0.999, Math.max(0.001, t)));
+}
+
+/** Pixels added around the main view's water rectangle (rounding). */
+export const WATER_SCISSOR_MARGIN_PX = 2;
+
+/**
+ * The rectangle of a `width` x `height` target (GL pixels, bottom-left
+ * origin) holding every fragment the main camera (`viewProj`, column-major)
+ * can draw from triangles inside the water boxes, lifted by `lift`; null
+ * when that cannot be bounded. The lake layer's own pass draws only those
+ * triangles (WaterSubset.js), so it can be scissored to this rectangle.
+ */
+export function waterScissor(boxes, viewProj, lift, width, height) {
+  if (!viewProj) return null;
+  // World point -> [0, 1] across the target, as the rasterizer maps NDC.
+  const v = viewProj, screen = new Float64Array(16);
+  for (let c = 0; c < 4; c++) {
+    screen[c * 4] = 0.5 * v[c * 4] + 0.5 * v[c * 4 + 3];
+    screen[c * 4 + 1] = 0.5 * v[c * 4 + 1] + 0.5 * v[c * 4 + 3];
+    screen[c * 4 + 2] = v[c * 4 + 2];
+    screen[c * 4 + 3] = v[c * 4 + 3];
+  }
+  return projectedRect(boxes, screen, viewProj, lift, { x: 0, y: 0 }, width, height, t => t, WATER_SCISSOR_MARGIN_PX);
+}
+
+// The pixel rectangle of every box (lifted) projected through `matrix`
+// (to [0, 1] uv over w), padded by `pad` in uv and `margin` pixels, with uv
+// passed through `clamp` first. Boxes `viewProj` culls hold no fragment.
+function projectedRect(boxes, matrix, viewProj, lift, pad, width, height, clamp, margin = MIRROR_SCISSOR_MARGIN_PX) {
   if (!boxes?.length || !(width > 0 && height > 0)) return null;
-  if (![lift.lo, lift.hi, shiver.x, shiver.y].every(Number.isFinite)) return null;
+  if (![lift.lo, lift.hi].every(Number.isFinite)) return null;
   const m = matrix, corners = new Float64Array(24);
   let u0 = Infinity, v0 = Infinity, u1 = -Infinity, v1 = -Infinity;
   for (let b = 0; b < boxes.length; b += 6) {
@@ -118,7 +150,7 @@ export function mirrorScissor(boxes, matrix, viewProj, lift, shiver, width, heig
       if (w < w0) w0 = w; if (w > w1) w1 = w;
       if (nu < nu0) nu0 = nu; if (nu > nu1) nu1 = nu; if (nv < nv0) nv0 = nv; if (nv > nv1) nv1 = nv;
     }
-    // Fragments behind the mirror camera (w <= 0) never read it.
+    // Points behind the camera (w <= 0) are never drawn and never read it.
     if (!(w1 > 0)) continue;
     if (w0 > 1e-9) {
       for (let c = 0; c < 24; c += 3) {
@@ -135,10 +167,8 @@ export function mirrorScissor(boxes, matrix, viewProj, lift, shiver, width, heig
     }
   }
   if (u0 === Infinity) return { x: 0, y: 0, width: 0, height: 0 };
-  // The fetch clamps to [0.001, 0.999].
-  const clamp = t => Math.min(0.999, Math.max(0.001, t));
-  u0 = clamp(u0 - shiver.x); u1 = clamp(u1 + shiver.x); v0 = clamp(v0 - shiver.y); v1 = clamp(v1 + shiver.y);
-  const x0 = Math.max(0, Math.floor(u0 * width) - MIRROR_SCISSOR_MARGIN_PX), x1 = Math.min(width, Math.ceil(u1 * width) + MIRROR_SCISSOR_MARGIN_PX);
-  const y0 = Math.max(0, Math.floor(v0 * height) - MIRROR_SCISSOR_MARGIN_PX), y1 = Math.min(height, Math.ceil(v1 * height) + MIRROR_SCISSOR_MARGIN_PX);
+  u0 = clamp(u0 - pad.x); u1 = clamp(u1 + pad.x); v0 = clamp(v0 - pad.y); v1 = clamp(v1 + pad.y);
+  const x0 = Math.max(0, Math.floor(u0 * width) - margin), x1 = Math.min(width, Math.ceil(u1 * width) + margin);
+  const y0 = Math.max(0, Math.floor(v0 * height) - margin), y1 = Math.min(height, Math.ceil(v1 * height) + margin);
   return { x: x0, y: y0, width: Math.max(0, x1 - x0), height: Math.max(0, y1 - y0) };
 }

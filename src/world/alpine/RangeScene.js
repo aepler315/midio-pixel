@@ -56,7 +56,7 @@ import { flashScreenPoint, rainSeed01, stormKindRow } from './RangeStorm.js';
 import { forestWindAt } from './ForestWind.js';
 import { createWetMask, fillWetRows, waterIndexSubsetAsync } from './WaterSubset.js';
 import { attachTerrainCulling, setChunks, setTerrainMaterial, subsetChunkTable } from './TerrainChunks.js';
-import { waterBoxes, liftBounds, shiverBounds, mirrorScissor } from './MirrorScissor.js';
+import { waterBoxes, liftBounds, shiverBounds, mirrorScissor, waterScissor } from './MirrorScissor.js';
 // Storm light, linear: the deck's underside, the rain-dimmed horizon, the
 // rain air, per episode kind (RangeStorm STORM_KINDS zenith/horizon/air).
 // The air meets the slate the sky paints at the horizon (drawStormSky).
@@ -2798,18 +2798,40 @@ export class RangeScene {
    * another scene render. A refused allocation leaves the native pass intact. */
   /** The mirror texels this frame's lake can read, or null for all. */
   _mirrorScissor(p, m) {
-    const boxes = p.waterSubsets?.boxes;
+    const boxes = this._waterBoxes(p);
     if (!boxes) return null;
-    // The boxes are in mesh space; every terrain mesh must draw untransformed.
-    if (p.waterBoxesPlain === undefined) {
-      p.waterBoxesPlain = BANDS.every(band => p.scenes[band].children.every(mesh => !p.waterSubsets.has(mesh.geometry)
-        || mesh.matrixWorld.equals(new this.THREE.Matrix4()) && mesh.parent === p.scenes[band] && p.scenes[band].matrixWorld.equals(new this.THREE.Matrix4())));
-    }
-    if (!p.waterBoxesPlain) return null;
     try {
       this.camera.updateMatrixWorld();
       const viewProj = new this.THREE.Matrix4().multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse).elements;
       return mirrorScissor(boxes, m.matrix.elements, viewProj, liftBounds(p.uniforms), shiverBounds(p.uniforms), m.target.width, m.target.height);
+    } catch { return null; }
+  }
+
+  /** The view's water boxes (MirrorScissor.waterBoxes) when they hold
+   *  every lake fragment as drawn: in mesh space, so every terrain mesh
+   *  must draw untransformed. Null otherwise. */
+  _waterBoxes(p) {
+    const boxes = p.waterSubsets?.boxes;
+    if (!boxes) return null;
+    if (p.waterBoxesPlain === undefined) {
+      p.waterBoxesPlain = BANDS.every(band => p.scenes[band].children.every(mesh => !p.waterSubsets.has(mesh.geometry)
+        || mesh.matrixWorld.equals(new this.THREE.Matrix4()) && mesh.parent === p.scenes[band] && p.scenes[band].matrixWorld.equals(new this.THREE.Matrix4())));
+    }
+    return p.waterBoxesPlain ? boxes : null;
+  }
+
+  /** Where this frame's lake layer can draw in a `w` x `h` target, or null
+   *  (anywhere): the water boxes through the main camera. Only when the
+   *  water pass draws nothing but water-subset triangles: every band and
+   *  seam geometry has one (else there are no boxes) and no river surface
+   *  shares the band scenes. */
+  _waterScissor(p, w, h) {
+    const boxes = this._waterBoxes(p);
+    if (!boxes || Object.keys(p.riverGeometries || {}).length || Object.keys(p.riverFringeGeometries || {}).length) return null;
+    try {
+      this.camera.updateMatrixWorld();
+      const viewProj = new this.THREE.Matrix4().multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse).elements;
+      return waterScissor(boxes, viewProj, liftBounds(p.uniforms), w, h);
     } catch { return null; }
   }
 
@@ -2913,6 +2935,19 @@ export class RangeScene {
     r.setRenderTarget(outputTarget);
     r.setClearColor(0x000000, 0);
     r.clear(true, true, false);
+    // Above the native grid (output resolution, captures) nothing reads
+    // this target's depth, and its water lies on the water triangles: the
+    // whole pass, depth included, is scissored to where they project, so
+    // the chunk culling (TerrainChunks.js) drops all terrain outside it.
+    // The native pass keeps its whole depth (the crest probe reads it).
+    const above = capture || w !== this.size.width || h !== this.size.height;
+    const scissor = above && !bandColumns ? this._waterScissor(p, w, h) : null;
+    if (above) this.stats.waterScissor = scissor ? scissor.width * scissor.height / (w * h) : 1;
+    if (scissor) {
+      outputTarget.scissor.set(scissor.x, scissor.y, scissor.width, scissor.height);
+      outputTarget.scissorTest = true;
+      r.setRenderTarget(outputTarget);
+    }
     try {
       // Terrain and the hard forest cut hide water behind land and trees.
       this.camera.layers.set(0); this.camera.layers.enable(2);
@@ -2942,6 +2977,7 @@ export class RangeScene {
         if (bandColumns) this._travelFringe(p, outputTarget, band, bandColumns);
       }
       u.uWaterOnly.value = 0;
+      if (outputTarget.scissorTest) { outputTarget.scissorTest = false; r.setRenderTarget(outputTarget); }
       if (this.crestProbeMode === 'refined' && !capture && !pass && !bandColumns && side === 'A'
         && w === this.size.width && h === this.size.height && this.crestProbe?.frameId === frame.frameId) {
         try { this.crestProbe.water(outputTarget, this.camera); } catch { /* shorelines are optional */ }
@@ -2958,6 +2994,7 @@ export class RangeScene {
       return this.canvas;
     } finally {
       u.uWaterOnly.value = 0;
+      outputTarget.scissorTest = false;
       u.uViewportPx.value.set(this.size.width, this.size.height);
       for (const [mesh, visible] of hidden) mesh.visible = visible;
       for (const [mesh, geometry, visible] of swapped) { mesh.geometry = geometry; mesh.visible = visible; }
