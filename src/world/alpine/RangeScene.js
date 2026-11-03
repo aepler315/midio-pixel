@@ -142,6 +142,9 @@ export class RangeScene {
     // docs/compiled-terrain-experiment.md): what was asked, and per view
     // what was actually drawn and why.
     this.compiledTerrain = { request: compiledTerrainRequest(globalThis.location?.search || ''), views: {} };
+    // Experiment (?lakeReflection=screen): no mirror render; the lake
+    // reflects only the reused sky/far backdrop, blurred. Default: mirror.
+    this.lakeReflection = new URLSearchParams(globalThis.location?.search || '').get('lakeReflection') === 'screen' ? 'screen' : 'mirror';
     this._cameraViews = new WeakMap();
     // Developer-only terrain views (?rangeDebug=roughness etc.).
     this.debugMask = TERRAIN_DEBUG_MODES[new URLSearchParams(globalThis.location?.search || '').get('rangeDebug')] ?? 0;
@@ -472,12 +475,15 @@ export class RangeScene {
     // The stage's rectangle in the canvas: the painter's scale/translate.
     const T = ctx.getTransform?.() || { a: 1, d: 1, e: 0, f: 0 };
     b.ctx.clearRect(0, 0, width, height);
+    // Screen reflections: a soft image instead of the mirror's pixels.
+    b.ctx.filter = this.lakeReflection === 'screen' ? `blur(${Math.max(1, width / 240).toFixed(1)}px)` : 'none';
     if (drawSky) {
       b.ctx.save();
       try { drawSky(b.ctx, width, height); }
       finally { b.ctx.restore(); }
     }
     b.ctx.drawImage(ctx.canvas, T.e, T.f, T.a * stage.width, T.d * stage.height, 0, 0, width, height);
+    b.ctx.filter = 'none';
     b.texture.needsUpdate = true;
     b.frame = frame?.frameId ?? -1;
     return true;
@@ -535,7 +541,7 @@ export class RangeScene {
     const ripple = (m) => 0.0012 + 0.0025 * (m?.groove ?? 0) + 0.004 * (m?.kick01 ?? 0);
     const level = p.mirrorLevelM;
     const wanted = Number.isFinite(level) && rangeQuality(frame.qualityLevel).waterMirror
-      && (frame.narrative?.materials ?? 1) > .01;
+      && (frame.narrative?.materials ?? 1) > .01 && this.lakeReflection !== 'screen';
     const m = wanted ? this._ensureMirror(side) : null;
     // A recovered mirror fades in over heard time; a shed drops it at once
     // (keeping it would prolong the overload). Once per heard frame.
