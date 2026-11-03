@@ -2553,6 +2553,7 @@ export class RangeScene {
       this._travelDepth(p, target, pass, bandColumns);
       depth.frame = -1;
       depth.owned = false;
+      depth.content = null;
     } else if (depth.frame !== frame.frameId || depth.view !== viewId || depth.occurrenceId !== frame.occurrenceId) {
       r.setRenderTarget(target);
       r.setClearColor(0x000000, 0);
@@ -2561,6 +2562,9 @@ export class RangeScene {
       if (own) this._renderOwnership(p, target, own);
       else r.render(p.depthScene, this.camera);
       depth.owned = !!own;
+      // What the target's depth now holds, for the lake layer to copy
+      // instead of drawing the terrain again (renderWater).
+      depth.content = own ? null : { target, frame: frame.frameId, view: viewId, occurrenceId: frame.occurrenceId, cut: false };
       depth.frame = frame.frameId;
       depth.view = viewId;
       depth.occurrenceId = frame.occurrenceId;
@@ -2588,6 +2592,7 @@ export class RangeScene {
         if (bandColumns && p.depthScenes) this._travelDepth(p, target, pass, bandColumns, { clear: false });
         else r.render(p.depthScene, this.camera);
         depth.frame = -1;
+        if (depth.content) depth.content.cut = true;
         this.camera.layers.set(3);
         if (castInBands) enableCastLayers(this.camera);
         r.render(p.scenes[pass], this.camera);
@@ -2664,6 +2669,7 @@ export class RangeScene {
       this.camera.layers.set(2);
       r.render(p.depthScene, this.camera);
       depth.frame = -1; // no longer plain opaque depth
+      if (depth.content) depth.content.cut = true;
     }
     r.setClearColor(0x000000, 0);
     r.clear(true, false, false);
@@ -2836,12 +2842,50 @@ export class RangeScene {
     return subsets;
   }
 
+  /** The depth record of `side`'s target when it holds exactly this
+   *  frame's plain depth pre-pass (terrain, rivers and tree cores; `cut`
+   *  when the trees' crown cut is in it too), single-sampled with a depth
+   *  texture. Null otherwise. */
+  _sharedDepth(side, frame, viewId) {
+    const target = side === 'B' ? this.sideTargets?.B : this.target;
+    const c = this.depthCache?.[side]?.content;
+    if (!c || !target || c.target !== target || target.samples || !target.depthTexture) return null;
+    if (c.frame !== frame.frameId || c.view !== viewId || c.occurrenceId !== frame.occurrenceId) return null;
+    return c;
+  }
+
+  /** Blit `src`'s depth into `dst` (same size, single-sampled, same depth
+   *  texture format) and leave `dst` bound. False when that cannot be done;
+   *  the caller then draws the depth pre-pass itself. */
+  _copyDepth(src, dst) {
+    const r = this.renderer, gl = r?.getContext?.(), THREE = this.THREE;
+    const a = src?.depthTexture, b = dst?.depthTexture;
+    if (!gl?.blitFramebuffer || !r.properties || !a || !b) return false;
+    if (src.samples || dst.samples || src.width !== dst.width || src.height !== dst.height
+      || a.type !== b.type || a.format !== b.format || (THREE && a.type !== THREE.UnsignedIntType)) return false;
+    r.setRenderTarget(dst);
+    const from = r.properties.get(src).__webglFramebuffer, to = r.properties.get(dst).__webglFramebuffer;
+    if (!from || !to || Array.isArray(from) || Array.isArray(to)) return false;
+    // Raw binds, ending with both read and draw on `dst`'s framebuffer:
+    // exactly what three.js's state cache recorded for setRenderTarget(dst).
+    // The bound target has no scissor, so the blit covers every pixel.
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, from);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, to);
+    gl.blitFramebuffer(0, 0, src.width, src.height, 0, 0, dst.width, dst.height, gl.DEPTH_BUFFER_BIT, gl.NEAREST);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, to);
+    return true;
+  }
+
   renderWater(frame, viewId, width, height, { pass = null, side = 'A', bandColumns = null, capture = false } = {}) {
     const p = this.prepared.get(viewId);
     if (!p || this.contextLost || !this.target || !(width > 0 && height > 0)) return null;
     const w = Math.max(2, Math.round(width)), h = Math.max(2, Math.round(height));
     const outputTarget = (this._waterRenderTarget || RangeScene.prototype._waterRenderTarget).call(this, w, h, { capture });
     if (!outputTarget) return null;
+    // At the native grid the side's target already holds this frame's
+    // terrain and forest depth (renderPartition): copy it, not redraw it.
+    const shared = !capture && !bandColumns && w === this.size.width && h === this.size.height
+      ? this._sharedDepth(side, frame, viewId) : null;
     const r = this.renderer, u = p.uniforms, hidden = [], swapped = [];
     this._setCamera(p.view, frame, p);
     this._setUniforms(p, frame);
@@ -2853,7 +2897,11 @@ export class RangeScene {
     try {
       // Terrain and the hard forest cut hide water behind land and trees.
       this.camera.layers.set(0); this.camera.layers.enable(2);
-      if (bandColumns && pass && p.depthScenes) this._travelDepth(p, outputTarget, pass, bandColumns, { clear: false });
+      if (shared && this._copyDepth(shared.target, outputTarget)) {
+        // Only the trees' hard crown cut (layer 2) can be missing from it.
+        if (!shared.cut) { this.camera.layers.set(2); r.render(p.depthScene, this.camera); }
+        this.stats.waterDepthCopies = (this.stats.waterDepthCopies || 0) + 1;
+      } else if (bandColumns && pass && p.depthScenes) this._travelDepth(p, outputTarget, pass, bandColumns, { clear: false });
       else r.render(p.depthScene, this.camera);
       this.camera.layers.set(0);
       // Non-partitioned forest meshes share layer 0 with terrain.
