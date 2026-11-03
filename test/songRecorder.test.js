@@ -8,8 +8,8 @@
 // document, performance, the audio graph -- comes from an injected scope.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_RECORDING_BYTES, SongRecorder } from '../src/render/SongRecorder.js';
-import { presetById, STAGE_W, STAGE_H } from '../src/render/VideoExport.js';
+import { MAX_RECORDING_BYTES, SongRecorder, finalizeReserveBytes, recordingBudgetBytes } from '../src/render/SongRecorder.js';
+import { presetById, STAGE_W, STAGE_H, describeEarlyStop, estimateExportBytes } from '../src/render/VideoExport.js';
 import { PixelPresentation, compositePixelFrame } from '../src/render/PixelPresentation.js';
 import { pixelGrid } from '../src/render/PixelRenderPolicy.js';
 import { GraphicsResidency } from '../src/render/GraphicsResidency.js';
@@ -576,4 +576,119 @@ test('drained stop still saves when a hidden tab suspends animation callbacks', 
   assert.equal(timers[0].delay, 1500); timers[0].callback();
   assert.ok((await pending).blob.size > 0);
   assert.equal(rec.finalizing, false);
+});
+
+test('the soft limit stops early but keeps the final flush that makes the file playable', async () => {
+  // The audit reproduction: near the cap, a chunk crossing it and the stop
+  // flush (an MP4's index) used to both be dropped from a "successful" file.
+  const scope = fakeScope({ chunkOnStart: false });
+  let rec;
+  let requested = 0;
+  rec = new SongRecorder({ stage, scope, onAutoStop: () => { requested++; stopped = rec.stop(); } });
+  let stopped = null;
+  assert.equal(rec.start({ presetId: '720p' }), true);
+  const encoder = scope.recorders[0];
+  const head = h264Chunk();
+  encoder.ondataavailable({ data: head });
+  rec.bytes = rec._softLimitBytes - 1000;
+  encoder.stop = function stop() {
+    this.state = 'inactive';
+    this.ondataavailable({ data: new Blob([new Uint8Array(4096)]) });
+    this.onstop();
+  };
+  encoder.ondataavailable({ data: new Blob([new Uint8Array(2000)]) });
+  assert.equal(requested, 1);
+  const result = await stopped;
+  assert.deepEqual(rec._chunks, []);
+  assert.equal(result.stoppedEarly, 'limit');
+  assert.equal(result.complete, true);
+  assert.equal(result.droppedBytes, 0);
+  assert.match(result.error, /512 MB export limit/);
+  // head + crossing + moov all made it into the file.
+  assert.equal(result.bytes, head.size + 2000 + 4096);
+});
+
+test('output refused at the hard cap marks the file incomplete instead of reporting success', async () => {
+  const scope = fakeScope({ chunkOnStart: false });
+  let rec;
+  let stopped = null;
+  rec = new SongRecorder({ stage, scope, onAutoStop: () => { stopped = rec.stop(); } });
+  rec.start({ presetId: '720p' });
+  const encoder = scope.recorders[0];
+  encoder.ondataavailable({ data: h264Chunk() });
+  rec.bytes = MAX_RECORDING_BYTES - 100;
+  encoder.ondataavailable({ data: new Blob([new Uint8Array(5000)]) });
+  const result = await stopped;
+  assert.equal(result.complete, false);
+  assert.equal(result.droppedBytes, 5000);
+  assert.equal(result.stoppedEarly, 'limit');
+  assert.equal(describeEarlyStop(result).title, 'Incomplete video saved');
+  assert.match(describeEarlyStop(result).detail, /may not play/);
+});
+
+test('an encoder error after partial data is reported on the result, not saved as a clean file', async () => {
+  const scope = fakeScope({ chunkOnStart: false });
+  let rec;
+  let stopped = null;
+  let messages = [];
+  rec = new SongRecorder({ stage, scope, onAutoStop: (m) => { messages.push(m); stopped = rec.stop(); } });
+  rec.start({ presetId: '720p' });
+  const encoder = scope.recorders[0];
+  encoder.ondataavailable({ data: h264Chunk() });
+  encoder.onerror({ error: { message: 'EncodingError' } });
+  encoder.onerror({ error: { message: 'EncodingError' } });
+  const result = await stopped;
+  assert.deepEqual(messages, ['EncodingError']);
+  assert.equal(result.stoppedEarly, 'error');
+  assert.equal(result.complete, false);
+  assert.equal(result.error, 'EncodingError');
+  const line = describeEarlyStop(result);
+  assert.equal(line.title, 'Partial video saved');
+  assert.match(line.detail, /failed .*EncodingError.*may not play/);
+});
+
+test('a user stop that drains past the soft limit is still a whole, user-ended file', async () => {
+  const scope = fakeScope({ chunkOnStart: false });
+  let requested = 0;
+  const rec = new SongRecorder({ stage, scope, onAutoStop: () => { requested++; } });
+  rec.start({ presetId: '720p' });
+  const encoder = scope.recorders[0];
+  encoder.ondataavailable({ data: h264Chunk() });
+  rec.bytes = rec._softLimitBytes - 10;
+  encoder.stop = function stop() {
+    this.state = 'inactive';
+    this.ondataavailable({ data: new Blob([new Uint8Array(4096)]) });
+    this.onstop();
+  };
+  const result = await rec.stop();
+  assert.equal(requested, 0);
+  assert.equal(result.stoppedEarly, null);
+  assert.equal(result.complete, true);
+  assert.equal(describeEarlyStop(result), null);
+});
+
+test('a later recording starts with a clean early-stop record', async () => {
+  const scope = fakeScope();
+  let rec;
+  let stopped = null;
+  rec = new SongRecorder({ stage, scope, onAutoStop: () => { stopped = rec.stop(); } });
+  rec.start({ presetId: '720p' });
+  scope.recorders[0].onerror({});
+  await stopped;
+  rec.start({ presetId: '720p' });
+  const result = await rec.stop();
+  assert.equal(result.stoppedEarly, null);
+  assert.equal(result.complete, true);
+  assert.equal(result.error, null);
+});
+
+test('the finalization reserve scales with bitrate and the pre-flight budget leaves it free', () => {
+  assert.equal(finalizeReserveBytes(0), 16 * 1024 * 1024);
+  const top = finalizeReserveBytes(80_000_000 + 160_000);
+  assert.ok(top >= 4 * 10_020_000, 'four seconds of the fastest export fit');
+  const settings = { resolution: '2160', aspect: '16:9', fps: 60, encoding: 'best' };
+  assert.ok(recordingBudgetBytes(settings) < MAX_RECORDING_BYTES - 40 * 1000 * 1000);
+  // A song that fits the budget leaves the stop flush room under the cap.
+  const seconds = Math.floor(recordingBudgetBytes(settings) / estimateExportBytes(settings, 1000));
+  assert.ok(estimateExportBytes(settings, seconds * 1000) + top <= MAX_RECORDING_BYTES + 1);
 });

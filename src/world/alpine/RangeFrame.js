@@ -30,6 +30,7 @@ import { rangeActorsAt } from './RangeActors.js';
 import { rangeUserCamera } from './RangeCamera.js';
 import { hexLerp } from '../../utils/color.js';
 import { sampleEffectsMusic } from './EffectsMusic.js';
+import { danceDisplacement, landDanceRequest } from './TerrainHierarchy.js';
 
 const NIGHT_SKY = '#05060d';
 
@@ -49,8 +50,13 @@ export function viewportState({ logicalWidth, logicalHeight, backingWidth, backi
 }
 
 /** Shared source-space field. receiver=0 pins hydro receivers and shores. */
-export function sceneDeformation(music, x, z, y, heightRange, receiver = 1) {
+export function sceneDeformation(music, x, z, y, heightRange, receiver = 1, hierarchy = null) {
   if (!music) return 0;
+  const dance = hierarchy ? Math.min(1, Math.max(0, receiver)) * danceDisplacement(music, hierarchy) : 0;
+  return baseDeformation(music, x, z, y, heightRange, receiver) + dance;
+}
+
+function baseDeformation(music, x, z, y, heightRange, receiver) {
   const span = Math.max(1, heightRange[1] - heightRange[0]);
   const h = Math.min(1, Math.max(0, (y - heightRange[0]) / span));
   const along = x * music.waveDir[0] + z * music.waveDir[1];
@@ -221,6 +227,53 @@ export function landMotion(music, moment01, { tSec = 0, seed = 0 } = {}) {
   return out;
 }
 
+/** Land dance along the ridge/drainage hierarchy (TerrainHierarchy.js,
+ *  docs/landscape-dance.md). `dance01` 0 returns `land` untouched. Above
+ *  0 the section swell gives up half its share at full dance, and the
+ *  freed metres go to two channels, so the summed bound stays inside
+ *  RANGE_MOTION_REFERENCE_M and every bound downstream of it holds:
+ *   - spine: ridge spines heave on the kick and the groove. Quiet music
+ *     moves only the highest-order spines; energy and the section moment
+ *     open the gate down the ridge orders.
+ *   - drain: a wave runs down every drainage, one wavelength per bar,
+ *     locked to the song's beat. Valley floors and water never move. */
+// Ashton (2026-11-03): the first cut (spines 32 m on every kick, a 2.2 km
+// wave once per bar) read as the ridges retching. Now a breath, not a pulse:
+// small metres, the spines follow energy and the section moment rather than
+// each kick, and a long wave takes four bars to pass.
+export const LAND_DANCE = Object.freeze({ swellYield: .15, spineM: 10, drainM: 6, beatsPerWave: 16 });
+
+export function landDance(land, { dance01 = 0, beats = null, tSec = 0 } = {}) {
+  const d = unit(dance01);
+  if (!d || !land) return land;
+  const src = land.source || land;
+  const moment = unit(land.landMoment01);
+  // Sustained energy only: activity01 also jumps with every kick.
+  const energy = unit(Math.max(src.groove ?? 0, src.sustain ?? 0));
+  const kick = unit(src.kick01);
+  const presence = unit(src.motionPresence01 ?? 1);
+  const yieldK = 1 - LAND_DANCE.swellYield * d;
+  const beat = Number.isFinite(beats) ? beats : tSec * 2;
+  const out = { ...land, landDance01: d,
+    amplitudeM: land.amplitudeM * yieldK, structuralM: land.structuralM * yieldK,
+    spineM: LAND_DANCE.spineM * d * presence * Math.min(1, .55 * energy + .15 * kick + .5 * moment),
+    spineGate01: .85 - .55 * Math.max(energy * energy, moment),
+    drainM: LAND_DANCE.drainM * d * presence * (.3 + .7 * energy),
+    drainPhaseRad: 2 * Math.PI * beat / LAND_DANCE.beatsPerWave };
+  out.totalBoundM = out.amplitudeM + out.structuralM + out.spineM + out.drainM;
+  return out;
+}
+
+/** Beats heard by `timeMs` on a SongBeatTransport snapshot, or null. */
+export function heardBeats(transport, timeMs) {
+  if (!transport || transport.freeTime || !(transport.periodMs > 0) || !Number.isFinite(transport.anchorMs)) return null;
+  return (timeMs - transport.anchorMs) / transport.periodMs;
+}
+
+let danceRequest = null;
+/** The land dance for this page (on unless ?landDance=0), read once. */
+export function requestedLandDance() { return danceRequest ??= landDanceRequest(); }
+
 export const RANGE_MOTION_REFERENCE_M = 106.7;
 
 /** The kicks' fronts in flight at `timeMs`, newest first. Each keeps the
@@ -246,6 +299,7 @@ export function calibrateRangeMusic(music, { view = null, progress01 = .5, depth
   const gain = Math.min(targetPx * metresPerPixel / RANGE_MOTION_REFERENCE_M, cap / RANGE_MOTION_REFERENCE_M);
   const m = { ...music };
   for (const k of ['amplitudeM', 'kickM', 'gestureM', 'melodicM', 'structuralM']) m[k] *= gain;
+  for (const k of ['spineM', 'drainM']) if (k in m) m[k] *= gain;
   m.totalBoundM = music.totalBoundM * gain;
   m.targetPx = targetPx;
   m.calibrationGain = gain;
@@ -388,8 +442,9 @@ export function buildRangeFrame({
     motif, activity01: ridgeSample?.activity01 ?? sampled.energy,
     motionPresence01: ridgeSample?.motionPresence01, calibrationActivity01: ridgeSample?.pressureEnergy01,
   });
-  const land = landMotion(music, landMoment01(mgr.sections, timeMs, mgr._landHistory),
-    { tSec: timeMs / 1000, seed: sim.songSeed ?? 0 });
+  const land = landDance(landMotion(music, landMoment01(mgr.sections, timeMs, mgr._landHistory),
+    { tSec: timeMs / 1000, seed: sim.songSeed ?? 0 }),
+  { dance01: mgr.landDance01 ?? requestedLandDance(), beats: heardBeats(mgr.beatTransport, timeMs), tSec: timeMs / 1000 });
   const ridgeViewport = { width: sim.stageW || 1280, height: sim.stageH || 720 };
   // These measurements describe legacy painted ridges and their moon
   // relationship. The compact smooth sky consumes neither; keep the

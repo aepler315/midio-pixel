@@ -26,7 +26,7 @@ import { prepareTerrainAssets, RangeAssetError } from './RangeAssets.js';
 import { createSurfaceTextureAsync, terrainUniforms, createBandGeometries, createBandGeometriesAsync } from './TerrainGL.js';
 import { syncGustUniforms, syncWaterMusicUniforms, sceneUniforms, createSceneMaterial, createDepthMaterial, setLinearFromHex, createMaterialTextures, applyMaterial, SCENE_VERT, FEATURE_FRAG } from './TerrainMaterial.js';
 import { terrainFeatureSegmentsAsync } from './TerrainFeatures.js';
-import { CrestProbe } from './CrestProbe.js';
+import { CrestProbe, PROBE_FINE_K, FINE_FRAG } from './CrestProbe.js';
 import { loadMaterialPack, materialGpuBytes, RULE_DEFAULTS, validateWaterRules } from './MaterialPackage.js';
 import { placeForestAsync, forestPlacementBound } from './ForestCover.js';
 import { SunShaftGL, SHAFT_KEY, shaftSize, shaftSource } from './SunShaftGL.js';
@@ -35,6 +35,7 @@ import { hashSeed } from '../../utils/math.js';
 import { createForest, FOREST_ASSET_BUILD_BYTES, forestGroupingBytes } from './ForestGL.js';
 import { forestAssetBytes, FOREST_FAMILIES, FOREST_VARIANTS } from './ForestSpeciesAssets.js';
 import { bakeHorizonAsync, createHorizonTexture, horizonBytes } from './TerrainOcclusion.js';
+import { hierarchyLattice, buildTerrainHierarchyAsync, createHierarchyTexture, HIERARCHY_MAX_SAMPLES } from './TerrainHierarchy.js';
 import { planTerrainWindow, terrainWindowCoverage, terrainWindowCovers, tourSummitTiles, terrainPixelProtection, TourWindowCache } from './TerrainWindow.js';
 import { TerrainWindowWorker, shareTerrainLanes, terrainLaneBytes } from './TerrainWindowWorkerClient.js';
 import { buildTerrainGeometry } from './TerrainMesh.js';
@@ -45,15 +46,18 @@ import { applyCameraMoves, rangeUserCamera } from './RangeCamera.js';
 import { BANDS, terrainFringeBytes, terrainHeightAt, SURFACE_BUILD_BYTES_PER_PIXEL } from './TerrainMesh.js';
 import { mistParams, mistDrift, easeMistSteps, tourMistCap, tourMistFade, atmosphereMusic } from './RangeAtmosphere.js';
 import { mirrorSize, mirrorLevelFor, mirrorCameraFor, mirrorTextureMatrix, MIRROR_CLIP_M, MIRROR_LIFT } from './WaterMirror.js';
-import { scenicProjection, calibrateRangeMusic, rangeCameraCalibration } from './RangeFrame.js';
+import { scenicProjection, calibrateRangeMusic, rangeCameraCalibration, requestedLandDance } from './RangeFrame.js';
 import { applyGlacierUniforms, glacierErrors, glacierSample } from './GlacierField.js';
 import { ActorsGL, SITE_LIGHTS_MAX, CAST_LAYER, CAST_RIBBON_LAYER, enableCastLayers } from './ActorsGL.js';
 import { riverChannelErrors } from './RiverChannel.js';
 import { restrictWaterColour, waterColourRangesAsync } from './WaterColourRanges.js';
 import { ACTOR_IDS, ACTOR_HUES, ACTOR_LOOK, ACTOR_START, actorRoutes, routePosition } from './RangeActors.js';
+import { ACTOR_IDS, ACTOR_HUES, ACTOR_LOOK, ACTOR_NOTE_AGE_CAP_MS, ACTOR_START, actorRoutes, routePosition } from './RangeActors.js';
 import { castPlan, castWork, pathPosition, siteWalk } from './CastJobs.js';
 import { flashScreenPoint, rainSeed01, stormKindRow } from './RangeStorm.js';
 import { forestWindAt } from './ForestWind.js';
+import { createWetMask, fillWetRows, waterIndexSubsetAsync } from './WaterSubset.js';
+import { waterBoxes, liftBounds, shiverBounds, mirrorScissor } from './MirrorScissor.js';
 // Storm light, linear: the deck's underside, the rain-dimmed horizon, the
 // rain air, per episode kind (RangeStorm STORM_KINDS zenith/horizon/air).
 // The air meets the slate the sky paints at the horizon (drawStormSky).
@@ -471,12 +475,16 @@ export class RangeScene {
     // The stage's rectangle in the canvas: the painter's scale/translate.
     const T = ctx.getTransform?.() || { a: 1, d: 1, e: 0, f: 0 };
     b.ctx.clearRect(0, 0, width, height);
+    // Once the ladder sheds the mirror, the backdrop is the whole
+    // reflection: a soft image reads as water where pixel steps do not.
+    b.ctx.filter = rangeQuality(frame?.qualityLevel).waterMirror ? 'none' : `blur(${Math.max(1, width / 240).toFixed(1)}px)`;
     if (drawSky) {
       b.ctx.save();
       try { drawSky(b.ctx, width, height); }
       finally { b.ctx.restore(); }
     }
     b.ctx.drawImage(ctx.canvas, T.e, T.f, T.a * stage.width, T.d * stage.height, 0, 0, width, height);
+    b.ctx.filter = 'none';
     b.texture.needsUpdate = true;
     b.frame = frame?.frameId ?? -1;
     return true;
@@ -572,6 +580,15 @@ export class RangeScene {
       r.setRenderTarget(m.target);
       r.setClearColor(0x000000, 0);
       r.clear(true, true, false);
+      // Draw only the texels lake fragments can read (MirrorScissor.js).
+      const scissor = this._mirrorScissor(p, m);
+      this.stats.mirrorScissor = scissor ? scissor.width * scissor.height / (m.target.width * m.target.height) : 1;
+      if (scissor) {
+        m.target.scissor.set(scissor.x, scissor.y, scissor.width, scissor.height);
+        m.target.scissorTest = true;
+        r.setRenderTarget(m.target);
+      }
+      try {
       const softForest = Object.values(p.forest?.counts || {}).some(n => n > 0);
       // The lake reflects the cast with each band (it never takes the main
       // camera's separate cast pass).
@@ -587,6 +604,9 @@ export class RangeScene {
         this.mirrorCamera.layers.set(3);
         enableCastLayers(this.mirrorCamera);
         for (const band of BANDS) r.render(p.scenes[band], this.mirrorCamera);
+      }
+      } finally {
+        if (m.target.scissorTest) { m.target.scissorTest = false; r.setRenderTarget(m.target); }
       }
       this.mirrorCamera.layers.set(0); this.mirrorCamera.layers.enable(3);
       u.uClipBelow.value = -1e9;
@@ -1078,7 +1098,8 @@ export class RangeScene {
         } };
       let mat = null, res = null, published = false;
       const cpu = await prepareTerrainAssets(view, { baseUrl, residency: this.residency, generation, signal, isCurrent, owner: cpuOwner });
-      let surface, geos, material, riverMaterial, riverDepthMaterial, riverOwnershipMaterials = null, depthMaterial, ownershipMaterials = null, horizon = null, forest, stageGL, featureMaterial, actors;
+      let waterSubsets = null;
+      let surface, geos, material, riverMaterial, riverDepthMaterial, riverOwnershipMaterials = null, depthMaterial, ownershipMaterials = null, horizon = null, hierarchy = null, forest, stageGL, featureMaterial, actors;
       const riverGeometries = {}, riverFringeGeometries = {}, riverDepthMeshes = {};
       let initialWindow = null, workerKey = null, windowReservation = null, buildEntry = null, workerReservation = null;
       const featureGeometries = {};
@@ -1157,8 +1178,12 @@ export class RangeScene {
         // whose terrain streams; they keep the unshadowed key).
         const horizonOptions = { maxSize: this.budget === 'mobile' ? 192 : 256 };
         const horizonCost = view.tour || !cpu.data?.grid ? 0 : horizonBytes(cpu.data.grid, horizonOptions);
+        // Land dance (docs/landscape-dance.md, on by default): the ridge/
+        // drainage hierarchy texture, static views only for now.
+        const hierarchySamples = HIERARCHY_MAX_SAMPLES[this.budget === 'mobile' ? 'mobile' : 'desktop'];
+        const hierarchyCost = view.tour || !cpu.data?.grid || !requestedLandDance() ? 0 : hierarchySamples * hierarchySamples * 4;
         const bytes = (view.tour ? Math.ceil(gridPx * (4 * 4 / 3 + 1)) + featureBudgetBytes + 2 * ActorsGL.bytes()
-          : 2 * ((est?.meshBytes || 0) + fringeBytes + forestBytes) + (est?.surfaceTextureBytes || 0) + gridPx + featureBudgetBytes + 2 * ActorsGL.bytes() + horizonCost);
+          : 2 * ((est?.meshBytes || 0) + fringeBytes + forestBytes) + (est?.surfaceTextureBytes || 0) + gridPx + featureBudgetBytes + 2 * ActorsGL.bytes() + horizonCost + hierarchyCost);
         res = this.residency?.reserve({ key: gpuKey, bytes, owner: 'range-terrain-gpu', generation }) || null;
         if (this.residency && !res) throw new RangeAssetError('budget', `no GPU room for ${view.id}`);
         if (rawWindow) {
@@ -1183,6 +1208,9 @@ export class RangeScene {
           const checkCurrent = () => { if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`); };
           surface = await createSurfaceTextureAsync(THREE, cpu.data, { stride: textureStride, signal, checkCurrent,
             waterTexels: !view.tour && !mappedWaterOnly });
+          // Read the wet texels before the upload drops the CPU copy.
+          if (!view.tour) waterSubsets = await this._buildWaterSubsets(THREE, cpu.data, surface, geos, {
+            mappedOnly: view.riverPolicy?.terrainWater === 'mapped-only', stale: () => stale() || signal?.aborted });
           this.renderer?.initTexture?.(surface.texture);
           this.renderer?.initTexture?.(surface.receiverTexture);
           // The table replaces the uploaded RGBA in the scratch charge.
@@ -1212,6 +1240,20 @@ export class RangeScene {
           } catch (err) {
             if (err instanceof RangeAssetError || signal?.aborted) throw err;
             console.warn(`[range v2] ${view.id}: horizon bake failed; direct light unshadowed`, err);
+          }
+        }
+        if (hierarchyCost) {
+          // Optional motion: a failed build leaves the land on its swell.
+          try {
+            const built = await buildTerrainHierarchyAsync(hierarchyLattice(cpu.data, { maxSamples: hierarchySamples }), { signal });
+            if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
+            hierarchy = createHierarchyTexture(THREE, built);
+            hierarchy.stats = built.stats;
+            this.renderer?.initTexture?.(hierarchy.texture);
+            uniforms.uLandHierarchy.value = hierarchy.texture;
+          } catch (err) {
+            if (err instanceof RangeAssetError || signal?.aborted) throw err;
+            console.warn(`[range v2] ${view.id}: land hierarchy failed; land keeps its swell`, err);
           }
         }
         material = createSceneMaterial(THREE, uniforms, { forestDebug: this.forestDebug, budget: this.budget,
@@ -1361,11 +1403,11 @@ export class RangeScene {
         }
         const prepared = {
           view, generation, manifest: cpu.manifest, data: cpu.data, identity: cpu.identity, tourCpuKey: opts.tourCpuKey,
-          surface, uniforms, material, depthMaterial, ownershipMaterials, horizon, depthBandMeshes: depthMeshes, geometries: geos.geometries, fringes: geos.fringes, fringeMeshes, fringeTravel, scenes, depthScene, depthScenes,
+          surface, uniforms, material, depthMaterial, ownershipMaterials, horizon, hierarchy, depthBandMeshes: depthMeshes, geometries: geos.geometries, fringes: geos.fringes, fringeMeshes, fringeTravel, scenes, depthScene, depthScenes,
           riverMaterial, riverDepthMaterial, riverOwnershipMaterials, riverGeometries, riverFringeGeometries, riverDepthMeshes, riverStats,
           forest, stageGL, featureGeometries, featureMaterial,
           stats: { ...geos.stats, trees: forest.counts, featureBytes: featureBudgetBytes }, gpuKey, cpuKey: cpu.key, cpuOwner,
-          rules, waterLevelM, mirrorLevelM, waterColour, materialKey: mat.key, materialOwner, actors, actorRoutes: routes, castSeed, castPlan: plan, castWork: work,
+          waterSubsets, rules, waterLevelM, mirrorLevelM, waterColour, materialKey: mat.key, materialOwner, actors, actorRoutes: routes, castSeed, castPlan: plan, castWork: work,
         };
         if (windowWorker) {
           prepared.windowWorker = windowWorker;
@@ -1420,8 +1462,10 @@ export class RangeScene {
           depthMaterial?.dispose();
           for (const m of Object.values(ownershipMaterials || {})) m.dispose();
           horizon?.texture?.dispose();
+          hierarchy?.texture?.dispose();
           featureMaterial?.dispose();
           for (const g of Object.values(featureGeometries)) g.dispose();
+          for (const g of waterSubsets?.values() || []) g.dispose();
           surface?.texture?.dispose();
           surface?.receiverTexture?.dispose();
           if (!initialWindow) for (const g of Object.values(geos?.geometries || {})) g.dispose();
@@ -1747,6 +1791,7 @@ export class RangeScene {
     p.stageGL?.dispose();
     if (!p.windowCache) for (const g of Object.values(p.geometries || {})) g.dispose();
     if (!p.windowCache) for (const g of Object.values(p.fringes || {})) g.dispose();
+    for (const g of p.waterSubsets?.values() || []) g.dispose();
     p.surface?.texture?.dispose();
     p.surface?.receiverTexture?.dispose();
     p.material?.dispose();
@@ -1757,7 +1802,9 @@ export class RangeScene {
     for (const g of Object.values(p.riverFringeGeometries || {})) g.dispose();
     p.depthMaterial?.dispose();
     for (const m of Object.values(p.ownershipMaterials || {})) m.dispose();
+    for (const m of Object.values(p.fineMaterials || {})) m.dispose();
     p.horizon?.texture?.dispose();
+    p.hierarchy?.texture?.dispose();
     p.compiledDispose?.();
   }
 
@@ -1902,6 +1949,10 @@ export class RangeScene {
     u.uDeformK.value = m.waveK;
     u.uDeformDir.value.set(m.waveDir[0], m.waveDir[1]);
     u.uDeformPhase.value = m.phaseRad;
+    if (u.uLandDance) {
+      const on = !!u.uLandHierarchy?.value;
+      u.uLandDance.value.set(on ? m.spineM || 0 : 0, m.spineGate01 ?? 1, on ? m.drainM || 0 : 0, m.drainPhaseRad || 0);
+    }
     u.uTime.value = frame.timeMs / 1000;
     m.gusts.forEach((g, i) => { u.uGustAge.value[i] = g.ageSec; u.uGustAmp.value[i] = g.amp01 * (1 + (frame.storm?.amount || 0) * .8); u.uGustDir.value[i] = g.dir; });
     syncGustUniforms(u);
@@ -2146,7 +2197,8 @@ export class RangeScene {
       const look = ACTOR_LOOK[id];
       const placed = job?.actors[id];
       const pos = !s || presence <= 0.001 ? null : job ? placed?.pos
-        : route ? routePosition(route, s.travel + (ACTOR_START[id] || 0), { ...opts, hoverM: look.hoverM, bobSec: tSec + k * 2.1 }) : null;
+        // No bob: a light glides at its height; its aura breathes instead.
+        : route ? routePosition(route, s.travel + (ACTOR_START[id] || 0), { ...opts, hoverM: look.hoverM }) : null;
       u.uActorColor.value[k].set(0, 0, 0);
       if (!group) return;
       // Lanterns, motes and companions draw with the cast, after the
@@ -2184,6 +2236,7 @@ export class RangeScene {
       v.uHaloPx.value = haloPx * (1 + .18 * pulse);
       if (v.uPulse) v.uPulse.value = pulse;
       if (v.uSpread) v.uSpread.value = s.spread ?? 1;
+      if (v.uNoteAge) v.uNoteAge.value = Math.min(ACTOR_NOTE_AGE_CAP_MS, s.noteAgeMs ?? ACTOR_NOTE_AGE_CAP_MS) / 1000;
       v.uColor.value.copy(display);
       v.uGlow.value = Math.max(s.glow, beacon);
       v.uPresence.value = presence * (0.55 + 0.45 * dark) * (job?.dim ?? 1);
@@ -2197,7 +2250,7 @@ export class RangeScene {
       // weaving about it.
       (p.actors.companions[id] || []).forEach((c, j) => {
         const lag = job ? placed.lag?.[j] ?? pos
-          : routePosition(route, s.travel + (ACTOR_START[id] || 0) - (j + 1) * 0.5, { ...opts, hoverM: look.hoverM, bobSec: tSec + j * 1.3 });
+          : routePosition(route, s.travel + (ACTOR_START[id] || 0) - (j + 1) * 0.5, { ...opts, hoverM: look.hoverM });
         const w = tSec * (0.7 + 0.2 * j) + j * 2.1;
         const cp = new THREE.Vector3(lag[0], lag[1], lag[2])
           .addScaledVector(right, Math.sin(w) * 18 * mpp0).addScaledVector(up, Math.cos(w * 1.3) * 10 * mpp0);
@@ -2677,7 +2730,48 @@ export class RangeScene {
       this.crestProbe.begin(frame.frameId, target.width, target.height);
       this.crestProbe.useDepth = this.crestProbeMode === 'refined';
       this.crestProbe.band(target, this.camera, p.uniforms?.uHeightRange?.value || null, pass);
-    } catch { this.crestProbe?.dispose(); this.crestProbe = null; this.crestProbeMode = null; }
+    } catch { this.crestProbe?.dispose(); this.crestProbe = null; this.crestProbeMode = null; return; }
+    // After the last band: the fine crest (CrestProbe.js), refined probes only.
+    if (pass === 'near' && this.crestProbeMode === 'refined') {
+      try { this._probeFineCrest(target, p); } catch { /* the line keeps the grid crest */ }
+    }
+  }
+
+  /** The terrain's band and distance at PROBE_FINE_K times the grid
+   *  (FINE_FRAG), read by the crest probe's fine rows (the crest to an
+   *  output pixel instead of a grid row) and edge cells (terrain over
+   *  terrain at output resolution). One extra pass, flat shading. */
+  _probeFineCrest(target, p) {
+    const THREE = this.THREE, r = this.renderer;
+    const w = target.width * PROBE_FINE_K, h = target.height * PROBE_FINE_K;
+    if (!this._fineTarget || this._fineTarget.width !== w || this._fineTarget.height !== h) {
+      this._fineTarget?.dispose();
+      this._fineTarget = new THREE.WebGLRenderTarget(w, h, { depthBuffer: true, stencilBuffer: false,
+        type: THREE.UnsignedByteType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
+    }
+    p.fineMaterials ||= Object.fromEntries(BANDS.map((band, i) => [band, new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3, vertexShader: p.ownershipVertexShader || SCENE_VERT, fragmentShader: FINE_FRAG,
+      uniforms: p.uniforms, defines: { FINE_BAND: `${i + 1}.0` } })]));
+    if (!p.depthScene) return false;
+    const meshes = Object.fromEntries(BANDS.map(band => [band, [].concat(p.depthBandMeshes?.[band] || [])]));
+    const layers = this.camera.layers.mask;
+    for (const band of BANDS) for (const m of meshes[band]) m.material = p.fineMaterials[band];
+    const hidden = [];
+    for (const m of Object.values(p.riverDepthMeshes || {})) if (m.visible) { m.visible = false; hidden.push(m); }
+    try {
+      this.camera.layers.set(0);
+      r.setRenderTarget(this._fineTarget);
+      r.setClearColor(0x000000, 0);
+      r.clear(true, true, false);
+      r.render(p.depthScene, this.camera);
+    } finally {
+      for (const band of BANDS) for (const m of meshes[band]) m.material = p.depthMaterial;
+      for (const m of hidden) m.visible = true;
+      this.camera.layers.mask = layers;
+    }
+    const ok = this.crestProbe.fine(this._fineTarget);
+    r.setRenderTarget(target);
+    return ok;
   }
 
   /** This frame's crest probe data, or null: the newest completed
@@ -2693,18 +2787,77 @@ export class RangeScene {
    * and view changes are found by CrestProbe.read itself. */
   resetCrestProbe() { this.crestProbe?.reset(); }
 
-  releaseCrestProbe() { this.crestProbe?.dispose(); this.crestProbe = null; }
+  releaseCrestProbe() { this.crestProbe?.dispose(); this.crestProbe = null; this._fineTarget?.dispose(); this._fineTarget = null; }
 
   /** Render water at display resolution against the complete terrain and
    * forest depth. The caller must copy the returned transient canvas before
    * another scene render. A refused allocation leaves the native pass intact. */
+  /** The mirror texels this frame's lake can read, or null for all. */
+  _mirrorScissor(p, m) {
+    const boxes = p.waterSubsets?.boxes;
+    if (!boxes) return null;
+    // The boxes are in mesh space; every terrain mesh must draw untransformed.
+    if (p.waterBoxesPlain === undefined) {
+      p.waterBoxesPlain = BANDS.every(band => p.scenes[band].children.every(mesh => !p.waterSubsets.has(mesh.geometry)
+        || mesh.matrixWorld.equals(new this.THREE.Matrix4()) && mesh.parent === p.scenes[band] && p.scenes[band].matrixWorld.equals(new this.THREE.Matrix4())));
+    }
+    if (!p.waterBoxesPlain) return null;
+    try {
+      this.camera.updateMatrixWorld();
+      const viewProj = new this.THREE.Matrix4().multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse).elements;
+      return mirrorScissor(boxes, m.matrix.elements, viewProj, liftBounds(p.uniforms), shiverBounds(p.uniforms), m.target.width, m.target.height);
+    } catch { return null; }
+  }
+
+  /** Water-only index geometries for this view's terrain (WaterSubset.js):
+   *  a Map from each band or fringe geometry to the geometry renderWater
+   *  draws in its place, or null when a geometry keeps its full index. */
+  async _buildWaterSubsets(THREE, data, surface, geos, { mappedOnly = false, stale = () => false } = {}) {
+    const rgba = surface.texture?.image?.data, g = data?.grid;
+    if (!rgba || !g || surface.width !== g.width || surface.height !== g.height || !geos) return null;
+    const mask = mappedOnly ? { count: 0 } : createWetMask(surface.width, surface.height);
+    // Bounded slices: preparation runs while a song plays.
+    if (!mappedOnly) for (let y = 0; y < surface.height; y += 256) {
+      fillWetRows(mask, rgba, y, y + 256);
+      await yieldToMain();
+      if (stale()) return null;
+    }
+    const subsets = new Map(), boxSources = [];
+    let triangles = 0, bytes = 0, complete = true;
+    for (const geometry of [...Object.values(geos.geometries || {}), ...Object.values(geos.fringes || {})]) {
+      const position = geometry.attributes.position, index = geometry.index;
+      if (!position || position.itemSize !== 3 || !index || position.normalized) continue;
+      let aborted = false;
+      const keep = await waterIndexSubsetAsync(position.array, index.array, g, mask, {
+        pause: async () => { await yieldToMain(); if (stale()) { aborted = true; throw new Error('stale'); } } }).catch(err => { if (aborted) return undefined; throw err; });
+      if (aborted || keep === undefined) { for (const sub of subsets.values()) sub.dispose(); return null; }
+      if (!keep) complete = false;
+      else boxSources.push({ positions: position.array, index: keep });
+      if (keep) {
+        const sub = new THREE.BufferGeometry();
+        sub.setAttribute('position', position);
+        sub.setIndex(new THREE.BufferAttribute(keep, 1));
+        sub.boundingSphere = geometry.boundingSphere;
+        subsets.set(geometry, sub);
+        triangles += keep.length / 3; bytes += keep.byteLength;
+      }
+      await yieldToMain();
+      if (stale()) { for (const sub of subsets.values()) sub.dispose(); return null; }
+    }
+    subsets.triangles = triangles; subsets.bytes = bytes;
+    // Where lake fragments can stand, for the mirror's scissor; unknown when
+    // any geometry kept its full index.
+    subsets.boxes = complete ? waterBoxes(boxSources) : null;
+    return subsets;
+  }
+
   renderWater(frame, viewId, width, height, { pass = null, side = 'A', bandColumns = null, capture = false } = {}) {
     const p = this.prepared.get(viewId);
     if (!p || this.contextLost || !this.target || !(width > 0 && height > 0)) return null;
     const w = Math.max(2, Math.round(width)), h = Math.max(2, Math.round(height));
     const outputTarget = (this._waterRenderTarget || RangeScene.prototype._waterRenderTarget).call(this, w, h, { capture });
     if (!outputTarget) return null;
-    const r = this.renderer, u = p.uniforms, hidden = [];
+    const r = this.renderer, u = p.uniforms, hidden = [], swapped = [];
     this._setCamera(p.view, frame, p);
     this._setUniforms(p, frame);
     this._prepareMirror(p, frame, side, viewId);
@@ -2722,6 +2875,15 @@ export class RangeScene {
       for (const band of BANDS) for (const mesh of p.forest?.byBand?.[band] || []) {
         hidden.push([mesh, mesh.visible]); mesh.visible = false;
       }
+      // Only triangles that can be wet (WaterSubset.js); the rest would
+      // discard every fragment.
+      if (p.waterSubsets) for (const band of BANDS) for (const mesh of p.scenes[band].children) {
+        const sub = mesh.isMesh && p.waterSubsets.get(mesh.geometry);
+        if (!sub) continue;
+        swapped.push([mesh, mesh.geometry, mesh.visible]);
+        mesh.geometry = sub;
+        if (!sub.index.count) mesh.visible = false;
+      }
       u.uWaterOnly.value = 1;
       // Travel columns draw their own seam copies whole; so does this pass.
       const restore = bandColumns ? null : restrictWaterColour(p.waterColour);
@@ -2736,6 +2898,11 @@ export class RangeScene {
         && w === this.size.width && h === this.size.height && this.crestProbe?.frameId === frame.frameId) {
         try { this.crestProbe.water(outputTarget, this.camera); } catch { /* shorelines are optional */ }
       }
+      // The output-resolution layer: its dry pixels in wet grid cells (CrestProbe.js, water edge cells).
+      if (this.crestProbeMode === 'refined' && !capture && !pass && !bandColumns && side === 'A'
+        && w > this.size.width && this.crestProbe?.frameId === frame.frameId) {
+        try { this.crestProbe.waterEdges(outputTarget); } catch { /* the shore keeps the grid's steps */ }
+      }
       r.setRenderTarget(null);
       this._setCanvasSize(w, h);
       this._clearCanvas();
@@ -2745,6 +2912,7 @@ export class RangeScene {
       u.uWaterOnly.value = 0;
       u.uViewportPx.value.set(this.size.width, this.size.height);
       for (const [mesh, visible] of hidden) mesh.visible = visible;
+      for (const [mesh, geometry, visible] of swapped) { mesh.geometry = geometry; mesh.visible = visible; }
       this.camera.layers.set(0); this.camera.layers.enable(3);
       r.setRenderTarget(null);
     }

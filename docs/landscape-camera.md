@@ -10,11 +10,15 @@ landscape appearance. Adjacent sections showing the same view share one
 move. Incoming and outgoing landscapes have independent progress through
 transitions, including the outgoing late-arrival allowance.
 
-The selected number is a multiplier of the existing rail-progress rate,
-not a guarantee of screen-space speed. A long held scene can run out of
-approved path. Its pace is then reduced uniformly over the complete move;
-the camera does not rush to the endpoint and stop early. No route is
-extended, looped or reversed. Longer reviewed routes are separate work.
+At 2×, 3× and 4× the number multiplies each appearance's own natural,
+energy-driven travel before that travel is fitted to the finite rail, so a
+short chapter in a long song does not inherit the whole song's slowdown. At
+1× the camera keeps the whole-song fitted rate. The number is not a guarantee
+of screen-space speed. A long held scene can run out of approved path. Its
+pace is then reduced uniformly over the complete move; the camera does not
+rush to the endpoint and stop early. No route is extended, looped or reversed.
+Longer reviewed routes are separate work. Schedules saved by earlier versions
+keep their original fits and pace rule.
 
 Changing pace applies to the next **unplayed** landscape or a fresh replay.
 The run remembers its highest reached heard time: rewinding does not unlock
@@ -44,3 +48,59 @@ result; lightweight per-frame diagnostics omit its progress tables.
 
 See [background Landscape review](landscape-review.md) for matched ordinary
 rail captures, explicit tours-Off selection and longer continuous clips.
+
+## One default camera
+
+Camera tours on is the single default camera. For every landscape the song
+shows, the camera is chosen once, before the view's first frame, from what is
+available for that song:
+
+1. its music-timed **shot tour**, when the view has an approved library and the
+   song's plan beats the authored rail on the checks below;
+2. otherwise the **authored rail** at the selected Landscape pace, with its
+   energy-following progress and section moves.
+
+Off keeps every authored rail. The Teton highway tour (`?rangeTour=tetons`)
+stays a separate forced tour. The choice never changes mid-landscape: an
+in-place rebuild (a seek or full-analysis adoption) keeps a playing tour and
+keeps a view that was given its rail on that rail. A seek tears the
+presentation down, so the camera run (`CameraRun`) carries both the heard
+timelines and the rail-kept views to the rebuild. A refinement that would fail
+the checks is held without retrying, and the tour already playing stays; only
+newly refined sections plan again.
+
+`src/world/alpine/CameraChoice.js` compares a plan with the rail over the heard
+time the view is on screen (`visibleIntervals`: the rail schedule's
+appearances of the view, from their first frame through the outgoing
+allowance; the same windows the plan was made over):
+
+| Check | Rail is kept when |
+| --- | --- |
+| Transit share | more than 50% of on-screen time is spent on connecting moves |
+| Payoffs | no shot's payoff lands on a musical moment on screen |
+| Payoff timing | a payoff lands more than 1.5 s from its moment |
+| Image flow | flow exceeds 1.25× its comfort limit |
+| Motion limits | the timeline reports an acceleration or climb over its limit |
+
+The status line under **Camera tours** names the reason, for example "Rail —
+the authored rail beats this song's tour (the tour spends 62% in transit)".
+`rangeState.shotTours.views[id].choice` reports the verdict and metrics.
+`?rangeTourGate=off` plays every planned tour, for reviewing weak plans.
+
+**Calibration (2026-11-03).** The thresholds were set by planning the 15 R7
+candidate libraries from
+[`review/scenic-framing-endings-20261023`](https://github.com/aepler315/midio-pixel/tree/review/scenic-framing-endings-20261023)
+in Node against four synthetic songs (200 s pop, 240 s two-drop, 300 s
+ambient, 90 s short), with the view on screen for the whole song. Every plan
+hit its payoffs to the 100 ms key and stayed under 1.0× image flow; transit
+share was the only discriminating measure, ranging 18–65% on full-length
+songs. At 50%, 40 of 60 plans play their tour and 20 keep the rail. Black
+Mountains keeps the rail on all three long songs; Muncho, San Gabriel and
+White Mountains play their tour on all four; every 90 s plan is a single
+transit-free shot. These
+are geometry-only measurements, not rendered or listening reviews. In the app
+the checks run over the view's scheduled appearances rather than the whole
+song, so a view shown for part of a song can be judged on a different share of
+its plan than this calibration measured. No library
+is approved on `main`, so on `main` every landscape still plays its rail.
+

@@ -3,10 +3,11 @@
 // over-budget frames, returns after 10 clean seconds, and a rung that fails
 // again after recovering waits twice as long before the next try. This
 // table says what the Range's GPU scene gives up at each level, in order:
-// the near trees' detail assets first (rung 2), then the stable foliage
-// subset, then fog sampling and the sun shafts
-// (level 3), the lake mirror (level 4; the water keeps its sky
-// reflection), then the dormant rock-stage pool capability (Renderer, level 6;
+// the lake mirror first (rung 1: a second full-scene render that changed at
+// most 2% of pixels in measured frames; the water keeps its reused, blurred
+// sky/far reflection, docs/water-render-cost.md), the near trees' detail
+// assets (rung 2), then the stable foliage subset, then fog sampling and the
+// sun shafts (level 3), then the dormant rock-stage pool capability (Renderer, level 6;
 // catalog views have no rock stage). Landform structure (terrain meshes
 // and their LOD budget), ground contact, performer cores and the musical
 // signatures are never touched by the ladder.
@@ -47,7 +48,8 @@ export function rangeQuality(level = 0) {
     mistSteps: MIST_STEPS[q],
     poolReflections: q < 6,
     sunShafts: q < 3,
-    waterMirror: q < 4,
+    // The costliest optional pass for the least picture: shed first.
+    waterMirror: q < 1,
     // The captured sky backdrop water reflects, kept a rung past the mirror.
     waterBackdrop: q < 5,
     landscapeGiants: q < 4,

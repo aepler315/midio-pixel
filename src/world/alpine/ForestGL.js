@@ -692,7 +692,8 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
       const deformation = {
         heightMin: u.uHeightRange?.value.x ?? 0,
         heightSpan: (u.uHeightRange?.value.y ?? 1) - (u.uHeightRange?.value.x ?? 0),
-        amplitudeM: ['uDeformAmp', 'uDeformKick', 'uDeformStructural', 'uDeformMelodic'].reduce((sum, key) => sum + Math.abs(u[key]?.value || 0), 0),
+        amplitudeM: ['uDeformAmp', 'uDeformKick', 'uDeformStructural', 'uDeformMelodic'].reduce((sum, key) => sum + Math.abs(u[key]?.value || 0), 0)
+          + Math.abs(u.uLandDance?.value.x || 0) + 1.42 * Math.abs(u.uLandDance?.value.z || 0),
         gestureM: Math.abs(u.uDeformGesture?.value || 0),
       };
       const state = { pixelated: forest.pixelatedDetail, width, height, batches: detailGroups.length,

@@ -26,6 +26,7 @@ import { forcedSceneChoice } from '../terrain/SceneCatalog.js';
 import SCENE_CATALOG from '../terrain/sceneCatalogData.js';
 import { noteViewShown } from '../terrain/RangeHistory.js';
 import { RangeShotTours } from './RangeShotTours.js';
+import { AUTO_TOUR_GATE, autoGateEnabled } from './CameraChoice.js';
 import { headingPitch, lookDir } from '../terrain/ShotPath.js';
 import { RangeCrest } from './RangeCrest.js';
 
@@ -55,7 +56,9 @@ const retryUrl = (url, attempt) => (attempt ? `${url}?retry=${attempt}` : url);
  *  ?rangeTour=shots (the default) plays approved views' shot tours,
  *  =off keeps every authored rail, =tetons forces the Teton highway tour;
  *  the choice persists as localStorage 'range-tour'. ?rangeShots=all lets
- *  candidate shot libraries play, for review only. */
+ *  candidate shot libraries play, for review only. In shots mode a planned
+ *  tour plays only where it beats the rail for the song (CameraChoice.js);
+ *  ?rangeTourGate=off plays every planned tour. */
 export function resolveRangeMode(search = (typeof location !== 'undefined' ? location.search : ''), storage = null) {
   try {
     const q = new URLSearchParams(String(search || '').replace(/^\?/, ''));
@@ -175,7 +178,8 @@ export class RangePresentation {
     this.tourMode = tour;
     this.upgradeIntended = !!upgradeIntended;
     // Scenic shot tours exclude the forced Teton highway tour.
-    this.shots = shotTours || new RangeShotTours({ enabled: shots && !tour, allowCandidates: shotCandidates, assetBase, residency });
+    this.shots = shotTours || new RangeShotTours({ enabled: shots && !tour, allowCandidates: shotCandidates, assetBase, residency,
+      gate: autoGateEnabled() ? AUTO_TOUR_GATE : null });
     this.cameraTourActive = false;
     this.tour = null;
     this.tourData = null;
@@ -383,7 +387,7 @@ export class RangePresentation {
     // show. A rebuild of the same song in place carries its committed camera.
     this.cameraTourActive = false;
     this.shots.setSong({ mgr, views: this._songViews(), choiceFor: (biome) => this._choiceFor(biome),
-      generation, exportMode: this.exportMode, continuation: cameraContinuation });
+      generation, exportMode: this.exportMode, continuation: cameraContinuation, occurrences: this.railPlan?.occurrences });
     // Views the new song still wants move to its generation before the old
     // one is cancelled; everything else of the old song is released.
     const keep = new Set(this._wantedViewIds());
@@ -790,6 +794,7 @@ export class RangePresentation {
     const mgr = inputs.sim.biomes;
     // Replan the uncommitted tail when the song's sections change. The newest
     // request wins: an older worker is aborted, so its late reply never lands.
+    this.shots.reach(inputs.sim.heardTimeMs ?? (mgr.tSec || 0) * 1000);
     this.shots.refine(mgr);
     if (this.tourMode && this.tour && mgr.sections !== this._tourSections) {
       this._tourSections = mgr.sections;
@@ -1516,15 +1521,22 @@ export class RangePresentation {
     out.setTransform(1, 0, 0, 1, 0, 0); out.clearRect(0, 0, w, h);
     out.setTransform(scale * t.a, scale * t.b, scale * t.c, scale * t.d, scale * t.e, scale * t.f);
     drawScene(out, this.scene, img, 0, 0, stage.width, stage.height);
-    out.setTransform(1, 0, 0, 1, 0, 0); out.globalCompositeOperation = 'destination-in';
-    out.imageSmoothingEnabled = false; out.drawImage(mask, 0, 0, w, h);
+    // With refined crest probes the layer keeps its own output-resolution
+    // waterline: the probe's water edge cells paint the grid's wet cells'
+    // dry pixels with the land beside them (RangeCrest). Otherwise it is cut
+    // to the grid's own (native) shoreline.
+    const fullShore = this.scene.crestProbeMode === 'refined' && !!this.crestEnabled;
+    if (!fullShore) {
+      out.setTransform(1, 0, 0, 1, 0, 0); out.globalCompositeOperation = 'destination-in';
+      out.imageSmoothingEnabled = false; out.drawImage(mask, 0, 0, w, h);
+    }
     out.setTransform(1, 0, 0, 1, 0, 0); out.globalCompositeOperation = 'destination-out';
     out.imageSmoothingEnabled = false; out.drawImage(this.waterEffectMask, 0, 0, w, h);
     out.globalCompositeOperation = 'source-over';
     this.waterLayer = c;
     this.waterRecipe = { frame: this.frame, sideFrame: this._sideFrame(), viewId: this.viewId, nativeWidth, nativeHeight,
       stageWidth: stage.width, stageHeight: stage.height, matrix: [t.a, t.b, t.c, t.d, t.e, t.f],
-      shoreMask: mask, effectMask: this.waterEffectMask, sceneWidth: this.scene.size.width, sceneHeight: this.scene.size.height };
+      shoreMask: fullShore ? null : mask, effectMask: this.waterEffectMask, sceneWidth: this.scene.size.width, sceneHeight: this.scene.size.height };
   }
 
   /** Captures can exceed the live window. Re-run the same frame and camera
@@ -1532,7 +1544,7 @@ export class RangePresentation {
    * masks. On budget/context failure the already completed layer remains. */
   _captureWaterLayer(width, height) {
     const recipe = this.waterRecipe;
-    if (!recipe || recipe.frame !== this.frame || !recipe.shoreMask?.width || !recipe.effectMask?.width) return null;
+    if (!recipe || recipe.frame !== this.frame || recipe.shoreMask && !recipe.shoreMask.width || !recipe.effectMask?.width) return null;
     const scale = Math.min(width / recipe.nativeWidth, height / recipe.nativeHeight);
     const w = Math.max(2, Math.round(recipe.nativeWidth * scale)), h = Math.max(2, Math.round(recipe.nativeHeight * scale));
     if (w <= this.waterLayer.width && h <= this.waterLayer.height) return this.waterLayer;
@@ -1559,7 +1571,7 @@ export class RangePresentation {
     out.setTransform(scale * m[0], scale * m[1], scale * m[2], scale * m[3], scale * m[4], scale * m[5]);
     drawScene(out, this.scene, img, 0, 0, recipe.stageWidth, recipe.stageHeight);
     out.setTransform(1, 0, 0, 1, 0, 0); out.imageSmoothingEnabled = false;
-    out.globalCompositeOperation = 'destination-in'; out.drawImage(recipe.shoreMask, 0, 0, w, h);
+    if (recipe.shoreMask) { out.globalCompositeOperation = 'destination-in'; out.drawImage(recipe.shoreMask, 0, 0, w, h); }
     out.globalCompositeOperation = 'destination-out'; out.drawImage(recipe.effectMask, 0, 0, w, h);
     out.globalCompositeOperation = 'source-over';
     recipe.captureWidth = w; recipe.captureHeight = h;
@@ -1875,8 +1887,8 @@ export class RangePresentation {
   shotState(viewId, timeMs) { return this.shots.stateAt(viewId, timeMs); }
 
   /** The current tour timelines and committed horizon for an in-place
-   *  rebuild of the same song (full-analysis adoption). */
-  cameraContinuation(committedThroughMs) { return this.shots.continuation(committedThroughMs); }
+   *  rebuild of the same song. An export's own plans were never heard. */
+  cameraContinuation(committedThroughMs) { return this.exportMode ? null : this.shots.continuation(committedThroughMs); }
 
   snapshot() {
     return {

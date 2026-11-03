@@ -102,11 +102,11 @@ import { fingerprintBufferOffThread } from './audio/FingerprintWorkerClient.js';
 import { readVisionConfig, persistVisionConfig } from './vision/config.js';
 import { packBundle, unpackBundle } from './audio/AnalysisBundle.js';
 import { analysisCacheKey, getBundle, putBundle } from './audio/AnalysisCache.js';
-import { SongRecorder, MAX_RECORDING_BYTES } from './render/SongRecorder.js';
+import { SongRecorder, recordingBudgetBytes } from './render/SongRecorder.js';
 import { readRenderQuality, writeRenderQuality, RENDER_QUALITIES, renderQualityLevel } from './render/RenderQuality.js';
 import {
   estimateExportBytes,
-  formatBytes, formatElapsed, exportFileName, describeResult,
+  formatBytes, formatElapsed, exportFileName, describeResult, describeEarlyStop,
 } from './render/VideoExport.js';
 import { stepExportClock, evenExportSize } from './render/BulkExport.js';
 import { rangeUserCamera } from './world/alpine/RangeCamera.js';
@@ -545,6 +545,7 @@ if (rangeTourToggle) {
     if (renderer) renderer.rangePresentation = rangePresentation;
     applyTerrainTourPolicy(lastTimelineData?.terrain, choice, getWorld(lastTimelineData?.worldId)?.kind);
     rangePresentation.setTourMode(choice === 'off' ? null : choice);
+    cameraRun?.forgetTours();
     if (running && sim && audioEngine && lastTimelineData) {
       const wasPaused=paused;
       delete lastTimelineData.chapterState;
@@ -1561,7 +1562,7 @@ function offerWorldsThenStart(data, extra = {}) {
   if (extra.recordingSettings) {
     exportSetup.setDuration(data.durationMs);
     const bytes = estimateExportBytes(extra.recordingSettings, data.durationMs + 3000);
-    if (!exportSetup.candidate || bytes > MAX_RECORDING_BYTES) {
+    if (!exportSetup.candidate || bytes > recordingBudgetBytes(extra.recordingSettings)) {
       backToTitle();
       showErrorBanner(!exportSetup.candidate ? 'This browser cannot record video.'
         : 'This song exceeds the 512 MB recording budget at these settings. Choose a lower resolution, FPS, or encoding quality.');
@@ -1963,6 +1964,8 @@ function syncCaptionDetails() {
 function startTimeline(timelineData, extra = {}) {
   // Snapshot progress before teardown; exports never advance the live owner.
   if (!extra.exportMode && !bulkExportArmed && cameraRun?.data === lastTimelineData) cameraRun.reach(sim?.heardTimeMs);
+  // The heard tours, before a tour-mode change or setSong replaces them.
+  const heardTours = rangePresentation?.cameraContinuation?.(cameraRun?.highWaterMs ?? 0) || null;
   const {
     songSeed: seedOverride = undefined, playBuffer, live = false,
     startAtMs = 0, startAtWallMs = 0, preservePause = false, captureMode: captureModeFlag = false,
@@ -2106,8 +2109,9 @@ function startTimeline(timelineData, extra = {}) {
     showErrorBanner('Could not build the world: ' + (err?.message || err));
     return;
   }
-  if (!exportMode) cameraRun = openCameraRun(cameraRun, { data: timelineData, seed: sim.songSeed,
-    intent: extra.cameraRunIntent || 'fresh', requestedMultiplier: requestedRailPace });
+  if (exportMode) cameraRun?.retainTours(heardTours);
+  else cameraRun = openCameraRun(cameraRun, { data: timelineData, seed: sim.songSeed,
+    intent: extra.cameraRunIntent || 'fresh', requestedMultiplier: requestedRailPace, tours: heardTours });
   activeCameraSchedule = null;
   sim.audioOverview = timelineData.audioOverview || null;
   // Each highlight frame records the run and look that drew it, so the
@@ -2175,7 +2179,7 @@ function startTimeline(timelineData, extra = {}) {
   renderer = createPresentingRenderer({ canvas, mode: rendererMode, presentation: effectivePresentation(), residency: sharedResidency() });
   if (rangePresentation) {
     rangePresentation.setSong({ terrain: timelineData.terrain || null, mgr: sim.biomes, generation: loadGen, exportMode,
-      cameraContinuation: extra.chapterState?.cameraTours || null,
+      cameraContinuation: extra.chapterState?.cameraTours || (exportMode ? null : cameraRun?.tourContinuation()) || null,
       ...cameraSongOptions(cameraRun, cameraScheduleKey(timelineData.worldId), exportMode ? 'export' : extra.cameraRunIntent,
         exportMode ? extra.cameraSchedule ?? null : undefined),
       requestedMultiplier: requestedRailPace });
@@ -3929,7 +3933,7 @@ function adoptFullAnalysisLive(data) {
     preservePause: wasPaused,
     fitDiagnostic: sim.fitDiagnostic,
     chapterState: { previous: sim.biomes.chapterPlan, committedThroughMs: sim.heardTimeMs ?? audioEngine.nowMs, landSections: sim.biomes.sections,
-      cameraTours: rangePresentation?.cameraContinuation?.(sim.heardTimeMs ?? audioEngine.nowMs) || null,
+      cameraTours: rangePresentation?.cameraContinuation?.(Math.max(cameraRun?.highWaterMs ?? 0, sim.heardTimeMs ?? audioEngine.nowMs)) || null,
       landscapeHistory: { previous: sim.biomes.landscapeScore, committedThroughMs: sim.heardTimeMs ?? audioEngine.nowMs } },
   });
   if (!running || !sim) return;
@@ -5259,7 +5263,9 @@ function finishRecording() {
   recorder.stop({ drain: true }).then((result) => {
     syncRecordUI();
     if (!result) {
-      setExportNote('Nothing was captured — the recording was too short to save.', 'isWarning');
+      setExportNote(recorder.stopReason === 'error' && recorder.error
+        ? `Recording failed before anything was saved: ${recorder.error}`
+        : 'Nothing was captured — the recording was too short to save.', 'isWarning');
       return;
     }
     const fileName = exportFileName({
@@ -5270,12 +5276,15 @@ function finishRecording() {
     downloadBlob(result.blob, fileName);
     const notice = document.getElementById('exportSaved');
     const cadence = result.capture ? ` · ${Math.round(result.capture.averageFps)}/${result.capture.requestedFps} fps drawn` : '';
-    notice.textContent = `Video saved · ${describeResult(result)}${cadence}`;
+    const early = describeEarlyStop(result);
+    notice.textContent = early
+      ? `${early.title} · ${early.detail} · ${describeResult(result)}`
+      : `Video saved · ${describeResult(result)}${cadence}`;
     notice.hidden = false;
     setTimeout(() => { notice.hidden = true; }, 12000);
     setExportNote(
-      `Saved ${fileName} — ${describeResult(result)}`,
-      result.codec && result.codec !== 'H.264' ? 'isWarning' : 'isResult',
+      early ? `${early.title}: ${fileName} — ${early.detail} ${describeResult(result)}` : `Saved ${fileName} — ${describeResult(result)}`,
+      early?.tone || (result.codec && result.codec !== 'H.264' ? 'isWarning' : 'isResult'),
     );
   }).catch((err) => {
     console.error('[export] failed', err);

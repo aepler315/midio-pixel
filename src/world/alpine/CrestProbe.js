@@ -24,12 +24,81 @@
 // renders a few frames a second still reads asynchronously.
 //
 // Row layout: far 0-1, mid 2-3, near 4-5 (crest, colour), water 6-9 (edge
-// info), 10-13 (water colour at each edge).
+// info), 10-13 (water colour at each edge), fine crest 14-15 far, 16-17 mid,
+// 18-19 near.
+//
+// Fine crest. The band targets are the pixel grid, so their first covered
+// row is a whole grid row: a line through those rows can only step by a
+// pixel at a time. The fine rows are read from a band-ownership render of
+// the same frame at PROBE_FINE_K times the grid in both axes (RangeScene),
+// one first-owned row per output-resolution sub-column: PROBE_FINE_K
+// sub-columns per probe column, two per texel (16 bits each, row + 1, 0 =
+// none), so the crest follows the drawn mesh to an output pixel.
+//
+// Edge cells. The same fine render carries each pixel's distance (log2,
+// 16 bits). Where one ridge stands in front of another (any terrain over
+// terrain, in one band or across two), a grid cell holds the nearer ridge
+// in some of its PROBE_FINE_K² output pixels and the farther one in the
+// rest, yet the grid paints it all one colour, so the border steps a whole
+// grid pixel at a time. From PROBE_EDGE_ROW up, one texel per grid cell
+// (rows bottom-up, like the target) says which of its output pixels show a
+// neighbour cell's surface instead of its own: a 16-bit mask and the
+// neighbour (edgeCell()). RangeCrest paints those pixels in that
+// neighbour's colour, so terrain over terrain meets at output resolution
+// while every cell keeps its own colour.
+//
+// Water edge cells. The water layer is drawn at output resolution over the
+// grid, so wherever it is wet it already shows its own edge; but a grid
+// cell whose centre is wet shows water in all its pixels, also those the
+// output-resolution water render finds dry. The block after the edge cells
+// (same layout) marks those dry pixels with a dry neighbour, from that
+// render (RangeScene.renderWater), so the shore steps by output pixels too.
 
 export const PROBE_BAND_ROWS = Object.freeze({ far: 0, mid: 2, near: 4 });
 export const PROBE_WATER_ROW = 6;
 export const PROBE_WATER_SLOTS = 4;
-export const PROBE_ROWS = 14;
+export const PROBE_FINE_ROWS = Object.freeze({ far: 14, mid: 16, near: 18 });
+export const PROBE_FINE_K = 4;
+export const PROBE_ROWS = 20;
+/** First row of the edge-cell block (one row per target row above it). */
+export const PROBE_EDGE_ROW = PROBE_ROWS;
+/** The fine render's distance code: log2(metres) / PROBE_LOG_RANGE, 16 bits. */
+export const PROBE_LOG_RANGE = 24;
+/** A neighbour cell is another surface when its distance differs from the
+ *  cell's own by more than this factor; an output pixel belongs to it when
+ *  its distance lies within PROBE_EDGE_MATCH of that gap from the
+ *  neighbour's (a smooth slope never comes that close: its pixels lie
+ *  between the two cells' distances, nearer their own). */
+export const PROBE_EDGE_JUMP = 1.04;
+export const PROBE_EDGE_MATCH = 0.25;
+const FINE_CHANNEL = Object.freeze({ far: 0, mid: 1, near: 2 });
+/** Neighbour order of edgeCell()'s index: [dx, dy] with y down (grid rows). */
+export const EDGE_NEIGHBOURS = Object.freeze([[0, -1], [-1, 0], [1, 0], [0, 1], [-1, -1], [1, -1], [-1, 1], [1, 1]]);
+
+/** The fine render's fragment: distance code in red/green, band in blue
+ *  ((index + 1) / 3: far, mid, near). */
+export const FINE_FRAG = /* glsl */`
+  precision highp float;
+  uniform float uClipBelow;
+  in vec3 vRenderedWorld;
+  out vec4 outColor;
+  void main() {
+    if (vRenderedWorld.y < uClipBelow) discard;
+    float e = clamp(log2(max(length(vRenderedWorld - cameraPosition), 1.0)) / ${PROBE_LOG_RANGE}.0, 0.0, 1.0);
+    float v = floor(e * 65535.0 + 0.5), hi = floor(v / 256.0);
+    outColor = vec4((v - hi * 256.0) / 255.0, hi / 255.0, FINE_BAND / 3.0, 1.0);
+  }
+`;
+
+/** Decode an edge texel at byte `offset`: null when the cell shows only its
+ *  own surface, else { mask (bit sy·K + sx: the output pixel shows the
+ *  neighbour), neighbour (index into EDGE_NEIGHBOURS) }. */
+export function edgeCell(data, offset) {
+  if (data[offset + 3] < 128) return null;
+  const mask = data[offset] | data[offset + 1] << 8;
+  const neighbour = data[offset + 2];
+  return mask && neighbour < EDGE_NEIGHBOURS.length ? { mask, neighbour } : null;
+}
 /** Readback buffers in flight at once, and the oldest result (in frames) a
  *  live frame still uses; past it the frame reads synchronously. */
 export const PROBE_READBACK_SLOTS = 3;
@@ -54,7 +123,85 @@ const PROBE_FRAG = /* glsl */`
   uniform mat4 uInvViewProj;
   uniform vec2 uHeightRange;
   uniform vec3 uCameraPos;
+  uniform sampler2D uFine;
+  uniform int uFineK;
+  uniform int uFineChannel;
+  uniform int uEdgeRow;
+  uniform int uWidth;
   out vec4 outColor;
+  const float EDGE_JUMP = log2(${PROBE_EDGE_JUMP}) / ${PROBE_LOG_RANGE}.0;
+  // Distance code of fine pixel (fx, fy), fy top-down; −1 where no terrain
+  // (sky, or a tree that hid it: the fine render is terrain only).
+  float fineDist(int fx, int fy) {
+    ivec2 size = textureSize(uFine, 0);
+    if (fx < 0 || fy < 0 || fx >= size.x || fy >= size.y) return -1.0;
+    vec4 c = texelFetch(uFine, ivec2(fx, size.y - 1 - fy), 0);
+    if (c.a < 0.5) return -1.0;
+    return (c.r * 255.0 + c.g * 255.0 * 256.0) / 65535.0;
+  }
+  // A cell's own distance: the mean of its central fine pixels (the grid
+  // samples the cell's centre); −1 unless all of them are terrain.
+  float cellDist(int x, int y) {
+    int h = uFineK / 2, n = 0;
+    float sum = 0.0;
+    for (int sy = h - 1; sy <= h; sy++) for (int sx = h - 1; sx <= h; sx++) {
+      float d = fineDist(x * uFineK + sx, y * uFineK + sy);
+      if (d < 0.0) return -1.0;
+      sum += d;
+    }
+    return sum / 4.0;
+  }
+  const ivec2 NB[8] = ivec2[8](ivec2(0, -1), ivec2(-1, 0), ivec2(1, 0), ivec2(0, 1), ivec2(-1, -1), ivec2(1, -1), ivec2(-1, 1), ivec2(1, 1));
+  vec4 edgeCell(int x, int y) {
+    float own = cellDist(x, y);
+    if (own < 0.0) return vec4(0.0);
+    float nd[8];
+    for (int n = 0; n < 8; n++) {
+      float d = cellDist(x + NB[n].x, y + NB[n].y);
+      nd[n] = d >= 0.0 && abs(d - own) > EDGE_JUMP ? d : -1.0;
+    }
+    int masks[8] = int[8](0, 0, 0, 0, 0, 0, 0, 0);
+    int votes[8] = int[8](0, 0, 0, 0, 0, 0, 0, 0);
+    for (int sy = 0; sy < 4; sy++) for (int sx = 0; sx < 4; sx++) {
+      if (sx >= uFineK || sy >= uFineK) continue;
+      float d = fineDist(x * uFineK + sx, y * uFineK + sy);
+      if (d < 0.0) continue;
+      float best = abs(d - own);
+      int pick = -1;
+      // Equal matches go to the neighbour nearest the pixel.
+      vec2 at = (vec2(sx, sy) + 0.5) / float(uFineK) - 0.5;
+      for (int n = 0; n < 8; n++) {
+        if (nd[n] < 0.0) continue;
+        float e = abs(d - nd[n]);
+        if (e >= ${PROBE_EDGE_MATCH} * abs(nd[n] - own)) continue;
+        e += 1e-6 * dot(at - vec2(NB[n]), at - vec2(NB[n]));
+        if (e < best) { best = e; pick = n; }
+      }
+      if (pick >= 0) { masks[pick] |= 1 << (sy * 4 + sx); votes[pick]++; }
+    }
+    int pick = -1, most = 0;
+    for (int n = 0; n < 8; n++) {
+      if (votes[n] > most) { most = votes[n]; pick = n; }
+    }
+    if (pick < 0) return vec4(0.0);
+    int m = masks[pick];
+    return vec4(float(m & 255) / 255.0, float(m >> 8) / 255.0, float(pick) / 255.0, 1.0);
+  }
+  // First row (top down) of fine sub-column fx owned by uFineChannel's band.
+  int fineRow(int fx) {
+    ivec2 size = textureSize(uFine, 0);
+    for (int y = 0; y < 16384; y++) {
+      if (y >= size.y) break;
+      vec4 c = texelFetch(uFine, ivec2(fx, size.y - 1 - y), 0);
+      if (c.a >= 0.5 && int(c.b * 3.0 + 0.5) == uFineChannel + 1) return y;
+    }
+    return -1;
+  }
+  vec2 encode16(int row) {
+    float v = float(row + 1);
+    float hi = floor(v / 256.0);
+    return vec2((v - hi * 256.0) / 255.0, hi / 255.0);
+  }
   ivec2 texel(int x, int y) { return ivec2(x, uHeight - 1 - y); }
   bool covered(int x, int y) { return texelFetch(uColor, texel(x, y), 0).a >= 0.5; }
   vec3 worldAt(int x, int y) {
@@ -71,8 +218,61 @@ const PROBE_FRAG = /* glsl */`
     float hi = floor(v / 256.0);
     return vec4((v - hi * 256.0) / 255.0, (hi + flags) / 255.0, b, a);
   }
+  // Water render coverage at a target point (in target pixels, top-down).
+  bool wetAt(vec2 at) {
+    ivec2 size = textureSize(uFine, 0);
+    vec2 f = at / vec2(float(uWidth), float(uHeight)) * vec2(size);
+    ivec2 t = clamp(ivec2(floor(f)), ivec2(0), size - 1);
+    return texelFetch(uFine, ivec2(t.x, size.y - 1 - t.y), 0).a >= 0.5;
+  }
+  vec4 waterCell(int x, int y) {
+    vec2 cell = vec2(float(x), float(y));
+    if (!wetAt(cell + 0.5)) return vec4(0.0);
+    bool dry[8];
+    bool any = false;
+    for (int n = 0; n < 8; n++) {
+      ivec2 q = ivec2(x, y) + NB[n];
+      dry[n] = q.x >= 0 && q.y >= 0 && q.x < uWidth && q.y < uHeight && !wetAt(vec2(q) + 0.5);
+      any = any || dry[n];
+    }
+    if (!any) return vec4(0.0);
+    int mask = 0;
+    int votes[8] = int[8](0, 0, 0, 0, 0, 0, 0, 0);
+    for (int sy = 0; sy < 4; sy++) for (int sx = 0; sx < 4; sx++) {
+      if (sx >= uFineK || sy >= uFineK) continue;
+      vec2 at = (vec2(sx, sy) + 0.5) / float(uFineK);
+      if (wetAt(cell + at)) continue;
+      mask |= 1 << (sy * 4 + sx);
+      float best = 1e9;
+      int pick = 0;
+      for (int n = 0; n < 8; n++) {
+        if (!dry[n]) continue;
+        vec2 dv = at - 0.5 - vec2(NB[n]);
+        float d = dot(dv, dv);
+        if (d < best) { best = d; pick = n; }
+      }
+      votes[pick]++;
+    }
+    if (mask == 0) return vec4(0.0);
+    int pick = -1, most = 0;
+    for (int n = 0; n < 8; n++) if (votes[n] > most) { most = votes[n]; pick = n; }
+    return vec4(float(mask & 255) / 255.0, float(mask >> 8) / 255.0, float(pick) / 255.0, 1.0);
+  }
   void main() {
     int x = int(gl_FragCoord.x);
+    if (uMode == 5) {
+      outColor = edgeCell(x, uHeight - 1 - (int(gl_FragCoord.y) - uEdgeRow));
+      return;
+    }
+    if (uMode == 7) {
+      outColor = waterCell(x, uHeight - 1 - (int(gl_FragCoord.y) - uEdgeRow));
+      return;
+    }
+    if (uMode == 4) {
+      int fx = x * uFineK + uSlot * 2;
+      outColor = vec4(encode16(fineRow(fx)), encode16(fineRow(fx + 1)));
+      return;
+    }
     int found = -1, kind = 0, count = 0;
     bool prev = false;
     for (int y = 0; y < 4096; y++) {
@@ -241,6 +441,8 @@ export class CrestProbe {
     this.data = null;
     this.frameId = -1;
     this.rows = 0; // bitmask of probe rows written this frame
+    this.edges = 0; // edge blocks written this frame: 1 terrain, 2 water
+    this.edgeRows = 0; // target rows in the edge block (the target's height)
     this.useDepth = true;
     this.readMs = 0;
     this.clock = null; // { viewId, timeline, timeMs, wallMs } of the last read
@@ -253,7 +455,8 @@ export class CrestProbe {
       glslVersion: THREE.GLSL3, vertexShader: PROBE_VERT, fragmentShader: PROBE_FRAG,
       uniforms: { uColor: { value: null }, uDepth: { value: null }, uHeight: { value: 1 }, uMode: { value: 0 }, uSlot: { value: 0 },
         uUseDepth: { value: 0 }, uInvViewProj: { value: new THREE.Matrix4() }, uHeightRange: { value: new THREE.Vector2(0, 1) },
-        uCameraPos: { value: new THREE.Vector3() } },
+        uCameraPos: { value: new THREE.Vector3() }, uFine: { value: null }, uFineK: { value: PROBE_FINE_K },
+        uFineChannel: { value: 0 }, uEdgeRow: { value: PROBE_EDGE_ROW }, uWidth: { value: 1 } },
       depthTest: false, depthWrite: false, blending: THREE.NoBlending,
     });
     this.mesh = new THREE.Mesh(geo, this.material);
@@ -266,23 +469,31 @@ export class CrestProbe {
   /** Start a frame: rows written by an earlier frame are no longer valid. */
   begin(frameId, width, height) {
     this.height = height;
-    if (this.frameId === frameId && this.width === width) return true;
+    if (this.frameId === frameId && this.width === width && this.edgeRows === height) return true;
     this.frameId = frameId;
     this.rows = 0;
-    if (!this.target || this.width !== width) {
-      this.target?.dispose();
-      const THREE = this.THREE;
-      this.target = new THREE.WebGLRenderTarget(width, PROBE_ROWS, { depthBuffer: false, stencilBuffer: false,
-        type: THREE.UnsignedByteType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
-      this.width = width;
-      this.data = new Uint8Array(width * PROBE_ROWS * 4);
+    this.edges = 0;
+    if (!this.target || this.width !== width || this.edgeRows !== height) {
+      this.width = width; this.edgeRows = height;
+      this._allocate(PROBE_EDGE_ROW + 2 * height);
     }
     return true;
   }
 
+  /** Rows to read back: the edge blocks only once written this frame. */
+  get totalRows() { return PROBE_EDGE_ROW + (this.edges & 2 ? 2 : this.edges & 1 ? 1 : 0) * (this.edgeRows || 0); }
+
+  _allocate(rows) {
+    const THREE = this.THREE;
+    this.target?.dispose();
+    this.target = new THREE.WebGLRenderTarget(this.width, rows, { depthBuffer: false, stencilBuffer: false,
+      type: THREE.UnsignedByteType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
+    this.data = new Uint8Array(this.width * rows * 4);
+  }
+
   _pass(source, camera, heightRange, row, mode, slot = 0) {
     const r = this.renderer, u = this.material.uniforms;
-    const depth = this.useDepth && source.depthTexture ? source.depthTexture : null;
+    const depth = mode < 4 && this.useDepth && source.depthTexture ? source.depthTexture : null;
     u.uColor.value = source.texture; u.uDepth.value = depth; u.uUseDepth.value = depth ? 1 : 0;
     u.uHeight.value = source.height; u.uMode.value = mode; u.uSlot.value = slot;
     if (depth) {
@@ -305,6 +516,67 @@ export class CrestProbe {
     this._pass(source, camera, heightRange, row, 0);
     this._pass(source, camera, heightRange, row + 1, 1);
     return true;
+  }
+
+  /** Probe each band's fine crest from `fine`, a band-ownership render of
+   *  this frame at PROBE_FINE_K times this probe's width. */
+  fine(fine) {
+    if (!this.target || fine.width !== this.width * PROBE_FINE_K) return false;
+    const u = this.material.uniforms;
+    u.uFine.value = fine.texture; u.uFineK.value = PROBE_FINE_K;
+    for (const [band, row] of Object.entries(PROBE_FINE_ROWS)) {
+      u.uFineChannel.value = FINE_CHANNEL[band];
+      for (let half = 0; half < PROBE_FINE_K / 2; half++) this._pass(fine, null, null, row + half, 4, half);
+    }
+    this._edges(fine.height / PROBE_FINE_K);
+    u.uFine.value = null;
+    return true;
+  }
+
+  /** Edge cells (mode 5) of every target row, from the fine render bound as uFine. */
+  _edges(rows) {
+    if (!(rows > 0) || rows !== this.edgeRows) return false;
+    const r = this.renderer, u = this.material.uniforms;
+    u.uColor.value = null; u.uDepth.value = null; u.uUseDepth.value = 0;
+    u.uHeight.value = rows; u.uMode.value = 5; u.uEdgeRow.value = PROBE_EDGE_ROW;
+    this.target.viewport.set(0, PROBE_EDGE_ROW, this.width, rows);
+    this.target.scissor.set(0, PROBE_EDGE_ROW, this.width, rows);
+    this.target.scissorTest = true;
+    r.setRenderTarget(this.target);
+    r.render(this.scene, this.camera);
+    this.edges |= 1;
+    return true;
+  }
+
+  /** Water edge cells (mode 7) from `water`, this frame's water render at
+   *  output resolution (any size larger than the target). */
+  waterEdges(water) {
+    const rows = this.edgeRows;
+    if (!this.target || !(rows > 0) || !(water.width > this.width)) return false;
+    const r = this.renderer, u = this.material.uniforms, row = PROBE_EDGE_ROW + rows;
+    // The terrain block in between is read back too: empty unless written.
+    if (!(this.edges & 1)) this._clearRows(PROBE_EDGE_ROW, rows);
+    u.uFine.value = water.texture; u.uFineK.value = PROBE_FINE_K;
+    u.uColor.value = null; u.uDepth.value = null; u.uUseDepth.value = 0;
+    u.uHeight.value = rows; u.uWidth.value = this.width; u.uMode.value = 7; u.uEdgeRow.value = row;
+    this.target.viewport.set(0, row, this.width, rows);
+    this.target.scissor.set(0, row, this.width, rows);
+    this.target.scissorTest = true;
+    r.setRenderTarget(this.target);
+    r.render(this.scene, this.camera);
+    u.uFine.value = null;
+    this.edges |= 2;
+    return true;
+  }
+
+  _clearRows(row, rows) {
+    const r = this.renderer, THREE = this.THREE, color = r.getClearColor(new THREE.Color()), alpha = r.getClearAlpha();
+    this.target.scissor.set(0, row, this.width, rows);
+    this.target.scissorTest = true;
+    r.setRenderTarget(this.target);
+    r.setClearColor(0x000000, 0);
+    r.clear(true, false, false);
+    r.setClearColor(color, alpha);
   }
 
   /** Probe the water/land transitions of the native water pass. */
@@ -338,10 +610,11 @@ export class CrestProbe {
         // A stall or a resize: nothing older is usable.
         if (r && !ok) this.async.reset();
         this.renderer.setRenderTarget(this.target);
-        this.async.submit({ frameId, viewId, timeline, timeMs, height: this.height, rows: this.rows }, this.width, PROBE_ROWS);
+        const total = this.totalRows;
+        this.async.submit({ frameId, viewId, timeline, timeMs, height: this.height, rows: this.rows, edges: this.edges }, this.width, total);
         if (ok) {
           this.readMs = performance.now() - t0;
-          return { width: r.width, height: r.height, data: r.data, rows: r.rows, readMs: this.readMs, frameId: r.frameId,
+          return { width: r.width, height: r.height, data: r.data, rows: r.rows, edges: r.edges || 0, readMs: this.readMs, frameId: r.frameId,
             lag: frameId - r.frameId, mode: 'async' };
         }
       } catch {
@@ -349,10 +622,11 @@ export class CrestProbe {
         this.async = null;
       }
     } else if (this.async) this.async.reset(); // an export frame: live results restart after it
-    try { this.renderer.readRenderTargetPixels(this.target, 0, 0, this.width, PROBE_ROWS, this.data); }
+    const total = this.totalRows;
+    try { this.renderer.readRenderTargetPixels(this.target, 0, 0, this.width, total, this.data); }
     catch { return null; }
     this.readMs = performance.now() - t0;
-    return { width: this.width, height: this.height, data: this.data, rows: this.rows, readMs: this.readMs, frameId, lag: 0, mode: 'sync' };
+    return { width: this.width, height: this.height, data: this.data, rows: this.rows, edges: this.edges, readMs: this.readMs, frameId, lag: 0, mode: 'sync' };
   }
 
   /** Discard every asynchronous result (a seek, a new song or view). */

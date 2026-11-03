@@ -211,10 +211,8 @@ channel, total brightness kept); Landscape export frames are pixel-identical.
 frame of the view measured submitted about 53 M vertex indices: the smooth
 water layer 27 M (two `renderWater` calls, each a full-terrain depth pre-pass
 plus every band in water-only mode), the lake mirror 12.8 M, the terrain
-partitions themselves 13.5 M. Rung 4 sheds the mirror and the smooth water,
-leaving about 13.5 M. Vertex work does not depend on output size, so the
-resolution scale does not touch it, and the ladder's contract keeps landform
-and LOD. Two exact reductions are possible but not made: water-only passes
-that draw only tiles with water or next to it (0–78% of a view's triangles;
-dry views already skip water), and sharing one depth pre-pass between
-passes. Both need a design decision and timing on a real GPU.
+partitions themselves 13.5 M. Since then (docs/water-render-cost.md) the
+water-only passes draw only triangles that can be wet, and the mirror is
+scissored and shed at rung 1, so the phone start rung no longer draws it.
+The two water pre-passes still submit the full terrain; sharing one depth
+pre-pass between passes, or culling chunks outside the view, remains open.

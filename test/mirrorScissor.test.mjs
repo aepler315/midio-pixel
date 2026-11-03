@@ -1,0 +1,86 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { mirrorScissor, waterBoxes, liftBounds, shiverBounds } from '../src/world/alpine/MirrorScissor.js';
+
+function rng(seed) {
+  let s = seed >>> 0;
+  return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
+}
+// Column-major perspective * lookAt, enough to exercise real projections.
+function perspective(fovY, aspect, near, far) {
+  const f = 1 / Math.tan(fovY / 2), nf = 1 / (near - far);
+  return [f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, (far + near) * nf, -1, 0, 0, 2 * far * near * nf, 0];
+}
+function lookAt(eye, target) {
+  const sub = (a, b) => a.map((v, i) => v - b[i]), norm = a => { const l = Math.hypot(...a); return a.map(v => v / l); };
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const z = norm(sub(eye, target)), x = norm(cross([0, 1, 0], z)), y = cross(z, x);
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  return [x[0], y[0], z[0], 0, x[1], y[1], z[1], 0, x[2], y[2], z[2], 0, -dot(x, eye), -dot(y, eye), -dot(z, eye), 1];
+}
+const mul = (a, b) => {
+  const o = new Array(16).fill(0);
+  for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) for (let k = 0; k < 4; k++) o[c * 4 + r] += a[k * 4 + r] * b[c * 4 + k];
+  return o;
+};
+const bias = [.5, 0, 0, 0, 0, .5, 0, 0, 0, 0, .5, 0, .5, .5, .5, 1];
+const apply = (m, p) => [0, 1, 2, 3].map(r => m[r] * p[0] + m[4 + r] * p[1] + m[8 + r] * p[2] + m[12 + r]);
+
+test('every texel a visible lake fragment can read lies in the scissor', () => {
+  for (let seed = 1; seed <= 20; seed++) {
+    const r = rng(seed), level = 1300, eyeY = level + 50 + r() * 600;
+    const eye = [r() * 400, eyeY, r() * 400], target = [eye[0] + (r() - .5) * 3000, level - r() * 200, eye[2] - 2000 - r() * 3000];
+    const proj = perspective(.6, 16 / 9, 20, 150000);
+    const viewProj = mul(proj, lookAt(eye, target));
+    const mirrorEye = [eye[0], level - .45 * (eyeY - level), eye[2]], mirrorTarget = [target[0], 2 * level - target[1], target[2]];
+    const mirror = mul(bias, mul(proj, lookAt(mirrorEye, mirrorTarget)));
+    // Lake triangles scattered around and behind the camera.
+    const positions = [], index = [];
+    for (let t = 0; t < 400; t++) {
+      const cx = eye[0] + (r() - .5) * 8000, cz = eye[2] + (r() - .7) * 8000;
+      for (let v = 0; v < 3; v++) { index.push(positions.length / 3); positions.push(cx + (r() - .5) * 60, level + (r() - .5) * 4, cz + (r() - .5) * 60); }
+    }
+    const boxes = waterBoxes([{ positions: Float32Array.from(positions), index: Uint32Array.from(index) }]);
+    const u = { uDeformAmp: { value: 3 * r() }, uDeformKick: { value: r() }, uDeformStructural: { value: 0 }, uDeformMelodic: { value: r() }, uDeformGesture: { value: 0 },
+      uMirrorRipple: { value: .004 }, uWakeAmt: { value: r() }, uWaterGust: { value: [{ y: r() }] }, uStorm: { value: { x: r() } },
+      uWaterMusic: { value: { x: r(), y: r() } }, uWaterAccent: { value: [{ y: r() }] } };
+    const lift = liftBounds(u), shiver = shiverBounds(u);
+    const W = 704, H = 424;
+    const rect = mirrorScissor(boxes, mirror, viewProj, lift, shiver, W, H);
+    if (!rect) continue;
+    const realShiver = { x: shiver.x / 2, y: shiver.y / 2 }; // the unscaled bound
+    let checked = 0;
+    for (let t = 0; t < index.length; t += 3) {
+      for (let n = 0; n < 30; n++) {
+        let a = r(), b = r(); if (a + b > 1) { a = 1 - a; b = 1 - b; }
+        const p = [0, 1, 2].map(k => positions[index[t] * 3 + k] + a * (positions[index[t + 1] * 3 + k] - positions[index[t] * 3 + k]) + b * (positions[index[t + 2] * 3 + k] - positions[index[t] * 3 + k]));
+        p[1] += (r() * 2 - 1) * (u.uDeformAmp.value + u.uDeformKick.value + u.uDeformMelodic.value);
+        const c = apply(viewProj, p);
+        if (!(c[3] > 0) || Math.abs(c[0]) > c[3] || Math.abs(c[1]) > c[3] || Math.abs(c[2]) > c[3]) continue; // not drawn
+        const mc = apply(mirror, p);
+        if (!(mc[3] > 0)) continue; // never reads the mirror
+        const su = Math.min(.999, Math.max(.001, mc[0] / mc[3] + (r() * 2 - 1) * realShiver.x));
+        const sv = Math.min(.999, Math.max(.001, mc[1] / mc[3] + (r() * 2 - 1) * realShiver.y));
+        // The bilinear footprint of that fetch.
+        for (const tx of [Math.floor(su * W - .5), Math.floor(su * W - .5) + 1]) for (const ty of [Math.floor(sv * H - .5), Math.floor(sv * H - .5) + 1]) {
+          const x = Math.min(W - 1, Math.max(0, tx)), y = Math.min(H - 1, Math.max(0, ty));
+          assert.ok(x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height, `seed ${seed}: texel ${x},${y} outside ${JSON.stringify(rect)}`);
+        }
+        checked++;
+      }
+    }
+    assert.ok(checked > 0 || rect.width * rect.height === 0, `seed ${seed} checked nothing`);
+  }
+});
+
+test('unknown bounds draw the whole mirror; a box at the camera plane widens to the clamp', () => {
+  const box = Float64Array.of(-1, -1, -1, 1, 1, 1);
+  const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  assert.equal(mirrorScissor(box, identity, null, { lo: NaN, hi: 0 }, { x: 0, y: 0 }, 10, 10), null);
+  // w = z + 0: the box spans the camera plane, so its quotients are unbounded.
+  const straddle = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0];
+  assert.deepEqual(mirrorScissor(box, straddle, null, { lo: 0, hi: 0 }, { x: 0, y: 0 }, 10, 10), { x: 0, y: 0, width: 10, height: 10 });
+  // Entirely behind: never read.
+  const behind = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, -1, 0, 0, 0, -5];
+  assert.deepEqual(mirrorScissor(box, behind, null, { lo: 0, hi: 0 }, { x: 0, y: 0 }, 10, 10), { x: 0, y: 0, width: 0, height: 0 });
+});

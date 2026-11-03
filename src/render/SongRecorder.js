@@ -43,6 +43,27 @@ const FALLBACK_SAMPLE_FPS = 60;
 const TIMESLICE_MS = 1000;
 /** Keep long exports bounded even when a browser retains every recorder chunk in memory. */
 export const MAX_RECORDING_BYTES = 512 * 1024 * 1024;
+/** Seconds of encoded output a stopping recorder may still deliver: the open
+ *  timeslice, the drained stop's presentation wait (up to 1.5 s in a hidden
+ *  tab) and slack for a late flush. */
+const FINALIZE_RESERVE_SECONDS = 4;
+/** Container closing data (an MP4's sample index grows with length). */
+const FINALIZE_RESERVE_BASE_BYTES = 8 * 1024 * 1024;
+const MIN_FINALIZE_RESERVE_BYTES = 16 * 1024 * 1024;
+
+/** Bytes kept free below MAX_RECORDING_BYTES so the chunks a stopping encoder
+ *  still owes -- including the final metadata that makes the file playable --
+ *  fit under the hard cap. Sized from the recording's configured bitrate. */
+export function finalizeReserveBytes(bitsPerSecond = 0) {
+  const tail = Math.ceil(Math.max(0, bitsPerSecond || 0) / 8 * FINALIZE_RESERVE_SECONDS);
+  return Math.max(MIN_FINALIZE_RESERVE_BYTES, tail + FINALIZE_RESERVE_BASE_BYTES);
+}
+
+/** Bytes a recording at these export settings may fill before it stops
+ *  itself: the hard cap less the finalization reserve. */
+export function recordingBudgetBytes(settings) {
+  return MAX_RECORDING_BYTES - finalizeReserveBytes(exportVideoBitsPerSecond(settings) + AUDIO_BITS_PER_SECOND);
+}
 
 export class SongRecorder {
   /**
@@ -67,6 +88,13 @@ export class SongRecorder {
     this.startedMs = 0;
     this.bytes = 0;
     this.error = null;
+    /** Why the current recording ended before the user stopped it: null,
+     *  'limit' or 'error'. */
+    this.stopReason = null;
+    /** Encoder output refused at the hard cap. Nonzero means the file is
+     *  missing its tail and may not play. */
+    this.droppedBytes = 0;
+    this._softLimitBytes = MAX_RECORDING_BYTES;
 
     this._recorder = null;
     this._chunks = [];
@@ -182,26 +210,36 @@ export class SongRecorder {
       const stream = this._buildStream(preset);
       if (!stream) return false;
 
+      const videoBps = this._settings ? exportVideoBitsPerSecond(this._settings) : videoBitsPerSecond(preset.width, preset.height);
       this._recorder = new MR(stream, {
         mimeType: candidate.mimeType,
-        videoBitsPerSecond: this._settings ? exportVideoBitsPerSecond(this._settings) : videoBitsPerSecond(preset.width, preset.height),
+        videoBitsPerSecond: videoBps,
         audioBitsPerSecond: AUDIO_BITS_PER_SECOND,
       });
       this._chunks = [];
       this.bytes = 0;
+      this.droppedBytes = 0;
+      this.stopReason = null;
+      this._softLimitBytes = MAX_RECORDING_BYTES - finalizeReserveBytes(videoBps + AUDIO_BITS_PER_SECOND);
+      const recorder = this._recorder;
+      // Stop at a soft limit, then keep accepting what the encoder still owes
+      // up to the hard cap. Dropping the chunk that crosses the cap -- and with
+      // it the stop flush carrying the container's index -- used to hand back
+      // a file that reported success and would not play.
       this._recorder.ondataavailable = (e) => {
-        if (!e.data?.size) return;
+        if (!e.data?.size || this._recorder !== recorder) return;
         if (this.bytes + e.data.size > MAX_RECORDING_BYTES) {
-          this.error = 'Recording reached the 512 MB export limit.';
-          if (this._recorder?.state !== 'inactive') this.onAutoStop?.(this.error);
+          this.droppedBytes += e.data.size;
+          this._stopEarly('limit', 'Recording reached the 512 MB export limit.');
           return;
         }
         this._chunks.push(e.data);
         this.bytes += e.data.size;
+        if (this.bytes > this._softLimitBytes) this._stopEarly('limit', 'Recording reached the 512 MB export limit.');
       };
       this._recorder.onerror = (e) => {
-        this.error = e?.error?.message || 'Recording failed.';
-        this.onAutoStop?.(this.error);
+        if (this._recorder !== recorder) return;
+        this._stopEarly('error', e?.error?.message || 'Recording failed.');
       };
       this._recorder.onstop = () => this._finish();
       this._recorder.start(TIMESLICE_MS);
@@ -336,8 +374,24 @@ export class SongRecorder {
     this._capturedFrames++;
   }
 
+  /** Record why the recording ends before the user stopped it and ask the
+   *  owner, once, to stop. A limit met while an already requested stop is
+   *  draining did not end the recording early; an encoder error always
+   *  counts and outranks a limit. */
+  _stopEarly(reason, message) {
+    if (this.stopReason === 'error' || reason === this.stopReason) return;
+    if (reason === 'limit' && !this.recording) { this.error ??= message; return; }
+    const first = !this.stopReason;
+    this.stopReason = reason;
+    this.error = message;
+    if (first && this.recording) this.onAutoStop?.(message);
+  }
+
   /** Stop and resolve to `{blob, url, fileName-ready parts}` — or null if
-   *  nothing was captured. */
+   *  nothing was captured. The result says whether the file is whole:
+   *  `stoppedEarly` names a limit or encoder error that ended it before the
+   *  user did, and `complete` is false when encoder output was lost or the
+   *  encoder failed, so the file may not play. */
   stop({ drain = false } = {}) {
     if (this.finalizing) return this._stopPromise;
     if (!this.recording) return null;
@@ -379,6 +433,9 @@ export class SongRecorder {
     const chunks = this._chunks;
     const preset = this._preset;
     const resolveStop = this._resolveStop;
+    const stoppedEarly = this.stopReason || null;
+    const error = stoppedEarly || this.droppedBytes ? this.error : null;
+    const droppedBytes = this.droppedBytes || 0;
     this._teardown();
     if (!chunks.length) {
       this._completeFinalization(resolveStop, null);
@@ -403,6 +460,10 @@ export class SongRecorder {
       durationMs,
       preset,
       capture,
+      stoppedEarly,
+      error,
+      droppedBytes,
+      complete: droppedBytes === 0 && stoppedEarly !== 'error',
     });
   }
 
