@@ -13,6 +13,7 @@
 import { bakeTerrain, mirroredPose } from './terrain-bake.mjs';
 import { sampleFootprintPoses } from './scenic-coverage.mjs';
 import { mirrorLevelFor } from '../../src/world/alpine/WaterMirror.js';
+import { railTile } from '../../src/world/alpine/TerrainPackage.js';
 
 /** Compressed payload bytes per tile by stride, measured on posed Monument
  *  Valley bakes (residual heights + flow, gzip applied). */
@@ -20,11 +21,12 @@ export const TILE_BYTES = Object.freeze({ 1: 7300, 2: 1900, 4: 500, 8: 140, 16: 
 /** Manifest JSON bytes per tile entry (uncompressed, as shipped). */
 export const MANIFEST_TILE_BYTES = 470;
 
-/** Median height of the package's water samples (null without water). */
+/** Median height of the rail's water samples (null without water), as
+ *  RangeScene's waterLevel: ground only a tour pose sees does not count. */
 export function waterLevelOf(data) {
   const hs = [];
   for (const t of data.tiles.values()) {
-    if (!t.flowBytes) continue;
+    if (!railTile(t) || !t.flowBytes) continue;
     for (let i = 0; i < t.flowBytes.length; i += 7) if (t.flowBytes[i] === 255 && Number.isFinite(t.heightsM[i])) hs.push(t.heightsM[i]);
   }
   if (!hs.length) return null;

@@ -23,6 +23,21 @@ export function decodeResiduals(r, n) {
   return q;
 }
 
+/**
+ * Whether a view's rail draws this tile. A shot-tour bake also ships the
+ * ground only its tour poses see, marked rail: false (terrain-bake.mjs):
+ * the rail never draws it, and nothing the rail shows -- its height range,
+ * water level, lake mirror, cast routes -- is derived from it.
+ */
+export const railTile = (t) => !!t && t.visible !== false && t.rail !== false;
+
+/** [min, max] metres the view's shading, land motion and mist normalise
+ *  height over: the rail tiles' bounds when a tour bake records them. */
+export function terrainHeightRange(manifest) {
+  const b = manifest?.railBoundsM || manifest?.boundsM;
+  return b ? [b.min[1], b.max[1]] : null;
+}
+
 // ---------------------------------------------------------------------------
 // Validation.
 

@@ -7,6 +7,7 @@ import { finishPreparation, prepareInSlices } from './PreparationSteps.js';
 import { yieldToMain } from '../../utils/yieldToMain.js';
 import { waterTexelTableAsync } from './WaterColourRanges.js';
 import { buildTerrainGeometry, buildSurfaceTexture, buildReceiverMask, buildSurfaceTextureAsync, buildReceiverMaskAsync, BANDS } from './TerrainMesh.js';
+import { terrainHeightRange } from './TerrainPackage.js';
 
 export const REVIEW_MODES = Object.freeze({ neutral: 0, silhouette: 1, depth: 2, normals: 3, edges: 4 });
 
@@ -131,7 +132,7 @@ export function terrainUniforms(THREE, data, surface) {
     // Extent between the first and last sample centres.
     uGridOrigin: { value: new THREE.Vector2(g.originM[0], g.originM[1]) },
     uGridExtent: { value: new THREE.Vector2((g.width - 1) * g.cellSizeM, (g.height - 1) * g.cellSizeM) },
-    uHeightRange: { value: new THREE.Vector2(data.manifest.boundsM.min[1], data.manifest.boundsM.max[1]) },
+    uHeightRange: { value: new THREE.Vector2(...terrainHeightRange(data.manifest)) },
   };
 }
 

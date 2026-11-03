@@ -46,6 +46,7 @@ import { applyCameraMoves, rangeUserCamera } from './RangeCamera.js';
 import { BANDS, terrainFringeBytes, terrainHeightAt, SURFACE_BUILD_BYTES_PER_PIXEL } from './TerrainMesh.js';
 import { mistParams, mistDrift, easeMistSteps, tourMistCap, tourMistFade, atmosphereMusic } from './RangeAtmosphere.js';
 import { mirrorSize, mirrorLevelFor, mirrorCameraFor, mirrorTextureMatrix, MIRROR_CLIP_M, MIRROR_LIFT } from './WaterMirror.js';
+import { railTile } from './TerrainPackage.js';
 import { scenicProjection, calibrateRangeMusic, rangeCameraCalibration, requestedLandDance } from './RangeFrame.js';
 import { applyGlacierUniforms, glacierErrors, glacierSample } from './GlacierField.js';
 import { ActorsGL, SITE_LIGHTS_MAX, CAST_LAYER, CAST_RIBBON_LAYER, enableCastLayers } from './ActorsGL.js';
@@ -119,12 +120,13 @@ function yieldToMain() {
   return new Promise((res) => setTimeout(res, 0));
 }
 
-/** Median height of the package's hydro-flattened water samples (the
- *  valley floor the mist settles on); null when the view has no water. */
-function waterLevel(data) {
+/** Median height of the rail's hydro-flattened water samples (the valley
+ *  floor the mist settles on); null when the rail sees no water. Ground only
+ *  a shot tour sees never moves the rail's water (TerrainPackage railTile). */
+export function waterLevel(data) {
   const hs = [];
   for (const t of data.tiles.values()) {
-    if (!t.flowBytes) continue;
+    if (!railTile(t) || !t.flowBytes) continue;
     for (let i = 0; i < t.flowBytes.length; i += 7) if (t.flowBytes[i] === 255 && Number.isFinite(t.heightsM[i])) hs.push(t.heightsM[i]);
   }
   if (!hs.length) return null;
