@@ -80,6 +80,44 @@ test('a tour pose close to a tile the rail sees far off keeps the rail\'s band',
   for (const t of extra) assert.equal(t.band, t.closestM < 500 ? 'near' : t.closestM < 2000 ? 'mid' : 'far', 'a tile only a pose sees is banded by the pose');
 });
 
+test('a coarse tour pose that sees a rail-extended tile in core never makes it coarser than the rail bake', async () => {
+  // The rail frames some tiles only in its extended margin (listener zoom and
+  // shake) at 3x the pixel budget. A distant, coarse-budget tour pose seeing
+  // them in core must not replace the rail's own requirement with its own.
+  const { grid, view } = fixture();
+  const rail = (await bakeTerrain(grid, view)).manifest;
+  const extended = rail.tiles.filter((t) => t.framing === 'extended');
+  assert.ok(extended.length > 0, 'fixture has rail-extended tiles');
+  const pose = { eyeM: [0, 6000, 2400], targetM: [0, 1000, -1800], fovYDeg: 70 };
+  const baked = (await bakeTerrain(grid, view, { poses: [pose], poseErrorScale: 64 })).manifest;
+  const posed = byKey(baked);
+  assert.ok(extended.some((t) => posed.get(`${t.ix},${t.iz}`).framing === 'core'), 'the pose sees a rail-extended tile in core');
+  for (const t of rail.tiles) {
+    const p = posed.get(`${t.ix},${t.iz}`);
+    for (const b of ['desktop', 'mobile']) assert.ok(p.lod[b] <= t.lod[b], `${t.ix},${t.iz} ${b}: ${t.lod[b]} -> ${p.lod[b]}`);
+    assert.ok(p.stride <= t.stride);
+  }
+});
+
+test('a posed bake marks the tiles only a pose sees and keeps the rail tiles\' bounds', async () => {
+  const { grid, view } = fixture();
+  const railBake = (await bakeTerrain(grid, view)).manifest;
+  assert.equal(Object.hasOwn(railBake, 'railBoundsM'), false, 'rail-only bakes are unchanged');
+  assert.ok(railBake.tiles.every((t) => !Object.hasOwn(t, 'rail')));
+  const baked = (await bakeTerrain(grid, view, { poses: [behind] })).manifest;
+  const railKeys = new Set(railBake.tiles.map((t) => `${t.ix},${t.iz}`));
+  for (const t of baked.tiles) {
+    if (railKeys.has(`${t.ix},${t.iz}`)) assert.equal(Object.hasOwn(t, 'rail'), false, `${t.ix},${t.iz} is a rail tile`);
+    else assert.equal(t.rail, false, `${t.ix},${t.iz} only the pose sees`);
+  }
+  assert.ok(baked.tiles.some((t) => t.rail === false));
+  assert.deepEqual(baked.railBoundsM, railBake.boundsM);
+  // No rail, nothing to mark: every tile is a pose's.
+  const noRail = (await bakeTerrain(grid, { id: 'no-rail' }, { poses: [behind] })).manifest;
+  assert.ok(noRail.tiles.every((t) => !Object.hasOwn(t, 'rail')));
+  assert.equal(Object.hasOwn(noRail, 'railBoundsM'), false);
+});
+
 test('poses alone bake a view without a rail; a broken rail still fails', async () => {
   const { grid, view } = fixture();
   const baked = await bakeTerrain(grid, { id: 'no-rail' }, { poses: [behind] });

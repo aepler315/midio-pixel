@@ -826,13 +826,22 @@ export async function bakeTerrain(grid, view, options = {}) {
   // sharp.extended, which every core viewer's widest framing feeds too (wider
   // than the frame validatePoses checks): only these refine core tiles.
   const wide = [...railViewers, ...posedViewers].some((v) => v.framing === 'extended') ? Object.fromEntries(budgetKeys.map((b) => [b, new Float64Array(boxes.length)])) : null;
+  // A posed bake also keeps what the rail alone would ask of each tile, so a
+  // tile the rail sees is never coarser than the view's rail-only bake makes
+  // it: a tour pose that sees a rail-extended tile in core would otherwise
+  // drop the rail's extended budget (docs/camera-tour-promotion-2026-11-03.md).
+  // These mirror sharp / wide as a rail-only bake builds them.
+  const railSharp = posed && extraRail ? Object.fromEntries(FRAMINGS.map((name) => [name, Object.fromEntries(budgetKeys.map((b) => [b, new Float64Array(boxes.length)]))])) : null;
+  const railWide = posed && railViewers.some((v) => v.framing === 'extended') ? Object.fromEntries(budgetKeys.map((b) => [b, new Float64Array(boxes.length)])) : null;
   const scratch = {};
   for (const viewer of viewers) {
     const { pose, minHeightM } = viewer;
     const focalOf = sharp && budgetKeys.map((b) => focalPx(viewer.focalFovYDeg, budgets[b].heightPx) * viewer.focalScale);
     const wideOnly = wide && viewer.framing === 'extended';
+    const railWideOnly = viewer.rail && railWide && viewer.framing === 'extended';
     for (const name of viewer.framings) {
       const best = wideOnly ? wide : sharp?.[name];
+      const railBest = viewer.rail && railSharp ? (railWideOnly ? railWide : railSharp[name]) : null;
       // Built on first need: a viewer that can improve no tile draws nothing.
       let ob = null;
       for (let k = 0; k < boxes.length; k++) {
@@ -844,7 +853,8 @@ export async function bakeTerrain(grid, view, options = {}) {
         const depth = Math.max(0, viewDepthToBox(pose, box));
         const sharper = sharp && budgetKeys.some((b, j) => focalOf[j] / Math.max(vis.minDistanceM, depth) > best[b][k]);
         const railCloser = viewer.rail && depth < railReach[name][k];
-        if (!(depth < reach[name][k]) && !sharper && !railCloser) continue;
+        const railSharper = railBest && budgetKeys.some((b, j) => focalOf[j] / Math.max(vis.minDistanceM, depth) > railBest[b][k]);
+        if (!(depth < reach[name][k]) && !sharper && !railCloser && !railSharper) continue;
         // Bed occlusion is not valid across spatially varying retreat:
         // a foreground ice margin and a distant surface clear at different
         // times. Keep all in-frustum glacier tiles conservatively.
@@ -861,6 +871,13 @@ export async function bakeTerrain(grid, view, options = {}) {
             if (wideOnly) wide[b][k] = Math.max(wide[b][k], fd);
           });
         }
+        if (railBest) {
+          budgetKeys.forEach((b, j) => {
+            const fd = focalOf[j] / Math.max(vis.minDistanceM, depth);
+            railSharp[name][b][k] = Math.max(railSharp[name][b][k], fd);
+            if (railWideOnly) railWide[b][k] = Math.max(railWide[b][k], fd);
+          });
+        }
       }
     }
   }
@@ -870,6 +887,12 @@ export async function bakeTerrain(grid, view, options = {}) {
   const pushChunk = (buf) => { const at = byteOffset; chunks.push(Buffer.from(buf.buffer, buf.byteOffset, buf.byteLength)); byteOffset += buf.byteLength; return at; };
   const achieved = Object.fromEntries(Object.keys(budgets).map((k) => [k, 0]));
   let bounds = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] };
+  // Posed bakes with a rail mark the tiles only a tour pose sees (rail:
+  // false) and keep the rail tiles' own bounds: the runtime draws only the
+  // rail tiles on the rail and takes the view's height range, water and
+  // mirror from them, so the rail plays exactly its rail-only package.
+  const markRail = posed && hasRail;
+  const railBounds = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] };
 
   for (let iz = 0; iz < tilesZ; iz++) {
     for (let ix = 0; ix < tilesX; ix++) {
@@ -885,6 +908,7 @@ export async function bakeTerrain(grid, view, options = {}) {
       // Band by the rail's own approach where the rail sees the tile at all.
       const railSeen = !allTiles && visible ? FRAMINGS.map((f) => railReach[f][ti]).find(Number.isFinite) : undefined;
       const bandDist = railSeen !== undefined ? Math.max(vis.minDistanceM, railSeen) : dist;
+      const railFraming = !markRail ? null : Number.isFinite(railReach.core[ti]) ? 'core' : Number.isFinite(railReach.extended[ti]) ? 'extended' : null;
       const budgetScale = allTiles ? 1 : visible ? vis[framing].budgetScale : 1;
       const errorsM = {};
       for (const s of STRIDES) if (s <= cells) errorsM[s] = tileStrideError(h, valid, w, hgt, x0, y0, cells, s);
@@ -918,10 +942,24 @@ export async function bakeTerrain(grid, view, options = {}) {
         }
         return best;
       };
+      // The stride the view's rail-only bake gives this tile (same viewers,
+      // same lenses, same budgets), or null where the rail does not see it.
+      const railPick = (budget) => {
+        if (!railFraming || glacier) return null;
+        const railDist = Math.max(vis.minDistanceM, railReach[railFraming][ti]);
+        let best = 1;
+        for (const s of STRIDES) {
+          if (s > cells || s > strideCap) break;
+          const px = railSharp ? errorsM[s] * railSharp[railFraming][budget][ti] : errorsM[s] * focal[budget] / railDist;
+          if (railWide && errorsM[s] * railWide[budget][ti] > budgets[budget].errorPx * vis.extended.budgetScale) continue;
+          if (px <= budgets[budget].errorPx * vis[railFraming].budgetScale) best = s;
+        }
+        return best;
+      };
       // Hidden from every station in every framing: never drawn, so not
       // shipped (options.keepHidden keeps it, coarsest, for diagnostics).
       if (!visible && !options.keepHidden) continue;
-      const lod = Object.fromEntries(Object.keys(budgets).map((k) => [k, pick(k)]));
+      const lod = Object.fromEntries(Object.keys(budgets).map((k) => [k, Math.min(pick(k), railPick(k) ?? Infinity)]));
       const stride = allTiles ? (options.tileStride?.({ ix, iz, x0, y0, cells, grid }) ?? 1) : Math.min(...Object.values(lod));
       if (!STRIDES.includes(stride) || stride > cells) throw new Error('Invalid authored tile stride');
       for (const k of Object.keys(lod)) {
@@ -959,10 +997,12 @@ export async function bakeTerrain(grid, view, options = {}) {
         minY, maxY, visible, framing, closestM: allTiles ? null : visible ? Math.round(dist) : null,
         band: !visible ? 'far' : bandDist < bands.nearM ? 'near' : bandDist < bands.midM ? 'mid' : 'far',
         ...(!allTiles ? { lod } : {}),
+        ...(markRail && railSeen === undefined ? { rail: false } : {}),
         errorsM: Object.fromEntries(Object.entries(errorsM).filter(([s]) => Number(s) >= stride).map(([s, e]) => [s, Math.round(e * 1000) / 1000])),
       };
       tiles.push(tile);
       for (let a = 0; a < 3; a++) { bounds.min[a] = Math.min(bounds.min[a], box.min[a]); bounds.max[a] = Math.max(bounds.max[a], box.max[a]); }
+      if (markRail && railSeen !== undefined) for (let a = 0; a < 3; a++) { railBounds.min[a] = Math.min(railBounds.min[a], box.min[a]); railBounds.max[a] = Math.max(railBounds.max[a], box.max[a]); }
     }
   }
   const decoded = Buffer.concat(chunks);
@@ -1003,6 +1043,7 @@ export async function bakeTerrain(grid, view, options = {}) {
     tileCells: cells, tilesX, tilesZ,
     quantization: { offsetM, stepM },
     boundsM: bounds,
+    ...(markRail ? { railBoundsM: railBounds } : {}),
     bands,
     ...(!allTiles ? { lod: {
       budgets, fovYDeg: hasRail ? view.camera.fovYDeg : null, visibility: vis,
