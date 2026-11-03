@@ -244,6 +244,35 @@ export function describeResult({ candidate, codec, bytes, durationMs } = {}) {
   return `${container} · ${length} · ${size}`;
 }
 
+/**
+ * What the saved line must add when a recording did not end the way the
+ * user asked: `null` for a whole file the user stopped, otherwise a
+ * `{ title, detail, tone }` naming the cut-off and whether it will play.
+ */
+export function describeEarlyStop({ stoppedEarly = null, complete = true, droppedBytes = 0, error = null, durationMs } = {}) {
+  if (!stoppedEarly && complete !== false) return null;
+  const at = formatElapsed(durationMs);
+  if (stoppedEarly === 'error' || (complete === false && !droppedBytes)) {
+    return {
+      title: 'Partial video saved',
+      detail: `Recording failed at ${at}${error ? ` (${error})` : ''}. The file may not play.`,
+      tone: 'isWarning',
+    };
+  }
+  if (complete === false) {
+    return {
+      title: 'Incomplete video saved',
+      detail: `Recording hit the 512 MB export limit at ${at} and lost its last ${formatBytes(droppedBytes)}. The file may not play.`,
+      tone: 'isWarning',
+    };
+  }
+  return {
+    title: 'Partial video saved',
+    detail: `Recording stopped at the 512 MB export limit at ${at}; the rest of the song was not recorded. Lower the resolution or encoding to fit a full song.`,
+    tone: 'isWarning',
+  };
+}
+
 // Front-screen export preferences. Output pixels, compression and playback
 // detail are deliberately independent. Legacy recorder presets remain valid.
 export const EXPORT_SETTINGS_KEY = 'midio-pixel:export:v1';
