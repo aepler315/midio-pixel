@@ -37,7 +37,7 @@ export async function measureForestRingTone(page, crop) {
         float snowLine =`);
     const material=new T.ShaderMaterial({glslVersion:T.GLSL3,vertexShader:SCENE_VERT,fragmentShader:fragment,uniforms:p.uniforms});
     const diagnostic=new T.Scene();
-    for(const band of Object.values(p.scenes)) for(const mesh of band.children) if(mesh.material===p.material) {
+    for(const band of Object.values(p.scenes)) for(const mesh of band.children) if([].concat(mesh.material)[0]===p.material) {
       const m=new T.Mesh(mesh.geometry,material);m.frustumCulled=false;diagnostic.add(m);
     }
     const width=viewport.backingWidth,height=viewport.backingHeight;
