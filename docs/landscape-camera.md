@@ -62,12 +62,17 @@ available for that song:
 
 Off keeps every authored rail. The Teton highway tour (`?rangeTour=tetons`)
 stays a separate forced tour. The choice never changes mid-landscape: an
-in-place rebuild (full-analysis adoption) keeps a playing tour and keeps a view
-that was given its rail on that rail. A refinement that would fail the checks
-is held, and the tour already playing stays.
+in-place rebuild (a seek or full-analysis adoption) keeps a playing tour and
+keeps a view that was given its rail on that rail. A seek tears the
+presentation down, so the camera run (`CameraRun`) carries both the heard
+timelines and the rail-kept views to the rebuild. A refinement that would fail
+the checks is held without retrying, and the tour already playing stays; only
+newly refined sections plan again.
 
 `src/world/alpine/CameraChoice.js` compares a plan with the rail over the heard
-time the view is on screen (`visibleIntervals`):
+time the view is on screen (`visibleIntervals`: the rail schedule's
+appearances of the view, from their first frame through the outgoing
+allowance; the same windows the plan was made over):
 
 | Check | Rail is kept when |
 | --- | --- |
@@ -93,6 +98,9 @@ songs. At 50%, 40 of 60 plans play their tour and 20 keep the rail. Black
 Mountains keeps the rail on all three long songs; Muncho, San Gabriel and
 White Mountains play their tour on all four; every 90 s plan is a single
 transit-free shot. These
-are geometry-only measurements, not rendered or listening reviews. No library
+are geometry-only measurements, not rendered or listening reviews. In the app
+the checks run over the view's scheduled appearances rather than the whole
+song, so a view shown for part of a song can be judged on a different share of
+its plan than this calibration measured. No library
 is approved on `main`, so on `main` every landscape still plays its rail.
 

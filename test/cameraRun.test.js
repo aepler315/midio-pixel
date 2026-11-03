@@ -121,6 +121,23 @@ test('a preserved run carries heard tour timelines to the rebuild at its high-wa
   assert.equal(replay.tourContinuation(), null);
 });
 
+test('a preserved run carries the views kept on their rail; a tour-mode change forgets them', () => {
+  const data = {}, run = openCameraRun(null, { data, seed: 7 }), tour = { id: 'tour' };
+  run.reach(25000);
+  openCameraRun(run, { data, seed: 7, intent: 'preserve',
+    tours: { timelines: new Map([['a', tour]]), railKept: new Map([['b', 'rail kept: the tour spends 62% in transit']]) } });
+  const carried = run.tourContinuation();
+  assert.deepEqual([...carried.timelines], [['a', tour]]);
+  assert.deepEqual([...carried.railKept], [['b', 'rail kept: the tour spends 62% in transit']]);
+  assert.equal(carried.committedThroughMs, 25000);
+  run.retainTours({ timelines: new Map([['b', tour]]) });
+  assert.deepEqual([...run.tourContinuation().railKept], [], 'a view carries one camera choice, the newest');
+  run.forgetTours();
+  assert.equal(run.tourContinuation(), null);
+  run.retainTours({ railKept: new Map([['b', 'rail kept: no payoff on screen']]) });
+  assert.deepEqual([...run.tourContinuation().railKept], [['b', 'rail kept: no payoff on screen']], 'a rail alone is still carried');
+});
+
 test('analysis adoption while another world is active refines dormant landscape on return', () => {
   const data = {}, run = new CameraRun({ data, seed: 7 });
   run.install('range', compile().snapshot); run.reach(30000);

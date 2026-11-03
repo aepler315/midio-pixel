@@ -36,23 +36,28 @@ export class CameraRun {
     this.schedules = new Map();
     this.refinePending = new Set();
     this.tours = new Map();
+    this.railKept = new Map();
   }
 
   reach(heardTimeMs) {
     if (Number.isFinite(heardTimeMs)) this.highWaterMs = Math.max(this.highWaterMs, heardTimeMs);
   }
 
-  /** Shot-tour timelines die with each rebuild's presentation state, so the
-   *  run keeps the heard ones for the next seek, by view. */
+  /** Shot-tour timelines and camera choices die with each rebuild's
+   *  presentation state, so the run keeps them for the next seek, by view:
+   *  the heard timelines, and the views the gate kept on their rail (a fresh
+   *  plan after a seek must not swap that rail for a tour mid-song). */
   retainTours(continuation) {
-    for (const [viewId, timeline] of continuation?.timelines || []) this.tours.set(viewId, timeline);
+    for (const [viewId, timeline] of continuation?.timelines || []) { this.tours.set(viewId, timeline); this.railKept.delete(viewId); }
+    for (const [viewId, reason] of continuation?.railKept || []) { this.railKept.set(viewId, reason); this.tours.delete(viewId); }
   }
 
-  /** A listener's tour-mode change starts the tours over. */
-  forgetTours() { this.tours.clear(); }
+  /** A listener's tour-mode change starts the tours and choices over. */
+  forgetTours() { this.tours.clear(); this.railKept.clear(); }
 
   tourContinuation() {
-    return this.tours.size ? { timelines: new Map(this.tours), committedThroughMs: this.highWaterMs } : null;
+    if (!this.tours.size && !this.railKept.size) return null;
+    return { timelines: new Map(this.tours), railKept: new Map(this.railKept), committedThroughMs: this.highWaterMs };
   }
 
   scheduleFor(worldId) { return this.schedules.get(worldId) || null; }

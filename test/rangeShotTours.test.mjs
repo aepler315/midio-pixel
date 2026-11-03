@@ -8,6 +8,7 @@ import { handleShotMessage } from '../src/world/terrain/shot-worker.js';
 import { shotPlanRequest } from '../src/world/terrain/ShotRuntime.js';
 import { restoreShotTimeline } from '../src/world/terrain/ShotTimeline.js';
 import { shotLibraryFixture, anthemSong } from './fixtures/shot-library-fixture.mjs';
+import { openCameraRun } from '../src/ui/CameraRun.js';
 
 const sha = 'a'.repeat(64);
 const view = (id, status = 'approved') => ({ id, status, shotsManifestUrl: `tour/${id}.shots.json`, shotsManifestSha256: sha,
@@ -410,4 +411,55 @@ test('poses through the high-water are identical after a worker refinement reque
     const a = before.poseAt(t), b = after.poseAt(t);
     assert.deepEqual([a.eyeM, a.targetM, a.fovYDeg], [b.eyeM, b.targetM, b.fovYDeg], `pose at ${t}`);
   }
+});
+
+// The one default camera (CameraChoice.js) and heard history together.
+// transit(): timeline()'s camera, every key a connecting move -- it loses.
+const transit = () => {
+  const meta = new Uint8Array(601 * 4);
+  for (let k = 0; k < 601; k++) meta[k * 4 + 1] = 1;
+  return { ...timeline(), meta };
+};
+
+// Break caught: the run carried only timelines through a seek, so a view the
+// gate had kept on its rail planned afresh and could become a tour mid-song.
+test('a view the gate kept on its rail stays there through a seek without planning again', async () => {
+  const calls = [];
+  const tours = new RangeShotTours({ assetBase: 'http://x/', load: async () => ({ library }), plan: async () => { calls.push('first'); return transit(); } });
+  tours.setSong({ mgr: mgr(), views: [view('a')], generation: 1 });
+  await settle(); await settle();
+  assert.equal(tours.status().a.state, 'rail');
+  const data = {}, run = openCameraRun(null, { data, seed: 7 });
+  run.reach(20000);
+  assert.equal(openCameraRun(run, { data, seed: 7, intent: 'preserve', tours: tours.continuation(20000) }), run);
+  tours._plan = async () => { calls.push('after seek'); return timeline(); }; // would pass the gate now
+  tours.setSong({ mgr: mgr(), views: [view('a')], generation: 2, continuation: run.tourContinuation() });
+  assert.equal(tours.status().a.state, 'rail');
+  assert.equal(tours.settled('a'), true);
+  await settle(); await settle();
+  assert.deepEqual(calls, ['first']);
+  assert.equal(tours.timeline('a'), null);
+  assert.match(tours.status().a.reason, /^rail kept: /);
+});
+
+test('a refinement that loses to the rail is held, not retried, until the sections change again', async () => {
+  const r = await replanning((n) => Promise.resolve(n === 2 ? transit() : timeline()));
+  r.tours.setSong({ mgr: r.m, views: [view('a')], generation: 1 });
+  await settle(); await settle();
+  const playing = r.tours.timeline('a');
+  assert.ok(playing);
+  newSections(r.m); r.tours.refine(r.m);
+  await settle(); await settle();
+  const { state, refinement } = r.tours.status().a;
+  assert.equal(state, 'ready');
+  assert.equal(refinement.state, 'held');
+  assert.equal(refinement.retrying, false);
+  assert.match(refinement.reason, /^refinement loses to the rail: /);
+  assert.equal(r.tours.timeline('a'), playing, 'the playing tour stays');
+  r.advance(SHOT_REPLAN_RETRY_MS * (SHOT_REPLAN_RETRIES + 2)); r.tours.refine(r.m);
+  assert.equal(r.calls.length, 2, 'a verdict is not a failure to retry');
+  newSections(r.m); r.tours.refine(r.m);
+  await settle(); await settle();
+  assert.equal(r.calls.length, 3);
+  assert.equal(r.tours.status().a.refinement.state, 'applied');
 });
