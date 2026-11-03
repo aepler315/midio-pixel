@@ -102,11 +102,11 @@ import { fingerprintBufferOffThread } from './audio/FingerprintWorkerClient.js';
 import { readVisionConfig, persistVisionConfig } from './vision/config.js';
 import { packBundle, unpackBundle } from './audio/AnalysisBundle.js';
 import { analysisCacheKey, getBundle, putBundle } from './audio/AnalysisCache.js';
-import { SongRecorder, MAX_RECORDING_BYTES } from './render/SongRecorder.js';
+import { SongRecorder, recordingBudgetBytes } from './render/SongRecorder.js';
 import { readRenderQuality, writeRenderQuality, RENDER_QUALITIES, renderQualityLevel } from './render/RenderQuality.js';
 import {
   estimateExportBytes,
-  formatBytes, formatElapsed, exportFileName, describeResult,
+  formatBytes, formatElapsed, exportFileName, describeResult, describeEarlyStop,
 } from './render/VideoExport.js';
 import { stepExportClock, evenExportSize } from './render/BulkExport.js';
 import { rangeUserCamera } from './world/alpine/RangeCamera.js';
@@ -1561,7 +1561,7 @@ function offerWorldsThenStart(data, extra = {}) {
   if (extra.recordingSettings) {
     exportSetup.setDuration(data.durationMs);
     const bytes = estimateExportBytes(extra.recordingSettings, data.durationMs + 3000);
-    if (!exportSetup.candidate || bytes > MAX_RECORDING_BYTES) {
+    if (!exportSetup.candidate || bytes > recordingBudgetBytes(extra.recordingSettings)) {
       backToTitle();
       showErrorBanner(!exportSetup.candidate ? 'This browser cannot record video.'
         : 'This song exceeds the 512 MB recording budget at these settings. Choose a lower resolution, FPS, or encoding quality.');
@@ -5259,7 +5259,9 @@ function finishRecording() {
   recorder.stop({ drain: true }).then((result) => {
     syncRecordUI();
     if (!result) {
-      setExportNote('Nothing was captured — the recording was too short to save.', 'isWarning');
+      setExportNote(recorder.stopReason === 'error' && recorder.error
+        ? `Recording failed before anything was saved: ${recorder.error}`
+        : 'Nothing was captured — the recording was too short to save.', 'isWarning');
       return;
     }
     const fileName = exportFileName({
@@ -5270,12 +5272,15 @@ function finishRecording() {
     downloadBlob(result.blob, fileName);
     const notice = document.getElementById('exportSaved');
     const cadence = result.capture ? ` · ${Math.round(result.capture.averageFps)}/${result.capture.requestedFps} fps drawn` : '';
-    notice.textContent = `Video saved · ${describeResult(result)}${cadence}`;
+    const early = describeEarlyStop(result);
+    notice.textContent = early
+      ? `${early.title} · ${early.detail} · ${describeResult(result)}`
+      : `Video saved · ${describeResult(result)}${cadence}`;
     notice.hidden = false;
     setTimeout(() => { notice.hidden = true; }, 12000);
     setExportNote(
-      `Saved ${fileName} — ${describeResult(result)}`,
-      result.codec && result.codec !== 'H.264' ? 'isWarning' : 'isResult',
+      early ? `${early.title}: ${fileName} — ${early.detail} ${describeResult(result)}` : `Saved ${fileName} — ${describeResult(result)}`,
+      early?.tone || (result.codec && result.codec !== 'H.264' ? 'isWarning' : 'isResult'),
     );
   }).catch((err) => {
     console.error('[export] failed', err);
