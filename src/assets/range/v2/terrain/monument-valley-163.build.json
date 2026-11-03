@@ -118,7 +118,7 @@
    "lengthKm": 116.11293896668593
   }
  ],
- "manifestSha256": "1a15733d59c1dea61f1f2af33871387a43499f052d71ce15a624e7361d922427",
+ "manifestSha256": "d69ae461ea46a508ab163c72af8d3c7b6f60d26daf530ca891395bd8670df419",
  "payloadSha256": "4b68016c14bf755af2d8f41dd0381dadf150982b4aceb13aef20ae89f2ad10e2",
  "payloadBytes": 1604501,
  "stats": {
@@ -144,7 +144,7 @@
  "despikedSamples": 2,
  "gentleGroundSmoothingM": null,
  "tourFootprint": {
-  "shotsManifestSha256": "cf6720e94882dd02ef900615e4c4a8c7412500ee66489bd22514afc3a3abaf7f",
+  "shotsManifestSha256": "c3a71c93d4d53da4c42f16cfbd66e5c71c7b50baf6a2e82a2c6c26ad94440073",
   "poses": {
    "poseCount": 1416,
    "bakedPoses": 1178,
