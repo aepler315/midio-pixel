@@ -44,3 +44,51 @@ result; lightweight per-frame diagnostics omit its progress tables.
 
 See [background Landscape review](landscape-review.md) for matched ordinary
 rail captures, explicit tours-Off selection and longer continuous clips.
+
+## One default camera
+
+Camera tours on is the single default camera. For every landscape the song
+shows, the camera is chosen once, before the view's first frame, from what is
+available for that song:
+
+1. its music-timed **shot tour**, when the view has an approved library and the
+   song's plan beats the authored rail on the checks below;
+2. otherwise the **authored rail** at the selected Landscape pace, with its
+   energy-following progress and section moves.
+
+Off keeps every authored rail. The Teton highway tour (`?rangeTour=tetons`)
+stays a separate forced tour. The choice never changes mid-landscape: an
+in-place rebuild (full-analysis adoption) keeps a playing tour and keeps a view
+that was given its rail on that rail. A refinement that would fail the checks
+is held, and the tour already playing stays.
+
+`src/world/alpine/CameraChoice.js` compares a plan with the rail over the heard
+time the view is on screen (`visibleIntervals`):
+
+| Check | Rail is kept when |
+| --- | --- |
+| Transit share | more than 50% of on-screen time is spent on connecting moves |
+| Payoffs | no shot's payoff lands on a musical moment on screen |
+| Payoff timing | a payoff lands more than 1.5 s from its moment |
+| Image flow | flow exceeds 1.25× its comfort limit |
+| Motion limits | the timeline reports an acceleration or climb over its limit |
+
+The status line under **Camera tours** names the reason, for example "Rail —
+the authored rail beats this song's tour (the tour spends 62% in transit)".
+`rangeState.shotTours.views[id].choice` reports the verdict and metrics.
+`?rangeTourGate=off` plays every planned tour, for reviewing weak plans.
+
+**Calibration (2026-11-03).** The thresholds were set by planning the 15 R7
+candidate libraries from
+[`review/scenic-framing-endings-20261023`](https://github.com/aepler315/midio-pixel/tree/review/scenic-framing-endings-20261023)
+in Node against four synthetic songs (200 s pop, 240 s two-drop, 300 s
+ambient, 90 s short), with the view on screen for the whole song. Every plan
+hit its payoffs to the 100 ms key and stayed under 1.0× image flow; transit
+share was the only discriminating measure, ranging 18–65% on full-length
+songs. At 50%, 40 of 60 plans play their tour and 20 keep the rail. Black
+Mountains keeps the rail on all three long songs; Muncho, San Gabriel and
+White Mountains play their tour on all four; every 90 s plan is a single
+transit-free shot. These
+are geometry-only measurements, not rendered or listening reviews. No library
+is approved on `main`, so on `main` every landscape still plays its rail.
+

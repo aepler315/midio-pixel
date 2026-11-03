@@ -26,6 +26,7 @@ import { forcedSceneChoice } from '../terrain/SceneCatalog.js';
 import SCENE_CATALOG from '../terrain/sceneCatalogData.js';
 import { noteViewShown } from '../terrain/RangeHistory.js';
 import { RangeShotTours } from './RangeShotTours.js';
+import { AUTO_TOUR_GATE, autoGateEnabled } from './CameraChoice.js';
 import { headingPitch, lookDir } from '../terrain/ShotPath.js';
 import { RangeCrest } from './RangeCrest.js';
 
@@ -55,7 +56,9 @@ const retryUrl = (url, attempt) => (attempt ? `${url}?retry=${attempt}` : url);
  *  ?rangeTour=shots (the default) plays approved views' shot tours,
  *  =off keeps every authored rail, =tetons forces the Teton highway tour;
  *  the choice persists as localStorage 'range-tour'. ?rangeShots=all lets
- *  candidate shot libraries play, for review only. */
+ *  candidate shot libraries play, for review only. In shots mode a planned
+ *  tour plays only where it beats the rail for the song (CameraChoice.js);
+ *  ?rangeTourGate=off plays every planned tour. */
 export function resolveRangeMode(search = (typeof location !== 'undefined' ? location.search : ''), storage = null) {
   try {
     const q = new URLSearchParams(String(search || '').replace(/^\?/, ''));
@@ -175,7 +178,8 @@ export class RangePresentation {
     this.tourMode = tour;
     this.upgradeIntended = !!upgradeIntended;
     // Scenic shot tours exclude the forced Teton highway tour.
-    this.shots = shotTours || new RangeShotTours({ enabled: shots && !tour, allowCandidates: shotCandidates, assetBase, residency });
+    this.shots = shotTours || new RangeShotTours({ enabled: shots && !tour, allowCandidates: shotCandidates, assetBase, residency,
+      gate: autoGateEnabled() ? AUTO_TOUR_GATE : null });
     this.cameraTourActive = false;
     this.tour = null;
     this.tourData = null;

@@ -13,6 +13,7 @@
 import { loadShotLibrary, shotLibraryBytes, cameraFootprint } from '../terrain/ShotLibrary.js';
 import { shotTourIdentityErrors } from '../terrain/SceneCatalog.js';
 import { prepareShotTimeline } from '../terrain/ShotRuntime.js';
+import { AUTO_TOUR_GATE, tourBeatsRail } from './CameraChoice.js';
 export { cameraFootprint };
 
 /** Planning may take this long (wall clock) before the rail is kept. */
@@ -51,9 +52,12 @@ export function visibleIntervals(viewId, mgr, choiceFor) {
 }
 
 export class RangeShotTours {
+  /** `gate` (CameraChoice.js) decides per song whether a planned tour beats
+   *  the authored rail; null plays every planned tour. */
   constructor({ enabled = true, allowCandidates = false, assetBase, residency = null,
-    load = loadShotLibrary, plan = prepareShotTimeline, now = () => Date.now() } = {}) {
+    load = loadShotLibrary, plan = prepareShotTimeline, now = () => Date.now(), gate = AUTO_TOUR_GATE } = {}) {
     this.enabled = enabled;
+    this.gate = gate;
     this.allowCandidates = allowCandidates;
     this.assetBase = assetBase;
     this.residency = residency;
@@ -79,6 +83,10 @@ export class RangeShotTours {
     if (!this.enabled || !(mgr?.durationMs > 0)) return;
     for (const view of views) {
       if (!shotTourEligible(view, { allowCandidates: this.allowCandidates })) continue;
+      // An in-place rebuild keeps a view on the rail it was already given:
+      // a fresh plan passing now would swap the camera mid-song.
+      const kept = continuation?.railKept?.get?.(view.id);
+      if (kept) { this.views.set(view.id, { viewId: view.id, state: 'rail', reason: kept, timeline: null, library: null, view, startedAt: this._now() }); continue; }
       const previous = continuation?.timelines?.get?.(view.id) || null;
       this.views.set(view.id, { viewId: view.id, state: 'loading', reason: null, timeline: null, library: null, view,
         previous, committedThroughMs: previous ? continuation.committedThroughMs : null, startedAt: this._now(), abort: null });
@@ -134,6 +142,12 @@ export class RangeShotTours {
         if (controller.signal.aborted || generation !== this.generation) return;
         s.planMs = this._now() - started;
         if (timeline.fallback) { s.state = 'failed'; s.reason = `shot plan: ${timeline.fallback}`; s.timeline = null; return; }
+        // One default camera: a fresh plan plays only where it beats the
+        // rail. A continued (committed) camera is never swapped mid-song.
+        if (this.gate && !previous) {
+          s.choice = tourBeatsRail(timeline, visible, this.gate);
+          if (!s.choice.ok) { s.state = 'rail'; s.reason = `rail kept: ${s.choice.reason}`; s.timeline = null; return; }
+        }
         s.timeline = timeline; s.state = 'ready'; s.reason = null;
       }).catch((error) => {
         if (controller.signal.aborted || generation !== this.generation) return;
@@ -156,7 +170,7 @@ export class RangeShotTours {
   settled(viewId) {
     const s = this.views.get(viewId);
     if (!s) return true;
-    if (s.state === 'ready' || s.state === 'failed') return true;
+    if (s.state === 'ready' || s.state === 'failed' || s.state === 'rail') return true;
     if (!this.exportMode && this._now() - s.startedAt > SHOT_PLAN_TIMEOUT_MS) {
       s.abort?.abort();
       s.state = 'failed'; s.reason = 'shot plan: timed out; the rail is kept for this song';
@@ -188,6 +202,9 @@ export class RangeShotTours {
           const continuous = !timeline.fallback && ['eyeM', 'targetM'].every((k) => a[k].every((v, i) => Math.abs(v - b[k][i]) < 0.1))
             && Math.abs(a.fovYDeg - b.fovYDeg) < 0.01;
           if (!continuous) { s.refinement = { state: 'held', reason: 'refinement arrived beyond its committed camera' }; this.sections = null; return; }
+          const verdict = this.gate ? tourBeatsRail(timeline, visibleIntervals(s.viewId, mgr, this.choiceFor), this.gate) : null;
+          if (verdict && !verdict.ok) { s.refinement = { state: 'held', reason: `refinement loses to the rail: ${verdict.reason}` }; return; }
+          if (verdict) s.choice = verdict;
           s.timeline = timeline; s.refinement = { state: 'applied', reason: null };
           this.onTimelineChange?.(s.viewId, timeline);
         }).catch((error) => {
@@ -200,8 +217,12 @@ export class RangeShotTours {
   /** The current timelines and a committed horizon, for an in-place rebuild. */
   continuation(committedThroughMs) {
     const timelines = new Map();
-    for (const [id, s] of this.views) if (s.timeline) timelines.set(id, s.timeline);
-    return timelines.size ? { timelines, committedThroughMs } : null;
+    const railKept = new Map();
+    for (const [id, s] of this.views) {
+      if (s.timeline) timelines.set(id, s.timeline);
+      else if (s.state === 'rail') railKept.set(id, s.reason);
+    }
+    return timelines.size || railKept.size ? { timelines, railKept, committedThroughMs } : null;
   }
 
   /** Diagnostics for one view at a heard time. */
@@ -215,7 +236,7 @@ export class RangeShotTours {
     const out = {};
     for (const [id, s] of this.views) {
       out[id] = { state: s.state, reason: s.reason, planMs: s.planMs ?? null, refinement: s.refinement || null,
-        visible: s.visible || null,
+        visible: s.visible || null, choice: s.choice ? { ok: s.choice.ok, reason: s.choice.reason, metrics: s.choice.metrics } : null,
         ...(s.library ? { shots: s.library.shots.length, links: s.library.links.length } : {}),
         ...(s.timeline ? { items: s.timeline.items?.length ?? null, payoffs: s.timeline.payoffs || [], diagnostics: s.timeline.diagnostics || null } : {}) };
     }
