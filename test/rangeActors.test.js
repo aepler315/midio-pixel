@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ACTOR_IDS, ROUTE_UNITS, ACTOR_STEP_MS, ACTOR_SPREAD, compileActorScore, rangeActorsAt, actorRoutes, routePosition,
+  ACTOR_IDS, ACTOR_NOTE_AGE_CAP_MS, ROUTE_UNITS, ACTOR_STEP_MS, ACTOR_SPREAD, compileActorScore, rangeActorsAt, actorRoutes, routePosition,
 } from '../src/world/alpine/RangeActors.js';
 import { ActorsGL, ACTOR_GLSL, actorUniforms } from '../src/world/alpine/ActorsGL.js';
 import { compileLandscapeSources } from '../src/world/alpine/RangeNarrative.js';
@@ -26,7 +26,7 @@ const song = narrative(120000, (id, t) => {
 test('the score has no peaks: only glow, travel, the note pulse and the pitch spread', () => {
   const score = compileActorScore(song);
   assert.equal(score.peaks, undefined);
-  assert.deepEqual(Object.keys(score.at(31000).midio).sort(), ['glow', 'pulse01', 'spread', 'travel']);
+  assert.deepEqual(Object.keys(score.at(31000).midio).sort(), ['glow', 'noteAgeMs', 'pulse01', 'spread', 'travel']);
   // A silent lane only drifts.
   assert.equal(score.at(60000).broshi.glow, 0);
   // No onsets and no pitch: no pulse, and the swarm keeps its shape.
@@ -144,7 +144,7 @@ test('a 16th-note lane shimmers: its pulses peak below a sparse lane\'s', () => 
 test('an empty narrative has no pulse and a neutral spread', () => {
   for (const n of [null, {}, { durationMs: 0, sample: () => ({}) }, { durationMs: 1000 }]) {
     const at = compileActorScore(n).at(500);
-    for (const id of ACTOR_IDS) assert.deepEqual(at[id], { glow: 0, travel: 0, pulse01: 0, spread: 1 });
+    for (const id of ACTOR_IDS) assert.deepEqual(at[id], { glow: 0, travel: 0, pulse01: 0, spread: 1, noteAgeMs: ACTOR_NOTE_AGE_CAP_MS });
   }
   // A zero-length song still gives the cast a state (and Midio a wake).
   const sim = { rangeNarrative: { durationMs: 0, sample: () => ({}) }, biomes: {} };
@@ -165,6 +165,10 @@ test('the pulse and spread come from the song\'s own notes and pitch', () => {
   assert.ok(at(11900).midio.spread < 0.8 && at(21900).midio.spread > 1.2, `${at(11900).midio.spread}..${at(21900).midio.spread}`);
   assert.ok(at(10000).midio.glow > 0.3, 'glow is as it was');
   assert.equal(at(10000).broshi.pulse01, 0, 'no melody, no pulse');
+  assert.equal(at(3999).midio.noteAgeMs, ACTOR_NOTE_AGE_CAP_MS, 'no note yet');
+  assert.equal(at(4000).midio.noteAgeMs, 0);
+  assert.equal(at(4250).midio.noteAgeMs, 250);
+  assert.equal(at(4500).midio.noteAgeMs, 0, 'each note restarts it');
 });
 
 test('the motes read the pulse and spread, from defaults that leave them as they were', () => {
@@ -184,6 +188,11 @@ test('the motes read the pulse and spread, from defaults that leave them as they
     assert.ok(src.includes('mix(0.75 + 0.25 * sin(uTime * 3.0 + aSeed.z * 40.0), 1.0, uPulse)'));
     assert.ok(src.includes('(1.0 + 0.25 * uPulse)'));
     assert.ok(src.includes('* vec2(1.0, uSpread)'));
+    // An aura, not a swarm: each note rings out from the core through it.
+    assert.equal(u.uNoteAge.value, 10, 'no note yet: no ring');
+    assert.equal(motes.material.uniforms.uNoteAge, u.uNoteAge);
+    assert.match(src, /uniform\s+float\s+uNoteAge;/);
+    assert.ok(src.includes('float ring = uNoteAge / 0.600;'));
   }
   // The lights the lanterns cast are not pulsed: the land does not strobe.
   assert.doesNotMatch(ACTOR_GLSL, /uPulse|uSpread/);
