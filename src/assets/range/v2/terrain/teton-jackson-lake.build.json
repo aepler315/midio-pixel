@@ -146,21 +146,21 @@
    "lengthKm": 56.94031264795068
   }
  ],
- "manifestSha256": "bd3b57442d203981a66be4e1e23df677116f9a562d7a39497f0a0e0e01b429b1",
- "payloadSha256": "4d6c2aae717cba1c485d3533ac0406e21ab14733c459b065eec71cdbbcead4f2",
- "payloadBytes": 1282262,
+ "manifestSha256": "f9c0851679291f6b6003ec885030aa78909371b17780337022f8cda106139f65",
+ "payloadSha256": "e4e26d0415499501f95b4691492d4a91ef930e57f2005213b45d54e5038a18be",
+ "payloadBytes": 2347947,
  "stats": {
-  "tiles": 251,
+  "tiles": 882,
   "desktop": {
-   "vertices": 766994,
-   "triangles": 1484050,
-   "meshBytes": 27012528,
+   "vertices": 1319439,
+   "triangles": 2535414,
+   "meshBytes": 46258236,
    "surfaceTextureBytes": 26784432
   },
   "mobile": {
-   "vertices": 515892,
-   "triangles": 994582,
-   "meshBytes": 18125688,
+   "vertices": 643531,
+   "triangles": 1228782,
+   "meshBytes": 22467756,
    "surfaceTextureBytes": 26784432
   }
  },
@@ -196,8 +196,26 @@
  ],
  "achievedErrorPx": {
   "desktop": 0.998,
-  "mobile": 1.956
+  "mobile": 1.997
  },
  "despikedSamples": 0,
- "gentleGroundSmoothingM": null
+ "gentleGroundSmoothingM": null,
+ "tourFootprint": {
+  "shotsManifestSha256": "9953982fd898468ff90e5a2e4f4e397e0d895a36ba7584ad9c0320a7e9040e82",
+  "poses": {
+   "poseCount": 536,
+   "bakedPoses": 503,
+   "errorScale": 4,
+   "framings": [
+    "core"
+   ],
+   "minFovYDeg": 26,
+   "sources": {
+    "rail": 21,
+    "core": 357,
+    "mirror": 179
+   },
+   "detail": "each pose with its own lens at its own closest unoccluded approach; mirror poses at the mirror resolution, ground at and below the water clipped"
+  }
+ }
 }
