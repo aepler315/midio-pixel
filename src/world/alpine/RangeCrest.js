@@ -94,10 +94,10 @@ export class RangeCrest {
     this.residency = residency;
     this.mode = 'refined';
     // Economy / 8-bit (PerfGovernor `economy`, pinned to the cheapest rung):
-    // the heavy rungs keep the old no-probe path. No probe passes or
-    // readback, no terrain cut; a palette look scans its own frame for the
-    // line (integer rows), Pixel and Cinematic draw no line. Set by the
-    // presenter each frame.
+    // a palette look keeps the old no-probe path on the heavy rungs and scans
+    // its own frame for the skyline (integer rows). Pixel and Cinematic have
+    // no frame to scan, so they keep the light probe: every look has a line
+    // and a cut. Set by the presenter each frame.
     this.economy = false;
     this.fade = 0;
     this.splitFade = 0;
@@ -139,8 +139,8 @@ export class RangeCrest {
 
   /** The probe mode the next frame should render: 'refined' (depth,
    *  elevation, water), 'grid' (crest rows and colours only) or null (none:
-   *  the economy floor on the heavy rungs, see `economy`). */
-  get probeMode() { return this.economy && this.mode === 'grid' ? null : this.mode; }
+   *  a palette look on the economy floor, see `economy`). */
+  get probeMode() { return this.economy && this.mode === 'grid' && this._palette ? null : this.mode; }
 
   _ensure(targetWidth, grid) {
     if (targetWidth && this._targetWidth !== targetWidth) {

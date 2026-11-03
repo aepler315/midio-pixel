@@ -1166,18 +1166,20 @@ test('under steady sub-row motion the aligned line moves steadily, without whole
   }
 });
 
-test('economy (8-bit) keeps the heavy rungs on the old no-probe path: no light probe; the scanned line still cuts the terrain', () => {
+test('economy (8-bit): a palette look scans its own frame and cuts along it; Pixel and Cinematic keep the light probe', () => {
   const crest = new RangeCrest();
   crest.economy = true;
   crest.update({ probe: probe(64, bands()), frameId: 1, timeMs: 0, viewId: 'v', transform: ID, stage: STAGE, grid: GRID, qualityLevel: 6 });
+  assert.equal(crest.mode, 'grid'); assert.equal(crest.probeMode, 'grid', 'nothing to scan without a palette');
+  crest.update({ probe: probe(64, bands()), frameId: 2, timeMs: 1000 / 60, viewId: 'v', transform: ID, stage: STAGE, grid: GRID, qualityLevel: 6, palette: 'rgb332' });
   assert.equal(crest.mode, 'grid'); assert.equal(crest.probeMode, null, 'no probe passes or readback on the economy floor');
   // A palette look scans its own frame for the line, which is the clip edge
   // there as anywhere (path work only, no extra readback).
   const W = 64, H = 36, pixels = grid(W, H, STAIR, () => [110, 92, 70], [0, 0, 0, 0]);
-  crest.update({ probe: null, scan: true, frameId: 2, timeMs: 1000 / 60, viewId: 'v', grid: GRID, qualityLevel: 6, palette: 'rgb332' });
+  crest.update({ probe: null, scan: true, frameId: 3, timeMs: 2000 / 60, viewId: 'v', grid: GRID, qualityLevel: 6, palette: 'rgb332' });
   assert.equal(crest.snapshot.scan, true);
   assert.ok(crest.prepareGrid({ frame: { width: W, height: H, data: pixels } }));
-  assert.equal(crest.drawTerrain(recorder(), { x: 0, y: 0, width: 1280, height: 720, scale: 20 }, 2, () => {}), true);
+  assert.equal(crest.drawTerrain(recorder(), { x: 0, y: 0, width: 1280, height: 720, scale: 20 }, 3, () => {}), true);
   // Auto quality on the same rung keeps the light probe.
   crest.economy = false;
   assert.equal(crest.probeMode, 'grid');
