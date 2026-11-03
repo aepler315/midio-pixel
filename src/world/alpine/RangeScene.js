@@ -35,6 +35,7 @@ import { hashSeed } from '../../utils/math.js';
 import { createForest, FOREST_ASSET_BUILD_BYTES, forestGroupingBytes } from './ForestGL.js';
 import { forestAssetBytes, FOREST_FAMILIES, FOREST_VARIANTS } from './ForestSpeciesAssets.js';
 import { bakeHorizonAsync, createHorizonTexture, horizonBytes } from './TerrainOcclusion.js';
+import { hierarchyLattice, buildTerrainHierarchyAsync, createHierarchyTexture, HIERARCHY_MAX_SAMPLES } from './TerrainHierarchy.js';
 import { planTerrainWindow, terrainWindowCoverage, terrainWindowCovers, tourSummitTiles, terrainPixelProtection, TourWindowCache } from './TerrainWindow.js';
 import { TerrainWindowWorker, shareTerrainLanes, terrainLaneBytes } from './TerrainWindowWorkerClient.js';
 import { buildTerrainGeometry } from './TerrainMesh.js';
@@ -45,7 +46,7 @@ import { applyCameraMoves, rangeUserCamera } from './RangeCamera.js';
 import { BANDS, terrainFringeBytes, terrainHeightAt, SURFACE_BUILD_BYTES_PER_PIXEL } from './TerrainMesh.js';
 import { mistParams, mistDrift, easeMistSteps, tourMistCap, tourMistFade, atmosphereMusic } from './RangeAtmosphere.js';
 import { mirrorSize, mirrorLevelFor, mirrorCameraFor, mirrorTextureMatrix, MIRROR_CLIP_M, MIRROR_LIFT } from './WaterMirror.js';
-import { scenicProjection, calibrateRangeMusic, rangeCameraCalibration } from './RangeFrame.js';
+import { scenicProjection, calibrateRangeMusic, rangeCameraCalibration, requestedLandDance } from './RangeFrame.js';
 import { applyGlacierUniforms, glacierErrors, glacierSample } from './GlacierField.js';
 import { ActorsGL, SITE_LIGHTS_MAX, CAST_LAYER, CAST_RIBBON_LAYER, enableCastLayers } from './ActorsGL.js';
 import { riverChannelErrors } from './RiverChannel.js';
@@ -1092,7 +1093,7 @@ export class RangeScene {
       let mat = null, res = null, published = false;
       const cpu = await prepareTerrainAssets(view, { baseUrl, residency: this.residency, generation, signal, isCurrent, owner: cpuOwner });
       let waterSubsets = null;
-      let surface, geos, material, riverMaterial, riverDepthMaterial, riverOwnershipMaterials = null, depthMaterial, ownershipMaterials = null, horizon = null, forest, stageGL, featureMaterial, actors;
+      let surface, geos, material, riverMaterial, riverDepthMaterial, riverOwnershipMaterials = null, depthMaterial, ownershipMaterials = null, horizon = null, hierarchy = null, forest, stageGL, featureMaterial, actors;
       const riverGeometries = {}, riverFringeGeometries = {}, riverDepthMeshes = {};
       let initialWindow = null, workerKey = null, windowReservation = null, buildEntry = null, workerReservation = null;
       const featureGeometries = {};
@@ -1171,8 +1172,12 @@ export class RangeScene {
         // whose terrain streams; they keep the unshadowed key).
         const horizonOptions = { maxSize: this.budget === 'mobile' ? 192 : 256 };
         const horizonCost = view.tour || !cpu.data?.grid ? 0 : horizonBytes(cpu.data.grid, horizonOptions);
+        // Land dance (?landDance=, docs/landscape-dance.md): the ridge/
+        // drainage hierarchy texture, static views only for now.
+        const hierarchySamples = HIERARCHY_MAX_SAMPLES[this.budget === 'mobile' ? 'mobile' : 'desktop'];
+        const hierarchyCost = view.tour || !cpu.data?.grid || !requestedLandDance() ? 0 : hierarchySamples * hierarchySamples * 4;
         const bytes = (view.tour ? Math.ceil(gridPx * (4 * 4 / 3 + 1)) + featureBudgetBytes + 2 * ActorsGL.bytes()
-          : 2 * ((est?.meshBytes || 0) + fringeBytes + forestBytes) + (est?.surfaceTextureBytes || 0) + gridPx + featureBudgetBytes + 2 * ActorsGL.bytes() + horizonCost);
+          : 2 * ((est?.meshBytes || 0) + fringeBytes + forestBytes) + (est?.surfaceTextureBytes || 0) + gridPx + featureBudgetBytes + 2 * ActorsGL.bytes() + horizonCost + hierarchyCost);
         res = this.residency?.reserve({ key: gpuKey, bytes, owner: 'range-terrain-gpu', generation }) || null;
         if (this.residency && !res) throw new RangeAssetError('budget', `no GPU room for ${view.id}`);
         if (rawWindow) {
@@ -1215,6 +1220,20 @@ export class RangeScene {
           } catch (err) {
             if (err instanceof RangeAssetError || signal?.aborted) throw err;
             console.warn(`[range v2] ${view.id}: horizon bake failed; direct light unshadowed`, err);
+          }
+        }
+        if (hierarchyCost) {
+          // Optional motion: a failed build leaves the land on its swell.
+          try {
+            const built = await buildTerrainHierarchyAsync(hierarchyLattice(cpu.data, { maxSamples: hierarchySamples }), { signal });
+            if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
+            hierarchy = createHierarchyTexture(THREE, built);
+            hierarchy.stats = built.stats;
+            this.renderer?.initTexture?.(hierarchy.texture);
+            uniforms.uLandHierarchy.value = hierarchy.texture;
+          } catch (err) {
+            if (err instanceof RangeAssetError || signal?.aborted) throw err;
+            console.warn(`[range v2] ${view.id}: land hierarchy failed; land keeps its swell`, err);
           }
         }
         material = createSceneMaterial(THREE, uniforms, { forestDebug: this.forestDebug, budget: this.budget,
@@ -1360,7 +1379,7 @@ export class RangeScene {
         }
         const prepared = {
           view, generation, manifest: cpu.manifest, data: cpu.data, identity: cpu.identity, tourCpuKey: opts.tourCpuKey,
-          surface, uniforms, material, depthMaterial, ownershipMaterials, horizon, depthBandMeshes: depthMeshes, geometries: geos.geometries, fringes: geos.fringes, fringeMeshes, fringeTravel, scenes, depthScene, depthScenes,
+          surface, uniforms, material, depthMaterial, ownershipMaterials, horizon, hierarchy, depthBandMeshes: depthMeshes, geometries: geos.geometries, fringes: geos.fringes, fringeMeshes, fringeTravel, scenes, depthScene, depthScenes,
           riverMaterial, riverDepthMaterial, riverOwnershipMaterials, riverGeometries, riverFringeGeometries, riverDepthMeshes, riverStats,
           forest, stageGL, featureGeometries, featureMaterial,
           stats: { ...geos.stats, trees: forest.counts, featureBytes: featureBudgetBytes }, gpuKey, cpuKey: cpu.key, cpuOwner,
@@ -1419,6 +1438,7 @@ export class RangeScene {
           depthMaterial?.dispose();
           for (const m of Object.values(ownershipMaterials || {})) m.dispose();
           horizon?.texture?.dispose();
+          hierarchy?.texture?.dispose();
           featureMaterial?.dispose();
           for (const g of Object.values(featureGeometries)) g.dispose();
           for (const g of waterSubsets?.values() || []) g.dispose();
@@ -1759,6 +1779,7 @@ export class RangeScene {
     p.depthMaterial?.dispose();
     for (const m of Object.values(p.ownershipMaterials || {})) m.dispose();
     p.horizon?.texture?.dispose();
+    p.hierarchy?.texture?.dispose();
     p.compiledDispose?.();
   }
 
@@ -1903,6 +1924,10 @@ export class RangeScene {
     u.uDeformK.value = m.waveK;
     u.uDeformDir.value.set(m.waveDir[0], m.waveDir[1]);
     u.uDeformPhase.value = m.phaseRad;
+    if (u.uLandDance) {
+      const on = !!u.uLandHierarchy?.value;
+      u.uLandDance.value.set(on ? m.spineM || 0 : 0, m.spineGate01 ?? 1, on ? m.drainM || 0 : 0, m.drainPhaseRad || 0);
+    }
     u.uTime.value = frame.timeMs / 1000;
     m.gusts.forEach((g, i) => { u.uGustAge.value[i] = g.ageSec; u.uGustAmp.value[i] = g.amp01 * (1 + (frame.storm?.amount || 0) * .8); u.uGustDir.value[i] = g.dir; });
     syncGustUniforms(u);
