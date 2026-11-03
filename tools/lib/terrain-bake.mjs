@@ -759,8 +759,8 @@ export async function bakeTerrain(grid, view, options = {}) {
 
   const tilesX = Math.ceil((w - 1) / cells), tilesZ = Math.ceil((hgt - 1) / cells);
   const stations = hasRail ? railStations(view, vis.stations) : [];
-  const viewers = stations.map((pose) => ({ pose, framings: FRAMINGS, focalFovYDeg: pose.fovYDeg, focalScale: 1, minHeightM: -Infinity }));
-  const railViewers = extraRail ? bakeViewers(options.railPoses, { eyeM: 0 }) : [];
+  const viewers = stations.map((pose) => ({ pose, framings: FRAMINGS, focalFovYDeg: pose.fovYDeg, focalScale: 1, minHeightM: -Infinity, rail: true }));
+  const railViewers = extraRail ? bakeViewers(options.railPoses, { eyeM: 0 }).map((v) => ({ ...v, rail: true })) : [];
   const posedViewers = posed ? bakeViewers(options.poses, { stride: options.poseStride, ...(options.poseDedupe === false ? { eyeM: 0 } : options.poseDedupe) }) : [];
   // Tour poses may carry a coarser pixel budget than the rail
   // (options.poseErrorScale): the app presents terrain on a 320x180 or
@@ -813,6 +813,12 @@ export async function bakeTerrain(grid, view, options = {}) {
     samplePts[k] = Float64Array.from(pts);
   }
   const reach = Object.fromEntries(FRAMINGS.map((name) => [name, new Float64Array(boxes.length).fill(Infinity)]));
+  // The same closest approach seen from the rail alone. A tile's band is the
+  // runtime partition it is composited in, and the partitions are the rail's
+  // depth layers: a tile a tour pose passes close to but the rail sees past
+  // the far crest stays far, or the rail's far range is drawn as mid / near
+  // (docs/camera-tour-promotion-2026-11-03.md).
+  const railReach = Object.fromEntries(FRAMINGS.map((name) => [name, new Float64Array(boxes.length).fill(Infinity)]));
   const budgetKeys = Object.keys(budgets);
   const sharp = posed || extraRail ? Object.fromEntries(FRAMINGS.map((name) => [name, Object.fromEntries(budgetKeys.map((b) => [b, new Float64Array(boxes.length)]))])) : null;
   // Poses framed 'extended' hold their whole frame to the extended budget,
@@ -837,7 +843,8 @@ export async function bakeTerrain(grid, view, options = {}) {
         // eye plane falls to minDistanceM below.
         const depth = Math.max(0, viewDepthToBox(pose, box));
         const sharper = sharp && budgetKeys.some((b, j) => focalOf[j] / Math.max(vis.minDistanceM, depth) > best[b][k]);
-        if (!(depth < reach[name][k]) && !sharper) continue;
+        const railCloser = viewer.rail && depth < railReach[name][k];
+        if (!(depth < reach[name][k]) && !sharper && !railCloser) continue;
         // Bed occlusion is not valid across spatially varying retreat:
         // a foreground ice margin and a distant surface clear at different
         // times. Keep all in-frustum glacier tiles conservatively.
@@ -846,6 +853,7 @@ export async function bakeTerrain(grid, view, options = {}) {
           if (!anyPointVisible(ob, samplePts[k], vis.occlusion, minHeightM)) continue;
         }
         reach[name][k] = Math.min(reach[name][k], depth);
+        if (viewer.rail) railReach[name][k] = Math.min(railReach[name][k], depth);
         if (sharp) {
           budgetKeys.forEach((b, j) => {
             const fd = focalOf[j] / Math.max(vis.minDistanceM, depth);
@@ -874,6 +882,9 @@ export async function bakeTerrain(grid, view, options = {}) {
       const framing = allTiles ? 'route' : Number.isFinite(reach.core[ti]) ? 'core' : Number.isFinite(reach.extended[ti]) ? 'extended' : null;
       const visible = framing !== null;
       const dist = allTiles ? Infinity : Math.max(vis.minDistanceM, visible ? reach[framing][ti] : Infinity);
+      // Band by the rail's own approach where the rail sees the tile at all.
+      const railSeen = !allTiles && visible ? FRAMINGS.map((f) => railReach[f][ti]).find(Number.isFinite) : undefined;
+      const bandDist = railSeen !== undefined ? Math.max(vis.minDistanceM, railSeen) : dist;
       const budgetScale = allTiles ? 1 : visible ? vis[framing].budgetScale : 1;
       const errorsM = {};
       for (const s of STRIDES) if (s <= cells) errorsM[s] = tileStrideError(h, valid, w, hgt, x0, y0, cells, s);
@@ -946,7 +957,7 @@ export async function bakeTerrain(grid, view, options = {}) {
         flow: { byteOffset: fAt, byteLength: flow.byteLength, count: n * n, type: 'uint8', water: WATER_FLOW },
         validity: allValid ? { mode: 'all' } : { mode: 'bits', byteOffset: pushChunk(vbits), byteLength: vbits.byteLength },
         minY, maxY, visible, framing, closestM: allTiles ? null : visible ? Math.round(dist) : null,
-        band: !visible ? 'far' : dist < bands.nearM ? 'near' : dist < bands.midM ? 'mid' : 'far',
+        band: !visible ? 'far' : bandDist < bands.nearM ? 'near' : bandDist < bands.midM ? 'mid' : 'far',
         ...(!allTiles ? { lod } : {}),
         errorsM: Object.fromEntries(Object.entries(errorsM).filter(([s]) => Number(s) >= stride).map(([s, e]) => [s, Math.round(e * 1000) / 1000])),
       };

@@ -61,6 +61,25 @@ test('a close narrow pose makes a distant rail tile finer', async () => {
   assert.ok(tile.closestM < far.closestM);
 });
 
+test('a tour pose close to a tile the rail sees far off keeps the rail\'s band', async () => {
+  // Bands are the rail's composited partitions: a pose flying past a distant
+  // crest must not move that crest into the rail's mid / near partition.
+  const { grid, view: base } = fixture();
+  const view = { ...base, bands: { nearM: 500, midM: 2000 } };
+  const rail = (await bakeTerrain(grid, view)).manifest;
+  const far = rail.tiles.filter((t) => t.framing === 'core' && t.band !== 'near').sort((a, b) => b.closestM - a.closestM)[0];
+  assert.ok(far, 'fixture has a core tile beyond the near band');
+  const cx = -2560 + (far.ix + 0.5) * 1280, cz = -2560 + (far.iz + 0.5) * 1280;
+  const pose = { eyeM: [cx, far.maxY + 250, cz + 900], targetM: [cx, (far.minY + far.maxY) / 2, cz], fovYDeg: 16 };
+  const posed = byKey((await bakeTerrain(grid, view, { poses: [pose] })).manifest);
+  const tile = posed.get(`${far.ix},${far.iz}`);
+  assert.ok(tile.closestM < 500, `the pose passes within the near band (${tile.closestM} m)`);
+  assert.equal(tile.band, far.band);
+  for (const t of rail.tiles) assert.equal(posed.get(`${t.ix},${t.iz}`).band, t.band, `${t.ix},${t.iz}`);
+  const extra = [...posed.values()].filter((t) => !rail.tiles.some((r) => r.ix === t.ix && r.iz === t.iz));
+  for (const t of extra) assert.equal(t.band, t.closestM < 500 ? 'near' : t.closestM < 2000 ? 'mid' : 'far', 'a tile only a pose sees is banded by the pose');
+});
+
 test('poses alone bake a view without a rail; a broken rail still fails', async () => {
   const { grid, view } = fixture();
   const baked = await bakeTerrain(grid, { id: 'no-rail' }, { poses: [behind] });
