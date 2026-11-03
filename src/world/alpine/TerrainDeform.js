@@ -25,6 +25,20 @@ export const DEFORM_GLSL = /* glsl */`
   uniform float uMelodyPhase;
   uniform float uTourEnabled;
   uniform vec3 uTourEye;
+  // Land dance along the ridge/drainage hierarchy (TerrainHierarchy.js):
+  // x spine lift (m), y spine order gate (0..1), z downstream wave (m),
+  // w wave phase (rad). All zero: no fetch, the field above is unchanged.
+  uniform sampler2D uLandHierarchy;
+  uniform vec4 uLandDance;
+  float danceField(vec2 uv) {
+    if (uLandDance.x == 0.0 && uLandDance.z == 0.0) return 0.0;
+    vec2 n = vec2(textureSize(uLandHierarchy, 0));
+    vec4 hz = texture(uLandHierarchy, uv * (n - 1.0) / n + 0.5 / n);
+    float spine = smoothstep(uLandDance.y - 0.2, uLandDance.y, hz.g);
+    vec2 cs = (hz.ba * 255.0 - 127.5) / 127.5;
+    float wave = cs.y * cos(uLandDance.w) + cs.x * sin(uLandDance.w);
+    return hz.r * (uLandDance.x * spine * (0.35 + 0.65 * hz.r) + uLandDance.z * wave);
+  }
   float deformField(float h, float along, float across) {
     return h * h * (uDeformAmp * sin(along * uDeformK - uDeformPhase)
       + uDeformKick + uDeformStructural + uDeformMelodic * sin(across * uMelodyK - uMelodyPhase)
@@ -35,7 +49,8 @@ export const DEFORM_GLSL = /* glsl */`
     float receiver = texture(uReceiver, uv * (1.0 - uTexel) + 0.5 * uTexel).r;
     float h = clamp((p.y - uHeightRange.x) / max(1.0, uHeightRange.y - uHeightRange.x), 0.0, 1.0);
     float tourFade = mix(1.0, smoothstep(1500.0, ${LAND_TOUR_FADE_END_M.toFixed(1)}, distance(p, uTourEye)), uTourEnabled);
-    return receiver * tourFade * deformField(h, dot(p.xz, uDeformDir), dot(p.xz, uMelodyDir));
+    float base = receiver * tourFade * deformField(h, dot(p.xz, uDeformDir), dot(p.xz, uMelodyDir));
+    return base + receiver * tourFade * danceField(uv);
   }
   // Full field derivatives include the receiver shoulder and height lift.
   // The inverse Jacobian carries terrain normals through the same field.
@@ -68,6 +83,7 @@ export function deformUniforms(THREE, shared = {}) {
     uDeformMelodic: ref('uDeformMelodic', () => 0), uDeformStructural: ref('uDeformStructural', () => 0),
     uDeformK: ref('uDeformK', () => 0), uDeformDir: ref('uDeformDir', () => new THREE.Vector2(1, 0)), uDeformPhase: ref('uDeformPhase', () => 0),
     uMelodyK: ref('uMelodyK', () => 0), uMelodyDir: ref('uMelodyDir', () => new THREE.Vector2(1, 0)), uMelodyPhase: ref('uMelodyPhase', () => 0),
+    uLandHierarchy: ref('uLandHierarchy', () => null), uLandDance: ref('uLandDance', () => new THREE.Vector4()),
     uTourEnabled: ref('uTourEnabled', () => 0), uTourEye: ref('uTourEye', () => new THREE.Vector3()),
     uGlacierEnabled: ref('uGlacierEnabled', () => 0), uGlacierStart: ref('uGlacierStart', () => new THREE.Vector2()),
     uGlacierEnd: ref('uGlacierEnd', () => new THREE.Vector2(0, -100)), uGlacierWidth: ref('uGlacierWidth', () => 1),

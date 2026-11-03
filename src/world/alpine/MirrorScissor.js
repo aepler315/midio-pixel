@@ -16,6 +16,8 @@ export const WATER_BOX_M = 384;
 /** Mirror texels added around the sampled region: one for the bilinear
  *  footprint, one for rounding. */
 export const MIRROR_SCISSOR_MARGIN_PX = 2;
+/** Largest |wave| the land dance's decoded cos/sin pair can make. */
+export const DANCE_WAVE_BOUND = Math.SQRT2 * 128 / 127.5;
 /** Every bound below is multiplied by this before use. */
 export const MIRROR_BOUND_SAFETY = 2;
 
@@ -43,10 +45,14 @@ const abs = v => Math.abs(Number.isFinite(v) ? v : Infinity);
 
 /** Bounds of the vertical lift SCENE_VERT adds to a vertex: the glacier's
  *  ice plus the musical deformation it leaves exposed (TerrainDeform.js,
- *  |deformField| with h, receiver and tour fade all within [0, 1]). */
+ *  |deformField| with h, receiver and tour fade all within [0, 1]) and
+ *  the land dance (|danceField|: relief and spine within [0, 1], the
+ *  decoded wave pair within sqrt(2) * 128 / 127.5). */
 export function liftBounds(u) {
+  const dance = u.uLandDance?.value;
   const deform = abs(u.uDeformAmp?.value) + abs((u.uDeformKick?.value ?? 0) + (u.uDeformStructural?.value ?? 0))
-    + abs(u.uDeformMelodic?.value) + abs(u.uDeformGesture?.value);
+    + abs(u.uDeformMelodic?.value) + abs(u.uDeformGesture?.value)
+    + (dance ? abs(dance.x) + DANCE_WAVE_BOUND * abs(dance.z) : 0);
   const ice = (u.uGlacierEnabled?.value ?? 0) >= 0.5 ? Math.max(0, abs(u.uGlacierMaxThickness?.value)) : 0;
   return { lo: -deform * MIRROR_BOUND_SAFETY - 1, hi: (deform + ice) * MIRROR_BOUND_SAFETY + 1 };
 }
