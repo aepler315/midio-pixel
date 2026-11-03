@@ -75,11 +75,29 @@ completed comparisons and remaining external CI/Pages configuration limits.
 
 The water pass repeats the terrain colour draw and discards every dry fragment.
 A static view draws, in place of each band and seam mesh, a water-only index
-(`WaterSubset.js`, see `docs/water-render-cost.md`): one draw per mesh holding
-only the triangles whose texel box can reach a wet surface texel, in their
-original order. A `mapped-only` view has no terrain water, so its terrain
+(`WaterSubset.js`, see `docs/water-render-cost.md`): an index holding only
+the triangles whose texel box can reach a wet surface texel, in their original
+order, culled per tile like the bands (below). A `mapped-only` view has no terrain water, so its terrain
 colour draw disappears. Tour views keep the whole draw.
 
 The earlier index-range variant (`WaterColourRanges.js`, up to four draws per
 mesh split at dry gaps) was removed: whenever a water subset existed it was
 already bypassed, and it doubled the view's preparation time.
+
+At the native grid the water pass copies the partition's depth
+(`gl.blitFramebuffer`) instead of drawing the terrain's depth again. Above the
+native grid the whole pass is scissored to the water boxes' projected
+rectangle.
+
+## Terrain culling
+
+Each depth band stays one merged mesh, so three.js never re-sorts its
+triangles. It is culled per tile through draw groups instead
+(`TerrainChunks.js`). Before each render, the groups become the in-order runs
+of tiles whose boxes reach the frustum and the target's scissor. The boxes are
+lifted by the frame's own displacement bound. After the render, the
+whole-index group is restored. A culled tile cannot make a fragment, so frames
+stay byte-identical. The pilot song submits 3.8 M terrain triangles per frame
+instead of 9.8 M. Terrain meshes hold `[material]` because three.js honours
+draw groups only for array materials. Use `setTerrainMaterial` and
+`terrainMaterial` to swap or read it.
