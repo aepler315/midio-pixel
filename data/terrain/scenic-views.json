@@ -24,7 +24,14 @@
           44800,
           44800
         ],
-        "cellM": 20
+        "cellM": 20,
+        "windowCache": "tile",
+        "pin": {
+          "n49w122": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/historical/n49w122/USGS_13_n49w122_20250813.tif",
+          "n49w121": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/historical/n49w121/USGS_13_n49w121_20250813.tif",
+          "n50w122": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/historical/n50w122/USGS_13_n50w122_20180202.tif",
+          "n50w121": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/historical/n50w121/USGS_13_n50w121_20240617.tif"
+        }
       },
       "rail": {
         "eyeStart": {
