@@ -53,6 +53,7 @@ import { ACTOR_IDS, ACTOR_HUES, ACTOR_LOOK, ACTOR_START, actorRoutes, routePosit
 import { castPlan, castWork, pathPosition, siteWalk } from './CastJobs.js';
 import { flashScreenPoint, rainSeed01, stormKindRow } from './RangeStorm.js';
 import { forestWindAt } from './ForestWind.js';
+import { wetTexelMask, waterIndexSubset } from './WaterSubset.js';
 // Storm light, linear: the deck's underside, the rain-dimmed horizon, the
 // rain air, per episode kind (RangeStorm STORM_KINDS zenith/horizon/air).
 // The air meets the slate the sky paints at the horizon (drawStormSky).
@@ -1077,6 +1078,7 @@ export class RangeScene {
         } };
       let mat = null, res = null, published = false;
       const cpu = await prepareTerrainAssets(view, { baseUrl, residency: this.residency, generation, signal, isCurrent, owner: cpuOwner });
+      let waterSubsets = null;
       let surface, geos, material, riverMaterial, riverDepthMaterial, riverOwnershipMaterials = null, depthMaterial, ownershipMaterials = null, horizon = null, forest, stageGL, featureMaterial, actors;
       const riverGeometries = {}, riverFringeGeometries = {}, riverDepthMeshes = {};
       let initialWindow = null, workerKey = null, windowReservation = null, buildEntry = null, workerReservation = null;
@@ -1177,6 +1179,9 @@ export class RangeScene {
         try {
           surface = await createSurfaceTextureAsync(THREE, cpu.data, { stride: textureStride, signal,
             checkCurrent: () => { if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`); } });
+          // Read the wet texels before the upload drops the CPU copy.
+          if (!view.tour) waterSubsets = await this._buildWaterSubsets(THREE, cpu.data, surface, geos, {
+            mappedOnly: view.riverPolicy?.terrainWater === 'mapped-only', stale: () => stale() || signal?.aborted });
           this.renderer?.initTexture?.(surface.texture);
           this.renderer?.initTexture?.(surface.receiverTexture);
         } finally { if (scratch) this.residency.release(scratchKey); }
@@ -1346,7 +1351,7 @@ export class RangeScene {
           riverMaterial, riverDepthMaterial, riverOwnershipMaterials, riverGeometries, riverFringeGeometries, riverDepthMeshes, riverStats,
           forest, stageGL, featureGeometries, featureMaterial,
           stats: { ...geos.stats, trees: forest.counts, featureBytes: featureBudgetBytes }, gpuKey, cpuKey: cpu.key, cpuOwner,
-          rules, waterLevelM, mirrorLevelM, materialKey: mat.key, materialOwner, actors, actorRoutes: routes, castSeed, castPlan: plan, castWork: work,
+          waterSubsets, rules, waterLevelM, mirrorLevelM, materialKey: mat.key, materialOwner, actors, actorRoutes: routes, castSeed, castPlan: plan, castWork: work,
         };
         if (windowWorker) {
           prepared.windowWorker = windowWorker;
@@ -1403,6 +1408,7 @@ export class RangeScene {
           horizon?.texture?.dispose();
           featureMaterial?.dispose();
           for (const g of Object.values(featureGeometries)) g.dispose();
+          for (const g of waterSubsets?.values() || []) g.dispose();
           surface?.texture?.dispose();
           surface?.receiverTexture?.dispose();
           if (!initialWindow) for (const g of Object.values(geos?.geometries || {})) g.dispose();
@@ -1728,6 +1734,7 @@ export class RangeScene {
     p.stageGL?.dispose();
     if (!p.windowCache) for (const g of Object.values(p.geometries || {})) g.dispose();
     if (!p.windowCache) for (const g of Object.values(p.fringes || {})) g.dispose();
+    for (const g of p.waterSubsets?.values() || []) g.dispose();
     p.surface?.texture?.dispose();
     p.surface?.receiverTexture?.dispose();
     p.material?.dispose();
@@ -2679,13 +2686,41 @@ export class RangeScene {
   /** Render water at display resolution against the complete terrain and
    * forest depth. The caller must copy the returned transient canvas before
    * another scene render. A refused allocation leaves the native pass intact. */
+  /** Water-only index geometries for this view's terrain (WaterSubset.js):
+   *  a Map from each band or fringe geometry to the geometry renderWater
+   *  draws in its place, or null when a geometry keeps its full index. */
+  async _buildWaterSubsets(THREE, data, surface, geos, { mappedOnly = false, stale = () => false } = {}) {
+    const rgba = surface.texture?.image?.data, g = data?.grid;
+    if (!rgba || !g || surface.width !== g.width || surface.height !== g.height || !geos) return null;
+    const mask = mappedOnly ? { count: 0 } : wetTexelMask(rgba, surface.width, surface.height);
+    const subsets = new Map();
+    let triangles = 0, bytes = 0;
+    for (const geometry of [...Object.values(geos.geometries || {}), ...Object.values(geos.fringes || {})]) {
+      const position = geometry.attributes.position, index = geometry.index;
+      if (!position || position.itemSize !== 3 || !index || position.normalized) continue;
+      const keep = waterIndexSubset(position.array, index.array, g, mask);
+      if (keep) {
+        const sub = new THREE.BufferGeometry();
+        sub.setAttribute('position', position);
+        sub.setIndex(new THREE.BufferAttribute(keep, 1));
+        sub.boundingSphere = geometry.boundingSphere;
+        subsets.set(geometry, sub);
+        triangles += keep.length / 3; bytes += keep.byteLength;
+      }
+      await yieldToMain();
+      if (stale()) { for (const sub of subsets.values()) sub.dispose(); return null; }
+    }
+    subsets.triangles = triangles; subsets.bytes = bytes;
+    return subsets;
+  }
+
   renderWater(frame, viewId, width, height, { pass = null, side = 'A', bandColumns = null, capture = false } = {}) {
     const p = this.prepared.get(viewId);
     if (!p || this.contextLost || !this.target || !(width > 0 && height > 0)) return null;
     const w = Math.max(2, Math.round(width)), h = Math.max(2, Math.round(height));
     const outputTarget = (this._waterRenderTarget || RangeScene.prototype._waterRenderTarget).call(this, w, h, { capture });
     if (!outputTarget) return null;
-    const r = this.renderer, u = p.uniforms, hidden = [];
+    const r = this.renderer, u = p.uniforms, hidden = [], swapped = [];
     this._setCamera(p.view, frame, p);
     this._setUniforms(p, frame);
     this._prepareMirror(p, frame, side, viewId);
@@ -2702,6 +2737,15 @@ export class RangeScene {
       // Non-partitioned forest meshes share layer 0 with terrain.
       for (const band of BANDS) for (const mesh of p.forest?.byBand?.[band] || []) {
         hidden.push([mesh, mesh.visible]); mesh.visible = false;
+      }
+      // Only triangles that can be wet (WaterSubset.js); the rest would
+      // discard every fragment.
+      if (p.waterSubsets) for (const band of BANDS) for (const mesh of p.scenes[band].children) {
+        const sub = mesh.isMesh && p.waterSubsets.get(mesh.geometry);
+        if (!sub) continue;
+        swapped.push([mesh, mesh.geometry, mesh.visible]);
+        mesh.geometry = sub;
+        if (!sub.index.count) mesh.visible = false;
       }
       u.uWaterOnly.value = 1;
       for (const band of pass ? [pass] : BANDS) {
@@ -2722,6 +2766,7 @@ export class RangeScene {
       u.uWaterOnly.value = 0;
       u.uViewportPx.value.set(this.size.width, this.size.height);
       for (const [mesh, visible] of hidden) mesh.visible = visible;
+      for (const [mesh, geometry, visible] of swapped) { mesh.geometry = geometry; mesh.visible = visible; }
       this.camera.layers.set(0); this.camera.layers.enable(3);
       r.setRenderTarget(null);
     }
