@@ -35,10 +35,24 @@ export class CameraRun {
     this.highWaterMs = 0;
     this.schedules = new Map();
     this.refinePending = new Set();
+    this.tours = new Map();
   }
 
   reach(heardTimeMs) {
     if (Number.isFinite(heardTimeMs)) this.highWaterMs = Math.max(this.highWaterMs, heardTimeMs);
+  }
+
+  /** Shot-tour timelines die with each rebuild's presentation state, so the
+   *  run keeps the heard ones for the next seek, by view. */
+  retainTours(continuation) {
+    for (const [viewId, timeline] of continuation?.timelines || []) this.tours.set(viewId, timeline);
+  }
+
+  /** A listener's tour-mode change starts the tours over. */
+  forgetTours() { this.tours.clear(); }
+
+  tourContinuation() {
+    return this.tours.size ? { timelines: new Map(this.tours), committedThroughMs: this.highWaterMs } : null;
   }
 
   scheduleFor(worldId) { return this.schedules.get(worldId) || null; }
@@ -64,8 +78,9 @@ export class CameraRun {
 }
 
 /** Explicit intent distinguishes seek(0) from same-seed Replay. */
-export function openCameraRun(previous, { data, seed, intent = 'fresh', requestedMultiplier = 3 } = {}) {
+export function openCameraRun(previous, { data, seed, intent = 'fresh', requestedMultiplier = 3, tours = null } = {}) {
   if (intent !== 'fresh' && previous?.data === data && previous.seed === seed) {
+    previous.retainTours(tours);
     if (intent === 'adopt') for (const key of previous.schedules.keys()) previous.refinePending.add(key);
     return previous;
   }

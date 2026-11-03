@@ -100,6 +100,27 @@ test('pace changes while touring refit compatible ordinary future, preserving bo
   assert.equal(run.scheduleFor('range:tetons').occurrences[1].requestedMultiplier, 4);
 });
 
+// Break caught: a seek replanning a refined tour from zero, rewriting the heard camera.
+test('a preserved run carries heard tour timelines to the rebuild at its high-water; fresh runs do not', () => {
+  const data = {}, run = openCameraRun(null, { data, seed: 7, requestedMultiplier: 3 });
+  const first = { id: 'first' }, refined = { id: 'refined' }, other = { id: 'other' };
+  assert.equal(run.tourContinuation(), null);
+  run.reach(40000);
+  assert.equal(openCameraRun(run, { data, seed: 7, intent: 'preserve', tours: { timelines: new Map([['a', first], ['b', other]]) } }), run);
+  run.reach(12000);
+  assert.equal(openCameraRun(run, { data, seed: 7, intent: 'preserve', tours: { timelines: new Map([['a', refined]]) } }), run);
+  assert.equal(openCameraRun(run, { data, seed: 7, intent: 'preserve', tours: null }), run);
+  const carried = run.tourContinuation();
+  assert.equal(carried.committedThroughMs, 40000);
+  assert.deepEqual([...carried.timelines], [['a', refined], ['b', other]]);
+  run.forgetTours();
+  assert.equal(run.tourContinuation(), null, 'a tour-mode change does not bring the old tour back');
+  run.retainTours({ timelines: new Map([['a', refined]]) });
+  const replay = openCameraRun(run, { data, seed: 7, intent: 'fresh', tours: { timelines: new Map([['a', refined]]) } });
+  assert.notEqual(replay, run);
+  assert.equal(replay.tourContinuation(), null);
+});
+
 test('analysis adoption while another world is active refines dormant landscape on return', () => {
   const data = {}, run = new CameraRun({ data, seed: 7 });
   run.install('range', compile().snapshot); run.reach(30000);
