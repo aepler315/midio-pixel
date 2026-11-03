@@ -1520,15 +1520,22 @@ export class RangePresentation {
     out.setTransform(1, 0, 0, 1, 0, 0); out.clearRect(0, 0, w, h);
     out.setTransform(scale * t.a, scale * t.b, scale * t.c, scale * t.d, scale * t.e, scale * t.f);
     drawScene(out, this.scene, img, 0, 0, stage.width, stage.height);
-    out.setTransform(1, 0, 0, 1, 0, 0); out.globalCompositeOperation = 'destination-in';
-    out.imageSmoothingEnabled = false; out.drawImage(mask, 0, 0, w, h);
+    // With refined crest probes the layer keeps its own output-resolution
+    // waterline: the probe's water edge cells paint the grid's wet cells'
+    // dry pixels with the land beside them (RangeCrest). Otherwise it is cut
+    // to the grid's own (native) shoreline.
+    const fullShore = this.scene.crestProbeMode === 'refined' && !!this.crestEnabled;
+    if (!fullShore) {
+      out.setTransform(1, 0, 0, 1, 0, 0); out.globalCompositeOperation = 'destination-in';
+      out.imageSmoothingEnabled = false; out.drawImage(mask, 0, 0, w, h);
+    }
     out.setTransform(1, 0, 0, 1, 0, 0); out.globalCompositeOperation = 'destination-out';
     out.imageSmoothingEnabled = false; out.drawImage(this.waterEffectMask, 0, 0, w, h);
     out.globalCompositeOperation = 'source-over';
     this.waterLayer = c;
     this.waterRecipe = { frame: this.frame, sideFrame: this._sideFrame(), viewId: this.viewId, nativeWidth, nativeHeight,
       stageWidth: stage.width, stageHeight: stage.height, matrix: [t.a, t.b, t.c, t.d, t.e, t.f],
-      shoreMask: mask, effectMask: this.waterEffectMask, sceneWidth: this.scene.size.width, sceneHeight: this.scene.size.height };
+      shoreMask: fullShore ? null : mask, effectMask: this.waterEffectMask, sceneWidth: this.scene.size.width, sceneHeight: this.scene.size.height };
   }
 
   /** Captures can exceed the live window. Re-run the same frame and camera
@@ -1536,7 +1543,7 @@ export class RangePresentation {
    * masks. On budget/context failure the already completed layer remains. */
   _captureWaterLayer(width, height) {
     const recipe = this.waterRecipe;
-    if (!recipe || recipe.frame !== this.frame || !recipe.shoreMask?.width || !recipe.effectMask?.width) return null;
+    if (!recipe || recipe.frame !== this.frame || recipe.shoreMask && !recipe.shoreMask.width || !recipe.effectMask?.width) return null;
     const scale = Math.min(width / recipe.nativeWidth, height / recipe.nativeHeight);
     const w = Math.max(2, Math.round(recipe.nativeWidth * scale)), h = Math.max(2, Math.round(recipe.nativeHeight * scale));
     if (w <= this.waterLayer.width && h <= this.waterLayer.height) return this.waterLayer;
@@ -1563,7 +1570,7 @@ export class RangePresentation {
     out.setTransform(scale * m[0], scale * m[1], scale * m[2], scale * m[3], scale * m[4], scale * m[5]);
     drawScene(out, this.scene, img, 0, 0, recipe.stageWidth, recipe.stageHeight);
     out.setTransform(1, 0, 0, 1, 0, 0); out.imageSmoothingEnabled = false;
-    out.globalCompositeOperation = 'destination-in'; out.drawImage(recipe.shoreMask, 0, 0, w, h);
+    if (recipe.shoreMask) { out.globalCompositeOperation = 'destination-in'; out.drawImage(recipe.shoreMask, 0, 0, w, h); }
     out.globalCompositeOperation = 'destination-out'; out.drawImage(recipe.effectMask, 0, 0, w, h);
     out.globalCompositeOperation = 'source-over';
     recipe.captureWidth = w; recipe.captureHeight = h;
