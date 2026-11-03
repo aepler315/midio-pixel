@@ -43,13 +43,14 @@ const RIDGE_MIN_RELIEF = .12;
 const DX = [1, 1, 0, -1, -1, -1, 0, 1];
 const DZ = [0, 1, 1, 1, 0, -1, -1, -1];
 
-/** The `?landDance=` request (0..1, `1` when given without a number). */
+/** The land dance, 0..1: on by default. `?landDance=0` (or any 0..1 value)
+ *  remains only as an opt-out for side-by-side checks. */
 export function landDanceRequest(search = globalThis.location?.search || '') {
   const raw = new URLSearchParams(String(search || '').replace(/^\?/, '')).get('landDance');
-  if (raw == null) return 0;
-  if (raw === '' || raw === 'on') return 1;
+  if (raw == null || raw === '' || raw === 'on') return 1;
+  if (raw === 'off') return 0;
   const v = Number(raw);
-  return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0;
+  return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 1;
 }
 
 /** Min-heap of (key, index) on parallel typed arrays. */
@@ -248,7 +249,15 @@ function* hierarchySteps(lattice, { channelAreaM2 = CHANNEL_AREA_M2, ridgeAreaM2
   // A ridge is a one-cell line: dilate (max) by 2 cells, then blur, so the
   // spine is a band the mesh can resolve. Phase fields blur so divides and
   // confluences, where distances jump, fade instead of tearing.
-  const spineBand = blur(dilate(spine, W, H, 2), W, H, 1.2, valid);
+  // The D8 network only knows eight directions, so on its own the band
+  // would step at 45 degrees. Its order is kept coarse (dilated, blurred)
+  // and its shape comes from where the land is actually convex: the
+  // Laplacian of lightly smoothed heights follows each crest at sub-cell
+  // precision in any direction.
+  const convex = convexity(heights, W, H, cx, cz, valid);
+  const orderBand = blur(dilate(spine, W, H, 3), W, H, 1.5, valid);
+  const spineBand = new Float32Array(N);
+  for (let i = 0; i < N; i++) spineBand[i] = orderBand[i] * convex[i];
   const cosB = blur(cosD, W, H, 1.5, valid), sinB = blur(sinD, W, H, 1.5, valid);
   const reliefB = blur(relief, W, H, .8, valid);
   yield;
@@ -267,7 +276,72 @@ function* hierarchySteps(lattice, { channelAreaM2 = CHANNEL_AREA_M2, ridgeAreaM2
     wavelengthM, channelCells: drainOrder.reduce((n, o) => n + (o ? 1 : 0), 0), ridgeCells: ridgeOrder.reduce((n, o) => n + (o ? 1 : 0), 0),
     ...fieldCurvature(texture, W, H, cx, cz) };
   return { width: W, height: H, texture, stats,
-    fields: { heights, filled, down, area, drainOrder, hand, distM, up, ridgeArea, ridgeOrder, relief: reliefB, spine: spineBand, cos: cosB, sin: sinB } };
+    fields: { heights, filled, down, area, drainOrder, hand, distM, up, ridgeArea, ridgeOrder, relief: reliefB, spine: spineBand, convex, cos: cosB, sin: sinB } };
+}
+
+/** 0..1 crest convexity: minus the Laplacian of heights smoothed over about
+ *  one cell, over its 90th percentile on convex ground, smoothstepped. */
+function convexity(heights, W, H, cx, cz, valid) {
+  const hs = blur(heights.map(v => Number.isFinite(v) ? v : 0), W, H, 1, valid);
+  const neg = new Float32Array(W * H), pos = [];
+  for (let z = 1; z < H - 1; z++) for (let x = 1; x < W - 1; x++) {
+    const i = z * W + x;
+    // Next to no-data the smoothed heights are one-sided: no crest there.
+    if (!valid[i] || !valid[i - 1] || !valid[i + 1] || !valid[i - W] || !valid[i + W]) continue;
+    const lap = (hs[i - 1] + hs[i + 1] - 2 * hs[i]) / (cx * cx) + (hs[i - W] + hs[i + W] - 2 * hs[i]) / (cz * cz);
+    neg[i] = Math.max(0, -lap);
+    if (neg[i] > 0) pos.push(neg[i]);
+  }
+  pos.sort((a, b) => a - b);
+  const ref = pos.length ? pos[Math.floor(.9 * (pos.length - 1))] : 1;
+  for (let i = 0; i < neg.length; i++) { const t = Math.min(1, neg[i] / (ref || 1)); neg[i] = t * t * (3 - 2 * t); }
+  return neg;
+}
+
+/** Network polylines (lattice x, z) from a receiver tree: each chain of
+ *  cells with order >= minOrder, from its head down to where it joins a
+ *  higher-order link, then Chaikin-smoothed so the drawn line follows the
+ *  terrain instead of the lattice's eight directions. */
+export function networkPolylines({ width: W }, next, order, { minOrder = 2, iterations = 3 } = {}) {
+  const N = order.length, inflow = new Uint8Array(N);
+  for (let i = 0; i < N; i++) if (order[i] >= minOrder && next[i] >= 0 && order[next[i]] >= minOrder) inflow[next[i]]++;
+  const lines = [];
+  for (let i = 0; i < N; i++) {
+    if (order[i] < minOrder || inflow[i]) continue;
+    // A head: walk down, splitting where the order changes.
+    let j = i, line = [];
+    const level = () => order[j];
+    let current = level();
+    while (j >= 0 && order[j] >= minOrder) {
+      line.push([j % W, Math.floor(j / W)]);
+      const n = next[j];
+      if (n < 0 || order[n] < minOrder) break;
+      if (order[n] !== current || inflow[n] > 1) {
+        line.push([n % W, Math.floor(n / W)]);
+        lines.push({ order: current, points: chaikin(line, iterations) });
+        line = [];
+        if (inflow[n] > 1 && --inflow[n] > 0) { j = -1; break; }
+        current = order[n];
+      }
+      j = n;
+    }
+    if (line.length > 1) lines.push({ order: current, points: chaikin(line, iterations) });
+  }
+  return lines;
+}
+
+function chaikin(points, iterations) {
+  let p = points;
+  for (let k = 0; k < iterations && p.length > 2; k++) {
+    const out = [p[0]];
+    for (let i = 0; i < p.length - 1; i++) {
+      const [ax, az] = p[i], [bx, bz] = p[i + 1];
+      out.push([.75 * ax + .25 * bx, .75 * az + .25 * bz], [.25 * ax + .75 * bx, .25 * az + .75 * bz]);
+    }
+    out.push(p.at(-1));
+    p = out;
+  }
+  return p;
 }
 
 function dilate(src, W, H, r) {

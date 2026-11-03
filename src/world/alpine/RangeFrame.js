@@ -266,7 +266,7 @@ export function heardBeats(transport, timeMs) {
 }
 
 let danceRequest = null;
-/** The page's ?landDance= request, read once. */
+/** The land dance for this page (on unless ?landDance=0), read once. */
 export function requestedLandDance() { return danceRequest ??= landDanceRequest(); }
 
 export const RANGE_MOTION_REFERENCE_M = 106.7;

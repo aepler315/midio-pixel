@@ -124,11 +124,32 @@ test('the GLSL dance matches its CPU twin and is skipped when still', () => {
   assert.equal(s.cos, (h.texture[i + 2] - 127.5) / 127.5);
 });
 
-test('?landDance= parses to a 0..1 dial', () => {
-  assert.equal(landDanceRequest(''), 0);
-  assert.equal(landDanceRequest('?landDance=1'), 1);
-  assert.equal(landDanceRequest('?landDance'), 1);
+test('the dance is on by default; ?landDance=0 opts out', () => {
+  assert.equal(landDanceRequest(''), 1);
+  assert.equal(landDanceRequest('?other=1'), 1);
+  assert.equal(landDanceRequest('?landDance=0'), 0);
+  assert.equal(landDanceRequest('?landDance=off'), 0);
   assert.equal(landDanceRequest('?landDance=.4'), .4);
   assert.equal(landDanceRequest('?landDance=7'), 1);
-  assert.equal(landDanceRequest('?landDance=nope'), 0);
+  assert.equal(landDanceRequest('?landDance=nope'), 1);
+});
+
+test('a ridge at any angle shapes the spine band, not the lattice directions', () => {
+  // A single straight ridge at 30 degrees, falling off both sides.
+  const W = 97, H = 97, cell = 60, slope = Math.tan(Math.PI / 6);
+  const heights = new Float32Array(W * H);
+  for (let z = 0; z < H; z++) for (let x = 0; x < W; x++) {
+    const d = Math.abs((z - 48) - slope * (x - 48)) * Math.cos(Math.PI / 6) * cell;
+    heights[z * W + x] = 2000 - .45 * d;
+  }
+  const r = buildTerrainHierarchy({ width: W, height: H, cellXM: cell, cellZM: cell, heights });
+  // Per column, the spine's centre of mass sits on the true ridge line.
+  let worst = 0;
+  for (let x = 20; x < 77; x++) {
+    let s = 0, m = 0;
+    for (let z = 0; z < H; z++) { const v = r.fields.spine[z * W + x]; s += v; m += v * z; }
+    if (s < .5) continue;
+    worst = Math.max(worst, Math.abs(m / s - (48 + slope * (x - 48))));
+  }
+  assert.ok(worst < 1, `spine centre strays ${worst.toFixed(2)} cells from the ridge`);
 });
