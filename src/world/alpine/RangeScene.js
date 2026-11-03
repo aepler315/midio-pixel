@@ -55,6 +55,7 @@ import { castPlan, castWork, pathPosition, siteWalk } from './CastJobs.js';
 import { flashScreenPoint, rainSeed01, stormKindRow } from './RangeStorm.js';
 import { forestWindAt } from './ForestWind.js';
 import { createWetMask, fillWetRows, waterIndexSubsetAsync } from './WaterSubset.js';
+import { attachTerrainCulling, setChunks, setTerrainMaterial, subsetChunkTable } from './TerrainChunks.js';
 import { waterBoxes, liftBounds, shiverBounds, mirrorScissor } from './MirrorScissor.js';
 // Storm light, linear: the deck's underside, the rain-dimmed horizon, the
 // rain air, per episode kind (RangeStorm STORM_KINDS zenith/horizon/air).
@@ -176,6 +177,9 @@ export class RangeScene {
     this.size = { width: 0, height: 0 };
     this.contextLost = false;
     this.stats = { depthPasses: 0, partitions: 0, lastPartitionMs: 0, castPasses: 0 };
+    // Terrain chunk culling (TerrainChunks.js), summed over every render:
+    // band indices drawn, indices the meshes hold, and draw groups.
+    this.terrainCull = { kept: 0, total: 0, draws: 0 };
     // The cast draws in the band passes unless the presentation takes it
     // from renderCast to lay over the pixel frame itself (it clears this).
     this.castInBands = true;
@@ -1265,8 +1269,10 @@ export class RangeScene {
         if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
         const meshes = {}, depthMeshes = {}, scenes = {};
         const depthScene = new THREE.Scene();
+        // Band meshes hold [material]: the chunk culling draws their
+        // geometry's groups (TerrainChunks.js); three.js culls nothing.
         for (const band of BANDS) {
-          meshes[band] = new THREE.Mesh(geos.geometries[band], material);
+          meshes[band] = new THREE.Mesh(geos.geometries[band], [material]);
           meshes[band].frustumCulled = false;
           scenes[band] = new THREE.Scene();
           scenes[band].add(meshes[band]);
@@ -1279,7 +1285,7 @@ export class RangeScene {
           const ink = new THREE.LineSegments(fg, featureMaterial);
           ink.frustumCulled = false; ink.renderOrder = 2; ink.layers.set(3);
           scenes[band].add(ink);
-          depthMeshes[band] = new THREE.Mesh(geos.geometries[band], depthMaterial);
+          depthMeshes[band] = new THREE.Mesh(geos.geometries[band], [depthMaterial]);
           depthMeshes[band].frustumCulled = false;
           depthScene.add(depthMeshes[band]);
           if (riverGeometries[band]) {
@@ -1304,12 +1310,12 @@ export class RangeScene {
         for (let b = 1; b < BANDS.length; b++) {
           const g = geos.fringes?.[BANDS[b]];
           if (!g) continue;
-          const fm = new THREE.Mesh(g, material);
+          const fm = new THREE.Mesh(g, [material]);
           fm.frustumCulled = false;
           scenes[BANDS[b - 1]].add(fm);
           fringeMeshes.push(fm);
           terrainMeshes.push(fm);
-          const travel = new THREE.Mesh(g, material);
+          const travel = new THREE.Mesh(g, [material]);
           travel.frustumCulled = false;
           const scene = new THREE.Scene();
           scene.add(travel);
@@ -1340,7 +1346,7 @@ export class RangeScene {
         const depthScenes = {};
         for (const band of BANDS) {
           depthScenes[band] = new THREE.Scene();
-          const dm = new THREE.Mesh(geos.geometries[band], depthMaterial);
+          const dm = new THREE.Mesh(geos.geometries[band], [depthMaterial]);
           dm.frustumCulled = false;
           depthScenes[band].add(dm);
           if (riverGeometries[band]) {
@@ -1349,6 +1355,13 @@ export class RangeScene {
             depthScenes[band].add(riverDepth);
           }
           for (const d of forest.depthByBand?.[band] || []) depthScenes[band].add(d);
+        }
+        // Every scene that draws the bands culls their off-screen tiles for
+        // each render's own camera and scissor, lifted by this frame's
+        // largest vertical displacement (TerrainChunks.js).
+        const lift = () => liftBounds(uniforms);
+        for (const scene of [...Object.values(scenes), depthScene, ...Object.values(depthScenes), ...fringeTravel.map(f => f.scene)]) {
+          attachTerrainCulling(scene, lift, this.terrainCull);
         }
         // Three's compile() creates programs but does not reject a failed
         // link. Check before publishing: otherwise trees draw over empty
@@ -1365,7 +1378,7 @@ export class RangeScene {
         if (ownershipMaterials) {
           const ownershipScene = new THREE.Scene();
           for (const band of BANDS) {
-            const om = new THREE.Mesh(geos.geometries[band], ownershipMaterials[band]);
+            const om = new THREE.Mesh(geos.geometries[band], [ownershipMaterials[band]]);
             om.frustumCulled = false; ownershipScene.add(om);
             if (riverGeometries[band]) {
               const riverOwner = new THREE.Mesh(riverGeometries[band], riverOwnershipMaterials[band]);
@@ -2493,13 +2506,13 @@ export class RangeScene {
     p.ownershipMaterials ||= this._createOwnershipMaterials(p.uniforms, false, false, p.ownershipVertexShader);
     // A band's depth meshes: one merged mesh, or a compiled pack's chunks.
     const meshes = Object.fromEntries(BANDS.map(band => [band, [].concat(p.depthBandMeshes?.[band] || [])]));
-    for (const band of BANDS) if (p.ownershipMaterials?.[band]) for (const m of meshes[band]) m.material = p.ownershipMaterials[band];
+    for (const band of BANDS) if (p.ownershipMaterials?.[band]) for (const m of meshes[band]) setTerrainMaterial(m, p.ownershipMaterials[band]);
     if (Object.keys(p.riverDepthMeshes || {}).length) p.riverOwnershipMaterials ||= this._createOwnershipMaterials(p.uniforms, false, true);
     for (const band of BANDS) if (p.riverDepthMeshes?.[band] && p.riverOwnershipMaterials?.[band]) p.riverDepthMeshes[band].material = p.riverOwnershipMaterials[band];
     try { r.render(p.depthScene, this.camera); }
     finally {
       for (const band of BANDS) {
-        for (const m of meshes[band]) m.material = p.depthMaterial;
+        for (const m of meshes[band]) setTerrainMaterial(m, p.depthMaterial);
         if (p.riverDepthMeshes?.[band]) p.riverDepthMeshes[band].material = p.riverDepthMaterial;
       }
     }
@@ -2746,7 +2759,7 @@ export class RangeScene {
     if (!p.depthScene) return false;
     const meshes = Object.fromEntries(BANDS.map(band => [band, [].concat(p.depthBandMeshes?.[band] || [])]));
     const layers = this.camera.layers.mask;
-    for (const band of BANDS) for (const m of meshes[band]) m.material = p.fineMaterials[band];
+    for (const band of BANDS) for (const m of meshes[band]) setTerrainMaterial(m, p.fineMaterials[band]);
     const hidden = [];
     for (const m of Object.values(p.riverDepthMeshes || {})) if (m.visible) { m.visible = false; hidden.push(m); }
     try {
@@ -2756,7 +2769,7 @@ export class RangeScene {
       r.clear(true, true, false);
       r.render(p.depthScene, this.camera);
     } finally {
-      for (const band of BANDS) for (const m of meshes[band]) m.material = p.depthMaterial;
+      for (const band of BANDS) for (const m of meshes[band]) setTerrainMaterial(m, p.depthMaterial);
       for (const m of hidden) m.visible = true;
       this.camera.layers.mask = layers;
     }
@@ -2819,7 +2832,9 @@ export class RangeScene {
       const position = geometry.attributes.position, index = geometry.index;
       if (!position || position.itemSize !== 3 || !index || position.normalized) continue;
       let aborted = false;
-      const keep = await waterIndexSubsetAsync(position.array, index.array, g, mask, {
+      const table = geometry.userData?.terrainChunks;
+      const chunks = table ? { start: table.start, count: table.count, kept: new Uint32Array(table.length) } : null;
+      const keep = await waterIndexSubsetAsync(position.array, index.array, g, mask, { chunks,
         pause: async () => { await yieldToMain(); if (stale()) { aborted = true; throw new Error('stale'); } } }).catch(err => { if (aborted) return undefined; throw err; });
       if (aborted || keep === undefined) { for (const sub of subsets.values()) sub.dispose(); return null; }
       if (!keep) complete = false;
@@ -2829,6 +2844,10 @@ export class RangeScene {
         sub.setAttribute('position', position);
         sub.setIndex(new THREE.BufferAttribute(keep, 1));
         sub.boundingSphere = geometry.boundingSphere;
+        // The kept triangles of each tile stay one range, in order: the
+        // subset culls by the same tile boxes (TerrainChunks.js).
+        const subTable = chunks && chunks.kept.reduce((n, k) => n + k, 0) === keep.length ? subsetChunkTable(table, chunks.kept) : null;
+        setChunks(sub, subTable);
         subsets.set(geometry, sub);
         triangles += keep.length / 3; bytes += keep.byteLength;
       }
