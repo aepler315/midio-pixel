@@ -1,6 +1,6 @@
 {
   "about": "Range v2 scenic views: curated real terrain corridors with authored camera rails. Authoring source for tools/build-range-scene.mjs; the runtime catalog (src/assets/range/v2/catalog.json) is generated from it. Rail anchors are lon/lat (NAD83 for 3DEP sources) with an absolute height (heightM, metres above the source vertical datum) or a height above the DEM ground (aboveGroundM). status: candidate | approved | rejected; only approved views are production-eligible. These statuses describe the current runtime selector; candidate authoring and experimental development may proceed independently under docs/experimental-development.md.",
-  "catalogVersion": 20,
+  "catalogVersion": 30,
   "views": [
     {
       "id": "nc-ross-lake-north",
@@ -498,17 +498,15 @@
       "title": "Denali",
       "place": "Denali National Park, Alaska",
       "approval": {
-        "date": "2026-10-01",
-        "terrainManifestSha256": "351aad9728f86a3e78fe985d9d154214f4f7c0a4e89ad1d823df690b6543e46a",
+        "date": "2026-11-03",
+        "terrainManifestSha256": "2f1db89690fbd7ad6f134ea7ccc3fe60c99f0fc9059a208debe83970305507d7",
         "materialManifestSha256": "ac0da317cbbc611f7b9a47755b4d66705d11b37b4fbceab783d918a79d6d49ae",
         "materialRulesSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
         "cameraSha256": "538b92f2099b226251f8298e1473bd80ef2717336b70279c9154bb63b4b52731",
         "compositionSha256": "42aabcc21fc899222ba1c8263d48fd22f58d0b94716e47f9a127c1e84b12a1f1",
         "evidence": [
-          "docs/evidence/range-v2/denali-wonder-lake-stations.jpg",
-          "docs/evidence/range-v2/denali-wonder-lake-inapp-10s.jpg",
-          "docs/evidence/range-v2/denali-wonder-lake-nostage-10s.jpg",
-          "docs/evidence/range-v2/no-stage-coverage.json"
+          "docs/camera-tour-promotion-2026-11-03.md",
+          "docs/scenic-framing-endings-review-2026-10-23.md"
         ]
       },
       "shotsManifestUrl": "tour/denali-wonder-lake.shots.json"
@@ -656,17 +654,15 @@
       "title": "Muncho Lake",
       "place": "Northern Rockies, British Columbia",
       "approval": {
-        "date": "2026-10-01",
-        "terrainManifestSha256": "d25af9f0f975972c13f3da100d7b7df0a1c97136adb9073c1e673931e81c6ac2",
+        "date": "2026-11-03",
+        "terrainManifestSha256": "86d76cad77a60e38fb8af6bfeef43cc65baece34f4d9aaf04d3632c22a209581",
         "materialManifestSha256": "c44b2272c56122a84854f3f8bb2376fad740401588242ed4e0fecb8ed15f564c",
         "materialRulesSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
         "cameraSha256": "3176be5cc31e5e46d4e85ad26d0869e90b41bc1f274f1b22586d51a968f1398f",
         "compositionSha256": "42aabcc21fc899222ba1c8263d48fd22f58d0b94716e47f9a127c1e84b12a1f1",
         "evidence": [
-          "docs/evidence/range-v2/muncho-lake-south-stations.jpg",
-          "docs/evidence/range-v2/muncho-lake-south-inapp-10s.jpg",
-          "docs/evidence/range-v2/muncho-lake-south-nostage-10s.jpg",
-          "docs/evidence/range-v2/no-stage-coverage.json"
+          "docs/camera-tour-promotion-2026-11-03.md",
+          "docs/scenic-framing-endings-review-2026-10-23.md"
         ]
       },
       "shotsManifestUrl": "tour/muncho-lake-south.shots.json"
@@ -747,17 +743,15 @@
       "place": "Trans-Mexican Volcanic Belt, México",
       "water": false,
       "approval": {
-        "date": "2026-10-01",
-        "terrainManifestSha256": "435e0a01cab2af34ca66a16d7bd63cf513ab3d4b071a9ff941709ea63ad3478a",
+        "date": "2026-11-03",
+        "terrainManifestSha256": "4517e44172a26853372fd4bd672924e40de73935c625ef351710664fffed507c",
         "materialManifestSha256": "8959b57b89150274c889b241bd4656a0cdfafd28d31f675f4fd4011abaa7a38f",
         "materialRulesSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
         "cameraSha256": "2cd58f7fbb35e1bff5a99481f350fa40401a561156c55257a618e9f47502bf4d",
         "compositionSha256": "42aabcc21fc899222ba1c8263d48fd22f58d0b94716e47f9a127c1e84b12a1f1",
         "evidence": [
-          "docs/evidence/range-v2/izta-popo-west-stations.jpg",
-          "docs/evidence/range-v2/izta-popo-west-inapp-10s.jpg",
-          "docs/evidence/range-v2/izta-popo-west-nostage-10s.jpg",
-          "docs/evidence/range-v2/no-stage-coverage.json"
+          "docs/camera-tour-promotion-2026-11-03.md",
+          "docs/scenic-framing-endings-review-2026-10-23.md"
         ]
       },
       "shotsManifestUrl": "tour/izta-popo-west.shots.json"
@@ -917,17 +911,15 @@
       "title": "San Gabriel Mountains",
       "place": "Angeles National Forest, California",
       "approval": {
-        "date": "2026-10-01",
-        "terrainManifestSha256": "56871dd030fa48fc1d1fce0c165f0320fc8cd9a76cddbe3bfa76539e91c4c904",
+        "date": "2026-11-03",
+        "terrainManifestSha256": "daac1e66caf61d2b3f28765fca3ec2d5c748f52bf7630923e9e01a826d6fd132",
         "materialManifestSha256": "f3357cb770f82d0525600484c2e29132ac827dc07e799cec03e54a13a6004168",
         "materialRulesSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
         "cameraSha256": "cb64a315752973c009513304687399ce1173b9c516e4462a35668c68392ae9bf",
         "compositionSha256": "42aabcc21fc899222ba1c8263d48fd22f58d0b94716e47f9a127c1e84b12a1f1",
         "evidence": [
-          "docs/evidence/range-v2/san-gabriel-baldy-stations.jpg",
-          "docs/evidence/range-v2/san-gabriel-baldy-inapp-10s.jpg",
-          "docs/evidence/range-v2/san-gabriel-baldy-nostage-10s.jpg",
-          "docs/evidence/range-v2/no-stage-coverage.json"
+          "docs/camera-tour-promotion-2026-11-03.md",
+          "docs/scenic-framing-endings-review-2026-10-23.md"
         ]
       },
       "shotsManifestUrl": "tour/san-gabriel-baldy.shots.json"
@@ -4721,17 +4713,15 @@
       "place": "Death Valley, California",
       "water": false,
       "approval": {
-        "date": "2026-10-01",
-        "terrainManifestSha256": "b7d3479f316016efe7d25fbacff1127fd5378ab89fa663095e0d55382af5d8c3",
+        "date": "2026-11-03",
+        "terrainManifestSha256": "579bc3bf004d53b1273a13cb6308d9bb83682a9a772d5ee3c8c2c87e058dd1f2",
         "materialManifestSha256": "2beecf1f1647994f69a65b655ee5e48a3e771117bb7bcd1efd4c12ec67cfc14d",
         "materialRulesSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
         "cameraSha256": "350965c0ebfbe143a39b682af6e3a429228d69b34fb455b530bf2f903b6685a7",
         "compositionSha256": "42aabcc21fc899222ba1c8263d48fd22f58d0b94716e47f9a127c1e84b12a1f1",
         "evidence": [
-          "docs/evidence/range-v2/panamint-dantes-view-stations.jpg",
-          "docs/evidence/range-v2/panamint-dantes-view-inapp-10s.jpg",
-          "docs/evidence/range-v2/panamint-dantes-view-nostage-10s.jpg",
-          "docs/evidence/range-v2/no-stage-coverage.json"
+          "docs/camera-tour-promotion-2026-11-03.md",
+          "docs/scenic-framing-endings-review-2026-10-23.md"
         ]
       },
       "shotsManifestUrl": "tour/panamint-dantes-view.shots.json"

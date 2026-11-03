@@ -139,7 +139,7 @@
       }
     },
     "denali-wonder-lake": {
-      "status": "candidate",
+      "status": "approved",
       "landform": "massif",
       "notes": "Denali and Mount Foraker above the McKinley River bar and Wonder Lake; enormous relief at long range.",
       "subjects": [
@@ -161,6 +161,16 @@
         "shotsManifestSha256": "db02a268b013b4cde2dbe76c45547db6d07227e4e321a25ba821133a8f3b9e37",
         "terrainManifestSha256": "2f1db89690fbd7ad6f134ea7ccc3fe60c99f0fc9059a208debe83970305507d7",
         "baseViewSha256": "2cb8ee88361419dea1828eb10394181823a55c94e28ef21eb0f38cb1920af3d7"
+      },
+      "approval": {
+        "date": "2026-11-03",
+        "shotsManifestSha256": "db02a268b013b4cde2dbe76c45547db6d07227e4e321a25ba821133a8f3b9e37",
+        "terrainManifestSha256": "2f1db89690fbd7ad6f134ea7ccc3fe60c99f0fc9059a208debe83970305507d7",
+        "baseViewSha256": "2cb8ee88361419dea1828eb10394181823a55c94e28ef21eb0f38cb1920af3d7",
+        "evidence": [
+          "docs/camera-tour-promotion-2026-11-03.md",
+          "docs/scenic-framing-endings-review-2026-10-23.md"
+        ]
       }
     },
     "tombstone-north-klondike": {
@@ -180,7 +190,7 @@
       ]
     },
     "muncho-lake-south": {
-      "status": "candidate",
+      "status": "approved",
       "landform": "lake-valley",
       "notes": "Muncho Lake in its valley between the Terminal and Sentinel ranges; the lake is the subject as much as the peaks.",
       "subjects": [
@@ -200,6 +210,16 @@
         "shotsManifestSha256": "69a2c6aad8a20b5566346cd01676fc45a7f4fea9c46b77f6662e816ab1d4a754",
         "terrainManifestSha256": "86d76cad77a60e38fb8af6bfeef43cc65baece34f4d9aaf04d3632c22a209581",
         "baseViewSha256": "13ed5399c79d2abf20ec0cc375e7560c6a3efe975c9ccd9476825a1063d82cb1"
+      },
+      "approval": {
+        "date": "2026-11-03",
+        "shotsManifestSha256": "69a2c6aad8a20b5566346cd01676fc45a7f4fea9c46b77f6662e816ab1d4a754",
+        "terrainManifestSha256": "86d76cad77a60e38fb8af6bfeef43cc65baece34f4d9aaf04d3632c22a209581",
+        "baseViewSha256": "13ed5399c79d2abf20ec0cc375e7560c6a3efe975c9ccd9476825a1063d82cb1",
+        "evidence": [
+          "docs/camera-tour-promotion-2026-11-03.md",
+          "docs/scenic-framing-endings-review-2026-10-23.md"
+        ]
       }
     },
     "izta-popo-west": {
@@ -217,7 +237,7 @@
         }
       },
       "budgetNote": "Wide views: each shot brings hundreds of distant tiles (mostly manifest entries), so the default 800 KB fits only 3-8 shots; raised within the shared Range asset headroom.",
-      "status": "candidate",
+      "status": "approved",
       "landform": "volcano",
       "notes": "Iztaccihuatl and Popocatepetl from the west: two isolated stratovolcanoes over high plateau.",
       "subjects": [
@@ -240,6 +260,16 @@
         "shotsManifestSha256": "fc33efd6aa8c19776231f7bacd0f8e41876e0566d8208a87a0672abbe316de4c",
         "terrainManifestSha256": "4517e44172a26853372fd4bd672924e40de73935c625ef351710664fffed507c",
         "baseViewSha256": "5340516a2d2aeac97a00cc1be279324509188b84017782831f855cde9cbea9ac"
+      },
+      "approval": {
+        "date": "2026-11-03",
+        "shotsManifestSha256": "fc33efd6aa8c19776231f7bacd0f8e41876e0566d8208a87a0672abbe316de4c",
+        "terrainManifestSha256": "4517e44172a26853372fd4bd672924e40de73935c625ef351710664fffed507c",
+        "baseViewSha256": "5340516a2d2aeac97a00cc1be279324509188b84017782831f855cde9cbea9ac",
+        "evidence": [
+          "docs/camera-tour-promotion-2026-11-03.md",
+          "docs/scenic-framing-endings-review-2026-10-23.md"
+        ]
       }
     },
     "black-mountains-catawba": {
@@ -269,7 +299,7 @@
       }
     },
     "san-gabriel-baldy": {
-      "status": "candidate",
+      "status": "approved",
       "landform": "alpine-ridge",
       "notes": "Steep chaparral ridges of the San Gabriels around Mount San Antonio (Baldy) and Baden-Powell.",
       "subjects": [
@@ -291,6 +321,16 @@
         "shotsManifestSha256": "a7fe7c98811bf441a4c2d7c47cf1cac599222fefd6eb168c6af77f45f1ab6658",
         "terrainManifestSha256": "daac1e66caf61d2b3f28765fca3ec2d5c748f52bf7630923e9e01a826d6fd132",
         "baseViewSha256": "b7c657d9a6297d00fae9e034f803349ae57c12e281307991b14877e0f27eefcd"
+      },
+      "approval": {
+        "date": "2026-11-03",
+        "shotsManifestSha256": "a7fe7c98811bf441a4c2d7c47cf1cac599222fefd6eb168c6af77f45f1ab6658",
+        "terrainManifestSha256": "daac1e66caf61d2b3f28765fca3ec2d5c748f52bf7630923e9e01a826d6fd132",
+        "baseViewSha256": "b7c657d9a6297d00fae9e034f803349ae57c12e281307991b14877e0f27eefcd",
+        "evidence": [
+          "docs/camera-tour-promotion-2026-11-03.md",
+          "docs/scenic-framing-endings-review-2026-10-23.md"
+        ]
       }
     },
     "white-mountains-owens": {
@@ -352,7 +392,7 @@
       }
     },
     "panamint-dantes-view": {
-      "status": "candidate",
+      "status": "approved",
       "landform": "escarpment-basin",
       "notes": "Death Valley's salt basin under the Panamint escarpment, Telescope Peak opposite Dantes View.",
       "subjects": [
@@ -374,6 +414,16 @@
         "shotsManifestSha256": "6eef1dbd48058e382c67a045bbed144a87d4a568f575c7ded9c744f417685149",
         "terrainManifestSha256": "579bc3bf004d53b1273a13cb6308d9bb83682a9a772d5ee3c8c2c87e058dd1f2",
         "baseViewSha256": "993a16b0416a8125fd39ff73e28ac08d9d3ef08a8709fed1df7f0f54953dd142"
+      },
+      "approval": {
+        "date": "2026-11-03",
+        "shotsManifestSha256": "6eef1dbd48058e382c67a045bbed144a87d4a568f575c7ded9c744f417685149",
+        "terrainManifestSha256": "579bc3bf004d53b1273a13cb6308d9bb83682a9a772d5ee3c8c2c87e058dd1f2",
+        "baseViewSha256": "993a16b0416a8125fd39ff73e28ac08d9d3ef08a8709fed1df7f0f54953dd142",
+        "evidence": [
+          "docs/camera-tour-promotion-2026-11-03.md",
+          "docs/scenic-framing-endings-review-2026-10-23.md"
+        ]
       }
     },
     "chugach-matanuska": {
