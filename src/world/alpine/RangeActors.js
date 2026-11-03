@@ -2,8 +2,8 @@
 // "presence ladder"). Midio, Broshi and Midasus are no longer drawn as
 // outlined meshes on top of the scene. Each is a small moving light in its
 // own hue that lights the ground, trees and water around it, sits at a real
-// depth, fades into the air and reflects in the lake. Around each light a
-// loose swarm of motes wanders. What they do in a view -- climb its summit,
+// depth, fades into the air and reflects in the lake. Around each light an
+// aura of motes breathes, and the lane's notes ring out through it. What they do in a view -- climb its summit,
 // or light its shore -- is docs/landscape-cast.md: CastJobs.js reads the
 // terrain, CastSchedule.js sets when.
 //
@@ -46,7 +46,10 @@ export const ACTOR_PITCH_MS = 1250;
 export const ACTOR_SPREAD = Object.freeze([0.75, 1.25]);
 
 const unit = (x) => (Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : 0);
-const EMPTY_ACTOR = Object.freeze({ glow: 0, travel: 0, pulse01: 0, spread: 1 });
+/** Seconds since the lane's last note is capped here (and is this with no
+ *  note yet): long past any ring a note sends out of the aura. */
+export const ACTOR_NOTE_AGE_CAP_MS = 10000;
+const EMPTY_ACTOR = Object.freeze({ glow: 0, travel: 0, pulse01: 0, spread: 1, noteAgeMs: ACTOR_NOTE_AGE_CAP_MS });
 /** How many of sorted `arr` are at or before `t`. */
 const countThrough = (arr, t) => {
   let lo = 0, hi = arr.length;
@@ -63,6 +66,11 @@ const pulseAt = (onsets, t) => {
   const dense = k - countThrough(onsets, last - ACTOR_PULSE_DENSE_MS);
   return Math.exp(-(t - last) / ACTOR_PULSE_MS) / (1 + Math.max(0, dense - 3) * 0.25);
 };
+/** Milliseconds since the lane's latest onset at or before `t`, capped. */
+const noteAgeAt = (onsets, t) => {
+  const k = countThrough(onsets, t);
+  return k ? Math.min(ACTOR_NOTE_AGE_CAP_MS, t - onsets[k - 1]) : ACTOR_NOTE_AGE_CAP_MS;
+};
 /** A lane's onsets as a sorted, finite, distinct array (compiled once). */
 const laneOnsets = (list) => {
   const sorted = Float64Array.from(Array.isArray(list) ? list.filter(Number.isFinite) : []).sort();
@@ -73,8 +81,9 @@ const laneOnsets = (list) => {
  * Compile the cast's score for a song from `narrative` (compileLandscapeSources:
  * { durationMs, onsets[id], sample(t).sources[id].{ activity, pitch01,
  * pitchActivity } }). Returns { durationMs, at(timeMs) -> { midio: { glow,
- * travel, pulse01, spread }, ... } }: `pulse01` (0..1) flares on each of
- * the lane's notes, and `spread` (ACTOR_SPREAD, 1 when unknown) follows its
+ * travel, pulse01, spread, noteAgeMs }, ... } }: `pulse01` (0..1) flares on
+ * each of the lane's notes, `noteAgeMs` is the time since the latest one
+ * (ACTOR_NOTE_AGE_CAP_MS at most), and `spread` (ACTOR_SPREAD, 1 when unknown) follows its
  * pitch, normalised to the lane's own range over the song.
  * Every value is a function of heard time only, so seeks read the same.
  */
@@ -131,7 +140,8 @@ export function compileActorScore(narrative) {
       const out = {};
       for (const id of ACTOR_IDS) {
         const c = curves[id];
-        out[id] = { glow: read(c.glow, x), travel: read(c.travel, x), pulse01: pulseAt(c.onsets, t), spread: read(c.spread, x) };
+        out[id] = { glow: read(c.glow, x), travel: read(c.travel, x), pulse01: pulseAt(c.onsets, t), spread: read(c.spread, x),
+          noteAgeMs: noteAgeAt(c.onsets, t) };
       }
       return out;
     },

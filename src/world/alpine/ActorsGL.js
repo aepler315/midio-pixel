@@ -1,8 +1,10 @@
 // The cast drawn in the Range's 3D scene (RangeActors.js decides where and
 // how bright). Each actor is a lantern -- a small core and halo billboard
-// at its real position -- and a swarm of motes that wander around it. When
+// at its real position -- and an aura of motes around it. When
 // an actor kindles a light, a few of its motes leave the lantern and settle
-// into it. The lights the cast leave in a view (SiteLights), Midasus's
+// into it. The motes are an aura rather than a swarm: they hold their places
+// round the light, breathing and turning slowly, and each note sends a ring
+// of brightness out through them. The lights the cast leave in a view (SiteLights), Midasus's
 // survey threads and an ascent's fixed line (SurveyThreads) are emissive
 // only: they light nothing. Everything lives on CAST_LAYER in the band
 // scenes: RangeScene draws it in one pass of its own after the near
@@ -46,6 +48,11 @@ const STAGE_PX = 720;
 const LANTERN_CORE = 0.0439, SITE_CORE = 0.0745;
 /** A mote's dot (fraction of its radius). */
 const MOTE_DOT = 0.245;
+/** The aura's rim (multiples of an actor's wanderPx): about the reach the
+ *  old wandering swarm had. */
+export const AURA_REACH = 1.3;
+/** Seconds a note's ring of light takes from the core to the aura's rim. */
+export const AURA_RING_S = 0.6;
 
 /** Shared light, wake and parting uniforms (merged into the terrain's). */
 export function actorUniforms(THREE) {
@@ -195,6 +202,7 @@ const LANTERN_FRAG = /* glsl */`
   uniform vec3 uColor;
   uniform float uGlow;
   uniform float uPresence;
+  uniform float uTime;
   in vec2 vPx;
   in float vR;
   in float vAir;
@@ -203,7 +211,9 @@ const LANTERN_FRAG = /* glsl */`
   ${CAST_RASTER_GLSL}
   void main() {
     float core = spot(vPx, ${LANTERN_CORE.toFixed(4)} * vR);
-    float halo = spriteHalo(vPx, vR) * (0.25 + 0.75 * uGlow);
+    // The halo breathes with its aura (MOTE_VERT's breath) rather than the
+    // lantern bobbing like a thing afloat.
+    float halo = spriteHalo(vPx, vR) * (0.25 + 0.75 * uGlow) * (0.9 + 0.1 * sin(uTime * 0.7));
     vec3 c = (vec3(1.0) * core * 0.9 + uColor * (core * 0.6 + halo * 0.55)) * uPresence * (1.0 - 0.85 * vAir) * vSeen;
     outColor = vec4(c, clamp(max(c.r, max(c.g, c.b)), 0.0, 1.0));
   }
@@ -225,6 +235,8 @@ const MOTE_VERT = /* glsl */`
   // the swarm's rise and fall. 0 and 1 leave the swarm as it was.
   uniform float uPulse;
   uniform float uSpread;
+  // Seconds since the lane's last note (RangeActors noteAgeMs): the ring.
+  uniform float uNoteAge;
   // A kindling: the first ${ACTOR_FLY_MOTES} motes fly from the lantern into
   // the light at uFlyTarget (world) as uFly runs 0..1, and fade there.
   uniform vec3 uFlyTarget;
@@ -238,10 +250,20 @@ const MOTE_VERT = /* glsl */`
   out float vSeen;
   ${CAST_RASTER_GLSL}
   void main() {
-    float t = uTime * (0.25 + aSeed.y * 0.5);
-    vec2 wander = vec2(sin(t + aSeed.z * 6.2832) + 0.5 * sin(t * 2.3 + aSeed.w * 9.0),
-                       cos(t * 0.8 + aSeed.y * 6.2832) + 0.4 * sin(t * 1.7 + aSeed.z * 5.0))
-      * uWanderPx * (0.35 + 0.65 * aSeed.w) * vec2(1.0, uSpread);
+    // An aura of light, not a swarm: each mote keeps a seeded place on a
+    // soft disc round the lantern (sqrt: even over its area) and the disc
+    // turns slowly, half its motes one way and half the other, so the
+    // light shimmers in place instead of flying about. It breathes, and
+    // each of the lane's notes sends a ring of light out from the core
+    // (AURA_RING_S to reach the rim), lifting the motes it passes.
+    float shell = sqrt(aSeed.w);
+    float spin = (aSeed.x < 0.5 ? 1.0 : -1.0) * (0.05 + 0.1 * aSeed.y);
+    float ang = aSeed.z * 6.2832 + uTime * spin;
+    float breath = 0.88 + 0.12 * sin(uTime * 0.7 + aSeed.y * 2.0);
+    float ring = uNoteAge / ${AURA_RING_S.toFixed(3)};
+    float front = exp(-pow((shell - ring) / 0.14, 2.0)) * (1.0 - smoothstep(0.75, 1.1, ring));
+    float rad = shell * (1.0 + 0.06 * sin(uTime * 1.3 + aSeed.z * 17.0)) * breath * (1.0 + 0.2 * front);
+    vec2 wander = vec2(cos(ang), sin(ang)) * rad * ${AURA_REACH.toFixed(2)} * uWanderPx * vec2(1.0, uSpread);
     vec3 lift = vec3(0.0, groundLift(uAnchor), 0.0);
     vec3 base = uCenter + lift + (uRight * wander.x + uUp * wander.y) * uMpp;
     float fly = 0.0;
@@ -256,7 +278,8 @@ const MOTE_VERT = /* glsl */`
     vec3 c = mix(base, target, fly);
     float mpp = mix(uMpp, uMpp * length(uFlyTarget - uCameraPos) / max(length(uCenter - uCameraPos), 1.0), fly);
     float k = uViewportPx.y / ${STAGE_PX.toFixed(1)};
-    vR = 2.2 * k;
+    // A mote the ring is passing swells a little as it brightens.
+    vR = 2.2 * k * (1.0 + 0.5 * front);
     float extent = spriteExtent(vR);
     vPx = position.xy * 2.0 * extent;
     vec3 p = c + (uRight * position.x + uUp * position.y) * 2.0 * extent * mpp / k;
@@ -264,7 +287,9 @@ const MOTE_VERT = /* glsl */`
     // is ~1.67x its mean brightness (2.5x at a twinkle trough); a damped
     // 16th-note lane peaks ~1.52x and swings ~1.25-1.52x at the note rate.
     vBright = (0.45 + 0.4 * fly * (1.0 - fly) * 4.0) * mix(0.75 + 0.25 * sin(uTime * 3.0 + aSeed.z * 40.0), 1.0, uPulse)
-      * (1.0 + 0.25 * uPulse) * (1.0 - smoothstep(0.85, 1.0, fly));
+      * (1.0 + 0.25 * uPulse) * (1.0 - smoothstep(0.85, 1.0, fly))
+      // Denser toward the core, and lit where the note's ring is.
+      * (1.15 - 0.45 * shell) * (1.0 + 1.5 * front);
     vAir = airAt(c);
     gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
   }
@@ -743,6 +768,8 @@ export class ActorsGL {
         // The lane's note pulse and pitch spread (RangeActors), read by the
         // motes; companions share them unread.
         uPulse: { value: 0 }, uSpread: { value: 1 },
+        // Seconds since the lane's last note: the aura's ring (none yet).
+        uNoteAge: { value: 10 },
       };
       const lantern = new THREE.Mesh(quad, new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms: u,
         vertexShader: LANTERN_VERT, fragmentShader: LANTERN_FRAG, ...blend }));

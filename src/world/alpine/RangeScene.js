@@ -49,7 +49,7 @@ import { scenicProjection, calibrateRangeMusic, rangeCameraCalibration } from '.
 import { applyGlacierUniforms, glacierErrors, glacierSample } from './GlacierField.js';
 import { ActorsGL, SITE_LIGHTS_MAX, CAST_LAYER, CAST_RIBBON_LAYER, enableCastLayers } from './ActorsGL.js';
 import { riverChannelErrors } from './RiverChannel.js';
-import { ACTOR_IDS, ACTOR_HUES, ACTOR_LOOK, ACTOR_START, actorRoutes, routePosition } from './RangeActors.js';
+import { ACTOR_IDS, ACTOR_HUES, ACTOR_LOOK, ACTOR_NOTE_AGE_CAP_MS, ACTOR_START, actorRoutes, routePosition } from './RangeActors.js';
 import { castPlan, castWork, pathPosition, siteWalk } from './CastJobs.js';
 import { flashScreenPoint, rainSeed01, stormKindRow } from './RangeStorm.js';
 import { forestWindAt } from './ForestWind.js';
@@ -2127,7 +2127,8 @@ export class RangeScene {
       const look = ACTOR_LOOK[id];
       const placed = job?.actors[id];
       const pos = !s || presence <= 0.001 ? null : job ? placed?.pos
-        : route ? routePosition(route, s.travel + (ACTOR_START[id] || 0), { ...opts, hoverM: look.hoverM, bobSec: tSec + k * 2.1 }) : null;
+        // No bob: a light glides at its height; its aura breathes instead.
+        : route ? routePosition(route, s.travel + (ACTOR_START[id] || 0), { ...opts, hoverM: look.hoverM }) : null;
       u.uActorColor.value[k].set(0, 0, 0);
       if (!group) return;
       // Lanterns, motes and companions draw with the cast, after the
@@ -2165,6 +2166,7 @@ export class RangeScene {
       v.uHaloPx.value = haloPx * (1 + .18 * pulse);
       if (v.uPulse) v.uPulse.value = pulse;
       if (v.uSpread) v.uSpread.value = s.spread ?? 1;
+      if (v.uNoteAge) v.uNoteAge.value = Math.min(ACTOR_NOTE_AGE_CAP_MS, s.noteAgeMs ?? ACTOR_NOTE_AGE_CAP_MS) / 1000;
       v.uColor.value.copy(display);
       v.uGlow.value = Math.max(s.glow, beacon);
       v.uPresence.value = presence * (0.55 + 0.45 * dark) * (job?.dim ?? 1);
@@ -2178,7 +2180,7 @@ export class RangeScene {
       // weaving about it.
       (p.actors.companions[id] || []).forEach((c, j) => {
         const lag = job ? placed.lag?.[j] ?? pos
-          : routePosition(route, s.travel + (ACTOR_START[id] || 0) - (j + 1) * 0.5, { ...opts, hoverM: look.hoverM, bobSec: tSec + j * 1.3 });
+          : routePosition(route, s.travel + (ACTOR_START[id] || 0) - (j + 1) * 0.5, { ...opts, hoverM: look.hoverM });
         const w = tSec * (0.7 + 0.2 * j) + j * 2.1;
         const cp = new THREE.Vector3(lag[0], lag[1], lag[2])
           .addScaledVector(right, Math.sin(w) * 18 * mpp0).addScaledVector(up, Math.cos(w * 1.3) * 10 * mpp0);
