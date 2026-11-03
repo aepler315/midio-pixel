@@ -53,7 +53,8 @@ import { ACTOR_IDS, ACTOR_HUES, ACTOR_LOOK, ACTOR_START, actorRoutes, routePosit
 import { castPlan, castWork, pathPosition, siteWalk } from './CastJobs.js';
 import { flashScreenPoint, rainSeed01, stormKindRow } from './RangeStorm.js';
 import { forestWindAt } from './ForestWind.js';
-import { wetTexelMask, waterIndexSubset } from './WaterSubset.js';
+import { createWetMask, fillWetRows, waterIndexSubsetAsync } from './WaterSubset.js';
+import { waterBoxes, liftBounds, shiverBounds, mirrorScissor } from './MirrorScissor.js';
 // Storm light, linear: the deck's underside, the rain-dimmed horizon, the
 // rain air, per episode kind (RangeStorm STORM_KINDS zenith/horizon/air).
 // The air meets the slate the sky paints at the horizon (drawStormSky).
@@ -572,6 +573,15 @@ export class RangeScene {
       r.setRenderTarget(m.target);
       r.setClearColor(0x000000, 0);
       r.clear(true, true, false);
+      // Draw only the texels lake fragments can read (MirrorScissor.js).
+      const scissor = this._mirrorScissor(p, m);
+      this.stats.mirrorScissor = scissor ? scissor.width * scissor.height / (m.target.width * m.target.height) : 1;
+      if (scissor) {
+        m.target.scissor.set(scissor.x, scissor.y, scissor.width, scissor.height);
+        m.target.scissorTest = true;
+        r.setRenderTarget(m.target);
+      }
+      try {
       const softForest = Object.values(p.forest?.counts || {}).some(n => n > 0);
       // The lake reflects the cast with each band (it never takes the main
       // camera's separate cast pass).
@@ -587,6 +597,9 @@ export class RangeScene {
         this.mirrorCamera.layers.set(3);
         enableCastLayers(this.mirrorCamera);
         for (const band of BANDS) r.render(p.scenes[band], this.mirrorCamera);
+      }
+      } finally {
+        if (m.target.scissorTest) { m.target.scissorTest = false; r.setRenderTarget(m.target); }
       }
       this.mirrorCamera.layers.set(0); this.mirrorCamera.layers.enable(3);
       u.uClipBelow.value = -1e9;
@@ -2686,19 +2699,47 @@ export class RangeScene {
   /** Render water at display resolution against the complete terrain and
    * forest depth. The caller must copy the returned transient canvas before
    * another scene render. A refused allocation leaves the native pass intact. */
+  /** The mirror texels this frame's lake can read, or null for all. */
+  _mirrorScissor(p, m) {
+    const boxes = p.waterSubsets?.boxes;
+    if (!boxes) return null;
+    // The boxes are in mesh space; every terrain mesh must draw untransformed.
+    if (p.waterBoxesPlain === undefined) {
+      p.waterBoxesPlain = BANDS.every(band => p.scenes[band].children.every(mesh => !p.waterSubsets.has(mesh.geometry)
+        || mesh.matrixWorld.equals(new this.THREE.Matrix4()) && mesh.parent === p.scenes[band] && p.scenes[band].matrixWorld.equals(new this.THREE.Matrix4())));
+    }
+    if (!p.waterBoxesPlain) return null;
+    try {
+      this.camera.updateMatrixWorld();
+      const viewProj = new this.THREE.Matrix4().multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse).elements;
+      return mirrorScissor(boxes, m.matrix.elements, viewProj, liftBounds(p.uniforms), shiverBounds(p.uniforms), m.target.width, m.target.height);
+    } catch { return null; }
+  }
+
   /** Water-only index geometries for this view's terrain (WaterSubset.js):
    *  a Map from each band or fringe geometry to the geometry renderWater
    *  draws in its place, or null when a geometry keeps its full index. */
   async _buildWaterSubsets(THREE, data, surface, geos, { mappedOnly = false, stale = () => false } = {}) {
     const rgba = surface.texture?.image?.data, g = data?.grid;
     if (!rgba || !g || surface.width !== g.width || surface.height !== g.height || !geos) return null;
-    const mask = mappedOnly ? { count: 0 } : wetTexelMask(rgba, surface.width, surface.height);
-    const subsets = new Map();
-    let triangles = 0, bytes = 0;
+    const mask = mappedOnly ? { count: 0 } : createWetMask(surface.width, surface.height);
+    // Bounded slices: preparation runs while a song plays.
+    if (!mappedOnly) for (let y = 0; y < surface.height; y += 256) {
+      fillWetRows(mask, rgba, y, y + 256);
+      await yieldToMain();
+      if (stale()) return null;
+    }
+    const subsets = new Map(), boxSources = [];
+    let triangles = 0, bytes = 0, complete = true;
     for (const geometry of [...Object.values(geos.geometries || {}), ...Object.values(geos.fringes || {})]) {
       const position = geometry.attributes.position, index = geometry.index;
       if (!position || position.itemSize !== 3 || !index || position.normalized) continue;
-      const keep = waterIndexSubset(position.array, index.array, g, mask);
+      let aborted = false;
+      const keep = await waterIndexSubsetAsync(position.array, index.array, g, mask, {
+        pause: async () => { await yieldToMain(); if (stale()) { aborted = true; throw new Error('stale'); } } }).catch(err => { if (aborted) return undefined; throw err; });
+      if (aborted || keep === undefined) { for (const sub of subsets.values()) sub.dispose(); return null; }
+      if (!keep) complete = false;
+      else boxSources.push({ positions: position.array, index: keep });
       if (keep) {
         const sub = new THREE.BufferGeometry();
         sub.setAttribute('position', position);
@@ -2711,6 +2752,9 @@ export class RangeScene {
       if (stale()) { for (const sub of subsets.values()) sub.dispose(); return null; }
     }
     subsets.triangles = triangles; subsets.bytes = bytes;
+    // Where lake fragments can stand, for the mirror's scissor; unknown when
+    // any geometry kept its full index.
+    subsets.boxes = complete ? waterBoxes(boxSources) : null;
     return subsets;
   }
 

@@ -20,19 +20,26 @@ export const WATER_SUBSET_MAX_SHARE = 0.5;
 const BLOCK = 16;
 
 /** Wet-texel mask of the surface texture's alpha (flow) channel, with a
- *  coarse block summary for fast rejection. `rgba` is width*height*4. */
-export function wetTexelMask(rgba, width, height) {
-  const wet = new Uint8Array(width * height);
+ *  coarse block summary for fast rejection. `rgba` is width*height*4. Fill
+ *  it in row slices with fillWetRows to keep each slice short. */
+export function createWetMask(width, height) {
   const bw = Math.ceil(width / BLOCK), bh = Math.ceil(height / BLOCK);
-  const blocks = new Uint8Array(bw * bh);
-  let count = 0;
-  for (let y = 0; y < height; y++) {
+  return { wet: new Uint8Array(width * height), blocks: new Uint8Array(bw * bh), width, height, bw, bh, count: 0 };
+}
+
+export function fillWetRows(mask, rgba, y0, y1) {
+  const { wet, blocks, width, bw } = mask;
+  for (let y = y0; y < Math.min(y1, mask.height); y++) {
     const row = y * width, brow = (y / BLOCK | 0) * bw;
     for (let x = 0; x < width; x++) {
-      if (rgba[(row + x) * 4 + 3] === 255) { wet[row + x] = 1; blocks[brow + (x / BLOCK | 0)] = 1; count++; }
+      if (rgba[(row + x) * 4 + 3] === 255) { wet[row + x] = 1; blocks[brow + (x / BLOCK | 0)] = 1; mask.count++; }
     }
   }
-  return { wet, blocks, width, height, bw, bh, count };
+  return mask;
+}
+
+export function wetTexelMask(rgba, width, height) {
+  return fillWetRows(createWetMask(width, height), rgba, 0, height);
 }
 
 function anyWet(mask, x0, y0, x1, y1) {
@@ -62,13 +69,39 @@ function anyWet(mask, x0, y0, x1, y1) {
  * minus the half texel (TerrainMaterial waterCoverageAt).
  */
 export function waterIndexSubset(positions, index, grid, mask, { maxShare = WATER_SUBSET_MAX_SHARE } = {}) {
-  const ox = grid.originM[0], oz = grid.originM[1], inv = 1 / grid.cellSizeM;
   const n = index.length - index.length % 3;
+  const keep = keptTriangles(positions, index, grid, mask, 0, n, Math.floor(n * maxShare));
+  return keep && keep.slice();
+}
+
+/**
+ * The same, in slices of `sliceTriangles`, awaiting `pause()` between them
+ * so a large band never blocks the main thread for long.
+ */
+export async function waterIndexSubsetAsync(positions, index, grid, mask, { maxShare = WATER_SUBSET_MAX_SHARE, sliceTriangles = 65536, pause = async () => {} } = {}) {
+  const n = index.length - index.length % 3, limit = Math.floor(n * maxShare);
+  const parts = [];
+  let total = 0;
+  for (let start = 0; start < n; start += sliceTriangles * 3) {
+    const part = keptTriangles(positions, index, grid, mask, start, Math.min(n, start + sliceTriangles * 3), limit - total);
+    if (!part) return null;
+    parts.push(part.slice()); total += part.length;
+    if (start + sliceTriangles * 3 < n) await pause();
+  }
+  const out = new index.constructor(total);
+  let o = 0;
+  for (const part of parts) { out.set(part, o); o += part.length; }
+  return out;
+}
+
+// Triangles [start, end) of `index` that can draw water, as a view on a
+// scratch array, or null past `limit` indices.
+function keptTriangles(positions, index, grid, mask, start, end, limit) {
+  const ox = grid.originM[0], oz = grid.originM[1], inv = 1 / grid.cellSizeM;
   if (!mask.count) return new index.constructor(0);
-  const keep = new index.constructor(n);
+  const keep = new index.constructor(end - start);
   let k = 0;
-  const limit = Math.floor(n * maxShare);
-  for (let i = 0; i < n; i += 3) {
+  for (let i = start; i < end; i += 3) {
     const a = index[i] * 3, b = index[i + 1] * 3, c = index[i + 2] * 3;
     const ax = (positions[a] - ox) * inv, az = (positions[a + 2] - oz) * inv;
     const bx = (positions[b] - ox) * inv, bz = (positions[b + 2] - oz) * inv;
@@ -83,5 +116,5 @@ export function waterIndexSubset(positions, index, grid, mask, { maxShare = WATE
     if (k + 3 > limit) return null;
     keep[k++] = index[i]; keep[k++] = index[i + 1]; keep[k++] = index[i + 2];
   }
-  return keep.slice(0, k);
+  return keep.subarray(0, k);
 }
