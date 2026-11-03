@@ -116,3 +116,15 @@ the scissor. Both fail when their margins are removed.
    package, so they could be baked by `tools/build-range-scene.mjs` and served
    with it instead of computed on the device (about 125 ms of main-thread
    work on a desktop, sliced; several times that on a head unit).
+
+## The mirror is shed first
+
+Rendered both ways at 8, 20, 32 and 44 s of the pilot song, dropping the
+mirror changed 1.4%, 2.0%, 0% and 1.0% of pixels (largest: faint shoreline
+detail in the water at 8 s) and made the frame about 11% cheaper in the
+software rasterizer. The quality ladder (RangeQuality.js) now sheds the
+mirror at rung 1, before anything else, instead of rung 4. Level 0 keeps it;
+any machine that sheds at all, Economy, and the phone start rung draw the
+lake from the reused sky/far backdrop, blurred (RangeScene.captureBackdrop).
+A low camera over a lake under a steep shore is where the mirror shows most;
+that case was not captured.
