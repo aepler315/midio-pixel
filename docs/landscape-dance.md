@@ -73,6 +73,11 @@ on-screen motion (8–20 px), `LAND_MAX_DISPLACEMENT_M`, the camera's
   goes from 245 to 247 of the 248-vector ceiling. The next addition needs to
   pack something.
 - **Cost when off.** A uniform branch; no texture fetch, no residency charge.
+  Pilot song, 1280×720, 8 frames 4 s–39 s via `tools/render-hotspots.mjs`:
+  7 of 8 frames byte-identical to the water-cost branch with the dance off.
+  The 9 s frame differs between two runs of that base branch too, so it is
+  not a usable identity check. With `?landDance=1` every frame changes along
+  the crest and flanks; lake pixels do not move.
 
 ## Not verified / limits
 
