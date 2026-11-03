@@ -5,7 +5,6 @@
 // this module stays importable (and testable) without a GPU.
 import { finishPreparation, prepareInSlices } from './PreparationSteps.js';
 import { yieldToMain } from '../../utils/yieldToMain.js';
-import { waterTexelTableAsync } from './WaterColourRanges.js';
 import { buildTerrainGeometry, buildSurfaceTexture, buildReceiverMask, buildSurfaceTextureAsync, buildReceiverMaskAsync, BANDS } from './TerrainMesh.js';
 
 export const REVIEW_MODES = Object.freeze({ neutral: 0, silhouette: 1, depth: 2, normals: 3, edges: 4 });
@@ -85,9 +84,7 @@ export function createSurfaceTexture(THREE, data, options = {}) {
 export async function createSurfaceTextureAsync(THREE, data, options = {}) {
   const surface = await buildSurfaceTextureAsync(data, options);
   const receiver = await buildReceiverMaskAsync(surface, options);
-  // The first upload drops the bytes water ranges are read from.
-  const waterTexels = options.waterTexels ? await waterTexelTableAsync(surface, options) : null;
-  return { ...surfaceTextures(THREE, surface, receiver), waterTexels };
+  return surfaceTextures(THREE, surface, receiver);
 }
 
 function surfaceTextures(THREE, surface, receiver) {
