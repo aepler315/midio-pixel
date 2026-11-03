@@ -40,10 +40,8 @@ const MIN_RIDGE_SLOPE = .03;
 /** Ridges stand at least this share of the relief reference above drainage. */
 const RIDGE_MIN_RELIEF = .12;
 
-const SQRT2 = Math.SQRT2;
 const DX = [1, 1, 0, -1, -1, -1, 0, 1];
 const DZ = [0, 1, 1, 1, 0, -1, -1, -1];
-const DL = [1, SQRT2, 1, SQRT2, 1, SQRT2, 1, SQRT2];
 
 /** The `?landDance=` request (0..1, `1` when given without a number). */
 export function landDanceRequest(search = globalThis.location?.search || '') {
