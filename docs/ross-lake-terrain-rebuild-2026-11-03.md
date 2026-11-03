@@ -67,7 +67,13 @@ against today's rule, R7's package leaves all 21 mirrored rail stations
 with holes on both budgets. main's rail-only package does too, with holes
 up to 15% of the reflected frame.
 
-The full bake adds 1.81 MB against Ross Lake's 1.4 MB `assetBytes`, and its
-3,347,114 desktop triangles exceed the 3.2 M default. Whether Ross Lake's
+With the rail-tile rule of 0347dca (mirrored rail stations are rail viewers
+when the rail's own tiles carry the lake), the full bake ships 940 rail
+tiles: main's 355 with their heights and bands unchanged and 11 strides
+finer, plus 585 that fill the reflection. The other 165 are tour-only
+(`rail: false`). It adds 1.88 MB against Ross Lake's 1.4 MB `assetBytes`,
+and its 3,428,354 desktop triangles exceed the 3.2 M default (mobile
+1,412,642 is within 1.8 M). Because the rail's tile set changes, the view
+would need a fresh base approval as well. Whether Ross Lake's
 tour ships over budget, is trimmed, or waits on its rail is Ashton's call.
 Until then Ross Lake keeps main's approved rail package.
