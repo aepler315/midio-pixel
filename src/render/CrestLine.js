@@ -28,10 +28,6 @@ export const CREST_TIERS = Object.freeze({
 export const CREST_TIER_ORDER = Object.freeze(['far', 'mid', 'near', 'skyline']);
 /** Fraction of the stroke width that sits on the land side of the boundary. */
 export const CREST_LAND_SIDE = 0.7;
-/** Lightness factor of the line against its local land colour. */
-export const CREST_DARKEN = 0.55;
-/** Aerial perspective: how far each band's line colour is mixed toward the sky. */
-export const CREST_AERIAL = Object.freeze({ far: 0.25, mid: 0.10, near: 0 });
 /** Protected hues (ColorLaw.js) keep at least this distance from line colours. */
 export const PROTECTED_HUE_GAP = 20;
 export const PROTECTED_HUES = Object.freeze([MIDIO_IDENTITY_HUE, HAZARD_HUE, REWARD_HUE]);
@@ -227,14 +223,13 @@ export function guardHue(rgb) {
   return [Math.round(c.r), Math.round(c.g), Math.round(c.b)];
 }
 
-/** The line colour: the local land colour at CREST_DARKEN lightness with its
- *  hue kept, then mixed toward the sky by the band's aerial amount. */
-export function crestLineColor(land, sky, band) {
-  const hsl = rgbToHsl(land[0], land[1], land[2]);
-  const c = hslToRgb(hsl.h, hsl.s, hsl.l * CREST_DARKEN);
-  const k = CREST_AERIAL[band] || 0;
-  const s = sky || land;
-  return guardHue([Math.round(lerp(c.r, s[0], k)), Math.round(lerp(c.g, s[1], k)), Math.round(lerp(c.b, s[2], k))]);
+/** The line colour: the mean of the land just below the line and what lies
+ *  just above it (`above`: the sky, or a farther ridge's land), so the
+ *  outline sits between its two sides instead of drawing a dark rule
+ *  (Ashton, 2026-11-03). */
+export function crestLineColor(land, above) {
+  const s = above || land;
+  return guardHue([0, 1, 2].map(i => Math.round((land[i] + s[i]) / 2)));
 }
 
 /** A shoreline's pale water-side edge: the water's own (reflected) colour

@@ -80,6 +80,7 @@ function gridBand(n) {
   return { line: new Float32Array(n), raw: new Float32Array(n), e: new Float32Array(n), skyline: new Uint8Array(n),
     minNearer: new Float32Array(n), skip: new Uint8Array(n), crossed: new Int16Array(n), crossedEnd: new Int16Array(n), colorAt: new Int32Array(n), chunks: [],
     vis: new Float32Array(n).fill(NaN), land: new Uint8Array(n * 3), landOk: new Uint8Array(n),
+    above: new Uint8Array(n * 3), aboveOk: new Uint8Array(n),
     scan: filterState(n), scanRaw: new Float32Array(n), foot: NaN, top: NaN };
 }
 
@@ -377,7 +378,16 @@ export class RangeCrest {
       if (t >= 0) { rgb[0] += s.color[t * 3]; rgb[1] += s.color[t * 3 + 1]; rgb[2] += s.color[t * 3 + 2]; n++; }
     }
     const land = n ? rgb.map(v => v / n) : FALLBACK_LAND;
-    return { color: css(snapCrestColor(crestLineColor(land, this._sky, band), this._palette)),
+    // Above the line: a farther ridge's land where the grid shows one, else
+    // the sky (Ashton, 2026-11-03: the outline is the mean of the two).
+    const up = [0, 0, 0];
+    let m = 0, open = 0;
+    for (let x = i; x <= j; x++) {
+      if (g.aboveOk[x]) { up[0] += g.above[x * 3]; up[1] += g.above[x * 3 + 1]; up[2] += g.above[x * 3 + 2]; m++; } else open++;
+    }
+    const sky = this._sky || land;
+    const above = m > open ? up.map(v => v / m) : sky;
+    return { color: css(snapCrestColor(crestLineColor(land, above, band), this._palette)),
       land: css(this._palette ? snapCrestColor(land, this._palette) : land) };
   }
 
@@ -740,7 +750,9 @@ export class RangeCrest {
   }
 
   /** The land the viewer sees 1-2 cells below each column's line (opaque
-   *  cells of this band, above any nearer band's line), from the grid. */
+   *  cells of this band, above any nearer band's line), and the opaque land
+   *  1-2 cells above its top (a farther ridge; none where it is sky), from
+   *  the grid. */
   _sampleLand(g, orig, W, y0, y1) {
     for (let i = 0; i < W; i++) {
       const L = g.line[i];
@@ -754,8 +766,19 @@ export class RangeCrest {
         if (orig[k + 3] < 250) continue;
         r0 += orig[k]; g0 += orig[k + 1]; b0 += orig[k + 2]; n++;
       }
-      if (!n) continue;
-      g.land[i * 3] = r0 / n; g.land[i * 3 + 1] = g0 / n; g.land[i * 3 + 2] = b0 / n; g.landOk[i] = 1;
+      if (n) { g.land[i * 3] = r0 / n; g.land[i * 3 + 1] = g0 / n; g.land[i * 3 + 2] = b0 / n; g.landOk[i] = 1; }
+      // What lies directly above the band's own top: a farther ridge's land
+      // (opaque), or the sky drawn separately (left to the frame's sky).
+      g.aboveOk[i] = 0;
+      const top = Math.min(Number.isFinite(R) ? R : Math.floor(L), Math.floor(L));
+      r0 = 0; g0 = 0; b0 = 0; n = 0;
+      for (let r = top - 2; r <= top - 1; r++) {
+        if (r < y0 || r >= y1) continue;
+        const k = ((r - y0) * W + i) * 4;
+        if (orig[k + 3] < 250) continue;
+        r0 += orig[k]; g0 += orig[k + 1]; b0 += orig[k + 2]; n++;
+      }
+      if (n) { g.above[i * 3] = r0 / n; g.above[i * 3 + 1] = g0 / n; g.above[i * 3 + 2] = b0 / n; g.aboveOk[i] = 1; }
     }
   }
 
