@@ -192,6 +192,20 @@ function* subtree(node) {
   for (const child of children(node)) yield* subtree(child);
 }
 
+const propertyNamed = (object, name) => object?.type === 'ObjectExpression'
+  ? object.properties.find(p => p.type === 'Property' && !p.computed && (p.key.name ?? p.key.value) === name) : null;
+
+/** The `with: { type }` of an import() options argument. */
+function importType(options) {
+  if (!options) return {};
+  const attrs = propertyNamed(options, 'with');
+  if (!attrs) return options.type === 'ObjectExpression' ? {} : { unreadable: true };
+  const type = propertyNamed(attrs.value, 'type');
+  if (attrs.value.type !== 'ObjectExpression') return { unreadable: true };
+  if (!type) return {};
+  return type.value.type === 'Literal' && typeof type.value.value === 'string' ? { type: type.value.value } : { unreadable: true };
+}
+
 /** Dynamic imports, module URLs and worker starts in one file, found by a
  *  real JS parser so JSDoc `import('...')` types and comments are ignored. */
 function moduleReferences(linter, code, rel) {
@@ -249,7 +263,7 @@ function moduleReferences(linter, code, rel) {
   for (const node of imports) {
     const spec = stringValue(node.source);
     const line = node.loc.start.line;
-    if (leading(node.source)?.complete) { found.push({ kind: 'dynamic import', spec, line }); continue; }
+    if (leading(node.source)?.complete) { found.push({ kind: 'dynamic import', spec, line, ...importType(node.options) }); continue; }
     // An expression is fine when it is built from a URL constant this check
     // already follows (e.g. import(retryUrl(SCENE_URL, attempt))).
     const followed = [...subtree(node.source)]
@@ -330,7 +344,9 @@ export async function checkModuleGraph(root = process.cwd(), { srcDir = 'src', t
   /** Resolve a URL to a module file, or say why it can't load. */
   // Modules reached from a dev page (or from outside src/, which only a dev
   // page can reach) may import anything in the checkout.
-  const devOnly = (rel) => rel.startsWith(DEV_PAGES) || !rel.startsWith(`${srcDir}/`);
+  // A module outside src/ is only parsed when a dev page reached it; a page
+  // outside src/ (index.html) is the app itself and gets no exception.
+  const devOnly = (rel) => rel.startsWith(DEV_PAGES) || (MODULE_FILE.test(rel) && !rel.startsWith(`${srcDir}/`));
   const target = async (url, from = '') => {
     const site = siteFile(url, { anywhere: devOnly(from) });
     if (site.error) return site;
@@ -477,6 +493,16 @@ export async function checkModuleGraph(root = process.cwd(), { srcDir = 'src', t
       if (ref.kind === 'worker' && !ref.checkExists && ref.isModule) continue; // the URL itself was checked as a module URL
       const found = await target(url, rel);
       if (found.error) { if (ref.kind !== 'worker' || ref.checkExists) report({ ...at, message: `${ref.spec ? `"${ref.spec}"` : url.pathname} names a module that cannot load: ${found.error}` }); continue; }
+      if (ref.kind === 'dynamic import') {
+        // The same rules as a static import: JavaScript unless typed JSON.
+        const call = `import("${ref.spec}")`;
+        if (ref.unreadable) report({ ...at, message: `${call} has options this check cannot read; write { with: { type: '…' } } literally` });
+        else if (ref.type === 'json') {
+          try { JSON.parse(await source(found.rel)); } catch (err) { report({ ...at, message: `${call} loads JSON that does not parse: ${err.message}` }); }
+        } else if (ref.type != null) report({ ...at, message: `${call} uses type '${ref.type}', which this check does not know` });
+        else if (!MODULE_FILE.test(found.rel)) report({ ...at, message: `${call} loads ${found.rel} as JavaScript; a JSON file needs { with: { type: 'json' } }` });
+        continue;
+      }
       if (ref.kind === 'worker' && !ref.isModule && parsed.has(found.rel) && needsModule(found.rel)) {
         report({ ...at, message: `${ref.what} starts ${found.rel} as a classic script, but it uses import/export; pass { type: 'module' }` });
       }
