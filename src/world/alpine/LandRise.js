@@ -67,8 +67,10 @@ export const LAND_RISE_GLSL = /* glsl */`
     return vec3(dr * d.x, -uLandRise * (1.0 - e), dr * d.y);
   }
   // A normal carried through the rise (inverse transpose of its Jacobian).
-  // 1 + g.y is at least the rise itself, never zero.
+  // 1 + g.y is at least the rise itself, never zero. The complete range
+  // returns n untouched, so its pixels are exactly the unrisen ones.
   vec3 risenNormal(vec3 n, vec3 p) {
+    if (uLandRise <= 0.0) return n;
     vec3 g = riseGrad(p);
     float invY = 1.0 / (1.0 + g.y);
     return normalize(vec3(n.x - g.x * n.y * invY, n.y * invY, n.z - g.z * n.y * invY));
