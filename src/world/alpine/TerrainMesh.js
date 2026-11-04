@@ -106,7 +106,7 @@ export function tileStrides(data, budget = 'desktop', bias = 1) {
  */
 function planBands(data, stridesById, includeHidden) {
   const { cells } = data;
-  const size = Object.fromEntries(BANDS.map((b) => [b, { v: 0, i: 0, f: 0 }]));
+  const size = Object.fromEntries(BANDS.map((b) => [b, { v: 0, i: 0, f: 0, t: 0, ft: 0 }]));
   const bandOf = (t) => (BANDS.includes(t.band) ? t.band : 'far');
   const drawn = [];
   for (const t of data.tiles.values()) {
@@ -120,7 +120,8 @@ function planBands(data, stridesById, includeHidden) {
     }
     size[band].v += (m + 1) * (m + 1);
     size[band].i += 6 * m * m;
-    if (fringe) size[band].f += 6 * m * m;
+    size[band].t++;
+    if (fringe) { size[band].f += 6 * m * m; size[band].ft++; }
     drawn.push([t, band, fringe]);
   }
   return { size, drawn };
@@ -136,7 +137,9 @@ export function terrainFringeBytes(data, { budget = 'desktop', bias = 1, include
 /**
  * Build per-band geometry. Each band merges its tiles into one position
  * (Float32 xyz) and index (Uint32) array. Tiles never visible from the
- * rail are skipped unless `includeHidden`.
+ * rail are skipped unless `includeHidden`. Each tile's triangles are one
+ * contiguous range of its band's index (and of its seam fill), recorded
+ * with the tile's box as `chunks` / `fringeChunks` (TerrainChunks.js).
  */
 export function buildTerrainGeometry(data, { budget = 'desktop', bias = 1, includeHidden = false, strides = null } = {}) {
   const { grid, cells } = data;
@@ -149,6 +152,7 @@ export function buildTerrainGeometry(data, { budget = 'desktop', bias = 1, inclu
   const out = Object.fromEntries(BANDS.map((b) => [b, {
     positions: new Float32Array(size[b].v * 3), indices: new Uint32Array(size[b].i), vertexCount: 0, indexCount: 0,
     fringe: new Uint32Array(size[b].f), fringeCount: 0,
+    chunks: chunkArrays(size[b].t), fringeChunks: chunkArrays(size[b].ft),
   }]));
   let triangles = 0;
   for (const [t, bandName, fringe] of drawn) {
@@ -188,6 +192,8 @@ export function buildTerrainGeometry(data, { budget = 'desktop', bias = 1, inclu
     };
     const P = band.positions;
     const heights = new Float32Array(n * n);
+    // The tile's box, from the stored (Float32) positions it draws.
+    const box = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
     for (let v = 0; v < n; v++) {
       for (let u = 0; u < n; u++) {
         const y = snap(u, v);
@@ -196,6 +202,11 @@ export function buildTerrainGeometry(data, { budget = 'desktop', bias = 1, inclu
         P[o] = x0 + u * s * grid.cellSizeM;
         P[o + 1] = Number.isFinite(y) ? y : 0;
         P[o + 2] = z0 + v * s * grid.cellSizeM;
+        for (let a = 0; a < 3; a++) {
+          if (a === 1 && !Number.isFinite(y)) continue;
+          if (P[o + a] < box[a]) box[a] = P[o + a];
+          if (P[o + a] > box[a + 3]) box[a + 3] = P[o + a];
+        }
       }
     }
     const I = band.indices;
@@ -214,7 +225,9 @@ export function buildTerrainGeometry(data, { budget = 'desktop', bias = 1, inclu
         triangles += 2;
       }
     }
+    pushChunk(band.chunks, band.indexCount, k - band.indexCount, box);
     if (fringe) {
+      pushChunk(band.fringeChunks, band.fringeCount, k - band.indexCount, box);
       band.fringe.set(I.subarray(band.indexCount, k), band.fringeCount);
       band.fringeCount += k - band.indexCount;
     }
@@ -225,10 +238,29 @@ export function buildTerrainGeometry(data, { budget = 'desktop', bias = 1, inclu
   for (const b of BANDS) {
     const o = out[b];
     bands[b] = { positions: o.positions, indices: o.indexCount === o.indices.length ? o.indices : o.indices.slice(0, o.indexCount), vertexCount: o.vertexCount,
-      fringe: o.fringeCount === o.fringe.length ? o.fringe : o.fringe.slice(0, o.fringeCount) };
+      fringe: o.fringeCount === o.fringe.length ? o.fringe : o.fringe.slice(0, o.fringeCount),
+      chunks: finishChunks(o.chunks), fringeChunks: finishChunks(o.fringeChunks) };
   }
   const bytes = BANDS.reduce((sum, b) => sum + bands[b].positions.byteLength + bands[b].indices.byteLength, 0);
   return { bands, stats: { triangles, vertices: BANDS.reduce((s2, b) => s2 + bands[b].vertexCount, 0), bytes } };
+}
+
+// Per-tile index ranges and boxes (TerrainChunks.chunkTable's arrays).
+function chunkArrays(n) {
+  return { start: new Uint32Array(n), count: new Uint32Array(n), box: new Float64Array(6 * n), length: 0 };
+}
+
+function pushChunk(c, start, count, box) {
+  // A tile with no drawable quad keeps no chunk; its range is empty.
+  if (!count) return;
+  const i = c.length++;
+  c.start[i] = start; c.count[i] = count;
+  for (let a = 0; a < 6; a++) c.box[i * 6 + a] = box[a];
+}
+
+function finishChunks(c) {
+  const n = c.length;
+  return { start: c.start.slice(0, n), count: c.count.slice(0, n), box: c.box.slice(0, 6 * n) };
 }
 
 /**

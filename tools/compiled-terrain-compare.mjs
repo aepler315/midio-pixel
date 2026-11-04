@@ -97,10 +97,13 @@ function installProbe() {
       o.userData.compiledProbe = true;
       const prior = o.onBeforeRender;
       o.onBeforeRender = function (...a) {
-        if (current && surface.has(this.material)) {
-          const g = this.geometry;
+        // (renderer, scene, camera, geometry, material, group): a culled
+        // band draws one group per visible run (TerrainChunks.js).
+        const material = a[4] ?? this.material, group = a[5];
+        if (current && surface.has(material)) {
+          const g = this.geometry, all = g.index ? g.index.count : g.attributes.position.count;
           current.surface.calls++;
-          current.surface.triangles += (g.index ? g.index.count : g.attributes.position.count) / 3;
+          current.surface.triangles += (group ? Math.max(0, Math.min(all, group.start + group.count) - group.start) : all) / 3;
         }
         return prior.apply(this, a);
       };

@@ -68,22 +68,33 @@ function anyWet(mask, x0, y0, x1, y1) {
  * shader's `vUv * (1 - uTexel) + .5 * uTexel` scaled by the texture size,
  * minus the half texel (TerrainMaterial waterCoverageAt).
  */
-export function waterIndexSubset(positions, index, grid, mask, { maxShare = WATER_SUBSET_MAX_SHARE } = {}) {
+export function waterIndexSubset(positions, index, grid, mask, { maxShare = WATER_SUBSET_MAX_SHARE, chunks = null } = {}) {
   const n = index.length - index.length % 3;
-  const keep = keptTriangles(positions, index, grid, mask, 0, n, Math.floor(n * maxShare));
+  const keep = keptTriangles(positions, index, grid, mask, 0, n, Math.floor(n * maxShare), chunkCursor(chunks));
   return keep && keep.slice();
+}
+
+// Counts the kept indices of each chunk of `table` (TerrainChunks.js): its
+// index ranges tile the index in order, so a triangle's chunk only moves
+// forward as the scan does.
+function chunkCursor(table) {
+  if (!table) return null;
+  table.kept?.fill(0);
+  return { start: table.start, count: table.count, kept: table.kept, c: 0 };
 }
 
 /**
  * The same, in slices of `sliceTriangles`, awaiting `pause()` between them
- * so a large band never blocks the main thread for long.
+ * so a large band never blocks the main thread for long. `chunks`, a chunk
+ * table of `index` with a `kept` Uint32Array, gets each chunk's kept index
+ * count (the subset's own chunk table, TerrainChunks.subsetChunkTable).
  */
-export async function waterIndexSubsetAsync(positions, index, grid, mask, { maxShare = WATER_SUBSET_MAX_SHARE, sliceTriangles = 65536, pause = async () => {} } = {}) {
+export async function waterIndexSubsetAsync(positions, index, grid, mask, { maxShare = WATER_SUBSET_MAX_SHARE, sliceTriangles = 65536, pause = async () => {}, chunks = null } = {}) {
   const n = index.length - index.length % 3, limit = Math.floor(n * maxShare);
-  const parts = [];
+  const parts = [], cursor = chunkCursor(chunks);
   let total = 0;
   for (let start = 0; start < n; start += sliceTriangles * 3) {
-    const part = keptTriangles(positions, index, grid, mask, start, Math.min(n, start + sliceTriangles * 3), limit - total);
+    const part = keptTriangles(positions, index, grid, mask, start, Math.min(n, start + sliceTriangles * 3), limit - total, cursor);
     if (!part) return null;
     parts.push(part.slice()); total += part.length;
     if (start + sliceTriangles * 3 < n) await pause();
@@ -96,7 +107,7 @@ export async function waterIndexSubsetAsync(positions, index, grid, mask, { maxS
 
 // Triangles [start, end) of `index` that can draw water, as a view on a
 // scratch array, or null past `limit` indices.
-function keptTriangles(positions, index, grid, mask, start, end, limit) {
+function keptTriangles(positions, index, grid, mask, start, end, limit, cursor = null) {
   const ox = grid.originM[0], oz = grid.originM[1], inv = 1 / grid.cellSizeM;
   if (!mask.count) return new index.constructor(0);
   const keep = new index.constructor(end - start);
@@ -115,6 +126,10 @@ function keptTriangles(positions, index, grid, mask, start, end, limit) {
     if (!anyWet(mask, x0, z0, x1, z1)) continue;
     if (k + 3 > limit) return null;
     keep[k++] = index[i]; keep[k++] = index[i + 1]; keep[k++] = index[i + 2];
+    if (cursor) {
+      while (cursor.c < cursor.start.length && i >= cursor.start[cursor.c] + cursor.count[cursor.c]) cursor.c++;
+      if (cursor.c < cursor.start.length && i >= cursor.start[cursor.c]) cursor.kept[cursor.c] += 3;
+    }
   }
   return keep.subarray(0, k);
 }
