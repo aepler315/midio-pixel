@@ -123,15 +123,21 @@ draws groups that reach above the eye unculled while the land is rising.
   shipped land above the frame's top. Land rising above the top would cross
   it inside a tile the bake kept, so no unshipped land stands there either,
   and nothing missing can come down into the frame.
-- **Shot tours** fly under ridges (San Gabriel: 91 of 165 sampled poses have
-  land above the frame). Checked against real elevation (Terrarium z12,
-  georeferenced to each package from its landmarks and rail ends; heights
-  agree with the package to tens of metres at the 90th percentile), no
-  risen pixel on any of the 14 shot libraries has its first true hit on an
-  unshipped tile, at the first beat's rise (2444 poses, up to 200 per library; 1.12 M rays above the horizon).
-  The complete range scores 3 such pixels (Monument Valley, Muncho Lake),
-  which is the check's own noise at full height. The same check with a
-  fifth of the tiles removed fails, as it should.
+- **Shot tours** fly under ridges: 137 of 2444 sampled poses across the 14
+  libraries have shipped land above the frame (San Gabriel: 91 of 165).
+  Those are checked against real elevation (Terrarium z12, georeferenced to
+  each package from its landmarks and rail ends; heights agree with the
+  package to tens of metres at the 90th percentile). A pixel whose
+  full-height ray lies inside the frame shows land the complete range
+  draws too, at another row, so only rays from outside the frame are new:
+  at the first beat's rise none of the 658 k such pixels first meets an
+  unshipped tile. The same check with a fifth of the tiles removed fails,
+  as it should. Poses with no land above the frame are covered by the rail
+  argument.
+- **Land kept:** at every rail station and sampled tour pose, every column
+  with land in frame at full height still has land at the first beat.
+  Without the frame-bottom pivot, Denali's tour (30 of its 200 sampled
+  poses pivot) loses all the land in 987 of those columns.
 
 Run `npm run test:rise-coverage -- --truth` after rebaking a package or a
 shot library.

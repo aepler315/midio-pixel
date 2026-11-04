@@ -14,8 +14,8 @@
 // it inside a tile the bake kept), so nothing outside the package can come
 // down. Shot tours fly under ridges and do have land above the frame, so
 // they are reported, and with --truth checked against real elevation
-// (Terrarium z12, cached in .terrain-cache/): every risen pixel's first true
-// hit must lie on a shipped tile. Every pose must also keep land in each
+// (Terrarium z12, cached in .terrain-cache/): every pixel the rise brings
+// into view from outside the frame must first meet a shipped tile. Every pose must also keep land in each
 // column that had some at full height (a frame pitched up past the horizon
 // pivots at its bottom edge, LandRise.risePivot). Exits 1 on any failure.
 import fs from 'node:fs';
@@ -139,15 +139,26 @@ async function trueGround(manifest, build) {
   };
 }
 
-/** Risen pixels (above the horizon and the pivot) whose first true hit is
- *  not shipped. */
+/** Pixels the rise brings into view (their full-height ray lies outside
+ *  the frame) whose first true hit is not shipped. */
 function unshippedPixels(data, bounds, pose, ground, shipped) {
-  const P = pivotOf(pose);
+  const P = pivotOf(pose), B = cameraBasis(pose), tv = Math.tan(pose.fovYDeg * Math.PI / 360), th = tv * ASPECT;
+  // A full-height ray inside the frame is one the complete range draws too
+  // (at another row): whatever it meets is the package's own, not the
+  // rise's. Only rays from outside the frame are brought into view.
+  const framed = (dx, tan, dz) => {
+    const d = [dx, tan, dz], depth = d[0] * B.forward[0] + d[1] * B.forward[1] + d[2] * B.forward[2];
+    if (!(depth > 0)) return false;
+    const x = (d[0] * B.right[0] + d[1] * B.right[1] + d[2] * B.right[2]) / (depth * th);
+    const y = (d[0] * B.up[0] + d[1] * B.up[1] + d[2] * B.up[2]) / (depth * tv);
+    return Math.abs(x) <= 1 && Math.abs(y) <= 1;
+  };
   let missing = 0, total = 0;
   for (const ray of rays(pose, 48, 27)) {
     if (ray.tan <= P) continue;
-    total++;
     const t = unsquash(ray.tan, P);
+    if (framed(ray.dx, t, ray.dz)) continue;
+    total++;
     for (let r = 20; r < 80000; r *= 1.003) {
       const x = pose.eyeM[0] + ray.dx * r, z = pose.eyeM[2] + ray.dz * r;
       if (x < bounds[0] || x > bounds[2] || z < bounds[1] || z > bounds[3]) break;
@@ -178,7 +189,7 @@ for (const view of catalog.views.filter(v => v.camera && (!ids.length || ids.inc
     const ground = await trueGround(manifest, build);
     let missing = 0, total = 0;
     for (const p of [...stations, ...tour]) { const r = unshippedPixels(data, bounds, p, ground, shipped); missing += r.missing; total += r.total; }
-    line.push(`real elevation: ${missing ? `FAIL ${missing}` : '0'}/${total} risen pixels on unshipped tiles`);
+    line.push(`real elevation: ${missing ? `FAIL ${missing}` : '0'}/${total} pixels brought into view on unshipped tiles`);
     if (missing) failed = true;
   }
   console.log(line.join(' | '));
