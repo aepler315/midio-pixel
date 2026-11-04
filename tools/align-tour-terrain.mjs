@@ -104,7 +104,10 @@ export function alignTourToRail(tour, rail, { toleranceM = 1e-3 } = {}) {
     if (!r) {
       // Only a tour pose sees it: unchanged, marked for the runtime.
       stats.tourOnly++;
-      const { errorsM, rail: _ignored, ...rest } = t;
+      // Its own rail mark (if any) is replaced, after the other fields.
+      const rest = { ...t };
+      delete rest.rail; delete rest.errorsM;
+      const { errorsM } = t;
       const out = { ...rest, heights: copy(tourBytes, t.heights), flow: copy(tourBytes, t.flow),
         validity: t.validity.mode === 'bits' ? copy(tourBytes, t.validity) : t.validity, rail: false, errorsM };
       return out;
