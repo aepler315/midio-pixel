@@ -103,7 +103,7 @@
         }
       },
       "budgetNote": "Wide views: each shot brings hundreds of distant tiles (mostly manifest entries), so the default 800 KB fits only 3-8 shots; raised within the shared Range asset headroom.",
-      "status": "candidate",
+      "status": "approved",
       "landform": "lake-alpine",
       "notes": "Jackson Lake under the Teton front: Mount Moran rising straight from the lake, the Grand Teton and Cathedral Group to the south.",
       "subjects": [
@@ -136,10 +136,20 @@
         "shotsManifestSha256": "909decbb8a8a946ef21a6a9ea15a5fee2a0a05912804820fbb10507a2d258f24",
         "terrainManifestSha256": "b2913f4bdf662da9417520b46cfd80d4514e035521094fc684ec5d32a8400957",
         "baseViewSha256": "22a020ad45bbdbef3e2bf01b78e9ec24693700c10fc7eee03c714e7e69c74f6d"
+      },
+      "approval": {
+        "date": "2026-11-04",
+        "shotsManifestSha256": "909decbb8a8a946ef21a6a9ea15a5fee2a0a05912804820fbb10507a2d258f24",
+        "terrainManifestSha256": "b2913f4bdf662da9417520b46cfd80d4514e035521094fc684ec5d32a8400957",
+        "baseViewSha256": "22a020ad45bbdbef3e2bf01b78e9ec24693700c10fc7eee03c714e7e69c74f6d",
+        "evidence": [
+          "docs/camera-tour-promotion-2026-11-03.md",
+          "docs/scenic-framing-endings-review-2026-10-23.md"
+        ]
       }
     },
     "denali-wonder-lake": {
-      "status": "candidate",
+      "status": "approved",
       "landform": "massif",
       "notes": "Denali and Mount Foraker above the McKinley River bar and Wonder Lake; enormous relief at long range.",
       "subjects": [
@@ -161,6 +171,16 @@
         "shotsManifestSha256": "23f0c57588211e75420689092fe00ee31e46ac987a9d7208eff8c2fc94b6c7a5",
         "terrainManifestSha256": "48d5b809252162728e388ede919d0aae824f7c8a1d2c2c2a6e567f276ef10632",
         "baseViewSha256": "963cd0137c438fbaa70e20e59e2accf0310c2578ab05b342da10617de1b646c4"
+      },
+      "approval": {
+        "date": "2026-11-04",
+        "shotsManifestSha256": "23f0c57588211e75420689092fe00ee31e46ac987a9d7208eff8c2fc94b6c7a5",
+        "terrainManifestSha256": "48d5b809252162728e388ede919d0aae824f7c8a1d2c2c2a6e567f276ef10632",
+        "baseViewSha256": "963cd0137c438fbaa70e20e59e2accf0310c2578ab05b342da10617de1b646c4",
+        "evidence": [
+          "docs/camera-tour-promotion-2026-11-03.md",
+          "docs/scenic-framing-endings-review-2026-10-23.md"
+        ]
       }
     },
     "tombstone-north-klondike": {
@@ -180,7 +200,7 @@
       ]
     },
     "muncho-lake-south": {
-      "status": "candidate",
+      "status": "approved",
       "landform": "lake-valley",
       "notes": "Muncho Lake in its valley between the Terminal and Sentinel ranges; the lake is the subject as much as the peaks.",
       "subjects": [
@@ -200,6 +220,16 @@
         "shotsManifestSha256": "c6ac13ef0b62797e4c8bb5a8121e34caa720e290185e27135e66dd1266b4ac8c",
         "terrainManifestSha256": "f4f0ef2c94ffdcc79fb76b8e8579f99ce0c312386c58b6d6b5b486f57163527a",
         "baseViewSha256": "43452cd76d3a49cf3a586c7d4cd05b25062945282a98a61d90c0e23665e4503f"
+      },
+      "approval": {
+        "date": "2026-11-04",
+        "shotsManifestSha256": "c6ac13ef0b62797e4c8bb5a8121e34caa720e290185e27135e66dd1266b4ac8c",
+        "terrainManifestSha256": "f4f0ef2c94ffdcc79fb76b8e8579f99ce0c312386c58b6d6b5b486f57163527a",
+        "baseViewSha256": "43452cd76d3a49cf3a586c7d4cd05b25062945282a98a61d90c0e23665e4503f",
+        "evidence": [
+          "docs/camera-tour-promotion-2026-11-03.md",
+          "docs/scenic-framing-endings-review-2026-10-23.md"
+        ]
       }
     },
     "izta-popo-west": {
@@ -217,7 +247,7 @@
         }
       },
       "budgetNote": "Wide views: each shot brings hundreds of distant tiles (mostly manifest entries), so the default 800 KB fits only 3-8 shots; raised within the shared Range asset headroom.",
-      "status": "candidate",
+      "status": "approved",
       "landform": "volcano",
       "notes": "Iztaccihuatl and Popocatepetl from the west: two isolated stratovolcanoes over high plateau.",
       "subjects": [
@@ -240,6 +270,16 @@
         "shotsManifestSha256": "b4ce95d76b31b5a5b7b986710f191b9c4c455dbe627a29602f93d7ee13e1f19c",
         "terrainManifestSha256": "5440e738cfacff6707c5af386da857e08748877e28a5b3c1d9d0547fe800a297",
         "baseViewSha256": "28879943bd02030df3f67488015b48033af0ea2b910a5b64768292f38e806b0c"
+      },
+      "approval": {
+        "date": "2026-11-04",
+        "shotsManifestSha256": "b4ce95d76b31b5a5b7b986710f191b9c4c455dbe627a29602f93d7ee13e1f19c",
+        "terrainManifestSha256": "5440e738cfacff6707c5af386da857e08748877e28a5b3c1d9d0547fe800a297",
+        "baseViewSha256": "28879943bd02030df3f67488015b48033af0ea2b910a5b64768292f38e806b0c",
+        "evidence": [
+          "docs/camera-tour-promotion-2026-11-03.md",
+          "docs/scenic-framing-endings-review-2026-10-23.md"
+        ]
       }
     },
     "black-mountains-catawba": {
@@ -249,7 +289,7 @@
         }
       },
       "budgetNote": "Wide views: each shot brings hundreds of distant tiles (mostly manifest entries), so the default 800 KB fits only 3-8 shots; raised within the shared Range asset headroom.",
-      "status": "candidate",
+      "status": "approved",
       "landform": "rolling",
       "notes": "Forested Black Mountains with Mount Mitchell above the Catawba valley; soft layered ridgelines.",
       "subjects": [
@@ -266,10 +306,20 @@
         "shotsManifestSha256": "d69fdd031e6bbedeee9d225b7c9cdc36efdf5ff8e7fe761aa702036b3a1c6d0a",
         "terrainManifestSha256": "1d66f5ad57156fffc034a620930a9f5f4add8b19f891eae20e2d81796edd6a2e",
         "baseViewSha256": "42a131fe86b87630e9720864432bf07bdbfce734bf77d87375fb41cffadeb95e"
+      },
+      "approval": {
+        "date": "2026-11-04",
+        "shotsManifestSha256": "d69fdd031e6bbedeee9d225b7c9cdc36efdf5ff8e7fe761aa702036b3a1c6d0a",
+        "terrainManifestSha256": "1d66f5ad57156fffc034a620930a9f5f4add8b19f891eae20e2d81796edd6a2e",
+        "baseViewSha256": "42a131fe86b87630e9720864432bf07bdbfce734bf77d87375fb41cffadeb95e",
+        "evidence": [
+          "docs/camera-tour-promotion-2026-11-03.md",
+          "docs/scenic-framing-endings-review-2026-10-23.md"
+        ]
       }
     },
     "san-gabriel-baldy": {
-      "status": "candidate",
+      "status": "approved",
       "landform": "alpine-ridge",
       "notes": "Steep chaparral ridges of the San Gabriels around Mount San Antonio (Baldy) and Baden-Powell.",
       "subjects": [
@@ -291,6 +341,16 @@
         "shotsManifestSha256": "281b5e64cd8fe318bfe7fc11ebe5ebb1f11f21aefd3da7cd86054e913a6854c7",
         "terrainManifestSha256": "4cfd4e21153f4537c9b5ed099389827ef86cb6e277c3ff4f9e0e944f00e70056",
         "baseViewSha256": "ade7b4065a080c516ddbacb8e7d795dac617c4c1544f946afc6c4e7c68759431"
+      },
+      "approval": {
+        "date": "2026-11-04",
+        "shotsManifestSha256": "281b5e64cd8fe318bfe7fc11ebe5ebb1f11f21aefd3da7cd86054e913a6854c7",
+        "terrainManifestSha256": "4cfd4e21153f4537c9b5ed099389827ef86cb6e277c3ff4f9e0e944f00e70056",
+        "baseViewSha256": "ade7b4065a080c516ddbacb8e7d795dac617c4c1544f946afc6c4e7c68759431",
+        "evidence": [
+          "docs/camera-tour-promotion-2026-11-03.md",
+          "docs/scenic-framing-endings-review-2026-10-23.md"
+        ]
       }
     },
     "white-mountains-owens": {
@@ -300,7 +360,7 @@
         ],
         "note": "Marked broken in the rendered review of the libraries (docs/scenic-tours.md, Rendered review). Historical pre-stratification IDs only; not applied to fresh discovery. Those results apply to the old bytes only. Use observations of rebuilt bytes for new review claims; the historical exclusions do not restrict new shot experiments."
       },
-      "status": "candidate",
+      "status": "approved",
       "landform": "escarpment",
       "notes": "The White Mountains' fault scarp over Owens Valley, White Mountain Peak at the crest.",
       "subjects": [
@@ -317,6 +377,16 @@
         "shotsManifestSha256": "7627c7d32597d4c697550c2a1f70da84a459bda98152736d23b0136abe735103",
         "terrainManifestSha256": "b8b11c3f81b924614d3c89d2ea407e267732067018208fbffa5915bc798eab8f",
         "baseViewSha256": "9851f7bf4da1ed201480a01c388a2f7a55ed7f88f02eb360d4b4a5e38a28a68b"
+      },
+      "approval": {
+        "date": "2026-11-04",
+        "shotsManifestSha256": "7627c7d32597d4c697550c2a1f70da84a459bda98152736d23b0136abe735103",
+        "terrainManifestSha256": "b8b11c3f81b924614d3c89d2ea407e267732067018208fbffa5915bc798eab8f",
+        "baseViewSha256": "9851f7bf4da1ed201480a01c388a2f7a55ed7f88f02eb360d4b4a5e38a28a68b",
+        "evidence": [
+          "docs/camera-tour-promotion-2026-11-03.md",
+          "docs/scenic-framing-endings-review-2026-10-23.md"
+        ]
       }
     },
     "la-sal-castle-valley": {
@@ -326,7 +396,7 @@
         }
       },
       "budgetNote": "Wide canyon views: the connected shots each bring 200-300 KB of distant tiles alone, so the default 800 KB fits no connected pair; raised within the shared Range asset headroom.",
-      "status": "candidate",
+      "status": "approved",
       "landform": "canyon-butte",
       "notes": "Castle Valley's red-rock towers under the La Sal Mountains; Castle Creek reaches are mapped water.",
       "subjects": [
@@ -349,10 +419,20 @@
         "shotsManifestSha256": "b72d4482c0c56b3db8418ee911aaf35144be55a626f040f8ceb78ca10ef95a0a",
         "terrainManifestSha256": "928d028854bc2389b174f0970768f464c81e176c65432c6c2a06674275b8455c",
         "baseViewSha256": "97505e599740a0702cdc4da25db4b621e17906da013d4e8d290733b466c2a20e"
+      },
+      "approval": {
+        "date": "2026-11-04",
+        "shotsManifestSha256": "b72d4482c0c56b3db8418ee911aaf35144be55a626f040f8ceb78ca10ef95a0a",
+        "terrainManifestSha256": "928d028854bc2389b174f0970768f464c81e176c65432c6c2a06674275b8455c",
+        "baseViewSha256": "97505e599740a0702cdc4da25db4b621e17906da013d4e8d290733b466c2a20e",
+        "evidence": [
+          "docs/camera-tour-promotion-2026-11-03.md",
+          "docs/scenic-framing-endings-review-2026-10-23.md"
+        ]
       }
     },
     "panamint-dantes-view": {
-      "status": "candidate",
+      "status": "approved",
       "landform": "escarpment-basin",
       "notes": "Death Valley's salt basin under the Panamint escarpment, Telescope Peak opposite Dantes View.",
       "subjects": [
@@ -374,6 +454,16 @@
         "shotsManifestSha256": "ced5366309ea6b73dfaf8fd50996eaa7141da865c3ee3113158cff455c696eb7",
         "terrainManifestSha256": "6b89a70356c0d64ae2b40dd7323a9925ab2adf95db7583a7854a8807bd2b1586",
         "baseViewSha256": "26e29345912f4fa3884aca9d31bc72fad7a14087413f6b40500294e891c4a6c0"
+      },
+      "approval": {
+        "date": "2026-11-04",
+        "shotsManifestSha256": "ced5366309ea6b73dfaf8fd50996eaa7141da865c3ee3113158cff455c696eb7",
+        "terrainManifestSha256": "6b89a70356c0d64ae2b40dd7323a9925ab2adf95db7583a7854a8807bd2b1586",
+        "baseViewSha256": "26e29345912f4fa3884aca9d31bc72fad7a14087413f6b40500294e891c4a6c0",
+        "evidence": [
+          "docs/camera-tour-promotion-2026-11-03.md",
+          "docs/scenic-framing-endings-review-2026-10-23.md"
+        ]
       }
     },
     "chugach-matanuska": {
@@ -383,7 +473,7 @@
         ],
         "note": "Marked broken in the rendered review of the libraries (docs/scenic-tours.md, Rendered review). Historical pre-stratification IDs only; not applied to fresh discovery. Those results apply to the old bytes only. Use observations of rebuilt bytes for new review claims; the historical exclusions do not restrict new shot experiments."
       },
-      "status": "candidate",
+      "status": "approved",
       "landform": "glacier-valley",
       "notes": "The Matanuska Glacier valley in the Chugach; glaciated peaks on both sides of a broad valley floor.",
       "subjects": [
@@ -403,6 +493,16 @@
         "shotsManifestSha256": "6687cb2bc542f0787e207c81f8461fc4dd5f2bd20bc29ffbafb070c2a2148a32",
         "terrainManifestSha256": "82403cc87022fe0aacc451b155f0fd62cdafe0d522ed8a1546944fee5e3b1f1d",
         "baseViewSha256": "687350116d5c39aa4f2d8820f2f1b64e62685c2f19ce380fd83a3247f9ec3ef9"
+      },
+      "approval": {
+        "date": "2026-11-04",
+        "shotsManifestSha256": "6687cb2bc542f0787e207c81f8461fc4dd5f2bd20bc29ffbafb070c2a2148a32",
+        "terrainManifestSha256": "82403cc87022fe0aacc451b155f0fd62cdafe0d522ed8a1546944fee5e3b1f1d",
+        "baseViewSha256": "687350116d5c39aa4f2d8820f2f1b64e62685c2f19ce380fd83a3247f9ec3ef9",
+        "evidence": [
+          "docs/camera-tour-promotion-2026-11-03.md",
+          "docs/scenic-framing-endings-review-2026-10-23.md"
+        ]
       }
     },
     "monument-valley-163": {
@@ -412,7 +512,7 @@
         }
       },
       "budgetNote": "Wide views: each shot brings hundreds of distant tiles (mostly manifest entries), so the default 800 KB fits only 3-8 shots; raised within the shared Range asset headroom.",
-      "status": "candidate",
+      "status": "approved",
       "landform": "butte",
       "notes": "Sandstone buttes and mesas standing out of a flat desert floor (the Mittens, Merrick Butte and their neighbours) seen from US-163.",
       "subjects": [
@@ -435,6 +535,16 @@
         "shotsManifestSha256": "abc4c8c2265678e6a63e0cb78e3c62b41b7509716661b5e25ca48cce02bed4bd",
         "terrainManifestSha256": "447806e9d070af24819d27c9661f939981926d6e10246e59e076ec96700bc0ec",
         "baseViewSha256": "9ee346350341ef607bd5823393db71890867f834d7111491a0c4aa2abb0b5697"
+      },
+      "approval": {
+        "date": "2026-11-04",
+        "shotsManifestSha256": "abc4c8c2265678e6a63e0cb78e3c62b41b7509716661b5e25ca48cce02bed4bd",
+        "terrainManifestSha256": "447806e9d070af24819d27c9661f939981926d6e10246e59e076ec96700bc0ec",
+        "baseViewSha256": "9ee346350341ef607bd5823393db71890867f834d7111491a0c4aa2abb0b5697",
+        "evidence": [
+          "docs/camera-tour-promotion-2026-11-03.md",
+          "docs/scenic-framing-endings-review-2026-10-23.md"
+        ]
       }
     },
     "sawtooth-redfish-north": {
