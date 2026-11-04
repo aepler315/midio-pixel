@@ -177,8 +177,9 @@ export class RangeScene {
     this.size = { width: 0, height: 0 };
     this.contextLost = false;
     this.stats = { depthPasses: 0, partitions: 0, lastPartitionMs: 0, castPasses: 0 };
-    // Terrain chunk culling (TerrainChunks.js), summed over every render:
-    // band indices drawn, indices the meshes hold, and draw groups.
+    // Terrain chunk culling (TerrainChunks.js), summed over every render
+    // since construction: band indices drawn, indices the meshes hold, and
+    // draw groups. snapshot() reports it; diff two snapshots for a frame.
     this.terrainCull = { kept: 0, total: 0, draws: 0 };
     // The cast draws in the band passes unless the presentation takes it
     // from renderCast to lay over the pixel frame itself (it clears this).
@@ -281,7 +282,7 @@ export class RangeScene {
       if (this.target === t) this.target = null;
     };
     if (res) this.residency.commit(res, target, dispose);
-    this.depthCache.A.frame = -1;
+    this._forgetDepth('A');
     this.releaseMirror('A');
     // The incoming side's target follows the new size on its next use.
     this.releaseSide('B');
@@ -351,7 +352,7 @@ export class RangeScene {
       if (this.sideTargets.B === x) this.sideTargets.B = null;
       if (this.ownership.B === own) this.ownership.B = null;
     });
-    this.depthCache.B.frame = -1;
+    this._forgetDepth('B');
     return true;
   }
 
@@ -399,11 +400,11 @@ export class RangeScene {
     const dispose = (effect) => {
       effect.dispose();
       if (this.shafts === effect) { this.shafts = null; this.shaftIdentity = null; this.shaftPresence = 0; }
-      if (this.depthCache) this.depthCache.A.frame = this.depthCache.B.frame = -1;
+      this._forgetDepth('A', 'B');
     };
     if (res && !this.residency.commit(res, shafts, dispose)) return false;
     this.shafts = shafts; this.shaftIdentity = identity; this.shaftViews = ids;
-    this.depthCache.A.frame = this.depthCache.B.frame = -1;
+    this._forgetDepth('A', 'B');
     return true;
   }
 
@@ -650,7 +651,7 @@ export class RangeScene {
     this.shafts = null;
     if (this.residency) this.residency.release(SHAFT_KEY);
     else shafts.dispose();
-    if (this.depthCache) this.depthCache.A.frame = this.depthCache.B.frame = -1;
+    this._forgetDepth('A', 'B');
     this.shaftIdentity = null;
   }
 
@@ -958,7 +959,8 @@ export class RangeScene {
     }
     for (const m of p.forest.depth) p.depthScene.remove(m);
     for (const m of window.forest.depth) p.depthScene.add(m);
-    for (const scene of [...Object.values(p.scenes), p.depthScene, ...Object.values(p.depthScenes)]) {
+    // The travel seam scenes too: their fills are this window's fringes.
+    for (const scene of [...Object.values(p.scenes), p.depthScene, ...Object.values(p.depthScenes), ...(p.fringeTravel || []).map(f => f.scene)]) {
       for (const object of scene.children) if (replacements.has(object.geometry)) object.geometry = replacements.get(object.geometry);
     }
     p.geometries = window.geos.geometries; p.fringes = window.geos.fringes; p.forest = window.forest;
@@ -1306,7 +1308,6 @@ export class RangeScene {
         // During travel a side draws its nearer bands only in some columns,
         // so there the fill draws from its own scene under the same scissor.
         const fringeMeshes = [], fringeTravel = [];
-        const terrainMeshes = Object.values(meshes);
         for (let b = 1; b < BANDS.length; b++) {
           const g = geos.fringes?.[BANDS[b]];
           if (!g) continue;
@@ -1314,7 +1315,6 @@ export class RangeScene {
           fm.frustumCulled = false;
           scenes[BANDS[b - 1]].add(fm);
           fringeMeshes.push(fm);
-          terrainMeshes.push(fm);
           const travel = new THREE.Mesh(g, [material]);
           travel.frustumCulled = false;
           const scene = new THREE.Scene();
@@ -2895,6 +2895,15 @@ export class RangeScene {
     return c;
   }
 
+  /** Drop the depth records of `sides`: their targets were released,
+   *  reallocated or had their depth replaced. */
+  _forgetDepth(...sides) {
+    for (const side of sides) {
+      const c = this.depthCache?.[side];
+      if (c) { c.frame = -1; c.content = null; }
+    }
+  }
+
   /** Blit `src`'s depth into `dst` (same size, single-sampled, same depth
    *  texture format) and leave `dst` bound. False when that cannot be done;
    *  the caller then draws the depth pre-pass itself. */
@@ -3127,7 +3136,7 @@ export class RangeScene {
     this.size = { width: 0, height: 0 };
     this.target = null;
     this.releaseSide('B');
-    this.depthCache.A.frame = this.depthCache.B.frame = -1;
+    this._forgetDepth('A', 'B');
   }
 
   snapshot() {
@@ -3136,7 +3145,7 @@ export class RangeScene {
       rivers: [...this.prepared.values()].filter(p => p.view.rivers).map(p => ({ viewId: p.view.id, ...p.riverStats })),
       buildAdmission: { requestedBytes: 0, admittedBytes: 0, denials: 0, peakBytes: 0, ...this.buildAdmission },
       windows: [...this.prepared.values()].filter(p=>p.windowCache).map(p=>({id:p.view.id,index:p.windowIndex,resident:[...p.windowCache.resident.keys()],detail:p.activeWindow?.detail,coverage:p.windowCoverage,note:p.windowNote,stats:p.stats,forestDetail:p.forestDetailViews})),
-      size: { ...this.size }, stats: { ...this.stats }, sideB: !!this.sideTargets.B,
+      size: { ...this.size }, stats: { ...this.stats }, terrainCull: { ...this.terrainCull }, sideB: !!this.sideTargets.B,
       prepareLog: structuredClone(this.prepareLog || {}),
       compiledTerrain: { request: { ...this.compiledTerrain?.request }, views: structuredClone(this.compiledTerrain?.views || {}),
         drawn: Object.fromEntries([...this.prepared.values()].map(p => [p.view.id, p.compiled?.representation ?? 'original'])) },

@@ -103,3 +103,18 @@ test('the partition records what its target\'s depth holds', () => {
   assert.match(src, /if \(depth\.content\) depth\.content\.cut = true;/);
   assert.match(RangeScene.prototype.renderCast.toString(), /if \(depth\.content\) depth\.content\.cut = true;/);
 });
+
+test('a released or reallocated target forgets its depth record, not only its frame', () => {
+  const h = harness();
+  h.record();
+  h.scene._forgetDepth('A', 'B');
+  assert.equal(h.scene.depthCache.A.content, null);
+  assert.equal(h.scene.depthCache.A.frame, -1);
+  h.scene.renderWater(h.frame, 'lake', 320, 180);
+  assert.equal(depthDraws(h.renders).length, 1, 'no record: the pre-pass is drawn');
+  // Every path that releases, reallocates or replaces a side's depth.
+  for (const name of ['resize', 'ensureSide', 'prepareShafts', 'releaseShafts', '_invalidateContext']) {
+    assert.match(RangeScene.prototype[name].toString(), /this\._forgetDepth\(/, name);
+    assert.doesNotMatch(RangeScene.prototype[name].toString(), /depthCache\.[AB]\.frame = -1/, name);
+  }
+});

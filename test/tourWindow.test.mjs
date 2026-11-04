@@ -110,3 +110,24 @@ test('an obsolete budget denial cannot delay preparation for replacement coverag
   await assert.rejects(next, /new attempt/);
   cache.dispose();
 });
+
+test('a window swap retargets every scene holding its bands, travel seams included', async () => {
+  const { RangeScene } = await import('../src/world/alpine/RangeScene.js');
+  const bands = ['far', 'mid', 'near'];
+  const geos = tag => ({ geometries: Object.fromEntries(bands.map(b => [b, { tag, band: b }])), fringes: { mid: { tag, fringe: 'mid' }, near: { tag, fringe: 'near' } }, stats: {} });
+  const forest = () => ({ byBand: { far: [], mid: [], near: [] }, depthByBand: { far: [], mid: [], near: [] }, depth: [], counts: {} });
+  const holder = geometry => ({ children: [{ geometry }], add() {}, remove() {} });
+  const old = { index: 0, key: 'w0', geos: geos('old'), forest: forest(), dispose() {} };
+  const next = { index: 1, key: 'w1', geos: geos('new'), forest: forest() };
+  const p = { activeWindow: old, geometries: old.geos.geometries, fringes: old.geos.fringes, forest: old.forest, stats: {},
+    scenes: Object.fromEntries(bands.map(b => [b, holder(old.geos.geometries[b])])),
+    depthScene: holder(old.geos.geometries.far), depthScenes: Object.fromEntries(bands.map(b => [b, holder(old.geos.geometries[b])])),
+    fringeTravel: [{ band: 'mid', pass: 'far', scene: holder(old.geos.fringes.mid) }, { band: 'near', pass: 'mid', scene: holder(old.geos.fringes.near) },
+      { band: 'near', pass: 'mid', scene: holder({ river: true }) }],
+    windowCache: { resident: new Map([[0, old], [1, next]]) } };
+  RangeScene.prototype._swapTourWindow.call({ residency: null }, p, next);
+  const all = [...Object.values(p.scenes), p.depthScene, ...Object.values(p.depthScenes), ...p.fringeTravel.map(f => f.scene)];
+  assert.ok(all.slice(0, -1).every(s => s.children[0].geometry.tag === 'new'), 'no scene keeps the old window');
+  assert.equal(p.fringeTravel[0].scene.children[0].geometry, next.geos.fringes.mid);
+  assert.deepEqual(p.fringeTravel[2].scene.children[0].geometry, { river: true }, 'a river seam is not the window\'s');
+});
