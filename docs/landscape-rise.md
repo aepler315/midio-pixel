@@ -98,10 +98,13 @@ that reach above the eye unculled while the land is rising.
   and nothing missing can come down into the frame.
 - **Shot tours** fly under ridges (San Gabriel: 91 of 165 sampled poses have
   land above the frame). Checked against real elevation (Terrarium z12,
-  matched to each package within metres), no risen pixel on any of the
-  13 tours has its first true hit on an unshipped tile, at the first beat's
-  rise. The same check with a fifth of the tiles removed fails, as it
-  should.
+  georeferenced to each package from its landmarks and rail ends; heights
+  agree with the package to tens of metres at the 90th percentile), no
+  risen pixel on any of the 14 shot libraries has its first true hit on an
+  unshipped tile, at the first beat's rise (2444 poses, up to 200 per library; 1.12 M rays above the horizon).
+  The complete range scores 3 such pixels (Monument Valley, Muncho Lake),
+  which is the check's own noise at full height. The same check with a
+  fifth of the tiles removed fails, as it should.
 
 Run `npm run test:rise-coverage -- --truth` after rebaking a package or a
 shot library.
