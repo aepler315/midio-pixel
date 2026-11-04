@@ -262,6 +262,11 @@ export const SCENE_VERT = /* glsl */`
   out vec3 vWorld;
   out vec3 vRenderedWorld;
   out float vViewDepth;
+  // The rise at the lifted point it lowered (LandRise.js), once per vertex:
+  // xyz its gradient, for the fragment's normals and sun horizon; w the
+  // metres it lowered the vertex. Both drawn and unlowered surfaces are
+  // linear across a triangle, so w interpolates to the exact offset.
+  out vec4 vRiseGrad;
   #ifdef RIVER_SURFACE
   in vec3 river;
   in vec2 riverDirection;
@@ -290,10 +295,24 @@ export const SCENE_VERT = /* glsl */`
     // The drawn ground interpolates deformation of its original triangle
     // vertices. Evaluating the field again at clipped interior vertices
     // would let the creek sink below that plane during a musical swell.
-    p.y += dot(riverTerrainWeights(position.xz), vec3(riverTerrainShift(terrainA),
-      riverTerrainShift(terrainB), riverTerrainShift(terrainC)));
+    vec3 bary = riverTerrainWeights(position.xz);
+    vec3 lift = vec3(riverTerrainShift(terrainA), riverTerrainShift(terrainB), riverTerrainShift(terrainC));
+    // The rise too, at the lifted corners, interpolated as the bank's
+    // triangle interpolates it. Water keeps its own normal; only its sun
+    // horizon reads the gradient.
+    vec3 liftedA = vec3(terrainA.x, terrainA.y + lift.x, terrainA.z);
+    vec3 liftedB = vec3(terrainB.x, terrainB.y + lift.y, terrainB.z);
+    vec3 liftedC = vec3(terrainC.x, terrainC.y + lift.z, terrainC.z);
+    vec3 drop = vec3(riseLift(liftedA), riseLift(liftedB), riseLift(liftedC));
+    p.y += dot(bary, lift + drop);
+    vRiseGrad = vec4(bary.x * riseGrad(liftedA) + bary.y * riseGrad(liftedB) + bary.z * riseGrad(liftedC), dot(bary, drop));
     #else
     p.y += ice.x + deformAt(position) * (1.0 - ice.y);
+    // The song-long rise of everything above the eye (LandRise.js), at
+    // the lifted point, as groundLift gives the forest and the cast.
+    float drop = riseLift(p);
+    vRiseGrad = vec4(riseGrad(p), drop);
+    p.y += drop;
     #endif
     vec4 world = modelMatrix * vec4(p, 1.0);
     vWorld = vec3(world.x, position.y, world.z); // source height for masks
@@ -395,6 +414,7 @@ export const SCENE_FRAG = /* glsl */`
   in vec3 vWorld;
   in vec3 vRenderedWorld;
   in float vViewDepth;
+  in vec4 vRiseGrad;
   #ifdef RIVER_SURFACE
   in vec3 vRiver;
   in vec2 vRiverDirection;
@@ -599,7 +619,10 @@ export const SCENE_FRAG = /* glsl */`
     vec3 g = deformGrad(vWorld);
     float invY = 1.0 / max(0.2, 1.0 + g.y);
     n = normalize(vec3(n.x - g.x * n.y * invY, n.y * invY, n.z - g.z * n.y * invY));
-    vec3 iceNormal = normalize(cross(dFdx(vRenderedWorld), dFdy(vRenderedWorld)));
+    // The glacier's facets on the surface before the rise lowered it
+    // (LandRise.js), like the rest of n: gradNormal carries both once.
+    vec3 unlowered = vRenderedWorld - vec3(0.0, vRiseGrad.w, 0.0);
+    vec3 iceNormal = normalize(cross(dFdx(unlowered), dFdy(unlowered)));
     if (iceNormal.y < 0.0) iceNormal = -iceNormal;
     n = normalize(mix(n, iceNormal, ice.y));
     vec3 geologicalNormal = n; // Ink must not inherit material normal-map detail.
@@ -687,6 +710,10 @@ export const SCENE_FRAG = /* glsl */`
       // Rib shadows from the stretched detail height.
       rockCol *= 0.7 + 0.6 * macro.h;
       vec3 forestRay = normalize(cameraPosition - vRenderedWorld);
+      // The painted canopy is the complete range's, as the mesh trees are
+      // (lowered vertex by vertex, rays to rays): seen along the ray to the
+      // point before the rise lowered it, on the slope n it stands on.
+      if (uLandRise.x > 0.0) forestRay = normalize(cameraPosition - unlowered);
       float forestDist = length(cameraPosition - vRenderedWorld);
       vec3 forestCol = mix(pForestNear, pForestFar, smoothstep(1500.0, 12000.0, forestDist));
       #ifdef FOREST_DEBUG
@@ -748,6 +775,9 @@ export const SCENE_FRAG = /* glsl */`
         detail *= mix(1.0, .68, smoothstep(6.0, 40.0, footprint));
       }
       nShade = normalize(n + detail);
+      // The ground's normal lowers with the rise; the painted crowns keep
+      // the complete range's, as the mesh trees do.
+      nShade = gradNormal(nShade, vRiseGrad.xyz);
       nShade = normalize(mix(nShade, farCrownNormal, farCrownWeight));
       rough = mix(mix(0.9, macro.b, rockMask), 0.6, snow);
       snow01 = snow;
@@ -759,6 +789,14 @@ export const SCENE_FRAG = /* glsl */`
       }
       if (uDebugMask == 1) { outColor = vec4(rockMask, crowns, snow, 1.0); if (water) outColor = vec4(0.0, 0.6, 1.0, 1.0); return; }
       if (uDebugMask == 2) { outColor = vec4(vec3(slopeDeg / 90.0), 1.0); return; }
+    }
+    // The rise (LandRise.js) lowers what stands above the eye. Rock, snow
+    // and forest above keep the full-height slopes they were placed on; the
+    // light and the silhouette ink see the lowered surface (the material
+    // path carried nShade through before mixing in the crowns).
+    if (!water) {
+      if (uHasMaterial < 0.5) nShade = gradNormal(nShade, vRiseGrad.xyz);
+      geologicalNormal = gradNormal(geologicalNormal, vRiseGrad.xyz);
     }
     // Ice detail is fixed to the lobe. Longitudinal debris bands curve
     // gently, while transverse crevasses open across the flow. Neither
@@ -781,7 +819,7 @@ export const SCENE_FRAG = /* glsl */`
       iceColor = mix(iceColor, vec3(0.025, 0.09, 0.14), crack * 0.8);
       iceColor = mix(iceColor, vec3(0.10, 0.12, 0.12), debris * 0.38);
       albedo = mix(albedo, iceColor, ice.y);
-      nShade = normalize(mix(nShade, iceNormal, ice.y));
+      nShade = normalize(mix(nShade, gradNormal(iceNormal, vRiseGrad.xyz), ice.y));
       rough = mix(rough, 0.3, ice.y);
     } else if (uGlacierEnabled > 0.5 && ice.z < 1.0 && !water) {
       // Newly exposed ground stays dark and wet before its canopy returns.
@@ -795,7 +833,7 @@ export const SCENE_FRAG = /* glsl */`
     rough = terrainRoughness(mix(rough, .95, farCrownWeight), nShade);
     // Direct light reaches a point only above its baked horizon (broad
     // geographic relief; TerrainOcclusion.js). Sky fill is not shadowed.
-    float sunVis = sunHorizonVisibility(vUv, uLightDir);
+    float sunVis = sunHorizonVisibility(vUv, stretchedLight(uLightDir, 1.0 + vRiseGrad.y));
     // Light: the celestial as a soft wrap-diffuse key, sky hemisphere fill,
     // occlusion from curvature and drainage (gullies sit in shade).
     float wrap = mix(0.18, 0.3, farCrownWeight);
@@ -1063,7 +1101,7 @@ export function sceneUniforms(THREE, base) {
     uGlacierEnabled: { value: 0 }, uGlacierStart: { value: new THREE.Vector2() }, uGlacierEnd: { value: new THREE.Vector2(0, -100) },
     uGlacierWidth: { value: 1 }, uGlacierSurface: { value: new THREE.Vector2() }, uGlacierMaxThickness: { value: 0 }, uGlacierRetreat: { value: 0 },
     uDeformAmp: { value: 0 }, uDeformKick: { value: 0 }, uDeformK: { value: 0 },
-    uTourEnabled: { value: 0 }, uTourEye: { value: new THREE.Vector3() },
+    uTourEye: { value: new THREE.Vector4() }, uLandRise: { value: new THREE.Vector2() },
     uLandHierarchy: { value: null }, uLandDance: { value: new THREE.Vector4() },
     uDeformGesture: { value: 0 }, uDeformMelodic: { value: 0 }, uDeformStructural: { value: 0 },
     uMelodyK: { value: 0 }, uMelodyDir: { value: new THREE.Vector2(1, 0) }, uMelodyPhase: { value: 0 },

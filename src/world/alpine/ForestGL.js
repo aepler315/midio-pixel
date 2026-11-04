@@ -20,6 +20,7 @@ import { MIST_GLSL } from './RangeAtmosphere.js';
 import { ACTOR_GLSL, actorUniforms } from './ActorsGL.js';
 import { buildConiferAsset, familyFor, variantFor, FOREST_FAMILIES, FOREST_VARIANTS } from './ForestSpeciesAssets.js';
 import { forestBatchFootprintPx, forestDetailWeight } from './ForestDetail.js';
+import { riseFromUniforms } from './LandRise.js';
 import { WIND_SWAY, GUST_LEAN, PARTING_LEAN, STORM_LEAN, WIND_DIR, WIND_MAX_GAIN, FOREST_MAX_LEAN } from './ForestWind.js';
 import { setTerrainDrawMode } from './RailDraw.js';
 export { WIND_SWAY, GUST_LEAN, PARTING_LEAN, STORM_LEAN, WIND_DIR, WIND_MAX_GAIN, FOREST_MAX_LEAN };
@@ -64,6 +65,7 @@ export const TREE_COMMON = /* glsl */`
   out float vVar;
   out float vId;
   out float vGust;
+  out float vRiseK;
   vec3 rootOf() { vec3 r = iPos; r.y += deformAt(iPos); return r; }
   bool hiddenByGlacier() {
     vec3 ice = glacierAt(iPos);
@@ -140,6 +142,9 @@ const MESH_VERT = /* glsl */`
     vec2 xz = radial * (aBranch.w > .5 ? radius : (.12 + .14 * iVar.y) * (1.0 - .94 * y01));
     vec2 w = windAt(y01);
     vec3 p = root + vec3(xz.x + w.x, y01 * iSize.x, xz.y + w.y);
+    // The rise lowers the whole tree with the land under it (LandRise.js).
+    vRiseK = 1.0 + riseGrad(p).y;
+    p.y += riseLift(p);
     vWorld = p;
     vLocal = vec2(position.x, y01);
     vVar = iVar.x; vId = iVar.y;
@@ -179,6 +184,8 @@ const BOARD_VERT = /* glsl */`
     // Its tent kernel preserves crown area as narrow trees cross pixels.
     float grow = max(2.0, widthPx + 2.0) / max(widthPx, .001);
     vec3 p = centre + right * position.x * iSize.y * grow;
+    vRiseK = 1.0 + riseGrad(p).y;
+    p.y += riseLift(p);
     vWorld = p;
     vLocal = vec2(position.x * grow, position.y);
     vSize = iSize;
@@ -215,6 +222,7 @@ const SHADE = /* glsl */`
   uniform mat4 uViewProj;
   uniform float uTime;
   in float vGust;
+  in float vRiseK; // the rise's vertical stretch where this needle stood
   ${MIST_GLSL}
   ${ACTOR_GLSL}
   ${STORM_GLSL}
@@ -241,7 +249,7 @@ const SHADE = /* glsl */`
     float key = max((dot(n, uLightDir) + wrap) / (1.0 + wrap), 0.0);
     float sunVis = 1.0;
     if (uCinematic.x > .5) {
-      sunVis = sunHorizonVisibility((world.xz - uGridOrigin) / uGridExtent, uLightDir);
+      sunVis = sunHorizonVisibility((world.xz - uGridOrigin) / uGridExtent, stretchedLight(uLightDir, vRiseK));
       wrap = uCinematic.w + .10;
       key = max((dot(n, uLightDir) + wrap) / (1.0 + wrap), 0.0) * mix(uCinematic.z, 1.0, sunVis);
     }
@@ -720,6 +728,7 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
         amplitudeM: ['uDeformAmp', 'uDeformKick', 'uDeformStructural', 'uDeformMelodic'].reduce((sum, key) => sum + Math.abs(u[key]?.value || 0), 0)
           + Math.abs(u.uLandDance?.value.x || 0) + 1.42 * Math.abs(u.uLandDance?.value.z || 0),
         gestureM: Math.abs(u.uDeformGesture?.value || 0),
+        rise: riseFromUniforms(u),
       };
       const state = { pixelated: forest.pixelatedDetail, width, height, batches: detailGroups.length,
         detailBatches: 0, liteBatches: 0, blendedBatches: 0, maxFootprintPx: 0, detailWeightMin: 1, detailWeightMax: 0 };

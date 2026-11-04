@@ -7,9 +7,10 @@
 // fetch. Lake fragments only lie on the precomputed water triangles
 // (WaterSubset.js). So the mirror can be scissored to where those
 // triangles project under the mirror matrix -- with their vertical lift
-// (musical deformation, glacier) and the shiver bounded from this frame's
-// uniforms -- plus the bilinear footprint. Texels outside are never read,
-// so the picture is unchanged.
+// (musical deformation, glacier, the rise) and the shiver bounded from this
+// frame's uniforms -- plus the bilinear footprint. Texels outside are never
+// read, so the picture is unchanged.
+import { riseFromUniforms, risenFloor } from './LandRise.js';
 
 /** Horizontal size of a water bounding box, metres. */
 export const WATER_BOX_M = 384;
@@ -74,14 +75,17 @@ const abs = v => Math.abs(Number.isFinite(v) ? v : Infinity);
  *  ice plus the musical deformation it leaves exposed (TerrainDeform.js,
  *  |deformField| with h, receiver and tour fade all within [0, 1]) and
  *  the land dance (|danceField|: relief and spine within [0, 1], the
- *  decoded wave pair within sqrt(2) * 128 / 127.5). */
+ *  decoded wave pair within sqrt(2) * 128 / 127.5). `rise` (null when the
+ *  range stands complete) is the song-long lowering applied after them:
+ *  it depends on where a box stands, so consumers lower each box's bottom
+ *  through risenFloor (LandRise.js) after adding lo. It never raises. */
 export function liftBounds(u) {
   const dance = u.uLandDance?.value;
   const deform = abs(u.uDeformAmp?.value) + abs((u.uDeformKick?.value ?? 0) + (u.uDeformStructural?.value ?? 0))
     + abs(u.uDeformMelodic?.value) + abs(u.uDeformGesture?.value)
     + (dance ? abs(dance.x) + DANCE_WAVE_BOUND * abs(dance.z) : 0);
   const ice = (u.uGlacierEnabled?.value ?? 0) >= 0.5 ? Math.max(0, abs(u.uGlacierMaxThickness?.value)) : 0;
-  return { lo: -deform * MIRROR_BOUND_SAFETY - 1, hi: (deform + ice) * MIRROR_BOUND_SAFETY + 1 };
+  return { lo: -deform * MIRROR_BOUND_SAFETY - 1, hi: (deform + ice) * MIRROR_BOUND_SAFETY + 1, rise: riseFromUniforms(u) };
 }
 
 /** Bound of |shiver| per texture axis (TerrainMaterial: shiver =
@@ -163,7 +167,8 @@ function projectedRect(boxes, matrix, viewProj, lift, pad, width, height, clamp,
   for (let b = 0; b < boxes.length; b += 6) {
     for (let c = 0; c < 8; c++) {
       corners[c * 3] = boxes[b + (c & 1 ? 3 : 0)];
-      corners[c * 3 + 1] = c & 2 ? boxes[b + 4] + lift.hi : boxes[b + 1] + lift.lo;
+      corners[c * 3 + 1] = c & 2 ? boxes[b + 4] + lift.hi
+        : risenFloor(boxes[b + 1] + lift.lo, boxes[b], boxes[b + 2], boxes[b + 3], boxes[b + 5], lift.rise);
       corners[c * 3 + 2] = boxes[b + (c & 4 ? 5 : 2)];
     }
     if (viewProj && culled(viewProj, corners)) continue;

@@ -47,7 +47,8 @@
     "plex:config": "node tools/write-plex-public-config.mjs",
     "test:plex": "node tools/plex-smoke.mjs",
     "test:library-integrity": "node tools/library-scan-integrity-smoke.mjs",
-    "test:tour-coverage": "node tools/tour-coverage-check.mjs"
+    "test:tour-coverage": "node tools/tour-coverage-check.mjs",
+    "test:rise-coverage": "node tools/rise-coverage-check.mjs"
   },
   "dependencies": {
     "slsk-client": "2.0.2"
