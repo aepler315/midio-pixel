@@ -94,7 +94,7 @@ export function deformUniforms(THREE, shared = {}) {
     uDeformK: ref('uDeformK', () => 0), uDeformDir: ref('uDeformDir', () => new THREE.Vector2(1, 0)), uDeformPhase: ref('uDeformPhase', () => 0),
     uMelodyK: ref('uMelodyK', () => 0), uMelodyDir: ref('uMelodyDir', () => new THREE.Vector2(1, 0)), uMelodyPhase: ref('uMelodyPhase', () => 0),
     uLandHierarchy: ref('uLandHierarchy', () => null), uLandDance: ref('uLandDance', () => new THREE.Vector4()),
-    uTourEye: ref('uTourEye', () => new THREE.Vector4()), uLandRise: ref('uLandRise', () => 0),
+    uTourEye: ref('uTourEye', () => new THREE.Vector4()), uLandRise: ref('uLandRise', () => new THREE.Vector2()),
     uGlacierEnabled: ref('uGlacierEnabled', () => 0), uGlacierStart: ref('uGlacierStart', () => new THREE.Vector2()),
     uGlacierEnd: ref('uGlacierEnd', () => new THREE.Vector2(0, -100)), uGlacierWidth: ref('uGlacierWidth', () => 1),
     uGlacierSurface: ref('uGlacierSurface', () => new THREE.Vector2()), uGlacierMaxThickness: ref('uGlacierMaxThickness', () => 0),

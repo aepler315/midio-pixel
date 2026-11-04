@@ -1,5 +1,5 @@
 import { FOREST_MAX_LEAN } from './ForestWind.js';
-import { risenHeight } from './LandRise.js';
+import { risenSphere } from './LandRise.js';
 
 // Small crowns keep their authored placements and lighter mesh; only the
 // branch complexity changes. A broad, stateless pixel interval reconstructs
@@ -14,9 +14,9 @@ export function forestDetailWeight(footprintPx) {
  * in a species/variant batch. No tree is removed or moved by this test.
  * Camera-space spheres include authored crown extent, maximum shared
  * wind/gust/parting lean and a bound on the musical root deformation.
- * `deformation.rise` (riseFromUniforms) moves each sphere to where the
- * song's rise draws it: the rise is monotone in height and distance, so
- * the sphere's lowered bottom and top bound everything drawn of it. */
+ * `deformation.rise` (riseFromUniforms) moves and grows each sphere to
+ * hold what the song's rise draws of it (risenSphere), continuously: it is
+ * the unrisen sphere once the range stands complete, so no detail pops. */
 export function forestBatchFootprintPx(geometry, camera, width, height, deformation = {}) {
   if (!camera?.isPerspectiveCamera || !(width > 0) || !(height > 0)) return Infinity;
   const p = camera.projectionMatrix.elements, v = camera.matrixWorldInverse.elements;
@@ -36,11 +36,7 @@ export function forestBatchFootprintPx(geometry, camera, width, height, deformat
     const h2 = height01 * height01;
     const rootLift = h2 * ((deformation.amplitudeM || 0) + h2 * (deformation.gestureM || 0));
     let y = rootY + h * .5, radius = Math.hypot(h * .5, w * .75 + h * FOREST_MAX_LEAN) + rootLift;
-    if (rise) {
-      const r = Math.hypot(x - rise.eye[0], z - rise.eye[2]);
-      const lo = risenHeight(y - radius, Math.max(0, r - radius), rise), hi = risenHeight(y + radius, r + radius, rise);
-      y = (lo + hi) / 2; radius = Math.hypot(radius, (hi - lo) / 2);
-    }
+    if (rise) ({ y, radius } = risenSphere(x, y, z, radius, rise));
     const cx = v[0] * x + v[4] * y + v[8] * z + v[12];
     const cy = v[1] * x + v[5] * y + v[9] * z + v[13];
     const cz = v[2] * x + v[6] * y + v[10] * z + v[14], depth = -cz;

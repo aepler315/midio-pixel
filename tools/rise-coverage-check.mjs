@@ -15,7 +15,9 @@
 // down. Shot tours fly under ridges and do have land above the frame, so
 // they are reported, and with --truth checked against real elevation
 // (Terrarium z12, cached in .terrain-cache/): every risen pixel's first true
-// hit must lie on a shipped tile. Exits 1 on any failure.
+// hit must lie on a shipped tile. Every pose must also keep land in each
+// column that had some at full height (a frame pitched up past the horizon
+// pivots at its bottom edge, LandRise.risePivot). Exits 1 on any failure.
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
@@ -25,7 +27,7 @@ import { cameraPoseAt, cameraBasis } from '../src/world/terrain/SceneTravel.js';
 import { decodeTerrain, terrainHeightAt } from '../src/world/alpine/TerrainMesh.js';
 import { decodeShotLibrary } from '../src/world/terrain/ShotLibrary.js';
 import { sampleFootprintPoses } from './lib/scenic-coverage.mjs';
-import { LAND_RISE_KNEE, LAND_RISE_START } from '../src/world/alpine/LandRise.js';
+import { LAND_RISE_KNEE, LAND_RISE_START, risePivot } from '../src/world/alpine/LandRise.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -35,10 +37,12 @@ const maxPoses = posesAt >= 0 ? Number(args[posesAt + 1]) : 200;
 const ids = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--poses');
 const SINK = 1 - LAND_RISE_START, STATIONS = 21, ASPECT = 16 / 9;
 
-// Tangent of the drawn elevation for a full-height tangent t (the map is a
-// function of the elevation alone, LandRise.js), and its inverse.
-const squash = t => t <= 0 ? t : (1 - SINK) * t + SINK * LAND_RISE_KNEE * (1 - Math.exp(-t / LAND_RISE_KNEE));
-const unsquash = b => { if (b <= 0) return b; let lo = 0, hi = 1e4; for (let i = 0; i < 70; i++) { const m = (lo + hi) / 2; if (squash(m) < b) lo = m; else hi = m; } return hi; };
+// Tangent of the drawn elevation for a full-height tangent t above the
+// pivot's tangent P (the map is a function of the elevation alone,
+// LandRise.js), and its inverse.
+const squash = (t, P) => t <= P ? t : P + (1 - SINK) * (t - P) + SINK * LAND_RISE_KNEE * (1 - Math.exp(-(t - P) / LAND_RISE_KNEE));
+const unsquash = (b, P) => { if (b <= P) return b; let lo = P, hi = P + 1e4; for (let i = 0; i < 80; i++) { const m = (lo + hi) / 2; if (squash(m, P) < b) lo = m; else hi = m; } return hi; };
+const pivotOf = pose => { const B = cameraBasis(pose); return risePivot(B.forward, B.up, B.right, pose.fovYDeg, ASPECT); };
 
 function load(view) {
   const manifestFile = path.join(root, 'src/assets/range/v2', view.terrainManifestUrl);
@@ -57,28 +61,45 @@ function tourPoses(view) {
   return poses.length <= maxPoses ? poses : Array.from({ length: maxPoses }, (_, k) => poses[Math.round(k * (poses.length - 1) / (maxPoses - 1))]);
 }
 
-// Frame rays: per column the world direction of each row (top first).
-function* rays(pose, cols, rows) {
+// Frame rays: per column the world direction of each row (top first; a
+// single row is the top edge, or the bottom edge with edge -1).
+function* rays(pose, cols, rows, edge = 1) {
   const B = cameraBasis(pose), tv = Math.tan(pose.fovYDeg * Math.PI / 360), th = tv * ASPECT;
   for (let c = 0; c < cols; c++) for (let r = 0; r < rows; r++) {
-    const x = ((c + .5) / cols) * 2 - 1, y = rows === 1 ? 1 : 1 - ((r + .5) / rows) * 2;
+    const x = ((c + .5) / cols) * 2 - 1, y = rows === 1 ? edge : 1 - ((r + .5) / rows) * 2;
     const d = B.forward.map((v, i) => v + x * th * B.right[i] + y * tv * B.up[i]);
     const hz = Math.hypot(d[0], d[2]);
     yield { dx: d[0] / hz, dz: d[2] / hz, tan: d[1] / hz };
   }
 }
 
+/** Whether a full-height ray (tangent `tan`) meets shipped land. */
+function hits(data, bounds, pose, ray, tan) {
+  for (let r = 30; r < 80000; r *= 1.005) {
+    const x = pose.eyeM[0] + ray.dx * r, z = pose.eyeM[2] + ray.dz * r;
+    if (x < bounds[0] || x > bounds[2] || z < bounds[1] || z > bounds[3]) return false;
+    const h = terrainHeightAt(data, x, z);
+    if (Number.isFinite(h) && h > pose.eyeM[1] + tan * r) return true;
+  }
+  return false;
+}
+
+/** Columns of `pose` with land in frame at full height that have none at
+ *  the first beat. A heightfield column with land anywhere has it at its
+ *  bottom ray, so the bottom ray decides. */
+function columnsEmptied(data, bounds, pose) {
+  const P = pivotOf(pose);
+  let emptied = 0;
+  for (const ray of rays(pose, 48, 1, -1)) {
+    if (hits(data, bounds, pose, ray, ray.tan) && !hits(data, bounds, pose, ray, unsquash(ray.tan, P))) emptied++;
+  }
+  return emptied;
+}
+
 /** Columns of `pose` with shipped land above the frame's top edge. */
 function landAboveTop(data, bounds, pose) {
   let columns = 0;
-  for (const ray of rays(pose, 48, 1)) {
-    for (let r = 30; r < 80000; r *= 1.005) {
-      const x = pose.eyeM[0] + ray.dx * r, z = pose.eyeM[2] + ray.dz * r;
-      if (x < bounds[0] || x > bounds[2] || z < bounds[1] || z > bounds[3]) break;
-      const h = terrainHeightAt(data, x, z);
-      if (Number.isFinite(h) && h > pose.eyeM[1] + ray.tan * r) { columns++; break; }
-    }
-  }
+  for (const ray of rays(pose, 48, 1)) if (hits(data, bounds, pose, ray, ray.tan)) columns++;
   return columns;
 }
 
@@ -118,13 +139,15 @@ async function trueGround(manifest, build) {
   };
 }
 
-/** Risen pixels (above the horizon) whose first true hit is not shipped. */
+/** Risen pixels (above the horizon and the pivot) whose first true hit is
+ *  not shipped. */
 function unshippedPixels(data, bounds, pose, ground, shipped) {
+  const P = pivotOf(pose);
   let missing = 0, total = 0;
   for (const ray of rays(pose, 48, 27)) {
-    if (ray.tan <= 0) continue;
+    if (ray.tan <= P) continue;
     total++;
-    const t = unsquash(ray.tan);
+    const t = unsquash(ray.tan, P);
     for (let r = 20; r < 80000; r *= 1.003) {
       const x = pose.eyeM[0] + ray.dx * r, z = pose.eyeM[2] + ray.dz * r;
       if (x < bounds[0] || x > bounds[2] || z < bounds[1] || z > bounds[3]) break;
@@ -144,9 +167,13 @@ for (const view of catalog.views.filter(v => v.camera && (!ids.length || ids.inc
   const railAbove = stations.reduce((n, p) => n + landAboveTop(data, bounds, p), 0);
   const tour = tourPoses(view);
   const tourAbove = tour.reduce((n, p) => n + (landAboveTop(data, bounds, p) > 0 ? 1 : 0), 0);
+  const pitched = tour.filter(p => pivotOf(p) > 0).length;
+  const emptied = [...stations, ...tour].reduce((n, p) => n + columnsEmptied(data, bounds, p), 0);
   const line = [`${view.id.padEnd(30)} rail: ${railAbove ? `FAIL ${railAbove} columns with land above the frame` : 'ok'}`];
   if (railAbove) failed = true;
-  if (tour.length) line.push(`tour: ${tourAbove}/${tour.length} poses with land above the frame`);
+  if (tour.length) line.push(`tour: ${tourAbove}/${tour.length} poses with land above the frame, ${pitched} pivot above the horizon`);
+  line.push(emptied ? `FAIL ${emptied} columns lose all their land` : 'land kept in frame');
+  if (emptied) failed = true;
   if (truth && (tourAbove || railAbove)) {
     const ground = await trueGround(manifest, build);
     let missing = 0, total = 0;

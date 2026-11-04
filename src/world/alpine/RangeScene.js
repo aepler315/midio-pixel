@@ -59,7 +59,7 @@ import { forestWindAt } from './ForestWind.js';
 import { createWetMask, fillWetRows, waterIndexSubsetPartsAsync } from './WaterSubset.js';
 import { attachTerrainCulling, setChunks, setTerrainMaterial, subsetChunkTable } from './TerrainChunks.js';
 import { waterBoxes, vertexWaterBoxes, liftBounds, shiverBounds, mirrorScissor, waterScissor } from './MirrorScissor.js';
-import { LAND_RISE_START, landRiseLift, riseFromUniforms } from './LandRise.js';
+import { LAND_RISE_START, landRiseLift, riseFromUniforms, risePivot } from './LandRise.js';
 // Storm light, linear: the deck's underside, the rain-dimmed horizon, the
 // rain air, per episode kind (RangeStorm STORM_KINDS zenith/horizon/air).
 // The air meets the slate the sky paints at the horizon (drawStormSky).
@@ -2104,6 +2104,14 @@ export class RangeScene {
       wind: [1, 0] };
   }
 
+  /** The rise's pivot for the main camera's whole frame (LandRise.risePivot):
+   *  the camera's own axes and field, not a partition's view offset. */
+  _risePivot() {
+    const cam = this.camera, e = cam.matrixWorld.elements;
+    const unit = (x, y, z, k = 1) => { const l = Math.hypot(x, y, z) || 1; return [k * x / l, k * y / l, k * z / l]; };
+    return risePivot(unit(e[8], e[9], e[10], -1), unit(e[4], e[5], e[6]), unit(e[0], e[1], e[2]), cam.fov, cam.aspect, cam.zoom);
+  }
+
   _setUniforms(p, frame) {
     const THREE = this.THREE;
     const u = p.uniforms;
@@ -2276,8 +2284,11 @@ export class RangeScene {
     const eye = this.camera.position;
     u.uTourEye.value.set(eye.x, eye.y, eye.z, p.view.tour || p.cameraTour ? 1 : 0);
     // The song-long rise (LandRise.js): the share of the relief above the
-    // eye still to come. A frame without one draws the complete range.
-    u.uLandRise.value = 1 - clamp01(Number.isFinite(frame.rise01) ? frame.rise01 : 1);
+    // eye still to come (a frame without one draws the complete range), and
+    // the elevation it presses the land toward, the frame's lowest when the
+    // frame does not reach down to the horizon.
+    const sink = 1 - clamp01(Number.isFinite(frame.rise01) ? frame.rise01 : 1);
+    u.uLandRise.value.set(sink, sink > 0 ? this._risePivot() : 0);
     this._setCloudUniforms(p, frame);
     this._setActors(p, frame);
   }
@@ -2399,7 +2410,7 @@ export class RangeScene {
       if (!group.layers.isEnabled(CAST_LAYER)) group.traverse(object => object.layers.set(CAST_LAYER));
       if (!pos) { group.visible = false; return; }
       const at = new THREE.Vector3(pos[0], pos[1], pos[2]);
-      const lit = rise ? new THREE.Vector3(pos[0], pos[1] + landRiseLift(pos[0], pos[1], pos[2], rise.eye, rise.sink), pos[2]) : at;
+      const lit = rise ? new THREE.Vector3(pos[0], pos[1] + landRiseLift(pos[0], pos[1], pos[2], rise.eye, rise.sink, rise.pivot), pos[2]) : at;
       const dist = Math.max(1, lit.distanceTo(cam.position));
       const display = new THREE.Color().setHSL(ACTOR_HUES[id] / 360, 0.85, 0.62);
       // Light: linear, stronger as the lane plays; dimmed while the team
@@ -2449,9 +2460,12 @@ export class RangeScene {
         const w = tSec * (0.7 + 0.2 * j) + j * 2.1;
         const cp = new THREE.Vector3(lag[0], lag[1], lag[2])
           .addScaledVector(right, Math.sin(w) * 18 * mpp0).addScaledVector(up, Math.cos(w * 1.3) * 10 * mpp0);
-        const cd = Math.max(1, cp.distanceTo(cam.position));
+        // Measured, like the lantern's, from where the rise draws it: the
+        // shader lowers the companion with its anchor (groundLift).
+        const cl = rise ? cp.clone().setY(cp.y + landRiseLift(lag[0], lag[1], lag[2], rise.eye, rise.sink, rise.pivot)) : cp;
+        const cd = Math.max(1, cl.distanceTo(cam.position));
         const cpush = Math.min(cd * 0.25, 30 * mpp0);
-        c.uCenter.value.copy(cp).addScaledVector(cam.position.clone().sub(cp).normalize(), cpush);
+        c.uCenter.value.copy(cp).addScaledVector(cam.position.clone().sub(cl).normalize(), cpush);
         c.uAnchor.value.set(lag[0], lag[1], lag[2]);
         c.uMpp.value = mpp0 * (cd - cpush) / cd;
         c.uGlow.value = s.glow * 0.6;

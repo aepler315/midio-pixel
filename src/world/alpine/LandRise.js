@@ -18,6 +18,14 @@
 // there.) Seen from the eye it is a vertical squash of the frame above the
 // horizon line, with real 3D light on the lowered slopes.
 //
+// The frame's bottom. A camera pitched up at a summit may not show the
+// horizon at all: squashed toward the horizon, its land would leave
+// through the bottom of the frame and the shot would hold only sky. So the
+// squash pivots at the lowest elevation the frame shows when that is above
+// the horizon (risePivot): land at the frame's bottom edge stays there and
+// the range is pressed down onto it. Any increasing remap of elevation
+// keeps the occlusion argument (rays map to rays, in order along each).
+//
 // The frame's top. The squash also brings down land that stood above the
 // top of the frame, and a package does not ship tiles outside every baked
 // frustum. A rail never has land above its frame (every station of every
@@ -26,11 +34,13 @@
 // ridges; checked against real elevation, every pixel they can bring down
 // lands on a shipped tile (docs/landscape-rise.md, "Coverage").
 //
-// The map, for a point h metres above the eye at horizontal distance r:
+// The map, for a point h metres above the pivot cone (P*r above the eye,
+// P the pivot's tangent, 0 when the frame shows the horizon) at horizontal
+// distance r:
 //   h' = s*h + (1 - s)*w*r*(1 - exp(-h / (w*r)))
 // s is the rise (LAND_RISE_START .. 1). w is the knee: below an elevation of
-// about atan(w) the ground keeps its full height, so the lowered flanks
-// meet the unlowered ground with no crease along the horizon. h' is
+// about atan(w) above the pivot the ground keeps its full height, so the
+// lowered flanks meet the unlowered ground with no crease. h' is
 // homogeneous in (r, h), so rays from the eye map to rays: the squash is the
 // same at every distance. It rises in h and in r, so the lowest drawn point
 // of a box is its bottom at its nearest horizontal distance (risenFloor).
@@ -49,43 +59,45 @@ export const LAND_RISE_QUIET_PACE = 0.6;
 export const LAND_RISE_LANDING = 0.15;
 /** The rise completes no earlier than this share of the music. */
 export const LAND_RISE_MIN_END = 0.6;
-/** When a re-analysis finds the climb should already be over, the land
- *  finishes what is left over this long instead of jumping. */
+/** A re-analysis never finishes what is left of the climb faster than
+ *  over this long, even when its own climb is (nearly) over already. */
 export const LAND_RISE_CATCH_UP_MS = 8000;
 const STEP_MS = 250;
 
 /** GLSL twin of landRiseLift and its Jacobian. Needs DEFORM_GLSL's
  *  uTourEye (xyz: the drawing camera's eye; the lake mirror keeps the main
- *  eye, so the reflection shows the same lowered land). uLandRise is the
+ *  eye, so the reflection shows the same lowered land). uLandRise.x is the
  *  sink, 1 - s: zero (every stand-in, preview and dev page) is the
- *  complete range at no cost. */
+ *  complete range at no cost. uLandRise.y is the pivot (risePivot). */
 export const LAND_RISE_GLSL = /* glsl */`
-  uniform float uLandRise;
+  uniform vec2 uLandRise;
   float riseLift(vec3 p) {
-    if (uLandRise <= 0.0) return 0.0;
-    float h = p.y - uTourEye.y;
+    if (uLandRise.x <= 0.0) return 0.0;
+    float r = max(1.0, length(p.xz - uTourEye.xz));
+    float h = p.y - uTourEye.y - uLandRise.y * r;
     if (h <= 0.0) return 0.0;
-    float wr = ${LAND_RISE_KNEE.toFixed(7)} * max(1.0, length(p.xz - uTourEye.xz));
-    return -uLandRise * (h - wr * (1.0 - exp(-h / wr)));
+    float wr = ${LAND_RISE_KNEE.toFixed(7)} * r;
+    return -uLandRise.x * (h - wr * (1.0 - exp(-h / wr)));
   }
   // Gradient of riseLift at p (x, z across, y up).
   vec3 riseGrad(vec3 p) {
-    if (uLandRise <= 0.0) return vec3(0.0);
-    float h = p.y - uTourEye.y;
-    if (h <= 0.0) return vec3(0.0);
+    if (uLandRise.x <= 0.0) return vec3(0.0);
     vec2 d = p.xz - uTourEye.xz;
     float r = max(1.0, length(d));
+    float h = p.y - uTourEye.y - uLandRise.y * r;
+    if (h <= 0.0) return vec3(0.0);
     float wr = ${LAND_RISE_KNEE.toFixed(7)} * r;
     float t = h / wr, e = exp(-t);
-    float dr = length(d) >= 1.0 ? uLandRise * ${LAND_RISE_KNEE.toFixed(7)} * (1.0 - e * (1.0 + t)) / r : 0.0;
-    return vec3(dr * d.x, -uLandRise * (1.0 - e), dr * d.y);
+    float dr = length(d) >= 1.0
+      ? uLandRise.x * (${LAND_RISE_KNEE.toFixed(7)} * (1.0 - e * (1.0 + t)) + uLandRise.y * (1.0 - e)) / r : 0.0;
+    return vec3(dr * d.x, -uLandRise.x * (1.0 - e), dr * d.y);
   }
   // A normal carried through the rise (inverse transpose of its Jacobian,
   // from the gradient g = riseGrad at the lifted point the vertex shader
   // lowered). 1 + g.y is at least the rise itself, never zero. The
   // complete range returns n untouched, so its pixels are the unrisen ones.
   vec3 gradNormal(vec3 n, vec3 g) {
-    if (uLandRise <= 0.0) return n;
+    if (uLandRise.x <= 0.0) return n;
     float invY = 1.0 / (1.0 + g.y);
     return normalize(vec3(n.x - g.x * n.y * invY, n.y * invY, n.z - g.z * n.y * invY));
   }
@@ -99,23 +111,42 @@ export const LAND_RISE_GLSL = /* glsl */`
 `;
 
 /** CPU twin of riseLift: metres added to a point's height (<= 0) for the
- *  eye `eye` ([x, y, z]) and sink `sink` (1 - rise01). */
-export function landRiseLift(x, y, z, eye, sink, knee = LAND_RISE_KNEE) {
+ *  eye `eye` ([x, y, z]), sink `sink` (1 - rise01) and pivot `pivot`. */
+export function landRiseLift(x, y, z, eye, sink, pivot = 0, knee = LAND_RISE_KNEE) {
   if (!(sink > 0) || !eye) return 0;
-  return riseLiftAt(y - eye[1], Math.hypot(x - eye[0], z - eye[2]), sink, knee);
+  return riseLiftAt(y - eye[1], Math.hypot(x - eye[0], z - eye[2]), sink, knee, pivot);
 }
 
-function riseLiftAt(h, r, sink, knee) {
-  if (!(h > 0)) return 0;
-  const wr = knee * Math.max(1, r);
-  return -sink * (h - wr * (1 - Math.exp(-h / wr)));
+function riseLiftAt(h, r, sink, knee, pivot) {
+  const rr = Math.max(1, r), above = h - (pivot || 0) * rr;
+  if (!(above > 0)) return 0;
+  const wr = knee * rr;
+  return -sink * (above - wr * (1 - Math.exp(-above / wr)));
 }
 
 /** Drawn height of a point at height `y` and horizontal distance `r` from
  *  the eye, for a rise state from riseFromUniforms. */
 export function risenHeight(y, r, rise) {
   if (!rise || !(rise.sink > 0)) return y;
-  return y + riseLiftAt(y - rise.eye[1], r, rise.sink, rise.knee ?? LAND_RISE_KNEE);
+  return y + riseLiftAt(y - rise.eye[1], r, rise.sink, rise.knee ?? LAND_RISE_KNEE, rise.pivot);
+}
+
+/** The squash's pivot for a camera: the tangent of the lowest elevation
+ *  its frame shows, when that is above the horizon, else 0. Above the
+ *  horizon the set of directions at least some elevation up is a convex
+ *  cone, so over the frame's rectangle elevation is lowest at a corner.
+ *  `forward`, `up` and `right` are the camera's world axes ([x, y, z]); the
+ *  frame is the full view (fovYDeg, aspect, zoom), whatever part of it a
+ *  partition draws, so every part pivots alike. */
+export function risePivot(forward, up, right, fovYDeg, aspect, zoom = 1) {
+  const tv = Math.tan(fovYDeg * Math.PI / 360) / (zoom > 0 ? zoom : 1), th = tv * aspect;
+  let low = Infinity;
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+    const d = [0, 1, 2].map(i => forward[i] + sx * th * right[i] + sy * tv * up[i]);
+    const flat = Math.hypot(d[0], d[2]);
+    low = Math.min(low, flat > 1e-9 ? d[1] / flat : d[1] > 0 ? Infinity : -Infinity);
+  }
+  return Number.isFinite(low) && low > 0 ? low : 0;
 }
 
 /** Lowest drawn height a box can reach under the rise, from its bottom `y`
@@ -128,13 +159,27 @@ export function risenFloor(y, x0, z0, x1, z1, rise) {
   return risenHeight(y, Math.hypot(dx, dz), rise);
 }
 
+/** A sphere (centre x, y, z) moved and grown to hold everything the rise
+ *  draws of it. The drop grows with height and shrinks with horizontal
+ *  distance, so every point of the sphere drops between its top's drop at
+ *  the nearest distance and its bottom's at the farthest. Below the eye it
+ *  is the sphere itself, and above it tends to the sphere as the rise
+ *  completes. */
+export function risenSphere(x, y, z, radius, rise) {
+  if (!rise || !(rise.sink > 0)) return { y, radius };
+  const r = Math.hypot(x - rise.eye[0], z - rise.eye[2]);
+  const deepest = risenHeight(y + radius, Math.max(0, r - radius), rise) - (y + radius);
+  const shallowest = risenHeight(y - radius, r + radius, rise) - (y - radius);
+  return { y: y + (deepest + shallowest) / 2, radius: radius + (shallowest - deepest) / 2 };
+}
+
 /** The rise state the shaders read from `uniforms` (uLandRise, uTourEye),
  *  or null when the land stands complete. */
 export function riseFromUniforms(u) {
-  const sink = u?.uLandRise?.value;
+  const rise = u?.uLandRise?.value;
   const eye = u?.uTourEye?.value;
-  if (!(sink > 0) || !eye) return null;
-  return { sink, eye: [eye.x, eye.y, eye.z], knee: LAND_RISE_KNEE };
+  if (!(rise?.x > 0) || !eye) return null;
+  return { sink: rise.x, eye: [eye.x, eye.y, eye.z], knee: LAND_RISE_KNEE, pivot: rise.y > 0 ? rise.y : 0 };
 }
 
 const landing = (u) => {
@@ -153,8 +198,9 @@ const landing = (u) => {
  * `previous` (an earlier compile's riseProgressAt, with freezeThroughMs) is
  * the handoff when a whole-song analysis replaces the opening one: from the
  * frozen moment the new climb continues from where the old one stood, so
- * the land never jumps or sinks. If the new climb is already over by then,
- * what is left is finished over LAND_RISE_CATCH_UP_MS.
+ * the land never jumps or sinks. What is left never finishes faster than
+ * over LAND_RISE_CATCH_UP_MS, so a new climb that is over, or a moment from
+ * over, at the handoff does not snap the land to the complete range.
  */
 export function compileLandRise({ read = () => 0, durationMs = 0, cadenceMs = durationMs, finaleMs = 0,
   previous = null, freezeThroughMs = -1 } = {}) {
@@ -175,7 +221,8 @@ export function compileLandRise({ read = () => 0, durationMs = 0, cadenceMs = du
     progressAt = (timeMs) => {
       if (timeMs <= freezeThroughMs) return clamp01(previous(timeMs));
       if (from >= 1) return 1;
-      const k = base >= 1 ? (timeMs - freezeThroughMs) / LAND_RISE_CATCH_UP_MS : (own(timeMs) - base) / (1 - base);
+      const paced = (timeMs - freezeThroughMs) / LAND_RISE_CATCH_UP_MS;
+      const k = base >= 1 ? paced : Math.min(paced, (own(timeMs) - base) / (1 - base));
       return clamp01(from + (1 - from) * clamp01(k));
     };
   }

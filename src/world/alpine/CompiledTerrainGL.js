@@ -270,7 +270,7 @@ function placedMesh(THREE, group, material) {
   const top = group.yBaseM + sphere.center.y + sphere.radius;
   let culled = true;
   Object.defineProperty(mesh, 'frustumCulled', { configurable: true,
-    get: () => culled && !(u?.uLandRise?.value > 0 && top > u.uTourEye.value.y), set: (v) => { culled = !!v; } });
+    get: () => culled && !(u?.uLandRise?.value?.x > 0 && top > u.uTourEye.value.y), set: (v) => { culled = !!v; } });
   return mesh;
 }
 
