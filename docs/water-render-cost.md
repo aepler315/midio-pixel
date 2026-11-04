@@ -1,7 +1,7 @@
 # Water render cost: where Landscape frames went, and what changed
 
 Reported: Landscape lags badly on consumer hardware. This page records the
-measurement, the two changes it led to, and how to repeat the check.
+measurement, the changes it led to, and how to repeat the check.
 
 ## How it was measured
 
@@ -100,22 +100,122 @@ bounds by brute force: every sampled point of every triangle that can shade
 water is kept, and every texel a visible lake fragment can fetch is inside
 the scissor. Both fail when their margins are removed.
 
+## Change 3: the native water pass copies the partition's depth
+
+At the native grid, the side's partition target already holds this frame's
+terrain and forest depth when `renderWater` runs. `_sharedDepth` checks that
+it is the same frame, view and side, and `_copyDepth` blits it into the water
+target (`gl.blitFramebuffer`, `DEPTH_BUFFER_BIT`) instead of redrawing the
+whole terrain's depth. Only the trees' hard crown cut (layer 2) is drawn on
+top when the partition did not already cut it. The output-resolution pass
+cannot copy: its target is a different size. The mirror cannot either: its
+camera is different. This removes one full-terrain pass per frame.
+
+## Change 4: per-tile culling inside each band (`TerrainChunks.js`)
+
+Each depth band is one merged mesh drawn with `frustumCulled = false`. The
+land moves vertically every frame, so three.js would have to cull the band
+as one object. Splitting a band into one mesh per chunk is not safe for
+identity: three.js sorts opaque meshes of one material by distance, and the
+colour passes test LEQUAL without writing depth, so equal-depth seams resolve
+to whichever triangle draws last. A band therefore stays one mesh and one
+render item, and it is culled by draw groups.
+
+- `buildTerrainGeometry` records each tile's index range, which is
+  contiguous in the band index and in its seam fill, and its box.
+- Each band, seam-fill and water-subset geometry carries that table in
+  `userData.terrainChunks`. Its meshes hold `[material]`, because three.js
+  honours draw groups only for array materials.
+- `Scene.onBeforeRender` runs before three.js culls or sorts. There, the
+  groups become the runs of tiles whose boxes reach the camera's frustum, in
+  index order. The frustum is narrowed to the target's scissor plus a pixel.
+  Each box is lifted by this frame's displacement bound
+  (`MirrorScissor.liftBounds`, twice the deformation uniforms plus the ice,
+  plus 1 m) and padded by 1 m.
+- Gaps under about 2,000 triangles are drawn through, and each geometry
+  gets at most 8 draws. `Scene.onAfterRender` puts back the whole-index group.
+
+A culled tile lies wholly outside one clip plane, so it could not have made a
+fragment. Every drawn triangle keeps its place in the sequence. This applies
+to every pass that draws the bands: the partitions and their depth pre-pass,
+the mirror (through the mirror camera and its scissor), the fine crest probe,
+ownership, travel seams and tour windows.
+
+## Change 5: a scissored output-resolution water pass
+
+Above the native grid, nothing reads the water target's depth, and its water
+can only appear on water-subset triangles. When every band and seam geometry
+has a subset and no river shares the band scenes, the whole pass is
+scissored to the projected rectangle of the water boxes, depth pre-pass
+included (`MirrorScissor.waterScissor`). These boxes hold whole triangles,
+each binned by its first vertex's cell, so a box the camera culls holds no
+visible water. They are lifted the same way, with 2 px of margin. The culling then drops every tile outside that
+rectangle. The native pass stays whole, because the crest probe reads its
+depth and colour.
+
+## Result (changes 3 to 5)
+
+Pilot song, 1280×720, Classic grid, 30 export frames from 2 s to 45.5 s
+(scratch harness counting what each `renderer.render` submits). Base is main
+before these changes, run twice, before and after the branch:
+
+| per frame | base | after |
+| --- | --- | --- |
+| terrain triangles submitted | 9.81 M | 3.80 M |
+| partitions (depth + far, mid, near) | 2.90 M | 1.49 M |
+| lake mirror | 2.74 M | 1.44 M |
+| fine crest probe | 1.37 M | 0.72 M |
+| water, native + output | 2.80 M | 0.15 M |
+| draw calls | 89 | 140 |
+| wall time, software rasterizer | 3.46 s, 3.41 s | 2.41 s |
+
+All 30 frames are byte-identical to both base runs. The culling keeps 45% of
+the indices it tests. The output water scissor covers 13% to 30% of the
+target (25% on average). The extra draw calls are the visible runs, at most
+8 per geometry and render. Full-terrain vertex passes at rung 0 go from 7 to 6
+(the copied depth), and every remaining pass submits only what can reach its
+target.
+
+The pilot's 9 s frame is not deterministic: two runs of the same build have
+differed by about 1% of its pixels. Compare it against two base runs, not one.
+
+`test/terrainChunks.test.mjs` checks the culling by brute force. Every
+sampled point of every culled tile, displaced anywhere inside the lift,
+falls outside the clip volume, for random cameras, view offsets and
+scissors. Visible tiles are never culled, and groups stay in order. It
+fails when the lift is dropped or a plane is tightened. It also checks the
+tables of real bakes and of the water subsets RangeScene builds.
+`test/terrainChunksRender.test.mjs` runs real three.js renders on a
+recording WebGL2 context: consecutive in-order runs per band, scissors,
+stale rectangles, a moved viewport and a failed render.
+`test/mirrorScissor.test.mjs` checks that every pixel a lake triangle can
+draw in the main view lies inside the water scissor, including when a
+frustum side falls between two boxes. It also checks that `liftBounds`
+holds every displacement of the CPU twins (ice, deformation, dance).
+`test/waterScissor.test.mjs` checks when the water pass is scissored, and
+`test/waterDepthCopy.test.mjs` checks every guard on the depth copy.
+
 ## What is left, in order
 
-1. **Vertex work.** Every frame still pushes the full terrain (about 1.5 M
-   triangles in the pilot view) through the vertex shader six times: the
-   partition depth pre-pass, the three partitions, two water depth
-   pre-passes and the mirror's depth and colour passes. Each band is one
-   merged mesh drawn with `frustumCulled = false`. Splitting bands into
-   spatial chunks with precomputed bounds, and skipping chunks outside the
-   (lift-padded) frustum, keeps the picture identical and cuts this in
-   proportion to what the rail is not looking at.
-2. **The far partition** (0.6 s here) is mostly that same full-terrain
-   depth pre-pass.
-3. **Offline bake.** The water index and boxes depend only on the terrain
-   package, so they could be baked by `tools/build-range-scene.mjs` and served
-   with it instead of computed on the device (about 125 ms of main-thread
-   work on a desktop, sliced; several times that on a head unit).
+1. **The mirror scissor's cell gap.** The mirror still uses main's boxes,
+   which bin vertices. A lake triangle crossing a 384 m cell line leaves a
+   strip in neither box. When a main-view frustum side falls in that strip,
+   the mirror scissor can stop short of texels a frame-edge lake fragment
+   reads. Those pixels then reflect only the backdrop. Giving the mirror the
+   water scissor's triangle boxes fixes it. It is left out here because it
+   changes pixels, and this change keeps every frame identical.
+2. **The mirror's fragment cost** on real GPUs. It is scissored and now
+   culled, but it is still a full-material pass at twice the grid. It is
+   shed first by the quality ladder (below).
+3. **Offline bake.** The water index, its boxes and the chunk tables depend
+   only on the terrain package. `tools/build-range-scene.mjs` could bake
+   them and serve them with it instead of computing them on the device
+   (about 125 ms of main-thread work on a desktop, sliced; several times that
+   on a head unit).
+4. **The fine crest probe's depth.** It is the same camera and frame as the
+   output water pass, but its size matches only when the output is exactly
+   4× the grid, and it has no depth texture. Since change 5 the payoff is
+   small.
 
 ## The mirror is shed first
 

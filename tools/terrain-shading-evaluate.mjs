@@ -65,7 +65,7 @@ try {
       effective: m?.userData?.terrainShading || 'off', marker: !!m?.fragmentShader?.includes('MORAN_TERRAIN_SHADING'),
       linkedPrograms: programs.length, allLinked: programs.every(v => gl.getProgramParameter(v.program, gl.LINK_STATUS)),
       viewId: smw.rangeState.viewId, active: smw.rangeState.active,
-      bandsUseMaterial: ['far', 'mid', 'near'].every(b => p.scenes[b].children.some(mesh => mesh.material === m)) };
+      bandsUseMaterial: ['far', 'mid', 'near'].every(b => p.scenes[b].children.some(mesh => [].concat(mesh.material)[0] === m)) };
     if (actual.effective !== expected || actual.marker !== (expected === 'moran') || !actual.allLinked || !actual.linkedPrograms || !actual.bandsUseMaterial)
       throw new Error('Terrain shading did not reach compiled material: ' + JSON.stringify(actual));
     if (requireActive && (!actual.active || actual.viewId !== 'teton-jackson-lake'))

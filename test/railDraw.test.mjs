@@ -62,6 +62,19 @@ test('the rail draws its package without the tour ground; the tour draws every t
   let copies = 0, hidden = 0;
   for (const band of BANDS) {
     const b = split.bands[band];
+    for (const [table, index, ranges] of [[b.chunks, b.indices, b.ranges], [b.fringeChunks, b.fringe, b.fringeRanges]]) {
+      let offset = 0;
+      for (let i = 0; i < table.start.length; i++) {
+        assert.equal(table.start[i], offset);
+        offset += table.count[i];
+      }
+      assert.equal(offset, index.length);
+      const boundaries = new Set([0, index.length, ...table.start]);
+      for (const [start, count] of Object.values(ranges || {})) {
+        assert.ok(boundaries.has(start) && boundaries.has(start + count), 'each mode draws whole chunks');
+      }
+    }
+
     assert.deepEqual(picture(b.positions, railMode[band].indices), picture(railOnly.bands[band].positions, railOnly.bands[band].indices), `${band} rail`);
     assert.deepEqual(picture(b.positions, railMode[band].fringe), picture(railOnly.bands[band].positions, railOnly.bands[band].fringe), `${band} rail seam fill`);
     assert.deepEqual(picture(b.positions, tourMode[band].indices), picture(whole.bands[band].positions, whole.bands[band].indices), `${band} tour`);
