@@ -39,9 +39,10 @@ reservation and surface build at that bound's tree count, fit beside what is
 resident. Otherwise, or after a two-mode preparation was refused room, the
 view is prepared for its rail alone: the rail's tiles, trees, water and
 bakes, charged as the rail's package without a tour would be. It plays its
-rail for the song, and the shot tour records why. Phones therefore keep
-every view they load on main. The one extra cost is the decoded package's
-CPU copy, which still holds the tour-only tiles.
+rail for the song, and the shot tour records why. Its decoded package then
+keeps the rail's tiles alone, charged at the bytes they hold (unless a
+composition variant still draws the tour from it). Phones therefore keep
+every view they load on main.
 
 The approval checks below measure the rail exactly as it draws: rail tiles
 only (`terrainBandsFor(..., 'rail')`) and the rail's own trees.

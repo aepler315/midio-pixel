@@ -907,6 +907,21 @@ export class RangeScene {
     return this.residency.canFit(forestBuildBytes(bound) + gpu + scratch, protect);
   }
 
+  /** A view prepared for its rail alone keeps only the rail's tiles of its
+   *  decoded package, charged at the bytes they hold (as a shot tour's
+   *  package is, RangeAssets.js): no tour-only ground stays decoded.
+   *  A composition variant shares the package; while another preparation
+   *  holds it, every tile stays. A later preparation of a package kept for
+   *  its rail is prepared for its rail too (`cpu.railOnly`). */
+  _keepRailGround(cpu) {
+    if (cpu.railOnly || (cpu.owners?.size ?? 1) > 1) return;
+    cpu.data = railGroundData(cpu.data);
+    cpu.railOnly = true;
+    let bytes = 0;
+    for (const t of cpu.data.tiles.values()) bytes += t.heightsM.byteLength + t.flowBytes.byteLength + (t.validMask?.byteLength || 0);
+    this.residency?.shrink(cpu.key, bytes);
+  }
+
   /** Admit the complete build peak before dispatch; executing work retains
    * its charge through cancellation and staged graphics finalization. */
   _admitTerrainBuild(p, index = null) {
@@ -1218,12 +1233,14 @@ export class RangeScene {
         // prepared for its rail alone: the rail's own tiles, trees and water,
         // at what the rail's package without a tour costs.
         let data = cpu.data, railOnly = null;
-        if (!view.tour && tourGround(cpu.data)) {
+        if (!view.tour && (cpu.railOnly || tourGround(cpu.data))) {
           railOnly = !view.cameraPaths?.some((line) => line?.length) ? 'no shot tour'
-            : this._railOnlyViews?.has(view.id) ? 'its tour did not fit this device'
-              : !this._tourFits(view, cpu, rules, est, [cpu.key, mat.key]) ? 'its tour does not fit this device' : null;
+            : cpu.railOnly ? 'its terrain is loaded for its rail'
+              : this._railOnlyViews?.has(view.id) ? 'its tour did not fit this device'
+                : !this._tourFits(view, cpu, rules, est, [cpu.key, mat.key]) ? 'its tour does not fit this device' : null;
           if (railOnly) {
-            data = railGroundData(cpu.data);
+            this._keepRailGround(cpu);
+            data = cpu.railOnly ? cpu.data : railGroundData(cpu.data);
             est = { ...est, ...terrainMeshEstimate(data, this.budget) };
             view = { ...view };
             delete view.cameraPaths;

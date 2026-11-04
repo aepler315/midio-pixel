@@ -44,15 +44,18 @@ function scene(budgetBytes = 1e9, budget = 'desktop') {
   s._releaseMaterial = () => {};
   return s;
 }
-async function prepare(s, cameraPaths) {
+async function prepare(s, cameraPaths, extra = {}) {
   const { manifest, payload } = await tourPackage();
   const fetch = globalThis.fetch;
   globalThis.fetch = async (url) => new Response(String(url).endsWith('.json') ? JSON.stringify(manifest) : payload);
   try {
-    return await s.prepare({ id: 'rail-only', camera, cameraPaths, terrainManifestUrl: 'rail-only.json' }, { baseUrl: 'http://test/', generation: 1 });
+    return await s.prepare({ id: 'rail-only', camera, cameraPaths, terrainManifestUrl: 'rail-only.json', ...extra }, { baseUrl: 'http://test/', generation: 1 });
   } finally { globalThis.fetch = fetch; }
 }
 const gpuBytes = (s, p) => s.residency.entries.get(p.gpuKey).bytes;
+const cpuEntry = (s) => s.residency.entries.get('range:terrain-cpu:rail-only');
+const tileBytes = (data) => [...data.tiles.values()].reduce((n, t) => n + t.heightsM.byteLength + t.flowBytes.byteLength + (t.validMask?.byteLength || 0), 0);
+const tourTiles = (data) => [...data.tiles.values()].filter((t) => t.rail === false).length;
 const timeline = { durationMs: 1000 };
 
 test('the bake\'s mesh estimate is the sum of the tiles a decoded package keeps', async () => {
@@ -83,6 +86,11 @@ test('a tour package without its tour\'s footprint prepares the rail alone', asy
   const est = { ...alone.manifest.estimatedBytes.desktop, ...terrainMeshEstimate(alone.data, 'desktop') };
   assert.equal(gpuBytes(rail, alone), staticViewBytes(alone.data, est, sum(alone.stats.trees), { budget: 'desktop' }));
   assert.ok(gpuBytes(rail, alone) < gpuBytes(both, two) * 0.6);
+  // The decoded package keeps the rail's tiles alone, charged at what they hold.
+  assert.equal(tourTiles(cpuEntry(rail).resource.data), 0);
+  assert.ok(tourTiles(cpuEntry(both).resource.data) > 0);
+  assert.equal(cpuEntry(rail).bytes, tileBytes(alone.data));
+  assert.ok(cpuEntry(rail).bytes < tileBytes(two.data));
   // It never plays a tour: there is no tour ground to draw.
   rail.setCameraTour('rail-only', timeline);
   assert.equal(alone.cameraTour, null);
@@ -98,6 +106,7 @@ test('a device that cannot hold both cameras prepares the rail alone, and one th
   assert.deepEqual(fitted.stats.trees, alone.stats.trees);
   assert.equal(fitted.stats.triangles, alone.stats.triangles);
   assert.equal(gpuBytes(small, fitted), gpuBytes(reference, alone));
+  assert.equal(cpuEntry(small).bytes, cpuEntry(reference).bytes);
   const large = scene(60e6), both = await prepare(large, footprint);
   assert.equal(both.railOnly, null);
 });
@@ -109,6 +118,23 @@ test('a two-mode preparation denied for room is retried for its rail alone', asy
   delete s._tourFits;
   const retried = await prepare(s, footprint);
   assert.equal(retried.railOnly, 'its tour did not fit this device');
+});
+
+test('a package another preparation holds keeps its tour ground, and one kept for its rail prepares its variants for their rail', async () => {
+  // A composition variant shares its source's decoded package (RangeAssets.js).
+  const variant = { id: 'rail-only-variant', terrainSourceId: 'rail-only' };
+  const shared = scene();
+  const two = await prepare(shared, footprint, variant), alone = await prepare(shared);
+  assert.equal(two.railOnly, null);
+  assert.equal(alone.railOnly, 'no shot tour');
+  assert.ok(tourTiles(cpuEntry(shared).resource.data) > 0, 'the variant still draws its tour ground');
+  assert.equal(tourTiles(alone.data), 0);
+  const kept = scene();
+  await prepare(kept);
+  const after = await prepare(kept, footprint, variant);
+  assert.equal(after.railOnly, 'its terrain is loaded for its rail');
+  assert.equal(tourTiles(after.data), 0);
+  assert.equal(after.modeGeometries.length, 0);
 });
 
 test('presentation plays the rail of a view prepared for its rail alone, and says why', () => {
