@@ -147,8 +147,9 @@ Above the native grid, nothing reads the water target's depth, and its water
 can only appear on water-subset triangles. When every band and seam geometry
 has a subset and no river shares the band scenes, the whole pass is
 scissored to the projected rectangle of the water boxes, depth pre-pass
-included (`MirrorScissor.waterScissor`). The boxes are lifted the same way,
-with 2 px of margin. The culling then drops every tile outside that
+included (`MirrorScissor.waterScissor`). These boxes hold whole triangles,
+each binned by its first vertex's cell, so a box the camera culls holds no
+visible water. They are lifted the same way, with 2 px of margin. The culling then drops every tile outside that
 rectangle. The native pass stays whole, because the crest probe reads its
 depth and colour.
 
@@ -182,22 +183,36 @@ differed by about 1% of its pixels. Compare it against two base runs, not one.
 sampled point of every culled tile, displaced anywhere inside the lift,
 falls outside the clip volume, for random cameras, view offsets and
 scissors. Visible tiles are never culled, and groups stay in order. It
-fails when the lift is dropped or a plane is tightened.
+fails when the lift is dropped or a plane is tightened. It also checks the
+tables of real bakes and of the water subsets RangeScene builds.
+`test/terrainChunksRender.test.mjs` runs real three.js renders on a
+recording WebGL2 context: consecutive in-order runs per band, scissors,
+stale rectangles, a moved viewport and a failed render.
 `test/mirrorScissor.test.mjs` checks that every pixel a lake triangle can
-draw in the main view lies inside the water scissor.
-`test/waterDepthCopy.test.mjs` covers the depth copy's guards.
+draw in the main view lies inside the water scissor, including when a
+frustum side falls between two boxes. It also checks that `liftBounds`
+holds every displacement of the CPU twins (ice, deformation, dance).
+`test/waterScissor.test.mjs` checks when the water pass is scissored, and
+`test/waterDepthCopy.test.mjs` checks every guard on the depth copy.
 
 ## What is left, in order
 
-1. **The mirror's fragment cost** on real GPUs. It is scissored and now
+1. **The mirror scissor's cell gap.** The mirror still uses main's boxes,
+   which bin vertices. A lake triangle crossing a 384 m cell line leaves a
+   strip in neither box. When a main-view frustum side falls in that strip,
+   the mirror scissor can stop short of texels a frame-edge lake fragment
+   reads. Those pixels then reflect only the backdrop. Giving the mirror the
+   water scissor's triangle boxes fixes it. It is left out here because it
+   changes pixels, and this change keeps every frame identical.
+2. **The mirror's fragment cost** on real GPUs. It is scissored and now
    culled, but it is still a full-material pass at twice the grid. It is
    shed first by the quality ladder (below).
-2. **Offline bake.** The water index, its boxes and the chunk tables depend
+3. **Offline bake.** The water index, its boxes and the chunk tables depend
    only on the terrain package. `tools/build-range-scene.mjs` could bake
    them and serve them with it instead of computing them on the device
    (about 125 ms of main-thread work on a desktop, sliced; several times that
    on a head unit).
-3. **The fine crest probe's depth.** It is the same camera and frame as the
+4. **The fine crest probe's depth.** It is the same camera and frame as the
    output water pass, but its size matches only when the output is exactly
    4× the grid, and it has no depth texture. Since change 5 the payoff is
    small.
