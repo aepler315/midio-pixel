@@ -322,8 +322,12 @@ test('retained rail mirrors are covered by the ground the rail draws, never by t
   const { ctx, library, config } = await coveredMirrorExpansion();
   const tour = libraryPoses(ctx, library).poses;
   const rail = Array.from({ length: VISIBILITY.stations }, (_, k) => mirroredPose(cameraPoseAt(ctx.build.view, k / (VISIBILITY.stations - 1)), 1000));
-  // The dry northern ground that only the rail's reflections need: hiding
-  // one tile opens a rail mirror hole and leaves the tour covered.
+  // Dry northern ground the rail's reflections need and the tour does not:
+  // hiding one tile opens a rail mirror hole and leaves the tour covered.
+  // The rail sees these tiles directly too, and no bake marks such ground
+  // tour-only; the package is synthetic, to show which ground the mirror
+  // stations are held to (direct rail stations are the bake's, not checked
+  // here).
   const tourOnly = [...ctx.terrain.data.tiles.values()].filter((tile) => {
     if (!tile.visible || tile.flowBytes?.includes(255)) return false;
     tile.visible = false;
@@ -338,7 +342,7 @@ test('retained rail mirrors are covered by the ground the rail draws, never by t
   assert.equal(covered.validation.ok, false, 'shipping that ground for the tour does not cover the rail, which never draws it');
   for (const budget of ['desktop', 'mobile']) {
     const holes = covered.validation.holes.filter((h) => h.budget === budget);
-    assert.ok(holes.length > 0 && holes.every((h) => h.poseIndex >= tour.length), 'only the rail\'s reflections open holes');
+    assert.ok(holes.length > 0 && holes.every((h) => h.poseIndex >= tour.length), 'the holes are the rail mirror stations\', not the tour\'s');
   }
 });
 

@@ -30,7 +30,7 @@
   import { loadMaterialPack, RULE_DEFAULTS } from '../world/alpine/MaterialPackage.js';
   import { placeForest } from '../world/alpine/ForestCover.js';
   import { createForest } from '../world/alpine/ForestGL.js';
-  import { setTerrainDrawMode } from '../world/alpine/RailDraw.js';
+  import { setTerrainDrawMode, railGroundData } from '../world/alpine/RailDraw.js';
   import { terrainHeightRange } from '../world/alpine/TerrainPackage.js';
   import { scenePoseAt } from '../world/terrain/SceneTravel.js';
   import { hashSeed } from '../utils/math.js';
@@ -133,7 +133,9 @@
       return (targets = { w, h, color, depth: new THREE.WebGLRenderTarget(w, h, { depthBuffer: false }) });
     };
     const read = (target, w, h) => { const out = new Uint8Array(w * h * 4); renderer.readRenderTargetPixels(target, 0, 0, w, h, out); return out; };
-    const heightAt = (x, z) => terrainHeightAt(data, x, z);
+    // Subject ground is the ground this mode draws: on its rail, the rail's own tiles.
+    const ground = terrainMode === 'rail' ? railGroundData(data) : data;
+    const heightAt = (x, z) => terrainHeightAt(ground, x, z);
     // Every DEM sample lies above the quantization offset (terrain-bake).
     const floor = { floorY: data.manifest.quantization.offsetM,
       extent: [g.originM[0], g.originM[1], g.originM[0] + (g.width - 1) * g.cellSizeM, g.originM[1] + (g.height - 1) * g.cellSizeM] };

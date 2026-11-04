@@ -322,6 +322,42 @@ test('pixel-mode tree detail is weighed from what each mode draws', async () => 
   for (const f of [split, rail, whole]) f.dispose();
 });
 
+test('a rail\'s detail trees split between a shared batch and its rail-only twin share one weight', async () => {
+  const { view, tour } = await packages();
+  const rules = { treelineM: 2000, forestMaxSlopeDeg: 60, forestDensity: 1, forestFloorM: 0 };
+  const railAlone = placeForest(tour, view, rules, { seed: 7 });
+  const S = railAlone.stride, n = railAlone.meshDetail.length / S;
+  // Odd detail records lead the shared batch and even ones go rail-only; a
+  // shifted copy of the odd ones follows as the tour's own trees.
+  const odd = [], even = [];
+  for (let i = 0; i < n; i++) (i % 2 ? odd : even).push(...railAlone.meshDetail.subarray(i * S, (i + 1) * S));
+  assert.ok(odd.length && even.length);
+  const tourTrees = odd.map((v, k) => (k % S === 0 ? v + 0.25 : v));
+  const split = { ...railAlone, meshDetail: Float32Array.from([...odd, ...tourTrees]),
+    railCount: { meshDetail: odd.length / S, mesh: railAlone.mesh.length / S, billboard: railAlone.billboard.length / S },
+    railOnly: { meshDetail: Float32Array.from(even), mesh: new Float32Array(), billboard: new Float32Array() } };
+  const camera = new THREE.PerspectiveCamera(30, 16 / 9, 1, 20000);
+  const weights = (forest, mode) => {
+    for (const g of forest.modeGeometries) setTerrainDrawMode(g, mode);
+    forest.updateDetailView({ camera, width: 480, height: 270, pixelated: true, nearDetail: true });
+    const out = new Map();
+    for (const m of Object.values(forest.byBand).flat()) {
+      if (m.userData.nearLod !== 'detail') continue;
+      const g = m.geometry, w = g.attributes.iLodWeight.getX(0);
+      for (let i = 0; i < g.instanceCount; i++) out.set(`${g.attributes.iPos.getX(i)},${g.attributes.iPos.getZ(i)}`, w);
+    }
+    return out;
+  };
+  const twins = createForest(THREE, split, {}), rail = createForest(THREE, railAlone, {});
+  for (const target of [[100, 1000, -400], [200, 1000, -700]]) {
+    camera.position.set(0, 1500, -600); camera.lookAt(...target); camera.updateMatrixWorld(); camera.updateProjectionMatrix();
+    const expected = weights(rail, 'rail');
+    assert.ok(expected.size > 0);
+    assert.deepEqual(weights(twins, 'rail'), expected, `rail detail toward ${target}`);
+  }
+  for (const f of [twins, rail]) f.dispose();
+});
+
 test('a mapped tour places one forest, and regrounding keeps the rail\'s trees leading', async () => {
   const { view, tour } = await packages();
   const rules = { treelineM: 2000, forestMaxSlopeDeg: 60, forestDensity: 1, forestFloorM: 0 };

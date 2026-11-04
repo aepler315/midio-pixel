@@ -2,6 +2,7 @@
 // on synthetic frames, and one real headless render of a published view.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import zlib from 'node:zlib';
 import * as THREE from '../src/vendor/range/three-range.module.js';
 import catalog from '../src/world/terrain/sceneCatalogData.js';
@@ -283,6 +284,21 @@ test('real render: Monument Valley rail pose is whole, the reverse view finds dr
       const [tourBack] = await tourSession.renderPoses([back], { mode: 'silhouette' });
       t.diagnostic(`reverse holes: rail ${b.holes.toFixed(4)}, tour ${tourBack.metrics.holes.toFixed(4)}`);
       assert.ok(tourBack.metrics.holes < b.holes, 'ground only the tour sees fills the reverse view');
+      // A subject on ground only the tour sees: the tour maps it, the rail,
+      // which never draws that ground, does not.
+      const manifest = JSON.parse(fs.readFileSync(new URL(`../src/assets/range/v2/${entry.terrainManifestUrl}`, import.meta.url), 'utf8'));
+      const flag = new Map(manifest.tiles.map((tile) => [`${tile.ix},${tile.iz}`, tile]));
+      const tourOnly = manifest.tiles.find((tile) => tile.visible && [-1, 0, 1].every((u) => [-1, 0, 1].every((v) => {
+        const n = flag.get(`${tile.ix + u},${tile.iz + v}`);
+        return n?.rail === false && n.visible;
+      })));
+      assert.ok(tourOnly, 'the package ships tour-only ground');
+      const tileM = manifest.tileCells * manifest.grid.cellSizeM;
+      const onTour = { kind: 'peak', radiusM: 200, heightM: 50,
+        posM: [manifest.grid.originM[0] + (tourOnly.ix + 0.5) * tileM, tourOnly.maxY, manifest.grid.originM[1] + (tourOnly.iz + 0.5) * tileM] };
+      const [[railSees], [tourSees]] = [await session.renderPoses([rail], { mode: 'depth', subject: onTour }), await tourSession.renderPoses([rail], { mode: 'depth', subject: onTour })];
+      assert.equal(railSees.metrics.subject.unmapped, 1, 'the rail has no ground there');
+      assert.equal(tourSees.metrics.subject.unmapped, 0, 'the tour does');
     } finally { await tourSession.close(); }
     // Timing after warm-up: in-page (draw, readback, metrics) and round trip.
     const poses = [0.1, 0.3, 0.5, 0.7, 0.9].map((u) => scenePoseAt({ camera: entry.camera }, { progress01: u }));
