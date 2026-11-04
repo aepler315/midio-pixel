@@ -3,7 +3,7 @@
 // by the water in the terrain shader through a projection matrix (the same
 // trick as three's Reflector, without its oblique near plane: fragments
 // below the water are clipped in the shaders instead).
-import { railTile } from './TerrainPackage.js';
+import { drawnTile } from './TerrainPackage.js';
 
 /** The mirror image is drawn at this fraction of the partition size. */
 export const MIRROR_SCALE = 0.5;
@@ -30,13 +30,14 @@ export function mirrorSize(width, height, scale = MIRROR_SCALE) {
 
 /** The level a view's lake mirrors at, or null when no water the rail draws
  *  lies near `levelM` (only rivers, or lakes the rail never sees -- including
- *  ground only a shot tour sees, TerrainPackage railTile). Samples every
+ *  ground only a shot tour sees, TerrainPackage railTile). `{ tour: true }`
+ *  asks for a shot tour, which draws every shipped tile. Samples every
  *  `stride`th water sample, as waterLevel does. */
-export function mirrorLevelFor(data, levelM, { stride = 7 } = {}) {
+export function mirrorLevelFor(data, levelM, { stride = 7, tour = false } = {}) {
   if (!Number.isFinite(levelM)) return null;
   let n = 0;
   for (const t of data.tiles.values()) {
-    if (!railTile(t) || !t.flowBytes) continue;
+    if (!drawnTile(t, { tour }) || !t.flowBytes) continue;
     for (let i = 0; i < t.flowBytes.length; i += stride) {
       if (t.flowBytes[i] === 255 && Math.abs(t.heightsM[i] - levelM) < MIRROR_LEVEL_TOLERANCE_M && ++n >= MIRROR_MIN_SAMPLES) return levelM;
     }

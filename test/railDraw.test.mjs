@@ -184,7 +184,7 @@ test('the rail\'s trees lead every batch, and the rail draws only them', async (
   forest.dispose();
 });
 
-test('setCameraTour switches every prepared geometry between the rail and the tour', () => {
+test('setCameraTour switches every prepared geometry, the water and the height range between the rail and the tour', () => {
   const ranged = (rail, tour) => {
     const g = new THREE.BufferGeometry();
     g.setIndex(new THREE.BufferAttribute(new Uint32Array(30), 1));
@@ -196,7 +196,9 @@ test('setCameraTour switches every prepared geometry between the rail and the to
   const trees = new THREE.InstancedBufferGeometry();
   trees.userData.instanceCounts = { rail: 3, tour: 10 };
   setTerrainDrawMode(trees, 'rail');
-  const p = { view: { id: 'v' }, modeGeometries: [band, ink, trees], terrainMode: 'rail', cameraTour: null, stats: { triangles: 10, railTriangles: 4 } };
+  const modeWater = { rail: { waterLevelM: null, mirrorLevelM: null, heightRange: [0, 100] }, tour: { waterLevelM: 700, mirrorLevelM: 700, heightRange: [-50, 200] } };
+  const p = { view: { id: 'v' }, modeGeometries: [band, ink, trees], terrainMode: 'rail', cameraTour: null, stats: { triangles: 10, railTriangles: 4 },
+    modeWater, waterLevelM: null, mirrorLevelM: null, castWaterLevelM: null, uniforms: { uHeightRange: { value: new THREE.Vector2(0, 100) } } };
   const scene = { prepared: new Map([['v', p]]), depthCache: { A: { frame: 9 }, B: { frame: 9 } }, mirrors: { A: { frame: 9 }, B: null },
     _setTerrainMode: RangeScene.prototype._setTerrainMode };
   const tour = { poseAt: () => null, durationMs: 1 };
@@ -204,6 +206,8 @@ test('setCameraTour switches every prepared geometry between the rail and the to
   assert.deepEqual([band.drawRange.start, band.drawRange.count, ink.drawRange.start, trees.instanceCount], [6, 24, 4, 10]);
   assert.equal(p.terrainMode, 'tour');
   assert.equal(p.stats.drawnTriangles, 10);
+  // The tour's own lake, mirror plane and height range; the cast keeps the rail's water.
+  assert.deepEqual([p.waterLevelM, p.mirrorLevelM, p.uniforms.uHeightRange.value.x, p.uniforms.uHeightRange.value.y, p.castWaterLevelM], [700, 700, -50, 200, null]);
   assert.deepEqual([scene.depthCache.A.frame, scene.depthCache.B.frame, scene.mirrors.A.frame], [-1, -1, -1]);
   // A refined plan stays on the tour without touching anything.
   scene.depthCache.A.frame = 5;
@@ -212,6 +216,7 @@ test('setCameraTour switches every prepared geometry between the rail and the to
   RangeScene.prototype.setCameraTour.call(scene, 'v', null);
   assert.deepEqual([band.drawRange.start, band.drawRange.count, trees.instanceCount], [0, 12, 3]);
   assert.equal(p.stats.drawnTriangles, 4);
+  assert.deepEqual([p.waterLevelM, p.mirrorLevelM, p.uniforms.uHeightRange.value.x, p.uniforms.uHeightRange.value.y], [null, null, 0, 100]);
   // Highway tour windows have no rail.
   const windowed = { view: { id: 'w', tour: {} }, windowCache: {}, modeGeometries: [band], cameraTour: null };
   scene.prepared.set('w', windowed);

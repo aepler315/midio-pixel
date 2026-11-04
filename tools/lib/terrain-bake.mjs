@@ -888,9 +888,10 @@ export async function bakeTerrain(grid, view, options = {}) {
   const achieved = Object.fromEntries(Object.keys(budgets).map((k) => [k, 0]));
   let bounds = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] };
   // Posed bakes with a rail mark the tiles only a tour pose sees (rail:
-  // false) and keep the rail tiles' own bounds: the runtime draws only the
-  // rail tiles on the rail and takes the view's height range, water and
-  // mirror from them, so the rail plays exactly its rail-only package.
+  // false) and keep the rail tiles' own bounds: on its rail the runtime
+  // draws only the rail tiles and takes its height range, water and mirror
+  // from them, so the rail plays exactly its rail-only package (a shot tour
+  // draws, and takes those from, every tile).
   const markRail = posed && hasRail;
   const railBounds = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] };
 

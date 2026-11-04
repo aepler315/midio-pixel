@@ -31,10 +31,15 @@ export function decodeResiduals(r, n) {
  */
 export const railTile = (t) => !!t && t.visible !== false && t.rail !== false;
 
+/** Whether a camera mode draws this tile: the rail its own ground
+ *  (railTile), a shot tour every shipped tile (`{ tour: true }`). */
+export const drawnTile = (t, { tour = false } = {}) => (tour ? !!t && t.visible !== false : railTile(t));
+
 /** [min, max] metres the view's shading, land motion and mist normalise
- *  height over: the rail tiles' bounds when a tour bake records them. */
-export function terrainHeightRange(manifest) {
-  const b = manifest?.railBoundsM || manifest?.boundsM;
+ *  height over: on the rail, the rail tiles' bounds when a tour bake
+ *  records them; on a shot tour (`{ tour: true }`), every shipped tile's. */
+export function terrainHeightRange(manifest, { tour = false } = {}) {
+  const b = (!tour && manifest?.railBoundsM) || manifest?.boundsM;
   return b ? [b.min[1], b.max[1]] : null;
 }
 

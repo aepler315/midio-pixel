@@ -13,7 +13,7 @@
 import { bakeTerrain, mirroredPose } from './terrain-bake.mjs';
 import { sampleFootprintPoses } from './scenic-coverage.mjs';
 import { mirrorLevelFor } from '../../src/world/alpine/WaterMirror.js';
-import { railTile } from '../../src/world/alpine/TerrainPackage.js';
+import { drawnTile } from '../../src/world/alpine/TerrainPackage.js';
 
 /** Compressed payload bytes per tile by stride, measured on posed Monument
  *  Valley bakes (residual heights + flow, gzip applied). */
@@ -22,11 +22,12 @@ export const TILE_BYTES = Object.freeze({ 1: 7300, 2: 1900, 4: 500, 8: 140, 16: 
 export const MANIFEST_TILE_BYTES = 470;
 
 /** Median height of the rail's water samples (null without water), as
- *  RangeScene's waterLevel: ground only a tour pose sees does not count. */
-export function waterLevelOf(data) {
+ *  RangeScene's waterLevel: ground only a tour pose sees does not count,
+ *  except for a shot tour's own water (`{ tour: true }`). */
+export function waterLevelOf(data, { tour = false } = {}) {
   const hs = [];
   for (const t of data.tiles.values()) {
-    if (!railTile(t) || !t.flowBytes) continue;
+    if (!drawnTile(t, { tour }) || !t.flowBytes) continue;
     for (let i = 0; i < t.flowBytes.length; i += 7) if (t.flowBytes[i] === 255 && Number.isFinite(t.heightsM[i])) hs.push(t.heightsM[i]);
   }
   if (!hs.length) return null;
@@ -34,12 +35,19 @@ export function waterLevelOf(data) {
   return hs[hs.length >> 1];
 }
 
+/** The level each camera mode's lake mirrors at (RangeScene): the rail's
+ *  from its own ground, a shot tour's from every shipped tile. */
+export function mirrorLevels(ctx) {
+  if (ctx.view.riverPolicy?.terrainWater === 'mapped-only') return { rail: null, tour: null };
+  const data = ctx.terrain.data, at = (tour) => mirrorLevelFor(data, waterLevelOf(data, { tour }), { tour });
+  return { rail: at(false), tour: at(true) };
+}
+
 /** The poses records' frames (and, where a lake mirrors, their
- *  reflections) need covered. */
+ *  reflections) need covered: a shot tour's, so its mirror is the tour's. */
 export function tourPoses(ctx, records, { spacingM = 120, maxPoses = 2600 } = {}) {
   let poses = sampleFootprintPoses(records, { spacingM, maxPoses });
-  const mapped = ctx.view.riverPolicy?.terrainWater === 'mapped-only';
-  const level = mapped ? null : mirrorLevelFor(ctx.terrain.data, waterLevelOf(ctx.terrain.data));
+  const level = mirrorLevels(ctx).tour;
   if (level != null) poses = poses.concat(poses.filter((_, i) => i % 2 === 0).map((p) => ({ ...mirroredPose(p, level), ...(p.pathId != null ? { pathId: p.pathId } : {}) })));
   return { poses, mirrorLevelM: level };
 }

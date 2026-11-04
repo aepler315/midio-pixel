@@ -46,7 +46,7 @@ import { applyCameraMoves, rangeUserCamera } from './RangeCamera.js';
 import { BANDS, terrainFringeBytes, terrainRailCopyBytes, terrainHeightAt, SURFACE_BUILD_BYTES_PER_PIXEL } from './TerrainMesh.js';
 import { mistParams, mistDrift, easeMistSteps, tourMistCap, tourMistFade, atmosphereMusic } from './RangeAtmosphere.js';
 import { mirrorSize, mirrorLevelFor, mirrorCameraFor, mirrorTextureMatrix, MIRROR_CLIP_M, MIRROR_LIFT } from './WaterMirror.js';
-import { railTile } from './TerrainPackage.js';
+import { drawnTile, terrainHeightRange } from './TerrainPackage.js';
 import { tourGround, setTerrainDrawMode, drawnIndexCount } from './RailDraw.js';
 import { scenicProjection, calibrateRangeMusic, rangeCameraCalibration, requestedLandDance } from './RangeFrame.js';
 import { applyGlacierUniforms, glacierErrors, glacierSample } from './GlacierField.js';
@@ -123,11 +123,12 @@ function yieldToMain() {
 
 /** Median height of the rail's hydro-flattened water samples (the valley
  *  floor the mist settles on); null when the rail sees no water. Ground only
- *  a shot tour sees never moves the rail's water (TerrainPackage railTile). */
-export function waterLevel(data) {
+ *  a shot tour sees never moves the rail's water (TerrainPackage railTile);
+ *  a shot tour's own water (`{ tour: true }`) counts every shipped tile. */
+export function waterLevel(data, { tour = false } = {}) {
   const hs = [];
   for (const t of data.tiles.values()) {
-    if (!railTile(t) || !t.flowBytes) continue;
+    if (!drawnTile(t, { tour }) || !t.flowBytes) continue;
     for (let i = 0; i < t.flowBytes.length; i += 7) if (t.flowBytes[i] === 255 && Number.isFinite(t.heightsM[i])) hs.push(t.heightsM[i]);
   }
   if (!hs.length) return null;
@@ -744,6 +745,12 @@ export class RangeScene {
     if (p.terrainMode === mode) return;
     p.terrainMode = mode;
     for (const g of p.modeGeometries || []) setTerrainDrawMode(g, mode);
+    // Its water, mirror plane and height range follow what it draws.
+    const water = p.modeWater?.[mode];
+    if (water) {
+      p.waterLevelM = water.waterLevelM; p.mirrorLevelM = water.mirrorLevelM;
+      if (water.heightRange && p.uniforms?.uHeightRange) p.uniforms.uHeightRange.value.set(...water.heightRange);
+    }
     if (p.stats) p.stats = { ...p.stats, terrainMode: mode, drawnTriangles: mode === 'tour' ? p.stats.triangles : (p.stats.railTriangles ?? p.stats.triangles) };
     // Cached depth and mirror passes were drawn in the other mode.
     if (this.depthCache) this.depthCache.A.frame = this.depthCache.B.frame = -1;
@@ -1150,8 +1157,16 @@ export class RangeScene {
         // Placement yields to the event loop as it goes: a view prepared
         // during playback must not freeze frames while its forest is laid.
         let rawWindow = null;
-        const waterLevelM = view.riverPolicy?.terrainWater === 'mapped-only' ? null : waterLevel(cpu.data);
-        const mirrorLevelM = mirrorLevelFor(cpu.data, waterLevelM);
+        // Each camera mode's water (RailDraw.js): the rail's from its own
+        // ground, a shot tour's from every tile it draws. The cast keeps the
+        // rail's, whichever camera plays.
+        const waterFor = (tour) => {
+          const waterLevelM = view.riverPolicy?.terrainWater === 'mapped-only' ? null : waterLevel(cpu.data, { tour });
+          return { waterLevelM, mirrorLevelM: mirrorLevelFor(cpu.data, waterLevelM, { tour }), heightRange: terrainHeightRange(cpu.manifest, { tour }) };
+        };
+        const modeWater = { rail: waterFor(false) };
+        modeWater.tour = !view.tour && tourGround(cpu.data) ? waterFor(true) : modeWater.rail;
+        const { waterLevelM, mirrorLevelM } = modeWater.rail;
         const windowOptions = { budget: this.budget, heightPx: this.budget === 'mobile' ? 720 : 1080,
           coverage: terrainWindowCoverage(opts.scenicViewport), coverageRevision: 0,
           pixelHeightPx: (this.pixelated ?? opts.pixelated) && !view.glacier ? (this.pixelHeightPx ?? opts.pixelHeightPx ?? null) : null,
@@ -1451,7 +1466,7 @@ export class RangeScene {
           view, generation, manifest: cpu.manifest, data: cpu.data, identity: cpu.identity, tourCpuKey: opts.tourCpuKey,
           surface, uniforms, material, depthMaterial, ownershipMaterials, horizon, hierarchy, depthBandMeshes: depthMeshes, geometries: geos.geometries, fringes: geos.fringes, fringeMeshes, fringeTravel, scenes, depthScene, depthScenes,
           riverMaterial, riverDepthMaterial, riverOwnershipMaterials, riverGeometries, riverFringeGeometries, riverDepthMeshes, riverStats,
-          forest, stageGL, featureGeometries, featureMaterial, modeGeometries, terrainMode: view.tour ? null : 'rail',
+          forest, stageGL, featureGeometries, featureMaterial, modeGeometries, terrainMode: view.tour ? null : 'rail', modeWater, castWaterLevelM: waterLevelM,
           stats: { ...geos.stats, trees: forest.counts, featureBytes: featureBudgetBytes }, gpuKey, cpuKey: cpu.key, cpuOwner,
           waterSubsets, rules, waterLevelM, mirrorLevelM, waterColour, materialKey: mat.key, materialOwner, actors, actorRoutes: routes, castSeed, castPlan: plan, castWork: work,
         };
@@ -1881,9 +1896,12 @@ export class RangeScene {
    *  once when the partition is composited. */
   /** Ground height the camera must clear: the DEM plus a glacier view's
    *  ice at this frame's retreat, as TerrainMaterial raises it. */
-  _renderedGround(view, frame, data) {
+  _renderedGround(view, frame, data, p = null) {
     const ice = view.glacier, retreat01 = frame.glacier?.retreat01 ?? 0;
+    // On its rail a view draws none of the ground only its shot tour sees.
+    const railOnly = p?.terrainMode === 'rail' && p.modeWater && p.modeWater.tour !== p.modeWater.rail;
     return (x, z) => {
+      if (railOnly && this._tileAt(data, x, z)?.rail === false) return NaN;
       const bed = terrainHeightAt(data, x, z);
       return ice ? glacierSample(ice, x, z, bed, retreat01).surfaceM : bed;
     };
@@ -1914,7 +1932,7 @@ export class RangeScene {
     // Cinematic section moves and the listener's zoom (RangeCamera.js),
     // computed once per frame and view: the partition passes reuse it.
     const pose = applyCameraMoves(rail, frame.cameraMove, frame.userCamera, {
-        heightAt: p?.data ? this._renderedGround(view, frame, p.data) : null, waterLevelM: p?.waterLevelM,
+        heightAt: p?.data ? this._renderedGround(view, frame, p.data, p) : null, waterLevelM: p?.waterLevelM,
         sampleStepM: p?.data?.grid?.cellSizeM, cone: { tanX, tanY },
         heightRangeM: p?.uniforms ? [p.uniforms.uHeightRange.value.x, p.uniforms.uHeightRange.value.y] : null,
         zoomMode: 'projection' });
@@ -2233,7 +2251,7 @@ export class RangeScene {
     // A shot tour over a rail view keeps the view's job (and every light it
     // has left); only a tour view's own terrain wanders.
     const job = p.view.tour ? null : this._castJob(p, frame);
-    const opts = { data: p.data, waterLevelM: p.waterLevelM };
+    const opts = { data: p.data, waterLevelM: p.castWaterLevelM ?? p.waterLevelM };
     // A planned view with no job state yet (no schedule) wanders meanwhile.
     if (!job && !p.actorRoutes && p.castPlan && p.data) p.actorRoutes = actorRoutes(p.data, p.view, { ...opts, seed: p.castSeed ?? 0 });
     ACTOR_IDS.forEach((id, k) => {
@@ -2334,7 +2352,7 @@ export class RangeScene {
     const schedule = frame.actors?.schedule;
     if (!plan || plan.job === 'wander' || !state || !schedule) return null;
     const t = frame.timeMs;
-    const opts = { data: p.data, waterLevelM: p.waterLevelM };
+    const opts = { data: p.data, waterLevelM: p.castWaterLevelM ?? p.waterLevelM };
     const unit = x => Math.max(0, Math.min(1, x));
     // When each light kindles (seek-safe: compiled once per schedule). A
     // review's progress override lights what that progress has reached.
@@ -2437,7 +2455,7 @@ export class RangeScene {
     if (p.castLayoutFor !== schedule || !p.castCamps) {
       p.castLayoutFor = schedule;
       const camps = p.castPlan?.job === 'ascent' ? schedule?.views?.[p.view.id]?.camps || [] : [];
-      p.castCamps = camps.map(c => pathPosition(p.castPlan, c.p, { data: p.data, waterLevelM: p.waterLevelM, hoverM: 3 }));
+      p.castCamps = camps.map(c => pathPosition(p.castPlan, c.p, { data: p.data, waterLevelM: p.castWaterLevelM ?? p.waterLevelM, hoverM: 3 }));
       p.castCampFrom = null;
       // Each thread keeps its drape, in the nearest band any of it lies
       // over: every partition tests against all bands' depth, so only a

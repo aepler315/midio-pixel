@@ -26,7 +26,7 @@ import { discoverSubjects, valleyPaths, shorelines } from './lib/scenic-features
 import { generateShots, poseTraits, LANDFORMS } from './lib/scenic-shots.mjs';
 import { linkVariants, keepParetoLinks, linkRejects } from './lib/scenic-links.mjs';
 import { LINK_VISIBILITY_FIELDS, linkVisibilityStatus } from './lib/scenic-score.mjs';
-import { strideCost, tourPoses, tourBakeOptions, bakeOptions } from './lib/scenic-cost.mjs';
+import { strideCost, tourPoses, tourBakeOptions, bakeOptions, mirrorLevels } from './lib/scenic-cost.mjs';
 
 import { SHOT_SCHEMA, SHOT_VERSION, packShotPaths, chooseLattice, shotLibraryErrors, decodeShotLibrary, cameraFootprint } from '../src/world/terrain/ShotLibrary.js';
 import { pathPoseAt, slicePath, pathLaneAt, withProgress } from '../src/world/terrain/ShotPath.js';
@@ -1055,13 +1055,16 @@ export function libraryPoses(ctx, library, options = {}) {
 }
 
 /** Coverage requirements follow the package the runtime will load: a bake
- *  can expose water or change its median plane. Keep rail mirrors at the
- *  ordinary rail limits, independently of the looser tour pixel budget. */
+ *  can expose water or change its median plane. The rail mirrors its own
+ *  lake (RangeScene): only a rail that sees water keeps mirror stations, at
+ *  its own plane, held to the ordinary rail limits independently of the
+ *  looser tour pixel budget. */
 function libraryCoverage(ctx, library, check) {
   const { poses: tour, mirrorLevelM } = libraryPoses(ctx, library);
+  const railMirrorLevelM = mirrorLevels(ctx).rail;
   const count = bakeOptions(ctx).visibility?.stations ?? VISIBILITY.stations;
-  const rail = mirrorLevelM == null ? [] : Array.from({ length: count }, (_, k) =>
-    mirroredPose(cameraPoseAt(ctx.build.view, count > 1 ? k / (count - 1) : 0), mirrorLevelM));
+  const rail = railMirrorLevelM == null ? [] : Array.from({ length: count }, (_, k) =>
+    mirroredPose(cameraPoseAt(ctx.build.view, count > 1 ? k / (count - 1) : 0), railMirrorLevelM));
   const poses = [...tour, ...rail];
   const validation = { ok: true, holes: [], lod: [], worst: { holeFrac: 0, errorPx: 0, extendedErrorPx: 0 } };
   for (const budget of ['desktop', 'mobile']) {
@@ -1075,7 +1078,7 @@ function libraryCoverage(ctx, library, check) {
       for (const key of Object.keys(validation.worst)) validation.worst[key] = Math.max(validation.worst[key], result.worst[key]);
     }
   }
-  return { poses, railPoses: rail, mirrorLevelM, validation };
+  return { poses, railPoses: rail, mirrorLevelM, railMirrorLevelM, validation };
 }
 
 /**

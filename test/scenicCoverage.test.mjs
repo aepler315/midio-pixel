@@ -184,7 +184,7 @@ async function mirrorExpansion({ water = true, mappedOnly = false, northernLake 
 }
 const quiet = { log: () => {} };
 
-test('a real dry-to-wet rebake validates final mirrors including retained rail without changing its reference', async () => {
+test('a real dry-to-wet rebake validates the tour\'s final mirrors, and a rail that stays dry keeps no mirror stations', async () => {
   const { ctx, library, config } = await mirrorExpansion();
   const original = structuredClone(ctx), reference = ctx.terrain;
   assert.equal(libraryPoses(ctx, library).mirrorLevelM, null);
@@ -198,10 +198,12 @@ test('a real dry-to-wet rebake validates final mirrors including retained rail w
   assert.equal(baked.validation.ok, false, 'new runtime mirror holes cannot pass as covered direct poses');
   assert.equal(baked.mirrorLevelM, 1000);
   assert.deepEqual(baked.poses.slice(0, required.poses.length), required.poses);
-  const railMirrors = baked.poses.slice(required.poses.length);
-  assert.equal(railMirrors.length, VISIBILITY.stations);
-  assert.deepEqual(railMirrors[0], mirroredPose(cameraPoseAt(ctx.build.view, 0), 1000));
-  assert.deepEqual(railMirrors.at(-1), mirroredPose(cameraPoseAt(ctx.build.view, 1), 1000));
+  // The lake is the tour's alone: the northern rail never draws it, so it
+  // mirrors nothing (RangeScene: each camera mode's own water).
+  const lake = [...baked.data.tiles.values()].filter((t) => t.flowBytes.includes(255));
+  assert.ok(lake.length > 0 && lake.every((t) => t.rail === false));
+  assert.equal(baked.railMirrorLevelM, null);
+  assert.equal(baked.poses.length, required.poses.length, 'no rail mirror stations');
   for (const budget of ['desktop', 'mobile']) assert.ok(baked.validation.holes.some((h) => h.budget === budget));
   assert.equal(ctx.terrain, reference);
   assert.deepEqual(structuredClone(ctx), original, 'source terrain, DEM and authoring context stay the original baseline');
@@ -249,7 +251,7 @@ test('dry and mapped-only rebakes retain direct coverage and their no-rebake pat
   });
 });
 
-test('an active mirror whose sampled plane moves uses the final exact level', async () => {
+test('an active mirror whose sampled plane moves uses the final exact level, and the rail keeps its own lake\'s', async () => {
   const { ctx, library, config } = await mirrorExpansion({ northernLake: true });
   assert.equal(libraryPoses(ctx, library).mirrorLevelM, 899.97998046875);
   const baked = await bakeForLibrary(ctx, library, config, quiet);
@@ -258,11 +260,19 @@ test('an active mirror whose sampled plane moves uses the final exact level', as
   assert.equal(baked.validation.ok, false);
   const mirrors = baked.poses.filter((p) => p.framing === 'mirror');
   assert.equal(mirrors.length, VISIBILITY.stations + 1);
-  assert.ok(mirrors.every((p) => p.levelM === 1000), 'rounded input mirror levels cannot stand in for the delivered package plane');
+  // The tour mirrors the delivered package's median plane (its larger
+  // southern lake); the rail, which sees only the northern lake, its own.
+  assert.equal(baked.railMirrorLevelM, 899.97998046875);
+  const railMirrors = baked.poses.slice(-VISIBILITY.stations);
+  assert.deepEqual(railMirrors[0], mirroredPose(cameraPoseAt(ctx.build.view, 0), baked.railMirrorLevelM));
+  assert.ok(railMirrors.every((p) => p.levelM === baked.railMirrorLevelM));
+  assert.ok(mirrors.filter((p) => !railMirrors.includes(p)).every((p) => p.levelM === 1000), 'rounded input mirror levels cannot stand in for the delivered package plane');
 });
 
+// A rail that sees its own lake at the tour's plane (the northern lake at
+// 1000 m), baked to cover the tour, its reflections and the rail's.
 async function coveredMirrorExpansion() {
-  const { ctx, library, config } = await mirrorExpansion();
+  const { ctx, library, config } = await mirrorExpansion({ northernLake: true, northernLakeLevelM: 1000 });
   const tour = libraryPoses(ctx, library).poses;
   const mirrors = [...tour.filter((_, i) => i % 2 === 0), ...Array.from({ length: VISIBILITY.stations }, (_, k) => cameraPoseAt(ctx.build.view, k / (VISIBILITY.stations - 1)))].map((p) => mirroredPose(p, 1000));
   const terrain = await bakeTerrain(ctx.grid, ctx.build.view, { poses: [...tour, ...mirrors], poseErrorScale: 3, poseFramings: ['core'] });
