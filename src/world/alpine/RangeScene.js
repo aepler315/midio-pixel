@@ -29,6 +29,7 @@ import { terrainFeatureSegmentsAsync } from './TerrainFeatures.js';
 import { CrestProbe, PROBE_FINE_K, FINE_FRAG } from './CrestProbe.js';
 import { loadMaterialPack, materialGpuBytes, RULE_DEFAULTS, validateWaterRules } from './MaterialPackage.js';
 import { placeForestAsync, forestPlacementBound } from './ForestCover.js';
+import { TourForestSchedule, tourForestBytes } from './TourForest.js';
 import { SunShaftGL, SHAFT_KEY, shaftSize, shaftSource } from './SunShaftGL.js';
 import { rangeQuality, easeRungAmount } from './RangeQuality.js';
 import { clamp01, hashSeed } from '../../utils/math.js';
@@ -230,6 +231,10 @@ export class RangeScene {
     this.mirrorCamera = new THREE.PerspectiveCamera();
     // Moved camera poses per frame and view (see _setCamera).
     this._movedPoses = new WeakMap();
+    // Two-camera views draw their shot tours' mesh trees by windows of the
+    // timeline (TourForest.js) when there is room; false gives every view
+    // the static tour forest. Read at prepare.
+    this.tourForest = true;
     this.depthCache = { A: { frame: -1, view: null }, B: { frame: -1, view: null } };
     this.size = { width: 0, height: 0 };
     this.contextLost = false;
@@ -590,7 +595,8 @@ export class RangeScene {
    */
   _updateForestDetail(p, frame, camera, width, height, kind) {
     if (!p.forest?.updateDetailView) return;
-    const key = `${frame.frameId}:${frame.occurrenceId ?? p.view.id}:${kind}:${width}:${height}`;
+    // The tour layer's serial: its twins' trees and counts change on refills.
+    const key = `${frame.frameId}:${frame.occurrenceId ?? p.view.id}:${kind}:${width}:${height}:${p.forest.tour?.serial ?? 0}`;
     if (p.forestDetailState?.forest === p.forest && p.forestDetailState.key === key) return;
     const state = p.forest.updateDetailView({ camera, width, height, pixelated: !!this.pixelated,
       nearDetail: rangeQuality(frame.qualityLevel).nearDetail });
@@ -794,6 +800,9 @@ export class RangeScene {
     if (p?.railOnly) tour = null;
     if (!p || p.windowCache || p.cameraTour === tour) return;
     p.cameraTour = tour || null;
+    // New window sets for the keys that changed: their new identities make
+    // the layer refill (TourForestSchedule.setTimeline).
+    p.tourSchedule?.setTimeline(p.cameraTour);
     this._movedPoses = new WeakMap();
     this._setTerrainMode(p);
   }
@@ -809,6 +818,8 @@ export class RangeScene {
     // A culled render's 0 must not outlive the switch (ForestCulling.js).
     restoreForestCulling();
     for (const g of p.modeGeometries || []) setTerrainDrawMode(g, mode);
+    p.forest?.tour?.setMode(mode);
+    if (p.tourForestStats) p.tourForestStats.active = !!p.forest.tour.active;
     // Its water, mirror plane and height range follow what it draws.
     const water = p.modeWater?.[mode];
     if (water) {
@@ -824,6 +835,35 @@ export class RangeScene {
     // Cached depth and mirror passes were drawn in the other mode.
     if (this.depthCache) this.depthCache.A.frame = this.depthCache.B.frame = -1;
     for (const m of Object.values(this.mirrors || {})) if (m) m.frame = -1;
+  }
+
+  /** On its shot tour a view with the tour forest layer draws the window
+   *  sets of this frame's heard time (TourForest.js): the eye the passes
+   *  draw from must lie within both windows' guard of their paths, else
+   *  every tree of the layer draws as a mesh. Runs before each pass that
+   *  draws the forest; a refill drops depth and mirror images drawn with
+   *  the previous sets. */
+  _updateTourForest(p, frame) {
+    const layer = p.forest?.tour, s = p.tourSchedule, tl = p.cameraTour;
+    if (!layer || !s || p.terrainMode !== 'tour' || !tl) return;
+    // The heard time scenePoseAt draws in movedPose.
+    const progress01 = (p.view.glacier ? (frame.glacier?.journey01 ?? frame.progress01) : frame.progress01) ?? .5;
+    const t = frame.timeMs ?? progress01 * tl.durationMs;
+    const stats = p.tourForestStats;
+    let state = s.stateAt(t);
+    // Passes draw from the moved camera; a nominal frame, from the rail.
+    const vp = frame.scenicViewport;
+    const eye = vp?.logicalWidth > 0 && vp?.logicalHeight > 0 ? this.movedPose(p.view, frame, p).pose.eyeM : tl.poseAt(t).eyeM;
+    if (!s.covers(state, eye)) { state = s.all; stats.guardFails++; }
+    if (layer.apply(state)) {
+      if (this.depthCache) this.depthCache.A.frame = this.depthCache.B.frame = -1;
+      for (const m of Object.values(this.mirrors || {})) if (m) m.frame = -1;
+    }
+    if (p.tourPrefetchFrame !== frame.frameId) { p.tourPrefetchFrame = frame.frameId; s.prefetch(t); }
+    stats.window = state.b.w;
+    stats.refills = layer.refills;
+    stats.syncComputes = s.syncComputes;
+    stats.maxComputeMs = s.maxComputeMs;
   }
 
   _invalidateTourWindows(p, { keepDetail = false } = {}) {
@@ -1382,7 +1422,17 @@ export class RangeScene {
           this._refuseTour(view.id, generation, placedNeed);
           throw new RangeAssetError('budget', `no room for both cameras of ${view.id}`);
         }
-        res = this.residency?.reserve({ key: gpuKey, bytes, owner: 'range-terrain-gpu', generation }) || null;
+        // The tour forest windows' layer (TourForest.js) rides in the same
+        // entry when it fits beside both cameras, with mobile's headroom;
+        // without room the view keeps the static tour forest.
+        const tourBytes = twoModes && this.tourForest && placed.railCount ? tourForestBytes(placed) : 0;
+        let tourLayer = tourBytes > 0 && (!this.residency
+          || this.residency.canFit(bytes + scratchBytes + (this.budget === 'mobile' ? 2 : 1) * tourBytes, [cpu.key, mat.key]));
+        res = this.residency?.reserve({ key: gpuKey, bytes: bytes + (tourLayer ? tourBytes : 0), owner: 'range-terrain-gpu', generation }) || null;
+        if (this.residency && !res && tourLayer) {
+          tourLayer = false;
+          res = this.residency.reserve({ key: gpuKey, bytes, owner: 'range-terrain-gpu', generation }) || null;
+        }
         if (this.residency && !res) {
           // Its retry this song is prepared for its rail alone.
           if (twoModes) this._refuseTour(view.id, generation, placedNeed);
@@ -1557,7 +1607,8 @@ export class RangeScene {
         this._attachRiverFringes(riverFringeGeometries, riverMaterial, scenes, fringeMeshes, fringeTravel);
         material.depthFunc = THREE.LessEqualDepth;
         material.depthWrite = false;
-        forest = createForest(THREE, placed, uniforms, { forestDebug: this.forestDebug });
+        forest = createForest(THREE, placed, uniforms, { forestDebug: this.forestDebug,
+          tour: tourLayer ? { seed: hashSeed(view.terrainSourceId || view.id) } : null });
         if (!view.tour) {
           // Every geometry already draws the rail (createBandGeometries,
           // _buildWaterSubsets, createForest); setCameraTour switches them.
@@ -1569,6 +1620,11 @@ export class RangeScene {
         if (resolveRangeComposition(view)?.foreground === 'ledge') stageGL = new RockStageGL(THREE, { textures: mat.textures, palette: mat.pack.manifest.palette, rules });
         for (const band of BANDS) for (const m of forest.byBand[band]) scenes[band].add(m);
         for (const d of forest.depth) depthScene.add(d);
+        // The tour layer's objects, hidden until the view draws its tour.
+        if (forest.tour) {
+          for (const band of BANDS) for (const m of forest.tour.byBand[band]) scenes[band].add(m);
+          for (const d of forest.tour.depth) depthScene.add(d);
+        }
         // The cast: lanterns and swarms, moved between band scenes as they
         // travel. CastJobs.js reads this view's job from what the rail sees
         // (tours wander the routes RangeActors.js picks); the lights the
@@ -1596,6 +1652,7 @@ export class RangeScene {
             depthScenes[band].add(riverDepth);
           }
           for (const d of forest.depthByBand?.[band] || []) depthScenes[band].add(d);
+          for (const d of forest.tour?.depthByBand[band] || []) depthScenes[band].add(d);
         }
         // Every scene that draws the bands culls their off-screen tiles for
         // each render's own camera and scissor, lifted by this frame's
@@ -1630,17 +1687,24 @@ export class RangeScene {
           }
           targets.push([ownershipScene]);
         }
-        for (const [scene, camera = this.camera, target = null] of targets) {
-          for (const m of this.renderer.compile(scene, camera, target)) {
-            if (checked.has(m)) continue;
-            checked.add(m);
-            for (const program of this.renderer.properties.get(m).programs.values()) {
-              if (gl.getProgramParameter(program.program, gl.LINK_STATUS)) continue;
-              if (gl.isContextLost()) throw new RangeAssetError('context-lost', `GPU context lost while compiling ${view.id}`);
-              const log = shaderFailureLog(gl, program.program);
-              throw new RangeAssetError('shader', `${view.id}: ${log}`);
+        // The tour layer is hidden on the rail: compile() skips hidden
+        // objects, so it is shown for the check.
+        forest.tour?.setCompileVisible(true);
+        try {
+          for (const [scene, camera = this.camera, target = null] of targets) {
+            for (const m of this.renderer.compile(scene, camera, target)) {
+              if (checked.has(m)) continue;
+              checked.add(m);
+              for (const program of this.renderer.properties.get(m).programs.values()) {
+                if (gl.getProgramParameter(program.program, gl.LINK_STATUS)) continue;
+                if (gl.isContextLost()) throw new RangeAssetError('context-lost', `GPU context lost while compiling ${view.id}`);
+                const log = shaderFailureLog(gl, program.program);
+                throw new RangeAssetError('shader', `${view.id}: ${log}`);
+              }
             }
           }
+        } finally {
+          forest.tour?.setCompileVisible(false);
         }
         const prepared = {
           view, generation, manifest: cpu.manifest, data, railOnly, identity: cpu.identity, tourCpuKey: opts.tourCpuKey,
@@ -1649,7 +1713,14 @@ export class RangeScene {
           forest, stageGL, featureGeometries, featureMaterial, modeGeometries, terrainMode: view.tour ? null : 'rail', modeWater, castWaterLevelM: waterLevelM,
           stats: { ...geos.stats, trees: forest.counts, featureBytes: featureBudgetBytes }, gpuKey, cpuKey: cpu.key, cpuOwner,
           waterSubsets, rules, waterLevelM, mirrorLevelM, materialKey: mat.key, materialOwner, actors, actorRoutes: routes, castSeed, castPlan: plan, castWork: work,
+          tourSchedule: forest.tour ? new TourForestSchedule(forest.tour.index) : null,
         };
+        if (forest.tour) {
+          // Mutated in place by _updateTourForest and _setTerrainMode.
+          prepared.tourForestStats = { bytes: forest.tour.bytes, trees: forest.tour.index.count, window: null, active: false,
+            refills: 0, guardFails: 0, syncComputes: 0, maxComputeMs: 0 };
+          prepared.stats.tourForest = prepared.tourForestStats;
+        } else if (twoModes) prepared.stats.tourForest = 'static: no room or off';
         if (windowWorker) {
           prepared.windowWorker = windowWorker;
           this.residency?.retag(workerKey, generation);
@@ -2217,6 +2288,7 @@ export class RangeScene {
     // Trees show with the narrative's materials; the detail ring shows one
     // of its two representations (RangeQuality nearDetail).
     const treesShown = !n || n.materials > .01;
+    this._updateTourForest(p, frame);
     if (p.forest?.applyVisibility) p.forest.applyVisibility({ shown: treesShown, nearDetail: rung.nearDetail });
     else {
       for (const objects of Object.values(p.forest?.byBand || {})) for (const tree of objects) tree.visible = treesShown;
