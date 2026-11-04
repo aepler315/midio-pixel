@@ -95,10 +95,16 @@ export function staticViewBytes(data, est, trees, { budget = 'desktop', landDanc
     + modes * 2 * 3 * 768 * 6 * 4 + 2 * ActorsGL.bytes() + horizonCost + hierarchyCost;
 }
 
+/** The grouping and asset-build allowance a static forest build keeps
+ *  idle until createForest, for `count` trees. */
+function forestIdleBytes(count) {
+  return forestGroupingBytes(count) + FOREST_ASSET_BUILD_BYTES;
+}
+
 /** What a static forest build keeps once placement has returned its
  *  records (RangeScene._retireForestPlacement), for `count` trees. */
 function forestRetainedBytes(count) {
-  return count * 32 + forestGroupingBytes(count) + FOREST_ASSET_BUILD_BYTES;
+  return count * 32 + forestIdleBytes(count);
 }
 
 /** A static forest build's admitted peak, from its placement bound. */
@@ -923,7 +929,9 @@ export class RangeScene {
     const placement = forestBuildBytes(bound);
     if (placedNeed != null) return this.residency.canFit(Math.max(placement, placedNeed), protect) ? 'fits' : null;
     const gpu = staticViewBytes(cpu.data, est, bound.count, { budget: this.budget, landDance: requestedLandDance() });
-    const scratch = cpu.data.grid.width * cpu.data.grid.height * SURFACE_BUILD_BYTES_PER_PIXEL;
+    // The surface borrows the kept records' idle construction allowance
+    // (prepare): only its scratch beyond that is charged beside them.
+    const scratch = Math.max(0, cpu.data.grid.width * cpu.data.grid.height * SURFACE_BUILD_BYTES_PER_PIXEL - forestIdleBytes(bound.count));
     if (this.residency.canFit(Math.max(placement, forestRetainedBytes(bound.count) + gpu + scratch), protect)) return 'fits';
     return this.budget !== 'mobile' && this.residency.canFit(placement, protect) ? 'placed' : null;
   }
@@ -977,12 +985,16 @@ export class RangeScene {
     if (p.view.tour) return;
     const rings = (t) => [t?.meshDetail, t?.mesh, t?.billboard];
     const records = [...rings(placed), ...rings(placed.railOnly)].reduce((sum, a) => sum + (a?.byteLength || 0), 0);
-    const bytes = records + forestGroupingBytes(placed.count) + FOREST_ASSET_BUILD_BYTES;
+    const construction = forestIdleBytes(placed.count);
+    const bytes = records + construction;
     if (bytes > entry.bytes) throw new RangeAssetError('budget', 'Forest records exceed admitted build bound');
     if (this.residency && !this.residency.shrinkReservation(entry.reservation, bytes)) {
       throw new RangeAssetError('stale', 'Forest placement reservation retired');
     }
     entry.bytes = bytes;
+    // Grouping and asset building happen in createForest, after the surface
+    // build has freed its scratch: until then the surface may use them.
+    entry.idleBytes = construction;
   }
 
   _requestTourRaw(p, index) {
@@ -1346,10 +1358,15 @@ export class RangeScene {
         const hierarchyCost = view.tour || !cpu.data?.grid || !requestedLandDance() ? 0 : modes * hierarchySamples * hierarchySamples * 4;
         const bytes = view.tour ? Math.ceil(gridPx * (4 * 4 / 3 + 1)) + featureBudgetBytes + 2 * ActorsGL.bytes()
           : staticViewBytes(data, est, placed.count, { budget: this.budget, landDance: requestedLandDance() });
+        // A static view's build entry still holds its forest construction
+        // allowance, which createForest uses only after the surface scratch
+        // is freed. The surface borrows it and is charged only beyond it, so
+        // two working peaks that never coexist are not counted together.
+        const scratchBytes = Math.max(0, gridPx * SURFACE_BUILD_BYTES_PER_PIXEL - (buildEntry?.idleBytes || 0));
         // Both cameras, at the trees placed: the GPU reservation and the
         // surface build beside the kept records, or the rail alone this song.
-        const placedNeed = (buildEntry?.bytes || 0) + bytes + gridPx * SURFACE_BUILD_BYTES_PER_PIXEL;
-        if (twoModes && this.residency && !this.residency.canFit(bytes + gridPx * SURFACE_BUILD_BYTES_PER_PIXEL, [cpu.key, mat.key])) {
+        const placedNeed = (buildEntry?.bytes || 0) + bytes + scratchBytes;
+        if (twoModes && this.residency && !this.residency.canFit(bytes + scratchBytes, [cpu.key, mat.key])) {
           this._refuseTour(view.id, generation, placedNeed);
           throw new RangeAssetError('budget', `no room for both cameras of ${view.id}`);
         }
@@ -1372,7 +1389,7 @@ export class RangeScene {
         if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
         const mappedWaterOnly = view.riverPolicy?.terrainWater === 'mapped-only';
         const scratchKey = `range:surface-scratch:${view.id}`;
-        const scratch = this.residency?.reserve({ key: scratchKey, bytes: gridPx * SURFACE_BUILD_BYTES_PER_PIXEL, owner: 'range-scratch', generation }) || null;
+        const scratch = this.residency?.reserve({ key: scratchKey, bytes: scratchBytes, owner: 'range-scratch', generation }) || null;
         if (this.residency && !scratch) {
           if (twoModes) this._refuseTour(view.id, generation, placedNeed);
           throw new RangeAssetError('budget', `no room to build ${view.id} surface`);
