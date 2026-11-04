@@ -17,8 +17,16 @@ other versions) and the locked dependencies. `npm run validate` runs the whole
 sequence below, including both browser checks against their own servers on
 free ports, and prints a summary to paste into the pull request (the PR
 template asks for it). `npm ci` also installs a pre-push hook
-(`.githooks/pre-push`, via the `prepare` script) that runs `npm run lint` and
-`npm test`; skip it once with `git push --no-verify`.
+(`.githooks/pre-push`, via the `prepare` script) that runs `npm run lint`,
+`npm test` and `npm run check:modules -- --tracked`; skip it once with
+`git push --no-verify`.
+
+A conflict resolved in GitHub's web editor never runs that hook. Merge
+63296c8 (#70) did that, kept both sides of an import, and broke every
+Landscape view on `main`. After resolving a conflict anywhere but a local
+checkout, run at least `npm run check:modules` (about 2 s). It parses and
+links every module under `src/` with V8, the way the browser loads them.
+`--tracked` also fails on a module that exists locally but was never added.
 
 The individual steps:
 
