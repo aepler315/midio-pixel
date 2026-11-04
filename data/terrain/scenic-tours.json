@@ -68,7 +68,7 @@
         }
       },
       "budgetNote": "No caps (Ashton, 2026-11-04). Covering the rail's lake reflection takes 1,105 tiles (+1.9 MB, 3.43 M desktop triangles, a 218 MiB forest build bound), over every default. The runtime decides per device instead: where the tour does not fit beside what is resident, RangeScene prepares the view for its rail alone (docs/ross-lake-terrain-rebuild-2026-11-03.md).",
-      "status": "candidate",
+      "status": "approved",
       "landform": "lake-alpine",
       "notes": "Ross Lake reservoir between Jack Mountain and the Hozomeen/Pasayten peaks; long north-south water with steep forested flanks.",
       "subjects": [
@@ -100,6 +100,15 @@
         "shotsManifestSha256": "c9e1e87ce87f7ecf503c3c1b6153f916a04982ddcb7a241be256d49f41212113",
         "terrainManifestSha256": "1c158ef5412dfd764cdf2f660c2fb2d9e234584e4601aa53e4773e6de8571d5e",
         "baseViewSha256": "3a84619f6a0d726da11f9a653d8cf443f6c978a2e033d263745369a36e671920"
+      },
+      "approval": {
+        "date": "2026-11-04",
+        "shotsManifestSha256": "c9e1e87ce87f7ecf503c3c1b6153f916a04982ddcb7a241be256d49f41212113",
+        "terrainManifestSha256": "1c158ef5412dfd764cdf2f660c2fb2d9e234584e4601aa53e4773e6de8571d5e",
+        "baseViewSha256": "3a84619f6a0d726da11f9a653d8cf443f6c978a2e033d263745369a36e671920",
+        "evidence": [
+          "docs/ross-lake-terrain-rebuild-2026-11-03.md"
+        ]
       }
     },
     "teton-jackson-lake": {

@@ -1,6 +1,6 @@
 {
   "about": "Range v2 scenic views: curated real terrain corridors with authored camera rails. Authoring source for tools/build-range-scene.mjs; the runtime catalog (src/assets/range/v2/catalog.json) is generated from it. Rail anchors are lon/lat (NAD83 for 3DEP sources) with an absolute height (heightM, metres above the source vertical datum) or a height above the DEM ground (aboveGroundM). status: candidate | approved | rejected; only approved views are production-eligible. These statuses describe the current runtime selector; candidate authoring and experimental development may proceed independently under docs/experimental-development.md.",
-  "catalogVersion": 52,
+  "catalogVersion": 54,
   "views": [
     {
       "id": "nc-ross-lake-north",
@@ -94,20 +94,14 @@
       "title": "Ross Lake",
       "place": "North Cascades, Washington",
       "approval": {
-        "date": "2026-10-01",
-        "terrainManifestSha256": "32ee5822fccba5a474d0298cd8eb4e941cbb4858e7f1679b4e6ae9fa338aa4d2",
+        "date": "2026-11-04",
+        "terrainManifestSha256": "1c158ef5412dfd764cdf2f660c2fb2d9e234584e4601aa53e4773e6de8571d5e",
         "materialManifestSha256": "8f5ff6bb64b01072364f9d4698c13591af20de8f32dfbd40b67f0614fd242bb0",
         "materialRulesSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
         "cameraSha256": "1947b732c79e756600438f9747cb0dbd629daecafb072dd925d4d5cd1773eb7a",
         "compositionSha256": "42aabcc21fc899222ba1c8263d48fd22f58d0b94716e47f9a127c1e84b12a1f1",
         "evidence": [
-          "docs/evidence/range-v2/nc-ross-lake-north-stations.jpg",
-          "docs/evidence/range-v2/nc-ross-lake-north-inapp-10s.jpg",
-          "docs/evidence/range-v2/pilot-ross-lake-calm-10s.jpg",
-          "docs/evidence/range-v2/pilot-ross-lake-energetic-32s.jpg",
-          "docs/evidence/range-v2/pilot-ross-lake-reflection-38s.jpg",
-          "docs/evidence/range-v2/nc-ross-lake-north-nostage-10s.jpg",
-          "docs/evidence/range-v2/no-stage-coverage.json"
+          "docs/ross-lake-terrain-rebuild-2026-11-03.md"
         ]
       },
       "shotsManifestUrl": "tour/nc-ross-lake-north.shots.json"
