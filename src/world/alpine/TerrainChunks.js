@@ -8,20 +8,28 @@
 // triangles in another order can flip a pixel wherever two of them meet at
 // equal depth (seams, T-junctions between tile strides).
 //
-// So a band stays one mesh and one render-list item. Its geometry carries a
-// chunk table: each tile's index range, which is contiguous in the band
+// So a band stays one mesh. Its geometry carries a chunk table: each tile's index range, which is contiguous in the band
 // index, and its box. Three.js calls Scene.onBeforeRender before it culls
 // or sorts anything; there the draw groups of every chunked geometry in the
 // scene are set to the runs of chunks whose boxes, lifted by this frame's
 // largest vertical displacement (MirrorScissor.liftBounds), reach the
 // camera's frustum, narrowed to the target's scissor rectangle. The runs are
-// in index order, so every drawn triangle keeps its place in the sequence;
-// a culled chunk lies wholly outside a clip plane and could not have made a
+// in index order. Three.js makes one render item per run, all with the same
+// sort keys (group order, render order, material, z from the shared bounding
+// sphere, object id), and its sort is stable, so the runs draw consecutively
+// and in index order: every drawn triangle keeps its place in the sequence.
+// A culled chunk lies wholly outside a clip plane and could not have made a
 // fragment. The picture is unchanged. Scene.onAfterRender puts the groups
 // back to the whole index, so a render that does not cull draws everything.
 //
 // Three.js honours draw groups only for a mesh whose material is an array:
 // chunked meshes hold [material] (setTerrainMaterial swaps it).
+//
+// The scissor is read from the render target's own scissor, scissorTest and
+// viewport, which three.js applies to GL in setRenderTarget. Change them only
+// before setRenderTarget(target), never on a bound target: GL would not
+// scissor while the culling did. A renderer.setViewport() on a bound target
+// is detected (getCurrentViewport) and turns the narrowing off.
 
 /** Culled index ranges shorter than this are drawn through instead of
  *  costing a draw call of their own (about 2,000 triangles). */
@@ -63,8 +71,18 @@ export function subsetChunkTable(table, kept) {
  *  [material] mesh needs to draw anything. */
 export function setChunks(geometry, table = null) {
   geometry.userData.terrainChunks = table || null;
-  geometry.groups = [{ ...WHOLE }];
+  geometry.groups = wholeGroups(geometry);
   return geometry;
+}
+
+// One whole-index group array per geometry, reused by every restore.
+const whole = new WeakMap();
+function wholeGroups(geometry) {
+  let groups = whole.get(geometry);
+  if (!groups || groups.length !== 1 || groups[0].start !== 0 || groups[0].count !== Infinity || groups[0].materialIndex !== 0) {
+    whole.set(geometry, groups = [{ ...WHOLE }]);
+  }
+  return groups;
 }
 
 /** Put `material` on a terrain mesh, keeping its array form when it has one. */
@@ -80,10 +98,11 @@ export function terrainMaterial(mesh) {
 /**
  * World-space planes (a, b, c, d per plane; inside when a x + b y + c z + d
  * >= 0) of what `camera` draws into `target`: its frustum, its sides moved
- * in to the target's scissor rectangle when the scissor test is on. Null
- * when the matrices are unusable.
+ * in to the target's scissor rectangle when the scissor test is on and the
+ * GL viewport is the target's (`renderer.getCurrentViewport`, when given).
+ * Null when the matrices are unusable.
  */
-export function frustumPlanes(camera, target = null, out = new Float64Array(24)) {
+export function frustumPlanes(camera, target = null, out = new Float64Array(24), renderer = null) {
   const p = camera.projectionMatrix.elements, v = camera.matrixWorldInverse.elements;
   // Column-major M = P * V; row r of M is (m[r], m[4 + r], m[8 + r], m[12 + r]).
   const m = out.m || (out.m = new Float64Array(16));
@@ -93,7 +112,7 @@ export function frustumPlanes(camera, target = null, out = new Float64Array(24))
   for (let i = 0; i < 16; i++) if (!Number.isFinite(m[i])) return null;
   // NDC bounds of the drawn rectangle.
   let x0 = -1, x1 = 1, y0 = -1, y1 = 1;
-  if (target?.scissorTest && target.scissor && target.viewport && target.viewport.z > 0 && target.viewport.w > 0) {
+  if (target?.scissorTest && target.scissor && target.viewport && target.viewport.z > 0 && target.viewport.w > 0 && viewportIsTarget(renderer, target)) {
     const vp = target.viewport, s = target.scissor, k = CHUNK_SCISSOR_MARGIN_PX;
     x0 = Math.max(-1, (s.x - k - vp.x) / vp.z * 2 - 1); x1 = Math.min(1, (s.x + s.z + k - vp.x) / vp.z * 2 - 1);
     y0 = Math.max(-1, (s.y - k - vp.y) / vp.w * 2 - 1); y1 = Math.min(1, (s.y + s.w + k - vp.y) / vp.w * 2 - 1);
@@ -108,6 +127,15 @@ export function frustumPlanes(camera, target = null, out = new Float64Array(24))
   set(4, i => row(2, i) + row(3, i));
   set(5, i => row(3, i) - row(2, i));
   return out;
+}
+
+// False when the renderer's GL viewport is not the target's own (a
+// setViewport() after setRenderTarget()): the scissor's NDC would be wrong.
+const currentViewport = { x: 0, y: 0, z: 0, w: 0, copy(v) { this.x = v.x; this.y = v.y; this.z = v.z; this.w = v.w; return this; } };
+function viewportIsTarget(renderer, target) {
+  if (!renderer?.getCurrentViewport) return true;
+  const v = renderer.getCurrentViewport(currentViewport), t = target.viewport;
+  return v.x === t.x && v.y === t.y && v.z === t.z && v.w === t.w;
 }
 
 /** True when the box (min/max, metres) lies wholly outside one plane. */
@@ -160,27 +188,31 @@ export function visibleGroups(table, planes, lift, { mergeIndices = CHUNK_MERGE_
 
 /**
  * Cull every chunked terrain mesh of `scene` for one render of `camera`
- * into `target` (Scene.onBeforeRender), returning the geometries changed;
- * restoreTerrainScene puts them back. `lift` is this frame's vertical
- * displacement bound. Meshes on no layer the camera draws are left alone.
+ * into `target` (Scene.onBeforeRender), recording each geometry it changes
+ * in `touched` (returned) before changing it; restoreTerrainScene puts them
+ * back. `lift` is this frame's vertical displacement bound. Meshes on no
+ * layer the camera draws are left alone.
  */
-export function cullTerrainScene(scene, camera, target, lift, stats = null) {
-  const touched = [];
+export function cullTerrainScene(scene, camera, target, lift, stats = null, { renderer = null, touched = [] } = {}) {
   let planes = null;
   for (const mesh of scene.children) {
     const geometry = mesh.geometry, table = geometry?.userData?.terrainChunks;
     if (!table || !mesh.visible || !Array.isArray(mesh.material) || !camera.layers.test(mesh.layers)) continue;
     if (!mesh.matrixWorld.equals(IDENTITY)) continue; // the boxes are in mesh space
-    if (planes === null) planes = frustumPlanes(camera, target) || false;
+    if (planes === null) planes = frustumPlanes(camera, target, PLANES, renderer) || false;
     if (!planes) return touched;
-    geometry.groups = visibleGroups(table, planes, lift, { stats });
     touched.push(geometry);
+    geometry.groups = visibleGroups(table, planes, lift, { stats });
   }
   return touched;
 }
 
+// Scratch planes for cullTerrainScene (renders do not nest).
+const PLANES = new Float64Array(24);
+
 export function restoreTerrainScene(touched) {
-  for (const geometry of touched) geometry.groups = [{ ...WHOLE }];
+  for (const geometry of touched) geometry.groups = wholeGroups(geometry);
+  touched.length = 0;
 }
 
 // A plain identity matrix (no three.js import here): Matrix4.equals reads
@@ -194,11 +226,11 @@ const IDENTITY = { elements: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] };
  * indices kept and culled.
  */
 export function attachTerrainCulling(scene, lift, stats = null) {
-  let touched = [];
+  const touched = [];
   scene.onBeforeRender = (renderer, s, camera, target) => {
     restoreTerrainScene(touched);
-    touched = cullTerrainScene(scene, camera, target, lift(), stats);
+    cullTerrainScene(scene, camera, target, lift(), stats, { renderer, touched });
   };
-  scene.onAfterRender = () => { restoreTerrainScene(touched); touched = []; };
+  scene.onAfterRender = () => restoreTerrainScene(touched);
   return scene;
 }
