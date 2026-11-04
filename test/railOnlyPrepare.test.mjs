@@ -127,16 +127,30 @@ test('a desktop places the tour\'s forest when its placement fits, and holds bot
   assert.ok(two.modeGeometries.length > 0);
 });
 
-test('a desktop whose trees placed do not fit both cameras keeps the rail for the song, and tries both next song', async () => {
+test('a desktop whose trees placed do not fit both cameras keeps the rail for the song, and later songs decide without placing again', async () => {
   const reference = scene(), alone = await prepare(reference);
   const s = scene(30e6), rooms = watchRoom(s);
   await assert.rejects(prepare(s, footprint), (e) => e.reason === 'budget');
-  await assert.rejects(prepare(s, footprint, {}, 2), (e) => e.reason === 'budget');
-  assert.deepEqual(rooms, ['placed', 'placed']);
-  const retried = await prepare(s, footprint, {}, 2);
+  const retried = await prepare(s, footprint);
   assert.equal(retried.railOnly, 'its tour did not fit this device');
   assert.deepEqual(retried.stats.trees, alone.stats.trees);
   assert.equal(gpuBytes(s, retried), gpuBytes(reference, alone));
+  assert.deepEqual(rooms, ['placed']);
+  // The next song, with the same room: the rail at once, no forest placed.
+  const next = scene(30e6), nextRooms = watchRoom(next);
+  await assert.rejects(prepare(next, footprint), (e) => e.reason === 'budget');
+  const admitted = next.buildAdmission.requestedBytes;
+  const song2 = await prepare(next, footprint, {}, 2);
+  assert.deepEqual(nextRooms, ['placed', null]);
+  assert.equal(song2.railOnly, 'its tour does not fit this device');
+  assert.equal(next.buildAdmission.requestedBytes - admitted, reference.buildAdmission.requestedBytes, 'only the rail\'s forest was admitted');
+  // With room freed since, both cameras again.
+  const freed = scene(30e6), freedRooms = watchRoom(freed);
+  await assert.rejects(prepare(freed, footprint), (e) => e.reason === 'budget');
+  freed.residency.budgetBytes = 1e9;
+  const both = await prepare(freed, footprint, {}, 2);
+  assert.deepEqual(freedRooms, ['placed', 'fits']);
+  assert.equal(both.railOnly, null);
 });
 
 test('a phone whose room went between the check and the reservation retries its rail alone', async () => {

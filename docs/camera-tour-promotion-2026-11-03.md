@@ -41,7 +41,8 @@ tree count. The bound can hold twice the trees placement keeps (Teton 2.90M
 bound, 1.48M placed), so a desktop whose placement fits places the tour's
 forest and checks the rest at the trees placed. Otherwise, or after a
 two-mode preparation was refused room, the view is prepared for its rail
-alone for that song: the rail's tiles, trees, water and bakes, charged as
+alone for that song (a later song checks what was refused, at the trees
+placed, without placing again): the rail's tiles, trees, water and bakes, charged as
 the rail's package without a tour would be. It plays its rail, and the shot
 tour records why. Its decoded package then keeps the rail's tiles alone,
 charged at the bytes they hold (unless a composition variant still draws
@@ -50,8 +51,9 @@ the tour from it). Phones therefore keep every view they load on main.
 With the shipped packages and about 36 MiB already resident
 (test/tourRoom.test.mjs): a 512 MiB desktop prepares every approved tour
 view for both cameras (Teton and Black Mountains after placing their
-forest). A 320 MiB phone does so for all but Teton and Black Mountains, and
-a 192 MiB phone for White Mountains, Panamint, Chugach and Monument Valley.
+forest), and so does a flagship phone (512 MiB, 8 GB or more). A 192 MiB
+phone does so for White Mountains, Panamint, Chugach and Monument Valley,
+and prepares the other seven for their rail.
 
 The approval checks below measure the rail exactly as it draws: rail tiles
 only (`terrainBandsFor(..., 'rail')`) and the rail's own trees.

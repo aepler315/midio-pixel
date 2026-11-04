@@ -913,12 +913,15 @@ export class RangeScene {
    *  the bound's tree count (never fewer than will be placed). The bound
    *  can hold twice the trees placement keeps, so a desktop whose placement
    *  fits places the tour's forest and checks the rest at the trees placed
-   *  ('placed'); a phone never places a forest it may not draw. null: the
-   *  view is prepared for its rail alone. */
-  _tourRoom(view, cpu, rules, est, protect) {
+   *  ('placed'); a phone never places a forest it may not draw. A tour
+   *  refused room in an earlier song needs, at the trees it placed, what
+   *  it was refused (`placedNeed`): it fits or not without placing again.
+   *  null: the view is prepared for its rail alone. */
+  _tourRoom(view, cpu, rules, est, protect, placedNeed = null) {
     if (!this.residency) return 'fits';
     const bound = forestPlacementBound(cpu.data, view, rules);
     const placement = forestBuildBytes(bound);
+    if (placedNeed != null) return this.residency.canFit(Math.max(placement, placedNeed), protect) ? 'fits' : null;
     const gpu = staticViewBytes(cpu.data, est, bound.count, { budget: this.budget, landDance: requestedLandDance() });
     const scratch = cpu.data.grid.width * cpu.data.grid.height * SURFACE_BUILD_BYTES_PER_PIXEL;
     if (this.residency.canFit(Math.max(placement, forestRetainedBytes(bound.count) + gpu + scratch), protect)) return 'fits';
@@ -926,9 +929,10 @@ export class RangeScene {
   }
 
   /** A two-mode preparation refused room is retried for its rail alone in
-   *  the same song; the next song tries both cameras again. */
-  _refuseTour(viewId, generation) {
-    (this._railOnlyViews ||= new Map()).set(viewId, generation);
+   *  the same song. The next song tries both cameras again, at what they
+   *  were refused once the forest was placed (`needBytes`, when known). */
+  _refuseTour(viewId, generation, needBytes = null) {
+    (this._railOnlyViews ||= new Map()).set(viewId, { generation, needBytes });
   }
 
   /** A view prepared for its rail alone keeps only the rail's tiles of its
@@ -1259,10 +1263,11 @@ export class RangeScene {
         // at what the rail's package without a tour costs.
         let data = cpu.data, railOnly = null;
         if (!view.tour && (cpu.railOnly || tourGround(cpu.data))) {
+          const refused = this._railOnlyViews?.get(view.id);
           railOnly = !view.cameraPaths?.some((line) => line?.length) ? 'no shot tour'
             : cpu.railOnly ? 'its terrain is loaded for its rail'
-              : this._railOnlyViews?.get(view.id) === generation ? 'its tour did not fit this device'
-                : !this._tourRoom(view, cpu, rules, est, [cpu.key, mat.key]) ? 'its tour does not fit this device' : null;
+              : refused?.generation === generation ? 'its tour did not fit this device'
+                : !this._tourRoom(view, cpu, rules, est, [cpu.key, mat.key], refused?.needBytes) ? 'its tour does not fit this device' : null;
           if (railOnly) {
             this._keepRailGround(cpu);
             data = cpu.railOnly ? cpu.data : railGroundData(cpu.data);
@@ -1343,14 +1348,15 @@ export class RangeScene {
           : staticViewBytes(data, est, placed.count, { budget: this.budget, landDance: requestedLandDance() });
         // Both cameras, at the trees placed: the GPU reservation and the
         // surface build beside the kept records, or the rail alone this song.
+        const placedNeed = (buildEntry?.bytes || 0) + bytes + gridPx * SURFACE_BUILD_BYTES_PER_PIXEL;
         if (twoModes && this.residency && !this.residency.canFit(bytes + gridPx * SURFACE_BUILD_BYTES_PER_PIXEL, [cpu.key, mat.key])) {
-          this._refuseTour(view.id, generation);
+          this._refuseTour(view.id, generation, placedNeed);
           throw new RangeAssetError('budget', `no room for both cameras of ${view.id}`);
         }
         res = this.residency?.reserve({ key: gpuKey, bytes, owner: 'range-terrain-gpu', generation }) || null;
         if (this.residency && !res) {
           // Its retry this song is prepared for its rail alone.
-          if (twoModes) this._refuseTour(view.id, generation);
+          if (twoModes) this._refuseTour(view.id, generation, placedNeed);
           throw new RangeAssetError('budget', `no GPU room for ${view.id}`);
         }
         if (rawWindow) {
@@ -1368,7 +1374,7 @@ export class RangeScene {
         const scratchKey = `range:surface-scratch:${view.id}`;
         const scratch = this.residency?.reserve({ key: scratchKey, bytes: gridPx * SURFACE_BUILD_BYTES_PER_PIXEL, owner: 'range-scratch', generation }) || null;
         if (this.residency && !scratch) {
-          if (twoModes) this._refuseTour(view.id, generation);
+          if (twoModes) this._refuseTour(view.id, generation, placedNeed);
           throw new RangeAssetError('budget', `no room to build ${view.id} surface`);
         }
         try {
