@@ -8,7 +8,10 @@ import { placeForest, LATTICE_M } from '../src/world/alpine/ForestCover.js';
 import { createForest } from '../src/world/alpine/ForestGL.js';
 import { regroundForest } from '../src/world/alpine/CompiledTerrain.js';
 import { waterIndexSubset, waterIndexSubsetAsync, waterIndexSubsetPartsAsync, wetTexelMask } from '../src/world/alpine/WaterSubset.js';
-import { setTerrainDrawMode, drawnIndexCount, tourGround } from '../src/world/alpine/RailDraw.js';
+import { setTerrainDrawMode, drawnIndexCount, tourGround, railGroundData } from '../src/world/alpine/RailDraw.js';
+import { terrainFeatureSegments } from '../src/world/alpine/TerrainFeatures.js';
+import { bakeHorizon } from '../src/world/alpine/TerrainOcclusion.js';
+import { createHash } from 'node:crypto';
 import { RangeScene } from '../src/world/alpine/RangeScene.js';
 
 // The terrainBakePoses fixture (4 x 4 tiles of 64 cells at 20 m, a rail at
@@ -90,6 +93,66 @@ test('the rail draws its package without the tour ground; the tour draws every t
     assert.deepEqual(plain.bands[band].indices, plainWhole.bands[band].indices);
     assert.deepEqual(plain.bands[band].fringe, plainWhole.bands[band].fringe);
   }
+});
+
+// Recorded from origin/main's TerrainMesh (77febde) building this fixture's
+// tour package, which knows no rail marks: per band, sha256 prefixes of
+// positions, indices and seam fill.
+const MAIN_TOUR_BUILD = {
+  desktop: { far: ['e3b0c44298fc1c14', 'e3b0c44298fc1c14', 'e3b0c44298fc1c14'], mid: ['30f116f782e8c944', 'f2bf30fa5f9899f3', 'e3b0c44298fc1c14'],
+    near: ['200960b170d0cbea', '79a2f2c2ddd3efc2', 'dfcf7025608afc06'], triangles: 26138, fringeBytes: 313440 },
+  mobile: { far: ['e3b0c44298fc1c14', 'e3b0c44298fc1c14', 'e3b0c44298fc1c14'], mid: ['30f116f782e8c944', 'f2bf30fa5f9899f3', 'e3b0c44298fc1c14'],
+    near: ['496328deb40973fd', '68457a9b683cc384', 'f042fda4af41128f'], triangles: 18734, fringeBytes: 224664 },
+};
+test('a package without tour ground builds byte for byte as main built it', async () => {
+  const { tour } = await packages();
+  const sha = (a) => createHash('sha256').update(Buffer.from(a.buffer, a.byteOffset, a.byteLength)).digest('hex').slice(0, 16);
+  // The same tiles with their rail marks stripped: nothing only a tour sees.
+  const unmarked = { ...tour, tiles: new Map([...tour.tiles].map(([k, t]) => [k, { ...t, rail: undefined }])) };
+  unmarked.byIndex = new Map([...unmarked.tiles.values()].map((t) => [`${t.ix},${t.iz}`, t]));
+  for (const budget of ['desktop', 'mobile']) {
+    for (const [data, opts] of [[unmarked, {}], [tour, { railSplit: false }]]) {
+      const built = buildTerrainGeometry(data, { budget, ...opts });
+      const want = MAIN_TOUR_BUILD[budget];
+      for (const b of BANDS) {
+        assert.deepEqual([sha(built.bands[b].positions), sha(built.bands[b].indices), sha(built.bands[b].fringe)], want[b], `${budget} ${b}`);
+        assert.equal(built.bands[b].ranges, null); assert.equal(built.bands[b].tileOrder, null);
+      }
+      assert.equal(built.stats.triangles, want.triangles);
+      assert.equal(terrainFringeBytes(data, { budget, ...opts }), want.fringeBytes);
+      assert.equal(terrainRailCopyBytes(data, { budget, ...opts }), 0);
+    }
+  }
+});
+
+test('each mode samples its contour ink in the tile order a build of that mode alone has', async () => {
+  const { tour } = await packages();
+  const split = buildTerrainGeometry(tour), alone = buildTerrainGeometry(withoutTourGround(tour)), whole = buildTerrainGeometry(tour, { railSplit: false });
+  assert.ok(split.stats.railCopies > 0, 'the fixture has rail copies ahead of the rail tiles');
+  let saturated = 0;
+  for (const b of BANDS) {
+    const band = split.bands[b];
+    if (!band.ranges) continue;
+    // A small reservoir fills early, so any change of order shows.
+    const opts = { intervalM: 5, maxSegments: 16 };
+    const rail = terrainFeatureSegments(band.positions, band.indices, { ...opts, pieces: band.tileOrder.rail });
+    assert.deepEqual(rail, terrainFeatureSegments(alone.bands[b].positions, alone.bands[b].indices, opts), `${b}: the rail's ink`);
+    const tourInk = terrainFeatureSegments(band.positions, band.indices, { ...opts, pieces: band.tileOrder.tour });
+    assert.deepEqual(tourInk, terrainFeatureSegments(whole.bands[b].positions, whole.bands[b].indices, opts), `${b}: the tour's ink`);
+    if (rail.length === 16 * 6) saturated++;
+  }
+  assert.ok(saturated > 0, 'some band overflows its reservoir');
+  // Without pieces the sampler reads the whole index, as before.
+  const near = whole.bands.near;
+  assert.deepEqual(terrainFeatureSegments(near.positions, near.indices, { pieces: [0, near.indices.length] }), terrainFeatureSegments(near.positions, near.indices));
+});
+
+test('the rail\'s sun horizon is baked from its own ground alone', async () => {
+  const { tour } = await packages();
+  const rail = railGroundData(tour);
+  assert.ok([...rail.tiles.values()].every((t) => t.rail !== false) && rail.tiles.size < tour.tiles.size);
+  assert.equal(rail.byIndex.size, rail.tiles.size);
+  assert.deepEqual(bakeHorizon(rail, { maxSize: 64 }), bakeHorizon(withoutTourGround(tour), { maxSize: 64 }));
 });
 
 test('band geometries start on the rail and never draw their whole buffer', async () => {
@@ -262,8 +325,12 @@ test('setCameraTour switches every prepared geometry, the water and the height r
   trees.userData.instanceCounts = { rail: 3, tour: 10 };
   setTerrainDrawMode(trees, 'rail');
   const modeWater = { rail: { waterLevelM: null, mirrorLevelM: null, heightRange: [0, 100] }, tour: { waterLevelM: 700, mirrorLevelM: 700, heightRange: [-50, 200] } };
+  const tex = (name, size) => ({ texture: { name }, size });
   const p = { view: { id: 'v' }, modeGeometries: [band, ink, trees], terrainMode: 'rail', cameraTour: null, stats: { triangles: 10, railTriangles: 4 },
-    modeWater, waterLevelM: null, mirrorLevelM: null, castWaterLevelM: null, uniforms: { uHeightRange: { value: new THREE.Vector2(0, 100) } } };
+    modeWater, waterLevelM: null, mirrorLevelM: null, castWaterLevelM: null,
+    horizon: tex('rail horizon', [8, 8]), tourHorizon: tex('tour horizon', [8, 8]), hierarchy: tex('rail hierarchy'), tourHierarchy: tex('tour hierarchy'),
+    uniforms: { uHeightRange: { value: new THREE.Vector2(0, 100) }, uHorizon: { value: { name: 'rail horizon' } }, uHorizonSize: { value: new THREE.Vector2(8, 8) },
+      uLandHierarchy: { value: { name: 'rail hierarchy' } } } };
   const scene = { prepared: new Map([['v', p]]), depthCache: { A: { frame: 9 }, B: { frame: 9 } }, mirrors: { A: { frame: 9 }, B: null },
     _setTerrainMode: RangeScene.prototype._setTerrainMode };
   const tour = { poseAt: () => null, durationMs: 1 };
@@ -273,6 +340,8 @@ test('setCameraTour switches every prepared geometry, the water and the height r
   assert.equal(p.stats.drawnTriangles, 10);
   // The tour's own lake, mirror plane and height range; the cast keeps the rail's water.
   assert.deepEqual([p.waterLevelM, p.mirrorLevelM, p.uniforms.uHeightRange.value.x, p.uniforms.uHeightRange.value.y, p.castWaterLevelM], [700, 700, -50, 200, null]);
+  // Its sun horizon and land hierarchy were baked from all its ground.
+  assert.deepEqual([p.uniforms.uHorizon.value.name, p.uniforms.uLandHierarchy.value.name], ['tour horizon', 'tour hierarchy']);
   assert.deepEqual([scene.depthCache.A.frame, scene.depthCache.B.frame, scene.mirrors.A.frame], [-1, -1, -1]);
   // A refined plan stays on the tour without touching anything.
   scene.depthCache.A.frame = 5;
@@ -282,6 +351,7 @@ test('setCameraTour switches every prepared geometry, the water and the height r
   assert.deepEqual([band.drawRange.start, band.drawRange.count, trees.instanceCount], [0, 12, 3]);
   assert.equal(p.stats.drawnTriangles, 4);
   assert.deepEqual([p.waterLevelM, p.mirrorLevelM, p.uniforms.uHeightRange.value.x, p.uniforms.uHeightRange.value.y], [null, null, 0, 100]);
+  assert.deepEqual([p.uniforms.uHorizon.value.name, p.uniforms.uLandHierarchy.value.name], ['rail horizon', 'rail hierarchy']);
   // Highway tour windows have no rail.
   const windowed = { view: { id: 'w', tour: {} }, windowCache: {}, modeGeometries: [band], cameraTour: null };
   scene.prepared.set('w', windowed);

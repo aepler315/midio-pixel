@@ -167,7 +167,7 @@ function* bandGeometrySteps(THREE, data, options) {
       geo.computeBoundingSphere();
       // A tour package's band draws one of two ranges (RailDraw.js); the
       // whole buffer never.
-      if (b.ranges) { geo.userData.terrainRanges = b.ranges; setTerrainDrawMode(geo, mode); }
+      if (b.ranges) { geo.userData.terrainRanges = b.ranges; geo.userData.terrainOrder = b.tileOrder; setTerrainDrawMode(geo, mode); }
       geometries[band] = geo;
       bytes += b.positions.byteLength + b.indices.byteLength;
       // The band's tiles that border a farther band, sharing its vertices.

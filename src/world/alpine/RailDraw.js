@@ -13,6 +13,7 @@
 // tour ground (TerrainMesh planBands).
 //
 //   tourGround(data)                    whether a package has tour ground
+//   railGroundData(data)                the package as if it had none
 //   setTerrainDrawMode(geometry, mode)  'rail' | 'tour'; no-op without ranges
 //   drawnIndexCount(geometry)           indices its draw range covers
 
@@ -22,6 +23,14 @@ export const TERRAIN_MODES = Object.freeze(['rail', 'tour']);
 export function tourGround(data) {
   for (const t of data?.tiles?.values?.() || []) if (t.rail === false && t.visible !== false) return true;
   return false;
+}
+
+/** The decoded package without the ground only its tour sees: what a CPU
+ *  bake (sun horizon, land hierarchy) reads for the rail. Tiles are shared,
+ *  not copied. */
+export function railGroundData(data) {
+  const tiles = new Map([...data.tiles].filter(([, t]) => t.rail !== false));
+  return { ...data, tiles, byIndex: new Map([...tiles.values()].map((t) => [`${t.ix},${t.iz}`, t])) };
 }
 
 /** Draw one mode of a geometry that carries `terrainRanges` (indexed or

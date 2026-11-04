@@ -139,7 +139,9 @@ function planBands(data, stridesById, includeHidden, railSplit = true) {
   const tourOnly = (t) => drawn(t) && !isRail(t);
   const size = Object.fromEntries(BANDS.map((b) => [b, { v: 0, i: 0, f: 0, copyV: 0, copyI: 0, copyF: 0 }]));
   const sections = Object.fromEntries(BANDS.map((b) => [b, { R: [], A: [], T: [], D: [] }]));
+  let seq = -1;
   for (const t of data.tiles.values()) {
+    seq++;
     if (!drawn(t)) continue;
     const s = stridesById.get(t.id), m = cells / s, band = bandOf(t), at = BANDS.indexOf(band);
     let fringe = false, railFringe = false;
@@ -151,18 +153,18 @@ function planBands(data, stridesById, includeHidden, railSplit = true) {
     }
     const tv = (m + 1) * (m + 1), ti = 6 * m * m, sz = size[band], sec = sections[band];
     sz.v += tv; sz.i += ti; if (fringe) sz.f += ti;
-    if (!isRail(t)) { sec.D.push({ t, fringe, ignoreTourOnly: false }); continue; }
+    if (!isRail(t)) { sec.D.push({ t, seq, fringe, ignoreTourOnly: false }); continue; }
     // Corners never snap (along() keeps multiples of the coarse step), so
     // only the four edge neighbours can move a rail tile's vertices.
     const split = SIDES.some(([dx, dz]) => {
       const nb = data.byIndex.get(`${t.ix + dx},${t.iz + dz}`);
       return tourOnly(nb) && stridesById.get(nb.id) > s;
     });
-    if (!split) { sec.A.push({ t, fringe, railFringe, ignoreTourOnly: false }); continue; }
+    if (!split) { sec.A.push({ t, seq, fringe, railFringe, ignoreTourOnly: false }); continue; }
     sz.v += tv; sz.i += ti; sz.copyV += tv; sz.copyI += ti;
     if (railFringe) { sz.f += ti; sz.copyF += ti; }
-    sec.R.push({ t, fringe: railFringe, ignoreTourOnly: true });
-    sec.T.push({ t, fringe, ignoreTourOnly: false });
+    sec.R.push({ t, seq, fringe: railFringe, ignoreTourOnly: true });
+    sec.T.push({ t, seq, fringe, ignoreTourOnly: false });
   }
   return { size, sections };
 }
@@ -187,7 +189,8 @@ export function terrainRailCopyBytes(data, { budget = 'desktop', bias = 1, inclu
  * are skipped unless `includeHidden`. Each band carries the index ranges of
  * its two draw modes, `ranges` and `fringeRanges` ({ rail, tour }: [start,
  * count]), or null when the band holds nothing only a tour draws (both modes
- * then draw the whole buffer). `railSplit: false` lays every tile out once,
+ * then draw the whole buffer). With ranges, `tileOrder` ({ rail, tour }:
+ * flat [first, last) index pairs) lists each mode's tiles in package order. `railSplit: false` lays every tile out once,
  * as rail tiles (tour windows, which never draw a rail).
  */
 export function buildTerrainGeometry(data, { budget = 'desktop', bias = 1, includeHidden = false, strides = null, railSplit = true } = {}) {
@@ -272,21 +275,28 @@ export function buildTerrainGeometry(data, { budget = 'desktop', bias = 1, inclu
       return [first, k];
     };
     const { R, A, T, D } = sections[bandName];
-    for (const e of R) { const [a, b] = emit(e); railTriangles += (b - a) / 3; railCopies++; if (e.fringe) fill(a, b); }
+    // Each emitted tile's [first, last) indices, for the per-mode tile order.
+    const pieces = { R: [], A: [], T: [] };
+    for (const e of R) { const [a, b] = emit(e); pieces.R.push([e.seq, a, b]); railTriangles += (b - a) / 3; railCopies++; if (e.fringe) fill(a, b); }
     const tourStart = k, tourFringeStart = fringeCount;
     // A tile that borders a farther band only through a tour-only tile
     // fills that seam in the tour alone: after the rail's fill.
     const tourFill = [];
     for (const e of A) {
       const [a, b] = emit(e);
+      pieces.A.push([e.seq, a, b]);
       railTriangles += (b - a) / 3;
       if (e.railFringe) fill(a, b); else if (e.fringe) tourFill.push([a, b]);
     }
     const railEnd = k, railFringeEnd = fringeCount;
     for (const [a, b] of tourFill) fill(a, b);
-    for (const e of [...T, ...D]) { const [a, b] = emit(e); if (e.fringe) fill(a, b); }
+    for (const e of [...T, ...D]) { const [a, b] = emit(e); pieces.T.push([e.seq, a, b]); if (e.fringe) fill(a, b); }
     triangles += (k - tourStart) / 3;
     const split = railEnd !== k || tourStart !== 0;
+    // Each mode's tiles in package order: the order a build of what that
+    // mode draws, alone, would emit them in (order-dependent samplers such
+    // as the contour-ink reservoir read it).
+    const ordered = (...lists) => Uint32Array.from(lists.flat().sort((x, y) => x[0] - y[0]).flatMap(([, a, b]) => [a, b]));
     const fringeSplit = railFringeEnd !== fringeCount || tourFringeStart !== 0;
     bands[bandName] = {
       positions: vertexCount * 3 === P.length ? P : P.slice(0, vertexCount * 3),
@@ -294,6 +304,7 @@ export function buildTerrainGeometry(data, { budget = 'desktop', bias = 1, inclu
       fringe: fringeCount === F.length ? F : F.slice(0, fringeCount),
       ranges: split ? { rail: [0, railEnd], tour: [tourStart, k - tourStart] } : null,
       fringeRanges: fringeSplit ? { rail: [0, railFringeEnd], tour: [tourFringeStart, fringeCount - tourFringeStart] } : null,
+      tileOrder: split ? { rail: ordered(pieces.R, pieces.A), tour: ordered(pieces.A, pieces.T) } : null,
     };
   }
   const bytes = BANDS.reduce((sum, b) => sum + bands[b].positions.byteLength + bands[b].indices.byteLength, 0);

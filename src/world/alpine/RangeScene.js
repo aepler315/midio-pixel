@@ -47,7 +47,7 @@ import { BANDS, terrainFringeBytes, terrainRailCopyBytes, terrainHeightAt, SURFA
 import { mistParams, mistDrift, easeMistSteps, tourMistCap, tourMistFade, atmosphereMusic } from './RangeAtmosphere.js';
 import { mirrorSize, mirrorLevelFor, mirrorCameraFor, mirrorTextureMatrix, MIRROR_CLIP_M, MIRROR_LIFT } from './WaterMirror.js';
 import { drawnTile, terrainHeightRange } from './TerrainPackage.js';
-import { tourGround, setTerrainDrawMode, drawnIndexCount } from './RailDraw.js';
+import { tourGround, railGroundData, setTerrainDrawMode, drawnIndexCount } from './RailDraw.js';
 import { scenicProjection, calibrateRangeMusic, rangeCameraCalibration, requestedLandDance } from './RangeFrame.js';
 import { applyGlacierUniforms, glacierErrors, glacierSample } from './GlacierField.js';
 import { ActorsGL, SITE_LIGHTS_MAX, CAST_LAYER, CAST_RIBBON_LAYER, enableCastLayers } from './ActorsGL.js';
@@ -751,6 +751,11 @@ export class RangeScene {
       p.waterLevelM = water.waterLevelM; p.mirrorLevelM = water.mirrorLevelM;
       if (water.heightRange && p.uniforms?.uHeightRange) p.uniforms.uHeightRange.value.set(...water.heightRange);
     }
+    // Sun horizon and land hierarchy, each baked from the ground it draws.
+    const u = p.uniforms, horizon = mode === 'tour' ? p.tourHorizon : p.horizon;
+    if (p.tourHorizon && horizon && u?.uHorizon) { u.uHorizon.value = horizon.texture; u.uHorizonSize.value.set(...horizon.size); }
+    const hierarchy = mode === 'tour' ? p.tourHierarchy : p.hierarchy;
+    if (p.tourHierarchy && hierarchy && u?.uLandHierarchy) u.uLandHierarchy.value = hierarchy.texture;
     if (p.stats) p.stats = { ...p.stats, terrainMode: mode, drawnTriangles: mode === 'tour' ? p.stats.triangles : (p.stats.railTriangles ?? p.stats.triangles) };
     // Cached depth and mirror passes were drawn in the other mode.
     if (this.depthCache) this.depthCache.A.frame = this.depthCache.B.frame = -1;
@@ -1126,7 +1131,7 @@ export class RangeScene {
       let mat = null, res = null, published = false;
       const cpu = await prepareTerrainAssets(view, { baseUrl, residency: this.residency, generation, signal, isCurrent, owner: cpuOwner });
       let waterSubsets = null;
-      let surface, geos, material, riverMaterial, riverDepthMaterial, riverOwnershipMaterials = null, depthMaterial, ownershipMaterials = null, horizon = null, hierarchy = null, forest, stageGL, featureMaterial, actors;
+      let surface, geos, material, riverMaterial, riverDepthMaterial, riverOwnershipMaterials = null, depthMaterial, ownershipMaterials = null, horizon = null, hierarchy = null, tourHorizon = null, tourHierarchy = null, forest, stageGL, featureMaterial, actors;
       const riverGeometries = {}, riverFringeGeometries = {}, riverDepthMeshes = {};
       let initialWindow = null, workerKey = null, windowReservation = null, buildEntry = null, workerReservation = null;
       const featureGeometries = {};
@@ -1205,8 +1210,10 @@ export class RangeScene {
         // the GPU textures, while this build peak is charged as scratch.
         const textureStride = view.tour ? (this.budget === 'mobile' ? 4 : 2) : 1;
         const gridPx = ((cpu.data.grid.width - 1) / textureStride + 1) * ((cpu.data.grid.height - 1) / textureStride + 1);
-        // A package with tour ground keeps a second set of hints: the rail's.
-        const featureBudgetBytes = (!view.tour && tourGround(cpu.data) ? 2 : 1) * 2 * 3 * 768 * 6 * 4;
+        // A package with tour ground keeps a second set of hints, sun
+        // horizon and land hierarchy: the rail's, baked without that ground.
+        const twoModes = !view.tour && tourGround(cpu.data), modes = twoModes ? 2 : 1;
+        const featureBudgetBytes = modes * 2 * 3 * 768 * 6 * 4;
         // The bake's mesh estimate does not know the seam-fill index
         // buffers; their exact size is counted from the tile plan (no
         // geometry built), so the one reservation covers them and a view
@@ -1218,11 +1225,11 @@ export class RangeScene {
         // Baked horizon for terrain sun visibility (not for tour windows,
         // whose terrain streams; they keep the unshadowed key).
         const horizonOptions = { maxSize: this.budget === 'mobile' ? 192 : 256 };
-        const horizonCost = view.tour || !cpu.data?.grid ? 0 : horizonBytes(cpu.data.grid, horizonOptions);
+        const horizonCost = view.tour || !cpu.data?.grid ? 0 : modes * horizonBytes(cpu.data.grid, horizonOptions);
         // Land dance (docs/landscape-dance.md, on by default): the ridge/
         // drainage hierarchy texture, static views only for now.
         const hierarchySamples = HIERARCHY_MAX_SAMPLES[this.budget === 'mobile' ? 'mobile' : 'desktop'];
-        const hierarchyCost = view.tour || !cpu.data?.grid || !requestedLandDance() ? 0 : hierarchySamples * hierarchySamples * 4;
+        const hierarchyCost = view.tour || !cpu.data?.grid || !requestedLandDance() ? 0 : modes * hierarchySamples * hierarchySamples * 4;
         const bytes = (view.tour ? Math.ceil(gridPx * (4 * 4 / 3 + 1)) + featureBudgetBytes + 2 * ActorsGL.bytes()
           : 2 * ((est?.meshBytes || 0) + fringeBytes + forestBytes) + (est?.surfaceTextureBytes || 0) + gridPx + featureBudgetBytes + 2 * ActorsGL.bytes() + horizonCost + hierarchyCost);
         res = this.residency?.reserve({ key: gpuKey, bytes, owner: 'range-terrain-gpu', generation }) || null;
@@ -1269,31 +1276,49 @@ export class RangeScene {
         const uniforms = sceneUniforms(THREE, base);
         applyMaterial(uniforms, mat.pack, mat.textures, view.materialRules || {});
         uniforms.uDebugMask.value = this.debugMask || 0;
+        // The rail's own bakes read its ground alone: tour-only ridges never
+        // shade it or steer its land (RailDraw.js). The tour reads it all.
+        const railData = twoModes ? railGroundData(cpu.data) : cpu.data;
         if (horizonCost) {
           // Optional light: a failed bake leaves the key unshadowed, never
           // the view on legacy scenery.
           try {
-            const bake = await bakeHorizonAsync(cpu.data, { ...horizonOptions, signal });
-            if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
-            horizon = createHorizonTexture(THREE, bake);
+            const bakeOf = async (data) => {
+              const bake = await bakeHorizonAsync(data, { ...horizonOptions, signal });
+              if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
+              return Object.assign(createHorizonTexture(THREE, bake), { size: [bake.width, bake.height] });
+            };
+            horizon = await bakeOf(railData);
+            if (twoModes) tourHorizon = await bakeOf(cpu.data);
             uniforms.uHorizon.value = horizon.texture;
-            uniforms.uHorizonSize.value.set(bake.width, bake.height);
+            uniforms.uHorizonSize.value.set(...horizon.size);
           } catch (err) {
             if (err instanceof RangeAssetError || signal?.aborted) throw err;
+            horizon?.texture?.dispose(); tourHorizon?.texture?.dispose();
+            horizon = tourHorizon = null;
+            uniforms.uHorizon.value = null; uniforms.uHorizonSize.value.set(0, 0);
             console.warn(`[range v2] ${view.id}: horizon bake failed; direct light unshadowed`, err);
           }
         }
         if (hierarchyCost) {
           // Optional motion: a failed build leaves the land on its swell.
           try {
-            const built = await buildTerrainHierarchyAsync(hierarchyLattice(cpu.data, { maxSamples: hierarchySamples }), { signal });
-            if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
-            hierarchy = createHierarchyTexture(THREE, built);
-            hierarchy.stats = built.stats;
-            this.renderer?.initTexture?.(hierarchy.texture);
+            const buildOf = async (data) => {
+              const built = await buildTerrainHierarchyAsync(hierarchyLattice(data, { maxSamples: hierarchySamples }), { signal });
+              if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
+              const out = createHierarchyTexture(THREE, built);
+              out.stats = built.stats;
+              this.renderer?.initTexture?.(out.texture);
+              return out;
+            };
+            hierarchy = await buildOf(railData);
+            if (twoModes) tourHierarchy = await buildOf(cpu.data);
             uniforms.uLandHierarchy.value = hierarchy.texture;
           } catch (err) {
             if (err instanceof RangeAssetError || signal?.aborted) throw err;
+            hierarchy?.texture?.dispose(); tourHierarchy?.texture?.dispose();
+            hierarchy = tourHierarchy = null;
+            uniforms.uLandHierarchy.value = null;
             console.warn(`[range v2] ${view.id}: land hierarchy failed; land keeps its swell`, err);
           }
         }
@@ -1326,16 +1351,17 @@ export class RangeScene {
           scenes[band].add(meshes[band]);
           const featureOptions = { signal, checkCurrent: () => { if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`); } };
           const bandIndex = geos.geometries[band].index.array, bandPositions = geos.geometries[band].attributes.position.array;
-          const ranges = geos.geometries[band].userData.terrainRanges;
+          const { terrainRanges: ranges, terrainOrder: order } = geos.geometries[band].userData;
           const fg = new THREE.BufferGeometry();
           let hints;
           if (!ranges) hints = await terrainFeatureSegmentsAsync(bandPositions, bandIndex, featureOptions);
           else {
-            // Each mode's hints are sampled from what that mode draws: the
-            // rail's first, then the tour's (vertex ranges, unindexed).
-            const cut = ([start, count]) => bandIndex.subarray(start, start + count);
-            const rail = await terrainFeatureSegmentsAsync(bandPositions, cut(ranges.rail), featureOptions);
-            const tour = await terrainFeatureSegmentsAsync(bandPositions, cut(ranges.tour), featureOptions);
+            // Each mode's hints are sampled from what that mode draws, tile
+            // by tile in package order as a build of that mode alone would
+            // (the sampler keeps an order-dependent reservoir): the rail's
+            // first, then the tour's (vertex ranges, unindexed).
+            const rail = await terrainFeatureSegmentsAsync(bandPositions, bandIndex, { ...featureOptions, pieces: order.rail });
+            const tour = await terrainFeatureSegmentsAsync(bandPositions, bandIndex, { ...featureOptions, pieces: order.tour });
             hints = new Float32Array(rail.length + tour.length);
             hints.set(rail); hints.set(tour, rail.length);
             fg.userData.terrainRanges = { rail: [0, rail.length / 3], tour: [rail.length / 3, tour.length / 3] };
@@ -1465,7 +1491,7 @@ export class RangeScene {
         }
         const prepared = {
           view, generation, manifest: cpu.manifest, data: cpu.data, identity: cpu.identity, tourCpuKey: opts.tourCpuKey,
-          surface, uniforms, material, depthMaterial, ownershipMaterials, horizon, hierarchy, depthBandMeshes: depthMeshes, geometries: geos.geometries, fringes: geos.fringes, fringeMeshes, fringeTravel, scenes, depthScene, depthScenes,
+          surface, uniforms, material, depthMaterial, ownershipMaterials, horizon, hierarchy, tourHorizon, tourHierarchy, depthBandMeshes: depthMeshes, geometries: geos.geometries, fringes: geos.fringes, fringeMeshes, fringeTravel, scenes, depthScene, depthScenes,
           riverMaterial, riverDepthMaterial, riverOwnershipMaterials, riverGeometries, riverFringeGeometries, riverDepthMeshes, riverStats,
           forest, stageGL, featureGeometries, featureMaterial, modeGeometries, terrainMode: view.tour ? null : 'rail', modeWater, castWaterLevelM: waterLevelM,
           stats: { ...geos.stats, trees: forest.counts, featureBytes: featureBudgetBytes }, gpuKey, cpuKey: cpu.key, cpuOwner,
@@ -1523,8 +1549,7 @@ export class RangeScene {
           for (const g of Object.values(riverFringeGeometries)) g.dispose();
           depthMaterial?.dispose();
           for (const m of Object.values(ownershipMaterials || {})) m.dispose();
-          horizon?.texture?.dispose();
-          hierarchy?.texture?.dispose();
+          for (const t of [horizon, hierarchy, tourHorizon, tourHierarchy]) t?.texture?.dispose();
           featureMaterial?.dispose();
           for (const g of Object.values(featureGeometries)) g.dispose();
           for (const g of waterSubsets?.values() || []) g.dispose();
@@ -1865,8 +1890,7 @@ export class RangeScene {
     p.depthMaterial?.dispose();
     for (const m of Object.values(p.ownershipMaterials || {})) m.dispose();
     for (const m of Object.values(p.fineMaterials || {})) m.dispose();
-    p.horizon?.texture?.dispose();
-    p.hierarchy?.texture?.dispose();
+    for (const t of [p.horizon, p.hierarchy, p.tourHorizon, p.tourHierarchy]) t?.texture?.dispose();
     p.compiledDispose?.();
   }
 
