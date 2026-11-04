@@ -39,9 +39,9 @@ export const COMPILED_VERT = /* glsl */`
     vec3 ice = glacierAt(source);
     vec3 p = source;
     p.y += ice.x + deformAt(source) * (1.0 - ice.y);
+    vNormal = risenNormal(compiledNormal.xyz, p);
     p.y += riseLift(p);
     vRenderedWorld = p;
-    vNormal = risenNormal(compiledNormal.xyz, source);
     vAtlas = compiledAtlas * ${(1 / COMPILED_ATLAS_SCALE).toFixed(4)};
     gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
   }
@@ -264,12 +264,13 @@ function placedMesh(THREE, group, material) {
   mesh.updateMatrix();
   mesh.matrixAutoUpdate = false;
   // The group spheres hold the land swell, not the rise (LandRise.js),
-  // which can lower a group far below its sphere: no sphere culling while
-  // the land is still rising.
-  const rise = material.uniforms?.uLandRise;
+  // which can lower land above the eye far below its sphere: while the land
+  // is still rising, a group reaching above the eye is drawn unculled.
+  const u = material.uniforms, sphere = group.geometry.boundingSphere;
+  const top = group.yBaseM + sphere.center.y + sphere.radius;
   let culled = true;
   Object.defineProperty(mesh, 'frustumCulled', { configurable: true,
-    get: () => culled && !(rise?.value > 0), set: (v) => { culled = !!v; } });
+    get: () => culled && !(u?.uLandRise?.value > 0 && top > u.uTourEye.value.y), set: (v) => { culled = !!v; } });
   return mesh;
 }
 

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import {
-  LAND_RISE_START, LAND_RISE_KNEE, LAND_RISE_GLSL, LAND_RISE_MIN_END,
+  LAND_RISE_START, LAND_RISE_KNEE, LAND_RISE_GLSL, LAND_RISE_MIN_END, LAND_RISE_CATCH_UP_MS,
   compileLandRise, landRiseLift, risenFloor, risenHeight, riseFromUniforms,
 } from '../src/world/alpine/LandRise.js';
 import { compileLandscapeScore } from '../src/world/alpine/LandscapeScore.js';
@@ -75,6 +75,15 @@ test('a whole-song analysis takes over the climb without a jump or a sink', () =
     for (let t = 0; t <= 210000; t += 100) { const s = whole.at(t); assert.ok(s >= prev - 1e-12, `${freezeThroughMs}: sinks at ${t}`); prev = s; }
     assert.equal(whole.at(whole.endMs), 1);
   }
+  // A re-analysis whose climb is already over finishes what is left, gently.
+  const late = compileLandRise({ read: () => .5, durationMs: 60000, cadenceMs: 60000, finaleMs: FINALE_MS,
+    previous: opening.progressAt, freezeThroughMs: 50000 });
+  assert.ok(late.endMs < 50000 && opening.at(50000) < 1);
+  assert.equal(late.at(50000), opening.at(50000));
+  assert.ok(late.at(50250) - late.at(50000) < .05, 'no jump to the complete range');
+  let before = late.at(50000);
+  for (let t = 50000; t <= 60000; t += 50) { const s = late.at(t); assert.ok(s >= before - 1e-12); before = s; }
+  assert.equal(late.at(50000 + LAND_RISE_CATCH_UP_MS), 1);
   // A climb already complete stays complete.
   const done = compileLandRise({ read: () => .5, durationMs: 100000, cadenceMs: 100000, previous: () => 1, freezeThroughMs: 20000 });
   assert.equal(done.at(30000), 1);
@@ -130,9 +139,10 @@ const vec3 = (x, y, z) => ({ x, y, z });
 const normalize = v => { const l = Math.hypot(v.x, v.y, v.z); return vec3(v.x / l, v.y / l, v.z / l); };
 
 test('the GPU rise, its gradient and the carried normals match the CPU twin', () => {
+  assert.match(LAND_RISE_GLSL, /vec3 risenNormal\(vec3 n, vec3 p\) \{ return gradNormal\(n, riseGrad\(p\)\); \}/);
   const lift = glsl('riseLift', ['p', 'uTourEye', 'uLandRise']);
   const gradBody = glsl('riseGrad', ['p', 'uTourEye', 'uLandRise']);
-  const normalBody = glsl('risenNormal', ['n', 'p', 'uTourEye', 'uLandRise']);
+  const normalBody = glsl('gradNormal', ['n', 'g', 'uLandRise']);
   const r = rng(11);
   let checked = 0;
   for (let n = 0; n < 3000; n++) {
@@ -150,7 +160,7 @@ test('the GPU rise, its gradient and the carried normals match the CPU twin', ()
       // The carried normal stays perpendicular to the lowered surface.
       const nrm = normalize(vec3(r() - .5, .2 + r(), r() - .5));
       const t1 = normalize(vec3(nrm.y, -nrm.x, 0)), t2 = vec3(nrm.y * t1.z - nrm.z * t1.y, nrm.z * t1.x - nrm.x * t1.z, nrm.x * t1.y - nrm.y * t1.x);
-      const risen = normalBody(nrm, p, eye, sink, vec3, q => gradBody(q, eye, sink, vec3), normalize);
+      const risen = normalBody(nrm, g, sink, vec3, null, normalize);
       for (const t of [t1, t2]) {
         const moved = vec3(t.x, t.y + g.x * t.x + g.y * t.y + g.z * t.z, t.z);
         assert.ok(Math.abs(risen.x * moved.x + risen.y * moved.y + risen.z * moved.z) < 1e-6 * (1 + Math.hypot(moved.x, moved.y, moved.z)));
@@ -163,8 +173,9 @@ test('the GPU rise, its gradient and the carried normals match the CPU twin', ()
 
 test('every pass lowers the land once, after the musical lift; the complete range costs nothing', () => {
   assert.match(SCENE_VERT, /p\.y \+= riseLift\(p\);/);
-  assert.match(SCENE_FRAG, /nShade = risenNormal\(nShade, vWorld\)/);
-  assert.match(SCENE_FRAG, /sunHorizonVisibility\(vUv, risenLight\(uLightDir, vWorld\)\)/);
+  assert.match(SCENE_FRAG, /nShade = gradNormal\(nShade, vRiseGrad\)/);
+  assert.match(SCENE_VERT, /vRiseGrad = riseGrad\(p\);\n\s*p\.y \+= riseLift\(p\);/, 'the gradient where the rise is taken');
+  assert.match(SCENE_FRAG, /sunHorizonVisibility\(vUv, stretchedLight\(uLightDir, 1\.0 \+ vRiseGrad\.y\)\)/);
   assert.match(LAND_RISE_GLSL, /if \(uLandRise <= 0\.0\) return 0\.0;/, 'zero sink is an early out');
   const u = sceneUniforms(THREE, {});
   assert.equal(u.uLandRise.value, 0);

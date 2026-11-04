@@ -82,6 +82,10 @@ export const ACTOR_GLSL = /* glsl */`
   // light from nowhere. The same for every fragment, so it is paid only
   // where the light reaches. uActorPos already stands where the rise put
   // the lantern (RangeScene._setActors), so only the musical lift is added.
+  // The CPU lowers the anchor before that lift, the lantern is lowered
+  // after it: they differ by at most the lift, and only above the eye,
+  // where the cloud sea never reaches (its top stays below the eye,
+  // RangeAtmosphere mistParams; tours cap it 120 m under).
   float actorShown(int i) {
     if (uMistFill <= 0.0) return 1.0;
     vec3 s = uActorPos[i];

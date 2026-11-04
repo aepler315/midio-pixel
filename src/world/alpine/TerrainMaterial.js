@@ -262,6 +262,9 @@ export const SCENE_VERT = /* glsl */`
   out vec3 vWorld;
   out vec3 vRenderedWorld;
   out float vViewDepth;
+  // The rise's gradient at the lifted point it lowered (LandRise.js), for
+  // the fragment's normals and sun horizon: once per vertex, not per pixel.
+  out vec3 vRiseGrad;
   #ifdef RIVER_SURFACE
   in vec3 river;
   in vec2 riverDirection;
@@ -293,10 +296,13 @@ export const SCENE_VERT = /* glsl */`
     // would let the creek sink below that plane during a musical swell.
     p.y += dot(riverTerrainWeights(position.xz), vec3(riverTerrainShift(terrainA),
       riverTerrainShift(terrainB), riverTerrainShift(terrainC)));
+    // Water keeps its own normal; only its sun horizon reads this.
+    vRiseGrad = riseGrad(position);
     #else
     p.y += ice.x + deformAt(position) * (1.0 - ice.y);
     // The song-long rise of everything above the eye (LandRise.js), at
     // the lifted point, as groundLift gives the forest and the cast.
+    vRiseGrad = riseGrad(p);
     p.y += riseLift(p);
     #endif
     vec4 world = modelMatrix * vec4(p, 1.0);
@@ -399,6 +405,7 @@ export const SCENE_FRAG = /* glsl */`
   in vec3 vWorld;
   in vec3 vRenderedWorld;
   in float vViewDepth;
+  in vec3 vRiseGrad;
   #ifdef RIVER_SURFACE
   in vec3 vRiver;
   in vec2 vRiverDirection;
@@ -768,8 +775,8 @@ export const SCENE_FRAG = /* glsl */`
     // and forest above keep the full-height slopes they were placed on; the
     // light and the silhouette ink see the lowered surface.
     if (!water) {
-      nShade = risenNormal(nShade, vWorld);
-      geologicalNormal = risenNormal(geologicalNormal, vWorld);
+      nShade = gradNormal(nShade, vRiseGrad);
+      geologicalNormal = gradNormal(geologicalNormal, vRiseGrad);
     }
     // Ice detail is fixed to the lobe. Longitudinal debris bands curve
     // gently, while transverse crevasses open across the flow. Neither
@@ -806,7 +813,7 @@ export const SCENE_FRAG = /* glsl */`
     rough = terrainRoughness(mix(rough, .95, farCrownWeight), nShade);
     // Direct light reaches a point only above its baked horizon (broad
     // geographic relief; TerrainOcclusion.js). Sky fill is not shadowed.
-    float sunVis = sunHorizonVisibility(vUv, risenLight(uLightDir, vWorld));
+    float sunVis = sunHorizonVisibility(vUv, stretchedLight(uLightDir, 1.0 + vRiseGrad.y));
     // Light: the celestial as a soft wrap-diffuse key, sky hemisphere fill,
     // occlusion from curvature and drainage (gullies sit in shade).
     float wrap = mix(0.18, 0.3, farCrownWeight);

@@ -43,7 +43,7 @@ test('the terrain shader uses roughness, the baked horizon and a roughness debug
   assert.match(SCENE_FRAG, /terrainSpecular\(nShade, Vs, uLightDir, rough,/);
   // The baked horizon holds full-height elevations; the rise lowers them
   // with the land, which raises the light's tangent instead (LandRise.js).
-  assert.match(SCENE_FRAG, /sunHorizonVisibility\(vUv, risenLight\(uLightDir, vWorld\)\)/);
+  assert.match(SCENE_FRAG, /sunHorizonVisibility\(vUv, stretchedLight\(uLightDir, 1\.0 \+ vRiseGrad\.y\)\)/);
   assert.ok(SHADOW_RESIDUAL > 0 && SHADOW_RESIDUAL <= 0.5, 'shadow keeps some bounce, not full light');
   assert.ok(SCENE_FRAG.includes(`mix(${SHADOW_RESIDUAL.toFixed(2)}, 1.0, sunVis)`));
   assert.match(SCENE_FRAG, /specLight = spec\.x \* sunVis/, 'no specular in shadow');

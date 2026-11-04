@@ -31,7 +31,7 @@ import { loadMaterialPack, materialGpuBytes, RULE_DEFAULTS, validateWaterRules }
 import { placeForestAsync, forestPlacementBound } from './ForestCover.js';
 import { SunShaftGL, SHAFT_KEY, shaftSize, shaftSource } from './SunShaftGL.js';
 import { rangeQuality, easeRungAmount } from './RangeQuality.js';
-import { hashSeed } from '../../utils/math.js';
+import { clamp01, hashSeed } from '../../utils/math.js';
 import { createForest, FOREST_ASSET_BUILD_BYTES, forestGroupingBytes } from './ForestGL.js';
 import { forestAssetBytes, FOREST_FAMILIES, FOREST_VARIANTS } from './ForestSpeciesAssets.js';
 import { bakeHorizonAsync, createHorizonTexture, horizonBytes } from './TerrainOcclusion.js';
@@ -1270,8 +1270,11 @@ export class RangeScene {
           coverage: terrainWindowCoverage(opts.scenicViewport), coverageRevision: 0,
           pixelHeightPx: (this.pixelated ?? opts.pixelated) && !view.glacier ? (this.pixelHeightPx ?? opts.pixelHeightPx ?? null) : null,
           mirrorLevelM,
-          // A mapped tour's windows are planned once, ahead of the song's
-          // rise: plan for the lowest the land is ever drawn (LandRise.js).
+          // A mapped tour's windows are planned ahead and cached, and a
+          // re-analysis can move the song's rise: plan every window for the
+          // lowest the land is ever drawn (LandRise.js), so no plan depends
+          // on which score was current when it was made. Only tiles wholly
+          // above the eye grow, so the cost is a few summit tiles.
           riseSink: 1 - LAND_RISE_START,
           protectedTileIds: view.tour ? tourSummitTiles(cpu.data, opts.tourData?.points) : [] };
         windowOptions.pixelProtectedTileIds = terrainPixelProtection(data, windowOptions.protectedTileIds);
@@ -2274,7 +2277,7 @@ export class RangeScene {
     u.uTourEye.value.set(eye.x, eye.y, eye.z, p.view.tour || p.cameraTour ? 1 : 0);
     // The song-long rise (LandRise.js): the share of the relief above the
     // eye still to come. A frame without one draws the complete range.
-    u.uLandRise.value = 1 - Math.min(1, Math.max(0, Number.isFinite(frame.rise01) ? frame.rise01 : 1));
+    u.uLandRise.value = 1 - clamp01(Number.isFinite(frame.rise01) ? frame.rise01 : 1);
     this._setCloudUniforms(p, frame);
     this._setActors(p, frame);
   }
@@ -2417,7 +2420,8 @@ export class RangeScene {
       // camera stays on the steady halo.
       const pulse = s.pulse01 || 0;
       const push = Math.min(dist * 0.25, 3 * haloPx * mpp0);
-      const toCam = cam.position.clone().sub(at).normalize();
+      // Toward the camera from where the rise draws the lantern.
+      const toCam = cam.position.clone().sub(lit).normalize();
       const v = p.actors.uniforms[id];
       v.uCenter.value.copy(at).addScaledVector(toCam, push);
       v.uAnchor.value.copy(at);

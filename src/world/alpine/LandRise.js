@@ -12,8 +12,19 @@
 // segment eye-P, f(Q) >= the segment eye-f(P) by monotonicity and
 // concavity, with f(eye) = eye). The lake, the valley and the mist below
 // the eye never move, so the mirror plane, the clip plane and the shore
-// stay exact. Seen from the eye it is a vertical squash of the frame above
-// the horizon line, with real 3D light on the lowered slopes.
+// stay exact. (Water above the eye is lowered with its land, by an amount
+// that varies with distance, but a surface above the eye is only ever seen
+// from below, behind its own shore, and the occlusion argument keeps it
+// there.) Seen from the eye it is a vertical squash of the frame above the
+// horizon line, with real 3D light on the lowered slopes.
+//
+// The frame's top. The squash also brings down land that stood above the
+// top of the frame, and a package does not ship tiles outside every baked
+// frustum. A rail never has land above its frame (every station of every
+// view, docs/landscape-rise.md): by continuity, land rising above the top
+// would cross it inside a shipped tile first. Shot tours do fly under
+// ridges; checked against real elevation, every pixel they can bring down
+// lands on a shipped tile (docs/landscape-rise.md, "Coverage").
 //
 // The map, for a point h metres above the eye at horizontal distance r:
 //   h' = s*h + (1 - s)*w*r*(1 - exp(-h / (w*r)))
@@ -38,6 +49,9 @@ export const LAND_RISE_QUIET_PACE = 0.6;
 export const LAND_RISE_LANDING = 0.15;
 /** The rise completes no earlier than this share of the music. */
 export const LAND_RISE_MIN_END = 0.6;
+/** When a re-analysis finds the climb should already be over, the land
+ *  finishes what is left over this long instead of jumping. */
+export const LAND_RISE_CATCH_UP_MS = 8000;
 const STEP_MS = 250;
 
 /** GLSL twin of landRiseLift and its Jacobian. Needs DEFORM_GLSL's
@@ -66,22 +80,22 @@ export const LAND_RISE_GLSL = /* glsl */`
     float dr = length(d) >= 1.0 ? uLandRise * ${LAND_RISE_KNEE.toFixed(7)} * (1.0 - e * (1.0 + t)) / r : 0.0;
     return vec3(dr * d.x, -uLandRise * (1.0 - e), dr * d.y);
   }
-  // A normal carried through the rise (inverse transpose of its Jacobian).
-  // 1 + g.y is at least the rise itself, never zero. The complete range
-  // returns n untouched, so its pixels are exactly the unrisen ones.
-  vec3 risenNormal(vec3 n, vec3 p) {
+  // A normal carried through the rise (inverse transpose of its Jacobian,
+  // from the gradient g = riseGrad at the lifted point the vertex shader
+  // lowered). 1 + g.y is at least the rise itself, never zero. The
+  // complete range returns n untouched, so its pixels are the unrisen ones.
+  vec3 gradNormal(vec3 n, vec3 g) {
     if (uLandRise <= 0.0) return n;
-    vec3 g = riseGrad(p);
     float invY = 1.0 / (1.0 + g.y);
     return normalize(vec3(n.x - g.x * n.y * invY, n.y * invY, n.z - g.z * n.y * invY));
   }
+  vec3 risenNormal(vec3 n, vec3 p) { return gradNormal(n, riseGrad(p)); }
   // The baked horizon (TerrainOcclusion) holds full-height elevations.
   // Lowering the land by the local stretch k lowers their tangents by k,
   // which is the light's tangent raised by 1/k.
   vec3 stretchedLight(vec3 L, float k) {
     return k < 1.0 ? normalize(vec3(L.x, L.y / max(k, 1e-3), L.z)) : L;
   }
-  vec3 risenLight(vec3 L, vec3 p) { return stretchedLight(L, 1.0 + riseGrad(p).y); }
 `;
 
 /** CPU twin of riseLift: metres added to a point's height (<= 0) for the
@@ -139,7 +153,8 @@ const landing = (u) => {
  * `previous` (an earlier compile's riseProgressAt, with freezeThroughMs) is
  * the handoff when a whole-song analysis replaces the opening one: from the
  * frozen moment the new climb continues from where the old one stood, so
- * the land never jumps or sinks.
+ * the land never jumps or sinks. If the new climb is already over by then,
+ * what is left is finished over LAND_RISE_CATCH_UP_MS.
  */
 export function compileLandRise({ read = () => 0, durationMs = 0, cadenceMs = durationMs, finaleMs = 0,
   previous = null, freezeThroughMs = -1 } = {}) {
@@ -159,8 +174,9 @@ export function compileLandRise({ read = () => 0, durationMs = 0, cadenceMs = du
     const from = clamp01(previous(freezeThroughMs)), base = own(freezeThroughMs);
     progressAt = (timeMs) => {
       if (timeMs <= freezeThroughMs) return clamp01(previous(timeMs));
-      if (base >= 1 || from >= 1) return 1;
-      return clamp01(from + (1 - from) * (own(timeMs) - base) / (1 - base));
+      if (from >= 1) return 1;
+      const k = base >= 1 ? (timeMs - freezeThroughMs) / LAND_RISE_CATCH_UP_MS : (own(timeMs) - base) / (1 - base);
+      return clamp01(from + (1 - from) * clamp01(k));
     };
   }
   const at = (timeMs) => LAND_RISE_START + (1 - LAND_RISE_START) * landing(progressAt(timeMs));
