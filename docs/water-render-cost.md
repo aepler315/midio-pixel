@@ -227,10 +227,12 @@ when none of its trees can reach what the render draws.
   scene, and before the detail view (whose footprints read the count) or
   the rail/tour switch (which sets it) touches them.
 - Billboards are never culled, and neither is a mesh with a model matrix
-  or a batch whose bound is unknown: non-finite uniforms, an asset outside
-  [0, 1] up, a tree id outside [0, 1], or a rise the floor cannot bound (a
-  sink outside (0, 1], a negative or non-finite pivot, or no eye; the shader
-  reads these raw).
+  or a batch whose bound is unknown: non-finite deformation, dance, wind or
+  parting uniforms, an asset outside [0, 1] up, a tree id outside [0, 1],
+  or a rise the floor cannot bound. The shader reads the rise raw, so that
+  is a sink above 1 or NaN, or a positive sink with a negative or
+  non-finite pivot or no finite eye. A sink of 0 or less draws no rise and
+  culls as usual.
 
 Result on main 181d2a3, 1280×720. `teton-jackson-lake`, 8 export frames
 from 2 s to 44 s:
@@ -260,8 +262,11 @@ lets a vertex out), each deformation and dance term keeps a tree it lifts or
 sinks into view, the rise keeps a tree it brings down into view (also with
 only 3 m of trunk in the frame), a box under the rise takes its floor where
 it comes nearest the eye even when that is not a corner, and a batch it
-culls has no vertex inside the clip volume for random and mirrored cameras,
-with and without the rise.
+culls has no vertex inside the clip volume, for random and mirrored cameras
+and for views pitched up under the rise, where it brings trees down through
+the frame's top edge. Every value the rise accepts is covered, small sinks
+and a sink of 1 among them, and the bounds `forestGeometryVisible` uses are
+checked to hold the tight ones the brute force uses.
 Whole spans of the shader are pinned, so an added term fails.
 `test/forestCullingRender.test.mjs` runs real three.js renders on a
 recording WebGL2 context: a culled batch loses its draw call and nothing

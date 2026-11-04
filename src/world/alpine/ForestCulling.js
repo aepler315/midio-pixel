@@ -159,6 +159,16 @@ const unknownRise = (u, rise) => {
   return !(rise && v.x <= 1 && v.y >= 0 && v.y < Infinity && rise.eye.every(Number.isFinite));
 };
 
+/** The root lift { lo, hi, rise } and lean per metre of height every box
+ *  takes under the forest uniforms `u`, with production safety; null when
+ *  they cannot bound the trees (non-finite, or a rise the floor cannot
+ *  bound). */
+export function forestBounds(u) {
+  const lift = liftBounds(u || {}), lean = forestLean(u) * MIRROR_BOUND_SAFETY;
+  if (![lift.lo, lift.hi, lean].every(Number.isFinite) || unknownRise(u, lift.rise)) return null;
+  return { lift, lean };
+}
+
 const BOX = new Float64Array(6);
 
 /** True when any tree of `geometry` can reach the volume `planes` bound
@@ -167,8 +177,9 @@ const BOX = new Float64Array(6);
 export function forestGeometryVisible(geometry, planes, u) {
   const extents = assetExtents(geometry), cells = forestCells(geometry);
   if (!extents || !cells || !planes) return true;
-  const lift = liftBounds(u || {}), lean = forestLean(u) * MIRROR_BOUND_SAFETY;
-  if (![lift.lo, lift.hi, lean].every(Number.isFinite) || unknownRise(u, lift.rise)) return true;
+  const bounds = forestBounds(u);
+  if (!bounds) return true;
+  const { lift, lean } = bounds;
   for (let o = 0; o < cells.length; o += 8) {
     const b = forestCellBox(cells, o, extents, lift, lean, CHUNK_BOX_PAD_M, BOX);
     if (!boxOutsidePlanes(planes, b[0], b[1], b[2], b[3], b[4], b[5])) return true;

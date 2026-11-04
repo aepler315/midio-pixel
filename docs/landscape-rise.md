@@ -108,8 +108,9 @@ Lowering can move a box into the frame from above it. Every bound lowers the
 box bottom through `risenFloor` (the bottom at the nearest horizontal
 distance, since the drawn height rises with both height and distance):
 chunk culling (`TerrainChunks`), whole-batch tree culling
-(`ForestCulling.forestCellBox`, which never culls under a rise it cannot
-bound: a sink outside (0, 1], a negative or non-finite pivot, or no eye),
+(`ForestCulling.forestCellBox`; `forestGeometryVisible` never culls under a
+rise it cannot bound: a sink above 1 or NaN, or a positive sink with a
+negative or non-finite pivot or no finite eye),
 the mirror and water scissors (`MirrorScissor.liftBounds`), mapped-tour
 window plans (`TerrainWindow`, planned for the lowest the land ever
 reaches, so a cached plan never depends on which analysis was current).
