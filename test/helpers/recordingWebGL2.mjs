@@ -1,6 +1,8 @@
 // A no-op WebGL2 context that records indexed draws (index data, offset,
-// count, scissor state): enough for the vendored three.js to initialise
-// and render, so a test can see exactly what a real render submits.
+// count, instances, scissor state), and a timeline (state.ops) of program
+// binds, vertex array binds and draws: enough for the vendored three.js to
+// initialise and render, so a test can see exactly what a real render
+// submits, and in what order.
 export function recordingWebGL2(width = 300, height = 150) {
   const names = new Map(), ids = new Map();
   let next = 0x9000;
@@ -8,7 +10,7 @@ export function recordingWebGL2(width = 300, height = 150) {
     if (!names.has(name)) { names.set(name, next); ids.set(next, name); next++; }
     return names.get(name);
   };
-  const state = { draws: [], scissorTest: false, scissor: [0, 0, 0, 0], viewport: [0, 0, 0, 0] };
+  const state = { draws: [], ops: [], scissorTest: false, scissor: [0, 0, 0, 0], viewport: [0, 0, 0, 0] };
   let vao = null, boundArray = null;
   const defaultVao = { element: null };
   const params = {
@@ -33,7 +35,7 @@ export function recordingWebGL2(width = 300, height = 150) {
     getShaderPrecisionFormat: () => ({ precision: 23, rangeMin: 127, rangeMax: 127 }),
     createShader: () => ({}), createProgram: () => ({}), createTexture: () => ({}), createFramebuffer: () => ({}), createRenderbuffer: () => ({}),
     createBuffer: () => ({ data: null }), createVertexArray: () => ({ element: null }),
-    bindVertexArray: v => { vao = v; },
+    bindVertexArray: v => { vao = v; state.ops.push(['bindVertexArray', v]); },
     bindBuffer: (t, b) => { if (ids.get(t) === 'ELEMENT_ARRAY_BUFFER') (vao || defaultVao).element = b; else boundArray = b; },
     bufferData: (t, data) => { if (ids.get(t) === 'ELEMENT_ARRAY_BUFFER') (vao || defaultVao).element.data = data; else if (boundArray) boundArray.data = data; },
     getShaderParameter: () => true,
@@ -47,8 +49,15 @@ export function recordingWebGL2(width = 300, height = 150) {
     viewport: (x, y, w, h) => { state.viewport = [x, y, w, h]; },
     drawElements: (mode, count, type, offset) => {
       state.draws.push({ index: (vao || defaultVao).element?.data, count, offset, scissorTest: state.scissorTest, scissor: [...state.scissor] });
+      state.ops.push(['draw', state.draws.at(-1)]);
     },
-    drawArrays: (mode, first, count) => { state.draws.push({ arrays: true, first, count }); },
+    drawArrays: (mode, first, count) => { state.draws.push({ arrays: true, first, count }); state.ops.push(['draw', state.draws.at(-1)]); },
+    drawArraysInstanced: (mode, first, count, instances) => { state.draws.push({ arrays: true, first, count, instances }); state.ops.push(['draw', state.draws.at(-1)]); },
+    drawElementsInstanced: (mode, count, type, offset, instances) => {
+      state.draws.push({ index: (vao || defaultVao).element?.data, count, offset, instances, scissorTest: state.scissorTest, scissor: [...state.scissor] });
+      state.ops.push(['draw', state.draws.at(-1)]);
+    },
+    useProgram: p => { state.ops.push(['useProgram', p]); },
     getError: () => 0,
   };
   const gl = new Proxy(target, {
