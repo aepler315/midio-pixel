@@ -204,7 +204,14 @@ export function buildTerrainGeometry(data, { budget = 'desktop', bias = 1, inclu
     const sz = size[bandName];
     const P = new Float32Array(sz.v * 3), I = new Uint32Array(sz.i), F = new Uint32Array(sz.f);
     let vertexCount = 0, k = 0, fringeCount = 0;
-    const fill = (a, b) => { F.set(I.subarray(a, b), fringeCount); fringeCount += b - a; };
+    const { R, A, T, D } = sections[bandName];
+    const tileCount = R.length + A.length + T.length + D.length;
+    const chunks = chunkArrays(tileCount), fringeChunks = chunkArrays(tileCount);
+    const fill = (a, b, box) => {
+      pushChunk(fringeChunks, fringeCount, b - a, box);
+      F.set(I.subarray(a, b), fringeCount);
+      fringeCount += b - a;
+    };
     // One tile into the band's arrays: [first, last) of its indices.
     const emit = ({ t, ignoreTourOnly }) => {
       const s = stridesById.get(t.id);
@@ -247,6 +254,7 @@ export function buildTerrainGeometry(data, { budget = 'desktop', bias = 1, inclu
         return a + (b - a) * f;
       };
       const heights = new Float32Array(n * n);
+      const box = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
       for (let v = 0; v < n; v++) {
         for (let u = 0; u < n; u++) {
           const y = snap(u, v);
@@ -255,6 +263,10 @@ export function buildTerrainGeometry(data, { budget = 'desktop', bias = 1, inclu
           P[o] = x0 + u * s * grid.cellSizeM;
           P[o + 1] = Number.isFinite(y) ? y : 0;
           P[o + 2] = z0 + v * s * grid.cellSizeM;
+          if (Number.isFinite(y)) for (let axis = 0; axis < 3; axis++) {
+            box[axis] = Math.min(box[axis], P[o + axis]);
+            box[axis + 3] = Math.max(box[axis + 3], P[o + axis]);
+          }
         }
       }
       const first = k;
@@ -272,25 +284,25 @@ export function buildTerrainGeometry(data, { budget = 'desktop', bias = 1, inclu
         }
       }
       vertexCount += n * n;
-      return [first, k];
+      pushChunk(chunks, first, k - first, box);
+      return [first, k, box];
     };
-    const { R, A, T, D } = sections[bandName];
     // Each emitted tile's [first, last) indices, for the per-mode tile order.
     const pieces = { R: [], A: [], T: [] };
-    for (const e of R) { const [a, b] = emit(e); pieces.R.push([e.seq, a, b]); railTriangles += (b - a) / 3; railCopies++; if (e.fringe) fill(a, b); }
+    for (const e of R) { const [a, b, box] = emit(e); pieces.R.push([e.seq, a, b]); railTriangles += (b - a) / 3; railCopies++; if (e.fringe) fill(a, b, box); }
     const tourStart = k, tourFringeStart = fringeCount;
     // A tile that borders a farther band only through a tour-only tile
     // fills that seam in the tour alone: after the rail's fill.
     const tourFill = [];
     for (const e of A) {
-      const [a, b] = emit(e);
+      const [a, b, box] = emit(e);
       pieces.A.push([e.seq, a, b]);
       railTriangles += (b - a) / 3;
-      if (e.railFringe) fill(a, b); else if (e.fringe) tourFill.push([a, b]);
+      if (e.railFringe) fill(a, b, box); else if (e.fringe) tourFill.push([a, b, box]);
     }
     const railEnd = k, railFringeEnd = fringeCount;
-    for (const [a, b] of tourFill) fill(a, b);
-    for (const e of [...T, ...D]) { const [a, b] = emit(e); pieces.T.push([e.seq, a, b]); if (e.fringe) fill(a, b); }
+    for (const [a, b, box] of tourFill) fill(a, b, box);
+    for (const e of [...T, ...D]) { const [a, b, box] = emit(e); pieces.T.push([e.seq, a, b]); if (e.fringe) fill(a, b, box); }
     triangles += (k - tourStart) / 3;
     const split = railEnd !== k || tourStart !== 0;
     // Each mode's tiles in package order: the order a build of what that
@@ -302,6 +314,7 @@ export function buildTerrainGeometry(data, { budget = 'desktop', bias = 1, inclu
       positions: vertexCount * 3 === P.length ? P : P.slice(0, vertexCount * 3),
       indices: k === I.length ? I : I.slice(0, k), vertexCount,
       fringe: fringeCount === F.length ? F : F.slice(0, fringeCount),
+      chunks: finishChunks(chunks), fringeChunks: finishChunks(fringeChunks),
       ranges: split ? { rail: [0, railEnd], tour: [tourStart, k - tourStart] } : null,
       fringeRanges: fringeSplit ? { rail: [0, railFringeEnd], tour: [tourFringeStart, fringeCount - tourFringeStart] } : null,
       tileOrder: split ? { rail: ordered(pieces.R, pieces.A), tour: ordered(pieces.A, pieces.T) } : null,
@@ -320,6 +333,24 @@ export function terrainBandsFor(built, mode) {
     const cut = (array, ranges) => (ranges ? array.subarray(ranges[mode][0], ranges[mode][0] + ranges[mode][1]) : array);
     return [b, { ...band, indices: cut(band.indices, band.ranges), fringe: cut(band.fringe, band.fringeRanges) }];
   }));
+}
+
+// Per-tile index ranges and boxes (TerrainChunks.chunkTable's arrays).
+function chunkArrays(n) {
+  return { start: new Uint32Array(n), count: new Uint32Array(n), box: new Float64Array(6 * n), length: 0 };
+}
+
+function pushChunk(c, start, count, box) {
+  // A tile with no drawable quad keeps no chunk; its range is empty.
+  if (!count) return;
+  const i = c.length++;
+  c.start[i] = start; c.count[i] = count;
+  for (let a = 0; a < 6; a++) c.box[i * 6 + a] = box[a];
+}
+
+function finishChunks(c) {
+  const n = c.length;
+  return { start: c.start.slice(0, n), count: c.count.slice(0, n), box: c.box.slice(0, 6 * n) };
 }
 
 /**

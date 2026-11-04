@@ -5,10 +5,10 @@
 // this module stays importable (and testable) without a GPU.
 import { finishPreparation, prepareInSlices } from './PreparationSteps.js';
 import { yieldToMain } from '../../utils/yieldToMain.js';
-import { waterTexelTableAsync } from './WaterColourRanges.js';
 import { buildTerrainGeometry, buildSurfaceTexture, buildReceiverMask, buildSurfaceTextureAsync, buildReceiverMaskAsync, BANDS } from './TerrainMesh.js';
 import { terrainHeightRange } from './TerrainPackage.js';
 import { setTerrainDrawMode } from './RailDraw.js';
+import { chunkTable, setChunks } from './TerrainChunks.js';
 
 export const REVIEW_MODES = Object.freeze({ neutral: 0, silhouette: 1, depth: 2, normals: 3, edges: 4 });
 
@@ -87,9 +87,7 @@ export function createSurfaceTexture(THREE, data, options = {}) {
 export async function createSurfaceTextureAsync(THREE, data, options = {}) {
   const surface = await buildSurfaceTextureAsync(data, options);
   const receiver = await buildReceiverMaskAsync(surface, options);
-  // The first upload drops the bytes water ranges are read from.
-  const waterTexels = options.waterTexels ? await waterTexelTableAsync(surface, options) : null;
-  return { ...surfaceTextures(THREE, surface, receiver), waterTexels };
+  return surfaceTextures(THREE, surface, receiver);
 }
 
 function surfaceTextures(THREE, surface, receiver) {
@@ -168,6 +166,7 @@ function* bandGeometrySteps(THREE, data, options) {
       // A tour package's band draws one of two ranges (RailDraw.js); the
       // whole buffer never.
       if (b.ranges) { geo.userData.terrainRanges = b.ranges; geo.userData.terrainOrder = b.tileOrder; setTerrainDrawMode(geo, mode); }
+      setChunks(geo, builtChunks(b.chunks, b.indices.length));
       geometries[band] = geo;
       bytes += b.positions.byteLength + b.indices.byteLength;
       // The band's tiles that border a farther band, sharing its vertices.
@@ -177,6 +176,7 @@ function* bandGeometrySteps(THREE, data, options) {
         f.setIndex(new THREE.BufferAttribute(b.fringe, 1));
         f.boundingSphere = geo.boundingSphere;
         if (b.fringeRanges) { f.userData.terrainRanges = b.fringeRanges; setTerrainDrawMode(f, mode); }
+        setChunks(f, builtChunks(b.fringeChunks, b.fringe.length));
         fringes[band] = f;
         bytes += b.fringe.byteLength;
       }
@@ -187,6 +187,16 @@ function* bandGeometrySteps(THREE, data, options) {
   } finally {
     if (!complete) for (const g of [...Object.values(geometries), ...Object.values(fringes)]) g.dispose();
   }
+}
+
+// A build's chunk arrays as a table, or null (a build without them, or
+// one whose chunks do not tile all `indices` of its index, draws whole).
+function builtChunks(c, indices) {
+  if (!c?.start?.length || c.start[0] !== 0) return null;
+  try {
+    const table = chunkTable(c.start, c.count, c.box);
+    return table.indices === indices ? table : null;
+  } catch { return null; }
 }
 
 /** The review material (neutral / silhouette / depth / normals). */

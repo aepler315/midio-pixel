@@ -214,5 +214,7 @@ plus every band in water-only mode), the lake mirror 12.8 M, the terrain
 partitions themselves 13.5 M. Since then (docs/water-render-cost.md) the
 water-only passes draw only triangles that can be wet, and the mirror is
 scissored and shed at rung 1, so the phone start rung no longer draws it.
-The two water pre-passes still submit the full terrain; sharing one depth
-pre-pass between passes, or culling chunks outside the view, remains open.
+Since then too, the native water pass copies the partition's depth instead
+of drawing the terrain again, every pass draws only the terrain tiles that
+can reach its target, and the output-resolution water pass is scissored to
+the lake (docs/water-render-cost.md, changes 3 to 5).

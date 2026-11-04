@@ -30,8 +30,10 @@ export const MiB = 1024 * 1024;
 // and the base alone measured ~208 MiB on a 2560x1440 stage served without
 // cross-origin isolation (render targets and the worker's own terrain copy
 // grow with it), so a fixed 256 MiB left no room for the next window and the
-// tour lost its trees. Devices reporting less than 8 GB keep the old ledgers.
-export const RESIDENCY_BUDGETS = Object.freeze({ desktop: 512 * MiB, mobile: 320 * MiB });
+// tour lost its trees. The flagship mobile tier (Galaxy S24 Ultra as the
+// validation floor) uses the same ledger ceiling as desktop, while keeping
+// mobile LOD. Devices with lower reported memory keep conservative budgets.
+export const RESIDENCY_BUDGETS = Object.freeze({ desktop: 512 * MiB, mobile: 512 * MiB });
 export const LOW_MEMORY_BUDGETS = Object.freeze({ desktop: 256 * MiB, mobile: 192 * MiB });
 
 /** Pick the budget for this device. Conservative: anything that looks like a
