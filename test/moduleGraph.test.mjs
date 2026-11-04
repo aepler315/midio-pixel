@@ -47,7 +47,8 @@ test('every module under src/ parses and links the way the browser loads it', ()
 
 test('the module-graph check catches each way a module fails to load', async (t) => {
   const root = await fixture(t, {
-    'index.html': '<script type="module" src="./src/scene.js"></script>\n',
+    // The app's own page gets no dev-page exception: tools/ is not served.
+    'index.html': '<script type="module" src="./src/scene.js"></script>\n<script type="module" src="./tools/helper.js"></script>\n',
     'src/actors.js': ACTORS,
     'src/data.json': '{"ok": true}\n',
     'src/broken.json': '{"ok": tru\n',
@@ -99,6 +100,9 @@ test('the module-graph check catches each way a module fails to load', async (t)
       "const retry = (url, n) => (n ? `${url}?retry=${n}` : url);",
       'export const followed = (n) => import(retry(SCENE_URL, n));',
       'export const lost = (n) => import(retry(LOST_URL, n));',
+      "export const json = () => import('./data.json', { with: { type: 'json' } });",
+      "export const untypedJson = () => import('./data.json');",
+      "export const badJson = () => import('./broken.json', { with: { type: 'json' } });",
     ].join('\n'),
     'src/worker.js': "import { ACTOR_IDS } from './actors.js';\nself.onmessage = () => postMessage(ACTOR_IDS);\n",
     // Module-only syntax that a line-start regex would miss.
@@ -151,8 +155,11 @@ test('the module-graph check catches each way a module fails to load', async (t)
   const result = check(root);
   assert.equal(result.status, 1);
   assert.deepEqual(sites(result), [
+    'index.html:2 html',
     'src/bare.js:1 import',
     'src/culprit.js:3 link',
+    'src/dynamic.js:13 dynamic import',
+    'src/dynamic.js:14 dynamic import',
     'src/dynamic.js:3 dynamic import',
     'src/dynamic.js:5 dynamic import',
     'src/dynamic.js:6 dynamic import',
@@ -193,6 +200,10 @@ test('the module-graph check catches each way a module fails to load', async (t)
   assert.match(message('src/ui/picker.js'), /served at \/history-worker\.js/);
   assert.match(message('src/json-untyped.js'), /type: 'json'/);
   assert.match(message('src/page.html', 'html'), /missing-entry\.js.*does not exist/);
+  assert.match(message('index.html'), /tools\/helper\.js is outside src\//);
+  const dynamic = (line) => result.problems.find(p => p.file === 'src/dynamic.js' && p.line === line).message;
+  assert.match(dynamic(13), /as JavaScript; a JSON file needs/);
+  assert.match(dynamic(14), /JSON that does not parse/);
   assert.match(message('src/page.html', 'link'), /does not provide an export named 'ACTOR_NOPE'/);
   const worker = (line) => result.problems.find(p => p.file === 'src/worker-consts.js' && p.line === line).message;
   assert.match(worker(5), /src\/gone-worker\.js does not exist/);
