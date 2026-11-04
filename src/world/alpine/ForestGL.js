@@ -551,36 +551,43 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
     uViewProj: uniforms.uViewProj || { value: new THREE.Matrix4() },
     uViewportPx: uniforms.uViewportPx || { value: new THREE.Vector2(1, 1) },
     ...(uniforms.uGustAge ? {} : gustUniforms()), ...(uniforms.uActorPos ? {} : actorUniforms(THREE)) };
-  const mat = (vert, frag, depth = false) => {
-    const m = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: vert, fragmentShader: frag, uniforms: u });
-    // Ordinary mesh-ring assets have no LOD scalar; they keep full coverage.
-    m.defaultAttributeValues.iLodWeight = [1];
-    if (forestDebug && !depth) m.defines.FOREST_DEBUG = 1;
-    if (depth) m.colorWrite = false;
-    else if (partitioned) { m.depthFunc = THREE.LessEqualDepth; m.depthWrite = false; }
-    return m;
-  };
-  const materials = {
-    mesh: mat(`${CROWN_GLSL}\n${MESH_VERT}`, MESH_FRAG.replace('MESH_COVERAGE', MESH_COVERAGE)),
-    meshDepth: mat(`${CROWN_GLSL}\n${MESH_VERT}`, MESH_DEPTH_FRAG.replace('MESH_COVERAGE', MESH_COVERAGE), true),
-    meshCore: mat(`${CROWN_GLSL}\n${MESH_VERT}`, MESH_FRAG.replace('MESH_COVERAGE', MESH_COVERAGE)),
-    meshCoreDepth: mat(`${CROWN_GLSL}\n${MESH_VERT}`, MESH_DEPTH_FRAG.replace('MESH_COVERAGE', MESH_COVERAGE), true),
-    board: mat(BOARD_VERT, BOARD_FRAG), boardDepth: mat(BOARD_VERT, BOARD_DEPTH_FRAG, true),
-  };
-  materials.board.defines.BOARD_CROWN = 1;
-  materials.mesh.defines.MESH_CROWN = 1;
-  materials.meshCore.defines.MESH_CROWN = 1;
-  materials.meshCore.defines.FOREST_CORE = 1; materials.meshCoreDepth.defines.FOREST_CORE = 1;
-  if (partitioned) {
-    for (const m of [materials.mesh, materials.board]) {
-      m.defines.FOREST_BLEND = 1;
-      m.transparent = true; m.premultipliedAlpha = true; m.blending = THREE.CustomBlending;
-      m.blendEquation = m.blendEquationAlpha = THREE.AddEquation;
-      m.blendSrc = m.blendSrcAlpha = THREE.OneFactor;
-      m.blendDst = m.blendDstAlpha = THREE.OneMinusSrcAlphaFactor;
+  // The six forest materials over one pair of vertex shaders: created in
+  // this order (their ids order the opaque sort), with these defines,
+  // blending and depth state.
+  const shaderSet = (meshVert, boardVert, uniforms) => {
+    const mat = (vert, frag, depth = false) => {
+      const m = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: vert, fragmentShader: frag, uniforms });
+      // Ordinary mesh-ring assets have no LOD scalar; they keep full coverage.
+      m.defaultAttributeValues.iLodWeight = [1];
+      if (forestDebug && !depth) m.defines.FOREST_DEBUG = 1;
+      if (depth) m.colorWrite = false;
+      else if (partitioned) { m.depthFunc = THREE.LessEqualDepth; m.depthWrite = false; }
+      return m;
+    };
+    const set = {
+      mesh: mat(`${CROWN_GLSL}\n${meshVert}`, MESH_FRAG.replace('MESH_COVERAGE', MESH_COVERAGE)),
+      meshDepth: mat(`${CROWN_GLSL}\n${meshVert}`, MESH_DEPTH_FRAG.replace('MESH_COVERAGE', MESH_COVERAGE), true),
+      meshCore: mat(`${CROWN_GLSL}\n${meshVert}`, MESH_FRAG.replace('MESH_COVERAGE', MESH_COVERAGE)),
+      meshCoreDepth: mat(`${CROWN_GLSL}\n${meshVert}`, MESH_DEPTH_FRAG.replace('MESH_COVERAGE', MESH_COVERAGE), true),
+      board: mat(boardVert, BOARD_FRAG), boardDepth: mat(boardVert, BOARD_DEPTH_FRAG, true),
+    };
+    set.board.defines.BOARD_CROWN = 1;
+    set.mesh.defines.MESH_CROWN = 1;
+    set.meshCore.defines.MESH_CROWN = 1;
+    set.meshCore.defines.FOREST_CORE = 1; set.meshCoreDepth.defines.FOREST_CORE = 1;
+    if (partitioned) {
+      for (const m of [set.mesh, set.board]) {
+        m.defines.FOREST_BLEND = 1;
+        m.transparent = true; m.premultipliedAlpha = true; m.blending = THREE.CustomBlending;
+        m.blendEquation = m.blendEquationAlpha = THREE.AddEquation;
+        m.blendSrc = m.blendSrcAlpha = THREE.OneFactor;
+        m.blendDst = m.blendDstAlpha = THREE.OneMinusSrcAlphaFactor;
+      }
     }
-  }
-  for (const m of Object.values(materials)) m.side = THREE.DoubleSide;
+    for (const m of Object.values(set)) m.side = THREE.DoubleSide;
+    return set;
+  };
+  const materials = shaderSet(MESH_VERT, BOARD_VERT, u);
   // Base assets are built only for the (lod, family, variant) batches a
   // forest actually uses, and shared by every instance batch of that kind.
   const bases = new Map();
