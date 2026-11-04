@@ -7,13 +7,13 @@ export default {
    "id": "nc-ross-lake-north",
    "regionId": "north-cascades",
    "biome": "RAINFOREST",
-   "status": "approved",
+   "status": "candidate",
    "catalogVersion": 52,
    "title": "Ross Lake",
    "place": "North Cascades, Washington",
    "credit": "Elevation: USGS 3DEP 1/3 arc-second DEM + AWS Terrain Tiles (beyond 3DEP coverage)",
    "terrainManifestUrl": "terrain/nc-ross-lake-north.terrain.json",
-   "terrainManifestSha256": "32ee5822fccba5a474d0298cd8eb4e941cbb4858e7f1679b4e6ae9fa338aa4d2",
+   "terrainManifestSha256": "a09db953e8deb8d39a7e6e18e464a6b2a1ac0f8f1839c96d650552a47e03cf07",
    "materialManifestUrl": "materials/wet-conifer.json",
    "materialManifestSha256": "8f5ff6bb64b01072364f9d4698c13591af20de8f32dfbd40b67f0614fd242bb0",
    "materialRules": {},
@@ -54,23 +54,7 @@ export default {
    "evidence": {
     "reviewPath": "docs/range-v2-progress.md",
     "review": "2026-09-29 geometry/camera review (Task 4): 21 stations + continuous traverse, neutral/silhouette/depth/crop-edge modes. Connected real relief (Ross Lake chain, Jack Mountain spurs, Sourdough flanks); no crop-edge skyline, no cracks; terrain coverage 0.62-0.64, skyline top 0.28 of frame height. Geometry approved for material pilot; At that revision production status remained candidate pending the Task 13 full pilot; the current status and approval fields record subsequent state.",
-    "approval": {
-     "date": "2026-10-01",
-     "terrainManifestSha256": "32ee5822fccba5a474d0298cd8eb4e941cbb4858e7f1679b4e6ae9fa338aa4d2",
-     "materialManifestSha256": "8f5ff6bb64b01072364f9d4698c13591af20de8f32dfbd40b67f0614fd242bb0",
-     "materialRulesSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
-     "cameraSha256": "1947b732c79e756600438f9747cb0dbd629daecafb072dd925d4d5cd1773eb7a",
-     "compositionSha256": "42aabcc21fc899222ba1c8263d48fd22f58d0b94716e47f9a127c1e84b12a1f1",
-     "evidence": [
-      "docs/evidence/range-v2/nc-ross-lake-north-stations.jpg",
-      "docs/evidence/range-v2/nc-ross-lake-north-inapp-10s.jpg",
-      "docs/evidence/range-v2/pilot-ross-lake-calm-10s.jpg",
-      "docs/evidence/range-v2/pilot-ross-lake-energetic-32s.jpg",
-      "docs/evidence/range-v2/pilot-ross-lake-reflection-38s.jpg",
-      "docs/evidence/range-v2/nc-ross-lake-north-nostage-10s.jpg",
-      "docs/evidence/range-v2/no-stage-coverage.json"
-     ]
-    },
+    "approval": null,
     "sourceHashes": [
      "db044eff3e8bbd5e89579b8d11c1c86e1ceec9b61013ee0f4d543927d6838fdd",
      "91642208a0183ec44c382f644a836aad1430092811a3af0d07923e3cc999072f",
