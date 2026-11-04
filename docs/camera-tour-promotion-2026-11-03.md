@@ -22,6 +22,16 @@ camera (src/world/alpine/RailDraw.js); nothing is rebuilt.
 - **Tour**: every tile once, crack-free; the forest of the tour's footprint;
   the water, mirror and height range of all its ground.
 
+Each mode also shades from its own sun horizon and land hierarchy. Both
+share one surface texture (slope, curvature, flow), baked from all the
+ground. That is the one place the rail is not exactly main: where the
+rail's ground ends, distant mip levels blend the tour-only ground's real
+texels, where main's package blends a flat fill. At 1920x1080, 0 to 6
+crest pixels per station differ by more than 2/255 (Teton 53, Black
+Mountains 27 of about 29M terrain pixels over the rail; worst 37/255 in one
+channel), every one an edge-on silhouette pixel. An exact rail would need a
+second surface texture, about 32 MB of GPU memory per view.
+
 The approval checks below measure the rail exactly as it draws: rail tiles
 only (`terrainBandsFor(..., 'rail')`) and the rail's own trees.
 
