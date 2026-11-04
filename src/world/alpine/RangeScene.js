@@ -56,6 +56,7 @@ import { flashScreenPoint, rainSeed01, stormKindRow } from './RangeStorm.js';
 import { forestWindAt } from './ForestWind.js';
 import { createWetMask, fillWetRows, waterIndexSubsetAsync } from './WaterSubset.js';
 import { attachTerrainCulling, setChunks, setTerrainMaterial, subsetChunkTable } from './TerrainChunks.js';
+import { attachForestCulling } from './ForestCulling.js';
 import { waterBoxes, vertexWaterBoxes, liftBounds, shiverBounds, mirrorScissor, waterScissor } from './MirrorScissor.js';
 // Storm light, linear: the deck's underside, the rain-dimmed horizon, the
 // rain air, per episode kind (RangeStorm STORM_KINDS zenith/horizon/air).
@@ -181,6 +182,8 @@ export class RangeScene {
     // since construction: band indices drawn, indices the meshes hold, and
     // draw groups. snapshot() reports it; diff two snapshots for a frame.
     this.terrainCull = { kept: 0, total: 0, draws: 0 };
+    // Mesh trees tested and kept, and batches skipped, since construction.
+    this.forestCull = { kept: 0, total: 0, batches: 0 };
     // The cast draws in the band passes unless the presentation takes it
     // from renderCast to lay over the pixel frame itself (it clears this).
     this.castInBands = true;
@@ -1359,10 +1362,12 @@ export class RangeScene {
         }
         // Every scene that draws the bands culls their off-screen tiles for
         // each render's own camera and scissor, lifted by this frame's
-        // largest vertical displacement (TerrainChunks.js).
+        // largest vertical displacement (TerrainChunks.js), and skips the
+        // mesh-tree batches none of whose trees it can see (ForestCulling.js).
         const lift = () => liftBounds(uniforms);
         for (const scene of [...Object.values(scenes), depthScene, ...Object.values(depthScenes), ...fringeTravel.map(f => f.scene)]) {
           attachTerrainCulling(scene, lift, this.terrainCull);
+          attachForestCulling(scene, this.forestCull);
         }
         // Three's compile() creates programs but does not reject a failed
         // link. Check before publishing: otherwise trees draw over empty
@@ -3153,7 +3158,7 @@ export class RangeScene {
       rivers: [...this.prepared.values()].filter(p => p.view.rivers).map(p => ({ viewId: p.view.id, ...p.riverStats })),
       buildAdmission: { requestedBytes: 0, admittedBytes: 0, denials: 0, peakBytes: 0, ...this.buildAdmission },
       windows: [...this.prepared.values()].filter(p=>p.windowCache).map(p=>({id:p.view.id,index:p.windowIndex,resident:[...p.windowCache.resident.keys()],detail:p.activeWindow?.detail,coverage:p.windowCoverage,note:p.windowNote,stats:p.stats,forestDetail:p.forestDetailViews})),
-      size: { ...this.size }, stats: { ...this.stats }, terrainCull: { ...this.terrainCull }, sideB: !!this.sideTargets.B,
+      size: { ...this.size }, stats: { ...this.stats }, terrainCull: { ...this.terrainCull }, forestCull: { ...this.forestCull }, sideB: !!this.sideTargets.B,
       prepareLog: structuredClone(this.prepareLog || {}),
       compiledTerrain: { request: { ...this.compiledTerrain?.request }, views: structuredClone(this.compiledTerrain?.views || {}),
         drawn: Object.fromEntries([...this.prepared.values()].map(p => [p.view.id, p.compiled?.representation ?? 'original'])) },

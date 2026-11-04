@@ -604,6 +604,8 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
       bytes += weight.array.byteLength;
     }
     geo.userData.asset = base.userData.asset;
+    // Mesh trees can be culled a whole batch at a time (ForestCulling.js).
+    if (kind !== 'billboard') geo.userData.forestCull = { uniforms: u };
     geos.push(geo);
     const tag = (mesh) => { if (nearLod) { mesh.userData.nearLod = nearLod; mesh.visible = nearLod === 'detail'; } return mesh; };
     if (partitioned && kind !== 'billboard') {
