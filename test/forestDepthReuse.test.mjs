@@ -133,7 +133,7 @@ test('placed lights alone (no lantern on screen) still draw after the crown cut,
 
 test('the lake mirror reflects the cast with every band, soft forest or not', () => {
   for (const soft of [true, false]) {
-    const { s, draws } = fixture();
+    const { s, draws } = fixture({ actor: true });
     const p = s.prepared.get('probe');
     if (!soft) p.forest.counts = { billboard: 0 };
     p.mirrorLevelM = 1000;

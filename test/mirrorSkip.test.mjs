@@ -1,0 +1,152 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { RangeScene, MIRROR_INK_SKIP } from '../src/world/alpine/RangeScene.js';
+import { sceneUniforms, FEATURE_FRAG } from '../src/world/alpine/TerrainMaterial.js';
+import { createForest } from '../src/world/alpine/ForestGL.js';
+import * as THREE from '../src/vendor/range/three-range.module.js';
+
+// _prepareMirror against a renderer that records what it is asked to do.
+function fixture({ ink = 0, actor = false, scissor = null, soft = true, sites = null } = {}) {
+  const ops = [];
+  const p = { view: {}, uniforms: sceneUniforms(THREE, {}), mirrorLevelM: 100,
+    forest: { counts: soft ? { billboard: 1 } : {} },
+    actors: { groups: { light: { visible: actor } }, ...(sites ? { sites } : {}) },
+    depthScene: 'depth', scenes: { far: 'far', mid: 'mid', near: 'near' } };
+  p.uniforms.uNarrativeInk.value = ink;
+  const target = { width: 64, height: 32, scissor: new THREE.Vector4(), scissorTest: false, texture: 'mirror-texture' };
+  const m = { target, frame: -1, view: null, matrix: new THREE.Matrix4() };
+  const renderer = {
+    setRenderTarget() {}, setClearColor() {}, clear() {},
+    render(scene, cam) { ops.push(`${scene}:${cam.layers.mask}`); },
+  };
+  const s = Object.assign(Object.create(RangeScene.prototype), {
+    THREE, renderer, camera: new THREE.PerspectiveCamera(), mirrorCamera: new THREE.PerspectiveCamera(),
+    size: { width: 32, height: 16 }, stats: {}, mirrors: { A: m },
+    _ensureMirror: () => m, _mirrorScissor: () => scissor, _updateForestDetail() {}, _bindBackdrop() {},
+  });
+  s.camera.position.set(0, 300, 0); s.camera.lookAt(0, 0, -1000); s.camera.updateMatrixWorld();
+  return { s, p, ops };
+}
+const frame = { frameId: 7, timeMs: 1000, qualityLevel: 0, narrative: { materials: 1 } };
+const BANDS3 = (mask) => ['far', 'mid', 'near'].map(b => `${b}:${mask}`);
+const FULL = ['depth:1', ...BANDS3(1), ...BANDS3(2), 'depth:4', ...BANDS3(8 | 16 | 32)];
+const NO_CUT = ['depth:1', ...BANDS3(1), ...BANDS3(2)];
+
+test('the mirror leaves out its crown cut, ink and cast only when the ink discards and no cast shows', () => {
+  for (const [opts, want] of [
+    [{}, NO_CUT],
+    [{ ink: MIRROR_INK_SKIP * 0.999 }, NO_CUT],
+    [{ ink: -1 }, NO_CUT],
+    [{ ink: MIRROR_INK_SKIP }, FULL],
+    [{ ink: .005 }, FULL],
+    [{ ink: .02 }, FULL],
+    // The shader keeps NaN and Infinity (its discard test is false), so
+    // the mirror draws them as before.
+    [{ ink: NaN }, FULL],
+    [{ ink: Infinity }, FULL],
+    [{ actor: true }, FULL],
+  ]) {
+    const { s, p, ops } = fixture(opts);
+    s._prepareMirror(p, frame, 'A', 'v');
+    assert.deepEqual(ops, want, JSON.stringify(opts));
+  }
+});
+
+test('a laid-out light with gain counts as a shown cast in the mirror', () => {
+  const geometry = { attributes: { aState: { getX: () => 1 } } };
+  const sites = { _slots: [{ band: 'near', i: 0 }], meshes: { near: { geometry } }, uniforms: { uGain: { value: .3 } },
+    drawn() { return this.uniforms.uGain.value > 0 && this._slots.some(({ band, i }) => this.meshes[band].geometry.attributes.aState.getX(i) > 0); } };
+  const a = fixture({ sites });
+  a.s._prepareMirror(a.p, frame, 'A', 'v');
+  assert.deepEqual(a.ops, FULL);
+  sites.uniforms.uGain.value = 0;
+  const b = fixture({ sites });
+  b.s._prepareMirror(b.p, frame, 'A', 'v');
+  assert.deepEqual(b.ops, NO_CUT);
+});
+
+test('the skip threshold stays below the ink shader discard, in float32', () => {
+  const discard = Number(/uNarrativeInk < ([.\d]+)\)/.exec(FEATURE_FRAG)[1]);
+  assert.equal(discard, .005);
+  // Every skipped value uploads (float32) below the shader's literal, with
+  // room for the literal itself rounding a few ulps either way.
+  assert.ok(Math.fround(MIRROR_INK_SKIP) < Math.fround(discard) * (1 - 1e-6));
+});
+
+test('a scissored mirror makes the same choice', () => {
+  for (const scissor of [{ x: 0, y: 0, width: 1, height: 1 }, { x: 3, y: 2, width: 40, height: 20 }]) {
+    for (const [opts, want] of [[{}, NO_CUT], [{ actor: true }, FULL], [{ ink: .02 }, FULL]]) {
+      const { s, p, ops } = fixture({ ...opts, scissor });
+      s._prepareMirror(p, frame, 'A', 'v');
+      assert.deepEqual(ops, want);
+    }
+  }
+});
+
+test('without soft trees the mirror keeps its single combined pass', () => {
+  for (const ink of [0, .02]) {
+    const { s, p, ops } = fixture({ soft: false, ink });
+    s._prepareMirror(p, frame, 'A', 'v');
+    assert.deepEqual(ops, ['depth:57', ...BANDS3(57)]);
+  }
+});
+
+// What the skip relies on in the forest. Layer 2 holds only depth: no colour
+// to lose. Layers 3 to 5 hold nothing of the forest's. And every layer-2
+// mesh in the shared depth scene shares its geometry with a tree the mirror
+// draws first (the depth scene's layer 0, or a band's layer 0 or 1), with the
+// same visibility: three computes a geometry's boundingSphere (the sort depth
+// of transparent meshes) the first time any render lists it, so skipping a
+// render must never be what defers that first listing.
+const placedTrees = () => ({
+  mesh: new Float32Array([0, 0, -400, 20, 10, 0, .5, 2, 30, 0, -420, 18, 9, 3, .2, 1]),
+  meshDetail: new Float32Array([5, 0, -60, 20, 10, 1, .3, 2, 9, 0, -80, 14, 7, 6, .8, 2]),
+  billboard: new Float32Array([2000, 0, 0, 20, 10, 1, .6, 1, 2400, 0, 300, 20, 10, 2, .1, 0]),
+  stride: 8, count: 6,
+});
+const onLayer = (m, k) => (m.layers.mask & (1 << k)) !== 0;
+
+test('the forest puts only depth-only meshes on layer 2 and nothing on layers 3 to 5', () => {
+  const forest = createForest(THREE, placedTrees(), sceneUniforms(THREE, {}));
+  try {
+    const all = [...forest.depth, ...Object.values(forest.depthByBand).flat(), ...Object.values(forest.byBand).flat()];
+    for (const m of all) {
+      for (const k of [3, 4, 5]) assert.ok(!onLayer(m, k), `layer ${k}`);
+      if (onLayer(m, 2)) assert.equal(m.material.colorWrite, false);
+    }
+    for (const m of Object.values(forest.byBand).flat()) assert.ok(m.layers.mask === 1 || m.layers.mask === 2);
+    assert.ok(forest.depth.some(m => onLayer(m, 2)));
+  } finally { forest.dispose(); }
+});
+
+test('every layer-2 tree depth mesh shares its geometry and visibility with a tree the mirror draws first', () => {
+  const forest = createForest(THREE, placedTrees(), sceneUniforms(THREE, {}));
+  try {
+    const earlier = [...forest.depth.filter(m => onLayer(m, 0)),
+      ...Object.values(forest.byBand).flat().filter(m => onLayer(m, 0) || onLayer(m, 1))];
+    const cut = forest.depth.filter(m => onLayer(m, 2));
+    assert.ok(cut.length >= 6, 'every kind and band draws a cut');
+    for (const d of cut) assert.ok(earlier.some(m => m.geometry === d.geometry), `${d.geometry.userData.asset ?? 'board'}`);
+    // Visibility is one rule per geometry, whatever the weights, the
+    // narrative and the detail ring do.
+    const camera = new THREE.PerspectiveCamera(50, 2, 1, 20000);
+    camera.position.set(0, 30, 0); camera.lookAt(0, 0, -100); camera.updateMatrixWorld();
+    const states = [
+      () => forest.updateDetailView({ camera, width: 640, height: 320, pixelated: true }),
+      () => forest.updateDetailView({ camera, width: 64, height: 32, pixelated: true }),
+      () => forest.updateDetailView({ camera, width: 640, height: 320, pixelated: false, nearDetail: false }),
+      () => forest.applyVisibility({ shown: false }),
+      () => forest.applyVisibility({ shown: true, nearDetail: true }),
+    ];
+    let differing = 0;
+    for (const set of states) {
+      set();
+      for (const d of cut) {
+        const twins = earlier.filter(m => m.geometry === d.geometry);
+        assert.ok(twins.every(m => m.visible === d.visible));
+      }
+      differing += new Set(cut.map(d => d.visible)).size > 1;
+    }
+    assert.ok(differing > 0, 'some state shows part of the forest and hides the rest');
+  } finally { forest.dispose(); }
+});

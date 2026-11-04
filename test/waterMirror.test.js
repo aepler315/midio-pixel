@@ -104,6 +104,8 @@ test('forest mirror accumulates soft colour before hard depth while using the mi
     _ensureMirror: () => mirror,
     renderer: { setRenderTarget() {}, setClearColor() {}, clear() {}, render(_scene, camera) { footprints.push(uniforms.uViewportPx.value.toArray()); layers.push(camera.layers.mask); } },
   });
+  // Visible ink: the crown cut and the ink and cast layers draw.
+  uniforms.uNarrativeInk.value = .02;
   scene._prepareMirror(p, { qualityLevel: 0, frameId: 1 }, 'A', 'view');
   assert.deepEqual(footprints, Array.from({ length: 11 }, () => [320, 180]));
   // The last three: ink (layer 3) with the cast's lights and ribbons

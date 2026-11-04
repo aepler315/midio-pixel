@@ -71,6 +71,10 @@ const CLOUD_SHADOW_CASTERS = 16;
 const CASTERS = new Float32Array(CLOUD_SHADOW_CASTERS * CLOUD_CASTER_STRIDE);
 const CASTER_LIGHT = [0, 1, 0], CASTER_EYE = [0, 0, 0];
 const BACKDROP_KEY = 'range:water-backdrop';
+/** Narrative ink below which the lake mirror leaves out its crown cut, ink
+ *  and cast renders (when no cast shows): under FEATURE_FRAG's discard at
+ *  .005 by far more than any float32 or literal rounding. */
+export const MIRROR_INK_SKIP = .004;
 /** Presented frames a drawing buffer may stay larger than every render
  *  needs before it shrinks (RangeScene._trimCanvas). */
 export const CANVAS_TRIM_FRAMES = 90;
@@ -668,11 +672,23 @@ export class RangeScene {
       if (softForest) {
         this.mirrorCamera.layers.set(1);
         for (const band of BANDS) r.render(p.scenes[band], this.mirrorCamera);
-        this.mirrorCamera.layers.set(2);
-        r.render(p.depthScene, this.mirrorCamera);
-        this.mirrorCamera.layers.set(3);
-        enableCastLayers(this.mirrorCamera);
-        for (const band of BANDS) r.render(p.scenes[band], this.mirrorCamera);
+        // The crown cut writes only depth, which only the ink and the cast
+        // test: the mirror target has no depth texture and is cleared before
+        // every redraw. With the ink discarded and no cast shown, none of
+        // the three draws a pixel, so they are left out. Nor does leaving
+        // them out move three's lazily cached geometry.boundingSphere (the
+        // sort depth of transparent meshes): each layer-2 tree depth mesh
+        // shares its geometry and visibility with a tree drawn on layer 0 or
+        // 1 above, and the ink and the cast's geometries hold the same
+        // positions whenever they are next listed (fixed lines and quads,
+        // threads laid out from the view's castWork before any render).
+        if (!(u.uNarrativeInk.value < MIRROR_INK_SKIP) || this._castShown(p)) {
+          this.mirrorCamera.layers.set(2);
+          r.render(p.depthScene, this.mirrorCamera);
+          this.mirrorCamera.layers.set(3);
+          enableCastLayers(this.mirrorCamera);
+          for (const band of BANDS) r.render(p.scenes[band], this.mirrorCamera);
+        }
       }
       } finally {
         if (m.target.scissorTest) { m.target.scissorTest = false; r.setRenderTarget(m.target); }
