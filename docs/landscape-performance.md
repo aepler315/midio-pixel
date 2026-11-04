@@ -101,3 +101,17 @@ stay byte-identical. The pilot song submits 3.8 M terrain triangles per frame
 instead of 9.8 M. Terrain meshes hold `[material]` because three.js honours
 draw groups only for array materials. Use `setTerrainMaterial` and
 `terrainMaterial` to swap or read it.
+
+## Forest culling
+
+Each mesh-tree batch (band, species family and variant) stays one instanced
+draw, so three.js never reorders its trees, whose soft crowns blend in
+instance order. A whole batch is skipped instead (`ForestCulling.js`).
+Before each render, every mesh-tree geometry is tested once: its trees,
+binned by root into 256 m cells, become boxes that hold every vertex the tree
+shader can place this frame (root lift, height, crown and trunk radii, and the
+wind, gust, parting and storm lean, doubled, plus 1 m). A geometry with no box
+in the frustum and the target's scissor gets `instanceCount` 0, which skips
+only its draw call; after the render the count is restored. Frames stay
+byte-identical. On `teton-jackson-lake` a frame submits 16.3 M triangles
+instead of 45.5 M. Billboards are not culled.
