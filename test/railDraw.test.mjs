@@ -6,6 +6,7 @@ import { decodeTerrain, buildTerrainGeometry, terrainBandsFor, terrainFringeByte
 import { createBandGeometries } from '../src/world/alpine/TerrainGL.js';
 import { placeForest, LATTICE_M } from '../src/world/alpine/ForestCover.js';
 import { createForest } from '../src/world/alpine/ForestGL.js';
+import { regroundForest } from '../src/world/alpine/CompiledTerrain.js';
 import { waterIndexSubset, waterIndexSubsetAsync, waterIndexSubsetPartsAsync, wetTexelMask } from '../src/world/alpine/WaterSubset.js';
 import { setTerrainDrawMode, drawnIndexCount, tourGround } from '../src/world/alpine/RailDraw.js';
 import { RangeScene } from '../src/world/alpine/RangeScene.js';
@@ -182,6 +183,70 @@ test('the rail\'s trees lead every batch, and the rail draws only them', async (
   assert.ok(railDrawn < forest.modeGeometries.reduce((s, g) => s + g.userData.instanceCounts.tour, 0));
   assert.equal(createForest(THREE, railTrees, {}).modeGeometries.length, 0);
   forest.dispose();
+});
+
+/** Each ring's records as sorted strings: a multiset of trees. */
+const treeSet = (rings, stride) => ['meshDetail', 'mesh', 'billboard'].map((kind) => {
+  const out = [];
+  for (const data of rings[kind]) for (let i = 0; i < data.length; i += stride) out.push(Array.from(data.subarray(i, i + stride)).join(','));
+  return out.sort();
+});
+const railDrawn = (placed) => Object.fromEntries(['meshDetail', 'mesh', 'billboard'].map((k) => [k,
+  [placed[k].subarray(0, (placed.railCount?.[k] ?? placed[k].length / placed.stride) * placed.stride), placed.railOnly?.[k] || new Float32Array()]]));
+const tourDrawn = (placed) => Object.fromEntries(['meshDetail', 'mesh', 'billboard'].map((k) => [k, [placed[k]]]));
+/** Instances one forest draws in a mode (a lite batch shares its detail's). */
+function drawnTrees(forest, mode) {
+  for (const g of forest.modeGeometries) setTerrainDrawMode(g, mode);
+  const geos = new Set(Object.values(forest.byBand).flat().filter((m) => m.userData.nearLod !== 'lite').map((m) => m.geometry));
+  return [...geos].reduce((n, g) => n + g.instanceCount, 0);
+}
+
+test('with a tour footprint the rail still draws the forest its rail alone places, and the tour the footprint\'s', async () => {
+  const { view, tour } = await packages();
+  const rules = { treelineM: 2000, forestMaxSlopeDeg: 60, forestDensity: 1, forestFloorM: 0 };
+  const footprint = { ...view, cameraPaths: [POSES.map((p) => p.eyeM), [[0, 1500, -600], [800, 1500, 300]]] };
+  const both = placeForest(tour, footprint, rules, { seed: 7 }), railAlone = placeForest(tour, view, rules, { seed: 7 });
+  assert.ok(both.railOnly, 'the footprint moves some rail trees to another ring or band');
+  assert.deepEqual(treeSet(railDrawn(both), both.stride), treeSet(railDrawn(railAlone), both.stride), 'the rail draws exactly its own placement');
+  // The tour draws what the footprint places on every tile, whatever the
+  // rail marks: the same package with them stripped places it alike.
+  const unmarked = { ...tour, tiles: new Map([...tour.tiles].map(([k, t]) => [k, { ...t, rail: undefined }])) };
+  unmarked.byIndex = new Map([...unmarked.tiles.values()].map((t) => [`${t.ix},${t.iz}`, t]));
+  const plain = placeForest(unmarked, footprint, rules, { seed: 7 });
+  assert.deepEqual(treeSet(tourDrawn(both), both.stride), treeSet(tourDrawn(plain), both.stride), 'the tour draws the footprint forest');
+  assert.deepEqual(treeSet(railDrawn(plain), both.stride), treeSet(tourDrawn(placeForest(unmarked, view, rules, { seed: 7 })), both.stride),
+    'without tour ground the rail still draws its own placement');
+  const total = (rings) => treeSet(rings, both.stride).reduce((n, r) => n + r.length, 0);
+  assert.equal(both.count, total(tourDrawn(both)) + (total(railDrawn(both)) - both.railCount.meshDetail - both.railCount.mesh - both.railCount.billboard));
+  const forest = createForest(THREE, both, {});
+  assert.equal(drawnTrees(forest, 'rail'), total(railDrawn(both)));
+  assert.equal(drawnTrees(forest, 'tour'), total(tourDrawn(both)));
+  assert.ok(forest.modeGeometries.some((g) => g.userData.instanceCounts.tour === 0), 'rail-only batches');
+  forest.dispose();
+});
+
+test('a mapped tour places one forest, and regrounding keeps the rail\'s trees leading', async () => {
+  const { view, tour } = await packages();
+  const rules = { treelineM: 2000, forestMaxSlopeDeg: 60, forestDensity: 1, forestFloorM: 0 };
+  const mapped = placeForest(tour, { ...view, tour: { durationMs: 8000, poseAt: () => POSES[0] } }, rules);
+  assert.equal(mapped.railCount, undefined, 'one camera draws all its ground');
+  assert.equal(mapped.railOnly, undefined);
+  const footprint = { ...view, cameraPaths: [POSES.map((p) => p.eyeM)] };
+  const placed = placeForest(tour, footprint, rules, { seed: 3 });
+  // Drop every third tree's ground: each ring's rail prefix shrinks with it.
+  let calls = 0;
+  const out = regroundForest(placed, (x, z) => (calls++ % 3 === 0 ? NaN : 900 + x * 0 + z * 0));
+  const S = placed.stride;
+  for (const k of ['meshDetail', 'mesh', 'billboard']) {
+    const kept = (data, from, to) => { const r = []; for (let i = from; i < to; i++) r.push(Array.from(data.subarray(i * S, i * S + S)).filter((_, j) => j !== 1).join(',')); return r; };
+    const prefix = kept(out[k], 0, out.railCount[k]);
+    const before = new Set(kept(placed[k], 0, placed.railCount[k]));
+    assert.ok(prefix.every((r) => before.has(r)), `${k}: the regrounded prefix holds only rail trees`);
+    assert.ok(kept(out[k], out.railCount[k], out[k].length / S).every((r) => !before.has(r)), `${k}: and all of them`);
+    assert.ok(out.railOnly[k].length <= placed.railOnly[k].length);
+  }
+  const n = (t) => ['meshDetail', 'mesh', 'billboard'].reduce((s, k) => s + (t?.[k]?.length || 0) / S, 0);
+  assert.equal(out.count, n(out) + n(out.railOnly));
 });
 
 test('setCameraTour switches every prepared geometry, the water and the height range between the rail and the tour', () => {

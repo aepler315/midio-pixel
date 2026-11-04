@@ -875,7 +875,8 @@ export class RangeScene {
    * grouping/asset allowances until forest construction completes. */
   _retireForestPlacement(p, entry, placed) {
     if (p.view.tour) return;
-    const records = [placed.meshDetail, placed.mesh, placed.billboard].reduce((sum, a) => sum + (a?.byteLength || 0), 0);
+    const rings = (t) => [t?.meshDetail, t?.mesh, t?.billboard];
+    const records = [...rings(placed), ...rings(placed.railOnly)].reduce((sum, a) => sum + (a?.byteLength || 0), 0);
     const bytes = records + forestGroupingBytes(placed.count) + FOREST_ASSET_BUILD_BYTES;
     if (bytes > entry.bytes) throw new RangeAssetError('budget', 'Forest records exceed admitted build bound');
     if (this.residency && !this.residency.shrinkReservation(entry.reservation, bytes)) {
@@ -1990,7 +1991,8 @@ export class RangeScene {
     const n = frame.narrative;
     // Scoped receiver calibration for the retained Black static scenic scene.
     // Receiver irradiance changes before albedo/AO; sky, key and water do not.
-    u.uReceiverFillMin.value = p.view.id === 'black-mountains-catawba'
+    // Its rail draws as the view without a footprint does (RailDraw.js).
+    u.uReceiverFillMin.value = p.view.id === 'black-mountains-catawba' && p.terrainMode !== 'rail'
       && !p.view.tour && p.view.cameraPaths?.some(line => line?.length) ? .32 : 0;
     this._setFarForest(p, frame);
     u.uNarrative.value.set(n?.relief ?? 1, n?.atmosphere ?? 1, n?.materials ?? 1, n?.features ?? 1);

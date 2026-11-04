@@ -287,17 +287,28 @@ export function compiledTerrainData(pack) {
 export function regroundForest(placed, groundAt) {
   if (!groundAt) return placed;
   const out = { ...placed };
+  const stride = placed.stride;
   let count = 0;
-  for (const key of ['meshDetail', 'mesh', 'billboard']) {
-    const src = placed[key];
+  // Keeps each ring's rail-shared prefix a prefix (ForestCover railCount).
+  const reground = (src, railLimit = Infinity) => {
     const kept = [];
-    for (let i = 0; i < src.length; i += placed.stride) {
+    let rail = 0;
+    for (let i = 0; i < src.length; i += stride) {
       const y = groundAt(src[i], src[i + 2]);
       if (!Number.isFinite(y)) continue;
-      for (let k = 0; k < placed.stride; k++) kept.push(k === 1 ? y : src[i + k]);
+      if (i / stride < railLimit) rail++;
+      for (let k = 0; k < stride; k++) kept.push(k === 1 ? y : src[i + k]);
     }
-    out[key] = Float32Array.from(kept);
-    count += kept.length / placed.stride;
+    count += kept.length / stride;
+    return { data: Float32Array.from(kept), rail };
+  };
+  if (placed.railCount) out.railCount = {};
+  if (placed.railOnly) out.railOnly = {};
+  for (const key of ['meshDetail', 'mesh', 'billboard']) {
+    const { data, rail } = reground(placed[key] || new Float32Array(), placed.railCount?.[key]);
+    out[key] = data;
+    if (placed.railCount) out.railCount[key] = rail;
+    if (placed.railOnly) out.railOnly[key] = reground(placed.railOnly[key] || new Float32Array()).data;
   }
   out.count = count;
   return out;

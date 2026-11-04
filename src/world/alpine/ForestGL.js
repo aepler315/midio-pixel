@@ -586,13 +586,14 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
   let bytes = 0;
   const counts = { meshDetail: 0, mesh: 0, billboard: 0 };
   const batches = { meshDetail: 0, mesh: 0, billboard: 0 };
-  // Each batch's trees on the rail's own ground lead it (ForestCover): a
-  // view on its rail draws only those (RailDraw.js). Copied out: no closure
-  // here may retain the placement buffers.
+  // Each batch's trees that its rail places alike lead it (ForestCover): a
+  // view on its rail draws only those, plus the rail-only batches the tour
+  // never draws (RailDraw.js). Copied out: no closure here may retain the
+  // placement buffers.
   const modeGeometries = [], railCount = placed.railCount ? { ...placed.railCount } : null;
   // nearLod tags the detail ring's paired assets. Their original seven
   // per-tree floats remain shared; each batch adds only one GPU scalar.
-  const addBatch = (kind, base, data, idx, b, colorMat, depthMat, { from = null, nearLod = null } = {}) => {
+  const addBatch = (kind, base, data, idx, b, colorMat, depthMat, { from = null, nearLod = null, railOnly = false } = {}) => {
     let geo;
     if (from) geo = reinstanced(THREE, base, from);
     else {
@@ -611,7 +612,11 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
     geo.userData.asset = base.userData.asset;
     geos.push(geo);
     const railLimit = railCount?.[kind];
-    if (railLimit != null) {
+    if (railOnly) {
+      geo.userData.instanceCounts = { rail: idx.length, tour: 0 };
+      setTerrainDrawMode(geo, 'rail');
+      modeGeometries.push(geo);
+    } else if (railLimit != null) {
       let rail = 0;
       while (rail < idx.length && idx[rail] < railLimit) rail++;
       if (rail < idx.length) {
@@ -642,17 +647,20 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
     depthByBand[bandName[b]].push(db);
     return geo;
   };
-  for (const [kind, data, lod, colorMat, depthMat] of [
-    ['meshDetail', placed.meshDetail || new Float32Array(), 0, materials.mesh, materials.meshDepth],
-    ['mesh', placed.mesh, 1, materials.mesh, materials.meshDepth],
-    ['billboard', placed.billboard, null, materials.board, materials.boardDepth],
+  const sources = (trees, railOnly) => [
+    ['meshDetail', trees.meshDetail || new Float32Array(), 0, materials.mesh, materials.meshDepth, railOnly],
+    ['mesh', trees.mesh || new Float32Array(), 1, materials.mesh, materials.meshDepth, railOnly],
+    ['billboard', trees.billboard || new Float32Array(), null, materials.board, materials.boardDepth, railOnly],
+  ];
+  for (const [kind, data, lod, colorMat, depthMat, railOnly] of [
+    ...sources(placed, false), ...(placed.railOnly ? sources(placed.railOnly, true) : []),
   ]) {
     const n = data.length / instanceStride;
     for (let b = 0; b < 3; b++) {
       if (lod == null) {
         const idx = [];
         for (let i = 0; i < n; i++) if (data[i * instanceStride + 7] === b) idx.push(i);
-        if (idx.length) addBatch(kind, baseBoard, data, idx, b, colorMat, depthMat);
+        if (idx.length) addBatch(kind, baseBoard, data, idx, b, colorMat, depthMat, { railOnly });
         continue;
       }
       // One instanced batch per species family and variant: the tree's id
@@ -666,9 +674,9 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
       groups.forEach((idx, g) => {
         if (!idx.length) return;
         const family = Math.floor(g / FOREST_VARIANTS), variant = g % FOREST_VARIANTS;
-        if (lod !== 0) { addBatch(kind, assetFor(lod, family, variant), data, idx, b, colorMat, depthMat); return; }
-        const geo = addBatch(kind, assetFor(0, family, variant), data, idx, b, colorMat, depthMat, { nearLod: 'detail' });
-        const lite = addBatch(kind, assetFor(1, family, variant), data, idx, b, colorMat, depthMat, { from: geo, nearLod: 'lite' });
+        if (lod !== 0) { addBatch(kind, assetFor(lod, family, variant), data, idx, b, colorMat, depthMat, { railOnly }); return; }
+        const geo = addBatch(kind, assetFor(0, family, variant), data, idx, b, colorMat, depthMat, { nearLod: 'detail', railOnly });
+        const lite = addBatch(kind, assetFor(1, family, variant), data, idx, b, colorMat, depthMat, { from: geo, nearLod: 'lite', railOnly });
         detailGroups.push({ detail: geo, lite, qualityBase: assetFor(1, family, variant), pixelBase: assetFor(2, family, variant) });
       });
     }
