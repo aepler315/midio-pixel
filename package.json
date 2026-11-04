@@ -11,6 +11,7 @@
     "lint": "eslint src tools test ridgeview",
     "test": "node --test --test-concurrency=1 test/*.js test/*.mjs",
     "test:all": "node --test",
+    "check:modules": "node --experimental-vm-modules --no-warnings tools/module-graph-check.mjs",
     "validate": "node tools/validate.mjs",
     "prepare": "node tools/install-hooks.mjs",
     "test:smoke": "node tools/smoke.mjs",

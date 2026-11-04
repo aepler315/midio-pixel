@@ -8,5 +8,7 @@
 # worktree GIT_DIR is absolute, and tests that build throwaway repositories
 # would then commit into this one. Clear them before running anything.
 unset $(git rev-parse --local-env-vars)
-echo "pre-push: npm run lint && npm test (the full gate is npm run validate)"
-npm run lint && npm test
+echo "pre-push: npm run lint && npm test && npm run check:modules -- --tracked (the full gate is npm run validate)"
+# --tracked: a module that exists here but was never `git add`ed is not
+# published, so the pushed site would fail to load it.
+npm run lint && npm test && npm run check:modules -- --tracked
