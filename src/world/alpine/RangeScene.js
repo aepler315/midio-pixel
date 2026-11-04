@@ -401,11 +401,11 @@ export class RangeScene {
     const dispose = (effect) => {
       effect.dispose();
       if (this.shafts === effect) { this.shafts = null; this.shaftIdentity = null; this.shaftPresence = 0; }
-      this._forgetDepth('A', 'B');
+      this._forgetDepth();
     };
     if (res && !this.residency.commit(res, shafts, dispose)) return false;
     this.shafts = shafts; this.shaftIdentity = identity; this.shaftViews = ids;
-    this._forgetDepth('A', 'B');
+    this._forgetDepth();
     return true;
   }
 
@@ -652,7 +652,7 @@ export class RangeScene {
     this.shafts = null;
     if (this.residency) this.residency.release(SHAFT_KEY);
     else shafts.dispose();
-    this._forgetDepth('A', 'B');
+    this._forgetDepth();
     this.shaftIdentity = null;
   }
 
@@ -2900,11 +2900,11 @@ export class RangeScene {
     return c;
   }
 
-  /** Drop the depth records of `sides`: their targets were released,
-   *  reallocated or had their depth replaced. */
-  _forgetDepth(...sides) {
-    for (const side of sides) {
-      const c = this.depthCache?.[side];
+  /** Drop the depth record of `side`, or of both sides when none is named:
+   *  its target was released, reallocated or had its depth replaced. */
+  _forgetDepth(side = null) {
+    for (const s of side ? [side] : ['A', 'B']) {
+      const c = this.depthCache?.[s];
       if (c) { c.frame = -1; c.content = null; }
     }
   }
@@ -3144,7 +3144,7 @@ export class RangeScene {
     this.size = { width: 0, height: 0 };
     this.target = null;
     this.releaseSide('B');
-    this._forgetDepth('A', 'B');
+    this._forgetDepth();
   }
 
   snapshot() {

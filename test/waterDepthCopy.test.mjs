@@ -117,7 +117,12 @@ test('the partition records what its target\'s depth holds', () => {
 test('a released or reallocated target forgets its depth record, not only its frame', () => {
   const h = harness();
   h.record();
-  h.scene._forgetDepth('A', 'B');
+  // One side forgets only its own record.
+  const recorded = h.scene.depthCache.A.content;
+  assert.ok(recorded, 'the partition recorded its depth');
+  h.scene._forgetDepth('B');
+  assert.equal(h.scene.depthCache.A.content, recorded, 'side B leaves side A alone');
+  h.scene._forgetDepth();
   assert.equal(h.scene.depthCache.A.content, null);
   assert.equal(h.scene.depthCache.A.frame, -1);
   h.scene.renderWater(h.frame, 'lake', 320, 180);
