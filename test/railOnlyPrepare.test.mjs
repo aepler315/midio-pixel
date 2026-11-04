@@ -13,7 +13,7 @@ import { RangeScene, staticViewBytes, terrainMeshEstimate } from '../src/world/a
 import { GraphicsResidency } from '../src/render/GraphicsResidency.js';
 import { RULE_DEFAULTS } from '../src/world/alpine/MaterialPackage.js';
 import { railGroundData } from '../src/world/alpine/RailDraw.js';
-import { RangePresentation } from '../src/world/alpine/RangePresentation.js';
+import { RangePresentation, shotTimelineOf } from '../src/world/alpine/RangePresentation.js';
 import { RangeShotTours } from '../src/world/alpine/RangeShotTours.js';
 
 // The rail at z = -600 looks north; two tour poses add ground only they see.
@@ -184,9 +184,9 @@ test('presentation plays the rail of a view prepared for its rail alone, and say
   shots.views = new Map([['v', { viewId: 'v', state: 'ready', timeline, reason: null }]]);
   const presentation = Object.assign(Object.create(RangePresentation.prototype), { shots,
     scene: { prepared: new Map([['v', { railOnly: null }]]) } });
-  assert.equal(presentation._shotTimeline('v'), timeline);
+  assert.equal(shotTimelineOf(presentation, 'v'), timeline);
   presentation.scene.prepared.get('v').railOnly = 'its tour does not fit this device';
-  assert.equal(presentation._shotTimeline('v'), null);
+  assert.equal(shotTimelineOf(presentation, 'v'), null);
   shots.keepRail('v', 'rail kept: its tour does not fit this device');
   assert.deepEqual([shots.views.get('v').state, shots.views.get('v').reason, shots.timeline('v')], ['rail', 'rail kept: its tour does not fit this device', null]);
 });
