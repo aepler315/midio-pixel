@@ -168,6 +168,13 @@ function defaultCanvas(w, h) {
   return c;
 }
 
+/** A view's shot tour, unless the scene prepared the view for its rail
+ *  alone (its tour does not fit this device): then it plays its rail. It
+ *  reads only the presentation's scene and shot tours. */
+export function shotTimelineOf(presentation, viewId) {
+  return presentation.scene?.prepared?.get?.(viewId)?.railOnly ? null : presentation.shots.timeline(viewId);
+}
+
 export class RangePresentation {
   constructor({ mode = 'legacy', forcedViewId = null, tour = null, shots = true, shotCandidates = false, upgradeIntended = false, diag = null, residency = null, budget = 'desktop',
     loadRuntime = (attempt) => import(retryUrl(RUNTIME_URL, attempt)),
@@ -634,7 +641,7 @@ export class RangePresentation {
     const prepared = this.scene.prepared?.get(view.id);
     const preview = this.frameInputs.sim.biomes.terrainPreview || !(this.railPlan.snapshot.durationMs > 0);
     const policy = preview ? 'preview' : view.glacier ? 'glacier'
-      : prepared?.cameraTour || view.tour || this._shotTimeline(view.id) ? 'tour'
+      : prepared?.cameraTour || view.tour || shotTimelineOf(this, view.id) ? 'tour'
       : view.status === 'approved' ? 'rail' : 'candidate';
     if (policy === 'rail') return state;
     return Object.freeze({ ...state, policy,
@@ -925,9 +932,9 @@ export class RangePresentation {
     // A view's camera never switches from rail to tour mid-song: it is not
     // drawn until its plan has settled (ready, or fallen back to the rail).
     if (!this.shots.settled(view.id)) { this.reason = 'preparing: camera tour planning'; return false; }
-    this.scene.setCameraTour?.(view.id, this._shotTimeline(view.id));
-    if (incoming) this.scene.setCameraTour?.(incoming.id, this._shotTimeline(incoming.id));
-    this.cameraTourActive = !!this._shotTimeline(view.id);
+    this.scene.setCameraTour?.(view.id, shotTimelineOf(this, view.id));
+    if (incoming) this.scene.setCameraTour?.(incoming.id, shotTimelineOf(this, incoming.id));
+    this.cameraTourActive = !!shotTimelineOf(this, view.id);
     // What this frame draws stays resident (never evicted mid-use) -- pinned
     // before any reservation below, which may evict unpinned entries.
     const vp = inputs.scenicViewport;
@@ -1060,7 +1067,7 @@ export class RangePresentation {
       if (typeof this.scene.movedPose === 'function') ({ rail, proj, pose } = this.scene.movedPose(v, sideFrame));
       else {
         rail = scenePoseAt(v, { progress01: v.glacier ? (sideFrame.glacier?.journey01 ?? sideFrame.progress01) : sideFrame.progress01,
-          timeMs: sideFrame.timeMs, tour: this._shotTimeline(v.id) || v.tour });
+          timeMs: sideFrame.timeMs, tour: shotTimelineOf(this, v.id) || v.tour });
         proj = scenicProjection(rail.fovYDeg, vp);
         pose = applyCameraMoves(rail, frame.cameraMove, null);
       }
@@ -1068,7 +1075,7 @@ export class RangePresentation {
       // A shot tour turns anywhere: its sky and light are world-fixed, with
       // the sun and moon arcs anchored to the view's own rail heading (the
       // highway tour's arcs assume a north-east flight, 45 degrees).
-      if (this._shotTimeline(v.id)) {
+      if (shotTimelineOf(this, v.id)) {
         const railHeading = headingPitch(lookDir(scenePoseAt(v, { progress01: .5 }))).headingDeg;
         return { tourPose: { ...pose, fovYDeg: proj.fovYDeg, aspect: proj.aspect }, celestialOffsetDeg: railHeading - 45 };
       }
@@ -1894,12 +1901,6 @@ export class RangePresentation {
 
   /** The shot tour state of one view at a heard time (capture diagnostics). */
   shotState(viewId, timeMs) { return this.shots.stateAt(viewId, timeMs); }
-
-  /** A view's shot tour, unless the scene prepared the view for its rail
-   *  alone (its tour does not fit this device): then it plays its rail. */
-  _shotTimeline(viewId) {
-    return this.scene?.prepared?.get?.(viewId)?.railOnly ? null : this.shots.timeline(viewId);
-  }
 
   /** The current tour timelines and committed horizon for an in-place
    *  rebuild of the same song. An export's own plans were never heard. */
