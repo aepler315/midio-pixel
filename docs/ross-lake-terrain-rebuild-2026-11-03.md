@@ -74,6 +74,66 @@ finer, plus 585 that fill the reflection. The other 165 are tour-only
 (`rail: false`). It adds 1.88 MB against Ross Lake's 1.4 MB `assetBytes`,
 and its 3,428,354 desktop triangles exceed the 3.2 M default (mobile
 1,412,642 is within 1.8 M). Because the rail's tile set changes, the view
-would need a fresh base approval as well. Whether Ross Lake's
-tour ships over budget, is trimmed, or waits on its rail is Ashton's call.
-Until then Ross Lake keeps main's approved rail package.
+would need a fresh base approval as well.
+
+## Shipping that tour would stop Ross Lake loading on phones
+
+On 2026-11-04 Ashton chose to ship the tour over its byte and triangle
+budgets. The rebake (`node tools/rebake-tour-terrain.mjs --view
+nc-ross-lake-north`, on the camera-tour branch at 251d00d) gives the
+numbers above and passes the base approval checks: far crest 0.64 at its
+worst station, and travel to all 12 approved views. It is over a third
+budget, though. The tour fit's forest build bound (`budget.forestBuildBytes`,
+160 MiB) is 218.3 MiB, against 27.5 MiB for main's rail. Dropping shots
+barely moves it: without the two most forest-hungry shots it was still
+161 MiB under the older bound, because the 940 rail tiles that fill the
+lake reflection drive it, not the library's own tiles.
+
+So before raising that cap we measured whether the view still loads. A
+budget denial in `RangeScene.prepare` defers the view and retries it for
+good, so a view whose prepare can never fit is never shown. Ross Lake was
+loaded in the app (headless Chromium, the live render-ready path) with the
+residency budget forced through `navigator.deviceMemory`, touch points and
+screen size, for main's rail package and for the rebaked tour package with
+its approved library:
+
+| Budget (who gets it) | main's rail | Rebaked tour |
+| --- | --- | --- |
+| 192 MiB (iPhone, iPad, Chrome with 4 GB or less) | loads, peak 176.9 MiB | never loads: the 218.3 MiB forest build is denied 274 times |
+| 320 MiB (Android with 8 GB or more) | loads, peak 212.8 MiB | never loads: the 221.1 MiB terrain GPU reservation is denied 25 times |
+| 256 MiB (forced; real Chrome never reports 6 GB) | loads, peak 249.4 MiB | never loads: the 298.5 MiB terrain GPU reservation is denied |
+| 512 MiB (desktops) | loads, peak 249.4 MiB | not established: Range's own reservations reach 489.5 MiB and fit, then legacy strips push the ledger over 512 and the page stalled under SwiftShader |
+
+An offline trace of the same reservations from the package data agrees. The
+forest build is not what blocks the phones. It is admitted early, shrinks
+after placement to 113.7 MiB of records that stay held, and then the terrain
+GPU reservation, which charges the mesh and 2.31 M forest instances twice
+(GPU plus the CPU copy kept on the buffer attributes), lands on top:
+
+| Ross Lake's own prepare peak | main's rail | Rebaked tour |
+| --- | --- | --- |
+| mobile level of detail | 173 MiB | 408 MiB |
+| desktop level of detail | 210 MiB | 486 MiB |
+| steady state, mobile / desktop | 107 / 144 MiB | 252 / 329 MiB |
+
+So raising the forest cap changes nothing on phones. A tighter forest bound
+does not either: one counted for placement's own seed brings it to
+148.4 MiB, under the cap, while the phones still fail at the GPU step. Even
+with main's forest, the 1,105-tile terrain alone peaks at about 212 MiB on
+mobile, over 192. 83% of the 2.31 M forest records are drawn by the tour
+only, and the library's footprint is applied to the forest whenever the
+library loads, on the rail too, so keeping phones on the rail saves nothing
+without a code change.
+
+On a 512 MiB desktop the tour would need about 486 MiB for itself, so
+Ross Lake could not prepare during the travel into it (no approved view is
+small enough to share the budget) and would always join late.
+
+The measurement harness, the offline ledger and the per-view outputs are in
+the project files under `ross-lake-residency/`. The tour fit's 160 MiB cap
+guards the build bound, not the prepare peak that actually decides
+loading, so a fit can pass while the view never loads on phones.
+
+Shipping it would therefore take Ross Lake away from every phone that shows
+it today. The decision went back to Ashton with that evidence, and until
+then Ross Lake keeps main's approved rail package.
