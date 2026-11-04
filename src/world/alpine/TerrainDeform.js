@@ -1,9 +1,11 @@
 // The terrain's shared musical deformation (land swell, kicks, gestures,
-// melodic ripple) and the glacier, as the mesh draws them. Everything that
-// stands on the drawn ground reads it: the terrain (SCENE_VERT), the forest
-// roots and the cast, so none of them sinks into the land as it swells.
+// melodic ripple), the glacier and the song-long rise (LandRise.js), as the
+// mesh draws them. Everything that stands on the drawn ground reads it: the
+// terrain (SCENE_VERT), the forest and the cast, so none of them sinks into
+// the land as it swells or floats over it as it rises.
 import { LAND_TOUR_FADE_END_M } from './LandMotionLimits.js';
 import { GLACIER_GLSL } from './GlacierField.js';
+import { LAND_RISE_GLSL } from './LandRise.js';
 
 export const DEFORM_GLSL = /* glsl */`
   ${GLACIER_GLSL}
@@ -23,8 +25,11 @@ export const DEFORM_GLSL = /* glsl */`
   uniform float uMelodyK;
   uniform vec2 uMelodyDir;
   uniform float uMelodyPhase;
-  uniform float uTourEnabled;
-  uniform vec3 uTourEye;
+  // xyz: the drawing camera's eye (the mirror keeps the main one); w: 1
+  // while a tour fades the music near it. One vector for both, as the
+  // terrain fragment shader is at the mobile uniform budget.
+  uniform vec4 uTourEye;
+  ${LAND_RISE_GLSL}
   // Land dance along the ridge/drainage hierarchy (TerrainHierarchy.js):
   // x spine lift (m), y spine order gate (0..1), z downstream wave (m),
   // w wave phase (rad). All zero: no fetch, the field above is unchanged.
@@ -48,7 +53,7 @@ export const DEFORM_GLSL = /* glsl */`
     vec2 uv = (p.xz - uGridOrigin) / uGridExtent;
     float receiver = texture(uReceiver, uv * (1.0 - uTexel) + 0.5 * uTexel).r;
     float h = clamp((p.y - uHeightRange.x) / max(1.0, uHeightRange.y - uHeightRange.x), 0.0, 1.0);
-    float tourFade = mix(1.0, smoothstep(1500.0, ${LAND_TOUR_FADE_END_M.toFixed(1)}, distance(p, uTourEye)), uTourEnabled);
+    float tourFade = mix(1.0, smoothstep(1500.0, ${LAND_TOUR_FADE_END_M.toFixed(1)}, distance(p, uTourEye.xyz)), uTourEye.w);
     float base = receiver * tourFade * deformField(h, dot(p.xz, uDeformDir), dot(p.xz, uMelodyDir));
     return base + receiver * tourFade * danceField(uv);
   }
@@ -63,11 +68,16 @@ export const DEFORM_GLSL = /* glsl */`
 `;
 
 /** Lift of the drawn ground at p, as SCENE_VERT applies it to the mesh: the
- *  glacier's ice and the deformation it leaves exposed. */
+ *  glacier's ice and the deformation it leaves exposed (landLift), then the
+ *  rise at the lifted point. */
 export const GROUND_LIFT_GLSL = /* glsl */`
-  float groundLift(vec3 p) {
+  float landLift(vec3 p) {
     vec3 ice = glacierAt(p);
     return ice.x + deformAt(p) * (1.0 - ice.y);
+  }
+  float groundLift(vec3 p) {
+    float lift = landLift(p);
+    return lift + riseLift(vec3(p.x, p.y + lift, p.z));
   }
 `;
 
@@ -84,7 +94,7 @@ export function deformUniforms(THREE, shared = {}) {
     uDeformK: ref('uDeformK', () => 0), uDeformDir: ref('uDeformDir', () => new THREE.Vector2(1, 0)), uDeformPhase: ref('uDeformPhase', () => 0),
     uMelodyK: ref('uMelodyK', () => 0), uMelodyDir: ref('uMelodyDir', () => new THREE.Vector2(1, 0)), uMelodyPhase: ref('uMelodyPhase', () => 0),
     uLandHierarchy: ref('uLandHierarchy', () => null), uLandDance: ref('uLandDance', () => new THREE.Vector4()),
-    uTourEnabled: ref('uTourEnabled', () => 0), uTourEye: ref('uTourEye', () => new THREE.Vector3()),
+    uTourEye: ref('uTourEye', () => new THREE.Vector4()), uLandRise: ref('uLandRise', () => 0),
     uGlacierEnabled: ref('uGlacierEnabled', () => 0), uGlacierStart: ref('uGlacierStart', () => new THREE.Vector2()),
     uGlacierEnd: ref('uGlacierEnd', () => new THREE.Vector2(0, -100)), uGlacierWidth: ref('uGlacierWidth', () => 1),
     uGlacierSurface: ref('uGlacierSurface', () => new THREE.Vector2()), uGlacierMaxThickness: ref('uGlacierMaxThickness', () => 0),

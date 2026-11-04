@@ -80,11 +80,12 @@ export const ACTOR_GLSL = /* glsl */`
   // lantern (emitterSeen's sea term), read where the lantern is drawn, on
   // the lifted ground. A pool or a glint with no lantern over it read as
   // light from nowhere. The same for every fragment, so it is paid only
-  // where the light reaches.
+  // where the light reaches. uActorPos already stands where the rise put
+  // the lantern (RangeScene._setActors), so only the musical lift is added.
   float actorShown(int i) {
     if (uMistFill <= 0.0) return 1.0;
     vec3 s = uActorPos[i];
-    return 1.0 - ${EMITTER_SUBMERGE.toFixed(3)} * uMistFill * mistSubmersion(s.y + groundLift(s));
+    return 1.0 - ${EMITTER_SUBMERGE.toFixed(3)} * uMistFill * mistSubmersion(s.y + landLift(s));
   }
   vec3 actorLight(vec3 p, vec3 n) {
     vec3 sum = vec3(0.0);

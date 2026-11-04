@@ -1,6 +1,7 @@
 // A song's phrase, camera and weather decisions share one heard-time score.
 // Nothing here advances on draw, dispatches notes or owns graphics resources.
-import { rangeCameraMoveAt } from './RangeCamera.js';
+import { rangeCameraMoveAt, FINALE_MS } from './RangeCamera.js';
+import { compileLandRise } from './LandRise.js';
 import { lastAudibleMs, sectionTrust } from './EffectsMusic.js';
 import { compileLensCues, lensFromCues, LENS_ANTICIPATION_MS, LENS_MIN_GAP_MS } from '../../render/CameraLens.js';
 
@@ -88,6 +89,10 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
     .map((c, index) => c.index === index ? c : Object.freeze({ ...c, index })));
   // The music's own end: the closing camera move arrives on it, not on padding.
   const cadenceMs = lastAudibleMs(energyCurves, duration);
+  // The range rises with the song and stands complete before the closing
+  // move (LandRise.js); a re-analysis continues the climb from where it is.
+  const rise = compileLandRise({ read, durationMs: duration, cadenceMs, finaleMs: FINALE_MS,
+    previous: previous?.riseProgressAt || null, freezeThroughMs });
   const protectedEpisodes = previous ? previous.episodes.filter(e => e.startMs - 6000 <= freezeThroughMs) : [];
   const weather = Object.freeze([...protectedEpisodes, ...episodes.filter(e => !previous || e.startMs - 6000 > freezeThroughMs)]
     .sort((a, b) => a.startMs - b.startMs).map(e => Object.freeze({ ...e, strikes: e.strikes || strikesFor(e) })));
@@ -104,9 +109,11 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
     }
     return Object.freeze({ energy01, motifId: phrase?.motifId || 'quiet',
       intensity01: phrase?.relEnergy01 ?? energy01, camera: Object.freeze(camera),
-      lens: lensFromCues(lensCues, t, !!options.preview) });
+      lens: lensFromCues(lensCues, t, !!options.preview),
+      rise01: options.preview ? 1 : rise.at(t) });
   };
-  return Object.freeze({ durationMs: duration, phrases, episodes: weather, freezeThroughMs, lensCues, cadenceMs, at: stateAt });
+  return Object.freeze({ durationMs: duration, phrases, episodes: weather, freezeThroughMs, lensCues, cadenceMs,
+    riseEndMs: rise.endMs, riseProgressAt: rise.progressAt, at: stateAt });
 }
 
 const cache = new WeakMap();

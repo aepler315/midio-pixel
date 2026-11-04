@@ -280,7 +280,8 @@ export const SCENE_VERT = /* glsl */`
   }
   float riverTerrainShift(vec3 p) {
     vec3 ice = glacierAt(p);
-    return ice.x + deformAt(p) * (1.0 - ice.y);
+    float lift = ice.x + deformAt(p) * (1.0 - ice.y);
+    return lift + riseLift(vec3(p.x, p.y + lift, p.z));
   }
   #endif
   void main() {
@@ -294,6 +295,9 @@ export const SCENE_VERT = /* glsl */`
       riverTerrainShift(terrainB), riverTerrainShift(terrainC)));
     #else
     p.y += ice.x + deformAt(position) * (1.0 - ice.y);
+    // The song-long rise of everything above the eye (LandRise.js), at
+    // the lifted point, as groundLift gives the forest and the cast.
+    p.y += riseLift(p);
     #endif
     vec4 world = modelMatrix * vec4(p, 1.0);
     vWorld = vec3(world.x, position.y, world.z); // source height for masks
@@ -760,6 +764,13 @@ export const SCENE_FRAG = /* glsl */`
       if (uDebugMask == 1) { outColor = vec4(rockMask, crowns, snow, 1.0); if (water) outColor = vec4(0.0, 0.6, 1.0, 1.0); return; }
       if (uDebugMask == 2) { outColor = vec4(vec3(slopeDeg / 90.0), 1.0); return; }
     }
+    // The rise (LandRise.js) lowers what stands above the eye. Rock, snow
+    // and forest above keep the full-height slopes they were placed on; the
+    // light and the silhouette ink see the lowered surface.
+    if (!water) {
+      nShade = risenNormal(nShade, vWorld);
+      geologicalNormal = risenNormal(geologicalNormal, vWorld);
+    }
     // Ice detail is fixed to the lobe. Longitudinal debris bands curve
     // gently, while transverse crevasses open across the flow. Neither
     // feature swims with the camera or expands on every drum hit.
@@ -795,7 +806,7 @@ export const SCENE_FRAG = /* glsl */`
     rough = terrainRoughness(mix(rough, .95, farCrownWeight), nShade);
     // Direct light reaches a point only above its baked horizon (broad
     // geographic relief; TerrainOcclusion.js). Sky fill is not shadowed.
-    float sunVis = sunHorizonVisibility(vUv, uLightDir);
+    float sunVis = sunHorizonVisibility(vUv, risenLight(uLightDir, vWorld));
     // Light: the celestial as a soft wrap-diffuse key, sky hemisphere fill,
     // occlusion from curvature and drainage (gullies sit in shade).
     float wrap = mix(0.18, 0.3, farCrownWeight);
@@ -1063,7 +1074,7 @@ export function sceneUniforms(THREE, base) {
     uGlacierEnabled: { value: 0 }, uGlacierStart: { value: new THREE.Vector2() }, uGlacierEnd: { value: new THREE.Vector2(0, -100) },
     uGlacierWidth: { value: 1 }, uGlacierSurface: { value: new THREE.Vector2() }, uGlacierMaxThickness: { value: 0 }, uGlacierRetreat: { value: 0 },
     uDeformAmp: { value: 0 }, uDeformKick: { value: 0 }, uDeformK: { value: 0 },
-    uTourEnabled: { value: 0 }, uTourEye: { value: new THREE.Vector3() },
+    uTourEye: { value: new THREE.Vector4() }, uLandRise: { value: 0 },
     uLandHierarchy: { value: null }, uLandDance: { value: new THREE.Vector4() },
     uDeformGesture: { value: 0 }, uDeformMelodic: { value: 0 }, uDeformStructural: { value: 0 },
     uMelodyK: { value: 0 }, uMelodyDir: { value: new THREE.Vector2(1, 0) }, uMelodyPhase: { value: 0 },

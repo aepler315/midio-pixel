@@ -41,7 +41,9 @@ test('specular anti-aliasing only ever widens the lobe, within a clamp', () => {
 
 test('the terrain shader uses roughness, the baked horizon and a roughness debug view', () => {
   assert.match(SCENE_FRAG, /terrainSpecular\(nShade, Vs, uLightDir, rough,/);
-  assert.match(SCENE_FRAG, /sunHorizonVisibility\(vUv, uLightDir\)/);
+  // The baked horizon holds full-height elevations; the rise lowers them
+  // with the land, which raises the light's tangent instead (LandRise.js).
+  assert.match(SCENE_FRAG, /sunHorizonVisibility\(vUv, risenLight\(uLightDir, vWorld\)\)/);
   assert.ok(SHADOW_RESIDUAL > 0 && SHADOW_RESIDUAL <= 0.5, 'shadow keeps some bounce, not full light');
   assert.ok(SCENE_FRAG.includes(`mix(${SHADOW_RESIDUAL.toFixed(2)}, 1.0, sunVis)`));
   assert.match(SCENE_FRAG, /specLight = spec\.x \* sunVis/, 'no specular in shadow');

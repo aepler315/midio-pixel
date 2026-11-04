@@ -59,6 +59,7 @@ import { forestWindAt } from './ForestWind.js';
 import { createWetMask, fillWetRows, waterIndexSubsetPartsAsync } from './WaterSubset.js';
 import { attachTerrainCulling, setChunks, setTerrainMaterial, subsetChunkTable } from './TerrainChunks.js';
 import { waterBoxes, vertexWaterBoxes, liftBounds, shiverBounds, mirrorScissor, waterScissor } from './MirrorScissor.js';
+import { LAND_RISE_START, landRiseLift, riseFromUniforms } from './LandRise.js';
 // Storm light, linear: the deck's underside, the rain-dimmed horizon, the
 // rain air, per episode kind (RangeStorm STORM_KINDS zenith/horizon/air).
 // The air meets the slate the sky paints at the horizon (drawStormSky).
@@ -1269,6 +1270,9 @@ export class RangeScene {
           coverage: terrainWindowCoverage(opts.scenicViewport), coverageRevision: 0,
           pixelHeightPx: (this.pixelated ?? opts.pixelated) && !view.glacier ? (this.pixelHeightPx ?? opts.pixelHeightPx ?? null) : null,
           mirrorLevelM,
+          // A mapped tour's windows are planned once, ahead of the song's
+          // rise: plan for the lowest the land is ever drawn (LandRise.js).
+          riseSink: 1 - LAND_RISE_START,
           protectedTileIds: view.tour ? tourSummitTiles(cpu.data, opts.tourData?.points) : [] };
         windowOptions.pixelProtectedTileIds = terrainPixelProtection(data, windowOptions.protectedTileIds);
         const buildOwner = { view, data, rules, windowOptions, cpuKey: cpu.key, gpuKey, materialKey: mat.key };
@@ -2264,8 +2268,13 @@ export class RangeScene {
     u.uMistColor.value.g = Math.min(0.9, u.uMistColor.value.g);
     u.uMistColor.value.b = Math.min(0.9, u.uMistColor.value.b);
     u.uCameraPos.value.copy(this.camera.position);
-    u.uTourEnabled.value = p.view.tour || p.cameraTour ? 1 : 0;
-    u.uTourEye.value.copy(this.camera.position);
+    // The eye the tour fade and the rise measure from (w: the fade is on).
+    // The lake mirror draws with these, so it shows the same lowered land.
+    const eye = this.camera.position;
+    u.uTourEye.value.set(eye.x, eye.y, eye.z, p.view.tour || p.cameraTour ? 1 : 0);
+    // The song-long rise (LandRise.js): the share of the relief above the
+    // eye still to come. A frame without one draws the complete range.
+    u.uLandRise.value = 1 - Math.min(1, Math.max(0, Number.isFinite(frame.rise01) ? frame.rise01 : 1));
     this._setCloudUniforms(p, frame);
     this._setActors(p, frame);
   }
@@ -2352,6 +2361,9 @@ export class RangeScene {
       * (cam.view?.enabled ? cam.view.height / cam.view.fullHeight : 1);
     const materials = frame.narrative?.materials ?? 1;
     const tSec = frame.timeMs / 1000;
+    // The lanterns draw where the rise puts them (groundLift on the GPU);
+    // their light and its pixel scale go with them.
+    const rise = riseFromUniforms(u);
     // The lights carry the dark: brightest before dawn and after sunset,
     // a soft shimmer at noon.
     const dark = Math.min(1, Math.max(0, frame.light?.night01 ?? 0));
@@ -2384,7 +2396,8 @@ export class RangeScene {
       if (!group.layers.isEnabled(CAST_LAYER)) group.traverse(object => object.layers.set(CAST_LAYER));
       if (!pos) { group.visible = false; return; }
       const at = new THREE.Vector3(pos[0], pos[1], pos[2]);
-      const dist = Math.max(1, at.distanceTo(cam.position));
+      const lit = rise ? new THREE.Vector3(pos[0], pos[1] + landRiseLift(pos[0], pos[1], pos[2], rise.eye, rise.sink), pos[2]) : at;
+      const dist = Math.max(1, lit.distanceTo(cam.position));
       const display = new THREE.Color().setHSL(ACTOR_HUES[id] / 360, 0.85, 0.62);
       // Light: linear, stronger as the lane plays; dimmed while the team
       // shelter from a storm; Midio's swells into the summit beacon.
@@ -2392,7 +2405,7 @@ export class RangeScene {
       const beacon = id === 'midio' ? job?.beacon01 ?? 0 : 0;
       const gain = look.lightGain * (0.35 + 0.65 * s.glow) * presence * (0.45 + 1.15 * dark)
         * (job?.dim ?? 1) * (1 + beacon * ((job?.beaconGain ?? 2) - 1));
-      u.uActorPos.value[k].copy(at);
+      u.uActorPos.value[k].copy(lit);
       u.uActorColor.value[k].set(lin.r * gain, lin.g * gain, lin.b * gain);
       u.uActorRadius.value[k] = look.lightM * (1 + 2 * beacon);
       // The lantern and swarm draw a little toward the camera from the
