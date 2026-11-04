@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mirrorScissor, waterScissor, waterBoxes, liftBounds, shiverBounds } from '../src/world/alpine/MirrorScissor.js';
+import { mirrorScissor, waterScissor, waterBoxes, vertexWaterBoxes, liftBounds, shiverBounds, WATER_BOX_M } from '../src/world/alpine/MirrorScissor.js';
+import { glacierErrors, glacierSample } from '../src/world/alpine/GlacierField.js';
+import { sceneDeformation } from '../src/world/alpine/RangeFrame.js';
 
 function rng(seed) {
   let s = seed >>> 0;
@@ -169,4 +171,49 @@ test('a lake crossing box cells keeps its edge water when a frustum side falls b
     }
   }
   assert.ok(checked > 10000, `checked ${checked}`);
+});
+
+test('liftBounds holds every displacement the shader adds: glacier ice, deformation and land dance', () => {
+  // The CPU twins of SCENE_VERT's lift: p.y += ice + deform * (1 - ice cover).
+  let iced = 0, checked = 0;
+  for (let seed = 1; seed <= 40; seed++) {
+    const r = rng(seed), scale = seed % 4 === 0 ? .02 : r() * 1.5, a = r() * 6.28, b = r() * 6.28;
+    const music = { amplitudeM: (r() - .5) * 140 * scale, kickM: (r() - .5) * 40 * scale, structuralM: (r() - .5) * 100 * scale,
+      melodicM: (r() - .5) * 40 * scale, gestureM: (r() - .5) * 40 * scale, waveDir: [Math.cos(a), Math.sin(a)], melodyDir: [Math.cos(b), Math.sin(b)],
+      waveK: r() * .01, melodyK: r() * .01, phaseRad: r() * 6.28, melodyPhaseRad: r() * 6.28,
+      spineM: r() * 20 * scale, spineGate01: r(), drainM: (r() - .5) * 12 * scale, drainPhaseRad: r() * 6.28 };
+    const glacier = { axisStartM: [0, 0], axisEndM: [0, -20000], halfWidthM: 3000, surfaceStartM: 1400 + r() * 400, surfaceEndM: 900, maxThicknessM: 100 + r() * 800 };
+    assert.deepEqual(glacierErrors(glacier), []);
+    const u = { uDeformAmp: { value: music.amplitudeM }, uDeformKick: { value: music.kickM }, uDeformStructural: { value: music.structuralM },
+      uDeformMelodic: { value: music.melodicM }, uDeformGesture: { value: music.gestureM },
+      uLandDance: { value: { x: music.spineM, y: music.spineGate01, z: music.drainM, w: music.drainPhaseRad } },
+      uGlacierEnabled: { value: 1 }, uGlacierMaxThickness: { value: glacier.maxThicknessM } };
+    const lift = liftBounds(u), heightRange = [400, 2400], retreat = r() * .5;
+    for (let n = 0; n < 400; n++) {
+      const x = (r() - .5) * 8000, z = -r() * 21000, y = heightRange[0] + r() * 2000, t = r() * 6.28;
+      const ice = glacierSample(glacier, x, z, y, retreat);
+      const hierarchy = { spine: r(), relief: r(), sin: Math.sin(t) * r(), cos: Math.cos(t) };
+      const d = ice.thicknessM + sceneDeformation(music, x, z, y, heightRange, r(), hierarchy) * (1 - ice.coverage01);
+      assert.ok(d >= lift.lo && d <= lift.hi, `seed ${seed}: lift ${d} outside [${lift.lo}, ${lift.hi}]`);
+      if (ice.thicknessM > 50) iced++;
+      checked++;
+    }
+  }
+  assert.ok(iced > 100 && checked === 16000, `iced ${iced}`);
+  // Off, the ice adds nothing; the dance is bounded only where it is on.
+  const off = liftBounds({ uDeformAmp: { value: 10 }, uDeformKick: { value: 0 }, uDeformStructural: { value: 0 }, uDeformMelodic: { value: 0 },
+    uDeformGesture: { value: 0 }, uGlacierEnabled: { value: 0 }, uGlacierMaxThickness: { value: 800 } });
+  assert.equal(off.hi, 10 * 2 + 1);
+});
+
+test('the mirror keeps main\'s vertex-binned boxes; the water scissor gets whole triangles', () => {
+  // A triangle across a cell line: two vertex boxes, neither holding the
+  // strip between them; one triangle box holding all of it.
+  const positions = Float32Array.of(WATER_BOX_M - 10, 0, 5, WATER_BOX_M + 30, 0, 5, WATER_BOX_M - 10, 0, 40);
+  const subsets = [{ positions, index: Uint32Array.of(0, 1, 2) }];
+  const v = vertexWaterBoxes(subsets), t = waterBoxes(subsets);
+  assert.equal(v.length, 12);
+  assert.deepEqual([...v.subarray(0, 6)].map(Math.round), [WATER_BOX_M - 10, 0, 5, WATER_BOX_M - 10, 0, 40]);
+  assert.deepEqual([...v.subarray(6)].map(Math.round), [WATER_BOX_M + 30, 0, 5, WATER_BOX_M + 30, 0, 5]);
+  assert.deepEqual([...t].map(Math.round), [WATER_BOX_M - 10, 0, 5, WATER_BOX_M + 30, 0, 40]);
 });

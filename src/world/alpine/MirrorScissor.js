@@ -45,6 +45,29 @@ export function waterBoxes(subsets) {
   return Float64Array.from([...cells.values()].flat());
 }
 
+/** The lake mirror's boxes, as main has always built them: every vertex an
+ *  index subset references, binned by its own WATER_BOX_M cell. A triangle
+ *  crossing a cell line leaves a strip in neither box, so mirrorScissor can
+ *  stop short of texels a frame-edge lake fragment reads. Kept as it is so
+ *  the mirror stays byte-identical; waterBoxes is the sound bound. */
+export function vertexWaterBoxes(subsets) {
+  const cells = new Map();
+  for (const sub of subsets) {
+    const pos = sub.positions, idx = sub.index;
+    for (let i = 0; i < idx.length; i++) {
+      const o = idx[i] * 3, x = pos[o], y = pos[o + 1], z = pos[o + 2];
+      const key = `${Math.floor(x / WATER_BOX_M)},${Math.floor(z / WATER_BOX_M)}`;
+      const b = cells.get(key);
+      if (!b) cells.set(key, [x, y, z, x, y, z]);
+      else {
+        if (x < b[0]) b[0] = x; if (y < b[1]) b[1] = y; if (z < b[2]) b[2] = z;
+        if (x > b[3]) b[3] = x; if (y > b[4]) b[4] = y; if (z > b[5]) b[5] = z;
+      }
+    }
+  }
+  return Float64Array.from([...cells.values()].flat());
+}
+
 const abs = v => Math.abs(Number.isFinite(v) ? v : Infinity);
 
 /** Bounds of the vertical lift SCENE_VERT adds to a vertex: the glacier's

@@ -36,7 +36,7 @@ function harness({ samples = 0, depth = true } = {}) {
   });
   const frame = { frameId: 7, occurrenceId: 'o' };
   const record = (over = {}) => { scene.depthCache.A.content = { target, frame: 7, view: 'lake', occurrenceId: 'o', cut: false, ...over }; };
-  return { scene, g, renders, frame, record, target };
+  return { scene, g, renders, frame, record, target, p };
 }
 
 const depthDraws = renders => renders.filter(([name]) => name === 'depth');
@@ -70,7 +70,17 @@ test('anything that is not this frame\'s plain single-sampled depth is redrawn',
     ['another frame', h => h.record({ frame: 6 })],
     ['another view', h => h.record({ view: 'other' })],
     ['another occurrence', h => h.record({ occurrenceId: 'p' })],
-    ['a reallocated target', h => h.record({ target: {} })],
+    // A live target that is not this side's: it has its own depth texture,
+    // so only the identity check stops the copy.
+    ['a reallocated target', h => h.record({ target: { width: 320, height: 180, samples: 0, texture: {}, depthTexture: depthTexture() } })],
+    // The trees' detail moved after the pre-pass (a mirror drawn first in
+    // renderWater switches it to the mirror camera).
+    ['moved forest detail', h => { h.record({ detail: { key: 'main' } }); h.p.forestDetailState = { key: 'mirror' }; }],
+    ['a mirror drawn here', h => { h.record({ detail: null }); h.scene._prepareMirror = (p) => { p.forestDetailState = { key: 'mirror' }; }; }],
+    // Depth the blit cannot copy bit for bit.
+    ['another depth type', h => { h.record(); h.target.depthTexture = { type: 1012, format: 1026 }; }],
+    ['another depth format', h => { h.record(); h.target.depthTexture = { type: UINT, format: 1027 }; }],
+    ['another size', h => { h.record(); h.target.width = 321; }],
   ];
   for (const [name, set] of cases) {
     const h = harness();
@@ -113,8 +123,25 @@ test('a released or reallocated target forgets its depth record, not only its fr
   h.scene.renderWater(h.frame, 'lake', 320, 180);
   assert.equal(depthDraws(h.renders).length, 1, 'no record: the pre-pass is drawn');
   // Every path that releases, reallocates or replaces a side's depth.
-  for (const name of ['resize', 'ensureSide', 'prepareShafts', 'releaseShafts', '_invalidateContext']) {
+  for (const name of ['resize', 'ensureSide', 'releaseSide', 'prepareShafts', 'releaseShafts', '_invalidateContext']) {
     assert.match(RangeScene.prototype[name].toString(), /this\._forgetDepth\(/, name);
     assert.doesNotMatch(RangeScene.prototype[name].toString(), /depthCache\.[AB]\.frame = -1/, name);
   }
+});
+
+test('side B copies its own target\'s depth, and only its own', () => {
+  const h = harness();
+  const b = { width: 320, height: 180, samples: 0, texture: {}, depthTexture: depthTexture() };
+  h.scene.sideTargets.B = b;
+  h.scene.depthCache.B.content = { target: b, frame: 7, view: 'lake', occurrenceId: 'o', cut: true, detail: null };
+  h.scene.renderWater(h.frame, 'lake', 320, 180, { side: 'B' });
+  const blit = h.g.calls.filter(c => c[0] === 'bind')[0];
+  assert.equal(blit[2].of, b);
+  assert.deepEqual(depthDraws(h.renders), []);
+  // Side A's record never serves side B.
+  const k = harness();
+  k.scene.sideTargets.B = { ...b };
+  k.record({ cut: true });
+  k.scene.renderWater(k.frame, 'lake', 320, 180, { side: 'B' });
+  assert.equal(depthDraws(k.renders).length, 1);
 });

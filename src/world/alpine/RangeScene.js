@@ -56,7 +56,7 @@ import { flashScreenPoint, rainSeed01, stormKindRow } from './RangeStorm.js';
 import { forestWindAt } from './ForestWind.js';
 import { createWetMask, fillWetRows, waterIndexSubsetAsync } from './WaterSubset.js';
 import { attachTerrainCulling, setChunks, setTerrainMaterial, subsetChunkTable } from './TerrainChunks.js';
-import { waterBoxes, liftBounds, shiverBounds, mirrorScissor, waterScissor } from './MirrorScissor.js';
+import { waterBoxes, vertexWaterBoxes, liftBounds, shiverBounds, mirrorScissor, waterScissor } from './MirrorScissor.js';
 // Storm light, linear: the deck's underside, the rain-dimmed horizon, the
 // rain air, per episode kind (RangeStorm STORM_KINDS zenith/horizon/air).
 // The air meets the slate the sky paints at the horizon (drawStormSky).
@@ -279,7 +279,7 @@ export class RangeScene {
     const dispose = (t) => {
       t.dispose(); own?.dispose();
       if (this.ownership.A === own) this.ownership.A = null;
-      if (this.target === t) this.target = null;
+      if (this.target === t) { this.target = null; this._forgetDepth('A'); }
     };
     if (res) this.residency.commit(res, target, dispose);
     this._forgetDepth('A');
@@ -349,7 +349,7 @@ export class RangeScene {
     this.ownership.B = own;
     if (res) this.residency.commit(res, t, (x) => {
       x.dispose(); own?.dispose();
-      if (this.sideTargets.B === x) this.sideTargets.B = null;
+      if (this.sideTargets.B === x) { this.sideTargets.B = null; this._forgetDepth('B'); }
       if (this.ownership.B === own) this.ownership.B = null;
     });
     this._forgetDepth('B');
@@ -367,6 +367,7 @@ export class RangeScene {
     else { t.dispose(); this.ownership?.B?.dispose(); }
     this.sideTargets.B = null;
     if (this.ownership) this.ownership.B = null;
+    this._forgetDepth('B');
   }
 
   /** Optional attachments are admitted only after all active base targets,
@@ -2577,7 +2578,7 @@ export class RangeScene {
       depth.owned = !!own;
       // What the target's depth now holds, for the lake layer to copy
       // instead of drawing the terrain again (renderWater).
-      depth.content = own ? null : { target, frame: frame.frameId, view: viewId, occurrenceId: frame.occurrenceId, cut: false };
+      depth.content = own ? null : { target, frame: frame.frameId, view: viewId, occurrenceId: frame.occurrenceId, cut: false, detail: p.forestDetailState ?? null };
       depth.frame = frame.frameId;
       depth.view = viewId;
       depth.occurrenceId = frame.occurrenceId;
@@ -2798,7 +2799,9 @@ export class RangeScene {
    * another scene render. A refused allocation leaves the native pass intact. */
   /** The mirror texels this frame's lake can read, or null for all. */
   _mirrorScissor(p, m) {
-    const boxes = this._waterBoxes(p);
+    // Main's vertex-binned boxes, so the mirror image is unchanged
+    // (MirrorScissor.vertexWaterBoxes).
+    const boxes = this._waterBoxes(p, 'mirrorBoxes');
     if (!boxes) return null;
     try {
       this.camera.updateMatrixWorld();
@@ -2807,11 +2810,12 @@ export class RangeScene {
     } catch { return null; }
   }
 
-  /** The view's water boxes (MirrorScissor.waterBoxes) when they hold
-   *  every lake fragment as drawn: in mesh space, so every terrain mesh
-   *  must draw untransformed. Null otherwise. */
-  _waterBoxes(p) {
-    const boxes = p.waterSubsets?.boxes;
+  /** The view's water boxes (`which`: 'boxes', MirrorScissor.waterBoxes,
+   *  or 'mirrorBoxes', vertexWaterBoxes) when they hold every lake
+   *  fragment as drawn: in mesh space, so every terrain mesh must draw
+   *  untransformed. Null otherwise. */
+  _waterBoxes(p, which = 'boxes') {
+    const boxes = p.waterSubsets?.[which];
     if (!boxes) return null;
     if (p.waterBoxesPlain === undefined) {
       p.waterBoxesPlain = BANDS.every(band => p.scenes[band].children.every(mesh => !p.waterSubsets.has(mesh.geometry)
@@ -2852,7 +2856,7 @@ export class RangeScene {
     let triangles = 0, bytes = 0, complete = true;
     for (const geometry of [...Object.values(geos.geometries || {}), ...Object.values(geos.fringes || {})]) {
       const position = geometry.attributes.position, index = geometry.index;
-      if (!position || position.itemSize !== 3 || !index || position.normalized) continue;
+      if (!position || position.itemSize !== 3 || !index || position.normalized) { complete = false; continue; }
       let aborted = false;
       const table = geometry.userData?.terrainChunks;
       const chunks = table ? { start: table.start, count: table.count, kept: new Uint32Array(table.length) } : null;
@@ -2877,9 +2881,10 @@ export class RangeScene {
       if (stale()) { for (const sub of subsets.values()) sub.dispose(); return null; }
     }
     subsets.triangles = triangles; subsets.bytes = bytes;
-    // Where lake fragments can stand, for the mirror's scissor; unknown when
-    // any geometry kept its full index.
+    // Where lake fragments can stand, for the water and mirror scissors;
+    // unknown when any geometry kept its full index.
     subsets.boxes = complete ? waterBoxes(boxSources) : null;
+    subsets.mirrorBoxes = complete ? vertexWaterBoxes(boxSources) : null;
     return subsets;
   }
 
@@ -2932,14 +2937,17 @@ export class RangeScene {
     const w = Math.max(2, Math.round(width)), h = Math.max(2, Math.round(height));
     const outputTarget = (this._waterRenderTarget || RangeScene.prototype._waterRenderTarget).call(this, w, h, { capture });
     if (!outputTarget) return null;
-    // At the native grid the side's target already holds this frame's
-    // terrain and forest depth (renderPartition): copy it, not redraw it.
-    const shared = !capture && !bandColumns && w === this.size.width && h === this.size.height
-      ? this._sharedDepth(side, frame, viewId) : null;
     const r = this.renderer, u = p.uniforms, hidden = [], swapped = [];
     this._setCamera(p.view, frame, p);
     this._setUniforms(p, frame);
     this._prepareMirror(p, frame, side, viewId);
+    // At the native grid the side's target already holds this frame's
+    // terrain and forest depth (renderPartition): copy it, not redraw it.
+    // Only while the trees keep the detail that depth was drawn with: a
+    // mirror drawn first here moves it to the mirror camera.
+    const record = !capture && !bandColumns && w === this.size.width && h === this.size.height
+      ? this._sharedDepth(side, frame, viewId) : null;
+    const shared = record && (record.detail ?? null) === (p.forestDetailState ?? null) ? record : null;
     u.uViewportPx.value.set(w, h);
     r.setRenderTarget(outputTarget);
     r.setClearColor(0x000000, 0);
