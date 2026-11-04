@@ -30,7 +30,8 @@
 //   the terrain's own displacement without ice, so MirrorScissor.liftBounds
 //   bounds it (already doubled, plus 1 m).
 // - Height: y01 * H, with y01 in [0, 1] when the asset's position.y is
-//   (checked per asset; an asset outside that range is never culled).
+//   (checked per asset; an asset outside that range is never culled) and
+//   the tree's id (iVar.y) is (checked per batch, likewise).
 // - Crown: |radial| * crownHalfWidth / crownRatio * W * jitter, with
 //   crownHalfWidth / crownRatio <= .5 * 1.045 (the rag) and jitter <= 1.15
 //   (CROWN_RADIUS_PER_WIDTH), |radial| = |position.xz| of foliage vertices.
@@ -90,34 +91,36 @@ export function assetExtents(geometry) {
   return out;
 }
 
-// Root cells per instance attribute pair (shared by a batch's twins).
+// Root cells per instance attribute set (shared by a batch's twins).
 const cellsCache = new WeakMap();
 
 /** A batch's trees binned by root into FOREST_CULL_CELL_M cells: per cell
- *  min x, min root y, min z, max x, max top (root y + height), max z, max
- *  height, max width. Null when the instances cannot be bounded. */
+ *  min x, min bottom (root y, plus the height if negative), min z, max x,
+ *  max top (root y, plus the height if positive), max z, max |height|, max
+ *  |width|. Null when the instances cannot be bounded (a non-finite value,
+ *  or an id outside [0, 1]). */
 export function forestCells(geometry) {
-  const pos = geometry?.attributes?.iPos, size = geometry?.attributes?.iSize;
-  if (!pos || !size || size.count < pos.count) return null;
+  const pos = geometry?.attributes?.iPos, size = geometry?.attributes?.iSize, vars = geometry?.attributes?.iVar;
+  if (!pos || !size || !vars || size.count < pos.count || vars.count < pos.count) return null;
   const cached = cellsCache.get(pos);
-  if (cached && cached.size === size) return cached.cells;
+  if (cached && cached.size === size && cached.vars === vars) return cached.cells;
   const cells = new Map();
   let ok = true;
   for (let i = 0; i < pos.count && ok; i++) {
-    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i), h = size.getX(i), w = size.getY(i);
-    if (![x, y, z, h, w].every(Number.isFinite)) { ok = false; break; }
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i), h = size.getX(i), w = size.getY(i), id = vars.getY(i);
+    if (![x, y, z, h, w].every(Number.isFinite) || !(id >= 0 && id <= 1)) { ok = false; break; }
     const key = `${Math.floor(x / FOREST_CULL_CELL_M)},${Math.floor(z / FOREST_CULL_CELL_M)}`;
-    const top = y + Math.max(0, h);
+    const bottom = y + Math.min(0, h), top = y + Math.max(0, h), height = Math.abs(h), width = Math.abs(w);
     const c = cells.get(key);
-    if (!c) cells.set(key, [x, y, z, x, top, z, Math.abs(h), Math.abs(w)]);
+    if (!c) cells.set(key, [x, bottom, z, x, top, z, height, width]);
     else {
-      if (x < c[0]) c[0] = x; if (y < c[1]) c[1] = y; if (z < c[2]) c[2] = z;
+      if (x < c[0]) c[0] = x; if (bottom < c[1]) c[1] = bottom; if (z < c[2]) c[2] = z;
       if (x > c[3]) c[3] = x; if (top > c[4]) c[4] = top; if (z > c[5]) c[5] = z;
-      if (Math.abs(h) > c[6]) c[6] = Math.abs(h); if (Math.abs(w) > c[7]) c[7] = Math.abs(w);
+      if (height > c[6]) c[6] = height; if (width > c[7]) c[7] = width;
     }
   }
   const out = ok ? Float64Array.from([...cells.values()].flat()) : null;
-  cellsCache.set(pos, { size, cells: out });
+  cellsCache.set(pos, { size, vars, cells: out });
   return out;
 }
 

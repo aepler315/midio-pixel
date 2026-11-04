@@ -18,15 +18,17 @@ const FRONT = -120, BEHIND = 3000;
 
 function forest() {
   const meshDetail = [], mesh = [], billboard = [];
-  for (let i = 0; i < 4; i++) {
-    mesh.push(...row(i * 8 - 12, FRONT, .2, 1), ...row(i * 8 - 12, BEHIND, .8, 1));
-    meshDetail.push(...row(i * 8 - 12, FRONT - 10, .8, 2), ...row(i * 8 - 12, BEHIND + 10, .2, 2));
-    billboard.push(...row(i * 8 - 12, BEHIND + 20, .2, 0));
-  }
+  // Every batch its own size, so a count put back on the wrong batch shows.
+  const each = (n, f) => { for (let i = 0; i < n; i++) f(i * 8 - 12); };
+  each(4, x => mesh.push(...row(x, FRONT, .2, 1)));
+  each(3, x => mesh.push(...row(x, BEHIND, .8, 1)));
+  each(2, x => meshDetail.push(...row(x, FRONT - 10, .8, 2)));
+  each(5, x => meshDetail.push(...row(x, BEHIND + 10, .2, 2)));
+  each(4, x => billboard.push(...row(x, BEHIND + 20, .2, 0)));
   const uniforms = { uDeformAmp: { value: 3 }, uDeformKick: { value: 1 }, uDeformStructural: { value: 0 },
     uDeformMelodic: { value: 0 }, uDeformGesture: { value: 0 }, uLandDance: { value: new THREE.Vector4() } };
   return createForest(THREE, { meshDetail: new Float32Array(meshDetail), mesh: new Float32Array(mesh),
-    billboard: new Float32Array(billboard), stride: 8, count: 20 }, uniforms);
+    billboard: new Float32Array(billboard), stride: 8, count: 18 }, uniforms);
 }
 
 function setup({ terrain = null } = {}) {
@@ -105,7 +107,8 @@ test('a culled batch loses only its draw call: every bind and every other draw s
   // Counts are back after the render; stats count each geometry once.
   assert.deepEqual(s.counts(), before);
   const trees = [...drawn].filter(g => g.userData.forestCull).reduce((n, g) => n + g.instanceCount, 0);
-  assert.deepEqual(stats, { kept: trees - 8, total: trees, batches: 2 });
+  assert.deepEqual(stats, { kept: trees - 3 - 5, total: trees, batches: 2 });
+  assert.deepEqual([...culled].map(g => g.instanceCount).sort(), [3, 5]);
 });
 
 test('each render culls for its own camera: turned around, the other batches go', () => {

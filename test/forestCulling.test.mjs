@@ -142,6 +142,64 @@ test('the tree shader still places vertices the way the bound reads it', () => {
     'float rag = 1.0 + .045 * sin(v * 80.0 + id * 40.0 + side * 2.3) * fine;',
     'float crown = crownRatio(species) * (.97 + .03 * id) * .5 * smoothstep(base - .015, base + .025, v) * pow(1.0 - q, .8) * mix(.935, .87 + .13 * tooth, teeth) * rag;',
   ]) assert.ok(norm(vert).includes(norm(line)), line);
+  // Whole spans too, so a statement added or changed anywhere in them fails
+  // (the lines above say which term of the bound reads what).
+  for (const span of [
+    `vec2 windAt(float y01) {
+      float ph = iVar.y * 6.2831;
+      float s = sin(uTime * 0.65 + ph) * 0.6 + sin(uTime * 1.45 + ph * 1.7) * 0.25;
+      vec2 sway = vec2(s, s * 0.4) * ${WIND_SWAY.toFixed(3)} * uWind.x;
+      // The gust leans crowns the way the front travels (camera right in xz).
+      vec2 gust = gustAt();
+      vec2 away = iPos.xz - uParting.xy;
+      float dAway = length(away);
+      float part = uParting.w * (1.0 - smoothstep(uParting.z * 0.3, uParting.z, dAway));
+      vGust = max(gust.y, part * 0.8);
+      vec2 lean = normalize(vec2(viewMatrix[0][0], viewMatrix[2][0]) + 1e-5) * gust.x * ${GUST_LEAN.toFixed(3)};
+      lean += away / max(dAway, 1.0) * part * ${PARTING_LEAN.toFixed(3)};
+      // Downwind along the fixed world wind the clouds drift on, not camera right.
+      lean += vec2(${WIND_DIR[0].toFixed(6)}, ${WIND_DIR[1].toFixed(6)}) * uWind.y;
+      return (sway + lean) * iSize.x * y01 * y01;
+    }`,
+    `vec3 root = rootOf();
+      float base = crownBase(iVar.x, iVar.y);
+      float y01 = aBranch.w > .5 ? base + (1.0 - base) * position.y : position.y;
+      // One rotation per tree keeps the authored spacing between sprays;
+      // each branch then swings a little on its own.
+      float angle = 6.283185 * fract(sin(iVar.y * 127.1) * 43758.5453)
+        + (fract(sin(iVar.y * 91.7 + aBranch.x * 311.7) * 43758.5453) - .5) * .7 * aBranch.w;
+      vec2 radial = mat2(cos(angle), -sin(angle), sin(angle), cos(angle)) * position.xz;
+      float jitter = mix(.85, 1.15, fract(sin(iVar.y * 269.5 + aBranch.x * 183.3) * 43758.5453));
+      float side = radial.x < 0.0 ? -1.0 : 1.0;
+      float radius = crownHalfWidth(iVar.x, y01, iVar.y, side) / crownRatio(iVar.x) * iSize.y * jitter;
+      vec2 xz = radial * (aBranch.w > .5 ? radius : (.12 + .14 * iVar.y) * (1.0 - .94 * y01));
+      vec2 w = windAt(y01);
+      vec3 p = root + vec3(xz.x + w.x, y01 * iSize.x, xz.y + w.y);`,
+    `float crownBase(float species, float id) { return species < .5 ? .46 + .06 * id : species > 1.5 && species < 2.5 ? .015 : .08; }
+    float crownRatio(float species) { return species < .5 ? .30 : species < 1.5 ? .38 : species < 2.5 ? .265 : .425; }
+    float crownHalfWidthFiltered(float species, float v, float id, float side, float dv) {
+      float base = crownBase(species, id);
+      float q = clamp((v - base) / (1.0 - base), 0.0, 1.0);
+      float phase = id * 7.0 + (side < 0.0 ? .37 : .03), tiers = 6.0 + floor(id * 4.0);
+      float t = fract(v * tiers + phase);
+      // Each detail loses contrast before its own period becomes sub-pixel.
+      float teeth = 1.0 - smoothstep(.25, .5, dv * tiers);
+      float fine = 1.0 - smoothstep(.25, .5, dv * 80.0 / 6.283185);
+      float tooth = smoothstep(0.0, .15, t) * sqrt(1.0 - t);
+      float rag = 1.0 + .045 * sin(v * 80.0 + id * 40.0 + side * 2.3) * fine;
+      float crown = crownRatio(species) * (.97 + .03 * id) * .5 * smoothstep(base - .015, base + .025, v)
+        * pow(1.0 - q, .8) * mix(.935, .87 + .13 * tooth, teeth) * rag;
+      float leader = .0025 * smoothstep(.85, .94, v) * max(0.0, (1.0 - v) / .06);
+      return max(crown, leader);
+    }
+    float crownHalfWidth(float species, float v, float id, float side) {
+      return crownHalfWidthFiltered(species, v, id, side, 0.0);
+    }`,
+  ]) assert.ok(norm(vert).includes(norm(span)), span.slice(0, 60));
+  // Nothing moves the position between that span and its projection.
+  const main = vert.slice(vert.indexOf('vec3 p = root + vec3('), vert.indexOf('gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);'));
+  assert.ok(main.length > 0);
+  assert.equal(main.split('\n').slice(1).filter(l => /\b(p|root)(\.[xyzw]{1,4})?\s*[-+*/]?=(?!=)/.test(l)).length, 0, 'p is set once');
   // No model matrix: positions are world positions whatever the mesh's.
   assert.doesNotMatch(vert, /\bmodelMatrix\b/);
   assert.equal(CROWN_RADIUS_PER_WIDTH, .5 * 1.045 * 1.15);
@@ -159,6 +217,68 @@ test('every conifer asset is bounded: positions in [0, 1] up, foliage and trunk 
   bad.attributes.position.setY(0, 1.01);
   assert.equal(assetExtents(bad), null);
   assert.equal(assetExtents(new THREE.BufferGeometry()), null);
+});
+
+test('a cell holds its trees\' extremes whatever their order; bad ids and heights are handled', () => {
+  const geo = ASSETS[4].geo;
+  const list = [
+    { x: 40, y: 1000, z: 40, h: 2, w: .6, species: 1, id: .3 },
+    { x: 50, y: 990, z: 60, h: 30, w: 7.2, species: 1, id: .6002 },
+    { x: 45, y: 1010, z: 30, h: 12, w: 9, species: 1, id: .1 },
+    // Another cell, 256 m on.
+    { x: 300, y: 500, z: 40, h: 5, w: 1, species: 1, id: .2 },
+  ];
+  const expect = [[40, 990, 30, 50, 1022, 60, 30, 9], [300, 500, 40, 300, 505, 40, 5, 1]];
+  const asCells = c => Array.from({ length: c.length / 8 }, (_, i) => [...c.slice(i * 8, i * 8 + 8)].map(v => Math.round(v * 1e3) / 1e3))
+    .sort((a, b) => a[0] - b[0]);
+  for (const order of [[0, 1, 2, 3], [2, 1, 0, 3], [3, 1, 2, 0], [1, 0, 3, 2]]) {
+    assert.deepEqual(asCells(forestCells(batch(geo, order.map(i => list[i])))), expect, `order ${order}`);
+  }
+  // A negative height reaches below the root; a negative width is a width.
+  assert.deepEqual(asCells(forestCells(batch(geo, [{ x: 0, y: 100, z: 0, h: -20, w: -3, species: 1, id: .5 }]))), [[0, 80, 0, 0, 100, 0, 20, 3]]);
+  // An id outside [0, 1] breaks the crown and trunk bounds: never culled.
+  for (const id of [1.5, -.1, NaN]) assert.equal(forestCells(batch(geo, [{ ...list[0], id }])), null, `id ${id}`);
+  const camera = new THREE.PerspectiveCamera(50, 1, 1, 1000);
+  camera.lookAt(0, 0, -1); camera.updateMatrixWorld();
+  const out = batch(geo, [{ x: 0, y: 0, z: 5000, h: 10, w: 4, species: 1, id: 2 }]);
+  assert.equal(forestGeometryVisible(out, frustumPlanes(camera, null), uniforms(rng(3))), true);
+});
+
+test('the root lift keeps a tree the music lifts into view, or sinks into it', () => {
+  // A level camera with a 20 degree view; trees 500 m ahead.
+  const tan = Math.tan(10 * Math.PI / 180);
+  const view = (edgeY, up) => {
+    const camera = new THREE.PerspectiveCamera(20, 1, 1, 5000);
+    // The frame's bottom (or top) edge crosses edgeY 500 m ahead.
+    const y = up ? edgeY + 500 * tan : edgeY - 500 * tan;
+    camera.position.set(0, y, 0); camera.lookAt(0, y, -1); camera.updateMatrixWorld();
+    return frustumPlanes(camera, null);
+  };
+  // No wind or parting, and a still landscape (a missing uniform is an
+  // unknown bound, which never culls).
+  const calm = { uWind: { value: { x: 0, y: 0 } }, uParting: { value: { x: 0, y: 0, z: 90, w: 0 } },
+    uDeformAmp: { value: 0 }, uDeformKick: { value: 0 }, uDeformStructural: { value: 0 }, uDeformMelodic: { value: 0 },
+    uDeformGesture: { value: 0 }, uLandDance: { value: { x: 0, y: 0, z: 0, w: 0 } } };
+  const tree = batch(ASSETS[4].geo, [{ x: 0, y: 1000, z: -500, h: 20, w: 3, species: 1, id: .5 }]);
+  const visible = (planes, extra) => forestGeometryVisible(tree, planes, { ...calm, ...extra });
+  // Rising: the frame's bottom edge 10 m above the treetop.
+  const above = view(1030, true);
+  assert.equal(visible(above, {}), false, 'a still tree stays out of view');
+  for (const [name, extra] of [
+    ['kick', { uDeformKick: { value: 10 } }],
+    ['amplitude', { uDeformAmp: { value: -10 } }],
+    ['gesture', { uDeformGesture: { value: 10 } }],
+    ['spine dance', { uLandDance: { value: { x: 10, y: 0, z: 0, w: 0 } } }],
+    ['wave dance', { uLandDance: { value: { x: 0, y: 0, z: 10, w: 0 } } }],
+  ]) assert.equal(visible(above, extra), true, `${name}: lifted 10 m into view`);
+  // Sinking: the frame's top edge 10 m below the root.
+  const below = view(990, false);
+  assert.equal(visible(below, {}), false, 'a still tree stays out of view');
+  for (const [name, extra] of [
+    ['kick', { uDeformKick: { value: -10 } }],
+    ['melodic', { uDeformMelodic: { value: 10 } }],
+    ['spine dance', { uLandDance: { value: { x: -10, y: 0, z: 0, w: 0 } } }],
+  ]) assert.equal(visible(below, extra), true, `${name}: sunk 10 m into view`);
 });
 
 test('every vertex the shader can place lies inside its cell\'s box (no safety factor, no padding)', () => {
@@ -331,14 +451,19 @@ test('the culled count is restored however the scene\'s renders end', () => {
   camera.position.set(0, 0, 0); camera.lookAt(0, 0, -1); camera.updateMatrixWorld();
   const mesh = new THREE.Mesh(batch(ASSETS[4].geo, [{ x: 0, y: 0, z: 5000, h: 10, w: 4, species: 1, id: .5 }]));
   mesh.geometry.userData.forestCull = { uniforms: u };
-  const scene = new THREE.Scene(); scene.add(mesh);
+  // Batches differ in size: each gets its own count back.
+  const tree = i => ({ x: i * 10, y: 0, z: 5000 + i * 50, h: 10, w: 4, species: 1, id: .25 });
+  const two = new THREE.Mesh(batch(ASSETS[7].geo, [tree(1), tree(2)])), three = new THREE.Mesh(batch(ASSETS[2].geo, [tree(3), tree(4), tree(5)]));
+  two.geometry.userData.forestCull = { uniforms: u }; three.geometry.userData.forestCull = { uniforms: u };
+  const scene = new THREE.Scene(); scene.add(mesh, two, three);
   const stats = { kept: 0, total: 0, batches: 0 };
   const touched = cullForestScene(scene, camera, null, stats);
-  assert.equal(mesh.geometry.instanceCount, 0);
-  assert.deepEqual(stats, { kept: 0, total: 1, batches: 1 });
+  assert.deepEqual([mesh, two, three].map(m => m.geometry.instanceCount), [0, 0, 0]);
+  assert.deepEqual(stats, { kept: 0, total: 6, batches: 3 });
   restoreForestScene(touched);
-  assert.equal(mesh.geometry.instanceCount, 1);
+  assert.deepEqual([mesh, two, three].map(m => m.geometry.instanceCount), [1, 2, 3]);
   assert.equal(touched.length, 0);
+  scene.remove(two, three);
   // Hidden, or on a layer the camera skips: left alone.
   mesh.visible = false;
   assert.equal(cullForestScene(scene, camera, null).length, 0);
