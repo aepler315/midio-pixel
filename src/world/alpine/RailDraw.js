@@ -8,6 +8,10 @@
 // { rail, tour }). Switching a song's camera moves draw ranges and instance
 // counts only: no rebuild, no upload.
 //
+// A view prepared without its tour's footprint, or on a device that cannot
+// hold both modes, is prepared from railGroundData alone (RangeScene
+// prepare: `railOnly`) and never plays its tour.
+//
 // A geometry with ranges must always draw one mode: its whole buffer holds
 // both the rail's and the tour's copy of the rail tiles that border coarser
 // tour ground (TerrainMesh planBands).

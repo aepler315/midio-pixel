@@ -73,6 +73,45 @@ const BACKDROP_KEY = 'range:water-backdrop';
 export const CANVAS_TRIM_FRAMES = 90;
 // Full/lite pairs share instances and retain two scalar attributes per batch.
 const FOREST_DETAIL_BYTES = BANDS.length * FOREST_FAMILIES * FOREST_VARIANTS * 8;
+
+/** What a static view's GPU reservation charges for `trees` placed trees:
+ *  mesh, seam fringes and the rail's border copies, and tree instances,
+ *  each twice (the CPU arrays stay on their attributes); the surface texture
+ *  and its receiver mask; contour ink and actors; and a sun horizon and
+ *  land hierarchy per camera mode. The bake's mesh estimate (`est`) does
+ *  not know the seam-fill index buffers or, in a tour package, the rail's
+ *  own copy of each rail tile that borders coarser tour ground (TerrainMesh
+ *  planBands); both are counted exactly from the tile plan, no geometry
+ *  built, so a view that cannot fit is denied before its mesh is built. */
+export function staticViewBytes(data, est, trees, { budget = 'desktop', landDance = true } = {}) {
+  const modes = tourGround(data) ? 2 : 1, grid = data.grid;
+  const forestBytes = trees * 7 * 4 + forestAssetBytes() + FOREST_DETAIL_BYTES;
+  const fringeBytes = terrainFringeBytes(data, { budget }) + terrainRailCopyBytes(data, { budget });
+  const horizonCost = grid ? modes * horizonBytes(grid, { maxSize: budget === 'mobile' ? 192 : 256 }) : 0;
+  const samples = HIERARCHY_MAX_SAMPLES[budget === 'mobile' ? 'mobile' : 'desktop'];
+  const hierarchyCost = grid && landDance ? modes * samples * samples * 4 : 0;
+  const gridPx = grid ? grid.width * grid.height : 0;
+  return 2 * ((est?.meshBytes || 0) + fringeBytes + forestBytes) + (est?.surfaceTextureBytes || 0) + gridPx
+    + modes * 2 * 3 * 768 * 6 * 4 + 2 * ActorsGL.bytes() + horizonCost + hierarchyCost;
+}
+
+/** A static forest build's admitted peak, from its placement bound. */
+function forestBuildBytes(bound) {
+  return Math.max(bound.placementBytes, bound.count * 32 + forestGroupingBytes(bound.count) + FOREST_ASSET_BUILD_BYTES);
+}
+
+/** The bake's mesh estimate (manifest estimatedBytes) for the tiles a
+ *  decoded package keeps: a rail drawn alone counts its own tiles only. */
+export function terrainMeshEstimate(data, budget) {
+  let vertices = 0, triangles = 0;
+  for (const t of data.tiles.values()) {
+    if (!t.visible) continue;
+    const m = data.cells / (t.lod?.[budget] ?? t.stride);
+    vertices += (m + 1) * (m + 1);
+    triangles += 2 * m * m;
+  }
+  return { vertices, triangles, meshBytes: vertices * 12 + triangles * 3 * 4 };
+}
 /** ?rangeDebug=<mode> terrain diagnostics (uDebugMask in TerrainMaterial). */
 export const TERRAIN_DEBUG_MODES = Object.freeze({ masks: 1, slope: 2, albedo: 3, fill: 4, key: 5, roughness: 6, specular: 7, sun: 8 });
 
@@ -730,6 +769,8 @@ export class RangeScene {
    *  footprint, so swapping a song's plan touches no GPU state. */
   setCameraTour(viewId, tour) {
     const p = this.prepared.get(viewId);
+    // A view prepared for its rail alone has no tour ground to draw.
+    if (p?.railOnly) tour = null;
     if (!p || p.windowCache || p.cameraTour === tour) return;
     p.cameraTour = tour || null;
     this._movedPoses = new WeakMap();
@@ -819,8 +860,7 @@ export class RangeScene {
     if (spec.bytes != null) return spec;
     const view = index == null ? p.view : { ...p.view, tourWindowStartMs: index * 8000 };
     const forest = forestPlacementBound(p.data, view, p.rules);
-    const scratch = Math.max(forest.placementBytes,
-      forest.count * 32 + forestGroupingBytes(forest.count) + FOREST_ASSET_BUILD_BYTES);
+    const scratch = forestBuildBytes(forest);
     let terrain = 0, plan = null;
     if (index != null) {
       plan = planTerrainWindow(p.data, p.view.tour, index, p.windowOptions);
@@ -853,6 +893,18 @@ export class RangeScene {
   _canRetryTerrainBuild(p, index) {
     this._retireTourSpeculation(p, index);
     return !this.residency || this.residency.canFit(this._terrainBuildSpec(p, index).bytes, this._terrainBuildProtect(p, index));
+  }
+
+  /** Whether both camera modes of a tour package fit beside what is
+   *  resident now (evicting what may be evicted): the forest build bound,
+   *  and the GPU reservation and surface build at that bound's tree count,
+   *  never fewer than will be placed. */
+  _tourFits(view, cpu, rules, est, protect) {
+    if (!this.residency) return true;
+    const bound = forestPlacementBound(cpu.data, view, rules);
+    const gpu = staticViewBytes(cpu.data, est, bound.count, { budget: this.budget, landDance: requestedLandDance() });
+    const scratch = cpu.data.grid.width * cpu.data.grid.height * SURFACE_BUILD_BYTES_PER_PIXEL;
+    return this.residency.canFit(forestBuildBytes(bound) + gpu + scratch, protect);
   }
 
   /** Admit the complete build peak before dispatch; executing work retains
@@ -1148,7 +1200,7 @@ export class RangeScene {
       try {
         if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
         const THREE = this.THREE;
-        const est = cpu.manifest.estimatedBytes?.[this.budget];
+        let est = cpu.manifest.estimatedBytes?.[this.budget];
         const gpuKey = `range:terrain-gpu:${view.id}:${this.budget}`;
         // The verified material pack comes first: its rules place the trees,
         // which are placed on the CPU (a stable lattice) so their instance
@@ -1160,6 +1212,23 @@ export class RangeScene {
         if (riverErrors.length) throw new RangeAssetError('manifest', `${view.id}: ${riverErrors.join('; ')}`);
         const waterCheck = validateWaterRules(rules);
         if (!waterCheck.ok) throw new RangeAssetError('manifest', `material rules rejected for ${view.id}: ${waterCheck.errors.join('; ')}`);
+        // A package that also ships ground only its shot tour sees
+        // (RailDraw.js) draws both cameras only for a view given its tour's
+        // footprint, on a device that can hold both. Otherwise the view is
+        // prepared for its rail alone: the rail's own tiles, trees and water,
+        // at what the rail's package without a tour costs.
+        let data = cpu.data, railOnly = null;
+        if (!view.tour && tourGround(cpu.data)) {
+          railOnly = !view.cameraPaths?.some((line) => line?.length) ? 'no shot tour'
+            : this._railOnlyViews?.has(view.id) ? 'its tour did not fit this device'
+              : !this._tourFits(view, cpu, rules, est, [cpu.key, mat.key]) ? 'its tour does not fit this device' : null;
+          if (railOnly) {
+            data = railGroundData(cpu.data);
+            est = { ...est, ...terrainMeshEstimate(data, this.budget) };
+            view = { ...view };
+            delete view.cameraPaths;
+          }
+        }
         // Placement yields to the event loop as it goes: a view prepared
         // during playback must not freeze frames while its forest is laid.
         let rawWindow = null;
@@ -1167,19 +1236,19 @@ export class RangeScene {
         // ground, a shot tour's from every tile it draws. The cast keeps the
         // rail's, whichever camera plays.
         const waterFor = (tour) => {
-          const waterLevelM = view.riverPolicy?.terrainWater === 'mapped-only' ? null : waterLevel(cpu.data, { tour });
-          return { waterLevelM, mirrorLevelM: mirrorLevelFor(cpu.data, waterLevelM, { tour }), heightRange: terrainHeightRange(cpu.manifest, { tour }) };
+          const waterLevelM = view.riverPolicy?.terrainWater === 'mapped-only' ? null : waterLevel(data, { tour });
+          return { waterLevelM, mirrorLevelM: mirrorLevelFor(data, waterLevelM, { tour }), heightRange: terrainHeightRange(cpu.manifest, { tour }) };
         };
         const modeWater = { rail: waterFor(false) };
-        modeWater.tour = !view.tour && tourGround(cpu.data) ? waterFor(true) : modeWater.rail;
+        modeWater.tour = !view.tour && tourGround(data) ? waterFor(true) : modeWater.rail;
         const { waterLevelM, mirrorLevelM } = modeWater.rail;
         const windowOptions = { budget: this.budget, heightPx: this.budget === 'mobile' ? 720 : 1080,
           coverage: terrainWindowCoverage(opts.scenicViewport), coverageRevision: 0,
           pixelHeightPx: (this.pixelated ?? opts.pixelated) && !view.glacier ? (this.pixelHeightPx ?? opts.pixelHeightPx ?? null) : null,
           mirrorLevelM,
           protectedTileIds: view.tour ? tourSummitTiles(cpu.data, opts.tourData?.points) : [] };
-        windowOptions.pixelProtectedTileIds = terrainPixelProtection(cpu.data, windowOptions.protectedTileIds);
-        const buildOwner = { view, data: cpu.data, rules, windowOptions, cpuKey: cpu.key, gpuKey, materialKey: mat.key };
+        windowOptions.pixelProtectedTileIds = terrainPixelProtection(data, windowOptions.protectedTileIds);
+        const buildOwner = { view, data, rules, windowOptions, cpuKey: cpu.key, gpuKey, materialKey: mat.key };
         if (view.tour) {
           workerKey = `range:tour-worker:${view.id}`;
           const tourBackings = new Set(['eye', 'target', 'fov', 'meta'].map(k => view.tour[k]?.buffer).filter(Boolean));
@@ -1197,8 +1266,14 @@ export class RangeScene {
           windowWorker = new TerrainWindowWorker({ data: cpu.data, tour: view.tour, view, rules, seed: hashSeed(view.terrainSourceId || view.id) });
           if (workerReservation && !this.residency.commit(workerReservation, windowWorker, w => w.dispose())) throw new RangeAssetError('stale', 'Tour worker cancelled');
           rawWindow = await windowWorker.build(0, windowOptions, buildEntry.plan);
-        } else buildEntry = this._admitTerrainBuild(buildOwner);
-        const placed = rawWindow?.placed || await placeForestAsync(cpu.data, view, rules, { seed: hashSeed(view.terrainSourceId || view.id), signal });
+        } else {
+          try { buildEntry = this._admitTerrainBuild(buildOwner); } catch (err) {
+            // Next time this view is prepared for its rail alone.
+            if (err?.reason === 'budget' && tourGround(data)) (this._railOnlyViews ||= new Set()).add(view.id);
+            throw err;
+          }
+        }
+        const placed = rawWindow?.placed || await placeForestAsync(data, view, rules, { seed: hashSeed(view.terrainSourceId || view.id), signal });
         if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
         if (!rawWindow) this._retireForestPlacement(buildOwner, buildEntry, placed);
         // CPU arrays stay on BufferAttributes after upload; charge both copies.
@@ -1212,16 +1287,8 @@ export class RangeScene {
         const gridPx = ((cpu.data.grid.width - 1) / textureStride + 1) * ((cpu.data.grid.height - 1) / textureStride + 1);
         // A package with tour ground keeps a second set of hints, sun
         // horizon and land hierarchy: the rail's, baked without that ground.
-        const twoModes = !view.tour && tourGround(cpu.data), modes = twoModes ? 2 : 1;
+        const twoModes = !view.tour && tourGround(data), modes = twoModes ? 2 : 1;
         const featureBudgetBytes = modes * 2 * 3 * 768 * 6 * 4;
-        // The bake's mesh estimate does not know the seam-fill index
-        // buffers; their exact size is counted from the tile plan (no
-        // geometry built), so the one reservation covers them and a view
-        // that cannot fit is denied before the mesh is built.
-        // A tour package also builds the rail's own copy of each rail tile
-        // that borders coarser tour ground (TerrainMesh planBands): counted
-        // the same way.
-        const fringeBytes = view.tour ? 0 : terrainFringeBytes(cpu.data, { budget: this.budget }) + terrainRailCopyBytes(cpu.data, { budget: this.budget });
         // Baked horizon for terrain sun visibility (not for tour windows,
         // whose terrain streams; they keep the unshadowed key).
         const horizonOptions = { maxSize: this.budget === 'mobile' ? 192 : 256 };
@@ -1230,16 +1297,20 @@ export class RangeScene {
         // drainage hierarchy texture, static views only for now.
         const hierarchySamples = HIERARCHY_MAX_SAMPLES[this.budget === 'mobile' ? 'mobile' : 'desktop'];
         const hierarchyCost = view.tour || !cpu.data?.grid || !requestedLandDance() ? 0 : modes * hierarchySamples * hierarchySamples * 4;
-        const bytes = (view.tour ? Math.ceil(gridPx * (4 * 4 / 3 + 1)) + featureBudgetBytes + 2 * ActorsGL.bytes()
-          : 2 * ((est?.meshBytes || 0) + fringeBytes + forestBytes) + (est?.surfaceTextureBytes || 0) + gridPx + featureBudgetBytes + 2 * ActorsGL.bytes() + horizonCost + hierarchyCost);
+        const bytes = view.tour ? Math.ceil(gridPx * (4 * 4 / 3 + 1)) + featureBudgetBytes + 2 * ActorsGL.bytes()
+          : staticViewBytes(data, est, placed.count, { budget: this.budget, landDance: requestedLandDance() });
         res = this.residency?.reserve({ key: gpuKey, bytes, owner: 'range-terrain-gpu', generation }) || null;
-        if (this.residency && !res) throw new RangeAssetError('budget', `no GPU room for ${view.id}`);
+        if (this.residency && !res) {
+          // Next time this view is prepared for its rail alone.
+          if (twoModes) (this._railOnlyViews ||= new Set()).add(view.id);
+          throw new RangeAssetError('budget', `no GPU room for ${view.id}`);
+        }
         if (rawWindow) {
           const windowBytes = 2 * (Object.values(rawWindow.built.bands).reduce((n, b) => n + b.positions.byteLength + b.indices.byteLength + b.fringe.byteLength, 0) + forestBytes);
           if (windowBytes > buildEntry.bytes) throw new RangeAssetError('budget', 'Initial window exceeded admitted build bound');
           buildEntry.retainedBytes = windowBytes;
         }
-        geos = createBandGeometries(THREE, cpu.data, { budget: this.budget, railSplit: !view.tour, ...(rawWindow ? { built: rawWindow.built } : {}) });
+        geos = createBandGeometries(THREE, data, { budget: this.budget, railSplit: !view.tour, ...(rawWindow ? { built: rawWindow.built } : {}) });
         // Keep lakes and their reflections, but do not add flowing river
         // surfaces to the landscape.
         const riverStats = { triangles: 0, fringeTriangles: 0, bytes: 0 };
@@ -1254,10 +1325,10 @@ export class RangeScene {
         if (this.residency && !scratch) throw new RangeAssetError('budget', `no room to build ${view.id} surface`);
         try {
           const checkCurrent = () => { if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`); };
-          surface = await createSurfaceTextureAsync(THREE, cpu.data, { stride: textureStride, signal, checkCurrent,
+          surface = await createSurfaceTextureAsync(THREE, data, { stride: textureStride, signal, checkCurrent,
             waterTexels: !view.tour && !mappedWaterOnly });
           // Read the wet texels before the upload drops the CPU copy.
-          if (!view.tour) waterSubsets = await this._buildWaterSubsets(THREE, cpu.data, surface, geos, {
+          if (!view.tour) waterSubsets = await this._buildWaterSubsets(THREE, data, surface, geos, {
             mappedOnly: view.riverPolicy?.terrainWater === 'mapped-only', stale: () => stale() || signal?.aborted });
           this.renderer?.initTexture?.(surface.texture);
           this.renderer?.initTexture?.(surface.receiverTexture);
@@ -1265,20 +1336,20 @@ export class RangeScene {
           if (!view.tour) {
             for (const geometry of [...Object.values(geos.geometries), ...Object.values(geos.fringes)]) {
               const groups = await waterColourRangesAsync(geometry.attributes.position.array, geometry.index.array,
-                surface.waterTexels, cpu.data.grid, { signal, checkCurrent });
+                surface.waterTexels, data.grid, { signal, checkCurrent });
               if (groups) waterGroups.set(geometry, groups);
             }
           }
           surface.waterTexels = null;
         } finally { if (scratch) this.residency.release(scratchKey); }
         await yieldToMain();
-        const base = terrainUniforms(THREE, cpu.data, surface);
+        const base = terrainUniforms(THREE, data, surface);
         const uniforms = sceneUniforms(THREE, base);
         applyMaterial(uniforms, mat.pack, mat.textures, view.materialRules || {});
         uniforms.uDebugMask.value = this.debugMask || 0;
         // The rail's own bakes read its ground alone: tour-only ridges never
         // shade it or steer its land (RailDraw.js). The tour reads it all.
-        const railData = twoModes ? railGroundData(cpu.data) : cpu.data;
+        const railData = twoModes ? railGroundData(data) : data;
         if (horizonCost) {
           // Optional light: a failed bake leaves the key unshadowed, never
           // the view on legacy scenery.
@@ -1289,7 +1360,7 @@ export class RangeScene {
               return Object.assign(createHorizonTexture(THREE, bake), { size: [bake.width, bake.height] });
             };
             horizon = await bakeOf(railData);
-            if (twoModes) tourHorizon = await bakeOf(cpu.data);
+            if (twoModes) tourHorizon = await bakeOf(data);
             uniforms.uHorizon.value = horizon.texture;
             uniforms.uHorizonSize.value.set(...horizon.size);
           } catch (err) {
@@ -1312,7 +1383,7 @@ export class RangeScene {
               return out;
             };
             hierarchy = await buildOf(railData);
-            if (twoModes) tourHierarchy = await buildOf(cpu.data);
+            if (twoModes) tourHierarchy = await buildOf(data);
             uniforms.uLandHierarchy.value = hierarchy.texture;
           } catch (err) {
             if (err instanceof RangeAssetError || signal?.aborted) throw err;
@@ -1431,11 +1502,11 @@ export class RangeScene {
         // job leaves stand in the band that owns the ground under them.
         actors = new ActorsGL(THREE, uniforms);
         const castSeed = hashSeed(`${view.id}:cast`);
-        const plan = castPlan(cpu.data, view, { waterLevelM, seed: castSeed });
+        const plan = castPlan(data, view, { waterLevelM, seed: castSeed });
         // Wandering routes cost a second terrain pass: only a view that
         // wanders gets them here (others build them only if ever needed).
-        const routes = plan.job === 'wander' ? actorRoutes(cpu.data, view, { waterLevelM, seed: castSeed }) : null;
-        const work = castWork(plan, { data: cpu.data, waterLevelM });
+        const routes = plan.job === 'wander' ? actorRoutes(data, view, { waterLevelM, seed: castSeed }) : null;
+        const work = castWork(plan, { data, waterLevelM });
         for (const band of BANDS) scenes[band].add(actors.sites.meshes[band], actors.threads.meshes[band], actors.rope.meshes[band]);
         // Per-band depth scenes for travel frames, where a side's nearer
         // bands are drawn only in some columns (same geometry and material;
@@ -1490,7 +1561,7 @@ export class RangeScene {
           }
         }
         const prepared = {
-          view, generation, manifest: cpu.manifest, data: cpu.data, identity: cpu.identity, tourCpuKey: opts.tourCpuKey,
+          view, generation, manifest: cpu.manifest, data, railOnly, identity: cpu.identity, tourCpuKey: opts.tourCpuKey,
           surface, uniforms, material, depthMaterial, ownershipMaterials, horizon, hierarchy, tourHorizon, tourHierarchy, depthBandMeshes: depthMeshes, geometries: geos.geometries, fringes: geos.fringes, fringeMeshes, fringeTravel, scenes, depthScene, depthScenes,
           riverMaterial, riverDepthMaterial, riverOwnershipMaterials, riverGeometries, riverFringeGeometries, riverDepthMeshes, riverStats,
           forest, stageGL, featureGeometries, featureMaterial, modeGeometries, terrainMode: view.tour ? null : 'rail', modeWater, castWaterLevelM: waterLevelM,

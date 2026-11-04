@@ -32,6 +32,17 @@ Mountains 27 of about 29M terrain pixels over the rail; worst 37/255 in one
 channel), every one an edge-on silhouette pixel. An exact rail would need a
 second surface texture, about 32 MB of GPU memory per view.
 
+A view gets both modes only when it is prepared with its tour's footprint
+(its shot library loaded) and the device can hold both. Before placing a
+tree, RangeScene checks that the forest build bound, plus the GPU
+reservation and surface build at that bound's tree count, fit beside what is
+resident. Otherwise, or after a two-mode preparation was refused room, the
+view is prepared for its rail alone: the rail's tiles, trees, water and
+bakes, charged as the rail's package without a tour would be. It plays its
+rail for the song, and the shot tour records why. Phones therefore keep
+every view they load on main. The one extra cost is the decoded package's
+CPU copy, which still holds the tour-only tiles.
+
 The approval checks below measure the rail exactly as it draws: rail tiles
 only (`terrainBandsFor(..., 'rail')`) and the rail's own trees.
 
