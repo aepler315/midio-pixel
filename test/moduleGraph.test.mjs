@@ -103,6 +103,7 @@ test('the module-graph check catches each way a module fails to load', async (t)
       "export const json = () => import('./data.json', { with: { type: 'json' } });",
       "export const untypedJson = () => import('./data.json');",
       "export const badJson = () => import('./broken.json', { with: { type: 'json' } });",
+      "export const css = () => import('./data.json', { with: { type: 'css' } });",
     ].join('\n'),
     'src/worker.js': "import { ACTOR_IDS } from './actors.js';\nself.onmessage = () => postMessage(ACTOR_IDS);\n",
     // Module-only syntax that a line-start regex would miss.
@@ -160,6 +161,7 @@ test('the module-graph check catches each way a module fails to load', async (t)
     'src/culprit.js:3 link',
     'src/dynamic.js:13 dynamic import',
     'src/dynamic.js:14 dynamic import',
+    'src/dynamic.js:15 dynamic import',
     'src/dynamic.js:3 dynamic import',
     'src/dynamic.js:5 dynamic import',
     'src/dynamic.js:6 dynamic import',
@@ -204,6 +206,7 @@ test('the module-graph check catches each way a module fails to load', async (t)
   const dynamic = (line) => result.problems.find(p => p.file === 'src/dynamic.js' && p.line === line).message;
   assert.match(dynamic(13), /as JavaScript; a JSON file needs/);
   assert.match(dynamic(14), /JSON that does not parse/);
+  assert.match(dynamic(15), /type 'css', which this check does not know/);
   assert.match(message('src/page.html', 'link'), /does not provide an export named 'ACTOR_NOPE'/);
   const worker = (line) => result.problems.find(p => p.file === 'src/worker-consts.js' && p.line === line).message;
   assert.match(worker(5), /src\/gone-worker\.js does not exist/);
