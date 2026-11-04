@@ -107,10 +107,13 @@ returns early: the complete range costs nothing and is byte-identical.
 Lowering can move a box into the frame from above it. Every bound lowers the
 box bottom through `risenFloor` (the bottom at the nearest horizontal
 distance, since the drawn height rises with both height and distance):
-chunk culling (`TerrainChunks`), the mirror and water scissors
-(`MirrorScissor.liftBounds`), mapped-tour window plans (`TerrainWindow`,
-planned for the lowest the land ever reaches, so a cached plan never
-depends on which analysis was current). The pixel-mode forest detail
+chunk culling (`TerrainChunks`), whole-batch tree culling
+(`ForestCulling.forestCellBox`, which never culls under a rise it cannot
+bound: a sink outside (0, 1], a negative or non-finite pivot, or no eye),
+the mirror and water scissors (`MirrorScissor.liftBounds`), mapped-tour
+window plans (`TerrainWindow`, planned for the lowest the land ever
+reaches, so a cached plan never depends on which analysis was current).
+The pixel-mode forest detail
 footprint moves and grows each tree's sphere instead (`risenSphere`), by
 the spread of the drop across it, so it is exactly the unrisen sphere
 below the eye and once the range stands complete: tree detail does not

@@ -147,12 +147,16 @@ export function forestCellBox(cells, o, extents, lift, lean, pad = CHUNK_BOX_PAD
   return out;
 }
 
-// A rise whose numbers the box cannot use (riseFromUniforms reads only a
-// positive sink, so a NaN one would reach the shader unbounded).
+// A rise the box cannot bound, read as the shader reads it (LandRise.js
+// riseLift: uLandRise raw, the eye from uTourEye). risenFloor holds only for
+// a sink in (0, 1], a finite pivot >= 0 and a finite eye. riseFromUniforms
+// turns a negative or NaN pivot into 0 and drops a rise with no eye, and
+// the shader would still lower those trees, by more than the box allows.
+// A sink of 0 or less draws no rise.
 const unknownRise = (u, rise) => {
-  const sink = u?.uLandRise?.value?.x;
-  if (sink !== undefined && !Number.isFinite(sink)) return true;
-  return !!rise && ![rise.sink, rise.pivot, ...rise.eye].every(Number.isFinite);
+  const v = u?.uLandRise?.value;
+  if (!v || v.x <= 0) return false;
+  return !(rise && v.x <= 1 && v.y >= 0 && v.y < Infinity && rise.eye.every(Number.isFinite));
 };
 
 const BOX = new Float64Array(6);

@@ -7,9 +7,9 @@ import { test } from 'node:test';
 import * as THREE from 'three';
 import { assetExtents, forestCells, forestCellBox, forestGeometryVisible, forestLean, cullForestScene, restoreForestScene,
   CROWN_RADIUS_PER_WIDTH, TRUNK_RADIUS_M } from '../src/world/alpine/ForestCulling.js';
-import { frustumPlanes } from '../src/world/alpine/TerrainChunks.js';
+import { frustumPlanes, CHUNK_BOX_PAD_M } from '../src/world/alpine/TerrainChunks.js';
 import { DANCE_WAVE_BOUND } from '../src/world/alpine/MirrorScissor.js';
-import { landRiseLift, riseFromUniforms } from '../src/world/alpine/LandRise.js';
+import { landRiseLift, riseFromUniforms, risenHeight } from '../src/world/alpine/LandRise.js';
 import { coniferGeometry, createForest } from '../src/world/alpine/ForestGL.js';
 import { crownHalfWidth } from '../src/world/alpine/ForestProfile.js';
 import { FOREST_FAMILIES, FOREST_VARIANTS } from '../src/world/alpine/ForestSpeciesAssets.js';
@@ -89,19 +89,30 @@ function meshVertex(geo, k, tree, u, e, r) {
   const scale = bw > .5 ? radius : (.12 + .14 * tree.id) * (1 - .94 * y01);
   const w = windAt(tree, y01, u, e, r);
   const x = tree.x + rx * scale + w[0], y = tree.y + deformAt(u, e, r) + y01 * tree.h, z = tree.z + rz * scale + w[1];
-  // Then the song's rise lowers it where it stands (LandRise.js riseLift).
-  const rise = riseFromUniforms(u);
-  return [x, rise ? y + landRiseLift(x, y, z, rise.eye, rise.sink, rise.pivot, rise.knee) : y, z];
+  // Then the song's rise lowers it where it stands (LandRise.js riseLift),
+  // read from the uniforms as the shader reads them, not through
+  // riseFromUniforms, which the bound itself uses.
+  const L = u.uLandRise?.value, E = u.uTourEye?.value;
+  return [x, L && E ? y + landRiseLift(x, y, z, [E.x, E.y, E.z], L.x, L.y) : y, z];
 }
 
-// The song's rise with the eye near a batch's first tree and below it, so
+// The song's rise with the eye near one of a batch's trees and below it, so
 // the trees stand above the eye where the rise lowers them; a pivot half
-// the time (LandRise.js risePivot).
+// the time (LandRise.js risePivot). 40% of the time the eye is among the
+// trees, inside a cell's footprint, where a box's nearest point to it is
+// not a corner.
 function rise(u, list, r) {
-  const t = list[0];
-  u.uTourEye = { value: { x: t.x + (r() * 2 - 1) * 400, y: t.y - 20 - r() * 600, z: t.z + (r() * 2 - 1) * 400, w: r() < .5 ? 1 : 0 } };
-  u.uLandRise = { value: { x: .05 + r() * .85, y: r() < .5 ? 0 : r() * .2 } };
+  const t = list[Math.floor(r() * list.length)], near = r() < .4, d = near ? 15 : 400;
+  u.uTourEye = { value: { x: t.x + (r() * 2 - 1) * d, y: t.y - (near ? 1 + r() * 40 : 20 + r() * 600), z: t.z + (r() * 2 - 1) * d, w: r() < .5 ? 1 : 0 } };
+  u.uLandRise = { value: { x: .05 + r() * .85, y: r() < .5 ? 0 : r() * .3 } };
 }
+
+// A landscape standing still: no deformation, dance, wind or parting (the
+// gust's lean stays, as in the shader).
+const still = () => ({ raw: { amp: 0, kick: 0, structural: 0, melodic: 0, gesture: 0, dance: { x: 0, y: 0, z: 0, w: 0 } },
+  uDeformAmp: { value: 0 }, uDeformKick: { value: 0 }, uDeformStructural: { value: 0 }, uDeformMelodic: { value: 0 },
+  uDeformGesture: { value: 0 }, uLandDance: { value: { x: 0, y: 0, z: 0, w: 0 } }, uGlacierEnabled: { value: 0 },
+  uTime: { value: 0 }, uWind: { value: { x: 0, y: 0 } }, uParting: { value: { x: 0, y: 0, z: 90, w: 0 } } });
 
 function batch(base, trees) {
   const geo = new THREE.InstancedBufferGeometry();
@@ -305,6 +316,17 @@ test('the root lift keeps a tree the music lifts into view, or sinks into it', (
   }
   // A rise the frame's top keeps it above: a tiny sink drops it a few cm.
   assert.equal(visible(below, { uLandRise: { value: { x: 1e-4, y: 0 } }, uTourEye: { value: { x: 0, y: eyeY, z: 0, w: 0 } } }), false);
+  // Tight: the frame's top edge 3 m above where the rise draws the root, for
+  // a strong and a middling sink, with and without a pivot. A bound that
+  // reads less of the sink, or the eye higher, culls the tree.
+  for (const [sink, pivot] of [[.9, 0], [.5, 0], [.5, .05]]) {
+    const gap = y => y + 500 * tan - (1000 + landRiseLift(0, 1000, -500, [0, y, 0], sink, pivot));
+    let lo = 0, hi = 1000;
+    for (let i = 0; i < 60; i++) { const m = (lo + hi) / 2; if (gap(m) < 3) lo = m; else hi = m; }
+    const y = (lo + hi) / 2, risen = { uLandRise: { value: { x: sink, y: pivot } }, uTourEye: { value: { x: 0, y, z: 0, w: 0 } } };
+    assert.ok(Math.abs(gap(y) - 3) < 1e-6 && y < 1000);
+    assert.equal(visible(view(y + 500 * tan, false), risen), true, `sink ${sink}, pivot ${pivot}: 3 m of trunk in view`);
+  }
 });
 
 test('every vertex the shader can place lies inside its cell\'s box (no safety factor, no padding)', () => {
@@ -315,7 +337,7 @@ test('every vertex the shader can place lies inside its cell\'s box (no safety f
     const list = trees(r, 6, seed % 3 ? 2000 : 300);
     // Broshi passing among the trees half the time: the parting lean.
     if (seed % 2 === 0) u.uParting.value = { x: list[0].x + (r() * 2 - 1) * 30, y: list[0].z + (r() * 2 - 1) * 30, z: 60 + r() * 60, w: .5 + r() };
-    if (seed % 3) rise(u, list, r);
+    if (seed % 3 !== 1) rise(u, list, r);
     const geo = batch(asset.geo, list), cells = forestCells(geo), ext = assetExtents(geo);
     const d = deformBound(u), lift = { lo: -d, hi: d, rise: riseFromUniforms(u) }, lean = forestLean(u);
     const box = new Float64Array(6);
@@ -333,6 +355,34 @@ test('every vertex the shader can place lies inside its cell\'s box (no safety f
     }
   }
   assert.ok(checked > 200000, `checked ${checked}`);
+});
+
+test('under the rise a box\'s floor is its bottom where it comes nearest the eye, not at a corner', () => {
+  // Three trees in one cell and the eye over the cell, 100 m below and 20 m
+  // from the lowest: the box comes nearest the eye along an edge, and its
+  // corners are some 130 m away, where the rise lowers less.
+  const asset = ASSETS[4].geo;
+  const list = [{ x: 128, y: 900, z: 20, h: 8, w: 3, species: 1, id: .3 }, { x: 2, y: 960, z: 20, h: 8, w: 3, species: 1, id: .5 },
+    { x: 254, y: 960, z: 20, h: 8, w: 3, species: 1, id: .7 }];
+  const cells = forestCells(batch(asset, list)), ext = assetExtents(batch(asset, list)), box = new Float64Array(6);
+  assert.equal(cells.length, 8, 'one cell');
+  for (const pivot of [0, .05, .1]) {
+    const u = { ...still(), uTourEye: { value: { x: 128, y: 800, z: 0, w: 1 } }, uLandRise: { value: { x: .9, y: pivot } } };
+    const r = rng(11), e = edgy(r), lift = { lo: 0, hi: 0, rise: riseFromUniforms(u) };
+    forestCellBox(cells, 0, ext, lift, forestLean(u), 0, box);
+    let lowest = Infinity;
+    for (const tree of list) for (let k = 0; k < asset.attributes.position.count; k++) {
+      const [x, y, z] = meshVertex(asset, k, tree, u, e, r);
+      assert.ok(x >= box[0] - 1e-3 && y >= box[1] - 1e-3 && z >= box[2] - 1e-3 && x <= box[3] + 1e-3 && y <= box[4] + 1e-3 && z <= box[5] + 1e-3,
+        `pivot ${pivot} vertex ${k}: ${[x, y, z].map(v => v.toFixed(3))} outside ${[...box].map(v => v.toFixed(3))}`);
+      lowest = Math.min(lowest, y);
+    }
+    // The case needs its geometry: a floor taken at the corners would cut
+    // these trees, by more than the box's padding once there is a pivot.
+    const corner = Math.min(...[[box[0], box[2]], [box[0], box[5]], [box[3], box[2]], [box[3], box[5]]]
+      .map(([x, z]) => risenHeight(cells[1], Math.hypot(x - 128, z), lift.rise)));
+    assert.ok(lowest < corner - (pivot ? CHUNK_BOX_PAD_M : 0), `pivot ${pivot}: corner floor ${corner.toFixed(3)}, lowest drawn ${lowest.toFixed(3)}`);
+  }
 });
 
 test('the bound needs each of its terms', () => {
@@ -399,7 +449,7 @@ test('the crown and trunk radii are within 10% of what the shader reaches', () =
 });
 
 test('a batch the test culls has no vertex inside the clip volume; one in front of the camera is never culled', () => {
-  let culled = 0, kept = 0;
+  let culled = 0, kept = 0, culledRisen = 0;
   for (let seed = 1; seed <= 60; seed++) {
     const r = rng(seed * 7 + 3), e = edgy(r), u = uniforms(r);
     const asset = ASSETS[(seed * 5) % ASSETS.length];
@@ -415,13 +465,18 @@ test('a batch the test culls has no vertex inside the clip volume; one in front 
     }
     const vp = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).elements;
     const planes = frustumPlanes(camera, null);
+    // The song's rise on a third of the views, from the camera's eye (a
+    // mirror keeps the main eye, as RangeScene does).
+    const risen = seed % 3 === 1;
+    const ur = risen ? { ...u, uTourEye: { value: { x: camera.position.x, y: camera.position.y, z: camera.position.z, w: 1 } },
+      uLandRise: { value: { x: .05 + r() * .9, y: r() < .5 ? 0 : r() * .2 } } } : u;
     for (let b = 0; b < 4; b++) {
       const list = trees(r, 3 + Math.floor(r() * 4), 4000);
       const geo = batch(asset.geo, list);
-      if (forestGeometryVisible(geo, planes, u)) { kept++; continue; }
-      culled++;
+      if (forestGeometryVisible(geo, planes, ur)) { kept++; continue; }
+      culled++; if (risen) culledRisen++;
       for (const tree of list) for (let k = 0; k < asset.geo.attributes.position.count; k += 3) {
-        const [x, y, z] = meshVertex(asset.geo, k, tree, u, e, r);
+        const [x, y, z] = meshVertex(asset.geo, k, tree, ur, e, r);
         const cx = vp[0] * x + vp[4] * y + vp[8] * z + vp[12], cy = vp[1] * x + vp[5] * y + vp[9] * z + vp[13];
         const cz = vp[2] * x + vp[6] * y + vp[10] * z + vp[14], cw = vp[3] * x + vp[7] * y + vp[11] * z + vp[15];
         const inside = cw > 0 && Math.abs(cx) <= cw && Math.abs(cy) <= cw && Math.abs(cz) <= cw;
@@ -433,7 +488,7 @@ test('a batch the test culls has no vertex inside the clip volume; one in front 
     const one = batch(asset.geo, [{ x: ahead.x, y: ahead.y - 5, z: ahead.z, h: 10, w: 4, species: 1, id: .5 }]);
     assert.ok(forestGeometryVisible(one, planes, u), `seed ${seed}: the tree ahead is kept`);
   }
-  assert.ok(culled > 20 && kept > 20, `culled ${culled}, kept ${kept}`);
+  assert.ok(culled > 20 && kept > 20 && culledRisen > 5, `culled ${culled} (${culledRisen} under the rise), kept ${kept}`);
 });
 
 test('an unknown bound never culls', () => {
@@ -451,8 +506,20 @@ test('an unknown bound never culls', () => {
     { ...u, uLandRise: { value: { x: NaN, y: 0 } }, uTourEye: { value: { x: 0, y: 0, z: 0, w: 0 } } },
     { ...u, uLandRise: { value: { x: .5, y: 0 } }, uTourEye: { value: { x: NaN, y: 0, z: 0, w: 0 } } },
     { ...u, uLandRise: { value: { x: .5, y: Infinity } }, uTourEye: { value: { x: 0, y: 0, z: 0, w: 0 } } },
+    // The shader reads the pivot raw; riseFromUniforms makes these 0.
+    { ...u, uLandRise: { value: { x: .5, y: -.1 } }, uTourEye: { value: { x: 0, y: 0, z: 0, w: 0 } } },
+    { ...u, uLandRise: { value: { x: .5, y: NaN } }, uTourEye: { value: { x: 0, y: 0, z: 0, w: 0 } } },
+    // Above 1, drawn height falls with height: the bottom is not the floor.
+    { ...u, uLandRise: { value: { x: 1.5, y: 0 } }, uTourEye: { value: { x: 0, y: 0, z: 0, w: 0 } } },
+    // No eye: the shader measures from (0, 0, 0).
+    { ...u, uLandRise: { value: { x: .5, y: 0 } } },
     {},
-  ]) assert.equal(forestGeometryVisible(behind(), planes, broken), true);
+  ]) assert.equal(forestGeometryVisible(behind(), planes, broken), true, JSON.stringify(broken.uLandRise?.value));
+  // A rise the box bounds, or none (a sink of 0 or less), still culls.
+  for (const v of [{ x: .5, y: 0 }, { x: 1, y: .05 }, { x: 0, y: -5 }, { x: -1, y: NaN }]) {
+    const risen = { ...u, uLandRise: { value: v }, uTourEye: { value: { x: 0, y: 0, z: 0, w: 0 } } };
+    assert.equal(forestGeometryVisible(behind(), planes, risen), false, JSON.stringify(v));
+  }
   assert.equal(forestGeometryVisible(behind(), null, u), true, 'no planes');
   const nan = behind(); nan.attributes.iPos.setX(0, NaN);
   assert.equal(forestGeometryVisible(nan, planes, u), true, 'a non-finite root');
