@@ -8,7 +8,7 @@ const ledger = (mb = 100) => new GraphicsResidency({ budgetBytes: mb * MiB });
 
 test('budgets match the plan', () => {
   assert.equal(RESIDENCY_BUDGETS.desktop, 512 * MiB);
-  assert.equal(RESIDENCY_BUDGETS.mobile, 320 * MiB);
+  assert.equal(RESIDENCY_BUDGETS.mobile, 512 * MiB);
   assert.equal(LOW_MEMORY_BUDGETS.desktop, 256 * MiB);
   assert.equal(LOW_MEMORY_BUDGETS.mobile, 192 * MiB);
   assert.equal(residencyBudgetFor({ navigator: { deviceMemory: 4 } }).name, 'mobile');
@@ -22,7 +22,7 @@ test('budget size follows reported device memory', () => {
   assert.equal(at({ deviceMemory: 32 }), 512 * MiB, 'a 32 GB desktop');
   assert.equal(at({}), 512 * MiB, 'a desktop browser that does not report memory');
   assert.equal(at({ deviceMemory: 6 }), 256 * MiB, 'a desktop reporting under 8 GB');
-  assert.equal(at({ deviceMemory: 8, maxTouchPoints: 5 }, phone), 320 * MiB, 'a phone reporting 8 GB');
+  assert.equal(at({ deviceMemory: 8, maxTouchPoints: 5 }, phone), 512 * MiB, 'a phone reporting 8 GB');
   assert.equal(at({ maxTouchPoints: 5 }, phone), 192 * MiB, 'a phone that does not report memory');
   assert.equal(at({ deviceMemory: 4 }), 192 * MiB, 'any 4 GB device');
 });

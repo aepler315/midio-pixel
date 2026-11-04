@@ -8,6 +8,7 @@
 // Plain data, no THREE. CastSchedule.js says when; RangeScene places them.
 import { scenePoseAt, projectPoint } from '../terrain/SceneTravel.js';
 import { terrainHeightAt } from './TerrainMesh.js';
+import { railTile } from './TerrainPackage.js';
 import { MIRROR_LEVEL_TOLERANCE_M } from './WaterMirror.js';
 import { seenFrom } from './LineOfSight.js';
 import { ROUTE_STATIONS, pickAnchors } from './RangeActors.js';
@@ -68,7 +69,7 @@ function viewSamples(data, view, waterLevelM) {
   const { grid, cells } = data;
   const all = [], seen = new Set();
   for (const tile of data.tiles.values()) {
-    if (!tile.visible) continue;
+    if (!railTile(tile)) continue;
     const n = tile.samples, step = Math.max(1, Math.floor(n / 8));
     for (let v = 0; v < n; v += step) for (let u = 0; u < n; u += step) {
       const i = v * n + u, y = tile.heightsM[i];

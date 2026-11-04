@@ -124,7 +124,10 @@ test('static footprint partitions follow actual root owners, with invalid terrai
   let crossed = 0;
   const seen = new Set();
   assert.ok(placed.count > 500);
-  assert.equal(placed.billboard.length / 8, placed.count, 'distance still selects billboards');
+  // count also holds the rail's own trees, banded by its distance (railOnly).
+  const railOnly = ['meshDetail', 'mesh', 'billboard'].reduce((n, k) => n + (placed.railOnly?.[k].length || 0) / 8, 0);
+  assert.equal(placed.railOnly.meshDetail.length + placed.railOnly.mesh.length, 0);
+  assert.equal(placed.billboard.length / 8 + railOnly, placed.count, 'distance still selects billboards');
   for (const { t } of trees(placed)) {
     const owner = ownerAt(t[0], t[2]);
     const iterationOwner = ownerAt(Math.floor(t[0] / 13) * 13, Math.floor(t[2] / 13) * 13);
@@ -153,7 +156,9 @@ test('static traits and representations stay stable while default and streaming 
   const expected = [
     ['meshDetail', 8369, '552b1f03c7476b55b5054c93db87ebe947df02ac89bc10babbd7537dbbc1f33f', 'b0c418a332b9638b366b0310be342714902485fe2d9908c54d739776503afd60'],
     ['mesh', 11986, '303fffc055414479ddd612b3e135d8356ef42fb1660716c77749b4572aed73da', 'ea6e87145c8ab31b91fa2258d177deff59160002d6f88ce2f0b8fa4584f2681d'],
-    ['billboard', 382, '04caafe27019b4ed9e067822acf017fe177f95c6e69832b5df24a56bbad92a99', '09b4cced24b4d1ca2271ab2f0b2f301a63c17a56a843c8e70a1466e5b904e251'],
+    // The static billboards' order changed on purpose (not their set): the
+    // trees its rail places alike lead the ring (ForestCover railCount).
+    ['billboard', 382, '04caafe27019b4ed9e067822acf017fe177f95c6e69832b5df24a56bbad92a99', 'aba549ce51329487bf1f81d8d55aab012da2ce884a25fe57a83e747a820e3476'],
   ];
   for (const [kind, count, fullHash, traitHash] of expected) {
     assert.equal(streamingTrees[kind].length / 8, count, `${kind} streaming count`);
@@ -163,9 +168,12 @@ test('static traits and representations stay stable while default and streaming 
     for (let i = 0; i < a.length; i += 8) traits.set(a.subarray(i, i + 7), i / 8 * 7);
     assert.equal(sha(traits), traitHash, `${kind} static roots, traits and order`);
   }
-  for (const v of [view, staticView, streamingView]) {
+  for (const v of [view, streamingView]) {
     assert.deepEqual(forestPlacementBound(data, v, rules), { count: 35465, lattice: 38809, placementBytes: 3056192 });
   }
+  // A static footprint also places the rail's own forest (railOnly).
+  const both = forestPlacementBound(data, staticView, rules);
+  assert.ok(both.count >= staticTrees.count && both.count > 35465, JSON.stringify(both));
 });
 
 test('the detail footprint bound covers the trees\' largest possible lean', async () => {

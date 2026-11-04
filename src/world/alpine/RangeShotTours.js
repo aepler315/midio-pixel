@@ -234,6 +234,15 @@ export class RangeShotTours {
   /** The camera timeline a view draws with (null: its rail). */
   timeline(viewId) { return this.views.get(viewId)?.timeline || null; }
 
+  /** The scene prepared the view for its rail alone (its tour does not fit
+   *  the device): the view plays its rail, with the reason recorded. */
+  keepRail(viewId, reason) {
+    const s = this.views.get(viewId);
+    if (!s || s.state === 'rail') return;
+    s.abort?.abort(); s.refineAbort?.abort();
+    s.state = 'rail'; s.reason = reason; s.timeline = null; s.previous = null; s.refinement = null;
+  }
+
   /** Replan the unheard tail when the song's sections are refined, or when a
    *  held view is due another try. The result is admitted only if it keeps
    *  every camera key heard by the time it lands. Runs every frame. */

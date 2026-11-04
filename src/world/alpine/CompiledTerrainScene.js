@@ -230,6 +230,8 @@ export async function prepareCompiledView(scene, view, representation, opts, { e
       riverMaterial: null, riverDepthMaterial: null, riverOwnershipMaterials: null, riverGeometries: {}, riverFringeGeometries: {},
       riverDepthMeshes: {}, riverStats: { triangles: 0, fringeTriangles: 0, bytes: 0 },
       forest, stageGL: null, featureGeometries: {}, featureMaterial: null,
+      // A footprint's trees switch with the camera; its ground is one mode.
+      modeGeometries: [...forest.modeGeometries], terrainMode: 'rail',
       stats: { triangles: m.stats.triangles, vertices: m.stats.vertices, bytes: built.gpuBytes, trees: forest.counts, featureBytes: 0 },
       gpuKey, cpuKey, cpuOwner: { release: () => scene.residency?.releaseReservation(cpuRes) },
       rules, waterLevelM: null, mirrorLevelM: mirrorLevelFor(data, null), materialKey: null, materialOwner: null,
