@@ -114,4 +114,7 @@ wind, gust, parting and storm lean, doubled, plus 1 m). A geometry with no box
 in the frustum and the target's scissor gets `instanceCount` 0, which skips
 only its draw call; after the render the count is restored. Frames stay
 byte-identical. On `teton-jackson-lake` a frame submits 16.3 M triangles
-instead of 45.5 M. Billboards are not culled.
+instead of 45.5 M, and on the pilot view 6.6 M instead of 7.8 M. Billboards
+are not culled. The counts a render that throws leaves at 0 are put back by
+the next culled render of any scene, or by `restoreForestCulling`, which the
+detail view and the rail/tour switch call first.

@@ -217,13 +217,17 @@ when none of its trees can reach what the render draws.
 - A geometry with no box inside the frustum (narrowed to the target's
   scissor) gets `instanceCount` 0 for that render, and `Scene.onAfterRender`
   puts it back. three.js still binds, uploads and orders everything as
-  before: with a count of 0, `renderInstances` skips only the draw call. A
-  render that throws is restored by the scene's next render.
+  before: with a count of 0, `renderInstances` skips only the draw call.
+  The band and depth scenes share these geometries, so the counts a render
+  that throws leaves at 0 are put back by the next culled render of any
+  scene, and before the detail view (whose footprints read the count) or
+  the rail/tour switch (which sets it) touches them.
 - Billboards are never culled, and neither is a mesh with a model matrix
   or a batch whose bound is unknown (non-finite uniforms, an asset outside
-  [0, 1] up).
+  [0, 1] up, a tree id outside [0, 1]).
 
-Result, `teton-jackson-lake`, 1280×720, 8 export frames from 2 s to 44 s:
+Result on main 181d2a3, 1280×720. `teton-jackson-lake`, 8 export frames
+from 2 s to 44 s:
 
 | per frame | main (two runs) | after |
 | --- | --- | --- |
@@ -234,23 +238,26 @@ Result, `teton-jackson-lake`, 1280×720, 8 export frames from 2 s to 44 s:
 | fine crest probe | 4.01 M | 1.14 M |
 | cast | 3.04 M | 0.56 M |
 | draw calls | 319 | 203 |
-| wall time, software rasterizer | 32.1 s, 32.4 s | 27.7 s |
+| wall time, software rasterizer | 34.5 s, 34.7 s | 26.3 s |
 
-All 8 frames are byte-identical to both main runs. The pilot view has no
-mesh trees, so its counts do not move; its 30 frames stay byte-identical to
-three main runs.
+The pilot view (30 frames from 2 s to 45.5 s) has mesh trees since its
+rebake: 7.84 M triangles and 243 draw calls per frame become 6.62 M and
+185. Every frame of both views is byte-identical to both main runs.
 
 `test/forestCulling.test.mjs` checks the bound by brute force against a
 CPU twin of the tree shader, whose lines it pins: every vertex of every
 asset, for random trees, deformation, dance, wind, storm and parting, lies
 inside its cell's box with no safety factor and no padding. Each term of the
-bound is needed (shrinking it lets a vertex out), and a batch it culls has
-no vertex inside the clip volume for random and mirrored cameras.
+bound is needed (shrinking it lets a vertex out), each deformation and
+dance term keeps a tree it lifts or sinks into view, and a batch it culls
+has no vertex inside the clip volume for random and mirrored cameras.
+Whole spans of the shader are pinned, so an added term fails.
 `test/forestCullingRender.test.mjs` runs real three.js renders on a
 recording WebGL2 context: a culled batch loses its draw call and nothing
 else, every program bind, vertex array bind and other draw staying in
-order, and the counts come back after the render, after a render that
-throws, and with the terrain culling chained in.
+order. Each batch gets its own count back after the render, after a render
+that throws (also when another scene sharing the batch draws next), and
+with the terrain culling chained in.
 
 ## What is left, in order
 
