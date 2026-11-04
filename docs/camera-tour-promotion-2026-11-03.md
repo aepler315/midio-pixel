@@ -33,16 +33,27 @@ channel), every one an edge-on silhouette pixel. An exact rail would need a
 second surface texture, about 32 MB of GPU memory per view.
 
 A view gets both modes only when it is prepared with its tour's footprint
-(its shot library loaded) and the device can hold both. Before placing a
-tree, RangeScene checks that the forest build bound, plus the GPU
-reservation and surface build at that bound's tree count, fit beside what is
-resident. Otherwise, or after a two-mode preparation was refused room, the
-view is prepared for its rail alone: the rail's tiles, trees, water and
-bakes, charged as the rail's package without a tour would be. It plays its
-rail for the song, and the shot tour records why. Its decoded package then
-keeps the rail's tiles alone, charged at the bytes they hold (unless a
-composition variant still draws the tour from it). Phones therefore keep
-every view they load on main.
+(its shot library loaded) and the device can hold both (RangeScene
+`_tourRoom`). The build has two peaks: placement under the forest's
+admitted bound, then the kept records with the GPU reservation and the
+surface build. Before placing a tree, a phone checks both at the bound's
+tree count. The bound can hold twice the trees placement keeps (Teton 2.90M
+bound, 1.48M placed), so a desktop whose placement fits places the tour's
+forest and checks the rest at the trees placed. Otherwise, or after a
+two-mode preparation was refused room, the view is prepared for its rail
+alone for that song (a later song checks what was refused, at the trees
+placed, without placing again): the rail's tiles, trees, water and bakes, charged as
+the rail's package without a tour would be. It plays its rail, and the shot
+tour records why. Its decoded package then keeps the rail's tiles alone,
+charged at the bytes they hold (unless a composition variant still draws
+the tour from it). Phones therefore keep every view they load on main.
+
+With the shipped packages and about 36 MiB already resident
+(test/tourRoom.test.mjs): a 512 MiB desktop prepares every approved tour
+view for both cameras (Teton and Black Mountains after placing their
+forest), and so does a flagship phone (512 MiB, 8 GB or more). A 192 MiB
+phone does so for White Mountains, Panamint, Chugach and Monument Valley,
+and prepares the other seven for their rail.
 
 The approval checks below measure the rail exactly as it draws: rail tiles
 only (`terrainBandsFor(..., 'rail')`) and the rail's own trees.

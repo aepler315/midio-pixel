@@ -9,6 +9,7 @@ import { assetExtents, forestCells, forestCellBox, forestGeometryVisible, forest
   CROWN_RADIUS_PER_WIDTH, TRUNK_RADIUS_M } from '../src/world/alpine/ForestCulling.js';
 import { frustumPlanes } from '../src/world/alpine/TerrainChunks.js';
 import { DANCE_WAVE_BOUND } from '../src/world/alpine/MirrorScissor.js';
+import { landRiseLift, riseFromUniforms } from '../src/world/alpine/LandRise.js';
 import { coniferGeometry, createForest } from '../src/world/alpine/ForestGL.js';
 import { crownHalfWidth } from '../src/world/alpine/ForestProfile.js';
 import { FOREST_FAMILIES, FOREST_VARIANTS } from '../src/world/alpine/ForestSpeciesAssets.js';
@@ -87,7 +88,19 @@ function meshVertex(geo, k, tree, u, e, r) {
   const radius = crownHalfWidth(tree.species, y01, tree.id, rx < 0 ? -1 : 1) / crownRatio(tree.species) * tree.w * jitter;
   const scale = bw > .5 ? radius : (.12 + .14 * tree.id) * (1 - .94 * y01);
   const w = windAt(tree, y01, u, e, r);
-  return [tree.x + rx * scale + w[0], tree.y + deformAt(u, e, r) + y01 * tree.h, tree.z + rz * scale + w[1]];
+  const x = tree.x + rx * scale + w[0], y = tree.y + deformAt(u, e, r) + y01 * tree.h, z = tree.z + rz * scale + w[1];
+  // Then the song's rise lowers it where it stands (LandRise.js riseLift).
+  const rise = riseFromUniforms(u);
+  return [x, rise ? y + landRiseLift(x, y, z, rise.eye, rise.sink, rise.pivot, rise.knee) : y, z];
+}
+
+// The song's rise with the eye near a batch's first tree and below it, so
+// the trees stand above the eye where the rise lowers them; a pivot half
+// the time (LandRise.js risePivot).
+function rise(u, list, r) {
+  const t = list[0];
+  u.uTourEye = { value: { x: t.x + (r() * 2 - 1) * 400, y: t.y - 20 - r() * 600, z: t.z + (r() * 2 - 1) * 400, w: r() < .5 ? 1 : 0 } };
+  u.uLandRise = { value: { x: .05 + r() * .85, y: r() < .5 ? 0 : r() * .2 } };
 }
 
 function batch(base, trees) {
@@ -174,7 +187,10 @@ test('the tree shader still places vertices the way the bound reads it', () => {
       float radius = crownHalfWidth(iVar.x, y01, iVar.y, side) / crownRatio(iVar.x) * iSize.y * jitter;
       vec2 xz = radial * (aBranch.w > .5 ? radius : (.12 + .14 * iVar.y) * (1.0 - .94 * y01));
       vec2 w = windAt(y01);
-      vec3 p = root + vec3(xz.x + w.x, y01 * iSize.x, xz.y + w.y);`,
+      vec3 p = root + vec3(xz.x + w.x, y01 * iSize.x, xz.y + w.y);
+      // The rise lowers the whole tree with the land under it (LandRise.js).
+      vRiseK = 1.0 + riseGrad(p).y;
+      p.y += riseLift(p);`,
     `float crownBase(float species, float id) { return species < .5 ? .46 + .06 * id : species > 1.5 && species < 2.5 ? .015 : .08; }
     float crownRatio(float species) { return species < .5 ? .30 : species < 1.5 ? .38 : species < 2.5 ? .265 : .425; }
     float crownHalfWidthFiltered(float species, float v, float id, float side, float dv) {
@@ -197,9 +213,9 @@ test('the tree shader still places vertices the way the bound reads it', () => {
     }`,
   ]) assert.ok(norm(vert).includes(norm(span)), span.slice(0, 60));
   // Nothing moves the position between that span and its projection.
-  const main = vert.slice(vert.indexOf('vec3 p = root + vec3('), vert.indexOf('gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);'));
+  const main = vert.slice(vert.indexOf('p.y += riseLift(p);'), vert.indexOf('gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);'));
   assert.ok(main.length > 0);
-  assert.equal(main.split('\n').slice(1).filter(l => /\b(p|root)(\.[xyzw]{1,4})?\s*[-+*/]?=(?!=)/.test(l)).length, 0, 'p is set once');
+  assert.equal(main.split('\n').slice(1).filter(l => /\b(p|root)(\.[xyzw]{1,4})?\s*[-+*/]?=(?!=)/.test(l)).length, 0, 'nothing moves p after the rise');
   // No model matrix: positions are world positions whatever the mesh's.
   assert.doesNotMatch(vert, /\bmodelMatrix\b/);
   assert.equal(CROWN_RADIUS_PER_WIDTH, .5 * 1.045 * 1.15);
@@ -279,6 +295,16 @@ test('the root lift keeps a tree the music lifts into view, or sinks into it', (
     ['melodic', { uDeformMelodic: { value: 10 } }],
     ['spine dance', { uLandDance: { value: { x: -10, y: 0, z: 0, w: 0 } } }],
   ]) assert.equal(visible(below, extra), true, `${name}: sunk 10 m into view`);
+  // The song's rise lowers land above the eye (the camera's) toward the
+  // horizon: a tree standing above the frame's top edge comes down into it,
+  // with or without a pivot.
+  const eyeY = 990 - 500 * tan;
+  for (const pivot of [0, .05]) {
+    const risen = { uLandRise: { value: { x: .5, y: pivot } }, uTourEye: { value: { x: 0, y: eyeY, z: 0, w: 0 } } };
+    assert.equal(visible(below, risen), true, `the rise brings it down into view (pivot ${pivot})`);
+  }
+  // A rise the frame's top keeps it above: a tiny sink drops it a few cm.
+  assert.equal(visible(below, { uLandRise: { value: { x: 1e-4, y: 0 } }, uTourEye: { value: { x: 0, y: eyeY, z: 0, w: 0 } } }), false);
 });
 
 test('every vertex the shader can place lies inside its cell\'s box (no safety factor, no padding)', () => {
@@ -289,8 +315,9 @@ test('every vertex the shader can place lies inside its cell\'s box (no safety f
     const list = trees(r, 6, seed % 3 ? 2000 : 300);
     // Broshi passing among the trees half the time: the parting lean.
     if (seed % 2 === 0) u.uParting.value = { x: list[0].x + (r() * 2 - 1) * 30, y: list[0].z + (r() * 2 - 1) * 30, z: 60 + r() * 60, w: .5 + r() };
+    if (seed % 3) rise(u, list, r);
     const geo = batch(asset.geo, list), cells = forestCells(geo), ext = assetExtents(geo);
-    const d = deformBound(u), lift = { lo: -d, hi: d }, lean = forestLean(u);
+    const d = deformBound(u), lift = { lo: -d, hi: d, rise: riseFromUniforms(u) }, lean = forestLean(u);
     const box = new Float64Array(6);
     for (const tree of list) {
       const o = cellOf(cells, tree);
@@ -312,15 +339,16 @@ test('the bound needs each of its terms', () => {
   // Shrink one term at a time: some vertex must land outside. A strong
   // parting inflates the lean of trees out of its reach, so it only runs
   // for the parting's own term.
-  const escapes = (mutate, parting = false) => {
+  const escapes = (mutate, { parting = false, risen = false } = {}) => {
     for (let seed = 1; seed <= 36; seed++) {
       const r = rng(seed), e = edgy(r), u = uniforms(r);
       const asset = ASSETS[seed % ASSETS.length];
       const list = trees(r, 6, seed % 3 ? 2000 : 300);
       if (parting && seed % 2 === 0) u.uParting.value = { x: list[0].x + (r() * 2 - 1) * 30, y: list[0].z + (r() * 2 - 1) * 30, z: 60 + r() * 60, w: .5 + r() };
+      if (risen) rise(u, list, r);
       const geo = batch(asset.geo, list), cells = forestCells(geo);
       const d = deformBound(u);
-      let ext = assetExtents(geo), lift = { lo: -d, hi: d }, lean = forestLean(u);
+      let ext = assetExtents(geo), lift = { lo: -d, hi: d, rise: riseFromUniforms(u) }, lean = forestLean(u);
       ({ ext, lift, lean } = mutate({ ext, lift, lean, parting: u.uParting.value.w }));
       const box = new Float64Array(6);
       for (const tree of list) {
@@ -334,9 +362,11 @@ test('the bound needs each of its terms', () => {
     return false;
   };
   assert.ok(escapes(m => ({ ...m, lean: m.lean * .8 })), 'wind lean');
-  assert.ok(escapes(m => ({ ...m, lean: m.lean - PARTING_LEAN * Math.abs(m.parting) }), true), 'parting lean');
-  assert.ok(escapes(m => ({ ...m, lift: { lo: m.lift.lo * .8, hi: m.lift.hi } })), 'root sinking');
-  assert.ok(escapes(m => ({ ...m, lift: { lo: m.lift.lo, hi: m.lift.hi * .8 } })), 'root lift');
+  assert.ok(escapes(m => ({ ...m, lean: m.lean - PARTING_LEAN * Math.abs(m.parting) }), { parting: true }), 'parting lean');
+  assert.ok(escapes(m => ({ ...m, lift: { ...m.lift, lo: m.lift.lo * .8 } })), 'root sinking');
+  assert.ok(escapes(m => ({ ...m, lift: { ...m.lift, hi: m.lift.hi * .8 } })), 'root lift');
+  assert.ok(escapes(m => ({ ...m, lift: { ...m.lift, rise: null } }), { risen: true }), 'the rise');
+  assert.ok(escapes(m => ({ ...m, lift: { ...m.lift, rise: m.lift.rise && { ...m.lift.rise, sink: m.lift.rise.sink * .8 } } }), { risen: true }), 'the rise\'s sink');
 });
 
 test('the crown and trunk radii are within 10% of what the shader reaches', () => {
@@ -418,6 +448,9 @@ test('an unknown bound never culls', () => {
     { ...u, uParting: { value: { x: 0, y: 0, z: 90, w: Infinity } } },
     { ...u, uDeformAmp: { value: undefined } },
     { ...u, uLandDance: { value: { x: NaN, y: 0, z: 0, w: 0 } } },
+    { ...u, uLandRise: { value: { x: NaN, y: 0 } }, uTourEye: { value: { x: 0, y: 0, z: 0, w: 0 } } },
+    { ...u, uLandRise: { value: { x: .5, y: 0 } }, uTourEye: { value: { x: NaN, y: 0, z: 0, w: 0 } } },
+    { ...u, uLandRise: { value: { x: .5, y: Infinity } }, uTourEye: { value: { x: 0, y: 0, z: 0, w: 0 } } },
     {},
   ]) assert.equal(forestGeometryVisible(behind(), planes, broken), true);
   assert.equal(forestGeometryVisible(behind(), null, u), true, 'no planes');

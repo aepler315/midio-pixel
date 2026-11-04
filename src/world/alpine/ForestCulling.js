@@ -41,6 +41,11 @@
 //   clamped to [-1, 1]), parting PARTING_LEAN * |uParting.w|, and the
 //   storm's |uWind.y| along the unit WIND_DIR, all times H; doubled
 //   (MIRROR_BOUND_SAFETY).
+// - The song's rise (LandRise.js), applied last: riseLift(p) lowers each
+//   vertex by where it stands and never raises it. Drawn height rises with
+//   height and with horizontal distance from the eye, so the lowest a box
+//   can draw is its bottom at its nearest point (risenFloor), as the
+//   terrain's chunks bound it.
 // Every box then gets CHUNK_BOX_PAD_M on each side.
 //
 // Billboards are not culled: their pixel-width reserve depends on the
@@ -48,6 +53,7 @@
 
 import { frustumPlanes, boxOutsidePlanes, CHUNK_BOX_PAD_M } from './TerrainChunks.js';
 import { liftBounds, MIRROR_BOUND_SAFETY } from './MirrorScissor.js';
+import { risenFloor } from './LandRise.js';
 import { WIND_SWAY, WIND_SWAY_PEAK, GUST_LEAN, PARTING_LEAN } from './ForestWind.js';
 
 /** Root cell size for a batch's boxes, metres. */
@@ -127,15 +133,27 @@ export function forestCells(geometry) {
 /**
  * Box (minX, minY, minZ, maxX, maxY, maxZ) around every vertex the tree
  * shader can place for the trees of cell `c` (offset `o` in `cells`), given
- * the asset's extents, the root lift { lo, hi } and the horizontal lean per
- * metre of height. `pad` metres are added on every side.
+ * the asset's extents, the root lift { lo, hi, rise } (MirrorScissor
+ * liftBounds; `rise` null when the range stands complete) and the
+ * horizontal lean per metre of height. `pad` metres are added on every
+ * side.
  */
 export function forestCellBox(cells, o, extents, lift, lean, pad = CHUNK_BOX_PAD_M, out = new Float64Array(6)) {
   const r = Math.max(extents.foliage * CROWN_RADIUS_PER_WIDTH * cells[o + 7], extents.trunk * TRUNK_RADIUS_M) + lean * cells[o + 6] + pad;
-  out[0] = cells[o] - r; out[1] = cells[o + 1] + Math.min(0, lift.lo) - pad; out[2] = cells[o + 2] - r;
-  out[3] = cells[o + 3] + r; out[4] = cells[o + 4] + Math.max(0, lift.hi) + pad; out[5] = cells[o + 5] + r;
+  const x0 = cells[o] - r, z0 = cells[o + 2] - r, x1 = cells[o + 3] + r, z1 = cells[o + 5] + r;
+  const bottom = cells[o + 1] + Math.min(0, lift.lo);
+  out[0] = x0; out[1] = (lift.rise ? risenFloor(bottom, x0, z0, x1, z1, lift.rise) : bottom) - pad; out[2] = z0;
+  out[3] = x1; out[4] = cells[o + 4] + Math.max(0, lift.hi) + pad; out[5] = z1;
   return out;
 }
+
+// A rise whose numbers the box cannot use (riseFromUniforms reads only a
+// positive sink, so a NaN one would reach the shader unbounded).
+const unknownRise = (u, rise) => {
+  const sink = u?.uLandRise?.value?.x;
+  if (sink !== undefined && !Number.isFinite(sink)) return true;
+  return !!rise && ![rise.sink, rise.pivot, ...rise.eye].every(Number.isFinite);
+};
 
 const BOX = new Float64Array(6);
 
@@ -146,7 +164,7 @@ export function forestGeometryVisible(geometry, planes, u) {
   const extents = assetExtents(geometry), cells = forestCells(geometry);
   if (!extents || !cells || !planes) return true;
   const lift = liftBounds(u || {}), lean = forestLean(u) * MIRROR_BOUND_SAFETY;
-  if (![lift.lo, lift.hi, lean].every(Number.isFinite)) return true;
+  if (![lift.lo, lift.hi, lean].every(Number.isFinite) || unknownRise(u, lift.rise)) return true;
   for (let o = 0; o < cells.length; o += 8) {
     const b = forestCellBox(cells, o, extents, lift, lean, CHUNK_BOX_PAD_M, BOX);
     if (!boxOutsidePlanes(planes, b[0], b[1], b[2], b[3], b[4], b[5])) return true;

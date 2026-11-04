@@ -23,7 +23,8 @@ import { LAND_MAX_DISPLACEMENT_M } from './LandMotionLimits.js';
 import { COMPILED_Y_UNIT_M, COMPILED_ATLAS_SCALE, compiledBandPlan, compiledReceiverMask } from './CompiledTerrain.js';
 
 /** Same displacement as SCENE_VERT (glacier + land swell, evaluated at the
- *  source position), so forest roots and the cast stay on the drawn land.
+ *  source position, then the rise), so forest roots and the cast stay on
+ *  the drawn land.
  *  Shared verbatim by the colour, depth and ownership passes. */
 export const COMPILED_VERT = /* glsl */`
   invariant gl_Position;
@@ -38,8 +39,9 @@ export const COMPILED_VERT = /* glsl */`
     vec3 ice = glacierAt(source);
     vec3 p = source;
     p.y += ice.x + deformAt(source) * (1.0 - ice.y);
+    vNormal = risenNormal(compiledNormal.xyz, p);
+    p.y += riseLift(p);
     vRenderedWorld = p;
-    vNormal = compiledNormal.xyz;
     vAtlas = compiledAtlas * ${(1 / COMPILED_ATLAS_SCALE).toFixed(4)};
     gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
   }
@@ -261,7 +263,14 @@ function placedMesh(THREE, group, material) {
   mesh.position.set(group.originM[0], group.yBaseM, group.originM[1]);
   mesh.updateMatrix();
   mesh.matrixAutoUpdate = false;
-  mesh.frustumCulled = true;
+  // The group spheres hold the land swell, not the rise (LandRise.js),
+  // which can lower land above the eye far below its sphere: while the land
+  // is still rising, a group reaching above the eye is drawn unculled.
+  const u = material.uniforms, sphere = group.geometry.boundingSphere;
+  const top = group.yBaseM + sphere.center.y + sphere.radius;
+  let culled = true;
+  Object.defineProperty(mesh, 'frustumCulled', { configurable: true,
+    get: () => culled && !(u?.uLandRise?.value?.x > 0 && top > u.uTourEye.value.y), set: (v) => { culled = !!v; } });
   return mesh;
 }
 

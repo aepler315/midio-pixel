@@ -31,6 +31,8 @@
 // scissor while the culling did. A renderer.setViewport() on a bound target
 // is detected (getCurrentViewport) and turns the narrowing off.
 
+import { risenFloor } from './LandRise.js';
+
 /** Culled index ranges shorter than this are drawn through instead of
  *  costing a draw call of their own (about 2,000 triangles). */
 export const CHUNK_MERGE_INDICES = 6144;
@@ -158,13 +160,17 @@ export function boxOutsidePlanes(planes, x0, y0, z0, x1, y1, z1) {
 export function visibleGroups(table, planes, lift, { mergeIndices = CHUNK_MERGE_INDICES, maxRuns = CHUNK_MAX_RUNS, stats = null } = {}) {
   const { start, count, box, length: n } = table;
   const lo = Number.isFinite(lift?.lo) ? Math.min(0, lift.lo) : -Infinity, hi = Number.isFinite(lift?.hi) ? Math.max(0, lift.hi) : Infinity;
+  const rise = lift?.rise?.sink > 0 ? lift.rise : null;
   const pad = CHUNK_BOX_PAD_M;
   const runs = [];
   let open = null;
   for (let i = 0; i < n; i++) {
     if (!count[i]) continue;
     const o = i * 6;
-    const keep = !boxOutsidePlanes(planes, box[o] - pad, box[o + 1] + lo - pad, box[o + 2] - pad, box[o + 3] + pad, box[o + 4] + hi + pad, box[o + 5] + pad);
+    // The rise lowers a box by where it stands (LandRise.risenFloor): a
+    // summit above the frame can drop into it.
+    const y0 = rise ? risenFloor(box[o + 1] + lo, box[o], box[o + 2], box[o + 3], box[o + 5], rise) : box[o + 1] + lo;
+    const keep = !boxOutsidePlanes(planes, box[o] - pad, y0 - pad, box[o + 2] - pad, box[o + 3] + pad, box[o + 4] + hi + pad, box[o + 5] + pad);
     if (!keep) { open = null; continue; }
     if (open && open.end === start[i]) open.end = start[i] + count[i];
     else runs.push(open = { start: start[i], end: start[i] + count[i] });
