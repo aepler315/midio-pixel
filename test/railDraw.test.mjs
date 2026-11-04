@@ -288,6 +288,40 @@ test('with a tour footprint the rail still draws the forest its rail alone place
   forest.dispose();
 });
 
+test('pixel-mode tree detail is weighed from what each mode draws', async () => {
+  const { view, tour } = await packages();
+  const rules = { treelineM: 2000, forestMaxSlopeDeg: 60, forestDensity: 1, forestFloorM: 0 };
+  const footprint = { ...view, cameraPaths: [POSES.map((p) => p.eyeM), [[0, 1500, -600], [800, 1500, 300]]] };
+  const both = placeForest(tour, footprint, rules, { seed: 7 });
+  // Each mode's forest alone: the rail's own placement, and the footprint's
+  // trees as one camera would draw them.
+  const railAlone = placeForest(tour, view, rules, { seed: 7 });
+  const tourAlone = { meshDetail: both.meshDetail, mesh: both.mesh, billboard: both.billboard, stride: both.stride, count: both.count };
+  const camera = new THREE.PerspectiveCamera(30, 16 / 9, 1, 20000);
+  const weights = (forest, mode) => {
+    for (const g of forest.modeGeometries) setTerrainDrawMode(g, mode);
+    forest.updateDetailView({ camera, width: 480, height: 270, pixelated: true, nearDetail: true });
+    const out = new Map();
+    for (const m of Object.values(forest.byBand).flat()) {
+      if (m.userData.nearLod !== 'detail') continue;
+      const g = m.geometry, w = g.attributes.iLodWeight.getX(0);
+      for (let i = 0; i < g.instanceCount; i++) out.set(`${g.attributes.iPos.getX(i)},${g.attributes.iPos.getZ(i)}`, w);
+    }
+    return out;
+  };
+  const split = createForest(THREE, both, {}), rail = createForest(THREE, railAlone, {}), whole = createForest(THREE, tourAlone, {});
+  let blended = 0;
+  for (const target of [[100, 1000, -400], [200, 1000, -700]]) {
+    camera.position.set(0, 1500, -600); camera.lookAt(...target); camera.updateMatrixWorld(); camera.updateProjectionMatrix();
+    const r = weights(split, 'rail');
+    assert.deepEqual(r, weights(rail, 'rail'), `rail detail toward ${target}`);
+    assert.deepEqual(weights(split, 'tour'), weights(whole, 'tour'), `tour detail toward ${target}`);
+    blended += [...r.values()].filter((w) => w > 0 && w < 1).length;
+  }
+  assert.ok(blended > 0, 'some near trees blend detail and lite');
+  for (const f of [split, rail, whole]) f.dispose();
+});
+
 test('a mapped tour places one forest, and regrounding keeps the rail\'s trees leading', async () => {
   const { view, tour } = await packages();
   const rules = { treelineM: 2000, forestMaxSlopeDeg: 60, forestDensity: 1, forestFloorM: 0 };

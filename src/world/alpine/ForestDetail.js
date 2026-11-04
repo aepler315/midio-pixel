@@ -21,7 +21,10 @@ export function forestBatchFootprintPx(geometry, camera, width, height, deformat
   const left = Math.hypot(p[0], p[8] - 1), right = Math.hypot(p[0], p[8] + 1);
   const bottom = Math.hypot(p[5], p[9] - 1), top = Math.hypot(p[5], p[9] + 1);
   let largest = 0;
-  for (let i = 0; i < positions.count; i++) {
+  // Only the instances drawn: a view on its rail draws a batch's leading
+  // trees (RailDraw.js), and the rest must not size them.
+  const drawn = Math.min(positions.count, geometry.instanceCount ?? Infinity);
+  for (let i = 0; i < drawn; i++) {
     const x = positions.getX(i), rootY = positions.getY(i), z = positions.getZ(i);
     const h = sizes.getX(i), w = sizes.getY(i), y = rootY + h * .5;
     const height01 = Math.max(0, Math.min(1, (rootY - (deformation.heightMin ?? 0)) / Math.max(1, deformation.heightSpan ?? 1)));

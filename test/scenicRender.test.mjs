@@ -242,7 +242,8 @@ test('real render: Monument Valley rail pose is whole, the reverse view finds dr
   const rail = scenePoseAt({ camera: entry.camera }, { progress01: 0.5 });
   const d = rail.targetM.map((v, k) => v - rail.eyeM[k]);
   const back = { ...rail, targetM: [rail.eyeM[0] - d[0], rail.eyeM[1] + d[1], rail.eyeM[2] - d[2]] };
-  const session = await openShotReview('monument-valley-163', { width: 480, height: 270 });
+  // Its package also ships ground only its shot tour sees: the rail's alone.
+  const session = await openShotReview('monument-valley-163', { width: 480, height: 270, terrainMode: 'rail' });
   try {
     t.diagnostic(`renderer: ${session.renderer}; ${session.stats.triangles} triangles; trees ${JSON.stringify(session.trees)}`);
     // The rail target as scenic-features discovers it: an aim point 115 m
@@ -272,6 +273,17 @@ test('real render: Monument Valley rail pose is whole, the reverse view finds dr
     assert.equal(sil.png, null);
     assert.ok(!sil.metrics.depth && dep.metrics.depth);
     for (const r of [warm, dep]) for (const k of ['terrainFrac', 'holes', 'interiorHoles', 'skyline', 'flatWallRun']) assert.deepEqual(r.metrics[k], sil.metrics[k], k);
+    // Shot poses see the tour's ground by default (rail parity asks for
+    // the rail's): it fills much of the reverse view.
+    assert.equal(session.stats.terrainMode, 'rail');
+    const tourSession = await openShotReview('monument-valley-163', { width: 480, height: 270 });
+    try {
+      assert.equal(tourSession.stats.terrainMode, 'tour');
+      assert.ok(session.stats.drawnTriangles < tourSession.stats.drawnTriangles, 'the rail draws less ground');
+      const [tourBack] = await tourSession.renderPoses([back], { mode: 'silhouette' });
+      t.diagnostic(`reverse holes: rail ${b.holes.toFixed(4)}, tour ${tourBack.metrics.holes.toFixed(4)}`);
+      assert.ok(tourBack.metrics.holes < b.holes, 'ground only the tour sees fills the reverse view');
+    } finally { await tourSession.close(); }
     // Timing after warm-up: in-page (draw, readback, metrics) and round trip.
     const poses = [0.1, 0.3, 0.5, 0.7, 0.9].map((u) => scenePoseAt({ camera: entry.camera }, { progress01: u }));
     for (const mode of ['material', 'silhouette', 'depth']) {

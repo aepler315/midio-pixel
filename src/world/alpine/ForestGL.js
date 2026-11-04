@@ -677,7 +677,9 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
         if (lod !== 0) { addBatch(kind, assetFor(lod, family, variant), data, idx, b, colorMat, depthMat, { railOnly }); return; }
         const geo = addBatch(kind, assetFor(0, family, variant), data, idx, b, colorMat, depthMat, { nearLod: 'detail', railOnly });
         const lite = addBatch(kind, assetFor(1, family, variant), data, idx, b, colorMat, depthMat, { from: geo, nearLod: 'lite', railOnly });
-        detailGroups.push({ detail: geo, lite, qualityBase: assetFor(1, family, variant), pixelBase: assetFor(2, family, variant) });
+        // A rail-only batch and its shared twin are one batch of the rail's
+        // own forest: they take one weight (updateDetailView).
+        detailGroups.push({ key: `${b}:${g}`, detail: geo, lite, qualityBase: assetFor(1, family, variant), pixelBase: assetFor(2, family, variant) });
       });
     }
   }
@@ -721,8 +723,15 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
       };
       const state = { pixelated: forest.pixelatedDetail, width, height, batches: detailGroups.length,
         detailBatches: 0, liteBatches: 0, blendedBatches: 0, maxFootprintPx: 0, detailWeightMin: 1, detailWeightMax: 0 };
+      // Twins (same band, family and variant) share their largest drawn
+      // footprint, as one batch of that mode's forest would.
+      const byKey = new Map();
       for (const group of detailGroups) {
-        const footprint = forest.pixelatedDetail ? forestBatchFootprintPx(group.detail, camera, width, height, deformation) : 0;
+        const own = forest.pixelatedDetail ? forestBatchFootprintPx(group.detail, camera, width, height, deformation) : 0;
+        byKey.set(group.key, Math.max(byKey.get(group.key) ?? 0, own));
+      }
+      for (const group of detailGroups) {
+        const footprint = byKey.get(group.key);
         const targetWeight = nearDetail ? (forest.pixelatedDetail ? forestDetailWeight(footprint) : 1) : 0;
         // Binary fractions decode to an identical full-weight threshold in
         // both float32 attributes, including close to the endpoints.

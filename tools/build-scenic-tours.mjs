@@ -35,6 +35,7 @@ import { bakeTerrain, mirroredPose, VISIBILITY, LOD_BUDGETS } from './lib/terrai
 import { cameraPoseAt } from '../src/world/terrain/SceneTravel.js';
 import { validatePoses, rangeAssetBytes } from './lib/scenic-coverage.mjs';
 import { decodeTerrain } from '../src/world/alpine/TerrainMesh.js';
+import { railGroundData } from '../src/world/alpine/RailDraw.js';
 import { forestPlacementBound } from '../src/world/alpine/ForestCover.js';
 import SCENE_CATALOG from '../src/world/terrain/sceneCatalogData.js';
 
@@ -1018,7 +1019,7 @@ export async function railParity(viewId, camera, terrain, { stations = 9, width 
     return { eyeM: at(camera.eyeStartM, camera.eyeEndM, camera.eyeArcM), targetM: at(camera.targetStartM, camera.targetEndM, camera.targetArcM), fovYDeg: camera.fovYDeg };
   });
   const render = async (candidate) => {
-    const session = await openShotReview(viewId, { width, height, terrain: candidate });
+    const session = await openShotReview(viewId, { width, height, terrain: candidate, terrainMode: 'rail' });
     try { return await session.renderPoses(poses, { mode: 'material' }); } finally { await session.close(); }
   };
   const [before, after] = [await render(null), await render(terrain)];
@@ -1058,7 +1059,8 @@ export function libraryPoses(ctx, library, options = {}) {
  *  can expose water or change its median plane. The rail mirrors its own
  *  lake (RangeScene): only a rail that sees water keeps mirror stations, at
  *  its own plane, held to the ordinary rail limits independently of the
- *  looser tour pixel budget. */
+ *  looser tour pixel budget, against the ground the rail draws: its own
+ *  tiles, never the tour-only ones (RailDraw). */
 function libraryCoverage(ctx, library, check) {
   const { poses: tour, mirrorLevelM } = libraryPoses(ctx, library);
   const railMirrorLevelM = mirrorLevels(ctx).rail;
@@ -1066,13 +1068,14 @@ function libraryCoverage(ctx, library, check) {
   const rail = railMirrorLevelM == null ? [] : Array.from({ length: count }, (_, k) =>
     mirroredPose(cameraPoseAt(ctx.build.view, count > 1 ? k / (count - 1) : 0), railMirrorLevelM));
   const poses = [...tour, ...rail];
+  const railCtx = ctx.terrain.data ? { ...ctx, terrain: { ...ctx.terrain, data: railGroundData(ctx.terrain.data) } } : ctx;
   const validation = { ok: true, holes: [], lod: [], worst: { holeFrac: 0, errorPx: 0, extendedErrorPx: 0 } };
   for (const budget of ['desktop', 'mobile']) {
     const lens = (ctx.terrain.manifest.lod?.budgets ?? LOD_BUDGETS)[budget];
     const tourCheck = { errorPx: check.errorPx * lens.errorPx, extendedErrorPx: check.extendedErrorPx * lens.errorPx };
-    for (const [required, options, offset] of [[tour, tourCheck, 0], [rail, {}, tour.length]]) {
+    for (const [required, options, offset, against] of [[tour, tourCheck, 0, ctx], [rail, {}, tour.length, railCtx]]) {
       if (!required.length) continue;
-      const result = validatePoses(ctx, required, { ...options, budget });
+      const result = validatePoses(against, required, { ...options, budget });
       validation.ok &&= result.ok;
       for (const key of ['holes', 'lod']) validation[key].push(...result[key].map((e) => ({ ...e, poseIndex: e.poseIndex + offset, budget })));
       for (const key of Object.keys(validation.worst)) validation.worst[key] = Math.max(validation.worst[key], result.worst[key]);

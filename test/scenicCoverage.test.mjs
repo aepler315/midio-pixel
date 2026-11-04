@@ -318,6 +318,30 @@ test('retained rail mirrors keep ordinary rail detail limits on both budgets', a
   }
 });
 
+test('retained rail mirrors are covered by the ground the rail draws, never by tour-only tiles', async () => {
+  const { ctx, library, config } = await coveredMirrorExpansion();
+  const tour = libraryPoses(ctx, library).poses;
+  const rail = Array.from({ length: VISIBILITY.stations }, (_, k) => mirroredPose(cameraPoseAt(ctx.build.view, k / (VISIBILITY.stations - 1)), 1000));
+  // The dry northern ground that only the rail's reflections need: hiding
+  // one tile opens a rail mirror hole and leaves the tour covered.
+  const tourOnly = [...ctx.terrain.data.tiles.values()].filter((tile) => {
+    if (!tile.visible || tile.flowBytes?.includes(255)) return false;
+    tile.visible = false;
+    const needed = !validatePoses(ctx, rail).ok && validatePoses(ctx, tour, { errorPx: 3, extendedErrorPx: 9 }).ok;
+    tile.visible = true;
+    return needed;
+  });
+  assert.ok(tourOnly.length > 0);
+  for (const tile of tourOnly) tile.rail = false;
+  const covered = await bakeForLibrary({ ...ctx, coverageOnly: true }, library, config, quiet);
+  assert.equal(covered.railMirrorLevelM, 1000, 'the rail still mirrors its own lake');
+  assert.equal(covered.validation.ok, false, 'shipping that ground for the tour does not cover the rail, which never draws it');
+  for (const budget of ['desktop', 'mobile']) {
+    const holes = covered.validation.holes.filter((h) => h.budget === budget);
+    assert.ok(holes.length > 0 && holes.every((h) => h.poseIndex >= tour.length), 'only the rail\'s reflections open holes');
+  }
+});
+
 test('a stable active mirror rebake uses ordinary rail viewers and preserves the original baseline', async () => {
   const { ctx, library, config } = await mirrorExpansion({ northernLake: true, northernLakeLevelM: 1000 });
   assert.equal(libraryPoses(ctx, library).mirrorLevelM, 1000);
