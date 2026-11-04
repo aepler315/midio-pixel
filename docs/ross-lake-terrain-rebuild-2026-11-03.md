@@ -137,3 +137,94 @@ loading, so a fit can pass while the view never loads on phones.
 Shipping it would therefore take Ross Lake away from every phone that shows
 it today. The decision went back to Ashton with that evidence, and until
 then Ross Lake keeps main's approved rail package.
+
+## Shipped without caps; each device takes what it holds (2026-11-04)
+
+Ashton's answer was to cut the limits. Main had meanwhile changed under
+the numbers above. A static view whose tour does not fit beside what is
+resident is prepared for its rail alone (its shot tour state says "rail
+kept"). Phones that report 8 GB now get a 512 MiB ledger, like desktops.
+So Ross Lake's region sets every tour budget to `null`, which lifts that
+cap (`budgetCap`, `tools/build-scenic-tours.mjs`). The 1,105-tile package
+then ships with its approved library, and the runtime decides per device.
+
+On main's runtime that package played its tour on no device and lost the
+iPhone class. Two changes to `RangeScene.prepare` fix both. The second is
+#80's, which this work builds on:
+
+- **The surface build borrows the forest's idle allowance.** A static
+  view's forest build entry keeps its grouping (16 B a tree) and an 8 MiB
+  asset-build allowance until `createForest`, which runs only after the
+  surface scratch is freed. Before, the 43.1 MiB surface scratch was
+  charged beside them. Now it is charged only beyond that allowance (29.1
+  MiB for Ross Lake's rail, about 0 for its tour). The ledger still holds
+  at least what is live at every step, and never more than before.
+- **The tour room check counts what prepare holds, in turn** (#80,
+  `_tourRoom`). `_tourFits` added the forest placement bound to the GPU
+  reservation and the surface, though prepare shrinks that bound to its
+  records before it reserves either. It also counted the bound's 3.56 M
+  trees, where placement keeps 2.31 M. It asked 550 MiB on a phone and
+  628 MiB on a desktop. #80 takes the larger of the two peaks; a desktop
+  whose placement fits places the forest and decides at the trees placed,
+  and a phone keeps the up-front check at the bound. With the surface
+  borrow counted there too, Ross Lake's tour asks 460 MiB up front on a
+  phone (503 MiB without it).
+
+Measured in the app as above (headless Chromium on SwiftShader, the live
+render-ready path, the budget forced; ledger numbers, not timings):
+
+| Budget (who gets it) | main's rail package | Uncapped tour on main's runtime | Uncapped tour with both changes (this branch) |
+| --- | --- | --- | --- |
+| 192 MiB (iPhone, iPad, 4 GB or less) | loads on its rail, peak 176.9 MiB | never loads: the rail fallback's surface scratch is denied 116 times at 189 of 192 MiB | loads on its rail and reports ready; ledger at most 192 MiB, 35.9 MiB of it evictable legacy strips |
+| 512 MiB mobile (phones reporting 8 GB) | not run | loads on its rail ("its tour does not fit this device"), peak 231.9 MiB | prepares the tour (2.31 M trees, 1.41 M triangles): peak 405.5 MiB, then 320 MiB while it draws; never reports ready under SwiftShader (below) |
+| 512 MiB desktop | not run | loads on its rail, peak 288.9 MiB | prepares the tour once its forest is placed (3.43 M triangles): peak 483.4 MiB, 35.9 MiB of it evictable legacy strips, then 398 MiB; never reports ready under SwiftShader |
+
+No run crashed the page or was refused memory. Peak browser memory (all
+Chromium processes, with SwiftShader keeping GPU memory in RAM) stayed
+between 1.6 and 1.85 GB.
+
+The prepare peaks this check now guards were also measured in Node. Each
+of the 12 views with a loaded tour was prepared for both cameras from its
+real package (stub renderer, 4 GiB ledger), at both levels of detail. The
+table gives what each prepare reserved beyond what was resident when the
+fit asked, and what the old check asked for:
+
+| View | Mobile: reserved / old ask (MiB) | Desktop: reserved / old ask (MiB) |
+| --- | --- | --- |
+| nc-ross-lake-north | 335.3 / 550.3 | 413.2 / 628.2 |
+| teton-jackson-lake | 261.3 / 469.9 | 310.7 / 519.3 |
+| black-mountains-catawba | 311.1 / 449.3 | 376.7 / 514.9 |
+| muncho-lake-south | 149.6 / 276.7 | 193.4 / 320.5 |
+| izta-popo-west | 95.2 / 239.5 | 97.7 / 264.7 |
+| san-gabriel-baldy | 139.2 / 190.4 | 163.8 / 215.0 |
+| denali-wonder-lake | 133.1 / 166.2 | 185.1 / 218.1 |
+| la-sal-castle-valley | 138.5 / 160.6 | 180.2 / 202.3 |
+| panamint-dantes-view | 116.8 / 154.8 | 185.7 / 223.8 |
+| monument-valley-163 | 128.3 / 156.8 | 155.2 / 183.8 |
+| white-mountains-owens | 118.1 / 157.6 | 151.5 / 190.9 |
+| chugach-matanuska | 112.4 / 153.3 | 162.4 / 203.2 |
+
+The old check overstated every view, by 22 to 215 MiB. Teton and Black
+Mountains, like Ross Lake, asked more than 512 MiB on a desktop, so no
+desktop ever got their tours either (#80).
+
+With what `test/tourRoom.test.mjs` holds resident (the decoded package,
+12 MiB of material, 10 MiB of targets), the check on this branch gives
+Ross Lake its rail on 192 and 320 MiB phones and on a 256 MiB desktop,
+both cameras on a 512 MiB phone, and both cameras on a 512 MiB desktop
+once its forest is placed. On a 192 MiB phone, Denali and La Sal now get
+both cameras too, with White Mountains, Panamint, Chugach and Monument
+Valley.
+
+### What is still open
+
+Frames. The tour places 2.16 M billboard trees, where the rail places
+0.38 M. Under SwiftShader its frames draw up to 1.37 M billboard instances
+in one call, in the lake's mirror pass and again in the band passes, 0.4 to
+0.54 G vertices a frame. A frame there takes 10 to 90 s, so the
+render-ready gate never reported ready within its bound, though the view
+was prepared and drawing. That says nothing about a phone or desktop GPU:
+frame timing has to come from the RTX 3060 workstation and a real phone.
+
+The probe (now with a WebGL draw log), its results and the Node check are
+in the project files under `ross-lake-residency/uncapped-2026-11-04/`.

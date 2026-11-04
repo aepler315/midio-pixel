@@ -143,3 +143,7 @@ file and the R7 review as evidence (plus each view's earlier rail evidence):
   own stations (worst 0.76, 0.97, 0.81) and fail travel against Ross Lake
   (0.41, 0.53, 0.54), exactly as on main. Their tours need an approved base
   view first.
+- **Later on 2026-11-04**: Ross Lake's tour shipped too, on terrain rebaked
+  from 3DEP and with its budget caps lifted. The runtime now decides per
+  device whether a tour plays
+  ([Ross Lake terrain rebuild](ross-lake-terrain-rebuild-2026-11-03.md)).
