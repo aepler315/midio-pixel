@@ -96,7 +96,7 @@ export async function loadViewGrid(view, { cell = null, log = console.log } = {}
     log(`${view.id}: normalizing ${dem.source} ${dem.extentM.join('x')} m at ${dem.cellM} m`);
     return normalizeDem(dem.source, {
       out: prefix, centerLonLat: dem.centerLonLat, extentM: dem.extentM, offsetM: dem.offsetM,
-      cellM: dem.cellM, zoom: dem.zoom, cache: CACHE, points, fill: dem.fill, fillZoom: dem.fillZoom,
+      cellM: dem.cellM, zoom: dem.zoom, cache: CACHE, windowCache: dem.windowCache, pin: dem.pin, points, fill: dem.fill, fillZoom: dem.fillZoom,
     });
   }
 }
