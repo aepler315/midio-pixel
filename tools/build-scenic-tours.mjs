@@ -1133,15 +1133,23 @@ export async function forestBuild(ctx, data, library) {
   return { rail: bound(null), tour: bound(library), bound };
 }
 
+/** A region's budget value: `null` lifts that cap (the runtime still
+ *  decides per device: a static view whose tour does not fit beside what is
+ *  resident is prepared for its rail alone, RangeScene prepare), and an
+ *  absent value takes `fallback`. */
+export function budgetCap(value, fallback = Infinity) {
+  return value === null ? Infinity : value ?? fallback;
+}
+
 export async function budgetErrors(ctx, config, packed, bake, forest = null) {
   const errors = [], b = config.budget;
-  const forestCap = Math.max(b.forestBuildBytes ?? 160 * 2 ** 20, 1.1 * (forest?.rail ?? 0));
+  const forestCap = Math.max(budgetCap(b.forestBuildBytes, 160 * 2 ** 20), 1.1 * (forest?.rail ?? 0));
   if (forest && forest.tour > forestCap) errors.push(`forest build ${(forest.tour / 2 ** 20).toFixed(0)} MiB, over ${(forestCap / 2 ** 20).toFixed(0)} MiB`);
   if (!bake.validation.ok) errors.push(`not covered by the ${bake.rebaked ? 're-culled' : 'shipped'} package (${bake.validation.holes.length} poses with holes, ${bake.validation.lod.length} LOD violations)`);
   const added = (bake.rebaked ? bake.budget.addedBytes : 0) + Buffer.byteLength(packed.manifestText) + packed.payload.byteLength;
-  if (added > b.assetBytes) errors.push(`adds ${added} bytes, over the region's ${b.assetBytes}`);
-  if (bake.rebaked && bake.budget.desktopTriangles > b.desktopTriangles) errors.push(`desktop ${bake.budget.desktopTriangles} triangles, over ${b.desktopTriangles}`);
-  if (bake.rebaked && bake.budget.mobileTriangles > b.mobileTriangles) errors.push(`mobile ${bake.budget.mobileTriangles} triangles, over ${b.mobileTriangles}`);
+  if (added > budgetCap(b.assetBytes)) errors.push(`adds ${added} bytes, over the region's ${b.assetBytes}`);
+  if (bake.rebaked && bake.budget.desktopTriangles > budgetCap(b.desktopTriangles)) errors.push(`desktop ${bake.budget.desktopTriangles} triangles, over ${b.desktopTriangles}`);
+  if (bake.rebaked && bake.budget.mobileTriangles > budgetCap(b.mobileTriangles)) errors.push(`mobile ${bake.budget.mobileTriangles} triangles, over ${b.mobileTriangles}`);
   const total = await rangeAssetBytes(root);
   return { errors, added, deliveryBytes: total + added, forest: forest ? { rail: forest.rail, tour: forest.tour, cap: forestCap } : null };
 }
@@ -1286,7 +1294,7 @@ export async function fitToBudget(built, { log = console.log, maxIterations = In
     const est = estimatedBytes([...library.shots, ...library.links], cost);
     const ratio = est > 0 ? Math.min(4, Math.max(0.25, (budget.added - libBytes) / est)) : 1;
     const perRecord = libBytes / Math.max(1, library.shots.length + library.links.length);
-    const fits = (lib) => estimatedBytes([...lib.shots, ...lib.links], cost) * ratio + perRecord * (lib.shots.length + lib.links.length) <= 0.95 * config.budget.assetBytes;
+    const fits = (lib) => estimatedBytes([...lib.shots, ...lib.links], cost) * ratio + perRecord * (lib.shots.length + lib.links.length) <= 0.95 * budgetCap(config.budget.assetBytes);
     let dropped = 0;
     // Over the forest build: drop what narrows the forest most per shot lost.
     while (budget.forest && budget.forest.tour > budget.forest.cap && library.shots.length > 4) {

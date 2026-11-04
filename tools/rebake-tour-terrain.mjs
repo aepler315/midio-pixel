@@ -22,7 +22,7 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { loadViewContext } from './lib/scenic-terrain.mjs';
-import { bakeForLibrary, budgetErrors, forestBuild, publishView, regionConfig, CONFIG } from './build-scenic-tours.mjs';
+import { bakeForLibrary, budgetCap, budgetErrors, forestBuild, publishView, regionConfig, CONFIG } from './build-scenic-tours.mjs';
 import { decodeShotLibrary } from '../src/world/terrain/ShotLibrary.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -55,7 +55,8 @@ export async function rebakeTourTerrain(viewId, { log = console.log } = {}) {
   const forest = await forestBuild(ctx, bake.data, library);
   const budget = await budgetErrors(ctx, config, packed, bake, forest);
   const railTiles = bake.manifest.tiles.filter((t) => t.rail !== false).length;
-  log(`${viewId}: ${bake.manifest.tiles.length} tiles (${railTiles} rail), adds ${budget.added} bytes of ${config.budget.assetBytes}; desktop ${bake.budget.desktopTriangles} of ${config.budget.desktopTriangles}, mobile ${bake.budget.mobileTriangles} of ${config.budget.mobileTriangles} triangles; forest ${(budget.forest.tour / 2 ** 20).toFixed(1)} of ${(budget.forest.cap / 2 ** 20).toFixed(1)} MiB`);
+  const of = (v) => (budgetCap(v) === Infinity ? 'no cap' : v);
+  log(`${viewId}: ${bake.manifest.tiles.length} tiles (${railTiles} rail), adds ${budget.added} bytes (${of(config.budget.assetBytes)}); desktop ${bake.budget.desktopTriangles} (${of(config.budget.desktopTriangles)}), mobile ${bake.budget.mobileTriangles} (${of(config.budget.mobileTriangles)}) triangles; forest ${(budget.forest.tour / 2 ** 20).toFixed(1)} MiB (${budget.forest.cap === Infinity ? 'no cap' : `${(budget.forest.cap / 2 ** 20).toFixed(1)} MiB`})`);
   return { library, bake, packed, budget, failed: budget.errors.length > 0 };
 }
 
