@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import { attachForestCulling } from '../src/world/alpine/ForestCulling.js';
 import { attachTerrainCulling, chunkTable, setChunks } from '../src/world/alpine/TerrainChunks.js';
 import { createForest } from '../src/world/alpine/ForestGL.js';
+import { setTerrainDrawMode } from '../src/world/alpine/RailDraw.js';
 import { recordingWebGL2 } from './helpers/recordingWebGL2.mjs';
 
 // Rows: x, y, z, height, width, species, id, band. Species picks the family
@@ -16,7 +17,7 @@ import { recordingWebGL2 } from './helpers/recordingWebGL2.mjs';
 const row = (x, z, species, band) => [x, 0, z, 14, 5, species, .5, band];
 const FRONT = -120, BEHIND = 3000;
 
-function forest() {
+function forest(options = {}) {
   const meshDetail = [], mesh = [], billboard = [];
   // Every batch its own size, so a count put back on the wrong batch shows.
   const each = (n, f) => { for (let i = 0; i < n; i++) f(i * 8 - 12); };
@@ -28,7 +29,7 @@ function forest() {
   const uniforms = { uDeformAmp: { value: 3 }, uDeformKick: { value: 1 }, uDeformStructural: { value: 0 },
     uDeformMelodic: { value: 0 }, uDeformGesture: { value: 0 }, uLandDance: { value: new THREE.Vector4() } };
   return createForest(THREE, { meshDetail: new Float32Array(meshDetail), mesh: new Float32Array(mesh),
-    billboard: new Float32Array(billboard), stride: 8, count: 18 }, uniforms);
+    billboard: new Float32Array(billboard), stride: 8, count: 18, ...(options.railCount ? { railCount: options.railCount } : {}) }, uniforms, options);
 }
 
 function setup({ terrain = null } = {}) {
@@ -266,4 +267,81 @@ test('chained after the terrain culling, both cull and both restore', () => {
   assert.deepEqual(seen, { before, after: before, culled: 1 });
   assert.deepEqual(s.counts(), before);
   assert.deepEqual(g.groups.map(x => [x.start, x.count]), [[0, Infinity]]);
+});
+
+// A two-camera forest: the rail draws the leading trees of each ring.
+const RAIL = { meshDetail: 2, mesh: 5, billboard: 2 };
+
+function tourScene({ tour = null } = {}) {
+  const { gl, canvas, state } = recordingWebGL2(300, 150);
+  const renderer = new THREE.WebGLRenderer({ canvas, context: gl });
+  renderer.autoClear = false;
+  const f = forest({ railCount: RAIL, tour });
+  const scene = new THREE.Scene();
+  scene.add(...f.byBand.far, ...f.byBand.mid, ...f.byBand.near, ...f.depth);
+  // As RangeScene adds them: after the static forest, hidden.
+  if (f.tour) scene.add(...f.tour.byBand.far, ...f.tour.byBand.mid, ...f.tour.byBand.near, ...f.tour.depth);
+  for (const m of scene.children) m.onBeforeRender = () => state.ops.push(['object', m, m.geometry.instanceCount]);
+  const camera = new THREE.PerspectiveCamera(60, 2, 1, 6000);
+  camera.layers.enable(1); camera.layers.enable(2);
+  camera.position.set(0, 7, 0); camera.lookAt(0, 7, -1); camera.updateMatrixWorld();
+  const target = new THREE.WebGLRenderTarget(300, 150);
+  const ids = new Map();
+  const id = o => { if (!ids.has(o)) ids.set(o, ids.size); return ids.get(o); };
+  const timeline = () => state.ops.splice(0).map(([op, v]) => op === 'object' ? `object ${scene.children.indexOf(v)}`
+    : op === 'draw' ? `draw ${v.count}x${v.instances ?? 1}@${v.offset}` : `${op} ${id(v)}`);
+  const objects = () => state.ops.filter(([op]) => op === 'object').map(([, m, n]) => [m, n]);
+  const render = () => { renderer.setRenderTarget(target); renderer.render(scene, camera); state.draws.length = 0; };
+  return { f, scene, state, render, timeline, objects };
+}
+
+test('with the tour layer the rail\'s render is the same render, call for call', () => {
+  const plain = tourScene(), layered = tourScene({ tour: { seed: 5 } });
+  for (const s of [plain, layered]) {
+    s.f.applyVisibility();
+    attachForestCulling(s.scene, { kept: 0, total: 0, batches: 0 });
+  }
+  for (const s of [plain, layered]) s.render();
+  const [a, b] = [plain, layered].map(s => { s.render(); return s.timeline(); });
+  assert.ok(a.filter(l => l.startsWith('draw ')).length > 0);
+  assert.deepEqual(b, a);
+  // Among them a fully shared batch, which the layer gave { rail: n, tour: 0 }.
+  assert.ok(layered.f.modeGeometries.some(g => g.attributes.aBranch && g.instanceCount === g.attributes.iPos.count && g.userData.instanceCounts.tour === 0));
+});
+
+test('a tour render draws no static mesh-ring batch, only the twins that hold trees, and culling leaves twin counts alone', () => {
+  const s = tourScene({ tour: { seed: 5 } }), t = s.f.tour, index = t.index;
+  for (const g of s.f.modeGeometries) setTerrainDrawMode(g, 'tour');
+  t.setMode('tour');
+  // The trees in front of the camera: some twins hold trees, some none.
+  const bits = new Uint32Array(index.words);
+  for (let u = 0; u < index.count; u++) if (index.pos[3 * u + 2] < 0) bits[u >>> 5] |= 1 << (u & 31);
+  assert.ok(t.apply({ a: { bits }, b: { bits }, f: 1 }));
+  s.f.applyVisibility();
+  const counts = new Map(t.twins.flatMap(({ detail, lite }) => [[detail, detail.instanceCount], ...(lite ? [[lite, lite.instanceCount]] : [])]));
+  assert.ok([...counts.values()].some(n => n > 0) && [...counts.values()].some(n => n === 0));
+  const stats = { kept: 0, total: 0, batches: 0 };
+  attachForestCulling(s.scene, stats);
+  s.render();
+  s.state.ops.length = 0;
+  s.render();
+  const reached = s.objects(), lines = s.timeline();
+  const statics = new Set([...s.f.byBand.far, ...s.f.byBand.mid, ...s.f.byBand.near, ...s.f.depth].filter(m => m.userData.tourStatic));
+  assert.ok(statics.size > 0);
+  assert.ok(reached.every(([m]) => !statics.has(m)), 'no static mesh-ring batch is reached');
+  for (const [m, n] of reached) if (counts.has(m.geometry)) assert.equal(n, counts.get(m.geometry), 'culling wrote no twin count');
+  // A twin draws when it holds trees; an empty one is skipped by three.
+  const tourMeshes = new Set(t.byBand.far.concat(t.byBand.mid, t.byBand.near, t.depth));
+  let drawnTwins = 0;
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i].startsWith('object ')) continue;
+    const m = s.scene.children[+lines[i].slice(7)];
+    const next = lines.slice(i + 1).find(l => l.startsWith('draw ') || l.startsWith('object '));
+    const drew = !!next?.startsWith('draw ');
+    if (counts.has(m.geometry)) { assert.equal(drew, counts.get(m.geometry) > 0, 'a twin draws exactly when it holds trees'); if (drew) drawnTwins++; }
+    if (drew && !tourMeshes.has(m)) assert.ok(!m.geometry.attributes.aBranch, 'only boards draw beside the twins');
+  }
+  assert.ok(drawnTwins > 0);
+  assert.equal(stats.total, 0, 'no mesh-ring batch was even tested');
+  for (const [g, n] of counts) assert.equal(g.instanceCount, n);
 });

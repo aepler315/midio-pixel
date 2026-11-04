@@ -478,6 +478,21 @@ test('createForest marks mesh-tree batches for culling, never billboards', () =>
   assert.equal(forestCells(detail.geometry), forestCells(lite.geometry));
 });
 
+test('the tour layer\'s twins and demote boards are never culled; the static batches still are', () => {
+  const rows = (band, n, z) => Array.from({ length: n }, (_, i) => [i * 10, 0, z, 12, 4, i % 4, (i * .137) % 1, band]).flat();
+  const placed = { meshDetail: new Float32Array([...rows(2, 6, -100), ...rows(2, 4, 900)]), mesh: new Float32Array([...rows(2, 8, -300), ...rows(1, 3, 2000)]),
+    billboard: new Float32Array(rows(1, 5, -4000)), stride: 8, count: 26, railCount: { meshDetail: 6, mesh: 8, billboard: 5 } };
+  const plain = createForest(THREE, placed, {}), f = createForest(THREE, placed, {}, { tour: { seed: 3 } });
+  const statics = forest => [...Object.values(forest.byBand).flat(), ...forest.depth, ...Object.values(forest.depthByBand).flat()];
+  assert.deepEqual(statics(f).map(m => !!m.geometry.userData.forestCull), statics(plain).map(m => !!m.geometry.userData.forestCull));
+  for (const m of statics(f)) if (m.geometry.attributes.aBranch) assert.equal(m.geometry.userData.forestCull.uniforms, f.uniforms);
+  assert.ok(f.tour.every.length > 0 && f.tour.twins.length > 0 && f.tour.boards.length > 0);
+  for (const m of f.tour.every) assert.equal(m.geometry.userData.forestCull, undefined, 'a tour object is never culled');
+  for (const t of f.tour.twins) for (const g of [t.detail, t.lite].filter(Boolean)) assert.equal(g.userData.forestCull, undefined);
+  for (const g of f.tour.boards) assert.equal(g.userData.forestCull, undefined);
+  for (const forest of [plain, f]) forest.dispose();
+});
+
 test('the culled count is restored however the scene\'s renders end', () => {
   const r = rng(9), u = uniforms(r);
   const camera = new THREE.PerspectiveCamera(50, 1, 1, 1000);
