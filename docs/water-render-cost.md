@@ -213,7 +213,11 @@ when none of its trees can reach what the render draws.
   frame: the root lift (`liftBounds`), the height (asset positions are
   checked to lie in [0, 1] up), the crown and trunk radii (measured from the
   asset, times the shader's largest scale) and the wind, gust, parting and
-  storm lean. The lean is doubled and every box padded by 1 m.
+  storm lean. The lean is doubled and every box padded by 1 m. The song's
+  rise (`LandRise.js`) moves every vertex last and only down, by more the
+  higher it stands and the nearer it is to the eye, so a box's floor drops
+  to its bottom at its nearest point (`risenFloor`), as the terrain chunks'
+  floors do.
 - A geometry with no box inside the frustum (narrowed to the target's
   scissor) gets `instanceCount` 0 for that render, and `Scene.onAfterRender`
   puts it back. three.js still binds, uploads and orders everything as
@@ -223,8 +227,8 @@ when none of its trees can reach what the render draws.
   scene, and before the detail view (whose footprints read the count) or
   the rail/tour switch (which sets it) touches them.
 - Billboards are never culled, and neither is a mesh with a model matrix
-  or a batch whose bound is unknown (non-finite uniforms, an asset outside
-  [0, 1] up, a tree id outside [0, 1]).
+  or a batch whose bound is unknown (non-finite uniforms or rise, an asset
+  outside [0, 1] up, a tree id outside [0, 1]).
 
 Result on main 181d2a3, 1280×720. `teton-jackson-lake`, 8 export frames
 from 2 s to 44 s:
@@ -246,10 +250,11 @@ rebake: 7.84 M triangles and 243 draw calls per frame become 6.62 M and
 
 `test/forestCulling.test.mjs` checks the bound by brute force against a
 CPU twin of the tree shader, whose lines it pins: every vertex of every
-asset, for random trees, deformation, dance, wind, storm and parting, lies
-inside its cell's box with no safety factor and no padding. Each term of the
-bound is needed (shrinking it lets a vertex out), each deformation and
-dance term keeps a tree it lifts or sinks into view, and a batch it culls
+asset, for random trees, deformation, dance, wind, storm, parting and the
+rise, lies inside its cell's box with no safety factor and no padding. Each
+term of the bound is needed (shrinking it lets a vertex out), each
+deformation and dance term keeps a tree it lifts or sinks into view, the rise
+keeps a tree it brings down into view, and a batch it culls
 has no vertex inside the clip volume for random and mirrored cameras.
 Whole spans of the shader are pinned, so an added term fails.
 `test/forestCullingRender.test.mjs` runs real three.js renders on a

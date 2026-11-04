@@ -110,7 +110,8 @@ instance order. A whole batch is skipped instead (`ForestCulling.js`).
 Before each render, every mesh-tree geometry is tested once: its trees,
 binned by root into 256 m cells, become boxes that hold every vertex the tree
 shader can place this frame (root lift, height, crown and trunk radii, and the
-wind, gust, parting and storm lean, doubled, plus 1 m). A geometry with no box
+wind, gust, parting and storm lean, doubled, plus 1 m; the song's rise lowers
+each floor to its bottom at its nearest point, `risenFloor`). A geometry with no box
 in the frustum and the target's scissor gets `instanceCount` 0, which skips
 only its draw call; after the render the count is restored. Frames stay
 byte-identical. On `teton-jackson-lake` a frame submits 16.3 M triangles
