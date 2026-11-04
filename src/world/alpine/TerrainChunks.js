@@ -141,7 +141,7 @@ function viewportIsTarget(renderer, target) {
 }
 
 /** True when the box (min/max, metres) lies wholly outside one plane. */
-function outside(planes, x0, y0, z0, x1, y1, z1) {
+export function boxOutsidePlanes(planes, x0, y0, z0, x1, y1, z1) {
   for (let k = 0; k < 24; k += 4) {
     const a = planes[k], b = planes[k + 1], c = planes[k + 2], d = planes[k + 3];
     // The corner farthest along the plane's normal.
@@ -170,7 +170,7 @@ export function visibleGroups(table, planes, lift, { mergeIndices = CHUNK_MERGE_
     // The rise lowers a box by where it stands (LandRise.risenFloor): a
     // summit above the frame can drop into it.
     const y0 = rise ? risenFloor(box[o + 1] + lo, box[o], box[o + 2], box[o + 3], box[o + 5], rise) : box[o + 1] + lo;
-    const keep = !outside(planes, box[o] - pad, y0 - pad, box[o + 2] - pad, box[o + 3] + pad, box[o + 4] + hi + pad, box[o + 5] + pad);
+    const keep = !boxOutsidePlanes(planes, box[o] - pad, y0 - pad, box[o + 2] - pad, box[o + 3] + pad, box[o + 4] + hi + pad, box[o + 5] + pad);
     if (!keep) { open = null; continue; }
     if (open && open.end === start[i]) open.end = start[i] + count[i];
     else runs.push(open = { start: start[i], end: start[i] + count[i] });

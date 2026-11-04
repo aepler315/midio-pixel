@@ -195,6 +195,75 @@ holds every displacement of the CPU twins (ice, deformation, dance).
 `test/waterScissor.test.mjs` checks when the water pass is scissored, and
 `test/waterDepthCopy.test.mjs` checks every guard on the depth copy.
 
+## Change 6: whole-batch forest culling (`ForestCulling.js`)
+
+The pilot view has few trees. A forested view does not: on
+`teton-jackson-lake` at 20 s, the forest was 35.8 M of the frame's 41.9 M
+triangles, over 11 traversals (mirror, partitions, water, crest probe,
+cast). The mesh trees are instanced batches, one per band, species family
+and variant (`ForestGL.createForest`), each spread along the whole rail and
+drawn with `frustumCulled = false`, so every pass submitted every tree.
+Culling trees inside a batch would change which trees draw before which,
+and the soft crowns blend in instance order. A whole batch can go, though,
+when none of its trees can reach what the render draws.
+
+- `Scene.onBeforeRender`, chained after the terrain culling, tests each
+  mesh-tree geometry once per render. Its trees, binned by root into 256 m
+  cells, become boxes that hold every vertex the tree shader can place this
+  frame: the root lift (`liftBounds`), the height (asset positions are
+  checked to lie in [0, 1] up), the crown and trunk radii (measured from the
+  asset, times the shader's largest scale) and the wind, gust, parting and
+  storm lean. The lean is doubled and every box padded by 1 m. The song's
+  rise (`LandRise.js`) moves every vertex last and only down, by more the
+  higher it stands and the nearer it is to the eye, so a box's floor drops
+  to its bottom at its nearest point (`risenFloor`), as the terrain chunks'
+  floors do.
+- A geometry with no box inside the frustum (narrowed to the target's
+  scissor) gets `instanceCount` 0 for that render, and `Scene.onAfterRender`
+  puts it back. three.js still binds, uploads and orders everything as
+  before: with a count of 0, `renderInstances` skips only the draw call.
+  The band and depth scenes share these geometries, so the counts a render
+  that throws leaves at 0 are put back by the next culled render of any
+  scene, and before the detail view (whose footprints read the count) or
+  the rail/tour switch (which sets it) touches them.
+- Billboards are never culled, and neither is a mesh with a model matrix
+  or a batch whose bound is unknown (non-finite uniforms or rise, an asset
+  outside [0, 1] up, a tree id outside [0, 1]).
+
+Result on main 181d2a3, 1280×720. `teton-jackson-lake`, 8 export frames
+from 2 s to 44 s:
+
+| per frame | main (two runs) | after |
+| --- | --- | --- |
+| triangles submitted | 45.49 M | 16.26 M |
+| lake mirror | 14.99 M | 8.48 M |
+| partitions | 15.31 M | 4.05 M |
+| water, native + output | 8.15 M | 2.03 M |
+| fine crest probe | 4.01 M | 1.14 M |
+| cast | 3.04 M | 0.56 M |
+| draw calls | 319 | 203 |
+| wall time, software rasterizer | 34.5 s, 34.7 s | 26.3 s |
+
+The pilot view (30 frames from 2 s to 45.5 s) has mesh trees since its
+rebake: 7.84 M triangles and 243 draw calls per frame become 6.62 M and
+185. Every frame of both views is byte-identical to both main runs.
+
+`test/forestCulling.test.mjs` checks the bound by brute force against a
+CPU twin of the tree shader, whose lines it pins: every vertex of every
+asset, for random trees, deformation, dance, wind, storm, parting and the
+rise, lies inside its cell's box with no safety factor and no padding. Each
+term of the bound is needed (shrinking it lets a vertex out), each
+deformation and dance term keeps a tree it lifts or sinks into view, the rise
+keeps a tree it brings down into view, and a batch it culls
+has no vertex inside the clip volume for random and mirrored cameras.
+Whole spans of the shader are pinned, so an added term fails.
+`test/forestCullingRender.test.mjs` runs real three.js renders on a
+recording WebGL2 context: a culled batch loses its draw call and nothing
+else, every program bind, vertex array bind and other draw staying in
+order. Each batch gets its own count back after the render, after a render
+that throws (also when another scene sharing the batch draws next), and
+with the terrain culling chained in.
+
 ## What is left, in order
 
 1. **The mirror scissor's cell gap.** The mirror still uses main's boxes,
@@ -216,6 +285,15 @@ holds every displacement of the CPU twins (ice, deformation, dance).
    output water pass, but its size matches only when the output is exactly
    4× the grid, and it has no depth texture. Since change 5 the payoff is
    small.
+5. **Forest depth drawn twice.** Where a depth-only render also draws the
+   crown cut (the output water pass, travel depth, the cast), the core depth
+   mesh of the same batch writes depth the crown cut writes anyway. Dropping
+   it was estimated to save 1.7 M triangles per frame on
+   `teton-jackson-lake` before change 6, which already culls part of that.
+6. **Trees inside a batch.** The lake mirror still submits about 8.5 M forest
+   triangles there. Culling single trees while keeping their order (a
+   compacted instance list per render) would cut it further, at the cost of
+   per-render uploads.
 
 ## The mirror is shed first
 

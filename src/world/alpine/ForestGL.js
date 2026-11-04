@@ -23,6 +23,7 @@ import { forestBatchFootprintPx, forestDetailWeight } from './ForestDetail.js';
 import { riseFromUniforms } from './LandRise.js';
 import { WIND_SWAY, GUST_LEAN, PARTING_LEAN, STORM_LEAN, WIND_DIR, WIND_MAX_GAIN, FOREST_MAX_LEAN } from './ForestWind.js';
 import { setTerrainDrawMode } from './RailDraw.js';
+import { restoreForestCulling } from './ForestCulling.js';
 export { WIND_SWAY, GUST_LEAN, PARTING_LEAN, STORM_LEAN, WIND_DIR, WIND_MAX_GAIN, FOREST_MAX_LEAN };
 
 // Match the terrain canopy's actual-camera handoff, including mirrors.
@@ -618,6 +619,8 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
       bytes += weight.array.byteLength;
     }
     geo.userData.asset = base.userData.asset;
+    // Mesh trees can be culled a whole batch at a time (ForestCulling.js).
+    if (kind !== 'billboard') geo.userData.forestCull = { uniforms: u };
     geos.push(geo);
     const railLimit = railCount?.[kind];
     if (railOnly) {
@@ -721,6 +724,8 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
     /** Call before drawing each camera/target, including again after a
      * mirror. Stateless weights preserve seeking/export reconstruction. */
     updateDetailView({ camera, width, height, pixelated = false, nearDetail = forest.nearDetail } = {}) {
+      // The footprints read instanceCount: none may be a culled render's 0.
+      restoreForestCulling();
       forest.pixelatedDetail = !!pixelated && partitioned;
       const deformation = {
         heightMin: u.uHeightRange?.value.x ?? 0,
