@@ -13,6 +13,7 @@
 import { MIDIO_IDENTITY_HUE } from '../../render/ColorLaw.js';
 import { scenePoseAt, projectPoint } from '../terrain/SceneTravel.js';
 import { terrainHeightAt } from './TerrainMesh.js';
+import { railTile } from './TerrainPackage.js';
 import { compileCastSchedule } from './CastSchedule.js';
 import { landscapeScoreFor } from './LandscapeScore.js';
 
@@ -274,7 +275,7 @@ export function actorRoutes(data, view, { waterLevelM = null, seed = 0 } = {}) {
   const { grid, cells } = data;
   const water = [], shore = [], land = [];
   for (const tile of data.tiles.values()) {
-    if (!tile.visible) continue;
+    if (!railTile(tile)) continue;
     const n = tile.samples, step = Math.max(1, Math.floor(n / 8));
     for (let v = 0; v < n; v += step) for (let u = 0; u < n; u += step) {
       const i = v * n + u, y = tile.heightsM[i];

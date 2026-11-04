@@ -31,12 +31,15 @@ reference machine; see docs/range-v2-assets.md).
 """
 import argparse
 import datetime
+import email.utils
 import hashlib
 import io
 import json
 import math
 import os
 import sys
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -112,9 +115,30 @@ def lonlat_envelope(tm, bounds, datum, pad_deg=0.002):
 
 
 def head(url):
+    if os.path.isabs(url):  # a tile pinned to a local copy of its file
+        st = os.stat(url)
+        return {'ETag': None, 'Last-Modified': email.utils.formatdate(st.st_mtime, usegmt=True),
+                'Content-Length': str(st.st_size)}
     req = urllib.request.Request(url, method='HEAD')
     with urllib.request.urlopen(req, timeout=60) as res:
         return {k: res.headers.get(k) for k in ('ETag', 'Last-Modified', 'Content-Length')}
+
+
+def tnm_items(url, attempts=5):
+    """The TNM products API's items, retried with backoff: the service
+    intermittently answers 504 or a 200 whose body is an error object."""
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(url, timeout=120) as res:
+                body = json.load(res)
+            if isinstance(body, dict) and isinstance(body.get('items'), list):
+                return body['items']
+            problem = body.get('error') if isinstance(body, dict) else 'unexpected body'
+        except (urllib.error.URLError, TimeoutError, ValueError) as e:
+            problem = e
+        if attempt + 1 < attempts:
+            time.sleep(2 ** (attempt + 1))
+    raise SystemExit(f'TNM products API failed after {attempts} attempts ({problem}); pin the tiles with --pin')
 
 
 def threedep_tiles(env, pinned=None):
@@ -138,8 +162,7 @@ def threedep_tiles(env, pinned=None):
                 'datasets': THREEDEP_DATASET, 'outputFormat': 'JSON', 'max': 50,
                 'bbox': f'{lon + 0.4},{lat - 0.6},{lon + 0.6},{lat - 0.4}',
             })
-            with urllib.request.urlopen(f'{TNM_API}?{q}', timeout=120) as res:
-                items = json.load(res)['items']
+            items = tnm_items(f'{TNM_API}?{q}')
             dated = sorted((i for i in items
                             if f'/historical/{tile}/' in i['downloadURL'] and i['downloadURL'].endswith('.tif')),
                            key=lambda i: i['publicationDate'])
@@ -181,19 +204,39 @@ def cached_window(keep):
     return record
 
 
-def source_3dep(env, cache_dir, pinned=None):
+WINDOW_CACHE_LAYOUTS = ('envelope', 'tile')
+
+
+def source_3dep(env, cache_dir, pinned=None, layout='envelope'):
+    """3DEP tiles covering `env`, read through a local window cache.
+
+    The cache layout decides how adjacent 1-degree tiles meet in the warp:
+      envelope  each tile cached as a crop of the whole envelope, padded with
+                no-data beyond the tile (the layout since 2026-09-30). GDAL's
+                average warp then lets the later tile overwrite the seam with
+                partial-coverage averages, so the cells on a tile seam differ
+                from a direct read by up to a few metres on steep ground.
+      tile      each tile cached as its own window (the pixels the provenance
+                hashes). The warp is bit-identical to reading the remote tiles
+                directly, which is how grids were built before the cache
+                existed (nc-ross-lake-north, 2026-09-29).
+    A view whose envelope sits inside one tile gets the same grid either way.
+    """
+    if layout not in WINDOW_CACHE_LAYOUTS:
+        raise SystemExit(f'unknown window cache layout {layout!r}')
     tiles = threedep_tiles(env, pinned)
     paths, prov = [], []
     for t in tiles:
-        vsi = f'/vsicurl/{t["url"]}'
-        # The native window is kept outside the runtime tree, named by tile
-        # and requested envelope, with its acquisition provenance and a file
-        # hash beside it. A later normalization of the same envelope verifies
-        # that hash and warps from the local copy: no network, same pixels.
+        vsi = t['url'] if os.path.isabs(t['url']) else f'/vsicurl/{t["url"]}'
+        # The native window is kept outside the runtime tree, named by tile,
+        # requested envelope and layout, with its acquisition provenance and
+        # a file hash beside it. A later normalization of the same envelope
+        # verifies that hash and warps from the local copy without network.
         keep = None
         if cache_dir:
             env_key = sha256_bytes(json.dumps([round(v, 7) for v in env]).encode())[:12]
-            keep = os.path.join(cache_dir, f'{t["tile"]}-{env_key}.tif')
+            suffix = '' if layout == 'envelope' else f'-{layout}'
+            keep = os.path.join(cache_dir, f'{t["tile"]}-{env_key}{suffix}.tif')
         record = cached_window(keep)
         if record is None:
             meta = head(t['url'])
@@ -204,14 +247,18 @@ def source_3dep(env, cache_dir, pinned=None):
                       'windowPixels': window, 'windowSha256': digest}
             if keep:
                 os.makedirs(cache_dir, exist_ok=True)
-                gdal.Translate(keep, vsi, projWin=[env[0], env[3], env[2], env[1]],
+                crop = {'srcWin': window} if layout == 'tile' else {'projWin': [env[0], env[3], env[2], env[1]]}
+                gdal.Translate(keep, vsi, **crop,
                                creationOptions=['COMPRESS=DEFLATE', 'PREDICTOR=3', 'TILED=YES'])
                 with open(keep, 'rb') as fh:
                     record['cacheSha256'] = sha256_bytes(fh.read())
                 with open(keep + '.json', 'w') as fh:
                     json.dump(record, fh, indent=1)
         paths.append(keep if keep and os.path.exists(keep) else vsi)
-        prov.append({k: v for k, v in record.items() if k != 'cacheSha256'} | {'readFrom': 'cache' if paths[-1] == keep else 'remote'})
+        read_from = {'readFrom': 'cache' if paths[-1] == keep else 'remote'}
+        if paths[-1] == keep and layout != 'envelope':
+            read_from['cacheLayout'] = layout
+        prov.append({k: v for k, v in record.items() if k != 'cacheSha256'} | read_from)
     ds = gdal.Open(paths[0])
     gt = ds.GetGeoTransform()
     lat_mid = (env[1] + env[3]) / 2
@@ -350,7 +397,9 @@ def main(argv=None):
     ap.add_argument('--zoom', type=int, default=12)
     ap.add_argument('--resampling', default='auto', choices=['auto', 'average', 'bilinear', 'cubic'])
     ap.add_argument('--cache', default='.terrain-cache')
-    ap.add_argument('--pin', default=None, help='JSON file mapping 3DEP tile -> dated URL')
+    ap.add_argument('--window-cache', choices=WINDOW_CACHE_LAYOUTS, default='envelope',
+                    help='how cached 3DEP tile windows are cropped (see source_3dep)')
+    ap.add_argument('--pin', default=None, help='JSON file mapping 3DEP tile -> dated URL (or an absolute path to a local copy)')
     ap.add_argument('--retrieved-at', default=None, help='override the recorded retrieval date')
     ap.add_argument('--fill', choices=['terrarium'], default=None,
                     help='fill cells the primary source leaves invalid (e.g. 3DEP beyond the U.S. border)')
@@ -376,7 +425,7 @@ def main(argv=None):
     os.makedirs(scratch, exist_ok=True)
     if args.source == '3dep13':
         pinned = json.load(open(args.pin)) if args.pin else None
-        src = source_3dep(env, os.path.join(args.cache, '3dep13'), pinned)
+        src = source_3dep(env, os.path.join(args.cache, '3dep13'), pinned, args.window_cache)
     elif args.source == 'terrarium':
         src = source_terrarium(env, args.zoom, os.path.join(args.cache, 'terrarium'), scratch)
     else:

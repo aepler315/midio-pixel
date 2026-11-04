@@ -14,8 +14,8 @@ Run each on the real device, with the tab in front, the screen awake and nothing
 
 | Run | Device | Length | Why |
 | --- | --- | --- | --- |
-| A | A mid-range Android phone (Chrome) | 10 min | Sustained phone behaviour: thermal throttling, governor rungs, residency under the mobile budget (320 MiB when the phone reports 8 GB, else 192 MiB) |
-| B | An iPhone (Safari) | 10 min | Same, on the other mobile engine |
+| A | Galaxy S24 Ultra (Chrome), minimum supported device | 10 min | Sustained phone behaviour: thermal throttling, governor rungs, residency under the mobile budget (512 MiB when the phone reports 8 GB, else 192 MiB) |
+| B | A current flagship iPhone (Safari) | 10 min | Same, on the other mobile engine |
 | C | A desktop or laptop with a GPU (Chrome) | 5 min | Desktop budget (512 MiB, or 256 MiB when the machine reports under 8 GB), the 16-band travel seam at full resolution |
 
 ## How
@@ -38,7 +38,7 @@ Leave the FPS cap at its default (uncapped) for acceptance runs; the report reco
 | --- | --- |
 | `gpu`, `userAgent`, `deviceMemoryGB`, `dpr` | Device, browser and GPU as the browser reports them |
 | `stage`, `rangeTarget` | CSS and backing size of the stage; size of the Range render target |
-| `budget` | Residency budget class chosen (`desktop` 512 MiB, `mobile` 320 MiB; 256/192 MiB when the device reports less than 8 GB) |
+| `budget` | Residency budget class chosen (`desktop` 512 MiB, `mobile` 512 MiB; 256/192 MiB when the device reports less than 8 GB) |
 | `coldStartCaptured` | True when the probe was running before the song loaded (otherwise `cold` is just the first 20 s it saw) |
 | `songRestarts` | How many times the song was restarted during the run (the probe follows the new song) |
 | `frameDelivery.cold` | The first 20 s of the song, including the frame that spans world construction |

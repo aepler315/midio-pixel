@@ -136,9 +136,16 @@ function railDistance(a, b, p) {
  * footprint) when present. Without footprint polylines this is the rail's
  * own function, unchanged. */
 function forestRail(view) {
+  const { rail, footprint } = forestDistances(view);
+  return footprint ? (p) => footprint(p, rail(p)) : rail;
+}
+
+/** The rail's own distance and, with footprint polylines, the distance to
+ *  them given the rail's (`footprint(p, railM)`: min of the two). */
+function forestDistances(view) {
   const rail = authoredRail(view);
   const lines = (view.cameraPaths || []).filter((line) => line?.length);
-  if (!lines.length) return rail;
+  if (!lines.length) return { rail, footprint: null };
   // One malformed point would make every distance NaN, which neither the
   // tile cull nor the ring cut ever rejects: refuse it.
   for (const line of lines) {
@@ -148,8 +155,7 @@ function forestRail(view) {
       }
     }
   }
-  const near = polylineDistance(lines);
-  return p => near(p, rail(p));
+  return { rail, footprint: polylineDistance(lines) };
 }
 
 /** min(bound, exact distance from p to a set of polylines). Placement asks
@@ -230,14 +236,20 @@ function authoredRail(view) {
  * only reduce this count. Three partly filled 64K-float chunks are included. */
 export function forestPlacementBound(data, view, rules, rings = FOREST_RINGS) {
   const distanceToRail = forestRail(view);
+  // A static footprint also places the rail's own forest (placeForest
+  // railOnly): at most one more record per cell within the rail's reach.
+  const { rail } = forestDistances(view), twoCameras = !view.tour && view.cameraPaths?.some((line) => line?.length);
   const size = data.cells * data.grid.cellSizeM;
   let count = 0;
   for (const tile of data.tiles.values()) {
     if (!tile.visible || tile.minY > rules.treelineM + 300) continue;
     const x0 = data.grid.originM[0] + tile.ix * size, z0 = data.grid.originM[1] + tile.iz * size;
-    if (distanceToRail([x0 + size / 2, (tile.minY + tile.maxY) / 2, z0 + size / 2]) - Math.SQRT2 * size / 2 > rings.billboardM) continue;
-    count += (Math.ceil((x0 + size) / LATTICE_M) - Math.ceil(x0 / LATTICE_M))
+    const centre = [x0 + size / 2, (tile.minY + tile.maxY) / 2, z0 + size / 2];
+    if (distanceToRail(centre) - Math.SQRT2 * size / 2 > rings.billboardM) continue;
+    const cellsIn = (Math.ceil((x0 + size) / LATTICE_M) - Math.ceil(x0 / LATTICE_M))
       * (Math.ceil((z0 + size) / LATTICE_M) - Math.ceil(z0 / LATTICE_M));
+    count += cellsIn;
+    if (twoCameras && tile.rail !== false && rail(centre) - Math.SQRT2 * size / 2 <= rings.billboardM) count += cellsIn;
   }
   // Placement's first test keeps a lattice cell with probability
   // rules.forestDensity (a uniform hash): at most the expected share plus
@@ -292,15 +304,32 @@ function defaultYield() {
 /** The placement, one tile per step (a generator returning the result). */
 function* placeForestSteps(data, view, rules, { seed = 0, rings = FOREST_RINGS, bands = null } = {}) {
   const STRIDE = 8;
-  const distanceToRail = forestRail(view);
+  const { rail: railDistanceAt, footprint } = forestDistances(view);
+  const distanceToRail = footprint ? (p) => footprint(p, railDistanceAt(p)) : railDistanceAt;
   const terrainPartitions = !view.tour && view.cameraPaths?.some(line => line?.length);
   const b = bands || data.manifest.bands || { nearM: 1800, midM: 7000 };
   const treeline = rules.treelineM, maxSlope = rules.forestMaxSlopeDeg, density = rules.forestDensity;
   const floor = rules.forestFloorM ?? RULE_DEFAULTS.forestFloorM;
   // Typed chunks, not growing JS arrays: a 300k-tree view would otherwise
   // reallocate and copy millions of elements in single long pauses.
-  const detail = new FloatChunks(), mesh = new FloatChunks(), board = new FloatChunks();
+  // Two cameras can play a static view (RailDraw.js). On its rail it draws
+  // the forest its rail alone would place, on its own ground; on a shot
+  // tour, the forest of the tour's footprint (cameraPaths) on every tile.
+  // A tree both place alike leads each ring (`shared`); one only the tour
+  // places, or places differently, follows it (`tour`); one only the rail
+  // places, or places differently, goes to its own rings (`railOnly`). A
+  // root jittered onto tour ground is the tour's.
+  const ringChunks = () => [new FloatChunks(), new FloatChunks(), new FloatChunks()];
+  const shared = ringChunks();
+  let tour = null, railOnly = null;
   const cells = data.cells, cs = data.grid.cellSizeM;
+  // A mapped tour (view.tour) has one camera and draws all its ground.
+  let tourGround = false;
+  if (!view.tour) for (const t of data.tiles.values()) if (t.rail === false) { tourGround = true; break; }
+  const distanceBand = (m) => (m < b.nearM ? 2 : m < b.midM ? 1 : 0);
+  const detailM = Math.min(rings.meshM, rings.detailM ?? FOREST_RINGS.detailM);
+  const ringOf = (m, scale) => (m < detailM * scale ? 0 : m < rings.meshM * scale ? 1 : 2);
+  const ownerOf = (x, z) => data.byIndex.get(`${Math.floor((x - data.grid.originM[0]) / cs / cells)},${Math.floor((z - data.grid.originM[1]) / cs / cells)}`);
   for (const tile of data.tiles.values()) {
     if (!tile.visible || tile.minY > treeline + 300) continue;
     const x0 = data.grid.originM[0] + tile.ix * cells * cs, z0 = data.grid.originM[1] + tile.iz * cells * cs;
@@ -326,14 +355,14 @@ function* placeForestSteps(data, view, rules, { seed = 0, rings = FOREST_RINGS, 
         const slope = slopeDegAt(data, x, z, cs);
         if (!(slope <= maxSlope + (u01(h3) - 0.5) * 6)) continue;
         if (isWater(data, x, z)) continue;
-        const d = distanceToRail([x, y, z]);
+        const dRail = railDistanceAt([x, y, z]), d = footprint ? footprint([x, y, z], dRail) : dRail;
         if (d > rings.billboardM) continue;
         const traits = treeTraits(ix, iz, seed, y, slope, rules, view);
-        let band = d < b.nearM ? 2 : d < b.midM ? 1 : 0;
+        let band = distanceBand(d);
+        // Jitter can move a root into a neighbour of the iteration tile.
+        const owner = terrainPartitions || (tourGround && tile.rail !== false) ? ownerOf(x, z) : null;
         if (terrainPartitions) {
-          // Jitter can move a root into a neighbour of the iteration tile.
           // Match TerrainMesh.planBands: invalid/missing metadata is far.
-          const owner = data.byIndex.get(`${Math.floor((x - data.grid.originM[0]) / cs / cells)},${Math.floor((z - data.grid.originM[1]) / cs / cells)}`);
           band = Math.max(0, BANDS.indexOf(owner?.band));
         }
         const rec = [traits.x, y, traits.z, traits.height, traits.width, traits.species, traits.id, band];
@@ -342,16 +371,33 @@ function* placeForestSteps(data, view, rules, { seed = 0, rings = FOREST_RINGS, 
         // each tree's threshold: roots, dimensions, IDs and density stay put,
         // and moving/returning cameras never roll a new representation.
         const ringScale = .82 + .36 * u01(hash2(ix, iz, seed + 23));
-        (d < Math.min(rings.meshM, rings.detailM ?? FOREST_RINGS.detailM) * ringScale ? detail
-          : d < rings.meshM * ringScale ? mesh : board).push(...rec);
+        const ring = ringOf(d, ringScale);
+        const railGround = !tourGround || (tile.rail !== false && owner?.rail !== false);
+        if (!terrainPartitions) {
+          // One distance for both cameras: the tour adds its ground only.
+          (railGround ? shared : (tour ||= ringChunks()))[ring].push(...rec);
+          continue;
+        }
+        // As the rail alone would place it: by its distance, banded by it.
+        const railRing = ringOf(dRail, ringScale), railBand = distanceBand(dRail);
+        const railHas = railGround && dRail <= rings.billboardM;
+        if (railHas && railRing === ring && railBand === band) { shared[ring].push(...rec); continue; }
+        if (railHas) { rec[7] = railBand; (railOnly ||= ringChunks())[railRing].push(...rec); rec[7] = band; }
+        (tour ||= ringChunks())[ring].push(...rec);
       }
       // One lattice row per step: a 64-cell tile holds ~100 rows of ~100
       // candidates, so a whole tile between yields could run for 100 ms.
       yield;
     }
   }
-  return { meshDetail: detail.toArray(), mesh: mesh.toArray(), billboard: board.toArray(), stride: STRIDE,
-    count: (detail.length + mesh.length + board.length) / STRIDE };
+  const [detail, mesh, board] = shared.map((r, i) => (tour ? FloatChunks.concat(r, tour[i]) : r.toArray()));
+  const own = railOnly ? railOnly.map((r) => r.toArray()) : null;
+  return { meshDetail: detail, mesh, billboard: board, stride: STRIDE,
+    // Every record either camera draws (the reservations count them all).
+    count: (detail.length + mesh.length + board.length + (own ? own.reduce((n, r) => n + r.length, 0) : 0)) / STRIDE,
+    // The rail draws each ring's leading railCount trees, and railOnly.
+    ...(tour || railOnly ? { railCount: { meshDetail: shared[0].length / STRIDE, mesh: shared[1].length / STRIDE, billboard: shared[2].length / STRIDE } } : {}),
+    ...(own ? { railOnly: { meshDetail: own[0], mesh: own[1], billboard: own[2] } } : {}) };
 }
 
 /** Append-only float storage in fixed typed chunks. */
@@ -364,15 +410,18 @@ class FloatChunks {
       this.length++;
     }
   }
-  toArray() {
-    const out = new Float32Array(this.length);
+  toArray(out = new Float32Array(this.length), offset = 0) {
     let at = 0;
     for (const c of this.chunks) {
       const n = Math.min(c.length, this.length - at);
-      out.set(n === c.length ? c : c.subarray(0, n), at);
+      out.set(n === c.length ? c : c.subarray(0, n), offset + at);
       at += n;
     }
     return out;
+  }
+  static concat(a, b) {
+    const out = a.toArray(new Float32Array(a.length + b.length));
+    return b.toArray(out, a.length);
   }
 }
 

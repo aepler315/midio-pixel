@@ -6,6 +6,7 @@ import { finishPreparation, prepareInSlices } from './PreparationSteps.js';
 //
 //   decodeTerrain(manifest, bytes)   -> TerrainData (dequantized tiles)
 //   buildTerrainGeometry(data, opts) -> { bands: { far, mid, near }, stats }
+//   terrainBandsFor(built, mode)     -> what the rail or the tour draws of it
 //   buildSurfaceTexture(data)        -> { width, height, data: Uint8Array RGBA }
 //   terrainHeightAt(data, x, z)      -> metres, NaN outside valid data
 //
@@ -98,151 +99,240 @@ export function tileStrides(data, budget = 'desktop', bias = 1) {
   return out;
 }
 
+
+/** Whether the rail draws `tile`: a posed bake marks the tiles only shot-tour
+ *  poses see `rail: false` (they draw while the view plays its tour). Unlike
+ *  TerrainPackage's check, hidden tiles count: `includeHidden` draws them. */
+const railGround = (t) => t.rail !== false;
+
+const SIDES = Object.freeze([[0, -1], [0, 1], [-1, 0], [1, 0]]);
+
 /**
- * Which tiles each band draws and how big its arrays are, before anything
- * is allocated. A fringe tile borders a farther band: the farther pass
- * draws it too (RangeScene), so the seam between the two passes is never
- * left open.
+ * Which tiles each band draws, in what order, and how big its arrays are,
+ * before anything is allocated. A fringe tile borders a farther band: the
+ * farther pass draws it too (RangeScene), so the seam between the two passes
+ * is never left open.
+ *
+ * With `railSplit` (the default) a band is laid out for two draw modes that
+ * are each one contiguous index range (BufferGeometry.setDrawRange):
+ *
+ *   [R rail copies] [A rail tiles] [T tour copies] [D tour-only tiles]
+ *    `----- rail: [0, R+A) ------'
+ *                   `------------- tour: [R, end) -------------------'
+ *
+ * A rail tile whose edge would snap onto a coarser tour-only neighbour is
+ * built twice: R snaps only to what the rail draws (the shape a package
+ * without tour-only tiles has), T snaps to every neighbour (crack-free
+ * against the tour-only tiles). Every other rail tile (A) is the same in both
+ * modes. The rail range is thus exactly the build of the package with its
+ * tour-only tiles removed, and the tour range exactly the build of every
+ * tile. The seam fill keeps the same contract: rail fringe tiles (a farther
+ * rail neighbour) first, then the fill only the tour needs. A package without
+ * tour-only tiles (every rail-only bake) has no R, T or D: its layout, and
+ * every array, is byte-identical to the single-mode build.
  */
-function planBands(data, stridesById, includeHidden) {
+function planBands(data, stridesById, includeHidden, railSplit = true) {
   const { cells } = data;
-  const size = Object.fromEntries(BANDS.map((b) => [b, { v: 0, i: 0, f: 0, t: 0, ft: 0 }]));
+  const isRail = railSplit ? railGround : () => true;
   const bandOf = (t) => (BANDS.includes(t.band) ? t.band : 'far');
-  const drawn = [];
+  const drawn = (t) => !!t && (t.visible || includeHidden);
+  const tourOnly = (t) => drawn(t) && !isRail(t);
+  const size = Object.fromEntries(BANDS.map((b) => [b, { v: 0, i: 0, f: 0, copyV: 0, copyI: 0, copyF: 0 }]));
+  const sections = Object.fromEntries(BANDS.map((b) => [b, { R: [], A: [], T: [], D: [] }]));
+  let seq = -1;
   for (const t of data.tiles.values()) {
-    if (!t.visible && !includeHidden) continue;
-    const m = cells / stridesById.get(t.id);
-    const band = bandOf(t);
-    let fringe = false;
-    for (let dz = -1; dz <= 1 && !fringe; dz++) for (let dx = -1; dx <= 1; dx++) {
+    seq++;
+    if (!drawn(t)) continue;
+    const s = stridesById.get(t.id), m = cells / s, band = bandOf(t), at = BANDS.indexOf(band);
+    let fringe = false, railFringe = false;
+    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
       const nb = (dx || dz) && data.byIndex.get(`${t.ix + dx},${t.iz + dz}`);
-      if (nb && (nb.visible || includeHidden) && BANDS.indexOf(bandOf(nb)) < BANDS.indexOf(band)) { fringe = true; break; }
+      if (!drawn(nb) || BANDS.indexOf(bandOf(nb)) >= at) continue;
+      fringe = true;
+      if (isRail(nb)) railFringe = true;
     }
-    size[band].v += (m + 1) * (m + 1);
-    size[band].i += 6 * m * m;
-    size[band].t++;
-    if (fringe) { size[band].f += 6 * m * m; size[band].ft++; }
-    drawn.push([t, band, fringe]);
+    const tv = (m + 1) * (m + 1), ti = 6 * m * m, sz = size[band], sec = sections[band];
+    sz.v += tv; sz.i += ti; if (fringe) sz.f += ti;
+    if (!isRail(t)) { sec.D.push({ t, seq, fringe, ignoreTourOnly: false }); continue; }
+    // Corners never snap (along() keeps multiples of the coarse step), so
+    // only the four edge neighbours can move a rail tile's vertices.
+    const split = SIDES.some(([dx, dz]) => {
+      const nb = data.byIndex.get(`${t.ix + dx},${t.iz + dz}`);
+      return tourOnly(nb) && stridesById.get(nb.id) > s;
+    });
+    if (!split) { sec.A.push({ t, seq, fringe, railFringe, ignoreTourOnly: false }); continue; }
+    sz.v += tv; sz.i += ti; sz.copyV += tv; sz.copyI += ti;
+    if (railFringe) { sz.f += ti; sz.copyF += ti; }
+    sec.R.push({ t, seq, fringe: railFringe, ignoreTourOnly: true });
+    sec.T.push({ t, seq, fringe, ignoreTourOnly: false });
   }
-  return { size, drawn };
+  return { size, sections };
 }
 
 /** Bytes of the seam-fill index buffers buildTerrainGeometry would make,
  *  counted without building anything (a GPU reservation needs them first). */
-export function terrainFringeBytes(data, { budget = 'desktop', bias = 1, includeHidden = false, strides = null } = {}) {
-  const { size } = planBands(data, strides || tileStrides(data, budget, bias), includeHidden);
+export function terrainFringeBytes(data, { budget = 'desktop', bias = 1, includeHidden = false, strides = null, railSplit = true } = {}) {
+  const { size } = planBands(data, strides || tileStrides(data, budget, bias), includeHidden, railSplit);
   return BANDS.reduce((sum, b) => sum + size[b].f * 4, 0);
+}
+
+/** Upper bound of the position and index bytes of the rail copies (R above):
+ *  a bake's mesh estimate counts each tile once. 0 for a rail-only package. */
+export function terrainRailCopyBytes(data, { budget = 'desktop', bias = 1, includeHidden = false, strides = null, railSplit = true } = {}) {
+  const { size } = planBands(data, strides || tileStrides(data, budget, bias), includeHidden, railSplit);
+  return BANDS.reduce((sum, b) => sum + size[b].copyV * 12 + size[b].copyI * 4, 0);
 }
 
 /**
  * Build per-band geometry. Each band merges its tiles into one position
- * (Float32 xyz) and index (Uint32) array. Tiles never visible from the
- * rail are skipped unless `includeHidden`. Each tile's triangles are one
- * contiguous range of its band's index (and of its seam fill), recorded
- * with the tile's box as `chunks` / `fringeChunks` (TerrainChunks.js).
+ * (Float32 xyz) and index (Uint32) array. Tiles never visible from any pose
+ * are skipped unless `includeHidden`. Each band carries the index ranges of
+ * its two draw modes, `ranges` and `fringeRanges` ({ rail, tour }: [start,
+ * count]), or null when the band holds nothing only a tour draws (both modes
+ * then draw the whole buffer). With ranges, `tileOrder` ({ rail, tour }:
+ * flat [first, last) index pairs) lists each mode's tiles in package order. `railSplit: false` lays every tile out once,
+ * as rail tiles (tour windows, which never draw a rail).
  */
-export function buildTerrainGeometry(data, { budget = 'desktop', bias = 1, includeHidden = false, strides = null } = {}) {
+export function buildTerrainGeometry(data, { budget = 'desktop', bias = 1, includeHidden = false, strides = null, railSplit = true } = {}) {
   const { grid, cells } = data;
+  const isRail = railSplit ? railGround : () => true;
   const stridesById = strides || tileStrides(data, budget, bias);
-  const neighbourStride = (t, dx, dz) => {
-    const nb = data.byIndex.get(`${t.ix + dx},${t.iz + dz}`);
-    return nb ? stridesById.get(nb.id) : 0;
-  };
-  const { size, drawn } = planBands(data, stridesById, includeHidden);
-  const out = Object.fromEntries(BANDS.map((b) => [b, {
-    positions: new Float32Array(size[b].v * 3), indices: new Uint32Array(size[b].i), vertexCount: 0, indexCount: 0,
-    fringe: new Uint32Array(size[b].f), fringeCount: 0,
-    chunks: chunkArrays(size[b].t), fringeChunks: chunkArrays(size[b].ft),
-  }]));
-  let triangles = 0;
-  for (const [t, bandName, fringe] of drawn) {
-    const s = stridesById.get(t.id);
-    const step = s / t.stride; // stored samples per runtime step
-    const m = cells / s; // runtime cells per side
-    const n = m + 1;
-    const edge = {
-      north: Math.max(s, neighbourStride(t, 0, -1)), south: Math.max(s, neighbourStride(t, 0, 1)),
-      west: Math.max(s, neighbourStride(t, -1, 0)), east: Math.max(s, neighbourStride(t, 1, 0)),
+  const { size, sections } = planBands(data, stridesById, includeHidden, railSplit);
+  let triangles = 0, railTriangles = 0, railCopies = 0;
+  const bands = {};
+  for (const bandName of BANDS) {
+    const sz = size[bandName];
+    const P = new Float32Array(sz.v * 3), I = new Uint32Array(sz.i), F = new Uint32Array(sz.f);
+    let vertexCount = 0, k = 0, fringeCount = 0;
+    const { R, A, T, D } = sections[bandName];
+    const tileCount = R.length + A.length + T.length + D.length;
+    const chunks = chunkArrays(tileCount), fringeChunks = chunkArrays(tileCount);
+    const fill = (a, b, box) => {
+      pushChunk(fringeChunks, fringeCount, b - a, box);
+      F.set(I.subarray(a, b), fringeCount);
+      fringeCount += b - a;
     };
-    const band = out[bandName];
-    const base = band.vertexCount;
-    const x0 = grid.originM[0] + t.ix * cells * grid.cellSizeM;
-    const z0 = grid.originM[1] + t.iz * cells * grid.cellSizeM;
-    const hRaw = (u, v) => sampleAt(t, u * step, v * step);
-    // A finer tile's edge vertex snaps onto the coarser neighbour's straight
-    // edge between that neighbour's own vertices: shared edges coincide.
-    const along = (k, e) => {
-      const r = e / s; // runtime steps per coarse step
-      const k0 = Math.floor(k / r) * r;
-      return k0 === k ? null : [k0, Math.min(m, k0 + r), (k - k0) / r];
-    };
-    const snap = (u, v) => {
-      let seg = null, axis = 'u';
-      if (v === 0 && edge.north > s) seg = along(u, edge.north);
-      else if (v === m && edge.south > s) seg = along(u, edge.south);
-      else if (u === 0 && edge.west > s) { seg = along(v, edge.west); axis = 'v'; }
-      else if (u === m && edge.east > s) { seg = along(v, edge.east); axis = 'v'; }
-      const raw = hRaw(u, v);
-      // No-data stays no-data: snapping never invents a surface.
-      if (!seg || !Number.isFinite(raw)) return raw;
-      const [k0, k1, f] = seg;
-      const a = axis === 'u' ? hRaw(k0, v) : hRaw(u, k0);
-      const b = axis === 'u' ? hRaw(k1, v) : hRaw(u, k1);
-      return a + (b - a) * f;
-    };
-    const P = band.positions;
-    const heights = new Float32Array(n * n);
-    // The tile's box, from the stored (Float32) positions it draws.
-    const box = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
-    for (let v = 0; v < n; v++) {
-      for (let u = 0; u < n; u++) {
-        const y = snap(u, v);
-        heights[v * n + u] = y;
-        const o = 3 * (base + v * n + u);
-        P[o] = x0 + u * s * grid.cellSizeM;
-        P[o + 1] = Number.isFinite(y) ? y : 0;
-        P[o + 2] = z0 + v * s * grid.cellSizeM;
-        for (let a = 0; a < 3; a++) {
-          if (a === 1 && !Number.isFinite(y)) continue;
-          if (P[o + a] < box[a]) box[a] = P[o + a];
-          if (P[o + a] > box[a + 3]) box[a + 3] = P[o + a];
+    // One tile into the band's arrays: [first, last) of its indices.
+    const emit = ({ t, ignoreTourOnly }) => {
+      const s = stridesById.get(t.id);
+      const step = s / t.stride; // stored samples per runtime step
+      const m = cells / s; // runtime cells per side
+      const n = m + 1;
+      // A rail copy is shaped as if the tour-only tiles were not there.
+      const neighbourStride = (dx, dz) => {
+        const nb = data.byIndex.get(`${t.ix + dx},${t.iz + dz}`);
+        if (!nb || (ignoreTourOnly && (nb.visible || includeHidden) && !isRail(nb))) return 0;
+        return stridesById.get(nb.id);
+      };
+      const edge = {
+        north: Math.max(s, neighbourStride(0, -1)), south: Math.max(s, neighbourStride(0, 1)),
+        west: Math.max(s, neighbourStride(-1, 0)), east: Math.max(s, neighbourStride(1, 0)),
+      };
+      const base = vertexCount;
+      const x0 = grid.originM[0] + t.ix * cells * grid.cellSizeM;
+      const z0 = grid.originM[1] + t.iz * cells * grid.cellSizeM;
+      const hRaw = (u, v) => sampleAt(t, u * step, v * step);
+      // A finer tile's edge vertex snaps onto the coarser neighbour's straight
+      // edge between that neighbour's own vertices: shared edges coincide.
+      const along = (q, e) => {
+        const r = e / s; // runtime steps per coarse step
+        const q0 = Math.floor(q / r) * r;
+        return q0 === q ? null : [q0, Math.min(m, q0 + r), (q - q0) / r];
+      };
+      const snap = (u, v) => {
+        let seg = null, axis = 'u';
+        if (v === 0 && edge.north > s) seg = along(u, edge.north);
+        else if (v === m && edge.south > s) seg = along(u, edge.south);
+        else if (u === 0 && edge.west > s) { seg = along(v, edge.west); axis = 'v'; }
+        else if (u === m && edge.east > s) { seg = along(v, edge.east); axis = 'v'; }
+        const raw = hRaw(u, v);
+        // No-data stays no-data: snapping never invents a surface.
+        if (!seg || !Number.isFinite(raw)) return raw;
+        const [q0, q1, f] = seg;
+        const a = axis === 'u' ? hRaw(q0, v) : hRaw(u, q0);
+        const b = axis === 'u' ? hRaw(q1, v) : hRaw(u, q1);
+        return a + (b - a) * f;
+      };
+      const heights = new Float32Array(n * n);
+      const box = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+      for (let v = 0; v < n; v++) {
+        for (let u = 0; u < n; u++) {
+          const y = snap(u, v);
+          heights[v * n + u] = y;
+          const o = 3 * (base + v * n + u);
+          P[o] = x0 + u * s * grid.cellSizeM;
+          P[o + 1] = Number.isFinite(y) ? y : 0;
+          P[o + 2] = z0 + v * s * grid.cellSizeM;
+          if (Number.isFinite(y)) for (let axis = 0; axis < 3; axis++) {
+            box[axis] = Math.min(box[axis], P[o + axis]);
+            box[axis + 3] = Math.max(box[axis + 3], P[o + axis]);
+          }
         }
       }
-    }
-    const I = band.indices;
-    let k = band.indexCount;
-    for (let v = 0; v < m; v++) {
-      for (let u = 0; u < m; u++) {
-        const la = v * n + u;
-        // Skip quads touching no-data.
-        if (!(Number.isFinite(heights[la]) && Number.isFinite(heights[la + 1])
-          && Number.isFinite(heights[la + n]) && Number.isFinite(heights[la + n + 1]))) continue;
-        const a = base + la, b = a + 1, c = a + n, d = c + 1;
-        // Split along a-d, matching the baker's error measure. Winding is
-        // counter-clockwise seen from above (+Y) in X-east/Z-south axes.
-        I[k++] = a; I[k++] = c; I[k++] = d;
-        I[k++] = a; I[k++] = d; I[k++] = b;
-        triangles += 2;
+      const first = k;
+      for (let v = 0; v < m; v++) {
+        for (let u = 0; u < m; u++) {
+          const la = v * n + u;
+          // Skip quads touching no-data.
+          if (!(Number.isFinite(heights[la]) && Number.isFinite(heights[la + 1])
+            && Number.isFinite(heights[la + n]) && Number.isFinite(heights[la + n + 1]))) continue;
+          const a = base + la, b = a + 1, c = a + n, d = c + 1;
+          // Split along a-d, matching the baker's error measure. Winding is
+          // counter-clockwise seen from above (+Y) in X-east/Z-south axes.
+          I[k++] = a; I[k++] = c; I[k++] = d;
+          I[k++] = a; I[k++] = d; I[k++] = b;
+        }
       }
+      vertexCount += n * n;
+      pushChunk(chunks, first, k - first, box);
+      return [first, k, box];
+    };
+    // Each emitted tile's [first, last) indices, for the per-mode tile order.
+    const pieces = { R: [], A: [], T: [] };
+    for (const e of R) { const [a, b, box] = emit(e); pieces.R.push([e.seq, a, b]); railTriangles += (b - a) / 3; railCopies++; if (e.fringe) fill(a, b, box); }
+    const tourStart = k, tourFringeStart = fringeCount;
+    // A tile that borders a farther band only through a tour-only tile
+    // fills that seam in the tour alone: after the rail's fill.
+    const tourFill = [];
+    for (const e of A) {
+      const [a, b, box] = emit(e);
+      pieces.A.push([e.seq, a, b]);
+      railTriangles += (b - a) / 3;
+      if (e.railFringe) fill(a, b, box); else if (e.fringe) tourFill.push([a, b, box]);
     }
-    pushChunk(band.chunks, band.indexCount, k - band.indexCount, box);
-    if (fringe) {
-      pushChunk(band.fringeChunks, band.fringeCount, k - band.indexCount, box);
-      band.fringe.set(I.subarray(band.indexCount, k), band.fringeCount);
-      band.fringeCount += k - band.indexCount;
-    }
-    band.indexCount = k;
-    band.vertexCount += n * n;
-  }
-  const bands = {};
-  for (const b of BANDS) {
-    const o = out[b];
-    bands[b] = { positions: o.positions, indices: o.indexCount === o.indices.length ? o.indices : o.indices.slice(0, o.indexCount), vertexCount: o.vertexCount,
-      fringe: o.fringeCount === o.fringe.length ? o.fringe : o.fringe.slice(0, o.fringeCount),
-      chunks: finishChunks(o.chunks), fringeChunks: finishChunks(o.fringeChunks) };
+    const railEnd = k, railFringeEnd = fringeCount;
+    for (const [a, b, box] of tourFill) fill(a, b, box);
+    for (const e of [...T, ...D]) { const [a, b, box] = emit(e); pieces.T.push([e.seq, a, b]); if (e.fringe) fill(a, b, box); }
+    triangles += (k - tourStart) / 3;
+    const split = railEnd !== k || tourStart !== 0;
+    // Each mode's tiles in package order: the order a build of what that
+    // mode draws, alone, would emit them in (order-dependent samplers such
+    // as the contour-ink reservoir read it).
+    const ordered = (...lists) => Uint32Array.from(lists.flat().sort((x, y) => x[0] - y[0]).flatMap(([, a, b]) => [a, b]));
+    const fringeSplit = railFringeEnd !== fringeCount || tourFringeStart !== 0;
+    bands[bandName] = {
+      positions: vertexCount * 3 === P.length ? P : P.slice(0, vertexCount * 3),
+      indices: k === I.length ? I : I.slice(0, k), vertexCount,
+      fringe: fringeCount === F.length ? F : F.slice(0, fringeCount),
+      chunks: finishChunks(chunks), fringeChunks: finishChunks(fringeChunks),
+      ranges: split ? { rail: [0, railEnd], tour: [tourStart, k - tourStart] } : null,
+      fringeRanges: fringeSplit ? { rail: [0, railFringeEnd], tour: [tourFringeStart, fringeCount - tourFringeStart] } : null,
+      tileOrder: split ? { rail: ordered(pieces.R, pieces.A), tour: ordered(pieces.A, pieces.T) } : null,
+    };
   }
   const bytes = BANDS.reduce((sum, b) => sum + bands[b].positions.byteLength + bands[b].indices.byteLength, 0);
-  return { bands, stats: { triangles, vertices: BANDS.reduce((s2, b) => s2 + bands[b].vertexCount, 0), bytes } };
+  return { bands, stats: { triangles, railTriangles, railCopies, vertices: BANDS.reduce((s2, b) => s2 + bands[b].vertexCount, 0), bytes } };
+}
+
+/** The arrays one draw mode ('rail' | 'tour') of a built terrain draws, per
+ *  band: the shared positions and that mode's index and seam-fill ranges.
+ *  For evidence tools that read the mesh as the scene draws it. */
+export function terrainBandsFor(built, mode) {
+  return Object.fromEntries(BANDS.map((b) => {
+    const band = built.bands[b];
+    const cut = (array, ranges) => (ranges ? array.subarray(ranges[mode][0], ranges[mode][0] + ranges[mode][1]) : array);
+    return [b, { ...band, indices: cut(band.indices, band.ranges), fringe: cut(band.fringe, band.fringeRanges) }];
+  }));
 }
 
 // Per-tile index ranges and boxes (TerrainChunks.chunkTable's arrays).

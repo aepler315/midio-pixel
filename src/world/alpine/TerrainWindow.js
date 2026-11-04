@@ -1,5 +1,5 @@
 import { cameraBasis } from '../terrain/SceneTravel.js';
-import { STRIDES, WATER_FLOW } from './TerrainPackage.js';
+import { STRIDES, WATER_FLOW, terrainHeightRange } from './TerrainPackage.js';
 import { ZOOM_MIN } from '../../render/CameraDirector.js';
 import { LENS_MIN_HALF_ANGLE_SCALE } from '../../render/CameraLens.js';
 import { MIRROR_LIFT } from './WaterMirror.js';
@@ -84,8 +84,9 @@ function pixelTerrainPlan(plan, data, requirements, { heightPx, pixelHeightPx, p
   let triangles = 0, maxErrorPx = 0, summitMaxErrorPx = 0, coarsened = 0, coarsenedError = 0;
   const summits = new Set(protectedTileIds), strides = new Map(plan.strides);
   const minimumUpY = Math.min(...detailPoses.map(p => Math.abs(p.basis.up[1])));
-  const heightMin = data.manifest?.boundsM?.min?.[1] ?? Math.min(...[...data.tiles.values()].map(t => t.minY));
-  const heightMax = data.manifest?.boundsM?.max?.[1] ?? Math.max(...[...data.tiles.values()].map(t => t.maxY));
+  const range = terrainHeightRange(data.manifest);
+  const heightMin = range?.[0] ?? Math.min(...[...data.tiles.values()].map(t => t.minY));
+  const heightMax = range?.[1] ?? Math.max(...[...data.tiles.values()].map(t => t.maxY));
   const rates = new Map();
   const rateFor = tile => {
     if (!rates.has(tile.id)) {

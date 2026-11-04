@@ -285,18 +285,23 @@ const ARGS = (angle) => [`--use-angle=${angle}`, '--enable-unsafe-swiftshader', 
  *                grows with segment count, so pass shot eyes decimated to
  *                ~50-100 m rather than every 25 m sample
  *   width/height frame size of every render
+ *   terrainMode  'tour' (default: shot poses) or 'rail' (rail parity): the
+ *                ground, trees and height range a tour package draws for
+ *                that camera (RailDraw.js); others draw the same either way
  * Resolves a session { viewId, renderer, stats, trees, pageErrors,
  * renderPoses(poses, { mode, subject }) -> [{ png, metrics, ms }],
  * setPaths(cameraPaths), close() }. A pose may carry its own `subject`.
  * The GL backend comes from VISUAL_ANGLE (default 'gl'; 'swiftshader').
  */
-export async function openShotReview(viewId, { cameraPaths = null, width = 480, height = 270, budget = 'desktop', timeoutMs = 600000, terrain = null } = {}) {
+export async function openShotReview(viewId, { cameraPaths = null, width = 480, height = 270, budget = 'desktop', timeoutMs = 600000, terrain = null, terrainMode = 'tour' } = {}) {
   const [{ chromium }, fs, { fileURLToPath }, { snapshotSource, serveSnapshot }] = await Promise.all([
     import('playwright'), import('node:fs/promises'), import('node:url'), import('./visual-evaluation-server.mjs')]);
   const self = fileURLToPath(import.meta.url);
   const snapshot = await snapshotSource(fileURLToPath(new URL('../../', import.meta.url)));
   snapshot.files.set('/tools/lib/scenic-render.mjs', await fs.readFile(self));
-  const q = new URLSearchParams({ view: viewId, budget, preview: '0' });
+  // A tour package draws its tour's ground for shot poses, its rail's for
+  // rail parity (RailDraw.js); others draw the same either way.
+  const q = new URLSearchParams({ view: viewId, budget, preview: '0', terrainMode });
   if (cameraPaths) {
     snapshot.files.set('/shot-review/paths.json', Buffer.from(JSON.stringify(cameraPaths)));
     q.set('paths', '/shot-review/paths.json');
