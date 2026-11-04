@@ -22,17 +22,21 @@ export const DANCE_WAVE_BOUND = Math.SQRT2 * 128 / 127.5;
 export const MIRROR_BOUND_SAFETY = 2;
 
 /** Axis-aligned boxes (minX, minY, minZ, maxX, maxY, maxZ per box) holding
- *  every vertex an index subset references, binned on a WATER_BOX_M grid. */
+ *  every triangle of the index subsets whole, binned on a WATER_BOX_M grid
+ *  by each triangle's first vertex. A triangle crossing a cell line grows
+ *  its own cell's box over the line: binning vertices alone would leave the
+ *  strip between two cells' boxes in neither, and a box the camera culls
+ *  could then still own visible water. */
 export function waterBoxes(subsets) {
   const cells = new Map();
   for (const sub of subsets) {
     const pos = sub.positions, idx = sub.index;
-    for (let i = 0; i < idx.length; i++) {
-      const o = idx[i] * 3, x = pos[o], y = pos[o + 1], z = pos[o + 2];
-      const key = `${Math.floor(x / WATER_BOX_M)},${Math.floor(z / WATER_BOX_M)}`;
-      const b = cells.get(key);
-      if (!b) cells.set(key, [x, y, z, x, y, z]);
-      else {
+    for (let t = 0; t + 2 < idx.length; t += 3) {
+      const f = idx[t] * 3, key = `${Math.floor(pos[f] / WATER_BOX_M)},${Math.floor(pos[f + 2] / WATER_BOX_M)}`;
+      let b = cells.get(key);
+      if (!b) cells.set(key, b = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity]);
+      for (let k = 0; k < 3; k++) {
+        const o = idx[t + k] * 3, x = pos[o], y = pos[o + 1], z = pos[o + 2];
         if (x < b[0]) b[0] = x; if (y < b[1]) b[1] = y; if (z < b[2]) b[2] = z;
         if (x > b[3]) b[3] = x; if (y > b[4]) b[4] = y; if (z > b[5]) b[5] = z;
       }

@@ -127,3 +127,46 @@ test('every pixel a lake triangle can draw in the main view lies in the water sc
   const straddle = Float64Array.of(-1, -1, -2, 1, 1, 2);
   assert.deepEqual(waterScissor(straddle, identity, { lo: 0, hi: 0 }, 10, 10), { x: 0, y: 0, width: 10, height: 10 });
 });
+
+test('a lake crossing box cells keeps its edge water when a frustum side falls between two cells', () => {
+  // A flat grid lake whose triangles cross every WATER_BOX_M cell line. The
+  // camera's left frustum plane is the vertical plane x = X, placed between
+  // the last vertex before a cell line and the first one after it: the
+  // cell left of X is wholly outside the frustum, but the triangles that
+  // cross the line still draw at the frame's left edge.
+  const level = 1000, W = 960, H = 540, fovY = 50 * Math.PI / 180, aspect = W / H;
+  const halfH = Math.atan(Math.tan(fovY / 2) * aspect);
+  let checked = 0;
+  for (const spacing of [30, 40, 55]) {
+    const positions = [], index = [], n = Math.floor(4000 / spacing);
+    for (let j = 0; j <= 40; j++) for (let i = 0; i <= n; i++) positions.push(-2000 + i * spacing, level, -100 - j * spacing);
+    for (let j = 0; j < 40; j++) for (let i = 0; i < n; i++) {
+      const a = j * (n + 1) + i, b = a + 1, c = a + n + 1, d = c + 1;
+      index.push(a, c, d, a, d, b);
+    }
+    const boxes = waterBoxes([{ positions: Float32Array.from(positions), index: Uint32Array.from(index) }]);
+    for (const cell of [-3, -1, 2]) {
+      const line = cell * 384, before = -2000 + Math.ceil((line + 2000) / spacing - 1) * spacing;
+      if (before + spacing === line) continue; // a vertex on the line: no gap
+      const X = (before + Math.min(before + spacing, line + spacing)) / 2;
+      const eye = [X, level + 100, 0], view = lookAt(eye, [X + Math.sin(halfH), level + 100, -Math.cos(halfH)]);
+      const viewProj = mul(perspective(fovY, aspect, 1, 50000), view);
+      const rect = waterScissor(boxes, viewProj, { lo: -1, hi: 1 }, W, H);
+      for (let t = 0; t < index.length; t += 3) {
+        const A = index[t] * 3, B = index[t + 1] * 3, C = index[t + 2] * 3;
+        if (Math.max(positions[A], positions[B], positions[C]) < X) continue;
+        for (let s = 0; s <= 6; s++) for (let q = 0; q <= 6 - s; q++) {
+          const a = s / 6, b = q / 6, c = 1 - a - b;
+          const p = [0, 1, 2].map(k => a * positions[A + k] + b * positions[B + k] + c * positions[C + k]);
+          const v = apply(viewProj, p);
+          if (!(v[3] > 0) || Math.abs(v[0]) > v[3] || Math.abs(v[1]) > v[3] || Math.abs(v[2]) > v[3]) continue;
+          const x = Math.min(W - 1, Math.floor((v[0] / v[3] + 1) / 2 * W)), y = Math.min(H - 1, Math.floor((v[1] / v[3] + 1) / 2 * H));
+          assert.ok(x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height,
+            `spacing ${spacing}, plane x=${X}: pixel ${x},${y} outside ${JSON.stringify(rect)}`);
+          checked++;
+        }
+      }
+    }
+  }
+  assert.ok(checked > 10000, `checked ${checked}`);
+});
