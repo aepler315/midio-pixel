@@ -299,8 +299,15 @@ function* placeForestSteps(data, view, rules, { seed = 0, rings = FOREST_RINGS, 
   const floor = rules.forestFloorM ?? RULE_DEFAULTS.forestFloorM;
   // Typed chunks, not growing JS arrays: a 300k-tree view would otherwise
   // reallocate and copy millions of elements in single long pauses.
-  const detail = new FloatChunks(), mesh = new FloatChunks(), board = new FloatChunks();
+  // Trees on ground only a shot tour sees (`rail: false`) go after the
+  // rail's own in each ring, so a view on its rail draws a prefix of every
+  // batch (RailDraw.js); a root jittered onto tour ground is the tour's.
+  const rail = [new FloatChunks(), new FloatChunks(), new FloatChunks()];
+  let tour = null;
   const cells = data.cells, cs = data.grid.cellSizeM;
+  let tourGround = false;
+  for (const t of data.tiles.values()) if (t.rail === false) { tourGround = true; break; }
+  const ownerOf = (x, z) => data.byIndex.get(`${Math.floor((x - data.grid.originM[0]) / cs / cells)},${Math.floor((z - data.grid.originM[1]) / cs / cells)}`);
   for (const tile of data.tiles.values()) {
     if (!tile.visible || tile.minY > treeline + 300) continue;
     const x0 = data.grid.originM[0] + tile.ix * cells * cs, z0 = data.grid.originM[1] + tile.iz * cells * cs;
@@ -330,10 +337,10 @@ function* placeForestSteps(data, view, rules, { seed = 0, rings = FOREST_RINGS, 
         if (d > rings.billboardM) continue;
         const traits = treeTraits(ix, iz, seed, y, slope, rules, view);
         let band = d < b.nearM ? 2 : d < b.midM ? 1 : 0;
+        // Jitter can move a root into a neighbour of the iteration tile.
+        const owner = terrainPartitions || (tourGround && tile.rail !== false) ? ownerOf(x, z) : null;
         if (terrainPartitions) {
-          // Jitter can move a root into a neighbour of the iteration tile.
           // Match TerrainMesh.planBands: invalid/missing metadata is far.
-          const owner = data.byIndex.get(`${Math.floor((x - data.grid.originM[0]) / cs / cells)},${Math.floor((z - data.grid.originM[1]) / cs / cells)}`);
           band = Math.max(0, BANDS.indexOf(owner?.band));
         }
         const rec = [traits.x, y, traits.z, traits.height, traits.width, traits.species, traits.id, band];
@@ -342,16 +349,20 @@ function* placeForestSteps(data, view, rules, { seed = 0, rings = FOREST_RINGS, 
         // each tree's threshold: roots, dimensions, IDs and density stay put,
         // and moving/returning cameras never roll a new representation.
         const ringScale = .82 + .36 * u01(hash2(ix, iz, seed + 23));
-        (d < Math.min(rings.meshM, rings.detailM ?? FOREST_RINGS.detailM) * ringScale ? detail
-          : d < rings.meshM * ringScale ? mesh : board).push(...rec);
+        const ring = d < Math.min(rings.meshM, rings.detailM ?? FOREST_RINGS.detailM) * ringScale ? 0 : d < rings.meshM * ringScale ? 1 : 2;
+        const onRail = tile.rail !== false && owner?.rail !== false;
+        (onRail ? rail : (tour ||= [new FloatChunks(), new FloatChunks(), new FloatChunks()]))[ring].push(...rec);
       }
       // One lattice row per step: a 64-cell tile holds ~100 rows of ~100
       // candidates, so a whole tile between yields could run for 100 ms.
       yield;
     }
   }
-  return { meshDetail: detail.toArray(), mesh: mesh.toArray(), billboard: board.toArray(), stride: STRIDE,
-    count: (detail.length + mesh.length + board.length) / STRIDE };
+  const [detail, mesh, board] = rail.map((r, i) => (tour ? FloatChunks.concat(r, tour[i]) : r.toArray()));
+  return { meshDetail: detail, mesh, billboard: board, stride: STRIDE,
+    count: (detail.length + mesh.length + board.length) / STRIDE,
+    // How many of each ring's leading trees stand on the rail's ground.
+    ...(tour ? { railCount: { meshDetail: rail[0].length / STRIDE, mesh: rail[1].length / STRIDE, billboard: rail[2].length / STRIDE } } : {}) };
 }
 
 /** Append-only float storage in fixed typed chunks. */
@@ -364,15 +375,18 @@ class FloatChunks {
       this.length++;
     }
   }
-  toArray() {
-    const out = new Float32Array(this.length);
+  toArray(out = new Float32Array(this.length), offset = 0) {
     let at = 0;
     for (const c of this.chunks) {
       const n = Math.min(c.length, this.length - at);
-      out.set(n === c.length ? c : c.subarray(0, n), at);
+      out.set(n === c.length ? c : c.subarray(0, n), offset + at);
       at += n;
     }
     return out;
+  }
+  static concat(a, b) {
+    const out = a.toArray(new Float32Array(a.length + b.length));
+    return b.toArray(out, a.length);
   }
 }
 

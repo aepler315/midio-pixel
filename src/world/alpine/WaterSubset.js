@@ -78,20 +78,32 @@ export function waterIndexSubset(positions, index, grid, mask, { maxShare = WATE
  * The same, in slices of `sliceTriangles`, awaiting `pause()` between them
  * so a large band never blocks the main thread for long.
  */
-export async function waterIndexSubsetAsync(positions, index, grid, mask, { maxShare = WATER_SUBSET_MAX_SHARE, sliceTriangles = 65536, pause = async () => {} } = {}) {
+export async function waterIndexSubsetAsync(positions, index, grid, mask, options = {}) {
+  return (await waterIndexSubsetPartsAsync(positions, index, grid, mask, options))?.keep ?? null;
+}
+
+/** waterIndexSubsetAsync, also counting the kept indices before each of the
+ *  ascending index offsets `cuts` (multiples of 3): { keep, before }, or null.
+ *  Kept triangles keep their order, so a range [a, b) of `index` is the
+ *  range [before(a), before(b)) of `keep`. */
+export async function waterIndexSubsetPartsAsync(positions, index, grid, mask, { maxShare = WATER_SUBSET_MAX_SHARE, sliceTriangles = 65536, pause = async () => {}, cuts = [] } = {}) {
   const n = index.length - index.length % 3, limit = Math.floor(n * maxShare);
-  const parts = [];
-  let total = 0;
-  for (let start = 0; start < n; start += sliceTriangles * 3) {
-    const part = keptTriangles(positions, index, grid, mask, start, Math.min(n, start + sliceTriangles * 3), limit - total);
+  const parts = [], before = [];
+  let total = 0, c = 0;
+  for (let start = 0; start < n;) {
+    while (c < cuts.length && cuts[c] <= start) { before.push(total); c++; }
+    const end = Math.min(n, start + sliceTriangles * 3, c < cuts.length ? cuts[c] : n);
+    const part = keptTriangles(positions, index, grid, mask, start, end, limit - total);
     if (!part) return null;
     parts.push(part.slice()); total += part.length;
-    if (start + sliceTriangles * 3 < n) await pause();
+    start = end;
+    if (start < n) await pause();
   }
+  while (c < cuts.length) { before.push(total); c++; }
   const out = new index.constructor(total);
   let o = 0;
   for (const part of parts) { out.set(part, o); o += part.length; }
-  return out;
+  return { keep: out, before };
 }
 
 // Triangles [start, end) of `index` that can draw water, as a view on a

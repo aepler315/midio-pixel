@@ -43,10 +43,11 @@ import { buildRockStage } from './RockStage.js';
 import { RockStageGL } from './RockStageGL.js';
 import { scenePoseAt } from '../terrain/SceneTravel.js';
 import { applyCameraMoves, rangeUserCamera } from './RangeCamera.js';
-import { BANDS, terrainFringeBytes, terrainHeightAt, SURFACE_BUILD_BYTES_PER_PIXEL } from './TerrainMesh.js';
+import { BANDS, terrainFringeBytes, terrainRailCopyBytes, terrainHeightAt, SURFACE_BUILD_BYTES_PER_PIXEL } from './TerrainMesh.js';
 import { mistParams, mistDrift, easeMistSteps, tourMistCap, tourMistFade, atmosphereMusic } from './RangeAtmosphere.js';
 import { mirrorSize, mirrorLevelFor, mirrorCameraFor, mirrorTextureMatrix, MIRROR_CLIP_M, MIRROR_LIFT } from './WaterMirror.js';
 import { railTile } from './TerrainPackage.js';
+import { tourGround, setTerrainDrawMode, drawnIndexCount } from './RailDraw.js';
 import { scenicProjection, calibrateRangeMusic, rangeCameraCalibration, requestedLandDance } from './RangeFrame.js';
 import { applyGlacierUniforms, glacierErrors, glacierSample } from './GlacierField.js';
 import { ActorsGL, SITE_LIGHTS_MAX, CAST_LAYER, CAST_RIBBON_LAYER, enableCastLayers } from './ActorsGL.js';
@@ -56,7 +57,7 @@ import { ACTOR_IDS, ACTOR_HUES, ACTOR_LOOK, ACTOR_NOTE_AGE_CAP_MS, ACTOR_START, 
 import { castPlan, castWork, pathPosition, siteWalk } from './CastJobs.js';
 import { flashScreenPoint, rainSeed01, stormKindRow } from './RangeStorm.js';
 import { forestWindAt } from './ForestWind.js';
-import { createWetMask, fillWetRows, waterIndexSubsetAsync } from './WaterSubset.js';
+import { createWetMask, fillWetRows, waterIndexSubsetPartsAsync } from './WaterSubset.js';
 import { waterBoxes, liftBounds, shiverBounds, mirrorScissor } from './MirrorScissor.js';
 // Storm light, linear: the deck's underside, the rain-dimmed horizon, the
 // rain air, per episode kind (RangeStorm STORM_KINDS zenith/horizon/air).
@@ -731,6 +732,22 @@ export class RangeScene {
     if (!p || p.windowCache || p.cameraTour === tour) return;
     p.cameraTour = tour || null;
     this._movedPoses = new WeakMap();
+    this._setTerrainMode(p);
+  }
+
+  /** On its rail a view draws only the rail's own ground, trees, water and
+   *  contour ink; on a shot tour, its tour's whole footprint (RailDraw.js).
+   *  Draw ranges only: compares modes, so refining a tour is a no-op. */
+  _setTerrainMode(p) {
+    if (!p || p.windowCache || p.view?.tour) return;
+    const mode = p.cameraTour ? 'tour' : 'rail';
+    if (p.terrainMode === mode) return;
+    p.terrainMode = mode;
+    for (const g of p.modeGeometries || []) setTerrainDrawMode(g, mode);
+    if (p.stats) p.stats = { ...p.stats, terrainMode: mode, drawnTriangles: mode === 'tour' ? p.stats.triangles : (p.stats.railTriangles ?? p.stats.triangles) };
+    // Cached depth and mirror passes were drawn in the other mode.
+    if (this.depthCache) this.depthCache.A.frame = this.depthCache.B.frame = -1;
+    for (const m of Object.values(this.mirrors || {})) if (m) m.frame = -1;
   }
 
   _invalidateTourWindows(p, { keepDetail = false } = {}) {
@@ -1028,7 +1045,8 @@ export class RangeScene {
         p.windowCache.request(index, { replace: true }).catch(fail);
         return false;
       }
-      const built = buildTerrainGeometry(p.data, { strides: plan.strides });
+      // Tour windows never draw a rail: every tile once (TerrainMesh).
+      const built = buildTerrainGeometry(p.data, { strides: plan.strides, railSplit: false });
       const geos = createBandGeometries(this.THREE, p.data, { built });
       const forest = createForest(this.THREE, { mesh: new Float32Array(), billboard: new Float32Array(), stride: 8, count: 0 }, p.uniforms, { forestDebug: this.forestDebug });
       window = this._tourWindowResource(p, index, geos, forest, key, true, reservation);
@@ -1104,6 +1122,8 @@ export class RangeScene {
       const riverGeometries = {}, riverFringeGeometries = {}, riverDepthMeshes = {};
       let initialWindow = null, workerKey = null, windowReservation = null, buildEntry = null, workerReservation = null;
       const featureGeometries = {};
+      // Geometries with a rail and a tour draw mode (RailDraw.js).
+      const modeGeometries = [];
       // This preparation's hold on its material pack (see _acquireMaterial).
       const materialOwner = { viewId: view.id, holderKey: `range:terrain-gpu:${view.id}:${this.budget}` };
       const stale = () => {
@@ -1169,12 +1189,16 @@ export class RangeScene {
         // the GPU textures, while this build peak is charged as scratch.
         const textureStride = view.tour ? (this.budget === 'mobile' ? 4 : 2) : 1;
         const gridPx = ((cpu.data.grid.width - 1) / textureStride + 1) * ((cpu.data.grid.height - 1) / textureStride + 1);
-        const featureBudgetBytes = 2 * 3 * 768 * 6 * 4;
+        // A package with tour ground keeps a second set of hints: the rail's.
+        const featureBudgetBytes = (!view.tour && tourGround(cpu.data) ? 2 : 1) * 2 * 3 * 768 * 6 * 4;
         // The bake's mesh estimate does not know the seam-fill index
         // buffers; their exact size is counted from the tile plan (no
         // geometry built), so the one reservation covers them and a view
         // that cannot fit is denied before the mesh is built.
-        const fringeBytes = view.tour ? 0 : terrainFringeBytes(cpu.data, { budget: this.budget });
+        // A tour package also builds the rail's own copy of each rail tile
+        // that borders coarser tour ground (TerrainMesh planBands): counted
+        // the same way.
+        const fringeBytes = view.tour ? 0 : terrainFringeBytes(cpu.data, { budget: this.budget }) + terrainRailCopyBytes(cpu.data, { budget: this.budget });
         // Baked horizon for terrain sun visibility (not for tour windows,
         // whose terrain streams; they keep the unshadowed key).
         const horizonOptions = { maxSize: this.budget === 'mobile' ? 192 : 256 };
@@ -1192,7 +1216,7 @@ export class RangeScene {
           if (windowBytes > buildEntry.bytes) throw new RangeAssetError('budget', 'Initial window exceeded admitted build bound');
           buildEntry.retainedBytes = windowBytes;
         }
-        geos = createBandGeometries(THREE, cpu.data, { budget: this.budget, ...(rawWindow ? { built: rawWindow.built } : {}) });
+        geos = createBandGeometries(THREE, cpu.data, { budget: this.budget, railSplit: !view.tour, ...(rawWindow ? { built: rawWindow.built } : {}) });
         // Keep lakes and their reflections, but do not add flowing river
         // surfaces to the landscape.
         const riverStats = { triangles: 0, fringeTriangles: 0, bytes: 0 };
@@ -1284,11 +1308,24 @@ export class RangeScene {
           meshes[band].frustumCulled = false;
           scenes[band] = new THREE.Scene();
           scenes[band].add(meshes[band]);
-          const hints = await terrainFeatureSegmentsAsync(geos.geometries[band].attributes.position.array,
-            geos.geometries[band].index.array, { signal,
-              checkCurrent: () => { if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`); } });
+          const featureOptions = { signal, checkCurrent: () => { if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`); } };
+          const bandIndex = geos.geometries[band].index.array, bandPositions = geos.geometries[band].attributes.position.array;
+          const ranges = geos.geometries[band].userData.terrainRanges;
           const fg = new THREE.BufferGeometry();
+          let hints;
+          if (!ranges) hints = await terrainFeatureSegmentsAsync(bandPositions, bandIndex, featureOptions);
+          else {
+            // Each mode's hints are sampled from what that mode draws: the
+            // rail's first, then the tour's (vertex ranges, unindexed).
+            const cut = ([start, count]) => bandIndex.subarray(start, start + count);
+            const rail = await terrainFeatureSegmentsAsync(bandPositions, cut(ranges.rail), featureOptions);
+            const tour = await terrainFeatureSegmentsAsync(bandPositions, cut(ranges.tour), featureOptions);
+            hints = new Float32Array(rail.length + tour.length);
+            hints.set(rail); hints.set(tour, rail.length);
+            fg.userData.terrainRanges = { rail: [0, rail.length / 3], tour: [rail.length / 3, tour.length / 3] };
+          }
           fg.setAttribute('position', new THREE.BufferAttribute(hints, 3));
+          if (ranges) { setTerrainDrawMode(fg, 'rail'); modeGeometries.push(fg); }
           featureGeometries[band] = fg;
           const ink = new THREE.LineSegments(fg, featureMaterial);
           ink.frustumCulled = false; ink.renderOrder = 2; ink.layers.set(3);
@@ -1335,6 +1372,14 @@ export class RangeScene {
         material.depthFunc = THREE.LessEqualDepth;
         material.depthWrite = false;
         forest = createForest(THREE, placed, uniforms, { forestDebug: this.forestDebug });
+        if (!view.tour) {
+          // Every geometry already draws the rail (createBandGeometries,
+          // _buildWaterSubsets, createForest); setCameraTour switches them.
+          for (const g of [...Object.values(geos.geometries), ...Object.values(geos.fringes), ...(waterSubsets?.values() || [])]) {
+            if (g.userData.terrainRanges) modeGeometries.push(g);
+          }
+          modeGeometries.push(...forest.modeGeometries);
+        }
         if (resolveRangeComposition(view)?.foreground === 'ledge') stageGL = new RockStageGL(THREE, { textures: mat.textures, palette: mat.pack.manifest.palette, rules });
         for (const band of BANDS) for (const m of forest.byBand[band]) scenes[band].add(m);
         for (const d of forest.depth) depthScene.add(d);
@@ -1406,7 +1451,7 @@ export class RangeScene {
           view, generation, manifest: cpu.manifest, data: cpu.data, identity: cpu.identity, tourCpuKey: opts.tourCpuKey,
           surface, uniforms, material, depthMaterial, ownershipMaterials, horizon, hierarchy, depthBandMeshes: depthMeshes, geometries: geos.geometries, fringes: geos.fringes, fringeMeshes, fringeTravel, scenes, depthScene, depthScenes,
           riverMaterial, riverDepthMaterial, riverOwnershipMaterials, riverGeometries, riverFringeGeometries, riverDepthMeshes, riverStats,
-          forest, stageGL, featureGeometries, featureMaterial,
+          forest, stageGL, featureGeometries, featureMaterial, modeGeometries, terrainMode: view.tour ? null : 'rail',
           stats: { ...geos.stats, trees: forest.counts, featureBytes: featureBudgetBytes }, gpuKey, cpuKey: cpu.key, cpuOwner,
           waterSubsets, rules, waterLevelM, mirrorLevelM, waterColour, materialKey: mat.key, materialOwner, actors, actorRoutes: routes, castSeed, castPlan: plan, castWork: work,
         };
@@ -2795,7 +2840,7 @@ export class RangeScene {
    * another scene render. A refused allocation leaves the native pass intact. */
   /** The mirror texels this frame's lake can read, or null for all. */
   _mirrorScissor(p, m) {
-    const boxes = p.waterSubsets?.boxes;
+    const boxes = p.terrainMode === 'rail' ? p.waterSubsets?.railBoxes ?? p.waterSubsets?.boxes : p.waterSubsets?.boxes;
     if (!boxes) return null;
     // The boxes are in mesh space; every terrain mesh must draw untransformed.
     if (p.waterBoxesPlain === undefined) {
@@ -2829,16 +2874,23 @@ export class RangeScene {
       const position = geometry.attributes.position, index = geometry.index;
       if (!position || position.itemSize !== 3 || !index || position.normalized) continue;
       let aborted = false;
-      const keep = await waterIndexSubsetAsync(position.array, index.array, g, mask, {
+      // A tour package's geometry draws one of two ranges (RailDraw.js): its
+      // subset keeps both, cut where they start and end.
+      const r = geometry.userData?.terrainRanges;
+      const cuts = r ? [r.tour[0], r.rail[0] + r.rail[1]] : [];
+      const parts = await waterIndexSubsetPartsAsync(position.array, index.array, g, mask, { cuts,
         pause: async () => { await yieldToMain(); if (stale()) { aborted = true; throw new Error('stale'); } } }).catch(err => { if (aborted) return undefined; throw err; });
-      if (aborted || keep === undefined) { for (const sub of subsets.values()) sub.dispose(); return null; }
+      if (aborted || parts === undefined) { for (const sub of subsets.values()) sub.dispose(); return null; }
+      const keep = parts?.keep ?? null;
+      const ranges = keep && r ? { rail: [0, parts.before[1]], tour: [parts.before[0], keep.length - parts.before[0]] } : null;
       if (!keep) complete = false;
-      else boxSources.push({ positions: position.array, index: keep });
+      else boxSources.push({ positions: position.array, rail: ranges ? keep.subarray(0, ranges.rail[1]) : keep, tour: ranges ? keep.subarray(ranges.tour[0]) : keep });
       if (keep) {
         const sub = new THREE.BufferGeometry();
         sub.setAttribute('position', position);
         sub.setIndex(new THREE.BufferAttribute(keep, 1));
         sub.boundingSphere = geometry.boundingSphere;
+        if (ranges) { sub.userData.terrainRanges = ranges; setTerrainDrawMode(sub, 'rail'); }
         subsets.set(geometry, sub);
         triangles += keep.length / 3; bytes += keep.byteLength;
       }
@@ -2846,9 +2898,10 @@ export class RangeScene {
       if (stale()) { for (const sub of subsets.values()) sub.dispose(); return null; }
     }
     subsets.triangles = triangles; subsets.bytes = bytes;
-    // Where lake fragments can stand, for the mirror's scissor; unknown when
-    // any geometry kept its full index.
-    subsets.boxes = complete ? waterBoxes(boxSources) : null;
+    // Where lake fragments can stand, for the mirror's scissor (a tour's, and
+    // its rail's alone); unknown when any geometry kept its full index.
+    subsets.boxes = complete ? waterBoxes(boxSources.map(s => ({ positions: s.positions, index: s.tour }))) : null;
+    subsets.railBoxes = complete ? waterBoxes(boxSources.map(s => ({ positions: s.positions, index: s.rail }))) : null;
     return subsets;
   }
 
@@ -2883,7 +2936,7 @@ export class RangeScene {
         if (!sub) continue;
         swapped.push([mesh, mesh.geometry, mesh.visible]);
         mesh.geometry = sub;
-        if (!sub.index.count) mesh.visible = false;
+        if (!drawnIndexCount(sub)) mesh.visible = false;
       }
       u.uWaterOnly.value = 1;
       // Travel columns draw their own seam copies whole; so does this pass.

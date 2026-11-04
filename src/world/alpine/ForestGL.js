@@ -21,6 +21,7 @@ import { ACTOR_GLSL, actorUniforms } from './ActorsGL.js';
 import { buildConiferAsset, familyFor, variantFor, FOREST_FAMILIES, FOREST_VARIANTS } from './ForestSpeciesAssets.js';
 import { forestBatchFootprintPx, forestDetailWeight } from './ForestDetail.js';
 import { WIND_SWAY, GUST_LEAN, PARTING_LEAN, STORM_LEAN, WIND_DIR, WIND_MAX_GAIN, FOREST_MAX_LEAN } from './ForestWind.js';
+import { setTerrainDrawMode } from './RailDraw.js';
 export { WIND_SWAY, GUST_LEAN, PARTING_LEAN, STORM_LEAN, WIND_DIR, WIND_MAX_GAIN, FOREST_MAX_LEAN };
 
 // Match the terrain canopy's actual-camera handoff, including mirrors.
@@ -585,6 +586,10 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
   let bytes = 0;
   const counts = { meshDetail: 0, mesh: 0, billboard: 0 };
   const batches = { meshDetail: 0, mesh: 0, billboard: 0 };
+  // Each batch's trees on the rail's own ground lead it (ForestCover): a
+  // view on its rail draws only those (RailDraw.js). Copied out: no closure
+  // here may retain the placement buffers.
+  const modeGeometries = [], railCount = placed.railCount ? { ...placed.railCount } : null;
   // nearLod tags the detail ring's paired assets. Their original seven
   // per-tree floats remain shared; each batch adds only one GPU scalar.
   const addBatch = (kind, base, data, idx, b, colorMat, depthMat, { from = null, nearLod = null } = {}) => {
@@ -605,6 +610,16 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
     }
     geo.userData.asset = base.userData.asset;
     geos.push(geo);
+    const railLimit = railCount?.[kind];
+    if (railLimit != null) {
+      let rail = 0;
+      while (rail < idx.length && idx[rail] < railLimit) rail++;
+      if (rail < idx.length) {
+        geo.userData.instanceCounts = { rail, tour: idx.length };
+        setTerrainDrawMode(geo, 'rail');
+        modeGeometries.push(geo);
+      }
+    }
     const tag = (mesh) => { if (nearLod) { mesh.userData.nearLod = nearLod; mesh.visible = nearLod === 'detail'; } return mesh; };
     if (partitioned && kind !== 'billboard') {
       // Instanced objects cannot sort individual trees. Restore their solid
@@ -672,7 +687,7 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
     for (const [name, attribute] of Object.entries(base.attributes)) group.lite.setAttribute(name, attribute);
   };
   const forest = {
-    byBand, depth, depthByBand, bytes, counts, batches, assets, uniforms: u, nearDetail: true, shown: true, pixelatedDetail: false, detailView: null,
+    byBand, depth, depthByBand, bytes, counts, batches, assets, modeGeometries, uniforms: u, nearDetail: true, shown: true, pixelatedDetail: false, detailView: null,
     /** Narrative visibility and the governor cap also apply while a pixel
      * footprint blends the paired assets. No placement counts change. */
     applyVisibility({ shown = forest.shown, nearDetail = forest.nearDetail } = {}) {

@@ -394,6 +394,9 @@ export class RangePresentation {
     if (this.scene) {
       for (const [id, p] of [...this.scene.prepared]) {
         if (keep.has(id) && !p.view?.tour) {
+          // The new song decides the camera again (_beginScenic, once its
+          // plan settles); until then the view is back on its rail.
+          this.scene.setCameraTour?.(id, null);
           p.generation = generation;
           this.residency?.retag(p.gpuKey, generation);
           this.residency?.retag(p.cpuKey, generation);

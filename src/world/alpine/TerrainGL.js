@@ -8,6 +8,7 @@ import { yieldToMain } from '../../utils/yieldToMain.js';
 import { waterTexelTableAsync } from './WaterColourRanges.js';
 import { buildTerrainGeometry, buildSurfaceTexture, buildReceiverMask, buildSurfaceTextureAsync, buildReceiverMaskAsync, BANDS } from './TerrainMesh.js';
 import { terrainHeightRange } from './TerrainPackage.js';
+import { setTerrainDrawMode } from './RailDraw.js';
 
 export const REVIEW_MODES = Object.freeze({ neutral: 0, silhouette: 1, depth: 2, normals: 3, edges: 4 });
 
@@ -136,7 +137,8 @@ export function terrainUniforms(THREE, data, surface) {
   };
 }
 
-/** One BufferGeometry per depth band. */
+/** One BufferGeometry per depth band (and its seam fill). A tour package's
+ *  geometries start on `terrainMode` (default 'rail'; RailDraw.js). */
 export function createBandGeometries(THREE, data, options = {}) {
   return finishPreparation(bandGeometrySteps(THREE, data, options));
 }
@@ -151,6 +153,8 @@ export function createBandGeometriesAsync(THREE, data, options = {}) {
 
 function* bandGeometrySteps(THREE, data, options) {
   const built = options.built || buildTerrainGeometry(data, options);
+  // A view starts on its rail (RangeScene setCameraTour switches it).
+  const mode = options.terrainMode || 'rail';
   const geometries = {}, fringes = {};
   let bytes = 0, complete = false;
   try {
@@ -161,6 +165,9 @@ function* bandGeometrySteps(THREE, data, options) {
       geo.setAttribute('position', position);
       geo.setIndex(new THREE.BufferAttribute(b.indices, 1));
       geo.computeBoundingSphere();
+      // A tour package's band draws one of two ranges (RailDraw.js); the
+      // whole buffer never.
+      if (b.ranges) { geo.userData.terrainRanges = b.ranges; setTerrainDrawMode(geo, mode); }
       geometries[band] = geo;
       bytes += b.positions.byteLength + b.indices.byteLength;
       // The band's tiles that border a farther band, sharing its vertices.
@@ -169,6 +176,7 @@ function* bandGeometrySteps(THREE, data, options) {
         f.setAttribute('position', position);
         f.setIndex(new THREE.BufferAttribute(b.fringe, 1));
         f.boundingSphere = geo.boundingSphere;
+        if (b.fringeRanges) { f.userData.terrainRanges = b.fringeRanges; setTerrainDrawMode(f, mode); }
         fringes[band] = f;
         bytes += b.fringe.byteLength;
       }
