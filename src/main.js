@@ -62,6 +62,7 @@ import { REEL_TARGET_SIZE, sizeLabel, reelFileName, planReelRenders, stepTargets
 import { residencyBudgetFor } from './render/GraphicsResidency.js';
 import { shouldSuggestLandscape } from './render/StagePresets.js';
 import { createPresentingRenderer } from './render/PresentingRenderer.js';
+import { VoxelRange, voxelRangeRequested } from './render/VoxelRange.js';
 import { directTerrainExperiment } from './render/DirectTerrainExperiment.js';
 import { createRenderReadyPlayback, waitForScenicReady } from './render/RenderReadyPlayback.js';
 import { stageOutputSize } from './render/RenderOutputSize.js';
@@ -472,6 +473,9 @@ paramBus.rendererMode = rendererMode;
 // opts out, and any v2 failure falls back to legacy per frame on its own.
 // ?rangeView=<id> forces one catalog view for diagnostics. One presentation (and one GPU context) per page.
 const rangeMode = resolveRangeMode();
+const voxelRangePilot = voxelRangeRequested(location.search)
+  ? new VoxelRange({ ownerDocument: document, residency: sharedResidency() }) : null;
+const voxelRangeCaption = voxelRangePilot ? sceneCaptionFor(voxelRangePilot.view) : null;
 let rangePresentation = experience === 'landscape' && rangeMode.mode === 'v2'
   ? new RangePresentation({ mode: 'v2', tour: rangeMode.tour, upgradeIntended: rangeMode.upgradeIntended, shots: rangeMode.shots, shotCandidates: rangeMode.shotCandidates, forcedViewId: rangeMode.forcedViewId, diag: rangeMode.diag, residency: sharedResidency(), budget: residencyBudgetFor().name })
   : null;
@@ -1951,13 +1955,14 @@ function applyRangeCaptions(timelineData, exportMode) {
     sim.rangeCaption = captionFor(terrain?.range || null, terrain?.ranges || {}, profiles, null);
     if (sim.rangeCaption) shown.push(terrain?.ranges?.near, terrain?.ranges?.mid, terrain?.range);
   }
-  if (!exportMode) {
+  if (!exportMode && (!renderer?.voxelRange || renderer.voxelRange.state === 'unavailable')) {
     for (const r of shown) if (r?.id) noteRangeShown(r.id);
   }
   syncCaptionDetails();
 }
 function syncCaptionDetails() {
-  const caption = sim?.biomes?.world?.kind === 'alpine' ? captionAt(sim.rangeCaptions || sim.rangeCaption, sim.timeMs)?.caption : null;
+  const caption = renderer?.diagnostics.voxelRange ? voxelRangeCaption
+    : sim?.biomes?.world?.kind === 'alpine' ? captionAt(sim.rangeCaptions || sim.rangeCaption, sim.timeMs)?.caption : null;
   setCaptionDetails(rangeCaptionDetailsEl, caption || null);
 }
 
@@ -2176,7 +2181,10 @@ function startTimeline(timelineData, extra = {}) {
   sim.estimatedDuration = !!timelineData.estimatedDuration;
   // Canvas is always the scene compositor; 'webgl' adds a non-destructive
   // overlay. Created here per song, after the world is known.
-  renderer = createPresentingRenderer({ canvas, mode: rendererMode, presentation: effectivePresentation(), residency: sharedResidency() });
+  const voxelRange = waitForLandscape ? voxelRangePilot : null;
+  voxelRange?.setSong(loadGen, sim, extra.chapterState?.committedThroughMs ?? startAtMs);
+  renderer = createPresentingRenderer({ canvas, mode: rendererMode, presentation: effectivePresentation(),
+    residency: sharedResidency(), voxelRange });
   if (rangePresentation) {
     rangePresentation.setSong({ terrain: timelineData.terrain || null, mgr: sim.biomes, generation: loadGen, exportMode,
       cameraContinuation: extra.chapterState?.cameraTours || (exportMode ? null : cameraRun?.tourContinuation()) || null,
@@ -2419,8 +2427,21 @@ function startTimeline(timelineData, extra = {}) {
         isCurrent: () => sim === owner && renderer === ownedRenderer && loadGen === generation && running,
         hold() { playbackPreparing = !!waitForLandscape || !!extra.recordingSettings; },
         async prepare(signal) {
-          if (waitForLandscape)
-            await waitForScenicReady({ presentation: ownedPresentation, draw: options => ownedRenderer.draw(owner, 1, options), signal });
+          if (waitForLandscape) {
+            const pilot = ownedRenderer.voxelRange;
+            let voxelReady = false;
+            if (pilot) {
+              await pilot.prepare();
+              if (signal.aborted) return;
+              if (pilot.state === 'ready') {
+                voxelReady = !!ownedRenderer.draw(owner, 1, { preparing: true })?.presented;
+                if (!voxelReady) pilot.fail('Could not present the voxel range');
+              }
+            }
+            if (!voxelReady) {
+              await waitForScenicReady({ presentation: ownedPresentation, draw: options => ownedRenderer.draw(owner, 1, options), signal });
+            }
+          }
           // suspend() is asynchronous. A paused startup cannot create its
           // BufferSource until the context has actually stopped rendering.
           if (paused) await audioEngine.ctx.suspend();
@@ -3576,10 +3597,11 @@ displayDialog?.addEventListener('close', () => settingsHome.append(titleSettings
 document.getElementById('copyGraphicsReport')?.addEventListener('click', async () => {
   const output = document.getElementById('graphicsReport');
   const status = document.getElementById('graphicsReportStatus');
+  const pilot = renderer?.voxelRange;
   const text = JSON.stringify(graphicsReport({
-    range: rangePresentation?.snapshot(), profile: displayPrefs,
+    range: rangePresentation?.snapshot(), voxelRange: pilot?.status, profile: displayPrefs,
     presentation: renderer?.diagnostics || titlePresentation?.diagnostics, canvas,
-    gl: rangePresentation?.scene?.renderer?.getContext(),
+    gl: pilot?.gl ?? rangePresentation?.scene?.renderer?.getContext(),
   }), null, 2);
   output.hidden = false; output.value = text;
   try {

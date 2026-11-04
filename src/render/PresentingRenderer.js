@@ -6,14 +6,15 @@ import { CinematicPixelRenderer } from './CinematicPixel.js';
 import { quantizeImageData, quantizePalette } from './PaletteQuantize.js';
 import { buildDitherWeights } from './PixelDither.js';
 
-export function createPresentingRenderer({ canvas, mode = 'canvas', presentation, residency, rendererFactory = createRenderer }) {
-  return new PresentingRenderer({ canvas, mode, presentation, residency, rendererFactory });
+export function createPresentingRenderer({ canvas, mode = 'canvas', presentation, residency, voxelRange = null, rendererFactory = createRenderer }) {
+  return new PresentingRenderer({ canvas, mode, presentation, residency, voxelRange, rendererFactory });
 }
 class PresentingRenderer {
-  constructor({ canvas, mode, presentation, residency, rendererFactory }) {
+  constructor({ canvas, mode, presentation, residency, voxelRange, rendererFactory }) {
     this.canvas = canvas;
     this.inner = rendererFactory(canvas, mode);
     this.output = new PixelPresentation({ canvas, presentation, residency });
+    this.voxelRange = voxelRange;
     this._disposed = false;
     this._requestedPresentation = presentation;
     this._experience = 'landscape';
@@ -35,7 +36,7 @@ class PresentingRenderer {
   }
   getCaptureSource() {
     const source = this._disposed ? null : this.output.getCaptureSource();
-    if (source && this._directFrame) return source;
+    if (source && (this._directFrame || this._voxelFrame)) return source;
     // Recording and export consume the completed hybrid picture (smooth sky,
     // the cinematic cell reconstruction and/or the smooth cast over the
     // pixel frame). Palette diagnostics can still inspect the native
@@ -65,6 +66,20 @@ class PresentingRenderer {
       this._experience = sim?.experience || 'landscape'; this.setPresentation(this._requestedPresentation);
     }
     this.output.setFrameContext?.({ worldKind: sim?.biomes?.world?.kind ?? null, experience: this._experience });
+    const wasVoxelFrame = this._voxelFrame;
+    this._voxelFrame = false;
+    if (this.voxelRange && this.voxelRange.state !== 'unavailable') {
+      if (this.voxelRange.state !== 'ready') return this.output.failFrame('voxel-range-preparing');
+      const grid = this.output.grid;
+      const source = this.voxelRange.render(sim.heardTimeMs, grid.width, grid.height);
+      if (source) return this._drawVoxelRange(source);
+    }
+    if (this.voxelRange) {
+      this.output.diagnostics.voxelRange = false;
+      // The regular GPU scene is cold. On a mid-song loss, use the available
+      // legacy scenery immediately. A new transport start can warm Range v2.
+      if (wasVoxelFrame) this.rangePresentation = null;
+    }
     const manager = sim?.biomes;
     const cinematicPixel = !!this.output.presentation.cinematicPixel && this._experience !== 'trio';
     if (manager) {
@@ -164,6 +179,17 @@ class PresentingRenderer {
     this.output.diagnostics.pixelEffectScratchBytes = effectBytes;
     this.output.diagnostics.ownedPixelScratchBytes = (this.output.diagnostics.ownedPixelScratchBytes || 0) + effectBytes;
     this.output.diagnostics.qualityLevel = sim?.perf?.level ?? null;
+    return result;
+  }
+  _drawVoxelRange(source) {
+    const canvas = this.output.beginDirectFrame();
+    if (!canvas) return this.output.diagnostics.frame;
+    const ctx = canvas.getContext('2d');
+    compositePixelFrame(ctx, source, canvas.width, canvas.height, this.output.presentation.scaling);
+    const result = this.output.finishDirectFrame();
+    this._voxelFrame = !!result.presented;
+    Object.assign(this.output.diagnostics, { directTerrain: false, voxelRange: this._voxelFrame,
+      effectiveLook: 'pixel', working: { width: source.width, height: source.height } });
     return result;
   }
   _drawDirect(sim, alpha, { preparing, manager, range }) {

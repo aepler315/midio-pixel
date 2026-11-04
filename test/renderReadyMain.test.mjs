@@ -162,6 +162,20 @@ test('a prepared paused seek releases exactly one frame loop with the audio cont
   assert.equal(context.paused, true);
 });
 
+test('the voxel pilot must paint before audio starts and can bypass scenic preparation', async () => {
+  let release;
+  const ready = new Promise(resolve => { release = resolve; });
+  const voxelRange = { state: 'loading', async prepare() { await ready; this.state = 'ready'; } };
+  const { context, events } = timelineGate({ renderer: { voxelRange,
+    draw() { assert.equal(voxelRange.state, 'ready'); return { presented: true }; },
+  }, waitForScenicReady: async () => assert.fail('the pilot already owns the completed frame') });
+  await Promise.resolve();
+  assert.ok(!events.includes('source'));
+  release();
+  assert.equal((await context.renderReadyPromise).status, 'ready');
+  assert.equal(events.filter(event => event === 'source').length, 1);
+});
+
 test('pausing during render preparation immediately suspends the audio context', () => {
   let suspends = 0;
   const context = production('togglePause', { running: true, sim: {}, paused: false, playbackPreparing: true,
