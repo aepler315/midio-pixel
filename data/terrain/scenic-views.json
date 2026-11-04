@@ -109,7 +109,8 @@
           "docs/evidence/range-v2/nc-ross-lake-north-nostage-10s.jpg",
           "docs/evidence/range-v2/no-stage-coverage.json"
         ]
-      }
+      },
+      "shotsManifestUrl": "tour/nc-ross-lake-north.shots.json"
     },
     {
       "id": "nc-diablo-colonial",

@@ -13,7 +13,19 @@ export default {
    "place": "North Cascades, Washington",
    "credit": "Elevation: USGS 3DEP 1/3 arc-second DEM + AWS Terrain Tiles (beyond 3DEP coverage)",
    "terrainManifestUrl": "terrain/nc-ross-lake-north.terrain.json",
-   "terrainManifestSha256": "a09db953e8deb8d39a7e6e18e464a6b2a1ac0f8f1839c96d650552a47e03cf07",
+   "terrainManifestSha256": "1c158ef5412dfd764cdf2f660c2fb2d9e234584e4601aa53e4773e6de8571d5e",
+   "shotsManifestUrl": "tour/nc-ross-lake-north.shots.json",
+   "shotsManifestSha256": "c9e1e87ce87f7ecf503c3c1b6153f916a04982ddcb7a241be256d49f41212113",
+   "baseViewSha256": "3a84619f6a0d726da11f9a653d8cf443f6c978a2e033d263745369a36e671920",
+   "shotTour": {
+    "status": "candidate",
+    "identity": {
+     "shotsManifestSha256": "c9e1e87ce87f7ecf503c3c1b6153f916a04982ddcb7a241be256d49f41212113",
+     "terrainManifestSha256": "1c158ef5412dfd764cdf2f660c2fb2d9e234584e4601aa53e4773e6de8571d5e",
+     "baseViewSha256": "3a84619f6a0d726da11f9a653d8cf443f6c978a2e033d263745369a36e671920"
+    },
+    "approval": null
+   },
    "materialManifestUrl": "materials/wet-conifer.json",
    "materialManifestSha256": "8f5ff6bb64b01072364f9d4698c13591af20de8f32dfbd40b67f0614fd242bb0",
    "materialRules": {},
@@ -124,7 +136,7 @@ export default {
      "9fe71f8462cda743708757429969c11e25a061911ce8c713a9253511424d9b36",
      "76a07320ae284c5a397bb8b307b1f916c7d999121a67e34a53df0f113aa24e9c",
      "bef1fbf8f871821ae6bd884f381a30b1cf3565eb75d33c51b309cc5ec80ffb60",
-     "b621d841e649af0cee550e4db298e94195c22a379186154e8decc741e5a64c1b"
+     "9246cc9432569fd16d03d0672b41e73e5f6e442059f40563eadd4944b7b44f37"
     ]
    }
   },
