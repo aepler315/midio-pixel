@@ -44,12 +44,12 @@ function scene(budgetBytes = 1e9, budget = 'desktop') {
   s._releaseMaterial = () => {};
   return s;
 }
-async function prepare(s, cameraPaths, extra = {}) {
+async function prepare(s, cameraPaths, extra = {}, generation = 1) {
   const { manifest, payload } = await tourPackage();
   const fetch = globalThis.fetch;
   globalThis.fetch = async (url) => new Response(String(url).endsWith('.json') ? JSON.stringify(manifest) : payload);
   try {
-    return await s.prepare({ id: 'rail-only', camera, cameraPaths, terrainManifestUrl: 'rail-only.json', ...extra }, { baseUrl: 'http://test/', generation: 1 });
+    return await s.prepare({ id: 'rail-only', camera, cameraPaths, terrainManifestUrl: 'rail-only.json', ...extra }, { baseUrl: 'http://test/', generation });
   } finally { globalThis.fetch = fetch; }
 }
 const gpuBytes = (s, p) => s.residency.entries.get(p.gpuKey).bytes;
@@ -57,6 +57,12 @@ const cpuEntry = (s) => s.residency.entries.get('range:terrain-cpu:rail-only');
 const tileBytes = (data) => [...data.tiles.values()].reduce((n, t) => n + t.heightsM.byteLength + t.flowBytes.byteLength + (t.validMask?.byteLength || 0), 0);
 const tourTiles = (data) => [...data.tiles.values()].filter((t) => t.rail === false).length;
 const timeline = { durationMs: 1000 };
+/** Records what each preparation's room check answered. */
+function watchRoom(s) {
+  const rooms = [], room = s._tourRoom;
+  s._tourRoom = function (...args) { const r = room.apply(this, args); rooms.push(r); return r; };
+  return rooms;
+}
 
 test('the bake\'s mesh estimate is the sum of the tiles a decoded package keeps', async () => {
   const { manifest, decoded } = await tourPackage();
@@ -99,23 +105,45 @@ test('a tour package without its tour\'s footprint prepares the rail alone', asy
   assert.equal(two.terrainMode, 'tour');
 });
 
-test('a device that cannot hold both cameras prepares the rail alone, and one that can prepares both', async () => {
-  const reference = scene(), alone = await prepare(reference);
-  const small = scene(30e6), fitted = await prepare(small, footprint);
+test('a phone that cannot hold both cameras prepares the rail alone, never placing the tour\'s forest', async () => {
+  const reference = scene(1e9, 'mobile'), alone = await prepare(reference);
+  const small = scene(30e6, 'mobile'), fitted = await prepare(small, footprint);
   assert.equal(fitted.railOnly, 'its tour does not fit this device');
   assert.deepEqual(fitted.stats.trees, alone.stats.trees);
   assert.equal(fitted.stats.triangles, alone.stats.triangles);
   assert.equal(gpuBytes(small, fitted), gpuBytes(reference, alone));
   assert.equal(cpuEntry(small).bytes, cpuEntry(reference).bytes);
-  const large = scene(60e6), both = await prepare(large, footprint);
+  assert.deepEqual(small.buildAdmission, reference.buildAdmission, 'only the rail\'s forest was admitted');
+  const large = scene(60e6, 'mobile'), both = await prepare(large, footprint);
   assert.equal(both.railOnly, null);
 });
 
-test('a two-mode preparation denied for room is retried for its rail alone', async () => {
-  const s = scene(30e6);
-  s._tourFits = () => true; // as if the room went between the check and the reservation
+test('a desktop places the tour\'s forest when its placement fits, and holds both cameras when the trees placed fit', async () => {
+  // Room the bound's tree count would refuse, but the trees placed fit.
+  const s = scene(36e6), rooms = watchRoom(s);
+  const two = await prepare(s, footprint);
+  assert.deepEqual(rooms, ['placed']);
+  assert.equal(two.railOnly, null);
+  assert.ok(two.modeGeometries.length > 0);
+});
+
+test('a desktop whose trees placed do not fit both cameras keeps the rail for the song, and tries both next song', async () => {
+  const reference = scene(), alone = await prepare(reference);
+  const s = scene(30e6), rooms = watchRoom(s);
   await assert.rejects(prepare(s, footprint), (e) => e.reason === 'budget');
-  delete s._tourFits;
+  await assert.rejects(prepare(s, footprint, {}, 2), (e) => e.reason === 'budget');
+  assert.deepEqual(rooms, ['placed', 'placed']);
+  const retried = await prepare(s, footprint, {}, 2);
+  assert.equal(retried.railOnly, 'its tour did not fit this device');
+  assert.deepEqual(retried.stats.trees, alone.stats.trees);
+  assert.equal(gpuBytes(s, retried), gpuBytes(reference, alone));
+});
+
+test('a phone whose room went between the check and the reservation retries its rail alone', async () => {
+  const s = scene(30e6, 'mobile');
+  s._tourRoom = () => 'fits';
+  await assert.rejects(prepare(s, footprint), (e) => e.reason === 'budget');
+  delete s._tourRoom;
   const retried = await prepare(s, footprint);
   assert.equal(retried.railOnly, 'its tour did not fit this device');
 });
