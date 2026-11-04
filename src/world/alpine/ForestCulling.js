@@ -19,6 +19,12 @@
 // draw call itself when the count is 0. So every drawn object keeps its
 // place and its GL state, and the picture is unchanged.
 //
+// A render that throws never reaches onAfterRender. Its counts stay 0 until
+// the next culled render of any scene (the scenes share these geometries),
+// or until restoreForestCulling(), which the code that reads or sets a
+// batch's instanceCount between renders calls first (ForestGL
+// updateDetailView, RangeScene._setTerrainMode).
+//
 // The box of a tree with root (X, Y, Z), height H and width W:
 // - Root lift: the shaders add deformAt(iPos) to the root (rootOf). That is
 //   the terrain's own displacement without ice, so MirrorScissor.liftBounds
@@ -186,21 +192,31 @@ export function restoreForestScene(touched) {
   touched.length = 0;
 }
 
+// The counts attached scenes have set to 0 and not yet put back. Renders do
+// not nest, so one list serves every scene.
+const PENDING = [];
+
+/** Put back every count an attached scene's render set to 0, including
+ *  those a render that threw left behind. Call it before reading or setting
+ *  a mesh-tree batch's instanceCount outside a render. */
+export function restoreForestCulling() { restoreForestScene(PENDING); }
+
 /**
  * Cull `scene`'s mesh-tree batches on every render, after whatever
  * onBeforeRender the scene already runs (TerrainChunks.attachTerrainCulling)
  * and restoring them before its onAfterRender. A render that throws leaves
- * its counts to the scene's next render, which restores them first.
+ * its counts to the next culled render of any scene, or to
+ * restoreForestCulling.
  */
 export function attachForestCulling(scene, stats = null) {
-  const touched = [], before = scene.onBeforeRender, after = scene.onAfterRender;
+  const before = scene.onBeforeRender, after = scene.onAfterRender;
   scene.onBeforeRender = function (renderer, s, camera, target, ...rest) {
-    restoreForestScene(touched);
+    restoreForestCulling();
     before.call(this, renderer, s, camera, target, ...rest);
-    cullForestScene(scene, camera, target, stats, { renderer, touched });
+    cullForestScene(scene, camera, target, stats, { renderer, touched: PENDING });
   };
   scene.onAfterRender = function (...args) {
-    restoreForestScene(touched);
+    restoreForestCulling();
     after.apply(this, args);
   };
   return scene;

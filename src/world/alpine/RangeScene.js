@@ -58,7 +58,7 @@ import { flashScreenPoint, rainSeed01, stormKindRow } from './RangeStorm.js';
 import { forestWindAt } from './ForestWind.js';
 import { createWetMask, fillWetRows, waterIndexSubsetPartsAsync } from './WaterSubset.js';
 import { attachTerrainCulling, setChunks, setTerrainMaterial, subsetChunkTable } from './TerrainChunks.js';
-import { attachForestCulling } from './ForestCulling.js';
+import { attachForestCulling, restoreForestCulling } from './ForestCulling.js';
 import { waterBoxes, vertexWaterBoxes, liftBounds, shiverBounds, mirrorScissor, waterScissor } from './MirrorScissor.js';
 // Storm light, linear: the deck's underside, the rain-dimmed horizon, the
 // rain air, per episode kind (RangeStorm STORM_KINDS zenith/horizon/air).
@@ -793,6 +793,8 @@ export class RangeScene {
     const mode = p.cameraTour ? 'tour' : 'rail';
     if (p.terrainMode === mode) return;
     p.terrainMode = mode;
+    // A culled render's 0 must not outlive the switch (ForestCulling.js).
+    restoreForestCulling();
     for (const g of p.modeGeometries || []) setTerrainDrawMode(g, mode);
     // Its water, mirror plane and height range follow what it draws.
     const water = p.modeWater?.[mode];

@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from '../src/vendor/range/three-range.module.js';
+import fs from 'node:fs';
 import { attachForestCulling } from '../src/world/alpine/ForestCulling.js';
 import { attachTerrainCulling, chunkTable, setChunks } from '../src/world/alpine/TerrainChunks.js';
 import { createForest } from '../src/world/alpine/ForestGL.js';
@@ -168,6 +169,60 @@ test('a render that throws leaves its counts to the next render, which restores 
   const again = s.render().filter(l => l.startsWith('draw ') || l.startsWith('object '));
   assert.deepEqual(again, good.filter(l => l.startsWith('draw ') || l.startsWith('object ')));
   assert.deepEqual(s.counts(), before);
+});
+
+test('what a render that throws leaves at 0 is back before another scene draws it or the detail view reads it', () => {
+  const { gl, canvas, state } = recordingWebGL2(300, 150);
+  const renderer = new THREE.WebGLRenderer({ canvas, context: gl });
+  renderer.autoClear = false;
+  const f = forest();
+  // The colour meshes and the depth meshes of the same batches: two scenes,
+  // one geometry each batch, as RangeScene's band and depth scenes.
+  const colour = new THREE.Scene(), depth = new THREE.Scene();
+  colour.add(...f.byBand.far, ...f.byBand.mid, ...f.byBand.near);
+  depth.add(...f.depth);
+  const camera = new THREE.PerspectiveCamera(60, 2, 1, 6000);
+  camera.layers.enable(1); camera.layers.enable(2);
+  const look = z => { camera.position.set(0, 7, 0); camera.lookAt(0, 7, z); camera.updateMatrixWorld(); };
+  look(-1);
+  const target = new THREE.WebGLRenderTarget(300, 150);
+  const render = scene => { renderer.setRenderTarget(target); renderer.render(scene, camera); };
+  render(colour); render(depth);
+  const geos = [...new Set([...colour.children, ...depth.children].map(m => m.geometry))];
+  const before = geos.map(g => g.instanceCount);
+  attachForestCulling(colour); attachForestCulling(depth);
+  let fail = true;
+  // A batch in front of the camera: three reaches it after the cull.
+  const front = colour.children.find(m => m.visible && m.geometry.userData.forestCull && m.geometry.attributes.iPos.getZ(0) < 0);
+  front.onBeforeRender = () => { if (fail) throw new Error('mid-render'); };
+  assert.throws(() => render(colour), /mid-render/);
+  const behind = geos.filter(g => g.userData.forestCull && g.attributes.iPos.getZ(0) > 0);
+  assert.ok(behind.some(g => g.instanceCount === 0), 'the colour scene left its culled batches at 0');
+  // The depth scene, turned towards them, draws them in full.
+  fail = false;
+  look(1);
+  const drawn = [];
+  for (const m of depth.children) m.onBeforeRender = () => drawn.push([m.geometry, m.geometry.instanceCount]);
+  state.draws.length = 0;
+  render(depth);
+  // (The batches now behind the camera are this render's own culls.)
+  const faced = drawn.filter(([g]) => behind.includes(g));
+  assert.ok(faced.length > 0);
+  for (const [g, n] of faced) assert.equal(n, before[geos.indexOf(g)], 'a batch the colour scene culled draws its own count');
+  assert.deepEqual(geos.map(g => g.instanceCount), before);
+  // A throw again, then the detail view: its footprints read the real counts.
+  look(-1);
+  fail = true;
+  assert.throws(() => render(colour), /mid-render/);
+  assert.ok(behind.some(g => g.instanceCount === 0));
+  f.updateDetailView({ camera, width: 300, height: 150, pixelated: true });
+  assert.deepEqual(geos.map(g => g.instanceCount), before);
+});
+
+test('RangeScene puts culled counts back before it switches a view between rail and tour', () => {
+  const src = fs.readFileSync(new URL('../src/world/alpine/RangeScene.js', import.meta.url), 'utf8');
+  const body = src.slice(src.indexOf('  _setTerrainMode(p) {'));
+  assert.match(body.slice(0, body.indexOf('\n  }\n')), /restoreForestCulling\(\);\s*for \(const g of p\.modeGeometries \|\| \[\]\) setTerrainDrawMode\(g, mode\);/);
 });
 
 test('chained after the terrain culling, both cull and both restore', () => {

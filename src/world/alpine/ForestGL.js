@@ -22,6 +22,7 @@ import { buildConiferAsset, familyFor, variantFor, FOREST_FAMILIES, FOREST_VARIA
 import { forestBatchFootprintPx, forestDetailWeight } from './ForestDetail.js';
 import { WIND_SWAY, GUST_LEAN, PARTING_LEAN, STORM_LEAN, WIND_DIR, WIND_MAX_GAIN, FOREST_MAX_LEAN } from './ForestWind.js';
 import { setTerrainDrawMode } from './RailDraw.js';
+import { restoreForestCulling } from './ForestCulling.js';
 export { WIND_SWAY, GUST_LEAN, PARTING_LEAN, STORM_LEAN, WIND_DIR, WIND_MAX_GAIN, FOREST_MAX_LEAN };
 
 // Match the terrain canopy's actual-camera handoff, including mirrors.
@@ -715,6 +716,8 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
     /** Call before drawing each camera/target, including again after a
      * mirror. Stateless weights preserve seeking/export reconstruction. */
     updateDetailView({ camera, width, height, pixelated = false, nearDetail = forest.nearDetail } = {}) {
+      // The footprints read instanceCount: none may be a culled render's 0.
+      restoreForestCulling();
       forest.pixelatedDetail = !!pixelated && partitioned;
       const deformation = {
         heightMin: u.uHeightRange?.value.x ?? 0,
