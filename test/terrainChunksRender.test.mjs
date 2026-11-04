@@ -64,6 +64,15 @@ test('a scissored target culls to its rectangle; a viewport set on the bound tar
   renderer.setRenderTarget(target);
   renderer.render(scene, camera);
   assert.deepEqual(draws(), ['a:0+12000', 'b:0+12000', 'whole:0+12000']);
+  // A rectangle left behind with the test off (what the travel columns and
+  // the water pass leave) does not narrow anything.
+  target.scissorTest = false;
+  renderer.setRenderTarget(target);
+  renderer.render(scene, camera);
+  const all = ['0+12000', '24000+12000', '72000+12000'];
+  assert.deepEqual(draws(), [...all.map(r => `a:${r}`), ...all.map(r => `b:${r}`), 'whole:0+12000']);
+  target.scissorTest = true;
+  renderer.setRenderTarget(target);
   // GL's viewport is no longer the target's: the scissor's NDC is unknown,
   // so every tile in the frustum draws (GL still scissors).
   renderer.setViewport(0, 0, 150, 150);
@@ -80,8 +89,10 @@ test('a render that throws after culling is restored by the scene\'s next render
   assert.notDeepEqual(a.geometry.groups.map(x => [x.start, x.count]), [[0, Infinity]]); // left culled
   a.onBeforeRender = () => {};
   draws();
-  scene.onAfterRender = (() => { const after = scene.onAfterRender; return (...args) => { assert.equal(a.geometry.groups.length, 3); after(...args); }; })();
+  // Next render the mesh is not culled (moved: its boxes no longer hold
+  // it), so only the restore gives it its whole index back.
+  a.position.x = 1; a.updateMatrixWorld();
   renderer.render(scene, camera);
-  assert.equal(draws().length, 7);
+  assert.deepEqual(draws().filter(d => d.startsWith('a:')), ['a:0+84000']);
   assert.deepEqual(a.geometry.groups.map(x => [x.start, x.count]), [[0, Infinity]]);
 });

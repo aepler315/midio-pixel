@@ -7,7 +7,8 @@ import {
 } from '../src/world/alpine/TerrainChunks.js';
 import { buildTerrainGeometry, decodeTerrain } from '../src/world/alpine/TerrainMesh.js';
 import { createBandGeometries } from '../src/world/alpine/TerrainGL.js';
-import { wetTexelMask, waterIndexSubset } from '../src/world/alpine/WaterSubset.js';
+import { wetTexelMask, waterIndexSubset, waterIndexSubsetAsync } from '../src/world/alpine/WaterSubset.js';
+import { RangeScene } from '../src/world/alpine/RangeScene.js';
 import { bakeTerrain } from '../tools/lib/terrain-bake.mjs';
 import zlib from 'node:zlib';
 
@@ -226,8 +227,12 @@ async function terrain() {
 }
 
 test('each band and seam fill is chunked by tile: contiguous ranges holding every triangle, boxes holding their vertices', async () => {
-  const data = await terrain();
+  const baked = await terrain();
+  // Tile order rotated so a seam tile follows a plain one in its band:
+  // seam-fill offsets then differ from band offsets.
+  const all = [...baked.tiles], data = { ...baked, tiles: new Map([...all.slice(6), ...all.slice(0, 6)]) };
   const built = buildTerrainGeometry(data, { budget: 'desktop' });
+  assert.ok(Object.values(built.bands).some(b => [...b.fringeChunks.start].some((x, i) => x !== b.chunks.start[i])), 'seam offsets differ from band offsets');
   let bands = 0, fringes = 0;
   for (const b of Object.values(built.bands)) {
     for (const [index, c] of [[b.indices, b.chunks], [b.fringe, b.fringeChunks]]) {
@@ -262,6 +267,15 @@ test('each band and seam fill is chunked by tile: contiguous ranges holding ever
     if (g.index.count > 3 * g.userData.terrainChunks?.length) assert.equal(g.userData.terrainChunks, null);
     assert.deepEqual(g.groups.map(x => [x.start, x.count]), [[0, Infinity]]);
   }
+  // Contiguous chunks that stop short of the index (the last tile missing)
+  // would never draw that tile: such a table is refused too.
+  const short = c => ({ start: c.start.slice(0, -1), count: c.count.slice(0, -1), box: c.box.slice(0, -6) });
+  const prefix = { bands: Object.fromEntries(Object.entries(built.bands).map(([k, b]) => [k, { ...b, chunks: short(b.chunks) }])), stats: built.stats };
+  for (const g of Object.values(createBandGeometries(THREE, data, { built: prefix }).geometries)) {
+    if (!g.index.count) continue;
+    assert.equal(g.userData.terrainChunks, null);
+    assert.deepEqual(g.groups.map(x => [x.start, x.count]), [[0, Infinity]]);
+  }
 });
 
 test('a water subset counts its kept indices per tile, so its own table culls by the same boxes', async () => {
@@ -291,4 +305,38 @@ test('a water subset counts its kept indices per tile, so its own table culls by
     }
     assert.equal(k, keep.length);
   }
+});
+
+test('the water subsets RangeScene builds carry tables over their own index, sliced or not', async () => {
+  const data = await terrain();
+  const geos = createBandGeometries(THREE, data, { budget: 'desktop' });
+  const g = data.grid, r = rng(7), rgba = new Uint8Array(g.width * g.height * 4);
+  for (let i = 0; i < g.width * g.height; i++) rgba[i * 4 + 3] = r() < .01 ? 255 : 10;
+  const surface = { width: g.width, height: g.height, texture: { image: { data: rgba } } };
+  const subsets = await RangeScene.prototype._buildWaterSubsets.call({}, THREE, data, surface, geos);
+  assert.ok(subsets?.size);
+  let checked = 0;
+  for (const [geometry, sub] of subsets) {
+    if (!sub.index.count) continue;
+    const t = sub.userData.terrainChunks, bt = geometry.userData.terrainChunks;
+    assert.ok(t && bt && t !== bt, 'a table of its own');
+    assert.equal(t.indices, sub.index.count, 'over the subset index');
+    // Every kept triangle of tile i lies in subset range i.
+    const idx = geometry.index.array, keep = sub.index.array;
+    let k = 0;
+    for (let i = 0; i < bt.length; i++) for (let q = bt.start[i]; q < bt.start[i] + bt.count[i] && k < keep.length; q += 3) {
+      if (idx[q] === keep[k] && idx[q + 1] === keep[k + 1] && idx[q + 2] === keep[k + 2]) {
+        assert.ok(k >= t.start[i] && k < t.start[i] + t.count[i]); k += 3; checked++;
+      }
+    }
+    assert.equal(k, keep.length);
+    // Counted across many small slices, the per-tile counts are the same.
+    const kept = new Uint32Array(bt.length);
+    const sliced = await waterIndexSubsetAsync(geometry.attributes.position.array, idx, g, wetTexelMask(rgba, g.width, g.height),
+      { sliceTriangles: 700, chunks: { start: bt.start, count: bt.count, kept } });
+    assert.deepEqual(sliced, keep);
+    assert.deepEqual(subsetChunkTable(bt, kept).count, t.count);
+  }
+  assert.ok(checked > 0);
+  for (const sub of subsets.values()) sub.dispose();
 });
