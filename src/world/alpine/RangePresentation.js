@@ -318,6 +318,9 @@ export class RangePresentation {
     // until the runtime itself retries or is recreated by a mode change.
     if (this.runtimeState !== 'failed') this.reason = this.enabled ? 'not-started' : 'legacy-mode';
     if (this.tourMode || this.residency?.cancelled?.has(generation)) generation = Math.max(generation, this.generation + 1);
+    // A recreated Landscape starts at zero while the shared ledger keeps
+    // generations cancelled by earlier world switches.
+    while (this.residency?.cancelled?.has(generation)) generation++;
     const previous = this.generation;
     if (this._tourCpuKey) this.residency?.release(this._tourCpuKey);
     if (this.tourMode) this.scene?.release('teton-range-tour');

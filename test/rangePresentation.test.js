@@ -6,6 +6,33 @@ import { BiomeManager } from '../src/world/BiomeManager.js';
 import { RangePresentation, resolveRangeMode } from '../src/world/alpine/RangePresentation.js';
 import { GraphicsResidency } from '../src/render/GraphicsResidency.js';
 
+test('recreating Landscape skips every cancelled generation when the song load is unchanged', () => {
+  const residency = new GraphicsResidency({ budgetBytes: 1024 });
+  const generation = 7;
+  const original = new RangePresentation({ mode: 'v2', shots: false, residency });
+  original.setSong({ generation });
+  const originalResource = residency.reserve({ key: 'original-view', bytes: 1, generation: original.generation });
+  assert.ok(originalResource);
+  original.dispose();
+  assert.equal(residency.cancelled.has(generation), true);
+  assert.equal(residency.has('original-view'), false);
+  residency.cancelGeneration(generation + 1);
+
+  for (const expected of [9, 10, 11]) {
+    const restored = new RangePresentation({ mode: 'v2', shots: false, residency });
+    assert.equal(restored.generation, 0);
+    restored.setSong({ generation });
+    assert.equal(restored.generation, expected);
+    assert.equal(residency.cancelled.has(restored.generation), false);
+    const resource = residency.reserve({ key: 'restored-view', bytes: 1, generation: restored.generation });
+    assert.ok(resource, 'the returning Landscape can admit its scene resources');
+    restored.setSong({ generation: restored.generation });
+    assert.equal(restored.generation, expected, 'an ordinary replay retains its usable generation');
+    restored.dispose();
+    assert.equal(residency.has('restored-view'), false);
+  }
+});
+
 test('switching to one stage retires hybrid storage and permits a later hybrid allocation', () => {
   const residency = new GraphicsResidency({ budgetBytes: 1024 * 1024 });
   const allocate = key => {
