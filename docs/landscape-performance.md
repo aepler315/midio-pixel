@@ -106,19 +106,21 @@ draw groups only for array materials. Use `setTerrainMaterial` and
 
 Each mesh-tree batch (band, species family and variant) stays one instanced
 draw, so three.js never reorders its trees, whose soft crowns blend in
-instance order. A whole batch is skipped instead (`ForestCulling.js`).
-Before each render, every mesh-tree geometry is tested once: its trees,
-binned by root into 256 m cells, become boxes that hold every vertex the tree
-shader can place this frame (root lift, height, crown and trunk radii, and the
-wind, gust, parting and storm lean, doubled, plus 1 m; the song's rise lowers
-each floor to its bottom at its nearest point, `risenFloor`). A geometry with no box
-in the frustum and the target's scissor gets `instanceCount` 0, which skips
-only its draw call; after the render the count is restored. Frames stay
-byte-identical. On `teton-jackson-lake` a frame submits 16.3 M triangles
-instead of 45.5 M, and on the pilot view 6.6 M instead of 7.8 M. Billboards
-are not culled. The counts a render that throws leaves at 0 are put back by
-the next culled render of any scene, or by `restoreForestCulling`, which the
-detail view and the rail/tour switch call first.
+instance order. A whole batch is skipped instead (`ForestCulling.js`). Before
+each render, every mesh-tree geometry is tested once: its trees, binned by
+root into 256 m cells, become boxes that hold every vertex the tree shader can
+place this frame (root lift, height, crown and trunk radii, and the wind,
+gust, parting and storm lean, doubled, plus 1 m; the song's rise lowers each
+floor to its bottom where it comes nearest the eye, `risenFloor`). A geometry
+with no box in the frustum and the target's scissor gets `instanceCount` 0,
+which skips only its draw call; after the render the count is restored. Frames
+stay byte-identical. On main 181d2a3 (before the rise and the desktop tours),
+a `teton-jackson-lake` frame submits 16.3 M triangles instead of 45.5 M, and a
+pilot-view frame 6.6 M instead of 7.8 M. Billboards are not culled, and
+neither is a batch under a rise the floor cannot bound. The counts a render
+that throws leaves at 0 are put back by the next culled render of any scene,
+or by `restoreForestCulling`, which the detail view and the rail/tour switch
+call first.
 
 ## Tour forest windows
 

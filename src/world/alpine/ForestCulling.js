@@ -161,13 +161,27 @@ export function forestCellBox(cells, o, extents, lift, lean, pad = CHUNK_BOX_PAD
   return out;
 }
 
-// A rise whose numbers the box cannot use (riseFromUniforms reads only a
-// positive sink, so a NaN one would reach the shader unbounded).
+// A rise the box cannot bound, read as the shader reads it (LandRise.js
+// riseLift: uLandRise raw, the eye from uTourEye). risenFloor holds only for
+// a sink in (0, 1], a finite pivot >= 0 and a finite eye. riseFromUniforms
+// turns a negative or NaN pivot into 0 and drops a rise with no eye, and
+// the shader would still lower those trees, by more than the box allows.
+// A sink of 0 or less draws no rise.
 const unknownRise = (u, rise) => {
-  const sink = u?.uLandRise?.value?.x;
-  if (sink !== undefined && !Number.isFinite(sink)) return true;
-  return !!rise && ![rise.sink, rise.pivot, ...rise.eye].every(Number.isFinite);
+  const v = u?.uLandRise?.value;
+  if (!v || v.x <= 0) return false;
+  return !(rise && v.x <= 1 && v.y >= 0 && v.y < Infinity && rise.eye.every(Number.isFinite));
 };
+
+/** The root lift { lo, hi, rise } and lean per metre of height every box
+ *  takes under the forest uniforms `u`, with production safety; null when
+ *  they cannot bound the trees (non-finite, or a rise the floor cannot
+ *  bound). */
+export function forestBounds(u) {
+  const lift = liftBounds(u || {}), lean = forestLean(u) * MIRROR_BOUND_SAFETY;
+  if (![lift.lo, lift.hi, lean].every(Number.isFinite) || unknownRise(u, lift.rise)) return null;
+  return { lift, lean };
+}
 
 const BOX = new Float64Array(6);
 
@@ -177,8 +191,9 @@ const BOX = new Float64Array(6);
 export function forestGeometryVisible(geometry, planes, u) {
   const extents = assetExtents(geometry), cells = forestCells(geometry);
   if (!extents || !cells || !planes) return true;
-  const lift = liftBounds(u || {}), lean = forestLean(u) * MIRROR_BOUND_SAFETY;
-  if (![lift.lo, lift.hi, lean].every(Number.isFinite) || unknownRise(u, lift.rise)) return true;
+  const bounds = forestBounds(u);
+  if (!bounds) return true;
+  const { lift, lean } = bounds;
   for (let o = 0; o < cells.length; o += 8) {
     const b = forestCellBox(cells, o, extents, lift, lean, CHUNK_BOX_PAD_M, BOX);
     if (!boxOutsidePlanes(planes, b[0], b[1], b[2], b[3], b[4], b[5])) return true;
