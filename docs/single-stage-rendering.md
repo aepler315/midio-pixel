@@ -57,8 +57,13 @@ are kept outside tracked source under the session's `work/range-pipeline-evidenc
 ## Song-built mountain preview
 
 `?voxelRange=1&rangeView=white-mountains-owens&rangeTour=off` selects the separate
-local preview. Build its ignored asset with `node tools/build-voxel-range.mjs`.
-The source is the shipped USGS 3DEP terrain. Offline geometry progresses from
+mountain preview. Its pinned terrain pack ships with the repository and staged
+site; no local bake is required. Regenerate it with `node tools/build-voxel-range.mjs`.
+The source is the shipped USGS 3DEP terrain's rail subset, excluding the extra
+ground used only by camera tours. The generated metadata records that source's
+manifest, payload and DEM identities, plus compressed and decoded pack hashes
+and sizes. Runtime and staging verify the pack; staging also rejects stale
+source pins. Offline geometry progresses from
 500 m columns through 250, 125 and 62.5 m cells into a smooth 44 m DEM mesh.
 Only the current level or adjacent dissolving pair draws, from one GPU upload.
 

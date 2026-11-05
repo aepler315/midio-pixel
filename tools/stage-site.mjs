@@ -127,6 +127,37 @@ async function verifyPinnedPayload(label, dir, pin) {
   }
 }
 
+/** The opt-in mountain ships a reproducible bake of the rail's terrain. */
+export async function verifyVoxelRangePack(assetsRoot, catalog) {
+  const dir = path.join(assetsRoot, 'voxel');
+  let pack;
+  try {
+    ({ default: pack } = await import(pathToFileURL(path.join(dir, 'white-mountains-owens.v2.js')).href + '?stage=' + randomUUID()));
+  } catch (error) {
+    throw new Error('Voxel range requires readable metadata: ' + error.message, { cause: error });
+  }
+  const view = catalog.views.find(view => view.id === 'white-mountains-owens');
+  const source = pack?.source, pin = pack?.payload;
+  if (pack?.schema !== 'midio.voxel-range' || pack.version !== 2 || !view || pack.viewId !== view.id
+    || !source || source.mode !== 'rail' || source.terrainManifestUrl !== view.terrainManifestUrl
+    || source.terrainManifestSha256 !== view.terrainManifestSha256) {
+    throw new Error('Voxel range source does not match the catalog rail');
+  }
+  const terrainBytes = await fs.readFile(path.join(assetsRoot, view.terrainManifestUrl));
+  const terrain = JSON.parse(terrainBytes);
+  if (sha256(terrainBytes) !== source.terrainManifestSha256
+    || terrain.payload.sha256 !== source.terrainPayloadSha256 || terrain.source.demSha256 !== source.demSha256) {
+    throw new Error('Voxel range source pins do not match the terrain');
+  }
+  if (!pin || pin.url !== 'white-mountains-owens.v2.bin.gz' || pin.encoding !== 'gzip'
+    || !Number.isSafeInteger(pin.byteLength) || pin.byteLength <= 0 || pin.byteLength > 32 * 1024 * 1024
+    || !Number.isSafeInteger(pin.decodedByteLength) || pin.decodedByteLength <= 0 || pin.decodedByteLength > 256 * 1024 * 1024
+    || !/^[a-f0-9]{64}$/.test(pin.sha256) || !/^[a-f0-9]{64}$/.test(pin.decodedSha256)) {
+    throw new Error('Voxel range payload metadata is invalid');
+  }
+  await verifyPinnedPayload('Voxel range payload', dir, pin);
+}
+
 export async function verifyRangeRuntime(sourceDir, outputDir) {
   const vendor = path.join(outputDir, 'src', 'vendor', 'range');
   let runtime;
@@ -204,6 +235,7 @@ export async function verifyRangeRuntime(sourceDir, outputDir) {
       }
       views.push(view.id);
     }
+    if (await exists(path.join(outputDir, 'src', 'render', 'VoxelRange.js'))) await verifyVoxelRangePack(root, catalog);
   }
   return { checked: true, rebuilt, views };
 }
