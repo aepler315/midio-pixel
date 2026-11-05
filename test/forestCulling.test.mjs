@@ -523,6 +523,12 @@ test('a prefix batch\'s cells cover only the trees it draws and follow every ref
   const size = twin.attributes.iSize;
   size.setX(0, 300); size.needsUpdate = true;
   assert.equal(forestCells(twin)[4], 1300);
+  // So is a refill of the ids alone, at the same count: a bad id in the prefix.
+  const vars = twin.attributes.iVar;
+  vars.setY(0, 7); vars.needsUpdate = true;
+  assert.equal(forestCells(twin), null, 'the cells are rebuilt when only the ids change');
+  vars.setY(0, .5); vars.needsUpdate = true;
+  assert.ok(forestCells(twin));
   // An id outside [0, 1] beyond the prefix is not drawn, so not read; inside it, never culled.
   twin.attributes.iVar.setY(2, 7); twin.attributes.iVar.needsUpdate = true;
   assert.ok(forestCells(twin));
