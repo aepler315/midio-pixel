@@ -275,6 +275,73 @@ order. Each batch gets its own count back after the render, after a render
 that throws (also when another scene sharing the batch draws next), and
 with the terrain culling chained in.
 
+## Change 7: the mirror leaves out what nothing tests (`RangeScene._prepareMirror`)
+
+With soft trees, the lake mirror draws its target in five steps: the depth
+scene and the bands on layer 0, the bands' soft crowns on layer 1, the
+crown cut (layer 2, depth only), and then the ink and the cast (layers 3 to
+5, each band). The crown cut is there for the ink and the cast to test
+against: the mirror target has no depth texture, and it is cleared before
+every redraw, so nothing else reads that depth. When the ink is below the
+ink shader's discard and no cast is on screen, the ink and the cast draw no
+pixel, and the crown cut has nothing to occlude. The mirror now leaves all
+three out in that case.
+
+- The gate is `!(uNarrativeInk < MIRROR_INK_SKIP) || _castShown(p)`, with
+  `MIRROR_INK_SKIP` = .004. `FEATURE_FRAG` discards below .005, and .004
+  stays below it in float32 with room for the literal's rounding. NaN and
+  Infinity keep drawing, as the shader keeps them.
+- `_castShown` is the predicate the main view's cast pass already uses: a
+  lantern group visible, or a site, thread or rope laid out and lit. With
+  none of these, every cast fragment is clipped, discarded or adds zero.
+- Skipping a render must not move state three.js caches the first time a
+  render lists a mesh: `geometry.boundingSphere` is computed then, and its
+  centre is the depth three sorts that mesh by from then on. Every layer-2
+  tree depth mesh shares its geometry and its visibility with a tree the
+  same mirror pass draws earlier on layer 0 or 1 (a test pins this against
+  `createForest`). The ink's lines and the cast's quads never move, and the
+  survey threads are laid out from the view's fixed `castWork` before the
+  first render.
+- Today the ink is always 0 (the compiled landscape sources give materials
+  1 and sky dark 1), so the skip follows the cast alone. With the pilot
+  song the cast comes on about 3 s in, on the pilot view and on the Teton
+  tour alike: the skip fires on the frames before that and on none after.
+
+Result on main eadd0e8 (with the tour forest windows), 1280×720, frames from
+0.25 s every 0.5 s:
+
+| per frame, 0.25 s to 2.75 s (no cast yet) | main | after |
+| --- | --- | --- |
+| `teton-jackson-lake` tour: triangles | 19.78 to 19.86 M | 16.95 to 17.02 M |
+| its lake mirror | 7.14 M in 11 renders | 4.30 M in 7 |
+| its draw calls | 161 to 165 | 150 to 154 |
+| pilot view: triangles | 4.42 to 4.56 M | 4.38 to 4.52 M |
+| its draw calls | 139 to 148 | 130 to 139 |
+
+From 3.25 s on, with the cast out, both views do the same work as main.
+Frames compared by PNG SHA-256: 8 frames from 0.25 s to 3.75 s of each view
+against two main runs of the Teton tour and one of the pilot view (and, on
+7d48f2f before the tour windows, 60 pilot frames to 29.75 s). Every frame is
+identical except 2.75 s, which also differs between runs of main itself
+(both views; the pixels that move are sky clouds and skyline and ridge
+borders, nowhere near the lake). The saving is the trees' crown cut, so it
+follows how many trees the mirror sees: on 7d48f2f, before the tour windows,
+the same frames of the Teton tour went from 140.6 M to 127.4 M.
+
+`test/mirrorSkip.test.mjs` checks the gate: ink just under and at the
+threshold, at the discard, NaN, Infinity and negative; a visible group; a
+site, a thread and the fixed line, each lit and unlit (the last two on the
+real `ActorsGL`); both values of `castInBands`, which the mirror must not
+follow; and a decision taken afresh on each redraw of one target. It checks
+that the threshold stays under the shader's discard in float32, that a
+scissored mirror makes the same choice, and that a mirror with no soft trees
+keeps its single combined pass. On the forest's side, layer 2 holds only
+depth-only meshes, layers 3 to 5 hold none of the forest's, and each
+layer-2 mesh, the rail's own batches and the tour layer's twins and demote
+boards included, shares its geometry and its visibility with a tree drawn
+first, through detail, lite and blended footprints, a hidden forest, a
+dropped detail ring, the rail and the tour, and a refill.
+
 ## What is left, in order
 
 1. **The mirror scissor's cell gap.** The mirror still uses main's boxes,
@@ -299,8 +366,14 @@ with the terrain culling chained in.
 5. **Forest depth drawn twice.** Where a depth-only render also draws the
    crown cut (the output water pass, travel depth, the cast), the core depth
    mesh of the same batch writes depth the crown cut writes anyway. Dropping
-   it was estimated to save 1.7 M triangles per frame on
-   `teton-jackson-lake` before change 6, which already culls part of that.
+   it cannot be shown to keep every pixel: the core and the cut are two
+   programs (`FOREST_CORE`), only `gl_Position` is declared invariant, and
+   their discard tests (the detail/lite hash, `sin` of large phases, the
+   `fwidth` divisions) may round differently between two compilations.
+   Where the core keeps a fragment the cut discards, its depth would be
+   lost. Dropping only cores whose every box is past the fade (at least
+   6630 m out, where no core fragment survives) is provable, but whole
+   batches span the view, so it saves almost nothing until they are split.
 6. **Trees inside a batch.** The lake mirror still submits about 8.5 M forest
    triangles there. Culling single trees while keeping their order (a
    compacted instance list per render) would cut it further, at the cost of
