@@ -4,6 +4,8 @@ import { RangeScene, MIRROR_INK_SKIP } from '../src/world/alpine/RangeScene.js';
 import { sceneUniforms, FEATURE_FRAG } from '../src/world/alpine/TerrainMaterial.js';
 import { createForest } from '../src/world/alpine/ForestGL.js';
 import { ActorsGL, actorUniforms } from '../src/world/alpine/ActorsGL.js';
+import { setTerrainDrawMode } from '../src/world/alpine/RailDraw.js';
+import { syntheticPlaced } from './helpers/tourForestFixtures.mjs';
 import * as THREE from '../src/vendor/range/three-range.module.js';
 
 // _prepareMirror against a renderer that records what it is asked to do.
@@ -211,5 +213,49 @@ test('every layer-2 tree depth mesh shares its geometry and visibility with a tr
       differing += new Set(cut.map(d => d.visible)).size > 1;
     }
     assert.ok(differing > 0, 'some state shows part of the forest and hides the rest');
+  } finally { forest.dispose(); }
+});
+
+// The tour forest layer (TourForest.js) adds its twins and demote boards to
+// the same scenes (RangeScene puts tour.depth in the depth scene and
+// tour.byBand in the bands), so they must keep the same property, on the
+// rail (hidden) and on the tour, before and after a refill.
+test('the tour layer\'s cuts share their geometry and visibility with a tree the mirror draws first', () => {
+  const forest = createForest(THREE, syntheticPlaced({ extent: 1200, spacing: 60 }), sceneUniforms(THREE, {}), { tour: { seed: 7 } });
+  try {
+    const tour = forest.tour;
+    assert.ok(tour && tour.twins.length > 0 && tour.boards.length > 0);
+    const depthScene = [...forest.depth, ...tour.depth];
+    const bands = [...Object.values(forest.byBand).flat(), ...Object.values(tour.byBand).flat()];
+    const earlier = [...depthScene.filter(m => onLayer(m, 0)), ...bands.filter(m => onLayer(m, 0) || onLayer(m, 1))];
+    const cut = depthScene.filter(m => onLayer(m, 2));
+    const tourCut = tour.depth.filter(m => onLayer(m, 2));
+    assert.ok(tourCut.length >= tour.twins.length + tour.boards.length, 'every twin and board draws a cut');
+    for (const m of [...depthScene, ...bands, ...Object.values(tour.depthByBand).flat()]) {
+      for (const k of [3, 4, 5]) assert.ok(!onLayer(m, k), `layer ${k}`);
+      if (onLayer(m, 2)) assert.equal(m.material.colorWrite, false);
+    }
+    for (const d of cut) assert.ok(earlier.some(m => m.geometry === d.geometry));
+    const camera = new THREE.PerspectiveCamera(50, 2, 1, 20000);
+    camera.position.set(0, 1100, 0); camera.lookAt(0, 1000, -600); camera.updateMatrixWorld();
+    const mode = (name) => { for (const g of forest.modeGeometries) setTerrainDrawMode(g, name); tour.setMode(name); };
+    const all = { bits: tour.index.all.bits };
+    const half = { bits: tour.index.all.bits.map((w, i) => i % 2 ? w : 0) };
+    const states = [
+      () => { mode('rail'); forest.applyVisibility({}); },
+      () => { mode('tour'); forest.applyVisibility({}); },
+      () => { tour.apply({ a: all, b: all, f: 1 }); forest.updateDetailView({ camera, width: 640, height: 320, pixelated: true }); },
+      () => { tour.apply({ a: half, b: all, f: .4 }); forest.updateDetailView({ camera, width: 64, height: 32, pixelated: true }); },
+      () => forest.updateDetailView({ camera, width: 640, height: 320, pixelated: false, nearDetail: false }),
+      () => forest.applyVisibility({ shown: false }),
+      () => { mode('rail'); forest.applyVisibility({ shown: true, nearDetail: true }); },
+    ];
+    let mixed = 0;
+    for (const set of states) {
+      set();
+      for (const d of cut) assert.ok(earlier.filter(m => m.geometry === d.geometry).every(m => m.visible === d.visible));
+      mixed += new Set(tourCut.map(d => d.visible)).size > 1 || new Set(cut.map(d => d.visible)).size > 1;
+    }
+    assert.ok(mixed > 0, 'some state shows part of the forest and hides the rest');
   } finally { forest.dispose(); }
 });

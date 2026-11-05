@@ -336,9 +336,10 @@ that the threshold stays under the shader's discard in float32, that a
 scissored mirror makes the same choice, and that a mirror with no soft trees
 keeps its single combined pass. On the forest's side, layer 2 holds only
 depth-only meshes, layers 3 to 5 hold none of the forest's, and each
-layer-2 mesh, the rail's own batches included, shares its geometry and its
-visibility with a tree drawn first, through detail, lite and blended
-footprints, a hidden forest and a dropped detail ring.
+layer-2 mesh, the rail's own batches and the tour layer's twins and demote
+boards included, shares its geometry and its visibility with a tree drawn
+first, through detail, lite and blended footprints, a hidden forest, a
+dropped detail ring, the rail and the tour, and a refill.
 
 ## What is left, in order
 
