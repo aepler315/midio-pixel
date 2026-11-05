@@ -29,6 +29,31 @@ test('stays at level 0 under a healthy frame budget', () => {
   assert.equal(gov.contactShadowsEnabled, true);
 });
 
+test('a persistent missed vsync every five callbacks sheds before settling below the requested cap', () => {
+  for (const capFps of [30, 60]) {
+    const governor = new PerfGovernor();
+    const period = 1000 / capFps;
+    let timeMs = 0;
+    for (let frame = 0; frame < 1000 && governor.level === 0; frame++) {
+      const deltaMs = period * (frame % 5 === 0 ? 2 : 1);
+      timeMs += deltaMs;
+      governor.sample(deltaMs, timeMs, { capFps });
+    }
+    assert.equal(governor.level, 1, `Auto must respond to a sustained deficit at ${capFps} FPS`);
+  }
+});
+
+test('occasional long hitches separated by healthy playback do not lower quality', () => {
+  const governor = new PerfGovernor();
+  let timeMs = 0;
+  for (let frame = 0; frame < 1200; frame++) {
+    const deltaMs = frame % 200 === 0 ? 100 : 1000 / 60;
+    timeMs += deltaMs;
+    governor.sample(deltaMs, timeMs);
+  }
+  assert.equal(governor.level, 0);
+});
+
 test('sheds one rung after sustained over-budget frames, in spec order', () => {
   const gov = new PerfGovernor();
   // A modest overage: severity-weighted shedding crosses the threshold

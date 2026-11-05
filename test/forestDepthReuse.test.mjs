@@ -167,6 +167,30 @@ test('context invalidation and scene disposal release opaque snapshots', () => {
   }
 });
 
+test('retiring a view releases its opaque snapshot before a treeless or travel view follows', () => {
+  for (const retirement of ['release', 'evict', 'dispose']) {
+    const f = snapshotFixture(), { s } = f, p = s.prepared.get('probe');
+    s._releaseMaterial = () => {};
+    p.forest.dispose = p.actors.dispose = () => {};
+    p.gpuKey = 'probe-gpu';
+    const reservation = s.residency.reserve({ key: p.gpuKey, bytes: 1, owner: 'range-terrain-gpu' });
+    s.residency.commit(reservation, p, retired => s._retire('probe', retired));
+    s.renderPartition(frame, 'far', 'probe');
+    assert.equal(s.opaqueDepth.A.prepared, p);
+    if (retirement === 'release') s.release('probe');
+    else if (retirement === 'evict') s.residency.release(p.gpuKey);
+    else s._disposePrepared(p);
+    assert.equal(s.opaqueDepth.A, null, `${retirement} drops the prepared view reference`);
+    assert.equal(s.residency.has('range:opaque-depth-A'), false);
+    assert.equal(f.allocated[0].disposed, true);
+    const next = { ...p, forest: { counts: {} } };
+    s.prepared.set('next', next);
+    s.renderPartition({ ...frame, frameId: 2 }, 'far', 'next', retirement === 'evict' ? { bandColumns: {} } : {});
+    assert.equal(s.opaqueDepth.A, null);
+    assert.equal(f.allocated.length, 1);
+  }
+});
+
 test('a smooth cast cannot reuse depth from another occurrence of the same view', () => {
   const { s } = fixture({ actor: true });
   s.castInBands = false;

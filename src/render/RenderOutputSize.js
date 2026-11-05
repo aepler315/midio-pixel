@@ -11,7 +11,7 @@
  * the ladder spends those pixels before it reaches the deepest rungs. */
 export function resolveRangePipeline(search = '') {
   const value = new URLSearchParams(search).get('rangePipeline');
-  return ['hybrid', 'native', 'single'].includes(value) ? value : 'hybrid';
+  return ['hybrid', 'native', 'single'].includes(value) ? value : 'single';
 }
 
 export function stageOutputSize({ grid, hybrid = false, nativeStage = false, fullscreen = false, cssWidth, cssHeight, dpr = 1, exportSize = null, scale = 1 }) {

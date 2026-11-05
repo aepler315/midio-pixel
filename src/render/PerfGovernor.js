@@ -84,10 +84,11 @@ const RECOVER_MAX_MS = 600000; // 10 minutes -- past here, stop asking
 // frames alternating just above and below budget, the exact pattern that
 // reads as visible stutter -- never built up the 60 units needed to shed
 // a rung: every other frame wiped out the previous one's contribution.
-// Decaying instead (by less than a single over-budget frame's minimum
-// severity of 1) lets that alternating pattern still net-accumulate,
-// while a genuinely sustained clean run still drains it to zero.
-const OVER_DECAY_PER_CLEAN_FRAME = 0.5;
+// A missed vsync every fifth callback is sustained 50 FPS on a 60 Hz
+// display. Its ~1.8 units of pressure must survive the four healthy
+// callbacks between misses. A long healthy run still drains an isolated
+// hitch before it can lower quality.
+const OVER_DECAY_PER_CLEAN_FRAME = 0.25;
 export const MAX_LEVEL = 6;
 
 /** Resolve the initial shed level: a `?perf=lite|high` URL override wins;

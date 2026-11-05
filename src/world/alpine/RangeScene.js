@@ -338,10 +338,10 @@ export class RangeScene {
     }
   }
 
-  _releaseOpaqueDepth(side = null) {
+  _releaseOpaqueDepth(side = null, prepared = null) {
     for (const id of side ? [side] : ['A', 'B']) {
       const state = this.opaqueDepth?.[id];
-      if (!state) continue;
+      if (!state || (prepared && state.prepared !== prepared)) continue;
       this.residency?.release(`range:opaque-depth-${id}`);
       this.opaqueDepth[id] = null;
     }
@@ -1833,6 +1833,7 @@ export class RangeScene {
   }
 
   _disposePrepared(p) {
+    this._releaseOpaqueDepth(null, p);
     p.featureMaterial?.dispose();
     for (const g of Object.values(p.featureGeometries || {})) g.dispose();
     p.windowCache?.dispose();
@@ -1869,6 +1870,7 @@ export class RangeScene {
     if (this.shaftViews?.includes(viewId)) this.releaseShafts();
     const p = this.prepared.get(viewId);
     if (!p) return;
+    this._releaseOpaqueDepth(null, p);
     this.prepared.delete(viewId);
     this.residency?.release(p.gpuKey); // disposes via the committed dispose
     if (p.cpuOwner) p.cpuOwner.release();

@@ -74,6 +74,21 @@ test('diagnostic pipeline selection ignores unknown URL values', () => {
   assert.equal(resolveRangePipeline('?rangePipeline=invalid'), resolveRangePipeline(''));
 });
 
+test('ordinary Landscape uses one stage while high-resolution capture and Cinematic use their presentation', () => {
+  const begin = main.indexOf('function effectivePresentation()');
+  const code = main.slice(begin, main.indexOf('\n}\n', begin) + 3);
+  const context = vm.createContext({ bulkPresentation: null, presentation: { scaling: 'fit' },
+    directTerrainExperiment: () => false, requestedRangePipeline: resolveRangePipeline(''),
+    location: { search: '' }, experience: 'landscape', bulkExportSize: null, document: {}, isFullscreen: () => false });
+  vm.runInContext(code, context);
+  assert.equal(context.effectivePresentation().rangePipeline, 'single');
+  context.presentation.cinematicPixel = true;
+  assert.equal(context.effectivePresentation().rangePipeline, 'hybrid');
+  context.presentation.cinematicPixel = false;
+  context.bulkExportSize = { w: 3840, h: 2160 };
+  assert.equal(context.effectivePresentation().rangePipeline, 'hybrid');
+});
+
 const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
 test('fullscreen landscape selects cover and restores the saved fit on exit', () => {
   const start = main.indexOf('function effectivePresentation()');
