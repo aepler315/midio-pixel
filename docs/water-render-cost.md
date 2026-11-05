@@ -307,25 +307,26 @@ three out in that case.
   song the cast comes on about 3 s in, on the pilot view and on the Teton
   tour alike: the skip fires on the frames before that and on none after.
 
-Result on main 7d48f2f, 1280×720, frames from 0.25 s every 0.5 s:
+Result on main eadd0e8 (with the tour forest windows), 1280×720, frames from
+0.25 s every 0.5 s:
 
 | per frame, 0.25 s to 2.75 s (no cast yet) | main | after |
 | --- | --- | --- |
-| `teton-jackson-lake` tour: triangles | 140.6 to 142.2 M | 127.4 to 128.6 M |
-| its lake mirror | 48.8 to 50.4 M in 11 renders | 35.6 to 36.8 M in 7 |
-| its draw calls | 200 to 203 | 188 to 191 |
-| pilot view: triangles | 4.42 to 4.56 M | 4.37 to 4.52 M |
-| its draw calls | 134 to 143 | 126 to 135 |
+| `teton-jackson-lake` tour: triangles | 19.78 to 19.86 M | 16.95 to 17.02 M |
+| its lake mirror | 7.14 M in 11 renders | 4.30 M in 7 |
+| its draw calls | 161 to 165 | 150 to 154 |
+| pilot view: triangles | 4.42 to 4.56 M | 4.38 to 4.52 M |
+| its draw calls | 139 to 148 | 130 to 139 |
 
 From 3.25 s on, with the cast out, both views do the same work as main.
-Frames compared by PNG SHA-256: the pilot view, 60 frames from 0.25 s to
-29.75 s, and the Teton tour, 8 frames from 0.25 s to 3.75 s. Every frame is
+Frames compared by PNG SHA-256: 8 frames from 0.25 s to 3.75 s of each view
+against two main runs of the Teton tour and one of the pilot view (and, on
+7d48f2f before the tour windows, 60 pilot frames to 29.75 s). Every frame is
 identical except 2.75 s, which also differs between runs of main itself
-(three runs, three hashes on the pilot view; the pixels that move are sky
-clouds and skyline and ridge borders, nowhere near the lake). The saving is
-the trees' crown cut, so it is large on the Teton tour, which still draws
-trees along every shot line (a fix for that is in progress), and small on
-the pilot view, which has few trees.
+(both views; the pixels that move are sky clouds and skyline and ridge
+borders, nowhere near the lake). The saving is the trees' crown cut, so it
+follows how many trees the mirror sees: on 7d48f2f, before the tour windows,
+the same frames of the Teton tour went from 140.6 M to 127.4 M.
 
 `test/mirrorSkip.test.mjs` checks the gate: ink just under and at the
 threshold, at the discard, NaN, Infinity and negative; a visible group; a
