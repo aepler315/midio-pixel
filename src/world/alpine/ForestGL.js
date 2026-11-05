@@ -715,9 +715,13 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
   // the tour draws, filled with that batch's trees near the window's path
   // (TourForest.js), and per band one demote board holding every mesh-ring
   // tree, which draws those that are not meshes now. All start hidden and
-  // empty; no twin is switched (instanceCounts). A twin is culled whole like
-  // a static batch (ForestCulling.js), bound over the prefix it draws
-  // (forestCull.prefix); the boards, like every billboard, never are.
+  // empty; no twin is switched (instanceCounts). Each render draws a twin's
+  // span (ForestCulling forestSpan, forestCull.spans): the contiguous run
+  // of the trees it holds, in their order, from the first to the last whose
+  // own box can reach that render's volume, bound over the prefix it draws
+  // (forestCull.prefix); none when no tree can. tour.spans false culls a
+  // twin whole, like a static batch. The boards, like every billboard, are
+  // never culled.
   const tourByBand = { far: [], mid: [], near: [] }, tourDepth = [], tourDepthByBand = { far: [], mid: [], near: [] };
   const twins = [], boards = [], tourDetailGroups = [], tourGeos = [], twinOf = new Map();
   let tourMaterials = null, tourU = null;
@@ -748,17 +752,26 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
     if (partitioned) db.layers.set(2);
     tourDepthByBand[bandName[b]].push(db);
   };
+  // A twin's per-tree attributes read their buffers through an offset
+  // (InterleavedBufferAttribute, stride = item size), so a render can draw
+  // any contiguous span of its trees: ForestCulling swaps in attributes
+  // whose offset starts at the span's first tree (forestCull.spans).
+  const spanned = (array, size) => {
+    const data = new THREE.InstancedInterleavedBuffer(array, size, 1);
+    data.setUsage(THREE.DynamicDrawUsage);
+    return new THREE.InterleavedBufferAttribute(data, size, 0);
+  };
   const twinGeometry = (base, n) => {
     const geo = new THREE.InstancedBufferGeometry();
     geo.index = base.index;
     for (const [k, v] of Object.entries(base.attributes)) geo.setAttribute(k, v);
-    geo.setAttribute('iPos', dynamic(new Float32Array(3 * n), 3));
-    geo.setAttribute('iSize', dynamic(new Float32Array(2 * n), 2));
-    geo.setAttribute('iVar', dynamic(new Float32Array(2 * n), 2));
-    geo.setAttribute('iTour', dynamic(new Uint8Array(n), 1));
+    geo.setAttribute('iPos', spanned(new Float32Array(3 * n), 3));
+    geo.setAttribute('iSize', spanned(new Float32Array(2 * n), 2));
+    geo.setAttribute('iVar', spanned(new Float32Array(2 * n), 2));
+    geo.setAttribute('iTour', spanned(new Uint8Array(n), 1));
     geo.instanceCount = 0;
     geo.userData.asset = base.userData.asset;
-    geo.userData.forestCull = { uniforms: u, prefix: true };
+    geo.userData.forestCull = { uniforms: u, prefix: true, spans: tour.spans !== false };
     tourGeos.push(geo);
     return geo;
   };
@@ -785,7 +798,7 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
       lite.setAttribute('iTour', detail.attributes.iTour);
       lite.setAttribute('iLodWeight', dynamic(new Float32Array([0]), 1, n));
       lite.userData.asset = assetFor(1, family, variant).userData.asset;
-      lite.userData.forestCull = { uniforms: u, prefix: true };
+      lite.userData.forestCull = { uniforms: u, prefix: true, spans: tour.spans !== false };
       tourGeos.push(lite);
       addTourMeshes(lite, b, mats, 'lite');
       tourDetailGroups.push({ key: `${b}:${g}`, detail, lite, qualityBase: assetFor(1, family, variant), pixelBase: assetFor(2, family, variant) });
@@ -899,9 +912,9 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
           detail.instanceCount = n;
           if (lite) lite.instanceCount = n;
           for (const name of ['iPos', 'iSize', 'iVar', 'iTour']) {
-            const attribute = detail.attributes[name];
-            attribute.clearUpdateRanges();
-            if (n) { attribute.addUpdateRange(0, n * attribute.itemSize); attribute.needsUpdate = true; }
+            const data = detail.attributes[name].data;
+            data.clearUpdateRanges();
+            if (n) { data.addUpdateRange(0, n * data.stride); data.needsUpdate = true; }
           }
         }
         for (const g of boards) g.attributes.iTour.needsUpdate = true;
@@ -942,6 +955,9 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
     /** Narrative visibility and the governor cap also apply while a pixel
      * footprint blends the paired assets. No placement counts change. */
     applyVisibility({ shown = forest.shown, nearDetail = forest.nearDetail } = {}) {
+      // setLiteAsset changes a lite twin's attributes: no render that threw
+      // may still hold a span in them (ForestCulling.js).
+      restoreForestCulling();
       forest.shown = !!shown; forest.nearDetail = !!nearDetail;
       // On its tour a view with the tour layer draws the twins' detail
       // groups instead of the static mesh-ring batches.

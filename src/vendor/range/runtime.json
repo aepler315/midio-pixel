@@ -4,8 +4,8 @@
   "esbuild": "0.28.2",
   "files": {
     "three-range.module.js": {
-      "bytes": 539408,
-      "sha256": "67ac54f7d189f205842880e73593fa561a96423653d6dd0ead806fdfc2ea6420"
+      "bytes": 545107,
+      "sha256": "d70a9bc8adf134a201d4639ed1605c3531ee1fb5b545a5b3ff2cac87e22048d3"
     },
     "LICENSE-three.txt": {
       "bytes": 1081,
