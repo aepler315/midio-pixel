@@ -1,8 +1,8 @@
 // The tour forest layer (ForestGL createForest `tour`): its twins and
 // demote boards draw every mesh-ring tree exactly once at every state, its
 // shaders add only the tour's hide clause to the rail's, it costs what
-// tourForestBytes says, a replan refills it at once, and the lake layer's
-// water-only pass draws none of it.
+// tourForestBytes says, a replan refills it at once and reaches the GPU as
+// filled, and the lake layer's water-only pass draws none of it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -12,6 +12,7 @@ import { setTerrainDrawMode } from '../src/world/alpine/RailDraw.js';
 import { keyTimeline, wanderKeys, syntheticPlaced, inRing, rng } from './helpers/tourForestFixtures.mjs';
 import { staticMaterials, forestPins, MAIN_PINS, PIN_OPTIONS, pinPlaced } from './helpers/forestShaderPins.mjs';
 import { RangeScene } from '../src/world/alpine/RangeScene.js';
+import { recordingWebGL2 } from './helpers/recordingWebGL2.mjs';
 
 const SEED = 7;
 let shared = null;
@@ -239,5 +240,66 @@ test('the lake layer\'s water-only pass draws no tree of the tour layer', () => 
     assert.deepEqual(leaks.map(m => m.userData.tourLayer ? 'tour layer' : 'static'), [], `${w}x${h} ${JSON.stringify(options)}`);
     assert.deepEqual(cores.filter(m => !m.visible), [], 'the pass restores what the tour shows');
   }
+  forest.dispose();
+});
+
+test('a refill reaches the GPU: each twin\'s trees, every board\'s flags, and draws of each twin\'s count', () => {
+  const { gl, canvas, state } = recordingWebGL2(480, 270, { gpu: true });
+  const renderer = new THREE.WebGLRenderer({ canvas, context: gl });
+  const placed = syntheticPlaced({ extent: 2400, spacing: 40 });
+  const forest = createForest(THREE, placed, {}, { tour: { seed: SEED } }), layer = forest.tour, index = layer.index;
+  const scene = new THREE.Scene();
+  for (const m of Object.values(layer.byBand).flat()) {
+    scene.add(m);
+    m.onBeforeRender = (r, s, c, geometry) => { state.drawing = geometry; };
+  }
+  const camera = new THREE.PerspectiveCamera(30, 16 / 9, 1, 20000);
+  camera.layers.enableAll();
+  camera.position.set(0, 1500, -600); camera.lookAt(0, 1000, 0); camera.updateMatrixWorld();
+  toTour(forest);
+  // Detail and lite, cores and colour: every twin mesh draws.
+  layer.setCompileVisible(true);
+  // A detail twin's weight is one value for all its instances.
+  for (const { detail, lite } of layer.twins) if (lite) for (const g of [detail, lite]) {
+    assert.equal(g.attributes.iLodWeight.meshPerAttribute, g.attributes.iPos.count);
+  }
+  const where = (pred) => {
+    const bits = new Uint32Array(index.words);
+    for (let u = 0; u < index.count; u++) if (pred(u)) bits[u >>> 5] |= 1 << (u & 31);
+    return { bits };
+  };
+  const west = where((u) => index.pos[3 * u] < 0), north = where((u) => index.pos[3 * u + 2] < 200);
+  const same = (gpu, array, n) => !!gpu && n * array.BYTES_PER_ELEMENT <= gpu.length
+    && Buffer.from(gpu.buffer, gpu.byteOffset, n * array.BYTES_PER_ELEMENT).equals(Buffer.from(array.buffer, array.byteOffset, n * array.BYTES_PER_ELEMENT));
+  const bytesOf = (attribute) => state.bufferOf.get(attribute.array)?.bytes;
+  // All, then fewer trees in other twin slots, then the sets swapped.
+  for (const [name, S] of [['all', { a: index.all, b: index.all, f: 1 }], ['west to north', { a: west, b: north, f: .5 }], ['north to west', { a: north, b: west, f: .2 }]]) {
+    assert.equal(layer.apply(S), true);
+    state.draws.length = 0;
+    renderer.render(scene, camera);
+    let drawn = 0;
+    layer.twins.forEach(({ detail, lite }, i) => {
+      const k = detail.instanceCount;
+      for (const key of ['iPos', 'iSize', 'iVar', 'iTour']) {
+        const a = detail.attributes[key];
+        assert.ok(same(bytesOf(a), a.array, k * a.itemSize), `${name}: twin ${i} ${key} on the GPU is its first ${k} trees`);
+      }
+      for (const g of lite ? [detail, lite] : [detail]) {
+        const draws = state.draws.filter((d) => d.drawing === g);
+        if (k) assert.ok(draws.length > 0, `${name}: twin ${i} draws`);
+        for (const d of draws) assert.equal(d.instances, k, `${name}: twin ${i} draws its ${k} trees`);
+        drawn += draws.length;
+      }
+    });
+    assert.ok(drawn > 0);
+    for (const [b, g] of layer.boards.entries()) {
+      const a = g.attributes.iTour;
+      assert.ok(same(bytesOf(a), a.array, a.count), `${name}: board ${b}'s flags on the GPU are boardFlags`);
+      assert.ok(state.draws.some((d) => d.drawing === g && d.instances === g.instanceCount), `${name}: board ${b} draws`);
+    }
+    const short = state.draws.filter((d) => d.short?.length);
+    assert.equal(short.length, 0, `${name}: ${short.length} draws read past an instanced attribute`);
+  }
+  renderer.dispose();
   forest.dispose();
 });
