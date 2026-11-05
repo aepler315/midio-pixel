@@ -6,6 +6,29 @@ task-authorized experiments under the
 [experimental development policy](experimental-development.md); the descriptions
 below do not impose permanent preservation requirements.
 
+## Single-stage live Landscape
+
+Pixel and Palette now draw the current Landscape into one selected native-grid
+canvas, including the musical sky, cast, water, weather, post effects and
+captions. The browser scales the completed picture with nearest-neighbour
+sampling. Fullscreen uses the same native backing and CSS cover cropping,
+with pointer mapping following that crop. Palette processing and semantic
+captures run after the scene is complete.
+
+Native live rendering uses the terrain's own skyline and shoreline. The
+separate fine-edge reconstruction and smooth overlays described later in this
+page belong to the hybrid path. Cinematic Pixel and explicitly sized offline
+captures use that hybrid presentation. Diagnostic URLs select
+`?rangePipeline=hybrid`, `native` (resolution-only comparison), or `single`.
+Ordinary live Pixel and Palette default to `single`.
+
+The newer sky and musical rules, camera schedules, forest placement and
+deformation remain in the native scene. GPU depth snapshots avoid rebuilding
+the same opaque terrain depth between soft forest passes. Auto quality counts
+sustained missed vsyncs and ends failed detail-recovery probes promptly.
+See [renderer restoration measurements](single-stage-rendering.md) for hardware
+results, quality levels and remaining measurement limits.
+
 Display settings are available on the title screen and from **Display** during playback. Look and quality are independent:
 
 | Setting | Behavior |
