@@ -478,7 +478,7 @@ test('createForest marks mesh-tree batches for culling, never billboards', () =>
   assert.equal(forestCells(detail.geometry), forestCells(lite.geometry));
 });
 
-test('the tour layer\'s twins and demote boards are never culled; the static batches still are', () => {
+test('the tour layer\'s twins are culled over the trees they draw, never its demote boards; the static batches as before', () => {
   const rows = (band, n, z) => Array.from({ length: n }, (_, i) => [i * 10, 0, z, 12, 4, i % 4, (i * .137) % 1, band]).flat();
   const placed = { meshDetail: new Float32Array([...rows(2, 6, -100), ...rows(2, 4, 900)]), mesh: new Float32Array([...rows(2, 8, -300), ...rows(1, 3, 2000)]),
     billboard: new Float32Array(rows(1, 5, -4000)), stride: 8, count: 26, railCount: { meshDetail: 6, mesh: 8, billboard: 5 } };
@@ -487,10 +487,56 @@ test('the tour layer\'s twins and demote boards are never culled; the static bat
   assert.deepEqual(statics(f).map(m => !!m.geometry.userData.forestCull), statics(plain).map(m => !!m.geometry.userData.forestCull));
   for (const m of statics(f)) if (m.geometry.attributes.aBranch) assert.equal(m.geometry.userData.forestCull.uniforms, f.uniforms);
   assert.ok(f.tour.every.length > 0 && f.tour.twins.length > 0 && f.tour.boards.length > 0);
-  for (const m of f.tour.every) assert.equal(m.geometry.userData.forestCull, undefined, 'a tour object is never culled');
-  for (const t of f.tour.twins) for (const g of [t.detail, t.lite].filter(Boolean)) assert.equal(g.userData.forestCull, undefined);
+  for (const m of f.tour.every) {
+    const tagged = m.geometry.userData.forestCull;
+    if (m.geometry.attributes.aBranch) assert.deepEqual(tagged, { uniforms: f.uniforms, prefix: true }, 'a twin is bound over its drawn prefix');
+    else assert.equal(tagged, undefined, 'a demote board is never culled');
+  }
+  for (const t of f.tour.twins) for (const g of [t.detail, t.lite].filter(Boolean)) assert.equal(g.userData.forestCull.prefix, true);
   for (const g of f.tour.boards) assert.equal(g.userData.forestCull, undefined);
+  // No static batch is bound over a prefix: their cells stay those of #81.
+  for (const m of statics(f)) assert.ok(!m.geometry.userData.forestCull?.prefix);
   for (const forest of [plain, f]) forest.dispose();
+});
+
+test('a prefix batch\'s cells cover only the trees it draws and follow every refill; other batches ignore the count', () => {
+  const geo = ASSETS[4].geo;
+  const at = (x, z) => ({ x, y: 1000, z, h: 20, w: 5, species: 1, id: .5 });
+  const asCells = c => Array.from({ length: c.length / 8 }, (_, i) => [...c.slice(i * 8, i * 8 + 3)]);
+  // Static: every tree, whatever instanceCount says (a rail prefix included).
+  const fixed = batch(geo, [at(10, 10), at(600, 10), at(1200, 10)]);
+  fixed.userData.forestCull = { uniforms: {} };
+  fixed.instanceCount = 1;
+  assert.equal(forestCells(fixed).length, 3 * 8);
+  // A twin: the first instanceCount trees only.
+  const twin = batch(geo, [at(10, 10), at(600, 10), at(1200, 10)]);
+  twin.userData.forestCull = { uniforms: {}, prefix: true };
+  twin.instanceCount = 1;
+  assert.deepEqual(asCells(forestCells(twin)), [[10, 1000, 10]]);
+  twin.instanceCount = 2;
+  assert.deepEqual(asCells(forestCells(twin)).sort((a, b) => a[0] - b[0]), [[10, 1000, 10], [600, 1000, 10]]);
+  // A refill in place, same count: new roots, new cells (not the cached ones).
+  const pos = twin.attributes.iPos;
+  pos.setXYZ(0, 5000, 1000, -5000); pos.setXYZ(1, 5010, 1000, -5000); pos.needsUpdate = true;
+  assert.deepEqual(asCells(forestCells(twin)), [[5000, 1000, -5000]]);
+  // A refill of the heights alone is seen too.
+  const size = twin.attributes.iSize;
+  size.setX(0, 300); size.needsUpdate = true;
+  assert.equal(forestCells(twin)[4], 1300);
+  // An id outside [0, 1] beyond the prefix is not drawn, so not read; inside it, never culled.
+  twin.attributes.iVar.setY(2, 7); twin.attributes.iVar.needsUpdate = true;
+  assert.ok(forestCells(twin));
+  twin.instanceCount = 3;
+  assert.equal(forestCells(twin), null);
+  // The camera faces the refilled trees: the stale bound would have culled them.
+  const u = uniforms(rng(4)), camera = new THREE.PerspectiveCamera(50, 1, 1, 20000);
+  const moving = batch(geo, [at(0, -800), at(0, -900)]);
+  moving.userData.forestCull = { uniforms: u, prefix: true };
+  camera.position.set(0, 1010, 0); camera.lookAt(0, 1010, 1); camera.updateMatrixWorld();
+  const planes = frustumPlanes(camera, null);
+  assert.equal(forestGeometryVisible(moving, planes, u), false, 'behind the camera');
+  moving.attributes.iPos.setZ(0, 800); moving.attributes.iPos.setZ(1, 900); moving.attributes.iPos.needsUpdate = true;
+  assert.equal(forestGeometryVisible(moving, planes, u), true, 'refilled in front of it');
 });
 
 test('the culled count is restored however the scene\'s renders end', () => {

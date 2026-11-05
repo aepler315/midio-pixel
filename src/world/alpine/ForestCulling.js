@@ -104,15 +104,24 @@ const cellsCache = new WeakMap();
  *  min x, min bottom (root y, plus the height if negative), min z, max x,
  *  max top (root y, plus the height if positive), max z, max |height|, max
  *  |width|. Null when the instances cannot be bounded (a non-finite value,
- *  or an id outside [0, 1]). */
+ *  or an id outside [0, 1]).
+ *
+ *  A batch tagged `forestCull.prefix` (the tour layer's twins, ForestGL.js)
+ *  refills its attributes in place and draws only their first
+ *  instanceCount trees: its cells cover that prefix and are rebuilt when
+ *  the count or an attribute's version changes. Every other batch is bound
+ *  over all its trees, as before. */
 export function forestCells(geometry) {
   const pos = geometry?.attributes?.iPos, size = geometry?.attributes?.iSize, vars = geometry?.attributes?.iVar;
   if (!pos || !size || !vars || size.count < pos.count || vars.count < pos.count) return null;
+  const prefix = !!geometry.userData?.forestCull?.prefix;
+  const n = prefix ? Math.min(pos.count, Math.max(0, geometry.instanceCount | 0)) : pos.count;
+  const version = prefix ? `${n}:${pos.version}:${size.version}:${vars.version}` : null;
   const cached = cellsCache.get(pos);
-  if (cached && cached.size === size && cached.vars === vars) return cached.cells;
+  if (cached && cached.size === size && cached.vars === vars && cached.version === version) return cached.cells;
   const cells = new Map();
   let ok = true;
-  for (let i = 0; i < pos.count && ok; i++) {
+  for (let i = 0; i < n && ok; i++) {
     const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i), h = size.getX(i), w = size.getY(i), id = vars.getY(i);
     if (![x, y, z, h, w].every(Number.isFinite) || !(id >= 0 && id <= 1)) { ok = false; break; }
     const key = `${Math.floor(x / FOREST_CULL_CELL_M)},${Math.floor(z / FOREST_CULL_CELL_M)}`;
@@ -126,7 +135,7 @@ export function forestCells(geometry) {
     }
   }
   const out = ok ? Float64Array.from([...cells.values()].flat()) : null;
-  cellsCache.set(pos, { size, vars, cells: out });
+  cellsCache.set(pos, { size, vars, version, cells: out });
   return out;
 }
 

@@ -164,9 +164,14 @@ The rule is set by constants in `TourForest.js`:
 
 Each static mesh batch has a twin that holds that batch's trees in the drawn
 sets, in placement order. Each band has a demote board holding all its trees,
-which draws those that are not meshes. Neither carries a culling tag, so
-`ForestCulling.js` never changes their counts. The static mesh-ring batches
-are hidden on the tour.
+which draws those that are not meshes. The static mesh-ring batches are hidden
+on the tour. A twin is culled whole like a static batch (`ForestCulling.js`),
+with its cells built over the trees it draws (`forestCull.prefix`: its first
+`instanceCount` trees) and rebuilt at every refill, when its attributes'
+versions change. Like every billboard, the boards are never culled. On
+`black-mountains-catawba`, whose tour flies low over dense forest, this takes
+the twins out of the mirror and water passes, where they made up about half
+the frame.
 
 Residency: the layer's bytes (`tourForestBytes`) are charged in the view's GPU
 reservation. It is built only when it fits in free room beside both cameras,

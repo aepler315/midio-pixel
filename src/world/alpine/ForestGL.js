@@ -715,7 +715,9 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
   // the tour draws, filled with that batch's trees near the window's path
   // (TourForest.js), and per band one demote board holding every mesh-ring
   // tree, which draws those that are not meshes now. All start hidden and
-  // empty; no twin is ever culled (forestCull) or switched (instanceCounts).
+  // empty; no twin is switched (instanceCounts). A twin is culled whole like
+  // a static batch (ForestCulling.js), bound over the prefix it draws
+  // (forestCull.prefix); the boards, like every billboard, never are.
   const tourByBand = { far: [], mid: [], near: [] }, tourDepth = [], tourDepthByBand = { far: [], mid: [], near: [] };
   const twins = [], boards = [], tourDetailGroups = [], tourGeos = [], twinOf = new Map();
   let tourMaterials = null, tourU = null;
@@ -756,6 +758,7 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
     geo.setAttribute('iTour', dynamic(new Uint8Array(n), 1));
     geo.instanceCount = 0;
     geo.userData.asset = base.userData.asset;
+    geo.userData.forestCull = { uniforms: u, prefix: true };
     tourGeos.push(geo);
     return geo;
   };
@@ -782,6 +785,7 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
       lite.setAttribute('iTour', detail.attributes.iTour);
       lite.setAttribute('iLodWeight', dynamic(new Float32Array([0]), 1, n));
       lite.userData.asset = assetFor(1, family, variant).userData.asset;
+      lite.userData.forestCull = { uniforms: u, prefix: true };
       tourGeos.push(lite);
       addTourMeshes(lite, b, mats, 'lite');
       tourDetailGroups.push({ key: `${b}:${g}`, detail, lite, qualityBase: assetFor(1, family, variant), pixelBase: assetFor(2, family, variant) });
@@ -908,6 +912,8 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
       },
       /** The view's camera mode: the layer draws only on the tour. */
       setMode(mode) {
+        // A culled render's 0 must not come back over the counts set here.
+        restoreForestCulling();
         tourApi.active = mode === 'tour';
         appliedA = appliedB = null;
         tourU.uTourFade.value = 1;
