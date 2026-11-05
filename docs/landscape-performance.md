@@ -119,3 +119,65 @@ instead of 45.5 M, and on the pilot view 6.6 M instead of 7.8 M. Billboards
 are not culled. The counts a render that throws leaves at 0 are put back by
 the next culled render of any scene, or by `restoreForestCulling`, which the
 detail view and the rail/tour switch call first.
+
+## Tour forest windows
+
+On its shot tour a two-camera static view draws every mesh-ring tree of the
+tour as a mesh. Most are far from the eye at any moment. The tour forest layer
+(`TourForest.js`, `createForest`'s `tour` option) draws as meshes only the
+trees near the part of the tour being played. Every other tree is drawn as a
+billboard. The rail does not change: its batches, counts, shaders and draw
+calls are those of a forest without the layer, and the layer's objects stay
+hidden there.
+
+The rule is set by constants in `TourForest.js`:
+
+- **Windows.** The timeline is cut into 4 s windows (`TOUR_WINDOW_MS`), 40 eye
+  keys each. Each window's keys are extended by half a fade, 0.5 s, on each side.
+- **Window sets.** A window's set holds every tree whose root lies nearer the
+  simplified key path than `reach + M + δ + τ + ε`:
+  - `reach` is the tree's own mesh ring, 1200 m times its ring scale
+    (`forestRingScale`).
+  - `M` is a 50 m margin (`TOUR_MARGIN_M`).
+  - `δ` bounds how far `poseAt`'s Catmull-Rom curve leaves its chords
+    (`crDeviation`).
+  - `τ` is the 2 m Douglas-Peucker tolerance (`TOUR_TAU_M`).
+  - `ε` is 0.25 m (`TOUR_EPS_M`).
+
+  A tree within its ring of the eye is therefore in the set of every window
+  whose span holds the frame's time.
+- **Dissolves.** Each window boundary dissolves over 1 s (`TOUR_FADE_MS`).
+  Each instance carries two bits: whether it is in the outgoing set and
+  whether it is in the incoming one. A tree in only one of the two sets turns
+  into a mesh or a billboard when the fade passes its own key,
+  `fract(id * 4099)`. The same rule decides mesh and board, so each tree is
+  drawn once.
+- **Schedule.** `TourForestSchedule` keeps up to 32 computed windows
+  (`TOUR_CACHE_WINDOWS`) and computes at most one upcoming window per frame
+  ahead of need. A new timeline (a replan) keeps only the windows whose keys
+  it leaves byte-equal. The layer refills its twins whenever the drawn sets
+  are different objects, so a replan of the playhead's window takes effect on
+  the next pass.
+- **Guard.** Each pass checks the eye it draws from, after the camera moves.
+  It must lie within `δ + τ + ε` of both windows' paths. Otherwise that pass
+  draws every tree of the layer as a mesh, which is the tour without the layer.
+
+Each static mesh batch has a twin that holds that batch's trees in the drawn
+sets, in placement order. Each band has a demote board holding all its trees,
+which draws those that are not meshes. Neither carries a culling tag, so
+`ForestCulling.js` never changes their counts. The static mesh-ring batches
+are hidden on the tour.
+
+Residency: the layer's bytes (`tourForestBytes`) are charged in the view's GPU
+reservation. It is built only when it fits beside both cameras, and on phones
+only when twice its size fits. Otherwise the view keeps the static tour
+forest, and if even a reservation without the layer fails, the existing
+refusal path follows. The layer costs 5.85 MiB on `teton-jackson-lake` and
+15.87 MiB on `black-mountains-catawba`. The pre-placement room check
+(`_tourRoom`) does not count the layer.
+
+`RangeScene.tourForest` (true) switches the layer for views prepared after it
+changes. Tests set it false to compare with the static tour forest. The view's
+`stats.tourForest` reports the layer's bytes, trees, current window, refills,
+guard failures and window computes. Without the layer it reports
+`'static: no room or off'`.

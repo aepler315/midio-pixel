@@ -8,7 +8,9 @@ import {
   TOUR_MARGIN_M, TOUR_TAU_M, TOUR_EPS_M, TOUR_WINDOW_MS, TOUR_FADE_MS,
 } from '../src/world/alpine/TourForest.js';
 import { SHOT_KEY_MS } from '../src/world/terrain/ShotTimeline.js';
+import { treeTraits, forestRingScale } from '../src/world/alpine/ForestCover.js';
 import { rng, keyTimeline, wanderKeys, syntheticPlaced, syntheticIndex, r2Sweep, stateBits, bitOf } from './helpers/tourForestFixtures.mjs';
+import { SHIPPED_VIEWS, shippedView, shippedIndex, fixtureTimelines, refinedTimeline } from './helpers/tourForestShipped.mjs';
 
 let shared = null;
 function forest() {
@@ -23,6 +25,29 @@ const FAST = { durationMs: 40000, speed: 300, shuttle: [200, 236] };
 const fastTour = () => keyTimeline(wanderKeys(FAST), FAST.durationMs);
 const scheduleFor = (index, tl, options) => { const s = new TourForestSchedule(index, options); s.setTimeline(tl); return s; };
 const sameBits = (a, b) => a.length === b.length && Buffer.compare(Buffer.from(a.buffer, a.byteOffset, a.byteLength), Buffer.from(b.buffer, b.byteOffset, b.byteLength)) === 0;
+
+/** Every segment's Catmull-Rom curve stays within its bound of its chord,
+ *  at 200 samples per segment; the segments that reach .99 of a bound
+ *  over 1 m. */
+function boundHolds(tl) {
+  let tight = 0;
+  const n = tl.fov.length, last = Math.min(n - 2, Math.floor(tl.durationMs / SHOT_KEY_MS));
+  for (let k = 0; k <= last; k++) {
+    const bound = crDeviation(tl.eye, n, k);
+    let worst = 0;
+    for (let i = 0; i < 200; i++) {
+      const t = k * SHOT_KEY_MS + i * SHOT_KEY_MS / 200;
+      if (t > tl.durationMs) break;
+      const e = tl.poseAt(t).eyeM, u = i / 200;
+      const chord = [0, 1, 2].map(c => tl.eye[3 * k + c] + u * (tl.eye[3 * k + 3 + c] - tl.eye[3 * k + c]));
+      const d = Math.hypot(e[0] - chord[0], e[1] - chord[1], e[2] - chord[2]);
+      assert.ok(d <= bound + 1e-6, `segment ${k} of ${n}: ${d} m from its chord, bound ${bound}`);
+      worst = Math.max(worst, d);
+    }
+    if (bound > 1 && worst > .99 * bound) tight++;
+  }
+  return tight;
+}
 
 /** Zig-zag keys: a sharp turn on the second segment and on the third from
  *  last (the ends' reflections decide them), and between, short steps
@@ -41,25 +66,8 @@ function zigzagKeys() {
 
 test('the Catmull-Rom bound holds on every segment, end segments included, and is tight', () => {
   const keys = zigzagKeys(), count = keys.length;
-  for (const tl of [keyTimeline(keys, (count - 1) * SHOT_KEY_MS), fastTour()]) {
-    let tight = 0;
-    const n = tl.fov.length, last = Math.min(n - 2, Math.floor(tl.durationMs / SHOT_KEY_MS));
-    for (let k = 0; k <= last; k++) {
-      const bound = crDeviation(tl.eye, n, k);
-      let worst = 0;
-      for (let i = 0; i < 200; i++) {
-        const t = k * SHOT_KEY_MS + i * SHOT_KEY_MS / 200;
-        if (t > tl.durationMs) break;
-        const e = tl.poseAt(t).eyeM, u = i / 200;
-        const chord = [0, 1, 2].map(c => tl.eye[3 * k + c] + u * (tl.eye[3 * k + 3 + c] - tl.eye[3 * k + c]));
-        const d = Math.hypot(e[0] - chord[0], e[1] - chord[1], e[2] - chord[2]);
-        assert.ok(d <= bound + 1e-6, `segment ${k} of ${n}: ${d} m from its chord, bound ${bound}`);
-        worst = Math.max(worst, d);
-      }
-      if (bound > 1 && worst > .99 * bound) tight++;
-    }
-    if (tl.fov.length === count) assert.ok(tight >= 5, `${tight} segments reach their bound`);
-  }
+  assert.ok(boundHolds(keyTimeline(keys, (count - 1) * SHOT_KEY_MS)) >= 5, 'segments reach their bound');
+  boundHolds(fastTour());
 });
 
 test('Douglas-Peucker keeps every point within tau of the kept polyline', () => {
@@ -255,4 +263,75 @@ test('a window set holds exactly the trees nearer its path than reach + M + delt
   let n = 0;
   for (let u = 0; u < 32 * all.length; u++) n += bitOf(all, u);
   assert.equal(n, index.count, 'ALL holds every tree and no more');
+});
+
+// Shipped views: Teton and Black Mountains placed as a two-camera
+// RangeScene prepare places them, with the fixture songs' timelines.
+const FULL = process.env.TOUR_FOREST_FULL === '1';
+
+test('on the shipped views each layer tree is its lattice cell\'s, and its reach is its ring scale\'s', () => {
+  for (const id of SHIPPED_VIEWS) {
+    const v = shippedView(id), index = shippedIndex(v), { pos, vars, reach } = index;
+    assert.ok(index.count > 40000, `${id}: ${index.count} trees`);
+    for (let u = 0; u < index.count; u++) {
+      const x = pos[3 * u], z = pos[3 * u + 2], ix = Math.floor(x / 13), iz = Math.floor(z / 13);
+      const t = treeTraits(ix, iz, v.seed, pos[3 * u + 1], 0, v.rules, v.view);
+      if (Math.fround(t.x) !== x || Math.fround(t.z) !== z || Math.fround(t.id) !== vars[2 * u + 1]) assert.fail(`${id} tree ${u} is not cell ${ix}, ${iz}'s`);
+      if (reach[u] !== Math.fround(1200 * forestRingScale(ix, iz, v.seed))) assert.fail(`${id} tree ${u}: reach ${reach[u]}`);
+    }
+  }
+});
+
+test('the Catmull-Rom bound holds on the shipped views\' fixture timelines', () => {
+  for (const id of SHIPPED_VIEWS) {
+    const timelines = fixtureTimelines(shippedView(id));
+    assert.equal(timelines.length, 4, `${id}: ${timelines.map(t => t.name)}`);
+    for (const { tl } of timelines) boundHolds(tl);
+  }
+});
+
+test('on the shipped views every tree within its ring of the eye is a mesh at every frame (R2)', () => {
+  for (const id of SHIPPED_VIEWS) {
+    const v = shippedView(id), index = shippedIndex(v);
+    // Teton every 50 ms; Black Mountains every 250 ms at seeded jittered
+    // times; both every 20 ms with TOUR_FOREST_FULL=1.
+    const stepMs = FULL ? 20 : id === 'black-mountains-catawba' ? 250 : 50;
+    const jitter = !FULL && id === 'black-mountains-catawba' ? rng(13) : null;
+    let checked = 0;
+    for (const { name, tl } of fixtureTimelines(v)) {
+      const s = scheduleFor(index, tl);
+      const sweep = r2Sweep(index, s, tl, { stepMs, jitter, onFrame: t => s.prefetch(t) });
+      assert.equal(sweep.misses, 0, `${id} ${name}: ${sweep.misses} of ${sweep.checked} in-ring trees drawn as billboards`);
+      assert.equal(sweep.notBoth, 0, `${id} ${name}: every in-ring tree is in both sets`);
+      checked += sweep.checked;
+    }
+    // Teton's short tour stays high over the lake: few trees are near it.
+    assert.ok(checked > 1e6, `${id}: ${checked} checked`);
+  }
+});
+
+test('a refinement of a shipped tour keeps the windows its keys leave unchanged, and recomputes the rest', () => {
+  const v = shippedView('teton-jackson-lake'), index = shippedIndex(v);
+  for (const heard of [28100, 28400]) {
+    const { first, next } = refinedTimeline(v, heard);
+    let firstDiff = first.fov.length;
+    for (let i = 0; i < 3 * first.fov.length; i++) if (first.eye[i] !== next.eye[i]) { firstDiff = Math.floor(i / 3); break; }
+    const s = scheduleFor(index, first);
+    for (let t = 0; t <= heard; t += 20) { s.stateAt(t); s.prefetch(t); }
+    const before = new Map(s.cache);
+    s.setTimeline(next);
+    for (const [w, e] of before) assert.equal(s.cache.get(w) === e, e.deps[1] < firstDiff, `${heard}: window ${w} (keys to ${e.deps[1]}, first change ${firstDiff})`);
+    // The fixture's refinement changes keys from 31.4 s: windows 0-6 carry
+    // their very sets over and the playhead's window 7 is recomputed.
+    for (let w = 0; w <= 6; w++) assert.equal(s.cache.get(w), before.get(w), `${heard}: window ${w} carried over`);
+    assert.ok(before.has(7) && !s.cache.has(7), `${heard}: window 7 recomputed`);
+    // Heard in the dissolve from window 6 to window 7.
+    const playhead = s.stateAt(heard);
+    assert.deepEqual([playhead.a.w, playhead.b.w], [6, 7]);
+    assert.equal(playhead.a, before.get(6));
+    assert.notEqual(playhead.b, before.get(7));
+    for (const [w, e] of s.cache) assert.ok(sameBits(e.bits, windowSet(index, next, w).bits), `${heard}: window ${w} is the new timeline's`);
+    const sweep = r2Sweep(index, s, next, { fromMs: heard, toMs: heard + 8000, stepMs: 20, onFrame: t => s.prefetch(t) });
+    assert.equal(sweep.misses, 0, `${heard}: ${sweep.misses} of ${sweep.checked} in-ring trees missed after the refinement`);
+  }
 });
