@@ -6,7 +6,7 @@ export {
   WebGLRenderer, WebGLRenderTarget, DepthTexture,
   Scene, Group, Mesh, InstancedMesh, Points, LineSegments,
   PerspectiveCamera, OrthographicCamera,
-  BufferGeometry, BufferAttribute, InstancedBufferGeometry, InstancedBufferAttribute, Float32BufferAttribute, Uint32BufferAttribute,
+  BufferGeometry, BufferAttribute, InstancedBufferGeometry, InstancedBufferAttribute, InstancedInterleavedBuffer, InterleavedBufferAttribute, Float32BufferAttribute, Uint32BufferAttribute,
   ShaderMaterial, RawShaderMaterial, MeshBasicMaterial,
   DataTexture, Texture, CanvasTexture,
   Color, Vector2, Vector3, Vector4, Matrix4, Matrix3, Quaternion, Box3, Sphere, Frustum,

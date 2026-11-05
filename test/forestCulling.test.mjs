@@ -5,9 +5,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { test } from 'node:test';
 import * as THREE from 'three';
-import { assetExtents, forestBounds, forestCells, forestCellBox, forestGeometryVisible, forestLean, cullForestScene, restoreForestScene,
-  CROWN_RADIUS_PER_WIDTH, TRUNK_RADIUS_M } from '../src/world/alpine/ForestCulling.js';
-import { frustumPlanes, CHUNK_BOX_PAD_M } from '../src/world/alpine/TerrainChunks.js';
+import { assetExtents, forestBounds, forestCells, forestCellBox, forestGeometryVisible, forestLean, forestSpan, cullForestScene, restoreForestScene,
+  CROWN_RADIUS_PER_WIDTH, TRUNK_RADIUS_M, SPAN_ALIGN, SPAN_SCAN_MAX } from '../src/world/alpine/ForestCulling.js';
+import { frustumPlanes, boxOutsidePlanes, CHUNK_BOX_PAD_M } from '../src/world/alpine/TerrainChunks.js';
 import { DANCE_WAVE_BOUND } from '../src/world/alpine/MirrorScissor.js';
 import { landRiseLift, riseFromUniforms, risenHeight, risePivot, LAND_RISE_KNEE } from '../src/world/alpine/LandRise.js';
 import { coniferGeometry, createForest } from '../src/world/alpine/ForestGL.js';
@@ -125,6 +125,55 @@ function batch(base, trees) {
   geo.instanceCount = trees.length;
   return geo;
 }
+
+// A tour twin as ForestGL's twinGeometry builds it: each per-tree attribute
+// a view at offset 0 of its own instanced buffer, stride = item size, room
+// for `capacity` trees, drawing its first instanceCount (forestCull.prefix)
+// span by span (forestCull.spans).
+const spanned = (array, size) => new THREE.InterleavedBufferAttribute(new THREE.InstancedInterleavedBuffer(array, size, 1).setUsage(THREE.DynamicDrawUsage), size, 0);
+function twin(base, list, { capacity = list.length, uniforms: u = {}, spans = true } = {}) {
+  const geo = new THREE.InstancedBufferGeometry();
+  geo.index = base.index;
+  for (const [k, v] of Object.entries(base.attributes)) geo.setAttribute(k, v);
+  geo.setAttribute('iPos', spanned(new Float32Array(3 * capacity), 3));
+  geo.setAttribute('iSize', spanned(new Float32Array(2 * capacity), 2));
+  geo.setAttribute('iVar', spanned(new Float32Array(2 * capacity), 2));
+  geo.setAttribute('iTour', spanned(new Uint8Array(capacity), 1));
+  geo.userData.forestCull = { uniforms: u, prefix: true, spans };
+  return refill(geo, list);
+}
+// Refill a twin in place as the tour layer's apply does: the same arrays,
+// each buffer's version bumped, the count the trees it now holds.
+function refill(geo, list) {
+  const a = geo.attributes;
+  list.forEach((t, i) => { a.iPos.setXYZ(i, t.x, t.y, t.z); a.iSize.setXY(i, t.h, t.w); a.iVar.setXY(i, t.species, t.id); a.iTour.setX(i, 1); });
+  for (const name of ['iPos', 'iSize', 'iVar', 'iTour']) a[name].data.needsUpdate = true;
+  geo.instanceCount = list.length;
+  return geo;
+}
+// A lite twin over `detail`'s trees (ForestGL buildTwins): another asset,
+// the same attribute objects.
+function liteOf(detail, base) {
+  const geo = new THREE.InstancedBufferGeometry();
+  geo.index = base.index;
+  for (const [k, v] of Object.entries(base.attributes)) geo.setAttribute(k, v);
+  for (const name of ['iPos', 'iSize', 'iVar', 'iTour']) geo.setAttribute(name, detail.attributes[name]);
+  geo.userData.forestCull = { ...detail.userData.forestCull };
+  geo.instanceCount = detail.instanceCount;
+  return geo;
+}
+// A lite asset swap (ForestGL setLiteAsset): the index and base attributes
+// of another asset, the trees kept.
+function swapAsset(geo, base) {
+  geo.setIndex(base.index);
+  for (const [k, v] of Object.entries(base.attributes)) geo.setAttribute(k, v);
+}
+const treeAt = (geo, i) => {
+  const a = geo.attributes;
+  return { x: a.iPos.getX(i), y: a.iPos.getY(i), z: a.iPos.getZ(i), h: a.iSize.getX(i), w: a.iSize.getY(i), species: a.iVar.getX(i), id: a.iVar.getY(i) };
+};
+// The cell of one tree (forestCells' layout): what a span tests each tree by.
+const oneTree = t => Float64Array.of(t.x, t.y + Math.min(0, t.h), t.z, t.x, t.y + Math.max(0, t.h), t.z, Math.abs(t.h), Math.abs(t.w));
 
 function trees(r, n, spread = 2000) {
   return Array.from({ length: n }, () => {
@@ -391,6 +440,46 @@ test('every vertex the shader can place lies inside its cell\'s box (no safety f
   assert.ok(checked > 200000, `checked ${checked}`);
 });
 
+test('every vertex the shader can place lies inside its tree\'s own one-tree box (no safety factor, no padding), and that box inside its cell\'s', () => {
+  // A span drops a tree by its own box (ForestCulling forestSpan), so the
+  // bound must hold tree by tree, not only over a cell: the extremes above
+  // (deformation, wind and gust lean, parting, the rise), each tree on its
+  // own, a few with negative heights and widths.
+  let checked = 0, tighter = 0;
+  for (let seed = 1; seed <= 36; seed++) {
+    const r = rng(seed * 5 + 1), e = edgy(r), u = uniforms(r);
+    const asset = ASSETS[(seed * 7) % ASSETS.length];
+    const list = trees(r, 6, seed % 3 ? 2000 : 150).map((t, i) => i % 5 === 4 ? { ...t, h: -t.h, w: -t.w } : t);
+    if (seed % 2 === 0) u.uParting.value = { x: list[0].x + (r() * 2 - 1) * 30, y: list[0].z + (r() * 2 - 1) * 30, z: 60 + r() * 60, w: .5 + r() };
+    if (seed % 3 !== 1) rise(u, list, r);
+    const cells = forestCells(batch(asset.geo, list)), ext = assetExtents(asset.geo);
+    const d = deformBound(u), lift = { lo: -d, hi: d, rise: riseFromUniforms(u) }, lean = forestLean(u);
+    const prod = forestBounds(u), own = new Float64Array(6), cell = new Float64Array(6), ownProd = new Float64Array(6);
+    for (const tree of list) {
+      const one = forestCells(batch(asset.geo, [tree]));
+      assert.deepEqual([...one], [...oneTree(tree)], 'a one-tree cell is the tree\'s own values');
+      forestCellBox(one, 0, ext, lift, lean, 0, own);
+      for (let k = 0; k < asset.geo.attributes.position.count; k++) {
+        const [x, y, z] = meshVertex(asset.geo, k, tree, u, e, r);
+        // A float32 position against float64 math: allow 1 mm.
+        const ok = x >= own[0] - 1e-3 && y >= own[1] - 1e-3 && z >= own[2] - 1e-3 && x <= own[3] + 1e-3 && y <= own[4] + 1e-3 && z <= own[5] + 1e-3;
+        if (!ok) assert.fail(`seed ${seed} asset ${asset.family}/${asset.variant}/${asset.lod} vertex ${k}: ${[x, y, z].map(v => v.toFixed(3))} outside ${[...own].map(v => v.toFixed(3))}`);
+        checked++;
+      }
+      // With production safety and padding, the tree's box lies inside its
+      // cell's: a tree that can reach a volume is in a cell that can (so the
+      // cells in view, and their span, hold every tree in view).
+      forestCellBox(one, 0, ext, prod.lift, prod.lean, CHUNK_BOX_PAD_M, ownProd);
+      forestCellBox(cells, cellOf(cells, tree), ext, prod.lift, prod.lean, CHUNK_BOX_PAD_M, cell);
+      for (let j = 0; j < 3; j++) assert.ok(ownProd[j] >= cell[j] && ownProd[j + 3] <= cell[j + 3], `seed ${seed}: axis ${j} of a tree's box leaves its cell's`);
+      if ([0, 1, 2].some(j => ownProd[j] > cell[j] + 1 || ownProd[j + 3] < cell[j + 3] - 1)) tighter++;
+    }
+  }
+  assert.ok(checked > 200000, `checked ${checked}`);
+  // The case needs cells of several trees, where a tree's own box is tighter.
+  assert.ok(tighter > 50, `tighter than their cells: ${tighter}`);
+});
+
 test('under the rise a box\'s floor is its bottom where it comes nearest the eye, not at a corner', () => {
   // Three trees in one cell and the eye over the cell, 100 m below and 20 m
   // from the lowest: the box comes nearest the eye along an edge, and its
@@ -542,6 +631,293 @@ test('a batch the test culls has no vertex inside the clip volume; one in front 
   assert.ok(culled > 20 && kept > 20 && culledRisen > 5, `culled ${culled} (${culledRisen} under the rise), kept ${kept}`);
 });
 
+test('every tree a twin\'s span drops has every vertex the shader can place outside one clip plane, mirrors, scissors and the scan cap included', () => {
+  // The span's whole claim, checked without its boxes: a dropped tree makes
+  // no fragment because all of its vertices lie past one plane of what the
+  // render draws (the clip volume, narrowed to the scissor's own rectangle
+  // when on), so no triangle of it reaches a pixel. Twins of a few to some
+  // fifty trees spread round the view, some with trees past their prefix.
+  let dropped = 0, partial = 0, nulls = 0, whole = 0, scissoredPartial = 0, mirroredPartial = 0, risenDropped = 0, capped = 0;
+  for (let seed = 1; seed <= 60; seed++) {
+    const r = rng(seed * 11 + 5), e = edgy(r), u = uniforms(r);
+    const asset = ASSETS[(seed * 5) % ASSETS.length];
+    const camera = new THREE.PerspectiveCamera(20 + r() * 70, .5 + r() * 2, 1 + r() * 10, 6000 + r() * 30000);
+    camera.position.set((r() * 2 - 1) * 1500, 1500 + r() * 2500, (r() * 2 - 1) * 1500);
+    const look = [(r() * 2 - 1) * 2000, 500 + r() * 2000, (r() * 2 - 1) * 2000];
+    camera.lookAt(...look);
+    camera.updateMatrixWorld();
+    const mirrored = seed % 4 === 0;
+    if (mirrored) {
+      // A mirror: the view reflected across a lake plane (det -1).
+      const level = 1000 + r() * 500;
+      const reflect = new THREE.Matrix4().makeTranslation(0, level, 0).multiply(new THREE.Matrix4().makeScale(1, -1, 1)).multiply(new THREE.Matrix4().makeTranslation(0, -level, 0));
+      camera.matrixWorldInverse.multiply(reflect);
+    }
+    // A scissored target on a third of the views: a partition or a probe
+    // drawing part of the frame.
+    let target = null;
+    if (seed % 3 === 0) {
+      const w = 704, h = 424, x = Math.floor(r() * w * .7), y = Math.floor(r() * h * .7);
+      target = { scissorTest: true, scissor: new THREE.Vector4(x, y, Math.max(1, Math.floor(r() * (w - x))), Math.max(1, Math.floor(r() * (h - y)))),
+        viewport: new THREE.Vector4(0, 0, w, h) };
+    }
+    const planes = frustumPlanes(camera, target);
+    const vp = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).elements;
+    // The drawn rectangle in NDC: the scissor's own pixels, no margin.
+    const s = target?.scissor, v = target?.viewport;
+    const [x0, x1, y0, y1] = s ? [(s.x - v.x) / v.z * 2 - 1, (s.x + s.z - v.x) / v.z * 2 - 1, (s.y - v.y) / v.w * 2 - 1, (s.y + s.w - v.y) / v.w * 2 - 1] : [-1, 1, -1, 1];
+    const risen = seed % 3 === 1;
+    const ur = risen ? { ...u, uTourEye: { value: { x: camera.position.x, y: camera.position.y, z: camera.position.z, w: 1 } },
+      uLandRise: { value: { x: .05 + r() * .9, y: r() < .5 ? 0 : r() * .2 } } } : u;
+    // Whether every vertex of `tree` lies outside one plane, the same plane
+    // for all of them.
+    const offscreen = tree => {
+      let out = 0b111111;
+      for (let k = 0; k < asset.geo.attributes.position.count && out; k++) {
+        const [x, y, z] = meshVertex(asset.geo, k, tree, ur, e, r);
+        const cx = vp[0] * x + vp[4] * y + vp[8] * z + vp[12], cy = vp[1] * x + vp[5] * y + vp[9] * z + vp[13];
+        const cz = vp[2] * x + vp[6] * y + vp[10] * z + vp[14], cw = vp[3] * x + vp[7] * y + vp[11] * z + vp[15];
+        if (!(cx < x0 * cw)) out &= ~1; if (!(cx > x1 * cw)) out &= ~2;
+        if (!(cy < y0 * cw)) out &= ~4; if (!(cy > y1 * cw)) out &= ~8;
+        if (!(cz < -cw)) out &= ~16; if (!(cz > cw)) out &= ~32;
+      }
+      return out !== 0;
+    };
+    for (let b = 0; b < 3; b++) {
+      // A few trees anywhere (often none in view), more anywhere, and a
+      // cluster round where the camera looks (cells of several trees).
+      const n = b === 0 ? 1 + Math.floor(r() * 6) : 12 + Math.floor(r() * 36), extra = r() < .5 ? Math.floor(r() * 8) : 0;
+      const list = b < 2 ? trees(r, n + extra, 4000)
+        : trees(r, n + extra, 400).map(t => ({ ...t, x: Math.fround(t.x + look[0]), z: Math.fround(t.z + look[2]) }));
+      const geo = twin(asset.geo, list, { uniforms: ur });
+      geo.instanceCount = n;
+      const verdict = new Map(), seen = i => { if (!verdict.has(i)) verdict.set(i, !offscreen(list[i])); return verdict.get(i); };
+      const span = forestSpan(geo, planes, ur);
+      if (!span) nulls++;
+      else if (span[0] === 0 && span[1] === n - 1) whole++;
+      else { partial++; if (target) scissoredPartial++; if (mirrored) mirroredPartial++; }
+      // The cap's fallback drops trees by cells, never one the full scan keeps.
+      for (const [label, sp] of [['full', span], ['scan 3', forestSpan(geo, planes, ur, { scan: 3, memo: false })], ['scan 0', forestSpan(geo, planes, ur, { scan: 0, memo: false })]]) {
+        if (sp) assert.ok(sp[0] >= 0 && sp[0] <= sp[1] && sp[1] <= n - 1, `seed ${seed} twin ${b} ${label}: [${sp}] inside the prefix of ${n}`);
+        if (sp && label !== 'full' && span && (sp[0] > span[0] || sp[1] < span[1])) assert.fail(`seed ${seed} twin ${b}: ${label} [${sp}] within the full scan's [${span}]`);
+        if (label !== 'full' && sp && span && (sp[0] < span[0] || sp[1] > span[1])) capped++;
+        for (let i = 0; i < n; i++) {
+          if (sp && i >= sp[0] && i <= sp[1]) continue;
+          if (seen(i)) assert.fail(`seed ${seed} twin ${b} (${label}, span ${sp && `[${sp}]`}): tree ${i} dropped with a vertex in view`);
+          if (label === 'full') { dropped++; if (risen) risenDropped++; }
+        }
+      }
+    }
+  }
+  assert.ok(dropped > 1000 && partial > 30 && nulls > 5 && whole > 5 && scissoredPartial > 5 && mirroredPartial > 5 && risenDropped > 200 && capped > 10,
+    JSON.stringify({ dropped, partial, nulls, whole, scissoredPartial, mirroredPartial, risenDropped, capped }));
+});
+
+test('a twin\'s span runs from the first to the last tree whose own box is in view; its memo always equals a fresh one, and the scan cap only widens it', () => {
+  // A tour-like run: four detail/lite pairs sharing their trees, a camera
+  // roaming low over hills, and between renders refills (new counts, and
+  // the same count with other trees), lite asset swaps, and changes to one
+  // number at a time (the camera, lean, root lift, ice, and the rise's
+  // sink, pivot and each eye axis) or to the rise itself. The span must be
+  // exact against every tree's own box (the design's definition), and the
+  // memo must never stand in for a span the numbers have moved.
+  const r = rng(77);
+  const u = { ...uniforms(r), uLandRise: { value: { x: 0, y: 0 } }, uTourEye: { value: { x: 0, y: 0, z: 0, w: 0 } }, uGlacierMaxThickness: { value: 0 } };
+  // Each scan tests at most twice a twin's trees: the full one never runs
+  // out here, so it must be exact.
+  const CAPACITY = 240;
+  assert.ok(2 * CAPACITY <= SPAN_SCAN_MAX);
+  const hills = n => Array.from({ length: n }, () => {
+    const x = (r() * 2 - 1) * 1500, z = (r() * 2 - 1) * 1500;
+    return { x: Math.fround(x), y: Math.fround(1000 + 250 * Math.sin(x / 400) * Math.cos(z / 300) + r() * 40), z: Math.fround(z),
+      h: Math.fround(3 + r() * 42), w: Math.fround(.05 + r() * 10), species: Math.floor(r() * 4), id: Math.fround(r() * .999) };
+  });
+  const asset = (family, variant, lod) => ASSETS[(family * FOREST_VARIANTS + variant) * 3 + lod].geo;
+  // Besides the quality and pixel lites, an asset ten times as wide: a
+  // swap whose extents move the boxes by tens of metres.
+  const wide = base => {
+    const g = base.clone(), p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) p.setXYZ(i, p.getX(i) * 10, p.getY(i), p.getZ(i) * 10);
+    return g;
+  };
+  const pairs = Array.from({ length: 4 }, (_, p) => {
+    const family = p % FOREST_FAMILIES, variant = (p * 2) % FOREST_VARIANTS;
+    const detail = twin(asset(family, variant, 0), hills(Math.floor(r() * CAPACITY)), { capacity: CAPACITY, uniforms: u });
+    const lites = [asset(family, variant, 1), asset(family, variant, 2), wide(asset(family, variant, 1))];
+    return { detail, lite: liteOf(detail, lites[0]), lites };
+  });
+  const geos = pairs.flatMap(p => [p.detail, p.lite]);
+  const fillPair = (p, list) => { refill(p.detail, list); p.lite.instanceCount = p.detail.instanceCount; };
+  const camera = new THREE.PerspectiveCamera(50, 16 / 9, 1, 20000), planes = new Float64Array(24), box = new Float64Array(6);
+  const move = () => {
+    camera.fov = 30 + r() * 50; camera.aspect = .8 + r() * 1.5; camera.updateProjectionMatrix();
+    // Often below the hilltops, so the rise lowers trees through the frame.
+    camera.position.set((r() * 2 - 1) * 1500, 650 + r() * 600, (r() * 2 - 1) * 1500);
+    const yaw = r() * Math.PI * 2, pitch = -.15 + r() * .4;
+    camera.lookAt(camera.position.x + Math.sin(yaw), camera.position.y + Math.tan(pitch), camera.position.z + Math.cos(yaw));
+    camera.updateMatrixWorld();
+    // One scratch array, as production renders reuse theirs.
+    frustumPlanes(camera, null, planes);
+  };
+  move();
+  // The span by definition: each tree of the prefix by its own box.
+  const exact = g => {
+    const n = Math.min(g.attributes.iPos.count, g.instanceCount), bounds = forestBounds(u), ext = assetExtents(g);
+    assert.ok(bounds && ext);
+    let first = -1, last = -1;
+    for (let i = 0; i < n; i++) {
+      forestCellBox(oneTree(treeAt(g, i)), 0, ext, bounds.lift, bounds.lean, CHUNK_BOX_PAD_M, box);
+      if (boxOutsidePlanes(planes, box[0], box[1], box[2], box[3], box[4], box[5])) continue;
+      if (first < 0) first = i;
+      last = i;
+    }
+    return first < 0 ? null : [first, last];
+  };
+  const counts = { steps: 0, hits: 0, wider: 0, refills: 0, sameCount: 0, partial: 0, nulls: 0 };
+  const flips = { camera: 0, asset: 0, lean: 0, lift: 0, ice: 0, sink: 0, pivot: 0, eye: 0, rise: 0 };
+  const previous = new Map();
+  for (let step = 0; step < 4000; step++) {
+    const k = r(), risen = u.uLandRise.value.x > 0;
+    let what = 'none';
+    if (k < .03) { what = 'refill'; counts.refills++; for (const p of pairs) fillPair(p, hills(r() < .1 ? 0 : Math.floor(r() * CAPACITY))); }
+    else if (k < .08) {
+      // The same count, other trees: the prefix shuffled, or new trees.
+      what = 'same count'; counts.sameCount++;
+      const p = pairs[Math.floor(r() * pairs.length)], n = p.detail.instanceCount;
+      const held = Array.from({ length: n }, (_, i) => treeAt(p.detail, i));
+      for (let i = n - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [held[i], held[j]] = [held[j], held[i]]; }
+      fillPair(p, r() < .5 ? held : hills(n));
+      assert.equal(p.detail.instanceCount, n);
+    } else if (k < .14) {
+      what = 'asset';
+      const p = pairs[Math.floor(r() * pairs.length)], others = p.lites.filter(a => a.attributes.position !== p.lite.attributes.position);
+      swapAsset(p.lite, others[Math.floor(r() * others.length)]);
+    } else if (k < .22) {
+      what = 'lean';
+      if (r() < .6) u.uWind.value = { x: r() * 3, y: r() * .06 };
+      else u.uParting.value = { ...u.uParting.value, w: r() * 1.5 };
+    } else if (k < .27) { what = 'lift'; u.uDeformAmp.value = (r() * 2 - 1) * 30; u.uDeformKick.value = (r() * 2 - 1) * 20; }
+    else if (k < .31) {
+      // Ice raises the top alone.
+      what = 'ice'; u.uGlacierEnabled.value = r() < .2 ? 0 : 1; u.uGlacierMaxThickness.value = r() * 150;
+    } else if (k < .39 && risen) {
+      // The sink alone, from one rise to another (the eye and pivot kept).
+      what = 'sink';
+      u.uLandRise.value = { ...u.uLandRise.value, x: r() < .3 ? .005 + r() * .05 : .05 + r() * .95 };
+    } else if (k < .45 && risen) { what = 'pivot'; u.uLandRise.value = { ...u.uLandRise.value, y: r() < .2 ? 0 : r() * .15 }; }
+    else if (k < .57 && risen) {
+      // One axis of the eye alone (across the ground, the pivot's reach).
+      const axis = 'xyz'[Math.floor(r() * 3)];
+      what = 'eye'; u.uTourEye.value = { ...u.uTourEye.value, [axis]: u.uTourEye.value[axis] + (r() * 2 - 1) * (axis === 'y' ? 150 : 1500) };
+    } else if (k < .62) {
+      what = 'rise';
+      if (r() < .2) u.uLandRise.value = { x: 0, y: 0 };
+      else { u.uLandRise.value = { x: .05 + r() * .95, y: r() < .3 ? 0 : r() * .15 }; u.uTourEye.value = { x: camera.position.x, y: camera.position.y, z: camera.position.z, w: 1 }; }
+    } else if (k < .87) { what = 'camera'; move(); }
+    for (const g of geos) {
+      const a = forestSpan(g, planes, u), b = forestSpan(g, planes, u, { memo: false });
+      assert.deepEqual(a, b, `step ${step} (${what}): the memo equals a fresh span`);
+      assert.deepEqual(b, exact(g), `step ${step} (${what}): first to last tree in view`);
+      const last = previous.get(g);
+      if (what === 'none' && last) { assert.equal(a, last.a, `step ${step}: nothing moved, the memo answers`); counts.hits++; }
+      if (last && JSON.stringify(b) !== JSON.stringify(last.b) && what in flips) flips[what]++;
+      previous.set(g, { a, b });
+      counts.steps++;
+      if (!b) counts.nulls++; else if (b[0] > 0 || b[1] < g.instanceCount - 1) counts.partial++;
+      // The cap settles for the cells' span: never narrower, inside the prefix.
+      for (const scan of [3, 0]) {
+        const c = forestSpan(g, planes, u, { scan, memo: false });
+        if (c) assert.ok(c[0] >= 0 && c[0] <= c[1] && c[1] < g.instanceCount, `step ${step} scan ${scan}: [${c}] inside the prefix`);
+        if (b) assert.ok(c && c[0] <= b[0] && c[1] >= b[1], `step ${step} (${what}) scan ${scan}: [${c}] holds [${b}]`);
+        if (c && (!b || c[0] < b[0] || c[1] > b[1])) counts.wider++;
+      }
+    }
+  }
+  // Every kind of change moved some span, so the memo was tested on each.
+  assert.ok(Object.values(flips).every(v => v >= 10) && counts.hits > 200 && counts.wider > 200 && counts.partial > 500 && counts.nulls > 200
+    && counts.refills > 10 && counts.sameCount > 20, JSON.stringify({ flips, counts }));
+});
+
+test('a twin\'s span memo follows each number the span reads, changed alone, the scissor included', () => {
+  // A level camera and three twins of trees just out of its view: above
+  // the frame's top edge (the rise lowers them in), past its sides (the
+  // lean and a wider asset reach in) and below its bottom (the root lift
+  // and ice raise them in), each in order of how far out. Each number is
+  // swept on its own: the memo must answer what a fresh span answers at
+  // every step, and each sweep must move a span, or a key without that
+  // number would go unnoticed. The scene stands off the origin, so every
+  // plane has all four of its numbers.
+  const r = rng(31), O = [300, 0, -200], camera = new THREE.PerspectiveCamera(40, 1, 1, 20000);
+  camera.position.set(O[0], 1000, O[2]); camera.lookAt(O[0], 1000, O[2] + 1); camera.updateMatrixWorld();
+  // One scratch array for every render, as production keeps.
+  const planes = new Float64Array(24), target = { scissorTest: false, scissor: new THREE.Vector4(0, 0, 704, 704), viewport: new THREE.Vector4(0, 0, 704, 704) };
+  frustumPlanes(camera, null, planes);
+  const a = 20 * Math.PI / 180, t = Math.tan(a), c = Math.cos(a), sn = Math.sin(a);
+  const quality = ASSETS[4].geo, ext = assetExtents(quality);
+  const groups = [[], [], []];
+  for (let i = 0; i < 90; i++) {
+    const z = 300 + r() * 1500, gap = 5 + r() * 80, kind = i % 3, side = r() < .5 ? -1 : 1;
+    const h = 10 + r() * 20, w = .5 + r() * 2;
+    let tree;
+    if (kind === 0) tree = { x: (r() * 2 - 1) * z * t * .8, y: 1000 + z * t + gap, z, h, w, out: gap };
+    else if (kind === 1) {
+      // Past a side plane by up to what a full wind adds to a still box's
+      // reach (its corner, along the plane's normal).
+      const reach = Math.max(ext.foliage * CROWN_RADIUS_PER_WIDTH * w, ext.trunk * TRUNK_RADIUS_M) + 2 * GUST_LEAN * h + CHUNK_BOX_PAD_M, out = r() * .07;
+      tree = { x: side * (z * t + (reach + out * h) * (c + sn) / c), y: 990 - h / 2, z, h, w, out };
+    } else tree = { x: (r() * 2 - 1) * z * t * .8, y: 1000 - z * t - h - gap, z, h, w, out: gap };
+    groups[kind].push({ ...tree, x: Math.fround(tree.x + O[0]), y: Math.fround(tree.y), z: Math.fround(tree.z + O[2]), h: Math.fround(tree.h), w: Math.fround(tree.w), species: 1, id: .5 });
+  }
+  const wider = quality.clone(), p = wider.attributes.position;
+  for (let i = 0; i < p.count; i++) p.setXYZ(i, p.getX(i) * 10, p.getY(i), p.getZ(i) * 10);
+  const u = { ...still(), uLandRise: { value: { x: 0, y: 0 } }, uTourEye: { value: { x: O[0], y: 1000, z: O[2], w: 1 } }, uGlacierMaxThickness: { value: 0 } };
+  const twins = groups.map(g => twin(quality, g.sort((m, n) => m.out - n.out), { uniforms: u }));
+  for (const tw of twins) assert.equal(forestSpan(tw, planes, u, { memo: false }), null, 'out of view, still');
+  const scissor = v => {
+    // The same camera through another partition's rectangle.
+    target.scissorTest = v !== null;
+    if (v) target.scissor.set(...v);
+    frustumPlanes(camera, v ? target : null, planes);
+  };
+  const sweeps = [
+    ['lean (wind)', v => { u.uWind.value = { x: v, y: 0 }; }, [0, .5, 1, 1.5, 2, 2.5, 3, 0]],
+    ['lean (parting)', v => { u.uParting.value = { x: 0, y: 0, z: 90, w: v }; }, [0, .02, .05, .08, .12, .17, 0]],
+    ['root lift', v => { u.uDeformKick.value = v; }, [0, 5, 10, 20, 40, 80, 0]],
+    ['ice (the top alone)', v => { u.uGlacierEnabled.value = 1; u.uGlacierMaxThickness.value = v; }, [0, 5, 10, 20, 40, 80, 0]],
+    // The floor alone: the kick sinks it while ice holds the top.
+    ['the root lift\'s floor alone', v => { u.uDeformKick.value = v; u.uGlacierEnabled.value = 1; u.uGlacierMaxThickness.value = 80 - v; }, [0, 5, 10, 20, 40, 80, 0]],
+    ['asset', v => { for (const tw of twins) swapAsset(tw, v ? wider : quality); }, [0, 1, 0, 1, 0]],
+    ['sink', v => { u.uLandRise.value = { ...u.uLandRise.value, x: v }; }, [.02, .05, .1, .2, .3, .5, .7, 1, .02]],
+    ['pivot', v => { u.uLandRise.value = { ...u.uLandRise.value, y: v }; }, [0, .02, .04, .06, .08, .1, .15, .2, 0]],
+    ['eye x', v => { u.uTourEye.value = { ...u.uTourEye.value, x: O[0] + v }; }, [0, -3000, -1500, 0, 1500, 3000, 0]],
+    ['eye y', v => { u.uTourEye.value = { ...u.uTourEye.value, y: v }; }, [1000, 1050, 1100, 1150, 1200, 1300, 1000]],
+    ['eye z', v => { u.uTourEye.value = { ...u.uTourEye.value, z: O[2] + v }; }, [0, -3000, -1500, 0, 1500, 3000, 0]],
+    // Under a full wind and a kick, so trees stand inside every edge of the
+    // frame: each half, then its outer edge moved alone.
+    ['scissor', scissor, [null, [0, 0, 352, 704], [100, 0, 252, 704], [0, 0, 352, 704], [352, 0, 352, 704], [352, 0, 252, 704], [352, 0, 352, 704],
+      [0, 0, 704, 352], [0, 100, 704, 252], [0, 0, 704, 352], [0, 352, 704, 352], [0, 352, 704, 252], [0, 352, 704, 352], null]],
+  ];
+  for (const [label, set, values] of sweeps) {
+    // The rise's own numbers sweep under a middling rise with a pivot.
+    const risen = ['sink', 'pivot', 'eye x', 'eye y', 'eye z'].includes(label);
+    u.uLandRise.value = risen ? { x: .15, y: .1 } : { x: 0, y: 0 };
+    u.uWind.value = { x: label === 'scissor' ? 3 : 0, y: 0 };
+    u.uDeformKick.value = label === 'scissor' ? 20 : 0; u.uGlacierMaxThickness.value = 0;
+    // Each sweep ends where it starts, so a span that moves moves back.
+    const seen = [];
+    for (const v of values) {
+      set(v);
+      seen.push(JSON.stringify(twins.map(tw => {
+        const m = forestSpan(tw, planes, u), f = forestSpan(tw, planes, u, { memo: false });
+        assert.deepEqual(m, f, `${label} ${v}: the memo equals a fresh span`);
+        return f;
+      })));
+    }
+    const moves = seen.filter((v, i) => i > 0 && v !== seen[i - 1]).length;
+    assert.ok(moves >= 3, `${label}: the sweep moves a span (${seen.join(' ')})`);
+  }
+});
+
 test('the rise brings trees down through a frame\'s top edge; a batch it culls has no vertex in view', () => {
   // Views pitched up, the pivot from the camera as RangeScene sets it, and
   // trees standing just above the top edge: the rise lowers many of them
@@ -593,6 +969,14 @@ test('an unknown bound never culls', () => {
   const planes = frustumPlanes(camera, null);
   const behind = () => batch(ASSETS[3].geo, [{ x: 0, y: 0, z: 5000, h: 10, w: 4, species: 1, id: .5 }]);
   assert.equal(forestGeometryVisible(behind(), planes, u), false, 'behind the camera: culled');
+  // A twin of three trees behind the camera, drawing them of its room for
+  // five: its span is none, or every tree it draws when the bound is unknown.
+  const behindTwin = () => {
+    const g = twin(ASSETS[3].geo, [0, 1, 2, 3, 4].map(i => ({ x: i * 40, y: 0, z: 5000 + i * 40, h: 10, w: 4, species: 1, id: .5 })), { uniforms: u });
+    g.instanceCount = 3;
+    return g;
+  };
+  assert.equal(forestSpan(behindTwin(), planes, u), null, 'behind the camera: no span');
   for (const broken of [
     { ...u, uWind: { value: { x: NaN, y: 0 } } },
     { ...u, uParting: { value: { x: 0, y: 0, z: 90, w: Infinity } } },
@@ -614,7 +998,10 @@ test('an unknown bound never culls', () => {
     ...[['y', NaN], ['z', NaN], ['y', Infinity], ['z', -Infinity]].map(([k, v]) =>
       ({ ...u, uLandRise: { value: { x: .5, y: 0 } }, uTourEye: { value: { x: 0, y: 0, z: 0, w: 0, [k]: v } } })),
     {},
-  ]) assert.equal(forestGeometryVisible(behind(), planes, broken), true, JSON.stringify([broken.uLandRise?.value, broken.uTourEye?.value]));
+  ]) {
+    assert.equal(forestGeometryVisible(behind(), planes, broken), true, JSON.stringify([broken.uLandRise?.value, broken.uTourEye?.value]));
+    assert.deepEqual(forestSpan(behindTwin(), planes, broken), [0, 2], `the whole prefix: ${JSON.stringify([broken.uLandRise?.value, broken.uTourEye?.value])}`);
+  }
   // Why those edges: past them the box's floor is no floor. A tall tree far
   // above the eye draws below it.
   for (const [v, by] of [[{ x: 1.2, y: 0 }, 5], [{ x: .5, y: -.1 }, 50]]) {
@@ -629,12 +1016,21 @@ test('an unknown bound never culls', () => {
   for (const v of [{ x: .5, y: 0 }, { x: 1, y: .05 }, { x: 0, y: -5 }, { x: -1, y: NaN }]) {
     const risen = { ...u, uLandRise: { value: v }, uTourEye: { value: { x: 0, y: 0, z: 0, w: 0 } } };
     assert.equal(forestGeometryVisible(behind(), planes, risen), false, JSON.stringify(v));
+    assert.equal(forestSpan(behindTwin(), planes, risen), null, JSON.stringify(v));
   }
   assert.equal(forestGeometryVisible(behind(), null, u), true, 'no planes');
+  assert.deepEqual(forestSpan(behindTwin(), null, u), [0, 2], 'no planes: the whole prefix');
   const nan = behind(); nan.attributes.iPos.setX(0, NaN);
   assert.equal(forestGeometryVisible(nan, planes, u), true, 'a non-finite root');
+  const nanTwin = behindTwin(); nanTwin.attributes.iPos.setX(1, NaN); nanTwin.attributes.iPos.data.needsUpdate = true;
+  assert.deepEqual(forestSpan(nanTwin, planes, u), [0, 2], 'a non-finite root: the whole prefix');
+  // Past the prefix it is not drawn, so not read.
+  const nanPast = behindTwin(); nanPast.attributes.iPos.setX(4, NaN); nanPast.attributes.iPos.data.needsUpdate = true;
+  assert.equal(forestSpan(nanPast, planes, u), null, 'a non-finite root past the prefix');
   const flat = behind(); flat.deleteAttribute('aBranch');
   assert.equal(forestGeometryVisible(flat, planes, u), true, 'no branch attribute (a billboard)');
+  const flatTwin = behindTwin(); flatTwin.deleteAttribute('aBranch');
+  assert.deepEqual(forestSpan(flatTwin, planes, u), [0, 2], 'no branch attribute: the whole prefix');
 });
 
 test('createForest marks mesh-tree batches for culling, never billboards', () => {
@@ -655,25 +1051,55 @@ test('createForest marks mesh-tree batches for culling, never billboards', () =>
   assert.equal(forestCells(detail.geometry), forestCells(lite.geometry));
 });
 
-test('the tour layer\'s twins are culled over the trees they draw, never its demote boards; the static batches as before', () => {
+test('the tour layer\'s twins draw spans of the trees they hold (culled whole with tour.spans false), never its demote boards; the static batches as before', () => {
   const rows = (band, n, z) => Array.from({ length: n }, (_, i) => [i * 10, 0, z, 12, 4, i % 4, (i * .137) % 1, band]).flat();
   const placed = { meshDetail: new Float32Array([...rows(2, 6, -100), ...rows(2, 4, 900)]), mesh: new Float32Array([...rows(2, 8, -300), ...rows(1, 3, 2000)]),
     billboard: new Float32Array(rows(1, 5, -4000)), stride: 8, count: 26, railCount: { meshDetail: 6, mesh: 8, billboard: 5 } };
   const plain = createForest(THREE, placed, {}), f = createForest(THREE, placed, {}, { tour: { seed: 3 } });
+  // The kill switch: the same twins, culled whole as on main.
+  const off = createForest(THREE, placed, {}, { tour: { seed: 3, spans: false } });
   const statics = forest => [...Object.values(forest.byBand).flat(), ...forest.depth, ...Object.values(forest.depthByBand).flat()];
-  assert.deepEqual(statics(f).map(m => !!m.geometry.userData.forestCull), statics(plain).map(m => !!m.geometry.userData.forestCull));
-  for (const m of statics(f)) if (m.geometry.attributes.aBranch) assert.equal(m.geometry.userData.forestCull.uniforms, f.uniforms);
-  assert.ok(f.tour.every.length > 0 && f.tour.twins.length > 0 && f.tour.boards.length > 0);
-  for (const m of f.tour.every) {
-    const tagged = m.geometry.userData.forestCull;
-    if (m.geometry.attributes.aBranch) assert.deepEqual(tagged, { uniforms: f.uniforms, prefix: true }, 'a twin is bound over its drawn prefix');
-    else assert.equal(tagged, undefined, 'a demote board is never culled');
+  // A static batch's tag, with its uniforms as "the forest's own".
+  const tagOf = forest => m => {
+    const t = m.geometry.userData.forestCull;
+    return t && { ...t, uniforms: t.uniforms === forest.uniforms };
+  };
+  for (const forest of [f, off]) {
+    assert.deepEqual(statics(forest).map(tagOf(forest)), statics(plain).map(tagOf(plain)), 'the static batches are tagged as without the tour layer');
+    for (const m of statics(forest)) if (m.geometry.attributes.aBranch) assert.deepEqual(m.geometry.userData.forestCull, { uniforms: forest.uniforms });
+    // Their trees stay plain instanced attributes: nothing reads them from an offset.
+    for (const m of statics(forest)) for (const name of ['iPos', 'iSize', 'iVar']) assert.ok(m.geometry.attributes[name].isInstancedBufferAttribute, name);
   }
-  for (const t of f.tour.twins) for (const g of [t.detail, t.lite].filter(Boolean)) assert.equal(g.userData.forestCull.prefix, true);
-  for (const g of f.tour.boards) assert.equal(g.userData.forestCull, undefined);
-  // No static batch is bound over a prefix: their cells stay those of #81.
-  for (const m of statics(f)) assert.ok(!m.geometry.userData.forestCull?.prefix);
-  for (const forest of [plain, f]) forest.dispose();
+  for (const [forest, spans] of [[f, true], [off, false]]) {
+    assert.ok(forest.tour.every.length > 0 && forest.tour.twins.length > 0 && forest.tour.boards.length > 0);
+    for (const m of forest.tour.every) {
+      const tagged = m.geometry.userData.forestCull;
+      if (m.geometry.attributes.aBranch) assert.deepEqual(tagged, { uniforms: forest.uniforms, prefix: true, spans }, 'a twin is bound over its drawn prefix, span by span unless switched off');
+      else assert.equal(tagged, undefined, 'a demote board is never culled');
+    }
+    for (const t of forest.tour.twins) {
+      for (const g of [t.detail, t.lite].filter(Boolean)) assert.deepEqual(g.userData.forestCull, { uniforms: forest.uniforms, prefix: true, spans });
+      // Each per-tree attribute is a view at offset 0 of its own instanced
+      // buffer, stride = item size: main's bytes, pointer stride and type
+      // (a span reads the same buffer from an offset). The lite reads the
+      // detail's objects, so both draw the same trees.
+      for (const [name, size] of [['iPos', 3], ['iSize', 2], ['iVar', 2], ['iTour', 1]]) {
+        const a = t.detail.attributes[name];
+        assert.ok(a.isInterleavedBufferAttribute && a.data.isInstancedInterleavedBuffer, name);
+        assert.deepEqual([a.itemSize, a.offset, a.data.stride, a.data.meshPerAttribute, a.data.count], [size, 0, size, 1, t.n], name);
+        // Read as main's InstancedBufferAttribute was: not normalized, so
+        // iTour's bytes reach the shader as 0..3, and of the same type.
+        assert.equal(a.normalized, false, `${name} is not normalized`);
+        assert.ok(a.data.array instanceof (name === 'iTour' ? Uint8Array : Float32Array), `${name} holds main's type`);
+        assert.equal(a.data.usage, THREE.DynamicDrawUsage, `${name} is refilled in place, as on main`);
+        if (t.lite) assert.equal(t.lite.attributes[name], a, `the lite shares the detail's ${name}`);
+      }
+    }
+    for (const g of forest.tour.boards) assert.equal(g.userData.forestCull, undefined);
+    // No static batch is bound over a prefix: their cells stay those of #81.
+    for (const m of statics(forest)) assert.ok(!m.geometry.userData.forestCull?.prefix);
+  }
+  for (const forest of [plain, f, off]) forest.dispose();
 });
 
 test('a prefix batch\'s cells cover only the trees it draws and follow every refill; other batches ignore the count', () => {
@@ -722,6 +1148,65 @@ test('a prefix batch\'s cells cover only the trees it draws and follow every ref
   assert.equal(forestGeometryVisible(moving, planes, u), true, 'refilled in front of it');
 });
 
+test('a same-count refill of an interleaved twin rebuilds its cells and tree lists, and its span follows the refilled trees', () => {
+  // A twin's attributes are views of interleaved buffers, which have a
+  // version where its attributes do not: a refill that keeps the count must
+  // still be seen, or the span would come from the trees it held before.
+  const geo = ASSETS[4].geo, u = still(), camera = new THREE.PerspectiveCamera(50, 1, 1, 20000);
+  camera.position.set(0, 1010, 0); camera.lookAt(0, 1010, 1); camera.updateMatrixWorld();
+  const planes = frustumPlanes(camera, null);
+  const at = (x, z, y = 1000) => ({ x, y, z, h: 20, w: 5, species: 1, id: .5 });
+  const asCells = c => Array.from({ length: c.length / 8 }, (_, i) => [...c.slice(i * 8, i * 8 + 8)]);
+  const both = g => { const a = forestSpan(g, planes, u), b = forestSpan(g, planes, u, { memo: false }); assert.deepEqual(a, b, 'memo'); return a; };
+  // Eight trees in two cells: A (ahead of the camera) and B (behind it).
+  const A = i => at(10 + i, 800 + i), B = i => at(10 + i, -800 - i);
+  const tw = twin(geo, [A(0), A(1), A(2), A(3), B(0), B(1), B(2), B(3)], { uniforms: u });
+  assert.ok(tw.attributes.iPos.isInterleavedBufferAttribute && tw.attributes.iPos.version === undefined, 'an interleaved view has no version of its own');
+  const before = forestCells(tw);
+  assert.equal(before.length, 2 * 8);
+  assert.deepEqual(both(tw), [0, 3]);
+  // The same trees, B's first: the same cells, held by other trees.
+  refill(tw, [B(0), B(1), B(2), B(3), A(0), A(1), A(2), A(3)]);
+  assert.notEqual(forestCells(tw), before, 'rebuilt');
+  assert.deepEqual(asCells(forestCells(tw)).sort((a, b) => a[2] - b[2]), asCells(before).sort((a, b) => a[2] - b[2]), 'the same cells');
+  assert.deepEqual(both(tw), [4, 7], 'the trees ahead are the last four now');
+  // Interleaved, with A's cell first in both: identical cells in the same
+  // order, only the tree lists change. A stale list would draw [0, 3] and
+  // drop trees 4 and 6, both ahead.
+  refill(tw, [A(0), A(1), A(2), A(3), B(0), B(1), B(2), B(3)]);
+  const cellsA = forestCells(tw);
+  refill(tw, [A(0), B(0), A(1), B(1), A(2), B(2), A(3), B(3)]);
+  assert.deepEqual([...forestCells(tw)], [...cellsA], 'the same cells, in the same order');
+  assert.deepEqual(both(tw), [0, 6]);
+  // Every tree behind, then one refilled ahead: none, then that one.
+  refill(tw, [B(0), B(1), B(2), B(3), B(4), B(5), B(6), B(7)]);
+  assert.equal(both(tw), null, 'every tree behind the camera');
+  refill(tw, [B(0), B(1), B(2), B(3), B(4), at(40, 900), B(6), B(7)]);
+  assert.deepEqual(both(tw), [5, 5], 'the refilled tree ahead');
+  // Each buffer's version is read: the heights alone (trees ahead, 100 m
+  // below the frame's bottom edge, one grown into it)...
+  const size = tw.attributes.iSize, low = i => at(10 + i, 800 + i, 1010 - 800 * Math.tan(25 * Math.PI / 180) - 120);
+  refill(tw, Array.from({ length: 8 }, (_, i) => low(i)));
+  assert.equal(both(tw), null, 'below the frame');
+  const top = forestCells(tw)[4];
+  size.setX(2, 300); size.data.needsUpdate = true;
+  assert.equal(forestCells(tw)[4] - top, 300 - 20, 'the height refill is seen');
+  assert.deepEqual(both(tw), [2, 2], 'the tree grown into the frame');
+  // ...and the ids alone: a bad id in the prefix is an unknown bound.
+  const vars = tw.attributes.iVar;
+  vars.setY(3, 7); vars.data.needsUpdate = true;
+  assert.equal(forestCells(tw), null, 'the cells are rebuilt when only the ids change');
+  assert.deepEqual(both(tw), [0, 7], 'unknown: the whole prefix');
+  vars.setY(3, .5); vars.data.needsUpdate = true;
+  assert.deepEqual(both(tw), [2, 2]);
+  // Cells first built without tree lists (spans off) are rebuilt with them
+  // once spans are on: a span of the trees ahead, not the whole prefix.
+  const later = twin(geo, [B(0), A(0), B(1), A(1), B(2)], { uniforms: u, spans: false });
+  assert.equal(forestCells(later).length, 2 * 8);
+  later.userData.forestCull.spans = true;
+  assert.deepEqual(both(later), [1, 3]);
+});
+
 test('a prefix batch whose count is past its trees, three\'s default Infinity included, is bound over every tree, as three draws them', () => {
   const u = uniforms(rng(4)), camera = new THREE.PerspectiveCamera(50, 1, 1, 20000);
   camera.position.set(0, 1010, 0); camera.lookAt(0, 1010, -1); camera.updateMatrixWorld();
@@ -750,6 +1235,110 @@ test('a prefix batch whose count is past its trees, three\'s default Infinity in
   for (const count of [0, -1, NaN]) {
     twin.instanceCount = count;
     assert.equal(forestCells(twin).length, 0, `count ${count}: nothing drawn, nothing bound`);
+  }
+});
+
+test('a culled render draws a twin\'s span from an aligned first tree inside its buffers, or its whole prefix with no offset when the span does not fit', () => {
+  const u = still(), camera = new THREE.PerspectiveCamera(50, 1, 1, 20000);
+  camera.position.set(0, 1010, 0); camera.lookAt(0, 1010, 1); camera.updateMatrixWorld();
+  const at = (x, z) => ({ x, y: 1000, z, h: 20, w: 5, species: 1, id: .5 });
+  // Trees behind the camera, then ahead (5 to 9), then behind again.
+  const list = Array.from({ length: 12 }, (_, i) => i >= 5 && i <= 9 ? at(10 * i - 70, 800 + 10 * i) : at(10 * i, -800 - 10 * i));
+  const tw = twin(ASSETS[4].geo, list, { uniforms: u });
+  const scene = new THREE.Scene();
+  scene.add(new THREE.Mesh(tw));
+  const NAMES = ['iPos', 'iSize', 'iVar', 'iTour'], base = Object.fromEntries(NAMES.map(k => [k, tw.attributes[k]]));
+  const offsets = g => NAMES.map(k => g.attributes[k].offset / g.attributes[k].data.stride);
+  const originals = g => NAMES.every(k => g.attributes[k] === base[k]);
+  assert.deepEqual(forestSpan(tw, frustumPlanes(camera, null), u), [5, 9]);
+  // The span from tree 4 (5 rounded down to a multiple of SPAN_ALIGN): new
+  // views of the same buffers, every per-tree attribute from the same tree.
+  assert.equal(SPAN_ALIGN, 4);
+  const stats = { kept: 0, total: 0, batches: 0 };
+  let touched = cullForestScene(scene, camera, null, stats);
+  assert.equal(tw.instanceCount, 6);
+  assert.deepEqual(offsets(tw), [4, 4, 4, 4]);
+  for (const k of NAMES) assert.ok(tw.attributes[k] !== base[k] && tw.attributes[k].data === base[k].data && tw.attributes[k].itemSize === base[k].itemSize, k);
+  assert.equal(tw.attributes.position, ASSETS[4].geo.attributes.position, 'the asset\'s own attributes are not touched');
+  assert.deepEqual(stats, { kept: 6, total: 12, batches: 0 });
+  const set = NAMES.map(k => tw.attributes[k]);
+  restoreForestScene(touched);
+  assert.ok(originals(tw) && tw.instanceCount === 12, 'restored');
+  // Facing aside, every tree out of view: culled to 0 with the set it last
+  // drew with, so its vertex arrays stay as they are.
+  camera.lookAt(1, 1010, 0); camera.updateMatrixWorld();
+  assert.equal(forestSpan(tw, frustumPlanes(camera, null), u), null);
+  touched = cullForestScene(scene, camera, null);
+  assert.equal(tw.instanceCount, 0);
+  assert.deepEqual(NAMES.map(k => tw.attributes[k]), set, 'the same set objects');
+  restoreForestScene(touched);
+  assert.ok(originals(tw) && tw.instanceCount === 12);
+  // A count past the trees (three's Infinity): the span still ends inside
+  // the buffers, here at their very last tree.
+  camera.lookAt(0, 1010, 1); camera.updateMatrixWorld();
+  refill(tw, list.map((t, i) => i >= 9 ? at(10 * i - 100, 800 + 10 * i) : at(10 * i, -800 - 10 * i)));
+  for (const count of [Infinity, 1e9]) {
+    tw.instanceCount = count;
+    assert.deepEqual(forestSpan(tw, frustumPlanes(camera, null), u), [9, 11]);
+    touched = cullForestScene(scene, camera, null);
+    assert.deepEqual([tw.instanceCount, ...offsets(tw)], [4, 8, 8, 8, 8], `count ${count}`);
+    assert.ok(8 + tw.instanceCount <= tw.attributes.iPos.data.count);
+    restoreForestScene(touched);
+    assert.ok(originals(tw) && tw.instanceCount === count);
+  }
+  // A span that does not fit the prefix the render draws: here a count that
+  // reads `drawn` for the render and more for the span after it (forestSpan
+  // then spans all 12 trees: [5, 9]). three does not clamp a draw by
+  // offset, so unless the span ends inside the render's prefix the whole
+  // prefix draws, from tree 0, untouched; 10 is the first count it fits.
+  refill(tw, list);
+  for (const drawn of [10, 9, 7, 4, 1]) {
+    let value = drawn, reads = 0;
+    Object.defineProperty(tw, 'instanceCount', { configurable: true, get: () => reads++ === 0 ? value : 1e9, set: v => { value = v; } });
+    touched = cullForestScene(scene, camera, null);
+    assert.ok(reads > 1, 'the span read the count again');
+    if (drawn === 10) assert.deepEqual([value, ...offsets(tw)], [6, 4, 4, 4, 4], 'the span fits: drawn from tree 4');
+    else {
+      assert.equal(touched.length, 0, `count ${drawn}: nothing changed`);
+      assert.ok(originals(tw) && value === drawn, `count ${drawn}: the whole prefix, no offset`);
+    }
+    restoreForestScene(touched);
+    assert.ok(originals(tw) && value === drawn);
+    delete tw.instanceCount;
+  }
+  // The same without a trick: a geometry tagged for spans but not as a
+  // prefix is bound over every tree it holds, so its span can pass the
+  // count it draws.
+  const loose = twin(ASSETS[4].geo, list, { uniforms: u });
+  loose.userData.forestCull = { uniforms: u, spans: true };
+  loose.instanceCount = 4;
+  assert.deepEqual(forestSpan(loose, frustumPlanes(camera, null), u), [5, 9], 'a span past the 4 trees drawn');
+  const looseScene = new THREE.Scene();
+  looseScene.add(new THREE.Mesh(loose));
+  touched = cullForestScene(looseScene, camera, null);
+  assert.deepEqual([touched.length, loose.instanceCount, loose.attributes.iPos.offset], [0, 4, 0], 'the whole prefix, no offset');
+  tw.instanceCount = 12;
+  // A twin not built for spans is culled whole, as on main: the kill
+  // switch, plain instanced attributes, a buffer of another length, or a
+  // one-value attribute that does not reach every tree.
+  const weight = meshPerAttribute => new THREE.InstancedBufferAttribute(new Float32Array([1]), 1, false, meshPerAttribute);
+  const cases = [
+    ['spans off', () => twin(ASSETS[4].geo, list, { uniforms: u, spans: false }), false],
+    ['not interleaved', () => { const g = batch(ASSETS[4].geo, list); g.userData.forestCull = { uniforms: u, prefix: true, spans: true }; return g; }, false],
+    ['a short buffer', () => { const g = twin(ASSETS[4].geo, list, { uniforms: u }); g.setAttribute('iTour', spanned(new Uint8Array(11), 1)); return g; }, false],
+    ['a weight for one tree', () => { const g = twin(ASSETS[4].geo, list, { uniforms: u }); g.setAttribute('iLodWeight', weight(1)); return g; }, false],
+    ['a weight for every tree', () => { const g = twin(ASSETS[4].geo, list, { uniforms: u }); g.setAttribute('iLodWeight', weight(12)); return g; }, true],
+  ];
+  for (const [label, make, spans] of cases) {
+    const g = make(), other = new THREE.Scene(), before = { ...g.attributes };
+    other.add(new THREE.Mesh(g));
+    touched = cullForestScene(other, camera, null);
+    if (spans) assert.deepEqual([g.instanceCount, g.attributes.iPos.offset], [6, 12], label);
+    else {
+      assert.deepEqual([touched.length, g.instanceCount], [0, 12], `${label}: a tree in view keeps it all`);
+      for (const [k, v] of Object.entries(before)) assert.equal(g.attributes[k], v, `${label}: ${k}`);
+    }
+    restoreForestScene(touched);
   }
 });
 

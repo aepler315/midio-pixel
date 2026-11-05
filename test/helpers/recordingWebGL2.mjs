@@ -9,9 +9,13 @@
 // typed array first uploaded (state.bufferOf). Programs report their vertex
 // shader's `in` declarations as active attributes, so three.js binds them
 // and sets their divisors per vertex array. Each instanced draw records
-// state.drawing (a test sets it, e.g. in onBeforeRender) and `short`: the
-// enabled instanced attributes whose buffers cannot feed its instances,
-// which WebGL2 rejects.
+// state.drawing (a test sets it, e.g. in onBeforeRender), `short`: the
+// enabled instanced attributes whose buffers cannot feed its instances from
+// their pointers' byte offsets, which WebGL2 rejects, `reads`: by attribute
+// name, the bytes its instances read through those pointers (one element per
+// instance, in instance order), as the buffer held them then, and
+// `pointers`: by name, each instanced pointer (divisor, stride, element size,
+// byte offset, GL type, normalized, integer).
 export function recordingWebGL2(width = 300, height = 150, { gpu = false } = {}) {
   const names = new Map(), ids = new Map();
   let next = 0x9000;
@@ -107,18 +111,29 @@ function recordGpu(target, { constant, ids, state, vao, defaultVao }) {
   // and divisor.
   defaultVao.attribs = [];
   target.createVertexArray = () => Object.assign(createVertexArray(), { attribs: [] });
-  const attrib = (loc) => (vao().attribs[loc] ||= { enabled: false, divisor: 0, buffer: null, elementBytes: 0 });
+  // elementBytes is the pointer's stride (its element size when packed),
+  // offsetBytes where its first element starts.
+  const attrib = (loc) => (vao().attribs[loc] ||= { enabled: false, divisor: 0, buffer: null, elementBytes: 0, sizeBytes: 0, offsetBytes: 0 });
   target.enableVertexAttribArray = (loc) => { attrib(loc).enabled = true; };
   target.disableVertexAttribArray = (loc) => { attrib(loc).enabled = false; };
   target.vertexAttribDivisor = (loc, divisor) => { attrib(loc).divisor = divisor; };
-  const pointer = (loc, size, type, stride) => Object.assign(attrib(loc),
-    { buffer: bound.get(constant('ARRAY_BUFFER')), elementBytes: stride || size * TYPE_BYTES[ids.get(type)] });
-  target.vertexAttribPointer = (loc, size, type, normalized, stride) => pointer(loc, size, type, stride);
-  target.vertexAttribIPointer = (loc, size, type, stride) => pointer(loc, size, type, stride);
+  state.pointerCalls = 0;
+  // type, normalized and integer (an IPointer) say how the shader reads it.
+  const pointer = (loc, size, type, stride, offset, normalized, integer) => {
+    state.pointerCalls++;
+    const sizeBytes = size * TYPE_BYTES[ids.get(type)];
+    return Object.assign(attrib(loc), { buffer: bound.get(constant('ARRAY_BUFFER')), elementBytes: stride || sizeBytes, sizeBytes, offsetBytes: offset || 0,
+      type: ids.get(type), normalized: !!normalized, integer });
+  };
+  target.vertexAttribPointer = (loc, size, type, normalized, stride, offset) => pointer(loc, size, type, stride, offset, normalized, false);
+  target.vertexAttribIPointer = (loc, size, type, stride, offset) => pointer(loc, size, type, stride, offset, false, true);
   // Active attributes: the vertex shader's `in` declarations, in order.
   target.createShader = (type) => ({ type, source: '' });
   target.shaderSource = (shader, source) => { shader.source = source; };
   target.createProgram = () => ({ shaders: [] });
+  let program = null;
+  const { useProgram } = target;
+  target.useProgram = (p) => { useProgram(p); program = p; };
   target.attachShader = (program, shader) => { program.shaders.push(shader); };
   const inputs = (program) => (program.inputs ||= [...new Set([...(program.shaders.find((sh) => sh.type === constant('VERTEX_SHADER'))?.source || '')
     .matchAll(/^\s*in\s+(?:(?:highp|mediump|lowp)\s+)?(?:float|vec[234]|ivec[234]|uvec[234]|int|uint)\s+(\w+)\s*;/gm)].map((m) => m[1]))]);
@@ -131,8 +146,23 @@ function recordGpu(target, { constant, ids, state, vao, defaultVao }) {
   const note = (instances) => {
     const draw = state.draws.at(-1);
     draw.drawing = state.drawing;
-    draw.short = vao().attribs.flatMap((a, loc) => (a?.enabled && a.divisor && a.buffer
-      && Math.ceil(instances / a.divisor) * a.elementBytes > a.buffer.bytes.length ? [loc] : []));
+    const read = (a) => Math.ceil(instances / a.divisor);
+    draw.short = vao().attribs.flatMap((a, loc) => (a?.enabled && a.divisor && a.buffer && instances > 0
+      && a.offsetBytes + (read(a) - 1) * a.elementBytes + a.sizeBytes > a.buffer.bytes.length ? [loc] : []));
+    draw.reads = {};
+    draw.pointers = {};
+    const names = program ? inputs(program) : [];
+    vao().attribs.forEach((a, loc) => {
+      if (!a?.enabled || !a.divisor || !a.buffer?.bytes || !names[loc]) return;
+      const { divisor, elementBytes, sizeBytes, offsetBytes, type, normalized, integer } = a;
+      draw.pointers[names[loc]] = { divisor, elementBytes, sizeBytes, offsetBytes, type, normalized, integer };
+      const k = Math.max(0, read(a)), out = new Uint8Array(k * a.sizeBytes);
+      for (let i = 0; i < k; i++) {
+        const at = a.offsetBytes + i * a.elementBytes;
+        out.set(a.buffer.bytes.subarray(at, Math.min(at + a.sizeBytes, a.buffer.bytes.length)), i * a.sizeBytes);
+      }
+      draw.reads[names[loc]] = out;
+    });
   };
   target.drawElementsInstanced = (mode, count, type, offset, instances) => {
     drawElementsInstanced(mode, count, type, offset, instances);

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as THREE from '../src/vendor/range/three-range.module.js';
 import fs from 'node:fs';
-import { attachForestCulling } from '../src/world/alpine/ForestCulling.js';
+import { attachForestCulling, restoreForestCulling, SPAN_ALIGN } from '../src/world/alpine/ForestCulling.js';
 import { attachTerrainCulling, chunkTable, setChunks } from '../src/world/alpine/TerrainChunks.js';
 import { createForest } from '../src/world/alpine/ForestGL.js';
 import { setTerrainDrawMode } from '../src/world/alpine/RailDraw.js';
@@ -17,7 +17,7 @@ import { recordingWebGL2 } from './helpers/recordingWebGL2.mjs';
 const row = (x, z, species, band) => [x, 0, z, 14, 5, species, .5, band];
 const FRONT = -120, BEHIND = 3000;
 
-function forest({ mixed = false, ...options } = {}) {
+function forest({ mixed = false, mixedDetail = false, ...options } = {}) {
   const meshDetail = [], mesh = [], billboard = [];
   // Every batch its own size, so a count put back on the wrong batch shows.
   const each = (n, f) => { for (let i = 0; i < n; i++) f(i * 8 - 12); };
@@ -27,11 +27,15 @@ function forest({ mixed = false, ...options } = {}) {
   if (mixed) each(4, x => mesh.push(...row(x, BEHIND + 30, .2, 1)));
   each(2, x => meshDetail.push(...row(x, FRONT - 10, .8, 2)));
   each(5, x => meshDetail.push(...row(x, BEHIND + 10, .2, 2)));
+  // mixedDetail: four trees of the detail batch behind, in front of the
+  // camera after its five behind it (a detail batch, so it has a lite twin).
+  if (mixedDetail) each(4, x => meshDetail.push(...row(x, FRONT - 20, .2, 2)));
   each(4, x => billboard.push(...row(x, BEHIND + 20, .2, 0)));
   const uniforms = { uDeformAmp: { value: 3 }, uDeformKick: { value: 1 }, uDeformStructural: { value: 0 },
     uDeformMelodic: { value: 0 }, uDeformGesture: { value: 0 }, uLandDance: { value: new THREE.Vector4() } };
   return createForest(THREE, { meshDetail: new Float32Array(meshDetail), mesh: new Float32Array(mesh),
-    billboard: new Float32Array(billboard), stride: 8, count: mixed ? 22 : 18, ...(options.railCount ? { railCount: options.railCount } : {}) }, uniforms, options);
+    billboard: new Float32Array(billboard), stride: 8, count: (meshDetail.length + mesh.length + billboard.length) / 8,
+    ...(options.railCount ? { railCount: options.railCount } : {}) }, uniforms, options);
 }
 
 function setup({ terrain = null } = {}) {
@@ -274,11 +278,14 @@ test('chained after the terrain culling, both cull and both restore', () => {
 // A two-camera forest: the rail draws the leading trees of each ring.
 const RAIL = { meshDetail: 2, mesh: 5, billboard: 2 };
 
-function tourScene({ tour = null, mixed = false } = {}) {
-  const { gl, canvas, state } = recordingWebGL2(300, 150);
+// gpu: the context keeps buffer bytes, and each instanced draw records the
+// mesh it draws with the attribute objects it draws from (drawing), and the
+// bytes its instances read (reads).
+function tourScene({ tour = null, mixed = false, mixedDetail = false, gpu = false } = {}) {
+  const { gl, canvas, state } = recordingWebGL2(300, 150, { gpu });
   const renderer = new THREE.WebGLRenderer({ canvas, context: gl });
   renderer.autoClear = false;
-  const f = forest({ railCount: RAIL, tour, mixed });
+  const f = forest({ railCount: RAIL, tour, mixed, mixedDetail });
   const scene = new THREE.Scene();
   scene.add(...f.byBand.far, ...f.byBand.mid, ...f.byBand.near, ...f.depth);
   // As RangeScene adds them: after the static forest, hidden.
@@ -286,6 +293,7 @@ function tourScene({ tour = null, mixed = false } = {}) {
   let thrower = null;
   for (const m of scene.children) m.onBeforeRender = () => {
     if (m === thrower) throw new Error('mid-render');
+    state.drawing = { mesh: m, attributes: { ...m.geometry.attributes } };
     state.ops.push(['object', m, m.geometry.instanceCount]);
   };
   const camera = new THREE.PerspectiveCamera(60, 2, 1, 6000);
@@ -298,8 +306,9 @@ function tourScene({ tour = null, mixed = false } = {}) {
   const timeline = () => state.ops.splice(0).map(([op, v]) => op === 'object' ? `object ${scene.children.indexOf(v)}`
     : op === 'draw' ? `draw ${v.count}x${v.instances ?? 1}@${v.offset}` : `${op} ${id(v)}`);
   const objects = () => state.ops.filter(([op]) => op === 'object').map(([, m, n]) => [m, n]);
-  const render = () => { renderer.setRenderTarget(target); renderer.render(scene, camera); state.draws.length = 0; };
-  return { f, scene, state, render, timeline, objects, look, setThrower: m => { thrower = m; } };
+  // The render's draw records (its timeline stays in state.ops).
+  const render = () => { renderer.setRenderTarget(target); renderer.render(scene, camera); return state.draws.splice(0); };
+  return { f, scene, state, camera, render, timeline, objects, look, setThrower: m => { thrower = m; } };
 }
 
 test('with the tour layer the rail\'s render is the same render, call for call', () => {
@@ -316,8 +325,10 @@ test('with the tour layer the rail\'s render is the same render, call for call',
   assert.ok(layered.f.modeGeometries.some(g => g.attributes.aBranch && g.instanceCount === g.attributes.iPos.count && g.userData.instanceCounts.tour === 0));
 });
 
-test('a tour render draws no static mesh-ring batch and only the twins that hold trees; a twin is culled whole, over the trees it now holds', () => {
-  const s = tourScene({ tour: { seed: 5 }, mixed: true }), t = s.f.tour, index = t.index;
+// tour.spans false is the kill switch: each twin is culled whole, as a
+// static batch (main's path).
+test('with spans off (the kill switch) a tour render draws no static mesh-ring batch and only the twins that hold trees; a twin is culled whole, over the trees it now holds', () => {
+  const s = tourScene({ tour: { seed: 5, spans: false }, mixed: true }), t = s.f.tour, index = t.index;
   for (const g of s.f.modeGeometries) setTerrainDrawMode(g, 'tour');
   t.setMode('tour');
   // Window sets by side of the camera (it looks down -z).
@@ -389,8 +400,8 @@ test('a tour render draws no static mesh-ring batch and only the twins that hold
   check(z => z > 0, 'behind');
 });
 
-test('a tour refill and a switch to the rail put back what a thrown render culled before they set the twins\' counts', () => {
-  const s = tourScene({ tour: { seed: 5 }, mixed: true }), t = s.f.tour, index = t.index;
+test('with spans off (the kill switch) a tour refill and a switch to the rail put back what a thrown render culled before they set the twins\' counts', () => {
+  const s = tourScene({ tour: { seed: 5, spans: false }, mixed: true }), t = s.f.tour, index = t.index;
   for (const g of s.f.modeGeometries) setTerrainDrawMode(g, 'tour');
   t.setMode('tour');
   const fill = keep => {
@@ -441,4 +452,306 @@ test('a tour refill and a switch to the rail put back what a thrown render culle
   s.render();
   assert.ok(!s.objects().some(([m]) => twinGeos.includes(m.geometry)), 'the rail reaches no twin');
   assert.deepEqual(counts(), twinGeos.map(() => 0), 'no culled twin count comes back on the rail');
+});
+
+// Twin spans (forestCull.spans, on unless tour.spans is false). Every tree
+// here stands far ahead of the camera or far behind it, so the trees a
+// render can see are known exactly.
+
+// The per-tree attributes a span reads from an offset.
+const PER_TREE = ['iPos', 'iSize', 'iVar', 'iTour'];
+const hex = a => Buffer.from(a.buffer, a.byteOffset, a.byteLength).toString('hex');
+// Trees first to last of a twin's per-tree attribute, as apply() wrote them.
+const treeBytes = (g, name, first, last) => {
+  const { data } = g.attributes[name], bpe = data.array.BYTES_PER_ELEMENT;
+  return hex(new Uint8Array(data.array.buffer, data.array.byteOffset + first * data.stride * bpe, (last - first + 1) * data.stride * bpe));
+};
+// The trees of a twin's prefix that a camera seeing the z values `sees` sees.
+const inView = (g, sees) => [...Array(g.instanceCount).keys()].filter(j => sees(g.attributes.iPos.getZ(j)));
+// The span a twin must draw: from its first tree in view, rounded down to
+// SPAN_ALIGN, to its last; null when it holds none.
+const spanOf = (g, sees) => {
+  const seen = inView(g, sees);
+  return seen.length ? [seen[0] - seen[0] % SPAN_ALIGN, seen.at(-1)] : null;
+};
+
+// The draws of each object three reached, in order: [mesh, drew].
+function reachedDraws(lines, scene) {
+  const out = [];
+  lines.forEach((line, i) => {
+    if (!line.startsWith('object ')) return;
+    const next = lines.slice(i + 1).find(l => l.startsWith('draw ') || l.startsWith('object '));
+    out.push([scene.children[+line.slice(7)], !!next?.startsWith('draw ')]);
+  });
+  return out;
+}
+
+// A tour scene on the tour, with its twins and window fills: keep(x, z)
+// picks the trees of the window set.
+function onTour(s) {
+  const t = s.f.tour, index = t.index;
+  for (const g of s.f.modeGeometries) setTerrainDrawMode(g, 'tour');
+  t.setMode('tour');
+  const twinGeos = t.twins.flatMap(({ detail, lite }) => lite ? [detail, lite] : [detail]);
+  const apply = keep => {
+    const bits = new Uint32Array(index.words);
+    for (let u = 0; u < index.count; u++) if (keep(index.pos[3 * u], index.pos[3 * u + 2])) bits[u >>> 5] |= 1 << (u & 31);
+    assert.ok(t.apply({ a: { bits }, b: { bits }, f: 1 }));
+  };
+  const fill = keep => { apply(keep); s.f.applyVisibility(); };
+  const counts = () => twinGeos.map(g => g.instanceCount);
+  // Each twin's own per-tree attributes, as built: offset 0.
+  const own = twinGeos.map(g => PER_TREE.map(name => g.attributes[name]));
+  const isOwn = g => PER_TREE.every((name, k) => g.attributes[name] === own[twinGeos.indexOf(g)][k] && g.attributes[name].offset === 0);
+  // A render that throws after the cull: the last object three reaches throws.
+  const throwAfterCull = () => {
+    s.state.ops.length = 0;
+    s.render();
+    s.setThrower(s.objects().at(-1)[0]);
+    assert.throws(() => s.render(), /mid-render/);
+    s.setThrower(null);
+    // The thrown render's draws are not the next render's.
+    s.state.ops.length = 0; s.state.draws.length = 0;
+  };
+  return { t, twinGeos, apply, fill, counts, own, isOwn, throwAfterCull };
+}
+
+// Checks every twin draw of one render with spans: it draws its span, each
+// per-tree attribute read from the span's first tree on, and every twin mesh
+// three reached draws exactly when its twin holds a tree in view. Returns
+// the draws whose span starts past tree 0.
+function checkSpans(draws, lines, scene, twinGeos, sees, label) {
+  let offset = 0;
+  for (const d of draws) {
+    const { mesh, attributes } = d.drawing, g = mesh.geometry;
+    if (!twinGeos.includes(g)) continue;
+    // The span this draw read: its per-tree attributes' offset, its instances.
+    const first = attributes.iPos.offset / attributes.iPos.data.stride, last = first + d.instances - 1;
+    for (const name of PER_TREE) assert.equal(attributes[name].offset, first * attributes[name].data.stride, `${label}: ${name} starts at tree ${first} too`);
+    for (const j of inView(g, sees)) assert.ok(first <= j && j <= last, `${label}: tree ${j} in view is in the span ${first}..${last}`);
+    const span = spanOf(g, sees);
+    assert.ok(span, `${label}: a twin with no tree in view draws nothing`);
+    assert.deepEqual([first, last], span, `${label}: the span runs from the first tree in view, rounded down to ${SPAN_ALIGN}, to the last`);
+    assert.deepEqual(d.short, [], `${label}: no attribute reads past its buffer`);
+    for (const name of PER_TREE) assert.equal(hex(d.reads[name]), treeBytes(g, name, ...span), `${label}: ${name} reads trees ${span[0]} to ${span[1]}, as apply() wrote them`);
+    if (first > 0) offset++;
+  }
+  for (const [m, drew] of reachedDraws(lines, scene)) {
+    if (twinGeos.includes(m.geometry)) assert.equal(drew, !!spanOf(m.geometry, sees), `${label}: a twin draws exactly when it holds a tree in view`);
+  }
+  return offset;
+}
+
+// What a spans-off timeline becomes with spans: the same lines in the same
+// order, each twin draw's instance count its span's.
+function withSpans(lines, scene, twinGeos, sees) {
+  let current = null;
+  return lines.map(line => {
+    if (line.startsWith('object ')) current = scene.children[+line.slice(7)];
+    if (!line.startsWith('draw ') || !twinGeos.includes(current.geometry)) return line;
+    const span = spanOf(current.geometry, sees);
+    assert.ok(span, 'spans off, a twin draws only when it holds a tree in view');
+    return line.replace(/x\d+@/, `x${span[1] - span[0] + 1}@`);
+  });
+}
+
+test('with spans a twin in view draws only its span, read from its first tree on, and the render adds no draw to spans off', () => {
+  // The same forest twice: spans on (the default) and off (the kill switch).
+  const on = tourScene({ tour: { seed: 5 }, mixed: true, mixedDetail: true, gpu: true });
+  const off = tourScene({ tour: { seed: 5, spans: false }, mixed: true, mixedDetail: true, gpu: true });
+  const [a, b] = [on, off].map(onTour);
+  assert.ok(a.twinGeos.every(g => g.userData.forestCull.spans) && b.twinGeos.every(g => !g.userData.forestCull.spans));
+  const stats = { kept: 0, total: 0, batches: 0 };
+  attachForestCulling(on.scene, stats); attachForestCulling(off.scene);
+  // Every tree: the first render uploads each twin's whole buffers.
+  for (const s of [a, b]) s.fill(() => true);
+  on.render(); off.render(); on.timeline(); off.timeline();
+  const held = a.counts();
+  let offset = 0;
+  // keep picks the window set; z the way the camera looks (down -z sees the
+  // trees at FRONT, up +z those at BEHIND).
+  const check = (keep, z, label) => {
+    for (const s of [a, b]) s.fill(keep);
+    on.look(z); off.look(z);
+    const sees = z < 0 ? v => v < 0 : v => v > 0;
+    const n = a.counts();
+    assert.deepEqual(b.counts(), n);
+    const draws = on.render(), lines = on.timeline();
+    const whole = off.render(), plain = off.timeline();
+    assert.ok(plain.some(l => l.startsWith('draw ')));
+    offset += checkSpans(draws, lines, on.scene, a.twinGeos, sees, label);
+    // Spans off culls a twin whole: with spans the render is that render,
+    // line for line, only with each twin draw's count its span's ...
+    assert.deepEqual(lines, withSpans(plain, off.scene, b.twinGeos, sees), `${label}: the spans-off render, with spans`);
+    // ... and each draw reads the same bytes, a twin's only those of its span.
+    assert.equal(draws.length, whole.length);
+    draws.forEach((d, i) => {
+      const w = whole[i], g = d.drawing.mesh.geometry;
+      assert.equal(on.scene.children.indexOf(d.drawing.mesh), off.scene.children.indexOf(w.drawing.mesh));
+      assert.deepEqual(Object.keys(d.reads), Object.keys(w.reads));
+      const span = a.twinGeos.includes(g) ? spanOf(g, sees) : null;
+      // Each attribute is read as spans off reads it (type, normalization,
+      // stride, divisor); only a per-tree one's start may move.
+      assert.deepEqual(Object.keys(d.pointers).sort(), Object.keys(w.pointers).sort());
+      for (const [name, p] of Object.entries(w.pointers)) {
+        const { offsetBytes, ...how } = d.pointers[name], { offsetBytes: wholeOffset, ...want } = p;
+        assert.deepEqual(how, want, `${label}: ${name} is read as spans off reads it`);
+        if (!(span && PER_TREE.includes(name))) assert.equal(offsetBytes, wholeOffset, `${label}: ${name} starts where it does spans off`);
+      }
+      for (const [name, bytes] of Object.entries(w.reads)) {
+        const each = bytes.length / w.instances;
+        const want = span && PER_TREE.includes(name) ? bytes.subarray(span[0] * each, (span[1] + 1) * each) : bytes;
+        assert.equal(hex(d.reads[name]), hex(want), `${label}: ${name} reads the spans-off draw's bytes${span ? ' of the span' : ''}`);
+      }
+    });
+    // Counts and per-tree attributes are back after the render.
+    assert.deepEqual(a.counts(), n, `${label}: every twin has its count back`);
+    assert.ok(a.twinGeos.every(a.isOwn), `${label}: every twin has its own per-tree attributes back`);
+    return draws;
+  };
+  // Every tree, seen down -z: the mixed twin (4 trees there, then 4 behind)
+  // draws its first 4; the detail twin (5 behind, then 4 there) trees 4 to
+  // 8, its fifth behind kept by the alignment.
+  const mixed = a.twinGeos.find(g => g.instanceCount === 8), detail = a.twinGeos.find(g => g.instanceCount === 9);
+  assert.ok(mixed && detail && held.filter(n => n > 0).length >= 4);
+  const ahead = check(() => true, -1, 'every tree, down -z');
+  assert.ok(ahead.some(d => d.drawing.mesh.geometry === mixed && d.drawing.attributes.iPos.offset === 0 && d.instances === 4));
+  assert.ok(ahead.some(d => d.drawing.mesh.geometry === detail && d.drawing.attributes.iPos.offset === 4 * 3 && d.instances === 5));
+  // Up +z: the mixed twin draws its last 4, from tree 4.
+  const back = check(() => true, 1, 'every tree, up +z');
+  assert.ok(back.some(d => d.drawing.mesh.geometry === mixed && d.drawing.attributes.iPos.offset === 4 * 3 && d.instances === 4));
+  // Refills in place (same buffers, update ranges): each refill's span reads
+  // the bytes this refill wrote, the last of its trees included.
+  check((x, z) => z < 0, -1, 'the trees down -z, seen');
+  check((x, z) => z > 0, 1, 'the trees up +z, seen');
+  check((x, z) => z > 0, -1, 'the trees up +z, unseen');
+  check((x, z) => !(x === -12 && z === BEHIND + 30), 1, 'every tree but one, up +z');
+  check(() => true, -1, 'every tree again, down -z');
+  assert.ok(offset > 0, 'some spans started past tree 0');
+  assert.ok(stats.total > 0 && stats.kept < stats.total && stats.batches > 0, 'the twins were tested, and some culled');
+});
+
+test('with spans a tour refill and a switch to the rail put back the span a thrown render left in a twin before they set its count', () => {
+  const s = tourScene({ tour: { seed: 5 }, mixed: true, gpu: true });
+  const { t, twinGeos, apply, fill, counts, isOwn, throwAfterCull } = onTour(s);
+  attachForestCulling(s.scene);
+  // Up +z the camera sees the trees at BEHIND.
+  const sees = z => z > 0;
+  const render = label => {
+    const n = counts(), draws = s.render(), lines = s.timeline();
+    const offset = checkSpans(draws, lines, s.scene, twinGeos, sees, label);
+    assert.deepEqual(counts(), n, `${label}: every twin keeps apply()'s count`);
+    assert.ok(twinGeos.every(isOwn), `${label}: every twin has its own per-tree attributes back`);
+    return { draws, lines, offset };
+  };
+  // Window 1, every tree: the mixed twin holds 4 trees at FRONT, then 4 in
+  // view. The render throws after the cull has put in its span, trees 4 to 7.
+  fill(() => true);
+  s.look(1);
+  const mixed = twinGeos.find(g => g.instanceCount === 8);
+  assert.ok(mixed);
+  assert.ok(render('every tree').offset > 0);
+  throwAfterCull();
+  assert.equal(mixed.attributes.iPos.offset, 4 * 3, 'the thrown render left the span in: per-tree attributes from tree 4');
+  assert.equal(mixed.instanceCount, 4, 'and the span\'s count');
+  assert.ok(twinGeos.some(g => g.instanceCount === 0 && g.attributes.iPos.getZ(0) < 0), 'and a twin out of view at 0');
+  // Window 2, every tree but the mixed twin's first in view: apply() refills
+  // it to 7 in place. Right after, before anything else restores, every
+  // twin has apply()'s count and its own attributes: had the span stayed,
+  // the next restore would put the thrown render's 8 back over the 7.
+  apply((x, z) => !(x === -12 && z === BEHIND + 30));
+  assert.equal(mixed.instanceCount, 7, 'apply() sets its count after the restore');
+  assert.ok(twinGeos.every(isOwn), 'apply() put back every twin\'s own per-tree attributes');
+  const want = counts();
+  s.f.applyVisibility();
+  assert.deepEqual(counts(), want);
+  // The next render draws the span of apply()'s 7: trees 4 to 6.
+  const next = render('the refill after a throw');
+  assert.ok(next.draws.some(d => d.drawing.mesh.geometry === mixed && d.instances === 3 && d.drawing.attributes.iPos.offset === 4 * 3));
+  assert.deepEqual(counts(), want);
+  // A throw again, then the rail: setMode's 0s must outlast the next render,
+  // and no span may stay in a twin.
+  throwAfterCull();
+  assert.ok(mixed.attributes.iPos.offset > 0);
+  t.setMode('rail');
+  assert.deepEqual(counts(), twinGeos.map(() => 0), 'setMode sets its 0s after the restore');
+  assert.ok(twinGeos.every(isOwn), 'setMode put back every twin\'s own per-tree attributes');
+  for (const g of s.f.modeGeometries) setTerrainDrawMode(g, 'rail');
+  s.f.applyVisibility();
+  s.render();
+  assert.ok(!s.objects().some(([m]) => twinGeos.includes(m.geometry)), 'the rail reaches no twin');
+  assert.deepEqual(counts(), twinGeos.map(() => 0), 'no culled twin count comes back on the rail');
+  assert.ok(twinGeos.every(isOwn));
+  s.state.ops.length = 0;
+  // Back on the tour, every tree: the spans are those of the new counts.
+  for (const g of s.f.modeGeometries) setTerrainDrawMode(g, 'tour');
+  t.setMode('tour');
+  fill(() => true);
+  const back = render('back on the tour');
+  assert.ok(back.draws.some(d => d.drawing.mesh.geometry === mixed && d.instances === 4 && d.drawing.attributes.iPos.offset === 4 * 3));
+});
+
+test('with spans a lite twin whose asset swaps after a thrown render takes its index and base attributes from one asset, and its per-tree attributes are its own', () => {
+  const s = tourScene({ tour: { seed: 5 }, mixedDetail: true, gpu: true });
+  const { t, twinGeos, fill, isOwn, throwAfterCull } = onTour(s);
+  attachForestCulling(s.scene);
+  // Down -z the camera sees the trees at FRONT.
+  const sees = z => z < 0;
+  fill(() => true);
+  // The detail batch's twin: 5 trees behind the camera, then 4 in view.
+  const group = t.detailGroups.find(g => g.detail.instanceCount === 9), lite = group.lite;
+  assert.ok(group && group.pixelBase.index !== group.qualityBase.index);
+  const liteMeshes = [...t.byBand.far, ...t.byBand.mid, ...t.byBand.near, ...t.depth].filter(m => m.geometry === lite);
+  // Pixelated with nearDetail off, the lites draw, over the quality asset.
+  s.f.updateDetailView({ camera: s.camera, width: 300, height: 150, pixelated: true, nearDetail: false });
+  assert.equal(lite.index, group.qualityBase.index);
+  assert.ok(liteMeshes.length > 0 && liteMeshes.every(m => m.visible));
+  // The lite's index and every base attribute are `base`'s, and none is
+  // `other`'s.
+  const fromOne = (base, other, label) => {
+    assert.equal(lite.index, base.index, `${label}: the asset's index`);
+    for (const [name, a] of Object.entries(base.attributes)) assert.equal(lite.attributes[name], a, `${label}: the asset's ${name}`);
+    const theirs = new Set(Object.values(other.attributes));
+    assert.ok(Object.values(lite.attributes).every(a => !theirs.has(a)), `${label}: nothing of the other asset`);
+  };
+  // A render of the lite: its span, over `base`'s index.
+  const renderLite = (base, label) => {
+    const draws = s.render(), lines = s.timeline();
+    checkSpans(draws, lines, s.scene, twinGeos, sees, label);
+    const mine = draws.filter(d => d.drawing.mesh.geometry === lite);
+    assert.ok(mine.length > 0, `${label}: the lite draws`);
+    for (const d of mine) {
+      assert.equal(d.index, base.index.array, `${label}: the lite draws the asset's index`);
+      assert.equal(d.drawing.attributes.position, base.attributes.position, `${label}: over the asset's positions`);
+      assert.equal(d.drawing.attributes.iPos.offset, 4 * 3, `${label}: from tree 4`);
+      assert.equal(d.instances, 5);
+    }
+  };
+  renderLite(group.qualityBase, 'the quality lite');
+  // Through applyVisibility: a render throws with the span in the lite, then
+  // nearDetail on swaps the lite to the pixel asset (RangeScene's per-frame
+  // applyVisibility, before any other restore).
+  throwAfterCull();
+  assert.equal(lite.attributes.iPos.offset, 4 * 3, 'the thrown render left a span in the lite');
+  s.f.applyVisibility({ nearDetail: true });
+  // applyVisibility puts the span back before it swaps the asset.
+  assert.ok(isOwn(lite), 'applyVisibility put back the thrown render\'s span');
+  fromOne(group.pixelBase, group.qualityBase, 'applyVisibility');
+  restoreForestCulling();
+  fromOne(group.pixelBase, group.qualityBase, 'applyVisibility, then the restore');
+  assert.ok(isOwn(lite), 'applyVisibility, then the restore: the lite\'s own per-tree attributes');
+  assert.ok(liteMeshes.every(m => m.visible));
+  renderLite(group.pixelBase, 'the pixel lite');
+  // By hand: setLiteAsset's own swap, back to the quality asset, with no
+  // restore before it; then the restore must not bring back the pixel
+  // asset's attributes under the quality asset's index.
+  throwAfterCull();
+  assert.equal(lite.attributes.iPos.offset, 4 * 3, 'the thrown render left a span in the lite');
+  lite.userData.asset = group.qualityBase.userData.asset;
+  lite.setIndex(group.qualityBase.index);
+  for (const [name, a] of Object.entries(group.qualityBase.attributes)) lite.setAttribute(name, a);
+  restoreForestCulling();
+  fromOne(group.qualityBase, group.pixelBase, 'swapped by hand, then the restore');
+  assert.ok(isOwn(lite), 'swapped by hand, then the restore: the lite\'s own per-tree attributes');
+  renderLite(group.qualityBase, 'the quality lite again');
 });

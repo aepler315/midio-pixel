@@ -117,14 +117,25 @@ const cellsCache = new WeakMap();
  *  (three's default Infinity included) covers every tree. Every other batch
  *  is bound over all its trees, as before. */
 export function forestCells(geometry) {
+  return forestCellsEntry(geometry)?.cells ?? null;
+}
+
+// An interleaved attribute has no version of its own: its buffer has.
+const versionOf = a => a.isInterleavedBufferAttribute ? a.data.version : a.version;
+
+function forestCellsEntry(geometry) {
   const pos = geometry?.attributes?.iPos, size = geometry?.attributes?.iSize, vars = geometry?.attributes?.iVar;
   if (!pos || !size || !vars || size.count < pos.count || vars.count < pos.count) return null;
-  const prefix = !!geometry.userData?.forestCull?.prefix, count = geometry.instanceCount;
+  const cull = geometry.userData?.forestCull, prefix = !!cull?.prefix, count = geometry.instanceCount;
   const n = !prefix || count >= pos.count ? pos.count : count > 0 ? Math.floor(count) : 0;
-  const version = prefix ? `${n}:${pos.version}:${size.version}:${vars.version}` : null;
+  const version = prefix ? `${n}:${versionOf(pos)}:${versionOf(size)}:${versionOf(vars)}` : null;
+  const lists = !!cull?.spans;
   const cached = cellsCache.get(pos);
-  if (cached && cached.size === size && cached.vars === vars && cached.version === version) return cached.cells;
+  if (cached && cached.size === size && cached.vars === vars && cached.version === version && (!lists || cached.trees !== undefined)) return cached;
   const cells = new Map();
+  // Spans (below) also need each cell's trees: the cell of each tree, from
+  // this same pass.
+  const cellOf = lists ? new Int32Array(n) : null;
   let ok = true;
   for (let i = 0; i < n && ok; i++) {
     const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i), h = size.getX(i), w = size.getY(i), id = vars.getY(i);
@@ -132,16 +143,34 @@ export function forestCells(geometry) {
     const key = `${Math.floor(x / FOREST_CULL_CELL_M)},${Math.floor(z / FOREST_CULL_CELL_M)}`;
     const bottom = y + Math.min(0, h), top = y + Math.max(0, h), height = Math.abs(h), width = Math.abs(w);
     const c = cells.get(key);
-    if (!c) cells.set(key, [x, bottom, z, x, top, z, height, width]);
-    else {
+    if (!c) {
+      if (cellOf) cellOf[i] = cells.size;
+      cells.set(key, [x, bottom, z, x, top, z, height, width, cells.size]);
+    } else {
+      if (cellOf) cellOf[i] = c[8];
       if (x < c[0]) c[0] = x; if (bottom < c[1]) c[1] = bottom; if (z < c[2]) c[2] = z;
       if (x > c[3]) c[3] = x; if (top > c[4]) c[4] = top; if (z > c[5]) c[5] = z;
       if (height > c[6]) c[6] = height; if (width > c[7]) c[7] = width;
     }
   }
-  const out = ok ? Float64Array.from([...cells.values()].flat()) : null;
-  cellsCache.set(pos, { size, vars, version, cells: out });
-  return out;
+  let out = null, trees = lists ? null : undefined;
+  if (ok) {
+    out = new Float64Array(8 * cells.size);
+    let o = 0;
+    for (const c of cells.values()) { for (let j = 0; j < 8; j++) out[o + j] = c[j]; o += 8; }
+    if (lists) {
+      // Each cell's trees in draw order: index[start[k] .. start[k + 1]).
+      const start = new Int32Array(cells.size + 1), index = new Int32Array(n);
+      for (let i = 0; i < n; i++) start[cellOf[i] + 1]++;
+      for (let k = 0; k < cells.size; k++) start[k + 1] += start[k];
+      const fill = start.slice(0, cells.size);
+      for (let i = 0; i < n; i++) index[fill[cellOf[i]]++] = i;
+      trees = { start, index };
+    }
+  }
+  const entry = { size, vars, version, cells: out, trees };
+  cellsCache.set(pos, entry);
+  return entry;
 }
 
 /**
@@ -201,6 +230,141 @@ export function forestGeometryVisible(geometry, planes, u) {
   return false;
 }
 
+// Twin spans (forestCull.spans, the tour layer's twins). A twin draws its
+// first instanceCount trees in placement order, one instanced draw per
+// pass, and its soft crowns blend in that order. A tree whose own box (the
+// box above, over a cell of that one tree) is outside the drawn volume
+// makes no fragment in this render. So a render may draw any contiguous
+// span of the twin's trees that holds every tree whose box can reach the
+// volume: the same draw, in the same order, of the same bytes, less trees
+// that would have drawn nothing. WebGL2 has no base instance: the span's
+// per-tree attributes read the twin's buffers from a byte offset
+// (InterleavedBufferAttribute, stride = item size; ForestGL twinGeometry).
+
+/** Tree tests one forestSpan may make before it settles for the cells'
+ *  span (every tree of the first and last cells in view). */
+export const SPAN_SCAN_MAX = 1024;
+/** A span starts at a multiple of this many trees (the stride-1 Uint8 iTour
+ *  view then starts on a 4-byte boundary). */
+export const SPAN_ALIGN = 4;
+
+const TREE = new Float64Array(8);
+function treeOutside(pos, size, i, extents, lift, lean, planes) {
+  const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i), h = size.getX(i), w = size.getY(i);
+  TREE[0] = TREE[3] = x; TREE[2] = TREE[5] = z;
+  TREE[1] = y + Math.min(0, h); TREE[4] = y + Math.max(0, h); TREE[6] = Math.abs(h); TREE[7] = Math.abs(w);
+  const b = forestCellBox(TREE, 0, extents, lift, lean, CHUNK_BOX_PAD_M, BOX);
+  return boxOutsidePlanes(planes, b[0], b[1], b[2], b[3], b[4], b[5]);
+}
+
+// The last span per geometry and everything it was computed from.
+const spanMemo = new WeakMap();
+const KEY = new Float64Array(34);
+
+/** The span [first, last] of the trees `geometry` draws (its prefix) that
+ *  holds every tree whose box can reach the volume `planes` bound under
+ *  the forest uniforms `u`: null when none can, the whole prefix when the
+ *  bound is unknown. */
+export function forestSpan(geometry, planes, u, { scan = SPAN_SCAN_MAX, memo = true } = {}) {
+  const pos = geometry?.attributes?.iPos, size = geometry?.attributes?.iSize;
+  const count = geometry?.instanceCount;
+  const n = Math.min(pos?.count ?? 0, count > 0 ? Math.floor(count) : 0);
+  if (!(n > 0)) return null;
+  const whole = [0, n - 1];
+  const extents = assetExtents(geometry), entry = forestCellsEntry(geometry), cells = entry?.cells;
+  if (!extents || !cells || !planes) return whole;
+  const bounds = forestBounds(u);
+  if (!bounds) return whole;
+  const { lift, lean } = bounds, rise = lift.rise;
+  for (let i = 0; i < 24; i++) KEY[i] = planes[i];
+  KEY[24] = lift.lo; KEY[25] = lift.hi; KEY[26] = lean; KEY[27] = scan;
+  KEY[28] = rise ? rise.sink : NaN; KEY[29] = rise ? rise.pivot : NaN; KEY[30] = rise ? rise.knee : NaN;
+  KEY[31] = rise ? rise.eye[0] : NaN; KEY[32] = rise ? rise.eye[1] : NaN; KEY[33] = rise ? rise.eye[2] : NaN;
+  // Same cells (same trees, versions and count), same asset and the same
+  // numbers: the same span. NaN marks no rise.
+  const last = memo ? spanMemo.get(geometry) : null;
+  if (last && last.cells === cells && last.extents === extents && last.n === n
+    && KEY.every((v, i) => v === last.key[i] || (v !== v && last.key[i] !== last.key[i]))) return last.span;
+  const span = computeSpan(entry, pos, size, extents, lift, lean, planes, scan, n);
+  if (memo) spanMemo.set(geometry, { cells, extents, n, key: KEY.slice(), span });
+  return span;
+}
+
+function computeSpan({ cells, trees }, pos, size, extents, lift, lean, planes, scan, n) {
+  const seen = [];
+  for (let o = 0, k = 0; o < cells.length; o += 8, k++) {
+    const b = forestCellBox(cells, o, extents, lift, lean, CHUNK_BOX_PAD_M, BOX);
+    if (!boxOutsidePlanes(planes, b[0], b[1], b[2], b[3], b[4], b[5])) seen.push(k);
+  }
+  if (!seen.length) return null;
+  if (!trees) return [0, n - 1];
+  const { start, index } = trees;
+  // The cells' span: every tree of every cell in view lies inside it.
+  let cellFirst = Infinity, cellLast = -1;
+  for (const k of seen) {
+    cellFirst = Math.min(cellFirst, index[start[k]]);
+    cellLast = Math.max(cellLast, index[start[k + 1] - 1]);
+  }
+  let budget = scan, first = Infinity, lastTree = -1;
+  // Earliest first: a cell whose first tree is past the best cannot better it.
+  seen.sort((a, b) => index[start[a]] - index[start[b]]);
+  for (const k of seen) {
+    if (index[start[k]] >= first) break;
+    for (let j = start[k]; j < start[k + 1] && index[j] < first; j++) {
+      if (budget-- <= 0) return [cellFirst, cellLast];
+      if (!treeOutside(pos, size, index[j], extents, lift, lean, planes)) { first = index[j]; break; }
+    }
+  }
+  if (first === Infinity) return null;
+  seen.sort((a, b) => index[start[b + 1] - 1] - index[start[a + 1] - 1]);
+  for (const k of seen) {
+    if (index[start[k + 1] - 1] <= lastTree) break;
+    for (let j = start[k + 1] - 1; j >= start[k] && index[j] > lastTree; j--) {
+      if (budget-- <= 0) return [cellFirst, cellLast];
+      if (!treeOutside(pos, size, index[j], extents, lift, lean, planes)) { lastTree = index[j]; break; }
+    }
+  }
+  return [first, lastTree];
+}
+
+// Span attribute sets by first tree, per buffer set (a twin's detail and
+// lite share theirs): InterleavedBufferAttributes over the same buffers.
+// A set is a new object per first tree: three rebinds a vertex array only
+// when an attribute object changes (WebGLBindingStates needsUpdate), never
+// for a changed offset.
+const spanSets = new WeakMap();
+const SPAN_SETS = 16;
+function spanSet(geometry, first) {
+  const key = geometry.attributes.iPos.data;
+  let byFirst = spanSets.get(key);
+  if (!byFirst) spanSets.set(key, byFirst = new Map());
+  let set = byFirst.get(first);
+  if (!set) {
+    if (byFirst.size >= SPAN_SETS) byFirst.clear();
+    set = [];
+    for (const [name, a] of Object.entries(geometry.attributes)) {
+      if (a.isInterleavedBufferAttribute && a.data.isInstancedInterleavedBuffer) set.push(name, new a.constructor(a.data, a.itemSize, first * a.data.stride, a.normalized));
+    }
+    byFirst.set(first, set);
+  }
+  return set;
+}
+
+/** Whether every per-tree attribute of `geometry` can start at an offset:
+ *  iPos and each other instanced attribute either interleaved with a
+ *  divisor of 1, offset 0 and stride = item size, or one value every
+ *  instance reads. */
+function spannable(geometry) {
+  const pos = geometry.attributes.iPos;
+  if (!pos?.isInterleavedBufferAttribute) return false;
+  for (const a of Object.values(geometry.attributes)) {
+    if (a.isInterleavedBufferAttribute) {
+      if (a.data.isInstancedInterleavedBuffer && (a.data.meshPerAttribute !== 1 || a.offset !== 0 || a.data.stride !== a.itemSize || a.data.count !== pos.count)) return false;
+    } else if (a.isInstancedBufferAttribute && !(a.count === 1 && a.meshPerAttribute >= pos.count)) return false;
+  }
+  return true;
+}
+
 // Scratch planes (renders do not nest) and a per-render serial so each
 // geometry is tested once however many of its meshes the scene holds.
 const PLANES = new Float64Array(24);
@@ -228,17 +392,54 @@ export function cullForestScene(scene, camera, target, stats = null, { renderer 
     if (!planes) return touched;
     const count = geometry.instanceCount;
     if (!(count > 0)) continue;
+    if (cull.spans && spannable(geometry)) {
+      const n = Math.min(geometry.attributes.iPos.count, Math.floor(count));
+      let span = forestSpan(geometry, planes, cull.uniforms);
+      if (span) {
+        const first = span[0] - span[0] % SPAN_ALIGN, last = span[1];
+        // three does not clamp a draw by attribute offset.
+        span = first >= 0 && first <= last && last <= n - 1 ? [first, last] : [0, n - 1];
+      }
+      const drawn = span ? span[1] - span[0] + 1 : 0;
+      if (stats) { stats.total += count; stats.kept += drawn; if (!span) stats.batches++; }
+      if (span && span[0] === 0 && drawn === n) { cull.first = 0; continue; }
+      // A culled twin keeps the set it last drew with, so its vertex arrays
+      // stay as they are; the originals are the set of first tree 0.
+      const first = span ? span[0] : cull.first || 0;
+      const set = first > 0 ? spanSet(geometry, first) : null;
+      let swaps = null;
+      if (set) {
+        swaps = [];
+        for (let j = 0; j < set.length; j += 2) {
+          swaps.push(set[j], geometry.attributes[set[j]], set[j + 1]);
+          geometry.attributes[set[j]] = set[j + 1];
+        }
+      }
+      touched.push(geometry, count, swaps);
+      geometry.instanceCount = drawn;
+      if (span) cull.first = first;
+      continue;
+    }
     const visible = forestGeometryVisible(geometry, planes, cull.uniforms);
     if (stats) { stats.total += count; if (visible) stats.kept += count; else stats.batches++; }
     if (visible) continue;
-    touched.push(geometry, count);
+    touched.push(geometry, count, null);
     geometry.instanceCount = 0;
   }
   return touched;
 }
 
 export function restoreForestScene(touched) {
-  for (let i = touched.length - 2; i >= 0; i -= 2) touched[i].instanceCount = touched[i + 1];
+  for (let i = touched.length - 3; i >= 0; i -= 3) {
+    const geometry = touched[i], swaps = touched[i + 2];
+    // Only the per-tree attributes a span put in, and only while they are
+    // still there: the lite twin's base attributes can change between a
+    // render that threw and this restore (ForestGL setLiteAsset).
+    if (swaps) for (let j = 0; j < swaps.length; j += 3) {
+      if (geometry.attributes[swaps[j]] === swaps[j + 2]) geometry.attributes[swaps[j]] = swaps[j + 1];
+    }
+    geometry.instanceCount = touched[i + 1];
+  }
   touched.length = 0;
 }
 
