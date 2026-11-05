@@ -1,7 +1,24 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { bakeVoxelRange, bakeProgressiveVoxelRange } from '../tools/build-voxel-range.mjs';
+import { bakeVoxelRange, bakeProgressiveVoxelRange, createVoxelRangeAsset } from '../tools/build-voxel-range.mjs';
+import { gzipSync } from 'node:zlib';
+import { createHash } from 'node:crypto';
 import { decodeVoxelRangePack } from '../src/render/VoxelRange.js';
+
+test('voxel asset metadata pins both byte representations and the source terrain deterministically', () => {
+  const decoded = Buffer.from('terrain'), compressed = gzipSync(decoded);
+  const view = { id: 'white-mountains-owens', terrainManifestUrl: 'terrain/owens.json', terrainManifestSha256: 'a'.repeat(64) };
+  const terrain = { source: { demSha256: 'b'.repeat(64) }, payload: { sha256: 'c'.repeat(64) } };
+  const asset = createVoxelRangeAsset(view, terrain, compressed, decoded);
+  assert.deepEqual(createVoxelRangeAsset(view, terrain, compressed, decoded), asset);
+  assert.equal(asset.payload.byteLength, compressed.length);
+  assert.equal(asset.payload.sha256, createHash('sha256').update(compressed).digest('hex'));
+  assert.equal(asset.payload.decodedByteLength, decoded.length);
+  assert.equal(asset.payload.decodedSha256, createHash('sha256').update(decoded).digest('hex'));
+  assert.equal(asset.source.demSha256, terrain.source.demSha256);
+  assert.equal(asset.source.terrainManifestSha256, view.terrainManifestSha256);
+  assert.equal(asset.source.terrainPayloadSha256, terrain.payload.sha256);
+});
 
 function faces(bytes) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
