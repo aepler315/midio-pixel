@@ -8,6 +8,7 @@ import { gunzipSync, gzipSync } from 'node:zlib';
 import { decodeTerrain, terrainHeightAt } from '../src/world/alpine/TerrainMesh.js';
 import { createVoxelRangeScore } from '../src/world/alpine/VoxelRangeScore.js';
 import { projectPoint } from '../src/world/terrain/SceneTravel.js';
+import { railGroundData } from '../src/world/alpine/RailDraw.js';
 import catalog from '../src/world/terrain/sceneCatalogData.js';
 
 const VIEW_ID = 'white-mountains-owens';
@@ -146,6 +147,7 @@ function bakeSmoothLevel(data, cellSizeM, revealOrder) {
 
 /** Version 2 keeps every terrain level in one immutable GPU upload. */
 export function bakeProgressiveVoxelRange(data, camera, { smoothCellM = data.grid.cellSizeM * 2, cameraLiftM = 525 } = {}) {
+  if (data.tiles) data = railGroundData(data);
   const coarse = bakeColumnLevel(data, camera);
   const levels = [{ ...LEVELS[0], bytes: coarse.bytes }];
   for (const level of LEVELS.slice(1)) levels.push({ ...level,
@@ -155,6 +157,9 @@ export function bakeProgressiveVoxelRange(data, camera, { smoothCellM = data.gri
     bytes: bakeSmoothLevel(data, smoothCellM, coarse.columns) });
   if (levels.some(level => !level.bytes.length)) throw new Error('Progressive terrain level has no geometry');
   const headerBytes = 32 + levels.length * 24;
+  if (headerBytes + levels.reduce((sum, level) => sum + level.bytes.length, 0) > 256 * 1024 * 1024) {
+    throw new Error('Voxel bake exceeds the 256 MiB runtime pack limit');
+  }
   const header = Buffer.alloc(headerBytes);
   header.writeUInt32LE(PACK_MAGIC, 0); header.writeUInt32LE(2, 4);
   header.writeUInt32LE(VERTEX_FIELDS, 8); header.writeUInt32LE(levels.length, 12);
@@ -177,7 +182,7 @@ const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 export function createVoxelRangeAsset(view, terrain, compressed, decoded) {
   return {
     schema: 'midio.voxel-range', version: 2, viewId: view.id,
-    source: { terrainManifestUrl: view.terrainManifestUrl, terrainManifestSha256: view.terrainManifestSha256,
+    source: { mode: 'rail', terrainManifestUrl: view.terrainManifestUrl, terrainManifestSha256: view.terrainManifestSha256,
       terrainPayloadSha256: terrain.payload.sha256, demSha256: terrain.source.demSha256 },
     payload: { url: `${view.id}.v2.bin.gz`, encoding: 'gzip', byteLength: compressed.byteLength, sha256: sha256(compressed),
       decodedByteLength: decoded.byteLength, decodedSha256: sha256(decoded) },

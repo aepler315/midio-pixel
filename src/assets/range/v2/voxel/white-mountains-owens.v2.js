@@ -4,17 +4,18 @@ export default {
   "version": 2,
   "viewId": "white-mountains-owens",
   "source": {
+    "mode": "rail",
     "terrainManifestUrl": "terrain/white-mountains-owens.terrain.json",
-    "terrainManifestSha256": "a83a16041b1153ff3babe0a156ed1e54ce47acb9d663f42cca2e53223800fb83",
-    "terrainPayloadSha256": "85cc9eac527de9ddc523e7c56c65b980694c3731f8279703c5618adff0d00e10",
-    "demSha256": "c7cd4cb5b455f81d204884521aab66587049b6206d5c8608be99e4e408ad4c99"
+    "terrainManifestSha256": "b8b11c3f81b924614d3c89d2ea407e267732067018208fbffa5915bc798eab8f",
+    "terrainPayloadSha256": "d3ae9026563b20501c1a3c00657be57e83a20d5ac2c05d702d46a4547d014864",
+    "demSha256": "b866dc17443eadef965227f440f7b08249622d1e7e014bc1457ca11511bd5a21"
   },
   "payload": {
     "url": "white-mountains-owens.v2.bin.gz",
     "encoding": "gzip",
-    "byteLength": 16155786,
-    "sha256": "8691115c9de359fe973bb93be2a5e0bfddec8a339e27bf4672f13b929e477cd3",
-    "decodedByteLength": 115381208,
-    "decodedSha256": "3c1aa62129bf037a95e0cd2a8dac30b76ccf7d0aee120f9916a07e59d9bcba2a"
+    "byteLength": 16155339,
+    "sha256": "62a823ed4baf93b44c9ccce9b6e43d63d9a9f7937caac673c5e4e0de194df458",
+    "decodedByteLength": 115380248,
+    "decodedSha256": "be654a9eefdcc0a01eaa32496931e7457f1c5f9bd90032af84dc150a23840d1b"
   }
 };

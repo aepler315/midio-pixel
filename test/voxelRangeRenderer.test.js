@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { gzipSync } from 'node:zlib';
+import { createHash } from 'node:crypto';
+import voxelAsset from '../src/assets/range/v2/voxel/white-mountains-owens.v2.js';
 import { GraphicsResidency } from '../src/render/GraphicsResidency.js';
 import { decodeVoxelRangePack, VoxelRange, voxelRangeRequested, voxelRangeFrameState, voxelRangeLayersAt, voxelRangeGrowthProgress } from '../src/render/VoxelRange.js';
 
@@ -9,6 +11,37 @@ const triangle = new Float32Array([
   0, 100, 500, 0.5, 0.25, 0.5, 0.125, 2,
   500, 100, 0, 0.5, 0.25, 0.5, 0.125, 2,
 ]);
+
+function assetFor(compressed, decoded = triangle) {
+  const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+  return { ...voxelAsset, payload: { ...voxelAsset.payload, byteLength: compressed.byteLength, sha256: hash(compressed),
+    decodedByteLength: decoded.byteLength, decodedSha256: hash(decoded) } };
+}
+
+test('a changed voxel payload is rejected by its pin before inflation or GPU allocation', async t => {
+  const zipped = gzipSync(triangle), asset = assetFor(zipped), altered = Buffer.from(zipped);
+  altered[altered.length - 8] ^= 1;
+  t.mock.method(globalThis, 'fetch', async () => new Response(altered));
+  let inflations = 0;
+  t.mock.method(globalThis, 'DecompressionStream', function() { inflations++; throw Error('unexpected inflate'); });
+  const residency = new GraphicsResidency();
+  const range = new VoxelRange({ asset, residency, ownerDocument: { createElement() { assert.fail('unexpected GPU allocation'); } } });
+  assert.equal(await range.prepare(), false);
+  assert.match(range.reason, /hash/i);
+  assert.equal(inflations, 0);
+  assert.equal(residency.usedBytes, 0);
+});
+
+test('a valid compressed voxel pack must also match its decoded hash', async t => {
+  const zipped = gzipSync(triangle), asset = assetFor(zipped);
+  asset.payload.decodedSha256 = '0'.repeat(64);
+  t.mock.method(globalThis, 'fetch', async () => new Response(zipped));
+  const residency = new GraphicsResidency();
+  const range = new VoxelRange({ asset, residency, ownerDocument: { createElement() { assert.fail('unexpected GPU allocation'); } } });
+  assert.equal(await range.prepare(), false);
+  assert.match(range.reason, /decoded.*hash/i);
+  assert.equal(residency.usedBytes, 0);
+});
 
 test('the voxel renderer requires an explicit URL opt-in', () => {
   assert.equal(voxelRangeRequested(''), false);
@@ -41,7 +74,7 @@ test('a refused voxel load never starts inflation and releases its pending reser
   });
   for (const budgetBytes of [100, 128 * 1024]) {
     const residency = new GraphicsResidency({ budgetBytes });
-    const range = new VoxelRange({ residency, ownerDocument: { createElement() { throw Error('unexpected GPU allocation'); } } });
+    const range = new VoxelRange({ asset: assetFor(zipped), residency, ownerDocument: { createElement() { throw Error('unexpected GPU allocation'); } } });
     assert.equal(await range.prepare(), false);
     assert.match(range.reason, /budget/i);
     assert.equal(inflations, 0);
@@ -53,7 +86,9 @@ test('an oversized gzip declaration is refused before inflation', async t => {
   const zipped = gzipSync(triangle);
   zipped.writeUInt32LE(256 * 1024 * 1024 + 4, zipped.length - 4);
   const residency = new GraphicsResidency();
-  const range = new VoxelRange({ residency, ownerDocument: null });
+  const asset = assetFor(zipped);
+  asset.payload.decodedByteLength = 256 * 1024 * 1024 + 4;
+  const range = new VoxelRange({ asset, residency, ownerDocument: null });
   t.mock.method(globalThis, 'fetch', async () => new Response(zipped));
   let inflations = 0;
   t.mock.method(globalThis, 'DecompressionStream', function() { inflations++; throw Error('unexpected inflate'); });
@@ -73,7 +108,7 @@ test('an oversized compressed response is cancelled before allocating a decoded 
   });
   t.mock.method(globalThis, 'fetch', async () => new Response(stream));
   const residency = new GraphicsResidency();
-  const range = new VoxelRange({ residency, ownerDocument: null });
+  const range = new VoxelRange({ asset: assetFor(gzipSync(triangle)), residency, ownerDocument: null });
   assert.equal(await range.prepare(), false);
   assert.match(range.reason, /response.*size/i);
   assert.equal(cancelled, true);
@@ -84,7 +119,7 @@ test('a gzip that expands past its declaration fails and releases CPU and GPU ad
   const zipped = gzipSync(new Uint8Array(2 * 1024 * 1024));
   zipped.writeUInt32LE(96, zipped.length - 4);
   const residency = new GraphicsResidency();
-  const range = new VoxelRange({ residency, ownerDocument: null });
+  const range = new VoxelRange({ asset: assetFor(zipped, new Uint8Array(96)), residency, ownerDocument: null });
   t.mock.method(globalThis, 'fetch', async () => new Response(zipped));
   assert.equal(await range.prepare(), false);
   assert.match(range.reason, /length|size|gzip|incorrect|exceed/i);
@@ -98,14 +133,39 @@ test('corrupt gzip and a later GPU refusal both release decode staging', async t
   corrupted[corrupted.length - 8] ^= 1;
   let next = corrupted;
   t.mock.method(globalThis, 'fetch', async () => new Response(next));
-  const corruptRange = new VoxelRange({ residency, ownerDocument: null });
+  const corruptRange = new VoxelRange({ asset: assetFor(corrupted), residency, ownerDocument: null });
   assert.equal(await corruptRange.prepare(), false);
   assert.match(corruptRange.reason, /gzip/i);
   assert.equal(residency.usedBytes, 0);
   next = zipped;
-  const gpuRefusal = new VoxelRange({ residency, ownerDocument: { createElement: () => ({ getContext: () => null }) } });
+  const gpuRefusal = new VoxelRange({ asset: assetFor(zipped), residency, ownerDocument: { createElement: () => ({ getContext: () => null }) } });
   assert.equal(await gpuRefusal.prepare(), false);
   assert.match(gpuRefusal.reason, /WebGL2/);
+  assert.equal(residency.usedBytes, 0);
+});
+
+test('transfer-decoded voxel responses are checked against the decoded pin', async t => {
+  const zipped = gzipSync(triangle), asset = assetFor(zipped);
+  let next = new Uint8Array(triangle.buffer);
+  t.mock.method(globalThis, 'fetch', async () => new Response(next));
+  const residency = new GraphicsResidency();
+  const ownerDocument = { createElement: () => ({ getContext: () => null }) };
+  const valid = new VoxelRange({ asset, residency, ownerDocument });
+  assert.equal(await valid.prepare(), false);
+  assert.match(valid.reason, /WebGL2/);
+  next = next.slice(); next[0] ^= 1;
+  const changed = new VoxelRange({ asset, residency, ownerDocument });
+  assert.equal(await changed.prepare(), false);
+  assert.match(changed.reason, /hash/);
+  assert.equal(residency.usedBytes, 0);
+});
+
+test('the default payload pins reject a substituted tiny fixture', async t => {
+  t.mock.method(globalThis, 'fetch', async () => new Response(gzipSync(triangle)));
+  const residency = new GraphicsResidency();
+  const range = new VoxelRange({ residency, ownerDocument: null });
+  assert.equal(await range.prepare(), false);
+  assert.match(range.reason, /length.*pin/);
   assert.equal(residency.usedBytes, 0);
 });
 

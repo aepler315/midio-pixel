@@ -1,10 +1,12 @@
 import catalog from '../world/terrain/sceneCatalogData.js';
 import { createVoxelRangeScore } from '../world/alpine/VoxelRangeScore.js';
+import { sha256Hex } from '../world/alpine/RangeAssets.js';
+import voxelAsset from '../assets/range/v2/voxel/white-mountains-owens.v2.js';
 
 const VIEW_ID = 'white-mountains-owens';
 const VIEW = catalog.views.find(view => view.id === VIEW_ID);
 const CAMERA = VIEW.camera;
-const PACK_URL = new URL('../assets/range/v2/voxel/white-mountains-owens.v2.bin.gz', import.meta.url);
+const PACK_BASE = new URL('../assets/range/v2/voxel/', import.meta.url);
 const STRIDE = 8;
 const PACK_LIMIT = 256 * 1024 * 1024;
 const COMPRESSED_LIMIT = 32 * 1024 * 1024;
@@ -13,8 +15,23 @@ const SKY = [0.72, 0.77, 0.79];
 const clamp = value => Math.max(0, Math.min(1, Number(value) || 0));
 const smooth = value => { const x = clamp(value); return x * x * (3 - 2 * x); };
 
-async function readPackResponse(response) {
-  if (Number(response.headers.get('content-length')) > PACK_LIMIT) {
+function validateAsset(asset) {
+  const pin = asset?.payload, source = asset?.source;
+  if (asset?.schema !== 'midio.voxel-range' || asset.version !== 2 || asset.viewId !== VIEW_ID
+    || source?.mode !== 'rail' || source.terrainManifestUrl !== VIEW.terrainManifestUrl
+    || source.terrainManifestSha256 !== VIEW.terrainManifestSha256
+    || !/^[a-f0-9]{64}$/.test(source.demSha256) || !/^[a-f0-9]{64}$/.test(source.terrainPayloadSha256)
+    || pin?.url !== `${VIEW_ID}.v2.bin.gz` || pin.encoding !== 'gzip'
+    || !Number.isSafeInteger(pin.byteLength) || pin.byteLength < 18 || pin.byteLength > COMPRESSED_LIMIT
+    || !Number.isSafeInteger(pin.decodedByteLength) || pin.decodedByteLength <= 0 || pin.decodedByteLength > PACK_LIMIT || pin.decodedByteLength % 4
+    || !/^[a-f0-9]{64}$/.test(pin.sha256) || !/^[a-f0-9]{64}$/.test(pin.decodedSha256)) {
+    throw new Error('Invalid voxel asset source or size pins');
+  }
+  return pin;
+}
+
+async function readPackResponse(response, pin) {
+  if (Number(response.headers.get('content-length')) > Math.max(pin.byteLength, pin.decodedByteLength)) {
     await response.body.cancel();
     throw new Error('Voxel response exceeds its size limit');
   }
@@ -27,7 +44,7 @@ async function readPackResponse(response) {
       if (done) break;
       for (let i = 0; prefix.length < 2 && i < value.length; i++) prefix.push(value[i]);
       total += value.byteLength;
-      const limit = prefix[0] === 0x1f && prefix[1] === 0x8b ? COMPRESSED_LIMIT : PACK_LIMIT;
+      const limit = prefix[0] === 0x1f && prefix[1] === 0x8b ? pin.byteLength : pin.decodedByteLength;
       if (total > limit) throw new Error('Voxel response exceeds its size limit');
       chunks.push(value);
     }
@@ -258,9 +275,10 @@ const unit = vector => {
 // seeks without downloading or uploading the terrain again.
 let ownerId = 0;
 export class VoxelRange {
-  constructor({ ownerDocument, residency }) {
+  constructor({ ownerDocument, residency, asset = voxelAsset }) {
     this.ownerDocument = ownerDocument;
     this.residency = residency;
+    this.asset = asset;
     this.key = `voxel-range:${++ownerId}`;
     this.state = 'idle';
     this.draws = 0;
@@ -313,25 +331,30 @@ export class VoxelRange {
   }
 
   async load() {
-    const response = await fetch(PACK_URL, { signal: AbortSignal.timeout(10000) });
+    const pin = validateAsset(this.asset);
+    const response = await fetch(new URL(pin.url, PACK_BASE), { signal: AbortSignal.timeout(10000) });
     if (!response.ok) throw new Error(`Voxel pack unavailable (HTTP ${response.status})`);
-    const compressed = await readPackResponse(response);
+    const compressed = await readPackResponse(response, pin);
     const gzip = compressed[0] === 0x1f && compressed[1] === 0x8b;
     if (gzip && compressed.length < 18) throw new Error('Invalid voxel gzip length');
-    // ISIZE requests admission only. Exact output length and the platform's
-    // CRC validation must still pass before any pack or GPU publication.
-    const decodedLength = gzip ? new DataView(compressed.buffer).getUint32(compressed.length - 4, true) : compressed.length;
-    if (!decodedLength || decodedLength > PACK_LIMIT || decodedLength % 4) throw new Error('Invalid voxel decoded length');
+    const decodedLength = pin.decodedByteLength;
+    if (compressed.byteLength !== (gzip ? pin.byteLength : decodedLength)) throw new Error('Voxel payload length differs from its pin');
+    if (gzip && new DataView(compressed.buffer).getUint32(compressed.length - 4, true) !== decodedLength) {
+      throw new Error('Voxel gzip decoded length differs from its pin');
+    }
     const staging = this.residency.reserve({ key: `${this.key}:decode`, owner: 'voxel-range-decode',
       bytes: compressed.byteLength + (gzip ? decodedLength : 0) + 65536, evictable: false });
     if (!staging) throw new Error('Voxel range decode budget exceeded');
     let reservation;
     try {
+      const responseHash = await sha256Hex(compressed);
+      if (responseHash !== (gzip ? pin.sha256 : pin.decodedSha256)) throw new Error('Voxel payload hash mismatch');
       // Keep staging charged while the GPU copy exists during upload.
       reservation = this.residency.reserve({ key: this.key, owner: 'voxel-range',
         bytes: decodedLength + 1280 * 720 * 8, evictable: false });
       if (!reservation) throw new Error('Voxel range graphics budget exceeded');
       const bytes = gzip ? await inflatePack(compressed, decodedLength) : compressed;
+      if (gzip && await sha256Hex(bytes) !== pin.decodedSha256) throw new Error('Voxel decoded payload hash mismatch');
       const decoded = decodeVoxelRangePack(bytes.buffer);
       const { vertices } = decoded;
       const canvas = this.ownerDocument.createElement('canvas');

@@ -18,6 +18,21 @@ test('voxel asset metadata pins both byte representations and the source terrain
   assert.equal(asset.source.demSha256, terrain.source.demSha256);
   assert.equal(asset.source.terrainManifestSha256, view.terrainManifestSha256);
   assert.equal(asset.source.terrainPayloadSha256, terrain.payload.sha256);
+  assert.equal(asset.source.mode, 'rail');
+});
+
+test('the progressive bake excludes terrain that only a shot tour can see', () => {
+  const tiles = new Map([
+    ['rail', { ix: 0, iz: 0, samples: 2, stride: 1, heightsM: new Float32Array(4).fill(100) }],
+    ['tour', { ix: 1, iz: 0, rail: false, samples: 2, stride: 1, heightsM: new Float32Array(4).fill(200) }],
+  ]);
+  const data = { grid: { originM: [0, 0], width: 3, height: 2, cellSizeM: 500 }, cells: 1,
+    manifest: { tilesX: 2, tilesZ: 1 }, tiles, byIndex: new Map([...tiles.values()].map(tile => [`${tile.ix},${tile.iz}`, tile])) };
+  const camera = { eyeM: [250, 1000, 2000], targetM: [500, 100, 0], fovYDeg: 24 };
+  const bytes = bakeProgressiveVoxelRange(data, camera, { smoothCellM: 125 });
+  const decoded = decodeVoxelRangePack(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+  for (let vertex = 0; vertex < decoded.vertices.length; vertex += 8) assert.ok(decoded.vertices[vertex] <= 500);
+  assert.equal(data.tiles.size, 2, 'the source package keeps its tour ground');
 });
 
 function faces(bytes) {
