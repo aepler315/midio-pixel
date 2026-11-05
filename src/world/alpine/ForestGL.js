@@ -24,6 +24,7 @@ import { riseFromUniforms } from './LandRise.js';
 import { WIND_SWAY, GUST_LEAN, PARTING_LEAN, STORM_LEAN, WIND_DIR, WIND_MAX_GAIN, FOREST_MAX_LEAN } from './ForestWind.js';
 import { setTerrainDrawMode } from './RailDraw.js';
 import { restoreForestCulling } from './ForestCulling.js';
+import { tourForestCount, tourForestBytes, tourUniverse, tourForestIndex, TOUR_KEY_SCALE } from './TourForest.js';
 export { WIND_SWAY, GUST_LEAN, PARTING_LEAN, STORM_LEAN, WIND_DIR, WIND_MAX_GAIN, FOREST_MAX_LEAN };
 
 // Match the terrain canopy's actual-camera handoff, including mirrors.
@@ -195,6 +196,31 @@ const BOARD_VERT = /* glsl */`
     gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
   }
 `;
+
+// Tour forest windows (TourForest.js): each tour instance carries its
+// membership of the outgoing and incoming windows' sets. The tour's mesh
+// shaders hide a tree that is not a mesh at this fade; its board shaders
+// hide one that is, so each tree draws exactly once. Built by substitution:
+// the rail's shader strings stay as they are.
+const TOUR_HIDE = 'if (iVar.y > uForestKeep || hiddenByGlacier()) {';
+const TOUR_GLSL = /* glsl */`
+  in float iTour;          // bit 0: in the outgoing window's set; bit 1: in the incoming one
+  uniform float uTourFade;
+  bool tourMesh() {
+    float key = fract(iVar.y * ${TOUR_KEY_SCALE.toFixed(1)});
+    bool inA = mod(iTour, 2.0) > .5, inB = iTour > 1.5;
+    return inB ? (inA || key < uTourFade) : (inA && key >= uTourFade);
+  }
+`;
+/** A tree vertex shader for the tour layer: the mesh's hides trees that
+ *  are not meshes now (`board` false), the board's those that are. */
+export function tourVertexShader(src, board) {
+  for (const part of [TOUR_HIDE, 'void main() {']) {
+    if (src.split(part).length !== 2) throw new Error(`tour shader: ${part} must occur exactly once`);
+  }
+  return src.replace('void main() {', `${TOUR_GLSL}\n  void main() {`)
+    .replace(TOUR_HIDE, `if (iVar.y > uForestKeep || hiddenByGlacier() || ${board ? '' : '!'}tourMesh()) {`);
+}
 
 const SHADE = /* glsl */`
   ${FOREST_DISTANCE_GLSL}
@@ -536,9 +562,18 @@ function instanced(THREE, base, instances, stride, indices) {
  * the vertex shader, so a rung change never rebuilds the forest).
  * Returns { byBand: { far: [...Mesh], mid, near }, depth: [...Mesh],
  * depthByBand: { far, mid, near } (depth meshes per band), bytes, counts, dispose }.
+ *
+ * `tour` ({ seed }, the placement seed) adds a two-camera forest's tour
+ * layer (forest.tour, TourForest.js): on its shot tour the view draws each
+ * mesh-ring tree as a mesh only near the current window's camera path, and
+ * every other one as a billboard. Its objects start hidden; the rail draws
+ * exactly what it draws without the layer.
  */
-export function createForest(THREE, placed, uniforms, { partitioned = true, forestDebug = false } = {}) {
+export function createForest(THREE, placed, uniforms, { partitioned = true, forestDebug = false, tour = null } = {}) {
   const instanceStride = placed.stride;
+  const tourTrees = tourForestCount(placed);
+  const tourLayer = !!tour && !!placed.railCount && tourTrees > 0;
+  const tourBytes = tourLayer ? tourForestBytes(placed) : 0;
   const u = { ...uniforms, uTime: uniforms.uTime || { value: 0 }, uForestKeep: uniforms.uForestKeep || { value: 1 },
     uFarForest: uniforms.uFarForest || { value: new THREE.Vector4() },
     uCinematic: uniforms.uCinematic || { value: new THREE.Vector4(0, 1, .5, .18) },
@@ -551,36 +586,43 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
     uViewProj: uniforms.uViewProj || { value: new THREE.Matrix4() },
     uViewportPx: uniforms.uViewportPx || { value: new THREE.Vector2(1, 1) },
     ...(uniforms.uGustAge ? {} : gustUniforms()), ...(uniforms.uActorPos ? {} : actorUniforms(THREE)) };
-  const mat = (vert, frag, depth = false) => {
-    const m = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: vert, fragmentShader: frag, uniforms: u });
-    // Ordinary mesh-ring assets have no LOD scalar; they keep full coverage.
-    m.defaultAttributeValues.iLodWeight = [1];
-    if (forestDebug && !depth) m.defines.FOREST_DEBUG = 1;
-    if (depth) m.colorWrite = false;
-    else if (partitioned) { m.depthFunc = THREE.LessEqualDepth; m.depthWrite = false; }
-    return m;
-  };
-  const materials = {
-    mesh: mat(`${CROWN_GLSL}\n${MESH_VERT}`, MESH_FRAG.replace('MESH_COVERAGE', MESH_COVERAGE)),
-    meshDepth: mat(`${CROWN_GLSL}\n${MESH_VERT}`, MESH_DEPTH_FRAG.replace('MESH_COVERAGE', MESH_COVERAGE), true),
-    meshCore: mat(`${CROWN_GLSL}\n${MESH_VERT}`, MESH_FRAG.replace('MESH_COVERAGE', MESH_COVERAGE)),
-    meshCoreDepth: mat(`${CROWN_GLSL}\n${MESH_VERT}`, MESH_DEPTH_FRAG.replace('MESH_COVERAGE', MESH_COVERAGE), true),
-    board: mat(BOARD_VERT, BOARD_FRAG), boardDepth: mat(BOARD_VERT, BOARD_DEPTH_FRAG, true),
-  };
-  materials.board.defines.BOARD_CROWN = 1;
-  materials.mesh.defines.MESH_CROWN = 1;
-  materials.meshCore.defines.MESH_CROWN = 1;
-  materials.meshCore.defines.FOREST_CORE = 1; materials.meshCoreDepth.defines.FOREST_CORE = 1;
-  if (partitioned) {
-    for (const m of [materials.mesh, materials.board]) {
-      m.defines.FOREST_BLEND = 1;
-      m.transparent = true; m.premultipliedAlpha = true; m.blending = THREE.CustomBlending;
-      m.blendEquation = m.blendEquationAlpha = THREE.AddEquation;
-      m.blendSrc = m.blendSrcAlpha = THREE.OneFactor;
-      m.blendDst = m.blendDstAlpha = THREE.OneMinusSrcAlphaFactor;
+  // The six forest materials over one pair of vertex shaders: created in
+  // this order (their ids order the opaque sort), with these defines,
+  // blending and depth state.
+  const shaderSet = (meshVert, boardVert, uniforms) => {
+    const mat = (vert, frag, depth = false) => {
+      const m = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: vert, fragmentShader: frag, uniforms });
+      // Ordinary mesh-ring assets have no LOD scalar; they keep full coverage.
+      m.defaultAttributeValues.iLodWeight = [1];
+      if (forestDebug && !depth) m.defines.FOREST_DEBUG = 1;
+      if (depth) m.colorWrite = false;
+      else if (partitioned) { m.depthFunc = THREE.LessEqualDepth; m.depthWrite = false; }
+      return m;
+    };
+    const set = {
+      mesh: mat(`${CROWN_GLSL}\n${meshVert}`, MESH_FRAG.replace('MESH_COVERAGE', MESH_COVERAGE)),
+      meshDepth: mat(`${CROWN_GLSL}\n${meshVert}`, MESH_DEPTH_FRAG.replace('MESH_COVERAGE', MESH_COVERAGE), true),
+      meshCore: mat(`${CROWN_GLSL}\n${meshVert}`, MESH_FRAG.replace('MESH_COVERAGE', MESH_COVERAGE)),
+      meshCoreDepth: mat(`${CROWN_GLSL}\n${meshVert}`, MESH_DEPTH_FRAG.replace('MESH_COVERAGE', MESH_COVERAGE), true),
+      board: mat(boardVert, BOARD_FRAG), boardDepth: mat(boardVert, BOARD_DEPTH_FRAG, true),
+    };
+    set.board.defines.BOARD_CROWN = 1;
+    set.mesh.defines.MESH_CROWN = 1;
+    set.meshCore.defines.MESH_CROWN = 1;
+    set.meshCore.defines.FOREST_CORE = 1; set.meshCoreDepth.defines.FOREST_CORE = 1;
+    if (partitioned) {
+      for (const m of [set.mesh, set.board]) {
+        m.defines.FOREST_BLEND = 1;
+        m.transparent = true; m.premultipliedAlpha = true; m.blending = THREE.CustomBlending;
+        m.blendEquation = m.blendEquationAlpha = THREE.AddEquation;
+        m.blendSrc = m.blendSrcAlpha = THREE.OneFactor;
+        m.blendDst = m.blendDstAlpha = THREE.OneMinusSrcAlphaFactor;
+      }
     }
-  }
-  for (const m of Object.values(materials)) m.side = THREE.DoubleSide;
+    for (const m of Object.values(set)) m.side = THREE.DoubleSide;
+    return set;
+  };
+  const materials = shaderSet(MESH_VERT, BOARD_VERT, u);
   // Base assets are built only for the (lod, family, variant) batches a
   // forest actually uses, and shared by every instance batch of that kind.
   const bases = new Map();
@@ -600,6 +642,9 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
   // never draws (RailDraw.js). Copied out: no closure here may retain the
   // placement buffers.
   const modeGeometries = [], railCount = placed.railCount ? { ...placed.railCount } : null;
+  // With the tour layer, the tour draws its mesh-ring trees from the layer:
+  // every static mesh-ring batch draws none of them there (tourStatic).
+  const tourSources = [];
   // nearLod tags the detail ring's paired assets. Their original seven
   // per-tree floats remain shared; each batch adds only one GPU scalar.
   const addBatch = (kind, base, data, idx, b, colorMat, depthMat, { from = null, nearLod = null, railOnly = false } = {}) => {
@@ -630,13 +675,21 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
     } else if (railLimit != null) {
       let rail = 0;
       while (rail < idx.length && idx[rail] < railLimit) rail++;
-      if (rail < idx.length) {
+      if (tourLayer && kind !== 'billboard') {
+        geo.userData.instanceCounts = { rail, tour: 0 };
+        setTerrainDrawMode(geo, 'rail');
+        modeGeometries.push(geo);
+      } else if (rail < idx.length) {
         geo.userData.instanceCounts = { rail, tour: idx.length };
         setTerrainDrawMode(geo, 'rail');
         modeGeometries.push(geo);
       }
     }
-    const tag = (mesh) => { if (nearLod) { mesh.userData.nearLod = nearLod; mesh.visible = nearLod === 'detail'; } return mesh; };
+    const tag = (mesh) => {
+      if (nearLod) { mesh.userData.nearLod = nearLod; mesh.visible = nearLod === 'detail'; }
+      if (tourLayer && kind !== 'billboard') mesh.userData.tourStatic = true;
+      return mesh;
+    };
     if (partitioned && kind !== 'billboard') {
       // Instanced objects cannot sort individual trees. Restore their solid
       // interiors before soft edges, including self-occluding branch skirts.
@@ -658,6 +711,87 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
     depthByBand[bandName[b]].push(db);
     return geo;
   };
+  // The tour layer (forest.tour): one twin per static mesh-ring batch that
+  // the tour draws, filled with that batch's trees near the window's path
+  // (TourForest.js), and per band one demote board holding every mesh-ring
+  // tree, which draws those that are not meshes now. All start hidden and
+  // empty; no twin is switched (instanceCounts). A twin is culled whole like
+  // a static batch (ForestCulling.js), bound over the prefix it draws
+  // (forestCull.prefix); the boards, like every billboard, never are.
+  const tourByBand = { far: [], mid: [], near: [] }, tourDepth = [], tourDepthByBand = { far: [], mid: [], near: [] };
+  const twins = [], boards = [], tourDetailGroups = [], tourGeos = [], twinOf = new Map();
+  let tourMaterials = null, tourU = null;
+  const dynamic = (array, size, meshPerAttribute = 1) => {
+    const a = new THREE.InstancedBufferAttribute(array, size, false, meshPerAttribute);
+    a.setUsage(THREE.DynamicDrawUsage);
+    return a;
+  };
+  // addBatch's partitioned layout, over the tour's materials.
+  const addTourMeshes = (geo, b, mats, nearLod = null) => {
+    const tag = (mesh) => {
+      mesh.frustumCulled = false; mesh.visible = false; mesh.userData.tourLayer = true;
+      if (nearLod) mesh.userData.nearLod = nearLod;
+      return mesh;
+    };
+    if (partitioned && mats.core) {
+      const core = tag(new THREE.Mesh(geo, mats.core));
+      const coreDepth = tag(new THREE.Mesh(geo, mats.coreDepth));
+      const bandDepth = tag(new THREE.Mesh(geo, mats.coreDepth));
+      tourByBand[bandName[b]].push(core); tourDepth.push(coreDepth); tourDepthByBand[bandName[b]].push(bandDepth);
+    }
+    const m = tag(new THREE.Mesh(geo, mats.color));
+    if (partitioned) { m.renderOrder = 1; m.layers.set(1); }
+    const d = tag(new THREE.Mesh(geo, mats.depth));
+    if (partitioned) d.layers.set(2);
+    tourByBand[bandName[b]].push(m); tourDepth.push(d);
+    const db = tag(new THREE.Mesh(geo, mats.depth));
+    if (partitioned) db.layers.set(2);
+    tourDepthByBand[bandName[b]].push(db);
+  };
+  const twinGeometry = (base, n) => {
+    const geo = new THREE.InstancedBufferGeometry();
+    geo.index = base.index;
+    for (const [k, v] of Object.entries(base.attributes)) geo.setAttribute(k, v);
+    geo.setAttribute('iPos', dynamic(new Float32Array(3 * n), 3));
+    geo.setAttribute('iSize', dynamic(new Float32Array(2 * n), 2));
+    geo.setAttribute('iVar', dynamic(new Float32Array(2 * n), 2));
+    geo.setAttribute('iTour', dynamic(new Uint8Array(n), 1));
+    geo.instanceCount = 0;
+    geo.userData.asset = base.userData.asset;
+    geo.userData.forestCull = { uniforms: u, prefix: true };
+    tourGeos.push(geo);
+    return geo;
+  };
+  // The twins, in static batch order, and their materials: created after
+  // every static mesh-ring batch and before the static boards, so object
+  // ids keep today's mesh-before-board order where their depths tie.
+  const buildTwins = () => {
+    tourU = { ...u, uTourFade: { value: 1 } };
+    tourMaterials = shaderSet(tourVertexShader(MESH_VERT, false), tourVertexShader(BOARD_VERT, true), tourU);
+    for (const m of Object.values(tourMaterials)) m.defines.FOREST_TOUR = 1;
+    const mats = { core: tourMaterials.meshCore, coreDepth: tourMaterials.meshCoreDepth, color: tourMaterials.mesh, depth: tourMaterials.meshDepth };
+    for (const { kindIndex, b, g, family, variant, n } of tourSources) {
+      twinOf.set(`${kindIndex}:${b}:${g}`, twins.length);
+      if (kindIndex === 1) {
+        const detail = twinGeometry(assetFor(1, family, variant), n);
+        addTourMeshes(detail, b, mats);
+        twins.push({ detail, lite: null, n });
+        continue;
+      }
+      const detail = twinGeometry(assetFor(0, family, variant), n);
+      detail.setAttribute('iLodWeight', dynamic(new Float32Array([1]), 1, n));
+      addTourMeshes(detail, b, mats, 'detail');
+      const lite = reinstanced(THREE, assetFor(1, family, variant), detail);
+      lite.setAttribute('iTour', detail.attributes.iTour);
+      lite.setAttribute('iLodWeight', dynamic(new Float32Array([0]), 1, n));
+      lite.userData.asset = assetFor(1, family, variant).userData.asset;
+      lite.userData.forestCull = { uniforms: u, prefix: true };
+      tourGeos.push(lite);
+      addTourMeshes(lite, b, mats, 'lite');
+      tourDetailGroups.push({ key: `${b}:${g}`, detail, lite, qualityBase: assetFor(1, family, variant), pixelBase: assetFor(2, family, variant) });
+      twins.push({ detail, lite, n });
+    }
+  };
   const sources = (trees, railOnly) => [
     ['meshDetail', trees.meshDetail || new Float32Array(), 0, materials.mesh, materials.meshDepth, railOnly],
     ['mesh', trees.mesh || new Float32Array(), 1, materials.mesh, materials.meshDepth, railOnly],
@@ -667,6 +801,7 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
     ...sources(placed, false), ...(placed.railOnly ? sources(placed.railOnly, true) : []),
   ]) {
     const n = data.length / instanceStride;
+    if (tourLayer && lod == null && !railOnly) buildTwins();
     for (let b = 0; b < 3; b++) {
       if (lod == null) {
         const idx = [];
@@ -685,6 +820,7 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
       groups.forEach((idx, g) => {
         if (!idx.length) return;
         const family = Math.floor(g / FOREST_VARIANTS), variant = g % FOREST_VARIANTS;
+        if (tourLayer && !railOnly) tourSources.push({ kindIndex: lod === 0 ? 0 : 1, b, g, family, variant, n: idx.length });
         if (lod !== 0) { addBatch(kind, assetFor(lod, family, variant), data, idx, b, colorMat, depthMat, { railOnly }); return; }
         const geo = addBatch(kind, assetFor(0, family, variant), data, idx, b, colorMat, depthMat, { nearLod: 'detail', railOnly });
         const lite = addBatch(kind, assetFor(1, family, variant), data, idx, b, colorMat, depthMat, { from: geo, nearLod: 'lite', railOnly });
@@ -696,6 +832,99 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
   }
   const assets = [...bases.values()].map(g => g.userData.asset);
   const every = [...Object.values(byBand).flat(), ...depth, ...Object.values(depthByBand).flat()];
+  let tourApi = null;
+  if (tourLayer) {
+    // U: the mesh-ring records, band-major (TourForest.tourUniverse). Each
+    // twin holds a batch's trees in its static order.
+    const universe = tourUniverse(placed, (kind, band, group) => twinOf.get(`${kind}:${band}:${group}`));
+    const index = tourForestIndex({ ...universe, seed: tour.seed });
+    const { pos, size, vars, batchOf, bandStart } = universe, N = index.count, words = index.words;
+    const capacity = new Int32Array(twins.length);
+    for (let i = 0; i < N; i++) capacity[batchOf[i]]++;
+    twins.forEach((t, i) => { if (capacity[i] !== t.n) throw new Error(`tour twin ${i} holds ${t.n} of ${capacity[i]} trees`); });
+    const boardFlags = new Uint8Array(N);
+    const boardMats = { color: tourMaterials.board, depth: tourMaterials.boardDepth };
+    for (let b = 0; b < 3; b++) {
+      const s0 = bandStart[b], s1 = bandStart[b + 1];
+      if (s1 <= s0) continue;
+      const geo = new THREE.InstancedBufferGeometry();
+      geo.index = baseBoard.index;
+      for (const [k, v] of Object.entries(baseBoard.attributes)) geo.setAttribute(k, v);
+      geo.setAttribute('iPos', new THREE.InstancedBufferAttribute(pos.subarray(3 * s0, 3 * s1), 3));
+      geo.setAttribute('iSize', new THREE.InstancedBufferAttribute(size.subarray(2 * s0, 2 * s1), 2));
+      geo.setAttribute('iVar', new THREE.InstancedBufferAttribute(vars.subarray(2 * s0, 2 * s1), 2));
+      geo.setAttribute('iTour', dynamic(boardFlags.subarray(s0, s1), 1));
+      geo.instanceCount = s1 - s0;
+      geo.userData.asset = baseBoard.userData.asset;
+      tourGeos.push(geo);
+      addTourMeshes(geo, b, boardMats);
+      boards.push(geo);
+    }
+    const tourEvery = [...Object.values(tourByBand).flat(), ...tourDepth, ...Object.values(tourDepthByBand).flat()];
+    const staged = twins.map(t => ({ pos: t.detail.attributes.iPos.array, size: t.detail.attributes.iSize.array,
+      vars: t.detail.attributes.iVar.array, flag: t.detail.attributes.iTour.array }));
+    const k = new Int32Array(twins.length);
+    let appliedA = null, appliedB = null;
+    tourApi = {
+      index, bytes: tourBytes, byBand: tourByBand, depth: tourDepth, depthByBand: tourDepthByBand, every: tourEvery,
+      uniforms: tourU, materials: tourMaterials, twins, boards, boardFlags, detailGroups: tourDetailGroups,
+      active: false, serial: 0, refills: 0,
+      /** Draw a schedule state ({ a, b, f }, TourForestSchedule): refill
+       *  the twins and board flags when its window sets are not the ones
+       *  drawn, else set only the fade. True when it refilled. */
+      apply(state) {
+        if (!tourApi.active) return false;
+        const A = state.a.bits, B = state.b.bits;
+        if (A === appliedA && B === appliedB) {
+          if (tourU.uTourFade.value !== state.f) { tourU.uTourFade.value = state.f; tourApi.serial++; }
+          return false;
+        }
+        restoreForestCulling();
+        k.fill(0);
+        boardFlags.fill(0);
+        for (let w = 0; w < words; w++) {
+          const a = A[w], b = B[w];
+          for (let m = a | b; m; m &= m - 1) {
+            const bit = m & -m, i = 32 * w + 31 - Math.clz32(bit), bits = (a & bit ? 1 : 0) | (b & bit ? 2 : 0);
+            boardFlags[i] = bits;
+            const t = batchOf[i], j = k[t]++, out = staged[t];
+            out.pos[3 * j] = pos[3 * i]; out.pos[3 * j + 1] = pos[3 * i + 1]; out.pos[3 * j + 2] = pos[3 * i + 2];
+            out.size[2 * j] = size[2 * i]; out.size[2 * j + 1] = size[2 * i + 1];
+            out.vars[2 * j] = vars[2 * i]; out.vars[2 * j + 1] = vars[2 * i + 1];
+            out.flag[j] = bits;
+          }
+        }
+        for (let t = 0; t < twins.length; t++) {
+          const { detail, lite } = twins[t], n = k[t];
+          detail.instanceCount = n;
+          if (lite) lite.instanceCount = n;
+          for (const name of ['iPos', 'iSize', 'iVar', 'iTour']) {
+            const attribute = detail.attributes[name];
+            attribute.clearUpdateRanges();
+            if (n) { attribute.addUpdateRange(0, n * attribute.itemSize); attribute.needsUpdate = true; }
+          }
+        }
+        for (const g of boards) g.attributes.iTour.needsUpdate = true;
+        tourU.uTourFade.value = state.f;
+        appliedA = A; appliedB = B;
+        tourApi.serial++; tourApi.refills++;
+        return true;
+      },
+      /** The view's camera mode: the layer draws only on the tour. */
+      setMode(mode) {
+        // A culled render's 0 must not come back over the counts set here.
+        restoreForestCulling();
+        tourApi.active = mode === 'tour';
+        appliedA = appliedB = null;
+        tourU.uTourFade.value = 1;
+        if (!tourApi.active) for (const t of twins) { t.detail.instanceCount = 0; if (t.lite) t.lite.instanceCount = 0; }
+        tourApi.serial++;
+      },
+      /** Show every tour object for a compile check, and hide them again. */
+      setCompileVisible(on) { for (const m of tourEvery) m.visible = !!on; },
+    };
+  }
+  const tourEvery = tourApi?.every || [];
   const setWeight = (geometry, value) => {
     const a = geometry.attributes.iLodWeight;
     if (a.getX(0) !== Math.fround(value)) { a.setX(0, value); a.needsUpdate = true; }
@@ -709,16 +938,22 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
   };
   const forest = {
     byBand, depth, depthByBand, bytes, counts, batches, assets, modeGeometries, uniforms: u, nearDetail: true, shown: true, pixelatedDetail: false, detailView: null,
+    tour: tourApi,
     /** Narrative visibility and the governor cap also apply while a pixel
      * footprint blends the paired assets. No placement counts change. */
     applyVisibility({ shown = forest.shown, nearDetail = forest.nearDetail } = {}) {
       forest.shown = !!shown; forest.nearDetail = !!nearDetail;
-      for (const group of detailGroups) setLiteAsset(group, forest.pixelatedDetail && forest.nearDetail);
-      if (!forest.pixelatedDetail || !forest.nearDetail) for (const group of detailGroups) {
+      // On its tour a view with the tour layer draws the twins' detail
+      // groups instead of the static mesh-ring batches.
+      const tourOn = !!forest.tour?.active, groups = tourOn ? tourDetailGroups : detailGroups;
+      for (const group of groups) setLiteAsset(group, forest.pixelatedDetail && forest.nearDetail);
+      if (!forest.pixelatedDetail || !forest.nearDetail) for (const group of groups) {
         setWeight(group.detail, forest.nearDetail ? 1 : 0);
         setWeight(group.lite, forest.nearDetail ? 0 : -1);
       }
-      for (const m of every) m.visible = forest.shown && (!m.userData.nearLod || Math.abs(m.geometry.attributes.iLodWeight.getX(0)) > 0);
+      const lod = m => !m.userData.nearLod || Math.abs(m.geometry.attributes.iLodWeight.getX(0)) > 0;
+      for (const m of every) m.visible = forest.shown && !(tourOn && m.userData.tourStatic) && lod(m);
+      for (const m of tourEvery) m.visible = tourOn && forest.shown && lod(m);
     },
     setNearDetail(detail) { forest.applyVisibility({ nearDetail: detail }); },
     /** Call before drawing each camera/target, including again after a
@@ -735,16 +970,17 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
         gestureM: Math.abs(u.uDeformGesture?.value || 0),
         rise: riseFromUniforms(u),
       };
-      const state = { pixelated: forest.pixelatedDetail, width, height, batches: detailGroups.length,
+      const groups = forest.tour?.active ? tourDetailGroups : detailGroups;
+      const state = { pixelated: forest.pixelatedDetail, width, height, batches: groups.length,
         detailBatches: 0, liteBatches: 0, blendedBatches: 0, maxFootprintPx: 0, detailWeightMin: 1, detailWeightMax: 0 };
       // Twins (same band, family and variant) share their largest drawn
       // footprint, as one batch of that mode's forest would.
       const byKey = new Map();
-      for (const group of detailGroups) {
+      for (const group of groups) {
         const own = forest.pixelatedDetail ? forestBatchFootprintPx(group.detail, camera, width, height, deformation) : 0;
         byKey.set(group.key, Math.max(byKey.get(group.key) ?? 0, own));
       }
-      for (const group of detailGroups) {
+      for (const group of groups) {
         const footprint = byKey.get(group.key);
         const targetWeight = nearDetail ? (forest.pixelatedDetail ? forestDetailWeight(footprint) : 1) : 0;
         // Binary fractions decode to an identical full-weight threshold in
@@ -762,7 +998,10 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
       forest.detailView = state;
       return state;
     },
-    dispose: () => { for (const g of geos) g.dispose(); for (const g of bases.values()) g.dispose(); baseBoard.dispose(); for (const m of Object.values(materials)) m.dispose(); },
+    dispose: () => {
+      for (const g of geos) g.dispose(); for (const g of bases.values()) g.dispose(); baseBoard.dispose(); for (const m of Object.values(materials)) m.dispose();
+      for (const g of tourGeos) g.dispose(); for (const m of Object.values(tourMaterials || {})) m.dispose();
+    },
   };
   return forest;
 }

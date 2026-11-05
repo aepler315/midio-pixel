@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import { attachForestCulling } from '../src/world/alpine/ForestCulling.js';
 import { attachTerrainCulling, chunkTable, setChunks } from '../src/world/alpine/TerrainChunks.js';
 import { createForest } from '../src/world/alpine/ForestGL.js';
+import { setTerrainDrawMode } from '../src/world/alpine/RailDraw.js';
 import { recordingWebGL2 } from './helpers/recordingWebGL2.mjs';
 
 // Rows: x, y, z, height, width, species, id, band. Species picks the family
@@ -16,19 +17,21 @@ import { recordingWebGL2 } from './helpers/recordingWebGL2.mjs';
 const row = (x, z, species, band) => [x, 0, z, 14, 5, species, .5, band];
 const FRONT = -120, BEHIND = 3000;
 
-function forest() {
+function forest({ mixed = false, ...options } = {}) {
   const meshDetail = [], mesh = [], billboard = [];
   // Every batch its own size, so a count put back on the wrong batch shows.
   const each = (n, f) => { for (let i = 0; i < n; i++) f(i * 8 - 12); };
   each(4, x => mesh.push(...row(x, FRONT, .2, 1)));
   each(3, x => mesh.push(...row(x, BEHIND, .8, 1)));
+  // mixed: as many trees of the first batch again, behind the camera.
+  if (mixed) each(4, x => mesh.push(...row(x, BEHIND + 30, .2, 1)));
   each(2, x => meshDetail.push(...row(x, FRONT - 10, .8, 2)));
   each(5, x => meshDetail.push(...row(x, BEHIND + 10, .2, 2)));
   each(4, x => billboard.push(...row(x, BEHIND + 20, .2, 0)));
   const uniforms = { uDeformAmp: { value: 3 }, uDeformKick: { value: 1 }, uDeformStructural: { value: 0 },
     uDeformMelodic: { value: 0 }, uDeformGesture: { value: 0 }, uLandDance: { value: new THREE.Vector4() } };
   return createForest(THREE, { meshDetail: new Float32Array(meshDetail), mesh: new Float32Array(mesh),
-    billboard: new Float32Array(billboard), stride: 8, count: 18 }, uniforms);
+    billboard: new Float32Array(billboard), stride: 8, count: mixed ? 22 : 18, ...(options.railCount ? { railCount: options.railCount } : {}) }, uniforms, options);
 }
 
 function setup({ terrain = null } = {}) {
@@ -266,4 +269,176 @@ test('chained after the terrain culling, both cull and both restore', () => {
   assert.deepEqual(seen, { before, after: before, culled: 1 });
   assert.deepEqual(s.counts(), before);
   assert.deepEqual(g.groups.map(x => [x.start, x.count]), [[0, Infinity]]);
+});
+
+// A two-camera forest: the rail draws the leading trees of each ring.
+const RAIL = { meshDetail: 2, mesh: 5, billboard: 2 };
+
+function tourScene({ tour = null, mixed = false } = {}) {
+  const { gl, canvas, state } = recordingWebGL2(300, 150);
+  const renderer = new THREE.WebGLRenderer({ canvas, context: gl });
+  renderer.autoClear = false;
+  const f = forest({ railCount: RAIL, tour, mixed });
+  const scene = new THREE.Scene();
+  scene.add(...f.byBand.far, ...f.byBand.mid, ...f.byBand.near, ...f.depth);
+  // As RangeScene adds them: after the static forest, hidden.
+  if (f.tour) scene.add(...f.tour.byBand.far, ...f.tour.byBand.mid, ...f.tour.byBand.near, ...f.tour.depth);
+  let thrower = null;
+  for (const m of scene.children) m.onBeforeRender = () => {
+    if (m === thrower) throw new Error('mid-render');
+    state.ops.push(['object', m, m.geometry.instanceCount]);
+  };
+  const camera = new THREE.PerspectiveCamera(60, 2, 1, 6000);
+  camera.layers.enable(1); camera.layers.enable(2);
+  const look = z => { camera.position.set(0, 7, 0); camera.lookAt(0, 7, z); camera.updateMatrixWorld(); };
+  look(-1);
+  const target = new THREE.WebGLRenderTarget(300, 150);
+  const ids = new Map();
+  const id = o => { if (!ids.has(o)) ids.set(o, ids.size); return ids.get(o); };
+  const timeline = () => state.ops.splice(0).map(([op, v]) => op === 'object' ? `object ${scene.children.indexOf(v)}`
+    : op === 'draw' ? `draw ${v.count}x${v.instances ?? 1}@${v.offset}` : `${op} ${id(v)}`);
+  const objects = () => state.ops.filter(([op]) => op === 'object').map(([, m, n]) => [m, n]);
+  const render = () => { renderer.setRenderTarget(target); renderer.render(scene, camera); state.draws.length = 0; };
+  return { f, scene, state, render, timeline, objects, look, setThrower: m => { thrower = m; } };
+}
+
+test('with the tour layer the rail\'s render is the same render, call for call', () => {
+  const plain = tourScene(), layered = tourScene({ tour: { seed: 5 } });
+  for (const s of [plain, layered]) {
+    s.f.applyVisibility();
+    attachForestCulling(s.scene, { kept: 0, total: 0, batches: 0 });
+  }
+  for (const s of [plain, layered]) s.render();
+  const [a, b] = [plain, layered].map(s => { s.render(); return s.timeline(); });
+  assert.ok(a.filter(l => l.startsWith('draw ')).length > 0);
+  assert.deepEqual(b, a);
+  // Among them a fully shared batch, which the layer gave { rail: n, tour: 0 }.
+  assert.ok(layered.f.modeGeometries.some(g => g.attributes.aBranch && g.instanceCount === g.attributes.iPos.count && g.userData.instanceCounts.tour === 0));
+});
+
+test('a tour render draws no static mesh-ring batch and only the twins that hold trees; a twin is culled whole, over the trees it now holds', () => {
+  const s = tourScene({ tour: { seed: 5 }, mixed: true }), t = s.f.tour, index = t.index;
+  for (const g of s.f.modeGeometries) setTerrainDrawMode(g, 'tour');
+  t.setMode('tour');
+  // Window sets by side of the camera (it looks down -z).
+  const fill = keep => {
+    const bits = new Uint32Array(index.words);
+    for (let u = 0; u < index.count; u++) if (keep(index.pos[3 * u + 2])) bits[u >>> 5] |= 1 << (u & 31);
+    assert.ok(t.apply({ a: { bits }, b: { bits }, f: 1 }));
+    s.f.applyVisibility();
+  };
+  const twinGeos = t.twins.flatMap(({ detail, lite }) => lite ? [detail, lite] : [detail]);
+  const counts = () => twinGeos.map(g => g.instanceCount);
+  const front = g => g.instanceCount > 0 && [...Array(g.instanceCount).keys()].some(j => g.attributes.iPos.getZ(j) < 0);
+  const tourMeshes = new Set(t.byBand.far.concat(t.byBand.mid, t.byBand.near, t.depth));
+  const statics = new Set([...s.f.byBand.far, ...s.f.byBand.mid, ...s.f.byBand.near, ...s.f.depth].filter(m => m.userData.tourStatic));
+  assert.ok(statics.size > 0);
+  // The draws of each reached object, in order.
+  const drawsOf = lines => {
+    const out = [];
+    for (let i = 0; i < lines.length; i++) {
+      if (!lines[i].startsWith('object ')) continue;
+      const m = s.scene.children[+lines[i].slice(7)];
+      const next = lines.slice(i + 1).find(l => l.startsWith('draw ') || l.startsWith('object '));
+      out.push([m, !!next?.startsWith('draw ')]);
+    }
+    return out;
+  };
+  // Unculled, every tree: a twin draws exactly when it holds trees.
+  fill(() => true);
+  s.render(); s.state.ops.length = 0;
+  const all = counts();
+  s.render();
+  const plain = s.timeline();
+  const reachedPlain = drawsOf(plain);
+  assert.ok(reachedPlain.every(([m]) => !statics.has(m)), 'no static mesh-ring batch is reached');
+  for (const [m, drew] of reachedPlain) {
+    if (twinGeos.includes(m.geometry)) assert.equal(drew, m.geometry.instanceCount > 0, 'a twin draws exactly when it holds trees');
+    if (drew && !tourMeshes.has(m)) assert.ok(!m.geometry.attributes.aBranch, 'only boards draw beside the twins');
+  }
+  // The mixed twin holds trees on both sides; the others on one.
+  const mixedTwin = twinGeos.find(g => g.instanceCount === 8);
+  assert.ok(mixedTwin && front(mixedTwin));
+  // Culled: the twins whose every tree is behind lose their draws, and only those.
+  const stats = { kept: 0, total: 0, batches: 0 };
+  attachForestCulling(s.scene, stats);
+  s.render();
+  const culledAll = s.timeline();
+  const behind = new Set(twinGeos.filter(g => g.instanceCount > 0 && !front(g)));
+  assert.ok(behind.size > 0);
+  assert.deepEqual(culledAll, withoutDraws(plain, s.scene, behind));
+  assert.deepEqual(counts(), all, 'every twin has its count back');
+  assert.ok(stats.total > 0 && stats.batches > 0, 'the twins were tested');
+  // Refill in place with the trees in front: every twin holding trees draws.
+  // The mixed twin then holds four, as it does when refilled with those behind:
+  // only the refill (not the count) can tell its bound apart.
+  const check = (keep, side) => {
+    fill(keep);
+    const n = counts();
+    assert.equal(mixedTwin.instanceCount, 4);
+    s.render();
+    for (const [m, drew] of drawsOf(s.timeline())) {
+      if (!twinGeos.includes(m.geometry) || !(m.geometry.instanceCount > 0)) continue;
+      assert.equal(drew, side === 'front', `${side}: a twin holding trees ${side === 'front' ? 'draws' : 'is culled'}`);
+    }
+    assert.deepEqual(counts(), n);
+  };
+  check(z => z < 0, 'front');
+  check(z => z > 0, 'behind');
+  check(z => z < 0, 'front');
+  check(z => z > 0, 'behind');
+});
+
+test('a tour refill and a switch to the rail put back what a thrown render culled before they set the twins\' counts', () => {
+  const s = tourScene({ tour: { seed: 5 }, mixed: true }), t = s.f.tour, index = t.index;
+  for (const g of s.f.modeGeometries) setTerrainDrawMode(g, 'tour');
+  t.setMode('tour');
+  const fill = keep => {
+    const bits = new Uint32Array(index.words);
+    for (let u = 0; u < index.count; u++) if (keep(index.pos[3 * u + 2])) bits[u >>> 5] |= 1 << (u & 31);
+    assert.ok(t.apply({ a: { bits }, b: { bits }, f: 1 }));
+    s.f.applyVisibility();
+  };
+  const twinGeos = t.twins.flatMap(({ detail, lite }) => lite ? [detail, lite] : [detail]);
+  const counts = () => twinGeos.map(g => g.instanceCount);
+  // The last object three reaches throws, after the cull has set its 0s.
+  const throwAfterCull = () => {
+    s.state.ops.length = 0;
+    s.render();
+    s.setThrower(s.objects().at(-1)[0]);
+    const set = counts();
+    assert.throws(() => s.render(), /mid-render/);
+    s.setThrower(null);
+    s.state.ops.length = 0;
+    assert.ok(counts().some((n, i) => n === 0 && set[i] > 0), 'the thrown render left a twin at 0');
+  };
+  attachForestCulling(s.scene);
+  // Window 1, the trees behind the camera (it looks down -z): the mixed
+  // twin holds its 4 trees there, is culled, and the render throws.
+  fill(z => z > 0);
+  const mixedTwin = twinGeos.find(g => g.instanceCount === 4 && g.attributes.iPos.getZ(0) > 0);
+  throwAfterCull();
+  assert.equal(mixedTwin.instanceCount, 0);
+  // Window 2, every tree: apply() refills the mixed twin to 8 in place, its
+  // 4 trees in front of the camera first. Turned to face the others, the
+  // stale 4 would bound those front trees alone and cull trees in view.
+  fill(() => true);
+  const want = counts();
+  assert.equal(mixedTwin.instanceCount, 8);
+  s.look(1);
+  s.state.ops.length = 0;
+  s.render();
+  const faces = g => [...Array(want[twinGeos.indexOf(g)]).keys()].some(j => g.attributes.iPos.getZ(j) > 0);
+  const reached = s.objects().filter(([m]) => twinGeos.includes(m.geometry) && faces(m.geometry));
+  assert.ok(reached.some(([m]) => m.geometry === mixedTwin));
+  for (const [m, n] of reached) assert.equal(n, want[twinGeos.indexOf(m.geometry)], 'a twin in view draws the count apply() set');
+  assert.deepEqual(counts(), want, 'every twin keeps apply()\'s count');
+  // A throw again, then the rail: setMode's 0s must outlast the next render.
+  throwAfterCull();
+  t.setMode('rail');
+  for (const g of s.f.modeGeometries) setTerrainDrawMode(g, 'rail');
+  s.f.applyVisibility();
+  s.render();
+  assert.ok(!s.objects().some(([m]) => twinGeos.includes(m.geometry)), 'the rail reaches no twin');
+  assert.deepEqual(counts(), twinGeos.map(() => 0), 'no culled twin count comes back on the rail');
 });

@@ -13,6 +13,7 @@ import { terrainFeatureSegments } from '../src/world/alpine/TerrainFeatures.js';
 import { bakeHorizon } from '../src/world/alpine/TerrainOcclusion.js';
 import { createHash } from 'node:crypto';
 import { RangeScene } from '../src/world/alpine/RangeScene.js';
+import { materialPin } from './helpers/forestShaderPins.mjs';
 
 // The terrainBakePoses fixture (4 x 4 tiles of 64 cells at 20 m, a rail at
 // z = -600 looking north) with forest-friendly ground, and tour poses that
@@ -333,6 +334,124 @@ test('pixel-mode tree detail is weighed from what each mode draws', async () => 
   }
   assert.ok(blended > 0, 'some near trees blend detail and lite');
   for (const f of [split, rail, whole]) f.dispose();
+});
+
+/** Every static mesh of a forest as data: its drawn count, materials,
+ *  draw state and instance arrays, in order. */
+function staticPicture(forest) {
+  const meshes = [...Object.values(forest.byBand).flat(), ...forest.depth, ...Object.values(forest.depthByBand).flat()];
+  const bytes = a => (a ? createHash('sha256').update(new Uint8Array(a.array.buffer, a.array.byteOffset, a.array.byteLength)).digest('hex') : null);
+  return meshes.map(m => {
+    const g = m.geometry, a = g.attributes;
+    return { count: g.instanceCount, material: materialPin(m.material), renderOrder: m.renderOrder, layers: m.layers.mask, visible: m.visible,
+      frustumCulled: m.frustumCulled, nearLod: m.userData.nearLod ?? null, index: g.index?.count ?? null, asset: g.userData.asset ?? null,
+      cull: !!g.userData.forestCull, arrays: ['iPos', 'iSize', 'iVar', 'iLodWeight', 'position'].map(k => bytes(a[k])) };
+  });
+}
+const detailWeights = (meshes) => {
+  const out = new Map();
+  for (const m of meshes) {
+    if (m.userData.nearLod !== 'detail') continue;
+    const g = m.geometry, w = g.attributes.iLodWeight.getX(0);
+    for (let i = 0; i < g.instanceCount; i++) out.set(`${g.attributes.iPos.getX(i)},${g.attributes.iPos.getZ(i)}`, w);
+  }
+  return out;
+};
+
+test('the tour forest layer leaves the rail exactly as it was', async () => {
+  const { view, tour } = await packages();
+  const rules = { treelineM: 2000, forestMaxSlopeDeg: 60, forestDensity: 1, forestFloorM: 0 };
+  const footprint = { ...view, cameraPaths: [POSES.map((p) => p.eyeM), [[0, 1500, -600], [800, 1500, 300]]] };
+  const both = placeForest(tour, footprint, rules, { seed: 7 });
+  // The same records as if the rail shared every mesh-ring tree: fully
+  // shared batches, which have no tour-only trees.
+  const shared = { ...both, railCount: { ...both.railCount, meshDetail: both.meshDetail.length / 8, mesh: both.mesh.length / 8 } };
+  for (const placed of [both, shared]) {
+    const plain = createForest(THREE, placed, {}), layered = createForest(THREE, placed, {}, { tour: { seed: 7 } });
+    assert.equal(plain.tour, null);
+    assert.ok(layered.tour.index.count > 0 && layered.tour.twins.length > 0);
+    const camera = new THREE.PerspectiveCamera(30, 16 / 9, 1, 20000);
+    for (const target of [[100, 1000, -400], [200, 1000, -700]]) {
+      camera.position.set(0, 1500, -600); camera.lookAt(...target); camera.updateMatrixWorld(); camera.updateProjectionMatrix();
+      for (const [pixelated, nearDetail] of [[true, true], [false, true], [true, false]]) {
+        const states = [plain, layered].map(f => f.updateDetailView({ camera, width: 480, height: 270, pixelated, nearDetail }));
+        assert.deepEqual(states[1], states[0], `detail state toward ${target}`);
+        assert.deepEqual(staticPicture(layered), staticPicture(plain), `static meshes toward ${target}`);
+        assert.deepEqual(detailWeights(Object.values(layered.byBand).flat()), detailWeights(Object.values(plain.byBand).flat()));
+        for (const m of layered.tour.every) assert.equal(m.visible, false, 'the tour layer is hidden on the rail');
+      }
+    }
+    // Every mesh-ring batch the tour shares now switches: on the tour the
+    // layer draws its trees. A fully shared one keeps all its trees on the
+    // rail ({ rail: n, tour: 0 }).
+    const mine = new Set(plain.modeGeometries.map(g => g.attributes.iPos.array.length));
+    const full = layered.modeGeometries.filter(g => g.attributes.aBranch && g.userData.instanceCounts.rail === g.attributes.iPos.count && !mine.has(g.attributes.iPos.array.length));
+    if (placed === shared) assert.ok(full.length >= 6, `${full.length} fully shared mesh-ring batches`);
+    for (const g of layered.modeGeometries) if (g.attributes.aBranch) assert.equal(g.userData.instanceCounts.tour, 0);
+    for (const f of [plain, layered]) f.dispose();
+  }
+});
+
+test('a tour forest returns to its rail exactly, and its twins draw nothing there', async () => {
+  const { view, tour } = await packages();
+  const rules = { treelineM: 2000, forestMaxSlopeDeg: 60, forestDensity: 1, forestFloorM: 0 };
+  const footprint = { ...view, cameraPaths: [POSES.map((p) => p.eyeM), [[0, 1500, -600], [800, 1500, 300]]] };
+  const both = placeForest(tour, footprint, rules, { seed: 7 });
+  const plain = createForest(THREE, both, {}), layered = createForest(THREE, both, {}, { tour: { seed: 7 } });
+  const camera = new THREE.PerspectiveCamera(30, 16 / 9, 1, 20000);
+  camera.position.set(0, 1500, -600); camera.lookAt(100, 1000, -400); camera.updateMatrixWorld(); camera.updateProjectionMatrix();
+  const view0 = () => layered.updateDetailView({ camera, width: 480, height: 270, pixelated: true, nearDetail: true });
+  const railState = plain.updateDetailView({ camera, width: 480, height: 270, pixelated: true, nearDetail: true });
+  const index = layered.tour.index;
+  for (let round = 0; round < 2; round++) {
+    for (const g of layered.modeGeometries) setTerrainDrawMode(g, 'tour');
+    layered.tour.setMode('tour');
+    assert.ok(layered.tour.apply({ a: index.all, b: index.all, f: 1 }));
+    view0();
+    assert.ok(layered.tour.twins.every(t => t.detail.instanceCount === t.n), 'ALL fills every twin');
+    for (const m of Object.values(layered.byBand).flat()) if (m.userData.tourStatic) assert.equal(m.visible, false, 'static mesh-ring batches hide on the tour');
+    for (const g of layered.modeGeometries) if (g.attributes.aBranch) assert.equal(g.instanceCount, 0, 'and draw none of their trees');
+    for (const g of layered.modeGeometries) setTerrainDrawMode(g, 'rail');
+    layered.tour.setMode('rail');
+    for (const g of layered.modeGeometries) assert.equal(g.instanceCount, g.userData.instanceCounts.rail);
+    for (const t of layered.tour.twins) { assert.equal(t.detail.instanceCount, 0); if (t.lite) assert.equal(t.lite.instanceCount, 0); }
+    assert.deepEqual(view0(), railState, 'the rail\'s detail state');
+    assert.deepEqual(detailWeights(Object.values(layered.byBand).flat()), detailWeights(Object.values(plain.byBand).flat()), 'and weights');
+    assert.deepEqual(staticPicture(layered), staticPicture(plain));
+    for (const m of layered.tour.every) assert.equal(m.visible, false);
+  }
+  for (const f of [plain, layered]) f.dispose();
+});
+
+test('on the tour the twins\' detail weights are those of a forest of their trees alone', async () => {
+  const { view, tour } = await packages();
+  const rules = { treelineM: 2000, forestMaxSlopeDeg: 60, forestDensity: 1, forestFloorM: 0 };
+  const footprint = { ...view, cameraPaths: [POSES.map((p) => p.eyeM), [[0, 1500, -600], [800, 1500, 300]]] };
+  const both = placeForest(tour, footprint, rules, { seed: 7 });
+  const layered = createForest(THREE, both, {}, { tour: { seed: 7 } }), index = layered.tour.index;
+  // S: the trees west of x = 300 m (a steady state with that one set).
+  const inS = (x) => x < 300;
+  const bits = new Uint32Array(index.words);
+  for (let u = 0; u < index.count; u++) if (inS(index.pos[3 * u])) bits[u >>> 5] |= 1 << (u & 31);
+  const only = (data) => { const out = []; for (let o = 0; o < data.length; o += 8) if (inS(data[o])) out.push(...data.subarray(o, o + 8)); return Float32Array.from(out); };
+  const alone = createForest(THREE, { meshDetail: only(both.meshDetail), mesh: only(both.mesh), billboard: both.billboard, stride: 8, count: both.count }, {});
+  for (const g of layered.modeGeometries) setTerrainDrawMode(g, 'tour');
+  layered.tour.setMode('tour');
+  layered.tour.apply({ a: { bits }, b: { bits }, f: 1 });
+  const camera = new THREE.PerspectiveCamera(30, 16 / 9, 1, 20000);
+  let blended = 0;
+  for (const target of [[100, 1000, -400], [200, 1000, -700], [-300, 1000, -500]]) {
+    camera.position.set(0, 1500, -600); camera.lookAt(...target); camera.updateMatrixWorld(); camera.updateProjectionMatrix();
+    const s0 = alone.updateDetailView({ camera, width: 480, height: 270, pixelated: true, nearDetail: true });
+    const s1 = layered.updateDetailView({ camera, width: 480, height: 270, pixelated: true, nearDetail: true });
+    const w0 = detailWeights(Object.values(alone.byBand).flat()), w1 = detailWeights(Object.values(layered.tour.byBand).flat());
+    assert.ok(w0.size > 0);
+    assert.deepEqual(w1, w0, `twin detail weights toward ${target}`);
+    assert.deepEqual(s1, s0, 'and the detail state');
+    blended += [...w0.values()].filter((w) => w > 0 && w < 1).length;
+  }
+  assert.ok(blended > 0, 'some near trees blend detail and lite');
+  for (const f of [alone, layered]) f.dispose();
 });
 
 test('a rail\'s detail trees split between a shared batch and its rail-only twin share one weight', async () => {
