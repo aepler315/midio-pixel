@@ -169,12 +169,13 @@ which draws those that are not meshes. Neither carries a culling tag, so
 are hidden on the tour.
 
 Residency: the layer's bytes (`tourForestBytes`) are charged in the view's GPU
-reservation. It is built only when it fits beside both cameras, and on phones
-only when twice its size fits. Otherwise the view keeps the static tour
-forest, and if even a reservation without the layer fails, the existing
-refusal path follows. The layer costs 5.85 MiB on `teton-jackson-lake` and
-15.87 MiB on `black-mountains-catawba`. The pre-placement room check
-(`_tourRoom`) does not count the layer.
+reservation. It is built only when it fits in free room beside both cameras,
+and on phones only when twice its size is free. Like a mirror, it never evicts
+another entry to fit, so another view's mirror or water canvases stay.
+Otherwise the view keeps the static tour forest, and if even a reservation
+without the layer fails, the existing refusal path follows. The layer costs
+5.85 MiB on `teton-jackson-lake` and 15.87 MiB on `black-mountains-catawba`.
+The pre-placement room check (`_tourRoom`) does not count the layer.
 
 `RangeScene.tourForest` (true) switches the layer for views prepared after it
 changes. Tests set it false to compare with the static tour forest. The view's

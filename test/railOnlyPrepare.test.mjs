@@ -245,6 +245,44 @@ test('a two-camera view with room holds the tour forest layer in its GPU entry, 
   assert.equal(alone.stats.tourForest, undefined);
 });
 
+test('the tour forest layer is built only in free room, never by evicting another view\'s mirror', async () => {
+  // Both cameras' need, and the need with the layer, on an empty ledger.
+  const need = async (budget) => {
+    const r = scene(1e9, budget), fit = r.residency.canFit.bind(r.residency), asked = [];
+    r.residency.canFit = (bytes, protect) => { asked.push(r.residency.usedBytes + bytes); return fit(bytes, protect); };
+    await prepare(r, footprint);
+    return { without: asked.at(-2), with: asked.at(-1) };
+  };
+  for (const budget of ['desktop', 'mobile']) {
+    const n = await need(budget), mirrorBytes = n.with - n.without;
+    const plain = scene(1e9, budget, { tourForest: false }), reference = await prepare(plain, footprint);
+    // Another view's rail holds a mirror: live, unpinned, evictable, and
+    // older than anything this preparation reserves.
+    const withMirror = (budgetBytes) => {
+      const s = scene(budgetBytes, budget), key = 'range:water-mirror-A';
+      const mirror = { disposed: false };
+      s.residency.commit(s.residency.reserve({ key, bytes: mirrorBytes, owner: 'range-mirror', protect: [...s.residency.entries.keys()] }),
+        mirror, (m) => { m.disposed = true; });
+      return { s, mirror, kept: () => s.residency.get(key) === mirror && !mirror.disposed };
+    };
+    // Free room for both cameras but not the layer; evicting the mirror
+    // would make room for it. Both cameras, today's forest and bytes, and
+    // the mirror stays.
+    const tight = withMirror(n.with + mirrorBytes / 2), q = await prepare(tight.s, footprint);
+    assert.equal(q.railOnly, null, `${budget}: both cameras`);
+    // (Booleans: a failed comparison would print the whole forest.)
+    assert.equal(!!q.forest.tour, false, `${budget}: no layer`);
+    assert.equal(q.stats.tourForest, 'static: no room or off');
+    assert.equal(gpuBytes(tight.s, q), gpuBytes(plain, reference));
+    assert.ok(tight.kept(), `${budget}: the mirror is kept`);
+    // With the layer's room free beside the mirror, both.
+    const roomy = withMirror(n.with + mirrorBytes), r = await prepare(roomy.s, footprint);
+    assert.equal(!!r.forest.tour, true, `${budget}: the layer in free room`);
+    assert.equal(gpuBytes(roomy.s, r), gpuBytes(plain, reference) + r.forest.tour.bytes);
+    assert.ok(roomy.kept(), `${budget}: the mirror is kept beside the layer`);
+  }
+});
+
 test('on its tour a two-camera view draws the window sets of the frame\'s time, and a replan of the playhead window refills', async () => {
   const s = scene(), p = await prepare(s, footprint), layer = p.forest.tour, { index } = layer;
   const frame = (frameId, timeMs, extra = {}) => ({ frameId, timeMs, progress01: .5, music: rangeMusicState({}), qualityLevel: 0,

@@ -1424,12 +1424,17 @@ export class RangeScene {
         }
         // The tour forest windows' layer (TourForest.js) rides in the same
         // entry when it fits beside both cameras, with mobile's headroom;
-        // without room the view keeps the static tour forest.
+        // without room the view keeps the static tour forest. It is
+        // optional, as a mirror is: it fits in free room or is not built,
+        // never evicting what another view's rail holds (a mirror, the
+        // water canvases), so the room it is refused is today's reservation.
         const tourBytes = twoModes && this.tourForest && placed.railCount ? tourForestBytes(placed) : 0;
+        const resident = [...(this.residency?.entries.keys() || [])];
         let tourLayer = tourBytes > 0 && (!this.residency
-          || this.residency.canFit(bytes + scratchBytes + (this.budget === 'mobile' ? 2 : 1) * tourBytes, [cpu.key, mat.key]));
-        res = this.residency?.reserve({ key: gpuKey, bytes: bytes + (tourLayer ? tourBytes : 0), owner: 'range-terrain-gpu', generation }) || null;
-        if (this.residency && !res && tourLayer) {
+          || this.residency.canFit(bytes + scratchBytes + (this.budget === 'mobile' ? 2 : 1) * tourBytes, resident));
+        res = null;
+        if (this.residency && tourLayer) res = this.residency.reserve({ key: gpuKey, bytes: bytes + tourBytes, owner: 'range-terrain-gpu', generation, protect: resident }) || null;
+        if (this.residency && !res) {
           tourLayer = false;
           res = this.residency.reserve({ key: gpuKey, bytes, owner: 'range-terrain-gpu', generation }) || null;
         }
