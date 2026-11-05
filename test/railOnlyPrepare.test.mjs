@@ -283,6 +283,49 @@ test('the tour forest layer is built only in free room, never by evicting anothe
   }
 });
 
+test('room taken while the surface waits drops the tour forest layer before the tour', async () => {
+  // A surface build beyond its build entry's idle allowance, as shipped
+  // two-camera packages have: the scratch is reserved after a yield.
+  const heavy = (s) => {
+    const retire = s._retireForestPlacement;
+    s._retireForestPlacement = function (p, entry, placed) { const r = retire.call(this, p, entry, placed); entry.idleBytes = 0; return r; };
+    return s;
+  };
+  const watch = (s, onScratch) => {
+    const reserve = s.residency.reserve.bind(s.residency);
+    s.residency.reserve = (args) => { if (args.owner === 'range-scratch') onScratch(args); return reserve(args); };
+  };
+  for (const budget of ['desktop', 'mobile']) {
+    const r = heavy(scene(1e9, budget)), fit = r.residency.canFit.bind(r.residency), asked = [];
+    r.residency.canFit = (bytes, protect) => { asked.push(r.residency.usedBytes + bytes); return fit(bytes, protect); };
+    let scratchBytes = 0;
+    watch(r, (args) => { scratchBytes = args.bytes; });
+    const measured = await prepare(r, footprint);
+    assert.ok(scratchBytes > 0 && scratchBytes < 2 * measured.forest.tour.bytes);
+    const plain = heavy(scene(1e9, budget, { tourForest: false })), reference = await prepare(plain, footprint);
+    // Exactly the room with the layer; during the yield another owner
+    // takes all but half the scratch: it fits only without the layer.
+    const s = heavy(scene(asked.at(-1), budget));
+    let taken = null, denied = 0;
+    watch(s, () => {
+      if (taken) return;
+      const free = s.residency.budgetBytes - s.residency.usedBytes;
+      taken = s.residency.reserve({ key: 'range:water-layer', bytes: free - Math.floor(scratchBytes / 2), owner: 'range-water', evictable: false });
+    });
+    const deny = s.residency.reserve.bind(s.residency);
+    s.residency.reserve = (args) => { const res = deny(args); if (!res && args.owner === 'range-scratch') denied++; return res; };
+    const q = await prepare(s, footprint);
+    assert.ok(taken, `${budget}: the room was taken`);
+    assert.equal(denied, 1, `${budget}: the scratch was denied beside the layer`);
+    assert.equal(q.railOnly, null, `${budget}: both cameras`);
+    assert.ok(q.modeGeometries.length > 0);
+    assert.equal(!!q.forest.tour, false, `${budget}: no layer`);
+    assert.equal(q.stats.tourForest, 'static: no room or off');
+    assert.equal(gpuBytes(s, q), gpuBytes(plain, reference));
+    assert.deepEqual(q.stats.trees, reference.stats.trees);
+  }
+});
+
 test('on its tour a two-camera view draws the window sets of the frame\'s time, and a replan of the playhead window refills', async () => {
   const s = scene(), p = await prepare(s, footprint), layer = p.forest.tour, { index } = layer;
   const frame = (frameId, timeMs, extra = {}) => ({ frameId, timeMs, progress01: .5, music: rangeMusicState({}), qualityLevel: 0,

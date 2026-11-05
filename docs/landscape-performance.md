@@ -173,9 +173,12 @@ reservation. It is built only when it fits in free room beside both cameras,
 and on phones only when twice its size is free. Like a mirror, it never evicts
 another entry to fit, so another view's mirror or water canvases stay.
 Otherwise the view keeps the static tour forest, and if even a reservation
-without the layer fails, the existing refusal path follows. The layer costs
-5.85 MiB on `teton-jackson-lake` and 15.87 MiB on `black-mountains-catawba`.
-The pre-placement room check (`_tourRoom`) does not count the layer.
+without the layer fails, the existing refusal path follows. The surface
+build's scratch, reserved after a yield, follows the same order: if it is
+denied beside the layer, the view gives the layer's bytes back and asks again.
+The layer costs 5.85 MiB on `teton-jackson-lake` and 15.87 MiB on
+`black-mountains-catawba`. The pre-placement room check (`_tourRoom`) does not
+count the layer.
 
 `RangeScene.tourForest` (true) switches the layer for views prepared after it
 changes. Tests set it false to compare with the static tour forest. The view's

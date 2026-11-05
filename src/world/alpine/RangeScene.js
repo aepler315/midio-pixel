@@ -1456,7 +1456,14 @@ export class RangeScene {
         if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
         const mappedWaterOnly = view.riverPolicy?.terrainWater === 'mapped-only';
         const scratchKey = `range:surface-scratch:${view.id}`;
-        const scratch = this.residency?.reserve({ key: scratchKey, bytes: scratchBytes, owner: 'range-scratch', generation }) || null;
+        const reserveScratch = () => this.residency?.reserve({ key: scratchKey, bytes: scratchBytes, owner: 'range-scratch', generation }) || null;
+        let scratch = reserveScratch();
+        if (this.residency && !scratch && tourLayer && this.residency.shrinkReservation(res, bytes)) {
+          // Room taken during the yield: the layer goes first (nothing of
+          // it is built yet), then today's tour, then the rail alone.
+          tourLayer = false;
+          scratch = reserveScratch();
+        }
         if (this.residency && !scratch) {
           if (twoModes) this._refuseTour(view.id, generation, placedNeed);
           throw new RangeAssetError('budget', `no room to build ${view.id} surface`);
