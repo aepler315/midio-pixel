@@ -3326,8 +3326,9 @@ export class RangeScene {
       } else if (bandColumns && pass && p.depthScenes) this._travelDepth(p, outputTarget, pass, bandColumns, { clear: false });
       else r.render(p.depthScene, this.camera);
       this.camera.layers.set(0);
-      // Non-partitioned forest meshes share layer 0 with terrain.
-      for (const band of BANDS) for (const mesh of p.forest?.byBand?.[band] || []) {
+      // Non-partitioned forest meshes share layer 0 with terrain, and so do
+      // the tour layer's twin cores (ForestGL.js), which its tour shows.
+      for (const band of BANDS) for (const list of [p.forest?.byBand?.[band], p.forest?.tour?.byBand?.[band]]) for (const mesh of list || []) {
         hidden.push([mesh, mesh.visible]); mesh.visible = false;
       }
       // Only triangles that can be wet (WaterSubset.js); the rest would

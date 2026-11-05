@@ -1,7 +1,8 @@
 // The tour forest layer (ForestGL createForest `tour`): its twins and
 // demote boards draw every mesh-ring tree exactly once at every state, its
 // shaders add only the tour's hide clause to the rail's, it costs what
-// tourForestBytes says, and a replan refills it at once.
+// tourForestBytes says, a replan refills it at once, and the lake layer's
+// water-only pass draws none of it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -10,6 +11,7 @@ import { TourForestSchedule, tourForestBytes, tourMeshVisible, windowSet, tourUn
 import { setTerrainDrawMode } from '../src/world/alpine/RailDraw.js';
 import { keyTimeline, wanderKeys, syntheticPlaced, inRing, rng } from './helpers/tourForestFixtures.mjs';
 import { staticMaterials, forestPins, MAIN_PINS, PIN_OPTIONS, pinPlaced } from './helpers/forestShaderPins.mjs';
+import { RangeScene } from '../src/world/alpine/RangeScene.js';
 
 const SEED = 7;
 let shared = null;
@@ -191,5 +193,51 @@ test('a replan refills the drawn trees at once (R2 on what the layer draws)', ()
   const universe = tourUniverse(placed, () => 0);
   assert.deepEqual(index.pos, universe.pos);
   assert.deepEqual(windowSet(index, next, 7).bits, s.stateAt(29000).a.bits);
+  forest.dispose();
+});
+
+test('the lake layer\'s water-only pass draws no tree of the tour layer', () => {
+  const placed = syntheticPlaced({ extent: 600, spacing: 60 });
+  const forest = createForest(THREE, placed, {}, { tour: { seed: SEED } });
+  const scenes = {};
+  for (const band of ['far', 'mid', 'near']) {
+    scenes[band] = new THREE.Scene();
+    for (const m of [...forest.byBand[band], ...forest.tour.byBand[band]]) scenes[band].add(m);
+  }
+  toTour(forest);
+  forest.tour.apply({ a: forest.tour.index.all, b: forest.tour.index.all, f: 1 });
+  forest.applyVisibility({ shown: true, nearDetail: true });
+  const camera = { layers: new THREE.Layers() };
+  const drawn = list => list.filter(m => m.visible && camera.layers.test(m.layers) && m.geometry.instanceCount > 0);
+  const layer0 = new THREE.Layers();
+  const cores = Object.values(forest.tour.byBand).flat().filter(m => m.visible && m.layers.test(layer0) && m.geometry.instanceCount > 0);
+  assert.ok(cores.length > 0, 'the tour shows twin cores on layer 0');
+  const noop = () => {}, UINT = 1014, depthTexture = () => ({ type: UINT, format: 1026 });
+  const uniforms = { uViewportPx: { value: { set: noop } }, uWaterOnly: { value: 0 } };
+  const p = { view: {}, uniforms, depthScene: { name: 'depth' }, forest, scenes };
+  const leaks = [];
+  let waterRenders = 0;
+  const target = { width: 320, height: 180, samples: 0, texture: {}, depthTexture: depthTexture() };
+  const scene = Object.assign(Object.create(RangeScene.prototype), {
+    THREE: { UnsignedIntType: UINT }, prepared: new Map([['lake', p]]), contextLost: false, target, sideTargets: { B: null },
+    size: { width: 320, height: 180 }, stats: {}, depthCache: { A: { frame: -1 }, B: { frame: -1 } },
+    renderer: { getContext: () => ({}), setRenderTarget: noop, setClearColor: noop, clear: noop, properties: { get: () => ({}) },
+      render: s => {
+        if (uniforms.uWaterOnly.value !== 1) return;
+        waterRenders++;
+        leaks.push(...drawn(s.children));
+      } },
+    camera, canvas: {},
+    _setCamera: noop, _setUniforms: noop, _prepareMirror: noop, _setCanvasSize: noop, _clearCanvas: noop, _copyTexture: noop,
+    _scenicTarget: (w, h) => ({ width: w, height: h, samples: 0, texture: {}, depthTexture: depthTexture(), dispose: noop }),
+  });
+  // The native mask, the output-resolution image and a capture.
+  for (const [w, h, options] of [[320, 180, {}], [640, 360, {}], [640, 360, { capture: true }]]) {
+    leaks.length = 0;
+    assert.ok(scene.renderWater({ frameId: 7 }, 'lake', w, h, options));
+    assert.ok(waterRenders > 0);
+    assert.deepEqual(leaks.map(m => m.userData.tourLayer ? 'tour layer' : 'static'), [], `${w}x${h} ${JSON.stringify(options)}`);
+    assert.deepEqual(cores.filter(m => !m.visible), [], 'the pass restores what the tour shows');
+  }
   forest.dispose();
 });
