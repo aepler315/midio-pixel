@@ -28,6 +28,7 @@ _site/
 /src/assets/range/v2/compiled/
 # Locally baked White Mountains voxel mesh
 /src/assets/range/v2/voxel/white-mountains-owens.bin*
+/src/assets/range/v2/voxel/white-mountains-owens.v2.bin.gz
 
 # Content-addressed offline tour field authoring results
 /.cache/teton-tour/

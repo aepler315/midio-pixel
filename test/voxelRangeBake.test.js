@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { bakeVoxelRange } from '../tools/build-voxel-range.mjs';
+import { bakeVoxelRange, bakeProgressiveVoxelRange } from '../tools/build-voxel-range.mjs';
+import { decodeVoxelRangePack } from '../src/render/VoxelRange.js';
 
 function faces(bytes) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -45,4 +46,29 @@ test('the opening promotes a framed foothill ahead of lower terrain behind the c
   const tops = faces(bakeVoxelRange(data, { eyeM, targetM: [750, 650, -3000], fovYDeg: 24 }))
     .filter(({ vertices }) => vertices.every(v => v[1] === vertices[0][1]));
   assert.deepEqual(tops.map(({ vertices, show }) => [vertices[0][1], show]), [[300, 0], [100, .5], [2000, 1]]);
+});
+
+test('progressive packs finish on the unquantized DEM and validate their level ranges', () => {
+  const data = {
+    grid: { originM: [0, 0], width: 3, height: 3, cellSizeM: 500 },
+    groundAt: (x, z) => 100 + x * .123 + z * .057,
+  };
+  const camera = { eyeM: [250, 1000, 2000], targetM: [500, 100, 0], fovYDeg: 24 };
+  const bytes = bakeProgressiveVoxelRange(data, camera, { smoothCellM: 125 });
+  const packed = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  const decoded = decodeVoxelRangePack(packed);
+  assert.equal(decoded.version, 2);
+  assert.deepEqual(decoded.levels.map(level => level.cellSizeM), [500, 250, 125, 62.5, 125]);
+  assert.equal(decoded.levels.at(-1).kind, 'smooth');
+  assert.deepEqual(bakeProgressiveVoxelRange(data, camera, { smoothCellM: 125 }), bytes);
+  const last = decoded.levels.at(-1);
+  for (let vertex = last.firstVertex; vertex < last.firstVertex + last.vertexCount; vertex++) {
+    const at = vertex * 8;
+    const [x, y, z] = decoded.vertices.subarray(at, at + 3);
+    assert.ok(Math.abs(y - data.groundAt(x, z)) < .0001);
+  }
+  const broken = packed.slice(0);
+  new DataView(broken).setUint32(32, 3, true);
+  assert.throws(() => decodeVoxelRangePack(broken), /level/);
+  assert.throws(() => decodeVoxelRangePack(packed.slice(0, -4)), /length/);
 });
