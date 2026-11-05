@@ -65,7 +65,7 @@ import { createPresentingRenderer } from './render/PresentingRenderer.js';
 import { VoxelRange, voxelRangeRequested } from './render/VoxelRange.js';
 import { directTerrainExperiment } from './render/DirectTerrainExperiment.js';
 import { createRenderReadyPlayback, waitForScenicReady } from './render/RenderReadyPlayback.js';
-import { stageOutputSize } from './render/RenderOutputSize.js';
+import { stageOutputSize, resolveRangePipeline } from './render/RenderOutputSize.js';
 import { PixelPresentation, fitPixelRect } from './render/PixelPresentation.js';
 import { FrameCadence } from './render/FrameCadence.js';
 import { readDisplayPrefs, writeDisplayPrefs, resolvePresentation, resolveDisplayPrefs, defaultGridFor } from './render/DisplayProfile.js';
@@ -473,6 +473,7 @@ paramBus.rendererMode = rendererMode;
 // opts out, and any v2 failure falls back to legacy per frame on its own.
 // ?rangeView=<id> forces one catalog view for diagnostics. One presentation (and one GPU context) per page.
 const rangeMode = resolveRangeMode();
+const requestedRangePipeline = resolveRangePipeline(location.search);
 const voxelRangePilot = voxelRangeRequested(location.search)
   ? new VoxelRange({ ownerDocument: document, residency: sharedResidency() }) : null;
 const voxelRangeCaption = voxelRangePilot ? sceneCaptionFor(voxelRangePilot.view) : null;
@@ -662,7 +663,8 @@ function effectivePresentation() {
   const requested = bulkPresentation || presentation;
   const experimental = directTerrainExperiment(typeof location === 'undefined' ? '' : location.search);
   if (experience === 'trio') return { ...requested, pixelScale: 'original' };
-  return { ...requested, ...(experimental ? { directTerrain: true } : {}),
+  return { ...requested, rangePipeline: bulkExportSize || experimental ? 'hybrid' : requestedRangePipeline,
+    ...(experimental ? { directTerrain: true } : {}),
     ...(!bulkExportSize && typeof document !== 'undefined' && isFullscreen() ? { scaling: 'cover' } : {}) };
 }
 /** Point the page at one world's presentation. Landscape owns the page's one
@@ -789,11 +791,12 @@ function fitCanvas() {
   const worldKind = sim?.biomes?.world?.kind
     || getWorld(lastTimelineData?.worldId || lastWorldId || DEFAULT_WORLD_ID)?.kind;
   const hybrid = experience === 'landscape' && worldKind === 'alpine' && !!rangePresentation?.enabled;
+  const nativeStage = hybrid && active.rangePipeline !== 'hybrid' && !!active.rangePipeline;
   const box = canvas.getBoundingClientRect();
   // The quality rung this output was sized for: heavier rungs draw the
   // smooth layers at fewer pixels (the ladder's resolution scale).
   fittedPerfLevel = perfGovernor?.level ?? 0;
-  const size = stageOutputSize({ grid: active.grid, hybrid, cssWidth: box.width, cssHeight: box.height,
+  const size = stageOutputSize({ grid: active.grid, hybrid, nativeStage, cssWidth: box.width, cssHeight: box.height,
     fullscreen: experience === 'landscape' && typeof document !== 'undefined' && isFullscreen(),
     dpr: window.devicePixelRatio || 1, exportSize: bulkExportSize,
     scale: perfGovernor?.resolutionScale(active.grid.height, { adaptive: true }) ?? 1 });
@@ -801,7 +804,7 @@ function fitCanvas() {
   // Canvas resets clear context state, including nearest-neighbor sampling.
   const ctx2d = canvas.getContext('2d');
   if (ctx2d) ctx2d.imageSmoothingEnabled = false;
-  canvas.classList.toggle('retro', !hybrid);
+  canvas.classList.toggle('retro', !hybrid || nativeStage);
   landscapeHintEl?.classList.toggle(
     'is-visible',
     !bulkExportSize && shouldSuggestLandscape(canvas.clientWidth, canvas.clientHeight),

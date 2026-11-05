@@ -66,6 +66,7 @@ class PresentingRenderer {
       this._experience = sim?.experience || 'landscape'; this.setPresentation(this._requestedPresentation);
     }
     this.output.setFrameContext?.({ worldKind: sim?.biomes?.world?.kind ?? null, experience: this._experience });
+    this.output.diagnostics.rangePipeline = this._requestedPresentation?.rangePipeline || 'hybrid';
     const wasVoxelFrame = this._voxelFrame;
     this._voxelFrame = false;
     if (this.voxelRange && this.voxelRange.state !== 'unavailable') {
