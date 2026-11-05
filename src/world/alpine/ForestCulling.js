@@ -23,7 +23,10 @@
 // the next culled render of any scene (the scenes share these geometries),
 // or until restoreForestCulling(), which the code that reads or sets a
 // batch's instanceCount between renders calls first (ForestGL
-// updateDetailView, RangeScene._setTerrainMode).
+// updateDetailView, the tour layer's apply and setMode, RangeScene
+// _setTerrainMode). The tour's apply is the first of these after a frame
+// that threw, so without its restore the next render would put a stale
+// count back over the twins it refilled.
 //
 // The box of a tree with root (X, Y, Z), height H and width W:
 // - Root lift: the shaders add deformAt(iPos) to the root (rootOf). That is

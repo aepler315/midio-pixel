@@ -283,10 +283,15 @@ function tourScene({ tour = null, mixed = false } = {}) {
   scene.add(...f.byBand.far, ...f.byBand.mid, ...f.byBand.near, ...f.depth);
   // As RangeScene adds them: after the static forest, hidden.
   if (f.tour) scene.add(...f.tour.byBand.far, ...f.tour.byBand.mid, ...f.tour.byBand.near, ...f.tour.depth);
-  for (const m of scene.children) m.onBeforeRender = () => state.ops.push(['object', m, m.geometry.instanceCount]);
+  let thrower = null;
+  for (const m of scene.children) m.onBeforeRender = () => {
+    if (m === thrower) throw new Error('mid-render');
+    state.ops.push(['object', m, m.geometry.instanceCount]);
+  };
   const camera = new THREE.PerspectiveCamera(60, 2, 1, 6000);
   camera.layers.enable(1); camera.layers.enable(2);
-  camera.position.set(0, 7, 0); camera.lookAt(0, 7, -1); camera.updateMatrixWorld();
+  const look = z => { camera.position.set(0, 7, 0); camera.lookAt(0, 7, z); camera.updateMatrixWorld(); };
+  look(-1);
   const target = new THREE.WebGLRenderTarget(300, 150);
   const ids = new Map();
   const id = o => { if (!ids.has(o)) ids.set(o, ids.size); return ids.get(o); };
@@ -294,7 +299,7 @@ function tourScene({ tour = null, mixed = false } = {}) {
     : op === 'draw' ? `draw ${v.count}x${v.instances ?? 1}@${v.offset}` : `${op} ${id(v)}`);
   const objects = () => state.ops.filter(([op]) => op === 'object').map(([, m, n]) => [m, n]);
   const render = () => { renderer.setRenderTarget(target); renderer.render(scene, camera); state.draws.length = 0; };
-  return { f, scene, state, render, timeline, objects };
+  return { f, scene, state, render, timeline, objects, look, setThrower: m => { thrower = m; } };
 }
 
 test('with the tour layer the rail\'s render is the same render, call for call', () => {
@@ -382,4 +387,58 @@ test('a tour render draws no static mesh-ring batch and only the twins that hold
   check(z => z > 0, 'behind');
   check(z => z < 0, 'front');
   check(z => z > 0, 'behind');
+});
+
+test('a tour refill and a switch to the rail put back what a thrown render culled before they set the twins\' counts', () => {
+  const s = tourScene({ tour: { seed: 5 }, mixed: true }), t = s.f.tour, index = t.index;
+  for (const g of s.f.modeGeometries) setTerrainDrawMode(g, 'tour');
+  t.setMode('tour');
+  const fill = keep => {
+    const bits = new Uint32Array(index.words);
+    for (let u = 0; u < index.count; u++) if (keep(index.pos[3 * u + 2])) bits[u >>> 5] |= 1 << (u & 31);
+    assert.ok(t.apply({ a: { bits }, b: { bits }, f: 1 }));
+    s.f.applyVisibility();
+  };
+  const twinGeos = t.twins.flatMap(({ detail, lite }) => lite ? [detail, lite] : [detail]);
+  const counts = () => twinGeos.map(g => g.instanceCount);
+  // The last object three reaches throws, after the cull has set its 0s.
+  const throwAfterCull = () => {
+    s.state.ops.length = 0;
+    s.render();
+    s.setThrower(s.objects().at(-1)[0]);
+    const set = counts();
+    assert.throws(() => s.render(), /mid-render/);
+    s.setThrower(null);
+    s.state.ops.length = 0;
+    assert.ok(counts().some((n, i) => n === 0 && set[i] > 0), 'the thrown render left a twin at 0');
+  };
+  attachForestCulling(s.scene);
+  // Window 1, the trees behind the camera (it looks down -z): the mixed
+  // twin holds its 4 trees there, is culled, and the render throws.
+  fill(z => z > 0);
+  const mixedTwin = twinGeos.find(g => g.instanceCount === 4 && g.attributes.iPos.getZ(0) > 0);
+  throwAfterCull();
+  assert.equal(mixedTwin.instanceCount, 0);
+  // Window 2, every tree: apply() refills the mixed twin to 8 in place, its
+  // 4 trees in front of the camera first. Turned to face the others, the
+  // stale 4 would bound those front trees alone and cull trees in view.
+  fill(() => true);
+  const want = counts();
+  assert.equal(mixedTwin.instanceCount, 8);
+  s.look(1);
+  s.state.ops.length = 0;
+  s.render();
+  const faces = g => [...Array(want[twinGeos.indexOf(g)]).keys()].some(j => g.attributes.iPos.getZ(j) > 0);
+  const reached = s.objects().filter(([m]) => twinGeos.includes(m.geometry) && faces(m.geometry));
+  assert.ok(reached.some(([m]) => m.geometry === mixedTwin));
+  for (const [m, n] of reached) assert.equal(n, want[twinGeos.indexOf(m.geometry)], 'a twin in view draws the count apply() set');
+  assert.deepEqual(counts(), want, 'every twin keeps apply()\'s count');
+  // A throw again, then the rail: setMode's 0s must outlast the next render.
+  throwAfterCull();
+  t.setMode('rail');
+  for (const g of s.f.modeGeometries) setTerrainDrawMode(g, 'rail');
+  s.f.applyVisibility();
+  s.render();
+  assert.ok(!s.objects().some(([m]) => twinGeos.includes(m.geometry)), 'the rail reaches no twin');
+  assert.deepEqual(counts(), twinGeos.map(() => 0), 'no culled twin count comes back on the rail');
 });
