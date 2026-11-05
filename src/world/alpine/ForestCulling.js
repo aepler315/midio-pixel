@@ -109,13 +109,15 @@ const cellsCache = new WeakMap();
  *  A batch tagged `forestCull.prefix` (the tour layer's twins, ForestGL.js)
  *  refills its attributes in place and draws only their first
  *  instanceCount trees: its cells cover that prefix and are rebuilt when
- *  the count or an attribute's version changes. Every other batch is bound
- *  over all its trees, as before. */
+ *  the count or an attribute's version changes. three draws
+ *  min(instanceCount, the instance count), so a count at or past its trees
+ *  (three's default Infinity included) covers every tree. Every other batch
+ *  is bound over all its trees, as before. */
 export function forestCells(geometry) {
   const pos = geometry?.attributes?.iPos, size = geometry?.attributes?.iSize, vars = geometry?.attributes?.iVar;
   if (!pos || !size || !vars || size.count < pos.count || vars.count < pos.count) return null;
-  const prefix = !!geometry.userData?.forestCull?.prefix;
-  const n = prefix ? Math.min(pos.count, Math.max(0, geometry.instanceCount | 0)) : pos.count;
+  const prefix = !!geometry.userData?.forestCull?.prefix, count = geometry.instanceCount;
+  const n = !prefix || count >= pos.count ? pos.count : count > 0 ? Math.floor(count) : 0;
   const version = prefix ? `${n}:${pos.version}:${size.version}:${vars.version}` : null;
   const cached = cellsCache.get(pos);
   if (cached && cached.size === size && cached.vars === vars && cached.version === version) return cached.cells;

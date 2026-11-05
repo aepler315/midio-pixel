@@ -539,6 +539,37 @@ test('a prefix batch\'s cells cover only the trees it draws and follow every ref
   assert.equal(forestGeometryVisible(moving, planes, u), true, 'refilled in front of it');
 });
 
+test('a prefix batch whose count is past its trees, three\'s default Infinity included, is bound over every tree, as three draws them', () => {
+  const u = uniforms(rng(4)), camera = new THREE.PerspectiveCamera(50, 1, 1, 20000);
+  camera.position.set(0, 1010, 0); camera.lookAt(0, 1010, -1); camera.updateMatrixWorld();
+  const planes = frustumPlanes(camera, null);
+  const at = z => ({ x: 0, y: 1000, z, h: 20, w: 5, species: 1, id: .5 });
+  // The first tree behind the camera, the second straight ahead of it.
+  const twin = batch(ASSETS[4].geo, [at(800), at(-800)]);
+  twin.userData.forestCull = { uniforms: u, prefix: true };
+  const scene = new THREE.Scene();
+  scene.add(new THREE.Mesh(twin));
+  assert.equal(new THREE.InstancedBufferGeometry().instanceCount, Infinity, 'three\'s default count');
+  // three draws min(instanceCount, the instance count): every tree.
+  for (const count of [Infinity, 2 ** 31, 2 ** 32 + 1, 1e300]) {
+    twin.instanceCount = count;
+    assert.equal(forestCells(twin).length, 2 * 8, `count ${count}: every tree is bound`);
+    assert.equal(forestGeometryVisible(twin, planes, u), true, `count ${count}: the tree ahead keeps the batch`);
+    assert.equal(cullForestScene(scene, camera, null).length, 0, `count ${count}: not culled`);
+    assert.equal(twin.instanceCount, count);
+  }
+  // Below the trees' count, the prefix as before: the one drawn tree is behind.
+  for (const count of [1, 1.5]) {
+    twin.instanceCount = count;
+    assert.equal(forestCells(twin).length, 8);
+    assert.equal(forestGeometryVisible(twin, planes, u), false, `count ${count}: culled`);
+  }
+  for (const count of [0, -1, NaN]) {
+    twin.instanceCount = count;
+    assert.equal(forestCells(twin).length, 0, `count ${count}: nothing drawn, nothing bound`);
+  }
+});
+
 test('the culled count is restored however the scene\'s renders end', () => {
   const r = rng(9), u = uniforms(r);
   const camera = new THREE.PerspectiveCamera(50, 1, 1, 1000);
