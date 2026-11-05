@@ -9,7 +9,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import { decodeTerrain, buildTerrainGeometry } from '../../src/world/alpine/TerrainMesh.js';
+import { decodeTerrain, buildTerrainGeometry, terrainBandsFor } from '../../src/world/alpine/TerrainMesh.js';
 import { travelSpans } from '../../src/world/TravelSeam.js';
 import { cameraPoseAt } from '../../src/world/terrain/SceneTravel.js';
 import { occlusionBuffer, MIN_FAR_EXPOSED, EXPOSURE_FRAMING, VISIBILITY } from './terrain-bake.mjs';
@@ -221,10 +221,16 @@ function rasterTrees(buf, { data, stride }) {
 /** The view's trees exactly as RangeScene places them (full quality). */
 export function viewTrees(data, view, rules) {
   const placed = placeForest(data, view, rules, { seed: hashSeed(view.id) });
-  const all = new Float32Array(placed.meshDetail.length + placed.mesh.length + placed.billboard.length);
-  all.set(placed.meshDetail, 0);
-  all.set(placed.mesh, placed.meshDetail.length);
-  all.set(placed.billboard, placed.meshDetail.length + placed.mesh.length);
+  // On its rail a view draws each ring's leading trees, those its rail
+  // places alike, and its rail-only trees (ForestCover railCount, railOnly;
+  // RailDraw.js).
+  const rings = ['meshDetail', 'mesh', 'billboard'].flatMap((k) => [
+    placed[k].subarray(0, placed.railCount ? placed.railCount[k] * placed.stride : placed[k].length),
+    placed.railOnly?.[k] || new Float32Array(),
+  ]);
+  const all = new Float32Array(rings.reduce((n, r) => n + r.length, 0));
+  let at = 0;
+  for (const r of rings) { all.set(r, at); at += r.length; }
   return { data: all, stride: placed.stride };
 }
 
@@ -258,8 +264,9 @@ export function maskExposure(m) {
 /** Per-station exposure of a shipped view: { stations, min, minCrest }. */
 export async function viewExposure(runtimeDir, view, { stations = VISIBILITY.stations, rules = null } = {}) {
   const data = await loadShippedTerrain(runtimeDir, view);
-  // The runtime's own desktop meshes, band by band.
-  const meshes = buildTerrainGeometry(data, { budget: 'desktop' }).bands;
+  // The runtime's own desktop meshes, band by band, as the rail draws them
+  // (a tour package's tour-only ground and its tour copies left out).
+  const meshes = terrainBandsFor(buildTerrainGeometry(data, { budget: 'desktop' }), 'rail');
   // The forest the scene would place (its material rules and the view's
   // overrides); without a material pack, terrain alone.
   let packRules = rules;

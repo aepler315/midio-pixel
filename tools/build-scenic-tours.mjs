@@ -26,7 +26,7 @@ import { discoverSubjects, valleyPaths, shorelines } from './lib/scenic-features
 import { generateShots, poseTraits, LANDFORMS } from './lib/scenic-shots.mjs';
 import { linkVariants, keepParetoLinks, linkRejects } from './lib/scenic-links.mjs';
 import { LINK_VISIBILITY_FIELDS, linkVisibilityStatus } from './lib/scenic-score.mjs';
-import { strideCost, tourPoses, tourBakeOptions, bakeOptions } from './lib/scenic-cost.mjs';
+import { strideCost, tourPoses, tourBakeOptions, bakeOptions, mirrorLevels } from './lib/scenic-cost.mjs';
 
 import { SHOT_SCHEMA, SHOT_VERSION, packShotPaths, chooseLattice, shotLibraryErrors, decodeShotLibrary, cameraFootprint } from '../src/world/terrain/ShotLibrary.js';
 import { pathPoseAt, slicePath, pathLaneAt, withProgress } from '../src/world/terrain/ShotPath.js';
@@ -35,6 +35,7 @@ import { bakeTerrain, mirroredPose, VISIBILITY, LOD_BUDGETS } from './lib/terrai
 import { cameraPoseAt } from '../src/world/terrain/SceneTravel.js';
 import { validatePoses, rangeAssetBytes } from './lib/scenic-coverage.mjs';
 import { decodeTerrain } from '../src/world/alpine/TerrainMesh.js';
+import { railGroundData } from '../src/world/alpine/RailDraw.js';
 import { forestPlacementBound } from '../src/world/alpine/ForestCover.js';
 import SCENE_CATALOG from '../src/world/terrain/sceneCatalogData.js';
 
@@ -1018,7 +1019,7 @@ export async function railParity(viewId, camera, terrain, { stations = 9, width 
     return { eyeM: at(camera.eyeStartM, camera.eyeEndM, camera.eyeArcM), targetM: at(camera.targetStartM, camera.targetEndM, camera.targetArcM), fovYDeg: camera.fovYDeg };
   });
   const render = async (candidate) => {
-    const session = await openShotReview(viewId, { width, height, terrain: candidate });
+    const session = await openShotReview(viewId, { width, height, terrain: candidate, terrainMode: 'rail' });
     try { return await session.renderPoses(poses, { mode: 'material' }); } finally { await session.close(); }
   };
   const [before, after] = [await render(null), await render(terrain)];
@@ -1055,27 +1056,32 @@ export function libraryPoses(ctx, library, options = {}) {
 }
 
 /** Coverage requirements follow the package the runtime will load: a bake
- *  can expose water or change its median plane. Keep rail mirrors at the
- *  ordinary rail limits, independently of the looser tour pixel budget. */
+ *  can expose water or change its median plane. The rail mirrors its own
+ *  lake (RangeScene): only a rail that sees water keeps mirror stations, at
+ *  its own plane, held to the ordinary rail limits independently of the
+ *  looser tour pixel budget, against the ground the rail draws: its own
+ *  tiles, never the tour-only ones (RailDraw). */
 function libraryCoverage(ctx, library, check) {
   const { poses: tour, mirrorLevelM } = libraryPoses(ctx, library);
+  const railMirrorLevelM = mirrorLevels(ctx).rail;
   const count = bakeOptions(ctx).visibility?.stations ?? VISIBILITY.stations;
-  const rail = mirrorLevelM == null ? [] : Array.from({ length: count }, (_, k) =>
-    mirroredPose(cameraPoseAt(ctx.build.view, count > 1 ? k / (count - 1) : 0), mirrorLevelM));
+  const rail = railMirrorLevelM == null ? [] : Array.from({ length: count }, (_, k) =>
+    mirroredPose(cameraPoseAt(ctx.build.view, count > 1 ? k / (count - 1) : 0), railMirrorLevelM));
   const poses = [...tour, ...rail];
+  const railCtx = ctx.terrain.data ? { ...ctx, terrain: { ...ctx.terrain, data: railGroundData(ctx.terrain.data) } } : ctx;
   const validation = { ok: true, holes: [], lod: [], worst: { holeFrac: 0, errorPx: 0, extendedErrorPx: 0 } };
   for (const budget of ['desktop', 'mobile']) {
     const lens = (ctx.terrain.manifest.lod?.budgets ?? LOD_BUDGETS)[budget];
     const tourCheck = { errorPx: check.errorPx * lens.errorPx, extendedErrorPx: check.extendedErrorPx * lens.errorPx };
-    for (const [required, options, offset] of [[tour, tourCheck, 0], [rail, {}, tour.length]]) {
+    for (const [required, options, offset, against] of [[tour, tourCheck, 0, ctx], [rail, {}, tour.length, railCtx]]) {
       if (!required.length) continue;
-      const result = validatePoses(ctx, required, { ...options, budget });
+      const result = validatePoses(against, required, { ...options, budget });
       validation.ok &&= result.ok;
       for (const key of ['holes', 'lod']) validation[key].push(...result[key].map((e) => ({ ...e, poseIndex: e.poseIndex + offset, budget })));
       for (const key of Object.keys(validation.worst)) validation.worst[key] = Math.max(validation.worst[key], result.worst[key]);
     }
   }
-  return { poses, railPoses: rail, mirrorLevelM, validation };
+  return { poses, railPoses: rail, mirrorLevelM, railMirrorLevelM, validation };
 }
 
 /**
@@ -1127,15 +1133,23 @@ export async function forestBuild(ctx, data, library) {
   return { rail: bound(null), tour: bound(library), bound };
 }
 
+/** A region's budget value: `null` lifts that cap (the runtime still
+ *  decides per device: a static view whose tour does not fit beside what is
+ *  resident is prepared for its rail alone, RangeScene prepare), and an
+ *  absent value takes `fallback`. */
+export function budgetCap(value, fallback = Infinity) {
+  return value === null ? Infinity : value ?? fallback;
+}
+
 export async function budgetErrors(ctx, config, packed, bake, forest = null) {
   const errors = [], b = config.budget;
-  const forestCap = Math.max(b.forestBuildBytes ?? 160 * 2 ** 20, 1.1 * (forest?.rail ?? 0));
+  const forestCap = Math.max(budgetCap(b.forestBuildBytes, 160 * 2 ** 20), 1.1 * (forest?.rail ?? 0));
   if (forest && forest.tour > forestCap) errors.push(`forest build ${(forest.tour / 2 ** 20).toFixed(0)} MiB, over ${(forestCap / 2 ** 20).toFixed(0)} MiB`);
   if (!bake.validation.ok) errors.push(`not covered by the ${bake.rebaked ? 're-culled' : 'shipped'} package (${bake.validation.holes.length} poses with holes, ${bake.validation.lod.length} LOD violations)`);
   const added = (bake.rebaked ? bake.budget.addedBytes : 0) + Buffer.byteLength(packed.manifestText) + packed.payload.byteLength;
-  if (added > b.assetBytes) errors.push(`adds ${added} bytes, over the region's ${b.assetBytes}`);
-  if (bake.rebaked && bake.budget.desktopTriangles > b.desktopTriangles) errors.push(`desktop ${bake.budget.desktopTriangles} triangles, over ${b.desktopTriangles}`);
-  if (bake.rebaked && bake.budget.mobileTriangles > b.mobileTriangles) errors.push(`mobile ${bake.budget.mobileTriangles} triangles, over ${b.mobileTriangles}`);
+  if (added > budgetCap(b.assetBytes)) errors.push(`adds ${added} bytes, over the region's ${b.assetBytes}`);
+  if (bake.rebaked && bake.budget.desktopTriangles > budgetCap(b.desktopTriangles)) errors.push(`desktop ${bake.budget.desktopTriangles} triangles, over ${b.desktopTriangles}`);
+  if (bake.rebaked && bake.budget.mobileTriangles > budgetCap(b.mobileTriangles)) errors.push(`mobile ${bake.budget.mobileTriangles} triangles, over ${b.mobileTriangles}`);
   const total = await rangeAssetBytes(root);
   return { errors, added, deliveryBytes: total + added, forest: forest ? { rail: forest.rail, tour: forest.tour, cap: forestCap } : null };
 }
@@ -1280,7 +1294,7 @@ export async function fitToBudget(built, { log = console.log, maxIterations = In
     const est = estimatedBytes([...library.shots, ...library.links], cost);
     const ratio = est > 0 ? Math.min(4, Math.max(0.25, (budget.added - libBytes) / est)) : 1;
     const perRecord = libBytes / Math.max(1, library.shots.length + library.links.length);
-    const fits = (lib) => estimatedBytes([...lib.shots, ...lib.links], cost) * ratio + perRecord * (lib.shots.length + lib.links.length) <= 0.95 * config.budget.assetBytes;
+    const fits = (lib) => estimatedBytes([...lib.shots, ...lib.links], cost) * ratio + perRecord * (lib.shots.length + lib.links.length) <= 0.95 * budgetCap(config.budget.assetBytes);
     let dropped = 0;
     // Over the forest build: drop what narrows the forest most per shot lost.
     while (budget.forest && budget.forest.tour > budget.forest.cap && library.shots.length > 4) {

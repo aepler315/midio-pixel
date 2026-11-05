@@ -11,14 +11,17 @@ export function terrainFeatureSegmentsAsync(positions, indices, options = {}) {
   return prepareInSlices(featureSteps(positions, indices, options), options);
 }
 
-function* featureSteps(positions, indices, { intervalM = 300, maxSegments = 768 } = {}) {
+// `pieces` (flat [first, last) index pairs) reads only those triangles, in
+// that order, as if they were one index array.
+function* featureSteps(positions, indices, { intervalM = 300, maxSegments = 768, pieces = null } = {}) {
   intervalM = Math.max(1, intervalM);
   maxSegments = Math.max(0, Math.floor(maxSegments));
   if (!maxSegments) return new Float32Array();
   const reservoir = new Float32Array(maxSegments * 6);
-  let seen = 0, count = 0;
-  for (let i = 0; i < indices.length; i += 3) {
-    if (i % 384 === 0) yield;
+  let seen = 0, count = 0, read = 0;
+  const spans = pieces || [0, indices.length];
+  for (let p = 0; p < spans.length; p += 2) for (let i = spans[p]; i < spans[p + 1]; i += 3) {
+    if (read++ % 128 === 0) yield;
     const pts = [indices[i], indices[i + 1], indices[i + 2]].map(k => [positions[k * 3], positions[k * 3 + 1], positions[k * 3 + 2]]);
     if (!pts.flat().every(Number.isFinite)) continue;
     const heights = pts.map(p => p[1]), low = Math.min(...heights), high = Math.max(...heights);

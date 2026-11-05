@@ -71,21 +71,152 @@ Captures, matching audio, device traces and review reports stay outside Git as
 required by AGENTS.md. See the PR/chat evidence for the exact tested revision,
 completed comparisons and remaining external CI/Pages configuration limits.
 
-## Water colour ranges
+## Water-only terrain draw
 
 The water pass repeats the terrain colour draw and discards every dry fragment.
-A static view submits only the index ranges that can reach water
-(`WaterColourRanges.js`): each triangle's surface texel rectangle, widened by a
-guard texel, is tested against a transient summed-area table of the hydro
-marker. The ranges are three.js groups over the existing index buffers, applied
-to the existing terrain and seam meshes around the colour draw alone. The depth
-pre-pass, mirror, rivers, index order, positions and GL state do not change, and
-no GPU buffer or texture is added.
+A static view draws, in place of each band and seam mesh, a water-only index
+(`WaterSubset.js`, see `docs/water-render-cost.md`): an index holding only
+the triangles whose texel box can reach a wet surface texel, in their original
+order, culled per tile like the bands (below). A `mapped-only` view has no terrain water, so its terrain
+colour draw disappears. Tour views keep the whole draw.
 
-Each geometry takes at most four groups, a dry gap must span a tile's worth of
-indices to earn a draw, and a saving below 5% keeps the original draw. A
-`mapped-only` view has no terrain water, so its terrain colour draw disappears.
-Tour views, swapped windows and travel columns keep the original draw.
-`tools/water-geometry-check.mjs` compares all terrain arrays with a baseline
-commit and samples dropped triangles; `tools/water-colour-smoke.mjs` compares
-restricted and whole water pixels in a real frame.
+The earlier index-range variant (`WaterColourRanges.js`, up to four draws per
+mesh split at dry gaps) was removed: whenever a water subset existed it was
+already bypassed, and it doubled the view's preparation time.
+
+At the native grid the water pass copies the partition's depth
+(`gl.blitFramebuffer`) instead of drawing the terrain's depth again. Above the
+native grid the whole pass is scissored to the water boxes' projected
+rectangle.
+
+## Terrain culling
+
+Each depth band stays one merged mesh, so three.js never re-sorts its
+triangles. It is culled per tile through draw groups instead
+(`TerrainChunks.js`). Before each render, the groups become the in-order runs
+of tiles whose boxes reach the frustum and the target's scissor. The boxes are
+lifted by the frame's own displacement bound. After the render, the
+whole-index group is restored. A culled tile cannot make a fragment, so frames
+stay byte-identical. The pilot song submits 3.8 M terrain triangles per frame
+instead of 9.8 M. Terrain meshes hold `[material]` because three.js honours
+draw groups only for array materials. Use `setTerrainMaterial` and
+`terrainMaterial` to swap or read it.
+
+## Forest culling
+
+Each mesh-tree batch (band, species family and variant) stays one instanced
+draw, so three.js never reorders its trees, whose soft crowns blend in
+instance order. A whole batch is skipped instead (`ForestCulling.js`). Before
+each render, every mesh-tree geometry is tested once: its trees, binned by
+root into 256 m cells, become boxes that hold every vertex the tree shader can
+place this frame (root lift, height, crown and trunk radii, and the wind,
+gust, parting and storm lean, doubled, plus 1 m; the song's rise lowers each
+floor to its bottom where it comes nearest the eye, `risenFloor`). A geometry
+with no box in the frustum and the target's scissor gets `instanceCount` 0,
+which skips only its draw call; after the render the count is restored. Frames
+stay byte-identical. On main 181d2a3 (before the rise and the desktop tours),
+a `teton-jackson-lake` frame submits 16.3 M triangles instead of 45.5 M, and a
+pilot-view frame 6.6 M instead of 7.8 M. Billboards are not culled, and
+neither is a batch under a rise the floor cannot bound. The counts a render
+that throws leaves at 0 are put back by the next culled render of any scene,
+or by `restoreForestCulling`, which the detail view and the rail/tour switch
+call first.
+
+## Tour forest windows
+
+On its shot tour a two-camera static view draws every mesh-ring tree of the
+tour as a mesh. Most are far from the eye at any moment. The tour forest layer
+(`TourForest.js`, `createForest`'s `tour` option) draws as meshes only the
+trees near the part of the tour being played. Every other tree is drawn as a
+billboard. The rail does not change: its batches, counts, shaders and draw
+calls are those of a forest without the layer, and the layer's objects stay
+hidden there.
+
+The rule is set by constants in `TourForest.js`:
+
+- **Windows.** The timeline is cut into 4 s windows (`TOUR_WINDOW_MS`), 40 eye
+  keys each. Each window's keys are extended by half a fade, 0.5 s, on each side.
+- **Window sets.** A window's set holds every tree whose root lies nearer the
+  simplified key path than `reach + M + δ + τ + ε`:
+  - `reach` is the tree's own mesh ring, 1200 m times its ring scale
+    (`forestRingScale`).
+  - `M` is a 50 m margin (`TOUR_MARGIN_M`).
+  - `δ` bounds how far `poseAt`'s Catmull-Rom curve leaves its chords
+    (`crDeviation`).
+  - `τ` is the 2 m Douglas-Peucker tolerance (`TOUR_TAU_M`).
+  - `ε` is 0.25 m (`TOUR_EPS_M`).
+
+  A tree within its ring of the eye is therefore in the set of every window
+  whose span holds the frame's time.
+- **Dissolves.** Each window boundary dissolves over 1 s (`TOUR_FADE_MS`).
+  Each instance carries two bits: whether it is in the outgoing set and
+  whether it is in the incoming one. A tree in only one of the two sets turns
+  into a mesh or a billboard when the fade passes its own key,
+  `fract(id * 4099)`. The same rule decides mesh and board, so each tree is
+  drawn once.
+- **Schedule.** `TourForestSchedule` keeps up to 32 computed windows
+  (`TOUR_CACHE_WINDOWS`) and computes at most one upcoming window per frame
+  ahead of need. A new timeline (a replan) keeps only the windows whose keys
+  it leaves byte-equal. The layer refills its twins whenever the drawn sets
+  are different objects, so a replan of the playhead's window takes effect on
+  the next pass.
+- **Guard.** Each pass checks the eye it draws from, after the camera moves.
+  It must lie within `δ + τ + ε` of both windows' paths. Otherwise that pass
+  draws every tree of the layer as a mesh, which is the tour without the layer.
+
+Each static mesh batch has a twin that holds that batch's trees in the drawn
+sets, in placement order. Each band has a demote board holding all its trees,
+which draws those that are not meshes. The static mesh-ring batches are hidden
+on the tour. A twin is culled whole like a static batch (`ForestCulling.js`),
+with its cells built over the trees it draws (`forestCull.prefix`: its first
+`instanceCount` trees) and rebuilt at every refill, when its buffers'
+versions change. Like every billboard, the boards are never culled. On
+`black-mountains-catawba`, whose tour flies low over dense forest, this takes
+the twins out of the mirror and water passes, where they made up about half
+the frame.
+
+A twin in view draws only a span of its trees (`forestSpan`,
+`forestCull.spans`). The span runs from the first to the last tree whose own
+box (the cell box over that one tree) can reach the render's frustum and
+scissor, its first tree rounded down to a multiple of 4 (`SPAN_ALIGN`). It is
+still the twin's one draw, in the same order, reading the same bytes: the
+per-tree attributes are `InterleavedBufferAttribute`s (stride = item size), and
+for the render the culling puts in views of the same buffers that start at the
+span's first tree. It restores them after the render, or before the next cull,
+refill, mode switch or `applyVisibility`. Every tree left out has every vertex
+outside one clip plane, so frames stay byte-identical. A twin no tree of which
+can reach the render draws nothing. A geometry whose per-tree attributes
+cannot start at an offset is culled whole, and `tour.spans: false` culls every
+twin whole. Export frames on main eadd0e8 in headless Chromium (SwiftShader;
+triangle counts, not timings), pilot song:
+
+| Tour | Frames | Triangles per frame, whole twins → spans |
+|---|---|---|
+| `black-mountains-catawba` | 11, 4.2 to 40 s | 65.3–66.0 M → 37.5–38.0 M; 86.3 M → 48.2 M at 40 s |
+| `black-mountains-catawba`, quality level 4 | 4.2 and 20 s | 35.8–36.0 M → 20.5–20.7 M |
+| `teton-jackson-lake` | 13, 2 to 80 s | unchanged, but 26.8 M → 26.3 M at 80 s |
+
+Every frame is byte-identical to main. The cut is in the passes that draw the
+twins under the main camera: on Black Mountains at 20 s the partitions go from
+30.7 M to 14.1 M triangles, the cast pass from 12.2 M to 6.7 M and the crest
+probe from 9.1 M to 3.6 M. The mirror and water passes, which already cull
+the twins whole, do not change. Across the frame's renders at 20 s, 90 forest
+draws are skipped instead of 60: the twins with no tree in reach.
+
+Residency: the layer's bytes (`tourForestBytes`) are charged in the view's GPU
+reservation. It is built only when it fits in free room beside both cameras,
+and on phones only when twice its size is free. Like a mirror, it never evicts
+another entry to fit, so another view's mirror or water canvases stay.
+Otherwise the view keeps the static tour forest, and if even a reservation
+without the layer fails, the existing refusal path follows. The surface
+build's scratch, reserved after a yield, follows the same order: if it is
+denied beside the layer, the view gives the layer's bytes back and asks again.
+The layer costs 5.85 MiB on `teton-jackson-lake` and 15.87 MiB on
+`black-mountains-catawba`. The pre-placement room check (`_tourRoom`) does not
+count the layer.
+
+`RangeScene.tourForest` (true) switches the layer for views prepared after it
+changes. Tests set it false to compare with the static tour forest. The view's
+`stats.tourForest` reports the layer's bytes, trees, current window, refills,
+guard failures and window computes. Without the layer it reports
+`'static: no room or off'`.

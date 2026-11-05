@@ -6,7 +6,7 @@ Task-authorized experiments may continue without the listed devices under the
 hardware measurements explicitly and reserve device-performance claims for
 measurements on the identified hardware.
 
-Task 16 of the Range v2 plan asks for real-device measurements of steady-state and cold/transition behaviour, including a 10-minute phone run. This build was developed without a physical phone or GPU: every timing measured here is from Chromium SwiftShader (software WebGL2) and is **not** a device measurement. **Device acceptance is unverified** until the runs below are done on real hardware and their reports are added to the table at the end.
+Task 16 of the Range v2 plan asks for real-device measurements of steady-state and cold/transition behaviour, including a 10-minute minimum-device run. This build was developed without a physical phone or GPU: every timing measured here is from Chromium SwiftShader (software WebGL2) and is **not** a device measurement. **Device acceptance is unverified** until the runs below are done on real hardware and their reports are added to the table at the end.
 
 ## What to run
 
@@ -14,7 +14,7 @@ Run each on the real device, with the tab in front, the screen awake and nothing
 
 | Run | Device | Length | Why |
 | --- | --- | --- | --- |
-| A | A mid-range Android phone (Chrome) | 10 min | Sustained phone behaviour: thermal throttling, governor rungs, residency under the mobile budget (320 MiB when the phone reports 8 GB, else 192 MiB) |
+| A | JOYING JY-UTS18N12 (Android), minimum supported device | 10 min | Fullscreen playback, thermal throttling, governor rungs and scene transitions under the mobile budget |
 | B | An iPhone (Safari) | 10 min | Same, on the other mobile engine |
 | C | A desktop or laptop with a GPU (Chrome) | 5 min | Desktop budget (512 MiB, or 256 MiB when the machine reports under 8 GB), the 16-band travel seam at full resolution |
 
@@ -22,13 +22,15 @@ Run each on the real device, with the tab in front, the screen awake and nothing
 
 1. **Open a fresh page** (not one that has already played a song): `https://supermaudio.com/?fpsHud=1` (v2 is the default renderer; `fpsHud=1` shows the frame rate on screen). For a legacy comparison run, add `&rangeRenderer=legacy`.
 2. **Attach DevTools to the page** (while it still shows the title screen):
-   - Android: connect the phone by USB with USB debugging on, open `chrome://inspect` on a desktop Chrome, and choose **inspect** under the tab.
+   - Android: connect the device by USB with USB debugging on, open `chrome://inspect` on a desktop Chrome, and choose **inspect** under the tab.
    - iPhone: turn on Settings → Safari → Advanced → Web Inspector, connect to a Mac, and use Safari's Develop menu → the phone → the tab.
    - Desktop: press F12.
 3. **Start the probe before loading the song.** In the console, paste the whole of `tools/range-device-probe.js` and press Enter. It waits for a song, so its cold-start bucket covers the song's real start (world construction, strip bakes, the first view's preparation). To change the length, edit `MINUTES = 10` near its start.
 4. **Load a song of at least 4 minutes,** so it passes through several biomes and view-to-view travels. Choose the Range world if a picker asks.
 5. **Leave it running.** Keep the song playing (restart it if it ends). Don't switch tabs.
 6. **Save the report.** When it finishes, the probe prints one JSON report and copies it to the clipboard. Do **not** commit it: `docs/evidence/` is closed to new files (see `AGENTS.md`). Keep it under `.smoke/`, or attach it to a GitHub Release when it must outlive CI retention, and link it from the pull request and from a row in the results table below.
+
+For run A, use the browser or WebView you normally play through and enter fullscreen at the head unit’s native display size. Record the browser and screen resolution with the report.
 
 Leave the FPS cap at its default (uncapped) for acceptance runs; the report records every cap it saw in `capFps`. A capped run is still useful, but its delivered intervals measure the cap.
 
@@ -38,7 +40,7 @@ Leave the FPS cap at its default (uncapped) for acceptance runs; the report reco
 | --- | --- |
 | `gpu`, `userAgent`, `deviceMemoryGB`, `dpr` | Device, browser and GPU as the browser reports them |
 | `stage`, `rangeTarget` | CSS and backing size of the stage; size of the Range render target |
-| `budget` | Residency budget class chosen (`desktop` 512 MiB, `mobile` 320 MiB; 256/192 MiB when the device reports less than 8 GB) |
+| `budget` | Residency budget class chosen (`desktop` 512 MiB, `mobile` 320 MiB; 256/192 MiB when the device reports less than 8 GB, or 192 MiB when mobile memory is unreported) |
 | `coldStartCaptured` | True when the probe was running before the song loaded (otherwise `cold` is just the first 20 s it saw) |
 | `songRestarts` | How many times the song was restarted during the run (the probe follows the new song) |
 | `frameDelivery.cold` | The first 20 s of the song, including the frame that spans world construction |

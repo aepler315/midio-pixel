@@ -1,12 +1,19 @@
 import { cameraBasis } from '../terrain/SceneTravel.js';
-import { STRIDES, WATER_FLOW } from './TerrainPackage.js';
+import { STRIDES, WATER_FLOW, terrainHeightRange } from './TerrainPackage.js';
 import { ZOOM_MIN } from '../../render/CameraDirector.js';
 import { LENS_MIN_HALF_ANGLE_SCALE } from '../../render/CameraLens.js';
 import { MIRROR_LIFT } from './WaterMirror.js';
 import { LAND_MAX_DISPLACEMENT_M, LAND_TOUR_FADE_END_M, landDetailErrorM } from './LandMotionLimits.js';
+import { risenFloor } from './LandRise.js';
 
 const dot = (a, b) => a.reduce((n, v, i) => n + v * b[i], 0);
 const ceil = n => Math.ceil(n * 64) / 64;
+
+/** The lowest a tile can be drawn for an eye at `eyeM` while the range is
+ *  risen by at most `riseSink` (LandRise.js): the rise lowers only land
+ *  above the eye, so a tile's box only grows downward. */
+const drawnFloor = (tile, cx, cz, half, eyeM, riseSink) => riseSink > 0 && tile.maxY > eyeM[1]
+  ? risenFloor(tile.minY, cx - half, cz - half, cx + half, cz + half, { sink: riseSink, eye: eyeM }) : tile.minY;
 
 /** A stable envelope of the scenic stage, including its deepest pull-back.
  * Backing pixels and DPR never change geographic coverage. */
@@ -69,7 +76,7 @@ function heightProjectionRate(cx, cy, cz, hx, hy, p) {
 // A conservative second pass only removes additional interior geometry.
 // The reference plan's protected grids and any already budget-limited error
 // remain unchanged. Coverage, source heights and camera poses never change.
-function pixelTerrainPlan(plan, data, requirements, { heightPx, pixelHeightPx, pixelErrorPx, pixelProtectedTileIds, protectedTileIds, nearRootIds, detailPoses }) {
+function pixelTerrainPlan(plan, data, requirements, { heightPx, pixelHeightPx, pixelErrorPx, pixelProtectedTileIds, protectedTileIds, nearRootIds, detailPoses, riseSink }) {
   if (!(pixelHeightPx > 0) || !Number.isFinite(pixelHeightPx)) return plan;
   const scale = Math.min(1, pixelHeightPx / heightPx);
   const protectedIds = new Set([...pixelProtectedTileIds, ...protectedTileIds]);
@@ -84,15 +91,18 @@ function pixelTerrainPlan(plan, data, requirements, { heightPx, pixelHeightPx, p
   let triangles = 0, maxErrorPx = 0, summitMaxErrorPx = 0, coarsened = 0, coarsenedError = 0;
   const summits = new Set(protectedTileIds), strides = new Map(plan.strides);
   const minimumUpY = Math.min(...detailPoses.map(p => Math.abs(p.basis.up[1])));
-  const heightMin = data.manifest?.boundsM?.min?.[1] ?? Math.min(...[...data.tiles.values()].map(t => t.minY));
-  const heightMax = data.manifest?.boundsM?.max?.[1] ?? Math.max(...[...data.tiles.values()].map(t => t.maxY));
+  const range = terrainHeightRange(data.manifest);
+  const heightMin = range?.[0] ?? Math.min(...[...data.tiles.values()].map(t => t.minY));
+  const heightMax = range?.[1] ?? Math.max(...[...data.tiles.values()].map(t => t.maxY));
   const rates = new Map();
   const rateFor = tile => {
     if (!rates.has(tile.id)) {
       const size = data.cells * data.grid.cellSizeM;
       const cx = data.grid.originM[0] + (tile.ix + .5) * size, cz = data.grid.originM[1] + (tile.iz + .5) * size;
-      rates.set(tile.id, detailPoses.reduce((max, p) => Math.max(max,
-        heightProjectionRate(cx, (tile.minY + tile.maxY) / 2, cz, size / 2, (tile.maxY - tile.minY) / 2 + LAND_MAX_DISPLACEMENT_M, p) * scale), 0));
+      rates.set(tile.id, detailPoses.reduce((max, p) => {
+        const y0 = drawnFloor(tile, cx, cz, size / 2, p.riseEyeM, riseSink);
+        return Math.max(max, heightProjectionRate(cx, (y0 + tile.maxY) / 2, cz, size / 2, (tile.maxY - y0) / 2 + LAND_MAX_DISPLACEMENT_M, p) * scale);
+      }, 0));
     }
     return rates.get(tile.id);
   };
@@ -169,7 +179,7 @@ export function planTerrainWindow(data, tour, index, {
   pixelLimit = budget === 'mobile' ? 2 : 1, coverage = null, coverageRevision = 0,
   protectedTileIds = [],
   pixelHeightPx = null, pixelErrorPx = .25, pixelProtectedTileIds = [],
-  mirrorLevelM = null,
+  mirrorLevelM = null, riseSink = 0,
 } = {}) {
   const summits = new Set(protectedTileIds);
   const startMs = index * 8000, endMs = Math.min(tour.durationMs, startMs + 8000);
@@ -178,7 +188,8 @@ export function planTerrainWindow(data, tour, index, {
   times.push(Math.max(startMs, endMs));
   const poses = times.map(timeMs => {
     const pose = tour.poseAt(timeMs);
-    return { ...pose, basis: cameraBasis(pose), paddingM: 1, anglePadRad: 0,
+    // The mirror pass lowers the land for the main eye (riseEyeM).
+    return { ...pose, basis: cameraBasis(pose), paddingM: 1, anglePadRad: 0, riseEyeM: pose.eyeM,
       minFovYDeg: pose.fovYDeg, maxFovYDeg: pose.fovYDeg };
   });
   // Eyes are linear and aims slerp on TourTimeline's 100ms lattice. Bound
@@ -218,11 +229,12 @@ export function planTerrainWindow(data, tour, index, {
     const size = data.cells * data.grid.cellSizeM;
     const cx = data.grid.originM[0] + (tile.ix + .5) * size;
     const cz = data.grid.originM[1] + (tile.iz + .5) * size;
-    const cy = (tile.minY + tile.maxY) / 2, hy = (tile.maxY - tile.minY) / 2, hx = size / 2;
+    const hx = size / 2;
     const rootCandidate = pixelHeightPx > 0 && cx >= rootBounds.minX && cx <= rootBounds.maxX && cz >= rootBounds.minZ && cz <= rootBounds.maxZ;
     let pixelPerMetre = 0;
     for (const p of poses) {
       if (rootCandidate && !nearRootIds.has(tile.id) && Math.hypot(cx - p.eyeM[0], cz - p.eyeM[2]) <= rootReach + p.paddingM) nearRootIds.add(tile.id);
+      const y0 = drawnFloor(tile, cx, cz, hx, p.eyeM, riseSink), cy = (y0 + tile.maxY) / 2, hy = (tile.maxY - y0) / 2;
       const dx = cx - p.eyeM[0], dy = cy - p.eyeM[1], dz = cz - p.eyeM[2];
       const { forward: f, right: r, up: u } = p.basis;
       const depth = dx * f[0] + dy * f[1] + dz * f[2];
@@ -266,7 +278,7 @@ export function planTerrainWindow(data, tour, index, {
       coarse: bias > 1, coverage: framing, coverageRevision, poses,
       protectedTiles, summitMaxErrorPx, summitPixelLimit: Math.min(8, pixelLimit),
       ...(pixelLimit > requestedLimit ? { detailNote: `Triangle cap required ${pixelLimit}px surrounding terrain / ${Math.min(8, pixelLimit)}px summit detail (requested ${requestedLimit}px)` } : {}) },
-    data, requirements, { heightPx, pixelHeightPx, pixelErrorPx, pixelProtectedTileIds, protectedTileIds, nearRootIds, detailPoses });
+    data, requirements, { heightPx, pixelHeightPx, pixelErrorPx, pixelProtectedTileIds, protectedTileIds, nearRootIds, detailPoses, riseSink });
     // Wide views can expose more terrain than the original 8px ceiling
     // permits within the triangle cap. Keep that ceiling for every summit;
     // only surrounding terrain may use the additional measured levels.

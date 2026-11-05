@@ -421,31 +421,42 @@ test('a current retry reclaims completed future output before checking whether i
   assert.equal(scene.residency.usedBytes, 0);
 });
 
-test('static scene surface reservation follows the real nine-byte working peak', async () => {
+test('static scene surface reservation follows the real nine-byte working peak, borrowing the idle forest construction allowance', async () => {
   const { bakeTerrain } = await import('../tools/lib/terrain-bake.mjs');
   const { RULE_DEFAULTS } = await import('../src/world/alpine/MaterialPackage.js');
-  const width = 65, pixels = width * width;
-  const grid = { width, height: width, cellSizeM: 10, originM: [-320, -320], heightsM: new Float32Array(pixels).fill(1000), valid: new Uint8Array(pixels).fill(1),
-    horizontalCrs: 'synthetic', verticalReference: 'synthetic', sourceResolutionM: 10, outputSpacingM: 10 };
-  const camera = { eyeStartM: [0, 1800, 900], eyeEndM: [100, 1800, 900], targetStartM: [0, 1000, 0], targetEndM: [100, 1000, 0], fovYDeg: 35 };
-  const baked = await bakeTerrain(grid, { id: 'surface-admission', camera });
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async url => new Response(String(url).endsWith('.json') ? JSON.stringify(baked.manifest) : baked.payload);
-  const scene = Object.assign(Object.create(RangeScene.prototype), { budget: 'desktop', THREE,
-    residency: new GraphicsResidency({ budgetBytes: 1e9 }), prepared: new Map(), pending: new Map(), contextEpoch: 0 });
-  scene._acquireMaterial = async () => ({ key: 'test-material', pack: { manifest: { rules: { ...RULE_DEFAULTS, forestDensity: 0 } } } });
-  scene._releaseMaterial = () => {};
-  const reserve = scene.residency.reserve.bind(scene.residency); let scratchRequest;
-  scene.residency.reserve = options => {
-    if (options.owner === 'range-scratch') { scratchRequest = options; return null; }
-    return reserve(options);
-  };
-  try {
-    await assert.rejects(scene.prepare({ id: 'surface-admission', camera, terrainManifestUrl: 'surface-admission.json' },
-      { baseUrl: 'http://test/', generation: 88 }), e => e.reason === 'budget' && /surface/.test(e.message));
-    assert.equal(scratchRequest?.bytes, pixels * 9, 'the actual static preparation must charge the shared reduced backing bound');
-    assert.equal(scene.residency.usedBytes, 0, 'refused surface build retires earlier admitted resources');
-  } finally { globalThis.fetch = originalFetch; }
+  const { FOREST_ASSET_BUILD_BYTES, forestGroupingBytes } = await import('../src/world/alpine/ForestGL.js');
+  const idle = forestGroupingBytes(0) + FOREST_ASSET_BUILD_BYTES;
+  // One surface smaller than the allowance, one larger (1025^2 * 9 B > 8 MiB).
+  for (const width of [65, 1025]) {
+    const pixels = width * width, half = (width - 1) * 5;
+    const grid = { width, height: width, cellSizeM: 10, originM: [-half, -half], heightsM: new Float32Array(pixels).fill(1000), valid: new Uint8Array(pixels).fill(1),
+      horizontalCrs: 'synthetic', verticalReference: 'synthetic', sourceResolutionM: 10, outputSpacingM: 10 };
+    const camera = { eyeStartM: [0, 1800, 900], eyeEndM: [100, 1800, 900], targetStartM: [0, 1000, 0], targetEndM: [100, 1000, 0], fovYDeg: 35 };
+    const baked = await bakeTerrain(grid, { id: 'surface-admission', camera });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async url => new Response(String(url).endsWith('.json') ? JSON.stringify(baked.manifest) : baked.payload);
+    const scene = Object.assign(Object.create(RangeScene.prototype), { budget: 'desktop', THREE,
+      residency: new GraphicsResidency({ budgetBytes: 1e9 }), prepared: new Map(), pending: new Map(), contextEpoch: 0 });
+    scene._acquireMaterial = async () => ({ key: 'test-material', pack: { manifest: { rules: { ...RULE_DEFAULTS, forestDensity: 0 } } } });
+    scene._releaseMaterial = () => {};
+    const reserve = scene.residency.reserve.bind(scene.residency); let scratchRequest, entry, heldAtScratch;
+    const retire = scene._retireForestPlacement.bind(scene);
+    scene._retireForestPlacement = (owner, e, placed) => { retire(owner, e, placed); entry = e; };
+    scene.residency.reserve = options => {
+      if (options.owner === 'range-scratch') { scratchRequest = options; heldAtScratch = scene.residency.entries.get(entry.key)?.bytes; return null; }
+      return reserve(options);
+    };
+    try {
+      await assert.rejects(scene.prepare({ id: 'surface-admission', camera, terrainManifestUrl: 'surface-admission.json' },
+        { baseUrl: 'http://test/', generation: 88 }), e => e.reason === 'budget' && /surface/.test(e.message));
+      assert.equal(entry.idleBytes, idle, `${width}: the build entry names the allowance createForest has not used yet`);
+      assert.equal(heldAtScratch, entry.bytes, `${width}: the build entry still holds that allowance during the surface build`);
+      assert.equal(scratchRequest?.bytes, Math.max(0, pixels * 9 - idle), `${width}: the surface is charged only beyond the borrowed allowance`);
+      assert.ok(heldAtScratch - idle + Math.max(pixels * 9, idle) <= heldAtScratch + scratchRequest.bytes,
+        `${width}: records, the surface's nine-byte peak and the later forest construction stay covered`);
+      assert.equal(scene.residency.usedBytes, 0, `${width}: refused surface build retires earlier admitted resources`);
+    } finally { globalThis.fetch = originalFetch; }
+  }
 });
 
 

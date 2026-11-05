@@ -1,6 +1,6 @@
 {
   "about": "Range v2 scenic views: curated real terrain corridors with authored camera rails. Authoring source for tools/build-range-scene.mjs; the runtime catalog (src/assets/range/v2/catalog.json) is generated from it. Rail anchors are lon/lat (NAD83 for 3DEP sources) with an absolute height (heightM, metres above the source vertical datum) or a height above the DEM ground (aboveGroundM). status: candidate | approved | rejected; only approved views are production-eligible. These statuses describe the current runtime selector; candidate authoring and experimental development may proceed independently under docs/experimental-development.md.",
-  "catalogVersion": 20,
+  "catalogVersion": 54,
   "views": [
     {
       "id": "nc-ross-lake-north",
@@ -24,7 +24,14 @@
           44800,
           44800
         ],
-        "cellM": 20
+        "cellM": 20,
+        "windowCache": "tile",
+        "pin": {
+          "n49w122": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/historical/n49w122/USGS_13_n49w122_20250813.tif",
+          "n49w121": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/historical/n49w121/USGS_13_n49w121_20250813.tif",
+          "n50w122": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/historical/n50w122/USGS_13_n50w122_20180202.tif",
+          "n50w121": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/historical/n50w121/USGS_13_n50w121_20240617.tif"
+        }
       },
       "rail": {
         "eyeStart": {
@@ -87,22 +94,17 @@
       "title": "Ross Lake",
       "place": "North Cascades, Washington",
       "approval": {
-        "date": "2026-10-01",
-        "terrainManifestSha256": "32ee5822fccba5a474d0298cd8eb4e941cbb4858e7f1679b4e6ae9fa338aa4d2",
+        "date": "2026-11-04",
+        "terrainManifestSha256": "1c158ef5412dfd764cdf2f660c2fb2d9e234584e4601aa53e4773e6de8571d5e",
         "materialManifestSha256": "8f5ff6bb64b01072364f9d4698c13591af20de8f32dfbd40b67f0614fd242bb0",
         "materialRulesSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
         "cameraSha256": "1947b732c79e756600438f9747cb0dbd629daecafb072dd925d4d5cd1773eb7a",
         "compositionSha256": "42aabcc21fc899222ba1c8263d48fd22f58d0b94716e47f9a127c1e84b12a1f1",
         "evidence": [
-          "docs/evidence/range-v2/nc-ross-lake-north-stations.jpg",
-          "docs/evidence/range-v2/nc-ross-lake-north-inapp-10s.jpg",
-          "docs/evidence/range-v2/pilot-ross-lake-calm-10s.jpg",
-          "docs/evidence/range-v2/pilot-ross-lake-energetic-32s.jpg",
-          "docs/evidence/range-v2/pilot-ross-lake-reflection-38s.jpg",
-          "docs/evidence/range-v2/nc-ross-lake-north-nostage-10s.jpg",
-          "docs/evidence/range-v2/no-stage-coverage.json"
+          "docs/ross-lake-terrain-rebuild-2026-11-03.md"
         ]
-      }
+      },
+      "shotsManifestUrl": "tour/nc-ross-lake-north.shots.json"
     },
     {
       "id": "nc-diablo-colonial",
@@ -407,8 +409,8 @@
       "title": "Teton Range",
       "place": "Jackson Lake, Wyoming",
       "approval": {
-        "date": "2026-10-01",
-        "terrainManifestSha256": "bd3b57442d203981a66be4e1e23df677116f9a562d7a39497f0a0e0e01b429b1",
+        "date": "2026-11-04",
+        "terrainManifestSha256": "b2913f4bdf662da9417520b46cfd80d4514e035521094fc684ec5d32a8400957",
         "materialManifestSha256": "6afff55ebe7762475b09f09fa8f60627714d051f9f117ffffd8e124894281175",
         "materialRulesSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
         "cameraSha256": "eda9f5f9370642792602854f1dab20861e664781068cdeba95bbb2ecb5c8726d",
@@ -417,10 +419,12 @@
           "docs/evidence/range-v2/teton-jackson-lake-stations.jpg",
           "docs/evidence/range-v2/teton-jackson-lake-inapp-10s.jpg",
           "docs/evidence/range-v2/teton-jackson-lake-nostage-10s.jpg",
-          "docs/evidence/range-v2/no-stage-coverage.json"
+          "docs/evidence/range-v2/no-stage-coverage.json",
+          "docs/camera-tour-promotion-2026-11-03.md"
         ]
       },
-      "materialRules": {}
+      "materialRules": {},
+      "shotsManifestUrl": "tour/teton-jackson-lake.shots.json"
     },
     {
       "id": "denali-wonder-lake",
@@ -497,19 +501,18 @@
       "title": "Denali",
       "place": "Denali National Park, Alaska",
       "approval": {
-        "date": "2026-10-01",
-        "terrainManifestSha256": "351aad9728f86a3e78fe985d9d154214f4f7c0a4e89ad1d823df690b6543e46a",
+        "date": "2026-11-04",
+        "terrainManifestSha256": "48d5b809252162728e388ede919d0aae824f7c8a1d2c2c2a6e567f276ef10632",
         "materialManifestSha256": "ac0da317cbbc611f7b9a47755b4d66705d11b37b4fbceab783d918a79d6d49ae",
         "materialRulesSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
         "cameraSha256": "538b92f2099b226251f8298e1473bd80ef2717336b70279c9154bb63b4b52731",
         "compositionSha256": "42aabcc21fc899222ba1c8263d48fd22f58d0b94716e47f9a127c1e84b12a1f1",
         "evidence": [
-          "docs/evidence/range-v2/denali-wonder-lake-stations.jpg",
-          "docs/evidence/range-v2/denali-wonder-lake-inapp-10s.jpg",
-          "docs/evidence/range-v2/denali-wonder-lake-nostage-10s.jpg",
-          "docs/evidence/range-v2/no-stage-coverage.json"
+          "docs/camera-tour-promotion-2026-11-03.md",
+          "docs/scenic-framing-endings-review-2026-10-23.md"
         ]
-      }
+      },
+      "shotsManifestUrl": "tour/denali-wonder-lake.shots.json"
     },
     {
       "id": "tombstone-north-klondike",
@@ -654,26 +657,25 @@
       "title": "Muncho Lake",
       "place": "Northern Rockies, British Columbia",
       "approval": {
-        "date": "2026-10-01",
-        "terrainManifestSha256": "d25af9f0f975972c13f3da100d7b7df0a1c97136adb9073c1e673931e81c6ac2",
+        "date": "2026-11-04",
+        "terrainManifestSha256": "f4f0ef2c94ffdcc79fb76b8e8579f99ce0c312386c58b6d6b5b486f57163527a",
         "materialManifestSha256": "c44b2272c56122a84854f3f8bb2376fad740401588242ed4e0fecb8ed15f564c",
         "materialRulesSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
         "cameraSha256": "3176be5cc31e5e46d4e85ad26d0869e90b41bc1f274f1b22586d51a968f1398f",
         "compositionSha256": "42aabcc21fc899222ba1c8263d48fd22f58d0b94716e47f9a127c1e84b12a1f1",
         "evidence": [
-          "docs/evidence/range-v2/muncho-lake-south-stations.jpg",
-          "docs/evidence/range-v2/muncho-lake-south-inapp-10s.jpg",
-          "docs/evidence/range-v2/muncho-lake-south-nostage-10s.jpg",
-          "docs/evidence/range-v2/no-stage-coverage.json"
+          "docs/camera-tour-promotion-2026-11-03.md",
+          "docs/scenic-framing-endings-review-2026-10-23.md"
         ]
-      }
+      },
+      "shotsManifestUrl": "tour/muncho-lake-south.shots.json"
     },
     {
       "id": "izta-popo-west",
       "regionId": "trans-mexican-volcanic-belt",
       "biome": "PINE_OAK",
       "status": "approved",
-      "notes": "From the western foothills above Tlalmanalco looking east to Iztacc\u00edhuatl and Popocat\u00e9petl.",
+      "notes": "From the western foothills above Tlalmanalco looking east to Iztaccíhuatl and Popocatépetl.",
       "composition": {
         "foreground": "none",
         "nearLedgeMaxFrac": 0
@@ -724,7 +726,7 @@
       },
       "landmarks": [
         {
-          "name": "Iztacc\u00edhuatl",
+          "name": "Iztaccíhuatl",
           "lonLat": [
             -98.6425,
             19.1786
@@ -732,7 +734,7 @@
           "elevationM": 5230
         },
         {
-          "name": "Popocat\u00e9petl",
+          "name": "Popocatépetl",
           "lonLat": [
             -98.6278,
             19.0225
@@ -740,23 +742,22 @@
           "elevationM": 5426
         }
       ],
-      "title": "Iztacc\u00edhuatl and Popocat\u00e9petl",
-      "place": "Trans-Mexican Volcanic Belt, M\u00e9xico",
+      "title": "Iztaccíhuatl and Popocatépetl",
+      "place": "Trans-Mexican Volcanic Belt, México",
       "water": false,
       "approval": {
-        "date": "2026-10-01",
-        "terrainManifestSha256": "435e0a01cab2af34ca66a16d7bd63cf513ab3d4b071a9ff941709ea63ad3478a",
+        "date": "2026-11-04",
+        "terrainManifestSha256": "5440e738cfacff6707c5af386da857e08748877e28a5b3c1d9d0547fe800a297",
         "materialManifestSha256": "8959b57b89150274c889b241bd4656a0cdfafd28d31f675f4fd4011abaa7a38f",
         "materialRulesSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
         "cameraSha256": "2cd58f7fbb35e1bff5a99481f350fa40401a561156c55257a618e9f47502bf4d",
         "compositionSha256": "42aabcc21fc899222ba1c8263d48fd22f58d0b94716e47f9a127c1e84b12a1f1",
         "evidence": [
-          "docs/evidence/range-v2/izta-popo-west-stations.jpg",
-          "docs/evidence/range-v2/izta-popo-west-inapp-10s.jpg",
-          "docs/evidence/range-v2/izta-popo-west-nostage-10s.jpg",
-          "docs/evidence/range-v2/no-stage-coverage.json"
+          "docs/camera-tour-promotion-2026-11-03.md",
+          "docs/scenic-framing-endings-review-2026-10-23.md"
         ]
-      }
+      },
+      "shotsManifestUrl": "tour/izta-popo-west.shots.json"
     },
     {
       "id": "black-mountains-catawba",
@@ -824,8 +825,8 @@
       "title": "Black Mountains",
       "place": "Blue Ridge, North Carolina",
       "approval": {
-        "date": "2026-10-01",
-        "terrainManifestSha256": "0f5d8ce42c058a97f1e912a79fc7610ea82f76ef7d557ca964227647250d7b68",
+        "date": "2026-11-04",
+        "terrainManifestSha256": "1d66f5ad57156fffc034a620930a9f5f4add8b19f891eae20e2d81796edd6a2e",
         "materialManifestSha256": "3e8ff42e50658d7473f7a81d107c6a3e3b628ee8daae6b7d89541f8e21578894",
         "materialRulesSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
         "cameraSha256": "88bf3629d2ea67526ea219b640fd8e929c9d931f042bf8cae381c48accb67fab",
@@ -834,9 +835,11 @@
           "docs/evidence/range-v2/black-mountains-catawba-stations.jpg",
           "docs/evidence/range-v2/black-mountains-catawba-inapp-10s.jpg",
           "docs/evidence/range-v2/black-mountains-catawba-nostage-10s.jpg",
-          "docs/evidence/range-v2/no-stage-coverage.json"
+          "docs/evidence/range-v2/no-stage-coverage.json",
+          "docs/camera-tour-promotion-2026-11-03.md"
         ]
-      }
+      },
+      "shotsManifestUrl": "tour/black-mountains-catawba.shots.json"
     },
     {
       "id": "san-gabriel-baldy",
@@ -912,19 +915,18 @@
       "title": "San Gabriel Mountains",
       "place": "Angeles National Forest, California",
       "approval": {
-        "date": "2026-10-01",
-        "terrainManifestSha256": "56871dd030fa48fc1d1fce0c165f0320fc8cd9a76cddbe3bfa76539e91c4c904",
+        "date": "2026-11-04",
+        "terrainManifestSha256": "4cfd4e21153f4537c9b5ed099389827ef86cb6e277c3ff4f9e0e944f00e70056",
         "materialManifestSha256": "f3357cb770f82d0525600484c2e29132ac827dc07e799cec03e54a13a6004168",
         "materialRulesSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
         "cameraSha256": "cb64a315752973c009513304687399ce1173b9c516e4462a35668c68392ae9bf",
         "compositionSha256": "42aabcc21fc899222ba1c8263d48fd22f58d0b94716e47f9a127c1e84b12a1f1",
         "evidence": [
-          "docs/evidence/range-v2/san-gabriel-baldy-stations.jpg",
-          "docs/evidence/range-v2/san-gabriel-baldy-inapp-10s.jpg",
-          "docs/evidence/range-v2/san-gabriel-baldy-nostage-10s.jpg",
-          "docs/evidence/range-v2/no-stage-coverage.json"
+          "docs/camera-tour-promotion-2026-11-03.md",
+          "docs/scenic-framing-endings-review-2026-10-23.md"
         ]
-      }
+      },
+      "shotsManifestUrl": "tour/san-gabriel-baldy.shots.json"
     },
     {
       "id": "white-mountains-owens",
@@ -992,8 +994,8 @@
       "title": "White Mountains",
       "place": "Owens Valley, California",
       "approval": {
-        "date": "2026-10-01",
-        "terrainManifestSha256": "a83a16041b1153ff3babe0a156ed1e54ce47acb9d663f42cca2e53223800fb83",
+        "date": "2026-11-04",
+        "terrainManifestSha256": "b8b11c3f81b924614d3c89d2ea407e267732067018208fbffa5915bc798eab8f",
         "materialManifestSha256": "ada04aa0d6767f64aa7dde9aedc02e553f98b2b3488b70e032e6319b170be6c9",
         "materialRulesSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
         "cameraSha256": "7a3c63fb449c361bd9524ee820af9e92f50926125443e1aad8cbe1509b0d0a89",
@@ -1002,9 +1004,11 @@
           "docs/evidence/range-v2/white-mountains-owens-stations.jpg",
           "docs/evidence/range-v2/white-mountains-owens-inapp-10s.jpg",
           "docs/evidence/range-v2/white-mountains-owens-nostage-10s.jpg",
-          "docs/evidence/range-v2/no-stage-coverage.json"
+          "docs/evidence/range-v2/no-stage-coverage.json",
+          "docs/camera-tour-promotion-2026-11-03.md"
         ]
-      }
+      },
+      "shotsManifestUrl": "tour/white-mountains-owens.shots.json"
     },
     {
       "id": "la-sal-castle-valley",
@@ -1080,8 +1084,8 @@
       "title": "La Sal Mountains",
       "place": "Castle Valley, Utah",
       "approval": {
-        "date": "2026-10-01",
-        "terrainManifestSha256": "930f043038551229e0b43b47d0a68db31b33a9bf23d631376af54e33fbf62c42",
+        "date": "2026-11-04",
+        "terrainManifestSha256": "928d028854bc2389b174f0970768f464c81e176c65432c6c2a06674275b8455c",
         "materialManifestSha256": "ca6259b1e0cd2b10e4aae9e84abbe9c95b32976767ef372aa3caac4e73c326ce",
         "materialRulesSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
         "cameraSha256": "40d74ce2dd4dc19af5b07ee411f33e00f46e2aab4fa6c8de1f6e69d2f3b075c8",
@@ -1090,7 +1094,8 @@
           "docs/evidence/range-v2/la-sal-castle-valley-stations.jpg",
           "docs/evidence/range-v2/la-sal-castle-valley-inapp-10s.jpg",
           "docs/evidence/range-v2/la-sal-castle-valley-nostage-10s.jpg",
-          "docs/evidence/range-v2/no-stage-coverage.json"
+          "docs/evidence/range-v2/no-stage-coverage.json",
+          "docs/camera-tour-promotion-2026-11-03.md"
         ]
       },
       "riverPolicy": {
@@ -4637,7 +4642,8 @@
             "rawResponseSha256": "722da9ded7ca460cc5cb7f5eb919e6ae251c449abe1c062ef1dea81d25171c4f"
           }
         }
-      ]
+      ],
+      "shotsManifestUrl": "tour/la-sal-castle-valley.shots.json"
     },
     {
       "id": "panamint-dantes-view",
@@ -4713,19 +4719,18 @@
       "place": "Death Valley, California",
       "water": false,
       "approval": {
-        "date": "2026-10-01",
-        "terrainManifestSha256": "b7d3479f316016efe7d25fbacff1127fd5378ab89fa663095e0d55382af5d8c3",
+        "date": "2026-11-04",
+        "terrainManifestSha256": "6b89a70356c0d64ae2b40dd7323a9925ab2adf95db7583a7854a8807bd2b1586",
         "materialManifestSha256": "2beecf1f1647994f69a65b655ee5e48a3e771117bb7bcd1efd4c12ec67cfc14d",
         "materialRulesSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
         "cameraSha256": "350965c0ebfbe143a39b682af6e3a429228d69b34fb455b530bf2f903b6685a7",
         "compositionSha256": "42aabcc21fc899222ba1c8263d48fd22f58d0b94716e47f9a127c1e84b12a1f1",
         "evidence": [
-          "docs/evidence/range-v2/panamint-dantes-view-stations.jpg",
-          "docs/evidence/range-v2/panamint-dantes-view-inapp-10s.jpg",
-          "docs/evidence/range-v2/panamint-dantes-view-nostage-10s.jpg",
-          "docs/evidence/range-v2/no-stage-coverage.json"
+          "docs/camera-tour-promotion-2026-11-03.md",
+          "docs/scenic-framing-endings-review-2026-10-23.md"
         ]
-      }
+      },
+      "shotsManifestUrl": "tour/panamint-dantes-view.shots.json"
     },
     {
       "id": "chugach-matanuska",
@@ -4785,8 +4790,8 @@
       "title": "Chugach Mountains",
       "place": "Matanuska Glacier, Alaska",
       "approval": {
-        "date": "2026-10-01",
-        "terrainManifestSha256": "1dc2cd8e74ffc2a7201b35b833fc84be693afd2a5280c8ef2185e545cb4c420a",
+        "date": "2026-11-04",
+        "terrainManifestSha256": "82403cc87022fe0aacc451b155f0fd62cdafe0d522ed8a1546944fee5e3b1f1d",
         "materialManifestSha256": "ac0da317cbbc611f7b9a47755b4d66705d11b37b4fbceab783d918a79d6d49ae",
         "materialRulesSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
         "cameraSha256": "b2658692b7cd4c107723137252728e5f83949c9a704cb52d6ab4e3904397aa33",
@@ -4795,9 +4800,11 @@
           "docs/evidence/range-v2/chugach-matanuska-stations.jpg",
           "docs/evidence/range-v2/chugach-matanuska-inapp-10s.jpg",
           "docs/evidence/range-v2/chugach-matanuska-nostage-10s.jpg",
-          "docs/evidence/range-v2/no-stage-coverage.json"
+          "docs/evidence/range-v2/no-stage-coverage.json",
+          "docs/camera-tour-promotion-2026-11-03.md"
         ]
-      }
+      },
+      "shotsManifestUrl": "tour/chugach-matanuska.shots.json"
     },
     {
       "id": "wrangell-copper-river",
@@ -4943,8 +4950,8 @@
         "forestFloorM": 1900
       },
       "approval": {
-        "date": "2026-10-01",
-        "terrainManifestSha256": "78779fcd2a016e3777d524969955edb225e64db416ca02ee1708c8cb9825720e",
+        "date": "2026-11-04",
+        "terrainManifestSha256": "447806e9d070af24819d27c9661f939981926d6e10246e59e076ec96700bc0ec",
         "materialManifestSha256": "ca6259b1e0cd2b10e4aae9e84abbe9c95b32976767ef372aa3caac4e73c326ce",
         "materialRulesSha256": "2a9b384b5702447699ced44be1e44f012f28275ec78457db88d62a812d8400b7",
         "cameraSha256": "c8850b71230e96d2c87c012303b01d8e13162f56aa5a708a727e0d472551de15",
@@ -4953,7 +4960,8 @@
           "docs/evidence/range-v2/monument-valley-163-stations.jpg",
           "docs/evidence/range-v2/monument-valley-163-inapp-10s.jpg",
           "docs/evidence/range-v2/monument-valley-163-nostage-10s.jpg",
-          "docs/evidence/range-v2/no-stage-coverage.json"
+          "docs/evidence/range-v2/no-stage-coverage.json",
+          "docs/camera-tour-promotion-2026-11-03.md"
         ]
       },
       "riverPolicy": {
@@ -5472,7 +5480,8 @@
             "rawResponseSha256": "0631027c04897979f94af16c3eb8925fb8ccf5727adcc762418898eda97ad719"
           }
         }
-      ]
+      ],
+      "shotsManifestUrl": "tour/monument-valley-163.shots.json"
     },
     {
       "id": "pend-oreille-valley",
@@ -5553,21 +5562,21 @@
       },
       "landmarks": [
         {
-          "name": "Newport \u2014 USGS 12395500",
+          "name": "Newport — USGS 12395500",
           "lonLat": [
             -117.0341667,
             48.1822222
           ]
         },
         {
-          "name": "Cusick \u2014 USGS 12395950",
+          "name": "Cusick — USGS 12395950",
           "lonLat": [
             -117.2929986,
             48.3360166
           ]
         },
         {
-          "name": "Ione / Box Canyon \u2014 USGS 12396500",
+          "name": "Ione / Box Canyon — USGS 12396500",
           "lonLat": [
             -117.4163706,
             48.7809561
@@ -5575,7 +5584,7 @@
         }
       ],
       "title": "Pend Oreille Valley",
-      "place": "Newport\u2013Cusick\u2013Ione, Washington",
+      "place": "Newport–Cusick–Ione, Washington",
       "reviewPath": "docs/glacial-valley-validation.md",
       "materialRules": {
         "snowlineM": 2250,
@@ -6472,7 +6481,8 @@
         }
       ],
       "review": "Historical 2026-10-22 candidate checklist: actual renderer, reflections, clearance, skyline and both directed transition checks were listed for base review. Candidate experimentation may continue before that review is complete.",
-      "reviewPath": "docs/scenic-expansion-wave1-2026-10-22.md"
+      "reviewPath": "docs/scenic-expansion-wave1-2026-10-22.md",
+      "shotsManifestUrl": "tour/sawtooth-redfish-north.shots.json"
     },
     {
       "id": "shenandoah-stony-man-west",
@@ -6558,7 +6568,8 @@
         }
       ],
       "review": "Historical 2026-10-22 candidate checklist: actual renderer, near-ridge occlusion, clearance, skyline and both directed transition checks were listed for base review. Candidate experimentation may continue before that review is complete. Water deliberately disabled until mapped wet features would be added.",
-      "reviewPath": "docs/scenic-expansion-wave1-2026-10-22.md"
+      "reviewPath": "docs/scenic-expansion-wave1-2026-10-22.md",
+      "shotsManifestUrl": "tour/shenandoah-stony-man-west.shots.json"
     },
     {
       "id": "superstition-west-front",
@@ -6635,7 +6646,8 @@
         }
       ],
       "review": "Historical 2026-10-22 candidate checklist: actual renderer, volcanic-front silhouette, source resolution at near pillars, clearance, skyline and both directed transition checks were listed for base review. Candidate experimentation may continue before that review is complete. No permanent surface water asserted; water disabled.",
-      "reviewPath": "docs/scenic-expansion-wave1-2026-10-22.md"
+      "reviewPath": "docs/scenic-expansion-wave1-2026-10-22.md",
+      "shotsManifestUrl": "tour/superstition-west-front.shots.json"
     }
   ]
 }

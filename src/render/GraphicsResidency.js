@@ -30,12 +30,13 @@ export const MiB = 1024 * 1024;
 // and the base alone measured ~208 MiB on a 2560x1440 stage served without
 // cross-origin isolation (render targets and the worker's own terrain copy
 // grow with it), so a fixed 256 MiB left no room for the next window and the
-// tour lost its trees. Devices reporting less than 8 GB keep the old ledgers.
+// tour lost its trees. Keep the mobile ledger conservative for the
+// Android head-unit target, with a smaller budget when memory is unknown or low.
 export const RESIDENCY_BUDGETS = Object.freeze({ desktop: 512 * MiB, mobile: 320 * MiB });
 export const LOW_MEMORY_BUDGETS = Object.freeze({ desktop: 256 * MiB, mobile: 192 * MiB });
 
 /** Pick the budget for this device. Conservative: anything that looks like a
- *  phone/tablet or reports <= 4 GB is mobile. A phone gets the larger ledger
+ *  Android, looks like a phone/tablet or reports <= 4 GB is mobile. A mobile device gets the larger ledger
  *  only when it reports >= 8 GB; a desktop unless it reports < 8 GB (Firefox
  *  and Safari report nothing). */
 export function residencyBudgetFor(env = globalThis) {
@@ -45,7 +46,8 @@ export function residencyBudgetFor(env = globalThis) {
     const known = Number.isFinite(mem);
     const touch = (nav.maxTouchPoints || 0) > 1;
     const small = Math.min(env.screen?.width || 1920, env.screen?.height || 1080) < 820;
-    const name = (known && mem <= 4) || (touch && (small || !known)) ? 'mobile' : 'desktop';
+    const android = nav.userAgentData?.platform === 'Android' || /\bAndroid\b/i.test(nav.userAgent || '');
+    const name = android || (known && mem <= 4) || (touch && (small || !known)) ? 'mobile' : 'desktop';
     const roomy = name === 'mobile' ? known && mem >= 8 : !(known && mem < 8);
     return { name, bytes: (roomy ? RESIDENCY_BUDGETS : LOW_MEMORY_BUDGETS)[name] };
   } catch { /* default below */ }

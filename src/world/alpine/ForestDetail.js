@@ -1,4 +1,5 @@
 import { FOREST_MAX_LEAN } from './ForestWind.js';
+import { risenSphere } from './LandRise.js';
 
 // Small crowns keep their authored placements and lighter mesh; only the
 // branch complexity changes. A broad, stateless pixel interval reconstructs
@@ -12,7 +13,10 @@ export function forestDetailWeight(footprintPx) {
 /** Conservative apparent diameter of the largest potentially visible tree
  * in a species/variant batch. No tree is removed or moved by this test.
  * Camera-space spheres include authored crown extent, maximum shared
- * wind/gust/parting lean and a bound on the musical root deformation. */
+ * wind/gust/parting lean and a bound on the musical root deformation.
+ * `deformation.rise` (riseFromUniforms) moves and grows each sphere to
+ * hold what the song's rise draws of it (risenSphere), continuously: it is
+ * the unrisen sphere once the range stands complete, so no detail pops. */
 export function forestBatchFootprintPx(geometry, camera, width, height, deformation = {}) {
   if (!camera?.isPerspectiveCamera || !(width > 0) || !(height > 0)) return Infinity;
   const p = camera.projectionMatrix.elements, v = camera.matrixWorldInverse.elements;
@@ -21,13 +25,18 @@ export function forestBatchFootprintPx(geometry, camera, width, height, deformat
   const left = Math.hypot(p[0], p[8] - 1), right = Math.hypot(p[0], p[8] + 1);
   const bottom = Math.hypot(p[5], p[9] - 1), top = Math.hypot(p[5], p[9] + 1);
   let largest = 0;
-  for (let i = 0; i < positions.count; i++) {
+  const rise = deformation.rise?.sink > 0 ? deformation.rise : null;
+  // Only the instances drawn: a view on its rail draws a batch's leading
+  // trees (RailDraw.js), and the rest must not size them.
+  const drawn = Math.min(positions.count, geometry.instanceCount ?? Infinity);
+  for (let i = 0; i < drawn; i++) {
     const x = positions.getX(i), rootY = positions.getY(i), z = positions.getZ(i);
-    const h = sizes.getX(i), w = sizes.getY(i), y = rootY + h * .5;
+    const h = sizes.getX(i), w = sizes.getY(i);
     const height01 = Math.max(0, Math.min(1, (rootY - (deformation.heightMin ?? 0)) / Math.max(1, deformation.heightSpan ?? 1)));
     const h2 = height01 * height01;
     const rootLift = h2 * ((deformation.amplitudeM || 0) + h2 * (deformation.gestureM || 0));
-    const radius = Math.hypot(h * .5, w * .75 + h * FOREST_MAX_LEAN) + rootLift;
+    let y = rootY + h * .5, radius = Math.hypot(h * .5, w * .75 + h * FOREST_MAX_LEAN) + rootLift;
+    if (rise) ({ y, radius } = risenSphere(x, y, z, radius, rise));
     const cx = v[0] * x + v[4] * y + v[8] * z + v[12];
     const cy = v[1] * x + v[5] * y + v[9] * z + v[13];
     const cz = v[2] * x + v[6] * y + v[10] * z + v[14], depth = -cz;

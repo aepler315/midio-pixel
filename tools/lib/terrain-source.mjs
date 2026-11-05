@@ -47,7 +47,11 @@ function curlEnv() {
  * Normalize elevation into `options.out` (a path prefix) and decode it.
  *   input    a raster path, or '3dep13' / 'terrarium' for a remote source
  *   options  { out, centerLonLat: [lon, lat], extentM: [w, h], cellM,
- *              offsetM?: [x, z], zoom?, resampling?, cache?, pin?, python? }
+ *              offsetM?: [x, z], zoom?, resampling?, cache?, windowCache?,
+ *              pin? (file path or { tileId: url }), python? }
+ *   windowCache  'envelope' (default) or 'tile': how cached 3DEP windows
+ *              are cropped, which decides the cells on 1-degree tile seams
+ *              (source_3dep in tools/terrain/normalize-dem.py).
  */
 export async function normalizeDem(input, options) {
   const { out, centerLonLat, extentM, cellM } = options || {};
@@ -65,7 +69,17 @@ export async function normalizeDem(input, options) {
   if (options.zoom) args.push('--zoom', String(options.zoom));
   if (options.resampling) args.push('--resampling', options.resampling);
   if (options.cache) args.push('--cache', options.cache);
-  if (options.pin) args.push('--pin', options.pin);
+  if (options.windowCache) args.push('--window-cache', options.windowCache);
+  // A pin is a JSON file or an object mapping 3DEP tile ids to dated URLs;
+  // pinned tiles skip the TNM products API and can never move to a newer
+  // publication under an approved view.
+  if (typeof options.pin === 'string') args.push('--pin', options.pin);
+  else if (options.pin) {
+    const pinFile = `${path.resolve(out)}.pin.json`;
+    await fs.mkdir(path.dirname(pinFile), { recursive: true });
+    await fs.writeFile(pinFile, JSON.stringify(options.pin));
+    args.push('--pin', pinFile);
+  }
   if (options.retrievedAt) args.push('--retrieved-at', options.retrievedAt);
   if (options.points) args.push('--points', JSON.stringify(options.points));
   if (options.fill) args.push('--fill', options.fill);

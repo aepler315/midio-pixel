@@ -92,9 +92,16 @@ test('the status report keeps a missing library rail-only and reads only the exp
   assert.equal(row.countsSource, 'build fit'); assert.equal(row.buildRoot, f.buildRoot);
   const other = (await statusRows({ ...f.options, buildRoot: path.join(f.buildRoot, 'unrelated') })).find((r) => r.view === id);
   assert.equal(other.shots, null, 'no implicit search in sibling or historical build directories');
+  // The CLI reads the shipped catalog: a shipped view with a tour region
+  // but no library stands in for the fixture's.
+  const config = JSON.parse(await fs.readFile(new URL('../data/terrain/scenic-tours.json', import.meta.url), 'utf8'));
+  const railOnly = catalog.views.find((v) => config.regions[v.id] && !v.shotsManifestUrl);
+  assert.ok(railOnly, 'a shipped tour region without a library');
+  await fs.mkdir(path.join(f.buildRoot, railOnly.id), { recursive: true });
+  await fs.copyFile(path.join(f.buildRoot, id, 'fit.json'), path.join(f.buildRoot, railOnly.id, 'fit.json'));
   const tool = fileURLToPath(new URL('../tools/scenic-tour-status.mjs', import.meta.url));
   const output = execFileSync(process.execPath, [tool, '--build-root', f.buildRoot], { encoding: 'utf8' });
-  const cli = JSON.parse(output).find((r) => r.view === id);
+  const cli = JSON.parse(output).find((r) => r.view === railOnly.id);
   assert.equal(cli.shots, 3); assert.equal(cli.links, 2);
   assert.equal(cli.tour, 'rail only', 'selecting fresh build metadata does not publish its library');
   assert.equal(cli.countsSource, 'build fit');

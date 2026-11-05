@@ -159,7 +159,9 @@ test('the emitter and lantern-light shader twins use the same constants', async 
   assert.ok(EMITTER_GLSL.includes('mistAmount(uCameraPos, p) * uNarrative.y'));
   assert.ok(EMITTER_GLSL.includes(`${EMITTER_SUBMERGE.toFixed(3)} * sub`));
   const { ACTOR_GLSL } = await import('../src/world/alpine/ActorsGL.js');
-  assert.ok(ACTOR_GLSL.includes(`1.0 - ${EMITTER_SUBMERGE.toFixed(3)} * uMistFill * mistSubmersion(s.y + groundLift(s))`),
+  // uActorPos already stands where the song's rise lowered the lantern
+  // (RangeScene._setActors), so only the musical lift is added (landLift).
+  assert.ok(ACTOR_GLSL.includes(`1.0 - ${EMITTER_SUBMERGE.toFixed(3)} * uMistFill * mistSubmersion(s.y + landLift(s))`),
     'the light goes with its lantern, read on the lifted ground');
   assert.ok(ACTOR_GLSL.includes('if (fall <= 0.0) continue;\n      fall *= actorShown(i);'), 'the pool, paid only where the light reaches');
   assert.ok(ACTOR_GLSL.includes('if (reach <= 0.0) continue;') && ACTOR_GLSL.includes('* reach * actorShown(i)'), 'and the glints');

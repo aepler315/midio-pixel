@@ -30,6 +30,8 @@
   import { loadMaterialPack, RULE_DEFAULTS } from '../world/alpine/MaterialPackage.js';
   import { placeForest } from '../world/alpine/ForestCover.js';
   import { createForest } from '../world/alpine/ForestGL.js';
+  import { setTerrainDrawMode, railGroundData } from '../world/alpine/RailDraw.js';
+  import { terrainHeightRange } from '../world/alpine/TerrainPackage.js';
   import { scenePoseAt } from '../world/terrain/SceneTravel.js';
   import { hashSeed } from '../utils/math.js';
   import { SHOT_NEAR_M, SHOT_FAR_M, poseFrame, flipRows, alphaMask, decodeDepth, subjectSamples, shotMetrics } from '../../tools/lib/scenic-render.mjs';
@@ -40,6 +42,9 @@
   window.__shotReview = state;
   try {
     const id = q.get('view') || 'monument-valley-163', budget = q.get('budget') || 'desktop';
+    // Which camera's ground a tour package draws (RailDraw.js): shot poses
+    // see the tour's; rail parity asks for the rail's.
+    const terrainMode = q.get('terrainMode') === 'rail' ? 'rail' : 'tour';
     const entry = catalog.views.find((v) => v.id === id);
     if (!entry) throw new Error(`no catalog view ${id}`);
     // The package's build record supplies the view (camera, landmarks);
@@ -58,6 +63,7 @@
     const data = pkg.data, g = data.grid;
     const surface = createSurfaceTexture(THREE, data);
     const base = terrainUniforms(THREE, data, surface);
+    base.uHeightRange.value.set(...terrainHeightRange(data.manifest, { tour: terrainMode === 'tour' }));
     const silhouette = createReviewMaterial(THREE, base);
     silhouette.uniforms.uMode.value = REVIEW_MODES.silhouette;
     const uniforms = sceneUniforms(THREE, base);
@@ -71,7 +77,7 @@
     uniforms.uLightColor.value.copy(lin('#aab4c8')).multiplyScalar(0.9);
     uniforms.uAirDensity.value = 1 / 42000;
     uniforms.uLightDir.value.set(-0.35, 0.35, -0.87).normalize();
-    const { geometries, stats } = createBandGeometries(THREE, data, { budget });
+    const { geometries, stats } = createBandGeometries(THREE, data, { budget, terrainMode });
     const scene = new THREE.Scene();
     const terrain = Object.values(geometries).map((geo) => { const m = new THREE.Mesh(geo, material); m.frustumCulled = false; scene.add(m); return m; });
     // Forest for the rail plus any footprint polylines (ForestCover), in a
@@ -84,6 +90,7 @@
       trees.clear(); treeDepth.clear(); forest?.dispose();
       view.cameraPaths = cameraPaths || [];
       forest = createForest(THREE, placeForest(data, view, rules, { seed: hashSeed(view.terrainSourceId || view.id) }), uniforms, { partitioned: false });
+      for (const g of forest.modeGeometries) setTerrainDrawMode(g, terrainMode);
       const treeMeshes = [...forest.byBand.far, ...forest.byBand.mid, ...forest.byBand.near];
       if (treeMeshes.length) trees.add(...treeMeshes);
       if (forest.depth.length) treeDepth.add(...forest.depth);
@@ -126,7 +133,9 @@
       return (targets = { w, h, color, depth: new THREE.WebGLRenderTarget(w, h, { depthBuffer: false }) });
     };
     const read = (target, w, h) => { const out = new Uint8Array(w * h * 4); renderer.readRenderTargetPixels(target, 0, 0, w, h, out); return out; };
-    const heightAt = (x, z) => terrainHeightAt(data, x, z);
+    // Subject ground is the ground this mode draws: on its rail, the rail's own tiles.
+    const ground = terrainMode === 'rail' ? railGroundData(data) : data;
+    const heightAt = (x, z) => terrainHeightAt(ground, x, z);
     // Every DEM sample lies above the quantization offset (terrain-bake).
     const floor = { floorY: data.manifest.quantization.offsetM,
       extent: [g.originM[0], g.originM[1], g.originM[0] + (g.width - 1) * g.cellSizeM, g.originM[1] + (g.height - 1) * g.cellSizeM] };
@@ -201,7 +210,10 @@
         subject: subject && { ...subject, ...subjectSamples(subject, heightAt) } });
       return { png, metrics, ms: performance.now() - t0 };
     };
-    Object.assign(state, { view: { id, camera: view.camera, landmarks: view.landmarks || [] }, stats, heightAt, bounds: data.manifest.boundsM, ready: true });
+    // stats.drawnTriangles: what this terrain mode draws (the rail's alone on its rail).
+    Object.assign(state, { view: { id, camera: view.camera, landmarks: view.landmarks || [] },
+      stats: { ...stats, terrainMode, drawnTriangles: terrainMode === 'rail' ? stats.railTriangles ?? stats.triangles : stats.triangles },
+      heightAt, bounds: data.manifest.boundsM, ready: true });
     status.textContent = `${id}: ${stats.triangles} triangles, ${Object.values(state.trees).reduce((a, b) => a + b, 0)} trees · ${state.renderer}`;
     if (q.get('preview') !== '0') state.renderPose(scenePoseAt(view, { progress01: 0.5 }), { width: 960, height: 540 });
   } catch (err) {

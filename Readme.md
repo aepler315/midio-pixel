@@ -409,3 +409,12 @@ upload regression suite.
   uploaded recordings play their own audio with the timeline synth muted.
 
 Display settings now separate **Natural / Pixel / Palette** from **Auto / Economy** quality. Open **Display** during playback to change them. [Pixel presentation](docs/pixel-presentation.md) explains migration, palettes and exports; [landscape peaks](docs/landscape-peaks.md) explains climax storms and the three landscape-scale instrument characters.
+
+## Minimum performance target
+
+The JOYING JY-UTS18N12 Android head unit is the minimum supported performance
+target. Validate sustained playback and scene transitions in fullscreen on
+the unit. Lower-spec devices are best effort. Android uses mobile terrain
+detail and adaptive quality, including on wide head-unit displays.
+
+See the [device run checklist](docs/range-v2-device-runs.md).

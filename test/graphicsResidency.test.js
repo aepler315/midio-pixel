@@ -27,6 +27,16 @@ test('budget size follows reported device memory', () => {
   assert.equal(at({ deviceMemory: 4 }), 192 * MiB, 'any 4 GB device');
 });
 
+test('wide Android head units use mobile terrain LOD and residency', () => {
+  const screen = { width: 1920, height: 1080 };
+  for (const platform of [{ userAgentData: { platform: 'Android' } }, { userAgent: 'Mozilla/5.0 (Linux; Android 13)' }]) {
+    assert.deepEqual(residencyBudgetFor({ navigator: { ...platform, deviceMemory: 8 }, screen }),
+      { name: 'mobile', bytes: 320 * MiB });
+    assert.deepEqual(residencyBudgetFor({ navigator: platform, screen }),
+      { name: 'mobile', bytes: 192 * MiB });
+  }
+});
+
 test('a denied reservation allocates nothing and evicts nothing', () => {
   const r = ledger(100);
   let disposed = 0;

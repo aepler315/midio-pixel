@@ -35,6 +35,15 @@ test('scenic fitting reports delivery growth without a global cap and retains re
   assert.ok(regional.errors.some(x => x.includes("region's 1000")));
   const graphics = await budgetErrors({}, config, packed, { rebaked: true, validation: { ok: true }, budget: { addedBytes: 0, desktopTriangles: 101, mobileTriangles: 51 } }, { rail: 0, tour: 200 * 2 ** 20 });
   for (const kind of ['desktop', 'mobile', 'forest build']) assert.ok(graphics.errors.some(x => x.startsWith(kind)), kind);
+  // A null region budget lifts that cap; an absent one keeps the default.
+  const lifted = { budget: { assetBytes: null, desktopTriangles: null, mobileTriangles: null, forestBuildBytes: null } };
+  const overBake = { rebaked: true, validation: { ok: true }, budget: { addedBytes: 5e9, desktopTriangles: 1e9, mobileTriangles: 1e9 } };
+  const unbounded = await budgetErrors({}, lifted, packed, overBake, { rail: 0, tour: 2 ** 40 });
+  assert.deepEqual(unbounded.errors, []);
+  assert.equal(unbounded.forest.cap, Infinity);
+  const defaulted = await budgetErrors({}, { budget: { assetBytes: 1e12, desktopTriangles: 1e12, mobileTriangles: 1e12 } }, packed, bake, { rail: 0, tour: 200 * 2 ** 20 });
+  assert.ok(defaulted.errors.some(x => x.startsWith('forest build')), 'an absent forestBuildBytes keeps the 160 MiB default');
+  assert.ok(!unbounded.errors.some(x => x.startsWith('not covered')));
 });
 
 test('cold request preparation never traverses link geometry on the caller thread', () => {

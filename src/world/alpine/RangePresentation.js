@@ -168,6 +168,13 @@ function defaultCanvas(w, h) {
   return c;
 }
 
+/** A view's shot tour, unless the scene prepared the view for its rail
+ *  alone (its tour does not fit this device): then it plays its rail. It
+ *  reads only the presentation's scene and shot tours. */
+export function shotTimelineOf(presentation, viewId) {
+  return presentation.scene?.prepared?.get?.(viewId)?.railOnly ? null : presentation.shots.timeline(viewId);
+}
+
 export class RangePresentation {
   constructor({ mode = 'legacy', forcedViewId = null, tour = null, shots = true, shotCandidates = false, upgradeIntended = false, diag = null, residency = null, budget = 'desktop',
     loadRuntime = (attempt) => import(retryUrl(RUNTIME_URL, attempt)),
@@ -410,6 +417,9 @@ export class RangePresentation {
     if (this.scene) {
       for (const [id, p] of [...this.scene.prepared]) {
         if (keep.has(id) && !p.view?.tour) {
+          // The new song decides the camera again (_beginScenic, once its
+          // plan settles); until then the view is back on its rail.
+          this.scene.setCameraTour?.(id, null);
           p.generation = generation;
           this.residency?.retag(p.gpuKey, generation);
           this.residency?.retag(p.cpuKey, generation);
@@ -519,7 +529,12 @@ export class RangePresentation {
       pixelated: !!this.pixelated,
       pixelHeightPx: this.pixelPolicy?.grid?.height ?? null,
       tourData: this.tourData, tourCpuKey: this._tourCpuKey, isCurrent: (g) => g === this.generation })
-      .then(() => { if (gen === this.generation) this.assetFailures.delete(view.id); })
+      .then((prepared) => {
+        if (gen !== this.generation) return;
+        this.assetFailures.delete(view.id);
+        // A tour the device cannot hold: the view keeps its rail this song.
+        if (prepared?.railOnly && view.cameraPaths) this.shots.keepRail?.(view.id, `rail kept: ${prepared.railOnly}`);
+      })
       .catch((err) => {
         if (gen !== this.generation) return; // stale: the new song decides again
         const settledAt = Date.now();
@@ -641,7 +656,7 @@ export class RangePresentation {
     const prepared = this.scene.prepared?.get(view.id);
     const preview = this.frameInputs.sim.biomes.terrainPreview || !(this.railPlan.snapshot.durationMs > 0);
     const policy = preview ? 'preview' : view.glacier ? 'glacier'
-      : prepared?.cameraTour || view.tour || this.shots.timeline(view.id) ? 'tour'
+      : prepared?.cameraTour || view.tour || shotTimelineOf(this, view.id) ? 'tour'
       : view.status === 'approved' ? 'rail' : 'candidate';
     if (policy === 'rail') return state;
     return Object.freeze({ ...state, policy,
@@ -932,9 +947,9 @@ export class RangePresentation {
     // A view's camera never switches from rail to tour mid-song: it is not
     // drawn until its plan has settled (ready, or fallen back to the rail).
     if (!this.shots.settled(view.id)) { this.reason = 'preparing: camera tour planning'; return false; }
-    this.scene.setCameraTour?.(view.id, this.shots.timeline(view.id));
-    if (incoming) this.scene.setCameraTour?.(incoming.id, this.shots.timeline(incoming.id));
-    this.cameraTourActive = !!this.shots.timeline(view.id);
+    this.scene.setCameraTour?.(view.id, shotTimelineOf(this, view.id));
+    if (incoming) this.scene.setCameraTour?.(incoming.id, shotTimelineOf(this, incoming.id));
+    this.cameraTourActive = !!shotTimelineOf(this, view.id);
     // What this frame draws stays resident (never evicted mid-use) -- pinned
     // before any reservation below, which may evict unpinned entries.
     const vp = inputs.scenicViewport;
@@ -1068,7 +1083,7 @@ export class RangePresentation {
       if (typeof this.scene.movedPose === 'function') ({ rail, proj, pose } = this.scene.movedPose(v, sideFrame));
       else {
         rail = scenePoseAt(v, { progress01: v.glacier ? (sideFrame.glacier?.journey01 ?? sideFrame.progress01) : sideFrame.progress01,
-          timeMs: sideFrame.timeMs, tour: this.shots.timeline(v.id) || v.tour });
+          timeMs: sideFrame.timeMs, tour: shotTimelineOf(this, v.id) || v.tour });
         proj = scenicProjection(rail.fovYDeg, vp);
         pose = applyCameraMoves(rail, frame.cameraMove, null);
       }
@@ -1076,7 +1091,7 @@ export class RangePresentation {
       // A shot tour turns anywhere: its sky and light are world-fixed, with
       // the sun and moon arcs anchored to the view's own rail heading (the
       // highway tour's arcs assume a north-east flight, 45 degrees).
-      if (this.shots.timeline(v.id)) {
+      if (shotTimelineOf(this, v.id)) {
         const railHeading = headingPitch(lookDir(scenePoseAt(v, { progress01: .5 }))).headingDeg;
         return { tourPose: { ...pose, fovYDeg: proj.fovYDeg, aspect: proj.aspect }, celestialOffsetDeg: railHeading - 45 };
       }
