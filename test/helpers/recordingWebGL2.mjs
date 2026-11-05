@@ -3,7 +3,16 @@
 // binds, vertex array binds and draws: enough for the vendored three.js to
 // initialise and render, so a test can see exactly what a real render
 // submits, and in what order.
-export function recordingWebGL2(width = 300, height = 150) {
+//
+// With `gpu`, it also keeps what reaches the GPU. Each buffer holds a byte
+// copy of its uploads (bufferData, then bufferSubData ranges), found by the
+// typed array first uploaded (state.bufferOf). Programs report their vertex
+// shader's `in` declarations as active attributes, so three.js binds them
+// and sets their divisors per vertex array. Each instanced draw records
+// state.drawing (a test sets it, e.g. in onBeforeRender) and `short`: the
+// enabled instanced attributes whose buffers cannot feed its instances,
+// which WebGL2 rejects.
+export function recordingWebGL2(width = 300, height = 150, { gpu = false } = {}) {
   const names = new Map(), ids = new Map();
   let next = 0x9000;
   const constant = name => {
@@ -60,6 +69,7 @@ export function recordingWebGL2(width = 300, height = 150) {
     useProgram: p => { state.ops.push(['useProgram', p]); },
     getError: () => 0,
   };
+  if (gpu) recordGpu(target, { constant, ids, state, vao: () => vao || defaultVao, defaultVao });
   const gl = new Proxy(target, {
     get(t, k) {
       if (k in t) return t[k];
@@ -71,4 +81,65 @@ export function recordingWebGL2(width = 300, height = 150) {
   });
   canvas.getContext = () => gl;
   return { gl, canvas, state };
+}
+
+const TYPE_BYTES = { BYTE: 1, UNSIGNED_BYTE: 1, SHORT: 2, UNSIGNED_SHORT: 2, HALF_FLOAT: 2, INT: 4, UNSIGNED_INT: 4, FLOAT: 4 };
+
+function recordGpu(target, { constant, ids, state, vao, defaultVao }) {
+  const bound = new Map();
+  state.bufferOf = new Map();
+  target.createBuffer = () => ({ data: null, bytes: null });
+  const { bindBuffer, bufferData, createVertexArray, drawElementsInstanced, drawArraysInstanced } = target;
+  target.bindBuffer = (t, b) => { bindBuffer(t, b); bound.set(t, b); };
+  target.bufferData = (t, data, usage) => {
+    bufferData(t, data, usage);
+    const b = bound.get(t);
+    if (!b) return;
+    if (typeof data === 'number') { b.bytes = new Uint8Array(data); return; }
+    b.bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength).slice();
+    if (!state.bufferOf.has(data)) state.bufferOf.set(data, b);
+  };
+  target.bufferSubData = (t, dstByte, src, srcOffset = 0, length = 0) => {
+    const size = src.BYTES_PER_ELEMENT || 1, n = length || src.length - srcOffset;
+    bound.get(t).bytes.set(new Uint8Array(src.buffer, src.byteOffset + srcOffset * size, n * size), dstByte);
+  };
+  // Vertex arrays: each attribute location's buffer, element size, switch
+  // and divisor.
+  defaultVao.attribs = [];
+  target.createVertexArray = () => Object.assign(createVertexArray(), { attribs: [] });
+  const attrib = (loc) => (vao().attribs[loc] ||= { enabled: false, divisor: 0, buffer: null, elementBytes: 0 });
+  target.enableVertexAttribArray = (loc) => { attrib(loc).enabled = true; };
+  target.disableVertexAttribArray = (loc) => { attrib(loc).enabled = false; };
+  target.vertexAttribDivisor = (loc, divisor) => { attrib(loc).divisor = divisor; };
+  const pointer = (loc, size, type, stride) => Object.assign(attrib(loc),
+    { buffer: bound.get(constant('ARRAY_BUFFER')), elementBytes: stride || size * TYPE_BYTES[ids.get(type)] });
+  target.vertexAttribPointer = (loc, size, type, normalized, stride) => pointer(loc, size, type, stride);
+  target.vertexAttribIPointer = (loc, size, type, stride) => pointer(loc, size, type, stride);
+  // Active attributes: the vertex shader's `in` declarations, in order.
+  target.createShader = (type) => ({ type, source: '' });
+  target.shaderSource = (shader, source) => { shader.source = source; };
+  target.createProgram = () => ({ shaders: [] });
+  target.attachShader = (program, shader) => { program.shaders.push(shader); };
+  const inputs = (program) => (program.inputs ||= [...new Set([...(program.shaders.find((sh) => sh.type === constant('VERTEX_SHADER'))?.source || '')
+    .matchAll(/^\s*in\s+(?:(?:highp|mediump|lowp)\s+)?(?:float|vec[234]|ivec[234]|uvec[234]|int|uint)\s+(\w+)\s*;/gm)].map((m) => m[1]))]);
+  target.getProgramParameter = (program, p) => {
+    const n = ids.get(p);
+    return n === 'ACTIVE_ATTRIBUTES' ? inputs(program).length : n === 'ACTIVE_UNIFORMS' ? 0 : true;
+  };
+  target.getActiveAttrib = (program, i) => ({ name: inputs(program)[i], type: constant('FLOAT_VEC4'), size: 1 });
+  target.getAttribLocation = (program, name) => inputs(program).indexOf(name);
+  const note = (instances) => {
+    const draw = state.draws.at(-1);
+    draw.drawing = state.drawing;
+    draw.short = vao().attribs.flatMap((a, loc) => (a?.enabled && a.divisor && a.buffer
+      && Math.ceil(instances / a.divisor) * a.elementBytes > a.buffer.bytes.length ? [loc] : []));
+  };
+  target.drawElementsInstanced = (mode, count, type, offset, instances) => {
+    drawElementsInstanced(mode, count, type, offset, instances);
+    note(instances);
+  };
+  target.drawArraysInstanced = (mode, first, count, instances) => {
+    drawArraysInstanced(mode, first, count, instances);
+    note(instances);
+  };
 }

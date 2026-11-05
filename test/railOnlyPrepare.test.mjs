@@ -15,6 +15,8 @@ import { RULE_DEFAULTS } from '../src/world/alpine/MaterialPackage.js';
 import { railGroundData } from '../src/world/alpine/RailDraw.js';
 import { RangePresentation, shotTimelineOf } from '../src/world/alpine/RangePresentation.js';
 import { RangeShotTours } from '../src/world/alpine/RangeShotTours.js';
+import { rangeMusicState } from '../src/world/alpine/RangeFrame.js';
+import { keyTimeline } from './helpers/tourForestFixtures.mjs';
 
 // The rail at z = -600 looks north; two tour poses add ground only they see.
 const camera = { eyeStartM: [0, 1500, -600], eyeEndM: [0, 1500, -600], targetStartM: [0, 1000, -2400], targetEndM: [0, 1000, -2400], fovYDeg: 30 };
@@ -34,9 +36,10 @@ async function tourPackage() {
 }
 
 const material = JSON.parse(fs.readFileSync(new URL('../src/assets/range/v2/materials/wet-conifer.json', import.meta.url), 'utf8'));
-/** A RangeScene without a GL context: a stub renderer whose programs link. */
-function scene(budgetBytes = 1e9, budget = 'desktop') {
-  const s = Object.assign(Object.create(RangeScene.prototype), { budget, THREE, residency: new GraphicsResidency({ budgetBytes }),
+/** A RangeScene without a GL context: a stub renderer whose programs link.
+ *  Its tour forest layer is on, as the constructor sets it. */
+function scene(budgetBytes = 1e9, budget = 'desktop', { tourForest = true } = {}) {
+  const s = Object.assign(Object.create(RangeScene.prototype), { budget, THREE, residency: new GraphicsResidency({ budgetBytes }), tourForest,
     prepared: new Map(), pending: new Map(), contextEpoch: 0, camera: new THREE.PerspectiveCamera(),
     renderer: { getContext: () => ({ getProgramParameter: () => true, isContextLost: () => false }), compile: () => [],
       properties: { get: () => ({ programs: new Map() }) }, initTexture() {} } });
@@ -189,4 +192,216 @@ test('presentation plays the rail of a view prepared for its rail alone, and say
   assert.equal(shotTimelineOf(presentation, 'v'), null);
   shots.keepRail('v', 'rail kept: its tour does not fit this device');
   assert.deepEqual([shots.views.get('v').state, shots.views.get('v').reason, shots.timeline('v')], ['rail', 'rail kept: its tour does not fit this device', null]);
+});
+
+test('a two-camera view with room holds the tour forest layer in its GPU entry, and one without room has today\'s', async () => {
+  const off = scene(1e9, 'desktop', { tourForest: false }), today = await prepare(off, footprint);
+  assert.equal(today.forest.tour, null);
+  assert.equal(today.tourSchedule, null);
+  assert.equal(today.stats.tourForest, 'static: no room or off');
+  // (a) Ample room: the layer, charged in the view's GPU entry.
+  const s = scene(), p = await prepare(s, footprint);
+  assert.ok(p.forest.tour && p.tourSchedule);
+  assert.ok(p.forest.tour.bytes > 0);
+  assert.equal(gpuBytes(s, p), gpuBytes(off, today) + p.forest.tour.bytes);
+  assert.deepEqual(p.stats.trees, today.stats.trees);
+  assert.equal(p.stats.tourForest.bytes, p.forest.tour.bytes);
+  assert.equal(p.stats.tourForest.trees, p.forest.tour.index.count);
+  // (b) Room for both cameras but not the layer: both cameras, without it,
+  // at today's bytes. Phones keep twice the layer free.
+  // What the last two room checks asked for: both cameras, then the layer
+  // beside them (nothing here is evictable).
+  const need = async (budget) => {
+    const r = scene(1e9, budget), fit = r.residency.canFit.bind(r.residency), asked = [];
+    r.residency.canFit = (bytes, protect) => { asked.push(r.residency.usedBytes + bytes); return fit(bytes, protect); };
+    const q = await prepare(r, footprint);
+    return { without: asked.at(-2), with: asked.at(-1), layer: q.forest.tour.bytes };
+  };
+  for (const budget of ['desktop', 'mobile']) {
+    const n = await need(budget);
+    assert.equal(n.with - n.without, (budget === 'mobile' ? 2 : 1) * n.layer);
+    const plain = scene(1e9, budget, { tourForest: false }), reference = await prepare(plain, footprint);
+    // Between the two needs; on a phone, room for the layer once but not twice.
+    const between = budget === 'mobile' ? n.without + 1.5 * n.layer : (n.without + n.with) / 2;
+    const tight = scene(between, budget), q = await prepare(tight, footprint);
+    assert.equal(q.railOnly, null, `${budget}: both cameras`);
+    assert.equal(q.forest.tour, null, `${budget}: no layer`);
+    assert.equal(q.stats.tourForest, 'static: no room or off');
+    assert.equal(gpuBytes(tight, q), gpuBytes(plain, reference));
+    assert.deepEqual(q.stats.trees, reference.stats.trees);
+  }
+  // A reservation that fails with the layer but fits without it.
+  const racing = scene(), reserve = racing.residency.reserve.bind(racing.residency);
+  racing.residency.reserve = (args) => (args.owner === 'range-terrain-gpu' && args.bytes > gpuBytes(off, today) ? null : reserve(args));
+  const raced = await prepare(racing, footprint);
+  assert.equal(raced.railOnly, null);
+  assert.equal(raced.forest.tour, null);
+  assert.equal(gpuBytes(racing, raced), gpuBytes(off, today));
+  // (c) A view prepared for its rail alone has no layer to hold.
+  const rail = scene(), alone = await prepare(rail);
+  assert.equal(alone.railOnly, 'no shot tour');
+  assert.equal(alone.forest.tour, null);
+  assert.equal(alone.tourSchedule, null);
+  assert.equal(alone.stats.tourForest, undefined);
+});
+
+test('the tour forest layer is built only in free room, never by evicting another view\'s mirror', async () => {
+  // Both cameras' need, and the need with the layer, on an empty ledger.
+  const need = async (budget) => {
+    const r = scene(1e9, budget), fit = r.residency.canFit.bind(r.residency), asked = [];
+    r.residency.canFit = (bytes, protect) => { asked.push(r.residency.usedBytes + bytes); return fit(bytes, protect); };
+    await prepare(r, footprint);
+    return { without: asked.at(-2), with: asked.at(-1) };
+  };
+  for (const budget of ['desktop', 'mobile']) {
+    const n = await need(budget), mirrorBytes = n.with - n.without;
+    const plain = scene(1e9, budget, { tourForest: false }), reference = await prepare(plain, footprint);
+    // Another view's rail holds a mirror: live, unpinned, evictable, and
+    // older than anything this preparation reserves.
+    const withMirror = (budgetBytes) => {
+      const s = scene(budgetBytes, budget), key = 'range:water-mirror-A';
+      const mirror = { disposed: false };
+      s.residency.commit(s.residency.reserve({ key, bytes: mirrorBytes, owner: 'range-mirror', protect: [...s.residency.entries.keys()] }),
+        mirror, (m) => { m.disposed = true; });
+      return { s, mirror, kept: () => s.residency.get(key) === mirror && !mirror.disposed };
+    };
+    // Free room for both cameras but not the layer; evicting the mirror
+    // would make room for it. Both cameras, today's forest and bytes, and
+    // the mirror stays.
+    const tight = withMirror(n.with + mirrorBytes / 2), q = await prepare(tight.s, footprint);
+    assert.equal(q.railOnly, null, `${budget}: both cameras`);
+    // (Booleans: a failed comparison would print the whole forest.)
+    assert.equal(!!q.forest.tour, false, `${budget}: no layer`);
+    assert.equal(q.stats.tourForest, 'static: no room or off');
+    assert.equal(gpuBytes(tight.s, q), gpuBytes(plain, reference));
+    assert.ok(tight.kept(), `${budget}: the mirror is kept`);
+    // With the layer's room free beside the mirror, both.
+    const roomy = withMirror(n.with + mirrorBytes), r = await prepare(roomy.s, footprint);
+    assert.equal(!!r.forest.tour, true, `${budget}: the layer in free room`);
+    assert.equal(gpuBytes(roomy.s, r), gpuBytes(plain, reference) + r.forest.tour.bytes);
+    assert.ok(roomy.kept(), `${budget}: the mirror is kept beside the layer`);
+  }
+});
+
+test('room taken while the surface waits drops the tour forest layer before the tour', async () => {
+  // A surface build beyond its build entry's idle allowance, as shipped
+  // two-camera packages have: the scratch is reserved after a yield.
+  const heavy = (s) => {
+    const retire = s._retireForestPlacement;
+    s._retireForestPlacement = function (p, entry, placed) { const r = retire.call(this, p, entry, placed); entry.idleBytes = 0; return r; };
+    return s;
+  };
+  const watch = (s, onScratch) => {
+    const reserve = s.residency.reserve.bind(s.residency);
+    s.residency.reserve = (args) => { if (args.owner === 'range-scratch') onScratch(args); return reserve(args); };
+  };
+  for (const budget of ['desktop', 'mobile']) {
+    const r = heavy(scene(1e9, budget)), fit = r.residency.canFit.bind(r.residency), asked = [];
+    r.residency.canFit = (bytes, protect) => { asked.push(r.residency.usedBytes + bytes); return fit(bytes, protect); };
+    let scratchBytes = 0;
+    watch(r, (args) => { scratchBytes = args.bytes; });
+    const measured = await prepare(r, footprint);
+    assert.ok(scratchBytes > 0 && scratchBytes < 2 * measured.forest.tour.bytes);
+    const plain = heavy(scene(1e9, budget, { tourForest: false })), reference = await prepare(plain, footprint);
+    // Exactly the room with the layer; during the yield another owner
+    // takes all but half the scratch: it fits only without the layer.
+    const s = heavy(scene(asked.at(-1), budget));
+    let taken = null, denied = 0;
+    watch(s, () => {
+      if (taken) return;
+      const free = s.residency.budgetBytes - s.residency.usedBytes;
+      taken = s.residency.reserve({ key: 'range:water-layer', bytes: free - Math.floor(scratchBytes / 2), owner: 'range-water', evictable: false });
+    });
+    const deny = s.residency.reserve.bind(s.residency);
+    s.residency.reserve = (args) => { const res = deny(args); if (!res && args.owner === 'range-scratch') denied++; return res; };
+    const q = await prepare(s, footprint);
+    assert.ok(taken, `${budget}: the room was taken`);
+    assert.equal(denied, 1, `${budget}: the scratch was denied beside the layer`);
+    assert.equal(q.railOnly, null, `${budget}: both cameras`);
+    assert.ok(q.modeGeometries.length > 0);
+    assert.equal(!!q.forest.tour, false, `${budget}: no layer`);
+    assert.equal(q.stats.tourForest, 'static: no room or off');
+    assert.equal(gpuBytes(s, q), gpuBytes(plain, reference));
+    assert.deepEqual(q.stats.trees, reference.stats.trees);
+  }
+});
+
+test('on its tour a two-camera view draws the window sets of the frame\'s time, and a replan of the playhead window refills', async () => {
+  const s = scene(), p = await prepare(s, footprint), layer = p.forest.tour, { index } = layer;
+  const frame = (frameId, timeMs, extra = {}) => ({ frameId, timeMs, progress01: .5, music: rangeMusicState({}), qualityLevel: 0,
+    scenicViewport: { nominalHeight: 720 }, light: { celestial: { xFrac: .7, yFrac: .08, body: 'sun', colorHex: '#ffffff', intensity: 1.6 },
+      night01: 0, ambientMultiplier: 1, sky: { top: '#334455', horizon: '#778899', air: '#556677' } }, ...extra });
+  const counts = () => layer.twins.map((t) => t.detail.instanceCount);
+  // Each twin holds the trees of its batch in the drawn sets, each board
+  // flag its tree's membership bits.
+  const drawn = (state) => {
+    const want = new Array(layer.twins.length).fill(0);
+    for (let u = 0; u < index.count; u++) {
+      const m = 1 << (u & 31), bits = (state.a.bits[u >>> 5] & m ? 1 : 0) | (state.b.bits[u >>> 5] & m ? 2 : 0);
+      assert.equal(layer.boardFlags[u], bits);
+      if (bits) want[index.batchOf[u]]++;
+    }
+    assert.deepEqual(counts(), want);
+    for (const t of layer.twins) if (t.lite) assert.equal(t.lite.instanceCount, t.detail.instanceCount);
+  };
+  // On the rail the layer draws nothing and the schedule is not asked.
+  s._setUniforms(p, frame(1, 6000));
+  assert.ok(counts().every((n) => n === 0));
+  assert.equal(layer.refills, 0);
+  // A tour across the forest, played from 2 s (window 0) to 6 s (window 1),
+  // clear of the fade at 4 s.
+  const keys = Array.from({ length: 122 }, (_, i) => [-2000 + 30 * i, 1300, -1500 + 20 * i]);
+  const tl = keyTimeline(keys, 12000);
+  s.setCameraTour('rail-only', tl);
+  assert.equal(p.terrainMode, 'tour');
+  assert.equal(p.stats.tourForest.active, true);
+  s._setUniforms(p, frame(2, 2000));
+  drawn(p.tourSchedule.stateAt(2000));
+  assert.equal(layer.refills, 1);
+  s._setUniforms(p, frame(3, 6000));
+  const first = p.tourSchedule.stateAt(6000);
+  assert.equal(first.a.w, 1);
+  assert.equal(first.b, first.a);
+  drawn(first);
+  assert.ok(counts().some((n) => n > 0));
+  assert.ok(counts().reduce((a, b) => a + b, 0) < index.count, 'a window draws fewer trees than all');
+  assert.deepEqual([layer.refills, p.stats.tourForest.refills, p.stats.tourForest.window, p.stats.tourForest.guardFails], [2, 2, 1, 0]);
+  // Another pass of the frame, and a later frame in the window: no refill.
+  s._setUniforms(p, frame(3, 6000));
+  s._setUniforms(p, frame(4, 6500));
+  assert.equal(layer.refills, 2);
+  // The detail key holds the layer's serial: a refill within a frame
+  // recomputes the twins' weights.
+  const detail = () => { s._updateForestDetail(p, frame(4, 6500), s.camera, 640, 360, 'main'); return p.forestDetailState.key; };
+  const before = detail();
+  // A replan diverging inside the playhead's window, from 7 s: the same
+  // window index, a new set, drawn at once. Window 0 carries over.
+  const window0 = p.tourSchedule.cache.get(0);
+  assert.ok(window0);
+  const tl2 = keyTimeline(keys.map((k, i) => (i < 70 ? k : [k[0] + 600, k[1], k[2]])), 12000);
+  s.setCameraTour('rail-only', tl2);
+  assert.equal(p.tourSchedule.cache.get(0), window0);
+  s._setUniforms(p, frame(4, 6500));
+  assert.equal(layer.refills, 3);
+  const second = p.tourSchedule.stateAt(6500);
+  assert.notEqual(second.a.bits, first.a.bits);
+  drawn(second);
+  assert.notEqual(detail(), before);
+  // A camera moved off the path draws every tree of the layer as a mesh.
+  const moved = { ...tl2.poseAt(6500) };
+  moved.eyeM = [moved.eyeM[0] + 4000, moved.eyeM[1], moved.eyeM[2]];
+  const movedPose = s.movedPose;
+  s.movedPose = () => ({ pose: moved });
+  try {
+    s._setUniforms(p, frame(5, 6500, { scenicViewport: { nominalHeight: 720, logicalWidth: 1280, logicalHeight: 720 } }));
+  } finally { s.movedPose = movedPose; }
+  assert.equal(p.stats.tourForest.guardFails, 1);
+  assert.equal(p.stats.tourForest.window, -1);
+  drawn(p.tourSchedule.all);
+  assert.equal(counts().reduce((a, b) => a + b, 0), index.count);
+  // Back on the rail: the twins draw nothing.
+  s.setCameraTour('rail-only', null);
+  assert.equal(p.terrainMode, 'rail');
+  assert.equal(p.stats.tourForest.active, false);
+  assert.ok(counts().every((n) => n === 0));
 });

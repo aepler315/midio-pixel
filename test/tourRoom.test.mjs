@@ -15,6 +15,8 @@ import { terrainCpuBytes } from '../src/world/alpine/RangeAssets.js';
 import { decodeShotLibrary, cameraFootprint } from '../src/world/terrain/ShotLibrary.js';
 import { shotTourEligible } from '../src/world/alpine/RangeShotTours.js';
 import catalog from '../src/world/terrain/sceneCatalogData.js';
+import { tourForestBytes } from '../src/world/alpine/TourForest.js';
+import { shippedView } from './helpers/tourForestShipped.mjs';
 
 const RUNTIME = fileURLToPath(new URL('../src/assets/range/v2/', import.meta.url));
 const MiB = 2 ** 20;
@@ -55,5 +57,15 @@ test('a phone prepares the heaviest tours for their rail without placing their f
   for (const id of ['black-mountains-catawba', 'teton-jackson-lake']) {
     const v = load(approved.find((x) => x.id === id));
     for (const budgetMiB of [192, 320]) assert.equal(room(v, 'mobile', budgetMiB), null, `${id} on a ${budgetMiB} MiB phone`);
+  }
+});
+
+test('the tour forest layer of the heaviest tours costs what was measured', () => {
+  // Charged beside both cameras only (RangeScene.prepare), so the room
+  // checks above do not move. Measured: Teton 5.854 MiB, Black Mountains
+  // 15.869 MiB (the plan estimated 5.85 and 15.85).
+  for (const [id, mib] of [['teton-jackson-lake', 5.854], ['black-mountains-catawba', 15.869]]) {
+    const bytes = tourForestBytes(shippedView(id).placed);
+    assert.ok(Math.abs(bytes / MiB - mib) <= .02 * mib, `${id}: ${(bytes / MiB).toFixed(3)} MiB`);
   }
 });

@@ -60,6 +60,13 @@ export const FOREST_TRAITS_GLSL = /* glsl */`
 
 const u01 = (h) => h / 4294967296;
 
+/** A cell's ring scale: each tree's own detail and mesh ring radii are the
+ *  rings times this (.82 to 1.18), so representations mix across a stand
+ *  instead of exposing a contour at one exact distance. */
+export function forestRingScale(ix, iz, seed) {
+  return .82 + .36 * u01(hash2(ix, iz, seed + 23));
+}
+
 // Species: lodgepole, Engelmann spruce, subalpine fir, Douglas fir.
 const SPECIES_SIZE = [[14, 26, .24, .32], [18, 32, .32, .40], [12, 24, .22, .28], [18, 30, .36, .44]];
 
@@ -370,7 +377,7 @@ function* placeForestSteps(data, view, rules, { seed = 0, rings = FOREST_RINGS, 
         // at one exact rail distance. A separate stable cell hash selects
         // each tree's threshold: roots, dimensions, IDs and density stay put,
         // and moving/returning cameras never roll a new representation.
-        const ringScale = .82 + .36 * u01(hash2(ix, iz, seed + 23));
+        const ringScale = forestRingScale(ix, iz, seed);
         const ring = ringOf(d, ringScale);
         const railGround = !tourGround || (tile.rail !== false && owner?.rail !== false);
         if (!terrainPartitions) {
