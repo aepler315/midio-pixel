@@ -676,8 +676,9 @@ export class RangeScene {
         // test: the mirror target has no depth texture and is cleared before
         // every redraw. With the ink discarded and no cast shown, none of
         // the three draws a pixel, so they are left out. Nor does leaving
-        // them out move three's lazily cached geometry.boundingSphere (the
-        // sort depth of transparent meshes): each layer-2 tree depth mesh
+        // them out move three's lazily cached geometry.boundingSphere (the z
+        // three sorts every listed mesh by, transparent or opaque, and its
+        // frustum bound): each layer-2 tree depth mesh
         // shares its geometry and visibility with a tree drawn on layer 0 or
         // 1 above, and the ink and the cast's geometries hold the same
         // positions whenever they are next listed (fixed lines and quads,

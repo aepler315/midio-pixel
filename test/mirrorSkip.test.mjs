@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { RangeScene, MIRROR_INK_SKIP } from '../src/world/alpine/RangeScene.js';
 import { sceneUniforms, FEATURE_FRAG } from '../src/world/alpine/TerrainMaterial.js';
 import { createForest } from '../src/world/alpine/ForestGL.js';
+import { ActorsGL, actorUniforms } from '../src/world/alpine/ActorsGL.js';
 import * as THREE from '../src/vendor/range/three-range.module.js';
 
 // _prepareMirror against a renderer that records what it is asked to do.
@@ -65,6 +66,48 @@ test('a laid-out light with gain counts as a shown cast in the mirror', () => {
   assert.deepEqual(b.ops, NO_CUT);
 });
 
+test('a laid-out thread or fixed line with gain counts as a shown cast in the mirror', () => {
+  for (const key of ['threads', 'rope']) {
+    for (const [gain, want] of [[.5, FULL], [0, NO_CUT]]) {
+      const actors = new ActorsGL(THREE, actorUniforms(THREE));
+      try {
+        actors[key].setThreads([{ a: [0, 0, -400], b: [100, 0, -400], band: 'near' }]);
+        actors[key].setState(0, .3, 1);
+        actors[key].setLook(new THREE.Color(1, 1, 1), gain);
+        const { s, p, ops } = fixture();
+        p.actors = actors; // no lantern out, no light laid out
+        s._prepareMirror(p, frame, 'A', 'v');
+        assert.deepEqual(ops, want, `${key} at gain ${gain}`);
+      } finally { actors.dispose(); }
+    }
+  }
+});
+
+// The mirror reflects the cast with each band even when the main view draws
+// it in its own pass (castInBands false), so the gate must not follow that.
+test('the mirror reflects a shown cast whether or not the main view keeps it in the bands', () => {
+  for (const castInBands of [true, false]) {
+    for (const [opts, want] of [[{}, NO_CUT], [{ actor: true }, FULL]]) {
+      const { s, p, ops } = fixture(opts);
+      s.castInBands = castInBands;
+      s._prepareMirror(p, frame, 'A', 'v');
+      assert.deepEqual(ops, want, `castInBands ${castInBands} ${JSON.stringify(opts)}`);
+    }
+  }
+});
+
+test('the mirror decides the skip afresh on every redraw of one view and target', () => {
+  const { s, p, ops } = fixture();
+  const steps = [[0, false, NO_CUT], [0, true, FULL], [.02, false, FULL], [0, false, NO_CUT], [0, true, FULL]];
+  steps.forEach(([ink, lit, want], i) => {
+    p.uniforms.uNarrativeInk.value = ink;
+    p.actors.groups.light.visible = lit;
+    ops.length = 0;
+    s._prepareMirror(p, { ...frame, frameId: 11 + i }, 'A', 'v');
+    assert.deepEqual(ops, want, `frame ${11 + i}`);
+  });
+});
+
 test('the skip threshold stays below the ink shader discard, in float32', () => {
   const discard = Number(/uNarrativeInk < ([.\d]+)\)/.exec(FEATURE_FRAG)[1]);
   assert.equal(discard, .005);
@@ -95,14 +138,24 @@ test('without soft trees the mirror keeps its single combined pass', () => {
 // to lose. Layers 3 to 5 hold nothing of the forest's. And every layer-2
 // mesh in the shared depth scene shares its geometry with a tree the mirror
 // draws first (the depth scene's layer 0, or a band's layer 0 or 1), with the
-// same visibility: three computes a geometry's boundingSphere (the sort depth
-// of transparent meshes) the first time any render lists it, so skipping a
-// render must never be what defers that first listing.
+// same visibility: three computes a geometry's boundingSphere (the z it sorts
+// every listed mesh by, and its frustum bound) the first time any render
+// lists it, so skipping a render must never be what defers that first listing.
 const placedTrees = () => ({
-  mesh: new Float32Array([0, 0, -400, 20, 10, 0, .5, 2, 30, 0, -420, 18, 9, 3, .2, 1]),
+  // The third mesh tree shares the first's band, family and variant, so the
+  // rail's first tree and a tour tree share one batch.
+  mesh: new Float32Array([0, 0, -400, 20, 10, 0, .5, 2, 30, 0, -420, 18, 9, 3, .2, 1, 40, 0, -430, 20, 10, 0, .5, 2]),
   meshDetail: new Float32Array([5, 0, -60, 20, 10, 1, .3, 2, 9, 0, -80, 14, 7, 6, .8, 2]),
   billboard: new Float32Array([2000, 0, 0, 20, 10, 1, .6, 1, 2400, 0, 300, 20, 10, 2, .1, 0]),
-  stride: 8, count: 6,
+  stride: 8, count: 7,
+  // A view on its rail: each kind's first tree is the rail's, the rest only
+  // the tour draws, and the rail-only trees only the rail draws.
+  railCount: { meshDetail: 1, mesh: 1, billboard: 1 },
+  railOnly: {
+    meshDetail: new Float32Array([7, 0, -70, 20, 10, 1, .3, 2]),
+    mesh: new Float32Array([10, 0, -410, 20, 10, 0, .5, 1]),
+    billboard: new Float32Array([2200, 0, 100, 20, 10, 1, .6, 0]),
+  },
 });
 const onLayer = (m, k) => (m.layers.mask & (1 << k)) !== 0;
 
@@ -127,6 +180,12 @@ test('every layer-2 tree depth mesh shares its geometry and visibility with a tr
     const cut = forest.depth.filter(m => onLayer(m, 2));
     assert.ok(cut.length >= 6, 'every kind and band draws a cut');
     for (const d of cut) assert.ok(earlier.some(m => m.geometry === d.geometry), `${d.geometry.userData.asset ?? 'board'}`);
+    // The rail's own batches (rail-only, and a rail prefix shared with the
+    // tour) draw a cut too, on a geometry drawn first.
+    const modes = forest.modeGeometries.map(g => g.userData.instanceCounts);
+    assert.ok(modes.some(c => c.tour === 0), 'a rail-only batch');
+    assert.ok(modes.some(c => c.rail > 0 && c.rail < c.tour), 'a batch the rail and the tour share');
+    for (const g of forest.modeGeometries) assert.ok(cut.some(d => d.geometry === g), `${g.userData.asset ?? 'board'} cut`);
     // Visibility is one rule per geometry, whatever the weights, the
     // narrative and the detail ring do.
     const camera = new THREE.PerspectiveCamera(50, 2, 1, 20000);
@@ -134,6 +193,10 @@ test('every layer-2 tree depth mesh shares its geometry and visibility with a tr
     const states = [
       () => forest.updateDetailView({ camera, width: 640, height: 320, pixelated: true }),
       () => forest.updateDetailView({ camera, width: 64, height: 32, pixelated: true }),
+      () => {
+        forest.updateDetailView({ camera, width: 128, height: 64, pixelated: true });
+        assert.ok(forest.detailView.blendedBatches > 0, 'a footprint that blends detail and lite');
+      },
       () => forest.updateDetailView({ camera, width: 640, height: 320, pixelated: false, nearDetail: false }),
       () => forest.applyVisibility({ shown: false }),
       () => forest.applyVisibility({ shown: true, nearDetail: true }),
