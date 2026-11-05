@@ -3908,6 +3908,15 @@ export class BiomeManager {
     this._highResolutionSkyRenderer?.setQualityLevel(level);
   }
 
+  setSingleStage(enabled) {
+    if (this.singleStage === enabled) return;
+    this.singleStage = enabled;
+    if (enabled) {
+      this._rangeMidEffects?.dispose();
+      this._rangeMidEffects = null;
+    }
+  }
+
   /** Draw behind the upscaled terrain. `transform` maps the original scenic
    * coordinates into physical output pixels, including camera shake/crop. */
   drawHighResolutionSky(ctx, canvas, { transform = null } = {}) {

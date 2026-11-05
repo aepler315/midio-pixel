@@ -33,7 +33,7 @@ export function graphicsReport({ range = null, voxelRange = null, profile = null
       screen: pick(env.screen, ['width', 'height']) },
     stage: pick(canvas, ['width', 'height']),
     profile: pick(profile, ['version', 'look', 'quality', 'scaling', 'palette', 'dither']),
-    presentation: pick(presentation, ['requestedLook', 'effectiveLook', 'working', 'output', 'frame']),
+    presentation: pick(presentation, ['requestedLook', 'effectiveLook', 'rangePipeline', 'working', 'output', 'frame']),
     ...(voxelRange ? { voxelRange: pick(voxelRange, ['state', 'reason', 'viewId', 'progress', 'heardTimeMs', 'triangles', 'draws']) } : {}),
     range: range == null ? null : { ...pick(range, ['mode', 'active', 'reason', 'runtime', 'viewId', 'tourMode', 'generation']),
       failures: Object.fromEntries(Object.entries(range.failures || {}).slice(0, 16).map(([k,v]) => [k, String(v).slice(0, 1024)])),

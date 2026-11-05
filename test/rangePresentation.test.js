@@ -4,6 +4,37 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { BiomeManager } from '../src/world/BiomeManager.js';
 import { RangePresentation, resolveRangeMode } from '../src/world/alpine/RangePresentation.js';
+import { GraphicsResidency } from '../src/render/GraphicsResidency.js';
+
+test('switching to one stage retires hybrid storage and permits a later hybrid allocation', () => {
+  const residency = new GraphicsResidency({ budgetBytes: 1024 * 1024 });
+  const allocate = key => {
+    const canvas = { width: 16, height: 16 };
+    const entry = residency.reserve({ key, bytes: 1024, owner: 'hybrid' });
+    residency.commit(entry, canvas, value => { value.width = value.height = 0; });
+    return canvas;
+  };
+  const pres = Object.assign(Object.create(RangePresentation.prototype), {
+    residency, singleStage: false, crest: { release() { residency.release('test:crest'); } },
+    scene: { releaseCrestProbe() { residency.release('test:probe'); }, releaseWaterTarget() { residency.release('test:water-target'); } },
+  });
+  const native = allocate('test:terrain');
+  const hybrid = () => {
+    pres._waterCanvas = allocate('range:water-layer');
+    pres._waterEffectCanvas = allocate('range:water-effect-mask');
+    pres._nearOcclusionCanvas = allocate('range:near-occlusion-mask');
+    allocate('test:crest'); allocate('test:probe'); allocate('test:water-target');
+  };
+  hybrid();
+  pres.setSingleStage(true);
+  assert.deepEqual([...residency.entries.keys()], ['test:terrain']);
+  assert.equal(native.width, 16);
+  pres.setSingleStage(false);
+  hybrid();
+  assert.equal(residency.entries.size, 7);
+  pres.setSingleStage(true);
+  assert.deepEqual([...residency.entries.keys()], ['test:terrain']);
+});
 
 /** A 2D context that accepts every call and records nothing. */
 function anyCtx() {

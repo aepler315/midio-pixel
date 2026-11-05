@@ -266,6 +266,18 @@ export class RangePresentation {
 
   get enabled() { return this.mode === 'v2'; }
 
+  setSingleStage(enabled) {
+    if (this.singleStage === enabled) return;
+    this.singleStage = enabled;
+    if (!enabled) return;
+    this._releaseWater();
+    this._releaseWaterEffects();
+    this._releaseNearOcclusion();
+    this._releaseCastCanvas();
+    this.crest.release();
+    this.scene?.releaseCrestProbe?.();
+  }
+
   get cameraSchedule() { return this.railPlan?.snapshot ?? null; }
 
   /** Run owners provide the committed heard high-water; draws never commit. */
@@ -1022,6 +1034,7 @@ export class RangePresentation {
     const crestOn = this.crestEnabled && this.pixelated && !this.directTerrainMode && !incoming;
     this.crest.economy = !!inputs.sim?.perf?.economy;
     this.scene.crestProbeMode = crestOn ? this.crest.probeMode : null;
+    this.scene.singleStage = !!this.singleStage;
     this._crestScan = crestOn && this.crest.mode === 'grid';
     if (!crestOn) this.crest.update({ frameId: this.frame.frameId, timeMs: this.frame.timeMs, viewId: view.id, qualityLevel: this.frame.qualityLevel ?? 0 });
     this.scene.skyPan = this.skyPan; // rain curtains and lightning stand where the sky draws them

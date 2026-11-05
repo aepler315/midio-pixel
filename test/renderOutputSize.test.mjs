@@ -110,7 +110,7 @@ test('fullscreen entry and exit resize the landscape while retaining the saved s
   assert.deepEqual([canvas.width, canvas.height, selected.scaling], [1536, 864, 'fit']);
   assert.equal(context.presentation.scaling, 'fit');
 });
-for (const { pixelGrid, experience = 'landscape', bulkExportSize = null, fullscreen = false, expected } of [
+for (const { pixelGrid, experience = 'landscape', bulkExportSize = null, fullscreen = false, rangePipeline, expected } of [
   { pixelGrid: 'classic', expected: [1920, 1080] },
   { pixelGrid: 'detailed', expected: [1920, 1080] },
   { pixelGrid: 'classic', experience: 'trio', expected: [320, 180] },
@@ -120,8 +120,12 @@ for (const { pixelGrid, experience = 'landscape', bulkExportSize = null, fullscr
   { pixelGrid: 'mediumPlus', experience: 'trio', expected: [560, 315] },
   { pixelGrid: 'classic', bulkExportSize: { w: 3840, h: 2160 }, expected: [3840, 2160] },
   { pixelGrid: 'classic', fullscreen: true, expected: [1920, 1080] },
-]) test(`actual fitCanvas keeps ${experience} ${pixelGrid}${bulkExportSize ? ' export' : ''} output separate from terrain`, () => {
-  const active = resolvePresentation({ version: 2, look: 'pixel', pixelGrid });
+  { pixelGrid: 'classic', rangePipeline: 'native', expected: [320, 180] },
+  { pixelGrid: 'detailed', rangePipeline: 'single', expected: [640, 360] },
+  { pixelGrid: 'classic', rangePipeline: 'single', fullscreen: true, expected: [320, 180] },
+]) test(`actual fitCanvas sizes ${experience} ${pixelGrid}${rangePipeline ? ' ' + rangePipeline : ''}${bulkExportSize ? ' export' : ''}`, () => {
+  const active = { ...resolvePresentation({ version: 2, look: 'pixel', pixelGrid }),
+    ...(rangePipeline ? { rangePipeline, scaling: fullscreen ? 'cover' : 'fit' } : {}) };
   const flags = new Map(), outputCtx = { setTransform() {}, fillRect() {}, drawImage() {} };
   const makeCanvas = () => ({ width: 0, height: 0, getContext: () => ({}) });
   let laidOut = false, terrainSize;
@@ -142,7 +146,8 @@ for (const { pixelGrid, experience = 'landscape', bulkExportSize = null, fullscr
     vm.runInContext(fitCanvas, context); context.fitCanvas();
     assert.deepEqual([canvas.width, canvas.height], expected);
     assert.equal(context.sim.timeMs, 15950, 'resizing cannot move the heard performance');
-    assert.equal(flags.get('retro'), experience === 'trio', 'CSS must not pixelate the completed sky');
+    assert.equal(flags.get('retro'), experience === 'trio' || !!rangePipeline);
+    assert.equal(flags.get('nativeCover'), !!rangePipeline && fullscreen, 'CSS crop must match fullscreen pointer mapping');
     renderer.draw({}, 1);
     assert.deepEqual(terrainSize, [active.grid.width, active.grid.height]);
   } finally { renderer.dispose(); }

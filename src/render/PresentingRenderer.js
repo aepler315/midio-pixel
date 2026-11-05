@@ -89,8 +89,8 @@ class PresentingRenderer {
     const range = this.inner.rangePresentation;
     const landscape = this._experience !== 'trio' && manager?.world?.kind === 'alpine' && !!range?.enabled;
     const singleStage = landscape && this._requestedPresentation?.rangePipeline === 'single';
-    if (manager) manager.singleStage = singleStage;
-    if (range) range.singleStage = singleStage;
+    if (manager) { manager.setSingleStage?.(singleStage); manager.singleStage = singleStage; }
+    if (range) { range.setSingleStage?.(singleStage); range.singleStage = singleStage; }
     if (landscape && this._requestedPresentation?.directTerrain === true) return this._drawDirect(sim, alpha, { preparing, manager, range });
     this._directFrame = false;
     this._releaseDirect();

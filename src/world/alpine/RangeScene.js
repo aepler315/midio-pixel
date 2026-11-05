@@ -174,6 +174,8 @@ export class RangeScene {
     // Moved camera poses per frame and view (see _setCamera).
     this._movedPoses = new WeakMap();
     this.depthCache = { A: { frame: -1, view: null }, B: { frame: -1, view: null } };
+    this.reuseOpaqueDepth = true;
+    this.opaqueDepth = { A: null, B: null };
     this.size = { width: 0, height: 0 };
     this.contextLost = false;
     this.stats = { depthPasses: 0, partitions: 0, lastPartitionMs: 0, castPasses: 0 };
@@ -230,6 +232,7 @@ export class RangeScene {
     }
     const policy = rangeRenderPolicy({ widthPx: w, heightPx: h, quality, pixelated, budget: this.budget,
       capability: this.edge?.capability ?? 0, override: this.edge?.override ?? null });
+    if (!this.singleStage || this.reuseOpaqueDepth === false || !pixelated || policy.samples > 0) this._releaseOpaqueDepth();
     // Everything a budget fallback depends on. The fallback is retried only
     // when one of these changes -- never per frame, and never on routine
     // ledger churn -- so a refused multisample target does not tear down
@@ -248,6 +251,7 @@ export class RangeScene {
     // A same-size reallocation (a rung's MSAA change) keeps the shaft fade;
     // only a real size change ends it.
     this.releaseShafts({ keepPresence: sameSize });
+    this._releaseOpaqueDepth();
     const key = 'range:render-target';
     if (this.residency) this.residency.release(key);
     else { this.target?.dispose(); this.ownership?.A?.dispose(); }
@@ -304,6 +308,58 @@ export class RangeScene {
     return target;
   }
 
+  /** Preserve opaque depth before the soft crowns' later hard cut changes it. */
+  _opaqueDepthTarget(side, source) {
+    const key = `range:opaque-depth-${side}`;
+    const current = this.opaqueDepth?.[side];
+    if (current && current.target.width === source.width && current.target.height === source.height
+      && this.residency.get(key) === current.target) return current;
+    this._releaseOpaqueDepth(side);
+    const reservation = this.residency.reserve({ key, bytes: source.width * source.height * 8, owner: 'range-opaque-depth',
+      protect: [...this.residency.entries.keys()] });
+    if (!reservation) return null;
+    let target;
+    try {
+      target = this._scenicTarget(source.width, source.height);
+      if (!target.depthTexture) throw new Error('Opaque depth snapshot requires a depth texture');
+      this.renderer.initRenderTarget(target);
+      const state = { target };
+      if (!this.residency.commit(reservation, target, t => {
+        t.dispose();
+        if (this.opaqueDepth?.[side] === state) this.opaqueDepth[side] = null;
+      })) return null;
+      this.opaqueDepth ??= { A: null, B: null };
+      this.opaqueDepth[side] = state;
+      return state;
+    } catch {
+      this.residency.releaseReservation(reservation);
+      target?.dispose();
+      return null;
+    }
+  }
+
+  _releaseOpaqueDepth(side = null) {
+    for (const id of side ? [side] : ['A', 'B']) {
+      const state = this.opaqueDepth?.[id];
+      if (!state) continue;
+      this.residency?.release(`range:opaque-depth-${id}`);
+      this.opaqueDepth[id] = null;
+    }
+  }
+
+  _copyOpaqueDepth(source, destination, renderTarget) {
+    try {
+      // Three's depth-texture copy is a nearest GPU depth blit, preserving bits.
+      this.renderer.copyTextureToTexture(source.depthTexture, destination.depthTexture);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      // copyTextureToTexture unbinds both framebuffer bindings internally.
+      this.renderer.setRenderTarget(renderTarget);
+    }
+  }
+
   /** Resolved band ownership of a multisampled side (see COPY_FRAG). */
   _ownershipTarget(w, h) {
     const THREE = this.THREE;
@@ -355,6 +411,7 @@ export class RangeScene {
   /** Free the incoming side's target once no transition needs it. */
   releaseSide(side = 'B') {
     if (side !== 'B') return;
+    this._releaseOpaqueDepth(side);
     this.releaseMirror('B');
     if (!this.sideTargets?.B) return;
     this.releaseShafts({ keepPresence: true });
@@ -2555,6 +2612,10 @@ export class RangeScene {
     const forestDepth = p.uniforms.uNarrativeInk.value >= .005
       || (castInBands && this._castShown(p))
       || !!(source && this.shafts);
+    const opaqueKey = this.singleStage ? JSON.stringify([frame.generation, frame.frameId, frame.occurrenceId, viewId, this.contextEpoch]) : null;
+    let opaque = this.singleStage && this.pixelated && this.reuseOpaqueDepth !== false && !bandColumns && !target.samples
+      && softForest && (forestDepth || this.opaqueDepth?.[side]?.key === opaqueKey) && this.residency && target.depthTexture?.isDepthTexture
+      && this.renderer.initRenderTarget && this.renderer.copyTextureToTexture ? this._opaqueDepthTarget(side, target) : null;
     // The backdrop holds the far partition itself: far water reflecting it
     // would feed back into the next copy, so it keeps the ground mirror only.
     if (pass === 'far') p.uniforms.uBackdropAmount.value = 0;
@@ -2572,13 +2633,27 @@ export class RangeScene {
       r.setClearColor(0x000000, 0);
       r.clear(true, true, false);
       const own = this.ownership?.[side];
-      if (own) this._renderOwnership(p, target, own);
-      else r.render(p.depthScene, this.camera);
+      let restored = false;
+      if (opaque?.key === opaqueKey && opaque.source === target && opaque.sourceDepth === target.depthTexture && opaque.prepared === p) {
+        restored = this._copyOpaqueDepth(opaque.target, target, target);
+        if (restored) this.stats.opaqueDepthRestores = (this.stats.opaqueDepthRestores || 0) + 1;
+        else { this._releaseOpaqueDepth(side); opaque = null; r.clear(true, true, false); }
+      }
+      if (!restored) {
+        if (own) this._renderOwnership(p, target, own);
+        else r.render(p.depthScene, this.camera);
+        this.stats.depthPasses++;
+        if (opaque) {
+          if (this._copyOpaqueDepth(target, opaque.target, target)) {
+            Object.assign(opaque, { key: opaqueKey, source: target, sourceDepth: target.depthTexture, prepared: p });
+            this.stats.opaqueDepthSaves = (this.stats.opaqueDepthSaves || 0) + 1;
+          } else this._releaseOpaqueDepth(side);
+        }
+      }
       depth.owned = !!own;
       depth.frame = frame.frameId;
       depth.view = viewId;
       depth.occurrenceId = frame.occurrenceId;
-      this.stats.depthPasses++;
     }
     // During travel a side's nearer bands draw only in some columns: its
     // seam fill draws there too (below), never over ground the other side
@@ -3022,6 +3097,7 @@ export class RangeScene {
   }
 
   _invalidateContext() {
+    this._releaseOpaqueDepth();
     this.releaseCrestProbe();
     this.releaseWaterTarget();
     this.releaseShafts();
@@ -3059,6 +3135,7 @@ export class RangeScene {
   }
 
   dispose() {
+    this._releaseOpaqueDepth();
     this.releaseCrestProbe();
     this.releaseWaterTarget();
     this.releaseShafts();

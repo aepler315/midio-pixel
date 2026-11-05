@@ -805,6 +805,7 @@ function fitCanvas() {
   const ctx2d = canvas.getContext('2d');
   if (ctx2d) ctx2d.imageSmoothingEnabled = false;
   canvas.classList.toggle('retro', !hybrid || nativeStage);
+  canvas.classList.toggle('nativeCover', nativeStage && active.scaling === 'cover');
   landscapeHintEl?.classList.toggle(
     'is-visible',
     !bulkExportSize && shouldSuggestLandscape(canvas.clientWidth, canvas.clientHeight),
