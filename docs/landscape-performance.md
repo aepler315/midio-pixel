@@ -169,11 +169,39 @@ sets, in placement order. Each band has a demote board holding all its trees,
 which draws those that are not meshes. The static mesh-ring batches are hidden
 on the tour. A twin is culled whole like a static batch (`ForestCulling.js`),
 with its cells built over the trees it draws (`forestCull.prefix`: its first
-`instanceCount` trees) and rebuilt at every refill, when its attributes'
+`instanceCount` trees) and rebuilt at every refill, when its buffers'
 versions change. Like every billboard, the boards are never culled. On
 `black-mountains-catawba`, whose tour flies low over dense forest, this takes
 the twins out of the mirror and water passes, where they made up about half
 the frame.
+
+A twin in view draws only a span of its trees (`forestSpan`,
+`forestCull.spans`). The span runs from the first to the last tree whose own
+box (the cell box over that one tree) can reach the render's frustum and
+scissor, its first tree rounded down to a multiple of 4 (`SPAN_ALIGN`). It is
+still the twin's one draw, in the same order, reading the same bytes: the
+per-tree attributes are `InterleavedBufferAttribute`s (stride = item size), and
+for the render the culling puts in views of the same buffers that start at the
+span's first tree. It restores them after the render, or before the next cull,
+refill, mode switch or `applyVisibility`. Every tree left out has every vertex
+outside one clip plane, so frames stay byte-identical. A twin no tree of which
+can reach the render draws nothing. A geometry whose per-tree attributes
+cannot start at an offset is culled whole, and `tour.spans: false` culls every
+twin whole. Export frames on main eadd0e8 in headless Chromium (SwiftShader;
+triangle counts, not timings), pilot song:
+
+| Tour | Frames | Triangles per frame, whole twins → spans |
+|---|---|---|
+| `black-mountains-catawba` | 11, 4.2 to 40 s | 65.3–66.0 M → 37.5–38.0 M; 86.3 M → 48.2 M at 40 s |
+| `black-mountains-catawba`, quality level 4 | 4.2 and 20 s | 35.8–36.0 M → 20.5–20.7 M |
+| `teton-jackson-lake` | 13, 2 to 80 s | unchanged, but 26.8 M → 26.3 M at 80 s |
+
+Every frame is byte-identical to main. The cut is in the passes that draw the
+twins under the main camera: on Black Mountains at 20 s the partitions go from
+30.7 M to 14.1 M triangles, the cast pass from 12.2 M to 6.7 M and the crest
+probe from 9.1 M to 3.6 M. The mirror and water passes, which already cull
+the twins whole, do not change. Across the frame's renders at 20 s, 90 forest
+draws are skipped instead of 60: the twins with no tree in reach.
 
 Residency: the layer's bytes (`tourForestBytes`) are charged in the view's GPU
 reservation. It is built only when it fits in free room beside both cameras,
