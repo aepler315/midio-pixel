@@ -552,6 +552,40 @@ test('a grid-sized hybrid output retains a separate transparent foreground buffe
   owner.dispose();
 });
 
+test('single stage paints native sky, water, cast and effects together before admitting captures', () => {
+  const canvas = surface(320, 180);
+  const forbidden = () => assert.fail('single stage must use the native scene path');
+  const range = { enabled: true, castForeground: true, drawCastForeground: forbidden, drawWaterForeground: forbidden,
+    drawCrestForeground: forbidden, crestEnabled: true };
+  const manager = { world: { kind: 'alpine' }, drawHighResolutionSky() {}, drawHighResolutionMidEffects: forbidden };
+  let captured = 0;
+  const inner = { rangePresentation: range, draw() {
+    assert.equal(this.canvas, canvas);
+    assert.equal(manager.singleStage, true);
+    assert.equal(manager.highResolutionSky, true);
+    assert.equal(manager.highResolutionMidEffects, false);
+    assert.equal(range.singleStage, true);
+    assert.equal(range.waterOutputSize, null);
+    assert.equal(range.castForeground, false);
+    assert.equal(range.crestEnabled, false);
+    assert.equal(this.deferPostEffects, false);
+    assert.equal(this.deferSceneCaptures, true);
+  }, drawDeferredPostEffects: forbidden, completeFrameCaptures(source) {
+    assert.equal(source, canvas);
+    assert.equal(adapter.getCaptureSource().presented, true);
+    assert.equal(canvas.writes, 1, 'palette must finish before semantic capture');
+    captured++;
+  }, dispose() {} };
+  const adapter = createPresentingRenderer({ canvas, presentation: { ...pixel, rangePipeline: 'single', paletteId: 'rgb332' },
+    rendererFactory: () => inner });
+  assert.equal(adapter.draw({ biomes: manager }, 0).presented, true);
+  assert.equal(captured, 1);
+  assert.equal(adapter.getCaptureSource().canvas, canvas);
+  assert.equal(adapter.getCaptureSource().pixelated, true);
+  assert.equal(adapter.output.working, null);
+  adapter.dispose();
+});
+
 test('smooth mid-depth effects compose above water and below cast in live and recording frames', () => {
   const canvas = surface(1280, 720), order = [];
   stateful(canvas, order, 'live');

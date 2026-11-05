@@ -2915,7 +2915,7 @@ export class BiomeManager {
       this._drawLegacyWaterBackground(ctx, canvas, { worldX, A, B, t, phenomenaFull, night: dn.night });
     }
     };
-    if (separateRangeSky && this.directFullResolution) this.drawHighResolutionSky(ctx, canvas);
+    if (separateRangeSky && (this.directFullResolution || this.singleStage)) this.drawHighResolutionSky(ctx, canvas);
     if (!separateSky) drawLegacySky(ctx);
     else if (separateLegacySky && scenicMatrix) {
       this.rangeSkyLayer = {

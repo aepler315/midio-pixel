@@ -73,6 +73,47 @@ test('v2 draws its partitions at the retained pass boundaries, legacy scenery no
   m.dispose();
 });
 
+test('a single stage paints the current musical sky once before its terrain partitions', () => {
+  const { m, calls } = manager();
+  const effects = Object.freeze({ bass: .7, kick: .9 });
+  const pres = fakePresentation();
+  Object.assign(pres, {
+    skyPan: { tourPose: { eyeM: [0, 1000, 1000], targetM: [0, 1500, 0], fovYDeg: 50 } },
+    frame: { timeMs: 12345, effects }, scene: {},
+  });
+  m.rangePresentation = pres;
+  m.highResolutionSky = true;
+  m.singleStage = true;
+  m._highResolutionSkyRenderer = {
+    draw(_ctx, frame) {
+      assert.equal(frame.effects, effects);
+      assert.equal(frame.timeSec, 12.345);
+      calls.push('currentSky');
+      return true;
+    },
+    dispose() {},
+  };
+  pres.drawPartition = (_ctx, pass) => { calls.push(`gpu:${pass}`); return true; };
+  try {
+    m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, null, 1, null, groundView);
+    assert.deepEqual(calls.filter(name => name === 'currentSky' || name.startsWith('gpu:') || name === '_drawSky' || name === 'spaceRidge'),
+      ['currentSky', 'gpu:far', 'gpu:mid', 'gpu:near']);
+  } finally { m.dispose(); }
+});
+
+test('a single stage retains its complete sky when the modern camera descriptor is unavailable', () => {
+  const { m, calls } = manager();
+  m.rangePresentation = fakePresentation();
+  m.highResolutionSky = true;
+  m.singleStage = true;
+  m.drawHighResolutionSky = () => assert.fail('a missing descriptor must use the inline legacy sky');
+  try {
+    m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, null, 1, null, groundView);
+    assert.equal(calls.filter(name => name === '_drawSky').length, 1);
+    assert.deepEqual(m.rangePresentation.passes, ['far', 'mid', 'near']);
+  } finally { m.dispose(); }
+});
+
 test('an unready Landscape draws no synthetic fallback before real terrain is ready', () => {
   const { m, calls } = manager();
   m.rangePresentation = fakePresentation({ ready: false });

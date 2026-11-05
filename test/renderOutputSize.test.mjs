@@ -98,7 +98,7 @@ test('fullscreen entry and exit resize the landscape while retaining the saved s
     directTerrainExperiment: () => false, requestedRangePipeline: 'hybrid', location: { search: '' }, experience: 'landscape',
     document: {}, isFullscreen: () => fullscreen, renderer: { setPresentation(value) { selected = value; } },
     titlePresentation: null, fitPixelLayout() {}, perfGovernor: null, bulkExportSize: null, canvas, stageOutputSize,
-    sim: { biomes: { world: { kind: 'alpine' } } }, rangePresentation: { enabled: true },
+    sim: { biomes: { world: { kind: 'alpine' } } }, rangePresentation: { enabled: true }, voxelRangePilot: null,
     lastTimelineData: null, lastWorldId: 'alpine', DEFAULT_WORLD_ID: 'alpine', getWorld: () => ({ kind: 'alpine' }),
     window: { devicePixelRatio: 1.5 }, landscapeHintEl: null,
     resizeStageCanvas(target, w, h) { target.width = w; target.height = h; },
@@ -133,7 +133,7 @@ for (const { pixelGrid, experience = 'landscape', bulkExportSize = null, fullscr
   }) });
   const context = vm.createContext({ effectivePresentation: () => active, renderer, titlePresentation: null,
     fitPixelLayout() { laidOut = true; }, perfGovernor: null, bulkExportSize, canvas, stageOutputSize,
-    experience, sim: { timeMs: 15950, biomes: { world: { kind: 'alpine' } } }, rangePresentation: { enabled: true },
+    experience, sim: { timeMs: 15950, biomes: { world: { kind: 'alpine' } } }, rangePresentation: { enabled: true }, voxelRangePilot: null,
     lastTimelineData: null, lastWorldId: 'alpine', DEFAULT_WORLD_ID: 'alpine', getWorld: () => ({ kind: 'alpine' }),
     window: { devicePixelRatio: 1.5 }, document: {}, isFullscreen: () => fullscreen, landscapeHintEl: null,
     resizeStageCanvas(target, w, h) { target.width = w; target.height = h; },

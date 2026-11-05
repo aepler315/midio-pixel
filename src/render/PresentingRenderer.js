@@ -71,8 +71,7 @@ class PresentingRenderer {
     this._voxelFrame = false;
     if (this.voxelRange && this.voxelRange.state !== 'unavailable') {
       if (this.voxelRange.state !== 'ready') return this.output.failFrame('voxel-range-preparing');
-      const grid = this.output.grid;
-      const source = this.voxelRange.render(sim.heardTimeMs, grid.width, grid.height);
+      const source = this.voxelRange.render(sim.heardTimeMs, this.canvas.width, this.canvas.height);
       if (source) return this._drawVoxelRange(source);
     }
     if (this.voxelRange) {
@@ -89,25 +88,28 @@ class PresentingRenderer {
     }
     const range = this.inner.rangePresentation;
     const landscape = this._experience !== 'trio' && manager?.world?.kind === 'alpine' && !!range?.enabled;
+    const singleStage = landscape && this._requestedPresentation?.rangePipeline === 'single';
+    if (manager) manager.singleStage = singleStage;
+    if (range) range.singleStage = singleStage;
     if (landscape && this._requestedPresentation?.directTerrain === true) return this._drawDirect(sim, alpha, { preparing, manager, range });
     this._directFrame = false;
     this._releaseDirect();
     if (manager) manager.directFullResolution = false;
     if (range) { range.directTerrainMode = false; range.drawTerrainImage = null; range.drawLegacyTerrain = null; }
-    const hybridSky = this._experience !== 'trio' && typeof manager?.drawHighResolutionSky === 'function';
-    if (manager) manager.highResolutionSky = hybridSky;
+    const hybridSky = !singleStage && this._experience !== 'trio' && typeof manager?.drawHighResolutionSky === 'function';
+    if (manager) manager.highResolutionSky = singleStage || hybridSky;
     // The cast is laid smoothly over the upscaled frame, so the working
     // buffer must stay separate from the output (as for the sky).
-    const castOverlay = landscape && typeof range.drawCastForeground === 'function';
-    const waterOverlay = landscape && typeof range.drawWaterForeground === 'function';
+    const castOverlay = !singleStage && landscape && typeof range.drawCastForeground === 'function';
+    const waterOverlay = !singleStage && landscape && typeof range.drawWaterForeground === 'function';
     // The crest line (RangeCrest.js) needs the separate output composite too.
-    const crestOverlay = landscape && typeof range.drawCrestForeground === 'function';
+    const crestOverlay = !singleStage && landscape && typeof range.drawCrestForeground === 'function';
     if (range && 'crestEnabled' in range) {
       range.crestEnabled = crestOverlay;
       const id = this.output._resolvedPaletteId;
       range.crestPalette = !id || id === 'none' ? null : id === 'rgb332' ? 'rgb332' : this.output.compiledPalette || null;
     }
-    const smoothEffects = this._experience !== 'trio' && typeof manager?.drawHighResolutionMidEffects === 'function';
+    const smoothEffects = !singleStage && this._experience !== 'trio' && typeof manager?.drawHighResolutionMidEffects === 'function';
     if (manager) {
       manager.highResolutionMidEffects = smoothEffects;
       manager.midEffectsOutputSize = smoothEffects ? { width: this.canvas.width, height: this.canvas.height } : null;
@@ -116,7 +118,7 @@ class PresentingRenderer {
     const scene = this.canvasRenderer;
     scene.outputCover = false;
     // Optical effects and HUD draw after the completed Landscape composite.
-    const postEffects = this._experience !== 'trio' && !!manager?.world && typeof scene.drawDeferredPostEffects === 'function';
+    const postEffects = !singleStage && this._experience !== 'trio' && !!manager?.world && typeof scene.drawDeferredPostEffects === 'function';
     scene.deferPostEffects = postEffects;
     if (range && 'castForeground' in range) range.castForeground = castOverlay;
     this.output.qualityLevel = sim?.perf?.level ?? 0;
@@ -125,7 +127,7 @@ class PresentingRenderer {
     scene.canvas = source; scene.ctx = source.getContext('2d');
     // Scene captures (opening assembly, freeze, highlight reel) take the
     // finished composite, smooth sky and cast included.
-    scene.deferSceneCaptures = hybridSky || castOverlay || waterOverlay || postEffects || smoothEffects || crestOverlay || preparing;
+    scene.deferSceneCaptures = singleStage || hybridSky || castOverlay || waterOverlay || postEffects || smoothEffects || crestOverlay || preparing;
     scene.pixelPolicy = pixelRenderPolicy(this.output.presentation);
     this.inner.presentationPixelated = this.output.presentation.pixelated;
     if (range) { range.pixelated = !!this.output.presentation.pixelated; range.pixelPolicy = scene.pixelPolicy; range.cinematicPixel = cinematicPixel; }

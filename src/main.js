@@ -663,7 +663,7 @@ function effectivePresentation() {
   const requested = bulkPresentation || presentation;
   const experimental = directTerrainExperiment(typeof location === 'undefined' ? '' : location.search);
   if (experience === 'trio') return { ...requested, pixelScale: 'original' };
-  return { ...requested, rangePipeline: bulkExportSize || experimental ? 'hybrid' : requestedRangePipeline,
+  return { ...requested, rangePipeline: bulkExportSize || experimental || requested.cinematicPixel ? 'hybrid' : requestedRangePipeline,
     ...(experimental ? { directTerrain: true } : {}),
     ...(!bulkExportSize && typeof document !== 'undefined' && isFullscreen() ? { scaling: 'cover' } : {}) };
 }
@@ -791,7 +791,7 @@ function fitCanvas() {
   const worldKind = sim?.biomes?.world?.kind
     || getWorld(lastTimelineData?.worldId || lastWorldId || DEFAULT_WORLD_ID)?.kind;
   const hybrid = experience === 'landscape' && worldKind === 'alpine' && !!rangePresentation?.enabled;
-  const nativeStage = hybrid && active.rangePipeline !== 'hybrid' && !!active.rangePipeline;
+  const nativeStage = hybrid && !voxelRangePilot && active.rangePipeline !== 'hybrid' && !!active.rangePipeline;
   const box = canvas.getBoundingClientRect();
   // The quality rung this output was sized for: heavier rungs draw the
   // smooth layers at fewer pixels (the ladder's resolution scale).
