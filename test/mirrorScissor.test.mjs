@@ -28,6 +28,16 @@ const mul = (a, b) => {
 const bias = [.5, 0, 0, 0, 0, .5, 0, 0, 0, 0, .5, 0, .5, .5, .5, 1];
 const apply = (m, p) => [0, 1, 2, 3].map(r => m[r] * p[0] + m[4 + r] * p[1] + m[8 + r] * p[2] + m[12 + r]);
 
+test('water and mirror scissors follow a surface raised to the flat base', () => {
+  const boxes = Float64Array.of(-.2, -.8, -.2, .2, -.6, .2);
+  const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  const lift = { lo: 0, hi: 0, rise: { sink: 1, baseM: .6 } };
+  const water = waterScissor(boxes, identity, lift, 100, 100);
+  assert.ok(water.y <= 80 && water.y + water.height > 80, JSON.stringify(water));
+  const mirror = mirrorScissor(boxes, mul(bias, identity), identity, lift, { x: 0, y: 0 }, 100, 100);
+  assert.ok(mirror.y <= 80 && mirror.y + mirror.height > 80, JSON.stringify(mirror));
+});
+
 test('every texel a visible lake fragment can read lies in the scissor', () => {
   for (let seed = 1; seed <= 20; seed++) {
     const r = rng(seed), level = 1300, eyeY = level + 50 + r() * 600;

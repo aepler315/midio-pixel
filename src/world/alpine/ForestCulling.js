@@ -44,11 +44,9 @@
 //   clamped to [-1, 1]), parting PARTING_LEAN * |uParting.w|, and the
 //   storm's |uWind.y| along the unit WIND_DIR, all times H; doubled
 //   (MIRROR_BOUND_SAFETY).
-// - The song's rise (LandRise.js), applied last: riseLift(p) lowers each
-//   vertex by where it stands and never raises it. Drawn height rises with
-//   height and with horizontal distance from the eye, so the lowest a box
-//   can draw is its bottom at its nearest point (risenFloor), as the
-//   terrain's chunks bound it.
+// - The song's rise (LandRise.js), applied last: riseLift(p) contracts
+//   every vertex's height toward the shared flat base. The map is
+//   increasing in height, so both ends of a box transform directly.
 // Every box then gets CHUNK_BOX_PAD_M on each side.
 //
 // Billboards are not culled: their pixel-width reserve depends on the
@@ -56,7 +54,7 @@
 
 import { frustumPlanes, boxOutsidePlanes, CHUNK_BOX_PAD_M } from './TerrainChunks.js';
 import { liftBounds, MIRROR_BOUND_SAFETY } from './MirrorScissor.js';
-import { risenFloor } from './LandRise.js';
+import { risenHeight } from './LandRise.js';
 import { WIND_SWAY, WIND_SWAY_PEAK, GUST_LEAN, PARTING_LEAN } from './ForestWind.js';
 
 /** Root cell size for a batch's boxes, metres. */
@@ -185,21 +183,19 @@ export function forestCellBox(cells, o, extents, lift, lean, pad = CHUNK_BOX_PAD
   const r = Math.max(extents.foliage * CROWN_RADIUS_PER_WIDTH * cells[o + 7], extents.trunk * TRUNK_RADIUS_M) + lean * cells[o + 6] + pad;
   const x0 = cells[o] - r, z0 = cells[o + 2] - r, x1 = cells[o + 3] + r, z1 = cells[o + 5] + r;
   const bottom = cells[o + 1] + Math.min(0, lift.lo);
-  out[0] = x0; out[1] = (lift.rise ? risenFloor(bottom, x0, z0, x1, z1, lift.rise) : bottom) - pad; out[2] = z0;
-  out[3] = x1; out[4] = cells[o + 4] + Math.max(0, lift.hi) + pad; out[5] = z1;
+  const top = cells[o + 4] + Math.max(0, lift.hi);
+  out[0] = x0; out[1] = risenHeight(bottom, 0, lift.rise) - pad; out[2] = z0;
+  out[3] = x1; out[4] = risenHeight(top, 0, lift.rise) + pad; out[5] = z1;
   return out;
 }
 
-// A rise the box cannot bound, read as the shader reads it (LandRise.js
-// riseLift: uLandRise raw, the eye from uTourEye). risenFloor holds only for
-// a sink in (0, 1], a finite pivot >= 0 and a finite eye. riseFromUniforms
-// turns a negative or NaN pivot into 0 and drops a rise with no eye, and
-// the shader would still lower those trees, by more than the box allows.
-// A sink of 0 or less draws no rise.
+// A rise the box cannot bound, read as the shader reads uLandRise. The
+// height map is increasing for a sink in (0, 1], with any finite signed
+// base. It is independent of the drawing eye. A sink of 0 or less is off.
 const unknownRise = (u, rise) => {
   const v = u?.uLandRise?.value;
   if (!v || v.x <= 0) return false;
-  return !(rise && v.x <= 1 && v.y >= 0 && v.y < Infinity && rise.eye.every(Number.isFinite));
+  return !(rise && v.x <= 1 && Number.isFinite(v.y));
 };
 
 /** The root lift { lo, hi, rise } and lean per metre of height every box
@@ -259,7 +255,7 @@ function treeOutside(pos, size, i, extents, lift, lean, planes) {
 
 // The last span per geometry and everything it was computed from.
 const spanMemo = new WeakMap();
-const KEY = new Float64Array(34);
+const KEY = new Float64Array(30);
 
 /** The span [first, last] of the trees `geometry` draws (its prefix) that
  *  holds every tree whose box can reach the volume `planes` bound under
@@ -278,8 +274,7 @@ export function forestSpan(geometry, planes, u, { scan = SPAN_SCAN_MAX, memo = t
   const { lift, lean } = bounds, rise = lift.rise;
   for (let i = 0; i < 24; i++) KEY[i] = planes[i];
   KEY[24] = lift.lo; KEY[25] = lift.hi; KEY[26] = lean; KEY[27] = scan;
-  KEY[28] = rise ? rise.sink : NaN; KEY[29] = rise ? rise.pivot : NaN; KEY[30] = rise ? rise.knee : NaN;
-  KEY[31] = rise ? rise.eye[0] : NaN; KEY[32] = rise ? rise.eye[1] : NaN; KEY[33] = rise ? rise.eye[2] : NaN;
+  KEY[28] = rise ? rise.sink : NaN; KEY[29] = rise ? rise.baseM : NaN;
   // Same cells (same trees, versions and count), same asset and the same
   // numbers: the same span. NaN marks no rise.
   const last = memo ? spanMemo.get(geometry) : null;

@@ -70,8 +70,8 @@ function meshVertex(geo, k, tree, u, e, r) {
   const scale = bw > .5 ? radius : (.12 + .14 * tree.id) * (1 - .94 * y01);
   const w = windAt(tree, y01, u, e, r);
   const x = tree.x + rx * scale + w[0], y = tree.y + deformAt(u, e, r) + y01 * tree.h, z = tree.z + rz * scale + w[1];
-  const L = u.uLandRise?.value, E = u.uTourEye?.value;
-  return [x, L && E ? y + landRiseLift(x, y, z, [E.x, E.y, E.z], L.x, L.y) : y, z];
+  const L = u.uLandRise?.value;
+  return [x, L ? y + landRiseLift(x, y, z, null, L.x, L.y) : y, z];
 }
 // The port's view of the forest's uniforms, read as the shader reads them.
 const portUniforms = u => ({

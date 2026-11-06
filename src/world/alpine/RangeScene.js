@@ -61,7 +61,9 @@ import { createWetMask, fillWetRows, waterIndexSubsetPartsAsync } from './WaterS
 import { attachTerrainCulling, setChunks, setTerrainMaterial, subsetChunkTable } from './TerrainChunks.js';
 import { attachForestCulling, restoreForestCulling } from './ForestCulling.js';
 import { waterBoxes, vertexWaterBoxes, liftBounds, shiverBounds, mirrorScissor, waterScissor } from './MirrorScissor.js';
-import { LAND_RISE_START, landRiseLift, riseFromUniforms, risePivot } from './LandRise.js';
+import { LAND_RISE_START, landRiseLift, riseFromUniforms, risenHeight } from './LandRise.js';
+import { landRiseBase, landRiseCamera } from './LandRiseCamera.js';
+import { RiseGround, riseGroundBytes } from './RiseGround.js';
 // Storm light, linear: the deck's underside, the rain-dimmed horizon, the
 // rain air, per episode kind (RangeStorm STORM_KINDS zenith/horizon/air).
 // The air meets the slate the sky paints at the horizon (drawStormSky).
@@ -99,7 +101,8 @@ export function staticViewBytes(data, est, trees, { budget = 'desktop', landDanc
   const hierarchyCost = grid && landDance ? modes * samples * samples * 4 : 0;
   const gridPx = grid ? grid.width * grid.height : 0;
   return 2 * ((est?.meshBytes || 0) + fringeBytes + forestBytes) + (est?.surfaceTextureBytes || 0) + gridPx
-    + modes * 2 * 3 * 768 * 6 * 4 + 2 * ActorsGL.bytes() + horizonCost + hierarchyCost;
+    + modes * 2 * 3 * 768 * 6 * 4 + 2 * ActorsGL.bytes() + horizonCost + hierarchyCost
+    + (grid ? riseGroundBytes() : 0);
 }
 
 /** The grouping and asset-build allowance a static forest build keeps
@@ -670,7 +673,8 @@ export class RangeScene {
     const u = p.uniforms;
     u.uViewportPx.value.set(this.size.width, this.size.height);
     const ripple = (m) => 0.0012 + 0.0025 * (m?.groove ?? 0) + 0.004 * (m?.kick01 ?? 0);
-    const level = p.mirrorLevelM;
+    const sourceLevel = p.mirrorLevelM;
+    const level = Number.isFinite(sourceLevel) ? risenHeight(sourceLevel, 0, riseFromUniforms(u)) : sourceLevel;
     const wanted = Number.isFinite(level) && rangeQuality(frame.qualityLevel).waterMirror
       && (frame.narrative?.materials ?? 1) > .01;
     const m = wanted ? this._ensureMirror(side) : null;
@@ -710,6 +714,7 @@ export class RangeScene {
       r.setRenderTarget(m.target);
       r.setClearColor(0x000000, 0);
       r.clear(true, true, false);
+      if (this._drawRiseGround?.(p, this.mirrorCamera)) r.clear(false, true, false);
       // Draw only the texels lake fragments can read (MirrorScissor.js).
       const scissor = this._mirrorScissor(p, m);
       this.stats.mirrorScissor = scissor ? scissor.width * scissor.height / (m.target.width * m.target.height) : 1;
@@ -763,7 +768,7 @@ export class RangeScene {
     u.uMirrorMatrix.value.copy(m.matrix);
     this._bindBackdrop(u, frame);
     u.uViewProj.value.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
-    u.uMirrorLevel.value = level;
+    u.uMirrorLevel.value = sourceLevel;
     u.uMirrorAmount.value = p.mirrorFade;
   }
 
@@ -1359,7 +1364,7 @@ export class RangeScene {
       let mat = null, res = null, published = false;
       const cpu = await prepareTerrainAssets(view, { baseUrl, residency: this.residency, generation, signal, isCurrent, owner: cpuOwner });
       let waterSubsets = null;
-      let surface, geos, material, riverMaterial, riverDepthMaterial, riverOwnershipMaterials = null, depthMaterial, ownershipMaterials = null, horizon = null, hierarchy = null, tourHorizon = null, tourHierarchy = null, forest, stageGL, featureMaterial, actors;
+      let surface, geos, material, riverMaterial, riverDepthMaterial, riverOwnershipMaterials = null, depthMaterial, ownershipMaterials = null, horizon = null, hierarchy = null, tourHorizon = null, tourHierarchy = null, forest, stageGL, featureMaterial, actors, riseGround;
       const riverGeometries = {}, riverFringeGeometries = {}, riverDepthMeshes = {};
       let initialWindow = null, workerKey = null, windowReservation = null, buildEntry = null, workerReservation = null;
       const featureGeometries = {};
@@ -1428,9 +1433,9 @@ export class RangeScene {
           // A mapped tour's windows are planned ahead and cached, and a
           // re-analysis can move the song's rise: plan every window for the
           // lowest the land is ever drawn (LandRise.js), so no plan depends
-          // on which score was current when it was made. Only tiles wholly
-          // above the eye grow, so the cost is a few summit tiles.
+          // on which score was current when it was made.
           riseSink: 1 - LAND_RISE_START,
+          riseBaseM: landRiseBase({ data, modeWater }),
           protectedTileIds: view.tour ? tourSummitTiles(cpu.data, opts.tourData?.points) : [] };
         windowOptions.pixelProtectedTileIds = terrainPixelProtection(data, windowOptions.protectedTileIds);
         const buildOwner = { view, data, rules, windowOptions, cpuKey: cpu.key, gpuKey, materialKey: mat.key };
@@ -1482,7 +1487,7 @@ export class RangeScene {
         // drainage hierarchy texture, static views only for now.
         const hierarchySamples = HIERARCHY_MAX_SAMPLES[this.budget === 'mobile' ? 'mobile' : 'desktop'];
         const hierarchyCost = view.tour || !cpu.data?.grid || !requestedLandDance() ? 0 : modes * hierarchySamples * hierarchySamples * 4;
-        const bytes = view.tour ? Math.ceil(gridPx * (4 * 4 / 3 + 1)) + featureBudgetBytes + 2 * ActorsGL.bytes()
+        const bytes = view.tour ? Math.ceil(gridPx * (4 * 4 / 3 + 1)) + featureBudgetBytes + 2 * ActorsGL.bytes() + riseGroundBytes()
           : staticViewBytes(data, est, placed.count, { budget: this.budget, landDance: requestedLandDance() });
         // A static view's build entry still holds its forest construction
         // allowance, which createForest uses only after the surface scratch
@@ -1557,6 +1562,9 @@ export class RangeScene {
         const base = terrainUniforms(THREE, data, surface);
         const uniforms = sceneUniforms(THREE, base);
         applyMaterial(uniforms, mat.pack, mat.textures, view.materialRules || {});
+        // This bounded inferred backdrop and its build scratch were admitted
+        // above with the view. It never participates in source terrain depth.
+        riseGround = new RiseGround(THREE, data, uniforms);
         uniforms.uDebugMask.value = this.debugMask || 0;
         // The rail's own bakes read its ground alone: tour-only ridges never
         // shade it or steer its land (RailDraw.js). The tour reads it all.
@@ -1756,6 +1764,7 @@ export class RangeScene {
         // cast (not parented until it first appears) and the rock stage.
         const gl = this.renderer.getContext();
         const targets = [...BANDS.map(band => [scenes[band]]), [depthScene],
+          [riseGround.scene],
           ...Object.values(actors.groups).map(group => [group, this.camera, scenes.far])];
         if (stageGL) targets.push([stageGL.scene, stageGL.camera]);
         const checked = new Set();
@@ -1794,12 +1803,12 @@ export class RangeScene {
         }
         const prepared = {
           view, generation, manifest: cpu.manifest, data, railOnly, identity: cpu.identity, tourCpuKey: opts.tourCpuKey,
-          surface, uniforms, material, depthMaterial, ownershipMaterials, horizon, hierarchy, tourHorizon, tourHierarchy, depthBandMeshes: depthMeshes, geometries: geos.geometries, fringes: geos.fringes, fringeMeshes, fringeTravel, scenes, depthScene, depthScenes,
+          surface, uniforms, material, depthMaterial, ownershipMaterials, horizon, hierarchy, tourHorizon, tourHierarchy, riseGround, depthBandMeshes: depthMeshes, geometries: geos.geometries, fringes: geos.fringes, fringeMeshes, fringeTravel, scenes, depthScene, depthScenes,
           riverMaterial, riverDepthMaterial, riverOwnershipMaterials, riverGeometries, riverFringeGeometries, riverDepthMeshes, riverStats,
           forest, stageGL, featureGeometries, featureMaterial, modeGeometries, terrainMode: view.tour ? null : 'rail', modeWater, castWaterLevelM: waterLevelM,
           stats: { ...geos.stats, trees: forest.counts, featureBytes: featureBudgetBytes }, gpuKey, cpuKey: cpu.key, cpuOwner,
           waterSubsets, rules, waterLevelM, mirrorLevelM, materialKey: mat.key, materialOwner, actors, actorRoutes: routes, castSeed, castPlan: plan, castWork: work,
-          tourSchedule: forest.tour ? new TourForestSchedule(forest.tour.index) : null,
+          tourSchedule: forest.tour ? new TourForestSchedule(forest.tour.index, { horizontal: true }) : null,
         };
         if (forest.tour) {
           // Mutated in place by _updateTourForest and _setTerrainMode.
@@ -1850,6 +1859,7 @@ export class RangeScene {
           cpuOwner.release?.();
           if (!initialWindow) forest?.dispose();
           actors?.dispose();
+          riseGround?.dispose();
           stageGL?.dispose();
           material?.dispose();
           riverMaterial?.dispose();
@@ -2175,6 +2185,7 @@ export class RangeScene {
 
   _disposePrepared(p) {
     this._releaseOpaqueDepth(null, p);
+    p.riseGround?.dispose();
     p.featureMaterial?.dispose();
     for (const g of Object.values(p.featureGeometries || {})) g.dispose();
     p.windowCache?.dispose();
@@ -2268,11 +2279,13 @@ export class RangeScene {
     const tanY = Math.tan((proj.fovYDeg * Math.PI) / 360) * (visH / vp.logicalHeight), tanX = tanY * (visW / visH);
     // Cinematic section moves and the listener's zoom (RangeCamera.js),
     // computed once per frame and view: the partition passes reuse it.
-    const pose = applyCameraMoves(rail, frame.cameraMove, frame.userCamera, {
+    const authoredPose = applyCameraMoves(rail, frame.cameraMove, frame.userCamera, {
         heightAt: p?.data ? this._renderedGround(view, frame, p.data, p) : null, waterLevelM: p?.waterLevelM,
         sampleStepM: p?.data?.grid?.cellSizeM, cone: { tanX, tanY },
         heightRangeM: p?.uniforms ? [p.uniforms.uHeightRange.value.x, p.uniforms.uHeightRange.value.y] : null,
         zoomMode: 'projection' });
+    const ground = p?.data ? this._renderedGround(view, frame, p.data, p)(authoredPose.eyeM[0], authoredPose.eyeM[2]) : NaN;
+    const pose = landRiseCamera(authoredPose, { rise01: frame.rise01, baseM: landRiseBase(p), groundM: ground });
     const resolved = { rail, proj, pose, tanX, tanY };
     poses.set(occurrenceId, resolved);
     this._ensureTourWindow(p, frame.timeMs, { pose, proj });
@@ -2319,14 +2332,6 @@ export class RangeScene {
     const THREE = this.THREE;
     return this._scratchState ||= { v3: new THREE.Vector3(), color: new THREE.Color(), color2: new THREE.Color(),
       wind: [1, 0] };
-  }
-
-  /** The rise's pivot for the main camera's whole frame (LandRise.risePivot):
-   *  the camera's own axes and field, not a partition's view offset. */
-  _risePivot() {
-    const cam = this.camera, e = cam.matrixWorld.elements;
-    const unit = (x, y, z, k = 1) => { const l = Math.hypot(x, y, z) || 1; return [k * x / l, k * y / l, k * z / l]; };
-    return risePivot(unit(e[8], e[9], e[10], -1), unit(e[4], e[5], e[6]), unit(e[0], e[1], e[2]), cam.fov, cam.aspect, cam.zoom);
   }
 
   _setUniforms(p, frame) {
@@ -2466,6 +2471,11 @@ export class RangeScene {
     const mp = mistParams({ rules: p.rules, waterLevelM: p.waterLevelM, heightRange: [u.uHeightRange.value.x, u.uHeightRange.value.y],
       tSec: frame.timeMs / 1000, calm01: 1 - (frame.music?.groove ?? 0),
       sea01: frame.cloudSea01 ?? 0, cameraY: this.camera.position.y });
+    const rise01 = Number.isFinite(frame.rise01) ? clamp01(frame.rise01) : 1, baseM = landRiseBase(p);
+    if (rise01 < 1) {
+      mp.baseM = baseM + rise01 * (mp.baseM - baseM);
+      mp.topM = baseM + rise01 * (mp.topM - baseM);
+    }
     const quality = rangeQuality(frame.qualityLevel);
     const cameraTour = p.view.tour || p.cameraTour;
     if (cameraTour) {
@@ -2501,12 +2511,10 @@ export class RangeScene {
     // The lake mirror draws with these, so it shows the same lowered land.
     const eye = this.camera.position;
     u.uTourEye.value.set(eye.x, eye.y, eye.z, p.view.tour || p.cameraTour ? 1 : 0);
-    // The song-long rise (LandRise.js): the share of the relief above the
-    // eye still to come (a frame without one draws the complete range), and
-    // the elevation it presses the land toward, the frame's lowest when the
-    // frame does not reach down to the horizon.
+    // All terrain grows from one world-space floor, including below-eye land.
     const sink = 1 - clamp01(Number.isFinite(frame.rise01) ? frame.rise01 : 1);
-    u.uLandRise.value.set(sink, sink > 0 ? this._risePivot() : 0);
+    u.uLandRise.value.set(sink, sink > 0 ? baseM : 0);
+    p.riseGround?.setFrame({ rise01, baseM });
     this._setCloudUniforms(p, frame);
     this._setActors(p, frame);
   }
@@ -2628,7 +2636,7 @@ export class RangeScene {
       if (!group.layers.isEnabled(CAST_LAYER)) group.traverse(object => object.layers.set(CAST_LAYER));
       if (!pos) { group.visible = false; return; }
       const at = new THREE.Vector3(pos[0], pos[1], pos[2]);
-      const lit = rise ? new THREE.Vector3(pos[0], pos[1] + landRiseLift(pos[0], pos[1], pos[2], rise.eye, rise.sink, rise.pivot), pos[2]) : at;
+      const lit = rise ? new THREE.Vector3(pos[0], pos[1] + landRiseLift(pos[0], pos[1], pos[2], null, rise.sink, rise.baseM), pos[2]) : at;
       const dist = Math.max(1, lit.distanceTo(cam.position));
       const display = new THREE.Color().setHSL(ACTOR_HUES[id] / 360, 0.85, 0.62);
       // Light: linear, stronger as the lane plays; dimmed while the team
@@ -2680,7 +2688,7 @@ export class RangeScene {
           .addScaledVector(right, Math.sin(w) * 18 * mpp0).addScaledVector(up, Math.cos(w * 1.3) * 10 * mpp0);
         // Measured, like the lantern's, from where the rise draws it: the
         // shader lowers the companion with its anchor (groundLift).
-        const cl = rise ? cp.clone().setY(cp.y + landRiseLift(lag[0], lag[1], lag[2], rise.eye, rise.sink, rise.pivot)) : cp;
+        const cl = rise ? cp.clone().setY(cp.y + landRiseLift(lag[0], lag[1], lag[2], null, rise.sink, rise.baseM)) : cp;
         const cd = Math.max(1, cl.distanceTo(cam.position));
         const cpush = Math.min(cd * 0.25, 30 * mpp0);
         c.uCenter.value.copy(cp).addScaledVector(cam.position.clone().sub(cl).normalize(), cpush);
@@ -2953,6 +2961,20 @@ export class RangeScene {
     r.setRenderTarget(target);
   }
 
+  /** Draw only a backdrop. Its caller clears depth immediately afterwards,
+   * so even a coarse inferred peak cannot cover a fine source valley. */
+  _drawRiseGround(p, camera) {
+    const ground = p.riseGround;
+    if (!ground?.active) return false;
+    ground.prepare(camera);
+    const mask = camera.layers.mask;
+    camera.layers.set(0);
+    try { this.renderer.render(ground.scene, camera); }
+    finally { camera.layers.mask = mask; }
+    this.stats.riseGroundPasses = (this.stats.riseGroundPasses || 0) + 1;
+    return true;
+  }
+
   /**
    * Render one scenic partition ('far' | 'mid' | 'near') of `frame` and
    * return the canvas holding it (valid until the next render call; copy it
@@ -2991,28 +3013,51 @@ export class RangeScene {
     // would feed back into the next copy, so it keeps the ground mirror only.
     if (pass === 'far') p.uniforms.uBackdropAmount.value = 0;
     const depth = this.depthCache[side];
+    let groundDrawn = false;
+    if (pass === 'far' && p.riseGround?.active) {
+      r.setRenderTarget(target);
+      r.setClearColor(0x000000, 0);
+      r.clear(true, true, false);
+      groundDrawn = this._drawRiseGround(p, this.camera);
+      r.clear(false, true, false);
+      depth.frame = -1;
+    }
     if (bandColumns && p.depthScenes) {
       // Travel: this side draws its nearer bands only in some columns (the
       // other side supplies them elsewhere), so its depth pre-pass holds a
       // nearer band only where it is drawn -- otherwise this pass keeps
       // holes shaped like ridges the frame never shows.
-      this._travelDepth(p, target, pass, bandColumns);
+      this._travelDepth(p, target, pass, bandColumns, { clear: !groundDrawn });
       depth.frame = -1;
       depth.owned = false;
       depth.content = null;
     } else if (depth.frame !== frame.frameId || depth.view !== viewId || depth.occurrenceId !== frame.occurrenceId) {
       r.setRenderTarget(target);
       r.setClearColor(0x000000, 0);
-      r.clear(true, true, false);
+      if (!groundDrawn) r.clear(true, true, false);
       const own = this.ownership?.[side];
       let restored = false;
       if (opaque?.key === opaqueKey && opaque.source === target && opaque.sourceDepth === target.depthTexture && opaque.prepared === p) {
         restored = this._copyOpaqueDepth(opaque.target, target, target);
         if (restored) this.stats.opaqueDepthRestores = (this.stats.opaqueDepthRestores || 0) + 1;
-        else { this._releaseOpaqueDepth(side); opaque = null; r.clear(true, true, false); }
+        else { this._releaseOpaqueDepth(side); opaque = null; r.clear(!groundDrawn, true, false); }
       }
       if (!restored) {
-        if (own) this._renderOwnership(p, target, own);
+        if (own) {
+          // Ownership describes real bands only. Inferred backdrop RGB in
+          // uncovered samples must never become a false nearer-band mask.
+          if (groundDrawn) r.clear(true, false, false);
+          this._renderOwnership(p, target, own);
+          // Ownership writes color as well as depth. Keep its saved edge
+          // texture, then rebuild the inferred backdrop and real-only depth.
+          if (groundDrawn) {
+            r.clear(true, true, false);
+            this._drawRiseGround(p, this.camera);
+            r.clear(false, true, false);
+            r.render(p.depthScene, this.camera);
+            this.stats.depthPasses++;
+          }
+        }
         else r.render(p.depthScene, this.camera);
         this.stats.depthPasses++;
         if (opaque) {
@@ -3036,7 +3081,7 @@ export class RangeScene {
     for (const fm of p.fringeMeshes || []) fm.visible = !bandColumns;
     r.setRenderTarget(target);
     r.setClearColor(0x000000, 0);
-    r.clear(true, false, false);
+    if (!groundDrawn) r.clear(true, false, false);
     p.uniforms.uDiag.value = this.diag === 'markers' && pass === 'far' ? 1 : 0;
     r.render(p.scenes[pass], this.camera);
     if (bandColumns) this._travelFringe(p, target, pass, bandColumns);

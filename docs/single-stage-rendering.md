@@ -105,3 +105,44 @@ fell back to normal rendering while audio continued. The compressed pack is
 16,155,339 bytes and decodes to 115,380,248 bytes; a second bake reproduced its
 SHA-256. Runtime, delivered source and payload hashes stayed unchanged during
 the check.
+
+## Flat-ground follow-up
+
+The default Landscape rise now starts with level ground, then grows every
+elevation from a stable view base. It replaces the former above-eye squash,
+which left valleys intact and made the mountains look cut off. Camera height,
+lighting, water, reflections, culling and tour coverage follow the growing
+terrain. A bounded inferred backdrop covers unshipped terrain during growth
+and fades away before completion. See `landscape-rise.md` for its limits.
+
+Runtime `ec82b204` was measured on the same RTX 3060 / Chrome 156 / Direct3D 11
+setup, at DPR 1.75 with the generated 90-second fixture. Auto stayed at quality
+level 0 with planar mirrors retained in both views and both pixel grids:
+
+| Grid | View | Settled 45–55 s | Continuous 55–65 s |
+| --- | --- | --- | --- |
+| Classic 320×180 | Teton–Jackson Lake | 60 FPS, p95 16.730 ms | 60 FPS, p95 16.725 ms |
+| Classic 320×180 | White Mountains–Owens | 60 FPS, p95 16.735 ms | 60 FPS, p95 16.725 ms |
+| Detailed 640×360 | Teton–Jackson Lake | 60 FPS, p95 16.720 ms | 60 FPS, p95 16.730 ms |
+| Detailed 640×360 | White Mountains–Owens | 60 FPS, p95 16.725 ms | 60 FPS, p95 16.725 ms |
+
+For either grid, the complete 25–55 second window averaged 59.73 FPS in Teton
+and 59.63 in Owens, including one roughly 150/200 ms stall respectively.
+The continuous tails had no stalls over 100 ms, failed or repeated frames.
+Served source hashes matched the checkout and stayed unchanged during timing.
+
+Fourteen rail and nine planned-tour snapshots checked the flat opening,
+intermediate growth, near-completion fade, complete range and exact rewind.
+Depth reuse on/off matched both GPU and stage RGBA at every checkpoint, with
+no WebGL/browser errors. These visual checks used `f6d6408`, whose source tree
+is identical to `ec82b204` (the latter rebases the fix onto merged PR #88).
+This does not claim byte identity to the previous implementation: tour detail
+selection is deliberately more conservative, and cross-run stage captures
+also include temporal effects. The full-height geometry and authored camera
+return to their original values.
+
+The structural coverage check passes all 19 catalog views. The 146 focused
+regressions cover height/camera rules, culling, inferred support retirement,
+ownership/depth ordering, preparation/disposal and continuous tour coverage.
+As above, these are bounded synthetic-song measurements, not a long-song or
+physical-display certification.

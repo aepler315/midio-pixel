@@ -710,10 +710,14 @@ export const SCENE_FRAG = /* glsl */`
       // Rib shadows from the stretched detail height.
       rockCol *= 0.7 + 0.6 * macro.h;
       vec3 forestRay = normalize(cameraPosition - vRenderedWorld);
-      // The painted canopy is the complete range's, as the mesh trees are
-      // (lowered vertex by vertex, rays to rays): seen along the ray to the
-      // point before the rise lowered it, on the slope n it stands on.
-      if (uLandRise.x > 0.0) forestRay = normalize(cameraPosition - unlowered);
+      // Inverse-map the view ray into the source canopy. Multiplying by
+      // rise avoids division at the exactly flat opening (a vertical ray).
+      if (uLandRise.x > 0.0) {
+        float rise = 1.0 - uLandRise.x;
+        forestRay = normalize(vec3((cameraPosition.x - unlowered.x) * rise,
+          cameraPosition.y - mix(uLandRise.y, unlowered.y, rise),
+          (cameraPosition.z - unlowered.z) * rise));
+      }
       float forestDist = length(cameraPosition - vRenderedWorld);
       vec3 forestCol = mix(pForestNear, pForestFar, smoothstep(1500.0, 12000.0, forestDist));
       #ifdef FOREST_DEBUG

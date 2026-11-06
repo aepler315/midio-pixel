@@ -263,14 +263,11 @@ function placedMesh(THREE, group, material) {
   mesh.position.set(group.originM[0], group.yBaseM, group.originM[1]);
   mesh.updateMatrix();
   mesh.matrixAutoUpdate = false;
-  // The group spheres hold the land swell, not the rise (LandRise.js),
-  // which can lower land above the eye far below its sphere: while the land
-  // is still rising, a group reaching above the eye is drawn unculled.
-  const u = material.uniforms, sphere = group.geometry.boundingSphere;
-  const top = group.yBaseM + sphere.center.y + sphere.radius;
+  // Group spheres hold the full-height land; every group can move during growth.
+  const u = material.uniforms;
   let culled = true;
   Object.defineProperty(mesh, 'frustumCulled', { configurable: true,
-    get: () => culled && !(u?.uLandRise?.value?.x > 0 && top > u.uTourEye.value.y), set: (v) => { culled = !!v; } });
+    get: () => culled && !(u?.uLandRise?.value?.x > 0), set: (v) => { culled = !!v; } });
   return mesh;
 }
 

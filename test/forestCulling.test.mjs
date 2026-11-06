@@ -9,7 +9,7 @@ import { assetExtents, forestBounds, forestCells, forestCellBox, forestGeometryV
   CROWN_RADIUS_PER_WIDTH, TRUNK_RADIUS_M, SPAN_ALIGN, SPAN_SCAN_MAX } from '../src/world/alpine/ForestCulling.js';
 import { frustumPlanes, boxOutsidePlanes, CHUNK_BOX_PAD_M } from '../src/world/alpine/TerrainChunks.js';
 import { DANCE_WAVE_BOUND } from '../src/world/alpine/MirrorScissor.js';
-import { landRiseLift, riseFromUniforms, risenHeight, risePivot, LAND_RISE_KNEE } from '../src/world/alpine/LandRise.js';
+import { landRiseLift, riseFromUniforms, risenHeight } from '../src/world/alpine/LandRise.js';
 import { coniferGeometry, createForest } from '../src/world/alpine/ForestGL.js';
 import { crownHalfWidth } from '../src/world/alpine/ForestProfile.js';
 import { FOREST_FAMILIES, FOREST_VARIANTS } from '../src/world/alpine/ForestSpeciesAssets.js';
@@ -89,23 +89,19 @@ function meshVertex(geo, k, tree, u, e, r) {
   const scale = bw > .5 ? radius : (.12 + .14 * tree.id) * (1 - .94 * y01);
   const w = windAt(tree, y01, u, e, r);
   const x = tree.x + rx * scale + w[0], y = tree.y + deformAt(u, e, r) + y01 * tree.h, z = tree.z + rz * scale + w[1];
-  // Then the song's rise lowers it where it stands (LandRise.js riseLift),
+  // Then the song's rise maps its height toward the base (LandRise.js),
   // read from the uniforms as the shader reads them, not through
   // riseFromUniforms, which the bound itself uses.
-  const L = u.uLandRise?.value, E = u.uTourEye?.value;
-  return [x, L && E ? y + landRiseLift(x, y, z, [E.x, E.y, E.z], L.x, L.y) : y, z];
+  const L = u.uLandRise?.value;
+  return [x, L ? y + landRiseLift(x, y, z, null, L.x, L.y) : y, z];
 }
 
-// The song's rise with the eye near one of a batch's trees and below it, so
-// the trees stand above the eye where the rise lowers them; a pivot half
-// the time (LandRise.js risePivot). 40% of the time the eye is among the
-// trees, inside a cell's footprint, where a box's nearest point to it is
-// not a corner. The sink spans what the bound accepts, (0, 1]: a fifth of
-// the time a small one, as at the end of every climb.
+// Signed bases above and below the trees exercise both directions of travel.
+// Include the exactly flat start and small sinks near the completed relief.
 function rise(u, list, r) {
-  const t = list[Math.floor(r() * list.length)], near = r() < .4, d = near ? 15 : 400;
-  u.uTourEye = { value: { x: t.x + (r() * 2 - 1) * d, y: t.y - (near ? 1 + r() * 40 : 20 + r() * 600), z: t.z + (r() * 2 - 1) * d, w: r() < .5 ? 1 : 0 } };
-  u.uLandRise = { value: { x: r() < .2 ? 1e-3 + r() * .049 : Math.min(1, .05 + r() * .96), y: r() < .5 ? 0 : r() * .3 } };
+  const t = list[Math.floor(r() * list.length)];
+  u.uLandRise = { value: { x: r() < .2 ? 1 : r() < .2 ? 1e-3 + r() * .049 : .05 + r() * .95,
+    y: t.y + (r() * 2 - 1) * 3000 } };
 }
 
 // A landscape standing still: no deformation, dance, wind or parting (the
@@ -114,6 +110,17 @@ const still = () => ({ raw: { amp: 0, kick: 0, structural: 0, melodic: 0, gestur
   uDeformAmp: { value: 0 }, uDeformKick: { value: 0 }, uDeformStructural: { value: 0 }, uDeformMelodic: { value: 0 },
   uDeformGesture: { value: 0 }, uLandDance: { value: { x: 0, y: 0, z: 0, w: 0 } }, uGlacierEnabled: { value: 0 },
   uTime: { value: 0 }, uWind: { value: { x: 0, y: 0 } }, uParting: { value: { x: 0, y: 0, z: 90, w: 0 } } });
+
+test('forest bounds transform their tops when trees rise from below the flat base', () => {
+  const cells = Float64Array.of(0, 900, 0, 10, 1000, 10, 20, 3);
+  const extents = { foliage: 1, trunk: 1 };
+  const lift = { lo: 0, hi: 0, rise: { sink: 1, baseM: 2000 } };
+  const box = forestCellBox(cells, 0, extents, lift, 0, 0);
+  assert.equal(box[1], 2000);
+  assert.equal(box[4], 2000);
+  const bounds = forestBounds({ ...still(), uLandRise: { value: { x: .5, y: -300 } } });
+  assert.deepEqual(bounds?.lift.rise, { sink: .5, baseM: -300 }, 'signed bases need no camera eye');
+});
 
 function batch(base, trees) {
   const geo = new THREE.InstancedBufferGeometry();
@@ -356,29 +363,26 @@ test('the root lift keeps a tree the music lifts into view, or sinks into it', (
     ['melodic', { uDeformMelodic: { value: 10 } }],
     ['spine dance', { uLandDance: { value: { x: -10, y: 0, z: 0, w: 0 } } }],
   ]) assert.equal(visible(below, extra), true, `${name}: sunk 10 m into view`);
-  // The song's rise lowers land above the eye (the camera's) toward the
-  // horizon: a tree standing above the frame's top edge comes down into it,
-  // with or without a pivot.
-  const eyeY = 990 - 500 * tan;
-  for (const pivot of [0, .05]) {
-    const risen = { uLandRise: { value: { x: .5, y: pivot } }, uTourEye: { value: { x: 0, y: eyeY, z: 0, w: 0 } } };
-    assert.equal(visible(below, risen), true, `the rise brings it down into view (pivot ${pivot})`);
+  // A tree above the frame can move into it toward either base.
+  for (const baseM of [800, 900]) {
+    const risen = { uLandRise: { value: { x: .5, y: baseM } } };
+    assert.equal(visible(below, risen), true, `the rise brings it down into view (base ${baseM})`);
   }
   // A sink of 1e-4 drops it a few cm, inside the box's slack: the frame's
   // top keeps it above.
-  assert.equal(visible(below, { uLandRise: { value: { x: 1e-4, y: 0 } }, uTourEye: { value: { x: 0, y: eyeY, z: 0, w: 0 } } }), false);
+  assert.equal(visible(below, { uLandRise: { value: { x: 1e-4, y: 0 } } }), false);
   // Tight: the frame's top edge 3 m above where the rise draws the root, for
-  // a strong and a middling sink, with and without a pivot. The box has
+  // strong and middling sinks toward signed bases. The box has
   // about 5 m of slack here (the root lift's 1 m, the pad and the crown's
   // reach), so this pins the entry to within that; 'the entry's bounds hold
   // the tight ones' pins the rise it reads exactly.
-  for (const [sink, pivot] of [[.9, 0], [.5, 0], [.5, .05]]) {
-    const gap = y => y + 500 * tan - (1000 + landRiseLift(0, 1000, -500, [0, y, 0], sink, pivot));
+  for (const [sink, baseM] of [[.9, 0], [.5, 800], [.5, -300], [1, 900]]) {
+    const gap = y => y + 500 * tan - (1000 + landRiseLift(0, 1000, -500, [0, y, 0], sink, baseM));
     let lo = 0, hi = 1000;
     for (let i = 0; i < 60; i++) { const m = (lo + hi) / 2; if (gap(m) < 3) lo = m; else hi = m; }
-    const y = (lo + hi) / 2, risen = { uLandRise: { value: { x: sink, y: pivot } }, uTourEye: { value: { x: 0, y, z: 0, w: 0 } } };
+    const y = (lo + hi) / 2, risen = { uLandRise: { value: { x: sink, y: baseM } } };
     assert.ok(Math.abs(gap(y) - 3) < 1e-6 && y < 1000);
-    assert.equal(visible(view(y + 500 * tan, false), risen), true, `sink ${sink}, pivot ${pivot}: 3 m of trunk in view`);
+    assert.equal(visible(view(y + 500 * tan, false), risen), true, `sink ${sink}, base ${baseM}: 3 m of trunk in view`);
   }
   // A sink of .01, as near the end of every climb, still lowers a tree 8 km
   // out by some 13 m: unrisen it stands above the frame, risen its root
@@ -405,9 +409,9 @@ test('the entry\'s bounds hold the tight ones, and read the rise as the shader d
     const b = forestBounds(u), d = deformBound(u);
     assert.ok(b, `seed ${seed}: known`);
     assert.ok(b.lift.lo <= -d && b.lift.hi >= d && b.lean >= forestLean(u), `seed ${seed}: ${JSON.stringify(b)}`);
-    const L = u.uLandRise?.value, E = u.uTourEye?.value;
+    const L = u.uLandRise?.value;
     if (!L) { assert.equal(b.lift.rise, null); continue; }
-    assert.deepEqual({ ...b.lift.rise }, { sink: L.x, eye: [E.x, E.y, E.z], knee: LAND_RISE_KNEE, pivot: L.y }, `seed ${seed}`);
+    assert.deepEqual({ ...b.lift.rise }, { sink: L.x, baseM: L.y }, `seed ${seed}`);
   }
   assert.equal(forestBounds({ ...uniforms(rng(1)), uLandRise: { value: { x: 0, y: 0 } }, uTourEye: { value: { x: 0, y: 0, z: 0, w: 0 } } }).lift.rise, null);
 });
@@ -480,47 +484,25 @@ test('every vertex the shader can place lies inside its tree\'s own one-tree box
   assert.ok(tighter > 50, `tighter than their cells: ${tighter}`);
 });
 
-test('under the rise a box\'s floor is its bottom where it comes nearest the eye, not at a corner', () => {
-  // Three trees in one cell and the eye over the cell, 100 m below and 20 m
-  // from the lowest: the box comes nearest the eye along an edge, and its
-  // corners are some 130 m away, where the rise lowers less.
+test('the affine rise bounds every tree for signed bases, independently of horizontal distance', () => {
   const asset = ASSETS[4].geo;
-  const list = [{ x: 128, y: 900, z: 20, h: 8, w: 3, species: 1, id: .3 }, { x: 2, y: 960, z: 20, h: 8, w: 3, species: 1, id: .5 },
+  const list = [{ x: 128, y: 900, z: 20, h: 8, w: 3, species: 1, id: .3 },
+    { x: 2, y: 960, z: 20, h: 8, w: 3, species: 1, id: .5 },
     { x: 254, y: 960, z: 20, h: 8, w: 3, species: 1, id: .7 }];
-  const cells = forestCells(batch(asset, list)), ext = assetExtents(batch(asset, list)), box = new Float64Array(6);
+  const geo = batch(asset, list), cells = forestCells(geo), ext = assetExtents(geo);
   assert.equal(cells.length, 8, 'one cell');
-  for (const pivot of [0, .05, .1]) {
-    const u = { ...still(), uTourEye: { value: { x: 128, y: 800, z: 0, w: 1 } }, uLandRise: { value: { x: .9, y: pivot } } };
-    const r = rng(11), e = edgy(r), lift = { lo: 0, hi: 0, rise: riseFromUniforms(u) };
-    forestCellBox(cells, 0, ext, lift, forestLean(u), 0, box);
-    let lowest = Infinity;
+  for (const sink of [.01, .5, .9, 1]) for (const baseM of [-1000, 0, 950, 2000]) {
+    const u = { ...still(), uLandRise: { value: { x: sink, y: baseM } } };
+    const r = rng(11), e = edgy(r), rise = riseFromUniforms(u);
+    const box = forestCellBox(cells, 0, ext, { lo: 0, hi: 0, rise }, forestLean(u), 0);
+    assert.equal(box[1], risenHeight(cells[1], 0, rise));
+    assert.equal(box[4], risenHeight(cells[4], 0, rise));
+    assert.equal(risenHeight(cells[1], 0, rise), risenHeight(cells[1], 100000, rise));
     for (const tree of list) for (let k = 0; k < asset.attributes.position.count; k++) {
       const [x, y, z] = meshVertex(asset, k, tree, u, e, r);
-      assert.ok(x >= box[0] - 1e-3 && y >= box[1] - 1e-3 && z >= box[2] - 1e-3 && x <= box[3] + 1e-3 && y <= box[4] + 1e-3 && z <= box[5] + 1e-3,
-        `pivot ${pivot} vertex ${k}: ${[x, y, z].map(v => v.toFixed(3))} outside ${[...box].map(v => v.toFixed(3))}`);
-      lowest = Math.min(lowest, y);
-    }
-    // The case needs its geometry: a floor taken at the corners would cut
-    // these trees, by more than the box's padding once there is a pivot.
-    const corner = Math.min(...[[box[0], box[2]], [box[0], box[5]], [box[3], box[2]], [box[3], box[5]]]
-      .map(([x, z]) => risenHeight(cells[1], Math.hypot(x - 128, z), lift.rise)));
-    assert.ok(lowest < corner - (pivot ? CHUNK_BOX_PAD_M : 0), `pivot ${pivot}: corner floor ${corner.toFixed(3)}, lowest drawn ${lowest.toFixed(3)}`);
-  }
-  // The eye under a tree, and a metre or so beside a thin one, 200 m below
-  // their roots: the floor still comes from the box's nearest point (the
-  // shader clamps the distance at 1 m), up to steep pivots (risePivot does
-  // not clamp them).
-  for (const pivot of [.3, .6, 1.5]) for (const tree of [
-    { x: .3, y: 1000, z: -.2, h: 20, w: 3, species: 1, id: .4 },
-    { x: 1.8, y: 1000, z: .5, h: 3, w: .05, species: 1, id: .6 },
-  ]) {
-    const u = { ...still(), uTourEye: { value: { x: 0, y: 800, z: 0, w: 1 } }, uLandRise: { value: { x: .9, y: pivot } } };
-    const geo = batch(asset, [tree]), one = forestCells(geo), r = rng(13), e = edgy(r);
-    forestCellBox(one, 0, assetExtents(geo), { lo: 0, hi: 0, rise: riseFromUniforms(u) }, forestLean(u), 0, box);
-    for (let k = 0; k < asset.attributes.position.count; k++) {
-      const [x, y, z] = meshVertex(asset, k, tree, u, e, r);
-      assert.ok(x >= box[0] - 1e-3 && y >= box[1] - 1e-3 && z >= box[2] - 1e-3 && x <= box[3] + 1e-3 && y <= box[4] + 1e-3 && z <= box[5] + 1e-3,
-        `pivot ${pivot} tree at ${tree.x}: vertex ${k} ${[x, y, z].map(v => v.toFixed(3))} outside ${[...box].map(v => v.toFixed(3))}`);
+      assert.ok(x >= box[0] - 1e-3 && y >= box[1] - 1e-3 && z >= box[2] - 1e-3
+        && x <= box[3] + 1e-3 && y <= box[4] + 1e-3 && z <= box[5] + 1e-3,
+      `sink ${sink}, base ${baseM}: vertex ${k} outside its transformed box`);
     }
   }
 });
@@ -718,7 +700,7 @@ test('a twin\'s span runs from the first to the last tree whose own box is in vi
   // roaming low over hills, and between renders refills (new counts, and
   // the same count with other trees), lite asset swaps, and changes to one
   // number at a time (the camera, lean, root lift, ice, and the rise's
-  // sink, pivot and each eye axis) or to the rise itself. The span must be
+  // sink and base) or to the rise itself. The span must be
   // exact against every tree's own box (the design's definition), and the
   // memo must never stand in for a span the numbers have moved.
   const r = rng(77);
@@ -774,7 +756,7 @@ test('a twin\'s span runs from the first to the last tree whose own box is in vi
     return first < 0 ? null : [first, last];
   };
   const counts = { steps: 0, hits: 0, wider: 0, refills: 0, sameCount: 0, partial: 0, nulls: 0 };
-  const flips = { camera: 0, asset: 0, lean: 0, lift: 0, ice: 0, sink: 0, pivot: 0, eye: 0, rise: 0 };
+  const flips = { camera: 0, asset: 0, lean: 0, lift: 0, ice: 0, sink: 0, base: 0, rise: 0 };
   const previous = new Map();
   for (let step = 0; step < 4000; step++) {
     const k = r(), risen = u.uLandRise.value.x > 0;
@@ -801,18 +783,18 @@ test('a twin\'s span runs from the first to the last tree whose own box is in vi
       // Ice raises the top alone.
       what = 'ice'; u.uGlacierEnabled.value = r() < .2 ? 0 : 1; u.uGlacierMaxThickness.value = r() * 150;
     } else if (k < .39 && risen) {
-      // The sink alone, from one rise to another (the eye and pivot kept).
+      // The sink alone, with the base kept.
       what = 'sink';
       u.uLandRise.value = { ...u.uLandRise.value, x: r() < .3 ? .005 + r() * .05 : .05 + r() * .95 };
-    } else if (k < .45 && risen) { what = 'pivot'; u.uLandRise.value = { ...u.uLandRise.value, y: r() < .2 ? 0 : r() * .15 }; }
+    } else if (k < .45 && risen) { what = 'base'; u.uLandRise.value = { ...u.uLandRise.value, y: (r() * 2 - 1) * 2000 }; }
     else if (k < .57 && risen) {
-      // One axis of the eye alone (across the ground, the pivot's reach).
+      // Changing the fade eye does not affect rise bounds or their memo.
       const axis = 'xyz'[Math.floor(r() * 3)];
-      what = 'eye'; u.uTourEye.value = { ...u.uTourEye.value, [axis]: u.uTourEye.value[axis] + (r() * 2 - 1) * (axis === 'y' ? 150 : 1500) };
+      what = 'none'; u.uTourEye.value = { ...u.uTourEye.value, [axis]: u.uTourEye.value[axis] + (r() * 2 - 1) * (axis === 'y' ? 150 : 1500) };
     } else if (k < .62) {
       what = 'rise';
       if (r() < .2) u.uLandRise.value = { x: 0, y: 0 };
-      else { u.uLandRise.value = { x: .05 + r() * .95, y: r() < .3 ? 0 : r() * .15 }; u.uTourEye.value = { x: camera.position.x, y: camera.position.y, z: camera.position.z, w: 1 }; }
+      else { u.uLandRise.value = { x: .05 + r() * .95, y: (r() * 2 - 1) * 2000 }; u.uTourEye.value = { x: camera.position.x, y: camera.position.y, z: camera.position.z, w: 1 }; }
     } else if (k < .87) { what = 'camera'; move(); }
     for (const g of geos) {
       const a = forestSpan(g, planes, u), b = forestSpan(g, planes, u, { memo: false });
@@ -888,19 +870,16 @@ test('a twin\'s span memo follows each number the span reads, changed alone, the
     ['the root lift\'s floor alone', v => { u.uDeformKick.value = v; u.uGlacierEnabled.value = 1; u.uGlacierMaxThickness.value = 80 - v; }, [0, 5, 10, 20, 40, 80, 0]],
     ['asset', v => { for (const tw of twins) swapAsset(tw, v ? wider : quality); }, [0, 1, 0, 1, 0]],
     ['sink', v => { u.uLandRise.value = { ...u.uLandRise.value, x: v }; }, [.02, .05, .1, .2, .3, .5, .7, 1, .02]],
-    ['pivot', v => { u.uLandRise.value = { ...u.uLandRise.value, y: v }; }, [0, .02, .04, .06, .08, .1, .15, .2, 0]],
-    ['eye x', v => { u.uTourEye.value = { ...u.uTourEye.value, x: O[0] + v }; }, [0, -3000, -1500, 0, 1500, 3000, 0]],
-    ['eye y', v => { u.uTourEye.value = { ...u.uTourEye.value, y: v }; }, [1000, 1050, 1100, 1150, 1200, 1300, 1000]],
-    ['eye z', v => { u.uTourEye.value = { ...u.uTourEye.value, z: O[2] + v }; }, [0, -3000, -1500, 0, 1500, 3000, 0]],
+    ['base', v => { u.uLandRise.value = { ...u.uLandRise.value, y: v }; }, [-1000, -500, 0, 500, 1000, 1500, 2000, -1000]],
     // Under a full wind and a kick, so trees stand inside every edge of the
     // frame: each half, then its outer edge moved alone.
     ['scissor', scissor, [null, [0, 0, 352, 704], [100, 0, 252, 704], [0, 0, 352, 704], [352, 0, 352, 704], [352, 0, 252, 704], [352, 0, 352, 704],
       [0, 0, 704, 352], [0, 100, 704, 252], [0, 0, 704, 352], [0, 352, 704, 352], [0, 352, 704, 252], [0, 352, 704, 352], null]],
   ];
   for (const [label, set, values] of sweeps) {
-    // The rise's own numbers sweep under a middling rise with a pivot.
-    const risen = ['sink', 'pivot', 'eye x', 'eye y', 'eye z'].includes(label);
-    u.uLandRise.value = risen ? { x: .15, y: .1 } : { x: 0, y: 0 };
+    // The rise's own numbers sweep under a middling rise at a fixed base.
+    const risen = ['sink', 'base'].includes(label);
+    u.uLandRise.value = risen ? { x: .15, y: 800 } : { x: 0, y: 0 };
     u.uWind.value = { x: label === 'scissor' ? 3 : 0, y: 0 };
     u.uDeformKick.value = label === 'scissor' ? 20 : 0; u.uGlacierMaxThickness.value = 0;
     // Each sweep ends where it starts, so a span that moves moves back.
@@ -919,21 +898,19 @@ test('a twin\'s span memo follows each number the span reads, changed alone, the
 });
 
 test('the rise brings trees down through a frame\'s top edge; a batch it culls has no vertex in view', () => {
-  // Views pitched up, the pivot from the camera as RangeScene sets it, and
+  // Views pitched up, a fixed ground base, and
   // trees standing just above the top edge: the rise lowers many of them
   // into the frame. Every batch with a vertex in view must be kept, and
   // enough of those must be out of view without the rise for that to test it.
   let brought = 0, culled = 0;
-  const unit = (x, y, z, k = 1) => { const l = Math.hypot(x, y, z); return [k * x / l, k * y / l, k * z / l]; };
   for (let seed = 1; seed <= 40; seed++) {
     const r = rng(seed * 13 + 1), e = edgy(r);
     const fov = 20 + r() * 40, aspect = 1 + r(), pitch = (2 + r() * 15) * Math.PI / 180, eyeY = 500 + r() * 1500;
     const camera = new THREE.PerspectiveCamera(fov, aspect, 1, 40000);
     camera.position.set(0, eyeY, 0); camera.lookAt(0, eyeY + Math.tan(pitch), -1); camera.updateMatrixWorld();
-    const m = camera.matrixWorld.elements;
-    const pivot = risePivot(unit(m[8], m[9], m[10], -1), unit(m[4], m[5], m[6]), unit(m[0], m[1], m[2]), fov, aspect);
+    const baseM = eyeY - 200;
     const sink = r() < .3 ? .005 + r() * .05 : .05 + r() * .95;
-    const u = { ...still(), uTourEye: { value: { x: 0, y: eyeY, z: 0, w: 1 } }, uLandRise: { value: { x: sink, y: pivot } } };
+    const u = { ...still(), uTourEye: { value: { x: 0, y: eyeY, z: 0, w: 1 } }, uLandRise: { value: { x: sink, y: baseM } } };
     const vp = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).elements;
     const planes = frustumPlanes(camera, null), top = Math.tan(pitch + fov * Math.PI / 360);
     const half = Math.tan(fov * Math.PI / 360) * aspect, asset = ASSETS[(seed * 5) % ASSETS.length].geo;
@@ -982,39 +959,21 @@ test('an unknown bound never culls', () => {
     { ...u, uParting: { value: { x: 0, y: 0, z: 90, w: Infinity } } },
     { ...u, uDeformAmp: { value: undefined } },
     { ...u, uLandDance: { value: { x: NaN, y: 0, z: 0, w: 0 } } },
-    { ...u, uLandRise: { value: { x: NaN, y: 0 } }, uTourEye: { value: { x: 0, y: 0, z: 0, w: 0 } } },
-    { ...u, uLandRise: { value: { x: .5, y: 0 } }, uTourEye: { value: { x: NaN, y: 0, z: 0, w: 0 } } },
-    { ...u, uLandRise: { value: { x: .5, y: Infinity } }, uTourEye: { value: { x: 0, y: 0, z: 0, w: 0 } } },
-    // The shader reads the pivot raw; riseFromUniforms makes these 0.
-    { ...u, uLandRise: { value: { x: .5, y: -.1 } }, uTourEye: { value: { x: 0, y: 0, z: 0, w: 0 } } },
-    { ...u, uLandRise: { value: { x: .5, y: NaN } }, uTourEye: { value: { x: 0, y: 0, z: 0, w: 0 } } },
-    // Above 1, drawn height falls with height: the bottom is not the floor.
-    { ...u, uLandRise: { value: { x: 1.5, y: 0 } }, uTourEye: { value: { x: 0, y: 0, z: 0, w: 0 } } },
-    // No eye: the shader measures from (0, 0, 0).
-    { ...u, uLandRise: { value: { x: .5, y: 0 } } },
-    // Just past each edge, and every eye axis.
-    { ...u, uLandRise: { value: { x: 1 + 1e-9, y: 0 } }, uTourEye: { value: { x: 0, y: 0, z: 0, w: 0 } } },
-    { ...u, uLandRise: { value: { x: .5, y: -1e-9 } }, uTourEye: { value: { x: 0, y: 0, z: 0, w: 0 } } },
-    ...[['y', NaN], ['z', NaN], ['y', Infinity], ['z', -Infinity]].map(([k, v]) =>
-      ({ ...u, uLandRise: { value: { x: .5, y: 0 } }, uTourEye: { value: { x: 0, y: 0, z: 0, w: 0, [k]: v } } })),
+    { ...u, uLandRise: { value: { x: NaN, y: 0 } } },
+    { ...u, uLandRise: { value: { x: .5, y: Infinity } } },
+    { ...u, uLandRise: { value: { x: .5, y: -Infinity } } },
+    { ...u, uLandRise: { value: { x: .5, y: NaN } } },
+    // Above 1, drawn height decreases with source height.
+    { ...u, uLandRise: { value: { x: 1.5, y: 0 } } },
+    { ...u, uLandRise: { value: { x: 1 + 1e-9, y: 0 } } },
     {},
   ]) {
     assert.equal(forestGeometryVisible(behind(), planes, broken), true, JSON.stringify([broken.uLandRise?.value, broken.uTourEye?.value]));
     assert.deepEqual(forestSpan(behindTwin(), planes, broken), [0, 2], `the whole prefix: ${JSON.stringify([broken.uLandRise?.value, broken.uTourEye?.value])}`);
   }
-  // Why those edges: past them the box's floor is no floor. A tall tree far
-  // above the eye draws below it.
-  for (const [v, by] of [[{ x: 1.2, y: 0 }, 5], [{ x: .5, y: -.1 }, 50]]) {
-    const tree = { x: 0, y: 3000, z: -2000, h: 45, w: 3, species: 1, id: .5 }, geo = batch(ASSETS[4].geo, [tree]);
-    const uu = { ...still(), uLandRise: { value: v }, uTourEye: { value: { x: 0, y: 0, z: 0, w: 0 } } }, r2 = rng(2), e2 = edgy(r2);
-    const box = forestCellBox(forestCells(geo), 0, assetExtents(geo), { lo: 0, hi: 0, rise: riseFromUniforms(uu) }, forestLean(uu), 0);
-    let lowest = Infinity;
-    for (let k = 0; k < ASSETS[4].geo.attributes.position.count; k++) lowest = Math.min(lowest, meshVertex(ASSETS[4].geo, k, tree, uu, e2, r2)[1]);
-    assert.ok(lowest < box[1] - by, `${JSON.stringify(v)}: lowest drawn ${lowest.toFixed(2)}, floor ${box[1].toFixed(2)}`);
-  }
   // A rise the box bounds, or none (a sink of 0 or less), still culls.
-  for (const v of [{ x: .5, y: 0 }, { x: 1, y: .05 }, { x: 0, y: -5 }, { x: -1, y: NaN }]) {
-    const risen = { ...u, uLandRise: { value: v }, uTourEye: { value: { x: 0, y: 0, z: 0, w: 0 } } };
+  for (const v of [{ x: .5, y: -300 }, { x: 1, y: 2000 }, { x: 0, y: -5 }, { x: -1, y: NaN }]) {
+    const risen = { ...u, uLandRise: { value: v } };
     assert.equal(forestGeometryVisible(behind(), planes, risen), false, JSON.stringify(v));
     assert.equal(forestSpan(behindTwin(), planes, risen), null, JSON.stringify(v));
   }
