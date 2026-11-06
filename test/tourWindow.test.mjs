@@ -1,6 +1,56 @@
-import {test} from'node:test';import assert from'node:assert/strict';import{planTerrainWindow,TourWindowCache}from'../src/world/alpine/TerrainWindow.js';
+import {test} from'node:test';import assert from'node:assert/strict';import{planTerrainWindow,terrainWindowCovers,TourWindowCache}from'../src/world/alpine/TerrainWindow.js';
+import {landRiseCamera} from '../src/world/alpine/LandRiseCamera.js';
 const fixture=()=>({grid:{originM:[-1280,-1280],cellSizeM:20,width:129,height:129},cells:64,tiles:new Map([...Array(4)].map((_,i)=>[`t${i}`,{id:`t${i}`,ix:i%2,iz:Math.floor(i/2),stride:1,minY:0,maxY:100,errorsM:{1:0,2:1,4:3,8:10,16:30,32:100,64:300}}]))});
 const poseAt=t=>({eyeM:[0,500,5000-t/10],targetM:[0,50,0],fovYDeg:40});
+
+test('window planning includes terrain raised from below the eye to the flat base', () => {
+ const data=fixture();
+ for(const tile of data.tiles.values()){tile.minY=-10000;tile.maxY=-9900;}
+ const tour={poseAt:()=>({eyeM:[0,500,5000],targetM:[0,0,0],fovYDeg:40}),durationMs:30000};
+ const full=planTerrainWindow(data,tour,0);
+ assert.equal(full.visible.size,0);
+ const rising=planTerrainWindow(data,tour,0,{riseSink:1,riseBaseM:0});
+ assert.equal(rising.visible.size,4);
+});
+
+test('one cached window covers the continuously growing camera and keeps distant cameras outside', () => {
+ const data=fixture();data.groundAt=()=>600;
+ for(const tile of data.tiles.values()){tile.minY=500;tile.maxY=900;}
+ const pose={eyeM:[0,1200,5000],targetM:[1000,1800,0],fovYDeg:40};
+ const tour={poseAt:()=>pose,durationMs:30000},projection={fovYDeg:40,aspect:16/9};
+ const plan=planTerrainWindow(data,tour,0,{riseSink:1,riseBaseM:0,pixelHeightPx:180});
+ for(const groundM of [600,500,900,1500])for(let i=0;i<=200;i++){
+  const at=landRiseCamera(pose,{rise01:i/200,baseM:0,groundM});
+  assert.equal(terrainWindowCovers(plan,at,projection),true,`rise ${i/200}, ground ${groundM}`);
+ }
+ const distant={...pose,eyeM:[100000,1200,5000],targetM:[101000,1800,0]};
+ assert.equal(terrainWindowCovers(plan,distant,projection),false);
+ assert.ok(plan.maxErrorPx<=plan.pixelLimit+1e-6);
+ assert.ok(plan.pixelCoarsenedMaxErrorPx<=plan.pixelErrorPx+1e-6);
+ const full=planTerrainWindow(data,tour,0,{riseSink:0,riseBaseM:0});
+ assert.deepEqual(full.poses[0].eyeM,pose.eyeM,'the complete endpoint keeps its authored eye');
+ assert.deepEqual(full.poses[0].targetM,pose.targetM,'the complete endpoint keeps its authored aim');
+});
+
+test('growth envelopes cover steep aims and the camera between route lattice keys', () => {
+ const data=fixture();data.groundAt=(x)=>600+100*Math.sin(x/40);
+ for(const tile of data.tiles.values()){tile.minY=500;tile.maxY=900;}
+ const projection={fovYDeg:40,aspect:16/9};
+ for(const pitchDeg of [15,70,-65]){
+  const tour={durationMs:8000,poseAt:t=>{
+   const x=t/20,yaw=t/8000*.15,pitch=pitchDeg*Math.PI/180;
+   return{eyeM:[x,1200,5000],targetM:[x+1000*Math.sin(yaw),1200+1000*Math.tan(pitch),5000-1000*Math.cos(yaw)],fovYDeg:40};
+  }};
+  const plan=planTerrainWindow(data,tour,0,{riseSink:1,riseBaseM:0,pixelHeightPx:180});
+  for(let timeMs=0;timeMs<=8000;timeMs+=50)for(const rise01 of [0,.25,.5,.75,1]){
+   const source=tour.poseAt(timeMs),groundM=data.groundAt(source.eyeM[0]);
+   const at=landRiseCamera(source,{rise01,baseM:0,groundM});
+   assert.equal(terrainWindowCovers(plan,at,projection),true,`pitch ${pitchDeg}, time ${timeMs}, rise ${rise01}`);
+  }
+  assert.ok(plan.maxErrorPx<=plan.pixelLimit+1e-6);
+  assert.ok(plan.pixelCoarsenedMaxErrorPx<=plan.pixelErrorPx+1e-6);
+ }
+});
 const buildFixture=()=>{
  const data=fixture();data.byIndex=new Map();
  for(const tile of data.tiles.values()){

@@ -1,4 +1,4 @@
-// The static forest's six materials, pinned to what main 7d48f2f built:
+// The static forest's six materials, pinned after the ground-based rise fix:
 // vertex and fragment shaders, defines, blend and depth state, side,
 // default attributes, uniform names and creation order. The rail draws
 // these, so they must not change when the forest gains other materials.
@@ -10,7 +10,7 @@ import { createForest } from '../src/world/alpine/ForestGL.js';
 import { PIN_OPTIONS } from './helpers/forestShaderPins.mjs';
 import { recordingWebGL2 } from './helpers/recordingWebGL2.mjs';
 
-test('the static forest materials are the ones main built', () => {
+test('the static forest materials match the reviewed shader and render-state pins', () => {
   assert.deepEqual(forestPins(pinPlaced()), MAIN_PINS);
 });
 

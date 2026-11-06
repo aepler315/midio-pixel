@@ -4,16 +4,19 @@ import { ZOOM_MIN } from '../../render/CameraDirector.js';
 import { LENS_MIN_HALF_ANGLE_SCALE } from '../../render/CameraLens.js';
 import { MIRROR_LIFT } from './WaterMirror.js';
 import { LAND_MAX_DISPLACEMENT_M, LAND_TOUR_FADE_END_M, landDetailErrorM } from './LandMotionLimits.js';
-import { risenFloor } from './LandRise.js';
+import { risenHeight } from './LandRise.js';
+import { landRiseCamera } from './LandRiseCamera.js';
+import { terrainHeightAt } from './TerrainMesh.js';
 
 const dot = (a, b) => a.reduce((n, v, i) => n + v * b[i], 0);
 const ceil = n => Math.ceil(n * 64) / 64;
 
-/** The lowest a tile can be drawn for an eye at `eyeM` while the range is
- *  risen by at most `riseSink` (LandRise.js): the rise lowers only land
- *  above the eye, so a tile's box only grows downward. */
-const drawnFloor = (tile, cx, cz, half, eyeM, riseSink) => riseSink > 0 && tile.maxY > eyeM[1]
-  ? risenFloor(tile.minY, cx - half, cz - half, cx + half, cz + half, { sink: riseSink, eye: eyeM }) : tile.minY;
+/** Envelope over the song, from its flattest terrain to full relief.
+ *  Peaks can move down and terrain below the base can move up. */
+const drawnRange = (tile, riseSink, riseBaseM) => {
+  const rise = { sink: riseSink, baseM: riseBaseM };
+  return [Math.min(tile.minY, risenHeight(tile.minY, 0, rise)), Math.max(tile.maxY, risenHeight(tile.maxY, 0, rise))];
+};
 
 /** A stable envelope of the scenic stage, including its deepest pull-back.
  * Backing pixels and DPR never change geographic coverage. */
@@ -57,26 +60,59 @@ export function terrainPixelProtection(data, summitIds = []) {
 function heightProjectionRate(cx, cy, cz, hx, hy, p) {
   const dx = cx - p.eyeM[0], dy = cy - p.eyeM[1], dz = cz - p.eyeM[2];
   const { forward: f, right: r, up: u } = p.basis;
+  const turn = 2 * Math.sin((p.growthAnglePadRad || 0) / 2);
+  const rotationRadius = turn * (Math.hypot(dx, dy, dz) + Math.hypot(hx, hy, hx));
   const depth = dx * f[0] + dy * f[1] + dz * f[2];
-  const depthRadius = hx * (Math.abs(f[0]) + Math.abs(f[2])) + hy * Math.abs(f[1]) + p.paddingM;
+  const depthRadius = hx * (Math.abs(f[0]) + Math.abs(f[2])) + hy * Math.abs(f[1]) + p.paddingM + rotationRadius;
   if (depth + depthRadius <= 1) return 0;
   const side = dx * r[0] + dy * r[1] + dz * r[2], up = dx * u[0] + dy * u[1] + dz * u[2];
-  const sideRadius = hx * (Math.abs(r[0]) + Math.abs(r[2])) + hy * Math.abs(r[1]) + p.paddingM;
-  const upRadius = hx * (Math.abs(u[0]) + Math.abs(u[2])) + hy * Math.abs(u[1]) + p.paddingM;
+  const sideRadius = hx * (Math.abs(r[0]) + Math.abs(r[2])) + hy * Math.abs(r[1]) + p.paddingM + rotationRadius;
+  const upRadius = hx * (Math.abs(u[0]) + Math.abs(u[2])) + hy * Math.abs(u[1]) + p.paddingM + rotationRadius;
   if (Math.abs(side) > Math.max(0, depth) * p.tanX + sideRadius + depthRadius * p.tanX
     || Math.abs(up) > Math.max(0, depth) * p.tanY + upRadius + depthRadius * p.tanY) return 0;
   const nearest = depth - depthRadius;
   if (nearest <= 20) return Infinity;
   // Bound both coordinates' projection Jacobian throughout the height
   // interval, including pitched/off-axis views and interpolation padding.
-  return p.focal / nearest * Math.hypot(Math.abs(r[1]) + (Math.abs(side) + sideRadius) / nearest * Math.abs(f[1]),
-    Math.abs(u[1]) + (Math.abs(up) + upRadius) / nearest * Math.abs(f[1]));
+  const fy = Math.min(1, Math.abs(f[1]) + turn), ry = Math.min(1, Math.abs(r[1]) + turn), uy = Math.min(1, Math.abs(u[1]) + turn);
+  return p.focal / nearest * Math.hypot(ry + (Math.abs(side) + sideRadius) / nearest * fy,
+    uy + (Math.abs(up) + upRadius) / nearest * fy);
+}
+
+/** For fixed XZ eye/aim, both vertical coordinates are affine in the rise:
+ * pitch is monotone between its endpoint extrema. Clearance ranges from
+ * two metres to eyeY minus the lowest source ground (ice only lowers that
+ * clearance). A midpoint eye plus its interval radius bounds every height.
+ * Split large pitch intervals so every envelope stays a forward frustum. */
+function growthCameraPoses(poses, data, riseSink, baseM) {
+  if (!(riseSink > 0)) return poses;
+  const range = terrainHeightRange(data.manifest, { tour: true });
+  const floorM = Math.min(baseM, range?.[0] ?? Math.min(...[...data.tiles.values()].map(t => t.minY)));
+  return poses.flatMap(p => {
+    const groundM = data.groundAt || data.manifest && data.byIndex ? terrainHeightAt(data, p.eyeM[0], p.eyeM[2]) : NaN;
+    const minimumGround = Math.min(floorM, Number.isFinite(groundM) ? groundM : baseM);
+    const low = landRiseCamera(p, { rise01: 1 - riseSink, baseM, groundM: p.eyeM[1] });
+    const high = landRiseCamera(p, { rise01: 1 - riseSink, baseM, groundM: minimumGround });
+    const y0 = Math.min(p.eyeM[1], low.eyeM[1], high.eyeM[1]), y1 = Math.max(p.eyeM[1], low.eyeM[1], high.eyeM[1]);
+    const dx = p.targetM[0] - p.eyeM[0], dz = p.targetM[2] - p.eyeM[2], horizontal = Math.hypot(dx, dz);
+    const pitch = at => Math.atan2(at.targetM[1] - at.eyeM[1], horizontal);
+    const pitch0 = Math.min(pitch(p), pitch(low), pitch(high)), pitch1 = Math.max(pitch(p), pitch(low), pitch(high));
+    const bins = Math.max(1, Math.ceil((pitch1 - pitch0) / (20 * Math.PI / 180)));
+    const half = (pitch1 - pitch0) / (2 * bins), eyeM = [p.eyeM[0], (y0 + y1) / 2, p.eyeM[2]];
+    return Array.from({ length: bins }, (_, i) => {
+      const angle = pitch0 + (2 * i + 1) * half;
+      const targetM = [p.targetM[0], eyeM[1] + Math.tan(angle) * horizontal, p.targetM[2]];
+      const anglePadRad = Math.min(Math.PI / 2 - 1e-5, p.anglePadRad + half);
+      return { ...p, eyeM, targetM, basis: cameraBasis({ eyeM, targetM }),
+        paddingM: p.paddingM + (y1 - y0) / 2, anglePadRad, growthAnglePadRad: anglePadRad };
+    });
+  });
 }
 
 // A conservative second pass only removes additional interior geometry.
 // The reference plan's protected grids and any already budget-limited error
 // remain unchanged. Coverage, source heights and camera poses never change.
-function pixelTerrainPlan(plan, data, requirements, { heightPx, pixelHeightPx, pixelErrorPx, pixelProtectedTileIds, protectedTileIds, nearRootIds, detailPoses, riseSink }) {
+function pixelTerrainPlan(plan, data, requirements, { heightPx, pixelHeightPx, pixelErrorPx, pixelProtectedTileIds, protectedTileIds, nearRootIds, detailPoses, riseSink, riseBaseM }) {
   if (!(pixelHeightPx > 0) || !Number.isFinite(pixelHeightPx)) return plan;
   const scale = Math.min(1, pixelHeightPx / heightPx);
   const protectedIds = new Set([...pixelProtectedTileIds, ...protectedTileIds]);
@@ -100,8 +136,8 @@ function pixelTerrainPlan(plan, data, requirements, { heightPx, pixelHeightPx, p
       const size = data.cells * data.grid.cellSizeM;
       const cx = data.grid.originM[0] + (tile.ix + .5) * size, cz = data.grid.originM[1] + (tile.iz + .5) * size;
       rates.set(tile.id, detailPoses.reduce((max, p) => {
-        const y0 = drawnFloor(tile, cx, cz, size / 2, p.riseEyeM, riseSink);
-        return Math.max(max, heightProjectionRate(cx, (y0 + tile.maxY) / 2, cz, size / 2, (tile.maxY - y0) / 2 + LAND_MAX_DISPLACEMENT_M, p) * scale);
+        const [y0, y1] = drawnRange(tile, riseSink, riseBaseM);
+        return Math.max(max, heightProjectionRate(cx, (y0 + y1) / 2, cz, size / 2, (y1 - y0) / 2 + LAND_MAX_DISPLACEMENT_M, p) * scale);
       }, 0));
     }
     return rates.get(tile.id);
@@ -179,17 +215,16 @@ export function planTerrainWindow(data, tour, index, {
   pixelLimit = budget === 'mobile' ? 2 : 1, coverage = null, coverageRevision = 0,
   protectedTileIds = [],
   pixelHeightPx = null, pixelErrorPx = .25, pixelProtectedTileIds = [],
-  mirrorLevelM = null, riseSink = 0,
+  mirrorLevelM = null, riseSink = 0, riseBaseM = 0,
 } = {}) {
   const summits = new Set(protectedTileIds);
   const startMs = index * 8000, endMs = Math.min(tour.durationMs, startMs + 8000);
   const times = [];
   for (let t = startMs; t < endMs; t += 100) times.push(t);
   times.push(Math.max(startMs, endMs));
-  const poses = times.map(timeMs => {
+  let poses = times.map(timeMs => {
     const pose = tour.poseAt(timeMs);
-    // The mirror pass lowers the land for the main eye (riseEyeM).
-    return { ...pose, basis: cameraBasis(pose), paddingM: 1, anglePadRad: 0, riseEyeM: pose.eyeM,
+    return { ...pose, basis: cameraBasis(pose), paddingM: 1, anglePadRad: 0,
       minFovYDeg: pose.fovYDeg, maxFovYDeg: pose.fovYDeg };
   });
   // Eyes are linear and aims slerp on TourTimeline's 100ms lattice. Bound
@@ -206,6 +241,7 @@ export function planTerrainWindow(data, tour, index, {
       p.maxFovYDeg = Math.max(p.maxFovYDeg, a.fovYDeg, b.fovYDeg);
     }
   }
+  poses = growthCameraPoses(poses, data, riseSink, riseBaseM);
   const framing = { aspect: coverage?.aspect || aspect, fovScale: coverage?.fovScale || 1.2, anglePadRad: coverage?.anglePadRad || 0 };
   for (const p of poses) {
     Object.assign(p, expandedTangents(p, framing));
@@ -213,7 +249,12 @@ export function planTerrainWindow(data, tour, index, {
   }
   const detailPoses = [...poses];
   if (Number.isFinite(mirrorLevelM)) for (const p of poses) {
-    detailPoses.push({ ...p, eyeM: [p.eyeM[0], mirrorLevelM - MIRROR_LIFT * (p.eyeM[1] - mirrorLevelM), p.eyeM[2]],
+    const drawnLevel = risenHeight(mirrorLevelM, 0, { sink: riseSink, baseM: riseBaseM });
+    const level = (mirrorLevelM + drawnLevel) / 2;
+    // The reflected eye moves linearly with the plane. A sphere about the
+    // midpoint holds it for every rise and every source pose in this window.
+    detailPoses.push({ ...p, eyeM: [p.eyeM[0], level - MIRROR_LIFT * (p.eyeM[1] - level), p.eyeM[2]],
+      paddingM: p.paddingM + Math.abs(drawnLevel - mirrorLevelM) * (1 + MIRROR_LIFT) / 2,
       basis: Object.fromEntries(Object.entries(p.basis).map(([key, v]) => [key, [v[0], -v[1], v[2]]])) });
   }
   const nearRootIds = new Set();
@@ -234,14 +275,16 @@ export function planTerrainWindow(data, tour, index, {
     let pixelPerMetre = 0;
     for (const p of poses) {
       if (rootCandidate && !nearRootIds.has(tile.id) && Math.hypot(cx - p.eyeM[0], cz - p.eyeM[2]) <= rootReach + p.paddingM) nearRootIds.add(tile.id);
-      const y0 = drawnFloor(tile, cx, cz, hx, p.eyeM, riseSink), cy = (y0 + tile.maxY) / 2, hy = (tile.maxY - y0) / 2;
+      const [y0, y1] = drawnRange(tile, riseSink, riseBaseM), cy = (y0 + y1) / 2, hy = (y1 - y0) / 2;
       const dx = cx - p.eyeM[0], dy = cy - p.eyeM[1], dz = cz - p.eyeM[2];
       const { forward: f, right: r, up: u } = p.basis;
+      const rotationRadius = 2 * Math.sin((p.growthAnglePadRad || 0) / 2)
+        * (Math.hypot(dx, dy, dz) + Math.hypot(hx, hy, hx));
       const depth = dx * f[0] + dy * f[1] + dz * f[2];
-      const depthRadius = hx * (Math.abs(f[0]) + Math.abs(f[2])) + hy * Math.abs(f[1]) + p.paddingM;
+      const depthRadius = hx * (Math.abs(f[0]) + Math.abs(f[2])) + hy * Math.abs(f[1]) + p.paddingM + rotationRadius;
       if (depth + depthRadius <= 1) continue;
-      const sideRadius = hx * (Math.abs(r[0]) + Math.abs(r[2])) + hy * Math.abs(r[1]) + p.paddingM;
-      const upRadius = hx * (Math.abs(u[0]) + Math.abs(u[2])) + hy * Math.abs(u[1]) + p.paddingM;
+      const sideRadius = hx * (Math.abs(r[0]) + Math.abs(r[2])) + hy * Math.abs(r[1]) + p.paddingM + rotationRadius;
+      const upRadius = hx * (Math.abs(u[0]) + Math.abs(u[2])) + hy * Math.abs(u[1]) + p.paddingM + rotationRadius;
       if (Math.abs(dx * r[0] + dy * r[1] + dz * r[2]) > Math.max(0, depth) * p.tanX + sideRadius + depthRadius * p.tanX
         || Math.abs(dx * u[0] + dy * u[1] + dz * u[2]) > Math.max(0, depth) * p.tanY + upRadius + depthRadius * p.tanY) continue;
       visible.add(tile.id);
@@ -278,7 +321,7 @@ export function planTerrainWindow(data, tour, index, {
       coarse: bias > 1, coverage: framing, coverageRevision, poses,
       protectedTiles, summitMaxErrorPx, summitPixelLimit: Math.min(8, pixelLimit),
       ...(pixelLimit > requestedLimit ? { detailNote: `Triangle cap required ${pixelLimit}px surrounding terrain / ${Math.min(8, pixelLimit)}px summit detail (requested ${requestedLimit}px)` } : {}) },
-    data, requirements, { heightPx, pixelHeightPx, pixelErrorPx, pixelProtectedTileIds, protectedTileIds, nearRootIds, detailPoses, riseSink });
+    data, requirements, { heightPx, pixelHeightPx, pixelErrorPx, pixelProtectedTileIds, protectedTileIds, nearRootIds, detailPoses, riseSink, riseBaseM });
     // Wide views can expose more terrain than the original 8px ceiling
     // permits within the triangle cap. Keep that ceiling for every summit;
     // only surrounding terrain may use the additional measured levels.

@@ -180,7 +180,9 @@ const BOARD_VERT = /* glsl */`
     float y01 = position.y;
     vec2 w = windAt(y01);
     vec3 centre = root + vec3(w.x, position.y * iSize.x, w.y);
-    vec4 clip = projectionMatrix * viewMatrix * vec4(centre, 1.0);
+    vec3 risenCentre = centre;
+    risenCentre.y += riseLift(centre);
+    vec4 clip = projectionMatrix * viewMatrix * vec4(risenCentre, 1.0);
     float widthPx = iSize.y * projectionMatrix[1][1] * .5 * uViewportPx.y / max(clip.w, .001);
     // Reserve a pixel on each side for the silhouette footprint filter.
     // Its tent kernel preserves crown area as narrow trees cross pixels.

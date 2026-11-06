@@ -31,7 +31,7 @@
 // scissor while the culling did. A renderer.setViewport() on a bound target
 // is detected (getCurrentViewport) and turns the narrowing off.
 
-import { risenFloor } from './LandRise.js';
+import { risenHeight } from './LandRise.js';
 
 /** Culled index ranges shorter than this are drawn through instead of
  *  costing a draw call of their own (about 2,000 triangles). */
@@ -167,10 +167,11 @@ export function visibleGroups(table, planes, lift, { mergeIndices = CHUNK_MERGE_
   for (let i = 0; i < n; i++) {
     if (!count[i]) continue;
     const o = i * 6;
-    // The rise lowers a box by where it stands (LandRise.risenFloor): a
-    // summit above the frame can drop into it.
-    const y0 = rise ? risenFloor(box[o + 1] + lo, box[o], box[o + 2], box[o + 3], box[o + 5], rise) : box[o + 1] + lo;
-    const keep = !boxOutsidePlanes(planes, box[o] - pad, y0 - pad, box[o + 2] - pad, box[o + 3] + pad, box[o + 4] + hi + pad, box[o + 5] + pad);
+    // Both ends move: the rise lowers peaks and raises land below its base.
+    const bottom = box[o + 1] + lo, top = box[o + 4] + hi;
+    const y0 = Number.isFinite(bottom) ? risenHeight(bottom, 0, rise) : bottom;
+    const y1 = Number.isFinite(top) ? risenHeight(top, 0, rise) : top;
+    const keep = !boxOutsidePlanes(planes, box[o] - pad, y0 - pad, box[o + 2] - pad, box[o + 3] + pad, y1 + pad, box[o + 5] + pad);
     if (!keep) { open = null; continue; }
     if (open && open.end === start[i]) open.end = start[i] + count[i];
     else runs.push(open = { start: start[i], end: start[i] + count[i] });

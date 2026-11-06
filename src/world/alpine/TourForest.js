@@ -188,20 +188,20 @@ export function crDeviation(eye, count, k) {
 
 /** Squared distance from (x, y, z) to the segment of `pts` (xyz triples)
  *  from point i to point j. */
-function segDist2(x, y, z, pts, i, j) {
+function segDist2(x, y, z, pts, i, j, horizontal = false) {
   const ax = pts[3 * i], ay = pts[3 * i + 1], az = pts[3 * i + 2];
-  const dx = pts[3 * j] - ax, dy = pts[3 * j + 1] - ay, dz = pts[3 * j + 2] - az;
-  const px = x - ax, py = y - ay, pz = z - az, L = dx * dx + dy * dy + dz * dz;
+  const dx = pts[3 * j] - ax, dy = horizontal ? 0 : pts[3 * j + 1] - ay, dz = pts[3 * j + 2] - az;
+  const px = x - ax, py = horizontal ? 0 : y - ay, pz = z - az, L = dx * dx + dy * dy + dz * dz;
   const t = L > 0 ? clamp((px * dx + py * dy + pz * dz) / L, 0, 1) : 0;
   return (px - t * dx) ** 2 + (py - t * dy) ** 2 + (pz - t * dz) ** 2;
 }
 
 /** Squared distance from (x, y, z) to the polyline `pts`. */
-export function polylineDist2(x, y, z, pts) {
+export function polylineDist2(x, y, z, pts, horizontal = false) {
   const n = pts.length / 3;
-  if (n === 1) return (x - pts[0]) ** 2 + (y - pts[1]) ** 2 + (z - pts[2]) ** 2;
+  if (n === 1) return (x - pts[0]) ** 2 + (horizontal ? 0 : (y - pts[1]) ** 2) + (z - pts[2]) ** 2;
   let best = Infinity;
-  for (let i = 0; i + 1 < n; i++) best = Math.min(best, segDist2(x, y, z, pts, i, i + 1));
+  for (let i = 0; i + 1 < n; i++) best = Math.min(best, segDist2(x, y, z, pts, i, i + 1, horizontal));
   return best;
 }
 
@@ -251,7 +251,7 @@ export function tourWindowSegments(tl, w) {
  * inclusive): a timeline whose keys are byte-equal there, with the same
  * duration and key count, has the same entry.
  */
-export function windowSet(index, tl, w) {
+export function windowSet(index, tl, w, { horizontal = false } = {}) {
   const count = tl.fov.length, eye = tl.eye;
   let pts, delta = 0, deps;
   if (count < 2) {
@@ -280,7 +280,7 @@ export function windowSet(index, tl, w) {
         const u = items[s], word = u >>> 5, m = 1 << (u & 31);
         if (bits[word] & m) continue;
         const th = reach[u] + extra;
-        if (segDist2(pos[3 * u], pos[3 * u + 1], pos[3 * u + 2], pts, i, j) < th * th) { bits[word] |= m; size++; }
+        if (segDist2(pos[3 * u], pos[3 * u + 1], pos[3 * u + 2], pts, i, j, horizontal) < th * th) { bits[word] |= m; size++; }
       }
     }
   }
@@ -305,8 +305,11 @@ function sameKeys(e0, e1, [a, b]) {
  * most `cacheWindows` entries that never evicts the current state's.
  */
 export class TourForestSchedule {
-  constructor(index, { cacheWindows = TOUR_CACHE_WINDOWS } = {}) {
+  constructor(index, { cacheWindows = TOUR_CACHE_WINDOWS, horizontal = false } = {}) {
     this.index = index;
+    // Vertical growth changes root/camera heights; XZ distance conservatively
+    // keeps every tree that can enter the detail ring at any rise fraction.
+    this.horizontal = horizontal;
     this.limit = Math.max(2, cacheWindows);
     this.tl = null;
     this.cache = new Map();
@@ -331,7 +334,7 @@ export class TourForestSchedule {
     let e = this.cache.get(w);
     if (e) { this.cache.delete(w); this.cache.set(w, e); return e; }
     const t0 = now();
-    e = windowSet(this.index, this.tl, w);
+    e = windowSet(this.index, this.tl, w, { horizontal: this.horizontal });
     const ms = now() - t0;
     this.computes++;
     if (sync) this.syncComputes++;
@@ -367,7 +370,7 @@ export class TourForestSchedule {
   covers(state, eye) {
     for (const e of [state.a, state.b]) {
       if (!e.pts) continue;
-      if (!(polylineDist2(eye[0], eye[1], eye[2], e.pts) <= e.guard * e.guard)) return false;
+      if (!(polylineDist2(eye[0], eye[1], eye[2], e.pts, this.horizontal) <= e.guard * e.guard)) return false;
     }
     return true;
   }

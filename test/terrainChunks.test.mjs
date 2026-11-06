@@ -51,6 +51,16 @@ function singleChunk(box) {
   return chunkTable(Uint32Array.of(0), Uint32Array.of(3), Float64Array.from(box));
 }
 
+test('rise culling follows terrain raised from below the base and terrain flattened at it', () => {
+  const planes = new Float64Array(24); planes.set([0, 1, 0, -1990]);
+  const table = singleChunk([-10, 900, -1010, 10, 1000, -990]);
+  assert.equal(visibleGroups(table, planes, { lo: 0, hi: 0 }).length, 0);
+  for (const sink of [.99, 1]) {
+    const rise = { sink, baseM: 2000 };
+    assert.equal(visibleGroups(table, planes, { lo: 0, hi: 0, rise }).length, 1, `sink ${sink}`);
+  }
+});
+
 test('a culled tile has no point inside what the camera draws, with its lift and scissor', () => {
   let culled = 0, kept = 0;
   for (let seed = 1; seed <= 60; seed++) {

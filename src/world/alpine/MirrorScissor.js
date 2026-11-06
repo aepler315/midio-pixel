@@ -10,7 +10,7 @@
 // (musical deformation, glacier, the rise) and the shiver bounded from this
 // frame's uniforms -- plus the bilinear footprint. Texels outside are never
 // read, so the picture is unchanged.
-import { riseFromUniforms, risenFloor } from './LandRise.js';
+import { riseFromUniforms, risenHeight } from './LandRise.js';
 
 /** Horizontal size of a water bounding box, metres. */
 export const WATER_BOX_M = 384;
@@ -77,8 +77,8 @@ const abs = v => Math.abs(Number.isFinite(v) ? v : Infinity);
  *  the land dance (|danceField|: relief and spine within [0, 1], the
  *  decoded wave pair within sqrt(2) * 128 / 127.5). `rise` (null when the
  *  range stands complete) is the song-long lowering applied after them:
- *  it depends on where a box stands, so consumers lower each box's bottom
- *  through risenFloor (LandRise.js) after adding lo. It never raises. */
+ *  consumers transform both ends of each box through risenHeight after
+ *  adding lo/hi, since land below the base is raised. */
 export function liftBounds(u) {
   const dance = u.uLandDance?.value;
   const deform = abs(u.uDeformAmp?.value) + abs((u.uDeformKick?.value ?? 0) + (u.uDeformStructural?.value ?? 0))
@@ -162,13 +162,13 @@ export function waterScissor(boxes, viewProj, lift, width, height) {
 function projectedRect(boxes, matrix, viewProj, lift, pad, width, height, clamp, margin = MIRROR_SCISSOR_MARGIN_PX) {
   if (!boxes?.length || !(width > 0 && height > 0)) return null;
   if (![lift.lo, lift.hi].every(Number.isFinite)) return null;
+  if (lift.rise && (!(lift.rise.sink >= 0 && lift.rise.sink <= 1) || !Number.isFinite(lift.rise.baseM))) return null;
   const m = matrix, corners = new Float64Array(24);
   let u0 = Infinity, v0 = Infinity, u1 = -Infinity, v1 = -Infinity;
   for (let b = 0; b < boxes.length; b += 6) {
     for (let c = 0; c < 8; c++) {
       corners[c * 3] = boxes[b + (c & 1 ? 3 : 0)];
-      corners[c * 3 + 1] = c & 2 ? boxes[b + 4] + lift.hi
-        : risenFloor(boxes[b + 1] + lift.lo, boxes[b], boxes[b + 2], boxes[b + 3], boxes[b + 5], lift.rise);
+      corners[c * 3 + 1] = risenHeight(c & 2 ? boxes[b + 4] + lift.hi : boxes[b + 1] + lift.lo, 0, lift.rise);
       corners[c * 3 + 2] = boxes[b + (c & 4 ? 5 : 2)];
     }
     if (viewProj && culled(viewProj, corners)) continue;
