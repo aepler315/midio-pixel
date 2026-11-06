@@ -7,6 +7,7 @@ import { sceneUniforms } from '../src/world/alpine/TerrainMaterial.js';
 import { calibrateRangeMusic } from '../src/world/alpine/RangeFrame.js';
 import { sceneProgressAt } from '../src/world/terrain/SceneTravel.js';
 import { compileSceneRailPlan } from '../src/world/terrain/SceneRailPlan.js';
+import { GraphicsResidency, MiB } from '../src/render/GraphicsResidency.js';
 
 const camera = { eyeStartM: [0, 1500, 0], eyeEndM: [1000, 1600, 0],
   targetStartM: [0, 700, -9000], targetEndM: [2000, 700, -8000], fovYDeg: 35 };
@@ -114,6 +115,73 @@ test('late incoming handoff preserves outgoing occurrence and progress after mus
   assert.equal(p.status().cameraRails.from.progress01, p.railPlan.railStateAt(outgoing, 23200).progress01);
   assert.ok(p.incomingFade > 0 && p.incomingFade < 1);
   draw(p, 24001); assert.equal(p.viewId, 'b'); assert.equal(p.incomingViewId, null);
+});
+
+test('travel admits its incoming view after retiring fine crest storage and keeps it retired through a late join', async () => {
+  const { p, scene, ready } = await setup();
+  await new Promise(resolve => setImmediate(resolve));
+  draw(p, 10000);
+  const residency = new GraphicsResidency({ budgetBytes: 192 * MiB, name: 'mobile' });
+  const native = residency.reserve({ key: 'native', bytes: 168 * MiB, evictable: false });
+  residency.commit(native, {});
+  p.residency = residency;
+  Object.assign(p, { crestEnabled: true, pixelated: true, pixelPolicy: { grid: { width: 320, height: 180 } },
+    crestOutputSize: { width: 1920, height: 1080 } });
+  Object.assign(scene, { THREE, residency, renderer: { capabilities: { maxTextureSize: 16384 } }, crestOutputScale: 6,
+    _crestFineTarget: RangeScene.prototype._crestFineTarget,
+    _releaseFineTarget: RangeScene.prototype._releaseFineTarget,
+    setCrestFineSuspended: RangeScene.prototype.setCrestFineSuspended });
+  const target = { width: 352, height: 212 };
+  const fine = scene._crestFineTarget(target);
+  assert.ok(fine);
+  let disposed = 0;
+  fine.addEventListener('dispose', () => { disposed++; });
+  // Native probe/readback ownership must survive a temporary fine-pass pause.
+  const probe = scene.crestProbe = { async: { slots: [{ buffer: {} }] } };
+  draw(p, 11000);
+  assert.equal(scene._crestFineTarget(target), fine, 'steady playback reuses its fine target');
+  assert.equal(disposed, 0);
+
+  ready.delete('b');
+  let finish;
+  scene.prepare = async view => {
+    const reservation = residency.reserve({ key: view.id, bytes: 8 * MiB, evictable: false });
+    if (!reservation) throw Object.assign(new Error('incoming view denied'), { reason: 'budget' });
+    residency.commit(reservation, {});
+    await new Promise(resolve => { finish = resolve; });
+    ready.add(view.id);
+  };
+  draw(p, 22500);
+  assert.ok(residency.has('b'), 'unused fine storage cannot deny incoming preparation');
+  assert.equal(p.incomingViewId, null, 'loading keeps the outgoing view visible');
+  assert.equal(disposed, 1);
+  assert.equal(scene.crestProbe, probe);
+  for (const timeMs of [22600, 22700]) {
+    draw(p, timeMs);
+    assert.equal(scene._crestFineTarget(target), null, 'waiting frames must not recreate the released target');
+  }
+  finish();
+  await Promise.resolve();
+  draw(p, 22800);
+  assert.equal(p.incomingViewId, 'b');
+  assert.ok(residency.has('range:travel-scratch'), 'travel scratch fits under the same mobile budget');
+  draw(p, 23200);
+  assert.equal(p.incomingViewId, 'b', 'late join still holds both sides after the scheduled seam');
+  assert.equal(scene._crestFineTarget(target), null);
+  assert.equal(residency.denials, 0);
+  assert.equal(disposed, 1, 'the whole travel releases once');
+
+  draw(p, 24001);
+  assert.equal(p.incomingViewId, null);
+  // A completed outgoing view may now leave residency, as in normal playback.
+  residency.release('native');
+  const resumed = scene._crestFineTarget(target);
+  assert.ok(resumed);
+  assert.notEqual(resumed, fine);
+  draw(p, 24100);
+  assert.equal(scene._crestFineTarget(target), resumed, 'settled playback returns to stable reuse');
+  assert.equal(scene.crestProbe, probe);
+  scene._releaseFineTarget();
 });
 
 test('consecutive same-view sections retain one trajectory without reset', async () => {

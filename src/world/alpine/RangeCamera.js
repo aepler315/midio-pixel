@@ -1,9 +1,9 @@
 // Range v2 camera moves, on top of a view's authored rail pose:
 //
-//   rangeCameraMoveAt()   slow cinematic moves -- push in, pull back,
-//                         orbit, drift -- one per structural turn of the
-//                         song, each starting on the turn, travelling and
-//                         then holding. A pure function of heard time (seek,
+//   rangeCameraMoveAt()   slow cinematic moves -- lean into a build, reveal
+//                         the range at a climax, settle in quiet -- one per
+//                         structural turn, travelling and then holding.
+//                         A pure function of heard time (seek,
 //                         pause and export land on the same shot). The song
 //                         opens risen in the dark and ends wide and risen.
 //   RangeUserCamera       the listener's zoom (scroll wheel, two-finger
@@ -22,9 +22,9 @@
 // that mode therefore needs a package with coverage beyond visible tiles.
 import { cameraBasis } from '../terrain/SceneTravel.js';
 import { LAND_MAX_DISPLACEMENT_M } from './LandMotionLimits.js';
-import { hashSeed, mulberry32 } from '../../utils/math.js';
+import { hashSeed } from '../../utils/math.js';
 
-export const MOVE_KINDS = Object.freeze(['establish', 'push', 'pullback', 'orbit', 'drift']);
+export const MOVE_KINDS = Object.freeze(['establish', 'push', 'reveal', 'settle', 'hold']);
 export const NEUTRAL_MOVE = Object.freeze({ dolly: 0, yaw: 0, crane: 0, truck: 0, kind: 'rest' });
 // Moves start only at the song's big structural turns, at least this far
 // apart. Sections in between ride along: a new move every few seconds
@@ -35,8 +35,8 @@ export const MIN_MOVE_MS = 20000;
 // start and end. Its travel time lies within these bounds.
 export const MOVE_TRAVEL_FRAC = 0.6;
 export const MOVE_TRAVEL_MS = Object.freeze([12000, 30000]);
-// An energy change at a boundary at least this big makes it a push in
-// (rising) or a pull back (falling); smaller ones orbit or drift.
+// A meaningful energy turn earns a move. Climaxes reveal the whole range;
+// quieter returns settle closer. Level sections keep their composition.
 const ENERGY_TURN = 0.15;
 // The closing move (the sunset shot) starts this long before the music's
 // end (its cadence, else the file's end) and arrives on it.
@@ -111,10 +111,9 @@ export function cameraMoveKeys(sections, durationMs, seed = 0, cadenceMs = null)
   const list = Array.isArray(sections) ? sections : [];
   const finaleAt = clamp(cadence - FINALE_MS, 0, dur);
   const energyOf = (s) => clamp(Number(s?.relEnergy01 ?? 0.5) || 0, 0, 1);
-  const rand = mulberry32(hashSeed(`range-camera:${seed}`));
-  // Orbits and drifts alternate sides; the seed picks the first one.
-  let side = rand() < 0.5 ? -1 : 1;
-  let steady = 0;
+  // A song keeps one screen direction. Musical energy chooses the move;
+  // the seed only selects which side of the same composition opens.
+  const side = (hashSeed(`range-camera:${seed}`) & 1) ? -1 : 1;
   const keys = [{ fromMs: 0, tMs: 0, ...OPENING_MOVE }];
   // Spans: the opening, then one per structural turn, then the finale.
   const spans = [{ tMs: 0, section: list[0] || null, delta: 0, opening: true }, ...structuralTurns(list, finaleAt)];
@@ -130,26 +129,30 @@ export function cameraMoveKeys(sections, durationMs, seed = 0, cadenceMs = null)
       next.kind = 'establish';
       next.crane = 0.008;
       next.dolly = lerp(0.03, 0.07, energy);
-    } else if (spans[i].delta >= ENERGY_TURN && MOVE_LIMITS.dolly[1] - cur.dolly >= 0.05) {
-      // The music lifts: push in toward the peaks and come down to them.
+    } else if (spans[i].delta >= ENERGY_TURN && energy >= .65) {
+      // A climax opens the entire range: rise and come back to the wide
+      // rail while looking across the same subject, then hold its scale.
+      next.kind = 'reveal';
+      next.dolly = lerp(.025, 0, energy);
+      next.crane = lerp(.024, MOVE_LIMITS.crane[1], energy);
+      next.yaw = side * lerp(.025, .05, energy);
+      next.truck = side * lerp(.008, .018, energy);
+    } else if (spans[i].delta >= ENERGY_TURN) {
+      // A build leans into the subject before the wider arrival.
       next.kind = 'push';
-      next.dolly = Math.max(cur.dolly + 0.05, lerp(0.08, MOVE_LIMITS.dolly[1], energy));
-      next.dolly = Math.min(next.dolly, MOVE_LIMITS.dolly[1]);
-      next.crane = 0;
-    } else if (spans[i].delta <= -ENERGY_TURN && (cur.dolly >= 0.04 || cur.crane <= 0.02)) {
-      // The music falls away: pull back and rise to look over the land.
-      next.kind = 'pullback';
-      next.dolly = Math.max(0, cur.dolly - 0.08);
-      next.crane = lerp(0.015, MOVE_LIMITS.crane[1], 1 - energy);
-    } else if (steady++ % 2 === 0) {
-      // Steady music: a slow orbit round the target, swinging across.
-      side = -side;
-      next.kind = 'orbit';
-      next.yaw = side * lerp(0.035, MOVE_LIMITS.yaw[1], rand());
+      next.dolly = lerp(.06, .13, energy);
+      next.crane = .012;
+      next.yaw = side * .018;
+      next.truck = side * .006;
+    } else if (spans[i].delta <= -ENERGY_TURN) {
+      // Quiet passages return gently to an intimate, still composition.
+      next.kind = 'settle';
+      next.dolly = lerp(.035, .075, energy);
+      next.crane = .008;
+      next.yaw = cur.yaw * .35;
+      next.truck = cur.truck * .35;
     } else {
-      next.kind = 'drift';
-      side = -side;
-      next.truck = side * lerp(0.015, MOVE_LIMITS.truck[1], rand());
+      next.kind = 'hold';
     }
     keys.push(next);
   }

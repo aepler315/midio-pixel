@@ -881,6 +881,8 @@ export class RangePresentation {
     const from = selection ? record(selection.from) : this._choiceFor(name(blend.from) ?? name(mgr.sections?.[0]?.profile));
     const to = selection ? record(selection.to) : this._choiceFor(name(blend.to) ?? name(blend.from));
     const sideId = side => side?.occurrence?.id ?? side?.view?.id;
+    const t = blend.t ?? 1;
+    const blending = t > 0 && t < 1 && (selection ? selection.from.id !== selection.to.id : to !== from);
     const now = Date.now();
     const wanted = [...new Map([from, to].map((c) => c?.view).filter(Boolean).map((v) => [v.id, v])).values()];
     // Reservations below must be able to evict a completed section's view.
@@ -890,6 +892,10 @@ export class RangePresentation {
     const hold = this._handoff, join = this._incomingJoin, tNow = Number(mgr.tSec);
     const fading = !!join && join.id === sideId(hold?.incoming) && tNow >= join.tSec && tNow - join.tSec < ARRIVAL_SEC;
     const retained = fading && [from, to].some(side => sideId(side) === sideId(hold.incoming)) ? [hold.outgoing.view.id] : [];
+    // Travel never draws the fine crest. Retire its non-evictable target
+    // before incoming preparation/scratch admission, and keep it suspended
+    // while a late view loads or finishes fading so it cannot churn back in.
+    this.scene.setCrestFineSuspended?.(!!(retained.length || blending && from?.view && to?.view && sideId(from) !== sideId(to)));
     this.scene.pinView?.([...wanted.map(v => v.id), ...retained], [TRAVEL_SCRATCH_KEY]);
     for (const v of wanted) this._prepare(v, now);
     // What this frame would draw but cannot yet (export settles these).
@@ -898,8 +904,6 @@ export class RangePresentation {
     if (!from?.view) { this.reason = from?.fallbackReason || 'no-view-assigned'; return false; }
     // A destination without a view (partial catalog coverage) is legacy
     // scenery: the blend toward it, and the section after it, draw legacy.
-    const t = blend.t ?? 1;
-    const blending = t > 0 && t < 1 && (selection ? selection.from.id !== selection.to.id : to !== from);
     // Leaving for a destination without a view (partial catalog coverage):
     // the outgoing view keeps drawing over the legacy stack and fades out
     // across the blend, instead of cutting to legacy on its first frame.

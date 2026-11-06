@@ -57,9 +57,11 @@ export class CrestColorPattern {
       }
     }
     if (!Number.isFinite(left) || right < 0 || left >= width || bottom < 1 || top >= height - 1) { this.release(); return null; }
-    // Include the widest current crest stroke. Copies remain clipped to rows
-    // where both +/- one-pixel source neighbours exist; black bars stay intact.
-    const pad = Math.ceil(4 * (fit.height || height) / 1080) + 2;
+    // Modern crests are one physical pixel wide at every output scale. A
+    // two-pixel guard covers their round caps/joins and pattern filtering;
+    // scaling the old wider-stroke guard only copies unused pixels. Copies
+    // stay inside rows with both source neighbours so black bars stay intact.
+    const pad = 2;
     left = Math.max(0, Math.floor(left) - pad); right = Math.min(width, Math.ceil(right) + pad + 1);
     top = Math.max(1, Math.floor(top) - pad); bottom = Math.min(height - 1, Math.ceil(bottom) + pad + 1);
     const size = `${width}x${height}`;
@@ -73,7 +75,9 @@ export class CrestColorPattern {
       copy.setTransform(1, 0, 0, 1, 0, 0);
       copy.imageSmoothingEnabled = false;
       copy.globalAlpha = 1; copy.globalCompositeOperation = 'copy';
-      copy.clearRect(0, 0, scratch.width, scratch.height);
+      // Copy also clears the unused capacity when this frame's bounds shrink.
+      // A separate clear is redundant; source-over would retain stale fringe
+      // pixels that can leak onto the output's excluded final row.
       copy.drawImage(output, left, top - 1, w, h, 0, 0, w, h);
       copy.globalAlpha = .5; copy.globalCompositeOperation = 'source-over';
       copy.drawImage(output, left, top + 1, w, h, 0, 0, w, h);

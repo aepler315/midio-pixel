@@ -430,7 +430,7 @@ test('the score\'s hold on the valley air is neutral in silence and bounded unde
   for (const e of [null, undefined, SILENT, { lift: .0004, bass: .0009, energy: 0 }]) {
     assert.equal(atmosphereMusic(e), ATMOSPHERE_NEUTRAL);
   }
-  assert.deepEqual({ ...ATMOSPHERE_NEUTRAL }, { mistDensityMul: 1, mistGlow: 0, shaftGain: 1 });
+  assert.deepEqual({ ...ATMOSPHERE_NEUTRAL }, { mistDensityMul: 1, mistGlow: 0, shaftGain: 1, keyLightGain: 1 });
   assert.ok(Object.isFrozen(ATMOSPHERE_NEUTRAL));
   let prior = { ...atmosphereMusic({ lift: 0, bass: .3, energy: .5 }) };
   for (let lift = .1; lift <= 1.0001; lift += .1) {
@@ -439,7 +439,7 @@ test('the score\'s hold on the valley air is neutral in silence and bounded unde
     prior = next;
   }
   const full = { ...atmosphereMusic({ lift: 9, bass: 9, energy: 9 }) };
-  assert.deepEqual(full, { mistDensityMul: .77, mistGlow: .06, shaftGain: 1.4 });
+  assert.deepEqual(full, { mistDensityMul: .77, mistGlow: .06, shaftGain: 1.4, keyLightGain: 1 });
   for (const e of [{ lift: NaN, bass: Infinity, energy: -Infinity }, { lift: -5, bass: NaN, energy: 2 }]) {
     const m = atmosphereMusic(e);
     assert.ok(Object.values(m).every(Number.isFinite));

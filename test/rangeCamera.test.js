@@ -54,11 +54,13 @@ test('the biggest energy change wins a crowded stretch', () => {
   assert.ok(starts.includes(38000) && !starts.includes(30000), String(starts));
 });
 
-test('a falling section pulls back and rises', () => {
+test('a quiet return settles after the climax reveals the range', () => {
   const keys = cameraMoveKeys([{ startMs: 0, relEnergy01: 0.5 }, { startMs: 30000, relEnergy01: 1 }, { startMs: 80000, relEnergy01: 0.1 }], DUR, 3);
-  const push = keys.find((k) => k.fromMs === 30000), back = keys.find((k) => k.fromMs === 80000);
-  assert.equal(back.kind, 'pullback');
-  assert.ok(back.dolly < push.dolly && back.crane > push.crane);
+  const reveal = keys.find((k) => k.fromMs === 30000), back = keys.find((k) => k.fromMs === 80000);
+  assert.equal(reveal.kind, 'reveal');
+  assert.equal(back.kind, 'settle');
+  assert.ok(back.dolly > reveal.dolly && back.crane < reveal.crane);
+  assert.ok(Math.abs(back.yaw) < Math.abs(reveal.yaw) && Math.abs(back.truck) < Math.abs(reveal.truck));
 });
 
 test('the move is a continuous pure function of heard time', () => {
@@ -151,11 +153,24 @@ test('wheel deltas map to gentle zoom factors in every delta mode', () => {
   assert.equal(wheelZoomFactor({ deltaY: -100000 }), 2);
 });
 
-test('a loud section pushes in', () => {
+test('a loud section opens the range at full scale', () => {
   const keys = cameraMoveKeys([{ startMs: 0, relEnergy01: 0.2 }, { startMs: 30000, relEnergy01: 1 }, { startMs: 80000, relEnergy01: 0.2 }], DUR, 3);
   const loud = keys.find((k) => k.fromMs === 30000);
-  assert.equal(loud.kind, 'push');
-  assert.ok(loud.dolly > 0.1);
+  assert.equal(loud.kind, 'reveal');
+  assert.equal(loud.dolly, 0);
+  assert.equal(loud.crane, MOVE_LIMITS.crane[1]);
+});
+
+test('steady sections hold composition rather than choosing arbitrary orbits', () => {
+  const sections = [0, 30000, 60000, 90000].map(startMs => ({ startMs, relEnergy01: .5 }));
+  for (const seed of [1, 43, 912]) {
+    const keys = cameraMoveKeys(sections, DUR, seed);
+    const opening = keys[1];
+    for (const key of keys.slice(2, -1)) {
+      assert.equal(key.kind, 'hold');
+      for (const channel of ['dolly', 'yaw', 'crane', 'truck']) assert.equal(key[channel], opening[channel]);
+    }
+  }
 });
 
 test('a narrow ridge between coarse samples still stops the zoom', () => {

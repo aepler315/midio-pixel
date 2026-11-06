@@ -15,6 +15,8 @@ export const LENS_MIN_HALF_ANGLE_SCALE = .82;
 export const LENS_ANTICIPATION_MS = 450;
 export const LENS_RELEASE_MS = 2450;
 export const NEUTRAL_LENS = Object.freeze({ halfAngleScale: 1, zoomPulse: 0, cueIndex: -1 });
+export const REVEAL_GATHER_MS = 3000;
+export const REVEAL_OPEN_MS = 5000;
 
 /** Section trust, except that an inferred boundary keeps half a lens even
  * at confidence 0: without the self-similarity analysis every inferred
@@ -66,6 +68,21 @@ export function lensFromCues(cues, timeMs, preview = false) {
   const amount = cue.strength * envelope;
   if (!(amount > 0)) return NEUTRAL_LENS;
   return Object.freeze({ halfAngleScale: 1 - (1 - LENS_MIN_HALF_ANGLE_SCALE) * amount, zoomPulse: amount, cueIndex: cue.index });
+}
+
+/** Scenic framing gathers before a major arrival, then opens to the full
+ * authored view over five seconds. The crop never reveals unbaked terrain.
+ * This is separate from the legacy stage accent: zero zoomPulse means no
+ * screen dip, shake or tilt accompanies the change in geographical scale. */
+export function revealLensFromCues(cues, timeMs, preview = false) {
+  if (preview || !Array.isArray(cues) || !cues.length) return NEUTRAL_LENS;
+  const cue = cues.find(c => timeMs >= c.timeMs - REVEAL_GATHER_MS && timeMs < c.timeMs + REVEAL_OPEN_MS);
+  if (!cue) return NEUTRAL_LENS;
+  const age = timeMs - cue.timeMs;
+  const envelope = age < 0 ? smooth((age + REVEAL_GATHER_MS) / REVEAL_GATHER_MS)
+    : 1 - smooth(age / REVEAL_OPEN_MS);
+  const amount = unit(cue.strength) * envelope;
+  return amount > 0 ? Object.freeze({ halfAngleScale: 1 - .16 * amount, zoomPulse: 0, cueIndex: cue.index }) : NEUTRAL_LENS;
 }
 
 /** Sections-only lens (no Landscape score): the same cue rule, no handoff. */

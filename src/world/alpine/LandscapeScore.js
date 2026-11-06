@@ -3,7 +3,7 @@
 import { rangeCameraMoveAt, FINALE_MS } from './RangeCamera.js';
 import { compileLandRise } from './LandRise.js';
 import { lastAudibleMs, sectionTrust } from './EffectsMusic.js';
-import { compileLensCues, lensFromCues, LENS_ANTICIPATION_MS, LENS_MIN_GAP_MS } from '../../render/CameraLens.js';
+import { compileLensCues, lensFromCues, revealLensFromCues, REVEAL_GATHER_MS, LENS_MIN_GAP_MS } from '../../render/CameraLens.js';
 
 const unit = x => Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : 0;
 const ease = x => { const t = unit(x); return t * t * (3 - 2 * t); };
@@ -82,10 +82,10 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
   // Lens cues come from the raw sections (the phrases above carry no
   // provenance or level steps). A cue heard, or underway, at the handoff
   // plays out from the previous score; a new cue never starts mid-pulse.
-  const heldCues = previous ? (previous.lensCues || []).filter(c => c.timeMs - LENS_ANTICIPATION_MS <= freezeThroughMs) : [];
+  const heldCues = previous ? (previous.lensCues || []).filter(c => c.timeMs - REVEAL_GATHER_MS <= freezeThroughMs) : [];
   const lastHeldMs = heldCues.at(-1)?.timeMs ?? -Infinity;
   const lensCues = Object.freeze([...heldCues, ...compileLensCues(sections, duration).filter(c => !previous
-    || (c.timeMs - LENS_ANTICIPATION_MS > freezeThroughMs && c.timeMs - lastHeldMs >= LENS_MIN_GAP_MS))]
+    || (c.timeMs - REVEAL_GATHER_MS > freezeThroughMs && c.timeMs - lastHeldMs >= LENS_MIN_GAP_MS))]
     .map((c, index) => c.index === index ? c : Object.freeze({ ...c, index })));
   // The music's own end: the closing camera move arrives on it, not on padding.
   const cadenceMs = lastAudibleMs(energyCurves, duration);
@@ -110,6 +110,7 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
     return Object.freeze({ energy01, motifId: phrase?.motifId || 'quiet',
       intensity01: phrase?.relEnergy01 ?? energy01, camera: Object.freeze(camera),
       lens: lensFromCues(lensCues, t, !!options.preview),
+      revealLens: revealLensFromCues(lensCues, t, !!options.preview),
       rise01: options.preview ? 1 : rise.at(t) });
   };
   return Object.freeze({ durationMs: duration, phrases, episodes: weather, freezeThroughMs, lensCues, cadenceMs,
