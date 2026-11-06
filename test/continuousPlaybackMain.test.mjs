@@ -6,13 +6,16 @@ import { PlaybackSequence } from '../src/library/PlaybackSequence.js';
 import { createAudioSelection } from '../src/audio/AudioSelection.js';
 
 const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
-function production(name, bindings) {
+function productionSource(name) {
   const declaration = main.indexOf(`function ${name}(`);
   assert.ok(declaration >= 0, `${name} exists`);
   const start = main.slice(0, declaration).endsWith('async ') ? declaration - 6 : declaration;
   const end = main.indexOf('\n}\n', start) + 3;
+  return main.slice(start, end);
+}
+function production(name, bindings) {
   const context = vm.createContext(bindings);
-  vm.runInContext(main.slice(start, end), context);
+  vm.runInContext(productionSource(name), context);
   return context;
 }
 const element = () => ({ classList: { add() {}, remove() {} }, textContent: '' });
@@ -144,4 +147,27 @@ test('a failed library decode cannot move the current-track identity', async () 
   });
   assert.equal(await context.playLibraryTrack({ key: 'bad' }), false);
   assert.equal(context.lastLibraryTrackId, 'previous');
+});
+
+test('a synchronous timeline failure settles an automatic world selection after its pending owner is consumed', () => {
+  const ticket = {}, outcomes = []; let starts = 0;
+  const context = production('startConfirmedWorld', {
+    continuousPlayback: { isCurrent: candidate => candidate === ticket },
+    resolveWorldId: id => id, stopWorldPreview() {}, closeWorldChooser() {},
+    lastWorldId: 'range', muteTimelineSynth: false,
+    startTimeline() { starts++; throw new Error('Renderer construction failed'); },
+    pendingWorldStart: { data: {}, features: {}, profile: {}, extra: {
+      automaticTicket: ticket, onAutomaticStart: outcome => outcomes.push(outcome),
+    } },
+    listWorlds: () => [{ id: 'range' }], applyExperience() {}, worldExperience: () => 'landscape',
+    previewSession: null, buildWorldVariant: () => ({ world: { id: 'range', instanceId: 'song' } }),
+    getCustomWorld: () => null, setCustomWorld() {}, clearCustomWorld() {}, console: { warn() {} },
+  });
+  vm.runInContext(productionSource('confirmWorld'), context);
+  vm.runInContext(productionSource('playSelectedWorld'), context);
+  context.playSelectedWorld('range');
+  assert.equal(context.pendingWorldStart, null);
+  assert.equal(starts, 1);
+  assert.equal(outcomes.length, 1, 'the awaiting library handoff must be released');
+  assert.equal(outcomes[0].status, 'failed');
 });

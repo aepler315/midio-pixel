@@ -1932,7 +1932,15 @@ function startConfirmedWorld(pending, id) {
   // A recording already has every voice. The timeline synth (oscillator
   // "keyboard" tones + hat/kick clicks) must not sit on top of it.
   if (extra.playBuffer) muteTimelineSynth = true;
-  startTimeline(pending.data, extra);
+  try {
+    startTimeline(pending.data, extra);
+  } catch (error) {
+    // confirmWorld already consumed this pending owner. Release an automatic
+    // handoff here; retrying that empty pending slot cannot settle its wait.
+    if (!extra.onAutomaticStart) throw error;
+    extra.onAutomaticStart({ status: 'failed', error });
+    return;
+  }
   if (extra.onAutomaticStart) {
     completePanelEl.classList.remove('hidden');
     const owner = sim;
