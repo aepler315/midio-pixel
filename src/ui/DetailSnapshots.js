@@ -23,6 +23,14 @@ export function stepDetail(current, delta) {
   return DETAIL_LEVELS[Math.max(0, Math.min(DETAIL_LEVELS.length - 1, from + Math.sign(delta)))];
 }
 
+/** Density keys leave browser zoom, modifier shortcuts and IME input alone. */
+export function detailKeyDelta(event) {
+  if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return 0;
+  if (event.key === '-' || event.key === '_' || event.code === 'NumpadSubtract') return -1;
+  if (event.key === '=' || event.key === '+' || event.code === 'NumpadAdd') return 1;
+  return 0;
+}
+
 const pad = (n) => String(n).padStart(2, '0');
 
 /** midio_YYYYMMDD_<level>.png in local time: one file per detail level. */

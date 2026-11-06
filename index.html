@@ -64,6 +64,12 @@
           <span class="hint">A surprise from your music library</span>
         </div>
 
+        <div class="playbackOptions" role="group" aria-label="Library playback" aria-describedby="playbackOptionsHint">
+          <label><input id="shufflePlayback" type="checkbox" checked /> Shuffle</label>
+          <label><input id="continuousPlayback" type="checkbox" /> Continuous play</label>
+        </div>
+        <p id="playbackOptionsHint" class="hint playbackOptionsHint">Keep playing songs from your library. Turn Shuffle off to play in title order.</p>
+
         <div id="dropzone" tabindex="0" role="button" aria-label="Drop or choose a music file">
           <div class="dropzoneInner">
             <span class="dropIcon" aria-hidden="true">&#9834;</span>
@@ -270,9 +276,9 @@
         </details>
         <button id="displaySettingsBtn" class="ghostbtn" type="button" title="Display settings">Display</button>
         <div id="detailControls" class="detailControls" role="group" aria-label="Pixel detail">
-          <button id="detailDownBtn" class="ghostbtn iconbtn" type="button" title="Less pixel detail" aria-label="Less pixel detail">&#8722;</button>
+          <button id="detailDownBtn" class="ghostbtn iconbtn" type="button" title="Less pixel detail (−)" aria-label="Less pixel detail" aria-keyshortcuts="-">&#8722;</button>
           <span id="detailLevel" class="detailLevel" aria-live="polite">Classic</span>
-          <button id="detailUpBtn" class="ghostbtn iconbtn" type="button" title="More pixel detail" aria-label="More pixel detail">+</button>
+          <button id="detailUpBtn" class="ghostbtn iconbtn" type="button" title="More pixel detail (=)" aria-label="More pixel detail" aria-keyshortcuts="=">+</button>
         </div>
         <button id="snapshotBtn" class="ghostbtn iconbtn" type="button"
           title="Save this moment as full-quality PNGs, one at each of the 5 pixel detail levels"
@@ -371,7 +377,12 @@
         <div class="completeActions">
           <button id="replaySameSeedBtn" type="button">Replay seed</button>
           <button id="replayNewSeedBtn" type="button" class="ghostbtn">New seed</button>
+          <button id="completeRandomSongBtn" type="button" class="ghostbtn randomSongBtn">↝ Random song</button>
           <button id="playAgainBtn" type="button" class="ghostbtn">Title</button>
+        </div>
+        <div class="continuousPlaybackNotice">
+          <p id="continuousPlaybackStatus" class="hint" role="status" aria-live="polite"></p>
+          <button id="cancelContinuousPlaybackBtn" type="button" class="ghostbtn chipbtn" hidden>Cancel next song</button>
         </div>
         <div id="completeNewSeedRow" class="seedRow completeNewSeedRow hidden" title="Pick a seed for the replay.">
           <label for="completeNewSeedInput">Seed</label>

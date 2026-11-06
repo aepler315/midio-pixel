@@ -3072,6 +3072,15 @@ html, body {
 /* Choose playback and recording before the music starts. */
 .titleQuickActions { display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin:20px 0 14px; }
 .randomSongBtn { border-color:#82c2b6; color:#c9f5df; padding:12px 20px; }
+.playbackOptions { display:flex; flex-wrap:wrap; align-items:center; gap:10px 24px; margin:14px 0 0; }
+.playbackOptions label { display:flex; align-items:center; gap:9px; min-height:40px; color:#d7eade; font-size:14px; cursor:pointer; }
+.playbackOptions input { width:19px; height:19px; margin:0; accent-color:#96debf; cursor:pointer; }
+.playbackOptions input:focus-visible { outline:2px solid #ade9cb; outline-offset:4px; }
+.playbackOptionsHint { margin:3px 0 18px; text-align:left; }
+.continuousPlaybackNotice { display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:8px 14px; margin-top:14px; }
+.continuousPlaybackNotice .hint { margin:0; }
+.continuousPlaybackNotice [hidden] { display:none; }
+.continuousPlaybackNotice:has(.hint:empty):has(button[hidden]) { display:none; }
 .exportSetup { border:1px solid #a1b5d342; border-radius:16px; background:#102132b8; padding:18px; margin:14px 0 22px; text-align:left; }
 .exportFields legend { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 .exportToggle { display:flex; justify-content:space-between; align-items:center; gap:18px; cursor:pointer; }

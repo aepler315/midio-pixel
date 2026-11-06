@@ -1,6 +1,6 @@
 {
-  "about": "Range v2 scenic views: curated real terrain corridors with authored camera rails. Authoring source for tools/build-range-scene.mjs; the runtime catalog (src/assets/range/v2/catalog.json) is generated from it. Rail anchors are lon/lat (NAD83 for 3DEP sources) with an absolute height (heightM, metres above the source vertical datum) or a height above the DEM ground (aboveGroundM). status: candidate | approved | rejected; only approved views are production-eligible. These statuses describe the current runtime selector; candidate authoring and experimental development may proceed independently under docs/experimental-development.md.",
-  "catalogVersion": 54,
+  "about": "Range v2 scenic views: curated real terrain corridors with authored camera rails. Authoring source for tools/build-range-scene.mjs; the runtime catalog (src/world/terrain/sceneCatalogData.js) is generated from it. Rail anchors are lon/lat (NAD83 for 3DEP sources) with an absolute height (heightM, metres above the source vertical datum) or a height above the DEM ground (aboveGroundM). status: candidate | approved | rejected records review history. Approved views and candidates explicitly marked experimental: true enter normal selection. Other candidate authoring and experimental development may proceed independently under docs/experimental-development.md.",
+  "catalogVersion": 55,
   "views": [
     {
       "id": "nc-ross-lake-north",
@@ -6409,6 +6409,9 @@
     },
     {
       "id": "sawtooth-redfish-north",
+      "experimental": true,
+      "reviewPath": "docs/scenic-expansion-2026-11-05.md",
+      "review": "Enabled for normal selection as an explicit regional experiment on 2026-11-05. Candidate base and tour metadata remain unapproved. Current RTX 3060 visual and frame-pacing checks are recorded separately in the linked review.",
       "regionId": "sawtooth",
       "biome": "CONIFER",
       "status": "candidate",
@@ -6480,12 +6483,13 @@
           "note": "USGS GNIS gaz382498 (NAD83); no surveyed vertical value asserted."
         }
       ],
-      "review": "Historical 2026-10-22 candidate checklist: actual renderer, reflections, clearance, skyline and both directed transition checks were listed for base review. Candidate experimentation may continue before that review is complete.",
-      "reviewPath": "docs/scenic-expansion-wave1-2026-10-22.md",
       "shotsManifestUrl": "tour/sawtooth-redfish-north.shots.json"
     },
     {
       "id": "shenandoah-stony-man-west",
+      "experimental": true,
+      "reviewPath": "docs/scenic-expansion-2026-11-05.md",
+      "review": "Enabled for normal selection as an explicit regional experiment on 2026-11-05. Candidate base and tour metadata remain unapproved. Current RTX 3060 visual and frame-pacing checks are recorded separately in the linked review.",
       "regionId": "shenandoah",
       "biome": "BROADLEAF",
       "status": "candidate",
@@ -6567,12 +6571,13 @@
           "note": "USGS GNIS gaz1471867 (NAD83); no surveyed vertical value asserted."
         }
       ],
-      "review": "Historical 2026-10-22 candidate checklist: actual renderer, near-ridge occlusion, clearance, skyline and both directed transition checks were listed for base review. Candidate experimentation may continue before that review is complete. Water deliberately disabled until mapped wet features would be added.",
-      "reviewPath": "docs/scenic-expansion-wave1-2026-10-22.md",
       "shotsManifestUrl": "tour/shenandoah-stony-man-west.shots.json"
     },
     {
       "id": "superstition-west-front",
+      "experimental": true,
+      "reviewPath": "docs/scenic-expansion-2026-11-05.md",
+      "review": "Enabled for normal selection as an explicit regional experiment on 2026-11-05. Candidate base and tour metadata remain unapproved. Current RTX 3060 visual and frame-pacing checks are recorded separately in the linked review.",
       "regionId": "superstition",
       "biome": "DESERT",
       "status": "candidate",
@@ -6645,8 +6650,6 @@
           "note": "USGS GNIS gaz35931 (NAD83); no surveyed vertical value asserted."
         }
       ],
-      "review": "Historical 2026-10-22 candidate checklist: actual renderer, volcanic-front silhouette, source resolution at near pillars, clearance, skyline and both directed transition checks were listed for base review. Candidate experimentation may continue before that review is complete. No permanent surface water asserted; water disabled.",
-      "reviewPath": "docs/scenic-expansion-wave1-2026-10-22.md",
       "shotsManifestUrl": "tour/superstition-west-front.shots.json"
     }
   ]

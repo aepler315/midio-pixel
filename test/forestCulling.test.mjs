@@ -1010,7 +1010,7 @@ test('createForest marks mesh-tree batches for culling, never billboards', () =>
   assert.equal(forestCells(detail.geometry), forestCells(lite.geometry));
 });
 
-test('the tour layer\'s twins draw spans of the trees they hold (culled whole with tour.spans false), never its demote boards; the static batches as before', () => {
+test('static meshes and tour twins support prefix spans, while tour.spans false affects only twins and boards stay unculled', () => {
   const rows = (band, n, z) => Array.from({ length: n }, (_, i) => [i * 10, 0, z, 12, 4, i % 4, (i * .137) % 1, band]).flat();
   const placed = { meshDetail: new Float32Array([...rows(2, 6, -100), ...rows(2, 4, 900)]), mesh: new Float32Array([...rows(2, 8, -300), ...rows(1, 3, 2000)]),
     billboard: new Float32Array(rows(1, 5, -4000)), stride: 8, count: 26, railCount: { meshDetail: 6, mesh: 8, billboard: 5 } };
@@ -1025,9 +1025,11 @@ test('the tour layer\'s twins draw spans of the trees they hold (culled whole wi
   };
   for (const forest of [f, off]) {
     assert.deepEqual(statics(forest).map(tagOf(forest)), statics(plain).map(tagOf(plain)), 'the static batches are tagged as without the tour layer');
-    for (const m of statics(forest)) if (m.geometry.attributes.aBranch) assert.deepEqual(m.geometry.userData.forestCull, { uniforms: forest.uniforms });
-    // Their trees stay plain instanced attributes: nothing reads them from an offset.
-    for (const m of statics(forest)) for (const name of ['iPos', 'iSize', 'iVar']) assert.ok(m.geometry.attributes[name].isInstancedBufferAttribute, name);
+    for (const m of statics(forest)) if (m.geometry.attributes.aBranch) assert.deepEqual(m.geometry.userData.forestCull, { uniforms: forest.uniforms, prefix: true, spans: true });
+    for (const m of statics(forest)) for (const name of ['iPos', 'iSize', 'iVar']) {
+      const a = m.geometry.attributes[name];
+      assert.ok(m.geometry.attributes.aBranch ? a.isInterleavedBufferAttribute : a.isInstancedBufferAttribute, name);
+    }
   }
   for (const [forest, spans] of [[f, true], [off, false]]) {
     assert.ok(forest.tour.every.length > 0 && forest.tour.twins.length > 0 && forest.tour.boards.length > 0);
@@ -1055,8 +1057,7 @@ test('the tour layer\'s twins draw spans of the trees they hold (culled whole wi
       }
     }
     for (const g of forest.tour.boards) assert.equal(g.userData.forestCull, undefined);
-    // No static batch is bound over a prefix: their cells stay those of #81.
-    for (const m of statics(forest)) assert.ok(!m.geometry.userData.forestCull?.prefix);
+    for (const m of statics(forest)) assert.equal(!!m.geometry.userData.forestCull?.prefix, !!m.geometry.attributes.aBranch);
   }
   for (const forest of [plain, f, off]) forest.dispose();
 });

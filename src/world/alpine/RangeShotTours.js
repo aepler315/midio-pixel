@@ -1,7 +1,7 @@
 // Range v2: scenic shot tours for the song's views (docs/scenic-tours.md).
 //
 // RangePresentation owns one of these. For every view the song may show
-// that carries an approved shot library, it loads the library (once per
+// with an eligible approved or experimental shot library, it loads it (once per
 // page: libraries are song-independent), hands the scene the library's
 // camera footprint before preparation (forest, LOD and rivers then never
 // depend on a song), plans the song's camera in a worker over the schedule
@@ -29,11 +29,12 @@ export const SHOT_PLAN_TIMEOUT_MS = 8000;
 export const SHOT_REPLAN_RETRIES = 3;
 export const SHOT_REPLAN_RETRY_MS = 2000;
 
-/** Whether a catalog view may play its shot tour. Candidates play only
- *  for diagnostics (?rangeShots=all), mirroring forcedCandidate. */
+/** Whether a catalog view may play its shot tour. Explicit regional
+ * experiments retain candidate metadata and still require matching pins. */
 export function shotTourEligible(view, { allowCandidates = false } = {}) {
   if (shotTourIdentityErrors(view).length) return false;
   if (allowCandidates) return true;
+  if (view.status === 'candidate' && view.experimental === true && view.shotTour.status === 'candidate') return true;
   const a = view.shotTour.approval;
   return view.status === 'approved' && view.shotTour.status === 'approved'
     && Array.isArray(a?.evidence) && a.evidence.length > 0 && a.evidence.every((s) => typeof s === 'string' && s.length > 0);

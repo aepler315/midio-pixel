@@ -122,12 +122,15 @@ test('a phone that cannot hold both cameras prepares the rail alone, never placi
 });
 
 test('a desktop places the tour\'s forest when its placement fits, and holds both cameras when the trees placed fit', async () => {
-  // Room the bound's tree count would refuse, but the trees placed fit.
-  const s = scene(36e6), rooms = watchRoom(s);
+  // Including span-cache/build memory: ~37.8 MB placed, ~42 MB bound.
+  // The bound's tree count still refuses this room, but the trees placed fit.
+  const s = scene(38e6), rooms = watchRoom(s);
   const two = await prepare(s, footprint);
   assert.deepEqual(rooms, ['placed']);
   assert.equal(two.railOnly, null);
   assert.ok(two.modeGeometries.length > 0);
+  assert.ok(s.residency.usedBytes <= s.residency.budgetBytes);
+  assert.equal(s.residency.snapshot().overcommits, 0);
 });
 
 test('a desktop whose trees placed do not fit both cameras keeps the rail for the song, and later songs decide without placing again', async () => {

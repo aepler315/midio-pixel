@@ -22,7 +22,7 @@ import { skyTurn, projectRangeCelestials, projectRailCelestials } from './RangeS
 import { convertLightBetween } from './LightSpace.js';
 import { lightDirTo } from '../../render/LightField.js';
 import { cyclePhase01, sunScreenFrac } from '../DayNight.js';
-import { forcedSceneChoice } from '../terrain/SceneCatalog.js';
+import { forcedSceneChoice, sceneViewEligible } from '../terrain/SceneCatalog.js';
 import SCENE_CATALOG from '../terrain/sceneCatalogData.js';
 import { noteViewShown } from '../terrain/RangeHistory.js';
 import { RangeShotTours } from './RangeShotTours.js';
@@ -54,10 +54,10 @@ const RUNTIME_COOLDOWN_MS = 60000;
 const retryUrl = (url, attempt) => (attempt ? `${url}?retry=${attempt}` : url);
 
 /** ?rangeRenderer=v2|legacy and ?rangeView=<id>. Default v2.
- *  ?rangeTour=shots (the default) plays approved views' shot tours,
+ *  ?rangeTour=shots (the default) plays approved and enabled experimental shot tours,
  *  =off keeps every authored rail, =tetons forces the Teton highway tour;
  *  the choice persists as localStorage 'range-tour'. ?rangeShots=all lets
- *  candidate shot libraries play, for review only. In shots mode a planned
+ *  other candidate shot libraries play, for review only. In shots mode a planned
  *  tour plays only where it beats the rail for the song (CameraChoice.js);
  *  ?rangeTourGate=off plays every planned tour. */
 export function resolveRangeMode(search = (typeof location !== 'undefined' ? location.search : ''), storage = null) {
@@ -657,7 +657,7 @@ export class RangePresentation {
     const preview = this.frameInputs.sim.biomes.terrainPreview || !(this.railPlan.snapshot.durationMs > 0);
     const policy = preview ? 'preview' : view.glacier ? 'glacier'
       : prepared?.cameraTour || view.tour || shotTimelineOf(this, view.id) ? 'tour'
-      : view.status === 'approved' ? 'rail' : 'candidate';
+      : sceneViewEligible(view) ? 'rail' : 'candidate';
     if (policy === 'rail') return state;
     return Object.freeze({ ...state, policy,
       progress01: policy === 'preview' ? .5 : policy === 'glacier' ? frame.glacier.journey01 : frame.progress01,

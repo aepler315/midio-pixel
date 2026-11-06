@@ -1,8 +1,8 @@
 // Range v2: which curated scenic view a biome's sections play against.
 //
-// Normal song selection currently uses the catalog's APPROVED views only.
-// Diagnostic overrides can select candidate views for experiments. A candidate or
-// rejected view is not chosen by this normal pool, and a biome with no approved
+// Normal song selection uses approved views and explicitly enabled regional
+// experiments. Other candidates remain diagnostic-only. A rejected view is
+// never chosen by this normal pool, and a biome with no available
 // view gets `view: null` with an explicit fallback reason -- the legacy
 // scanned-skyline renderer covers it -- never a view borrowed from another
 // biome and never an invented ridge. This describes current selection behavior;
@@ -30,6 +30,11 @@ const KERNEL_WIDTH = 0.4;
 const SALT_BASE = 3000;
 const STATUSES = new Set(['candidate', 'approved', 'rejected']);
 
+/** Selection eligibility is separate from recorded artistic approval. */
+export function sceneViewEligible(view) {
+  return view?.status === 'approved' || (view?.status === 'candidate' && view.experimental === true);
+}
+
 /** Structural problems with one catalog view (empty = usable). */
 export function sceneViewErrors(view) {
   const errors = [];
@@ -38,6 +43,7 @@ export function sceneViewErrors(view) {
   if (typeof view.regionId !== 'string' || !view.regionId) errors.push('regionId');
   if (typeof view.biome !== 'string' || !view.biome) errors.push('biome');
   if (!STATUSES.has(view.status)) errors.push(`status ${view.status}`);
+  if (view.experimental !== undefined && typeof view.experimental !== 'boolean') errors.push('experimental selection');
   if (!Number.isInteger(view.catalogVersion)) errors.push('catalogVersion');
   if (typeof view.terrainManifestUrl !== 'string' || !view.terrainManifestUrl.endsWith('.json')) errors.push('terrainManifestUrl');
   if (typeof view.materialManifestUrl !== 'string' || !view.materialManifestUrl.endsWith('.json')) errors.push('materialManifestUrl');
@@ -133,8 +139,7 @@ export function chooseSceneForBiome(biome, profile, seed, {
   const none = (fallbackReason) => ({ view: null, fallbackReason, odds: 0, catalogVersion });
   const usable = views.filter((v) => !sceneViewErrors(v).length
     && (catalogVersion === null || v.catalogVersion === catalogVersion));
-  const approved = usable.filter((v) => v.status === 'approved');
-  const pool = approved.filter((v) => v.biome === biome).sort((a, b) => a.id.localeCompare(b.id));
+  const pool = usable.filter((v) => sceneViewEligible(v) && v.biome === biome).sort((a, b) => a.id.localeCompare(b.id));
   if (!pool.length) {
     return none(usable.some((v) => v.biome === biome) ? 'no-approved-view-for-biome' : 'no-view-for-biome');
   }

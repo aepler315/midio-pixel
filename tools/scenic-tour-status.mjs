@@ -36,7 +36,8 @@ export async function statusRows({ verification = {}, buildRoot = path.join(root
         if (identity.manifestSha256 !== v.shotsManifestSha256 || identity.terrainManifestSha256 !== v.terrainManifestSha256) {
           throw new Error('published library/terrain differs from the catalog identity');
         }
-        tour = v.shotTour.status === 'rejected' ? 'rejected' : shotTourEligible(v) ? 'approved' : 'candidate';
+        tour = v.shotTour.status === 'rejected' ? 'rejected' : shotTourEligible(v)
+          ? v.status === 'candidate' && v.experimental === true ? 'experimental' : 'approved' : 'candidate';
       } catch (error) { tour = 'stale'; tourIssue = error.message; }
     } else if (v.shotsManifestUrl) tourIssue = 'published library missing or unreadable; authored rail retained';
     const publishedCounts = Array.isArray(shipped?.shots) && Array.isArray(shipped?.links);

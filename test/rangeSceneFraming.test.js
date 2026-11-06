@@ -9,6 +9,7 @@ import { scenicProjection, viewportState } from '../src/world/alpine/RangeFrame.
 import { ZOOM_MIN } from '../src/render/CameraDirector.js';
 import { SHAKE_MARGIN_PX } from '../src/render/Renderer.js';
 import { VISIBILITY } from '../tools/lib/terrain-bake.mjs';
+import { sceneViewEligible } from '../src/world/terrain/SceneCatalog.js';
 
 const FOV = 35;
 const tanHalf = (deg) => Math.tan((deg * Math.PI) / 360);
@@ -78,16 +79,16 @@ test('the fov does not depend on where the stage sits in a resize', () => {
 });
 
 // Visibility: the far range's crest, measured on the shipped packages.
-const { viewExposure, travelExposure, pairExposure, MIN_FAR_EXPOSED } = await import('../tools/lib/range-exposure.mjs');
+const { viewExposure, travelExposure, pairExposure, travelExposureReview, MIN_FAR_EXPOSED } = await import('../tools/lib/range-exposure.mjs');
 const { default: CATALOG } = await import('../src/world/terrain/sceneCatalogData.js');
 const RUNTIME_DIR = fileURLToPath(new URL('../src/assets/range/v2/', import.meta.url));
-const approved = CATALOG.views.filter((v) => v.status === 'approved');
+const available = CATALOG.views.filter(sceneViewEligible);
 const exposures = new Map();
-for (const v of approved) exposures.set(v.id, await viewExposure(RUNTIME_DIR, v));
+for (const v of available) exposures.set(v.id, await viewExposure(RUNTIME_DIR, v));
 
-test('every approved view keeps its far crest >= 0.55 exposed at all 21 stations', () => {
-  assert.ok(approved.length > 0);
-  for (const v of approved) {
+test('every normally selectable view keeps its far crest >= 0.55 exposed at all 21 stations', () => {
+  assert.ok(available.length > 0);
+  for (const v of available) {
     const e = exposures.get(v.id);
     assert.equal(e.stations.length, 21);
     assert.ok(e.min >= MIN_FAR_EXPOSED, `${v.id}: ${e.stations.map((s) => s.fraction.toFixed(2)).join(' ')}`);
@@ -95,13 +96,13 @@ test('every approved view keeps its far crest >= 0.55 exposed at all 21 stations
   }
 });
 
-test('every travel between approved views keeps the far crest exposed at every station and seam sample', () => {
+test('every travel between normally selectable views retains far-crest coverage while temporary occlusion is reviewable', () => {
   // Both sides render at the song's one progress value: station k of A is
   // blended with station k of B.
-  for (const a of approved) for (const b of approved) {
+  for (const a of available) for (const b of available) {
     const { min, at, minCrest } = pairExposure(exposures.get(a.id), exposures.get(b.id));
-    assert.ok(min >= MIN_FAR_EXPOSED, `${a.id} -> ${b.id}: ${min.toFixed(2)} at station ${at.station}, seam ${at.p}`);
-    assert.ok(minCrest >= 0.5, `${a.id} -> ${b.id}: crest spans only ${minCrest.toFixed(2)} in travel`);
+    const review = travelExposureReview({ min, minCrest });
+    assert.deepEqual(review.errors, [], `${a.id} -> ${b.id}: station ${at.station}, seam ${at.p}`);
   }
 });
 

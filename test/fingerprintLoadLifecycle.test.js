@@ -6,6 +6,7 @@ import * as cache from '../src/audio/AnalysisCache.js';
 import * as limits from '../src/audio/loadLimits.js';
 import * as opening from '../src/audio/OpeningAnalysis.js';
 import { createAudioSelection } from '../src/audio/AudioSelection.js';
+import { ContinuousPlayback } from '../src/library/ContinuousPlayback.js';
 import { normalizeSourceMetadata } from '../src/audio/SourceMetadata.js';
 import * as sessionIdentity from '../src/audio/AudioSessionIdentity.js';
 import { fingerprintBuffer, fingerprintSignals } from '../src/audio/SongFingerprint.js';
@@ -22,7 +23,7 @@ const loadSource = main.slice(main.indexOf('async function resolveLyricsForAudio
 const { harness } = vm.runInNewContext(fixtureSource.slice(fixtureSource.indexOf('const element ='),
   fixtureSource.indexOf('\ntest(')) + '\n({ harness })', {
   vm, assert, cache, opening, ...limits, loadSource, fingerprintBuffer, GrooveFingerprint,
-  createAudioSelection, normalizeSourceMetadata, sessionIdentity,
+  createAudioSelection, ContinuousPlayback, normalizeSourceMetadata, sessionIdentity,
   ensureRidgeMusicSession, upgradeRidgeMusicSession, AbortController, console,
 });
 

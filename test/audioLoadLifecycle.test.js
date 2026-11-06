@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import * as cache from '../src/audio/AnalysisCache.js';
 import { createAudioSelection } from '../src/audio/AudioSelection.js';
+import { ContinuousPlayback } from '../src/library/ContinuousPlayback.js';
 import { normalizeSourceMetadata } from '../src/audio/SourceMetadata.js';
 import * as sessionIdentity from '../src/audio/AudioSessionIdentity.js';
 import { fingerprintBuffer } from '../src/audio/SongFingerprint.js';
@@ -37,6 +38,7 @@ function harness() {
     AUDIO_LOAD_LIMITS, accumulateDecodedAudioBytes, accumulateDecodedByteLength, decodedAudioByteLength,
     accumulateEncodedAudioBytes, audioAbortError, validateAudioFiles, validateDecodedAudioBuffer, validateDecodedByteLength,
     AbortController, audioSelections: createAudioSelection(), normalizeSourceMetadata, ...sessionIdentity,
+    continuousPlayback: new ContinuousPlayback(),
     selectionExportSettings: new WeakMap(), exportSetup: { snapshot: () => null },
     cancelUrlLoad() {}, buildLyricSections: () => null,
     loadGen: 0, groove: new GrooveFingerprint(), lyricsDisabled: true,

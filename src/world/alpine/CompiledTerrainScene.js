@@ -11,7 +11,7 @@ import { COMPILED_GROUP_TILES, buildCompiledScenes, compiledTerrainUniforms, cre
 import { sceneUniforms, applyMaterial } from './TerrainMaterial.js';
 import { validateWaterRules } from './MaterialPackage.js';
 import { placeForestAsync } from './ForestCover.js';
-import { createForest } from './ForestGL.js';
+import { createForest, forestSpanBytes } from './ForestGL.js';
 import { forestAssetBytes, FOREST_FAMILIES, FOREST_VARIANTS } from './ForestSpeciesAssets.js';
 import { ActorsGL } from './ActorsGL.js';
 import { castPlan, castWork } from './CastJobs.js';
@@ -159,7 +159,7 @@ export async function prepareCompiledView(scene, view, representation, opts, { e
       + [...bandPlan.fringe.mid, ...bandPlan.fringe.near].reduce((n, c) => n + chunkBytes(c), 0));
     const receiverBytes = m.source.grid.width * m.source.grid.height + m.atlas.texels.byteLength;
     const forestBytes = placed.count * 7 * 4 + forestAssetBytes() + FOREST_DETAIL_BYTES;
-    const bytes = meshBytes + receiverBytes + 2 * forestBytes + FEATURE_BUDGET_BYTES + 2 * ActorsGL.bytes();
+    const bytes = meshBytes + receiverBytes + 2 * forestBytes + forestSpanBytes(placed.count) + FEATURE_BUDGET_BYTES + 2 * ActorsGL.bytes();
     res = scene.residency?.reserve({ key: gpuKey, bytes, owner: 'range-terrain-gpu', generation }) || null;
     if (scene.residency && !res) throw new RangeAssetError('budget', `no GPU room for ${view.id} compiled ${representation}`);
 
