@@ -8,12 +8,13 @@
 //
 // Nothing here touches the DOM. The panel subscribes and repaints.
 import {
-  addRoot, listRoots, listTracks, removeRoot, beginRootScan, putScanTracks, pruneScanTracks, recordPlay, updateTracks, carryForward,
+  addRoot, listRoots, listTracks, removeRoot, beginRootScan, putScanTracks, pruneScanTracks, recordPlay, recordSongWorld, updateTracks, carryForward,
   libraryDbSupported, directoryHandlesSupported,
 } from './LibraryDB.js';
 import { scanDirectory, scanFileList, resolveFile, ensureReadPermission } from './LibraryScanner.js';
 import { createTagQueue } from './AutoTag.js';
 import { untaggedTracks } from './TrackIndex.js';
+import { copySongWorldRecord } from './SongWorld.js';
 
 let sessionRootSequence = 0;
 
@@ -292,6 +293,27 @@ export class MusicLibrary {
     };
     if (Number.isFinite(durationSec) && durationSec > 0) patch.durationSec = durationSec;
     this._publishTrackPatch(track, patch, !!committed);
+    this._emit();
+    return !!committed;
+  }
+
+  /** Remember the compact world learned from one recording. An unchanged
+   *  scan may replace its displayed row while storage opens; another root
+   *  or changed bytes at the same path must never receive that result. */
+  async noteSongWorld(track, record) {
+    const songWorld = copySongWorldRecord(record);
+    if (!songWorld || !track?.key || !track.rootId || !Number.isFinite(track.size) || !Number.isFinite(track.lastModified)) return false;
+    const identity = { rootId: track.rootId, key: track.key, size: track.size, lastModified: track.lastModified };
+    const root = this.root;
+    const matches = row => row && Object.keys(identity).every(field => row[field] === identity[field]);
+    const currentRow = () => this.root === root && root?.id === identity.rootId
+      ? this.tracks.find(matches) : null;
+    if (!currentRow()) return false;
+    const committed = await recordSongWorld(identity, songWorld, this.scope);
+    const current = currentRow();
+    if (!current) return false;
+    this._publishTrackPatch(matches(track) ? track : current,
+      { songWorld: committed?.songWorld || songWorld }, !!committed, current);
     this._emit();
     return !!committed;
   }

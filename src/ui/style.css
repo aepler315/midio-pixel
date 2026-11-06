@@ -2307,8 +2307,7 @@ html, body {
   gap: var(--space-2);
 }
 
-/* One recent song. Two lines, because an artist under a title is the
-   difference between recognising a track and reading a filename. */
+/* Recent songs retain title, artist and their assigned Landscape home. */
 .recentChip {
   display: flex;
   flex-direction: column;
@@ -2341,7 +2340,7 @@ html, body {
   white-space: nowrap;
 }
 
-.recentChipArtist {
+.recentChipArtist, .recentChipWorld {
   font-size: 0.78rem;
   color: var(--text-tertiary);
   max-width: 100%;
@@ -2349,6 +2348,8 @@ html, body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.recentChipWorld { color: var(--spec-cool); font-size: 0.74rem; }
 
 .libraryHomeNote {
   margin: var(--space-3) 0 0;
@@ -2552,11 +2553,11 @@ html, body {
   background: var(--bg-surface-3);
 }
 
-/* Five columns: marker, title, artist, album-or-path, length. The title
+/* Six columns: marker, title, artist, album-or-path, world, length. The title
    gets the most room because it is what someone is scanning for. */
 .libraryRow {
   display: grid;
-  grid-template-columns: 1.6em minmax(0, 2.4fr) minmax(0, 1.4fr) minmax(0, 1.4fr) 4em;
+  grid-template-columns: 1.6em minmax(0, 2.2fr) minmax(0, 1.2fr) minmax(0, 1.2fr) minmax(0, 1.8fr) 4em;
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-2) var(--space-3);
@@ -2573,7 +2574,8 @@ html, body {
 
 .libraryRowTitle,
 .libraryRowArtist,
-.libraryRowAlbum {
+.libraryRowAlbum,
+.libraryRowWorld {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2581,6 +2583,10 @@ html, body {
 }
 
 .libraryRowArtist, .libraryRowAlbum { color: var(--text-secondary); font-size: 0.88rem; }
+
+.libraryRowWorld { color: var(--spec-cool); font-size: 0.78rem; }
+.libraryRowWorld.isExperimental { color: var(--spec-gold); }
+.libraryRowWorld.isPending { color: var(--text-tertiary); }
 
 /* A path standing in for a missing album is information of a different
    kind, and says so rather than passing itself off as one. */
@@ -2625,14 +2631,17 @@ html, body {
   .libraryInner { padding: var(--space-4); border-radius: var(--radius-md); }
   .libraryHeader { flex-direction: column; }
   .libraryHeaderActions { justify-content: flex-start; }
-  /* The album column goes and the artist drops under the title: on a
-     phone a row is a title, who it is by, and how long it is. */
+  /* Stack song metadata on narrow screens, leaving the world readable
+     alongside the title, artist, album, and duration on head units too. */
   .libraryRow { grid-template-columns: 1.6em minmax(0, 1fr) 4em; row-gap: 0; }
-  .libraryRowIcon { grid-column: 1; grid-row: 1 / span 2; }
+  .libraryRowIcon { grid-column: 1; grid-row: 1 / span 4; }
   .libraryRowTitle { grid-column: 2; grid-row: 1; }
   .libraryRowArtist { grid-column: 2; grid-row: 2; font-size: 0.78rem; }
-  .libraryRowAlbum { display: none; }
-  .libraryRowTime { grid-column: 3; grid-row: 1 / span 2; }
+  .libraryRowAlbum { grid-column: 2; grid-row: 3; font-size: 0.78rem; }
+  .libraryRowWorld { grid-column: 2; grid-row: 4; white-space: normal; overflow-wrap: anywhere; }
+  .libraryRowTime { grid-column: 3; grid-row: 1 / span 4; }
+  .libraryRow.isFolder .libraryRowIcon, .libraryRow.isFolder .libraryRowTime { grid-row: 1 / span 2; }
+  .libraryRow.isFolder .libraryRowAlbum { display: none; }
   .recentChip { max-width: 100%; flex: 1 1 100%; }
 }
 

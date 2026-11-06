@@ -28,6 +28,76 @@ function track(over = {}) {
   };
 }
 
+function songWorld(seed = 123) {
+  return {
+    version: 1, seed, profileVersion: 2,
+    watch: { drive: 0.2, onset: 0.4, texture: 0.6, arc: 0.8, contrast: 1 },
+  };
+}
+
+test('a song world commits compact metadata alongside the current earned fields', async () => {
+  const scope = fakeIdb();
+  const original = track();
+  await putTracks([original], scope);
+  const record = { ...songWorld(), debug: new Float32Array(100), watch: { ...songWorld().watch, debug: true } };
+  assert.equal(typeof DB.recordSongWorld, 'function');
+  const [committed] = await Promise.all([
+    DB.recordSongWorld(original, record, scope),
+    DB.recordPlay(original.key, 215, scope),
+    updateTrack(original.key, { album: 'Concurrent tags', tagSource: 'auto' }, scope),
+  ]);
+  assert.deepEqual(committed.songWorld, songWorld());
+  const [stored] = await listTracks('r', scope);
+  assert.deepEqual(stored.songWorld, songWorld());
+  assert.equal(stored.playCount, 1);
+  assert.equal(stored.durationSec, 215);
+  assert.equal(stored.album, 'Concurrent tags');
+  assert.equal(stored.tagSource, 'auto');
+});
+
+test('a song world follows unchanged recordings and is cleared when file size or timestamp changes', async () => {
+  const scope = fakeIdb();
+  await putTracks([track({ songWorld: songWorld() })], scope);
+  await putTracks([track({ title: 'Fresh filename' })], scope);
+  assert.deepEqual((await listTracks('r', scope))[0].songWorld, songWorld());
+  for (const changed of [{ size: 101 }, { lastModified: 6 }]) {
+    const merged = carryForward(track({ songWorld: songWorld() }), track(changed));
+    assert.equal(merged.songWorld, undefined);
+  }
+  await putTracks([track({ size: 101 })], scope);
+  assert.equal((await listTracks('r', scope))[0].songWorld, undefined);
+});
+
+test('a song world cannot attach to a missing or replaced recording', async () => {
+  const scope = fakeIdb();
+  const current = track({ songWorld: songWorld(9) });
+  await putTracks([current], scope);
+  assert.equal(typeof DB.recordSongWorld, 'function');
+  for (const stale of [
+    { ...current, rootId: 'another-root' },
+    { ...current, key: 'missing' },
+    { ...current, size: 99 },
+    { ...current, lastModified: 4 },
+  ]) assert.equal(await DB.recordSongWorld(stale, songWorld(), scope), null);
+  assert.deepEqual((await listTracks('r', scope))[0].songWorld, songWorld(9));
+});
+
+test('unsupported or failed song-world saves never report a committed record', async () => {
+  let refuse = false;
+  const scope = fakeIdb({ rejectPut: (_row, name) => refuse && name === 'tracks' });
+  const original = track();
+  await putTracks([original], scope);
+  assert.equal(typeof DB.recordSongWorld, 'function');
+  for (const record of [null, { ...songWorld(), version: 7 }, { ...songWorld(), seed: -1 },
+    { ...songWorld(), watch: { ...songWorld().watch, drive: NaN } }]) {
+    assert.equal(await DB.recordSongWorld(original, record, scope), null);
+  }
+  assert.equal(await DB.recordSongWorld(original, songWorld(), {}), null);
+  refuse = true;
+  assert.equal(await DB.recordSongWorld(original, songWorld(), scope), null);
+  assert.equal((await listTracks('r', scope))[0].songWorld, undefined);
+});
+
 test('no storage means no library, and no throwing either', async () => {
   const none = {};
   assert.equal(libraryDbSupported(none), false);

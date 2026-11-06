@@ -10,11 +10,12 @@
 //
 // Inside the pool: SCENIC_FAIR_SHARE of every draw is split equally, the
 // rest leans toward views whose character (the same four axes songs and
-// ranges share, RangeCharacter.AXES) is near the song's. Ranking within the
-// pool keeps a two-view pool meaningful. Recently shown views, then
+// ranges share, RangeCharacter.AXES) is near the song's. Rank coordinates
+// retain measured contrast, so nearly identical views keep nearly equal
+// musical odds. In explicit variety draws, recently shown views, then
 // recently shown regions, sit the draw out while an alternative exists; a
 // pool where everything is recent is used as is. The seed is the ticket, so
-// one song always draws the same view for a biome.
+// one song always draws the same view for a biome when history is omitted.
 //
 // This policy is deliberately separate from RangeMatcher.FAIR_SHARE (the
 // musical skyline pool) and BiomeSet's HOME_BIOME_FAIR_SHARE: tuning the
@@ -24,9 +25,14 @@ import { AXES, axisDistance } from './RangeCharacter.js';
 import { seedTicket, songTerrainTarget } from './RangeMatcher.js';
 import { cameraRailErrors } from './SceneTravel.js';
 import { riverChannelErrors } from '../alpine/RiverChannel.js';
+import { hashSeed } from '../../utils/math.js';
 
 export const SCENIC_FAIR_SHARE = 0.15;
+export const SCENE_MATCH_VERSION = 2;
 const KERNEL_WIDTH = 0.4;
+// A quarter of the fixed physical character scale gives full rank contrast.
+// Smaller measured spans stay close to neutral instead of amplifying noise.
+const FULL_AXIS_SPAN = 0.25;
 const SALT_BASE = 3000;
 const STATUSES = new Set(['candidate', 'approved', 'rejected']);
 
@@ -102,16 +108,17 @@ export function validateSceneCatalog(catalog) {
   return { ok: !errors.length, errors, views };
 }
 
-/** Rank of each view on each axis within `pool`, 0..1 (ties share). */
+/** Rank coordinates tempered by the measured axis span; ties share. */
 function poolRanks(pool) {
   const out = new Map(pool.map((v) => [v, {}]));
   for (const axis of AXES) {
     const sorted = [...pool].sort((a, b) => a.characterScores[axis] - b.characterScores[axis] || a.id.localeCompare(b.id));
+    const contrast = sorted.length > 1 ? Math.min(1, (sorted.at(-1).characterScores[axis] - sorted[0].characterScores[axis]) / FULL_AXIS_SPAN) : 0;
     for (let i = 0; i < sorted.length;) {
       let j = i;
       while (j + 1 < sorted.length && sorted[j + 1].characterScores[axis] === sorted[i].characterScores[axis]) j++;
       const rank = sorted.length > 1 ? ((i + j) / 2) / (sorted.length - 1) : 0.5;
-      for (let k = i; k <= j; k++) out.get(sorted[k])[axis] = rank;
+      for (let k = i; k <= j; k++) out.get(sorted[k])[axis] = .5 + (rank - .5) * contrast;
       i = j + 1;
     }
   }
@@ -119,9 +126,9 @@ function poolRanks(pool) {
 }
 
 /** Each view's chance in this draw (sums to 1), in `pool` order. */
-export function sceneOdds(pool, target, fairShare = SCENIC_FAIR_SHARE) {
+export function sceneOdds(pool, target, fairShare = SCENIC_FAIR_SHARE, referencePool = pool) {
   if (!pool.length) return [];
-  const ranks = poolRanks(pool);
+  const ranks = poolRanks(referencePool);
   const kernel = pool.map((v) => Math.exp(-((axisDistance(target, ranks.get(v)) / KERNEL_WIDTH) ** 2)));
   const sum = kernel.reduce((a, b) => a + b, 0);
   return pool.map((_, i) => fairShare / pool.length + (1 - fairShare) * (sum > 0 ? kernel[i] / sum : 1 / pool.length));
@@ -130,52 +137,73 @@ export function sceneOdds(pool, target, fairShare = SCENIC_FAIR_SHARE) {
 /**
  * The scenic view for one biome of one song.
  *   biome, profile (SongProfile), seed (song seed)
- *   { views, recentViewIds, recentRegionIds, catalogVersion, biomeIndex }
+ *   { views, recentViewIds, recentRegionIds, catalogVersion }
  * Returns SceneChoice { view, fallbackReason, odds, catalogVersion }.
  */
 export function chooseSceneForBiome(biome, profile, seed, {
-  views = [], recentViewIds = [], recentRegionIds = [], catalogVersion = null, biomeIndex = 0,
+  views = [], recentViewIds = [], recentRegionIds = [], catalogVersion = null,
 } = {}) {
-  const none = (fallbackReason) => ({ view: null, fallbackReason, odds: 0, catalogVersion });
-  const usable = views.filter((v) => !sceneViewErrors(v).length
+  const usable = views.filter(v => !sceneViewErrors(v).length
     && (catalogVersion === null || v.catalogVersion === catalogVersion));
-  const pool = usable.filter((v) => sceneViewEligible(v) && v.biome === biome).sort((a, b) => a.id.localeCompare(b.id));
-  if (!pool.length) {
-    return none(usable.some((v) => v.biome === biome) ? 'no-approved-view-for-biome' : 'no-view-for-biome');
-  }
-  // Avoid recent views, then recent regions, only while an alternative exists.
+  return chooseValidatedScene(biome, profile, seed, { views: usable, recentViewIds, recentRegionIds, catalogVersion });
+}
+
+function chooseValidatedScene(biome, profile, seed, {
+  views, pool = views.filter(v => sceneViewEligible(v) && v.biome === biome).sort((a, b) => a.id.localeCompare(b.id)),
+  recentViewIds = [], recentRegionIds = [], catalogVersion,
+}) {
+  const none = fallbackReason => ({ view: null, fallbackReason, odds: 0, catalogVersion, matchingVersion: SCENE_MATCH_VERSION });
+  if (!pool.length) return none(views.some(v => v.biome === biome) ? 'no-approved-view-for-biome' : 'no-view-for-biome');
+  // Recency is optional for deliberate variety draws. Coordinates always
+  // come from the full eligible biome pool, including excluded recent views.
   const recentV = new Set(recentViewIds), recentR = new Set(recentRegionIds);
-  let open = pool.filter((v) => !recentV.has(v.id) && !recentR.has(v.regionId));
-  if (!open.length) open = pool.filter((v) => !recentV.has(v.id));
+  let open = pool.filter(v => !recentV.has(v.id) && !recentR.has(v.regionId));
+  if (!open.length) open = pool.filter(v => !recentV.has(v.id));
   if (!open.length) open = pool;
   const target = songTerrainTarget(profile);
-  const odds = sceneOdds(open, target);
-  const ticket = seedTicket(seed, SALT_BASE + 17 * biomeIndex);
-  let at = 0;
-  let pick = open.length - 1;
+  const odds = sceneOdds(open, target, SCENIC_FAIR_SHARE, pool);
+  const ticket = seedTicket(seed, SALT_BASE + hashSeed(biome));
+  let at = 0, pick = open.length - 1;
   for (let i = 0; i < open.length; i++) {
     at += odds[i];
     if (ticket < at) { pick = i; break; }
   }
-  return { view: open[pick], fallbackReason: null, odds: odds[pick], catalogVersion };
+  return { view: open[pick], fallbackReason: null, odds: odds[pick], catalogVersion, matchingVersion: SCENE_MATCH_VERSION };
 }
 
-/** One lightweight assignment per song biome: Map biome -> SceneChoice.
- *  Stored once per song generation; never re-drawn per frame or section. */
-export function assignSongScenes(biomes, profile, seed, catalog, { recentViewIds = [], recentRegionIds = [] } = {}) {
+/** Validate/index one immutable catalog revision, without asset loading.
+ * Default assignments are independent per biome. Explicit history options
+ * also avoid already chosen regions within that deliberate variety draw. */
+export function createScenePlanner(catalog) {
   const { views } = validateSceneCatalog(catalog);
-  const out = new Map();
-  const shown = [...recentViewIds];
-  const shownRegions = [...recentRegionIds];
-  biomes.forEach((biome, i) => {
-    const choice = chooseSceneForBiome(biome, profile, seed, {
-      views, recentViewIds: shown, recentRegionIds: shownRegions, catalogVersion: catalog.catalogVersion, biomeIndex: i,
-    });
-    out.set(biome, choice);
-    // A later biome of the same song avoids repeating this view/region too.
-    if (choice.view) { shown.push(choice.view.id); shownRegions.push(choice.view.regionId); }
+  const byBiome = new Map();
+  for (const v of views) {
+    if (!sceneViewEligible(v)) continue;
+    if (!byBiome.has(v.biome)) byBiome.set(v.biome, []);
+    byBiome.get(v.biome).push(v);
+  }
+  for (const pool of byBiome.values()) pool.sort((a, b) => a.id.localeCompare(b.id));
+  return Object.freeze({
+    catalogVersion: catalog.catalogVersion,
+    matchingVersion: SCENE_MATCH_VERSION,
+    assign(biomes, profile, seed, options = {}) {
+      const { recentViewIds = [], recentRegionIds = [] } = options;
+      const variety = Object.hasOwn(options, 'recentViewIds') || Object.hasOwn(options, 'recentRegionIds');
+      const out = new Map(), shown = [...recentViewIds], shownRegions = [...recentRegionIds];
+      for (const biome of new Set(biomes)) {
+        const choice = chooseValidatedScene(biome, profile, seed, { views, pool: byBiome.get(biome) || [],
+          recentViewIds: shown, recentRegionIds: shownRegions, catalogVersion: catalog.catalogVersion });
+        out.set(biome, choice);
+        if (variety && choice.view) { shown.push(choice.view.id); shownRegions.push(choice.view.regionId); }
+      }
+      return out;
+    },
   });
-  return out;
+}
+
+/** One lightweight assignment per song biome; an explicit history is optional. */
+export function assignSongScenes(biomes, profile, seed, catalog, options = {}) {
+  return createScenePlanner(catalog).assign(biomes, profile, seed, options);
 }
 
 /** A diagnostic override (?rangeView=id): any catalog view, candidates
