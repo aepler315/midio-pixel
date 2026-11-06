@@ -19,11 +19,15 @@ The current request and `AGENTS.md` authorize routine implementation choices wit
 
 ## Tasks and verification
 
-- [ ] Range eligibility: update catalog/selection and candidate shot eligibility; prove only the three selected regions become eligible and existing integrity failures remain failures. Inspect each on the RTX 3060, including transitions.
-- [ ] Playback policy: implement `PlaybackSequence` and `PlaybackPreferences` with tests for stable ordering, wrapping, full shuffle cycles, singleton/empty inputs and persistence.
-- [ ] Completion controller/page integration: implement countdown, cancellation, bounded failure handling and current-world continuation through the existing selection ticket. Test cancellation during asynchronous preparation and recording/export exclusion.
-- [ ] Controls: add title/end UI and bounded density shortcuts; test actual keyboard behavior, native editing/modifiers and endpoint handling in the browser.
-- [ ] Integration: lint and focused tests, isolated browser flow with multiple local tracks, new-range visual captures and representative RTX 3060 timing. Run the required pre-push gate, publish a reviewable PR and record exact evidence/limits.
+- [x] Range eligibility: update catalog/selection and candidate shot eligibility; prove only the three selected regions become eligible and existing integrity failures remain failures. Inspect each on the RTX 3060, including transitions.
+- [x] Playback policy: implement `PlaybackSequence` and `PlaybackPreferences` with tests for stable ordering, wrapping, full shuffle cycles, singleton/empty inputs and persistence.
+- [x] Completion controller/page integration: implement countdown, cancellation, bounded failure handling and current-world continuation through the existing selection ticket. Test cancellation during asynchronous preparation and recording/export exclusion.
+- [x] Controls: add title/end UI and bounded density shortcuts; test actual keyboard behavior and endpoint handling in Chrome, with native editing/modifiers covered by production-handler tests.
+- [x] Address the dense-forest bottleneck discovered during hardware validation: reuse conservative static mesh spans, retain visible density/order, account for CPU caches and restore interrupted draws. Verify growth/full-height pixels and repeat the affected GPU passage.
+- [x] Integration: lint and focused tests, isolated browser flow with multiple local tracks, new-range visual captures and representative RTX 3060 timing. Record exact evidence and limits in the feature documentation.
+
+Publication uses the normal required pre-push gate (lint, full tests and tracked
+module graph). The PR description records its outcome and the published head.
 
 ## Review focus
 

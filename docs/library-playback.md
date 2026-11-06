@@ -39,3 +39,21 @@ Detailed. `+` and numpad equivalents also work. Both ends stop: there is no wrap
 from Classic to Detailed or vice versa. The HUD buttons and keyboard share the
 same saved setting and redraw a paused frame. Typing, modal choosers, browser
 zoom modifiers and an in-progress snapshot keep their own input behavior.
+
+## Verification on 2026-11-05
+
+An isolated, muted Chrome 156 session on the RTX 3060/D3D11 passed nine browser
+checkpoints using two local copies of the 90-second `midio-perf-pilot.wav`
+fixture. It exercised saved preferences, repeated density keys at both ends,
+folder import, completion countdown and cancellation, end-screen Random,
+automatic title-order wrapping, retained Landscape/Medium+ settings and Title
+cancelling a pending advance. No page errors occurred. The browser run used the
+runtime committed as `409ac56`; its source hashes and screenshots are retained
+outside Git in `work/continuous-play-evidence/fixed-timers/`.
+
+Review subsequently reproduced a synchronous world-start exception leaving an
+automatic handoff pending. Commit `327f960` settles that failure and adds a
+production-function regression. Sequence, asynchronous cancellation, startup
+ownership, bounded retries and keyboard guards also have focused Node coverage.
+The browser scenario verifies title-order continuation; shuffle-cycle coverage
+comes from the deterministic sequence tests.
