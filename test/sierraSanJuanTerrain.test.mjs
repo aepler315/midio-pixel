@@ -17,6 +17,8 @@ const hashPattern = /^[a-f0-9]{64}$/;
 const additions = [
   { id: 'sierra-whitney-east', regionId: 'sierra-nevada', biome: 'STEPPE' },
   { id: 'san-juan-sneffels-north', regionId: 'san-juan-mountains', biome: 'CONIFER' },
+  { id: 'crater-lake-watchman-east', regionId: 'crater-lake', biome: 'CONIFER' },
+  { id: 'badlands-pinnacles-south', regionId: 'badlands', biome: 'STEPPE' },
 ];
 
 for (const { id, regionId, biome } of additions) {

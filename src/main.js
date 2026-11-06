@@ -56,7 +56,7 @@ import { RangePresentation, resolveRangeMode } from './world/alpine/RangePresent
 import { openCameraRun, cameraSongOptions, readRailPace, persistRailPace, railPaceControlState } from './ui/CameraRun.js';
 import { applyTerrainTourPolicy, captureTourTerrainState, restoreTourTerrainState } from './ui/TourTerrain.js';
 import { rangeTourControlState } from './ui/RangeTourControl.js';
-import { DETAIL_LEVELS, stepDetail, detailKeyDelta, snapshotFileName, captureDetailSnapshots, canvasToPng, snapshotCapturePlan } from './ui/DetailSnapshots.js';
+import { stepDetail, detailKeyDelta, snapshotFileName, captureDetailSnapshots, canvasToPng, snapshotCapturePlan } from './ui/DetailSnapshots.js';
 import { REEL_TARGET_SIZE, sizeLabel, reelFileName, planReelRenders, stepTargets, warmupTimes, describeReelSave,
   createReelSaver, ReelSaveCancelled, ReelSizeError, classifyArmError } from './ui/ReelExport.js';
 import { residencyBudgetFor } from './render/GraphicsResidency.js';
@@ -435,10 +435,8 @@ const experienceControl = document.getElementById('display-experience');
 const experienceStatus = document.getElementById('experience-status');
 if (experienceControl) experienceControl.value = experience;
 let experienceRequest = 0;
-const displayControls = Object.fromEntries(['look', 'palette', 'dither', 'ditherMode', 'pixelGrid', 'scaling'].map(key => [key, document.getElementById(`display-${key}`)]));
-// HUD pixel-detail stepper and the every-level snapshot (src/ui/DetailSnapshots.js).
-const detailDownBtnEl = document.getElementById('detailDownBtn');
-const detailUpBtnEl = document.getElementById('detailUpBtn');
+const displayControls = Object.fromEntries(['look', 'palette', 'dither', 'ditherMode', 'pixelGrid', 'scaling', 'buildPixelDetail'].map(key => [key, document.getElementById(`display-${key}`)]));
+// HUD pixel-detail label and the every-level snapshot (src/ui/DetailSnapshots.js).
 const detailLevelEl = document.getElementById('detailLevel');
 const snapshotBtnEl = document.getElementById('snapshotBtn');
 let snapshotBusy = false;
@@ -647,25 +645,24 @@ syncGeneralQuality();
 
 function syncDisplayControls() {
   for (const [key, control] of Object.entries(displayControls)) if (control) {
-    control.value = String(displayPrefs[key]);
+    if (key === 'buildPixelDetail') control.checked = displayPrefs.buildPixelDetail;
+    else control.value = String(displayPrefs[key]);
     control.disabled = ['palette', 'dither', 'ditherMode'].includes(key) && displayPrefs.look !== 'palette'
-      || key === 'ditherMode' && (displayPrefs.palette === 'rgb332' || displayPrefs.dither === 0);
+      || key === 'ditherMode' && (displayPrefs.palette === 'rgb332' || displayPrefs.dither === 0)
+      || key === 'buildPixelDetail' && (experience === 'trio' || displayPrefs.look === 'palette');
   }
   const grid = document.getElementById('pixelGridHint');
   const selectedGrid = presentation.grid;
-  if (grid) { grid.hidden = false; grid.textContent = `${selectedGrid.width} × ${selectedGrid.height} grid`; }
+  if (grid) { grid.hidden = false; grid.textContent = displayPrefs.buildPixelDetail && experience !== 'trio' && displayPrefs.look !== 'palette'
+    ? 'Classic → screen detail as the mountains rise' : `${selectedGrid.width} × ${selectedGrid.height} grid`; }
   syncDetailControls();
 }
 
-/** The HUD stepper shows the Display menu's own label for the level
- *  ("Classic+ — 400×225" -> "Classic+") and stops at either end. */
+/** The HUD reports growing detail or the selected fixed preset. */
 function syncDetailControls() {
   const level = displayPrefs.pixelGrid;
   const option = displayControls.pixelGrid?.querySelector(`option[value="${level}"]`);
-  if (detailLevelEl) detailLevelEl.textContent = (option?.textContent || level).split(' — ')[0];
-  const at = DETAIL_LEVELS.indexOf(level);
-  if (detailDownBtnEl) detailDownBtnEl.disabled = snapshotBusy || at <= 0;
-  if (detailUpBtnEl) detailUpBtnEl.disabled = snapshotBusy || at >= DETAIL_LEVELS.length - 1;
+  if (detailLevelEl) detailLevelEl.textContent = displayPrefs.buildPixelDetail && experience !== 'trio' && displayPrefs.look !== 'palette' ? 'Building detail' : (option?.textContent || level).split(' — ')[0];
   if (snapshotBtnEl) {
     snapshotBtnEl.disabled = snapshotBusy;
     snapshotBtnEl.setAttribute('aria-busy', snapshotBusy ? 'true' : 'false');
@@ -704,8 +701,11 @@ let titlePresentation = null;
 function effectivePresentation() {
   const requested = bulkPresentation || presentation;
   const experimental = directTerrainExperiment(typeof location === 'undefined' ? '' : location.search);
-  if (experience === 'trio') return { ...requested, pixelScale: 'original' };
-  return { ...requested, rangePipeline: bulkExportSize || experimental || requested.cinematicPixel ? 'hybrid' : requestedRangePipeline,
+  if (experience === 'trio') return { ...requested, pixelScale: 'original', buildPixelDetail: false };
+  const buildPixelDetail = !!requested.buildPixelDetail && !bulkExportSize && !voxelRangePilot && !experimental
+    && requested.paletteId === 'none' && requestedRangePipeline !== 'native';
+  return { ...requested, buildPixelDetail, rangePipeline: bulkExportSize || experimental || requested.cinematicPixel ? 'hybrid' : requestedRangePipeline,
+    ...(buildPixelDetail && requested.scaling === 'integer' ? { scaling: 'fit' } : {}),
     ...(experimental ? { directTerrain: true } : {}),
     ...(!bulkExportSize && typeof document !== 'undefined' && isFullscreen() ? { scaling: 'cover' } : {}) };
 }
@@ -724,6 +724,7 @@ function applyExperience(value) {
   writeExperience(displayStorage(), next);
   if (experienceControl) experienceControl.value = next;
   syncRangeTourControl();
+  syncDisplayControls();
 }
 
 /** The world a song should play in for `baseWorldId`, tailored to the song
@@ -775,7 +776,7 @@ experienceControl?.addEventListener('change', () => changeExperience(experienceC
 
 function fitPixelLayout() {
   const p = effectivePresentation();
-  const integer = p.pixelated && p.scaling === 'integer' && !bulkExportSize;
+  const integer = p.pixelated && p.scaling === 'integer' && !p.buildPixelDetail && !bulkExportSize;
   canvas.classList.toggle('integerPixels', integer);
   canvas.parentElement.classList.toggle('pixelDisplay', p.pixelated);
   if (integer) {
@@ -838,7 +839,7 @@ function fitCanvas() {
   // The quality rung this output was sized for: heavier rungs draw the
   // smooth layers at fewer pixels (the ladder's resolution scale).
   fittedPerfLevel = perfGovernor?.level ?? 0;
-  const size = stageOutputSize({ grid: active.grid, hybrid, nativeStage, cssWidth: box.width, cssHeight: box.height,
+  const size = stageOutputSize({ grid: active.grid, hybrid, nativeStage, progressiveDetail: active.buildPixelDetail, cssWidth: box.width, cssHeight: box.height,
     fullscreen: experience === 'landscape' && typeof document !== 'undefined' && isFullscreen(),
     dpr: window.devicePixelRatio || 1, exportSize: bulkExportSize,
     scale: perfGovernor?.resolutionScale(active.grid.height, { adaptive: true }) ?? 1 });
@@ -867,15 +868,14 @@ function randomizeSeed() {
   return s;
 }
 
-/** One display preference changed, from the Display menu or the HUD's
- *  detail stepper: persist it, re-present, and redraw a paused frame. */
+/** Persist a menu or keyboard preference, re-present, and redraw a paused frame. */
 function applyDisplayPref(key, value) {
   // A snapshot owns the presentation until it restores the player's own
   // (its finally re-syncs the menu); a change now would save its
   // temporary level and then be undone.
   if (snapshotBusy) return;
   const previous = displayPrefs;
-  displayPrefs = { ...displayPrefs, [key]: value };
+  displayPrefs = { ...displayPrefs, [key]: value, ...(key === 'pixelGrid' ? { buildPixelDetail: false } : {}) };
   // Each look runs at its own detail level: choosing Cinematic takes its
   // grid; leaving it returns to the new look's own unless another level was
   // chosen meanwhile.
@@ -900,8 +900,9 @@ function applyDisplayPref(key, value) {
 {
   for (const [key, control] of Object.entries(displayControls)) {
     if (!control) continue;
-    control.value = String(displayPrefs[key]);
-    control.addEventListener('change', () => applyDisplayPref(key, key === 'dither' ? Number(control.value) : control.value));
+    if (key === 'buildPixelDetail') control.checked = displayPrefs.buildPixelDetail;
+    else control.value = String(displayPrefs[key]);
+    control.addEventListener('change', () => applyDisplayPref(key, key === 'buildPixelDetail' ? control.checked : key === 'dither' ? Number(control.value) : control.value));
   }
   syncDisplayControls();
   if (stageFpsEl) {
@@ -944,16 +945,14 @@ function applyDisplayPref(key, value) {
   }
 }
 
-// HUD detail stepper: one level coarser or finer, through the same path as
+// Keyboard detail control: one level coarser or finer, through the same path as
 // the Display menu (persisted, re-presented, a paused frame redrawn).
 function stepPixelDetail(delta) {
   wakeHud();
   if (snapshotBusy) return;
   const next = stepDetail(displayPrefs.pixelGrid, delta);
-  if (next !== displayPrefs.pixelGrid) applyDisplayPref('pixelGrid', next);
+  if (next !== displayPrefs.pixelGrid || displayPrefs.buildPixelDetail) applyDisplayPref('pixelGrid', next);
 }
-detailDownBtnEl?.addEventListener('click', () => stepPixelDetail(-1));
-detailUpBtnEl?.addEventListener('click', () => stepPixelDetail(1));
 
 // Hold the current moment and save lossless PNGs. Desktop captures each
 // detail level at 1920×1080; Android captures the current live-sized frame to
@@ -1002,11 +1001,11 @@ async function saveDetailSnapshots() {
         if (stopped()) { cancelled = true; throw new Error('the song was stopped'); }
         // Fit scaling: every grid fills the full frame (integer scaling
         // would letterbox Classic+ and Medium+ inside 1920×1080).
+        displayPrefs = { ...savedPrefs, pixelGrid: level, scaling: 'fit', buildPixelDetail: false };
+        presentation = resolvePresentation(displayPrefs);
+        bulkExportSize = plan.size;
+        fitCanvas();
         if (plan.size) {
-          displayPrefs = { ...savedPrefs, pixelGrid: level, scaling: 'fit' };
-          presentation = resolvePresentation(displayPrefs);
-          bulkExportSize = plan.size;
-          fitCanvas();
           if (canvas.width !== plan.size.w || canvas.height !== plan.size.h) {
             throw new Error(`there is no room for a ${plan.size.w}×${plan.size.h} frame right now`);
           }

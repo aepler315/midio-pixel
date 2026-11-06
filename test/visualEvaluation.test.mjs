@@ -151,14 +151,14 @@ test('paired missing provenance cannot masquerade as compatible evidence', () =>
 test('visual manifests accept independent presentation profiles and reject invalid values', () => {
   const presentation = { version: 1, look: 'palette', quality: 'auto', palette: 'range32', dither: .35, scaling: 'integer' };
   const m = normalizeManifest({ ...manifest(), settings: { presentation } });
-  assert.deepEqual(m.settings.presentation, { ...presentation, version: 2, pixelGrid: 'classic', ditherMode: 'ordered', pixelScale: 'original' });
+  assert.deepEqual(m.settings.presentation, { ...presentation, version: 2, pixelGrid: 'classic', ditherMode: 'ordered', pixelScale: 'original', buildPixelDetail: false });
   for (const change of [{ look: 'cathode' }, { quality: 'low' }, { scaling: 'stretch' }, { dither: 9 }, { palette: 'missing' }]) {
     assert.throws(() => normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, ...change } } }));
   }
 });
 test('visual v2 profiles accept Chroma/world and strictly reject unknown fields', () => {
   const presentation = { version: 2, look: 'palette', quality: 'auto', palette: 'world', dither: .35, ditherMode: 'ordered', pixelGrid: 'classic', scaling: 'fit' };
-  assert.deepEqual(normalizeManifest({ ...manifest(), settings: { presentation } }).settings.presentation, { ...presentation, pixelScale: 'original' });
+  assert.deepEqual(normalizeManifest({ ...manifest(), settings: { presentation } }).settings.presentation, { ...presentation, pixelScale: 'original', buildPixelDetail: false });
   for (const change of [{ palette: 'chroma32' }, { palette: 'rgb332' }]) assert.equal(normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, ...change } } }).settings.presentation.palette, change.palette);
   assert.equal(normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, ditherMode: 'selective' } } }).settings.presentation.ditherMode, 'selective');
   assert.equal(normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, pixelGrid: 'detailed' } } }).settings.presentation.pixelGrid, 'detailed');
@@ -166,7 +166,7 @@ test('visual v2 profiles accept Chroma/world and strictly reject unknown fields'
 });
 test('Cinematic capture profiles retain the selected v2 look and grid without extending v1', () => {
   const presentation = { version: 2, look: 'cinematic', quality: 'auto', palette: 'world', dither: .35,
-    ditherMode: 'selective', pixelGrid: 'classicPlus', pixelScale: 'original', scaling: 'fit' };
+    ditherMode: 'selective', pixelGrid: 'classicPlus', pixelScale: 'original', buildPixelDetail: false, scaling: 'fit' };
   assert.deepEqual(normalizeManifest({ ...manifest(), settings: { presentation } }).settings.presentation, presentation);
   const v1 = { version: 1, look: 'cinematic', quality: 'auto', palette: 'range32', dither: .35, scaling: 'fit' };
   assert.throws(() => normalizeManifest({ ...manifest(), settings: { presentation: v1 } }), /look/);
@@ -175,7 +175,7 @@ test('Cinematic capture profiles retain the selected v2 look and grid without ex
 test('Cinematic and Pixel requests remain incompatible in matched revision comparisons', () => {
   const a = report(), b = report();
   const presentation = { version: 2, look: 'cinematic', quality: 'auto', palette: 'world', dither: .35,
-    ditherMode: 'selective', pixelGrid: 'classicPlus', pixelScale: 'original', scaling: 'fit' };
+    ditherMode: 'selective', pixelGrid: 'classicPlus', pixelScale: 'original', buildPixelDetail: false, scaling: 'fit' };
   a.settings.presentation = presentation;
   b.settings.presentation = { ...presentation, look: 'pixel' };
   assert.throws(() => compareReports(a, b), /incompatible.*settings/);

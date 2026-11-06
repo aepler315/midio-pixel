@@ -125,7 +125,7 @@ test('fullscreen entry and exit resize the landscape while retaining the saved s
   assert.deepEqual([canvas.width, canvas.height, selected.scaling], [1536, 864, 'fit']);
   assert.equal(context.presentation.scaling, 'fit');
 });
-for (const { pixelGrid, experience = 'landscape', bulkExportSize = null, fullscreen = false, rangePipeline, expected } of [
+for (const { pixelGrid, experience = 'landscape', bulkExportSize = null, fullscreen = false, rangePipeline, buildPixelDetail = false, expected } of [
   { pixelGrid: 'classic', expected: [1920, 1080] },
   { pixelGrid: 'detailed', expected: [1920, 1080] },
   { pixelGrid: 'classic', experience: 'trio', expected: [320, 180] },
@@ -135,11 +135,12 @@ for (const { pixelGrid, experience = 'landscape', bulkExportSize = null, fullscr
   { pixelGrid: 'mediumPlus', experience: 'trio', expected: [560, 315] },
   { pixelGrid: 'classic', bulkExportSize: { w: 3840, h: 2160 }, expected: [3840, 2160] },
   { pixelGrid: 'classic', fullscreen: true, expected: [1920, 1080] },
+  { pixelGrid: 'classic', rangePipeline: 'single', buildPixelDetail: true, expected: [1920, 1080] },
   { pixelGrid: 'classic', rangePipeline: 'native', expected: [320, 180] },
   { pixelGrid: 'detailed', rangePipeline: 'single', expected: [640, 360] },
   { pixelGrid: 'classic', rangePipeline: 'single', fullscreen: true, expected: [320, 180] },
 ]) test(`actual fitCanvas sizes ${experience} ${pixelGrid}${rangePipeline ? ' ' + rangePipeline : ''}${bulkExportSize ? ' export' : ''}`, () => {
-  const active = { ...resolvePresentation({ version: 2, look: 'pixel', pixelGrid }),
+  const active = { ...resolvePresentation({ version: 2, look: 'pixel', pixelGrid, buildPixelDetail }),
     ...(rangePipeline ? { rangePipeline, scaling: fullscreen ? 'cover' : 'fit' } : {}) };
   const flags = new Map(), outputCtx = { setTransform() {}, fillRect() {}, drawImage() {} };
   const makeCanvas = () => ({ width: 0, height: 0, getContext: () => ({}) });
@@ -166,4 +167,56 @@ for (const { pixelGrid, experience = 'landscape', bulkExportSize = null, fullscr
     renderer.draw({}, 1);
     assert.deepEqual(terrainSize, [active.grid.width, active.grid.height]);
   } finally { renderer.dispose(); }
+});
+
+test('growing single-stage detail admits physical output once and honors quality in fullscreen', () => {
+  const opts = { grid: { width: 320, height: 180 }, hybrid: true, nativeStage: true,
+    progressiveDetail: true, cssWidth: 1280, cssHeight: 720, dpr: 1 };
+  assert.deepEqual(stageOutputSize(opts), { w: 1280, h: 720 });
+  assert.deepEqual(stageOutputSize({ ...opts, scale: .75 }), { w: 960, h: 540 });
+  assert.deepEqual(stageOutputSize({ ...opts, fullscreen: true, scale: .75 }), { w: 960, h: 540 });
+  assert.deepEqual(stageOutputSize({ ...opts, progressiveDetail: false }), { w: 320, h: 180 });
+  assert.deepEqual(stageOutputSize({ ...opts, exportSize: { w: 1920, h: 1080 } }), { w: 1920, h: 1080 });
+});
+
+test('growing detail fits continuously while preserving the saved fixed integer preference', () => {
+  const begin = main.indexOf('function effectivePresentation()');
+  const code = main.slice(begin, main.indexOf('\n}\n', begin) + 3);
+  const context = vm.createContext({ bulkPresentation: null,
+    presentation: { scaling: 'integer', buildPixelDetail: true, paletteId: 'none' },
+    directTerrainExperiment: () => false, requestedRangePipeline: 'single', voxelRangePilot: null,
+    location: { search: '' }, experience: 'landscape', bulkExportSize: null, document: {}, isFullscreen: () => false });
+  vm.runInContext(code, context);
+  assert.equal(context.effectivePresentation().scaling, 'fit');
+  assert.equal(context.presentation.scaling, 'integer');
+  context.presentation.buildPixelDetail = false;
+  assert.equal(context.effectivePresentation().scaling, 'integer');
+});
+
+for (const userAgent of ['Android 13', 'Desktop']) test(`actual ${userAgent} snapshot temporarily selects fixed detail and restores growing playback`, async () => {
+  const { captureDetailSnapshots, snapshotCapturePlan } = await import('../src/ui/DetailSnapshots.js');
+  const begin = main.indexOf('async function saveDetailSnapshots()');
+  const code = main.slice(begin, main.indexOf('\n}\n', begin) + 3);
+  const savedPrefs = { version: 2, look: 'pixel', pixelGrid: 'medium', buildPixelDetail: true };
+  const captured = [], drawn = [];
+  const context = vm.createContext({ snapshotBusy: false, running: true, sim: {}, paused: true, playbackPreparing: false,
+    bulkExportArmed: false, songRecorder: null, snapshotPlayerPrefs: null, bulkExportSize: null, displayPrefs: savedPrefs,
+    presentation: resolvePresentation(savedPrefs), navigator: { userAgent }, canvas: { width: 960, height: 540 },
+    resolvePresentation, snapshotCapturePlan, captureDetailSnapshots, snapshotFileName: (_date, level) => level,
+    syncDetailControls() {}, syncDisplayControls() {}, wakeHud() {},
+    fitCanvas() { context.canvas.width = context.bulkExportSize?.w || context.presentation.grid.width;
+      context.canvas.height = context.bulkExportSize?.h || context.presentation.grid.height; },
+    renderer: { draw() { drawn.push(context.presentation.buildPixelDetail); return { presented: true }; } },
+    canvasToPng: async () => ({}), saveSnapshotFile(_png, name) { captured.push(name); },
+    setTimeout(fn) { fn(); }, console: { error(error) { throw error; }, warn(error) { throw error; } },
+    showErrorBanner(error) { throw Error(error); },
+  });
+  vm.runInContext(code, context);
+  await context.saveDetailSnapshots();
+  assert.equal(captured.length, userAgent.startsWith('Android') ? 1 : 5);
+  assert.ok(drawn.slice(0, -1).every(growing => growing === false));
+  assert.equal(drawn.at(-1), true);
+  assert.equal(context.displayPrefs, savedPrefs);
+  assert.equal(context.bulkExportSize, null);
+  assert.equal(context.snapshotBusy, false);
 });

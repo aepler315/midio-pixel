@@ -3,7 +3,7 @@ import { pixelGrid } from './PixelRenderPolicy.js';
 export const DISPLAY_PREFS_KEY = 'midio-pixel:display:v1';
 export const LEGACY_V2_DISPLAY_PREFS_KEY = 'smw:display:v2';
 export const LEGACY_DISPLAY_PREFS_KEY = 'smw:display:v1';
-export const DEFAULT_DISPLAY_PREFS = Object.freeze({ version: 2, look: 'pixel', quality: 'auto', palette: 'world', dither: .35, ditherMode: 'selective', pixelGrid: 'classic', scaling: 'fit', pixelScale: 'original' });
+export const DEFAULT_DISPLAY_PREFS = Object.freeze({ version: 2, look: 'pixel', quality: 'auto', palette: 'world', dither: .35, ditherMode: 'selective', pixelGrid: 'classic', scaling: 'fit', pixelScale: 'original', buildPixelDetail: true });
 /** The Cinematic Pixel look's own detail level, from the grid-harmony sweep
  *  (docs/cinematic-grid-harmony.md): 640x360 scales by a whole number at
  *  720p, 1080p, 1440p and 2160p, keeps pixel units exact, and lands the cell
@@ -31,6 +31,7 @@ export function resolveDisplayPrefs({ saved, legacyStagePreset } = {}) {
     // A record (or export request) that chose no detail level runs at its
     // look's own; a chosen one is kept.
     if (old || !choices.pixelGrid.includes(prefs.pixelGrid)) defaults.pixelGrid = defaultGridFor(defaults.look);
+    if (typeof prefs.buildPixelDetail === 'boolean') defaults.buildPixelDetail = prefs.buildPixelDetail;
     return defaults;
   }
   const defaults = { ...DEFAULT_DISPLAY_PREFS };
@@ -53,6 +54,6 @@ export function writeDisplayPrefs(storage, prefs) {
 }
 export function resolvePresentation(prefs) {
   const p = resolveDisplayPrefs({ saved: prefs });
-  return { pixelated: true, ...(p.look === 'cinematic' ? { cinematicPixel: true } : {}), grid: pixelGrid(p.pixelGrid),
+  return { pixelated: true, buildPixelDetail: p.buildPixelDetail, ...(p.look === 'cinematic' ? { cinematicPixel: true } : {}), grid: pixelGrid(p.pixelGrid),
     paletteId: p.look === 'palette' ? p.palette : 'none', dither: p.dither, ditherMode: p.ditherMode, quality: p.quality, scaling: p.scaling, pixelScale: p.pixelScale };
 }

@@ -36,7 +36,7 @@ export function normalizeManifest(value, { historical = false } = {}) {
   if (settings.presentation != null) {
     const p = settings.presentation;
     const old = p.version === 1;
-    keys(p, ['version', 'look', 'quality', 'palette', 'dither', 'scaling', ...(old ? [] : ['ditherMode', 'pixelGrid', 'pixelScale'])], 'presentation');
+    keys(p, ['version', 'look', 'quality', 'palette', 'dither', 'scaling', ...(old ? [] : ['ditherMode', 'pixelGrid', 'pixelScale', 'buildPixelDetail'])], 'presentation');
     assert.ok([1, 2].includes(p.version), 'invalid presentation version');
     assert.ok((old ? ['pixel', 'palette'] : ['pixel', 'palette', 'cinematic']).includes(p.look), 'invalid pixel-only look');
     assert.ok(['auto', 'economy'].includes(p.quality), 'invalid quality');
@@ -51,7 +51,8 @@ export function normalizeManifest(value, { historical = false } = {}) {
       // new capture labelled Depth would record a mode it never drew.
       assert.ok(historical || p.pixelScale !== 'depth', 'pixelScale "depth" is retired; new captures use "original"');
     }
-    settings.presentation = resolveDisplayPrefs({ saved: p });
+    if (p.buildPixelDetail != null) assert.equal(p.buildPixelDetail, false, 'fixed export review requires buildPixelDetail=false; use live playback for growing detail');
+    settings.presentation = { ...resolveDisplayPrefs({ saved: p }), buildPixelDetail: false };
     // Historical manifests retain their recorded mode as evidence metadata.
     // Current product presentation still normalizes a stale Depth request to
     // Uniform; readers must not relabel an old capture as Uniform retroactively.

@@ -1074,3 +1074,30 @@ test('water pass uses native shoreline mask and clears its previous frame during
   assert.equal(p.waterLayer, null);
   assert.equal(calls.length, 3);
 });
+
+test('resolution refusal distinguishes target allocation from pending tour coverage and keeps endpoint LOD stable', async () => {
+  const scene = fakeScene(), requests = [];
+  scene.dispose = () => {};
+  let denyTarget = true, pendingCoverage = false;
+  scene.resize = request => { requests.push(request); if (denyTarget) throw Error('no room for range target'); };
+  scene.prepareFrameCoverage = () => !pendingCoverage;
+  const p = presentationWith(scene);
+  p.setSong({ terrain: { sceneByBiome: new Map([['RAINFOREST', { view: catalog.views[0] }]]) }, generation: 1 });
+  await p.whenReady();
+  p.detailHeightPx = 1080;
+  p.pixelPolicy = { active: true, grid: { width: 320, height: 180 } };
+  p.setFrameInputs(inputs());
+  assert.equal(p.beginScenic(), false);
+  assert.equal(p.resolutionRefused, true);
+  denyTarget = false; pendingCoverage = true;
+  p.setFrameInputs(inputs());
+  assert.equal(p.beginScenic(), false);
+  assert.equal(p.reason, 'budget: tour terrain coverage is preparing');
+  assert.equal(p.resolutionRefused, false, 'waiting for tour workers must not cap growing detail');
+  pendingCoverage = false;
+  p.pixelPolicy.grid = { width: 784, height: 441 };
+  p.setFrameInputs(inputs());
+  assert.equal(p.beginScenic(), true);
+  assert.ok(requests.every(r => r.pixelHeightPx === 1080));
+  p.dispose();
+});

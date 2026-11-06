@@ -1,4 +1,4 @@
-// The HUD's pixel-detail stepper and every-level snapshot, in a real page.
+// Fixed keyboard detail, progressive Landscape detail and snapshots, in a real page.
 //   node tools/detail-snapshot-smoke.mjs [--out .smoke/detail-snapshot-x]
 // Serves the source tree, plays a generated song in Landscape, wakes the HUD
 // with a tap on the stage, steps the detail level down and up, presses the
@@ -73,18 +73,6 @@ try {
   }, null, { timeout: 120_000 });
   const label = () => page.locator('#detailLevel').textContent();
   const hudAwake = () => page.evaluate(() => !document.getElementById('hudRight').classList.contains('hud-faded'));
-  // Software rendering makes each click slower than the HUD's 3 s fade; tap
-  // the stage to wake it first, as a player would, then press the button.
-  // noWaitAfter: the snapshot's five downloads are not a navigation to wait on.
-  const press = async (selector) => {
-    for (let attempt = 0; ; attempt++) {
-      if (!await hudAwake()) await page.locator('#stage').click({ position: { x: 640, y: 200 } });
-      try { await page.locator(selector).click({ timeout: 5_000, noWaitAfter: true }); return; } catch (error) {
-        if (attempt >= 2) throw error; // faded between the wake and the click: wake and press again
-      }
-    }
-  };
-
   await check('the controls appear when the screen is tapped', async () => {
     await page.waitForFunction(() => document.getElementById('hudRight').classList.contains('hud-faded'), null, { timeout: 10_000 });
     await page.locator('#stage').click({ position: { x: 640, y: 200 } });
@@ -94,13 +82,15 @@ try {
     assert.equal(await label(), 'Medium');
   });
 
-  await check('- and + step the detail level and persist it', async () => {
-    await press('#detailUpBtn');
+  await check('detail buttons stay removed; keyboard detail controls retain fixed presets', async () => {
+    await page.keyboard.press('=');
     assert.equal(await label(), 'Medium+');
-    await press('#detailUpBtn');
+    await page.keyboard.press('=');
     assert.equal(await label(), 'Detailed');
-    assert.equal(await page.locator('#detailUpBtn').isDisabled(), true, 'held at the finest level');
-    for (let i = 0; i < 3; i++) await press('#detailDownBtn');
+    assert.equal(await page.locator('#detailUpBtn, #detailDownBtn').count(), 0, 'HUD buttons are temporarily removed');
+    await page.keyboard.press('=');
+    assert.equal(await label(), 'Detailed', 'held at the finest level');
+    for (let i = 0; i < 3; i++) await page.keyboard.press('-');
     assert.equal(await label(), 'Classic+');
     assert.equal(await page.locator('#display-pixelGrid').inputValue(), 'classicPlus', 'the Display menu follows');
     const stored = await page.evaluate(() => Object.entries(localStorage).map(([, v]) => v).join(' '));
@@ -154,6 +144,36 @@ try {
       .filter((b) => b.right > window.innerWidth + 0.5));
     assert.deepEqual(offscreen, []);
     await page.setViewportSize({ width: 1280, height: 720 });
+  });
+
+  await check('live construction sharpens the picture and backward seeks restore the requested detail', async () => {
+    if (!await page.evaluate(() => window.__SMW.paused)) await page.locator('#pauseBtn').evaluate(button => button.click());
+    await page.locator('#display-buildPixelDetail').evaluate(control => {
+      control.checked = true; control.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    const frames = [];
+    for (const timeMs of [0, 30000, 100000, 30000]) {
+      await page.evaluate(ms => window.__SMW.seek(ms), timeMs);
+      await page.waitForFunction(ms => {
+        const s = window.__SMW;
+        return s?.paused && !s.playbackPreparing && Math.abs(s.sim.heardTimeMs - ms) < 100
+          && s.presentationDiagnostics?.frame?.presented && s.presentationDiagnostics?.progressiveDetail?.active;
+      }, timeMs, { timeout: 120_000 });
+      const frame = await page.evaluate(() => ({ timeMs: window.__SMW.sim.heardTimeMs,
+        detail: window.__SMW.presentationDiagnostics.progressiveDetail, pipeline: window.__SMW.presentationDiagnostics.rangePipeline,
+        output: window.__SMW.presentationDiagnostics.output, perfLevel: window.__SMW.perfLevel }));
+      frames.push(frame);
+      await page.locator('#stage').screenshot({ path: path.join(out, `build-${frames.length}-${timeMs}.png`) });
+      assert.equal(frame.pipeline, 'single');
+      assert.ok(frame.detail.admittedGrid.width >= 320);
+    }
+    await fs.writeFile(path.join(out, 'progressive-detail.json'), JSON.stringify({ browser: browser.version(), frames }, null, 2));
+    assert.equal(frames[0].detail.requestedRung, 0);
+    assert.equal(frames[0].detail.admittedGrid.width, 320);
+    assert.ok(frames[1].detail.requestedRung > 0);
+    assert.ok(frames[2].detail.requestedRung > frames[1].detail.requestedRung);
+    assert.equal(frames[3].detail.requestedRung, frames[1].detail.requestedRung);
+    assert.equal(await page.locator('#detailUpBtn, #detailDownBtn').count(), 0);
   });
 
   await check('no page errors', () => assert.deepEqual(errors, []));

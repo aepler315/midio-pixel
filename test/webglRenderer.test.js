@@ -331,7 +331,7 @@ test('the presenting renderer finishes a frame that already contains the wash', 
   presenting.output = { presentation: { pixelated: false }, diagnostics: {},
     beginFrame: () => { order.push('begin'); return source; },
     finishFrame: () => { order.push(`finish:${blits.length}`); return { presented: true }; },
-    failFrame: () => null, getCaptureSource: () => source, dispose() {} };
+    failFrame: () => null, getCaptureSource: () => source, setFrameGrid() {}, dispose() {} };
   presenting.draw(sim(), 0);
   assert.deepEqual(order, ['begin', 'finish:1'], 'the wash lands before the presentation finishes the frame');
   presenting.dispose();

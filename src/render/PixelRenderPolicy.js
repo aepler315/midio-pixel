@@ -10,6 +10,15 @@ export const PIXEL_GRIDS = Object.freeze({ classic: CLASSIC, classicPlus: CLASSI
 export const MAX_PIXEL_PIXELS = DETAILED.pixels;
 const INACTIVE = Object.freeze({ active: false, grid: null, unit: 0, minGlyphHeight: 0, materialMinPeriodPx: 0, pixelScale: 'original' });
 export const PIXEL_POLICY_VERSION = 2;
+const runtimeGrids = new WeakSet();
+/** Only renderer-owned grids may bypass the saved preset whitelist. */
+export function runtimePixelGrid(width, height) {
+  if (![width, height].every(n => Number.isInteger(n) && n > 0 && n <= 8192) || width * height > 16777216) throw Error('invalid runtime pixel grid');
+  const grid = Object.freeze({ id: `build-${width}x${height}`, width, height, pixels: width * height });
+  runtimeGrids.add(grid);
+  return grid;
+}
+export const isRuntimePixelGrid = grid => !!grid && runtimeGrids.has(grid);
 
 /** Resolve only supported grids; preferences and legacy callers default to Classic. @returns {PixelGrid} */
 export function pixelGrid(id = 'classic') { return Object.hasOwn(PIXEL_GRIDS, id) ? PIXEL_GRIDS[id] : CLASSIC; }
@@ -17,12 +26,12 @@ export function pixelGrid(id = 'classic') { return Object.hasOwn(PIXEL_GRIDS, id
 /** Whole grid pixels per Classic pixel. Classic+'s 1.25x rounds to 1x and
  *  Medium's 1.5x and Medium+'s 1.75x to 2x so captions, glow, heat and stars never land on half
  *  pixels. */
-export function pixelUnit(grid) { return Math.max(1, Math.round((grid?.width ?? CLASSIC.width) / CLASSIC.width)); }
+export function pixelUnit(grid) { return isRuntimePixelGrid(grid) ? grid.width / CLASSIC.width : Math.max(1, Math.round((grid?.width ?? CLASSIC.width) / CLASSIC.width)); }
 
 /** Pixel-space dimensions only. Simulation, camera and quality remain independent. @returns {PixelPolicy} */
-export function pixelRenderPolicy({ pixelated = false, grid = null } = {}) {
+export function pixelRenderPolicy({ pixelated = false, grid = null, runtimeGrid = null } = {}) {
   if (!pixelated) return INACTIVE;
-  const resolved = pixelGrid(typeof grid === 'string' ? grid : grid?.id);
+  const resolved = isRuntimePixelGrid(runtimeGrid) ? runtimeGrid : pixelGrid(typeof grid === 'string' ? grid : grid?.id);
   const unit = pixelUnit(resolved);
   return Object.freeze({ active: true, grid: resolved, unit, minGlyphHeight: 7 * unit,
     materialMinPeriodPx: 2, pixelScale: 'original' });

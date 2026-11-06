@@ -1,0 +1,153 @@
+{
+ "credit": "Elevation: USGS 3DEP 1/3 arc-second DEM",
+ "sourceSha256": [
+  "a88e59b1c229cc9aafa79c5f0d6fd9e46de721ecc76590854a5763c39a49c083"
+ ],
+ "view": {
+  "experimental": true,
+  "status": "candidate",
+  "reviewPath": "docs/scenic-expansion-caldera-badlands-2026-11-06.md",
+  "composition": {
+   "foreground": "none",
+   "nearLedgeMaxFrac": 0
+  },
+  "id": "badlands-pinnacles-south",
+  "regionId": "badlands",
+  "biome": "STEPPE",
+  "title": "Badlands",
+  "place": "Pinnacles and Sage Creek, South Dakota",
+  "notes": "Approximate elevated aerial rail in the western Pinnacles area, looking south into eroded ridges and prairie. NPS documents the southern Pinnacles Overlook view into Sage Creek Wilderness. Anchors are authored composition estimates, not surveyed overlook coordinates. This is the western Badlands, not Cedar Pass. Material colors are artistic, not a surveyed geologic layer map.",
+  "dem": {
+   "source": "3dep13",
+   "centerLonLat": [
+    -102.3,
+    43.8
+   ],
+   "extentM": [
+    30000,
+    30000
+   ],
+   "cellM": 20,
+   "windowCache": "tile",
+   "pin": {
+    "n44w103": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/historical/n44w103/USGS_13_n44w103_20250910.tif"
+   }
+  },
+  "rail": {
+   "eyeStart": {
+    "lonLat": [
+     -102.249,
+     43.855
+    ],
+    "aboveGroundM": 95
+   },
+   "eyeEnd": {
+    "lonLat": [
+     -102.226,
+     43.849
+    ],
+    "aboveGroundM": 95
+   },
+   "targetStart": {
+    "lonLat": [
+     -102.27,
+     43.798
+    ],
+    "heightM": 760
+   },
+   "targetEnd": {
+    "lonLat": [
+     -102.252,
+     43.787
+    ],
+    "heightM": 760
+   },
+   "fovYDeg": 35
+  },
+  "landmarks": [],
+  "camera": {
+   "eyeStartM": [
+    4100.5,
+    947.2,
+    -6112.3
+   ],
+   "eyeEndM": [
+    5950.3,
+    979.9,
+    -5447
+   ],
+   "targetStartM": [
+    2414.3,
+    760,
+    221.8
+   ],
+   "targetEndM": [
+    3863.6,
+    760,
+    1443.3
+   ],
+   "fovYDeg": 35
+  }
+ },
+ "characterScores": {
+  "energy": 0.018,
+  "rawness": 0.016,
+  "grandeur": 0.041,
+  "dominance": 0.323
+ },
+ "archetype": "serene",
+ "skylineFeatures": [
+  {
+   "reliefM": 201.520263671875,
+   "slopeMPerKm": 5.476896691724489,
+   "peaksPer10Km": 0.12710997199837953,
+   "roughnessM": 5.4811482567859855,
+   "dominance": 0.5490615766142857,
+   "summitM": 943.348876953125,
+   "lengthKm": 157.34406738957483
+  },
+  {
+   "reliefM": 194.333740234375,
+   "slopeMPerKm": 7.485967602860134,
+   "peaksPer10Km": 0.11457826096139956,
+   "roughnessM": 6.1634389468043,
+   "dominance": 0.5723984316405587,
+   "summitM": 935.9392700195312,
+   "lengthKm": 87.27659083051465
+  },
+  {
+   "reliefM": 151.56591796875,
+   "slopeMPerKm": 11.701380386748758,
+   "peaksPer10Km": 0,
+   "roughnessM": 5.414845894893891,
+   "dominance": 0.45440905005363924,
+   "summitM": 893.2346801757812,
+   "lengthKm": 57.7777166609309
+  }
+ ],
+ "manifestSha256": "e4b3b0f3a3f7356a1dfcf6d13875da6acdd3ba28898a665ff2d12f27e6a3cc32",
+ "payloadSha256": "8f6b02f44eb8191f62c79918d307dca8813081d8a5dc5113dcba10d281a8e891",
+ "payloadBytes": 741580,
+ "stats": {
+  "tiles": 340,
+  "desktop": {
+   "vertices": 453827,
+   "triangles": 866810,
+   "meshBytes": 15847644,
+   "surfaceTextureBytes": 12016005
+  },
+  "mobile": {
+   "vertices": 235795,
+   "triangles": 445226,
+   "meshBytes": 8172252,
+   "surfaceTextureBytes": 12016005
+  }
+ },
+ "landmarks": [],
+ "achievedErrorPx": {
+  "desktop": 0.99,
+  "mobile": 1.997
+ },
+ "despikedSamples": 0,
+ "gentleGroundSmoothingM": null
+}

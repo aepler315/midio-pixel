@@ -7,9 +7,9 @@ import { DEFAULT_DISPLAY_PREFS, resolvePresentation, writeDisplayPrefs, defaultG
 import { createPresentingRenderer } from '../src/render/PresentingRenderer.js';
 import { GraphicsResidency } from '../src/render/GraphicsResidency.js';
 const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
-// The shared applyDisplayPref (Display menu and HUD detail stepper) and the
+// The shared applyDisplayPref (Display menu and keyboard detail) and the
 // boot block that binds each control to it.
-const start = main.indexOf('/** One display preference changed');
+const start = main.indexOf('function applyDisplayPref(');
 const binding = main.slice(start, main.indexOf('  syncDisplayControls();\n  if (stageFpsEl)', start)) + '}';
 for (const paused of [true, false]) test(`grid controls preserve song time and ${paused ? 'redraw a paused completed frame' : 'invalidate until the next live frame'}`, () => {
   const ctx = { imageSmoothingEnabled: true }, canvas = { width: 320, height: 180, getContext: () => ctx };
@@ -29,6 +29,7 @@ for (const paused of [true, false]) test(`grid controls preserve song time and $
   });
   vm.runInContext(binding, context);
   control.value = 'detailed'; handler();
+  assert.equal(context.displayPrefs.buildPixelDetail, false, 'choosing a preset stops automatic growth');
   assert.equal(sim.timeMs, 4500);
   if (paused) { assert.equal(renderer.getCaptureSource()?.width, 640); assert.equal(recorded, 1); }
   else { assert.equal(renderer.getCaptureSource(), null); assert.equal(recorded, 0); renderer.draw(sim, 1); assert.equal(renderer.getCaptureSource().width, 640); }
@@ -67,4 +68,21 @@ test('a Display change during a snapshot is ignored, never saved over the player
   control.value = 'detailed'; handler();
   assert.equal(writes, 0);
   assert.equal(context.displayPrefs.pixelGrid, prefs.pixelGrid);
+});
+
+test('the detail-build checkbox saves a boolean and preserves the manual preset', () => {
+  let handler;
+  const control = { checked: false, value: 'on', addEventListener(_name, fn) { handler = fn; } };
+  const prefs = { ...DEFAULT_DISPLAY_PREFS, pixelGrid: 'medium', buildPixelDetail: false };
+  const context = vm.createContext({ displayControls: { buildPixelDetail: control }, displayPrefs: prefs, presentation: resolvePresentation(prefs),
+    writeDisplayPrefs() {}, displayStorage: () => null, resolvePresentation, syncDisplayControls() {}, perfGovernor: null,
+    paused: true, sim: null, renderer: null, bulkExportArmed: false, console, songRecorder: null, playbackPreparing: false,
+    fitCanvas() {}, snapshotBusy: false });
+  vm.runInContext(binding, context);
+  assert.equal(control.checked, false);
+  control.checked = true; handler();
+  assert.equal(context.displayPrefs.buildPixelDetail, true);
+  assert.equal(context.displayPrefs.pixelGrid, 'medium');
+  control.checked = false; handler();
+  assert.equal(context.displayPrefs.buildPixelDetail, false);
 });

@@ -527,7 +527,7 @@ export class RangePresentation {
     this._preparing.set(view.id, preparation);
     this.scene.prepare(view, { generation: gen, baseUrl: this.assetBase, scenicViewport: this.frameInputs?.scenicViewport,
       pixelated: !!this.pixelated,
-      pixelHeightPx: this.pixelPolicy?.grid?.height ?? null,
+      pixelHeightPx: this.detailHeightPx ?? this.pixelPolicy?.grid?.height ?? null,
       tourData: this.tourData, tourCpuKey: this._tourCpuKey, isCurrent: (g) => g === this.generation })
       .then((prepared) => {
         if (gen !== this.generation) return;
@@ -810,6 +810,7 @@ export class RangePresentation {
   }
 
   _beginScenic() {
+    this.resolutionRefused = false;
     this.stage = null;
     this.castLayer = null;
     this.active = false;
@@ -964,13 +965,14 @@ export class RangePresentation {
       const terrainVp = this.directTerrainMode ? directTerrainViewport(vp, this.pixelPolicy?.grid, this.outputSize) : vp;
       this.scene.resize({ widthPx: terrainVp.backingWidth, heightPx: terrainVp.backingHeight, pixelRatio: vp.pixelRatio || 1,
         quality: inputs.sim.perf?.level ?? 0, pixelated: !!this.pixelated, cinematicPixel: !!this.cinematicPixel, pixelScale: 'original',
-        pixelHeightPx: this.pixelPolicy?.grid?.height ?? null });
+        pixelHeightPx: this.detailHeightPx ?? this.pixelPolicy?.grid?.height ?? null });
       this.scene.waterOutputScale = this.directTerrainMode
         ? Math.max(1, vp.backingWidth / terrainVp.backingWidth, vp.backingHeight / terrainVp.backingHeight)
         : this.waterOutputSize && this.pixelPolicy?.grid
         ? Math.min(4, this.waterOutputSize.width / this.pixelPolicy.grid.width, this.waterOutputSize.height / this.pixelPolicy.grid.height)
         : 1;
     } catch (err) {
+      this.resolutionRefused = true;
       this.reason = `budget: ${err.message}`;
       // The render target was refused room: let the owner free fallback
       // scenery (legacy strips for covered biomes) before the next frame.

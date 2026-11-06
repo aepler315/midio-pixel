@@ -225,7 +225,7 @@ test('stepExportClock takes the same whole steps every frame across a long rende
 
 test('bulk display overrides are explicit and validated', () => {
   const opts = parseBulkArgs(['--look', 'palette', '--quality', 'economy', '--palette', 'rgb332', '--dither', 'full', '--scaling', 'integer', 'song.wav']);
-  assert.deepEqual(opts.presentation, { version: 2, look: 'palette', quality: 'economy', palette: 'rgb332', dither: 1, ditherMode: 'selective', pixelGrid: 'classic', scaling: 'integer', pixelScale: 'original' });
+  assert.deepEqual(opts.presentation, { version: 2, look: 'palette', quality: 'economy', palette: 'rgb332', dither: 1, ditherMode: 'selective', pixelGrid: 'classic', scaling: 'integer', pixelScale: 'original', buildPixelDetail: false });
   assert.equal(parseBulkArgs(['song.wav']).presentation, null);
   assert.throws(() => parseBulkArgs(['--look', 'bad']), /look/);
 });
@@ -240,7 +240,7 @@ test('bulk export accepts only deterministic Ordered and Selective dither styles
 test('bulk export round trips both explicit grids with the v2 palette/dither profile', () => {
   for (const pixelGrid of ['classic', 'detailed']) {
     const opts = parseBulkArgs(['song.wav', '--look', 'palette', '--quality', 'auto', '--palette', 'world', '--dither', 'subtle', '--dither-mode', 'selective', '--pixel-grid', pixelGrid, '--scaling', 'integer']);
-    assert.deepEqual(opts.presentation, { version: 2, look: 'palette', quality: 'auto', palette: 'world', dither: .35, ditherMode: 'selective', pixelGrid, scaling: 'integer', pixelScale: 'original' });
+    assert.deepEqual(opts.presentation, { version: 2, look: 'palette', quality: 'auto', palette: 'world', dither: .35, ditherMode: 'selective', pixelGrid, scaling: 'integer', pixelScale: 'original', buildPixelDetail: false });
   }
   assert.throws(() => parseBulkArgs(['song.wav', '--pixel-grid', 'arbitrary']));
 });

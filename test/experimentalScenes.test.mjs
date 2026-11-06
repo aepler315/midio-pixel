@@ -15,10 +15,12 @@ const shotExperiments = new Map([
 const railAdditions = new Map([
   ['sierra-whitney-east', { biome: 'STEPPE', regionId: 'sierra-nevada' }],
   ['san-juan-sneffels-north', { biome: 'CONIFER', regionId: 'san-juan-mountains' }],
+  ['crater-lake-watchman-east', { biome: 'CONIFER', regionId: 'crater-lake' }],
+  ['badlands-pinnacles-south', { biome: 'STEPPE', regionId: 'badlands' }],
 ]);
 const experiments = new Map([...shotExperiments, ...railAdditions]);
 
-test('the five regional experiments join normal selection without inventing base or tour approvals', () => {
+test('the seven regional experiments join normal selection without inventing base or tour approvals', () => {
   const enabled = catalog.views.filter(v => v.experimental === true);
   assert.deepEqual(enabled.map(v => v.id).sort(), [...experiments.keys()].sort());
   assert.equal(catalog.views.filter(v => v.status === 'approved').length, 13);
@@ -53,7 +55,7 @@ test('the five regional experiments join normal selection without inventing base
 });
 
 test('expanded pools draw every distinct region deterministically, including the new Sierra and San Juan rails', () => {
-  for (const [biome, size] of new Map([['CONIFER', 3], ['STEPPE', 2], ['BROADLEAF', 2], ['DESERT', 2]])) {
+  for (const [biome, size] of new Map([['CONIFER', 4], ['STEPPE', 3], ['BROADLEAF', 2], ['DESERT', 2]])) {
     const pool = catalog.views.filter(v => v.biome === biome && sceneViewEligible(v));
     assert.equal(pool.length, size, `${biome} eligibility`);
     const regions = new Set(pool.map(v => v.regionId));

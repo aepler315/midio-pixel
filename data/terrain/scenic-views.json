@@ -1,6 +1,6 @@
 {
   "about": "Range v2 scenic views: curated real terrain corridors with authored camera rails. Authoring source for tools/build-range-scene.mjs; the runtime catalog (src/world/terrain/sceneCatalogData.js) is generated from it. Rail anchors are lon/lat (NAD83 for 3DEP sources) with an absolute height (heightM, metres above the source vertical datum) or a height above the DEM ground (aboveGroundM). status: candidate | approved | rejected records review history. Approved views and candidates explicitly marked experimental: true enter normal selection. Other candidate authoring and experimental development may proceed independently under docs/experimental-development.md.",
-  "catalogVersion": 56,
+  "catalogVersion": 57,
   "views": [
     {
       "id": "nc-ross-lake-north",
@@ -6716,6 +6716,168 @@
       "landmarks": [
         { "name": "Mount Sneffels", "lonLat": [-107.7922734, 38.0038447], "note": "USGS GNIS gaz196432 (NAD83), queried 2026-11-06; no surveyed vertical value asserted." }
       ]
+    },
+    {
+      "experimental": true,
+      "status": "candidate",
+      "reviewPath": "docs/scenic-expansion-caldera-badlands-2026-11-06.md",
+      "composition": {
+        "foreground": "none",
+        "nearLedgeMaxFrac": 0
+      },
+      "id": "crater-lake-watchman-east",
+      "regionId": "crater-lake",
+      "biome": "CONIFER",
+      "title": "Crater Lake",
+      "place": "Cascade Range, Oregon",
+      "notes": "Authored elevated west-rim rail near the Watchman, across Wizard Island toward the caldera and Mount Scott. Camera anchors and heights are artistic estimates, not surveyed lookout positions. Landmark coordinates are USGS GNIS NAD83 primary points; vegetation and snow rules are artistic. Water classification uses hydro-flattened source DEM cells, not an invented caldera-wide plane.",
+      "dem": {
+        "source": "3dep13",
+        "centerLonLat": [
+          -122.1,
+          42.94
+        ],
+        "extentM": [
+          32000,
+          32000
+        ],
+        "cellM": 20,
+        "windowCache": "tile",
+        "pin": {
+          "n43w122": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/historical/n43w122/USGS_13_n43w122_20260601.tif",
+          "n43w123": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/historical/n43w123/USGS_13_n43w123_20260818.tif",
+          "n44w122": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/historical/n44w122/USGS_13_n44w122_20261027.tif",
+          "n44w123": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/historical/n44w123/USGS_13_n44w123_20260202.tif"
+        }
+      },
+      "rail": {
+        "eyeStart": {
+          "lonLat": [
+            -122.18,
+            42.946
+          ],
+          "aboveGroundM": 310
+        },
+        "eyeEnd": {
+          "lonLat": [
+            -122.172,
+            42.929
+          ],
+          "aboveGroundM": 310
+        },
+        "targetStart": {
+          "lonLat": [
+            -122.092,
+            42.95
+          ],
+          "heightM": 2200
+        },
+        "targetEnd": {
+          "lonLat": [
+            -122.082,
+            42.941
+          ],
+          "heightM": 2200
+        },
+        "fovYDeg": 35
+      },
+      "landmarks": [
+        {
+          "name": "Wizard Island",
+          "lonLat": [
+            -122.1455841,
+            42.9387395
+          ],
+          "note": "USGS GNIS 1152566 NAD83 primary point; no surveyed vertical value asserted."
+        },
+        {
+          "name": "The Watchman",
+          "lonLat": [
+            -122.1723913,
+            42.9429368
+          ],
+          "note": "USGS GNIS 1151047 NAD83 primary point; no surveyed vertical value asserted."
+        },
+        {
+          "name": "Llao Rock",
+          "lonLat": [
+            -122.1333621,
+            42.9720725
+          ],
+          "note": "USGS GNIS 1145305 NAD83 primary point; no surveyed vertical value asserted."
+        },
+        {
+          "name": "Mount Scott",
+          "lonLat": [
+            -122.0160296,
+            42.9229346
+          ],
+          "note": "USGS GNIS 1149176 NAD83 primary point; no surveyed vertical value asserted."
+        }
+      ]
+    },
+    {
+      "experimental": true,
+      "status": "candidate",
+      "reviewPath": "docs/scenic-expansion-caldera-badlands-2026-11-06.md",
+      "composition": {
+        "foreground": "none",
+        "nearLedgeMaxFrac": 0
+      },
+      "id": "badlands-pinnacles-south",
+      "regionId": "badlands",
+      "biome": "STEPPE",
+      "title": "Badlands",
+      "place": "Pinnacles and Sage Creek, South Dakota",
+      "notes": "Approximate elevated aerial rail in the western Pinnacles area, looking south into eroded ridges and prairie. NPS documents the southern Pinnacles Overlook view into Sage Creek Wilderness. Anchors are authored composition estimates, not surveyed overlook coordinates. This is the western Badlands, not Cedar Pass. Material colors are artistic, not a surveyed geologic layer map.",
+      "dem": {
+        "source": "3dep13",
+        "centerLonLat": [
+          -102.3,
+          43.8
+        ],
+        "extentM": [
+          30000,
+          30000
+        ],
+        "cellM": 20,
+        "windowCache": "tile",
+        "pin": {
+          "n44w103": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/historical/n44w103/USGS_13_n44w103_20250910.tif"
+        }
+      },
+      "rail": {
+        "eyeStart": {
+          "lonLat": [
+            -102.249,
+            43.855
+          ],
+          "aboveGroundM": 95
+        },
+        "eyeEnd": {
+          "lonLat": [
+            -102.226,
+            43.849
+          ],
+          "aboveGroundM": 95
+        },
+        "targetStart": {
+          "lonLat": [
+            -102.27,
+            43.798
+          ],
+          "heightM": 760
+        },
+        "targetEnd": {
+          "lonLat": [
+            -102.252,
+            43.787
+          ],
+          "heightM": 760
+        },
+        "fovYDeg": 35
+      },
+      "landmarks": []
     }
   ]
 }
