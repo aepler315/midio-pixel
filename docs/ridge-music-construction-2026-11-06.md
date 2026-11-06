@@ -88,8 +88,14 @@ seams, the Sierra's inferred horizon, or the reported early playback stalls.
 Atmosphere follows a causal phrase envelope compiled once per analysis, with
 constant-time reads during frames. Sustained energy clears valley mist and
 strengthens existing key light, shafts and broad sky radiance. Isolated drums
-retain localized accents. Quiet returns settle over seconds. The added
-channels participate in the existing generation handoff and seek/pause model.
+retain localized accents. Heard atmosphere has its own finite eight-second
+silence release, while fast note effects keep their presence gates. The release
+fades the internal filter states so returning music does not reopen an old
+tail. Physical noise cannot create that history. If partial analysis ends on
+a silent physical frame, the known release finishes instead of holding residual
+glow forever; missing data after an audible endpoint does not invent silence.
+The added channels participate in the existing generation handoff and seek/pause
+model.
 
 Camera moves use musical energy changes to choose build, reveal, settle or
 hold behavior; a seed chooses a consistent side rather than unrelated moves.
@@ -113,6 +119,24 @@ smoothness/causality/handoffs, authored FOV limits, construction dependencies,
 shared rise and completed-state behavior. An independent source review found
 and verified the fix for survey threads appearing before their anchors; its
 final focused rerun passed 43 tests with no outstanding source findings.
+
+The earlier broad `npm test` run completed 6,099 tests: 6,085 passed, 12 skipped,
+and two failed. One failure was the previous neutral-scenic-lens expectation;
+it was replaced with bounded shared-reveal/preview assertions and the affected
+23-test frame/lens/music rerun passed. The other is the unchanged shot planner's
+50 ms gate. Clean starting main reproduces it (warm minimum 90.8 ms, fresh
+library minimum 152.1 ms); the broad candidate run measured 97.7/124.9 ms.
+These wall-clock samples do not establish a rendering regression or a GPU
+speedup, and the gate was not loosened. The broad suite is not reported green.
+The 26 ridgeview tests, full ESLint, all 512 source modules' tracked parse/link,
+and the final 36-test runtime/assets/shader/music integration run passed.
+
+After the silence-release and shortened-analysis corrections, the final focused
+run passed 132/132 tests across effects, music direction, atmosphere, camera,
+frame/lens integration, construction, ridge colors and rail/travel runtime.
+The independent follow-up review reproduced and verified the shortened-curve
+tail fix; its 79-test rerun passed with no remaining source findings.
+The complete broad suite was not repeated after these focused corrections.
 
 The initial staging check exposed an existing mismatch on starting main:
 the lockfile's merged Three.js 0.187.0 update still shipped the 0.186.1 runtime.
