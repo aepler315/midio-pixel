@@ -15,6 +15,7 @@ import {
   SORTS, sortTracks, filterTracks, folderContents, breadcrumbs,
   displayTitle, displayArtist, displayAlbum, formatDuration, sortByKey,
 } from '../library/TrackIndex.js';
+import { describeSongWorld } from '../library/SongWorld.js';
 
 /** How many rows reach the document at once. */
 const RENDER_LIMIT = 400;
@@ -51,8 +52,9 @@ export class LibraryPanel {
    * @param {() => void} opts.onAutoTag
    * @param {() => void} opts.onForget
    * @param {() => void} opts.onClose
+   * @param {(record) => object} [opts.describeWorld] cached world display metadata
    */
-  constructor({ root, onPlay, onPickFolder, onRescan, onAutoTag, onForget, onClose }) {
+  constructor({ root, onPlay, onPickFolder, onRescan, onAutoTag, onForget, onClose, describeWorld = describeSongWorld }) {
     this.root = root;
     this.onPlay = onPlay;
     this.onPickFolder = onPickFolder;
@@ -60,6 +62,7 @@ export class LibraryPanel {
     this.onAutoTag = onAutoTag;
     this.onForget = onForget;
     this.onClose = onClose;
+    this.describeWorld = describeWorld;
 
     this.tracks = [];
     this.folderName = 'Library';
@@ -329,6 +332,7 @@ export class LibraryPanel {
         el('span', 'libraryRowTitle'),
         el('span', 'libraryRowArtist'),
         el('span', 'libraryRowAlbum'),
+        el('span', 'libraryRowWorld'),
         el('span', 'libraryRowTime'),
       );
       // Enter and Space on a focused row do what a click does. A list that
@@ -350,13 +354,20 @@ export class LibraryPanel {
       const row = this._rowPool[i++];
       row.classList.remove('hidden');
       row.classList.add('isFolder');
+      row.classList.remove('isAutoTagged');
       row.dataset.folderPath = folder.path;
-      const [icon, title, artist, album, time] = row.children;
+      const [icon, title, artist, album, world, time] = row.children;
       icon.textContent = '\u{1F4C1}';
       title.textContent = folder.name;
       artist.textContent = `${folder.count.toLocaleString()} ${folder.count === 1 ? 'track' : 'tracks'}`;
       album.textContent = '';
+      album.classList.remove('isPath');
+      world.textContent = '';
+      world.title = '';
+      world.classList.add('hidden');
+      world.classList.remove('isPending', 'isExperimental');
       time.textContent = '';
+      row.title = folder.path;
     }
     for (const track of tracks) {
       const row = this._rowPool[i++];
@@ -364,7 +375,7 @@ export class LibraryPanel {
       row.classList.remove('isFolder');
       delete row.dataset.folderPath;
       row.classList.toggle('isAutoTagged', track.tagSource === 'auto');
-      const [icon, title, artist, album, time] = row.children;
+      const [icon, title, artist, album, world, time] = row.children;
       icon.textContent = '♪';
       title.textContent = displayTitle(track);
       artist.textContent = displayArtist(track);
@@ -372,6 +383,12 @@ export class LibraryPanel {
       // file lives, so it takes the album column when there is no album.
       album.textContent = track.album ? displayAlbum(track) : (track.folder || '');
       album.classList.toggle('isPath', !track.album);
+      const description = this.describeWorld(track.songWorld);
+      world.textContent = description.label;
+      world.title = description.title;
+      world.classList.remove('hidden');
+      world.classList.toggle('isPending', description.state === 'pending');
+      world.classList.toggle('isExperimental', !!description.experimental);
       time.textContent = formatDuration(track.durationSec);
       row.title = track.path;
       this._rowTracks.set(row, track);

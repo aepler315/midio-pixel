@@ -263,8 +263,8 @@ test('actual background analysis captures the provisional history before adoptio
 test('Plex identity is applied with lyrics disabled and does not credit a stale local-library track', async () => {
   const { context, load } = harness();
   const selected = { provider: 'plex', id: 'plex:server:30', revision: 'rev1', title: 'Plex title', artist: 'Plex artist', album: 'Plex album', durationMs: 99000, artworkUrl: null };
-  let offered;
-  context.offerWorldsThenStart = data => { offered = data; };
+  let offered, offeredOptions;
+  context.offerWorldsThenStart = (data, options) => { offered = data; offeredOptions = options; };
   // Simulate a cache bundle made from the same PCM under a previous source.
   context.unpackBundle = () => ({ fromBundle: true, sourceTrack: { provider: 'plex', id: 'plex:server:99' }, lyricIdentity: { title: 'Older title' }, songIdentity: { seed: 315, songProfile: { genre: 'original' } } });
   const selection = context.beginAudioSelection('plex');
@@ -274,6 +274,7 @@ test('Plex identity is applied with lyrics disabled and does not credit a stale 
   assert.equal(offered.lyricIdentity.title, 'Plex title');
   assert.equal(offered.lyricIdentity.durationSec, 2);
   assert.equal(offered.songIdentity.seed, 315);
+  assert.equal(offeredOptions.localTrack, null, 'Plex cannot forward a stale row for world metadata');
   assert.deepEqual(context.musicLibrary.played, []);
 });
 
@@ -376,4 +377,22 @@ test('actual handoff retires pending lyrics and cannot mutate the replacement se
   assert.equal(offered.lyricIdentity.title, 'replacement');
   assert.equal(offered.syncedLyrics, null);
   assert.equal(old.lyricSession.admissions.length, 0);
+});
+
+test('a library root replaced during analysis cannot receive the old recording\'s world', async () => {
+  const { context, load } = harness();
+  const original = { id: 'root' };
+  context.musicLibrary.root = original;
+  const track = { key: 'root\u0000a.wav', rootId: 'root', path: 'a.wav', size: 1024, lastModified: 1 };
+  let release, offeredOptions;
+  context.getBundle = () => new Promise(resolve => { release = resolve; });
+  context.offerWorldsThenStart = (_data, options) => { offeredOptions = options; };
+  const selection = context.beginAudioSelection('library');
+  const loading = load(['a.wav'], { selection, localTrack: track });
+  for (let i = 0; i < 20 && !release; i++) await new Promise(resolve => setImmediate(resolve));
+  assert.equal(typeof release, 'function');
+  context.musicLibrary.root = { id: 'root' }; // same persisted ID, new folder ownership
+  release({});
+  await loading;
+  assert.equal(offeredOptions.localTrack, null);
 });

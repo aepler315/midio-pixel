@@ -113,6 +113,7 @@ import { stepExportClock, evenExportSize } from './render/BulkExport.js';
 import { rangeUserCamera } from './world/alpine/RangeCamera.js';
 import { attachRangeZoomInput } from './ui/RangeZoomInput.js';
 import { MusicLibrary } from './library/MusicLibrary.js';
+import { createSongWorldRecord, describeSongWorld } from './library/SongWorld.js';
 import { folderPickerMode } from './library/FolderPickerMode.js';
 import { LibraryPanel } from './ui/LibraryPanel.js';
 import { createAudioSelection } from './audio/AudioSelection.js';
@@ -1650,6 +1651,10 @@ function offerWorldsThenStart(data, extra = {}) {
       ? identity.seed >>> 0
       : resolveSongSeed({ timeline: data.timeline, durationMs: data.durationMs }, null);
     const seed = autoSeed;
+    if (extra.localTrack) {
+      const world = createSongWorldRecord(profile, seed);
+      if (world) musicLibrary.noteSongWorld(extra.localTrack, world).catch(error => console.warn('[library] could not remember song world', error));
+    }
     if (!identity) data.songIdentity = { seed: autoSeed, songProfile: profile, customBiome: data.customBiome || null };
     pendingWorldStart = { data, extra, features, seed, profile };
     // The song's real mountain range (RangeLibrary): matched and loaded in
@@ -2821,6 +2826,7 @@ function beginAudioSelection(source, automaticTicket = null) {
 async function loadAudioFiles(files, { selection = null, sourceMetadata = null, localTrack = null, onPrepared = null, playbackOptions = null } = {}) {
   selection ||= beginAudioSelection('local');
   if (!audioSelections.isCurrent(selection)) return;
+  const libraryRoot = selection.source === 'library' ? musicLibrary.root : null;
   let selectedFiles;
   try {
     selectedFiles = validateAudioFiles(files, AUDIO_LOAD_LIMITS);
@@ -3136,7 +3142,9 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
     fontRecommender?.clear(); // the recording is its own sound source
     loadAudioFiles._preparedData = data;
     onPrepared?.();
-    offerWorldsThenStart(data, { playBuffer: audioBuffer, lyricsReady, recordingSettings: selectionExportSettings.get(selection), ...playbackOptions });
+    offerWorldsThenStart(data, { playBuffer: audioBuffer, lyricsReady,
+      recordingSettings: selectionExportSettings.get(selection), ...playbackOptions,
+      localTrack: selection.source === 'library' && musicLibrary.root === libraryRoot ? localTrack : null });
     return true;
   } catch (err) {
     if (isStale() || err?.name === 'AbortError') return;
@@ -5068,7 +5076,12 @@ function renderLibraryHome() {
     const artist = document.createElement('span');
     artist.className = 'recentChipArtist';
     artist.textContent = displayArtist(track);
-    chip.append(title, artist);
+    const description = describeSongWorld(track.songWorld);
+    const world = document.createElement('span');
+    world.className = 'recentChipWorld';
+    world.textContent = description.label;
+    world.title = description.title;
+    chip.append(title, artist, world);
     chip.addEventListener('click', () => playLibraryTrack(track));
     libraryRecentEl.appendChild(chip);
   }

@@ -68,6 +68,149 @@ function scopeWith(handle, { permission = 'granted' } = {}) {
   return scope;
 }
 
+function songWorld(seed = 123) {
+  return {
+    version: 1, seed, profileVersion: 2,
+    watch: { drive: 0.2, onset: 0.4, texture: 0.6, arc: 0.8, contrast: 1 },
+  };
+}
+
+function delayNextDatabaseOpen(scope) {
+  const open = scope.indexedDB.open;
+  const entered = deferred(), release = deferred();
+  scope.indexedDB.open = (...args) => {
+    scope.indexedDB.open = open;
+    const request = open(...args);
+    const outward = {};
+    request.onerror = () => outward.onerror?.();
+    request.onsuccess = async () => {
+      outward.result = request.result;
+      entered.resolve();
+      await release.promise;
+      outward.onsuccess?.();
+    };
+    return outward;
+  };
+  return { entered: entered.promise, release: release.resolve };
+}
+
+test('a saved song world survives reload and an unchanged rescan, then expires with the recording', async () => {
+  const scope = scopeWith(fakeDirHandle('Music', { 'a.mp3': fakeFile('a.mp3') }));
+  const lib = new MusicLibrary({ scope });
+  await lib.pickFolder();
+  assert.equal(typeof lib.noteSongWorld, 'function');
+  let emits = 0;
+  lib.subscribe(() => emits++);
+  assert.equal(await lib.noteSongWorld(lib.tracks[0], songWorld()), true);
+  assert.ok(emits > 0);
+  assert.deepEqual(lib.tracks[0].songWorld, songWorld());
+  assert.equal(lib.tracks[0].unsaved, undefined);
+  const next = await new MusicLibrary({ scope }).init();
+  assert.deepEqual(next.tracks[0].songWorld, songWorld());
+  await next.rescan();
+  assert.deepEqual(next.tracks[0].songWorld, songWorld());
+  next.handle = fakeDirHandle('Music', { 'a.mp3': fakeFile('a.mp3', { lastModified: 2 }) });
+  await next.rescan();
+  assert.equal(next.tracks[0].songWorld, undefined);
+  assert.equal((await listTracks(next.root.id, scope))[0].songWorld, undefined);
+});
+
+test('a storage-free song world remains a compact session value', async () => {
+  const lib = new MusicLibrary({ scope: {} });
+  await lib.adoptFileList([Object.assign(fakeFile('a.mp3'), { webkitRelativePath: 'Music/a.mp3' })]);
+  assert.equal(typeof lib.noteSongWorld, 'function');
+  const record = { ...songWorld(), features: new Float32Array(100) };
+  assert.equal(await lib.noteSongWorld(lib.tracks[0], record), false);
+  assert.deepEqual(lib.tracks[0].songWorld, songWorld());
+  assert.equal(lib.tracks[0].unsaved, true);
+  record.watch.drive = 1;
+  assert.equal(lib.tracks[0].songWorld.watch.drive, 0.2);
+});
+
+test('a failed song-world save stays marked when a play commits, and a later world save clears it', async () => {
+  let refuse = true;
+  const scope = fakeIdb({ rejectPut: (row, store) => refuse && store === 'tracks' && row.songWorld });
+  const lib = new MusicLibrary({ scope });
+  await lib.adoptFileList([Object.assign(fakeFile('a.mp3'), { webkitRelativePath: 'Music/a.mp3' })]);
+  assert.equal(typeof lib.noteSongWorld, 'function');
+  assert.equal(await lib.noteSongWorld(lib.tracks[0], songWorld()), false);
+  assert.deepEqual(lib.tracks[0].songWorld, songWorld());
+  assert.equal(lib.tracks[0].unsaved, true);
+  assert.equal(await lib.notePlayed(lib.tracks[0], 180), true);
+  assert.equal(lib.tracks[0].unsaved, true);
+  assert.equal((await listTracks(lib.root.id, scope))[0].songWorld, undefined);
+  refuse = false;
+  assert.equal(await lib.noteSongWorld(lib.tracks[0], songWorld()), true);
+  assert.equal(lib.tracks[0].unsaved, undefined);
+});
+
+test('invalid and unknown song worlds leave an otherwise usable library unchanged', async () => {
+  const scope = scopeWith(fakeDirHandle('Music', { 'a.mp3': fakeFile('a.mp3') }));
+  const lib = new MusicLibrary({ scope });
+  await lib.pickFolder();
+  assert.equal(typeof lib.noteSongWorld, 'function');
+  const before = { ...lib.tracks[0] };
+  for (const record of [null, { ...songWorld(), version: 90 }, { ...songWorld(), profileVersion: 1 },
+    { ...songWorld(), watch: { ...songWorld().watch, texture: Infinity } }]) {
+    assert.equal(await lib.noteSongWorld(lib.tracks[0], record), false);
+    assert.deepEqual(lib.tracks[0], before);
+  }
+  assert.ok(await lib.openFile(lib.tracks[0]));
+});
+
+test('a delayed song-world write rejects a changed recording at the same path', async () => {
+  const scope = scopeWith(fakeDirHandle('Music', { 'a.mp3': fakeFile('a.mp3') }));
+  const lib = new MusicLibrary({ scope });
+  await lib.pickFolder();
+  assert.equal(typeof lib.noteSongWorld, 'function');
+  const previous = lib.tracks[0];
+  const waiting = delayNextDatabaseOpen(scope);
+  const pending = lib.noteSongWorld(previous, songWorld());
+  await waiting.entered;
+  lib.handle = fakeDirHandle('Music', { 'a.mp3': fakeFile('a.mp3', { lastModified: 2 }) });
+  await lib.rescan();
+  waiting.release();
+  assert.equal(await pending, false);
+  assert.equal(previous.songWorld, undefined);
+  assert.equal(lib.tracks[0].songWorld, undefined);
+  assert.equal((await listTracks(lib.root.id, scope))[0].songWorld, undefined);
+});
+
+test('a delayed song-world write reconciles an unchanged replacement scan row', async () => {
+  const scope = scopeWith(fakeDirHandle('Music', { 'a.mp3': fakeFile('a.mp3') }));
+  const lib = new MusicLibrary({ scope });
+  await lib.pickFolder();
+  assert.equal(typeof lib.noteSongWorld, 'function');
+  const previous = lib.tracks[0];
+  const waiting = delayNextDatabaseOpen(scope);
+  const pending = lib.noteSongWorld(previous, songWorld());
+  await waiting.entered;
+  await lib.rescan();
+  assert.notEqual(lib.tracks[0], previous);
+  waiting.release();
+  assert.equal(await pending, true);
+  assert.deepEqual(lib.tracks[0].songWorld, songWorld());
+  assert.deepEqual(previous.songWorld, songWorld());
+});
+
+test('a delayed song-world result cannot publish after choosing another root', async () => {
+  const scope = scopeWith(fakeDirHandle('Music', { 'a.mp3': fakeFile('a.mp3') }));
+  const lib = new MusicLibrary({ scope });
+  await lib.pickFolder();
+  assert.equal(typeof lib.noteSongWorld, 'function');
+  const previous = lib.tracks[0];
+  const waiting = delayNextDatabaseOpen(scope);
+  const pending = lib.noteSongWorld(previous, songWorld());
+  await waiting.entered;
+  scope.showDirectoryPicker = async () => fakeDirHandle('Other', { 'a.mp3': fakeFile('a.mp3') });
+  await lib.pickFolder();
+  waiting.release();
+  assert.equal(await pending, false);
+  assert.equal(lib.tracks[0].songWorld, undefined);
+  assert.equal(previous.songWorld, undefined);
+  assert.equal((await listTracks(lib.root.id, scope))[0].songWorld, undefined);
+});
+
 test('choosing a folder scans it and remembers it for next time', async () => {
   const handle = fakeDirHandle('Music', {
     'Radiohead/Kid A/1.flac': fakeFile('1.flac'),

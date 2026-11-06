@@ -16,6 +16,7 @@
 // browsing and old browsers all say no to IndexedDB, and a library is an
 // enhancement -- dropping a file on the page must keep working when this
 // whole module is unavailable.
+import { copySongWorldRecord } from './SongWorld.js';
 const DB_NAME = 'midio-library';
 // The additive version fence prevents an older release reopening v1 and
 // pruning without scan ownership. Existing IDs, rows and stores are retained.
@@ -448,6 +449,9 @@ export function carryForward(prior, fresh) {
   // so the fresh read wins outright. An unchanged file keeps any auto-tag
   // that was fetched for it -- that is the whole point of paying for one.
   const unchanged = prior.size === fresh.size && prior.lastModified === fresh.lastModified;
+  // A world describes this recording's decoded audio, so replacing bytes
+  // at an existing path must not inherit the previous recording's world.
+  if (!unchanged) delete merged.songWorld;
   if (unchanged && prior.tagSource === 'auto' && fresh.tagSource !== 'tags') {
     merged.title = prior.title;
     merged.artist = prior.artist;
@@ -508,6 +512,20 @@ export async function recordPlay(key, durationSec = null, scope = globalThis) {
       if (Number.isFinite(durationSec) && durationSec > 0) next.durationSec = durationSec;
       return next;
     },
+  }], scope);
+  return rows?.[0] || null;
+}
+
+/** Save only against the recording that was decoded. Reading its identity,
+ *  current metadata and the eventual write share the same transaction. */
+export async function recordSongWorld(track, record, scope = globalThis) {
+  const songWorld = copySongWorldRecord(record);
+  if (!songWorld || !track?.key || !track.rootId || !Number.isFinite(track.size) || !Number.isFinite(track.lastModified)) return null;
+  const { key, rootId, size, lastModified } = track;
+  const rows = await reduceTracks([{
+    key,
+    reduce: row => row && row.rootId === rootId && row.size === size && row.lastModified === lastModified
+      ? { ...row, songWorld } : null,
   }], scope);
   return rows?.[0] || null;
 }

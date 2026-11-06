@@ -167,3 +167,59 @@ test('a tour candidate uses its verified package identity instead of a legacy ra
   const bad = { ...view, tourManifestSha256: '' };
   assert.equal(forcedSceneChoice({ ...catalog, views: [bad] }, 'tour').view, null);
 });
+
+test('nearly equal scenery stays nearly equal while substantial relief contrasts retain musical preference', () => {
+  const target = { energy: .5, rawness: .5, grandeur: 1, dominance: .5 };
+  const pool = gap => [mk('low', 'BROADLEAF', 'approved', { grandeur: .066 }), mk('high', 'BROADLEAF', 'approved', { grandeur: .066 + gap })];
+  const tiny = sceneOdds(pool(.003), target), noise = sceneOdds(pool(1e-9), target), broad = sceneOdds(pool(.339), target);
+  assert.ok(tiny[1] < .55 && tiny[1] > .5, `small measured difference: ${tiny[1]}`);
+  assert.ok(Math.abs(noise[1] - .5) < 1e-6);
+  assert.ok(broad[1] > .85, `substantial difference: ${broad[1]}`);
+  for (const odds of [tiny, noise, broad]) {
+    assert.ok(Math.abs(odds.reduce((a, b) => a + b) - 1) < 1e-12);
+    assert.ok(odds.every(p => Number.isFinite(p) && p >= .075));
+  }
+});
+
+test('each biome keeps its own song ticket when candidate order changes', () => {
+  for (let seed = 0; seed < 40; seed++) {
+    const a = assignSongScenes(['ICEFIELD', 'STEPPE', 'CONIFER'], profile(.7), seed, catalogData);
+    const b = assignSongScenes(['CONIFER', 'ICEFIELD', 'STEPPE'], profile(.7), seed, catalogData);
+    for (const biome of a.keys()) assert.equal(a.get(biome).view.id, b.get(biome).view.id, `${biome} seed ${seed}`);
+  }
+});
+
+test('explicit recent-view filtering retains character coordinates from the full biome pool', async () => {
+  const { songTerrainTarget } = await import('../src/world/terrain/RangeMatcher.js');
+  const p = profile(.9), target = songTerrainTarget(p);
+  const views = [mk('low', 'CONIFER', 'approved', { energy: .1 }), mk('mid', 'CONIFER', 'approved', { energy: .5 }), mk('high', 'CONIFER', 'approved', { energy: .9 })];
+  const candidates = views.slice(0, 2);
+  // Only energy differs; equal-axis coordinates are .5. Preserve the full
+  // pool's energy coordinates 0 and .5 after excluding its high endpoint.
+  const kernel = [0, .5].map(energy => Math.exp(-(((target.energy - energy) ** 2
+    + ['rawness', 'grandeur', 'dominance'].reduce((sum, axis) => sum + (target[axis] - .5) ** 2, 0)) / .16)));
+  const expected = kernel.map(k => .075 + .85 * k / (kernel[0] + kernel[1]));
+  for (let seed = 0; seed < 20; seed++) {
+    const c = chooseSceneForBiome('CONIFER', p, seed, opts(views, { recentViewIds: ['high'] }));
+    assert.ok(Math.abs(c.odds - expected[candidates.findIndex(v => v.id === c.view.id)]) < 1e-12);
+  }
+});
+
+test('normal biome tickets stay independent when geographic regions span multiple biomes', () => {
+  const views = ['ICEFIELD', 'CONIFER'].flatMap(biome => [
+    mk(`${biome}-a`, biome, 'approved', {}, 'shared-region'),
+    mk(`${biome}-b`, biome, 'approved', {}, `${biome}-other-region`),
+  ]);
+  const catalog = { catalogVersion: 3, views };
+  let varietyObserved = false;
+  for (let seed = 0; seed < 80; seed++) {
+    const a = assignSongScenes(['ICEFIELD', 'CONIFER'], profile(), seed, catalog);
+    const b = assignSongScenes(['CONIFER', 'ICEFIELD'], profile(), seed, catalog);
+    for (const biome of a.keys()) assert.equal(a.get(biome).view.id, b.get(biome).view.id);
+    const deliberate = assignSongScenes(['ICEFIELD', 'CONIFER'], profile(), seed, catalog, { recentViewIds: [] });
+    if (a.get('ICEFIELD').view.regionId === 'shared-region' && a.get('CONIFER').view.regionId === 'shared-region') {
+      assert.notEqual(deliberate.get('CONIFER').view.regionId, 'shared-region'); varietyObserved = true;
+    }
+  }
+  assert.equal(varietyObserved, true);
+});

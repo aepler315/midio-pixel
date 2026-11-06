@@ -10,10 +10,9 @@
 // skyline is what the song's ridge draws, whichever ridge it stands on.
 import { RANGES, LOADERS } from './ranges/index.js';
 import { RIDGE_BANDS, matchRidgeSet } from './RangeMatcher.js';
-import { readRecentRanges, readRecentViews, readRecentRegions } from './RangeHistory.js';
-import { assignSongScenes } from './SceneCatalog.js';
-import SCENE_CATALOG from './sceneCatalogData.js';
-import { chooseSongBiomes, chooseBiomeRidges } from './BiomeSet.js';
+import { readRecentRanges } from './RangeHistory.js';
+import { planSongScenes } from './SongScenePlan.js';
+import { chooseBiomeRidges } from './BiomeSet.js';
 import { profilesFromJSON } from './TerrainProfile.js';
 import { chooseHorizonRange, MASSIF_SALT } from './HorizonRidge.js';
 
@@ -93,7 +92,8 @@ export async function prepareSongRange(profile, seed) {
  */
 export async function prepareSongTerrain(profile, seed, recent = readRecentRanges()) {
   try {
-    const biomes = chooseSongBiomes(profile, seed);
+    const scenery = planSongScenes(profile, seed);
+    const biomes = scenery.biomes;
     if (!biomes.length) return null;
     const byBiome = new Map();
     const load = async (biome) => {
@@ -144,21 +144,12 @@ export async function prepareSongTerrain(profile, seed, recent = readRecentRange
       console.warn(`[terrain] ${b} unavailable; its sections stay invented`, err);
       return null;
     })));
-    // Range v2: one lightweight scenic assignment per biome, drawn once for
-    // this song. Not a GPU preparation; RangePresentation loads the active
-    // and next view on demand. A biome without an approved view carries a
-    // null view and a fallback reason; its sections keep the legacy ranges.
-    let sceneByBiome = new Map();
-    try {
-      sceneByBiome = assignSongScenes(biomes, profile, seed, SCENE_CATALOG,
-        { recentViewIds: readRecentViews(), recentRegionIds: readRecentRegions() });
-    } catch (err) {
-      console.warn('[terrain] scenic catalog unavailable; legacy ranges only', err);
-    }
+    // The same pure plan names library worlds and runtime scenery. Transient
+    // view history must not replace a song's identity on its next play.
     const terrain = {
       biomes, home: biomes[0], byBiome, whenAll, allLoaded: false,
       range: home.ranges.far, ranges: home.ranges, profiles: home.profiles, horizon, massif,
-      sceneByBiome, catalogVersion: SCENE_CATALOG.catalogVersion,
+      sceneByBiome: scenery.sceneByBiome, catalogVersion: scenery.catalogVersion, matchingVersion: scenery.matchingVersion,
     };
     whenAll.then(() => { terrain.allLoaded = true; });
     return terrain;
