@@ -42,6 +42,7 @@
     "stage:versions": "node tools/stage-history.mjs . _site",
     "visual:eval": "node tools/visual-evaluate.mjs",
     "review:landscape": "node tools/landscape-review.mjs",
+    "scout:views": "node tools/build-view-discovery.mjs",
     "plex:server": "node --env-file=.env.plex tools/plex-server.mjs",
     "plex:probe": "node --env-file=.env.plex tools/plex-probe.mjs",
     "plex:config": "node tools/write-plex-public-config.mjs",

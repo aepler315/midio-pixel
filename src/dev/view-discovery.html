@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Viewfinder · Midio Pixel</title>
+  <link rel="stylesheet" href="./view-discovery/style.css">
+</head>
+<body>
+  <main class="workspace">
+    <header class="masthead">
+      <div><p class="eyebrow">MIDIO PIXEL / TERRAIN DISCOVERY</p><h1>Viewfinder<span>.</span></h1></div>
+      <a class="back-link" href="https://supermaudio.com/">Back to Midio ↗</a>
+    </header>
+    <div class="intro"><p>A wider world, one view at a time.</p><p class="muted">Keep what catches your eye. We’ll build the detail later.</p></div>
+    <section class="toolbar" aria-label="Find views">
+      <label class="search-field"><span class="sr-only">Search places</span><input id="search" type="search" placeholder="Search places…" maxlength="300" autocomplete="off"></label>
+      <label><span class="sr-only">Review status</span><select id="status-filter"><option value="unreviewed">Unreviewed</option><option value="all">All views</option><option value="keep">Keep</option><option value="maybe">Maybe</option><option value="pass">Pass</option></select></label>
+      <label><span class="sr-only">Region</span><select id="region-filter"><option value="">All regions</option></select></label>
+      <span id="progress" class="progress">Loading the collection…</span>
+    </section>
+    <section class="viewer" aria-labelledby="view-name">
+      <div class="view-heading"><div><p id="view-kind" class="eyebrow">FIND YOUR NEXT LANDSCAPE</p><h2 id="view-name">Opening the collection</h2><p id="view-region" class="muted"></p></div><div class="view-options"><span id="verdict" class="verdict" hidden></span><div class="display-modes" role="group" aria-label="Preview appearance"><button id="mode-landscape" type="button" aria-pressed="true">Landscape</button><button id="mode-shape" type="button" aria-pressed="false">Terrain shape</button></div></div></div>
+      <div class="image-stage" id="image-stage" aria-busy="true">
+        <img id="preview" alt="" hidden>
+        <div id="preview-empty" class="preview-empty"><span class="compass" aria-hidden="true">⌖</span><p id="preview-message">Loading real terrain previews…</p></div>
+        <span class="preview-label" id="preview-label">Landscape appearance preview</span>
+        <button id="compare" type="button" class="compare" aria-pressed="false" hidden>Compare with existing scene</button>
+      </div>
+      <div class="caption"><p id="preview-detail">Current landscape colors and lighting on coarse terrain. Fine detail, water, trees and motion can differ.</p><p id="position" class="position"></p></div>
+      <p id="preview-warning" class="warning" hidden></p>
+      <div class="review-controls">
+        <button id="previous" type="button" class="nav" aria-label="Previous view">← <span>Previous</span></button>
+        <div class="decisions" role="group" aria-label="Review current view">
+          <button id="pass" type="button" class="choice pass">Pass <kbd>P</kbd></button>
+          <button id="maybe" type="button" class="choice maybe">Maybe <kbd>M</kbd></button>
+          <button id="keep" type="button" class="choice keep">Keep <kbd>K</kbd></button>
+        </div>
+        <button id="next" type="button" class="nav" aria-label="Next view"><span>Next</span> →</button>
+      </div>
+      <div class="notes-row"><label for="notes">A note for later <span class="muted">optional</span></label><button id="undo" type="button" class="text-button" disabled>↶ Undo last decision</button></div>
+      <textarea id="notes" rows="2" maxlength="2000" placeholder="A better angle, something you love, something to change…"></textarea>
+    </section>
+    <footer class="footer">
+      <div class="save-state"><p id="storage-state">Decisions stay in this browser.</p><p id="announcement" role="status" aria-live="polite"></p></div>
+      <div class="file-actions"><button id="import" type="button">Import review</button><button id="export" type="button">Export review</button><button id="shortlist" type="button">Download shortlist ↗</button><input type="file" id="import-file" accept="application/json,.json" hidden></div>
+    </footer>
+    <p class="fine-print">Landscape previews apply the app’s material colors and lighting to real, coarse elevation. Terrain shape isolates the camera and terrain. These are still studies; keeping a view adds it to your shortlist for a detailed build. Elevation: <a href="https://registry.opendata.aws/terrain-tiles/" target="_blank" rel="noopener noreferrer">Mapzen / AWS Terrain Tiles</a> (USGS, SRTM and other regional sources). Place data: <a href="https://www.geonames.org/" target="_blank" rel="noopener noreferrer">GeoNames</a>, <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC BY 4.0</a>.</p>
+  </main>
+  <script type="module" src="./view-discovery/main.js"></script>
+</body>
+</html>

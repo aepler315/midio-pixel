@@ -10,3 +10,12 @@ plan. Published elevation checks are stored separately from GeoNames values.
 tools/build-tour-names.mjs selects summit, lake, pass and valley features
 from the GeoNames US dump under the same CC BY 4.0 license, transforms their
 coordinates into the tour's local metric frame, and records the input hash.
+
+View Scout's geographic camera leads are derived from the repository's
+Ridgeview snapshot (GeoNames names, CC BY 4.0, and Wikidata names, CC0).
+Its coarse terrain previews use Terrain Tiles on AWS, provided by Mapzen /
+Tilezen, with USGS 3DEP, SRTM, GMTED and ETOPO sources by region and zoom.
+Dataset: https://registry.opendata.aws/terrain-tiles/
+Source attribution: https://github.com/tilezen/joerd/blob/master/docs/attribution.md
+Previews are reduced-resolution derived images for composition discovery;
+they do not reproduce the production terrain, materials or water treatment.
