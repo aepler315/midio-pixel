@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   chooseSceneForBiome, assignSongScenes, validateSceneCatalog, forcedSceneChoice, sceneOdds, SCENIC_FAIR_SHARE,
+  sceneViewEligible,
 } from '../src/world/terrain/SceneCatalog.js';
 import { FAIR_SHARE, HOME_BIOME_FAIR_SHARE } from '../src/world/terrain/RangeMatcher.js';
 import catalogData from '../src/world/terrain/sceneCatalogData.js';
@@ -144,7 +145,7 @@ test('a song through every biome gets each biome its own view, deterministically
       const v = map.get(biome).view;
       assert.ok(v, `${biome}: no view`);
       assert.equal(v.biome, biome);
-      assert.equal(v.status, 'approved');
+      assert.equal(sceneViewEligible(v), true);
       assert.equal(again.get(biome).view.id, v.id, `${biome}: assignment is not deterministic`);
     }
   }

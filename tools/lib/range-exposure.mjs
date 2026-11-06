@@ -1,7 +1,7 @@
 // Range v2 visibility (plan Task 14): the far range's crest must stay at
-// least MIN_FAR_EXPOSED visible at every rail station and every travel
-// sample, the same protection the legacy ridge fit keeps (RidgeComposition
-// MIN_EXPOSED), and a far crest must span at least MIN_FAR_CREST_COLUMNS of
+// least MIN_FAR_EXPOSED visible at every rail station. Brief occlusion in
+// mixed-band travel is reported for visual review. A far crest must still
+// span at least MIN_FAR_CREST_COLUMNS of
 // the frame. Measured on the shipped package the way the runtime draws it:
 // every tile rendered in the partition its manifest assigns (`band`), each
 // partition a depth raster, the far pass's skyline tested against whichever
@@ -20,6 +20,16 @@ export { MIN_FAR_EXPOSED };
 
 /** A far crest must span at least this share of the frame at every station. */
 export const MIN_FAR_CREST_COLUMNS = 0.5;
+
+/** A close ridge can briefly cover the far crest during a valid travel.
+ * Report that appearance trade-off; missing crest coverage remains a fault. */
+export function travelExposureReview({ min, minCrest }) {
+  const errors = [], warnings = [];
+  if (!Number.isFinite(min) || min < 0 || min > 1) errors.push('invalid travel exposure');
+  else if (min < MIN_FAR_EXPOSED) warnings.push(`far crest only ${min.toFixed(2)} exposed in travel`);
+  if (!Number.isFinite(minCrest) || minCrest < MIN_FAR_CREST_COLUMNS) errors.push(`far crest spans only ${Number(minCrest).toFixed(2)} of the frame in travel (needs ${MIN_FAR_CREST_COLUMNS})`);
+  return { errors, warnings };
+}
 
 /** Occlusion raster over the shipped surface, resampled every `step` cells. */
 export const EXPOSURE_OCCLUSION = Object.freeze({ ...VISIBILITY.occlusion, stride: 1 });

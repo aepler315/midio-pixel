@@ -56,7 +56,7 @@ import { RangePresentation, resolveRangeMode } from './world/alpine/RangePresent
 import { openCameraRun, cameraSongOptions, readRailPace, persistRailPace, railPaceControlState } from './ui/CameraRun.js';
 import { applyTerrainTourPolicy, captureTourTerrainState, restoreTourTerrainState } from './ui/TourTerrain.js';
 import { rangeTourControlState } from './ui/RangeTourControl.js';
-import { DETAIL_LEVELS, stepDetail, snapshotFileName, captureDetailSnapshots, canvasToPng, snapshotCapturePlan } from './ui/DetailSnapshots.js';
+import { DETAIL_LEVELS, stepDetail, detailKeyDelta, snapshotFileName, captureDetailSnapshots, canvasToPng, snapshotCapturePlan } from './ui/DetailSnapshots.js';
 import { REEL_TARGET_SIZE, sizeLabel, reelFileName, planReelRenders, stepTargets, warmupTimes, describeReelSave,
   createReelSaver, ReelSaveCancelled, ReelSizeError, classifyArmError } from './ui/ReelExport.js';
 import { residencyBudgetFor } from './render/GraphicsResidency.js';
@@ -123,6 +123,10 @@ import {
 import { PlexSource } from './net/PlexSource.js';
 import { PlexLibraryPanel } from './ui/PlexLibraryPanel.js';
 import { recentlyPlayed, displayTitle, displayArtist, untaggedTracks, randomTrack } from './library/TrackIndex.js';
+import { PlaybackSequence } from './library/PlaybackSequence.js';
+import { ContinuousPlayback } from './library/ContinuousPlayback.js';
+import { readPlaybackPrefs, writePlaybackPrefs } from './ui/PlaybackPreferences.js';
+import { ensureReadPermission } from './library/LibraryScanner.js';
 
 
 const STEP_MS = 1000 / 120;
@@ -202,6 +206,7 @@ const resultsGridEl = document.getElementById('resultsGrid');
 const playAgainBtnEl = document.getElementById('playAgainBtn');
 const replaySameSeedBtnEl = document.getElementById('replaySameSeedBtn');
 const replayNewSeedBtnEl = document.getElementById('replayNewSeedBtn');
+const completeRandomSongBtnEl = document.getElementById('completeRandomSongBtn');
 const completeNewSeedRowEl = document.getElementById('completeNewSeedRow');
 const completeNewSeedInputEl = document.getElementById('completeNewSeedInput');
 const completeNewSeedStartBtnEl = document.getElementById('completeNewSeedStartBtn');
@@ -443,6 +448,43 @@ let snapshotPlayerPrefs = null;
  *  save rebuilds the song (and its sim) to draw them again. */
 let completedReelFrames = [];
 const reelSaver = createReelSaver();
+let playbackPrefs = readPlaybackPrefs(displayStorage());
+const playbackSequence = new PlaybackSequence();
+const continuousStatusEl = document.getElementById('continuousPlaybackStatus');
+const cancelContinuousBtnEl = document.getElementById('cancelContinuousPlaybackBtn');
+let continuousPhase = 'idle';
+const continuousPlayback = new ContinuousPlayback({ onChange: renderContinuousPlaybackState });
+function renderContinuousPlaybackState(state) {
+  const wasLoading = continuousPhase === 'loading';
+  continuousPhase = state.phase;
+  if (continuousStatusEl) {
+    continuousStatusEl.textContent = state.phase === 'countdown'
+      ? `Next song in ${state.remainingSeconds}…` : state.message;
+    continuousStatusEl.hidden = !continuousStatusEl.textContent;
+  }
+  if (state.phase === 'idle' && state.message && wasLoading) {
+    backToTitle({ cancelContinuous: false });
+    if (state.message !== 'Next song cancelled.') showErrorBanner(state.message);
+  } else if (state.phase === 'idle' && state.message && !running) {
+    completePanelEl.classList.remove('hidden');
+    loaderEl.classList.add('hidden');
+    progressEl.classList.add('hidden');
+  }
+  if (cancelContinuousBtnEl) cancelContinuousBtnEl.hidden = state.phase === 'idle';
+  syncReelSaveControls();
+}
+for (const [id, key] of [['shufflePlayback', 'shuffle'], ['continuousPlayback', 'continuous']]) {
+  const control = document.getElementById(id);
+  if (!control) continue;
+  control.checked = playbackPrefs[key];
+  control.addEventListener('change', () => {
+    playbackPrefs = { ...playbackPrefs, [key]: control.checked };
+    writePlaybackPrefs(displayStorage(), playbackPrefs);
+    if (key === 'shuffle') playbackSequence.reset();
+    if (key === 'continuous' && !control.checked) continuousPlayback.cancel();
+  });
+}
+cancelContinuousBtnEl?.addEventListener('click', () => continuousPlayback.cancel('Next song cancelled.'));
 /** The last save's PNGs, offered as links the player clicks: a download
  *  started seconds after the click that asked for it has no user activation,
  *  and browsers block or drop such downloads (several at once especially). */
@@ -904,14 +946,14 @@ function applyDisplayPref(key, value) {
 
 // HUD detail stepper: one level coarser or finer, through the same path as
 // the Display menu (persisted, re-presented, a paused frame redrawn).
-detailDownBtnEl?.addEventListener('click', () => {
+function stepPixelDetail(delta) {
   wakeHud();
-  if (!snapshotBusy) applyDisplayPref('pixelGrid', stepDetail(displayPrefs.pixelGrid, -1));
-});
-detailUpBtnEl?.addEventListener('click', () => {
-  wakeHud();
-  if (!snapshotBusy) applyDisplayPref('pixelGrid', stepDetail(displayPrefs.pixelGrid, 1));
-});
+  if (snapshotBusy) return;
+  const next = stepDetail(displayPrefs.pixelGrid, delta);
+  if (next !== displayPrefs.pixelGrid) applyDisplayPref('pixelGrid', next);
+}
+detailDownBtnEl?.addEventListener('click', () => stepPixelDetail(-1));
+detailUpBtnEl?.addEventListener('click', () => stepPixelDetail(1));
 
 // Hold the current moment and save lossless PNGs. Desktop captures each
 // detail level at 1920×1080; Android captures the current live-sized frame to
@@ -1390,7 +1432,8 @@ function closeWorldChooser() {
 }
 
 /** Back to the title/drop screen so a different song can be chosen. */
-function backToTitle() {
+function backToTitle({ cancelContinuous = true } = {}) {
+  if (cancelContinuous) continuousPlayback.cancel();
   // Any in-flight analysis belongs to the discarded song. Its progress or
   // failure must not redraw this title screen later.
   audioSelections.cancel();
@@ -1621,17 +1664,18 @@ function offerWorldsThenStart(data, extra = {}) {
     });
     lastFitDiagnostic = recordFitDiagnostic(features, profile);
     const exporting = !!(extra.exportMode || readBulkExportFromUrl());
-    if (URL_PICKS_WORLD || exporting) {
+    if (URL_PICKS_WORLD || exporting || extra.continuationWorldId) {
       // Already chosen: start in that world. Landscape's home ranges have
       // to be there first -- there is no picker to cover the load -- and an
       // export waits for every biome, so its frames never depend on load
       // timing. Trio's ranges are procedural and start at once.
-      const mine = pendingWorldStart, worldId = worldForExperience(experience);
+      const mine = pendingWorldStart, worldId = extra.continuationWorldId || worldForExperience(experience);
       const ready = mine.terrainReady.then((t) => (exporting && t?.whenAll ? t.whenAll.then(() => t) : t));
       const wait = worldExperience(worldId) === 'trio' ? Promise.resolve()
         : exporting ? ready : Promise.race([ready, new Promise((r) => setTimeout(r, BIOME_WAIT_MS))]);
       wait.then(() => {
         if (pendingWorldStart !== mine) return;
+        if (extra.automaticTicket && !continuousPlayback.isCurrent(extra.automaticTicket)) return;
         playSelectedWorld(worldId);
       });
       return;
@@ -1821,6 +1865,7 @@ function abortBulkExport() {
  *  The seed and the decoded buffer carry over, so each resolution is the
  *  same performance. */
 function beginBulkExport({ width, height, presentation: override, qualityLevel = null, cameraSchedule = undefined, cameraTourMode = undefined } = {}) {
+  continuousPlayback.cancel();
   const size = evenExportSize({ w: width, h: height });
   if (!size) throw new Error(`Export size must be even and at least 2×2 (got ${width}×${height}).`);
   if (!lastTimelineData) throw new Error('Load a song before exporting.');
@@ -1875,6 +1920,7 @@ function confirmWorld(id) {
 }
 
 function startConfirmedWorld(pending, id) {
+  if (pending.extra?.automaticTicket && !continuousPlayback.isCurrent(pending.extra.automaticTicket)) return;
   id = resolveWorldId(id);
   stopWorldPreview();
   lastWorldId = id;
@@ -1887,6 +1933,15 @@ function startConfirmedWorld(pending, id) {
   // "keyboard" tones + hat/kick clicks) must not sit on top of it.
   if (extra.playBuffer) muteTimelineSynth = true;
   startTimeline(pending.data, extra);
+  if (extra.onAutomaticStart) {
+    completePanelEl.classList.remove('hidden');
+    const owner = sim;
+    Promise.resolve(renderReadyPromise).then(result => {
+      const ready = result?.status === 'ready' && running && sim === owner;
+      if (ready && continuousPlayback.isCurrent(extra.automaticTicket)) completePanelEl.classList.add('hidden');
+      extra.onAutomaticStart(ready ? { status: 'ready' } : { status: 'failed' });
+    });
+  }
   if (running) canvas.focus({ preventScroll: true });
   if (extra.playBuffer) {
     lastAudioBuffer = extra.playBuffer;
@@ -1980,7 +2035,8 @@ function startTimeline(timelineData, extra = {}) {
     startAtMs = 0, startAtWallMs = 0, preservePause = false, captureMode: captureModeFlag = false,
     exportMode: exportModeFlag = false, exportSize = null, keepAudio = false,
   } = extra;
-  lastStartExtra = { ...extra, cameraSchedule: undefined, cameraTourMode: undefined, cameraRunIntent: undefined, exportMode: false, exportSize: null, exportPresentation: undefined, exportQualityLevel: undefined, beforePlayback: undefined, chapterState: null, keepAudio: false, startAtMs: 0, startAtWallMs: 0, keepUserCamera: false };
+  lastStartExtra = { ...extra, automaticTicket: undefined, continuationWorldId: undefined, onAutomaticStart: undefined,
+    cameraSchedule: undefined, cameraTourMode: undefined, cameraRunIntent: undefined, exportMode: false, exportSize: null, exportPresentation: undefined, exportQualityLevel: undefined, beforePlayback: undefined, chapterState: null, keepAudio: false, startAtMs: 0, startAtWallMs: 0, keepUserCamera: false };
   // The world decides the presentation, before anything below reads it.
   timelineData.worldId = resolveWorldId(timelineData.worldId || lastWorldId || DEFAULT_WORLD_ID);
   applyExperience(worldExperience(timelineData.worldId));
@@ -2387,6 +2443,8 @@ function startTimeline(timelineData, extra = {}) {
     get paused() { return paused; },
     get playbackPreparing() { return playbackPreparing; },
     get renderReady() { return renderReadyPromise; },
+    get continuousPlaybackState() { return { ...continuousPlayback.snapshot, ...playbackPrefs,
+      currentTrackId: lastLibraryTrackId, trackCount: musicLibrary.tracks.length }; },
     get renderReadiness() { return { status: renderPlayback.status, reason: renderPlayback.error?.message || null }; },
     get displayPrefs() { return { ...displayPrefs }; },
     beginBulkExport: (size) => beginBulkExport(size),
@@ -2741,7 +2799,8 @@ async function resolveLyricsForAudio(identity, durationSec, vocalStem = null, { 
 /** One audio file plays as itself; SEVERAL dropped together are treated as
  *  stems of one song -- summed into a mix for analysis/playback, with each
  *  file's NAME casting its notes to a character (see Casting.js). */
-function beginAudioSelection(source) {
+function beginAudioSelection(source, automaticTicket = null) {
+  if (!automaticTicket) continuousPlayback.cancel();
   const ticket = audioSelections.begin(source);
   selectionExportSettings.set(ticket, exportSetup.snapshot());
   loadGen++;
@@ -2752,7 +2811,7 @@ function beginAudioSelection(source) {
   return ticket;
 }
 
-async function loadAudioFiles(files, { selection = null, sourceMetadata = null, localTrack = null, onPrepared = null } = {}) {
+async function loadAudioFiles(files, { selection = null, sourceMetadata = null, localTrack = null, onPrepared = null, playbackOptions = null } = {}) {
   selection ||= beginAudioSelection('local');
   if (!audioSelections.isCurrent(selection)) return;
   let selectedFiles;
@@ -2783,6 +2842,7 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
   const myGen = loadGen;
   const isStale = () => signal.aborted || myGen !== loadGen || !audioSelections.isCurrent(selection);
   stopTimeline();
+  if (playbackOptions?.automaticTicket) completePanelEl.classList.remove('hidden');
   stopTitleBackdrop();
   loadShow?.stop();
   pendingWorldStart = null;
@@ -3069,7 +3129,7 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
     fontRecommender?.clear(); // the recording is its own sound source
     loadAudioFiles._preparedData = data;
     onPrepared?.();
-    offerWorldsThenStart(data, { playBuffer: audioBuffer, lyricsReady, recordingSettings: selectionExportSettings.get(selection) });
+    offerWorldsThenStart(data, { playBuffer: audioBuffer, lyricsReady, recordingSettings: selectionExportSettings.get(selection), ...playbackOptions });
     return true;
   } catch (err) {
     if (isStale() || err?.name === 'AbortError') return;
@@ -3091,7 +3151,7 @@ function handleFile(file) {
 /** One file plays as itself. Several files dropped together are stems of one
  *  song (their filenames cast the characters). The built-in sample is a
  *  second door into the same chooser. */
-function handleFiles(files, { selection = null, sourceMetadata = null, localTrack = null, onPrepared = null } = {}) {
+function handleFiles(files, { selection = null, sourceMetadata = null, localTrack = null, onPrepared = null, playbackOptions = null } = {}) {
   selection ||= beginAudioSelection('local');
   if (!audioSelections.isCurrent(selection)) return;
   // Whatever this is, it is the source the player chose most recently, so
@@ -3111,7 +3171,7 @@ function handleFiles(files, { selection = null, sourceMetadata = null, localTrac
   stopWorldPreview();
   pendingWorldStart = null;
   showProgress('Reading file…');
-  return loadAudioFiles(list, { selection, sourceMetadata, localTrack, onPrepared });
+  return loadAudioFiles(list, { selection, sourceMetadata, localTrack, onPrepared, playbackOptions });
 }
 
 fileInputEl?.addEventListener('change', (e) => {
@@ -4268,6 +4328,14 @@ window.addEventListener('keydown', (e) => {
   if ((e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar')
     && e.target?.closest?.('button, input, select, textarea, a')) return;
   if (running) wakeHud();
+  // The bounded density stepper owns these keys even at an endpoint, so
+  // a held key cannot wrap around or fall through to beat recalibration.
+  const detailDelta = detailKeyDelta(e);
+  if (detailDelta) {
+    e.preventDefault();
+    stepPixelDetail(detailDelta);
+    return;
+  }
   if (e.key === 'Escape') {
     if (filmstripModalEl && !filmstripModalEl.classList.contains('hidden')) closeFilmstripModal();
     // Close section detail overlay on the seekbar.
@@ -4462,7 +4530,46 @@ function onSongComplete() {
   completePanelEl.classList.remove('hidden');
   // A full-song export ends where the song does. Awaiting it here would
   // hold up the panel, so it saves itself and writes its own line.
-  if (songRecorder?.recording) finishRecording();
+  const recordingReady = songRecorder?.recording ? finishRecording() : recordingFinalization;
+  queueContinuousPlayback(recordingReady);
+}
+
+/** A completed live show may advance; exports and borrowed stages never do. */
+function queueContinuousPlayback(ready = null) {
+  if (!playbackPrefs.continuous || bulkExportArmed || reelSaver.busy || snapshotBusy) return;
+  if (!musicLibrary.tracks.length) {
+    continuousPlayback.cancel('Continuous play stopped: add songs to your music library.');
+    return;
+  }
+  const worldId = worldForExperience(experience);
+  continuousPlayback.schedule({ ready, start: ticket => startNextLibraryTrack(ticket, worldId) });
+}
+
+async function startNextLibraryTrack(ticket, worldId) {
+  const attempted = new Set(), root = musicLibrary.root;
+  while (continuousPlayback.isCurrent(ticket) && attempted.size < 3) {
+    if (musicLibrary.root !== root) return { message: 'Continuous play stopped: the music folder changed.' };
+    if (!musicLibrary.playable || (musicLibrary.handle && !await ensureReadPermission(musicLibrary.handle))) {
+      return { message: 'Continuous play stopped: click a library song to allow folder access.' };
+    }
+    if (!continuousPlayback.isCurrent(ticket)) return null;
+    if (musicLibrary.root !== root) return { message: 'Continuous play stopped: the music folder changed.' };
+    const track = playbackSequence.next(musicLibrary.tracks, {
+      shuffle: playbackPrefs.shuffle, previousId: lastLibraryTrackId, excludedIds: attempted,
+    });
+    if (!track) break;
+    attempted.add(track.key);
+    try {
+      const result = await playLibraryTrack(track, { automaticTicket: ticket, continuationWorldId: worldId });
+      if (!continuousPlayback.isCurrent(ticket)) return null;
+      if (result?.status === 'ready') return null;
+      if (result?.status === 'failed') return { message: 'Continuous play stopped: the next world could not start. Choose a song to retry.' };
+    } catch (error) {
+      if (!continuousPlayback.isCurrent(ticket)) return null;
+      console.warn('[continuous play] skipped recording', error);
+    }
+  }
+  return { message: 'Continuous play stopped: no playable song was found after up to three tries.' };
 }
 
 /** Restart the last-loaded song. Pass songSeed to pin the world; omit for
@@ -4470,6 +4577,7 @@ function onSongComplete() {
 function replaySong({ songSeed } = {}) {
   // A 4K reel save is drawing on the stage; its buttons say so (disabled).
   if (reelSaver.busy) return;
+  continuousPlayback.cancel();
   if (!lastTimelineData) { window.location.reload(); return; }
   // Capture buffer before rebuild — startTimeline stops the AudioContext source
   // via stopTimeline, but must not lose the decoded song for the restart.
@@ -4523,6 +4631,7 @@ function renderFilmstrip(frames) {
 function openFilmstripModal(index) {
   const frame = completedReelFrames[index];
   if (!filmstripModalEl || !frame) return;
+  continuousPlayback.cancel();
   openReelIndex = index;
   filmstripModalTitleEl.textContent = filmstripCaption(frame);
   filmstripModalImgEl.src = frame.dataUrl;
@@ -4543,14 +4652,17 @@ function closeFilmstripModal() {
  *  each would start a song on top of the rebuild drawing the frames. */
 function syncReelSaveControls(status) {
   const busy = reelSaver.busy;
+  const loading = continuousPlayback.snapshot.phase === 'loading';
   for (const el of [filmstripModalSaveEl, filmstripSaveAllEl]) {
     if (!el) continue;
-    el.disabled = busy;
+    el.disabled = busy || loading;
     el.setAttribute('aria-busy', busy ? 'true' : 'false');
   }
-  for (const el of [replaySameSeedBtnEl, replayNewSeedBtnEl, playAgainBtnEl, completeNewSeedStartBtnEl]) {
-    if (el) el.disabled = busy;
+  for (const el of [replaySameSeedBtnEl, replayNewSeedBtnEl, completeNewSeedStartBtnEl, completeRandomSongBtnEl]) {
+    if (el) el.disabled = busy || loading;
   }
+  if (playAgainBtnEl) playAgainBtnEl.disabled = busy;
+  for (const button of filmstripEl?.querySelectorAll('button') || []) button.disabled = busy || loading;
   if (status !== undefined) {
     for (const el of [filmstripStatusEl, filmstripModalStatusEl]) if (el) el.textContent = status;
   }
@@ -4678,6 +4790,7 @@ function endReelRender(data, restore) {
  * offered as links to click, not downloaded on their own (showReelFiles).
  */
 async function saveReelFrames(indices = null) {
+  continuousPlayback.cancel();
   if (reelSaver.busy) return;
   if (running || snapshotBusy || bulkExportArmed || songRecorder?.recording || songRecorder?.finalizing
     || pendingCaptureOptions || !lastTimelineData) {
@@ -4788,6 +4901,7 @@ replaySameSeedBtnEl?.addEventListener('click', () => {
 
 // New seed: prompt for one inline on the card, then replay with it.
 replayNewSeedBtnEl?.addEventListener('click', () => {
+  continuousPlayback.cancel();
   if (!completeNewSeedRowEl || !completeNewSeedInputEl) { replaySong({ songSeed: randomizeSeed() }); return; }
   completeNewSeedInputEl.value = formatSeed((Math.random() * 0x100000000) >>> 0);
   completeNewSeedRowEl.classList.remove('hidden');
@@ -4857,16 +4971,20 @@ if (fallbackUsesFiles && libraryFolderInputEl) {
 }
 const randomSongBtn = document.getElementById('randomSongBtn');
 let lastLibraryTrackId = null;
-randomSongBtn?.addEventListener('click', async () => {
-  if (randomSongBtn.disabled) return;
+async function playRandomLibrarySong() {
+  if (randomSongBtn?.disabled || completeRandomSongBtnEl?.disabled || reelSaver.busy) return;
+  continuousPlayback.cancel();
   if (!musicLibrary.tracks.length) { chooseMusicFolder(); return; }
   const previous = lastLibraryTrackId || recentlyPlayed(musicLibrary.tracks, 1)[0]?.key;
   const track = randomTrack(musicLibrary.tracks, previous);
-  randomSongBtn.disabled = true;
-  try { await playLibraryTrack(track); }
+  const continuationWorldId = completePanelEl.classList.contains('hidden') ? null : worldForExperience(experience);
+  for (const button of [randomSongBtn, completeRandomSongBtnEl]) if (button) button.disabled = true;
+  try { await playLibraryTrack(track, { continuationWorldId }); }
   catch (error) { showErrorBanner('Could not open that song: ' + (error?.message || error)); }
-  finally { randomSongBtn.disabled = false; }
-});
+  finally { for (const button of [randomSongBtn, completeRandomSongBtnEl]) if (button) button.disabled = reelSaver.busy; }
+}
+randomSongBtn?.addEventListener('click', playRandomLibrarySong);
+completeRandomSongBtnEl?.addEventListener('click', playRandomLibrarySong);
 /** Set when a load came from the library, so the decode can report the
  *  track's real duration back. Cleared as soon as it is consumed. */
 let autoTagAbort = null;
@@ -5004,32 +5122,50 @@ function closeLibrary({ cancelScan = true } = {}) {
 /** Turn a stored track back into the drop that the whole load path already
  *  understands, so a library play and a dropped file are the same thing
  *  from here on. */
-async function playLibraryTrack(track) {
+async function playLibraryTrack(track, { automaticTicket = null, continuationWorldId = null } = {}) {
   if (!track) return;
-  unlockAudio();
-  const selection = beginAudioSelection('library');
-  // A remembered library with no live handle: one click gets it back rather
-  // than making the player hunt for the folder button.
-  if (!musicLibrary.playable && musicLibrary.root?.handle) {
-    if (!await musicLibrary.grantAccess()) {
-      showErrorBanner('Allow access to your music folder to play from the library.');
+  if (automaticTicket && !continuousPlayback.isCurrent(automaticTicket)) return;
+  if (!automaticTicket) unlockAudio();
+  const selection = beginAudioSelection('library', automaticTicket);
+  const root = musicLibrary.root;
+  const cancelAutomatic = () => audioSelections.cancel(selection);
+  automaticTicket?.signal.addEventListener('abort', cancelAutomatic, { once: true });
+  let automaticStarted;
+  const started = automaticTicket ? new Promise(resolve => { automaticStarted = resolve; }) : null;
+  const aborted = () => automaticStarted?.({ status: 'cancelled' });
+  automaticTicket?.signal.addEventListener('abort', aborted, { once: true });
+  try {
+    // A remembered library with no live handle: one click gets it back rather
+    // than making the player hunt for the folder button.
+    if (!automaticTicket && !musicLibrary.playable && musicLibrary.root?.handle) {
+      if (!await musicLibrary.grantAccess()) {
+        showErrorBanner('Allow access to your music folder to play from the library.');
+        return;
+      }
+    }
+    if (!audioSelections.isCurrent(selection) || musicLibrary.root !== root) return;
+    const file = await musicLibrary.openFile(track);
+    if (!audioSelections.isCurrent(selection) || musicLibrary.root !== root) return;
+    if (!file) {
+      if (automaticTicket) return false;
+      showErrorBanner(musicLibrary.playable
+        ? `“${displayTitle(track)}” isn’t where the library remembers it. Rescan the folder to catch up.`
+        : 'Pick your music folder again to play from the library.');
       return;
     }
+    // The scan keeps running: playing the first track you recognise is the
+    // reason the rows stream in at all.
+    closeLibrary({ cancelScan: false });
+    const loaded = await handleFiles([file], { selection, localTrack: track,
+      playbackOptions: continuationWorldId ? { automaticTicket, continuationWorldId, onAutomaticStart: automaticStarted } : null });
+    if (loaded !== true || !audioSelections.isCurrent(selection)) return false;
+    const result = automaticTicket ? await started : true;
+    if (audioSelections.isCurrent(selection) && (!automaticTicket || result?.status === 'ready')) lastLibraryTrackId = track.key;
+    return result;
+  } finally {
+    automaticTicket?.signal.removeEventListener('abort', cancelAutomatic);
+    automaticTicket?.signal.removeEventListener('abort', aborted);
   }
-  if (!audioSelections.isCurrent(selection)) return;
-  const file = await musicLibrary.openFile(track);
-  if (!audioSelections.isCurrent(selection)) return;
-  if (!file) {
-    showErrorBanner(musicLibrary.playable
-      ? `“${displayTitle(track)}” isn’t where the library remembers it. Rescan the folder to catch up.`
-      : 'Pick your music folder again to play from the library.');
-    return;
-  }
-  // The scan keeps running: playing the first track you recognise is the
-  // reason the rows stream in at all.
-  closeLibrary({ cancelScan: false });
-  lastLibraryTrackId = track.key;
-  return handleFiles([file], { selection, localTrack: track });
 }
 
 async function chooseMusicFolder() {
@@ -5201,6 +5337,7 @@ const exportNoteEl = document.getElementById('exportNote');
 
 
 let songRecorder = null;
+let recordingFinalization = null;
 let fullSongRecording = false;
 /** Mid-song capture waits until the live presentation lead has been paid
  * down without rewinding simulation time. */
@@ -5286,7 +5423,7 @@ function finishRecording() {
   // Finalization may finish after another song has been selected.
   const recordingData = lastTimelineData;
   const recordingName = sessionSongName(recordingData, lastSongName);
-  recorder.stop({ drain: true }).then((result) => {
+  recordingFinalization = recorder.stop({ drain: true }).then((result) => {
     syncRecordUI();
     if (!result) {
       setExportNote(recorder.stopReason === 'error' && recorder.error
@@ -5318,6 +5455,7 @@ function finishRecording() {
     syncRecordUI();
   });
   syncRecordUI();
+  return recordingFinalization;
 }
 
 function abortRecording(message) {
@@ -5414,6 +5552,8 @@ if (!window.__SMW) window.__SMW = {
   get rangeRenderer() { return rangePresentation?.mode || rangeMode.mode; },
   get rangeState() { return rangeStateSnapshot(); },
   get rangeTourStatus() { return currentTourControlState(); },
+  get continuousPlaybackState() { return { ...continuousPlayback.snapshot, ...playbackPrefs,
+    currentTrackId: lastLibraryTrackId, trackCount: musicLibrary.tracks.length }; },
 };
 
 // Public Plex endpoint configuration loads independently of local startup.

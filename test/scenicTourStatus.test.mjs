@@ -54,6 +54,16 @@ test('the status report separates base approval from verified tour eligibility',
   assert.equal(await reported(), 'stale', 'an unexpected tour status fails the runtime identity gate');
 });
 
+test('enabled new-region libraries are reported as experimental without granting approval', async (t) => {
+  const f = await fixture(t);
+  f.view.status = f.view.shotTour.status = 'candidate';
+  f.view.experimental = true;
+  f.view.shotTour.approval = null;
+  const row = (await statusRows(f.options)).find(r => r.view === id);
+  assert.equal(row.catalogStatus, 'candidate');
+  assert.equal(row.tour, 'experimental');
+});
+
 test('the status report marks stale approval identities and corrupt published bytes as stale', async (t) => {
   const f = await fixture(t);
   const reported = async () => (await statusRows(f.options)).find((r) => r.view === id);

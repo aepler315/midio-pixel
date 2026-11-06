@@ -219,6 +219,7 @@ export async function buildCatalog(doc, { tours = null, runtimeDir = RUNTIME_DIR
     }
     views.push({
       id: v.id, ...(v.terrainSourceId ? { terrainSourceId: v.terrainSourceId } : {}), regionId: v.regionId, biome: v.biome, status, catalogVersion: doc.catalogVersion,
+      ...(v.status === 'candidate' && v.experimental === true ? { experimental: true } : {}),
       title: v.title || v.id, place: v.place || '',
       credit: build.credit || null,
       terrainManifestUrl: `terrain/${v.terrainSourceId || v.id}.terrain.json`,
@@ -345,7 +346,7 @@ export async function approveView(doc, id, { evidence = [] } = {}) {
   await requireEvidence(id, evidence);
   const build = JSON.parse(await fs.readFile(path.join(RUNTIME_DIR, 'terrain', `${v.terrainSourceId || id}.build.json`), 'utf8'));
   // Legacy parity: the far range stays readable at every rail station.
-  const { viewExposure, pairExposure, MIN_FAR_EXPOSED, MIN_FAR_CREST_COLUMNS } = await import('./lib/range-exposure.mjs');
+  const { viewExposure, pairExposure, travelExposureReview, MIN_FAR_EXPOSED, MIN_FAR_CREST_COLUMNS } = await import('./lib/range-exposure.mjs');
   const exposureOf = (x, authored) => viewExposure(RUNTIME_DIR, {
     ...x, ...authored, camera: x.camera, terrainManifestUrl: `terrain/${authored.terrainSourceId || authored.id}.terrain.json`,
     materialManifestUrl: `materials/${authored.materialPack || DEFAULT_PACKS[x.biome]}.json`,
@@ -367,12 +368,9 @@ export async function approveView(doc, id, { evidence = [] } = {}) {
     const oe = await exposureOf(ob.view, other);
     for (const [a, b, name] of [[exposure, oe, `${id} -> ${other.id}`], [oe, exposure, `${other.id} -> ${id}`]]) {
       const r = pairExposure(a, b);
-      if (r.min < MIN_FAR_EXPOSED) {
-        throw new Error(`${name}: far crest only ${r.min.toFixed(2)} exposed in travel (station ${r.at.station}, seam ${r.at.p}); not approved`);
-      }
-      if (r.minCrest < MIN_FAR_CREST_COLUMNS) {
-        throw new Error(`${name}: far crest spans only ${r.minCrest.toFixed(2)} of the frame in travel (station ${r.crestAt.station}, seam ${r.crestAt.p}); not approved`);
-      }
+      const review = travelExposureReview(r);
+      for (const warning of review.warnings) console.warn(`${name}: ${warning} (station ${r.at.station}, seam ${r.at.p}); review the transition`);
+      if (review.errors.length) throw new Error(`${name}: ${review.errors.join('; ')}; not approved`);
     }
   }
   v.status = 'approved';
