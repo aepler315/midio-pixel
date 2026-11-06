@@ -1,6 +1,7 @@
 // One immutable, song-indexed arc. Full-song normalization sets pacing;
 // gestures only read events at or before heard time. Never integrate on draw.
 import { physicalFloor } from './EffectsMusic.js';
+import { ActiveIntervalIndex, conservativeIntervalEnd } from '../ActiveIntervalIndex.js';
 const unit = x => Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : 0;
 export function narrativeEase(a, b, x) {
   const u = unit((x - a) / Math.max(1e-9, b - a));
@@ -26,13 +27,22 @@ function sourceIndex(events, id, casting) {
   const lane = casting[id]?.endsWith('-lane');
   const source = lane ? `lane:${LANES[id]}` : `role:${FALLBACK[id]}`;
   const notes = laneNotes(events, id, casting);
-  const endPrefix = []; let end = 0;
-  for (const e of notes) { end = Math.max(end, e.tMs + e.durMs + 120); endPrefix.push(end); }
+  const endPrefix = []; let end = 0, needsSkipIndex = false;
+  for (const e of notes) {
+    const noteEnd = e.tMs + e.durMs + 120;
+    if (noteEnd < end) needsSkipIndex = true;
+    end = Math.max(end, noteEnd); endPrefix.push(end);
+  }
+  const active = needsSkipIndex ? new ActiveIntervalIndex(notes.map(e => conservativeIntervalEnd(e.tMs, e.durMs + 120))) : null;
   return timeMs => {
     let lo = 0, hi = notes.length;
     while (lo < hi) { const m = (lo + hi) >>> 1; if (notes[m].tMs <= timeMs) lo = m + 1; else hi = m; }
     let activity = 0, pitchActivity = 0, pitch = 0;
     for (let i = lo - 1; i >= 0 && endPrefix[i] > timeMs; i--) {
+      if (active && notes[i].durMs + 120 - (timeMs - notes[i].tMs) <= 0) {
+        i = active.lastBefore(i, timeMs);
+        if (i < 0) break;
+      }
       const e = notes[i], age = timeMs - e.tMs;
       const weight = unit(e.vel) * Math.min(1, age / 40) * unit((e.durMs + 120 - age) / 120);
       activity += weight;

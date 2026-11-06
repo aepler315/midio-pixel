@@ -178,10 +178,15 @@ const PROBE_FRAG = /* glsl */`
     float own = cellDist(x, y);
     if (own < 0.0) return vec4(0.0);
     float nd[8];
+    bool any = false;
     for (int n = 0; n < 8; n++) {
       float d = cellDist(x + NB[n].x, y + NB[n].y);
       nd[n] = d >= 0.0 && abs(d - own) > EDGE_JUMP ? d : -1.0;
+      any = any || nd[n] >= 0.0;
     }
+    // Without a competing surface every vote stays zero. Avoid the sixteen
+    // fine samples and their neighbour searches in ordinary interior cells.
+    if (!any) return vec4(0.0);
     int masks[8] = int[8](0, 0, 0, 0, 0, 0, 0, 0);
     int votes[8] = int[8](0, 0, 0, 0, 0, 0, 0, 0);
     for (int sy = 0; sy < 4; sy++) for (int sx = 0; sx < 4; sx++) {
