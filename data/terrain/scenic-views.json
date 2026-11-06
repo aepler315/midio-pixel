@@ -1,6 +1,6 @@
 {
   "about": "Range v2 scenic views: curated real terrain corridors with authored camera rails. Authoring source for tools/build-range-scene.mjs; the runtime catalog (src/world/terrain/sceneCatalogData.js) is generated from it. Rail anchors are lon/lat (NAD83 for 3DEP sources) with an absolute height (heightM, metres above the source vertical datum) or a height above the DEM ground (aboveGroundM). status: candidate | approved | rejected records review history. Approved views and candidates explicitly marked experimental: true enter normal selection. Other candidate authoring and experimental development may proceed independently under docs/experimental-development.md.",
-  "catalogVersion": 55,
+  "catalogVersion": 56,
   "views": [
     {
       "id": "nc-ross-lake-north",
@@ -6651,6 +6651,71 @@
         }
       ],
       "shotsManifestUrl": "tour/superstition-west-front.shots.json"
+    },
+    {
+      "id": "sierra-whitney-east",
+      "experimental": true,
+      "regionId": "sierra-nevada",
+      "biome": "STEPPE",
+      "status": "candidate",
+      "title": "Mount Whitney",
+      "place": "Sierra Nevada, California",
+      "notes": "Elevated east of the Sierra front near the Alabama Hills, looking west across the granite escarpment toward Mount Whitney. Camera positions and heights are authored estimates, not surveyed viewpoints. Landmark is the USGS GNIS NAD83 primary point, gaz269051. Material habitat and snow thresholds are artistic rules, not measured land cover.",
+      "reviewPath": "docs/scenic-expansion-sierra-san-juan-2026-11-06.md",
+      "composition": { "foreground": "none", "nearLedgeMaxFrac": 0 },
+      "dem": {
+        "source": "3dep13",
+        "centerLonLat": [-118.22, 36.59],
+        "extentM": [38000, 36000],
+        "cellM": 20,
+        "windowCache": "tile",
+        "pin": {
+          "n37w119": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/historical/n37w119/USGS_13_n37w119_20260610.tif"
+        }
+      },
+      "rail": {
+        "eyeStart": { "lonLat": [-118.10, 36.62], "aboveGroundM": 450 },
+        "eyeEnd": { "lonLat": [-118.12, 36.59], "aboveGroundM": 450 },
+        "targetStart": { "lonLat": [-118.27, 36.60], "heightM": 3000 },
+        "targetEnd": { "lonLat": [-118.275, 36.565], "heightM": 3000 },
+        "fovYDeg": 35
+      },
+      "landmarks": [
+        { "name": "Mount Whitney", "lonLat": [-118.2924218, 36.5785700], "note": "USGS GNIS gaz269051 (NAD83), queried 2026-11-06; no surveyed vertical value asserted." }
+      ]
+    },
+    {
+      "id": "san-juan-sneffels-north",
+      "experimental": true,
+      "regionId": "san-juan-mountains",
+      "biome": "CONIFER",
+      "status": "candidate",
+      "title": "Sneffels Range",
+      "place": "San Juan Mountains, Colorado",
+      "notes": "Elevated north of the Sneffels Range near Dallas Divide, looking south-east into the alpine skyline. Camera positions and heights are authored estimates, not surveyed viewpoints. Landmark is the USGS GNIS NAD83 primary point, gaz196432. Material habitat and snow thresholds are artistic rules, not measured land cover.",
+      "reviewPath": "docs/scenic-expansion-sierra-san-juan-2026-11-06.md",
+      "composition": { "foreground": "none", "nearLedgeMaxFrac": 0 },
+      "dem": {
+        "source": "3dep13",
+        "centerLonLat": [-107.81, 38.06],
+        "extentM": [32000, 36000],
+        "cellM": 20,
+        "windowCache": "tile",
+        "pin": {
+          "n38w108": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/historical/n38w108/USGS_13_n38w108_20260630.tif",
+          "n39w108": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/historical/n39w108/USGS_13_n39w108_20260630.tif"
+        }
+      },
+      "rail": {
+        "eyeStart": { "lonLat": [-107.90, 38.12], "aboveGroundM": 450 },
+        "eyeEnd": { "lonLat": [-107.86, 38.13], "aboveGroundM": 450 },
+        "targetStart": { "lonLat": [-107.82, 38.02], "heightM": 3300 },
+        "targetEnd": { "lonLat": [-107.78, 38.03], "heightM": 3300 },
+        "fovYDeg": 35
+      },
+      "landmarks": [
+        { "name": "Mount Sneffels", "lonLat": [-107.7922734, 38.0038447], "note": "USGS GNIS gaz196432 (NAD83), queried 2026-11-06; no surveyed vertical value asserted." }
+      ]
     }
   ]
 }
