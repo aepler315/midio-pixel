@@ -6,15 +6,15 @@
 // fell apart is made to wait out a backoff earned at the old settings --
 // up to the capped ten minutes -- with quality held down the whole time.
 //
-// Source-scanned rather than exercised, because this is DOM wiring in
-// main.js: the behaviour it guards (forgetRecoveryHistory itself) is unit
-// tested in perf-governor.test.js, and what keeps going missing is the
-// CALL, once per control.
+// Execute display registration with small DOM boundaries and the production
+// applyDisplayPref function. Unrelated controls may share a local variable
+// name; the display's own registration block identifies the actual wiring.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import vm from 'node:vm';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const main = readFileSync(join(root, 'src/main.js'), 'utf8');
@@ -33,7 +33,34 @@ function changeHandlerBody(source, el) {
   throw new Error(`unbalanced listener body for ${el}`);
 }
 
-for (const el of ['control', 'stageFpsEl']) {
+test("control: an explicit quality change clears the perf ladder's recovery history", () => {
+  const callbacks = new Map(); let resets = 0, fits = 0;
+  const displayControls = Object.fromEntries(['look', 'palette', 'dither', 'ditherMode', 'pixelGrid', 'scaling'].map(key => [key, {
+    value: '', addEventListener(type, callback) { assert.equal(type, 'change'); callbacks.set(key, callback); },
+  }]));
+  const context = vm.createContext({ displayControls,
+    displayPrefs: { look: 'palette', palette: 'rgb332', dither: 0, ditherMode: 'ordered', pixelGrid: 'classic', scaling: 'fill' },
+    snapshotBusy: false, presentation: {}, resolvePresentation: prefs => prefs, writeDisplayPrefs() {}, displayStorage: () => null,
+    syncDisplayControls() {}, perfGovernor: { forgetRecoveryHistory() { resets++; } }, fitCanvas() { fits++; }, paused: false,
+  });
+  const functionStart = main.indexOf('function applyDisplayPref(');
+  assert.notEqual(functionStart, -1);
+  const functionEnd = main.indexOf('\n}\n', functionStart) + 3;
+  vm.runInContext(main.slice(functionStart, functionEnd), context);
+  const registrationStart = main.indexOf('  for (const [key, control] of Object.entries(displayControls)) {');
+  const registrationEnd = main.indexOf('\n  syncDisplayControls();', registrationStart);
+  assert.ok(registrationStart >= 0 && registrationEnd > registrationStart);
+  vm.runInContext(main.slice(registrationStart, registrationEnd), context);
+  assert.equal(callbacks.size, Object.keys(displayControls).length);
+  for (const callback of callbacks.values()) {
+    const before = resets;
+    callback();
+    assert.equal(resets, before + 1, 'every display control must clear old workload evidence exactly once');
+  }
+  assert.equal(fits, callbacks.size, 'each actual setting change is re-presented');
+});
+
+for (const el of ['stageFpsEl']) {
   test(`${el}: an explicit quality change clears the perf ladder's recovery history`, () => {
     const body = changeHandlerBody(main, el);
     assert.match(

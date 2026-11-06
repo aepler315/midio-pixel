@@ -55,6 +55,11 @@ RTX 3060 through ANGLE/D3D11, DPR 1.75 and Detailed 640x360. The synthetic
 Each harness verifies served source hashes and records changes during its run.
 This is one fixture/device check, not broad song or device coverage.
 
+The Windows pre-push run uses `PLAYWRIGHT_CHROMIUM_PATH` pointing to the
+installed Chrome executable and `VISUAL_ANGLE=d3d11`. The scenic-render test's
+default OpenGL backend stalled on this machine; its D3D11 run passed without
+skipping the real-render test.
+
 ### Growth and travel
 
 Runtime `409ac56` passed 18 paused checks: all three regions at 0, 14, 42, 70,
