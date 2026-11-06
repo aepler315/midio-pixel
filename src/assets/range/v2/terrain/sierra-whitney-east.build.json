@@ -1,0 +1,177 @@
+{
+ "credit": "Elevation: USGS 3DEP 1/3 arc-second DEM",
+ "sourceSha256": [
+  "5194e24122f9f3929cf9aed12200002aa20e60f44379438d185060f7c32712b7"
+ ],
+ "view": {
+  "id": "sierra-whitney-east",
+  "experimental": true,
+  "regionId": "sierra-nevada",
+  "biome": "STEPPE",
+  "status": "candidate",
+  "title": "Mount Whitney",
+  "place": "Sierra Nevada, California",
+  "notes": "Elevated east of the Sierra front near the Alabama Hills, looking west across the granite escarpment toward Mount Whitney. Camera positions and heights are authored estimates, not surveyed viewpoints. Landmark is the USGS GNIS NAD83 primary point, gaz269051. Material habitat and snow thresholds are artistic rules, not measured land cover.",
+  "reviewPath": "docs/scenic-expansion-sierra-san-juan-2026-11-06.md",
+  "composition": {
+   "foreground": "none",
+   "nearLedgeMaxFrac": 0
+  },
+  "dem": {
+   "source": "3dep13",
+   "centerLonLat": [
+    -118.22,
+    36.59
+   ],
+   "extentM": [
+    38000,
+    36000
+   ],
+   "cellM": 20,
+   "windowCache": "tile",
+   "pin": {
+    "n37w119": "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/historical/n37w119/USGS_13_n37w119_20260610.tif"
+   }
+  },
+  "rail": {
+   "eyeStart": {
+    "lonLat": [
+     -118.1,
+     36.62
+    ],
+    "aboveGroundM": 450
+   },
+   "eyeEnd": {
+    "lonLat": [
+     -118.12,
+     36.59
+    ],
+    "aboveGroundM": 450
+   },
+   "targetStart": {
+    "lonLat": [
+     -118.27,
+     36.6
+    ],
+    "heightM": 3000
+   },
+   "targetEnd": {
+    "lonLat": [
+     -118.275,
+     36.565
+    ],
+    "heightM": 3000
+   },
+   "fovYDeg": 35
+  },
+  "landmarks": [
+   {
+    "name": "Mount Whitney",
+    "lonLat": [
+     -118.2924218,
+     36.57857
+    ],
+    "note": "USGS GNIS gaz269051 (NAD83), queried 2026-11-06; no surveyed vertical value asserted."
+   }
+  ],
+  "camera": {
+   "eyeStartM": [
+    10734.3,
+    1827.5,
+    -3335.8
+   ],
+   "eyeEndM": [
+    8948.7,
+    1871.8,
+    -4.7
+   ],
+   "targetStartM": [
+    -4473.8,
+    3000,
+    -1110.9
+   ],
+   "targetEndM": [
+    -4923.4,
+    3000,
+    2772.8
+   ],
+   "fovYDeg": 35
+  }
+ },
+ "characterScores": {
+  "energy": 0.281,
+  "rawness": 0.318,
+  "grandeur": 0.206,
+  "dominance": 0.421
+ },
+ "archetype": "restless",
+ "skylineFeatures": [
+  {
+   "reliefM": 849.87353515625,
+   "slopeMPerKm": 174.51750052817104,
+   "peaksPer10Km": 1.9597335559973477,
+   "roughnessM": 90.92251006014446,
+   "dominance": 0.413366303925044,
+   "summitM": 4405.3486328125,
+   "lengthKm": 56.130079348474894
+  },
+  {
+   "reliefM": 914.243408203125,
+   "slopeMPerKm": 176.6471242589463,
+   "peaksPer10Km": 2.2159929281598845,
+   "roughnessM": 95.82107471767739,
+   "dominance": 0.37793187833284064,
+   "summitM": 4398.0234375,
+   "lengthKm": 72.20239648186096
+  },
+  {
+   "reliefM": 1021.899169921875,
+   "slopeMPerKm": 198.00020721559085,
+   "peaksPer10Km": 2.091029355278295,
+   "roughnessM": 99.4214964405204,
+   "dominance": 0.47262595805384,
+   "summitM": 4407.109375,
+   "lengthKm": 43.041002639593216
+  }
+ ],
+ "manifestSha256": "7fbd5cd6bdee348416dd2a7ac0693680ca91c1a3fdbdcc618d4c026d68c55b97",
+ "payloadSha256": "0bf0c93657093a6a5c40a75978eaec28676d8b67bfe1b5b1112fb324204463a4",
+ "payloadBytes": 1694942,
+ "stats": {
+  "tiles": 261,
+  "desktop": {
+   "vertices": 959606,
+   "triangles": 1859526,
+   "meshBytes": 33829584,
+   "surfaceTextureBytes": 18259739
+  },
+  "mobile": {
+   "vertices": 697777,
+   "triangles": 1349232,
+   "meshBytes": 24564108,
+   "surfaceTextureBytes": 18259739
+  }
+ },
+ "landmarks": [
+  {
+   "name": "Mount Whitney",
+   "lonLat": [
+    -118.2924218,
+    36.57857
+   ],
+   "publishedElevationM": null,
+   "localM": [
+    -6481.8,
+    1265.9
+   ],
+   "demGroundM": 4415.12646484375,
+   "demPeakWithin200mM": 4416.94921875
+  }
+ ],
+ "achievedErrorPx": {
+  "desktop": 0.962,
+  "mobile": 1.992
+ },
+ "despikedSamples": 1,
+ "gentleGroundSmoothingM": null
+}

@@ -1052,6 +1052,10 @@ export class RangePresentation {
     const crestOn = this.crestEnabled && this.pixelated && !this.directTerrainMode && !incoming;
     this.crest.economy = !!inputs.sim?.perf?.economy;
     this.scene.crestProbeMode = crestOn ? this.crest.probeMode : null;
+    const crestGrid = this.pixelPolicy?.grid;
+    this.scene.crestOutputScale = crestOn && crestGrid ? Math.max(1,
+      (this.crestOutputSize?.width || crestGrid.width) / crestGrid.width,
+      (this.crestOutputSize?.height || crestGrid.height) / crestGrid.height) : 1;
     this.scene.singleStage = !!this.singleStage;
     this._crestScan = crestOn && this.crest.mode === 'grid';
     if (!crestOn) this.crest.update({ frameId: this.frame.frameId, timeMs: this.frame.timeMs, viewId: view.id, qualityLevel: this.frame.qualityLevel ?? 0 });
