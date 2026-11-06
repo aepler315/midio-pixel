@@ -104,6 +104,7 @@ class PresentingRenderer {
     const waterOverlay = !singleStage && landscape && typeof range.drawWaterForeground === 'function';
     // The crest line (RangeCrest.js) needs the separate output composite too.
     const crestOverlay = !singleStage && landscape && typeof range.drawCrestForeground === 'function';
+    if (range) range.crestOutputSize = crestOverlay ? { width: this.canvas.width, height: this.canvas.height } : null;
     if (range && 'crestEnabled' in range) {
       range.crestEnabled = crestOverlay;
       const id = this.output._resolvedPaletteId;
@@ -220,6 +221,7 @@ class PresentingRenderer {
     // The direct-terrain experiment keeps its own output-resolution terrain
     // edges and draws no crest line (docs/direct-terrain-experiment.md).
     if ('crestEnabled' in range) range.crestEnabled = false;
+    range.crestOutputSize = null;
     range.drawTerrainImage = (ctx, image, stage, region) => this._drawDirectTerrain(ctx, image, stage, region, sim?.perf?.level ?? 0);
     range.drawLegacyTerrain = (ctx, paint) => this._drawDirectGrid(ctx, paint, sim?.perf?.level ?? 0);
     try { this.inner.draw(sim, alpha); }

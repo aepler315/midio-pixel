@@ -30,10 +30,10 @@
 // Fine crest. The band targets are the pixel grid, so their first covered
 // row is a whole grid row: a line through those rows can only step by a
 // pixel at a time. The fine rows are read from a band-ownership render of
-// the same frame at PROBE_FINE_K times the grid in both axes (RangeScene),
-// one first-owned row per output-resolution sub-column: PROBE_FINE_K
-// sub-columns per probe column, two per texel (16 bits each, row + 1, 0 =
-// none), so the crest follows the drawn mesh to an output pixel.
+// the same frame at the physical output sampling scale (RangeScene).
+// Every physical column is retained, two 16-bit rows per texel, packed
+// after the legacy fixed rows and before the edge blocks. The native
+// four-sample metadata is derived from these same bytes on the CPU.
 //
 // Edge cells. The same fine render carries each pixel's distance (log2,
 // 16 bits). Where one ridge stands in front of another (any terrain over
@@ -60,6 +60,23 @@ export const PROBE_WATER_SLOTS = 4;
 export const PROBE_FINE_ROWS = Object.freeze({ far: 14, mid: 16, near: 18 });
 export const PROBE_FINE_K = 4;
 export const PROBE_ROWS = 20;
+/** Two 16-bit silhouette samples per texel, packed after the legacy rows.
+ * Ownership keeps its separate 4x4 mask; silhouette width follows output. */
+export function fineLineLayout(width, fineWidth = 0, fineHeight = 0) {
+  const rowsPerBand = fineWidth > 0 && fineHeight > 0 ? Math.ceil(fineWidth / (2 * width)) : 0;
+  return { width: rowsPerBand ? fineWidth : 0, height: rowsPerBand ? fineHeight : 0,
+    row: PROBE_ROWS, rowsPerBand, edgeRow: PROBE_ROWS + 3 * rowsPerBand };
+}
+
+export function fineLineRow(probe, band, column) {
+  const fine = probe.fine, index = CREST_INDEX[band];
+  if (!fine || index === undefined || column < 0 || column >= fine.width) return NaN;
+  const pixel = Math.floor(column / 2), row = fine.row + index * fine.rowsPerBand + Math.floor(pixel / probe.width);
+  const at = (row * probe.width + pixel % probe.width) * 4 + column % 2 * 2;
+  const value = probe.data[at] + probe.data[at + 1] * 256 - 1;
+  return value > 0 ? value : NaN;
+}
+const CREST_INDEX = Object.freeze({ far: 0, mid: 1, near: 2 });
 /** First row of the edge-cell block (one row per target row above it). */
 export const PROBE_EDGE_ROW = PROBE_ROWS;
 /** The fine render's distance code: log2(metres) / PROBE_LOG_RANGE, 16 bits. */
@@ -128,12 +145,17 @@ const PROBE_FRAG = /* glsl */`
   uniform int uFineChannel;
   uniform int uEdgeRow;
   uniform int uWidth;
+  uniform int uLineRow;
   out vec4 outColor;
   const float EDGE_JUMP = log2(${PROBE_EDGE_JUMP}) / ${PROBE_LOG_RANGE}.0;
   // Distance code of fine pixel (fx, fy), fy top-down; −1 where no terrain
   // (sky, or a tree that hid it: the fine render is terrain only).
   float fineDist(int fx, int fy) {
     ivec2 size = textureSize(uFine, 0);
+    // Ownership always samples a 4x4 cell mask, independently of the true
+    // output-sized silhouette render (including noninteger display scales).
+    fx = int(floor((float(fx) + 0.5) * float(size.x) / float(uWidth * 4)));
+    fy = int(floor((float(fy) + 0.5) * float(size.y) / float(uHeight * 4)));
     if (fx < 0 || fy < 0 || fx >= size.x || fy >= size.y) return -1.0;
     vec4 c = texelFetch(uFine, ivec2(fx, size.y - 1 - fy), 0);
     if (c.a < 0.5) return -1.0;
@@ -190,6 +212,7 @@ const PROBE_FRAG = /* glsl */`
   // First row (top down) of fine sub-column fx owned by uFineChannel's band.
   int fineRow(int fx) {
     ivec2 size = textureSize(uFine, 0);
+    if (fx < 0 || fx >= size.x) return -1;
     for (int y = 0; y < 16384; y++) {
       if (y >= size.y) break;
       vec4 c = texelFetch(uFine, ivec2(fx, size.y - 1 - y), 0);
@@ -260,6 +283,11 @@ const PROBE_FRAG = /* glsl */`
   }
   void main() {
     int x = int(gl_FragCoord.x);
+    if (uMode == 8) {
+      int fx = ((int(gl_FragCoord.y) - uLineRow) * uWidth + x) * 2;
+      outColor = vec4(encode16(fineRow(fx)), encode16(fineRow(fx + 1)));
+      return;
+    }
     if (uMode == 5) {
       outColor = edgeCell(x, uHeight - 1 - (int(gl_FragCoord.y) - uEdgeRow));
       return;
@@ -269,8 +297,10 @@ const PROBE_FRAG = /* glsl */`
       return;
     }
     if (uMode == 4) {
-      int fx = x * uFineK + uSlot * 2;
-      outColor = vec4(encode16(fineRow(fx)), encode16(fineRow(fx + 1)));
+      float scale = float(textureSize(uFine, 0).x) / float(uWidth);
+      int a = int(floor((float(x) + (float(uSlot * 2) + 0.5) / 4.0) * scale));
+      int b = int(floor((float(x) + (float(uSlot * 2) + 1.5) / 4.0) * scale));
+      outColor = vec4(encode16(fineRow(a)), encode16(fineRow(b)));
       return;
     }
     int found = -1, kind = 0, count = 0;
@@ -456,7 +486,7 @@ export class CrestProbe {
       uniforms: { uColor: { value: null }, uDepth: { value: null }, uHeight: { value: 1 }, uMode: { value: 0 }, uSlot: { value: 0 },
         uUseDepth: { value: 0 }, uInvViewProj: { value: new THREE.Matrix4() }, uHeightRange: { value: new THREE.Vector2(0, 1) },
         uCameraPos: { value: new THREE.Vector3() }, uFine: { value: null }, uFineK: { value: PROBE_FINE_K },
-        uFineChannel: { value: 0 }, uEdgeRow: { value: PROBE_EDGE_ROW }, uWidth: { value: 1 } },
+        uFineChannel: { value: 0 }, uEdgeRow: { value: PROBE_EDGE_ROW }, uWidth: { value: 1 }, uLineRow: { value: PROBE_ROWS } },
       depthTest: false, depthWrite: false, blending: THREE.NoBlending,
     });
     this.mesh = new THREE.Mesh(geo, this.material);
@@ -467,21 +497,27 @@ export class CrestProbe {
   }
 
   /** Start a frame: rows written by an earlier frame are no longer valid. */
-  begin(frameId, width, height) {
+  begin(frameId, width, height, fineSize = null) {
     this.height = height;
-    if (this.frameId === frameId && this.width === width && this.edgeRows === height) return true;
+    const layout = fineLineLayout(width, fineSize?.width, fineSize?.height);
+    const changed = this.fineLayout?.width !== layout.width || this.fineLayout?.height !== layout.height;
+    if (this.frameId === frameId && this.width === width && this.edgeRows === height && !changed) return true;
     this.frameId = frameId;
     this.rows = 0;
     this.edges = 0;
-    if (!this.target || this.width !== width || this.edgeRows !== height) {
+    this.fineData = null;
+    this.fineLayout = layout;
+    this.edgeRow = layout.edgeRow;
+    if (!this.target || this.width !== width || this.edgeRows !== height || changed) {
+      this.reset();
       this.width = width; this.edgeRows = height;
-      this._allocate(PROBE_EDGE_ROW + 2 * height);
+      this._allocate(this.edgeRow + 2 * height);
     }
     return true;
   }
 
   /** Rows to read back: the edge blocks only once written this frame. */
-  get totalRows() { return PROBE_EDGE_ROW + (this.edges & 2 ? 2 : this.edges & 1 ? 1 : 0) * (this.edgeRows || 0); }
+  get totalRows() { return (this.edgeRow ?? PROBE_EDGE_ROW) + (this.edges & 2 ? 2 : this.edges & 1 ? 1 : 0) * (this.edgeRows || 0); }
 
   _allocate(rows) {
     const THREE = this.THREE;
@@ -496,6 +532,7 @@ export class CrestProbe {
     const depth = mode < 4 && this.useDepth && source.depthTexture ? source.depthTexture : null;
     u.uColor.value = source.texture; u.uDepth.value = depth; u.uUseDepth.value = depth ? 1 : 0;
     u.uHeight.value = source.height; u.uMode.value = mode; u.uSlot.value = slot;
+    u.uWidth.value = this.width;
     if (depth) {
       u.uInvViewProj.value.multiplyMatrices(camera.matrixWorld, camera.projectionMatrixInverse);
       u.uCameraPos.value.setFromMatrixPosition(camera.matrixWorld);
@@ -518,17 +555,28 @@ export class CrestProbe {
     return true;
   }
 
-  /** Probe each band's fine crest from `fine`, a band-ownership render of
-   *  this frame at PROBE_FINE_K times this probe's width. */
+  /** Probe every physical silhouette column from `fine`; the separate
+   * ownership edge mask keeps four samples per native cell. */
   fine(fine) {
-    if (!this.target || fine.width !== this.width * PROBE_FINE_K) return false;
+    if (!this.target || fine.width !== (this.fineLayout.width || this.width * PROBE_FINE_K)) return false;
     const u = this.material.uniforms;
     u.uFine.value = fine.texture; u.uFineK.value = PROBE_FINE_K;
-    for (const [band, row] of Object.entries(PROBE_FINE_ROWS)) {
+    if (!this.fineLayout.width) for (const [band, row] of Object.entries(PROBE_FINE_ROWS)) {
       u.uFineChannel.value = FINE_CHANNEL[band];
       for (let half = 0; half < PROBE_FINE_K / 2; half++) this._pass(fine, null, null, row + half, 4, half);
     }
-    this._edges(fine.height / PROBE_FINE_K);
+    if (this.fineLayout.width) {
+      const r = this.renderer, layout = this.fineLayout;
+      for (const index of Object.values(CREST_INDEX)) {
+        const row = layout.row + index * layout.rowsPerBand;
+        u.uFineChannel.value = index; u.uLineRow.value = row; u.uMode.value = 8;
+        this.target.viewport.set(0, row, this.width, layout.rowsPerBand);
+        this.target.scissor.set(0, row, this.width, layout.rowsPerBand);
+        r.setRenderTarget(this.target); r.render(this.scene, this.camera);
+      }
+      this.fineData = { ...layout };
+    }
+    this._edges(this.height);
     u.uFine.value = null;
     return true;
   }
@@ -538,9 +586,9 @@ export class CrestProbe {
     if (!(rows > 0) || rows !== this.edgeRows) return false;
     const r = this.renderer, u = this.material.uniforms;
     u.uColor.value = null; u.uDepth.value = null; u.uUseDepth.value = 0;
-    u.uHeight.value = rows; u.uMode.value = 5; u.uEdgeRow.value = PROBE_EDGE_ROW;
-    this.target.viewport.set(0, PROBE_EDGE_ROW, this.width, rows);
-    this.target.scissor.set(0, PROBE_EDGE_ROW, this.width, rows);
+    u.uHeight.value = rows; u.uMode.value = 5; u.uEdgeRow.value = this.edgeRow;
+    this.target.viewport.set(0, this.edgeRow, this.width, rows);
+    this.target.scissor.set(0, this.edgeRow, this.width, rows);
     this.target.scissorTest = true;
     r.setRenderTarget(this.target);
     r.render(this.scene, this.camera);
@@ -553,9 +601,9 @@ export class CrestProbe {
   waterEdges(water) {
     const rows = this.edgeRows;
     if (!this.target || !(rows > 0) || !(water.width > this.width)) return false;
-    const r = this.renderer, u = this.material.uniforms, row = PROBE_EDGE_ROW + rows;
+    const r = this.renderer, u = this.material.uniforms, row = this.edgeRow + rows;
     // The terrain block in between is read back too: empty unless written.
-    if (!(this.edges & 1)) this._clearRows(PROBE_EDGE_ROW, rows);
+    if (!(this.edges & 1)) this._clearRows(this.edgeRow, rows);
     u.uFine.value = water.texture; u.uFineK.value = PROBE_FINE_K;
     u.uColor.value = null; u.uDepth.value = null; u.uUseDepth.value = 0;
     u.uHeight.value = rows; u.uWidth.value = this.width; u.uMode.value = 7; u.uEdgeRow.value = row;
@@ -611,10 +659,11 @@ export class CrestProbe {
         if (r && !ok) this.async.reset();
         this.renderer.setRenderTarget(this.target);
         const total = this.totalRows;
-        this.async.submit({ frameId, viewId, timeline, timeMs, height: this.height, rows: this.rows, edges: this.edges }, this.width, total);
+        this.async.submit({ frameId, viewId, timeline, timeMs, height: this.height, rows: this.rows, edges: this.edges,
+          edgeRow: this.edgeRow, fine: this.fineData }, this.width, total);
         if (ok) {
           this.readMs = performance.now() - t0;
-          return { width: r.width, height: r.height, data: r.data, rows: r.rows, edges: r.edges || 0, readMs: this.readMs, frameId: r.frameId,
+          return { width: r.width, height: r.height, data: r.data, rows: r.rows, edges: r.edges || 0, edgeRow: r.edgeRow, fine: r.fine, readMs: this.readMs, frameId: r.frameId,
             lag: frameId - r.frameId, mode: 'async' };
         }
       } catch {
@@ -626,7 +675,8 @@ export class CrestProbe {
     try { this.renderer.readRenderTargetPixels(this.target, 0, 0, this.width, total, this.data); }
     catch { return null; }
     this.readMs = performance.now() - t0;
-    return { width: this.width, height: this.height, data: this.data, rows: this.rows, edges: this.edges, readMs: this.readMs, frameId, lag: 0, mode: 'sync' };
+    return { width: this.width, height: this.height, data: this.data, rows: this.rows, edges: this.edges,
+      edgeRow: this.edgeRow, fine: this.fineData, readMs: this.readMs, frameId, lag: 0, mode: 'sync' };
   }
 
   /** Discard every asynchronous result (a seek, a new song or view). */
