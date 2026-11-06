@@ -15,6 +15,10 @@ resolution-only diagnostic. The default is `single`.
 
 ## RTX 3060 measurements
 
+The step comparisons below were captured before integrating main at `2a91c5f`.
+The final merged-tree measurements follow them and include its newer forest,
+tour and landscape-rise changes.
+
 Measured in isolated, muted, headless Chrome 156 on the local RTX 3060 using
 ANGLE Direct3D 11. The visible preview was paused. Both approved views used the
 same generated 90-second audio, tours off, Classic grid, DPR 1.75 and warmed
@@ -43,6 +47,20 @@ water reflection. Both settled 45–55 and 55–65 second Teton windows delivere
 retained its planar mirror and delivered 60.00 FPS in its settled window.
 Initial preparation, quality adaptation and occasional recovery probes remain
 part of live playback; the table does not claim full quality at 60 FPS on Teton.
+
+On the merged tree (`1769d938`), actual Auto stayed at level 0 with planar
+mirrors retained in both views. Under the same Classic/DPR/audio conditions,
+the settled 45–55 second and continuous 55–65 second windows both delivered
+60.00 FPS: p95 16.725 ms for Teton and 16.750 ms for Owens. The complete
+25–55 second windows averaged 57.46 and 59.63 FPS respectively, including one
+150 ms Teton stall and one 200 ms Owens stall. The continuous tails had no
+stalls over 100 ms, failed presentations or repeated frames.
+
+Merged-tree GPU and stage RGBA also matched exactly with opaque depth reuse
+on/off at 0, 14, 21 and 42 seconds in both rail views, and at 15.5, 16, 16.5
+and 42 seconds in Teton's planned shot tour. The latter exercised the forest
+window transition with mirror and cast activity; all WebGL error checks were
+clear. These are shot-tour checks, not the separate forced Teton highway tour.
 
 The former governor decayed pressure fast enough to accept persistent 50 FPS
 on a requested 60 FPS cap. The corrected policy accumulates that deficit,
@@ -78,3 +96,12 @@ The initial hardware run delivered 60 FPS through early, middle, late and
 smooth-transition windows, including about 991,000 submitted triangles during
 the heaviest adjacent-level transition. Final validation also checks the
 bounded gzip loader, aspect-preserving raster and growth completion.
+
+The shipped rail bake was checked again on `1769d938`: the 40–46 and 75–81
+second windows delivered 60.00 FPS, with p95 16.76 and 16.72 ms and no failed
+or repeated presentations. The final 44 m surface rendered at 960×540 with
+24° field of view; rewind reproduced the same image. Simulated context loss
+fell back to normal rendering while audio continued. The compressed pack is
+16,155,339 bytes and decodes to 115,380,248 bytes; a second bake reproduced its
+SHA-256. Runtime, delivered source and payload hashes stayed unchanged during
+the check.
