@@ -26,7 +26,7 @@ import { prepareTerrainAssets, RangeAssetError } from './RangeAssets.js';
 import { createSurfaceTextureAsync, terrainUniforms, createBandGeometries, createBandGeometriesAsync } from './TerrainGL.js';
 import { syncGustUniforms, syncWaterMusicUniforms, sceneUniforms, createSceneMaterial, createDepthMaterial, setLinearFromHex, createMaterialTextures, applyMaterial, SCENE_VERT, FEATURE_FRAG } from './TerrainMaterial.js';
 import { terrainFeatureSegmentsAsync } from './TerrainFeatures.js';
-import { CrestProbe, PROBE_FINE_K, FINE_FRAG } from './CrestProbe.js';
+import { CrestProbe, FINE_FRAG } from './CrestProbe.js';
 import { loadMaterialPack, materialGpuBytes, RULE_DEFAULTS, validateWaterRules } from './MaterialPackage.js';
 import { placeForestAsync, forestPlacementBound } from './ForestCover.js';
 import { TourForestSchedule, tourForestBytes } from './TourForest.js';
@@ -73,6 +73,14 @@ const CLOUD_SHADOW_CASTERS = 16;
 const CASTERS = new Float32Array(CLOUD_SHADOW_CASTERS * CLOUD_CASTER_STRIDE);
 const CASTER_LIGHT = [0, 1, 0], CASTER_EYE = [0, 0, 0];
 const BACKDROP_KEY = 'range:water-backdrop';
+const CREST_FINE_KEY = 'range:crest-fine';
+/** Physical display sampling, including the scenic target's camera margin.
+ * Refuse an unsupported size rather than advertise a lower-resolution edge. */
+export function crestFineSize(target, scale = 1, limit = 16384) {
+  const s = Number.isFinite(scale) && scale > 0 ? scale : 1;
+  const width = Math.ceil(target.width * s), height = Math.ceil(target.height * s);
+  return width > 0 && height > 0 && width <= limit && height <= limit ? { width, height } : null;
+}
 /** Narrative ink below which the lake mirror leaves out its crown cut, ink
  *  and cast renders (when no cast shows): under FEATURE_FRAG's discard at
  *  .005 by far more than any float32 or literal rounding. */
@@ -3222,29 +3230,26 @@ export class RangeScene {
   /** Probe this band's crest columns (CrestProbe.js) from its own target. */
   _probeCrest(frame, target, p, pass) {
     try {
+      const fine = this.crestProbeMode === 'refined' ? this._crestFineTarget(target) : null;
+      if (this.crestProbeMode !== 'refined') this._releaseFineTarget();
       this.crestProbe ||= new CrestProbe(this.THREE, this.renderer);
-      this.crestProbe.begin(frame.frameId, target.width, target.height);
+      this.crestProbe.begin(frame.frameId, target.width, target.height, fine);
       this.crestProbe.useDepth = this.crestProbeMode === 'refined';
       this.crestProbe.band(target, this.camera, p.uniforms?.uHeightRange?.value || null, pass);
-    } catch { this.crestProbe?.dispose(); this.crestProbe = null; this.crestProbeMode = null; return; }
+    } catch { this.crestProbe?.dispose(); this.crestProbe = null; this.crestProbeMode = null; this._releaseFineTarget(); return; }
     // After the last band: the fine crest (CrestProbe.js), refined probes only.
     if (pass === 'near' && this.crestProbeMode === 'refined') {
-      try { this._probeFineCrest(target, p); } catch { /* the line keeps the grid crest */ }
+      try { this._probeFineCrest(target, p); } catch { /* omit an unavailable output silhouette */ }
     }
   }
 
-  /** The terrain's band and distance at PROBE_FINE_K times the grid
+  /** The terrain's band and distance at the physical output sampling scale
    *  (FINE_FRAG), read by the crest probe's fine rows (the crest to an
    *  output pixel instead of a grid row) and edge cells (terrain over
    *  terrain at output resolution). One extra pass, flat shading. */
   _probeFineCrest(target, p) {
     const THREE = this.THREE, r = this.renderer;
-    const w = target.width * PROBE_FINE_K, h = target.height * PROBE_FINE_K;
-    if (!this._fineTarget || this._fineTarget.width !== w || this._fineTarget.height !== h) {
-      this._fineTarget?.dispose();
-      this._fineTarget = new THREE.WebGLRenderTarget(w, h, { depthBuffer: true, stencilBuffer: false,
-        type: THREE.UnsignedByteType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
-    }
+    if (!this._crestFineTarget(target)) return false;
     p.fineMaterials ||= Object.fromEntries(BANDS.map((band, i) => [band, new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3, vertexShader: p.ownershipVertexShader || SCENE_VERT, fragmentShader: FINE_FRAG,
       uniforms: p.uniforms, defines: { FINE_BAND: `${i + 1}.0` } })]));
@@ -3270,6 +3275,40 @@ export class RangeScene {
     return ok;
   }
 
+  _releaseFineTarget() {
+    const target = this._fineTarget;
+    this._fineTarget = null;
+    if (this.residency?.entries?.has(CREST_FINE_KEY)) this.residency.release(CREST_FINE_KEY);
+    else target?.dispose();
+  }
+
+  _crestFineTarget(target) {
+    const size = crestFineSize(target, this.crestOutputScale, this.renderer.capabilities?.maxTextureSize ?? 16384);
+    if (!size) { this._releaseFineTarget(); return null; }
+    const { width: w, height: h } = size;
+    if (this._fineTarget?.width === w && this._fineTarget.height === h) return this._fineTarget;
+    this._releaseFineTarget();
+    // Colour/depth plus compact probe rows, async/sync readbacks, geometry
+    // arrays and bounded color scratch. Existing views cannot be evicted.
+    const reservation = this.residency?.reserve({ key: CREST_FINE_KEY, bytes: w * h * 8 + w * 96 + 512 * 64 * 4,
+      owner: 'range-crest-fine', evictable: false, protect: [...(this.residency?.entries.keys() || [])] });
+    if (this.residency && !reservation) return null;
+    let fine;
+    try {
+      const THREE = this.THREE;
+      fine = new THREE.WebGLRenderTarget(w, h, { depthBuffer: true, stencilBuffer: false,
+        type: THREE.UnsignedByteType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
+      this._fineTarget = fine;
+      if (reservation && !this.residency.commit(reservation, fine, resource => {
+        resource.dispose(); if (this._fineTarget === resource) this._fineTarget = null;
+      })) { this._fineTarget = null; return null; }
+      return fine;
+    } catch (error) {
+      if (reservation) this.residency.releaseReservation(reservation);
+      fine?.dispose(); this._fineTarget = null; throw error;
+    }
+  }
+
   /** This frame's crest probe data, or null: the newest completed
    * asynchronous readback (live), or this frame's rows read synchronously
    * (`sync`: export draws; or no usable asynchronous result). See CrestProbe.read. */
@@ -3283,7 +3322,7 @@ export class RangeScene {
    * and view changes are found by CrestProbe.read itself. */
   resetCrestProbe() { this.crestProbe?.reset(); }
 
-  releaseCrestProbe() { this.crestProbe?.dispose(); this.crestProbe = null; this._fineTarget?.dispose(); this._fineTarget = null; }
+  releaseCrestProbe() { this.crestProbe?.dispose(); this.crestProbe = null; this._releaseFineTarget(); }
 
   /** Render water at display resolution against the complete terrain and
    * forest depth. The caller must copy the returned transient canvas before
