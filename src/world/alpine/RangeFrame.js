@@ -378,7 +378,10 @@ export function buildRangeFrame({
   const choice = (b) => forcedView || sceneAssignments?.get?.(b) || null;
   const timeMs = sim.heardTimeMs ?? (mgr.tSec || 0) * 1000;
   const narrative = sim.rangeNarrativeAt?.(timeMs) || null;
-  const performance = { ...landscapeScoreFor(mgr).at(timeMs, { preview: !!mgr.terrainPreview }), lens: NEUTRAL_LENS };
+  const score = landscapeScoreFor(mgr).at(timeMs, { preview: !!mgr.terrainPreview });
+  // Scenic framing opens on major musical arrivals without driving the
+  // stage's independent impact/dip/tilt controls.
+  const performance = { ...score, lens: score.revealLens || NEUTRAL_LENS };
   const progress01 = mgr.terrainPreview ? SCENE_PREVIEW_PROGRESS : sceneProgressAt({
     timeMs, curves: mgr.energyCurves, durationMs: mgr.durationMs, response: mgr.world?.response,
   });

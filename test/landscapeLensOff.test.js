@@ -67,7 +67,7 @@ test('Landscape simulation supplies no automatic dip or tilt before scenic prese
   } finally { sim.dispose(); }
 });
 
-test('Landscape frame keeps the final scenic FOV neutral while manual projection zoom still works', () => {
+test('Landscape scenic reveal is smooth and bounded while manual projection zoom still works', () => {
   const sim = simulation();
   const view = { id: 'lens-off', camera: { eyeStartM: [0, 1500, 20000], eyeEndM: [0, 1500, 20000],
     targetStartM: [0, 2500, 0], targetEndM: [0, 2500, 0], fovYDeg: 35 } };
@@ -77,9 +77,10 @@ test('Landscape frame keeps the final scenic FOV neutral while manual projection
     sim.heardTimeMs = 20000;
     const frame = buildRangeFrame({ frameId: 1, sim, pose: sim.lerpState(1),
       scenicViewport: viewportState({ logicalWidth: 1280, logicalHeight: 720 }) });
-    assert.deepEqual(frame.performance.lens, neutral);
+    assert.equal(frame.performance.lens.zoomPulse, 0, 'scenic reveal does not drive stage impact effects');
+    assert.ok(frame.performance.lens.halfAngleScale >= .84 && frame.performance.lens.halfAngleScale < 1);
     scene._setCamera(view, { ...frame, cameraMove: null });
-    assert.equal(scene.camera.fov, 35);
+    assert.ok(scene.camera.fov < 35 && scene.camera.fov > 29, 'reveal stays inside authored coverage');
     const initial = scene.camera.projectionMatrix.toArray();
     const position = scene.camera.position.toArray();
     scene._setCamera(view, { ...frame, cameraMove: null, userCamera: { fx: .6, rx: .08, uy: -.04 } });
@@ -88,5 +89,10 @@ test('Landscape frame keeps the final scenic FOV neutral while manual projection
     scene._setCamera(view, { ...frame, cameraMove: null, userCamera: { fx: 0, rx: 0, uy: 0 } });
     assert.deepEqual(scene.camera.projectionMatrix.toArray(), initial);
     assert.ok(Object.values(frame.cameraMove).some(v => typeof v === 'number' && Math.abs(v) > 0), 'slow camera move remains scored');
+    sim.heardTimeMs = 25000;
+    const settled = buildRangeFrame({ frameId: 2, sim, pose: sim.lerpState(1),
+      scenicViewport: viewportState({ logicalWidth: 1280, logicalHeight: 720 }) });
+    scene._setCamera(view, { ...settled, cameraMove: null });
+    assert.equal(scene.camera.fov, 35, 'the reveal returns to the full authored view');
   } finally { sim.dispose(); }
 });

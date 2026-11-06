@@ -231,26 +231,29 @@ export function mistParams({ rules = {}, waterLevelM = null, heightRange = [0, 1
 
 const unit = value => Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
 /** The atmosphere with no music: today's mist and shafts exactly. */
-export const ATMOSPHERE_NEUTRAL = Object.freeze({ mistDensityMul: 1, mistGlow: 0, shaftGain: 1 });
-const ATMOSPHERE_SCRATCH = { mistDensityMul: 1, mistGlow: 0, shaftGain: 1 };
+export const ATMOSPHERE_NEUTRAL = Object.freeze({ mistDensityMul: 1, mistGlow: 0, shaftGain: 1, keyLightGain: 1 });
+const ATMOSPHERE_SCRATCH = { ...ATMOSPHERE_NEUTRAL };
 /** The score's hold on the valley air, from the heard effects frame: the
- *  music's energy thins the mist a little and lights it from within, and
- *  lifts the sun's shafts; a section lift adds to both and bass adds weight.
- *  The air leans on the slow channels (energy and bass are trailing
- *  averages); `lift` has a 100 ms attack, so its weight stays small enough
- *  that a section boundary swells the whole valley rather than popping it
- *  (at most about .02 of mist density per 33 ms frame). Pure in the frozen
- *  effects frame, so
+ *  gathered phrase energy opens the valley and raises its light; a sustained
+ *  climax reveals distant layers. These multi-second controls keep a louder
+ *  passage visibly different without making mist pump on every drum. Legacy
+ *  callers without them retain the restrained pressure response. Pure in the
+ *  frozen effects frame, so
  *  seek, pause, display and capture agree. Null or silent music returns the
  *  frozen ATMOSPHERE_NEUTRAL; otherwise one reused object (no per-frame
  *  allocation), valid until the next call. */
 export function atmosphereMusic(effects) {
   if (!effects) return ATMOSPHERE_NEUTRAL;
   const lift = unit(effects.lift), bass = unit(effects.bass), energy = unit(effects.energy);
-  if (lift < .001 && bass < .001 && energy < .001) return ATMOSPHERE_NEUTRAL;
-  ATMOSPHERE_SCRATCH.mistDensityMul = Math.max(.75, 1 - .12 * energy - .06 * lift - .05 * bass);
-  ATMOSPHERE_SCRATCH.mistGlow = .02 * lift + .04 * energy;
-  ATMOSPHERE_SCRATCH.shaftGain = Math.min(1.4, 1 + .25 * energy + .15 * lift + .1 * bass);
+  const directed = Number.isFinite(effects.atmosphere);
+  const atmosphere = directed ? unit(effects.atmosphere) : 0, expansion = unit(effects.expansion);
+  if (Math.max(lift, bass, energy, atmosphere, expansion) < .001) return ATMOSPHERE_NEUTRAL;
+  ATMOSPHERE_SCRATCH.mistDensityMul = directed ? Math.max(.46, 1 - .38 * atmosphere - .16 * expansion)
+    : Math.max(.75, 1 - .12 * energy - .06 * lift - .05 * bass);
+  ATMOSPHERE_SCRATCH.mistGlow = directed ? .1 * atmosphere + .04 * expansion : .02 * lift + .04 * energy;
+  ATMOSPHERE_SCRATCH.shaftGain = directed ? 1 + .65 * atmosphere + .35 * expansion
+    : Math.min(1.4, 1 + .25 * energy + .15 * lift + .1 * bass);
+  ATMOSPHERE_SCRATCH.keyLightGain = 1 + .16 * atmosphere + .12 * expansion;
   return ATMOSPHERE_SCRATCH;
 }
 

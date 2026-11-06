@@ -6,14 +6,17 @@ import { RangeCrest } from '../src/world/alpine/RangeCrest.js';
 
 // A small software canvas checks copy/compositing semantics without GPU work.
 function canvas(width, height, pixel = null) {
-  const target = { width, height, pixels: null, copies: [] };
+  const target = { width, height, pixels: null, copies: [], clears: [] };
   const ctx = { canvas: target, globalAlpha: 1, globalCompositeOperation: 'source-over',
-    setTransform() {}, clearRect() { target.pixels = new Uint8ClampedArray(target.width * target.height * 4); },
+    setTransform() {}, clearRect(...rect) { target.clears.push(rect); target.pixels = new Uint8ClampedArray(target.width * target.height * 4); },
     getImageData() { throw new Error('output CPU readback is forbidden'); },
     drawImage(source, sx, sy, sw, sh, dx, dy, dw, dh) {
       assert.equal(sw, dw); assert.equal(sh, dh);
       target.copies.push([sx, sy, sw, sh, dx, dy, dw, dh, this.globalAlpha, this.globalCompositeOperation]);
-      if (!target.pixels || target.pixels.length !== target.width * target.height * 4) this.clearRect();
+      if (!target.pixels || target.pixels.length !== target.width * target.height * 4) target.pixels = new Uint8ClampedArray(target.width * target.height * 4);
+      // Canvas copy replaces the entire unclipped bitmap, including pixels
+      // outside the drawn rectangle. Keep that fringe observable on reuse.
+      if (this.globalCompositeOperation === 'copy') target.pixels.fill(0);
       for (let y = 0; y < sh; y++) for (let x = 0; x < sw; x++) {
         const rgba = source.pixel(sx + x, sy + y), i = ((dy + y) * target.width + dx + x) * 4;
         const a = this.globalAlpha;
@@ -55,6 +58,32 @@ test('physical output offset/capture scale map the pattern back to the same outp
   const pattern = owner.prepare(output.getContext(), { x: 12, y: 9, scale: 2, width: 40, height: 40 }, [geometry([10.25], [7.25])]);
   assert.deepEqual(point(pattern, 32, 23), [64, 46, 40, 255]);
   assert.ok(pattern.matrix.e > 0 && pattern.matrix.f > 0, 'bounded scratch keeps a nonzero physical origin');
+  owner.release();
+});
+
+test('a physical-pixel crest copies a narrow guarded region without redundantly clearing scratch capacity', () => {
+  const { output, made, owner } = setup(1920, 1080, (x, y) => [x % 256, y % 256, 40, 255], 2e6);
+  const pattern = owner.prepare(output.getContext(), { x: 0, y: 0, scale: 6, width: 1920, height: 1080 },
+    [geometry([0, 320], [90, 100])]);
+  assert.ok(pattern);
+  assert.equal(made[0].copies.length, 2);
+  const copiedPixels = made[0].copies.reduce((sum, copy) => sum + copy[2] * copy[3], 0);
+  assert.ok(copiedPixels <= 249600, `one-pixel stroke only needs 65 physical rows here, copied ${copiedPixels} pixels`);
+  assert.equal(made[0].clears.length, 0, 'the replacing first copy already clears the unused capacity');
+  assert.deepEqual(point(pattern, 1919, 600), [127, 88, 40, 255]);
+  owner.release();
+});
+
+test('shrinking a reused capture keeps the unsupported last output row transparent', () => {
+  let channel = 80;
+  const { output, made, owner } = setup(128, 128, () => [channel, 40, 60, 255]);
+  const physical = { x: 0, y: 0, scale: 1, width: 128, height: 128 };
+  owner.prepare(output.getContext(), physical, [geometry([3, 100], [40, 60])]);
+  channel = 180;
+  const pattern = owner.prepare(output.getContext(), physical, [geometry([60, 70], [126, 130])]);
+  assert.equal(made.length, 1, 'the smaller moving capture reuses its larger admitted canvas');
+  assert.deepEqual(point(pattern, 65, 126), [180, 40, 60, 255], 'both samples come from this frame');
+  assert.deepEqual(point(pattern, 65, 127), [0, 0, 0, 0], 'no stale texel may replace a missing below-neighbour');
   owner.release();
 });
 

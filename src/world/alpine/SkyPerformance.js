@@ -14,6 +14,8 @@ export function sampleSkyPerformance(effects, qualityLevel = 0) {
   const energy = clamp(effects.energy), bass = clamp(effects.bass), treble = clamp(effects.treble);
   const melody = clamp(effects.melody), lift = clamp(effects.lift);
   const kick = clamp(effects.kick), snare = clamp(effects.snare);
+  const directed = Number.isFinite(effects.atmosphere);
+  const atmosphere = clamp(effects.atmosphere), expansion = clamp(effects.expansion);
   const glints = new Float32Array(GLINT_FAMILIES), sweeps = [];
   let pulse = 0, travel = 0, admitted = 0;
   const accents = effects.accents || [];
@@ -69,14 +71,14 @@ export function sampleSkyPerformance(effects, qualityLevel = 0) {
     glints[15] = snare * .85;
     glints[26] = melody * treble * .4;
   }
-  if (Math.max(energy, bass, treble, melody, lift, kick, snare, pulse, streakStrength, ...sweeps.map(s => s.strength)) < .001) return null;
+  if (Math.max(energy, bass, treble, melody, lift, kick, snare, atmosphere, expansion, pulse, streakStrength, ...sweeps.map(s => s.strength)) < .001) return null;
   return {
     glints, sweeps, pulse,
     streaks: streakStrength > 0 ? [{ age: streakAge, seed: streakSeed, strength: streakStrength }] : NO_STREAKS,
-    open: clamp(.7 * bass + .3 * energy),
+    open: directed ? clamp(.7 * atmosphere + .3 * expansion) : clamp(.7 * bass + .3 * energy),
     fold: clamp(.8 * melody + .2 * snare),
     travel: Math.max(-1, Math.min(1, travel)),
-    radiance: clamp(.42 * energy + .3 * bass + .2 * melody + .08 * lift),
+    radiance: directed ? clamp(.72 * atmosphere + .28 * expansion) : clamp(.42 * energy + .3 * bass + .2 * melody + .08 * lift),
     lift,
     detail: qualityLevel >= 2 ? .7 : 1,
   };

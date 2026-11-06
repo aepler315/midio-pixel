@@ -55,6 +55,7 @@ import { ActorsGL, SITE_LIGHTS_MAX, CAST_LAYER, CAST_RIBBON_LAYER, enableCastLay
 import { riverChannelErrors } from './RiverChannel.js';
 import { ACTOR_IDS, ACTOR_HUES, ACTOR_LOOK, ACTOR_NOTE_AGE_CAP_MS, ACTOR_START, actorRoutes, routePosition } from './RangeActors.js';
 import { castPlan, castWork, pathPosition, siteWalk } from './CastJobs.js';
+import { castConstructionJob } from './CastConstruction.js';
 import { flashScreenPoint, rainSeed01, stormKindRow } from './RangeStorm.js';
 import { forestWindAt } from './ForestWind.js';
 import { createWetMask, fillWetRows, waterIndexSubsetPartsAsync } from './WaterSubset.js';
@@ -269,6 +270,7 @@ export class RangeScene {
     // the presentation each frame; the probe itself is made on first use.
     this.crestProbeMode = null;
     this.crestProbe = null;
+    this.crestFineSuspended = false;
     this._copy = this._createCopy();
     // Each loss and each restore starts a new context epoch: a preparation
     // that straddles either built GPU objects (and dropped the surface
@@ -2409,7 +2411,7 @@ export class RangeScene {
     u.uCinematic.value.set(...cinematic.light);
     u.uCinematicAir.value.set(...cinematic.air);
     const strength = c.body ? c.intensity : 0;
-    hexToLinear(THREE, c.colorHex, u.uLightColor.value).multiplyScalar(strength);
+    hexToLinear(THREE, c.colorHex, u.uLightColor.value).multiplyScalar(strength * atmosphereMusic(frame.effects).keyLightGain);
     // Receiver fill fades once; sky radiance also feeds air and water's
     // reflection, so it keeps the frame's authored environment colors.
     const ambient = frame.light.ambientMultiplier ?? 1;
@@ -2622,9 +2624,9 @@ export class RangeScene {
     // threads); the light they cast goes with them (ACTOR_GLSL actorShown).
     u.uWakeAmt.value = 0;
     u.uParting.value.w = 0;
-    // A shot tour over a rail view keeps the view's job (and every light it
-    // has left); only a tour view's own terrain wanders.
-    const job = p.view.tour ? null : this._castJob(p, frame);
+    // Every Landscape view uses the same rise-driven work front, including
+    // tour routes. The legacy job remains available without a build state.
+    const job = this._castJob(p, frame);
     const opts = { data: p.data, waterLevelM: p.castWaterLevelM ?? p.waterLevelM };
     // A planned view with no job state yet (no schedule) wanders meanwhile.
     if (!job && !p.actorRoutes && p.castPlan && p.data) p.actorRoutes = actorRoutes(p.data, p.view, { ...opts, seed: p.castSeed ?? 0 });
@@ -2681,7 +2683,8 @@ export class RangeScene {
       v.uGlow.value = Math.max(s.glow, beacon);
       v.uPresence.value = presence * (0.55 + 0.45 * dark) * (job?.dim ?? 1);
       v.uTime.value = tSec + k * 37;
-      v.uWanderPx.value = look.wanderPx * (1 + 0.5 * s.glow);
+      v.uWanderPx.value = look.wanderPx * (1 + 0.5 * s.glow)
+        * (job?.construction ? .45 + .35 * job.construction.activity01 : 1);
       // A kindling: motes stream from the lantern into the new light.
       const fly = placed?.fly;
       v.uFly.value = fly ? fly.t : 0;
@@ -2692,8 +2695,9 @@ export class RangeScene {
         const lag = job ? placed.lag?.[j] ?? pos
           : routePosition(route, s.travel + (ACTOR_START[id] || 0) - (j + 1) * 0.5, { ...opts, hoverM: look.hoverM });
         const w = tSec * (0.7 + 0.2 * j) + j * 2.1;
+        const weave = job?.construction ? .45 : 1;
         const cp = new THREE.Vector3(lag[0], lag[1], lag[2])
-          .addScaledVector(right, Math.sin(w) * 18 * mpp0).addScaledVector(up, Math.cos(w * 1.3) * 10 * mpp0);
+          .addScaledVector(right, Math.sin(w) * 18 * mpp0 * weave).addScaledVector(up, Math.cos(w * 1.3) * 10 * mpp0 * weave);
         // Measured, like the lantern's, from where the rise draws it: the
         // shader lowers the companion with its anchor (groundLift).
         const cl = rise ? cp.clone().setY(cp.y + landRiseLift(lag[0], lag[1], lag[2], null, rise.sink, rise.baseM)) : cp;
@@ -2727,6 +2731,10 @@ export class RangeScene {
    */
   _castJob(p, frame) {
     const plan = p.castPlan, work = p.castWork;
+    const construction = castConstructionJob({ plan, work, routes: p.actorRoutes,
+      data: p.data, waterLevelM: p.castWaterLevelM ?? p.waterLevelM,
+      rise01: frame.rise01, actors: frame.actors });
+    if (construction) return construction;
     const state = frame.actors?.jobs?.[p.view.id];
     const schedule = frame.actors?.schedule;
     if (!plan || plan.job === 'wander' || !state || !schedule) return null;
@@ -3275,6 +3283,15 @@ export class RangeScene {
     return ok;
   }
 
+  /** A travel needs its room before the incoming view or side is admitted.
+   * Keep the native probe/readback ring: only the unused fine target leaves. */
+  setCrestFineSuspended(suspended) {
+    const next = !!suspended;
+    if (this.crestFineSuspended === next) return;
+    this.crestFineSuspended = next;
+    if (next) this._releaseFineTarget();
+  }
+
   _releaseFineTarget() {
     const target = this._fineTarget;
     this._fineTarget = null;
@@ -3283,6 +3300,7 @@ export class RangeScene {
   }
 
   _crestFineTarget(target) {
+    if (this.crestFineSuspended) return null;
     const size = crestFineSize(target, this.crestOutputScale, this.renderer.capabilities?.maxTextureSize ?? 16384);
     if (!size) { this._releaseFineTarget(); return null; }
     const { width: w, height: h } = size;

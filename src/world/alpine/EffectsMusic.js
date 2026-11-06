@@ -7,14 +7,61 @@ import { boundaryLift01 } from '../WorldMusic.js';
 const unit = value => Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
 const positive = value => Number.isFinite(value) ? Math.max(0, value) : 0;
 const EMPTY_ACCENTS = Object.freeze([]);
-const SILENT = Object.freeze({ energy: 0, bass: 0, treble: 0, kick: 0, snare: 0, melody: 0, lift: 0, accents: EMPTY_ACCENTS });
+const SILENT = Object.freeze({ energy: 0, bass: 0, treble: 0, kick: 0, snare: 0, melody: 0, lift: 0,
+  atmosphere: 0, expansion: 0, accents: EMPTY_ACCENTS });
 const EVENTS_MS = 2200;
 const SCAN_LIMIT = 128;
 const DECAY_MS = { kick: 240, snare: 125, melody: 650 };
-const CHANNELS = ['energy', 'bass', 'treble', 'kick', 'snare', 'melody', 'lift'];
+const CHANNELS = ['energy', 'bass', 'treble', 'kick', 'snare', 'melody', 'lift', 'atmosphere', 'expansion'];
 const timelineCache = new WeakMap();
 const floorCache = new WeakMap();
 const cadenceCache = new WeakMap();
+const atmosphereCache = new WeakMap();
+const smooth = value => { const t = unit(value); return t * t * (3 - 2 * t); };
+const ATMOSPHERE_STEP_MS = 50;
+
+// A causal two-stage envelope. The first stage gathers a musical phrase;
+// the second keeps light and mist from breathing with individual drums.
+// Compiled once per immutable analysis, then two scalar reads per frame.
+// Each key integrates the PREVIOUS source frame: interpolation never reads
+// an unheard analysis frame, including immediately before an onset.
+function atmosphereAt(curves, now, floor, fallback) {
+  const frames = Math.max(0, ...(curves?.bands || []).map(b => b?.length || 0));
+  if (!frames) return unit(fallback);
+  const rate = Number.isFinite(curves.rateHz) && curves.rateHz > 0 ? curves.rateHz : 50;
+  const count = Math.ceil((frames - 1) * 1000 / rate / ATMOSPHERE_STEP_MS) + 2;
+  let cached = atmosphereCache.get(curves);
+  if (!cached || cached.bands !== curves.bands || cached.rms !== curves.rmsBands || cached.count !== count || cached.rate !== rate) {
+    const values = new Float32Array(count);
+    let gathered = 0, settled = 0;
+    const finish = 1 - Math.exp(-ATMOSPHERE_STEP_MS / 1300);
+    for (let i = 1; i < count; i++) {
+      const frame = curveAt(curves, (i - 1) * ATMOSPHERE_STEP_MS, floor);
+      const source = .8 * frame.energy + .1 * (frame.bands[0] + frame.bands[1]);
+      const gather = 1 - Math.exp(-ATMOSPHERE_STEP_MS / (source > gathered ? 1500 : 2600));
+      gathered += (source - gathered) * gather;
+      settled += (gathered - settled) * finish;
+      values[i] = settled;
+    }
+    cached = { bands: curves.bands, rms: curves.rmsBands, count, rate, values };
+    atmosphereCache.set(curves, cached);
+  }
+  const at = Math.min(count - 1, now / ATMOSPHERE_STEP_MS), lo = Math.floor(at), hi = Math.min(count - 1, lo + 1);
+  return unit(cached.values[lo] + (cached.values[hi] - cached.values[lo]) * (at - lo));
+}
+
+// The section's arrival opens over seconds, not a transient-sized flash.
+// Only a heard, trusted increase contributes; decorative cuts stay silent.
+function sectionExpansion(sections, now) {
+  if (!Array.isArray(sections)) return 0;
+  const index = through(sections, now, 'startMs') - 1;
+  if (index < 1) return 0;
+  const section = sections[index], prior = sections[index - 1], age = now - section.startMs;
+  const span = Math.min(16000, positive(section.endMs - section.startMs) || 16000);
+  const attack = Math.min(3000, span * .4), release = Math.min(5000, span * .5);
+  return unit(boundaryLift01(section, prior) * sectionTrust(section)
+    * smooth(age / attack) * (1 - smooth((age - (span - release)) / release)));
+}
 
 function eventKind(event) {
   if (event.role === 'RHYTHM' || event.channel === 9) {
@@ -211,12 +258,17 @@ export function sampleEffectsMusic({ timeMs = 0, ridgeSample = null, timeline = 
   }
   const accents = [...onsets.values()].sort((a, b) => a.ageSec - b.ageSec || a.seed - b.seed)
     .filter(accent => counts[accent.kind]++ < 2).map(Object.freeze);
+  // Calm's fast pressure gate belongs to note accents; applying it after
+  // this envelope would make a quiet return snap the whole valley darker.
+  const atmosphere = atmosphereAt(energyCurves, now, floor, .8 * energy + .2 * bass) * presence;
+  const expansion = unit(smooth((atmosphere - .35) / .55) + .25 * sectionExpansion(sections, now) * presence);
   return Object.freeze({
     energy: unit(energy * pressureGain * presence), bass: unit(bass * pressureGain * presence),
     treble: unit(treble * pressureGain * presence),
     kick: unit(hits.kick * accentGain * presence), snare: unit(hits.snare * accentGain * presence),
     melody: unit(hits.melody * accentGain * presence),
-    lift: unit(sectionLift(sections, now) * accentGain * presence), accents: Object.freeze(accents),
+    lift: unit(sectionLift(sections, now) * accentGain * presence),
+    atmosphere: unit(atmosphere), expansion, accents: Object.freeze(accents),
   });
 }
 

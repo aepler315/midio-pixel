@@ -13,7 +13,7 @@ const sample = options => {
   assert.equal(typeof sampleEffectsMusic, 'function', 'shared effects response is available');
   return sampleEffectsMusic(options);
 };
-const channels = ['energy', 'bass', 'treble', 'kick', 'snare', 'melody', 'lift'];
+const channels = ['energy', 'bass', 'treble', 'kick', 'snare', 'melody', 'lift', 'atmosphere', 'expansion'];
 function curves(bands = Array(7).fill(.7), rms = .01) {
   const c = new EnergyCurves(6000);
   c.bands.forEach((b, i) => b.fill(bands[i]));
