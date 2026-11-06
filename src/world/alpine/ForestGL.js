@@ -505,6 +505,9 @@ const MESH_COVERAGE = /* glsl */`
 // allowance, not a measurement of a JavaScript engine or driver heap.
 export const FOREST_ASSET_BUILD_BYTES = 8 * 1024 ** 2;
 export const forestGroupingBytes = count => count * 16 + 64 * 1024;
+/** Additional CPU ownership for span indices/cell starts and their build
+ * scratch. C<=N cells: retained 4N+4C, scratch 4N+4C; GPU arrays are unchanged. */
+export const forestSpanBytes = count => count > 0 ? count * 16 + 64 * 1024 : 0;
 
 /** A near conifer asset (ForestSpeciesAssets.js) as indexed geometry; the
  *  vertex shader maps its coordinates to each tree's species and size. */
@@ -537,7 +540,7 @@ function reinstanced(THREE, base, source) {
 }
 
 /** Instanced geometry for a subset of placed trees. */
-function instanced(THREE, base, instances, stride, indices) {
+function instanced(THREE, base, instances, stride, indices, spans = false) {
   const geo = new THREE.InstancedBufferGeometry();
   geo.index = base.index;
   for (const [k, v] of Object.entries(base.attributes)) geo.setAttribute(k, v);
@@ -549,9 +552,14 @@ function instanced(THREE, base, instances, stride, indices) {
     s[k * 2] = instances[o + 3]; s[k * 2 + 1] = instances[o + 4];
     v[k * 2] = instances[o + 5]; v[k * 2 + 1] = instances[o + 6];
   });
-  geo.setAttribute('iPos', new THREE.InstancedBufferAttribute(p, 3));
-  geo.setAttribute('iSize', new THREE.InstancedBufferAttribute(s, 2));
-  geo.setAttribute('iVar', new THREE.InstancedBufferAttribute(v, 2));
+  // The static mesh's same buffers can start at a contiguous tree offset,
+  // like the tour twins. No repacking or ordering change is involved.
+  const attribute = (array, size) => spans
+    ? new THREE.InterleavedBufferAttribute(new THREE.InstancedInterleavedBuffer(array, size, 1), size, 0)
+    : new THREE.InstancedBufferAttribute(array, size);
+  geo.setAttribute('iPos', attribute(p, 3));
+  geo.setAttribute('iSize', attribute(s, 2));
+  geo.setAttribute('iVar', attribute(v, 2));
   geo.instanceCount = n;
   return { geo, bytes: p.byteLength + s.byteLength + v.byteLength };
 }
@@ -653,7 +661,7 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
     let geo;
     if (from) geo = reinstanced(THREE, base, from);
     else {
-      const built = instanced(THREE, base, data, instanceStride, idx);
+      const built = instanced(THREE, base, data, instanceStride, idx, kind !== 'billboard');
       geo = built.geo;
       bytes += built.bytes;
       counts[kind] += idx.length;
@@ -666,8 +674,8 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
       bytes += weight.array.byteLength;
     }
     geo.userData.asset = base.userData.asset;
-    // Mesh trees can be culled a whole batch at a time (ForestCulling.js).
-    if (kind !== 'billboard') geo.userData.forestCull = { uniforms: u };
+    // Mesh trees draw a conservative contiguous span in their original order.
+    if (kind !== 'billboard') geo.userData.forestCull = { uniforms: u, prefix: true, spans: true };
     geos.push(geo);
     const railLimit = railCount?.[kind];
     if (railOnly) {
@@ -1017,6 +1025,7 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
       return state;
     },
     dispose: () => {
+      restoreForestCulling();
       for (const g of geos) g.dispose(); for (const g of bases.values()) g.dispose(); baseBoard.dispose(); for (const m of Object.values(materials)) m.dispose();
       for (const g of tourGeos) g.dispose(); for (const m of Object.values(tourMaterials || {})) m.dispose();
     },

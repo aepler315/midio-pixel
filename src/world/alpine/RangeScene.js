@@ -33,7 +33,7 @@ import { TourForestSchedule, tourForestBytes } from './TourForest.js';
 import { SunShaftGL, SHAFT_KEY, shaftSize, shaftSource } from './SunShaftGL.js';
 import { rangeQuality, easeRungAmount } from './RangeQuality.js';
 import { clamp01, hashSeed } from '../../utils/math.js';
-import { createForest, FOREST_ASSET_BUILD_BYTES, forestGroupingBytes } from './ForestGL.js';
+import { createForest, FOREST_ASSET_BUILD_BYTES, forestGroupingBytes, forestSpanBytes } from './ForestGL.js';
 import { forestAssetBytes, FOREST_FAMILIES, FOREST_VARIANTS } from './ForestSpeciesAssets.js';
 import { bakeHorizonAsync, createHorizonTexture, horizonBytes } from './TerrainOcclusion.js';
 import { hierarchyLattice, buildTerrainHierarchyAsync, createHierarchyTexture, HIERARCHY_MAX_SAMPLES } from './TerrainHierarchy.js';
@@ -102,7 +102,7 @@ export function staticViewBytes(data, est, trees, { budget = 'desktop', landDanc
   const gridPx = grid ? grid.width * grid.height : 0;
   return 2 * ((est?.meshBytes || 0) + fringeBytes + forestBytes) + (est?.surfaceTextureBytes || 0) + gridPx
     + modes * 2 * 3 * 768 * 6 * 4 + 2 * ActorsGL.bytes() + horizonCost + hierarchyCost
-    + (grid ? riseGroundBytes() : 0);
+    + (grid ? riseGroundBytes() : 0) + forestSpanBytes(trees);
 }
 
 /** The grouping and asset-build allowance a static forest build keeps
@@ -1012,7 +1012,7 @@ export class RangeScene {
         terrain += 12 * (m + 1) ** 2 + 48 * m * m;
       }
     }
-    const bytes = scratch + (index == null ? 0 : 2 * terrain + forest.count * 56 + 2 * 1024 ** 2);
+    const bytes = scratch + (index == null ? 0 : 2 * terrain + forest.count * 56 + forestSpanBytes(forest.count) + 2 * 1024 ** 2);
     Object.assign(spec, { plan, bytes });
     return spec;
   }
@@ -1163,7 +1163,7 @@ export class RangeScene {
       if (entry.cancelled || p.windowCache.closed || generation !== p.windowCache.generation || entry.coverageRevision !== (p.coverageRevision || 0) || !this.prepared.has(p.view.id)) {
         throw new RangeAssetError('stale', 'Tour window generation ended');
       }
-      const bytes = 2 * (Object.values(raw.built.bands).reduce((n, b) => n + b.positions.byteLength + b.indices.byteLength + b.fringe.byteLength, 0) + raw.placed.count * 7 * 4 + forestAssetBytes() + FOREST_DETAIL_BYTES);
+      const bytes = 2 * (Object.values(raw.built.bands).reduce((n, b) => n + b.positions.byteLength + b.indices.byteLength + b.fringe.byteLength, 0) + raw.placed.count * 7 * 4 + forestAssetBytes() + FOREST_DETAIL_BYTES) + forestSpanBytes(raw.placed.count);
       if (bytes > entry.bytes) throw new RangeAssetError('budget', 'Window exceeded admitted build bound');
       const checkCurrent = () => {
         if (entry.cancelled || p.windowCache.closed || generation !== p.windowCache.generation || entry.coverageRevision !== (p.coverageRevision || 0)
@@ -1523,7 +1523,7 @@ export class RangeScene {
           throw new RangeAssetError('budget', `no GPU room for ${view.id}`);
         }
         if (rawWindow) {
-          const windowBytes = 2 * (Object.values(rawWindow.built.bands).reduce((n, b) => n + b.positions.byteLength + b.indices.byteLength + b.fringe.byteLength, 0) + forestBytes);
+          const windowBytes = 2 * (Object.values(rawWindow.built.bands).reduce((n, b) => n + b.positions.byteLength + b.indices.byteLength + b.fringe.byteLength, 0) + forestBytes) + forestSpanBytes(placed.count);
           if (windowBytes > buildEntry.bytes) throw new RangeAssetError('budget', 'Initial window exceeded admitted build bound');
           buildEntry.retainedBytes = windowBytes;
         }
