@@ -29,6 +29,7 @@ import { RangeShotTours } from './RangeShotTours.js';
 import { AUTO_TOUR_GATE, autoGateEnabled } from './CameraChoice.js';
 import { headingPitch, lookDir } from '../terrain/ShotPath.js';
 import { RangeCrest } from './RangeCrest.js';
+import { openingOcean01 } from './BuildOcean.js';
 
 /** Native terrain backing for a full-resolution composition. The selected
  * grid is fitted to the same aspect-preserving output rectangle. */
@@ -759,7 +760,15 @@ export class RangePresentation {
     this._updateArrival(ok);
     // A departure toward legacy scenery fades the scene out over the blend
     // (pure in the blend's heard-time progress, exports included).
-    if (ok) this.arrival = Math.min(this.arrival, this._departure ?? 1);
+    if (ok) {
+      this.arrival = Math.min(this.arrival, this._departure ?? 1);
+      // Arrival/departure is resolved by this wrapper, after scene setup.
+      // Never suppress native water using the previous frame's opacity.
+      this._admitDirectWater(this.viewId, this.incomingViewId);
+    } else {
+      this.directWaterAvailable = false;
+      if (this.scene) this.scene.separateWater = false;
+    }
     return ok;
   }
 
@@ -1000,6 +1009,8 @@ export class RangePresentation {
     // A travel keeps the cast in the band passes: each side's nearer bands
     // draw only in some columns, which one smooth layer cannot follow.
     this.scene.directTerrainMode = !!this.directTerrainMode;
+    this.scene.separateWater = false;
+    this.directWaterAvailable = false;
     this.directCastAvailable = false;
     if (this.directTerrainMode && this.scene._waterRenderTarget && this.scene.size) {
       const scale = this.scene.waterOutputScale || 1;
@@ -1301,7 +1312,10 @@ export class RangePresentation {
   /** Presenter hook: draw the terrain (`draw`) clipped below the skyline
    * (RangeCrest.drawTerrain; `source` is the native grid). False when it drew nothing. */
   drawCrestTerrain(ctx, fit, draw, source = null) { return !!this.active && this.crestEnabled && this.crest.drawTerrain(ctx, fit, this.frameId, draw, source); }
-  drawShoreForeground(ctx, fit) { return !this.active || this.crest.drawShore(ctx, fit, this.frameId); }
+  drawShoreForeground(ctx, fit) {
+    const land = 1 - openingOcean01(this.frame?.rise01);
+    return !this.active || !(land > 0) || this.crest.drawShore(ctx, fit, this.frameId, land);
+  }
 
   /** Blend a late-arriving band once after its terrain and water are united. */
   _drawDirectArrival(ctx, stage, pass, image) {
@@ -1334,10 +1348,55 @@ export class RangePresentation {
     return true;
   }
 
-  /** Draw this band's water immediately after its pixel terrain, before the
-   * next depth layer. A native water mask keeps the shoreline on the same
-   * cells as land while its interior and reflected sky use display pixels. */
+  _ensureWaterCanvas(property, key, width, height) {
+    let canvas = this[property];
+    if (canvas && canvas.width === width && canvas.height === height && (!this.residency || this.residency.get(key) === canvas)) return canvas;
+    if (this.residency) this.residency.release(key);
+    else if (canvas) canvas.width = canvas.height = 0;
+    this[property] = null;
+    const protect = [...(this.residency?.entries.keys() || [])];
+    const res = this.residency?.reserve({ key, bytes: width * height * 4, owner: 'range-water', protect });
+    if (this.residency && !res) return null;
+    try {
+      canvas = this._makeCanvas(width, height);
+      if (!canvas?.getContext('2d')) throw Error('water canvas unavailable');
+      if (res && !this.residency.commit(res, canvas, value => {
+        value.width = value.height = 0; if (this[property] === value) this[property] = null;
+      })) throw Error('water canvas admission failed');
+      return (this[property] = canvas);
+    } catch {
+      if (res) this.residency?.releaseReservation?.(res);
+      if (canvas) canvas.width = canvas.height = 0;
+      return null;
+    }
+  }
+
+  /** Admit everything before suppressing native water color. The full-size
+   * water target is already reserved for direct cast; no extra pass or
+   * target is introduced. A denied layer keeps the normal native color. */
+  _admitDirectWater(viewId, incomingId = null) {
+    this.directWaterAvailable = false;
+    if (this.scene) this.scene.separateWater = false;
+    if (!this.directTerrainMode || !this.directCastAvailable || !(this.arrival >= .999) || openingOcean01(this.frame?.rise01) >= 1
+      || !(this.outputSize?.width > 0 && this.outputSize?.height > 0)
+      || this.scene.hasWater && ![viewId, incomingId].filter(Boolean).some(id => this.scene.hasWater(id))) return false;
+    const canvas = this._ensureWaterCanvas('_waterCanvas', WATER_LAYER_KEY, this.outputSize.width, this.outputSize.height);
+    if (!canvas) return false;
+    this.directWaterAvailable = this.scene.separateWater = true;
+    this.scene.pinView?.(incomingId ? [viewId, incomingId] : viewId,
+      [incomingId ? TRAVEL_SCRATCH_KEY : CAST_LAYER_KEY, 'range:water-output', WATER_LAYER_KEY]);
+    return true;
+  }
+
+  /** Draw physical water immediately after its pixel terrain, before the
+   * next depth layer. Its own geometry/depth owns the shoreline when the
+   * layer was admitted; a denied layer retains the native fallback. */
   _drawDirectWater(ctx, stage, pass, columns = null) {
+    if (openingOcean01(this.frame?.rise01) >= 1) {
+      this.scene.separateWater = false;
+      this.directWaterAvailable = false;
+      return false;
+    }
     if (!this.scene?.renderWater || !this.scene?.size || this.arrival < .999) return false;
     if (this.incomingViewId && columns) return this._compositeSides(ctx, stage, PASS_LAYER[pass] || 'L3',
       () => this._renderDirectWater(ctx, stage, pass, this.viewId, 'A', columns.A),
@@ -1351,28 +1410,37 @@ export class RangePresentation {
   }
 
   _renderDirectWater(ctx, stage, pass, viewId, side = 'A', bandColumns = null) {
+    if (openingOcean01(this.frame?.rise01) >= 1) return null;
     if (this.scene.hasWater && !this.scene.hasWater(viewId)) return null;
     const nw = this.scene.size.width, nh = this.scene.size.height;
     const scale = Math.max(1, this.scene.waterOutputScale || 1);
     const w = Math.max(2, Math.round(nw * scale)), h = Math.max(2, Math.round(nh * scale));
-    const acquire = (property, key, width, height) => {
-      let c = this[property];
-      if (c && c.width === width && c.height === height && (!this.residency || this.residency.get(key) === c)) return c;
-      if (this.residency) this.residency.release(key);
-      else if (c) c.width = c.height = 0;
-      this[property] = null;
-      const protect = [...(this.residency?.entries.keys() || [])];
-      const res = this.residency?.reserve({ key, bytes: width * height * 4, owner: 'range-water', protect });
-      if (this.residency && !res) return null;
-      c = this._makeCanvas(width, height);
-      this[property] = c;
-      if (res && !this.residency.commit(res, c, x => { x.width = x.height = 0; if (this[property] === x) this[property] = null; })) {
-        this[property] = null; return null;
+    const out = this._ensureWaterCanvas('_waterCanvas', WATER_LAYER_KEY, ctx.canvas.width, ctx.canvas.height);
+    if (!out) return null;
+    if (this.directWaterAvailable && this.scene.separateWater) {
+      const high = this.scene.renderWater(this._sideFrame(side), viewId, w, h, { pass, side, bandColumns });
+      const oc = out.getContext('2d'), t = ctx.getTransform();
+      if (high && oc) {
+        oc.setTransform(1, 0, 0, 1, 0, 0); oc.globalCompositeOperation = 'source-over';
+        oc.clearRect(0, 0, out.width, out.height);
+        oc.setTransform(t.a, t.b, t.c, t.d, t.e, t.f);
+        drawScene(oc, this.scene, high, 0, 0, stage.width, stage.height);
+        return out;
       }
-      return c;
-    };
-    const mask = acquire('_waterShoreMask', WATER_SHORE_MASK_KEY, ctx.canvas.width, ctx.canvas.height);
-    const out = acquire('_waterCanvas', WATER_LAYER_KEY, ctx.canvas.width, ctx.canvas.height);
+      // An unexpected loss after admission falls back to the native water
+      // itself, so a deferred base can never leave a dry-looking lake.
+      this.directWaterAvailable = false;
+      this.scene.separateWater = false;
+      const low = this.scene.renderWater(this._sideFrame(side), viewId, nw, nh, { pass, side, bandColumns });
+      if (!low || !oc) return null;
+      oc.setTransform(1, 0, 0, 1, 0, 0); oc.globalCompositeOperation = 'source-over'; oc.clearRect(0, 0, out.width, out.height);
+      oc.setTransform(t.a, t.b, t.c, t.d, t.e, t.f);
+      if (!this.drawTerrainImage?.(oc, low, stage, { width: nw, height: nh })) {
+        oc.imageSmoothingEnabled = false; drawScene(oc, this.scene, low, 0, 0, stage.width, stage.height);
+      }
+      return out;
+    }
+    const mask = this._ensureWaterCanvas('_waterShoreMask', WATER_SHORE_MASK_KEY, ctx.canvas.width, ctx.canvas.height);
     const mc = mask?.getContext('2d'), oc = out?.getContext('2d');
     if (!mc || !oc) return null;
     const low = this.scene.renderWater(this._sideFrame(side), viewId, nw, nh, { pass, side, bandColumns });
@@ -1470,7 +1538,7 @@ export class RangePresentation {
   drawMidDepthForWater(ctx, frame, draw) {
     this.waterEffectMask = null;
     if (this.directTerrainMode) { draw(frame); return; }
-    if (!this.waterOutputSize || this.incomingViewId || this.arrival < .999 || !ctx.canvas
+    if (openingOcean01(this.frame?.rise01) >= 1 || !this.waterOutputSize || this.incomingViewId || this.arrival < .999 || !ctx.canvas
       || (this.frame?.qualityLevel ?? 0) >= 4 || this.scene?.hasWater && !this.scene.hasWater(this.viewId)) { draw(frame); return; }
     const w = ctx.canvas.width, h = ctx.canvas.height;
     let c = this._waterEffectCanvas;
@@ -1525,6 +1593,7 @@ export class RangePresentation {
 
   _keepWater(ctx, stage) {
     this.waterLayer = null;
+    if (openingOcean01(this.frame?.rise01) >= 1) { this._releaseWater(); return; }
     if (!this.waterOutputSize || !this.waterEffectMask || this.incomingViewId || this.arrival < .999 || !this.scene?.renderWater) return;
     const scale = Math.min(this.waterOutputSize.width / ctx.canvas.width, this.waterOutputSize.height / ctx.canvas.height,
       1920 / ctx.canvas.width, 1080 / ctx.canvas.height);

@@ -65,6 +65,7 @@ import { waterBoxes, vertexWaterBoxes, liftBounds, shiverBounds, mirrorScissor, 
 import { LAND_RISE_START, landRiseLift, riseFromUniforms, risenHeight } from './LandRise.js';
 import { landRiseBase, landRiseCamera } from './LandRiseCamera.js';
 import { RiseGround, riseGroundBytes } from './RiseGround.js';
+import { openingOcean01 } from './BuildOcean.js';
 // Storm light, linear: the deck's underside, the rain-dimmed horizon, the
 // rain air, per episode kind (RangeStorm STORM_KINDS zenith/horizon/air).
 // The air meets the slate the sky paints at the horizon (drawStormSky).
@@ -686,7 +687,7 @@ export class RangeScene {
     const sourceLevel = p.mirrorLevelM;
     const level = Number.isFinite(sourceLevel) ? risenHeight(sourceLevel, 0, riseFromUniforms(u)) : sourceLevel;
     const wanted = Number.isFinite(level) && rangeQuality(frame.qualityLevel).waterMirror
-      && (frame.narrative?.materials ?? 1) > .01;
+      && (frame.narrative?.materials ?? 1) * (1 - openingOcean01(frame.rise01)) > .01;
     const m = wanted ? this._ensureMirror(side) : null;
     // A recovered mirror fades in over heard time; a shed drops it at once
     // (keeping it would prolong the overload). Once per heard frame.
@@ -733,6 +734,11 @@ export class RangeScene {
         m.target.scissorTest = true;
         r.setRenderTarget(m.target);
       }
+      // The main Direct view may defer its water to an admitted output
+      // overlay. A mirror has no such overlay: every reflected lake,
+      // including a higher one above the clip plane, shades in this pass.
+      const separateWater = u.uSeparateWater?.value;
+      if (u.uSeparateWater) u.uSeparateWater.value = 0;
       try {
       const softForest = Object.values(p.forest?.counts || {}).some(n => n > 0);
       // The lake reflects the cast with each band (it never takes the main
@@ -764,6 +770,7 @@ export class RangeScene {
         }
       }
       } finally {
+        if (u.uSeparateWater) u.uSeparateWater.value = separateWater;
         if (m.target.scissorTest) { m.target.scissorTest = false; r.setRenderTarget(m.target); }
       }
       this.mirrorCamera.layers.set(0); this.mirrorCamera.layers.enable(3);
@@ -2289,13 +2296,16 @@ export class RangeScene {
     const tanY = Math.tan((proj.fovYDeg * Math.PI) / 360) * (visH / vp.logicalHeight), tanX = tanY * (visW / visH);
     // Cinematic section moves and the listener's zoom (RangeCamera.js),
     // computed once per frame and view: the partition passes reuse it.
+    const groundAt = p?.data ? this._renderedGround(view, frame, p.data, p) : null;
     const authoredPose = applyCameraMoves(rail, frame.cameraMove, frame.userCamera, {
-        heightAt: p?.data ? this._renderedGround(view, frame, p.data, p) : null, waterLevelM: p?.waterLevelM,
+        heightAt: groundAt, waterLevelM: p?.waterLevelM,
         sampleStepM: p?.data?.grid?.cellSizeM, cone: { tanX, tanY },
         heightRangeM: p?.uniforms ? [p.uniforms.uHeightRange.value.x, p.uniforms.uHeightRange.value.y] : null,
         zoomMode: 'projection' });
-    const ground = p?.data ? this._renderedGround(view, frame, p.data, p)(authoredPose.eyeM[0], authoredPose.eyeM[2]) : NaN;
-    const pose = landRiseCamera(authoredPose, { rise01: frame.rise01, baseM: landRiseBase(p), groundM: ground });
+    const ground = groundAt ? groundAt(authoredPose.eyeM[0], authoredPose.eyeM[2]) : NaN;
+    const pose = landRiseCamera(authoredPose, { rise01: frame.rise01, baseM: landRiseBase(p), groundM: ground,
+      focusM: baseRail.tour || p?.cameraTour || view.tour ? null : p?.buildFocusM || p?.castPlan?.summit,
+      aspect: proj.aspect, overview: !p?.windowCache, groundAt });
     const resolved = { rail, proj, pose, tanX, tanY };
     poses.set(occurrenceId, resolved);
     this._ensureTourWindow(p, frame.timeMs, { pose, proj });
@@ -2330,7 +2340,7 @@ export class RangeScene {
   /** Per-frame uniforms: light from where the celestial is drawn, sky and
    *  air colours from the frame, the shared deformation. */
   _setFarForest(p, frame) {
-    const drawn = !p.activeWindow?.coarse && (frame.narrative?.materials ?? 1) > .01
+    const drawn = !p.activeWindow?.coarse && (frame.narrative?.materials ?? 1) * (1 - openingOcean01(frame.rise01)) > .01
       && Object.values(p.forest?.counts || {}).some(count => count > 0);
     p.uniforms.uFarForest.value.set(drawn ? 6500 : 0, drawn ? 7800 : 0,
       p.rules?.treeScale ?? RULE_DEFAULTS.treeScale, rangeQuality(frame.qualityLevel).level + (p.view.tour ? 8 : 0));
@@ -2347,6 +2357,7 @@ export class RangeScene {
   _setUniforms(p, frame) {
     const THREE = this.THREE;
     const u = p.uniforms;
+    if (u.uSeparateWater) u.uSeparateWater.value = this.directTerrainMode && this.separateWater ? 1 : 0;
     const n = frame.narrative;
     // Scoped receiver calibration for the retained Black static scenic scene.
     // Receiver irradiance changes before albedo/AO; sky, key and water do not.
@@ -2354,8 +2365,9 @@ export class RangeScene {
     u.uReceiverFillMin.value = p.view.id === 'black-mountains-catawba' && p.terrainMode !== 'rail'
       && !p.view.tour && p.view.cameraPaths?.some(line => line?.length) ? .32 : 0;
     this._setFarForest(p, frame);
-    u.uNarrative.value.set(n?.relief ?? 1, n?.atmosphere ?? 1, n?.materials ?? 1, n?.features ?? 1);
-    u.uNarrativeInk.value = n ? (1 - n.materials) * (1 - n.skyDark) : 0;
+    const landMaterials = (n?.materials ?? 1) * (1 - openingOcean01(frame.rise01));
+    u.uNarrative.value.set(n?.relief ?? 1, n?.atmosphere ?? 1, landMaterials, n?.features ?? 1);
+    u.uNarrativeInk.value = n ? (1 - n.materials) * (1 - n.skyDark) * (1 - openingOcean01(frame.rise01)) : 0;
     applyGlacierUniforms(u, p.view.glacier, frame.glacier);
     // Standalone uniform consumers may supply only nominal dimensions. Every
     // rendered side has a full viewport and uses the cached, moved camera.
@@ -2390,7 +2402,7 @@ export class RangeScene {
     u.uForestKeep.value = rung.forestKeep;
     // Trees show with the narrative's materials; the detail ring shows one
     // of its two representations (RangeQuality nearDetail).
-    const treesShown = !n || n.materials > .01;
+    const treesShown = landMaterials > .01;
     this._updateTourForest(p, frame);
     if (p.forest?.applyVisibility) p.forest.applyVisibility({ shown: treesShown, nearDetail: rung.nearDetail });
     else {

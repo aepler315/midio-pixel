@@ -8,6 +8,7 @@ import { ACTOR_GLSL, WAKE_GLSL, actorUniforms } from './ActorsGL.js';
 import { STORM_GLSL } from './RangeStorm.js';
 import { MATERIAL_DETAIL_DOMAIN_GLSL } from './MaterialDetailDomain.js';
 import { moranTerrainFragment } from './TerrainShadingExperiment.js';
+import { BUILD_OCEAN_GLSL } from './BuildOcean.js';
 export { materialDetailPosition } from './MaterialDetailDomain.js';
 // Range v2 production terrain material (GLSL3 via the local Three.js
 // bundle). Task 8 ships the neutral-material pilot: real geometry, the
@@ -389,6 +390,10 @@ export const SCENE_FRAG = /* glsl */`
   uniform float uClipBelow;
   // An optional full-resolution pass draws only water from the same geometry.
   uniform float uWaterOnly;
+  // Direct composition admits its physical water layer before native
+  // terrain. Keep wet classification/fast paths, but leave ground color
+  // beneath that layer instead of a coarse blue shoreline fringe.
+  uniform float uSeparateWater;
   uniform vec2 uViewportPx;
   // The 2D backdrop (sky, aurora, distant ranges) as the stage shows it,
   // and the camera's view-projection to find where a reflected ray meets it.
@@ -430,6 +435,7 @@ export const SCENE_FRAG = /* glsl */`
   ${HORIZON_GLSL}
   ${TERRAIN_LIGHTING_GLSL}
   ${CINEMATIC_LIGHTING_GLSL}
+  ${BUILD_OCEAN_GLSL}
   float hash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
   // Smooth value noise: a per-cell hash alone steps at every cell edge,
   // which a threshold (snow line, tree line) turns into a visible grid.
@@ -592,24 +598,42 @@ export const SCENE_FRAG = /* glsl */`
   // Interpolate membership, not drainage magnitude. Blending 255 (lake)
   // with a dry flow byte before thresholding erodes almost the whole cell
   // and turns hydro shorelines into right-angled stair steps.
-  float waterMaskCoverage(float a, float b, float c, float d, float x, float y) {
-    float top = mix(step(254.5, a), step(254.5, b), x);
-    float bottom = mix(step(254.5, c), step(254.5, d), x);
-    return mix(top, bottom, y);
+  // Catmull-Rom preserves every wet/dry source post while rounding the
+  // contour's cell corners. Only mixed cells need the outer ring; uniform
+  // lake and dry interiors keep their existing four texture reads.
+  float waterCubic(float a, float b, float c, float d, float t) {
+    return b + .5 * t * (c - a + t * (2.0 * a - 5.0 * b + 4.0 * c - d + t * (3.0 * (b - c) + d - a)));
+  }
+  float waterWetTexel(ivec2 at, ivec2 size) {
+    return step(254.5, texelFetch(uSurface, clamp(at, ivec2(0), size - 1), 0).a * 255.0);
   }
   float waterCoverageAt(vec2 uv) {
     ivec2 size = textureSize(uSurface, 0);
     vec2 samplePos = uv * vec2(size) - .5;
     ivec2 corner = ivec2(floor(samplePos));
     vec2 f = fract(samplePos);
-    float a = texelFetch(uSurface, clamp(corner, ivec2(0), size - 1), 0).a * 255.;
-    float b = texelFetch(uSurface, clamp(corner + ivec2(1, 0), ivec2(0), size - 1), 0).a * 255.;
-    float c = texelFetch(uSurface, clamp(corner + ivec2(0, 1), ivec2(0), size - 1), 0).a * 255.;
-    float d = texelFetch(uSurface, clamp(corner + ivec2(1, 1), ivec2(0), size - 1), 0).a * 255.;
-    return waterMaskCoverage(a, b, c, d, f.x, f.y);
+    float a = waterWetTexel(corner, size);
+    float b = waterWetTexel(corner + ivec2(1, 0), size);
+    float c = waterWetTexel(corner + ivec2(0, 1), size);
+    float d = waterWetTexel(corner + ivec2(1, 1), size);
+    if (a == b && a == c && a == d) return a;
+    float r0 = waterCubic(waterWetTexel(corner + ivec2(-1, -1), size), waterWetTexel(corner + ivec2(0, -1), size),
+      waterWetTexel(corner + ivec2(1, -1), size), waterWetTexel(corner + ivec2(2, -1), size), f.x);
+    float r1 = waterCubic(waterWetTexel(corner + ivec2(-1, 0), size), a, b, waterWetTexel(corner + ivec2(2, 0), size), f.x);
+    float r2 = waterCubic(waterWetTexel(corner + ivec2(-1, 1), size), c, d, waterWetTexel(corner + ivec2(2, 1), size), f.x);
+    float r3 = waterCubic(waterWetTexel(corner + ivec2(-1, 2), size), waterWetTexel(corner + ivec2(0, 2), size),
+      waterWetTexel(corner + ivec2(1, 2), size), waterWetTexel(corner + ivec2(2, 2), size), f.x);
+    return clamp(waterCubic(r0, r1, r2, r3, f.y), 0.0, 1.0);
   }
   void main() {
     if (vRenderedWorld.y < uClipBelow) discard;
+    // The fully flat opening replaces every material color below. Resolve
+    // that identical display color before sampling or shading the terrain.
+    // Water-only/diagnostic draws retain their own coverage and outputs.
+    if (uWaterOnly < .5 && uDebugMask == 0 && uDiag < .5 && uLandRise.x >= 1.0) {
+      outColor = vec4(openingOceanDisplay(vRenderedWorld, cameraPosition, pWater, uSkyHorizon, uAirColor, uAirDensity), 1.0);
+      return;
+    }
     vec2 uv = vUv * (1.0 - uTexel) + 0.5 * uTexel;
     vec4 s = texture(uSurface, uv);
     vec2 nxz = s.rg * 2.0 - 1.0;
@@ -641,6 +665,7 @@ export const SCENE_FRAG = /* glsl */`
     #endif
     bool water = waterCoverage > .5 && ice.y < 0.01;
     if (uWaterOnly > 0.5 && !water) discard;
+    bool paintWater = water && (uWaterOnly > .5 || uSeparateWater < .5);
     float flowN = clamp(flow / 254.0, 0.0, 1.0);
     float h = vWorld.y;
     vec3 albedo;
@@ -651,7 +676,7 @@ export const SCENE_FRAG = /* glsl */`
     vec3 farCrownNormal = vec3(0.0, 1.0, 0.0);
     if (uHasMaterial < 0.5) {
       albedo = mix(vec3(0.34), vec3(0.24), clamp(curv * 3.0, 0.0, 1.0));
-      if (water) albedo = vec3(0.10, 0.13, 0.16);
+      if (paintWater) albedo = vec3(0.10, 0.13, 0.16);
     } else {
       // Macro rock detail everywhere: vary tile phase continuously so the
       // two rotated scales do not stamp a recurring pattern on broad faces.
@@ -785,7 +810,7 @@ export const SCENE_FRAG = /* glsl */`
       nShade = normalize(mix(nShade, farCrownNormal, farCrownWeight));
       rough = mix(mix(0.9, macro.b, rockMask), 0.6, snow);
       snow01 = snow;
-      if (water) {
+      if (paintWater) {
         float depthMix = smoothstep(.5, .98, waterCoverage);
         albedo = mix(pWater, pWaterDeep, depthMix);
         nShade = vec3(0.0, 1.0, 0.0);
@@ -900,7 +925,7 @@ export const SCENE_FRAG = /* glsl */`
     float waterFres = 0.0, paw = 0.0, wake = 0.0;
     vec2 waterSwell = vec2(0.0);
     vec3 waterN = vec3(0.0, 1.0, 0.0);
-    if (water && uHasMaterial > 0.5) {
+    if (paintWater && uHasMaterial > 0.5) {
       // Midio's wake roughens the water as a cat's paw does.
       wake = wakeAt(vWorld.xz);
       // Rain stipples the whole lake while the squall is over it.
@@ -987,7 +1012,7 @@ export const SCENE_FRAG = /* glsl */`
     // camera does) so the water holds them.
     #define LOWERED_RAY(ray) normalize(vec3((ray).x, abs((ray).y) * ${MIRROR_LIFT.toFixed(3)}, (ray).z))
     #ifndef RIVER_SURFACE
-    if (water && (uBackdropAmount > 0.0 || uMirrorAmount > 0.0)) {
+    if (paintWater && (uBackdropAmount > 0.0 || uMirrorAmount > 0.0)) {
       // The reflection wavers with the surface itself: the same world-fixed
       // swells (not screen rows) displace it, more in a cat's paw, and less
       // with distance as the waves shrink on screen.
@@ -1022,7 +1047,7 @@ export const SCENE_FRAG = /* glsl */`
     #else
     // Descending reaches have no single planar lake reflection: a river
     // holds only the captured sky, its shiver stretched along the current.
-    if (water && uBackdropAmount > 0.0) {
+    if (paintWater && uBackdropAmount > 0.0) {
       vec4 a = uViewProj * vec4(vRenderedWorld, 1.0);
       vec2 flow = normalize(vRiverDirection);
       vec4 b = uViewProj * vec4(vRenderedWorld + vec3(flow.x, 0.0, flow.y) * 10.0, 1.0);
@@ -1035,7 +1060,7 @@ export const SCENE_FRAG = /* glsl */`
       color = mix(color, skyImage * 0.9, reflectance * smoothstep(.5, .9, waterCoverage) * uBackdropAmount * clear * uNarrative.z * uNarrative.w);
     }
     #endif
-    if (water) {
+    if (paintWater) {
       // Lanterns over the water lay a path of glints; Midio's wake catches
       // his light. Over the mirror, through the air.
       vec3 glow = actorGlint(vRenderedWorld, V, waterN) * 0.6 + uActorColor[0] * wake * 0.12;
@@ -1048,7 +1073,11 @@ export const SCENE_FRAG = /* glsl */`
     float aa = max(.008, fwidth(facing));
     float edge = 1.0 - smoothstep(.02 - aa, .02 + aa, facing);
     color = mix(color, vec3(0.0), edge * uNarrativeInk);
-    outColor = vec4(linearToSrgb(color), 1.0);
+    float opening = openingOcean01(1.0 - uLandRise.x);
+    vec3 outputColor = linearToSrgb(color);
+    if (opening > 0.0) outputColor = mix(outputColor,
+      openingOceanDisplay(vRenderedWorld, cameraPosition, pWater, uSkyHorizon, uAirColor, uAirDensity), opening);
+    outColor = vec4(outputColor, 1.0);
     if (uDiag > 0.5) outColor = vec4(1.0, 0.0, 1.0, 1.0);
   }
 `;
@@ -1151,7 +1180,7 @@ export function sceneUniforms(THREE, base) {
     uNarrativeInk: { value: 0 },
     // Lake mirror (WaterMirror.js), off until the scene draws one.
     uMirror: { value: null }, uMirrorMatrix: { value: new THREE.Matrix4() }, uMirrorAmount: { value: 0 },
-    uMirrorLevel: { value: 0 }, uMirrorRipple: { value: 0 }, uClipBelow: { value: -1e9 }, uWaterOnly: { value: 0 },
+    uMirrorLevel: { value: 0 }, uMirrorRipple: { value: 0 }, uClipBelow: { value: -1e9 }, uWaterOnly: { value: 0 }, uSeparateWater: { value: 0 },
     uViewportPx: { value: new THREE.Vector2(1, 1) },
     uBackdrop: { value: null }, uBackdropAmount: { value: 0 }, uViewProj: { value: new THREE.Matrix4() },
     tRock: { value: null }, sRock: { value: 150 }, tRockNear: { value: null }, sRockNear: { value: 6 },

@@ -15,14 +15,13 @@ const step = (edge, x) => x < edge ? 0 : 1;
 const mix = (a, b, t) => a + (b - a) * t;
 const smoothstep = (a, b, x) => { const u = Math.max(0, Math.min(1, (x - a) / (b - a))); return u * u * (3 - 2 * u); };
 
-test('shoreline coverage interpolates water membership, preserving channels and diagonal banks', () => {
-  const helper = scalar(SCENE_FRAG, 'waterMaskCoverage', ['a', 'b', 'c', 'd', 'x', 'y']);
-  const wet = (...args) => helper(...args, step, mix, smoothstep);
-  assert.equal(wet(255, 254, 255, 254, .5, .5), .5, 'high-flow land is dry; the shoreline runs through the cell midpoint');
-  assert.equal(wet(255, 0, 0, 255, .25, .25), .625, 'a diagonal shore keeps its area instead of shrinking to sample centres');
-  assert.equal(wet(254, 254, 254, 254, .5, .5), 0, 'a river flow byte cannot become a lake');
-  assert.equal(wet(255, 255, 255, 255, .1, .9), 1);
-  assert.ok(wet(255, 0, 255, 0, .49, .5) > wet(255, 0, 255, 0, .51, .5));
+test('shoreline cubic preserves source posts and the midpoint of a straight bank', () => {
+  const helper = scalar(SCENE_FRAG, 'waterCubic', ['a', 'b', 'c', 'd', 't']);
+  const value = (...args) => helper(...args, step, mix, smoothstep);
+  assert.equal(value(0, 0, 1, 1, 0), 0);
+  assert.equal(value(0, 0, 1, 1, .5), .5);
+  assert.equal(value(0, 0, 1, 1, 1), 1);
+  assert.equal(value(1, 1, 1, 1, .37), 1);
 });
 
 test('tree coverage fades into the terrain canopy through the shared distance interval', () => {
