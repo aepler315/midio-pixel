@@ -6,14 +6,15 @@ import { CinematicPixelRenderer } from './CinematicPixel.js';
 import { quantizeImageData, quantizePalette } from './PaletteQuantize.js';
 import { buildDitherWeights } from './PixelDither.js';
 
-export function createPresentingRenderer({ canvas, mode = 'canvas', presentation, residency, rendererFactory = createRenderer }) {
-  return new PresentingRenderer({ canvas, mode, presentation, residency, rendererFactory });
+export function createPresentingRenderer({ canvas, mode = 'canvas', presentation, residency, voxelRange = null, rendererFactory = createRenderer }) {
+  return new PresentingRenderer({ canvas, mode, presentation, residency, voxelRange, rendererFactory });
 }
 class PresentingRenderer {
-  constructor({ canvas, mode, presentation, residency, rendererFactory }) {
+  constructor({ canvas, mode, presentation, residency, voxelRange, rendererFactory }) {
     this.canvas = canvas;
     this.inner = rendererFactory(canvas, mode);
     this.output = new PixelPresentation({ canvas, presentation, residency });
+    this.voxelRange = voxelRange;
     this._disposed = false;
     this._requestedPresentation = presentation;
     this._experience = 'landscape';
@@ -35,7 +36,7 @@ class PresentingRenderer {
   }
   getCaptureSource() {
     const source = this._disposed ? null : this.output.getCaptureSource();
-    if (source && this._directFrame) return source;
+    if (source && (this._directFrame || this._voxelFrame)) return source;
     // Recording and export consume the completed hybrid picture (smooth sky,
     // the cinematic cell reconstruction and/or the smooth cast over the
     // pixel frame). Palette diagnostics can still inspect the native
@@ -65,6 +66,20 @@ class PresentingRenderer {
       this._experience = sim?.experience || 'landscape'; this.setPresentation(this._requestedPresentation);
     }
     this.output.setFrameContext?.({ worldKind: sim?.biomes?.world?.kind ?? null, experience: this._experience });
+    this.output.diagnostics.rangePipeline = this._requestedPresentation?.rangePipeline || 'hybrid';
+    const wasVoxelFrame = this._voxelFrame;
+    this._voxelFrame = false;
+    if (this.voxelRange && this.voxelRange.state !== 'unavailable') {
+      if (this.voxelRange.state !== 'ready') return this.output.failFrame('voxel-range-preparing');
+      const source = this.voxelRange.render(sim.heardTimeMs, this.canvas.width, this.canvas.height);
+      if (source) return this._drawVoxelRange(source);
+    }
+    if (this.voxelRange) {
+      this.output.diagnostics.voxelRange = false;
+      // The regular GPU scene is cold. On a mid-song loss, use the available
+      // legacy scenery immediately. A new transport start can warm Range v2.
+      if (wasVoxelFrame) this.rangePresentation = null;
+    }
     const manager = sim?.biomes;
     const cinematicPixel = !!this.output.presentation.cinematicPixel && this._experience !== 'trio';
     if (manager) {
@@ -73,25 +88,28 @@ class PresentingRenderer {
     }
     const range = this.inner.rangePresentation;
     const landscape = this._experience !== 'trio' && manager?.world?.kind === 'alpine' && !!range?.enabled;
+    const singleStage = landscape && this._requestedPresentation?.rangePipeline === 'single';
+    if (manager) { manager.setSingleStage?.(singleStage); manager.singleStage = singleStage; }
+    if (range) { range.setSingleStage?.(singleStage); range.singleStage = singleStage; }
     if (landscape && this._requestedPresentation?.directTerrain === true) return this._drawDirect(sim, alpha, { preparing, manager, range });
     this._directFrame = false;
     this._releaseDirect();
     if (manager) manager.directFullResolution = false;
     if (range) { range.directTerrainMode = false; range.drawTerrainImage = null; range.drawLegacyTerrain = null; }
-    const hybridSky = this._experience !== 'trio' && typeof manager?.drawHighResolutionSky === 'function';
-    if (manager) manager.highResolutionSky = hybridSky;
+    const hybridSky = !singleStage && this._experience !== 'trio' && typeof manager?.drawHighResolutionSky === 'function';
+    if (manager) manager.highResolutionSky = singleStage || hybridSky;
     // The cast is laid smoothly over the upscaled frame, so the working
     // buffer must stay separate from the output (as for the sky).
-    const castOverlay = landscape && typeof range.drawCastForeground === 'function';
-    const waterOverlay = landscape && typeof range.drawWaterForeground === 'function';
+    const castOverlay = !singleStage && landscape && typeof range.drawCastForeground === 'function';
+    const waterOverlay = !singleStage && landscape && typeof range.drawWaterForeground === 'function';
     // The crest line (RangeCrest.js) needs the separate output composite too.
-    const crestOverlay = landscape && typeof range.drawCrestForeground === 'function';
+    const crestOverlay = !singleStage && landscape && typeof range.drawCrestForeground === 'function';
     if (range && 'crestEnabled' in range) {
       range.crestEnabled = crestOverlay;
       const id = this.output._resolvedPaletteId;
       range.crestPalette = !id || id === 'none' ? null : id === 'rgb332' ? 'rgb332' : this.output.compiledPalette || null;
     }
-    const smoothEffects = this._experience !== 'trio' && typeof manager?.drawHighResolutionMidEffects === 'function';
+    const smoothEffects = !singleStage && this._experience !== 'trio' && typeof manager?.drawHighResolutionMidEffects === 'function';
     if (manager) {
       manager.highResolutionMidEffects = smoothEffects;
       manager.midEffectsOutputSize = smoothEffects ? { width: this.canvas.width, height: this.canvas.height } : null;
@@ -100,7 +118,7 @@ class PresentingRenderer {
     const scene = this.canvasRenderer;
     scene.outputCover = false;
     // Optical effects and HUD draw after the completed Landscape composite.
-    const postEffects = this._experience !== 'trio' && !!manager?.world && typeof scene.drawDeferredPostEffects === 'function';
+    const postEffects = !singleStage && this._experience !== 'trio' && !!manager?.world && typeof scene.drawDeferredPostEffects === 'function';
     scene.deferPostEffects = postEffects;
     if (range && 'castForeground' in range) range.castForeground = castOverlay;
     this.output.qualityLevel = sim?.perf?.level ?? 0;
@@ -109,7 +127,7 @@ class PresentingRenderer {
     scene.canvas = source; scene.ctx = source.getContext('2d');
     // Scene captures (opening assembly, freeze, highlight reel) take the
     // finished composite, smooth sky and cast included.
-    scene.deferSceneCaptures = hybridSky || castOverlay || waterOverlay || postEffects || smoothEffects || crestOverlay || preparing;
+    scene.deferSceneCaptures = singleStage || hybridSky || castOverlay || waterOverlay || postEffects || smoothEffects || crestOverlay || preparing;
     scene.pixelPolicy = pixelRenderPolicy(this.output.presentation);
     this.inner.presentationPixelated = this.output.presentation.pixelated;
     if (range) { range.pixelated = !!this.output.presentation.pixelated; range.pixelPolicy = scene.pixelPolicy; range.cinematicPixel = cinematicPixel; }
@@ -164,6 +182,17 @@ class PresentingRenderer {
     this.output.diagnostics.pixelEffectScratchBytes = effectBytes;
     this.output.diagnostics.ownedPixelScratchBytes = (this.output.diagnostics.ownedPixelScratchBytes || 0) + effectBytes;
     this.output.diagnostics.qualityLevel = sim?.perf?.level ?? null;
+    return result;
+  }
+  _drawVoxelRange(source) {
+    const canvas = this.output.beginDirectFrame();
+    if (!canvas) return this.output.diagnostics.frame;
+    const ctx = canvas.getContext('2d');
+    compositePixelFrame(ctx, source, canvas.width, canvas.height, this.output.presentation.scaling);
+    const result = this.output.finishDirectFrame();
+    this._voxelFrame = !!result.presented;
+    Object.assign(this.output.diagnostics, { directTerrain: false, voxelRange: this._voxelFrame,
+      effectiveLook: 'pixel', working: { width: source.width, height: source.height } });
     return result;
   }
   _drawDirect(sim, alpha, { preparing, manager, range }) {

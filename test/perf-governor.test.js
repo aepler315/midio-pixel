@@ -29,6 +29,57 @@ test('stays at level 0 under a healthy frame budget', () => {
   assert.equal(gov.contactShadowsEnabled, true);
 });
 
+test('a persistent missed vsync every five callbacks sheds before settling below the requested cap', () => {
+  for (const capFps of [30, 60]) {
+    const governor = new PerfGovernor();
+    const period = 1000 / capFps;
+    let timeMs = 0;
+    for (let frame = 0; frame < 1000 && governor.level === 0; frame++) {
+      const deltaMs = period * (frame % 5 === 0 ? 2 : 1);
+      timeMs += deltaMs;
+      governor.sample(deltaMs, timeMs, { capFps });
+    }
+    assert.equal(governor.level, 1, `Auto must respond to a sustained deficit at ${capFps} FPS`);
+  }
+});
+
+test('occasional long hitches separated by healthy playback do not lower quality', () => {
+  const governor = new PerfGovernor();
+  let timeMs = 0;
+  for (let frame = 0; frame < 1200; frame++) {
+    const deltaMs = frame % 200 === 0 ? 100 : 1000 / 60;
+    timeMs += deltaMs;
+    governor.sample(deltaMs, timeMs);
+  }
+  assert.equal(governor.level, 0);
+});
+
+test('a detail recovery that misses the cap falls back promptly without treating one hitch as failure', () => {
+  const recover = () => {
+    const governor = new PerfGovernor({ startLevel: 1 });
+    let timeMs = 0;
+    while (governor.level === 1 && timeMs < 12000) {
+      timeMs += 1000 / 60;
+      governor.sample(1000 / 60, timeMs);
+    }
+    assert.equal(governor.level, 0);
+    return { governor, timeMs };
+  };
+  const probe = recover();
+  const startMs = probe.timeMs;
+  for (let frame = 0; probe.timeMs - startMs < 1000 && probe.governor.level === 0; frame++) {
+    const deltaMs = 1000 / 60 * (frame % 5 === 0 ? 2 : 1);
+    probe.timeMs += deltaMs;
+    probe.governor.sample(deltaMs, probe.timeMs);
+  }
+  assert.equal(probe.governor.level, 1, 'a failed recovery must not cause several seconds of avoidable judder');
+
+  const hitch = recover();
+  hitch.governor.sample(100, hitch.timeMs + 100);
+  feedFrames(hitch.governor, 120, 1000 / 60, hitch.timeMs + 117);
+  assert.equal(hitch.governor.level, 0);
+});
+
 test('sheds one rung after sustained over-budget frames, in spec order', () => {
   const gov = new PerfGovernor();
   // A modest overage: severity-weighted shedding crosses the threshold

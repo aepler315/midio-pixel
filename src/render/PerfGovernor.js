@@ -45,6 +45,9 @@
 // threshold follows the requested period plus this same jitter allowance.
 export const FRAME_BUDGET_MS = 18.5;
 const SHED_AFTER_FRAMES = 60; // ~1s sustained overage at 60fps, at exactly-at-budget severity
+// A recovered rung is a probe of extra detail. Stop a failed probe quickly
+// instead of spending the normal descent window below the requested cap.
+const RECOVERY_SHED_AFTER_FRAMES = 8;
 const SHED_WEIGHT_CAP = 6; // one catastrophic frame (tab hitch, GC pause) can't shed more than ~6 "normal" frames' worth
 // ...but a RUN of them is not a hitch, it is a scene the machine cannot
 // draw, and the cap was making the ladder unusably slow to react to exactly
@@ -84,10 +87,11 @@ const RECOVER_MAX_MS = 600000; // 10 minutes -- past here, stop asking
 // frames alternating just above and below budget, the exact pattern that
 // reads as visible stutter -- never built up the 60 units needed to shed
 // a rung: every other frame wiped out the previous one's contribution.
-// Decaying instead (by less than a single over-budget frame's minimum
-// severity of 1) lets that alternating pattern still net-accumulate,
-// while a genuinely sustained clean run still drains it to zero.
-const OVER_DECAY_PER_CLEAN_FRAME = 0.5;
+// A missed vsync every fifth callback is sustained 50 FPS on a 60 Hz
+// display. Its ~1.8 units of pressure must survive the four healthy
+// callbacks between misses. A long healthy run still drains an isolated
+// hitch before it can lower quality.
+const OVER_DECAY_PER_CLEAN_FRAME = 0.25;
 export const MAX_LEVEL = 6;
 
 /** Resolve the initial shed level: a `?perf=lite|high` URL override wins;
@@ -311,9 +315,10 @@ export class PerfGovernor {
       // if it later recovered a rung, the very next over-budget frame would
       // cash that stale total in and shed again immediately. Evidence is for
       // the rung it was gathered at.
-      this._overCount = Math.min(SHED_AFTER_FRAMES, this._overCount + severity);
+      const shedAfter = this._recoveredInto.has(this.level) ? RECOVERY_SHED_AFTER_FRAMES : SHED_AFTER_FRAMES;
+      this._overCount = Math.min(shedAfter, this._overCount + severity);
       this._cleanSinceMs = null;
-      if (this._overCount >= SHED_AFTER_FRAMES && this.level < MAX_LEVEL) {
+      if (this._overCount >= shedAfter && this.level < MAX_LEVEL) {
         // Only a rung the ladder had CLIMBED BACK INTO counts as a failed
         // attempt: the first descent is a cold machine, not a verdict.
         if (this._recoveredInto.has(this.level)) {

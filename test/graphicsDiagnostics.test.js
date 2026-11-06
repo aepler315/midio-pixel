@@ -31,3 +31,10 @@ test('reporting before playback or after context loss never creates a graphics c
   const gl={isContextLost:()=>true,getParameter(){throw Error('lost');}};
   assert.equal(graphicsReport({gl}).gpu.contextLost,true);
 });
+test('the graphics report identifies the active voxel renderer without pack URLs', () => {
+  const status = { state: 'ready', viewId: 'white-mountains-owens', triangles: 14268, progress: .5,
+    packUrl: 'http://private/path' };
+  assert.deepEqual(graphicsReport({ voxelRange: status }).voxelRange,
+    { state: 'ready', viewId: 'white-mountains-owens', triangles: 14268, progress: .5 });
+  assert.equal(Object.hasOwn(graphicsReport(), 'voxelRange'), false);
+});

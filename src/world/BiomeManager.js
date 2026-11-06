@@ -2915,7 +2915,7 @@ export class BiomeManager {
       this._drawLegacyWaterBackground(ctx, canvas, { worldX, A, B, t, phenomenaFull, night: dn.night });
     }
     };
-    if (separateRangeSky && this.directFullResolution) this.drawHighResolutionSky(ctx, canvas);
+    if (separateRangeSky && (this.directFullResolution || this.singleStage)) this.drawHighResolutionSky(ctx, canvas);
     if (!separateSky) drawLegacySky(ctx);
     else if (separateLegacySky && scenicMatrix) {
       this.rangeSkyLayer = {
@@ -3906,6 +3906,15 @@ export class BiomeManager {
    * terrain frame must not retain the previous sky's optional storage. */
   setCinematicQuality(level) {
     this._highResolutionSkyRenderer?.setQualityLevel(level);
+  }
+
+  setSingleStage(enabled) {
+    if (this.singleStage === enabled) return;
+    this.singleStage = enabled;
+    if (enabled) {
+      this._rangeMidEffects?.dispose();
+      this._rangeMidEffects = null;
+    }
   }
 
   /** Draw behind the upscaled terrain. `transform` maps the original scenic

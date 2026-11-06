@@ -273,6 +273,18 @@ export class RangePresentation {
 
   get enabled() { return this.mode === 'v2'; }
 
+  setSingleStage(enabled) {
+    if (this.singleStage === enabled) return;
+    this.singleStage = enabled;
+    if (!enabled) return;
+    this._releaseWater();
+    this._releaseWaterEffects();
+    this._releaseNearOcclusion();
+    this._releaseCastCanvas();
+    this.crest.release();
+    this.scene?.releaseCrestProbe?.();
+  }
+
   get cameraSchedule() { return this.railPlan?.snapshot ?? null; }
 
   /** Run owners provide the committed heard high-water; draws never commit. */
@@ -313,6 +325,9 @@ export class RangePresentation {
     // until the runtime itself retries or is recreated by a mode change.
     if (this.runtimeState !== 'failed') this.reason = this.enabled ? 'not-started' : 'legacy-mode';
     if (this.tourMode || this.residency?.cancelled?.has(generation)) generation = Math.max(generation, this.generation + 1);
+    // A recreated Landscape starts at zero while the shared ledger keeps
+    // generations cancelled by earlier world switches.
+    while (this.residency?.cancelled?.has(generation)) generation++;
     const previous = this.generation;
     if (this._tourCpuKey) this.residency?.release(this._tourCpuKey);
     if (this.tourMode) this.scene?.release('teton-range-tour');
@@ -1037,6 +1052,7 @@ export class RangePresentation {
     const crestOn = this.crestEnabled && this.pixelated && !this.directTerrainMode && !incoming;
     this.crest.economy = !!inputs.sim?.perf?.economy;
     this.scene.crestProbeMode = crestOn ? this.crest.probeMode : null;
+    this.scene.singleStage = !!this.singleStage;
     this._crestScan = crestOn && this.crest.mode === 'grid';
     if (!crestOn) this.crest.update({ frameId: this.frame.frameId, timeMs: this.frame.timeMs, viewId: view.id, qualityLevel: this.frame.qualityLevel ?? 0 });
     this.scene.skyPan = this.skyPan; // rain curtains and lightning stand where the sky draws them
@@ -1181,7 +1197,7 @@ export class RangePresentation {
     // ranges, the far terrain) is the backdrop the lake reflects.
     if (pass === 'mid') {
       const manager = this.frameInputs?.sim?.biomes;
-      const drawSky = !this.directTerrainMode && manager?.highResolutionSky && manager.rangeSkyLayer ? (target, width, height) =>
+      const drawSky = !this.directTerrainMode && !this.singleStage && manager?.highResolutionSky && manager.rangeSkyLayer ? (target, width, height) =>
         manager.drawHighResolutionSky(target, target.canvas, { transform: [width / stage.width, 0, 0, height / stage.height, 0, 0] }) : null;
       this.scene.captureBackdrop?.(ctx, stage, this.frame, drawSky);
     }

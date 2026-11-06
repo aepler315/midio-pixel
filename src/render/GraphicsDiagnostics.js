@@ -13,7 +13,7 @@ export function shaderFailureLog(gl, program) {
   return [...shaders, link, ...warnings].join('\n').trim().slice(0, 768) || 'program link failed';
 }
 const pick = (value, keys) => value == null ? null : Object.fromEntries(keys.filter(k => value[k] !== undefined).map(k => [k, value[k]]));
-export function graphicsReport({ range = null, profile = null, presentation = null, canvas = null, gl = null, env = globalThis } = {}) {
+export function graphicsReport({ range = null, voxelRange = null, profile = null, presentation = null, canvas = null, gl = null, env = globalThis } = {}) {
   let gpu = null;
   if (gl) {
     gpu = { contextLost: !!gl.isContextLost?.() };
@@ -33,7 +33,8 @@ export function graphicsReport({ range = null, profile = null, presentation = nu
       screen: pick(env.screen, ['width', 'height']) },
     stage: pick(canvas, ['width', 'height']),
     profile: pick(profile, ['version', 'look', 'quality', 'scaling', 'palette', 'dither']),
-    presentation: pick(presentation, ['requestedLook', 'effectiveLook', 'working', 'output', 'frame']),
+    presentation: pick(presentation, ['requestedLook', 'effectiveLook', 'rangePipeline', 'working', 'output', 'frame']),
+    ...(voxelRange ? { voxelRange: pick(voxelRange, ['state', 'reason', 'viewId', 'progress', 'heardTimeMs', 'triangles', 'draws']) } : {}),
     range: range == null ? null : { ...pick(range, ['mode', 'active', 'reason', 'runtime', 'viewId', 'tourMode', 'generation']),
       failures: Object.fromEntries(Object.entries(range.failures || {}).slice(0, 16).map(([k,v]) => [k, String(v).slice(0, 1024)])),
       deferred: (range.deferred || []).slice(0, 16),

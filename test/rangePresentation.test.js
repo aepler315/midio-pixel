@@ -4,6 +4,64 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { BiomeManager } from '../src/world/BiomeManager.js';
 import { RangePresentation, resolveRangeMode } from '../src/world/alpine/RangePresentation.js';
+import { GraphicsResidency } from '../src/render/GraphicsResidency.js';
+
+test('recreating Landscape skips every cancelled generation when the song load is unchanged', () => {
+  const residency = new GraphicsResidency({ budgetBytes: 1024 });
+  const generation = 7;
+  const original = new RangePresentation({ mode: 'v2', shots: false, residency });
+  original.setSong({ generation });
+  const originalResource = residency.reserve({ key: 'original-view', bytes: 1, generation: original.generation });
+  assert.ok(originalResource);
+  original.dispose();
+  assert.equal(residency.cancelled.has(generation), true);
+  assert.equal(residency.has('original-view'), false);
+  residency.cancelGeneration(generation + 1);
+
+  for (const expected of [9, 10, 11]) {
+    const restored = new RangePresentation({ mode: 'v2', shots: false, residency });
+    assert.equal(restored.generation, 0);
+    restored.setSong({ generation });
+    assert.equal(restored.generation, expected);
+    assert.equal(residency.cancelled.has(restored.generation), false);
+    const resource = residency.reserve({ key: 'restored-view', bytes: 1, generation: restored.generation });
+    assert.ok(resource, 'the returning Landscape can admit its scene resources');
+    restored.setSong({ generation: restored.generation });
+    assert.equal(restored.generation, expected, 'an ordinary replay retains its usable generation');
+    restored.dispose();
+    assert.equal(residency.has('restored-view'), false);
+  }
+});
+
+test('switching to one stage retires hybrid storage and permits a later hybrid allocation', () => {
+  const residency = new GraphicsResidency({ budgetBytes: 1024 * 1024 });
+  const allocate = key => {
+    const canvas = { width: 16, height: 16 };
+    const entry = residency.reserve({ key, bytes: 1024, owner: 'hybrid' });
+    residency.commit(entry, canvas, value => { value.width = value.height = 0; });
+    return canvas;
+  };
+  const pres = Object.assign(Object.create(RangePresentation.prototype), {
+    residency, singleStage: false, crest: { release() { residency.release('test:crest'); } },
+    scene: { releaseCrestProbe() { residency.release('test:probe'); }, releaseWaterTarget() { residency.release('test:water-target'); } },
+  });
+  const native = allocate('test:terrain');
+  const hybrid = () => {
+    pres._waterCanvas = allocate('range:water-layer');
+    pres._waterEffectCanvas = allocate('range:water-effect-mask');
+    pres._nearOcclusionCanvas = allocate('range:near-occlusion-mask');
+    allocate('test:crest'); allocate('test:probe'); allocate('test:water-target');
+  };
+  hybrid();
+  pres.setSingleStage(true);
+  assert.deepEqual([...residency.entries.keys()], ['test:terrain']);
+  assert.equal(native.width, 16);
+  pres.setSingleStage(false);
+  hybrid();
+  assert.equal(residency.entries.size, 7);
+  pres.setSingleStage(true);
+  assert.deepEqual([...residency.entries.keys()], ['test:terrain']);
+});
 
 /** A 2D context that accepts every call and records nothing. */
 function anyCtx() {
@@ -71,6 +129,47 @@ test('v2 draws its partitions at the retained pass boundaries, legacy scenery no
   assert.ok(!calls.includes('_drawHorizonEQ'), 'its drawn line belongs to the legacy stack only');
   assert.equal(m._rangeV2Active, true);
   m.dispose();
+});
+
+test('a single stage paints the current musical sky once before its terrain partitions', () => {
+  const { m, calls } = manager();
+  const effects = Object.freeze({ bass: .7, kick: .9 });
+  const pres = fakePresentation();
+  Object.assign(pres, {
+    skyPan: { tourPose: { eyeM: [0, 1000, 1000], targetM: [0, 1500, 0], fovYDeg: 50 } },
+    frame: { timeMs: 12345, effects }, scene: {},
+  });
+  m.rangePresentation = pres;
+  m.highResolutionSky = true;
+  m.singleStage = true;
+  m._highResolutionSkyRenderer = {
+    draw(_ctx, frame) {
+      assert.equal(frame.effects, effects);
+      assert.equal(frame.timeSec, 12.345);
+      calls.push('currentSky');
+      return true;
+    },
+    dispose() {},
+  };
+  pres.drawPartition = (_ctx, pass) => { calls.push(`gpu:${pass}`); return true; };
+  try {
+    m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, null, 1, null, groundView);
+    assert.deepEqual(calls.filter(name => name === 'currentSky' || name.startsWith('gpu:') || name === '_drawSky' || name === 'spaceRidge'),
+      ['currentSky', 'gpu:far', 'gpu:mid', 'gpu:near']);
+  } finally { m.dispose(); }
+});
+
+test('a single stage retains its complete sky when the modern camera descriptor is unavailable', () => {
+  const { m, calls } = manager();
+  m.rangePresentation = fakePresentation();
+  m.highResolutionSky = true;
+  m.singleStage = true;
+  m.drawHighResolutionSky = () => assert.fail('a missing descriptor must use the inline legacy sky');
+  try {
+    m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, null, 1, null, groundView);
+    assert.equal(calls.filter(name => name === '_drawSky').length, 1);
+    assert.deepEqual(m.rangePresentation.passes, ['far', 'mid', 'near']);
+  } finally { m.dispose(); }
 });
 
 test('an unready Landscape draws no synthetic fallback before real terrain is ready', () => {

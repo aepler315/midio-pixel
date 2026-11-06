@@ -44,6 +44,25 @@ test('direct mid-band reflection backdrop does not paint sky twice', () => {
   assert.equal(drawSky, null);
 });
 
+test('a single stage captures its completed sky and far terrain for water without repainting sky', () => {
+  let drawSky, captured;
+  const image = { width: 20, height: 10 };
+  const stage = { width: 1408, height: 848 };
+  const ctx = { save() {}, restore() {}, drawImage() {}, canvas: { width: 320, height: 180 } };
+  const pres = Object.assign(Object.create(RangePresentation.prototype), {
+    active: true, frame: {}, viewId: 'test', arrival: 1, singleStage: true,
+    frameInputs: { sim: { biomes: { highResolutionSky: true, rangeSkyLayer: {}, drawHighResolutionSky() {} } } },
+    scene: {
+      captureBackdrop(context, bounds, frame, sky) { captured = [context, bounds, frame]; drawSky = sky; },
+      renderPartition() { return image; },
+    },
+    _noteTiming() {},
+  });
+  pres.drawPartition(ctx, 'mid', stage);
+  assert.deepEqual(captured, [ctx, stage, pres.frame]);
+  assert.equal(drawSky, null);
+});
+
 test('direct water renders the current band twice and masks shoreline on native cells', () => {
   const calls = [];
   const ctx = { canvas: { width: 1280, height: 720 }, save() {}, restore() {}, setTransform() {},
