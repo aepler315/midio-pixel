@@ -83,7 +83,7 @@ test('the presenting renderer finishes the same composed source that capture rea
     beginFrame() { log.length = 0; log.push('begin'); return source; },
     finishFrame() { log.push('finish'); return { ok: true }; },
     failFrame(reason) { log.push(`fail:${reason}`); return null; },
-    getCaptureSource() { return source; }, setPresentation() {}, dispose() {},
+    getCaptureSource() { return source; }, setPresentation() {}, setFrameGrid() {}, dispose() {},
   };
   const presenting = createPresentingRenderer({ canvas: {}, rendererFactory: () => renderer, presentation: {}, residency: new GraphicsResidency() });
   presenting.output.dispose();

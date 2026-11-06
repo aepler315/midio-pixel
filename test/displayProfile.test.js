@@ -4,15 +4,15 @@ import { resolveDisplayPrefs, resolvePresentation, readDisplayPrefs, writeDispla
 import { PerfGovernor } from '../src/render/PerfGovernor.js';
 import { DISPLAY_PREFS_KEY } from '../src/render/DisplayProfile.js';
 
-const defaults = { version: 2, look: 'pixel', quality: 'auto', palette: 'world', dither: .35, ditherMode: 'selective', pixelGrid: 'classic', scaling: 'fit', pixelScale: 'original' };
+const defaults = { version: 2, look: 'pixel', quality: 'auto', palette: 'world', dither: .35, ditherMode: 'selective', pixelGrid: 'classic', scaling: 'fit', pixelScale: 'original', buildPixelDetail: true };
 const v1 = { version: 1, look: 'palette', quality: 'economy', palette: 'rgb332', dither: 1, scaling: 'integer' };
 test('new and numeric legacy defaults use Pixel Classic Uniform with independent Auto quality', () => {
   assert.deepEqual(resolveDisplayPrefs({}), defaults);
   assert.deepEqual(resolveDisplayPrefs({ legacyStagePreset: 1080 }), defaults);
 });
 test('legacy modes migrate without losing Economy and RGB332', () => {
-  assert.deepEqual(resolveDisplayPrefs({ legacyStagePreset: '8bit' }), { ...defaults, look: 'pixel', quality: 'economy', palette: 'range32', ditherMode: 'ordered', pixelScale: 'original' });
-  assert.deepEqual(resolveDisplayPrefs({ legacyStagePreset: '8bit-intensive' }), { ...defaults, look: 'palette', quality: 'economy', palette: 'rgb332', dither: 1, ditherMode: 'ordered', pixelScale: 'original' });
+  assert.deepEqual(resolveDisplayPrefs({ legacyStagePreset: '8bit' }), { ...defaults, look: 'pixel', quality: 'economy', palette: 'range32', ditherMode: 'ordered', pixelScale: 'original', buildPixelDetail: true });
+  assert.deepEqual(resolveDisplayPrefs({ legacyStagePreset: '8bit-intensive' }), { ...defaults, look: 'palette', quality: 'economy', palette: 'rgb332', dither: 1, ditherMode: 'ordered', pixelScale: 'original', buildPixelDetail: true });
 });
 test('validated saved settings take precedence; malformed input has usable defaults', () => {
   const saved = { ...defaults, look: 'palette', scaling: 'integer' };
@@ -23,7 +23,7 @@ test('validated saved settings take precedence; malformed input has usable defau
   assert.deepEqual(resolveDisplayPrefs({ saved: { ...saved, dither: -1, pixelGrid: 'unknown' } }), saved);
 });
 test('pixel grid and palette selection are independent of quality', () => {
-  assert.deepEqual(resolvePresentation({ ...defaults, look: 'pixel' }), { pixelated: true, grid: { id: 'classic', width: 320, height: 180, pixels: 57600 }, paletteId: 'none', dither: .35, ditherMode: 'selective', quality: 'auto', scaling: 'fit', pixelScale: 'original' });
+  assert.deepEqual(resolvePresentation({ ...defaults, look: 'pixel' }), { pixelated: true, grid: { id: 'classic', width: 320, height: 180, pixels: 57600 }, paletteId: 'none', dither: .35, ditherMode: 'selective', quality: 'auto', scaling: 'fit', pixelScale: 'original', buildPixelDetail: true });
   assert.equal(resolvePresentation({ ...defaults, look: 'palette' }).paletteId, 'world');
   assert.equal(resolvePresentation(defaults).grid.id, 'classic');
 });
@@ -33,13 +33,13 @@ test('blocked storage never prevents boot or a settings change', () => {
   assert.equal(writeDisplayPrefs(blocked, defaults), false);
 });
 test('v1 choices migrate independently to Classic and Ordered without deleting storage', () => {
-  assert.deepEqual(resolveDisplayPrefs({ saved: v1 }), { ...defaults, ...v1, version: 2, ditherMode: 'ordered', pixelScale: 'original' });
-  assert.deepEqual(resolveDisplayPrefs({ saved: { ...v1, dither: -1, quality: 'garbage' } }), { ...defaults, look: 'palette', palette: 'rgb332', scaling: 'integer', ditherMode: 'ordered', pixelScale: 'original' });
+  assert.deepEqual(resolveDisplayPrefs({ saved: v1 }), { ...defaults, ...v1, version: 2, ditherMode: 'ordered', pixelScale: 'original', buildPixelDetail: true });
+  assert.deepEqual(resolveDisplayPrefs({ saved: { ...v1, dither: -1, quality: 'garbage' } }), { ...defaults, look: 'palette', palette: 'rgb332', scaling: 'integer', ditherMode: 'ordered', pixelScale: 'original', buildPixelDetail: true });
   const records = new Map([['smw:display:v1', JSON.stringify(v1)]]);
   const storage = { getItem: k => records.get(k), setItem: (k, v) => records.set(k, v) };
   const migrated = readDisplayPrefs(storage);
   assert.equal(DISPLAY_PREFS_KEY, 'midio-pixel:display:v1');
-  assert.deepEqual(migrated, { ...defaults, ...v1, version: 2, ditherMode: 'ordered', pixelScale: 'original' });
+  assert.deepEqual(migrated, { ...defaults, ...v1, version: 2, ditherMode: 'ordered', pixelScale: 'original', buildPixelDetail: true });
   assert.equal(writeDisplayPrefs(storage, migrated), true);
   assert.equal(records.get('smw:display:v1'), JSON.stringify(v1));
   assert.equal(records.has('smw:display:v2'), false);
@@ -89,7 +89,7 @@ test('legacy v2 migration preserves every pixel option and leaves source storage
   const records = new Map([['smw:display:v2', JSON.stringify(legacy)], ['smw:display:v1', JSON.stringify(v1)]]);
   const storage = { getItem: k => records.get(k), setItem: (k, v) => records.set(k, v) };
   const migrated = readDisplayPrefs(storage);
-  assert.deepEqual(migrated, { ...legacy, pixelScale: 'original' });
+  assert.deepEqual(migrated, { ...legacy, pixelScale: 'original', buildPixelDetail: true });
   writeDisplayPrefs(storage, migrated);
   assert.equal(records.get('smw:display:v2'), JSON.stringify(legacy));
   records.set('smw:display:v2', JSON.stringify({ ...legacy, look: 'pixel' }));
@@ -108,7 +108,7 @@ test('stale Natural settings coerce to Pixel without pinning quality or losing d
 test('saved Depth and unknown pixel scale values migrate to Uniform without losing grid or quality', () => {
   for (const pixelScale of ['depth', 'original', 'random']) {
     const saved = { ...defaults, pixelScale, pixelGrid: 'detailed' };
-    assert.deepEqual(resolveDisplayPrefs({ saved }), { ...saved, pixelScale: 'original' });
+    assert.deepEqual(resolveDisplayPrefs({ saved }), { ...saved, pixelScale: 'original', buildPixelDetail: true });
     assert.equal(resolvePresentation(saved).pixelScale, 'original');
     assert.equal(resolvePresentation(saved).quality, 'auto');
   }
@@ -119,7 +119,7 @@ test('persisted Depth preferences are read and rewritten as Uniform while legacy
     const original = JSON.stringify(saved), records = new Map([[key, original]]);
     const storage = { getItem: k => records.get(k), setItem: (k, v) => records.set(k, v) };
     const migrated = readDisplayPrefs(storage);
-    assert.deepEqual(migrated, { ...saved, pixelScale: 'original' });
+    assert.deepEqual(migrated, { ...saved, pixelScale: 'original', buildPixelDetail: true });
     assert.equal(writeDisplayPrefs(storage, migrated), true);
     assert.equal(JSON.parse(records.get(DISPLAY_PREFS_KEY)).pixelScale, 'original');
     if (key !== DISPLAY_PREFS_KEY) assert.equal(records.get(key), original);

@@ -379,7 +379,7 @@ export function parseBulkArgs(argv) {
       const got = takeOption(args, i, `--${displayKey}`);
       const choices = { look: ['pixel', 'palette', 'cinematic'], quality: ['auto', 'economy'], palette: ['world', 'range32', 'chroma32', 'rgb332'], dither: ['off', 'subtle', 'full'], 'dither-mode': ['ordered', 'selective'], 'pixel-grid': ['classic', 'classicPlus', 'medium', 'mediumPlus', 'detailed'], scaling: ['fit', 'integer'] };
       if (!choices[displayKey].includes(got.value)) throw new Error(`--${displayKey} must be ${choices[displayKey].join(', ')}`);
-      opts.presentation ??= { ...DEFAULT_DISPLAY_PREFS };
+      opts.presentation ??= { ...DEFAULT_DISPLAY_PREFS, buildPixelDetail: false };
       const key = { 'dither-mode': 'ditherMode', 'pixel-grid': 'pixelGrid' }[displayKey] || displayKey;
       opts.presentation[key] = displayKey === 'dither' ? { off: 0, subtle: .35, full: 1 }[got.value] : got.value;
       if (key === 'pixelGrid') gridChosen = true;

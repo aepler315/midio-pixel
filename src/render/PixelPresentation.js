@@ -1,7 +1,7 @@
 import { CinematicPixelRenderer } from './CinematicPixel.js';
 import { applyPalette, compilePalette } from './PaletteQuantize.js';
 import { sharedResidency } from './GraphicsResidency.js';
-import { pixelGrid, PIXEL_POLICY_VERSION } from './PixelRenderPolicy.js';
+import { pixelGrid, isRuntimePixelGrid, PIXEL_POLICY_VERSION } from './PixelRenderPolicy.js';
 import { PALETTES, resolvePaletteId } from './PaletteCatalog.js';
 
 export function fitPixelRect(srcW, srcH, dstW, dstH, scaling = 'fit', origin = { x: 0, y: 0 }) {
@@ -109,6 +109,7 @@ export class PixelPresentation {
       pixelScale: 'original' };
     this._invalidateCapture();
     if (JSON.stringify(presentation) === JSON.stringify(this.presentation)) return;
+    this._deniedFrameGrids = new Set();
     this.presentation = { ...presentation };
     if (!presentation.cinematicPixel) this.cinematic?.suspend();
     this.grid = presentation.grid;
@@ -125,6 +126,53 @@ export class PixelPresentation {
       frame: { presented: false, generation: this.generation, reason: 'not-rendered' } };
     if (this.working && (this.working.width !== this.grid.width || this.working.height !== this.grid.height)) this._releaseWorking();
     if (!this._needsDitherWeights() || this.ditherWeights && this.ditherWeights.length !== this.grid.pixels) this._releaseDitherWeights();
+  }
+  /** Admit a renderer-owned raster before releasing the useful old one.
+   * Fixed/saved presentation stays unchanged. A refused rung is not retried
+   * each frame; a new layout or presentation may explicitly reset admission. */
+  resetFrameGridAdmission() { this._deniedFrameGrids = new Set(); }
+  setFrameGrid(requested = null) {
+    const grid = isRuntimePixelGrid(requested) && !this.compiledPalette ? requested : this.presentation.grid;
+    if (this.grid === grid) { this.diagnostics.frameGridReason = null; return true; }
+    if (!isRuntimePixelGrid(grid) || this.working && grid.pixels <= this.grid.pixels) {
+      // Fixed modes and quality reductions must be able to shed storage even
+      // when there is no room to hold both old and new rasters at once.
+      this._releaseWorking(); this._releaseDitherWeights();
+      this.grid = grid; this.generation++;
+      this.diagnostics.effectiveGrid = grid; this.diagnostics.frameGridReason = null;
+      return true;
+    }
+    const signature = `${grid.width}x${grid.height}`;
+    if (this._deniedFrameGrids?.has(signature)) { this.diagnostics.frameGridReason = 'memory'; return false; }
+    let next = null, nextKey = null;
+    // All hybrid modes require a separate native source, including at 1:1.
+    // Reserving a separate buffer here also allows a failed replacement to
+    // retain its old pixels. beginFrame may release it for a direct 1:1 draw.
+    if (this.working && (this.working.width !== grid.width || this.working.height !== grid.height)) {
+      nextKey = this.key.endsWith(':next') ? this.key.slice(0, -5) : `${this.key}:next`;
+      const reservation = this.residency.reserve({ key: nextKey, bytes: grid.pixels * 4, owner: 'pixel-presentation', evictable: false, protect: [this.key] });
+      if (!reservation) {
+        this._deniedFrameGrids ||= new Set(); this._deniedFrameGrids.add(signature);
+        this.diagnostics.frameGridReason = 'memory'; return false;
+      }
+      try {
+        next = (this.canvas.ownerDocument || globalThis.document).createElement('canvas');
+        next.width = grid.width; next.height = grid.height;
+        if (!next.getContext('2d') || !this.residency.commit(reservation, next, c => { c.width = 0; c.height = 0; })) throw Error('frame grid allocation failed');
+      } catch {
+        if (next) { next.width = 0; next.height = 0; }
+        this.residency.release(nextKey);
+        this._deniedFrameGrids ||= new Set(); this._deniedFrameGrids.add(signature);
+        this.diagnostics.frameGridReason = 'memory'; return false;
+      }
+    }
+    this._invalidateCapture();
+    if (next) { this.residency.release(this.key); this.key = nextKey; this.working = next; }
+    this.grid = grid; this.generation++;
+    this._releaseDitherWeights();
+    this.diagnostics.effectiveGrid = grid;
+    this.diagnostics.frameGridReason = null;
+    return true;
   }
   _preparePalette() {
     this._resolvedPaletteId = resolvePaletteId(this.presentation.paletteId, this.worldKind, this.experience);

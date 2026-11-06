@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { rangeMusicState, sceneDeformation, calibrateRangeMusic, sampleRangeMelody } from '../src/world/alpine/RangeFrame.js';
 import { buildReceiverMask, sampleReceiverMask } from '../src/world/alpine/TerrainMesh.js';
 import CATALOG from '../src/world/terrain/sceneCatalogData.js';
+import { sceneViewEligible } from '../src/world/terrain/SceneCatalog.js';
 
 const env = { groove: .5, sustain: .5, scaleMul: 1, kickMul: .4, gesture: 0 };
 const base = { env, tSec: 12 };
@@ -39,9 +40,9 @@ test('melody sampling is causal, confidence gated and independent of dispatch/se
   assert.deepEqual(sampleRangeMelody(timeline, 1500), seek);
 });
 
-test('view-depth calibration stays bounded by geology in every approved view', () => {
+test('view-depth calibration stays bounded by geology in every eligible view', () => {
   const music = rangeMusicState({ ...base, env: { ...env, sustain: 1, gesture: 1 }, kickAgeMs: 50, kickAmp: 1, structural01: 1 });
-  for (const view of CATALOG.views.filter(v => v.status === 'approved')) {
+  for (const view of CATALOG.views.filter(sceneViewEligible)) {
     const m = calibrateRangeMusic(music, { view, progress01: .5, heightRange: [200, 2000], nominalHeight: 720 });
     assert.ok(m.totalBoundM <= 117 + 1e-8);
     assert.ok(m.projectedBoundPx >= 3, `${view.id}: ${m.projectedBoundPx}px`);

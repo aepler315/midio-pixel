@@ -5,6 +5,8 @@ import { CanvasBuffers } from './CanvasResidency.js';
 import { CinematicPixelRenderer } from './CinematicPixel.js';
 import { quantizeImageData, quantizePalette } from './PaletteQuantize.js';
 import { buildDitherWeights } from './PixelDither.js';
+import { landscapeScoreFor } from '../world/alpine/LandscapeScore.js';
+import { landscapeResolutionPlan, landscapeResolutionAt } from './ProgressiveLandscapeResolution.js';
 
 export function createPresentingRenderer({ canvas, mode = 'canvas', presentation, residency, voxelRange = null, rendererFactory = createRenderer }) {
   return new PresentingRenderer({ canvas, mode, presentation, residency, voxelRange, rendererFactory });
@@ -67,6 +69,11 @@ class PresentingRenderer {
     }
     this.output.setFrameContext?.({ worldKind: sim?.biomes?.world?.kind ?? null, experience: this._experience });
     this.output.diagnostics.rangePipeline = this._requestedPresentation?.rangePipeline || 'hybrid';
+    if (this.voxelRange || this._requestedPresentation?.directTerrain === true) {
+      this.output.setFrameGrid(); this._growthKey = null;
+      this.output.diagnostics.progressiveDetail = { active: false };
+      if (this.inner.rangePresentation) this.inner.rangePresentation.detailHeightPx = null;
+    }
     const wasVoxelFrame = this._voxelFrame;
     this._voxelFrame = false;
     if (this.voxelRange && this.voxelRange.state !== 'unavailable') {
@@ -92,6 +99,30 @@ class PresentingRenderer {
     if (manager) { manager.setSingleStage?.(singleStage); manager.singleStage = singleStage; }
     if (range) { range.setSingleStage?.(singleStage); range.singleStage = singleStage; }
     if (landscape && this._requestedPresentation?.directTerrain === true) return this._drawDirect(sim, alpha, { preparing, manager, range });
+    const growing = landscape && this._requestedPresentation?.buildPixelDetail === true
+      && this._requestedPresentation?.rangePipeline !== 'native'
+      && this.output._resolvedPaletteId === 'none' && !this.voxelRange;
+    let growth = null;
+    if (growing) {
+      const key = `${this.canvas.width}:${this.canvas.height}:${this.output.presentation.scaling}`;
+      if (this._growthKey !== key) {
+        this._growthKey = key;
+        this._growthPlan = landscapeResolutionPlan({ width: this.canvas.width, height: this.canvas.height, scaling: this.output.presentation.scaling });
+        this._growthRungLimit = this._growthPlan.maxRung; this._lastGrowthRung = 0; this._growthLimitReason = null;
+        this.output.resetFrameGridAdmission();
+      }
+      growth = landscapeResolutionAt(this._growthPlan, landscapeScoreFor(manager).at(sim.heardTimeMs, { preview: !!manager.terrainPreview }).rise01);
+      this.output.setFrameGrid(this._growthPlan.grids[Math.min(growth.rung, this._growthRungLimit)]);
+      range.detailHeightPx = this._growthPlan.endpoint.height;
+    } else {
+      this.output.setFrameGrid();
+      this._growthKey = null;
+      if (range) range.detailHeightPx = null;
+    }
+    this.output.diagnostics.progressiveDetail = growth ? { active: true, rise01: growth.rise01,
+      rung: this._growthPlan.grids.indexOf(this.output.grid), requestedRung: growth.rung, maxRung: this._growthPlan.maxRung,
+      requestedGrid: growth.grid, admittedGrid: this.output.grid, endpoint: this._growthPlan.endpoint,
+      reason: this.output.diagnostics.frameGridReason || (growth.rung > this._growthRungLimit ? this._growthLimitReason : null) } : { active: false };
     this._directFrame = false;
     this._releaseDirect();
     if (manager) manager.directFullResolution = false;
@@ -123,18 +154,38 @@ class PresentingRenderer {
     scene.deferPostEffects = postEffects;
     if (range && 'castForeground' in range) range.castForeground = castOverlay;
     this.output.qualityLevel = sim?.perf?.level ?? 0;
-    const source = this.output.beginFrame({ separate: hybridSky || castOverlay || waterOverlay || postEffects || smoothEffects || crestOverlay });
+    const separate = hybridSky || castOverlay || waterOverlay || postEffects || smoothEffects || crestOverlay;
+    let source = this.output.beginFrame({ separate });
+    if (!source && growth && this.output.diagnostics.frame.reason === 'allocation-denied'
+      && this.output.grid !== this._growthPlan.grids[this._lastGrowthRung]) {
+      // A first frame after a seek may have no old working raster to retain.
+      // Admit the last useful rung (Classic on a cold start) once, rather
+      // than retrying an oversized allocation on every playback frame.
+      this._growthRungLimit = Math.min(this._growthRungLimit, this._lastGrowthRung);
+      this._growthLimitReason = 'memory';
+      this.output.setFrameGrid(this._growthPlan.grids[this._growthRungLimit]);
+      source = this.output.beginFrame({ separate });
+      Object.assign(this.output.diagnostics.progressiveDetail, { rung: this._growthRungLimit,
+        admittedGrid: this.output.grid, reason: 'memory' });
+    }
     if (!source) return this.output.diagnostics.frame;
     scene.canvas = source; scene.ctx = source.getContext('2d');
     // Scene captures (opening assembly, freeze, highlight reel) take the
     // finished composite, smooth sky and cast included.
     scene.deferSceneCaptures = singleStage || hybridSky || castOverlay || waterOverlay || postEffects || smoothEffects || crestOverlay || preparing;
-    scene.pixelPolicy = pixelRenderPolicy(this.output.presentation);
+    scene.pixelPolicy = pixelRenderPolicy({ ...this.output.presentation, runtimeGrid: growth ? this.output.grid : null });
     this.inner.presentationPixelated = this.output.presentation.pixelated;
     if (range) { range.pixelated = !!this.output.presentation.pixelated; range.pixelPolicy = scene.pixelPolicy; range.cinematicPixel = cinematicPixel; }
     try { this.inner.draw(sim, alpha); }
     catch (err) { scene.discardFrameCaptures?.(); this.output.failFrame('scene-draw'); throw err; }
     if (this._experience !== 'trio' && this.inner.rangePresentation?.enabled && manager?._awaitingTerrain) {
+      if (growth && range.resolutionRefused) {
+        const failedRung = this._growthPlan.grids.indexOf(this.output.grid);
+        // A heavier incoming view may refuse even the outgoing view's last
+        // useful size. Retrying that same size forever cannot recover it.
+        this._growthRungLimit = Math.min(this._growthRungLimit, failedRung > this._lastGrowthRung ? this._lastGrowthRung : 0);
+        this._growthLimitReason = 'scene-memory';
+      }
       scene.discardFrameCaptures?.();
       return this.output.failFrame('terrain-not-ready');
     }
@@ -158,6 +209,7 @@ class PresentingRenderer {
     const prepare = crestOverlay && typeof range.prepareCrestGrid === 'function' ? (args) => range.prepareCrestGrid(args) : null;
     const finish = prepare && typeof range.finishCrestGrid === 'function' ? (args) => range.finishCrestGrid(args) : null;
     const result = this.output.finishFrame({ background, overlay, water, effects, prepare, finish, crest, shore, terrain });
+    if (growth && result?.presented) this._lastGrowthRung = Math.max(0, this._growthPlan.grids.indexOf(this.output.grid));
     const post = postEffects ? (ctx, fit) => scene.drawDeferredPostEffects(ctx, fit) : null;
     if (result?.presented && post) {
       try {
