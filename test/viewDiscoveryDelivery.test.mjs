@@ -47,7 +47,8 @@ test('the shipped review queue loads with every preview and reference reachable'
 
 test('the app exposes the reviewer without importing discovery into music playback', async () => {
   const [index, main] = await Promise.all(['index.html', 'src/main.js'].map(p => fs.readFile(new URL(p, root), 'utf8')));
-  assert.match(index, /href="\.\/src\/dev\/view-discovery\.html"/);
+  assert.match(index, /id="terrainStudioOpen"/);
+  assert.match(index, /id="terrainStudioPlaybackOpen"/);
   assert.doesNotMatch(main, /view-discovery/);
   await fs.access(new URL('src/dev/view-discovery.html', root));
 });

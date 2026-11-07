@@ -36,9 +36,12 @@ class PresentingRenderer {
     this._requestedPresentation = value;
     this.output.setPresentation(this._experience === 'trio' ? { ...value, cinematicPixel: false, pixelScale: 'original' } : value);
   }
+  // A personal Studio view uses the normal stage/capture compositor. Its
+  // regional terrain is independent of the authored, visibility-cropped packs.
+  setStudioSource(source) { this.studioSource = source; }
   getCaptureSource() {
     const source = this._disposed ? null : this.output.getCaptureSource();
-    if (source && (this._directFrame || this._voxelFrame)) return source;
+    if (source && (this._directFrame || this._voxelFrame || this._studioFrame)) return source;
     // Recording and export consume the completed hybrid picture (smooth sky,
     // the cinematic cell reconstruction and/or the smooth cast over the
     // pixel frame). Palette diagnostics can still inspect the native
@@ -64,6 +67,22 @@ class PresentingRenderer {
   }
   draw(sim, alpha, { preparing = false } = {}) {
     if (this._disposed) return this.output.failFrame('disposed');
+    this._studioFrame = false;
+    this.output.diagnostics.terrainStudio = false;
+    if (this.studioSource && sim?.experience !== 'trio') this.studioSource.update?.(sim, { synchronous: preparing || !!this.studioSynchronous });
+    if (this.studioSource && sim?.experience !== 'trio' && !this.studioSource.ready && (preparing || this.studioSynchronous)) {
+      return this.output.failFrame('terrain-studio-unavailable');
+    }
+    if (this.studioSource?.ready && sim?.experience !== 'trio') {
+      const target = this.output.beginDirectFrame();
+      if (!target) return this.output.diagnostics.frame;
+      compositePixelFrame(target.getContext('2d'), this.studioSource.canvas, target.width, target.height, this.output.presentation.scaling);
+      const result = this.output.finishDirectFrame();
+      this._studioFrame = !!result.presented;
+      Object.assign(this.output.diagnostics, { terrainStudio: this._studioFrame, voxelRange: false, directTerrain: false,
+        working: { width: this.studioSource.canvas.width, height: this.studioSource.canvas.height } });
+      return result;
+    }
     if ((sim?.experience || 'landscape') !== this._experience) {
       this._experience = sim?.experience || 'landscape'; this.setPresentation(this._requestedPresentation);
     }

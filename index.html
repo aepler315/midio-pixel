@@ -152,7 +152,12 @@
 
         <div class="titleMeta">
           <p class="titleFlashNote">Contains flashing lights, camera shake, and sudden scene cuts.</p>
-          <p class="hint"><a href="./src/dev/view-discovery.html" target="_blank" rel="noopener">Scout landscape views</a> — browse real terrain and save your favorites.</p>
+          <div class="terrainStudioEntry">
+            <button id="terrainStudioOpen" type="button" class="ghostbtn">Terrain Studio ↗</button>
+            <span class="hint">Discover real places. Shape your camera. Save a view of your own.</span>
+          </div>
+          <p id="studioViewStatus" class="hint" role="status" hidden></p>
+          <button id="studioViewClear" type="button" class="ghostbtn chipbtn" hidden>Return to automatic landscapes</button>
           <details id="titleSettings" class="settingsWell">
             <summary class="settingsSummary">Settings</summary>
             <p class="hint">The Range v2 uses WebGL2 scenery when available, with a painted fallback.</p>
@@ -278,6 +283,8 @@
           <button id="rangeRestart" type="button" class="ghostbtn">Restart</button>
         </details>
         <button id="displaySettingsBtn" class="ghostbtn" type="button" title="Display settings">Display</button>
+        <button id="terrainStudioPlaybackOpen" class="ghostbtn" type="button" title="Discover terrain and edit your camera">Studio</button>
+        <button id="studioPlaybackClear" class="ghostbtn" type="button" hidden title="Return to automatic landscapes">Exit personal view</button>
         <div id="detailControls" class="detailControls" role="group" aria-label="Pixel detail">
           <span id="detailLevel" class="detailLevel" aria-live="polite">Classic</span>
         </div>

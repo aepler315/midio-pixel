@@ -137,6 +137,7 @@ const errorBannerEl = document.getElementById('errorBanner');
 const errorBannerTextEl = document.getElementById('errorBannerText');
 const errorBannerCloseEl = document.getElementById('errorBannerClose');
 let errorBannerTimer = null;
+let studioPlayback = null, studioOpenPromise = null;
 /** The one user-facing failure surface for this whole app -- replaces the
  *  five native alert() calls that used to dump raw exception text into a
  *  browser dialog. Auto-dismisses after a while but stays reachable via
@@ -2033,7 +2034,8 @@ function applyRangeCaptions(timelineData, exportMode) {
   syncCaptionDetails();
 }
 function syncCaptionDetails() {
-  const caption = renderer?.diagnostics.voxelRange ? voxelRangeCaption
+  const caption = renderer?.diagnostics.terrainStudio && studioPlayback ? studioPlayback.caption
+    : renderer?.diagnostics.voxelRange ? voxelRangeCaption
     : sim?.biomes?.world?.kind === 'alpine' ? captionAt(sim.rangeCaptions || sim.rangeCaption, sim.timeMs)?.caption : null;
   setCaptionDetails(rangeCaptionDetailsEl, caption || null);
 }
@@ -2059,7 +2061,7 @@ function startTimeline(timelineData, extra = {}) {
   }
   const fromUrl = exportModeFlag ? null : readBulkExportFromUrl();
   const exportMode = !!(exportModeFlag || fromUrl);
-  const waitForLandscape = !exportMode && experience === 'landscape' && rangePresentation?.enabled
+  const waitForLandscape = !exportMode && !studioPlayback?.ready && experience === 'landscape' && rangePresentation?.enabled
     && getWorld(timelineData.worldId || lastWorldId || DEFAULT_WORLD_ID)?.kind === 'alpine';
   // Freeze a retained recording before world construction. It resumes at
   // the same heard position only after the replacement scene can draw.
@@ -2258,6 +2260,8 @@ function startTimeline(timelineData, extra = {}) {
   voxelRange?.setSong(loadGen, sim, extra.chapterState?.committedThroughMs ?? startAtMs);
   renderer = createPresentingRenderer({ canvas, mode: rendererMode, presentation: effectivePresentation(),
     residency: sharedResidency(), voxelRange });
+  renderer.setStudioSource?.(studioPlayback);
+  renderer.studioSynchronous = exportMode;
   if (rangePresentation) {
     rangePresentation.setSong({ terrain: timelineData.terrain || null, mgr: sim.biomes, generation: loadGen, exportMode,
       cameraContinuation: extra.chapterState?.cameraTours || (exportMode ? null : cameraRun?.tourContinuation()) || null,
@@ -3643,6 +3647,7 @@ let dragDepth = 0;
 function isLoaderVisible() { return !loaderEl.classList.contains('hidden'); }
 window.addEventListener('dragenter', (e) => {
   e.preventDefault();
+  if (document.querySelector?.('.studio-dialog[open]')) return;
   dragDepth++;
   // The loader's own dropzone already gives drag feedback pre-game; the
   // overlay is only for "you can drop a new file right now" mid-song.
@@ -3658,11 +3663,46 @@ window.addEventListener('drop', (e) => {
   e.preventDefault();
   dragDepth = 0;
   if (dragOverlayEl) dragOverlayEl.classList.remove('visible');
+  if (document.querySelector?.('.studio-dialog[open]')) return;
   const files = e.dataTransfer?.files;
   if (files && files.length) handleFiles(files);
 });
 
 // --- Display settings ---
+// Studio modules and external elevation are loaded only after a deliberate
+// visit. A selected personal view survives seeks and song rebuilds in memory.
+async function openTerrainStudio() {
+  if (studioOpenPromise) return studioOpenPromise;
+  studioOpenPromise = import('./studio/TerrainStudio.js').then(module => module.openTerrainStudio({
+    onUse: async selection => {
+      if (!selection.grid) throw new Error('Enable live terrain before playing an edited camera.');
+      const { StudioPlayback } = await import('./studio/StudioPlayback.js');
+      const next = new StudioPlayback({ ...selection, onError: message => showErrorBanner(message) });
+      try { await next.prepared; }
+      catch (error) { next.dispose(); throw error; }
+      if (!next.ready) { next.dispose(); throw new Error('The personal view could not finish its first frame.'); }
+      studioPlayback?.dispose(); studioPlayback = next;
+      renderer?.setStudioSource?.(studioPlayback);
+      const status = document.getElementById('studioViewStatus');
+      status.textContent = `${selection.candidate.name} · personal exploration terrain. Play a song in Landscape to use this camera.`;
+      status.hidden = false;
+      document.getElementById('studioViewClear').hidden = false;
+      document.getElementById('studioPlaybackClear').hidden = false;
+      if (paused && sim) renderer?.draw(sim, 0);
+    },
+    onClose: () => { studioOpenPromise = null; },
+  })).catch(error => { studioOpenPromise = null; showErrorBanner(`Terrain Studio could not open: ${error.message}`); });
+  return studioOpenPromise;
+}
+function clearStudioPlayback() {
+  studioPlayback?.dispose(); studioPlayback = null;
+  renderer?.setStudioSource?.(null);
+  for (const id of ['studioViewStatus', 'studioViewClear', 'studioPlaybackClear']) document.getElementById(id).hidden = true;
+  if (paused && sim) renderer?.draw(sim, 0);
+}
+for (const id of ['terrainStudioOpen', 'terrainStudioPlaybackOpen']) document.getElementById(id)?.addEventListener('click', openTerrainStudio);
+for (const id of ['studioViewClear', 'studioPlaybackClear']) document.getElementById(id)?.addEventListener('click', clearStudioPlayback);
+
 // Reuse the same real controls during playback; closing restores their title home.
 const displayDialog = document.getElementById('displaySettingsDialog');
 const titleSettings = document.getElementById('titleSettings');
@@ -3781,6 +3821,7 @@ function frame(tRaf) {
   const alpha = acc / STEP_MS;
   let presented = false;
   try {
+    renderer.setStudioSource?.(studioPlayback);
     const result = renderer.draw(sim, alpha);
     presented = !!result?.presented;
     syncCaptionDetails();
@@ -4335,6 +4376,7 @@ function isTextEntry(el) {
 
 window.addEventListener('keydown', (e) => {
   if (e.defaultPrevented) return;
+  if (document.querySelector?.('.studio-dialog[open]')) return;
   // A modal chooser owns keyboard input; every key retains native
   // dialog/button behavior, including Escape.
   if (document.getElementById('plexLibraryPanel')?.open) return;
