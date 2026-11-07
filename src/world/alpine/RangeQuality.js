@@ -2,15 +2,15 @@
 // best .. 6) and its hysteresis: a rung sheds after ~1 s of sustained
 // over-budget frames, returns after 10 clean seconds, and a rung that fails
 // again after recovering waits twice as long before the next try. This
-// table says what the Range's GPU scene gives up at each level, in order:
+// table says how the Range's GPU scene reduces detail at each level:
 // the lake mirror first (rung 1: a second full-scene render that changed at
 // most 2% of pixels in measured frames; the water keeps its reused, blurred
 // sky/far reflection, docs/water-render-cost.md), the near trees' detail
-// assets (rung 2), then the stable foliage subset, then fog sampling and the
-// sun shafts (level 3), then the dormant rock-stage pool capability (Renderer, level 6;
+// assets (rung 2), then the stable foliage subset and fog sampling, then
+// the dormant rock-stage pool capability (Renderer, level 6;
 // catalog views have no rock stage). Landform structure (terrain meshes
-// and their LOD budget), ground contact, performer cores and the musical
-// signatures are never touched by the ladder.
+// and their LOD budget), ground contact, performer cores, sky lighting,
+// weather shadows and musical signatures remain present across devices.
 import { forestKeepFraction } from './ForestCover.js';
 import { MIST_SAMPLES } from './RangeAtmosphere.js';
 
@@ -47,13 +47,16 @@ export function rangeQuality(level = 0) {
     nearDetail: q < 2,
     mistSteps: MIST_STEPS[q],
     poolReflections: q < 6,
-    sunShafts: q < 3,
+    // These signatures already have bounded representations: reduced-size
+    // shafts, a capped cloud-caster set and a small sky reflection texture.
+    // Output sizing and fog sampling save work without removing them.
+    sunShafts: true,
     // The costliest optional pass for the least picture: shed first.
     waterMirror: q < 1,
-    // The captured sky backdrop water reflects, kept a rung past the mirror.
-    waterBackdrop: q < 5,
+    // Once the terrain mirror is shed, water still reflects the sky.
+    waterBackdrop: true,
     landscapeGiants: q < 4,
     // Fair-weather cloud shadows on the land (CloudOcclusion mode 1).
-    cloudShadows: q < 4,
+    cloudShadows: true,
   };
 }

@@ -22,9 +22,8 @@ export function sampleSkyPerformance(effects, qualityLevel = 0) {
   // Musical signatures are never shed: every reduced rung keeps one sweep
   // (at most six culled gradients); only the second arc is optional.
   const sweepLimit = qualityLevel >= 2 ? 1 : 2;
-  // At most one streak, kept as scalars so a frame without one allocates
-  // nothing. Optional detail: none from q3.
-  const streakable = qualityLevel < 3;
+  // Keep the melody's signature at every rung: at most one streak, kept
+  // as scalars so a frame without one allocates nothing.
   let streakAge = 0, streakSeed = 0, streakStrength = 0;
   for (let i = 0; i < Math.min(6, accents.length); i++) {
     const note = accents[i], age = note?.ageSec;
@@ -45,7 +44,7 @@ export function sampleSkyPerformance(effects, qualityLevel = 0) {
     pulse = Math.max(pulse, hit);
     travel += Math.sin(age * 5) * release * strength / 3;
     admitted++;
-    if (streakable && age < STREAK_LIFE_SEC && Number.isFinite(note.seed)) {
+    if (age < STREAK_LIFE_SEC && Number.isFinite(note.seed)) {
       // A rare, fixed share of strong melody notes, or a wider share of any
       // note while a section lifts. Kick and snare only streak in a lift.
       const gate = fract(note.seed * 31.7 + .13);

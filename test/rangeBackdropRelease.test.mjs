@@ -11,7 +11,7 @@ import { GraphicsResidency } from '../src/render/GraphicsResidency.js';
 // positive", which the hardware tour route recorded after about 17 s.
 class Canvas2D {
   constructor(width, height) { this.width = width; this.height = height; }
-  getContext() { return { clearRect() {}, drawImage() {}, save() {}, restore() {} }; }
+  getContext() { return { clearRect() {}, drawImage() { this.drawFilter=this.filter; }, save() {}, restore() {} }; }
 }
 
 function scene(residency = null) {
@@ -24,7 +24,7 @@ function scene(residency = null) {
 
 const stage = { width: 320, height: 180 };
 const ctx = { canvas: {}, getTransform: () => ({ a: 1, d: 1, e: 0, f: 0 }) };
-const mirrored = { qualityLevel: 0, frameId: 1 }, shed = { qualityLevel: 5, frameId: 2 };
+const mirrored = { qualityLevel: 0, frameId: 1 };
 
 function withCanvas(run) {
   const previous = globalThis.OffscreenCanvas;
@@ -47,8 +47,9 @@ for (const ledger of [false, true]) {
     const copy = bind(s, uniforms);
     let disposed = 0;
     copy.texture.addEventListener('dispose', () => disposed++);
-    // Quality sheds the mirror: the copy is released on this path.
-    assert.equal(s.captureBackdrop(ctx, stage, shed), false);
+    // A view without water releases the copy even at the lowest quality.
+    s.prepared.get('lake').mirrorLevelM=NaN;
+    assert.equal(s.captureBackdrop(ctx, stage, { qualityLevel: 6, frameId: 2 }), false);
     assert.equal(disposed, 1);
     assert.equal(s.backdrop, null);
     assert.equal(uniforms.uBackdrop.value, null, 'a released copy must not remain bound');
@@ -81,16 +82,19 @@ test('a live backdrop bound to another view is not unbound by an unrelated relea
   assert.equal(other.uBackdropAmount.value, 1);
 }));
 
-test('the sky backdrop outlives the mirror by one rung and serves river-only views', () => withCanvas(() => {
+test('the sky backdrop survives every quality rung and serves river-only views at q6', () => withCanvas(() => {
   const { s, uniforms } = scene();
-  assert.equal(s.captureBackdrop(ctx, stage, { qualityLevel: 4, frameId: 3 }), true, 'q4 sheds the mirror, keeps the backdrop');
-  bind(s, uniforms);
-  assert.equal(s.captureBackdrop(ctx, stage, { qualityLevel: 5, frameId: 4 }), false, 'q5 releases it');
-  assert.equal(s.backdrop, null);
-  assert.equal(uniforms.uBackdrop.value, null);
+  assert.equal(s.captureBackdrop(ctx, stage, mirrored), true);
+  const copy=bind(s, uniforms);
+  for(let qualityLevel=1;qualityLevel<=6;qualityLevel++){
+    assert.equal(s.captureBackdrop(ctx, stage, { qualityLevel, frameId: qualityLevel+1 }), true, `q${qualityLevel} keeps reflected sky`);
+    assert.equal(s.backdrop,copy,'the bounded copy is reused');
+    assert.equal(uniforms.uBackdrop.value,copy.texture);
+    assert.match(copy.ctx.drawFilter,/^blur\(/,'the sky reflection softens after the planar mirror sheds');
+  }
   const river = scene();
   river.s.prepared.set('lake', { mirrorLevelM: NaN, riverStats: { triangles: 1200 }, uniforms: river.uniforms });
-  assert.equal(river.s.captureBackdrop(ctx, stage, { qualityLevel: 4, frameId: 5 }), true, 'a river-only view reflects the sky');
+  assert.equal(river.s.captureBackdrop(ctx, stage, { qualityLevel: 6, frameId: 8 }), true, 'a river-only view reflects the sky at q6');
   river.s.prepared.set('lake', { mirrorLevelM: NaN, riverStats: { triangles: 0 }, uniforms: river.uniforms });
-  assert.equal(river.s.captureBackdrop(ctx, stage, { qualityLevel: 0, frameId: 6 }), false, 'no water, no copy');
+  assert.equal(river.s.captureBackdrop(ctx, stage, { qualityLevel: 6, frameId: 9 }), false, 'no water, no copy');
 }));

@@ -18,8 +18,6 @@ export function moonIllumination(phase) {
 }
 const smooth = x => { x = clamp(x); return x * x * (3 - 2 * x); };
 const fract = x => x - Math.floor(x);
-/** Seconds over which the Milky Way eases in or out across the q3 rung. */
-const MILKY_FADE_SEC = 1.5;
 /** Flash-lit storm sprites kept beside the deck tints (LRU). */
 const FLASH_TINT_POOL = 8;
 /** Degrees the tour sun's compass arc spans from rise to set: the sweep
@@ -154,10 +152,6 @@ export class RangeSkyRenderer {
     this.cloudCache = new Map();
     this.flashCache = new Map();
     this.celestial = new CelestialPainter({ buffers: this.buffers });
-    // The Milky Way's eased presence across quality rungs (heard time).
-    this._milkyFade = NaN;
-    this._milkyAtSec = NaN;
-    this._milkyTarget = NaN;
   }
   _seed(seed) {
     if (seed === this.seed) return;
@@ -268,14 +262,8 @@ export class RangeSkyRenderer {
     // it covers are cut out here instead of painted over.
     this.celestial.prepareMoon(frame.moon, width, height, night, frame.phase);
     if (performance) this._musicAtmosphere(ctx, project, width, height, night, performance);
-    // Shedding the Milky Way at q3 eases over 1.5 s instead of popping.
-    const milky = this._milkyFadeAt(frame);
-    if (milky > 0) {
-      const alpha = ctx.globalAlpha;
-      ctx.globalAlpha = alpha * milky;
-      this._milkyWay(ctx, project, width, height, night, frame.storm);
-      ctx.globalAlpha = alpha;
-    }
+    // Reduced rungs keep the galactic landmark with fewer stellar clouds.
+    this._milkyWay(ctx, project, width, height, night, frame.storm, this.celestial.disc, frame.qualityLevel ?? 0);
     // Output pixels per sky unit: hairlines and the moon texture's resolution.
     const matrix = ctx.getTransform?.();
     const outputScale = matrix ? Math.hypot(matrix.a, matrix.b) || 1 : 1;
@@ -300,20 +288,6 @@ export class RangeSkyRenderer {
     this._veiledBodies(ctx, frame, width, height, night);
     ctx.restore();
     return true;
-  }
-  /** The Milky Way's presence: 1 below q3, 0 from it, eased over 1.5 s of
-   *  heard time. A repeated time (pause, the water mirror's second draw)
-   *  holds; a seek, the first frame or a backwards step snaps. A rung
-   *  change at an unchanged heard time (a paused preset change) has no
-   *  time to ease over, so it snaps too. */
-  _milkyFadeAt(frame) {
-    const target = (frame.qualityLevel ?? 0) < 3 ? 1 : 0, at = frame.timeSec;
-    const dt = at - this._milkyAtSec, current = this._milkyFade, retarget = target !== this._milkyTarget;
-    this._milkyAtSec = at; this._milkyTarget = target;
-    if (Number.isFinite(current) && dt === 0 && !retarget) return current;
-    if (!Number.isFinite(current) || !(dt > 0 && dt <= .5)) return (this._milkyFade = target);
-    const step = dt / MILKY_FADE_SEC;
-    return (this._milkyFade = current < target ? Math.min(target, current + step) : Math.max(target, current - step));
   }
   /** Twilight in the high-resolution sky (frame.twilight, BiomeManager's
    *  frozen copy of DayNight's twilightAt): a warm glow on the horizon
@@ -400,12 +374,17 @@ export class RangeSkyRenderer {
     ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(tx, ty); ctx.stroke();
     ctx.restore();
   }
-  _milkyWay(ctx, project, width, height, night, storm, moon = this.celestial.disc) {
+  _milkyWay(ctx, project, width, height, night, storm, moon = this.celestial.disc, qualityLevel = 0) {
     const strength = smooth((night - .3) / .6) * (1 - .8 * clamp(storm?.amount || 0));
     if (strength < .005 || !Number.isFinite(project.focal)) return;
+    // Keep all three lanes and their fixed world positions. At q3+ one
+    // cloud represents three neighbours, preserving the broad glow with
+    // at most 144 projections/gradients per lunar mask pass instead of 432.
+    const stride = qualityLevel >= 3 ? 3 : 1;
     const paint = opacity => {
       if (opacity <= 0) return;
-      for (const cloud of this.galacticClouds) {
+      for (let i = 0; i < this.galacticClouds.length; i += stride) {
+        const cloud = this.galacticClouds[i];
         const p = project(cloud.direction);
         if (!p.inFront) continue;
         const x = p.xFrac * width, y = p.yFrac * height;
@@ -413,7 +392,7 @@ export class RangeSkyRenderer {
         if (!(r > 0) || x + r < 0 || x - r > width || y + r < 0 || y - r > height) continue;
         const color = cloud.warm ? '203,187,175' : '180,199,224';
         const gradient = ctx.createRadialGradient(x, y, 0, x, y, r);
-        gradient.addColorStop(0, `rgba(${color},${.025 * strength * opacity * cloud.opacity})`);
+        gradient.addColorStop(0, `rgba(${color},${.025 * strength * opacity * cloud.opacity * stride})`);
         gradient.addColorStop(1, `rgba(${color},0)`);
         ctx.fillStyle = gradient; ctx.fillRect(x - r, y - r, 2 * r, 2 * r);
       }

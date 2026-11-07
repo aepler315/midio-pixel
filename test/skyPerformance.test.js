@@ -174,7 +174,9 @@ test('night melody streaks are rare, bounded, causal and released exactly', () =
   const lone = sampleSkyPerformance({ accents: [melody(.1)] });
   assert.equal(lone.streaks.length, 1, 'a lone streak survives the silence cull');
   assert.equal(lone.streaks[0].seed, STREAK_SEED);
-  assert.equal(sampleSkyPerformance({ accents: [melody(.1)] }, 3).streaks.length, 0, 'optional at q3');
+  for (let qualityLevel = 0; qualityLevel <= 6; qualityLevel++) {
+    assert.equal(sampleSkyPerformance({ accents: [melody(.1)] }, qualityLevel).streaks.length, 1, `q${qualityLevel} keeps one bounded melody streak`);
+  }
   assert.equal(sampleSkyPerformance({ accents: [melody(.45)] }).streaks.length, 0, 'gone at the end of its life');
   assert.equal(sampleSkyPerformance({ accents: [melody(.1, STREAK_SEED, .5)] }).streaks.length, 0, 'weak melody notes do not streak');
   assert.equal(sampleSkyPerformance({ accents: [{ ...melody(.1), kind: 'kick' }] }).streaks.length, 0, 'percussion streaks only in a lift');
@@ -230,28 +232,46 @@ test('the streak paints one hairline at night only, deterministically, under the
   sky.dispose();
 });
 
-test('the Milky Way eases across the q3 rung, holds when paused and snaps on a seek', () => {
+test('the Milky Way stays present through quality changes, pauses and seeks', () => {
   const sky = new RangeSkyRenderer();
   const alphas = [];
   for (const method of ['_stars', '_aurora', '_bodies', '_clouds']) sky[method] = () => {};
-  sky._milkyWay = ctx => alphas.push(ctx.globalAlpha);
+  sky._milkyWay = (...args) => alphas.push({ alpha: args[0].globalAlpha, qualityLevel: args[7] });
   const frame = { seed: 315, camera, sourceWidth: 1280, sourceHeight: 720, night: 1,
     colors: { top: '#000', mid: '#000', horizon: '#000' } };
   const draw = (timeSec, qualityLevel) => {
     alphas.length = 0;
     const { ctx } = recordingContext();
     sky.draw(ctx, { ...frame, timeSec, qualityLevel });
-    return alphas.length ? alphas[0] : 0;
+    assert.equal(alphas.length, 1, 'one galactic pass per sky draw');
+    assert.equal(alphas[0].qualityLevel, qualityLevel, 'draw forwards the sampling rung');
+    return alphas[0].alpha;
   };
   assert.equal(draw(10, 2), 1, 'the first frame snaps');
-  const faded = [];
-  for (let i = 1; i <= 100; i++) faded.push([i / 60, draw(10 + i / 60, 3)]);
-  for (const [dt, value] of faded.filter(([dt]) => dt < 1.49)) assert.ok(value > 0 && value < 1, `dt=${dt}: ${value}`);
-  assert.equal(faded.at(-1)[1], 0, 'fully shed after 1.5 s');
-  assert.equal(draw(20, 2), 1, 'a seek snaps to the target');
-  const mid = draw(20 + 1 / 60, 3);
-  assert.ok(mid > 0 && mid < 1);
-  assert.equal(draw(20 + 1 / 60, 3), mid, 'the same heard time (pause, the water mirror) holds');
-  assert.equal(draw(19, 3), 0, 'a backwards seek snaps');
+  for (let i = 1; i <= 100; i++) assert.equal(draw(10 + i / 60, 6), 1, 'a sustained low rung keeps the band');
+  assert.equal(draw(20, 2), 1, 'a seek retains the landmark');
+  assert.equal(draw(20, 6), 1, 'a quality change during pause retains the landmark');
+  assert.equal(draw(19, 6), 1, 'a backwards seek retains the landmark');
+  sky.dispose();
+});
+
+test('q6 galactic clouds use a bounded stable subset without fading the band away', () => {
+  const sky = new RangeSkyRenderer();
+  sky.galacticClouds = Array.from({ length: 432 }, (_, i) => ({ direction: [i, 0, -1], opacity: 1, radius: .1, warm: false }));
+  const paint = qualityLevel => {
+    const directions = [];
+    const visible = direction => { directions.push(direction); return { inFront: true, xFrac: .5, yFrac: .5 }; };
+    visible.focal = 1;
+    const { ctx, ops } = recordingContext();
+    sky._milkyWay(ctx, visible, 1280, 720, 1, null, null, qualityLevel);
+    return { directions, fills: ops.filter(op => op.kind === 'rect') };
+  };
+  const full = paint(0), low = paint(6);
+  assert.equal(full.fills.length, 432);
+  assert.equal(low.fills.length, 144, 'one third of the gradients at the lowest rung');
+  assert.deepEqual(low.directions, full.directions.filter((_, i) => i % 3 === 0), 'the subset keeps world identities');
+  const sumAlpha = result => result.fills.reduce((sum, fill) => sum + Number(fill.style.stops[0][1].match(/,([\d.]+)\)$/)[1]), 0);
+  assert.ok(Math.abs(sumAlpha(full) - sumAlpha(low)) < 1e-9, 'coarser clouds retain integrated glow');
+  assert.deepEqual(paint(6), low, 'pause and seek do not change sampling identities');
   sky.dispose();
 });

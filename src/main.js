@@ -301,6 +301,7 @@ let visionLoop = null;
 let debugOverlay = null;
 let perfGovernor = null;
 let lastRafMs = null; // separate from lastNowMs (audio clock) -- tracks real rAF-to-rAF cadence for the perf governor
+let lastRenderedWorkMs = null; // CPU submission work, never vsync wait or a skipped draw
 let sf2Engine = null;
 let fontLibrary = null;
 let fontRecommender = null;
@@ -3697,7 +3698,10 @@ if (trackBadgeBtnEl) trackBadgeBtnEl.addEventListener('click', () => toggleTrack
 
 function frame(tRaf) {
   if (!running) return;
-  if (paused || playbackPreparing) { rafHandle = requestAnimationFrame(frame); return; }
+  if (paused || playbackPreparing) { lastRenderedWorkMs = null; rafHandle = requestAnimationFrame(frame); return; }
+  const workStartMs = performance.now();
+  const previousWorkMs = lastRenderedWorkMs;
+  lastRenderedWorkMs = null;
   if (lastRafMs !== null) {
     const rafDeltaMs = tRaf - lastRafMs;
     noteFrameGap(rafDeltaMs);
@@ -3707,7 +3711,7 @@ function frame(tRaf) {
     // "frames" is exactly the shape the severity escalation is built to
     // believe, so it would shed rung after rung while nothing was being
     // drawn at all, and hand the player back a degraded show on return.
-    if (!document.hidden) perfGovernor.sample(rafDeltaMs, tRaf, { capFps: playbackFps() });
+    if (!document.hidden) perfGovernor.sample(rafDeltaMs, tRaf, { capFps: playbackFps(), workMs: previousWorkMs });
     // Compared with the rung the stage was sized for, not the previous
     // frame's: a General quality change between frames moves the level
     // too, and the output resolution follows the level.
@@ -3869,6 +3873,11 @@ function frame(tRaf) {
   updateRecordReadout(tRaf);
   if (presented) visionLoop.maybeSample(tRaf, simTime);
   debugOverlay.render();
+
+  // Includes simulation, drawing, capture and HUD work from this callback.
+  // WebGL submission can finish before the GPU: callback pressure remains
+  // the governor's independent signal for missed deadlines.
+  lastRenderedWorkMs = presented && !document.hidden ? Math.max(0, performance.now() - workStartMs) : null;
 
   if (isSongComplete(nowMs)) {
     onSongComplete();
