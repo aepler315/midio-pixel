@@ -2,9 +2,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  mistAmount, mistMask, mistParams, mistDrift, emitterStrength, MIST_GLSL, MIST_NOISE_M, MIST_DRIFT, SEA_DENSITY,
-  meanLayer, easeMistSteps, tourMistCap, tourMistFade, MIST_OCTAVE_ROTATION, MIST_SAMPLES, MIST_STEP_EASE_SEC,
-  emitterVisibility, seaSubmersion, actorLightShown, EMITTER_GLSL, EMITTER_SUBMERGE, SEA_TOP_SOFT_BELOW_M, SEA_TOP_SOFT_ABOVE_M,
+  mistAmount, mistMask, mistParams, mistDrift, emitterStrength, MIST_GLSL, MIST_NOISE_M, MIST_DRIFT,
+  meanLayer, easeMistSteps, tourMistCap, tourMistFade, MIST_OCTAVE_ROTATION, MIST_SAMPLES,
+  emitterVisibility, EMITTER_GLSL, EMITTER_SUBMERGE,
   atmosphereMusic, ATMOSPHERE_NEUTRAL,
 } from '../src/world/alpine/RangeAtmosphere.js';
 import { sampleEffectsMusic } from '../src/world/alpine/EffectsMusic.js';
@@ -65,32 +65,13 @@ test('mist parameters follow the view: water level, wetness, calm', () => {
   assert.ok(Number.isFinite(mistParams({ heightRange: [300, 2760] }).baseM), 'no water: a valley-floor fallback');
 });
 
-test('a cloud sea floods the valley below a flat top that stays under the eye', () => {
-  const view = { rules: { wetness: 0.5 }, waterLevelM: 800, heightRange: [750, 2300], cameraY: 2200 };
-  const calm = mistParams(view);
-  assert.equal(calm.fill, 0);
-  assert.ok(calm.topM > 1e8, 'no top without a cloud sea');
-  const full = mistParams({ ...view, sea01: 1 });
-  assert.equal(full.fill, 1);
-  assert.ok(full.topM > 800 && full.topM < 2200, `top ${full.topM} between floor and eye`);
-  assert.ok(full.density > calm.density);
-  assert.ok(mistParams({ ...view, sea01: 0.5 }).topM < full.topM, 'it rises as it fills');
-  // It wells up out of the valley: a thin sea sits near the floor and the
-  // density blends in with no step where the sea takes over.
-  const thin = mistParams({ ...view, sea01: 0.05 });
-  assert.ok(thin.topM - 800 < 0.1 * (2200 - 800), `a thin sea's top ${thin.topM} sits near the floor`);
-  let last = calm.density;
-  for (let k = 1; k <= 20; k++) {
-    const d = mistParams({ ...view, sea01: k / 20 }).density;
-    assert.ok(d >= last && d - last <= (SEA_DENSITY - calm.density) / 20 + 1e-12, `density steps at ${k / 20}`);
-    last = d;
-  }
-  assert.equal(mistParams({ ...view, sea01: 1, cameraY: 700 }).fill, 0, 'never with the eye below the floor');
-  // Looking down into it: thick below the top, clear above it.
-  const p = { ...full, tSec: 0 };
-  const cam = [0, 2200, 0];
-  assert.ok(mistAmount(cam, [0, 900, -3000], p) > 0.8, 'the valley floor is under cloud');
-  assert.ok(mistAmount(cam, [0, full.topM + 200, -1500], p) < mistAmount(cam, [0, 900, -1500], p) * 0.5, 'a peak above the top stands clear');
+test('quiet formation keeps ordinary density and is independent of camera altitude', () => {
+  const view = { rules: { wetness: .5 }, waterLevelM: 800, heightRange: [750, 2300] };
+  const calm = mistParams(view), full = mistParams({ ...view, sea01: 1 });
+  assert.equal(calm.fill, 0); assert.equal(full.fill, 1);
+  assert.equal(full.density, calm.density, 'extra optical depth stays in local banks');
+  assert.equal(full.topM, undefined, 'there is no camera-relative top');
+  assert.deepEqual(mistParams({ ...view, sea01: 1, cameraY: 700 }), mistParams({ ...view, sea01: 1, cameraY: 9000 }));
 });
 
 test('a light is seen through the same mist as the ground under it', () => {
@@ -108,61 +89,20 @@ test('a light is seen through the same mist as the ground under it', () => {
   assert.equal(emitterVisibility(eye, [0, 820, -4000], { density: 0, fill: 0, topM: 1e9 }), 1);
 });
 
-test('a light sunk under a full cloud sea is gone, one standing above its top is not', () => {
-  const view = { rules: { wetness: 0.5 }, waterLevelM: 800, heightRange: [750, 2300], cameraY: 2200 };
-  const eye = [0, 2200, 0];
-  const full = { ...mistParams({ ...view, sea01: 1 }), steps: MIST_SAMPLES, atm: 1 };
-  assert.equal(EMITTER_SUBMERGE, 1, 'they disappear under the sea');
-  // A lantern on the lake 2 km out: the ground beside it keeps a trace
-  // through the thin near cloud, the lantern itself does not.
-  const lake = [0, 802, -2000];
-  assert.ok(mistAmount(eye, lake, full) < 0.98, 'the ground keeps a trace');
-  assert.ok(emitterVisibility(eye, lake, full) < 1e-6, 'the lantern is gone');
-  // On the face above the top the sea takes nothing.
-  const face = [0, full.topM + SEA_TOP_SOFT_ABOVE_M + 50, -2500];
-  assert.equal(seaSubmersion(face[1], full), 0);
-  assert.ok(Math.abs(emitterVisibility(eye, face, full) - (1 - mistAmount(eye, face, full))) < 1e-12);
-  // Half a sea: a floor lantern fades with the fill, continuously.
-  const half = { ...mistParams({ ...view, sea01: 0.5 }), steps: MIST_SAMPLES, atm: 1 };
-  assert.ok(Math.abs(seaSubmersion(lake[1], half) - 0.5) < 1e-9);
-  const a = emitterVisibility(eye, lake, half);
-  assert.ok(a > 0 && a < 0.5 * (1 - mistAmount(eye, lake, half)) + 1e-12);
-  // Across the top's soft edge the light comes back smoothly.
-  let last = -1;
-  for (let y = full.topM - SEA_TOP_SOFT_BELOW_M - 10; y <= full.topM + SEA_TOP_SOFT_ABOVE_M + 10; y += 5) {
-    const sub = seaSubmersion(y, full);
-    assert.ok(sub >= 0 && sub <= 1);
-    const seen = 1 - sub;
-    assert.ok(seen >= last - 1e-12, `no dip at ${y}`);
-    last = seen;
-  }
-});
-
-test('a lantern sunk under the cloud sea lights nothing, as much gone as the lantern itself', () => {
-  const m = { topM: 1500, fill: 1 };
-  const under = 1500 - SEA_TOP_SOFT_BELOW_M - 20, above = 1500 + SEA_TOP_SOFT_ABOVE_M + 20;
-  // No pool and no glints with no lantern over them, above the top or below.
-  assert.equal(actorLightShown(under, m), 0);
-  assert.equal(actorLightShown(above, m), 1, 'a light above the sea still reaches down');
-  assert.ok(Math.abs(actorLightShown(under, { topM: 1500, fill: 0.4 }) - 0.6) < 1e-12);
-  assert.equal(actorLightShown(under, null), 1);
-  // It follows the lantern's own sea term exactly (emitterVisibility, no mist).
-  for (const y of [1400, 1460, 1480, 1500, 1520, 1600]) {
-    const seen = emitterVisibility([0, 3000, 0], [0, y, -100], { density: 0, topM: 1500, fill: 0.7 });
-    assert.ok(Math.abs(actorLightShown(y, { topM: 1500, fill: 0.7 }) - seen) < 1e-12, `${y}`);
-  }
-});
-
 test('the emitter and lantern-light shader twins use the same constants', async () => {
-  assert.ok(MIST_GLSL.includes('float mistSubmersion(float y)'));
-  assert.ok(MIST_GLSL.includes(`uMistTop - ${SEA_TOP_SOFT_BELOW_M.toFixed(1)}`) && MIST_GLSL.includes(`uMistTop + ${SEA_TOP_SOFT_ABOVE_M.toFixed(1)}`));
+  assert.ok(MIST_GLSL.includes('float mistSubmersion(vec3 p)'));
+  assert.ok(MIST_GLSL.includes('return mistLocalBank(mask, mistFlowAt(p.xz, mask), vec2(p.y)) * (1.0 - exp(-uMistDensity * 7000.0));'));
   assert.ok(EMITTER_GLSL.includes('mistAmount(uCameraPos, p) * uNarrative.y'));
   assert.ok(EMITTER_GLSL.includes(`${EMITTER_SUBMERGE.toFixed(3)} * sub`));
   const { ACTOR_GLSL } = await import('../src/world/alpine/ActorsGL.js');
-  // uActorPos already stands where the song's rise lowered the lantern
-  // (RangeScene._setActors), so only the musical lift is added (landLift).
-  assert.ok(ACTOR_GLSL.includes(`1.0 - ${EMITTER_SUBMERGE.toFixed(3)} * uMistFill * mistSubmersion(s.y + landLift(s))`),
+  // The query repeats the lantern vertex's lift-before-rise order from
+  // the original anchor; the already lowered light position loses height.
+  assert.ok(ACTOR_GLSL.includes(`1.0 - ${EMITTER_SUBMERGE.toFixed(3)} * mistSubmersion(actorDrawnPos(i))`),
     'the light goes with its lantern, read on the lifted ground');
+  assert.ok(ACTOR_GLSL.includes('vec3 source = vec3(uActorPos[i].x, uActorSourceY[i], uActorPos[i].z);'));
+  assert.ok(ACTOR_GLSL.includes('return source + vec3(0.0, groundLift(source), 0.0);'), 'lift precedes rise from the original source');
+  assert.match(MIST_GLSL, /uniform vec4 uMistLayer;/);
+  assert.doesNotMatch(MIST_GLSL, /uniform float uMist(Base|Height|Time|Fill);/, 'layer controls share one mobile uniform vector');
   assert.ok(ACTOR_GLSL.includes('if (fall <= 0.0) continue;\n      fall *= actorShown(i);'), 'the pool, paid only where the light reaches');
   assert.ok(ACTOR_GLSL.includes('if (reach <= 0.0) continue;') && ACTOR_GLSL.includes('* reach * actorShown(i)'), 'and the glints');
   // actorLight reads the sea's top at the lifted ground: the mist uniforms
@@ -173,9 +113,9 @@ test('the emitter and lantern-light shader twins use the same constants', async 
   const placed = { mesh: new Float32Array([0, 0, 0, 20, 10, 0, .5, 2]), billboard: new Float32Array(), stride: 8, count: 1 };
   const forest = createForest(THREE, placed, {});
   for (const [name, frag] of [['terrain', SCENE_FRAG], ['forest', forest.byBand.near[0].material.fragmentShader]]) {
-    const top = frag.indexOf('uniform float uMistTop;'), light = frag.indexOf('vec3 actorLight(');
+    const top = frag.indexOf('uniform sampler2D uMistFlow;'), light = frag.indexOf('vec3 actorLight(');
     assert.ok(top >= 0 && light > top, `${name}: MIST_GLSL precedes ACTOR_GLSL`);
-    assert.equal(frag.split('uniform float uMistTop;').length, 2, `${name}: declared once`);
+    assert.equal(frag.split('uniform sampler2D uMistFlow;').length, 2, `${name}: declared once`);
     const lift = frag.indexOf('float groundLift(vec3 p)');
     assert.ok(lift >= 0 && light > lift, `${name}: groundLift precedes ACTOR_GLSL`);
     for (const decl of ['float groundLift(vec3 p)', 'uniform sampler2D uReceiver;', 'uniform float uGlacierEnabled;'])
@@ -259,7 +199,7 @@ test('fewer fog samples (the quality ladder) approximate the full integral and n
   assert.equal(mistAmount(cam, far, { ...params, steps: 99 }), mistAmount(cam, far, params));
   // The shader bounds its loop the same way.
   assert.match(MIST_GLSL, /if \(float\(i\) >= n\) break;/);
-  assert.match(MIST_GLSL, /float od = uMistDensity \* length\(d\) \* mistMeanLayer\(cam\.y, p\.y\) \* banks;/);
+  assert.match(MIST_GLSL, /float od = uMistDensity \* length\(d\) \* banks;/);
 });
 
 test('the sky turns with the camera: a far landmark and the clouds pan alike', async () => {
@@ -313,15 +253,13 @@ test('the sky pan uses the scene\'s own moved pose and follows a late-joining vi
 
 // --- Seams and sudden changes (fog fix) -------------------------------------
 
-test('the layer is integrated exactly along the ray, through the valley floor and a cloud-sea top', () => {
+test('ordinary atmosphere is integrated exactly along the ray through the valley floor', () => {
   const numeric = (y0, y1, o) => {
     let sum = 0; const N = 20000;
     for (let i = 0; i < N; i++) {
       const y = y0 + (y1 - y0) * (i + .5) / N;
       const e = Math.exp(-Math.max(0, y - o.baseM) / o.heightM);
-      const lo = (o.topM ?? 1e9) - 60, hi = (o.topM ?? 1e9) + 30;
-      const slab = Math.min(1, Math.max(0, (hi - y) / (hi - lo)));
-      sum += e + ((o.fill ?? 0) * (slab - e));
+      sum += e;
     }
     return sum / N;
   };
@@ -370,7 +308,7 @@ test('mask values do not line up along any straight lattice direction', () => {
   }
 });
 
-test('a rung change eases across fractional sample counts; pause holds, seek snaps', () => {
+test('fractional mist estimates remain continuous; runtime quality switches avoid dual-bank work', () => {
   const far = [3000, 520, -9000];
   const at = (steps) => mistAmount(cam, far, { ...params, steps });
   // Between two counts the haze lies between their values, continuously.
@@ -384,13 +322,19 @@ test('a rung change eases across fractional sample counts; pause holds, seek sna
       last = v;
     }
   }
-  let s = MIST_SAMPLES, t = 0;
-  const frames = [];
-  while (t < 3) { s = easeMistSteps(s, 4, 1 / 30); frames.push(s); t += 1 / 30; }
-  assert.ok(frames[0] < MIST_SAMPLES && frames[0] > 4, 'one frame moves a little');
-  assert.equal(frames.at(-1), 4);
-  const reachedAt = frames.findIndex(v => v === 4) / 30;
-  assert.ok(Math.abs(reachedAt - 2 / (MIST_SAMPLES - 1) * MIST_STEP_EASE_SEC) < 0.1);
+  // A fractional sample count integrates both neighbouring banks, so a
+  // pressure drop from 6 toward 4 must never temporarily require 11 reads.
+  const bankReads = steps => Number.isInteger(steps) ? steps : Math.floor(steps) + Math.ceil(steps);
+  for (const [from, to] of [[6, 4], [4, 3], [3, 2], [5.2, 4]]) {
+    const dropped = easeMistSteps(from, to, 1 / 60);
+    assert.equal(dropped, to, `${from} -> ${to} sheds sample work on the next advancing frame`);
+    assert.equal(bankReads(dropped), to, 'no dual-bank work while shedding');
+  }
+  for (const [from, to] of [[4, MIST_SAMPLES], [2, 3], [3, 4]]) {
+    const recovered = easeMistSteps(from, to, 1 / 60);
+    assert.equal(recovered, to, 'recovery uses the affordable endpoint immediately');
+    assert.equal(bankReads(recovered), to, 'no transient extra bank can fail a recovery probe');
+  }
   assert.equal(easeMistSteps(5.2, 4, 0), 5.2, 'paused');
   assert.equal(easeMistSteps(5.2, 4, -3), 4, 'seek back');
   assert.equal(easeMistSteps(5.2, 4, 12), 4, 'seek forward');

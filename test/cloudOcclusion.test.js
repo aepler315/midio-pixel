@@ -131,34 +131,31 @@ test('a seek lands on the same cloud shadows as continuous play',async()=>{
  b.set(sunFrame(5000));b.set(sunFrame(90000));
  assert.equal(a.snap(),b.snap());
 });
-test('no cloud shadows below the horizon, at q4, or with a painted legacy sky',async()=>{
+test('cloud shadows remain at q6 and still clear below the horizon',async()=>{
  const {uniforms,set}=await shadowScene();
- set(sunFrame(42000,{qualityLevel:4}));
- assert.equal(uniforms.uCloudCount.value,0);assert.equal(uniforms.uCloudMode.value,0);
- set(sunFrame(42000,{qualityLevel:3}));assert.ok(uniforms.uCloudCount.value>0);
+ set(sunFrame(42000,{qualityLevel:6}));
+ assert.ok(uniforms.uCloudCount.value>0&&uniforms.uCloudCount.value<=16);assert.equal(uniforms.uCloudMode.value,1);
  uniforms.uLightDir.value.set(.9,.03,.43);
  set(sunFrame(42000));
  assert.equal(uniforms.uCloudCount.value,0);assert.equal(uniforms.uCloudStrength.value,0);
 });
-test('a q3 to q4 shed fades the cloud shadows out over heard time, and recovery fades them back',async()=>{
+test('a quality drop preserves cloud shadow strength through q6, pause and seek',async()=>{
  const {uniforms}=await shadowScene();
  const {RangeScene}=await import('../src/world/alpine/RangeScene.js');
  const camera=new (await import('../src/vendor/range/three-range.module.js')).PerspectiveCamera(40,16/9,20,150000);
  camera.position.set(500,2200,800);camera.lookAt(0,1500,-8000);camera.updateMatrixWorld();
  const p={uniforms};const set=frame=>RangeScene.prototype._setCloudUniforms.call({camera,skyClouds:null},p,frame);
  set(sunFrame(42000,{qualityLevel:3}));assert.ok(Math.abs(uniforms.uCloudStrength.value-.4)<1e-12);
- let last=.4,t=42000;
- for(let i=0;i<30;i++){
-  set(sunFrame(t+=1000/60,{qualityLevel:4}));
+ let t=42000;
+ for(let i=0;i<120;i++){
+  set(sunFrame(t+=1000/60,{qualityLevel:6}));
   const s=uniforms.uCloudStrength.value;
-  assert.ok(s>0&&s<last,`fading at ${t}: ${s}`);assert.equal(uniforms.uCloudMode.value,1);last=s;
+  assert.ok(Math.abs(s-.4)<1e-12,`retained strength at ${t}: ${s}`);assert.equal(uniforms.uCloudMode.value,1);
+  assert.ok(uniforms.uCloudCount.value>0&&uniforms.uCloudCount.value<=16);
  }
- set(sunFrame(t,{qualityLevel:4}));assert.equal(uniforms.uCloudStrength.value,last,'a paused frame holds');
- for(let i=0;i<120&&uniforms.uCloudCount.value;i++)set(sunFrame(t+=1000/60,{qualityLevel:4}));
- assert.equal(uniforms.uCloudCount.value,0,'count 0 at q4 once the fade ends');assert.equal(uniforms.uCloudMode.value,0);
- set(sunFrame(t+=1000/60,{qualityLevel:3}));
- const s=uniforms.uCloudStrength.value;assert.ok(s>0&&s<.05,`recovery fades in (${s})`);
- set(sunFrame(t+60000,{qualityLevel:3}));assert.ok(Math.abs(uniforms.uCloudStrength.value-.4)<1e-12,'a seek snaps');
+ set(sunFrame(t,{qualityLevel:6}));assert.ok(Math.abs(uniforms.uCloudStrength.value-.4)<1e-12,'a paused frame holds');
+ set(sunFrame(t+60000,{qualityLevel:6}));assert.ok(Math.abs(uniforms.uCloudStrength.value-.4)<1e-12,'a seek retains the shadows');
+ assert.ok(uniforms.uCloudCount.value>0);
 });
 test('the GLSL keeps the legacy moon path as mode 0 and caps world shadows',()=>{
  const glsl=cloud.CLOUD_OCCLUSION_GLSL;

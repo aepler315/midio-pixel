@@ -296,7 +296,7 @@ test('room taken while the surface waits drops the tour forest layer before the 
   };
   const watch = (s, onScratch) => {
     const reserve = s.residency.reserve.bind(s.residency);
-    s.residency.reserve = (args) => { if (args.owner === 'range-scratch') onScratch(args); return reserve(args); };
+    s.residency.reserve = (args) => { if (args.key.startsWith('range:surface-scratch:')) onScratch(args); return reserve(args); };
   };
   for (const budget of ['desktop', 'mobile']) {
     const r = heavy(scene(1e9, budget)), fit = r.residency.canFit.bind(r.residency), asked = [];
@@ -316,7 +316,7 @@ test('room taken while the surface waits drops the tour forest layer before the 
       taken = s.residency.reserve({ key: 'range:water-layer', bytes: free - Math.floor(scratchBytes / 2), owner: 'range-water', evictable: false });
     });
     const deny = s.residency.reserve.bind(s.residency);
-    s.residency.reserve = (args) => { const res = deny(args); if (!res && args.owner === 'range-scratch') denied++; return res; };
+    s.residency.reserve = (args) => { const res = deny(args); if (!res && args.key.startsWith('range:surface-scratch:')) denied++; return res; };
     const q = await prepare(s, footprint);
     assert.ok(taken, `${budget}: the room was taken`);
     assert.equal(denied, 1, `${budget}: the scratch was denied beside the layer`);
@@ -407,4 +407,19 @@ test('on its tour a two-camera view draws the window sets of the frame\'s time, 
   assert.equal(p.terrainMode, 'rail');
   assert.equal(p.stats.tourForest.active, false);
   assert.ok(counts().every((n) => n === 0));
+});
+
+test('refused optional mist scratch keeps the landscape admitted and releases temporary ownership', async () => {
+  const s = scene();
+  const reserve = s.residency.reserve.bind(s.residency);
+  let refused = 0;
+  s.residency.reserve = args => {
+    if (args.key.startsWith('range:mist-scratch:')) { refused++; return null; }
+    return reserve(args);
+  };
+  const p = await prepare(s);
+  assert.ok(refused > 0, 'the small test surface needs additional hydrology scratch');
+  assert.equal(p.mistFlow, null, 'the fallback keeps drifting low banks');
+  assert.ok(p.material, 'the terrain remains available');
+  assert.equal([...s.residency.entries.keys()].some(key => key.startsWith('range:mist-scratch:')), false);
 });

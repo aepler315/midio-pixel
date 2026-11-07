@@ -153,16 +153,16 @@ test('cinematic sky preserves faint stars and their positions while brightness t
   } finally { sky.dispose(); }
 });
 
-test('optional galactic glow sheds at quality level three without suppressing stars', () => {
+test('all quality levels retain galactic glow and stars', () => {
   const sky = new RangeSkyRenderer(), calls = [];
   for (const name of ['_milkyWay', '_stars', '_aurora', '_bodies', '_clouds']) sky[name] = () => calls.push(name);
   try {
-    sky.draw(outputFixture().ctx, { ...frame, qualityLevel: 2 });
-    assert.ok(calls.includes('_milkyWay'));
-    calls.length = 0;
-    sky.draw(outputFixture().ctx, { ...frame, qualityLevel: 3 });
-    assert.ok(!calls.includes('_milkyWay'));
-    assert.ok(calls.includes('_stars'));
+    for (let qualityLevel = 0; qualityLevel <= 6; qualityLevel++) {
+      calls.length = 0;
+      sky.draw(outputFixture().ctx, { ...frame, qualityLevel });
+      assert.ok(calls.includes('_milkyWay'), `q${qualityLevel} keeps the galactic landmark`);
+      assert.ok(calls.includes('_stars'));
+    }
   } finally { sky.dispose(); }
 });
 

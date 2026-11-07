@@ -1000,14 +1000,15 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
       const state = { pixelated: forest.pixelatedDetail, width, height, batches: groups.length,
         detailBatches: 0, liteBatches: 0, blendedBatches: 0, maxFootprintPx: 0, detailWeightMin: 1, detailWeightMax: 0 };
       // Twins (same band, family and variant) share their largest drawn
-      // footprint, as one batch of that mode's forest would.
+      // footprint, as one batch of that mode's forest would. A disabled
+      // detail rung always draws the lite asset, so it needs no tree scan.
       const byKey = new Map();
-      for (const group of groups) {
-        const own = forest.pixelatedDetail ? forestBatchFootprintPx(group.detail, camera, width, height, deformation) : 0;
+      if (forest.pixelatedDetail && nearDetail) for (const group of groups) {
+        const own = forestBatchFootprintPx(group.detail, camera, width, height, deformation);
         byKey.set(group.key, Math.max(byKey.get(group.key) ?? 0, own));
       }
       for (const group of groups) {
-        const footprint = byKey.get(group.key);
+        const footprint = byKey.get(group.key) ?? 0;
         const targetWeight = nearDetail ? (forest.pixelatedDetail ? forestDetailWeight(footprint) : 1) : 0;
         // Binary fractions decode to an identical full-weight threshold in
         // both float32 attributes, including close to the endpoints.

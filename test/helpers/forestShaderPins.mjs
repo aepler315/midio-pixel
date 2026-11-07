@@ -30,38 +30,38 @@ export function materialPin(m) {
   });
 }
 
-// Updated for ground-based rise (PR #88): shared vertex height mapping and
-// billboard footprint depth now follow the flattened ground. Compared against
-// 2b1aded: fragments differ only by shared rise GLSL; all material state is unchanged.
+// Updated for terrain-derived valley banks and exact source-anchor lighting.
+// Complete generated shaders compile/link in the software GLES evidence;
+// these pins record shader/render-state contracts, not artistic acceptance.
 // Creation order: mesh, meshDepth, meshCore, meshCoreDepth, board, boardDepth.
 export const MAIN_PINS = {
   "partitioned": [
-    "cd443182bdde29fbff2b69133edae76ea8849f3c0f47aca8d3126e2ed9e489c5",
-    "69120330a119708342dd55b26f9ebd1d32d6797fb8405333bb8d90c4da5c85f1",
-    "8c02506c8fb2e6580abec487b9beeee900a308aaef02136a1873bdcac9efc333",
-    "f2b89adfdc51dee47be134d47897ddcbb4c5ea90137a8291860e34d76e645b7a",
-    "33e720b8599ea7390a995087fd6245669b740ea4d6c3b43bf6645504a9fade9c",
-    "a43d4d7cc57db680a79577d91e6b9aa743c2a7de3051761dfab3163d4d1f5a62"
+    "824914a386c7451b093b5fee700f5ab8d1e8684358c78edbf8abf7cf9e12f65c",
+    "ede5fd722a104e89b94f770508b49fd2ed290dfd0ec55ec99d746b61315a3310",
+    "640bc736c007d172df85be885b8ac89781f24ce3fa3f1460e0ad79fe0f5a29ed",
+    "f3a308052eb34f5fd3f4e68b8740f3fc5907b705882bd11bd877a989206fe066",
+    "00246846e17210730d0065a3aec541644b3642408662b5b95bcdbc3349e17ad5",
+    "30ebada97bf01578b088995e76ebffdbafe8c45e061f337982f6a56c8626f7d0"
   ],
   "partitioned debug": [
-    "b1cf8d70e9a0285504ee424a00d2434609b56a46a35e790db29e435f4c060324",
-    "69120330a119708342dd55b26f9ebd1d32d6797fb8405333bb8d90c4da5c85f1",
-    "fe12a8edd93b7a9042f8a00224d775a4f4a2d2fcb250bc903872ed895647dd56",
-    "f2b89adfdc51dee47be134d47897ddcbb4c5ea90137a8291860e34d76e645b7a",
-    "c9fa060136f7b88f358636d80f2f3b821732c82c06307576e935044efa902d59",
-    "a43d4d7cc57db680a79577d91e6b9aa743c2a7de3051761dfab3163d4d1f5a62"
+    "96d1555c78412654c0e40cc4e4cc787ffa276d65c3c8de1a71bc07169760a768",
+    "ede5fd722a104e89b94f770508b49fd2ed290dfd0ec55ec99d746b61315a3310",
+    "52c2746cebe2ade3edd036649326a243e5ba87871d454e8e2d10e193e9e0a1dc",
+    "f3a308052eb34f5fd3f4e68b8740f3fc5907b705882bd11bd877a989206fe066",
+    "e937c6fdc7e72b2765866e0afc374b71a3bd10fa2e1446c1bbd26adf7720ceae",
+    "30ebada97bf01578b088995e76ebffdbafe8c45e061f337982f6a56c8626f7d0"
   ],
   "plain": [
-    "3de855c7749c341753698aa895c806d2122fa04473ac1f9704f9b2e12dd82b60",
-    "69120330a119708342dd55b26f9ebd1d32d6797fb8405333bb8d90c4da5c85f1",
-    "ece3d93532f6ad2878f2a836da4dd4b1f2a908018be5e77755568314e80bc6a2",
-    "a43d4d7cc57db680a79577d91e6b9aa743c2a7de3051761dfab3163d4d1f5a62"
+    "6a7ba8434bcb578332e5e84f193ed2fff2a8e78c1db1a20ff9104fd8a688a6ae",
+    "ede5fd722a104e89b94f770508b49fd2ed290dfd0ec55ec99d746b61315a3310",
+    "352df1a455ad0730248d3376db5a1df840b61bf6c0627598accc1a16a3b34aa9",
+    "30ebada97bf01578b088995e76ebffdbafe8c45e061f337982f6a56c8626f7d0"
   ],
   "plain debug": [
-    "5c2e8273f6befd6c58a7c63b698421ecaddfa3120b39f1b6b68c7dfacd093bec",
-    "69120330a119708342dd55b26f9ebd1d32d6797fb8405333bb8d90c4da5c85f1",
-    "633c705a74979ec90ed1997a25423979b25dd37939708fed36217c973080cad7",
-    "a43d4d7cc57db680a79577d91e6b9aa743c2a7de3051761dfab3163d4d1f5a62"
+    "96d396c943e4f023d811cb4ff837cf14aeac4787872a759994a055ff082594cd",
+    "ede5fd722a104e89b94f770508b49fd2ed290dfd0ec55ec99d746b61315a3310",
+    "59f0eef75c2d79e0cd157282bf303d9c05affc466aad9356de67a3654f946c9a",
+    "30ebada97bf01578b088995e76ebffdbafe8c45e061f337982f6a56c8626f7d0"
   ]
 };
 export const PIN_OPTIONS = [['partitioned', {}], ['partitioned debug', { forestDebug: true }], ['plain', { partitioned: false }], ['plain debug', { partitioned: false, forestDebug: true }]];

@@ -37,6 +37,7 @@ import { createForest, FOREST_ASSET_BUILD_BYTES, forestGroupingBytes, forestSpan
 import { forestAssetBytes, FOREST_FAMILIES, FOREST_VARIANTS } from './ForestSpeciesAssets.js';
 import { bakeHorizonAsync, createHorizonTexture, horizonBytes } from './TerrainOcclusion.js';
 import { hierarchyLattice, buildTerrainHierarchyAsync, createHierarchyTexture, HIERARCHY_MAX_SAMPLES } from './TerrainHierarchy.js';
+import { buildMistFlowAsync, createMistFlowTexture, MIST_FLOW_MAX_SAMPLES } from './MistFlow.js';
 import { planTerrainWindow, terrainWindowCoverage, terrainWindowCovers, tourSummitTiles, terrainPixelProtection, TourWindowCache } from './TerrainWindow.js';
 import { TerrainWindowWorker, shareTerrainLanes, terrainLaneBytes } from './TerrainWindowWorkerClient.js';
 import { buildTerrainGeometry } from './TerrainMesh.js';
@@ -45,7 +46,7 @@ import { RockStageGL } from './RockStageGL.js';
 import { scenePoseAt } from '../terrain/SceneTravel.js';
 import { applyCameraMoves, rangeUserCamera } from './RangeCamera.js';
 import { BANDS, terrainFringeBytes, terrainRailCopyBytes, terrainHeightAt, SURFACE_BUILD_BYTES_PER_PIXEL } from './TerrainMesh.js';
-import { mistParams, mistDrift, easeMistSteps, tourMistCap, tourMistFade, atmosphereMusic } from './RangeAtmosphere.js';
+import { mistParams, mistDrift, easeMistSteps, atmosphereMusic } from './RangeAtmosphere.js';
 import { mirrorSize, mirrorLevelFor, mirrorCameraFor, mirrorTextureMatrix, MIRROR_CLIP_M, MIRROR_LIFT } from './WaterMirror.js';
 import { drawnTile, terrainHeightRange } from './TerrainPackage.js';
 import { tourGround, railGroundData, setTerrainDrawMode, drawnIndexCount } from './RailDraw.js';
@@ -108,9 +109,10 @@ export function staticViewBytes(data, est, trees, { budget = 'desktop', landDanc
   const horizonCost = grid ? modes * horizonBytes(grid, { maxSize: budget === 'mobile' ? 192 : 256 }) : 0;
   const samples = HIERARCHY_MAX_SAMPLES[budget === 'mobile' ? 'mobile' : 'desktop'];
   const hierarchyCost = grid && landDance ? modes * samples * samples * 4 : 0;
+  const mistFlowCost = grid ? modes * MIST_FLOW_MAX_SAMPLES ** 2 * 8 : 0;
   const gridPx = grid ? grid.width * grid.height : 0;
   return 2 * ((est?.meshBytes || 0) + fringeBytes + forestBytes) + (est?.surfaceTextureBytes || 0) + gridPx
-    + modes * 2 * 3 * 768 * 6 * 4 + 2 * ActorsGL.bytes() + horizonCost + hierarchyCost
+    + modes * 2 * 3 * 768 * 6 * 4 + 2 * ActorsGL.bytes() + horizonCost + hierarchyCost + mistFlowCost
     + (grid ? riseGroundBytes() : 0) + forestSpanBytes(trees);
 }
 
@@ -1374,7 +1376,7 @@ export class RangeScene {
       let mat = null, res = null, published = false;
       const cpu = await prepareTerrainAssets(view, { baseUrl, residency: this.residency, generation, signal, isCurrent, owner: cpuOwner });
       let waterSubsets = null;
-      let surface, geos, material, riverMaterial, riverDepthMaterial, riverOwnershipMaterials = null, depthMaterial, ownershipMaterials = null, horizon = null, hierarchy = null, tourHorizon = null, tourHierarchy = null, forest, stageGL, featureMaterial, actors, riseGround;
+      let surface, geos, material, riverMaterial, riverDepthMaterial, riverOwnershipMaterials = null, depthMaterial, ownershipMaterials = null, horizon = null, hierarchy = null, tourHorizon = null, tourHierarchy = null, mistFlow = null, tourMistFlow = null, forest, stageGL, featureMaterial, actors, riseGround;
       const riverGeometries = {}, riverFringeGeometries = {}, riverDepthMeshes = {};
       let initialWindow = null, workerKey = null, windowReservation = null, buildEntry = null, workerReservation = null;
       const featureGeometries = {};
@@ -1488,6 +1490,7 @@ export class RangeScene {
         // A package with tour ground keeps a second set of hints, sun
         // horizon and land hierarchy: the rail's, baked without that ground.
         const twoModes = !view.tour && tourGround(data), modes = twoModes ? 2 : 1;
+        const railData = twoModes ? railGroundData(data) : data;
         const featureBudgetBytes = modes * 2 * 3 * 768 * 6 * 4;
         // Baked horizon for terrain sun visibility (not for tour windows,
         // whose terrain streams; they keep the unshadowed key).
@@ -1497,7 +1500,7 @@ export class RangeScene {
         // drainage hierarchy texture, static views only for now.
         const hierarchySamples = HIERARCHY_MAX_SAMPLES[this.budget === 'mobile' ? 'mobile' : 'desktop'];
         const hierarchyCost = view.tour || !cpu.data?.grid || !requestedLandDance() ? 0 : modes * hierarchySamples * hierarchySamples * 4;
-        const bytes = view.tour ? Math.ceil(gridPx * (4 * 4 / 3 + 1)) + featureBudgetBytes + 2 * ActorsGL.bytes() + riseGroundBytes()
+        const bytes = view.tour ? Math.ceil(gridPx * (4 * 4 / 3 + 1)) + featureBudgetBytes + 2 * ActorsGL.bytes() + riseGroundBytes() + MIST_FLOW_MAX_SAMPLES ** 2 * 8
           : staticViewBytes(data, est, placed.count, { budget: this.budget, landDance: requestedLandDance() });
         // A static view's build entry still holds its forest construction
         // allowance, which createForest uses only after the surface scratch
@@ -1567,6 +1570,31 @@ export class RangeScene {
             mappedOnly: mappedWaterOnly, stale: () => stale() || signal?.aborted });
           this.renderer?.initTexture?.(surface.texture);
           this.renderer?.initTexture?.(surface.receiverTexture);
+          // Reuse the surface build allowance; extra hydrology scratch is
+          // optional and cannot evict an active view to make fog fit.
+          const flowScratchKey = `range:mist-scratch:${view.id}`;
+          const extraFlowBytes = Math.max(0, 2 * 1024 * 1024 - scratchBytes);
+          const flowScratch = extraFlowBytes && this.residency ? this.residency.reserve({ key: flowScratchKey,
+            bytes: extraFlowBytes, owner: 'range-scratch', generation,
+            protect: [...this.residency.entries.keys()] }) : null;
+          try {
+            if (!this.residency || !extraFlowBytes || flowScratch) {
+              const flowOf = async source => {
+                const field = await buildMistFlowAsync(source, { signal });
+                if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
+                const flow = createMistFlowTexture(THREE, field);
+                this.renderer?.initTexture?.(flow.texture);
+                return flow;
+              };
+              mistFlow = await flowOf(railData);
+              if (twoModes) tourMistFlow = await flowOf(data);
+            }
+          } catch (err) {
+            mistFlow?.texture?.dispose(); tourMistFlow?.texture?.dispose();
+            mistFlow = tourMistFlow = null;
+            if (err instanceof RangeAssetError || signal?.aborted) throw err;
+            console.warn(`[range v2] ${view.id}: mist drainage unavailable; using drifting low banks`, err);
+          } finally { if (flowScratch) this.residency.release(flowScratchKey); }
         } finally { if (scratch) this.residency.release(scratchKey); }
         await yieldToMain();
         const base = terrainUniforms(THREE, data, surface);
@@ -1578,7 +1606,6 @@ export class RangeScene {
         uniforms.uDebugMask.value = this.debugMask || 0;
         // The rail's own bakes read its ground alone: tour-only ridges never
         // shade it or steer its land (RailDraw.js). The tour reads it all.
-        const railData = twoModes ? railGroundData(data) : data;
         if (horizonCost) {
           // Optional light: a failed bake leaves the key unshadowed, never
           // the view on legacy scenery.
@@ -1813,7 +1840,7 @@ export class RangeScene {
         }
         const prepared = {
           view, generation, manifest: cpu.manifest, data, railOnly, identity: cpu.identity, tourCpuKey: opts.tourCpuKey,
-          surface, uniforms, material, depthMaterial, ownershipMaterials, horizon, hierarchy, tourHorizon, tourHierarchy, riseGround, depthBandMeshes: depthMeshes, geometries: geos.geometries, fringes: geos.fringes, fringeMeshes, fringeTravel, scenes, depthScene, depthScenes,
+          surface, uniforms, material, depthMaterial, ownershipMaterials, horizon, hierarchy, tourHorizon, tourHierarchy, mistFlow, tourMistFlow, riseGround, depthBandMeshes: depthMeshes, geometries: geos.geometries, fringes: geos.fringes, fringeMeshes, fringeTravel, scenes, depthScene, depthScenes,
           riverMaterial, riverDepthMaterial, riverOwnershipMaterials, riverGeometries, riverFringeGeometries, riverDepthMeshes, riverStats,
           forest, stageGL, featureGeometries, featureMaterial, modeGeometries, terrainMode: view.tour ? null : 'rail', modeWater, castWaterLevelM: waterLevelM,
           stats: { ...geos.stats, trees: forest.counts, featureBytes: featureBudgetBytes }, gpuKey, cpuKey: cpu.key, cpuOwner,
@@ -1879,7 +1906,7 @@ export class RangeScene {
           for (const g of Object.values(riverFringeGeometries)) g.dispose();
           depthMaterial?.dispose();
           for (const m of Object.values(ownershipMaterials || {})) m.dispose();
-          for (const t of [horizon, hierarchy, tourHorizon, tourHierarchy]) t?.texture?.dispose();
+          for (const t of [horizon, hierarchy, tourHorizon, tourHierarchy, mistFlow, tourMistFlow]) t?.texture?.dispose();
           featureMaterial?.dispose();
           for (const g of Object.values(featureGeometries)) g.dispose();
           for (const g of waterSubsets?.values() || []) g.dispose();
@@ -2222,7 +2249,7 @@ export class RangeScene {
     p.depthMaterial?.dispose();
     for (const m of Object.values(p.ownershipMaterials || {})) m.dispose();
     for (const m of Object.values(p.fineMaterials || {})) m.dispose();
-    for (const t of [p.horizon, p.hierarchy, p.tourHorizon, p.tourHierarchy]) t?.texture?.dispose();
+    for (const t of [p.horizon, p.hierarchy, p.tourHorizon, p.tourHierarchy, p.mistFlow, p.tourMistFlow]) t?.texture?.dispose();
     p.compiledDispose?.();
   }
 
@@ -2325,6 +2352,19 @@ export class RangeScene {
     cam.updateProjectionMatrix();
     cam.updateMatrixWorld();
     return pose;
+  }
+
+  /** The active camera reads only its own source-ground drainage field. */
+  _setMistFlow(p) {
+    const flow = p.terrainMode === 'tour' ? (p.tourMistFlow || p.mistFlow) : p.mistFlow;
+    const u = p.uniforms;
+    if (!u?.uMistFlow) return flow?.field ?? null;
+    u.uMistFlow.value = flow?.texture ?? null;
+    u.uMistFlowOn.value = flow?.field ? 1 : 0;
+    const heights = flow?.field?.heightRange || [0, 1];
+    u.uMistFlowHeight.value.set(heights[0], Math.max(1, heights[1] - heights[0]));
+    u.uMistFlowDistanceM.value = flow?.field?.distanceM || 1;
+    return flow?.field ?? null;
   }
 
   /** Per-frame uniforms: light from where the celestial is drawn, sky and
@@ -2477,29 +2517,16 @@ export class RangeScene {
         u.uSkyHorizon.value.addScalar(skyFlash);
       }
     }
-    // Valley mist: anchored at the view's water level, thicker in calm.
+    // Low banks follow source valleys; camera altitude cannot raise a fog plane.
+    const rise01 = Number.isFinite(frame.rise01) ? clamp01(frame.rise01) : 1, baseM = landRiseBase(p);
     const mp = mistParams({ rules: p.rules, waterLevelM: p.waterLevelM, heightRange: [u.uHeightRange.value.x, u.uHeightRange.value.y],
       tSec: frame.timeMs / 1000, calm01: 1 - (frame.music?.groove ?? 0),
-      sea01: frame.cloudSea01 ?? 0, cameraY: this.camera.position.y });
-    const rise01 = Number.isFinite(frame.rise01) ? clamp01(frame.rise01) : 1, baseM = landRiseBase(p);
-    if (rise01 < 1) {
-      mp.baseM = baseM + rise01 * (mp.baseM - baseM);
-      mp.topM = baseM + rise01 * (mp.topM - baseM);
-    }
+      sea01: frame.cloudSea01 ?? 0, flow: this._setMistFlow(p), riseSink: 1 - rise01, riseBaseM: baseM });
     const quality = rangeQuality(frame.qualityLevel);
-    const cameraTour = p.view.tour || p.cameraTour;
-    if (cameraTour) {
-      // The ceiling follows the route continuously, and the fog thins out
-      // as it closes on the valley floor instead of switching off.
-      const routeCap = tourMistCap((t) => cameraTour.poseAt(t), frame.timeMs, cameraTour.durationMs);
-      mp.topM = Math.min(mp.topM, this.camera.position.y - 120, routeCap);
-      const fade = tourMistFade(mp.topM, mp.baseM);
-      mp.fill *= fade; mp.density *= fade;
-    }
     // The score thins and lights the mist (atmosphereMusic; neutral when silent).
     const am = atmosphereMusic(frame.effects);
     u.uMistDensity.value = mp.density * (n?.atmosphere ?? 1) * am.mistDensityMul;
-    // A rung change eases the fog's sampling over heard time (seek snaps).
+    // Integer sampling endpoints avoid temporary dual-bank overload; pause holds.
     const dtSec = (frame.timeMs - (p.mistEaseAtMs ?? -Infinity)) / 1000;
     p.mistSteps = easeMistSteps(p.mistSteps, quality.mistSteps, dtSec);
     p.mistEaseAtMs = frame.timeMs;
@@ -2508,8 +2535,8 @@ export class RangeScene {
     u.uMistHeight.value = mp.heightM;
     u.uMistTime.value = mp.tSec;
     mistDrift(mp.tSec).forEach((d, i) => u.uMistDrift.value[i].set(d[0], d[1]));
-    u.uMistTop.value = mp.topM;
     u.uMistFill.value = mp.fill;
+    u.uMistLayer.value.set(mp.baseM, mp.heightM, mp.tSec, mp.fill);
     // Lit mist: the air's colour lifted toward the key light (display domain).
     u.uMistColor.value.copy(u.uAirColor.value).multiplyScalar(1.2)
       .add(this._scratch().color2.copy(u.uLightColor.value).multiplyScalar(0.06 + am.mistGlow));
@@ -2656,6 +2683,7 @@ export class RangeScene {
       const gain = look.lightGain * (0.35 + 0.65 * s.glow) * presence * (0.45 + 1.15 * dark)
         * (job?.dim ?? 1) * (1 + beacon * ((job?.beaconGain ?? 2) - 1));
       u.uActorPos.value[k].copy(lit);
+      u.uActorSourceY?.value.setComponent(k, at.y);
       u.uActorColor.value[k].set(lin.r * gain, lin.g * gain, lin.b * gain);
       u.uActorRadius.value[k] = look.lightM * (1 + 2 * beacon);
       // The lantern and swarm draw a little toward the camera from the

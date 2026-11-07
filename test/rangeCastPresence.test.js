@@ -148,14 +148,14 @@ test('off-axis terrain zoom preserves the prescribed cast size in screen pixels'
  } finally {actors.dispose();}
 });
 
-test('lanterns, motes and companions sink into the cloud sea in their shaders, at the light itself on the lifted ground',()=>{
+test('lanterns, motes and companions read local valley banks at their drawn positions',()=>{
  // Fogged on the CPU at the source height, a lantern drawn on swelling
  // ground (or on a glacier's ice) disagreed with its own lights and rope.
  const shared=sceneUniforms(THREE,{});
  const actors=new ActorsGL(THREE,shared);
  const [motes,lantern]=actors.groups.midio.children, companion=actors.groups.midasus.children[2];
  for(const m of [lantern,motes,companion].map(o=>o.material)){
-  for(const k of ['uMistDensity','uMistTop','uMistFill','uMistDrift','uMistSteps','uNarrative','uCameraPos','uDeformAmp','uGlacierEnabled'])
+  for(const k of ['uMistDensity','uMistLayer','uMistFlow','uMistFlowHeight','uMistFlowDistanceM','uMistFlowOn','uMistFill','uMistDrift','uMistSteps','uNarrative','uCameraPos','uDeformAmp','uGlacierEnabled'])
    assert.equal(m.uniforms[k],shared[k],k);
   assert.ok(!('uSeen' in m.uniforms)&&!('uSeenFly' in m.uniforms),'no CPU twin to fall out of step');
   assert.match(m.fragmentShader,/\* vSeen;/);
@@ -182,6 +182,7 @@ test('the scene places each lantern and companion at its light, for the shaders 
  ACTOR_IDS.forEach((id,k)=>{
   const u=actors.uniforms[id];
   assert.ok(u.uAnchor.value.distanceTo(shared.uActorPos.value[k])<1e-9,`${id}: anchored at its light`);
+  assert.equal(shared.uActorSourceY.value.getComponent(k),u.uAnchor.value.y,`${id}: source height retained before the song rise`);
   assert.ok(u.uCenter.value.distanceTo(u.uAnchor.value)>0,`${id}: the halo draws toward the eye from it`);
  });
  assert.ok(actors.uniforms.broshi.uFly.value>0,'a kindling is under way, its target set for the motes');
@@ -193,7 +194,7 @@ test('site lights and threads read the terrain fog by reference, and fall back t
  const shared=sceneUniforms(THREE,{});
  const actors=new ActorsGL(THREE,shared);
  for(const u of [actors.sites.uniforms,...Object.values(actors.threads.uniformsByBand)]){
-  for(const k of ['uMistDensity','uMistTop','uMistFill','uMistDrift','uMistSteps','uNarrative','uCameraPos'])assert.equal(u[k],shared[k],k);
+  for(const k of ['uMistDensity','uMistLayer','uMistFlow','uMistFlowHeight','uMistFlowDistanceM','uMistFlowOn','uMistFill','uMistDrift','uMistSteps','uNarrative','uCameraPos'])assert.equal(u[k],shared[k],k);
  }
  assert.match(actors.sites.material.vertexShader,/vSeen = aState\.x > 0\.0 \? emitterSeen\(at\)/,'fogged at the light itself, not its pushed halo');
  // Resolved on Detailed, a site core passes 1: scaled, not clipped per channel.
@@ -205,6 +206,7 @@ test('site lights and threads read the terrain fog by reference, and fall back t
  const bare=new ActorsGL(THREE,actorUniforms(THREE));
  assert.equal(bare.sites.uniforms.uMistDensity.value,0,'clear air without terrain uniforms');
  assert.equal(bare.threads.uniformsByBand.near.uMistFill.value,0);
+ assert.equal(bare.threads.uniformsByBand.near.uMistFlowOn.value,0,'missing field uses low irregular fallback banks');
  bare.dispose();
 });
 

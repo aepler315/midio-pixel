@@ -7,10 +7,11 @@ import { resolveCelestialState } from '../src/world/CelestialState.js';
 import { SunShaftGL, shaftSize, shaftSource, shaftGain } from '../src/world/alpine/SunShaftGL.js';
 import { GraphicsResidency } from '../src/render/GraphicsResidency.js';
 
-test('the first expensive quality rung sheds solar scattering independently of pool illumination', () => {
-  assert.equal(rangeQuality(2).sunShafts, true);
-  assert.equal(rangeQuality(3).sunShafts, false);
-  assert.equal(rangeQuality(3).poolReflections, true);
+test('every quality rung retains solar scattering while the expensive lake mirror sheds first', () => {
+  for (let level=0;level<=6;level++) assert.equal(rangeQuality(level).sunShafts,true,`q${level} retains the sunlight`);
+  assert.equal(rangeQuality(0).waterMirror,true);
+  assert.equal(rangeQuality(1).waterMirror,false);
+  assert.equal(rangeQuality(6).poolReflections,false,'the independent pool detail still sheds');
 });
 const day = {qualityLevel:0,light:{celestial:{body:'sun',visibility:1,intensity:1.6,xFrac:.5,yFrac:.12}}};
 function scene({budget=10000000, width=1280,height=720,sides=1}={}) {
@@ -57,26 +58,18 @@ test('a denied A/B bundle cannot sacrifice base views, targets or travel scratch
   assert.equal(s.residency.snapshot().overcommits,0);
 });
 
-test('a quality shed fades the shafts out over heard time, then releases the optional bundle',()=>{
+test('a quality drop retains the same bounded shaft bundle and sunlight through q6',()=>{
   const s=scene();
   const at=(timeMs,extra={})=>({...day,timeMs,...extra});
   assert.ok(s.prepareShafts(at(1000),['a']));assert.equal(s.shaftPresence,1);
   const bundle=s.shafts;
-  let presence=1;
-  for(let t=1000+1000/60;t<1000+1490;t+=1000/60){
-    assert.ok(s.prepareShafts(at(t,{qualityLevel:3}),['a']),`the bundle survives the fade at ${t}`);
+  for(let t=1000+1000/60;t<2700;t+=1000/60){
+    assert.ok(s.prepareShafts(at(t,{qualityLevel:6}),['a']),`the bundle remains at ${t}`);
     assert.equal(s.shafts,bundle);
-    assert.ok(s.shaftPresence<presence&&s.shaftPresence>0);presence=s.shaftPresence;
-    assert.ok(Math.abs(s._shaftSource(at(t,{qualityLevel:3})).stormGain-presence)<1e-12,'scaled, not cut');
+    assert.equal(s.shaftPresence,1);
+    assert.equal(s._shaftSource(at(t,{qualityLevel:6})).stormGain,1,'the same sunlight remains');
   }
-  s.depthCache.A.frame=99;
-  for(let t=2500;t<2700&&s.shafts;t+=1000/60)s.prepareShafts(at(t,{qualityLevel:3}),['a']);
-  assert.equal(s.shafts,null,'released once the fade reaches 0');assert.equal(s.shaftPresence,0);
-  assert.equal(s.depthCache.A.frame,-1);assert.equal(s.residency.usedBytes,5000);
-  assert.equal(s._shaftSource(at(2700,{qualityLevel:3})),null);
-  // Recovery fades back in from zero.
-  const last=s.shaftEaseAtMs;
-  assert.ok(s.prepareShafts(at(last+1000/60),['a']));assert.ok(s.shaftPresence>0&&s.shaftPresence<.1);
+  assert.equal(s.residency.usedBytes,235436,'quality changes allocate no larger effect');
 });
 
 function sizedScene(){
@@ -88,18 +81,20 @@ function sizedScene(){
   return s;
 }
 
-test('a same-size MSAA reallocation at the shed rung keeps the shaft fade (resize before prepareShafts)',()=>{
+test('a same-size MSAA reallocation keeps sunlight at every quality rung (resize before prepareShafts)',()=>{
   const s=sizedScene();const size={widthPx:640,heightPx:360};
   s.resize({...size,quality:1});assert.equal(s.target.samples,4);
   assert.ok(s.prepareShafts({...day,qualityLevel:1,timeMs:1000},['a']));assert.equal(s.shaftPresence,1);
   // q1 -> q2: 4 -> 2 samples, shafts still allowed: presence stays 1.
   s.resize({...size,quality:2});assert.equal(s.target.samples,2);
   assert.ok(s.prepareShafts({...day,qualityLevel:2,timeMs:1016},['a']));assert.equal(s.shaftPresence,1,'no dip on a sample change');
-  // q2 -> q3: 2 -> 0 samples, the shed the fade exists for.
+  // q2 -> q3: 2 -> 0 samples, retaining the same sunlight.
   s.resize({...size,quality:3});assert.equal(s.target.samples,0);
   assert.ok(s.prepareShafts({...day,qualityLevel:3,timeMs:1032},['a']));
-  assert.ok(s.shaftPresence>0&&s.shaftPresence<1,`fading, not cut (${s.shaftPresence})`);
-  // A real size change still ends the fade.
+  assert.equal(s.shaftPresence,1);
+  s.resize({...size,quality:6});
+  assert.ok(s.prepareShafts({...day,qualityLevel:6,timeMs:1048},['a']));assert.equal(s.shaftPresence,1);
+  // A real size change still resets the attachment presence.
   s.resize({widthPx:800,heightPx:450,quality:3});assert.equal(s.shaftPresence,0);
 });
 
@@ -107,10 +102,11 @@ test('allocating and freeing the travel side leaves the shaft fade untouched',()
   const s=sizedScene();const size={widthPx:640,heightPx:360};
   s.resize({...size,quality:2});
   assert.ok(s.prepareShafts({...day,qualityLevel:2,timeMs:1000},['a']));
-  s.prepareShafts({...day,qualityLevel:3,timeMs:1300},['a']);
+  s.releaseShafts();
+  s.prepareShafts({...day,qualityLevel:6,timeMs:1300},['a']);
   const held=s.shaftPresence;assert.ok(held>0&&held<1);
   assert.ok(s.ensureSide('B'));assert.equal(s.shaftPresence,held);assert.equal(s.shafts,null,'rebuilt against both sides');
-  assert.ok(s.prepareShafts({...day,qualityLevel:3,timeMs:1300},['a','b']));assert.equal(s.shaftPresence,held);
+  assert.ok(s.prepareShafts({...day,qualityLevel:6,timeMs:1300},['a','b']));assert.equal(s.shaftPresence,held);
   s.releaseSide('B');assert.equal(s.shaftPresence,held);
 });
 
@@ -126,22 +122,24 @@ test('celestial gaps and context loss still shed the optional bundle at once',()
   assert.equal(s.prepareShafts({...day,timeMs:5016},['a']),false);assert.equal(s.shafts,null);
 });
 
-test('a paused frame holds the shaft fade and a seek snaps it',()=>{
+test('a paused frame holds shaft recovery at q6 and a seek snaps it',()=>{
   const s=scene();
   assert.ok(s.prepareShafts({...day,timeMs:1000},['a']));
-  s.prepareShafts({...day,qualityLevel:3,timeMs:1300},['a']);
+  s.releaseShafts();
+  s.prepareShafts({...day,qualityLevel:6,timeMs:1300},['a']);
   const held=s.shaftPresence;assert.ok(held>0&&held<1);
-  for(let i=0;i<5;i++)s.prepareShafts({...day,qualityLevel:3,timeMs:1300},['a','b']);
+  for(let i=0;i<5;i++)s.prepareShafts({...day,qualityLevel:6,timeMs:1300},['a','b']);
   assert.equal(s.shaftPresence,held,'pause and the B view hold');
-  assert.equal(s.prepareShafts({...day,qualityLevel:3,timeMs:60000},['a']),false,'a seek snaps');
-  assert.equal(s.shafts,null);
+  assert.ok(s.prepareShafts({...day,qualityLevel:6,timeMs:60000},['a']),'a seek snaps to retained sunlight');
+  assert.equal(s.shaftPresence,1);
   assert.ok(s.prepareShafts({...day,timeMs:1000},['a']));assert.equal(s.shaftPresence,1,'a seek back snaps in');
 });
 
 test('the far pass and renderDirectShaft scatter the same faded light',()=>{
   const s=scene();
   assert.ok(s.prepareShafts({...day,timeMs:1000},['a']));
-  const frame={...day,qualityLevel:3,timeMs:1500};s.prepareShafts(frame,['a']);
+  s.releaseShafts();
+  const frame={...day,qualityLevel:6,timeMs:1500};s.prepareShafts(frame,['a']);
   const seen=[];
   s.shafts={...s.shafts,buffers:{A:{}},targets:{A:{}},render:(r,side,source)=>{seen.push(source.stormGain);return true;},
     compositeToScreen:(r,side,source)=>seen.push(source.stormGain)};

@@ -223,11 +223,11 @@ test('solar scattering sees hard forest depth, then the next partition rebuilds 
   assert.deepEqual(draws.filter(([scene]) => ['depth', 'shafts'].includes(scene)), [['depth', 1], ['depth', 4], ['shafts', 0], ['depth', 1]]);
 });
 
-test('discarded ink and a disabled solar quality rung do not poison reusable opaque depth', () => {
+test('discarded ink and retained q6 solar scattering share the same hard forest depth policy', () => {
   const { s, draws } = fixture({ ink: .004, shafts: true });
   for (const pass of ['far', 'mid', 'near']) s.renderPartition({ ...frame, qualityLevel: 6 }, pass, 'probe');
-  assert.equal(s.stats.depthPasses, 1);
-  assert.deepEqual(draws.filter(([scene]) => ['depth', 'shafts'].includes(scene)), [['depth', 1]]);
+  assert.equal(s.stats.depthPasses, 2);
+  assert.deepEqual(draws.filter(([scene]) => ['depth', 'shafts'].includes(scene)), [['depth', 1], ['depth', 4], ['shafts', 0], ['depth', 1]]);
 });
 
 test('a stand containing only either mesh LOD uses soft coverage and hard depth for ink', () => {

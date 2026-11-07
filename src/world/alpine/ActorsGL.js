@@ -58,6 +58,7 @@ export const AURA_RING_S = 0.6;
 export function actorUniforms(THREE) {
   return {
     uActorPos: { value: Array.from({ length: ACTOR_COUNT }, () => new THREE.Vector3()) },
+    uActorSourceY: { value: new THREE.Vector3() },
     uActorColor: { value: Array.from({ length: ACTOR_COUNT }, () => new THREE.Vector3()) },
     uActorRadius: { value: [140, 110, 700] },
     // Midio's wake on the water: head xz, tail xz (where he was moments ago).
@@ -69,27 +70,25 @@ export function actorUniforms(THREE) {
 
 /** Light from the actors at `p` on a surface facing `n` (linear radiance,
  *  multiplied by albedo by the caller), and its glint on water. Include
- *  after MIST_GLSL and GROUND_LIFT_GLSL (with DEFORM_GLSL): a lantern sunk
- *  under the cloud sea is gone, and so are its pool and glints
+ *  after MIST_GLSL and GROUND_LIFT_GLSL (with DEFORM_GLSL): local mist dims
+ *  a lantern's pool and glints with the lantern itself
  *  (RangeAtmosphere actorLightShown). */
 export const ACTOR_GLSL = /* glsl */`
   uniform vec3 uActorPos[${ACTOR_COUNT}];
+  uniform vec3 uActorSourceY;
   uniform vec3 uActorColor[${ACTOR_COUNT}];
   uniform float uActorRadius[${ACTOR_COUNT}];
-  // How much of actor i's light the cloud sea leaves: as much as of its
-  // lantern (emitterSeen's sea term), read where the lantern is drawn, on
-  // the lifted ground. A pool or a glint with no lantern over it read as
-  // light from nowhere. The same for every fragment, so it is paid only
-  // where the light reaches. uActorPos already stands where the rise put
-  // the lantern (RangeScene._setActors), so only the musical lift is added.
-  // The CPU lowers the anchor before that lift, the lantern is lowered
-  // after it: they differ by at most the lift, and only above the eye,
-  // where the cloud sea never reaches (its top stays below the eye,
-  // RangeAtmosphere mistParams; tours cap it 120 m under).
+  // Query the same local bank at the lantern's drawn position. Its pool
+  // and glints follow the lantern, including gaps and the bank's soft top.
+  // Start at the original anchor, matching the lantern vertex exactly:
+  // musical lift precedes song rise, including a fully collapsed floor.
+  vec3 actorDrawnPos(int i) {
+    vec3 source = vec3(uActorPos[i].x, uActorSourceY[i], uActorPos[i].z);
+    return source + vec3(0.0, groundLift(source), 0.0);
+  }
   float actorShown(int i) {
     if (uMistFill <= 0.0) return 1.0;
-    vec3 s = uActorPos[i];
-    return 1.0 - ${EMITTER_SUBMERGE.toFixed(3)} * uMistFill * mistSubmersion(s.y + landLift(s));
+    return 1.0 - ${EMITTER_SUBMERGE.toFixed(3)} * mistSubmersion(actorDrawnPos(i));
   }
   vec3 actorLight(vec3 p, vec3 n) {
     vec3 sum = vec3(0.0);
@@ -148,9 +147,8 @@ const AIR = /* glsl */`
   }
 `;
 
-// The mist and cloud sea the terrain fades into, seen at a light's true
-// position on the drawn (lifted) ground (RangeAtmosphere emitterSeen): what
-// drowns the ground under it drowns the light too.
+// The terrain's mist, read at the light's true position on the drawn ground.
+// Local bank gaps and soft upper edges affect its light consistently.
 const FOG = /* glsl */`
   uniform vec4 uNarrative;
   ${MIST_GLSL}
@@ -167,8 +165,8 @@ const LIFT = /* glsl */`
 
 const LANTERN_VERT = /* glsl */`
   ${AIR}
-  ${FOG}
   ${LIFT}
+  ${FOG}
   uniform vec3 uCenter;
   uniform vec3 uAnchor; // the light itself (uCenter is drawn toward the eye)
   uniform vec3 uRight;
@@ -226,8 +224,8 @@ const LANTERN_FRAG = /* glsl */`
 
 const MOTE_VERT = /* glsl */`
   ${AIR}
-  ${FOG}
   ${LIFT}
+  ${FOG}
   uniform vec3 uCenter;
   uniform vec3 uAnchor;
   uniform vec3 uRight;
@@ -325,8 +323,8 @@ const MOTE_FRAG = /* glsl */`
 // ring their core in a second hue. Sized in stage pixels at their depth.
 const SITE_VERT = /* glsl */`
   ${AIR}
-  ${FOG}
   ${LIFT}
+  ${FOG}
   uniform vec3 uRight;
   uniform vec3 uUp;
   uniform float uPxPerTan;
@@ -420,8 +418,8 @@ export function threadShown(s, reveal) {
 // with the filtered profile across it (CastRaster ribbonCoverage).
 const THREAD_VERT = /* glsl */`
   ${AIR}
-  ${FOG}
   ${LIFT}
+  ${FOG}
   uniform float uReveal[${SURVEY_THREADS_MAX}];
   uniform float uBright[${SURVEY_THREADS_MAX}];
   uniform float uFlare[${SURVEY_THREADS_MAX}];
@@ -530,8 +528,11 @@ function sharedSky(THREE, shared = {}) {
     uAirHeightFalloff: ref('uAirHeightFalloff', () => 0),
     uMistDensity: ref('uMistDensity', () => 0), uMistSteps: ref('uMistSteps', () => MIST_SAMPLES),
     uMistBase: ref('uMistBase', () => 0), uMistHeight: ref('uMistHeight', () => 220), uMistTime: ref('uMistTime', () => 0),
+    uMistLayer: ref('uMistLayer', () => new THREE.Vector4(0, 220, 0, 0)),
     uMistDrift: ref('uMistDrift', () => [new THREE.Vector2(), new THREE.Vector2(), new THREE.Vector2()]),
-    uMistColor: ref('uMistColor', () => new THREE.Color()), uMistTop: ref('uMistTop', () => 1e9), uMistFill: ref('uMistFill', () => 0),
+    uMistColor: ref('uMistColor', () => new THREE.Color()), uMistFill: ref('uMistFill', () => 0),
+    uMistFlow: ref('uMistFlow', () => null), uMistFlowHeight: ref('uMistFlowHeight', () => new THREE.Vector2(0, 1)),
+    uMistFlowDistanceM: ref('uMistFlowDistanceM', () => 1), uMistFlowOn: ref('uMistFlowOn', () => 0),
     uNarrative: ref('uNarrative', () => new THREE.Vector4(1, 1, 1, 1)),
   };
 }

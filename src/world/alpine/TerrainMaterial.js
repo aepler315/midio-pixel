@@ -1120,7 +1120,10 @@ export function sceneUniforms(THREE, base) {
     uAirHeightFalloff: { value: 1 / 2500 },
     // Valley mist (RangeAtmosphere): off until the scene sets it per frame.
     uMistDensity: { value: 0 }, uMistBase: { value: 0 }, uMistHeight: { value: 220 }, uMistTime: { value: 0 },
-    uMistSteps: { value: MIST_SAMPLES }, uMistTop: { value: 1e9 }, uMistFill: { value: 0 },
+    uMistSteps: { value: MIST_SAMPLES }, uMistFill: { value: 0 },
+    uMistLayer: { value: new THREE.Vector4(0, 220, 0, 0) },
+    uMistFlow: { value: null }, uMistFlowOn: { value: 0 },
+    uMistFlowHeight: { value: new THREE.Vector2(0, 1) }, uMistFlowDistanceM: { value: 1 },
     uMistDrift: { value: [new THREE.Vector2(), new THREE.Vector2(), new THREE.Vector2()] },
     uMistColor: { value: new THREE.Color(0.4, 0.43, 0.48) },
     uCameraPos: { value: new THREE.Vector3() },

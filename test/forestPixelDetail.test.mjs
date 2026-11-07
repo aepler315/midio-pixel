@@ -215,6 +215,43 @@ test('natural rendering and a disabled detail rung preserve their established as
   } finally { f.dispose(); }
 });
 
+test('a disabled detail rung skips tree footprints while retaining every lite colour and depth draw', () => {
+  const f = fixture([[0, 0, -170, 20, 6, 1, .5, 2], [10, 0, -150, 15, 5, .25, .2, 2]]), c = camera();
+  try {
+    const meshes = [...new Set([...Object.values(f.byBand).flat(), ...f.depth, ...Object.values(f.depthByBand).flat()])];
+    f.updateDetailView({ camera: c, width: 640, height: 360, pixelated: false, nearDetail: false });
+    const drawState = () => meshes.map(m => [m.visible, m.geometry.instanceCount, m.geometry.attributes.iLodWeight.getX(0)]);
+    const expectedDraws = drawState();
+    const assets = meshes.map(m => m.geometry.index);
+    const positions = [...new Set(meshes.map(m => m.geometry.attributes.iPos))];
+    let positionReads = 0, projectionReads = 0;
+    for (const p of positions) {
+      const getX = p.getX;
+      p.getX = function (i) { positionReads++; return getX.call(this, i); };
+    }
+    const projection = c.projectionMatrix.elements;
+    Object.defineProperty(c.projectionMatrix, 'elements', { get() { projectionReads++; return projection; } });
+
+    const capped = f.updateDetailView({ camera: c, width: 640, height: 360, pixelated: true, nearDetail: false });
+    assert.equal(projectionReads, 0, 'disabled detail does not project batch bounds');
+    assert.equal(positionReads, 0, 'disabled detail does not scan tree positions');
+    assert.deepEqual(drawState(), expectedDraws, 'all colour and depth passes retain the established capped draws');
+    meshes.forEach((m, i) => assert.equal(m.geometry.index, assets[i], 'the cap keeps the quality lite asset'));
+    assert.equal(capped.maxFootprintPx, 0, 'unsampled footprints report zero');
+    assert.equal(capped.detailBatches, 0);
+    assert.equal(capped.blendedBatches, 0);
+    assert.equal(capped.liteBatches, 2);
+    assert.equal(capped.detailWeightMin, 0);
+    assert.equal(capped.detailWeightMax, 0);
+    assert.equal(capped.pixelated, true);
+
+    f.updateDetailView({ camera: c, width: 640, height: 360, pixelated: true, nearDetail: true });
+    assert.ok(projectionReads > 0 && positionReads > 0, 'enabled detail still measures actual projected trees');
+    f.updateDetailView({ camera: c, width: 640, height: 360, pixelated: true, nearDetail: false });
+    assert.deepEqual(drawState(), expectedDraws, 'turning detail back off restores the same draws');
+  } finally { f.dispose(); }
+});
+
 test('the largest tree leaving the frustum cannot pop the other trees in its batch', () => {
   const c = camera();
   // The close crown's conservative sphere is almost outside the right

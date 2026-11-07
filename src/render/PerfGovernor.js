@@ -92,6 +92,13 @@ const RECOVER_MAX_MS = 600000; // 10 minutes -- past here, stop asking
 // callbacks between misses. A long healthy run still drains an isolated
 // hitch before it can lower quality.
 const OVER_DECAY_PER_CLEAN_FRAME = 0.25;
+// Measured callback CPU work is independent of the rAF period (and is not
+// GPU time). Reserve room for the next detail rung rather than treating a
+// callback that only just fits as evidence that more work will fit too.
+const WORK_HEADROOM_RATIO = 0.7;
+const WORK_PRESSURE_RATIO = 0.85;
+const WORK_SAMPLE_MAX_GAP_MS = 250;
+const RECOVERY_PROBE_MS = 2000;
 export const MAX_LEVEL = 6;
 
 /** Resolve the initial shed level: a `?perf=lite|high` URL override wins;
@@ -165,6 +172,11 @@ export class PerfGovernor {
     this._recoveredInto = new Set();
     // Consecutive frames past CATASTROPHIC_RATIO, for the severity escalation.
     this._catastrophicRun = 0;
+    // Sticky once a caller supplies workMs (null explicitly means skipped).
+    // Old callers that only supply periods retain their original behavior.
+    this._workTimingEnabled = false;
+    this._lastSampleAtMs = null;
+    this._resetWorkEvidence();
   }
 
   /** Discard what the ladder has learned about which rungs are affordable.
@@ -182,6 +194,45 @@ export class PerfGovernor {
     this._overCount = 0;
     this._catastrophicRun = 0;
     this._cleanSinceMs = null;
+    this._lastSampleAtMs = null;
+    this._resetWorkEvidence();
+  }
+
+  _resetWorkEvidence() {
+    if (this._probeLevel != null) this._recoveredInto.delete(this._probeLevel);
+    this._observedWorkMs = null;
+    this._lastWorkAtMs = null;
+    this._lastWorkHadHeadroom = false;
+    this._workHeadroomMs = 0;
+    this._workOverCount = 0;
+    this._missingWorkMs = 0;
+    this._probeLevel = null;
+    this._probeUntilMs = null;
+  }
+
+  _shedLevel() {
+    if (this.level >= MAX_LEVEL) return;
+    if (this._recoveredInto.has(this.level)) {
+      this._fallbacks.set(this.level, (this._fallbacks.get(this.level) || 0) + 1);
+      this._recoveredInto.delete(this.level);
+    }
+    this.level++;
+    this._overCount = 0;
+    this._catastrophicRun = 0;
+    this._cleanSinceMs = null;
+    this._resetWorkEvidence();
+  }
+
+  /** On-demand snapshot; sampling itself allocates no diagnostics objects. */
+  get diagnostics() {
+    return {
+      workTimingEnabled: this._workTimingEnabled,
+      framePeriodMs: this._framePeriodMs ?? 1000 / 60,
+      observedWorkMs: this._observedWorkMs,
+      workHeadroomMs: this._workHeadroomMs,
+      probeLevel: this._probeLevel,
+      probeUntilMs: this._probeUntilMs,
+    };
   }
 
   /** Apply an explicit detail budget immediately, retaining automatic shedding. */
@@ -225,6 +276,7 @@ export class PerfGovernor {
     this._catastrophicRun = 0;
     this._fallbacks.clear();
     this._recoveredInto.clear();
+    this._resetWorkEvidence();
     if (next && this._fixtureLevel === null) this.level = MAX_LEVEL;
     if (!next) this._retroPalette = false; // the palette pass never outlives the floor
   }
@@ -242,6 +294,8 @@ export class PerfGovernor {
     this._overCount = 0;
     this._cleanSinceMs = null;
     this._catastrophicRun = 0;
+    this._lastSampleAtMs = null;
+    this._resetWorkEvidence();
   }
 
   /** Bulk export pins full quality for the whole render.
@@ -284,11 +338,18 @@ export class PerfGovernor {
 
   get fixtureLevel() { return this._fixtureLevel; }
 
-  /** Call once per rendered frame with the raw rAF-to-rAF delta. */
-  sample(deltaMs, nowMs, { capFps = 60 } = {}) {
-    const budgetMs = Math.max(FRAME_BUDGET_MS, 1000 / ([24, 30, 60].includes(Math.round(capFps)) ? Math.round(capFps) : 60) + (FRAME_BUDGET_MS - 1000 / 60));
+  /** Observe every raw rAF period. Optional workMs measures the previous
+   *  rendered callback's full CPU work; pass null when that callback skipped
+   *  rendering. CPU submission time does not measure GPU headroom. */
+  sample(deltaMs, nowMs, { capFps = 60, workMs } = {}) {
+    const roundedFps = Math.round(capFps);
+    const fps = roundedFps === 24 || roundedFps === 30 || roundedFps === 60 ? roundedFps : 60;
+    const framePeriodMs = 1000 / fps;
+    const budgetMs = framePeriodMs + (FRAME_BUDGET_MS - 1000 / 60);
+    if (workMs !== undefined) this._workTimingEnabled = true;
     if (this._sampleBudgetMs !== budgetMs) {
       this._sampleBudgetMs = budgetMs;
+      this._framePeriodMs = framePeriodMs;
       this.forgetRecoveryHistory();
     }
     if (this._fixtureLevel !== null) { this.level = this._fixtureLevel; return; }
@@ -302,42 +363,116 @@ export class PerfGovernor {
     // the first sample would quietly change the meaning of every existing
     // caller and test for the sake of one call site that can just say so.
     if (this._warmUntilMs !== null && nowMs < this._warmUntilMs) return;
-    if (deltaMs > budgetMs) {
+    if (!Number.isFinite(deltaMs) || deltaMs <= 0 || !Number.isFinite(nowMs)
+      || (this._workTimingEnabled && this._lastSampleAtMs !== null && nowMs <= this._lastSampleAtMs)) {
+      this._overCount = 0;
+      this._cleanSinceMs = null;
+      this._catastrophicRun = 0;
+      this._lastSampleAtMs = null;
+      this._resetWorkEvidence();
+      return;
+    }
+    this._lastSampleAtMs = nowMs;
+    const hasWork = Number.isFinite(workMs) && workMs >= 0;
+    if (hasWork) {
+      this._missingWorkMs = 0;
+      const gapMs = this._lastWorkAtMs === null ? 0 : nowMs - this._lastWorkAtMs;
+      if (gapMs > WORK_SAMPLE_MAX_GAP_MS) {
+        this._workHeadroomMs = 0;
+        this._lastWorkHadHeadroom = false;
+        this._workOverCount = 0;
+      }
+      const hasHeadroom = workMs <= framePeriodMs * WORK_HEADROOM_RATIO;
+      if (hasHeadroom && this._lastWorkHadHeadroom) {
+        // A rendered sample buys at most one selected frame period. Null
+        // callbacks never buy work evidence, including on 24/30 FPS caps.
+        // At 24 FPS on 60 Hz the gaps alternate between two and three
+        // callbacks. Each actual draw still represents one selected slot;
+        // clipping every long gap would discard headroom from that cadence.
+        // The independent clean-period window also has to elapse in real time.
+        this._workHeadroomMs = Math.min(RECOVER_MAX_MS, this._workHeadroomMs + framePeriodMs);
+      } else this._workHeadroomMs = 0;
+      this._lastWorkHadHeadroom = hasHeadroom;
+      this._observedWorkMs = workMs;
+      this._lastWorkAtMs = nowMs;
+    } else {
+      // One long callback cannot prove that rendered measurements have gone
+      // missing for the whole stall. Require multiple observed callbacks.
+      this._missingWorkMs = Math.min(WORK_SAMPLE_MAX_GAP_MS,
+        this._missingWorkMs + Math.min(deltaMs, framePeriodMs));
+      if ((workMs !== null && workMs !== undefined)
+        || (this._lastWorkAtMs !== null && nowMs - this._lastWorkAtMs > WORK_SAMPLE_MAX_GAP_MS)) {
+        this._workHeadroomMs = 0;
+        this._lastWorkHadHeadroom = false;
+        this._lastWorkAtMs = null;
+        this._workOverCount = 0;
+      }
+    }
+    const periodOver = deltaMs > budgetMs;
+    const workOver = hasWork && workMs >= framePeriodMs * WORK_PRESSURE_RATIO;
+    const shedAfter = this._recoveredInto.has(this.level) ? RECOVERY_SHED_AFTER_FRAMES : SHED_AFTER_FRAMES;
+    if (hasWork) {
+      // CPU pressure only decays on observed rendered work. Healthy skipped
+      // callbacks say nothing about CPU affordability on a high-refresh panel.
+      const workSeverity = workOver ? Math.min(SHED_WEIGHT_CAP,
+        workMs / (framePeriodMs * WORK_PRESSURE_RATIO) * framePeriodMs / (1000 / 60)) : 0;
+      this._workOverCount = workOver ? Math.min(shedAfter, this._workOverCount + workSeverity)
+        : Math.max(0, this._workOverCount - OVER_DECAY_PER_CLEAN_FRAME * framePeriodMs / (1000 / 60));
+    }
+    if (this._probeLevel !== null && nowMs >= this._probeUntilMs
+      && (hasWork || this._missingWorkMs >= WORK_SAMPLE_MAX_GAP_MS)) {
+      if (hasWork && !periodOver && !workOver) {
+        this._recoveredInto.delete(this._probeLevel);
+        this._probeLevel = null;
+        this._probeUntilMs = null;
+      } else if (!hasWork) {
+        // No observed work can certify a probe. A pressure sample still
+        // votes through the normal short probe threshold below, so a lone
+        // hitch crossing the deadline is not an automatic failed attempt.
+        this._shedLevel();
+        return;
+      }
+    }
+    if (periodOver || workOver) {
       const ratio = deltaMs / budgetMs;
-      this._catastrophicRun = ratio > CATASTROPHIC_RATIO ? this._catastrophicRun + 1 : 0;
+      this._catastrophicRun = periodOver && ratio > CATASTROPHIC_RATIO ? this._catastrophicRun + 1 : 0;
       // The cap protects against an isolated hitch; a sustained run of them
       // has earned the right to be believed at full weight.
       const escalated = this._catastrophicRun >= CATASTROPHIC_RUN_TO_ESCALATE;
-      const severity = escalated ? ratio : Math.min(SHED_WEIGHT_CAP, ratio);
+      const periodSeverity = periodOver ? (escalated ? ratio : Math.min(SHED_WEIGHT_CAP, ratio)) : 0;
       // Clamped, because at MAX_LEVEL there is no rung left to spend it on
       // and it would otherwise pile up without limit -- a machine stuck at
       // the floor for a minute banked hundreds of units of "evidence", and
       // if it later recovered a rung, the very next over-budget frame would
       // cash that stale total in and shed again immediately. Evidence is for
       // the rung it was gathered at.
-      const shedAfter = this._recoveredInto.has(this.level) ? RECOVERY_SHED_AFTER_FRAMES : SHED_AFTER_FRAMES;
-      this._overCount = Math.min(shedAfter, this._overCount + severity);
+      this._overCount = periodOver ? Math.min(shedAfter, this._overCount + periodSeverity)
+        : Math.max(0, this._overCount - OVER_DECAY_PER_CLEAN_FRAME);
       this._cleanSinceMs = null;
-      if (this._overCount >= shedAfter && this.level < MAX_LEVEL) {
+      this._workHeadroomMs = 0;
+      this._lastWorkHadHeadroom = false;
+      if ((this._overCount >= shedAfter || this._workOverCount >= shedAfter) && this.level < MAX_LEVEL) {
         // Only a rung the ladder had CLIMBED BACK INTO counts as a failed
         // attempt: the first descent is a cold machine, not a verdict.
-        if (this._recoveredInto.has(this.level)) {
-          this._fallbacks.set(this.level, (this._fallbacks.get(this.level) || 0) + 1);
-          this._recoveredInto.delete(this.level);
-        }
-        this.level++;
-        this._overCount = 0;
-        this._catastrophicRun = 0;
+        this._shedLevel();
       }
     } else {
       this._catastrophicRun = 0;
       this._overCount = Math.max(0, this._overCount - OVER_DECAY_PER_CLEAN_FRAME);
       if (this._cleanSinceMs === null) this._cleanSinceMs = nowMs;
-      else if (this.level > this.minLevel && nowMs - this._cleanSinceMs >= this.recoverWindowMsFor(this.level - 1)) {
+      else if (this.level > this.minLevel && nowMs - this._cleanSinceMs >= this.recoverWindowMsFor(this.level - 1)
+        && (!this._workTimingEnabled || (hasWork && this._workHeadroomMs >= this.recoverWindowMsFor(this.level - 1)))) {
         this.level--;
         this._recoveredInto.add(this.level);
         this._overCount = 0; // fresh evidence for the rung just entered
+        this._workOverCount = 0;
         this._cleanSinceMs = nowMs;
+        if (this._workTimingEnabled) {
+          this._workHeadroomMs = 0;
+          this._lastWorkHadHeadroom = false;
+          this._probeLevel = this.level;
+          this._probeUntilMs = nowMs + RECOVERY_PROBE_MS;
+        }
       }
     }
   }
