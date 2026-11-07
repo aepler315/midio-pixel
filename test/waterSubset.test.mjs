@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { wetTexelMask, waterIndexSubset } from '../src/world/alpine/WaterSubset.js';
+import { contourCoverage } from './helpers/waterContourOracle.mjs';
 
 // Seeded so a failure reproduces.
 function rng(seed) {
@@ -82,6 +83,28 @@ test('Uint16 indices stay Uint16', () => {
   const s = scene(5, { triangles: 200 });
   const keep = waterIndexSubset(s.positions, Uint16Array.from(s.index), s.grid, wetTexelMask(s.rgba, s.w, s.h), { maxShare: 1 });
   assert.ok(keep instanceof Uint16Array);
+});
+
+test('rounded source contours stay inside the existing conservative water subset', () => {
+  for (const seed of [2, 5, 9]) {
+    const s = scene(seed, { triangles: 1000 });
+    const keep = waterIndexSubset(s.positions, s.index, s.grid, wetTexelMask(s.rgba, s.w, s.h), { maxShare: 1 });
+    const kept = new Set(Array.from({ length: keep.length / 3 }, (_, i) => keep[i * 3] / 3));
+    const r = rng(seed * 7919);
+    for (let t = 0; t < s.index.length / 3; t++) {
+      const p = k => [s.positions[(t * 3 + k) * 3], s.positions[(t * 3 + k) * 3 + 2]];
+      const [a, b, c] = [p(0), p(1), p(2)];
+      for (let n = 0; n < 80; n++) {
+        let u = r(), v = r(); if (u + v > 1) { u = 1 - u; v = 1 - v; }
+        const x = a[0] + u * (b[0] - a[0]) + v * (c[0] - a[0]);
+        const z = a[1] + u * (b[1] - a[1]) + v * (c[1] - a[1]);
+        if (contourCoverage(s.rgba, s.w, s.h, (x - s.grid.originM[0]) / s.grid.cellSizeM,
+          (z - s.grid.originM[1]) / s.grid.cellSizeM).coverage > .5) {
+          assert.ok(kept.has(t), `rounded wet triangle ${t} was omitted in seed ${seed}`); break;
+        }
+      }
+    }
+  }
 });
 
 test('sliced subsets match the single pass', async () => {

@@ -5,6 +5,32 @@ import { gunzipSync } from 'node:zlib';
 import * as windows from '../src/world/alpine/TerrainWindow.js';
 import { decodeTerrain, buildTerrainGeometry } from '../src/world/alpine/TerrainMesh.js';
 import { projectPoint } from '../src/world/terrain/SceneTravel.js';
+import { landRiseCamera } from '../src/world/alpine/LandRiseCamera.js';
+
+test('the growing Teton tour preserves admitted lens coverage while moving and turning', () => {
+  const base = new URL('../src/assets/range/v2/terrain/teton-range-tour.terrain', import.meta.url);
+  const manifest = JSON.parse(fs.readFileSync(new URL(`${base}.json`)));
+  const data = decodeTerrain(manifest, gunzipSync(fs.readFileSync(new URL(`${base}.bin.gz`))));
+  const coverage = { aspect: 2.16, fovScale: 1.7 };
+  for (const turnDeg of [0, 1.6]) {
+    const tour = { durationMs: 8000, poseAt: timeMs => {
+      const yaw = timeMs / 8000 * turnDeg * Math.PI / 180, dx = -8780, dz = 400;
+      return { eyeM: [11000 + timeMs / 100, 2600, -3000],
+        targetM: [11000 + timeMs / 100 + dx * Math.cos(yaw) - dz * Math.sin(yaw), 3000,
+          -3000 + dx * Math.sin(yaw) + dz * Math.cos(yaw)], fovYDeg: 32.64, tour: true };
+    } };
+    const plan = windows.planTerrainWindow(data, tour, 0, { riseSink: 1, riseBaseM: 2070,
+      heightPx: 720, pixelHeightPx: 180, budget: 'mobile', coverage });
+    assert.ok(plan.triangles <= 1000000, `preserve the mobile cap: ${plan.triangles}`);
+    assert.ok(plan.maxErrorPx <= plan.pixelLimit + 1e-6);
+    assert.ok(plan.poses.length <= 81, 'the tour retains its existing bounded route lattice');
+    for (let timeMs = 0; timeMs <= 8000; timeMs += 250) for (let i = 0; i <= 20; i++) {
+      const camera = landRiseCamera(tour.poseAt(timeMs), { rise01: i / 20, baseM: 2070, groundM: 2300 });
+      const fovYDeg = 2 * Math.atan(Math.tan(camera.fovYDeg * Math.PI / 360) * coverage.fovScale) * 180 / Math.PI;
+      assert.equal(windows.terrainWindowCovers(plan, camera, { fovYDeg, aspect: coverage.aspect }), true, `turn ${turnDeg}, time ${timeMs}, rise ${i / 20}`);
+    }
+  }
+});
 
 const pose = { eyeM: [0, 500, 12000], targetM: [0, 500, 0], fovYDeg: 40 };
 const tour = { durationMs: 10000, poseAt: () => pose };

@@ -1,5 +1,6 @@
 import { terrainHeightAt } from './TerrainMesh.js';
 import { LAND_RISE_GLSL } from './LandRise.js';
+import { BUILD_OCEAN_GLSL } from './BuildOcean.js';
 
 // A transient backdrop for ground the camera's partial DEM never shipped.
 // Fine terrain always draws over it, after its depth has been cleared. This
@@ -78,9 +79,11 @@ const VERT = /* glsl */`
   }
 `;
 const SHADE = /* glsl */`
-  uniform vec3 pSoil, pMeadow, uLightDir, uLightColor, uSkyHorizon, uAirColor;
+  uniform vec3 pSoil, pMeadow, pWater, uLightDir, uLightColor, uSkyHorizon, uAirColor;
   uniform float uAirDensity, uClipBelow, uAmbientScale, uExposure, uRiseGroundOpacity;
   uniform vec4 uNarrative;
+  uniform vec2 uLandRise;
+  ${BUILD_OCEAN_GLSL}
   vec3 srgb(vec3 c) {
     return mix(c * 12.92, 1.055 * pow(max(c, vec3(0.0)), vec3(1.0 / 2.4)) - .055, step(vec3(.0031308), c));
   }
@@ -92,7 +95,14 @@ const SHADE = /* glsl */`
     color = mix(uSkyHorizon, color, uNarrative.x);
     float air = 1.0 - exp(-length(p - cameraPosition) * uAirDensity);
     color = mix(color, uAirColor, min(.96, air) * uNarrative.y);
-    return vec4(srgb(color), uRiseGroundOpacity);
+    vec3 display = srgb(color);
+    float ocean = openingOcean01(1.0 - uLandRise.x);
+    if (ocean > 0.0) display = mix(display,
+      openingOceanDisplay(p, cameraPosition, pWater, uSkyHorizon, uAirColor, uAirDensity), ocean);
+    return vec4(display, uRiseGroundOpacity);
+  }
+  vec4 shadeOcean(vec3 p) {
+    return vec4(openingOceanDisplay(p, cameraPosition, pWater, uSkyHorizon, uAirColor, uAirDensity), uRiseGroundOpacity);
   }
 `;
 const FRAG = /* glsl */`
@@ -117,7 +127,6 @@ const PLANE_FRAG = /* glsl */`
   precision highp float;
   ${SHADE}
   uniform mat4 uPlaneRays;
-  uniform vec2 uLandRise;
   in vec2 vNdc;
   out vec4 outColor;
   void main() {
@@ -127,7 +136,7 @@ const PLANE_FRAG = /* glsl */`
     if (abs(ray.y) < 1e-8) discard;
     float t = (uLandRise.y - cameraPosition.y) / ray.y;
     if (t <= 0.0) discard;
-    outColor = shadeGround(cameraPosition + ray * t, vec3(0.0, 1.0, 0.0));
+    outColor = shadeOcean(cameraPosition + ray * t);
   }
 `;
 

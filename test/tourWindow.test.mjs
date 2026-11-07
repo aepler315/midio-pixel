@@ -20,7 +20,7 @@ test('one cached window covers the continuously growing camera and keeps distant
  const tour={poseAt:()=>pose,durationMs:30000},projection={fovYDeg:40,aspect:16/9};
  const plan=planTerrainWindow(data,tour,0,{riseSink:1,riseBaseM:0,pixelHeightPx:180});
  for(const groundM of [600,500,900,1500])for(let i=0;i<=200;i++){
-  const at=landRiseCamera(pose,{rise01:i/200,baseM:0,groundM});
+  const at=landRiseCamera(pose,{rise01:i/200,baseM:0,groundM,overview:false});
   assert.equal(terrainWindowCovers(plan,at,projection),true,`rise ${i/200}, ground ${groundM}`);
  }
  const distant={...pose,eyeM:[100000,1200,5000],targetM:[101000,1800,0]};
@@ -44,7 +44,7 @@ test('growth envelopes cover steep aims and the camera between route lattice key
   const plan=planTerrainWindow(data,tour,0,{riseSink:1,riseBaseM:0,pixelHeightPx:180});
   for(let timeMs=0;timeMs<=8000;timeMs+=50)for(const rise01 of [0,.25,.5,.75,1]){
    const source=tour.poseAt(timeMs),groundM=data.groundAt(source.eyeM[0]);
-   const at=landRiseCamera(source,{rise01,baseM:0,groundM});
+   const at=landRiseCamera(source,{rise01,baseM:0,groundM,overview:false});
    assert.equal(terrainWindowCovers(plan,at,projection),true,`pitch ${pitchDeg}, time ${timeMs}, rise ${rise01}`);
   }
   assert.ok(plan.maxErrorPx<=plan.pixelLimit+1e-6);

@@ -7,6 +7,7 @@ import { EnergyCurves } from '../audio/EnergyCurves.js';
 import { FLAT_WEIGHTS } from '../audio/bands.js';
 import { clamp01, smoothstep } from '../utils/math.js';
 import { sampleEffectsMusic, blendEffectsMusic } from './alpine/EffectsMusic.js';
+import { ActiveIntervalIndex, conservativeIntervalEnd } from './ActiveIntervalIndex.js';
 
 const freeze = a => Object.freeze(a);
 const zero = () => ({ bands: Array(7).fill(0), levels: Array(7).fill(0), depths: Array(7).fill(0), armed: Array(7).fill(true), flashMs: Array(7).fill(-Infinity), energy: 0, motionPresence01: 0, melodyActivity: 0, melodyPitchWeight: 0 });
@@ -23,7 +24,7 @@ export function ridgeAdvectionPxAt(heardTimeMs) {
 }
 
 export class RidgeMotionHistory {
-  #curves; #events; #visual; #sources; #checkpoints; #floor; #cal; #cues; #midi; #ends; #cache = new Map();
+  #curves; #events; #visual; #sources; #checkpoints; #floor; #cal; #cues; #midi; #ends; #activeMidi; #cache = new Map();
   // Exact filter states at recent 20 ms ticks, and source frames already
   // read. A frame asks for a dozen nearby times (the horizon ridge's motion
   // taps, the space ridge, effects) and the next frame for the same ones
@@ -41,8 +42,15 @@ export class RidgeMotionHistory {
     this.#events = freeze(timeline.filter(e => Number.isFinite(e.tMs) && e.tMs >= 0)
       .map(e => freeze({ ...e, durMs: Math.max(0, e.durMs || 0) })).sort((a, b) => a.tMs - b.tMs));
     this.#midi = this.#events.filter(e => e.src === 'midi');
-    let end = 0;
-    this.#ends = this.#midi.map(e => { end = Math.max(end, e.tMs + e.durMs + 120); return end; });
+    let end = 0, needsSkipIndex = false;
+    this.#ends = this.#midi.map(e => {
+      const noteEnd = e.tMs + e.durMs + 120;
+      if (noteEnd < end) needsSkipIndex = true;
+      end = Math.max(end, noteEnd); return end;
+    });
+    // Ordered ends already stop the old scan at its first expired note.
+    // Only overlapping holds need the additional CPU-side interval tree.
+    this.#activeMidi = needsSkipIndex ? new ActiveIntervalIndex(this.#midi.map(e => conservativeIntervalEnd(e.tMs, e.durMs + 120))) : null;
     casting ??= Object.fromEntries([['midio', 'MIDIO', 'bass'], ['broshi', 'BROSHI', 'melody'], ['midasus', 'MIDASUS', 'melody']]
       .map(([id, lane, fallback]) => [id, this.#events.some(e => e.lane === lane) ? 'source-lane' : fallback]));
     this.#sources = compileLandscapeSources({ timeline: this.#events, durationMs: this.durationMs, casting });
@@ -92,7 +100,14 @@ export class RidgeMotionHistory {
     const bands = Array.from({ length: 7 }, (_, b) => clamp01(read(c?.bands[b])));
     let midi = 0, lo = 0, hi = this.#midi.length;
     while (lo < hi) { const m = (lo + hi) >>> 1; if (this.#midi[m].tMs <= at) lo = m + 1; else hi = m; }
+    // Keep the short contiguous-note scan cheap. Only a dead gap beneath
+    // an older sustained note needs the interval tree. The prefix guard
+    // also retains the legacy handling of malformed durations.
     for (let i = lo - 1; i >= 0 && this.#ends[i] > at; i--) {
+      if (this.#activeMidi && this.#midi[i].durMs + 120 - (at - this.#midi[i].tMs) <= 0) {
+        i = this.#activeMidi.lastBefore(i, at);
+        if (i < 0) break;
+      }
       const e = this.#midi[i];
       midi = Math.max(midi, clamp01(e.vel) * Math.min(1, (at - e.tMs) / 40) * clamp01((e.durMs + 120 - (at - e.tMs)) / 120));
     }

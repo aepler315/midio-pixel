@@ -136,6 +136,35 @@ test('without soft trees the mirror keeps its single combined pass', () => {
   }
 });
 
+test('the mirror shades all reflected lakes even when the main view separates water', () => {
+  const { s, p, ops } = fixture();
+  p.uniforms.uSeparateWater.value = 1;
+  const render = s.renderer.render;
+  s.renderer.render = (...args) => {
+    assert.equal(p.uniforms.uSeparateWater.value, 0, 'the mirror has no later separate-water overlay');
+    render(...args);
+  };
+  s._prepareMirror(p, frame, 'A', 'v');
+  assert.equal(p.uniforms.uSeparateWater.value, 1, 'the main view retains its admitted water separation');
+  const draws = ops.length;
+  s._prepareMirror(p, frame, 'A', 'v');
+  assert.equal(ops.length, draws, 'same-frame mirror caching still avoids redraw');
+  assert.equal(p.uniforms.uSeparateWater.value, 1);
+});
+
+test('a failed mirror draw restores the main view water separation before propagating', () => {
+  const { s, p } = fixture({ scissor: { x: 0, y: 0, width: 10, height: 10 } });
+  p.uniforms.uSeparateWater.value = 1;
+  s.renderer.render = () => {
+    assert.equal(p.uniforms.uSeparateWater.value, 0);
+    throw new Error('mirror draw interrupted');
+  };
+  assert.throws(() => s._prepareMirror(p, frame, 'A', 'v'), /mirror draw interrupted/);
+  assert.equal(p.uniforms.uSeparateWater.value, 1);
+  assert.equal(s.mirrors.A.target.scissorTest, false);
+  assert.equal(s.mirrors.A.frame, -1, 'a failed mirror is not published into the frame cache');
+});
+
 // What the skip relies on in the forest. Layer 2 holds only depth: no colour
 // to lose. Layers 3 to 5 hold nothing of the forest's. And every layer-2
 // mesh in the shared depth scene shares its geometry with a tree the mirror

@@ -91,8 +91,8 @@ function growthCameraPoses(poses, data, riseSink, baseM) {
   return poses.flatMap(p => {
     const groundM = data.groundAt || data.manifest && data.byIndex ? terrainHeightAt(data, p.eyeM[0], p.eyeM[2]) : NaN;
     const minimumGround = Math.min(floorM, Number.isFinite(groundM) ? groundM : baseM);
-    const low = landRiseCamera(p, { rise01: 1 - riseSink, baseM, groundM: p.eyeM[1] });
-    const high = landRiseCamera(p, { rise01: 1 - riseSink, baseM, groundM: minimumGround });
+    const low = landRiseCamera(p, { rise01: 1 - riseSink, baseM, groundM: p.eyeM[1], overview: false });
+    const high = landRiseCamera(p, { rise01: 1 - riseSink, baseM, groundM: minimumGround, overview: false });
     const y0 = Math.min(p.eyeM[1], low.eyeM[1], high.eyeM[1]), y1 = Math.max(p.eyeM[1], low.eyeM[1], high.eyeM[1]);
     const dx = p.targetM[0] - p.eyeM[0], dz = p.targetM[2] - p.eyeM[2], horizontal = Math.hypot(dx, dz);
     const pitch = at => Math.atan2(at.targetM[1] - at.eyeM[1], horizontal);

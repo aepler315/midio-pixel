@@ -1392,9 +1392,9 @@ export class RangeCrest {
   }
 
   /** Shorelines at output resolution, after the water layer. */
-  drawShore(ctx, fit, frameId) {
+  drawShore(ctx, fit, frameId, opacity = 1) {
     const snap = this.snapshot;
-    if (!snap || snap.frameId !== frameId || !(snap.fade > 0) || !snap.shores.length || !(fit?.scale > 0)) return true;
+    if (!snap || snap.frameId !== frameId || !(snap.fade > 0) || !(opacity > 0) || !snap.shores.length || !(fit?.scale > 0)) return true;
     const s = fit.scale;
     ctx.save();
     try {
@@ -1404,7 +1404,7 @@ export class RangeCrest {
         const { width, alpha } = shoreStroke(chain.nearness, fit.height);
         // 70% of the stroke on the water side: below a far shore, above a near one.
         const shift = (CREST_LAND_SIDE - 0.5) * width * (chain.kind === 1 ? 1 : -1);
-        ctx.globalAlpha = alpha * snap.fade;
+        ctx.globalAlpha = alpha * snap.fade * Math.min(1, opacity);
         ctx.strokeStyle = chain.color; ctx.lineWidth = width;
         ctx.beginPath();
         const p = chain.points, n = p.length / 2;
