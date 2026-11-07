@@ -625,6 +625,19 @@ export const SCENE_FRAG = /* glsl */`
       waterWetTexel(corner + ivec2(1, 2), size), waterWetTexel(corner + ivec2(2, 2), size), f.x);
     return clamp(waterCubic(r0, r1, r2, r3, f.y), 0.0, 1.0);
   }
+  // Filter only native appearance, inward from the sourced shore. Keeping
+  // its support on the wet side preserves every existing texture-fetch
+  // gate; classification/depth never acquire a new water fragment.
+  float waterAppearanceCoverage(float coverage, float footprint, float sourceWet, float enabled) {
+    if (enabled < .5) return sourceWet;
+    float width = clamp(abs(footprint), .00001, .5);
+    return smoothstep(.5, .5 + width, coverage);
+  }
+  float shorelineDetailCoverage(float coverage, float footprint, float enabled) {
+    if (enabled < .5) return 1.0;
+    float width = clamp(abs(footprint), .00001, .5);
+    return 1.0 - smoothstep(.5 - width, .5, coverage);
+  }
   void main() {
     if (vRenderedWorld.y < uClipBelow) discard;
     // The fully flat opening replaces every material color below. Resolve
@@ -664,8 +677,15 @@ export const SCENE_FRAG = /* glsl */`
     waterCoverage = 1.0;
     #endif
     bool water = waterCoverage > .5 && ice.y < 0.01;
+    // Resolve derivatives before a water-only discard. Debug, glacier and
+    // separated Direct passes retain the original binary appearance.
+    float shoreFootprint = fwidth(waterCoverage);
+    bool filterShore = uWaterOnly < .5 && uSeparateWater < .5 && uDebugMask == 0 && uDiag < .5 && ice.y <= 0.0;
+    float waterAmount = waterAppearanceCoverage(waterCoverage, shoreFootprint, water ? 1.0 : 0.0, filterShore ? 1.0 : 0.0);
+    float landDetail = shorelineDetailCoverage(waterCoverage, shoreFootprint, filterShore ? 1.0 : 0.0);
     if (uWaterOnly > 0.5 && !water) discard;
     bool paintWater = water && (uWaterOnly > .5 || uSeparateWater < .5);
+    float paintWaterAmount = (uWaterOnly > .5 || uSeparateWater < .5) ? waterAmount : 0.0;
     float flowN = clamp(flow / 254.0, 0.0, 1.0);
     float h = vWorld.y;
     vec3 albedo;
@@ -676,7 +696,7 @@ export const SCENE_FRAG = /* glsl */`
     vec3 farCrownNormal = vec3(0.0, 1.0, 0.0);
     if (uHasMaterial < 0.5) {
       albedo = mix(vec3(0.34), vec3(0.24), clamp(curv * 3.0, 0.0, 1.0));
-      if (paintWater) albedo = vec3(0.10, 0.13, 0.16);
+      if (paintWater) albedo = mix(albedo, vec3(0.10, 0.13, 0.16), paintWaterAmount);
     } else {
       // Macro rock detail everywhere: vary tile phase continuously so the
       // two rotated scales do not stamp a recurring pattern on broad faces.
@@ -694,7 +714,7 @@ export const SCENE_FRAG = /* glsl */`
       if (nearFade > 0.0) near = triplanar(tRockNear, vWorld, n, sRockNear, 0.4);
       #endif
       float detailFade = 1.0 - smoothstep(9000.0, 30000.0, dist);
-      vec3 dn = (macro.dn * 1.3 + macro2.dn * 0.8 * (1.0 - smoothstep(2500.0, 9000.0, dist))) * detailFade + near.dn * 0.7 * nearFade;
+      vec3 dn = (macro.dn * 1.3 + macro2.dn * 0.8 * (1.0 - smoothstep(2500.0, 9000.0, dist))) * detailFade + near.dn * 0.7 * nearFade * landDetail;
       float rh = mix(macro.h, macro2.h, 0.35);
       float breakup = vnoise12(vWorld.xz / 23.0) * 0.15 + rh;
       // Masks from the real surface.
@@ -764,7 +784,7 @@ export const SCENE_FRAG = /* glsl */`
       vec3 crownLit = forestCol * .78;
       vec2 pixelDx=dFdx(vWorld.xz), pixelDy=dFdy(vWorld.xz);
       vec4 dotFootprint=farDotFootprint(forestRay,n,forestCap,pixelDx,pixelDy);
-      float dots=water?0.:farDotWeight(forestDist,dotFootprint,min(forestCap,32.*uFarForest.z));
+      float dots=water?0.:farDotWeight(forestDist,dotFootprint,min(forestCap,32.*uFarForest.z))*landDetail;
       vec3 dotNormal=vec3(0.,1.,0.);float dotCrownWeight=0.;
       if(dots>0. && forest>0.) {
         vec4 painted=farTreeDots(vRenderedWorld,forestRay,n,sourceNormal,degrees(acos(clamp(sourceNormal.y,0.,1.))),forestCap,pixelDx,pixelDy,forestCol,dotNormal);
@@ -777,7 +797,7 @@ export const SCENE_FRAG = /* glsl */`
       }
       albedo = mix(openGround, mix(understory, crownLit, cover), habitat);
       float crowns = cover * habitat;
-      farCrownWeight = water ? 0.0 : crowns * (1.0 - snow) * (1.0 - ice.y);
+      farCrownWeight = crowns * (1.0 - snow) * (1.0 - ice.y) * (1.0 - waterAmount);
       vec3 towardEyeHorizontal = vec3(forestRay.x, 0.0, forestRay.z);
       towardEyeHorizontal /= max(length(towardEyeHorizontal), .00001);
       farCrownNormal = normalize(mix(normalize(towardEyeHorizontal * .6 + vec3(0.0, .5, 0.0)),dotNormal,dotCrownWeight));
@@ -792,6 +812,10 @@ export const SCENE_FRAG = /* glsl */`
       #endif
       sn.h = mix(sn.h, sn2.h, 0.5);
       sn.dn = mix(sn.dn, sn2.dn, 0.5);
+      // Fade skipped Pixel detail to its neutral return before !water
+      // changes. No near/snow fetch is added on the sourced wet side.
+      sn.h = mix(.5, sn.h, landDetail);
+      sn.dn *= landDetail;
       vec3 snowCol = mix(pSnowShade, pSnow, 0.7 + 0.3 * sn.h);
       albedo = mix(albedo, snowCol, snow);
       // Detail normal: rock gets the full detail, forest the crowns, snow
@@ -812,9 +836,9 @@ export const SCENE_FRAG = /* glsl */`
       snow01 = snow;
       if (paintWater) {
         float depthMix = smoothstep(.5, .98, waterCoverage);
-        albedo = mix(pWater, pWaterDeep, depthMix);
-        nShade = vec3(0.0, 1.0, 0.0);
-        rough = mix(.28, .12, depthMix);
+        albedo = mix(albedo, mix(pWater, pWaterDeep, depthMix), paintWaterAmount);
+        nShade = normalize(mix(nShade, vec3(0.0, 1.0, 0.0), paintWaterAmount));
+        rough = mix(rough, mix(.28, .12, depthMix), paintWaterAmount);
       }
       if (uDebugMask == 1) { outColor = vec4(rockMask, crowns, snow, 1.0); if (water) outColor = vec4(0.0, 0.6, 1.0, 1.0); return; }
       if (uDebugMask == 2) { outColor = vec4(vec3(slopeDeg / 90.0), 1.0); return; }
@@ -823,9 +847,13 @@ export const SCENE_FRAG = /* glsl */`
     // and forest above keep the full-height slopes they were placed on; the
     // light and the silhouette ink see the lowered surface (the material
     // path carried nShade through before mixing in the crowns).
-    if (!water) {
-      if (uHasMaterial < 0.5) nShade = gradNormal(nShade, vRiseGrad.xyz);
-      geologicalNormal = gradNormal(geologicalNormal, vRiseGrad.xyz);
+    if (waterAmount < 1.0) {
+      if (uHasMaterial < 0.5) {
+        vec3 groundNormal = gradNormal(nShade, vRiseGrad.xyz);
+        nShade = waterAmount > 0.0 ? normalize(mix(groundNormal, nShade, waterAmount)) : groundNormal;
+      }
+      vec3 groundGeology = gradNormal(geologicalNormal, vRiseGrad.xyz);
+      geologicalNormal = waterAmount > 0.0 ? normalize(mix(groundGeology, geologicalNormal, waterAmount)) : groundGeology;
     }
     // Ice detail is fixed to the lobe. Longitudinal debris bands curve
     // gently, while transverse crevasses open across the flow. Neither
@@ -850,13 +878,13 @@ export const SCENE_FRAG = /* glsl */`
       albedo = mix(albedo, iceColor, ice.y);
       nShade = normalize(mix(nShade, gradNormal(iceNormal, vRiseGrad.xyz), ice.y));
       rough = mix(rough, 0.3, ice.y);
-    } else if (uGlacierEnabled > 0.5 && ice.z < 1.0 && !water) {
+    } else if (uGlacierEnabled > 0.5 && ice.z < 1.0 && waterAmount < 1.0) {
       // Newly exposed ground stays dark and wet before its canopy returns.
-      albedo = mix(albedo * 0.58, albedo, ice.z);
+      albedo = mix(mix(albedo * 0.58, albedo, ice.z), albedo, waterAmount);
     }
     // Wet receivers are the same surfaces at a lower roughness: their
     // shine is the specular lobe below sharpening, not a separate layer.
-    if (!water) { albedo *= 1.0 - uStorm.w * .18; rough = mix(rough, max(.22, rough * .4), uStorm.w); }
+    if (waterAmount < 1.0) { albedo *= 1.0 - uStorm.w * .18 * (1.0 - waterAmount); rough = mix(rough, max(.22, rough * .4), uStorm.w * (1.0 - waterAmount)); }
     // Canopy is matte; sub-pixel normal variation widens the lobe so the
     // detail normals cannot sparkle at distance (specular anti-aliasing).
     rough = terrainRoughness(mix(rough, .95, farCrownWeight), nShade);
@@ -870,9 +898,10 @@ export const SCENE_FRAG = /* glsl */`
     // and bounced off the lit relief around it (warm, directional), not only
     // the cold sky fill: keep a residual share so relief reads in shadow.
     float key = max((dot(nShade, uLightDir) + wrap) / (1.0 + wrap), 0.0) * mix(${SHADOW_RESIDUAL.toFixed(2)}, 1.0, sunVis);
-    if (uCinematic.x > .5 && !water) {
-      wrap = mix(uCinematic.w, uCinematic.w + .10, farCrownWeight);
-      key = max((dot(nShade, uLightDir) + wrap) / (1.0 + wrap), 0.0) * mix(uCinematic.z, 1.0, sunVis);
+    if (uCinematic.x > .5 && waterAmount < 1.0) {
+      float landWrap = mix(uCinematic.w, uCinematic.w + .10, farCrownWeight);
+      float landKey = max((dot(nShade, uLightDir) + landWrap) / (1.0 + landWrap), 0.0) * mix(uCinematic.z, 1.0, sunVis);
+      key = mix(landKey, key, waterAmount);
     }
     // The opening relief shares the physical key. A dormant direction
     // must not change even its neutral surface shading during a gap.
@@ -887,16 +916,19 @@ export const SCENE_FRAG = /* glsl */`
     // Sky radiance: the displayed sky colours are radiance, and a surface
     // integrates the hemisphere, hence the scale.
     float opening = stormOpening(vRenderedWorld);
-    float receiverShadow = water ? 1.0 : stormShadow(opening);
-    float ambientScale = water ? uAmbientScale : stormAmbient(uAmbientScale, uMoonAmbientScale, opening);
+    float receiverShadow = waterAmount >= 1.0 ? 1.0 : mix(stormShadow(opening), 1.0, waterAmount);
+    float ambientScale = waterAmount >= 1.0 ? uAmbientScale : mix(stormAmbient(uAmbientScale, uMoonAmbientScale, opening), uAmbientScale, waterAmount);
     vec3 hemi = mix(uSkyHorizon * 0.55, uSkyZenith, 0.5 + 0.5 * nShade.y) * ambientScale;
-    if (uCinematic.x > .5 && !water) hemi = cinematicFill(hemi, key);
-    if (!water) hemi = receiverFill(hemi, uReceiverFillMin);
+    if (uCinematic.x > .5 && waterAmount < 1.0) hemi = mix(cinematicFill(hemi, key), hemi, waterAmount);
+    if (waterAmount < 1.0) hemi = mix(receiverFill(hemi, uReceiverFillMin), hemi, waterAmount);
     // Water keeps the open sky's key under fair-weather cloud shadows.
+    // Keep that original source-wet skip, easing dry ground to its open
+    // sky value before the boundary rather than evaluating clouds on water.
     float moonTransmission = water && uCloudMode > 0.5 ? 1.0 : celestialCloudTransmission(vRenderedWorld, uLightDir);
+    if (filterShore && uCloudMode > 0.5) moonTransmission = mix(1.0, moonTransmission, landDetail);
     vec3 lit = albedo * (hemi * ao + uLightColor * moonTransmission * key * mix(0.85, 1.0, ao) * receiverShadow);
-    if (uCinematic.x > .5 && !water) {
-      lit = albedo * (hemi * ao + cinematicKey(uLightColor) * moonTransmission * key * mix(0.85, 1.0, ao) * receiverShadow);
+    if (uCinematic.x > .5 && waterAmount < 1.0) {
+      lit = albedo * (hemi * ao + mix(cinematicKey(uLightColor), uLightColor, waterAmount) * moonTransmission * key * mix(0.85, 1.0, ao) * receiverShadow);
     }
     // The cast's lanterns light the ground around them.
     lit += albedo * actorLight(vRenderedWorld, nShade) * receiverShadow;
@@ -908,11 +940,12 @@ export const SCENE_FRAG = /* glsl */`
     // The key's reflection, through the same cloud, storm opening and
     // horizon as its diffuse light; rain on the lens (squall) mutes it.
     float specLight = 0.0;
-    if (!water) {
+    if (waterAmount < 1.0) {
       float keyGain = (1.0 - uStorm.z * (1.0 - opening) * .5) + uStorm.z * opening * .85;
       // A canopy is a volume of needles, not a facet: its crowns shadow
       // their own glancing reflection, so it keeps only a trace.
       specLight = spec.x * sunVis * keyOn * moonTransmission * keyGain * (1.0 - .75 * uStorm.y) * (1.0 - .9 * farCrownWeight);
+      specLight *= 1.0 - waterAmount;
       lit += uLightColor * specLight;
     }
     if (uDebugMask == 3) { outColor = vec4(albedo * 4.0, 1.0); return; }
@@ -953,12 +986,12 @@ export const SCENE_FRAG = /* glsl */`
       // With the captured sky backdrop bound (lakes and rivers alike), the
       // sky arrives with it below instead, so it is not counted twice.
       float skyHere = fres * (1.0 - uBackdropAmount);
-      lit = mix(lit, skyReflect * rWaterSkyMix, skyHere) + uLightColor * glint * moonTransmission;
+      lit = mix(lit, skyReflect * rWaterSkyMix, skyHere * paintWaterAmount) + uLightColor * glint * moonTransmission * paintWaterAmount;
       // Treble catches the resolved crests, especially in disturbed water.
       // It borrows the available light rather than emitting a white wash.
       float crest = smoothstep(.55, 1.05, length(waterSwell));
       lit += (uSkyHorizon * .12 + uLightColor * .025 * moonTransmission)
-        * crest * uWaterMusic.z * (.25 + .75 * paw);
+        * crest * uWaterMusic.z * (.25 + .75 * paw) * paintWaterAmount;
       #ifdef RIVER_SURFACE
       // Gentle advected surface variation remains readable under ambient
       // light. Filtered-out ripples retain their mean rather than flashing.
@@ -976,7 +1009,7 @@ export const SCENE_FRAG = /* glsl */`
     vec3 neutral = vec3(.42) * (.45 + .55 * key);
     vec3 physical = mix(neutral, tonemap(lit * uExposure), uNarrative.z);
     if (uCinematic.x > .5) physical = cinematicGrade(physical);
-    if (water || ice.y > .01) physical = mix(neutral, physical, uNarrative.w);
+    physical = mix(physical, mix(neutral, physical, uNarrative.w), ice.y > .01 ? 1.0 : waterAmount);
     vec3 color = mix(uSkyHorizon, physical, uNarrative.x);
     float mist = mistAmount(uCameraPos, vRenderedWorld) * uNarrative.y;
     if (uCinematic.x > .5) {
@@ -1042,7 +1075,7 @@ export const SCENE_FRAG = /* glsl */`
       // shoreline coverage, depth and real reflected image stay unchanged.
       reflectance = min(.88, reflectance + (.035 * uWaterMusic.x + .025 * uWaterMusic.w)
         * smoothstep(.2, .8, abs(waterSwell.y)));
-      color = mix(color, mirrored * 0.9, reflectance * smoothstep(.5, .9, waterCoverage) * have * clear * uNarrative.z * uNarrative.w);
+      color = mix(color, mirrored * 0.9, reflectance * smoothstep(.5, .9, waterCoverage) * have * clear * uNarrative.z * uNarrative.w * paintWaterAmount);
     }
     #else
     // Descending reaches have no single planar lake reflection: a river
@@ -1057,7 +1090,7 @@ export const SCENE_FRAG = /* glsl */`
       vec4 bc = uViewProj * vec4(uCameraPos + LOWERED_RAY(normalize(vRenderedWorld - uCameraPos)) * 60000.0, 1.0);
       vec3 skyImage = srgbToLinear(texture(uBackdrop, clamp(bc.xy / bc.w * 0.5 + 0.5 + shiver, vec2(0.001), vec2(0.999))).rgb);
       float reflectance = clamp(${WATER_REFLECT_FLOOR.toFixed(3)} + ${(1 - WATER_REFLECT_FLOOR).toFixed(3)} * waterFres, 0.0, 0.88) * (1.0 - 0.4 * paw);
-      color = mix(color, skyImage * 0.9, reflectance * smoothstep(.5, .9, waterCoverage) * uBackdropAmount * clear * uNarrative.z * uNarrative.w);
+      color = mix(color, skyImage * 0.9, reflectance * smoothstep(.5, .9, waterCoverage) * uBackdropAmount * clear * uNarrative.z * uNarrative.w * paintWaterAmount);
     }
     #endif
     if (paintWater) {
@@ -1065,7 +1098,7 @@ export const SCENE_FRAG = /* glsl */`
       // his light. Over the mirror, through the air.
       vec3 glow = actorGlint(vRenderedWorld, V, waterN) * 0.6 + uActorColor[0] * wake * 0.12;
       // Rain on the lake breaks the path up, so it fades with the squall.
-      color += glow * clear * uNarrative.z * (1.0 - 0.85 * clamp(air, 0.0, 1.0)) * (1.0 - 0.75 * uStorm.x);
+      color += glow * clear * uNarrative.z * (1.0 - 0.85 * clamp(air, 0.0, 1.0)) * (1.0 - 0.75 * uStorm.x) * paintWaterAmount;
     }
     // A narrow physical silhouette supplies the main opening ink. Sparse
     // source-space hints are drawn separately against this same depth.
