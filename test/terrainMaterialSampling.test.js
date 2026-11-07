@@ -72,6 +72,6 @@ test('water retains macro rock heights and snow coverage for its specular materi
   assert.match(SCENE_FRAG, /Tri macro = triplanarRib\(tRock, detailPosition, n, sRock, 0\.0, 0\.35\);/);
   assert.match(SCENE_FRAG, /Tri macro2 = triplanarRib\(tRock, detailPosition, n, sRock \* 0\.37, 1\.1, 0\.5\);/);
   assert.match(SCENE_FRAG, /float rh = mix\(macro\.h, macro2\.h, 0\.35\);/);
-  assert.match(SCENE_FRAG, /snow01 = snow;\s*if \(water\)/);
+  assert.match(SCENE_FRAG, /snow01 = snow;\s*if \(paintWater\)/);
   assert.match(SCENE_FRAG, /materialF0\(snow01, ice\.y\)/);
 });

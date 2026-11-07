@@ -153,3 +153,47 @@ Actual WebGL compilation, matched rendered motion, delivered FPS and physical
 JOYING JY-UTS18N12 thermal/playback performance remain unmeasured. The CPU and
 geometry evidence above supports the stated reductions and behavior contracts;
 it does not establish a head-unit frame rate.
+
+## Followup: native shoreline appearance, November 7
+
+Current-main review confirmed that all twenty normally eligible views receive
+the wide build overview. The windowed-tour exception currently affects the
+diagnostic Teton tour. Nineteen camera/ocean tests passed again on the merged
+implementation.
+
+The review also found a same-scope GLSL local-name collision between storm
+`opening` and ocean `opening`. The ocean local is now `oceanOpening`; this
+independent syntax fix and its production-source regression were merged in
+[PR #101](https://github.com/aepler315/midio-pixel/pull/101). The regression fails
+against the original shader. Three isolated fix tests pass. This is static
+source verification, not an observed successful WebGL compilation.
+
+A further native-raster refinement filters shoreline **appearance**, keeping
+mapped water coverage and depth ownership unchanged. Water material and optical
+contributions ramp inward from the source threshold over a derivative footprint.
+Skipped near/snow detail and far dots fade before that threshold, preventing
+their old sample gates from introducing another color jump. Water-only draws,
+Direct separation, diagnostics and every positive ice blend bypass the filter.
+
+The change adds derivative/smoothstep/mix arithmetic. It adds no render pass,
+target, uniform or texture read. Original water/reflection sampling gates and
+the expensive fair-weather cloud short-circuit remain; dry-side cloud lighting
+eases to the wet-side value before the threshold. No new cloud-disc traversal is
+introduced. This is not a measured GPU speedup.
+
+The color handoff deliberately moves inward by up to one native footprint.
+It reduces a binary appearance switch; it cannot remove the spatial grid from
+a deliberately coarse Classic raster. Physical-resolution Direct/hybrid shore
+composition retains the behavior described above.
+
+After the final cloud-cost correction, **191 focused tests pass**, including
+camera/ocean, native coverage and optics, cloud work, water/mirror, material and
+forest, progressive-resolution and renderer contracts. Full lint and the
+520-module source graph pass. Independent review found no remaining blocker.
+One stale sampling-test expectation from PR #99 was corrected to its actual
+`paintWater` branch; the original skip-guard assertions remain.
+
+The full suite was not run. Local Chromium was attempted and failed at singleton
+socket creation with `Operation not permitted`; the RTX workstation is still
+offline. Rendered motion, shader-driver compilation, delivered FPS and physical
+JOYING results remain unverified.
