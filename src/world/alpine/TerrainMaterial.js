@@ -1073,10 +1073,10 @@ export const SCENE_FRAG = /* glsl */`
     float aa = max(.008, fwidth(facing));
     float edge = 1.0 - smoothstep(.02 - aa, .02 + aa, facing);
     color = mix(color, vec3(0.0), edge * uNarrativeInk);
-    float opening = openingOcean01(1.0 - uLandRise.x);
+    float oceanOpening = openingOcean01(1.0 - uLandRise.x);
     vec3 outputColor = linearToSrgb(color);
-    if (opening > 0.0) outputColor = mix(outputColor,
-      openingOceanDisplay(vRenderedWorld, cameraPosition, pWater, uSkyHorizon, uAirColor, uAirDensity), opening);
+    if (oceanOpening > 0.0) outputColor = mix(outputColor,
+      openingOceanDisplay(vRenderedWorld, cameraPosition, pWater, uSkyHorizon, uAirColor, uAirDensity), oceanOpening);
     outColor = vec4(outputColor, 1.0);
     if (uDiag > 0.5) outColor = vec4(1.0, 0.0, 1.0, 1.0);
   }
