@@ -67,7 +67,7 @@ import { attachTerrainCulling, setChunks, setTerrainMaterial, subsetChunkTable }
 import { attachForestCulling, restoreForestCulling } from './ForestCulling.js';
 import { waterBoxes, vertexWaterBoxes, liftBounds, shiverBounds, mirrorScissor, waterScissor } from './MirrorScissor.js';
 import { LAND_RISE_START, landRiseLift, riseFromUniforms, risenHeight } from './LandRise.js';
-import { landRiseBase, landRiseCamera } from './LandRiseCamera.js';
+import { landRiseBase, landRiseCamera, landRiseFov } from './LandRiseCamera.js';
 import { RiseGround, riseGroundBytes } from './RiseGround.js';
 import { buildOpeningCoverageAsync, createOpeningCoverage, openingCoverageBytes } from './OpeningCoverage.js';
 import { openingOcean01 } from './BuildOcean.js';
@@ -2424,7 +2424,8 @@ export class RangeScene {
     const baseRail = scenePoseAt(railView, { progress01: view.glacier ? (frame.glacier?.journey01 ?? frame.progress01) : frame.progress01, timeMs: frame.timeMs,
       tour: p?.cameraTour || view.tour });
     const rail = { ...baseRail, fovYDeg: applyLensFov(baseRail.fovYDeg, frame.cameraEffects) };
-    const proj = scenicProjection(rail.fovYDeg, frame.scenicViewport);
+    const openingRail = { ...rail, fovYDeg: landRiseFov(rail.fovYDeg, frame.rise01) };
+    const proj = scenicProjection(openingRail.fovYDeg, frame.scenicViewport);
     // This view's VISIBLE frustum (the overscan margin excluded): the
     // pointer is normalised against the visible stage, and the zoom must
     // stay inside this view's own cone from its very first frame.
@@ -2434,7 +2435,7 @@ export class RangeScene {
     // Cinematic section moves and the listener's zoom (RangeCamera.js),
     // computed once per frame and view: the partition passes reuse it.
     const groundAt = p?.data ? this._renderedGround(view, frame, p.data, p) : null;
-    const authoredPose = applyCameraMoves(rail, frame.cameraMove, frame.userCamera, {
+    const authoredPose = applyCameraMoves(openingRail, frame.cameraMove, frame.userCamera, {
         heightAt: groundAt, waterLevelM: p?.waterLevelM,
         sampleStepM: p?.data?.grid?.cellSizeM, cone: { tanX, tanY },
         heightRangeM: p?.uniforms ? [p.uniforms.uHeightRange.value.x, p.uniforms.uHeightRange.value.y] : null,
@@ -2442,7 +2443,7 @@ export class RangeScene {
     const ground = groundAt ? groundAt(authoredPose.eyeM[0], authoredPose.eyeM[2]) : NaN;
     const pose = landRiseCamera(authoredPose, { rise01: frame.rise01, baseM: landRiseBase(p), groundM: ground,
       focusM: baseRail.tour || p?.cameraTour || view.tour ? null : p?.buildFocusM || p?.castPlan?.summit,
-      aspect: proj.aspect, overview: !p?.windowCache, groundAt });
+      aspect: proj.aspect, overview: !p?.windowCache });
     const resolved = { rail, proj, pose, tanX, tanY };
     poses.set(occurrenceId, resolved);
     this._ensureTourWindow(p, frame.timeMs, { pose, proj });

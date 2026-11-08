@@ -3,17 +3,16 @@ import test from 'node:test';
 import { landRiseBase, landRiseCamera } from '../src/world/alpine/LandRiseCamera.js';
 import { projectPoint } from '../src/world/terrain/SceneTravel.js';
 
-test('the empty opening overlooks the future range from a much wider, higher camera', () => {
+test('the empty opening keeps the authored eye over the same ground', () => {
   const pose = { eyeM: [0, 1400, 5000], targetM: [0, 1800, 0], fovYDeg: 35 };
   const opening = landRiseCamera(pose, { rise01: 0, baseM: 1000, groundM: 1200 });
-  assert.ok(Math.hypot(opening.eyeM[0], opening.eyeM[2]) >= 14000);
-  assert.ok(opening.eyeM[1] >= 4500);
+  assert.deepEqual(opening.eyeM, [0, 1200, 5000]);
   assert.deepEqual(opening.targetM, [0, 1000, 0]);
   assert.equal(opening.fovYDeg, pose.fovYDeg);
 });
 
-test('the growing summit stays framed across the overview approach and seeks reconstruct it', () => {
-  const pose = { eyeM: [0, 2000, 5000], targetM: [0, 2000, 0], fovYDeg: 40 };
+test('the growing summit stays framed through a close lens and seeks reconstruct it', () => {
+  const pose = { eyeM: [0, 2000, 5000], targetM: [0, 2000, 0], fovYDeg: 9 };
   const focusM = [600, 3000, 400], options = { baseM: 1000, groundM: 1800, focusM };
   assert.deepEqual(landRiseCamera(pose, { ...options, rise01: 0 }).targetM, [600, 1000, 400]);
   let lastDistance = Infinity;
@@ -21,7 +20,7 @@ test('the growing summit stays framed across the overview approach and seeks rec
     const rise01 = i / 200, camera = landRiseCamera(pose, { ...options, rise01 });
     const apex = [focusM[0], 1000 + rise01 * (focusM[1] - 1000), focusM[2]];
     const projected = projectPoint(camera, 16 / 9, apex);
-    assert.ok(projected && Math.abs(projected.x) < .65 && Math.abs(projected.y) < .65, `apex at rise ${rise01}`);
+    assert.ok(projected && Math.abs(projected.x) < .73 && Math.abs(projected.y) < .73, `apex at rise ${rise01}`);
     const distance = Math.hypot(camera.eyeM[0] - focusM[0], camera.eyeM[2] - focusM[2]);
     assert.ok(distance <= lastDistance + 1e-7);
     lastDistance = distance;
@@ -30,12 +29,12 @@ test('the growing summit stays framed across the overview approach and seeks rec
   assert.strictEqual(landRiseCamera(pose, { ...options, rise01: 1 }), pose);
 });
 
-test('very distant views bound the overview pullback below the scene far plane', () => {
+test('very distant views do not retreat toward the scene far plane', () => {
   const pose = { eyeM: [0, 3000, 80000], targetM: [0, 2500, 0], fovYDeg: 35 };
   const camera = landRiseCamera(pose, { rise01: 0, baseM: 100, groundM: 2000 });
   const distance = Math.hypot(...camera.eyeM.map((v, i) => v - camera.targetM[i]));
   assert.ok(distance < 100000, `opening target remains inside the 150km far plane: ${distance}`);
-  assert.ok(camera.eyeM[2] > pose.eyeM[2], 'the distant opening still pulls back');
+  assert.equal(camera.eyeM[2], pose.eyeM[2]);
 });
 
 test('a nearby framed summit cannot fall below a narrow view during the rise', () => {
@@ -51,20 +50,20 @@ test('a nearby framed summit cannot fall below a narrow view during the rise', (
   assert.strictEqual(landRiseCamera(pose, { ...options, rise01: 1 }), pose);
 });
 
-test('the physical overview clears terrain behind the authored eye before reframing its action', () => {
+test('the opening preserves clearance without sampling a different foreground', () => {
   const pose = { eyeM: [0, 400, 5000], targetM: [0, 900, 0], fovYDeg: 35 };
   let reads = 0;
   const options = { rise01: .4, baseM: 0, groundM: 100, focusM: [0, 900, 0],
     groundAt(x, z) { reads++; assert.equal(x, 0); assert.ok(z > 5000); return 16000; } };
   const camera = landRiseCamera(pose, options);
-  assert.equal(reads, 1);
-  assert.ok(camera.eyeM[1] >= 16000 * .4 + 300, 'the source ridge rises under the pulled-back eye');
+  assert.equal(reads, 0);
+  assert.deepEqual(camera.eyeM, [0, 340, 5000]);
   const projected = projectPoint(camera, 16 / 9, [0, 900 * .4, 0]);
   assert.ok(projected && Math.abs(projected.y) <= .73, 'retargeting follows the safety lift');
   landRiseCamera(pose, { ...options, overview: false });
-  assert.equal(reads, 1, 'admitted windowed tours do not add terrain lookups');
+  assert.equal(reads, 0, 'admitted windowed tours do not add terrain lookups');
   assert.strictEqual(landRiseCamera(pose, { ...options, rise01: 1 }), pose);
-  assert.equal(reads, 1, 'the complete endpoint keeps its exact original pose');
+  assert.equal(reads, 0, 'the complete endpoint keeps its exact original pose');
 });
 
 test('tours retain their admitted lens and moving action during growth', () => {
@@ -81,20 +80,18 @@ test('tours retain their admitted lens and moving action during growth', () => {
   assert.deepEqual(landRiseCamera(unmarked, { ...options, overview: false }).eyeM, opening.eyeM,
     'a selected tour can identify an unmarked pose provider explicitly');
   const staticShots = landRiseCamera(pose, { ...options, overview: true });
-  assert.ok(Math.hypot(staticShots.eyeM[0] - pose.targetM[0], staticShots.eyeM[2] - pose.targetM[2])
-    > 2.9 * Math.hypot(pose.eyeM[0] - pose.targetM[0], pose.eyeM[2] - pose.targetM[2]),
-  'generated shots over a static package can explicitly use the wide overview');
+  assert.deepEqual(staticShots.eyeM, opening.eyeM, 'generated shots keep the same source eye');
   assert.equal(landRiseCamera(pose, { ...options, rise01: .7 }).fovYDeg, pose.fovYDeg);
   assert.strictEqual(landRiseCamera(pose, { ...options, rise01: 1 }), pose);
 });
 
-test('the overview clears growing ground and returns to exact authored clearance', () => {
+test('the close opening clears growing ground and returns to exact authored clearance', () => {
   const pose = { eyeM: [10, 1900, 20], targetM: [2000, 3500, -3000], fovYDeg: 24 };
   const start = landRiseCamera(pose, { rise01: 0, baseM: 1000, groundM: 1800 });
-  assert.ok(start.eyeM[1] > 1100, 'the overview cranes above its original clearance');
+  assert.equal(start.eyeM[1], 1100);
   assert.equal(start.targetM[1], 1000);
   const middle = landRiseCamera(pose, { rise01: .5, baseM: 1000, groundM: 1800 });
-  assert.ok(middle.eyeM[1] - (1000 + .5 * (1800 - 1000)) > 100);
+  assert.equal(middle.eyeM[1] - (1000 + .5 * (1800 - 1000)), 100);
   assert.equal(middle.targetM[1], 2250);
   const approached = landRiseCamera(pose, { rise01: .75, baseM: 1000, groundM: 1800 });
   assert.equal(approached.eyeM[1] - (1000 + .75 * (1800 - 1000)), 100);
@@ -112,6 +109,6 @@ test('the floor stays fixed across rail/tour changes and accepts negative elevat
   assert.equal(landRiseBase(p), -100);
   assert.equal(landRiseBase({}), 0);
   const pose = { eyeM: [0, 500, 0], targetM: [0, 1000, -2000] };
-  assert.ok(landRiseCamera(pose, { rise01: 0, baseM: -100 }).eyeM[1] > 500);
+  assert.equal(landRiseCamera(pose, { rise01: 0, baseM: -100 }).eyeM[1], 500);
   assert.equal(landRiseCamera(pose, { rise01: .75, baseM: -100 }).eyeM[1], 500);
 });
