@@ -35,7 +35,7 @@ test('off and unsupported shading choices use the original shader and uniforms',
     const m = createSceneMaterial(THREE, uniforms, { terrainShading });
     assert.equal(m.fragmentShader, SCENE_FRAG);
     assert.equal(m.uniforms, uniforms, 'no experimental textures or uniforms allocated');
-    assert.deepEqual(m.defines, { FAR_FOREST_KMAX: 8 });
+    assert.deepEqual(m.defines, { FACTORED_DEFORM_GRAD: 1, CANOPY_SUMMARY: 1, FAR_FOREST_KMAX: 8 });
     m.dispose();
   }
 });

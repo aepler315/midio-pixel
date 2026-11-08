@@ -101,14 +101,23 @@ TODO until WP03 repairs the planner. It is not a passing playback assertion.
 
 ## Publishing
 
-GitHub Pages serves the `gh-pages` branch (repository settings: Pages source
-`gh-pages`, `/`). That branch holds only the staged site, never the
-repository: until 2026-10-24 Pages built `main` itself, which published every
-tracked file (internal docs, tools, data) at supermaudio.com. Publish with:
+The active GitHub Pages publisher builds `main` at the repository root and
+deploys to `https://supermaudio.com/`. This was verified in Pages build/deploy
+logs on 2026-11-07. A merge to `main` triggers that publisher; it currently runs
+independently of the checked-in manual test and staging workflows.
+
+Verify the Pages run's `build_revision` and the changed live module bytes,
+using a unique query string to bypass an old cached response. The live site
+can cache modules for ten minutes; an already open application needs a reload.
+The direct publisher does not generate `version.json`, so that file is not
+authoritative evidence of the currently served revision.
+
+The separate staging tools remain available for validation or a future
+staged-branch publishing configuration:
 
 ```sh
-npm run validate             # the gate above, on the commit you will publish
-npm run publish:site         # stage main, verify, boot headless, push gh-pages
+npm run validate             # comprehensive local checks
+npm run publish:site         # legacy staged export to gh-pages, not the active source
 npm run publish:site -- --ref <commit> --dry-run   # build and check only
 ```
 
@@ -117,7 +126,8 @@ so pinned bytes are exact), stages it with `tools/stage-site.mjs` (which
 verifies the Range runtime, terrain, tour and material pins and writes
 `version.json` with the commit), runs the bootstrap smoke against it, and
 commits it onto `gh-pages` through a private index; no checkout is touched.
-After Pages rebuilds, `https://supermaudio.com/version.json` names the commit.
+Its staged `version.json` names that export's commit. Updating `gh-pages`
+does not update the active site while Pages is configured to publish `main`.
 The Pages build itself runs on GitHub Actions, so it needs a working billing
 account; a blocked account leaves the previous deployment live.
 

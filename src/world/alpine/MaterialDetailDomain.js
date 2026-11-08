@@ -1,5 +1,9 @@
 // Numerical reference for the shader's fixed, continuous texture-domain warp.
 // It changes material coordinates only, never DEM positions or the surface texture.
+export const MATERIAL_HASH_GLSL = /* glsl */`
+  float hash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+`;
+
 const fract = x => x - Math.floor(x);
 function hash(x, y) {
   const p = [fract(x * .1031), fract(y * .1031), fract(x * .1031)];
