@@ -21,6 +21,7 @@ export { materialDetailPosition } from './MaterialDetailDomain.js';
 // GLSL twin of RangeFrame.sceneDeformation -- keep the two in step.
 import { MIST_GLSL, MIST_SAMPLES, mistFlowUniforms } from './RangeAtmosphere.js';
 import { DEFORM_GLSL, GROUND_LIFT_GLSL } from './TerrainDeform.js';
+import { FACTORED_DEFORM_GRAD_GLSL } from './DeformationGradient.js';
 import { FOREST_HASH_GLSL, FOREST_TRAITS_GLSL } from './ForestCover.js';
 import { CROWN_GLSL } from './ForestProfile.js';
 import { HORIZON_GLSL } from './TerrainOcclusion.js';
@@ -346,6 +347,9 @@ export const SCENE_FRAG = /* glsl */`
   precision highp float;
   uniform sampler2D uSurface;
   ${DEFORM_GLSL}
+  #ifdef FACTORED_DEFORM_GRAD
+  ${FACTORED_DEFORM_GRAD_GLSL}
+  #endif
   uniform vec3 uLightDir;
   uniform vec3 uLightColor;
   uniform vec3 uSkyZenith;
@@ -671,7 +675,11 @@ export const SCENE_FRAG = /* glsl */`
     vec3 n = normalize(vec3(nxz.x, sqrt(max(0.0, 1.0 - dot(nxz, nxz))), nxz.y));
     vec3 sourceNormal = n;
     vec3 ice = glacierAt(vWorld);
+    #ifdef FACTORED_DEFORM_GRAD
+    vec3 g = deformGradFactored(vWorld);
+    #else
     vec3 g = deformGrad(vWorld);
+    #endif
     float invY = 1.0 / max(0.2, 1.0 + g.y);
     n = normalize(vec3(n.x - g.x * n.y * invY, n.y * invY, n.z - g.z * n.y * invY));
     // The glacier's facets on the surface before the rise lowered it
@@ -1321,11 +1329,13 @@ export function applyMaterial(uniforms, pack, textures, ruleOverrides = {}) {
   uniforms.uHasMaterial.value = 1;
 }
 
-export function createSceneMaterial(THREE, uniforms, { forestDebug = false, budget = 'desktop', terrainShading = 'off', pixelated = false, riverSurface = false, mappedWaterOnly = false } = {}) {
+export function createSceneMaterial(THREE, uniforms, { forestDebug = false, budget = 'desktop', terrainShading = 'off', pixelated = false, riverSurface = false, mappedWaterOnly = false, deformationGradient = 'reference' } = {}) {
   const experimental = terrainShading === 'moran';
   const m = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: SCENE_VERT,
     fragmentShader: experimental ? moranTerrainFragment(SCENE_FRAG) : SCENE_FRAG, uniforms });
   if (experimental) m.userData.terrainShading = 'moran';
+  m.userData.deformationGradient = deformationGradient === 'factored' ? 'factored' : 'reference';
+  if (deformationGradient === 'factored') m.defines.FACTORED_DEFORM_GRAD = 1;
   m.defines.FAR_FOREST_KMAX = budget === 'mobile' ? 4 : 8;
   if (pixelated) m.defines.PIXEL_MATERIAL_SKIP = 1;
   if (forestDebug) m.defines.FOREST_DEBUG = 1;

@@ -5,6 +5,7 @@ import { shaderFailureLog } from '../../render/GraphicsDiagnostics.js';
 import { applyLensFov } from '../../render/CameraLens.js';
 import { terrainShadingMode, terrainShadingForView } from './TerrainShadingExperiment.js';
 import { compiledTerrainRequest, compiledViewUnsupported, compiledCameraView } from './CompiledTerrain.js';
+import { deformationGradientMode } from './DeformationGradient.js';
 import { prepareCompiledView } from './CompiledTerrainScene.js';
 import { resolveRangeComposition, compositionBars } from './RangeComposition.js';
 import { rangeRenderPolicy, supportedSamples, msaaOverride, sceneTargetBytes, sideTargetBytes, nearerMask } from './RangeRenderPolicy.js';
@@ -218,6 +219,7 @@ export class RangeScene {
     // Developer-only representation probe; normal shaders compile it out.
     this.forestDebug = new URLSearchParams(globalThis.location?.search || '').get('forestDebug') === '1';
     this.terrainShading = terrainShadingMode();
+    this.deformationGradient = deformationGradientMode(globalThis.location?.search || '');
     // Developer-only compiled terrain experiment (?compiledTerrain=, see
     // docs/compiled-terrain-experiment.md): what was asked, and per view
     // what was actually drawn and why.
@@ -1668,11 +1670,13 @@ export class RangeScene {
           }
         }
         material = createSceneMaterial(THREE, uniforms, { forestDebug: this.forestDebug, budget: this.budget,
+          deformationGradient: this.deformationGradient,
           pixelated: this.pixelated ?? opts.pixelated ?? false,
           mappedWaterOnly,
           terrainShading: terrainShadingForView(this.terrainShading, view.id) });
         if (Object.keys(riverGeometries).length) {
           riverMaterial = createSceneMaterial(THREE, uniforms, { budget: this.budget, riverSurface: true,
+            deformationGradient: this.deformationGradient,
             pixelated: this.pixelated ?? opts.pixelated ?? false });
           riverMaterial.depthFunc = THREE.LessEqualDepth;
           riverMaterial.depthWrite = false;
@@ -3772,6 +3776,11 @@ export class RangeScene {
       windows: [...this.prepared.values()].filter(p=>p.windowCache).map(p=>({id:p.view.id,index:p.windowIndex,resident:[...p.windowCache.resident.keys()],detail:p.activeWindow?.detail,coverage:p.windowCoverage,note:p.windowNote,stats:p.stats,forestDetail:p.forestDetailViews})),
       size: { ...this.size }, stats: { ...this.stats }, terrainCull: { ...this.terrainCull }, forestCull: { ...this.forestCull }, sideB: !!this.sideTargets.B,
       prepareLog: structuredClone(this.prepareLog || {}),
+      deformationGradient: { requested: this.deformationGradient,
+        drawn: Object.fromEntries([...this.prepared.values()].map(p => [p.view.id, {
+          terrain: p.material?.userData?.deformationGradient ?? 'unavailable',
+          river: p.riverMaterial?.userData?.deformationGradient ?? null,
+        }])) },
       compiledTerrain: { request: { ...this.compiledTerrain?.request }, views: structuredClone(this.compiledTerrain?.views || {}),
         drawn: Object.fromEntries([...this.prepared.values()].map(p => [p.view.id, p.compiled?.representation ?? 'original'])) },
       edge: { samples: this.edge?.samples ?? 0, requestedSamples: this.edge?.requestedSamples ?? 0, reason: this.edge?.reason ?? null, capability: this.edge?.capability ?? 0 },
