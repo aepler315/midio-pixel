@@ -6,7 +6,8 @@ import { RangeAssetError } from './RangeAssets.js';
 import { MIRROR_LIFT } from './WaterMirror.js';
 import { ACTOR_GLSL, WAKE_GLSL, actorUniforms } from './ActorsGL.js';
 import { STORM_GLSL } from './RangeStorm.js';
-import { MATERIAL_DETAIL_DOMAIN_GLSL } from './MaterialDetailDomain.js';
+import { MATERIAL_DETAIL_DOMAIN_GLSL, MATERIAL_HASH_GLSL } from './MaterialDetailDomain.js';
+import { MATERIAL_FEATURE_GLSL } from './MaterialFeatureCache.js';
 import { moranTerrainFragment } from './TerrainShadingExperiment.js';
 import { BUILD_OCEAN_GLSL } from './BuildOcean.js';
 import { OPENING_COVERAGE_GLSL } from './OpeningCoverage.js';
@@ -438,7 +439,7 @@ export const SCENE_FRAG = /* glsl */`
   ${CINEMATIC_LIGHTING_GLSL}
   ${BUILD_OCEAN_GLSL}
   ${OPENING_COVERAGE_GLSL}
-  float hash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+  ${MATERIAL_HASH_GLSL}
   // Smooth value noise: a per-cell hash alone steps at every cell edge,
   // which a threshold (snow line, tree line) turns into a visible grid.
   float vnoise12(vec2 p) {
@@ -448,6 +449,9 @@ export const SCENE_FRAG = /* glsl */`
     return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
   }
   ${MATERIAL_DETAIL_DOMAIN_GLSL}
+  #ifdef MATERIAL_FEATURE_CACHE
+  ${MATERIAL_FEATURE_GLSL}
+  #endif
   // Triplanar sample of a data texture (RG normal, B, A height) around the
   // geometric normal; returns the world-space normal offset in .xyz via
   // whiteout blending and the blended B/A in .ba of the second output.
@@ -718,7 +722,11 @@ export const SCENE_FRAG = /* glsl */`
     } else {
       // Macro rock detail everywhere: vary tile phase continuously so the
       // two rotated scales do not stamp a recurring pattern on broad faces.
+      #ifdef MATERIAL_FEATURE_CACHE
+      vec3 detailPosition = cachedMaterialDetailPosition(vWorld);
+      #else
       vec3 detailPosition = materialDetailPosition(vWorld);
+      #endif
       // The near CC0 scan fades in only where a texel can still be resolved.
       Tri macro = triplanarRib(tRock, detailPosition, n, sRock, 0.0, 0.35);
       Tri macro2 = triplanarRib(tRock, detailPosition, n, sRock * 0.37, 1.1, 0.5);
@@ -1321,11 +1329,32 @@ export function applyMaterial(uniforms, pack, textures, ruleOverrides = {}) {
   uniforms.uHasMaterial.value = 1;
 }
 
-export function createSceneMaterial(THREE, uniforms, { forestDebug = false, budget = 'desktop', terrainShading = 'off', pixelated = false, riverSurface = false, mappedWaterOnly = false } = {}) {
+// tSoil also holds the pack's ordinary image on the reference path. Never
+// interpret that image, or a cache built for another origin, as hash cells.
+function materialFeatureTextureReady(THREE, uniforms) {
+  const texture = uniforms.tSoil?.value, tag = texture?.userData?.materialFeatures;
+  const origin = uniforms.uGridOrigin?.value;
+  if (!texture?.isTexture || texture.format !== THREE.RGBAFormat || texture.type !== THREE.UnsignedByteType
+    || texture.colorSpace !== THREE.NoColorSpace || texture.generateMipmaps !== false
+    || tag?.version !== 1 || tag.mode !== 'warp'
+    || !Number.isInteger(tag.width) || tag.width < 1 || tag.width > 256
+    || !Number.isInteger(tag.height) || tag.height < 1 || tag.height > 256
+    || texture.image?.width !== tag.width || texture.image?.height !== tag.height
+    || !Array.isArray(tag.originCell) || tag.originCell.length !== 2
+    || !tag.originCell.every(v => Number.isSafeInteger(v) && Math.abs(v) <= 2 ** 24 - 2)
+    || uniforms.sSoil?.value !== tag.originCell[0] || uniforms.sCanopy?.value !== tag.originCell[1]
+    || !Number.isFinite(origin?.x) || !Number.isFinite(origin?.y)) return false;
+  return tag.originCell[0] === Math.floor(origin.x / 600) - 1
+    && tag.originCell[1] === Math.floor(origin.y / 600 - 19.7) - 1;
+}
+
+export function createSceneMaterial(THREE, uniforms, { forestDebug = false, budget = 'desktop', terrainShading = 'off', pixelated = false, riverSurface = false, mappedWaterOnly = false, materialFeatures = 'reference' } = {}) {
   const experimental = terrainShading === 'moran';
   const m = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: SCENE_VERT,
     fragmentShader: experimental ? moranTerrainFragment(SCENE_FRAG) : SCENE_FRAG, uniforms });
   if (experimental) m.userData.terrainShading = 'moran';
+  m.userData.materialFeatures = materialFeatures === 'warp' && materialFeatureTextureReady(THREE, uniforms) ? 'warp' : 'reference';
+  if (m.userData.materialFeatures === 'warp') m.defines.MATERIAL_FEATURE_CACHE = 1;
   m.defines.FAR_FOREST_KMAX = budget === 'mobile' ? 4 : 8;
   if (pixelated) m.defines.PIXEL_MATERIAL_SKIP = 1;
   if (forestDebug) m.defines.FOREST_DEBUG = 1;
