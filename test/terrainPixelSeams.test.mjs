@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { planTerrainWindow } from '../src/world/alpine/TerrainWindow.js';
 import { buildTerrainGeometry } from '../src/world/alpine/TerrainMesh.js';
 import { LENS_MIN_HALF_ANGLE_SCALE } from '../src/render/CameraLens.js';
+import { landRiseCamera, landRiseFov } from '../src/world/alpine/LandRiseCamera.js';
 import { tileStrideError } from '../tools/lib/terrain-bake.mjs';
 
 function seamFixture() {
@@ -78,4 +79,31 @@ test('pixel terrain error includes interior interpolation combined with a snappe
   const errorPx = Math.hypot(candidate[0] - source[0], candidate[1] - source[1]);
   assert.ok(errorPx <= .25 + 1e-6,
     `drawn mixed-stride seam moved ${errorPx.toFixed(6)} native pixels despite the ${pixel.pixelCoarsenedMaxErrorPx.toFixed(6)} px table bound`);
+});
+
+test('the risen mesh stays within native pixel error throughout the close opening and lens release', () => {
+  const data = seamFixture(), heightPx = 180, widthPx = 320, baseFov = 10;
+  const authoredFocal = heightPx / (2 * Math.tan(baseFov * Math.PI / 360) * LENS_MIN_HALF_ANGLE_SCALE);
+  const pose = { eyeM: [7, 0, authoredFocal / .2 + 5], targetM: [7, 0, 0], fovYDeg: baseFov };
+  const tour = { durationMs: 8000, poseAt: () => pose };
+  const plan = planTerrainWindow(data, tour, 0, { pixelHeightPx: heightPx, riseSink: 1, riseBaseM: 0 });
+  const built = buildTerrainGeometry(data, { strides: plan.strides });
+  const sourceY = -1, candidateY = meshHeightAt(built, 7, 2);
+  assert.ok(candidateY !== sourceY, 'exercise real simplification error in the drawn mesh');
+  assert.ok(plan.pixelTrianglesSaved > 0, 'the close opening keeps safe additional coarsening');
+  let maximumError = 0;
+  for (let i = 0; i <= 200; i++) {
+    const rise01 = i / 200;
+    const fovYDeg = 2 * Math.atan(Math.tan(landRiseFov(baseFov, rise01) * Math.PI / 360)
+      * LENS_MIN_HALF_ANGLE_SCALE) * 180 / Math.PI;
+    const actual = landRiseCamera({ ...pose, fovYDeg }, { rise01, baseM: 0, groundM: 0, overview: false });
+    const camera = new THREE.PerspectiveCamera(fovYDeg, widthPx / heightPx, 20, 150000);
+    camera.position.fromArray(actual.eyeM); camera.lookAt(...actual.targetM); camera.updateMatrixWorld();
+    const source = new THREE.Vector3(7, rise01 * sourceY, 2).project(camera);
+    const candidate = new THREE.Vector3(7, rise01 * candidateY, 2).project(camera);
+    const errorPx = Math.hypot((candidate.x - source.x) * widthPx / 2, (candidate.y - source.y) * heightPx / 2);
+    maximumError = Math.max(maximumError, errorPx);
+    assert.ok(errorPx <= .25 + 1e-6, `rise ${rise01}: the magnified drawn mesh moved ${errorPx} native pixels`);
+  }
+  assert.ok(maximumError > .19, 'the screen-error sweep observes the retained residual');
 });

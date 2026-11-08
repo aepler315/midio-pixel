@@ -1140,7 +1140,8 @@ export class RangePresentation {
         return { tourPose: { ...pose, fovYDeg: proj.fovYDeg, aspect: proj.aspect }, celestialOffsetDeg: railHeading - 45 };
       }
       const turn = skyTurn(pose, cameraBasis(rail).forward);
-      const referenceFov = Math.atan(Math.tan(proj.fovYDeg * Math.PI / 360) / (frame.cameraEffects?.halfAngleScale || 1)) * 360 / Math.PI;
+      const referenceProj = scenicProjection(rail.fovYDeg, vp);
+      const referenceFov = Math.atan(Math.tan(referenceProj.fovYDeg * Math.PI / 360) / (frame.cameraEffects?.halfAngleScale || 1)) * 360 / Math.PI;
       const skyCamera = { referencePose: { ...rail, fovYDeg: referenceFov }, pose: { ...pose, fovYDeg: proj.fovYDeg }, aspect: proj.aspect };
       return { ...turn, skyCamera, tanY: Math.tan((proj.fovYDeg * Math.PI) / 360) / (frame.cameraEffects?.halfAngleScale || 1), aspect: proj.aspect };
     };

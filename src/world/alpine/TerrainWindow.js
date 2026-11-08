@@ -245,6 +245,9 @@ export function planTerrainWindow(data, tour, index, {
   const framing = { aspect: coverage?.aspect || aspect, fovScale: coverage?.fovScale || 1.2, anglePadRad: coverage?.anglePadRad || 0 };
   for (const p of poses) {
     Object.assign(p, expandedTangents(p, framing));
+    // Source and musical height residuals share the final vertical rise.
+    // rise * landRiseFov magnification <= 1, so the authored focal bound
+    // already covers the close opening without extra all-song geometry.
     p.focal = heightPx / (2 * Math.tan(p.minFovYDeg * Math.PI / 360) * LENS_MIN_HALF_ANGLE_SCALE);
   }
   const detailPoses = [...poses];

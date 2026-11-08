@@ -5,6 +5,9 @@ import { RangeScene } from '../src/world/alpine/RangeScene.js';
 import { landRiseCamera } from '../src/world/alpine/LandRiseCamera.js';
 import { scenePoseAt } from '../src/world/terrain/SceneTravel.js';
 import { scenicProjection } from '../src/world/alpine/RangeFrame.js';
+import { RangePresentation } from '../src/world/alpine/RangePresentation.js';
+import { NEUTRAL_MOVE } from '../src/world/alpine/RangeCamera.js';
+import { projectRailSky } from '../src/world/alpine/RangeSkyComposition.js';
 
 const camera = { eyeStartM: [0, 1500, 0], eyeEndM: [1000, 1600, 0],
   targetStartM: [0, 700, -9000], targetEndM: [2000, 700, -8000], fovYDeg: 35 };
@@ -21,7 +24,7 @@ function fixture(view, p) {
   return { scene, frame, windows };
 }
 
-test('generated static shot tours open wide over their current authored action', () => {
+test('generated static shot tours open close over their current authored action', () => {
   // The pose provider remains a supported duck type even if it does not
   // attach the optional tour metadata to every pose it returns.
   for (const tour of [false, true]) {
@@ -31,28 +34,28 @@ test('generated static shot tours open wide over their current authored action',
     const prepared = { view, cameraTour, castPlan: { summit }, waterLevelM: 100 };
     const { scene, frame } = fixture(view, prepared);
     const resolved = scene.movedPose(view, frame);
-    const expected = landRiseCamera(pose, { rise01: frame.rise01, baseM: 100,
+    const expected = landRiseCamera({ ...pose, fovYDeg: resolved.pose.fovYDeg }, { rise01: frame.rise01, baseM: 100,
       groundM: NaN, focusM: null, aspect: scenicProjection(sourcePose.fovYDeg, viewport).aspect, overview: true });
     assert.deepEqual(resolved.pose.eyeM, expected.eyeM);
     assert.deepEqual(resolved.pose.targetM, expected.targetM);
-    assert.equal(resolved.pose.fovYDeg, expected.fovYDeg);
-    assert.ok(Math.hypot(resolved.pose.eyeM[0] - sourcePose.targetM[0], resolved.pose.eyeM[2] - sourcePose.targetM[2])
-      > Math.hypot(sourcePose.eyeM[0] - sourcePose.targetM[0], sourcePose.eyeM[2] - sourcePose.targetM[2]));
+    assert.ok(resolved.pose.fovYDeg < sourcePose.fovYDeg);
+    assert.equal(resolved.pose.eyeM[0], sourcePose.eyeM[0]);
+    assert.equal(resolved.pose.eyeM[2], sourcePose.eyeM[2]);
     assert.deepEqual(resolved.pose.targetM, [sourcePose.targetM[0], 100 + frame.rise01 * (sourcePose.targetM[1] - 100), sourcePose.targetM[2]]);
   }
 });
 
-test('windowed mapped tours retain their admitted route and lens while following the rising action', () => {
+test('windowed mapped tours crop their admitted route while following the rising action', () => {
   for (const tour of [false, true]) {
     const pose = tour ? { ...sourcePose, tour: true } : sourcePose;
     const view = { id: 'mapped-tour', camera, tour: { durationMs: 100000, poseAt: () => pose } };
     const prepared = { view, windowCache: {}, castPlan: { summit }, waterLevelM: 100 };
     const { scene, frame, windows } = fixture(view, prepared);
     const resolved = scene.movedPose(view, frame);
-    assert.equal(resolved.pose.fovYDeg, sourcePose.fovYDeg);
+    assert.ok(resolved.pose.fovYDeg < sourcePose.fovYDeg);
     assert.equal(resolved.pose.eyeM[0], sourcePose.eyeM[0]);
     assert.equal(resolved.pose.eyeM[2], sourcePose.eyeM[2]);
-    assert.deepEqual(resolved.proj, scenicProjection(sourcePose.fovYDeg, viewport));
+    assert.deepEqual(resolved.proj, scenicProjection(resolved.pose.fovYDeg, viewport));
     assert.equal(windows[0].proj, resolved.proj);
     assert.equal(windows[0].pose, resolved.pose);
     scene._setCamera(view, frame, prepared);
@@ -66,12 +69,13 @@ test('ordinary rails retain their source summit as the build focus', () => {
   const view = { id: 'ordinary-rail', camera }, prepared = { view, castPlan: { summit }, waterLevelM: 100 };
   const { scene, frame } = fixture(view, prepared);
   const rail = scenePoseAt(view, { progress01: frame.progress01 });
-  const expected = landRiseCamera(rail, { rise01: frame.rise01, baseM: 100, groundM: NaN, focusM: summit,
+  const resolved = scene.movedPose(view, frame);
+  const expected = landRiseCamera({ ...rail, fovYDeg: resolved.pose.fovYDeg }, { rise01: frame.rise01, baseM: 100, groundM: NaN, focusM: summit,
     aspect: scenicProjection(rail.fovYDeg, viewport).aspect });
   assert.deepEqual(scene.movedPose(view, frame).pose, { ...expected, userScale: 1 });
 });
 
-test('the overview clears newly encountered ground through one shared scene sampler', () => {
+test('the close opening preserves ground clearance at the authored eye', () => {
   const nearCamera = { eyeStartM: [0, 1000, 0], eyeEndM: [0, 1000, 0],
     targetStartM: [0, 500, -1000], targetEndM: [0, 500, -1000], fovYDeg: 35 };
   const view = { id: 'near-rail', camera: nearCamera }, samples = [];
@@ -84,9 +88,52 @@ test('the overview clears newly encountered ground through one shared scene samp
     return RangeScene.prototype._renderedGround.call(scene, ...args);
   };
   const resolved = scene.movedPose(view, frame);
-  assert.equal(factories, 1, 'camera controls and overview share their terrain sampler');
-  assert.ok(samples.some(([, z]) => z > 1000), 'the moved overview eye is checked, not only the rail eye');
+  assert.equal(factories, 1, 'camera controls and growth share their terrain sampler');
+  assert.ok(samples.every(([x, z]) => x === 0 && z === 0), 'the opening never moves into a different foreground');
   const sourceGround = prepared.data.groundAt(...[resolved.pose.eyeM[0], resolved.pose.eyeM[2]]);
   const drawnGround = 100 + frame.rise01 * (sourceGround - 100);
   assert.ok(resolved.pose.eyeM[1] >= drawnGround + 1000, 'the original authored clearance survives over the newly encountered ground');
+});
+
+test('every camera route renders a fourfold close-up and smoothly restores its full lens', () => {
+  const fixedCamera = { eyeStartM: sourcePose.eyeM, eyeEndM: sourcePose.eyeM,
+    targetStartM: sourcePose.targetM, targetEndM: sourcePose.targetM, fovYDeg: 35 };
+  for (const mode of ['rail', 'static-tour', 'mapped-tour']) for (const scenicViewport of [viewport,
+    { logicalWidth: 560, logicalHeight: 920, nominalWidth: 400, nominalHeight: 720, overscanPx: 64 }]) {
+    const view = { id: mode, camera: fixedCamera };
+    const tour = { durationMs: 100000, poseAt: () => ({ ...sourcePose, tour: true }) };
+    const prepared = { view, waterLevelM: 100 };
+    if (mode === 'static-tour') prepared.cameraTour = tour;
+    if (mode === 'mapped-tour') { view.tour = tour; prepared.windowCache = {}; }
+    const { scene, frame } = fixture(view, prepared);
+    const base = scenicProjection(35, scenicViewport);
+    const ordinary = new THREE.PerspectiveCamera(base.fovYDeg, base.aspect);
+    let lastFocal = Infinity;
+    for (let i = 0; i <= 70; i++) {
+      const at = { ...frame, rise01: i / 100, scenicViewport };
+      scene._setCamera(view, at, prepared);
+      const focal = scene.camera.projectionMatrix.elements[5];
+      if (i === 0) assert.ok(Math.abs(focal / ordinary.projectionMatrix.elements[5] - 4) < 1e-12, mode);
+      assert.ok(focal <= lastFocal + 1e-12, 'framing widens continuously with growth');
+      lastFocal = focal;
+      assert.equal(scene.camera.position.x, sourcePose.eyeM[0]);
+      assert.equal(scene.camera.position.z, sourcePose.eyeM[2]);
+    }
+    assert.ok(Math.abs(lastFocal - ordinary.projectionMatrix.elements[5]) < 1e-12);
+    scene._setCamera(view, { ...frame, rise01: 1, scenicViewport }, prepared);
+    assert.equal(scene.camera.fov, base.fovYDeg);
+  }
+});
+
+test('the opening magnifies ordinary sky anchors with the terrain lens', () => {
+  const view = { id: 'opening-sky', camera: {
+    eyeStartM: [0, 102, 1000], eyeEndM: [0, 102, 1000],
+    targetStartM: [0, 100, 0], targetEndM: [0, 100, 0], fovYDeg: 35 } };
+  const prepared = { view, waterLevelM: 100, railOnly: true };
+  const { scene, frame } = fixture(view, prepared);
+  const at = { ...frame, cameraMove: NEUTRAL_MOVE, rise01: 0 };
+  const sky = RangePresentation.prototype._skyPan.call({ scene }, view, null, at);
+  const point = projectRailSky({ xFrac: .55, yFrac: .5 }, sky.skyCamera);
+  assert.ok(Math.abs(point.xFrac - .7) < 1e-9, 'the same sky direction is four times farther from screen center');
+  assert.ok(Math.abs(point.yFrac - .5) < 1e-9);
 });
