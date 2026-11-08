@@ -133,6 +133,46 @@ test('a plan that outlives the timeout falls back to the rail, except in export'
   assert.equal(exported.settled('a'), false, 'an export waits for its plan');
 });
 
+test('a stalled library releases scene preparation to the rail after its live deadline', async () => {
+  let now = 0;
+  const v = view('a');
+  const make = exportMode => {
+    const tours = new RangeShotTours({ assetBase: 'http://x/', load: () => new Promise(() => {}), now: () => now });
+    tours.setSong({ mgr: mgr(), views: [v], generation: 1, exportMode });
+    return tours;
+  };
+  const live = make(false), exported = make(true);
+  assert.equal(live.prepareView(v), null);
+  now = SHOT_PLAN_TIMEOUT_MS + 1;
+  assert.equal(live.prepareView(v), v, 'preparation itself must advance the fallback before a scene exists');
+  assert.match(live.status().a.reason, /timed out/);
+  assert.equal(exported.prepareView(v), null, 'exports retain their explicit wait for the library');
+  live.dispose(); exported.dispose();
+});
+
+test('a late library cannot reopen a timed-out rail choice, but remains reusable by the next song', async () => {
+  let now = 0, resolveLibrary;
+  const v = view('a');
+  const tours = new RangeShotTours({ assetBase: 'http://x/',
+    load: () => new Promise(resolve => { resolveLibrary = resolve; }),
+    plan: async () => timeline(), now: () => now });
+  tours.setSong({ mgr: mgr(), views: [v], generation: 1 });
+  now = SHOT_PLAN_TIMEOUT_MS + 1;
+  assert.equal(tours.prepareView(v), v, 'the scene may now prepare its authored rail');
+  const reason = tours.status().a.reason;
+  tours.reach(1000);
+  resolveLibrary({ library });
+  await settle(); await settle();
+  assert.equal(tours.timeline('a'), null, 'a delayed library cannot switch a playing rail to an unprepared tour');
+  assert.equal(tours.status().a.reason, reason);
+  assert.equal(tours.prepareView(v), v, 'the prepared footprint stays the authored rail for this song');
+
+  tours.setSong({ mgr: mgr(), views: [v], generation: 2 });
+  await settle(); await settle();
+  assert.ok(tours.timeline('a'), 'the cached library remains eligible for a later song');
+  tours.dispose();
+});
+
 test('refinement is admitted only when it continues the camera heard now', async () => {
   let next = timeline();
   const tours = new RangeShotTours({ assetBase: 'http://x/', load: async () => ({ library }), plan: async () => next });

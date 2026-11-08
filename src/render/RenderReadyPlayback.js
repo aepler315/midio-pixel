@@ -45,7 +45,9 @@ export async function waitForScenicReady({ presentation, draw, signal, timeoutMs
   const deadline = Date.now() + timeoutMs;
   const check = () => { if (signal?.aborted) throw cancelled(); };
   check(); draw({ preparing: true });
-  await bounded(presentation.whenReady({ timeoutMs, signal }), signal, deadline - Date.now());
+  // Live startup needs the destination frame, not every biome in the song.
+  // Keep whole-song preparation available to evidence/export callers.
+  await bounded(presentation.whenReady({ timeoutMs, signal, currentFrameOnly: true }), signal, deadline - Date.now());
   while (Date.now() < deadline) {
     check(); draw({ preparing: true });
     const snapshot = presentation.snapshot();
@@ -53,7 +55,7 @@ export async function waitForScenicReady({ presentation, draw, signal, timeoutMs
     const failure = wanted.map(view => snapshot.failures?.[view.id]).find(Boolean);
     if (snapshot.runtime === 'failed' || failure)
       throw new Error(failure || snapshot.reason || 'The landscape renderer could not start.');
-    await bounded(presentation.settle?.({ timeoutMs: Math.max(1, deadline - Date.now()) }), signal, deadline - Date.now());
+    await bounded(presentation.settle?.({ timeoutMs: Math.max(1, deadline - Date.now()), signal }), signal, deadline - Date.now());
     check(); const frame = draw({ preparing: true });
     const complete = wanted.every(view => {
       const prepared = presentation.scene?.prepared?.get(view.id);

@@ -5,6 +5,8 @@
 import { outputLatencyMs } from '../core/ChoreoClock.js';
 import { throwIfAborted } from './loadLimits.js';
 
+const RESUME_TIMEOUT_MS = 5000;
+
 export class AudioEngine {
   constructor() {
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -34,13 +36,21 @@ export class AudioEngine {
    *  afterward -- previously unchecked, so a resume() that silently failed
    *  (or a context stuck 'suspended' for any reason) left the game
    *  rendering its first frame forever with no message, since ctx.currentTime
-   *  never advances. Callers can check this and surface a real error. */
+   *  never advances. Browsers can leave resume's promise pending while
+   *  autoplay is blocked, so a deadline also lets callers report that case
+   *  and accept a fresh gesture instead of holding file loading forever. */
   async resume() {
     if (this.ctx.state === 'suspended') {
+      let timeout;
       try {
-        await this.ctx.resume();
+        await Promise.race([
+          this.ctx.resume(),
+          new Promise(resolve => { timeout = setTimeout(resolve, RESUME_TIMEOUT_MS); }),
+        ]);
       } catch (err) {
         console.warn('[AudioEngine] resume() failed', err);
+      } finally {
+        clearTimeout(timeout);
       }
     }
     return this.ctx.state === 'running';

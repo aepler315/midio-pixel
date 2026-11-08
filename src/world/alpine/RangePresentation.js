@@ -588,10 +588,11 @@ export class RangePresentation {
    *  already prepared resident, until one no longer fits the budget: the
    *  opening view is always attempted first, and later views are prepared
    *  as their sections approach (live) or by settle() (export). Resolves
-   *  with the snapshot (evidence/export use this; live playback never
-   *  waits on it). Preparing every view at once let later biomes' pending
+   *  with the snapshot. Live playback uses currentFrameOnly to await the
+   *  runtime/tour, then draws and settles just its destination. Preparing
+   *  every view at once let later biomes' pending
    *  reservations crowd out the view actually on screen. */
-  async whenReady({ timeoutMs = 60000, signal = null } = {}) {
+  async whenReady({ timeoutMs = 60000, signal = null, currentFrameOnly = false } = {}) {
     const owner = this._readinessOwner;
     const check = () => {
       if (signal?.aborted || this._readinessOwner !== owner)
@@ -609,6 +610,7 @@ export class RangePresentation {
     }
     if (this.runtimeState !== 'ready' || this.scene.contextLost) return this.snapshot();
     if (this.tourMode) { await this._tourPromise; check(); }
+    if (currentFrameOnly) return this.snapshot();
     const unique = this._songViews();
     const deadline = Date.now() + timeoutMs;
     const ready = [];
@@ -680,7 +682,13 @@ export class RangePresentation {
    * redraws the same heard time, which is deterministic -- false when the
    * frame already had everything it needed.
    */
-  async settle({ timeoutMs = 120000, attempts = 3 } = {}) {
+  async settle({ timeoutMs = 120000, attempts = 3, signal = null } = {}) {
+    const owner = this._readinessOwner;
+    const check = () => {
+      if (signal?.aborted || this._readinessOwner !== owner)
+        throw Object.assign(new Error('Landscape readiness superseded'), { name: 'AbortError' });
+    };
+    check();
     const windows = [...(this.scene?.prepared?.values() || [])].map(p => {
       const cache = p.windowCache;
       // Export settling is an explicit bounded attempt. Playback's admission
@@ -697,6 +705,7 @@ export class RangePresentation {
         })]);
       } finally { clearTimeout(timer); }
     }
+    check();
     const lacking = this._needed.size > 0;
     this._needed.clear();
     // The aurora echoes a skyline read back from the frame's own land; one
@@ -713,6 +722,7 @@ export class RangePresentation {
     const tries = new Map();
     let waited = false;
     while (Date.now() < deadline) {
+      check();
       this.scene.pinView?.(views.filter((v) => this.scene.isReady(v.id)).map((v) => v.id));
       const open = views.filter((v) => !this.scene.isReady(v.id) && !this.failures.has(v.id));
       // A view still being built is always waited for; only one refused
@@ -721,6 +731,7 @@ export class RangePresentation {
       if (!open.length || open.every(givenUp)) break;
       waited = true;
       for (const v of open) {
+        check();
         if (givenUp(v)) continue;
         if (this.deferred.has(v.id)) {
           tries.set(v.id, (tries.get(v.id) || 0) + 1);
@@ -729,6 +740,7 @@ export class RangePresentation {
         this._prepare(v);
       }
       await new Promise((r) => setTimeout(r, 25));
+      check();
     }
     return waited || sky || terrainWaited;
   }
