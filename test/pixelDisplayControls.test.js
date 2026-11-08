@@ -86,3 +86,32 @@ test('the detail-build checkbox saves a boolean and preserves the manual preset'
   control.checked = false; handler();
   assert.equal(context.displayPrefs.buildPixelDetail, false);
 });
+
+test('Trio disables pixel-only controls and restores the saved Landscape choices', () => {
+  const controls = Object.fromEntries(['look', 'quality', 'palette', 'dither', 'ditherMode', 'pixelGrid', 'scaling', 'buildPixelDetail'].map(key => [key, { value: '', querySelector: () => ({ textContent: 'Medium — 480 × 270' }) }]));
+  const hint = {}, label = {}, snapshot = { setAttribute() {} };
+  const context = vm.createContext({ displayControls: controls,
+    displayPrefs: { ...DEFAULT_DISPLAY_PREFS, pixelGrid: 'medium', buildPixelDetail: false },
+    presentation: resolvePresentation({ ...DEFAULT_DISPLAY_PREFS, pixelGrid: 'medium' }), experience: 'trio',
+    document: { getElementById: id => id === 'pixelGridHint' ? hint : null },
+    detailLevelEl: label, snapshotBtnEl: snapshot, snapshotBusy: false,
+    navigator: { userAgent: 'Desktop' },
+  });
+  for (const name of ['syncDisplayControls', 'syncDetailControls']) {
+    const begin = main.indexOf(`function ${name}()`);
+    vm.runInContext(main.slice(begin, main.indexOf('\n}\n', begin) + 3), context);
+  }
+  context.syncDisplayControls();
+  for (const [key, control] of Object.entries(controls)) assert.equal(control.disabled, key !== 'quality', key);
+  assert.equal(label.textContent, 'Smooth');
+  assert.match(hint.textContent, /[Ss]mooth/);
+  assert.equal(controls.pixelGrid.value, 'medium');
+  assert.equal(snapshot.title, 'Save the current frame as a PNG');
+  context.experience = 'landscape';
+  context.syncDisplayControls();
+  assert.equal(controls.pixelGrid.disabled, false);
+  assert.equal(controls.look.disabled, false);
+  assert.equal(controls.pixelGrid.value, 'medium');
+  assert.equal(label.textContent, 'Medium');
+  assert.match(snapshot.title, /5 pixel detail levels/);
+});

@@ -102,11 +102,12 @@ export class PixelPresentation {
     this._capture = null;
   }
   setPresentation(presentation = {}) {
-    // This is the shared title/live/export ingress. Raw stale Natural overrides
-    // must use the same bounded nearest-neighbor presentation as saved profiles.
-    presentation = { ...presentation, pixelated: true, grid: pixelGrid(presentation.grid?.id),
-      paletteId: presentation.pixelated === false ? 'none' : presentation.paletteId || 'none',
-      pixelScale: 'original' };
+    // Trio draws the complete scene at output resolution. Unscoped stale
+    // Natural overrides still use Landscape's bounded pixel presentation.
+    const smooth = presentation.experience === 'trio';
+    presentation = { ...presentation, pixelated: !smooth, grid: pixelGrid(presentation.grid?.id),
+      paletteId: smooth || presentation.pixelated === false ? 'none' : presentation.paletteId || 'none',
+      pixelScale: 'original', ...(smooth ? { cinematicPixel: false, buildPixelDetail: false, scaling: 'fit' } : {}) };
     this._invalidateCapture();
     if (JSON.stringify(presentation) === JSON.stringify(this.presentation)) return;
     this._deniedFrameGrids = new Set();
@@ -118,13 +119,13 @@ export class PixelPresentation {
     this._securityGeneration = null;
     this._maskDeniedGeneration = null;
     this._ditherFallbackReason = null;
-    this.diagnostics = { requestedLook: presentation.cinematicPixel ? 'cinematic' : presentation.paletteId === 'none' ? 'pixel' : 'palette',
-      effectiveLook: 'pixel', paletteStatus: { applied: false, reason: null, pixels: 0 }, paletteCpuMs: 0, readbackCpuMs: 0,
-      requestedGrid: this.grid.id, effectiveGrid: this.grid, pixelScale: presentation.pixelScale, pixelPolicyVersion: PIXEL_POLICY_VERSION,
+    this.diagnostics = { requestedLook: smooth ? 'smooth' : presentation.cinematicPixel ? 'cinematic' : presentation.paletteId === 'none' ? 'pixel' : 'palette',
+      effectiveLook: smooth ? 'smooth' : 'pixel', paletteStatus: { applied: false, reason: null, pixels: 0 }, paletteCpuMs: 0, readbackCpuMs: 0,
+      requestedGrid: this.grid.id, effectiveGrid: smooth ? null : this.grid, pixelScale: presentation.pixelScale, pixelPolicyVersion: PIXEL_POLICY_VERSION,
       requestedPalette: presentation.paletteId || 'none', resolvedPalette: this._resolvedPaletteId, effectivePalette: 'none',
       requestedDitherMode: presentation.ditherMode || 'ordered', effectiveDitherMode: 'ordered', ditherFallbackReason: null,
       frame: { presented: false, generation: this.generation, reason: 'not-rendered' } };
-    if (this.working && (this.working.width !== this.grid.width || this.working.height !== this.grid.height)) this._releaseWorking();
+    if (this.working && (smooth || this.working.width !== this.grid.width || this.working.height !== this.grid.height)) this._releaseWorking();
     if (!this._needsDitherWeights() || this.ditherWeights && this.ditherWeights.length !== this.grid.pixels) this._releaseDitherWeights();
   }
   /** Admit a renderer-owned raster before releasing the useful old one.
@@ -241,7 +242,7 @@ export class PixelPresentation {
         this.failFrame('output-context'); return null;
       }
       const grid = this.grid;
-      if (!separate && canvas.width === grid.width && canvas.height === grid.height) {
+      if (!this.presentation.pixelated || !separate && canvas.width === grid.width && canvas.height === grid.height) {
         if (this.working) this._releaseWorking();
         this.source = canvas;
       } else {
@@ -269,7 +270,7 @@ export class PixelPresentation {
       }
       const ctx = this.source.getContext('2d');
       if (!ctx || ctx.isContextLost?.()) throw Error('Source context unavailable');
-      ctx.imageSmoothingEnabled = false;
+      ctx.imageSmoothingEnabled = !this.presentation.pixelated;
       this._ensureDitherWeights();
       this.diagnostics.working = { width: this.source.width, height: this.source.height };
       this._pending = { generation: this.generation, outputSize: this._outputSize };
@@ -348,7 +349,7 @@ export class PixelPresentation {
     try {
       const sourceContext = source.getContext('2d'), outputContext = this.canvas.getContext('2d');
       if (!sourceContext || sourceContext.isContextLost?.() || !outputContext || outputContext.isContextLost?.()) return this.failFrame('context-lost');
-      this.diagnostics.effectiveLook = p.cinematicPixel ? 'cinematic' : 'pixel';
+      this.diagnostics.effectiveLook = !p.pixelated ? 'smooth' : p.cinematicPixel ? 'cinematic' : 'pixel';
       let status = { applied: false, reason: null, pixels: 0 };
       // Grid edits need the separate composite that draws their other half.
       let prepared = !prepare || source === this.canvas;
@@ -392,8 +393,8 @@ export class PixelPresentation {
       const result = { presented: true, generation: this.generation, frameId: ++this.frameId };
       this.diagnostics.frame = result;
       this.diagnostics.presentationCpuMs = (this._beginCpuMs || 0) + performance.now() - started;
-      this._capture = { ...result, canvas: source, pixelated: true, scaling: p.scaling, pixelScale: p.pixelScale,
-        grid: this.grid, paletteId: this.diagnostics.effectivePalette, worldKind: this.worldKind ?? null, experience: this.experience ?? null,
+      this._capture = { ...result, canvas: source, pixelated: p.pixelated, scaling: p.scaling, pixelScale: p.pixelScale,
+        grid: p.pixelated ? this.grid : null, paletteId: this.diagnostics.effectivePalette, worldKind: this.worldKind ?? null, experience: this.experience ?? null,
         ditherMode: this.diagnostics.effectiveDitherMode, pixelPolicyVersion: PIXEL_POLICY_VERSION,
         width: source.width, height: source.height, outputSize: pending.outputSize };
       return result;

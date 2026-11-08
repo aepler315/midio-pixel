@@ -5,6 +5,8 @@ import vm from 'node:vm';
 import { createPresentingRenderer } from '../src/render/PresentingRenderer.js';
 import { resolvePresentation } from '../src/render/DisplayProfile.js';
 import { PerfGovernor } from '../src/render/PerfGovernor.js';
+import { resizeStageCanvas } from '../src/render/CanvasResidency.js';
+import { GraphicsResidency } from '../src/render/GraphicsResidency.js';
 import { resolveRangePipeline } from '../src/render/RenderOutputSize.js';
 
 const { stageOutputSize } = await import('../src/render/RenderOutputSize.js').catch(error => {
@@ -57,6 +59,37 @@ test('uniform pixel scenes retain their native grid and exports retain exact req
   assert.deepEqual(size({ hybrid: false, cssWidth: 3840, cssHeight: 2160, dpr: 2 }), { w: 320, h: 180 });
   assert.deepEqual(size({ hybrid: false, grid: { width: 640, height: 360 } }), { w: 640, h: 360 });
   assert.deepEqual(size({ hybrid: true, exportSize: { w: 3840, h: 2160 } }), { w: 3840, h: 2160 });
+});
+
+test('smooth Trio output uses display density without a pixel-grid constraint', () => {
+  assert.deepEqual(size({ smooth: true, cssWidth: 1280, cssHeight: 720, dpr: 1.5 }), { w: 1920, h: 1080 });
+  assert.deepEqual(size({ smooth: true, cssWidth: 1280, cssHeight: 720, dpr: 1.5, scale: .75 }), { w: 1440, h: 810 });
+  assert.deepEqual(size({ smooth: true, fullscreen: true, cssWidth: 1024, cssHeight: 600, dpr: 1.5 }), { w: 1536, h: 900 });
+  assert.deepEqual(size({ smooth: true, exportSize: { w: 3840, h: 2160 } }), { w: 3840, h: 2160 });
+});
+
+test('Trio bypasses pixel presentation while keeping Landscape preferences', () => {
+  const begin = main.indexOf('function effectivePresentation()');
+  const code = main.slice(begin, main.indexOf('\n}\n', begin) + 3);
+  const presentation = { pixelated: true, paletteId: 'rgb332', cinematicPixel: true,
+    buildPixelDetail: true, scaling: 'integer', grid: { width: 640, height: 360 } };
+  const context = vm.createContext({ bulkPresentation: null, presentation,
+    directTerrainExperiment: () => false, requestedRangePipeline: 'single', voxelRangePilot: null,
+    location: { search: '' }, experience: 'trio', bulkExportSize: null, document: {}, isFullscreen: () => false });
+  vm.runInContext(code, context);
+  const effective = context.effectivePresentation();
+  assert.equal(effective.pixelated, false);
+  assert.equal(effective.experience, 'trio');
+  assert.equal(effective.paletteId, 'none');
+  assert.equal(effective.cinematicPixel, false);
+  assert.equal(effective.buildPixelDetail, false);
+  assert.equal(effective.scaling, 'fit');
+  assert.equal(presentation.scaling, 'integer');
+  assert.equal(presentation.paletteId, 'rgb332');
+  assert.equal(presentation.pixelated, true);
+  context.experience = 'landscape';
+  assert.equal(context.effectivePresentation().paletteId, 'rgb332');
+  assert.equal(context.effectivePresentation().pixelated, true);
 });
 
 test('native stage bounds the complete live picture even in physical-pixel fullscreen', () => {
@@ -128,11 +161,11 @@ test('fullscreen entry and exit resize the landscape while retaining the saved s
 for (const { pixelGrid, experience = 'landscape', bulkExportSize = null, fullscreen = false, rangePipeline, buildPixelDetail = false, expected } of [
   { pixelGrid: 'classic', expected: [1920, 1080] },
   { pixelGrid: 'detailed', expected: [1920, 1080] },
-  { pixelGrid: 'classic', experience: 'trio', expected: [320, 180] },
-  { pixelGrid: 'detailed', experience: 'trio', expected: [640, 360] },
-  { pixelGrid: 'classicPlus', experience: 'trio', expected: [400, 225] },
-  { pixelGrid: 'medium', experience: 'trio', expected: [480, 270] },
-  { pixelGrid: 'mediumPlus', experience: 'trio', expected: [560, 315] },
+  { pixelGrid: 'classic', experience: 'trio', expected: [1920, 1080] },
+  { pixelGrid: 'detailed', experience: 'trio', expected: [1920, 1080] },
+  { pixelGrid: 'classicPlus', experience: 'trio', expected: [1920, 1080] },
+  { pixelGrid: 'medium', experience: 'trio', expected: [1920, 1080] },
+  { pixelGrid: 'mediumPlus', experience: 'trio', expected: [1920, 1080] },
   { pixelGrid: 'classic', bulkExportSize: { w: 3840, h: 2160 }, expected: [3840, 2160] },
   { pixelGrid: 'classic', fullscreen: true, expected: [1920, 1080] },
   { pixelGrid: 'classic', rangePipeline: 'single', buildPixelDetail: true, expected: [1920, 1080] },
@@ -153,7 +186,7 @@ for (const { pixelGrid, experience = 'landscape', bulkExportSize = null, fullscr
   }) });
   const context = vm.createContext({ effectivePresentation: () => active, renderer, titlePresentation: null,
     fitPixelLayout() { laidOut = true; }, perfGovernor: null, bulkExportSize, canvas, stageOutputSize,
-    experience, sim: { timeMs: 15950, biomes: { world: { kind: 'alpine' } } }, rangePresentation: { enabled: true }, voxelRangePilot: null,
+    experience, sim: { experience, timeMs: 15950, biomes: { world: { kind: 'alpine' } } }, rangePresentation: { enabled: true }, voxelRangePilot: null,
     lastTimelineData: null, lastWorldId: 'alpine', DEFAULT_WORLD_ID: 'alpine', getWorld: () => ({ kind: 'alpine' }),
     window: { devicePixelRatio: 1.5 }, document: {}, isFullscreen: () => fullscreen, landscapeHintEl: null,
     resizeStageCanvas(target, w, h) { target.width = w; target.height = h; },
@@ -162,11 +195,46 @@ for (const { pixelGrid, experience = 'landscape', bulkExportSize = null, fullscr
     vm.runInContext(fitCanvas, context); context.fitCanvas();
     assert.deepEqual([canvas.width, canvas.height], expected);
     assert.equal(context.sim.timeMs, 15950, 'resizing cannot move the heard performance');
-    assert.equal(flags.get('retro'), experience === 'trio' || !!rangePipeline);
+    assert.equal(flags.get('retro'), experience !== 'trio' && !!rangePipeline);
     assert.equal(flags.get('nativeCover'), !!rangePipeline && fullscreen, 'CSS crop must match fullscreen pointer mapping');
-    renderer.draw({}, 1);
-    assert.deepEqual(terrainSize, [active.grid.width, active.grid.height]);
+    renderer.draw(context.sim, 1);
+    assert.deepEqual(terrainSize, experience === 'trio' ? expected : [active.grid.width, active.grid.height]);
   } finally { renderer.dispose(); }
+});
+
+for (const { label, width, height, exportSize = null, budgetBytes = 256 * 1024 * 1024, steps } of [
+  { label: '4K fullscreen', width: 3840, height: 2160,
+    steps: [[0, 3840, true, 32], [1, 3840, false, 64], [2, 3264, false, 64], [4, 2400, false, 64]] },
+  { label: '2880px fullscreen crossing the expensive-effects tier', width: 2880, height: 1620,
+    steps: [[1, 2880, false, 64], [2, 2448, false, 32]] },
+  { label: '4K fixed export', width: 1280, height: 720, exportSize: { w: 3840, h: 2160 },
+    steps: [[1, 3840, false, 64], [2, 3840, false, 64]] },
+  { label: '4K resize denied by the real stage budget', width: 3840, height: 2160, budgetBytes: 1024 * 1024,
+    steps: [[1, 640, false, 32], [2, 640, false, 32]] },
+]) test(`smooth Trio governor uses the unscaled target and admitted backing for ${label}`, () => {
+  const active = resolvePresentation({ version: 2, look: 'pixel', pixelGrid: 'classic' });
+  const governor = new PerfGovernor(), residency = new GraphicsResidency({ budgetBytes });
+  const canvas = { width: 640, height: 360, classList: { toggle() {} },
+    getBoundingClientRect: () => ({ width, height }), getContext: () => ({}) };
+  const context = vm.createContext({ effectivePresentation: () => active, renderer: null, titlePresentation: null,
+    fitPixelLayout() {}, perfGovernor: governor, bulkExportSize: exportSize, canvas, stageOutputSize,
+    experience: 'trio', sim: { experience: 'trio', biomes: { world: { kind: 'alpine' } } }, rangePresentation: null,
+    voxelRangePilot: null, lastTimelineData: null, lastWorldId: 'trio', DEFAULT_WORLD_ID: 'alpine', getWorld: () => ({ kind: 'alpine' }),
+    window: { devicePixelRatio: 1 }, document: {}, isFullscreen: () => true, landscapeHintEl: null,
+    resizeStageCanvas: (target, w, h) => resizeStageCanvas(target, w, h, residency),
+  });
+  vm.runInContext(fitCanvas, context);
+  for (const [level, expectedWidth, effects, danceWidth] of steps) {
+    governor.setFixtureLevel(level);
+    context.fitCanvas();
+    assert.equal(canvas.width, expectedWidth, `level ${level}: admitted backing`);
+    assert.equal(governor.fullFrameFxEnabled, effects, `level ${level}: full-frame effects follow the unscaled display/export tier`);
+    assert.equal(governor.danceColumnWidth, danceWidth, `level ${level}: ridge sampling follows admitted backing`);
+  }
+  context.experience = 'landscape';
+  context.fitCanvas();
+  assert.equal(governor.fullFrameFxEnabled, true, 'Landscape gates still follow its selected native pixel grid');
+  assert.equal(governor.danceColumnWidth, governor.level < 3 ? 32 : 64);
 });
 
 test('growing single-stage detail admits physical output once and honors quality in fullscreen', () => {
@@ -193,13 +261,13 @@ test('growing detail fits continuously while preserving the saved fixed integer 
   assert.equal(context.effectivePresentation().scaling, 'integer');
 });
 
-for (const userAgent of ['Android 13', 'Desktop']) test(`actual ${userAgent} snapshot temporarily selects fixed detail and restores growing playback`, async () => {
+for (const [userAgent, experience] of [['Android 13', 'landscape'], ['Desktop', 'landscape'], ['Desktop', 'trio']]) test(`actual ${userAgent} ${experience} snapshot temporarily selects fixed detail and restores growing playback`, async () => {
   const { captureDetailSnapshots, snapshotCapturePlan } = await import('../src/ui/DetailSnapshots.js');
   const begin = main.indexOf('async function saveDetailSnapshots()');
   const code = main.slice(begin, main.indexOf('\n}\n', begin) + 3);
   const savedPrefs = { version: 2, look: 'pixel', pixelGrid: 'medium', buildPixelDetail: true };
   const captured = [], drawn = [];
-  const context = vm.createContext({ snapshotBusy: false, running: true, sim: {}, paused: true, playbackPreparing: false,
+  const context = vm.createContext({ snapshotBusy: false, running: true, sim: { experience }, paused: true, playbackPreparing: false,
     bulkExportArmed: false, songRecorder: null, snapshotPlayerPrefs: null, bulkExportSize: null, displayPrefs: savedPrefs,
     presentation: resolvePresentation(savedPrefs), navigator: { userAgent }, canvas: { width: 960, height: 540 },
     resolvePresentation, snapshotCapturePlan, captureDetailSnapshots, snapshotFileName: (_date, level) => level,
@@ -213,7 +281,8 @@ for (const userAgent of ['Android 13', 'Desktop']) test(`actual ${userAgent} sna
   });
   vm.runInContext(code, context);
   await context.saveDetailSnapshots();
-  assert.equal(captured.length, userAgent.startsWith('Android') ? 1 : 5);
+  assert.equal(captured.length, experience === 'trio' || userAgent.startsWith('Android') ? 1 : 5);
+  if (experience === 'trio') assert.deepEqual(captured, ['smooth']);
   assert.ok(drawn.slice(0, -1).every(growing => growing === false));
   assert.equal(drawn.at(-1), true);
   assert.equal(context.displayPrefs, savedPrefs);

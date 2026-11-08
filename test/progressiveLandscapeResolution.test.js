@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PixelPresentation, fitPixelRect } from '../src/render/PixelPresentation.js';
+import { PixelPresentation } from '../src/render/PixelPresentation.js';
 import { createPresentingRenderer } from '../src/render/PresentingRenderer.js';
 import { GraphicsResidency } from '../src/render/GraphicsResidency.js';
 import { pixelGrid, pixelRenderPolicy, pixelUnit } from '../src/render/PixelRenderPolicy.js';
@@ -24,14 +24,30 @@ function surface(width = 1920, height = 1080) {
 }
 const presentation = { pixelated: true, grid: pixelGrid(), paletteId: 'none', scaling: 'fit', rangePipeline: 'single', buildPixelDetail: true };
 
-test('rise resolution starts at Classic and ends at a one-pixel fitted physical picture', () => {
+test('rise resolution starts at Classic and never exceeds Detailed on large outputs', () => {
   for (const options of [{}, { width: 800, height: 480, scaling: 'cover' }, { width: 1537, height: 900 }, { width: 3840, height: 2160 }]) {
     const p = plan(options), start = policy.landscapeResolutionAt(p, 0), end = policy.landscapeResolutionAt(p, 1);
     assert.deepEqual([start.grid.width, start.grid.height], [320, 180]);
     assert.equal(end.rung, 24);
-    const fit = fitPixelRect(end.grid.width, end.grid.height, options.width || 1920, options.height || 1080, options.scaling || 'fit');
-    assert.equal(fit.scale, 1);
-    assert.ok(end.grid.width > 640);
+    assert.deepEqual([end.grid.width, end.grid.height], [640, 360]);
+    assert.deepEqual(p.endpoint, { width: 640, height: 360 });
+    for (const grid of p.grids) {
+      assert.ok(grid.width <= 640 && grid.height <= 360 && grid.pixels <= 230400);
+    }
+  }
+});
+
+test('smaller outputs retain their fitted or covered endpoint with a Classic minimum', () => {
+  for (const [options, endpoint] of [
+    [{ width: 480, height: 360 }, [480, 270]],
+    [{ width: 480, height: 360, scaling: 'cover' }, [640, 360]],
+    [{ width: 400, height: 225, scaling: 'cover' }, [400, 225]],
+    [{ width: 480, height: 240 }, [427, 240]],
+    [{ width: 240, height: 120 }, [320, 180]],
+    [{ width: NaN, height: 0 }, [320, 180]],
+  ]) {
+    const end = policy.landscapeResolutionAt(plan(options), 1);
+    assert.deepEqual([end.grid.width, end.grid.height], endpoint);
   }
 });
 
@@ -100,9 +116,9 @@ test('single-stage playback follows heard rise, shares transition detail and pre
     sim.heardTimeMs = timeMs;
     assert.equal(adapter.draw(sim, 0).presented, true);
   }
-  assert.deepEqual(seen.map(s => s.grid.width), [320, seen[1].grid.width, 1920, 1920, 320]);
-  assert.ok(seen[1].grid.width > 320 && seen[1].grid.width < 1920);
-  assert.ok(seen.every(s => s.lod === 1080 && s.single));
+  assert.deepEqual([seen[0].grid.width, seen[2].grid.width, seen[3].grid.width, seen[4].grid.width], [320, 640, 640, 320]);
+  assert.ok(seen[1].grid.width > 320 && seen[1].grid.width < 640);
+  assert.ok(seen.every(s => s.lod === 360 && s.single));
   assert.equal(adapter.diagnostics.progressiveDetail.rise01, landscapeScoreFor(manager).at(0).rise01);
   assert.equal(adapter.diagnostics.progressiveDetail.requestedRung, 0);
   sim.heardTimeMs = 90000;
@@ -146,8 +162,12 @@ test('the growing plan survives quality resize and a refused scenic target retur
   assert.equal(adapter.diagnostics.progressiveDetail.reason, 'scene-memory');
   refuse = false; canvas.width = 960; canvas.height = 540;
   assert.equal(adapter.draw(sim, 0).presented, true);
-  assert.deepEqual([adapter.output.grid.width, adapter.output.grid.height], [960, 540]);
-  assert.equal(range.detailHeightPx, 540);
+  assert.deepEqual([adapter.output.grid.width, adapter.output.grid.height], [640, 360]);
+  assert.equal(range.detailHeightPx, 360);
+  canvas.width = 480; canvas.height = 270;
+  assert.equal(adapter.draw(sim, 0).presented, true);
+  assert.deepEqual([adapter.output.grid.width, adapter.output.grid.height], [480, 270]);
+  assert.equal(range.detailHeightPx, 270);
   adapter.dispose();
 });
 
@@ -157,7 +177,7 @@ test('changing settings restores a fixed raster and Cinematic can use the same p
   const adapter = createPresentingRenderer({ canvas, presentation: { ...presentation, cinematicPixel: true, rangePipeline: 'hybrid' }, rendererFactory: () => inner });
   const sim = { biomes: manager, heardTimeMs: 90000, experience: 'landscape', perf: { level: 2 } };
   assert.equal(adapter.draw(sim, 0).presented, true);
-  assert.equal(adapter.output.grid.width, 1920);
+  assert.equal(adapter.output.grid.width, 640);
   assert.equal(adapter.diagnostics.progressiveDetail.active, true);
   adapter.setPresentation({ ...presentation, buildPixelDetail: false });
   assert.equal(adapter.draw(sim, 0).presented, true);

@@ -649,14 +649,15 @@ function syncDisplayControls() {
   for (const [key, control] of Object.entries(displayControls)) if (control) {
     if (key === 'buildPixelDetail') control.checked = displayPrefs.buildPixelDetail;
     else control.value = String(displayPrefs[key]);
-    control.disabled = ['palette', 'dither', 'ditherMode'].includes(key) && displayPrefs.look !== 'palette'
+    control.disabled = experience === 'trio' && key !== 'quality'
+      || ['palette', 'dither', 'ditherMode'].includes(key) && displayPrefs.look !== 'palette'
       || key === 'ditherMode' && (displayPrefs.palette === 'rgb332' || displayPrefs.dither === 0)
       || key === 'buildPixelDetail' && (experience === 'trio' || displayPrefs.look === 'palette');
   }
   const grid = document.getElementById('pixelGridHint');
   const selectedGrid = presentation.grid;
-  if (grid) { grid.hidden = false; grid.textContent = displayPrefs.buildPixelDetail && experience !== 'trio' && displayPrefs.look !== 'palette'
-    ? 'Classic → screen detail as the mountains rise' : `${selectedGrid.width} × ${selectedGrid.height} grid`; }
+  if (grid) { grid.hidden = false; grid.textContent = experience === 'trio' ? 'Smooth at display resolution' : displayPrefs.buildPixelDetail && displayPrefs.look !== 'palette'
+    ? 'Classic → Detailed (640 × 360) as the mountains rise' : `${selectedGrid.width} × ${selectedGrid.height} grid`; }
   syncDetailControls();
 }
 
@@ -664,10 +665,13 @@ function syncDisplayControls() {
 function syncDetailControls() {
   const level = displayPrefs.pixelGrid;
   const option = displayControls.pixelGrid?.querySelector(`option[value="${level}"]`);
-  if (detailLevelEl) detailLevelEl.textContent = displayPrefs.buildPixelDetail && experience !== 'trio' && displayPrefs.look !== 'palette' ? 'Building detail' : (option?.textContent || level).split(' — ')[0];
+  if (detailLevelEl) detailLevelEl.textContent = experience === 'trio' ? 'Smooth' : displayPrefs.buildPixelDetail && displayPrefs.look !== 'palette' ? 'Building detail' : (option?.textContent || level).split(' — ')[0];
   if (snapshotBtnEl) {
     snapshotBtnEl.disabled = snapshotBusy;
     snapshotBtnEl.setAttribute('aria-busy', snapshotBusy ? 'true' : 'false');
+    const single = experience === 'trio' || /Android/i.test(navigator.userAgent);
+    snapshotBtnEl.title = single ? 'Save the current frame as a PNG' : 'Save this moment as full-quality PNGs, one at each of the 5 pixel detail levels';
+    snapshotBtnEl.setAttribute('aria-label', single ? 'Save the current frame as a PNG' : 'Save snapshots at every detail level');
   }
   document.getElementById('hudRight')?.classList.toggle('snapshotBusy', snapshotBusy);
 }
@@ -703,7 +707,8 @@ let titlePresentation = null;
 function effectivePresentation() {
   const requested = bulkPresentation || presentation;
   const experimental = directTerrainExperiment(typeof location === 'undefined' ? '' : location.search);
-  if (experience === 'trio') return { ...requested, pixelScale: 'original', buildPixelDetail: false };
+  if (experience === 'trio') return { ...requested, experience: 'trio', pixelated: false, paletteId: 'none', cinematicPixel: false,
+    pixelScale: 'original', buildPixelDetail: false, scaling: 'fit' };
   const buildPixelDetail = !!requested.buildPixelDetail && !bulkExportSize && !voxelRangePilot && !experimental
     && requested.paletteId === 'none' && requestedRangePipeline !== 'native';
   return { ...requested, buildPixelDetail, rangePipeline: bulkExportSize || experimental || requested.cinematicPixel ? 'hybrid' : requestedRangePipeline,
@@ -828,11 +833,7 @@ function fitCanvas() {
   // hidden buffer when the full landscape starts streaming terrain.
   titlePresentation?.setPresentation({ ...active, cinematicPixel: false });
   fitPixelLayout();
-  if (perfGovernor) {
-    perfGovernor.economy = active.quality === 'economy';
-    perfGovernor.targetCanvasWidth = active.grid.width;
-    perfGovernor.canvasWidth = active.grid.width;
-  }
+  if (perfGovernor) perfGovernor.economy = active.quality === 'economy';
   const worldKind = sim?.biomes?.world?.kind
     || getWorld(lastTimelineData?.worldId || lastWorldId || DEFAULT_WORLD_ID)?.kind;
   const hybrid = experience === 'landscape' && worldKind === 'alpine' && !!rangePresentation?.enabled;
@@ -841,15 +842,23 @@ function fitCanvas() {
   // The quality rung this output was sized for: heavier rungs draw the
   // smooth layers at fewer pixels (the ladder's resolution scale).
   fittedPerfLevel = perfGovernor?.level ?? 0;
-  const size = stageOutputSize({ grid: active.grid, hybrid, nativeStage, progressiveDetail: active.buildPixelDetail, cssWidth: box.width, cssHeight: box.height,
-    fullscreen: experience === 'landscape' && typeof document !== 'undefined' && isFullscreen(),
+  const outputOptions = { grid: active.grid, hybrid, smooth: experience === 'trio', nativeStage, progressiveDetail: active.buildPixelDetail, cssWidth: box.width, cssHeight: box.height,
+    fullscreen: typeof document !== 'undefined' && isFullscreen(),
     dpr: window.devicePixelRatio || 1, exportSize: bulkExportSize,
-    scale: perfGovernor?.resolutionScale(active.grid.height, { adaptive: true }) ?? 1 });
+    scale: perfGovernor?.resolutionScale(active.grid.height, { adaptive: true }) ?? 1 };
+  const size = stageOutputSize(outputOptions);
   resizeStageCanvas(canvas, size.w, size.h);
+  if (perfGovernor) {
+    // Trio's full-frame gates keep the unscaled display/export tier as the
+    // ladder shrinks its output. Ridge sampling reads the admitted backing,
+    // including when the stage budget refuses a requested resize.
+    perfGovernor.targetCanvasWidth = experience === 'trio' ? stageOutputSize({ ...outputOptions, scale: 1 }).w : active.grid.width;
+    perfGovernor.canvasWidth = experience === 'trio' ? canvas.width : active.grid.width;
+  }
   // Canvas resets clear context state, including nearest-neighbor sampling.
   const ctx2d = canvas.getContext('2d');
-  if (ctx2d) ctx2d.imageSmoothingEnabled = false;
-  canvas.classList.toggle('retro', !hybrid || nativeStage);
+  if (ctx2d) ctx2d.imageSmoothingEnabled = experience === 'trio';
+  canvas.classList.toggle('retro', experience !== 'trio' && (!hybrid || nativeStage));
   canvas.classList.toggle('nativeCover', nativeStage && active.scaling === 'cover');
   landscapeHintEl?.classList.toggle(
     'is-visible',
@@ -951,7 +960,7 @@ function applyDisplayPref(key, value) {
 // the Display menu (persisted, re-presented, a paused frame redrawn).
 function stepPixelDetail(delta) {
   wakeHud();
-  if (snapshotBusy) return;
+  if (snapshotBusy || experience === 'trio') return;
   const next = stepDetail(displayPrefs.pixelGrid, delta);
   if (next !== displayPrefs.pixelGrid || displayPrefs.buildPixelDetail) applyDisplayPref('pixelGrid', next);
 }
@@ -993,7 +1002,8 @@ async function saveDetailSnapshots() {
   const savedPrefs = displayPrefs, savedPresentation = presentation;
   snapshotPlayerPrefs = savedPrefs;
   const stamp = new Date();
-  const plan = snapshotCapturePlan(navigator.userAgent, savedPrefs.pixelGrid);
+  const plan = sim.experience === 'trio' ? { levels: [savedPrefs.pixelGrid], size: null }
+    : snapshotCapturePlan(navigator.userAgent, savedPrefs.pixelGrid);
   const stopped = () => !running || !sim || !renderer;
   let cancelled = false;
   try {
@@ -1023,7 +1033,7 @@ async function saveDetailSnapshots() {
         throw new Error(`the ${level} frame did not finish drawing`);
       },
       save: async (level, output) => {
-        saveSnapshotFile(await canvasToPng(output), snapshotFileName(stamp, level));
+        saveSnapshotFile(await canvasToPng(output), snapshotFileName(stamp, sim.experience === 'trio' ? 'smooth' : level));
         // Browsers drop rapid back-to-back downloads; space them out.
         if (plan.levels.length > 1) await new Promise((resolve) => setTimeout(resolve, 300));
       },

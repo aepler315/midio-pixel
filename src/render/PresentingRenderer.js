@@ -19,7 +19,7 @@ class PresentingRenderer {
     this.voxelRange = voxelRange;
     this._disposed = false;
     this._requestedPresentation = presentation;
-    this._experience = 'landscape';
+    this._experience = presentation?.experience === 'trio' ? 'trio' : 'landscape';
   }
   get backend() { return this.inner.backend || 'canvas'; }
   get canvasRenderer() { return this.inner.canvasRenderer || this.inner; }
@@ -34,7 +34,7 @@ class PresentingRenderer {
   get diagnostics() { return this.output.diagnostics; }
   setPresentation(value) {
     this._requestedPresentation = value;
-    this.output.setPresentation(this._experience === 'trio' ? { ...value, cinematicPixel: false, pixelScale: 'original' } : value);
+    this.output.setPresentation({ ...value, experience: this._experience });
   }
   getCaptureSource() {
     const source = this._disposed ? null : this.output.getCaptureSource();
