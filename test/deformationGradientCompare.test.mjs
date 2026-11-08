@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { runInNewContext } from 'node:vm';
 import { parseGradientArgs, assertGradientFrameMatch, summarizeGradientFrames, assessGradientExercise,
-  assertGradientWasExercised } from '../tools/deformation-gradient-compare.mjs';
+  assertGradientWasExercised, installGradientProbe } from '../tools/deformation-gradient-compare.mjs';
 
 test('gradient benchmark accepts bounded defaults and rejects malformed inputs', () => {
   const args = parseGradientArgs(['--out', '.smoke/new', '--times', '24000,12000', '--frames', '24', '--hardware-gpu']);
@@ -78,6 +79,26 @@ test('unsupported, disjoint and unresolved GPU samples stay out of timing summar
   assert.equal(summary.frameSubmissionMs.n, 3);
   assert.equal(summarizeGradientFrames([invalid]).gpuTerrainMs, null);
   assert.equal(summarizeGradientFrames([]).frameSubmissionMs, null);
+});
+
+test('a failed terrain query cannot turn a partially timed frame into a zero-cost terrain sample', async () => {
+  const terrain = {}, other = {}, ext = { TIME_ELAPSED_EXT: 1, GPU_DISJOINT_EXT: 2 };
+  let attempts = 0;
+  const gl = { QUERY_RESULT_AVAILABLE: 3, QUERY_RESULT: 4,
+    getExtension: () => ext, createQuery: () => ++attempts === 1 ? null : {},
+    beginQuery() {}, endQuery() {}, deleteQuery() {}, getParameter: () => false,
+    getQueryParameter: (_q, key) => key === 3 ? true : 2000000 };
+  const renderer = { info: { render: { calls: 0, triangles: 0 } }, getContext: () => gl,
+    render() { this.info.render.calls++; this.info.render.triangles++; } };
+  const scene = { renderer, prepared: new Map([['view', { depthScene: terrain }]]) };
+  const window = { __SMW: { sim: { biomes: { rangePresentation: { scene } } } } };
+  runInNewContext(`(${installGradientProbe.toString()})()`, { window, performance, setTimeout });
+  const probe = window.__gradientProbe;
+  probe.begin(); renderer.render(terrain); renderer.render(other); probe.end({ frameMs: 4 });
+  const frames = await probe.finish();
+  assert.equal(frames[0].gpuComplete, false);
+  assert.equal(summarizeGradientFrames(frames).validGpuSamples, 0);
+  assert.equal(summarizeGradientFrames(frames).gpuTerrainMs, null);
 });
 
 test('silent and fully flat captures cannot establish exercised gradient evidence', () => {

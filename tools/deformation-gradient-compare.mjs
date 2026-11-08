@@ -114,7 +114,7 @@ export function assertGradientFrameMatch(a, b) {
 // Timer queries cover each three.js scene render, split into terrain scenes
 // and other scenic work. They include trees/cast in those terrain scenes;
 // they do not isolate the gradient or cover output Canvas2D compositing.
-function installGradientProbe() {
+export function installGradientProbe() {
   const scene = window.__SMW.sim.biomes.rangePresentation.scene, renderer = scene.renderer;
   const gl = renderer.getContext(), ext = gl.getExtension('EXT_disjoint_timer_query_webgl2');
   const render = renderer.render.bind(renderer), pending = [], frames = [];
@@ -126,6 +126,7 @@ function installGradientProbe() {
   renderer.render = (s, c) => {
     if (!current || active) return render(s, c);
     const kind = kindOf(s), before = { ...renderer.info.render }, query = ext ? gl.createQuery() : null;
+    current.attemptedQueries++;
     if (query) gl.beginQuery(ext.TIME_ELAPSED_EXT, query);
     const t0 = performance.now(); active = true;
     try { return render(s, c); }
@@ -148,13 +149,13 @@ function installGradientProbe() {
   };
   window.__gradientProbe = {
     begin() { current = { cpu: { terrain: 0, other: 0 }, gpu: { terrain: 0, other: 0 }, calls: { terrain: 0, other: 0 },
-      triangles: { terrain: 0, other: 0 }, queries: 0, resolved: 0, disjoint: false }; },
+      triangles: { terrain: 0, other: 0 }, attemptedQueries: 0, queries: 0, resolved: 0, disjoint: false }; },
     end(extra) { frames.push(Object.assign(current, extra)); current = null; poll(); },
     async finish() {
       const t0 = performance.now();
       while (pending.length && performance.now() - t0 < 10000) { poll(); await new Promise(r => setTimeout(r, 16)); }
       const result = frames.splice(0).map(f => ({ ...f,
-        gpuComplete: f.queries > 0 && f.resolved === f.queries && !f.disjoint }));
+        gpuComplete: f.queries > 0 && f.queries === f.attemptedQueries && f.resolved === f.queries && !f.disjoint }));
       // Unresolved queries are invalid samples; delete them before the next batch.
       for (const { query } of pending.splice(0)) gl.deleteQuery(query);
       return result;
@@ -288,6 +289,7 @@ export async function runGradientCompare(args) {
       'Frame/JS times measure CPU submission; they are not completed GPU work or delivered FPS.',
       'Reference then candidate, one warm steady batch per mode; no hardware performance conclusion from software timing or a single pair.',
       'Exercised-input checks require non-flat rise and nonzero deformation/dance uniforms; they do not prove a visible normal change at every pixel.',
+      'Generated texture contents are not read back by this gradient harness; frozen source/assets and matched state do not verify every texel.',
       'Image error describes full output RGB differences; an artistic verdict remains unreviewed.' ] };
   let server, browser;
   try {

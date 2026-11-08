@@ -91,6 +91,10 @@ recording, and `--view VIEW_ID` for another scene. The default generates a
 captures two checkpoints plus six consecutive frames, and warms before timing.
 It verifies actual material activation and matching scene inputs. Fully flat or
 zero-deformation captures are labeled unexercised and cannot alone pass.
+Failed allocation of any scene GPU query invalidates the whole frame's GPU
+sample; partially timed frames cannot report zero terrain cost. This harness
+matches source/assets, geometry, camera and recorded controls, but does not
+read back every generated input texture's texels.
 
 The browser attempt in this environment failed during Chromium startup with
 `socket() failed: Operation not permitted`. The harness retained a failed report
@@ -100,7 +104,7 @@ The reference therefore remains the default.
 
 ### Repository checks
 
-- All 54 focused tests passed, including the new scalar/material/comparison
+- All 55 focused tests passed, including the new scalar/material/comparison
   tests and existing hierarchy, expression, rise and forest shader checks.
 - Repository ESLint, the 522-module parse/link check and whitespace checks passed.
 - Broad branch and clean `788d7a1` runs hit a 240-second deadline; the remaining
