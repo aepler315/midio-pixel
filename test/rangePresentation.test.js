@@ -1159,3 +1159,82 @@ test('resolution refusal distinguishes target allocation from pending tour cover
   assert.ok(requests.every(r => r.pixelHeightPx === 1080));
   p.dispose();
 });
+
+test('live crest collection precedes scenic setup and GPU draws, and exports skip it', async () => {
+  const order = [], scene = fakeScene();
+  scene.collectCrestProbe = () => order.push('collect');
+  scene.resize = () => order.push('resize');
+  scene.renderPartition = () => { order.push('render'); return { width: 2, height: 2 }; };
+  const p = presentationWith(scene);
+  p.setSong({ terrain: { sceneByBiome: new Map([['RAINFOREST', { view: catalog.views[0], fallbackReason: null }]]) }, generation: 1 });
+  await p.whenReady();
+  p.setFrameInputs(inputs());
+  assert.equal(p.beginScenic(), true);
+  p.drawPartition({ save() {}, restore() {}, drawImage() {} }, 'far', { width: 2, height: 2 });
+  assert.deepEqual(order, ['collect', 'resize', 'render']);
+  order.length = 0;
+  p.exportMode = true; p.setFrameInputs(inputs());
+  p.exportMode = false;
+  const exporting = inputs(); exporting.sim.exportMode = true; p.setFrameInputs(exporting);
+  assert.deepEqual(order, [], 'both explicit export paths avoid live collection');
+});
+
+test('live non-palette heavy rungs retire invisible probes before polling and recover the refined path', async () => {
+  const order = [], scene = fakeScene();
+  scene.collectCrestProbe = () => order.push('collect');
+  scene.releaseCrestProbe = () => order.push('release');
+  scene.resize = () => order.push('resize');
+  scene.readCrestProbe = () => null;
+  scene.renderPartition = () => {
+    order.push('render');
+    if (scene.crestProbeMode) order.push('probe');
+    return { width: 2, height: 2 };
+  };
+  const p = presentationWith(scene), ctx = { canvas: { width: 2, height: 2 }, save() {}, restore() {}, drawImage() {} };
+  const stage = { width: 2, height: 2 };
+  p.setSong({ terrain: { sceneByBiome: new Map([['RAINFOREST', { view: catalog.views[0], fallbackReason: null }]]) }, generation: 1 });
+  await p.whenReady();
+  p.pixelated = true; p.crestEnabled = true;
+  const frame = (quality) => {
+    const value = inputs(); value.sim.perf.level = quality;
+    p.setFrameInputs(value);
+    assert.equal(p.beginScenic(), true);
+  };
+  for (const level of [4, 5, 6]) {
+    order.length = 0;
+    p.crest.snapshot = { frameId: -1, cut: true };
+    frame(level);
+    assert.equal(scene.crestProbeMode, null);
+    assert.equal(p._crestScan, false, 'shedding cannot activate a coarse scan');
+    assert.equal(p.crest.snapshot, null, 'old cuts and split geometry are not retained');
+    p.drawPartition(ctx, 'far', stage);
+    assert.deepEqual(order, ['release', 'resize', 'render'], `q${level}: release precedes setup and no probe is collected or rendered`);
+  }
+  order.length = 0;
+  frame(3);
+  assert.equal(order[0], 'collect');
+  assert.ok(scene.crestProbeMode, 'recovery queues its fresh probe again');
+  for (const pass of ['far', 'mid', 'near']) p.drawPartition(ctx, pass, stage);
+  frame(3);
+  assert.equal(scene.crestProbeMode, 'refined', 'recovery restores the existing refined mode');
+  assert.ok(!order.includes('release'));
+
+  order.length = 0;
+  p.crestPalette = 'rgb332';
+  frame(6);
+  assert.equal(order[0], 'collect', 'Palette retains its existing probe/scan policy');
+  assert.ok(scene.crestProbeMode);
+  assert.ok(!order.includes('release'));
+
+  p.crestPalette = null;
+  for (const viaSim of [false, true]) {
+    order.length = 0;
+    p.exportMode = !viaSim;
+    const value = inputs(); value.sim.perf.level = 6; value.sim.exportMode = viaSim;
+    p.crest.mode = 'refined';
+    p.setFrameInputs(value);
+    assert.equal(p.beginScenic(), true);
+    assert.deepEqual(order, ['resize'], 'exports neither collect live work nor apply live shedding');
+    assert.equal(scene.crestProbeMode, 'refined', 'isolated export mode remains unchanged');
+  }
+});

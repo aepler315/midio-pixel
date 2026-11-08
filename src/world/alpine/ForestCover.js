@@ -149,7 +149,7 @@ function forestRail(view) {
 
 /** The rail's own distance and, with footprint polylines, the distance to
  *  them given the rail's (`footprint(p, railM)`: min of the two). */
-function forestDistances(view) {
+export function forestDistances(view) {
   const rail = authoredRail(view);
   const lines = (view.cameraPaths || []).filter((line) => line?.length);
   if (!lines.length) return { rail, footprint: null };

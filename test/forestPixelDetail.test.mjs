@@ -53,7 +53,7 @@ function interiorPass(mesh, x, y, treeId = .5, geometricCoverage = 1) {
   const coverageReturn = /return\s+([^;]+);/.exec(shaderFunction(fragment, 'meshCoverage'))[1];
   const coverage = new Function('edge', 'fringe', 'vBranch', 'vLodWeight', 'mix', `return ${coverageReturn};`);
   const scalar = body => body.replace(/\buvec2\(floor\(gl_FragCoord\.xy\)\)/g, '({x:Math.floor(gl_FragCoord.x),y:Math.floor(gl_FragCoord.y)})')
-    .replace(/\b(float|uint|bool|uvec2)\s+(\w+)/g, 'let $2')
+    .replace(/\b(float|uint|bool|uvec2|vec2|vec4)\s+(\w+)/g, 'let $2')
     .replace(/(\w+)\s*\*=\s*(0x[\da-f]+)u\s*;/gi, '$1 = Math.imul($1, $2);')
     .replace(/\b(0x[\da-f]+|\d+)u\b/gi, '$1').replace(/\buint\(/g, 'Math.floor(').replace(/\bfloat\(/g, 'Number(')
     .replace(/>>/g, '>>>');
@@ -65,6 +65,18 @@ function interiorPass(mesh, x, y, treeId = .5, geometricCoverage = 1) {
     const select = new Function(...Object.keys(bindings), 'forestLodNoise', scalar(shaderFunction(fragment, 'forestLodSelected')));
     selected = () => select(...Object.values(bindings), () => noise(...Object.values(bindings)));
   }
+  // Standalone forests bind no coverage field. Execute the production
+  // one-pixel fallback and its weight rather than silently stubbing away
+  // the placement/source multiplier added to both colour and depth.
+  assert.equal(mesh.material.uniforms.uOpeningCoverage.value, null);
+  const fallback = new Function('uv', 'textureSize', 'uOpeningCoverage', 'vec2', 'vec4',
+    scalar(shaderFunction(fragment, 'openingCoverageAt')));
+  const openingCoverageAt = uv => fallback(uv, () => ({ x: 1, y: 1 }), null,
+    value => typeof value === 'number' ? { x: value, y: value } : value,
+    value => ({ r: value, g: value, b: value, a: value }));
+  const placement = new Function('uv', 'tour', 'rise', 'openingCoverageAt', 'smoothstep', 'mix',
+    scalar(shaderFunction(fragment, 'forestCoverageWeight')));
+  const smooth = (a, b, value) => { const t = Math.max(0, Math.min(1, (value - a) / (b - a))); return t * t * (3 - 2 * t); };
   let main = shaderFunction(fragment, 'main');
   const shadeAt = main.indexOf('vec3 n =');
   const colour = shadeAt >= 0;
@@ -72,7 +84,9 @@ function interiorPass(mesh, x, y, treeId = .5, geometricCoverage = 1) {
   main = preprocessShader(main, mesh.material.defines).replace(/\bfloat\s+/g, 'let ')
     .replace(/\bdiscard\s*;/g, 'return null;').replace(/outColor\s*=.*?;/g, '');
   const env = { meshCoverage: () => coverage(1, geometricCoverage, { w: 1 }, weight, mix), forestLodSelected: selected,
-    forestInstanceWeight: () => 1, length: () => 1, uCameraPos: 0, vWorld: 0, uFarForest: { x: 0, y: 0 },
+    forestInstanceWeight: () => 1, length: () => 1, uCameraPos: 0, vWorld: { xz: 0 }, uFarForest: { x: 0, y: 0 },
+    forestCoverageWeight: (uv, tour, rise) => placement(uv, tour, rise, openingCoverageAt, smooth, mix),
+    uGridOrigin: 0, uGridExtent: 1, uTourEye: { w: 0 }, uLandRise: { x: 0 },
     vBranch: { x: 0, y: 0 }, vId: treeId, gTreeOcc: 1, vOcc: 1, fwidth: () => 0, smoothstep: () => 0 };
   return new Function(...Object.keys(env), `${main}\nreturn { alpha: ${colour ? 'cov' : '1'} };`)(...Object.values(env));
 }

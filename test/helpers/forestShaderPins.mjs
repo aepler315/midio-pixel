@@ -30,38 +30,38 @@ export function materialPin(m) {
   });
 }
 
-// Updated for terrain-derived valley banks and exact source-anchor lighting.
-// Complete generated shaders compile/link in the software GLES evidence;
-// these pins record shader/render-state contracts, not artistic acceptance.
+// Updated for placement coverage and compact shared mist-flow metadata.
+// These pins record shader/render-state contracts; actual driver compilation
+// and visual evidence are recorded separately, not inferred from a hash.
 // Creation order: mesh, meshDepth, meshCore, meshCoreDepth, board, boardDepth.
 export const MAIN_PINS = {
   "partitioned": [
-    "824914a386c7451b093b5fee700f5ab8d1e8684358c78edbf8abf7cf9e12f65c",
-    "ede5fd722a104e89b94f770508b49fd2ed290dfd0ec55ec99d746b61315a3310",
-    "640bc736c007d172df85be885b8ac89781f24ce3fa3f1460e0ad79fe0f5a29ed",
-    "f3a308052eb34f5fd3f4e68b8740f3fc5907b705882bd11bd877a989206fe066",
-    "00246846e17210730d0065a3aec541644b3642408662b5b95bcdbc3349e17ad5",
-    "30ebada97bf01578b088995e76ebffdbafe8c45e061f337982f6a56c8626f7d0"
+    "ec9b29e2ce7bdcb16e027a6d849c86112705a22a5b941ed06f5112b560b76fe2",
+    "b563753c040e73c1d91aca64579a2f56516121ae5360613762bd4cbab095b75d",
+    "d9d23c57ced3dd40fc1e9499b836839d11e045ff09190ff8013877ae4cb0b6e1",
+    "b8033d45067cc44444f36610ae53e836c97a4a3d5eb21e24120d4072aaa59e89",
+    "9c114565057e396d4637a7f00e0b3791b2b5183d709b22b4930406a7eb7e4984",
+    "4b53b93c72f2935901f4c29d2cee2edc92e4f024f600426feda57e18f4ac26ff"
   ],
   "partitioned debug": [
-    "96d1555c78412654c0e40cc4e4cc787ffa276d65c3c8de1a71bc07169760a768",
-    "ede5fd722a104e89b94f770508b49fd2ed290dfd0ec55ec99d746b61315a3310",
-    "52c2746cebe2ade3edd036649326a243e5ba87871d454e8e2d10e193e9e0a1dc",
-    "f3a308052eb34f5fd3f4e68b8740f3fc5907b705882bd11bd877a989206fe066",
-    "e937c6fdc7e72b2765866e0afc374b71a3bd10fa2e1446c1bbd26adf7720ceae",
-    "30ebada97bf01578b088995e76ebffdbafe8c45e061f337982f6a56c8626f7d0"
+    "fa00c555a5a7a224ae6c46455cbcddea2eef9b94f11f014d5a72d40a4b7a4025",
+    "b563753c040e73c1d91aca64579a2f56516121ae5360613762bd4cbab095b75d",
+    "f6d36b1556a99fc88e0bbafc96d9b14e6af8d6abd5455ec2b447ec0c5c63093b",
+    "b8033d45067cc44444f36610ae53e836c97a4a3d5eb21e24120d4072aaa59e89",
+    "5593b96aaf8a4266bea4d2b9549bd788994aa6d67c18f395bada0afb8a2d731e",
+    "4b53b93c72f2935901f4c29d2cee2edc92e4f024f600426feda57e18f4ac26ff"
   ],
   "plain": [
-    "6a7ba8434bcb578332e5e84f193ed2fff2a8e78c1db1a20ff9104fd8a688a6ae",
-    "ede5fd722a104e89b94f770508b49fd2ed290dfd0ec55ec99d746b61315a3310",
-    "352df1a455ad0730248d3376db5a1df840b61bf6c0627598accc1a16a3b34aa9",
-    "30ebada97bf01578b088995e76ebffdbafe8c45e061f337982f6a56c8626f7d0"
+    "66b84aa0cf399046fc583a9cba0c0049550f1b98211db94740b991cf75b6c4e1",
+    "b563753c040e73c1d91aca64579a2f56516121ae5360613762bd4cbab095b75d",
+    "164debd46d64ddac18cb09ba25f5d03eaab0d3e3f6331737de4a21b1119c5fb4",
+    "4b53b93c72f2935901f4c29d2cee2edc92e4f024f600426feda57e18f4ac26ff"
   ],
   "plain debug": [
-    "96d396c943e4f023d811cb4ff837cf14aeac4787872a759994a055ff082594cd",
-    "ede5fd722a104e89b94f770508b49fd2ed290dfd0ec55ec99d746b61315a3310",
-    "59f0eef75c2d79e0cd157282bf303d9c05affc466aad9356de67a3654f946c9a",
-    "30ebada97bf01578b088995e76ebffdbafe8c45e061f337982f6a56c8626f7d0"
+    "3fbe205a517d0a5bedcefb504706f8e11e9f071e9807f0b9f38d567956967f5a",
+    "b563753c040e73c1d91aca64579a2f56516121ae5360613762bd4cbab095b75d",
+    "0c75bb3ee948c130150b7b30f16c040a7f650861775de0f5be4da664e672f715",
+    "4b53b93c72f2935901f4c29d2cee2edc92e4f024f600426feda57e18f4ac26ff"
   ]
 };
 export const PIN_OPTIONS = [['partitioned', {}], ['partitioned debug', { forestDebug: true }], ['plain', { partitioned: false }], ['plain debug', { partitioned: false, forestDebug: true }]];

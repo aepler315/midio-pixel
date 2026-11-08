@@ -1251,22 +1251,22 @@ test('the terrain cut carries translucent sky-side content into the cut: no step
     const fit = { x: 0, y: 0, width: W * scale, height: H * scale, scale };
     const out = recorder();
     assert.equal(crest.drawTerrain(out, fit, frames, () => out.drawImage({ width: W }, 0, 0, W * scale, H * scale), { width: W, height: H }), true);
-    const recorded = out.ops.filter(op => op[0] === 'drawImage').map(op => ({ args: op.slice(2) }));
-    const refills = recorded.filter(d => d.args.length === 8);
+    const refills = out.ops.filter(op => op[0] === 'fillRect').map(op => ({ args: op.slice(1) }));
     assert.ok(refills.length > 0, `level ${quality}${fresh ? '' : ' (no reading this frame)'}: the cut is refilled`);
     assert.ok(crest.diagnostics.glowRefill > 50);
-    // Every cut column is refilled from the translucent cell just above its cut top, down past the line.
+    assert.ok(out.ops.some(op => op[0] === 'set' && op[1] === 'fillStyle'
+      && op[2] === `rgba(${GLOW[0]},${GLOW[1]},${GLOW[2]},${GLOW[3] / 255})`));
+    // Every cut column carries verified translucent colour down past the line.
     const c = crest._cut, covered = new Uint8Array(W);
-    for (const { args: [sx, sy, sw, sh, dx, dy, dw, dh] } of refills) {
-      assert.equal(sh, 1);
+    for (const { args: [dx, dy, dw, dh] } of refills) {
+      const sx = dx / scale, sw = dw / scale;
       for (let i = sx; i < sx + sw; i++) {
-        assert.equal(sy, c.top[i] - 1, `column ${i}: source row`);
+        const sy = c.top[i] - 1;
         const k = (sy * W + i) * 4;
         assert.ok(pixels[k + 3] > 0 && pixels[k + 3] < 250, 'only translucent source cells');
         assert.ok(Math.abs(dy - c.top[i] * scale) < 1e-6 && dy + dh >= crest._grid.far.line[i] * scale, `column ${i}: covers the cut down to the line`);
         covered[i] = 1;
       }
-      assert.ok(Math.abs(dx - sx * scale) < 1e-6 && Math.abs(dw - sw * scale) < 1e-6);
     }
     for (let i = 0; i < W; i++) if (c.band[i] >= 0 && c.top[i] > 0) assert.equal(covered[i], 1, `column ${i} refilled`);
   }

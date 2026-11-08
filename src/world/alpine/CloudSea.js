@@ -27,9 +27,11 @@ export const SEA_HOLD_MS = 4000;
 /** Once up, the song must stay loud this long before the cloud drains, so
  *  a fill or a single hit inside a breakdown does not tear it open. */
 export const SEA_RELEASE_MS = 4000;
-/** The cloud wells up over RISE and drains over FALL: weather, not a cue. */
-export const SEA_RISE_MS = 14000;
-export const SEA_FALL_MS = 10000;
+/** The cloud gathers and disperses over the same unhurried span. Letting
+ *  it leave as slowly as it arrived avoids a quiet passage ending with a
+ *  sudden clearing, while the compiled clock keeps pause and seek exact. */
+export const SEA_RISE_MS = 24000;
+export const SEA_FALL_MS = 24000;
 /** After the valley has drained it stays clear at least this long before
  *  it may fill again, so alternating soft and loud sections do not pump
  *  the cloud in and out. */
@@ -106,7 +108,9 @@ export function compileCloudSea({ energyCurves = null, durationMs = 0 } = {}) {
       if (!(timeMs > 0)) return 0;
       const x = Math.min(n - 1, timeMs / SEA_STEP_MS), i = Math.floor(x), f = x - i;
       const v = env[i] + ((env[Math.min(n - 1, i + 1)] ?? env[i]) - env[i]) * f;
-      return v * v * (3 - 2 * v);
+      // Zero speed and acceleration at both ends: the first thin traces
+      // and the last wisps fade softly instead of starting/stopping a ramp.
+      return v * v * v * (v * (v * 6 - 15) + 10);
     },
   });
 }

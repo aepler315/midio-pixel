@@ -17,7 +17,7 @@
 import { ACTOR_IDS, ACTOR_MOTES } from './RangeActors.js';
 import { BANDS } from './TerrainMesh.js';
 import { THREAD_SEGMENTS, THREAD_SEGMENTS_MAX } from './CastJobs.js';
-import { MIST_GLSL, EMITTER_GLSL, MIST_SAMPLES, EMITTER_SUBMERGE } from './RangeAtmosphere.js';
+import { MIST_GLSL, EMITTER_GLSL, MIST_SAMPLES, EMITTER_SUBMERGE, mistFlowUniforms } from './RangeAtmosphere.js';
 import { DEFORM_GLSL, GROUND_LIFT_GLSL, deformUniforms } from './TerrainDeform.js';
 import { CAST_RASTER_GLSL, THREAD_HALF_PX, THREAD_PEAK } from './CastRaster.js';
 
@@ -531,8 +531,7 @@ function sharedSky(THREE, shared = {}) {
     uMistLayer: ref('uMistLayer', () => new THREE.Vector4(0, 220, 0, 0)),
     uMistDrift: ref('uMistDrift', () => [new THREE.Vector2(), new THREE.Vector2(), new THREE.Vector2()]),
     uMistColor: ref('uMistColor', () => new THREE.Color()), uMistFill: ref('uMistFill', () => 0),
-    uMistFlow: ref('uMistFlow', () => null), uMistFlowHeight: ref('uMistFlowHeight', () => new THREE.Vector2(0, 1)),
-    uMistFlowDistanceM: ref('uMistFlowDistanceM', () => 1), uMistFlowOn: ref('uMistFlowOn', () => 0),
+    ...mistFlowUniforms(THREE, shared),
     uNarrative: ref('uNarrative', () => new THREE.Vector4(1, 1, 1, 1)),
   };
 }

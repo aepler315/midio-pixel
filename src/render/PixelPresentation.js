@@ -87,6 +87,7 @@ export class PixelPresentation {
     this.maskKey = `${this.key}:dither`;
     this.ditherWeights = null;
     this.working = null;
+    this._workingReadFrequently = undefined;
     this.generation = 0;
     this.frameId = 0;
     this.failures = 0;
@@ -132,6 +133,7 @@ export class PixelPresentation {
    * Fixed/saved presentation stays unchanged. A refused rung is not retried
    * each frame; a new layout or presentation may explicitly reset admission. */
   resetFrameGridAdmission() { this._deniedFrameGrids = new Set(); }
+  _workingContextHint() { return this.presentation.cinematicPixel && this._resolvedPaletteId === 'none' ? false : undefined; }
   setFrameGrid(requested = null) {
     const grid = isRuntimePixelGrid(requested) && !this.compiledPalette ? requested : this.presentation.grid;
     if (this.grid === grid) { this.diagnostics.frameGridReason = null; return true; }
@@ -146,6 +148,7 @@ export class PixelPresentation {
     const signature = `${grid.width}x${grid.height}`;
     if (this._deniedFrameGrids?.has(signature)) { this.diagnostics.frameGridReason = 'memory'; return false; }
     let next = null, nextKey = null;
+    const readFrequently = this._workingContextHint();
     // All hybrid modes require a separate native source, including at 1:1.
     // Reserving a separate buffer here also allows a failed replacement to
     // retain its old pixels. beginFrame may release it for a direct 1:1 draw.
@@ -159,7 +162,8 @@ export class PixelPresentation {
       try {
         next = (this.canvas.ownerDocument || globalThis.document).createElement('canvas');
         next.width = grid.width; next.height = grid.height;
-        if (!next.getContext('2d') || !this.residency.commit(reservation, next, c => { c.width = 0; c.height = 0; })) throw Error('frame grid allocation failed');
+        if (!next.getContext('2d', readFrequently === false ? { willReadFrequently: false } : undefined)
+          || !this.residency.commit(reservation, next, c => { c.width = 0; c.height = 0; })) throw Error('frame grid allocation failed');
       } catch {
         if (next) { next.width = 0; next.height = 0; }
         this.residency.release(nextKey);
@@ -168,7 +172,7 @@ export class PixelPresentation {
       }
     }
     this._invalidateCapture();
-    if (next) { this.residency.release(this.key); this.key = nextKey; this.working = next; }
+    if (next) { this.residency.release(this.key); this.key = nextKey; this.working = next; this._workingReadFrequently = readFrequently; }
     this.grid = grid; this.generation++;
     this._releaseDitherWeights();
     this.diagnostics.effectiveGrid = grid;
@@ -216,6 +220,7 @@ export class PixelPresentation {
     this._invalidateCapture();
     this.residency.release(this.key);
     this.working = null;
+    this._workingReadFrequently = undefined;
   }
   failFrame(reason = 'unavailable') {
     this._invalidateCapture();
@@ -246,8 +251,12 @@ export class PixelPresentation {
         if (this.working) this._releaseWorking();
         this.source = canvas;
       } else {
+        const readFrequently = this._workingContextHint();
         // A released buffer is not usable even if a JS reference survives.
-        if (this.working && (this.residency.get(this.key) !== this.working || this.working.width !== grid.width || this.working.height !== grid.height)) this._releaseWorking();
+        // Context hints only apply on first creation; a same-grid look or
+        // resolved-palette change therefore needs a fresh native canvas.
+        if (this.working && (this.residency.get(this.key) !== this.working || this.working.width !== grid.width || this.working.height !== grid.height
+          || this._workingReadFrequently !== readFrequently)) this._releaseWorking();
         if (!this.working) {
           const reservation = this.residency.reserve({ key: this.key, bytes: grid.pixels * 4, owner: 'pixel-presentation', evictable: false });
           if (!reservation) {
@@ -257,7 +266,9 @@ export class PixelPresentation {
           const buffer = (canvas.ownerDocument || globalThis.document).createElement('canvas');
           uncommitted = buffer;
           buffer.width = grid.width; buffer.height = grid.height;
-          if (!buffer.getContext('2d')) throw Error('Working context unavailable');
+          // Keep Cinematic's copy/upload raster GPU-backed after crest
+          // samples; CPU Palette/Pixel paths retain their default policy.
+          if (!buffer.getContext('2d', readFrequently === false ? { willReadFrequently: false } : undefined)) throw Error('Working context unavailable');
           if (!this.residency.commit(reservation, buffer, c => { c.width = 0; c.height = 0; })) {
             buffer.width = 0; buffer.height = 0; uncommitted = null;
             this.residency.release(this.key);
@@ -265,6 +276,7 @@ export class PixelPresentation {
           }
           uncommitted = null;
           this.working = buffer;
+          this._workingReadFrequently = readFrequently;
         }
         this.source = this.working;
       }

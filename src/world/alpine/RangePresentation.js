@@ -28,7 +28,7 @@ import { noteViewShown } from '../terrain/RangeHistory.js';
 import { RangeShotTours } from './RangeShotTours.js';
 import { AUTO_TOUR_GATE, autoGateEnabled } from './CameraChoice.js';
 import { headingPitch, lookDir } from '../terrain/ShotPath.js';
-import { RangeCrest } from './RangeCrest.js';
+import { RangeCrest, crestBuildOpacity, CREST_GRID_SCAN_LEVEL } from './RangeCrest.js';
 import { openingOcean01 } from './BuildOcean.js';
 
 /** Native terrain backing for a full-resolution composition. The selected
@@ -745,6 +745,11 @@ export class RangePresentation {
     return waited || sky || terrainWaited;
   }
 
+  _crestProbeShed(sim) {
+    return !this.exportMode && !sim?.exportMode && !this.crestPalette
+      && (sim?.perf?.level ?? 0) >= CREST_GRID_SCAN_LEVEL;
+  }
+
   /** Renderer: this frame's inputs, before BiomeManager.draw. */
   setFrameInputs({ sim, pose, scenicViewport, groundViewport }) {
     this.waterLayer = null;
@@ -752,6 +757,12 @@ export class RangePresentation {
     this.waterRecipe = null;
     this.nearOcclusionMask = null;
     this.frameInputs = { sim, pose, scenicViewport, groundViewport };
+    // Collect before scenic setup or rendering queues current-frame GPU
+    // work. Exact export reads remain at the end of their own frame.
+    // Modern non-palette heavy rungs have no fine outline, cut or split
+    // consumer. Retire their ring before a readback can stall this frame.
+    if (this._crestProbeShed(sim)) this.scene?.releaseCrestProbe?.();
+    else if (!this.exportMode && !sim?.exportMode) this.scene?.collectCrestProbe?.();
   }
 
   /**
@@ -1078,7 +1089,7 @@ export class RangePresentation {
     this.scene.prepareShafts?.(this.frame, incoming ? [view.id, incoming.id] : [view.id]);
     // The crest probe runs only on a steady single view drawn into the grid
     // (light, crest rows only, on the heavy governor rungs).
-    const crestOn = this.crestEnabled && this.pixelated && !this.directTerrainMode && !incoming;
+    const crestOn = this.crestEnabled && this.pixelated && !this.directTerrainMode && !incoming && !this._crestProbeShed(inputs.sim);
     this.crest.economy = !!inputs.sim?.perf?.economy;
     this.scene.crestProbeMode = crestOn ? this.crest.probeMode : null;
     const crestGrid = this.pixelPolicy?.grid;
@@ -1307,6 +1318,7 @@ export class RangePresentation {
     // An export draw with no history (a seek, a new view, an isolated frame)
     // draws the crest at full strength instead of starting its fade.
     this.crest.update({ probe, instant: sync, frameId: this.frame.frameId, timeMs: this.frame.timeMs, viewId: this.viewId,
+      opacity: crestBuildOpacity(this.frame.rise01),
       qualityLevel: this.frame.qualityLevel ?? 0, transform: t ? [t.a, t.b, t.c, t.d, t.e, t.f] : null,
       stage: { width: stage.width, height: stage.height },
       grid: { width: ctx.canvas.width, height: ctx.canvas.height },

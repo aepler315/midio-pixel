@@ -9,6 +9,7 @@ import { STORM_GLSL } from './RangeStorm.js';
 import { MATERIAL_DETAIL_DOMAIN_GLSL } from './MaterialDetailDomain.js';
 import { moranTerrainFragment } from './TerrainShadingExperiment.js';
 import { BUILD_OCEAN_GLSL } from './BuildOcean.js';
+import { OPENING_COVERAGE_GLSL } from './OpeningCoverage.js';
 export { materialDetailPosition } from './MaterialDetailDomain.js';
 // Range v2 production terrain material (GLSL3 via the local Three.js
 // bundle). Task 8 ships the neutral-material pilot: real geometry, the
@@ -18,7 +19,7 @@ export { materialDetailPosition } from './MaterialDetailDomain.js';
 // albedo/detail terms here rather than drawing a second terrain.
 
 // GLSL twin of RangeFrame.sceneDeformation -- keep the two in step.
-import { MIST_GLSL, MIST_SAMPLES } from './RangeAtmosphere.js';
+import { MIST_GLSL, MIST_SAMPLES, mistFlowUniforms } from './RangeAtmosphere.js';
 import { DEFORM_GLSL, GROUND_LIFT_GLSL } from './TerrainDeform.js';
 import { FOREST_HASH_GLSL, FOREST_TRAITS_GLSL } from './ForestCover.js';
 import { CROWN_GLSL } from './ForestProfile.js';
@@ -436,6 +437,7 @@ export const SCENE_FRAG = /* glsl */`
   ${TERRAIN_LIGHTING_GLSL}
   ${CINEMATIC_LIGHTING_GLSL}
   ${BUILD_OCEAN_GLSL}
+  ${OPENING_COVERAGE_GLSL}
   float hash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
   // Smooth value noise: a per-cell hash alone steps at every cell edge,
   // which a threshold (snow line, tree line) turns into a visible grid.
@@ -791,8 +793,10 @@ export const SCENE_FRAG = /* glsl */`
       // including the lake reflection. The habitat mask remains unchanged.
       float forestCap=uFarForest.w>=8.?35.:1e9;
       vec2 meanCrown = meanForestCrown(treeLine - h, slopeDeg, uFarForest.z, forestCap);
+      float placement = forestPlacementCoverage(vUv, uTourEye.w);
       float cover = expectedForestCover(forest, meanCrown, n, forestRay)
-        * farForestMix(forestDist, uFarForest.xy);
+        * (1.0 - (1.0 - farForestMix(forestDist, uFarForest.xy))
+          * placement);
       float habitat = rForestDensity > 0.0 ? clamp(forest / rForestDensity, 0.0, 1.0) : 0.0;
       // Soil and rock share the shaded floor: rock cannot overwrite it later.
       vec3 openGround = mix(ground, rockCol, rockMask);
@@ -801,6 +805,9 @@ export const SCENE_FRAG = /* glsl */`
       vec2 pixelDx=dFdx(vWorld.xz), pixelDy=dFdy(vWorld.xz);
       vec4 dotFootprint=farDotFootprint(forestRay,n,forestCap,pixelDx,pixelDy);
       float dots=water?0.:farDotWeight(forestDist,dotFootprint,min(forestCap,32.*uFarForest.z))*landDetail;
+      // Outside placed instances, the mean canopy owns this same stand.
+      // Projected source dots may still replace it where they resolve.
+      dots = max(dots, (1.0 - placement) * farDotWeight(max(forestDist, uFarForest.y), dotFootprint, min(forestCap,32.*uFarForest.z)) * landDetail);
       vec3 dotNormal=vec3(0.,1.,0.);float dotCrownWeight=0.;
       if(dots>0. && forest>0.) {
         vec4 painted=farTreeDots(vRenderedWorld,forestRay,n,sourceNormal,degrees(acos(clamp(sourceNormal.y,0.,1.))),forestCap,pixelDx,pixelDy,forestCol,dotNormal);
@@ -1125,6 +1132,13 @@ export const SCENE_FRAG = /* glsl */`
     vec3 outputColor = linearToSrgb(color);
     if (oceanOpening > 0.0) outputColor = mix(outputColor,
       openingOceanDisplay(vRenderedWorld, cameraPosition, pWater, uSkyHorizon, uAirColor, uAirDensity), oceanOpening);
+    // Only the source boundary fades during the wide build overview; the
+    // interior keeps its contrast and the complete scene is unchanged.
+    float sourceEdge = 0.0;
+    if (uLandRise.x > .3) sourceEdge = (1.0 - smoothstep(.5, .7, 1.0 - uLandRise.x))
+      * (1.0 - openingSourceCoverage(vUv, uTourEye.w));
+    if (sourceEdge > 0.0 && uDebugMask == 0 && uDiag < .5 && uWaterOnly < .5) outputColor = mix(outputColor,
+      openingOceanDisplay(vRenderedWorld, cameraPosition, pWater, uSkyHorizon, uAirColor, uAirDensity), sourceEdge);
     outColor = vec4(outputColor, 1.0);
     if (uDiag > 0.5) outColor = vec4(1.0, 0.0, 1.0, 1.0);
   }
@@ -1183,6 +1197,7 @@ export function sceneUniforms(THREE, base) {
     uGlacierWidth: { value: 1 }, uGlacierSurface: { value: new THREE.Vector2() }, uGlacierMaxThickness: { value: 0 }, uGlacierRetreat: { value: 0 },
     uDeformAmp: { value: 0 }, uDeformKick: { value: 0 }, uDeformK: { value: 0 },
     uTourEye: { value: new THREE.Vector4() }, uLandRise: { value: new THREE.Vector2() },
+    uOpeningCoverage: { value: null },
     uLandHierarchy: { value: null }, uLandDance: { value: new THREE.Vector4() },
     uDeformGesture: { value: 0 }, uDeformMelodic: { value: 0 }, uDeformStructural: { value: 0 },
     uMelodyK: { value: 0 }, uMelodyDir: { value: new THREE.Vector2(1, 0) }, uMelodyPhase: { value: 0 },
@@ -1199,8 +1214,7 @@ export function sceneUniforms(THREE, base) {
     uMistDensity: { value: 0 }, uMistBase: { value: 0 }, uMistHeight: { value: 220 }, uMistTime: { value: 0 },
     uMistSteps: { value: MIST_SAMPLES }, uMistFill: { value: 0 },
     uMistLayer: { value: new THREE.Vector4(0, 220, 0, 0) },
-    uMistFlow: { value: null }, uMistFlowOn: { value: 0 },
-    uMistFlowHeight: { value: new THREE.Vector2(0, 1) }, uMistFlowDistanceM: { value: 1 },
+    ...mistFlowUniforms(THREE),
     uMistDrift: { value: [new THREE.Vector2(), new THREE.Vector2(), new THREE.Vector2()] },
     uMistColor: { value: new THREE.Color(0.4, 0.43, 0.48) },
     uCameraPos: { value: new THREE.Vector3() },

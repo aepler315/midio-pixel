@@ -256,6 +256,22 @@ export function mistForwardScatter(cosTheta, g = MIST_SCATTER_G) {
   return Math.min(1, Math.max(0, (hg - 1) / (peak - 1)));
 }
 
+/** Keep the public CPU references while uploading the four related flow
+ *  values in one vector. Reading the packed value uses today's references,
+ *  including standalone consumers and reflected draws; it allocates nothing
+ *  per upload and needs no separate synchronization step. */
+export function mistFlowUniforms(THREE, shared = {}) {
+  const height = shared.uMistFlowHeight || { value: new THREE.Vector2(0, 1) };
+  const distance = shared.uMistFlowDistanceM || { value: 1 };
+  const on = shared.uMistFlowOn || { value: 0 };
+  const packed = new THREE.Vector4();
+  return {
+    uMistFlow: shared.uMistFlow || { value: null },
+    uMistFlowHeight: height, uMistFlowDistanceM: distance, uMistFlowOn: on,
+    uMistFlowParams: shared.uMistFlowParams || { get value() { return packed.set(height.value.x, height.value.y, distance.value, on.value); } },
+  };
+}
+
 export const MIST_GLSL = /* glsl */`
   uniform float uMistDensity;
   uniform float uMistSteps; // 1..MIST_SAMPLES: the quality ladder's fog sampling
@@ -267,9 +283,10 @@ export const MIST_GLSL = /* glsl */`
   uniform vec2 uMistDrift[3]; // mistDrift(heard time): each octave's offset (m)
   uniform vec3 uMistColor;
   uniform sampler2D uMistFlow; // ground, valley affinity, upstream distance, validity
-  uniform vec2 uMistFlowHeight; // minimum and span (m)
-  uniform float uMistFlowDistanceM;
-  uniform float uMistFlowOn;
+  uniform vec4 uMistFlowParams; // minimum height, height span, distance (m), enabled
+  #define uMistFlowHeight uMistFlowParams.xy
+  #define uMistFlowDistanceM uMistFlowParams.z
+  #define uMistFlowOn uMistFlowParams.w
   float mistHash(vec2 p) {
     ivec2 c = ivec2(p);
     uint h = (uint(c.x) * 0x27d4eb2du) ^ (uint(c.y) * 0x165667b1u);

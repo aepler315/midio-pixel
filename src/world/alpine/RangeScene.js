@@ -66,6 +66,7 @@ import { waterBoxes, vertexWaterBoxes, liftBounds, shiverBounds, mirrorScissor, 
 import { LAND_RISE_START, landRiseLift, riseFromUniforms, risenHeight } from './LandRise.js';
 import { landRiseBase, landRiseCamera } from './LandRiseCamera.js';
 import { RiseGround, riseGroundBytes } from './RiseGround.js';
+import { buildOpeningCoverageAsync, createOpeningCoverage, openingCoverageBytes } from './OpeningCoverage.js';
 import { openingOcean01 } from './BuildOcean.js';
 // Storm light, linear: the deck's underside, the rain-dimmed horizon, the
 // rain air, per episode kind (RangeStorm STORM_KINDS zenith/horizon/air).
@@ -114,7 +115,7 @@ export function staticViewBytes(data, est, trees, { budget = 'desktop', landDanc
   const gridPx = grid ? grid.width * grid.height : 0;
   return 2 * ((est?.meshBytes || 0) + fringeBytes + forestBytes) + (est?.surfaceTextureBytes || 0) + gridPx
     + modes * 2 * 3 * 768 * 6 * 4 + 2 * ActorsGL.bytes() + horizonCost + hierarchyCost + mistFlowCost
-    + (grid ? riseGroundBytes() : 0) + forestSpanBytes(trees);
+    + (grid ? riseGroundBytes() + openingCoverageBytes(data) : 0) + forestSpanBytes(trees);
 }
 
 /** The grouping and asset-build allowance a static forest build keeps
@@ -1383,7 +1384,7 @@ export class RangeScene {
       let mat = null, res = null, published = false;
       const cpu = await prepareTerrainAssets(view, { baseUrl, residency: this.residency, generation, signal, isCurrent, owner: cpuOwner });
       let waterSubsets = null;
-      let surface, geos, material, riverMaterial, riverDepthMaterial, riverOwnershipMaterials = null, depthMaterial, ownershipMaterials = null, horizon = null, hierarchy = null, tourHorizon = null, tourHierarchy = null, mistFlow = null, tourMistFlow = null, forest, stageGL, featureMaterial, actors, riseGround;
+      let surface, geos, material, riverMaterial, riverDepthMaterial, riverOwnershipMaterials = null, depthMaterial, ownershipMaterials = null, horizon = null, hierarchy = null, tourHorizon = null, tourHierarchy = null, mistFlow = null, tourMistFlow = null, forest, stageGL, featureMaterial, actors, riseGround, openingCoverage;
       const riverGeometries = {}, riverFringeGeometries = {}, riverDepthMeshes = {};
       let initialWindow = null, workerKey = null, windowReservation = null, buildEntry = null, workerReservation = null;
       const featureGeometries = {};
@@ -1607,6 +1608,16 @@ export class RangeScene {
         const base = terrainUniforms(THREE, data, surface);
         const uniforms = sceneUniforms(THREE, base);
         applyMaterial(uniforms, mat.pack, mat.textures, view.materialRules || {});
+        if (!view.tour) {
+          // A fixed small field covers both admitted static camera modes.
+          // Streaming tours retain their window-owned forest/ground coverage.
+          const field = await buildOpeningCoverageAsync(data, view, { signal,
+            checkCurrent: () => { if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`); } });
+          if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`);
+          openingCoverage = createOpeningCoverage(THREE, field);
+          uniforms.uOpeningCoverage.value = openingCoverage.texture;
+          this.renderer?.initTexture?.(openingCoverage.texture);
+        }
         // This bounded inferred backdrop and its build scratch were admitted
         // above with the view. It never participates in source terrain depth.
         riseGround = new RiseGround(THREE, data, uniforms);
@@ -1847,7 +1858,7 @@ export class RangeScene {
         }
         const prepared = {
           view, generation, manifest: cpu.manifest, data, railOnly, identity: cpu.identity, tourCpuKey: opts.tourCpuKey,
-          surface, uniforms, material, depthMaterial, ownershipMaterials, horizon, hierarchy, tourHorizon, tourHierarchy, mistFlow, tourMistFlow, riseGround, depthBandMeshes: depthMeshes, geometries: geos.geometries, fringes: geos.fringes, fringeMeshes, fringeTravel, scenes, depthScene, depthScenes,
+          surface, uniforms, material, depthMaterial, ownershipMaterials, horizon, hierarchy, tourHorizon, tourHierarchy, mistFlow, tourMistFlow, riseGround, openingCoverage, depthBandMeshes: depthMeshes, geometries: geos.geometries, fringes: geos.fringes, fringeMeshes, fringeTravel, scenes, depthScene, depthScenes,
           riverMaterial, riverDepthMaterial, riverOwnershipMaterials, riverGeometries, riverFringeGeometries, riverDepthMeshes, riverStats,
           forest, stageGL, featureGeometries, featureMaterial, modeGeometries, terrainMode: view.tour ? null : 'rail', modeWater, castWaterLevelM: waterLevelM,
           stats: { ...geos.stats, trees: forest.counts, featureBytes: featureBudgetBytes }, gpuKey, cpuKey: cpu.key, cpuOwner,
@@ -1904,6 +1915,7 @@ export class RangeScene {
           if (!initialWindow) forest?.dispose();
           actors?.dispose();
           riseGround?.dispose();
+          openingCoverage?.dispose();
           stageGL?.dispose();
           material?.dispose();
           riverMaterial?.dispose();
@@ -2230,6 +2242,7 @@ export class RangeScene {
   _disposePrepared(p) {
     this._releaseOpaqueDepth(null, p);
     p.riseGround?.dispose();
+    p.openingCoverage?.dispose();
     p.featureMaterial?.dispose();
     for (const g of Object.values(p.featureGeometries || {})) g.dispose();
     p.windowCache?.dispose();
@@ -3367,9 +3380,12 @@ export class RangeScene {
     }
   }
 
-  /** This frame's crest probe data, or null: the newest completed
-   * asynchronous readback (live), or this frame's rows read synchronously
-   * (`sync`: export draws; or no usable asynchronous result). See CrestProbe.read. */
+  /** Collect older readbacks before the presenter starts current-frame GPU work. */
+  collectCrestProbe() { if (!this.contextLost) this.crestProbe?.collect(); }
+
+  /** This frame's crest probe data, or null: the newest early-collected
+   * asynchronous result (live), or this frame's rows read synchronously
+   * (`sync`: exports; unsupported/failed async readback). See CrestProbe.read. */
   readCrestProbe(frameId, options = {}) {
     if (!this.crestProbe || this.contextLost) return null;
     try { return this.crestProbe.read(frameId, options); }

@@ -88,18 +88,9 @@ const SHADE = /* glsl */`
     return mix(c * 12.92, 1.055 * pow(max(c, vec3(0.0)), vec3(1.0 / 2.4)) - .055, step(vec3(.0031308), c));
   }
   vec4 shadeGround(vec3 p, vec3 n) {
-    float key = max(0.0, dot(n, uLightDir));
-    vec3 albedo = mix(pSoil, pMeadow, .25 * n.y);
-    vec3 lit = albedo * (uSkyHorizon * (.3 + .3 * uAmbientScale) + uLightColor * key);
-    vec3 color = lit * uExposure / (vec3(1.0) + lit * uExposure);
-    color = mix(uSkyHorizon, color, uNarrative.x);
-    float air = 1.0 - exp(-length(p - cameraPosition) * uAirDensity);
-    color = mix(color, uAirColor, min(.96, air) * uNarrative.y);
-    vec3 display = srgb(color);
-    float ocean = openingOcean01(1.0 - uLandRise.x);
-    if (ocean > 0.0) display = mix(display,
-      openingOceanDisplay(p, cameraPosition, pWater, uSkyHorizon, uAirColor, uAirDensity), ocean);
-    return vec4(display, uRiseGroundOpacity);
+    // Missing source coverage stays on the common construction sea. A
+    // separately lit coarse fill otherwise exposes beige triangle patches.
+    return vec4(openingOceanDisplay(p, cameraPosition, pWater, uSkyHorizon, uAirColor, uAirDensity), uRiseGroundOpacity);
   }
   vec4 shadeOcean(vec3 p) {
     return vec4(openingOceanDisplay(p, cameraPosition, pWater, uSkyHorizon, uAirColor, uAirDensity), uRiseGroundOpacity);

@@ -43,6 +43,12 @@ export const CREST_FADE_SEC = 0.5;
 /** The line (and split cells) fading in after a view change, live only:
  *  an isolated export frame (`instant`) starts at full strength. */
 export const CREST_VIEW_FADE_SEC = 0.15;
+/** A flattened, distant build footprint is not a geographic crest. Let
+ * real relief and its authored composition arrive before outlining it. */
+export function crestBuildOpacity(rise01 = 1) {
+  const t = Math.max(0, Math.min(1, ((Number.isFinite(rise01) ? rise01 : 1) - .55) / .15));
+  return t * t * (3 - 2 * t);
+}
 /** Grid rows an asynchronous (one frame old) probe may be off by that the
  *  grid itself corrects (prepareGrid) and the terrain cut covers above the
  *  raw crest (drawTerrain). */
@@ -258,6 +264,8 @@ export class RangeCrest {
     if (this._shore) { this._shore.y.fill(NaN); this._shore.kind.fill(0); }
     if (this._grid) for (const g of Object.values(this._grid)) { g.geometry = null; g.vis.fill(NaN); g.landOk.fill(0); resetFilter(g.scan); g.foot = g.top = NaN; }
     this._sampleAge = Infinity;
+    this._origRead = null;
+    this._glow = null;
     this.diagnostics.resets++;
     this.diagnostics.lastReset = reason;
   }
@@ -294,7 +302,7 @@ export class RangeCrest {
    * crest then comes from the palette frame in prepareGrid(). `instant`
    * (export draws) starts a discontinuous frame at full strength.
    */
-  update({ probe, frameId, timeMs = 0, viewId = null, qualityLevel = 0, transform, stage, grid, sky = null, palette = null, scan = false, instant = false } = {}) {
+  update({ probe, frameId, timeMs = 0, viewId = null, qualityLevel = 0, transform, stage, grid, sky = null, palette = null, scan = false, instant = false, opacity = 1 } = {}) {
     const t0 = performance.now();
     const last = this._last;
     const rawDt = last && Number.isFinite(timeMs) ? (timeMs - last.timeMs) / 1000 : 0;
@@ -361,10 +369,11 @@ export class RangeCrest {
     // this frame's snapshot draws no lower halves, so neither its display
     // nor its capture needs the canvas. Give it, and its hold, back.
     if (!split && !(this.splitFade > 0)) this._releaseSplit();
-    this.snapshot = Object.freeze({ frameId, dt, grid: { width: grid.width, height: grid.height }, mode: this.mode, fade: this.fade,
+    const shown = this.fade * Math.max(0, Math.min(1, Number.isFinite(opacity) ? opacity : 1));
+    this.snapshot = Object.freeze({ frameId, dt, grid: { width: grid.width, height: grid.height }, mode: this.mode, fade: shown,
       splitFade: this.splitFade, split, scan: scanning, cut: shapeAvailable && !(scanning && this.economy), outputGeometry, prepared: false, splitPending: false, splitReady: false, splitAlpha: 0, palette, shores,
       lag: probe ? probe.lag || 0 : 0, aligned: 0 });
-    this.diagnostics.fade = this.fade;
+    this.diagnostics.fade = shown;
     this.diagnostics.splitFade = this.splitFade;
     this.diagnostics.columns = columns;
     this.diagnostics.fineColumns = probe ? CREST_BANDS.reduce((n, b) => n + (this._bands[b]?.fineCount || 0), 0) : 0;
@@ -1169,22 +1178,20 @@ export class RangeCrest {
    * Translucent sky-side content drawn into the grid (a glow or haze layer)
    * lies over the cut rows too, and the clip removed it with the land: the
    * cut's stepped top would show as a staircase of bare sky against the
-   * glow-tinted sky above it. Each cut column's cell just above its cut top
-   * (`source`, the native grid) is stretched down over the cut, under the
-   * same strips; only where that cell is translucent (alpha below
-   * LAND_ALPHA) when this frame read it, else wherever the last reading saw
-   * such content near the skyline (it is above the raw crest by
-   * construction). Returns the number of columns refilled.
+   * glow-tinted sky above it. Refill from the last alpha-verified glow
+   * colour, under the same strips. Grid reads are throttled on heavy rungs:
+   * the current source can already contain opaque rock at that row, so a
+   * previous glow reading must never authorize copying its current pixels.
+   * Returns the number of columns refilled, without another grid read.
    */
   _refillGlow(ctx, source, X, Y, s, W, strips, snap) {
-    const fresh = this._origRead?.frameId === snap.frameId ? this._origRead.groups : null;
-    if (!fresh && this._glow === false) return 0;
+    const groups = this._origRead?.groups;
+    if (!groups || !this._orig || this._glow === false) return 0;
     const c = this._cut, orig = this._orig;
     const ok = (i) => {
       const r = c.top[i] - 1;
       if (c.band[i] < 0 || !(r >= 0)) return false;
-      if (!fresh) return true;
-      if (!fresh.some(gr => r >= gr.y0 && r < gr.y1)) return false;
+      if (!groups.some(gr => r >= gr.y0 && r < gr.y1)) return false;
       const a = orig[(r * W + i) * 4 + 3];
       return a > 0 && a < LAND_ALPHA;
     };
@@ -1198,10 +1205,19 @@ export class RangeCrest {
       while (i < W) {
         if (!ok(i)) { i++; continue; }
         const top = c.top[i];
+        const k = ((top - 1) * W + i) * 4;
+        const sameColor = x => {
+          const o = ((top - 1) * W + x) * 4;
+          return orig[o] === orig[k] && orig[o + 1] === orig[k + 1] && orig[o + 2] === orig[k + 2] && orig[o + 3] === orig[k + 3];
+        };
         let j = i, bottom = c.spanBottom[i];
-        while (j + 1 < W && c.band[j + 1] === c.band[i] && c.top[j + 1] === top && ok(j + 1)) { j++; bottom = Math.max(bottom, c.spanBottom[j]); }
+        while (j + 1 < W && c.band[j + 1] === c.band[i] && c.top[j + 1] === top && ok(j + 1) && sameColor(j + 1)) { j++; bottom = Math.max(bottom, c.spanBottom[j]); }
         const rows = Math.floor(bottom) + 2 - top;
-        if (rows > 0) { ctx.drawImage(source, i, top - 1, j - i + 1, 1, X(i), Y(top), (j - i + 1) * s, rows * s); refilled += j - i + 1; }
+        if (rows > 0) {
+          ctx.fillStyle = `rgba(${orig[k]},${orig[k + 1]},${orig[k + 2]},${orig[k + 3] / 255})`;
+          ctx.fillRect(X(i), Y(top), (j - i + 1) * s, rows * s);
+          refilled += j - i + 1;
+        }
         i = j + 1;
       }
     } finally { ctx.restore(); }

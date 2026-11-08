@@ -16,6 +16,7 @@ import { railGroundData } from '../src/world/alpine/RailDraw.js';
 import { RangePresentation, shotTimelineOf } from '../src/world/alpine/RangePresentation.js';
 import { RangeShotTours } from '../src/world/alpine/RangeShotTours.js';
 import { rangeMusicState } from '../src/world/alpine/RangeFrame.js';
+import { openingCoverageBytes } from '../src/world/alpine/OpeningCoverage.js';
 import { keyTimeline } from './helpers/tourForestFixtures.mjs';
 
 // The rail at z = -600 looks north; two tour poses add ground only they see.
@@ -122,9 +123,12 @@ test('a phone that cannot hold both cameras prepares the rail alone, never placi
 });
 
 test('a desktop places the tour\'s forest when its placement fits, and holds both cameras when the trees placed fit', async () => {
-  // Including span-cache/build memory: ~37.8 MB placed, ~42 MB bound.
+  // Including span-cache/build memory: ~37.8 MB placed, ~42 MB bound,
+  // plus the same explicit coverage-field charge in both estimates.
   // The bound's tree count still refuses this room, but the trees placed fit.
-  const s = scene(38e6), rooms = watchRoom(s);
+  const { manifest, decoded } = await tourPackage();
+  const coverageBytes = openingCoverageBytes(decodeTerrain(manifest, decoded));
+  const s = scene(38e6 + coverageBytes), rooms = watchRoom(s);
   const two = await prepare(s, footprint);
   assert.deepEqual(rooms, ['placed']);
   assert.equal(two.railOnly, null);

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { fitPixelRect, PixelPresentation } from '../src/render/PixelPresentation.js';
 import { createPresentingRenderer } from '../src/render/PresentingRenderer.js';
 import { GraphicsResidency } from '../src/render/GraphicsResidency.js';
-import { pixelGrid } from '../src/render/PixelRenderPolicy.js';
+import { pixelGrid, runtimePixelGrid } from '../src/render/PixelRenderPolicy.js';
 
 const pixel = { pixelated: true, grid: { width: 320, height: 180 }, paletteId: 'none', dither: 1, quality: 'auto', scaling: 'fit' };
 function surface(width = 800, height = 480) {
@@ -12,10 +12,84 @@ function surface(width = 800, height = 480) {
     drawImage(...a) { canvas.draws.push({ args: a, smooth: this.imageSmoothingEnabled }); },
     getImageData() { canvas.reads++; return { width: canvas.width, height: canvas.height, data: new Uint8ClampedArray(canvas.width * canvas.height * 4) }; },
     putImageData() { canvas.writes++; } };
-  canvas.getContext = () => ctx;
+  canvas.contextRequests = [];
+  canvas.getContext = (type, options) => { canvas.contextRequests.push({ type, options }); return ctx; };
   canvas.ownerDocument = { createElement: () => surface(0, 0) };
   return canvas;
 }
+
+test('only Cinematic non-palette native rasters request the explicit GPU hint on their first context', () => {
+  for (const [presentation, options] of [
+    [{ ...pixel, cinematicPixel: true }, { willReadFrequently: false }],
+    [pixel, undefined],
+    [{ ...pixel, paletteId: 'rgb332' }, undefined],
+    [{ ...pixel, cinematicPixel: true, paletteId: 'rgb332' }, undefined],
+  ]) {
+    const output = surface(), owner = new PixelPresentation({ canvas: output, presentation, residency: new GraphicsResidency() });
+    const working = owner.beginFrame({ separate: true });
+    assert.deepEqual(working.contextRequests[0], { type: '2d', options });
+    assert.equal(output.contextRequests[0].options, undefined, 'the output stage policy remains unchanged');
+    assert.equal(owner.beginFrame({ separate: true }), working, 'steady frames retain their actual context');
+    owner.dispose();
+  }
+});
+
+test('admitted Cinematic growth creates the replacement with its GPU hint before publishing it', () => {
+  const owner = new PixelPresentation({ canvas: surface(), presentation: { ...pixel, cinematicPixel: true }, residency: new GraphicsResidency() });
+  owner.setFrameGrid(runtimePixelGrid(320, 180));
+  const original = owner.beginFrame({ separate: true });
+  assert.equal(owner.setFrameGrid(runtimePixelGrid(400, 225)), true);
+  const next = owner.working;
+  assert.notEqual(next, original);
+  assert.deepEqual(next.contextRequests[0], { type: '2d', options: { willReadFrequently: false } });
+  assert.equal(original.width, 0);
+  assert.equal(owner.beginFrame({ separate: true }), next);
+  owner.dispose();
+});
+
+test('denied Cinematic growth keeps the prior context and its actual hint until replacement commits', () => {
+  for (const failure of ['budget', 'commit']) {
+    const residency = new GraphicsResidency(), owner = new PixelPresentation({ canvas: surface(), presentation: pixel, residency });
+    const original = owner.beginFrame({ separate: true }), oldBytes = residency.usedBytes;
+    owner.setPresentation({ ...pixel, cinematicPixel: true });
+    if (failure === 'budget') residency.budgetBytes = oldBytes;
+    else residency.commit = () => false;
+    assert.equal(owner.setFrameGrid(runtimePixelGrid(400, 225)), false);
+    assert.equal(owner.working, original);
+    assert.equal(original.width, 320);
+    assert.equal(owner._workingReadFrequently, undefined, 'requested false is not published over the actual default context');
+    assert.equal(original.contextRequests[0].options, undefined);
+    assert.equal(residency.usedBytes, oldBytes);
+    assert.equal(residency.pendingBytes, 0);
+    owner.dispose();
+  }
+});
+
+test('same-grid Cinematic and Palette policy changes recreate native contexts in both directions', () => {
+  const owner = new PixelPresentation({ canvas: surface(), presentation: { ...pixel, cinematicPixel: true }, residency: new GraphicsResidency() });
+  const cinematic = owner.beginFrame({ separate: true });
+  owner.setPresentation({ ...pixel, paletteId: 'rgb332' });
+  const palette = owner.beginFrame({ separate: true });
+  assert.notEqual(palette, cinematic);
+  assert.equal(palette.contextRequests[0].options, undefined);
+  assert.equal(cinematic.width, 0);
+  owner.setPresentation({ ...pixel, cinematicPixel: true });
+  const restored = owner.beginFrame({ separate: true });
+  assert.notEqual(restored, palette);
+  assert.deepEqual(restored.contextRequests[0].options, { willReadFrequently: false });
+  assert.equal(palette.width, 0);
+  assert.equal(owner._workingReadFrequently, false);
+  owner.dispose();
+});
+
+test('Cinematic native hints leave an explicitly readable output context untouched', () => {
+  const output = surface(); output.getContext('2d', { willReadFrequently: true });
+  const owner = new PixelPresentation({ canvas: output, presentation: { ...pixel, cinematicPixel: true }, residency: new GraphicsResidency() });
+  const working = owner.beginFrame({ separate: true });
+  assert.deepEqual(output.contextRequests[0].options, { willReadFrequently: true });
+  assert.deepEqual(working.contextRequests[0].options, { willReadFrequently: false });
+  owner.dispose();
+});
 test('pixel fitting preserves aspect, integer scale and sub-grid targets', () => {
   assert.deepEqual(fitPixelRect(320, 180, 800, 480, 'integer'), { x: 80, y: 60, width: 640, height: 360, scale: 2 });
   assert.deepEqual(fitPixelRect(320, 180, 800, 480, 'fit'), { x: 0, y: 15, width: 800, height: 450, scale: 2.5 });
