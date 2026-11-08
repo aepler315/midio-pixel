@@ -63,13 +63,14 @@ The current terrain and river shaders compiled and linked in reference and
 factored modes through surfaceless EGL, GLSL ES 3.00, Mesa 25.0.7,
 `llvmpipe (LLVM 19.1.7, 256 bits)`. A float-framebuffer fixture compared 32 cases
 of 1,024 source points with nearest/linear receiver and hierarchy textures,
-clamped texture edges, height clamps and tour-fade shoulders.
+clamped texture edges, height clamps and tour-fade shoulders. The fixture uses
+Three.js's high-precision sampler declaration.
 
 | Observation | Result |
 |---|---:|
 | Point comparisons | 32,768 |
 | Maximum absolute gradient-component difference | 0.00000762939453125 |
-| Maximum normal-vector difference using the production inverse Jacobian | 0.00000321892685 |
+| Maximum normal-vector difference using the production inverse Jacobian | 0.00000344616546 |
 | Displacement difference (`deformAt`) | 0 |
 | Nonfinite outputs / GL errors | 0 / 0 |
 
