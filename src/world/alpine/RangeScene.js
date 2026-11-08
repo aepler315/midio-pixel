@@ -4,7 +4,10 @@ import { cinematicLightingProfile } from './CinematicLighting.js';
 import { shaderFailureLog } from '../../render/GraphicsDiagnostics.js';
 import { applyLensFov } from '../../render/CameraLens.js';
 import { terrainShadingMode, terrainShadingForView } from './TerrainShadingExperiment.js';
+import { materialFeatureMode, planMaterialFeatureCache, bakeMaterialFeatureCache } from './MaterialFeatureCache.js';
+import { canopySummaryEnabled } from './ForestCanopySummary.js';
 import { compiledTerrainRequest, compiledViewUnsupported, compiledCameraView } from './CompiledTerrain.js';
+import { deformationGradientMode } from './DeformationGradient.js';
 import { prepareCompiledView } from './CompiledTerrainScene.js';
 import { resolveRangeComposition, compositionBars } from './RangeComposition.js';
 import { rangeRenderPolicy, supportedSamples, msaaOverride, sceneTargetBytes, sideTargetBytes, nearerMask } from './RangeRenderPolicy.js';
@@ -218,6 +221,9 @@ export class RangeScene {
     // Developer-only representation probe; normal shaders compile it out.
     this.forestDebug = new URLSearchParams(globalThis.location?.search || '').get('forestDebug') === '1';
     this.terrainShading = terrainShadingMode();
+    this.deformationGradient = deformationGradientMode(globalThis.location?.search || '');
+    this.materialFeatures = materialFeatureMode(globalThis.location?.search || '');
+    this.canopySummary = canopySummaryEnabled(globalThis.location?.search || '');
     // Developer-only compiled terrain experiment (?compiledTerrain=, see
     // docs/compiled-terrain-experiment.md): what was asked, and per view
     // what was actually drawn and why.
@@ -282,6 +288,69 @@ export class RangeScene {
     this.contextEpoch = 0;
     this.canvas.addEventListener?.('webglcontextlost', (e) => { e.preventDefault(); this.contextLost = true; this.contextEpoch++; this._invalidateContext(); });
     this.canvas.addEventListener?.('webglcontextrestored', () => { this.contextLost = false; this.contextEpoch++; });
+  }
+
+  /** Optional feature caches use free room only. Planning performs no GPU
+   * work, and protects every current owner while checking the build peak. */
+  _admitMaterialFeatures(grid, baseBytes, scratchBytes) {
+    const status = { selected: 'reference', reason: 'off', bytes: 0, width: 0, height: 0 };
+    const admission = { plan: null, extraBytes: 0, status };
+    if (this.materialFeatures !== 'warp') return admission;
+    const plan = planMaterialFeatureCache(grid);
+    status.width = plan.width; status.height = plan.height;
+    if (!plan.eligible) { status.reason = plan.reason; return admission; }
+    const extraBytes = plan.bytes + plan.buildBytes;
+    if (this.residency && !this.residency.canFit(baseBytes + scratchBytes + extraBytes, [...this.residency.entries.keys()])) {
+      status.reason = 'budget'; return admission;
+    }
+    status.reason = 'pending-bake';
+    admission.plan = plan; admission.extraBytes = extraBytes;
+    return admission;
+  }
+
+  /** The enclosing view reservation owns both the output and its tiny
+   * build allowance before any target is created. Exact reservation
+   * identity prevents a stale build from shrinking a replacement view. */
+  _buildMaterialFeatures(admission, reservation, uniforms, checkCurrent) {
+    if (!admission.plan) return null;
+    const { plan, status } = admission;
+    let cache = null;
+    const retire = bytes => {
+      const entry = reservation && this.residency?.entries.get(reservation.key);
+      if (entry && entry.id === reservation.id) this.residency.shrinkReservation(reservation, entry.bytes - bytes);
+      admission.extraBytes -= bytes;
+    };
+    const check = () => {
+      checkCurrent();
+      if (this.contextLost || this.renderer.getContext().isContextLost()) throw new RangeAssetError('context-lost', 'GPU context lost while baking material features');
+      if (this.residency && !reservation) throw new RangeAssetError('budget', 'Material feature build was not admitted');
+      if (reservation && this.residency?.entries.get(reservation.key)?.id !== reservation.id) throw new RangeAssetError('stale', 'Material feature reservation retired');
+      if (reservation && this.residency.entries.get(reservation.key).bytes < admission.extraBytes) throw new RangeAssetError('budget', 'Material feature build exceeds its admission');
+    };
+    try {
+      check();
+      cache = bakeMaterialFeatureCache(this.THREE, this.renderer, plan);
+      check();
+      uniforms.tSoil.value = cache.texture;
+      // These terrain scalars are unused on the reference path. Transfer
+      // the planned cell directly: recomputing it from a float32 grid
+      // origin can select the adjacent cell at a fractional boundary.
+      uniforms.sSoil.value = plan.originCell[0];
+      uniforms.sCanopy.value = plan.originCell[1];
+      retire(plan.buildBytes);
+      Object.assign(status, { selected: 'warp', reason: null, bytes: plan.bytes });
+      return cache;
+    } catch (err) {
+      cache?.dispose();
+      retire(admission.extraBytes);
+      Object.assign(status, { selected: 'reference', reason: `bake: ${err.message || err}`, bytes: 0 });
+      // A failed optional bake falls back; cancellation/context loss still
+      // retires the entire unpublished preparation through its normal path.
+      checkCurrent();
+      if (this.contextLost || this.renderer.getContext().isContextLost()) throw new RangeAssetError('context-lost', 'GPU context lost while baking material features');
+      if (['stale', 'aborted', 'context-lost'].includes(err.reason) || err.name === 'AbortError') throw err;
+      return null;
+    }
   }
 
   _createCopy() {
@@ -1384,7 +1453,7 @@ export class RangeScene {
       let mat = null, res = null, published = false;
       const cpu = await prepareTerrainAssets(view, { baseUrl, residency: this.residency, generation, signal, isCurrent, owner: cpuOwner });
       let waterSubsets = null;
-      let surface, geos, material, riverMaterial, riverDepthMaterial, riverOwnershipMaterials = null, depthMaterial, ownershipMaterials = null, horizon = null, hierarchy = null, tourHorizon = null, tourHierarchy = null, mistFlow = null, tourMistFlow = null, forest, stageGL, featureMaterial, actors, riseGround, openingCoverage;
+      let surface, geos, material, riverMaterial, riverDepthMaterial, riverOwnershipMaterials = null, depthMaterial, ownershipMaterials = null, horizon = null, hierarchy = null, tourHorizon = null, tourHierarchy = null, mistFlow = null, tourMistFlow = null, forest, stageGL, featureMaterial, actors, riseGround, openingCoverage, materialFeatureCache = null;
       const riverGeometries = {}, riverFringeGeometries = {}, riverDepthMeshes = {};
       let initialWindow = null, workerKey = null, windowReservation = null, buildEntry = null, workerReservation = null;
       const featureGeometries = {};
@@ -1508,16 +1577,18 @@ export class RangeScene {
         // drainage hierarchy texture, static views only for now.
         const hierarchySamples = HIERARCHY_MAX_SAMPLES[this.budget === 'mobile' ? 'mobile' : 'desktop'];
         const hierarchyCost = view.tour || !cpu.data?.grid || !requestedLandDance() ? 0 : modes * hierarchySamples * hierarchySamples * 4;
-        const bytes = view.tour ? Math.ceil(gridPx * (4 * 4 / 3 + 1)) + featureBudgetBytes + 2 * ActorsGL.bytes() + riseGroundBytes() + MIST_FLOW_MAX_SAMPLES ** 2 * 8
+        const baseBytes = view.tour ? Math.ceil(gridPx * (4 * 4 / 3 + 1)) + featureBudgetBytes + 2 * ActorsGL.bytes() + riseGroundBytes() + MIST_FLOW_MAX_SAMPLES ** 2 * 8
           : staticViewBytes(data, est, placed.count, { budget: this.budget, landDance: requestedLandDance() });
         // A static view's build entry still holds its forest construction
         // allowance, which createForest uses only after the surface scratch
         // is freed. The surface borrows it and is charged only beyond it, so
         // two working peaks that never coexist are not counted together.
         const scratchBytes = Math.max(0, gridPx * SURFACE_BUILD_BYTES_PER_PIXEL - (buildEntry?.idleBytes || 0));
+        const materialFeatureAdmission = this._admitMaterialFeatures(data.grid, baseBytes, scratchBytes);
+        let bytes = baseBytes + materialFeatureAdmission.extraBytes;
         // Both cameras, at the trees placed: the GPU reservation and the
         // surface build beside the kept records, or the rail alone this song.
-        const placedNeed = (buildEntry?.bytes || 0) + bytes + scratchBytes;
+        let placedNeed = (buildEntry?.bytes || 0) + bytes + scratchBytes;
         if (twoModes && this.residency && !this.residency.canFit(bytes + scratchBytes, [cpu.key, mat.key])) {
           this._refuseTour(view.id, generation, placedNeed);
           throw new RangeAssetError('budget', `no room for both cameras of ${view.id}`);
@@ -1558,9 +1629,23 @@ export class RangeScene {
         const scratchKey = `range:surface-scratch:${view.id}`;
         const reserveScratch = () => this.residency?.reserve({ key: scratchKey, bytes: scratchBytes, owner: 'range-scratch', generation }) || null;
         let scratch = reserveScratch();
+        if (this.residency && !scratch && materialFeatureAdmission.extraBytes > 0) {
+          // Room may have gone during the yield. Retire the unbuilt cache
+          // before any other optional layer or the terrain loses its room.
+          const extra = materialFeatureAdmission.extraBytes, entry = this.residency.entries.get(res.key);
+          if (entry?.id !== res.id || !this.residency.shrinkReservation(res, entry.bytes - extra)) {
+            throw new RangeAssetError('stale', `material feature reservation retired for ${view.id}`);
+          }
+          bytes -= extra;
+          placedNeed -= extra;
+          materialFeatureAdmission.plan = null;
+          materialFeatureAdmission.extraBytes = 0;
+          Object.assign(materialFeatureAdmission.status, { selected: 'reference', reason: 'budget-after-yield', bytes: 0 });
+          scratch = reserveScratch();
+        }
         if (this.residency && !scratch && tourLayer && this.residency.shrinkReservation(res, bytes)) {
-          // Room taken during the yield: the layer goes first (nothing of
-          // it is built yet), then today's tour, then the rail alone.
+          // The unbuilt tour layer goes next, then today's tour, then the
+          // rail alone.
           tourLayer = false;
           scratch = reserveScratch();
         }
@@ -1608,6 +1693,10 @@ export class RangeScene {
         const base = terrainUniforms(THREE, data, surface);
         const uniforms = sceneUniforms(THREE, base);
         applyMaterial(uniforms, mat.pack, mat.textures, view.materialRules || {});
+        const featureBuildBytes = materialFeatureAdmission.extraBytes;
+        materialFeatureCache = this._buildMaterialFeatures(materialFeatureAdmission, res, uniforms,
+          () => { if (stale()) throw new RangeAssetError('stale', `stale ${view.id}`); });
+        bytes -= featureBuildBytes - materialFeatureAdmission.extraBytes;
         if (!view.tour) {
           // A fixed small field covers both admitted static camera modes.
           // Streaming tours retain their window-owned forest/ground coverage.
@@ -1668,11 +1757,17 @@ export class RangeScene {
           }
         }
         material = createSceneMaterial(THREE, uniforms, { forestDebug: this.forestDebug, budget: this.budget,
+          deformationGradient: this.deformationGradient,
+          materialFeatures: materialFeatureCache ? 'warp' : 'reference',
+          canopySummary: this.canopySummary,
           pixelated: this.pixelated ?? opts.pixelated ?? false,
           mappedWaterOnly,
           terrainShading: terrainShadingForView(this.terrainShading, view.id) });
         if (Object.keys(riverGeometries).length) {
           riverMaterial = createSceneMaterial(THREE, uniforms, { budget: this.budget, riverSurface: true,
+            deformationGradient: this.deformationGradient,
+            materialFeatures: materialFeatureCache ? 'warp' : 'reference',
+            canopySummary: this.canopySummary,
             pixelated: this.pixelated ?? opts.pixelated ?? false });
           riverMaterial.depthFunc = THREE.LessEqualDepth;
           riverMaterial.depthWrite = false;
@@ -1858,7 +1953,7 @@ export class RangeScene {
         }
         const prepared = {
           view, generation, manifest: cpu.manifest, data, railOnly, identity: cpu.identity, tourCpuKey: opts.tourCpuKey,
-          surface, uniforms, material, depthMaterial, ownershipMaterials, horizon, hierarchy, tourHorizon, tourHierarchy, mistFlow, tourMistFlow, riseGround, openingCoverage, depthBandMeshes: depthMeshes, geometries: geos.geometries, fringes: geos.fringes, fringeMeshes, fringeTravel, scenes, depthScene, depthScenes,
+          surface, uniforms, material, materialFeatureCache, materialFeatureStatus: materialFeatureAdmission.status, depthMaterial, ownershipMaterials, horizon, hierarchy, tourHorizon, tourHierarchy, mistFlow, tourMistFlow, riseGround, openingCoverage, depthBandMeshes: depthMeshes, geometries: geos.geometries, fringes: geos.fringes, fringeMeshes, fringeTravel, scenes, depthScene, depthScenes,
           riverMaterial, riverDepthMaterial, riverOwnershipMaterials, riverGeometries, riverFringeGeometries, riverDepthMeshes, riverStats,
           forest, stageGL, featureGeometries, featureMaterial, modeGeometries, terrainMode: view.tour ? null : 'rail', modeWater, castWaterLevelM: waterLevelM,
           stats: { ...geos.stats, trees: forest.counts, featureBytes: featureBudgetBytes }, gpuKey, cpuKey: cpu.key, cpuOwner,
@@ -1918,6 +2013,7 @@ export class RangeScene {
           openingCoverage?.dispose();
           stageGL?.dispose();
           material?.dispose();
+          materialFeatureCache?.dispose();
           riverMaterial?.dispose();
           riverDepthMaterial?.dispose();
           for (const m of Object.values(riverOwnershipMaterials || {})) m.dispose();
@@ -2241,6 +2337,7 @@ export class RangeScene {
 
   _disposePrepared(p) {
     this._releaseOpaqueDepth(null, p);
+    p.materialFeatureCache?.dispose();
     p.riseGround?.dispose();
     p.openingCoverage?.dispose();
     p.featureMaterial?.dispose();
@@ -3772,8 +3869,21 @@ export class RangeScene {
       windows: [...this.prepared.values()].filter(p=>p.windowCache).map(p=>({id:p.view.id,index:p.windowIndex,resident:[...p.windowCache.resident.keys()],detail:p.activeWindow?.detail,coverage:p.windowCoverage,note:p.windowNote,stats:p.stats,forestDetail:p.forestDetailViews})),
       size: { ...this.size }, stats: { ...this.stats }, terrainCull: { ...this.terrainCull }, forestCull: { ...this.forestCull }, sideB: !!this.sideTargets.B,
       prepareLog: structuredClone(this.prepareLog || {}),
+      canopySummary: { requested: this.canopySummary ?? true,
+        drawn: Object.fromEntries([...this.prepared.values()].map(p => [p.view.id, p.material?.userData?.canopySummary ?? false])) },
+      deformationGradient: { requested: this.deformationGradient,
+        drawn: Object.fromEntries([...this.prepared.values()].map(p => [p.view.id, {
+          terrain: p.material?.userData?.deformationGradient ?? 'unavailable',
+          river: p.riverMaterial?.userData?.deformationGradient ?? null,
+        }])) },
       compiledTerrain: { request: { ...this.compiledTerrain?.request }, views: structuredClone(this.compiledTerrain?.views || {}),
         drawn: Object.fromEntries([...this.prepared.values()].map(p => [p.view.id, p.compiled?.representation ?? 'original'])) },
+      materialFeatures: { requested: this.materialFeatures || 'reference', drawn: Object.fromEntries([...this.prepared.values()].map(p => [p.view.id, {
+        ...(p.materialFeatureStatus || { selected: 'reference', reason: p.compiled ? 'compiled-terrain' : 'off', bytes: 0, width: 0, height: 0 }),
+        selected: p.material?.userData?.materialFeatures || 'reference',
+        ...(p.materialFeatureStatus?.selected === 'warp' && p.material?.userData?.materialFeatures !== 'warp' ? { reason: 'shader-reference' } : {}),
+        material: p.material?.userData?.materialFeatures || 'reference',
+      }])) },
       edge: { samples: this.edge?.samples ?? 0, requestedSamples: this.edge?.requestedSamples ?? 0, reason: this.edge?.reason ?? null, capability: this.edge?.capability ?? 0 },
     };
   }
