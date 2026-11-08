@@ -117,3 +117,18 @@ test('once booted, with nothing in flight, the call is free', async () => {
   // second, since only "truthy AND nothing in flight" means fully booted.
   assert.equal(h.starts, 1, 'no second start-up once the engine is up');
 });
+
+test('a blocked startup releases its audio context before allowing a retry', async () => {
+  let closed = false;
+  const engine = { resume: async () => false, ctx: { close: async () => { closed = true; } } };
+  const context = vm.createContext({
+    audioEngine: null,
+    AudioEngine: function AudioEngine() { return engine; },
+    applyBtLatencyToAudioEngine() {},
+  });
+  const start = main.indexOf('async function bootAudioOnce(');
+  vm.runInContext(main.slice(start, main.indexOf('\n}\n', start) + 3), context);
+  await assert.rejects(context.bootAudioOnce(), /Audio is blocked/);
+  assert.equal(context.audioEngine, null);
+  assert.equal(closed, true, 'a discarded context cannot remain pending and resume after a later gesture');
+});

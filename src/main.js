@@ -1100,12 +1100,10 @@ async function bootAudioOnce() {
   applyBtLatencyToAudioEngine(); // carry over any negative trim set before this song started
   const running = await audioEngine.resume();
   if (!running) {
-    // A stuck-suspended context used to fail silently here: the game would
-    // still start, but ctx.currentTime never advances, so it renders its
-    // first frame forever with no indication why. Fail loudly instead --
-    // audioEngine stays set so a later user gesture (a click) can still
-    // resume it via the browser's own autoplay-unlock behavior, but this
-    // load attempt surfaces the real problem now.
+    // A blocked resume can remain pending until its deadline. Report it
+    // and release this failed context so a later gesture can start fresh
+    // instead of waking an abandoned startup in the browser.
+    try { audioEngine.ctx.close().catch(() => {}); } catch { /* release best-effort */ }
     audioEngine = null;
     throw new Error('Audio is blocked by the browser. Try clicking the page first, then retry.');
   }

@@ -79,3 +79,36 @@ test('setAudioDelayMs treats non-finite input as 0', () => {
     assert.equal(ae._delay.delayTime.value, 0);
   });
 });
+
+test('resume returns a blocked result when the browser leaves its promise pending', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  await withFakeAudioContext(async (ctx) => {
+    ctx.state = 'suspended';
+    ctx.resume = () => new Promise(() => {});
+    const ae = new AudioEngine();
+    let result = 'pending';
+    const resumed = ae.resume().then(value => { result = value; });
+    t.mock.timers.tick(10000);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(result, false, 'a blocked browser cannot hold file loading indefinitely');
+    await resumed;
+  });
+});
+
+test('a later gesture can resume after an earlier attempt timed out', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  await withFakeAudioContext(async (ctx) => {
+    ctx.state = 'suspended';
+    ctx.resume = () => new Promise(() => {});
+    const ae = new AudioEngine();
+    let firstResult = 'pending';
+    const first = ae.resume().then(value => { firstResult = value; });
+    t.mock.timers.tick(10000);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(firstResult, false);
+    await first;
+
+    ctx.resume = async () => { ctx.state = 'running'; };
+    assert.equal(await ae.resume(), true, 'the expired attempt cannot prevent a new user activation');
+  });
+});

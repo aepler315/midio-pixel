@@ -149,6 +149,10 @@ export class RangeShotTours {
   _onLibrary(viewId, generation, entry) {
     const s = this.views.get(viewId);
     if (!s || generation !== this.generation) return;
+    // A deadline or explicit rail choice may have already released scene
+    // preparation without this library's footprint. Keep that song's choice;
+    // the cached library remains available to a later song.
+    if (s.state !== 'loading') return;
     if (entry.state !== 'ready') { s.state = 'failed'; s.reason = entry.reason; return; }
     s.library = entry.library; s.footprint = entry.footprint;
     s.state = 'planning';
@@ -212,6 +216,9 @@ export class RangeShotTours {
   prepareView(view) {
     const s = this.views.get(view.id);
     if (!s) return view;
+    // Scene preparation waits on the library, so it must advance the live
+    // deadline itself; no ready scene exists yet to call settled().
+    this.settled(view.id);
     if (s.state === 'loading') return null;
     return s.footprint ? { ...view, cameraPaths: s.footprint } : view;
   }

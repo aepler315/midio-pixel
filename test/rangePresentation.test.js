@@ -471,6 +471,15 @@ test('whenReady prepares views in song order and stops at the first that does no
   assert.ok(p.coversBiome('TUNDRA'));
 });
 
+test('current-frame readiness loads the runtime without reserving later song views', async () => {
+  const scene = budgetScene(4);
+  const p = presentationWith(scene, { catalog: { ...catalog, views: views4 } });
+  p.setSong({ terrain: song4(), generation: 1 });
+  await p.whenReady({ currentFrameOnly: true });
+  assert.equal(p.runtimeState, 'ready');
+  assert.deepEqual(scene.calls, [], 'the destination draw and settle own live preparation');
+});
+
 test('a budget refusal is retried once room is freed, never dropped to legacy for the song', async () => {
   const scene = budgetScene(0);
   const p = presentationWith(scene, { catalog: { ...catalog, views: views4 } });
@@ -618,6 +627,55 @@ test('settle does not wait while the GPU context is lost', async () => {
   const t0 = Date.now();
   assert.equal(await p.settle({ timeoutMs: 5000 }), false);
   assert.ok(Date.now() - t0 < 200, 'returned at once');
+});
+
+test('settling a replaced song cannot prepare or pin its old views under the new owner', async () => {
+  const scene = budgetScene(1);
+  scene.prepare = view => { scene.calls.push(view.id); return new Promise(() => {}); };
+  const pinned = [];
+  scene.pinView = ids => pinned.push(ids);
+  const p = presentationWith(scene, { catalog: { ...catalog, views: views4 } });
+  p.setSong({ terrain: song4(), generation: 1 });
+  await p.whenReady({ currentFrameOnly: true });
+  p.setFrameInputs(inputs('RAINFOREST'));
+  p.beginScenic();
+  const pending = p.settle({ timeoutMs: 150 });
+  const pinsBeforeReplacement = pinned.length;
+  // A replay can reuse a generation; the individual song owner still changes.
+  p.setSong({ generation: 1 });
+  await assert.rejects(pending, { name: 'AbortError' });
+  assert.deepEqual(scene.calls, ['v0'], 'old views cannot start new preparations after replacement');
+  assert.equal(pinned.length, pinsBeforeReplacement, 'the old loop cannot change the new song\'s pins');
+});
+
+test('settle observes cancellation while a scene is still being prepared', async () => {
+  const scene = budgetScene(1);
+  scene.prepare = () => new Promise(() => {});
+  const p = presentationWith(scene, { catalog: { ...catalog, views: views4 } });
+  p.setSong({ terrain: song4(), generation: 1 });
+  await p.whenReady({ currentFrameOnly: true });
+  p.setFrameInputs(inputs('RAINFOREST'));
+  p.beginScenic();
+  const controller = new AbortController();
+  const pending = p.settle({ timeoutMs: 150, signal: controller.signal });
+  controller.abort();
+  await assert.rejects(pending, { name: 'AbortError' });
+});
+
+test('settle checks its owner after a terrain window arrives before changing replacement state', async () => {
+  const scene = fakeScene();
+  const p = presentationWith(scene);
+  p.setSong({ generation: 1 });
+  await p.whenReady({ currentFrameOnly: true });
+  let finishWindow;
+  const window = new Promise(resolve => { finishWindow = resolve; });
+  scene.prepared.set('old-view', { windowCache: { current: 0, pending: new Map([[0, window]]) } });
+  const pending = p.settle({ timeoutMs: 150 });
+  p.setSong({ generation: 1 });
+  p._needed.add('replacement-view');
+  finishWindow();
+  await assert.rejects(pending, { name: 'AbortError' });
+  assert.ok(p._needed.has('replacement-view'), 'the old wait cannot consume the new frame\'s missing views');
 });
 
 test('frame timings sum every pass of a frame and restart with the next frame', async () => {

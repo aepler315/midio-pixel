@@ -61,6 +61,17 @@ test('scenic readiness draws the destination and waits for its complete covering
   assert.equal(settles, 2); assert.ok(draws >= 3);
 });
 
+test('live readiness releases a complete opening without waiting for later song views', async () => {
+  const presentation = { enabled: true, active: true, runtimeState: 'ready', _needed: new Set(),
+    _wants: [{ id: 'opening' }], scene: { prepared: new Map([['opening', {}]]) },
+    whenReady(options) {
+      // Evidence/export readiness also builds a later scene whose download is stalled.
+      return options.currentFrameOnly ? Promise.resolve() : new Promise(() => {});
+    },
+    async settle() {}, snapshot: () => ({ runtime: 'ready', failures: {} }) };
+  await implementation.waitForScenicReady({ presentation, draw: () => ({ presented: true }), timeoutMs: 50 });
+});
+
 test('a covering neighbouring window cannot release a seek before its destination forest is resident', async () => {
   const previous = { index: 0, coarse: false }, destination = { index: 1, coarse: false };
   const prepared = { windowCache: { current: 1, resident: new Map([[0, previous]]) },
