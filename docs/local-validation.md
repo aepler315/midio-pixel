@@ -103,8 +103,11 @@ TODO until WP03 repairs the planner. It is not a passing playback assertion.
 
 The active GitHub Pages publisher builds `main` at the repository root and
 deploys to `https://supermaudio.com/`. This was verified in Pages build/deploy
-logs on 2026-11-07. A merge to `main` triggers that publisher; it currently runs
-independently of the checked-in manual test and staging workflows.
+logs on 2026-11-07. It runs independently of the checked-in manual test and
+staging workflows. Do not assume a merge has published: the API merge of
+release #108 did not enqueue a Pages run. If no run appears for the new revision,
+request a Pages build or dispatch the manual production workflow with authorized
+GitHub credentials, then verify the published modules.
 
 Verify the Pages run's `build_revision` and the changed live module bytes,
 using a unique query string to bypass an old cached response. The live site
