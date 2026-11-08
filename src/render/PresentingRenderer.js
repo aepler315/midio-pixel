@@ -6,7 +6,7 @@ import { CinematicPixelRenderer } from './CinematicPixel.js';
 import { quantizeImageData, quantizePalette } from './PaletteQuantize.js';
 import { buildDitherWeights } from './PixelDither.js';
 import { landscapeScoreFor } from '../world/alpine/LandscapeScore.js';
-import { landscapeResolutionPlan, landscapeResolutionAt } from './ProgressiveLandscapeResolution.js';
+import { landscapeResolutionPlan, landscapeResolutionAt, landscapeResolutionEndpoint, landscapeQualityRung } from './ProgressiveLandscapeResolution.js';
 
 export function createPresentingRenderer({ canvas, mode = 'canvas', presentation, residency, voxelRange = null, rendererFactory = createRenderer }) {
   return new PresentingRenderer({ canvas, mode, presentation, residency, voxelRange, rendererFactory });
@@ -102,17 +102,24 @@ class PresentingRenderer {
     const growing = landscape && this._requestedPresentation?.buildPixelDetail === true
       && this._requestedPresentation?.rangePipeline !== 'native'
       && this.output._resolvedPaletteId === 'none' && !this.voxelRange;
-    let growth = null;
+    let growth = null, qualityRung = null;
     if (growing) {
-      const key = `${this.canvas.width}:${this.canvas.height}:${this.output.presentation.scaling}`;
-      if (this._growthKey !== key) {
-        this._growthKey = key;
-        this._growthPlan = landscapeResolutionPlan({ width: this.canvas.width, height: this.canvas.height, scaling: this.output.presentation.scaling });
-        this._growthRungLimit = this._growthPlan.maxRung; this._lastGrowthRung = 0; this._growthLimitReason = null;
-        this.output.resetFrameGridAdmission();
+      const layoutKey = `${this.canvas.width}:${this.canvas.height}:${this.output.presentation.scaling}`;
+      if (!this._growthKey || this._growthLayoutKey !== layoutKey) {
+        this._growthLayoutKey = layoutKey;
+        const options = { width: this.canvas.width, height: this.canvas.height, scaling: this.output.presentation.scaling };
+        const endpoint = landscapeResolutionEndpoint(options);
+        const key = `${endpoint.width}:${endpoint.height}:${options.scaling}`;
+        if (this._growthKey !== key) {
+          this._growthKey = key;
+          this._growthPlan = landscapeResolutionPlan(options);
+          this._growthRungLimit = this._growthPlan.maxRung; this._lastGrowthRung = 0; this._growthLimitReason = null;
+          this.output.resetFrameGridAdmission();
+        }
       }
       growth = landscapeResolutionAt(this._growthPlan, landscapeScoreFor(manager).at(sim.heardTimeMs, { preview: !!manager.terrainPreview }).rise01);
-      this.output.setFrameGrid(this._growthPlan.grids[Math.min(growth.rung, this._growthRungLimit)]);
+      qualityRung = sim.exportMode ? this._growthPlan.maxRung : landscapeQualityRung(this._growthPlan, sim.perf?.level ?? 0);
+      this.output.setFrameGrid(this._growthPlan.grids[Math.min(growth.rung, qualityRung, this._growthRungLimit)]);
       range.detailHeightPx = this._growthPlan.endpoint.height;
     } else {
       this.output.setFrameGrid();
@@ -121,8 +128,10 @@ class PresentingRenderer {
     }
     this.output.diagnostics.progressiveDetail = growth ? { active: true, rise01: growth.rise01,
       rung: this._growthPlan.grids.indexOf(this.output.grid), requestedRung: growth.rung, maxRung: this._growthPlan.maxRung,
+      qualityRung, memoryRungLimit: this._growthRungLimit,
       requestedGrid: growth.grid, admittedGrid: this.output.grid, endpoint: this._growthPlan.endpoint,
-      reason: this.output.diagnostics.frameGridReason || (growth.rung > this._growthRungLimit ? this._growthLimitReason : null) } : { active: false };
+      reason: this.output.diagnostics.frameGridReason || (Math.min(growth.rung, qualityRung) > this._growthRungLimit
+        ? this._growthLimitReason : growth.rung > qualityRung ? 'quality' : null) } : { active: false };
     this._directFrame = false;
     this._releaseDirect();
     if (manager) manager.directFullResolution = false;
@@ -156,17 +165,18 @@ class PresentingRenderer {
     this.output.qualityLevel = sim?.perf?.level ?? 0;
     const separate = hybridSky || castOverlay || waterOverlay || postEffects || smoothEffects || crestOverlay;
     let source = this.output.beginFrame({ separate });
+    const fallbackRung = growth ? Math.min(growth.rung, qualityRung, this._growthRungLimit, this._lastGrowthRung) : null;
     if (!source && growth && this.output.diagnostics.frame.reason === 'allocation-denied'
-      && this.output.grid !== this._growthPlan.grids[this._lastGrowthRung]) {
+      && this.output.grid !== this._growthPlan.grids[fallbackRung]) {
       // A first frame after a seek may have no old working raster to retain.
       // Admit the last useful rung (Classic on a cold start) once, rather
       // than retrying an oversized allocation on every playback frame.
-      this._growthRungLimit = Math.min(this._growthRungLimit, this._lastGrowthRung);
+      this._growthRungLimit = fallbackRung;
       this._growthLimitReason = 'memory';
       this.output.setFrameGrid(this._growthPlan.grids[this._growthRungLimit]);
       source = this.output.beginFrame({ separate });
       Object.assign(this.output.diagnostics.progressiveDetail, { rung: this._growthRungLimit,
-        admittedGrid: this.output.grid, reason: 'memory' });
+        memoryRungLimit: this._growthRungLimit, admittedGrid: this.output.grid, reason: 'memory' });
     }
     if (!source) return this.output.diagnostics.frame;
     scene.canvas = source; scene.ctx = source.getContext('2d');

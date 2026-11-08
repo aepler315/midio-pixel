@@ -3380,9 +3380,12 @@ export class RangeScene {
     }
   }
 
-  /** This frame's crest probe data, or null: the newest completed
-   * asynchronous readback (live), or this frame's rows read synchronously
-   * (`sync`: export draws; or no usable asynchronous result). See CrestProbe.read. */
+  /** Collect older readbacks before the presenter starts current-frame GPU work. */
+  collectCrestProbe() { if (!this.contextLost) this.crestProbe?.collect(); }
+
+  /** This frame's crest probe data, or null: the newest early-collected
+   * asynchronous result (live), or this frame's rows read synchronously
+   * (`sync`: exports; unsupported/failed async readback). See CrestProbe.read. */
   readCrestProbe(frameId, options = {}) {
     if (!this.crestProbe || this.contextLost) return null;
     try { return this.crestProbe.read(frameId, options); }

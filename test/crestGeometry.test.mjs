@@ -3,7 +3,18 @@ import assert from 'node:assert/strict';
 import * as probeMath from '../src/world/alpine/CrestProbe.js';
 import { RangeCrest, fineCrest } from '../src/world/alpine/RangeCrest.js';
 import { RangeScene, crestFineSize } from '../src/world/alpine/RangeScene.js';
+import { RangePresentation } from '../src/world/alpine/RangePresentation.js';
 import { GraphicsResidency } from '../src/render/GraphicsResidency.js';
+
+test('early collection touches no framebuffer and skips missing or lost GPU contexts', () => {
+  let collects = 0;
+  const scene = { crestProbe: { collect() { collects++; } }, contextLost: false,
+    renderer: { setRenderTarget() { throw Error('collection must not bind a framebuffer'); } } };
+  RangeScene.prototype.collectCrestProbe.call(scene);
+  scene.contextLost = true; RangeScene.prototype.collectCrestProbe.call(scene);
+  scene.contextLost = false; scene.crestProbe = null; RangeScene.prototype.collectCrestProbe.call(scene);
+  assert.equal(collects, 1);
+});
 
 test('fine silhouette packing retains every physical column beyond the old four-times grid', () => {
   assert.equal(typeof probeMath.fineLineLayout, 'function');
@@ -30,6 +41,25 @@ function fixture() {
     transform: [1, 0, 0, 1, 0, 0], stage: { width: W, height: H }, grid: { width: W, height: H }, instant: true });
   return { crest, W, H, F };
 }
+
+test('a live pending miss through the presentation removes prior fine cuts and split drawing safely', () => {
+  const { crest, W, H } = fixture();
+  assert.equal(crest.snapshot.cut, true);
+  assert.equal(crest.snapshot.split, true);
+  const p = Object.assign(Object.create(RangePresentation.prototype), { crest, arrival: 1, viewId: 'v',
+    frame: { frameId: 2, timeMs: 16, rise01: 1, qualityLevel: 0 }, frameInputs: { sim: {} },
+    scene: { crestProbeMode: 'refined', readCrestProbe: () => null } });
+  p._finishCrest({ canvas: { width: W, height: H }, getTransform: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }) }, { width: W, height: H });
+  assert.equal(crest.snapshot, null);
+  assert.ok(Object.values(crest._grid).every(g => g.geometry === null));
+  const unexpected = () => { throw Error('a pending miss cannot reuse old GPU geometry'); };
+  const fit = { x: 0, y: 0, width: W, height: H, scale: 1 };
+  assert.equal(crest.prepareGrid({ ctx: {} }), false);
+  assert.equal(crest.finishGrid({ ctx: {} }), false);
+  assert.equal(crest.drawTerrain({}, fit, 2, unexpected), false);
+  assert.equal(crest.drawCrest({}, fit, 2), true);
+  assert.equal(crest.drawShore({}, fit, 2), true);
+});
 
 test('fine terrain cut keeps a narrow real peak between native grid centres', () => {
   const { crest, W, H, F } = fixture(), geometry = crest._grid.far.geometry;

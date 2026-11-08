@@ -11,15 +11,15 @@
 //
 // Readback. Live frames read asynchronously (WebGL2: readPixels into a
 // PIXEL_PACK_BUFFER, a fence polled without waiting, then getBufferSubData),
-// triple buffered: a frame uses the newest completed result, normally one or
-// two frames old, and never blocks on the GPU. The frame freezes whatever it
+// triple buffered: results are collected before current-frame GPU work, and a
+// frame uses the newest completed result, normally one or two frames old.
+// A live miss omits this optional layer instead of forcing a read. The frame freezes whatever it
 // used (RangeCrest snapshot), so display and capture stay identical. Export
 // draws (bulk export, highlight re-renders, visual evaluation: `sync`) and
 // contexts without WebGL2 fences read synchronously, so exported frames are
 // reproducible. A result from another view, song or target size, from
-// before a seek, or more than PROBE_MAX_LAG_FRAMES old is discarded with
-// everything still in flight; with none usable the frame falls back to a
-// synchronous read. Seeks are found from the clocks (timelineJump: song time
+// before a seek is discarded with everything still in flight. A lag-expired
+// result is dropped without invalidating newer pending copies. Seeks are found from the clocks (timelineJump: song time
 // running backwards, or ahead of the wall clock), so a slow device that
 // renders a few frames a second still reads asynchronously.
 //
@@ -381,6 +381,7 @@ export class ProbeReadback {
     this.epoch = 0;
     this.seq = 0;
     this.skipped = 0; // frames not queued because every slot was in flight
+    this.failure = null; // a failed fence is distinct from a bounded busy ring
   }
 
   get inFlight() { return this.slots.filter(s => s.sync).length; }
@@ -397,12 +398,12 @@ export class ProbeReadback {
       gl.bindBuffer(gl.PIXEL_PACK_BUFFER, slot.buffer);
       gl.bufferData(gl.PIXEL_PACK_BUFFER, bytes, gl.STREAM_READ);
       slot.bytes = bytes;
-      slot.data = new Uint8Array(bytes);
+      if (slot.data?.length !== bytes) slot.data = new Uint8Array(bytes);
     } else gl.bindBuffer(gl.PIXEL_PACK_BUFFER, slot.buffer);
     try { gl.readPixels(0, 0, width, rows, gl.RGBA, gl.UNSIGNED_BYTE, 0); }
     finally { gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null); }
     const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
-    if (!sync) return false;
+    if (!sync) { this.failure = 'fence'; this._retireBuffer(slot); return false; }
     gl.flush();
     slot.sync = sync;
     slot.meta = { ...meta, width, epoch: this.epoch, seq: this.seq++ };
@@ -419,8 +420,11 @@ export class ProbeReadback {
       if (status === gl.TIMEOUT_EXPIRED) continue;
       gl.deleteSync(slot.sync);
       slot.sync = null;
-      if (status === gl.WAIT_FAILED || slot.meta.epoch !== this.epoch) continue;
-      if (this.latest && this.latest.seq > slot.meta.seq) continue;
+      if (status === gl.WAIT_FAILED) this.failure = 'wait';
+      if (status === gl.WAIT_FAILED || slot.meta.epoch !== this.epoch || (this.latest && this.latest.seq > slot.meta.seq)) {
+        this._retireBuffer(slot);
+        continue;
+      }
       gl.bindBuffer(gl.PIXEL_PACK_BUFFER, slot.buffer);
       try { gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, slot.data); }
       finally { gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null); }
@@ -428,6 +432,15 @@ export class ProbeReadback {
       kept++;
     }
     return kept;
+  }
+
+  /** An unread copy cannot rejoin the reusable pool: rewriting STREAM_READ
+   *  storage discards the driver's readback shadow copy. Delete its GPU
+   *  storage without a dummy read; retain same-sized CPU scratch for reuse. */
+  _retireBuffer(slot) {
+    if (slot.buffer) this.gl.deleteBuffer(slot.buffer);
+    slot.buffer = slot.meta = null;
+    slot.bytes = 0;
   }
 
   reset() { this.epoch++; this.latest = null; }
@@ -480,6 +493,7 @@ export class CrestProbe {
     this.edgeRows = 0; // target rows in the edge block (the target's height)
     this.useDepth = true;
     this.readMs = 0;
+    this.collectMs = 0;
     this.clock = null; // { viewId, timeline, timeMs, wallMs } of the last read
     let gl;
     try { gl = renderer.getContext?.() || null; } catch { gl = null; }
@@ -643,14 +657,34 @@ export class CrestProbe {
   }
 
   /**
+   * Collect previous frames before any current-frame GPU work. Even a
+   * signaled getBufferSubData can round-trip the command stream in browsers;
+   * collecting at read() after rendering would serialize the whole frame.
+   */
+  collect() {
+    this.collectMs = 0;
+    if (!this.async) return;
+    const t0 = performance.now();
+    try {
+      this.async.poll();
+      if (this.async.failure) throw Error('Asynchronous crest readback failed');
+    } catch {
+      try { this.async.dispose(); } catch { /* context lost */ }
+      this.async = null;
+    }
+    this.collectMs = performance.now() - t0;
+  }
+
+  /**
    * This frame's crest data. `sync` (export draws) reads this frame's rows
    * synchronously. Otherwise this frame's rows are queued for an
-   * asynchronous readback and the newest completed result of an earlier
-   * frame of the same view and timeline is returned (`lag` frames old); when
-   * none qualifies, everything in flight is discarded and this frame is read
-   * synchronously.
+   * asynchronous readback and the newest result collected before rendering
+   * is returned when it qualifies (`lag` frames old). A normal live miss is
+   * null; only unsupported or failed async readback uses the sync fallback.
    */
   read(frameId, { sync = false, viewId = null, timeline = null, timeMs = NaN, wallMs = performance.now() } = {}) {
+    const collectMs = sync ? 0 : this.collectMs || 0;
+    this.collectMs = 0;
     if (!this.target || this.frameId !== frameId || !this.rows) return null;
     const t0 = performance.now(), prev = this.clock;
     this.clock = { viewId, timeline, timeMs, wallMs };
@@ -658,19 +692,22 @@ export class CrestProbe {
     if (prev && (prev.viewId !== viewId || prev.timeline !== timeline || timelineJump(prev, this.clock))) this.reset();
     if (this.async && !sync) {
       try {
-        this.async.poll();
         const r = this.async.latest, ok = acceptProbeResult(r, { frameId, viewId, timeline, timeMs, width: this.width, height: this.height });
-        // A stall or a resize: nothing older is usable.
-        if (r && !ok) this.async.reset();
+        // Identity/seek/layout changes reset separately. An expired latest
+        // result must not poison newer copies already in flight.
+        if (r && !ok) this.async.latest = null;
         this.renderer.setRenderTarget(this.target);
         const total = this.totalRows;
         this.async.submit({ frameId, viewId, timeline, timeMs, height: this.height, rows: this.rows, edges: this.edges,
           edgeRow: this.edgeRow, fine: this.fineData }, this.width, total);
+        if (this.async.failure) throw Error('Asynchronous crest readback failed');
         if (ok) {
-          this.readMs = performance.now() - t0;
+          this.readMs = performance.now() - t0 + collectMs;
           return { width: r.width, height: r.height, data: r.data, rows: r.rows, edges: r.edges || 0, edgeRow: r.edgeRow, fine: r.fine, readMs: this.readMs, frameId: r.frameId,
             lag: frameId - r.frameId, mode: 'async' };
         }
+        this.readMs = performance.now() - t0 + collectMs;
+        return null;
       } catch {
         try { this.async.dispose(); } catch { /* context lost */ }
         this.async = null;
@@ -679,7 +716,7 @@ export class CrestProbe {
     const total = this.totalRows;
     try { this.renderer.readRenderTargetPixels(this.target, 0, 0, this.width, total, this.data); }
     catch { return null; }
-    this.readMs = performance.now() - t0;
+    this.readMs = performance.now() - t0 + collectMs;
     return { width: this.width, height: this.height, data: this.data, rows: this.rows, edges: this.edges,
       edgeRow: this.edgeRow, fine: this.fineData, readMs: this.readMs, frameId, lag: 0, mode: 'sync' };
   }

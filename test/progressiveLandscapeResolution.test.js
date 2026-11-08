@@ -18,7 +18,7 @@ function plan(options = {}) {
 function surface(width = 1920, height = 1080) {
   const canvas = { width, height, allocations: 0 };
   const ctx = { canvas, setTransform() {}, clearRect() {}, fillRect() {}, drawImage() {} };
-  canvas.getContext = () => ctx;
+  canvas.getContext = type => type === 'webgl' ? null : ctx;
   canvas.ownerDocument = { createElement() { canvas.allocations++; return surface(0, 0); } };
   return canvas;
 }
@@ -148,7 +148,7 @@ test('a full budget can shrink and return to fixed detail without holding both r
   output.dispose(); assert.equal(residency.usedBytes, 0);
 });
 
-test('the growing plan survives quality resize and a refused scenic target returns to its last successful rung', () => {
+test('quality output resizing preserves a refused native ceiling until the fitted endpoint changes', () => {
   const canvas = surface(), range = { enabled: true }, manager = { world: { kind: 'alpine' }, durationMs: 90000, sections: [] };
   let refuse = false;
   const inner = { rangePresentation: range, draw() { manager._awaitingTerrain = refuse && this.pixelPolicy.grid.width > 320; range.resolutionRefused = manager._awaitingTerrain; range.reason = manager._awaitingTerrain ? 'budget: scene target' : null; }, dispose() {} };
@@ -162,7 +162,8 @@ test('the growing plan survives quality resize and a refused scenic target retur
   assert.equal(adapter.diagnostics.progressiveDetail.reason, 'scene-memory');
   refuse = false; canvas.width = 960; canvas.height = 540;
   assert.equal(adapter.draw(sim, 0).presented, true);
-  assert.deepEqual([adapter.output.grid.width, adapter.output.grid.height], [640, 360]);
+  assert.deepEqual([adapter.output.grid.width, adapter.output.grid.height], [320, 180], 'the same endpoint keeps its memory refusal');
+  assert.equal(adapter.diagnostics.progressiveDetail.reason, 'scene-memory');
   assert.equal(range.detailHeightPx, 360);
   canvas.width = 480; canvas.height = 270;
   assert.equal(adapter.draw(sim, 0).presented, true);
@@ -177,13 +178,178 @@ test('changing settings restores a fixed raster and Cinematic can use the same p
   const adapter = createPresentingRenderer({ canvas, presentation: { ...presentation, cinematicPixel: true, rangePipeline: 'hybrid' }, rendererFactory: () => inner });
   const sim = { biomes: manager, heardTimeMs: 90000, experience: 'landscape', perf: { level: 2 } };
   assert.equal(adapter.draw(sim, 0).presented, true);
-  assert.equal(adapter.output.grid.width, 640);
+  assert.ok(adapter.output.grid.width <= 560 && adapter.output.grid.height <= 315);
   assert.equal(adapter.diagnostics.progressiveDetail.active, true);
+  assert.equal(adapter.diagnostics.progressiveDetail.reason, 'quality');
   adapter.setPresentation({ ...presentation, buildPixelDetail: false });
   assert.equal(adapter.draw(sim, 0).presented, true);
   assert.equal(adapter.output.grid.id, 'classic');
   assert.equal(range.detailHeightPx, null);
   adapter.dispose();
+});
+
+test('quality selects an existing planned rung within each native detail budget', () => {
+  assert.equal(typeof policy.landscapeQualityRung, 'function');
+  for (const options of [{}, { width: 480, height: 240 }, { width: 240, height: 120 }]) {
+    const p = plan(options), caps = [[640, 360], [640, 360], [560, 315], [480, 270], [400, 225], [320, 180], [320, 180]];
+    for (const [quality, [width, height]] of caps.entries()) {
+      const rung = policy.landscapeQualityRung(p, quality), grid = p.grids[rung];
+      assert.ok(grid.width <= width && grid.height <= height);
+      assert.ok(grid.width <= p.endpoint.width && grid.height <= p.endpoint.height);
+      assert.ok(rung === p.maxRung || p.grids[rung + 1].width > width || p.grids[rung + 1].height > height,
+        'use the finest existing rung that fits');
+    }
+  }
+});
+
+function growingHarness({ width = 1920, height = 1080, residency, draw = () => {} } = {}) {
+  const canvas = surface(width, height), range = { enabled: true }, manager = {
+    world: { kind: 'alpine' }, durationMs: 90000, sections: [], energyCurves: { globalEnergyNorm: () => .4 },
+  };
+  const inner = { rangePresentation: range, draw() { draw(this, manager, range); }, dispose() {} };
+  const adapter = createPresentingRenderer({ canvas, residency,
+    presentation: { ...presentation, cinematicPixel: true, rangePipeline: 'hybrid' }, rendererFactory: () => inner });
+  const sim = { biomes: manager, heardTimeMs: 90000, experience: 'landscape', perf: { level: 6,
+    forgetRecoveryHistory() { assert.fail('rendering must not reset governor recovery'); } } };
+  return { canvas, range, manager, adapter, sim };
+}
+
+test('late Cinematic growth sheds native pixels at q6 and recovers without changing the requested rise or geometry budget', () => {
+  const { adapter, sim, range, canvas } = growingHarness();
+  try {
+    assert.equal(adapter.draw(sim, 0).presented, true);
+    assert.deepEqual([adapter.output.grid.width, adapter.output.grid.height], [320, 180], 'the quality floor must shed late native terrain');
+    const seen = [];
+    for (const level of [0, 1, 2, 3, 4, 5, 6, 2, 0]) {
+      sim.perf.level = level;
+      assert.equal(adapter.draw(sim, 0).presented, true);
+      const d = adapter.diagnostics.progressiveDetail;
+      assert.equal(d.requestedRung, 24, 'the song still requests its complete rise');
+      assert.equal(d.memoryRungLimit, 24, 'quality does not become a persistent memory refusal');
+      assert.equal(d.reason, level >= 2 ? 'quality' : null);
+      assert.equal(range.detailHeightPx, 360, 'tour geometry remains admitted for the full endpoint');
+      seen.push(adapter.output.grid);
+    }
+    assert.deepEqual(seen.map(g => g.width), [640, 640, 554, 479, 392, 320, 320, 554, 640]);
+    assert.equal(seen[2], seen[7], 'recovery reuses the same planned grid');
+    assert.equal(seen[0], seen[8]);
+    const allocations = canvas.allocations, grid = adapter.output.grid;
+    for (let i = 0; i < 5; i++) assert.equal(adapter.draw(sim, 0).presented, true);
+    assert.equal(adapter.output.grid, grid);
+    assert.equal(canvas.allocations, allocations, 'paused redraws reuse the admitted raster');
+  } finally { adapter.dispose(); }
+});
+
+test('quality caps compose with seeks and small output endpoints without increasing requested detail', () => {
+  const { adapter, sim, canvas } = growingHarness({ width: 480, height: 240 });
+  try {
+    sim.perf.level = 2; adapter.draw(sim, 0);
+    assert.deepEqual([adapter.output.grid.width, adapter.output.grid.height], [427, 240]);
+    assert.equal(adapter.diagnostics.progressiveDetail.reason, null, 'the endpoint already fits this quality');
+    sim.heardTimeMs = 30000; sim.perf.level = 0; adapter.draw(sim, 0);
+    const requested = adapter.output.grid, requestedRung = adapter.diagnostics.progressiveDetail.requestedRung;
+    sim.perf.level = 6; adapter.draw(sim, 0); assert.equal(adapter.output.grid.width, 320);
+    assert.equal(adapter.diagnostics.progressiveDetail.requestedRung, requestedRung);
+    sim.perf.level = 0; adapter.draw(sim, 0); assert.equal(adapter.output.grid, requested);
+    sim.heardTimeMs = 0; sim.perf.level = 6; adapter.draw(sim, 0);
+    assert.equal(adapter.output.grid.width, 320); assert.equal(adapter.diagnostics.progressiveDetail.reason, null);
+    canvas.width = 240; canvas.height = 120; sim.heardTimeMs = 90000; sim.perf.level = 0; adapter.draw(sim, 0);
+    assert.equal(adapter.output.grid.width, 320);
+    assert.deepEqual(adapter.diagnostics.progressiveDetail.endpoint, { width: 320, height: 180 });
+  } finally { adapter.dispose(); }
+});
+
+test('quality recovery preserves a refused scene ceiling instead of retrying the costly raster', () => {
+  let refusals = 0;
+  const { adapter, sim, range } = growingHarness({ draw(inner, manager, view) {
+    manager._awaitingTerrain = inner.pixelPolicy.grid.width > 320;
+    view.resolutionRefused = manager._awaitingTerrain;
+    if (manager._awaitingTerrain) refusals++;
+  } });
+  try {
+    assert.equal(adapter.draw(sim, 0).presented, true);
+    sim.perf.level = 0;
+    assert.equal(adapter.draw(sim, 0).presented, false);
+    assert.equal(adapter.draw(sim, 0).presented, true);
+    assert.equal(adapter.diagnostics.progressiveDetail.reason, 'scene-memory');
+    const ceiling = adapter.diagnostics.progressiveDetail.memoryRungLimit;
+    for (const level of [6, 2, 0, 6, 0]) {
+      sim.perf.level = level;
+      assert.equal(adapter.draw(sim, 0).presented, true);
+      assert.equal(adapter.output.grid.width, 320);
+      assert.equal(adapter.diagnostics.progressiveDetail.memoryRungLimit, ceiling);
+      assert.equal(range.detailHeightPx, 360);
+    }
+    assert.equal(refusals, 1);
+  } finally { adapter.dispose(); }
+});
+
+test('quality changes do not repeat denied native canvas allocations', () => {
+  const residency = new GraphicsResidency({ budgetBytes: 2 * 320 * 180 * 4 });
+  const { adapter, sim, canvas } = growingHarness({ residency });
+  try {
+    adapter.setPresentation({ ...presentation, rangePipeline: 'hybrid' });
+    adapter.draw(sim, 0); sim.perf.level = 0; adapter.draw(sim, 0);
+    const denials = residency.denials, allocations = canvas.allocations;
+    for (let i = 0; i < 10; i++) for (const level of [6, 0]) {
+      sim.perf.level = level;
+      assert.equal(adapter.draw(sim, 0).presented, true);
+      assert.equal(adapter.output.grid.width, 320);
+    }
+    assert.equal(residency.denials, denials);
+    assert.equal(canvas.allocations, allocations);
+  } finally { adapter.dispose(); }
+  assert.equal(residency.usedBytes, 0);
+});
+
+test('output backing changes reuse a matching native plan and its admitted canvas', () => {
+  const { adapter, sim, canvas } = growingHarness();
+  try {
+    sim.perf.level = 4; adapter.draw(sim, 0);
+    const grid = adapter.output.grid, growthPlan = adapter._growthPlan, allocations = canvas.allocations;
+    for (const [width, height] of [[1632, 918], [1440, 810], [1200, 675], [1920, 1080]]) {
+      canvas.width = width; canvas.height = height;
+      assert.equal(adapter.draw(sim, 0).presented, true);
+      assert.equal(adapter.output.grid, grid, 'unchanged endpoint preserves grid identity');
+      assert.equal(adapter._growthPlan, growthPlan);
+      assert.equal(canvas.allocations, allocations, 'the working raster is not released for an equivalent grid');
+    }
+  } finally { adapter.dispose(); }
+});
+
+test('a denied quality-floor raster never falls back above the current native cap or retries that denied rung', () => {
+  const residency = new GraphicsResidency({ budgetBytes: 4 * 640 * 360 * 4 });
+  const { adapter, sim } = growingHarness({ residency });
+  try {
+    adapter.setPresentation({ ...presentation, rangePipeline: 'hybrid' });
+    sim.perf.level = 0; assert.equal(adapter.draw(sim, 0).presented, true);
+    assert.equal(adapter._lastGrowthRung, 24);
+    residency.release(adapter.output.key);
+    residency.budgetBytes = 1;
+    const requests = [], reserve = residency.reserve.bind(residency);
+    residency.reserve = request => { if (request.owner === 'pixel-presentation') requests.push(request.bytes); return reserve(request); };
+    sim.perf.level = 6;
+    assert.equal(adapter.draw(sim, 0).presented, false);
+    assert.deepEqual(requests, [320 * 180 * 4], 'one Classic denial cannot trigger a Detailed retry from old high-quality history');
+    assert.equal(adapter.output.grid.width, 320);
+    assert.equal(adapter.diagnostics.progressiveDetail.admittedGrid.width, 320);
+  } finally { adapter.dispose(); }
+});
+
+test('native quality caps leave fixed presets, native pipeline, exports and Trio unchanged', () => {
+  const { adapter, sim } = growingHarness();
+  try {
+    for (const fixed of [{ ...presentation, grid: pixelGrid('detailed'), buildPixelDetail: false },
+      { ...presentation, grid: pixelGrid('detailed'), rangePipeline: 'native' }]) {
+      adapter.setPresentation(fixed); adapter.draw(sim, 0);
+      assert.equal(adapter.output.grid.width, 640);
+      assert.equal(adapter.diagnostics.progressiveDetail.active, false);
+    }
+    adapter.setPresentation({ ...presentation, rangePipeline: 'hybrid' }); sim.exportMode = true;
+    adapter.draw(sim, 0); assert.equal(adapter.output.grid.width, 640, 'offline exports keep their requested quality');
+    sim.exportMode = false; sim.experience = 'trio'; adapter.draw(sim, 0);
+    assert.equal(adapter.diagnostics.progressiveDetail.active, false);
+  } finally { adapter.dispose(); }
 });
 
 test('a cold seek with insufficient hybrid canvas memory falls back to Classic in the same draw', () => {
