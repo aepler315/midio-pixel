@@ -28,7 +28,7 @@ import { noteViewShown } from '../terrain/RangeHistory.js';
 import { RangeShotTours } from './RangeShotTours.js';
 import { AUTO_TOUR_GATE, autoGateEnabled } from './CameraChoice.js';
 import { headingPitch, lookDir } from '../terrain/ShotPath.js';
-import { RangeCrest } from './RangeCrest.js';
+import { RangeCrest, crestBuildOpacity } from './RangeCrest.js';
 import { openingOcean01 } from './BuildOcean.js';
 
 /** Native terrain backing for a full-resolution composition. The selected
@@ -1295,6 +1295,7 @@ export class RangePresentation {
     // An export draw with no history (a seek, a new view, an isolated frame)
     // draws the crest at full strength instead of starting its fade.
     this.crest.update({ probe, instant: sync, frameId: this.frame.frameId, timeMs: this.frame.timeMs, viewId: this.viewId,
+      opacity: crestBuildOpacity(this.frame.rise01),
       qualityLevel: this.frame.qualityLevel ?? 0, transform: t ? [t.a, t.b, t.c, t.d, t.e, t.f] : null,
       stage: { width: stage.width, height: stage.height },
       grid: { width: ctx.canvas.width, height: ctx.canvas.height },

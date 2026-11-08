@@ -35,7 +35,11 @@ export const BUILD_OCEAN_GLSL = /* glsl */`
     float brightness = clamp(dot(sky, vec3(.2126, .7152, .0722)) * 2.0, 0.0, 1.0);
     float light = .18 + .82 * brightness;
     vec3 body = mix(vec3(.035, .13, .14), water, .25) * light + sky * .07;
-    float haze = min(.96, 1.0 - exp(-length(p - eye) * max(0.0, density)));
+    // The same ray meets one construction sea beneath source and support.
+    vec3 ray = p - eye;
+    float t = abs(ray.y) > 1e-8 ? (uLandRise.y - eye.y) / ray.y : -1.0;
+    vec3 seaPoint = t > 0.0 ? eye + ray * t : p;
+    float haze = min(.96, 1.0 - exp(-length(seaPoint - eye) * max(0.0, density)));
     return pow(max(mix(body, air, haze), vec3(0.0)), vec3(1.0 / 2.2));
   }
 `;

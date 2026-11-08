@@ -9,8 +9,22 @@ import { TREE_COMMON, createForest } from '../src/world/alpine/ForestGL.js';
 
 // A song as song-relative energy over time (ms -> 0..1).
 const curves = (fn) => ({ globalEnergyNorm: fn });
-// Loud, a 20 s breakdown from 60 s, loud again from 80 s.
-const breakdown = (t) => (t >= 60000 && t < 80000 ? 0.15 : 0.7);
+// Loud, a sustained breakdown from 60 s, loud again from 110 s.
+const breakdown = (t) => (t >= 60000 && t < 110000 ? 0.15 : 0.7);
+
+test('mist forms and disperses over a long soft fade instead of clearing with the section', () => {
+  const r = compileCloudSea({ energyCurves: curves(t => t >= 60000 && t < 120000 ? .15 : .7), durationMs: 240000 });
+  assert.ok(r.at(72000) > 0 && r.at(72000) < .16, `the first quiet seconds only gather light mist (${r.at(72000)})`);
+  assert.ok(r.at(90000) > .99, 'sustained quiet can still fill the valley');
+  assert.ok(r.at(136000) > .35, `cloud remains partway through a gentle dispersal (${r.at(136000)})`);
+  assert.equal(r.at(160000), 0, 'the tail eventually clears completely');
+  let last = r.at(60000);
+  for (let t = 61000; t <= 160000; t += 1000) {
+    const next = r.at(t);
+    assert.ok(Math.abs(next - last) < .09, `mist changes too sharply at ${t}: ${last} -> ${next}`);
+    last = next;
+  }
+});
 
 test('a song with no quiet passages never fills the valley', () => {
   for (const level of [0.7, 0.1]) {
@@ -23,25 +37,25 @@ test('a song with no quiet passages never fills the valley', () => {
 });
 
 test('a breakdown fills the valley gradually, and the song lifting drains it slowly', () => {
-  const r = compileCloudSea({ energyCurves: curves(breakdown), durationMs: 120000 });
+  const r = compileCloudSea({ energyCurves: curves(breakdown), durationMs: 160000 });
   assert.equal(r.at(59000), 0, 'nothing before the breakdown');
   assert.equal(r.at(60000 + SEA_HOLD_MS), 0, 'the first seconds of quiet are not yet a breakdown');
   // It wells up over many seconds: no step from one second to the next.
-  for (let t = 60000; t < 80000; t += 1000) {
+  for (let t = 60000; t < 110000; t += 1000) {
     assert.ok(r.at(t + 1000) - r.at(t) < 0.15, `rise ${t}..${t + 1000}: ${r.at(t).toFixed(3)} -> ${r.at(t + 1000).toFixed(3)}`);
   }
   assert.ok(r.at(60000 + SEA_HOLD_MS + SEA_WINDOW_MS + SEA_RISE_MS) > 0.99, 'fully up once the quiet holds');
-  assert.ok(r.at(80000 + SEA_RELEASE_MS) > 0.9, 'the first loud seconds do not tear it open');
-  for (let t = 80000; t < 100000; t += 1000) {
+  assert.ok(r.at(110000 + SEA_RELEASE_MS) > 0.9, 'the first loud seconds do not tear it open');
+  for (let t = 110000; t < 150000; t += 1000) {
     assert.ok(r.at(t) - r.at(t + 1000) < 0.2, `drain ${t}..${t + 1000}: ${r.at(t).toFixed(3)} -> ${r.at(t + 1000).toFixed(3)}`);
   }
-  assert.ok(r.at(80000 + SEA_RELEASE_MS + SEA_FALL_MS / 2) > 0.2, 'still draining halfway through the fall');
-  assert.equal(r.at(80000 + SEA_WINDOW_MS + SEA_RELEASE_MS + SEA_FALL_MS), 0);
+  assert.ok(r.at(110000 + SEA_RELEASE_MS + SEA_FALL_MS / 2) > 0.2, 'still draining halfway through the fall');
+  assert.equal(r.at(110000 + SEA_WINDOW_MS + SEA_RELEASE_MS + SEA_FALL_MS), 0);
 });
 
 test('a single hit inside a breakdown leaves the cloud whole', () => {
-  const r = compileCloudSea({ energyCurves: curves((t) => (t >= 60000 && t < 100000 && !(t >= 80000 && t < 82000) ? 0.15 : 0.7)), durationMs: 140000 });
-  for (let t = 80000; t <= 96000; t += 500) assert.ok(r.at(t) > 0.99, `${t}: ${r.at(t)}`);
+  const r = compileCloudSea({ energyCurves: curves((t) => (t >= 60000 && t < 120000 && !(t >= 90000 && t < 92000) ? 0.15 : 0.7)), durationMs: 160000 });
+  for (let t = 90000; t <= 116000; t += 500) assert.ok(r.at(t) > 0.99, `${t}: ${r.at(t)}`);
 });
 
 test('a short lull, or soft and loud sections in quick turns, do not pump the cloud in and out', () => {
@@ -65,7 +79,7 @@ test('a longer breakdown in an otherwise steady song still fills the valley', ()
   // 20 s at 0.1 inside 240 s at 0.8: p10 sits on the loud level.
   const r = compileCloudSea({ energyCurves: curves((t) => (t >= 100000 && t < 120000 ? 0.1 : 0.8)), durationMs: 240000 });
   assert.equal(r.at(90000), 0);
-  assert.ok(r.at(119000) > 0.9, `up by the end of the dip (${r.at(119000)})`);
+  assert.ok(r.at(119000) > 0.5 && r.at(119000) < .8, `a shorter dip gathers a partial bank (${r.at(119000)})`);
   assert.equal(r.at(150000), 0);
 });
 

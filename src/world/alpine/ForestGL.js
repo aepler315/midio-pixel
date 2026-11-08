@@ -16,7 +16,8 @@ import { DEFORM_GLSL, gustUniforms } from './TerrainMaterial.js';
 import { GROUND_LIFT_GLSL } from './TerrainDeform.js';
 import { GUST_FRONTS, GUST_SWEEP_SEC } from './Gust.js';
 
-import { MIST_GLSL } from './RangeAtmosphere.js';
+import { MIST_GLSL, mistFlowUniforms } from './RangeAtmosphere.js';
+import { OPENING_COVERAGE_GLSL } from './OpeningCoverage.js';
 import { ACTOR_GLSL, actorUniforms } from './ActorsGL.js';
 import { buildConiferAsset, familyFor, variantFor, FOREST_FAMILIES, FOREST_VARIANTS } from './ForestSpeciesAssets.js';
 import { forestBatchFootprintPx, forestDetailWeight } from './ForestDetail.js';
@@ -31,6 +32,7 @@ export { WIND_SWAY, GUST_LEAN, PARTING_LEAN, STORM_LEAN, WIND_DIR, WIND_MAX_GAIN
 // Placement uses the closest point on the entire route, so its 8 km edge
 // alone cannot describe what the current camera sees.
 const FOREST_DISTANCE_GLSL = /* glsl */`
+  ${OPENING_COVERAGE_GLSL}
   uniform vec4 uFarForest;
   float forestInstanceWeight(float distanceM, float startM, float endM) {
     if (endM <= startM) return 1.0;
@@ -349,7 +351,8 @@ const MESH_FRAG = /* glsl */`
   MESH_COVERAGE
   void main() {
     gTreeOcc = vOcc;
-    float cov = meshCoverage() * forestInstanceWeight(length(uCameraPos - vWorld), uFarForest.x, uFarForest.y);
+    float cov = meshCoverage() * forestInstanceWeight(length(uCameraPos - vWorld), uFarForest.x, uFarForest.y)
+      * forestCoverageWeight((vWorld.xz - uGridOrigin) / uGridExtent, uTourEye.w, 1.0 - uLandRise.x);
     // Every quad lane contributes before coverage can terminate a fragment.
     float phase = vBranch.y * 6.283185 * 8.0 + vBranch.x * 11.0 + vId * 31.0;
     float detail = 1.0 - smoothstep(.25, .5, fwidth(phase) / 6.283185);
@@ -416,7 +419,8 @@ const BOARD_FRAG = /* glsl */`
   ${SILHOUETTE}
   void main() {
     float core, side;
-    float cov = treeCoverage(vLocal, core, side) * forestInstanceWeight(length(uCameraPos - vWorld), uFarForest.x, uFarForest.y);
+    float cov = treeCoverage(vLocal, core, side) * forestInstanceWeight(length(uCameraPos - vWorld), uFarForest.x, uFarForest.y)
+      * forestCoverageWeight((vWorld.xz - uGridOrigin) / uGridExtent, uTourEye.w, 1.0 - uLandRise.x);
     #ifdef FOREST_BLEND
       if (cov < 1.0 / 255.0) discard;
     #else
@@ -436,14 +440,19 @@ const BOARD_FRAG = /* glsl */`
 const BOARD_DEPTH_FRAG = /* glsl */`
   precision highp float;
   uniform vec3 uCameraPos;
+  uniform vec2 uGridOrigin, uGridExtent, uLandRise;
+  uniform vec4 uTourEye;
   ${FOREST_DISTANCE_GLSL}
   in vec3 vWorld; in vec2 vLocal; in float vVar; in float vId; in vec3 vRight; in vec3 vToCam; in vec2 vSize;
   out vec4 outColor;
   ${SILHOUETTE}
-  void main() { float core, side; if (treeCoverage(vLocal, core, side) * forestInstanceWeight(length(uCameraPos - vWorld), uFarForest.x, uFarForest.y) < .5) discard; outColor = vec4(0.0); }
+  void main() { float core, side; if (treeCoverage(vLocal, core, side) * forestInstanceWeight(length(uCameraPos - vWorld), uFarForest.x, uFarForest.y)
+    * forestCoverageWeight((vWorld.xz - uGridOrigin) / uGridExtent, uTourEye.w, 1.0 - uLandRise.x) < .5) discard; outColor = vec4(0.0); }
 `;
 const MESH_DEPTH_FRAG = /* glsl */`
   precision highp float;
+  uniform vec2 uGridOrigin, uGridExtent, uLandRise;
+  uniform vec4 uTourEye;
   ${FOREST_DISTANCE_GLSL}
   uniform vec3 uCameraPos;
   in vec3 vWorld; in vec3 vNormal; in vec4 vBranch; in float vId;
@@ -452,7 +461,8 @@ const MESH_DEPTH_FRAG = /* glsl */`
   out vec4 outColor;
   MESH_COVERAGE
   void main() {
-    float cov = meshCoverage() * forestInstanceWeight(length(uCameraPos - vWorld), uFarForest.x, uFarForest.y);
+    float cov = meshCoverage() * forestInstanceWeight(length(uCameraPos - vWorld), uFarForest.x, uFarForest.y)
+      * forestCoverageWeight((vWorld.xz - uGridOrigin) / uGridExtent, uTourEye.w, 1.0 - uLandRise.x);
     if (!forestLodSelected()) discard;
     #ifdef FOREST_CORE
       if (cov < 254.5 / 255.0) discard;
@@ -584,7 +594,8 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
   const tourTrees = tourForestCount(placed);
   const tourLayer = !!tour && !!placed.railCount && tourTrees > 0;
   const tourBytes = tourLayer ? tourForestBytes(placed) : 0;
-  const u = { ...uniforms, uTime: uniforms.uTime || { value: 0 }, uForestKeep: uniforms.uForestKeep || { value: 1 },
+  const u = { ...uniforms, ...mistFlowUniforms(THREE, uniforms), uTime: uniforms.uTime || { value: 0 }, uForestKeep: uniforms.uForestKeep || { value: 1 },
+    uOpeningCoverage: uniforms.uOpeningCoverage || { value: null },
     uFarForest: uniforms.uFarForest || { value: new THREE.Vector4() },
     uCinematic: uniforms.uCinematic || { value: new THREE.Vector4(0, 1, .5, .18) },
     uCinematicAir: uniforms.uCinematicAir || { value: new THREE.Vector4(1, 1, 0, 0) },
