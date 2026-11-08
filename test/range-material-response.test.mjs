@@ -52,7 +52,7 @@ test('the terrain shader uses roughness, the baked horizon and a roughness debug
   assert.ok(SCENE_FRAG.includes(TERRAIN_LIGHTING_GLSL.trim().slice(0, 40)));
   // Water: world-anchored swells, no screen-row shiver, explicit floor.
   assert.doesNotMatch(SCENE_FRAG, /gl_FragCoord\.y \/ max\(uViewportPx\.y, 1\.0\) \* 260\.0/);
-  assert.match(SCENE_FRAG, /waterSlope\(vWorld\.xz, uTime\)/);
+  assert.match(SCENE_FRAG, /waterSlope\(vWorld\.xz, uTime, waterDx, waterDy\)/);
   const u = sceneUniforms(THREE, {});
   assert.ok(SCENE_FRAG.includes(`clamp(${WATER_REFLECT_FLOOR.toFixed(3)} +`), 'the floor is a named constant in the shader');
   assert.ok(WATER_REFLECT_FLOOR < 0.3, 'Natural keeps a more restrained floor than the old fixed 0.3');

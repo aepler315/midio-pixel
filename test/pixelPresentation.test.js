@@ -187,12 +187,12 @@ test('explicit palettes ignore the experience', () => {
   assert.equal(owner.getCaptureSource().experience, 'trio');
   owner.dispose();
 });
-test('the presenting renderer resolves World by the frame experience', () => {
+test('the presenting renderer bypasses World palette for Trio and restores it for Landscape', () => {
   const inner = { backend: 'canvas', drawCount: 0, draw() {}, dispose() {} };
   const adapter = createPresentingRenderer({ canvas: surface(), presentation: { ...pixel, paletteId: 'world' }, rendererFactory: canvas => { inner.canvas = canvas; return inner; } });
   const world = { kind: 'alpine' };
   assert.equal(adapter.draw({ experience: 'trio', biomes: { world } }, 0).presented, true);
-  assert.equal(adapter.diagnostics.effectivePalette, 'chroma32');
+  assert.equal(adapter.diagnostics.effectivePalette, 'none');
   assert.equal(adapter.getCaptureSource().experience, 'trio');
   assert.equal(adapter.draw({ experience: 'landscape', biomes: { world } }, 0).presented, true);
   assert.equal(adapter.diagnostics.effectivePalette, 'range32');
@@ -449,6 +449,74 @@ test('raw Natural presentation overrides stay pixelated through drawing and reco
   assert.equal(adapter.getCaptureSource().paletteId, 'none');
   adapter.dispose();
 });
+test('Trio paints smooth live and export frames at output resolution regardless of pixel preferences', () => {
+  const canvas = surface(1920, 1080), residency = new GraphicsResidency();
+  let drawn;
+  const scene = { draw() {
+    drawn = [this.canvas.width, this.canvas.height];
+    assert.equal(this.pixelPolicy.active, false);
+    assert.equal(this.ctx.imageSmoothingEnabled, true);
+  }, dispose() {} };
+  const adapter = createPresentingRenderer({ canvas, residency,
+    presentation: { ...pixel, paletteId: 'rgb332', cinematicPixel: true, scaling: 'integer', buildPixelDetail: true },
+    rendererFactory: () => scene });
+  assert.equal(adapter.draw({ experience: 'trio' }, 0).presented, true);
+  assert.deepEqual(drawn, [1920, 1080]);
+  assert.equal(adapter.output.working, null);
+  assert.equal(residency.usedBytes, 0);
+  assert.equal(canvas.reads, 0, 'Trio must bypass palette and dither readback');
+  assert.equal(canvas.draws.length, 0, 'Trio must bypass nearest-neighbor upscaling');
+  assert.equal(adapter.diagnostics.effectiveLook, 'smooth');
+  assert.equal(adapter.diagnostics.effectiveGrid, null);
+  assert.equal(adapter.diagnostics.progressiveDetail.active, false);
+  const capture = adapter.getCaptureSource();
+  assert.equal(capture.canvas, canvas);
+  assert.equal(capture.pixelated, false);
+  assert.equal(capture.paletteId, 'none');
+  assert.equal(capture.scaling, 'fit');
+  assert.equal(capture.grid, null);
+  assert.deepEqual([capture.width, capture.height], [1920, 1080]);
+  adapter.dispose();
+});
+
+test('switching to smooth Trio releases pixel resources and restores Landscape preferences', () => {
+  const canvas = surface(1280, 720), residency = new GraphicsResidency();
+  const scene = { draw() {}, dispose() {} };
+  const requested = { ...pixel, grid: pixelGrid('detailed'), paletteId: 'chroma32', ditherMode: 'selective', scaling: 'integer' };
+  const adapter = createPresentingRenderer({ canvas, residency, presentation: requested, rendererFactory: () => scene });
+  adapter.draw({ experience: 'landscape' }, 0);
+  assert.ok(residency.usedBytes > 0);
+  assert.equal(adapter.getCaptureSource().grid.id, 'detailed');
+  adapter.draw({ experience: 'trio' }, 0);
+  assert.equal(residency.usedBytes, 0);
+  assert.equal(adapter.getCaptureSource().pixelated, false);
+  adapter.setPresentation({ ...requested, cinematicPixel: true });
+  assert.equal(adapter.draw({ experience: 'trio' }, 0).presented, true);
+  assert.equal(adapter.getCaptureSource().pixelated, false);
+  adapter.setPresentation(requested);
+  assert.equal(adapter.draw({ experience: 'landscape' }, 0).presented, true);
+  const restored = adapter.getCaptureSource();
+  assert.equal(restored.pixelated, true);
+  assert.equal(restored.grid.id, 'detailed');
+  assert.equal(restored.paletteId, 'chroma32');
+  assert.equal(restored.scaling, 'integer');
+  assert.equal(scene.pixelPolicy.active, true);
+  assert.equal(requested.pixelated, true);
+  adapter.dispose();
+});
+
+test('the Trio title uses smooth output while unscoped stale Natural input still uses pixels', () => {
+  const canvas = surface(1280, 720);
+  const owner = new PixelPresentation({ canvas, presentation: { ...pixel, experience: 'trio', paletteId: 'rgb332', cinematicPixel: true } });
+  assert.equal(owner.beginFrame(), canvas);
+  assert.equal(owner.finishFrame().presented, true);
+  assert.equal(owner.getCaptureSource().pixelated, false);
+  assert.equal(canvas.reads, 0);
+  owner.setPresentation({ ...pixel, pixelated: false });
+  assert.equal(owner.beginFrame().width, 320);
+  owner.dispose();
+});
+
 test('Uniform scale keeps the Pixel compositor free of palette readback or color transforms', () => {
   const canvas = surface(1920, 1080);
   const owner = new PixelPresentation({ canvas, presentation: { ...pixel, pixelScale: 'original' } });

@@ -1,4 +1,4 @@
-// Trio, end to end: actual upload/analysis, pixel exports, the Trio chooser
+// Trio, end to end: actual upload/analysis, smooth exports, the Trio chooser
 // preview, and live/paused world switches. Trio is its own world (the
 // pre-terrain Range with the cast on it), so a switch rebuilds the scene at
 // the heard position while the audio keeps playing.
@@ -30,6 +30,7 @@ try {
   const page = loaded.page;
   let captureFailed = false;
   try {
+    let smoothReference = null;
     for (const [grid, look] of [['classic', 'pixel'], ['detailed', 'pixel'], ['classic', 'palette'], ['detailed', 'palette']]) {
       loaded.browserDiagnostics.setPhase(`trio-capture:${grid}/${look}:3000ms`);
       settings.presentation = { ...presentation, pixelGrid: grid, look };
@@ -38,7 +39,13 @@ try {
       const repeated = await renderEvaluationFrame(page, { timeMs: 3000, checkpoint: true, clips: [], save: true }, settings);
       assert.equal(frame.pngData, repeated.pngData, `${grid}/${look}: repeated paused draw must agree`);
       assert.equal(frame.presentation.pixelScale, 'original');
-      assert.equal(frame.presentation.effectiveGrid.id, grid);
+      assert.equal(frame.presentation.effectiveLook, 'smooth');
+      assert.equal(frame.presentation.effectiveGrid, null);
+      assert.equal(frame.presentation.effectivePalette, 'none');
+      assert.deepEqual(frame.presentation.working, { width: 1280, height: 720 });
+      assert.equal(frame.presentation.ownedPixelScratchBytes, 0);
+      if (report.frames.length) assert.equal(frame.pngData, smoothReference, 'pixel preferences cannot change the Trio frame');
+      smoothReference = frame.pngData;
       const name = `${grid}-${look}.png`;
       await fs.writeFile(path.join(out, name), Buffer.from(frame.pngData, 'base64'));
       report.frames.push({ grid, look, file: name, pauseParity: true, presentation: frame.presentation });
@@ -150,4 +157,4 @@ finally {
   try { finalizeBrowserDiagnostics(report, report, { preserveFailure: failed }); }
   finally { await fs.writeFile(path.join(out, 'report.json'), JSON.stringify(report, null, 2)); }
 }
-console.log(`Trio: ${report.status}; ${report.frames.length} pixel/palette captures, ${report.live?.switches.length ?? 0} live world switches, paused clock preserved.`);
+console.log(`Trio: ${report.status}; ${report.frames.length} smooth captures across pixel/palette preferences, ${report.live?.switches.length ?? 0} live world switches, paused clock preserved.`);

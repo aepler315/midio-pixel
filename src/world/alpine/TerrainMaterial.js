@@ -523,7 +523,12 @@ export const SCENE_FRAG = /* glsl */`
   // anchored to the land (world xz) and advancing with heard time at deep
   // water speeds. Each fades before its own period falls below a pixel, so
   // distant water calms instead of aliasing into screen-row stripes.
-  vec2 waterSlope(vec2 xz, float t) {
+  // Phase is linear in xz. Project derivatives captured before any varying
+  // exit instead of taking fwidth inside the wet/dry shading branch.
+  float waterPhaseWidth(vec2 direction, float waveNumber, vec2 dx, vec2 dy) {
+    return abs(dot(direction, dx) * waveNumber) + abs(dot(direction, dy) * waveNumber);
+  }
+  vec2 waterSlope(vec2 xz, float t, vec2 dx, vec2 dy) {
     vec2 slope = vec2(0.0);
     const vec4 W[4] = vec4[4](vec4(.92, .39, 7.0, .55), vec4(-.45, .89, 16.0, .35), vec4(.71, -.70, 41.0, .22), vec4(-.97, -.24, 97.0, .12));
     for (int i = 0; i < 4; i++) {
@@ -531,7 +536,7 @@ export const SCENE_FRAG = /* glsl */`
       float k = 6.2831853 / W[i].z;
       float omega = sqrt(9.81 * k) * .5;
       float phase = dot(dir, xz) * k + t * omega + float(i) * 1.7;
-      float fade = 1.0 - smoothstep(.35, 1.2, fwidth(phase));
+      float fade = 1.0 - smoothstep(.35, 1.2, waterPhaseWidth(dir, k, dx, dy));
       slope += dir * W[i].w * cos(phase) * fade;
     }
     return slope;
@@ -546,7 +551,7 @@ export const SCENE_FRAG = /* glsl */`
   // Each attack launches a short train of ripples across the lake, in a
   // seeded world direction. The phase is evaluated from the event's age,
   // never integrated, so the mirror, capture and a seek share one surface.
-  vec2 waterAccentSlope(vec2 xz) {
+  vec2 waterAccentSlope(vec2 xz, vec2 dx, vec2 dy) {
     vec2 slope = vec2(0.0);
     for (int i = 0; i < ${WATER_MUSIC_ACCENTS}; i++) {
       vec4 a = uWaterAccent[i];
@@ -555,7 +560,7 @@ export const SCENE_FRAG = /* glsl */`
       vec2 direction = vec2(cos(angle), sin(angle));
       float wavelength = a.w < 0.5 ? 140.0 : (a.w < 1.5 ? 48.0 : 86.0);
       float phase = waterAccentPhase(dot(xz, direction), a.x, wavelength, a.z);
-      float resolved = 1.0 - smoothstep(.35, 1.2, fwidth(phase));
+      float resolved = 1.0 - smoothstep(.35, 1.2, waterPhaseWidth(direction, 6.2831853 / wavelength, dx, dy));
       float envelope = waterAccentEnvelope(a.x) * a.y;
       slope += direction * cos(phase) * envelope * resolved * (a.w < .5 ? .65 : .35);
     }
@@ -582,16 +587,19 @@ export const SCENE_FRAG = /* glsl */`
     return 1.0 + .1 * cos(phase) * resolved;
   }
   #ifdef RIVER_SURFACE
-  vec2 riverSlope(float t) {
+  vec3 riverPhases(float t) {
     float along = riverTravel(vRiver.x, vRiver.z, t);
+    return vec3(along * 2.617994 + .3 * sin(vRiver.y * 3.0),
+      along * .897598 + vRiver.y * 1.7,
+      along * .897598 + .25 * sin(vRiver.y * 4.0));
+  }
+  vec2 riverSlope(vec2 phase, vec2 footprint) {
     vec2 direction = normalize(vRiverDirection);
     vec2 across = vec2(-direction.y, direction.x);
-    float phase = along * 2.617994 + .3 * sin(vRiver.y * 3.0);
-    float slowPhase = along * .897598 + vRiver.y * 1.7;
-    float fineFade = 1.0 - smoothstep(.35, 1.2, fwidth(phase));
-    float broadFade = 1.0 - smoothstep(.35, 1.2, fwidth(slowPhase));
-    return direction * (.16 * cos(phase) * fineFade + .08 * cos(slowPhase) * broadFade)
-      + across * .045 * sin(slowPhase + vRiver.y * 2.0) * broadFade;
+    float fineFade = 1.0 - smoothstep(.35, 1.2, footprint.x);
+    float broadFade = 1.0 - smoothstep(.35, 1.2, footprint.y);
+    return direction * (.16 * cos(phase.x) * fineFade + .08 * cos(phase.y) * broadFade)
+      + across * .045 * sin(phase.y + vRiver.y * 2.0) * broadFade;
   }
   #endif
 
@@ -639,6 +647,14 @@ export const SCENE_FRAG = /* glsl */`
     return 1.0 - smoothstep(.5 - width, .5, coverage);
   }
   void main() {
+    vec2 waterDx = dFdx(vWorld.xz);
+    vec2 waterDy = dFdy(vWorld.xz);
+    #ifdef RIVER_SURFACE
+    // Preserve the nonlinear transverse/speed-clamp finite differences.
+    // This channel-only shader has no ordinary dry-terrain phase work.
+    vec3 riverPhase = riverPhases(uTime);
+    vec3 riverWidth = fwidth(riverPhase);
+    #endif
     if (vRenderedWorld.y < uClipBelow) discard;
     // The fully flat opening replaces every material color below. Resolve
     // that identical display color before sampling or shading the terrain.
@@ -963,11 +979,11 @@ export const SCENE_FRAG = /* glsl */`
       wake = wakeAt(vWorld.xz);
       // Rain stipples the whole lake while the squall is over it.
       paw = max(max(catsPaw(vWorld.xz), wake), uStorm.x * 0.75);
-      waterSwell = waterSlope(vWorld.xz, uTime);
+      waterSwell = waterSlope(vWorld.xz, uTime, waterDx, waterDy);
       #ifdef RIVER_SURFACE
-      waterSwell = riverSlope(uTime);
+      waterSwell = riverSlope(riverPhase.xy, riverWidth.xy);
       #endif
-      waterSwell += waterAccentSlope(vWorld.xz);
+      waterSwell += waterAccentSlope(vWorld.xz, waterDx, waterDy);
       vec2 ripple = waterSwell * waterMusicRoughness(paw, uWaterMusic.x, uWaterMusic.y);
       vec3 waterNormal = normalize(vec3(ripple.x, 1.0, ripple.y));
       waterN = waterNormal;
@@ -995,8 +1011,7 @@ export const SCENE_FRAG = /* glsl */`
       #ifdef RIVER_SURFACE
       // Gentle advected surface variation remains readable under ambient
       // light. Filtered-out ripples retain their mean rather than flashing.
-      float currentPhase = riverTravel(vRiver.x, vRiver.z, uTime) * .897598 + .25 * sin(vRiver.y * 4.0);
-      lit *= riverCurrentTone(currentPhase, 1.0 - smoothstep(.35, 1.2, fwidth(currentPhase)));
+      lit *= riverCurrentTone(riverPhase.z, 1.0 - smoothstep(.35, 1.2, riverWidth.z));
       #endif
     }
     // Aerial perspective, applied once here and nowhere else.

@@ -5,25 +5,28 @@ This implements the request to start with Classic pixels and resolve the
 picture as the mountains build. It also adds two experimental views and
 removes the HUD's plus/minus buttons.
 
+Updated 2026-11-07: progressive detail now stops at the former Detailed preset,
+640 × 360, while retaining smaller fitted/covered endpoints.
+
 ## Behavior
 
 **Build pixel detail** is enabled by default for ordinary Landscape Pixel and
 Cinematic. It reads the same heard-time `LandscapeScore.rise01` as terrain and
 the construction trio. Quiet passages retain the cumulative rise; seeking
-backward selects the matching earlier raster. Completed growth selects the
-admitted output size. No new musical randomness or independent build timer is
+backward selects the matching earlier raster. Completed growth selects Detailed
+or a smaller admitted picture. No new musical randomness or independent build timer is
 introduced.
 
 The raster advances through 24 geometric size changes, from 320 × 180 to the
-admitted physical picture. For a 1920 × 1080 output with no admission reduction:
+Detailed ceiling of 640 × 360. For a 1920 × 1080 output with no admission reduction:
 
 | Mountain rise | Working raster |
 | ---: | --- |
 | 0% | 320 × 180 |
-| 25% | 501 × 282 |
-| 50% | 784 × 441 |
-| 75% | 1227 × 690 |
-| 100% | 1920 × 1080 |
+| 25% | 381 × 214 |
+| 50% | 453 × 255 |
+| 75% | 538 × 303 |
+| 100% | 640 × 360 |
 
 These are discrete, small changes, not a continuously resized target. The
 physical output canvas stays the same size until layout, DPR or quality changes.
@@ -35,10 +38,12 @@ scaling, and fullscreen uses cover. Saved fixed preferences are preserved.
 
 Selecting a fixed preset in Display or using the detail keyboard shortcut turns
 growth off. The checkbox turns it back on. The HUD reports "Building detail";
-the plus/minus buttons and their click bindings are removed. Trio, Palette,
-voxel/native/direct diagnostic paths and fixed export renders remain fixed.
-Desktop snapshots capture the five named presets; Android saves one selected
-fixed preset. Both restore the previous growing presentation afterward.
+the plus/minus buttons and their click bindings are removed. Trio renders
+smoothly at display resolution. Palette, voxel/native/direct diagnostic paths
+and fixed export renders remain fixed. Desktop Landscape snapshots capture
+the five named presets; Android saves one selected fixed preset. Both restore
+the previous growing presentation afterward. Trio saves one smooth snapshot
+at its live output size.
 Historical fixed-capture manifests normalize to `buildPixelDetail: false`.
 The live smoke tool records progressive frame diagnostics separately.
 
@@ -49,9 +54,9 @@ The live smoke tool records progressive frame diagnostics separately.
   the minimum target.
 - Output follows the existing quality governor even in growing fullscreen.
   Windowed output retains the 1080-line ceiling; fullscreen output is bounded
-  to 4096 × 2304 before fitting the landscape. An output smaller than Classic
-  retains a 320 × 180 source. "Full" means this admitted picture, not an
-  unconditional native-device-resolution allocation.
+  to 4096 × 2304 before fitting the landscape. The progressive working raster
+  stops at 640 × 360; smaller output pictures retain their fit/cover endpoint,
+  with a minimum source of 320 × 180.
 - A plan allocates at most 25 grid descriptors per output layout. Normal forward
   growth changes targets at most 24 times; a pause reuses its raster. Seeking,
   layout/quality changes and setting changes may require additional resizes.
@@ -68,7 +73,7 @@ The live smoke tool records progressive frame diagnostics separately.
   new coverage plan at every raster change. This can admit endpoint detail early;
   it does not claim that opening geometry cost scales with raster area.
 
-Later frames deliberately render more pixels than fixed Classic/Detailed.
+Later frames render more pixels than fixed Classic, up to fixed Detailed.
 The smaller opening raster reduces submitted raster work relative to rendering
 at the endpoint throughout; neither that arithmetic nor unit tests establishes
 GPU time, delivered FPS, startup stalls or thermal behavior. No new RTX 3060
