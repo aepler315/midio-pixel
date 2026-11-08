@@ -33,7 +33,7 @@ remain live. No new GPU textures or uniforms are introduced by this handoff.
 
 ## Release validation
 
-- 98 focused checks passed, including real no-query `RangeScene` construction,
+- 102 focused checks passed, including real no-query `RangeScene` construction,
   combined material defines, explicit reference controls, cache fallback,
   resource cleanup, forest rules and the conservative mobile uniform budget.
 - Repository ESLint, 524-module parsing/linkage and whitespace checks passed.
