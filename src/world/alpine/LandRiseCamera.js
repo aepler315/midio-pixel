@@ -1,7 +1,7 @@
 import { clamp01 } from '../../utils/math.js';
 import { projectPoint } from '../terrain/SceneTravel.js';
 
-export const BUILD_CAMERA = Object.freeze({ settleRise: .7, openingMagnification: 4 });
+export const BUILD_CAMERA = Object.freeze({ settleRise: .7, openingMagnification: 24 });
 const mix = (a, b, t) => a + (b - a) * t;
 const overviewAt = rise => {
   const u = clamp01(rise / BUILD_CAMERA.settleRise);
@@ -16,7 +16,11 @@ export function landRiseFov(fovYDeg, rise01 = 1) {
   const rise = Number.isFinite(rise01) ? clamp01(rise01) : 1;
   const weight = overviewAt(rise);
   if (!weight || !Number.isFinite(fovYDeg)) return fovYDeg;
-  const magnification = 1 + (BUILD_CAMERA.openingMagnification - 1) * weight;
+  const excess = (BUILD_CAMERA.openingMagnification - 1) * weight;
+  // Vertical mesh error contracts with rise. Smoothly limit the extra
+  // magnification so rise * magnification <= 1 throughout the opening.
+  const ratio = excess * rise / (1 - rise);
+  const magnification = 1 + excess / Math.hypot(1, ratio);
   return 360 / Math.PI * Math.atan(Math.tan(fovYDeg * Math.PI / 360) / magnification);
 }
 

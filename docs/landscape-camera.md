@@ -51,10 +51,11 @@ rail captures, explicit tours-Off selection and longer continuous clips.
 
 ## Close-up opening
 
-Playback opens with 4× lens magnification over the growing landscape. The
+Playback opens with 24× lens magnification over the growing landscape. The
 camera keeps its horizontal route and ground clearance, follows the rising
 summit or tour action, and smoothly widens to the authored lens by 70% relief.
-Seeking reconstructs the same framing. Sky anchors use the same zoom, and
+The tight opening widens within the existing terrain detail budget. Seeking
+reconstructs the same framing. Sky anchors use the same zoom, and
 wheel/pinch zoom continues to work over the opening lens.
 
 ## One default camera
