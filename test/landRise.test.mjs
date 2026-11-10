@@ -103,7 +103,7 @@ test('a whole-song analysis takes over the climb without a jump or a sink', () =
     const freezeThroughMs = whole.endMs - early;
     const handed = compileLandRise({ read: () => .5, durationMs: 240000, cadenceMs: 180000, finaleMs: FINALE_MS,
       previous: long.progressAt, freezeThroughMs });
-    assert.ok(long.at(freezeThroughMs) < .9, 'the land still had climbing to do');
+    assert.ok(long.progressAt(freezeThroughMs) < .9, 'the land still had climbing to do');
     let step = 0;
     for (let t = freezeThroughMs; t <= freezeThroughMs + 2 * LAND_RISE_CATCH_UP_MS; t += frameMs) step = Math.max(step, handed.at(t + frameMs) - handed.at(t));
     assert.ok(step <= fastest, `${early} ms before the new end: ${step} per frame`);
