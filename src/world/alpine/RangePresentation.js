@@ -317,6 +317,8 @@ export class RangePresentation {
     this.tour = null;
     this.tourData = null;
     this._tourSections = mgr?.sections;
+    // The song's manager, for the composed stage's rise diagnostics.
+    this._riseMgr = mgr || null;
     this._tourPreparation = { state: this.tourMode ? 'idle' : 'off', generation, reason: null };
     this._replanAbort?.abort();
     // Export draws frames on request and waits for readiness: never fades,
@@ -1905,6 +1907,18 @@ export class RangePresentation {
     };
   }
 
+  /** Which slot is rising now (song range composition, Phase 4): the
+   *  frame's slot rises, the section heard and the schedule's owners. */
+  _stageRiseSnapshot() {
+    const stageRise = this._riseMgr?.landscapeScore?.stageRise, f = this.frame;
+    if (!stageRise) return null;
+    const t = f?.timeMs, section = Number.isFinite(t) ? this._riseMgr.sections?.find((x) => t >= x.startMs && t < x.endMs) : null;
+    return { mode: stageRise.mode, labels: stageRise.labels, timeMs: Number.isFinite(t) ? t : null,
+      rise01: f?.rise01 ?? null, slotRise01: f?.slotRise01 ?? null,
+      section: section ? { label: section.label ?? null, role: section.role ?? null, kind: section.kind ?? null,
+        provenance: section.provenance ?? null, startMs: section.startMs, endMs: section.endMs } : null };
+  }
+
   /** The song's composed range, if any: its view, plan key and state. */
   _songRangeSnapshot() {
     for (const c of this.sceneByBiome?.values?.() || []) {
@@ -1912,7 +1926,8 @@ export class RangePresentation {
       const id = c.view.id, failed = this.failures.has(id);
       return { viewId: id, key: c.view.songRange?.key ?? null, forced: !!c.forced, biome: c.view.biome,
         state: failed ? 'fallback' : this.scene?.isReady?.(id) ? 'ready' : 'preparing',
-        fallbackViewId: c.fallback?.view?.id ?? null, failure: failed ? this.failures.get(id) : null };
+        fallbackViewId: c.fallback?.view?.id ?? null, failure: failed ? this.failures.get(id) : null,
+        rise: this._stageRiseSnapshot() };
     }
     return null;
   }

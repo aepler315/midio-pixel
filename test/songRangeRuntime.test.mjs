@@ -57,6 +57,7 @@ test('the presentation resolves a composed view, and its catalog fallback once i
   const choice = { view: stage, songRange: true, fallback: { view: catalogView } };
   const self = { forced: null, failures: new Map(), sceneByBiome: new Map([['CONIFER', choice]]), catalog: { views: [catalogView] } };
   self._songRangeChoice = RangePresentation.prototype._songRangeChoice;
+  self._stageRiseSnapshot = RangePresentation.prototype._stageRiseSnapshot;
   const choiceFor = (b) => RangePresentation.prototype._choiceFor.call(self, b);
   const viewFor = (o) => RangePresentation.prototype._viewForOccurrence.call(self, o);
   assert.equal(choiceFor('CONIFER').view, stage);
@@ -68,6 +69,7 @@ test('the presentation resolves a composed view, and its catalog fallback once i
   const snap = RangePresentation.prototype._songRangeSnapshot.call({ ...self, scene: null });
   assert.equal(snap.state, 'fallback');
   assert.equal(snap.fallbackViewId, catalogView.id);
+  assert.equal(snap.rise, null, 'no score yet: no slot rise to report');
 });
 
 test('?songRangeLayout runs a Phase 1 pilot layout through the runtime path', async () => {

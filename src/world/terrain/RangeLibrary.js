@@ -18,7 +18,7 @@ import { chooseHorizonRange, MASSIF_SALT } from './HorizonRidge.js';
 import { planSongRange, songRangeEnabled, songRangeForced, songRangeLayoutParam, pilotPlan } from './SongRangePlan.js';
 import MASSIF_CATALOG from './massifCatalogData.js';
 import SCENE_CATALOG from './sceneCatalogData.js';
-import { songRangeView, loadSongRangeStage } from '../alpine/StageAssembly.js';
+import { songRangeView, loadSongRangeStage, stageRiseSlots } from '../alpine/StageAssembly.js';
 import { loadTerrainPackage, sha256Hex } from '../alpine/RangeAssets.js';
 
 const RANGE_ASSET_BASE = new URL('../../assets/range/v2/', import.meta.url).href;
@@ -225,7 +225,9 @@ export async function prepareSongTerrain(profile, seed, recent = readRecentRange
       biomes, home: biomes[0], byBiome, whenAll, allLoaded: false,
       range: home.ranges.far, ranges: home.ranges, profiles: home.profiles, horizon, massif,
       sceneByBiome, catalogVersion: scenery.catalogVersion, matchingVersion: scenery.matchingVersion,
-      songRange: ranged ? { viewId: ranged.view.id, key: ranged.view.songRange.key, forced: ranged.forced } : null,
+      // The stage's slots rise with the song's structure (LandscapeScore.js).
+      songRange: ranged ? { viewId: ranged.view.id, key: ranged.view.songRange.key, forced: ranged.forced,
+        stage: stageRiseSlots(ranged.view.songRange.plan, MASSIF_CATALOG) } : null,
     };
     whenAll.then(() => { terrain.allLoaded = true; });
     return terrain;

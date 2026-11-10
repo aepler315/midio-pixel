@@ -1,7 +1,7 @@
 // A song's phrase, camera and weather decisions share one heard-time score.
 // Nothing here advances on draw, dispatches notes or owns graphics resources.
 import { rangeCameraMoveAt, FINALE_MS } from './RangeCamera.js';
-import { compileLandRise } from './LandRise.js';
+import { compileLandRise, compileStageRise } from './LandRise.js';
 import { lastAudibleMs, sectionTrust } from './EffectsMusic.js';
 import { compileLensCues, lensFromCues, revealLensFromCues, REVEAL_GATHER_MS, LENS_MIN_GAP_MS } from '../../render/CameraLens.js';
 
@@ -26,8 +26,15 @@ export function riseOverrideFrom(search = '') {
 }
 const RISE_OVERRIDE = riseOverrideFrom(globalThis.location?.search || '');
 
+/**
+ * `stage` ({ slots: [{ slotId, row }], principal }) is a composed home
+ * stage's slots (song range composition, Phase 4): each slot then rises on
+ * its own schedule (compileStageRise), states carry `slotRise01`
+ * (slotId -> rise01), and `rise01` is their mean, so catalog views in other
+ * chapters rise at the song's average pace.
+ */
 export function compileLandscapeScore({ energyCurves, sections = [], timeline = [], durationMs = 0,
-  seed = 0, previous = null, committedThroughMs = -1, riseOverride = RISE_OVERRIDE } = {}) {
+  seed = 0, previous = null, committedThroughMs = -1, riseOverride = RISE_OVERRIDE, stage = null } = {}) {
   const duration = Math.max(0, Number(durationMs) || 0);
   const read = energyCurves?.globalEnergyNorm?.bind(energyCurves) || energyCurves?.globalEnergy?.bind(energyCurves) || (() => 0);
   const trusted = sections.filter(s => sectionTrust(s) > 0
@@ -106,6 +113,12 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
   // move (LandRise.js); a re-analysis continues the climb from where it is.
   const rise = compileLandRise({ read, durationMs: duration, cadenceMs, finaleMs: FINALE_MS,
     previous: previous?.riseProgressAt || null, freezeThroughMs });
+  // A composed stage's slots each climb with their part of the song.
+  const stageRise = stage?.slots?.length ? compileStageRise({ slots: stage.slots, principal: stage.principal,
+    sections: trusted, read, durationMs: duration, cadenceMs, finaleMs: FINALE_MS,
+    previous: previous?.stageRise?.progressAt || null,
+    previousScalar: previous && !previous.stageRise ? previous.riseProgressAt || null : null, freezeThroughMs }) : null;
+  const heldSlots = (value) => Object.freeze(Object.fromEntries(stageRise.slotIds.map((id) => [id, value])));
   const protectedEpisodes = previous ? previous.episodes.filter(e => e.startMs - 6000 <= freezeThroughMs) : [];
   const weather = Object.freeze([...protectedEpisodes, ...episodes.filter(e => !previous || e.startMs - 6000 > freezeThroughMs)]
     .sort((a, b) => a.startMs - b.startMs).map(e => Object.freeze({ ...e, strikes: e.strikes || strikesFor(e) })));
@@ -124,22 +137,40 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
       intensity01: phrase?.relEnergy01 ?? energy01, camera: Object.freeze(camera),
       lens: lensFromCues(lensCues, t, !!options.preview),
       revealLens: revealLensFromCues(lensCues, t, !!options.preview),
-      rise01: options.preview ? 1 : riseOverride ?? rise.at(t) });
+      ...riseState(t, options) });
+  };
+  const riseState = (t, options) => {
+    const held = options.preview ? 1 : riseOverride;
+    if (!stageRise) return { rise01: held ?? rise.at(t), slotRise01: null };
+    if (held != null) return { rise01: held, slotRise01: heldSlots(held) };
+    const slotRise01 = stageRise.slotsAt(t);
+    let sum = 0;
+    for (const id of stageRise.slotIds) sum += slotRise01[id];
+    return { rise01: sum / stageRise.slotIds.length, slotRise01 };
   };
   return Object.freeze({ durationMs: duration, phrases, episodes: weather, freezeThroughMs, lensCues, cadenceMs,
-    riseEndMs: rise.endMs, riseProgressAt: rise.progressAt, at: stateAt });
+    riseEndMs: rise.endMs, riseProgressAt: rise.progressAt, stageRise, at: stateAt });
 }
 
 const cache = new WeakMap();
+/** The composed home stage's slots for the score, from the song's terrain
+ *  (RangeLibrary.prepareSongTerrain): null for songs without one. */
+export function scoreStage(mgr) {
+  const stage = mgr?.songTerrain?.songRange?.stage;
+  return stage?.slots?.length ? stage : null;
+}
+
 export function landscapeScoreFor(mgr) {
   let hit = cache.get(mgr);
   const timeline = mgr.conductor?.timeline;
-  if (!hit || hit.curves !== mgr.energyCurves || hit.sections !== mgr.sections || hit.timeline !== timeline || hit.duration !== mgr.durationMs) {
+  const stage = scoreStage(mgr);
+  if (!hit || hit.curves !== mgr.energyCurves || hit.sections !== mgr.sections || hit.timeline !== timeline || hit.duration !== mgr.durationMs
+    || hit.stage !== stage) {
     const previous = hit?.score || mgr.landscapeHistory?.previous || null;
     const committedThroughMs = hit ? (mgr.tSec || 0) * 1000 : mgr.landscapeHistory?.committedThroughMs ?? -1;
     const score = compileLandscapeScore({ energyCurves: mgr.energyCurves, sections: mgr.sections, timeline,
-      durationMs: mgr.durationMs, seed: mgr.songSeed || 0, previous, committedThroughMs });
-    hit = { curves: mgr.energyCurves, sections: mgr.sections, timeline, duration: mgr.durationMs, score };
+      durationMs: mgr.durationMs, seed: mgr.songSeed || 0, previous, committedThroughMs, stage });
+    hit = { curves: mgr.energyCurves, sections: mgr.sections, timeline, duration: mgr.durationMs, stage, score };
     cache.set(mgr, hit);
     mgr.landscapeScore = score;
   }

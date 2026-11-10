@@ -12,7 +12,7 @@ export { CROWN_GLSL, crownHalfWidth } from './ForestProfile.js';
 // fill and aerial perspective match the terrain so trees sit in the same
 // air.
 import { STORM_GLSL } from './RangeStorm.js';
-import { DEFORM_GLSL, gustUniforms } from './TerrainMaterial.js';
+import { DEFORM_GLSL, gustUniforms, useSlotRise } from './TerrainMaterial.js';
 import { GUST_FRONTS, GUST_SWEEP_SEC } from './Gust.js';
 
 import { MIST_GLSL, mistFlowUniforms } from './RangeAtmosphere.js';
@@ -576,7 +576,7 @@ function instanced(THREE, base, instances, stride, indices, spans = false) {
  * every other one as a billboard. Its objects start hidden; the rail draws
  * exactly what it draws without the layer.
  */
-export function createForest(THREE, placed, uniforms, { partitioned = true, forestDebug = false, tour = null } = {}) {
+export function createForest(THREE, placed, uniforms, { partitioned = true, forestDebug = false, tour = null, slotRise = false } = {}) {
   const instanceStride = placed.stride;
   const tourTrees = tourForestCount(placed);
   const tourLayer = !!tour && !!placed.railCount && tourTrees > 0;
@@ -603,6 +603,8 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
       // Ordinary mesh-ring assets have no LOD scalar; they keep full coverage.
       m.defaultAttributeValues.iLodWeight = [1];
       if (forestDebug && !depth) m.defines.FOREST_DEBUG = 1;
+      // A composed stage: roots stand on their own slot's rise (LandRise.js).
+      if (slotRise) useSlotRise(m);
       if (depth) m.colorWrite = false;
       else if (partitioned) { m.depthFunc = THREE.LessEqualDepth; m.depthWrite = false; }
       return m;

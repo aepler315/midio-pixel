@@ -10,7 +10,7 @@
 // (musical deformation, glacier, the rise) and the shiver bounded from this
 // frame's uniforms -- plus the bilinear footprint. Texels outside are never
 // read, so the picture is unchanged.
-import { riseFromUniforms, risenHeight } from './LandRise.js';
+import { riseFromUniforms, risenLow, risenHigh } from './LandRise.js';
 
 /** Horizontal size of a water bounding box, metres. */
 export const WATER_BOX_M = 384;
@@ -168,7 +168,7 @@ function projectedRect(boxes, matrix, viewProj, lift, pad, width, height, clamp,
   for (let b = 0; b < boxes.length; b += 6) {
     for (let c = 0; c < 8; c++) {
       corners[c * 3] = boxes[b + (c & 1 ? 3 : 0)];
-      corners[c * 3 + 1] = risenHeight(c & 2 ? boxes[b + 4] + lift.hi : boxes[b + 1] + lift.lo, 0, lift.rise);
+      corners[c * 3 + 1] = c & 2 ? risenHigh(boxes[b + 4] + lift.hi, lift.rise) : risenLow(boxes[b + 1] + lift.lo, lift.rise);
       corners[c * 3 + 2] = boxes[b + (c & 4 ? 5 : 2)];
     }
     if (viewProj && culled(viewProj, corners)) continue;
