@@ -36,8 +36,9 @@ test('the visible opening is a mountain range within seconds, and the climb stil
   for (const durationMs of [90000, 210000, 360000]) {
     for (const level of [0, .4, 1]) {
       const rise = compileLandRise({ read: () => level, durationMs, cadenceMs: durationMs, finaleMs: FINALE_MS });
-      assert.ok(rise.at(0) < 1e-9, 'flat under the title card');
-      assert.ok(rise.at(RISE_SURGE_START_MS) < .1, 'still level when the surge begins');
+      assert.ok(Math.abs(rise.at(0) - 1 / 3) < 1e-12, 'one-third built under the title card');
+      assert.ok(rise.at(RISE_SURGE_START_MS) >= 1 / 3 && rise.at(RISE_SURGE_START_MS) < .4,
+        'the musical climb continues from the skipped opening');
       assert.ok(rise.at(TITLE_CARD_END_MS) >= .5, `past half relief as the card clears (${durationMs}/${level}: ${rise.at(TITLE_CARD_END_MS)})`);
       assert.ok(rise.at(RISE_SURGE_START_MS + RISE_SURGE_MS) >= RISE_SURGE_RELIEF, 'most of the range stands when the surge lands');
       assert.equal(rise.at(rise.endMs), 1);

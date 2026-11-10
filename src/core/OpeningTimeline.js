@@ -1,16 +1,16 @@
 // The first seconds of every song, on one heard-time clock.
 //
-//   0.0 s  title card (song, artist) over the not-yet-risen landscape
-//   1.8 s  the range surges up from flat ground to most of its relief
+//   0.0 s  title card (song, artist) over the one-third-built landscape
+//   1.8 s  the range surges from its partial build to most of its relief
 //   2.0 s  the card starts to fade, revealing the surge already underway
 //   2.7 s  card gone; the land is already past half its relief
 //   4.0 s  surge complete; the rest of the climb follows the music
 //   ~4.2 s the first place caption fades in
 //
 // The flat, featureless opening (fog over level ground through a tight lens)
-// used to last most of a song's first twenty seconds. It now lives almost
-// entirely under the title card. Everything here is a pure function of song
-// time, so seeking, restarting, exports and highlights all agree.
+// used to last most of a song's first twenty seconds. The first third of
+// relief is now skipped before playback. Everything here is a pure function
+// of song time, so seeking, restarting, exports and highlights all agree.
 
 /** The card is fully up for this long... */
 export const TITLE_CARD_HOLD_MS = 2000;
@@ -19,12 +19,12 @@ export const TITLE_CARD_FADE_MS = 700;
 export const TITLE_CARD_END_MS = TITLE_CARD_HOLD_MS + TITLE_CARD_FADE_MS;
 
 /** The opening surge starts just before the card fades, so the reveal shows
- *  land already rising rather than the flat ground beneath it. */
+ *  the partly built land already rising. */
 export const RISE_SURGE_START_MS = 1800;
 export const RISE_SURGE_MS = 2200;
-/** Relief share the surge alone reaches. Matches the camera's settle point
- *  (LandRiseCamera BUILD_CAMERA.settleRise), so the tight opening lens has
- *  widened to the authored lens by the time the surge completes. */
+/** Share of the remaining relief supplied by the surge. Combined with the
+ *  partly built start, this clears the camera's settle point (LandRiseCamera
+ *  BUILD_CAMERA.settleRise), so the lens has widened when the surge completes. */
 export const RISE_SURGE_RELIEF = 0.7;
 
 const unit = (x) => (Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : 0);
