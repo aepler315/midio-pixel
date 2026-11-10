@@ -6,28 +6,549 @@
     {
       "id": "lake-amphitheatre-a",
       "title": "Lake amphitheatre A",
-      "families": ["dry-conifer"],
-      "grid": { "width": 2241, "height": 2241, "cellSizeM": 20, "originM": [-22400, -22400] },
-      "lake": { "levelM": 2050, "centerM": [0, -10000], "radiiM": [60000, 27500] },
-      "floor": { "shoreRiseM": 1.5, "slope": 0.03 },
+      "families": [
+        "dry-conifer",
+        "wet-conifer",
+        "icefield",
+        "tundra",
+        "taiga",
+        "pine-oak",
+        "broadleaf",
+        "chaparral",
+        "steppe",
+        "canyon",
+        "desert"
+      ],
+      "grid": {
+        "width": 2241,
+        "height": 2241,
+        "cellSizeM": 20,
+        "originM": [
+          -22400,
+          -22400
+        ]
+      },
+      "lake": {
+        "levelM": 2050,
+        "centerM": [
+          0,
+          -10000
+        ],
+        "radiiM": [
+          60000,
+          27500
+        ]
+      },
+      "floor": {
+        "shoreRiseM": 1.5,
+        "slope": 0.03
+      },
       "slots": [
-        { "id": "H1", "row": "horizon", "reliefM": [400, null], "tiles": [1, 1, 11, 10] },
-        { "id": "H2", "row": "horizon", "reliefM": [400, null], "tiles": [12, 1, 11, 10] },
-        { "id": "H3", "row": "horizon", "reliefM": [400, null], "tiles": [23, 1, 11, 10] },
-        { "id": "B1", "row": "back", "reliefM": [800, null], "tiles": [4, 11, 9, 10] },
-        { "id": "B2", "row": "back", "reliefM": [800, null], "tiles": [13, 11, 9, 10] },
-        { "id": "B3", "row": "back", "reliefM": [800, null], "tiles": [22, 11, 9, 10] },
-        { "id": "F1", "row": "front", "reliefM": [300, 650], "tiles": [10, 21, 7, 7] },
-        { "id": "F2", "row": "front", "reliefM": [300, 650], "tiles": [18, 21, 7, 7] }
+        {
+          "id": "H1",
+          "row": "horizon",
+          "reliefM": [
+            400,
+            null
+          ],
+          "tiles": [
+            1,
+            1,
+            11,
+            10
+          ]
+        },
+        {
+          "id": "H2",
+          "row": "horizon",
+          "reliefM": [
+            400,
+            null
+          ],
+          "tiles": [
+            12,
+            1,
+            11,
+            10
+          ]
+        },
+        {
+          "id": "H3",
+          "row": "horizon",
+          "reliefM": [
+            400,
+            null
+          ],
+          "tiles": [
+            23,
+            1,
+            11,
+            10
+          ]
+        },
+        {
+          "id": "B1",
+          "row": "back",
+          "reliefM": [
+            800,
+            null
+          ],
+          "tiles": [
+            4,
+            11,
+            9,
+            10
+          ]
+        },
+        {
+          "id": "B2",
+          "row": "back",
+          "reliefM": [
+            800,
+            null
+          ],
+          "tiles": [
+            13,
+            11,
+            9,
+            10
+          ]
+        },
+        {
+          "id": "B3",
+          "row": "back",
+          "reliefM": [
+            800,
+            null
+          ],
+          "tiles": [
+            22,
+            11,
+            9,
+            10
+          ]
+        },
+        {
+          "id": "F1",
+          "row": "front",
+          "reliefM": [
+            300,
+            650
+          ],
+          "tiles": [
+            10,
+            21,
+            7,
+            7
+          ]
+        },
+        {
+          "id": "F2",
+          "row": "front",
+          "reliefM": [
+            300,
+            650
+          ],
+          "tiles": [
+            18,
+            21,
+            7,
+            7
+          ]
+        }
       ],
       "principalSlot": "B2",
       "camera": {
-        "eyeStart": { "xzM": [600, 19600], "aboveFloorM": 40 },
-        "eyeEnd": { "xzM": [-900, 19000], "aboveFloorM": 60 },
-        "targetStart": { "xzM": [200, -1500], "aboveFloorM": 900 },
-        "targetEnd": { "xzM": [-600, -1500], "aboveFloorM": 1000 },
+        "eyeStart": {
+          "xzM": [
+            600,
+            19600
+          ],
+          "aboveFloorM": 40
+        },
+        "eyeEnd": {
+          "xzM": [
+            -900,
+            19000
+          ],
+          "aboveFloorM": 60
+        },
+        "targetStart": {
+          "xzM": [
+            200,
+            -1500
+          ],
+          "aboveFloorM": 900
+        },
+        "targetEnd": {
+          "xzM": [
+            -600,
+            -1500
+          ],
+          "aboveFloorM": 1000
+        },
         "fovYDeg": 32
       }
+    },
+    {
+      "id": "lake-narrows-b",
+      "title": "Lake narrows: a long lake walled by massifs, the principal closing its far end",
+      "families": [
+        "dry-conifer",
+        "wet-conifer",
+        "icefield",
+        "tundra",
+        "taiga",
+        "pine-oak",
+        "broadleaf",
+        "chaparral",
+        "steppe",
+        "canyon",
+        "desert"
+      ],
+      "principalSlot": "B2",
+      "grid": {
+        "width": 2241,
+        "height": 2241,
+        "cellSizeM": 20,
+        "originM": [
+          -22400,
+          -22400
+        ]
+      },
+      "lake": {
+        "levelM": 2050,
+        "centerM": [
+          0,
+          -4000
+        ],
+        "radiiM": [
+          9500,
+          26000
+        ]
+      },
+      "floor": {
+        "shoreRiseM": 1.5,
+        "slope": 0.03
+      },
+      "camera": {
+        "eyeStart": {
+          "xzM": [
+            500,
+            20600
+          ],
+          "aboveFloorM": 35
+        },
+        "eyeEnd": {
+          "xzM": [
+            -700,
+            20000
+          ],
+          "aboveFloorM": 50
+        },
+        "targetStart": {
+          "xzM": [
+            0,
+            -9000
+          ],
+          "aboveFloorM": 1100
+        },
+        "targetEnd": {
+          "xzM": [
+            -300,
+            -9000
+          ],
+          "aboveFloorM": 1200
+        },
+        "fovYDeg": 34
+      },
+      "slots": [
+        {
+          "id": "H1",
+          "row": "horizon",
+          "reliefM": [
+            400,
+            null
+          ],
+          "tiles": [
+            1,
+            0,
+            11,
+            9
+          ]
+        },
+        {
+          "id": "H3",
+          "row": "horizon",
+          "reliefM": [
+            400,
+            null
+          ],
+          "tiles": [
+            23,
+            0,
+            11,
+            9
+          ]
+        },
+        {
+          "id": "B1",
+          "row": "back",
+          "reliefM": [
+            800,
+            null
+          ],
+          "tiles": [
+            2,
+            9,
+            10,
+            9
+          ]
+        },
+        {
+          "id": "B2",
+          "row": "back",
+          "reliefM": [
+            800,
+            null
+          ],
+          "tiles": [
+            12,
+            1,
+            11,
+            10
+          ]
+        },
+        {
+          "id": "B3",
+          "row": "back",
+          "reliefM": [
+            800,
+            null
+          ],
+          "tiles": [
+            23,
+            9,
+            10,
+            9
+          ]
+        },
+        {
+          "id": "F1",
+          "row": "front",
+          "reliefM": [
+            300,
+            650
+          ],
+          "tiles": [
+            4,
+            18,
+            9,
+            8
+          ]
+        },
+        {
+          "id": "F2",
+          "row": "front",
+          "reliefM": [
+            300,
+            650
+          ],
+          "tiles": [
+            22,
+            18,
+            9,
+            8
+          ]
+        }
+      ]
+    },
+    {
+      "id": "offset-shore-c",
+      "title": "Offset shore: a raised eye left of centre, a large principal and a three-piece front row",
+      "families": [
+        "dry-conifer",
+        "wet-conifer",
+        "icefield",
+        "tundra",
+        "taiga",
+        "pine-oak",
+        "broadleaf",
+        "chaparral",
+        "steppe",
+        "canyon",
+        "desert"
+      ],
+      "principalSlot": "B1",
+      "grid": {
+        "width": 2241,
+        "height": 2241,
+        "cellSizeM": 20,
+        "originM": [
+          -22400,
+          -22400
+        ]
+      },
+      "lake": {
+        "levelM": 2050,
+        "centerM": [
+          -2000,
+          -9000
+        ],
+        "radiiM": [
+          40000,
+          26000
+        ]
+      },
+      "floor": {
+        "shoreRiseM": 1.5,
+        "slope": 0.03
+      },
+      "camera": {
+        "eyeStart": {
+          "xzM": [
+            -7000,
+            19800
+          ],
+          "aboveFloorM": 80
+        },
+        "eyeEnd": {
+          "xzM": [
+            -5500,
+            19200
+          ],
+          "aboveFloorM": 100
+        },
+        "targetStart": {
+          "xzM": [
+            -9000,
+            -3000
+          ],
+          "aboveFloorM": 1000
+        },
+        "targetEnd": {
+          "xzM": [
+            -6000,
+            -3000
+          ],
+          "aboveFloorM": 1100
+        },
+        "fovYDeg": 36
+      },
+      "slots": [
+        {
+          "id": "H1",
+          "row": "horizon",
+          "reliefM": [
+            400,
+            null
+          ],
+          "tiles": [
+            0,
+            0,
+            11,
+            10
+          ]
+        },
+        {
+          "id": "H2",
+          "row": "horizon",
+          "reliefM": [
+            400,
+            null
+          ],
+          "tiles": [
+            11,
+            0,
+            12,
+            10
+          ]
+        },
+        {
+          "id": "H3",
+          "row": "horizon",
+          "reliefM": [
+            400,
+            null
+          ],
+          "tiles": [
+            23,
+            0,
+            12,
+            10
+          ]
+        },
+        {
+          "id": "B1",
+          "row": "back",
+          "reliefM": [
+            800,
+            null
+          ],
+          "tiles": [
+            1,
+            10,
+            13,
+            10
+          ]
+        },
+        {
+          "id": "B2",
+          "row": "back",
+          "reliefM": [
+            800,
+            null
+          ],
+          "tiles": [
+            17,
+            10,
+            10,
+            10
+          ]
+        },
+        {
+          "id": "F1",
+          "row": "front",
+          "reliefM": [
+            300,
+            650
+          ],
+          "tiles": [
+            4,
+            21,
+            7,
+            7
+          ]
+        },
+        {
+          "id": "F2",
+          "row": "front",
+          "reliefM": [
+            300,
+            650
+          ],
+          "tiles": [
+            14,
+            22,
+            7,
+            7
+          ]
+        },
+        {
+          "id": "F3",
+          "row": "front",
+          "reliefM": [
+            300,
+            650
+          ],
+          "tiles": [
+            24,
+            20,
+            8,
+            8
+          ]
+        }
+      ]
     }
   ]
 }

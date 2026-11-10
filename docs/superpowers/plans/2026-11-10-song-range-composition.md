@@ -162,22 +162,22 @@ Files: new `src/world/alpine/StageAssembly.js`, new assets under `src/assets/ran
 
 Files: edits to `LandRise.js`, `LandscapeScore.js`, `RangeScene.js` and the rise consumers listed in Section 1; new tests in `test/landRise*.test.js`.
 
-- [ ] **Per-slot rise in the shader.** Preferred: a small single-channel texture at stage tile resolution whose texel is the owning slot's rise, sampled in `riseLift`, updated each frame. Alternative if the sampler or uniform budget refuses it: a per-vertex slot attribute with a small uniform array in the vertex shader and a varying into the fragment shader. Choose from the Phase 0 counts and record why. Catalog views keep the scalar path byte-for-byte.
-- [ ] **CPU consumers.** Position-aware helpers look up the slot's rise. Bounds, culling and streaming windows use the lowest and highest slot rise conservatively. The stage eye stands on the floor, so camera clearance is unaffected; verify that rather than assume it.
-- [ ] **Schedule.** `compileStageRise` is a pure function of heard time returning one rise per slot. Every slot starts at one third. The principal massif advances during sections in the chorus group. Other slots are assigned to the remaining labels in order of first appearance and advance during their sections. Within an owning section, progress integrates `0.6 + energy`. Every slot reaches 1 by the existing end time, with any shortfall made up in the final stretch.
-- [ ] **No sections yet.** During the opening analysis, slots rise in a staggered back-to-front order from the scalar curve.
-- [ ] **Handoff.** When whole-song analysis arrives, each slot continues from where it stood, never drops, and takes at least the existing catch-up time to finish.
-- [ ] **Tests.** Purity under seeks, per-slot monotonicity, completion at the end time, handoff without jumps, the no-sections fallback, and exact agreement with `compileLandRise` for a one-slot stage.
+- [x] **Per-slot rise in the shader.** Preferred: a small single-channel texture at stage tile resolution whose texel is the owning slot's rise, sampled in `riseLift`, updated each frame. Alternative if the sampler or uniform budget refuses it: a per-vertex slot attribute with a small uniform array in the vertex shader and a varying into the fragment shader. Choose from the Phase 0 counts and record why. Catalog views keep the scalar path byte-for-byte.
+- [x] **CPU consumers.** Position-aware helpers look up the slot's rise. Bounds, culling and streaming windows use the lowest and highest slot rise conservatively. The stage eye stands on the floor, so camera clearance is unaffected; verify that rather than assume it.
+- [x] **Schedule.** `compileStageRise` is a pure function of heard time returning one rise per slot. Every slot starts at one third. The principal massif advances during sections in the chorus group. Other slots are assigned to the remaining labels in order of first appearance and advance during their sections. Within an owning section, progress integrates `0.6 + energy`. Every slot reaches 1 by the existing end time, with any shortfall made up in the final stretch.
+- [x] **No sections yet.** During the opening analysis, slots rise in a staggered back-to-front order from the scalar curve.
+- [x] **Handoff.** When whole-song analysis arrives, each slot continues from where it stood, never drops, and takes at least the existing catch-up time to finish.
+- [x] **Tests.** Purity under seeks, per-slot monotonicity, completion at the end time, handoff without jumps, the no-sections fallback, and exact agreement with `compileLandRise` for a one-slot stage.
 - [ ] **Captures.** Three songs with clear verse and chorus structure, full playback, with section boundaries logged against which slot is rising.
 
 **Gate G4 (owner):** Watching those three songs, the owner can tell which part of the music builds which mountain.
 
 ### Phase 5: Breadth and the default decision
 
-- [ ] Add DEM-only source regions for the single-source families. Pieces need no authored camera, so this reuses normalization without scouting. Target at least twelve pieces per family.
-- [ ] A second and third stage template.
-- [ ] Captions and the library label wording, per Section 9.
-- [ ] Report repository growth from piece assets and propose a budget.
+- [x] Add DEM-only source regions for the single-source families. Pieces need no authored camera, so this reuses normalization without scouting. Target at least twelve pieces per family.
+- [x] A second and third stage template.
+- [x] Captions and the library label wording, per Section 9.
+- [x] Report repository growth from piece assets and propose a budget.
 - [ ] Decide with the owner how composed stages interact with multi-biome chapters.
 - [ ] Run on the JOYING head unit and report.
 - [ ] Owner decides whether composed ranges become the default.
@@ -573,3 +573,95 @@ owner's.
 **Gate G3:** parity passes; load time and memory are reported beside a
 standard view. Visual equality is shown for geometry; the sky differs by
 biome as described.
+
+### Phase 4 (2026-11-10)
+
+**Start.** Gates G1–G3 have no recorded owner verdict. The owner asked for
+Phase 4 and merged it (PR #119), then reported live playback problems.
+
+**Built.** See "Phase 4 as built" in the spec.
+
+- `compileStageRise` in `LandRise.js`, with the score carrying `slotRise01`
+  and `rise01` as the slots' mean.
+- The vertex-stage slot rise (`SLOT_LAND_RISE_GLSL`, swapped in by
+  `useSlotRise`). Catalog shader sources are unchanged and the forest pins
+  hold.
+- Slot-span culling bounds, and `stageSlotOwners`.
+- Tools: `song-range-shader-budget.mjs` and `song-range-slot-log.mjs`.
+
+**Shader cost.** Vertex stage +10 rows and +1 sampler; every fragment stage
+is unchanged. The worst program is the forest board, at 66 of 256 rows and 3
+of 16 samplers. On SwiftShader the shipped GLSL agrees with the CPU to under
+0.05 m of lift.
+
+**Fixes found after merge.**
+
+- PR #120, tan band on the horizon while the land rises: `RiseGround` past
+  the stage's far edge. The stage now skips it, and its opening coverage is
+  full.
+- PR #121, wrong form on the anthem: the stage read only `sectionTrust`
+  sections. It now reads every reliably labelled one, and the opening
+  analysis stages a stagger.
+
+**Reflections.** The owner saw sharp reflections while seeking and blurred
+ones during playback. That is the quality governor's first rung shedding the
+water mirror, which is existing behaviour. On SwiftShader a warm composed
+stage frame renders in 33–51 ms, against 194–309 ms for `teton-jackson-lake`
+at the same settings, so the stage is not the heavier view. The owner's
+machine was not measured.
+
+**Tests.** `landRiseStage` (9, plus 2 in #121), `landRiseStageScene` (9),
+`landRiseStageGpu` (1) and an `audibleTransport` addition. The full suite on
+the Phase 4 head ran 5565 tests: 5561 pass, 2 skipped, and 2 failed (the
+baseline timing test, and a Phase 3 test fixed in the same commit).
+
+**Captures.** SwiftShader, `--song-range force`, generated songs from
+`tools/gen-song-wav.mjs`. Slot logs come from `tools/song-range-slot-log.mjs`.
+
+| Song | Run | What the log shows |
+| --- | --- | --- |
+| `short` (60 s; intro, verse, chorus, outro, nothing repeats) | full length, 2 fps, before #120 | Stagger: the analyzer marked the first two sections decorative, so no label repeats among trusted sections. H1–H3 climb in the intro, every slot by the chorus, all complete before the outro. |
+| `anthem` (168 s) | full length, 1 fps, before #121 | Structure, with the wrong chorus: label 0 (intro, bridge, outro) drove the principal. H1, H3, B3 and F2 finished within one 22 s section; H2, B1 and F1 rose in the final chorus. This found the #121 fault. |
+| `anthem` after #121, and `drop` | not run | Stopped at the owner's request to move on to Phase 5. |
+
+**Not run.** RTX 3060 and JOYING; the post-fix captures.
+
+**Gate G4 (owner): waiting.** Whether the owner can tell which part of the
+music builds which mountain needs #121 live, and the owner watching.
+
+### Phase 5 (2026-11-10)
+
+**Start.** The owner asked to continue to Phase 5 without tests. Gate G4 has
+no verdict.
+
+**Built.** See "Phase 5 as built" in the spec.
+
+- 118 new massif pieces across ten families, from 18 more catalog views and
+  7 DEM-only regions.
+- Templates B (lake narrows) and C (offset shore).
+- Per-template families decided by matching.
+- A planner that cannot strand a slot.
+- Captions and credits naming each piece's place and elevation source.
+- `NOTICE`.
+
+**Measurements.** Node, this host:
+
+- Every one of 4,000 synthetic songs plans a range (3,989 distinct layouts).
+- 24 of 24 family x template assemblies decode from pinned packages.
+- Massif packages total 31.03 MiB (budget proposed at 32 MiB).
+
+**Tools.** Pillow was missing from the GDAL Python and is now installed in
+it; the terrain-tiles fill needs it. The library cut and bake takes about
+9 minutes of CPU, plus first-time downloads (about 1.5 min per source).
+
+**Not run, by the owner's instruction.** The test suite, focused tests,
+captures and a visual review of templates B and C or of any new family. No
+image of a new template or family has been looked at. ESLint was run.
+
+**Open.**
+
+- Multi-biome chapters: the default stays home view only (Section 9.4),
+  awaiting the owner.
+- JOYING: not run.
+- Whether composed ranges become the default is the owner's decision.
+- G4 needs #121 live.

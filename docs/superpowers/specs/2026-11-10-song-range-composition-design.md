@@ -385,3 +385,210 @@ and only a shore strip at the eye is land.
   links shaders but its images and timings are not production evidence.
 - Gates G1 and G2 have no recorded owner verdict. Phases 2 and 3 started at
   the owner's instruction, and the owner asked for Phase 3 to go live.
+
+## Phase 4 as built (2026-11-10)
+
+### The schedule
+
+`compileStageRise` (`LandRise.js`) runs on `compileLandRise`'s clock: the same
+end time, 250 ms grid, landing and catch-up. Every slot starts at one third
+and stands complete by the end time.
+
+- **Structure mode.** It needs a whole-song analysis and a chorus group: the
+  repeated label with the highest mean energy among every section with
+  reliable provenance and a label (`formLabelled`, shared with
+  `SectionRoles.js`), whatever its confidence. A first version read only
+  `sectionTrust` sections. The anthem capture showed the analyzer marking the
+  whole verse/chorus stretch with zero confidence, so the intro/bridge/outro
+  label became the chorus (fixed in PR #121). The principal
+  climbs during the chorus group's sections. The other slots, back to front
+  (horizon, back, front, then id), take the remaining labels in order of
+  first appearance, one label per slot. Whichever list is shorter cycles, so
+  every label moves a slot and every slot has a label. Time outside every
+  section belongs to the principal. Within an owned section, progress
+  integrates `0.6 + energy`, normalised so the slot is complete at its last
+  owned moment before the end time. A slot whose labels only arrive after the
+  end time climbs over the final stretch (8 s, or a quarter of the climb if
+  shorter).
+- **Stagger mode.** While the sections come from the opening analysis alone
+  (`BiomeManager.analyzedThroughMs`, set by `Simulation`), or when no label
+  repeats, slot k of K rises over its window
+  `[k·d, 1 − (K−1−k)·d]` of the scalar curve, back to front, with
+  `d = min(0.08, 0.5/(K−1))`.
+- **Handoff.** Each slot continues through `compileLandRise`'s own freeze and
+  catch-up function. A score without a stage before the handoff hands its
+  scalar to every slot.
+- **One slot** owns every step, so it is `compileLandRise` bit for bit. The
+  refactor keeps the original float association; the comparison is exact (0)
+  over 20 curves, with and without a handoff.
+- **The scalar.** `rise01` is the mean of the slots. Catalog views in other
+  chapters, the opening lens, the opening ocean and every other global
+  consumer read it.
+
+### Where it lives
+
+- `RangeLibrary` adds `songRange.stage` (slots with rows, principal) to the
+  song's terrain. `landscapeScoreFor` reads it from `mgr.songTerrain`, so the
+  stage is fixed for the song before any section arrives.
+- States carry `slotRise01`; `RangeFrame` passes it on.
+- `StageAssembly.stageSlotOwners(plan, catalog)` gives the tile owner grid
+  from catalog footprints alone. A tested invariant keeps it identical to
+  where `assembleStage` places each block.
+
+### Shaders (D12 as built)
+
+Catalog programs are unchanged byte for byte: `LAND_RISE_GLSL` keeps its text,
+and the forest shader pins hold. A stage's programs go through
+`useSlotRise(material)`, which swaps the block for `SLOT_LAND_RISE_GLSL` in the
+vertex shader and, in the scene fragment shader, changes one line: the canopy's
+inverse view ray reads the local rise from `vRiseGrad.y`.
+
+`SLOT_LAND_RISE_GLSL` reads a 35 x 35 R8 owner texture (`texelFetch`, slot
+index per tile, 0 = floor), `uSlotSink[9]` and `uSlotFrame` (origin, tile
+size, active). It interpolates the sink bilinearly between tile centres and
+returns its horizontal derivatives in `riseGrad`, so normals carry the slope
+between slots. The texture is static; only nine floats change per frame.
+
+Measured with `tools/song-range-shader-budget.mjs` (three 0.187 programs in
+headless Chromium, each stage linked against a stub of the other):
+
+| Program | Vertex uniforms / rows / samplers, catalog → stage | Fragment, catalog → stage |
+| --- | --- | --- |
+| Scene, mobile defaults | 30 / 37 / 2 → 33 / 47 / 3 | 120 / 218 / 12 → unchanged |
+| Scene, river surface | 30 / 37 / 2 → 33 / 47 / 3 | 116 / 212 / 11 → unchanged |
+| Depth | 30 / 37 / 2 → 33 / 47 / 3 | 1 / 1 / 0 → unchanged |
+| Forest mesh | 35 / 54 / 2 → 38 / 64 / 3 | 37 / 36 / 3 → unchanged |
+| Forest board | 37 / 56 / 2 → 40 / 66 / 3 | 37 / 36 / 3 → unchanged |
+
+The catalog figures reproduce Phase 0's. The worst vertex stage is 66 of 256
+rows and 3 of 16 samplers.
+
+A transform-feedback test runs the shipped GLSL on SwiftShader at 6,000
+points across and around a stage. It agrees with the CPU's `slotSinkAt` to
+under 0.05 m of lift and 1e-4 of gradient.
+
+### CPU consumers
+
+- `slotSinkAt` and `stageRisenHeight` are the position-aware helpers.
+- `riseFromUniforms` adds `sinkLo`/`sinkHi` when a stage is active.
+- `risenLow`/`risenHigh` bound box bottoms and tops across the span, and
+  `risenSphere` grows the radius by half the span. Chunk culling, forest cells
+  and the mirror scissor use them.
+- With no span, all three are exactly `risenHeight`.
+- `TerrainWindow` already plans for the lowest rise of the song (1/3). Every
+  slot starts there and never drops, so its envelope still holds.
+- The eye stands on the floor. For all three pilot layouts and 120 planned
+  stages, every rail station's four bilinear neighbours are floor tiles. The
+  ground under the camera therefore lowers by exactly the scalar sink that
+  `LandRiseCamera` assumes, whatever the slots do.
+
+### RiseGround on stages
+
+A stage skips `RiseGround` and its opening coverage is full. Live playback
+showed a tan band on the horizon while the land rose: `RiseGround`'s
+construction-sea plain reached past the stage's far edge (42 km out), and the
+music camera stands a few hundred metres up (PR #120). This settles the
+Phase 3 item "if the stage has no holes, skip RiseGround": the coverage check
+is the tile listing (all 1,225 tiles visible) and a full-rise frame where the
+lake meets the horizon cleanly with nothing drawn past the edge.
+
+### Known approximations
+
+- The mist drainage height in the terrain fragment still lowers with the
+  scalar sink. Making it local needs the owner sampler in the fragment stage,
+  which has no budget for it.
+- A floor tile next to a slot blends between the floor sink and the slot sink
+  over one tile (1.28 km). Under water the floor is at the base, so this only
+  moves land on the eye's shore.
+
+## Phase 5 as built (2026-11-10)
+
+### The library
+
+`data/terrain/song-range-pilot.json` names every source. That's 22 catalog
+views and 7 DEM-only regions, which need no authored camera: a region's
+pieces face a nominal viewer 15 km south of its centre. Pieces must sit on
+the stage's 20 m grid, so any source on another grid is normalized again at
+20 m (extent capped at 60 km). Terrain-tiles sources (Alaska, Yukon, British
+Columbia, Mexico) are therefore resampled from coarser elevation, about
+30 m at zoom 12.
+
+Rejected scenic views are fine as DEM sources, but views that overlap a kept
+one are left out (Diablo/Colonial, Shuksan), so one summit cannot appear
+twice on a stage. Two unnamed summits of one height in one source get
+distinct ids.
+
+`capLibrary` keeps at most 12 pieces per new family. It fills the rows'
+needs first, round robin over sources and tallest first, then the tallest of
+the rest. Dry-conifer has no cap, so its 41 published packages are unchanged
+byte for byte.
+
+| Family | Sources | Cut | Kept |
+| --- | --- | --- | --- |
+| dry-conifer | Teton, Sawtooth, Sneffels, Crater Lake | 41 | 41 |
+| wet-conifer | North Cascades, Mount Baker, Olympic Mountains* | 61 | 12 |
+| icefield | Alaska Range, Chugach | 45 | 12 |
+| tundra | Tombstone, Wrangell | 39 | 12 |
+| taiga | Muncho Lake, Stone Mountain*, Tuchodi* | 92 | 12 |
+| pine-oak | Izta-Popo, Cumbres de Monterrey*, Pico de Orizaba* | 38 | 12 |
+| broadleaf | Black Mountains, Blue Ridge | 24 | 12 |
+| chaparral | San Gabriels, San Jacinto*, Santa Lucia* | 34 | 12 |
+| steppe | White Mountains, Sierra Nevada, Badlands (0 pieces) | 18 | 12 |
+| canyon | La Sal, Monument Valley | 16 | 10 |
+| desert | Panamint, Superstitions | 16 | 12 |
+
+\* DEM-only region.
+
+### Templates
+
+- **A, lake amphitheatre:** unchanged.
+- **B, lake narrows (7 slots):** a 19 km wide lake running away from the
+  eye. Wing massifs line both shores and the principal closes the far end.
+- **C, offset shore (8 slots):** the eye stands 80–100 m up, left of centre.
+  A large principal (13 x 10 tiles), one more back piece, three horizon pieces
+  and a three-piece front row.
+
+A template lists only the families whose pieces can fill it (a bipartite
+matching at catalog time):
+
+- A: 6 families.
+- B: 7 families.
+- C: all 11.
+
+Low-relief families (broadleaf, steppe) fill only C, whose wider back slots
+take their 10-tile massifs.
+
+### Planner
+
+- A song plans in its own family. `?songRange=force` falls back to the first
+  family with pieces only when the song's own family has none.
+- The principal is drawn only from pieces that leave the other slots
+  fillable (matching).
+- If the template-order fill strands a slot, it runs once more with the most
+  constrained slots first. Each slot keeps its own ticket, so a layout the
+  first order completes is unchanged.
+- `SONG_RANGE_VERSION` is 2: songs now draw among three templates, so
+  layouts from version 1 change.
+
+On 4,000 synthetic songs every song plans a range: 3,989 distinct layouts.
+Before the matching and retry, 82%; before Phase 5, about 9% (dry-conifer
+songs only). One assembly per family and template, 24 in all, decodes from
+the pinned packages.
+
+### Captions and credits (Section 9 defaults)
+
+- Library label: `World: <principal> range`, unchanged.
+- Caption: the principal's real place first, then
+  `with massifs from <other ranges>`.
+- Credit: each piece's own elevation source (USGS 3DEP 1/3 arc-second, or
+  Terrain Tiles on AWS with its upstream sources), then the ranges.
+- `NOTICE` names every region and both sources.
+
+### Repository growth and budget
+
+Massif packages grew from 7.37 MiB (41 pieces) to 31.03 MiB (159 pieces),
+about 0.2 MiB a piece. Proposed budget: 32 MiB for `src/assets/range/v2/massif/`.
+New breadth then comes by replacing pieces within a family's 12, not by
+adding them. Past that, the pieces should move out of Git, to a release asset
+or object storage pinned by hash, since the packages are already
+hash-addressed.

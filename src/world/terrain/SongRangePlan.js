@@ -20,7 +20,7 @@ import { seedTicket, songTerrainTarget } from './RangeMatcher.js';
 import { sceneOdds, SCENIC_FAIR_SHARE } from './SceneCatalog.js';
 import MASSIF_CATALOG from './massifCatalogData.js';
 
-export const SONG_RANGE_VERSION = 1;
+export const SONG_RANGE_VERSION = 2;
 
 /** Biome to material family; mirrors DEFAULT_PACKS in tools/build-range-scene.mjs. */
 export const BIOME_FAMILY = Object.freeze({
@@ -41,7 +41,7 @@ export function songRangeEnabled(search = globalThis.location?.search || '') {
   return v === '1' || v === 'on' || v === 'force';
 }
 
-/** Diagnostic `?songRange=force`: plan every song with the first family that
+/** Diagnostic `?songRange=force`: plan every song, with its own family or else the first family that
  *  has pieces, whatever its home biome, so review captures with any song
  *  reach a composed range. Never production evidence. */
 export function songRangeForced(search = globalThis.location?.search || '') {
@@ -50,6 +50,20 @@ export function songRangeForced(search = globalThis.location?.search || '') {
 
 const fits = (slot, piece) => piece.tiles[0] <= slot.tiles[2] && piece.tiles[1] <= slot.tiles[3]
   && piece.peakReliefM >= (slot.reliefM?.[0] ?? 0) && (slot.reliefM?.[1] == null || piece.peakReliefM <= slot.reliefM[1]);
+
+/** Can distinct `pieces` fill every one of `slots`? (bipartite matching) */
+function canFill(slots, pieces) {
+  const owner = new Map();
+  const assign = (slot, seen) => {
+    for (const p of pieces) {
+      if (seen.has(p) || !fits(slot, p)) continue;
+      seen.add(p);
+      if (!owner.has(p) || assign(owner.get(p), seen)) { owner.set(p, slot); return true; }
+    }
+    return false;
+  };
+  return slots.every((slot) => assign(slot, new Set()));
+}
 
 function pick(candidates, ticket, odds = null) {
   if (!odds) return candidates[Math.min(candidates.length - 1, Math.floor(ticket * candidates.length))];
@@ -85,33 +99,47 @@ function indexOf(catalog) {
 export function planSongRange(profile, seed, { catalog = MASSIF_CATALOG, forced = false } = {}) {
   const biome = chooseSongBiomes(profile, seed)[0] ?? null;
   const { byFamily, templates } = indexOf(catalog);
-  const family = forced ? ([...byFamily.keys()].sort()[0] ?? null) : BIOME_FAMILY[biome] ?? null;
+  // The song's own family; the forced diagnostic falls back to the first
+  // family with pieces when the song's has none.
+  const own = BIOME_FAMILY[biome] ?? null;
+  const family = byFamily.has(own) ? own : forced ? ([...byFamily.keys()].sort()[0] ?? null) : own;
   if (!family) return null;
   const pieces = byFamily.get(family) || [];
   const usable = templates.filter((t) => t.families.includes(family));
   if (!usable.length || !pieces.length) return null;
   const template = pick(usable, seedTicket(seed, SALT_TEMPLATE));
   const principalSlot = template.slots.find((s) => s.id === template.principalSlot);
-  // Principal: character odds over every piece that fits the principal slot.
-  const pool = pieces.filter((p) => fits(principalSlot, p));
+  // Principal: character odds over every piece that fits the principal slot
+  // and leaves the other slots fillable.
+  const rest = template.slots.filter((s) => s !== principalSlot);
+  const pool = pieces.filter((p) => fits(principalSlot, p) && canFill(rest, pieces.filter((q) => q !== p)));
   if (!pool.length) return null;
   const odds = sceneOdds(pool, songTerrainTarget(profile), SCENIC_FAIR_SHARE);
   const principal = pick(pool, seedTicket(seed, SALT_PRINCIPAL), odds);
-  const used = new Set([principal.id]);
-  const regionUse = new Map([[principal.sourceView, 1]]);
-  const chosen = new Map([[principalSlot.id, principal]]);
-  template.slots.forEach((slot, n) => {
-    if (slot.id === principalSlot.id) return;
-    const open = pieces.filter((p) => !used.has(p.id) && fits(slot, p));
-    if (!open.length) return;
-    const least = Math.min(...open.map((p) => regionUse.get(p.sourceView) || 0));
-    const fresh = open.filter((p) => (regionUse.get(p.sourceView) || 0) === least);
-    const p = pick(fresh, seedTicket(seed, SALT_SLOT + n));
-    used.add(p.id);
-    regionUse.set(p.sourceView, (regionUse.get(p.sourceView) || 0) + 1);
-    chosen.set(slot.id, p);
-  });
-  if (chosen.size !== template.slots.length) return null;
+  // Other slots in template order; if that order strands a slot (an earlier
+  // slot took the last piece that fits it), once more with the most
+  // constrained slots first. Each slot keeps its own ticket either way, so a
+  // layout the first order completes is unchanged.
+  const fill = (order) => {
+    const used = new Set([principal.id]);
+    const regionUse = new Map([[principal.sourceView, 1]]);
+    const chosen = new Map([[principalSlot.id, principal]]);
+    for (const { slot, n } of order) {
+      const open = pieces.filter((p) => !used.has(p.id) && fits(slot, p));
+      if (!open.length) return null;
+      const least = Math.min(...open.map((p) => regionUse.get(p.sourceView) || 0));
+      const fresh = open.filter((p) => (regionUse.get(p.sourceView) || 0) === least);
+      const p = pick(fresh, seedTicket(seed, SALT_SLOT + n));
+      used.add(p.id);
+      regionUse.set(p.sourceView, (regionUse.get(p.sourceView) || 0) + 1);
+      chosen.set(slot.id, p);
+    }
+    return chosen;
+  };
+  const others = template.slots.map((slot, n) => ({ slot, n })).filter(({ slot }) => slot.id !== principalSlot.id);
+  const room = ({ slot }) => pieces.filter((p) => p.id !== principal.id && fits(slot, p)).length;
+  const chosen = fill(others) || fill([...others].sort((a, b) => room(a) - room(b) || a.n - b.n));
+  if (!chosen) return null;
   const slots = template.slots.map((slot, n) => ({ slotId: slot.id, pieceId: chosen.get(slot.id).id,
     mirrored: seedTicket(seed, SALT_MIRROR + n) < 0.5 }));
   return Object.freeze({

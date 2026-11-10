@@ -3,14 +3,58 @@
   "version": 1,
   "notes": "Phase 1 of docs/superpowers/plans/2026-11-10-song-range-composition.md: three fixed dry-conifer layouts on one stage, baked with the production baker and published as diagnostic-only candidates. Piece ids are <source view>:<landmark slug | summit-<seed height m>>; run node tools/build-song-range-pilot.mjs --list for the library. Slot sizes in lake-amphitheatre-a: horizon 11x10 tiles and 400 m relief or more, back 9x10 and 800 m or more, front 7x7 and 300 to 650 m (the planner's rules, followed here by hand).",
   "template": "lake-amphitheatre-a",
-  "sources": ["teton-jackson-lake", "sawtooth-redfish-north", "san-juan-sneffels-north", "crater-lake-watchman-east"],
+  "sources": [
+    "teton-jackson-lake",
+    "sawtooth-redfish-north",
+    "san-juan-sneffels-north",
+    "crater-lake-watchman-east",
+    "nc-ross-lake-north",
+    "skagit-baker-lake",
+    "denali-wonder-lake",
+    "chugach-matanuska",
+    "tombstone-north-klondike",
+    "wrangell-copper-river",
+    "muncho-lake-south",
+    "izta-popo-west",
+    "black-mountains-catawba",
+    "shenandoah-stony-man-west",
+    "san-gabriel-baldy",
+    "white-mountains-owens",
+    "sierra-whitney-east",
+    "badlands-pinnacles-south",
+    "la-sal-castle-valley",
+    "monument-valley-163",
+    "panamint-dantes-view",
+    "superstition-west-front"
+  ],
   "sourceLabels": {
     "teton-jackson-lake": "Teton Range",
     "sawtooth-redfish-north": "Sawtooth Range",
     "san-juan-sneffels-north": "Sneffels Range",
-    "crater-lake-watchman-east": "Crater Lake rim"
+    "crater-lake-watchman-east": "Crater Lake rim",
+    "nc-ross-lake-north": "North Cascades",
+    "skagit-baker-lake": "Mount Baker",
+    "denali-wonder-lake": "Alaska Range",
+    "chugach-matanuska": "Chugach Mountains",
+    "tombstone-north-klondike": "Tombstone Range",
+    "wrangell-copper-river": "Wrangell Mountains",
+    "muncho-lake-south": "Northern Rockies",
+    "izta-popo-west": "Iztaccíhuatl and Popocatépetl",
+    "black-mountains-catawba": "Black Mountains",
+    "shenandoah-stony-man-west": "Blue Ridge",
+    "san-gabriel-baldy": "San Gabriel Mountains",
+    "white-mountains-owens": "White Mountains",
+    "sierra-whitney-east": "Sierra Nevada",
+    "badlands-pinnacles-south": "Badlands",
+    "la-sal-castle-valley": "La Sal Mountains",
+    "monument-valley-163": "Monument Valley",
+    "panamint-dantes-view": "Panamint Range",
+    "superstition-west-front": "Superstition Mountains"
   },
-  "cut": { "maxTiles": 10, "minReliefM": 300 },
+  "cut": {
+    "maxTiles": 10,
+    "minReliefM": 300
+  },
   "outlineSlopeRatioMax": 1.15,
   "layouts": [
     {
@@ -19,14 +63,32 @@
       "place": "Composed stage: Teton Range, Sawtooth Range, Crater Lake rim",
       "notes": "Principal massif Grand Teton.",
       "slots": {
-        "H1": { "piece": "sawtooth-redfish-north:summit-3001" },
-        "H2": { "piece": "teton-jackson-lake:summit-3459" },
-        "H3": { "piece": "crater-lake-watchman-east:mount-scott" },
-        "B1": { "piece": "sawtooth-redfish-north:summit-3122" },
-        "B2": { "piece": "teton-jackson-lake:grand-teton" },
-        "B3": { "piece": "sawtooth-redfish-north:heyburn-mountain", "mirrored": true },
-        "F1": { "piece": "crater-lake-watchman-east:summit-2343" },
-        "F2": { "piece": "crater-lake-watchman-east:summit-2214", "mirrored": true }
+        "H1": {
+          "piece": "sawtooth-redfish-north:summit-3001"
+        },
+        "H2": {
+          "piece": "teton-jackson-lake:summit-3459"
+        },
+        "H3": {
+          "piece": "crater-lake-watchman-east:mount-scott"
+        },
+        "B1": {
+          "piece": "sawtooth-redfish-north:summit-3122"
+        },
+        "B2": {
+          "piece": "teton-jackson-lake:grand-teton"
+        },
+        "B3": {
+          "piece": "sawtooth-redfish-north:heyburn-mountain",
+          "mirrored": true
+        },
+        "F1": {
+          "piece": "crater-lake-watchman-east:summit-2343"
+        },
+        "F2": {
+          "piece": "crater-lake-watchman-east:summit-2214",
+          "mirrored": true
+        }
       }
     },
     {
@@ -35,14 +97,32 @@
       "place": "Composed stage: Teton Range, Sawtooth Range, Crater Lake rim, Sneffels Range",
       "notes": "Principal massif Mount Moran.",
       "slots": {
-        "H1": { "piece": "sawtooth-redfish-north:grand-mogul" },
-        "H2": { "piece": "sawtooth-redfish-north:summit-3269" },
-        "H3": { "piece": "crater-lake-watchman-east:summit-2485", "mirrored": true },
-        "B1": { "piece": "teton-jackson-lake:summit-3266" },
-        "B2": { "piece": "teton-jackson-lake:mount-moran" },
-        "B3": { "piece": "teton-jackson-lake:summit-3329", "mirrored": true },
-        "F1": { "piece": "teton-jackson-lake:summit-3086" },
-        "F2": { "piece": "san-juan-sneffels-north:summit-3086" }
+        "H1": {
+          "piece": "sawtooth-redfish-north:grand-mogul"
+        },
+        "H2": {
+          "piece": "sawtooth-redfish-north:summit-3269"
+        },
+        "H3": {
+          "piece": "crater-lake-watchman-east:summit-2485",
+          "mirrored": true
+        },
+        "B1": {
+          "piece": "teton-jackson-lake:summit-3266"
+        },
+        "B2": {
+          "piece": "teton-jackson-lake:mount-moran"
+        },
+        "B3": {
+          "piece": "teton-jackson-lake:summit-3329",
+          "mirrored": true
+        },
+        "F1": {
+          "piece": "teton-jackson-lake:summit-3086"
+        },
+        "F2": {
+          "piece": "san-juan-sneffels-north:summit-3086"
+        }
       }
     },
     {
@@ -51,15 +131,205 @@
       "place": "Composed stage: Teton Range, Sawtooth Range, Crater Lake rim",
       "notes": "Principal massif the Teton summit seeded at 3329 m.",
       "slots": {
-        "H1": { "piece": "crater-lake-watchman-east:mount-scott", "mirrored": true },
-        "H2": { "piece": "sawtooth-redfish-north:summit-3220" },
-        "H3": { "piece": "sawtooth-redfish-north:summit-3269", "mirrored": true },
-        "B1": { "piece": "sawtooth-redfish-north:heyburn-mountain" },
-        "B2": { "piece": "teton-jackson-lake:summit-3329" },
-        "B3": { "piece": "teton-jackson-lake:summit-3266", "mirrored": true },
-        "F1": { "piece": "teton-jackson-lake:summit-3630" },
-        "F2": { "piece": "teton-jackson-lake:summit-3026" }
+        "H1": {
+          "piece": "crater-lake-watchman-east:mount-scott",
+          "mirrored": true
+        },
+        "H2": {
+          "piece": "sawtooth-redfish-north:summit-3220"
+        },
+        "H3": {
+          "piece": "sawtooth-redfish-north:summit-3269",
+          "mirrored": true
+        },
+        "B1": {
+          "piece": "sawtooth-redfish-north:heyburn-mountain"
+        },
+        "B2": {
+          "piece": "teton-jackson-lake:summit-3329"
+        },
+        "B3": {
+          "piece": "teton-jackson-lake:summit-3266",
+          "mirrored": true
+        },
+        "F1": {
+          "piece": "teton-jackson-lake:summit-3630"
+        },
+        "F2": {
+          "piece": "teton-jackson-lake:summit-3026"
+        }
       }
     }
-  ]
+  ],
+  "regions": [
+    {
+      "id": "olympic-mount-olympus",
+      "family": "wet-conifer",
+      "biome": "RAINFOREST",
+      "title": "Olympic Mountains",
+      "place": "Olympic Peninsula, Washington",
+      "dem": {
+        "source": "3dep13",
+        "centerLonLat": [
+          -123.71,
+          47.8
+        ],
+        "extentM": [
+          44800,
+          44800
+        ],
+        "cellM": 20
+      },
+      "viewerLonLat": [
+        -123.71,
+        47.665
+      ]
+    },
+    {
+      "id": "northern-rockies-stone-mountain",
+      "family": "taiga",
+      "biome": "TAIGA",
+      "title": "Northern Rockies (Stone Mountain)",
+      "place": "Northern Rockies, British Columbia",
+      "dem": {
+        "source": "terrarium",
+        "zoom": 12,
+        "centerLonLat": [
+          -124.7,
+          58.62
+        ],
+        "extentM": [
+          44800,
+          44800
+        ],
+        "cellM": 20
+      },
+      "viewerLonLat": [
+        -124.7,
+        58.485
+      ]
+    },
+    {
+      "id": "northern-rockies-tuchodi",
+      "family": "taiga",
+      "biome": "TAIGA",
+      "title": "Northern Rockies (Tuchodi)",
+      "place": "Northern Rockies, British Columbia",
+      "dem": {
+        "source": "terrarium",
+        "zoom": 12,
+        "centerLonLat": [
+          -124.6,
+          58.15
+        ],
+        "extentM": [
+          44800,
+          44800
+        ],
+        "cellM": 20
+      },
+      "viewerLonLat": [
+        -124.6,
+        58.015
+      ]
+    },
+    {
+      "id": "cumbres-de-monterrey",
+      "family": "pine-oak",
+      "biome": "PINE_OAK",
+      "title": "Sierra Madre Oriental",
+      "place": "Cumbres de Monterrey, Nuevo León",
+      "dem": {
+        "source": "terrarium",
+        "zoom": 12,
+        "centerLonLat": [
+          -100.45,
+          25.55
+        ],
+        "extentM": [
+          44800,
+          44800
+        ],
+        "cellM": 20
+      },
+      "viewerLonLat": [
+        -100.45,
+        25.415
+      ]
+    },
+    {
+      "id": "pico-de-orizaba",
+      "family": "pine-oak",
+      "biome": "PINE_OAK",
+      "title": "Pico de Orizaba",
+      "place": "Trans-Mexican Volcanic Belt, Puebla and Veracruz",
+      "dem": {
+        "source": "terrarium",
+        "zoom": 12,
+        "centerLonLat": [
+          -97.27,
+          19.03
+        ],
+        "extentM": [
+          44800,
+          44800
+        ],
+        "cellM": 20
+      },
+      "viewerLonLat": [
+        -97.27,
+        18.895
+      ]
+    },
+    {
+      "id": "san-jacinto",
+      "family": "chaparral",
+      "biome": "CHAPARRAL",
+      "title": "San Jacinto Mountains",
+      "place": "Riverside County, California",
+      "dem": {
+        "source": "3dep13",
+        "centerLonLat": [
+          -116.68,
+          33.81
+        ],
+        "extentM": [
+          44800,
+          44800
+        ],
+        "cellM": 20
+      },
+      "viewerLonLat": [
+        -116.68,
+        33.675
+      ]
+    },
+    {
+      "id": "santa-lucia-big-sur",
+      "family": "chaparral",
+      "biome": "CHAPARRAL",
+      "title": "Santa Lucia Range",
+      "place": "Big Sur, California",
+      "dem": {
+        "source": "3dep13",
+        "centerLonLat": [
+          -121.55,
+          36.15
+        ],
+        "extentM": [
+          44800,
+          44800
+        ],
+        "cellM": 20
+      },
+      "viewerLonLat": [
+        -121.55,
+        36.015
+      ]
+    }
+  ],
+  "familyCap": {
+    "default": 12,
+    "dry-conifer": null
+  }
 }
