@@ -146,15 +146,15 @@ Files: new `src/world/terrain/SongRangePlan.js`, generated `src/world/terrain/ma
 
 Files: new `src/world/alpine/StageAssembly.js`, new assets under `src/assets/range/v2/massif/`, new `tools/build-massif-library.mjs`; edits to `RangeAssets.js`, `SceneCatalog.js`, `TerrainPackage.js`, `TerrainMesh.js` as needed; tests `test/stageAssembly.test.js`.
 
-- [ ] **Piece packages.** Reuse the tile encoding of `midio.terrain` so `decodeResiduals` and the tile decoder are shared. Store every tile at stride 1 with `errorsM` for coarser strides. Add a manifest kind so a piece is never mistaken for a view. Pin each by sha256 in the massif catalog.
-- [ ] **Runtime LOD.** Add a function that picks a tile's stride from its `errorsM`, its distance to the stage rail, the lens and the budget's pixel error, mirroring the baker's rule. Decide whether to precompute strides per slot offline instead; choose by measured load time.
-- [ ] **Assembler.** Fetch the floor and the chosen pieces in parallel. Decode, mirror if flagged, add the stage base, translate tile indices to the slot, choose strides, optionally drop tiles hidden from every rail station, and synthesize a manifest that passes `validateTerrainManifest`. Return the same shape `decodeTerrain` returns.
-- [ ] **Hydrology.** Each piece carries its own flow bytes from the offline bake. Floor tiles carry the lake as water. Authored rivers are absent on composed stages.
-- [ ] **Integration.** A stage view record carries a plan in place of `terrainManifestUrl`. Extend `sceneViewErrors` for it. Composed stages replace the home biome's view only; other chapters keep their catalog views in this phase.
-- [ ] **Fallback.** Any fetch, hash, decode, validation or memory-admission failure selects the catalog view for that song, logs once, and increments a stat.
-- [ ] **Memory.** Admit the assembled stage through the existing ledger. It must fit where a standard view fits. If the stage has no holes, skip `RiseGround` for it and prove that with a coverage check.
-- [ ] **Parity test.** Assembling a Phase 1 layout at runtime reproduces the Phase 1 offline heights at every sample within quantization (0.09 m).
-- [ ] **Measurements.** Download bytes per song, time from plan to prepared view, peak and resident memory, triangle counts per band, all against a standard view on the same machine.
+- [x] **Piece packages.** Reuse the tile encoding of `midio.terrain` so `decodeResiduals` and the tile decoder are shared. Store every tile at stride 1 with `errorsM` for coarser strides. Add a manifest kind so a piece is never mistaken for a view. Pin each by sha256 in the massif catalog.
+- [x] **Runtime LOD.** Add a function that picks a tile's stride from its `errorsM`, its distance to the stage rail, the lens and the budget's pixel error, mirroring the baker's rule. Decide whether to precompute strides per slot offline instead; choose by measured load time.
+- [x] **Assembler.** Fetch the floor and the chosen pieces in parallel. Decode, mirror if flagged, add the stage base, translate tile indices to the slot, choose strides, optionally drop tiles hidden from every rail station, and synthesize a manifest that passes `validateTerrainManifest`. Return the same shape `decodeTerrain` returns.
+- [x] **Hydrology.** Each piece carries its own flow bytes from the offline bake. Floor tiles carry the lake as water. Authored rivers are absent on composed stages.
+- [x] **Integration.** A stage view record carries a plan in place of `terrainManifestUrl`. Extend `sceneViewErrors` for it. Composed stages replace the home biome's view only; other chapters keep their catalog views in this phase.
+- [x] **Fallback.** Any fetch, hash, decode, validation or memory-admission failure selects the catalog view for that song, logs once, and increments a stat.
+- [x] **Memory.** Admit the assembled stage through the existing ledger. It must fit where a standard view fits. If the stage has no holes, skip `RiseGround` for it and prove that with a coverage check.
+- [x] **Parity test.** Assembling a Phase 1 layout at runtime reproduces the Phase 1 offline heights at every sample within quantization (0.09 m).
+- [x] **Measurements.** Download bytes per song, time from plan to prepared view, peak and resident memory, triangle counts per band, all against a standard view on the same machine.
 
 **Gate G3:** With the flag on, captures of the three Phase 1 layouts match their Phase 1 counterparts, the parity test passes, and load time and memory are reported next to a standard view's.
 
@@ -464,3 +464,112 @@ size. The open questions are coverage (about 9% of songs) and label
 repetition (8 principal names). Phase 5 breadth addresses both. Accept the
 numbers as they are, or as a Phase 5 target, or change Section 9 item 1 (the
 label) before Phase 3.
+
+### Phase 3 (2026-11-10)
+
+**Start.** Gates G1 and G2 have no recorded owner verdict. The owner sent RTX
+frames of the Phase 1 stages, merged the Phase 2 PR, and asked for Phase 3.
+They then asked for the result to go live.
+
+**Built.**
+
+- `src/world/alpine/StageAssembly.js`. It assembles a plan tile by tile from
+  the floor function and the decoded piece packages, measures every stride's
+  error, and picks strides per budget with the baker's rail-only rule against
+  the template rail. Every tile is kept. The output is an ordinary
+  `midio.terrain` manifest plus payload, through `validateTerrainManifest` and
+  `decodeTerrain`.
+- `src/world/alpine/TerrainTiles.js`. The baker's tile rules moved here and
+  both sides import them. Rebuilding the published stages was byte-identical
+  before the floor change, and the 32 baker tests pass.
+- `src/world/terrain/StageFloor.js`. The floor is now the exact distance to
+  the lake ellipse, the same function offline and at runtime, and the shared
+  slot placement lives beside it.
+- The template lake covers everything except the eye's shore. This answers the
+  owner's RTX frames, where a pale band of invented land showed between the
+  lake and the massifs. Back slots now need 800 m of relief or more and front
+  slots 300 to 650 m.
+- 41 piece packages in `src/assets/range/v2/massif/` (7.37 MiB), pinned in
+  `massifCatalogData.js` with the template floor, camera rail and material
+  pins.
+- Integration:
+  - `prepareTerrainAssets` assembles composed views and admits them through
+    the residency ledger.
+  - `RangeLibrary.songRangeChoice` assembles early, so a fetch, hash, decode
+    or validation failure keeps the catalog view; failures are counted in
+    `songRangeStats`.
+  - `RangePresentation` resolves composed views by id, and a failed one yields
+    to its catalog view at resolution time.
+  - `rangeState.songRange` reports the state.
+- Diagnostics: `?songRange=force` plans every song with dry-conifer, and
+  `?songRangeLayout=song-range-pilot-a|b|c` runs a Phase 1 layout through the
+  runtime path. Matching review flags exist.
+- The Phase 1 stages were republished on the new floor with front pieces that
+  respect the new range.
+
+**Where the plan and the code disagree.**
+
+1. Strides are chosen at runtime from each tile's measured errors, not from
+   precomputed per-slot tables. The measured cost decided it: about 0.76 s of
+   assembly in Node on this host.
+2. `RiseGround` is kept. Every tile is present, but its level plane also fills
+   rays below the horizon past the grid's far edge, 42 km north of the eye.
+3. Floor tiles carry flow 0 on land; there is no runtime hydrology. Pieces
+   keep their own water.
+4. A memory-admission refusal is retried like any view, as before; only fetch,
+   hash, decode and validation failures fall back.
+5. Forest: individual trees are placed only within 8 km of the rail. Most of
+   the stage lies farther away (front row about 6 to 13 km, back row about
+   20 km), so beyond the nearest slopes forest is material shading only.
+   This is a stage-geometry consequence for Phase 5.
+
+**Parity.** Runtime assembly at stride 1 reproduces each published Phase 1
+stage at every stored sample. The worst difference is 0.050 m over 608,048,
+516,796 and 681,908 samples (A, B, C), against the plan's 0.09 m.
+
+**Measurements.** Node CPU on this host, from `tools/song-range-measure.mjs`;
+not GPU or device figures.
+
+| Per song | Composed range (median of 12) | `teton-jackson-lake` | `sawtooth-redfish-north` |
+| --- | --- | --- | --- |
+| Download | 1.26 MiB | 2.70 MiB | 1.42 MiB |
+| Plan to prepared | 806 ms (764 ms assembly) | 81 ms load | 52 ms load |
+| Resident CPU | 7.35 MiB | 13.87 MiB | 7.32 MiB |
+| Triangles, desktop / mobile | 1.23 M / 465 k | 2.60 M / 1.31 M | 1.37 M / 844 k |
+
+The achieved error is 0.998 px desktop and 1.989 px mobile. Desktop triangles
+by band for one stage are 43 k near, 42 k mid and 966 k far. Assembly runs on
+the main thread during song load, which is the JOYING risk; a worker is the
+follow-up.
+
+**Uniqueness after the relief change.** Layouts remain all distinct (867 of
+867, 942 of 942). The fit-constrained space is 5.9 x 10¹⁰ to 3.6 x 10¹¹; there
+are 7 distinct principals, the most common at 20.5% (synthetic) and 22.9%
+(corpus).
+
+**Tests.**
+
+- New `stageAssembly` (5): pins, parity, completeness and determinism,
+  mirroring, view record.
+- New `songRangeRuntime` (5): flag off, forced assembly through
+  `prepareTerrainAssets`, failure fallback, presentation fallback, pilot
+  layout.
+- Added to `stageCompose`: floor exactness.
+- Added to `riseOverride`: review flags.
+- The focused run passes 41 of 41. ESLint is clean, and the module check
+  reports 462 modules. The full suite was not rerun after the last commit.
+
+**Captures.** SwiftShader (ANGLE Vulkan, headless Chromium 156), fixture song
+`contrast`, 12.5 s, rise held at 1.
+
+| Run | What I saw |
+| --- | --- |
+| `--song-range force`, natural selection | The fixture's CANYON home view was replaced by `song-range-5803f09194a5083b` (`ready`; fallback `la-sal-castle-valley`). Grand Teton is centred with its reflection and Mount Moran enters at the right edge. No pale floor band: every massif rises from the water. Red dusk sky. |
+| Runtime `song-range-pilot-a|b|c` against offline `?rangeView` | The same massifs, silhouettes, positions and reflections in each pair. Mean pixel difference is 43 to 45 out of 255 above the caption, all in sky and lighting: the runtime path stands in for the song's CANYON home with its palette, while the offline view is a CONIFER view. |
+
+**Not run.** RTX 3060 and JOYING. A live check on the deployed site is the
+owner's.
+
+**Gate G3:** parity passes; load time and memory are reported beside a
+standard view. Visual equality is shown for geometry; the sky differs by
+biome as described.
