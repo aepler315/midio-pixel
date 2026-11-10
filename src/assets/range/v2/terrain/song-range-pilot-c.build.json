@@ -19,78 +19,78 @@
   "camera": {
    "eyeStartM": [
     600,
-    2125.1,
+    2154.5,
     19600
    ],
    "eyeEndM": [
     -900,
-    2127.1,
+    2156.6,
     19000
    ],
    "targetStartM": [
     200,
-    3072.1,
+    2950,
     -1500
    ],
    "targetEndM": [
     -600,
-    3172.1,
+    3050,
     -1500
    ],
    "fovYDeg": 32
   }
  },
  "characterScores": {
-  "energy": 0.11,
-  "rawness": 0.163,
-  "grandeur": 0.254,
-  "dominance": 0.647
+  "energy": 0.089,
+  "rawness": 0.077,
+  "grandeur": 0.22,
+  "dominance": 0.513
  },
- "archetype": "defiant",
+ "archetype": "serene",
  "skylineFeatures": [
   {
-   "reliefM": 1095.367431640625,
-   "slopeMPerKm": 37.886905930541616,
-   "peaksPer10Km": 0.5403160251729413,
-   "roughnessM": 82.91524880597922,
-   "dominance": 0.6602524169058034,
-   "summitM": 3584.1376953125,
-   "lengthKm": 296.12299570198405
+   "reliefM": 992.01220703125,
+   "slopeMPerKm": 34.613863598450344,
+   "peaksPer10Km": 0.41685797382779327,
+   "roughnessM": 16.102638348168846,
+   "dominance": 0.549461002214466,
+   "summitM": 3042.01220703125,
+   "lengthKm": 143.9339145873851
   },
   {
-   "reliefM": 1150.8359375,
-   "slopeMPerKm": 35.55501587576423,
-   "peaksPer10Km": 0.6148732213130408,
-   "roughnessM": 61.799602078585494,
-   "dominance": 0.6496245935359487,
-   "summitM": 3593.16748046875,
-   "lengthKm": 260.2162436970754
+   "reliefM": 992.01220703125,
+   "slopeMPerKm": 30.71718745018265,
+   "peaksPer10Km": 0.4164746101010548,
+   "roughnessM": 28.892788410343773,
+   "dominance": 0.5314521610855462,
+   "summitM": 3042.01220703125,
+   "lengthKm": 216.09960803651896
   },
   {
-   "reliefM": 1178.41552734375,
-   "slopeMPerKm": 38.835528186781104,
-   "peaksPer10Km": 0.6622036334455228,
-   "roughnessM": 51.639914949795056,
-   "dominance": 0.6312070755098109,
-   "summitM": 3585.45166015625,
-   "lengthKm": 211.4153304649865
+   "reliefM": 986.37353515625,
+   "slopeMPerKm": 29.335902454939482,
+   "peaksPer10Km": 0.44546159874508984,
+   "roughnessM": 33.117647102292125,
+   "dominance": 0.45834795724751287,
+   "summitM": 3036.37353515625,
+   "lengthKm": 246.9348655639029
   }
  ],
- "manifestSha256": "9761cf84225efd9a1a838ef5b4274df7d99362715bc8dee9137e0621b9ce6890",
- "payloadSha256": "d49b74cbc62cb3e8281570a7d87a39fa02e8fafe83808830e16ecae3d30d2618",
- "payloadBytes": 919025,
+ "manifestSha256": "dccfd15112d51537981486d87e08109ea7a3d9ab73310abb9453123658e96424",
+ "payloadSha256": "8609fc5979abfdd8d589d5ddfddf822f01c1196fb959bd575a83f77e2b4a49ea",
+ "payloadBytes": 879181,
  "stats": {
-  "tiles": 663,
+  "tiles": 678,
   "desktop": {
-   "vertices": 635096,
-   "triangles": 1222998,
-   "meshBytes": 22297128,
+   "vertices": 681908,
+   "triangles": 1312692,
+   "meshBytes": 23935200,
    "surfaceTextureBytes": 26784432
   },
   "mobile": {
-   "vertices": 222816,
-   "triangles": 420750,
-   "meshBytes": 7722792,
+   "vertices": 288288,
+   "triangles": 545028,
+   "meshBytes": 9999792,
    "surfaceTextureBytes": 26784432
   }
  },
@@ -103,8 +103,8 @@
     -15280,
     -14640
    ],
-   "demGroundM": 3476.4,
-   "demPeakWithin200mM": 3476.4
+   "demGroundM": 2905.6,
+   "demPeakWithin200mM": 2905.6
   },
   {
    "name": "Sawtooth Range summit 3220 m",
@@ -114,8 +114,8 @@
     -1920,
     -16800
    ],
-   "demGroundM": 3309,
-   "demPeakWithin200mM": 3309
+   "demGroundM": 2727.3,
+   "demPeakWithin200mM": 2727.3
   },
   {
    "name": "Sawtooth Range summit 3236 m",
@@ -125,8 +125,8 @@
     12600,
     -14240
    ],
-   "demGroundM": 3583.7,
-   "demPeakWithin200mM": 3583.7
+   "demGroundM": 3044,
+   "demPeakWithin200mM": 3044
   },
   {
    "name": "Heyburn Mountain",
@@ -136,8 +136,8 @@
     -12920,
     -3260
    ],
-   "demGroundM": 3153.8,
-   "demPeakWithin200mM": 3153.8
+   "demGroundM": 2941.7,
+   "demPeakWithin200mM": 2941.7
   },
   {
    "name": "Teton Range summit 3367 m",
@@ -147,8 +147,8 @@
     -3940,
     -540
    ],
-   "demGroundM": 3152.9,
-   "demPeakWithin200mM": 3152.9
+   "demGroundM": 3056.6,
+   "demPeakWithin200mM": 3056.6
   },
   {
    "name": "Teton Range summit 3213 m",
@@ -158,19 +158,19 @@
     12740,
     -1760
    ],
-   "demGroundM": 3074.8,
-   "demPeakWithin200mM": 3074.8
+   "demGroundM": 2908.6,
+   "demPeakWithin200mM": 2908.6
   },
   {
-   "name": "Sawtooth Range summit 2789 m",
+   "name": "Teton Range summit 3630 m",
    "lonLat": null,
    "publishedElevationM": null,
    "localM": [
-    -5620,
-    9540
+    -7080,
+    7180
    ],
-   "demGroundM": 3008.6,
-   "demPeakWithin200mM": 3008.6
+   "demGroundM": 2575.7,
+   "demPeakWithin200mM": 2575.7
   },
   {
    "name": "Teton Range summit 3007 m",
@@ -185,8 +185,8 @@
   }
  ],
  "achievedErrorPx": {
-  "desktop": 0.993,
-  "mobile": 1.991
+  "desktop": 0.994,
+  "mobile": 1.99
  },
  "despikedSamples": 0,
  "gentleGroundSmoothingM": null,
@@ -200,7 +200,7 @@
    "pieceId": "teton-jackson-lake:summit-3329",
    "name": "Teton Range summit 3367 m"
   },
-  "stageGridSha256": "6c453e056dcfe14318d905f3aa9100b8cdf8d590c47571e0a4285a7fcd7d7402",
+  "stageGridSha256": "a02fc76b02956e173b5536e5b58f7c162d418384921335bced283936b9d61d50",
   "lakeLevelM": 2050,
   "pieces": [
    {
@@ -221,9 +221,9 @@
      -15280,
      -14640
     ],
-    "floorAtPeakM": 2621,
+    "floorAtPeakM": 2050,
     "peakReliefM": 856,
-    "stagePeakM": 3476,
+    "stagePeakM": 2906,
     "sourceView": "crater-lake-watchman-east",
     "levelM": 1842
    },
@@ -245,9 +245,9 @@
      -1920,
      -16800
     ],
-    "floorAtPeakM": 2632,
+    "floorAtPeakM": 2050,
     "peakReliefM": 677,
-    "stagePeakM": 3309,
+    "stagePeakM": 2727,
     "sourceView": "sawtooth-redfish-north",
     "levelM": 2484
    },
@@ -269,9 +269,9 @@
      12600,
      -14240
     ],
-    "floorAtPeakM": 2590,
+    "floorAtPeakM": 2050,
     "peakReliefM": 994,
-    "stagePeakM": 3584,
+    "stagePeakM": 3044,
     "sourceView": "sawtooth-redfish-north",
     "levelM": 2138
    },
@@ -293,9 +293,9 @@
      -12920,
      -3260
     ],
-    "floorAtPeakM": 2262,
+    "floorAtPeakM": 2050,
     "peakReliefM": 892,
-    "stagePeakM": 3154,
+    "stagePeakM": 2942,
     "sourceView": "sawtooth-redfish-north",
     "levelM": 1554
    },
@@ -317,9 +317,9 @@
      -3940,
      -540
     ],
-    "floorAtPeakM": 2146,
+    "floorAtPeakM": 2050,
     "peakReliefM": 1007,
-    "stagePeakM": 3153,
+    "stagePeakM": 3057,
     "sourceView": "teton-jackson-lake",
     "levelM": 2056
    },
@@ -341,35 +341,35 @@
      12740,
      -1760
     ],
-    "floorAtPeakM": 2216,
+    "floorAtPeakM": 2050,
     "peakReliefM": 859,
-    "stagePeakM": 3075,
+    "stagePeakM": 2909,
     "sourceView": "teton-jackson-lake",
     "levelM": 1944
    },
    {
     "slotId": "F1",
     "row": "front",
-    "pieceId": "sawtooth-redfish-north:summit-2789",
-    "name": "Sawtooth Range summit 2789 m",
+    "pieceId": "teton-jackson-lake:summit-3630",
+    "name": "Teton Range summit 3630 m",
     "mirrored": false,
     "tileOrigin": [
-     11,
-     22
+     10,
+     21
     ],
     "tiles": [
-     4,
-     5
+     6,
+     7
     ],
     "peakLocalM": [
-     -5620,
-     9540
+     -7080,
+     7180
     ],
     "floorAtPeakM": 2050,
-    "peakReliefM": 959,
-    "stagePeakM": 3009,
-    "sourceView": "sawtooth-redfish-north",
-    "levelM": 1554
+    "peakReliefM": 526,
+    "stagePeakM": 2576,
+    "sourceView": "teton-jackson-lake",
+    "levelM": 3090
    },
    {
     "slotId": "F2",

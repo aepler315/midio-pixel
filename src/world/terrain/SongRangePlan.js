@@ -34,10 +34,18 @@ const SALT_PRINCIPAL = 0x5a2;
 const SALT_SLOT = 0x5b0;
 const SALT_MIRROR = 0x5c0;
 
-/** `?songRange=1` (or `on`) turns on composed ranges. Default off. */
+/** `?songRange=1` (or `on`) turns on composed ranges. Default off.
+ *  `?songRange=force` also turns them on, and is diagnostic: see songRangeForced. */
 export function songRangeEnabled(search = globalThis.location?.search || '') {
   const v = new URLSearchParams(search || '').get('songRange');
-  return v === '1' || v === 'on';
+  return v === '1' || v === 'on' || v === 'force';
+}
+
+/** Diagnostic `?songRange=force`: plan every song with the first family that
+ *  has pieces, whatever its home biome, so review captures with any song
+ *  reach a composed range. Never production evidence. */
+export function songRangeForced(search = globalThis.location?.search || '') {
+  return new URLSearchParams(search || '').get('songRange') === 'force';
 }
 
 const fits = (slot, piece) => piece.tiles[0] <= slot.tiles[2] && piece.tiles[1] <= slot.tiles[3]
@@ -70,14 +78,15 @@ function indexOf(catalog) {
  * enough pieces to fill one (the song then keeps its catalog view).
  *   profile  SongProfile or a compact record's { watch }
  *   seed     the song seed
- * Returns { version, family, biome, templateId, baseM, principal: { slotId,
+ *   forced   diagnostic: plan with the first family that has pieces
+ * Returns { version, family, biome, forced?, templateId, baseM, principal: { slotId,
  * pieceId, name }, slots: [{ slotId, pieceId, mirrored }], label }.
  */
-export function planSongRange(profile, seed, { catalog = MASSIF_CATALOG } = {}) {
+export function planSongRange(profile, seed, { catalog = MASSIF_CATALOG, forced = false } = {}) {
   const biome = chooseSongBiomes(profile, seed)[0] ?? null;
-  const family = BIOME_FAMILY[biome] ?? null;
-  if (!family) return null;
   const { byFamily, templates } = indexOf(catalog);
+  const family = forced ? ([...byFamily.keys()].sort()[0] ?? null) : BIOME_FAMILY[biome] ?? null;
+  if (!family) return null;
   const pieces = byFamily.get(family) || [];
   const usable = templates.filter((t) => t.families.includes(family));
   if (!usable.length || !pieces.length) return null;
@@ -106,11 +115,32 @@ export function planSongRange(profile, seed, { catalog = MASSIF_CATALOG } = {}) 
   const slots = template.slots.map((slot, n) => ({ slotId: slot.id, pieceId: chosen.get(slot.id).id,
     mirrored: seedTicket(seed, SALT_MIRROR + n) < 0.5 }));
   return Object.freeze({
-    version: SONG_RANGE_VERSION, family, biome, templateId: template.id, baseM: template.lakeLevelM,
+    version: SONG_RANGE_VERSION, family, biome, ...(forced ? { forced: true } : {}), templateId: template.id, baseM: template.lakeLevelM,
     principal: Object.freeze({ slotId: principalSlot.id, pieceId: principal.id, name: principal.name }),
     slots: Object.freeze(slots.map(Object.freeze)),
     label: `World: ${principal.name} range`,
   });
+}
+
+/** Diagnostic `?songRangeLayout=<pilot id>`: a Phase 1 layout run through
+ *  the runtime path, to compare with its offline stage. Null when absent. */
+export function songRangeLayoutParam(search = globalThis.location?.search || '') {
+  return new URLSearchParams(search || '').get('songRangeLayout') || null;
+}
+
+/** The plan for a catalog pilot layout, standing in for `biome`. */
+export function pilotPlan(id, biome, { catalog = MASSIF_CATALOG } = {}) {
+  const pilot = (catalog.pilots || []).find((p) => p.id === id);
+  if (!pilot) return null;
+  const template = catalog.templates.find((t) => t.id === pilot.templateId);
+  const principalSlot = template?.principalSlot;
+  const principalId = pilot.slots.find((s) => s.slotId === principalSlot)?.pieceId;
+  const principal = catalog.pieces.find((p) => p.id === principalId);
+  if (!template || !principal) return null;
+  return Object.freeze({ version: SONG_RANGE_VERSION, family: principal.family, biome, forced: true, pilot: id,
+    templateId: template.id, baseM: template.lakeLevelM,
+    principal: Object.freeze({ slotId: principalSlot, pieceId: principal.id, name: principal.name }),
+    slots: Object.freeze(pilot.slots.map((s) => Object.freeze({ ...s }))), label: `World: ${principal.name} range` });
 }
 
 /** A layout's identity: two songs with equal keys stand in the same range. */

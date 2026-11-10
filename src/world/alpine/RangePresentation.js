@@ -326,6 +326,11 @@ export class RangePresentation {
     this.incomingFade = 1;
     this._handoff = null;
     this._waitedFor = null;
+    // Generation-local failures go before the rail plan resolves choices:
+    // a replay retries a composed range that failed last time.
+    this.failures.clear();
+    this.deferred.clear();
+    this.assetFailures.clear();
     this.sceneByBiome = terrain?.sceneByBiome || null;
     const restored = cameraSchedule ? sceneRailPlanFromSnapshot(cameraSchedule) : null;
     this.railPlan = restored && !Number.isFinite(cameraRefineThroughMs) ? restored : mgr ? compileSceneRailPlan({
@@ -334,9 +339,6 @@ export class RangePresentation {
       requestedMultiplier, previous: restored, committedThroughMs: cameraRefineThroughMs ?? -1,
     }) : restored;
     this._sideFrames = null;
-    this.failures.clear();
-    this.deferred.clear();
-    this.assetFailures.clear();
     this._preparing.clear();
     this._budgetRefusalAt.clear();
     this._needed.clear();
@@ -411,7 +413,16 @@ export class RangePresentation {
 
   _choiceFor(biome) {
     if (this.forced) return this.forced;
-    return this.sceneByBiome?.get?.(biome) || null;
+    const choice = this.sceneByBiome?.get?.(biome) || null;
+    // A composed song range that failed to prepare yields to the catalog
+    // view it replaced (RangeLibrary.songRangeChoice).
+    return choice?.songRange && this.failures.has(choice.view.id) ? choice.fallback || null : choice;
+  }
+
+  /** The song's composed-range choice that owns a view id, if any. */
+  _songRangeChoice(viewId) {
+    for (const c of this.sceneByBiome?.values?.() || []) if (c?.songRange && c.view?.id === viewId) return c;
+    return null;
   }
 
   /** The view a biome's caption should name, when v2 will draw it. */
@@ -627,8 +638,12 @@ export class RangePresentation {
   }
 
   _viewForOccurrence(occurrence) {
-    return this.forced?.view?.id === occurrence?.viewId ? this.forced.view
-      : this.catalog.views.find(view => view.id === occurrence?.viewId) || null;
+    if (this.forced?.view?.id === occurrence?.viewId) return this.forced.view;
+    // Composed ranges are not catalog views. A failed one hands its rail
+    // progress to the catalog view it replaced, which keeps its own rail.
+    const ranged = this._songRangeChoice(occurrence?.viewId);
+    if (ranged) return this.failures.has(ranged.view.id) ? ranged.fallback?.view || null : ranged.view;
+    return this.catalog.views.find(view => view.id === occurrence?.viewId) || null;
   }
 
   _railState(side, frame) {
@@ -1886,7 +1901,20 @@ export class RangePresentation {
       narrative: this.frame?.narrative || null,
       timings: { ...this.timings }, catalogVersion: this.catalog.catalogVersion,
       crest: { ...this.crest.diagnostics, enabled: this.crestEnabled, probe: this.scene?.crestProbeMode ?? null },
+      songRange: this._songRangeSnapshot(),
     };
+  }
+
+  /** The song's composed range, if any: its view, plan key and state. */
+  _songRangeSnapshot() {
+    for (const c of this.sceneByBiome?.values?.() || []) {
+      if (!c?.songRange) continue;
+      const id = c.view.id, failed = this.failures.has(id);
+      return { viewId: id, key: c.view.songRange?.key ?? null, forced: !!c.forced, biome: c.view.biome,
+        state: failed ? 'fallback' : this.scene?.isReady?.(id) ? 'ready' : 'preparing',
+        fallbackViewId: c.fallback?.view?.id ?? null, failure: failed ? this.failures.get(id) : null };
+    }
+    return null;
   }
 
   dispose() {

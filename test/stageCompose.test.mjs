@@ -87,3 +87,23 @@ test('composition is deterministic and refuses misfits', () => {
   assert.throws(() => composeStage(small, [{ slotId: 'B', piece: cone([1, 1], 500) }, { slotId: 'B', piece: cone([1, 1], 500) }]), /used twice/);
   assert.equal(placeInSlot({ tiles: [0, 0, 2, 2] }, [3, 1]), null);
 });
+
+test('the shared floor uses the exact distance to the lake, so land rises at exactly the template slope', async () => {
+  const { distanceToLake, stageFloorHeight, inStageLake } = await import('../src/world/terrain/StageFloor.js');
+  const lake = { centerM: [100, -200], radiiM: [3000, 1200] };
+  // Brute force against a densely sampled ellipse outline.
+  const outline = Array.from({ length: 20000 }, (_, k) => { const a = (k / 20000) * 2 * Math.PI; return [100 + 3000 * Math.cos(a), -200 + 1200 * Math.sin(a)]; });
+  for (const [x, z] of [[5000, 300], [-4000, -1900], [100, 2500], [3150, -200], [-2500, 900]]) {
+    const brute = Math.min(...outline.map(([ox, oz]) => Math.hypot(x - ox, z - oz)));
+    assert.ok(Math.abs(distanceToLake(lake, x, z) - brute) < 0.5, `(${x}, ${z}) ${distanceToLake(lake, x, z)} vs ${brute}`);
+  }
+  assert.equal(distanceToLake(lake, 100, -200), 0);
+  assert.equal(inStageLake(lake, 100, -200), true);
+  const t = { lake: { ...lake, levelM: 2000 }, floor: { shoreRiseM: 1.5, slope: 0.03 } };
+  for (const [x, z] of [[5000, 300], [-4000, -1900], [100, 2500]]) {
+    const e = 1;
+    const gx = (stageFloorHeight(t, x + e, z) - stageFloorHeight(t, x - e, z)) / (2 * e);
+    const gz = (stageFloorHeight(t, x, z + e) - stageFloorHeight(t, x, z - e)) / (2 * e);
+    assert.ok(Math.abs(Math.hypot(gx, gz) - 0.03) < 1e-4, `gradient ${Math.hypot(gx, gz)}`);
+  }
+});

@@ -5,6 +5,8 @@
 // any buffer is interpreted.
 import { validateTerrainManifest } from './TerrainPackage.js';
 import { decodeTerrain } from './TerrainMesh.js';
+import { loadSongRangeStage } from './StageAssembly.js';
+import MASSIF_CATALOG from '../terrain/massifCatalogData.js';
 
 export class RangeAssetError extends Error {
   constructor(reason, message) {
@@ -169,6 +171,7 @@ export async function prepareTerrainAssets(view, {
     }
     return retainTerrain(live, residency, owner);
   }
+  if (view.songRange) return prepareSongRangeTerrain(view, { baseUrl, residency, generation, signal, fetchImpl, owner, key, stale });
   const manifestUrl = new URL(view.terrainManifestUrl, baseUrl).href;
   const manifestBytes = await fetchBytes(manifestUrl, { signal, fetchImpl });
   if (stale()) throw new RangeAssetError('stale', `stale generation ${generation} for ${view.id}`);
@@ -217,4 +220,35 @@ export async function prepareTerrainAssets(view, {
     if (reservation) residency.releaseReservation(reservation);
     throw err instanceof RangeAssetError ? err : new RangeAssetError('decode', err?.message || String(err));
   }
+}
+
+/** A composed song range (StageAssembly.js): fetch and verify its pinned
+ *  pieces, assemble, then admit and commit the result exactly as a package.
+ *  Assembly runs before admission, so its transient arrays are not charged;
+ *  the resident terrain is (terrainCpuBytes). */
+async function prepareSongRangeTerrain(view, { baseUrl, residency, generation, signal, fetchImpl, owner, key, stale }) {
+  let pkg;
+  try {
+    pkg = await loadSongRangeStage(view, { catalog: MASSIF_CATALOG, baseUrl, fetchImpl, signal, loadPackage: loadTerrainPackage, sha256Hex });
+  } catch (err) {
+    throw err instanceof RangeAssetError ? err : new RangeAssetError('decode', `song range ${view.id}: ${err?.message || err}`);
+  }
+  if (stale()) throw new RangeAssetError('stale', `stale generation ${generation} for ${view.id}`);
+  const live = residency?.get(key);
+  if (live) return retainTerrain(live, residency, owner);
+  let reservation = null;
+  if (residency) {
+    try {
+      reservation = residency.reserve({ key, bytes: terrainCpuBytes(pkg.manifest), owner: 'range-terrain-cpu', generation: owner ? 0 : generation });
+    } catch (err) {
+      throw new RangeAssetError('busy', `${view.id} terrain is already being prepared: ${err?.message || err}`);
+    }
+    if (!reservation) throw new RangeAssetError('budget', `no room for ${view.id} terrain`);
+  }
+  const prepared = { viewId: view.id, manifestSha256: null, generation, key, reservation, ...pkg };
+  if (reservation && !residency.commit(reservation, prepared, retireTerrain)) {
+    residency.releaseReservation(reservation);
+    throw new RangeAssetError('stale', `generation ${generation} cancelled during ${view.id}`);
+  }
+  return retainTerrain(prepared, residency, owner);
 }

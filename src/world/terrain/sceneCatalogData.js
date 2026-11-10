@@ -7276,38 +7276,38 @@ export default {
    "place": "Composed stage: Teton Range, Sawtooth Range, Crater Lake rim",
    "credit": "Elevation: USGS 3DEP 1/3 arc-second DEM; composed stage of measured massifs from Sawtooth Range, Idaho; Teton Range, Wyoming; Crater Lake rim, Oregon",
    "terrainManifestUrl": "terrain/song-range-pilot-a.terrain.json",
-   "terrainManifestSha256": "b322f7e7788f01fe1695cc23d5812f412b83d75a3c2f93560828b1bd3c0ac35d",
+   "terrainManifestSha256": "20d9443421ed62579e0abfb6571e64163bd4759befbf4cdef31410278dcf2099",
    "materialManifestUrl": "materials/dry-conifer.json",
    "materialManifestSha256": "6afff55ebe7762475b09f09fa8f60627714d051f9f117ffffd8e124894281175",
    "materialRules": {},
    "camera": {
     "eyeStartM": [
      600,
-     2125.1,
+     2154.5,
      19600
     ],
     "eyeEndM": [
      -900,
-     2127.1,
+     2156.6,
      19000
     ],
     "targetStartM": [
      200,
-     3072.1,
+     2950,
      -1500
     ],
     "targetEndM": [
      -600,
-     3172.1,
+     3050,
      -1500
     ],
     "fovYDeg": 32
    },
    "characterScores": {
-    "energy": 0.125,
-    "rawness": 0.133,
-    "grandeur": 0.337,
-    "dominance": 0.646
+    "energy": 0.134,
+    "rawness": 0.109,
+    "grandeur": 0.357,
+    "dominance": 0.661
    },
    "archetype": "brooding",
    "evidence": {
@@ -7325,7 +7325,7 @@ export default {
      "58ce26c612b21ba5d7a01aa0e64d4df7c3ace7531c57dfb19e0e56847f0de6f2",
      "d2fde309093186ed72e1ad741277a31eef5ace3678be551fc23f7de09241e794",
      "34bbf1ab95137d45af81bba804cfbd942ea7f9d353d7e0b31ea7ee72c33f14f5",
-     "17a02ef7f1ef39c335932f04eb7aa78f198541fcb23ec401ccc9ae74675ccaa3"
+     "6165fab078a3e1c72e1fa13e80e4249afa0d219e805a0263cbfb81be90a72a3c"
     ]
    }
   },
@@ -7339,40 +7339,40 @@ export default {
    "place": "Composed stage: Teton Range, Sawtooth Range, Crater Lake rim, Sneffels Range",
    "credit": "Elevation: USGS 3DEP 1/3 arc-second DEM; composed stage of measured massifs from Sawtooth Range, Idaho; Crater Lake rim, Oregon; Teton Range, Wyoming; Sneffels Range, Colorado",
    "terrainManifestUrl": "terrain/song-range-pilot-b.terrain.json",
-   "terrainManifestSha256": "902db248eb0c4e66a6ab4dd98169530da7f4a4661dc9fc07de5f702cfc7e8fa4",
+   "terrainManifestSha256": "027860017b5f8b3a03c1091caa159391e1f20e52828a0b211980bce0c5a3f43c",
    "materialManifestUrl": "materials/dry-conifer.json",
    "materialManifestSha256": "6afff55ebe7762475b09f09fa8f60627714d051f9f117ffffd8e124894281175",
    "materialRules": {},
    "camera": {
     "eyeStartM": [
      600,
-     2125.1,
+     2154.5,
      19600
     ],
     "eyeEndM": [
      -900,
-     2127.1,
+     2156.6,
      19000
     ],
     "targetStartM": [
      200,
-     3072.1,
+     2950,
      -1500
     ],
     "targetEndM": [
      -600,
-     3172.1,
+     3050,
      -1500
     ],
     "fovYDeg": 32
    },
    "characterScores": {
-    "energy": 0.132,
-    "rawness": 0.128,
-    "grandeur": 0.313,
-    "dominance": 0.655
+    "energy": 0.104,
+    "rawness": 0.087,
+    "grandeur": 0.339,
+    "dominance": 0.798
    },
-   "archetype": "brooding",
+   "archetype": "defiant",
    "evidence": {
     "reviewPath": "docs/range-v2-progress.md",
     "review": null,
@@ -7390,7 +7390,7 @@ export default {
      "a19a985ea1d6370572bfaac2b7850bd90b49f28e9d10e3ad37c5ac17d4880e8f",
      "6bd83b5e2b968341b2b0bd564493e276b13806a8ff883ebf13fba9e6f46713f2",
      "05261301a68146caf7a15accec65300a68b7aa1cedd757e8d7ffa9e7eaf63b49",
-     "e47a4319fa027edad554f42bea9b18cf8c5a78fe606e01298711d045f2b35378"
+     "b7664e3639ebecc319ad41a9af9f8740d99094314894fea8f16c36a1679a44d6"
     ]
    }
   },
@@ -7404,40 +7404,40 @@ export default {
    "place": "Composed stage: Teton Range, Sawtooth Range, Crater Lake rim",
    "credit": "Elevation: USGS 3DEP 1/3 arc-second DEM; composed stage of measured massifs from Crater Lake rim, Oregon; Sawtooth Range, Idaho; Teton Range, Wyoming",
    "terrainManifestUrl": "terrain/song-range-pilot-c.terrain.json",
-   "terrainManifestSha256": "9761cf84225efd9a1a838ef5b4274df7d99362715bc8dee9137e0621b9ce6890",
+   "terrainManifestSha256": "dccfd15112d51537981486d87e08109ea7a3d9ab73310abb9453123658e96424",
    "materialManifestUrl": "materials/dry-conifer.json",
    "materialManifestSha256": "6afff55ebe7762475b09f09fa8f60627714d051f9f117ffffd8e124894281175",
    "materialRules": {},
    "camera": {
     "eyeStartM": [
      600,
-     2125.1,
+     2154.5,
      19600
     ],
     "eyeEndM": [
      -900,
-     2127.1,
+     2156.6,
      19000
     ],
     "targetStartM": [
      200,
-     3072.1,
+     2950,
      -1500
     ],
     "targetEndM": [
      -600,
-     3172.1,
+     3050,
      -1500
     ],
     "fovYDeg": 32
    },
    "characterScores": {
-    "energy": 0.11,
-    "rawness": 0.163,
-    "grandeur": 0.254,
-    "dominance": 0.647
+    "energy": 0.089,
+    "rawness": 0.077,
+    "grandeur": 0.22,
+    "dominance": 0.513
    },
-   "archetype": "defiant",
+   "archetype": "serene",
    "evidence": {
     "reviewPath": "docs/range-v2-progress.md",
     "review": null,
@@ -7453,7 +7453,7 @@ export default {
      "5ee9631802371f315a3f542c2afe982d5090102e7b313fa1162d84a0def5ef80",
      "09930a44096be83c6023c6d853c12d1571f428878691e4bfba81cdd17d9077b9",
      "a19a985ea1d6370572bfaac2b7850bd90b49f28e9d10e3ad37c5ac17d4880e8f",
-     "d49b74cbc62cb3e8281570a7d87a39fa02e8fafe83808830e16ecae3d30d2618"
+     "8609fc5979abfdd8d589d5ddfddf822f01c1196fb959bd575a83f77e2b4a49ea"
     ]
    }
   }

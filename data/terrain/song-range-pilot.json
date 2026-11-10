@@ -1,7 +1,7 @@
 {
   "schema": "midio.song-range-pilot",
   "version": 1,
-  "notes": "Phase 1 of docs/superpowers/plans/2026-11-10-song-range-composition.md: three fixed dry-conifer layouts on one stage, baked with the production baker and published as diagnostic-only candidates. Piece ids are <source view>:<landmark slug | summit-<seed height m>>; run node tools/build-song-range-pilot.mjs --list for the library. Slot sizes in lake-amphitheatre-a: horizon 11x10 tiles, back 9x10, front 7x7.",
+  "notes": "Phase 1 of docs/superpowers/plans/2026-11-10-song-range-composition.md: three fixed dry-conifer layouts on one stage, baked with the production baker and published as diagnostic-only candidates. Piece ids are <source view>:<landmark slug | summit-<seed height m>>; run node tools/build-song-range-pilot.mjs --list for the library. Slot sizes in lake-amphitheatre-a: horizon 11x10 tiles and 400 m relief or more, back 9x10 and 800 m or more, front 7x7 and 300 to 650 m (the planner's rules, followed here by hand).",
   "template": "lake-amphitheatre-a",
   "sources": ["teton-jackson-lake", "sawtooth-redfish-north", "san-juan-sneffels-north", "crater-lake-watchman-east"],
   "sourceLabels": {
@@ -25,7 +25,7 @@
         "B1": { "piece": "sawtooth-redfish-north:summit-3122" },
         "B2": { "piece": "teton-jackson-lake:grand-teton" },
         "B3": { "piece": "sawtooth-redfish-north:heyburn-mountain", "mirrored": true },
-        "F1": { "piece": "teton-jackson-lake:summit-3390" },
+        "F1": { "piece": "crater-lake-watchman-east:summit-2343" },
         "F2": { "piece": "crater-lake-watchman-east:summit-2214", "mirrored": true }
       }
     },
@@ -42,7 +42,7 @@
         "B2": { "piece": "teton-jackson-lake:mount-moran" },
         "B3": { "piece": "teton-jackson-lake:summit-3329", "mirrored": true },
         "F1": { "piece": "teton-jackson-lake:summit-3086" },
-        "F2": { "piece": "san-juan-sneffels-north:summit-4203" }
+        "F2": { "piece": "san-juan-sneffels-north:summit-3086" }
       }
     },
     {
@@ -57,7 +57,7 @@
         "B1": { "piece": "sawtooth-redfish-north:heyburn-mountain" },
         "B2": { "piece": "teton-jackson-lake:summit-3329" },
         "B3": { "piece": "teton-jackson-lake:summit-3266", "mirrored": true },
-        "F1": { "piece": "sawtooth-redfish-north:summit-2789" },
+        "F1": { "piece": "teton-jackson-lake:summit-3630" },
         "F2": { "piece": "teton-jackson-lake:summit-3026" }
       }
     }

@@ -356,9 +356,32 @@ What limits the result is breadth, not collisions:
    labels do not. Section 9, item 1 (list every massif, or generate a range
    name) is the owner's call.
 
+## Phase 3 as built
+
+A composed view carries `songRange` (the plan and its piece pins) in place of
+`terrainManifestUrl`. `sceneViewErrors` accepts it through the leaf module
+`SongRangeView.js`. Its terrain is assembled by `StageAssembly.js` from the
+template floor (`StageFloor.js`, exact distance to the lake) and the pinned
+piece packages. The output is a normal `midio.terrain` manifest and payload,
+so `RangeScene.prepare` is unchanged.
+
+LOD uses the baker's rules from the shared `TerrainTiles.js`, applied at
+runtime against the template rail: rail-only, no occlusion, every tile kept.
+With `?songRange=1`, `RangeLibrary.prepareSongTerrain` assembles the song's
+stage before playback picks views. A failure keeps the catalog view, and a
+later failure yields to it inside `RangePresentation`.
+
+Parity with the offline Phase 1 bake is 0.05 m. The runtime cost per song is
+1.26 MiB downloaded, 7.35 MiB resident, 1.23 M desktop triangles and about
+0.8 s of CPU assembly (median, Node, this host). The plan's execution record
+has the details.
+
+D14 tightened after the owner's RTX frames: the lake reaches under every slot,
+and only a shore strip at the eye is land.
+
 ## Known limits of this session
 
 - Captures were not taken on the RTX 3060 or the JOYING head unit. SwiftShader
   links shaders but its images and timings are not production evidence.
-- Gate G1 is an owner gate and needs production captures. It has no recorded
-  owner verdict; Phase 2 started at the owner's instruction to continue.
+- Gates G1 and G2 have no recorded owner verdict. Phases 2 and 3 started at
+  the owner's instruction, and the owner asked for Phase 3 to go live.

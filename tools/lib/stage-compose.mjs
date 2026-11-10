@@ -12,6 +12,7 @@
 import { createHash } from 'node:crypto';
 import { cameraRailErrors } from '../../src/world/terrain/SceneTravel.js';
 import { TILE_CELLS, mirrorX } from './massif-cut.mjs';
+import { inStageLake, stageFloorHeight, slotOrigin } from '../../src/world/terrain/StageFloor.js';
 
 /** Problems with a stage template (empty = ok). */
 export function templateErrors(t) {
@@ -46,58 +47,29 @@ export function templateErrors(t) {
 }
 
 export function inLake(t, x, z) {
-  const [cx, cz] = t.lake.centerM, [rx, rz] = t.lake.radiiM;
-  return ((x - cx) / rx) ** 2 + ((z - cz) / rz) ** 2 <= 1;
+  return inStageLake(t.lake, x, z);
 }
 
 /**
- * The stage floor: lake cells at the lake level; land at
- * level + shoreRise + slope * (distance to the lake). Distance is a two-pass
- * chamfer transform with weights 1 and sqrt(2) cells. Returns
- * { heightsM: Float32Array, lake: Uint8Array }.
+ * The stage floor sampled on the template grid (StageFloor.js): lake cells at
+ * the lake level; land at level + shoreRise + slope * (exact distance to the
+ * lake). Returns { heightsM: Float32Array, lake: Uint8Array }.
  */
 export function stageFloor(t) {
   const { width: W, height: H, cellSizeM: c, originM } = t.grid;
   const lake = new Uint8Array(W * H);
-  const dist = new Float64Array(W * H);
-  for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
-    const k = j * W + i;
-    lake[k] = inLake(t, originM[0] + i * c, originM[1] + j * c) ? 1 : 0;
-    dist[k] = lake[k] ? 0 : Infinity;
-  }
-  const D = Math.SQRT2;
-  for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
-    const k = j * W + i;
-    if (!dist[k]) continue;
-    let d = dist[k];
-    if (i > 0) d = Math.min(d, dist[k - 1] + 1);
-    if (j > 0) { d = Math.min(d, dist[k - W] + 1); if (i > 0) d = Math.min(d, dist[k - W - 1] + D); if (i < W - 1) d = Math.min(d, dist[k - W + 1] + D); }
-    dist[k] = d;
-  }
-  for (let j = H - 1; j >= 0; j--) for (let i = W - 1; i >= 0; i--) {
-    const k = j * W + i;
-    if (!dist[k]) continue;
-    let d = dist[k];
-    if (i < W - 1) d = Math.min(d, dist[k + 1] + 1);
-    if (j < H - 1) { d = Math.min(d, dist[k + W] + 1); if (i < W - 1) d = Math.min(d, dist[k + W + 1] + D); if (i > 0) d = Math.min(d, dist[k + W - 1] + D); }
-    dist[k] = d;
-  }
   const heightsM = new Float32Array(W * H);
-  const { levelM } = t.lake, { shoreRiseM, slope } = t.floor;
-  for (let k = 0; k < W * H; k++) heightsM[k] = lake[k] ? levelM : levelM + shoreRiseM + slope * dist[k] * c;
+  for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+    const k = j * W + i, x = originM[0] + i * c, z = originM[1] + j * c;
+    lake[k] = inStageLake(t.lake, x, z) ? 1 : 0;
+    heightsM[k] = stageFloorHeight(t, x, z);
+  }
   return { heightsM, lake };
 }
 
-function sampleFloor(t, floor, [x, z]) {
-  const { width: W, height: H, cellSizeM: c, originM } = t.grid;
-  const i = Math.max(0, Math.min(W - 1, Math.round((x - originM[0]) / c)));
-  const j = Math.max(0, Math.min(H - 1, Math.round((z - originM[1]) / c)));
-  return floor.heightsM[j * W + i];
-}
-
 /** The template's camera rail in local metres, heights above the floor. */
-export function stageCamera(t, floor) {
-  const at = (p) => [p.xzM[0], Math.round((sampleFloor(t, floor, p.xzM) + p.aboveFloorM) * 10) / 10, p.xzM[1]];
+export function stageCamera(t) {
+  const at = (p) => [p.xzM[0], Math.round((stageFloorHeight(t, p.xzM[0], p.xzM[1]) + p.aboveFloorM) * 10) / 10, p.xzM[1]];
   const cam = t.camera;
   const camera = { eyeStartM: at(cam.eyeStart), eyeEndM: at(cam.eyeEnd), targetStartM: at(cam.targetStart),
     targetEndM: at(cam.targetEnd), fovYDeg: cam.fovYDeg };
@@ -107,12 +79,8 @@ export function stageCamera(t, floor) {
 }
 
 /** Tile offset that centres a piece of [w, d] tiles in a slot, or null if
- *  it does not fit. */
-export function placeInSlot(slot, [w, d]) {
-  const [ix, iz, sw, sd] = slot.tiles;
-  if (w > sw || d > sd) return null;
-  return [ix + Math.floor((sw - w) / 2), iz + Math.floor((sd - d) / 2)];
-}
+ *  it does not fit (StageFloor.js slotOrigin, shared with the runtime). */
+export const placeInSlot = slotOrigin;
 
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
 
