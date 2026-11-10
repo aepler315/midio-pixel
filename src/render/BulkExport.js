@@ -375,26 +375,27 @@ export function parseBulkArgs(argv) {
       i = got.next;
       continue;
     }
-    const displayKey = ['look', 'quality', 'palette', 'dither', 'dither-mode', 'pixel-grid', 'scaling'].find(key => token === `--${key}` || token.startsWith(`--${key}=`));
+    const displayKey = ['look', 'quality', 'pixel-grid', 'scaling'].find(key => token === `--${key}` || token.startsWith(`--${key}=`));
     if (displayKey) {
       const got = takeOption(args, i, `--${displayKey}`);
-      const choices = { look: ['pixel', 'palette', 'cinematic'], quality: ['auto', 'economy'], palette: ['world', 'range32', 'chroma32', 'rgb332'], dither: ['off', 'subtle', 'full'], 'dither-mode': ['ordered', 'selective'], 'pixel-grid': ['classic', 'classicPlus', 'medium', 'mediumPlus', 'detailed'], scaling: ['fit', 'integer'] };
+      const choices = { look: ['cinematic'], quality: ['auto', 'economy'], 'pixel-grid': ['classic', 'classicPlus', 'medium', 'mediumPlus', 'detailed'], scaling: ['fit', 'integer'] };
       if (!choices[displayKey].includes(got.value)) throw new Error(`--${displayKey} must be ${choices[displayKey].join(', ')}`);
       opts.presentation ??= { ...DEFAULT_DISPLAY_PREFS, buildPixelDetail: false };
-      const key = { 'dither-mode': 'ditherMode', 'pixel-grid': 'pixelGrid' }[displayKey] || displayKey;
-      opts.presentation[key] = displayKey === 'dither' ? { off: 0, subtle: .35, full: 1 }[got.value] : got.value;
+      const key = { 'pixel-grid': 'pixelGrid' }[displayKey] || displayKey;
+      opts.presentation[key] = got.value;
       if (key === 'pixelGrid') gridChosen = true;
       i = got.next;
       continue;
     }
+    if (/^--(palette|dither|dither-mode)(=|$)/.test(token)) throw new Error(`${token.split('=')[0]} was removed with the Palette look; Cinematic is the only look.`);
     if (token.startsWith('--')) throw new Error(`Unknown option ${token}.`);
     opts.inputs.push(token);
     i++;
   }
   if (!opts.resolutions) opts.resolutions = parseResolutions('all');
   if (!opts.frameRates) opts.frameRates = parseFrameRates('all');
-  // Without --pixel-grid the look runs at its own detail level.
-  if (opts.presentation && !gridChosen) opts.presentation.pixelGrid = defaultGridFor(opts.presentation.look);
+  // Without --pixel-grid Cinematic runs at its own detail level.
+  if (opts.presentation && !gridChosen) opts.presentation.pixelGrid = defaultGridFor();
   return opts;
 }
 
@@ -422,12 +423,9 @@ Options
   --url <origin>        App origin (default: http://127.0.0.1:8080)
   --lyrics              Look up timed lyrics. Off by default, so a batch
                         does not wait on the network.
-  --look <mode>        pixel, cinematic or palette (default: remembered look)
+  --look <mode>        cinematic (the only look; kept for older scripts)
   --quality <mode>     auto or economy
-  --palette <name>     world, range32, chroma32, or rgb332
-  --dither <amount>    off, subtle, or full
-  --dither-mode <mode> selective or ordered (RGB332 always uses ordered)
-  --pixel-grid <grid>  classic (320×180), classicPlus (400×225, 1.56× the pixel work), medium (480×270, 2.25× the pixel work), mediumPlus (560×315, 3.06×) or detailed (640×360, four times); default classic, or detailed with --look cinematic
+  --pixel-grid <grid>  classic (320×180), classicPlus (400×225, 1.56× the pixel work), medium (480×270, 2.25× the pixel work), mediumPlus (560×315, 3.06×) or detailed (640×360, four times); default detailed
   --scaling <mode>     fit or integer
   --help
 

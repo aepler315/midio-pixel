@@ -31,14 +31,7 @@
 // pixel, every frame — the kind of work this mode otherwise exists to
 // remove. The chunky pixels carry the look on their own.
 //
-// '8bit-intensive' is that pass, offered as its own entry rather than
-// folded into the cheap one. It keeps every saving plain 8-bit makes (same
-// 320×180 buffer, same pinned governor, same nearest-neighbour) and adds
-// the 256-color R3G3B2 palette on top — see PaletteQuantize.js. Two entries
-// rather than one because they answer different questions: "my device
-// cannot hold frame rate" and "I want it to look like a console". Someone
-// on a genuinely weak machine should not have to buy the second to get the
-// first, which is exactly what a single merged mode would force.
+// (The '8bit-intensive' palette variant was removed with the Palette look.)
 
 /** Automatic mode follows the visible stage and measured frame pressure.
  *  Its table dimensions are a safe pre-layout fallback; autoStageSize()
@@ -48,16 +41,11 @@ export const AUTO_PRESET = 'auto';
 /** Preset key for 8-bit mode. A string, unlike the numeric presets. */
 export const RETRO_PRESET = '8bit';
 
-/** Preset key for 8-bit intensive: everything RETRO_PRESET does, plus the
- *  per-frame palette quantization. */
-export const PALETTE_PRESET = '8bit-intensive';
-
 export const DEFAULT_STAGE_PRESET = AUTO_PRESET;
 
 export const STAGE_PRESETS = {
   [AUTO_PRESET]: { w: 1920, h: 1080, auto: true },
   [RETRO_PRESET]: { w: 320, h: 180, retro: true },
-  [PALETTE_PRESET]: { w: 320, h: 180, retro: true, palette: true },
   144: { w: 256, h: 144 },
   240: { w: 426, h: 240 },
   360: { w: 640, h: 360 },
@@ -95,17 +83,10 @@ export function isAutoPreset(preset) {
   return !!STAGE_PRESETS[preset]?.auto;
 }
 
-/** Whether this preset is one of the 8-bit modes, i.e. whether the rest of
- *  the pipeline (governor floor, nearest-neighbour filtering) should engage.
- *  True for both the plain and the intensive variant. */
+/** Whether this preset is the 8-bit mode, i.e. whether the rest of the
+ *  pipeline (governor floor, nearest-neighbour filtering) should engage. */
 export function isRetroPreset(preset) {
   return !!STAGE_PRESETS[preset]?.retro;
-}
-
-/** Whether this preset additionally wants the per-frame palette pass. Only
- *  the intensive variant does; see PaletteQuantize.js for what it costs. */
-export function isPalettePreset(preset) {
-  return !!STAGE_PRESETS[preset]?.palette;
 }
 
 // A phone panel's device pixel ratio (commonly 3) is a print-density number,

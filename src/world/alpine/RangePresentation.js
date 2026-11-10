@@ -207,7 +207,7 @@ export class RangePresentation {
     this._sceneFactory = sceneFactory;
     this._makeCanvas = makeCanvas;
     this.exportMode = false;
-    // Set by the presenting renderer each frame: a Pixel/Palette look.
+    // Set by the presenting renderer each frame: a pixel-grid look.
     this.pixelated = false;
     this.pixelPolicy = null;
     // Travel: the composition buffer and the incoming side's own fade-in
@@ -224,7 +224,6 @@ export class RangePresentation {
     // renderer each frame: enabled only for the separate pixel composite.
     this.crestEnabled = false;
     this._crestScan = false;
-    this.crestPalette = null;
     this.crest = new RangeCrest({ makeCanvas, residency });
     this.scene = null;
     this.runtimeState = mode === 'v2' ? 'idle' : 'off'; // idle | loading | ready | failed | off
@@ -265,17 +264,6 @@ export class RangePresentation {
   get arriving() { return this.active && this.arrival < 1; }
 
   get enabled() { return this.mode === 'v2'; }
-
-  setSingleStage(enabled) {
-    if (this.singleStage === enabled) return;
-    this.singleStage = enabled;
-    if (!enabled) return;
-    this._releaseWater();
-    this._releaseWaterEffects();
-    this._releaseNearOcclusion();
-    this.crest.release();
-    this.scene?.releaseCrestProbe?.();
-  }
 
   get cameraSchedule() { return this.railPlan?.snapshot ?? null; }
 
@@ -737,8 +725,7 @@ export class RangePresentation {
   }
 
   _crestProbeShed(sim) {
-    return !this.exportMode && !sim?.exportMode && !this.crestPalette
-      && (sim?.perf?.level ?? 0) >= CREST_GRID_SCAN_LEVEL;
+    return !this.exportMode && !sim?.exportMode && (sim?.perf?.level ?? 0) >= CREST_GRID_SCAN_LEVEL;
   }
 
   /** Renderer: this frame's inputs, before BiomeManager.draw. */
@@ -1088,7 +1075,6 @@ export class RangePresentation {
     this.scene.crestOutputScale = crestOn && crestGrid ? Math.max(1,
       (this.crestOutputSize?.width || crestGrid.width) / crestGrid.width,
       (this.crestOutputSize?.height || crestGrid.height) / crestGrid.height) : 1;
-    this.scene.singleStage = !!this.singleStage;
     this._crestScan = crestOn && this.crest.mode === 'grid';
     if (!crestOn) this.crest.update({ frameId: this.frame.frameId, timeMs: this.frame.timeMs, viewId: view.id, qualityLevel: this.frame.qualityLevel ?? 0 });
     this.scene.skyPan = this.skyPan; // rain curtains and lightning stand where the sky draws them
@@ -1234,7 +1220,7 @@ export class RangePresentation {
     // ranges, the far terrain) is the backdrop the lake reflects.
     if (pass === 'mid') {
       const manager = this.frameInputs?.sim?.biomes;
-      const drawSky = !this.directTerrainMode && !this.singleStage && manager?.highResolutionSky && manager.rangeSkyLayer ? (target, width, height) =>
+      const drawSky = !this.directTerrainMode && manager?.highResolutionSky && manager.rangeSkyLayer ? (target, width, height) =>
         manager.drawHighResolutionSky(target, target.canvas, { transform: [width / stage.width, 0, 0, height / stage.height, 0, 0] }) : null;
       this.scene.captureBackdrop?.(ctx, stage, this.frame, drawSky, [this.viewId, this.incomingViewId].filter(Boolean));
     }
@@ -1312,13 +1298,11 @@ export class RangePresentation {
       qualityLevel: this.frame.qualityLevel ?? 0, transform: t ? [t.a, t.b, t.c, t.d, t.e, t.f] : null,
       stage: { width: stage.width, height: stage.height },
       grid: { width: ctx.canvas.width, height: ctx.canvas.height },
-      sky: this.frameInputs?.sim?.biomes?._airColor ?? null, palette: this.crestPalette, scan: steady && !!this._crestScan });
+      sky: this.frameInputs?.sim?.biomes?._airColor ?? null });
   }
 
-  /** Presenter hook, before palette quantization (RangeCrest.prepareGrid). */
+  /** Presenter hook, before the grid is composited (RangeCrest.prepareGrid). */
   prepareCrestGrid(options) { return this.crestEnabled ? this.crest.prepareGrid(options) : false; }
-  /** Presenter hook, after palette quantization (RangeCrest.finishGrid). */
-  finishCrestGrid(options) { return this.crestEnabled ? this.crest.finishGrid(options) : false; }
 
   /** Presenter hooks at output resolution: the crest after the terrain,
    * shorelines after the water; live and for recordings alike. */

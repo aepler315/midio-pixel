@@ -1,5 +1,11 @@
 # Display presentation
 
+> **November 10, 2026:** Cinematic is the only look. The Pixel and Palette
+> looks, palettes, dither and the single-stage live path were removed; saved
+> records of any look migrate to Cinematic at its Detailed grid (a saved
+> Cinematic grid is kept). Passages below about Pixel, Palette, palettes or
+> dither describe the removed behavior.
+
 This page describes the current presentation behavior and compatibility rules.
 Looks, defaults, rendering architecture and budgets may evolve through
 task-authorized experiments under the

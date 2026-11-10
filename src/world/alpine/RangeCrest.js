@@ -4,19 +4,15 @@
 //  1. update(): decode the GPU column probe (CrestProbe.js), rebuild a
 //     sub-cell crest per band, steady it in time, map it into the pixel
 //     grid and freeze everything the frame draws into `snapshot`.
-//  2. prepareGrid(): before palette quantization, re-own the grid cells
+//  2. prepareGrid(): before the grid is composited, re-own the grid cells
 //     around each smoothed line (split-cell rule, CrestLine.js), and
 //     read the line's land colour and the edge's visibility from the grid.
 //     A live probe a frame old is first aligned to the grid's own crest.
-//     Without a probe on the heavy rungs (fallback) it takes the skyline
-//     from the palette pass's frame (no extra readback).
-//  3. finishGrid(): after palette quantization, quantize the split cells'
-//     lower halves with the grid's own quantizer.
-//  4. drawTerrain(): at output resolution, the presenter draws the terrain
+//  3. drawTerrain(): at output resolution, the presenter draws the terrain
 //     clipped below the skyline, so land cells above the line (stair-step
 //     teeth, the sky half of crossed cells) show the smooth sky drawn under
 //     them. No readback: it works on every rung and look.
-//  5. drawCrest() / drawShore(): at output resolution, inside the presenter's
+//  4. drawCrest() / drawShore(): at output resolution, inside the presenter's
 //     composite, live and again for a recording, from the same snapshot.
 //
 // Nothing here advances on a redraw: a recording reproduces the frame.
@@ -31,11 +27,10 @@ import { CrestColorPattern } from '../../render/CrestPixelColors.js';
 export const CREST_SPLIT_KEY = 'range:crest-split';
 /** Quality rung from which the probe runs light ('grid' mode): crest rows
  *  and colours only (no depth, elevation or water passes, so no shorelines).
- *  The line holds across the switch. Should the probe be unavailable, a
- *  palette look scans the skyline from its palette pass's own frame. */
+ *  The line holds across the switch. */
 export const CREST_GRID_SCAN_LEVEL = 4;
-/** Quality rung from which the Pixel and Cinematic looks (no palette
- *  readback to share) stop reading grid rows back: split cells fade out;
+/** Quality rung from which the grid rows are no longer read back: split
+ *  cells fade out;
  *  the line and the output-resolution terrain cut (drawTerrain) stay. */
 export const CREST_PIXEL_SPLIT_LEVEL = 2;
 /** Split cells shed or regained across a quality change. */
@@ -226,9 +221,7 @@ export class RangeCrest {
     this.mode = 'refined';
     // Economy / 8-bit (PerfGovernor `economy`, pinned to the cheapest rung):
     // the heavy rungs keep the old no-probe path. No probe passes or
-    // readback, no terrain cut; a palette look scans its own frame for the
-    // line (integer rows), Pixel and Cinematic draw no line. Set by the
-    // presenter each frame.
+    // readback, no terrain cut and no line. Set by the presenter each frame.
     this.economy = false;
     this.fade = 0;
     this.splitFade = 0;
@@ -248,7 +241,6 @@ export class RangeCrest {
     this._splitUpload = null;
     this._orig = null;
     this._sky = null;
-    this._palette = null;
     this._sampleAge = Infinity; // seconds since the last grid reading
     this._colorPattern = null;
     this._origRead = null; // { frameId, groups }: rows of `_orig` this frame read
@@ -297,12 +289,10 @@ export class RangeCrest {
    * Freeze this frame. `probe` is CrestProbe.read() (null: nothing this
    * frame, e.g. travel or arrival); `transform` maps the stage into the grid
    * (the scenic canvas transform) and `stage` is the stage size the target
-   * is drawn at. `palette` is null, 'rgb332' or a compiled palette. `scan`
-   * marks a steady frame on the heavy rungs: should no probe arrive, the
-   * crest then comes from the palette frame in prepareGrid(). `instant`
-   * (export draws) starts a discontinuous frame at full strength.
+   * is drawn at. `instant` (export draws) starts a discontinuous frame at
+   * full strength.
    */
-  update({ probe, frameId, timeMs = 0, viewId = null, qualityLevel = 0, transform, stage, grid, sky = null, palette = null, scan = false, instant = false, opacity = 1 } = {}) {
+  update({ probe, frameId, timeMs = 0, viewId = null, qualityLevel = 0, transform, stage, grid, sky = null, instant = false, opacity = 1 } = {}) {
     const t0 = performance.now();
     const last = this._last;
     const rawDt = last && Number.isFinite(timeMs) ? (timeMs - last.timeMs) / 1000 : 0;
@@ -317,11 +307,10 @@ export class RangeCrest {
     const desired = qualityLevel >= CREST_GRID_SCAN_LEVEL ? 'grid' : 'refined';
     if (desired !== this.mode) this.mode = desired;
     this.diagnostics.mode = this.mode;
-    const scanning = !probe && !!scan && this.mode === 'grid' && !!palette;
     // A frame without a probe or scan (travel, arrival) breaks the filter's
     // chain, but still counts as drawn history for `instant`.
-    this._last = { frameId: probe || scanning ? frameId : NaN, drawnId: frameId, timeMs, viewId };
-    if (!(probe || scanning) || !grid?.width || probe && (!transform || !stage?.width)) {
+    this._last = { frameId: probe ? frameId : NaN, drawnId: frameId, timeMs, viewId };
+    if (!probe || !grid?.width || probe && (!transform || !stage?.width)) {
       if (this._grid) for (const g of Object.values(this._grid)) g.geometry = null;
       this._colorPattern?.release();
       this.snapshot = null;
@@ -333,13 +322,12 @@ export class RangeCrest {
     if (!last || last.viewId !== viewId) { this.reset('view'); this.fade = this.splitFade = 0; this._viewFade = true; }
     else if (last.frameId !== frameId - 1) this.reset('gap');
     else if (seek) this.reset('seek');
-    // Split cells need a probe. The Pixel and Cinematic looks read grid rows
-    // back for them, so they shed them from CREST_PIXEL_SPLIT_LEVEL (with
-    // the fade); a palette look reads its whole frame anyway and keeps them.
+    // Split cells need a probe and read grid rows back for it, so they shed
+    // from CREST_PIXEL_SPLIT_LEVEL (with the fade).
     const outputGeometry = !!probe && Object.hasOwn(probe, 'fine');
     const shapeAvailable = !outputGeometry || !!probe.fine;
     if (!probe || !shapeAvailable) this._colorPattern?.release();
-    const splitWanted = !!probe && shapeAvailable && (!!palette || qualityLevel < CREST_PIXEL_SPLIT_LEVEL);
+    const splitWanted = !!probe && shapeAvailable && qualityLevel < CREST_PIXEL_SPLIT_LEVEL;
     if (instant && !consecutive) {
       // An isolated export frame (visual evaluation, the 4K reel re-render, a
       // seek inside an export) has no history to fade from: full strength,
@@ -354,7 +342,6 @@ export class RangeCrest {
       if (this.fade >= 1 && (this.splitFade >= 1 || !splitWanted)) this._viewFade = false;
     }
     this._sky = hexRgb(sky);
-    this._palette = palette;
     let rotated = false, columns = 0, shores = [];
     if (probe) ({ rotated, columns, shores } = this._fromProbe(probe, dt, transform, stage, grid));
     else for (const band of CREST_BANDS) {
@@ -371,7 +358,7 @@ export class RangeCrest {
     if (!split && !(this.splitFade > 0)) this._releaseSplit();
     const shown = this.fade * Math.max(0, Math.min(1, Number.isFinite(opacity) ? opacity : 1));
     this.snapshot = Object.freeze({ frameId, dt, grid: { width: grid.width, height: grid.height }, mode: this.mode, fade: shown,
-      splitFade: this.splitFade, split, scan: scanning, cut: shapeAvailable && !(scanning && this.economy), outputGeometry, prepared: false, splitPending: false, splitReady: false, splitAlpha: 0, palette, shores,
+      splitFade: this.splitFade, split, cut: shapeAvailable, outputGeometry, prepared: false, splitPending: false, splitReady: false, splitAlpha: 0, shores,
       lag: probe ? probe.lag || 0 : 0, aligned: 0 });
     this.diagnostics.fade = shown;
     this.diagnostics.splitFade = this.splitFade;
@@ -544,7 +531,7 @@ export class RangeCrest {
   /** The stroke colour of columns i..j: the land the viewer sees just below
    *  the line in the grid (sampled by prepareGrid, after haze and grading),
    *  else the probe's band colour, darkened, receded and snapped. `land` is
-   *  that land itself (snapped to a palette), which fills sky pockets just
+   *  that land itself, which fills sky pockets just
    *  below the line where the terrain cut stands in for split cells. */
   _chunkColor(band, s, g, i, j) {
     const rgb = [0, 0, 0];
@@ -564,8 +551,7 @@ export class RangeCrest {
     }
     const sky = this._sky || land;
     const above = m > open ? up.map(v => v / m) : sky;
-    return { color: css(snapCrestColor(crestLineColor(land, above, band), this._palette)),
-      land: css(this._palette ? snapCrestColor(land, this._palette) : land) };
+    return { color: css(snapCrestColor(crestLineColor(land, above, band))), land: css(land) };
   }
 
   _recolor() {
@@ -577,7 +563,7 @@ export class RangeCrest {
 
   _updateShores(probe, dt, m, carry, cut) {
     const t0 = performance.now();
-    const W = probe.width, data = probe.data, st = this._shore, palette = this._palette;
+    const W = probe.width, data = probe.data, st = this._shore;
     const valid = probe.rows & (1 << PROBE_WATER_ROW);
     st.nextY.fill(NaN); st.nextKind.fill(0);
     // Camera motion carries the held shore with the land; a cut drops it.
@@ -652,7 +638,7 @@ export class RangeCrest {
         pts[p * 2 + 1] = m.b * m.sx * x + m.d * m.sy * y + m.f;
       });
       chains.push(Object.freeze({ points: pts, kind, nearness: near / n,
-        color: css(snapCrestColor(shoreColor(rgb.map(v => v / n)), palette)) }));
+        color: css(snapCrestColor(shoreColor(rgb.map(v => v / n)))) }));
     }
     st.y.set(st.nextY); st.d.set(st.nextD); st.kind.set(st.nextKind);
     this.diagnostics.shoreMs = performance.now() - t0;
@@ -692,31 +678,27 @@ export class RangeCrest {
   }
 
   /**
-   * Before palette quantization: re-own the grid cells around each
+   * Before the grid is composited: re-own the grid cells around each
    * smoothed line, fading the edit in and out with the line, and read the
-   * line's land colour and visibility. `frame` is the whole grid's
-   * ImageData when the palette pass has already read it back (free: done
-   * every frame, split cells or not); otherwise, and only while split cells
-   * are on, each band's own rows (±3 cells around its lines) are read from
-   * `ctx` and written back.
+   * line's land colour and visibility. While split cells are on, each
+   * band's own rows (±3 cells around its lines) are read from `ctx` and
+   * written back.
    */
   prepareGrid(options = {}) {
     const prepared = this._prepareCrest(options);
-    // Without a palette pass (no `frame`) edge colours come from the grid
-    // as drawn; with one, from its quantized frame (finishGrid).
-    if (!options.frame && options.ctx) this._prepareEdges(options.ctx);
+    // Edge colours come from the grid as drawn.
+    if (options.ctx) this._prepareEdges(options.ctx);
     return prepared;
   }
 
-  _prepareCrest({ ctx = null, frame = null } = {}) {
+  _prepareCrest({ ctx = null } = {}) {
     const snap = this.snapshot;
     if (!snap || snap.prepared || !(snap.fade > 0)) return false;
     const t0 = performance.now();
-    if (snap.scan) return frame ? this._scanGrid(frame, t0) : false;
     const strength = snap.split ? Math.min(snap.fade, snap.splitFade) : 0;
     this._sampleAge += snap.dt || 1 / 60;
-    // No split cells and no palette frame: only a throttled sample-only read.
-    const sampleOnly = !(strength > 0) && !frame;
+    // No split cells: only a throttled sample-only read.
+    const sampleOnly = !(strength > 0);
     if (sampleOnly && (!ctx || this._sampleAge < SAMPLE_EVERY_SEC)) return false;
     const { width: W, height: H } = snap.grid;
     // Each band's rows (its lines and any raw crest above them, e.g. a
@@ -743,7 +725,7 @@ export class RangeCrest {
     }
     if (!groups.length) return false;
     const split = strength > 0 ? this._ensureSplit(W, H) : null;
-    if (!split && !frame && !sampleOnly) return false;
+    if (!split && !sampleOnly) return false;
     if (!this._orig || this._orig.length < W * H * 4) this._orig = new Uint8ClampedArray(W * H * 4);
     const sdata = split?.image.data;
     if (split?.dirty) sdata.fill(0, split.dirty[0] * W * 4, split.dirty[1] * W * 4);
@@ -754,8 +736,7 @@ export class RangeCrest {
     for (const { y0, y1 } of groups) {
       let image;
       try {
-        if (frame) image = { data: frame.data.subarray(y0 * W * 4, y1 * W * 4), width: W, y0, rows: y1 - y0 };
-        else {
+        {
           const r0 = performance.now();
           const read = ctx.getImageData(0, y0, W, y1 - y0);
           readMs += performance.now() - r0; readRows += y1 - y0;
@@ -768,7 +749,7 @@ export class RangeCrest {
     // A live (asynchronous) probe is a frame or more older than this grid:
     // under camera motion, heave or a kick the terrain has since moved. Take
     // that shift from the grid itself, every frame its rows are read anyway.
-    const aligned = snap.lag > 0 && (split || frame) ? this._alignToGrid(W, H, groups) : null;
+    const aligned = snap.lag > 0 && split ? this._alignToGrid(W, H, groups) : null;
     for (let gi = 0; gi < groups.length; gi++) {
       const { y0, y1, bands } = groups[gi], image = images[gi];
       const orig = this._orig.subarray(y0 * W * 4, y1 * W * 4);
@@ -795,17 +776,16 @@ export class RangeCrest {
       const n0 = groups[0].y0, n1 = groups.at(-1).y1;
       this._splitUpload = split.dirty ? [Math.min(split.dirty[0], n0), Math.max(split.dirty[1], n1)] : [n0, n1];
       split.dirty = [n0, n1];
-      // With a palette the lower halves are quantized first (finishGrid).
-      if (!frame) ready = this._uploadSplit();
+      ready = this._uploadSplit();
     }
-    this.snapshot = Object.freeze({ ...snap, prepared: true, splitPending: !!split && !!frame, splitReady: ready, splitAlpha: split ? strength : 0,
+    this.snapshot = Object.freeze({ ...snap, prepared: true, splitPending: false, splitReady: ready, splitAlpha: split ? strength : 0,
       aligned: aligned?.columns || 0, alignShift: aligned?.shift || 0 });
     this.diagnostics.lagShift = aligned?.shift || 0;
     this.diagnostics.lagLineShift = aligned?.lineShift || 0;
     this.diagnostics.aligned = aligned?.columns || 0;
     this.diagnostics.splitCells = cells;
     this.diagnostics.splitStrength = split ? strength : 0;
-    this.diagnostics.readback = frame ? 'probe+palette-frame' : sampleOnly ? 'probe+crest-sample' : 'probe+crest-rows';
+    this.diagnostics.readback = sampleOnly ? 'probe+crest-sample' : 'probe+crest-rows';
     this.diagnostics.readRows = readRows;
     this.diagnostics.readbackMs = readMs;
     this.diagnostics.prepareMs = performance.now() - t0;
@@ -874,32 +854,7 @@ export class RangeCrest {
     return { shift, lineShift, columns };
   }
 
-  /** After palette quantization: the split cells' lower halves go through
-   *  the grid's own quantizer (`quantize(rgb, x, y)`, PaletteQuantize.js) at
-   *  their cell, so they match the terrain cells beside them. */
-  finishGrid({ quantize = null, frame = null } = {}) {
-    const snap = this.snapshot;
-    if (frame?.data && snap) this._colorEdges(frame.data, snap.grid.width, 0, snap.grid.height);
-    if (!snap?.splitPending || !this._split || typeof quantize !== 'function') return false;
-    const W = snap.grid.width, sdata = this._split.image.data;
-    for (const band of CREST_BANDS) {
-      const g = this._grid[band];
-      for (let i = 0; i < W; i++) {
-        if (g.crossed[i] < 0) continue;
-        for (let r = g.crossed[i]; r <= g.crossedEnd[i]; r++) {
-          const q = (r * W + i) * 4;
-          if (!sdata[q + 3]) continue;
-          const c = quantize([sdata[q], sdata[q + 1], sdata[q + 2]], i, r);
-          sdata[q] = c[0]; sdata[q + 1] = c[1]; sdata[q + 2] = c[2];
-        }
-      }
-    }
-    const ready = this._uploadSplit();
-    this.snapshot = Object.freeze({ ...snap, splitPending: false, splitReady: ready });
-    return ready;
-  }
-
-  /** Edge colours from the grid as drawn (no palette pass): its rows
+  /** Edge colours from the grid as drawn: its rows
    *  spanning the edge cells, read once. */
   _prepareEdges(ctx) {
     const snap = this.snapshot, edges = this._edges;
@@ -962,35 +917,6 @@ export class RangeCrest {
     if (!split || !range) return false;
     try { split.canvas.getContext('2d').putImageData(split.image, 0, 0, 0, range[0], split.canvas.width, range[1] - range[0]); }
     catch { return false; }
-    return true;
-  }
-
-  /** Grid-scan fallback (heavy rungs, no probe, palette looks only): the skyline is
-   *  the first opaque row per column of the palette pass's frame (the sky
-   *  is a separate layer there); integer rows through the same filter. */
-  _scanGrid(frame, t0) {
-    const snap = this.snapshot, { width: W, height: H } = snap.grid, data = frame.data;
-    if (frame.width && frame.width !== W || data.length < W * H * 4) return false;
-    const g = this._grid.far;
-    for (let i = 0; i < W; i++) {
-      let r = -1;
-      for (let y = 0; y < H; y++) if (data[(y * W + i) * 4 + 3] >= 128) { r = y; break; }
-      g.scanRaw[i] = r > 0 ? r : NaN; // row 0: the sky is in the grid, or the frame cuts the crest
-    }
-    filterCrest(g.scan, g.scanRaw, snap.dt, CREST_FILTER);
-    g.line.set(g.scan.y); g.raw.set(g.scanRaw);
-    g.skyline.fill(1); g.minNearer.fill(Infinity); g.skip.fill(0); g.crossed.fill(-1); g.crossedEnd.fill(-1); g.colorAt.fill(-1);
-    this._rank(g, g, W, 1 - Math.exp(-(snap.dt || 1 / 60) / SLOW_TAU_SEC), null);
-    this._visibility(g, data, W, 0, H, 1 - Math.exp(-(snap.dt || 1 / 60) / VIS_TAU_SEC));
-    this._sampleLand(g, data, W, 0, H);
-    this._origRead = null;
-    this._glow = this._findGlow(W, (r, i) => (r >= 0 && r < H ? data[(r * W + i) * 4 + 3] : -1));
-    g.chunks = this._chunks('far', null, g, W);
-    this.snapshot = Object.freeze({ ...snap, prepared: true });
-    this.diagnostics.readback = 'palette-frame';
-    this.diagnostics.readRows = 0;
-    this.diagnostics.readbackMs = 0;
-    this.diagnostics.prepareMs = performance.now() - t0;
     return true;
   }
 

@@ -3,40 +3,41 @@ import { pixelGrid } from './PixelRenderPolicy.js';
 export const DISPLAY_PREFS_KEY = 'midio-pixel:display:v1';
 export const LEGACY_V2_DISPLAY_PREFS_KEY = 'smw:display:v2';
 export const LEGACY_DISPLAY_PREFS_KEY = 'smw:display:v1';
-export const DEFAULT_DISPLAY_PREFS = Object.freeze({ version: 2, look: 'pixel', quality: 'auto', palette: 'world', dither: .35, ditherMode: 'selective', pixelGrid: 'classic', scaling: 'fit', pixelScale: 'original', buildPixelDetail: true });
-/** The Cinematic Pixel look's own detail level, from the grid-harmony sweep
+/** Cinematic's detail level, from the grid-harmony sweep
  *  (docs/cinematic-grid-harmony.md): 640x360 scales by a whole number at
  *  720p, 1080p, 1440p and 2160p, keeps pixel units exact, and lands the cell
  *  reconstruction on its validated residual, at a desktop cost within noise
- *  of Classic. Pixel and Palette keep Classic. */
+ *  of Classic. */
 export const CINEMATIC_PIXEL_GRID = 'detailed';
-/** The detail level a look runs at when none was chosen. */
-export const defaultGridFor = look => look === 'cinematic' ? CINEMATIC_PIXEL_GRID : DEFAULT_DISPLAY_PREFS.pixelGrid;
+/** Cinematic is the only look: the Pixel and Palette looks (and with them
+ *  palettes and dither) were removed. `look` stays in the record so older
+ *  builds and saved records keep reading it. */
+export const DEFAULT_DISPLAY_PREFS = Object.freeze({ version: 2, look: 'cinematic', quality: 'auto', pixelGrid: CINEMATIC_PIXEL_GRID, scaling: 'fit', pixelScale: 'original', buildPixelDetail: true });
+/** The detail level used when none was chosen. */
+export const defaultGridFor = () => CINEMATIC_PIXEL_GRID;
+const PIXEL_GRIDS = ['classic', 'classicPlus', 'medium', 'mediumPlus', 'detailed'];
 function parseRecord(saved) {
   try { return typeof saved === 'string' ? JSON.parse(saved) : saved; } catch { return null; }
 }
+/** Records from every earlier look still migrate. */
 function validRecord(prefs) { return prefs && [1, 2].includes(prefs.version) && ['natural', 'pixel', 'palette', 'cinematic'].includes(prefs.look); }
 
 export function resolveDisplayPrefs({ saved, legacyStagePreset } = {}) {
   const prefs = parseRecord(saved);
+  const defaults = { ...DEFAULT_DISPLAY_PREFS };
   if (validRecord(prefs)) {
     const old = prefs.version === 1;
-    // Keep the canonical field for saved records and diagnostics. Depth was
-    // removed; old selections migrate to the same uniform raster as new ones.
-    const defaults = { ...DEFAULT_DISPLAY_PREFS, ...(old ? { palette: 'range32', ditherMode: 'ordered' } : {}) };
-    const choices = { look: old ? ['pixel', 'palette'] : ['pixel', 'palette', 'cinematic'], quality: ['auto', 'economy'],
-      palette: old ? ['range32', 'rgb332'] : ['world', 'range32', 'chroma32', 'rgb332'],
-      dither: [0, .35, 1], ditherMode: ['ordered', 'selective'], pixelGrid: ['classic', 'classicPlus', 'medium', 'mediumPlus', 'detailed'], scaling: ['fit', 'integer'] };
-    for (const [key, values] of Object.entries(choices)) if (values.includes(prefs[key]) && !(old && ['ditherMode', 'pixelGrid'].includes(key))) defaults[key] = prefs[key];
-    // A record (or export request) that chose no detail level runs at its
-    // look's own; a chosen one is kept.
-    if (old || !choices.pixelGrid.includes(prefs.pixelGrid)) defaults.pixelGrid = defaultGridFor(defaults.look);
+    const choices = { quality: ['auto', 'economy'], pixelGrid: PIXEL_GRIDS, scaling: ['fit', 'integer'] };
+    for (const [key, values] of Object.entries(choices)) if (values.includes(prefs[key]) && !(old && key === 'pixelGrid')) defaults[key] = prefs[key];
+    // A detail level saved under the removed Pixel and Palette looks was
+    // nearly always their Classic default, so those records start at
+    // Cinematic's own level; a Cinematic record keeps its chosen one.
+    if (prefs.look !== 'cinematic') defaults.pixelGrid = CINEMATIC_PIXEL_GRID;
     if (typeof prefs.buildPixelDetail === 'boolean') defaults.buildPixelDetail = prefs.buildPixelDetail;
     return defaults;
   }
-  const defaults = { ...DEFAULT_DISPLAY_PREFS };
-  if (legacyStagePreset === '8bit') return { ...defaults, look: 'pixel', quality: 'economy', palette: 'range32', ditherMode: 'ordered', pixelScale: 'original' };
-  if (legacyStagePreset === '8bit-intensive') return { ...defaults, look: 'palette', quality: 'economy', palette: 'rgb332', dither: 1, ditherMode: 'ordered', pixelScale: 'original' };
+  // The retired 8-bit stage presets keep their economy quality.
+  if (legacyStagePreset === '8bit' || legacyStagePreset === '8bit-intensive') return { ...defaults, quality: 'economy' };
   return defaults;
 }
 
@@ -54,6 +55,6 @@ export function writeDisplayPrefs(storage, prefs) {
 }
 export function resolvePresentation(prefs) {
   const p = resolveDisplayPrefs({ saved: prefs });
-  return { pixelated: true, buildPixelDetail: p.buildPixelDetail, ...(p.look === 'cinematic' ? { cinematicPixel: true } : {}), grid: pixelGrid(p.pixelGrid),
-    paletteId: p.look === 'palette' ? p.palette : 'none', dither: p.dither, ditherMode: p.ditherMode, quality: p.quality, scaling: p.scaling, pixelScale: p.pixelScale };
+  return { pixelated: true, cinematicPixel: true, buildPixelDetail: p.buildPixelDetail, grid: pixelGrid(p.pixelGrid),
+    quality: p.quality, scaling: p.scaling, pixelScale: p.pixelScale };
 }

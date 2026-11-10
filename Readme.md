@@ -4,7 +4,7 @@ A music visualizer with real terrain, pixel landscapes, smooth skies and music-d
 
 This is an experimental project. Renderers, terrain, looks, cameras, worlds, defaults and performance policies can evolve with the current task. [Experimental development](docs/experimental-development.md) and [AGENTS.md](AGENTS.md) describe the workflow; old preservation lists and review holds do not freeze new work.
 
-Current presentation includes Pixel, Palette and Cinematic looks, five terrain grids from Classic (320×180) to Detailed (640×360), automatic quality and Fit/Integer preferences. Landscape combines pixel terrain with smooth sky, water and effects. Uniform is the current pixel sampling mode; old Depth selections migrate to it. These are implementation facts, not permanent design restrictions.
+Current presentation has one look, Cinematic, at five terrain grids from Classic (320×180) to Detailed (640×360, the default), with automatic quality and Fit/Integer preferences. The Pixel and Palette looks, palettes and dither were removed on November 10, 2026. Landscape combines pixel terrain with smooth sky, water and effects. Uniform is the current pixel sampling mode; old Depth selections migrate to it. These are implementation facts, not permanent design restrictions.
 
 Hosting: supermaudio.com is GitHub Pages serving the `gh-pages` branch, which `npm run publish:site` fills with only the staged site (see [Local validation and publishing](docs/local-validation.md)). The current limits are documented in [the validation matrix](docs/test-matrix.md).
 
@@ -375,7 +375,7 @@ maintained upload regression suite.
 - [Soulseek bridge notes](docs/soulseek.md) — retained backend tooling;
   the current upload page does not expose its search/connect controls.
 
-Display settings now separate **Natural / Pixel / Palette** from **Auto / Economy** quality. Open **Display** during playback to change them. [Pixel presentation](docs/pixel-presentation.md) explains migration, palettes and exports; [landscape peaks](docs/landscape-peaks.md) explains climax storms.
+Display settings choose the pixel detail and Fit/Integer scaling; quality is Auto or Economy. Open **Display** during playback to change them. [Pixel presentation](docs/pixel-presentation.md) explains migration and exports; [landscape peaks](docs/landscape-peaks.md) explains climax storms.
 
 ## Minimum performance target
 

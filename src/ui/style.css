@@ -131,10 +131,6 @@ html, body {
   image-rendering: pixelated;
 }
 
-#stage.nativeCover {
-  object-fit: cover;
-}
-
 .panel {
   position: absolute;
   inset: 0;

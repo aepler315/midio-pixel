@@ -62,10 +62,10 @@ import { createPresentingRenderer } from './render/PresentingRenderer.js';
 import { VoxelRange, voxelRangeRequested } from './render/VoxelRange.js';
 import { directTerrainExperiment } from './render/DirectTerrainExperiment.js';
 import { createRenderReadyPlayback, waitForScenicReady } from './render/RenderReadyPlayback.js';
-import { stageOutputSize, resolveRangePipeline } from './render/RenderOutputSize.js';
+import { stageOutputSize } from './render/RenderOutputSize.js';
 import { PixelPresentation, fitPixelRect } from './render/PixelPresentation.js';
 import { FrameCadence } from './render/FrameCadence.js';
-import { readDisplayPrefs, writeDisplayPrefs, resolvePresentation, resolveDisplayPrefs, defaultGridFor } from './render/DisplayProfile.js';
+import { readDisplayPrefs, writeDisplayPrefs, resolvePresentation, resolveDisplayPrefs } from './render/DisplayProfile.js';
 import { emaFps, resolveFpsHudVisible, PresentedFpsMeter } from './render/FpsMeter.js';
 import { LoadingShow } from './ui/LoadingShow.js';
 import { TitleBackdrop } from './ui/TitleBackdrop.js';
@@ -403,7 +403,7 @@ writeRenderQuality(displayStorage(), generalQuality);
 const selectionExportSettings = new WeakMap();
 writeDisplayPrefs(displayStorage(), displayPrefs);
 let presentation = resolvePresentation(displayPrefs);
-const displayControls = Object.fromEntries(['look', 'palette', 'dither', 'ditherMode', 'pixelGrid', 'scaling', 'buildPixelDetail'].map(key => [key, document.getElementById(`display-${key}`)]));
+const displayControls = Object.fromEntries(['pixelGrid', 'scaling', 'buildPixelDetail'].map(key => [key, document.getElementById(`display-${key}`)]));
 // HUD pixel-detail label and the every-level snapshot (src/ui/DetailSnapshots.js).
 const detailLevelEl = document.getElementById('detailLevel');
 const snapshotBtnEl = document.getElementById('snapshotBtn');
@@ -481,7 +481,6 @@ paramBus.rendererMode = rendererMode;
 // opts out, and any v2 failure falls back to legacy per frame on its own.
 // ?rangeView=<id> forces one catalog view for diagnostics. One presentation (and one GPU context) per page.
 const rangeMode = resolveRangeMode();
-const requestedRangePipeline = resolveRangePipeline(location.search);
 const voxelRangePilot = voxelRangeRequested(location.search)
   ? new VoxelRange({ ownerDocument: document, residency: sharedResidency() }) : null;
 const voxelRangeCaption = voxelRangePilot ? sceneCaptionFor(voxelRangePilot.view) : null;
@@ -611,13 +610,10 @@ function syncDisplayControls() {
   for (const [key, control] of Object.entries(displayControls)) if (control) {
     if (key === 'buildPixelDetail') control.checked = displayPrefs.buildPixelDetail;
     else control.value = String(displayPrefs[key]);
-    control.disabled = ['palette', 'dither', 'ditherMode'].includes(key) && displayPrefs.look !== 'palette'
-      || key === 'ditherMode' && (displayPrefs.palette === 'rgb332' || displayPrefs.dither === 0)
-      || key === 'buildPixelDetail' && displayPrefs.look === 'palette';
   }
   const grid = document.getElementById('pixelGridHint');
   const selectedGrid = presentation.grid;
-  if (grid) { grid.hidden = false; grid.textContent = displayPrefs.buildPixelDetail && displayPrefs.look !== 'palette'
+  if (grid) { grid.hidden = false; grid.textContent = displayPrefs.buildPixelDetail
     ? 'Classic → Detailed (640 × 360) as the mountains rise' : `${selectedGrid.width} × ${selectedGrid.height} grid`; }
   syncDetailControls();
 }
@@ -626,7 +622,7 @@ function syncDisplayControls() {
 function syncDetailControls() {
   const level = displayPrefs.pixelGrid;
   const option = displayControls.pixelGrid?.querySelector(`option[value="${level}"]`);
-  if (detailLevelEl) detailLevelEl.textContent = displayPrefs.buildPixelDetail && displayPrefs.look !== 'palette' ? 'Building detail' : (option?.textContent || level).split(' — ')[0];
+  if (detailLevelEl) detailLevelEl.textContent = displayPrefs.buildPixelDetail ? 'Building detail' : (option?.textContent || level).split(' — ')[0];
   if (snapshotBtnEl) {
     snapshotBtnEl.disabled = snapshotBusy;
     snapshotBtnEl.setAttribute('aria-busy', snapshotBusy ? 'true' : 'false');
@@ -668,9 +664,9 @@ let titlePresentation = null;
 function effectivePresentation() {
   const requested = bulkPresentation || presentation;
   const experimental = directTerrainExperiment(typeof location === 'undefined' ? '' : location.search);
-  const buildPixelDetail = !!requested.buildPixelDetail && !bulkExportSize && !voxelRangePilot && !experimental
-    && requested.paletteId === 'none' && requestedRangePipeline !== 'native';
-  return { ...requested, buildPixelDetail, rangePipeline: bulkExportSize || experimental || requested.cinematicPixel ? 'hybrid' : requestedRangePipeline,
+  const buildPixelDetail = !!requested.buildPixelDetail && !bulkExportSize && !voxelRangePilot && !experimental;
+  // Cinematic, the only look, presents through the hybrid composite.
+  return { ...requested, buildPixelDetail, rangePipeline: 'hybrid',
     ...(buildPixelDetail && requested.scaling === 'integer' ? { scaling: 'fit' } : {}),
     ...(experimental ? { directTerrain: true } : {}),
     ...(!bulkExportSize && typeof document !== 'undefined' && isFullscreen() ? { scaling: 'cover' } : {}) };
@@ -745,12 +741,11 @@ function fitCanvas() {
   const worldKind = sim?.biomes?.world?.kind
     || getWorld(lastTimelineData?.worldId || lastWorldId || DEFAULT_WORLD_ID)?.kind;
   const hybrid = worldKind === 'alpine' && !!rangePresentation?.enabled;
-  const nativeStage = hybrid && !voxelRangePilot && active.rangePipeline !== 'hybrid' && !!active.rangePipeline;
   const box = canvas.getBoundingClientRect();
   // The quality rung this output was sized for: heavier rungs draw the
   // smooth layers at fewer pixels (the ladder's resolution scale).
   fittedPerfLevel = perfGovernor?.level ?? 0;
-  const outputOptions = { grid: active.grid, hybrid, nativeStage, progressiveDetail: active.buildPixelDetail, cssWidth: box.width, cssHeight: box.height,
+  const outputOptions = { grid: active.grid, hybrid, progressiveDetail: active.buildPixelDetail, cssWidth: box.width, cssHeight: box.height,
     fullscreen: typeof document !== 'undefined' && isFullscreen(),
     dpr: window.devicePixelRatio || 1, exportSize: bulkExportSize,
     scale: perfGovernor?.resolutionScale(active.grid.height, { adaptive: true }) ?? 1 };
@@ -763,8 +758,7 @@ function fitCanvas() {
   // Canvas resets clear context state, including nearest-neighbor sampling.
   const ctx2d = canvas.getContext('2d');
   if (ctx2d) ctx2d.imageSmoothingEnabled = false;
-  canvas.classList.toggle('retro', !hybrid || nativeStage);
-  canvas.classList.toggle('nativeCover', nativeStage && active.scaling === 'cover');
+  canvas.classList.toggle('retro', !hybrid);
   landscapeHintEl?.classList.toggle(
     'is-visible',
     !bulkExportSize && shouldSuggestLandscape(canvas.clientWidth, canvas.clientHeight),
@@ -790,15 +784,7 @@ function applyDisplayPref(key, value) {
   // (its finally re-syncs the menu); a change now would save its
   // temporary level and then be undone.
   if (snapshotBusy) return;
-  const previous = displayPrefs;
   displayPrefs = { ...displayPrefs, [key]: value, ...(key === 'pixelGrid' ? { buildPixelDetail: false } : {}) };
-  // Each look runs at its own detail level: choosing Cinematic takes its
-  // grid; leaving it returns to the new look's own unless another level was
-  // chosen meanwhile.
-  if (key === 'look' && value !== previous.look) {
-    if (value === 'cinematic') displayPrefs.pixelGrid = defaultGridFor('cinematic');
-    else if (previous.look === 'cinematic' && previous.pixelGrid === defaultGridFor('cinematic')) displayPrefs.pixelGrid = defaultGridFor(value);
-  }
   presentation = resolvePresentation(displayPrefs);
   writeDisplayPrefs(displayStorage(), displayPrefs);
   syncDisplayControls();

@@ -170,13 +170,10 @@
               <p id="generalQualityHint" class="hint">Automatically adapts detail to keep playback smooth. This sets the maximum.</p>
             </div>
             <div class="resRow displayRow">
-              <label for="display-look">Look</label>
-              <select id="display-look"><option value="pixel">Pixel</option><option value="cinematic">Cinematic Pixel (experimental)</option><option value="palette">Palette</option></select>
-
               <label for="display-pixelGrid">Pixel detail</label>
               <select id="display-pixelGrid" title="Classic+ uses 1.56×, Medium 2.25×, Medium+ 3.06× and Detailed four times the pixel work. Quality remains independent."><option value="classic">Classic — 320×180</option><option value="classicPlus">Classic+ — 400×225</option><option value="medium">Medium — 480×270</option><option value="mediumPlus">Medium+ — 560×315</option><option value="detailed">Detailed — 640×360</option></select>
               <label><input id="display-buildPixelDetail" type="checkbox" checked aria-describedby="buildPixelDetailHint"> Build pixel detail</label>
-              <span id="buildPixelDetailHint" class="hint">Classic pixels sharpen with the rising landscape. Available in Pixel and Cinematic.</span>
+              <span id="buildPixelDetailHint" class="hint">Classic pixels sharpen with the rising landscape.</span>
               <label for="range-pace">Landscape pace</label>
               <select id="range-pace" aria-describedby="range-pace-status"><option value="1">1x</option><option value="2">2x</option><option value="3" selected>3x</option><option value="4">4x</option></select>
               <label><input id="range-tour-toggle" type="checkbox" aria-describedby="range-tour-description range-tour-status"> Camera tours</label>
@@ -185,12 +182,6 @@
             <p class="hint" id="range-pace-status" role="status" aria-live="polite">Applies to the next unplayed landscape or replay.</p>
             <p class="hint" id="range-tour-description">One camera by default: each landscape plays its music-timed tour where it beats the authored rail for the song, and the rail otherwise. Off keeps every authored rail. <span id="range-tour-status" role="status" aria-live="polite" data-state="off">Off</span></p>
             <div class="resRow displayRow">
-              <label for="display-palette">Palette</label>
-              <select id="display-palette"><option value="world">World colors</option><option value="range32">Landscape</option><option value="chroma32">Chroma</option><option value="rgb332">Legacy RGB332</option></select>
-              <label for="display-dither">Dither</label>
-              <select id="display-dither"><option value="0">Off</option><option value="0.35">Subtle</option><option value="1">Full</option></select>
-              <label for="display-ditherMode">Dither style</label>
-              <select id="display-ditherMode"><option value="selective">Selective</option><option value="ordered">Ordered</option></select>
               <label for="display-scaling">Scaling</label>
               <select id="display-scaling" title="Fit fills the available space while preserving aspect. Integer uses evenly sized physical pixels, with borders when needed."><option value="fit">Fit</option><option value="integer">Integer</option></select>
             </div>

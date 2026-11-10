@@ -240,58 +240,8 @@ export function shoreColor(water) {
   return guardHue([0, 1, 2].map(i => Math.round(lerp(water[i], 255 * Math.min(1, 0.35 + lum * 1.6), k))));
 }
 
-const LINEAR = Float32Array.from({ length: 256 }, (_, i) => { const v = i / 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
-const RGB332 = { r: [0, 36, 73, 109, 146, 182, 219, 255], b: [0, 85, 170, 255] };
-const nearestLevel = (levels, v) => levels.reduce((best, l) => (Math.abs(l - v) < Math.abs(best - v) ? l : best), levels[0]);
-
-/** Snap a line colour to the active palette (split-cell halves are terrain
- *  and go through the grid's own quantizer instead, PaletteQuantize.js): `palette` is null (no
- *  palette: hue guard only), 'rgb332', or a compiled palette ({ rgb }).
- *  The nearest entry that keeps PROTECTED_HUE_GAP from protected hues wins
- *  (achromatic entries always qualify). */
-export function snapCrestColor(rgb, palette) {
-  if (!palette) return guardHue(rgb);
-  if (palette === 'rgb332') {
-    const c = [nearestLevel(RGB332.r, rgb[0]), nearestLevel(RGB332.r, rgb[1]), nearestLevel(RGB332.b, rgb[2])];
-    if (!nearProtectedHue(c)) return c;
-    const g = guardHue(rgb);
-    const s = [nearestLevel(RGB332.r, g[0]), nearestLevel(RGB332.r, g[1]), nearestLevel(RGB332.b, g[2])];
-    return nearProtectedHue(s) ? [nearestLevel(RGB332.r, (c[0] + c[1] + c[2]) / 3), nearestLevel(RGB332.r, (c[0] + c[1] + c[2]) / 3), nearestLevel(RGB332.b, (c[0] + c[1] + c[2]) / 3)] : s;
-  }
-  let prepared = SNAP_CACHE.get(palette);
-  if (!prepared) {
-    // Allowed entries and their linear values once per palette; results are
-    // memoized (bounded) because split cells repeat a handful of colours.
-    const allowed = (palette.rgb || []).filter(c => !nearProtectedHue(c));
-    prepared = { allowed, lab: allowed.map(oklab), memo: new Map() };
-    SNAP_CACHE.set(palette, prepared);
-  }
-  const key = ((rgb[0] & 255) << 16) | ((rgb[1] & 255) << 8) | (rgb[2] & 255);
-  const hit = prepared.memo.get(key);
-  if (hit) return hit;
-  // OKLab with hue (a, b) weighted double: a darkened brown must not snap
-  // to a dark green that happens to sit nearer in plain RGB.
-  const p = oklab(rgb);
-  let best = -1, bestD = Infinity;
-  for (let i = 0; i < prepared.lab.length; i++) {
-    const c = prepared.lab[i];
-    const d = (c[0] - p[0]) ** 2 + 4 * ((c[1] - p[1]) ** 2 + (c[2] - p[2]) ** 2);
-    if (d < bestD) { bestD = d; best = i; }
-  }
-  const out = best >= 0 ? prepared.allowed[best].slice(0, 3) : guardHue(rgb);
-  if (prepared.memo.size >= 4096) prepared.memo.clear();
-  prepared.memo.set(key, out);
-  return out;
-}
-const SNAP_CACHE = new WeakMap();
-function oklab(c) {
-  const r = LINEAR[c[0] | 0], g = LINEAR[c[1] | 0], b = LINEAR[c[2] | 0];
-  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
-  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
-  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
-  return [0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s, 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
-    0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s];
-}
+/** Keep a line colour PROTECTED_HUE_GAP from the protected hues. */
+export function snapCrestColor(rgb) { return guardHue(rgb); }
 
 // --- Split-cell re-ownership -------------------------------------------------
 

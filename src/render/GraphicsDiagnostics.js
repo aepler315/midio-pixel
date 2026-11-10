@@ -32,7 +32,7 @@ export function graphicsReport({ range = null, voxelRange = null, profile = null
       touchPoints: env.navigator?.maxTouchPoints ?? null, deviceMemory: env.navigator?.deviceMemory ?? null,
       screen: pick(env.screen, ['width', 'height']) },
     stage: pick(canvas, ['width', 'height']),
-    profile: pick(profile, ['version', 'look', 'quality', 'scaling', 'palette', 'dither']),
+    profile: pick(profile, ['version', 'look', 'quality', 'scaling']),
     presentation: pick(presentation, ['requestedLook', 'effectiveLook', 'rangePipeline', 'working', 'output', 'frame']),
     ...(voxelRange ? { voxelRange: pick(voxelRange, ['state', 'reason', 'viewId', 'progress', 'heardTimeMs', 'triangles', 'draws']) } : {}),
     range: range == null ? null : { ...pick(range, ['mode', 'active', 'reason', 'runtime', 'viewId', 'tourMode', 'generation']),

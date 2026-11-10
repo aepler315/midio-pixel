@@ -3,8 +3,6 @@ import { PixelPresentation, compositePixelFrame, fitPixelRect } from './PixelPre
 import { pixelRenderPolicy } from './PixelRenderPolicy.js';
 import { CanvasBuffers } from './CanvasResidency.js';
 import { CinematicPixelRenderer } from './CinematicPixel.js';
-import { quantizeImageData, quantizePalette } from './PaletteQuantize.js';
-import { buildDitherWeights } from './PixelDither.js';
 import { landscapeScoreFor } from '../world/alpine/LandscapeScore.js';
 import { RISE_SURGE_START_MS, RISE_SURGE_MS } from '../core/OpeningTimeline.js';
 import { landscapeResolutionPlan, landscapeResolutionAt, landscapeResolutionEndpoint, landscapeQualityRung } from './ProgressiveLandscapeResolution.js';
@@ -41,7 +39,7 @@ class PresentingRenderer {
     if (source && (this._directFrame || this._voxelFrame)) return source;
     // Recording and export consume the completed hybrid picture (smooth sky,
     // water, mid effects and/or the cinematic cell reconstruction over the
-    // pixel frame). Palette diagnostics can still inspect the native
+    // pixel frame). Diagnostics can still inspect the native
     // terrain raster separately.
     const background = this._captureBackground, water = this._captureWater, post = this._capturePost, effects = this._captureEffects;
     const crest = this._captureCrest, shore = this._captureShore, terrain = this._captureTerrain;
@@ -92,13 +90,9 @@ class PresentingRenderer {
     }
     const range = this.inner.rangePresentation;
     const landscape = manager?.world?.kind === 'alpine' && !!range?.enabled;
-    const singleStage = landscape && this._requestedPresentation?.rangePipeline === 'single';
-    if (manager) { manager.setSingleStage?.(singleStage); manager.singleStage = singleStage; }
-    if (range) { range.setSingleStage?.(singleStage); range.singleStage = singleStage; }
     if (landscape && this._requestedPresentation?.directTerrain === true) return this._drawDirect(sim, alpha, { preparing, manager, range });
     const growing = landscape && this._requestedPresentation?.buildPixelDetail === true
-      && this._requestedPresentation?.rangePipeline !== 'native'
-      && this.output._resolvedPaletteId === 'none' && !this.voxelRange;
+      && !this.voxelRange;
     let growth = null, qualityRung = null, frameRise01 = null;
     if (growing) {
       const layoutKey = `${this.canvas.width}:${this.canvas.height}:${this.output.presentation.scaling}`;
@@ -143,18 +137,14 @@ class PresentingRenderer {
     this._releaseDirect();
     if (manager) manager.directFullResolution = false;
     if (range) { range.directTerrainMode = false; range.drawTerrainImage = null; range.drawLegacyTerrain = null; }
-    const hybridSky = !singleStage && typeof manager?.drawHighResolutionSky === 'function';
-    if (manager) manager.highResolutionSky = singleStage || hybridSky;
-    const waterOverlay = !singleStage && landscape && typeof range.drawWaterForeground === 'function';
+    const hybridSky = typeof manager?.drawHighResolutionSky === 'function';
+    if (manager) manager.highResolutionSky = hybridSky;
+    const waterOverlay = landscape && typeof range.drawWaterForeground === 'function';
     // The crest line (RangeCrest.js) needs the separate output composite too.
-    const crestOverlay = !singleStage && landscape && typeof range.drawCrestForeground === 'function';
+    const crestOverlay = landscape && typeof range.drawCrestForeground === 'function';
     if (range) range.crestOutputSize = crestOverlay ? { width: this.canvas.width, height: this.canvas.height } : null;
-    if (range && 'crestEnabled' in range) {
-      range.crestEnabled = crestOverlay;
-      const id = this.output._resolvedPaletteId;
-      range.crestPalette = !id || id === 'none' ? null : id === 'rgb332' ? 'rgb332' : this.output.compiledPalette || null;
-    }
-    const smoothEffects = !singleStage && typeof manager?.drawHighResolutionMidEffects === 'function';
+    if (range && 'crestEnabled' in range) range.crestEnabled = crestOverlay;
+    const smoothEffects = typeof manager?.drawHighResolutionMidEffects === 'function';
     if (manager) {
       manager.highResolutionMidEffects = smoothEffects;
       manager.midEffectsOutputSize = smoothEffects ? { width: this.canvas.width, height: this.canvas.height } : null;
@@ -163,7 +153,7 @@ class PresentingRenderer {
     const scene = this.canvasRenderer;
     scene.outputCover = false;
     // Optical effects and HUD draw after the completed Landscape composite.
-    const postEffects = !singleStage && !!manager?.world && typeof scene.drawDeferredPostEffects === 'function';
+    const postEffects = !!manager?.world && typeof scene.drawDeferredPostEffects === 'function';
     scene.deferPostEffects = postEffects;
     this.output.qualityLevel = sim?.perf?.level ?? 0;
     const separate = hybridSky || waterOverlay || postEffects || smoothEffects || crestOverlay;
@@ -185,7 +175,7 @@ class PresentingRenderer {
     scene.canvas = source; scene.ctx = source.getContext('2d');
     // Scene captures (opening assembly, freeze, highlight reel) take the
     // finished composite, smooth sky and water included.
-    scene.deferSceneCaptures = singleStage || hybridSky || waterOverlay || postEffects || smoothEffects || crestOverlay || preparing;
+    scene.deferSceneCaptures = hybridSky || waterOverlay || postEffects || smoothEffects || crestOverlay || preparing;
     scene.pixelPolicy = pixelRenderPolicy({ ...this.output.presentation, runtimeGrid: growth ? this.output.grid : null });
     this.inner.presentationPixelated = this.output.presentation.pixelated;
     if (range) { range.pixelated = !!this.output.presentation.pixelated; range.pixelPolicy = scene.pixelPolicy; range.cinematicPixel = cinematicPixel; }
@@ -218,8 +208,7 @@ class PresentingRenderer {
     const terrain = crestOverlay && typeof range.drawCrestTerrain === 'function' ? (ctx, fit, draw, source) => range.drawCrestTerrain(ctx, fit, draw, source) : null;
     const shore = crestOverlay && typeof range.drawShoreForeground === 'function' ? (ctx, fit) => range.drawShoreForeground(ctx, fit) : null;
     const prepare = crestOverlay && typeof range.prepareCrestGrid === 'function' ? (args) => range.prepareCrestGrid(args) : null;
-    const finish = prepare && typeof range.finishCrestGrid === 'function' ? (args) => range.finishCrestGrid(args) : null;
-    const result = this.output.finishFrame({ background, water, effects, prepare, finish, crest, shore, terrain });
+    const result = this.output.finishFrame({ background, water, effects, prepare, crest, shore, terrain });
     if (growth && result?.presented) this._lastGrowthRung = Math.max(0, this._growthPlan.grids.indexOf(this.output.grid));
     const post = postEffects ? (ctx, fit) => scene.drawDeferredPostEffects(ctx, fit) : null;
     if (result?.presented && post) {
@@ -325,22 +314,6 @@ class PresentingRenderer {
     sctx.imageSmoothingEnabled = false;
     paint(sctx);
     sctx.setTransform(1, 0, 0, 1, 0, 0);
-    const needsPalette = this.output._resolvedPaletteId !== 'none';
-    if (needsPalette) {
-      try {
-        const data = sctx.getImageData(0, 0, width, height);
-        if (this.output._resolvedPaletteId === 'rgb332') quantizeImageData(data, { dither: p.dither });
-        else if (this.output.compiledPalette) {
-          let weights = null;
-          if (p.ditherMode === 'selective' && p.dither > 0) {
-            weights = this._directDitherWeights(width * height);
-            if (weights) buildDitherWeights(data, weights);
-          }
-          quantizePalette(data, this.output.compiledPalette, { dither: p.dither, weights });
-        }
-        sctx.putImageData(data, 0, 0);
-      } catch { /* Keep the unquantized terrain if pixel readback is denied. */ }
-    }
     const needsCinematic = !!p.cinematicPixel && quality < 2;
     if (!needsCinematic) this._directCinematic?.suspend();
     ctx.save();
@@ -357,22 +330,9 @@ class PresentingRenderer {
       return true;
     } finally { ctx.restore(); }
   }
-  _directDitherWeights(length) {
-    const key = `${this.output.key}:direct-weights`, residency = this.output.residency;
-    if (this._directWeights?.length === length && residency.get(key) === this._directWeights) return this._directWeights;
-    residency.release(key); this._directWeights = null;
-    const reservation = residency.reserve({ key, bytes: length, owner: 'direct-terrain-dither', evictable: false });
-    if (!reservation) return null;
-    try {
-      const weights = new Uint8Array(length);
-      if (residency.commit(reservation, weights, data => data.fill(0))) return (this._directWeights = weights);
-    } catch { /* Use ordered dither if the optional buffer is unavailable. */ }
-    residency.releaseReservation(reservation); return null;
-  }
   _releaseDirect() {
     this._directBuffers?.dispose(); this._directBuffers = null;
     this._directCinematic?.suspend();
-    this.output.residency?.release(`${this.output.key}:direct-weights`); this._directWeights = null;
   }
   dispose() { if (this._disposed) return; this._disposed = true; this._releaseDirect(); this._directCinematic?.dispose(); try { this.inner.dispose(); } finally { this.output.dispose(); } }
 }
