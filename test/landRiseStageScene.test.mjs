@@ -184,6 +184,12 @@ test('a prepared stage draws every program on the slot rise, wired to its owner 
   // Lazily made passes follow the view.
   const own = s._createOwnershipMaterials(p.uniforms, false, false, SCENE_VERT, p.slotRise);
   for (const m of Object.values(own)) assert.ok(m.userData.slotRise);
+  // Every tile ships and nothing lies below the lake: no backdrop plain past
+  // the far edge, and the build overview fades no edge of it.
+  assert.equal(p.riseGround, null);
+  const coverage = p.openingCoverage?.texture?.image?.data;
+  assert.ok(coverage, 'the stage has an opening coverage field');
+  for (let i = 0; i < coverage.length; i += 4) assert.ok(coverage[i] === 255 && coverage[i + 1] === 255, 'full source coverage');
   // The frame writes each slot's sink.
   slotSinks(p.slotRise.slotIds, { rise01: 0.6, slotRise01: { B2: 0.5, H1: 0.9 } }, p.uniforms.uSlotSink.value);
   assert.ok(Math.abs(p.uniforms.uSlotSink.value[p.slotRise.slotIds.indexOf('B2')] - 0.5) < 1e-6);
@@ -199,6 +205,7 @@ test('a catalog view prepares exactly as before: no slot rise, no swapped progra
   try { p = await s.prepare(view, { baseUrl: ASSETS.href, generation: 1 }); } finally { globalThis.fetch = fetch; }
   assert.equal(p.slotRise, null);
   assert.equal(p.uniforms.uSlotFrame.value.w, 0);
+  assert.ok(p.riseGround, 'a catalog view keeps its backdrop');
   for (const m of materialsOf(p)) assert.ok(!m.userData.slotRise && m.vertexShader.includes(LAND_RISE_GLSL));
   s._disposePrepared?.(p);
 });

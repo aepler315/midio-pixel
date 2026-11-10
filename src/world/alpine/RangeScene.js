@@ -1751,7 +1751,10 @@ export class RangeScene {
         }
         // This bounded inferred backdrop and its build scratch were admitted
         // above with the view. It never participates in source terrain depth.
-        riseGround = new RiseGround(THREE, data, uniforms);
+        // A composed stage ships every tile and has no ground below its lake:
+        // the backdrop would only draw a construction-sea plain past the
+        // stage's far edge, a tan band on the horizon until the rise ends.
+        riseGround = view.songRange ? null : new RiseGround(THREE, data, uniforms);
         uniforms.uDebugMask.value = this.debugMask || 0;
         // The rail's own bakes read its ground alone: tour-only ridges never
         // shade it or steer its land (RailDraw.js). The tour reads it all.
@@ -1950,7 +1953,7 @@ export class RangeScene {
         // the rock stage.
         const gl = this.renderer.getContext();
         const targets = [...BANDS.map(band => [scenes[band]]), [depthScene],
-          [riseGround.scene]];
+          ...(riseGround ? [[riseGround.scene]] : [])];
         if (stageGL) targets.push([stageGL.scene, stageGL.camera]);
         const checked = new Set();
         // The ownership twins of the depth pre-pass link too (swapped in only

@@ -44,6 +44,9 @@ function* coverageSteps(data, view) {
   const packed = new Uint8Array(width * height * 4);
   const edges = [boundaries(data, true), boundaries(data, false)], paths = forestDistances(view);
   const fadeM = Math.max(250, cell * 2), tileM = data.cells * g.cellSizeM;
+  // A composed stage ships every tile: its grid edge is open lake, not a
+  // missing source, so the build overview fades none of it.
+  const complete = !!view?.songRange;
   for (let iz = 0; iz < height; iz++) {
     const z = g.originM[1] + extentM[1] * iz / (height - 1);
     for (let ix = 0; ix < width; ix++) {
@@ -52,7 +55,7 @@ function* coverageSteps(data, view) {
       const o = (iz * width + ix) * 4;
       for (let mode = 0; mode < 2; mode++) {
         const inside = Number.isFinite(y) && edges[mode].drawn(tile);
-        packed[o + mode] = Math.round(255 * unit(.5 + .5 * signedDistance(edges[mode], x, z, inside, fadeM) / fadeM));
+        packed[o + mode] = complete ? 255 : Math.round(255 * unit(.5 + .5 * signedDistance(edges[mode], x, z, inside, fadeM) / fadeM));
       }
       if (Number.isFinite(y)) {
         const p = [x, y, z], rail = paths.rail(p), tour = paths.footprint ? paths.footprint(p, rail) : rail;
