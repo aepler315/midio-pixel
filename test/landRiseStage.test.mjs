@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { compileLandRise, compileStageRise, stageSlotOrder, chorusLabel, LAND_RISE_START, LAND_RISE_CATCH_UP_MS }
   from '../src/world/alpine/LandRise.js';
-import { compileLandscapeScore } from '../src/world/alpine/LandscapeScore.js';
+import { compileLandscapeScore, landscapeScoreFor } from '../src/world/alpine/LandscapeScore.js';
 
 const SLOTS = [
   { slotId: 'F1', row: 'front' }, { slotId: 'B2', row: 'back' }, { slotId: 'H1', row: 'horizon' }, { slotId: 'B1', row: 'back' },
@@ -143,4 +143,29 @@ test('the score carries each slot and rises catalog views at the slots\' mean', 
   const preview = staged.at(30000, { preview: true });
   assert.equal(preview.rise01, 1);
   assert.deepEqual(Object.values(preview.slotRise01), Array(8).fill(1));
+});
+
+test('a weak boundary keeps its label: the form comes from every reliably labelled section', () => {
+  // The analyzer can mark a detected boundary with zero confidence (a weak
+  // cut inside one long passage). Its label is still the form's, as
+  // SectionRoles reads it; dropping it hands the chorus to quieter labels.
+  const curves = { globalEnergyNorm: loudChorus };
+  const weak = sections.map((s, i) => ({ ...s, provenance: 'detected', confidence: i === 2 || i === 4 ? 0 : 0.8 }));
+  const score = compileLandscapeScore({ energyCurves: curves, sections: weak, durationMs, stage: { slots: SLOTS, principal: 'B2' } });
+  assert.equal(score.stageRise.mode, 'structure');
+  assert.deepEqual(score.stageRise.labels.B2, ['C']);
+  // Decorative cuts carry no form.
+  const decorative = sections.map((s) => ({ ...s, provenance: 'decorative' }));
+  const none = compileLandscapeScore({ energyCurves: curves, sections: decorative, durationMs, stage: { slots: SLOTS, principal: 'B2' } });
+  assert.equal(none.stageRise.mode, 'stagger');
+});
+
+test('an opening analysis stages a stagger; the whole song brings the structure', () => {
+  const songTerrain = { songRange: { stage: { slots: SLOTS, principal: 'B2' } } };
+  const labelled = sections.map((s) => ({ ...s, provenance: 'detected' }));
+  const mgr = (extra) => ({ energyCurves: { globalEnergyNorm: loudChorus }, sections: labelled, durationMs, songTerrain, ...extra });
+  assert.equal(landscapeScoreFor(mgr({ analyzedThroughMs: 40000 })).stageRise.mode, 'stagger');
+  assert.equal(landscapeScoreFor(mgr({ analyzedThroughMs: null })).stageRise.mode, 'structure');
+  // A song without a composed range has no stage rise either way.
+  assert.equal(landscapeScoreFor({ ...mgr({}), songTerrain: null }).stageRise, null);
 });
