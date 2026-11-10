@@ -485,6 +485,8 @@ export function buildRangeFrame({
     progress01, glacier, railSides, cameraScheduleId, qualityLevel: sim.perf?.level ?? 0,
     // The range's song-long rise (LandRise.js): 1 is the complete range.
     rise01: performance.rise01 ?? 1,
+    // A composed stage's slots, each on its own climb (null otherwise).
+    slotRise01: performance.slotRise01 ?? null,
     // How much of the Forest Service map under the land shows (quiet passages).
     cloudSea01: cloudSeaAt(mgr, timeMs),
     storm: stormAt(mgr, timeMs),

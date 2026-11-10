@@ -23,6 +23,7 @@ import { decodeTerrain } from './TerrainMesh.js';
 import { cameraPoseAt, boxMayBeVisible, viewDepthToBox, focalPx } from '../terrain/SceneTravel.js';
 import { stageFloorHeight, inStageLake, slotOrigin } from '../terrain/StageFloor.js';
 import { songRangeKey } from '../terrain/SongRangePlan.js';
+import { SLOT_RISE_SLOTS } from './LandRise.js';
 
 export const STAGE_KIND = 'song-range-stage';
 export const PIECE_KIND = 'massif-piece';
@@ -64,6 +65,46 @@ export function stageTemplate(catalog, plan) {
   const t = catalog.templates.find((x) => x.id === plan.templateId);
   if (!t) throw new Error(`no stage template ${plan.templateId}`);
   return t;
+}
+
+/** A stage's slots for the song's rise (song range composition, Phase 4):
+ *  { slots: [{ slotId, row }], principal }, from the plan and its template. */
+export function stageRiseSlots(plan, catalog) {
+  const t = stageTemplate(catalog, plan);
+  return {
+    slots: plan.slots.map((s) => ({ slotId: s.slotId, row: t.slots.find((x) => x.id === s.slotId)?.row ?? null })),
+    principal: plan.principal?.slotId ?? null,
+  };
+}
+
+/**
+ * Which slot owns each stage tile, for the per-slot rise in the shaders:
+ *   { tilesX, tilesZ, originM, tileM, slotIds, owners }
+ * `owners[iz * tilesX + ix]` is an index into `slotIds`, whose entry 0 is
+ * 'floor' (tiles no piece block covers). A block covers its whole tile
+ * rectangle, zero-relief ring included, exactly as assembleStage places it,
+ * from the catalog's piece footprints alone (no package needed).
+ */
+export function stageSlotOwners(plan, catalog) {
+  const t = stageTemplate(catalog, plan);
+  const { width: W, height: H, cellSizeM: c, originM } = t.grid;
+  const tilesX = (W - 1) / TILE_CELLS, tilesZ = (H - 1) / TILE_CELLS;
+  const slotIds = ['floor'], owners = new Uint8Array(tilesX * tilesZ);
+  for (const s of plan.slots) {
+    const slot = t.slots.find((x) => x.id === s.slotId);
+    const piece = catalog.pieces.find((x) => x.id === s.pieceId);
+    if (!slot || !piece) throw new Error(`slot ${s.slotId} or piece ${s.pieceId} missing`);
+    const at = slotOrigin(slot, piece.tiles);
+    if (!at) throw new Error(`${s.pieceId} does not fit slot ${s.slotId}`);
+    const index = slotIds.push(s.slotId) - 1;
+    for (let dz = 0; dz < piece.tiles[1]; dz++) for (let dx = 0; dx < piece.tiles[0]; dx++) {
+      const k = (at[1] + dz) * tilesX + at[0] + dx;
+      if (owners[k]) throw new Error(`slots ${slotIds[owners[k]]} and ${s.slotId} overlap`);
+      owners[k] = index;
+    }
+  }
+  if (slotIds.length > SLOT_RISE_SLOTS) throw new Error(`${t.id}: ${slotIds.length - 1} slots, the rise addresses ${SLOT_RISE_SLOTS - 1}`);
+  return { tilesX, tilesZ, originM: [...originM], tileM: TILE_CELLS * c, slotIds, owners };
 }
 
 /**

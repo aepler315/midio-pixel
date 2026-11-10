@@ -22,6 +22,7 @@ export { materialDetailPosition } from './MaterialDetailDomain.js';
 // GLSL twin of RangeFrame.sceneDeformation -- keep the two in step.
 import { MIST_GLSL, MIST_SAMPLES, mistFlowUniforms } from './RangeAtmosphere.js';
 import { DEFORM_GLSL } from './TerrainDeform.js';
+import { SLOT_RISE_SLOTS, slotRiseVertex } from './LandRise.js';
 import { FACTORED_DEFORM_GRAD_GLSL } from './DeformationGradient.js';
 import { FOREST_HASH_GLSL, FOREST_TRAITS_GLSL } from './ForestCover.js';
 import { CROWN_GLSL } from './ForestProfile.js';
@@ -1200,6 +1201,9 @@ export function sceneUniforms(THREE, base) {
     uGlacierWidth: { value: 1 }, uGlacierSurface: { value: new THREE.Vector2() }, uGlacierMaxThickness: { value: 0 }, uGlacierRetreat: { value: 0 },
     uDeformAmp: { value: 0 }, uDeformKick: { value: 0 }, uDeformK: { value: 0 },
     uTourEye: { value: new THREE.Vector4() }, uLandRise: { value: new THREE.Vector2() },
+    // A composed stage's per-slot rise (LandRise.js); inactive (w = 0) elsewhere.
+    uSlotOwner: { value: null }, uSlotSink: { value: new Float32Array(SLOT_RISE_SLOTS) },
+    uSlotFrame: { value: new THREE.Vector4(0, 0, 1, 0) },
     uOpeningCoverage: { value: null },
     uLandHierarchy: { value: null }, uLandDance: { value: new THREE.Vector4() },
     uDeformGesture: { value: 0 }, uDeformMelodic: { value: 0 }, uDeformStructural: { value: 0 },
@@ -1364,6 +1368,24 @@ export function createSceneMaterial(THREE, uniforms, {
   if (riverSurface) m.defines.RIVER_SURFACE = 1;
   if (mappedWaterOnly) m.defines.MAPPED_WATER_ONLY = 1;
   return m;
+}
+
+// The forest canopy's inverse view ray uses the drawn point's own rise.
+const CANOPY_RISE = 'float rise = 1.0 - uLandRise.x;';
+const SLOT_CANOPY_RISE = 'float rise = 1.0 + vRiseGrad.y; // this point\'s slot (LandRise.js)';
+
+/** A material drawing a composed stage (song range composition, Phase 4):
+ *  its vertex shader takes the per-slot rise (LandRise.slotRiseVertex) and a
+ *  scene fragment shader reads the local rise from vRiseGrad. Every program
+ *  that draws the stage goes through this, so depth and colour passes stay
+ *  invariant. Catalog views never do: their sources are unchanged. */
+export function useSlotRise(material) {
+  if (!material || material.userData.slotRise) return material;
+  material.vertexShader = slotRiseVertex(material.vertexShader);
+  if (material.fragmentShader.includes(CANOPY_RISE)) material.fragmentShader = material.fragmentShader.replace(CANOPY_RISE, SLOT_CANOPY_RISE);
+  material.userData.slotRise = true;
+  material.needsUpdate = true;
+  return material;
 }
 
 /** Depth-only twin: identical vertex transform (invariant), no colour. */

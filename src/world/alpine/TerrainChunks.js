@@ -31,7 +31,7 @@
 // scissor while the culling did. A renderer.setViewport() on a bound target
 // is detected (getCurrentViewport) and turns the narrowing off.
 
-import { risenHeight } from './LandRise.js';
+import { risenLow, risenHigh } from './LandRise.js';
 
 /** Culled index ranges shorter than this are drawn through instead of
  *  costing a draw call of their own (about 2,000 triangles). */
@@ -169,8 +169,9 @@ export function visibleGroups(table, planes, lift, { mergeIndices = CHUNK_MERGE_
     const o = i * 6;
     // Both ends move: the rise lowers peaks and raises land below its base.
     const bottom = box[o + 1] + lo, top = box[o + 4] + hi;
-    const y0 = Number.isFinite(bottom) ? risenHeight(bottom, 0, rise) : bottom;
-    const y1 = Number.isFinite(top) ? risenHeight(top, 0, rise) : top;
+    // A composed stage's slots rise apart: span them all (risenLow/High).
+    const y0 = Number.isFinite(bottom) ? risenLow(bottom, rise) : bottom;
+    const y1 = Number.isFinite(top) ? risenHigh(top, rise) : top;
     const keep = !boxOutsidePlanes(planes, box[o] - pad, y0 - pad, box[o + 2] - pad, box[o + 3] + pad, y1 + pad, box[o + 5] + pad);
     if (!keep) { open = null; continue; }
     if (open && open.end === start[i]) open.end = start[i] + count[i];

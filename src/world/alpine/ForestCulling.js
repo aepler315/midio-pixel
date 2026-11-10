@@ -54,7 +54,7 @@
 
 import { frustumPlanes, boxOutsidePlanes, CHUNK_BOX_PAD_M } from './TerrainChunks.js';
 import { liftBounds, MIRROR_BOUND_SAFETY } from './MirrorScissor.js';
-import { risenHeight } from './LandRise.js';
+import { risenLow, risenHigh } from './LandRise.js';
 import { WIND_SWAY, WIND_SWAY_PEAK, GUST_LEAN } from './ForestWind.js';
 
 /** Root cell size for a batch's boxes, metres. */
@@ -183,8 +183,8 @@ export function forestCellBox(cells, o, extents, lift, lean, pad = CHUNK_BOX_PAD
   const x0 = cells[o] - r, z0 = cells[o + 2] - r, x1 = cells[o + 3] + r, z1 = cells[o + 5] + r;
   const bottom = cells[o + 1] + Math.min(0, lift.lo);
   const top = cells[o + 4] + Math.max(0, lift.hi);
-  out[0] = x0; out[1] = risenHeight(bottom, 0, lift.rise) - pad; out[2] = z0;
-  out[3] = x1; out[4] = risenHeight(top, 0, lift.rise) + pad; out[5] = z1;
+  out[0] = x0; out[1] = risenLow(bottom, lift.rise) - pad; out[2] = z0;
+  out[3] = x1; out[4] = risenHigh(top, lift.rise) + pad; out[5] = z1;
   return out;
 }
 
