@@ -1,9 +1,9 @@
-# Landscape: flat ground grows into the range
+# Landscape: the range grows with the song
 
-Landscape starts with **level ground**, hidden under the song's title card.
-Every terrain height, including valleys below the camera, starts at one fixed
-ground level, surges to most of its relief as the card fades, and finishes
-growing with the song. The
+Landscape starts **one-third built**, hidden under the song's title card,
+skipping the first third of the mountain build. Every terrain height, including
+valleys below the camera, grows relative to one fixed ground level, surges to
+most of its relief as the card fades, and finishes growing with the song. The
 previous eye-relative squash left valleys intact and made the skyline look cut
 off; it is no longer used.
 
@@ -18,7 +18,7 @@ For source elevation `y`, ground level `baseM`, and song rise `s`:
 
     drawnY = baseM + s * (y - baseM)
 
-`s` starts at exactly 0 and reaches 1 before the closing camera move. The base is
+`s` starts at 1/3 and reaches 1 before the closing camera move. The base is
 stable for the entire view: its authored lake level when present, otherwise the
 source terrain minimum. It is not recomputed from the camera or a streaming
 window. Signed elevations are valid.
@@ -27,7 +27,7 @@ window. Signed elevations are valid.
 At full height its functions return immediately. Terrain, trees, rivers,
 mirrors and all terrain depth/ownership passes share this mapping.
 Musical terrain movement is composed before the rise, so it cannot introduce
-relief at the completely flat opening. Normals use a finite inverse-transpose
+relief at a completely flat transform. Normals use a finite inverse-transpose
 form at `s=0`; full-height normals are returned unchanged.
 
 `LandRiseCamera.js` moves the authored eye with the ground below it while
@@ -75,16 +75,17 @@ surges up as the card fades (`src/core/OpeningTimeline.js`):
 
 | Heard time | What shows |
 | --- | --- |
-| 0–2.0 s | Title card (song, artist) over the flat ground |
-| 1.8–4.0 s | Opening surge: flat to 70% relief, ease-out |
+| 0–2.0 s | Title card (song, artist) over the one-third-built range |
+| 1.8–4.0 s | Opening surge: one-third to at least 80% relief, ease-out |
 | 2.0–2.7 s | Card fades; the land is past half relief when it clears |
 | from 2.7 s | First place caption, fading in 1.5 s later |
 
 The surge composes with the music's climb:
-`rise = 1 - (1 - 0.7 * surge) * (1 - climb)`. The 70% matches the camera's
-settle point, so the tight opening lens has widened to the authored lens when
-the surge lands. The flat, featureless opening used to last most of the first
-twenty seconds; it now sits almost entirely under the card.
+`rise = 1 - (1 - 0.7 * surge) * (1 - climb)`, where
+`climb = 1/3 + 2/3 * easedMusicProgress`. The surge supplies 70% of the remaining
+relief, reaching at least 80% overall and clearing the camera's 70% settle point,
+so the lens has widened to the authored lens when the surge lands. The flat,
+featureless opening is skipped while song playback still begins at time zero.
 
 The climb, `compileLandRise` in `LandscapeScore`, integrates `0.6 + energy` over
 heard time. It reaches full height at `max(0.6 * cadence, cadence - 20 seconds)`,
@@ -97,7 +98,7 @@ requested song time; no accumulated growth state needs resetting.
 ## Verification
 
 Run `npm run test:rise-coverage` for structural coverage of every shipped view.
-It checks the finite inferred grid, exact flat opening, full-height identity,
+It checks the finite inferred grid, exact zero-relief transform, full-height identity,
 coverage extents and admitted memory. It does not claim that inferred elevations
 are surveyed data or prove every intermediate camera pixel.
 

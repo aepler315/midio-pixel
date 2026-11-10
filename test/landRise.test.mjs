@@ -22,7 +22,6 @@ function rng(seed) {
 // The song's curve
 
 test('the affine rise starts on one flat base and moves land below the eye too', () => {
-  assert.equal(LAND_RISE_START, 0);
   const baseM = 1200;
   for (const point of [[0, 600, 0], [50, 1500, -200], [-5000, 4000, 10000]]) {
     const [x, y, z] = point;
@@ -32,10 +31,11 @@ test('the affine rise starts on one flat base and moves land below the eye too',
   assert.deepEqual(riseFromUniforms({ uLandRise: { value: { x: .5, y: -150 } } }), { sink: .5, baseM: -150 });
 });
 
-test('the range starts flat and stands complete before the closing move', () => {
+test('the range starts one-third built and stands complete before the closing move', () => {
   const read = t => .5 + .5 * Math.sin(t / 7000);
   const rise = compileLandRise({ read, durationMs: 240000, cadenceMs: 230000, finaleMs: FINALE_MS });
   assert.equal(rise.endMs, 230000 - FINALE_MS);
+  assert.equal(LAND_RISE_START, 1 / 3);
   assert.ok(Math.abs(rise.at(0) - LAND_RISE_START) < 1e-12);
   let prev = -Infinity;
   for (let t = 0; t <= 240000; t += 50) {
@@ -46,6 +46,7 @@ test('the range starts flat and stands complete before the closing move', () => 
     prev = s;
   }
   for (const t of [rise.endMs, rise.endMs + 1, 230000, 240000, 1e9]) assert.equal(rise.at(t), 1, `${t} ms`);
+  assert.ok(Math.abs(rise.at(0) - 1 / 3) < 1e-12, 'rewinding restores the partly built opening');
   // The landing is gentle: the last stretch climbs slower than the middle.
   const late = rise.at(rise.endMs) - rise.at(rise.endMs - 5000), mid = rise.at(105000) - rise.at(100000);
   assert.ok(late < mid / 2, `landing ${late} vs ${mid}`);
