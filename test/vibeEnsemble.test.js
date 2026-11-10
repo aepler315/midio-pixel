@@ -1,8 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { VibeDirector } from '../src/sim/VibeDirector.js';
-import { meltMesh } from '../src/render/MeshDrawer.js';
-import { radialMesh } from '../src/render/meshes.js';
 import { Role } from '../src/core/NoteEvent.js';
 
 const STEP = 1 / 120;
@@ -70,27 +68,4 @@ test('dense, loud, wide-register writing reads epic; sparse quiet writing reads 
   const trivial = runVibe(trivialNotes, 8, 0.1);
   assert.ok(epic.epic > 0.6, `expected epic, got ${epic.epic.toFixed(2)}`);
   assert.ok(trivial.epic < 0.35, `expected trivial, got ${trivial.epic.toFixed(2)}`);
-});
-
-test('meltMesh flows every rim vertex, holds the hub, and stays bounded', () => {
-  const mesh = radialMesh(20, 20, 8, 0, -20);
-  const melted = meltMesh(mesh, 0, -20, 3.7, 5, 1);
-  assert.notEqual(melted, mesh);
-  assert.deepEqual(melted.vertices[0], mesh.vertices[0], 'the hub must hold still');
-  let moved = 0;
-  for (let i = 1; i < mesh.vertices.length; i++) {
-    const d = Math.hypot(melted.vertices[i].x - mesh.vertices[i].x, melted.vertices[i].y - mesh.vertices[i].y);
-    assert.ok(d < 5 * 8, `vertex ${i} melted too far: ${d}`);
-    if (d > 0.3) moved++;
-  }
-  assert.ok(moved >= 5, `most rim vertices should be in flow, only ${moved} moved`);
-  // Time-varying: the same call at another instant gives a different pose.
-  const melted2 = meltMesh(mesh, 0, -20, 4.9, 5, 1);
-  const delta = Math.hypot(
-    melted2.vertices[1].x - melted.vertices[1].x,
-    melted2.vertices[1].y - melted.vertices[1].y,
-  );
-  assert.ok(delta > 0.05, 'the melt must keep flowing over time');
-  // Zero melt is the identity.
-  assert.equal(meltMesh(mesh, 0, -20, 3.7, 0, 1), mesh);
 });

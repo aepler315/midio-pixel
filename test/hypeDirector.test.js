@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { HypeDirector, hypeFrameStyle, slamAt, surgeAt } from '../src/sim/HypeDirector.js';
+import { HypeDirector } from '../src/sim/HypeDirector.js';
 
 // HypeDirector's drop detector reads globalEnergyNorm -- see CalmDirector's
 // test for why a fixed-value stub is the right fixture for these thresholds.
@@ -42,7 +42,7 @@ test('the cooldown blocks rapid-fire drops from an oscillating dynamic', () => {
   assert.ok(hype.dropCount <= 2, `cooldown must cap drops, got ${hype.dropCount}`);
 });
 
-test('kick slams spike and decay; surge decays; ring window opens then closes', () => {
+test('kick slams spike and decay; surge decays', () => {
   const hype = new HypeDirector();
   hype.onKick(1);
   assert.ok(hype.slam >= 0.9);
@@ -50,9 +50,6 @@ test('kick slams spike and decay; surge decays; ring window opens then closes', 
   for (let i = 0; i < 60; i++) { hype.update(t, STEP, fakeEnergy(0.3)); t += 8.33; } // 0.5s
   assert.ok(hype.slam < 0.05, 'slam must decay within half a second');
 
-  hype.dropAtMs = t;
-  assert.ok(hype.ringU(t + 100) > 0 && hype.ringU(t + 100) < 1);
-  assert.equal(hype.ringU(t + 2000), null, 'ring must close after its window');
 });
 
 test('buildUp rises on a sustained energy ramp without ever firing a drop', () => {
@@ -86,51 +83,4 @@ test('buildUp settles back toward 0 once the ramp plateaus', () => {
   // Hold steady at the plateau -- fast catches up to slow, delta -> 0.
   for (let i = 0; i < 600; i++) { hype.update(t, STEP, fakeEnergy(0.8)); t += 8.33; }
   assert.ok(hype.buildUp < peak * 0.3, `buildUp should decay once the ramp plateaus, was ${peak}, now ${hype.buildUp}`);
-});
-
-test('hypeFrameStyle nearly extinguishes the rim during calm; energetic still reads', () => {
-  const hot = { fast: 0.6, slam: 1, surge: 0 };
-  const calmHot = hypeFrameStyle(hot, 1);
-  const wildHot = hypeFrameStyle(hot, 0);
-  assert.ok(calmHot.alpha < 0.08, `calm + kick slam should barely flash the rim, got ${calmHot.alpha}`);
-  assert.ok(wildHot.alpha > 0.35, `energetic slam should still light the frame, got ${wildHot.alpha}`);
-  assert.ok(calmHot.alpha < wildHot.alpha * 0.25, 'calm must cut most of the kick-strobe');
-
-  const drop = { fast: 0.2, slam: 0, surge: 1 };
-  const calmDrop = hypeFrameStyle(drop, 1);
-  const wildDrop = hypeFrameStyle(drop, 0);
-  assert.ok(calmDrop.alpha > calmHot.alpha, 'a drop surge should still peek through calm more than a kick');
-  assert.ok(wildDrop.alpha > calmDrop.alpha, 'full surge is brighter when not calm');
-  assert.ok(calmDrop.echo > 0 || wildDrop.echo > 0);
-
-  const idle = hypeFrameStyle({ fast: 0.15, slam: 0, surge: 0 }, 1);
-  assert.ok(idle.alpha < 0.03, 'fully calm idle rim should be almost gone');
-});
-
-// Hype on heard time: pure functions of the song position.
-const KICKS = [
-  { tMs: 1000, vel: 1 }, { tMs: 1100, vel: 0.4 }, { tMs: 1500, vel: 0.8 }, { tMs: 2000, vel: 0.2 },
-];
-
-test('slamAt: nothing before the first kick, a peak at the heard kick, gone after its window', () => {
-  assert.equal(slamAt(KICKS, 999.9), 0, 'no lookahead');
-  assert.equal(slamAt(KICKS, 0), 0);
-  assert.equal(slamAt([], 1000), 0);
-  assert.equal(slamAt(null, 1000), 0);
-  assert.equal(slamAt(KICKS, 1000), 1, '.35 + .65 * vel at age 0');
-  assert.ok(Math.abs(slamAt(KICKS, 1110) - Math.max(1 - 110 / 220, (0.35 + 0.65 * 0.4) * (1 - 10 / 220))) < 1e-12,
-    'the strongest live kick wins');
-  assert.ok(Math.abs(slamAt(KICKS, 1050) - (1 - 50 / 220)) < 1e-12);
-  assert.ok(Math.abs(slamAt(KICKS, 1500) - (0.35 + 0.65 * 0.8)) < 1e-12);
-  assert.equal(slamAt(KICKS, 1720), 0, 'a kick is gone 220 ms later');
-  assert.ok(slamAt(KICKS, 1600) < slamAt(KICKS, 1550), 'and decays on the way');
-});
-
-test('surgeAt is 0 before the drop, 1 at it, and decays to 0', () => {
-  assert.equal(surgeAt(5000, 4999), 0);
-  assert.equal(surgeAt(-Infinity, 4999), 0, 'no drop yet');
-  assert.equal(surgeAt(5000, 5000), 1);
-  assert.ok(surgeAt(5000, 6000) > 0 && surgeAt(5000, 6000) < 1);
-  assert.equal(surgeAt(5000, 5000 + 2200), 0);
-  assert.equal(surgeAt(5000, 9000), 0);
 });

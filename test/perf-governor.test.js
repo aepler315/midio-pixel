@@ -26,7 +26,6 @@ test('stays at level 0 under a healthy frame budget', () => {
   assert.equal(gov.bloomEnabled, true);
   assert.equal(gov.veilEnabled, true);
   assert.equal(gov.rimLightEnabled, true);
-  assert.equal(gov.contactShadowsEnabled, true);
 });
 
 test('a persistent missed vsync every five callbacks sheds before settling below the requested cap', () => {
@@ -93,17 +92,15 @@ test('sheds one rung after sustained over-budget frames, in spec order', () => {
   assert.equal(gov.visionAllowed, false, 'vision loop sheds first');
   assert.equal(gov.particleMul, 1, 'particles untouched at level 1');
   assert.equal(gov.rimLightEnabled, true, 'rim light untouched at level 1');
-  assert.equal(gov.contactShadowsEnabled, true, 'contact shadows untouched at level 1');
 });
 
-test('rim light sheds at level 2 alongside the particle cap; contact shadows survive one rung longer', () => {
+test('rim light sheds at level 2 alongside the particle cap', () => {
   const gov = new PerfGovernor();
   const over2 = FRAME_BUDGET_MS * (20 / 15);
   feedFrames(gov, framesToShed(over2) * 2, over2); // two shed rungs -> level 2
   assert.equal(gov.level, 2);
   assert.equal(gov.particleMul, 0.6);
   assert.equal(gov.rimLightEnabled, false);
-  assert.equal(gov.contactShadowsEnabled, true, 'contact shadows shed at level 3, not 2');
 });
 
 test('a frame barely over budget still takes ~60 frames (~1s) to shed', () => {
@@ -148,7 +145,6 @@ test('sheds progressively further under sustained pressure', () => {
   assert.equal(gov.phenomenaFull, false);
   assert.equal(gov.hazeLayers, 1);
   assert.equal(gov.heavyPostFx, false);
-  assert.equal(gov.brushEnabled, false);
 
   // Further over-budget frames don't shed past MAX_LEVEL.
   feedFrames(gov, 200, 20, t);
@@ -189,19 +185,16 @@ test('deeper rungs (5-6) gate phenomena and the overlay-pass stack, past the ori
   assert.equal(gov.phenomenaFull, true, 'still full at the end of the original ladder');
   assert.equal(gov.hazeLayers, 3);
   assert.equal(gov.heavyPostFx, true);
-  assert.equal(gov.brushEnabled, true, 'brush still on at the end of the original ladder');
 
   gov.level = 5;
   assert.equal(gov.phenomenaFull, false, 'rung 5 sheds optional phenomena');
   assert.equal(gov.hazeLayers, 3, 'haze still full at rung 5');
   assert.equal(gov.heavyPostFx, true);
-  assert.equal(gov.brushEnabled, false, 'rung 5 sheds the rainbow brush alongside phenomena');
 
   gov.level = 6;
   assert.equal(gov.phenomenaFull, false);
   assert.equal(gov.hazeLayers, 1, 'rung 6 collapses haze to a single layer');
   assert.equal(gov.heavyPostFx, false, 'rung 6 also drops the heaviest overlay passes');
-  assert.equal(gov.brushEnabled, false);
 });
 
 test('ridgeShadingFull: _drawRidgeVolume\'s shade/aerial passes hold out to the very last rung', () => {
@@ -422,12 +415,10 @@ test('8-bit mode starts pinned at the cheapest rung with every optional pass off
   assert.equal(gov.level, MAX_LEVEL);
   assert.equal(gov.visionAllowed, false);
   assert.equal(gov.rimLightEnabled, false);
-  assert.equal(gov.contactShadowsEnabled, false);
   assert.equal(gov.crackGlowEnabled, false);
   assert.equal(gov.bloomEnabled, false);
   assert.equal(gov.veilEnabled, false);
   assert.equal(gov.phenomenaFull, false);
-  assert.equal(gov.brushEnabled, false);
   assert.equal(gov.heavyPostFx, false);
   assert.equal(gov.hazeLayers, 1);
   assert.equal(gov.ridgeShadingFull, false);

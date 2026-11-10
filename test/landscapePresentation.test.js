@@ -60,19 +60,6 @@ test('shared landscape ownership suppresses decorative schedules while retaining
   } finally { sim.dispose(); }
 });
 
-test('renderer retires old performer capture resources even over reflective water', () => {
-  const renderer = Object.create(Renderer.prototype);
-  let disposed = 0;
-  renderer._capture = { dispose() { disposed++; }, capture() { assert.fail('actor capture allocated'); } };
-  const sim = scene();
-  try {
-    const result = renderer._captureCastForReflections({}, sim, {}, { _rangeV2Active: true }, {}, {});
-    assert.deepEqual(result, { midio: null, broshi: null, midasus: null });
-    assert.equal(disposed, 1);
-    assert.equal(renderer._capture, null);
-  } finally { sim.dispose(); }
-});
-
 test('actor-free listening does not delay provisional analysis until the full song', async () => {
   const { useOpeningAnalysis } = await import('../src/audio/OpeningAnalysis.js');
   assert.equal(useOpeningAnalysis({ durationSec: 600, rangeListening: true }), true);
@@ -110,7 +97,7 @@ test('the real fallback renderer paints terrain without body, shadow, brush, lig
     renderer.draw(sim, 1);
     assert.ok(scenicPaint > 0);
     assert.equal(renderer.brush, undefined);
-    assert.equal(renderer._capture, null);
+    assert.equal(renderer._capture, undefined, 'no performer capture is ever allocated');
   } finally { sim.biomes = biomes; sim.dispose(); renderer.dispose(); }
 });
 

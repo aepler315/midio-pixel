@@ -17,9 +17,7 @@ export const EVAL_SPAN_MS = PREVIEW_SPAN_MS;
 export const EVAL_QUALITY = Object.freeze({
   phenomenaFull: true,
   particleMul: 1,
-  contactShadowsEnabled: true,
   rimLightEnabled: true,
-  brushEnabled: true,
 });
 
 export const REQUIRED_FAMILIES = Object.freeze([

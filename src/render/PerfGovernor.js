@@ -528,10 +528,8 @@ export class PerfGovernor {
     return this.level >= 2 ? 0.6 : 1;
   }
   // Movement VII: the celestial-light passes join the same ladder -- rim
-  // light is the pricier per-edge work so it sheds at the particle-cap
-  // rung; contact shadows shed alongside crack glow, one rung later.
+  // light is the pricier per-edge work so it sheds at the particle-cap rung.
   get rimLightEnabled() { return this.level < 2; }
-  get contactShadowsEnabled() { return this.level < 3; }
   get crackGlowEnabled() { return this.level < 3; }
   // Bloom (music-reactive post-pass, see Renderer._drawBloom): a few
   // downsampled offscreen draws plus one full-frame additive blit -- real
@@ -539,8 +537,7 @@ export class PerfGovernor {
   get bloomEnabled() { return this.level < 3; }
   get veilEnabled() { return this.level < 4; }
   // Deeper rungs: the optional phenomena layer (ReactionDiffusion ground
-  // texture, CymaticField, Murmuration, SkyEnsemble planets, FarVignettes,
-  // MeteorShower) -- all genuinely optional atmosphere, none of it gameplay.
+  // texture, CymaticField, SkyEnsemble planets, FarVignettes, MeteorShower) -- all genuinely optional atmosphere, none of it gameplay.
   get phenomenaFull() { return this.level < 5; }
   // The constellation weaver (ambient connect-the-dots, lyric-derived
   // glyphs, crystallized stars) is a few thin 1-3px strokes -- nothing like
@@ -552,10 +549,6 @@ export class PerfGovernor {
   // rung (with hazeLayers/heavyPostFx/ridgeShadingFull) -- as light as it is,
   // it is never the thing drowning the frame.
   get constellationsEnabled() { return this.level < 6; }
-  // RainbowBrush: up to 320 additive dabs redrawn every frame, purely
-  // cosmetic trail decoration -- widened spacing via particleMul but never
-  // actually gated by a rung. Sheds alongside the other optional atmosphere.
-  get brushEnabled() { return this.level < 5; }
   // Collapse the three depth-haze layers to one once still over budget past
   // the phenomena cut.
   get hazeLayers() { return this.level < 6 ? 3 : 1; }

@@ -185,7 +185,7 @@ export class Renderer {
     this.drawCount = 0;
   }
 
-  dispose() { this.discardFrameCaptures(); this._postBuffers.dispose(); this._groundResponse.dispose(); this._capture?.dispose(); }
+  dispose() { this.discardFrameCaptures(); this._postBuffers.dispose(); this._groundResponse.dispose(); }
 
   _captureSceneFrame(canvas, capture) {
     if (this.deferSceneCaptures) (this._frameCaptures ||= []).push(capture);
@@ -271,7 +271,6 @@ export class Renderer {
     const narrative = sim.rangeNarrativeAt?.() || null;
     this.rangeListeningActive = !!narrative;
     const groundY = sim.stageAnchor?.groundY ?? sim.midio?.groundY ?? 625;
-    this._capture?.dispose(); this._capture = null;
     if (biomeManager) biomeManager.rangeNarrative = narrative;
     const perf = sim.perf || null;
     const particleMul = perf ? perf.particleMul : 1;
@@ -516,13 +515,6 @@ export class Renderer {
     ctx.restore();
   }
 
-  /** Compatibility entry point for old consumers; releases retired graphics. */
-  _captureCastForReflections(ctx, sim, pose, biomeManager, perf, { drawMidioBody, drawBroshiBody, drawMidasusBody, voyageMul }) {
-    this._capture?.dispose?.();
-    this._capture = null;
-    return { broshi: null, midio: null, midasus: null };
-  }
-
   /** The Unraveling: a 'saturation' blend-mode rect pulls the whole world
    *  toward gray as the ending arc progresses. A fully desaturated (gray)
    *  fill under this blend mode desaturates the backdrop proportionally to
@@ -535,31 +527,6 @@ export class Renderer {
     ctx.globalAlpha = amount;
     ctx.fillStyle = '#808080';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.restore();
-  }
-
-  /** Drop shockwave: two expanding rings thrown from Midio on a detected drop. */
-  _drawDropShockwave(ctx, canvas, sim, pose) {
-    const hype = sim.hype;
-    if (!hype) return;
-    const u = hype.ringU(sim.timeMs);
-    if (u == null) return;
-    const cx = pose.midioDrawX, cy = sim.midio.groundY - 60;
-    const maxR = Math.hypot(canvas.width, canvas.height) * 0.75;
-    const focusMul = sim.focus ? sim.focus.mul('drop') : 1;
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    for (const [lag, alphaMul, lw] of [[0, 1, 3.5], [0.12, 0.5, 1.8]]) {
-      const uu = u - lag;
-      if (uu <= 0) continue;
-      const r = maxR * (1 - (1 - uu) ** 2); // ease-out: it detonates, then coasts
-      ctx.strokeStyle = '#ffffff';
-      ctx.globalAlpha = (1 - uu) ** 2 * 0.55 * alphaMul * focusMul;
-      ctx.lineWidth = lw + 10 * (1 - uu);
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.stroke();
-    }
     ctx.restore();
   }
 

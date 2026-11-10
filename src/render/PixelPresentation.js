@@ -22,8 +22,9 @@ export function fitPixelRect(srcW, srcH, dstW, dstH, scaling = 'fit', origin = {
 
 /** Recompose at the destination resolution: smooth sky, the native frame
  * (nearest, unless `foreground` -- the cinematic cell reconstruction --
- * draws it and returns true), then an optional water layer and smooth added
- * cast light. Recording must not resample the already combined picture.
+ * draws it and returns true), then an optional water layer and an optional
+ * smooth additive `overlay` (no current caller supplies one). Recording must
+ * not resample the already combined picture.
  * `terrain(ctx, fit, draw, source)` may draw the native frame itself
  * (`draw()`) through a clip, over the smooth sky only (the Landscape crest's
  * skyline cut, RangeCrest.drawTerrain, which also reads `source` to carry
@@ -337,11 +338,11 @@ export class PixelPresentation {
       + (this.ditherWeights?.byteLength || 0) + this.cinematic.bytes + (this.diagnostics.pixelEffectScratchBytes || 0);
     return applied;
   }
-  /** `water` is source-over; `overlay` is smooth added cast light. `prepare`
+  /** `water` is source-over. `prepare`
    * edits the native grid before palette quantization and `finish` runs
    * after it (with the palette's own texel quantizer); `crest` and `shore`
    * draw at output resolution after the terrain and after the water. */
-  finishFrame({ background = null, overlay = null, water = null, effects = null, prepare = null, finish = null, crest = null, shore = null, terrain = null } = {}) {
+  finishFrame({ background = null, water = null, effects = null, prepare = null, finish = null, crest = null, shore = null, terrain = null } = {}) {
     const started = performance.now();
     if (!this.source || !this._pending || this._disposed) {
       return this.diagnostics.frame?.presented === false ? this.diagnostics.frame : this.failFrame('not-rendered');
@@ -350,7 +351,6 @@ export class PixelPresentation {
     if (pending.generation !== this.generation || pending.outputSize !== `${this.canvas.width}x${this.canvas.height}`
       || source === this.working && this.residency.get(this.key) !== source) return this.failFrame('stale-frame');
     this.diagnostics.hybridSky = false;
-    this.diagnostics.castForeground = false;
     this.diagnostics.waterForeground = false;
     this.diagnostics.smoothEffects = false;
     this.diagnostics.crestForeground = false;
@@ -387,11 +387,10 @@ export class PixelPresentation {
         const ctx = this.canvas.getContext('2d');
         if (!ctx) return this.failFrame('output-context');
         const composite = compositePixelFrame(ctx, source, this.canvas.width, this.canvas.height, p.scaling, background, null,
-          p.cinematicPixel ? (ctx, fit) => this.drawForeground(ctx, source, fit) : null, overlay, water, effects, crest, shore, terrain);
+          p.cinematicPixel ? (ctx, fit) => this.drawForeground(ctx, source, fit) : null, null, water, effects, crest, shore, terrain);
         if (effects && !composite.effects) return this.failFrame('effects-layer-failed');
         const { fit, hybridSky } = composite;
         this.diagnostics.hybridSky = hybridSky;
-        this.diagnostics.castForeground = composite.overlay;
         this.diagnostics.waterForeground = composite.water;
         this.diagnostics.smoothEffects = composite.effects;
         this.diagnostics.crestForeground = composite.crest;
