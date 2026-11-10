@@ -1,18 +1,15 @@
-// Casting: which character performs which musical line. The trio are not
-// generic dancers -- each has an instrument they answer to:
+// Casting: which musical line a note belongs to. Three lanes, whose ids
+// keep the names of the characters that once performed them:
 //
 //   MIDASUS  <- clean melodies (piano, clean electric, acoustic, mallets,
-//               harp): the airborne fairy traces the tune that shimmers.
-//   BROSHI   <- the bass: the ground raptor IS the low end, hopping the
-//               bass line with his whole body.
+//               harp).
+//   BROSHI   <- the bass.
 //   MIDIO    <- lead melodies that are NOT clean (synth leads, driven
-//               guitars, horns, whistles): the front-man takes the front
-//               line.
+//               guitars, horns, whistles).
 //
-// Sources of truth, in order: explicit instrument text (MIDI track names /
-// stem FILENAMES), then GM program numbers, then role. Lanes are stamped on
-// timeline events as `lane` and only rewire character choreography --
-// roles, the note chart, obstacles, and every director keep reading `role`
+// Sources of truth, in order: explicit instrument text (stem FILENAMES),
+// then the tracked melody's spectrum, then role. Lanes are stamped on
+// timeline events as `lane`; roles and every director keep reading `role`
 // exactly as before.
 import { Role } from './NoteEvent.js';
 
@@ -33,8 +30,7 @@ const LEAD_RE = /lead|solo\b|\bsaw\b|square\b|synth(?!\s*(str|pad))|distort|over
 const PAD_RE = /\bpad\b|string(s|\s*ens)|ensemble|choir|ambient|atmos|wash|drone|texture/i;
 
 /**
- * Classify free instrument text (a MIDI track/instrument name, a stem
- * FILENAME) into a sound family. Returns 'kit'|'bass'|'clean'|'lead'|'pad'
+ * Classify free instrument text (a stem FILENAME) into a sound family. Returns 'kit'|'bass'|'clean'|'lead'|'pad'
  * or null when the text says nothing usable.
  */
 export function classifyInstrumentText(text) {
@@ -48,48 +44,14 @@ export function classifyInstrumentText(text) {
   return null;
 }
 
-/** The same families from a GM program number (-1/undefined = unknown). */
-export function classifyGmProgram(program) {
-  if (!Number.isInteger(program) || program < 0 || program > 127) return null;
-  if (program <= 15) return 'clean';                    // pianos + chromatic percussion
-  if (program >= 24 && program <= 27) return 'clean';   // nylon/steel/jazz/clean electric guitar
-  if (program === 46) return 'clean';                   // harp
-  if (program >= 108 && program <= 112) return 'clean'; // kalimba/music-box neighbors
-  if (program >= 28 && program <= 31) return 'lead';    // muted/overdriven/distortion guitar
-  if (program >= 32 && program <= 39) return 'bass';
-  if ((program >= 48 && program <= 54) || (program >= 88 && program <= 95)) return 'pad';
-  if (program >= 56 && program <= 79) return 'lead';    // brass, reeds, pipes
-  if (program >= 80 && program <= 87) return 'lead';    // synth leads
-  return null;
-}
-
-/** A sound family -> the character who owns it (or null: nobody's lane). */
+/** A sound family -> its lane (or null: kit and pads have none). */
 export function laneForFamily(family) {
   switch (family) {
     case 'clean': return Lane.MIDASUS;
     case 'bass': return Lane.BROSHI;
     case 'lead': return Lane.MIDIO;
-    default: return null; // kit and pad drive the world, not a character
+    default: return null; // kit and pad drive the world, not a lane
   }
-}
-
-/**
- * The lane for one MIDI track/voice. Text beats program beats role; drums
- * never cast. An unnamed, unknown-program MELODY track defaults to Midasus
- * -- the sky-dancer must never starve on a plain single-melody file, and
- * Midio falls back to riding the bass when no lead lane exists (see
- * Simulation's fallback wiring).
- */
-export function laneForTrack({ name = '', instrumentName = '', program = -1, channel = 0, role = null } = {}) {
-  if (channel === 9 || role === Role.RHYTHM) return null;
-  const family = classifyInstrumentText(`${name} ${instrumentName}`) ?? classifyGmProgram(program);
-  if (family === 'kit') return null;
-  const lane = laneForFamily(family);
-  if (lane) return lane;
-  if (family === 'pad') return null;
-  if (role === Role.BASS) return Lane.BROSHI;
-  if (role === Role.MELODY) return Lane.MIDASUS;
-  return null;
 }
 
 /**

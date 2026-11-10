@@ -91,7 +91,7 @@ export class Simulation {
     this.stageAnchor = { x: 220, groundY: 625 };
 
     // Deprecated inert pose alias; stageAnchor owns the world origin.
-    this.midio = { screenX: 220, groundY: 625, renderY: 625, slipX: 0, scaleX: 1, scaleY: 1, leanDeg: 0 };
+    this.midio = { screenX: 220, groundY: 625, renderY: 625, scaleX: 1, scaleY: 1, leanDeg: 0 };
 
     this.beatAnchor = new BeatAnchor(60000 / bpm);
     this.songBeat = new SongBeatTransport({ ...conductor.beatMetadata, bpm: conductor.beatMetadata?.bpm ?? bpm });
@@ -416,7 +416,6 @@ export class Simulation {
     return {
       worldX: this.worldX,
       midioY: this.stageAnchor.groundY,
-      slipX: this.midio.slipX || 0,
       scaleX: this.midio.scaleX,
       scaleY: this.midio.scaleY,
       leanDeg: this.midio.leanDeg,
@@ -432,7 +431,6 @@ export class Simulation {
       worldX: lerp(p.worldX, c.worldX),
       originX: this.stageAnchor.x,
       midioX: this.stageAnchor.x,
-      midioDrawX: this.stageAnchor.x + lerp(p.slipX ?? 0, c.slipX ?? 0),
       midioY: lerp(p.midioY, c.midioY),
       scaleX: lerp(p.scaleX, c.scaleX),
       scaleY: lerp(p.scaleY, c.scaleY),

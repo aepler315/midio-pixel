@@ -1,5 +1,5 @@
-// Renders buildDemoSong()'s timeline to PCM. Same notes the sim jumps to,
-// so a peak in the waveform at tMs is the kick Midio leaves the ground on.
+// Renders buildDemoSong()'s timeline to PCM, so a peak in the waveform at
+// tMs is a kick from the score.
 // Deterministic (seeded noise) so tests can pin energy at known onsets.
 import { Role, GM_DRUM } from '../core/NoteEvent.js';
 import { Lane } from '../core/Casting.js';

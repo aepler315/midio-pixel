@@ -1993,7 +1993,6 @@ function startTimeline(timelineData, extra = {}) {
     // non-alpine world), and the ranges on all three ridges.
     terrainRange: timelineData.terrain?.range || null,
     terrainRidges: timelineData.terrain?.ranges || null,
-    tracks: timelineData.tracks || [], pairs: timelineData.pairs || [],
     get rafHandle() { return rafHandle; },
     // The shed level decides which passes are running at all (rim light,
     // contact shadows, phenomena, the heavy overlay passes), so "why did

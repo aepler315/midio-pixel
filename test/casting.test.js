@@ -1,9 +1,9 @@
-// Casting: track names / GM programs / stem filenames -> character lanes
-// (clean melody -> Midasus, bass -> Broshi, other leads -> Midio).
+// Casting: stem filenames and the melody's spectrum -> lanes
+// (clean melody -> MIDASUS, bass -> BROSHI, other leads -> MIDIO).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  Lane, classifyInstrumentText, classifyGmProgram, laneForTrack,
+  Lane, classifyInstrumentText,
   melodyLaneForNote, laneForStemName, delegateByStemActivity, laneCounts,
 } from '../src/core/Casting.js';
 import { Role, makeNoteEvent } from '../src/core/NoteEvent.js';
@@ -25,33 +25,6 @@ test('instrument text classifies into sound families, clean beating lead on ties
   assert.equal(classifyInstrumentText('Strings Ensemble'), 'pad');
   assert.equal(classifyInstrumentText(''), null);
   assert.equal(classifyInstrumentText('Track 3'), null);
-});
-
-test('GM programs classify when names say nothing', () => {
-  assert.equal(classifyGmProgram(0), 'clean');   // acoustic grand
-  assert.equal(classifyGmProgram(11), 'clean');  // vibraphone
-  assert.equal(classifyGmProgram(27), 'clean');  // clean electric guitar
-  assert.equal(classifyGmProgram(30), 'lead');   // distortion guitar
-  assert.equal(classifyGmProgram(33), 'bass');   // electric bass (finger)
-  assert.equal(classifyGmProgram(56), 'lead');   // trumpet
-  assert.equal(classifyGmProgram(81), 'lead');   // saw lead
-  assert.equal(classifyGmProgram(89), 'pad');    // warm pad
-  assert.equal(classifyGmProgram(-1), null);
-  assert.equal(classifyGmProgram(128), null);
-});
-
-test('laneForTrack: the casting rule end to end, with sane fallbacks', () => {
-  assert.equal(laneForTrack({ name: 'Grand Piano', role: Role.MELODY }), Lane.MIDASUS);
-  assert.equal(laneForTrack({ name: 'Lead Synth', role: Role.MELODY }), Lane.MIDIO);
-  assert.equal(laneForTrack({ name: 'Bass', role: Role.BASS }), Lane.BROSHI);
-  assert.equal(laneForTrack({ name: '', program: 81, role: Role.PAD }), Lane.MIDIO,
-    'a demoted second melody (role PAD) with a lead program is still Midio\'s line');
-  assert.equal(laneForTrack({ name: 'Drums', channel: 9, role: Role.RHYTHM }), null);
-  assert.equal(laneForTrack({ name: 'Kick', role: Role.RHYTHM }), null);
-  assert.equal(laneForTrack({ name: 'Warm Pad', role: Role.PAD }), null, 'true pads drive the world, not a character');
-  assert.equal(laneForTrack({ name: '', program: -1, role: Role.MELODY }), Lane.MIDASUS,
-    'an unnamed unknown melody defaults to Midasus so the sky-dancer never starves');
-  assert.equal(laneForTrack({ name: '', program: -1, role: Role.BASS }), Lane.BROSHI);
 });
 
 test('melodyLaneForNote: centroid excess over the fundamental splits clean from lead', () => {
