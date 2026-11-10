@@ -120,7 +120,10 @@ test('day-only evidence peaks at each sky regime maximum and stays out of the fi
   const durationMs = 180000, finale = { freezeAtMs: 176000 };
   const events = buildHighlightCandidates({ durationMs, finale });
   assertSchedule(events);
-  assert.deepEqual(events.map(e => e.category), ['night', 'dawn', 'noon', 'sunset']);
+  // The predawn night hold [1500, 2500] lies under the title card, so it is
+  // clipped by START_MS (TITLE_CARD_END_MS) rather than captured as a
+  // mostly-black card frame; the end-of-song night sits in the finale.
+  assert.deepEqual(events.map(e => e.category), ['dawn', 'noon', 'sunset']);
   const curves = highlightRegimeCurves({ durationMs, cycle: songSkyClock(durationMs) });
   for (const event of events) {
     let max = 0;

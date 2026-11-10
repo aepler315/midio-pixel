@@ -1286,6 +1286,15 @@ function offerWorldsThenStart(data, extra = {}) {
       return started;
     } };
   }
+  // Analysis is done and the loader is down. Nothing else covers the terrain
+  // race below or confirmWorld's lyrics wait, so show the state startTimeline
+  // keeps while it waits for the landscape (it then reveals playback or keeps
+  // this up). Exports, and continuous playback's complete panel, need none.
+  const coverStart = () => {
+    if (extra.automaticTicket || extra.exportMode || readBulkExportFromUrl()) return;
+    showProgress('Preparing landscape…'); loaderEl.classList.remove('hidden');
+    hudEl.classList.add('hidden'); rangeNavigationEl?.classList.add('hidden');
+  };
   try {
     clearCustomWorld();
     // A song's look comes from its identity when it has one: the opening's
@@ -1331,6 +1340,7 @@ function offerWorldsThenStart(data, extra = {}) {
     const mine = pendingWorldStart, worldId = extra.continuationWorldId || DEFAULT_WORLD_ID;
     const ready = mine.terrainReady.then((t) => (exporting && t?.whenAll ? t.whenAll.then(() => t) : t));
     const wait = exporting ? ready : Promise.race([ready, new Promise((r) => setTimeout(r, BIOME_WAIT_MS))]);
+    coverStart();
     wait.then(() => {
       if (pendingWorldStart !== mine) return;
       if (extra.automaticTicket && !continuousPlayback.isCurrent(extra.automaticTicket)) return;
@@ -1341,6 +1351,7 @@ function offerWorldsThenStart(data, extra = {}) {
     console.error('[world start]', err);
     pendingWorldStart = { data, extra };
     lastFitDiagnostic = null;
+    coverStart();
     confirmWorld(data.worldId || lastWorldId || DEFAULT_WORLD_ID);
   }
 }
@@ -1466,7 +1477,8 @@ function beginBulkExport({ width, height, presentation: override, qualityLevel =
 }
 
 // How long starting a world waits for a lyrics lookup still in flight. The
-// picker usually covers it; a slow network must not hold the song longer.
+// 'Preparing landscape…' loader covers it (offerWorldsThenStart); a slow
+// network must not hold the song longer.
 const LYRICS_START_WAIT_MS = 2000;
 
 function confirmWorld(id) {
@@ -3070,6 +3082,10 @@ if (fileChooser.isAbsent) {
     + ' from this page. Load a song by address instead.');
 }
 /** Authored sample (Proof) so a visitor can see Landscape without a file. */
+// The sample is deterministic (DemoSong is seeded), so its audio is rendered
+// once and every later click replays the same buffer.
+let demoSampleBuffer = null;
+
 async function startDemoSample() {
   const selection = beginAudioSelection('sample');
   cancelUrlLoad(); // the sample is a choice too, and outranks an older fetch
@@ -3081,8 +3097,23 @@ async function startDemoSample() {
   }
   if (!audioSelections.isCurrent(selection)) return;
   const song = buildDemoSong();
-  // Rendered once to a buffer, so the sample plays exactly like a recording.
-  const playBuffer = renderDemoSongToAudioBuffer(audioEngine.ctx, song);
+  if (!demoSampleBuffer) {
+    // Rendering ~96 s of PCM holds the main thread for about half a second:
+    // say so, and let that paint before the render starts.
+    showProgress('Preparing the sample…');
+    await nextAnimationFrame();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    if (!audioSelections.isCurrent(selection)) return;
+    try { demoSampleBuffer = renderDemoSongToAudioBuffer(audioEngine.ctx, song); }
+    catch (err) {
+      console.error('[sample]', err);
+      progressEl.classList.add('hidden');
+      showErrorBanner('The sample could not be prepared.');
+      return;
+    }
+  }
+  // Rendered to a buffer, so the sample plays exactly like a recording.
+  const playBuffer = demoSampleBuffer;
   lastAudioBuffer = playBuffer;
   lastSongName = 'Proof';
   const energyCurves = synthesizeEnergyCurves(song.timeline, song.durationMs);
@@ -3106,7 +3137,10 @@ async function startDemoSample() {
 }
 demoBtnEl?.addEventListener('click', (e) => {
   e.stopPropagation();
-  startDemoSample();
+  startDemoSample().catch((err) => {
+    console.error('[sample]', err);
+    showErrorBanner('The sample could not start.');
+  });
 });
 
 // Unlock the AudioContext on the gesture that opens the picker, not on

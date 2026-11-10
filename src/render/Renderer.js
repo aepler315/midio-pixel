@@ -414,7 +414,8 @@ export class Renderer {
     const finish = narrative ? this._landscapeFinishInputs(sim) : null;
     this._deferredPostEffects = deferPost ? { sim, pose, salience, viewStage: { ...viewStage }, finish,
       film: !!(narrative || (sim.filmFinish && (perf ? perf.heavyPostFx : true))),
-      captions: sim.rangeCaptions || sim.rangeCaption, titleCard: sim.titleCard || null, grid: this.pixelPolicy?.grid,
+      captions: sim.rangeCaptions || sim.rangeCaption, titleCard: sim.titleCard || null,
+      titleCardMs: sim.heardTimeMs ?? sim.timeMs, grid: this.pixelPolicy?.grid,
       hud: sim.conductor && this.hudInFrame && !narrative ? { width: nominalW, height: nominalH } : null } : null;
     if (!deferPost) this._drawBloom(ctx, canvas, sim, salience);
     // After bloom, not before: heat is a lens on the whole scene, so it
@@ -459,15 +460,18 @@ export class Renderer {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
     // The song's title card (TitleCard.js) opens every song over the flat
-    // ground, on top of everything, and is gone 2.7 s in.
+    // ground, on top of everything, and is gone 2.7 s in. It runs on heard
+    // time, the opening surge's clock, so output latency cannot clear the
+    // card before the land has risen.
     if (!deferPost && sim.titleCard) {
+      const cardMs = sim.heardTimeMs ?? sim.timeMs;
       try {
         if (this.pixelPolicy?.active) {
           ctx.setTransform(1, 0, 0, 1, 0, 0);
-          drawPixelTitleCard(ctx, sim.titleCard, sim.timeMs, { grid: this.pixelPolicy.grid });
+          drawPixelTitleCard(ctx, sim.titleCard, cardMs, { grid: this.pixelPolicy.grid });
         } else {
           ctx.setTransform(sxFixed, 0, 0, syFixed, outputFit.x, outputFit.y);
-          drawTitleCard(ctx, { width: nominalW, height: nominalH }, sim.titleCard, sim.timeMs);
+          drawTitleCard(ctx, { width: nominalW, height: nominalH }, sim.titleCard, cardMs);
         }
       } catch (err) { console.warn('[title card]', err); }
       ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -705,10 +709,10 @@ export class Renderer {
       if (frame.titleCard) {
         if (frame.grid) {
           ctx.setTransform(fit.width / frame.grid.width, 0, 0, fit.height / frame.grid.height, fit.x, fit.y);
-          drawPixelTitleCard(ctx, frame.titleCard, frame.sim.timeMs, { grid: frame.grid });
+          drawPixelTitleCard(ctx, frame.titleCard, frame.titleCardMs, { grid: frame.grid });
         } else {
           ctx.setTransform(fit.width / 1280, 0, 0, fit.height / 720, fit.x, fit.y);
-          drawTitleCard(ctx, { width: 1280, height: 720 }, frame.titleCard, frame.sim.timeMs);
+          drawTitleCard(ctx, { width: 1280, height: 720 }, frame.titleCard, frame.titleCardMs);
         }
       }
     } finally {

@@ -10,9 +10,16 @@ const start = main.indexOf('function offerWorldsThenStart(');
 const source = main.slice(start, main.indexOf('\n}\n', start) + 3);
 const profile = { version: 2, watch: { drive: .7, onset: .55, texture: .6, arc: .7, contrast: .6 } };
 
+function element(hidden) {
+  const el = { hidden, classList: { add(c) { if (c === 'hidden') el.hidden = true; }, remove(c) { if (c === 'hidden') el.hidden = false; } } };
+  return el;
+}
+
 function setup({ rejectStorage = false } = {}) {
   const calls = [], warnings = [], plans = [];
+  const ui = { progress: [], loader: element(true), hud: element(false), nav: element(false) };
   const context = vm.createContext({ clearCustomWorld() {}, PROFILE_VERSION: 2, createSongWorldRecord,
+    showProgress: (text) => ui.progress.push(text), loaderEl: ui.loader, hudEl: ui.hud, rangeNavigationEl: ui.nav,
     buildSongProfile: () => profile, resolveSongSeed: () => 88,
     musicLibrary: { async noteSongWorld(track, record) { calls.push({ track, record }); if (rejectStorage) throw Error('storage unavailable'); } },
     prepareSongTerrain: async (p, seed) => { const plan = planSongScenes(p, seed); plans.push(plan); return plan; },
@@ -22,8 +29,18 @@ function setup({ rejectStorage = false } = {}) {
     console: { warn: (...values) => warnings.push(values), error: (...values) => { throw Error(values.join(' ')); } },
   });
   vm.runInContext(source, context);
-  return { context, calls, warnings, plans };
+  return { context, calls, warnings, plans, ui };
 }
+
+test('the actual world start shows the preparing state through the terrain and lyrics waits, except for exports and continuous playback', async () => {
+  for (const [extra, covered] of [[{}, true], [{ exportMode: true }, false], [{ automaticTicket: {} }, false]]) {
+    const { context, ui } = setup();
+    context.offerWorldsThenStart({ durationMs: 120000, timeline: [] }, extra);
+    const shown = ui.progress.at(-1) === 'Preparing landscape…' && !ui.loader.hidden && ui.hud.hidden && ui.nav.hidden;
+    assert.equal(shown, covered, `cover for ${JSON.stringify(extra)}`);
+    await context.pendingWorldStart.terrainReady;
+  }
+});
 
 test('the actual world start persists the identity profile used by playback, rather than later whole-song features', async () => {
   const { context, calls, plans } = setup(), track = { key: 'song' };

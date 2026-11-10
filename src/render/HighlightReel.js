@@ -18,6 +18,7 @@ const frozenJson = value => {
 // the regime. Same song, seed and analysis => the same schedule, at any
 // frame rate and across seeks.
 import { FINALE_FREEZE_LEAD_MS } from '../core/SongFinale.js';
+import { TITLE_CARD_END_MS } from '../core/OpeningTimeline.js';
 import { dayNight, twilightAt, cyclePhase01, songSkyClock, cycleMs as repeatingCycleMs } from '../world/DayNight.js';
 import { blendSections } from '../world/BiomeSchedule.js';
 import { stormAt } from '../world/alpine/RangeStorm.js';
@@ -25,8 +26,10 @@ import { landscapeScoreFor } from '../world/alpine/LandscapeScore.js';
 
 export const MAX_FRAMES = 5;
 export const MIN_GAP_MS = 5000;
-/** The opening assembly veil and first-light fade-in end before this. */
-export const START_MS = 1500;
+/** The opening title card has faded by this point (it covers the scene until
+ * TITLE_CARD_END_MS), as have the assembly veil and first-light fade-in, so
+ * no highlight is taken under the card. */
+export const START_MS = Math.max(1500, TITLE_CARD_END_MS);
 const SAMPLE_MS = 250;
 /** A regime holds for seconds: a frame anywhere in this window shows it. */
 export const REGIME_WINDOW_MS = 1500;

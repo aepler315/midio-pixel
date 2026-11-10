@@ -631,12 +631,6 @@ html, body {
   border-bottom: 1px solid var(--border-subtle);
   color: var(--text-primary);
 }
-.titleAdvanced .sfRow {
-  margin: 0;
-  padding: var(--space-3) var(--space-4) var(--space-1);
-  flex-wrap: wrap;
-  justify-content: center;
-}
 .titleAdvanced .hint {
   margin: 0;
   padding: var(--space-1) var(--space-4) var(--space-3);
@@ -1084,14 +1078,6 @@ html, body {
   50% { transform: rotate(5deg) translateY(-5px); }
 }
 
-/* SoundFont loader row */
-.sfRow {
-  display: flex;
-  gap: var(--space-2);
-  align-items: center;
-  margin-top: var(--space-3);
-}
-
 .prefRow {
   display: flex;
   gap: var(--space-2);
@@ -1139,44 +1125,6 @@ html, body {
   margin-left: var(--space-3);
 }
 
-/* Auto-hiding SoundFont pill (bottom-center) — click to open the switcher
-   popup (#fontModal). */
-#fontBar {
-  position: absolute;
-  bottom: 96px; /* clears the composer strip, now bottom-anchored */
-  left: 50%;
-  transform: translateX(-50%);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--dur-slow) ease;
-  z-index: 6;
-}
-#fontBar.visible {
-  opacity: 1;
-  pointer-events: auto;
-}
-#fontBarBtn {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
-  background: rgba(5, 5, 10, 0.72);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-pill);
-  font-size: 0.85rem;
-  color: var(--text-primary);
-  cursor: pointer;
-  transition: border-color var(--dur-base), color var(--dur-base);
-}
-#fontBarBtn:hover { border-color: var(--spec-cool); color: var(--spec-cool); }
-#fontName {
-  min-width: 100px;
-  max-width: 220px;
-  text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 /* Full-window "drop to play" feedback — shown while dragging a file over
    the page mid-song (the loader screen's own #dropzone already gives its
    own drag feedback pre-game, so this only activates once #loader is
@@ -1227,11 +1175,8 @@ html, body {
    phones receive guidance while portrait tablets are left alone. */
 .landscapeHint.is-visible { display: block; }
 
-/* SoundFont switcher popup — lists every loaded font with a click-to-
-   activate row and a × (hide) action; #fontHiddenToggle swaps the same
-   list into the "settings" view of hidden fonts with a + (unhide) action.
-   Shared modal shell (.modalBackdrop/.modalPanel) reused by the filmstrip
-   modal below -- one recipe instead of two near-duplicates. */
+/* Shared modal shell (.modalBackdrop/.modalPanel/.modalHeader/.modalFooter),
+   used by the filmstrip modal (#filmstripModal) below. */
 .modalBackdrop {
   position: absolute;
   inset: 0;
@@ -1266,86 +1211,6 @@ html, body {
   letter-spacing: 0.04em;
   color: var(--spec-gold);
 }
-.fontList {
-  overflow-y: auto;
-  padding: var(--space-2);
-  flex: 1 1 auto;
-  min-height: 60px;
-}
-.fontListEmpty {
-  opacity: 0.55;
-  font-size: 0.85rem;
-  padding: var(--space-5) var(--space-3);
-  text-align: center;
-}
-.fontRow {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-3);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: background var(--dur-base);
-}
-.fontRow:hover { background: var(--bg-surface-2); }
-.fontRow.active { background: color-mix(in srgb, var(--spec-gold) 12%, transparent); }
-.fontRow.active .fontRowName { color: var(--spec-gold); font-weight: 600; }
-.fontRowName {
-  flex: 1 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.fontRowAction {
-  flex: none;
-  width: 26px;
-  height: 26px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: 1px solid var(--border-strong);
-  border-radius: 50%;
-  color: var(--text-secondary);
-  cursor: pointer;
-  font-size: 0.9rem;
-  line-height: 1;
-  transition: border-color var(--dur-base), color var(--dur-base);
-}
-/* Hide (×) reads as a removal — red accent, matching RHYTHM's roleDot.
-   Unhide (+) reads as a restore — blue accent, matching the shared hover. */
-.fontRowAction[data-action="hide"]:hover { border-color: var(--spec-rhythm); color: var(--spec-rhythm); }
-.fontRowAction[data-action="unhide"]:hover { border-color: var(--spec-cool); color: var(--spec-cool); }
-
-/* Per-song audition verdicts (FontRecommender) */
-.fontRowStar {
-  flex: none;
-  color: var(--spec-gold);
-  font-size: 0.9rem;
-  cursor: default;
-}
-.fontRowBadge {
-  flex: none;
-  min-width: 30px;
-  padding: 2px 7px;
-  border-radius: var(--radius-sm);
-  font-size: 0.72rem;
-  text-align: center;
-  cursor: default;
-  border: 1px solid var(--border-subtle);
-  color: var(--text-secondary);
-}
-.fontRowBadge.ok { border-color: color-mix(in srgb, var(--spec-cool) 45%, transparent); color: var(--spec-cool); }
-.fontRowBadge.dq { border-color: color-mix(in srgb, var(--spec-rhythm) 55%, transparent); color: var(--spec-rhythm); }
-.fontRowBadge.pending { opacity: 0.55; }
-.auditionStatus {
-  flex: none;
-  padding: var(--space-2) var(--space-4);
-  font-size: 0.78rem;
-  color: var(--text-secondary);
-  border-top: 1px solid var(--border-subtle);
-}
-.auditionStatus.hidden { display: none; }
 .modalFooter {
   display: flex;
   flex-wrap: wrap;
@@ -1359,7 +1224,6 @@ html, body {
   font-size: 0.78rem;
   padding: 6px var(--space-3);
 }
-#fontHiddenToggle { margin-left: auto; }
 
 /* The Reel (Movement VI): the COMPLETE panel's highlight filmstrip. */
 #filmstrip {
@@ -2048,6 +1912,22 @@ html, body {
   line-height: 1.4;
   color: var(--text-tertiary);
   text-align: left;
+}
+
+/* #fileInput and #libraryFolderInput stay in the DOM so script can open
+   them (openFilePicker, the folder chooser); they are never shown or tapped
+   directly. */
+.fileInputVisuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* The settings were most of the first screenful and none of them is what

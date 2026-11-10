@@ -143,7 +143,7 @@ function attachEngine(token) {
   const retainFiles = files => { if (files?.length) { clearInterval(readyTimer); readyTimer = null; source = retainHistorySource({ kind: 'audio-files', files: [...files] }); intent = null; message(); } };
   doc.addEventListener('change', event => { if (event.target.id === 'fileInput' && !loading) retainFiles(event.target.files); }, true);
   doc.addEventListener('drop', event => { if (!loading) retainFiles(event.dataTransfer?.files); }, true);
-  for (const id of ['stopBtn', 'worldSelectBack', 'urlLoadBtn']) doc.getElementById(id)?.addEventListener('click', () => { if (!loading) { source = null; intent = null; } }, true);
+  for (const id of ['stopBtn', 'urlLoadBtn']) doc.getElementById(id)?.addEventListener('click', () => { if (!loading) { source = null; intent = null; } }, true);
   doc.getElementById('demoBtn')?.addEventListener('click', () => { if (!loading) { source = { kind: 'demo' }; intent = null; message(); } }, true);
   doc.addEventListener('pointermove', syncHud, { passive: true });
   doc.addEventListener('pointerdown', () => { message(); syncHud(); }, { passive: true });

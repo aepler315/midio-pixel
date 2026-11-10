@@ -379,3 +379,29 @@ test('a heavier incoming scene can fall below the outgoing scene\'s last useful 
   assert.equal(adapter.output.grid.width, 320);
   adapter.dispose();
 });
+
+test('the opening surge takes its detail growth in one step under the opaque title card', async () => {
+  const { RISE_SURGE_START_MS, RISE_SURGE_MS, TITLE_CARD_HOLD_MS } = await import('../src/core/OpeningTimeline.js');
+  const { adapter, sim, manager } = growingHarness();
+  manager.durationMs = 210000;
+  try {
+    sim.perf.level = 0;
+    const surgeEndMs = RISE_SURGE_START_MS + RISE_SURGE_MS, changes = [];
+    let previous = null;
+    for (let t = RISE_SURGE_START_MS - 100; t < surgeEndMs; t += 16) {
+      sim.heardTimeMs = t;
+      assert.equal(adapter.draw(sim, 0).presented, true);
+      if (previous && adapter.output.grid !== previous) changes.push(t);
+      previous = adapter.output.grid;
+    }
+    // On the plain composed rise this walked about 16 rungs during the reveal.
+    assert.equal(changes.length, 1, `grid changes at ${changes.join(', ')} ms`);
+    assert.ok(changes[0] >= RISE_SURGE_START_MS && changes[0] < TITLE_CARD_HOLD_MS, 'the one reallocation happens under the opaque card');
+    const score = landscapeScoreFor(manager), p = plan({ scaling: 'fit' });
+    sim.heardTimeMs = 2500; adapter.draw(sim, 0);
+    assert.equal(adapter.diagnostics.progressiveDetail.rise01, score.at(2500).rise01, 'diagnostics report the frame\'s own rise');
+    sim.heardTimeMs = surgeEndMs; adapter.draw(sim, 0);
+    assert.equal(adapter.output.grid, previous, 'no second step as the surge completes');
+    assert.equal(adapter.diagnostics.progressiveDetail.requestedRung, policy.landscapeResolutionAt(p, score.at(surgeEndMs).rise01).rung);
+  } finally { adapter.dispose(); }
+});

@@ -664,9 +664,12 @@ export class RangeScene {
       && [...this.prepared.values()].some(watery);
     if (!wanted || !ctx?.canvas || !(stage?.width > 0)) { this.releaseBackdrop(); return false; }
     // Keep the allocation for a prefetched water view, but skip the per-frame
-    // clear, canvas copy and texture upload while no drawn view has water
-    // (nothing samples a backdrop whose frame stamp is stale).
-    if (Array.isArray(drawnViewIds) && !drawnViewIds.some((id) => { const p = this.prepared.get(id); return p && watery(p); })) return false;
+    // clear, canvas copy and texture upload while no drawn view has water: a
+    // dry drawn view never samples it. "Has water" is the union of the mirror
+    // or river test above and hasWater's painted water level, so painted
+    // water without a single mirror level (tarns, a descending river with no
+    // mapped geometry) still reflects the copied sky.
+    if (Array.isArray(drawnViewIds) && !drawnViewIds.some((id) => { const p = this.prepared.get(id); return p && (watery(p) || this.hasWater(id)); })) return false;
     const scale = Math.max(1, this.waterOutputScale || 1);
     const { width, height } = mirrorSize(this.size.width * scale, this.size.height * scale);
     let b = this.backdrop;

@@ -2,8 +2,9 @@
 //
 // Drawn on the stage canvas (Renderer, beside the place caption), not laid
 // over it as page text, so recordings, bulk exports and highlights carry it
-// too. Its fade runs on song time (OpeningTimeline.titleCardAlpha), so an
-// export frame at 1 s shows exactly what live play showed at 1 s. It covers
+// too. Its fade runs on heard song time (OpeningTimeline.titleCardAlpha; the
+// Renderer passes sim.heardTimeMs), the same clock as the opening surge, so
+// an export frame at 1 s shows exactly what was heard at 1 s live. It covers
 // the flat ground the range rises from, then fades to reveal the surge.
 import { titleCardAlpha } from '../core/OpeningTimeline.js';
 import { pixelGrid, pixelUnit } from '../render/PixelRenderPolicy.js';
