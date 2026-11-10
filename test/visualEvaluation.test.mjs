@@ -148,26 +148,32 @@ test('paired missing provenance cannot masquerade as compatible evidence', () =>
   for (const remove of deletions) { const a = report(), b = report(); remove(a); remove(b); assert.throws(() => compareReports(a, b), /missing|invalid/i); }
 });
 
+// Cinematic is the only look: a manifest's presentation normalizes through
+// DisplayProfile to the Cinematic record, which carries no palette or dither.
+const cinematicRecord = { version: 2, look: 'cinematic', quality: 'auto', pixelGrid: 'detailed', scaling: 'fit', pixelScale: 'original', buildPixelDetail: false };
 test('visual manifests accept independent presentation profiles and reject invalid values', () => {
   const presentation = { version: 1, look: 'palette', quality: 'auto', palette: 'range32', dither: .35, scaling: 'integer' };
   const m = normalizeManifest({ ...manifest(), settings: { presentation } });
-  assert.deepEqual(m.settings.presentation, { ...presentation, version: 2, pixelGrid: 'classic', ditherMode: 'ordered', pixelScale: 'original', buildPixelDetail: false });
+  assert.deepEqual(m.settings.presentation, { ...cinematicRecord, scaling: 'integer' });
   for (const change of [{ look: 'cathode' }, { quality: 'low' }, { scaling: 'stretch' }, { dither: 9 }, { palette: 'missing' }]) {
     assert.throws(() => normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, ...change } } }));
   }
 });
-test('visual v2 profiles accept Chroma/world and strictly reject unknown fields', () => {
+test('visual v2 profiles validate any recorded palette and dither and strictly reject unknown fields', () => {
   const presentation = { version: 2, look: 'palette', quality: 'auto', palette: 'world', dither: .35, ditherMode: 'ordered', pixelGrid: 'classic', scaling: 'fit' };
-  assert.deepEqual(normalizeManifest({ ...manifest(), settings: { presentation } }).settings.presentation, { ...presentation, pixelScale: 'original', buildPixelDetail: false });
-  for (const change of [{ palette: 'chroma32' }, { palette: 'rgb332' }]) assert.equal(normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, ...change } } }).settings.presentation.palette, change.palette);
-  assert.equal(normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, ditherMode: 'selective' } } }).settings.presentation.ditherMode, 'selective');
-  assert.equal(normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, pixelGrid: 'detailed' } } }).settings.presentation.pixelGrid, 'detailed');
-  for (const change of [{ arbitrary: true }, { pixelGrid: 'arbitrary' }, { ditherMode: 'animated' }]) assert.throws(() => normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, ...change } } }));
+  assert.deepEqual(normalizeManifest({ ...manifest(), settings: { presentation } }).settings.presentation, cinematicRecord);
+  for (const change of [{ palette: 'chroma32' }, { palette: 'rgb332' }, { ditherMode: 'selective' }, { dither: 0 }]) {
+    const normalized = normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, ...change } } }).settings.presentation;
+    for (const removed of ['palette', 'dither', 'ditherMode']) assert.equal(removed in normalized, false, `${JSON.stringify(change)}: ${removed}`);
+  }
+  for (const change of [{ arbitrary: true }, { pixelGrid: 'arbitrary' }, { ditherMode: 'animated' }, { palette: 'custom' }, { dither: 2 }]) assert.throws(() => normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, ...change } } }));
 });
 test('Cinematic capture profiles retain the selected v2 look and grid without extending v1', () => {
-  const presentation = { version: 2, look: 'cinematic', quality: 'auto', palette: 'world', dither: .35,
-    ditherMode: 'selective', pixelGrid: 'classicPlus', pixelScale: 'original', buildPixelDetail: false, scaling: 'fit' };
+  const presentation = { version: 2, look: 'cinematic', quality: 'auto', pixelGrid: 'classicPlus', pixelScale: 'original', buildPixelDetail: false, scaling: 'fit' };
   assert.deepEqual(normalizeManifest({ ...manifest(), settings: { presentation } }).settings.presentation, presentation);
+  // A record from before the Palette look's removal still names a palette and dither.
+  assert.deepEqual(normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, palette: 'world', dither: .35, ditherMode: 'selective' } } })
+    .settings.presentation, presentation);
   const v1 = { version: 1, look: 'cinematic', quality: 'auto', palette: 'range32', dither: .35, scaling: 'fit' };
   assert.throws(() => normalizeManifest({ ...manifest(), settings: { presentation: v1 } }), /look/);
   assert.throws(() => normalizeManifest({ ...manifest(), settings: { presentation: { ...presentation, look: 'cinematics' } } }), /look/);
@@ -197,10 +203,25 @@ test('comparison normalizes valid v1 presentation choices without weakening valu
   a.settings.presentation = p;
   b.settings.presentation = { ...p, version: 2, pixelGrid: 'classic', ditherMode: 'ordered' };
   assert.equal(compareReports(a, b).frames.length, 1);
-  b.settings.presentation.palette = 'chroma32';
+  b.settings.presentation.scaling = 'integer';
   assert.throws(() => compareReports(a, b), /incompatible.*settings/);
+  b.settings.presentation.scaling = 'fit';
+  // v1 never offered Chroma: a recorded value is still validated, not dropped.
   a.settings.presentation.palette = 'chroma32';
   assert.throws(() => compareReports(a, b), /invalid palette/);
+});
+
+test('a normalized manifest normalizes to itself, so saved reports still validate and compare', () => {
+  for (const presentation of [undefined, { ...cinematicRecord, quality: 'economy', pixelGrid: 'medium', scaling: 'integer' },
+    { version: 2, look: 'palette', quality: 'auto', palette: 'world', dither: .35, ditherMode: 'selective', pixelGrid: 'classic', scaling: 'fit' },
+    { version: 1, look: 'pixel', quality: 'auto', palette: 'range32', dither: 0, scaling: 'fit' }]) {
+    const once = normalizeManifest({ ...manifest(), settings: presentation ? { presentation } : {} });
+    assert.deepEqual(normalizeManifest(once), once, JSON.stringify(presentation));
+  }
+  // Reports store the normalized settings, and every comparison validates them again.
+  const a = report();
+  a.settings.presentation = normalizeManifest({ ...manifest(), settings: { presentation: cinematicRecord } }).settings.presentation;
+  assert.equal(compareReports(a, structuredClone(a)).frames.length, 1);
 });
 
 test('a bounded continuous capture draws every frame from its explicit start and rejects earlier checkpoints', () => {
@@ -258,11 +279,13 @@ test('comparison rejects a differing requested quality', () => {
   assert.throws(() => compareReports(report(), changedQuality), /incompatible settings/);
 });
 
-test('the VFX matrix covers every shedding boundary, look and both views', () => {
+test('the VFX matrix covers every shedding boundary and both views, all through Cinematic', () => {
   const matrix = JSON.parse(fs.readFileSync(new URL('./fixtures/visual-evaluation-vfx.json', import.meta.url), 'utf8'));
   const cases = normalizeMatrix(matrix).cases.map(c => c.manifest.settings);
   assert.deepEqual([...new Set(cases.map(s => s.quality))].sort(), [0, 2, 3, 4, 5, 6]);
-  assert.deepEqual([...new Set(cases.map(s => s.presentation?.look ?? 'pixel'))].sort(), ['palette', 'pixel']);
+  // Its Pixel and Palette cases (ids and records kept for CI history and
+  // older-revision captures) request Cinematic, the only look, now.
+  assert.ok(cases.every(s => s.presentation?.look === 'cinematic'), 'every case presents Cinematic');
   assert.deepEqual([...new Set(cases.map(s => s.view))].sort(), ['panamint-dantes-view', 'teton-jackson-lake']);
   assert.ok(cases.some(s => s.mode === 'continuous'), 'a continuous history case');
   assert.ok(cases.length < 6 * 3 * 2, 'bounded, not a Cartesian product');

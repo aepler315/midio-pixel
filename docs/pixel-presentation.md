@@ -78,13 +78,11 @@ Drawing returns an explicit `presented` result. Capture is nullable until a fram
 
 Title and playback keep independent phase-preserving draw deadlines. The playback HUD labels delivered presentation FPS separately from callback FPS; the governor still receives raw callback timing. Integer layout resolves both origin and scale in physical pixels, including the parent's origin and DPR, and applies the logical image dimensions through a transform to avoid CSS layout rounding at fractional DPR.
 
-`npm run test:retro` verifies default Range v2 and explicit legacy, shader/context failures, both-grid checkerboard raster boundaries at four DPRs/eight layouts, meaningful content and temporal changes, exact opaque pre-encode palettes, and export rejection. The bounded pixel browser CI job preserves diagnostic artifacts on failure.
+The retro smoke (`npm run test:retro`) was retired on November 10, 2026 with the Pixel and Palette looks; its DPR raster, legacy-backend, context-loss and export-failure checks have no replacement yet.
 
 ```sh
 npm test
 npm run lint
-npm run test:retro
-node tools/palette-bench.mjs
 node tools/bulk-export.mjs --help
 ```
 

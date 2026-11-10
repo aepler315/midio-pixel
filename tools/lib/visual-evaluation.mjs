@@ -45,11 +45,15 @@ export function normalizeManifest(value, { historical = false } = {}) {
     assert.ok([1, 2].includes(p.version), 'invalid presentation version');
     assert.ok((old ? ['pixel', 'palette'] : ['pixel', 'palette', 'cinematic']).includes(p.look), 'invalid pixel-only look');
     assert.ok(['auto', 'economy'].includes(p.quality), 'invalid quality');
-    assert.ok((old ? ['range32', 'rgb332'] : ['world', 'range32', 'chroma32', 'rgb332']).includes(p.palette), 'invalid palette');
-    assert.ok([0, .35, 1].includes(p.dither), 'invalid dither');
+    // Palettes and dither went with the Palette look, so the normalized record
+    // below no longer carries them: they are optional, validated where an
+    // older record still names them. Required, a normalized manifest (every
+    // report's settings) failed its own validation and no report compared.
+    if (p.palette != null) assert.ok((old ? ['range32', 'rgb332'] : ['world', 'range32', 'chroma32', 'rgb332']).includes(p.palette), 'invalid palette');
+    if (p.dither != null) assert.ok([0, .35, 1].includes(p.dither), 'invalid dither');
     assert.ok(['fit', 'integer'].includes(p.scaling), 'invalid scaling');
     if (!old) {
-      assert.ok(['ordered', 'selective'].includes(p.ditherMode), 'invalid ditherMode');
+      if (p.ditherMode != null) assert.ok(['ordered', 'selective'].includes(p.ditherMode), 'invalid ditherMode');
       assert.ok(['classic', 'classicPlus', 'medium', 'mediumPlus', 'detailed'].includes(p.pixelGrid), 'invalid pixelGrid');
       if (p.pixelScale != null) assert.ok(['original', 'depth'].includes(p.pixelScale), 'invalid pixelScale');
       // The product renders a Depth request as Uniform ('original'), so a

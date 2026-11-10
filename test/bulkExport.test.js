@@ -224,23 +224,25 @@ test('stepExportClock takes the same whole steps every frame across a long rende
 });
 
 test('bulk display overrides are explicit and validated', () => {
-  const opts = parseBulkArgs(['--look', 'palette', '--quality', 'economy', '--palette', 'rgb332', '--dither', 'full', '--scaling', 'integer', 'song.wav']);
-  assert.deepEqual(opts.presentation, { version: 2, look: 'palette', quality: 'economy', palette: 'rgb332', dither: 1, ditherMode: 'selective', pixelGrid: 'classic', scaling: 'integer', pixelScale: 'original', buildPixelDetail: false });
+  const opts = parseBulkArgs(['--look', 'cinematic', '--quality', 'economy', '--scaling', 'integer', 'song.wav']);
+  assert.deepEqual(opts.presentation, { version: 2, look: 'cinematic', quality: 'economy', pixelGrid: 'detailed', scaling: 'integer', pixelScale: 'original', buildPixelDetail: false });
   assert.equal(parseBulkArgs(['song.wav']).presentation, null);
   assert.throws(() => parseBulkArgs(['--look', 'bad']), /look/);
+  // --look stays for older scripts, but Cinematic is the only look.
+  for (const look of ['pixel', 'palette']) assert.throws(() => parseBulkArgs(['--look', look, 'song.wav']), /--look must be cinematic/);
 });
-test('bulk export accepts Chroma and world selections and rejects unknown palette values', () => {
-  for (const palette of ['world', 'range32', 'chroma32', 'rgb332']) assert.equal(parseBulkArgs(['song.wav', '--look', 'palette', '--palette', palette]).presentation.palette, palette);
-  assert.throws(() => parseBulkArgs(['song.wav', '--palette', 'custom']));
+test('bulk export rejects the removed palette, dither and dither-style options with a clear message', () => {
+  for (const args of [['--palette', 'world'], ['--palette=rgb332'], ['--dither', 'full'], ['--dither=subtle'], ['--dither-mode', 'selective'], ['--dither-mode=ordered']]) {
+    const option = args[0].split('=')[0];
+    assert.throws(() => parseBulkArgs(['song.wav', ...args]),
+      new RegExp(`^Error: ${option} was removed with the Palette look; Cinematic is the only look\\.$`), args.join(' '));
+  }
 });
-test('bulk export accepts only deterministic Ordered and Selective dither styles', () => {
-  for (const ditherMode of ['ordered', 'selective']) assert.equal(parseBulkArgs(['song.wav', '--dither-mode', ditherMode]).presentation.ditherMode, ditherMode);
-  assert.throws(() => parseBulkArgs(['song.wav', '--dither-mode', 'random']));
-});
-test('bulk export round trips both explicit grids with the v2 palette/dither profile', () => {
-  for (const pixelGrid of ['classic', 'detailed']) {
-    const opts = parseBulkArgs(['song.wav', '--look', 'palette', '--quality', 'auto', '--palette', 'world', '--dither', 'subtle', '--dither-mode', 'selective', '--pixel-grid', pixelGrid, '--scaling', 'integer']);
-    assert.deepEqual(opts.presentation, { version: 2, look: 'palette', quality: 'auto', palette: 'world', dither: .35, ditherMode: 'selective', pixelGrid, scaling: 'integer', pixelScale: 'original', buildPixelDetail: false });
+test('bulk export round trips every explicit grid with the v2 Cinematic profile', () => {
+  for (const pixelGrid of ['classic', 'classicPlus', 'medium', 'mediumPlus', 'detailed']) {
+    const expected = { version: 2, look: 'cinematic', quality: 'auto', pixelGrid, scaling: 'integer', pixelScale: 'original', buildPixelDetail: false };
+    assert.deepEqual(parseBulkArgs(['song.wav', '--look', 'cinematic', '--quality', 'auto', '--pixel-grid', pixelGrid, '--scaling', 'integer']).presentation, expected);
+    assert.deepEqual(parseBulkArgs(['song.wav', `--pixel-grid=${pixelGrid}`, '--scaling=integer']).presentation, expected, 'without --look');
   }
   assert.throws(() => parseBulkArgs(['song.wav', '--pixel-grid', 'arbitrary']));
 });

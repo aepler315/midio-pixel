@@ -218,7 +218,6 @@ continuous play.
 | Static shading containment | `npm run test:shading` |
 | Whole-system effect lifecycle across seeks | `npm run test:seek` |
 | Upload/playback/replacement/stop | `npm run test:smoke` |
-| Legacy Range fallback and Pixel/Palette worlds | `npm run test:retro` (kept out of the strict Range v2 capture) |
 
 These commands run locally (see `docs/local-validation.md`). The manually
 dispatched `.github/workflows/test.yml` covers lint, unit tests and the core

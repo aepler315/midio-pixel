@@ -5,7 +5,12 @@ import { createPresentingRenderer } from '../src/render/PresentingRenderer.js';
 import { GraphicsResidency } from '../src/render/GraphicsResidency.js';
 import { pixelGrid, runtimePixelGrid } from '../src/render/PixelRenderPolicy.js';
 
-const pixel = { pixelated: true, grid: { width: 320, height: 180 }, paletteId: 'none', dither: 1, quality: 'auto', scaling: 'fit' };
+// Cinematic is the only look the live renderer presents. `pixel` is the plain
+// nearest presentation the title backdrop still draws (main.js passes
+// cinematicPixel: false); Cinematic itself composites the same nearest way
+// when it sheds its cell reconstruction (qualityLevel >= 2).
+const pixel = { pixelated: true, grid: { width: 320, height: 180 }, quality: 'auto', scaling: 'fit' };
+const cinematic = { ...pixel, cinematicPixel: true };
 function surface(width = 800, height = 480) {
   const canvas = { width, height, reads: 0, writes: 0, draws: [], fills: [] };
   const ctx = { canvas, setTransform() {}, imageSmoothingEnabled: true, fillRect(...a) { canvas.fills.push(a); },
@@ -13,17 +18,16 @@ function surface(width = 800, height = 480) {
     getImageData() { canvas.reads++; return { width: canvas.width, height: canvas.height, data: new Uint8ClampedArray(canvas.width * canvas.height * 4) }; },
     putImageData() { canvas.writes++; } };
   canvas.contextRequests = [];
-  canvas.getContext = (type, options) => { canvas.contextRequests.push({ type, options }); return ctx; };
+  // No WebGL here, as in Node: the cell reconstruction reports it unavailable.
+  canvas.getContext = (type, options) => { canvas.contextRequests.push({ type, options }); return String(type).startsWith('webgl') ? null : ctx; };
   canvas.ownerDocument = { createElement: () => surface(0, 0) };
   return canvas;
 }
 
-test('only Cinematic non-palette native rasters request the explicit GPU hint on their first context', () => {
+test('only Cinematic native rasters request the explicit GPU hint on their first context', () => {
   for (const [presentation, options] of [
-    [{ ...pixel, cinematicPixel: true }, { willReadFrequently: false }],
+    [cinematic, { willReadFrequently: false }],
     [pixel, undefined],
-    [{ ...pixel, paletteId: 'rgb332' }, undefined],
-    [{ ...pixel, cinematicPixel: true, paletteId: 'rgb332' }, undefined],
   ]) {
     const output = surface(), owner = new PixelPresentation({ canvas: output, presentation, residency: new GraphicsResidency() });
     const working = owner.beginFrame({ separate: true });
@@ -35,7 +39,7 @@ test('only Cinematic non-palette native rasters request the explicit GPU hint on
 });
 
 test('admitted Cinematic growth creates the replacement with its GPU hint before publishing it', () => {
-  const owner = new PixelPresentation({ canvas: surface(), presentation: { ...pixel, cinematicPixel: true }, residency: new GraphicsResidency() });
+  const owner = new PixelPresentation({ canvas: surface(), presentation: cinematic, residency: new GraphicsResidency() });
   owner.setFrameGrid(runtimePixelGrid(320, 180));
   const original = owner.beginFrame({ separate: true });
   assert.equal(owner.setFrameGrid(runtimePixelGrid(400, 225)), true);
@@ -51,7 +55,7 @@ test('denied Cinematic growth keeps the prior context and its actual hint until 
   for (const failure of ['budget', 'commit']) {
     const residency = new GraphicsResidency(), owner = new PixelPresentation({ canvas: surface(), presentation: pixel, residency });
     const original = owner.beginFrame({ separate: true }), oldBytes = residency.usedBytes;
-    owner.setPresentation({ ...pixel, cinematicPixel: true });
+    owner.setPresentation(cinematic);
     if (failure === 'budget') residency.budgetBytes = oldBytes;
     else residency.commit = () => false;
     assert.equal(owner.setFrameGrid(runtimePixelGrid(400, 225)), false);
@@ -65,26 +69,26 @@ test('denied Cinematic growth keeps the prior context and its actual hint until 
   }
 });
 
-test('same-grid Cinematic and Palette policy changes recreate native contexts in both directions', () => {
-  const owner = new PixelPresentation({ canvas: surface(), presentation: { ...pixel, cinematicPixel: true }, residency: new GraphicsResidency() });
-  const cinematic = owner.beginFrame({ separate: true });
-  owner.setPresentation({ ...pixel, paletteId: 'rgb332' });
-  const palette = owner.beginFrame({ separate: true });
-  assert.notEqual(palette, cinematic);
-  assert.equal(palette.contextRequests[0].options, undefined);
-  assert.equal(cinematic.width, 0);
-  owner.setPresentation({ ...pixel, cinematicPixel: true });
+test('same-grid Cinematic and plain policy changes recreate native contexts in both directions', () => {
+  const owner = new PixelPresentation({ canvas: surface(), presentation: cinematic, residency: new GraphicsResidency() });
+  const first = owner.beginFrame({ separate: true });
+  owner.setPresentation(pixel);
+  const plain = owner.beginFrame({ separate: true });
+  assert.notEqual(plain, first);
+  assert.equal(plain.contextRequests[0].options, undefined);
+  assert.equal(first.width, 0);
+  owner.setPresentation(cinematic);
   const restored = owner.beginFrame({ separate: true });
-  assert.notEqual(restored, palette);
+  assert.notEqual(restored, plain);
   assert.deepEqual(restored.contextRequests[0].options, { willReadFrequently: false });
-  assert.equal(palette.width, 0);
+  assert.equal(plain.width, 0);
   assert.equal(owner._workingReadFrequently, false);
   owner.dispose();
 });
 
 test('Cinematic native hints leave an explicitly readable output context untouched', () => {
   const output = surface(); output.getContext('2d', { willReadFrequently: true });
-  const owner = new PixelPresentation({ canvas: output, presentation: { ...pixel, cinematicPixel: true }, residency: new GraphicsResidency() });
+  const owner = new PixelPresentation({ canvas: output, presentation: cinematic, residency: new GraphicsResidency() });
   const working = owner.beginFrame({ separate: true });
   assert.deepEqual(output.contextRequests[0].options, { willReadFrequently: true });
   assert.deepEqual(working.contextRequests[0].options, { willReadFrequently: false });
@@ -101,16 +105,20 @@ test('pixel fitting preserves aspect, integer scale and sub-grid targets', () =>
 test('fullscreen cover fills a non-16:9 viewport without stretching or black bars', () => {
   assert.deepEqual(fitPixelRect(320, 180, 800, 600, 'cover'), { x: -133.33333333333337, y: 0, width: 1066.6666666666667, height: 600, scale: 600 / 180 });
 });
-test('one bounded palette pass precedes the nearest-neighbor output composite', () => {
+test('Cinematic\'s quality fallback composites the native grid nearest-neighbour without readback', () => {
   const output = surface();
-  const owner = new PixelPresentation({ canvas: output, presentation: { ...pixel, paletteId: 'rgb332' } });
+  const owner = new PixelPresentation({ canvas: output, presentation: cinematic });
+  owner.qualityLevel = 2;
   const working = owner.beginFrame();
   assert.equal(working.width * working.height, 57600);
-  owner.finishFrame();
-  assert.equal(working.reads, 1);
-  assert.equal(working.writes, 1);
+  assert.equal(owner.finishFrame().presented, true);
+  assert.deepEqual(owner.diagnostics.cinematicReconstruction, { applied: false, reason: 'quality', bytes: 0 });
+  assert.equal(owner.diagnostics.effectiveLook, 'cinematic');
+  assert.equal(working.reads, 0);
+  assert.equal(working.writes, 0);
   assert.equal(output.reads, 0);
   assert.equal(output.draws.at(-1).smooth, false);
+  assert.equal(output.draws.at(-1).args[0], working);
   assert.deepEqual(output.draws.at(-1).args.slice(1), [0, 15, 800, 450]);
   assert.deepEqual(output.fills.at(-1), [0, 0, 800, 480]);
   assert.equal(owner.getCaptureSource().canvas, working);
@@ -162,7 +170,9 @@ test('profile and song changes release bounded working resources', () => {
   const baseline = residency.entries.size;
   for (let song = 0; song < 20; song++) {
     const owner = new PixelPresentation({ canvas: surface(), presentation: pixel, residency });
-    for (let i = 0; i < 100; i++) { owner.setPresentation({ ...pixel, paletteId: i % 2 ? 'rgb332' : 'none' }); owner.beginFrame(); owner.finishFrame(); }
+    // Cinematic and the title's plain policy alternate, recreating the native raster each time.
+    owner.qualityLevel = 2;
+    for (let i = 0; i < 100; i++) { owner.setPresentation(i % 2 ? cinematic : pixel); owner.beginFrame(); owner.finishFrame(); }
     assert.equal(residency.entries.size, baseline + 1);
     owner.dispose(); owner.dispose();
     assert.equal(residency.entries.size, baseline);
@@ -170,9 +180,9 @@ test('profile and song changes release bounded working resources', () => {
 });
 test('allocation refusal never bypasses the residency budget', () => {
   const residency = new GraphicsResidency({ budgetBytes: 1 });
-  const owner = new PixelPresentation({ canvas: surface(), presentation: pixel, residency });
+  const owner = new PixelPresentation({ canvas: surface(), presentation: cinematic, residency });
   assert.equal(owner.beginFrame(), null);
-  assert.equal(owner.diagnostics.paletteStatus.reason, 'unavailable');
+  assert.equal(owner.diagnostics.frame.reason, 'allocation-denied');
   assert.equal(residency.entries.size, 0);
   owner.dispose();
 });
@@ -187,113 +197,42 @@ test('changing to a grid-sized output releases its obsolete working buffer', () 
   assert.equal(owner.finishFrame().presented, true);
   owner.dispose();
 });
-test('persistent readback failures retry only after a presentation generation changes', () => {
-  const canvas = surface(320, 180);
-  let attempts = 0;
-  canvas.getContext().getImageData = () => { attempts++; throw Object.assign(Error('tainted'), { name: 'SecurityError' }); };
-  const owner = new PixelPresentation({ canvas, presentation: { ...pixel, paletteId: 'rgb332' } });
-  for (let i = 0; i < 4; i++) { owner.beginFrame(); owner.finishFrame(); }
-  assert.equal(attempts, 1);
-  assert.equal(owner.diagnostics.effectiveLook, 'pixel');
-  owner.setPresentation({ ...pixel, paletteId: 'rgb332', dither: .35 });
+test('the frame context labels captures with their world without invalidating them', () => {
+  const owner = new PixelPresentation({ canvas: surface(), presentation: cinematic });
+  owner.qualityLevel = 2;
+  owner.setFrameContext({ worldKind: 'alpine' });
   owner.beginFrame(); owner.finishFrame();
-  assert.equal(attempts, 2);
-  owner.dispose();
-});
-test('world palette context resolves before drawing and changes only on an effective palette change', () => {
-  const owner = new PixelPresentation({ canvas: surface(), presentation: { ...pixel, paletteId: 'world' } });
-  owner.setFrameContext({ worldKind: 'unregistered-kind' });
-  owner.beginFrame(); owner.finishFrame();
-  assert.equal(owner.diagnostics.effectivePalette, 'chroma32');
-  assert.equal(owner.diagnostics.effectiveLook, 'palette');
-  const capture = owner.getCaptureSource(), compiled = owner.compiledPalette, generation = owner.generation;
+  const capture = owner.getCaptureSource(), generation = owner.generation;
+  assert.equal(capture.worldKind, 'alpine');
+  // No palette depends on the world any more, so a new world is metadata only.
   owner.setFrameContext({ worldKind: 'custom' });
   assert.equal(owner.generation, generation);
   assert.equal(owner.getCaptureSource(), capture);
-  assert.equal(owner.compiledPalette, compiled);
-  owner.setFrameContext({ worldKind: 'alpine' });
-  assert.ok(owner.generation > generation);
-  assert.equal(owner.getCaptureSource(), null);
   owner.beginFrame(); owner.finishFrame();
-  assert.equal(owner.getCaptureSource().paletteId, 'range32');
-  assert.equal(owner.diagnostics.effectivePalette, 'range32');
+  assert.equal(owner.getCaptureSource().worldKind, 'custom');
+  owner.setFrameContext();
+  owner.beginFrame(); owner.finishFrame();
+  assert.equal(owner.getCaptureSource().worldKind, null);
+  for (const removed of ['paletteId', 'ditherMode']) assert.equal(removed in owner.getCaptureSource(), false, removed);
   owner.dispose();
 });
-test('the presenting renderer resolves the World palette from the drawn world', () => {
+test('the presenting renderer labels Cinematic captures with the drawn world', () => {
   const inner = { backend: 'canvas', drawCount: 0, draw() {}, dispose() {} };
-  const adapter = createPresentingRenderer({ canvas: surface(), presentation: { ...pixel, paletteId: 'world' }, rendererFactory: canvas => { inner.canvas = canvas; return inner; } });
+  const adapter = createPresentingRenderer({ canvas: surface(), presentation: cinematic, rendererFactory: canvas => { inner.canvas = canvas; return inner; } });
   const world = { kind: 'alpine' };
   assert.equal(adapter.draw({ biomes: { world } }, 0).presented, true);
-  assert.equal(adapter.diagnostics.effectivePalette, 'range32');
+  assert.equal(adapter.diagnostics.effectiveLook, 'cinematic');
+  assert.equal(adapter.diagnostics.cinematicReconstruction.reason, 'webgl-unavailable', 'composited nearest instead');
+  assert.equal(adapter.getCaptureSource().worldKind, 'alpine');
+  assert.equal(adapter.getCaptureSource().cinematicPixel, true);
   assert.equal('experience' in adapter.getCaptureSource(), false);
   adapter.dispose();
 });
-test('same effective world palette keeps taint backoff and Natural/Pixel compile no palette', () => {
-  const canvas = surface(320, 180); let attempts = 0;
-  canvas.getContext().getImageData = () => { attempts++; throw Object.assign(Error('tainted'), { name: 'SecurityError' }); };
-  const owner = new PixelPresentation({ canvas, presentation: { ...pixel, paletteId: 'world' } });
-  owner.setFrameContext({ worldKind: 'unregistered-kind' }); owner.beginFrame(); owner.finishFrame();
-  for (const worldKind of ['unregistered-kind', 'other-unregistered-kind', 'custom', null]) { owner.setFrameContext({ worldKind }); owner.beginFrame(); owner.finishFrame(); }
-  assert.equal(attempts, 1);
-  owner.setFrameContext({ worldKind: 'alpine' }); owner.beginFrame(); owner.finishFrame();
-  assert.equal(attempts, 2);
-  owner.setPresentation(pixel); assert.equal(owner.compiledPalette, null);
-  owner.setPresentation({ ...pixel, pixelated: false, paletteId: 'world' }); assert.equal(owner.compiledPalette, null);
-  owner.dispose();
-});
-test('mask admission denial falls back to a valid Ordered palette frame once per generation', () => {
-  const residency = new GraphicsResidency({ budgetBytes: 1 });
-  const canvas = surface(320, 180), profile = { ...pixel, paletteId: 'chroma32', ditherMode: 'selective', dither: .35 };
-  const owner = new PixelPresentation({ canvas, presentation: profile, residency });
-  for (let i = 0; i < 5; i++) { owner.beginFrame(); assert.equal(owner.finishFrame().presented, true); }
-  assert.equal(residency.denials, 1);
-  assert.equal(owner.diagnostics.effectiveLook, 'palette');
-  assert.equal(owner.diagnostics.effectiveDitherMode, 'ordered');
-  assert.equal(owner.diagnostics.ditherFallbackReason, 'allocation-denied');
-  assert.ok(owner.getCaptureSource());
-  residency.budgetBytes = 100000;
-  owner.setFrameContext({ worldKind: 'unregistered-kind' }); owner.beginFrame(); owner.finishFrame();
-  assert.equal(owner.diagnostics.effectiveDitherMode, 'ordered', 'no retry without a new generation');
-  owner.setPresentation({ ...profile, dither: 1 }); owner.beginFrame(); owner.finishFrame();
-  assert.equal(owner.diagnostics.effectiveDitherMode, 'selective');
-  assert.equal(owner.ditherWeights.length, 57600);
-  assert.equal(residency.usedBytes, 57600);
-  owner.dispose(); assert.equal(residency.usedBytes, 0); assert.equal(owner.getCaptureSource(), null);
-});
-test('mask ownership is reused, cleaned on Off/Pixel/Natural, and excluded for RGB332', () => {
-  const residency = new GraphicsResidency({ budgetBytes: 1000000 });
-  const owner = new PixelPresentation({ canvas: surface(), presentation: { ...pixel, paletteId: 'range32', ditherMode: 'selective' }, residency });
-  owner.beginFrame(); owner.finishFrame();
-  const mask = owner.ditherWeights; assert.ok(mask instanceof Uint8Array);
-  owner.beginFrame(); owner.finishFrame(); assert.equal(owner.ditherWeights, mask);
-  for (const profile of [
-    { ...pixel, paletteId: 'range32', ditherMode: 'selective', dither: 0 },
-    { ...pixel, paletteId: 'rgb332', ditherMode: 'selective' }, pixel, { ...pixel, pixelated: false },
-  ]) {
-    owner.setPresentation(profile); owner.beginFrame(); owner.finishFrame();
-    assert.equal(owner.ditherWeights, null);
-  }
-  owner.dispose(); assert.equal(residency.usedBytes, 0);
-  assert.equal(owner.beginFrame(), null); assert.equal(owner.finishFrame().presented, false);
-});
-test('failed mask commit releases its reservation and does not retry each frame', () => {
-  const residency = new GraphicsResidency({ budgetBytes: 1000000 });
-  let attempts = 0;
-  const commit = residency.commit.bind(residency);
-  residency.commit = (reservation, resource, dispose) => {
-    if (resource instanceof Uint8Array) { attempts++; return false; }
-    return commit(reservation, resource, dispose);
-  };
-  const owner = new PixelPresentation({ canvas: surface(320, 180), presentation: { ...pixel, paletteId: 'range32', ditherMode: 'selective' }, residency });
-  for (let i = 0; i < 3; i++) { owner.beginFrame(); assert.equal(owner.finishFrame().presented, true); }
-  assert.equal(attempts, 1); assert.equal(residency.usedBytes, 0);
-  assert.equal(owner.diagnostics.ditherFallbackReason, 'reservation-commit');
-  owner.dispose();
-});
 for (const phase of ['before-first-frame', 'pending-frame', 'completed-paused-frame']) test(`grid changes invalidate capture and release all old dimensions during ${phase}`, () => {
   const residency = new GraphicsResidency({ budgetBytes: 4000000 });
-  const profile = { ...pixel, grid: pixelGrid(), paletteId: 'chroma32', ditherMode: 'selective' };
+  const profile = { ...cinematic, grid: pixelGrid() };
   const owner = new PixelPresentation({ canvas: surface(1280, 720), presentation: profile, residency });
+  owner.qualityLevel = 2; // the nearest fallback: no cell-reconstruction buffer
   let old;
   if (phase !== 'before-first-frame') { old = owner.beginFrame(); if (phase === 'completed-paused-frame') owner.finishFrame(); }
   const generation = owner.generation;
@@ -301,15 +240,13 @@ for (const phase of ['before-first-frame', 'pending-frame', 'completed-paused-fr
   assert.ok(owner.generation > generation);
   assert.equal(owner.getCaptureSource(), null);
   assert.equal(owner.finishFrame().presented, false);
-  assert.equal(residency.usedBytes, 0, 'working surface and mask retire together');
+  assert.equal(residency.usedBytes, 0, 'the old working surface retires');
   if (old) assert.equal(old.width, 0);
   const source = owner.beginFrame();
   assert.deepEqual([source.width, source.height], [640, 360]);
   assert.equal(owner.finishFrame().presented, true);
   assert.equal(owner.getCaptureSource().grid.id, 'detailed');
-  assert.equal(owner.diagnostics.paletteStatus.pixels, 230400);
-  assert.equal(owner.ditherWeights.length, 230400);
-  assert.equal(residency.usedBytes, 230400 * 5);
+  assert.equal(residency.usedBytes, 230400 * 4, 'working storage only');
   owner.setPresentation(profile); assert.equal(owner.getCaptureSource(), null);
   assert.equal(residency.usedBytes, 0);
   owner.beginFrame(); owner.finishFrame();
@@ -330,7 +267,7 @@ test('direct-source optimization requires the selected grid and retires obsolete
   owner.dispose();
 });
 test('disposal diagnostics discard readiness and owned scratch charges', () => {
-  const owner = new PixelPresentation({ canvas: surface(), presentation: { ...pixel, paletteId: 'range32', ditherMode: 'selective' } });
+  const owner = new PixelPresentation({ canvas: surface(), presentation: pixel });
   owner.beginFrame(); owner.finishFrame();
   assert.ok(owner.diagnostics.ownedPixelScratchBytes > 0);
   owner.dispose();
@@ -351,7 +288,7 @@ for (const failure of ['denied', 'output-context', 'working-context', 'creation'
     assert.equal(owner.getCaptureSource().generation, good.generation);
     owner.setPresentation({ ...pixel, grid: pixelGrid('detailed') }); // retires the previous working dimensions
     assert.equal(owner.getCaptureSource(), null);
-    owner.setPresentation({ ...pixel, paletteId: 'range32' });
+    owner.setPresentation(cinematic);
     if (failure === 'denied') residency.budgetBytes = 1;
     if (failure === 'output-context') canvas.getContext = () => null;
     if (failure === 'working-context') canvas.ownerDocument.createElement = () => ({ width: 0, height: 0, getContext: () => null });
@@ -392,10 +329,9 @@ test('capture is invalid during a draw, after resize, external release and dispo
   owner.finishFrame(); owner.dispose();
   assert.equal(owner.getCaptureSource(), null);
 });
-test('failed output composite invalidates capture while a completed SecurityError Pixel fallback is valid', () => {
-  const canvas = surface(), owner = new PixelPresentation({ canvas, presentation: { ...pixel, paletteId: 'range32' } });
-  const source = owner.beginFrame();
-  source.getContext('2d').getImageData = () => { throw Object.assign(Error('tainted'), { name: 'SecurityError' }); };
+test('a failed output composite invalidates the capture of a completed frame', () => {
+  const canvas = surface(), owner = new PixelPresentation({ canvas, presentation: pixel });
+  owner.beginFrame();
   assert.equal(owner.finishFrame().presented, true);
   assert.ok(owner.getCaptureSource());
   owner.beginFrame();
@@ -453,7 +389,7 @@ test('failed reservation commit releases the uncommitted canvas storage', () => 
   owner.dispose();
 });
 
-test('reapplying a profile before a backing reset invalidates capture without retrying taint', () => {
+test('reapplying a profile before a backing reset invalidates capture without a new generation', () => {
   const owner=new PixelPresentation({canvas:surface(),presentation:pixel});
   owner.beginFrame();const first=owner.finishFrame();assert.ok(owner.getCaptureSource());
   owner.setPresentation({...pixel});
@@ -465,7 +401,7 @@ test('reapplying a profile before a backing reset invalidates capture without re
 test('raw Natural presentation overrides stay pixelated through drawing and recorder capture', () => {
   const canvas = surface(1920, 1080);
   let sourceSize, scenePolicy;
-  const adapter = createPresentingRenderer({ canvas, presentation: { ...pixel, pixelated: false, grid: null, paletteId: 'world' },
+  const adapter = createPresentingRenderer({ canvas, presentation: { ...pixel, pixelated: false, grid: null },
     rendererFactory: () => ({ draw() { sourceSize = [this.canvas.width, this.canvas.height]; scenePolicy = this.pixelPolicy; }, dispose() {} }) });
   assert.equal(adapter.draw({}, 0).presented, true);
   assert.deepEqual(sourceSize, [320, 180]);
@@ -474,7 +410,6 @@ test('raw Natural presentation overrides stay pixelated through drawing and reco
   assert.deepEqual([canvas.width, canvas.height], [1920, 1080]);
   assert.equal(adapter.diagnostics.effectiveLook, 'pixel');
   assert.equal(adapter.getCaptureSource().pixelated, true);
-  assert.equal(adapter.getCaptureSource().paletteId, 'none');
   adapter.dispose();
 });
 test('unscoped stale Natural input still uses pixels', () => {
@@ -486,7 +421,7 @@ test('unscoped stale Natural input still uses pixels', () => {
   owner.dispose();
 });
 
-test('Uniform scale keeps the Pixel compositor free of palette readback or color transforms', () => {
+test('Uniform scale keeps the plain nearest compositor free of readback or color transforms', () => {
   const canvas = surface(1920, 1080);
   const owner = new PixelPresentation({ canvas, presentation: { ...pixel, pixelScale: 'original' } });
   const source = owner.beginFrame();
@@ -581,39 +516,6 @@ test('a grid-sized hybrid output retains a separate transparent foreground buffe
   assert.notEqual(source, canvas, 'painting the sky cannot destroy an aliased terrain source');
   assert.equal(source.width, 320); assert.equal(source.height, 180);
   owner.dispose();
-});
-
-test('single stage paints native sky, water and effects together before admitting captures', () => {
-  const canvas = surface(320, 180);
-  const forbidden = () => assert.fail('single stage must use the native scene path');
-  const range = { enabled: true, drawWaterForeground: forbidden,
-    drawCrestForeground: forbidden, crestEnabled: true };
-  const manager = { world: { kind: 'alpine' }, drawHighResolutionSky() {}, drawHighResolutionMidEffects: forbidden };
-  let captured = 0;
-  const inner = { rangePresentation: range, draw() {
-    assert.equal(this.canvas, canvas);
-    assert.equal(manager.singleStage, true);
-    assert.equal(manager.highResolutionSky, true);
-    assert.equal(manager.highResolutionMidEffects, false);
-    assert.equal(range.singleStage, true);
-    assert.equal(range.waterOutputSize, null);
-    assert.equal(range.crestEnabled, false);
-    assert.equal(this.deferPostEffects, false);
-    assert.equal(this.deferSceneCaptures, true);
-  }, drawDeferredPostEffects: forbidden, completeFrameCaptures(source) {
-    assert.equal(source, canvas);
-    assert.equal(adapter.getCaptureSource().presented, true);
-    assert.equal(canvas.writes, 1, 'palette must finish before semantic capture');
-    captured++;
-  }, dispose() {} };
-  const adapter = createPresentingRenderer({ canvas, presentation: { ...pixel, rangePipeline: 'single', paletteId: 'rgb332' },
-    rendererFactory: () => inner });
-  assert.equal(adapter.draw({ biomes: manager }, 0).presented, true);
-  assert.equal(captured, 1);
-  assert.equal(adapter.getCaptureSource().canvas, canvas);
-  assert.equal(adapter.getCaptureSource().pixelated, true);
-  assert.equal(adapter.output.working, null);
-  adapter.dispose();
 });
 
 test('smooth mid-depth effects compose above water in live and recording frames', () => {

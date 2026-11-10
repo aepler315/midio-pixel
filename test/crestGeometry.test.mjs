@@ -55,7 +55,7 @@ test('a live pending miss through the presentation removes prior fine cuts and s
   const unexpected = () => { throw Error('a pending miss cannot reuse old GPU geometry'); };
   const fit = { x: 0, y: 0, width: W, height: H, scale: 1 };
   assert.equal(crest.prepareGrid({ ctx: {} }), false);
-  assert.equal(crest.finishGrid({ ctx: {} }), false);
+  assert.equal(typeof crest.finishGrid, 'undefined', 'no palette pass re-quantizes split cells');
   assert.equal(crest.drawTerrain({}, fit, 2, unexpected), false);
   assert.equal(crest.drawCrest({}, fit, 2), true);
   assert.equal(crest.drawShore({}, fit, 2), true);

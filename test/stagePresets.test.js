@@ -5,8 +5,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
-  STAGE_PRESETS, AUTO_PRESET, RETRO_PRESET, PALETTE_PRESET, DEFAULT_STAGE_PRESET,
-  resolveStagePreset, stageDims, isAutoPreset, isRetroPreset, isPalettePreset,
+  STAGE_PRESETS, AUTO_PRESET, RETRO_PRESET, DEFAULT_STAGE_PRESET,
+  resolveStagePreset, stageDims, isAutoPreset, isRetroPreset,
   displayLimitedSize, autoStageSize, shouldSuggestLandscape,
 } from '../src/render/StagePresets.js';
 
@@ -14,9 +14,9 @@ const indexHtml = readFileSync(
   fileURLToPath(new URL('../index.html', import.meta.url)), 'utf8',
 );
 
-test('product exposes Pixel and Palette, grid and fitting, without a Natural Stage menu', () => {
+test('product exposes Cinematic\'s grid and fitting, without a Look, Palette, Dither or Natural Stage menu', () => {
   assert.doesNotMatch(indexHtml, /id="stageRes"|value="natural"/);
-  assert.match(indexHtml, /id="display-look"/);
+  assert.doesNotMatch(indexHtml, /id="display-(look|palette|dither|ditherMode)"/);
   assert.match(indexHtml, /id="display-pixelGrid"/);
   assert.doesNotMatch(indexHtml, /id="display-pixelScale"|value="depth">Depth/);
   assert.match(indexHtml, /id="display-scaling"/);
@@ -28,32 +28,14 @@ test('shared legacy resolution helpers remain available for rendering and migrat
   assert.equal(resolveStagePreset('auto'), AUTO_PRESET);
   assert.equal(isAutoPreset(AUTO_PRESET), true);
   assert.equal(isAutoPreset(1080), false);
-  const retro = Object.keys(STAGE_PRESETS).filter((k) => STAGE_PRESETS[k].retro).sort();
-  assert.deepEqual(retro, [RETRO_PRESET, PALETTE_PRESET].sort());
+  // The '8bit-intensive' palette variant went with the Palette look.
+  const retro = Object.keys(STAGE_PRESETS).filter((k) => STAGE_PRESETS[k].retro);
+  assert.deepEqual(retro, [RETRO_PRESET]);
   assert.equal(isRetroPreset(RETRO_PRESET), true);
-  assert.equal(isRetroPreset(PALETTE_PRESET), true);
+  assert.equal(isRetroPreset('8bit-intensive'), false);
   assert.equal(isRetroPreset(DEFAULT_STAGE_PRESET), false);
   assert.equal(isRetroPreset(144), false);
-});
-
-test('only the intensive variant asks for the palette pass', () => {
-  // The split is the point: a weak device must be able to buy the cheap
-  // mode without also buying a per-frame readback it cannot afford.
-  assert.equal(isPalettePreset(PALETTE_PRESET), true);
-  assert.equal(isPalettePreset(RETRO_PRESET), false);
-  assert.equal(isPalettePreset(DEFAULT_STAGE_PRESET), false);
-  assert.equal(isPalettePreset('nonsense'), false);
-  const palette = Object.keys(STAGE_PRESETS).filter((k) => STAGE_PRESETS[k].palette);
-  assert.deepEqual(palette, [PALETTE_PRESET]);
-});
-
-test('both 8-bit modes render into the same small buffer', () => {
-  // Intensive costs more per frame, not more pixels -- it must not quietly
-  // raise the resolution as well, or it would be paying twice.
-  assert.deepEqual(
-    { w: stageDims(PALETTE_PRESET).w, h: stageDims(PALETTE_PRESET).h },
-    { w: stageDims(RETRO_PRESET).w, h: stageDims(RETRO_PRESET).h },
-  );
+  assert.deepEqual(Object.keys(STAGE_PRESETS).filter((k) => STAGE_PRESETS[k].palette), [], 'no preset asks for a palette pass');
 });
 
 test('8-bit is a genuinely small buffer, not a relabelled full-size one', () => {
@@ -85,15 +67,15 @@ test('8-bit upscales by whole pixels on the two commonest stage sizes', () => {
 test('resolveStagePreset accepts what a select, localStorage, or a URL actually hands it', () => {
   assert.equal(resolveStagePreset('8bit'), RETRO_PRESET);
   assert.equal(resolveStagePreset(' 8BIT '), RETRO_PRESET, 'case/whitespace tolerant');
-  assert.equal(resolveStagePreset('8bit-intensive'), PALETTE_PRESET);
-  assert.equal(resolveStagePreset(' 8BIT-Intensive '), PALETTE_PRESET);
   assert.equal(resolveStagePreset('1080'), 1080, 'a select hands over strings');
   assert.equal(resolveStagePreset(1080), 1080, 'a number works too');
   assert.equal(resolveStagePreset('144'), 144);
 });
 
 test('resolveStagePreset rejects anything that names no preset', () => {
-  for (const bad of [null, undefined, '', '  ', 'nonsense', '999', 999, '8', 8, NaN, {}]) {
+  // '8bit-intensive' is the retired palette preset; DisplayProfile still
+  // migrates a stored one to Economy quality (displayProfile.test.js).
+  for (const bad of [null, undefined, '', '  ', 'nonsense', '999', 999, '8', 8, NaN, {}, '8bit-intensive', ' 8BIT-Intensive ']) {
     assert.equal(resolveStagePreset(bad), null, `${String(bad)} should not resolve`);
   }
 });

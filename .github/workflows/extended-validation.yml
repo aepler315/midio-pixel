@@ -71,10 +71,11 @@ jobs:
         uses: ./.github/actions/setup
         with:
           browser: true
-      - name: Verify real pixel placement, Range backends and export failure
-        run: npm run test:retro
+      # The retro smoke (test:retro) that ran here drove the removed Pixel and
+      # Palette looks; it was retired with them.
       - name: Verify packed cloud uniforms on the GPU
         run: |
+          mkdir -p .smoke/retro
           HOST=127.0.0.1 PORT=8082 node tools/serve.js > .smoke/cloud-server.log 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT

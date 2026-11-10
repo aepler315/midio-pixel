@@ -498,59 +498,6 @@ test('a warm-up grace does not let 8-bit mode drift off the floor', () => {
   assert.equal(gov.retro, true);
 });
 
-// ── 8-bit intensive (StagePresets.PALETTE_PRESET) ──────────────────
-//
-// The palette pass is the one thing in this file that ADDS work rather than
-// shedding it, so it is deliberately not a rung: it is a flag that only
-// holds while the retro floor does.
-
-test('the palette pass rides on the retro floor and never runs without it', () => {
-  const intensive = new PerfGovernor({ retro: true, retroPalette: true });
-  assert.equal(intensive.retro, true);
-  assert.equal(intensive.retroPalette, true);
-  assert.equal(intensive.level, MAX_LEVEL, 'intensive still sheds everything the cheap mode does');
-
-  // Asking for the palette without the floor would quantize a full-size
-  // frame -- many times the cost of everything else in it.
-  const paletteOnly = new PerfGovernor({ retro: false, retroPalette: true });
-  assert.equal(paletteOnly.retroPalette, false);
-  assert.equal(paletteOnly.level, 0, 'and it must not silently pin the ladder either');
-});
-
-test('plain 8-bit does not quietly get the palette pass', () => {
-  const plain = new PerfGovernor({ retro: true });
-  assert.equal(plain.retro, true);
-  assert.equal(plain.retroPalette, false);
-});
-
-test('leaving retro drops the palette pass with it', () => {
-  const gov = new PerfGovernor({ retro: true, retroPalette: true });
-  gov.retro = false;
-  assert.equal(gov.retroPalette, false, 'a full-resolution frame must never stay quantized');
-  // And it cannot be switched back on while the floor is off.
-  gov.retroPalette = true;
-  assert.equal(gov.retroPalette, false);
-});
-
-test('switching between the two 8-bit modes mid-song toggles only the palette', () => {
-  const gov = new PerfGovernor({ retro: true });
-  gov.retroPalette = true;
-  assert.equal(gov.retroPalette, true);
-  assert.equal(gov.level, MAX_LEVEL);
-  gov.retroPalette = false;
-  assert.equal(gov.retroPalette, false);
-  assert.equal(gov.retro, true, 'the cheap floor stays put either way');
-  assert.equal(gov.level, MAX_LEVEL);
-});
-
-test('the palette pass does not disturb the pin: intensive still never recovers', () => {
-  const gov = new PerfGovernor({ retro: true, retroPalette: true });
-  let t = 0;
-  for (let i = 0; i < 60 * 120; i++) { gov.sample(1000 / 60, t); t += 1000 / 60; }
-  assert.equal(gov.level, MAX_LEVEL);
-  assert.equal(gov.retroPalette, true);
-});
-
 // --- The ladder must not oscillate.
 //
 // Recovery used to be unconditional: ten clean seconds bought a rung back,

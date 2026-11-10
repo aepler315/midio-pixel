@@ -80,8 +80,8 @@ given a `baseline_ref`, a capture of that ref's source for the same case
 compared with the candidate for review. The gates are page
 and shader errors, an inactive or wrong backend, a wrong quality rung and
 blank frames. There is no pixel-difference beauty threshold; the
-base/candidate comparison is review material. The legacy Range path stays in
-`npm run test:retro`.
+base/candidate comparison is review material. (The legacy Range path's
+smoke, `npm run test:retro`, was retired with the Pixel and Palette looks.)
 
 ## Your own recordings
 
@@ -207,10 +207,7 @@ still draw consecutive frames within each selected clip and its pre-roll.
 The selected driver and actual GL environment are recorded. Driver changes
 must not be mixed in a matched comparison.
 
-`npm run test:retro` uses real Canvas/CSS checkerboards at both native grids,
-four DPRs and eight resized viewports, then checks the default Range v2 and explicit legacy path.
-It rejects silent v2 fallback, blank/frozen controlled sequences, missing
-capture, nonpalette raw pixels, incorrect scene bars and failed exports.
+The retro smoke (`npm run test:retro`) was retired on November 10, 2026 with the Pixel and Palette looks; its DPR raster, legacy-backend, context-loss and export-failure checks have no replacement yet.
 The browser CI jobs have time bounds and retain failed diagnostics.
 
 ## Diagnostic renders and render provenance
