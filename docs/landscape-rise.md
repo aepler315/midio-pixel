@@ -2,8 +2,8 @@
 
 Landscape starts **one-third built**, hidden under the song's title card,
 skipping the first third of the mountain build. Every terrain height, including
-valleys below the camera, grows relative to one fixed ground level, surges to
-most of its relief as the card fades, and finishes growing with the song. The
+valleys below the camera, grows relative to one fixed ground level and keeps
+building with the music for the whole song. The
 previous eye-relative squash left valleys intact and made the skyline look cut
 off; it is no longer used.
 
@@ -70,22 +70,22 @@ and accept the actual lowered camera without rebuilding on every frame.
 
 ## Song timing and seeking
 
-Every song opens on its title card (`src/ui/TitleCard.js`), and the range
-surges up as the card fades (`src/core/OpeningTimeline.js`):
+Every song opens on its title card (`src/ui/TitleCard.js`) while the opening
+close-up lets go on its own clock (`src/core/OpeningTimeline.js`):
 
 | Heard time | What shows |
 | --- | --- |
-| 0–2.0 s | Title card (song, artist) over the one-third-built range |
-| 1.8–4.0 s | Opening surge: one-third to at least 80% relief, ease-out |
-| 2.0–2.7 s | Card fades; the land is past half relief when it clears |
+| 0–2.0 s | Title card (song, artist) over the one-third-built range, in close-up |
+| 2.0–2.7 s | Card fades; the close-up starts widening |
 | from 2.7 s | First place caption, fading in 1.5 s later |
+| 5.0 s | Authored lens; the range keeps building with the music |
 
-The surge composes with the music's climb:
-`rise = 1 - (1 - 0.7 * surge) * (1 - climb)`, where
-`climb = 1/3 + 2/3 * easedMusicProgress`. The surge supplies 70% of the remaining
-relief, reaching at least 80% overall and clearing the camera's 70% settle point,
-so the lens has widened to the authored lens when the surge lands. The flat,
-featureless opening is skipped while song playback still begins at time zero.
+`rise = 1/3 + 2/3 * easedMusicProgress`: there is no early surge, so the build
+plays out across the song (a three-minute song is about half built at one
+minute). The camera used to hold its close-up until 70% relief, which a gradual
+build takes most of twenty seconds to reach; the opening clock now releases it
+by five seconds whatever the height (November 10, 2026, replacing a 1.8–4.0 s
+height surge that finished most of the build in the first four seconds).
 
 The climb, `compileLandRise` in `LandscapeScore`, integrates `0.6 + energy` over
 heard time. It reaches full height at `max(0.6 * cadence, cadence - 20 seconds)`,

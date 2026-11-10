@@ -4,7 +4,6 @@ import { pixelRenderPolicy } from './PixelRenderPolicy.js';
 import { CanvasBuffers } from './CanvasResidency.js';
 import { CinematicPixelRenderer } from './CinematicPixel.js';
 import { landscapeScoreFor } from '../world/alpine/LandscapeScore.js';
-import { RISE_SURGE_START_MS, RISE_SURGE_MS } from '../core/OpeningTimeline.js';
 import { landscapeResolutionPlan, landscapeResolutionAt, landscapeResolutionEndpoint, landscapeQualityRung } from './ProgressiveLandscapeResolution.js';
 
 export function createPresentingRenderer({ canvas, mode = 'canvas', presentation, residency, voxelRange = null, rendererFactory = createRenderer }) {
@@ -108,17 +107,9 @@ class PresentingRenderer {
           this.output.resetFrameGridAdmission();
         }
       }
-      // The opening surge lifts the range to 70% relief in 2.2 s, which would
-      // walk the grid through ~16 rungs (each a new working canvas and scenic
-      // render target) during the reveal. Its detail is taken in one step at
-      // the surge's start instead, under the still-opaque title card. Pure in
-      // heard time, so seek and export pick the same rung; the frame's own
-      // rise is unchanged.
-      const score = landscapeScoreFor(manager), preview = !!manager.terrainPreview, t = sim.heardTimeMs;
-      const surgeEndMs = RISE_SURGE_START_MS + RISE_SURGE_MS;
-      const growthMs = t >= RISE_SURGE_START_MS && t < surgeEndMs ? surgeEndMs : t;
-      growth = landscapeResolutionAt(this._growthPlan, score.at(growthMs, { preview }).rise01);
-      frameRise01 = growthMs === t ? growth.rise01 : score.at(t, { preview }).rise01;
+      // Pixel detail sharpens with the land as it builds through the song.
+      growth = landscapeResolutionAt(this._growthPlan, landscapeScoreFor(manager).at(sim.heardTimeMs, { preview: !!manager.terrainPreview }).rise01);
+      frameRise01 = growth.rise01;
       qualityRung = sim.exportMode ? this._growthPlan.maxRung : landscapeQualityRung(this._growthPlan, sim.perf?.level ?? 0);
       this.output.setFrameGrid(this._growthPlan.grids[Math.min(growth.rung, qualityRung, this._growthRungLimit)]);
       range.detailHeightPx = this._growthPlan.endpoint.height;

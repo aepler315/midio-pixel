@@ -20,7 +20,9 @@ function fixture(view, p) {
     _movedPoses: new WeakMap(), camera: new THREE.PerspectiveCamera(),
     _updateTourCoverage() {},
     _ensureTourWindow(owner, at, requested) { windows.push(requested); } });
-  const frame = { frameId: 1, timeMs: 10000, progress01: .4, rise01: .3, scenicViewport: viewport };
+  // Under the title card, before the opening clock releases the close-up
+  // (OpeningTimeline.openingZoomRelease01): framing here follows rise alone.
+  const frame = { frameId: 1, timeMs: 1000, progress01: .4, rise01: .3, scenicViewport: viewport };
   return { scene, frame, windows };
 }
 

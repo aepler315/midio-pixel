@@ -3,7 +3,6 @@
 // camera direction and distance. Terrain, rivers, forest and cast use the
 // same base and progress, including reflected draws.
 import { clamp01 } from '../../utils/math.js';
-import { RISE_SURGE_RELIEF, riseSurge01 } from '../../core/OpeningTimeline.js';
 
 /** Relief share at the song's first beat, skipping the first third of the build. */
 export const LAND_RISE_START = 1 / 3;
@@ -92,12 +91,11 @@ const landing = (u) => {
  * over LAND_RISE_CATCH_UP_MS, so a new climb that is over, or a moment from
  * over, at the handoff does not snap the land to the complete range.
  *
- * The opening surge (OpeningTimeline.js) composes with that climb:
- * rise = 1 - (1 - RISE_SURGE_RELIEF * surge) * (1 - climb). Under the title
- * card the land is already one-third built; within about two seconds of it
- * fading the range stands at most of its relief, and the music's climb finishes the rest.
- * Both factors are pure functions of heard time, so the handoff above and
- * every seek agree, and the land still reaches exactly 1 at endMs.
+ * The land starts one-third built (LAND_RISE_START) and the music builds the
+ * rest across the whole song. The opening close-up is released on its own
+ * clock (OpeningTimeline.openingZoomRelease01), not by an early surge in
+ * height. The rise is a pure function of heard time, so the handoff above and
+ * every seek agree, and the land reaches exactly 1 at endMs.
  */
 export function compileLandRise({ read = () => 0, durationMs = 0, cadenceMs = durationMs, finaleMs = 0,
   previous = null, freezeThroughMs = -1 } = {}) {
@@ -123,9 +121,6 @@ export function compileLandRise({ read = () => 0, durationMs = 0, cadenceMs = du
       return clamp01(from + (1 - from) * clamp01(k));
     };
   }
-  const at = (timeMs) => {
-    const climb = LAND_RISE_START + (1 - LAND_RISE_START) * landing(progressAt(timeMs));
-    return climb + (1 - climb) * RISE_SURGE_RELIEF * riseSurge01(timeMs);
-  };
+  const at = (timeMs) => LAND_RISE_START + (1 - LAND_RISE_START) * landing(progressAt(timeMs));
   return Object.freeze({ endMs, progressAt, at });
 }

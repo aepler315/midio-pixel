@@ -6,7 +6,6 @@ import {
   compileLandRise, landRiseLift, risenFloor, risenHeight, riseFromUniforms,
 } from '../src/world/alpine/LandRise.js';
 import { compileLandscapeScore } from '../src/world/alpine/LandscapeScore.js';
-import { RISE_SURGE_RELIEF, RISE_SURGE_START_MS, RISE_SURGE_MS } from '../src/core/OpeningTimeline.js';
 import { FINALE_MS } from '../src/world/alpine/RangeCamera.js';
 import { sceneUniforms, SCENE_FRAG, SCENE_VERT } from '../src/world/alpine/TerrainMaterial.js';
 import { liftBounds } from '../src/world/alpine/MirrorScissor.js';
@@ -106,13 +105,8 @@ test('a whole-song analysis takes over the climb without a jump or a sink', () =
     const handed = compileLandRise({ read: () => .5, durationMs: 240000, cadenceMs: 180000, finaleMs: FINALE_MS,
       previous: long.progressAt, freezeThroughMs });
     assert.ok(long.progressAt(freezeThroughMs) < .9, 'the land still had climbing to do');
-    // Measure the climb, not the composed rise: past the opening surge,
-    // rise = 1 - (1 - RISE_SURGE_RELIEF) * (1 - climb), so every rise step
-    // is that share of the climb step `fastest` is calibrated for.
-    assert.ok(freezeThroughMs > RISE_SURGE_START_MS + RISE_SURGE_MS, 'the handoff is past the surge');
-    const climbAt = t => 1 - (1 - handed.at(t)) / (1 - RISE_SURGE_RELIEF);
     let step = 0;
-    for (let t = freezeThroughMs; t <= freezeThroughMs + 2 * LAND_RISE_CATCH_UP_MS; t += frameMs) step = Math.max(step, climbAt(t + frameMs) - climbAt(t));
+    for (let t = freezeThroughMs; t <= freezeThroughMs + 2 * LAND_RISE_CATCH_UP_MS; t += frameMs) step = Math.max(step, handed.at(t + frameMs) - handed.at(t));
     assert.ok(step <= fastest, `${early} ms before the new end: ${step} per frame`);
     assert.equal(handed.at(Math.max(whole.endMs, freezeThroughMs + LAND_RISE_CATCH_UP_MS)), 1);
   }

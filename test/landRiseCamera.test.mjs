@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { landRiseBase, landRiseCamera } from '../src/world/alpine/LandRiseCamera.js';
+import { landRiseBase, landRiseCamera, landRiseFov } from '../src/world/alpine/LandRiseCamera.js';
+import { OPENING_ZOOM_START_MS, OPENING_ZOOM_MS } from '../src/core/OpeningTimeline.js';
 import { projectPoint } from '../src/world/terrain/SceneTravel.js';
 
 test('the empty opening keeps the authored eye over the same ground', () => {
@@ -111,4 +112,31 @@ test('the floor stays fixed across rail/tour changes and accepts negative elevat
   const pose = { eyeM: [0, 500, 0], targetM: [0, 1000, -2000] };
   assert.equal(landRiseCamera(pose, { rise01: 0, baseM: -100 }).eyeM[1], 500);
   assert.equal(landRiseCamera(pose, { rise01: .75, baseM: -100 }).eyeM[1], 500);
+});
+
+test('the opening close-up lets go on its own clock while the land keeps building', () => {
+  const magnification = (rise, timeMs) => Math.tan(35 * Math.PI / 360) / Math.tan(landRiseFov(35, rise, timeMs) * Math.PI / 360);
+  // Before the clock starts, and with no clock at all, framing follows rise alone.
+  for (const rise of [0, .2, 1 / 3, .5]) {
+    assert.equal(landRiseFov(35, rise, 0), landRiseFov(35, rise));
+    assert.equal(landRiseFov(35, rise, OPENING_ZOOM_START_MS - 1), landRiseFov(35, rise));
+  }
+  assert.ok(Math.abs(magnification(0, 0) - 24) < 1e-9, 'flat ground opens at the full close-up');
+  // A low land does not hold the close-up past the opening.
+  const end = OPENING_ZOOM_START_MS + OPENING_ZOOM_MS;
+  for (const rise of [0, 1 / 3, .5]) {
+    assert.equal(landRiseFov(35, rise, end), 35, `authored lens by ${end} ms at ${rise} relief`);
+    let last = Infinity;
+    for (let t = OPENING_ZOOM_START_MS; t <= end; t += 100) {
+      const m = magnification(rise, t);
+      assert.ok(m <= last + 1e-12, 'the close-up only widens');
+      assert.ok(rise * m <= 1 + 1e-12, 'and stays inside the terrain detail bound');
+      last = m;
+    }
+  }
+  // The summit aim releases on the same clock.
+  const pose = { eyeM: [0, 1400, 5000], targetM: [0, 1800, 0], fovYDeg: 35 };
+  const options = { rise01: 1 / 3, baseM: 1000, groundM: 1200, focusM: [800, 2400, -600], aspect: 16 / 9 };
+  const held = landRiseCamera(pose, { ...options, timeMs: 0 }), released = landRiseCamera(pose, { ...options, timeMs: end });
+  assert.notDeepEqual(held.targetM, released.targetM, 'the opening aims at the summit, then hands back the authored aim');
 });

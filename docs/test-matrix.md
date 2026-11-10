@@ -48,10 +48,10 @@ remain separately dispatched jobs; a green core gate does not claim those passed
 | `plex-smoke` (manual extended job) | `npm run test:plex` against its synthetic PMS, dedicated adapter, and generated staged artifact | zero failed catalog, ownership, cancellation, PCM, playback, or export assertions; no uncaught browser errors | Anonymous Chromium catalog, paging, actual loader races/cancellation, no token-bearing browser calls, blocked-storage recovery, offline playback, source/cache identity | Live PMS, external HTTPS ingress, real library format compatibility, non-Chromium or head-unit hardware; see [deployment guide](./plex-integration.md) |
 | `audio-smoke` (manual extended job) | Playback/lighting/shading/seek/export/car/URL-loader smokes against source, then `stage:site` + `test:bootstrap` against that artifact | each script exits 0; staged Browse opens a real chooser; artifacts under `.smoke/` | Chromium can boot the actual public file set, upload a short synthetic fixture, start it in Landscape, draw, seek, and start an export | Watchability, identity, other engines, songs longer than the fixture |
 
-Publishing (since 2026-10-24): Pages serves the `gh-pages` branch, which
-`npm run publish:site` fills with only the staged site after verifying it and
-booting it headless; `version.json` names the published commit. The earlier
-path, a dynamic Jekyll build of all of `main`, published every tracked file.
+Publishing: Pages builds all of `main` directly (the repository is public),
+so every push to `main` deploys. From 2026-10-24 to 2026-11-10 it served a
+staged `gh-pages` branch instead, which only `npm run publish:site` updated by
+hand; the site then stayed on its last manual publish (2026-11-07).
 The optional `Deploy static content to Pages` workflow (stage, boot and play
 the artifact, upload the public allowlist) is not the active publisher, and
 neither path runs lint or unit tests; run `npm run validate` first. The root

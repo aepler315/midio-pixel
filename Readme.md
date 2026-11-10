@@ -6,7 +6,7 @@ This is an experimental project. Renderers, terrain, looks, cameras, worlds, def
 
 Current presentation has one look, Cinematic, at five terrain grids from Classic (320×180) to Detailed (640×360, the default), with automatic quality and Fit/Integer preferences. The Pixel and Palette looks, palettes and dither were removed on November 10, 2026. Landscape combines pixel terrain with smooth sky, water and effects. Uniform is the current pixel sampling mode; old Depth selections migrate to it. These are implementation facts, not permanent design restrictions.
 
-Hosting: supermaudio.com is GitHub Pages serving the `gh-pages` branch, which `npm run publish:site` fills with only the staged site (see [Local validation and publishing](docs/local-validation.md)). The current limits are documented in [the validation matrix](docs/test-matrix.md).
+Hosting: supermaudio.com is GitHub Pages building `main` directly, so every push to `main` deploys on its own (see [Local validation and publishing](docs/local-validation.md)). The current limits are documented in [the validation matrix](docs/test-matrix.md).
 
 Drop a song and watch The Range carry the music. Midio Pixel is a
 browser music visualizer with moving landscapes and musical effects. Your
@@ -241,12 +241,11 @@ test/        Main app's Node tests and fixtures
 tools/       Local server, fixture generators, browser smoke checks, legacy tools
 ```
 
-GitHub Pages serves the `gh-pages` branch, which holds only the staged site
-(`index.html`, `src/`, `CNAME`, `LICENSE`, `NOTICE` and
-`version.json`), never the repository. `npm run publish:site` builds it from
-`main` (or `-- --ref <commit>`), verifies and boots it headless, and pushes it;
-`https://supermaudio.com/version.json` names the published commit. It does not
-run the Node bridge.
+GitHub Pages builds `main` directly: a merge to `main` is live within a few
+minutes (an open tab needs a reload; modules can stay cached for ten minutes).
+Because the repository is public, serving all of `main` exposes nothing new.
+The staged export to `gh-pages` (`npm run publish:site`) is legacy and not
+served. Pages does not run the Node bridge.
 
 ## Development and validation
 

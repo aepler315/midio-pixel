@@ -51,14 +51,15 @@ rail captures, explicit tours-Off selection and longer continuous clips.
 
 ## Close-up opening
 
-Playback opens with 24× lens magnification over the growing landscape. The
-camera keeps its horizontal route and ground clearance, follows the rising
-summit or tour action, and smoothly widens to the authored lens by 70% relief.
-The tight opening widens within the existing terrain detail budget. Because
-the opening surge ([landscape-rise.md](landscape-rise.md#song-timing-and-seeking))
-reaches 70% relief about 4 s into the song, the zoom-out plays as a
-two-second reveal as the title card fades, rather than over the first twenty
-seconds. Seeking reconstructs the same framing. Sky anchors use the same zoom, and
+Playback opens in close-up over the growing landscape: up to 24× lens
+magnification, bounded by the terrain detail budget (about 3× over the
+one-third-built opening). The camera keeps its horizontal route and ground
+clearance and follows the rising summit or tour action. It widens as relief
+grows, and in any case eases out to the authored lens between 2.0 and 5.0 s
+(`OpeningTimeline.openingZoomRelease01`, the summit aim on the same clock), so
+the range keeps building through the song without a long zoomed-in start
+([landscape-rise.md](landscape-rise.md#song-timing-and-seeking)). Seeking
+reconstructs the same framing. Sky anchors use the same zoom, and
 wheel/pinch zoom continues to work over the opening lens.
 
 ## One default camera
