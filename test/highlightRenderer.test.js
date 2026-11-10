@@ -71,7 +71,7 @@ test('regime windows run on heard time when output latency delays what is heard'
   } finally { f.dispose(); }
 });
 
-test('Landscape squall regimes need the drawn Range sky; Trio cannot produce them', () => {
+test('Landscape squall regimes need the drawn Range sky', () => {
   const stormy = { cues: [], timeline: kicks(1000, 22000), energyCurves: energyFixture(time => time > 9000 && time < 18000 ? .9 : .2) };
   const f = rendererFixture(stormy);
   try {
@@ -82,12 +82,6 @@ test('Landscape squall regimes need the drawn Range sky; Trio cannot produce the
       'without the Range v2 sky the deck is not on screen');
     assert.equal(reel.frames.some(frame => frame.category === 'storm'), false);
   } finally { f.dispose(); }
-  const trio = rendererFixture({ ...stormy, worldId: 'trio' });
-  try {
-    const categories = trio.drawAt(0).selections.map(event => event.category);
-    assert.equal(categories.some(category => ['storm', 'lightning', 'clearing'].includes(category)), false);
-    assert.ok(categories.length > 0);
-  } finally { trio.dispose(); }
 });
 
 test('quiet short input without a sky cycle peak has no highlight candidates', () => {

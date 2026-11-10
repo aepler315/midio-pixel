@@ -199,10 +199,7 @@ export function compileLandscapeSources({ durationMs = 0, timeline = [], casting
     .map(e => ({ ...e, durMs: Math.max(90, Number.isFinite(e.durMs) ? e.durMs : 90) }))
     .sort((a, b) => a.tMs - b.tMs);
   const sources = Object.fromEntries(Object.keys(LANES).map(id => [id, sourceIndex(events, id, casting)]));
-  // Each lane's note onsets (the cast kindle their lights on them).
-  const onsets = Object.freeze(Object.fromEntries(Object.keys(LANES).map(id =>
-    [id, Object.freeze([...new Set(laneNotes(events, id, casting).map(e => e.tMs))])])));
-  return Object.freeze({ durationMs, onsets, sample(timeMs = 0) {
+  return Object.freeze({ durationMs, sample(timeMs = 0) {
     const at = Math.max(0, Number.isFinite(timeMs) ? timeMs : 0);
     return Object.freeze({ relief: 1, atmosphere: 1, materials: 1, features: 1,
       spaceAuthority: 1, skyDark: 1, traceResolution: 1, revelation: 1, progress: durationMs > 0 ? unit(at / durationMs) : 0,

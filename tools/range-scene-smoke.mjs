@@ -131,7 +131,6 @@ export async function openSong(browser, { url, wav, width, height, params = {}, 
     // frame would silently lose that layer, so it fails the suite.
     if (/Shader Error|program not valid/.test(m.text())) errors.push(`gl: ${m.text().slice(0, 400)}`);
   });
-  await page.route('**/soundfonts/', (route) => route.fulfill({ json: [] }));
   await context.route(/^https:\/\//, (route) => route.abort());
   const entry = new URL(url);
   entry.searchParams.set('bulkExport', '1');
@@ -205,8 +204,6 @@ export async function landscapeOwnership(page) {
       emitters: mgr.rangePresentation?.frame?.emitters || [],
       capture: !!painter._capture, brush: !!painter.brush,
       reflections: painter.reflectionStats?.layers?.length || 0,
-      inhabitedShoreDraws: painter.inhabitedShoreDraws,
-      policy: sim.presentation,
     };
   });
 }
@@ -219,8 +216,6 @@ export function assertLandscapeOwnership(state) {
   assert.equal(state.capture, false, 'no performer capture resource');
   assert.equal(state.brush, false, 'no actor trails');
   assert.equal(state.reflections, 0, 'no actor reflections');
-  // Midio, Broshi and Midasus live on the inhabited shore: one pass per frame.
-  assert.ok(state.inhabitedShoreDraws <= 1, 'the resident/sea pass draws at most once per frame');
 }
 
 async function writePng(dir, name, b64) {

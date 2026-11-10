@@ -3,8 +3,8 @@
 // PreparedView shape as RangeScene.prepare, built from the pack instead of
 // the production package: the production terrain package, its surface
 // texture, horizon bake, material textures and terrain shader are never
-// loaded for this view. Forest, cast, camera and swell keep their existing
-// code, on the ground the pack displays.
+// loaded for this view. Forest, camera and swell keep their existing code,
+// on the ground the pack displays.
 import { RangeAssetError, sha256Hex, gunzip } from './RangeAssets.js';
 import { compiledManifestPath, validateCompiledManifest, decodeCompiledPack, compiledTerrainData, regroundForest, compiledBandPlan } from './CompiledTerrain.js';
 import { COMPILED_GROUP_TILES, buildCompiledScenes, compiledTerrainUniforms, createCompiledAtlas, createCompiledDepthMaterial, createCompiledMaterial, createCompiledReceiver, COMPILED_VERT } from './CompiledTerrainGL.js';
@@ -13,9 +13,7 @@ import { validateWaterRules } from './MaterialPackage.js';
 import { placeForestAsync } from './ForestCover.js';
 import { createForest, forestSpanBytes } from './ForestGL.js';
 import { forestAssetBytes, FOREST_FAMILIES, FOREST_VARIANTS } from './ForestSpeciesAssets.js';
-import { ActorsGL } from './ActorsGL.js';
-import { castPlan, castWork } from './CastJobs.js';
-import { actorRoutes } from './RangeActors.js';
+import { buildFocusM } from './BuildFocus.js';
 import { mirrorLevelFor } from './WaterMirror.js';
 import { shaderFailureLog } from '../../render/GraphicsDiagnostics.js';
 import { BANDS } from './TerrainMesh.js';
@@ -121,7 +119,7 @@ export async function prepareCompiledView(scene, view, representation, opts, { e
   const gpuKey = `range:terrain-gpu:${view.id}:${scene.budget}`;
   const cpuKey = `range:compiled-cpu:${view.id}:${representation}`;
   let cpuRes = null, res = null, published = false;
-  let receiver, atlas, uniforms, material, depthMaterial, built, forest, actors, ownershipMaterials = null;
+  let receiver, atlas, uniforms, material, depthMaterial, built, forest, ownershipMaterials = null;
   try {
     const load = { baseUrl, signal, fetchImpl: opts.fetchImpl, profile: scene.compiledTerrain?.request.profile ?? null };
     const head = await loadCompiledManifest(view, representation, load);
@@ -159,7 +157,7 @@ export async function prepareCompiledView(scene, view, representation, opts, { e
       + [...bandPlan.fringe.mid, ...bandPlan.fringe.near].reduce((n, c) => n + chunkBytes(c), 0));
     const receiverBytes = m.source.grid.width * m.source.grid.height + m.atlas.texels.byteLength;
     const forestBytes = placed.count * 7 * 4 + forestAssetBytes() + FOREST_DETAIL_BYTES;
-    const bytes = meshBytes + receiverBytes + 2 * forestBytes + forestSpanBytes(placed.count) + FEATURE_BUDGET_BYTES + 2 * ActorsGL.bytes();
+    const bytes = meshBytes + receiverBytes + 2 * forestBytes + forestSpanBytes(placed.count) + FEATURE_BUDGET_BYTES;
     res = scene.residency?.reserve({ key: gpuKey, bytes, owner: 'range-terrain-gpu', generation }) || null;
     if (scene.residency && !res) throw new RangeAssetError('budget', `no GPU room for ${view.id} compiled ${representation}`);
 
@@ -171,7 +169,7 @@ export async function prepareCompiledView(scene, view, representation, opts, { e
     scene.renderer?.initTexture?.(atlas.texture);
     scene.renderer?.initTexture?.(receiver.texture);
     uniforms = sceneUniforms(THREE, compiledTerrainUniforms(THREE, loaded.pack, receiver, atlas));
-    // Palette and rules for the forest and cast; no material textures.
+    // Palette and rules for the forest; no material textures.
     applyMaterial(uniforms, { manifest: { palette: m.material.palette, rules: m.material.rules } }, { roles: {} }, view.materialRules || {});
     material = createCompiledMaterial(THREE, uniforms, representation);
     depthMaterial = createCompiledDepthMaterial(THREE, uniforms);
@@ -184,16 +182,11 @@ export async function prepareCompiledView(scene, view, representation, opts, { e
     for (const band of BANDS) for (const t of forest.byBand[band]) scenes[band].add(t);
     for (const d of forest.depth) depthScene.add(d);
     for (const band of BANDS) for (const d of forest.depthByBand?.[band] || []) depthScenes[band].add(d);
-    actors = new ActorsGL(THREE, uniforms);
-    const castSeed = hashSeed(`${view.id}:cast`);
-    const plan = castPlan(data, view, { waterLevelM: null, seed: castSeed });
-    const routes = plan.job === 'wander' ? actorRoutes(data, view, { waterLevelM: null, seed: castSeed }) : null;
-    const work = castWork(plan, { data, waterLevelM: null });
-    for (const band of BANDS) scenes[band].add(actors.sites.meshes[band], actors.threads.meshes[band], actors.rope.meshes[band]);
+    // The opening camera's summit focus, as production reads it.
+    const focusM = buildFocusM(data, view, { waterLevelM: null });
     // Link check, as production: a failed program must not publish.
     const gl = scene.renderer.getContext();
-    const targets = [...BANDS.map(band => [scenes[band]]), [depthScene],
-      ...Object.values(actors.groups).map(group => [group, scene.camera, scenes.far])];
+    const targets = [...BANDS.map(band => [scenes[band]]), [depthScene]];
     if (ownershipMaterials) {
       const ownershipScene = new THREE.Scene();
       for (const band of BANDS) for (const d of built.depthBandMeshes[band]) {
@@ -235,7 +228,7 @@ export async function prepareCompiledView(scene, view, representation, opts, { e
       stats: { triangles: m.stats.triangles, vertices: m.stats.vertices, bytes: built.gpuBytes, trees: forest.counts, featureBytes: 0 },
       gpuKey, cpuKey, cpuOwner: { release: () => scene.residency?.releaseReservation(cpuRes) },
       rules, waterLevelM: null, mirrorLevelM: mirrorLevelFor(data, null), materialKey: null, materialOwner: null,
-      actors, actorRoutes: routes, castSeed, castPlan: plan, castWork: work,
+      buildFocusM: focusM,
       compiled, compiledDispose: () => built.dispose(),
     };
     if (res && !scene.residency.commit(res, prepared, (p) => scene._retire(view.id, p))) {
@@ -250,7 +243,7 @@ export async function prepareCompiledView(scene, view, representation, opts, { e
     if (!published) {
       if (res) scene.residency.releaseReservation(res);
       if (cpuRes) scene.residency.releaseReservation(cpuRes);
-      forest?.dispose(); actors?.dispose(); built?.dispose();
+      forest?.dispose(); built?.dispose();
       material?.dispose(); depthMaterial?.dispose();
       for (const om of Object.values(ownershipMaterials || {})) om.dispose();
       receiver?.texture?.dispose();

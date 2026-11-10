@@ -4,7 +4,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { GLYPH_SHAPES, glyphTracePath, normalizeGlyphShape } from '../src/world/LyricGlyph.js';
 import { scanLine, dominantSymbol } from '../src/lyrics/LyricLexicon.js';
-import { SkyVoyage } from '../src/sim/SkyVoyage.js';
 
 const same = (a, b) => Math.abs(a.x - b.x) < 1e-9 && Math.abs(a.y - b.y) < 1e-9;
 
@@ -68,29 +67,3 @@ test('glyphTracePath turns a glyph into one pen path, lifting between strokes', 
   assert.deepEqual(glyphTracePath('no-such-glyph'), []);
 });
 
-test('Midasus traces the lyric symbol as her centrepiece figure', () => {
-  const v = new SkyVoyage(7);
-  v.trigger(1000, { x: 300, y: 400 }, 1280, 720, null, 'hourglass');
-  const kinds = v._figureOrder.map((r) => r.kind);
-  assert.equal(kinds[1], 'lyricGlyph', 'the middle figure is the symbol');
-  assert.equal(v._figureOrder[1].glyphId, 'hourglass');
-  // The pen starts where the symbol starts, not at a random phase.
-  const start = v._figureOffset(v._figureOrder[1], 0);
-  const path0 = glyphTracePath('hourglass')[0];
-  assert.ok(Math.hypot(start.x - path0.x, start.y - path0.y) < 1e-6);
-});
-
-test('in a chorus the words keep the middle and the symbol opens the voyage', () => {
-  const v = new SkyVoyage(7);
-  v.trigger(1000, { x: 300, y: 400 }, 1280, 720, 'HOLD ON', 'anchor');
-  const kinds = v._figureOrder.map((r) => r.kind);
-  assert.deepEqual(kinds.slice(0, 2), ['lyricGlyph', 'lyricText']);
-});
-
-test('no symbol, or an unknown one, leaves her figures as pure geometry', () => {
-  for (const sym of [null, 'no-such-glyph']) {
-    const v = new SkyVoyage(7);
-    v.trigger(1000, { x: 300, y: 400 }, 1280, 720, null, sym);
-    assert.ok(!v._figureOrder.some((r) => r.kind === 'lyricGlyph'), String(sym));
-  }
-});

@@ -38,7 +38,7 @@ test('a blocked renderer is closed at the route deadline and leaves a failed rep
     assert.equal(result.code, 1, 'blocked routes must exit nonzero');
     const report = JSON.parse(await fs.readFile(path.join(out, 'report.json'), 'utf8'));
     assert.equal(report.status, 'failed');
-    assert.equal(report.routes.length, 4);
+    assert.equal(report.routes.length, 3);
     assert.ok(report.routes.every(row => row.status === 'failed' && /exceeded 1000 ms/.test(row.failure)));
   } finally {
     if (child?.pid) {

@@ -58,19 +58,18 @@ try {
   const downloads = [];
   page.on('download', (d) => downloads.push(d));
 
-  // The ordinary route (as test:routes): upload, then pick Landscape.
+  // The ordinary route (as test:routes): upload; the song starts in Landscape.
   await page.goto(`${url}/`);
   await page.locator('#titleSettings').evaluate((node) => { node.open = true; });
   const lyrics = page.locator('#lyricGroundingBtn');
   if (await lyrics.getAttribute('aria-pressed') === 'true') await lyrics.click();
   await page.locator('#display-pixelGrid').selectOption('medium');
   await page.locator('#fileInput').setInputFiles(audio);
-  await page.locator('#worldSelect[open]').waitFor({ timeout: 120_000 });
-  await page.locator('.worldCard[data-base-world-id="alpine"] .worldCardPlayBtn').click();
+  // Analysis, terrain and the first presented frame share one deadline.
   await page.waitForFunction(() => {
     const s = window.__SMW;
     return s?.sim && !s.playbackPreparing && s.audioEngine?.playing && s.presentationDiagnostics?.frame?.presented;
-  }, null, { timeout: 120_000 });
+  }, null, { timeout: 240_000 });
   const label = () => page.locator('#detailLevel').textContent();
   const hudAwake = () => page.evaluate(() => !document.getElementById('hudRight').classList.contains('hud-faded'));
   await check('the controls appear when the screen is tapped', async () => {

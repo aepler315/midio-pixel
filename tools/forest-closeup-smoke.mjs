@@ -264,8 +264,7 @@ export async function runForestSmoke(args) {
       const depthWork = await s.page.evaluate(() => {
         const scene = window.__SMW.sim.biomes.rangePresentation.scene;
         const p = [...scene.prepared.values()].find(p => p.windowCache);
-        return { depthPasses: scene.stats.depthPasses, narrativeInk: p.uniforms.uNarrativeInk.value,
-          visibleActors: Object.values(p.actors?.groups || {}).filter(g => g.visible).length };
+        return { depthPasses: scene.stats.depthPasses, narrativeInk: p.uniforms.uNarrativeInk.value };
       });
       await fs.writeFile(path.join(args.output, filename), png);
       await fs.writeFile(path.join(args.output, `crop-${timeMs}.png`), Buffer.from(cropPng, 'base64'));

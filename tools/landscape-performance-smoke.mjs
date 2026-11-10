@@ -1,7 +1,7 @@
 // Assembled landscape correctness. Use installed Chrome explicitly for hardware
 // pixels; this fixed-step matrix never measures live playback performance.
 // node tools/landscape-performance-smoke.mjs --url URL --fixtures DIR --output DIR
-//   [--suite matrix|motion|handoff|midi-travel|all] [--source-root DIR]
+//   [--suite matrix|motion|handoff|travel|all] [--source-root DIR]
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -15,7 +15,7 @@ import { measureTerrainSnapshot } from './lib/range-motion-evidence.mjs';
 const args = {};
 for (let i = 2; i < process.argv.length; i += 2) args[process.argv[i].slice(2)] = process.argv[i + 1];
 assert.ok(args.url && args.fixtures && args.output, '--url, --fixtures, --output required');
-assert.ok(['all', 'matrix', 'motion', 'handoff', 'midi-travel'].includes(args.suite || 'all'), 'unknown suite');
+assert.ok(['all', 'matrix', 'motion', 'handoff', 'travel'].includes(args.suite || 'all'), 'unknown suite');
 const root = path.resolve(args['source-root'] || path.join(path.dirname(fileURLToPath(import.meta.url)), '..'));
 const out = path.resolve(args.output), fixtures = path.resolve(args.fixtures);
 await fs.mkdir(out, { recursive: true });
@@ -30,7 +30,7 @@ for (const file of ['tools/lib/range-motion-metrics.mjs', 'tools/lib/range-motio
 report.sourceCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
 report.sourceChanges = execFileSync('git', ['status', '--porcelain', '--', 'src', 'tools', 'test'], { cwd: root, encoding: 'utf8' }).trim();
 const pending = [];
-for (const file of ['pilot-120s.wav', 'quiet-120s.wav', 'silence-120s.wav', 'authored-120s.mid']) report.fixtures[file] = hash(await fs.readFile(path.join(fixtures, file)));
+for (const file of ['pilot-120s.wav', 'quiet-120s.wav', 'silence-120s.wav']) report.fixtures[file] = hash(await fs.readFile(path.join(fixtures, file)));
 const browser = await chromium.launch({
   ...(process.env.PLAYWRIGHT_CHROMIUM_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH } : {}),
   args: process.env.PLAYWRIGHT_CHROMIUM_PATH ? ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-blocklist'] : [],
@@ -83,7 +83,6 @@ async function row(page, label, t, { quality = 0, measureMotion = false } = {}) 
     shaftAllocation: { ledgerEntry: !!shaftEntry, bytes: shaftEntry?.bytes || 0,
       buffers: Object.keys(s?.shafts?.buffers || {}) },
     essentialKeys: [...(s?.residency?.entries.keys() || [])].filter(k => k !== 'range:sun-shafts').sort(),
-    midiEvents: app.conductor.timeline.filter(e => e.src === 'midi').length,
     renderer: e ? gl.getParameter(e.UNMASKED_RENDERER_WEBGL) : app.renderer.backend,
     actualTime: app.sim.heardTimeMs, stage: [document.querySelector('#stage').width, document.querySelector('#stage').height] };
   }, measureMotion);
@@ -122,7 +121,6 @@ async function matrix() {
       const value = await row(opened.page, `${name}-${t}`, t);
       assert.equal(value.range.active, name !== 'legacy');
       if ([45000, 96000].includes(t)) { assert.equal(value.celestial.activeBody, null); assert.equal(value.shafts, false); }
-      if (name === 'midi') assert.ok(value.midiEvents > 0);
       if (name === 'silence') assert.equal(value.music.activity01, 0);
       rows.push(value);
     }
@@ -193,44 +191,12 @@ async function motion() {
   }
 }
 
-async function midiAndTravel() {
+async function controlledTravel() {
   const opened = await openSong(trackedBrowser, { url: args.url, wav: path.join(fixtures, 'pilot-120s.wav'), width: 960, height: 540,
     params: { rangeRenderer: 'v2', rangeView: 'teton-jackson-lake', seed: String(report.seed) } });
   await captureFrame(opened.page, 21000);
-  const bytes = (await fs.readFile(path.join(fixtures, 'authored-120s.mid'))).toString('base64');
-  const midi = await opened.page.evaluate(async b64 => {
-    const [{ midiToTimeline }, { synthesizeEnergyCurves }, { Simulation }, { Conductor }, { ParamBus }] = await Promise.all([
-      import('/src/core/MidiAdapter.js'), import('/src/core/EnergyCurvesSynth.js'), import('/src/sim/Simulation.js'),
-      import('/src/core/Conductor.js'), import('/src/core/ParamBus.js')]);
-    const buf = Uint8Array.from(atob(b64), c => c.charCodeAt(0)).buffer, data = midiToTimeline(buf);
-    const energyCurves = synthesizeEnergyCurves(data.timeline, data.durationMs), c = new Conductor(); c.load(data);
-    const app = window.__SMW, sim = new Simulation(c, new ParamBus(), { worldId: 'alpine', songSeed: app.songSeed,
-      energyCurves, songTerrain: app.sim.biomes.songTerrain, terrainProfiles: app.sim.biomes.terrainProfiles });
-    sim.exportMode = true;
-    const rows = [];
-    for (const t of [21000, 42000, 42500]) {
-      sim.startAt(t); app.renderer.draw(sim, 1);
-      if (await app.rangeSettle()) app.renderer.draw(sim, 1);
-      const m = sim.biomes, f = m.rangePresentation.frame;
-      rows.push({ time: sim.heardTimeMs, active: m.rangePresentation.active,
-        stateKey: m.ridgeMusicSession.stateKey, sample: m.ridgeMusicSession.sample(t), music: f.music,
-        png: document.querySelector('#stage').toDataURL('image/png').split(',')[1] });
-    }
-    const result = { classification: 'Genuine SMF parsed by production adapter into real Simulation and v2 renderer; audio-only file picker does not accept MIDI',
-      notes: data.timeline.length, midiNotes: data.timeline.filter(e => e.src === 'midi').length,
-      lanes: [...new Set(data.timeline.map(e => e.lane))], pitchProvenance: [...new Set(data.timeline.map(e => e.pitchProvenance))], rows };
-    sim.dispose(); return result;
-  }, bytes);
-  assert.ok(midi.notes > 0 && midi.midiNotes === midi.notes);
-  for (const r of midi.rows) {
-    assert.ok(r.active); assert.ok(r.sample.activity01 > 0 && (r.music.source ?? r.music).amplitudeM > 0);
-    await fs.writeFile(path.join(out, `midi-${r.time}.png`), Buffer.from(r.png, 'base64')); delete r.png;
-  }
-  report.midi = midi;
-  // Return to the actual loaded song, then exercise an explicit controlled
-  // biome travel. The ordinary synthetic song has no natural chapter change.
-  await opened.page.evaluate(() => window.__SMW.beginBulkExport(window.__SMW.exportSize));
-  await captureFrame(opened.page, 21000);
+  // Exercise an explicit controlled biome travel on the loaded song. The
+  // ordinary synthetic song has no natural chapter change.
   const travel = await opened.page.evaluate(async () => {
     const { default: catalog } = await import('/src/world/terrain/sceneCatalogData.js');
     const app = window.__SMW, m = app.sim.biomes, p = m.rangePresentation;
@@ -279,16 +245,14 @@ async function handoff() {
   const page = await context.newPage(), errors = [];
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (/Shader Error|program not valid/.test(m.text())) errors.push(m.text()); });
-  await page.route('**/soundfonts/', route => route.fulfill({ json: [] }));
   await context.route(/^https:\/\//, route => route.abort());
   const entry = new URL(args.url); entry.searchParams.set('seed', String(report.seed)); entry.searchParams.set('rangeView', 'teton-jackson-lake');
   await page.goto(entry.href);
   await page.locator('#titleSettings').evaluate(n => { n.open = true; });
   if (await page.locator('#lyricGroundingBtn').getAttribute('aria-pressed') === 'true') await page.locator('#lyricGroundingBtn').click();
   await page.locator('#fileInput').setInputFiles(path.join(fixtures, 'pilot-120s.wav'));
-  await page.locator('#worldSelect[open]').waitFor({ timeout: 180000 });
-  await page.locator('.worldCard[data-base-world-id="alpine"]').click();
-  await page.waitForFunction(() => window.__SMW?.sim?.heardTimeMs > 1800, null, { timeout: 120000 });
+  // The song starts straight in Landscape; analysis and playback share one deadline.
+  await page.waitForFunction(() => window.__SMW?.sim?.heardTimeMs > 1800, null, { timeout: 300000 });
   const before = await page.evaluate(() => {
     const a = window.__SMW, history = a.sim.biomes.ridgeMusicSession.primary;
     window.__openingHistory = history;
@@ -357,7 +321,7 @@ async function handoff() {
 try {
   if (!args.suite || ['all', 'matrix'].includes(args.suite)) await matrix();
   if (!args.suite || ['all', 'motion'].includes(args.suite)) await motion();
-  if (!args.suite || ['all', 'midi-travel'].includes(args.suite)) await midiAndTravel();
+  if (!args.suite || ['all', 'travel'].includes(args.suite)) await controlledTravel();
   if (!args.suite || ['all', 'handoff'].includes(args.suite)) await handoff();
   await Promise.all(pending);
   assert.deepEqual(report.sourceIdentityErrors || [], [], 'served source identity failed');

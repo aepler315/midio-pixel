@@ -163,7 +163,7 @@ export function swellCrest({
 // The distant wave above answers "the back of the scene lost its motion".
 // This answers a different question: WHERE ARE THEY, actually?
 //
-// At normal framing the trio run along a strip of ground with mountains
+// At normal framing the frame shows a strip of ground with mountains
 // behind, and the ground could be a continent. Pull the camera back and
 // there is room below the ground line to answer it -- so the near water
 // comes into frame, and the strip turns out to be an isthmus: a narrow neck

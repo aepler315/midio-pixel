@@ -2,12 +2,12 @@
 
 What “looks good” means, without a public score.
 
-The current chooser presents two equal cards, Landscape and Trio. Internal fit
-is a heuristic and does not set their viewing order in this implementation. This
-protocol records that heuristic privately, captures the same three moments
-in both worlds, and asks a human to rate what they see.
+Every song now plays in Landscape, the only world; there is no world picker.
+Internal fit is a heuristic and decides nothing in playback. This protocol
+records that heuristic privately, captures the same three moments in every
+registered world, and asks a human to rate what they see.
 
-The chooser and evaluation design may evolve through
+The evaluation design may evolve through
 [experimental development](experimental-development.md). Keep tuning and
 held-out evidence distinct when making acceptance claims.
 
@@ -18,8 +18,9 @@ npm run eval:worlds -- --split holdout
 
 The default corpus is `test/fixtures/world-evaluation.json`. It stores
 source references, feature snapshots, and optional passage annotations.
-It does not store audio. SoundHelix demo URLs and the MIDI generator
-(`tools/gen-test-midi.mjs`) are reproducible; feature-only slots are
+It does not store audio. SoundHelix demo URLs are reproducible. The
+generated-MIDI rows keep their recorded feature snapshots; their generator
+was removed with MIDI input. Feature-only slots are
 replaced with a licensed recording at review time. The operator-supplied
 slot is for a reported song if one is available. It is not required.
 
@@ -32,20 +33,20 @@ The two id sets are disjoint. Keep them that way.
 
 ## Capture
 
-Both worlds see the same three clocks, the same seed, and the same quality
+Every world sees the same three clocks, the same seed, and the same quality
 preset (`EVAL_QUALITY` in `src/eval/WorldQuality.js`):
 
 | Passage | Meaning |
 | --- | --- |
-| Quiet | Lowest 1.2s energy stretch, matching the chooser’s quiet preview |
+| Quiet | Lowest 1.2s energy stretch (`pickPreviewPassages` in `src/eval/PreviewPassages.js`) |
 | Transition | Strongest measured section step, else the steepest energy rise |
-| Peak | Highest 1.2s energy stretch, matching the chooser’s peak preview |
+| Peak | Highest 1.2s energy stretch (same picker) |
 
 Annotated `passages` on a track win over derivation. A missing energy curve
 falls back to proportional positions. Never invent a beat from BPM.
 
 Stills use the same world instance playback will use. The gallery contains
-the two worlds, Landscape (`alpine`) and Trio (`trio`).
+one world, Landscape (`alpine`).
 
 ## Private heuristic
 
@@ -59,8 +60,7 @@ uses the continuous `fit` value; the integer `score` is display-only for
 the review sheet. Worlds within `TIE_EPS` (0.012) of the leader stay tied.
 The heuristic still names one recommended world per track
 (`recommendedId`, with `pickReason` `unique` or `near-tie`). It exists only
-here and in the debug overlay's fit readout: the chooser has no
-Choose-for-me and never shows it. It decides which world's ratings count
+here and in the debug overlay's fit readout: the player never shows it. It decides which world's ratings count
 toward the acceptance target below.
 
 Diagnostics on each row split three things that used to be mixed together:
@@ -143,8 +143,7 @@ heuristics, viewing order and metadata in the book are ignored. An unknown
 or duplicate id, or a malformed field, exits nonzero without a report.
 
 Filled `blockingDefect` reviews are exported as `exclusions` (track/world
-pairs). They are diagnostics: nothing wires them into the chooser, which
-always offers both worlds.
+pairs). They are diagnostics: nothing wires them into playback.
 
 Section-boundary metrics remain a separate concern: see
 [analysis-evaluation.md](./analysis-evaluation.md) and `npm run bench:sections`.

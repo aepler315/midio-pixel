@@ -280,7 +280,6 @@ export function parseBulkArgs(argv) {
     out: 'exports',
     resolutions: null,
     frameRates: null,
-    experience: 'landscape',
     seed: null,
     crf: 16,
     preset: 'medium',
@@ -323,9 +322,11 @@ export function parseBulkArgs(argv) {
       continue;
     }
     if (token === '--experience' || token.startsWith('--experience=')) {
+      // Retired: Landscape is the only world. Old commands that name it
+      // still parse; any other world is an error, not a silent Landscape.
       const got = takeOption(args, i, '--experience');
-      if (!['landscape', 'trio'].includes(got.value)) throw new Error('--experience must be landscape or trio.');
-      opts.experience = got.value; i = got.next; continue;
+      if (got.value !== 'landscape') throw new Error('--experience is retired; Landscape is the only world.');
+      i = got.next; continue;
     }
     if (token === '--seed' || token.startsWith('--seed=')) {
       const got = takeOption(args, i, '--seed');
@@ -412,7 +413,6 @@ Options
   --out <dir>           Output folder (default: exports)
   --res <list>          1080, 1440, 2160, 4k, or all (default: all)
   --fps <list>          30, 60, or all (default: all)
-  --experience <mode>  World: landscape (default) or trio
   --seed <n>            Same performance seed for every file in the batch
   --crf <0-51>          Quality. x264 CRF, or NVENC CQ (default: 16)
   --preset <name>       x264 preset (default: medium)

@@ -2,7 +2,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MIDIO_IDENTITY_HUE, HAZARD_HEX, HAZARD_HUE, REWARD_HEX, REWARD_HUE } from '../src/render/ColorLaw.js';
 import { drawMeshEdges } from '../src/render/MeshDrawer.js';
-import { ObstacleSpawner } from '../src/sim/ObstacleSpawner.js';
 import { hexToRgb } from '../src/utils/color.js';
 
 test('the three protected hues are distinct, finite degrees in [0,360)', () => {
@@ -50,26 +49,3 @@ test('drawMeshEdges never varies hue by edge angle: a horizontal and a vertical 
   assert.equal(hueOf(calls[0]), 178);
 });
 
-test('ObstacleSpawner obstacles always render the fixed hazard color, regardless of what a caller passes', () => {
-  const spawner = new ObstacleSpawner({ live: { obstacleDensity: 1 } }, { seed: 3 });
-  spawner.active = [{ wx: 0, tMs: 0, height: 40, width: 24, archetype: 'thorn', phase: 0 }];
-  const strokeStyles = [];
-  const grad = { addColorStop() {} };
-  const ctx = {
-    save() {}, restore() {}, beginPath() {}, moveTo() {}, lineTo() {}, closePath() {},
-    quadraticCurveTo() {}, arc() {}, rotate() {}, scale() {}, translate() {},
-    fill() {}, stroke() { strokeStyles.push(this._stroke); }, fillRect() {}, strokeRect() {},
-    createLinearGradient() { return grad; }, createRadialGradient() { return grad; },
-    set fillStyle(_v) {}, set strokeStyle(v) { this._stroke = v; }, set lineWidth(_v) {},
-    set globalAlpha(_v) {}, set globalCompositeOperation(_v) {},
-  };
-  // A caller that (like the old BiomeManager-sourced haloColor) tries to
-  // hand in some other hue-ish hint -- ObstacleSpawner.draw() no longer
-  // even accepts a haloColor option, so this is inert either way.
-  spawner.draw(ctx, 0, 220, 480, { nowMs: 100, haloColor: '#00ff00' });
-  assert.ok(strokeStyles.length > 0, 'expected the obstacle to actually stroke something');
-  const { r, g, b } = hexToRgb(HAZARD_HEX);
-  for (const s of strokeStyles) {
-    assert.ok(s.includes(`${r},${g},${b}`), `stroke style "${s}" did not use the protected hazard color`);
-  }
-});

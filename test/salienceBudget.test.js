@@ -28,7 +28,7 @@ test('a drop keeps its own bloom while still reducing unrelated particles', () =
 });
 
 test('a world keeps its structure and the drop its full bloom', () => {
-  for (const world of [getWorld('alpine'), getWorld('trio'), { kind: 'unregistered-kind' }]) {
+  for (const world of [getWorld('alpine'), { kind: 'unregistered-kind' }]) {
     const budget = salienceBudgetFor({ subject: 'drop', mul: () => 0.3 }, world);
     assert.equal(budget.landmark, 1, world.kind);
     assert.equal(budget.terrain, 1, world.kind);

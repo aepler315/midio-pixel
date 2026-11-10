@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { HypeDirector, hypeFrameStyle, slamAt, surgeAt, trioHypeFrameStyle } from '../src/sim/HypeDirector.js';
+import { HypeDirector, hypeFrameStyle, slamAt, surgeAt } from '../src/sim/HypeDirector.js';
 
 // HypeDirector's drop detector reads globalEnergyNorm -- see CalmDirector's
 // test for why a fixed-value stub is the right fixture for these thresholds.
@@ -107,23 +107,10 @@ test('hypeFrameStyle nearly extinguishes the rim during calm; energetic still re
   assert.ok(idle.alpha < 0.03, 'fully calm idle rim should be almost gone');
 });
 
-// Trio's hype on heard time: pure functions of the song position.
+// Hype on heard time: pure functions of the song position.
 const KICKS = [
   { tMs: 1000, vel: 1 }, { tMs: 1100, vel: 0.4 }, { tMs: 1500, vel: 0.8 }, { tMs: 2000, vel: 0.2 },
 ];
-
-test('slamAt and trioHypeFrameStyle are the same for one 33 ms step as for four 8.33 ms steps', () => {
-  const hype = { fast: 0.6, slam: 0.9, surge: 0.9, dropAtMs: 1480 };
-  for (let t0 = 900; t0 < 2300; t0 += 7) {
-    const one = { slam: slamAt(KICKS, t0 + 33.32), style: trioHypeFrameStyle(hype, 0.3, t0 + 33.32, KICKS) };
-    let four;
-    for (let k = 1; k <= 4; k++) {
-      const t = t0 + 8.33 * k;
-      four = { slam: slamAt(KICKS, t), style: trioHypeFrameStyle(hype, 0.3, t, KICKS) };
-    }
-    assert.deepEqual(four, one, `t0=${t0}`);
-  }
-});
 
 test('slamAt: nothing before the first kick, a peak at the heard kick, gone after its window', () => {
   assert.equal(slamAt(KICKS, 999.9), 0, 'no lookahead');
@@ -146,12 +133,4 @@ test('surgeAt is 0 before the drop, 1 at it, and decays to 0', () => {
   assert.ok(surgeAt(5000, 6000) > 0 && surgeAt(5000, 6000) < 1);
   assert.equal(surgeAt(5000, 5000 + 2200), 0);
   assert.equal(surgeAt(5000, 9000), 0);
-});
-
-test('trioHypeFrameStyle ignores the director\'s dispatch-clock slam and surge', () => {
-  const ahead = { fast: 0.5, slam: 1, surge: 1, dropAtMs: 5000 }; // dispatch already past the kick and drop
-  const quiet = trioHypeFrameStyle(ahead, 0, 4900, KICKS);
-  assert.deepEqual(quiet, hypeFrameStyle({ fast: 0.5, slam: 0, surge: 0 }, 0), 'not heard yet: no slam, no surge');
-  const heard = trioHypeFrameStyle(ahead, 0, 5000, [{ tMs: 5000, vel: 1 }]);
-  assert.deepEqual(heard, hypeFrameStyle({ fast: 0.5, slam: 1, surge: 1 }, 0));
 });

@@ -28,7 +28,6 @@ function spyMgr(kind, perf) {
   mgr.meteors = touch('meteors');
   mgr.weaver = touch('weaver');
   mgr.spaceRidge = touch('spaceRidge');
-  mgr.murmuration = touch('murmuration');
   return { mgr, calls };
 }
 
@@ -40,7 +39,7 @@ test('an unregistered kind keeps ground diffusion and the shared sky effects, an
   assert.ok(calls.includes('rd'));
   assert.ok(calls.includes('weaver'));
   assert.ok(calls.includes('meteors'));
-  for (const name of ['mandala', 'cymatics', 'swarm', 'ribbon', 'spaceRidge', 'lightRig', 'murmuration', 'lightning']) {
+  for (const name of ['mandala', 'cymatics', 'swarm', 'ribbon', 'spaceRidge', 'lightRig', 'lightning']) {
     assert.equal(calls.includes(name), false, name);
   }
 });
@@ -53,7 +52,7 @@ test('a low-quality range keeps the light rig and drops phenomena, including dif
   assert.ok(calls.includes('spaceRidge'));
   assert.ok(calls.includes('lightning'));
   assert.ok(calls.includes('weaver'));
-  for (const name of ['mandala', 'cymatics', 'swarm', 'ribbon', 'rd', 'murmuration', 'meteors']) {
+  for (const name of ['mandala', 'cymatics', 'swarm', 'ribbon', 'rd', 'meteors']) {
     assert.equal(calls.includes(name), false, name);
   }
 });
@@ -63,5 +62,15 @@ test('no perf policy means full quality for a world that paints the effect', () 
   mgr.stepOptionalEffects(1000, 0.016, null, 0, { x: 0, y: 0 });
   assert.ok(calls.includes('mandala'));
   assert.ok(calls.includes('rd'));
-  assert.ok(!calls.includes('murmuration'), 'incidental flock never resumes at full quality');
+});
+
+test('under the Range sky, Landscape stops stepping the abstract phenomena it never draws', () => {
+  const { mgr, calls } = spyMgr('alpine', FULL);
+  mgr._rangeSky = { showWeaver: false };
+  mgr.stepOptionalEffects(1000, 0.016, null, 0, { x: 0, y: 0 });
+  for (const name of ['mandala', 'cymatics', 'swarm', 'ribbon', 'rd', 'lightRig']) assert.ok(!calls.includes(name), name);
+  assert.ok(calls.includes('lightning'), 'weather lightning still steps');
+  const legacy = spyMgr('alpine', FULL);
+  legacy.mgr.stepOptionalEffects(1000, 0.016, null, 0, { x: 0, y: 0 });
+  for (const name of ['mandala', 'cymatics', 'swarm', 'ribbon', 'rd', 'lightRig']) assert.ok(legacy.calls.includes(name), `painted sky keeps ${name}`);
 });

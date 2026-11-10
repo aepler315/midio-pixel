@@ -161,8 +161,7 @@ non-descendant, and the JSON listing has no parent entry.
 
 `.mid` and `.midi` are **not** offered, even though they are audio files.
 Everything here reaches `audioEngine.decodeFile()`, which is
-`decodeAudioData`, and this page has no MIDI ingest path at all
-(`MidiAdapter` is reachable only from the tests). Listing a MIDI file would
+`decodeAudioData`, and the app has no MIDI input at all. Listing a MIDI file would
 advertise a song that fails to decode every time.
 
 Two details about the address field are load-bearing and easy to undo.

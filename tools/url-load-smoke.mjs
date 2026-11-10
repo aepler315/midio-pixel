@@ -30,7 +30,6 @@ const run = async (name, check) => {
 
 try {
   const context = await browser.newContext({ viewport: { width: 420, height: 900 } });
-  await context.route('**/soundfonts/', (route) => route.fulfill({ json: [] }));
   await context.route('**/favicon.ico', (route) => route.fulfill({ status: 204 }));
 
   // Turn every file input into a chooserless one, before any page script runs.
@@ -49,8 +48,7 @@ try {
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  // Start straight in Landscape; the world chooser is not under test here.
-  await page.goto(new URL('?experience=landscape', pageUrl).href);
+  await page.goto(pageUrl);
   await page.locator('#dropzone').waitFor();
 
   const deadClicks = () => page.evaluate(() => window.__deadClicks || 0);
@@ -109,11 +107,10 @@ try {
 
   // Real key presses, not fill(): the window shortcut handler used to eat
   // letters and caret keys before it checked for a focused field, so typing
-  // "https://" toggled the FPS HUD (P) and the track list (T), and W/A/S/D
-  // and the arrows never reached the input at all.
+  // "https://" toggled the FPS HUD (P), and W/A/S/D and the arrows never
+  // reached the input at all.
   const shortcutState = () => page.evaluate(() => ({
     hud: document.getElementById('fpsHud')?.className,
-    badge: document.getElementById('trackBadge')?.className,
   }));
   /** Shows a field whose panel is hidden in this state (the lyrics row and
    *  the complete panel), types into it with the keyboard, then restores. */
@@ -144,7 +141,7 @@ try {
     const before = await shortcutState();
     assert.equal(await typeInto('#urlLoadInput', 'https://sawd.example/p', { caretLeft: 1, then: 'X' }),
       'https://sawd.example/Xp');
-    assert.deepEqual(await shortcutState(), before, 'P/T must not toggle while typing');
+    assert.deepEqual(await shortcutState(), before, 'P must not toggle while typing');
   });
 
   await run('lyrics and seed fields take letters, WASD and caret keys', async () => {
@@ -200,7 +197,7 @@ try {
   });
 
   await run('a focused slider keeps its arrows and leaves every shortcut working', async () => {
-    // The HUD's #rangeSeek keeps focus after a drag; F/J, C, P, T, F3/F4 and
+    // The HUD's #rangeSeek keeps focus after a drag; F/J, C, P, F3/F4 and
     // Escape must not go dead until the player clicks somewhere else.
     await page.evaluate(() => {
       const slider = document.createElement('input');

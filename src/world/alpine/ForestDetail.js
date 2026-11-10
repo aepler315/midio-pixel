@@ -13,7 +13,7 @@ export function forestDetailWeight(footprintPx) {
 /** Conservative apparent diameter of the largest potentially visible tree
  * in a species/variant batch. No tree is removed or moved by this test.
  * Camera-space spheres include authored crown extent, maximum shared
- * wind/gust/parting lean and a bound on the musical root deformation.
+ * wind/gust/storm lean (FOREST_MAX_LEAN) and a bound on the musical root deformation.
  * `deformation.rise` (riseFromUniforms) moves and grows each sphere to
  * hold what the song's rise draws of it (risenSphere), continuously: it is
  * the unrisen sphere once the range stands complete, so no detail pops. */

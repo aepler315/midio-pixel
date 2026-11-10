@@ -19,7 +19,7 @@ const browser = await chromium.launch({
   ...(process.env.PLAYWRIGHT_CHROMIUM_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH } : {}),
   args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
 });
-const report = { fixture: '72-second WAV; authored verse/chorus/verse camera cues; cast progress override; 100-second diagnostic sky cycle', browser: browser.version(), frames: [], errors: [] };
+const report = { fixture: '72-second WAV; authored verse/chorus/verse camera cues; 100-second diagnostic sky cycle', browser: browser.version(), frames: [], errors: [] };
 try {
   const { context, page, errors } = await openSong(browser, { url, wav, width: 640, height: 360,
     params: { rangeTour: 'off', rangeView: 'nc-ross-lake-north', seed: '315' } });
@@ -31,24 +31,20 @@ try {
         { ...template, startMs: 20000, endMs: 32000, role: 'chorus', kind: 'chorus', relEnergy01: .9 },
         { ...template, startMs: 32000, endMs: 72000, role: 'verse', kind: 'verse', relEnergy01: .35 },
       ];
-      mgr.castProgressOverride = 0.5;
       mgr._dayNightCycleMs = 100000;
     });
     const sample = () => page.evaluate(() => {
       const pres = window.__SMW.sim.biomes.rangePresentation, scene = pres.scene, p = scene.prepared.get(pres.viewId);
       return { effect: pres.frame.cameraEffects, fov: scene.camera.fov,
         cloudCount: p.uniforms.uCloudCount.value, moonClouds: p.uniforms.uMoonClouds.value,
-        cast: Object.fromEntries(Object.entries(p.actors.groups).map(([id, g]) => [id, g.visible])),
-        job: p.castPlan?.job, giantUniforms: 'uGiantPeak' in p.uniforms, giantResources: !!(p.actors.mask || p.actors.clouds || p.actors.reflection) };
+        giantUniforms: 'uGiantPeak' in p.uniforms };
     });
     for (const timeMs of [19500, 20000, 22500, 60000]) {
       const frame = await captureFrame(page, timeMs), state = await sample();
       assert.equal(frame.range.active, true);
-      assert.equal(state.giantResources, false);
       assert.equal(state.giantUniforms, false);
-      assert.ok(Object.values(state.cast).every(Boolean));
       const repeat = await captureFrame(page, timeMs);
-      assert.deepEqual(await sample(), state, 'held time preserves the camera and cast state');
+      assert.deepEqual(await sample(), state, 'held time preserves the camera state');
       const parity = await page.evaluate(async ([a, b]) => {
         const load = async png => { const image = new Image(); image.src = `data:image/png;base64,${png}`; await image.decode(); return image; };
         const images = await Promise.all([load(a), load(b)]), canvas = document.createElement('canvas');
@@ -66,7 +62,7 @@ try {
       assert.ok(parity.maxByteDelta <= 1, 'held frame pixels differ by at most one color level');
       await fs.writeFile(path.join(out, `${timeMs}.png`), Buffer.from(frame.png, 'base64'));
       report.frames.push({ timeMs, state, parity, identity: frame.identity, range: frame.range });
-      console.log(`Effects ${timeMs}ms: FOV ${state.fov.toFixed(2)}, all three cast groups enabled, maximum held-frame delta ${parity.maxByteDelta}`);
+      console.log(`Effects ${timeMs}ms: FOV ${state.fov.toFixed(2)}, maximum held-frame delta ${parity.maxByteDelta}`);
     }
     for (const frame of report.frames) {
       assert.deepEqual(frame.state.effect, { halfAngleScale: 1, zoomPulse: 0, cueIndex: -1 }, 'Landscape scenic punch stays Off');
@@ -79,7 +75,7 @@ try {
 } finally {
   await browser.close();
   report.sourceHashes = {};
-  for (const file of ['src/render/CameraLens.js', 'src/sim/Simulation.js', 'src/world/alpine/LandscapeScore.js', 'src/world/alpine/CloudOcclusion.js', 'src/world/alpine/RangeFrame.js', 'src/world/alpine/RangeScene.js', 'src/world/alpine/RangePresentation.js', 'src/world/alpine/TerrainMaterial.js', 'src/world/alpine/ActorsGL.js', 'src/world/alpine/RangeSkyComposition.js', 'src/world/BiomeManager.js']) {
+  for (const file of ['src/render/CameraLens.js', 'src/sim/Simulation.js', 'src/world/alpine/LandscapeScore.js', 'src/world/alpine/CloudOcclusion.js', 'src/world/alpine/RangeFrame.js', 'src/world/alpine/RangeScene.js', 'src/world/alpine/RangePresentation.js', 'src/world/alpine/TerrainMaterial.js', 'src/world/alpine/RangeSkyComposition.js', 'src/world/BiomeManager.js']) {
     report.sourceHashes[file] = createHash('sha256').update(await fs.readFile(path.join(root, file))).digest('hex');
   }
   await fs.writeFile(path.join(out, 'browser-smoke.json'), `${JSON.stringify(report, null, 2)}\n`);

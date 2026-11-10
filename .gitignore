@@ -3,15 +3,6 @@ node_modules/
 .DS_Store
 .smoke/
 _site/
-.smoke-soundfont.png
-.smoke-multitrack.png
-.smoke-hotswap.png
-.smoke-fontswitcher.png
-
-# User-dropped SoundFonts (see soundfonts/README.md) — never commit binary
-# fonts; the folder itself stays tracked via the README.
-/soundfonts/*.sf2
-/soundfonts/*.zip
 
 # slskd downloads / local secrets
 /data/slskd-downloads/**

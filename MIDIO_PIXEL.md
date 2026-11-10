@@ -18,9 +18,9 @@ repository.
 
 ## Current implementation
 
-Landscape and Trio share audio analysis and playback. Landscape combines
-pixel terrain with smooth skies, water and effects, and includes experimental
-terrain and presentation paths. Display preferences currently default to
+Every song plays in Landscape, which combines pixel terrain with smooth
+skies, water and effects, and includes experimental terrain and presentation
+paths. Trio and MIDI/SoundFont input have been removed. Display preferences currently default to
 Pixel / Classic / Auto / Fit / Uniform. Older Depth preferences migrate to
 Uniform; the previous depth-pixel effect is removed.
 

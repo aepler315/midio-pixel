@@ -55,18 +55,15 @@ import { drawnTile, terrainHeightRange } from './TerrainPackage.js';
 import { tourGround, railGroundData, setTerrainDrawMode, drawnIndexCount } from './RailDraw.js';
 import { scenicProjection, calibrateRangeMusic, rangeCameraCalibration, requestedLandDance } from './RangeFrame.js';
 import { applyGlacierUniforms, glacierErrors, glacierSample } from './GlacierField.js';
-import { ActorsGL, SITE_LIGHTS_MAX, CAST_LAYER, CAST_RIBBON_LAYER, enableCastLayers } from './ActorsGL.js';
 import { riverChannelErrors } from './RiverChannel.js';
-import { ACTOR_IDS, ACTOR_HUES, ACTOR_LOOK, ACTOR_NOTE_AGE_CAP_MS, ACTOR_START, actorRoutes, routePosition } from './RangeActors.js';
-import { castPlan, castWork, pathPosition, siteWalk } from './CastJobs.js';
-import { castConstructionJob } from './CastConstruction.js';
+import { buildFocusM } from './BuildFocus.js';
 import { flashScreenPoint, rainSeed01, stormKindRow } from './RangeStorm.js';
 import { forestWindAt } from './ForestWind.js';
 import { createWetMask, fillWetRows, waterIndexSubsetPartsAsync } from './WaterSubset.js';
 import { attachTerrainCulling, setChunks, setTerrainMaterial, subsetChunkTable } from './TerrainChunks.js';
 import { attachForestCulling, restoreForestCulling } from './ForestCulling.js';
 import { waterBoxes, vertexWaterBoxes, liftBounds, shiverBounds, mirrorScissor, waterScissor } from './MirrorScissor.js';
-import { LAND_RISE_START, landRiseLift, riseFromUniforms, risenHeight } from './LandRise.js';
+import { LAND_RISE_START, riseFromUniforms, risenHeight } from './LandRise.js';
 import { landRiseBase, landRiseCamera, landRiseFov } from './LandRiseCamera.js';
 import { RiseGround, riseGroundBytes } from './RiseGround.js';
 import { buildOpeningCoverageAsync, createOpeningCoverage, openingCoverageBytes } from './OpeningCoverage.js';
@@ -88,9 +85,9 @@ export function crestFineSize(target, scale = 1, limit = 16384) {
   const width = Math.ceil(target.width * s), height = Math.ceil(target.height * s);
   return width > 0 && height > 0 && width <= limit && height <= limit ? { width, height } : null;
 }
-/** Narrative ink below which the lake mirror leaves out its crown cut, ink
- *  and cast renders (when no cast shows): under FEATURE_FRAG's discard at
- *  .005 by far more than any float32 or literal rounding. */
+/** Narrative ink below which the lake mirror leaves out its crown cut and
+ *  ink renders: under FEATURE_FRAG's discard at .005 by far more than any
+ *  float32 or literal rounding. */
 export const MIRROR_INK_SKIP = .004;
 /** Presented frames a drawing buffer may stay larger than every render
  *  needs before it shrinks (RangeScene._trimCanvas). */
@@ -101,7 +98,7 @@ const FOREST_DETAIL_BYTES = BANDS.length * FOREST_FAMILIES * FOREST_VARIANTS * 8
 /** What a static view's GPU reservation charges for `trees` placed trees:
  *  mesh, seam fringes and the rail's border copies, and tree instances,
  *  each twice (the CPU arrays stay on their attributes); the surface texture
- *  and its receiver mask; contour ink and actors; and a sun horizon and
+ *  and its receiver mask; contour ink; and a sun horizon and
  *  land hierarchy per camera mode. The bake's mesh estimate (`est`) does
  *  not know the seam-fill index buffers or, in a tour package, the rail's
  *  own copy of each rail tile that borders coarser tour ground (TerrainMesh
@@ -117,7 +114,7 @@ export function staticViewBytes(data, est, trees, { budget = 'desktop', landDanc
   const mistFlowCost = grid ? modes * MIST_FLOW_MAX_SAMPLES ** 2 * 8 : 0;
   const gridPx = grid ? grid.width * grid.height : 0;
   return 2 * ((est?.meshBytes || 0) + fringeBytes + forestBytes) + (est?.surfaceTextureBytes || 0) + gridPx
-    + modes * 2 * 3 * 768 * 6 * 4 + 2 * ActorsGL.bytes() + horizonCost + hierarchyCost + mistFlowCost
+    + modes * 2 * 3 * 768 * 6 * 4 + horizonCost + hierarchyCost + mistFlowCost
     + (grid ? riseGroundBytes() + openingCoverageBytes(data) : 0) + forestSpanBytes(trees);
 }
 
@@ -266,16 +263,13 @@ export class RangeScene {
     this.opaqueDepth = { A: null, B: null };
     this.size = { width: 0, height: 0 };
     this.contextLost = false;
-    this.stats = { depthPasses: 0, partitions: 0, lastPartitionMs: 0, castPasses: 0 };
+    this.stats = { depthPasses: 0, partitions: 0, lastPartitionMs: 0 };
     // Terrain chunk culling (TerrainChunks.js), summed over every render
     // since construction: band indices drawn, indices the meshes hold, and
     // draw groups. snapshot() reports it; diff two snapshots for a frame.
     this.terrainCull = { kept: 0, total: 0, draws: 0 };
     // Mesh trees tested and kept, and batches skipped, since construction.
     this.forestCull = { kept: 0, total: 0, batches: 0 };
-    // The cast draws in the band passes unless the presentation takes it
-    // from renderCast to lay over the pixel frame itself (it clears this).
-    this.castInBands = true;
     // Crest line probe (CrestProbe.js): 'refined' | 'grid' | null, set by
     // the presentation each frame; the probe itself is made on first use.
     this.crestProbeMode = null;
@@ -662,12 +656,17 @@ export class RangeScene {
    * reflected ray. Only while a prepared view mirrors; otherwise the copy
    * is released.
    */
-  captureBackdrop(ctx, stage, frame, drawSky = null) {
+  captureBackdrop(ctx, stage, frame, drawSky = null, drawnViewIds = null) {
     // Any lake or river reflects the sky backdrop, mirror or not, until
     // the rung after the mirror's (waterBackdrop).
+    const watery = (p) => Number.isFinite(p.mirrorLevelM) || (p.riverStats?.triangles || 0) > 0;
     const wanted = !this.contextLost && rangeQuality(frame?.qualityLevel).waterBackdrop
-      && [...this.prepared.values()].some((p) => Number.isFinite(p.mirrorLevelM) || (p.riverStats?.triangles || 0) > 0);
+      && [...this.prepared.values()].some(watery);
     if (!wanted || !ctx?.canvas || !(stage?.width > 0)) { this.releaseBackdrop(); return false; }
+    // Keep the allocation for a prefetched water view, but skip the per-frame
+    // clear, canvas copy and texture upload while no drawn view has water
+    // (nothing samples a backdrop whose frame stamp is stale).
+    if (Array.isArray(drawnViewIds) && !drawnViewIds.some((id) => { const p = this.prepared.get(id); return p && watery(p); })) return false;
     const scale = Math.max(1, this.waterOutputScale || 1);
     const { width, height } = mirrorSize(this.size.width * scale, this.size.height * scale);
     let b = this.backdrop;
@@ -813,31 +812,26 @@ export class RangeScene {
       if (u.uSeparateWater) u.uSeparateWater.value = 0;
       try {
       const softForest = Object.values(p.forest?.counts || {}).some(n => n > 0);
-      // The lake reflects the cast with each band (it never takes the main
-      // camera's separate cast pass).
       this.mirrorCamera.layers.set(0);
-      if (!softForest) { this.mirrorCamera.layers.enable(3); enableCastLayers(this.mirrorCamera); }
+      if (!softForest) this.mirrorCamera.layers.enable(3);
       r.render(p.depthScene, this.mirrorCamera);
       for (const band of BANDS) r.render(p.scenes[band], this.mirrorCamera);
       if (softForest) {
         this.mirrorCamera.layers.set(1);
         for (const band of BANDS) r.render(p.scenes[band], this.mirrorCamera);
-        // The crown cut writes only depth, which only the ink and the cast
-        // test: the mirror target has no depth texture and is cleared before
-        // every redraw. With the ink discarded and no cast shown, none of
-        // the three draws a pixel, so they are left out. Nor does leaving
-        // them out move three's lazily cached geometry.boundingSphere (the z
-        // three sorts every listed mesh by, transparent or opaque, and its
-        // frustum bound): each layer-2 tree depth mesh
-        // shares its geometry and visibility with a tree drawn on layer 0 or
-        // 1 above, and the ink and the cast's geometries hold the same
-        // positions whenever they are next listed (fixed lines and quads,
-        // threads laid out from the view's castWork before any render).
-        if (!(u.uNarrativeInk.value < MIRROR_INK_SKIP) || this._castShown(p)) {
+        // The crown cut writes only depth, which only the ink tests: the
+        // mirror target has no depth texture and is cleared before every
+        // redraw. With the ink discarded, neither draws a pixel, so both are
+        // left out. Nor does leaving them out move three's lazily cached
+        // geometry.boundingSphere (the z three sorts every listed mesh by,
+        // transparent or opaque, and its frustum bound): each layer-2 tree
+        // depth mesh shares its geometry and visibility with a tree drawn on
+        // layer 0 or 1 above, and the ink's geometries hold the same
+        // positions whenever they are next listed (fixed lines and quads).
+        if (!(u.uNarrativeInk.value < MIRROR_INK_SKIP)) {
           this.mirrorCamera.layers.set(2);
           r.render(p.depthScene, this.mirrorCamera);
           this.mirrorCamera.layers.set(3);
-          enableCastLayers(this.mirrorCamera);
           for (const band of BANDS) r.render(p.scenes[band], this.mirrorCamera);
         }
       }
@@ -895,7 +889,7 @@ export class RangeScene {
    *
    *  The buffer only grows. It used to be resized to each render's exact
    *  size, and a frame with water renders at two sizes (the scene grid for
-   *  the partitions and the cast, the output size for the water), so the
+   *  the partitions, the output size for the water), so the
    *  WebGL drawing buffer was reallocated -- with the GPU synchronisation
    *  that implies -- twice every frame. A buffer left larger than the frames
    *  need for CANVAS_TRIM_FRAMES presented frames shrinks once (_trimCanvas). */
@@ -1453,7 +1447,7 @@ export class RangeScene {
       let mat = null, res = null, published = false;
       const cpu = await prepareTerrainAssets(view, { baseUrl, residency: this.residency, generation, signal, isCurrent, owner: cpuOwner });
       let waterSubsets = null;
-      let surface, geos, material, riverMaterial, riverDepthMaterial, riverOwnershipMaterials = null, depthMaterial, ownershipMaterials = null, horizon = null, hierarchy = null, tourHorizon = null, tourHierarchy = null, mistFlow = null, tourMistFlow = null, forest, stageGL, featureMaterial, actors, riseGround, openingCoverage, materialFeatureCache = null;
+      let surface, geos, material, riverMaterial, riverDepthMaterial, riverOwnershipMaterials = null, depthMaterial, ownershipMaterials = null, horizon = null, hierarchy = null, tourHorizon = null, tourHierarchy = null, mistFlow = null, tourMistFlow = null, forest, stageGL, featureMaterial, riseGround, openingCoverage, materialFeatureCache = null;
       const riverGeometries = {}, riverFringeGeometries = {}, riverDepthMeshes = {};
       let initialWindow = null, workerKey = null, windowReservation = null, buildEntry = null, workerReservation = null;
       const featureGeometries = {};
@@ -1506,8 +1500,8 @@ export class RangeScene {
         // during playback must not freeze frames while its forest is laid.
         let rawWindow = null;
         // Each camera mode's water (RailDraw.js): the rail's from its own
-        // ground, a shot tour's from every tile it draws. The cast keeps the
-        // rail's, whichever camera plays.
+        // ground, a shot tour's from every tile it draws. The opening's
+        // summit focus keeps the rail's, whichever camera plays.
         const waterFor = (tour) => {
           const waterLevelM = view.riverPolicy?.terrainWater === 'mapped-only' ? null : waterLevel(data, { tour });
           return { waterLevelM, mirrorLevelM: mirrorLevelFor(data, waterLevelM, { tour }), heightRange: terrainHeightRange(cpu.manifest, { tour }) };
@@ -1577,7 +1571,7 @@ export class RangeScene {
         // drainage hierarchy texture, static views only for now.
         const hierarchySamples = HIERARCHY_MAX_SAMPLES[this.budget === 'mobile' ? 'mobile' : 'desktop'];
         const hierarchyCost = view.tour || !cpu.data?.grid || !requestedLandDance() ? 0 : modes * hierarchySamples * hierarchySamples * 4;
-        const baseBytes = view.tour ? Math.ceil(gridPx * (4 * 4 / 3 + 1)) + featureBudgetBytes + 2 * ActorsGL.bytes() + riseGroundBytes() + MIST_FLOW_MAX_SAMPLES ** 2 * 8
+        const baseBytes = view.tour ? Math.ceil(gridPx * (4 * 4 / 3 + 1)) + featureBudgetBytes + riseGroundBytes() + MIST_FLOW_MAX_SAMPLES ** 2 * 8
           : staticViewBytes(data, est, placed.count, { budget: this.budget, landDance: requestedLandDance() });
         // A static view's build entry still holds its forest construction
         // allowance, which createForest uses only after the surface scratch
@@ -1869,18 +1863,9 @@ export class RangeScene {
           for (const band of BANDS) for (const m of forest.tour.byBand[band]) scenes[band].add(m);
           for (const d of forest.tour.depth) depthScene.add(d);
         }
-        // The cast: lanterns and swarms, moved between band scenes as they
-        // travel. CastJobs.js reads this view's job from what the rail sees
-        // (tours wander the routes RangeActors.js picks); the lights the
-        // job leaves stand in the band that owns the ground under them.
-        actors = new ActorsGL(THREE, uniforms);
-        const castSeed = hashSeed(`${view.id}:cast`);
-        const plan = castPlan(data, view, { waterLevelM, seed: castSeed });
-        // Wandering routes cost a second terrain pass: only a view that
-        // wanders gets them here (others build them only if ever needed).
-        const routes = plan.job === 'wander' ? actorRoutes(data, view, { waterLevelM, seed: castSeed }) : null;
-        const work = castWork(plan, { data, waterLevelM });
-        for (const band of BANDS) scenes[band].add(actors.sites.meshes[band], actors.threads.meshes[band], actors.rope.meshes[band]);
+        // The summit the opening camera keeps framed while the range rises
+        // (BuildFocus.js), read from what the rail sees.
+        const focusM = buildFocusM(data, view, { waterLevelM });
         // Per-band depth scenes for travel frames, where a side's nearer
         // bands are drawn only in some columns (same geometry and material;
         // a mesh has one parent, so these are separate mesh objects).
@@ -1910,12 +1895,11 @@ export class RangeScene {
         // Three's compile() creates programs but does not reject a failed
         // link. Check before publishing: otherwise trees draw over empty
         // terrain, while presentation incorrectly suppresses its fallback.
-        // Every band (a band's trees may be absent from the far scene), the
-        // cast (not parented until it first appears) and the rock stage.
+        // Every band (a band's trees may be absent from the far scene) and
+        // the rock stage.
         const gl = this.renderer.getContext();
         const targets = [...BANDS.map(band => [scenes[band]]), [depthScene],
-          [riseGround.scene],
-          ...Object.values(actors.groups).map(group => [group, this.camera, scenes.far])];
+          [riseGround.scene]];
         if (stageGL) targets.push([stageGL.scene, stageGL.camera]);
         const checked = new Set();
         // The ownership twins of the depth pre-pass link too (swapped in only
@@ -1955,9 +1939,9 @@ export class RangeScene {
           view, generation, manifest: cpu.manifest, data, railOnly, identity: cpu.identity, tourCpuKey: opts.tourCpuKey,
           surface, uniforms, material, materialFeatureCache, materialFeatureStatus: materialFeatureAdmission.status, depthMaterial, ownershipMaterials, horizon, hierarchy, tourHorizon, tourHierarchy, mistFlow, tourMistFlow, riseGround, openingCoverage, depthBandMeshes: depthMeshes, geometries: geos.geometries, fringes: geos.fringes, fringeMeshes, fringeTravel, scenes, depthScene, depthScenes,
           riverMaterial, riverDepthMaterial, riverOwnershipMaterials, riverGeometries, riverFringeGeometries, riverDepthMeshes, riverStats,
-          forest, stageGL, featureGeometries, featureMaterial, modeGeometries, terrainMode: view.tour ? null : 'rail', modeWater, castWaterLevelM: waterLevelM,
+          forest, stageGL, featureGeometries, featureMaterial, modeGeometries, terrainMode: view.tour ? null : 'rail', modeWater,
           stats: { ...geos.stats, trees: forest.counts, featureBytes: featureBudgetBytes }, gpuKey, cpuKey: cpu.key, cpuOwner,
-          waterSubsets, rules, waterLevelM, mirrorLevelM, materialKey: mat.key, materialOwner, actors, actorRoutes: routes, castSeed, castPlan: plan, castWork: work,
+          waterSubsets, rules, waterLevelM, mirrorLevelM, materialKey: mat.key, materialOwner, buildFocusM: focusM,
           tourSchedule: forest.tour ? new TourForestSchedule(forest.tour.index, { horizontal: true }) : null,
         };
         if (forest.tour) {
@@ -2008,7 +1992,6 @@ export class RangeScene {
           // that publishes.
           cpuOwner.release?.();
           if (!initialWindow) forest?.dispose();
-          actors?.dispose();
           riseGround?.dispose();
           openingCoverage?.dispose();
           stageGL?.dispose();
@@ -2350,7 +2333,6 @@ export class RangeScene {
     p.rawAhead?.clear();
     if (p.workerKey && this.residency) this.residency.releaseReservation(p.workerReservation || { key: p.workerKey }); else p.windowWorker?.dispose();
     if (!p.windowCache) p.forest?.dispose();
-    p.actors?.dispose();
     p.stageGL?.dispose();
     if (!p.windowCache) for (const g of Object.values(p.geometries || {})) g.dispose();
     if (!p.windowCache) for (const g of Object.values(p.fringes || {})) g.dispose();
@@ -2442,7 +2424,7 @@ export class RangeScene {
         zoomMode: 'projection' });
     const ground = groundAt ? groundAt(authoredPose.eyeM[0], authoredPose.eyeM[2]) : NaN;
     const pose = landRiseCamera(authoredPose, { rise01: frame.rise01, baseM: landRiseBase(p), groundM: ground,
-      focusM: baseRail.tour || p?.cameraTour || view.tour ? null : p?.buildFocusM || p?.castPlan?.summit,
+      focusM: baseRail.tour || p?.cameraTour || view.tour ? null : p?.buildFocusM,
       aspect: proj.aspect, overview: !p?.windowCache });
     const resolved = { rail, proj, pose, tanX, tanY };
     poses.set(occurrenceId, resolved);
@@ -2676,7 +2658,6 @@ export class RangeScene {
     u.uLandRise.value.set(sink, sink > 0 ? baseM : 0);
     p.riseGround?.setFrame({ rise01, baseM });
     this._setCloudUniforms(p, frame);
-    this._setActors(p, frame);
   }
 
   /** The key light through the sky's clouds (CloudOcclusion). A painted
@@ -2739,332 +2720,6 @@ export class RangeScene {
     u.uCloudCount.value = count;
     u.uCloudMode.value = count ? 1 : 0;
     u.uCloudStrength.value = count ? strength : 0;
-  }
-
-  /**
-   * Place the cast for this frame: each actor's lantern and swarm where its
-   * job puts it (docs/landscape-cast.md) -- or on its wandering route in a
-   * tour -- in the band scene that owns the ground under it, its light in
-   * the shared uniforms, Midio's wake and Broshi's parting, and the lights
-   * the job has left in this view. Absent actors (no route or plan, no
-   * score yet, before the scene arrives) give no light.
-   */
-  _setActors(p, frame) {
-    const THREE = this.THREE;
-    const u = p.uniforms;
-    const cast = frame.actors;
-    const cam = this.camera;
-    const right = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0);
-    const up = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 1);
-    // Metres per stage pixel (the looks are sized for a 720 px stage).
-    const tanHalf = Math.tan((cam.fov * Math.PI) / 360)
-      * (cam.view?.enabled ? cam.view.height / cam.view.fullHeight : 1);
-    const materials = frame.narrative?.materials ?? 1;
-    const tSec = frame.timeMs / 1000;
-    // The lanterns draw where the rise puts them (groundLift on the GPU);
-    // their light and its pixel scale go with them.
-    const rise = riseFromUniforms(u);
-    // The lights carry the dark: brightest before dawn and after sunset,
-    // a soft shimmer at noon.
-    const dark = Math.min(1, Math.max(0, frame.light?.night01 ?? 0));
-    const presence = (cast?.presence ?? 0) * (materials > .01 ? materials : 0);
-    // The lanterns, motes and companions are seen through the same mist and
-    // cloud sea as the ground under them, at their true positions on the
-    // lifted ground (their shaders' emitterSeen, as for the sites and
-    // threads); the light they cast goes with them (ACTOR_GLSL actorShown).
-    u.uWakeAmt.value = 0;
-    u.uParting.value.w = 0;
-    // Every Landscape view uses the same rise-driven work front, including
-    // tour routes. The legacy job remains available without a build state.
-    const job = this._castJob(p, frame);
-    const opts = { data: p.data, waterLevelM: p.castWaterLevelM ?? p.waterLevelM };
-    // A planned view with no job state yet (no schedule) wanders meanwhile.
-    if (!job && !p.actorRoutes && p.castPlan && p.data) p.actorRoutes = actorRoutes(p.data, p.view, { ...opts, seed: p.castSeed ?? 0 });
-    ACTOR_IDS.forEach((id, k) => {
-      const group = p.actors?.groups[id];
-      const route = p.actorRoutes?.[id];
-      const s = cast?.[id];
-      const look = ACTOR_LOOK[id];
-      const placed = job?.actors[id];
-      const pos = !s || presence <= 0.001 ? null : job ? placed?.pos
-        // No bob: a light glides at its height; its aura breathes instead.
-        : route ? routePosition(route, s.travel + (ACTOR_START[id] || 0), { ...opts, hoverM: look.hoverM }) : null;
-      u.uActorColor.value[k].set(0, 0, 0);
-      if (!group) return;
-      // Lanterns, motes and companions draw with the cast, after the
-      // completed forest depth (renderCast, or the band passes' layer 3).
-      if (!group.layers.isEnabled(CAST_LAYER)) group.traverse(object => object.layers.set(CAST_LAYER));
-      if (!pos) { group.visible = false; return; }
-      const at = new THREE.Vector3(pos[0], pos[1], pos[2]);
-      const lit = rise ? new THREE.Vector3(pos[0], pos[1] + landRiseLift(pos[0], pos[1], pos[2], null, rise.sink, rise.baseM), pos[2]) : at;
-      const dist = Math.max(1, lit.distanceTo(cam.position));
-      const display = new THREE.Color().setHSL(ACTOR_HUES[id] / 360, 0.85, 0.62);
-      // Light: linear, stronger as the lane plays; dimmed while the team
-      // shelter from a storm; Midio's swells into the summit beacon.
-      const lin = display.clone().convertSRGBToLinear();
-      const beacon = id === 'midio' ? job?.beacon01 ?? 0 : 0;
-      const gain = look.lightGain * (0.35 + 0.65 * s.glow) * presence * (0.45 + 1.15 * dark)
-        * (job?.dim ?? 1) * (1 + beacon * ((job?.beaconGain ?? 2) - 1));
-      u.uActorPos.value[k].copy(lit);
-      u.uActorSourceY?.value.setComponent(k, at.y);
-      u.uActorColor.value[k].set(lin.r * gain, lin.g * gain, lin.b * gain);
-      u.uActorRadius.value[k] = look.lightM * (1 + 2 * beacon);
-      // The lantern and swarm draw a little toward the camera from the
-      // light itself, so the ground it hovers over does not cut its halo.
-      const mpp0 = (2 * dist * tanHalf) / 720;
-      const haloPx = look.haloPx * (1 + 0.6 * beacon);
-      // The lantern's musical pulse (contract C2, RangeActors pulse01 and
-      // spread; absent until the score provides them). The push toward the
-      // camera stays on the steady halo.
-      const pulse = s.pulse01 || 0;
-      const push = Math.min(dist * 0.25, 3 * haloPx * mpp0);
-      // Toward the camera from where the rise draws the lantern.
-      const toCam = cam.position.clone().sub(lit).normalize();
-      const v = p.actors.uniforms[id];
-      v.uCenter.value.copy(at).addScaledVector(toCam, push);
-      v.uAnchor.value.copy(at);
-      v.uRight.value.copy(right);
-      v.uUp.value.copy(up);
-      v.uMpp.value = mpp0 * (dist - push) / dist;
-      v.uHaloPx.value = haloPx * (1 + .18 * pulse);
-      if (v.uPulse) v.uPulse.value = pulse;
-      if (v.uSpread) v.uSpread.value = s.spread ?? 1;
-      if (v.uNoteAge) v.uNoteAge.value = Math.min(ACTOR_NOTE_AGE_CAP_MS, s.noteAgeMs ?? ACTOR_NOTE_AGE_CAP_MS) / 1000;
-      v.uColor.value.copy(display);
-      v.uGlow.value = Math.max(s.glow, beacon);
-      v.uPresence.value = presence * (0.55 + 0.45 * dark) * (job?.dim ?? 1);
-      v.uTime.value = tSec + k * 37;
-      v.uWanderPx.value = look.wanderPx * (1 + 0.5 * s.glow)
-        * (job?.construction ? .45 + .35 * job.construction.activity01 : 1);
-      // A kindling: motes stream from the lantern into the new light.
-      const fly = placed?.fly;
-      v.uFly.value = fly ? fly.t : 0;
-      if (fly) v.uFlyTarget.value.set(...fly.pos);
-      // Companions trail along the same way, each a little behind and
-      // weaving about it.
-      (p.actors.companions[id] || []).forEach((c, j) => {
-        const lag = job ? placed.lag?.[j] ?? pos
-          : routePosition(route, s.travel + (ACTOR_START[id] || 0) - (j + 1) * 0.5, { ...opts, hoverM: look.hoverM });
-        const w = tSec * (0.7 + 0.2 * j) + j * 2.1;
-        const weave = job?.construction ? .45 : 1;
-        const cp = new THREE.Vector3(lag[0], lag[1], lag[2])
-          .addScaledVector(right, Math.sin(w) * 18 * mpp0 * weave).addScaledVector(up, Math.cos(w * 1.3) * 10 * mpp0 * weave);
-        // Measured, like the lantern's, from where the rise draws it: the
-        // shader lowers the companion with its anchor (groundLift).
-        const cl = rise ? cp.clone().setY(cp.y + landRiseLift(lag[0], lag[1], lag[2], null, rise.sink, rise.baseM)) : cp;
-        const cd = Math.max(1, cl.distanceTo(cam.position));
-        const cpush = Math.min(cd * 0.25, 30 * mpp0);
-        c.uCenter.value.copy(cp).addScaledVector(cam.position.clone().sub(cl).normalize(), cpush);
-        c.uAnchor.value.set(lag[0], lag[1], lag[2]);
-        c.uMpp.value = mpp0 * (cd - cpush) / cd;
-        c.uGlow.value = s.glow * 0.6;
-      });
-      group.visible = true;
-      const tile = this._tileAt(p.data, pos[0], pos[2]);
-      const band = BANDS.includes(tile?.band) ? tile.band : 'far';
-      if (group.parent !== p.scenes[band]) p.scenes[band].add(group);
-      // Midio's wake runs back along his heading on the water.
-      const tail = job ? placed.wakeTail
-        : id === 'midio' && route.kind === 'water' && Number.isFinite(cast.midio.trail) ? routePosition(route, cast.midio.trail, opts) : null;
-      if (id === 'midio' && tail) {
-        u.uWake.value.set(pos[0], pos[2], tail[0], tail[2]);
-        u.uWakeAmt.value = presence * (0.3 + 0.7 * s.glow);
-      }
-      if (id === 'broshi') u.uParting.value.set(pos[0], pos[2], 90, presence * (0.35 + 0.65 * s.glow));
-    });
-    this._setCastLights(p, frame, job, presence, dark, right, up, tanHalf);
-  }
-
-  /**
-   * This view's job at heard time: where each actor stands, what it is
-   * kindling, the beacon, and which lights are lit. Null with no job (a
-   * tour, a view with nowhere to work, or no schedule yet).
-   */
-  _castJob(p, frame) {
-    const plan = p.castPlan, work = p.castWork;
-    const construction = castConstructionJob({ plan, work, routes: p.actorRoutes,
-      data: p.data, waterLevelM: p.castWaterLevelM ?? p.waterLevelM,
-      rise01: frame.rise01, actors: frame.actors });
-    if (construction) return construction;
-    const state = frame.actors?.jobs?.[p.view.id];
-    const schedule = frame.actors?.schedule;
-    if (!plan || plan.job === 'wander' || !state || !schedule) return null;
-    const t = frame.timeMs;
-    const opts = { data: p.data, waterLevelM: p.castWaterLevelM ?? p.waterLevelM };
-    const unit = x => Math.max(0, Math.min(1, x));
-    // When each light kindles (seek-safe: compiled once per schedule). A
-    // review's progress override lights what that progress has reached.
-    const times = schedule.kindleTimes(p.view.id, work.marks) || [];
-    const reached = (k) => {
-      const m = work.marks[k];
-      if (!state.override) return t >= times[k];
-      return Number.isFinite(m.p) ? m.p <= state.p : m.after.every(reached);
-    };
-    const since = (k) => (state.override ? (reached(k) ? Infinity : -1) : t - times[k]);
-    const flyFor = (actor) => {
-      let best = null;
-      for (const l of work.lights) {
-        const age = since(l.mark);
-        if (l.actor === actor && age >= 0 && age < 800 && (!best || age < best.age)) best = { age, pos: l.pos };
-      }
-      for (const th of work.threads) {
-        const age = since(th.mark);
-        if (actor === 'midasus' && age >= 0 && age < 800 && (!best || age < best.age)) best = { age, pos: th.b };
-      }
-      return best ? { t: best.age / 800, pos: best.pos } : null;
-    };
-    const p01 = state.p, shelter = state.shelter01;
-    const out = { actors: {}, beacon01: 0, beaconGain: state.climax ? 2 : 1.5, dim: 1, reached, since, state, times };
-    if (plan.job === 'ascent') {
-      out.dim = 1 - 0.4 * shelter;
-      out.beacon01 = state.payoff01;
-      const onWater = (x) => x < plan.waterU;
-      const lead = pathPosition(plan, p01, { ...opts, hoverM: onWater(p01) ? ACTOR_LOOK.midio.hoverM : ACTOR_LOOK.midio.climbM });
-      out.actors.midio = { pos: lead, fly: flyFor('midio'),
-        wakeTail: onWater(p01) ? pathPosition(plan, Math.max(0, p01 - 0.04), opts) : null };
-      // Broshi walks the shore to the landing while Midio is on the water.
-      const ub = Math.max(0, p01 - state.offsets.broshi);
-      let porter;
-      if (onWater(ub) && plan.shoreStart) {
-        const f = ub / plan.waterU, a = plan.shoreStart, b = plan.landing;
-        const x = a[0] + (b[0] - a[0]) * f, z = a[2] + (b[2] - a[2]) * f;
-        const h = terrainHeightAt(p.data, x, z);
-        porter = [x, (Number.isFinite(h) ? h : b[1]) + ACTOR_LOOK.broshi.hoverM, z];
-      } else porter = pathPosition(plan, Math.max(ub, plan.waterU), { ...opts, hoverM: ACTOR_LOOK.broshi.climbM });
-      out.actors.broshi = { pos: porter, fly: flyFor('broshi') };
-      // Midasus scouts ahead on the path, six feet up (her light washes the
-      // next pitch before the others reach it).
-      const um = Math.min(1, p01 + state.offsets.midasus);
-      const scout = (x) => pathPosition(plan, x, { ...opts, hoverM: ACTOR_LOOK.midasus.climbM });
-      out.actors.midasus = { pos: scout(um), lag: [1, 2, 3].map(j => scout(Math.max(0, um - 0.012 * j))), fly: flyFor('midasus') };
-    } else {
-      // In a storm they pause in place (the schedule slows them); no dimming.
-      out.beacon01 = 0;
-      const walk = (actor, hoverM) => {
-        const w = work.walkers[actor];
-        const at = w?.sites.length ? siteWalk(w.sites, w.dues, p01) : null;
-        return at ? [at[0], at[1] + hoverM, at[2]] : null;
-      };
-      out.actors.broshi = { pos: walk('broshi', ACTOR_LOOK.broshi.hoverM), fly: flyFor('broshi') };
-      const midio = walk('midio', ACTOR_LOOK.midio.hoverM);
-      out.actors.midio = { pos: midio, fly: flyFor('midio'),
-        wakeTail: work.walkers.midio?.water && midio ? siteWalk(work.walkers.midio.sites, work.walkers.midio.dues, Math.max(0, p01 - 0.02)) : null };
-      // Midasus flies the thread being surveyed along the ground, six feet
-      // up; between threads she waits at its far end (the next one's start).
-      const along = (th, f) => {
-        const pts = th.points, x = unit(f) * (pts.length - 1), i = Math.min(pts.length - 2, Math.floor(x)), g = x - i;
-        return pts[i].map((v, c) => v + (pts[i + 1][c] - v) * g);
-      };
-      let flown = null, f = 0, next = null;
-      for (const th of work.threads) {
-        const age = since(th.mark);
-        if (age < 0) { next = th; break; }
-        flown = th; f = unit(age / 1500);
-      }
-      const first = work.threads[0];
-      let scout = flown ? along(flown, f) : first ? first.a : null;
-      // A thread with no ground to lie on is never drawn (castWork), so the
-      // next may start at another cairn: she glides over to it in the
-      // 1.5 s before it starts instead of jumping there when it does.
-      if (flown && next && f >= 1 && flown.b.some((v, c) => v !== next.a[c])) {
-        const g = unit(1 + since(next.mark) / 1500), e = g * g * (3 - 2 * g);
-        scout = flown.b.map((v, c) => v + (next.a[c] - v) * e);
-      }
-      out.actors.midasus = { pos: scout, fly: flyFor('midasus'),
-        lag: scout ? [1, 2, 3].map(j => (flown ? along(flown, f - 0.04 * j) : scout)) : null };
-    }
-    return out;
-  }
-
-  /** The lights the job has left in this view, and Midasus's threads. */
-  _setCastLights(p, frame, job, presence, dark, right, up, tanHalf) {
-    const THREE = this.THREE;
-    const sites = p.actors?.sites, threads = p.actors?.threads, rope = p.actors?.rope;
-    if (!sites || !threads) return;
-    const work = p.castWork, schedule = frame.actors?.schedule;
-    // Lay the sites out once per schedule: the job's lights, then a camp
-    // light at each camp (known when the schedule is). The slots the lights
-    // leave hold the most recent camps made so far, so every camp stands
-    // while it is among them (in practice a view makes far fewer).
-    const lights = work?.lights || [];
-    const campSlots = Math.max(0, SITE_LIGHTS_MAX - lights.length);
-    const hue = (id, l = 0.62) => new THREE.Color().setHSL(ACTOR_HUES[id] / 360, 0.85, l).convertSRGBToLinear();
-    const bandAt = (pos) => this._tileAt(p.data, pos[0], pos[2])?.band;
-    if (p.castLayoutFor !== schedule || !p.castCamps) {
-      p.castLayoutFor = schedule;
-      const camps = p.castPlan?.job === 'ascent' ? schedule?.views?.[p.view.id]?.camps || [] : [];
-      p.castCamps = camps.map(c => pathPosition(p.castPlan, c.p, { data: p.data, waterLevelM: p.castWaterLevelM ?? p.waterLevelM, hoverM: 3 }));
-      p.castCampFrom = null;
-      // Each thread keeps its drape, in the nearest band any of it lies
-      // over: every partition tests against all bands' depth, so only a
-      // nearer partition drawn later could paint over a stretch of it.
-      const nearest = (points) => BANDS[Math.max(-1, ...points.map(q => BANDS.indexOf(bandAt(q))))];
-      threads.setThreads((work?.threads || []).map(th => ({ points: th.points, a: th.a, b: th.b, band: nearest(th.points) })));
-      rope?.setThreads(work?.rope ? [{ points: work.rope, band: nearest(work.rope) }] : []);
-    }
-    const made = job?.state.camps ?? 0;
-    const campFrom = Math.max(0, Math.min(made, p.castCamps.length) - campSlots);
-    if (p.castCampFrom !== campFrom) {
-      p.castCampFrom = campFrom;
-      sites.setSites([
-        ...lights.map(l => ({ pos: l.pos, band: bandAt(l.pos), color: hue(l.actor), sizePx: l.kind === 'line' ? 5 : 9 })),
-        ...p.castCamps.slice(campFrom, campFrom + campSlots).map(pos => ({ pos, band: bandAt(pos), color: hue('midio', 0.7), ring: hue('broshi'), sizePx: 9 })),
-      ]);
-    }
-    sites.uniforms.uRight.value.copy(right);
-    sites.uniforms.uUp.value.copy(up);
-    sites.uniforms.uTanHalf.value = tanHalf;
-    // Placed lights follow the lanterns' day law at 40% of their gain.
-    const gain = 0.4 * (0.45 + 1.15 * dark) * presence;
-    sites.uniforms.uGain.value = gain * ACTOR_LOOK.broshi.lightGain;
-    // Threads are faint: a survey line, not a light.
-    threads.setLook(new THREE.Color().setHSL(ACTOR_HUES.midasus / 360, 0.85, 0.7).convertSRGBToLinear(), 0.6 * gain);
-    const low = rangeQuality(frame.qualityLevel).level >= 4;
-    // Rung 4 keeps 12 of the 32 fixed-line lights; the rest fade out (and
-    // back in on recovery) over heard time instead of popping.
-    const dtSec = (frame.timeMs - (p.castFadeAtMs ?? -Infinity)) / 1000;
-    p.castFade = easeRungAmount(p.castFade, low ? 0 : 1, dtSec);
-    p.castFadeAtMs = frame.timeMs;
-    const fuse = job?.state.fuse01 ?? 0;
-    lights.forEach((l, k) => {
-      const fade = l.kind === 'line' && !l.low ? p.castFade : 1;
-      if (!job || !(fade > 0)) { sites.setState(k, 0); return; }
-      const age = job.since(l.mark);
-      // A light comes up as its motes arrive, then never goes out. On the
-      // climax the fuse runs up the fixed lines, flaring each once.
-      const lit = age < 0 ? 0 : Math.min(1, age / 800);
-      const f = l.kind === 'line' && fuse > 0 && fuse < 1 ? Math.exp(-(((fuse - (l.u - p.castPlan.waterU) / (1 - p.castPlan.waterU)) / 0.06) ** 2)) : 0;
-      sites.setState(k, lit * fade, f * fade);
-    });
-    for (let j = 0; j < Math.min(campSlots, p.castCamps.length - campFrom); j++) sites.setState(lights.length + j, made > campFrom + j ? 1 : 0);
-    if (rope && work?.rope) {
-      // The rope runs up to the light Broshi is fixing, growing into it as
-      // it comes up, and to the summit with the payoff; the fuse runs along it.
-      const climb = (u) => (u - p.castPlan.waterU) / (1 - p.castPlan.waterU);
-      let front = 0, done = 0, last = 0;
-      lights.forEach((l, k) => {
-        if (!job || l.kind !== 'line') return;
-        const age = job.since(l.mark), from = k ? climb(lights[k - 1].u) : 0;
-        last = climb(l.u);
-        if (age < 0) return;
-        front = Math.max(front, from + (last - from) * Math.min(1, age / 800));
-        done++;
-      });
-      const payoff = job?.state.payoff01 ?? 0;
-      if (done && done === lights.length) front = Math.max(front, last + (1 - last) * payoff);
-      rope.setState(0, front, 0.55 + 0.45 * payoff, fuse > 0 && fuse < 1 ? fuse : -10);
-      rope.setLook(hue('broshi', 0.7), 0.6 * gain);
-    }
-    (work?.threads || []).forEach((th, k) => {
-      if (!job) { threads.setState(k, 0, 0); return; }
-      const age = job.since(th.mark);
-      const reveal = age < 0 ? 0 : Math.min(1, age / 1500);
-      // The finish: the closing thread first, then outward, each brightening
-      // once (the climax), or all settling to a steady glow.
-      const n = work.threads.length, order = Math.min(k + 1, n - 1 - k) / Math.max(1, n / 2);
-      const flare = job.state.climax && fuse > 0 && fuse < 1 ? Math.exp(-(((fuse - order) / 0.12) ** 2)) : 0;
-      threads.setState(k, reveal, (0.55 + 0.45 * (job.state.payoff01 ?? 0)) * (1 + 1.5 * flare));
-    });
   }
 
   _tileAt(data, x, z) {
@@ -3161,16 +2816,10 @@ export class RangeScene {
     this._prepareMirror(p, frame, side, viewId);
     this._updateForestDetail(p, frame, this.camera, this.size.width, this.size.height, 'main');
     const softForest = Object.values(p.forest?.counts || {}).some(n => n > 0);
-    // The cast draws once, after the near partition (renderCast), against
-    // the whole scene's depth. A travel frame (each side's nearer bands
-    // only in some columns) and a caller with no smooth layer to put it in
-    // (castInBands, set by the presentation) keep it in the band passes.
-    const castInBands = this.castInBands !== false || !!bandColumns;
     this.camera.layers.set(0);
-    if (!softForest) { this.camera.layers.enable(3); if (castInBands) enableCastLayers(this.camera); }
+    if (!softForest) this.camera.layers.enable(3);
     const source = pass === 'far' ? this._shaftSource(frame) : null;
     const forestDepth = p.uniforms.uNarrativeInk.value >= .005
-      || (castInBands && this._castShown(p))
       || !!(source && this.shafts);
     const opaqueKey = this.singleStage ? JSON.stringify([frame.generation, frame.frameId, frame.occurrenceId, viewId, this.contextEpoch]) : null;
     let opaque = this.singleStage && this.pixelated && this.reuseOpaqueDepth !== false && !bandColumns && !target.samples
@@ -3266,14 +2915,9 @@ export class RangeScene {
         depth.frame = -1;
         if (depth.content) depth.content.cut = true;
         this.camera.layers.set(3);
-        if (castInBands) enableCastLayers(this.camera);
         r.render(p.scenes[pass], this.camera);
       }
     }
-    // What the cast pass will find in this side's target after the near
-    // partition: whose depth, and whether the trees' crown cut is in it.
-    if (pass === 'near') depth.cast = bandColumns ? null : { frame: frame.frameId, view: viewId,
-      occurrenceId: frame.occurrenceId, forest: !softForest || forestDepth };
     if (this.crestProbeMode && side === 'A' && !bandColumns && this.pixelated) this._probeCrest(frame, target, p, pass);
     this.camera.layers.set(0); this.camera.layers.enable(3);
     // Far is the single solar boundary, before the inserted Dancing Ridge.
@@ -3301,68 +2945,6 @@ export class RangeScene {
     const r = this.renderer;
     r.setRenderTarget(null); this._setCanvasSize(Math.max(2, Math.round(width)), Math.max(2, Math.round(height)));
     this._clearCanvas(); this.shafts.compositeToScreen(r, side, source);
-    return this.canvas;
-  }
-
-  /** Whether any of a view's cast would draw a pixel this frame: a lantern
-   *  out, or a light or thread laid out and lit (laid out but dark, as
-   *  before the first kindling or with the cast absent, draws nothing). */
-  _castShown(p) {
-    const a = p.actors;
-    if (!a) return false;
-    if (Object.values(a.groups || {}).some(group => group.visible)) return true;
-    return [a.sites, a.threads, a.rope].some(set => set?.drawn?.());
-  }
-
-  /**
-   * The cast alone -- lanterns, motes, companions, placed lights, threads
-   * and the fixed line -- for `frame`, drawn right after this side's near
-   * partition into the same target with only its colour cleared: the depth
-   * there is still every band's pre-pass (plus the trees' crown cut, added
-   * here if the near partition did not need it), so the land and trees in
-   * front hide it exactly and no later partition paints over it. Returns
-   * the canvas holding it (valid until the next render call) for the
-   * presentation to lay smoothly over the pixel frame, or null when there
-   * is nothing to draw or the target no longer holds that near partition.
-   */
-  renderCast(frame, viewId = frame.viewFromId, { side = 'A' } = {}) {
-    const p = this.prepared.get(viewId);
-    const target = side === 'B' ? this.sideTargets.B : this.target;
-    const depth = this.depthCache[side], near = depth?.cast;
-    if (!p || this.contextLost || !target || near?.frame !== frame.frameId || near.view !== viewId
-      || near.occurrenceId !== frame.occurrenceId) return null;
-    depth.cast = null; // one cast pass per near partition
-    if (!this._castShown(p)) return null;
-    this._setCamera(p.view, frame, p);
-    this._setUniforms(p, frame);
-    const r = this.renderer;
-    r.setRenderTarget(target);
-    if (!near.forest) {
-      this.camera.layers.set(2);
-      r.render(p.depthScene, this.camera);
-      depth.frame = -1; // no longer plain opaque depth
-      if (depth.content) depth.content.cut = true;
-    }
-    r.setClearColor(0x000000, 0);
-    r.clear(true, false, false);
-    // On this cleared layer every ribbon draws first, and where one folds
-    // over itself (or crosses another) it keeps its brightest layer instead
-    // of summing into beads (SurveyThreads setOverlap); then every light is
-    // added over them, as it is over the land. (No depth is written, so
-    // band order never changes what hides what.)
-    const ribbons = [p.actors?.threads, p.actors?.rope].filter(Boolean);
-    for (const set of ribbons) set.setOverlap(this.THREE.MaxEquation);
-    this.camera.layers.set(CAST_RIBBON_LAYER);
-    try { for (const band of BANDS) r.render(p.scenes[band], this.camera); }
-    finally { for (const set of ribbons) set.setOverlap(this.THREE.AddEquation); }
-    this.camera.layers.set(CAST_LAYER);
-    for (const band of BANDS) r.render(p.scenes[band], this.camera);
-    this.camera.layers.set(0); this.camera.layers.enable(3);
-    r.setRenderTarget(null);
-    this._setCanvasSize(this.size.width, this.size.height);
-    this._clearCanvas();
-    this._copyTexture(target.texture);
-    this.stats.castPasses = (this.stats.castPasses || 0) + 1;
     return this.canvas;
   }
 
@@ -3731,38 +3313,6 @@ export class RangeScene {
       for (const [mesh, geometry, visible] of swapped) { mesh.geometry = geometry; mesh.visible = visible; }
       this.camera.layers.set(0); this.camera.layers.enable(3);
       r.setRenderTarget(null);
-    }
-  }
-
-  /** Full-resolution cast, with the same terrain/forest depth and optional
-   * travel ownership as the scenic band it follows. */
-  renderDirectCast(frame, viewId, width, height, { side = 'A', bandColumns = null } = {}) {
-    const p = this.prepared.get(viewId);
-    if (!p || this.contextLost || !this.target || !this._castShown(p)) return null;
-    const w = Math.max(2, Math.round(width)), h = Math.max(2, Math.round(height));
-    const target = this._waterRenderTarget(w, h);
-    if (!target) return null;
-    const r = this.renderer, u = p.uniforms;
-    this._setCamera(p.view, frame, p); this._setUniforms(p, frame);
-    u.uViewportPx.value.set(w, h);
-    r.setRenderTarget(target); r.setClearColor(0x000000, 0); r.clear(true, true, false);
-    try {
-      this.camera.layers.set(0); this.camera.layers.enable(2);
-      if (bandColumns && p.depthScenes) this._travelDepth(p, target, 'near', bandColumns, { clear: false });
-      else r.render(p.depthScene, this.camera);
-      r.clear(true, false, false);
-      const ribbons = [p.actors?.threads, p.actors?.rope].filter(Boolean);
-      for (const set of ribbons) set.setOverlap(this.THREE.MaxEquation);
-      this.camera.layers.set(CAST_RIBBON_LAYER);
-      try { for (const band of BANDS) r.render(p.scenes[band], this.camera); }
-      finally { for (const set of ribbons) set.setOverlap(this.THREE.AddEquation); }
-      this.camera.layers.set(CAST_LAYER);
-      for (const band of BANDS) r.render(p.scenes[band], this.camera);
-      r.setRenderTarget(null); this._setCanvasSize(w, h); this._clearCanvas();
-      this._copyTexture(target.texture); return this.canvas;
-    } finally {
-      u.uViewportPx.value.set(this.size.width, this.size.height);
-      this.camera.layers.set(0); this.camera.layers.enable(3); r.setRenderTarget(null);
     }
   }
 

@@ -76,7 +76,7 @@ jobs:
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
           for i in $(seq 30); do curl -sf http://127.0.0.1:8092/ > /dev/null && break; sleep 1; done
-          for fault in terrain forest actors; do
+          for fault in terrain forest; do
             RANGE_SHADER_FAULT=$fault node tools/range-shader-failure-smoke.mjs \
               http://127.0.0.1:8092 .smoke/range-shader-failure-$fault
           done

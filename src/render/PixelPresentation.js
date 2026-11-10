@@ -103,12 +103,11 @@ export class PixelPresentation {
     this._capture = null;
   }
   setPresentation(presentation = {}) {
-    // Trio draws the complete scene at output resolution. Unscoped stale
-    // Natural overrides still use Landscape's bounded pixel presentation.
-    const smooth = presentation.experience === 'trio';
-    presentation = { ...presentation, pixelated: !smooth, grid: pixelGrid(presentation.grid?.id),
-      paletteId: smooth || presentation.pixelated === false ? 'none' : presentation.paletteId || 'none',
-      pixelScale: 'original', ...(smooth ? { cinematicPixel: false, buildPixelDetail: false, scaling: 'fit' } : {}) };
+    // Stale Natural overrides still use Landscape's bounded pixel
+    // presentation, without a palette.
+    presentation = { ...presentation, pixelated: true, grid: pixelGrid(presentation.grid?.id),
+      paletteId: presentation.pixelated === false ? 'none' : presentation.paletteId || 'none',
+      pixelScale: 'original' };
     this._invalidateCapture();
     if (JSON.stringify(presentation) === JSON.stringify(this.presentation)) return;
     this._deniedFrameGrids = new Set();
@@ -120,13 +119,13 @@ export class PixelPresentation {
     this._securityGeneration = null;
     this._maskDeniedGeneration = null;
     this._ditherFallbackReason = null;
-    this.diagnostics = { requestedLook: smooth ? 'smooth' : presentation.cinematicPixel ? 'cinematic' : presentation.paletteId === 'none' ? 'pixel' : 'palette',
-      effectiveLook: smooth ? 'smooth' : 'pixel', paletteStatus: { applied: false, reason: null, pixels: 0 }, paletteCpuMs: 0, readbackCpuMs: 0,
-      requestedGrid: this.grid.id, effectiveGrid: smooth ? null : this.grid, pixelScale: presentation.pixelScale, pixelPolicyVersion: PIXEL_POLICY_VERSION,
+    this.diagnostics = { requestedLook: presentation.cinematicPixel ? 'cinematic' : presentation.paletteId === 'none' ? 'pixel' : 'palette',
+      effectiveLook: 'pixel', paletteStatus: { applied: false, reason: null, pixels: 0 }, paletteCpuMs: 0, readbackCpuMs: 0,
+      requestedGrid: this.grid.id, effectiveGrid: this.grid, pixelScale: presentation.pixelScale, pixelPolicyVersion: PIXEL_POLICY_VERSION,
       requestedPalette: presentation.paletteId || 'none', resolvedPalette: this._resolvedPaletteId, effectivePalette: 'none',
       requestedDitherMode: presentation.ditherMode || 'ordered', effectiveDitherMode: 'ordered', ditherFallbackReason: null,
       frame: { presented: false, generation: this.generation, reason: 'not-rendered' } };
-    if (this.working && (smooth || this.working.width !== this.grid.width || this.working.height !== this.grid.height)) this._releaseWorking();
+    if (this.working && (this.working.width !== this.grid.width || this.working.height !== this.grid.height)) this._releaseWorking();
     if (!this._needsDitherWeights() || this.ditherWeights && this.ditherWeights.length !== this.grid.pixels) this._releaseDitherWeights();
   }
   /** Admit a renderer-owned raster before releasing the useful old one.
@@ -180,14 +179,14 @@ export class PixelPresentation {
     return true;
   }
   _preparePalette() {
-    this._resolvedPaletteId = resolvePaletteId(this.presentation.paletteId, this.worldKind, this.experience);
+    this._resolvedPaletteId = resolvePaletteId(this.presentation.paletteId, this.worldKind);
     const colors = PALETTES[this._resolvedPaletteId]?.colors;
     this.compiledPalette = colors ? compilePalette(colors) : null;
   }
-  setFrameContext({ worldKind = null, experience = null } = {}) {
-    if (worldKind === this.worldKind && experience === this.experience) return;
-    this.worldKind = worldKind; this.experience = experience;
-    const next = resolvePaletteId(this.presentation.paletteId, worldKind, experience);
+  setFrameContext({ worldKind = null } = {}) {
+    if (worldKind === this.worldKind) return;
+    this.worldKind = worldKind;
+    const next = resolvePaletteId(this.presentation.paletteId, worldKind);
     if (next === this._resolvedPaletteId) return;
     this._invalidateCapture();
     this.generation++; this._securityGeneration = null;
@@ -406,7 +405,7 @@ export class PixelPresentation {
       this.diagnostics.frame = result;
       this.diagnostics.presentationCpuMs = (this._beginCpuMs || 0) + performance.now() - started;
       this._capture = { ...result, canvas: source, pixelated: p.pixelated, scaling: p.scaling, pixelScale: p.pixelScale,
-        grid: p.pixelated ? this.grid : null, paletteId: this.diagnostics.effectivePalette, worldKind: this.worldKind ?? null, experience: this.experience ?? null,
+        grid: p.pixelated ? this.grid : null, paletteId: this.diagnostics.effectivePalette, worldKind: this.worldKind ?? null,
         ditherMode: this.diagnostics.effectiveDitherMode, pixelPolicyVersion: PIXEL_POLICY_VERSION,
         width: source.width, height: source.height, outputSize: pending.outputSize };
       return result;

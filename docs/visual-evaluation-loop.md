@@ -80,8 +80,7 @@ given a `baseline_ref`, a capture of that ref's source for the same case
 compared with the candidate for review. The gates are page
 and shader errors, an inactive or wrong backend, a wrong quality rung and
 blank frames. There is no pixel-difference beauty threshold; the
-base/candidate comparison is review material. Trio stays in
-`npm run test:trio` and `npm run test:worlds`, and the legacy Range path in
+base/candidate comparison is review material. The legacy Range path stays in
 `npm run test:retro`.
 
 ## Your own recordings
@@ -119,7 +118,7 @@ Create a manifest in an ignored directory, for example `.smoke/music-corpus.json
 npm run visual:eval -- --manifest .smoke/music-corpus.json --out .smoke/real-baseline
 ```
 
-Without `timesMs`, checkpoints occur at zero and every `intervalMs` (10 seconds by default), up to the decoded duration. Without `clips`, the runner captures two seconds around the midpoint (shorter for very short inputs). To sample chosen musical moments, supply `timesMs` and `clips` explicitly. An empty `clips` array disables motion samples; an empty `timesMs` array is rejected. Out-of-range times or clips fail instead of silently truncating. WAV, MP3, FLAC, OGG, M4A and AAC are accepted when Chromium can decode them; MIDI requires rendered audio first.
+Without `timesMs`, checkpoints occur at zero and every `intervalMs` (10 seconds by default), up to the decoded duration. Without `clips`, the runner captures two seconds around the midpoint (shorter for very short inputs). To sample chosen musical moments, supply `timesMs` and `clips` explicitly. An empty `clips` array disables motion samples; an empty `timesMs` array is rejected. Out-of-range times or clips fail instead of silently truncating. WAV, MP3, FLAC, OGG, M4A and AAC are accepted when Chromium can decode them; MIDI files are not supported.
 
 Choose at least a quiet/sparse recording, a rhythmically clear recording, and a dense recording; include a strong section contrast and a returning motif. Save the chosen windows once. Do not pick new favorable moments after seeing the candidate. Keep an additional holdout song for final acceptance.
 
@@ -131,7 +130,7 @@ Choose at least a quiet/sparse recording, a rhythmically clear recording, and a 
 - An immutable in-memory snapshot of `index.html` and the entire public `src/` tree, including terrain assets and runtime code. Its hashes and git commit/dirty state are recorded. A source edit during the capture makes the run fail and preserves its evidence.
 - External page requests are blocked; lyrics lookup is disabled; service workers are blocked. Real upload, decode, analysis and rendering still run.
 
-`view: null` and `biome: null` exercise natural song casting. Use a separate manifest for this check; it is intentionally incompatible with a forced-view A/B run. Current assertions require Range v2 to stay active. A natural-casting case with legitimate legacy fallback is reported as a failed v2 case, not mislabeled high-fidelity evidence. A focused manifest can capture Trio instead with `settings.experience: "trio"`; the capture then requires Trio to be active and Range v2 terrain to stay inactive. `npm run test:worlds` drives both worlds through the chooser.
+`view: null` and `biome: null` exercise natural song casting. Use a separate manifest for this check; it is intentionally incompatible with a forced-view A/B run. Current assertions require Range v2 to stay active. A natural-casting case with legitimate legacy fallback is reported as a failed v2 case, not mislabeled high-fidelity evidence. Every capture is Landscape: `settings.experience` accepts only `"landscape"` (a label that requests nothing extra), and a saved Trio report stays readable but never compares with a Landscape one.
 
 ## Timing and interpretation
 

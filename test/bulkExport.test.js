@@ -252,3 +252,12 @@ test('bulk export rejects Natural and the removed pixel-scale option', () => {
     assert.throws(() => parseBulkArgs([`--pixel-scale=${pixelScale}`, 'song.wav']), /Unknown option --pixel-scale/);
   }
 });
+
+test('a retired --experience landscape still parses and selects nothing; any other world is an error', () => {
+  const old = parseBulkArgs(['--experience', 'landscape', 'song.wav']);
+  assert.deepEqual(old.inputs, ['song.wav']);
+  assert.equal('experience' in old, false);
+  assert.equal('experience' in parseBulkArgs(['song.wav']), false);
+  assert.throws(() => parseBulkArgs(['--experience', 'trio', 'song.wav']), /experience/i);
+  assert.throws(() => parseBulkArgs(['--experience=typo', 'song.wav']), /experience/i);
+});

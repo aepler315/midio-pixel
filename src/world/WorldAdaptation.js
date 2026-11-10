@@ -4,8 +4,8 @@
 // module is the construction path: keep the world's identity and renderer,
 // generate only the palette / geometry / response controls that world
 // actually consumes, and record a degraded capability when a step fails.
-// Internal fit is a separate question — an adapted Trio is still Trio
-// whatever its fit readout says.
+// Internal fit is a separate question — an adapted world is still that
+// world whatever its fit readout says.
 import { clamp, clamp01, hashSeed } from '../utils/math.js';
 import { hexLerp } from '../utils/color.js';
 import { buildSongProfile, PROFILE_VERSION } from '../audio/SongProfile.js';
@@ -266,7 +266,6 @@ export function adaptWorld(baseWorld, songProfile, data = null) {
     renderer: base.renderer,
     manualOnly: !!base.manualOnly,
     realBiomes: !!base.realBiomes,
-    experience: base.experience,
     custom: overlayId === 'custom',
     baseId: base.id,
     comfort: base.comfort,

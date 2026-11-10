@@ -14,7 +14,7 @@ const frozenJson = value => {
 // renderer paints with -- DayNight's sky clock and twilight, RangeStorm's
 // squall, BiomeSchedule's cast palettes and the song's energy -- never from
 // read-back pixels. A frame is only taken when a composed frame is drawn
-// inside a peak's window and nothing (freeze, assembly, cut, arrival) hides
+// inside a peak's window and nothing (freeze, cut, arrival) hides
 // the regime. Same song, seed and analysis => the same schedule, at any
 // frame rate and across seeks.
 import { FINALE_FREEZE_LEAD_MS } from '../core/SongFinale.js';
@@ -240,11 +240,11 @@ export function paletteWarmth(profile) {
 }
 
 /** Whether the world paints sunrise and sunset with DayNight's twilight
- * (the Range narrative's sky, glow and crest light: Landscape). Trio, and
- * any world without that narrative, paints dayNight's flat dawn and dusk
- * washes instead. No world (pure evidence) reads as Landscape. */
+ * (the Range narrative's sky, glow and crest light: Landscape). Any world
+ * without that narrative paints dayNight's flat dawn and dusk washes
+ * instead. No world (pure evidence) reads as Landscape. */
 export function paintsTwilight(world) {
-  return !world || (world.kind === 'alpine' && world.experience !== 'trio');
+  return !world || world.kind === 'alpine';
 }
 
 /** Whether the cast palettes are painted in their own colors. Only real
@@ -303,9 +303,10 @@ function smoothedEnergy(energyCurves, times) {
 }
 
 /** The song's regime curves (0..1 over heard time) from its evidence, as
- * the active `world` paints them. Absent regimes are left out: Trio has no
- * squall and rotates its palettes by the live key, a single-palette song has
- * no warmest section, a song without energy curves has no climax. */
+ * the active `world` paints them. Absent regimes are left out: a world
+ * without real terrain has no squall and rotates its palettes by the live
+ * key, a single-palette song has no warmest section, a song without energy
+ * curves has no climax. */
 export function highlightRegimeCurves({ durationMs = 0, cycle = null, energyCurves = null,
   sections = null, palettes = null, travel = false, storm = null, world = null } = {}) {
   const curves = {};
@@ -460,7 +461,7 @@ export function highlightPeaks({ durationMs = 0, finale = null, committedThrough
         const profile = palettes?.find(p => p?.name === peak.palette);
         detail = profile?.title || titleCase(peak.palette);
       }
-      // Trio's dusk is dayNight's indigo wash, not a burning sunset.
+      // A dayNight dusk is an indigo wash, not a burning sunset.
       const label = category === 'sunset' && !twilight ? 'Dusk' : REGIMES[category].label;
       events.push(regimeEvent(category, peak.atMs, REGIME_WINDOW_MS, peak.value, peak.prominence,
         { detail, label, palette: peak.palette ?? null, holdMs: peak.holdMs,
@@ -527,12 +528,11 @@ export function highlightCandidatesFor(sim, producerTimeMs = null) {
 
 /** What this drawn frame can show, snapshotted when it is composed (before
  * the finale freeze consumes it). */
-export function highlightFrameState(sim, biomeManager = sim?.biomes, { performers = true } = {}) {
+export function highlightFrameState(sim, biomeManager = sim?.biomes) {
   const fracture = sim?.fracture;
   const v2 = !!biomeManager?._rangeV2Active;
   return Object.freeze({
     live: !(fracture?.isFrozen || fracture?.isDone),
-    assembled: !(performers && sim?.assembly?.active),
     arrived: !biomeManager?._awaitingTerrain && !(v2 && biomeManager.rangePresentation?.arriving),
     cutting: (biomeManager?._cutFlash ?? 0) > .05,
     // The cast palette fully on screen (no crossfade or travel under way).
@@ -543,7 +543,7 @@ export function highlightFrameState(sim, biomeManager = sim?.biomes, { performer
 
 /** Whether a frame in that state shows the candidate's regime. */
 export function highlightVisible(candidate, frame) {
-  if (!frame?.live || !frame.assembled || !frame.arrived || frame.cutting) return false;
+  if (!frame?.live || !frame.arrived || frame.cutting) return false;
   if (WEATHER.has(candidate.category) && !frame.weather) return false;
   if (PALETTE.has(candidate.category) && (!frame.palette || (candidate.palette && candidate.palette !== frame.palette))) return false;
   return true;

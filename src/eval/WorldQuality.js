@@ -8,7 +8,7 @@
 import { clamp, clamp01, hashSeed } from '../utils/math.js';
 import { listWorlds } from '../world/Worlds.js';
 import { scoreWorlds } from '../world/WorldScore.js';
-import { pickPreviewPassages, PREVIEW_SPAN_MS } from '../ui/WorldPreview.js';
+import { pickPreviewPassages, PREVIEW_SPAN_MS } from './PreviewPassages.js';
 
 export const EVAL_VERSION = 1;
 export const EVAL_SPAN_MS = PREVIEW_SPAN_MS;

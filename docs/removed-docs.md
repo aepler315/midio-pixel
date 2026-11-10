@@ -33,3 +33,19 @@ git restore --staged audit/master
 
 The version picker's own guide, [version-picker.md](version-picker.md),
 stays; only its implementation plan was removed.
+
+## Removed with Trio (2026-11-09)
+
+Trio, the world chooser, MIDI/SoundFont input and Landscape's cast lanterns
+were removed; Landscape is the only world. The last commit that holds these documents is `636eb85`
+(main):
+
+```sh
+git show 636eb85:docs/trio-stage.md
+```
+
+| Path | What it was |
+| --- | --- |
+| `docs/trio-stage.md` | Trio: the cast, the space ridge and Midasus's deep-sky voyages |
+| `docs/superpowers/plans/2026-11-07-trio-detail-distance.md` | Implementation plan for Trio's detail distance |
+| `docs/landscape-cast.md` | Landscape's cast lanterns: per-view jobs, routes and their light |

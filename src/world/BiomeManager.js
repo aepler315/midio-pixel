@@ -2,7 +2,6 @@ import { CanvasBuffers } from '../render/CanvasResidency.js';
 import { stormAt, drawStormSky, arrivingStorm } from './alpine/RangeStorm.js';
 import { ridgeAdvectionPxAt } from './RidgeMotionHistory.js';
 import { RidgeMotionHistory, createRidgeMusicSampler } from './RidgeMotionHistory.js';
-import { resolveLandscapePresentation } from './LandscapePresentation.js';
 import { identityAllows, constellationsAllowed } from './WorldIdentity.js';
 // Orchestrates the 8-layer parallax contract (spec §4.1.1), biome
 // scheduling via novelty-curve segmentation (§4.1.3), and gamma-correct
@@ -60,14 +59,13 @@ import { CHARACTER_SCHEMES } from './dna/ShapeGrammar.js';
 import { islands, tsunamiSchedule, tsunamiActive, tsunamiProgress, tsunamiRowFrac, tsunamiPerspectiveScale, tsunamiCenterX, tsunamiLift, tsunamiDepthLift, tsunamiProfile, sprayFlecks, fishArcY, serpentHumpY, wrappedOffset, OCEAN_LIFE_RATIO, TSUNAMI_WIDTH_PX, tsunamiHeightScale, TSUNAMI_OVERTOP_SCALE, tsunamiWithdrawalActive, tsunamiWithdrawal01 } from './OceanLife.js';
 import { ConstellationWeaver } from './ConstellationWeaver.js';
 import { SpaceRidge } from './SpaceRidge.js';
-import { SkyEnsemble } from './SkyEnsemble.js';
 import { NearField, NEARFIELD_RATIO } from './NearField.js';
 import { GroundScatter, SCATTER_RATIO, scatterBiomeLayers } from './GroundScatter.js';
 import { flameFlicker, smokeDrift } from './Wildfire.js';
 import { castBiomes, classifyTransition, intensityBudget, dayArc } from './Dramaturgy.js';
 import { cycleMs as dayNightCycleMs, songSkyClock, twilightAt, dayNight, celestialYFracFor, celestialXFracFor, horizonFade, sunScreenFrac, cyclePhase01 } from './DayNight.js';
 import { fuseSections } from '../lyrics/SectionFusion.js';
-import { scanLine, dominantSymbol } from '../lyrics/LyricLexicon.js';
+import { scanLine } from '../lyrics/LyricLexicon.js';
 import { celestialApproach, approachScale } from './CelestialApproach.js';
 import { resolveCelestialState } from './CelestialState.js';
 import { snapCutsToReleases } from './BoundarySnap.js';
@@ -94,7 +92,6 @@ import { LerpCache, rotateHueHex, hexToRgb, rgbToHsl, hexLerp } from '../utils/c
 import { spectralShiftDeg, easeSpectralShift } from '../render/spectral.js';
 import { Role } from '../core/NoteEvent.js';
 import { FLAT_WEIGHTS } from '../audio/bands.js';
-import { VoyagePhase, constellationLife01, afterglowLife01 } from '../sim/SkyVoyage.js';
 import { blendSections, medianBeatSec, sectionIndexAt } from './BiomeSchedule.js';
 import { drawParticleBlend } from './WorldDraw.js';
 import { GUST_FRONTS, GUST_FRONT_SPACING_MS } from './alpine/Gust.js';
@@ -560,7 +557,7 @@ export class BiomeManager {
     this._ridgeCompositionFits = new WeakMap();
     this._landscapeGeometry = null;
     // Palettes live on the world: its stock biomes, plus the optional
-    // MIDI-derived custom biome for a world without real biomes (Trio).
+    // MIDI-derived custom biome for a world without real biomes.
     this.profiles = this.world.palettes.slice();
     // Real biomes are places, cast section by section; a generated single
     // biome would paint the whole song as one of them.
@@ -598,12 +595,6 @@ export class BiomeManager {
     this._lyricLineCursor = 0;
     this.currentKind = null;
     this.currentSectionText = null;
-    // The symbol Midasus sky-writes on a voyage (SkyVoyage's lyricGlyph
-    // figure): the current section's motif, else the whole song's. Worked
-    // out once per section change and once per song, never per frame.
-    this.currentSectionSymbol = null;
-    this._symbolForText = undefined;
-    this.songSymbol = syncedLyrics?.length ? dominantSymbol(syncedLyrics.map((l) => l.text)) : null;
     this.lyricIntensityEased = 0.4;
     // Confidence in `currentKind` being the right FUNCTION label, not just
     // that a boundary sits here -- eased the same way, and read by callers
@@ -616,7 +607,6 @@ export class BiomeManager {
     this.hypeBoost = 1; // drop-surge multiplier from the HypeDirector
     this.focusMul = 1; // FocusDirector's 'sky' dampener -- 1 unless some other subject has focus
     this.stillnessMul = 1; // CutDirector's held-breath dip right after an authored drop/apotheosis cut
-    this.mandalaScaleMul = 1; // swells while Midasus dances near the celestial
     this._progress = 0;
     // Safe defaults before the first update() so a zero-dt first frame
     // (draw before step) never feeds NaN into canvas gradients and kills rAF.
@@ -806,8 +796,6 @@ export class BiomeManager {
     // against something the eye already knows the size of is what actually
     // sells "this is unfathomably huge," not raw height alone.
     this._massifMarkers = []; // {x0, y, bornMs}
-    // Miniature characters running along the near ranges' ridges — an
-    // independent trio per range so the depths don't mirror each other.
 
     this.songSeed = songSeed;
     this.visualStyle = 'rendered'; // set via setVisualStyle from Simulation / main
@@ -845,17 +833,9 @@ export class BiomeManager {
     this._activeWeatherIntensity = 0; // weatherState.intensity * suppress, computed in update(), read by draw()
     this.snowCover = 0; // settled snow 0..1, set externally each frame from Simulation.snowCover -- drives the frost caps
 
-    // Planets + astral artifacts: seeded per song/biome, drawn behind the
-    // celestial so the sun/moon and ranges occlude them naturally.
-    this.presentation = resolveLandscapePresentation(this.world);
-    this.skyEnsemble = this.presentation.skyEnsemble ? new SkyEnsemble(songSeed, durationMs) : null;
-    // Far-distance vignettes: rare seeded scenes (aliens at dinner, a cloud
-    // whale...) witnessed way out between the L2 and L3 ranges.
-    this.farVignettes = null;
-    // Near-field foreground occluders: the mirror image of farVignettes at
-    // the OTHER end of the depth stack -- huge biome-landmark silhouettes
-    // sweeping past faster than the characters, close enough to occlude
-    // them. Drawn in drawForeground(), after everything else.
+    // Near-field foreground occluders at the near end of the depth stack --
+    // huge biome-landmark silhouettes sweeping past fast enough to read as
+    // close. Drawn in drawForeground(), after everything else.
     this.nearField = new NearField(songSeed, this.world);
     this.groundScatter = new GroundScatter(songSeed);
 
@@ -902,10 +882,10 @@ export class BiomeManager {
     this.lightning = new LightningFX(songSeed);
     this.meteors = new MeteorShowerFX(songSeed);
     // Ambient connect-the-dots: ordinary melody notes weave constellations
-    // all song long (unlike Midasus's rare, capped SkyVoyage).
+    // all song long.
     this.weaver = new ConstellationWeaver(hashSeed(`${songSeed}:weaver`), canvasWidth, canvasHeight);
-    // The third equalizer: crystalline node-line + one tumbling wireframe,
-    // floating higher and further than everything else in the sky.
+    // The third equalizer, worn as an aurora floating higher and further
+    // than everything else in the sky.
     this.spaceRidge = new SpaceRidge(hashSeed(`${songSeed}:spaceridge`));
     // The far shore: a massive, vague mountain range on the far side of the
     // ocean, so distant only its tallest masses clear the planet's own
@@ -921,11 +901,6 @@ export class BiomeManager {
     // reasonable rather than at (0,0).
     this.midioX = this.w * 0.5;
     this.midioY = this.groundY;
-    // Where Midio actually stands, when that is not the world origin
-    // (Trio's cast wander over a ground drawn from a fixed origin); null
-    // means he stands at midioX/midioY.
-    this.spotX = null;
-    this.spotY = null;
     // Reward bursts: milestone/drop counts scale with perf headroom
     // (defaults to 1 so BiomeManager works standalone in tests with no
     // wired Simulation/PerfGovernor) and the song's intensity budget.
@@ -933,7 +908,6 @@ export class BiomeManager {
     this.milestoneAtMs = -Infinity;
     this._lastSeenMilestoneMs = -Infinity;
     this.milestoneIdx = -1;
-    this.murmuration = null;
     this._beatMs = 500; // EMA'd kick interval, feeding the swarm's natural frequency
     this._lastKickMs = null;
 
@@ -1000,7 +974,6 @@ export class BiomeManager {
         this.ribbon.kick();
         this.rd.onKick();
         this.weaver.onKick(evt.vel, evt.tMs);
-        if (evt.vel > 0.78) this.murmuration?.startle(evt.vel);
         // Heavy kicks strike lightning, but only while a storm is blowing.
         const active = this.currentBlend ? this._profile(this.currentBlend.t > 0.5 ? this.currentBlend.to : this.currentBlend.from) : null;
         if (active && active.fx === 'lightning') this.lightning.maybeTrigger(evt.tMs, evt.vel, this.w, this.groundY);
@@ -1066,7 +1039,6 @@ export class BiomeManager {
     ] : fused;
     this._lyricSections = admission.lyricSections;
     this._syncedLyrics = admission.syncedLyrics;
-    this.songSymbol = admission.syncedLyrics?.length ? dominantSymbol(admission.syncedLyrics.map(l => l.text)) : null;
     this._lyricLineCursor = 0;
     while (this._lyricLineCursor < (this._syncedLyrics?.length || 0)) {
       const i = this._lyricLineCursor;
@@ -2272,7 +2244,7 @@ export class BiomeManager {
         // A lyric-identified instrumental/solo section gets the same
         // spotlight snap a hype drop does -- the show notices the vocals
         // stepping back just as much as it notices them stepping forward.
-        if (sec.kind === 'instrumental') this.lightRig.trigger(nowMs, this.spotX ?? this.midioX, this.spotY ?? this.midioY);
+        if (sec.kind === 'instrumental') this.lightRig.trigger(nowMs, this.midioX, this.midioY);
         this.sectionJustChanged = true;
         this.lastTransitionStyle = sec.transition;
       }
@@ -2333,10 +2305,6 @@ export class BiomeManager {
     // lyric data was ever fused in.
     this.currentKind = activeSection?.kind || null;
     this.currentSectionText = activeSection?.lyricText || null;
-    if (this.currentSectionText !== this._symbolForText) {
-      this._symbolForText = this.currentSectionText;
-      this.currentSectionSymbol = this.currentSectionText ? dominantSymbol(this.currentSectionText) : null;
-    }
     const targetLyricIntensity = activeSection?.lyricIntensity ?? 0.4;
     this.lyricIntensityEased += (1 - Math.exp(-dtSec / FORM_HUE_TAU_SEC)) * (targetLyricIntensity - this.lyricIntensityEased);
     const targetKindConfidence = activeSection?.kindConfidence ?? 0;
@@ -2380,8 +2348,8 @@ export class BiomeManager {
     // this._lightBudget is the undampened base: the celestial LIGHT itself
     // (rim-lighting, contact shadows -- computed below into this.light) must
     // never dim just because focus picked a subject other than 'sky', or
-    // the very subject focus is emphasizing (Midio mid-apotheosis, Midasus
-    // mid-voyage) would visibly dim along with everything else. focusMul
+    // the very subject focus is emphasizing would visibly dim along with
+    // everything else. focusMul
     // folds into the PUBLIC this.budget instead -- every existing decorative
     // budget-scaled site (the many ctx.globalAlpha = X * this.budget draws
     // below, plus LightRig's own budget param) dampens for free whenever
@@ -2390,7 +2358,6 @@ export class BiomeManager {
     this.budget = this._lightBudget * this.focusMul * this.stillnessMul;
     const gain = this.budget * this.hypeBoost;
     this.mandala.intensity = gain;
-    if (this.murmuration) this.murmuration.intensity = gain;
     this.cymatics.intensity = gain;
     this.swarm.intensity = gain;
     this.ribbon.intensity = gain;
@@ -2512,7 +2479,7 @@ export class BiomeManager {
     if (Number.isFinite(this.dropAtMs) && this.dropAtMs !== this._lastSeenDropAtMs) {
       this._lastSeenDropAtMs = this.dropAtMs;
       this.lakeRing.excite(22);
-      if (fx.lightRig) this.lightRig.trigger(nowMs, this.spotX ?? this.midioX, this.spotY ?? this.midioY);
+      if (fx.lightRig) this.lightRig.trigger(nowMs, this.midioX, this.midioY);
       if (fx.meteors) this._triggerMeteors(nowMs, DROP_METEOR_BASE);
       // A drop also throws a bonus tsunami wall across the ocean, if one
       // hasn't rolled through recently. Worlds without a sea ignore it.
@@ -2562,7 +2529,7 @@ export class BiomeManager {
     return diagnosticAllows(this._landscapeDiag, id, layerKey);
   }
 
-  draw(ctx, canvas, worldX, originX = 0, skyVoyage = null, particleMul = 1, perf = null, groundView = null) {
+  draw(ctx, canvas, worldX, originX = 0, particleMul = 1, perf = null, groundView = null) {
     this._rangeMidEffects?.reset();
     this._rangeMidTransition = null;
     // Deeper PerfGovernor rungs (mobile performance round): the optional
@@ -2656,19 +2623,17 @@ export class BiomeManager {
     this._scenicTransform = ctx.getTransform ? ctx.getTransform() : null;
     this._groundLight = convertLightBetween(this._scenicLight, this._scenicTransform, groundView?.transform);
     if (this.celestialState) this._castShadowStrength *= this.celestialState[this.celestialState.activeBody]?.visibility || 0;
-    // Landscape composes The Range's sky around its terrain; Trio keeps the
-    // pre-terrain sky, where planets, mandala and ribbon share the heavens.
-    const rangeSky = this.world?.kind === 'alpine' && this.presentation?.rangeSky !== false;
+    // The Range composes its sky around its terrain.
+    const rangeSky = this.world?.kind === 'alpine';
     this._rangePresentation = rangeSky
       ? resolveRangePresentation({
         night01: this._night01,
         salienceSky: this.salience?.sky ?? 1,
-        voyageWeight: skyVoyage?.depth ?? 0,
         quality: perf?.level ?? 0,
       })
       : null;
     this._rangeSky = rangeSky
-      ? createRangeSkyComposition(this.spaceRidge, canvas, { voyageActive: (skyVoyage?.depth ?? 0) > 0, lazyCorridor: compactSky })
+      ? createRangeSkyComposition(this.spaceRidge, canvas, { lazyCorridor: compactSky })
       : null;
 
     // The horizon color, and from it the air color every range body and the
@@ -2710,7 +2675,7 @@ export class BiomeManager {
     // Everything the scenic passes below get for this frame, in one object.
     const frame = {
       ctx, canvas, worldX, originX, A, B, t, dn,
-      phenomenaFull, particleMul, groundView, skyVoyage,
+      phenomenaFull, particleMul, groundView,
     };
 
     // The presenter may paint the sky directly into its full-resolution
@@ -2743,21 +2708,6 @@ export class BiomeManager {
     // as marks on a chart, so they only draw where there is no Range sky.
     if (!this._rangeSky) drawNarrativeMarks(ctx, this.rangeNarrative, this.tSec * 1000, canvas, this.songSeed);
 
-    // Planets + astral artifacts, behind everything else in the heavens --
-    // purely atmospheric, first to go on the deepest perf rung.
-    if (this.skyEnsemble && !this._rangeSky && this._pass('ensemble') && phenomenaFull) this.skyEnsemble.draw(ctx, canvas, this.tSec * 1000, {
-      fromName: A.name, toName: B.name, t,
-      colors: {
-        skyMid: this._rotated(this.lerpCache.get(A.sky[1], B.sky[1], t)),
-        silhouette: this._rotated(this.lerpCache.get(A.silhouette, B.silhouette, t)),
-        halo: this._rotated(this.lerpCache.get(A.celestial.haloColor, B.celestial.haloColor, t)),
-      },
-      tSec: this.tSec, groove: this._ridgeEnvelope()?.groove ?? this._danceGroove,
-      presentation: this._rangePresentation?.ensemble ?? 1,
-      // Trio keeps the whole seeded planetary set it had before real terrain.
-      maxPlanets: this.presentation?.skyEnsemble ? Infinity : 1,
-    });
-
     // The Range's main upper-sky form. Its painter owns steady contrast;
     // ordinary astronomy was excluded from its live corridor in _drawSky.
     // Draw before dawn wash and the opaque celestial so it remains distant.
@@ -2768,16 +2718,10 @@ export class BiomeManager {
       const n = this.rangeNarrative;
       if (n) spaceCol = this.lerpCache.get('#000000', spaceCol, n.skyDark);
       const authority = n ? .15 + .85 * n.spaceAuthority : 1;
-      // Landscape wears it as an aurora: the same musical skyline, given a
-      // natural body. Trio keeps the crystalline node line and its tumbling
-      // icosahedron, the third equalizer as it was before real terrain.
+      // Worn as an aurora: the musical skyline, given a natural body.
       if (this._pass('space-ridge')) {
-        if (this.presentation?.crystalSpaceRidge) {
-          this.spaceRidge.draw(ctx, canvas, spaceCol, this.tSec, authority * (styleDials(this.visualStyle).spaceRidgeAlpha ?? 1) * (phenomenaFull ? 1 : 0.4), 0);
-        } else {
-          this.spaceRidge.drawAurora(ctx, canvas, spaceCol, this.tSec, {
-            presentation: authority, night01: dn.night || 0 });
-        }
+        this.spaceRidge.drawAurora(ctx, canvas, spaceCol, this.tSec, {
+          presentation: authority, night01: dn.night || 0 });
       }
     }
 
@@ -2794,17 +2738,16 @@ export class BiomeManager {
 
     // Hybrid sky wire: mandala / ribbon / weaver scale with skyWireAlpha
     // (Soft ~0.38, Neon ~0.72) so geometry feels musical without striping.
-    // Midasus's sky voyage and the ambient connect-the-dots constellations,
-    // drawn HERE -- before the sun/moon rather than after -- for the same
-    // reason the space ridge moved above: both are additive ('lighter')
-    // deep-sky content, and used to be drawn after the celestial bodies, so
-    // a figure's line or a crystallized star could sit glowing right on top
-    // of the moon's disc instead of behind it. The moon (drawn below, in
-    // ordinary source-over) now properly occludes whatever of these fell
-    // behind its disc, same as it always did for the plain star layer in
-    // _drawSky/_drawStarfield (also drawn before the celestial bodies).
+    // The ambient connect-the-dots constellations are drawn HERE -- before
+    // the sun/moon rather than after -- for the same reason the space ridge
+    // moved above: they are additive ('lighter') deep-sky content, and used
+    // to be drawn after the celestial bodies, so a figure's line could sit
+    // glowing right on top of the moon's disc instead of behind it. The
+    // moon (drawn below, in ordinary source-over) now properly occludes
+    // whatever of these fell behind its disc, same as it always did for the
+    // plain star layer in _drawSky/_drawStarfield (also drawn before the
+    // celestial bodies).
     if (!this.rangeNarrative) this.lightning.draw(ctx, canvas, this.tSec * 1000); // behind the ranges: bolts land beyond the hills
-    if (this.presentation?.performers) this.drawDeepSky(ctx, skyVoyage, canvas);
     // Ambient connect-the-dots + reward volleys read as starlight, so the
     // night sky brightens them the same way it brightens the atlas stars.
     // The Range's constellations were effectively washed out in daylight:
@@ -2894,7 +2837,7 @@ export class BiomeManager {
     if (phenomenaFull && skyA > 0.02 && !this._rangeSky) {
       const prevM = this.mandala.intensity;
       this.mandala.intensity = prevM * skyA;
-      this.mandala.draw(ctx, canvas.width * celestialXFrac, canvas.height * celestialYFrac, canvas.height * 0.30 * this.mandalaScaleMul, mandalaColor);
+      this.mandala.draw(ctx, canvas.width * celestialXFrac, canvas.height * celestialYFrac, canvas.height * 0.30, mandalaColor);
       this.mandala.intensity = prevM;
     }
     // Phenomena layer, deep sky: cymatic dust settling into Chladni
@@ -2985,18 +2928,15 @@ export class BiomeManager {
     this._lakeReflectGroundY = null;
     // The inhabited shore paints over the bottom third after this pass, so
     // the Renderer draws the flood itself, above the shore, when deferred.
-    if (!this.inhabitedShore && !this.rangePresentation?.hasViewComposition) this._drawFlood(ctx, groundCanvas);
+    if (!this.rangePresentation?.hasViewComposition) this._drawFlood(ctx, groundCanvas);
     // In FRONT of the ground: as the camera pulls back, the near water comes
     // into frame and the strip they run along turns out to be an isthmus.
     if (!this.rangePresentation?.hasViewComposition) this._drawForegroundSwell(ctx, groundCanvas, worldX, A, B, t);
-    // Deferred like the flood: a cut flash must cover the shore too.
-    if (!this.inhabitedShore) {
-      if (this._rangeMidEffects?.frame && ctx.getTransform) {
-        const m = ctx.getTransform();
-        this._rangeMidTransition = { transform: [m.a, m.b, m.c, m.d, m.e, m.f],
-          width: groundCanvas.width, height: groundCanvas.height, alpha: this._cutFlash > .01 ? .35 * this._cutFlash : 0 };
-      } else this._drawTransitionOverlays(ctx, groundCanvas, B);
-    }
+    if (this._rangeMidEffects?.frame && ctx.getTransform) {
+      const m = ctx.getTransform();
+      this._rangeMidTransition = { transform: [m.a, m.b, m.c, m.d, m.e, m.f],
+        width: groundCanvas.width, height: groundCanvas.height, alpha: this._cutFlash > .01 ? .35 * this._cutFlash : 0 };
+    } else this._drawTransitionOverlays(ctx, groundCanvas, B);
   }
 
   /** Paint smooth open water and atmospheric features behind the pixel terrain. */
@@ -3008,9 +2948,9 @@ export class BiomeManager {
   }
 
   /** The legacy scenic stack: scanned/procedural L2-L5 strips with their
-   *  haze, distant wave, connector hills and cast shadows, the far
-   *  vignettes and mid-depth life between them. Returns the silhouette tint
-   *  the ground uses. */
+   *  haze, distant wave, connector hills and cast shadows, and the
+   *  mid-depth life between them. Returns the silhouette tint the ground
+   *  uses. */
   _drawLegacyScenic(ctx, canvas, frame, { worldX, originX, A, B, t, arc, phenomenaFull, particleMul, mandalaColor, skyHorizonNight, skipShared = false }) {
     // The Unraveling: each layer's scroll ratio drifts apart from the rest
     // as the world delaminates -- nearer layers race ahead more than far
@@ -3082,7 +3022,6 @@ export class BiomeManager {
     }
     terrain(c => this._drawLayer(c, canvas, 'L2', scrollX0, tintL2, t, A, B));
     if (hazeLayers >= 3) this._drawHaze(ctx, canvas, 'L2', A, B, t, arc);
-    if (!skipShared) this._drawFarVignettes(ctx, canvas, worldX, A, B, t, phenomenaFull, tintL2);
     terrain(c => this._drawLayer(c, canvas, 'L3', scrollX1, tintL3, t, A, B));
     this._drawHaze(ctx, canvas, 'L3', A, B, t, arc);
     this._drawCastShadow(ctx, canvas, 'L2', 'L3', scrollX0, scrollX1, A, B, t);
@@ -3109,15 +3048,13 @@ export class BiomeManager {
 
   /** Range v2 scenic partitions (plan §6.2): far terrain, then the Dancing
    *  Ridge across it (the reference's luminous line over the distant
-   *  range, still occluded by nearer ridges), far vignettes, mid terrain,
-   *  mid-depth life, near terrain. Atmosphere is the scene's own, applied
+   *  range, still occluded by nearer ridges), mid terrain, mid-depth life,
+   *  near terrain. Atmosphere is the scene's own, applied
    *  once in the terrain shader. Returns the silhouette tint the ground uses. */
   _drawRangeV2Scenic(ctx, canvas, frame, { worldX, originX, A, B, t, phenomenaFull, particleMul, mandalaColor, skyHorizonNight }) {
     const pres = this.rangePresentation;
     const tint = ensureContrast(this._rotated(this.lerpCache.get(A.silhouette, B.silhouette, t)), skyHorizonNight, 0.14);
-    const farTint = this.lerpCache.get(tint, skyHorizonNight, AERIAL_PULL.L2 || 0);
     pres.drawPartition(ctx, 'far', canvas);
-    this._drawFarVignettes(ctx, canvas, worldX, A, B, t, phenomenaFull, farTint);
     pres.drawPartition(ctx, 'mid', canvas);
     const midDepth = (f) => this._drawMidDepthLife(f.ctx, canvas, f, { worldX, originX, phenomenaFull, particleMul, mandalaColor });
     let separate = false;
@@ -3143,19 +3080,6 @@ export class BiomeManager {
     return tint;
   }
 
-  _drawFarVignettes(ctx, canvas, worldX, A, B, t, phenomenaFull, tintL2) {
-    // Far-distance vignettes: between the farthest range and everything
-    // nearer, so the L3/L4/L5 ridges partially occlude them -- genuinely
-    // "witnessed in the far distance", not sprites pasted on the sky.
-    if (this.presentation?.decorativeActors && phenomenaFull) this.farVignettes.draw(ctx, canvas, worldX, {
-      tSec: this.tSec,
-      kick: planeKick(this.tSec * 1000, this._danceKickMs, 'vignette', this._danceKickAmp),
-      silhouette: tintL2, // they sit at L2's depth, so they wear L2's air
-      sky: this._rotated(this.lerpCache.get(A.sky[1], B.sky[1], t)),
-      halo: this._rotated(this.lerpCache.get(A.celestial.haloColor, B.celestial.haloColor, t)),
-    });
-  }
-
   /** Repaint the frozen mid-depth weather at the output resolution, behind
    * the captured near partition. The cut flash still covers the result. */
   drawHighResolutionMidEffects(ctx, fit) {
@@ -3175,7 +3099,7 @@ export class BiomeManager {
   }
 
   /** Mid-depth life shared by both scenic stacks: ambient particles,
-   *  music weather, the Kuramoto swarm and the murmuration. */
+   *  music weather and the Kuramoto swarm. */
   _drawMidDepthLife(ctx, canvas, frame, { worldX, originX, phenomenaFull, particleMul, mandalaColor }) {
     // Ambient particle field lives roughly at mid-depth. The Unraveling:
     // particle hues converge toward the biome's own halo color as the
@@ -3218,21 +3142,16 @@ export class BiomeManager {
       }
     }
 
-    // The Kuramoto swarm shares this depth: synchronized flashing motes,
-    // with the murmuration wheeling among them. Same optional-phenomena rung
-    // as the murmuration it flies with -- 48 individually stroked arcs a
-    // frame, atmosphere rather than gameplay.
+    // The Kuramoto swarm shares this depth: synchronized flashing motes on
+    // the optional-phenomena rung -- atmosphere rather than gameplay.
     // Abstract math motes: not drawn under the Range's real sky.
-    if (phenomenaFull && !this._rangeSky) {
-      this.swarm.draw(ctx, canvas, mandalaColor);
-      this.murmuration?.draw(ctx, this.tSec * 1000, mandalaColor, particleMul);
-    }
+    if (phenomenaFull && !this._rangeSky) this.swarm.draw(ctx, canvas, mandalaColor);
   }
 
   /**
    * The near shore, revealed by pulling the camera back.
    *
-   * At normal framing the trio run along a strip of ground with mountains
+   * At normal framing the frame shows a strip of ground with mountains
    * behind it, and that ground could be a continent. A wide shot has room
    * below the ground line to answer the question, so this fills it: sea on
    * the NEAR side too, which makes the strip an isthmus.
@@ -3452,237 +3371,6 @@ export class BiomeManager {
     ctx.restore();
   }
 
-  /** Midasus's deep-space excursion: drawn here (behind the mountain
-   * silhouettes drawn further down in draw()) so she genuinely reads as
-   * "way in the distance" rather than just smaller. Renders her fading
-   * constellations (completed figures frozen into the sky), the live
-   * persistent trail sky-writing the current figure, and a small mote of
-   * light at her current position. A no-op whenever she isn't away. */
-  drawDeepSky(ctx, voyage, canvas) {
-    if (!identityAllows(this.world, 'deepSky')) return;
-    if (!voyage) return;
-    const nowMs = this.tSec * 1000;
-    // Every position SkyVoyage stores (station, trail, constellations, the
-    // permanent atlas, novae, sparkles, micro-slashes) is baked as an
-    // ABSOLUTE pixel against Midasus's own stageW/stageH -- the nominal
-    // canvasWidth/Height Simulation was constructed with (see Midasus.js),
-    // which is NOT the same frame this draws into: Renderer pads the stage
-    // by SHAKE_MARGIN_PX on every side and widens it further under camera
-    // pull-back (CameraDirector.zoom), so the live canvas is routinely
-    // wider/taller than the nominal dims these points were computed
-    // against. Every other sky object in this file (stars, constellation
-    // weaver, dust lanes...) stores a FRACTION and rescales against the
-    // actual canvas at draw time for exactly this reason; SkyVoyage never
-    // did, so her whole sky-writing trail sat pinned to the nominal span
-    // while the live frame around it grew -- reading as drawn in the wrong
-    // part of the screen, and (since the terrain silhouette below IS
-    // rescaled to the live canvas every frame) landing in front of terrain
-    // it should have been safely behind. This.w/this.h are the same
-    // canvasWidth/canvasHeight Midasus was constructed with, so they're the
-    // correct reference frame to rescale against.
-    const sx = canvas.width / this.w, sy = canvas.height / this.h;
-    const X = (x) => x * sx, Y = (y) => y * sy;
-
-    // The Star Atlas draws whether or not she's away: every crystallized
-    // constellation stays in the sky for the rest of the song, twinkling
-    // per-star and glinting with the beat (atlasPulse rides the heard-time slamAt).
-    if (voyage.atlas.length) {
-      const pulse = voyage.atlasPulse || 0;
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      for (const entry of voyage.atlas) {
-        // Short neighbor edges only — full polyline over sparse stars made
-        // the "random straight line" sky triangles.
-        ctx.strokeStyle = `hsla(${entry.hue}, 35%, 82%, ${0.09 * (1 + 1.2 * pulse)})`;
-        ctx.lineWidth = 0.8;
-        ctx.lineCap = 'round';
-        const ATLAS_EDGE = 20;
-        for (let i = 1; i < entry.stars.length; i++) {
-          const a = entry.stars[i - 1], b = entry.stars[i];
-          const dx = b.x - a.x, dy = b.y - a.y;
-          if (dx * dx + dy * dy > ATLAS_EDGE * ATLAS_EDGE) continue;
-          ctx.beginPath();
-          ctx.moveTo(X(a.x), Y(a.y));
-          ctx.lineTo(X(b.x), Y(b.y));
-          ctx.stroke();
-        }
-        for (const s of entry.stars) {
-          const twinkle = 0.5 + 0.5 * Math.sin(nowMs * 0.0013 + s.phase);
-          ctx.fillStyle = `hsla(${entry.hue}, 45%, 88%, ${(0.16 + 0.16 * twinkle) * (1 + 1.6 * pulse)})`;
-          ctx.beginPath();
-          ctx.arc(X(s.x), Y(s.y), 1.1 + 0.5 * twinkle, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-      ctx.restore();
-    }
-
-    // The finale's supernova cascade: each detonating atlas star throws an
-    // expanding ring, a hot core, and a five-ray flare. Drawn whether or
-    // not she's away -- she's home watching her own myths go up.
-    if (voyage.novae.length) {
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      for (const n of voyage.novae) {
-        const age = nowMs - n.bornMs - n.delayMs;
-        if (age < 0) continue; // still waiting on its popcorn delay
-        const u = Math.min(1, age / 1100);
-        const easeOut = 1 - (1 - u) ** 3;
-        const fade = 1 - u;
-        const nx = X(n.x), ny = Y(n.y);
-
-        ctx.strokeStyle = `hsla(${n.hue}, 70%, 85%, ${0.7 * fade})`;
-        ctx.lineWidth = 0.5 + 2 * fade;
-        ctx.beginPath();
-        ctx.arc(nx, ny, 4 + 62 * easeOut, 0, Math.PI * 2);
-        ctx.stroke();
-
-        ctx.fillStyle = `hsla(${n.hue}, 30%, 96%, ${fade})`;
-        ctx.beginPath();
-        ctx.arc(nx, ny, 1 + 3 * fade, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.strokeStyle = `hsla(${n.hue}, 60%, 90%, ${0.5 * fade})`;
-        ctx.lineWidth = 1;
-        for (let k = 0; k < 5; k++) {
-          const ang = n.phase + (k / 5) * Math.PI * 2;
-          const len = 10 + 42 * easeOut;
-          ctx.beginPath();
-          ctx.moveTo(nx + Math.cos(ang) * 5, ny + Math.sin(ang) * 5);
-          ctx.lineTo(nx + Math.cos(ang) * len, ny + Math.sin(ang) * len);
-          ctx.stroke();
-        }
-      }
-      ctx.restore();
-    }
-
-    // Frozen figures and the last voyage's afterglow fade on their OWN
-    // clocks (constellationLife01, afterglowLife01), so they draw whether or
-    // not she's away. They used to sit below the depth gate, which cut them
-    // off the instant she re-entered: a figure only a few seconds into its
-    // 15-second life disappeared as soon as she flew home.
-    if (voyage.constellations.length || voyage.afterglows?.length) {
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      // Frozen figures: short curve segments only (skip long chords that
-      // used to read as random straight lines across the sky).
-      const CONST_EDGE_MAX = 22;
-      for (const c of voyage.constellations) {
-        const life = constellationLife01(c.bornMs, nowMs);
-        if (life <= 0) continue;
-        ctx.strokeStyle = `hsla(${c.hue}, 60%, 80%, ${0.45 * life})`;
-        ctx.lineWidth = 1.3;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        for (let i = 1; i < c.points.length; i++) {
-          const a = c.points[i - 1], b = c.points[i];
-          const dx = b.x - a.x, dy = b.y - a.y;
-          if (dx * dx + dy * dy > CONST_EDGE_MAX * CONST_EDGE_MAX) continue;
-          ctx.beginPath();
-          ctx.moveTo(X(a.x), Y(a.y));
-          ctx.lineTo(X(b.x), Y(b.y));
-          ctx.stroke();
-        }
-        ctx.fillStyle = `hsla(${c.hue}, 75%, 90%, ${0.9 * life})`;
-        for (const p of c.points) {
-          ctx.beginPath();
-          ctx.arc(X(p.x), Y(p.y), 2.4, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-
-      // Afterglow: the trail she was still writing when she landed.
-      for (const g of voyage.afterglows || []) {
-        const life = afterglowLife01(g.bornMs, nowMs);
-        if (life <= 0) continue;
-        const tr = g.trail;
-        ctx.lineCap = 'round';
-        for (let i = 1; i < tr.length; i++) {
-          const a = tr[i - 1], b = tr[i];
-          if (b.gap) continue;
-          const dx = b.x - a.x, dy = b.y - a.y;
-          if (dx * dx + dy * dy > 28 * 28) continue;
-          const u = i / tr.length;
-          ctx.strokeStyle = `hsla(${b.hue}, 75%, 88%, ${0.6 * u * life})`;
-          ctx.lineWidth = 1.4;
-          ctx.beginPath(); ctx.moveTo(X(a.x), Y(a.y)); ctx.lineTo(X(b.x), Y(b.y)); ctx.stroke();
-        }
-      }
-      ctx.restore();
-    }
-
-    if (voyage.depth <= 0.02) return;
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-
-    // Atlas crystal edges: only short links (same rule — no sky triangles).
-    // (Full atlas stroke is drawn above; keep stars, drop long polylines.)
-
-    // Persistent trail: a soft wide glow pass underneath a bright thin
-    // core. Skip gap / teleport chords so a phase jump never paints a
-    // straight line across the figure.
-    const trail = voyage.trail;
-    const GAP = 28;
-    for (let i = 1; i < trail.length; i++) {
-      const a = trail[i - 1], b = trail[i];
-      if (b.gap) continue;
-      const dx = b.x - a.x, dy = b.y - a.y;
-      if (dx * dx + dy * dy > GAP * GAP) continue;
-      const u = i / trail.length; // older points fade toward transparent
-      const ax = X(a.x), ay = Y(a.y), bx = X(b.x), by = Y(b.y);
-      ctx.strokeStyle = `hsla(${b.hue}, 65%, 78%, ${0.22 * u})`;
-      ctx.lineWidth = 6;
-      ctx.lineCap = 'round';
-      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
-      ctx.strokeStyle = `hsla(${b.hue}, 75%, 88%, ${0.85 * u})`;
-      ctx.lineWidth = 1.6;
-      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
-    }
-
-    // Kick sparkles: radial bursts flung off her on every beat out there.
-    for (const s of voyage.sparkles) {
-      const life = 1 - s.age / 0.6;
-      if (life <= 0) continue;
-      ctx.fillStyle = `hsla(${s.hue}, 80%, 88%, ${0.85 * life})`;
-      ctx.fillRect(X(s.x) - 1, Y(s.y) - 1, 2.2, 2.2);
-    }
-
-    // Micro-slashes: each melody onset cuts a brief bright line at her
-    // deep-sky position -- her note-slash vocabulary, miniaturized.
-    ctx.lineCap = 'round';
-    for (const s of voyage.microSlashes) {
-      const u = s.age / 0.25;
-      if (u >= 1) continue;
-      const ext = 8 + 14 * u;
-      const sx2 = X(s.x), sy2 = Y(s.y);
-      ctx.strokeStyle = `hsla(${s.hue}, 75%, 85%, ${0.9 * (1 - u)})`;
-      ctx.lineWidth = 1.6 * (1 - u * 0.5);
-      ctx.beginPath();
-      ctx.moveTo(sx2 - Math.cos(s.ang) * ext, sy2 - Math.sin(s.ang) * ext);
-      ctx.lineTo(sx2 + Math.cos(s.ang) * ext, sy2 + Math.sin(s.ang) * ext);
-      ctx.stroke();
-    }
-
-    // Her current position: a small glowing comet-head, but ONLY once she's
-    // genuinely deep-sky -- WINDUP/ASCENT/REENTRY now render her real mesh
-    // in the character layer (see Midasus.draw()), so drawing this dot
-    // during those phases would double her up.
-    if (voyage.phase === VoyagePhase.DEEP_SPACE) {
-      const r = 2 + 3 * (1 - voyage.depth);
-      const px = X(voyage.p.x), py = Y(voyage.p.y);
-      ctx.fillStyle = `hsla(${voyage.hue}, 60%, 85%, ${0.28 * voyage.depth})`;
-      ctx.beginPath();
-      ctx.arc(px, py, r * 3.4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = `hsla(${voyage.hue}, 80%, 92%, ${0.6 + 0.4 * voyage.depth})`;
-      ctx.beginPath();
-      ctx.arc(px, py, r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    ctx.restore();
-  }
-
   /** Cut flash on a sharp boundary. The column shutter is not drawn. */
   _drawTransitionOverlays(ctx, canvas, _B) {
     if (this._cutFlash > 0.01) {
@@ -3750,10 +3438,7 @@ export class BiomeManager {
       // this much, and that is what finally gives the ground a read on how
       // fast the world is going past. Sheds on the same perf rung as the
       // rest of the foreground (this whole method is already gated on it).
-      // With the inhabited shore, the old ground line is under the sea:
-      // ground-locked scatter and wildfire have nowhere to stand there.
-      const scatterLayers = this.inhabitedShore ? []
-        : this.world?.kind === 'alpine'
+      const scatterLayers = this.world?.kind === 'alpine'
         ? scatterBiomeLayers(this._profile(this.currentBlend?.from)?.landmarkKey || this.currentBlend?.from,
           this._profile(this.currentBlend?.to)?.landmarkKey || this.currentBlend?.to,
           this.currentBlend?.t ?? 1)
@@ -3770,7 +3455,7 @@ export class BiomeManager {
       }
     }
 
-    if (!this.inhabitedShore) this._drawWildfire(ctx, canvas, worldX);
+    this._drawWildfire(ctx, canvas, worldX);
   }
 
   /** Wildfire: near flames tracking the burn front's real world-x extent,
@@ -4423,7 +4108,7 @@ export class BiomeManager {
 
   /** The field's ordinary (bucketed) square stars as ONE additive image
    *  instead of a path fill per bucket. Those ~150 fills of up to a few
-   *  dozen sub-pixel rects each were the largest single cost of a Trio
+   *  dozen sub-pixel rects each were the largest single cost of a legacy
    *  frame on the GPU (path rendering, not pixels: each fill is a general
    *  path to the rasterizer). The light per pixel is the same: every star
    *  adds its colour x alpha x the area its rect covers of that pixel,
@@ -4770,8 +4455,8 @@ export class BiomeManager {
     // either crossfading celestial draws on top of it. _drawOneCelestial
     // gives each body its own backing too, but split by (1-t)/t during a
     // biome crossfade -- exactly the moment neither body alone is opaque
-    // enough to fully block what's behind it (the space ridge, stars,
-    // Midasus's sky voyage), so a crossfade let all of that show through in
+    // enough to fully block what's behind it (the space ridge, stars),
+    // so a crossfade let all of that show through in
     // proportion to how mid-transition it was. Sized to whichever body is
     // larger so it covers both without a visible seam as they fade past
     // each other.
@@ -4920,8 +4605,8 @@ export class BiomeManager {
     ctx.fill();
 
     // Opaque backing disc, full moon radius: blocks whatever was drawn
-    // earlier this frame -- the star field, ambient constellations, Midasus's
-    // sky voyage -- from showing through the moon. Without this the dark
+    // earlier this frame -- the star field and ambient constellations --
+    // from showing through the moon. Without this the dark
     // limb was only as opaque as the earthshine fill just below (~13%), so
     // anything sitting behind an unlit crescent moon stayed almost fully
     // visible right through its own disc. Same alpha as the moon itself so
@@ -5068,22 +4753,25 @@ export class BiomeManager {
 
   /** Which optional simulators this world will actually show at the
    *  current quality. Alpine spectacle is the mandala, cymatics, swarm,
-   *  ribbon, space ridge, light rig, murmuration and lightning. Reaction
+   *  ribbon, space ridge, light rig and lightning. Reaction
    *  diffusion feeds the shared ground pass, so every painterly world
    *  keeps it. */
   optionalEffectsActive() {
     const phenomenaFull = !this._perf || !!this._perf.phenomenaFull;
     const kind = this.world?.kind || 'alpine';
     const alpine = kind === 'alpine';
+    // The Range's composed sky draws none of these abstract phenomena
+    // (their draws are gated !this._rangeSky), so Landscape stops stepping
+    // them; the legacy painted sky still does.
+    const drawn = !this._rangeSky;
     return {
-      mandala: phenomenaFull && alpine,
-      cymatics: phenomenaFull && alpine,
-      swarm: phenomenaFull && alpine,
-      ribbon: phenomenaFull && alpine,
-      reactionDiffusion: phenomenaFull,
+      mandala: phenomenaFull && alpine && drawn,
+      cymatics: phenomenaFull && alpine && drawn,
+      swarm: phenomenaFull && alpine && drawn,
+      ribbon: phenomenaFull && alpine && drawn,
+      reactionDiffusion: phenomenaFull && drawn,
       spaceRidge: alpine,
-      lightRig: alpine,
-      murmuration: this.presentation?.decorativeActors && phenomenaFull && alpine,
+      lightRig: alpine && drawn,
       lightning: alpine,
       weaver: constellationsAllowed(this.world, this._perf) && !this.rangeNarrative,
       meteors: phenomenaFull && identityAllows(this.world, 'meteors'),
@@ -5112,7 +4800,6 @@ export class BiomeManager {
     const kickTau = nowMs - this._danceKickMs;
     this.spaceRidge.history = this.ridgeMusicSession;
     if (fx.spaceRidge) this.spaceRidge.update(nowMs, dtSec, this._eqSmoothed, this.calmLevel, kickTau);
-    if (fx.murmuration) this.murmuration.update(nowMs, dtSec, energyCurves, calmLevel, wind);
     return fx;
   }
 
@@ -5833,9 +5520,8 @@ export class BiomeManager {
   }
 
   _drawHorizonEQ(ctx, canvas, worldX, A, B, t) {
-    // Landscape lights its real crests instead (_drawCrestLight); Trio keeps
-    // the dancing spectrum ridge it had before real terrain.
-    if (this.world?.kind === 'alpine' && !this.presentation?.horizonEq) return;
+    // The Range lights its real crests instead (_drawCrestLight).
+    if (this.world?.kind === 'alpine') return;
     let color = ensureMinLightness(
       this._rotated(this.lerpCache.get(A.celestial.haloColor, B.celestial.haloColor, t)), .72);
     if (this.rangeNarrative) color = this.lerpCache.get('#000000', color, this.rangeNarrative.materials);
@@ -6050,8 +5736,8 @@ export class BiomeManager {
     ctx.fill();
 
     // Opaque backing disc, full body radius: blocks whatever was drawn
-    // earlier this frame -- the space ridge, stars, ambient constellations,
-    // Midasus's sky voyage -- from showing through. Without this, every
+    // earlier this frame -- the space ridge, stars and ambient
+    // constellations -- from showing through. Without this, every
     // path below that isn't fully opaque on its own (veiled bodies at 0.6
     // alpha, the wireframe style's deliberately-hollow 0.55 wash) let
     // earlier deep-sky content -- especially the space ridge, drawn with
@@ -6262,7 +5948,7 @@ export class BiomeManager {
    *  every frame, for every range layer, then drawn into the scene with
    *  nearest sampling -- on the Classic grid's 352x212 that is sixteen
    *  pixels painted, cleared, recoloured and composited for each one shown,
-   *  the bulk of Trio's GPU time on a phone. Twice the device scale keeps
+   *  the bulk of the legacy painter's GPU time on a phone. Twice the device scale keeps
    *  the point-sampled crispness of the pixel look at a quarter (Classic)
    *  of the pixels. */
   _travelSurfaceScale(ctx) {
@@ -8778,8 +8464,7 @@ export class BiomeManager {
 
   /** The Mirror (Movement IV): flip the sky/phenomena/silhouette region
    *  already painted above the waterline straight down into the lake band
-   *  -- the mandala, aurora, murmuration, and Midasus's sky voyage all
-   *  reflect for free, since this reads back whatever canvas pixels are
+   *  -- the mandala and aurora reflect for free, since this reads back whatever canvas pixels are
    *  already there. Then ripples: a kick/drop-excited ModalRing drives a
    *  horizontal sine offset per row-slice, re-blitting the reflection
    *  sideways in place (the same self-referential drawImage trick as the

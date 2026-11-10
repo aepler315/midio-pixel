@@ -9,6 +9,7 @@ import {
   instanceIdFor, ADAPT_VERSION,
 } from '../src/world/WorldAdaptation.js';
 import { RIDGE_TERRAIN_KEYS, ROLLING_TERRAIN_KEYS } from '../src/world/dna/ShapeGrammar.js';
+import { BIOMES } from '../src/world/BiomeProfiles.js';
 import { sampleWorldMusic } from '../src/world/WorldMusic.js';
 import { buildWorldVariant } from '../src/world/WorldScore.js';
 
@@ -24,6 +25,11 @@ function curves({ durationMs = 120000, energyAt, bandsAt } = {}) {
   }
   return ec;
 }
+
+// An alpine world on invented palettes (no real biomes): the only kind of
+// world adaptation synthesizes palettes for. No registered world is one.
+const INVENTED = Object.freeze({ ...getWorld('alpine'), id: 'invented', name: 'Invented',
+  realBiomes: false, palettes: BIOMES });
 
 function song(overrides = {}) {
   const durationMs = overrides.durationMs ?? 120000;
@@ -60,24 +66,24 @@ test('every registered kind has an explicit capability description', () => {
 
 test('adaptWorld is deterministic and keeps registered identity separate from the instance', () => {
   const { data, profile } = song({ bpm: 112 });
-  const a = adaptWorld(getWorld('trio'), profile, data);
-  const b = adaptWorld(getWorld('trio'), profile, data);
+  const a = adaptWorld(getWorld('alpine'), profile, data);
+  const b = adaptWorld(getWorld('alpine'), profile, data);
   assert.equal(a.world.instanceId, b.world.instanceId);
-  assert.equal(a.world.name, 'Trio');
+  assert.equal(a.world.name, 'Landscape');
   assert.equal(a.world.kind, 'alpine');
-  assert.equal(a.world.registeredId, 'trio');
-  assert.equal(a.world.baseId, 'trio');
+  assert.equal(a.world.registeredId, 'alpine');
+  assert.equal(a.world.baseId, 'alpine');
   assert.equal(a.world.id, 'custom');
-  assert.notEqual(a.world.instanceId, 'trio');
-  assert.equal(a.world.instanceId, instanceIdFor('trio', profile));
-  assert.deepEqual(a.world.channels, getWorld('trio').channels);
+  assert.notEqual(a.world.instanceId, 'alpine');
+  assert.equal(a.world.instanceId, instanceIdFor('alpine', profile));
+  assert.deepEqual(a.world.channels, getWorld('alpine').channels);
 });
 
 test('only the terrain controls the alpine kind reads are sent', () => {
   const { data, profile } = song();
   const readable = new Set([...RIDGE_TERRAIN_KEYS, ...ROLLING_TERRAIN_KEYS]);
-  for (const id of ['alpine', 'trio']) {
-    const world = adaptWorld(getWorld(id), profile, data).world;
+  for (const [id, base] of [['alpine', getWorld('alpine')], ['invented', INVENTED]]) {
+    const world = adaptWorld(base, profile, data).world;
     const keys = Object.keys(world.terrainMods || {});
     assert.ok(keys.length > 0, `${id} received no terrain controls`);
     assert.ok(keys.every((k) => readable.has(k)), `${id} leaked ${keys}`);
@@ -125,9 +131,9 @@ test('a palette-only failure leaves geometry; a geometry-only failure leaves pal
   console.warn = (...args) => warns.push(args);
   let result;
   try {
-    // Trio: Landscape's real biomes are never synthesized (see below), so
-    // the palette path is exercised on the world that still is.
-    result = adaptWorld(getWorld('trio'), profile, data);
+    // Landscape's real biomes are never synthesized (see below), so the
+    // palette path is exercised on an invented-palette world.
+    result = adaptWorld(INVENTED, profile, data);
   } finally {
     console.warn = original;
   }
@@ -136,7 +142,7 @@ test('a palette-only failure leaves geometry; a geometry-only failure leaves pal
   assert.ok(result.world.terrainMods, 'ridge geometry must survive a palette-only failure');
   assert.ok(result.world.characterScheme);
   assert.ok(warns.some((args) => String(args[0]).includes('palette')));
-  assert.equal(result.world.palettes, getWorld('trio').palettes);
+  assert.equal(result.world.palettes, INVENTED.palettes);
 });
 
 test('The Range keeps its real biomes: no palette is synthesized into them', () => {
@@ -156,12 +162,12 @@ test('buildWorldVariant no longer constructs a 100 score', () => {
     phrase: 0.4, landmarks: 5, onset: 0.4, contrast: 0.4, groove: 0.5, warmth: 0.5,
     texture: 0.4, form: 0.5, arc: 0.5, drive: 0.5, bpm: 120, tempoHeat: 0.5, trend: 0,
   };
-  const { world, proof } = buildWorldVariant('trio', feat);
+  const { world, proof } = buildWorldVariant('alpine', feat);
   assert.equal(world.kind, 'alpine');
-  assert.equal(world.registeredId, 'trio');
+  assert.equal(world.registeredId, 'alpine');
   assert.notEqual(proof.score, 100);
   assert.ok(proof.score >= 1 && proof.score <= 99);
-  assert.equal(world.comfort, getWorld('trio').comfort);
+  assert.equal(world.comfort, getWorld('alpine').comfort);
 });
 
 test('sampleWorldMusic: a quiet response does not lift silence; a dense response damps accents', () => {
@@ -189,17 +195,16 @@ test('WorldAdaptation does not import WorldScore — construction stays downstre
   assert.equal(/from ['"].*WorldScore/.test(src), false);
 });
 
-// Eleven sections reach Trio's neon stock palettes (CYBER, ABYSS), whose
-// edgeLight ridge wire palette synthesis does not generate.
+// Eleven sections reach the invented neon stock palettes (CYBER, ABYSS),
+// whose edgeLight ridge wire palette synthesis does not generate.
 const ELEVEN_SECTIONS = {
   boundariesMs: Array.from({ length: 12 }, (_, i) => Math.round(i * 120000 / 11)),
   labels: 'ABCDEFGHIJK'.split(''),
   confidence: 0.6,
 };
 
-for (const id of ['alpine', 'trio']) {
+for (const [id, base] of [['alpine', getWorld('alpine')], ['invented', INVENTED]]) {
   test(`${id}: adaptation preserves material lighting without mutating stock palettes`, () => {
-    const base = getWorld(id);
     const before = structuredClone(base.palettes);
     const { data, profile } = song({ structure: ELEVEN_SECTIONS });
     const { world, degraded } = adaptWorld(base, profile, data);
@@ -209,7 +214,7 @@ for (const id of ['alpine', 'trio']) {
       assert.equal(palette.edgeLight, base.palettes[i % base.palettes.length].edgeLight);
       if (palette.edgeLight) assert.match(palette.edgeLight, /^#[0-9a-f]{6}$/i);
     });
-    if (id === 'trio') assert.ok(world.palettes.some((p) => p.edgeLight), 'no neon stock palette was reached');
+    if (id === 'invented') assert.ok(world.palettes.some((p) => p.edgeLight), 'no neon stock palette was reached');
     assert.deepEqual(base.palettes, before);
   });
 }
@@ -223,7 +228,7 @@ for (const fixture of [
   test(`adapted physical vocabulary stays within selected world at bpm=${fixture.bpm}`, () => {
     const { data, profile } = song(fixture);
     let synthesized = 0;
-    for (const base of listWorlds()) {
+    for (const base of [...listWorlds(), INVENTED]) {
       // Real biomes are never synthesized (above), so only an invented
       // palette set can drift out of its world's vocabulary.
       if (base.realBiomes) continue;
@@ -237,6 +242,6 @@ for (const fixture of [
         assert.ok(effects.has(palette.fx), `${base.id}: inappropriate ${palette.fx}`);
       }
     }
-    assert.ok(synthesized > 0, 'no registered world synthesizes palettes');
+    assert.ok(synthesized > 0, 'no world synthesizes palettes');
   });
 }

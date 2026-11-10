@@ -273,7 +273,7 @@ Next item from the landscape brainstorm: lakes hold the land around them, as sti
 
 ## The cast as lights (2026-10-01)
 
-> Superseded for routes and peaks by [landscape-cast.md](landscape-cast.md) (2026-10-22): each view now has a job, an Ascent or Lamplighters, timed by song structure; the peaks below are removed. Tour views keep the wandering routes. The light and its consequences are unchanged.
+> Removed (2026-11-09): Landscape no longer draws the cast. The lanterns, their routes, jobs and peaks, their light on land, trees and water, and Midio's wake are gone; this section is history.
 
 Brainstorm section 6, the "presence ladder" Ashton chose: light is the floor, consequence the body, a brief recognisable figure the peak. Under Range v2 nothing drew Midio, Broshi or Midasus before this.
 

@@ -1,5 +1,6 @@
-// Upload audio through the file chooser, analyse it, pick a world,
-// render advancing playback, pause/resume, and stop. Start npm start first.
+// Upload audio through the file chooser, analyse it, play it straight in
+// Landscape, render advancing playback, pause/resume, replace the song and
+// stop. Start npm start first.
 // Usage: node tools/smoke.mjs [url] [outDir] [recording]
 //
 // With no recording, a synthetic fixture is generated. Pass one to run the
@@ -13,7 +14,6 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { chromium } from 'playwright';
 import { withLegacyRange } from './lib/allWorlds.mjs';
-import { listWorlds } from '../src/world/Worlds.js';
 
 const toolsDir = path.dirname(fileURLToPath(import.meta.url));
 const defaultOutDir = path.join(toolsDir, '..', '.smoke');
@@ -104,9 +104,8 @@ export async function runAudioSmoke({
     page.on('console', (message) => {
       if (message.type() === 'error') report.errors.push('[console] ' + message.text());
     });
-    // User-installed fonts and the optional favicon are unrelated to audio
-    // playback. The audio-analysis/rendering path stays real.
-    await page.route('**/soundfonts/', (route) => route.fulfill({ json: [] }));
+    // The optional favicon is unrelated to audio playback. The
+    // audio-analysis/rendering path stays real.
     await page.route('**/favicon.ico', (route) => route.fulfill({ status: 204 }));
     const response = await page.goto(withLegacyRange(url), { waitUntil: 'load' });
     check('homepage loads', response?.ok());
@@ -125,37 +124,27 @@ export async function runAudioSmoke({
     const chooserReady = page.waitForEvent('filechooser');
     await page.getByText('Browse files', { exact: true }).click();
     await (await chooserReady).setFiles(wavPath);
-    // Analysis now ends at the world picker rather than starting the song
-    // outright. Every registered world gets one equal-choice card. The
-    // chosen world is adapted on Play; there is no privileged custom card.
-    await page.locator('#worldSelect:not(.hidden)').waitFor({ state: 'visible', timeout: 90000 });
-    const worldCards = page.locator('#worldSelect .worldCard');
-    const cardIds = await worldCards.evaluateAll(cards => cards.map(card => card.dataset.worldId).sort());
-    check('the picker presents one card per registered world',
-      JSON.stringify(cardIds) === JSON.stringify(listWorlds().map(world => world.id).sort()));
-    check('the picker gives no world winner styling', await page.locator('.worldCard.is-best').count() === 0);
-    const tailoredCard = page.locator('.worldCard[data-world-id="custom"]');
-    check('no privileged custom card in the gallery', await tailoredCard.count() === 0);
-    const alternateCard = page.locator('.worldCard').first();
-    check('an alternate painterly world remains selectable', await alternateCard.count() === 1);
-    await alternateCard.click();
-    await page.locator('#hud:not(.hidden)').waitFor({ state: 'visible', timeout: 90000 });
+    // Analysis ends by starting the song in Landscape, tailored to it (the
+    // playback overlay id is "custom"). There is no world picker.
+    await page.locator('#hud:not(.hidden)').waitFor({ state: 'visible', timeout: 120000 });
     await page.waitForFunction(() => window.__SMW?.sim?.timeMs > 750, null, { timeout: 30000 });
     const state = await page.evaluate(() => {
-      const { sim, conductor, audioEngine, worldId, muteTimelineSynth } = window.__SMW;
+      const { sim, conductor, audioEngine, worldId, audioBuffer } = window.__SMW;
       return {
         timeMs: sim.timeMs, audioMs: audioEngine.nowMs,
         notes: conductor.timeline.length, durationMs: conductor.durationMs,
-        worldId, muteTimelineSynth, audioState: audioEngine.ctx.state,
+        worldId, worldKind: sim.biomes?.world?.kind, audioState: audioEngine.ctx.state,
         hasRecording: !!audioEngine.sourceNode?.buffer,
+        originalBuffer: !!audioBuffer && audioEngine.sourceNode?.buffer === audioBuffer,
       };
     });
     report.playback = state;
     check('audio analysis produced a note timeline', state.notes > 0 && state.durationMs > 0);
-    check('picking an alternate world starts its tailored variant and dismisses the picker',
-      state.worldId === 'custom' && !await page.locator('#worldSelect').isVisible());
-    check('recording plays with the timeline synth muted', state.hasRecording
-      && state.audioState === 'running' && state.muteTimelineSynth);
+    check('the song starts straight in its tailored Landscape', state.worldId === 'custom'
+      && state.worldKind === 'alpine');
+    check('no world picker is offered', await page.locator('#worldSelect, .worldCard').count() === 0);
+    check('the decoded recording is what plays', state.hasRecording
+      && state.audioState === 'running' && state.originalBuffer);
     check('upload screen closes during playback', !await page.locator('#loader').isVisible());
 
     const firstFrame = await stageSnapshot(page);
@@ -190,19 +179,30 @@ export async function runAudioSmoke({
       && window.__SMW.sim.timeMs > t + 500, pausedAt.sim);
     check('resume advances playback', true);
 
-    // Replace an actively playing song. The old source and frame loop must
-    // stop before the next world is chosen, including on a cache hit.
+    // Replace an actively playing song. The old source and simulation must
+    // stop, including on a cache hit, and the new song then starts on its
+    // own. A cache hit leaves no idle moment to observe, so the old source's
+    // stop() is recorded and the old simulation is checked for staying still.
+    await page.evaluate(() => {
+      const owner = window.__SMW, source = owner.audioEngine.sourceNode;
+      window.__replacedOwner = owner;
+      window.__replacedSourceStopped = false;
+      const stop = source.stop.bind(source);
+      source.stop = (...args) => { window.__replacedSourceStopped = true; return stop(...args); };
+    });
     await page.locator('#fileInput').setInputFiles(wavPath);
-    await page.locator('#worldSelect:not(.hidden)').waitFor({ state: 'visible', timeout: 90000 });
-    check('replacement upload releases old playback before world selection',
-      await page.evaluate(() => !window.__SMW.audioEngine.playing
-        && !window.__SMW.audioEngine.sourceNode && window.__SMW.rafHandle === null));
+    await page.locator('#hud:not(.hidden)').waitFor({ state: 'visible', timeout: 120000 });
+    await page.waitForFunction(() => window.__SMW !== window.__replacedOwner
+      && window.__SMW.audioEngine.playing && window.__SMW.sim.timeMs > 500, null, { timeout: 120000 });
+    check('replacement song starts on its own', true);
+    const oldSimAt = await page.evaluate(() => window.__replacedOwner.sim.timeMs);
+    await delay(300);
+    check('replacement upload stopped the old recording and simulation',
+      await page.evaluate((at) => window.__replacedSourceStopped
+        && window.__replacedOwner.sim !== window.__SMW.sim
+        && window.__replacedOwner.sim.timeMs === at, oldSimAt));
     check('replacement does not show the previous song completion panel',
       !await page.locator('#completePanel').isVisible());
-    await page.locator('.worldCard').first().click();
-    await page.locator('#hud:not(.hidden)').waitFor({ state: 'visible', timeout: 90000 });
-    await page.waitForFunction(() => window.__SMW.audioEngine.playing && window.__SMW.sim.timeMs > 500);
-    check('replacement song starts after world selection', true);
     // A slow runner can let the replacement song's controls fade before
     // reaching Stop. Exercise that state deliberately and wake them like a
     // viewer, just as the pause check above does.

@@ -329,10 +329,9 @@ follows how many trees the mirror sees: on 7d48f2f, before the tour windows,
 the same frames of the Teton tour went from 140.6 M to 127.4 M.
 
 `test/mirrorSkip.test.mjs` checks the gate: ink just under and at the
-threshold, at the discard, NaN, Infinity and negative; a visible group; a
-site, a thread and the fixed line, each lit and unlit (the last two on the
-real `ActorsGL`); both values of `castInBands`, which the mirror must not
-follow; and a decision taken afresh on each redraw of one target. It checks
+threshold, at the discard, NaN, Infinity and negative (the cast it also
+gated on is gone since 2026-11-09); and a decision taken afresh on each
+redraw of one target. It checks
 that the threshold stays under the shader's discard in float32, that a
 scissored mirror makes the same choice, and that a mirror with no soft trees
 keeps its single combined pass. On the forest's side, layer 2 holds only

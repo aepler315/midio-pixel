@@ -350,7 +350,7 @@ export function synthesizePalette(dna, temperatureOverride = null) {
 export function synthesizeSectionPalettes(dna, name) {
   // `name` is the world kind ('alpine'). It is only a palette-id prefix and
   // physical admission key; WorldAdaptation then tints toward the world's
-  // stock palettes so Trio keeps its own invented skies.
+  // stock palettes so an invented-palette world keeps its own skies.
   // castBiomes forbids picking the same name twice in a row, so a single
   // entry would strand every section after the first with no candidate.
   // Detected structure wins when we have it; otherwise fall back to three

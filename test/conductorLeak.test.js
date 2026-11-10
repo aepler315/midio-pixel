@@ -14,7 +14,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Conductor } from '../src/core/Conductor.js';
-import { Broshi } from '../src/sim/Broshi.js';
 import { FractureEngine } from '../src/world/FractureEngine.js';
 import { makeNoteEvent, Role } from '../src/core/NoteEvent.js';
 
@@ -38,15 +37,6 @@ function registrationCount(conductor) {
   return n;
 }
 
-test('Broshi.dispose() removes exactly the subscriptions its constructor made', () => {
-  const conductor = loadedConductor();
-  const before = registrationCount(conductor);
-  const broshi = new Broshi(conductor, {}, { seed: 1 });
-  assert.ok(registrationCount(conductor) > before, 'construction should register listeners');
-  broshi.dispose();
-  assert.equal(registrationCount(conductor), before, 'dispose must leave the conductor exactly as it found it');
-});
-
 test('FractureEngine.dispose() removes its bar subscription', () => {
   const conductor = loadedConductor();
   const before = registrationCount(conductor);
@@ -56,36 +46,3 @@ test('FractureEngine.dispose() removes its bar subscription', () => {
   assert.equal(registrationCount(conductor), before);
 });
 
-test('a replay that disposes the old instance does not leave it listening', () => {
-  const conductor = loadedConductor();
-  let firstFired = 0, secondFired = 0;
-  const first = new Broshi(conductor, {}, { seed: 1 });
-  const originalOnKick = first._onKick.bind(first);
-  first._onKick = (evt) => { firstFired++; originalOnKick(evt); };
-
-  first.dispose(); // the fix: main.js's stopTimeline() now does this before replacing sim
-
-  const second = new Broshi(conductor, {}, { seed: 2 });
-  const originalOnKick2 = second._onKick.bind(second);
-  second._onKick = (evt) => { secondFired++; originalOnKick2(evt); };
-
-  conductor.dispatchUpTo(4000);
-
-  assert.equal(firstFired, 0, 'a disposed instance must never hear another kick');
-  assert.ok(secondFired > 0, 'the replacement instance should still hear the song');
-});
-
-test('without dispose, a replay stacks listeners instead of replacing them (the bug this guards against)', () => {
-  const conductor = loadedConductor();
-  let fires = 0;
-  // Two "song loads" in a row, neither torn down -- the pre-fix behavior.
-  new Broshi(conductor, {}, { seed: 1 })._onKick = () => { fires++; };
-  const stale = new Broshi(conductor, {}, { seed: 1 });
-  stale._onKick = () => { fires++; };
-  new Broshi(conductor, {}, { seed: 2 })._onKick = () => { fires++; };
-
-  // All three undisposed instances' RHYTHM listeners are still live.
-  const rhythmListeners = conductor.listeners.get(Role.RHYTHM);
-  assert.equal(rhythmListeners.size, 3, 'three undisposed Broshis leave three stale RHYTHM listeners');
-  void stale;
-});

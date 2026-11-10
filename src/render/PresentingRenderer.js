@@ -19,7 +19,6 @@ class PresentingRenderer {
     this.voxelRange = voxelRange;
     this._disposed = false;
     this._requestedPresentation = presentation;
-    this._experience = presentation?.experience === 'trio' ? 'trio' : 'landscape';
   }
   get backend() { return this.inner.backend || 'canvas'; }
   get canvasRenderer() { return this.inner.canvasRenderer || this.inner; }
@@ -34,7 +33,7 @@ class PresentingRenderer {
   get diagnostics() { return this.output.diagnostics; }
   setPresentation(value) {
     this._requestedPresentation = value;
-    this.output.setPresentation({ ...value, experience: this._experience });
+    this.output.setPresentation(value);
   }
   getCaptureSource() {
     const source = this._disposed ? null : this.output.getCaptureSource();
@@ -64,10 +63,7 @@ class PresentingRenderer {
   }
   draw(sim, alpha, { preparing = false } = {}) {
     if (this._disposed) return this.output.failFrame('disposed');
-    if ((sim?.experience || 'landscape') !== this._experience) {
-      this._experience = sim?.experience || 'landscape'; this.setPresentation(this._requestedPresentation);
-    }
-    this.output.setFrameContext?.({ worldKind: sim?.biomes?.world?.kind ?? null, experience: this._experience });
+    this.output.setFrameContext?.({ worldKind: sim?.biomes?.world?.kind ?? null });
     this.output.diagnostics.rangePipeline = this._requestedPresentation?.rangePipeline || 'hybrid';
     if (this.voxelRange || this._requestedPresentation?.directTerrain === true) {
       this.output.setFrameGrid(); this._growthKey = null;
@@ -88,13 +84,13 @@ class PresentingRenderer {
       if (wasVoxelFrame) this.rangePresentation = null;
     }
     const manager = sim?.biomes;
-    const cinematicPixel = !!this.output.presentation.cinematicPixel && this._experience !== 'trio';
+    const cinematicPixel = !!this.output.presentation.cinematicPixel;
     if (manager) {
       manager.cinematicPixel = cinematicPixel;
       manager.setCinematicQuality?.(sim?.perf?.level ?? 0);
     }
     const range = this.inner.rangePresentation;
-    const landscape = this._experience !== 'trio' && manager?.world?.kind === 'alpine' && !!range?.enabled;
+    const landscape = manager?.world?.kind === 'alpine' && !!range?.enabled;
     const singleStage = landscape && this._requestedPresentation?.rangePipeline === 'single';
     if (manager) { manager.setSingleStage?.(singleStage); manager.singleStage = singleStage; }
     if (range) { range.setSingleStage?.(singleStage); range.singleStage = singleStage; }
@@ -136,7 +132,7 @@ class PresentingRenderer {
     this._releaseDirect();
     if (manager) manager.directFullResolution = false;
     if (range) { range.directTerrainMode = false; range.drawTerrainImage = null; range.drawLegacyTerrain = null; }
-    const hybridSky = !singleStage && this._experience !== 'trio' && typeof manager?.drawHighResolutionSky === 'function';
+    const hybridSky = !singleStage && typeof manager?.drawHighResolutionSky === 'function';
     if (manager) manager.highResolutionSky = singleStage || hybridSky;
     // The cast is laid smoothly over the upscaled frame, so the working
     // buffer must stay separate from the output (as for the sky).
@@ -150,7 +146,7 @@ class PresentingRenderer {
       const id = this.output._resolvedPaletteId;
       range.crestPalette = !id || id === 'none' ? null : id === 'rgb332' ? 'rgb332' : this.output.compiledPalette || null;
     }
-    const smoothEffects = !singleStage && this._experience !== 'trio' && typeof manager?.drawHighResolutionMidEffects === 'function';
+    const smoothEffects = !singleStage && typeof manager?.drawHighResolutionMidEffects === 'function';
     if (manager) {
       manager.highResolutionMidEffects = smoothEffects;
       manager.midEffectsOutputSize = smoothEffects ? { width: this.canvas.width, height: this.canvas.height } : null;
@@ -159,7 +155,7 @@ class PresentingRenderer {
     const scene = this.canvasRenderer;
     scene.outputCover = false;
     // Optical effects and HUD draw after the completed Landscape composite.
-    const postEffects = !singleStage && this._experience !== 'trio' && !!manager?.world && typeof scene.drawDeferredPostEffects === 'function';
+    const postEffects = !singleStage && !!manager?.world && typeof scene.drawDeferredPostEffects === 'function';
     scene.deferPostEffects = postEffects;
     if (range && 'castForeground' in range) range.castForeground = castOverlay;
     this.output.qualityLevel = sim?.perf?.level ?? 0;
@@ -188,7 +184,7 @@ class PresentingRenderer {
     if (range) { range.pixelated = !!this.output.presentation.pixelated; range.pixelPolicy = scene.pixelPolicy; range.cinematicPixel = cinematicPixel; }
     try { this.inner.draw(sim, alpha); }
     catch (err) { scene.discardFrameCaptures?.(); this.output.failFrame('scene-draw'); throw err; }
-    if (this._experience !== 'trio' && this.inner.rangePresentation?.enabled && manager?._awaitingTerrain) {
+    if (this.inner.rangePresentation?.enabled && manager?._awaitingTerrain) {
       if (growth && range.resolutionRefused) {
         const failedRung = this._growthPlan.grids.indexOf(this.output.grid);
         // A heavier incoming view may refuse even the outgoing view's last

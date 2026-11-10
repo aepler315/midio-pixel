@@ -126,7 +126,7 @@ test('Range dims large decorative motes while retaining the true point-star cata
   const profile = { name: 'TAIGA', celestial: { haloColor: '#ffdda0' } };
   const mgr = { _rangeSky: plan, openingGain: 1, currentBlend: { from: 'TAIGA', to: 'TAIGA' },
     fields: new Map([['TAIGA', field]]), _rotated: (c) => c, lerpCache: { get: (a) => a },
-    swarm: { draw() {} }, murmuration: { draw() {} } };
+    swarm: { draw() {} } };
   const draw = () => {
     draws.length = 0;
     BiomeManager.prototype._drawMidDepthLife.call(mgr, ctx, { width: 1280, height: 720 },

@@ -3,9 +3,6 @@ import assert from 'node:assert/strict';
 import { Simulation } from '../src/sim/Simulation.js';
 import { Conductor } from '../src/core/Conductor.js';
 import { ParamBus } from '../src/core/ParamBus.js';
-import { Midio } from '../src/sim/Midio.js';
-import { Broshi } from '../src/sim/Broshi.js';
-import { Midasus } from '../src/sim/Midasus.js';
 import { Renderer } from '../src/render/Renderer.js';
 import { makeNoteEvent, Role } from '../src/core/NoteEvent.js';
 
@@ -25,9 +22,7 @@ for (const world of ['alpine']) {
     test(`${world} ${mode} keeps transport without constructing or updating the trio`, () => {
       const sim = scene(world, mode === 'silence');
       try {
-        assert.ok(!(sim.midio instanceof Midio), 'default listener must not construct Midio');
-        assert.ok(!(sim.broshi instanceof Broshi), 'default listener must not construct Broshi');
-        assert.ok(!(sim.midasus instanceof Midasus), 'default listener must not construct Midasus');
+        assert.equal(sim.broshi, undefined, 'default listener constructs no performer');
         assert.equal(sim.performer, undefined);
         assert.equal(sim.ensemble, undefined);
         assert.equal(sim.focus, undefined);
@@ -50,9 +45,9 @@ for (const world of ['alpine']) {
 test('shared landscape ownership suppresses decorative schedules while retaining terrain and tap timing', () => {
   const sim = scene();
   try {
-    assert.equal(sim.biomes.farVignettes, null);
-    assert.equal(sim.biomes.murmuration, null);
-    assert.equal(sim.biomes.skyEnsemble, null);
+    assert.ok(!sim.biomes.farVignettes);
+    assert.ok(!sim.biomes.murmuration);
+    assert.ok(!sim.biomes.skyEnsemble);
     assert.deepEqual(sim.biomes._ships, []);
     assert.deepEqual(sim.biomes._seaLife, []);
     assert.deepEqual(sim.biomes._monsters, []);
@@ -132,14 +127,12 @@ for (const silent of [false, true]) test(`alpine compositor leaves foreground sc
   // boundary is replaced: it requires offscreen/browser surfaces.
   sim.biomes.draw = function () {
     sceneryDraws++;
-    assert.equal(this.inhabitedShore, false, 'the foreground sea and boat overlay stays disabled');
   };
   sim.perf = { particleMul: 1, heavyPostFx: false, bloomEnabled: false, fullFrameFxEnabled: false };
   sim.highlightReel = null;
   try {
     for (const at of [0, 30000, 0]) {
       sim.startAt(at); renderer.draw(sim, 1);
-      assert.equal(renderer.inhabitedShoreDraws, 0, `no foreground shore painted at ${at}ms`);
     }
     assert.equal(sceneryDraws, 3);
   } finally { sim.dispose(); renderer.dispose(); }

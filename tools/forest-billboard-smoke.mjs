@@ -185,32 +185,12 @@ try {
       overlapErrors.push({ travel, error, brightPixels });
     }
     overlapTrees.dispose();
-    // A post-forest light behind a crown must be cut by its hard depth;
-    // moving that same light in front must remain fully visible.
     p.forest = tree; p.depthScene = depthScene; p.scenes.mid = colour;
-    const light = new T.Mesh(quad, new T.ShaderMaterial({ depthWrite: false,
-      vertexShader: 'void main(){ gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.); }',
-      fragmentShader: 'void main(){ gl_FragColor = vec4(1.,0.,0.,1.); }' }));
-    light.layers.set(3); light.position.set(0,10,-.5); colour.add(light);
-    p.actors = { groups: { light } };
-    const actorOcclusion = [];
-    for (const inFront of [false,true]) {
-      light.position.z = inFront ? 1 : -.5;
-      production.renderPartition({ frameId: inFront ? 6 : 5, qualityLevel: 6 }, 'mid', 'probe');
-      renderer.readRenderTargetPixels(target, 0, 0, 256, 256, pixels);
-      let checked = 0, error = 0;
-      for (let i = 0; i < pixels.length; i += 4) if (normal[i+3] > 200) {
-        checked++; error = Math.max(error, Math.abs(pixels[i] - (inFront ? 255 : 0)));
-      }
-      actorOcclusion.push({ inFront, checked, error });
-    }
     // Combined depth cannot be reused as opaque depth, even in the same frame.
-    light.position.z = -.5;
     const postDepthReuse = [];
-    for (const consumer of ['actor', 'ink']) {
-      p.actors = consumer === 'actor' ? { groups: { light } } : null;
-      u.uNarrativeInk.value = consumer === 'ink' ? 1 : 0;
-      const frame = { frameId: consumer === 'actor' ? 7 : 8, qualityLevel: 6 };
+    for (const consumer of ['ink']) {
+      u.uNarrativeInk.value = 1;
+      const frame = { frameId: 8, qualityLevel: 6 };
       production.renderPartition(frame, 'mid', 'probe');
       renderer.readRenderTargetPixels(target, 0, 0, 256, 256, pixels);
       const first = pixels.slice();
@@ -221,7 +201,6 @@ try {
       postDepthReuse.push({ consumer, error });
     }
     u.uNarrativeInk.value = 0;
-    colour.remove(light); light.material.dispose(); p.actors = null;
     // Isolate the shared production floor colour helper. The complete far
     // terrain, rock blend and ring handoff are tested by far-forest-smoke.
     const terrainMat = new T.ShaderMaterial({ glslVersion: T.GLSL3, depthTest: false, depthWrite: false,
@@ -247,7 +226,7 @@ try {
     const profileScene = new T.Scene(); profileScene.add(new T.Mesh(quad, profileMat));
     renderer.setRenderTarget(target); renderer.clear(); renderer.render(profileScene, camera);
     renderer.readRenderTargetPixels(target, 0, 0, 256, 256, pixels);
-    return { partial, widthAreaRatio, premultError, compositeError, depthDisagreement, standaloneDisagreement, opaqueDepthPasses, terrainHoles, travelHoles, overlapErrors, actorOcclusion, postDepthReuse, terrainAlbedo, mixedForestGap, sums, shadedSums, supportSweep, resolveSweep,
+    return { partial, widthAreaRatio, premultError, compositeError, depthDisagreement, standaloneDisagreement, opaqueDepthPasses, terrainHoles, travelHoles, overlapErrors, postDepthReuse, terrainAlbedo, mixedForestGap, sums, shadedSums, supportSweep, resolveSweep,
       profileBytes: Array.from(pixels), pauseParity: pause.every((v, i) => v === repeated[i]), png: stage.toDataURL('image/png').split(',')[1] };
   });
   await fs.writeFile(path.join(output, 'composite.png'), Buffer.from(report.png, 'base64')); delete report.png;
@@ -261,7 +240,6 @@ try {
   assert.equal(report.travelHoles, 0, 'travel depth stages must preserve the receiver colour');
   assert.equal(report.opaqueDepthPasses, 1, 'opaque-only depth survives the preceding partition when no post-forest consumer exists');
   for (const result of report.postDepthReuse) assert.equal(result.error, 0, `combined depth invalidation for ${result.consumer}`);
-  for (const result of report.actorOcclusion) assert.ok(result.checked > 0 && result.error <= 2, `post-forest actor occlusion ${JSON.stringify(result)}`);
   for (const result of report.overlapErrors) assert.ok(result.error <= 2,
     `hard tree depth erased rear soft coverage: ${JSON.stringify(result)}`);
   const [gap, crown, bare] = report.terrainAlbedo;

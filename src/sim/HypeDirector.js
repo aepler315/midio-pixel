@@ -131,12 +131,10 @@ export function hypeFrameStyle(hype, calmLevel = 0) {
   return { alpha, lineWidth, echo, inset: 5 + 2.5 * slam };
 }
 
-// Trio reads the hype on HEARD time. HypeDirector's own slam/surge are
-// integrated on the dispatch clock, which runs up to MAX_LATENCY_MS ahead of
-// what the listener hears; Landscape consumers share that state, so Trio
-// derives its own values from the song position instead of changing it.
+// Heard-time slam and surge. HypeDirector's own slam/surge are integrated
+// on the dispatch clock, which runs up to MAX_LATENCY_MS ahead of what the
+// listener hears; these derive the same values from the song position.
 const SLAM_WINDOW_MS = SLAM_DECAY_SEC * 1000;
-const _trioHype = { fast: 0, slam: 0, surge: 0 };
 
 /** Kick slam at heard time `heardMs`, from a tMs-sorted kick list: the
  *  strongest kick with 0 <= age < SLAM_WINDOW_MS, as
@@ -167,13 +165,4 @@ export function slamAt(kicks, heardMs) {
  *  SURGE_DECAY_SEC, 0 before it. `dropAtMs` is already a song position. */
 export function surgeAt(dropAtMs, heardMs) {
   return dropAtMs <= heardMs ? Math.max(0, 1 - (heardMs - dropAtMs) / (SURGE_DECAY_SEC * 1000)) : 0;
-}
-
-/** hypeFrameStyle for Trio, with slam and surge evaluated at heard time.
- *  `fast` (the energy EMA) still comes from the director. */
-export function trioHypeFrameStyle(hype, calmLevel, heardMs, kicks) {
-  _trioHype.fast = hype ? hype.fast : 0;
-  _trioHype.slam = slamAt(kicks, heardMs);
-  _trioHype.surge = hype ? surgeAt(hype.dropAtMs, heardMs) : 0;
-  return hypeFrameStyle(_trioHype, calmLevel);
 }

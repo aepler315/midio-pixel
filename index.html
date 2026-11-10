@@ -40,8 +40,8 @@
               <span class="titleWord titleWordSuper">MIDIO</span>
               <span class="titleWord titleWordMidio">PIXEL</span>
             </h1>
-            <p class="titleTagline">Drop a song. Watch Landscape or the Trio carry the music.</p>
-            <p class="titleSub">Play your recording or try the live sample, then choose a world: Landscape or Trio. Tap <kbd>F</kbd>/<kbd>J</kbd> with the beat if you want to.</p>
+            <p class="titleTagline">Drop a song. Watch real mountains carry the music.</p>
+            <p class="titleSub">Play your recording or try the live sample. Tap <kbd>F</kbd>/<kbd>J</kbd> with the beat if you want to.</p>
           </div>
         </div>
 
@@ -170,9 +170,6 @@
               <p id="generalQualityHint" class="hint">Automatically adapts detail to keep playback smooth. This sets the maximum.</p>
             </div>
             <div class="resRow displayRow">
-              <label for="display-experience">World</label>
-              <select id="display-experience" title="Switches the world mid-song; the song keeps playing."><option value="landscape">Landscape</option><option value="trio">Trio</option></select>
-              <span id="experience-status" class="hint" role="status" aria-live="polite"></span>
               <label for="display-look">Look</label>
               <select id="display-look"><option value="pixel">Pixel</option><option value="cinematic">Cinematic Pixel (experimental)</option><option value="palette">Palette</option></select>
 
@@ -224,26 +221,11 @@
       </div>
     </div>
 
-    <!-- A real <dialog>, like #worldSelect: native modality makes the page
+    <!-- A real <dialog>: native modality makes the page
          behind it inert, traps focus, and gives Escape for free. Filled by
          LibraryPanel.js. -->
     <dialog id="libraryPanel" class="libraryPanel hidden" aria-label="Music library"></dialog>
 
-    <dialog id="worldSelect" class="worldSelect hidden" aria-labelledby="worldSelectTitle" aria-modal="true">
-      <div class="worldSelectInner">
-        <p class="worldSelectEyebrow">same song, two worlds</p>
-        <h2 id="worldSelectTitle">Choose how your song looks</h2>
-        <p class="worldSelectHint">Landscape flies real mountains; Trio is Midio, Midasus and Broshi performing on the dancing range. Preview the same quiet stretch and the same peak, then play.</p>
-        <div class="worldSelectToolbar">
-          <div class="worldSelectPassages" role="group" aria-label="Preview passage">
-            <button type="button" id="worldPassageQuiet" class="worldPassageBtn" aria-pressed="false" title="The same quiet stretch of this song, in every world">Quiet</button>
-            <button type="button" id="worldPassagePeak" class="worldPassageBtn" aria-pressed="true" title="The same loud stretch of this song, in every world">Peak</button>
-          </div>
-        </div>
-        <div id="worldSelectGrid" class="worldSelectGrid" role="list"></div>
-        <button id="worldSelectBack" type="button" class="ghostbtn worldSelectBack">Different song</button>
-      </div>
-    </dialog>
 
     <dialog id="displaySettingsDialog"><button id="displaySettingsClose" type="button" class="ghostbtn">Close</button><div id="displaySettingsBody"></div></dialog>
     <div id="hud" class="hidden">
@@ -290,10 +272,6 @@
         <button id="fullscreenBtn" class="ghostbtn iconbtn" type="button" title="Fullscreen (F11)">&#9974;</button>
         <button id="calibrateBtn" class="ghostbtn" type="button" title="Guided tap calibration -- tap along with the beat so taps register right on time. Same as the C key. The only way to reach this on a phone.">Sync</button>
 
-        <div id="trackBadge" class="hidden">
-          <button id="trackBadgeBtn" type="button"></button>
-          <div id="trackList"></div>
-        </div>
       </div>
     </div>
     <!-- Tap recalibration (RecalibrationOverlay.js). Purely visual and

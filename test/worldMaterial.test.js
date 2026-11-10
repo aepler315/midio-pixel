@@ -3,7 +3,6 @@
 // own light, never moonlight cream on cardboard teeth.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { hexToRgb, rgbToHsl } from '../src/utils/color.js';
 import {
   KIND_MATERIAL, materialFor, layerBake, groundColorFor,
@@ -56,16 +55,6 @@ test('teethMax refuses spiky Halloween ridgelines', () => {
   assert.ok(mods.teethAdd < 0, 'cap is enforced by a negative add');
   const untouched = terrainModsForLayer({ teethAdd: 0.08 }, { profile: 'rolling' });
   assert.equal(untouched.teethAdd, 0.08);
-});
-
-test('chooser cards are not grape-and-pumpkin Halloween cutouts', () => {
-  const css = readFileSync(new URL('../src/ui/style.css', import.meta.url), 'utf8');
-  const alpineBlock = css.slice(css.indexOf('.worldCardPreview.alpine {'), css.indexOf('.worldCardPreview.trio {'));
-  assert.ok(!alpineBlock.includes('#2b2145'), 'Range card silhouette is a hole');
-  assert.ok(!alpineBlock.includes('#1a1a3e'), 'Range card sky is grape-Halloween');
-  assert.ok(alpineBlock.includes('#4a4068'), 'Range card should be a dusk-plum mass');
-  const trioBlock = css.slice(css.indexOf('.worldCardPreview.trio {'), css.indexOf('.worldCardPreview.is-rendered'));
-  assert.ok(trioBlock.includes('#23354b'), 'Trio card ridge is a colored mass, not a hole');
 });
 
 test('stock silhouettes are colored masses, not holes', () => {

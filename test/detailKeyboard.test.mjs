@@ -25,13 +25,13 @@ test('holding a density key stops at either edge instead of wrapping', () => {
 });
 
 const source = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
-function pageKeys({ level = 'classic', modal = false, snapshotBusy = false, experience = 'landscape' } = {}) {
+function pageKeys({ level = 'classic', modal = false, snapshotBusy = false } = {}) {
   let keydown, taps = 0;
   const changes = [];
   const state = vm.createContext({
     window: { addEventListener(_, callback) { keydown = callback; } },
     document: { getElementById: () => modal ? { open: true } : null },
-    worldSelectEl: null, running: false, snapshotBusy, experience, wakeHud() {},
+    running: false, snapshotBusy, wakeHud() {},
     displayPrefs: { pixelGrid: level }, stepDetail: detail.stepDetail, detailKeyDelta: detail.detailKeyDelta,
     applyDisplayPref(_, value) { changes.push(value); state.displayPrefs.pixelGrid = value; },
     beatTap() { taps++; }, DEV_MODE: false, INERT_KEYS: new Set(),
@@ -79,9 +79,3 @@ test('production shortcuts respect text, modals, browser modifiers and snapshot 
   assert.equal(snapshot.changes.length, 0);
 });
 
-test('Trio ignores detail shortcuts without changing the saved Landscape grid', () => {
-  const page = pageKeys({ experience: 'trio', level: 'medium' });
-  page.press('='); page.press('-');
-  assert.deepEqual(page.changes, []);
-  assert.equal(page.state.displayPrefs.pixelGrid, 'medium');
-});

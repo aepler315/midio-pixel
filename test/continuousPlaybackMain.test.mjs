@@ -153,14 +153,14 @@ test('a synchronous timeline failure settles an automatic world selection after 
   const ticket = {}, outcomes = []; let starts = 0;
   const context = production('startConfirmedWorld', {
     continuousPlayback: { isCurrent: candidate => candidate === ticket },
-    resolveWorldId: id => id, stopWorldPreview() {}, closeWorldChooser() {},
-    lastWorldId: 'range', muteTimelineSynth: false,
+    resolveWorldId: id => id,
+    lastWorldId: 'range',
     startTimeline() { starts++; throw new Error('Renderer construction failed'); },
     pendingWorldStart: { data: {}, features: {}, profile: {}, extra: {
       automaticTicket: ticket, onAutomaticStart: outcome => outcomes.push(outcome),
     } },
-    listWorlds: () => [{ id: 'range' }], applyExperience() {}, worldExperience: () => 'landscape',
-    previewSession: null, buildWorldVariant: () => ({ world: { id: 'range', instanceId: 'song' } }),
+    listWorlds: () => [{ id: 'range' }], ensureLandscapePresentation() {},
+    buildWorldVariant: () => ({ world: { id: 'range', instanceId: 'song' } }),
     getCustomWorld: () => null, setCustomWorld() {}, clearCustomWorld() {}, console: { warn() {} },
   });
   vm.runInContext(productionSource('confirmWorld'), context);

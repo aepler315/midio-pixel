@@ -4,7 +4,6 @@ import { hexToLinear, RULE_DEFAULTS, validateWaterRules } from './MaterialPackag
 import { GUST_FRONTS, GUST_IDLE_SEC, GUST_SWEEP_SEC } from './Gust.js';
 import { RangeAssetError } from './RangeAssets.js';
 import { MIRROR_LIFT } from './WaterMirror.js';
-import { ACTOR_GLSL, WAKE_GLSL, actorUniforms } from './ActorsGL.js';
 import { STORM_GLSL } from './RangeStorm.js';
 import { MATERIAL_DETAIL_DOMAIN_GLSL, MATERIAL_HASH_GLSL } from './MaterialDetailDomain.js';
 import { MATERIAL_FEATURE_GLSL } from './MaterialFeatureCache.js';
@@ -22,7 +21,7 @@ export { materialDetailPosition } from './MaterialDetailDomain.js';
 
 // GLSL twin of RangeFrame.sceneDeformation -- keep the two in step.
 import { MIST_GLSL, MIST_SAMPLES, mistFlowUniforms } from './RangeAtmosphere.js';
-import { DEFORM_GLSL, GROUND_LIFT_GLSL } from './TerrainDeform.js';
+import { DEFORM_GLSL } from './TerrainDeform.js';
 import { FACTORED_DEFORM_GRAD_GLSL } from './DeformationGradient.js';
 import { FOREST_HASH_GLSL, FOREST_TRAITS_GLSL } from './ForestCover.js';
 import { CROWN_GLSL } from './ForestProfile.js';
@@ -256,8 +255,8 @@ export const FAR_TREE_DOTS_GLSL = /* glsl */`
   }
 `;
 
-// The shared musical deformation lives in TerrainDeform.js so the cast
-// (ActorsGL, which this module imports) can ride it too.
+// The shared musical deformation lives in TerrainDeform.js so the forest
+// can ride it too.
 export { DEFORM_GLSL };
 
 export const SCENE_VERT = /* glsl */`
@@ -314,7 +313,7 @@ export const SCENE_VERT = /* glsl */`
     #else
     p.y += ice.x + deformAt(position) * (1.0 - ice.y);
     // The song-long rise of everything above the eye (LandRise.js), at
-    // the lifted point, as groundLift gives the forest and the cast.
+    // the lifted point.
     float drop = riseLift(p);
     vRiseGrad = vec4(riseGrad(p), drop);
     p.y += drop;
@@ -415,13 +414,8 @@ export const SCENE_FRAG = /* glsl */`
   // accent slots hold heard-time age, strength, stable seed and voice.
   uniform vec4 uWaterMusic;
   uniform vec4 uWaterAccent[${WATER_MUSIC_ACCENTS}];
-  // Valley mist and cloud sea first: the lanterns' light reads its top, at
-  // the lifted ground the lanterns are drawn on.
+  // Valley mist and cloud sea.
   ${MIST_GLSL}
-  ${GROUND_LIFT_GLSL}
-  // The cast's lanterns (ActorsGL.js): their light, glints and Midio's wake.
-  ${ACTOR_GLSL}
-  ${WAKE_GLSL}
   in vec2 vUv;
   in vec3 vWorld;
   in vec3 vRenderedWorld;
@@ -976,8 +970,6 @@ export const SCENE_FRAG = /* glsl */`
     if (uCinematic.x > .5 && waterAmount < 1.0) {
       lit = albedo * (hemi * ao + mix(cinematicKey(uLightColor), uLightColor, waterAmount) * moonTransmission * key * mix(0.85, 1.0, ao) * receiverShadow);
     }
-    // The cast's lanterns light the ground around them.
-    lit += albedo * actorLight(vRenderedWorld, nShade) * receiverShadow;
     // Broken cloud transmits the real solar key in broad moving swathes
     // across wet receivers; world coordinates keep them fixed to the land.
     // Between the swathes the last of the cloud still shades the land, and
@@ -1001,14 +993,11 @@ export const SCENE_FRAG = /* glsl */`
     if (uDebugMask == 7) { outColor = vec4(linearToSrgb(tonemap(uLightColor * specLight * uExposure)), 1.0); return; }
     if (uDebugMask == 8) { outColor = vec4(vec3(sunVis), 1.0); return; }
     vec3 V = normalize(uCameraPos - vRenderedWorld);
-    float waterFres = 0.0, paw = 0.0, wake = 0.0;
+    float waterFres = 0.0, paw = 0.0;
     vec2 waterSwell = vec2(0.0);
-    vec3 waterN = vec3(0.0, 1.0, 0.0);
     if (paintWater && uHasMaterial > 0.5) {
-      // Midio's wake roughens the water as a cat's paw does.
-      wake = wakeAt(vWorld.xz);
       // Rain stipples the whole lake while the squall is over it.
-      paw = max(max(catsPaw(vWorld.xz), wake), uStorm.x * 0.75);
+      paw = max(catsPaw(vWorld.xz), uStorm.x * 0.75);
       waterSwell = waterSlope(vWorld.xz, uTime, waterDx, waterDy);
       #ifdef RIVER_SURFACE
       waterSwell = riverSlope(riverPhase.xy, riverWidth.xy);
@@ -1016,7 +1005,6 @@ export const SCENE_FRAG = /* glsl */`
       waterSwell += waterAccentSlope(vWorld.xz, waterDx, waterDy);
       vec2 ripple = waterSwell * waterMusicRoughness(paw, uWaterMusic.x, uWaterMusic.y);
       vec3 waterNormal = normalize(vec3(ripple.x, 1.0, ripple.y));
-      waterN = waterNormal;
       float fres = 0.02 + 0.98 * pow(1.0 - max(dot(vec3(0.0, 1.0, 0.0), V), 0.0), 5.0);
       // Rough water reflects less, so a cat's paw reads as a darker patch.
       fres *= 1.0 - 0.35 * paw;
@@ -1138,13 +1126,6 @@ export const SCENE_FRAG = /* glsl */`
       color = mix(color, skyImage * 0.9, reflectance * smoothstep(.5, .9, waterCoverage) * uBackdropAmount * clear * uNarrative.z * uNarrative.w * paintWaterAmount);
     }
     #endif
-    if (paintWater) {
-      // Lanterns over the water lay a path of glints; Midio's wake catches
-      // his light. Over the mirror, through the air.
-      vec3 glow = actorGlint(vRenderedWorld, V, waterN) * 0.6 + uActorColor[0] * wake * 0.12;
-      // Rain on the lake breaks the path up, so it fades with the squall.
-      color += glow * clear * uNarrative.z * (1.0 - 0.85 * clamp(air, 0.0, 1.0)) * (1.0 - 0.75 * uStorm.x) * paintWaterAmount;
-    }
     // A narrow physical silhouette supplies the main opening ink. Sparse
     // source-space hints are drawn separately against this same depth.
     float facing = abs(dot(geologicalNormal, V));
@@ -1214,7 +1195,6 @@ export function syncWaterMusicUniforms(u, effects) {
 export function sceneUniforms(THREE, base) {
   return {
     ...base,
-    ...actorUniforms(THREE),
     ...cloudUniforms(THREE),
     uGlacierEnabled: { value: 0 }, uGlacierStart: { value: new THREE.Vector2() }, uGlacierEnd: { value: new THREE.Vector2(0, -100) },
     uGlacierWidth: { value: 1 }, uGlacierSurface: { value: new THREE.Vector2() }, uGlacierMaxThickness: { value: 0 }, uGlacierRetreat: { value: 0 },

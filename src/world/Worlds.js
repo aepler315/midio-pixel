@@ -1,17 +1,10 @@
-// Worlds: the two ways a song can be played.
-//
-// Landscape is The Range on real terrain: real biomes on real ranges,
-// presented by Range v2 and its tours. Trio is the Range as it was before
-// real terrain arrived: invented palettes on procedural, dancing ridges, a
-// space ridge and a deep sky, with Midio, Midasus and Broshi performing on
-// it. Both are the alpine kind, so BiomeManager draws both through its one
-// alpine path; `experience` says which presentation a world gets.
-//
-// Choose-for-me is gone with the other worlds: with two choices the player
-// picks. scoreWorlds still reads these entries for the private fit readout.
+// Worlds: every song plays in Landscape, The Range on real terrain: real
+// biomes on real ranges, presented by Range v2 and its tours (with a painted
+// fallback). The Trio world is retired; its id, like any unknown id, resolves
+// to Landscape, so old links, saved highlights and exports still play.
+// scoreWorlds still reads this entry for the private fit readout.
 import { REAL_BIOMES, REAL_BIOME_TEMPERATURE } from './RealBiomes.js';
-import { BIOMES } from './BiomeProfiles.js';
-import { BIOME_TEMPERATURE, castBiomes } from './Dramaturgy.js';
+import { castBiomes } from './Dramaturgy.js';
 
 /** Channel `reads` keys are fields on the watch-features vector.
  *  `consumer` is `file#exportOrFunction` of the renderer that actually
@@ -34,7 +27,6 @@ export const WORLDS = [
     id: 'alpine',
     name: 'Landscape',
     tagline: 'Real mountains that breathe with the mix.',
-    experience: 'landscape',
     kind: 'alpine',
     comfort: { lo: 0.34, hi: 0.84 },
     channels: ALPINE_CHANNELS,
@@ -50,27 +42,6 @@ export const WORLDS = [
     temperature: REAL_BIOME_TEMPERATURE,
     realBiomes: true,
     cast: (energies, seed) => castBiomes(energies, seed, REAL_BIOME_TEMPERATURE),
-  },
-  {
-    id: 'trio',
-    name: 'Trio',
-    tagline: 'Midio, Midasus and Broshi on the dancing range.',
-    kind: 'alpine',
-    experience: 'trio',
-    comfort: { lo: 0.34, hi: 0.84 },
-    channels: ALPINE_CHANNELS,
-    prefer: {
-      arc: [0.28, 0.90],
-      onset: [0.10, 0.62],
-      contrast: [0.22, 0.90],
-      centroid: [0.28, 0.72],
-    },
-    affinity: { arc: 0.40, contrast: 0.25, tempoHeat: 0.35 },
-    // The invented palettes (BiomeProfiles.js) on procedural ridges, as the
-    // Range was before real terrain: no terrain profiles, no Range v2.
-    palettes: BIOMES,
-    temperature: BIOME_TEMPERATURE,
-    cast: (energies, seed) => castBiomes(energies, seed, BIOME_TEMPERATURE),
   },
 ];
 
@@ -107,13 +78,3 @@ export function clearCustomWorld() {
 }
 
 export const DEFAULT_WORLD_ID = WORLDS[0].id;
-
-/** The presentation a world is played with: 'trio' or 'landscape'. */
-export function worldExperience(id) {
-  return getWorld(id)?.experience === 'trio' ? 'trio' : 'landscape';
-}
-
-/** The registered world an experience plays in. */
-export function worldForExperience(experience) {
-  return experience === 'trio' ? 'trio' : DEFAULT_WORLD_ID;
-}

@@ -7,8 +7,8 @@
 // drives its shimmer — active bands push their node out and larger, quiet
 // ones recede and shrink toward the vanishing point — plus a slow global
 // dolly so the whole structure breathes in and out over the better part of a
-// minute. Pure math + draw(). BiomeManager consumes it; tests exercise the
-// math directly.
+// minute. Pure math + drawAurora(). BiomeManager consumes it; tests
+// exercise the math directly.
 import { clamp, clamp01, mulberry32 } from '../utils/math.js';
 import { kickEnv } from './MountainChoreo.js';
 import { sampleSpaceRidge } from './alpine/RidgeMotion.js';
@@ -402,133 +402,6 @@ export class SpaceRidge {
         ctx.restore();
       }
     }
-    ctx.restore();
-  }
-
-  draw(ctx, canvas, color, tSec, presentation = 1, inheritedActivity = 0, satellitePresence = 1) {
-    const { pts, y0, maxH } = this._samples(canvas);
-    if (!this.history && inheritedActivity > 0) {
-      for (const p of pts) p.y -= 10 * inheritedActivity * Math.sin(p.x / 370 + tSec * .42);
-    }
-
-    const flashSet = this._flashLevels(tSec);
-
-    const inherited = Number.isFinite(ctx.globalAlpha) ? ctx.globalAlpha : 1;
-    const present = Number.isFinite(presentation) ? Math.min(1, Math.max(0, presentation)) : 1;
-    const paint = inherited * present;
-    ctx.save();
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
-
-    // A broad, quiet body gives the skyline physical scale even between
-    // notes. The contour above it is the musical edge, not an isolated wire.
-    const { r, g, b } = hexToRgb(color);
-    const body = ctx.createLinearGradient(0, y0 - maxH - canvas.height * 0.07, 0, y0);
-    body.addColorStop(0, `rgba(${r},${g},${b},0.03)`);
-    body.addColorStop(0.55, `rgba(${r},${g},${b},0.15)`);
-    body.addColorStop(1, `rgba(${r},${g},${b},0.02)`);
-    ctx.globalAlpha = paint;
-    ctx.fillStyle = body;
-    ctx.beginPath();
-    pts.forEach((p, i) => { if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
-    ctx.lineTo(pts[pts.length - 1].x, y0);
-    ctx.lineTo(pts[0].x, y0);
-    ctx.closePath();
-    ctx.fill();
-
-    // One soft depth ghost only (two tall ghosts read as extra sky-high bands).
-    const depthLayers = [
-      { yScale: 1.2, yOff: -maxH * 0.06, alpha: 0.035, lw: 8 },
-    ];
-    ctx.globalCompositeOperation = 'lighter';
-    for (const layer of depthLayers) {
-      ctx.strokeStyle = color;
-      ctx.globalAlpha = paint * layer.alpha;
-      ctx.lineWidth = layer.lw;
-      ctx.beginPath();
-      for (let i = 0; i < pts.length; i++) {
-        const p = pts[i];
-        const ly = y0 + (p.y - y0) * layer.yScale + layer.yOff;
-        if (i === 0) ctx.moveTo(p.x, ly); else ctx.lineTo(p.x, ly);
-      }
-      ctx.stroke();
-    }
-
-    // Vast mirrored ghost above — inverted cosmos echo, not a hairline.
-    ctx.strokeStyle = color;
-    ctx.globalAlpha = paint * 0.035;
-    ctx.lineWidth = 5;
-    ctx.beginPath();
-    pts.forEach((p, i) => {
-      const gy = (y0 - maxH * 0.85) - (p.y - y0) * 0.55;
-      if (i === 0) ctx.moveTo(p.x, gy); else ctx.lineTo(p.x, gy);
-    });
-    ctx.stroke();
-
-    // Main ridge: thick soft underglow + thinner bright core (distant power),
-    // scaled by each segment's average depth -- nodes pushing out read
-    // larger and brighter, receding ones thinner and dimmer.
-    //
-    // Weighted toward the wide, soft pass and away from the thin, sharp one
-    // (was [11,0.055]/[4.5,0.11]/[1.6,0.28] -- roughly even thirds by total
-    // brightness). A crisp bright core is a NEAR-light cue; this structure's
-    // whole premise is the opposite ("too large and far to be nearby"), and
-    // now that it draws behind the sun/moon rather than blooming over them
-    // (see BiomeManager.draw), it needs to read as diffuse light on its own
-    // rather than relying on occlusion alone to sell the distance.
-    for (let i = 0; i < pts.length - 1; i++) {
-      const a = pts[i], b = pts[i + 1];
-      const flash = Math.max(flashSet.get(a.i) || 0, flashSet.get(b.i) || 0);
-      const dm = (a.depthMul + b.depthMul) / 2;
-      for (const [lw, base] of [[17, 0.075], [7, 0.16], [2.8, 0.58]]) {
-        ctx.strokeStyle = color;
-        ctx.globalAlpha = paint * ((base + 0.35 * flash) * dm);
-        ctx.lineWidth = lw * dm;
-        ctx.beginPath();
-        ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
-        ctx.stroke();
-      }
-    }
-
-    // Node cores — larger, softer (star-stations on a structure too big),
-    // sized/lit by their own depth. Same diffusion logic as the ridge
-    // strokes above: a bigger, dimmer point reads as a distant glow: a
-    // small, near-full-alpha one reads as a nearby light bulb.
-    for (const p of pts) {
-      if (p.i % 4 !== 1) continue;
-      const n = this.nodes[p.i];
-      const dm = p.depthMul;
-      ctx.fillStyle = color;
-      ctx.globalAlpha = paint * (0.07 * dm);
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, (9 + 5 * n.level) * dm, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = paint * ((0.18 + 0.24 * n.level) * dm);
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, 3.2 * dm, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // Tumbling polyhedron — same deep-sky band as the ridge, not the top
-    // bezel. No world scroll (matches the ridge); rides the same tidal drift.
-    if (satellitePresence <= 0) { ctx.restore(); return; }
-    const cx = canvas.width * 0.16;
-    const cy = canvas.height * (BASELINE_FRAC - 0.04) + this._tidalPx * 0.5;
-    const icoScale = Math.max(36, canvas.height * 0.055) * (1 + 0.15 * this._zGlobal);
-    const wf = projectWireframe(ICO_VERTS, ICO_EDGES, this._rotX, this._rotY, icoScale);
-    ctx.strokeStyle = color;
-    ctx.globalAlpha = paint * 0.055 * satellitePresence;
-    ctx.lineWidth = 1.4;
-    ctx.beginPath();
-    for (const [i, j] of wf.edges) {
-      const a = wf.points[i], b = wf.points[j];
-      ctx.moveTo(cx + a.x, cy + a.y);
-      ctx.lineTo(cx + b.x, cy + b.y);
-    }
-    ctx.stroke();
-
     ctx.restore();
   }
 }

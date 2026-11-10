@@ -41,8 +41,8 @@
 // - Trunk: |radial| * (.12 + .14 id)(1 - .94 y01) <= |radial| * .26 m.
 // - Wind (windAt), horizontal only and scaled by y01^2 <= 1: sway
 //   WIND_SWAY * WIND_SWAY_PEAK * |uWind.x|, gust GUST_LEAN (its lean is
-//   clamped to [-1, 1]), parting PARTING_LEAN * |uParting.w|, and the
-//   storm's |uWind.y| along the unit WIND_DIR, all times H; doubled
+//   clamped to [-1, 1]), and the storm's |uWind.y| along the unit
+//   WIND_DIR, all times H; doubled
 //   (MIRROR_BOUND_SAFETY).
 // - The song's rise (LandRise.js), applied last: riseLift(p) contracts
 //   every vertex's height toward the shared flat base. The map is
@@ -55,7 +55,7 @@
 import { frustumPlanes, boxOutsidePlanes, CHUNK_BOX_PAD_M } from './TerrainChunks.js';
 import { liftBounds, MIRROR_BOUND_SAFETY } from './MirrorScissor.js';
 import { risenHeight } from './LandRise.js';
-import { WIND_SWAY, WIND_SWAY_PEAK, GUST_LEAN, PARTING_LEAN } from './ForestWind.js';
+import { WIND_SWAY, WIND_SWAY_PEAK, GUST_LEAN } from './ForestWind.js';
 
 /** Root cell size for a batch's boxes, metres. */
 export const FOREST_CULL_CELL_M = 256;
@@ -70,9 +70,8 @@ const finite = v => Number.isFinite(v) ? v : Infinity;
 /** Horizontal crown displacement windAt can add, per metre of tree height,
  *  from the forest's uniforms (no safety factor). */
 export function forestLean(u) {
-  const wind = u?.uWind?.value, parting = u?.uParting?.value;
-  return WIND_SWAY * WIND_SWAY_PEAK * Math.abs(finite(wind?.x)) + GUST_LEAN
-    + PARTING_LEAN * Math.abs(finite(parting?.w)) + Math.abs(finite(wind?.y));
+  const wind = u?.uWind?.value;
+  return WIND_SWAY * WIND_SWAY_PEAK * Math.abs(finite(wind?.x)) + GUST_LEAN + Math.abs(finite(wind?.y));
 }
 
 // Asset extents per base position attribute (the lite twin swaps its base

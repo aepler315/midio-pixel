@@ -45,12 +45,10 @@ test('actual terrain and the analytic infinite plane share the exact opening dis
   ground.dispose();
 });
 
-test('opening hides material forest and ink while retaining the construction actor update', () => {
+test('opening hides material forest and ink', () => {
   const uniforms = sceneUniforms(THREE, { uHeightRange: { value: new THREE.Vector2(100, 2000) } });
   const visibility = [];
-  let actorUpdates = 0;
-  const scene = Object.assign(Object.create(RangeScene.prototype), { THREE, camera: new THREE.PerspectiveCamera(),
-    _setActors() { actorUpdates++; } });
+  const scene = Object.assign(Object.create(RangeScene.prototype), { THREE, camera: new THREE.PerspectiveCamera() });
   const prepared = { view: CATALOG.views.find(v => v.status === 'approved'), uniforms, rules: {}, waterLevelM: 100,
     forest: { counts: { near: 1 }, applyVisibility(state) { visibility.push(state.shown); } } };
   const frame = { music: rangeMusicState(), progress01: .5, scenicViewport: { nominalHeight: 720 }, timeMs: 0, qualityLevel: 0,
@@ -64,7 +62,6 @@ test('opening hides material forest and ink while retaining the construction act
     assert.equal(uniforms.uFarForest.value.x > 0, land > .01);
   }
   assert.deepEqual(visibility, [false, true, true, true]);
-  assert.equal(actorUpdates, 4, 'ocean material transition does not remove the cast operation');
 });
 
 test('a featureless opening does not spend a lake mirror pass before its materials arrive', () => {

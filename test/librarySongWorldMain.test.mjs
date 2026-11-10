@@ -17,15 +17,15 @@ function setup({ rejectStorage = false } = {}) {
     musicLibrary: { async noteSongWorld(track, record) { calls.push({ track, record }); if (rejectStorage) throw Error('storage unavailable'); } },
     prepareSongTerrain: async (p, seed) => { const plan = planSongScenes(p, seed); plans.push(plan); return plan; },
     pendingWorldStart: null, lastFitDiagnostic: null, recordFitDiagnostic: () => null,
-    readBulkExportFromUrl: () => null, URL_PICKS_WORLD: false,
-    renderWorldGrid() {}, worldSelectEl: { classList: { remove() {} }, showModal() {} }, startChooserPreviews() {},
+    readBulkExportFromUrl: () => null, DEFAULT_WORLD_ID: 'alpine', BIOME_WAIT_MS: 2500,
+    setTimeout: () => 0, continuousPlayback: { isCurrent: () => true }, playSelectedWorld() {},
     console: { warn: (...values) => warnings.push(values), error: (...values) => { throw Error(values.join(' ')); } },
   });
   vm.runInContext(source, context);
   return { context, calls, warnings, plans };
 }
 
-test('the actual chooser persists the identity profile used by playback, rather than later whole-song features', async () => {
+test('the actual world start persists the identity profile used by playback, rather than later whole-song features', async () => {
   const { context, calls, plans } = setup(), track = { key: 'song' };
   const data = { songIdentity: { seed: 417, songProfile: profile }, songProfile: { ...profile, watch: { ...profile.watch, drive: .1 } } };
   context.offerWorldsThenStart(data, { localTrack: track });
@@ -35,7 +35,7 @@ test('the actual chooser persists the identity profile used by playback, rather 
   assert.equal(describeSongWorld(calls[0].record).viewId, plans[0].sceneByBiome.get(plans[0].home).view.id);
 });
 
-test('the actual chooser records a newly built identity and storage failure cannot delay the pending world', async () => {
+test('the actual world start records a newly built identity and storage failure cannot delay the pending world', async () => {
   const { context, calls, warnings } = setup({ rejectStorage: true });
   const data = { durationMs: 120000, timeline: [] };
   context.offerWorldsThenStart(data, { localTrack: { key: 'song' } });

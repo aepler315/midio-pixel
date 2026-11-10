@@ -38,9 +38,9 @@ function composedFrame() {
     conductor: { barGrid: [], onBar: () => () => {}, on: () => () => {} },
     durationMs: 60000, canvasWidth: 1280, canvasHeight: 720, groundY: 625, songSeed: 3, worldId: 'range',
   });
-  for (const name of ['_drawSky', '_drawSpectrumMassif', '_drawHorizonEQ', '_drawCrestLight', '_drawFarVignettes', '_drawMidDepthLife',
+  for (const name of ['_drawSky', '_drawSpectrumMassif', '_drawHorizonEQ', '_drawCrestLight', '_drawMidDepthLife',
     '_drawGround', '_drawTerrainFooting', '_drawFlood', '_drawForegroundSwell', '_drawTransitionOverlays',
-    '_drawFarShore', '_drawOcean', '_drawOceanLife', '_drawFataMorgana', 'drawDeepSky', '_drawCelestial', '_drawMoon']) m[name] = function () {};
+    '_drawFarShore', '_drawOcean', '_drawOceanLife', '_drawFataMorgana', '_drawCelestial', '_drawMoon']) m[name] = function () {};
   m._drawLegacyScenic = () => '#334455';
   m.spaceRidge.drawAurora = () => {};
   m.stripsFor = () => ({});
@@ -121,20 +121,5 @@ test('pixel caption glyphs enter the composed source after film effects', () => 
   renderer.draw(sim, 1);
   assert.ok(log.includes('pixel-caption'));
   assert.ok(log.indexOf('pixel-caption') > log.indexOf('filmfinish'));
-  renderer.dispose(); m.dispose();
-});
-
-test('shedding shock quality releases its canvas outside the active drop window', () => {
-  const { renderer, sim, m } = composedFrame();
-  const { residency } = renderer._postBuffers;
-  renderer._postBuffers.makeCanvas = () => ({ width: 0, height: 0 });
-  renderer._shockCanvas = renderer._postBuffers.ensure('shock', 100, 100);
-  const shock = renderer._shockCanvas;
-  sim.perf.particleMul = .6;
-  renderer._drawDropImpact({}, { width: 100, height: 100 }, { ...sim, timeMs: 5000, hype: { dropAtMs: 0 } }, {}, 625);
-  assert.equal(shock.width, 0);
-  assert.equal(renderer._postBuffers.buffers.has('shock'), false);
-  assert.equal(renderer._shockCanvas, null);
-  assert.equal(residency.snapshot().byOwner['canvas-post'], undefined);
   renderer.dispose(); m.dispose();
 });

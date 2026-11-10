@@ -7,7 +7,6 @@ import {
 } from '../src/core/ChoreoClock.js';
 import { Conductor } from '../src/core/Conductor.js';
 import { Role, makeNoteEvent } from '../src/core/NoteEvent.js';
-import { TapJudge, JUDGE_WINDOW_MS } from '../src/sim/TapJudge.js';
 
 test('apexHopY: the hop APEX (full height) lands exactly on the anchor', () => {
   const anchor = 3000, rise = 80, h = 30;
@@ -36,63 +35,6 @@ test('visualNow subtracts a clamped lag from the song clock', () => {
   assert.equal(visualNow(1000, 150), 850);
   assert.equal(visualNow(1000, 9999), 650, 'lag clamps at 350');
   assert.equal(visualNow(1000, NaN), 1000);
-});
-
-test('VISUAL_LEAD_MS is a positive lead the ahead-dispatch horizon still covers', () => {
-  assert.ok(VISUAL_LEAD_MS > 0, 'a lead of 0 would leave every frame arriving a compositor hop late');
-  assert.ok(VISUAL_LEAD_MS < MAX_LATENCY_MS);
-  assert.ok(CHOREO_LEAD_MS > VISUAL_LEAD_MS,
-    'the world is stepped VISUAL_LEAD_MS ahead, so the ahead channel must still deliver before that');
-});
-
-// The contract the led render clock has to honor: leading the WORLD must not
-// lead SCORING. A note's window closes when the player could have heard it,
-// which is the true audio clock -- Simulation.step subtracts visualLeadMs
-// back out before TapJudge.update for exactly this reason.
-test('a led render clock must not retire a note early: scoring runs on the true clock', () => {
-  const noteMs = 1000;
-  const lead = VISUAL_LEAD_MS;
-  // The render clock has run past the note's window, but the true clock has
-  // not -- the player's window is still open for `lead` more milliseconds.
-  const renderNowMs = noteMs + JUDGE_WINDOW_MS + 1;
-  const trueNowMs = renderNowMs - lead;
-
-  const led = new TapJudge({ notes: [{ type: 'tap', tMs: noteMs, vel: 0.7 }] });
-  led.update(renderNowMs);
-  assert.deepEqual(led.stepEvents.map((e) => e.kind), ['miss'],
-    'sanity: judging on the led clock DOES sweep the note away early');
-
-  const trueClock = new TapJudge({ notes: [{ type: 'tap', tMs: noteMs, vel: 0.7 }] });
-  trueClock.update(trueNowMs);
-  assert.deepEqual(trueClock.stepEvents, [], 'on the true clock the note is still live');
-  // ...and a tap inside the real window still scores, which is the point.
-  const res = trueClock.onTapDown(noteMs + JUDGE_WINDOW_MS - 1);
-  assert.equal(res.startedHold, false);
-  assert.deepEqual(trueClock.stepEvents.map((e) => e.kind), ['hit']);
-});
-
-test('hit offsets are immune to the lead entirely: judgment is stamp-vs-chart', () => {
-  // Whatever clock update() is driven on, onTapDown compares the press's own
-  // stamp against the note -- both absolute song times -- so the same press
-  // scores identically with and without a led clock.
-  const notes = () => [{ type: 'tap', tMs: 2000, vel: 0.7 }];
-  const pressMs = 2030;
-
-  const a = new TapJudge({ notes: notes() });
-  a.update(2000);
-  a.clearFrameFlags();
-  a.onTapDown(pressMs);
-
-  const b = new TapJudge({ notes: notes() });
-  b.update(2000 + VISUAL_LEAD_MS);
-  b.clearFrameFlags();
-  b.onTapDown(pressMs);
-
-  assert.deepEqual(
-    a.stepEvents.map((e) => [e.kind, e.offsetMs, e.basePts]),
-    b.stepEvents.map((e) => [e.kind, e.offsetMs, e.basePts]),
-  );
-  assert.equal(a.stepEvents[0].offsetMs, 30);
 });
 
 test('subscribeAhead delivers each event exactly once, leadMs early, with its true tMs', () => {
@@ -143,4 +85,11 @@ test('the ahead frontier never trails the on-time frontier (lead >= 0 invariant)
     assert.ok(aheadSeen.has(e.tMs), `on-time delivery of ${e.tMs} must already be known to the ahead channel`);
   });
   for (let t = 0; t <= 6000; t += 37) c.dispatchUpTo(t); // ragged step cadence on purpose
+});
+
+test('VISUAL_LEAD_MS is a positive lead the ahead-dispatch horizon still covers', () => {
+  assert.ok(VISUAL_LEAD_MS > 0, 'a lead of 0 would leave every frame arriving a compositor hop late');
+  assert.ok(VISUAL_LEAD_MS < MAX_LATENCY_MS);
+  assert.ok(CHOREO_LEAD_MS > VISUAL_LEAD_MS,
+    'the world is stepped VISUAL_LEAD_MS ahead, so the ahead channel must still deliver before that');
 });

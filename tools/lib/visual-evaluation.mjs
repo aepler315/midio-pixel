@@ -15,6 +15,9 @@ export function normalizeHistoricalSettings(settings) {
   if (!settings || typeof settings !== 'object') return settings;
   const current = { ...settings };
   for (const key of RETIRED_SETTINGS) delete current[key];
+  // Every capture is Landscape now, so a recorded Landscape label requests
+  // nothing an unlabelled capture does not.
+  if (current.experience === 'landscape') delete current.experience;
   return current;
 }
 const integer = (n, min, max, label) => assert.ok(Number.isInteger(n) && n >= min && n <= max, `invalid ${label}`);
@@ -30,7 +33,9 @@ export function normalizeManifest(value, { historical = false } = {}) {
   assert.equal(value.version, 1, 'manifest version must be 1');
   keys(value.settings || {}, [...Object.keys(DEFAULT_SETTINGS), 'presentation', 'startMs', 'debug', 'experience', 'tour', 'pace'], 'settings');
   const settings = { ...DEFAULT_SETTINGS, pace: 3, ...value.settings };
-  if (settings.experience != null) assert.ok(['landscape', 'trio'].includes(settings.experience), 'invalid experience');
+  // Landscape is the only experience; a saved Trio report stays readable
+  // evidence but never compares with a Landscape one.
+  if (settings.experience != null) assert.ok(settings.experience === 'landscape' || (historical && settings.experience === 'trio'), 'invalid experience');
   integer(settings.pace, 1, 4, 'pace');
   if (settings.tour != null) assert.ok(['tetons', 'shots', 'off'].includes(settings.tour), 'invalid tour');
   if (settings.presentation != null) {

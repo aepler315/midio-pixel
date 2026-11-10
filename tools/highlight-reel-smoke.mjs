@@ -1,7 +1,8 @@
 // Small real Simulation/Renderer thumbnail fixture for the color-regime
 // highlight reel. Serve the specified source tree first; this harness never
-// changes app state or calls a live service. It plays in Trio: procedural
-// ranges drawn in Canvas 2D, no terrain to load. Headless only.
+// changes app state or calls a live service. It plays in Landscape on the
+// Canvas 2D renderer with no Range v2 presentation attached and no song
+// terrain loaded. Headless only.
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -60,7 +61,7 @@ try {
         barGrid: Array.from({ length: Math.ceil(songMs / 2000) }, (_, i) => ({ ms: i * 2000, tick: i * 4, numerator: 4, denominator: 4 })) });
       const energyCurves = { sample: (_b, t) => energy(t), sampleAll: t => Array(7).fill(energy(t)),
         globalEnergy: energy, globalEnergyNorm: energy };
-      const sim = new Simulation(conductor, new ParamBus(), { worldId: 'trio', songSeed: 315,
+      const sim = new Simulation(conductor, new ParamBus(), { worldId: 'alpine', songSeed: 315,
         energyCurves, conductorCues: { liveCues: [], scheduleCues: [] } });
       sim.biomes.pumpStripPrewarm = () => {};
       const canvas = document.getElementById('stage');
@@ -131,7 +132,7 @@ try {
     }
   }
   const result = { fixture: { song: 'Regime fixture: quiet verse, loud chorus 26-40 s, steady kick', durationMs: SONG_MS,
-    worldId: 'trio', audio: 'Generated 120 BPM diagnostic recording; the energy curve is authored, not inferred from it.' },
+    worldId: 'alpine', audio: 'Generated 120 BPM diagnostic recording; the energy curve is authored, not inferred from it.' },
   categories: cadenceRows[0].selections.map(event => event.label), rows,
   sourceHashes, browser: await browser.version(), errors };
   await fs.writeFile(path.join(output, 'report.json'), `${JSON.stringify(result, null, 2)}\n`);

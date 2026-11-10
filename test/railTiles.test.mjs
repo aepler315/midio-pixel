@@ -5,8 +5,7 @@ import { decodeTerrain } from '../src/world/alpine/TerrainMesh.js';
 import { railTile, drawnTile, terrainHeightRange } from '../src/world/alpine/TerrainPackage.js';
 import { waterLevel } from '../src/world/alpine/RangeScene.js';
 import { mirrorLevelFor } from '../src/world/alpine/WaterMirror.js';
-import { actorRoutes } from '../src/world/alpine/RangeActors.js';
-import { castPlan } from '../src/world/alpine/CastJobs.js';
+import { buildFocusM } from '../src/world/alpine/BuildFocus.js';
 import { waterLevelOf } from '../tools/lib/scenic-cost.mjs';
 
 // The terrainBakePoses fixture (4 x 4 tiles of 64 cells at 20 m, a rail at
@@ -75,12 +74,13 @@ test('ground only a tour pose sees leaves the rail\'s height range, water and mi
   assert.equal(waterLevel(rail, { tour: true }), waterLevel(rail));
 });
 
-test('the cast plans and routes over the rail\'s ground only', async () => {
+test('the opening\'s summit focus reads the rail\'s ground only', async () => {
   const { view, rail, tour } = await packages();
-  assert.deepEqual(castPlan(tour, view, { seed: 7 }), castPlan(rail, view, { seed: 7 }));
-  assert.deepEqual(actorRoutes(tour, view, { seed: 7 }), actorRoutes(rail, view, { seed: 7 }));
-  // With every tile marked as a tour pose's, the rail has nothing to route over.
+  assert.deepEqual(buildFocusM(tour, view), buildFocusM(rail, view));
+  // With every tile marked as a tour pose's, the rail has no summit to frame.
   const none = { ...tour, tiles: new Map([...tour.tiles].map(([k, t]) => [k, { ...t, rail: false }])) };
-  const routes = actorRoutes(none, view, { seed: 7 });
-  assert.ok(Object.values(routes).every((r) => r == null), JSON.stringify(Object.keys(routes)));
+  assert.equal(buildFocusM(none, view), null);
+  // A tour, or a view without a camera, keeps the authored target.
+  assert.equal(buildFocusM(rail, { ...view, tour: {} }), null);
+  assert.equal(buildFocusM(rail, { id: view.id }), null);
 });

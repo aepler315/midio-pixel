@@ -63,7 +63,6 @@ test('same seed replay is fresh while unchanged settings reproduce baseline sche
 });
 
 test('pace control states distinguish Trio, tours, glacier and ordinary rails', () => {
-  assert.equal(railPaceControlState({ experience: 'trio' }).disabled, true);
   assert.match(railPaceControlState({ tourMode: 'shots' }).text, /tour/i);
   assert.match(railPaceControlState({ policy: 'glacier' }).text, /glacier/i);
   assert.match(railPaceControlState({}).text, /next unplayed landscape or replay/i);

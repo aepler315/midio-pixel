@@ -7,8 +7,6 @@ import {
   melodyLaneForNote, laneForStemName, delegateByStemActivity, laneCounts,
 } from '../src/core/Casting.js';
 import { Role, makeNoteEvent } from '../src/core/NoteEvent.js';
-import { midiToTimeline } from '../src/core/MidiAdapter.js';
-import { buildNamedEnsembleMidi } from './helpers/midiFixture.js';
 
 test('instrument text classifies into sound families, clean beating lead on ties', () => {
   assert.equal(classifyInstrumentText('Grand Piano'), 'clean');
@@ -104,21 +102,4 @@ test('laneCounts tallies stamped lanes', () => {
     { lane: Lane.MIDASUS }, { lane: Lane.MIDASUS }, { lane: Lane.BROSHI }, { lane: null }, {},
   ]);
   assert.deepEqual(counts, { MIDASUS: 2, MIDIO: 0, BROSHI: 1 });
-});
-
-test('midiToTimeline stamps lanes from track names end to end (the casting fixture)', () => {
-  const data = midiToTimeline(buildNamedEnsembleMidi());
-  const byLane = laneCounts(data.timeline);
-  assert.ok(byLane.MIDASUS > 0, 'Grand Piano notes carry the Midasus lane');
-  assert.ok(byLane.MIDIO > 0, 'Lead Synth notes carry the Midio lane');
-  assert.ok(byLane.BROSHI > 0, 'Bass notes carry the Broshi lane');
-  for (const evt of data.timeline) {
-    if (evt.role === Role.RHYTHM) assert.equal(evt.lane, null, 'drums never cast');
-  }
-  // The track summary mirrors the same verdicts for the UI badge.
-  const named = Object.fromEntries(data.tracks.map((t) => [t.name, t.lane]));
-  assert.equal(named['Grand Piano'], Lane.MIDASUS);
-  assert.equal(named['Lead Synth'], Lane.MIDIO);
-  assert.equal(named['Bass'], Lane.BROSHI);
-  assert.equal(named['Drums'], null);
 });

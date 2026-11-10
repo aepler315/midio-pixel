@@ -111,7 +111,6 @@ test('the partition records what its target\'s depth holds', () => {
   assert.match(src, /depth\.content = own \? null : \{ target, frame: frame\.frameId/);
   assert.match(src, /depth\.content = null;/);
   assert.match(src, /if \(depth\.content\) depth\.content\.cut = true;/);
-  assert.match(RangeScene.prototype.renderCast.toString(), /if \(depth\.content\) depth\.content\.cut = true;/);
 });
 
 test('a released or reallocated target forgets its depth record, not only its frame', () => {

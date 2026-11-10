@@ -4,7 +4,6 @@ import assert from 'node:assert/strict';
 import {
   mistAmount, mistMask, mistParams, mistDrift, emitterStrength, MIST_GLSL, MIST_NOISE_M, MIST_DRIFT,
   meanLayer, easeMistSteps, tourMistCap, tourMistFade, MIST_OCTAVE_ROTATION, MIST_SAMPLES,
-  emitterVisibility, EMITTER_GLSL, EMITTER_SUBMERGE,
   atmosphereMusic, ATMOSPHERE_NEUTRAL,
 } from '../src/world/alpine/RangeAtmosphere.js';
 import { sampleEffectsMusic } from '../src/world/alpine/EffectsMusic.js';
@@ -74,51 +73,19 @@ test('quiet formation keeps ordinary density and is independent of camera altitu
   assert.deepEqual(mistParams({ ...view, sea01: 1, cameraY: 700 }), mistParams({ ...view, sea01: 1, cameraY: 9000 }));
 });
 
-test('a light is seen through the same mist as the ground under it', () => {
-  const view = { rules: { wetness: 0.5 }, waterLevelM: 800, heightRange: [750, 2300], cameraY: 2200 };
-  const eye = [0, 2200, 0];
-  // Valley mist only (no sea): exactly the terrain's mist, atmosphere applied again.
-  const calm = { ...mistParams({ ...view, calm01: 1 }), steps: MIST_SAMPLES, atm: 0.7 };
-  for (const p of [[0, 820, -4000], [2500, 1100, -9000], [-600, 1800, -2000]]) {
-    const seen = emitterVisibility(eye, p, calm);
-    assert.ok(Math.abs(seen - (1 - mistAmount(eye, p, calm) * 0.7)) < 1e-12, `parity at ${p}`);
-    assert.ok(seen < 1 && seen > 0);
-  }
-  // Clear air, or no fog state at all, hides nothing.
-  assert.equal(emitterVisibility(eye, [0, 820, -4000], null), 1);
-  assert.equal(emitterVisibility(eye, [0, 820, -4000], { density: 0, fill: 0, topM: 1e9 }), 1);
-});
-
-test('the emitter and lantern-light shader twins use the same constants', async () => {
+test('the mist shader twin keeps its constants, declared once in the terrain and forest', async () => {
   assert.ok(MIST_GLSL.includes('float mistSubmersion(vec3 p)'));
   assert.ok(MIST_GLSL.includes('return mistLocalBank(mask, mistFlowAt(p.xz, mask), vec2(p.y)) * (1.0 - exp(-uMistDensity * 7000.0));'));
-  assert.ok(EMITTER_GLSL.includes('mistAmount(uCameraPos, p) * uNarrative.y'));
-  assert.ok(EMITTER_GLSL.includes(`${EMITTER_SUBMERGE.toFixed(3)} * sub`));
-  const { ACTOR_GLSL } = await import('../src/world/alpine/ActorsGL.js');
-  // The query repeats the lantern vertex's lift-before-rise order from
-  // the original anchor; the already lowered light position loses height.
-  assert.ok(ACTOR_GLSL.includes(`1.0 - ${EMITTER_SUBMERGE.toFixed(3)} * mistSubmersion(actorDrawnPos(i))`),
-    'the light goes with its lantern, read on the lifted ground');
-  assert.ok(ACTOR_GLSL.includes('vec3 source = vec3(uActorPos[i].x, uActorSourceY[i], uActorPos[i].z);'));
-  assert.ok(ACTOR_GLSL.includes('return source + vec3(0.0, groundLift(source), 0.0);'), 'lift precedes rise from the original source');
   assert.match(MIST_GLSL, /uniform vec4 uMistLayer;/);
   assert.doesNotMatch(MIST_GLSL, /uniform float uMist(Base|Height|Time|Fill);/, 'layer controls share one mobile uniform vector');
-  assert.ok(ACTOR_GLSL.includes('if (fall <= 0.0) continue;\n      fall *= actorShown(i);'), 'the pool, paid only where the light reaches');
-  assert.ok(ACTOR_GLSL.includes('if (reach <= 0.0) continue;') && ACTOR_GLSL.includes('* reach * actorShown(i)'), 'and the glints');
-  // actorLight reads the sea's top at the lifted ground: the mist uniforms
-  // and groundLift must be declared above it, once.
   const { SCENE_FRAG } = await import('../src/world/alpine/TerrainMaterial.js');
   const { createForest } = await import('../src/world/alpine/ForestGL.js');
   const THREE = await import('../src/vendor/range/three-range.module.js');
   const placed = { mesh: new Float32Array([0, 0, 0, 20, 10, 0, .5, 2]), billboard: new Float32Array(), stride: 8, count: 1 };
   const forest = createForest(THREE, placed, {});
   for (const [name, frag] of [['terrain', SCENE_FRAG], ['forest', forest.byBand.near[0].material.fragmentShader]]) {
-    const top = frag.indexOf('uniform sampler2D uMistFlow;'), light = frag.indexOf('vec3 actorLight(');
-    assert.ok(top >= 0 && light > top, `${name}: MIST_GLSL precedes ACTOR_GLSL`);
     assert.equal(frag.split('uniform sampler2D uMistFlow;').length, 2, `${name}: declared once`);
-    const lift = frag.indexOf('float groundLift(vec3 p)');
-    assert.ok(lift >= 0 && light > lift, `${name}: groundLift precedes ACTOR_GLSL`);
-    for (const decl of ['float groundLift(vec3 p)', 'uniform sampler2D uReceiver;', 'uniform float uGlacierEnabled;'])
+    for (const decl of ['uniform sampler2D uReceiver;', 'uniform float uGlacierEnabled;'])
       assert.equal(frag.split(decl).length, 2, `${name}: ${decl} once`);
   }
   for (const m of [...Object.values(forest.byBand).flat(), ...forest.depth]) m.geometry.dispose();
@@ -433,7 +400,7 @@ test('mist forward scatter peaks into the light, is zero for isotropic scatter a
 
 test('the mist phase is a MIST_GLSL function of its arguments, applied after the cinematic mist colour', async () => {
   assert.match(MIST_GLSL, /float mistPhase\(vec3 view, vec3 lightDir\)/);
-  assert.doesNotMatch(MIST_GLSL, /uniform[^;]*uLightDir/, 'ActorsGL also includes MIST_GLSL; no new uniform');
+  assert.doesNotMatch(MIST_GLSL, /uniform[^;]*uLightDir/, 'terrain and forest declare uLightDir themselves; no second declaration');
   const { SCENE_FRAG } = await import('../src/world/alpine/TerrainMaterial.js');
   const forest = await import('node:fs').then(fs => fs.readFileSync(new URL('../src/world/alpine/ForestGL.js', import.meta.url), 'utf8'));
   for (const [name, source] of [['terrain', SCENE_FRAG], ['forest', forest]]) {

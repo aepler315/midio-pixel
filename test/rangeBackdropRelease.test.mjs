@@ -98,3 +98,19 @@ test('the sky backdrop survives every quality rung and serves river-only views a
   river.s.prepared.set('lake', { mirrorLevelM: NaN, riverStats: { triangles: 0 }, uniforms: river.uniforms });
   assert.equal(river.s.captureBackdrop(ctx, stage, { qualityLevel: 6, frameId: 9 }), false, 'no water, no copy');
 }));
+
+test('the backdrop copy is skipped while no drawn view has water, and kept for the view that will', () => withCanvas(() => {
+  const { s } = scene();
+  s.prepared.set('dry', { mirrorLevelM: NaN, riverStats: { triangles: 0 }, uniforms: {} });
+  let copies = 0;
+  const counting = { canvas: {}, getTransform: () => ({ a: 1, d: 1, e: 0, f: 0 }) };
+  assert.equal(s.captureBackdrop(counting, stage, mirrored, null, ['lake']), true);
+  const kept = s.backdrop;
+  const draw = kept.ctx.drawImage;
+  kept.ctx.drawImage = (...args) => { copies++; return draw.apply(kept.ctx, args); };
+  assert.equal(s.captureBackdrop(counting, stage, { qualityLevel: 0, frameId: 2 }, null, ['dry']), false, 'nothing drawn reflects it');
+  assert.equal(copies, 0, 'no canvas copy or upload for a dry frame');
+  assert.equal(s.backdrop, kept, 'the allocation survives for the prefetched lake');
+  assert.equal(s.captureBackdrop(counting, stage, { qualityLevel: 0, frameId: 3 }, null, ['dry', 'lake']), true, 'travel into the lake captures again');
+  assert.equal(copies, 1);
+}));

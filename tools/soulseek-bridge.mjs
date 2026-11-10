@@ -870,8 +870,6 @@ function mimeFor(name) {
       m4a: 'audio/mp4',
       aac: 'audio/aac',
       opus: 'audio/opus',
-      mid: 'audio/midi',
-      midi: 'audio/midi',
     }[ext] || 'application/octet-stream'
   );
 }

@@ -23,7 +23,7 @@ export const UI_ONLY_REVISIONS = Object.freeze({
 });
 export function isPublicPath(name) {
   return typeof name === 'string' && !name.includes('\\') && !name.split('/').some(s => !s || s.startsWith('.'))
-    && (name === 'index.html' || name.startsWith('src/') || name.startsWith('soundfonts/'));
+    && (name === 'index.html' || name.startsWith('src/'));
 }
 export function indexRuntimeSignature(html) {
   const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)].filter(m => !/VersionBootstrap|midio-version-metadata/.test(m[0])).map(m => ({
@@ -65,7 +65,7 @@ export function readHistory(source, ref = 'HEAD') {
     const body = /^Merge pull request #/.test(title) ? git('show', '-s', '--format=%B', sha).split('\n').slice(2).find(line => line.trim()) : null;
     const pr = /#(\d+)/.exec(title);
     const subject = body ? `${body.trim()} (#${pr[1]})` : title; const files = {};
-    for (const item of git('ls-tree', '-rz', sha, '--', 'index.html', 'src', 'soundfonts').split('\0').filter(Boolean)) {
+    for (const item of git('ls-tree', '-rz', sha, '--', 'index.html', 'src').split('\0').filter(Boolean)) {
       const match = /^(\d+) (\w+) ([a-f0-9]{40})\t(.+)$/.exec(item);
       if (!match || !['100644', '100755'].includes(match[1]) || match[2] !== 'blob' || !isPublicPath(match[4])) throw new Error(`Unsafe historical public file: ${item}`);
       files[match[4]] = match[3];

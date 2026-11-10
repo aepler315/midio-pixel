@@ -208,10 +208,6 @@ export function generateCustomBiomeFromTimeline(data, fileName = 'MIDI') {
   return profile;
 }
 
-/** Back-compat alias: the generator has always been timeline-shaped; the
- *  audio path now feeds it too (with its `analysis` fingerprint attached). */
-export const generateCustomBiomeFromMidi = generateCustomBiomeFromTimeline;
-
 /**
  * Register a custom biome onto a live ParamBus history list (capped).
  * Does not affect the KEYS smoothing system.

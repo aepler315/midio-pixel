@@ -35,15 +35,6 @@ test('Landscape lens stays Off through trusted cues with a score and the section
   } finally { sim.dispose(); }
 });
 
-test('Trio retains trusted accents in the scored and sections-only paths', () => {
-  const sim = simulation('trio');
-  try {
-    assert.ok(sim._lensAt(20000).zoomPulse > .9);
-    sim.biomes.energyCurves = null;
-    assert.ok(sim._lensAt(20000).zoomPulse > .9);
-  } finally { sim.dispose(); }
-});
-
 test('Landscape simulation supplies no automatic dip or tilt before scenic presentation and during arrival', () => {
   const sim = simulation();
   try {

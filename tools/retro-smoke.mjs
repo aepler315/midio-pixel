@@ -88,7 +88,6 @@ try {
       await captureTitle(page,backend,'pixel');
       await page.locator('#lyricGroundingBtn').evaluate(n=>{if(n.getAttribute('aria-pressed')==='true')n.click();});
       await page.locator('#fileInput').setInputFiles(wav);
-      if(await page.locator('#worldSelect[open]').count())await page.locator('.worldCard').first().click();
       await page.waitForFunction(()=>!!window.__SMW?.sim,null,{polling:100});
       await page.locator('#pauseBtn').evaluate(n=>n.click()); // preserve a live frame while inspecting
       await page.evaluate(()=>window.__SMW.seek(1500));

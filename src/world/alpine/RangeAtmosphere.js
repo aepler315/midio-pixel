@@ -1,4 +1,4 @@
-// Valley atmosphere shared by the terrain, forest and cast. Ordinary haze
+// Valley atmosphere shared by the terrain and forest. Ordinary haze
 // retains its exact exponential height integral. Quiet passages form shallow
 // drifting banks on the real drainage field: they spread from low sources
 // upstream instead of raising a camera-relative water plane. Heard time alone
@@ -140,8 +140,8 @@ function localBank(p, m, mask, f, y0 = p[1], y1 = p[1]) {
   return f.valid01 * valley * formation * height * (.14 + .86 * mask) * (.68 + .32 * pulse);
 }
 
-/** Local formed-bank occupancy at a true world point [x,y,z]. The same
- * value dims a lantern and its pool/glints. No global floor blackout. */
+/** Local formed-bank occupancy at a true world point [x,y,z] (the CPU twin
+ * of MIST_GLSL's mistSubmersion). No global floor blackout. */
 export function mistLocalOccupancy(p, m = {}) {
   if (!(m.fill > 0) || !(m.density > 0)) return 0;
   const q = typeof p === 'number' ? [0, p, 0] : p;
@@ -165,13 +165,6 @@ export function mistAmount(cam, p, m = {}) {
 
 /** Legacy name for local bank occupancy; callers now pass the full point. */
 export function seaSubmersion(p, m) { return mistLocalOccupancy(p, m); }
-export const EMITTER_SUBMERGE = .88;
-export function emitterVisibility(cam, p, m) {
-  if (!m) return 1;
-  const mist = mistAmount(cam, p, m) * (m.atm ?? 1);
-  return Math.max(0, (1 - mist) * actorLightShown(p, m));
-}
-export function actorLightShown(p, m) { return 1 - EMITTER_SUBMERGE * seaSubmersion(p, m || undefined); }
 
 function mistBanks(cam, p, n, drift, m, mean) {
   const dx = p[0] - cam[0], dy = p[1] - cam[1], dz = p[2] - cam[2];
@@ -431,15 +424,6 @@ export const MIST_GLSL = /* glsl */`
   // Bank shading is volumetric: never project a colour onto a global top.
   vec3 mistColorAt(vec3 cam, vec3 p) { return uMistColor; }
 
-`;
-
-/** GLSL twin of emitterVisibility for lights placed per vertex (the cast's
- *  site lights and threads). Needs MIST_GLSL, uCameraPos and uNarrative. */
-export const EMITTER_GLSL = /* glsl */`
-  float emitterSeen(vec3 p) {
-    float sub = mistSubmersion(p);
-    return max(0.0, (1.0 - mistAmount(uCameraPos, p) * uNarrative.y) * (1.0 - ${EMITTER_SUBMERGE.toFixed(3)} * sub));
-  }
 `;
 
 /** Change sampling only at integer endpoints on an advancing heard frame.

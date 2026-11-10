@@ -1,4 +1,3 @@
-import { readExperience, writeExperience, resolveExperience } from './core/Experience.js';
 import { resizeStageCanvas } from './render/CanvasResidency.js';
 import { ensureRidgeMusicSession, upgradeRidgeMusicSession } from './world/RidgeMotionHistory.js';
 // Bootstrap: file loading UI, audio-clock-driven game loop (spec §6.1).
@@ -21,10 +20,7 @@ import { resolveRendererMode } from './render/WebGLRenderer.js';
 import { graphicsReport } from './render/GraphicsDiagnostics.js';
 import { hitTestComposerStrip } from './render/Renderer.js';
 import { AudioEngine } from './audio/AudioEngine.js';
-import { SimpleSynth } from './audio/SimpleSynth.js';
-import { Sf2Synth } from './audio/Sf2Synth.js';
-import { SoundfontLibrary, SynthRouter } from './audio/SoundfontLibrary.js';
-import { FontRecommender } from './audio/FontRecommender.js';
+import { renderDemoSongToAudioBuffer } from './audio/DemoSongRender.js';
 import { VisionLoop } from './vision/VisionLoop.js';
 import { DebugOverlay } from './ui/DebugOverlay.js';
 import { FileChooserSupport } from './ui/FileChooserProbe.js';
@@ -35,6 +31,8 @@ import {
 import { RecalibrationOverlay } from './ui/RecalibrationOverlay.js';
 import { rangeCaptionFor, sceneCaptionFor, captionAt, CAPTION_DELAY_MS } from './ui/RangeCaption.js';
 import { setCaptionDetails } from './ui/PixelCaption.js';
+import { titleCardFor } from './ui/TitleCard.js';
+import { TITLE_CARD_END_MS } from './core/OpeningTimeline.js';
 import { pixelRenderPolicy } from './render/PixelRenderPolicy.js';
 import { realBiomeByName, ecoregionOfRange } from './world/RealBiomes.js';
 import { travelMs } from './world/BiomeSchedule.js';
@@ -43,7 +41,7 @@ import { groundSpeedMps } from './world/terrain/ProfileTravel.js';
 import { TERRAIN_STRIP_WIDTH } from './world/terrain/StripRead.js';
 import { DrawErrorLog } from './render/DrawErrorLog.js';
 import { ROLE_LOW, ROLE_HIGH, GrooveFingerprint } from './sim/GrooveFingerprint.js';
-import { generateCustomBiomeFromMidi, rememberCustomBiome } from './world/BiomeImporter.js';
+import { generateCustomBiomeFromTimeline, rememberCustomBiome } from './world/BiomeImporter.js';
 import {
   getLyricsDisabled, setLyricsDisabled,
   getBtLatencyTrimMs, setBtLatencyTrimMs, BT_LATENCY_TRIM_MS,
@@ -93,12 +91,7 @@ import { buildWorldVariant, scoreWorlds, formatFitDiagnostic } from './world/Wor
 import { buildSongProfile, PROFILE_VERSION } from './audio/SongProfile.js';
 import {
   DEFAULT_WORLD_ID, setCustomWorld, clearCustomWorld, getCustomWorld, getWorld, listWorlds, resolveWorldId,
-  worldExperience, worldForExperience,
 } from './world/Worlds.js';
-import { buildWorldChoices, moveChoiceIndex } from './ui/WorldChooser.js';
-import {
-  PreviewSession, loadPreviewRenderer,
-} from './ui/WorldPreview.js';
 import { fingerprintBufferOffThread } from './audio/FingerprintWorkerClient.js';
 import { readVisionConfig, persistVisionConfig } from './vision/config.js';
 import { packBundle, unpackBundle } from './audio/AnalysisBundle.js';
@@ -181,19 +174,9 @@ const urlLoadStatusEl = document.getElementById('urlLoadStatus');
 const urlLoadListEl = document.getElementById('urlLoadList');
 const urlLoadCrumbEl = document.getElementById('urlLoadCrumb');
 const urlLoadOpenBtnEl = document.getElementById('urlLoadOpenBtn');
-const worldSelectEl = document.getElementById('worldSelect');
-// Two worlds, Landscape and Trio, picked per song from the chooser once the
-// song is ready. A page opened with `?experience=landscape|trio` has
-// already chosen: songs start straight in that world (links, exports and
-// the smoke tools use it).
-const URL_PICKS_WORLD = typeof location !== 'undefined' && new URLSearchParams(location.search).has('experience');
-// How long a direct Landscape start waits for the song's biomes to load
-// before starting on the bundled Tetons instead.
+// Every song plays in Landscape. A Landscape start waits this long for the
+// song's biomes to load before starting on the bundled Tetons instead.
 const BIOME_WAIT_MS = 2500;
-const worldSelectGridEl = document.getElementById('worldSelectGrid');
-const worldSelectBackEl = document.getElementById('worldSelectBack');
-const worldPassageQuietEl = document.getElementById('worldPassageQuiet');
-const worldPassagePeakEl = document.getElementById('worldPassagePeak');
 const progressEl = document.getElementById('progressText');
 const hudEl = document.getElementById('hud');
 const hudRightEl = document.getElementById('hudRight');
@@ -224,9 +207,6 @@ const btLatencyPopoverEl = document.getElementById('btLatencyPopover');
 const btLatencyInputEl = document.getElementById('btLatencyInput');
 const btLatencyApplyBtnEl = document.getElementById('btLatencyApplyBtn');
 const btLatencyOffBtnEl = document.getElementById('btLatencyOffBtn');
-const trackBadgeEl = document.getElementById('trackBadge');
-const trackBadgeBtnEl = document.getElementById('trackBadgeBtn');
-const trackListEl = document.getElementById('trackList');
 const dragOverlayEl = document.getElementById('dragOverlay');
 const filmstripEl = document.getElementById('filmstrip');
 const filmstripModalEl = document.getElementById('filmstripModal');
@@ -277,7 +257,6 @@ const GROOVE_SAVE_DEBOUNCE_MS = 2000; // wall-clock auto-dismiss for the nudge
 const conductor = new Conductor();
 const paramBus = new ParamBus();
 let audioEngine = null;
-let synth = null;
 let sim = null;
 const rangeNavigationEl = document.getElementById('rangeNavigation');
 const rangeSeekEl = document.getElementById('rangeSeek');
@@ -302,9 +281,6 @@ let debugOverlay = null;
 let perfGovernor = null;
 let lastRafMs = null; // separate from lastNowMs (audio clock) -- tracks real rAF-to-rAF cadence for the perf governor
 let lastRenderedWorkMs = null; // CPU submission work, never vsync wait or a skipped draw
-let sf2Engine = null;
-let fontLibrary = null;
-let fontRecommender = null;
 let rafHandle = null; // tracks the pending frame() call so a mid-song file
                        // drop can cancel the old loop instead of stacking a
                        // second one alongside it
@@ -390,16 +366,13 @@ if (calibrateBtnEl) {
     if (recalibration.active) endRecalibration(); else startRecalibration();
   });
 }
-// Set per load path (true only for raw decoded audio, which already has
-// every voice baked into the buffer) and read by applySynthMutePolicy().
-let muteTimelineSynth = false;
 let loadShow = null; // percussion loading show, created in bootAudio
 const audioSelections = createAudioSelection();
 let loadGen = 0;     // a newer load cancels a stale audition gate's start
 
 // Retained so "Replay seed" can restart the same song without a page reload
-// (sim is fully seeded + autoplay-driven). `lastAudioBuffer` is only set on
-// the raw-audio-file path (MIDI/demo regenerate sound from the timeline).
+// (sim is fully seeded + autoplay-driven). `lastAudioBuffer` is the decoded
+// recording (or the rendered sample) the song plays from.
 let lastTimelineData = null;
 // The whole-song analysis of a song started on its opening
 // (OpeningAnalysis.js), while it is still running; null otherwise.
@@ -415,7 +388,6 @@ let lastAudioBuffer = null;
 let lastWorldId = DEFAULT_WORLD_ID;
 let pendingWorldStart = null;
 let lastFitDiagnostic = null;
-let previewSession = null;
 let lastSongName = 'song';
 let lastSongSeed = null; // 32-bit seed used for the run that just finished
 
@@ -432,11 +404,6 @@ writeRenderQuality(displayStorage(), generalQuality);
 const selectionExportSettings = new WeakMap();
 writeDisplayPrefs(displayStorage(), displayPrefs);
 let presentation = resolvePresentation(displayPrefs);
-let experience = readExperience(displayStorage(), typeof location === 'undefined' ? '' : location.search);
-const experienceControl = document.getElementById('display-experience');
-const experienceStatus = document.getElementById('experience-status');
-if (experienceControl) experienceControl.value = experience;
-let experienceRequest = 0;
 const displayControls = Object.fromEntries(['look', 'palette', 'dither', 'ditherMode', 'pixelGrid', 'scaling', 'buildPixelDetail'].map(key => [key, document.getElementById(`display-${key}`)]));
 // HUD pixel-detail label and the every-level snapshot (src/ui/DetailSnapshots.js).
 const detailLevelEl = document.getElementById('detailLevel');
@@ -506,7 +473,7 @@ let fpsEma = null;
 const presentedFps = new PresentedFpsMeter();
 fpsHudEl?.classList.toggle('hidden', !fpsHudVisible);
 // Renderer path: ?renderer=webgl enables the optional WebGL post-FX overlay.
-// Default remains pure Canvas 2D so drag/upload MIDI never depends on GL.
+// Default remains pure Canvas 2D so loading a song never depends on GL.
 const rendererMode = resolveRendererMode(
   typeof location !== 'undefined' ? location.search : '',
 );
@@ -519,7 +486,7 @@ const requestedRangePipeline = resolveRangePipeline(location.search);
 const voxelRangePilot = voxelRangeRequested(location.search)
   ? new VoxelRange({ ownerDocument: document, residency: sharedResidency() }) : null;
 const voxelRangeCaption = voxelRangePilot ? sceneCaptionFor(voxelRangePilot.view) : null;
-let rangePresentation = experience === 'landscape' && rangeMode.mode === 'v2'
+let rangePresentation = rangeMode.mode === 'v2'
   ? new RangePresentation({ mode: 'v2', tour: rangeMode.tour, upgradeIntended: rangeMode.upgradeIntended, shots: rangeMode.shots, shotCandidates: rangeMode.shotCandidates, forcedViewId: rangeMode.forcedViewId, diag: rangeMode.diag, residency: sharedResidency(), budget: residencyBudgetFor().name })
   : null;
 
@@ -533,7 +500,7 @@ function cameraScheduleKey(worldId = lastTimelineData?.worldId) {
 }
 function syncRangePaceControl() {
   const status = rangePresentation?.status();
-  const state = railPaceControlState({ experience, tourMode: status?.tourMode || (status?.shotTours?.active ? 'shots' : null),
+  const state = railPaceControlState({ tourMode: status?.tourMode || (status?.shotTours?.active ? 'shots' : null),
     policy: status?.cameraRails?.to?.policy || status?.cameraRails?.from?.policy });
   if (rangePaceSelect) {
     rangePaceSelect.value = String(requestedRailPace);
@@ -569,11 +536,7 @@ function rangeStateSnapshot() {
 }
 function syncRangeTourControl() {
   syncRangePaceControl();
-  if (rangeTourToggle) rangeTourToggle.disabled = experience === 'trio';
   if (!rangeTourStatus) return;
-  if (experience === 'trio') {
-    rangeTourStatus.textContent = 'Available in Landscape'; rangeTourStatus.dataset.state = 'off'; return;
-  }
   const status = currentTourControlState();
   if (rangeTourStatus.textContent !== status.text) rangeTourStatus.textContent = status.text;
   rangeTourStatus.dataset.state = status.state;
@@ -649,14 +612,13 @@ function syncDisplayControls() {
   for (const [key, control] of Object.entries(displayControls)) if (control) {
     if (key === 'buildPixelDetail') control.checked = displayPrefs.buildPixelDetail;
     else control.value = String(displayPrefs[key]);
-    control.disabled = experience === 'trio' && key !== 'quality'
-      || ['palette', 'dither', 'ditherMode'].includes(key) && displayPrefs.look !== 'palette'
+    control.disabled = ['palette', 'dither', 'ditherMode'].includes(key) && displayPrefs.look !== 'palette'
       || key === 'ditherMode' && (displayPrefs.palette === 'rgb332' || displayPrefs.dither === 0)
-      || key === 'buildPixelDetail' && (experience === 'trio' || displayPrefs.look === 'palette');
+      || key === 'buildPixelDetail' && displayPrefs.look === 'palette';
   }
   const grid = document.getElementById('pixelGridHint');
   const selectedGrid = presentation.grid;
-  if (grid) { grid.hidden = false; grid.textContent = experience === 'trio' ? 'Smooth at display resolution' : displayPrefs.buildPixelDetail && displayPrefs.look !== 'palette'
+  if (grid) { grid.hidden = false; grid.textContent = displayPrefs.buildPixelDetail && displayPrefs.look !== 'palette'
     ? 'Classic → Detailed (640 × 360) as the mountains rise' : `${selectedGrid.width} × ${selectedGrid.height} grid`; }
   syncDetailControls();
 }
@@ -665,11 +627,11 @@ function syncDisplayControls() {
 function syncDetailControls() {
   const level = displayPrefs.pixelGrid;
   const option = displayControls.pixelGrid?.querySelector(`option[value="${level}"]`);
-  if (detailLevelEl) detailLevelEl.textContent = experience === 'trio' ? 'Smooth' : displayPrefs.buildPixelDetail && displayPrefs.look !== 'palette' ? 'Building detail' : (option?.textContent || level).split(' — ')[0];
+  if (detailLevelEl) detailLevelEl.textContent = displayPrefs.buildPixelDetail && displayPrefs.look !== 'palette' ? 'Building detail' : (option?.textContent || level).split(' — ')[0];
   if (snapshotBtnEl) {
     snapshotBtnEl.disabled = snapshotBusy;
     snapshotBtnEl.setAttribute('aria-busy', snapshotBusy ? 'true' : 'false');
-    const single = experience === 'trio' || /Android/i.test(navigator.userAgent);
+    const single = /Android/i.test(navigator.userAgent);
     snapshotBtnEl.title = single ? 'Save the current frame as a PNG' : 'Save this moment as full-quality PNGs, one at each of the 5 pixel detail levels';
     snapshotBtnEl.setAttribute('aria-label', single ? 'Save the current frame as a PNG' : 'Save snapshots at every detail level');
   }
@@ -707,8 +669,6 @@ let titlePresentation = null;
 function effectivePresentation() {
   const requested = bulkPresentation || presentation;
   const experimental = directTerrainExperiment(typeof location === 'undefined' ? '' : location.search);
-  if (experience === 'trio') return { ...requested, experience: 'trio', pixelated: false, paletteId: 'none', cinematicPixel: false,
-    pixelScale: 'original', buildPixelDetail: false, scaling: 'fit' };
   const buildPixelDetail = !!requested.buildPixelDetail && !bulkExportSize && !voxelRangePilot && !experimental
     && requested.paletteId === 'none' && requestedRangePipeline !== 'native';
   return { ...requested, buildPixelDetail, rangePipeline: bulkExportSize || experimental || requested.cinematicPixel ? 'hybrid' : requestedRangePipeline,
@@ -716,70 +676,19 @@ function effectivePresentation() {
     ...(experimental ? { directTerrain: true } : {}),
     ...(!bulkExportSize && typeof document !== 'undefined' && isFullscreen() ? { scaling: 'cover' } : {}) };
 }
-/** Point the page at one world's presentation. Landscape owns the page's one
- *  Range v2 presentation (and its GPU context); Trio owns none. */
-function applyExperience(value) {
-  const next = resolveExperience(value), mode = resolveRangeMode();
-  const wantsRange = next === 'landscape' && mode.mode === 'v2';
-  if (!wantsRange && rangePresentation) { rangePresentation.dispose(); rangePresentation = null; }
-  if (wantsRange && !rangePresentation) {
+/** Every song plays in Landscape, which owns the page's one Range v2
+ *  presentation (and its GPU context). Created on demand when Range v2 is
+ *  the resolved mode; the painted fallback needs none. */
+function ensureLandscapePresentation() {
+  const mode = resolveRangeMode();
+  if (mode.mode === 'v2' && !rangePresentation) {
     rangePresentation = new RangePresentation({ mode: 'v2', tour: mode.tour, upgradeIntended: mode.upgradeIntended, shots: mode.shots, shotCandidates: mode.shotCandidates, forcedViewId: mode.forcedViewId, diag: mode.diag,
       residency: sharedResidency(), budget: residencyBudgetFor().name });
   }
   if (renderer) renderer.rangePresentation = rangePresentation;
-  experience = next;
-  writeExperience(displayStorage(), next);
-  if (experienceControl) experienceControl.value = next;
   syncRangeTourControl();
   syncDisplayControls();
 }
-
-/** The world a song should play in for `baseWorldId`, tailored to the song
- *  when its profile is known, as the chooser does. */
-function tailoredWorldId(baseWorldId, data) {
-  const profile = data?.songIdentity?.songProfile;
-  if (!profile?.watch) return baseWorldId;
-  try {
-    const { world } = buildWorldVariant(baseWorldId, profile.watch, { ...data, profile });
-    setCustomWorld(world);
-    return world.id;
-  } catch (err) {
-    console.warn('[world variant] failed; switching to the stock world:', err);
-    return baseWorldId;
-  }
-}
-
-/** Mid-song world change from Settings. Landscape's real terrain and Trio's
- *  procedural range are different worlds, so the scene is rebuilt at the
- *  heard position through the same playback gate as a seek. */
-async function changeExperience(value) {
-  const next = resolveExperience(value), request = ++experienceRequest, owner = sim;
-  if (next === experience) return;
-  if (experienceControl) experienceControl.disabled = true;
-  if (experienceStatus) experienceStatus.textContent = next === 'landscape' ? 'Preparing landscape…' : 'Preparing the trio…';
-  try {
-    // An armed export draws one world on a stepped clock; it names its world
-    // on the page (\`--experience\`) instead of switching part-way.
-    if (bulkExportArmed) throw new Error('Choose the world before exporting.');
-    if (songRecorder?.recording || pendingCaptureOptions) throw new Error('Finish or cancel the recording before switching worlds.');
-    if (running && owner && lastTimelineData) {
-      lastTimelineData.worldId = tailoredWorldId(worldForExperience(next), lastTimelineData);
-      delete lastTimelineData.chapterState;
-      startTimeline(lastTimelineData, {
-        ...lastStartExtra, songSeed: owner.songSeed, startAtMs: Math.max(0, audioEngine.nowMs),
-        keepAudio: true, keepUserCamera: true, preservePause: paused, chapterState: null, cameraRunIntent: 'preserve',
-      });
-    } else {
-      applyExperience(next);
-    }
-    fitCanvas();
-    if (experienceStatus) experienceStatus.textContent = next === 'trio' ? 'Automatic performance' : '';
-  } catch (error) {
-    if (experienceControl) experienceControl.value = experience;
-    if (experienceStatus) experienceStatus.textContent = 'Could not switch world. ' + (error?.message || error);
-  } finally { if (request === experienceRequest && experienceControl) experienceControl.disabled = false; }
-}
-experienceControl?.addEventListener('change', () => changeExperience(experienceControl.value));
 
 function fitPixelLayout() {
   const p = effectivePresentation();
@@ -836,29 +745,26 @@ function fitCanvas() {
   if (perfGovernor) perfGovernor.economy = active.quality === 'economy';
   const worldKind = sim?.biomes?.world?.kind
     || getWorld(lastTimelineData?.worldId || lastWorldId || DEFAULT_WORLD_ID)?.kind;
-  const hybrid = experience === 'landscape' && worldKind === 'alpine' && !!rangePresentation?.enabled;
+  const hybrid = worldKind === 'alpine' && !!rangePresentation?.enabled;
   const nativeStage = hybrid && !voxelRangePilot && active.rangePipeline !== 'hybrid' && !!active.rangePipeline;
   const box = canvas.getBoundingClientRect();
   // The quality rung this output was sized for: heavier rungs draw the
   // smooth layers at fewer pixels (the ladder's resolution scale).
   fittedPerfLevel = perfGovernor?.level ?? 0;
-  const outputOptions = { grid: active.grid, hybrid, smooth: experience === 'trio', nativeStage, progressiveDetail: active.buildPixelDetail, cssWidth: box.width, cssHeight: box.height,
+  const outputOptions = { grid: active.grid, hybrid, nativeStage, progressiveDetail: active.buildPixelDetail, cssWidth: box.width, cssHeight: box.height,
     fullscreen: typeof document !== 'undefined' && isFullscreen(),
     dpr: window.devicePixelRatio || 1, exportSize: bulkExportSize,
     scale: perfGovernor?.resolutionScale(active.grid.height, { adaptive: true }) ?? 1 };
   const size = stageOutputSize(outputOptions);
   resizeStageCanvas(canvas, size.w, size.h);
   if (perfGovernor) {
-    // Trio's full-frame gates keep the unscaled display/export tier as the
-    // ladder shrinks its output. Ridge sampling reads the admitted backing,
-    // including when the stage budget refuses a requested resize.
-    perfGovernor.targetCanvasWidth = experience === 'trio' ? stageOutputSize({ ...outputOptions, scale: 1 }).w : active.grid.width;
-    perfGovernor.canvasWidth = experience === 'trio' ? canvas.width : active.grid.width;
+    perfGovernor.targetCanvasWidth = active.grid.width;
+    perfGovernor.canvasWidth = active.grid.width;
   }
   // Canvas resets clear context state, including nearest-neighbor sampling.
   const ctx2d = canvas.getContext('2d');
-  if (ctx2d) ctx2d.imageSmoothingEnabled = experience === 'trio';
-  canvas.classList.toggle('retro', experience !== 'trio' && (!hybrid || nativeStage));
+  if (ctx2d) ctx2d.imageSmoothingEnabled = false;
+  canvas.classList.toggle('retro', !hybrid || nativeStage);
   canvas.classList.toggle('nativeCover', nativeStage && active.scaling === 'cover');
   landscapeHintEl?.classList.toggle(
     'is-visible',
@@ -960,7 +866,7 @@ function applyDisplayPref(key, value) {
 // the Display menu (persisted, re-presented, a paused frame redrawn).
 function stepPixelDetail(delta) {
   wakeHud();
-  if (snapshotBusy || experience === 'trio') return;
+  if (snapshotBusy) return;
   const next = stepDetail(displayPrefs.pixelGrid, delta);
   if (next !== displayPrefs.pixelGrid || displayPrefs.buildPixelDetail) applyDisplayPref('pixelGrid', next);
 }
@@ -1002,8 +908,7 @@ async function saveDetailSnapshots() {
   const savedPrefs = displayPrefs, savedPresentation = presentation;
   snapshotPlayerPrefs = savedPrefs;
   const stamp = new Date();
-  const plan = sim.experience === 'trio' ? { levels: [savedPrefs.pixelGrid], size: null }
-    : snapshotCapturePlan(navigator.userAgent, savedPrefs.pixelGrid);
+  const plan = snapshotCapturePlan(navigator.userAgent, savedPrefs.pixelGrid);
   const stopped = () => !running || !sim || !renderer;
   let cancelled = false;
   try {
@@ -1033,7 +938,7 @@ async function saveDetailSnapshots() {
         throw new Error(`the ${level} frame did not finish drawing`);
       },
       save: async (level, output) => {
-        saveSnapshotFile(await canvasToPng(output), snapshotFileName(stamp, sim.experience === 'trio' ? 'smooth' : level));
+        saveSnapshotFile(await canvasToPng(output), snapshotFileName(stamp, level));
         // Browsers drop rapid back-to-back downloads; space them out.
         if (plan.levels.length > 1) await new Promise((resolve) => setTimeout(resolve, 300));
       },
@@ -1107,49 +1012,10 @@ async function bootAudioOnce() {
     audioEngine = null;
     throw new Error('Audio is blocked by the browser. Try clicking the page first, then retry.');
   }
-  const fallback = new SimpleSynth(audioEngine);
-  synth = new SynthRouter(fallback);
-  // Connect exactly once: `synth`/`conductor` are both persistent
-  // singletons for the lifetime of the page (bootAudio itself only ever
-  // runs once, guarded by the early return above), so a second connect —
-  // as used to happen on every dropped MIDI file — would add a duplicate
-  // listener and fire every note twice.
-  synth.connectConductor(conductor);
   loadShow = new LoadingShow({
     canvasEl: auditionCanvasEl, textEl: auditionTextEl, barFillEl: auditionBarFillEl,
     audioEngine,
   });
-}
-
-let soundfontsInFlight = null;
-
-/** Optional internal font consumers explicitly request this setup. Normal
- * recording/sample unlock never discovers fonts or constructs an SF2 engine.
- * Concurrent consumers share one page-lifetime setup/discovery promise. */
-async function ensureSoundfonts() {
-  await bootAudio();
-  if (!soundfontsInFlight) {
-    soundfontsInFlight = (async () => {
-      sf2Engine = new Sf2Synth(audioEngine);
-      synth.setSf2Engine(sf2Engine);
-      fontLibrary = new SoundfontLibrary();
-      fontLibrary.onChange = applyActiveFont;
-      fontRecommender = new FontRecommender(fontLibrary);
-      fontLibrary.onAdded = (font) => fontRecommender.auditionFont(font);
-      // Existing diagnostic handles remain usable after explicit setup.
-      if (window.__SMW) Object.assign(window.__SMW, { fontLibrary, sf2Engine, fontRecommender });
-      await fontLibrary.autoLoadFromServer('./soundfonts/');
-      return fontLibrary;
-    })();
-  }
-  return soundfontsInFlight;
-}
-
-function applySynthMutePolicy() {
-  // Audio-file playback already has the song in the buffer — stacking the
-  // synthetic hi-hat / click / kick voices on top is what the player hears as
-  // the unwanted metronome layer. MIDI still needs the synth; the authored
-  if (synth) synth.enabled = !muteTimelineSynth;
 }
 
 // --- Fullscreen ---
@@ -1281,60 +1147,8 @@ document.addEventListener('click', (e) => {
 
 window.addEventListener('keydown', () => { lastInputMs = performance.now(); displaySlept = false; }, true);
 
-function applyActiveFont(active) {
-  sf2Engine?.loadSf2(active?.data || null);
-}
-
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
-
-/** Populates the track badge/list from a loaded MIDI's per-track breakdown
- *  (multi-track MIDI, visible somewhere). No-ops for non-MIDI sources
- *  (raw audio file / procedural demo), which carry no track metadata. */
-function renderTracks(tracks, pairs) {
-  if (!trackBadgeEl || !trackBadgeBtnEl || !trackListEl) return;
-  const shown = (tracks || []).filter((t) => t.noteCount > 0);
-  if (shown.length === 0) {
-    trackBadgeEl.classList.add('hidden');
-    trackBadgeEl.classList.remove('expanded');
-    trackListEl.innerHTML = '';
-    return;
-  }
-
-  const roleCount = new Set(shown.map((t) => t.role)).size;
-  trackBadgeBtnEl.textContent =
-    `${shown.length} track${shown.length === 1 ? '' : 's'} \u00b7 ${roleCount} role${roleCount === 1 ? '' : 's'}`;
-
-  const panGlyph = (pan) => (pan <= -0.15 ? '\u25c4' : pan >= 0.15 ? '\u25ba' : '\u25cf');
-  const partnerName = (track) => {
-    const pair = (pairs || []).find((p) => p.channelA === track.channel || p.channelB === track.channel);
-    if (!pair) return null;
-    const otherChannel = pair.channelA === track.channel ? pair.channelB : pair.channelA;
-    const other = shown.find((t) => t.channel === otherChannel);
-    return other ? other.name : null;
-  };
-
-  const rows = shown.map((t) => {
-    const partner = t.intertwined ? partnerName(t) : null;
-    const title = partner ? `Widens apart from "${partner}" over the course of the song` : '';
-    return `<div class="trackRow${t.intertwined ? ' intertwined' : ''}" title="${escapeHtml(title)}">`
-      + `<span class="roleDot role-${t.role}"></span>`
-      + `<span class="trackName">${escapeHtml(t.name)}${partner ? ' \u2194' : ''}</span>`
-      + `<span class="panGlyph">${panGlyph(t.pan)}</span>`
-      + `<span class="trackMeta">${t.noteCount}</span>`
-      + `</div>`;
-  }).join('');
-  const hint = (pairs && pairs.length)
-    ? '<div class="trackListHint">\u2194 tracks were mixed hard-panned opposite and play together — their stereo spread widens gradually over the song.</div>'
-    : '';
-  trackListEl.innerHTML = rows + hint;
-
-  trackBadgeEl.classList.remove('hidden');
-}
-
-function toggleTrackList() {
-  if (trackBadgeEl) trackBadgeEl.classList.toggle('expanded');
 }
 
 /** Tears down whatever is currently playing (if anything) so a new song can
@@ -1379,17 +1193,15 @@ function stopTimeline({ preservePause = false, keepAudio = false } = {}) {
   // and any recording running straight through it.
   if (!keepAudio && (songRecorder?.recording || pendingCaptureOptions)) finishRecording();
   if (!keepAudio) audioEngine?.pause();
-  // Forget any decoded buffer from a previous raw-audio song -- otherwise a
-  // MIDI/demo load right after one leaves the OLD song's buffer attached,
-  // and the mountain seekbar would start playing it on top of the new one.
-  // A raw-audio load re-attaches its own buffer via playBuffer() afterward.
+  // Forget the previous song's decoded buffer -- otherwise it stays
+  // attached and the mountain seekbar could start playing it on top of the
+  // new one. Every load re-attaches its own buffer via playBuffer() afterward.
   if (!keepAudio) audioEngine?.clearBuffer();
   // The log-on-powers-of-two cadence is meant to keep a PERSISTENT failure
   // legible without flooding the console. Carried across songs, it does the
   // opposite: a brand new regression in song 2 inherits song 1's count and
   // can stay silent until occurrence 1024. Each song gets a clean slate.
   drawErrors.reset();
-  synth?.stopAll?.();
   // Tear down optional WebGL overlay so a mid-song drop doesn't stack layers.
   if (renderer && typeof renderer.dispose === 'function') {
     try { renderer.dispose(); } catch { /* ignore */ }
@@ -1399,8 +1211,6 @@ function stopTimeline({ preservePause = false, keepAudio = false } = {}) {
   completeNewSeedRowEl?.classList.add('hidden');
   debugOverlayEl.classList.add('hidden');
   auditionPanelEl?.classList.add('hidden');
-  closeWorldChooser();
-  stopWorldPreview();
 }
 
 function updatePauseButtonUI() {
@@ -1434,12 +1244,6 @@ function togglePause() {
   updatePauseButtonUI();
 }
 
-/** Leave the native top layer on every teardown path, not just hide its pixels. */
-function closeWorldChooser() {
-  if (worldSelectEl?.open) worldSelectEl.close();
-  worldSelectEl?.classList.add('hidden');
-}
-
 /** Back to the title/drop screen so a different song can be chosen. */
 function backToTitle({ cancelContinuous = true } = {}) {
   if (cancelContinuous) continuousPlayback.cancel();
@@ -1456,166 +1260,11 @@ function backToTitle({ cancelContinuous = true } = {}) {
   stopTimeline();
   completePanelEl.classList.add('hidden');
   hudEl.classList.add('hidden');
-  closeWorldChooser();
-  stopWorldPreview();
   pendingWorldStart = null;
   progressEl.classList.add('hidden');
   loaderEl.classList.remove('hidden');
   startTitleBackdrop();
   dropzoneEl.focus({ preventScroll: true });
-}
-
-function stopWorldPreview() {
-  if (!previewSession) return;
-  previewSession.cancel();
-  previewSession = null;
-}
-
-function applyWorldStill(worldId, dataUrl) {
-  const card = worldSelectGridEl?.querySelector(`[data-base-world-id="${worldId}"]`);
-  if (!card || !dataUrl) return;
-  const still = card.querySelector('.worldCardStill');
-  const preview = card.querySelector('.worldCardPreview');
-  if (!still || !preview) return;
-  still.src = dataUrl;
-  still.classList.remove('hidden');
-  preview.classList.add('is-rendered');
-}
-
-function setPreviewingCard(worldId) {
-  worldSelectGridEl?.querySelectorAll('.worldCard').forEach((card) => {
-    const on = card.dataset.baseWorldId === worldId;
-    card.classList.toggle('is-previewing', on);
-    const live = card.querySelector('.worldCardLive');
-    if (live && !on) live.classList.add('hidden');
-    const btn = card.querySelector('.worldCardPreviewBtn');
-    if (btn) btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-  });
-}
-
-function showPreviewFrame(worldId, source) {
-  const card = worldSelectGridEl?.querySelector(`[data-base-world-id="${worldId}"]`);
-  const live = card?.querySelector('.worldCardLive');
-  if (!live || !source) return;
-  const ctx = live.getContext('2d');
-  if (!ctx) return;
-  if (live.width !== source.width) live.width = source.width;
-  if (live.height !== source.height) live.height = source.height;
-  ctx.drawImage(source, 0, 0);
-  live.classList.remove('hidden');
-}
-
-function syncPassageButtons() {
-  const which = previewSession?.passage || 'peak';
-  worldPassageQuietEl?.setAttribute('aria-pressed', which === 'quiet' ? 'true' : 'false');
-  worldPassagePeakEl?.setAttribute('aria-pressed', which === 'peak' ? 'true' : 'false');
-}
-
-function previewAudioHandlers() {
-  let src = null;
-  const stop = () => {
-    if (!src) return;
-    try { src.stop(); } catch { /* already stopped */ }
-    try { src.disconnect(); } catch { /* ignore */ }
-    src = null;
-  };
-  const play = (offsetSec, durationSec) => {
-    stop();
-    const buffer = pendingWorldStart?.extra?.playBuffer;
-    const ctx = audioEngine?.ctx;
-    if (!buffer || !ctx) return;
-    const node = ctx.createBufferSource();
-    const gain = ctx.createGain();
-    node.buffer = buffer;
-    node.connect(gain);
-    gain.connect(ctx.destination);
-    gain.gain.value = 0.72;
-    const start = Math.max(0, offsetSec || 0);
-    const dur = Math.max(0.2, durationSec || 8);
-    node.start(0, start, dur);
-    src = node;
-    node.onended = () => { if (src === node) src = null; };
-  };
-  return { play, stop };
-}
-
-/** One card for the select grid. CSS swatch is the fallback until a real
- *  still from this song's world instance is ready. */
-function worldCardEl({
-  worldId, playWorldId, name, tagline, kind, experience: cardExperience, description, previewLabel,
-}) {
-  const card = document.createElement('article');
-  card.className = 'worldCard';
-  card.dataset.worldId = playWorldId;
-  card.dataset.baseWorldId = worldId;
-  card.tabIndex = 0;
-  card.setAttribute('role', 'listitem');
-  card.setAttribute('aria-label', `${name}. ${tagline}. Preview or play in this world.`);
-
-  const preview = document.createElement('div');
-  preview.className = `worldCardPreview ${cardExperience === 'trio' ? 'trio' : kind}`;
-  const still = document.createElement('img');
-  still.className = 'worldCardStill hidden';
-  still.alt = '';
-  const live = document.createElement('canvas');
-  live.className = 'worldCardLive hidden';
-  preview.appendChild(still);
-  preview.appendChild(live);
-  card.appendChild(preview);
-  if (previewLabel) {
-    const note = document.createElement('p');
-    note.className = 'worldCardWhy worldCardPreviewNote'; note.textContent = previewLabel;
-    card.appendChild(note); still.alt = previewLabel;
-  }
-
-  const top = document.createElement('div');
-  top.className = 'worldCardTop';
-  const nameEl = document.createElement('span');
-  nameEl.className = 'worldCardName';
-  nameEl.textContent = name;
-  top.appendChild(nameEl);
-  card.appendChild(top);
-
-  const tag = document.createElement('p');
-  tag.className = 'worldCardTag';
-  tag.textContent = tagline;
-  card.appendChild(tag);
-
-  if (description) {
-    const why = document.createElement('p');
-    why.className = 'worldCardWhy';
-    why.textContent = description;
-    card.appendChild(why);
-  }
-
-  const actions = document.createElement('div');
-  actions.className = 'worldCardActions';
-  const previewBtn = document.createElement('button');
-  previewBtn.type = 'button';
-  previewBtn.className = 'worldCardPreviewBtn';
-  previewBtn.textContent = 'Preview';
-  previewBtn.setAttribute('aria-label', `Preview ${name}`);
-  previewBtn.setAttribute('aria-pressed', 'false');
-  const playBtn = document.createElement('button');
-  playBtn.type = 'button';
-  playBtn.className = 'worldCardPlayBtn';
-  const verb = pendingWorldStart?.extra?.recordingSettings ? 'Export' : 'Play';
-  playBtn.textContent = verb;
-  playBtn.setAttribute('aria-label', `${verb} in ${name}`);
-  actions.appendChild(previewBtn);
-  actions.appendChild(playBtn);
-  card.appendChild(actions);
-
-  return card;
-}
-
-/** Fill the select grid with one equal-choice card per registered world. */
-function renderWorldGrid(customWorld, features = null, extras = {}) {
-  if (!worldSelectGridEl) return;
-  worldSelectGridEl.textContent = '';
-  for (const choice of buildWorldChoices(listWorlds(), customWorld, features, extras)) {
-    worldSelectGridEl.appendChild(worldCardEl(choice));
-  }
 }
 
 function offerWorldsThenStart(data, extra = {}) {
@@ -1667,9 +1316,8 @@ function offerWorldsThenStart(data, extra = {}) {
     if (!identity) data.songIdentity = { seed: autoSeed, songProfile: profile, customBiome: data.customBiome || null };
     pendingWorldStart = { data, extra, features, seed, profile };
     // The song's real mountain range (RangeLibrary): matched and loaded in
-    // the background while the picker is up. One small module, normally
-    // ready long before a card is clicked. Kept on the song's data so it
-    // survives the rebuilds a song goes through (seek, replay, export).
+    // the background. Kept on the song's data so it survives the rebuilds a
+    // song goes through (seek, replay, export).
     const pendingForRange = pendingWorldStart;
     pendingForRange.terrainReady = prepareSongTerrain(profile, seed).then((terrain) => {
       pendingForRange.data.terrain = terrain;
@@ -1677,65 +1325,31 @@ function offerWorldsThenStart(data, extra = {}) {
     });
     lastFitDiagnostic = recordFitDiagnostic(features, profile);
     const exporting = !!(extra.exportMode || readBulkExportFromUrl());
-    if (URL_PICKS_WORLD || exporting || extra.continuationWorldId) {
-      // Already chosen: start in that world. Landscape's home ranges have
-      // to be there first -- there is no picker to cover the load -- and an
-      // export waits for every biome, so its frames never depend on load
-      // timing. Trio's ranges are procedural and start at once.
-      const mine = pendingWorldStart, worldId = extra.continuationWorldId || worldForExperience(experience);
-      const ready = mine.terrainReady.then((t) => (exporting && t?.whenAll ? t.whenAll.then(() => t) : t));
-      const wait = worldExperience(worldId) === 'trio' ? Promise.resolve()
-        : exporting ? ready : Promise.race([ready, new Promise((r) => setTimeout(r, BIOME_WAIT_MS))]);
-      wait.then(() => {
-        if (pendingWorldStart !== mine) return;
-        if (extra.automaticTicket && !continuousPlayback.isCurrent(extra.automaticTicket)) return;
-        playSelectedWorld(worldId);
-      });
-      return;
-    }
-    renderWorldGrid(null, features);
-    worldSelectEl?.classList.remove('hidden');
-    if (worldSelectEl && !worldSelectEl.open) worldSelectEl.showModal();
-    startChooserPreviews();
+    // Every song starts straight in Landscape. Its home ranges have to be
+    // there first -- briefly, then the bundled Tetons stand in -- and an
+    // export waits for every biome, so its frames never depend on load timing.
+    const mine = pendingWorldStart, worldId = extra.continuationWorldId || DEFAULT_WORLD_ID;
+    const ready = mine.terrainReady.then((t) => (exporting && t?.whenAll ? t.whenAll.then(() => t) : t));
+    const wait = exporting ? ready : Promise.race([ready, new Promise((r) => setTimeout(r, BIOME_WAIT_MS))]);
+    wait.then(() => {
+      if (pendingWorldStart !== mine) return;
+      if (extra.automaticTicket && !continuousPlayback.isCurrent(extra.automaticTicket)) return;
+      playSelectedWorld(worldId);
+    });
   } catch (err) {
-    // The grid is a convenience; analysis failing must still start a song.
-    console.error('[world chooser]', err);
+    // A tailored world is a convenience; analysis failing must still start a song.
+    console.error('[world start]', err);
     pendingWorldStart = { data, extra };
     lastFitDiagnostic = null;
     confirmWorld(data.worldId || lastWorldId || DEFAULT_WORLD_ID);
   }
 }
 
-function startChooserPreviews() {
-  stopWorldPreview();
-  const pending = pendingWorldStart;
-  if (!pending) return;
-  const audio = previewAudioHandlers();
-  previewSession = new PreviewSession({
-    data: { ...pending.data, profile: pending.profile, experience, previewPresentation: effectivePresentation() },
-    features: pending.features,
-    seed: pending.seed,
-    playAudio: audio.play,
-    stopAudio: audio.stop,
-    onStill: ({ worldId, dataUrl }) => applyWorldStill(worldId, dataUrl),
-    onPreviewStart: ({ worldId }) => setPreviewingCard(worldId),
-    onPreviewFrame: ({ worldId, canvas }) => showPreviewFrame(worldId, canvas),
-    onPreviewEnd: () => setPreviewingCard(null),
-  });
-  syncPassageButtons();
-  loadPreviewRenderer().then(() => {
-    if (previewSession && pendingWorldStart === pending) previewSession.enqueueAll();
-  }).catch((err) => console.warn('[world preview] renderer failed', err));
-}
-
 function playSelectedWorld(baseWorldId) {
   baseWorldId = resolveWorldId(baseWorldId);
   const baseWorld = listWorlds().find((world) => world.id === baseWorldId);
   if (!baseWorld) return;
-  applyExperience(worldExperience(baseWorldId));
-
-  // Preview audio/timing must not leak into the performance.
-  if (previewSession) previewSession.stopPreview();
+  ensureLandscapePresentation();
 
   try {
     const pending = pendingWorldStart;
@@ -1756,15 +1370,6 @@ function playSelectedWorld(baseWorldId) {
   }
 }
 
-function previewSelectedWorld(baseWorldId) {
-  if (!previewSession) return;
-  loadPreviewRenderer().then(() => {
-    if (previewSession) previewSession.preview(baseWorldId);
-  }).catch((err) => {
-    console.warn('[world preview]', err);
-  });
-}
-
 function recordFitDiagnostic(features, profile) {
   if (!features) return null;
   const ranked = scoreWorlds(features, undefined, { profile });
@@ -1777,57 +1382,6 @@ function recordFitDiagnostic(features, profile) {
     lines: formatFitDiagnostic(ranked, { confidence }),
   };
 }
-
-worldSelectGridEl?.addEventListener('click', (e) => {
-  const previewBtn = e.target?.closest?.('.worldCardPreviewBtn');
-  if (previewBtn) {
-    e.preventDefault();
-    e.stopPropagation();
-    const card = previewBtn.closest('.worldCard');
-    if (card?.dataset?.baseWorldId) previewSelectedWorld(card.dataset.baseWorldId);
-    return;
-  }
-  const card = e.target?.closest?.('.worldCard');
-  const baseWorldId = card?.dataset?.baseWorldId;
-  if (!baseWorldId) return;
-  playSelectedWorld(baseWorldId);
-});
-
-worldSelectGridEl?.addEventListener('keydown', (e) => {
-  // Buttons keep their native Enter/Space activation; card shortcuts are
-  // only for focus on the card itself. Do not steal Preview's Enter key.
-  if (!e.target?.classList?.contains('worldCard')) return;
-  const cards = [...(worldSelectGridEl?.querySelectorAll('.worldCard') || [])];
-  const current = document.activeElement?.closest?.('.worldCard');
-  const index = Math.max(0, cards.indexOf(current));
-  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
-    e.preventDefault();
-    cards[moveChoiceIndex(index, 1, cards.length)]?.focus();
-  } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-    e.preventDefault();
-    cards[moveChoiceIndex(index, -1, cards.length)]?.focus();
-  } else if (e.key === 'Enter') {
-    if (current?.dataset?.baseWorldId) {
-      e.preventDefault();
-      playSelectedWorld(current.dataset.baseWorldId);
-    }
-  } else if (e.key === 'p' || e.key === 'P' || e.key === ' ') {
-    if (current?.dataset?.baseWorldId && e.target?.classList?.contains('worldCard')) {
-      e.preventDefault();
-      previewSelectedWorld(current.dataset.baseWorldId);
-    }
-  }
-});
-
-worldPassageQuietEl?.addEventListener('click', () => {
-  previewSession?.setPassage('quiet');
-  syncPassageButtons();
-});
-worldPassagePeakEl?.addEventListener('click', () => {
-  previewSession?.setPassage('peak');
-  syncPassageButtons();
-});
-
 
 /** Step the armed export clock to `timeMs` and draw that instant.
  *  stepExportClock takes whole fixed steps, so the frame is drawn -- and
@@ -1935,16 +1489,11 @@ function confirmWorld(id) {
 function startConfirmedWorld(pending, id) {
   if (pending.extra?.automaticTicket && !continuousPlayback.isCurrent(pending.extra.automaticTicket)) return;
   id = resolveWorldId(id);
-  stopWorldPreview();
   lastWorldId = id;
   pending.data.worldId = id;
-  closeWorldChooser();
   // Timeline readiness owns audio startup, including a suspended context.
   const extra = { ...(pending.extra || {}) };
   if (pending.seed != null && extra.songSeed === undefined) extra.songSeed = pending.seed;
-  // A recording already has every voice. The timeline synth (oscillator
-  // "keyboard" tones + hat/kick clicks) must not sit on top of it.
-  if (extra.playBuffer) muteTimelineSynth = true;
   try {
     startTimeline(pending.data, extra);
   } catch (error) {
@@ -1972,7 +1521,6 @@ function startConfirmedWorld(pending, id) {
 /** Name the real ranges behind The Range (RangeCaption.js): one caption per
  *  biome the song travels through, or one for the song's single range. */
 function applyRangeCaptions(timelineData, exportMode) {
-  if (sim?.experience === 'trio') { sim.rangeCaption = sim.rangeCaptions = null; return; }
   const terrain = timelineData.terrain || null;
   const kind = getWorld(sim.worldId)?.kind;
   const lengthOf = (p) => (p?.spacingM > 0 && p.angles?.length > 1 ? p.spacingM * (p.angles.length - 1) : 0);
@@ -1995,6 +1543,13 @@ function applyRangeCaptions(timelineData, exportMode) {
   };
   sim.rangeCaption = null;
   sim.rangeCaptions = null;
+  // Every song opens on its title card (TitleCard.js, OpeningTimeline.js);
+  // the first place caption follows it.
+  sim.titleCard = titleCardFor({
+    title: timelineData.sourceTrack?.title || timelineData.lyricIdentity?.title || timelineData.title,
+    artist: timelineData.sourceTrack?.artist || timelineData.lyricIdentity?.artist,
+    fileName: timelineData.sourceFileName || lastSongName,
+  });
   const shown = [];
   const sections = sim.biomes?.sections || [];
   if (kind === 'alpine' && terrain?.byBiome && sim.biomes?.world?.realBiomes && sections.length) {
@@ -2025,15 +1580,16 @@ function applyRangeCaptions(timelineData, exportMode) {
           ecoregion: ecoregionOfRange(entry.ranges.far?.id),
         } : null);
       if (!caption) return;
-      const atMs = i === 0 ? 0 : Math.max(0, sec.startMs + travelMs(sec) - CAPTION_DELAY_MS);
+      const atMs = i === 0 ? TITLE_CARD_END_MS : Math.max(TITLE_CARD_END_MS, sec.startMs + travelMs(sec) - CAPTION_DELAY_MS);
       captions.push({ atMs, caption });
       if (!scene) shown.push(entry.ranges.near, entry.ranges.mid, entry.ranges.far);
     });
     sim.rangeCaptions = captions.length ? captions : null;
   } else {
     const profiles = sim.biomes?.terrainProfiles || {};
-    sim.rangeCaption = captionFor(terrain?.range || null, terrain?.ranges || {}, profiles, null);
-    if (sim.rangeCaption) shown.push(terrain?.ranges?.near, terrain?.ranges?.mid, terrain?.range);
+    const caption = captionFor(terrain?.range || null, terrain?.ranges || {}, profiles, null);
+    sim.rangeCaptions = caption ? [{ atMs: TITLE_CARD_END_MS, caption }] : null;
+    if (caption) shown.push(terrain?.ranges?.near, terrain?.ranges?.mid, terrain?.range);
   }
   if (!exportMode && (!renderer?.voxelRange || renderer.voxelRange.state === 'unavailable')) {
     for (const r of shown) if (r?.id) noteRangeShown(r.id);
@@ -2052,7 +1608,7 @@ function startTimeline(timelineData, extra = {}) {
   // The heard tours, before a tour-mode change or setSong replaces them.
   const heardTours = rangePresentation?.cameraContinuation?.(cameraRun?.highWaterMs ?? 0) || null;
   const {
-    songSeed: seedOverride = undefined, playBuffer, live = false,
+    songSeed: seedOverride = undefined, playBuffer,
     startAtMs = 0, startAtWallMs = 0, preservePause = false, captureMode: captureModeFlag = false,
     exportMode: exportModeFlag = false, exportSize = null, keepAudio = false,
   } = extra;
@@ -2060,14 +1616,14 @@ function startTimeline(timelineData, extra = {}) {
     cameraSchedule: undefined, cameraTourMode: undefined, cameraRunIntent: undefined, exportMode: false, exportSize: null, exportPresentation: undefined, exportQualityLevel: undefined, beforePlayback: undefined, chapterState: null, keepAudio: false, startAtMs: 0, startAtWallMs: 0, keepUserCamera: false };
   // The world decides the presentation, before anything below reads it.
   timelineData.worldId = resolveWorldId(timelineData.worldId || lastWorldId || DEFAULT_WORLD_ID);
-  applyExperience(worldExperience(timelineData.worldId));
+  ensureLandscapePresentation();
   // Temporary render policy never writes the listener's URL or storage.
   if (extra.cameraTourMode !== undefined && rangePresentation && currentCameraTourMode() !== extra.cameraTourMode) {
     rangePresentation.setTourMode(extra.cameraTourMode === 'off' ? null : extra.cameraTourMode);
   }
   const fromUrl = exportModeFlag ? null : readBulkExportFromUrl();
   const exportMode = !!(exportModeFlag || fromUrl);
-  const waitForLandscape = !exportMode && experience === 'landscape' && rangePresentation?.enabled
+  const waitForLandscape = !exportMode && rangePresentation?.enabled
     && getWorld(timelineData.worldId || lastWorldId || DEFAULT_WORLD_ID)?.kind === 'alpine';
   // Freeze a retained recording before world construction. It resumes at
   // the same heard position only after the replacement scene can draw.
@@ -2100,12 +1656,6 @@ function startTimeline(timelineData, extra = {}) {
   // suspend below, leaving the song playing under a stepped clock.
   stopTimeline({ preservePause: preservePause || exportMode, keepAudio });
   fitCanvas();
-  // Any path that is about to play a decoded recording (confirmWorld,
-  // replay) mutes the timeline synth. Live listening mutes it for the same
-  // reason from the other direction: the song is already in the room. MIDI
-  // and the procedural demo pass neither and keep it.
-  if (playBuffer || live) muteTimelineSynth = true;
-  applySynthMutePolicy();
   // Guard a degenerate declared duration (<=0): without it, FractureEngine's
   // idle -> about-to-freeze transition never fires and the song never
   // completes -- the engine would just run forever.
@@ -2141,7 +1691,6 @@ function startTimeline(timelineData, extra = {}) {
   try {
     applyTerrainTourPolicy(timelineData.terrain, currentCameraTourMode(), getWorld(timelineData.worldId)?.kind);
     sim = new Simulation(conductor, paramBus, {
-      experience,
       bpm: timelineData.bpm || 120,
       rangeListening,
       rangeNarrative: timelineData.rangeNarrative || null,
@@ -2165,9 +1714,9 @@ function startTimeline(timelineData, extra = {}) {
       lyricSections: timelineData.lyricSections || null,
       syncedLyrics: timelineData.syncedLyrics || null,
       lyricSession: timelineData.lyricSession || null,
-      // SSM structure read (StructureAnalyzer), audio path only. Null on
-      // MIDI/demo/free-time, where BiomeManager keeps its own band-energy
-      // novelty schedule.
+      // SSM structure read (StructureAnalyzer), or the sample's authored
+      // sections. Null on free-time, where BiomeManager keeps its own
+      // band-energy novelty schedule.
       structure: timelineData.structure || null,
       // The raw-audio Krumhansl timeline is the authoritative live key read;
       // passing it through keeps VibeDirector/KeyDirector aligned with the
@@ -2284,7 +1833,6 @@ function startTimeline(timelineData, extra = {}) {
   debugOverlay = new DebugOverlay(debugOverlayEl, sim, paramBus, visionLoop, perfGovernor, drawErrors);
   debugOverlay.presentationDiagnostics = () => renderer?.diagnostics;
   debugOverlay.onVisionConfigChange = persistVisionConfig;
-  renderTracks(timelineData.tracks, timelineData.pairs);
   if (filmstripEl) { filmstripEl.innerHTML = ''; filmstripEl.classList.add('hidden'); }
   // A new song's COMPLETE panel starts without the last song's 4K files.
   if (!reelSaver.busy) showReelFiles([]);
@@ -2346,7 +1894,7 @@ function startTimeline(timelineData, extra = {}) {
   // first frame), so strips for biomes Range v2 covers are adopted as
   // evictable fallback from the start.
   if (rangePresentation?.enabled && sim.biomes) sim.biomes.rangePresentation = rangePresentation;
-  try { if (experience === 'landscape' && !rangePresentation?.tourMode) sim.biomes.preparePlaybackStrips(); }
+  try { if (!rangePresentation?.tourMode) sim.biomes.preparePlaybackStrips(); }
   catch (err) { console.warn('[strip prepare]', err); }
   running = true;
   syncKeepAwake();
@@ -2419,15 +1967,11 @@ function startTimeline(timelineData, extra = {}) {
   // (rather than inferring it from run rates, which headless Chromium's
   // rAF throttling and AudioContext clock drift make unreliable to assert on).
   window.__SMW = {
-    conductor, paramBus, sim, audioEngine, visionLoop, debugOverlay, synth, fontLibrary, sf2Engine, fontRecommender,
-    ensureSoundfonts,
+    conductor, paramBus, sim, audioEngine, visionLoop, debugOverlay,
     renderer, rendererMode, rendererBackend: renderer?.backend || 'canvas',
     customBiome: timelineData.customBiome || null,
     analysis: timelineData.analysis || null,
     stems: timelineData.stems || null,
-    muteTimelineSynth,
-    get experience() { return sim?.experience || experience; },
-    setExperience: value => changeExperience(value),
     get sourceTrack() { return lastTimelineData?.sourceTrack || null; },
     get trackIdentity() { return lastTimelineData?.lyricIdentity || null; },
     get audioBuffer() { return lastAudioBuffer; },
@@ -2570,21 +2114,6 @@ function startTimeline(timelineData, extra = {}) {
   } else renderReadyPromise = Promise.resolve({ status: 'export' });
 }
 
-/**
- * A MIDI and audio file dropped TOGETHER: the recording is what you hear,
- * the score is what you see -- an exact description of the visuals for a
- * song the engine would otherwise have to guess at from raw spectra.
- *
- * The two are assumed to share a t=0 origin, which is what exporting them
- * from one project gives you. Nothing here tries to detect or correct an
- * offset: a silently "corrected" sync that guessed wrong would be far worse
- * to author against than one that is always literal.
- *
- * Analysis is skipped entirely (that's the raw-audio path's job) -- the MIDI
- * already states every onset, so energy curves are synthesized from it just
- * as they are for a MIDI-only load. That also makes this path near-instant
- * where a raw-audio drop of the same song takes its separation/pitch pass.
- */
 function showProgress(text) {
   progressEl.textContent = text;
   progressEl.classList.remove('hidden');
@@ -2872,7 +2401,6 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
   // Freeze learned settings for both cache identity and the analysis itself.
   const analysisGroove = new GrooveFingerprint(groove.toJSON());
   showProgress('Reading file…');
-  closeWorldChooser();
   try {
     await bootAudio();
   } catch (err) {
@@ -2883,7 +2411,7 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
     return false;
   }
   // A second load started while this one is still analysing (another drop,
-  // a demo click, a MIDI drop) bumps loadGen -- that's the load the player
+  // a sample click) bumps loadGen -- that's the load the player
   // actually wants now, so this one must bail before it commits rather than
   // clobbering it. Analysis here is the longest of any load path (band
   // separation + onset/tempo/pitch + an awaited lyrics prompt), so it's the
@@ -2951,9 +2479,8 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
   auditionPanelEl?.classList.remove('hidden');
   const loadShowSession = loadShow?.start(null);
   loadShow?.setStage(isStemDrop ? `Mixing ${decoded.length} stems…` : 'Separating into 7 frequency bands…', 0);
-  // Everything below can throw (analysis, lyric lookups, world build). The
-  // MIDI path next door catches and recovers; this one didn't -- a failure
-  // here left the loader hidden, the HUD hidden, and the audition panel
+  // Everything below can throw (analysis, lyric lookups, world build). An
+  // uncaught failure here left the loader hidden, the HUD hidden, and the audition panel
   // stuck on screen forever with no alert and no way back but a reload.
   try {
     // Identity + lyrics resolution runs concurrently with separation/analysis
@@ -3135,20 +2662,15 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
     if (data.stems && DEV_MODE) {
       console.info('[casting] stems:', data.stems.map((s) => `${s.name} -> ${s.lane || '(world)'}`).join(', '));
     }
-    // Audio files get the same per-song visual fingerprint MIDI files do: a
+    // Every song gets its own visual fingerprint: a
     // unique custom biome from the timeline plus the adapter's chroma/
     // brightness/dynamics/width analysis (see BiomeImporter).
     // Part of the song's identity: restored as it was first made, so a song
     // started on its opening looks the same on every later play.
-    data.customBiome = data.songIdentity?.customBiome || generateCustomBiomeFromMidi(data, selectedFiles[0].name || 'Audio');
+    data.customBiome = data.songIdentity?.customBiome || generateCustomBiomeFromTimeline(data, selectedFiles[0].name || 'Audio');
     rememberCustomBiome(paramBus, data.customBiome);
-    // Raw audio already has every voice baked into the decoded buffer —
-    // stacking the synth's pseudo-onset voicing on top is the unwanted
-    // synthetic hi-hat/click layer, so the timeline synth stays silent here.
-    muteTimelineSynth = true;
     lastSongName = sessionSongName(data, selectedFiles[0].name);
     lastAudioBuffer = audioBuffer;
-    fontRecommender?.clear(); // the recording is its own sound source
     loadAudioFiles._preparedData = data;
     onPrepared?.();
     offerWorldsThenStart(data, { playBuffer: audioBuffer, lyricsReady,
@@ -3191,8 +2713,6 @@ function handleFiles(files, { selection = null, sourceMetadata = null, localTrac
     return;
   }
   if (!list.length) return;
-  closeWorldChooser();
-  stopWorldPreview();
   pendingWorldStart = null;
   showProgress('Reading file…');
   return loadAudioFiles(list, { selection, sourceMetadata, localTrack, onPrepared, playbackOptions });
@@ -3549,25 +3069,7 @@ if (fileChooser.isAbsent) {
   revealUrlLoad('This browser has no file chooser, so files cannot be browsed'
     + ' from this page. Load a song by address instead.');
 }
-worldSelectBackEl?.addEventListener('click', () => backToTitle());
-worldSelectEl?.addEventListener('keydown', (e) => {
-  // Native modality makes the background inert; explicitly wrap the two
-  // endpoints so Tab does not leave the page for the browser toolbar.
-  if (e.key !== 'Tab') return;
-  if (e.shiftKey && document.activeElement === worldPassageQuietEl) {
-    e.preventDefault();
-    worldSelectBackEl?.focus();
-  } else if (!e.shiftKey && document.activeElement === worldSelectBackEl) {
-    e.preventDefault();
-    worldPassageQuietEl?.focus();
-  }
-});
-worldSelectEl?.addEventListener('cancel', (e) => {
-  e.preventDefault();
-  backToTitle(); // also stops preview audio and discards the pending song
-});
-
-/** Authored sample (Proof) so a visitor can see the worlds without a file. */
+/** Authored sample (Proof) so a visitor can see Landscape without a file. */
 async function startDemoSample() {
   const selection = beginAudioSelection('sample');
   cancelUrlLoad(); // the sample is a choice too, and outranks an older fetch
@@ -3578,11 +3080,11 @@ async function startDemoSample() {
     return;
   }
   if (!audioSelections.isCurrent(selection)) return;
-  muteTimelineSynth = false;
-  lastAudioBuffer = null;
-  lastSongName = 'Proof';
-  fontRecommender?.clear();
   const song = buildDemoSong();
+  // Rendered once to a buffer, so the sample plays exactly like a recording.
+  const playBuffer = renderDemoSongToAudioBuffer(audioEngine.ctx, song);
+  lastAudioBuffer = playBuffer;
+  lastSongName = 'Proof';
   const energyCurves = synthesizeEnergyCurves(song.timeline, song.durationMs);
   const barMs = (60000 / song.bpm) * 4;
   const boundariesMs = song.sections.map((s) => s.bar0 * barMs);
@@ -3600,7 +3102,7 @@ async function startDemoSample() {
       boundariesMs,
       confidence: 1,
     },
-  }, { recordingSettings: selectionExportSettings.get(selection) });
+  }, { playBuffer, recordingSettings: selectionExportSettings.get(selection) });
 }
 demoBtnEl?.addEventListener('click', (e) => {
   e.stopPropagation();
@@ -3613,7 +3115,6 @@ demoBtnEl?.addEventListener('click', (e) => {
 // throw "Audio is blocked" and the drop looked like it did nothing.
 function unlockAudio() { bootAudio().catch(() => {}); }
 dropzoneEl?.addEventListener('pointerdown', unlockAudio, { passive: true });
-worldSelectEl?.addEventListener('pointerdown', unlockAudio, { passive: true });
 
 // Dropzone-local visual feedback only (pre-game loader screen) — the actual
 // file handling lives in the window-level listeners below so a drop lands
@@ -3641,7 +3142,7 @@ dropzoneEl.addEventListener('keydown', (e) => {
 });
 
 // --- Global drag-and-drop: works at ANY time, not just from the initial
-// loader screen. Dropping a different .mid/audio file mid-song tears down
+// loader screen. Dropping a different audio file mid-song tears down
 // the current one (stopTimeline, via startTimeline/
 // loadAudioFile) and auto-plays the new one immediately. dragDepth tracks
 // nested dragenter/dragleave pairs (they fire on every element the pointer
@@ -3702,7 +3203,6 @@ document.getElementById('copyGraphicsReport')?.addEventListener('click', async (
 });
 
 // --- Track visibility wiring ---
-if (trackBadgeBtnEl) trackBadgeBtnEl.addEventListener('click', () => toggleTrackList());
 
 function frame(tRaf) {
   if (!running) return;
@@ -3903,7 +3403,6 @@ function applyShowAudio() {
   if (sim.fracture?.justEnteredFinale && !sim.fracture.audioSilenced) {
     sim.fracture.audioSilenced = true;
     audioEngine?.fadeToSilence?.(0.32);
-    synth?.stopAll?.();
   }
 
   // Authored cuts: the drop and the apotheosis duck the mix for a beat,
@@ -4346,7 +3845,6 @@ window.addEventListener('keydown', (e) => {
   // A modal chooser owns keyboard input; every key retains native
   // dialog/button behavior, including Escape.
   if (document.getElementById('plexLibraryPanel')?.open) return;
-  if (worldSelectEl?.open) return;
   if (document.getElementById('libraryPanel')?.open) return;
   // Typing belongs to the field. Every shortcut below -- P, T, F/J, C and
   // the inert WASD/arrows -- otherwise ate letters and caret keys, so
@@ -4414,13 +3912,10 @@ window.addEventListener('keydown', (e) => {
     fpsHudEl?.classList.toggle('hidden', !fpsHudVisible);
     return;
   }
-  // `T` toggles the always-present, player-facing track badge (index.html's
-  // #trackBadge) -- visible, self-explanatory, fully reversible, so it
-  // stays ungated like P/F3. `` ` `` (the full telemetry overlay) and V
+  // `` ` `` (the full telemetry overlay) and V
   // (silently toggles the Ollama vision loop -- changes engine behavior
   // with zero visible indication) are the two that read as "the controls
   // are broken" if hit by accident, so those are dev-gated.
-  if (e.key === 't' || e.key === 'T') { toggleTrackList(); return; }
   if (DEV_MODE && debugOverlay) {
     if (e.key === '`') { debugOverlay.toggle(); return; }
     if (e.key === 'v' || e.key === 'V') { debugOverlay.toggleVision(); return; }
@@ -4546,9 +4041,8 @@ updateBtLatencyBtnUI();
 function onSongComplete() {
   running = false;
   hudEl.classList.add('hidden');
-  // Silence audio under the complete panel (otherwise the buffer/SF2 keeps going).
+  // Silence audio under the complete panel (otherwise the buffer keeps going).
   audioEngine?.pause();
-  synth?.stopAll?.();
 
   lastSongSeed = sim.songSeed;
   if (completeSongNameEl) {
@@ -4573,7 +4067,7 @@ function queueContinuousPlayback(ready = null) {
     continuousPlayback.cancel('Continuous play stopped: add songs to your music library.');
     return;
   }
-  const worldId = worldForExperience(experience);
+  const worldId = DEFAULT_WORLD_ID;
   continuousPlayback.schedule({ ready, start: ticket => startNextLibraryTrack(ticket, worldId) });
 }
 
@@ -4614,7 +4108,6 @@ function replaySong({ songSeed } = {}) {
   // Capture buffer before rebuild — startTimeline stops the AudioContext source
   // via stopTimeline, but must not lose the decoded song for the restart.
   const buffer = lastAudioBuffer;
-  if (buffer) muteTimelineSynth = true;
   // Arm the master-bus recorder after the landscape is ready and before
   // the replacement source starts, preserving the first audio onset.
   startTimeline(lastTimelineData, {
@@ -4795,7 +4288,6 @@ function endReelRender(data, restore) {
   else delete data.rangeNarrative;
   lastStartExtra = restore.lastStartExtra;
   lastSongSeed = restore.lastSongSeed;
-  if (experience !== restore.experience) applyExperience(restore.experience);
   if (rangePresentation && currentCameraTourMode() !== restore.cameraTourMode) {
     rangePresentation.setTourMode(restore.cameraTourMode === 'off' ? null : restore.cameraTourMode);
   }
@@ -4845,7 +4337,7 @@ async function saveReelFrames(indices = null) {
     worldId: data.worldId, hadChapter: Object.hasOwn(data, 'chapterState'), chapterState: data.chapterState,
     cameraRun, activeCameraSchedule, cameraTourMode: currentCameraTourMode(), hadCameraSchedule: Object.hasOwn(data, 'cameraSchedule'), cameraSchedule: data.cameraSchedule,
     hadRangeNarrative: Object.hasOwn(data, 'rangeNarrative'), rangeNarrative: data.rangeNarrative,
-    lastStartExtra, lastSongSeed, paused, experience, loaderHidden: loaderEl.classList.contains('hidden'),
+    lastStartExtra, lastSongSeed, paused, loaderHidden: loaderEl.classList.contains('hidden'),
     ctxRunning: audioEngine?.ctx?.state === 'running', gain: audioEngine?.master?.gain.value,
   };
   const total = plan.groups.reduce((n, g) => n + g.items.length, 0);
@@ -5009,7 +4501,7 @@ async function playRandomLibrarySong() {
   if (!musicLibrary.tracks.length) { chooseMusicFolder(); return; }
   const previous = lastLibraryTrackId || recentlyPlayed(musicLibrary.tracks, 1)[0]?.key;
   const track = randomTrack(musicLibrary.tracks, previous);
-  const continuationWorldId = completePanelEl.classList.contains('hidden') ? null : worldForExperience(experience);
+  const continuationWorldId = completePanelEl.classList.contains('hidden') ? null : DEFAULT_WORLD_ID;
   for (const button of [randomSongBtn, completeRandomSongBtnEl]) if (button) button.disabled = true;
   try { await playLibraryTrack(track, { continuationWorldId }); }
   catch (error) { showErrorBanner('Could not open that song: ' + (error?.message || error)); }
@@ -5544,7 +5036,7 @@ function syncRecordUI() {
   if (recordBtnEl) recordBtnEl.disabled = finalizing;
   exportSetup.setBusy(busy);
   cancelExportBtn?.classList.toggle('hidden', !active && !arming);
-  for (const control of [rangeSeekEl, document.getElementById('rangeRestart'), experienceControl]) if (control) control.disabled = busy;
+  for (const control of [rangeSeekEl, document.getElementById('rangeRestart')]) if (control) control.disabled = busy;
 }
 
 /** Elapsed time and file size while recording.

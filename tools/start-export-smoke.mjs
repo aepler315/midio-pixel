@@ -8,8 +8,6 @@ import { chromium } from 'playwright';
 
 const url = process.argv[2] || 'http://127.0.0.1:8091';
 const out = path.resolve(process.argv[3] || '.smoke/start-screen');
-const world = process.argv[4] || 'Trio';
-assert.ok(['Trio', 'Landscape'].includes(world));
 await fs.mkdir(out, { recursive: true });
 const browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH, headless: true,
   args: ['--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--autoplay-policy=no-user-gesture-required'] });
@@ -36,9 +34,11 @@ try {
   await page.waitForFunction(() => document.querySelectorAll('#libraryRecent .recentChip').length === 2);
   await page.getByRole('button', { name: 'Close library', exact: true }).click();
   const playRandom = async () => {
+    await page.evaluate(() => { window.__previousSim = window.__SMW?.sim || null; });
     await page.locator('#randomSongBtn').click();
-    await page.getByRole('button', { name: `Play in ${world}`, exact: true }).click({ timeout: 120000 });
-    await page.waitForFunction(() => window.__SMW?.sim && !window.__SMW.paused && window.__SMW.renderReadiness?.status === 'ready');
+    // The song starts straight in Landscape once it is analysed.
+    await page.waitForFunction(() => window.__SMW?.sim && window.__SMW.sim !== window.__previousSim
+      && !window.__SMW.paused && window.__SMW.renderReadiness?.status === 'ready', null, { timeout: 120000 });
     return page.evaluate(() => window.__SMW.trackIdentity?.title);
   };
   const first = await playRandom();
@@ -52,6 +52,6 @@ try {
   check('mobile layout has no horizontal overflow', await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   check('no uncaught page errors', errors.length === 0);
 } finally {
-  await fs.writeFile(path.join(out, 'report.json'), JSON.stringify({ world, checks, errors }, null, 2));
+  await fs.writeFile(path.join(out, 'report.json'), JSON.stringify({ checks, errors }, null, 2));
   await browser.close();
 }

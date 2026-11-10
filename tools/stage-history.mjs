@@ -34,7 +34,7 @@ export async function stageHistory({ sourceDir = '.', outputDir = '_site', ref =
     }
     history.entries.at(-1).entryPath = 'engine/index.html';
     // One batch reads each unique Git object exactly once. Unlike git archive
-    // per version, this neither duplicates large soundfonts nor patches renderers.
+    // per version, this neither duplicates large shared assets nor patches renderers.
     const ids = [...objects];
     const batch = execFileSync('git', ['-C', path.resolve(historyDir), 'cat-file', '--batch'], { input: ids.join('\n') + '\n', maxBuffer: MAX_HISTORY_BYTES });
     let cursor = 0, objectBytes = 0;

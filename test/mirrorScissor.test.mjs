@@ -54,7 +54,7 @@ test('every texel a visible lake fragment can read lies in the scissor', () => {
     }
     const boxes = waterBoxes([{ positions: Float32Array.from(positions), index: Uint32Array.from(index) }]);
     const u = { uDeformAmp: { value: 3 * r() }, uDeformKick: { value: r() }, uDeformStructural: { value: 0 }, uDeformMelodic: { value: r() }, uDeformGesture: { value: 0 },
-      uMirrorRipple: { value: .004 }, uWakeAmt: { value: r() }, uWaterGust: { value: [{ y: r() }] }, uStorm: { value: { x: r() } },
+      uMirrorRipple: { value: .004 }, uWaterGust: { value: [{ y: r() }] }, uStorm: { value: { x: r() } },
       uWaterMusic: { value: { x: r(), y: r() } }, uWaterAccent: { value: [{ y: r() }] } };
     const lift = liftBounds(u), shiver = shiverBounds(u);
     const W = 704, H = 424;
