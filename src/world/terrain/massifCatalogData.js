@@ -9,7 +9,12 @@ export default {
    "id": "lake-amphitheatre-a",
    "title": "Lake amphitheatre A",
    "families": [
-    "dry-conifer"
+    "dry-conifer",
+    "wet-conifer",
+    "icefield",
+    "tundra",
+    "taiga",
+    "desert"
    ],
    "principalSlot": "B2",
    "lakeLevelM": 2050,
@@ -174,21 +179,740 @@ export default {
      ]
     }
    ]
+  },
+  {
+   "id": "lake-narrows-b",
+   "title": "Lake narrows: a long lake walled by massifs, the principal closing its far end",
+   "families": [
+    "dry-conifer",
+    "wet-conifer",
+    "icefield",
+    "tundra",
+    "taiga",
+    "pine-oak",
+    "canyon"
+   ],
+   "principalSlot": "B2",
+   "lakeLevelM": 2050,
+   "grid": {
+    "width": 2241,
+    "height": 2241,
+    "cellSizeM": 20,
+    "originM": [
+     -22400,
+     -22400
+    ]
+   },
+   "lake": {
+    "levelM": 2050,
+    "centerM": [
+     0,
+     -4000
+    ],
+    "radiiM": [
+     9500,
+     26000
+    ]
+   },
+   "floor": {
+    "shoreRiseM": 1.5,
+    "slope": 0.03
+   },
+   "camera": {
+    "eyeStartM": [
+     500,
+     2085,
+     20600
+    ],
+    "eyeEndM": [
+     -700,
+     2100,
+     20000
+    ],
+    "targetStartM": [
+     0,
+     3150,
+     -9000
+    ],
+    "targetEndM": [
+     -300,
+     3250,
+     -9000
+    ],
+    "fovYDeg": 34
+   },
+   "slots": [
+    {
+     "id": "H1",
+     "row": "horizon",
+     "tiles": [
+      1,
+      0,
+      11,
+      9
+     ],
+     "reliefM": [
+      400,
+      null
+     ]
+    },
+    {
+     "id": "H3",
+     "row": "horizon",
+     "tiles": [
+      23,
+      0,
+      11,
+      9
+     ],
+     "reliefM": [
+      400,
+      null
+     ]
+    },
+    {
+     "id": "B1",
+     "row": "back",
+     "tiles": [
+      2,
+      9,
+      10,
+      9
+     ],
+     "reliefM": [
+      800,
+      null
+     ]
+    },
+    {
+     "id": "B2",
+     "row": "back",
+     "tiles": [
+      12,
+      1,
+      11,
+      10
+     ],
+     "reliefM": [
+      800,
+      null
+     ]
+    },
+    {
+     "id": "B3",
+     "row": "back",
+     "tiles": [
+      23,
+      9,
+      10,
+      9
+     ],
+     "reliefM": [
+      800,
+      null
+     ]
+    },
+    {
+     "id": "F1",
+     "row": "front",
+     "tiles": [
+      4,
+      18,
+      9,
+      8
+     ],
+     "reliefM": [
+      300,
+      650
+     ]
+    },
+    {
+     "id": "F2",
+     "row": "front",
+     "tiles": [
+      22,
+      18,
+      9,
+      8
+     ],
+     "reliefM": [
+      300,
+      650
+     ]
+    }
+   ]
+  },
+  {
+   "id": "offset-shore-c",
+   "title": "Offset shore: a raised eye left of centre, a large principal and a three-piece front row",
+   "families": [
+    "dry-conifer",
+    "wet-conifer",
+    "icefield",
+    "tundra",
+    "taiga",
+    "pine-oak",
+    "broadleaf",
+    "chaparral",
+    "steppe",
+    "canyon",
+    "desert"
+   ],
+   "principalSlot": "B1",
+   "lakeLevelM": 2050,
+   "grid": {
+    "width": 2241,
+    "height": 2241,
+    "cellSizeM": 20,
+    "originM": [
+     -22400,
+     -22400
+    ]
+   },
+   "lake": {
+    "levelM": 2050,
+    "centerM": [
+     -2000,
+     -9000
+    ],
+    "radiiM": [
+     40000,
+     26000
+    ]
+   },
+   "floor": {
+    "shoreRiseM": 1.5,
+    "slope": 0.03
+   },
+   "camera": {
+    "eyeStartM": [
+     -7000,
+     2221.3,
+     19800
+    ],
+    "eyeEndM": [
+     -5500,
+     2220.4,
+     19200
+    ],
+    "targetStartM": [
+     -9000,
+     3050,
+     -3000
+    ],
+    "targetEndM": [
+     -6000,
+     3150,
+     -3000
+    ],
+    "fovYDeg": 36
+   },
+   "slots": [
+    {
+     "id": "H1",
+     "row": "horizon",
+     "tiles": [
+      0,
+      0,
+      11,
+      10
+     ],
+     "reliefM": [
+      400,
+      null
+     ]
+    },
+    {
+     "id": "H2",
+     "row": "horizon",
+     "tiles": [
+      11,
+      0,
+      12,
+      10
+     ],
+     "reliefM": [
+      400,
+      null
+     ]
+    },
+    {
+     "id": "H3",
+     "row": "horizon",
+     "tiles": [
+      23,
+      0,
+      12,
+      10
+     ],
+     "reliefM": [
+      400,
+      null
+     ]
+    },
+    {
+     "id": "B1",
+     "row": "back",
+     "tiles": [
+      1,
+      10,
+      13,
+      10
+     ],
+     "reliefM": [
+      800,
+      null
+     ]
+    },
+    {
+     "id": "B2",
+     "row": "back",
+     "tiles": [
+      17,
+      10,
+      10,
+      10
+     ],
+     "reliefM": [
+      800,
+      null
+     ]
+    },
+    {
+     "id": "F1",
+     "row": "front",
+     "tiles": [
+      4,
+      21,
+      7,
+      7
+     ],
+     "reliefM": [
+      300,
+      650
+     ]
+    },
+    {
+     "id": "F2",
+     "row": "front",
+     "tiles": [
+      14,
+      22,
+      7,
+      7
+     ],
+     "reliefM": [
+      300,
+      650
+     ]
+    },
+    {
+     "id": "F3",
+     "row": "front",
+     "tiles": [
+      24,
+      20,
+      8,
+      8
+     ],
+     "reliefM": [
+      300,
+      650
+     ]
+    }
+   ]
   }
  ],
  "materials": {
   "dry-conifer": {
    "manifestUrl": "materials/dry-conifer.json",
    "manifestSha256": "6afff55ebe7762475b09f09fa8f60627714d051f9f117ffffd8e124894281175"
+  },
+  "wet-conifer": {
+   "manifestUrl": "materials/wet-conifer.json",
+   "manifestSha256": "8f5ff6bb64b01072364f9d4698c13591af20de8f32dfbd40b67f0614fd242bb0"
+  },
+  "icefield": {
+   "manifestUrl": "materials/icefield.json",
+   "manifestSha256": "ac0da317cbbc611f7b9a47755b4d66705d11b37b4fbceab783d918a79d6d49ae"
+  },
+  "tundra": {
+   "manifestUrl": "materials/tundra.json",
+   "manifestSha256": "76deaaa34707bc0454ecb6e10080e4d1b6716ba84b760a7fa4ce9df09a26dce2"
+  },
+  "taiga": {
+   "manifestUrl": "materials/taiga.json",
+   "manifestSha256": "c44b2272c56122a84854f3f8bb2376fad740401588242ed4e0fecb8ed15f564c"
+  },
+  "pine-oak": {
+   "manifestUrl": "materials/pine-oak.json",
+   "manifestSha256": "8959b57b89150274c889b241bd4656a0cdfafd28d31f675f4fd4011abaa7a38f"
+  },
+  "broadleaf": {
+   "manifestUrl": "materials/broadleaf.json",
+   "manifestSha256": "3e8ff42e50658d7473f7a81d107c6a3e3b628ee8daae6b7d89541f8e21578894"
+  },
+  "chaparral": {
+   "manifestUrl": "materials/chaparral.json",
+   "manifestSha256": "f3357cb770f82d0525600484c2e29132ac827dc07e799cec03e54a13a6004168"
+  },
+  "steppe": {
+   "manifestUrl": "materials/steppe.json",
+   "manifestSha256": "ada04aa0d6767f64aa7dde9aedc02e553f98b2b3488b70e032e6319b170be6c9"
+  },
+  "canyon": {
+   "manifestUrl": "materials/canyon.json",
+   "manifestSha256": "ca6259b1e0cd2b10e4aae9e84abbe9c95b32976767ef372aa3caac4e73c326ce"
+  },
+  "desert": {
+   "manifestUrl": "materials/desert.json",
+   "manifestSha256": "2beecf1f1647994f69a65b655ee5e48a3e771117bb7bcd1efd4c12ec67cfc14d"
   }
  },
  "pieces": [
+  {
+   "id": "black-mountains-catawba:mount-mitchell",
+   "name": "Mount Mitchell",
+   "family": "broadleaf",
+   "sourceView": "black-mountains-catawba",
+   "place": "Black Mountains, North Carolina",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "landmark",
+   "tiles": [
+    10,
+    8
+   ],
+   "peakReliefM": 843,
+   "peakM": 2023,
+   "characterScores": {
+    "energy": 0.143,
+    "rawness": 0.103,
+    "grandeur": 0.187,
+    "dominance": 0.609
+   },
+   "reliefSha256": "8596e9c0f6671bf18d8360608d9457dd34895f77ff33ad393062ef0cc512d1fc",
+   "manifestUrl": "massif/black-mountains-catawba--mount-mitchell.terrain.json",
+   "manifestSha256": "45fb51f3b16590a3492b7d0c2898b594340ac6cb30da11460e9aecbb10ad47dd"
+  },
+  {
+   "id": "black-mountains-catawba:summit-1108",
+   "name": "Black Mountains summit 1108 m",
+   "family": "broadleaf",
+   "sourceView": "black-mountains-catawba",
+   "place": "Black Mountains, North Carolina",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    6,
+    8
+   ],
+   "peakReliefM": 537,
+   "peakM": 1108,
+   "characterScores": {
+    "energy": 0.047,
+    "rawness": 0.03,
+    "grandeur": 0.117,
+    "dominance": 1
+   },
+   "reliefSha256": "0793065f7a0266440c05152f2ce4a687ecc3588579dabbbdfe7ed2982bb0f0f8",
+   "manifestUrl": "massif/black-mountains-catawba--summit-1108.terrain.json",
+   "manifestSha256": "1141487fbba8eac7e18e593b053ecdb9738095f829bd8b55c1ffa8bee1a4d1a3"
+  },
+  {
+   "id": "black-mountains-catawba:summit-1108-2",
+   "name": "Black Mountains summit 1071 m",
+   "family": "broadleaf",
+   "sourceView": "black-mountains-catawba",
+   "place": "Black Mountains, North Carolina",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    8,
+    6
+   ],
+   "peakReliefM": 531,
+   "peakM": 1071,
+   "characterScores": {
+    "energy": 0.064,
+    "rawness": 0.037,
+    "grandeur": 0.118,
+    "dominance": 0.879
+   },
+   "reliefSha256": "eca1053a37a79edf8730fbb8c37111e0b343b085ad2eed5bb6f63af538973cb6",
+   "manifestUrl": "massif/black-mountains-catawba--summit-1108-2.terrain.json",
+   "manifestSha256": "12b0487801b4af0dc037fc7f435f350f34951e082d5978418d11e5d02a1010d6"
+  },
+  {
+   "id": "black-mountains-catawba:summit-1161",
+   "name": "Black Mountains summit 1161 m",
+   "family": "broadleaf",
+   "sourceView": "black-mountains-catawba",
+   "place": "Black Mountains, North Carolina",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    3,
+    4
+   ],
+   "peakReliefM": 402,
+   "peakM": 1161,
+   "characterScores": {
+    "energy": 0.084,
+    "rawness": 0.067,
+    "grandeur": 0.089,
+    "dominance": 1
+   },
+   "reliefSha256": "a47bc95c7c20c4f3500721edadc7cdc396afefc676de1664a126b62306c718f2",
+   "manifestUrl": "massif/black-mountains-catawba--summit-1161.terrain.json",
+   "manifestSha256": "dc0d3dd978dc9c79498008500fbc0edbc723388191463269e171f886bd6dc604"
+  },
+  {
+   "id": "black-mountains-catawba:summit-1292",
+   "name": "Black Mountains summit 1292 m",
+   "family": "broadleaf",
+   "sourceView": "black-mountains-catawba",
+   "place": "Black Mountains, North Carolina",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    6,
+    6
+   ],
+   "peakReliefM": 416,
+   "peakM": 1292,
+   "characterScores": {
+    "energy": 0.098,
+    "rawness": 0.083,
+    "grandeur": 0.092,
+    "dominance": 0.681
+   },
+   "reliefSha256": "01146fc8f9c9542f4df3d9e150f2515ceaabea339f24049198fb2b6e2535d78b",
+   "manifestUrl": "massif/black-mountains-catawba--summit-1292.terrain.json",
+   "manifestSha256": "1d1f60e4d9cfe3eeb5839dc0aa483e9410b5b3fe865557dfb6063a2e842f118c"
+  },
+  {
+   "id": "black-mountains-catawba:summit-1815",
+   "name": "Black Mountains summit 1815 m",
+   "family": "broadleaf",
+   "sourceView": "black-mountains-catawba",
+   "place": "Black Mountains, North Carolina",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    7,
+    10
+   ],
+   "peakReliefM": 758,
+   "peakM": 1815,
+   "characterScores": {
+    "energy": 0.098,
+    "rawness": 0.065,
+    "grandeur": 0.168,
+    "dominance": 0.86
+   },
+   "reliefSha256": "eea552d01f5593228617724836fe4720c46dd91efc5c9d938cd03023de66f425",
+   "manifestUrl": "massif/black-mountains-catawba--summit-1815.terrain.json",
+   "manifestSha256": "6a470b5e5ee32e037a92aba6d66e113176dbfc30c1bb301692784feded31b3a4"
+  },
+  {
+   "id": "black-mountains-catawba:summit-1846",
+   "name": "Black Mountains summit 1846 m",
+   "family": "broadleaf",
+   "sourceView": "black-mountains-catawba",
+   "place": "Black Mountains, North Carolina",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    10,
+    10
+   ],
+   "peakReliefM": 745,
+   "peakM": 1846,
+   "characterScores": {
+    "energy": 0.147,
+    "rawness": 0.122,
+    "grandeur": 0.163,
+    "dominance": 0.591
+   },
+   "reliefSha256": "15dbc0756065ee4f68973936ab8631e591ce5af4408d54a930a756a7a154bf01",
+   "manifestUrl": "massif/black-mountains-catawba--summit-1846.terrain.json",
+   "manifestSha256": "cc0f357c02334c48de12c55d1bf61b79d384c775150e55dcde786a33e81367ad"
+  },
+  {
+   "id": "black-mountains-catawba:summit-1927",
+   "name": "Black Mountains summit 1926 m",
+   "family": "broadleaf",
+   "sourceView": "black-mountains-catawba",
+   "place": "Black Mountains, North Carolina",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    10,
+    10
+   ],
+   "peakReliefM": 982,
+   "peakM": 1926,
+   "characterScores": {
+    "energy": 0.076,
+    "rawness": 0.035,
+    "grandeur": 0.213,
+    "dominance": 0.942
+   },
+   "reliefSha256": "26c2a3fb31aaa412d7338544d2d5109aef7ab98e057937cac7f589e5ed97c2df",
+   "manifestUrl": "massif/black-mountains-catawba--summit-1927.terrain.json",
+   "manifestSha256": "9dacd9cc4094571af4f010968017b2dbb8aff0c1babea6cf429c30025283f95b"
+  },
+  {
+   "id": "chugach-matanuska:summit-1586",
+   "name": "Chugach Mountains summit 1515 m",
+   "family": "icefield",
+   "sourceView": "chugach-matanuska",
+   "place": "Chugach Mountains, Alaska",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    5,
+    4
+   ],
+   "peakReliefM": 555,
+   "peakM": 1515,
+   "characterScores": {
+    "energy": 0.109,
+    "rawness": 0.085,
+    "grandeur": 0.123,
+    "dominance": 0.84
+   },
+   "reliefSha256": "1416da40253df750410752f14bfa1e3fcc488639e3006acfd556d0fbec809062",
+   "manifestUrl": "massif/chugach-matanuska--summit-1586.terrain.json",
+   "manifestSha256": "f963c99ab541b3658b26d514d4bf0946ef2182c1368bed76d99cdc54716fec54"
+  },
+  {
+   "id": "chugach-matanuska:summit-2242",
+   "name": "Chugach Mountains summit 2242 m",
+   "family": "icefield",
+   "sourceView": "chugach-matanuska",
+   "place": "Chugach Mountains, Alaska",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    8,
+    10
+   ],
+   "peakReliefM": 1296,
+   "peakM": 2242,
+   "characterScores": {
+    "energy": 0.14,
+    "rawness": 0.096,
+    "grandeur": 0.285,
+    "dominance": 1
+   },
+   "reliefSha256": "bbf2b0449334cceac15d321ca4b96bff96f4d418de2b173b9a89ff29b3357ef4",
+   "manifestUrl": "massif/chugach-matanuska--summit-2242.terrain.json",
+   "manifestSha256": "7e2a089066968519b628c2ebe0176e216aa7b41225f346e05435cda6b358ee7e"
+  },
+  {
+   "id": "chugach-matanuska:summit-2534",
+   "name": "Chugach Mountains summit 2534 m",
+   "family": "icefield",
+   "sourceView": "chugach-matanuska",
+   "place": "Chugach Mountains, Alaska",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    8,
+    7
+   ],
+   "peakReliefM": 1151,
+   "peakM": 2534,
+   "characterScores": {
+    "energy": 0.126,
+    "rawness": 0.083,
+    "grandeur": 0.254,
+    "dominance": 0.964
+   },
+   "reliefSha256": "fbfa2cab939347ac0c75ab3768da4f5891359670725151e58cf70e4cd83688be",
+   "manifestUrl": "massif/chugach-matanuska--summit-2534.terrain.json",
+   "manifestSha256": "33adf93b0c8d596be8fd8193b6b67a71c75f7758a4db6617a5564e8b245cd19e"
+  },
+  {
+   "id": "chugach-matanuska:summit-2603",
+   "name": "Chugach Mountains summit 2598 m",
+   "family": "icefield",
+   "sourceView": "chugach-matanuska",
+   "place": "Chugach Mountains, Alaska",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    7,
+    10
+   ],
+   "peakReliefM": 1153,
+   "peakM": 2598,
+   "characterScores": {
+    "energy": 0.095,
+    "rawness": 0.049,
+    "grandeur": 0.256,
+    "dominance": 1
+   },
+   "reliefSha256": "c3c4d0c7906da614469deda4eb955456e5663f4adfbf30064ce0ae75d31cabf4",
+   "manifestUrl": "massif/chugach-matanuska--summit-2603.terrain.json",
+   "manifestSha256": "4c18075a6d1581f0a01ee7c291ce49d646f90f577c5cefb54d1c706216fbdb0a"
+  },
+  {
+   "id": "chugach-matanuska:summit-2636",
+   "name": "Chugach Mountains summit 2636 m",
+   "family": "icefield",
+   "sourceView": "chugach-matanuska",
+   "place": "Chugach Mountains, Alaska",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    3,
+    2
+   ],
+   "peakReliefM": 494,
+   "peakM": 2636,
+   "characterScores": {
+    "energy": 0.186,
+    "rawness": 0.196,
+    "grandeur": 0.108,
+    "dominance": 1
+   },
+   "reliefSha256": "7b78294cb74cdbd8552ef1ee9656b79d52e226591e0f644fbabadc5e8c7f1fc3",
+   "manifestUrl": "massif/chugach-matanuska--summit-2636.terrain.json",
+   "manifestSha256": "d68135e522b88a22cf366d2edd20f4e9e916dc6b91c256fabb679451b170bab6"
+  },
+  {
+   "id": "chugach-matanuska:summit-3440",
+   "name": "Chugach Mountains summit 3440 m",
+   "family": "icefield",
+   "sourceView": "chugach-matanuska",
+   "place": "Chugach Mountains, Alaska",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    5,
+    4
+   ],
+   "peakReliefM": 516,
+   "peakM": 3440,
+   "characterScores": {
+    "energy": 0.247,
+    "rawness": 0.241,
+    "grandeur": 0.115,
+    "dominance": 0.655
+   },
+   "reliefSha256": "28b4439cd4061960a27c3c132a439e90e401b80888a87e4d2b1cf1e51c70a3ed",
+   "manifestUrl": "massif/chugach-matanuska--summit-3440.terrain.json",
+   "manifestSha256": "11830e8c2a73c25275579709ffcf57f921367818a8e77c091078e80234b1c576"
+  },
   {
    "id": "crater-lake-watchman-east:llao-rock",
    "name": "Llao Rock",
    "family": "dry-conifer",
    "sourceView": "crater-lake-watchman-east",
    "place": "Crater Lake rim, Oregon",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "landmark",
    "tiles": [
     6,
@@ -212,6 +936,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "crater-lake-watchman-east",
    "place": "Crater Lake rim, Oregon",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "landmark",
    "tiles": [
     10,
@@ -235,6 +960,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "crater-lake-watchman-east",
    "place": "Crater Lake rim, Oregon",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     6,
@@ -258,6 +984,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "crater-lake-watchman-east",
    "place": "Crater Lake rim, Oregon",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     8,
@@ -281,6 +1008,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "crater-lake-watchman-east",
    "place": "Crater Lake rim, Oregon",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     7,
@@ -304,6 +1032,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "crater-lake-watchman-east",
    "place": "Crater Lake rim, Oregon",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     8,
@@ -322,11 +1051,1524 @@ export default {
    "manifestSha256": "1d80f9ee8955cee07c99b2502c56827c9c37d805be39e7ca29ea656e2bc2ec92"
   },
   {
+   "id": "cumbres-de-monterrey:summit-1472",
+   "name": "Sierra Madre Oriental summit 1471 m",
+   "family": "pine-oak",
+   "sourceView": "cumbres-de-monterrey",
+   "place": "Sierra Madre Oriental, Nuevo León",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    6,
+    5
+   ],
+   "peakReliefM": 580,
+   "peakM": 1471,
+   "characterScores": {
+    "energy": 0.125,
+    "rawness": 0.098,
+    "grandeur": 0.129,
+    "dominance": 0.638
+   },
+   "reliefSha256": "95b672f19c7fa73f8ded7acd5f7da61b5feaacb2ee433617813f82f3dafc48c2",
+   "manifestUrl": "massif/cumbres-de-monterrey--summit-1472.terrain.json",
+   "manifestSha256": "26e6c7a4999437da205ce97b3227254c59cc09da4b5f7699fd83a9d4bfc03eb2"
+  },
+  {
+   "id": "cumbres-de-monterrey:summit-2052",
+   "name": "Sierra Madre Oriental summit 2052 m",
+   "family": "pine-oak",
+   "sourceView": "cumbres-de-monterrey",
+   "place": "Sierra Madre Oriental, Nuevo León",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    10,
+    7
+   ],
+   "peakReliefM": 1266,
+   "peakM": 2052,
+   "characterScores": {
+    "energy": 0.339,
+    "rawness": 0.27,
+    "grandeur": 0.281,
+    "dominance": 0.413
+   },
+   "reliefSha256": "dc24b38ad0a977245d68b8176114d026d460cb56ffc24dd3485a1dbfe07b3344",
+   "manifestUrl": "massif/cumbres-de-monterrey--summit-2052.terrain.json",
+   "manifestSha256": "be8881fa0135f6f7df303045a98b8e5bfda17823d2759fd60c6da8c2f2f29caf"
+  },
+  {
+   "id": "cumbres-de-monterrey:summit-3149",
+   "name": "Sierra Madre Oriental summit 3149 m",
+   "family": "pine-oak",
+   "sourceView": "cumbres-de-monterrey",
+   "place": "Sierra Madre Oriental, Nuevo León",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    7,
+    3
+   ],
+   "peakReliefM": 550,
+   "peakM": 3149,
+   "characterScores": {
+    "energy": 0.217,
+    "rawness": 0.189,
+    "grandeur": 0.122,
+    "dominance": 0.486
+   },
+   "reliefSha256": "1dbe974db829d145d40f40884ddcd0d6bbc455d540a2f9980b1db12551605892",
+   "manifestUrl": "massif/cumbres-de-monterrey--summit-3149.terrain.json",
+   "manifestSha256": "51c05eec6bd84f81ee4d9095424eff314d056808a568122f33878a43164b85a5"
+  },
+  {
+   "id": "cumbres-de-monterrey:summit-3233",
+   "name": "Sierra Madre Oriental summit 3233 m",
+   "family": "pine-oak",
+   "sourceView": "cumbres-de-monterrey",
+   "place": "Sierra Madre Oriental, Nuevo León",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    7,
+    10
+   ],
+   "peakReliefM": 1274,
+   "peakM": 3233,
+   "characterScores": {
+    "energy": 0.165,
+    "rawness": 0.121,
+    "grandeur": 0.282,
+    "dominance": 1
+   },
+   "reliefSha256": "26cceda0c70814e18f3ffbf88e85c08ca08d92d1a3f8c796387f43d88125dc75",
+   "manifestUrl": "massif/cumbres-de-monterrey--summit-3233.terrain.json",
+   "manifestSha256": "ee3b6ff9e26fe90f551e7b099a0f081b37b03caa9228cd110228df2a327ce213"
+  },
+  {
+   "id": "denali-wonder-lake:denali",
+   "name": "Denali",
+   "family": "icefield",
+   "sourceView": "denali-wonder-lake",
+   "place": "Alaska Range, Alaska",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "landmark",
+   "tiles": [
+    10,
+    10
+   ],
+   "peakReliefM": 1893,
+   "peakM": 6162,
+   "characterScores": {
+    "energy": 0.177,
+    "rawness": 0.107,
+    "grandeur": 0.365,
+    "dominance": 0.916
+   },
+   "reliefSha256": "c0106186b87c6019557f47b5acb7041604b06104bb94959760bb857281dea4cb",
+   "manifestUrl": "massif/denali-wonder-lake--denali.terrain.json",
+   "manifestSha256": "99a198a372cb63f35241346dfe5d750a1a2792e700db60665dae5dd93e4b9ff0"
+  },
+  {
+   "id": "denali-wonder-lake:summit-1353",
+   "name": "Alaska Range summit 1349 m",
+   "family": "icefield",
+   "sourceView": "denali-wonder-lake",
+   "place": "Alaska Range, Alaska",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    7,
+    8
+   ],
+   "peakReliefM": 404,
+   "peakM": 1349,
+   "characterScores": {
+    "energy": 0.072,
+    "rawness": 0.059,
+    "grandeur": 0.089,
+    "dominance": 0.819
+   },
+   "reliefSha256": "dea19493a4261b9582dbba320df0fa552f79ad7d032a027e8160061e5dfe7145",
+   "manifestUrl": "massif/denali-wonder-lake--summit-1353.terrain.json",
+   "manifestSha256": "af222c3c66e1f9d7d1c233852b4db246e541bb1383b0c1fed7436159b8fe29b4"
+  },
+  {
+   "id": "denali-wonder-lake:summit-1713",
+   "name": "Alaska Range summit 1713 m",
+   "family": "icefield",
+   "sourceView": "denali-wonder-lake",
+   "place": "Alaska Range, Alaska",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    3,
+    5
+   ],
+   "peakReliefM": 426,
+   "peakM": 1713,
+   "characterScores": {
+    "energy": 0.056,
+    "rawness": 0.042,
+    "grandeur": 0.094,
+    "dominance": 1
+   },
+   "reliefSha256": "ea8ad66802c432a7ee6966396777ae80286f7d531221288a7f2ee42ba04473ba",
+   "manifestUrl": "massif/denali-wonder-lake--summit-1713.terrain.json",
+   "manifestSha256": "db377b7d773fe2e6970640cea32ff4370b4427b9a6673f20b93d87e7da295245"
+  },
+  {
+   "id": "denali-wonder-lake:summit-1807",
+   "name": "Alaska Range summit 1806 m",
+   "family": "icefield",
+   "sourceView": "denali-wonder-lake",
+   "place": "Alaska Range, Alaska",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    5,
+    5
+   ],
+   "peakReliefM": 623,
+   "peakM": 1806,
+   "characterScores": {
+    "energy": 0.087,
+    "rawness": 0.056,
+    "grandeur": 0.137,
+    "dominance": 0.861
+   },
+   "reliefSha256": "1670db451ed6d1b46ba2c5b36d5810bcef69b2ad382b99c87ee9c39a74d9dfdc",
+   "manifestUrl": "massif/denali-wonder-lake--summit-1807.terrain.json",
+   "manifestSha256": "0578d90ad0c99146e3d486a8d9e3c92d61d8d42d5b6c92d6aa6648f902b4197c"
+  },
+  {
+   "id": "denali-wonder-lake:summit-3641",
+   "name": "Alaska Range summit 3639 m",
+   "family": "icefield",
+   "sourceView": "denali-wonder-lake",
+   "place": "Alaska Range, Alaska",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    10,
+    10
+   ],
+   "peakReliefM": 1503,
+   "peakM": 3639,
+   "characterScores": {
+    "energy": 0.128,
+    "rawness": 0.08,
+    "grandeur": 0.334,
+    "dominance": 0.983
+   },
+   "reliefSha256": "88cc79f1006718eb8a4d508ed7340482e4379da0ea7f29dbcc20d1e7c1ba763d",
+   "manifestUrl": "massif/denali-wonder-lake--summit-3641.terrain.json",
+   "manifestSha256": "10eb46cf415fc6bf8770e539b34ef78136ea153c87361588533449ad45190aa3"
+  },
+  {
+   "id": "denali-wonder-lake:summit-3905",
+   "name": "Alaska Range summit 3904 m",
+   "family": "icefield",
+   "sourceView": "denali-wonder-lake",
+   "place": "Alaska Range, Alaska",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    9,
+    8
+   ],
+   "peakReliefM": 1511,
+   "peakM": 3904,
+   "characterScores": {
+    "energy": 0.221,
+    "rawness": 0.144,
+    "grandeur": 0.336,
+    "dominance": 0.705
+   },
+   "reliefSha256": "9312ee40c35d4c9f1401df9884367b97e4164f1409397588756ef28d69577abc",
+   "manifestUrl": "massif/denali-wonder-lake--summit-3905.terrain.json",
+   "manifestSha256": "8a3a555b21c46e3d7411fb007315474c1ee6b990981954a8ee2da79e30d07c60"
+  },
+  {
+   "id": "izta-popo-west:iztaccihuatl",
+   "name": "Iztaccíhuatl",
+   "family": "pine-oak",
+   "sourceView": "izta-popo-west",
+   "place": "Iztaccíhuatl and Popocatépetl, México",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "landmark",
+   "tiles": [
+    10,
+    6
+   ],
+   "peakReliefM": 1275,
+   "peakM": 5208,
+   "characterScores": {
+    "energy": 0.261,
+    "rawness": 0.205,
+    "grandeur": 0.283,
+    "dominance": 0.539
+   },
+   "reliefSha256": "1560af2c0e175fd738a6da2edaa51f0f40f90e4e89f533d5d429413b1512e0c0",
+   "manifestUrl": "massif/izta-popo-west--iztaccihuatl.terrain.json",
+   "manifestSha256": "5217bd6b983c26cbd2c2dd6d15a7afe8fd62ea9374145b1dd68ae4f3d65cbed4"
+  },
+  {
+   "id": "izta-popo-west:popocatepetl",
+   "name": "Popocatépetl",
+   "family": "pine-oak",
+   "sourceView": "izta-popo-west",
+   "place": "Iztaccíhuatl and Popocatépetl, México",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "landmark",
+   "tiles": [
+    10,
+    10
+   ],
+   "peakReliefM": 1937,
+   "peakM": 5412,
+   "characterScores": {
+    "energy": 0.172,
+    "rawness": 0.075,
+    "grandeur": 0.43,
+    "dominance": 0.873
+   },
+   "reliefSha256": "8dd2e879a620ecd7bb21a7cd0ce4a52b689c85375896dd1f1827b14fdbaf7b85",
+   "manifestUrl": "massif/izta-popo-west--popocatepetl.terrain.json",
+   "manifestSha256": "584887b17b7f18175e4347a8c24eba64f6b4ffff12b5c5aef2fab2357069dc5c"
+  },
+  {
+   "id": "izta-popo-west:summit-3639",
+   "name": "Iztaccíhuatl and Popocatépetl summit 3639 m",
+   "family": "pine-oak",
+   "sourceView": "izta-popo-west",
+   "place": "Iztaccíhuatl and Popocatépetl, México",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    6,
+    5
+   ],
+   "peakReliefM": 357,
+   "peakM": 3639,
+   "characterScores": {
+    "energy": 0.049,
+    "rawness": 0.041,
+    "grandeur": 0.079,
+    "dominance": 0.929
+   },
+   "reliefSha256": "48ce8c72ac7013a11804ce95e1372588ddefadf81b4ad802d83ca8bcc8f33002",
+   "manifestUrl": "massif/izta-popo-west--summit-3639.terrain.json",
+   "manifestSha256": "3b2835076ad0d400cf31661bfc1923e61f16ad01310b2b4d158fab4c4babd8b5"
+  },
+  {
+   "id": "la-sal-castle-valley:castleton-tower",
+   "name": "Castleton Tower",
+   "family": "canyon",
+   "sourceView": "la-sal-castle-valley",
+   "place": "La Sal Mountains, Utah",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "landmark",
+   "tiles": [
+    7,
+    8
+   ],
+   "peakReliefM": 565,
+   "peakM": 1994,
+   "characterScores": {
+    "energy": 0.157,
+    "rawness": 0.163,
+    "grandeur": 0.125,
+    "dominance": 0.889
+   },
+   "reliefSha256": "5479058806af159d6f7770f9c2bacc71f2ddcaeaa9fb8b64878773eb228b1832",
+   "manifestUrl": "massif/la-sal-castle-valley--castleton-tower.terrain.json",
+   "manifestSha256": "9f12c3d0e6059c31db9fba4bd485980181f6b99fbfa56b050a71b785ec200d8e"
+  },
+  {
+   "id": "la-sal-castle-valley:mount-peale",
+   "name": "Mount Peale",
+   "family": "canyon",
+   "sourceView": "la-sal-castle-valley",
+   "place": "La Sal Mountains, Utah",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "landmark",
+   "tiles": [
+    10,
+    9
+   ],
+   "peakReliefM": 1001,
+   "peakM": 3877,
+   "characterScores": {
+    "energy": 0.123,
+    "rawness": 0.093,
+    "grandeur": 0.22,
+    "dominance": 0.826
+   },
+   "reliefSha256": "ed264e0ab443e4e8e74785dd2976dda4e78fe5bd5db4cbf329c34d27898493ea",
+   "manifestUrl": "massif/la-sal-castle-valley--mount-peale.terrain.json",
+   "manifestSha256": "2be0e3cb9de3a7d4b28bcf40a4574442828e374d5e21280012a8a81a8308e9e7"
+  },
+  {
+   "id": "la-sal-castle-valley:summit-1770",
+   "name": "La Sal Mountains summit 1703 m",
+   "family": "canyon",
+   "sourceView": "la-sal-castle-valley",
+   "place": "La Sal Mountains, Utah",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    4,
+    3
+   ],
+   "peakReliefM": 314,
+   "peakM": 1703,
+   "characterScores": {
+    "energy": 0.08,
+    "rawness": 0.064,
+    "grandeur": 0.07,
+    "dominance": 0.6
+   },
+   "reliefSha256": "9002dc750fdf092b624b1f338ba0817f5f1c00bd9c4b2812ab58b77da240f6e3",
+   "manifestUrl": "massif/la-sal-castle-valley--summit-1770.terrain.json",
+   "manifestSha256": "ad9814336f1eb0d963c36f46ce23d2579e8a4a2d84bdb9fc9f82b07d40d7669c"
+  },
+  {
+   "id": "la-sal-castle-valley:summit-2192",
+   "name": "La Sal Mountains summit 2192 m",
+   "family": "canyon",
+   "sourceView": "la-sal-castle-valley",
+   "place": "La Sal Mountains, Utah",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    6,
+    10
+   ],
+   "peakReliefM": 478,
+   "peakM": 2192,
+   "characterScores": {
+    "energy": 0.046,
+    "rawness": 0.042,
+    "grandeur": 0.106,
+    "dominance": 1
+   },
+   "reliefSha256": "c92388f279a0db05ee397cc9221bc3146f9b430f985e6f3beb356166e017e463",
+   "manifestUrl": "massif/la-sal-castle-valley--summit-2192.terrain.json",
+   "manifestSha256": "f127dda453a8a633a9cf874a86bc6197a26c99aea7564a50d76383a4dc33dd65"
+  },
+  {
+   "id": "la-sal-castle-valley:summit-2466",
+   "name": "La Sal Mountains summit 2208 m",
+   "family": "canyon",
+   "sourceView": "la-sal-castle-valley",
+   "place": "La Sal Mountains, Utah",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    10,
+    9
+   ],
+   "peakReliefM": 565,
+   "peakM": 2208,
+   "characterScores": {
+    "energy": 0.07,
+    "rawness": 0.058,
+    "grandeur": 0.125,
+    "dominance": 0.607
+   },
+   "reliefSha256": "c5457a3c54eb99e3e71cee07483a7d2587c1fcc0f905f5ea510660487e2d6f79",
+   "manifestUrl": "massif/la-sal-castle-valley--summit-2466.terrain.json",
+   "manifestSha256": "98c55b0a6f16c58700ec2e29e7d051dbbc1029388fea3101df347176f815c49a"
+  },
+  {
+   "id": "la-sal-castle-valley:summit-3593",
+   "name": "La Sal Mountains summit 3588 m",
+   "family": "canyon",
+   "sourceView": "la-sal-castle-valley",
+   "place": "La Sal Mountains, Utah",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    8,
+    8
+   ],
+   "peakReliefM": 860,
+   "peakM": 3588,
+   "characterScores": {
+    "energy": 0.107,
+    "rawness": 0.071,
+    "grandeur": 0.191,
+    "dominance": 0.875
+   },
+   "reliefSha256": "082c84347320f92e6f1f231534cd4ab8697ebf2a92613af407879df56f44aa2c",
+   "manifestUrl": "massif/la-sal-castle-valley--summit-3593.terrain.json",
+   "manifestSha256": "fd889f53a871b67d9a0bc110a3203745f709f78a3e2d672984b5b73c195b4fb5"
+  },
+  {
+   "id": "la-sal-castle-valley:summit-3757",
+   "name": "La Sal Mountains summit 3757 m",
+   "family": "canyon",
+   "sourceView": "la-sal-castle-valley",
+   "place": "La Sal Mountains, Utah",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    10,
+    10
+   ],
+   "peakReliefM": 898,
+   "peakM": 3757,
+   "characterScores": {
+    "energy": 0.153,
+    "rawness": 0.134,
+    "grandeur": 0.197,
+    "dominance": 0.799
+   },
+   "reliefSha256": "5b3b41c4914701973ac4dca55d82fab0ae1575209b0dcfc0d5eb37103f003eac",
+   "manifestUrl": "massif/la-sal-castle-valley--summit-3757.terrain.json",
+   "manifestSha256": "099fc4bd37a17197d4e01487f9df3437ad347bbfafec9e9ce76511de0eccd609"
+  },
+  {
+   "id": "monument-valley-163:summit-1776",
+   "name": "Monument Valley summit 1776 m",
+   "family": "canyon",
+   "sourceView": "monument-valley-163",
+   "place": "Monument Valley, Utah and Arizona",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    5,
+    5
+   ],
+   "peakReliefM": 303,
+   "peakM": 1776,
+   "characterScores": {
+    "energy": 0.062,
+    "rawness": 0.065,
+    "grandeur": 0.067,
+    "dominance": 1
+   },
+   "reliefSha256": "03a3abed323c76cca0adca9ef18b328b6da61bf714dc173cea6a8bdcabb6f1a8",
+   "manifestUrl": "massif/monument-valley-163--summit-1776.terrain.json",
+   "manifestSha256": "f815dd06b1847cd8328e9862a2c898bb5765e932ae2e89bb13124d1d9e9eebc3"
+  },
+  {
+   "id": "monument-valley-163:summit-1891",
+   "name": "Monument Valley summit 1891 m",
+   "family": "canyon",
+   "sourceView": "monument-valley-163",
+   "place": "Monument Valley, Utah and Arizona",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    3,
+    3
+   ],
+   "peakReliefM": 339,
+   "peakM": 1891,
+   "characterScores": {
+    "energy": 0.07,
+    "rawness": 0.095,
+    "grandeur": 0.075,
+    "dominance": 1
+   },
+   "reliefSha256": "a8bc32446e5105ccadf83625640067ed2e304c401db5e91cd3ccf58eba00c201",
+   "manifestUrl": "massif/monument-valley-163--summit-1891.terrain.json",
+   "manifestSha256": "aa65c455f9ca1cdd831a5056931be08ad917de7e28f7d1d484beb1e306283328"
+  },
+  {
+   "id": "monument-valley-163:summit-1969",
+   "name": "Monument Valley summit 1961 m",
+   "family": "canyon",
+   "sourceView": "monument-valley-163",
+   "place": "Monument Valley, Utah and Arizona",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    4,
+    8
+   ],
+   "peakReliefM": 336,
+   "peakM": 1961,
+   "characterScores": {
+    "energy": 0.036,
+    "rawness": 0.042,
+    "grandeur": 0.075,
+    "dominance": 1
+   },
+   "reliefSha256": "dee2452174c7acdaa365d2cafbdf4589cdc16ee5b4fce10b8ba88d2bee245d6a",
+   "manifestUrl": "massif/monument-valley-163--summit-1969.terrain.json",
+   "manifestSha256": "dd033bf8ba3c670ec4bf9ced1fbe5d8612855127def4341c004c2f9c32ccee36"
+  },
+  {
+   "id": "muncho-lake-south:summit-1603",
+   "name": "Northern Rockies summit 1593 m",
+   "family": "taiga",
+   "sourceView": "muncho-lake-south",
+   "place": "Northern Rockies, British Columbia",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    7,
+    4
+   ],
+   "peakReliefM": 556,
+   "peakM": 1593,
+   "characterScores": {
+    "energy": 0.134,
+    "rawness": 0.103,
+    "grandeur": 0.123,
+    "dominance": 0.378
+   },
+   "reliefSha256": "596f1e781415259f31ac71f4ac4fb198c9516317fbf17fb520d71a496944778f",
+   "manifestUrl": "massif/muncho-lake-south--summit-1603.terrain.json",
+   "manifestSha256": "19c64d1aa79ec824a8972d780db5a401b4d4890950d1315b0ba929c495adb9ba"
+  },
+  {
+   "id": "muncho-lake-south:summit-1877",
+   "name": "Northern Rockies summit 1876 m",
+   "family": "taiga",
+   "sourceView": "muncho-lake-south",
+   "place": "Northern Rockies, British Columbia",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    4,
+    6
+   ],
+   "peakReliefM": 559,
+   "peakM": 1876,
+   "characterScores": {
+    "energy": 0.081,
+    "rawness": 0.061,
+    "grandeur": 0.124,
+    "dominance": 1
+   },
+   "reliefSha256": "520b83f16c20440209a48e1772b73020428f2b4ad51bc8455e961bb6fcfb05be",
+   "manifestUrl": "massif/muncho-lake-south--summit-1877.terrain.json",
+   "manifestSha256": "ac03178a8fb61880a7ab8a9aeaa8e6edaa72ce8f33000f71736f454bdeba4af1"
+  },
+  {
+   "id": "muncho-lake-south:summit-2095",
+   "name": "Northern Rockies summit 2084 m",
+   "family": "taiga",
+   "sourceView": "muncho-lake-south",
+   "place": "Northern Rockies, British Columbia",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    7,
+    8
+   ],
+   "peakReliefM": 1095,
+   "peakM": 2084,
+   "characterScores": {
+    "energy": 0.107,
+    "rawness": 0.051,
+    "grandeur": 0.243,
+    "dominance": 1
+   },
+   "reliefSha256": "1e97afb601269b8087d2db0b2c0ce6886b933dd4f28c74b4df5d917201417636",
+   "manifestUrl": "massif/muncho-lake-south--summit-2095.terrain.json",
+   "manifestSha256": "a5957bc58895fad44e2fbe469495bf130fd41f04b82a51c4e56ba691e2623ba1"
+  },
+  {
+   "id": "muncho-lake-south:summit-2297",
+   "name": "Northern Rockies summit 2013 m",
+   "family": "taiga",
+   "sourceView": "muncho-lake-south",
+   "place": "Northern Rockies, British Columbia",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    7,
+    7
+   ],
+   "peakReliefM": 1044,
+   "peakM": 2013,
+   "characterScores": {
+    "energy": 0.15,
+    "rawness": 0.111,
+    "grandeur": 0.23,
+    "dominance": 1
+   },
+   "reliefSha256": "1ec8e15d79808b255115d7711e6224532209d9b4bbc67a60585f8051ebe02a25",
+   "manifestUrl": "massif/muncho-lake-south--summit-2297.terrain.json",
+   "manifestSha256": "769958c37a91b43da2210a382b83f2ecbeb2b02c0d2b300709986a4dce5364fc"
+  },
+  {
+   "id": "nc-ross-lake-north:hozomeen-mountain",
+   "name": "Hozomeen Mountain",
+   "family": "wet-conifer",
+   "sourceView": "nc-ross-lake-north",
+   "place": "North Cascades, Washington",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "landmark",
+   "tiles": [
+    8,
+    8
+   ],
+   "peakReliefM": 1555,
+   "peakM": 2431,
+   "characterScores": {
+    "energy": 0.167,
+    "rawness": 0.127,
+    "grandeur": 0.345,
+    "dominance": 1
+   },
+   "reliefSha256": "8dccada61a5b68681a9d4db838f566e2d36260fcdd2f4f5334887fc02625ac08",
+   "manifestUrl": "massif/nc-ross-lake-north--hozomeen-mountain.terrain.json",
+   "manifestSha256": "0b2af2fd3f010f96f1a7df30274f9fb2349059331a0e6346953dcf40577fe8bc"
+  },
+  {
+   "id": "nc-ross-lake-north:jack-mountain",
+   "name": "Jack Mountain",
+   "family": "wet-conifer",
+   "sourceView": "nc-ross-lake-north",
+   "place": "North Cascades, Washington",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "landmark",
+   "tiles": [
+    10,
+    8
+   ],
+   "peakReliefM": 1597,
+   "peakM": 2705,
+   "characterScores": {
+    "energy": 0.274,
+    "rawness": 0.193,
+    "grandeur": 0.352,
+    "dominance": 0.387
+   },
+   "reliefSha256": "19573a956e4f9a860179b98b7dea190d0d51f8484ce8bd088f88e3823a1cbb49",
+   "manifestUrl": "massif/nc-ross-lake-north--jack-mountain.terrain.json",
+   "manifestSha256": "93bb0a95631ba690e410f1ca19c11ed9b6aa4e1213d694bcfabb75f01d3540d2"
+  },
+  {
+   "id": "nc-ross-lake-north:summit-2001",
+   "name": "North Cascades summit 2001 m",
+   "family": "wet-conifer",
+   "sourceView": "nc-ross-lake-north",
+   "place": "North Cascades, Washington",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    6,
+    3
+   ],
+   "peakReliefM": 621,
+   "peakM": 2001,
+   "characterScores": {
+    "energy": 0.209,
+    "rawness": 0.184,
+    "grandeur": 0.138,
+    "dominance": 0.267
+   },
+   "reliefSha256": "25c487c385b9eca6194f58af6c4809ddcf3d4357de421cfe1803ffb77c124d61",
+   "manifestUrl": "massif/nc-ross-lake-north--summit-2001.terrain.json",
+   "manifestSha256": "8ec5be68def1a46e7e9bcbb25055fba0d598d8cd57585f9e501e0fbefc7a9cff"
+  },
+  {
+   "id": "nc-ross-lake-north:summit-2418",
+   "name": "North Cascades summit 1894 m",
+   "family": "wet-conifer",
+   "sourceView": "nc-ross-lake-north",
+   "place": "North Cascades, Washington",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    7,
+    6
+   ],
+   "peakReliefM": 641,
+   "peakM": 1894,
+   "characterScores": {
+    "energy": 0.136,
+    "rawness": 0.12,
+    "grandeur": 0.142,
+    "dominance": 0.456
+   },
+   "reliefSha256": "781230cb68e30cdf1ee9920d1be835d50ba934efcb78046ad439a0874856d7ca",
+   "manifestUrl": "massif/nc-ross-lake-north--summit-2418.terrain.json",
+   "manifestSha256": "92ec7414b3a849ae387714a9150b23044f6b441024da22b025b973333f8803b4"
+  },
+  {
+   "id": "northern-rockies-stone-mountain:summit-1916",
+   "name": "Northern Rockies (Stone Mountain) summit 1891 m",
+   "family": "taiga",
+   "sourceView": "northern-rockies-stone-mountain",
+   "place": "Northern Rockies (Stone Mountain), British Columbia",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    3,
+    4
+   ],
+   "peakReliefM": 574,
+   "peakM": 1891,
+   "characterScores": {
+    "energy": 0.146,
+    "rawness": 0.129,
+    "grandeur": 0.127,
+    "dominance": 1
+   },
+   "reliefSha256": "f2417c49ea1bebe53a5d6c921f141a0d4033408a3147f0d1c39b60fe27b70253",
+   "manifestUrl": "massif/northern-rockies-stone-mountain--summit-1916.terrain.json",
+   "manifestSha256": "89c5080916452b9da2990e3118317af4dfc0462343be1fe276b28a7ece08b7bb"
+  },
+  {
+   "id": "northern-rockies-stone-mountain:summit-2105",
+   "name": "Northern Rockies (Stone Mountain) summit 2105 m",
+   "family": "taiga",
+   "sourceView": "northern-rockies-stone-mountain",
+   "place": "Northern Rockies (Stone Mountain), British Columbia",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    9,
+    8
+   ],
+   "peakReliefM": 649,
+   "peakM": 2105,
+   "characterScores": {
+    "energy": 0.14,
+    "rawness": 0.124,
+    "grandeur": 0.144,
+    "dominance": 0.762
+   },
+   "reliefSha256": "6b5d23e8e8a32330eaa5ba4a11af51e3c3988544241a159c7c003931f1f055de",
+   "manifestUrl": "massif/northern-rockies-stone-mountain--summit-2105.terrain.json",
+   "manifestSha256": "75fa2d7f79c418033cec91cf6a59e66b16e2695e2457c9e41468bc93601a3197"
+  },
+  {
+   "id": "northern-rockies-stone-mountain:summit-2242",
+   "name": "Northern Rockies (Stone Mountain) summit 2206 m",
+   "family": "taiga",
+   "sourceView": "northern-rockies-stone-mountain",
+   "place": "Northern Rockies (Stone Mountain), British Columbia",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    8,
+    7
+   ],
+   "peakReliefM": 1061,
+   "peakM": 2206,
+   "characterScores": {
+    "energy": 0.15,
+    "rawness": 0.096,
+    "grandeur": 0.235,
+    "dominance": 0.493
+   },
+   "reliefSha256": "e660ce6648186a8e08a7635d9e22103583cfb2f888414387ab7108f38b87137e",
+   "manifestUrl": "massif/northern-rockies-stone-mountain--summit-2242.terrain.json",
+   "manifestSha256": "01410d3d38977e80fb48eb60dd81f4844d1783d79545c5e212c8a489a9b143a6"
+  },
+  {
+   "id": "northern-rockies-stone-mountain:summit-2431",
+   "name": "Northern Rockies (Stone Mountain) summit 2415 m",
+   "family": "taiga",
+   "sourceView": "northern-rockies-stone-mountain",
+   "place": "Northern Rockies (Stone Mountain), British Columbia",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    10,
+    7
+   ],
+   "peakReliefM": 995,
+   "peakM": 2415,
+   "characterScores": {
+    "energy": 0.226,
+    "rawness": 0.187,
+    "grandeur": 0.22,
+    "dominance": 0.318
+   },
+   "reliefSha256": "550dcbb9061d594e4571d2a64e42f979fe9d176056c1c219924d20886fa3a199",
+   "manifestUrl": "massif/northern-rockies-stone-mountain--summit-2431.terrain.json",
+   "manifestSha256": "9b3b42ab948ecfcee308d4b48a244a8620064310633d9b1db91c63a8a07b8a6a"
+  },
+  {
+   "id": "northern-rockies-tuchodi:summit-2101",
+   "name": "Northern Rockies (Tuchodi) summit 2101 m",
+   "family": "taiga",
+   "sourceView": "northern-rockies-tuchodi",
+   "place": "Northern Rockies (Tuchodi), British Columbia",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    4,
+    6
+   ],
+   "peakReliefM": 581,
+   "peakM": 2101,
+   "characterScores": {
+    "energy": 0.091,
+    "rawness": 0.069,
+    "grandeur": 0.126,
+    "dominance": 1
+   },
+   "reliefSha256": "569c28ac6022d89568b770c25cfe5e2b3d6fcc2ebf8e2af3d0baec3beb0e4d02",
+   "manifestUrl": "massif/northern-rockies-tuchodi--summit-2101.terrain.json",
+   "manifestSha256": "20e2aded46e414a3a387d977d8f615ae494e16733005a68e49314cec63a64834"
+  },
+  {
+   "id": "northern-rockies-tuchodi:summit-2559-2",
+   "name": "Northern Rockies (Tuchodi) summit 2511 m",
+   "family": "taiga",
+   "sourceView": "northern-rockies-tuchodi",
+   "place": "Northern Rockies (Tuchodi), British Columbia",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    10,
+    10
+   ],
+   "peakReliefM": 1273,
+   "peakM": 2511,
+   "characterScores": {
+    "energy": 0.178,
+    "rawness": 0.13,
+    "grandeur": 0.279,
+    "dominance": 0.764
+   },
+   "reliefSha256": "538e22c446e02636555566bed2597741de6485f4e206aec113887cf9a2e590c1",
+   "manifestUrl": "massif/northern-rockies-tuchodi--summit-2559-2.terrain.json",
+   "manifestSha256": "3a871844a6a8ab96a55b741e57fcf62d5a2f6caf80e8058a52d0d14ec2cf2b12"
+  },
+  {
+   "id": "northern-rockies-tuchodi:summit-2641",
+   "name": "Northern Rockies (Tuchodi) summit 2631 m",
+   "family": "taiga",
+   "sourceView": "northern-rockies-tuchodi",
+   "place": "Northern Rockies (Tuchodi), British Columbia",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    9,
+    8
+   ],
+   "peakReliefM": 1356,
+   "peakM": 2631,
+   "characterScores": {
+    "energy": 0.162,
+    "rawness": 0.111,
+    "grandeur": 0.301,
+    "dominance": 0.986
+   },
+   "reliefSha256": "377603241f2e734ab25fe09c84bec02c4d980c049d96f0b1dbdfbb89b065cf2b",
+   "manifestUrl": "massif/northern-rockies-tuchodi--summit-2641.terrain.json",
+   "manifestSha256": "62910dd44043bdefaa3a62e8e730742388f4c9ead6ee5d627fa712305f476884"
+  },
+  {
+   "id": "northern-rockies-tuchodi:summit-2798",
+   "name": "Northern Rockies (Tuchodi) summit 2798 m",
+   "family": "taiga",
+   "sourceView": "northern-rockies-tuchodi",
+   "place": "Northern Rockies (Tuchodi), British Columbia",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    6,
+    3
+   ],
+   "peakReliefM": 486,
+   "peakM": 2798,
+   "characterScores": {
+    "energy": 0.384,
+    "rawness": 0.376,
+    "grandeur": 0.107,
+    "dominance": 0.543
+   },
+   "reliefSha256": "46ee4c0c427dc0a39dcb410e4b208e5af00cf784fdcb9fd491c47ccdb1acb4bb",
+   "manifestUrl": "massif/northern-rockies-tuchodi--summit-2798.terrain.json",
+   "manifestSha256": "cdd44a53ab05119a30225a78f52f97848a2131bef758def674fc24f5f92c2a22"
+  },
+  {
+   "id": "olympic-mount-olympus:summit-1649",
+   "name": "Olympic Mountains summit 1649 m",
+   "family": "wet-conifer",
+   "sourceView": "olympic-mount-olympus",
+   "place": "Olympic Mountains, Washington",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    6,
+    8
+   ],
+   "peakReliefM": 1150,
+   "peakM": 1649,
+   "characterScores": {
+    "energy": 0.127,
+    "rawness": 0.085,
+    "grandeur": 0.251,
+    "dominance": 1
+   },
+   "reliefSha256": "a4f30fdd42f723bebdcba4b74287b94d0cbebb4a5455320586264181f79c43aa",
+   "manifestUrl": "massif/olympic-mount-olympus--summit-1649.terrain.json",
+   "manifestSha256": "3c644446a10b2077fe9b5ad4d88d921953f07de7ae1f3aedbff6cbd725fd7f12"
+  },
+  {
+   "id": "olympic-mount-olympus:summit-1800",
+   "name": "Olympic Mountains summit 1833 m",
+   "family": "wet-conifer",
+   "sourceView": "olympic-mount-olympus",
+   "place": "Olympic Mountains, Washington",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    7,
+    8
+   ],
+   "peakReliefM": 515,
+   "peakM": 1833,
+   "characterScores": {
+    "energy": 0.099,
+    "rawness": 0.104,
+    "grandeur": 0.106,
+    "dominance": 1
+   },
+   "reliefSha256": "16892faaa7eca88c726c1221f42af38093c9739a727160bb3b649681a90a1334",
+   "manifestUrl": "massif/olympic-mount-olympus--summit-1800.terrain.json",
+   "manifestSha256": "da02102ecafbab06a0e6c0a34c99a3d9d0a9dfbda9d92bef5f6a7cdd0d5dc12c"
+  },
+  {
+   "id": "olympic-mount-olympus:summit-1862",
+   "name": "Olympic Mountains summit 1862 m",
+   "family": "wet-conifer",
+   "sourceView": "olympic-mount-olympus",
+   "place": "Olympic Mountains, Washington",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    7,
+    6
+   ],
+   "peakReliefM": 502,
+   "peakM": 1862,
+   "characterScores": {
+    "energy": 0.117,
+    "rawness": 0.109,
+    "grandeur": 0.111,
+    "dominance": 0.832
+   },
+   "reliefSha256": "19d9f38f1bcebf4bd5ac1348579c008b6d2092151959c9e0e900ba19c73df94c",
+   "manifestUrl": "massif/olympic-mount-olympus--summit-1862.terrain.json",
+   "manifestSha256": "c8ffa03391a72adf6ccea3a2fc1cfcd1364d844b76d2410718a7db1abd477489"
+  },
+  {
+   "id": "olympic-mount-olympus:summit-2125",
+   "name": "Olympic Mountains summit 2125 m",
+   "family": "wet-conifer",
+   "sourceView": "olympic-mount-olympus",
+   "place": "Olympic Mountains, Washington",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    10,
+    10
+   ],
+   "peakReliefM": 1417,
+   "peakM": 2125,
+   "characterScores": {
+    "energy": 0.194,
+    "rawness": 0.134,
+    "grandeur": 0.311,
+    "dominance": 0.608
+   },
+   "reliefSha256": "b3ca266a0ab862c029aef7c469ebed28e33219101dde703ac40f977823865292",
+   "manifestUrl": "massif/olympic-mount-olympus--summit-2125.terrain.json",
+   "manifestSha256": "19bde609189573640ebb2be1431ca41c5b68be4109e9719ee943ba77585d4b7b"
+  },
+  {
+   "id": "panamint-dantes-view:summit-1747",
+   "name": "Panamint Range summit 1672 m",
+   "family": "desert",
+   "sourceView": "panamint-dantes-view",
+   "place": "Panamint Range, California",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    8,
+    10
+   ],
+   "peakReliefM": 826,
+   "peakM": 1672,
+   "characterScores": {
+    "energy": 0.091,
+    "rawness": 0.066,
+    "grandeur": 0.182,
+    "dominance": 1
+   },
+   "reliefSha256": "db2d2275e0eb0584231394f4c8576c9f2e267d08293a3d425160dc2699cbe3b3",
+   "manifestUrl": "massif/panamint-dantes-view--summit-1747.terrain.json",
+   "manifestSha256": "324ce244fa206f61990febfb5723e51d1c9e891a45afbb1c693f01df2de99a47"
+  },
+  {
+   "id": "panamint-dantes-view:summit-2519",
+   "name": "Panamint Range summit 2472 m",
+   "family": "desert",
+   "sourceView": "panamint-dantes-view",
+   "place": "Panamint Range, California",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    4,
+    8
+   ],
+   "peakReliefM": 826,
+   "peakM": 2472,
+   "characterScores": {
+    "energy": 0.082,
+    "rawness": 0.046,
+    "grandeur": 0.182,
+    "dominance": 1
+   },
+   "reliefSha256": "8c4c5ace93fcecc398d81cf0e3d515e54de81c483d5f17d418e4329176aef8ef",
+   "manifestUrl": "massif/panamint-dantes-view--summit-2519.terrain.json",
+   "manifestSha256": "c258fa805532540f73f892da546794299087478990746763dc73921b00c01e4c"
+  },
+  {
+   "id": "panamint-dantes-view:summit-2762",
+   "name": "Panamint Range summit 2755 m",
+   "family": "desert",
+   "sourceView": "panamint-dantes-view",
+   "place": "Panamint Range, California",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    10,
+    10
+   ],
+   "peakReliefM": 887,
+   "peakM": 2755,
+   "characterScores": {
+    "energy": 0.133,
+    "rawness": 0.102,
+    "grandeur": 0.197,
+    "dominance": 0.787
+   },
+   "reliefSha256": "d00f3633a889c2e7411a680ee79c63c7ad726f813955a91e0848c0f1825817e5",
+   "manifestUrl": "massif/panamint-dantes-view--summit-2762.terrain.json",
+   "manifestSha256": "62e198d2cbd846d2f310c3ca218d584b9955301f7144fc1286fe092051bd5455"
+  },
+  {
+   "id": "panamint-dantes-view:summit-2931",
+   "name": "Panamint Range summit 2928 m",
+   "family": "desert",
+   "sourceView": "panamint-dantes-view",
+   "place": "Panamint Range, California",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    6,
+    10
+   ],
+   "peakReliefM": 952,
+   "peakM": 2928,
+   "characterScores": {
+    "energy": 0.089,
+    "rawness": 0.053,
+    "grandeur": 0.209,
+    "dominance": 1
+   },
+   "reliefSha256": "1ab3f029b3cb6fc70104df293f5e020f9210411108c128e93b19dc5fed16d42e",
+   "manifestUrl": "massif/panamint-dantes-view--summit-2931.terrain.json",
+   "manifestSha256": "daf9d63d60202b9ea97365fe6a7f47d7360d5dcc1c7732726f59f46bf13e746e"
+  },
+  {
+   "id": "panamint-dantes-view:summit-3044",
+   "name": "Panamint Range summit 3044 m",
+   "family": "desert",
+   "sourceView": "panamint-dantes-view",
+   "place": "Panamint Range, California",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    7,
+    10
+   ],
+   "peakReliefM": 900,
+   "peakM": 3044,
+   "characterScores": {
+    "energy": 0.094,
+    "rawness": 0.056,
+    "grandeur": 0.199,
+    "dominance": 1
+   },
+   "reliefSha256": "86629c80e7f5dec3a36ab509a2b5ef4f4d806b3b72fe41fa212c2ab5802191f2",
+   "manifestUrl": "massif/panamint-dantes-view--summit-3044.terrain.json",
+   "manifestSha256": "96dc35cd324734d7bc1262d6381351ef72198c857cf3dde2bb401911158e71d9"
+  },
+  {
+   "id": "panamint-dantes-view:telescope-peak",
+   "name": "Telescope Peak",
+   "family": "desert",
+   "sourceView": "panamint-dantes-view",
+   "place": "Panamint Range, California",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "landmark",
+   "tiles": [
+    9,
+    10
+   ],
+   "peakReliefM": 1256,
+   "peakM": 3363,
+   "characterScores": {
+    "energy": 0.139,
+    "rawness": 0.079,
+    "grandeur": 0.275,
+    "dominance": 0.805
+   },
+   "reliefSha256": "bb2930d5f97c49f0f24c39131cabbf40d010f8f9386d4e834188df6a008b44dd",
+   "manifestUrl": "massif/panamint-dantes-view--telescope-peak.terrain.json",
+   "manifestSha256": "d0b325b965c0eaee360540d4302888ccd055bd75c76195f6fcc38c2ac8094ee3"
+  },
+  {
+   "id": "pico-de-orizaba:summit-2322",
+   "name": "Pico de Orizaba summit 2315 m",
+   "family": "pine-oak",
+   "sourceView": "pico-de-orizaba",
+   "place": "Pico de Orizaba, Puebla and Veracruz",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    4,
+    4
+   ],
+   "peakReliefM": 622,
+   "peakM": 2315,
+   "characterScores": {
+    "energy": 0.141,
+    "rawness": 0.116,
+    "grandeur": 0.138,
+    "dominance": 0.881
+   },
+   "reliefSha256": "3fdf934e429c1a4d6da3f4f85299fb3222e555e4269c693214cd01834aea5ca5",
+   "manifestUrl": "massif/pico-de-orizaba--summit-2322.terrain.json",
+   "manifestSha256": "4e6f6376253abbf3a8e0c992e5f9f77064859a46e4eacef6bfba4bbb4292bf52"
+  },
+  {
+   "id": "pico-de-orizaba:summit-2465",
+   "name": "Pico de Orizaba summit 2458 m",
+   "family": "pine-oak",
+   "sourceView": "pico-de-orizaba",
+   "place": "Pico de Orizaba, Puebla and Veracruz",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    5,
+    5
+   ],
+   "peakReliefM": 629,
+   "peakM": 2458,
+   "characterScores": {
+    "energy": 0.076,
+    "rawness": 0.047,
+    "grandeur": 0.14,
+    "dominance": 0.982
+   },
+   "reliefSha256": "93ff6cc8da0422bdef82e186c5b05032ce68b94697f0ba9497369fec687391d4",
+   "manifestUrl": "massif/pico-de-orizaba--summit-2465.terrain.json",
+   "manifestSha256": "ce35c5007c3cc08bf42662ff2938c56283423431fc825e07417b4aeac1dd9f81"
+  },
+  {
+   "id": "pico-de-orizaba:summit-3159",
+   "name": "Pico de Orizaba summit 3150 m",
+   "family": "pine-oak",
+   "sourceView": "pico-de-orizaba",
+   "place": "Pico de Orizaba, Puebla and Veracruz",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    10,
+    7
+   ],
+   "peakReliefM": 1056,
+   "peakM": 3150,
+   "characterScores": {
+    "energy": 0.218,
+    "rawness": 0.168,
+    "grandeur": 0.235,
+    "dominance": 0.469
+   },
+   "reliefSha256": "da0cd9cb7b22eaada715e7368f2571f7dd554096ee688fec4583f3ce224b16d2",
+   "manifestUrl": "massif/pico-de-orizaba--summit-3159.terrain.json",
+   "manifestSha256": "0ba6138ebe8a53bcd2f343047084062854218123a0e2c8e84c8f919e9c91c986"
+  },
+  {
+   "id": "pico-de-orizaba:summit-3941",
+   "name": "Pico de Orizaba summit 3937 m",
+   "family": "pine-oak",
+   "sourceView": "pico-de-orizaba",
+   "place": "Pico de Orizaba, Puebla and Veracruz",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    3,
+    3
+   ],
+   "peakReliefM": 465,
+   "peakM": 3937,
+   "characterScores": {
+    "energy": 0.087,
+    "rawness": 0.066,
+    "grandeur": 0.103,
+    "dominance": 1
+   },
+   "reliefSha256": "e802a69e769c0158cb79b5918dc169aa6e050849f666d5cf23ee0848b858e9f0",
+   "manifestUrl": "massif/pico-de-orizaba--summit-3941.terrain.json",
+   "manifestSha256": "5c08c5343393f9ee5799366e3844c21f8ab2dd43315f0d4088ce11dbd6b422f0"
+  },
+  {
+   "id": "pico-de-orizaba:summit-5594",
+   "name": "Pico de Orizaba summit 5594 m",
+   "family": "pine-oak",
+   "sourceView": "pico-de-orizaba",
+   "place": "Pico de Orizaba, Puebla and Veracruz",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    9,
+    10
+   ],
+   "peakReliefM": 1707,
+   "peakM": 5594,
+   "characterScores": {
+    "energy": 0.167,
+    "rawness": 0.078,
+    "grandeur": 0.379,
+    "dominance": 0.979
+   },
+   "reliefSha256": "6af3648453fa4026a6bd5e4b8f654b2bf88208279972f360333790d4e309d0ec",
+   "manifestUrl": "massif/pico-de-orizaba--summit-5594.terrain.json",
+   "manifestSha256": "100e782f9a78ecbab1f245d9f26c3d7191b212f4fbf2539a0782b6b3662da76a"
+  },
+  {
+   "id": "san-gabriel-baldy:mount-baden-powell",
+   "name": "Mount Baden-Powell",
+   "family": "chaparral",
+   "sourceView": "san-gabriel-baldy",
+   "place": "San Gabriel Mountains, California",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "landmark",
+   "tiles": [
+    10,
+    10
+   ],
+   "peakReliefM": 1139,
+   "peakM": 2862,
+   "characterScores": {
+    "energy": 0.161,
+    "rawness": 0.114,
+    "grandeur": 0.251,
+    "dominance": 0.666
+   },
+   "reliefSha256": "f70473251b11455f19ab701de0eb910598f446b70a64b80f7254df66262ac6a2",
+   "manifestUrl": "massif/san-gabriel-baldy--mount-baden-powell.terrain.json",
+   "manifestSha256": "a42200f68aea272b591a58b4d8932918999bae3638eec596c743e9092e6999e9"
+  },
+  {
+   "id": "san-gabriel-baldy:mount-san-antonio",
+   "name": "Mount San Antonio",
+   "family": "chaparral",
+   "sourceView": "san-gabriel-baldy",
+   "place": "San Gabriel Mountains, California",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "landmark",
+   "tiles": [
+    10,
+    10
+   ],
+   "peakReliefM": 1106,
+   "peakM": 3068,
+   "characterScores": {
+    "energy": 0.113,
+    "rawness": 0.073,
+    "grandeur": 0.245,
+    "dominance": 0.909
+   },
+   "reliefSha256": "5d81e2fcd611b0952dc278da08f46c4ec8764e1ba833fdb77ba69a6c4e400c0a",
+   "manifestUrl": "massif/san-gabriel-baldy--mount-san-antonio.terrain.json",
+   "manifestSha256": "beb17196f155514a630ba8c36d6415b4721aa9c7b5e25c7bb2b9c16f6537fb25"
+  },
+  {
+   "id": "san-gabriel-baldy:summit-1767",
+   "name": "San Gabriel Mountains summit 1678 m",
+   "family": "chaparral",
+   "sourceView": "san-gabriel-baldy",
+   "place": "San Gabriel Mountains, California",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    9,
+    10
+   ],
+   "peakReliefM": 891,
+   "peakM": 1678,
+   "characterScores": {
+    "energy": 0.078,
+    "rawness": 0.041,
+    "grandeur": 0.197,
+    "dominance": 1
+   },
+   "reliefSha256": "77cabe8d629bba82a1b56bc53dbb84d0cff70558ca71641a20778653d93d61e8",
+   "manifestUrl": "massif/san-gabriel-baldy--summit-1767.terrain.json",
+   "manifestSha256": "4a37f5c661c79409c58fc9b24a33b01b9c48152e3a6f99e79b23daba85d3668c"
+  },
+  {
+   "id": "san-gabriel-baldy:summit-2432",
+   "name": "San Gabriel Mountains summit 2432 m",
+   "family": "chaparral",
+   "sourceView": "san-gabriel-baldy",
+   "place": "San Gabriel Mountains, California",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    4,
+    4
+   ],
+   "peakReliefM": 426,
+   "peakM": 2432,
+   "characterScores": {
+    "energy": 0.067,
+    "rawness": 0.049,
+    "grandeur": 0.094,
+    "dominance": 1
+   },
+   "reliefSha256": "6b86177b7f1c7174a901c0602710e3ad4b08bd4ca350344ce9b995040f91625b",
+   "manifestUrl": "massif/san-gabriel-baldy--summit-2432.terrain.json",
+   "manifestSha256": "28494196ef53ee733104d13dc883bd27f3ead04ac62def80f07876e44af790db"
+  },
+  {
+   "id": "san-gabriel-baldy:summit-2437",
+   "name": "San Gabriel Mountains summit 2262 m",
+   "family": "chaparral",
+   "sourceView": "san-gabriel-baldy",
+   "place": "San Gabriel Mountains, California",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    5,
+    8
+   ],
+   "peakReliefM": 1002,
+   "peakM": 2262,
+   "characterScores": {
+    "energy": 0.126,
+    "rawness": 0.095,
+    "grandeur": 0.222,
+    "dominance": 1
+   },
+   "reliefSha256": "83e5b763355b27bb6b0058326a82e3894fa037af6b7c60b6eb7f49d5e8c2d2ba",
+   "manifestUrl": "massif/san-gabriel-baldy--summit-2437.terrain.json",
+   "manifestSha256": "0606d62e5c8b71e30da4332b409c45b4a45ff4e563e048012410848ec516dac4"
+  },
+  {
+   "id": "san-gabriel-baldy:summit-974",
+   "name": "San Gabriel Mountains summit 970 m",
+   "family": "chaparral",
+   "sourceView": "san-gabriel-baldy",
+   "place": "San Gabriel Mountains, California",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    7,
+    6
+   ],
+   "peakReliefM": 530,
+   "peakM": 970,
+   "characterScores": {
+    "energy": 0.066,
+    "rawness": 0.042,
+    "grandeur": 0.118,
+    "dominance": 0.725
+   },
+   "reliefSha256": "408d3aa4623a93fde3e5b3c0436fef9d433f6bdf0cee39aeef2510e5f71e2500",
+   "manifestUrl": "massif/san-gabriel-baldy--summit-974.terrain.json",
+   "manifestSha256": "9fb2e6bf541cbe775be96d415618db88379fcb487914d654e3a774cd906ef29b"
+  },
+  {
+   "id": "san-jacinto:summit-1357",
+   "name": "San Jacinto Mountains summit 1327 m",
+   "family": "chaparral",
+   "sourceView": "san-jacinto",
+   "place": "San Jacinto Mountains, California",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    9,
+    8
+   ],
+   "peakReliefM": 406,
+   "peakM": 1327,
+   "characterScores": {
+    "energy": 0.069,
+    "rawness": 0.059,
+    "grandeur": 0.09,
+    "dominance": 0.813
+   },
+   "reliefSha256": "d1422232a59b20e1a50c14e34bf88797937202238a250fea6d6ad38a681fe50e",
+   "manifestUrl": "massif/san-jacinto--summit-1357.terrain.json",
+   "manifestSha256": "21f0a310770b4087e78728b6b5ab22b24fe73e7a17acaef156361fd7efdcb386"
+  },
+  {
+   "id": "san-jacinto:summit-1695",
+   "name": "San Jacinto Mountains summit 1662 m",
+   "family": "chaparral",
+   "sourceView": "san-jacinto",
+   "place": "San Jacinto Mountains, California",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    5,
+    8
+   ],
+   "peakReliefM": 425,
+   "peakM": 1662,
+   "characterScores": {
+    "energy": 0.04,
+    "rawness": 0.028,
+    "grandeur": 0.094,
+    "dominance": 1
+   },
+   "reliefSha256": "07281c9ffcd1952fdc56b6a83b361ff10cc971029d9190c5b411b163cff60d64",
+   "manifestUrl": "massif/san-jacinto--summit-1695.terrain.json",
+   "manifestSha256": "57f57181557e70175c23cde3c7d61d61570df6294048cc26a2bd547a937d05b6"
+  },
+  {
+   "id": "san-jacinto:summit-3290",
+   "name": "San Jacinto Mountains summit 3290 m",
+   "family": "chaparral",
+   "sourceView": "san-jacinto",
+   "place": "San Jacinto Mountains, California",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    10,
+    10
+   ],
+   "peakReliefM": 1085,
+   "peakM": 3290,
+   "characterScores": {
+    "energy": 0.109,
+    "rawness": 0.075,
+    "grandeur": 0.24,
+    "dominance": 0.903
+   },
+   "reliefSha256": "3f0404b2b1fcd9c6314ec5ad1a6443d671e5aeabb36accb4ef97360ab953602b",
+   "manifestUrl": "massif/san-jacinto--summit-3290.terrain.json",
+   "manifestSha256": "8ff278f4c7c73377f291ca782dcf03548200f8ee5d2307e2400f6b0004c58e01"
+  },
+  {
    "id": "san-juan-sneffels-north:mount-sneffels",
    "name": "Mount Sneffels",
    "family": "dry-conifer",
    "sourceView": "san-juan-sneffels-north",
    "place": "Sneffels Range, Colorado",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "landmark",
    "tiles": [
     10,
@@ -350,6 +2592,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "san-juan-sneffels-north",
    "place": "Sneffels Range, Colorado",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     6,
@@ -373,6 +2616,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "san-juan-sneffels-north",
    "place": "Sneffels Range, Colorado",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     4,
@@ -396,6 +2640,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "san-juan-sneffels-north",
    "place": "Sneffels Range, Colorado",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     4,
@@ -419,6 +2664,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "san-juan-sneffels-north",
    "place": "Sneffels Range, Colorado",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     5,
@@ -437,11 +2683,84 @@ export default {
    "manifestSha256": "e37adf640bc4b14ad7959bf2a02b54554dc0f6aeeedf1c317632579bc25b3c3b"
   },
   {
+   "id": "santa-lucia-big-sur:summit-1438-2",
+   "name": "Santa Lucia Range summit 1437 m",
+   "family": "chaparral",
+   "sourceView": "santa-lucia-big-sur",
+   "place": "Santa Lucia Range, California",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    4,
+    6
+   ],
+   "peakReliefM": 533,
+   "peakM": 1437,
+   "characterScores": {
+    "energy": 0.063,
+    "rawness": 0.051,
+    "grandeur": 0.118,
+    "dominance": 1
+   },
+   "reliefSha256": "2ddee4f213e9b5b3710d5b9c970a4c26f781a8fe27e449234d4cab8ea9dba9b5",
+   "manifestUrl": "massif/santa-lucia-big-sur--summit-1438-2.terrain.json",
+   "manifestSha256": "e2a7c37b53a5dab598402db550bbaae5252cf9192861615bef561f1797019a03"
+  },
+  {
+   "id": "santa-lucia-big-sur:summit-1512",
+   "name": "Santa Lucia Range summit 1512 m",
+   "family": "chaparral",
+   "sourceView": "santa-lucia-big-sur",
+   "place": "Santa Lucia Range, California",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    8,
+    6
+   ],
+   "peakReliefM": 626,
+   "peakM": 1512,
+   "characterScores": {
+    "energy": 0.16,
+    "rawness": 0.13,
+    "grandeur": 0.137,
+    "dominance": 0.37
+   },
+   "reliefSha256": "f5206af943b2f8af9c703ee491a37d02fcaaeb9276c6dae3f7a3020654793a36",
+   "manifestUrl": "massif/santa-lucia-big-sur--summit-1512.terrain.json",
+   "manifestSha256": "178f4f0a1ff2b9621c9f6932f2d81b565a8fb19d6c3c805e39ffa0d4db696558"
+  },
+  {
+   "id": "santa-lucia-big-sur:summit-1782",
+   "name": "Santa Lucia Range summit 1781 m",
+   "family": "chaparral",
+   "sourceView": "santa-lucia-big-sur",
+   "place": "Santa Lucia Range, California",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    10,
+    10
+   ],
+   "peakReliefM": 866,
+   "peakM": 1781,
+   "characterScores": {
+    "energy": 0.112,
+    "rawness": 0.087,
+    "grandeur": 0.191,
+    "dominance": 0.802
+   },
+   "reliefSha256": "0255f3891c05751bc6f7c85aee9d81d1b1a2095cc26e23f2710388f74eb522a2",
+   "manifestUrl": "massif/santa-lucia-big-sur--summit-1782.terrain.json",
+   "manifestSha256": "ef15a37471166d316ad1a6fac24524799dfd9098b639cfd6c6240a911a8dec5c"
+  },
+  {
    "id": "sawtooth-redfish-north:grand-mogul",
    "name": "Grand Mogul",
    "family": "dry-conifer",
    "sourceView": "sawtooth-redfish-north",
    "place": "Sawtooth Range, Idaho",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "landmark",
    "tiles": [
     8,
@@ -465,6 +2784,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "sawtooth-redfish-north",
    "place": "Sawtooth Range, Idaho",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "landmark",
    "tiles": [
     8,
@@ -488,6 +2808,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "sawtooth-redfish-north",
    "place": "Sawtooth Range, Idaho",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     4,
@@ -511,6 +2832,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "sawtooth-redfish-north",
    "place": "Sawtooth Range, Idaho",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     7,
@@ -534,6 +2856,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "sawtooth-redfish-north",
    "place": "Sawtooth Range, Idaho",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     10,
@@ -557,6 +2880,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "sawtooth-redfish-north",
    "place": "Sawtooth Range, Idaho",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     9,
@@ -580,6 +2904,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "sawtooth-redfish-north",
    "place": "Sawtooth Range, Idaho",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     7,
@@ -603,6 +2928,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "sawtooth-redfish-north",
    "place": "Sawtooth Range, Idaho",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     9,
@@ -626,6 +2952,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "sawtooth-redfish-north",
    "place": "Sawtooth Range, Idaho",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     10,
@@ -649,6 +2976,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "sawtooth-redfish-north",
    "place": "Sawtooth Range, Idaho",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     3,
@@ -672,6 +3000,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "sawtooth-redfish-north",
    "place": "Sawtooth Range, Idaho",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     10,
@@ -690,11 +3019,540 @@ export default {
    "manifestSha256": "8148d6631d02ac18cf7495aa5f736947e58949551c3c6fe3aaa435309666e347"
   },
   {
+   "id": "shenandoah-stony-man-west:hawksbill",
+   "name": "Hawksbill",
+   "family": "broadleaf",
+   "sourceView": "shenandoah-stony-man-west",
+   "place": "Blue Ridge, Virginia",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "landmark",
+   "tiles": [
+    10,
+    8
+   ],
+   "peakReliefM": 617,
+   "peakM": 1227,
+   "characterScores": {
+    "energy": 0.105,
+    "rawness": 0.08,
+    "grandeur": 0.137,
+    "dominance": 0.846
+   },
+   "reliefSha256": "8d565f3f42c014d0d6453d386e315e9223841dd3c0bd0fa3ef9b259a37459aed",
+   "manifestUrl": "massif/shenandoah-stony-man-west--hawksbill.terrain.json",
+   "manifestSha256": "8b85c69773d207988a0985261b99398b82873df0fb94e92d02b8fb220cdf77e2"
+  },
+  {
+   "id": "shenandoah-stony-man-west:old-rag-mountain",
+   "name": "Old Rag Mountain",
+   "family": "broadleaf",
+   "sourceView": "shenandoah-stony-man-west",
+   "place": "Blue Ridge, Virginia",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "landmark",
+   "tiles": [
+    10,
+    8
+   ],
+   "peakReliefM": 608,
+   "peakM": 999,
+   "characterScores": {
+    "energy": 0.095,
+    "rawness": 0.075,
+    "grandeur": 0.135,
+    "dominance": 0.802
+   },
+   "reliefSha256": "cf0f73978a6bd2bf60f0ad9946f82e78619dd2efc33160200335f0b71bca03d2",
+   "manifestUrl": "massif/shenandoah-stony-man-west--old-rag-mountain.terrain.json",
+   "manifestSha256": "5420f5f59b21a76a6001b0547d05596e62084a53ab27dedc69c8963f299e0868"
+  },
+  {
+   "id": "shenandoah-stony-man-west:summit-1172",
+   "name": "Blue Ridge summit 1070 m",
+   "family": "broadleaf",
+   "sourceView": "shenandoah-stony-man-west",
+   "place": "Blue Ridge, Virginia",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    9,
+    8
+   ],
+   "peakReliefM": 503,
+   "peakM": 1070,
+   "characterScores": {
+    "energy": 0.125,
+    "rawness": 0.115,
+    "grandeur": 0.112,
+    "dominance": 0.693
+   },
+   "reliefSha256": "2227c4e9692c38f43a1bb16c1b14f3e6e75266be099eb55dfdedca2944edd54c",
+   "manifestUrl": "massif/shenandoah-stony-man-west--summit-1172.terrain.json",
+   "manifestSha256": "2e05bca0304df1293fa073b187d4322e6ff28b04e1a89c226559222ff0cd2e4e"
+  },
+  {
+   "id": "shenandoah-stony-man-west:summit-867",
+   "name": "Blue Ridge summit 867 m",
+   "family": "broadleaf",
+   "sourceView": "shenandoah-stony-man-west",
+   "place": "Blue Ridge, Virginia",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    5,
+    4
+   ],
+   "peakReliefM": 418,
+   "peakM": 867,
+   "characterScores": {
+    "energy": 0.095,
+    "rawness": 0.071,
+    "grandeur": 0.093,
+    "dominance": 0.807
+   },
+   "reliefSha256": "54c0eb98cda4471887a16d99050d7a5b3e1c7b0df61aae92448b5265eba48b1c",
+   "manifestUrl": "massif/shenandoah-stony-man-west--summit-867.terrain.json",
+   "manifestSha256": "829fe1ab6d0be20998d282b17485320d3d8cff61fe62151ad3ea43a05ed52c6a"
+  },
+  {
+   "id": "sierra-whitney-east:summit-1642",
+   "name": "Sierra Nevada summit 1636 m",
+   "family": "steppe",
+   "sourceView": "sierra-whitney-east",
+   "place": "Sierra Nevada, California",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    7,
+    6
+   ],
+   "peakReliefM": 300,
+   "peakM": 1636,
+   "characterScores": {
+    "energy": 0.042,
+    "rawness": 0.037,
+    "grandeur": 0.065,
+    "dominance": 0.94
+   },
+   "reliefSha256": "f62fb357d6b823f35921d0a8a28e618408540a826e9a55455d39e76a3f4dcfdb",
+   "manifestUrl": "massif/sierra-whitney-east--summit-1642.terrain.json",
+   "manifestSha256": "b5180b50bb0bd767a616c724b8f4291b35f29d510a3c94937fe6a89fba57b251"
+  },
+  {
+   "id": "sierra-whitney-east:summit-3673",
+   "name": "Sierra Nevada summit 3666 m",
+   "family": "steppe",
+   "sourceView": "sierra-whitney-east",
+   "place": "Sierra Nevada, California",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    5,
+    6
+   ],
+   "peakReliefM": 642,
+   "peakM": 3666,
+   "characterScores": {
+    "energy": 0.101,
+    "rawness": 0.079,
+    "grandeur": 0.143,
+    "dominance": 1
+   },
+   "reliefSha256": "213248e48bfc965e631e350b5f88e2ef39d66dfbc8e6be0e23295859c49779b2",
+   "manifestUrl": "massif/sierra-whitney-east--summit-3673.terrain.json",
+   "manifestSha256": "85417a1282c0954ffa1a6b20297dc4f992358c905bebff6f946c8dcffe27586e"
+  },
+  {
+   "id": "sierra-whitney-east:summit-3747",
+   "name": "Sierra Nevada summit 3747 m",
+   "family": "steppe",
+   "sourceView": "sierra-whitney-east",
+   "place": "Sierra Nevada, California",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    5,
+    5
+   ],
+   "peakReliefM": 772,
+   "peakM": 3747,
+   "characterScores": {
+    "energy": 0.131,
+    "rawness": 0.101,
+    "grandeur": 0.172,
+    "dominance": 0.987
+   },
+   "reliefSha256": "bbf21f46e0c35946ea46967f07b79383f9fc0e0567aabb687e1c3cd2f44e8805",
+   "manifestUrl": "massif/sierra-whitney-east--summit-3747.terrain.json",
+   "manifestSha256": "0ffd3ec1b360e89cc3a5a96c35685a473f20ebbcf354df1d8888a7ad38cc2a45"
+  },
+  {
+   "id": "sierra-whitney-east:summit-3931",
+   "name": "Sierra Nevada summit 3931 m",
+   "family": "steppe",
+   "sourceView": "sierra-whitney-east",
+   "place": "Sierra Nevada, California",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    8,
+    7
+   ],
+   "peakReliefM": 546,
+   "peakM": 3931,
+   "characterScores": {
+    "energy": 0.079,
+    "rawness": 0.065,
+    "grandeur": 0.12,
+    "dominance": 0.822
+   },
+   "reliefSha256": "a687244acca9b0872d8a0ff14a2449adcf2093d0da7cbb02457e337dcde4a0c4",
+   "manifestUrl": "massif/sierra-whitney-east--summit-3931.terrain.json",
+   "manifestSha256": "ab54fe6c9b137b3c03699224f2e4a62441f323c0a921d15a7a19b4d9e3f51500"
+  },
+  {
+   "id": "sierra-whitney-east:summit-4247",
+   "name": "Sierra Nevada summit 4247 m",
+   "family": "steppe",
+   "sourceView": "sierra-whitney-east",
+   "place": "Sierra Nevada, California",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    7,
+    6
+   ],
+   "peakReliefM": 499,
+   "peakM": 4247,
+   "characterScores": {
+    "energy": 0.079,
+    "rawness": 0.067,
+    "grandeur": 0.109,
+    "dominance": 0.827
+   },
+   "reliefSha256": "5a4107d924f53f48e6a750cb7dd0c3ecece13f68dbac25edf4b9729f83ddb981",
+   "manifestUrl": "massif/sierra-whitney-east--summit-4247.terrain.json",
+   "manifestSha256": "802719f549f95da0f00e4aab0c7aea06f629349151c53cf044c7d73298373d03"
+  },
+  {
+   "id": "sierra-whitney-east:summit-4254",
+   "name": "Sierra Nevada summit 4060 m",
+   "family": "steppe",
+   "sourceView": "sierra-whitney-east",
+   "place": "Sierra Nevada, California",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    6,
+    7
+   ],
+   "peakReliefM": 931,
+   "peakM": 4060,
+   "characterScores": {
+    "energy": 0.181,
+    "rawness": 0.14,
+    "grandeur": 0.204,
+    "dominance": 0.916
+   },
+   "reliefSha256": "0572c3f073d33f3aad5cff5364f75fa9ff83a34e5d3e44297fc72850448d2197",
+   "manifestUrl": "massif/sierra-whitney-east--summit-4254.terrain.json",
+   "manifestSha256": "186ff11ae2903fb93a05d1d69dfe5d05fc7d5d807c3ce6f74963180e6fdda3d0"
+  },
+  {
+   "id": "sierra-whitney-east:summit-4274",
+   "name": "Sierra Nevada summit 4256 m",
+   "family": "steppe",
+   "sourceView": "sierra-whitney-east",
+   "place": "Sierra Nevada, California",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    5,
+    10
+   ],
+   "peakReliefM": 759,
+   "peakM": 4256,
+   "characterScores": {
+    "energy": 0.095,
+    "rawness": 0.086,
+    "grandeur": 0.167,
+    "dominance": 1
+   },
+   "reliefSha256": "c0b64f7b41357ff240bd42d1b4ca690138bcdef77add104caf326545192ea233",
+   "manifestUrl": "massif/sierra-whitney-east--summit-4274.terrain.json",
+   "manifestSha256": "479a3beff39295f1332b7c696e573467bebdb7461e60f9d481286192ef63f316"
+  },
+  {
+   "id": "sierra-whitney-east:summit-4378",
+   "name": "Sierra Nevada summit 4378 m",
+   "family": "steppe",
+   "sourceView": "sierra-whitney-east",
+   "place": "Sierra Nevada, California",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    9,
+    10
+   ],
+   "peakReliefM": 1094,
+   "peakM": 4378,
+   "characterScores": {
+    "energy": 0.116,
+    "rawness": 0.079,
+    "grandeur": 0.241,
+    "dominance": 0.962
+   },
+   "reliefSha256": "4e903e6f57e215fc343d36ea94857cbf1749803987a1a7281cefd864b29abe38",
+   "manifestUrl": "massif/sierra-whitney-east--summit-4378.terrain.json",
+   "manifestSha256": "55aa1cddacfa0e0cce4d676dc4a0c7fd263bd4acdee4d1d3eb3aa0f90e393113"
+  },
+  {
+   "id": "skagit-baker-lake:mount-baker",
+   "name": "Mount Baker",
+   "family": "wet-conifer",
+   "sourceView": "skagit-baker-lake",
+   "place": "Mount Baker",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "landmark",
+   "tiles": [
+    7,
+    6
+   ],
+   "peakReliefM": 1173,
+   "peakM": 3283,
+   "characterScores": {
+    "energy": 0.206,
+    "rawness": 0.148,
+    "grandeur": 0.259,
+    "dominance": 0.837
+   },
+   "reliefSha256": "dc32de8ca7d30b6ce1bdef94cfda52b98862e217ac066e9a50a3ccca3ab1d80e",
+   "manifestUrl": "massif/skagit-baker-lake--mount-baker.terrain.json",
+   "manifestSha256": "8dd35739e3cac9864ef84dbceeb1b41a7bdedd6489cf799aa571326a1a3fdd2e"
+  },
+  {
+   "id": "skagit-baker-lake:summit-1583",
+   "name": "Mount Baker summit 1583 m",
+   "family": "wet-conifer",
+   "sourceView": "skagit-baker-lake",
+   "place": "Mount Baker",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    3,
+    2
+   ],
+   "peakReliefM": 352,
+   "peakM": 1583,
+   "characterScores": {
+    "energy": 0.149,
+    "rawness": 0.135,
+    "grandeur": 0.077,
+    "dominance": 0.966
+   },
+   "reliefSha256": "cbe15620def7aa46117b539dce13aa5fa24cc123bba5bd76a1f6800b99d1fcb0",
+   "manifestUrl": "massif/skagit-baker-lake--summit-1583.terrain.json",
+   "manifestSha256": "62a5c4f1503c77ffe83d31705e2b7bb1d028fb17e192903d86b62c3681e03d99"
+  },
+  {
+   "id": "skagit-baker-lake:summit-1696",
+   "name": "Mount Baker summit 1695 m",
+   "family": "wet-conifer",
+   "sourceView": "skagit-baker-lake",
+   "place": "Mount Baker",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    5,
+    6
+   ],
+   "peakReliefM": 832,
+   "peakM": 1695,
+   "characterScores": {
+    "energy": 0.099,
+    "rawness": 0.073,
+    "grandeur": 0.183,
+    "dominance": 1
+   },
+   "reliefSha256": "0f90d4c4798cc72ad65e55ea8c7540e0539d7d0430fae37ba34f2978b6e95830",
+   "manifestUrl": "massif/skagit-baker-lake--summit-1696.terrain.json",
+   "manifestSha256": "1ab4e6be74c0ec5697a45c7fa142bdcfb7d0f89603748a981ae980931f2135b7"
+  },
+  {
+   "id": "skagit-baker-lake:summit-1697",
+   "name": "Mount Baker summit 1697 m",
+   "family": "wet-conifer",
+   "sourceView": "skagit-baker-lake",
+   "place": "Mount Baker",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    4,
+    5
+   ],
+   "peakReliefM": 483,
+   "peakM": 1697,
+   "characterScores": {
+    "energy": 0.099,
+    "rawness": 0.095,
+    "grandeur": 0.106,
+    "dominance": 1
+   },
+   "reliefSha256": "24dc6640361dcaf46d296608c83ab935310962d77a12023f59164dad4d25451e",
+   "manifestUrl": "massif/skagit-baker-lake--summit-1697.terrain.json",
+   "manifestSha256": "e3eefee1d1e706eb9fbe9a19ec7fbd0b13e87eb0c09eadca208a71531840b9e1"
+  },
+  {
+   "id": "superstition-west-front:summit-1027",
+   "name": "Superstition Mountains summit 1027 m",
+   "family": "desert",
+   "sourceView": "superstition-west-front",
+   "place": "Superstition Mountains, Arizona",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    8,
+    8
+   ],
+   "peakReliefM": 362,
+   "peakM": 1027,
+   "characterScores": {
+    "energy": 0.042,
+    "rawness": 0.038,
+    "grandeur": 0.079,
+    "dominance": 0.883
+   },
+   "reliefSha256": "e0c9ace1b5bddb022c2c56b08558c768d0caba0bd2e16f3b86f0eb395b88db79",
+   "manifestUrl": "massif/superstition-west-front--summit-1027.terrain.json",
+   "manifestSha256": "792d1ad3a84f548434d24e3b691541dece397b792ac6eacaeae7ffd1e0da5583"
+  },
+  {
+   "id": "superstition-west-front:summit-1053",
+   "name": "Superstition Mountains summit 1053 m",
+   "family": "desert",
+   "sourceView": "superstition-west-front",
+   "place": "Superstition Mountains, Arizona",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    6,
+    3
+   ],
+   "peakReliefM": 305,
+   "peakM": 1053,
+   "characterScores": {
+    "energy": 0.129,
+    "rawness": 0.112,
+    "grandeur": 0.067,
+    "dominance": 0.5
+   },
+   "reliefSha256": "44eac3ebb8425de03c622344c6fde8bd2f3f3479d70825224220257373f8586f",
+   "manifestUrl": "massif/superstition-west-front--summit-1053.terrain.json",
+   "manifestSha256": "a7400ed8c9e9d5cdbd8b5c82d5c76ee27667fcd3c63a62942580c50035e848fe"
+  },
+  {
+   "id": "superstition-west-front:summit-1495",
+   "name": "Superstition Mountains summit 1495 m",
+   "family": "desert",
+   "sourceView": "superstition-west-front",
+   "place": "Superstition Mountains, Arizona",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    4,
+    4
+   ],
+   "peakReliefM": 312,
+   "peakM": 1495,
+   "characterScores": {
+    "energy": 0.158,
+    "rawness": 0.154,
+    "grandeur": 0.069,
+    "dominance": 0.73
+   },
+   "reliefSha256": "9c24e11667a2bd351f54f963da4b37df8d9a39503fdeb41fae7f2a652369b368",
+   "manifestUrl": "massif/superstition-west-front--summit-1495.terrain.json",
+   "manifestSha256": "9bdd53dca85fab40868f266194522ef70c6d7f65c253e4ef1cab4a268e79db5c"
+  },
+  {
+   "id": "superstition-west-front:summit-903",
+   "name": "Superstition Mountains summit 878 m",
+   "family": "desert",
+   "sourceView": "superstition-west-front",
+   "place": "Superstition Mountains, Arizona",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    7,
+    8
+   ],
+   "peakReliefM": 340,
+   "peakM": 878,
+   "characterScores": {
+    "energy": 0.062,
+    "rawness": 0.06,
+    "grandeur": 0.074,
+    "dominance": 1
+   },
+   "reliefSha256": "c5f760b0ee735e89d5ca373599ae345905e6cf8d2da4c58400d9c9cba404b028",
+   "manifestUrl": "massif/superstition-west-front--summit-903.terrain.json",
+   "manifestSha256": "f09d6dd5133bc63d03d868675d185f0a2684d0eb5fec6737a9f014363d6254a8"
+  },
+  {
+   "id": "superstition-west-front:superstition-peak",
+   "name": "Superstition Peak",
+   "family": "desert",
+   "sourceView": "superstition-west-front",
+   "place": "Superstition Mountains, Arizona",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "landmark",
+   "tiles": [
+    10,
+    9
+   ],
+   "peakReliefM": 744,
+   "peakM": 1529,
+   "characterScores": {
+    "energy": 0.085,
+    "rawness": 0.067,
+    "grandeur": 0.164,
+    "dominance": 0.956
+   },
+   "reliefSha256": "38b7d5501a38fd3a45a1d80c25bd4d72c03f387dc59d33e5283873958ea86f84",
+   "manifestUrl": "massif/superstition-west-front--superstition-peak.terrain.json",
+   "manifestSha256": "b5634b679062090b0d8239b7c629471160ebd162534d04938a6e11f86569b6dd"
+  },
+  {
+   "id": "superstition-west-front:weavers-needle",
+   "name": "Weavers Needle",
+   "family": "desert",
+   "sourceView": "superstition-west-front",
+   "place": "Superstition Mountains, Arizona",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "landmark",
+   "tiles": [
+    9,
+    7
+   ],
+   "peakReliefM": 456,
+   "peakM": 1382,
+   "characterScores": {
+    "energy": 0.159,
+    "rawness": 0.16,
+    "grandeur": 0.094,
+    "dominance": 0.692
+   },
+   "reliefSha256": "d9d65384b91b0442dedf8ff793c68720b7b012b54440cf6240e2fea4cb46a31c",
+   "manifestUrl": "massif/superstition-west-front--weavers-needle.terrain.json",
+   "manifestSha256": "15389d812182681a25acb4b6cc8884f04ac44999ee82f3d2087a775e442bb74a"
+  },
+  {
    "id": "teton-jackson-lake:grand-teton",
    "name": "Grand Teton",
    "family": "dry-conifer",
    "sourceView": "teton-jackson-lake",
    "place": "Teton Range, Wyoming",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "landmark",
    "tiles": [
     8,
@@ -718,6 +3576,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "teton-jackson-lake",
    "place": "Teton Range, Wyoming",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "landmark",
    "tiles": [
     6,
@@ -741,6 +3600,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "teton-jackson-lake",
    "place": "Teton Range, Wyoming",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     9,
@@ -764,6 +3624,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "teton-jackson-lake",
    "place": "Teton Range, Wyoming",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     5,
@@ -787,6 +3648,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "teton-jackson-lake",
    "place": "Teton Range, Wyoming",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     6,
@@ -810,6 +3672,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "teton-jackson-lake",
    "place": "Teton Range, Wyoming",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     9,
@@ -833,6 +3696,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "teton-jackson-lake",
    "place": "Teton Range, Wyoming",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     10,
@@ -856,6 +3720,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "teton-jackson-lake",
    "place": "Teton Range, Wyoming",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     6,
@@ -879,6 +3744,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "teton-jackson-lake",
    "place": "Teton Range, Wyoming",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     4,
@@ -902,6 +3768,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "teton-jackson-lake",
    "place": "Teton Range, Wyoming",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     5,
@@ -925,6 +3792,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "teton-jackson-lake",
    "place": "Teton Range, Wyoming",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     6,
@@ -948,6 +3816,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "teton-jackson-lake",
    "place": "Teton Range, Wyoming",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     10,
@@ -971,6 +3840,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "teton-jackson-lake",
    "place": "Teton Range, Wyoming",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     5,
@@ -994,6 +3864,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "teton-jackson-lake",
    "place": "Teton Range, Wyoming",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     8,
@@ -1017,6 +3888,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "teton-jackson-lake",
    "place": "Teton Range, Wyoming",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     9,
@@ -1040,6 +3912,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "teton-jackson-lake",
    "place": "Teton Range, Wyoming",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     7,
@@ -1063,6 +3936,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "teton-jackson-lake",
    "place": "Teton Range, Wyoming",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     5,
@@ -1086,6 +3960,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "teton-jackson-lake",
    "place": "Teton Range, Wyoming",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     10,
@@ -1109,6 +3984,7 @@ export default {
    "family": "dry-conifer",
    "sourceView": "teton-jackson-lake",
    "place": "Teton Range, Wyoming",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
    "seedKind": "prominence",
    "tiles": [
     6,
@@ -1125,6 +4001,390 @@ export default {
    "reliefSha256": "16fd168a8b588ca3bf1d51d0771f713b44fd167554102360bae11bc205fda7b6",
    "manifestUrl": "massif/teton-jackson-lake--summit-3630.terrain.json",
    "manifestSha256": "afa78d158c9e5b4309e0a2ed709d516eb31fe605a473b9131117e628dc36c116"
+  },
+  {
+   "id": "tombstone-north-klondike:summit-1802",
+   "name": "Tombstone Range summit 1802 m",
+   "family": "tundra",
+   "sourceView": "tombstone-north-klondike",
+   "place": "Tombstone Range, Yukon",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    6,
+    6
+   ],
+   "peakReliefM": 549,
+   "peakM": 1802,
+   "characterScores": {
+    "energy": 0.12,
+    "rawness": 0.101,
+    "grandeur": 0.122,
+    "dominance": 0.754
+   },
+   "reliefSha256": "9d080f3eccb9b8e1dd89195f2d97613393d5971d842a8fca9c99ebd9b6dd7176",
+   "manifestUrl": "massif/tombstone-north-klondike--summit-1802.terrain.json",
+   "manifestSha256": "ec4c79e04fa93022ee7ea18d180d6f493728823bde48c860903dd78a92f91b56"
+  },
+  {
+   "id": "tombstone-north-klondike:summit-1849",
+   "name": "Tombstone Range summit 1849 m",
+   "family": "tundra",
+   "sourceView": "tombstone-north-klondike",
+   "place": "Tombstone Range, Yukon",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    5,
+    6
+   ],
+   "peakReliefM": 641,
+   "peakM": 1849,
+   "characterScores": {
+    "energy": 0.096,
+    "rawness": 0.079,
+    "grandeur": 0.142,
+    "dominance": 1
+   },
+   "reliefSha256": "9bdf4a196c5828e81339e1cbeb9f682b0c4fcc9f2d74b5f4d81738fc9b03ff41",
+   "manifestUrl": "massif/tombstone-north-klondike--summit-1849.terrain.json",
+   "manifestSha256": "5a309adc628a5922c12aa4eeb31abeb44d95dbcf32c5e615d8a6c52050723c3d"
+  },
+  {
+   "id": "tombstone-north-klondike:summit-1880",
+   "name": "Tombstone Range summit 1761 m",
+   "family": "tundra",
+   "sourceView": "tombstone-north-klondike",
+   "place": "Tombstone Range, Yukon",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    5,
+    7
+   ],
+   "peakReliefM": 631,
+   "peakM": 1761,
+   "characterScores": {
+    "energy": 0.062,
+    "rawness": 0.039,
+    "grandeur": 0.14,
+    "dominance": 1
+   },
+   "reliefSha256": "2b91973ae2d2b0ed51e2fab11d87bb49a5f8e8e96318c0f80a5e69b5398e798d",
+   "manifestUrl": "massif/tombstone-north-klondike--summit-1880.terrain.json",
+   "manifestSha256": "c3d1cfe389ce7d02005a5ee480941b7cec518b8e74a300c1792715cde41c5b9f"
+  },
+  {
+   "id": "tombstone-north-klondike:summit-1960",
+   "name": "Tombstone Range summit 1960 m",
+   "family": "tundra",
+   "sourceView": "tombstone-north-klondike",
+   "place": "Tombstone Range, Yukon",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    6,
+    5
+   ],
+   "peakReliefM": 593,
+   "peakM": 1960,
+   "characterScores": {
+    "energy": 0.121,
+    "rawness": 0.105,
+    "grandeur": 0.131,
+    "dominance": 0.851
+   },
+   "reliefSha256": "0c177381161f56335f8b746f98003bd5c9a78364f371f2257743876bda507837",
+   "manifestUrl": "massif/tombstone-north-klondike--summit-1960.terrain.json",
+   "manifestSha256": "5b31f99fe4f162e7b291cea9a651c4c4e00380330bc26d3bf9ec6ca17b5158e2"
+  },
+  {
+   "id": "tombstone-north-klondike:summit-1966",
+   "name": "Tombstone Range summit 1890 m",
+   "family": "tundra",
+   "sourceView": "tombstone-north-klondike",
+   "place": "Tombstone Range, Yukon",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    9,
+    7
+   ],
+   "peakReliefM": 805,
+   "peakM": 1890,
+   "characterScores": {
+    "energy": 0.145,
+    "rawness": 0.107,
+    "grandeur": 0.179,
+    "dominance": 0.559
+   },
+   "reliefSha256": "1972b0f20fdbf2dd8af57c9ed4f6f186ab7a72cc456554800d509980c1a2230e",
+   "manifestUrl": "massif/tombstone-north-klondike--summit-1966.terrain.json",
+   "manifestSha256": "edc47e7455436185b87e2528651382089a0bf4a9beab544ccd6a50825eaee344"
+  },
+  {
+   "id": "tombstone-north-klondike:summit-1973",
+   "name": "Tombstone Range summit 2004 m",
+   "family": "tundra",
+   "sourceView": "tombstone-north-klondike",
+   "place": "Tombstone Range, Yukon",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    6,
+    7
+   ],
+   "peakReliefM": 498,
+   "peakM": 2004,
+   "characterScores": {
+    "energy": 0.139,
+    "rawness": 0.126,
+    "grandeur": 0.106,
+    "dominance": 0.552
+   },
+   "reliefSha256": "7831c37337e8738907a93d326ea7acde6b99e6722ff1ad7f9494654506f57c4e",
+   "manifestUrl": "massif/tombstone-north-klondike--summit-1973.terrain.json",
+   "manifestSha256": "6f75fe7c6479eda4c940b99392fa71d1b65047f61628c59df43c0e0e991bdc16"
+  },
+  {
+   "id": "tombstone-north-klondike:summit-2146",
+   "name": "Tombstone Range summit 2146 m",
+   "family": "tundra",
+   "sourceView": "tombstone-north-klondike",
+   "place": "Tombstone Range, Yukon",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    6,
+    6
+   ],
+   "peakReliefM": 822,
+   "peakM": 2146,
+   "characterScores": {
+    "energy": 0.144,
+    "rawness": 0.124,
+    "grandeur": 0.18,
+    "dominance": 1
+   },
+   "reliefSha256": "2ff2913886a15cfa0029fa93601dc6010a060a0fa9c0b3f3d0b13a329d9a98d4",
+   "manifestUrl": "massif/tombstone-north-klondike--summit-2146.terrain.json",
+   "manifestSha256": "e3e3e4ab5e215f2bcfbf4222b8b99b89fc11a48c762912fb14012b9b17ca7ac8"
+  },
+  {
+   "id": "tombstone-north-klondike:tombstone-mountain",
+   "name": "Tombstone Mountain",
+   "family": "tundra",
+   "sourceView": "tombstone-north-klondike",
+   "place": "Tombstone Range, Yukon",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "landmark",
+   "tiles": [
+    8,
+    7
+   ],
+   "peakReliefM": 884,
+   "peakM": 2228,
+   "characterScores": {
+    "energy": 0.216,
+    "rawness": 0.188,
+    "grandeur": 0.196,
+    "dominance": 0.62
+   },
+   "reliefSha256": "84a7d5d3f2fca531a5c73f8ad37a0dc935a3be5d3a8a9b28cb62c90ba489d1d3",
+   "manifestUrl": "massif/tombstone-north-klondike--tombstone-mountain.terrain.json",
+   "manifestSha256": "f75b882f6d37200205282a843a8452813fbf081135daa49899e7913a0bb48123"
+  },
+  {
+   "id": "white-mountains-owens:summit-2768",
+   "name": "White Mountains summit 2768 m",
+   "family": "steppe",
+   "sourceView": "white-mountains-owens",
+   "place": "White Mountains, California",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    8,
+    5
+   ],
+   "peakReliefM": 588,
+   "peakM": 2768,
+   "characterScores": {
+    "energy": 0.169,
+    "rawness": 0.148,
+    "grandeur": 0.13,
+    "dominance": 0.594
+   },
+   "reliefSha256": "547664da336bba0b8adb136b8140310ee04beb8dc8d45890ec89d16fe2e3fa1b",
+   "manifestUrl": "massif/white-mountains-owens--summit-2768.terrain.json",
+   "manifestSha256": "5332634273993ca73bc169cdd3a812e55ecf07f9a1811fddc2bd1c27345b49ea"
+  },
+  {
+   "id": "white-mountains-owens:summit-2859",
+   "name": "White Mountains summit 2755 m",
+   "family": "steppe",
+   "sourceView": "white-mountains-owens",
+   "place": "White Mountains, California",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    5,
+    3
+   ],
+   "peakReliefM": 339,
+   "peakM": 2755,
+   "characterScores": {
+    "energy": 0.116,
+    "rawness": 0.105,
+    "grandeur": 0.074,
+    "dominance": 0.317
+   },
+   "reliefSha256": "1e465a9e8b360508ed2b79f7297d596cae587aa967611eac08a41ce32f4b8488",
+   "manifestUrl": "massif/white-mountains-owens--summit-2859.terrain.json",
+   "manifestSha256": "ae956fc8c80e20b6b948bc19342ebd59d68fe03785d4a4ccddb974fab71cd272"
+  },
+  {
+   "id": "white-mountains-owens:summit-3363",
+   "name": "White Mountains summit 3363 m",
+   "family": "steppe",
+   "sourceView": "white-mountains-owens",
+   "place": "White Mountains, California",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    10,
+    10
+   ],
+   "peakReliefM": 710,
+   "peakM": 3363,
+   "characterScores": {
+    "energy": 0.117,
+    "rawness": 0.088,
+    "grandeur": 0.157,
+    "dominance": 0.503
+   },
+   "reliefSha256": "e1c112c0082e28c9d652ae44a123f551e89eb1f8ade3b84242f64a9d6d590713",
+   "manifestUrl": "massif/white-mountains-owens--summit-3363.terrain.json",
+   "manifestSha256": "05f355c1bde2c92c21935fb0f703fd6e6de2303c7913cb974051e82dbc96d0c9"
+  },
+  {
+   "id": "white-mountains-owens:summit-3827",
+   "name": "White Mountains summit 3806 m",
+   "family": "steppe",
+   "sourceView": "white-mountains-owens",
+   "place": "White Mountains, California",
+   "elevation": "USGS 3DEP 1/3 arc-second DEM",
+   "seedKind": "prominence",
+   "tiles": [
+    10,
+    10
+   ],
+   "peakReliefM": 672,
+   "peakM": 3806,
+   "characterScores": {
+    "energy": 0.123,
+    "rawness": 0.109,
+    "grandeur": 0.148,
+    "dominance": 0.855
+   },
+   "reliefSha256": "9258aaec8ffefd270eb84ec19bc23596835dd86dbf43a4248c4d8f32953c59c6",
+   "manifestUrl": "massif/white-mountains-owens--summit-3827.terrain.json",
+   "manifestSha256": "f4c572041fcad6a40cbea6819bae50a772e2ff4baa040bc649a277a7a94d30be"
+  },
+  {
+   "id": "wrangell-copper-river:mount-drum",
+   "name": "Mount Drum",
+   "family": "tundra",
+   "sourceView": "wrangell-copper-river",
+   "place": "Wrangell Mountains, Alaska",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "landmark",
+   "tiles": [
+    9,
+    10
+   ],
+   "peakReliefM": 1715,
+   "peakM": 3632,
+   "characterScores": {
+    "energy": 0.176,
+    "rawness": 0.099,
+    "grandeur": 0.381,
+    "dominance": 0.969
+   },
+   "reliefSha256": "b8fdc7b741c617f61e1de39c54b87cd2c1dc45930f12686a58bd67ff22dbbb0b",
+   "manifestUrl": "massif/wrangell-copper-river--mount-drum.terrain.json",
+   "manifestSha256": "b668b497eef7c813ebeb810c779ab1232e527d31b6045993c0e117272570a0c4"
+  },
+  {
+   "id": "wrangell-copper-river:summit-1945",
+   "name": "Wrangell Mountains summit 1945 m",
+   "family": "tundra",
+   "sourceView": "wrangell-copper-river",
+   "place": "Wrangell Mountains, Alaska",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    6,
+    4
+   ],
+   "peakReliefM": 559,
+   "peakM": 1945,
+   "characterScores": {
+    "energy": 0.087,
+    "rawness": 0.058,
+    "grandeur": 0.124,
+    "dominance": 1
+   },
+   "reliefSha256": "4cf4fd74a94d18f8aeda2266e02e59e4c0f1ec21ee8f0f86e4d4a42c88bbfecc",
+   "manifestUrl": "massif/wrangell-copper-river--summit-1945.terrain.json",
+   "manifestSha256": "63813e462a25af30043ca10bcb65ae27e8f84911a1d00fab8cb335fbb92d7ac9"
+  },
+  {
+   "id": "wrangell-copper-river:summit-2199",
+   "name": "Wrangell Mountains summit 2199 m",
+   "family": "tundra",
+   "sourceView": "wrangell-copper-river",
+   "place": "Wrangell Mountains, Alaska",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    9,
+    10
+   ],
+   "peakReliefM": 921,
+   "peakM": 2199,
+   "characterScores": {
+    "energy": 0.132,
+    "rawness": 0.107,
+    "grandeur": 0.205,
+    "dominance": 1
+   },
+   "reliefSha256": "1309a739200f1b80e302bc61fdbcebb5512cc5687fbb00afdaa32b7d0814b923",
+   "manifestUrl": "massif/wrangell-copper-river--summit-2199.terrain.json",
+   "manifestSha256": "12732bbf6d9eff514eb80f4ea58a60786d1f7612a3a70165d28d6fd430e9843a"
+  },
+  {
+   "id": "wrangell-copper-river:summit-2560",
+   "name": "Wrangell Mountains summit 2495 m",
+   "family": "tundra",
+   "sourceView": "wrangell-copper-river",
+   "place": "Wrangell Mountains, Alaska",
+   "elevation": "Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)",
+   "seedKind": "prominence",
+   "tiles": [
+    10,
+    10
+   ],
+   "peakReliefM": 888,
+   "peakM": 2495,
+   "characterScores": {
+    "energy": 0.114,
+    "rawness": 0.084,
+    "grandeur": 0.197,
+    "dominance": 0.653
+   },
+   "reliefSha256": "6a90c9369a8c8da66a4bded9f38af7c17615fbf3abb1984c3a11558053a7997a",
+   "manifestUrl": "massif/wrangell-copper-river--summit-2560.terrain.json",
+   "manifestSha256": "6a9ca1b4a427b96f77336d66e4901649060ddd5225239f0df5fb2980dad045c6"
   }
  ],
  "pilots": [

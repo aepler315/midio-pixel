@@ -78,18 +78,46 @@ export function pieceCharacter(piece) {
   return f ? { features: f, scores: characterFromFeatures(f) } : null;
 }
 
-/** Cut every acceptable piece of every pilot source. */
-export async function cutLibrary(pilot, doc, { log = console.log } = {}) {
+/** Stages are a 20 m grid: a source on any other grid is normalized again at
+ *  20 m for cutting, its extent capped at 60 km (song range composition,
+ *  Phase 5). Sources already at 20 m keep their parameters and cache. */
+export const PIECE_CELL_M = 20;
+/** How a credit names each elevation source. */
+export const ELEVATION_LABELS = Object.freeze({
+  '3dep13': 'USGS 3DEP 1/3 arc-second DEM',
+  terrarium: 'Terrain Tiles on AWS (Mapzen/Tilezen; USGS 3DEP, SRTM, GMTED, ETOPO)',
+});
+const PIECE_MAX_EXTENT_M = 60000;
+export function pieceSourceView(view) {
+  if (view.dem.cellM === PIECE_CELL_M) return view;
+  return { ...view, dem: { ...view.dem, cellM: PIECE_CELL_M, extentM: view.dem.extentM.map((e) => Math.min(e, PIECE_MAX_EXTENT_M)) } };
+}
+
+/** A DEM-only region (no authored camera) as the view record the cutter
+ *  reads: pieces face its nominal viewer. */
+export function regionView(r) {
+  return { id: r.id, title: r.title, place: r.place, biome: r.biome, materialPack: r.family, dem: r.dem,
+    rail: { eyeStart: { lonLat: r.viewerLonLat }, eyeEnd: { lonLat: r.viewerLonLat } }, landmarks: r.landmarks || [], demOnly: true };
+}
+
+/** Cut every acceptable piece of every pilot source and DEM-only region. */
+export async function cutLibrary(pilot, doc, { log = console.log, only = null } = {}) {
   const pieces = [], rejected = [], sources = {};
   const opts = { ...CUT_DEFAULTS, ...(pilot.cut || {}) };
-  for (const id of pilot.sources) {
+  const entries = [...pilot.sources.map((id) => {
     const view = doc.views.find((v) => v.id === id);
     if (!view) throw new Error(`pilot source ${id} is not in scenic-views.json`);
+    return view;
+  }), ...(pilot.regions || []).map(regionView)].filter((v) => !only || only.includes(v.id));
+  const ids = new Set();
+  for (const sourceView of entries) {
+    const view = pieceSourceView(sourceView), id = view.id;
     const src = await loadSourceGrid(view, { log });
     const { grid } = src;
     sources[id] = { gridSha256: src.gridSha256, windowCache: src.windowCache, tools: src.tools, cache: src.cache,
       despikedSamples: src.despiked, width: grid.width, height: grid.height, cellSizeM: grid.cellSizeM,
-      provenance: src.provenance, title: view.title, place: view.place,
+      provenance: src.provenance, title: view.title, place: view.place, demOnly: !!view.demOnly,
+      elevation: ELEVATION_LABELS[view.dem.source] || String(view.dem.source),
       // How a credit names the source: the range the massifs come from.
       label: [pilot.sourceLabels?.[id] || view.title, (view.place || '').split(',').pop().trim()].filter(Boolean).join(', ') };
     const landmarks = (view.landmarks || []).map((l) => ({ name: l.name, localM: grid.points?.[`landmark:${l.name}`]?.localM }));
@@ -100,7 +128,11 @@ export async function cutLibrary(pilot, doc, { log = console.log } = {}) {
     const scratch = {};
     for (const [n, seed] of seeds.entries()) {
       const r = cutMassif(grid, seed, labels, n, { viewerM, ...opts }, scratch);
-      const sid = `${id}:${seed.name ? slug(seed.name) : `summit-${Math.round(seed.heightM)}`}`;
+      // Two unnamed summits of one height in a source get distinct ids.
+      const base = `${id}:${seed.name ? slug(seed.name) : `summit-${Math.round(seed.heightM)}`}`;
+      let sid = base;
+      for (let k = 2; ids.has(sid); k++) sid = `${base}-${k}`;
+      ids.add(sid);
       if (!r.ok) { rejected.push({ id: sid, reason: r.reason, heightM: Math.round(seed.heightM) }); continue; }
       const p = r.piece;
       if (p.outline.band[1] > (pilot.outlineSlopeRatioMax ?? 1.15) * p.outline.bandSource[1] + 0.02) {
@@ -115,6 +147,91 @@ export async function cutLibrary(pilot, doc, { log = console.log } = {}) {
     log(`${id}: ${seeds.length} seeds, ${pieces.filter((p) => p.sourceView === id).length} pieces`);
   }
   return { pieces, rejected, sources };
+}
+
+/** Which template rows a piece can stand in: its relief within the row's
+ *  range and its block within the slot (as the planner's fit test). */
+export function pieceRows(templates, p) {
+  return [...new Set([].concat(templates).flatMap((t) => t.slots).filter((s) => {
+    const [lo, hi] = s.reliefM || [0, null];
+    return p.peakReliefM >= lo && (hi == null || p.peakReliefM <= hi) && p.tiles[0] <= s.tiles[2] && p.tiles[1] <= s.tiles[3];
+  }).map((s) => s.row))];
+}
+
+/**
+ * At most `cap[family]` pieces per family (null: keep all), chosen so every
+ * template row stays fillable: first the rows' needs (front, back, horizon,
+ * round robin over sources, tallest first), then the tallest of the rest.
+ * Pieces that fit no row are dropped. Returns the kept library and a report.
+ */
+export function capLibrary(library, templates, caps = {}) {
+  templates = [].concat(templates);
+  // Each row's need is the most any template asks of it.
+  const need = {};
+  for (const t of templates) {
+    const n = {};
+    for (const s of t.slots) n[s.row] = (n[s.row] || 0) + 1;
+    for (const [r, c] of Object.entries(n)) need[r] = Math.max(need[r] || 0, c);
+  }
+  const template = templates;
+  const byFamily = new Map();
+  for (const p of library.pieces) {
+    if (!byFamily.has(p.family)) byFamily.set(p.family, []);
+    byFamily.get(p.family).push(p);
+  }
+  const kept = [], report = {};
+  for (const [family, all] of byFamily) {
+    const cap = caps[family] === undefined ? caps.default ?? null : caps[family];
+    const fitting = all.map((p) => ({ p, rows: pieceRows(template, p) })).filter((x) => x.rows.length);
+    // No cap: every piece stays, published packages and pilot layouts with them.
+    if (cap == null) { kept.push(...all); report[family] = { cut: all.length, fitting: fitting.length, kept: all.length }; continue; }
+    const chosen = new Set();
+    const roundRobin = (pool, n) => {
+      const bySource = new Map();
+      for (const x of pool.sort((a, b) => b.p.peakReliefM - a.p.peakReliefM)) {
+        if (!bySource.has(x.p.sourceView)) bySource.set(x.p.sourceView, []);
+        bySource.get(x.p.sourceView).push(x);
+      }
+      const queues = [...bySource.values()];
+      while (n > 0 && queues.some((q) => q.length)) {
+        for (const q of queues) { const x = q.shift(); if (x && !chosen.has(x.p) && chosen.size < cap) { chosen.add(x.p); n--; } if (n <= 0) break; }
+      }
+    };
+    // Twice each row's slots, so a song's draw has a choice in every row.
+    for (const row of ['front', 'back', 'horizon']) roundRobin(fitting.filter((x) => x.rows.includes(row) && !chosen.has(x.p)), 2 * (need[row] || 0));
+    roundRobin(fitting.filter((x) => !chosen.has(x.p)), cap - chosen.size);
+    kept.push(...chosen);
+    const rows = Object.fromEntries(['front', 'back', 'horizon'].map((r) => [r, [...chosen].filter((p) => pieceRows(template, p).includes(r)).length]));
+    report[family] = { cut: all.length, fitting: fitting.length, kept: chosen.size, rows,
+      plannable: Object.entries(need).every(([r, n]) => rows[r] >= n) && chosen.size >= Math.max(...templates.map((t) => t.slots.length)) };
+  }
+  return { library: { ...library, pieces: kept }, report };
+}
+
+/** The planner's fit test (SongRangePlan.js). */
+const fitsSlot = (slot, p) => p.tiles[0] <= slot.tiles[2] && p.tiles[1] <= slot.tiles[3]
+  && p.peakReliefM >= (slot.reliefM?.[0] ?? 0) && (slot.reliefM?.[1] == null || p.peakReliefM <= slot.reliefM[1]);
+
+/** Can `pieces` fill every slot of `template` with distinct pieces? A
+ *  bipartite matching, slots to pieces. */
+export function fillsTemplate(template, pieces) {
+  const owner = new Map();
+  const assign = (slot, seen) => {
+    for (const p of pieces) {
+      if (seen.has(p) || !fitsSlot(slot, p)) continue;
+      seen.add(p);
+      if (!owner.has(p) || assign(owner.get(p), seen)) { owner.set(p, slot); return true; }
+    }
+    return false;
+  };
+  return template.slots.every((slot) => assign(slot, new Set()));
+}
+
+/** Each template's families: those listed whose pieces can fill it. */
+export function plannableFamilies(templates, pieces) {
+  const byFamily = new Map();
+  for (const p of pieces) { if (!byFamily.has(p.family)) byFamily.set(p.family, []); byFamily.get(p.family).push(p); }
+  return Object.fromEntries(templates.map((t) => [t.id, t.families.filter((f) => byFamily.has(f) && fillsTemplate(t, byFamily.get(f)))]));
 }
 
 const pieceRow = (p) => ({ id: p.id, name: p.name, sourceView: p.sourceView, seedKind: p.seedKind,
@@ -150,25 +267,26 @@ export async function bakePiece(piece, sourceLabel) {
 
 /** Runtime metadata for the planner and the assembler: templates (with
  *  their floor and camera) and pieces (with their package pins). */
-export function massifCatalog(template, library, pins = new Map(), materials = {}, pilots = []) {
+export function massifCatalog(templates, library, pins = new Map(), materials = {}, pilots = [], pilotTemplate = templates[0]) {
   const pieces = library.pieces.map((p) => ({ id: p.id, name: p.name, family: p.family, sourceView: p.sourceView,
-    place: library.sources[p.sourceView].label, seedKind: p.seedKind, tiles: [...p.tiles],
+    place: library.sources[p.sourceView].label, elevation: library.sources[p.sourceView].elevation,
+    seedKind: p.seedKind, tiles: [...p.tiles],
     peakReliefM: Math.round(p.peakReliefM), peakM: Math.round(p.peakM),
     characterScores: Object.fromEntries(Object.entries(p.character).map(([k, v]) => [k, Math.round(v * 1000) / 1000])),
     reliefSha256: sha(Buffer.from(p.relief.buffer, p.relief.byteOffset, p.relief.byteLength)),
     ...(pins.has(p.id) ? { manifestUrl: `massif/${pieceFile(p.id)}.terrain.json`, manifestSha256: pins.get(p.id) } : {}) }))
     .sort((a, b) => a.id.localeCompare(b.id));
   return { schema: 'midio.massif-catalog', version: 1,
-    templates: [{ id: template.id, title: template.title, families: [...template.families], principalSlot: template.principalSlot,
+    templates: templates.map((template) => ({ id: template.id, title: template.title, families: [...template.families], principalSlot: template.principalSlot,
       lakeLevelM: template.lake.levelM, grid: { ...template.grid, originM: [...template.grid.originM] },
       lake: { levelM: template.lake.levelM, centerM: [...template.lake.centerM], radiiM: [...template.lake.radiiM] },
       floor: { ...template.floor }, camera: stageCamera(template),
-      slots: template.slots.map((s) => ({ id: s.id, row: s.row, tiles: [...s.tiles], reliefM: s.reliefM ?? [0, null] })) }],
+      slots: template.slots.map((s) => ({ id: s.id, row: s.row, tiles: [...s.tiles], reliefM: s.reliefM ?? [0, null] })) })),
     materials, pieces,
     // The Phase 1 layouts, so ?songRangeLayout=<id> can run one through the
     // runtime path for comparison with its offline stage (diagnostic only).
-    pilots: pilots.map((l) => ({ id: l.id, templateId: template.id,
-      slots: template.slots.map((s) => ({ slotId: s.id, pieceId: l.slots[s.id].piece, mirrored: !!l.slots[s.id].mirrored })) })) };
+    pilots: pilots.map((l) => ({ id: l.id, templateId: pilotTemplate.id,
+      slots: pilotTemplate.slots.map((s) => ({ slotId: s.id, pieceId: l.slots[s.id].piece, mirrored: !!l.slots[s.id].mirrored })) })) };
 }
 
 function creditFor(placed, sources) {
@@ -237,12 +355,22 @@ async function main() {
   const args = process.argv.slice(2);
   const opt = (k) => (args.includes(k) ? args[args.indexOf(k) + 1] : null);
   const pilot = await readJson(PILOT);
-  const template = (await readJson(TEMPLATES)).templates.find((t) => t.id === pilot.template);
+  const templates = (await readJson(TEMPLATES)).templates;
+  for (const t of templates) {
+    const errors = templateErrors(t);
+    if (errors.length) throw new Error(`${t.id}: ${errors.join('; ')}`);
+  }
+  const template = templates.find((t) => t.id === pilot.template);
   if (!template) throw new Error(`no template ${pilot.template}`);
-  const errors = templateErrors(template);
-  if (errors.length) throw new Error(`${template.id}: ${errors.join('; ')}`);
   const doc = await readAuthoring();
-  const library = await cutLibrary(pilot, doc);
+  const only = opt('--only') ? opt('--only').split(',') : null;
+  const cut = await cutLibrary(pilot, doc, { only });
+  const { library, report } = capLibrary(cut, templates, pilot.familyCap || {});
+  const plannable = plannableFamilies(templates, library.pieces);
+  console.log(JSON.stringify(report));
+  console.log(JSON.stringify({ plannable }));
+  // A template lists only the families its pieces can fill.
+  for (const t of templates) t.families = plannable[t.id];
   if (args.includes('--catalog')) {
     // Piece packages and their pins, then the catalog that names them.
     await fs.mkdir(MASSIF_DIR, { recursive: true });
@@ -264,9 +392,9 @@ async function main() {
     const text = '// Generated by tools/build-song-range-pilot.mjs --catalog. Do not edit.\n'
       + '// Massif pieces and stage templates for the song range planner (SongRangePlan.js)\n'
       + '// and assembler (StageAssembly.js). Piece packages: src/assets/range/v2/massif/.\n'
-      + `export default ${JSON.stringify(massifCatalog(template, library, pins, materials, pilot.layouts), null, 1)};\n`;
+      + `export default ${JSON.stringify(massifCatalog(templates, library, pins, materials, pilot.layouts, template), null, 1)};\n`;
     await fs.writeFile(MASSIF_CATALOG_MODULE, text);
-    console.log(`massif catalog: ${library.pieces.length} pieces (${(total / 1048576).toFixed(2)} MiB of packages), template ${template.id}`);
+    console.log(`massif catalog: ${library.pieces.length} pieces (${(total / 1048576).toFixed(2)} MiB of packages), templates ${templates.map((t) => t.id).join(', ')}`);
     return;
   }
   if (args.includes('--list')) {

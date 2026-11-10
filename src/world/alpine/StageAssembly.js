@@ -276,18 +276,24 @@ export function songRangeView(plan, { catalog, sceneCatalog }) {
   const pieces = plan.slots.map((s) => {
     const p = catalog.pieces.find((x) => x.id === s.pieceId);
     if (!p?.manifestUrl || !/^[a-f0-9]{64}$/.test(p.manifestSha256 || '')) throw new Error(`piece ${s.pieceId} has no pinned package`);
-    return { id: p.id, manifestUrl: p.manifestUrl, manifestSha256: p.manifestSha256, name: p.name, place: p.place };
+    return { id: p.id, manifestUrl: p.manifestUrl, manifestSha256: p.manifestSha256, name: p.name, place: p.place,
+      elevation: p.elevation || 'USGS 3DEP 1/3 arc-second DEM' };
   });
   const material = catalog.materials?.[plan.family];
   if (!material) throw new Error(`no material for family ${plan.family}`);
   const principal = catalog.pieces.find((x) => x.id === plan.principal.pieceId);
   const places = [...new Set(pieces.map((p) => p.place).filter(Boolean))];
+  const elevations = [...new Set(pieces.map((p) => p.elevation))];
+  // The caption names the principal massif and where it really stands, then
+  // the ranges the rest of the stage comes from.
+  const others = places.filter((x) => x !== principal.place);
+  const place = others.length ? `${principal.place}, with massifs from ${others.join('; ')}` : principal.place;
   return {
     id: `song-range-${stageHash(plan)}`, regionId: 'song-range-stage', biome: plan.biome,
     // A composed range is an experiment the song itself selected.
     status: 'candidate', experimental: true, catalogVersion: sceneCatalog.catalogVersion,
-    title: `${plan.principal.name} range`, place: `Composed range: ${places.join('; ')}`,
-    credit: `Elevation: USGS 3DEP 1/3 arc-second DEM; composed range of measured massifs from ${places.join('; ')}`,
+    title: `${plan.principal.name} range`, place,
+    credit: `Elevation: ${elevations.join('; ')}; composed range of measured massifs from ${places.join('; ')}`,
     materialManifestUrl: material.manifestUrl, materialManifestSha256: material.manifestSha256, materialRules: {},
     camera: { ...t.camera }, characterScores: { ...principal.characterScores },
     evidence: { reviewPath: 'docs/superpowers/specs/2026-11-10-song-range-composition-design.md', review: null, approval: null,

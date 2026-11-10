@@ -20,11 +20,27 @@ Source attribution: https://github.com/tilezen/joerd/blob/master/docs/attributio
 Previews are reduced-resolution derived images for composition discovery;
 they do not reproduce the production terrain, materials or water treatment.
 
-Song range pilot stages (src/assets/range/v2/terrain/song-range-pilot-*.terrain.*,
-built by tools/build-song-range-pilot.mjs) are composed from massifs cut out of
-USGS 3D Elevation Program 1/3 arc-second DEMs (public domain, U.S. Government
-work; credit U.S. Geological Survey) around the Teton Range, Wyoming; the
-Sawtooth Range, Idaho; the Sneffels Range, Colorado; and Crater Lake, Oregon.
-Massif relief above each piece's base is measured DEM; the lake and land floor
-between pieces is generated. Each stage's build record lists its source tiles,
-window hashes and pieces.
+Song range pilot stages (src/assets/range/v2/terrain/song-range-pilot-*.terrain.*)
+and the massif pieces composed ranges are assembled from
+(src/assets/range/v2/massif/*.terrain.*), built by tools/build-song-range-pilot.mjs,
+are cut out of measured elevation models:
+
+- USGS 3D Elevation Program 1/3 arc-second DEMs (public domain, U.S. Government
+  work; credit U.S. Geological Survey) for the Teton Range, Wyoming; the
+  Sawtooth Range, Idaho; the Sneffels Range, Colorado; Crater Lake, Oregon; the
+  North Cascades, Mount Baker and the Olympic Mountains, Washington; the Black
+  Mountains, North Carolina; the Blue Ridge, Virginia; the San Gabriel, San
+  Jacinto and Santa Lucia ranges, the White Mountains, the Sierra Nevada and the
+  Panamint Range, California; the La Sal Mountains and Monument Valley, Utah
+  and Arizona; and the Superstition Mountains, Arizona.
+- Terrain Tiles on AWS, provided by Mapzen / Tilezen, with USGS 3DEP, SRTM,
+  GMTED and ETOPO sources by region and zoom, for the Alaska Range, the Chugach
+  and Wrangell Mountains, Alaska; the Tombstone Range, Yukon; the Northern
+  Rockies, British Columbia; and Iztaccíhuatl and Popocatépetl, Pico de Orizaba
+  and the Sierra Madre Oriental, Mexico.
+  Dataset: https://registry.opendata.aws/terrain-tiles/
+  Source attribution: https://github.com/tilezen/joerd/blob/master/docs/attribution.md
+
+Massif relief above each piece's base is measured elevation; the lake and land
+floor between pieces is generated. Each composed range's credit names the
+elevation sources and ranges of the pieces it uses.
