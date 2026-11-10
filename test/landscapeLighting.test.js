@@ -162,7 +162,8 @@ test('assembled terrain and every tree color material share fill uniforms/helper
     const helper = STORM_GLSL.match(/vec3 receiverFill\([\s\S]*?\n {2}\}/)?.[0];
     assert.ok(helper);
     assert.ok(terrain.fragmentShader.includes(helper));
-    assert.match(terrain.fragmentShader, /if \(!water\) hemi = receiverFill\(hemi, uReceiverFillMin\);/);
+    // Water bypasses the fill continuously (dbd1298): full water keeps hemi unchanged.
+    assert.match(terrain.fragmentShader, /if \(waterAmount < 1\.0\) hemi = mix\(receiverFill\(hemi, uReceiverFillMin\), hemi, waterAmount\);/);
     const materials = new Set(forest.byBand.near.map(mesh => mesh.material));
     assert.ok(materials.size >= 3, 'mesh, detail and billboard color variants assembled');
     for (const m of materials) {
