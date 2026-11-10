@@ -1916,7 +1916,8 @@ export class RangePresentation {
     return { mode: stageRise.mode, labels: stageRise.labels, timeMs: Number.isFinite(t) ? t : null,
       rise01: f?.rise01 ?? null, slotRise01: f?.slotRise01 ?? null,
       section: section ? { label: section.label ?? null, role: section.role ?? null, kind: section.kind ?? null,
-        provenance: section.provenance ?? null, startMs: section.startMs, endMs: section.endMs } : null };
+        provenance: section.provenance ?? null, confidence: section.confidence ?? null,
+        startMs: section.startMs, endMs: section.endMs } : null };
   }
 
   /** The song's composed range, if any: its view, plan key and state. */

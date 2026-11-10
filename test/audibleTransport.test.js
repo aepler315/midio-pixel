@@ -94,3 +94,13 @@ test('actual Conductor seek retains the same heard-time kick envelope without fi
   assert.equal(lagged.rhythmMs, 1000);
   assert.equal(seek.fired, 0);
 });
+
+test('the land knows when its sections are the opening analysis alone', () => {
+  const c = new Conductor(); c.load(data());
+  const opening = new Simulation(c, new ParamBus(), { songSeed: 3, worldId: 'range', analyzedThroughMs: 1000 });
+  assert.equal(opening.biomes.analyzedThroughMs, 1000);
+  opening.dispose();
+  const whole = new Simulation(c, new ParamBus(), { songSeed: 3, worldId: 'range', analyzedThroughMs: c.durationMs });
+  assert.equal(whole.biomes.analyzedThroughMs, null, 'an analysis through the end is the whole song');
+  whole.dispose();
+});

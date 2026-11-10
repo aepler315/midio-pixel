@@ -7,6 +7,10 @@ export const SECTION_ROLES = Object.freeze(['intro', 'verse', 'pre-chorus', 'cho
   'bridge', 'solo', 'interlude', 'breakdown', 'drop', 'outro']);
 const ROLE_SET = new Set(SECTION_ROLES);
 const RELIABLE = new Set(['detected', 'inferred', 'authored']);
+/** A section whose form label means something: reliable provenance and a
+ *  label, whatever its confidence. sectionRoles finds the chorus group among
+ *  these, and so does a composed stage's rise (LandRise.compileStageRise). */
+export const formLabelled = (s) => !!s && RELIABLE.has(s.provenance) && s.label !== undefined && s.label !== null;
 const clamp01 = n => Math.max(0, Math.min(1, Number.isFinite(n) ? n : 0));
 const quantile = (values, q) => {
   if (!values.length) return 0;

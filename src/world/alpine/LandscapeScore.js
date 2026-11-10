@@ -3,6 +3,7 @@
 import { rangeCameraMoveAt, FINALE_MS } from './RangeCamera.js';
 import { compileLandRise, compileStageRise } from './LandRise.js';
 import { lastAudibleMs, sectionTrust } from './EffectsMusic.js';
+import { formLabelled } from '../terrain/SectionRoles.js';
 import { compileLensCues, lensFromCues, revealLensFromCues, REVEAL_GATHER_MS, LENS_MIN_GAP_MS } from '../../render/CameraLens.js';
 
 const unit = x => Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : 0;
@@ -31,10 +32,11 @@ const RISE_OVERRIDE = riseOverrideFrom(globalThis.location?.search || '');
  * stage's slots (song range composition, Phase 4): each slot then rises on
  * its own schedule (compileStageRise), states carry `slotRise01`
  * (slotId -> rise01), and `rise01` is their mean, so catalog views in other
- * chapters rise at the song's average pace.
+ * chapters rise at the song's average pace. `wholeSong` is false while the
+ * sections come from the opening analysis alone.
  */
 export function compileLandscapeScore({ energyCurves, sections = [], timeline = [], durationMs = 0,
-  seed = 0, previous = null, committedThroughMs = -1, riseOverride = RISE_OVERRIDE, stage = null } = {}) {
+  seed = 0, previous = null, committedThroughMs = -1, riseOverride = RISE_OVERRIDE, stage = null, wholeSong = true } = {}) {
   const duration = Math.max(0, Number(durationMs) || 0);
   const read = energyCurves?.globalEnergyNorm?.bind(energyCurves) || energyCurves?.globalEnergy?.bind(energyCurves) || (() => 0);
   const trusted = sections.filter(s => sectionTrust(s) > 0
@@ -114,8 +116,14 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
   const rise = compileLandRise({ read, durationMs: duration, cadenceMs, finaleMs: FINALE_MS,
     previous: previous?.riseProgressAt || null, freezeThroughMs });
   // A composed stage's slots each climb with their part of the song.
+  // Its form comes from every section with a meaningful label, as
+  // SectionRoles reads it (a weak boundary still carries its label), and
+  // only from a whole-song analysis: an opening's sections stop short of the
+  // song, so its slots rise staggered until the whole song is in.
+  const formed = wholeSong ? sections.filter((s) => formLabelled(s)
+    && Number.isFinite(s.startMs) && Number.isFinite(s.endMs) && s.endMs > s.startMs) : [];
   const stageRise = stage?.slots?.length ? compileStageRise({ slots: stage.slots, principal: stage.principal,
-    sections: trusted, read, durationMs: duration, cadenceMs, finaleMs: FINALE_MS,
+    sections: formed, read, durationMs: duration, cadenceMs, finaleMs: FINALE_MS,
     previous: previous?.stageRise?.progressAt || null,
     previousScalar: previous && !previous.stageRise ? previous.riseProgressAt || null : null, freezeThroughMs }) : null;
   const heldSlots = (value) => Object.freeze(Object.fromEntries(stageRise.slotIds.map((id) => [id, value])));
@@ -163,14 +171,14 @@ export function scoreStage(mgr) {
 export function landscapeScoreFor(mgr) {
   let hit = cache.get(mgr);
   const timeline = mgr.conductor?.timeline;
-  const stage = scoreStage(mgr);
+  const stage = scoreStage(mgr), wholeSong = !Number.isFinite(mgr.analyzedThroughMs);
   if (!hit || hit.curves !== mgr.energyCurves || hit.sections !== mgr.sections || hit.timeline !== timeline || hit.duration !== mgr.durationMs
-    || hit.stage !== stage) {
+    || hit.stage !== stage || hit.wholeSong !== wholeSong) {
     const previous = hit?.score || mgr.landscapeHistory?.previous || null;
     const committedThroughMs = hit ? (mgr.tSec || 0) * 1000 : mgr.landscapeHistory?.committedThroughMs ?? -1;
     const score = compileLandscapeScore({ energyCurves: mgr.energyCurves, sections: mgr.sections, timeline,
-      durationMs: mgr.durationMs, seed: mgr.songSeed || 0, previous, committedThroughMs, stage });
-    hit = { curves: mgr.energyCurves, sections: mgr.sections, timeline, duration: mgr.durationMs, stage, score };
+      durationMs: mgr.durationMs, seed: mgr.songSeed || 0, previous, committedThroughMs, stage, wholeSong });
+    hit = { curves: mgr.energyCurves, sections: mgr.sections, timeline, duration: mgr.durationMs, stage, wholeSong, score };
     cache.set(mgr, hit);
     mgr.landscapeScore = score;
   }

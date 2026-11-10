@@ -494,7 +494,7 @@ export function rangeSkyTwilight(tw) {
 }
 
 export class BiomeManager {
-  constructor({ conductor, energyCurves, durationMs, canvasWidth, canvasHeight, groundY, songSeed, groundField = null, fire = null, flood = null, lyricSections = null, syncedLyrics = null, lyricSession = null, structure = null, conductorSchedule = null, worldId = null, terrainProfiles = null, songTerrain = null, residency = null, chapterState = null, ridgeMusicSession = null, ridgeCasting, ridgeCalmCues }) {
+  constructor({ conductor, energyCurves, durationMs, canvasWidth, canvasHeight, groundY, songSeed, groundField = null, fire = null, flood = null, lyricSections = null, syncedLyrics = null, lyricSession = null, structure = null, conductorSchedule = null, worldId = null, terrainProfiles = null, songTerrain = null, analyzedThroughMs = null, residency = null, chapterState = null, ridgeMusicSession = null, ridgeCasting, ridgeCalmCues }) {
     this.conductor = conductor;
     this.ridgeMusicSession = ridgeMusicSession || createRidgeMusicSampler({ primary: new RidgeMotionHistory({ energyCurves,
       timeline: conductor.timeline, durationMs, casting: ridgeCasting, conductorCues: ridgeCalmCues, response: getWorld(worldId || DEFAULT_WORLD_ID)?.response }) });
@@ -522,6 +522,9 @@ export class BiomeManager {
     // prepareSongTerrain). A biome whose ranges have not loaded yet draws on
     // terrainProfiles -- the home biome's -- and is re-baked when they land.
     this.songTerrain = songTerrain?.byBiome ? songTerrain : null;
+    // Set while the analysis covers only the song's opening (Simulation):
+    // the land's score then knows its sections stop short of the song.
+    this.analyzedThroughMs = Number.isFinite(analyzedThroughMs) ? analyzedThroughMs : null;
     // The famous skyline the horizon EQ dances on (HorizonRidge.js); null
     // keeps the EQ's own smooth shape.
     this.horizonRange = null;

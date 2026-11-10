@@ -150,6 +150,7 @@ export class Simulation {
         ? (terrainProfiles || alpineTerrainProfiles()) : null,
 
       songTerrain: getWorld(this.worldId)?.realBiomes ? songTerrain : null,
+      analyzedThroughMs: partialAnalysis ? analyzedThroughMs : null,
 
       residency,
     });
