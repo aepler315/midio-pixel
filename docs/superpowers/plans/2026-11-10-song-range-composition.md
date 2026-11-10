@@ -123,7 +123,7 @@ Files: new `tools/lib/massif-cut.mjs`, `tools/lib/stage-compose.mjs`, `tools/bui
 - [x] **Floor.** Start with level ground at the lake shore and a lake covering most of the centre. Iterate here if the captures show bare skirts.
 - [x] **Compose three fixed layouts** from dry-conifer pieces into `readDemGrid`-shaped grids, bake each with `bakeTerrain`, and publish each as a `candidate`, non-experimental catalog view reachable only by the diagnostic override.
 - [x] **Tests.** Zero no-data cells; zero relief on every block border; determinism (same inputs, same bytes); feather-band slope 95th percentile at or below the piece's interior 95th percentile; catalog validation and `npm run test:rise-coverage` pass for the new views.
-- [ ] **Captures.** Use `npm run review:landscape -- --out .smoke/<run>` on the RTX 3060 for each layout at rise 1/3, 2/3 and 1, day and one storm or dusk variant, plus one continuous playback of a full song. Inspect every image yourself and write down what you see.
+- [ ] **Captures.** (SwiftShader set taken; RTX 3060 set open, see the Phase 1 record.) Use `npm run review:landscape -- --out .smoke/<run>` on the RTX 3060 for each layout at rise 1/3, 2/3 and 1, day and one storm or dusk variant, plus one continuous playback of a full song. Inspect every image yourself and write down what you see.
 
 **Gate G1 (owner):** In production captures the skyline is continuous, the ground between massifs is acceptable, forest and snowline look plausible across pieces from different source elevations, and the scalar rise still looks right. If two rounds of iteration on cutting, floor and template fail, stop and report with the captures.
 
@@ -283,3 +283,122 @@ byte for byte.
 **Evidence** (local `.smoke/`, not in Git): `p0-dem/build.log`,
 `p0-dem/dem-check.json`, `p0-dem/teton-diff.json`, `p0-dem/sawtooth-diff.json`,
 `p0-dem/teton-layout-diff.json`, `p0-shader/budget.json`.
+
+### Phase 1 (2026-11-10)
+
+**Commits.** `88dd707` (cutter, stage, pilot tool, three candidate stages,
+rise override, tests), `1447455` (credits name source ranges), and the commit
+adding this record.
+
+**Built.**
+
+- `tools/lib/massif-cut.mjs`: seeds, a marker-controlled watershed, a
+  size-limited region, a harmonic base surface, and tile blocks with a zero
+  ring and quarter-turn facing.
+- `tools/lib/stage-compose.mjs`: template checks, the lake-and-shore floor,
+  the stage rail, and composition into a `readDemGrid`-shaped grid.
+- `data/terrain/stage-templates.json` with `lake-amphitheatre-a`.
+- `tools/build-song-range-pilot.mjs` with `--list` and `--build [--publish]`,
+  and `data/terrain/song-range-pilot.json` holding three layouts.
+- Published `song-range-pilot-a`, `-b` and `-c` as candidates, not
+  experimental, reachable only by `?rangeView`, with build records naming
+  every piece, slot, source grid hash and window layout.
+- `data/terrain/stage-views.json`, merged into the catalog by `writeCatalog`
+  in `tools/build-range-scene.mjs`.
+- The diagnostic `?rangeRise` in `LandscapeScore.js` and
+  `review:landscape --rise`.
+- A NOTICE entry for the composed stages.
+
+**Where the plan and the code disagree.** Details are in the spec's "Phase 1
+as built".
+
+1. Cutting. Height above drainage with a distance window cuts across ridges,
+   and contour islands keep only summit caps in continuous ranges (Mount
+   Sneffels 369 m). The cut is now a watershed region over a harmonic base
+   (D13). A first inverse-distance base jumped up to 116 m beside the outline;
+   the unit test caught it, and the harmonic base fixed it.
+2. Outline test. Feather-band slope at or below the interior is replaced by
+   relief slope at most 1.15 times the source DEM's slope on the same band
+   cells. Real cliffs at the outline, such as Crater Lake's caldera and Mount
+   Scott, are legitimately steeper than their interiors.
+3. Floor. The first draft (small lake, level-sloped land) showed separate
+   humps on a wide empty plain in a CPU still. Iteration 1 made the lake the
+   floor (D14) and narrowed the lens from 38° to 32°. That is one of the two
+   iteration rounds the gate allows; no second round was needed for the
+   captures below.
+4. Pieces may stand in the lake, so the "slot reaches the lake" check was
+   removed.
+5. Stages use the rail bake, not `allTiles` (D15). `allTiles` gives no
+   per-tile `lod`, which static runtime views rely on.
+6. Stage views live in their own authoring file (D16).
+7. The horizon row holds broad massifs (594–1,109 m relief). None of the 41
+   pieces is a long low ridge.
+
+**Library.** 41 pieces from 83 seeds over four sources. Every border is zero,
+and every outline is within 1.11 times its source slope. Table:
+`.smoke/p1-pieces/pieces.json`.
+
+**Stages.**
+
+| Stage | Principal | Tiles | Payload | Desktop / mobile triangles |
+| --- | --- | --- | --- | --- |
+| `song-range-pilot-a` | Grand Teton | 678 | 0.76 MiB | 1,078,734 / 481,698 |
+| `song-range-pilot-b` | Mount Moran | 642 | 0.81 MiB | 1,107,558 / 450,330 |
+| `song-range-pilot-c` | Teton summit seeded 3,329 m | 663 | 0.88 MiB | 1,222,998 / 420,750 |
+
+For comparison, shipped `teton-jackson-lake` has 882 tiles and 1,484,050
+desktop triangles.
+
+**Tests.**
+
+- 16 new tests pass: `massifCut` (8), `stageCompose` (5), `riseOverride` (3).
+  Focused run with `sceneCatalog` and `songWorld`: 40 of 40.
+- Full `npm test`: 5,523 tests, 5,520 pass, 2 skipped, 1 fail. The failure is
+  "an 18-shot library and a 3-minute song plan in under 50 ms"
+  (`test/shotPlanner.test.mjs`, 713–845 ms here). It fails the same way on
+  unmodified `main` in this workspace (845 ms), so it is a host timing
+  baseline.
+- `npm run test:rise-coverage`: ok for every view, the stages included, with
+  7,464 to 7,953 inferred samples.
+- ESLint is clean on every changed file, and `npm run check:modules` reports
+  456 modules.
+- Rebuilding all three stages gives byte-identical manifests and payloads.
+  Regenerating the catalog on an unchanged tree is byte-identical to
+  `sceneCatalogData.js`; publishing adds only the three views.
+
+**Captures.** Production renderer on SwiftShader (ANGLE Vulkan, headless
+Chromium 156). This is not the RTX 3060 the plan names. Fixture song
+`contrast`, seed 315, pace 3, tours off, cinematic look, detailed grid.
+Evidence is under `.smoke/p1-review-*`.
+
+| Run | What I saw |
+| --- | --- |
+| A, rise 1, 12.5 s | The Grand Teton piece mid-frame, snow on its crags, mirrored cleanly in the lake. Front pieces stand in the water as dark wings with their own reflections. Horizon pieces are faint at both edges behind a mist band. No visible seam or bare floor. Night, crescent moon. |
+| A, rise 2/3, 12.5 s | The same composition, lower. Nothing breaks. |
+| A, rise 1/3, 12.5 s | Massifs flattened toward the lake; the front pieces are low dark shapes. A hard bright band crosses the full horizon. |
+| Control: `teton-jackson-lake`, rise 1/3, 12.5 s | The same hard bright band, so it is existing early-build behaviour, not stage-specific. The control shows forest texture and inlets that the night stage frames do not show clearly. |
+| B, rise 1, 12.5 s | Mount Moran as a clean central pyramid with its reflection. The Teton front piece is left, the Sneffels piece right, and horizon massifs sit behind in haze. |
+| C, rise 1, 12.5 s | The principal reads as a long serrated wall; the most continuous skyline of the three. |
+| B, natural rise, 2–42 s at 1 fps | The title card, then a slow build through a dusk sky (19–31 s) into moonlit night (36–42 s). At 42 s the Moran piece is snow-capped above a pale mist sheet, with rain streaks and a moon path. The caption names "Song range pilot B" with the range credits. Its "Horizon: Sierra Nevada / Massif: Skagit Range" lines come from legacy scenery and are wrong for a stage (Section 9, item 2). |
+
+**Not run or not shown.**
+
+- RTX 3060 captures. Gate G1 asks for them, and they are the owner's to take.
+- Day and storm variants. Time of day and weather follow the song and seed,
+  and the review tool has no override; every capture here is dusk or night.
+- A full-song continuous playback (40 s of a 90 s fixture was captured).
+- Whether forest renders on the stages: night frames do not show it either
+  way.
+- JOYING head unit.
+- The first natural-rise run was invalidated because I republished credits
+  during it; the review tool refuses a run whose source changes mid-capture.
+  The rerun passed.
+
+**Gate G1 (owner): waiting.** SwiftShader shows a continuous skyline at every
+rise and no bare ground between massifs. It cannot judge forest, snowline
+plausibility in daylight, or the look on the RTX 3060. Suggested RTX run:
+
+```sh
+npm run review:landscape -- --out .smoke/g1-a-r1 --view song-range-pilot-a --tour off --rise 1 --hardware-gpu
+npm run review:landscape -- --out .smoke/g1-b-natural --view song-range-pilot-b --tour off --start-ms 2000 --seconds 90 --hardware-gpu
+```

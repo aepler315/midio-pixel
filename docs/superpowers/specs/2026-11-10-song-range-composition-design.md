@@ -222,7 +222,7 @@ Two simpler cuts were tried first and rejected on the real grids:
 
 | Cut | Result on the four sources |
 | --- | --- |
-| Contour island (relief = h − L inside the island above L) | Zero borders, but continuous ranges merge long before their flanks are included. Most pieces kept only 300–600 m of summit cap; Mount Sneffels kept 369 m even with a 14-tile budget. |
+| Contour island (relief = h − L inside the island above L) | Zero borders, but continuous ranges merge long before their flanks are included. Most pieces kept only 300–600 m of summit cap; Mount Sneffels kept 369 m, and only 393 m with a 14-tile budget. |
 | Watershed region over an inverse-distance base | Large reliefs, but B equals h on outline cells and not on their interior neighbours. Relief jumped up to 116 m in one cell next to the outline. Caught by the unit test. |
 
 **Outline check (changed from the plan).** The plan asked for the feather
