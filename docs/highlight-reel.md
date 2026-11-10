@@ -145,4 +145,8 @@ save loop `createReelSaver`, with its busy guard, retries and cancel) and
 
 The reel has no browser or device acceptance yet. `tools/highlight-reel-smoke.mjs`
 runs a headless Landscape fixture on the Canvas renderer and writes to an output directory. Keep that
-directory under `.smoke/` and never commit it.
+directory under `.smoke/` and never commit it. The fixture attaches no Range v2
+presentation, so it cannot draw weather: its storm, lightning and clearing
+windows are rejected (`highlightVisible`) and standbys still ahead take their
+slots. It captures the sky, climax and settled-palette regimes, and checks that
+frame cadence and a fresh seek start from the same schedule.

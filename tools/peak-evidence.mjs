@@ -63,7 +63,8 @@ try {
       const p = pres.scene.prepared.get(app.rangeState.viewId);
       const u = p?.uniforms;
       const debug = u ? { camera: pres.scene.camera.position.toArray(),
-        mist: [u.uMistTop.value,u.uMistFill.value], mirrorAmount: u.uMirrorAmount.value } : null;
+        // uMistLayer packs [base m, height m, heard time s, fill] (TerrainMaterial).
+        mist: u.uMistLayer?.value?.toArray?.() ?? null, mirrorAmount: u.uMirrorAmount.value } : null;
       return { variant, view: app.rangeState, timeMs: frame?.timeMs, light: frame?.light, storm: frame?.storm, debug, quality: frame?.qualityLevel,
         png: document.querySelector('#stage').toDataURL('image/png').split(',')[1] };
     }, { variant });

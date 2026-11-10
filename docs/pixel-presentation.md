@@ -9,7 +9,7 @@ below do not impose permanent preservation requirements.
 ## Single-stage live Landscape
 
 Pixel and Palette now draw the current Landscape into one selected native-grid
-canvas, including the musical sky, cast, water, weather, post effects and
+canvas, including the musical sky, water, weather, post effects and
 captions. The browser scales the completed picture with nearest-neighbour
 sampling. Fullscreen uses the same native backing and CSS cover cropping,
 with pointer mapping following that crop. Palette processing and semantic

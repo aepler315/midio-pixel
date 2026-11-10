@@ -1,7 +1,7 @@
 # Single-stage Landscape restoration
 
 The live Pixel and Palette renderer uses one native canvas for terrain, the
-current musical sky, weather, cast, lake shading, post effects and captions.
+current musical sky, weather, lake shading, post effects and captions.
 Classic is 320×180. The existing larger pixel grids remain selectable. CSS
 nearest-neighbour scaling presents the completed scene, including fullscreen
 cover cropping. The audio clock, camera schedules, terrain assets and normal
