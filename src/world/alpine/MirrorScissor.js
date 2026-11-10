@@ -91,8 +91,8 @@ export function liftBounds(u) {
 /** Bound of |shiver| per texture axis (TerrainMaterial: shiver =
  *  (0.3 * swell.x, swell.y) * shiverGain), from this frame's uniforms. */
 export function shiverBounds(u) {
-  // paw = max(catsPaw, wake, storm * .75): each term's envelope is <= 1.
-  let paw = abs(u.uWakeAmt?.value ?? 0);
+  // paw = max(catsPaw, storm * .75): each term's envelope is <= 1.
+  let paw = 0;
   for (const g of u.uWaterGust?.value || []) paw = Math.max(paw, abs(g.y));
   paw = Math.max(paw, abs(u.uStorm?.value?.x ?? 0) * 0.75);
   const music = u.uWaterMusic?.value;

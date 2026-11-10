@@ -7,7 +7,7 @@ const { validateRoutePlayback, summarizeRouteRun } = await import('../tools/lib/
 function sample(time = 1000, frameId = 10) {
   return { audioMs: time, bufferDurationMs: 30000, contextTime: time / 1000, simMs: time, heardMs: time,
     audioState: 'running', playing: true, hasBuffer: true, paused: false, preparing: false,
-    hidden: false, generation: 1, experience: 'landscape', worldKind: 'alpine', trio: false, pickerOpen: false,
+    hidden: false, generation: 1, worldKind: 'alpine',
     frame: { presented: true, generation: 2, frameId },
     capture: { presented: true, generation: 2, frameId }, colors: 25,
     range: { mode: 'v2', requestedMode: 'v2', resolvedMode: 'v2', active: true,
@@ -37,9 +37,9 @@ test('failed or mismatched final captures cannot be credited as completed playba
   assert.throws(() => validateRoutePlayback('landscape', [sample(), replacement]), /generation/i);
 });
 
-test('ordinary playback cannot pass behind a world-picker modal', () => {
-  const after = sample(2000, 12); after.pickerOpen = true;
-  assert.throws(() => validateRoutePlayback('landscape', [sample(), after]), /picker/i);
+test('ordinary playback must be in the Landscape world', () => {
+  const after = sample(2000, 12); after.worldKind = 'canyon';
+  assert.throws(() => validateRoutePlayback('landscape', [sample(), after]), /Landscape world/i);
 });
 
 test('default Landscape cannot pass through legacy fallback or an enabled tour', () => {
@@ -64,21 +64,17 @@ test('selected and persisted tours require the active ready Tetons provider', ()
   }
 });
 
-test('Trio requires real actors and completed output without active scenic terrain', () => {
-  const trio = (time, id) => ({ ...sample(time, id), experience: 'trio', trio: true,
-    range: { mode: 'legacy', active: false } });
-  assert.doesNotThrow(() => validateRoutePlayback('trio', [trio(1000, 10), trio(2000, 12)]));
-  const terrain = trio(2000, 12); terrain.range.active = true;
-  assert.throws(() => validateRoutePlayback('trio', [trio(1000, 10), terrain]), /Trio/i);
+test('the retired Trio route is not a current route', () => {
+  assert.throws(() => validateRoutePlayback('trio', [sample(), sample(2000, 12)]), /unknown/i);
 });
 
 test('partial route runs and known failures remain failed acceptance results', () => {
-  const complete = ['landscape', 'tour-selected', 'tour-persisted', 'trio'].map(id => ({ id, status: 'passed', errors: [], events: [] }));
+  const complete = ['landscape', 'tour-selected', 'tour-persisted'].map(id => ({ id, status: 'passed', errors: [], events: [] }));
   assert.equal(summarizeRouteRun(complete), 'passed');
   assert.equal(summarizeRouteRun(complete.slice(0, 1)), 'failed');
-  assert.equal(summarizeRouteRun([...complete.slice(0, 3), { id: 'trio', status: 'known-failure' }]), 'failed');
+  assert.equal(summarizeRouteRun([...complete.slice(0, 2), { id: 'tour-persisted', status: 'known-failure' }]), 'failed');
   assert.equal(summarizeRouteRun([...complete, { id: 'trio', status: 'passed' }]), 'failed');
   assert.throws(() => validateRoutePlayback('unknown', [sample(), sample(2000, 12)]), /unknown/i);
-  complete[3].errors.push('late graphics failure');
+  complete[2].errors.push('late graphics failure');
   assert.equal(summarizeRouteRun(complete), 'failed', 'late diagnostics cannot preserve a passed result');
 });

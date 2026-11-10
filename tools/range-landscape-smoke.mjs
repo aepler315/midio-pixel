@@ -15,9 +15,8 @@ const MODULES = ['src/world/BiomeManager.js', 'src/world/SpaceRidge.js', 'src/wo
   'src/world/alpine/RidgeSurfaceDraw.js', 'src/world/alpine/RidgeSurface.js',
   'src/world/alpine/LandscapePolicy.js', 'src/render/Renderer.js',
   // The capture also asserts quality/draw-count state (main.js, the
-  // governor) and draws Broshi deterministically: evidence must come from
-  // the reviewed copies of those too.
-  'src/main.js', 'src/render/PerfGovernor.js', 'src/sim/Broshi.js'];
+  // governor): evidence must come from the reviewed copies of those too.
+  'src/main.js', 'src/render/PerfGovernor.js'];
 const OPTIONAL_MODULES = ['src/world/alpine/RidgeComposition.js', 'src/world/alpine/RangeSkyComposition.js'];
 const NAMED = new Set(['url', 'source-root', 'expect-sha', 'preset', 'output', 'stage', 'filter']);
 export function parseLandscapeArgs(argv) {
@@ -133,7 +132,6 @@ async function main() {
         await context.addInitScript(seedBrowserConstruction, job.seed);
         page = await context.newPage();
         page.on('pageerror', e => report.pageErrors.push(e.message));
-        await page.route('**/soundfonts/', route => route.fulfill({ json: [] }));
         const entry = new URL(args.url);
         entry.searchParams.set('bulkExport', '1');
         // This suite measures the legacy ridge painters (the L2-L5 masks);

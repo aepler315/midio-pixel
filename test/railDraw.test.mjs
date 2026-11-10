@@ -529,7 +529,7 @@ test('setCameraTour switches every prepared geometry, the water and the height r
   const modeWater = { rail: { waterLevelM: null, mirrorLevelM: null, heightRange: [0, 100] }, tour: { waterLevelM: 700, mirrorLevelM: 700, heightRange: [-50, 200] } };
   const tex = (name, size) => ({ texture: { name }, size });
   const p = { view: { id: 'v' }, modeGeometries: [band, ink, trees], terrainMode: 'rail', cameraTour: null, stats: { triangles: 10, railTriangles: 4 },
-    modeWater, waterLevelM: null, mirrorLevelM: null, castWaterLevelM: null,
+    modeWater, waterLevelM: null, mirrorLevelM: null, buildFocusM: [10, 900, -2000],
     horizon: tex('rail horizon', [8, 8]), tourHorizon: tex('tour horizon', [8, 8]), hierarchy: tex('rail hierarchy'), tourHierarchy: tex('tour hierarchy'),
     uniforms: { uHeightRange: { value: new THREE.Vector2(0, 100) }, uHorizon: { value: { name: 'rail horizon' } }, uHorizonSize: { value: new THREE.Vector2(8, 8) },
       uLandHierarchy: { value: { name: 'rail hierarchy' } } } };
@@ -540,8 +540,10 @@ test('setCameraTour switches every prepared geometry, the water and the height r
   assert.deepEqual([band.drawRange.start, band.drawRange.count, ink.drawRange.start, trees.instanceCount], [6, 24, 4, 10]);
   assert.equal(p.terrainMode, 'tour');
   assert.equal(p.stats.drawnTriangles, 10);
-  // The tour's own lake, mirror plane and height range; the cast keeps the rail's water.
-  assert.deepEqual([p.waterLevelM, p.mirrorLevelM, p.uniforms.uHeightRange.value.x, p.uniforms.uHeightRange.value.y, p.castWaterLevelM], [700, 700, -50, 200, null]);
+  // The tour's own lake, mirror plane and height range; the opening's
+  // summit focus stays the one read from the rail's ground.
+  assert.deepEqual([p.waterLevelM, p.mirrorLevelM, p.uniforms.uHeightRange.value.x, p.uniforms.uHeightRange.value.y], [700, 700, -50, 200]);
+  assert.deepEqual(p.buildFocusM, [10, 900, -2000]);
   // Its sun horizon and land hierarchy were baked from all its ground.
   assert.deepEqual([p.uniforms.uHorizon.value.name, p.uniforms.uLandHierarchy.value.name], ['tour horizon', 'tour hierarchy']);
   assert.deepEqual([scene.depthCache.A.frame, scene.depthCache.B.frame, scene.mirrors.A.frame], [-1, -1, -1]);

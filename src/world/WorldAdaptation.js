@@ -4,19 +4,16 @@
 // module is the construction path: keep the world's identity and renderer,
 // generate only the palette / geometry / response controls that world
 // actually consumes, and record a degraded capability when a step fails.
-// Internal fit is a separate question — an adapted Trio is still Trio
-// whatever its fit readout says.
+// Internal fit is a separate question — an adapted world is still that
+// world whatever its fit readout says.
 import { clamp, clamp01, hashSeed } from '../utils/math.js';
-import { hexLerp } from '../utils/color.js';
 import { buildSongProfile, PROFILE_VERSION } from '../audio/SongProfile.js';
 import { buildSongDNA } from './dna/SongDNA.js';
-import { synthesizeSectionPalettes } from './dna/PaletteSynth.js';
 import {
   buildShapeGrammar, deriveTerrainParams, pickCharacterScheme, CHARACTER_SCHEMES,
   RIDGE_TERRAIN_KEYS, ROLLING_TERRAIN_KEYS,
 } from './dna/ShapeGrammar.js';
-import { castBiomes } from './Dramaturgy.js';
-import { identityFor, stockPaletteMixFor, constrainPalette } from './WorldIdentity.js';
+import { identityFor } from './WorldIdentity.js';
 
 export const ADAPT_VERSION = 1;
 
@@ -141,38 +138,6 @@ export function instanceIdFor(baseId, profile) {
   return `${baseId}:${hashSeed(key).toString(16)}`;
 }
 
-function materializePalette(generated, stock, mix) {
-  if (!generated || !stock || !(mix > 0)) return generated;
-  const out = { ...generated };
-  // Palette synthesis owns song colors, but does not define the material
-  // light a stock palette carries -- the edgeLight ridge wire on CYBER,
-  // ABYSS, GEODE and the other neon biomes (BiomeManager._drawCrest).
-  // Preserve that renderer input from the corresponding stock palette.
-  if (stock.edgeLight && !out.edgeLight) out.edgeLight = stock.edgeLight;
-  if (generated.silhouette && stock.silhouette) {
-    out.silhouette = hexLerp(generated.silhouette, stock.silhouette, mix);
-  }
-  if (Array.isArray(generated.sky) && Array.isArray(stock.sky) && stock.sky.length) {
-    out.sky = generated.sky.map((c, i) => {
-      const s = stock.sky[Math.min(i, stock.sky.length - 1)];
-      return c && s ? hexLerp(c, s, mix * 0.7) : c;
-    });
-  }
-  if (Array.isArray(generated.skyStops) && Array.isArray(stock.sky) && stock.sky.length) {
-    out.skyStops = generated.skyStops.map((c, i) => {
-      const s = stock.sky[Math.min(i, stock.sky.length - 1)];
-      return c && s ? hexLerp(c, s, mix * 0.55) : c;
-    });
-  }
-  if (generated.particles?.color && stock.particles?.color) {
-    out.particles = {
-      ...generated.particles,
-      color: hexLerp(generated.particles.color, stock.particles.color, mix * 0.4),
-    };
-  }
-  return out;
-}
-
 /**
  * @returns {{ world, proof, baseId, degraded }}
  * `world.id` is the playback overlay ('custom', or the registered ID for
@@ -195,9 +160,9 @@ export function adaptWorld(baseWorld, songProfile, data = null) {
     ? base.id
     : 'custom';
 
-  let palettes = base.palettes;
-  let temperature = base.temperature;
-  let cast = base.cast;
+  // Real biomes are real places: their colours are never synthesized from
+  // the song. The song's DNA still shapes the invented terrain below.
+  const palettes = base.palettes, temperature = base.temperature, cast = base.cast;
   let terrainMods = null;
   let characterScheme = null;
   let dna = null;
@@ -209,33 +174,6 @@ export function adaptWorld(baseWorld, songProfile, data = null) {
       console.warn('[WorldAdaptation] buildSongDNA failed; stock identity only:', err);
       proof.dna = { error: String(err?.message || err) };
       degraded.dna = true;
-    }
-
-    // Real biomes are real places: their colours are not synthesized from
-    // the song. The song's DNA still shapes the invented terrain below.
-    if (dna && !base.realBiomes) {
-      try {
-        const synth = synthesizeSectionPalettes(dna, base.kind || 'world');
-        if (synth.palettes.length) {
-          const stock = Array.isArray(base.palettes) ? base.palettes[0] : null;
-          palettes = synth.palettes.map((p, i) => {
-            const toward = Array.isArray(base.palettes)
-              ? base.palettes[i % base.palettes.length]
-              : stock;
-            return constrainPalette(identity, materializePalette(p, toward || stock, stockPaletteMixFor(identity, caps.materialMix)), toward || stock);
-          });
-          temperature = synth.temperature;
-          cast = (energies, seed) => castBiomes(energies, seed, temperature);
-          proof.dna = {
-            seed: dna.seed, tonicPc: dna.tonicPc, isMajor: dna.isMajor,
-            sections: synth.palettes.length,
-          };
-        }
-      } catch (err) {
-        console.warn('[WorldAdaptation] palette synthesis failed; stock palette:', err);
-        proof.dna = { error: String(err?.message || err) };
-        degraded.palette = true;
-      }
     }
 
     if (dna) {
@@ -266,7 +204,6 @@ export function adaptWorld(baseWorld, songProfile, data = null) {
     renderer: base.renderer,
     manualOnly: !!base.manualOnly,
     realBiomes: !!base.realBiomes,
-    experience: base.experience,
     custom: overlayId === 'custom',
     baseId: base.id,
     comfort: base.comfort,

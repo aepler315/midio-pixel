@@ -5,15 +5,14 @@
 // occlusion from the pack's atlas (one texel per column for columns, filtered
 // between lattice vertices for the control), a wrap-diffuse key with the
 // production GGX lobe (wet ground glints under rain), storm shadow and
-// clearing, the cast's light, the sky hemisphere, exposure, tonemap, the
+// clearing, the sky hemisphere, exposure, tonemap, the
 // cinematic grade, the narrative fades, valley mist without its bank
 // ray-march, distance air and the rain veil, all from the scene's live
 // uniforms. Not reproduced: the baked horizon shadow, cloud shadows, rock and
 // snow detail normals, far-forest dots and silhouette ink.
 // `THREE` is the local bundle (src/vendor/range), passed in.
-import { DEFORM_GLSL, GROUND_LIFT_GLSL } from './TerrainDeform.js';
+import { DEFORM_GLSL } from './TerrainDeform.js';
 import { MIST_GLSL, MIST_OCTAVE_MEAN } from './RangeAtmosphere.js';
-import { ACTOR_GLSL } from './ActorsGL.js';
 import { TERRAIN_LIGHTING_GLSL } from './TerrainLighting.js';
 import { STORM_GLSL } from './RangeStorm.js';
 import { CINEMATIC_LIGHTING_GLSL } from './CinematicLighting.js';
@@ -23,8 +22,7 @@ import { LAND_MAX_DISPLACEMENT_M } from './LandMotionLimits.js';
 import { COMPILED_Y_UNIT_M, COMPILED_ATLAS_SCALE, compiledBandPlan, compiledReceiverMask } from './CompiledTerrain.js';
 
 /** Same displacement as SCENE_VERT (glacier + land swell, evaluated at the
- *  source position, then the rise), so forest roots and the cast stay on
- *  the drawn land.
+ *  source position, then the rise), so forest roots stay on the drawn land.
  *  Shared verbatim by the colour, depth and ownership passes. */
 export const COMPILED_VERT = /* glsl */`
   invariant gl_Position;
@@ -73,9 +71,7 @@ export const COMPILED_FRAG = /* glsl */`
   uniform sampler2D uCompiledAtlas;
   uniform vec2 uCompiledAtlasSize;
   ${DEFORM_GLSL}
-  ${GROUND_LIFT_GLSL}
   ${MIST_GLSL}
-  ${ACTOR_GLSL}
   ${TERRAIN_LIGHTING_GLSL}
   ${STORM_GLSL}
   ${CINEMATIC_LIGHTING_GLSL}
@@ -120,7 +116,6 @@ export const COMPILED_FRAG = /* glsl */`
     hemi = receiverFill(hemi, uReceiverFillMin);
     vec3 keyColor = cinematic ? cinematicKey(uLightColor) : uLightColor;
     vec3 lit = albedo * (hemi * ao + keyColor * key * mix(0.85, 1.0, ao) * receiverShadow);
-    lit += albedo * actorLight(vRenderedWorld, n) * receiverShadow;
     lit += albedo * uLightColor * key * uStorm.z * opening * .85;
     float keyGain = (1.0 - uStorm.z * (1.0 - opening) * .5) + uStorm.z * opening * .85;
     lit += uLightColor * spec.x * keyOn * keyGain * (1.0 - .75 * uStorm.y);

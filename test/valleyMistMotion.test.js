@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mistParams, mistLocalOccupancy, mistBankPulse, mistAmount, seaSubmersion, actorLightShown, emitterVisibility, MIST_GLSL, MIST_FLOW_SPEED_MPS, MIST_BANK_HEIGHT_MAX_M } from '../src/world/alpine/RangeAtmosphere.js';
+import { mistParams, mistLocalOccupancy, mistBankPulse, mistAmount, seaSubmersion, MIST_GLSL, MIST_FLOW_SPEED_MPS, MIST_BANK_HEIGHT_MAX_M } from '../src/world/alpine/RangeAtmosphere.js';
 
 // A low source at x=0 climbs a valley to x=4000; z=1000 is a ridge.
 function flowFixture() {
@@ -63,16 +63,13 @@ test('camera altitude never changes formation or its height', () => {
   assert.deepEqual(low, high);
 });
 
-test('emitter and its light share local occupancy without a floor-wide blackout', () => {
+test('local occupancy holds the valley without a floor-wide blackout', () => {
   const full = state(1), p = [2000, 172, 0], ridge = [2000, 812, 1000];
   const occupied = seaSubmersion(p, full);
   assert.ok(occupied > 0 && occupied < 1);
   assert.equal(seaSubmersion(ridge, full), 0);
-  assert.equal(actorLightShown(ridge, full), 1);
-  assert.ok(actorLightShown(p, full) > 0 && actorLightShown(p, full) < 1);
-  const eye = [2000, 300, -100];
-  assert.ok(Math.abs(emitterVisibility(eye, p, full) - (1 - mistAmount(eye, p, full)) * actorLightShown(p, full)) < 1e-12);
-  assert.equal(emitterVisibility(eye, p, { ...full, density: 0 }), 1, 'zero density clears the bank and its emitters together');
+  assert.equal(seaSubmersion(p, full), mistLocalOccupancy(p, full), 'the legacy name reads the same bank');
+  assert.equal(seaSubmersion(p, { ...full, density: 0 }), 0, 'zero density clears the bank');
 });
 
 test('missing fields produce irregular low banks and density fades continuously', () => {
@@ -81,13 +78,13 @@ test('missing fields produce irregular low banks and density fades continuously'
   assert.ok(Math.max(...values) - Math.min(...values) > .1);
   assert.equal(mistLocalOccupancy([0, 100 + MIST_BANK_HEIGHT_MAX_M + 1, 0], full), 0);
   const eye = [0, 112, -1000], p = [1000, 112, 0];
-  let last = 0, lastLight = 1;
+  let last = 0, lastOccupied = 0;
   for (let k = 0; k <= 50; k++) {
     const fade = { ...full, density: full.density * k / 50 };
-    const value = mistAmount(eye, p, fade), light = actorLightShown(p, fade);
+    const value = mistAmount(eye, p, fade), occupied = seaSubmersion(p, fade);
     assert.ok(value >= last && value - last < .1); last = value;
-    assert.ok(light <= lastLight && lastLight - light < .03, 'local emitter fade is continuous at zero');
-    lastLight = light;
+    assert.ok(occupied >= lastOccupied && occupied - lastOccupied < .034, 'local occupancy fades in continuously from zero');
+    lastOccupied = occupied;
   }
 });
 

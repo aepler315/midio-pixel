@@ -11,8 +11,7 @@ Automatic scenic punch is Off in Landscape: Simulation and RangeFrame publish
 the neutral lens `{halfAngleScale: 1, zoomPulse: 0, cueIndex: -1}`. Trusted
 musical turns add no pulse FOV, compositor dip or pulse-driven tilt, including
 loading and legacy fallback scenery. Impact roll, base framing, slow RangeCamera
-moves and the listener's pointer zoom remain available. Trio retains its shared
-trusted lens cues and analysis-handoff rules. Terrain-detail planning keeps its
+moves and the listener's pointer zoom remain available. Terrain-detail planning keeps its
 conservative .82 half-angle allowance; this change does not retune terrain LOD.
 
 Each weather episode has a character, classified once when the storm score

@@ -29,11 +29,10 @@ test('full source recording retains its sustained tail without live-show fades o
     sim: { fracture: { justEnteredFinale: true }, cut: { dropJustCut: true, apotheosisJustCut: true },
       disasters: { justStruck: true, struckKind: 'quake' }, biomes: { tsunamiJustArrived: true } },
     audioEngine: { fadeToSilence: () => calls.push('fade'), duck: () => calls.push('duck') },
-    synth: { stopAll: () => calls.push('stop') },
   });
   context.applyShowAudio(); assert.deepEqual(calls, []);
   context.fullSongRecording = false; context.applyShowAudio();
-  assert.deepEqual(calls, ['fade', 'stop', 'duck', 'duck', 'duck', 'duck']);
+  assert.deepEqual(calls, ['fade', 'duck', 'duck', 'duck', 'duck']);
 });
 
 test('full export ends on the source clock even if the visual finale finishes earlier', () => {
@@ -83,7 +82,7 @@ test('confirmed recordings delegate their only audio start to timeline readiness
   const starts = [], buffer = {};
   const context = production('startConfirmedWorld', {
     resolveWorldId: id => id, stopWorldPreview() {}, closeWorldChooser() {},
-    readBulkExportFromUrl: () => null, lastWorldId: null, muteTimelineSynth: false,
+    readBulkExportFromUrl: () => null, lastWorldId: null,
     audioEngine: { resume() {}, playBuffer: (...args) => starts.push(args) },
     startTimeline: () => {}, running: false, lastAudioBuffer: null,
   });

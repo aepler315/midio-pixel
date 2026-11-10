@@ -31,7 +31,7 @@ test('generated static shot tours open close over their current authored action'
     const pose = tour ? { ...sourcePose, tour: true } : sourcePose;
     const cameraTour = { durationMs: 100000, poseAt: () => pose };
     const view = { id: 'static-with-shot-tour', camera };
-    const prepared = { view, cameraTour, castPlan: { summit }, waterLevelM: 100 };
+    const prepared = { view, cameraTour, buildFocusM: summit, waterLevelM: 100 };
     const { scene, frame } = fixture(view, prepared);
     const resolved = scene.movedPose(view, frame);
     const expected = landRiseCamera({ ...pose, fovYDeg: resolved.pose.fovYDeg }, { rise01: frame.rise01, baseM: 100,
@@ -49,7 +49,7 @@ test('windowed mapped tours crop their admitted route while following the rising
   for (const tour of [false, true]) {
     const pose = tour ? { ...sourcePose, tour: true } : sourcePose;
     const view = { id: 'mapped-tour', camera, tour: { durationMs: 100000, poseAt: () => pose } };
-    const prepared = { view, windowCache: {}, castPlan: { summit }, waterLevelM: 100 };
+    const prepared = { view, windowCache: {}, buildFocusM: summit, waterLevelM: 100 };
     const { scene, frame, windows } = fixture(view, prepared);
     const resolved = scene.movedPose(view, frame);
     assert.ok(resolved.pose.fovYDeg < sourcePose.fovYDeg);
@@ -66,7 +66,7 @@ test('windowed mapped tours crop their admitted route while following the rising
 });
 
 test('ordinary rails retain their source summit as the build focus', () => {
-  const view = { id: 'ordinary-rail', camera }, prepared = { view, castPlan: { summit }, waterLevelM: 100 };
+  const view = { id: 'ordinary-rail', camera }, prepared = { view, buildFocusM: summit, waterLevelM: 100 };
   const { scene, frame } = fixture(view, prepared);
   const rail = scenePoseAt(view, { progress01: frame.progress01 });
   const resolved = scene.movedPose(view, frame);

@@ -37,14 +37,10 @@ export function routeGateConfiguration({ hardwareGpu = false, gpuMatch = null, b
 // renderer string.
 export const requireRouteHardwareRenderer = requireHardwareRenderer;
 
-// Landscape and tours sample the range presentation's own WebGL context. Trio
-// draws through Canvas 2D and has none, so it relies on the browser probes.
+// Every route samples the range presentation's own WebGL context.
 export function verifyHardwareRoute(row, match) {
   assert.ok(row.samples?.length, `${row.id}: no playback samples to attribute a renderer`);
-  for (const sample of row.samples) {
-    if (row.id === 'trio' && sample?.gpu == null) continue;
-    requireRouteHardwareRenderer(sample?.gpu, match);
-  }
+  for (const sample of row.samples) requireRouteHardwareRenderer(sample?.gpu, match);
 }
 
 export function summarizeConfiguredRun(routes, configuration, browserProbe = {}) {
@@ -94,8 +90,7 @@ export async function playbackSample(page) {
       simMs: s.sim.timeMs, heardMs: s.sim.heardTimeMs, audioState: s.audioEngine.ctx.state,
       playing: s.audioEngine.playing, hasBuffer: !!s.audioEngine.sourceNode?.buffer,
       paused: s.paused, preparing: s.playbackPreparing, hidden: document.hidden,
-      generation: s.generation, experience: s.experience, worldKind: s.sim.biomes.world.kind,
-      trio: !!s.sim.trio, pickerOpen: !!document.getElementById('worldSelect')?.open,
+      generation: s.generation, worldKind: s.sim.biomes.world.kind,
       frame, capture: capture ? { presented: capture.presented,
         frameId: capture.frameId, generation: capture.generation } : null,
       colors: colors.size, range: s.sim.biomes.rangePresentation?.status() ?? { active: false }, readiness: s.renderReadiness,
@@ -172,17 +167,14 @@ async function exerciseRoute(browser, url, audioPath, row, timeoutMs, outDir, co
         }
       }
       row.entry = { url: page.url(), tourChecked: await page.locator('#range-tour-toggle').isChecked(),
-        savedTour: await page.evaluate(() => localStorage.getItem('range-tour')),
-        experience: await page.locator('#display-experience').inputValue() };
-      for (const key of ['experience', 'rangeRenderer', 'rangeView', 'bulkExport']) {
+        savedTour: await page.evaluate(() => localStorage.getItem('range-tour')) };
+      for (const key of ['rangeRenderer', 'rangeView', 'bulkExport']) {
         assert.equal(new URL(page.url()).searchParams.has(key), false, `ordinary route must not force ${key}`);
       }
       controls.setPhase('upload-and-prepare');
       await page.locator('#fileInput').setInputFiles(audioPath);
-      // The ordinary route: the chooser opens once the song is ready and the
-      // listener picks this route's world.
-      await page.locator('#worldSelect[open]').waitFor({ timeout: timeoutMs });
-      await page.locator(`.worldCard[data-base-world-id="${row.id === 'trio' ? 'trio' : 'alpine'}"] .worldCardPlayBtn`).click();
+      // The ordinary route: the song starts straight in Landscape once it is
+      // analysed.
       await page.waitForFunction(() => {
         const s = window.__SMW;
         return s?.renderReadiness?.status === 'failed'
@@ -257,11 +249,10 @@ export async function runCurrentRoutesSmoke({ siteRoot = path.join(root, '_site'
     executablePath: configuration.executablePath ?? null, platform: process.platform, node: process.version }, routes: [], limitations: [
     'Headless Chromium integration evidence; no physical-device, performance or artistic acceptance.',
     'The default fixture is generated audio; it does not establish real-song tour coverage.',
-    'The frozen server serves staged index.html/src bytes; optional soundfont discovery is empty.'
+    'The frozen server serves staged index.html/src bytes.'
   ] };
   if (configuration.hardwareRequired) report.limitations.push(
-    'Opt-in hardware GPU configuration: a separate result for this machine\'s GPU and driver. It neither replaces nor relabels the default SwiftShader gate.',
-    'Trio draws through Canvas 2D and has no WebGL context of its own; its renderer is the browser probe taken before and after the routes.');
+    'Opt-in hardware GPU configuration: a separate result for this machine\'s GPU and driver. It neither replaces nor relabels the default SwiftShader gate.');
   let server, browser;
   try {
     const source = await snapshotSource(path.resolve(siteRoot));

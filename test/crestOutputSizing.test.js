@@ -29,9 +29,6 @@ test('crest resolution follows the physical output before drawing and is cleared
   assert.deepEqual(draw(), { size: null, enabled: false, native: [320, 180] });
   renderer.setPresentation(pixel);
   assert.equal(draw().enabled, true);
-  sim.experience = 'trio';
-  assert.equal(draw().size, null);
-  sim.experience = 'landscape';
   range.enabled = false;
   assert.equal(draw().size, null);
   renderer.dispose();

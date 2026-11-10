@@ -18,8 +18,8 @@ const help = `npm run review:landscape -- --out .smoke/review [--audio song.wav]
   --source DIR         Public source checkout (default: this repository)
   --snapshot DIR       Verified hash-addressed manifest.json + byte files (preserves case)
   --baseline DIR       Compare with a previous review using the same controls
-  --look LOOK          pixel or cinematic (default: pixel)
-  --grid GRID          classic, classicPlus, medium, mediumPlus, detailed or both (default: both; detailed for --look cinematic)
+  --look LOOK          cinematic (the only look; kept for older scripts)
+  --grid GRID          classic, classicPlus, medium, mediumPlus, detailed or both (default: detailed)
   --view ID            Default: teton-range-tour; natural allows automatic landscape changes
   --pace N             Requested Landscape rail pace, 1|2|3|4 (default3)
   --tour MODE          off (authored rails), shots or tetons (default follows view)
@@ -36,7 +36,7 @@ const help = `npm run review:landscape -- --out .smoke/review [--audio song.wav]
 Always headless. No --open or headful option. Output must be new. Artistic judgment remains unreviewed.
 `;
 export function parseReviewArgs(argv) {
-  const a = { source: root, look: 'pixel', grids: ['classic', 'detailed'], view: 'teton-range-tour', pace: 3, startMs: 12000, seconds: 2, fps: 12, liveSeconds: 0, mp4: true };
+  const a = { source: root, look: 'cinematic', grids: ['detailed'], view: 'teton-range-tour', pace: 3, startMs: 12000, seconds: 2, fps: 12, liveSeconds: 0, mp4: true };
   const values = { '--out': 'out', '--source': 'source', '--snapshot': 'snapshot', '--baseline': 'baseline', '--audio': 'audio', '--look': 'look', '--grid': 'grid', '--view': 'view', '--pace': 'pace', '--tour': 'tour', '--start-ms': 'startMs', '--seconds': 'seconds', '--fps': 'fps', '--live-seconds': 'liveSeconds', '--browser': 'browser', '--gpu-match': 'gpuMatch' };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
@@ -49,7 +49,7 @@ export function parseReviewArgs(argv) {
     const v = argv[++i]; if (!v || v.startsWith('--')) throw Error(`${k} requires a value`); a[values[k]] = v;
   }
   assert.ok(a.out, '--out is required');
-  assert.ok(['pixel', 'cinematic'].includes(a.look), 'look must be pixel or cinematic');
+  assert.equal(a.look, 'cinematic', 'Cinematic is the only look');
   for (const k of ['startMs', 'seconds', 'fps', 'liveSeconds', 'pace']) a[k] = Number(a[k]);
   assert.ok(Number.isFinite(a.startMs) && a.startMs >= 0, 'invalid start-ms');
   assert.ok(Number.isFinite(a.seconds) && a.seconds > 0 && a.seconds <= 180, 'seconds must be >0 through180');
@@ -219,7 +219,7 @@ async function liveReview(browser, url, audio, args, dir) {
     await page.goto(evaluationEntryUrl(url, settings, { bulkExport: false }));
     await page.locator('#titleSettings').evaluate(n => { n.open = true; });
     await page.locator('#lyricGroundingBtn').evaluate(n => { if (n.getAttribute('aria-pressed') === 'true') n.click(); });
-    await page.locator('#display-look').selectOption(args.look);await page.locator('#display-pixelGrid').selectOption(args.grids[0]);await page.locator('#stageFps').selectOption('60');if(await page.locator('#display-pixelScale').count())await page.locator('#display-pixelScale').selectOption('original');
+    await page.locator('#display-pixelGrid').selectOption(args.grids[0]);await page.locator('#stageFps').selectOption('60');if(await page.locator('#display-pixelScale').count())await page.locator('#display-pixelScale').selectOption('original');
     browserDiagnostics.setPhase('audio-analysis');
     const started = Date.now(); await page.locator('#fileInput').setInputFiles(audio);
     await page.waitForFunction(() => window.__SMW?.sim && (window.__SMW.renderReady || window.__SMW.rangeState?.active), null, { timeout: 180000 });

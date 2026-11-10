@@ -90,9 +90,9 @@ function manager() {
   });
   const calls = [];
   const rec = (name) => function () { calls.push(name); };
-  for (const name of ['_drawSky', '_drawSpectrumMassif', '_drawHorizonEQ', '_drawCrestLight', '_drawFarVignettes', '_drawMidDepthLife',
+  for (const name of ['_drawSky', '_drawSpectrumMassif', '_drawHorizonEQ', '_drawCrestLight', '_drawMidDepthLife',
     '_drawGround', '_drawTerrainFooting', '_drawFlood', '_drawForegroundSwell', '_drawTransitionOverlays',
-    '_drawFarShore', '_drawOcean', '_drawOceanLife', '_drawFataMorgana', 'drawDeepSky', '_drawCelestial', '_drawMoon']) {
+    '_drawFarShore', '_drawOcean', '_drawOceanLife', '_drawFataMorgana', '_drawCelestial', '_drawMoon']) {
     m[name] = rec(name);
   }
   const legacy = m._drawLegacyScenic;
@@ -120,9 +120,9 @@ test('v2 draws its partitions at the retained pass boundaries, legacy scenery no
   m.rangePresentation = pres;
   const order = [];
   pres.drawPartition = (ctx, pass) => { order.push(`gpu:${pass}`); calls.push(`gpu:${pass}`); return true; };
-  m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, null, 1, null, groundView);
-  const seq = calls.filter((c) => /gpu:|_draw(HorizonEQ|CrestLight|SpectrumMassif|FarVignettes|MidDepthLife|Ground|LegacyScenic)|spaceRidge|_drawSky/.test(c));
-  assert.deepEqual(seq, ['_drawSky', 'spaceRidge', '_drawSpectrumMassif', 'gpu:far', '_drawFarVignettes',
+  m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, 1, null, groundView);
+  const seq = calls.filter((c) => /gpu:|_draw(HorizonEQ|CrestLight|SpectrumMassif|MidDepthLife|Ground|LegacyScenic)|spaceRidge|_drawSky/.test(c));
+  assert.deepEqual(seq, ['_drawSky', 'spaceRidge', '_drawSpectrumMassif', 'gpu:far',
     'gpu:mid', '_drawMidDepthLife', 'gpu:near']);
   assert.ok(!calls.includes('_drawLegacyScenic'), 'no double-painted terrain');
   assert.equal(calls.includes('_drawCrestLight'), false, 'real terrain has no synthetic crest glow or skyline readback');
@@ -153,7 +153,7 @@ test('a single stage paints the current musical sky once before its terrain part
   };
   pres.drawPartition = (_ctx, pass) => { calls.push(`gpu:${pass}`); return true; };
   try {
-    m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, null, 1, null, groundView);
+    m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, 1, null, groundView);
     assert.deepEqual(calls.filter(name => name === 'currentSky' || name.startsWith('gpu:') || name === '_drawSky' || name === 'spaceRidge'),
       ['currentSky', 'gpu:far', 'gpu:mid', 'gpu:near']);
   } finally { m.dispose(); }
@@ -166,7 +166,7 @@ test('a single stage retains its complete sky when the modern camera descriptor 
   m.singleStage = true;
   m.drawHighResolutionSky = () => assert.fail('a missing descriptor must use the inline legacy sky');
   try {
-    m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, null, 1, null, groundView);
+    m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, 1, null, groundView);
     assert.equal(calls.filter(name => name === '_drawSky').length, 1);
     assert.deepEqual(m.rangePresentation.passes, ['far', 'mid', 'near']);
   } finally { m.dispose(); }
@@ -175,7 +175,7 @@ test('a single stage retains its complete sky when the modern camera descriptor 
 test('an unready Landscape draws no synthetic fallback before real terrain is ready', () => {
   const { m, calls } = manager();
   m.rangePresentation = fakePresentation({ ready: false });
-  m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, null, 1, null, groundView);
+  m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, 1, null, groundView);
   assert.deepEqual(calls, [], 'no sky, synthetic range, ocean, or foreground paint enters an unready scenic frame');
   assert.equal(m._awaitingTerrain, true);
   assert.equal(m._rangeV2Active, false);
@@ -189,7 +189,7 @@ test('ordinary v2 ocean remains behind every terrain partition without needing a
   const pres = fakePresentation();
   m.rangePresentation = pres;
   pres.drawPartition = (ctx, pass) => { calls.push(`gpu:${pass}`); return true; };
-  m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, null, 1, null, groundView);
+  m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, 1, null, groundView);
   assert.equal(calls.filter((c) => c === '_drawOcean').length, 1);
   for (const pass of ['far', 'mid', 'near']) {
     assert.ok(calls.indexOf('_drawOcean') < calls.indexOf(`gpu:${pass}`), `${pass} terrain occludes sea`);
@@ -207,7 +207,7 @@ test('an inland catalog view drops the legacy sea strip; an explicit sea horizon
     pres.captionViewFor = () => view;
     m.rangePresentation = pres;
     pres.drawPartition = (ctx, pass) => { calls.push(`gpu:${pass}`); return true; };
-    m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, null, 1, null, groundView);
+    m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, 1, null, groundView);
     assert.equal(calls.includes('_drawOcean'), drawn, view.id);
     if (drawn) for (const pass of ['far', 'mid', 'near']) assert.ok(calls.indexOf('_drawOcean') < calls.indexOf(`gpu:${pass}`));
     m.dispose();
@@ -221,7 +221,7 @@ test('glacial inland pilot suppresses distant sea throughout a biome handoff', (
   for (const t of [0, .5, 1]) {
     m.currentBlend = { from: 'RAINFOREST', to: 'CONIFER', t };
     calls.length = 0;
-    m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, null, 1, null, groundView);
+    m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, 1, null, groundView);
     assert.ok(!calls.includes('_drawOcean'), 'inland pilot has its own river/lake receivers');
   }
   m.dispose();
@@ -707,89 +707,24 @@ test('frame timings sum every pass of a frame and restart with the next frame', 
   assert.equal(b.frameId, a.frameId + 1);
 });
 
-test('the cast is drawn once after the near partition and kept with its stage transform for the smooth foreground', async () => {
-  const order = [];
+test('the partitions draw only the land: nothing follows the near partition and no cast layer is kept', async () => {
+  const order = [], pins = [];
   const scene = fakeScene();
   scene.renderPartition = (frame, pass) => { order.push(`gpu:${pass}`); return { width: 352, height: 212 }; };
-  scene.renderCast = (frame, id) => { order.push(`cast:${id}`); return { width: 352, height: 212, gl: true }; };
-  const layers = [];
-  const makeCanvas = (width, height) => {
-    const c = { width, height, draws: [] };
-    const ctx = { setTransform() {}, globalAlpha: 1, globalCompositeOperation: 'source-over',
-      drawImage(...a) { c.draws.push({ args: a, op: this.globalCompositeOperation }); } };
-    c.getContext = () => ctx;
-    layers.push(c);
-    return c;
-  };
-  const p = presentationWith(scene, { makeCanvas });
+  scene.pinView = (ids, keys) => pins.push(keys || []);
+  const p = presentationWith(scene);
   p.setSong({ terrain: { sceneByBiome: new Map([['RAINFOREST', { view: catalog.views[0], fallbackReason: null }]]) }, generation: 1 });
   await p.whenReady();
-  p.castForeground = true;
   p.setFrameInputs(inputs());
   assert.equal(p.beginScenic(), true);
-  assert.equal(scene.castInBands, false, 'the partitions leave the cast out');
   const stage = { width: 1408, height: 848 };
   const ctx = { save() {}, restore() {}, drawImage() { order.push('draw'); },
     getTransform: () => ({ a: 0.25, b: 0, c: 0, d: 0.25, e: -16, f: -16 }) };
   for (const pass of ['far', 'mid', 'near']) assert.equal(p.drawPartition(ctx, pass, stage), true);
-  // Rendered after the near image is on the stage (the GL canvas is shared).
-  assert.deepEqual(order, ['gpu:far', 'draw', 'gpu:mid', 'draw', 'gpu:near', 'draw', 'cast:v']);
-  const layer = p.castLayer;
-  assert.equal(layer.canvas, layers[0]);
-  assert.equal(layers[0].draws[0].args[0].gl, true);
-  assert.equal(layers[0].draws[0].op, 'copy', 'the layer is replaced, not accumulated');
-  assert.deepEqual(layer.transform, [0.25, 0, 0, 0.25, -16, -16]);
-  assert.deepEqual([layer.width, layer.height, layer.stageWidth, layer.stageHeight, layer.alpha], [352, 212, 1408, 848, 1]);
-  // Composited where the working buffer lands in the output, smoothed and added.
-  const out = [];
-  const octx = { save() {}, restore() {}, beginPath() {}, rect(...a) { out.push(['clip', ...a]); }, clip() {},
-    setTransform(...a) { out.push(['transform', ...a]); },
-    drawImage(...a) { out.push(['draw', a[0] === layer.canvas, ...a.slice(1), this.imageSmoothingEnabled, this.globalCompositeOperation]); } };
-  assert.equal(p.drawCastForeground(octx, { x: 40, y: 20, width: 1280, height: 720, scale: 4 }), true);
-  assert.deepEqual(out, [['clip', 40, 20, 1280, 720], ['transform', 1, 0, 0, 1, 40 - 64, 20 - 64],
-    ['draw', true, 0, 0, 352, 212, 0, 0, 1408, 848, true, 'lighter']]);
-  // Under the range caption's plate the cast shows through it, as it would
-  // beneath it, instead of lighting the name.
-  out.length = 0;
-  const clips = [];
-  octx.clip = (rule) => clips.push(rule);
-  octx.drawImage = function () { out.push(['alpha', this.globalAlpha]); };
-  p.drawCastForeground(octx, { x: 40, y: 20, width: 1280, height: 720, scale: 4 }, { bounds: { x: 10, y: 150, width: 100, height: 20 }, plate: .72 });
-  assert.deepEqual(out, [['clip', 40, 20, 1280, 720], ['clip', 80, 620, 400, 80], ['transform', 1, 0, 0, 1, -24, -44], ['alpha', 1],
-    ['clip', 80, 620, 400, 80], ['transform', 1, 0, 0, 1, -24, -44], ['alpha', 1 - .72]]);
-  assert.deepEqual(clips, ['evenodd', 'nonzero'], 'the frame less the plate, then the plate');
-  // A new frame forgets the old cast until its own near partition.
-  p.setFrameInputs(inputs());
-  p.beginScenic();
-  assert.equal(p.castLayer, null);
-  assert.equal(p.drawCastForeground(octx, { x: 0, y: 0, width: 1, height: 1, scale: 1 }), true, 'nothing to add is still a complete frame');
-  // Without a smooth foreground the cast stays in the band passes.
-  p.castForeground = false;
-  p.setFrameInputs(inputs());
-  p.beginScenic();
-  assert.equal(scene.castInBands, true);
-  order.length = 0;
-  p.drawPartition(ctx, 'near', stage);
-  assert.deepEqual(order, ['gpu:near', 'draw']);
-});
-
-test('without room for the cast layer the cast is added to the grid right after the near partition', async () => {
-  const scene = fakeScene();
-  scene.renderCast = () => ({ width: 2, height: 2, gl: true });
-  const residency = { reserve: () => null, release() {}, get: () => undefined, pin() {}, cancelGeneration() {} };
-  const p = presentationWith(scene, { residency });
-  p.setSong({ terrain: { sceneByBiome: new Map([['RAINFOREST', { view: catalog.views[0], fallbackReason: null }]]) }, generation: 1 });
-  await p.whenReady();
-  p.castForeground = true;
-  p.setFrameInputs(inputs());
-  assert.equal(p.beginScenic(), true);
-  const drawn = [];
-  const ctx = { globalCompositeOperation: 'source-over', save() {}, restore() {}, getTransform: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }),
-    drawImage(img) { drawn.push([img.gl ? 'cast' : 'near', this.globalCompositeOperation]); } };
-  p.drawPartition(ctx, 'near', { width: 2, height: 2 });
-  assert.deepEqual(drawn.map(([what]) => what), ['near', 'cast']);
-  assert.equal(drawn[1][1], 'lighter');
-  assert.equal(p.castLayer, null);
+  assert.deepEqual(order, ['gpu:far', 'draw', 'gpu:mid', 'draw', 'gpu:near', 'draw']);
+  // The presenting renderer finds no cast foreground to lay over the frame.
+  assert.equal(typeof p.drawCastForeground, 'undefined');
+  assert.ok(pins.length > 0 && pins.every(keys => !keys.includes('range:cast-layer')), JSON.stringify(pins));
 });
 
 test('a view built across a context loss is retried, not failed; a refused render target asks for room', async () => {
@@ -829,7 +764,7 @@ test('migrated no-stage final manager path suppresses opaque foreground painters
     m._lakeReflectGroundY = 500;
     m.rangePresentation = { ...fakePresentation(), arriving, hasViewComposition: true,
       stage: null, drawGround: () => groundAvailable, groundReceivers: () => null };
-    m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, null, 1, null, groundView);
+    m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, 1, null, groundView);
     for (const painter of ['_drawGround', '_drawTerrainFooting', '_drawFlood', '_drawForegroundSwell']) {
       assert.ok(!calls.includes(painter), `${painter} cannot cover revealed terrain`);
     }
@@ -849,7 +784,7 @@ test('Range never paints a foreground ground bar, including fallback and uncompo
     let gpuGroundDraws = 0;
     m.rangePresentation = { ...fakePresentation({ ready }), arriving, hasViewComposition: false,
       drawGround: () => { gpuGroundDraws++; return true; }, groundReceivers: () => null };
-    m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, null, 1, null, groundView);
+    m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, 1, null, groundView);
     assert.equal(calls.includes('_drawGround'), false, `legacy ground: ready=${ready}, arriving=${arriving}`);
     assert.equal(calls.includes('_drawTerrainFooting'), false);
     assert.equal(gpuGroundDraws, 0);
@@ -956,7 +891,7 @@ test('the full-frame cut flash draws over a composed v2 view (M1)', () => {
   m._drawTransitionOverlays = BiomeManager.prototype._drawTransitionOverlays;
   m._cutFlash = 1;
   ctx.fillRect = (x, y, w, h) => { if (ctx.fillStyle === '#ffffff' && w === 1408 && h === 848) white.push(ctx.globalAlpha); };
-  m.draw(ctx, { width: 1408, height: 848 }, 0, 0, null, 1, null, groundView);
+  m.draw(ctx, { width: 1408, height: 848 }, 0, 0, 1, null, groundView);
   assert.deepEqual(white, [.35]);
   m.dispose();
 });
@@ -1060,7 +995,7 @@ test('the Range moon is visible during the predawn opening of a long song', asyn
   const { m, calls } = manager();
   m._dayNightCycleMs = songSkyClock(60000); m.tSec = 3;
   m.rangePresentation = fakePresentation();
-  m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, null, 1, null, groundView);
+  m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, 1, null, groundView);
   assert.ok(calls.includes('_drawMoon'), 'a long-song clock must not exclude the moon until the storm clears');
   assert.ok(m.celestialState.moon.altitude01 > 0);
   m.dispose();
@@ -1079,7 +1014,7 @@ test('the moon\'s illuminant stays continuous across the long-song sunrise, wher
   const illuminant = [];
   for (const tMs of [10000, 23999, 24000]) {
     m.tSec = tMs / 1000;
-    m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, null, 1, null, groundView);
+    m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, 1, null, groundView);
     // The direction the lit limb would face, straight from the signed sun.
     const sun = sunScreenFrac(cyclePhase01(tMs, clock)), moon = m.celestialState.moon;
     illuminant.push(Math.atan2((sun.yFrac - moon.yFrac) * 848, (sun.xFrac - moon.xFrac) * 1408));

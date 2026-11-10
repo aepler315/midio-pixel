@@ -2,7 +2,7 @@
 
 Landscape's **Landscape pace** setting offers 1×, 2×, 3× and 4×; new runs
 default to a requested 3×. The automatic short scenic lens punch is Off.
-Trio keeps its existing camera accents. Wheel/pinch zoom and the slower
+Wheel/pinch zoom and the slower
 structural camera moves retain their existing behavior and restrictions.
 
 Pace expands the part of an approved camera rail traversed during each
@@ -54,8 +54,11 @@ rail captures, explicit tours-Off selection and longer continuous clips.
 Playback opens with 24× lens magnification over the growing landscape. The
 camera keeps its horizontal route and ground clearance, follows the rising
 summit or tour action, and smoothly widens to the authored lens by 70% relief.
-The tight opening widens within the existing terrain detail budget. Seeking
-reconstructs the same framing. Sky anchors use the same zoom, and
+The tight opening widens within the existing terrain detail budget. Because
+the opening surge ([landscape-rise.md](landscape-rise.md#song-timing-and-seeking))
+reaches 70% relief about 4 s into the song, the zoom-out plays as a
+two-second reveal as the title card fades, rather than over the first twenty
+seconds. Seeking reconstructs the same framing. Sky anchors use the same zoom, and
 wheel/pinch zoom continues to work over the opening lens.
 
 ## One default camera

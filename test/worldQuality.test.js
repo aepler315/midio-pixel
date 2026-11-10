@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { EnergyCurves } from '../src/audio/EnergyCurves.js';
 import { listWorlds } from '../src/world/Worlds.js';
-import { pickPreviewPassages } from '../src/ui/WorldPreview.js';
+import { pickPreviewPassages } from '../src/eval/PreviewPassages.js';
 import {
   REQUIRED_FAMILIES, ACCEPTANCE_TARGET, EVAL_QUALITY, viewingOrder, evaluationSeed,
   pickEvaluationPassages, privateScores, seventyEightyCases, diagnosticsFromFeatures,
@@ -45,7 +45,7 @@ test('tune and holdout ids are disjoint, and no track stores audio bytes', () =>
 test('viewing order is the authored world list, with all surviving worlds, never a score ranking', () => {
   const order = viewingOrder();
   assert.deepEqual(order, listWorlds().map((w) => w.id));
-  assert.deepEqual(order, ['alpine', 'trio']);
+  assert.deepEqual(order, ['alpine']);
   const dense = corpus.tracks.find((t) => t.id === 'tune-wall-guitars');
   const sheet = evaluateTrack(dense);
   assert.deepEqual(sheet.viewingOrder, order);

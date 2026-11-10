@@ -273,9 +273,7 @@ async function probeRoute(browser, url, audioPath, routeId, outDir, options) {
     pings = startPings(page);
     result.uploadAt = Date.now();
     await page.locator('#fileInput').setInputFiles(audioPath);
-    // The chooser opens once the song is ready; pick this route's world.
-    await timed('chooser-wait', result.events, () => page.locator('#worldSelect[open]').waitFor({ timeout: options.timeoutMs }));
-    await page.locator(`.worldCard[data-base-world-id="${routeId === 'trio' ? 'trio' : 'alpine'}"] .worldCardPlayBtn`).click();
+    // The song starts straight in Landscape once it is analysed.
     await timed('ready-wait', result.events, () => page.waitForFunction(() => {
       const s = window.__SMW;
       return s?.renderReadiness?.status === 'failed'

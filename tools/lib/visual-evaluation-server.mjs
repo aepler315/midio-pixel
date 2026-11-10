@@ -37,7 +37,6 @@ export async function serveSnapshot(snapshot) {
     let pathname;
     try { pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname); } catch { res.writeHead(400).end(); return; }
     if (req.method !== 'GET' || pathname.includes('\\') || pathname.split('/').some(p => p.startsWith('.'))) { res.writeHead(404).end(); return; }
-    if (pathname === '/soundfonts/') { res.writeHead(200, { 'Content-Type': 'application/json' }).end('[]'); return; }
     if (pathname === '/favicon.ico') { res.writeHead(204).end(); return; }
     const file = pathname === '/' ? '/index.html' : pathname;
     const bytes = snapshot.files.get(file);

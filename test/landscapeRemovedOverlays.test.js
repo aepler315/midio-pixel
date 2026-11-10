@@ -20,7 +20,7 @@ test('the real terrain partitions need no synthetic crest glow or synchronous sk
   const manager = Object.assign(Object.create(BiomeManager.prototype), {
     rangePresentation: { drawPartition(_, band) { calls.push(band); } },
     _rotated: x => x, lerpCache: { get: x => x }, _drawCrestLight: forbidden,
-    _drawFarVignettes() {}, _drawMidDepthLife() {},
+    _drawMidDepthLife() {},
   });
   manager._drawRangeV2Scenic({}, {}, {}, { A: { silhouette: '#555555' }, B: { silhouette: '#555555' },
     skyHorizonNight: '#000000', worldX: 0, originX: 0, t: 0 });

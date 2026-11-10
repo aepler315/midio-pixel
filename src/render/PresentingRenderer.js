@@ -3,9 +3,8 @@ import { PixelPresentation, compositePixelFrame, fitPixelRect } from './PixelPre
 import { pixelRenderPolicy } from './PixelRenderPolicy.js';
 import { CanvasBuffers } from './CanvasResidency.js';
 import { CinematicPixelRenderer } from './CinematicPixel.js';
-import { quantizeImageData, quantizePalette } from './PaletteQuantize.js';
-import { buildDitherWeights } from './PixelDither.js';
 import { landscapeScoreFor } from '../world/alpine/LandscapeScore.js';
+import { RISE_SURGE_START_MS, RISE_SURGE_MS } from '../core/OpeningTimeline.js';
 import { landscapeResolutionPlan, landscapeResolutionAt, landscapeResolutionEndpoint, landscapeQualityRung } from './ProgressiveLandscapeResolution.js';
 
 export function createPresentingRenderer({ canvas, mode = 'canvas', presentation, residency, voxelRange = null, rendererFactory = createRenderer }) {
@@ -19,7 +18,6 @@ class PresentingRenderer {
     this.voxelRange = voxelRange;
     this._disposed = false;
     this._requestedPresentation = presentation;
-    this._experience = presentation?.experience === 'trio' ? 'trio' : 'landscape';
   }
   get backend() { return this.inner.backend || 'canvas'; }
   get canvasRenderer() { return this.inner.canvasRenderer || this.inner; }
@@ -34,40 +32,37 @@ class PresentingRenderer {
   get diagnostics() { return this.output.diagnostics; }
   setPresentation(value) {
     this._requestedPresentation = value;
-    this.output.setPresentation({ ...value, experience: this._experience });
+    this.output.setPresentation(value);
   }
   getCaptureSource() {
     const source = this._disposed ? null : this.output.getCaptureSource();
     if (source && (this._directFrame || this._voxelFrame)) return source;
     // Recording and export consume the completed hybrid picture (smooth sky,
-    // the cinematic cell reconstruction and/or the smooth cast over the
-    // pixel frame). Palette diagnostics can still inspect the native
+    // water, mid effects and/or the cinematic cell reconstruction over the
+    // pixel frame). Diagnostics can still inspect the native
     // terrain raster separately.
-    const background = this._captureBackground, overlay = this._captureOverlay, water = this._captureWater, post = this._capturePost, effects = this._captureEffects;
+    const background = this._captureBackground, water = this._captureWater, post = this._capturePost, effects = this._captureEffects;
     const crest = this._captureCrest, shore = this._captureShore, terrain = this._captureTerrain;
-    const { hybridSky, castForeground, waterForeground, smoothEffects, crestForeground, shoreForeground, crestCut } = this.output.diagnostics;
+    const { hybridSky, waterForeground, smoothEffects, crestForeground, shoreForeground, crestCut } = this.output.diagnostics;
     const cinematicPixel = !!this.output.presentation.cinematicPixel;
-    return source && (hybridSky || castForeground || waterForeground || smoothEffects || crestForeground || shoreForeground || cinematicPixel || post) ? { ...source, canvas: this.canvas,
+    return source && (hybridSky || waterForeground || smoothEffects || crestForeground || shoreForeground || cinematicPixel || post) ? { ...source, canvas: this.canvas,
       pixelCanvas: source.canvas, width: this.canvas.width, height: this.canvas.height,
-      pixelated: false, terrainPixelated: true, hybridSky: !!hybridSky, castForeground: !!castForeground, cinematicPixel,
+      pixelated: false, terrainPixelated: true, hybridSky: !!hybridSky, cinematicPixel,
       drawCaptureFrame: (ctx, width, height, destination) => {
         if (this._disposed || this.output.getCaptureSource() !== source) return false;
         const drawn = compositePixelFrame(ctx, source.canvas, width, height, source.scaling,
           hybridSky ? background : null, destination,
           cinematicPixel ? (ctx, fit) => this.output.drawForeground(ctx, source.canvas, fit, true) : null,
-          castForeground ? overlay : null, waterForeground ? (ctx, fit) => water(ctx, fit, true) : null, smoothEffects ? effects : null,
+          null, waterForeground ? (ctx, fit) => water(ctx, fit, true) : null, smoothEffects ? effects : null,
           crestForeground ? crest : null, shoreForeground ? shore : null, crestCut ? terrain : null);
         if (post) post(ctx, drawn.fit);
-        return (!hybridSky || drawn.hybridSky) && (!castForeground || drawn.overlay) && (!waterForeground || drawn.water) && (!smoothEffects || drawn.effects)
+        return (!hybridSky || drawn.hybridSky) && (!waterForeground || drawn.water) && (!smoothEffects || drawn.effects)
           && (!crestForeground || drawn.crest) && (!shoreForeground || drawn.shore);
       } } : source;
   }
   draw(sim, alpha, { preparing = false } = {}) {
     if (this._disposed) return this.output.failFrame('disposed');
-    if ((sim?.experience || 'landscape') !== this._experience) {
-      this._experience = sim?.experience || 'landscape'; this.setPresentation(this._requestedPresentation);
-    }
-    this.output.setFrameContext?.({ worldKind: sim?.biomes?.world?.kind ?? null, experience: this._experience });
+    this.output.setFrameContext?.({ worldKind: sim?.biomes?.world?.kind ?? null });
     this.output.diagnostics.rangePipeline = this._requestedPresentation?.rangePipeline || 'hybrid';
     if (this.voxelRange || this._requestedPresentation?.directTerrain === true) {
       this.output.setFrameGrid(); this._growthKey = null;
@@ -88,21 +83,17 @@ class PresentingRenderer {
       if (wasVoxelFrame) this.rangePresentation = null;
     }
     const manager = sim?.biomes;
-    const cinematicPixel = !!this.output.presentation.cinematicPixel && this._experience !== 'trio';
+    const cinematicPixel = !!this.output.presentation.cinematicPixel;
     if (manager) {
       manager.cinematicPixel = cinematicPixel;
       manager.setCinematicQuality?.(sim?.perf?.level ?? 0);
     }
     const range = this.inner.rangePresentation;
-    const landscape = this._experience !== 'trio' && manager?.world?.kind === 'alpine' && !!range?.enabled;
-    const singleStage = landscape && this._requestedPresentation?.rangePipeline === 'single';
-    if (manager) { manager.setSingleStage?.(singleStage); manager.singleStage = singleStage; }
-    if (range) { range.setSingleStage?.(singleStage); range.singleStage = singleStage; }
+    const landscape = manager?.world?.kind === 'alpine' && !!range?.enabled;
     if (landscape && this._requestedPresentation?.directTerrain === true) return this._drawDirect(sim, alpha, { preparing, manager, range });
     const growing = landscape && this._requestedPresentation?.buildPixelDetail === true
-      && this._requestedPresentation?.rangePipeline !== 'native'
-      && this.output._resolvedPaletteId === 'none' && !this.voxelRange;
-    let growth = null, qualityRung = null;
+      && !this.voxelRange;
+    let growth = null, qualityRung = null, frameRise01 = null;
     if (growing) {
       const layoutKey = `${this.canvas.width}:${this.canvas.height}:${this.output.presentation.scaling}`;
       if (!this._growthKey || this._growthLayoutKey !== layoutKey) {
@@ -117,7 +108,17 @@ class PresentingRenderer {
           this.output.resetFrameGridAdmission();
         }
       }
-      growth = landscapeResolutionAt(this._growthPlan, landscapeScoreFor(manager).at(sim.heardTimeMs, { preview: !!manager.terrainPreview }).rise01);
+      // The opening surge lifts the range to 70% relief in 2.2 s, which would
+      // walk the grid through ~16 rungs (each a new working canvas and scenic
+      // render target) during the reveal. Its detail is taken in one step at
+      // the surge's start instead, under the still-opaque title card. Pure in
+      // heard time, so seek and export pick the same rung; the frame's own
+      // rise is unchanged.
+      const score = landscapeScoreFor(manager), preview = !!manager.terrainPreview, t = sim.heardTimeMs;
+      const surgeEndMs = RISE_SURGE_START_MS + RISE_SURGE_MS;
+      const growthMs = t >= RISE_SURGE_START_MS && t < surgeEndMs ? surgeEndMs : t;
+      growth = landscapeResolutionAt(this._growthPlan, score.at(growthMs, { preview }).rise01);
+      frameRise01 = growthMs === t ? growth.rise01 : score.at(t, { preview }).rise01;
       qualityRung = sim.exportMode ? this._growthPlan.maxRung : landscapeQualityRung(this._growthPlan, sim.perf?.level ?? 0);
       this.output.setFrameGrid(this._growthPlan.grids[Math.min(growth.rung, qualityRung, this._growthRungLimit)]);
       range.detailHeightPx = this._growthPlan.endpoint.height;
@@ -126,7 +127,7 @@ class PresentingRenderer {
       this._growthKey = null;
       if (range) range.detailHeightPx = null;
     }
-    this.output.diagnostics.progressiveDetail = growth ? { active: true, rise01: growth.rise01,
+    this.output.diagnostics.progressiveDetail = growth ? { active: true, rise01: frameRise01,
       rung: this._growthPlan.grids.indexOf(this.output.grid), requestedRung: growth.rung, maxRung: this._growthPlan.maxRung,
       qualityRung, memoryRungLimit: this._growthRungLimit,
       requestedGrid: growth.grid, admittedGrid: this.output.grid, endpoint: this._growthPlan.endpoint,
@@ -136,21 +137,14 @@ class PresentingRenderer {
     this._releaseDirect();
     if (manager) manager.directFullResolution = false;
     if (range) { range.directTerrainMode = false; range.drawTerrainImage = null; range.drawLegacyTerrain = null; }
-    const hybridSky = !singleStage && this._experience !== 'trio' && typeof manager?.drawHighResolutionSky === 'function';
-    if (manager) manager.highResolutionSky = singleStage || hybridSky;
-    // The cast is laid smoothly over the upscaled frame, so the working
-    // buffer must stay separate from the output (as for the sky).
-    const castOverlay = !singleStage && landscape && typeof range.drawCastForeground === 'function';
-    const waterOverlay = !singleStage && landscape && typeof range.drawWaterForeground === 'function';
+    const hybridSky = typeof manager?.drawHighResolutionSky === 'function';
+    if (manager) manager.highResolutionSky = hybridSky;
+    const waterOverlay = landscape && typeof range.drawWaterForeground === 'function';
     // The crest line (RangeCrest.js) needs the separate output composite too.
-    const crestOverlay = !singleStage && landscape && typeof range.drawCrestForeground === 'function';
+    const crestOverlay = landscape && typeof range.drawCrestForeground === 'function';
     if (range) range.crestOutputSize = crestOverlay ? { width: this.canvas.width, height: this.canvas.height } : null;
-    if (range && 'crestEnabled' in range) {
-      range.crestEnabled = crestOverlay;
-      const id = this.output._resolvedPaletteId;
-      range.crestPalette = !id || id === 'none' ? null : id === 'rgb332' ? 'rgb332' : this.output.compiledPalette || null;
-    }
-    const smoothEffects = !singleStage && this._experience !== 'trio' && typeof manager?.drawHighResolutionMidEffects === 'function';
+    if (range && 'crestEnabled' in range) range.crestEnabled = crestOverlay;
+    const smoothEffects = typeof manager?.drawHighResolutionMidEffects === 'function';
     if (manager) {
       manager.highResolutionMidEffects = smoothEffects;
       manager.midEffectsOutputSize = smoothEffects ? { width: this.canvas.width, height: this.canvas.height } : null;
@@ -159,11 +153,10 @@ class PresentingRenderer {
     const scene = this.canvasRenderer;
     scene.outputCover = false;
     // Optical effects and HUD draw after the completed Landscape composite.
-    const postEffects = !singleStage && this._experience !== 'trio' && !!manager?.world && typeof scene.drawDeferredPostEffects === 'function';
+    const postEffects = !!manager?.world && typeof scene.drawDeferredPostEffects === 'function';
     scene.deferPostEffects = postEffects;
-    if (range && 'castForeground' in range) range.castForeground = castOverlay;
     this.output.qualityLevel = sim?.perf?.level ?? 0;
-    const separate = hybridSky || castOverlay || waterOverlay || postEffects || smoothEffects || crestOverlay;
+    const separate = hybridSky || waterOverlay || postEffects || smoothEffects || crestOverlay;
     let source = this.output.beginFrame({ separate });
     const fallbackRung = growth ? Math.min(growth.rung, qualityRung, this._growthRungLimit, this._lastGrowthRung) : null;
     if (!source && growth && this.output.diagnostics.frame.reason === 'allocation-denied'
@@ -181,14 +174,14 @@ class PresentingRenderer {
     if (!source) return this.output.diagnostics.frame;
     scene.canvas = source; scene.ctx = source.getContext('2d');
     // Scene captures (opening assembly, freeze, highlight reel) take the
-    // finished composite, smooth sky and cast included.
-    scene.deferSceneCaptures = singleStage || hybridSky || castOverlay || waterOverlay || postEffects || smoothEffects || crestOverlay || preparing;
+    // finished composite, smooth sky and water included.
+    scene.deferSceneCaptures = hybridSky || waterOverlay || postEffects || smoothEffects || crestOverlay || preparing;
     scene.pixelPolicy = pixelRenderPolicy({ ...this.output.presentation, runtimeGrid: growth ? this.output.grid : null });
     this.inner.presentationPixelated = this.output.presentation.pixelated;
     if (range) { range.pixelated = !!this.output.presentation.pixelated; range.pixelPolicy = scene.pixelPolicy; range.cinematicPixel = cinematicPixel; }
     try { this.inner.draw(sim, alpha); }
     catch (err) { scene.discardFrameCaptures?.(); this.output.failFrame('scene-draw'); throw err; }
-    if (this._experience !== 'trio' && this.inner.rangePresentation?.enabled && manager?._awaitingTerrain) {
+    if (this.inner.rangePresentation?.enabled && manager?._awaitingTerrain) {
       if (growth && range.resolutionRefused) {
         const failedRung = this._growthPlan.grids.indexOf(this.output.grid);
         // A heavier incoming view may refuse even the outgoing view's last
@@ -207,18 +200,15 @@ class PresentingRenderer {
       try { return manager.drawHighResolutionSky(ctx, this.canvas, { transform }); }
       finally { ctx.restore(); }
     } : null;
-    // Deferred captions are painted after the water, cast and post effects;
-    // otherwise the native plate attenuates the cast as before.
+    // Deferred captions are painted after the water and post effects.
     const caption = scene.pixelCaptionLayout;
-    const overlay = castOverlay ? (ctx, fit) => range.drawCastForeground(ctx, fit, caption) : null;
     const water = waterOverlay ? (ctx, fit, capture = false) => range.drawWaterForeground(ctx, fit, caption, { capture }) : null;
     const effects = smoothEffects ? (ctx, fit) => manager.drawHighResolutionMidEffects(ctx, fit) : null;
     const crest = crestOverlay ? (ctx, fit, options) => range.drawCrestForeground(ctx, fit, options) : null;
     const terrain = crestOverlay && typeof range.drawCrestTerrain === 'function' ? (ctx, fit, draw, source) => range.drawCrestTerrain(ctx, fit, draw, source) : null;
     const shore = crestOverlay && typeof range.drawShoreForeground === 'function' ? (ctx, fit) => range.drawShoreForeground(ctx, fit) : null;
     const prepare = crestOverlay && typeof range.prepareCrestGrid === 'function' ? (args) => range.prepareCrestGrid(args) : null;
-    const finish = prepare && typeof range.finishCrestGrid === 'function' ? (args) => range.finishCrestGrid(args) : null;
-    const result = this.output.finishFrame({ background, overlay, water, effects, prepare, finish, crest, shore, terrain });
+    const result = this.output.finishFrame({ background, water, effects, prepare, crest, shore, terrain });
     if (growth && result?.presented) this._lastGrowthRung = Math.max(0, this._growthPlan.grids.indexOf(this.output.grid));
     const post = postEffects ? (ctx, fit) => scene.drawDeferredPostEffects(ctx, fit) : null;
     if (result?.presented && post) {
@@ -228,7 +218,6 @@ class PresentingRenderer {
       } catch (err) { scene.discardFrameCaptures?.(); this.output.failFrame('post-effects-failed'); throw err; }
     }
     this._captureBackground = result?.presented ? background : null;
-    this._captureOverlay = result?.presented ? overlay : null;
     this._captureWater = result?.presented ? water : null;
     this._captureEffects = result?.presented ? effects : null;
     this._captureCrest = result?.presented ? crest : null;
@@ -279,7 +268,6 @@ class PresentingRenderer {
     range.cinematicPixel = !!this.output.presentation.cinematicPixel;
     range.outputSize = { width: canvas.width, height: canvas.height };
     range.waterOutputSize = { width: canvas.width, height: canvas.height };
-    range.castForeground = false;
     // The direct-terrain experiment keeps its own output-resolution terrain
     // edges and draws no crest line (docs/direct-terrain-experiment.md).
     if ('crestEnabled' in range) range.crestEnabled = false;
@@ -326,22 +314,6 @@ class PresentingRenderer {
     sctx.imageSmoothingEnabled = false;
     paint(sctx);
     sctx.setTransform(1, 0, 0, 1, 0, 0);
-    const needsPalette = this.output._resolvedPaletteId !== 'none';
-    if (needsPalette) {
-      try {
-        const data = sctx.getImageData(0, 0, width, height);
-        if (this.output._resolvedPaletteId === 'rgb332') quantizeImageData(data, { dither: p.dither });
-        else if (this.output.compiledPalette) {
-          let weights = null;
-          if (p.ditherMode === 'selective' && p.dither > 0) {
-            weights = this._directDitherWeights(width * height);
-            if (weights) buildDitherWeights(data, weights);
-          }
-          quantizePalette(data, this.output.compiledPalette, { dither: p.dither, weights });
-        }
-        sctx.putImageData(data, 0, 0);
-      } catch { /* Keep the unquantized terrain if pixel readback is denied. */ }
-    }
     const needsCinematic = !!p.cinematicPixel && quality < 2;
     if (!needsCinematic) this._directCinematic?.suspend();
     ctx.save();
@@ -358,22 +330,9 @@ class PresentingRenderer {
       return true;
     } finally { ctx.restore(); }
   }
-  _directDitherWeights(length) {
-    const key = `${this.output.key}:direct-weights`, residency = this.output.residency;
-    if (this._directWeights?.length === length && residency.get(key) === this._directWeights) return this._directWeights;
-    residency.release(key); this._directWeights = null;
-    const reservation = residency.reserve({ key, bytes: length, owner: 'direct-terrain-dither', evictable: false });
-    if (!reservation) return null;
-    try {
-      const weights = new Uint8Array(length);
-      if (residency.commit(reservation, weights, data => data.fill(0))) return (this._directWeights = weights);
-    } catch { /* Use ordered dither if the optional buffer is unavailable. */ }
-    residency.releaseReservation(reservation); return null;
-  }
   _releaseDirect() {
     this._directBuffers?.dispose(); this._directBuffers = null;
     this._directCinematic?.suspend();
-    this.output.residency?.release(`${this.output.key}:direct-weights`); this._directWeights = null;
   }
   dispose() { if (this._disposed) return; this._disposed = true; this._releaseDirect(); this._directCinematic?.dispose(); try { this.inner.dispose(); } finally { this.output.dispose(); } }
 }

@@ -161,10 +161,9 @@ async function exercise(browser, url, audio, scenario) {
       return { input, libraryRows: 1, title };
     });
     await page.locator('#libraryPanel .libraryRow:not(.hidden)').first().click();
-    await page.locator('#worldSelect[open]').waitFor({ timeout: 60_000 });
-    await page.locator('.worldCard[data-base-world-id="alpine"] .worldCardPlayBtn').click();
+    // The library song starts straight in Landscape once analysed.
     await page.waitForFunction(() => window.__SMW?.audioEngine?.playing && !window.__SMW.playbackPreparing
-      && window.__SMW.presentationDiagnostics?.frame?.presented, null, { timeout: 60_000 });
+      && window.__SMW.presentationDiagnostics?.frame?.presented, null, { timeout: 120_000 });
     await noVideoControls(page);
     await press(page, '#pauseBtn');
     await page.waitForFunction(() => window.__SMW.paused && !window.__SMW.audioEngine.playing);

@@ -40,11 +40,10 @@ function lofi() {
   });
 }
 
-test('world registry: Landscape default, Trio present, unknown falls back', () => {
+test('world registry: Landscape default, unknown falls back', () => {
   assert.equal(DEFAULT_WORLD_ID, 'alpine');
   assert.equal(getWorld('alpine').name, 'Landscape');
-  assert.equal(getWorld('trio').kind, 'alpine');
-  assert.equal(getWorld('trio').experience, 'trio');
+  assert.equal(getWorld('trio').id, 'alpine', 'the retired Trio falls back to Landscape');
   assert.equal(getWorld('nope').id, 'alpine');
   assert.equal(getWorld('nocturne').id, 'alpine', 'a removed world falls back to Landscape');
 });
@@ -80,7 +79,7 @@ test('every registered world is listed and has the required fields', () => {
   const worlds = listWorlds();
   // Exact, not >=: the count is the guard that catches a world silently
   // dropping out of the registry. Bump it deliberately when adding one.
-  assert.deepEqual(worlds.map(w => w.id), ['alpine', 'trio']);
+  assert.deepEqual(worlds.map(w => w.id), ['alpine']);
   for (const w of worlds) {
     assert.ok(w.id, `missing id`);
     assert.ok(w.name, `${w.id} missing name`);
@@ -100,9 +99,8 @@ test('every registered world is listed and has the required fields', () => {
 // tuned for. These feed a full, hand-authored feature vector straight to
 // scoreWorlds (bypassing extractWatchFeatures/EnergyCurves — those are
 // already exercised above), independent of whatever the audio-analysis
-// pipeline happens to produce for a given synthetic curve. Landscape and
-// Trio share one fit (the same comfort, prefer and affinity), so each is
-// held to its own book by score, not ranked against the other.
+// pipeline happens to produce for a given synthetic curve. Landscape is
+// held to its own book by score.
 function baseFeat(overrides = {}) {
   return {
     centroid: 0.5, bass: 0.35, air: 0.2, spread: 0.5, dyn: 0.4, energyMean: 0.4,
@@ -116,7 +114,7 @@ const RANGE_CASES = {
   win: baseFeat({ arc: 0.72, dyn: 0.65, form: 0.65, contrast: 0.58, texture: 0.4, air: 0.35, onset: 0.4, tempoHeat: 0.45, drive: 0.59 }),
   lose: baseFeat({ arc: 0.08, dyn: 0.1, onset: 0.05, contrast: 0.1, energyMean: 0.1, tempoHeat: 0.05, drive: 0.08, bass: 0.1 }),
 };
-const WORLD_CASES = { alpine: RANGE_CASES, trio: RANGE_CASES };
+const WORLD_CASES = { alpine: RANGE_CASES };
 
 function scoreOf(feat, id) { return scoreWorlds(feat).find((r) => r.id === id).score; }
 
@@ -181,41 +179,6 @@ test('comfort bands partition drive space — no world covers full range', () =>
 // one of the two -- and the error was recorded in proof.dna.error, which
 // nothing ever read or logged, so the failure was invisible even to
 // someone looking for it.
-test('a palette-synthesis-only failure still leaves terrain shaping intact, and is now logged', () => {
-  // A "label" that throws when coerced to a string -- hashOfLabel in
-  // PaletteSynth.js does exactly that (String(label)) but ShapeGrammar.js's
-  // buildShapeGrammar/deriveTerrainParams/pickCharacterScheme never touch
-  // sectionLabels at all, so this reaches ONLY the palette path.
-  const poison = {
-    [Symbol.toPrimitive]() { throw new Error('poisoned label'); },
-    toString() { throw new Error('poisoned label'); },
-  };
-  const feat = {
-    centroid: 0.5, bass: 0.4, air: 0.3, spread: 0.5, dyn: 0.5, energyMean: 0.5,
-    phrase: 0.4, landmarks: 5, onset: 0.4, contrast: 0.4, groove: 0.5, warmth: 0.5,
-    texture: 0.4, form: 0.5, arc: 0.5, drive: 0.5, bpm: 120, tempoHeat: 0.5, trend: 0,
-  };
-  const data = { durationMs: 180000, bpm: 120, structure: { labels: [poison, 'B', poison, 'B'] } };
-
-  const warnCalls = [];
-  const originalWarn = console.warn;
-  console.warn = (...args) => warnCalls.push(args);
-  let result;
-  try {
-    // Trio: Landscape's real biomes are never synthesized.
-    result = buildWorldVariant('trio', feat, data);
-  } finally {
-    console.warn = originalWarn;
-  }
-
-  assert.ok(result.proof.dna?.error, 'the failure should still be recorded');
-  assert.ok(result.world.terrainMods, 'terrain shaping must survive a palette-only failure');
-  assert.ok(result.world.characterScheme, 'character scheme must survive a palette-only failure');
-  assert.ok(warnCalls.length > 0, 'the captured error must actually be logged, not just recorded and ignored');
-  assert.ok(warnCalls.some((args) => String(args[0]).includes('palette')),
-    'the warning should identify which stage failed');
-});
-
 test('an adapted world keeps the base identity instead of constructing a 100 score', () => {
   const songs = [
     { label: 'ambient', energyAt: () => 0.12, bands: () => [1.4, 1.0, 0.6, 0.3, 0.1, 0.05, 0.02], bpm: 68 },
@@ -255,14 +218,14 @@ test('buildWorldVariant preserves the selected world while tailoring it to the s
   const feat = baseFeat({
     onset: 0.7, energyMean: 0.7, dyn: 0.6, tempoHeat: 0.65, drive: 0.7,
   });
-  const { world, proof } = buildWorldVariant('trio', feat);
+  const { world, proof } = buildWorldVariant('alpine', feat);
 
   assert.equal(world.id, 'custom');
-  assert.equal(world.baseId, 'trio');
-  assert.equal(world.registeredId, 'trio');
+  assert.equal(world.baseId, 'alpine');
+  assert.equal(world.registeredId, 'alpine');
   assert.equal(world.kind, 'alpine');
-  assert.equal(world.name, 'Trio');
-  assert.equal(world.experience, 'trio');
+  assert.equal(world.name, 'Landscape');
+  assert.equal('experience' in world, false);
   assert.notEqual(proof.score, 100);
   assert.ok(world.response);
   assert.equal(world.capabilities.geometry.includes('ridge'), true);
@@ -350,10 +313,13 @@ test('near ties stay tied; the fit readout still names one pick', () => {
   assert.equal(pick.id, ranked[0].id);
 });
 
+// A second, calmer fixture world, so ranking always has a runner-up.
+const CALM_FIXTURE = { ...getWorld('alpine'), id: 'calm-fixture', name: 'Calm', comfort: { lo: 0.05, hi: 0.3 } };
+
 test('a unique winner exposes split diagnostic fields', () => {
   const loud = metal();
   const feat = extractWatchFeatures({ energyCurves: loud.ec, durationMs: loud.durationMs, bpm: 160 });
-  const ranked = scoreWorlds(feat);
+  const ranked = scoreWorlds(feat, [...listWorlds(), CALM_FIXTURE]);
   const pick = pickRecommended(ranked);
   const next = ranked.find((r) => r.id !== pick.id);
   if (Math.abs(pick.fit - next.fit) > TIE_EPS) {
@@ -402,7 +368,7 @@ test('manual-only worlds and explicit exclusions are never the pick', () => {
   assert.ok(manualOnly.parts.problems.some((p) => p.code === 'manual-only'));
   assert.notEqual(pickRecommended(withManualOnly).id, 'manual-fixture');
 
-  const excluded = scoreWorlds(feat, undefined, { exclude: ['alpine'] });
+  const excluded = scoreWorlds(feat, [...listWorlds(), CALM_FIXTURE], { exclude: ['alpine'] });
   assert.equal(excluded.find((r) => r.id === 'alpine').eligible, false);
   assert.notEqual(pickRecommended(excluded).id, 'alpine');
 });

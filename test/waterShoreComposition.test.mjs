@@ -22,7 +22,7 @@ function setup() {
     renderWater(frame, view, w, h, opts) { calls.push(['render', view, w, h, opts]); return { width: w, height: h }; } };
   const pres = Object.assign(Object.create(RangePresentation.prototype), {
     scene, frame: { rise01: 1 }, frameId: 7, viewId: 'lake', arrival: 1, residency: null,
-    directTerrainMode: true, directCastAvailable: true, outputSize: { width: 1280, height: 720 },
+    directTerrainMode: true, directWaterTargetAvailable: true, outputSize: { width: 1280, height: 720 },
     _makeCanvas: makeCanvas, drawTerrainImage(_ctx, image) { calls.push(['native', image.width, image.height]); return true; },
   });
   return { pres, scene, ctx, calls, stage: { width: 1280, height: 720 } };
@@ -53,7 +53,7 @@ test('travel water retains side-specific physical depth and column ownership', (
 test('target or canvas denial retains native wet appearance before the base terrain draws', () => {
   for (const denial of ['target', 'canvas']) {
     const h = setup();
-    if (denial === 'target') h.pres.directCastAvailable = false;
+    if (denial === 'target') h.pres.directWaterTargetAvailable = false;
     else h.pres.residency = { entries: new Map(), reserve: () => null, release() {} };
     assert.equal(h.pres._admitDirectWater('lake'), false);
     assert.equal(h.scene.separateWater, false);

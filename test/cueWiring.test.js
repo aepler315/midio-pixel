@@ -15,7 +15,6 @@ import { CalmDirector } from '../src/sim/CalmDirector.js';
 import { KeyDirector } from '../src/sim/KeyDirector.js';
 import { WeatherDirector } from '../src/sim/WeatherDirector.js';
 import { LightningFX } from '../src/world/Lightning.js';
-import { EnsembleDirector } from '../src/sim/EnsembleDirector.js';
 
 /** A bare-prototype Simulation with every cue target replaced by a recorder.
  *  _applyCues touches nothing else, so the full sim graph isn't needed. */
@@ -200,14 +199,3 @@ test('a cued bolt strikes at any dynamic, where the music path would not', () =>
   assert.equal(b.flash, 1, 'an authored bolt always lands');
 });
 
-test('a cued flourish skips the probability roll a plain section change rolls', () => {
-  // rand() = 0.99 fails any chance roll, isolating the transition bypass.
-  const ens = new EnsembleDirector(1, { stageW: 1280, stageH: 720 });
-  ens._discGate.rand = () => 0.99;
-  ens._discGate.chance = 0;
-  ens._discGate.intensityChance = 0;
-  assert.equal(ens.maybeDisc(100000, 'section', 0.5), false, 'sanity: a rolled cue can be denied');
-
-  ens._discGate.lastFireMs = -Infinity; // clear the floor the attempt above left
-  assert.equal(ens.maybeDisc(200000, 'cue', 0.5), true, 'an authored flourish is not rolled for');
-});

@@ -311,6 +311,7 @@ test('fixed and live entry URLs preserve requested camera controls and omit natu
     assert.equal(fixed.searchParams.get('rangeView'), 'teton-jackson-lake');
     assert.equal(fixed.searchParams.get('bulkExport'), bulkExport ? '1' : null);
     assert.equal(fixed.searchParams.get('seed'), '315');
+    assert.equal(fixed.searchParams.has('experience'), false, 'Landscape is the only world; nothing selects it');
     const natural = new URL(evaluationBrowser.evaluationEntryUrl('http://localhost:8080/?rangeView=stale', { pace: 2, tour: 'shots', view: null }, { bulkExport }));
     assert.equal(natural.searchParams.get('rangePace'), '2');
     assert.equal(natural.searchParams.get('rangeTour'), 'shots');

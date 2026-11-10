@@ -18,7 +18,7 @@ export function evaluationEntryUrl(url, settings, { bulkExport = true } = {}) {
   const entry = new URL(url);
   const controls = { bulkExport: bulkExport ? 1 : null,
     exportW: bulkExport ? settings.width : null, exportH: bulkExport ? settings.height : null,
-    experience: settings.experience, rangeRenderer: 'v2', rangeTour: settings.tour,
+    rangeRenderer: 'v2', rangeTour: settings.tour,
     rangePace: settings.pace, rangeView: settings.view, seed: settings.seed, perf: 'high',
     rangeShots: process.env.VISUAL_RANGE_SHOTS === 'all' ? 'all' : null };
   for (const [key, value] of Object.entries({ ...controls, ...settings.debug })) {
@@ -87,10 +87,9 @@ export async function renderEvaluationFrame(page, point, settings) {
     if (Math.abs(clock.timeMs - point.timeMs) > 1000 / 60 + 0.01) throw new Error(`clock drift at ${point.timeMs}: ${clock.timeMs}`);
     if (clock.width !== settings.width || clock.height !== settings.height || clock.draws !== 1) throw new Error('wrong frame size or draw count');
     if (smw.perfLevel !== settings.quality) throw new Error('quality drift');
-    if (settings.experience === 'trio' && (smw.experience !== 'trio' || !smw.sim.trio || state.active)) throw new Error('Trio Stage is inactive or terrain is still active');
-    if (settings.experience !== 'trio' && (state.mode !== 'v2' || !state.active || state.runtime !== 'ready')) throw new Error(`Range v2 inactive: ${JSON.stringify(state)}`);
+    if (state.mode !== 'v2' || !state.active || state.runtime !== 'ready') throw new Error(`Range v2 inactive: ${JSON.stringify(state)}`);
     const expectedView = settings.tour === 'tetons' ? 'teton-range-tour' : settings.view;
-    if (settings.experience !== 'trio' && expectedView && state.viewId !== expectedView) throw new Error(`wrong view ${state.viewId}`);
+    if (expectedView && state.viewId !== expectedView) throw new Error(`wrong view ${state.viewId}`);
     // The rung the scene actually drew with, not only the governor's value.
     const rangeFrame = smw.sim.biomes.rangePresentation?.frame;
     if (rangeFrame && (rangeFrame.qualityLevel ?? 0) !== settings.quality) throw new Error(`effective quality ${rangeFrame.qualityLevel} != ${settings.quality}`);
@@ -100,7 +99,7 @@ export async function renderEvaluationFrame(page, point, settings) {
     const ctx = thumb.getContext('2d', { willReadFrequently: true }); ctx.drawImage(canvas, 0, 0, 64, 36);
     const thumbnail = [...ctx.getImageData(0, 0, 64, 36).data];
     const sim = smw.sim, frame = sim.biomes.rangePresentation?.frame;
-    return { ...(settings.experience ? { experience: smw.experience } : {}), timeMs: point.timeMs, actualTimeMs: clock.timeMs, checkpoint: point.checkpoint, clips: point.clips,
+    return { ...(settings.experience ? { experience: 'landscape' } : {}), timeMs: point.timeMs, actualTimeMs: clock.timeMs, checkpoint: point.checkpoint, clips: point.clips,
       pngData: canvas.toDataURL('image/png').split(',')[1], thumbnail, range: state, cameraRails: state.cameraRails ?? null,
       renderReadiness: structuredClone(smw.renderReadiness ?? null), quality: smw.perfLevel,
       audio: { heardTimeMs: sim.heardTimeMs, energy: sim.energyCurves?.globalEnergyNorm(sim.heardTimeMs) ?? null,

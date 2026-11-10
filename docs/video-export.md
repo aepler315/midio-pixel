@@ -6,8 +6,8 @@ tool remains available for development.
 
 Choose **Export video** on the front screen before choosing a song. Configure
 resolution, aspect ratio, FPS, encoding quality and Fit/Fill framing, then drop a
-song, play a sample or use **Random song**. The world picker offers **Export**
-for Landscape and Trio. Recording starts after readiness, before the first
+song, play a sample or use **Random song**. The song plays straight into
+Landscape, the only world. Recording starts after readiness, before the first
 source audio, and saves when the complete source duration has elapsed. Full
 exports analyze the entire song first; the opening-only fast path is disabled.
 The completion screen no longer starts an export or replays a song to record it.

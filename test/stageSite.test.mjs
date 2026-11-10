@@ -17,7 +17,8 @@ async function fixture() {
   await fs.writeFile(path.join(source, 'index.html'), '<script type="module" src="src/main.js"></script>');
   await fs.writeFile(path.join(source, 'CNAME'), 'example.test\n');
   await fs.writeFile(path.join(source, 'src/main.js'), 'export const boot = true;\n');
-  await fs.writeFile(path.join(source, 'soundfonts/README.md'), 'runtime listing\n');
+  // A leftover folder from the retired SoundFont feature is not published.
+  await fs.writeFile(path.join(source, 'soundfonts/README.md'), 'retired font folder\n');
   await fs.writeFile(path.join(source, 'secret.txt'), 'do not publish\n');
   return { root, source, output };
 }
@@ -26,7 +27,7 @@ test('stageSite writes only the public runtime contract', async (t) => {
   const { root, source, output } = await fixture();
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   await stageSite(source, output);
-  assert.deepEqual((await fs.readdir(output)).sort(), ['.nojekyll', 'CNAME', 'index.html', 'soundfonts', 'src', 'version.json']);
+  assert.deepEqual((await fs.readdir(output)).sort(), ['.nojekyll', 'CNAME', 'index.html', 'src', 'version.json']);
   assert.equal(await fs.readFile(path.join(output, 'src/main.js'), 'utf8'), 'export const boot = true;\n');
   await assert.rejects(fs.access(path.join(output, 'secret.txt')));
   // A copied tree has no Git: the version says so instead of guessing.
@@ -59,7 +60,7 @@ test('stageSite supports a new repository without a custom domain', async (t) =>
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   await fs.rm(path.join(source, 'CNAME'));
   await stageSite(source, output);
-  assert.deepEqual((await fs.readdir(output)).sort(), ['.nojekyll', 'index.html', 'soundfonts', 'src', 'version.json']);
+  assert.deepEqual((await fs.readdir(output)).sort(), ['.nojekyll', 'index.html', 'src', 'version.json']);
 });
 
 test('stageSite refuses to clean a source directory or one of its ancestors', async (t) => {

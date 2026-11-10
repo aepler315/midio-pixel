@@ -4,7 +4,7 @@
  * appears only once.
  */
 
-const AUDIO_EXT = /\.(mp3|flac|wav|ogg|m4a|aac|opus|mid|midi)$/i;
+const AUDIO_EXT = /\.(mp3|flac|wav|ogg|m4a|aac|opus)$/i;
 
 const GENERIC_FOLDERS = new Set(
   [

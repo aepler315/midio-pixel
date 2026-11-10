@@ -46,7 +46,7 @@ function renderFixture(width, height, { zoom = 1, retro = false, camera = null, 
     conductor: { timeline: [], barGrid: [], durationMs: 12000 }, filmFinish: {},
     rangeCaption: { rows: [{ name: 'Teton', region: '', label: '' }] },
     biomes: { world: { kind: 'alpine' },
-      draw(ctx, stage, worldX, originX, sky, particles, perf, ground) {
+      draw(ctx, stage, worldX, originX, particles, perf, ground) {
         ctx.arc(640 / zoom + 64, 360 / zoom + 64, 40, 0, Math.PI * 2);
         ground.apply(); ctx.arc(704, 424, 40, 0, Math.PI * 2);
       }, drawForeground() {}, _pass: () => false,
@@ -89,7 +89,7 @@ test('camera zoom preserves fitting while fixed ground and HUD remain at nominal
 });
 
 test('Landscape cue leaves final compositor framing and scenic viewport unchanged while loading or arriving', () => {
-  const sim = { experience: 'landscape', biomes: { durationMs: 60000, sections: [
+  const sim = { biomes: { durationMs: 60000, sections: [
     { startMs: 0, role: 'verse', relEnergy01: .3, meanEnergy: .3, provenance: 'detected', confidence: .8 },
     { startMs: 20000, role: 'chorus', relEnergy01: .9, meanEnergy: .9, provenance: 'detected', confidence: .8 },
   ] } };

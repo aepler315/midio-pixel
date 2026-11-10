@@ -17,7 +17,6 @@ const DROP_ARM_MS = 2500;     // EMAs must have heard the song; t=0 is not a dro
 const DROP_HOLD_MS = 220;     // tear-away must persist — a kick spike is not a drop
 const SURGE_DECAY_SEC = 2.2;
 const SLAM_DECAY_SEC = 0.22;
-const RING_MS = 900;
 // Build-up: reads the same fast/slow EMAs the drop detector compares, but
 // for the RAMP rather than the BREAK -- rectified (only a rising fast-over-
 // slow counts) and smoothed so kick-to-kick flutter doesn't read as one,
@@ -90,90 +89,4 @@ export class HypeDirector {
     this._buildUpRaw += (1 - Math.exp(-dtSec / BUILDUP_TAU)) * (rise - this._buildUpRaw);
     this.buildUp = clamp01(this._buildUpRaw * BUILDUP_GAIN);
   }
-
-  /** Shockwave ring progress in [0,1), or null once the ring has passed. */
-  ringU(nowMs) {
-    const age = nowMs - this.dropAtMs;
-    return age >= 0 && age < RING_MS ? age / RING_MS : null;
-  }
-}
-
-/**
- * Border-frame draw params from hype state, gated by calm.
- * Calm sections nearly extinguish the idle rim and kick strobe (the "edge
- * flash noise"); drop surges still read, just softer. Pure for tests.
- *
- * @returns {{ alpha:number, lineWidth:number, echo:number, inset:number }}
- */
-export function hypeFrameStyle(hype, calmLevel = 0) {
-  const calm = clamp01(calmLevel);
-  // idleGate → 0 as calm rises: no steady rim glow on quiet stretches
-  // slamGate → small: kicks stop strobing the frame during calm
-  // surgeGate stays higher so a real drop still answers the edge
-  const idleGate = 1 - 0.94 * calm;
-  const slamGate = 1 - 0.90 * calm;
-  const surgeGate = 1 - 0.40 * calm;
-
-  const fast = hype ? clamp01(hype.fast) : 0;
-  const slam = (hype ? clamp01(hype.slam) : 0) * slamGate;
-  const surge = (hype ? clamp01(hype.surge) : 0) * surgeGate;
-
-  const alpha = Math.min(0.68,
-    0.02 * idleGate
-    + 0.11 * fast * idleGate
-    + 0.40 * slam
-    + 0.26 * surge);
-  const lineWidth = 1.15 + 7.0 * slam + 4.5 * surge;
-  const echo = Math.max(
-    surge > 0.45 ? surge : 0,
-    slam > 0.72 ? slam * 0.7 : 0,
-  );
-  return { alpha, lineWidth, echo, inset: 5 + 2.5 * slam };
-}
-
-// Trio reads the hype on HEARD time. HypeDirector's own slam/surge are
-// integrated on the dispatch clock, which runs up to MAX_LATENCY_MS ahead of
-// what the listener hears; Landscape consumers share that state, so Trio
-// derives its own values from the song position instead of changing it.
-const SLAM_WINDOW_MS = SLAM_DECAY_SEC * 1000;
-const _trioHype = { fast: 0, slam: 0, surge: 0 };
-
-/** Kick slam at heard time `heardMs`, from a tMs-sorted kick list: the
- *  strongest kick with 0 <= age < SLAM_WINDOW_MS, as
- *  `(0.35 + 0.65 * vel) * (1 - age / SLAM_WINDOW_MS)`. 0 before the first kick
- *  (never a lookahead). A pure function of heard time, so a seek, a frame
- *  rate change or a step size change cannot alter it. */
-export function slamAt(kicks, heardMs) {
-  if (!kicks || !kicks.length || !Number.isFinite(heardMs)) return 0;
-  // Last kick at or before heardMs.
-  let lo = 0, hi = kicks.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >>> 1;
-    if (kicks[mid].tMs <= heardMs) lo = mid + 1; else hi = mid;
-  }
-  let slam = 0;
-  for (let i = lo - 1; i >= 0; i--) {
-    const kick = kicks[i];
-    const age = heardMs - kick.tMs;
-    if (!(age < SLAM_WINDOW_MS)) break;
-    if (!(age >= 0)) continue;
-    const vel = clamp01(kick.vel);
-    slam = Math.max(slam, (0.35 + 0.65 * vel) * (1 - age / SLAM_WINDOW_MS));
-  }
-  return slam;
-}
-
-/** Drop surge at heard time: 1 at the drop, decaying linearly over
- *  SURGE_DECAY_SEC, 0 before it. `dropAtMs` is already a song position. */
-export function surgeAt(dropAtMs, heardMs) {
-  return dropAtMs <= heardMs ? Math.max(0, 1 - (heardMs - dropAtMs) / (SURGE_DECAY_SEC * 1000)) : 0;
-}
-
-/** hypeFrameStyle for Trio, with slam and surge evaluated at heard time.
- *  `fast` (the energy EMA) still comes from the director. */
-export function trioHypeFrameStyle(hype, calmLevel, heardMs, kicks) {
-  _trioHype.fast = hype ? hype.fast : 0;
-  _trioHype.slam = slamAt(kicks, heardMs);
-  _trioHype.surge = hype ? surgeAt(hype.dropAtMs, heardMs) : 0;
-  return hypeFrameStyle(_trioHype, calmLevel);
 }

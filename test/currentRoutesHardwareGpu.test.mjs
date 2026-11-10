@@ -66,8 +66,7 @@ test('the route gate and landscape-review --hardware-gpu (test:gpu) share one re
 test('a hardware run that renders in software fails even when every route passes playback', () => {
   const hardware = routeGateConfiguration({ hardwareGpu: true, gpuMatch: 'RTX 3060' }), standard = routeGateConfiguration();
   const row = (id, gpu) => ({ id, status: 'passed', errors: [], events: [], samples: [{ gpu }, { gpu }] });
-  // Trio draws through Canvas 2D, so its samples carry no WebGL renderer.
-  const rows = gpu => CURRENT_ROUTES.map(id => row(id, id === 'trio' ? null : gpu));
+  const rows = gpu => CURRENT_ROUTES.map(id => row(id, gpu));
   const probe = renderer => ({ before: renderer, after: renderer });
 
   assert.equal(summarizeConfiguredRun(rows(SWIFTSHADER), standard), 'passed', 'the default gate does not judge its renderer');
@@ -81,12 +80,12 @@ test('a hardware run that renders in software fails even when every route passes
   assert.equal(summarizeConfiguredRun(rows(RTX_3060), routeGateConfiguration({ hardwareGpu: true, gpuMatch: 'RX 7900' }),
     probe(RTX_3060)), 'failed');
 
-  // Landscape and tours must show their own hardware context; only Trio may lack one.
+  // Every route must show its own hardware context.
   const missing = rows(RTX_3060); missing[1].samples[1].gpu = null;
   assert.equal(summarizeConfiguredRun(missing, hardware, probe(RTX_3060)), 'failed');
   assert.throws(() => verifyHardwareRoute(missing[1], 'RTX 3060'), /Hardware GPU unavailable: null/);
-  assert.doesNotThrow(() => verifyHardwareRoute(row('trio', null), 'RTX 3060'));
-  assert.throws(() => verifyHardwareRoute(row('trio', SWIFTSHADER), 'RTX 3060'), /Hardware GPU unavailable/);
+  assert.throws(() => verifyHardwareRoute(row('landscape', null), 'RTX 3060'), /Hardware GPU unavailable: null/);
+  assert.throws(() => verifyHardwareRoute(row('landscape', SWIFTSHADER), 'RTX 3060'), /Hardware GPU unavailable/);
   assert.throws(() => verifyHardwareRoute({ id: 'landscape', samples: [] }), /no playback samples/);
 
   // Neither configuration turns a failed route into a pass.

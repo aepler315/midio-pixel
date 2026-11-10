@@ -1,6 +1,4 @@
-import { TrioPerformance } from './TrioPerformance.js';
-import { cameraLensAt, NEUTRAL_LENS } from '../render/CameraLens.js';
-import { landscapeScoreFor } from '../world/alpine/LandscapeScore.js';
+import { NEUTRAL_LENS } from '../render/CameraLens.js';
 // Listening simulation owns transport, musical context, scenery and tap calibration.
 // Stage coordinates are independent of any performer or presentation backend.
 import { Role } from '../core/NoteEvent.js';
@@ -18,7 +16,7 @@ import { CodaDirector } from './CodaDirector.js';
 import { FilmFinish } from '../render/FilmFinish.js';
 import { BiomeManager } from '../world/BiomeManager.js';
 import { alpineTerrainProfiles } from '../world/terrain/loadTerrain.js';
-import { getWorld, resolveWorldId, worldExperience, worldForExperience } from '../world/Worlds.js';
+import { getWorld, resolveWorldId } from '../world/Worlds.js';
 import { FractureEngine } from '../world/FractureEngine.js';
 import { GroundField } from '../world/GroundField.js';
 import { PerfGovernor } from '../render/PerfGovernor.js';
@@ -39,14 +37,13 @@ import { FloodDirector } from './FloodDirector.js';
 import { CueDirector } from './CueDirector.js';
 import { CueKind } from '../core/ConductorTrack.js';
 import { compileLandscapeSources } from '../world/alpine/RangeNarrative.js';
-import { resolveLandscapePresentation } from '../world/LandscapePresentation.js';
 
 const WORLD_SPEED_PX_S = 220;
 
 export class Simulation {
   constructor(conductor, paramBus, {
     bpm = 120, energyCurves = null, canvasWidth = 1280, canvasHeight = 720,
-    customBiome = null, inputOffsetMs = 0, outputLatencyMs = null, visualLeadMs = 0, lyricSections = null, syncedLyrics = null, lyricSession = null, structure = null, tonalityTimeline = null,
+    inputOffsetMs = 0, outputLatencyMs = null, visualLeadMs = 0, lyricSections = null, syncedLyrics = null, lyricSession = null, structure = null, tonalityTimeline = null,
     groove = null,
     songSeed: pinnedSeed = null,
     conductorCues = null,
@@ -56,7 +53,6 @@ export class Simulation {
     residency = null,
     chapterState = null,
     rangeListening = true,
-    experience = 'landscape',
     ridgeMusicSession = null,
     // Set while the song is playing on its opening analysis only: how far
     // the timeline actually reaches (OpeningAnalysis.js asOpening).
@@ -65,11 +61,9 @@ export class Simulation {
     this.conductor = conductor;
     this.paramBus = paramBus;
     this.energyCurves = energyCurves;
-    this.customBiome = customBiome || null;
-    // The world decides the presentation. `experience` alone (no world)
-    // names the world that plays it, for callers that only know the mode.
-    this.worldId = resolveWorldId(worldId ?? worldForExperience(experience));
-    this.experience = worldExperience(this.worldId);
+    // Every song plays in Landscape; a missing or retired world id resolves
+    // to it.
+    this.worldId = resolveWorldId(worldId);
     this.canvasWidth = canvasWidth;
     this.canvasHeight = canvasHeight;
     this.stageW = canvasWidth;
@@ -93,11 +87,10 @@ export class Simulation {
       counts: lanes,
     };
     this.rangeListening = !!rangeListening;
-    this.presentation = resolveLandscapePresentation(getWorld(this.worldId));
     this.stageAnchor = { x: 220, groundY: 625 };
 
     // Deprecated inert pose alias; stageAnchor owns the world origin.
-    this.midio = { screenX: 220, groundY: 625, renderY: 625, slipX: 0, scaleX: 1, scaleY: 1, leanDeg: 0 };
+    this.midio = { screenX: 220, groundY: 625, renderY: 625, scaleX: 1, scaleY: 1, leanDeg: 0 };
 
     this.beatAnchor = new BeatAnchor(60000 / bpm);
     this.songBeat = new SongBeatTransport({ ...conductor.beatMetadata, bpm: conductor.beatMetadata?.bpm ?? bpm });
@@ -145,7 +138,6 @@ export class Simulation {
       groundField: this.groundField,
       fire: this.fire,
       flood: this.flood,
-      customBiome: this.customBiome,
       lyricSections,
       syncedLyrics,
       lyricSession,
@@ -154,8 +146,6 @@ export class Simulation {
       conductorSchedule: conductorCues ? conductorCues.scheduleCues : null,
       worldId: this.worldId,
 
-      // Real terrain belongs to Landscape. Trio's ridges stay procedural,
-      // the Range as it was before real terrain arrived.
       terrainProfiles: getWorld(this.worldId)?.realBiomes
         ? (terrainProfiles || alpineTerrainProfiles()) : null,
 
@@ -192,19 +182,13 @@ export class Simulation {
       if (!evt.kick) return;
       this.hype.onKick(evt.vel);
       if (!this.songBeat.freeTime) this.syncMonitor.onKick(evt.tMs, this.songBeat.snapshotAt(evt.tMs).periodMs, this.beatAnchor.anchorMs);
-      this.groundField.kickGlow(this._midioWorldX(), evt.tMs, evt.vel);
+      this.groundField.kickGlow(this.worldX, evt.tMs, evt.vel);
     })];
     this.snowCover = 0;
     // The highlight reel's color-regime schedule (sky, squall, palettes) is
     // read from song evidence at construction, before audio starts. Draws
     // read this immutable schedule rather than warming it on stage.
     highlightCandidatesFor(this);
-    // Trio: Midio, Midasus and Broshi perform on the world's own ground.
-    this.trio = this.experience === 'trio' ? new TrioPerformance({ timeline: conductor.timeline,
-      durationMs: conductor.durationMs, bpm, barGrid: conductor.barGrid,
-      beatMetadata: conductor.beatMetadata, energyCurves,
-      paramBus, seed: songSeed, stageW: this.stageW, stageH: this.stageH, ground: this.groundField }) : null;
-    this.trio?.seek(0);
   }
 
   _applyCues(nowMs) {
@@ -233,18 +217,12 @@ export class Simulation {
           this.camera.shake(3 + 9 * strength);
           break;
         case CueKind.GROUND_PULSE:
-          this.groundField.impulse(this._midioWorldX(), strength, nowMs);
+          this.groundField.impulse(this.worldX, strength, nowMs);
           break;
         default:
           break;
       }
     }
-  }
-
-  /** Midio's own place on the world's ground: the world origin, except in
-   *  Trio, where he wanders over a ground drawn from a fixed origin. */
-  _midioWorldX() {
-    return this.trio ? this.trio.midioWorldX : this.worldX;
   }
 
   setPointer(x, y) {
@@ -312,7 +290,6 @@ export class Simulation {
    *  conductor outlives every song, so a replay that skips this leaves the
    *  old sim's listeners firing forever, stacked on top of the new one's. */
   dispose() {
-    this.trio?.dispose();
     for (const unsub of this._unsub) unsub();
     this._unsub.length = 0;
     this.biomes.dispose();
@@ -337,7 +314,7 @@ export class Simulation {
 
   /** Compatibility adapter: complete scenery plus causal lane samples. */
   rangeNarrativeAt(timeMs = this.heardTimeMs ?? this.timeMs ?? 0) {
-    return this.experience !== 'trio' && this.biomes?.world?.kind === 'alpine'
+    return this.biomes?.world?.kind === 'alpine'
       ? this.rangeNarrative.sample(timeMs) : null;
   }
 
@@ -364,7 +341,6 @@ export class Simulation {
     this.hype.update(nowMs, dtSec, this.energyCurves);
     this.vibe.epicBias = epicBiasForKind(this.biomes.currentKind, this.biomes.lyricIntensityEased, this.biomes.kindConfidenceEased);
     this.vibe.update(nowMs, dtSec, this.energyCurves);
-    if (this.trio) this._stepTrio();
     this.keyDirector.update(nowMs, dtSec, { tonic: this.vibe.tonic, tonicConfidence: this.vibe.tonicConfidence, conductor: this.conductor });
     if (this.keyDirector.justKeyChange) this.biomes.mandala.reseed(this.keyDirector.lastKeyChange.to);
     this.coda.update(this.heardTimeMs);
@@ -391,7 +367,7 @@ export class Simulation {
     this.groundField.update(nowMs, dtSec, this.worldX, this.energyCurves, this.calm.level, this.heardTimeMs);
     this.stageAnchor.groundY = this.groundField.heightAt(this.worldX);
     this.midio.groundY = this.midio.renderY = this.stageAnchor.groundY;
-    if (!this.trio) this.worldX += WORLD_SPEED_PX_S * this.paramBus.live.scrollSpeed * dtSec;
+    this.worldX += WORLD_SPEED_PX_S * this.paramBus.live.scrollSpeed * dtSec;
     this.opening.update(nowMs, dtSec, this.energyCurves);
     Object.assign(this.biomes, {
       openingGain: 1, focusMul: 1, stillnessMul: 1,
@@ -403,9 +379,6 @@ export class Simulation {
 
       fever: this.energyCurves?.globalEnergyNorm(this.heardTimeMs) ?? 0,
       midioX: this.stageAnchor.x, midioY: this.stageAnchor.groundY,
-      // The spotlight snaps onto Midio himself (Trio: wherever he wandered).
-      spotX: this.trio ? this.trio.midio.screenX : null,
-      spotY: this.trio ? this.trio.midio.groundY : null,
       weatherState: this.weather.state, dustLevel01: this.quake.dustLevel01, smokeLevel01: this.fire.smokeLevel01,
       universeHueDeg: this.parallelUniverse.hueDeg, universeHazeMul: this.parallelUniverse.hazeMul,
       universeWindMul: this.parallelUniverse.windMul, universeTerrainMul: this.parallelUniverse.terrainMul,
@@ -424,7 +397,7 @@ export class Simulation {
     this.biomes.orogenyGrowth = this.orogeny.growth;
     const period = Math.max(1, this.beatAnchor.periodMs);
     const tau = ((this.heardTimeMs - this.beatAnchor.anchorMs) % period + period) % period;
-    const lens = this._lensAt(this.heardTimeMs);
+    const lens = this._lensAt();
     this.camera.update(dtSec, this.calm.level, tau,
       this.songBeat.freeTime ? 0 : Math.max(this.vibe.epic, this.hype.surge), lens.zoomPulse, lens.cueIndex);
     this.paramBus.step();
@@ -432,40 +405,15 @@ export class Simulation {
   }
 
   /** Landscape keeps automatic scenic punch Off, before camera framing is
-   *  computed (including loading and fallback paths). Trio uses the shared
-   *  score's trusted cues, held across a re-analysis handoff, with sections and curves,
-   *  else the same cue rule over the sections alone. Neutral in previews. */
-  _lensAt(timeMs) {
-    if (this.experience === 'landscape') return NEUTRAL_LENS;
-    const biomes = this.biomes, preview = !!biomes?.terrainPreview;
-    if (biomes?.sections?.length && biomes.energyCurves) {
-      return landscapeScoreFor(biomes).at(timeMs, { preview }).lens || NEUTRAL_LENS;
-    }
-    return cameraLensAt({ sections: biomes?.sections, timeMs, durationMs: biomes?.durationMs, preview });
-  }
-
-  /** The cast performs first; the world then scrolls to where they are.
-   *  The ground is drawn from the Trio's fixed origin, and the cast wander
-   *  over it, each standing on the ground at their own screen x. */
-  _stepTrio() {
-    const trio = this.trio, biomes = this.biomes;
-    const chorus = biomes.currentKind === 'chorus';
-    trio.update(this.heardTimeMs, { particleMul: this.perf.particleMul, hype: this.hype,
-      chorusText: chorus ? biomes.currentSectionText : null,
-      lyricSymbol: chorus ? biomes.currentSectionSymbol : null });
-    this.worldX = trio.worldX;
-    this.stageAnchor.x = trio.originX;
-    const voyage = trio.midasus.voyage;
-    if (trio.voyageEvents.launched || trio.voyageEvents.landed) this.camera.shake(4);
-    // The sky notices her: the celestial's mandala swells while she dances near it.
-    biomes.mandalaScaleMul = 1 + 0.12 * voyage.depth;
+   *  computed (including loading and fallback paths). */
+  _lensAt() {
+    return NEUTRAL_LENS;
   }
 
   _snapshot() {
     return {
       worldX: this.worldX,
       midioY: this.stageAnchor.groundY,
-      slipX: this.midio.slipX || 0,
       scaleX: this.midio.scaleX,
       scaleY: this.midio.scaleY,
       leanDeg: this.midio.leanDeg,
@@ -481,9 +429,6 @@ export class Simulation {
       worldX: lerp(p.worldX, c.worldX),
       originX: this.stageAnchor.x,
       midioX: this.stageAnchor.x,
-      // Trio: Midio-anchored effects (drop speed-lines, heat lens) start
-      // from Midio himself, while midioX/originX stay the ground's origin.
-      midioDrawX: this.trio ? this.trio.midio.screenX : this.stageAnchor.x + lerp(p.slipX ?? 0, c.slipX ?? 0),
       midioY: lerp(p.midioY, c.midioY),
       scaleX: lerp(p.scaleX, c.scaleX),
       scaleY: lerp(p.scaleY, c.scaleY),

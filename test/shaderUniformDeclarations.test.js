@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import * as THREE from '../src/vendor/range/three-range.module.js';
 import { createForest } from '../src/world/alpine/ForestGL.js';
 import * as terrain from '../src/world/alpine/TerrainMaterial.js';
-import { ActorsGL, actorUniforms } from '../src/world/alpine/ActorsGL.js';
+import { COMPILED_VERT, COMPILED_FRAG } from '../src/world/alpine/CompiledTerrainGL.js';
 
 function duplicates(source) {
   const seen = new Map();
@@ -15,7 +15,7 @@ function duplicates(source) {
   return [...seen].filter(([, n]) => n > 1).map(([name]) => name);
 }
 
-test('terrain, forest and cast shaders declare every uniform once per stage', () => {
+test('terrain, compiled terrain and forest shaders declare every uniform once per stage', () => {
   const stages = [];
   for (const [name, source] of Object.entries(terrain)) if (/_(FRAG|VERT)$/.test(name) && typeof source === 'string') stages.push([`terrain ${name}`, source]);
   const placed = { mesh: new Float32Array([0, 0, 0, 20, 10, 0, .5, 2]), billboard: new Float32Array([0, 0, 0, 20, 10, 0, .5, 2]), stride: 8, count: 1 };
@@ -23,12 +23,9 @@ test('terrain, forest and cast shaders declare every uniform once per stage', ()
   for (const [band, list] of Object.entries(forest.byBand)) for (const m of list) {
     stages.push([`forest ${band} fragment`, m.material.fragmentShader], [`forest ${band} vertex`, m.material.vertexShader]);
   }
-  const actors = new ActorsGL(THREE, actorUniforms(THREE));
-  const materials = [actors.sites.material, ...Object.values(actors.threads.meshes).map(m => m.material)];
-  for (const group of Object.values(actors.groups)) group.traverse(o => o.material && materials.push(o.material));
-  for (const m of materials) stages.push(['cast fragment', m.fragmentShader], ['cast vertex', m.vertexShader]);
-  assert.ok(stages.length > 12, 'the shaders were found');
+  stages.push(['compiled terrain vertex', COMPILED_VERT], ['compiled terrain fragment', COMPILED_FRAG]);
+  // Four terrain stages, two compiled, and the forest's per band.
+  assert.ok(stages.length >= 12, `the shaders were found (${stages.length})`);
   for (const [name, source] of stages) assert.deepEqual(duplicates(source), [], name);
   for (const m of [...Object.values(forest.byBand).flat(), ...forest.depth]) m.geometry.dispose();
-  actors.dispose();
 });

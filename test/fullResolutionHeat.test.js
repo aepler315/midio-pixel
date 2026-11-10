@@ -37,9 +37,9 @@ test('heat runs on heard time: equal heard times give identical offsets whatever
     renderer._drawHeatDistortion(ctx, canvas, sim, { midioDrawX: 400 }, { width: 1280, height: 720 });
     return draws;
   };
-  // Ambient (a visible wildfire in a non-alpine world) and a performer drop.
+  // Ambient heat: a visible wildfire in a non-alpine world.
   const base = { fire: { active: true, intensity01: 1 }, biomes: { world: { kind: 'unregistered-kind' }, currentFxAlpha: () => 0 },
-    midio: { groundY: 625 }, presentation: { performers: true }, hype: { dropAtMs: 4950 } };
+    midio: { groundY: 625 } };
   const a = run({ ...base, timeMs: 5000, heardTimeMs: 5000 });
   const b = run({ ...base, timeMs: 5300, heardTimeMs: 5000 });
   assert.ok(a.length > 10);

@@ -25,7 +25,7 @@ export class Conductor {
     this.barGrid = barGrid || [];
     this.durationMs = durationMs || 0;
     this.beatMetadata = { bpm, beatPeriodMs, confidence, phaseConfidence, downbeatConfidence, meterConfidence, freeTime, firstBarMs, localTempo: localTempo || [],
-      barGrid: this.barGrid, authored: this.timeline.some(e => e.src === 'midi') };
+      barGrid: this.barGrid };
     this.cursor = 0;
     this.barCursor = 0;
     for (const reg of this.aheadRegs) reg.cursor = 0;

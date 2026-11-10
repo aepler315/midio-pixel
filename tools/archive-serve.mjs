@@ -12,7 +12,6 @@
 // opening a newer build's database throws VersionError), and the early
 // commits' absolute `/src/...` URLs resolve because each version sits at `/`.
 import http from 'node:http';
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -28,6 +27,7 @@ const MIME = {
   '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  // Older versions in the archive still read MIDI files from their trees.
   '.mid': 'audio/midi',
   '.midi': 'audio/midi',
   '.mp3': 'audio/mpeg',
@@ -41,7 +41,6 @@ const MIME = {
   '.gz': 'application/gzip',
   '.bin': 'application/octet-stream',
   '.wasm': 'application/wasm',
-  '.sf2': 'application/octet-stream',
   '.zip': 'application/zip',
 };
 
@@ -467,20 +466,6 @@ export async function startArchive({
     return text(res, 404, 'Not found');
   }
 
-  // Files git never had: user-dropped SoundFonts are gitignored, so no commit
-  // contains them. Serve today's copy to every version.
-  async function readUntracked(pathname) {
-    if (!pathname.startsWith('soundfonts/')) return null;
-    try {
-      const base = await fs.realpath(path.join(root, 'soundfonts'));
-      const real = await fs.realpath(path.join(root, pathname));
-      if (!real.startsWith(base + path.sep)) return null;
-      return await fs.readFile(real);
-    } catch {
-      return null;
-    }
-  }
-
   async function serveVersion(res, index, pathname) {
     const version = versions[index];
     if (pathname === '__archive/nav.js') {
@@ -496,14 +481,8 @@ export async function startArchive({
       return send(res, 200, MIME['.js'], `(${navClient})(${JSON.stringify(nav)});\n`);
     }
 
-    // Soundfont auto-discovery, as in tools/serve.js: the page asks which
-    // fonts were dropped into the folder, then fetches them (readUntracked).
-    if (pathname === 'soundfonts') {
-      const entries = await fs.readdir(path.join(root, 'soundfonts')).catch(() => []);
-      const fonts = entries.filter((name) => /\.(sf2|zip)$/i.test(name)).sort();
-      return send(res, 200, MIME['.json'], JSON.stringify(fonts));
-    }
-
+    // Older versions also asked for a soundfonts/ listing; it now 404s, which
+    // they read as "no fonts".
     let file = pathname || 'index.html';
     let object = await blobs.read(`${version.sha}:${file}`);
     if (object?.type === 'tree') {
@@ -512,9 +491,7 @@ export async function startArchive({
     }
     if (object?.type !== 'blob') {
       if (file === 'index.html') return send(res, 200, MIME['.html'], placeholderPage(version));
-      const untracked = await readUntracked(file);
-      if (!untracked) return text(res, 404, 'Not found');
-      return send(res, 200, MIME[path.extname(file).toLowerCase()] || 'application/octet-stream', untracked);
+      return text(res, 404, 'Not found');
     }
     const type = MIME[path.extname(file).toLowerCase()] || 'application/octet-stream';
     if (file === 'index.html') {

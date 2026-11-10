@@ -1,6 +1,6 @@
 /** The terrain grid stays independent of the final display backing. Hybrid
- * skies and smooth Trio scenes use the contained picture's physical size,
- * bounded to 1080p windowed.
+ * skies use the contained picture's physical size, bounded to 1080p
+ * windowed.
  * Fullscreen uses the physical viewport, overriding adaptive output scaling.
  *
  * `scale` is the quality ladder's resolution scale
@@ -10,22 +10,16 @@
  * line, mid-depth effects and the final composite at full display density
  * -- 1920x1080 on a phone at DPR 2-3, the largest area in the frame. Now
  * the ladder spends those pixels before it reaches the deepest rungs. */
-export function resolveRangePipeline(search = '') {
-  const value = new URLSearchParams(search).get('rangePipeline');
-  return ['hybrid', 'native', 'single'].includes(value) ? value : 'single';
-}
-
-export function stageOutputSize({ grid, hybrid = false, smooth = false, nativeStage = false, progressiveDetail = false, fullscreen = false, cssWidth, cssHeight, dpr = 1, exportSize = null, scale = 1 }) {
+export function stageOutputSize({ grid, hybrid = false, progressiveDetail = false, fullscreen = false, cssWidth, cssHeight, dpr = 1, exportSize = null, scale = 1 }) {
   if (exportSize) return { w: exportSize.w, h: exportSize.h };
   const native = { w: grid.width, h: grid.height };
-  if ((smooth || progressiveDetail && hybrid) && [cssWidth, cssHeight, dpr].every(n => Number.isFinite(n) && n > 0)) {
+  if (progressiveDetail && hybrid && [cssWidth, cssHeight, dpr].every(n => Number.isFinite(n) && n > 0)) {
     const height = fullscreen ? cssHeight * dpr : Math.min(1080, Math.min(cssHeight, cssWidth * 9 / 16) * dpr);
     const width = fullscreen ? cssWidth * dpr : height * 16 / 9;
     const quality = Number.isFinite(scale) && scale > 0 ? Math.min(1, scale) : 1;
     const admitted = Math.min(quality, 4096 / width, 2304 / height);
     return { w: Math.max(1, Math.round(width * admitted)), h: Math.max(1, Math.round(height * admitted)) };
   }
-  if (nativeStage) return native;
   if (fullscreen && cssWidth > 0 && cssHeight > 0 && dpr > 0) {
     return { w: Math.max(1, Math.round(cssWidth * dpr)), h: Math.max(1, Math.round(cssHeight * dpr)) };
   }

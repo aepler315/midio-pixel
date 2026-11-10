@@ -1,6 +1,6 @@
 // Whether the drawn ground hides a point from an eye: a height march along
-// the sight line. Shared by everything that must stand where the rail can
-// see it (the cast's paths, the lake samples a view frames).
+// the sight line, for what must stand where the rail can see it (the
+// opening's summit focus and its climb, BuildFocus.js).
 import { terrainHeightAt } from './TerrainMesh.js';
 
 export const SIGHT_STEPS = 32;

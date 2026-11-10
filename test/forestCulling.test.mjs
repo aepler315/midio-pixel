@@ -13,7 +13,7 @@ import { landRiseLift, riseFromUniforms, risenHeight } from '../src/world/alpine
 import { coniferGeometry, createForest } from '../src/world/alpine/ForestGL.js';
 import { crownHalfWidth } from '../src/world/alpine/ForestProfile.js';
 import { FOREST_FAMILIES, FOREST_VARIANTS } from '../src/world/alpine/ForestSpeciesAssets.js';
-import { WIND_SWAY, GUST_LEAN, PARTING_LEAN, WIND_DIR } from '../src/world/alpine/ForestWind.js';
+import { WIND_SWAY, GUST_LEAN, WIND_DIR } from '../src/world/alpine/ForestWind.js';
 
 function rng(seed) {
   let s = seed >>> 0;
@@ -22,7 +22,6 @@ function rng(seed) {
 // Values in [0, 1] that land on the ends often: the bounds are tight there.
 const edgy = r => () => { const v = r(); return v < .2 ? 0 : v > .8 ? 1 : r(); };
 const fract = x => x - Math.floor(x);
-const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const crownBase = (s, id) => s < .5 ? .46 + .06 * id : s > 1.5 && s < 2.5 ? .015 : .08;
 const crownRatio = s => s < .5 ? .30 : s < 1.5 ? .38 : s < 2.5 ? .265 : .425;
 
@@ -31,8 +30,8 @@ for (let family = 0; family < FOREST_FAMILIES; family++) for (let variant = 0; v
   for (const lod of [0, 1, 2]) ASSETS.push({ family, variant, lod, geo: coniferGeometry(THREE, { lod, family, variant }) });
 }
 
-// The forest uniforms a frame can hold (production reaches uWind.x 1.8 and
-// uParting.w 1; these go past both).
+// The forest uniforms a frame can hold (production reaches uWind.x 1.8;
+// these go past it).
 function uniforms(r) {
   const s = () => (r() * 2 - 1);
   const v = { amp: s() * 30, kick: s() * 20, structural: s() * 20, melodic: s() * 15, gesture: s() * 10,
@@ -44,7 +43,6 @@ function uniforms(r) {
     uDeformMelodic: { value: v.melodic }, uDeformGesture: { value: v.gesture }, uLandDance: { value: v.dance },
     uGlacierEnabled: { value: 0 }, uTime: { value: r() * 600 },
     uWind: { value: r() < .2 ? { x: 1, y: 0 } : { x: r() * 3, y: r() * .06 } },
-    uParting: { value: r() < .3 ? { x: 0, y: 0, z: 90, w: 0 } : { x: s() * 400, y: s() * 400, z: 20 + r() * 120, w: r() * 1.5 } },
   };
 }
 
@@ -63,14 +61,12 @@ const deformBound = u => { const d = u.raw; return Math.abs(d.amp) + Math.abs(d.
 // windAt (ForestGL.js TREE_COMMON), with the gust's clamped lean and the
 // camera-right direction drawn at random.
 function windAt(tree, y01, u, e, r) {
-  const ph = tree.id * 6.2831, t = u.uTime.value, wind = u.uWind.value, part = u.uParting.value;
+  const ph = tree.id * 6.2831, t = u.uTime.value, wind = u.uWind.value;
   const s = Math.sin(t * .65 + ph) * .6 + Math.sin(t * 1.45 + ph * 1.7) * .25;
   const sway = [s * WIND_SWAY * wind.x, s * .4 * WIND_SWAY * wind.x];
   const gust = e() * 2 - 1, a = r() * Math.PI * 2;
-  const ax = tree.x - part.x, az = tree.z - part.y, d = Math.hypot(ax, az);
-  const p = part.w * (1 - smooth(part.z * .3, part.z, d));
-  const lx = Math.cos(a) * gust * GUST_LEAN + ax / Math.max(d, 1) * p * PARTING_LEAN + WIND_DIR[0] * wind.y;
-  const lz = Math.sin(a) * gust * GUST_LEAN + az / Math.max(d, 1) * p * PARTING_LEAN + WIND_DIR[1] * wind.y;
+  const lx = Math.cos(a) * gust * GUST_LEAN + WIND_DIR[0] * wind.y;
+  const lz = Math.sin(a) * gust * GUST_LEAN + WIND_DIR[1] * wind.y;
   const k = tree.h * y01 * y01;
   return [(sway[0] + lx) * k, (sway[1] + lz) * k];
 }
@@ -104,12 +100,12 @@ function rise(u, list, r) {
     y: t.y + (r() * 2 - 1) * 3000 } };
 }
 
-// A landscape standing still: no deformation, dance, wind or parting (the
-// gust's lean stays, as in the shader).
+// A landscape standing still: no deformation, dance or wind (the gust's lean
+// stays, as in the shader).
 const still = () => ({ raw: { amp: 0, kick: 0, structural: 0, melodic: 0, gesture: 0, dance: { x: 0, y: 0, z: 0, w: 0 } },
   uDeformAmp: { value: 0 }, uDeformKick: { value: 0 }, uDeformStructural: { value: 0 }, uDeformMelodic: { value: 0 },
   uDeformGesture: { value: 0 }, uLandDance: { value: { x: 0, y: 0, z: 0, w: 0 } }, uGlacierEnabled: { value: 0 },
-  uTime: { value: 0 }, uWind: { value: { x: 0, y: 0 } }, uParting: { value: { x: 0, y: 0, z: 90, w: 0 } } });
+  uTime: { value: 0 }, uWind: { value: { x: 0, y: 0 } } });
 
 test('forest bounds transform their tops when trees rise from below the flat base', () => {
   const cells = Float64Array.of(0, 900, 0, 10, 1000, 10, 20, 3);
@@ -215,7 +211,6 @@ test('the tree shader still places vertices the way the bound reads it', () => {
     'return vec2(clamp(lean, -1.0, 1.0), sheen);',
     `vec2 sway = vec2(s, s * 0.4) * ${WIND_SWAY.toFixed(3)} * uWind.x;`,
     `vec2 lean = normalize(vec2(viewMatrix[0][0], viewMatrix[2][0]) + 1e-5) * gust.x * ${GUST_LEAN.toFixed(3)};`,
-    `lean += away / max(dAway, 1.0) * part * ${PARTING_LEAN.toFixed(3)};`,
     `lean += vec2(${WIND_DIR[0].toFixed(6)}, ${WIND_DIR[1].toFixed(6)}) * uWind.y;`,
     'return (sway + lean) * iSize.x * y01 * y01;',
     'float s = sin(uTime * 0.65 + ph) * 0.6 + sin(uTime * 1.45 + ph * 1.7) * 0.25;',
@@ -232,12 +227,8 @@ test('the tree shader still places vertices the way the bound reads it', () => {
       vec2 sway = vec2(s, s * 0.4) * ${WIND_SWAY.toFixed(3)} * uWind.x;
       // The gust leans crowns the way the front travels (camera right in xz).
       vec2 gust = gustAt();
-      vec2 away = iPos.xz - uParting.xy;
-      float dAway = length(away);
-      float part = uParting.w * (1.0 - smoothstep(uParting.z * 0.3, uParting.z, dAway));
-      vGust = max(gust.y, part * 0.8);
+      vGust = gust.y;
       vec2 lean = normalize(vec2(viewMatrix[0][0], viewMatrix[2][0]) + 1e-5) * gust.x * ${GUST_LEAN.toFixed(3)};
-      lean += away / max(dAway, 1.0) * part * ${PARTING_LEAN.toFixed(3)};
       // Downwind along the fixed world wind the clouds drift on, not camera right.
       lean += vec2(${WIND_DIR[0].toFixed(6)}, ${WIND_DIR[1].toFixed(6)}) * uWind.y;
       return (sway + lean) * iSize.x * y01 * y01;
@@ -338,9 +329,9 @@ test('the root lift keeps a tree the music lifts into view, or sinks into it', (
     camera.position.set(0, y, 0); camera.lookAt(0, y, -1); camera.updateMatrixWorld();
     return frustumPlanes(camera, null);
   };
-  // No wind or parting, and a still landscape (a missing uniform is an
-  // unknown bound, which never culls).
-  const calm = { uWind: { value: { x: 0, y: 0 } }, uParting: { value: { x: 0, y: 0, z: 90, w: 0 } },
+  // No wind, and a still landscape (a missing uniform is an unknown bound,
+  // which never culls).
+  const calm = { uWind: { value: { x: 0, y: 0 } },
     uDeformAmp: { value: 0 }, uDeformKick: { value: 0 }, uDeformStructural: { value: 0 }, uDeformMelodic: { value: 0 },
     uDeformGesture: { value: 0 }, uLandDance: { value: { x: 0, y: 0, z: 0, w: 0 } } };
   const tree = batch(ASSETS[4].geo, [{ x: 0, y: 1000, z: -500, h: 20, w: 3, species: 1, id: .5 }]);
@@ -422,8 +413,6 @@ test('every vertex the shader can place lies inside its cell\'s box (no safety f
     const r = rng(seed), e = edgy(r), u = uniforms(r);
     const asset = ASSETS[seed % ASSETS.length];
     const list = trees(r, 6, seed % 3 ? 2000 : 300);
-    // Broshi passing among the trees half the time: the parting lean.
-    if (seed % 2 === 0) u.uParting.value = { x: list[0].x + (r() * 2 - 1) * 30, y: list[0].z + (r() * 2 - 1) * 30, z: 60 + r() * 60, w: .5 + r() };
     if (seed % 3 !== 1) rise(u, list, r);
     const geo = batch(asset.geo, list), cells = forestCells(geo), ext = assetExtents(geo);
     const d = deformBound(u), lift = { lo: -d, hi: d, rise: riseFromUniforms(u) }, lean = forestLean(u);
@@ -447,14 +436,13 @@ test('every vertex the shader can place lies inside its cell\'s box (no safety f
 test('every vertex the shader can place lies inside its tree\'s own one-tree box (no safety factor, no padding), and that box inside its cell\'s', () => {
   // A span drops a tree by its own box (ForestCulling forestSpan), so the
   // bound must hold tree by tree, not only over a cell: the extremes above
-  // (deformation, wind and gust lean, parting, the rise), each tree on its
+  // (deformation, wind and gust lean, the rise), each tree on its
   // own, a few with negative heights and widths.
   let checked = 0, tighter = 0;
   for (let seed = 1; seed <= 36; seed++) {
     const r = rng(seed * 5 + 1), e = edgy(r), u = uniforms(r);
     const asset = ASSETS[(seed * 7) % ASSETS.length];
     const list = trees(r, 6, seed % 3 ? 2000 : 150).map((t, i) => i % 5 === 4 ? { ...t, h: -t.h, w: -t.w } : t);
-    if (seed % 2 === 0) u.uParting.value = { x: list[0].x + (r() * 2 - 1) * 30, y: list[0].z + (r() * 2 - 1) * 30, z: 60 + r() * 60, w: .5 + r() };
     if (seed % 3 !== 1) rise(u, list, r);
     const cells = forestCells(batch(asset.geo, list)), ext = assetExtents(asset.geo);
     const d = deformBound(u), lift = { lo: -d, hi: d, rise: riseFromUniforms(u) }, lean = forestLean(u);
@@ -508,20 +496,17 @@ test('the affine rise bounds every tree for signed bases, independently of horiz
 });
 
 test('the bound needs each of its terms', () => {
-  // Shrink one term at a time: some vertex must land outside. A strong
-  // parting inflates the lean of trees out of its reach, so it only runs
-  // for the parting's own term.
-  const escapes = (mutate, { parting = false, risen = false } = {}) => {
+  // Shrink one term at a time: some vertex must land outside.
+  const escapes = (mutate, { risen = false } = {}) => {
     for (let seed = 1; seed <= 36; seed++) {
       const r = rng(seed), e = edgy(r), u = uniforms(r);
       const asset = ASSETS[seed % ASSETS.length];
       const list = trees(r, 6, seed % 3 ? 2000 : 300);
-      if (parting && seed % 2 === 0) u.uParting.value = { x: list[0].x + (r() * 2 - 1) * 30, y: list[0].z + (r() * 2 - 1) * 30, z: 60 + r() * 60, w: .5 + r() };
       if (risen) rise(u, list, r);
       const geo = batch(asset.geo, list), cells = forestCells(geo);
       const d = deformBound(u);
       let ext = assetExtents(geo), lift = { lo: -d, hi: d, rise: riseFromUniforms(u) }, lean = forestLean(u);
-      ({ ext, lift, lean } = mutate({ ext, lift, lean, parting: u.uParting.value.w }));
+      ({ ext, lift, lean } = mutate({ ext, lift, lean }));
       const box = new Float64Array(6);
       for (const tree of list) {
         forestCellBox(cells, cellOf(cells, tree), ext, lift, lean, 0, box);
@@ -534,7 +519,6 @@ test('the bound needs each of its terms', () => {
     return false;
   };
   assert.ok(escapes(m => ({ ...m, lean: m.lean * .8 })), 'wind lean');
-  assert.ok(escapes(m => ({ ...m, lean: m.lean - PARTING_LEAN * Math.abs(m.parting) }), { parting: true }), 'parting lean');
   assert.ok(escapes(m => ({ ...m, lift: { ...m.lift, lo: m.lift.lo * .8 } })), 'root sinking');
   assert.ok(escapes(m => ({ ...m, lift: { ...m.lift, hi: m.lift.hi * .8 } })), 'root lift');
   assert.ok(escapes(m => ({ ...m, lift: { ...m.lift, rise: null } }), { risen: true }), 'the rise');
@@ -776,8 +760,7 @@ test('a twin\'s span runs from the first to the last tree whose own box is in vi
       swapAsset(p.lite, others[Math.floor(r() * others.length)]);
     } else if (k < .22) {
       what = 'lean';
-      if (r() < .6) u.uWind.value = { x: r() * 3, y: r() * .06 };
-      else u.uParting.value = { ...u.uParting.value, w: r() * 1.5 };
+      u.uWind.value = { x: r() * 3, y: r() * .06 };
     } else if (k < .27) { what = 'lift'; u.uDeformAmp.value = (r() * 2 - 1) * 30; u.uDeformKick.value = (r() * 2 - 1) * 20; }
     else if (k < .31) {
       // Ice raises the top alone.
@@ -863,7 +846,6 @@ test('a twin\'s span memo follows each number the span reads, changed alone, the
   };
   const sweeps = [
     ['lean (wind)', v => { u.uWind.value = { x: v, y: 0 }; }, [0, .5, 1, 1.5, 2, 2.5, 3, 0]],
-    ['lean (parting)', v => { u.uParting.value = { x: 0, y: 0, z: 90, w: v }; }, [0, .02, .05, .08, .12, .17, 0]],
     ['root lift', v => { u.uDeformKick.value = v; }, [0, 5, 10, 20, 40, 80, 0]],
     ['ice (the top alone)', v => { u.uGlacierEnabled.value = 1; u.uGlacierMaxThickness.value = v; }, [0, 5, 10, 20, 40, 80, 0]],
     // The floor alone: the kick sinks it while ice holds the top.
@@ -956,7 +938,6 @@ test('an unknown bound never culls', () => {
   assert.equal(forestSpan(behindTwin(), planes, u), null, 'behind the camera: no span');
   for (const broken of [
     { ...u, uWind: { value: { x: NaN, y: 0 } } },
-    { ...u, uParting: { value: { x: 0, y: 0, z: 90, w: Infinity } } },
     { ...u, uDeformAmp: { value: undefined } },
     { ...u, uLandDance: { value: { x: NaN, y: 0, z: 0, w: 0 } } },
     { ...u, uLandRise: { value: { x: NaN, y: 0 } } },

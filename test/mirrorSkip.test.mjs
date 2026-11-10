@@ -3,17 +3,15 @@ import assert from 'node:assert/strict';
 import { RangeScene, MIRROR_INK_SKIP } from '../src/world/alpine/RangeScene.js';
 import { sceneUniforms, FEATURE_FRAG } from '../src/world/alpine/TerrainMaterial.js';
 import { createForest } from '../src/world/alpine/ForestGL.js';
-import { ActorsGL, actorUniforms } from '../src/world/alpine/ActorsGL.js';
 import { setTerrainDrawMode } from '../src/world/alpine/RailDraw.js';
 import { syntheticPlaced } from './helpers/tourForestFixtures.mjs';
 import * as THREE from '../src/vendor/range/three-range.module.js';
 
 // _prepareMirror against a renderer that records what it is asked to do.
-function fixture({ ink = 0, actor = false, scissor = null, soft = true, sites = null } = {}) {
+function fixture({ ink = 0, scissor = null, soft = true } = {}) {
   const ops = [];
   const p = { view: {}, uniforms: sceneUniforms(THREE, {}), mirrorLevelM: 100,
     forest: { counts: soft ? { billboard: 1 } : {} },
-    actors: { groups: { light: { visible: actor } }, ...(sites ? { sites } : {}) },
     depthScene: 'depth', scenes: { far: 'far', mid: 'mid', near: 'near' } };
   p.uniforms.uNarrativeInk.value = ink;
   const target = { width: 64, height: 32, scissor: new THREE.Vector4(), scissorTest: false, texture: 'mirror-texture' };
@@ -32,10 +30,10 @@ function fixture({ ink = 0, actor = false, scissor = null, soft = true, sites = 
 }
 const frame = { frameId: 7, timeMs: 1000, qualityLevel: 0, narrative: { materials: 1 } };
 const BANDS3 = (mask) => ['far', 'mid', 'near'].map(b => `${b}:${mask}`);
-const FULL = ['depth:1', ...BANDS3(1), ...BANDS3(2), 'depth:4', ...BANDS3(8 | 16 | 32)];
+const FULL = ['depth:1', ...BANDS3(1), ...BANDS3(2), 'depth:4', ...BANDS3(8)];
 const NO_CUT = ['depth:1', ...BANDS3(1), ...BANDS3(2)];
 
-test('the mirror leaves out its crown cut, ink and cast only when the ink discards and no cast shows', () => {
+test('the mirror leaves out its crown cut and ink only when the ink discards', () => {
   for (const [opts, want] of [
     [{}, NO_CUT],
     [{ ink: MIRROR_INK_SKIP * 0.999 }, NO_CUT],
@@ -47,7 +45,6 @@ test('the mirror leaves out its crown cut, ink and cast only when the ink discar
     // the mirror draws them as before.
     [{ ink: NaN }, FULL],
     [{ ink: Infinity }, FULL],
-    [{ actor: true }, FULL],
   ]) {
     const { s, p, ops } = fixture(opts);
     s._prepareMirror(p, frame, 'A', 'v');
@@ -55,55 +52,11 @@ test('the mirror leaves out its crown cut, ink and cast only when the ink discar
   }
 });
 
-test('a laid-out light with gain counts as a shown cast in the mirror', () => {
-  const geometry = { attributes: { aState: { getX: () => 1 } } };
-  const sites = { _slots: [{ band: 'near', i: 0 }], meshes: { near: { geometry } }, uniforms: { uGain: { value: .3 } },
-    drawn() { return this.uniforms.uGain.value > 0 && this._slots.some(({ band, i }) => this.meshes[band].geometry.attributes.aState.getX(i) > 0); } };
-  const a = fixture({ sites });
-  a.s._prepareMirror(a.p, frame, 'A', 'v');
-  assert.deepEqual(a.ops, FULL);
-  sites.uniforms.uGain.value = 0;
-  const b = fixture({ sites });
-  b.s._prepareMirror(b.p, frame, 'A', 'v');
-  assert.deepEqual(b.ops, NO_CUT);
-});
-
-test('a laid-out thread or fixed line with gain counts as a shown cast in the mirror', () => {
-  for (const key of ['threads', 'rope']) {
-    for (const [gain, want] of [[.5, FULL], [0, NO_CUT]]) {
-      const actors = new ActorsGL(THREE, actorUniforms(THREE));
-      try {
-        actors[key].setThreads([{ a: [0, 0, -400], b: [100, 0, -400], band: 'near' }]);
-        actors[key].setState(0, .3, 1);
-        actors[key].setLook(new THREE.Color(1, 1, 1), gain);
-        const { s, p, ops } = fixture();
-        p.actors = actors; // no lantern out, no light laid out
-        s._prepareMirror(p, frame, 'A', 'v');
-        assert.deepEqual(ops, want, `${key} at gain ${gain}`);
-      } finally { actors.dispose(); }
-    }
-  }
-});
-
-// The mirror reflects the cast with each band even when the main view draws
-// it in its own pass (castInBands false), so the gate must not follow that.
-test('the mirror reflects a shown cast whether or not the main view keeps it in the bands', () => {
-  for (const castInBands of [true, false]) {
-    for (const [opts, want] of [[{}, NO_CUT], [{ actor: true }, FULL]]) {
-      const { s, p, ops } = fixture(opts);
-      s.castInBands = castInBands;
-      s._prepareMirror(p, frame, 'A', 'v');
-      assert.deepEqual(ops, want, `castInBands ${castInBands} ${JSON.stringify(opts)}`);
-    }
-  }
-});
-
 test('the mirror decides the skip afresh on every redraw of one view and target', () => {
   const { s, p, ops } = fixture();
-  const steps = [[0, false, NO_CUT], [0, true, FULL], [.02, false, FULL], [0, false, NO_CUT], [0, true, FULL]];
-  steps.forEach(([ink, lit, want], i) => {
+  const steps = [[0, NO_CUT], [.02, FULL], [0, NO_CUT], [.005, FULL], [MIRROR_INK_SKIP * .5, NO_CUT]];
+  steps.forEach(([ink, want], i) => {
     p.uniforms.uNarrativeInk.value = ink;
-    p.actors.groups.light.visible = lit;
     ops.length = 0;
     s._prepareMirror(p, { ...frame, frameId: 11 + i }, 'A', 'v');
     assert.deepEqual(ops, want, `frame ${11 + i}`);
@@ -120,7 +73,7 @@ test('the skip threshold stays below the ink shader discard, in float32', () => 
 
 test('a scissored mirror makes the same choice', () => {
   for (const scissor of [{ x: 0, y: 0, width: 1, height: 1 }, { x: 3, y: 2, width: 40, height: 20 }]) {
-    for (const [opts, want] of [[{}, NO_CUT], [{ actor: true }, FULL], [{ ink: .02 }, FULL]]) {
+    for (const [opts, want] of [[{}, NO_CUT], [{ ink: .02 }, FULL]]) {
       const { s, p, ops } = fixture({ ...opts, scissor });
       s._prepareMirror(p, frame, 'A', 'v');
       assert.deepEqual(ops, want);
@@ -132,7 +85,7 @@ test('without soft trees the mirror keeps its single combined pass', () => {
   for (const ink of [0, .02]) {
     const { s, p, ops } = fixture({ soft: false, ink });
     s._prepareMirror(p, frame, 'A', 'v');
-    assert.deepEqual(ops, ['depth:57', ...BANDS3(57)]);
+    assert.deepEqual(ops, ['depth:9', ...BANDS3(9)]);
   }
 });
 
@@ -166,7 +119,7 @@ test('a failed mirror draw restores the main view water separation before propag
 });
 
 // What the skip relies on in the forest. Layer 2 holds only depth: no colour
-// to lose. Layers 3 to 5 hold nothing of the forest's. And every layer-2
+// to lose. Layers 3 to 5 hold nothing of the forest's (3 is the ink's). And every layer-2
 // mesh in the shared depth scene shares its geometry with a tree the mirror
 // draws first (the depth scene's layer 0, or a band's layer 0 or 1), with the
 // same visibility: three computes a geometry's boundingSphere (the z it sorts

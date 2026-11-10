@@ -120,7 +120,7 @@ test('a Landscape moon orbit never shares the sky with the sun and is back after
   }
 });
 
-test('the cycle (Trio) moon keeps its own visibility and light', async () => {
+test('the cycle moon (no authored orbit) keeps its own visibility and light', async () => {
   const { resolveCelestialState } = await import('../src/world/CelestialState.js');
   for (const timeMs of [21000, 45000, 71000, 96000]) {
     const state = resolveCelestialState({ timeMs, cycleMs: 100000, viewport });

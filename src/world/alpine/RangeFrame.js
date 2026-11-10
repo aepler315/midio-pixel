@@ -26,7 +26,6 @@ import { glacierStateAt } from './GlacierField.js';
 import { profileTravelPx } from '../terrain/ProfileTravel.js';
 import { styleDials } from '../../render/VisualStyle.js';
 import { cloudSeaAt } from './CloudSea.js';
-import { rangeActorsAt } from './RangeActors.js';
 import { rangeUserCamera } from './RangeCamera.js';
 import { hexLerp } from '../../utils/color.js';
 import { sampleEffectsMusic } from './EffectsMusic.js';
@@ -490,9 +489,6 @@ export function buildRangeFrame({
     cloudSea01: cloudSeaAt(mgr, timeMs),
     storm: stormAt(mgr, timeMs),
     performance,
-    // The cast as lights in the land: brightness and travel per lane, and
-    // each view's job (docs/landscape-cast.md).
-    actors: rangeActorsAt(sim, timeMs, { sceneAssignments, forcedView }),
     cameraEffects: lens,
     // Camera: this section's slow cinematic move, and the listener's zoom.
     cameraMove: performance.camera,

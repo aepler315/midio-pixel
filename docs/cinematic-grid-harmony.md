@@ -13,7 +13,6 @@ A read-only map of every grid-dependent constant and allow-list found:
 - **Scene backing:** `round(1.1w) × round(53h/45)`, exact only when 80 divides `w`.
 - **Derived buffers:** the half-size mirror and the quarter-size shafts.
 - **Text and effects:** `pixelUnit` rounding, which sets captions, glow and stars.
-- **Cast:** `CastRaster` filter supports in native px.
 - **Forest:** footprint thresholds in native px.
 - **Cinematic reconstruction:** cell geometry and its fixed slope gain.
 - **Palette:** the `MAX_PIXEL_PIXELS` cap.
@@ -180,10 +179,6 @@ the 3.6 ms noise.
   budget. Profiling and slimming that pipeline, or decoupling the pass's
   shed rung from the scene's, is the next step if the reconstruction is to
   be seen live.
-- **Trio.** Trio shares the one grid preference, so choosing Cinematic also
-  moves Trio, which ignores the cinematic look, to Detailed. That is four
-  times its pixel work. The level is supported there; it is a side effect,
-  not a bug.
 - **Software-rendered image metrics.** The image metrics came from software
   WebGL. Their trends match the hardware frames inspected by eye, but
   absolute values may differ slightly.

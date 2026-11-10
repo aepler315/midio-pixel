@@ -49,7 +49,7 @@ function manager(overrides = {}) {
   mgr.stripsFor = (key) => mgr.strips.get(key);
   const noop = () => {};
   for (const name of [
-    '_drawSky', 'drawDeepSky', '_drawCelestial', '_drawMoon', '_drawFarShore', '_drawFataMorgana',
+    '_drawSky', '_drawCelestial', '_drawMoon', '_drawFarShore', '_drawFataMorgana',
     '_drawOcean', '_drawOceanLife', '_drawHorizonEQ', '_drawSpectrumMassif', '_drawDistantWave',
     '_drawHaze', '_drawCastShadow', '_drawFogBanks', '_drawConnectorHills', '_drawGround',
     '_drawTerrainFooting', '_drawFlood', '_drawForegroundSwell', '_drawTransitionOverlays',
@@ -78,7 +78,7 @@ function ctx() {
 function scrollsOf(mgr) {
   const scrolls = [];
   mgr._drawLayer = (_c, _canvas, layerKey, scrollX) => { scrolls.push({ layerKey, scrollX }); };
-  mgr.draw(ctx(), { width: VIEW, height: 720 }, WORLD_X, 0, null, 1, mgr._perf, null);
+  mgr.draw(ctx(), { width: VIEW, height: 720 }, WORLD_X, 0, 1, mgr._perf, null);
   return scrolls;
 }
 

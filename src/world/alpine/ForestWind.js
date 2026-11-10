@@ -13,15 +13,18 @@ export const WIND_SWAY_PEAK = (0.6 + 0.25) * Math.hypot(1, 0.4);
 export const WIND_MAX_GAIN = 1.8;
 /** Crown lean at a full gust, as a fraction of tree height. */
 export const GUST_LEAN = 0.08;
-/** Crown lean away from Broshi as he passes, as a fraction of height. */
-export const PARTING_LEAN = 0.2;
+/** Headroom the detail footprint keeps over the leans below, as a
+ *  fraction of height: the reach of the retired cast's tree parting.
+ *  Nothing leans this far now; it stays so every batch's detail weight
+ *  (ForestDetail) is unchanged. */
+export const DETAIL_LEAN_HEADROOM = 0.2;
 /** Downwind lean under the full squall, as a fraction of height. */
 export const STORM_LEAN = 0.03;
 /** The fixed world wind direction in xz (the clouds' drift, normalised). */
 export const WIND_DIR = Object.freeze([10 / Math.hypot(10, 3), 3 / Math.hypot(10, 3)]);
-/** The largest crown displacement any of them can add together, as a
- *  fraction of height: ForestDetail's footprint bound must cover it. */
-export const FOREST_MAX_LEAN = WIND_SWAY * WIND_SWAY_PEAK * WIND_MAX_GAIN + GUST_LEAN + PARTING_LEAN + STORM_LEAN;
+/** The largest crown displacement any of them can add together, with the
+ *  headroom, as a fraction of height: ForestDetail's footprint bound. */
+export const FOREST_MAX_LEAN = WIND_SWAY * WIND_SWAY_PEAK * WIND_MAX_GAIN + GUST_LEAN + DETAIL_LEAN_HEADROOM + STORM_LEAN;
 
 const unit = value => Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
 

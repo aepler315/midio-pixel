@@ -1,7 +1,8 @@
 // Small real Simulation/Renderer thumbnail fixture for the color-regime
 // highlight reel. Serve the specified source tree first; this harness never
-// changes app state or calls a live service. It plays in Trio: procedural
-// ranges drawn in Canvas 2D, no terrain to load. Headless only.
+// changes app state or calls a live service. It plays in Landscape on the
+// Canvas 2D renderer with no Range v2 presentation attached and no song
+// terrain loaded. Headless only.
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -60,7 +61,7 @@ try {
         barGrid: Array.from({ length: Math.ceil(songMs / 2000) }, (_, i) => ({ ms: i * 2000, tick: i * 4, numerator: 4, denominator: 4 })) });
       const energyCurves = { sample: (_b, t) => energy(t), sampleAll: t => Array(7).fill(energy(t)),
         globalEnergy: energy, globalEnergyNorm: energy };
-      const sim = new Simulation(conductor, new ParamBus(), { worldId: 'trio', songSeed: 315,
+      const sim = new Simulation(conductor, new ParamBus(), { worldId: 'alpine', songSeed: 315,
         energyCurves, conductorCues: { liveCues: [], scheduleCues: [] } });
       sim.biomes.pumpStripPrewarm = () => {};
       const canvas = document.getElementById('stage');
@@ -74,13 +75,21 @@ try {
     }
     const cadence = (fps, start, end) => Array.from({ length: Math.floor(end * fps / 1000) - Math.ceil(start * fps / 1000) + 1 },
       (_, i) => (Math.ceil(start * fps / 1000) + i) * 1000 / fps);
+    const plan = selections => selections.map(({ id, category, eventAtMs }) => ({ id, category, eventAtMs }));
     const rows = [];
     for (const fps of fpsList) {
       const f = fixture();
       try {
         f.draw(0);
-        const frames = [];
-        for (const event of f.sim.highlightReel.selections) {
+        const initial = plan(f.sim.highlightReel.selections), frames = [], visited = new Set();
+        // Without the Range v2 sky a weather window is rejected and a standby
+        // still ahead is promoted into its slot, so the plan can grow while it
+        // plays: always draw the next pending window in time order.
+        for (;;) {
+          const event = f.sim.highlightReel.selections.filter(e => e.status === 'pending' && !visited.has(e.id))
+            .sort((a, b) => a.visibleStartMs - b.visibleStartMs)[0];
+          if (!event) break;
+          visited.add(event.id);
           for (const time of cadence(fps, event.visibleStartMs - 60, event.visibleStartMs + 200)) {
             const before = f.sim.highlightReel.frames.length;
             f.draw(time);
@@ -88,35 +97,51 @@ try {
               png: f.canvas.toDataURL('image/png') });
           }
         }
-        rows.push({ name: 'cadence', fps, selections: f.sim.highlightReel.selections, thumbnails: f.sim.highlightReel.frames, frames });
+        rows.push({ name: 'cadence', fps, initial, selections: f.sim.highlightReel.selections, thumbnails: f.sim.highlightReel.frames, frames });
       } finally { f.dispose(); }
     }
     if (matrix) {
       const f = fixture();
       try {
-        f.draw(0); const first = f.sim.highlightReel.selections[0];
+        f.draw(0); const initial = plan(f.sim.highlightReel.selections), first = f.sim.highlightReel.selections[0];
         f.draw(first.visibleStartMs - 100); f.draw(first.visibleEndMs + 100);
-        rows.push({ name: 'stall', selections: f.sim.highlightReel.selections, thumbnails: f.sim.highlightReel.frames, frames: [] });
+        rows.push({ name: 'stall', initial, selections: f.sim.highlightReel.selections, thumbnails: f.sim.highlightReel.frames, frames: [] });
       } finally { f.dispose(); }
       const g = fixture({ startMs: 20000 });
-      try { g.draw(20000); rows.push({ name: 'fresh-seek', selections: g.sim.highlightReel.selections, thumbnails: [], frames: [] }); }
+      try { g.draw(20000); rows.push({ name: 'fresh-seek', initial: plan(g.sim.highlightReel.selections), selections: g.sim.highlightReel.selections, thumbnails: [], frames: [] }); }
       finally { g.dispose(); }
     }
     return rows;
   }, { songMs, fpsList, matrix });
   const rows = await run(SONG_MS, includeMatrix ? [24, 30, 60] : [30], includeMatrix);
-  const signature = row => row.selections.map(({ id, category, eventAtMs }) => ({ id, category, eventAtMs }));
+  // The schedule a run starts from; promotions later depend on what was seen.
   const cadenceRows = rows.filter(row => row.name === 'cadence');
+  // Only the Range v2 sky draws weather, so this Canvas-only fixture rejects
+  // those windows (highlightVisible) and nothing else.
+  const WEATHER = new Set(['storm', 'lightning', 'clearing']);
   for (const row of cadenceRows) {
-    assert.ok(row.selections.length > 0 && row.selections.length <= 5, 'one to five regimes');
-    assert.equal(new Set(row.selections.map(event => event.category)).size, row.selections.length, 'one frame per regime');
-    assert.deepEqual(row.thumbnails.map(frame => frame.eventAtMs), row.selections.map(event => event.eventAtMs));
-    assert.deepEqual(signature(row), signature(cadenceRows[0]), 'frame cadence cannot change the schedule');
+    const live = row.selections.filter(event => !['rejected', 'missed', 'failed'].includes(event.status));
+    assert.ok(live.length > 0 && live.length <= 5, 'one to five live regimes');
+    assert.equal(new Set(live.map(event => event.category)).size, live.length, 'one frame per regime');
+    for (const event of row.selections) {
+      if (event.status === 'rejected') assert.ok(WEATHER.has(event.category), `only weather is rejected here, not ${event.category}`);
+      assert.notEqual(event.status, 'missed', `${event.category} at ${event.eventAtMs} ms was drawn through its window`);
+    }
+    assert.deepEqual(row.thumbnails.map(frame => frame.eventAtMs),
+      row.selections.filter(event => event.status === 'captured').map(event => event.eventAtMs));
+    assert.deepEqual(row.initial, cadenceRows[0].initial, 'frame cadence cannot change the schedule');
   }
   if (includeMatrix) {
     const row = name => rows.find(entry => entry.name === name);
     assert.equal(row('stall').thumbnails.length, 0); assert.equal(row('stall').selections[0].status, 'missed');
-    assert.deepEqual(signature(row('fresh-seek')), signature(cadenceRows[0]));
+    // A fresh seek plans the same schedule; the peak behind the seek point is
+    // missed, not revived, and only a standby still ahead takes its slot.
+    const planned = new Set(cadenceRows[0].initial.map(event => event.id)), seek = row('fresh-seek');
+    assert.deepEqual(seek.initial.filter(event => planned.has(event.id)), cadenceRows[0].initial, 'a fresh seek starts from the same schedule');
+    for (const event of seek.selections) {
+      if (event.eventAtMs < 20000) assert.equal(event.status, 'missed', 'a window behind the seek is not revived');
+      if (!planned.has(event.id)) assert.ok(event.eventAtMs > 20000, 'only a standby still ahead fills a freed slot');
+    }
   }
   for (const row of rows) {
     for (let i = 0; i < row.frames.length; i++) {
@@ -131,8 +156,8 @@ try {
     }
   }
   const result = { fixture: { song: 'Regime fixture: quiet verse, loud chorus 26-40 s, steady kick', durationMs: SONG_MS,
-    worldId: 'trio', audio: 'Generated 120 BPM diagnostic recording; the energy curve is authored, not inferred from it.' },
-  categories: cadenceRows[0].selections.map(event => event.label), rows,
+    worldId: 'alpine', audio: 'Generated 120 BPM diagnostic recording; the energy curve is authored, not inferred from it.' },
+  categories: cadenceRows[0].selections.filter(event => event.status === 'captured').map(event => event.label), rows,
   sourceHashes, browser: await browser.version(), errors };
   await fs.writeFile(path.join(output, 'report.json'), `${JSON.stringify(result, null, 2)}\n`);
   console.log(`Highlight fixture: ${cadenceRows[0].thumbnails.length} thumbnails (${result.categories.join(', ') || 'none'}), ${rows.length} runtime cases, ${errors.length} page errors.`);

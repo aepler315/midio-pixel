@@ -131,10 +131,6 @@ html, body {
   image-rendering: pixelated;
 }
 
-#stage.nativeCover {
-  object-fit: cover;
-}
-
 .panel {
   position: absolute;
   inset: 0;
@@ -253,7 +249,7 @@ html, body {
   gap: 0;
   padding: var(--space-4) var(--space-5) var(--space-3);
   overflow: auto;
-  /* The stage canvas already draws TitleBackdrop (stars, nebula, the trio).
+  /* The stage canvas already draws TitleBackdrop (stars, nebula).
      An opaque void here was covering that entire living world, so the first
      impression was a flat card on black instead of a Midio stage. */
   background: transparent;
@@ -630,12 +626,6 @@ html, body {
 .titleAdvanced[open] summary {
   border-bottom: 1px solid var(--border-subtle);
   color: var(--text-primary);
-}
-.titleAdvanced .sfRow {
-  margin: 0;
-  padding: var(--space-3) var(--space-4) var(--space-1);
-  flex-wrap: wrap;
-  justify-content: center;
 }
 .titleAdvanced .hint {
   margin: 0;
@@ -1084,14 +1074,6 @@ html, body {
   50% { transform: rotate(5deg) translateY(-5px); }
 }
 
-/* SoundFont loader row */
-.sfRow {
-  display: flex;
-  gap: var(--space-2);
-  align-items: center;
-  margin-top: var(--space-3);
-}
-
 .prefRow {
   display: flex;
   gap: var(--space-2);
@@ -1137,133 +1119,6 @@ html, body {
   padding: 10px 16px;
   font-size: 1.35rem;
   margin-left: var(--space-3);
-}
-
-/* Auto-hiding SoundFont pill (bottom-center) — click to open the switcher
-   popup (#fontModal). */
-#fontBar {
-  position: absolute;
-  bottom: 96px; /* clears the composer strip, now bottom-anchored */
-  left: 50%;
-  transform: translateX(-50%);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--dur-slow) ease;
-  z-index: 6;
-}
-#fontBar.visible {
-  opacity: 1;
-  pointer-events: auto;
-}
-#fontBarBtn {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
-  background: rgba(5, 5, 10, 0.72);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-pill);
-  font-size: 0.85rem;
-  color: var(--text-primary);
-  cursor: pointer;
-  transition: border-color var(--dur-base), color var(--dur-base);
-}
-#fontBarBtn:hover { border-color: var(--spec-cool); color: var(--spec-cool); }
-#fontName {
-  min-width: 100px;
-  max-width: 220px;
-  text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-/* Track visibility badge (top-right of the HUD row) — click/tap or press T
-   to expand the full per-track breakdown of the loaded MIDI. */
-#trackBadge {
-  position: relative;
-  pointer-events: auto;
-}
-#trackBadgeBtn {
-  background: rgba(5, 5, 10, 0.72);
-  border: 1px solid var(--border-strong);
-  color: var(--text-primary);
-  padding: 6px var(--space-4);
-  border-radius: var(--radius-pill);
-  font-size: 0.8rem;
-  cursor: pointer;
-  transition: border-color var(--dur-base), color var(--dur-base);
-}
-#trackBadgeBtn:hover { border-color: var(--spec-cool); color: var(--spec-cool); }
-
-#trackList {
-  display: none;
-  position: absolute;
-  top: calc(100% + var(--space-2));
-  right: 0;
-  min-width: 260px;
-  max-width: 340px;
-  max-height: 320px;
-  overflow-y: auto;
-  background: rgba(5, 5, 10, 0.94);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
-  padding: var(--space-2);
-  font-size: 0.78rem;
-}
-#trackBadge.expanded #trackList { display: block; }
-
-.trackRow {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: 4px 6px;
-  border-radius: var(--radius-sm);
-}
-.trackRow.intertwined { background: var(--bg-surface-2); }
-.trackRow .roleDot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex: none;
-}
-.roleDot.role-MELODY { background: var(--spec-gold); }
-.roleDot.role-BASS   { background: var(--spec-cool); }
-.roleDot.role-PAD    { background: var(--spec-pad); }
-.roleDot.role-RHYTHM { background: var(--spec-rhythm); }
-
-.trackRow .trackName {
-  flex: 1 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.trackRow .trackMeta {
-  flex: none;
-  opacity: 0.55;
-  font-variant-numeric: tabular-nums;
-}
-/* Casting tag: which character performs this track (Casting.js lanes). */
-.trackRow .laneTag {
-  flex: none;
-  font-size: 0.68rem;
-  opacity: 0.75;
-  padding: 0 5px;
-  border-radius: var(--radius-sm);
-  background: var(--bg-surface-2);
-  white-space: nowrap;
-}
-.trackRow .panGlyph {
-  flex: none;
-  width: 1.4em;
-  text-align: center;
-  opacity: 0.8;
-}
-.trackListHint {
-  opacity: 0.5;
-  font-size: 0.72rem;
-  padding: 4px 6px 2px;
-  border-top: 1px solid var(--border-subtle);
-  margin-top: 4px;
 }
 
 /* Full-window "drop to play" feedback — shown while dragging a file over
@@ -1316,11 +1171,8 @@ html, body {
    phones receive guidance while portrait tablets are left alone. */
 .landscapeHint.is-visible { display: block; }
 
-/* SoundFont switcher popup — lists every loaded font with a click-to-
-   activate row and a × (hide) action; #fontHiddenToggle swaps the same
-   list into the "settings" view of hidden fonts with a + (unhide) action.
-   Shared modal shell (.modalBackdrop/.modalPanel) reused by the filmstrip
-   modal below -- one recipe instead of two near-duplicates. */
+/* Shared modal shell (.modalBackdrop/.modalPanel/.modalHeader/.modalFooter),
+   used by the filmstrip modal (#filmstripModal) below. */
 .modalBackdrop {
   position: absolute;
   inset: 0;
@@ -1355,86 +1207,6 @@ html, body {
   letter-spacing: 0.04em;
   color: var(--spec-gold);
 }
-.fontList {
-  overflow-y: auto;
-  padding: var(--space-2);
-  flex: 1 1 auto;
-  min-height: 60px;
-}
-.fontListEmpty {
-  opacity: 0.55;
-  font-size: 0.85rem;
-  padding: var(--space-5) var(--space-3);
-  text-align: center;
-}
-.fontRow {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-3);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: background var(--dur-base);
-}
-.fontRow:hover { background: var(--bg-surface-2); }
-.fontRow.active { background: color-mix(in srgb, var(--spec-gold) 12%, transparent); }
-.fontRow.active .fontRowName { color: var(--spec-gold); font-weight: 600; }
-.fontRowName {
-  flex: 1 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.fontRowAction {
-  flex: none;
-  width: 26px;
-  height: 26px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: 1px solid var(--border-strong);
-  border-radius: 50%;
-  color: var(--text-secondary);
-  cursor: pointer;
-  font-size: 0.9rem;
-  line-height: 1;
-  transition: border-color var(--dur-base), color var(--dur-base);
-}
-/* Hide (×) reads as a removal — red accent, matching RHYTHM's roleDot.
-   Unhide (+) reads as a restore — blue accent, matching the shared hover. */
-.fontRowAction[data-action="hide"]:hover { border-color: var(--spec-rhythm); color: var(--spec-rhythm); }
-.fontRowAction[data-action="unhide"]:hover { border-color: var(--spec-cool); color: var(--spec-cool); }
-
-/* Per-song audition verdicts (FontRecommender) */
-.fontRowStar {
-  flex: none;
-  color: var(--spec-gold);
-  font-size: 0.9rem;
-  cursor: default;
-}
-.fontRowBadge {
-  flex: none;
-  min-width: 30px;
-  padding: 2px 7px;
-  border-radius: var(--radius-sm);
-  font-size: 0.72rem;
-  text-align: center;
-  cursor: default;
-  border: 1px solid var(--border-subtle);
-  color: var(--text-secondary);
-}
-.fontRowBadge.ok { border-color: color-mix(in srgb, var(--spec-cool) 45%, transparent); color: var(--spec-cool); }
-.fontRowBadge.dq { border-color: color-mix(in srgb, var(--spec-rhythm) 55%, transparent); color: var(--spec-rhythm); }
-.fontRowBadge.pending { opacity: 0.55; }
-.auditionStatus {
-  flex: none;
-  padding: var(--space-2) var(--space-4);
-  font-size: 0.78rem;
-  color: var(--text-secondary);
-  border-top: 1px solid var(--border-subtle);
-}
-.auditionStatus.hidden { display: none; }
 .modalFooter {
   display: flex;
   flex-wrap: wrap;
@@ -1448,7 +1220,6 @@ html, body {
   font-size: 0.78rem;
   padding: 6px var(--space-3);
 }
-#fontHiddenToggle { margin-left: auto; }
 
 /* The Reel (Movement VI): the COMPLETE panel's highlight filmstrip. */
 #filmstrip {
@@ -2026,245 +1797,6 @@ html, body {
   font-weight: 400;
 }
 
-/* --- World select ------------------------------------------------------- */
-.worldSelect {
-  position: fixed;
-  width: 100%;
-  height: 100%;
-  max-width: none;
-  max-height: none;
-  margin: 0;
-  border: 0;
-  color: inherit;
-  inset: 0;
-  z-index: 8;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-5);
-  background: var(--bg-scrim);
-  pointer-events: auto;
-}
-.worldSelect.hidden, .worldSelect:not([open]) { display: none; }
-.worldSelect::backdrop { background: transparent; }
-.worldSelectInner {
-  width: min(1100px, 100%);
-  max-height: min(92vh, 960px);
-  overflow: auto;
-  padding: var(--space-6) var(--space-6) var(--space-5);
-  border-radius: var(--radius-lg);
-  background: linear-gradient(165deg, rgba(24, 16, 38, 0.88), rgba(14, 11, 22, 0.92));
-  border: 1px solid var(--border-subtle);
-  box-shadow: var(--shadow-card);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-}
-.worldSelectEyebrow {
-  margin: 0 0 var(--space-2);
-  font-size: 0.72rem;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--text-tertiary);
-}
-.worldSelectInner h2 {
-  margin: 0 0 var(--space-2);
-  font-size: var(--text-xl, 1.6rem);
-  font-weight: 600;
-  letter-spacing: -0.03em;
-}
-.worldSelectHint {
-  margin: 0 0 var(--space-4);
-  color: var(--text-secondary);
-  font-size: 0.92rem;
-  line-height: 1.45;
-  max-width: 62ch;
-}
-.worldSelectToolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  margin: 0 0 var(--space-5);
-}
-.worldSelectPassages {
-  display: inline-flex;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-pill);
-  overflow: hidden;
-}
-.worldPassageBtn {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  color: var(--text-secondary);
-  padding: 8px 16px;
-  min-height: 44px;
-  cursor: pointer;
-  font-size: 0.85rem;
-}
-.worldPassageBtn[aria-pressed="true"] {
-  background: var(--bg-surface-2);
-  color: var(--text-primary);
-}
-.worldSelectGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: var(--space-4);
-}
-.worldSelectBack {
-  margin-top: var(--space-5);
-  min-height: 44px;
-}
-.fileInputVisuallyHidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  clip-path: inset(50%);
-  white-space: nowrap;
-  border: 0;
-}
-.worldCard {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-4);
-  border-radius: var(--radius-md);
-  background: var(--bg-surface-2);
-  border: 1px solid var(--border-subtle);
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-  min-height: 44px;
-  transition: border-color var(--dur-base) var(--ease-standard),
-              transform var(--dur-fast) var(--ease-standard),
-              background var(--dur-base) var(--ease-standard);
-}
-.worldCard:hover,
-.worldCard:focus-visible,
-.worldCard.is-focused {
-  border-color: var(--border-strong);
-  background: rgba(255, 255, 255, 0.07);
-  transform: translateY(-1px);
-  outline: none;
-}
-.worldCard.is-previewing {
-  border-color: var(--spec-gold);
-}
-.worldCardPreview {
-  height: 132px;
-  border-radius: var(--radius-sm);
-  position: relative;
-  overflow: hidden;
-}
-.worldCardPreview.alpine {
-  background: linear-gradient(180deg, #1c2248 0%, #5a4a78 55%, #e8a078 100%);
-}
-.worldCardPreview.alpine::after {
-  content: '';
-  position: absolute;
-  left: -8%; right: -8%; bottom: 0;
-  height: 58%;
-  background: #4a4068;
-  clip-path: polygon(0 100%, 0 58%, 10% 46%, 22% 30%, 36% 44%, 50% 20%, 64% 38%, 78% 26%, 90% 42%, 100% 54%, 100% 100%);
-}
-/* Trio: the pre-terrain Range at night, its space ridge strung above. */
-.worldCardPreview.trio {
-  background: linear-gradient(180deg, #080e25 0%, #253653 55%, #664853 100%);
-}
-.worldCardPreview.trio::before {
-  content: '';
-  position: absolute;
-  left: 4%; right: 4%; top: 22%;
-  height: 16%;
-  background: rgba(150, 230, 210, 0.5);
-  clip-path: polygon(0 80%, 12% 40%, 24% 60%, 36% 10%, 50% 50%, 62% 20%, 76% 55%, 88% 30%, 100% 70%, 100% 80%, 88% 40%, 76% 65%, 62% 30%, 50% 60%, 36% 20%, 24% 70%, 12% 50%, 0 90%);
-}
-.worldCardPreview.trio::after {
-  content: '';
-  position: absolute;
-  left: -8%; right: -8%; bottom: 0;
-  height: 52%;
-  background: #23354b;
-  clip-path: polygon(0 100%, 0 52%, 12% 38%, 26% 50%, 40% 28%, 54% 46%, 68% 30%, 82% 44%, 100% 36%, 100% 100%);
-}
-.worldCardPreview.is-rendered::after,
-.worldCardPreview.is-rendered::before {
-  display: none;
-}
-.worldCardStill,
-.worldCardLive {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.worldCardStill.hidden,
-.worldCardLive.hidden {
-  display: none;
-}
-.worldCardLive {
-  z-index: 1;
-}
-.worldCardWhy {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 0.8rem;
-  line-height: 1.4;
-  min-height: 2.8em;
-}
-.worldCardActions {
-  display: flex;
-  gap: var(--space-2);
-  margin-top: auto;
-}
-.worldCardActions button {
-  flex: 1;
-  min-height: 44px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font-size: 0.85rem;
-}
-.worldCardPreviewBtn {
-  background: transparent;
-  border: 1px solid var(--border-strong);
-  color: var(--text-secondary);
-}
-.worldCardPlayBtn {
-  background: rgba(255, 215, 106, 0.12);
-  border: 1px solid var(--spec-gold);
-  color: var(--text-primary);
-}
-
-.worldCardTop {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-3);
-}
-.worldCardName {
-  font-size: 1.05rem;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-}
-.worldCardTag {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-  line-height: 1.4;
-}
-@media (max-width: 560px) {
-  .worldSelectInner { padding: var(--space-5) var(--space-4); }
-  .worldSelectGrid { grid-template-columns: 1fr; }
-  .worldCardPreview { height: 160px; }
-}
-
 /* ===================================================================
    MUSIC LIBRARY
    Built on the same tokens as every other surface -- the library is a
@@ -2378,6 +1910,22 @@ html, body {
   text-align: left;
 }
 
+/* #fileInput and #libraryFolderInput stay in the DOM so script can open
+   them (openFilePicker, the folder chooser); they are never shown or tapped
+   directly. */
+.fileInputVisuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* The settings were most of the first screenful and none of them is what
    anyone opened the page to do. Folded away, they stay one click from
    anyone who wants them and stop competing with the music. */
@@ -2415,7 +1963,7 @@ html, body {
 
 /* --- The library panel --- */
 
-/* The same <dialog> reset .worldSelect uses: a dialog is a centred,
+/* A <dialog> reset: a dialog is a centred,
    auto-sized box by default, and this one is a full-screen scrim. */
 .libraryPanel {
   position: fixed;

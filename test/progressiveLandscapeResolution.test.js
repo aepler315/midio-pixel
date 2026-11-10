@@ -111,7 +111,7 @@ test('single-stage playback follows heard rise, shares transition detail and pre
   const seen = [];
   const inner = { rangePresentation: range, draw() { seen.push({ grid: this.pixelPolicy.grid, lod: range.detailHeightPx, single: range.singleStage }); }, dispose() {} };
   const adapter = createPresentingRenderer({ canvas, presentation, rendererFactory: () => inner });
-  const sim = { biomes: manager, heardTimeMs: 0, experience: 'landscape' };
+  const sim = { biomes: manager, heardTimeMs: 0 };
   for (const timeMs of [0, 30000, 90000, 90000, 0]) {
     sim.heardTimeMs = timeMs;
     assert.equal(adapter.draw(sim, 0).presented, true);
@@ -130,9 +130,6 @@ test('single-stage playback follows heard rise, shares transition detail and pre
     assert.equal(adapter.output.grid.width, 320);
     assert.equal(adapter.diagnostics.progressiveDetail.active, false);
   }
-  adapter.setPresentation(presentation); sim.experience = 'trio'; adapter.draw(sim, 0);
-  assert.equal(adapter.output.grid.width, 320);
-  assert.equal(adapter.diagnostics.progressiveDetail.active, false);
   adapter.dispose();
 });
 
@@ -153,7 +150,7 @@ test('quality output resizing preserves a refused native ceiling until the fitte
   let refuse = false;
   const inner = { rangePresentation: range, draw() { manager._awaitingTerrain = refuse && this.pixelPolicy.grid.width > 320; range.resolutionRefused = manager._awaitingTerrain; range.reason = manager._awaitingTerrain ? 'budget: scene target' : null; }, dispose() {} };
   const adapter = createPresentingRenderer({ canvas, presentation, rendererFactory: () => inner });
-  const sim = { biomes: manager, heardTimeMs: 0, experience: 'landscape' };
+  const sim = { biomes: manager, heardTimeMs: 0 };
   assert.equal(adapter.draw(sim, 0).presented, true);
   refuse = true; sim.heardTimeMs = 90000;
   assert.equal(adapter.draw(sim, 0).presented, false);
@@ -176,7 +173,7 @@ test('changing settings restores a fixed raster and Cinematic can use the same p
   const canvas = surface(), range = { enabled: true }, manager = { world: { kind: 'alpine' }, durationMs: 90000, sections: [] };
   const inner = { rangePresentation: range, draw() {}, dispose() {} };
   const adapter = createPresentingRenderer({ canvas, presentation: { ...presentation, cinematicPixel: true, rangePipeline: 'hybrid' }, rendererFactory: () => inner });
-  const sim = { biomes: manager, heardTimeMs: 90000, experience: 'landscape', perf: { level: 2 } };
+  const sim = { biomes: manager, heardTimeMs: 90000, perf: { level: 2 } };
   assert.equal(adapter.draw(sim, 0).presented, true);
   assert.ok(adapter.output.grid.width <= 560 && adapter.output.grid.height <= 315);
   assert.equal(adapter.diagnostics.progressiveDetail.active, true);
@@ -209,7 +206,7 @@ function growingHarness({ width = 1920, height = 1080, residency, draw = () => {
   const inner = { rangePresentation: range, draw() { draw(this, manager, range); }, dispose() {} };
   const adapter = createPresentingRenderer({ canvas, residency,
     presentation: { ...presentation, cinematicPixel: true, rangePipeline: 'hybrid' }, rendererFactory: () => inner });
-  const sim = { biomes: manager, heardTimeMs: 90000, experience: 'landscape', perf: { level: 6,
+  const sim = { biomes: manager, heardTimeMs: 90000, perf: { level: 6,
     forgetRecoveryHistory() { assert.fail('rendering must not reset governor recovery'); } } };
   return { canvas, range, manager, adapter, sim };
 }
@@ -336,7 +333,7 @@ test('a denied quality-floor raster never falls back above the current native ca
   } finally { adapter.dispose(); }
 });
 
-test('native quality caps leave fixed presets, native pipeline, exports and Trio unchanged', () => {
+test('native quality caps leave fixed presets, native pipeline and exports unchanged', () => {
   const { adapter, sim } = growingHarness();
   try {
     for (const fixed of [{ ...presentation, grid: pixelGrid('detailed'), buildPixelDetail: false },
@@ -347,8 +344,6 @@ test('native quality caps leave fixed presets, native pipeline, exports and Trio
     }
     adapter.setPresentation({ ...presentation, rangePipeline: 'hybrid' }); sim.exportMode = true;
     adapter.draw(sim, 0); assert.equal(adapter.output.grid.width, 640, 'offline exports keep their requested quality');
-    sim.exportMode = false; sim.experience = 'trio'; adapter.draw(sim, 0);
-    assert.equal(adapter.diagnostics.progressiveDetail.active, false);
   } finally { adapter.dispose(); }
 });
 
@@ -357,7 +352,7 @@ test('a cold seek with insufficient hybrid canvas memory falls back to Classic i
   const manager = { world: { kind: 'alpine' }, durationMs: 90000, sections: [], drawHighResolutionSky() {} };
   const inner = { rangePresentation: { enabled: true }, draw() {}, dispose() {} };
   const adapter = createPresentingRenderer({ canvas, residency, presentation: { ...presentation, rangePipeline: 'hybrid' }, rendererFactory: () => inner });
-  const sim = { biomes: manager, heardTimeMs: 90000, experience: 'landscape' };
+  const sim = { biomes: manager, heardTimeMs: 90000 };
   assert.equal(adapter.draw(sim, 0).presented, true);
   assert.equal(adapter.output.grid.width, 320);
   assert.equal(adapter.diagnostics.progressiveDetail.reason, 'memory');
@@ -375,7 +370,7 @@ test('a heavier incoming scene can fall below the outgoing scene\'s last useful 
     manager._awaitingTerrain = range.resolutionRefused;
   }, dispose() {} };
   const adapter = createPresentingRenderer({ canvas, presentation, rendererFactory: () => inner });
-  const sim = { biomes: manager, heardTimeMs: 45000, experience: 'landscape' };
+  const sim = { biomes: manager, heardTimeMs: 45000 };
   assert.equal(adapter.draw(sim, 0).presented, true);
   assert.ok(adapter.output.grid.width > 320);
   heavier = true;
@@ -383,4 +378,30 @@ test('a heavier incoming scene can fall below the outgoing scene\'s last useful 
   assert.equal(adapter.draw(sim, 0).presented, true);
   assert.equal(adapter.output.grid.width, 320);
   adapter.dispose();
+});
+
+test('the opening surge takes its detail growth in one step under the opaque title card', async () => {
+  const { RISE_SURGE_START_MS, RISE_SURGE_MS, TITLE_CARD_HOLD_MS } = await import('../src/core/OpeningTimeline.js');
+  const { adapter, sim, manager } = growingHarness();
+  manager.durationMs = 210000;
+  try {
+    sim.perf.level = 0;
+    const surgeEndMs = RISE_SURGE_START_MS + RISE_SURGE_MS, changes = [];
+    let previous = null;
+    for (let t = RISE_SURGE_START_MS - 100; t < surgeEndMs; t += 16) {
+      sim.heardTimeMs = t;
+      assert.equal(adapter.draw(sim, 0).presented, true);
+      if (previous && adapter.output.grid !== previous) changes.push(t);
+      previous = adapter.output.grid;
+    }
+    // On the plain composed rise this walked about 16 rungs during the reveal.
+    assert.equal(changes.length, 1, `grid changes at ${changes.join(', ')} ms`);
+    assert.ok(changes[0] >= RISE_SURGE_START_MS && changes[0] < TITLE_CARD_HOLD_MS, 'the one reallocation happens under the opaque card');
+    const score = landscapeScoreFor(manager), p = plan({ scaling: 'fit' });
+    sim.heardTimeMs = 2500; adapter.draw(sim, 0);
+    assert.equal(adapter.diagnostics.progressiveDetail.rise01, score.at(2500).rise01, 'diagnostics report the frame\'s own rise');
+    sim.heardTimeMs = surgeEndMs; adapter.draw(sim, 0);
+    assert.equal(adapter.output.grid, previous, 'no second step as the surge completes');
+    assert.equal(adapter.diagnostics.progressiveDetail.requestedRung, policy.landscapeResolutionAt(p, score.at(surgeEndMs).rise01).rung);
+  } finally { adapter.dispose(); }
 });

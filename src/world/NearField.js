@@ -36,7 +36,7 @@ const MIN_SCALE = 3.2, MAX_SCALE = 5.2; // vs. ~1 for the baked L4/L5 landmarks
 // The same near-black outline vocabulary MeshDrawer's `outline` option
 // gives the characters (rgba(7,10,20,0.85), drawn UNDER the real color) --
 // so the frontmost occluders read with the same razor-sharp-against-glow
-// silhouette quality the trio already has, instead of a flat, soft-edged
+// silhouette quality the characters had, instead of a flat, soft-edged
 // cutout. Landmark painters build and fill/stroke their own paths
 // internally rather than returning them for a caller to re-stroke, so
 // this reuses them as-is: the same deterministic painter (same seed, so

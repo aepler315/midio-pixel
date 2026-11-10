@@ -237,8 +237,6 @@ async function loadSong(page, file, { lyrics }) {
     }
   }
   await page.locator('#fileInput').setInputFiles(file);
-  // The export page names its world (?experience=), so the song starts
-  // straight in it without the chooser.
   await waitForExportReady(page);
   // Range v2 prepares its real-terrain view asynchronously; an export must
   // not bake legacy frames because the first ones arrived before it.
@@ -249,7 +247,6 @@ async function loadSong(page, file, { lyrics }) {
     height: window.__SMW.exportSize.height,
     seed: window.__SMW.songSeed,
     worldId: window.__SMW.worldId,
-    experience: window.__SMW.experience,
     worldKind: window.__SMW.sim?.biomes?.world?.kind || window.__SMW.worldId,
   }));
   if (!info?.durationMs) throw new Error('The song loaded with no duration.');
@@ -428,7 +425,6 @@ async function main() {
       console.log(`\n${labels[n]}`);
       const entry = new URL(opts.url);
       entry.searchParams.set('bulkExport', '1');
-      entry.searchParams.set('experience', opts.experience);
       entry.searchParams.set('exportW', String(first.width));
       entry.searchParams.set('exportH', String(first.height));
       if (opts.seed != null) entry.searchParams.set('seed', String(opts.seed));
@@ -438,7 +434,7 @@ async function main() {
       const durationMs = opts.maxSeconds != null
         ? Math.min(info.durationMs, opts.maxSeconds * 1000)
         : info.durationMs;
-      const worldLabel = info.experience === 'trio' ? 'Trio' : info.worldKind && info.worldKind !== info.worldId
+      const worldLabel = info.worldKind && info.worldKind !== info.worldId
         ? `${info.worldKind} (${info.worldId})`
         : (info.worldKind || info.worldId);
       console.log(`  world ${worldLabel}   seed ${info.seed}   ${formatSeconds(info.durationMs)}`);

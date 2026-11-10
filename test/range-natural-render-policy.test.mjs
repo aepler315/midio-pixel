@@ -211,7 +211,7 @@ test('a multisampled pre-pass records ownership once; copies correct coverage ex
   const depthMaterial = { name: 'depth' }, owners = { far: { name: 'own-far' }, mid: { name: 'own-mid' }, near: { name: 'own-near' } };
   const meshes = { far: { material: depthMaterial }, mid: { material: depthMaterial }, near: { material: depthMaterial } };
   const p = { view: {}, uniforms: { uNarrativeInk: { value: 0 }, uBackdropAmount: { value: 0 }, uDiag: { value: 0 } },
-    forest: { counts: {} }, actors: { groups: {} }, depthScene: 'depth', depthScenes: { far: 'df', mid: 'dm', near: 'dn' },
+    forest: { counts: {} }, depthScene: 'depth', depthScenes: { far: 'df', mid: 'dm', near: 'dn' },
     scenes: { far: 'far', mid: 'mid', near: 'near' }, depthMaterial, ownershipMaterials: owners, depthBandMeshes: meshes, fringeMeshes: [] };
   const target = { texture: 'target-texture' }, own = { texture: 'own-texture' };
   let current = null;

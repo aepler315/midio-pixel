@@ -177,12 +177,11 @@ test('the sky wireframe cocks forward on a kick and settles back into the tumble
   assert.ok(Math.abs(hit._rotX - idle._rotX) < 1e-9);
 });
 
-test('draw() no longer takes a worldX -- the structure never scrolls with the world', () => {
-  // Regression for "ends 6-7 joints short after a few minutes": the old
+test('drawAurora() takes no worldX -- the structure never scrolls with the world', () => {
+  // Regression for "ends 6-7 joints short after a few minutes": an old
   // draw(ctx, canvas, worldX, ...) translated every sample by worldX*PARALLAX.
-  // The signature itself is now the guarantee -- draw() has no worldX
-  // parameter at all, so nothing can reintroduce that drift.
-  assert.equal(SpaceRidge.prototype.draw.length, 4, 'draw(ctx, canvas, color, tSec, presentation=1) -- no worldX');
+  // The signature itself is the guarantee -- no worldX parameter at all.
+  assert.equal(SpaceRidge.prototype.drawAurora.length, 4, 'drawAurora(ctx, canvas, color, tSec, options) -- no worldX');
 });
 
 test('tidalOffset stays within its amplitude bound across a long time sweep', () => {

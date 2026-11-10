@@ -357,9 +357,7 @@ export class DebugOverlay {
     if (display) {
       lines.push('', '=== DISPLAY ===', `${display.requestedLook} → ${display.effectiveLook}; quality ${display.qualityLevel ?? '?'}`);
       lines.push(`working ${display.working?.width}×${display.working?.height}; output ${display.output?.width}×${display.output?.height}`);
-      lines.push(`palette ${display.paletteStatus?.reason || (display.paletteStatus?.applied ? 'applied' : 'off')}; transform ${(display.paletteCpuMs || 0).toFixed(2)}ms; readback ${(display.readbackCpuMs || 0).toFixed(2)}ms`);
-      lines.push(`palette ${display.requestedPalette} → ${display.effectivePalette}; dither ${display.requestedDitherMode} → ${display.effectiveDitherMode}${display.ditherFallbackReason ? ` (${display.ditherFallbackReason})` : ''}`);
-      lines.push(`writeback ${(display.writebackCpuMs || 0).toFixed(2)}ms; palette total ${(display.paletteTotalCpuMs || 0).toFixed(2)}ms; scratch ${display.ownedPixelScratchBytes || 0} bytes`);
+      lines.push(`scratch ${display.ownedPixelScratchBytes || 0} bytes`);
       lines.push(`grid ${display.requestedGrid || 'none'} → ${display.effectiveGrid?.id || 'none'}; generation ${display.frame?.generation}; policy v${display.pixelPolicyVersion}; presentation CPU ${(display.presentationCpuMs || 0).toFixed(2)}ms`);
     }
     this.pre.textContent = lines.join('\n');

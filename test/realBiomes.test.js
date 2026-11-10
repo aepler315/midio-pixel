@@ -41,11 +41,11 @@ test('real biomes carry what the renderer reads, and a temperature spread over 0
   assert.equal(temps[temps.length - 1], 1);
 });
 
-test('The Range plays in real biomes; the other worlds are still registered', () => {
+test('The Range plays in real biomes, the only registered world', () => {
   const alpine = getWorld('alpine');
   assert.equal(alpine.realBiomes, true);
   assert.equal(alpine.palettes, REAL_BIOMES);
-  assert.ok(listWorlds().length > 1, 'the other worlds keep their source and registry entry');
+  assert.deepEqual(listWorlds().map(w => w.id), ['alpine']);
 });
 
 test('a song gets distinct biomes, the same ones every time', () => {

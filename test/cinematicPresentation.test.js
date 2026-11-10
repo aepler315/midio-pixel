@@ -16,7 +16,9 @@ test('Cinematic Pixel survives storage and export without changing grid or quali
   assert.equal(p.grid.id, 'classicPlus');
   assert.equal(p.quality, 'auto');
   assert.equal(p.paletteId, 'none');
-  assert.deepEqual(parseBulkArgs(['--look', 'cinematic', '--pixel-grid', 'classicPlus', 'song.wav']).presentation, saved);
+  // Exports draw the finished grid: they never build pixel detail (716989a).
+  assert.deepEqual(parseBulkArgs(['--look', 'cinematic', '--pixel-grid', 'classicPlus', 'song.wav']).presentation,
+    { ...saved, buildPixelDetail: false });
   assert.equal(resolvePresentation(DEFAULT_DISPLAY_PREFS).cinematicPixel, undefined);
 });
 

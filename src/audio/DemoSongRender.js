@@ -1,5 +1,5 @@
-// Renders buildDemoSong()'s timeline to PCM. Same notes the sim jumps to,
-// so a peak in the waveform at tMs is the kick Midio leaves the ground on.
+// Renders buildDemoSong()'s timeline to PCM, so a peak in the waveform at
+// tMs is a kick from the score.
 // Deterministic (seeded noise) so tests can pin energy at known onsets.
 import { Role, GM_DRUM } from '../core/NoteEvent.js';
 import { Lane } from '../core/Casting.js';
@@ -142,9 +142,12 @@ function addMelody(mix, start, sr, pitch, vel, durMs, n, lead) {
   }
 }
 
-/** Fill an AudioBuffer (browser) from the PCM render. */
+/** Fill an AudioBuffer (browser) from the PCM render, at the fixed
+ *  DEMO_SAMPLE_RATE rather than the context's: Web Audio resamples a buffer
+ *  on playback and every reader of it uses the buffer's own sampleRate, so a
+ *  96 or 192 kHz device need not render two to four times the samples. */
 export function renderDemoSongToAudioBuffer(ctx, song) {
-  const pcm = renderDemoSongPcm(song, { sampleRate: ctx.sampleRate || DEMO_SAMPLE_RATE, stereo: true });
+  const pcm = renderDemoSongPcm(song, { sampleRate: DEMO_SAMPLE_RATE, stereo: true });
   const buf = ctx.createBuffer(2, pcm.length, pcm.sampleRate);
   buf.getChannelData(0).set(pcm.left);
   buf.getChannelData(1).set(pcm.right);

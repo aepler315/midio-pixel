@@ -98,3 +98,35 @@ test('the sky backdrop survives every quality rung and serves river-only views a
   river.s.prepared.set('lake', { mirrorLevelM: NaN, riverStats: { triangles: 0 }, uniforms: river.uniforms });
   assert.equal(river.s.captureBackdrop(ctx, stage, { qualityLevel: 6, frameId: 9 }), false, 'no water, no copy');
 }));
+
+test('the backdrop copy is skipped while no drawn view has water, and kept for the view that will', () => withCanvas(() => {
+  const { s } = scene();
+  s.prepared.set('dry', { mirrorLevelM: NaN, riverStats: { triangles: 0 }, uniforms: {} });
+  let copies = 0;
+  const counting = { canvas: {}, getTransform: () => ({ a: 1, d: 1, e: 0, f: 0 }) };
+  assert.equal(s.captureBackdrop(counting, stage, mirrored, null, ['lake']), true);
+  const kept = s.backdrop;
+  const draw = kept.ctx.drawImage;
+  kept.ctx.drawImage = (...args) => { copies++; return draw.apply(kept.ctx, args); };
+  assert.equal(s.captureBackdrop(counting, stage, { qualityLevel: 0, frameId: 2 }, null, ['dry']), false, 'nothing drawn reflects it');
+  assert.equal(copies, 0, 'no canvas copy or upload for a dry frame');
+  assert.equal(s.backdrop, kept, 'the allocation survives for the prefetched lake');
+  assert.equal(s.captureBackdrop(counting, stage, { qualityLevel: 0, frameId: 3 }, null, ['dry', 'lake']), true, 'travel into the lake captures again');
+  assert.equal(copies, 1);
+}));
+
+test('a drawn view with painted water but no single mirror level still gets the copy', () => withCanvas(() => {
+  // Water spread over several levels (tarns) has a finite waterLevelM, so the
+  // terrain shader paints it and samples uBackdrop, but mirrorLevelFor finds
+  // no one level to mirror and there is no mapped river geometry.
+  const { s } = scene();
+  s.prepared.set('tarns', { waterLevelM: 1200, mirrorLevelM: NaN, riverStats: { triangles: 0 }, uniforms: {} });
+  let copies = 0;
+  const counting = { canvas: {}, getTransform: () => ({ a: 1, d: 1, e: 0, f: 0 }) };
+  assert.equal(s.captureBackdrop(counting, stage, mirrored, null, ['lake']), true);
+  const kept = s.backdrop;
+  const draw = kept.ctx.drawImage;
+  kept.ctx.drawImage = (...args) => { copies++; return draw.apply(kept.ctx, args); };
+  assert.equal(s.captureBackdrop(counting, stage, { qualityLevel: 0, frameId: 4 }, null, ['tarns']), true, 'painted water reflects the copied sky');
+  assert.equal(copies, 1, 'the frame stamp advances with one copy');
+}));

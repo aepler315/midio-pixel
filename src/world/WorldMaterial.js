@@ -9,8 +9,8 @@
 // world's own light, no moonlight edge on cardboard teeth.
 //
 // Current world landforms are described in docs/worlds.md. This file is the
-// paint and the bake recipe those landforms use. Landscape and Trio are both
-// the alpine kind; an unknown kind reads the alpine recipe.
+// paint and the bake recipe those landforms use. Landscape is the alpine
+// kind; an unknown kind reads the alpine recipe.
 import { clamp01 } from '../utils/math.js';
 import { hexToRgb, rgbToHex, rgbToHsl, hslToRgb, hexLerp } from '../utils/color.js';
 import { shiftLightness, ensureMinLightness } from '../render/VisualStyle.js';

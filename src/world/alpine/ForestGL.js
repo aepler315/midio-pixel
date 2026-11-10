@@ -13,20 +13,18 @@ export { CROWN_GLSL, crownHalfWidth } from './ForestProfile.js';
 // air.
 import { STORM_GLSL } from './RangeStorm.js';
 import { DEFORM_GLSL, gustUniforms } from './TerrainMaterial.js';
-import { GROUND_LIFT_GLSL } from './TerrainDeform.js';
 import { GUST_FRONTS, GUST_SWEEP_SEC } from './Gust.js';
 
 import { MIST_GLSL, mistFlowUniforms } from './RangeAtmosphere.js';
 import { OPENING_COVERAGE_GLSL } from './OpeningCoverage.js';
-import { ACTOR_GLSL, actorUniforms } from './ActorsGL.js';
 import { buildConiferAsset, familyFor, variantFor, FOREST_FAMILIES, FOREST_VARIANTS } from './ForestSpeciesAssets.js';
 import { forestBatchFootprintPx, forestDetailWeight } from './ForestDetail.js';
 import { riseFromUniforms } from './LandRise.js';
-import { WIND_SWAY, GUST_LEAN, PARTING_LEAN, STORM_LEAN, WIND_DIR, WIND_MAX_GAIN, FOREST_MAX_LEAN } from './ForestWind.js';
+import { WIND_SWAY, GUST_LEAN, STORM_LEAN, WIND_DIR, WIND_MAX_GAIN, FOREST_MAX_LEAN } from './ForestWind.js';
 import { setTerrainDrawMode } from './RailDraw.js';
 import { restoreForestCulling } from './ForestCulling.js';
 import { tourForestCount, tourForestBytes, tourUniverse, tourForestIndex, TOUR_KEY_SCALE } from './TourForest.js';
-export { WIND_SWAY, GUST_LEAN, PARTING_LEAN, STORM_LEAN, WIND_DIR, WIND_MAX_GAIN, FOREST_MAX_LEAN };
+export { WIND_SWAY, GUST_LEAN, STORM_LEAN, WIND_DIR, WIND_MAX_GAIN, FOREST_MAX_LEAN };
 
 // Match the terrain canopy's actual-camera handoff, including mirrors.
 // Placement uses the closest point on the entire route, so its 8 km edge
@@ -56,9 +54,6 @@ export const TREE_COMMON = /* glsl */`
   uniform float uGustDir[${GUST_FRONTS}];
   uniform float uForestKeep;
   uniform vec3 uCameraPos;
-  // Broshi passing: xz, radius (m), amount. Crowns lean away and show
-  // their pale sides, as in a gust.
-  uniform vec4 uParting;
   // The score and storm's wind (ForestWind): x sway gain, y downwind lean.
   uniform vec2 uWind;
   in vec3 iPos;
@@ -103,12 +98,8 @@ export const TREE_COMMON = /* glsl */`
     vec2 sway = vec2(s, s * 0.4) * ${WIND_SWAY.toFixed(3)} * uWind.x;
     // The gust leans crowns the way the front travels (camera right in xz).
     vec2 gust = gustAt();
-    vec2 away = iPos.xz - uParting.xy;
-    float dAway = length(away);
-    float part = uParting.w * (1.0 - smoothstep(uParting.z * 0.3, uParting.z, dAway));
-    vGust = max(gust.y, part * 0.8);
+    vGust = gust.y;
     vec2 lean = normalize(vec2(viewMatrix[0][0], viewMatrix[2][0]) + 1e-5) * gust.x * ${GUST_LEAN.toFixed(3)};
-    lean += away / max(dAway, 1.0) * part * ${PARTING_LEAN.toFixed(3)};
     // Downwind along the fixed world wind the clouds drift on, not camera right.
     lean += vec2(${WIND_DIR[0].toFixed(6)}, ${WIND_DIR[1].toFixed(6)}) * uWind.y;
     return (sway + lean) * iSize.x * y01 * y01;
@@ -230,10 +221,8 @@ const SHADE = /* glsl */`
   ${FOREST_DISTANCE_GLSL}
   ${CINEMATIC_LIGHTING_GLSL}
   ${HORIZON_GLSL}
-  // The grid (uGridOrigin/uGridExtent, for the baked horizon) and the drawn
-  // ground's lift the lanterns' light reads the sea at.
+  // The grid (uGridOrigin/uGridExtent, for the baked horizon).
   ${DEFORM_GLSL}
-  ${GROUND_LIFT_GLSL}
   uniform vec3 uLightDir;
   uniform vec3 uLightColor;
   uniform vec3 uSkyZenith;
@@ -255,7 +244,6 @@ const SHADE = /* glsl */`
   in float vGust;
   in float vRiseK; // the rise's vertical stretch where this needle stood
   ${MIST_GLSL}
-  ${ACTOR_GLSL}
   ${STORM_GLSL}
   vec3 tonemap(vec3 x) { return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0); }
   // Crown self-occlusion of the fragment being shaded (1 = open).
@@ -293,7 +281,6 @@ const SHADE = /* glsl */`
     if (uCinematic.x > .5) {
       lit = base * (hemi * (0.55 + 0.45 * core) * gTreeOcc + cinematicKey(uLightColor) * key * mix(.6, 1.0, gTreeOcc) * receiverShadow);
     }
-    lit += base * actorLight(world, n) * receiverShadow;
     // As the storm breaks, the same sunlit swathes as the ground beneath.
     lit += base * uLightColor * key * uStorm.z * opening * 0.85;
     // Thin crown edges transmit a solar backlight. Both real conifers and
@@ -606,7 +593,7 @@ export function createForest(THREE, placed, uniforms, { partitioned = true, fore
     uReceiverFillMin: uniforms.uReceiverFillMin || { value: 0 },
     uViewProj: uniforms.uViewProj || { value: new THREE.Matrix4() },
     uViewportPx: uniforms.uViewportPx || { value: new THREE.Vector2(1, 1) },
-    ...(uniforms.uGustAge ? {} : gustUniforms()), ...(uniforms.uActorPos ? {} : actorUniforms(THREE)) };
+    ...(uniforms.uGustAge ? {} : gustUniforms()) };
   // The six forest materials over one pair of vertex shaders: created in
   // this order (their ids order the opaque sort), with these defines,
   // blending and depth state.

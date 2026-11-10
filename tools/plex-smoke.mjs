@@ -67,7 +67,7 @@ try {
     if (!staged) await page.route('**/src/config/plex.json', route => route.fulfill({ json: { version: 1, apiBase: enabled ? apiBase : '' } }));
     // Startup draws the title scene, which can stall on CI's software GPU
     // like screenshots do; it gets the same rendering budget.
-    await page.goto(app.url + '/?seed=315&quality=0&experience=landscape', { timeout: 120000 });
+    await page.goto(app.url + '/?seed=315&quality=0', { timeout: 120000 });
     await page.waitForFunction(() => !!window.__SMW, null, { timeout: 120000 });
     await page.evaluate(async () => { window.__plexFingerprint = (await import('/src/audio/SongFingerprint.js')).fingerprintBuffer; });
     if (enabled) await page.locator('#plexOpenBtn:not(.hidden)').waitFor({ timeout: 120000 });
@@ -97,7 +97,8 @@ try {
         && (id == null ? !s.sourceTrack : s.sourceTrack?.id.endsWith(':' + id))
         && (!title || s.trackIdentity?.title === title);
       if (!ready) return false;
-      const started = { ctxState: s.audioEngine.ctx.state, mutedTimeline: s.muteTimelineSynth };
+      const started = { ctxState: s.audioEngine.ctx.state,
+        originalBuffer: !!s.audioBuffer && s.audioEngine.sourceNode?.buffer === s.audioBuffer };
       // Hold the short fixture while browser RPCs or shader preparation run.
       // Use application pause so its render loop also stops between assertions.
       if (freeze) document.getElementById('pauseBtn').click();
@@ -225,7 +226,7 @@ try {
     check('download cancellation is recoverable', await page.locator('.plexDownload').textContent() === 'Load cancelled.');
     await page.locator('.plexItem[data-rating-key="31"]').focus(); await page.keyboard.press('Enter');
     const started = await waitPlaying({ id: '31' });
-    check('keyboard track activation unlocks and plays original recording', started.ctxState === 'running' && started.mutedTimeline);
+    check('keyboard track activation unlocks and plays original recording', started.ctxState === 'running' && started.originalBuffer);
     const advanced = await advancePlayback();
     check('decoded recording audio clock advances in normal Alpine playback', advanced.world === 'alpine');
   }

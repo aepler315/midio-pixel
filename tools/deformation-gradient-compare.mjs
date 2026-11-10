@@ -79,8 +79,7 @@ export function assertGradientFrameMatch(a, b) {
     assert.notEqual(a[key], undefined, `missing ${key}`);
     assert.deepEqual(a[key], b[key], `different ${key}`);
   }
-  for (const key of ['requestedLook', 'effectiveLook', 'effectiveGrid', 'pixelScale', 'effectivePalette',
-    'effectiveDitherMode', 'output', 'working', 'qualityLevel']) {
+  for (const key of ['requestedLook', 'effectiveLook', 'effectiveGrid', 'pixelScale', 'output', 'working', 'qualityLevel']) {
     assert.notEqual(a.presentation?.[key], undefined, `missing presentation.${key}`);
     assert.deepEqual(a.presentation[key], b.presentation?.[key], `different presentation.${key}`);
   }

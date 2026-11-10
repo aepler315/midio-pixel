@@ -20,8 +20,8 @@ test('main runtime changes are retained unless explicitly reviewed as UI-only', 
 test('excludes pre-application history and permits only regular public paths', () => {
   const result = groupHistory([{ sha: '0'.repeat(40), files: {}, subject: 'README' }, rev(1)]);
   assert.equal(result.entries.length, 1); assert.equal(result.audit[0].reason, 'no-runnable-app');
-  for (const p of ['index.html', 'src/main.js', 'soundfonts/a.sf2']) assert.equal(isPublicPath(p), true);
-  for (const p of ['src/../private', 'src/.secret', '/src/main.js', 'src\\main.js', 'tools/key.js']) assert.equal(isPublicPath(p), false);
+  for (const p of ['index.html', 'src/main.js', 'src/assets/a.bin']) assert.equal(isPublicPath(p), true);
+  for (const p of ['src/../private', 'src/.secret', '/src/main.js', 'src\\main.js', 'tools/key.js', 'soundfonts/a.sf2']) assert.equal(isPublicPath(p), false);
 });
 
 test('complete staging stores shared bytes once and records every revision', async t => {
@@ -31,8 +31,8 @@ test('complete staging stores shared bytes once and records every revision', asy
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'midio-history-test-'));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   const repo = path.join(dir, 'repo'), out = path.join(dir, 'site');
-  await fs.mkdir(path.join(repo, 'src/ui'), { recursive: true }); await fs.mkdir(path.join(repo, 'src/render'), { recursive: true }); await fs.mkdir(path.join(repo, 'soundfonts'));
-  for (const [name, body] of Object.entries({ 'index.html': '<html><head></head><body></body></html>', CNAME: 'example.test', 'src/main.js': 'export const boot = true;', 'src/render/World.js': 'old', 'src/ui/history-shell.html': '<html>picker</html>', 'src/ui/history-worker.js': '/* worker */', 'soundfonts/test.bin': 'large shared bytes', 'private.txt': 'never publish' })) await fs.writeFile(path.join(repo, name), body);
+  await fs.mkdir(path.join(repo, 'src/ui'), { recursive: true }); await fs.mkdir(path.join(repo, 'src/render'), { recursive: true }); await fs.mkdir(path.join(repo, 'src/assets'), { recursive: true }); await fs.mkdir(path.join(repo, 'soundfonts'));
+  for (const [name, body] of Object.entries({ 'index.html': '<html><head></head><body></body></html>', CNAME: 'example.test', 'src/main.js': 'export const boot = true;', 'src/render/World.js': 'old', 'src/ui/history-shell.html': '<html>picker</html>', 'src/ui/history-worker.js': '/* worker */', 'src/assets/test.bin': 'large shared bytes', 'soundfonts/README.md': 'old font folder', 'private.txt': 'never publish' })) await fs.writeFile(path.join(repo, name), body);
   const git = (...args) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' }).trim();
   git('init', '-q');
   const commit = title => { git('add', '.'); git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-qm', title); return git('rev-parse', 'HEAD'); };
@@ -44,8 +44,10 @@ test('complete staging stores shared bytes once and records every revision', asy
   const manifest = JSON.parse(await fs.readFile(path.join(out, 'versions/manifest.json'), 'utf8'));
   assert.equal(manifest.entries[1].visualSha, second); assert.equal(manifest.entries[1].sourceSha, newest);
   const maps = await Promise.all(manifest.entries.filter(e => !e.live).map(async e => JSON.parse(await fs.readFile(path.join(out, 'versions/maps', e.id + '.json'), 'utf8'))));
-  assert.equal(maps[0]['soundfonts/test.bin'], maps[1]['soundfonts/test.bin']);
-  const hash = maps[0]['soundfonts/test.bin']; assert.equal(await fs.readFile(path.join(out, 'versions/objects', hash), 'utf8'), 'large shared bytes');
+  assert.equal(maps[0]['src/assets/test.bin'], maps[1]['src/assets/test.bin']);
+  const hash = maps[0]['src/assets/test.bin']; assert.equal(await fs.readFile(path.join(out, 'versions/objects', hash), 'utf8'), 'large shared bytes');
+  // An old commit's tracked soundfonts/ folder is no longer published.
+  assert.ok(maps.every(m => !Object.keys(m).some(p => p.startsWith('soundfonts/'))));
   assert.ok(report.uniqueObjects < maps.reduce((n, m) => n + Object.keys(m).length, 0));
   await assert.rejects(fs.access(path.join(out, 'private.txt')));
   assert.equal(report.audit.length, 4);

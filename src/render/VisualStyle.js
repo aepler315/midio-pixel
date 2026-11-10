@@ -47,7 +47,7 @@ export function styleDials(_style) {
     // Characters — wireframe + glow. The world is a dense painterly stack
     // (haze, ocean, mountains, particles); strokes that look fine in
     // isolation vanish into it. These sit just above the previous 1.8/2.7
-    // so the trio reads as figures on the ground, not scratches on it.
+    // so figures read as figures on the ground, not scratches on it.
     glowHaloMul: 0.95,
     rimAmount: 0.95,
     widthBase: 2.2,

@@ -17,8 +17,7 @@ export function persistRailPace(value, { href, storage = null, replace = () => {
   return url;
 }
 
-export function railPaceControlState({ experience = 'landscape', tourMode = null, policy = 'rail' } = {}) {
-  if (experience === 'trio') return { disabled: true, text: 'Available in Landscape' };
+export function railPaceControlState({ tourMode = null, policy = 'rail' } = {}) {
   if (tourMode || policy === 'tour') return { disabled: false, text: 'Camera tours use music timing. Pace is saved for ordinary landscapes or replay.' };
   if (policy === 'glacier') return { disabled: false, text: 'Glacier uses its authored timing. Pace is saved for ordinary landscapes or replay.' };
   return { disabled: false, text: 'Applies to the next unplayed landscape or replay.' };

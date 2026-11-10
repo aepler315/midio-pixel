@@ -40,7 +40,7 @@ function makeRepo() {
   git('commit', '--quiet', '--allow-empty',
     '-m', 'Merge pull request #9 from someone/some-branch', '-m', 'Teach the ridge to dance');
 
-  // Present on disk, never committed: what a user-dropped SoundFont looks like.
+  // Present on disk, never committed: what a user-dropped SoundFont looked like.
   writeFileSync(join(repo, 'soundfonts/local.sf2'), 'RIFF');
   return repo;
 }
@@ -110,9 +110,10 @@ test('archive serves each commit from its own origin with working navigation', a
   assert.match(empty.body, /nothing to run/);
   assert.match(empty.body, /__archive\/nav\.js/);
 
-  // Gitignored SoundFonts come from disk; nothing else on disk does.
-  assert.equal((await get(port, first, '/soundfonts/')).body, '["local.sf2"]');
-  assert.equal((await get(port, first, '/soundfonts/local.sf2')).body, 'RIFF');
+  // Only committed files are served. Nothing comes from disk, including the
+  // SoundFont listing and gitignored fonts older versions used to ask for.
+  assert.equal((await get(port, first, '/soundfonts/')).status, 404);
+  assert.equal((await get(port, first, '/soundfonts/local.sf2')).status, 404);
   assert.equal((await get(port, first, '/soundfonts/README.md')).body, 'drop fonts here\n');
   assert.equal((await get(port, readme, '/Readme.md')).status, 200);
   assert.equal((await get(port, first, '/src/missing.js')).status, 404);

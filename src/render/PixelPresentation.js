@@ -1,8 +1,6 @@
 import { CinematicPixelRenderer } from './CinematicPixel.js';
-import { applyPalette, compilePalette } from './PaletteQuantize.js';
 import { sharedResidency } from './GraphicsResidency.js';
 import { pixelGrid, isRuntimePixelGrid, PIXEL_POLICY_VERSION } from './PixelRenderPolicy.js';
-import { PALETTES, resolvePaletteId } from './PaletteCatalog.js';
 
 export function fitPixelRect(srcW, srcH, dstW, dstH, scaling = 'fit', origin = { x: 0, y: 0 }) {
   if (!(srcW > 0 && srcH > 0 && dstW > 0 && dstH > 0)) return { x: 0, y: 0, width: 0, height: 0, scale: 0 };
@@ -22,8 +20,9 @@ export function fitPixelRect(srcW, srcH, dstW, dstH, scaling = 'fit', origin = {
 
 /** Recompose at the destination resolution: smooth sky, the native frame
  * (nearest, unless `foreground` -- the cinematic cell reconstruction --
- * draws it and returns true), then an optional water layer and smooth added
- * cast light. Recording must not resample the already combined picture.
+ * draws it and returns true), then an optional water layer and an optional
+ * smooth additive `overlay` (no current caller supplies one). Recording must
+ * not resample the already combined picture.
  * `terrain(ctx, fit, draw, source)` may draw the native frame itself
  * (`draw()`) through a clip, over the smooth sky only (the Landscape crest's
  * skyline cut, RangeCrest.drawTerrain, which also reads `source` to carry
@@ -84,16 +83,11 @@ export class PixelPresentation {
     this.canvas = canvas;
     this.residency = residency;
     this.key = `pixel-presentation:${++nextOwner}`;
-    this.maskKey = `${this.key}:dither`;
-    this.ditherWeights = null;
     this.working = null;
     this._workingReadFrequently = undefined;
     this.generation = 0;
     this.frameId = 0;
     this.failures = 0;
-    this._securityGeneration = null;
-    this._maskDeniedGeneration = null;
-    this._ditherFallbackReason = null;
     this._disposed = false;
     this.setPresentation(presentation);
   }
@@ -103,44 +97,32 @@ export class PixelPresentation {
     this._capture = null;
   }
   setPresentation(presentation = {}) {
-    // Trio draws the complete scene at output resolution. Unscoped stale
-    // Natural overrides still use Landscape's bounded pixel presentation.
-    const smooth = presentation.experience === 'trio';
-    presentation = { ...presentation, pixelated: !smooth, grid: pixelGrid(presentation.grid?.id),
-      paletteId: smooth || presentation.pixelated === false ? 'none' : presentation.paletteId || 'none',
-      pixelScale: 'original', ...(smooth ? { cinematicPixel: false, buildPixelDetail: false, scaling: 'fit' } : {}) };
+    // Stale Natural overrides still use Landscape's bounded pixel presentation.
+    presentation = { ...presentation, pixelated: true, grid: pixelGrid(presentation.grid?.id), pixelScale: 'original' };
     this._invalidateCapture();
     if (JSON.stringify(presentation) === JSON.stringify(this.presentation)) return;
     this._deniedFrameGrids = new Set();
     this.presentation = { ...presentation };
     if (!presentation.cinematicPixel) this.cinematic?.suspend();
     this.grid = presentation.grid;
-    this._preparePalette();
     this.generation++;
-    this._securityGeneration = null;
-    this._maskDeniedGeneration = null;
-    this._ditherFallbackReason = null;
-    this.diagnostics = { requestedLook: smooth ? 'smooth' : presentation.cinematicPixel ? 'cinematic' : presentation.paletteId === 'none' ? 'pixel' : 'palette',
-      effectiveLook: smooth ? 'smooth' : 'pixel', paletteStatus: { applied: false, reason: null, pixels: 0 }, paletteCpuMs: 0, readbackCpuMs: 0,
-      requestedGrid: this.grid.id, effectiveGrid: smooth ? null : this.grid, pixelScale: presentation.pixelScale, pixelPolicyVersion: PIXEL_POLICY_VERSION,
-      requestedPalette: presentation.paletteId || 'none', resolvedPalette: this._resolvedPaletteId, effectivePalette: 'none',
-      requestedDitherMode: presentation.ditherMode || 'ordered', effectiveDitherMode: 'ordered', ditherFallbackReason: null,
+    this.diagnostics = { requestedLook: presentation.cinematicPixel ? 'cinematic' : 'pixel', effectiveLook: 'pixel',
+      requestedGrid: this.grid.id, effectiveGrid: this.grid, pixelScale: presentation.pixelScale, pixelPolicyVersion: PIXEL_POLICY_VERSION,
       frame: { presented: false, generation: this.generation, reason: 'not-rendered' } };
-    if (this.working && (smooth || this.working.width !== this.grid.width || this.working.height !== this.grid.height)) this._releaseWorking();
-    if (!this._needsDitherWeights() || this.ditherWeights && this.ditherWeights.length !== this.grid.pixels) this._releaseDitherWeights();
+    if (this.working && (this.working.width !== this.grid.width || this.working.height !== this.grid.height)) this._releaseWorking();
   }
   /** Admit a renderer-owned raster before releasing the useful old one.
    * Fixed/saved presentation stays unchanged. A refused rung is not retried
    * each frame; a new layout or presentation may explicitly reset admission. */
   resetFrameGridAdmission() { this._deniedFrameGrids = new Set(); }
-  _workingContextHint() { return this.presentation.cinematicPixel && this._resolvedPaletteId === 'none' ? false : undefined; }
+  _workingContextHint() { return this.presentation.cinematicPixel ? false : undefined; }
   setFrameGrid(requested = null) {
-    const grid = isRuntimePixelGrid(requested) && !this.compiledPalette ? requested : this.presentation.grid;
+    const grid = isRuntimePixelGrid(requested) ? requested : this.presentation.grid;
     if (this.grid === grid) { this.diagnostics.frameGridReason = null; return true; }
     if (!isRuntimePixelGrid(grid) || this.working && grid.pixels <= this.grid.pixels) {
       // Fixed modes and quality reductions must be able to shed storage even
       // when there is no room to hold both old and new rasters at once.
-      this._releaseWorking(); this._releaseDitherWeights();
+      this._releaseWorking();
       this.grid = grid; this.generation++;
       this.diagnostics.effectiveGrid = grid; this.diagnostics.frameGridReason = null;
       return true;
@@ -174,48 +156,12 @@ export class PixelPresentation {
     this._invalidateCapture();
     if (next) { this.residency.release(this.key); this.key = nextKey; this.working = next; this._workingReadFrequently = readFrequently; }
     this.grid = grid; this.generation++;
-    this._releaseDitherWeights();
     this.diagnostics.effectiveGrid = grid;
     this.diagnostics.frameGridReason = null;
     return true;
   }
-  _preparePalette() {
-    this._resolvedPaletteId = resolvePaletteId(this.presentation.paletteId, this.worldKind, this.experience);
-    const colors = PALETTES[this._resolvedPaletteId]?.colors;
-    this.compiledPalette = colors ? compilePalette(colors) : null;
-  }
-  setFrameContext({ worldKind = null, experience = null } = {}) {
-    if (worldKind === this.worldKind && experience === this.experience) return;
-    this.worldKind = worldKind; this.experience = experience;
-    const next = resolvePaletteId(this.presentation.paletteId, worldKind, experience);
-    if (next === this._resolvedPaletteId) return;
-    this._invalidateCapture();
-    this.generation++; this._securityGeneration = null;
-    this._maskDeniedGeneration = null; this._ditherFallbackReason = null;
-    this._preparePalette();
-    if (!this._needsDitherWeights()) this._releaseDitherWeights();
-    this.diagnostics.resolvedPalette = next;
-    this.diagnostics.frame = { presented: false, generation: this.generation, reason: 'context-changed' };
-  }
-  _needsDitherWeights() { return !!this.compiledPalette && this.presentation.ditherMode === 'selective' && this.presentation.dither > 0; }
-  _releaseDitherWeights() { this.residency.release(this.maskKey); this.ditherWeights = null; }
-  _ensureDitherWeights() {
-    if (!this._needsDitherWeights()) return;
-    if (this.ditherWeights && this.residency.get(this.maskKey) !== this.ditherWeights) this._releaseDitherWeights();
-    if (this.ditherWeights || this._maskDeniedGeneration === this.generation) return;
-    const reservation = this.residency.reserve({ key: this.maskKey, bytes: this.grid.pixels, owner: 'pixel-dither', evictable: false });
-    let reason = 'allocation-denied';
-    if (reservation) {
-      try {
-        const weights = new Uint8Array(this.grid.pixels);
-        if (this.residency.commit(reservation, weights, data => data.fill(0))) { this.ditherWeights = weights; this._ditherFallbackReason = null; return; }
-        reason = 'reservation-commit';
-      } catch { reason = 'mask-unavailable'; }
-      this.residency.releaseReservation(reservation);
-    }
-    this._maskDeniedGeneration = this.generation;
-    this._ditherFallbackReason = reason;
-  }
+  /** The world being presented; kept on captures for their metadata. */
+  setFrameContext({ worldKind = null } = {}) { this.worldKind = worldKind; }
   _releaseWorking() {
     this._invalidateCapture();
     this.residency.release(this.key);
@@ -236,7 +182,7 @@ export class PixelPresentation {
     const { canvas } = this;
     if (this._outputSize !== `${canvas.width}x${canvas.height}`) {
       this._outputSize = `${canvas.width}x${canvas.height}`;
-      this.generation++; this._securityGeneration = null;
+      this.generation++;
     }
     this.diagnostics.output = { width: canvas.width, height: canvas.height };
     this.diagnostics.frame = { presented: false, generation: this.generation, reason: 'in-progress' };
@@ -253,21 +199,20 @@ export class PixelPresentation {
       } else {
         const readFrequently = this._workingContextHint();
         // A released buffer is not usable even if a JS reference survives.
-        // Context hints only apply on first creation; a same-grid look or
-        // resolved-palette change therefore needs a fresh native canvas.
+        // Context hints only apply on first creation; a same-grid change of
+        // hint therefore needs a fresh native canvas.
         if (this.working && (this.residency.get(this.key) !== this.working || this.working.width !== grid.width || this.working.height !== grid.height
           || this._workingReadFrequently !== readFrequently)) this._releaseWorking();
         if (!this.working) {
           const reservation = this.residency.reserve({ key: this.key, bytes: grid.pixels * 4, owner: 'pixel-presentation', evictable: false });
           if (!reservation) {
-            this.diagnostics.paletteStatus = { applied: false, reason: 'unavailable', pixels: 0 };
             this.failFrame('allocation-denied'); return null;
           }
           const buffer = (canvas.ownerDocument || globalThis.document).createElement('canvas');
           uncommitted = buffer;
           buffer.width = grid.width; buffer.height = grid.height;
           // Keep Cinematic's copy/upload raster GPU-backed after crest
-          // samples; CPU Palette/Pixel paths retain their default policy.
+          // samples.
           if (!buffer.getContext('2d', readFrequently === false ? { willReadFrequently: false } : undefined)) throw Error('Working context unavailable');
           if (!this.residency.commit(reservation, buffer, c => { c.width = 0; c.height = 0; })) {
             buffer.width = 0; buffer.height = 0; uncommitted = null;
@@ -283,7 +228,6 @@ export class PixelPresentation {
       const ctx = this.source.getContext('2d');
       if (!ctx || ctx.isContextLost?.()) throw Error('Source context unavailable');
       ctx.imageSmoothingEnabled = !this.presentation.pixelated;
-      this._ensureDitherWeights();
       this.diagnostics.working = { width: this.source.width, height: this.source.height };
       this._pending = { generation: this.generation, outputSize: this._outputSize };
       this._beginCpuMs = performance.now() - started;
@@ -291,7 +235,6 @@ export class PixelPresentation {
     } catch {
       if (uncommitted) { uncommitted.width = 0; uncommitted.height = 0; }
       this._releaseWorking();
-      this.diagnostics.paletteStatus = { applied: false, reason: 'unavailable', pixels: 0 };
       this.failFrame('source-unavailable'); return null;
     }
   }
@@ -335,14 +278,13 @@ export class PixelPresentation {
     const applied = this.cinematic.draw(ctx, source, fit);
     this.diagnostics[diagnostic] = { applied, reason: this.cinematic.reason, bytes: this.cinematic.bytes, strength: applied ? this.cinematic.strength : null };
     if (capture) this.diagnostics.ownedPixelScratchBytes = (this.working ? this.grid.pixels * 4 : 0)
-      + (this.ditherWeights?.byteLength || 0) + this.cinematic.bytes + (this.diagnostics.pixelEffectScratchBytes || 0);
+      + this.cinematic.bytes + (this.diagnostics.pixelEffectScratchBytes || 0);
     return applied;
   }
-  /** `water` is source-over; `overlay` is smooth added cast light. `prepare`
-   * edits the native grid before palette quantization and `finish` runs
-   * after it (with the palette's own texel quantizer); `crest` and `shore`
-   * draw at output resolution after the terrain and after the water. */
-  finishFrame({ background = null, overlay = null, water = null, effects = null, prepare = null, finish = null, crest = null, shore = null, terrain = null } = {}) {
+  /** `water` is source-over. `prepare` edits the native grid before it is
+   * composited; `crest` and `shore` draw at output resolution after the
+   * terrain and after the water. */
+  finishFrame({ background = null, water = null, effects = null, prepare = null, crest = null, shore = null, terrain = null } = {}) {
     const started = performance.now();
     if (!this.source || !this._pending || this._disposed) {
       return this.diagnostics.frame?.presented === false ? this.diagnostics.frame : this.failFrame('not-rendered');
@@ -351,7 +293,6 @@ export class PixelPresentation {
     if (pending.generation !== this.generation || pending.outputSize !== `${this.canvas.width}x${this.canvas.height}`
       || source === this.working && this.residency.get(this.key) !== source) return this.failFrame('stale-frame');
     this.diagnostics.hybridSky = false;
-    this.diagnostics.castForeground = false;
     this.diagnostics.waterForeground = false;
     this.diagnostics.smoothEffects = false;
     this.diagnostics.crestForeground = false;
@@ -362,37 +303,17 @@ export class PixelPresentation {
       const sourceContext = source.getContext('2d'), outputContext = this.canvas.getContext('2d');
       if (!sourceContext || sourceContext.isContextLost?.() || !outputContext || outputContext.isContextLost?.()) return this.failFrame('context-lost');
       this.diagnostics.effectiveLook = !p.pixelated ? 'smooth' : p.cinematicPixel ? 'cinematic' : 'pixel';
-      let status = { applied: false, reason: null, pixels: 0 };
       // Grid edits need the separate composite that draws their other half.
-      let prepared = !prepare || source === this.canvas;
-      const prepareFrame = prepare && !prepared ? (args) => { prepared = true; prepare(args); } : null;
-      if (this._resolvedPaletteId !== 'none') {
-        if (this._securityGeneration === this.generation) status = { applied: false, reason: 'security', pixels: source.width * source.height };
-        else status = applyPalette(source.getContext('2d'), source, { paletteId: this._resolvedPaletteId, dither: p.dither, compiled: this.compiledPalette,
-          ditherMode: p.ditherMode, weights: this.ditherWeights, grid: this.grid, prepare: prepareFrame, finish: prepareFrame ? finish : null });
-        if (status.reason === 'security') this._securityGeneration = this.generation;
-        if (status.applied) this.diagnostics.effectiveLook = 'palette';
-      }
-      if (!prepared && status.reason !== 'security') { prepared = true; prepare({ ctx: sourceContext, canvas: source }); }
-      this.diagnostics.paletteStatus = status;
-      this.diagnostics.effectivePalette = status.applied ? this._resolvedPaletteId : 'none';
-      this.diagnostics.effectiveDitherMode = status.ditherMode || 'ordered';
-      this.diagnostics.ditherFallbackReason = this._ditherFallbackReason || (this._resolvedPaletteId === 'rgb332' && p.ditherMode === 'selective' ? 'legacy-rgb332' : null);
-      this.diagnostics.paletteCpuMs = status.transformMs ?? status.cpuMs ?? 0;
-      this.diagnostics.readbackCpuMs = status.readbackMs || 0;
-      this.diagnostics.writebackCpuMs = status.writebackMs || 0;
-      this.diagnostics.maskCpuMs = status.maskMs || 0;
-      this.diagnostics.paletteTotalCpuMs = status.totalMs || 0;
-      this.diagnostics.ownedPixelScratchBytes = (this.working ? this.grid.pixels * 4 : 0) + (this.ditherWeights ? this.ditherWeights.byteLength : 0);
+      if (prepare && source !== this.canvas) prepare({ ctx: sourceContext, canvas: source });
+      this.diagnostics.ownedPixelScratchBytes = this.working ? this.grid.pixels * 4 : 0;
       if (source !== this.canvas) {
         const ctx = this.canvas.getContext('2d');
         if (!ctx) return this.failFrame('output-context');
         const composite = compositePixelFrame(ctx, source, this.canvas.width, this.canvas.height, p.scaling, background, null,
-          p.cinematicPixel ? (ctx, fit) => this.drawForeground(ctx, source, fit) : null, overlay, water, effects, crest, shore, terrain);
+          p.cinematicPixel ? (ctx, fit) => this.drawForeground(ctx, source, fit) : null, null, water, effects, crest, shore, terrain);
         if (effects && !composite.effects) return this.failFrame('effects-layer-failed');
         const { fit, hybridSky } = composite;
         this.diagnostics.hybridSky = hybridSky;
-        this.diagnostics.castForeground = composite.overlay;
         this.diagnostics.waterForeground = composite.water;
         this.diagnostics.smoothEffects = composite.effects;
         this.diagnostics.crestForeground = composite.crest;
@@ -406,8 +327,7 @@ export class PixelPresentation {
       this.diagnostics.frame = result;
       this.diagnostics.presentationCpuMs = (this._beginCpuMs || 0) + performance.now() - started;
       this._capture = { ...result, canvas: source, pixelated: p.pixelated, scaling: p.scaling, pixelScale: p.pixelScale,
-        grid: p.pixelated ? this.grid : null, paletteId: this.diagnostics.effectivePalette, worldKind: this.worldKind ?? null, experience: this.experience ?? null,
-        ditherMode: this.diagnostics.effectiveDitherMode, pixelPolicyVersion: PIXEL_POLICY_VERSION,
+        grid: p.pixelated ? this.grid : null, worldKind: this.worldKind ?? null, pixelPolicyVersion: PIXEL_POLICY_VERSION,
         width: source.width, height: source.height, outputSize: pending.outputSize };
       return result;
     } catch { return this.failFrame('presentation-failed'); }
@@ -425,7 +345,7 @@ export class PixelPresentation {
   }
   dispose() {
     if (this._disposed) return;
-    this._disposed = true; this.cinematic?.dispose(); this.cinematic = null; this._releaseWorking(); this._releaseDitherWeights();
+    this._disposed = true; this.cinematic?.dispose(); this.cinematic = null; this._releaseWorking();
     this.diagnostics.ownedPixelScratchBytes = 0;
     this.diagnostics.frame = { presented: false, generation: this.generation, reason: 'disposed' };
   }

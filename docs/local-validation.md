@@ -52,13 +52,13 @@ npm run test:smoke -- http://127.0.0.1:8090
 npm run test:routes -- --site-root _site --out .smoke/current-routes
 ```
 
-`test:smoke` retains gallery/legacy coverage. `test:routes` starts its own
+`test:smoke` retains legacy-renderer upload coverage. `test:routes` starts its own
 isolated frozen server from staged `index.html` and `src/`; it needs no running
-server and exercises ordinary Landscape v2, selected and persisted Tetons, and
-Trio upload/play. Its report preserves source/audio identities, actual route,
+server and exercises ordinary Landscape v2 and selected and persisted Tetons.
+Its report preserves source/audio identities, actual route,
 decoded audio and completed-frame evidence, and browser diagnostics with
-severity and phase. A passing suite result requires every route to pass. Optional
-soundfont discovery is empty. Pass `--audio PATH` for a recording; the default is generated audio.
+severity and phase. A passing suite result requires every route to pass.
+Pass `--audio PATH` for a recording; the default is generated audio.
 Use a new output directory for each run. Browser checks are headless. Retain
 logs and captures outside Git.
 
@@ -84,8 +84,8 @@ npm run test:routes -- --hardware-gpu --gpu-match "RTX 3060" \
 It launches with `--mute-audio --enable-gpu --ignore-gpu-blocklist`, records
 the actual renderer of every sample, and fails if the renderer is SwiftShader,
 llvmpipe/softpipe, Windows WARP or unverifiable, or (with `--gpu-match`) a
-different GPU. Trio has no WebGL context of its own, so a probe context read
-before and after the routes also has to pass. From WSL the command runs native
+different GPU. A probe context read before and after the routes also has to
+pass. From WSL the command runs native
 Windows Node (`MIDIO_WINDOWS_NODE`) with the WSL-installed Playwright and needs
 a Windows Chromium (`--browser` or `MIDIO_WINDOWS_CHROME`). Windows Git cannot
 read a WSL worktree, so the report records the checkout identity as unavailable

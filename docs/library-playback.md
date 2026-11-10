@@ -3,8 +3,8 @@
 The title screen has two saved preferences beside Random song:
 
 - **Continuous play** starts the next library song after the current finale and
-  a five-second countdown. It starts off. The next song keeps Landscape or Trio
-  and the selected display settings, without reopening the world chooser.
+  a five-second countdown. It starts off. The next song keeps the selected
+  display settings and starts in Landscape like every song.
 - **Shuffle** starts on. It draws each available library track before repeating
   a cycle and avoids an immediate repeat when another track is available. With
   Shuffle off, songs follow title order, using the library's path tiebreaker,
@@ -16,8 +16,8 @@ the sequence. With no library, completion explains that songs must be added.
 Files dropped together retain their existing meaning as stems of one song.
 
 **Random song** on the Complete screen picks another library track immediately.
-It preserves the current experience. The title-screen Random song keeps the
-ordinary initial world chooser. Both buttons open folder selection when the
+The title-screen Random song starts its pick the ordinary way, straight in
+Landscape. Both buttons open folder selection when the
 library is empty; automatic playback never opens a permission prompt.
 
 **Cancel next song** stops the pending handoff while leaving Continuous play

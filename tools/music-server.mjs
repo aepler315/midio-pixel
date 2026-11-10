@@ -71,9 +71,8 @@ const MIME = {
   '.aiff': 'audio/aiff',
   '.wma': 'audio/x-ms-wma',
 };
-// No .mid/.midi: the page's URL loader sends everything to decodeAudioData
-// and has no MIDI ingest path, so listing one would advertise a song that
-// cannot play. See the note in src/net/UrlAudioSource.js.
+// No .mid/.midi: the page plays recordings only (everything goes to
+// decodeAudioData), so listing one would advertise a song that cannot play.
 const AUDIO_EXTENSIONS = new Set(Object.keys(MIME));
 
 function isAudio(name) {

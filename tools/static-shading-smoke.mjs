@@ -15,7 +15,7 @@ try {
     canvas.width = 640; canvas.height = 720;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     const results = [];
-    // Both worlds (Landscape and Trio) are the alpine kind.
+    // Landscape is the alpine kind.
     for (const kind of ['alpine']) {
       const mgr = Object.assign(Object.create(BiomeManager.prototype), {
         world: { kind }, tSec: 3, _danceKickMs: 2950, _danceKickAmp: 1,

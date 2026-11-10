@@ -145,14 +145,8 @@ const RETRO_PARTICLE_MUL = 0.35; // vs 0.6 at the ladder's particle rung
 const RETRO_DANCE_COLUMN_WIDTH = 128;
 
 export class PerfGovernor {
-  constructor({ startLevel = 0, minLevel = 0, retro = false, economy = retro, retroPalette = false } = {}) {
+  constructor({ startLevel = 0, minLevel = 0, retro = false, economy = retro } = {}) {
     this._retro = !!economy;
-    // "8-bit intensive": the palette pass rides on top of the retro floor,
-    // never on its own -- quantizing a 4K frame would cost many times what
-    // the whole rest of the frame does. Kept as its own flag rather than a
-    // second level on the ladder because it is not a shed: it ADDS work, in
-    // exchange for a look, which is the one thing the ladder never does.
-    this._retroPalette = !!retroPalette && this._retro;
     this._holdQuality = false;
     this._heldLevel = 0;
     // Evidence fixtures pin an exact rung (setFixtureLevel). Null when off.
@@ -278,14 +272,7 @@ export class PerfGovernor {
     this._recoveredInto.clear();
     this._resetWorkEvidence();
     if (next && this._fixtureLevel === null) this.level = MAX_LEVEL;
-    if (!next) this._retroPalette = false; // the palette pass never outlives the floor
   }
-
-  /** Whether the composed frame should be quantized to the 256-color
-   *  palette (PaletteQuantize.js). Only ever true alongside `retro`. */
-  get retroPalette() { return this._retroPalette; }
-
-  set retroPalette(on) { this._retroPalette = !!on && this._retro; }
 
   /** Restart the warm-up grace: call when a new song starts (or the world is
    *  rebuilt), since that is when the expensive one-off bake happens. */
@@ -528,10 +515,8 @@ export class PerfGovernor {
     return this.level >= 2 ? 0.6 : 1;
   }
   // Movement VII: the celestial-light passes join the same ladder -- rim
-  // light is the pricier per-edge work so it sheds at the particle-cap
-  // rung; contact shadows shed alongside crack glow, one rung later.
+  // light is the pricier per-edge work so it sheds at the particle-cap rung.
   get rimLightEnabled() { return this.level < 2; }
-  get contactShadowsEnabled() { return this.level < 3; }
   get crackGlowEnabled() { return this.level < 3; }
   // Bloom (music-reactive post-pass, see Renderer._drawBloom): a few
   // downsampled offscreen draws plus one full-frame additive blit -- real
@@ -539,8 +524,7 @@ export class PerfGovernor {
   get bloomEnabled() { return this.level < 3; }
   get veilEnabled() { return this.level < 4; }
   // Deeper rungs: the optional phenomena layer (ReactionDiffusion ground
-  // texture, CymaticField, Murmuration, SkyEnsemble planets, FarVignettes,
-  // MeteorShower) -- all genuinely optional atmosphere, none of it gameplay.
+  // texture, CymaticField, SkyEnsemble planets, FarVignettes, MeteorShower) -- all genuinely optional atmosphere, none of it gameplay.
   get phenomenaFull() { return this.level < 5; }
   // The constellation weaver (ambient connect-the-dots, lyric-derived
   // glyphs, crystallized stars) is a few thin 1-3px strokes -- nothing like
@@ -552,10 +536,6 @@ export class PerfGovernor {
   // rung (with hazeLayers/heavyPostFx/ridgeShadingFull) -- as light as it is,
   // it is never the thing drowning the frame.
   get constellationsEnabled() { return this.level < 6; }
-  // RainbowBrush: up to 320 additive dabs redrawn every frame, purely
-  // cosmetic trail decoration -- widened spacing via particleMul but never
-  // actually gated by a rung. Sheds alongside the other optional atmosphere.
-  get brushEnabled() { return this.level < 5; }
   // Collapse the three depth-haze layers to one once still over budget past
   // the phenomena cut.
   get hazeLayers() { return this.level < 6 ? 3 : 1; }

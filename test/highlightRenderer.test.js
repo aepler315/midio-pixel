@@ -71,7 +71,7 @@ test('regime windows run on heard time when output latency delays what is heard'
   } finally { f.dispose(); }
 });
 
-test('Landscape squall regimes need the drawn Range sky; Trio cannot produce them', () => {
+test('Landscape squall regimes need the drawn Range sky', () => {
   const stormy = { cues: [], timeline: kicks(1000, 22000), energyCurves: energyFixture(time => time > 9000 && time < 18000 ? .9 : .2) };
   const f = rendererFixture(stormy);
   try {
@@ -82,12 +82,6 @@ test('Landscape squall regimes need the drawn Range sky; Trio cannot produce the
       'without the Range v2 sky the deck is not on screen');
     assert.equal(reel.frames.some(frame => frame.category === 'storm'), false);
   } finally { f.dispose(); }
-  const trio = rendererFixture({ ...stormy, worldId: 'trio' });
-  try {
-    const categories = trio.drawAt(0).selections.map(event => event.category);
-    assert.equal(categories.some(category => ['storm', 'lightning', 'clearing'].includes(category)), false);
-    assert.ok(categories.length > 0);
-  } finally { trio.dispose(); }
 });
 
 test('quiet short input without a sky cycle peak has no highlight candidates', () => {
@@ -177,24 +171,28 @@ test('RidgeMusic handoff without a prepared prior reel admits only full-analysis
   } finally { f.dispose(); }
 });
 
-test('a night peak lost to loading terrain is replaced by a standby still ahead', () => {
+test('an early peak lost to loading terrain is replaced by a standby still ahead', () => {
+  // Two climaxes keep a peak in the pool that can legally take a freed slot
+  // (one regime per slot, MIN_GAP_MS from its neighbours).
   const f = rendererFixture({ cues: [], durationMs: 60000, lastImpactMs: 58000,
-    energyCurves: energyFixture(time => time > 30000 && time < 34000 ? .95 : .1) });
+    energyCurves: energyFixture(time => (time > 20000 && time < 23000) || (time > 30000 && time < 34000) ? .95 : .1) });
   try {
-    const reel = f.drawAt(0), [night] = reel.selections, planned = new Set(reel.selections.map(event => event.id));
-    assert.equal(night.category, 'night');
+    const reel = f.drawAt(0), [first] = reel.selections, planned = new Set(reel.selections.map(event => event.id));
+    // The predawn night lies under the title card (before START_MS), so the
+    // first peak of the song is its dawn.
+    assert.equal(first.category, 'dawn');
     assert.equal(reel.selections.length, MAX_FRAMES);
-    // Landscape's terrain is still loading through the opening night.
+    // Landscape's terrain is still loading through that first peak.
     let loading = true;
     Object.defineProperty(f.sim.biomes, '_awaitingTerrain', { get: () => loading, set() {}, configurable: true });
-    for (const time of cadence(30, night.visibleStartMs - 100, night.visibleEndMs + 50)) f.drawAt(time);
+    for (const time of cadence(30, first.visibleStartMs - 100, first.visibleEndMs + 50)) f.drawAt(time);
     loading = false;
     assert.equal(reel.selections[0].status, 'rejected');
     const live = reel.selections.filter(event => event.status === 'pending');
     assert.equal(live.length, MAX_FRAMES, 'a standby takes the freed slot');
     const promoted = live.filter(event => !planned.has(event.id));
     assert.equal(promoted.length, 1);
-    assert.ok(promoted[0].eventAtMs > night.visibleEndMs);
+    assert.ok(promoted[0].eventAtMs > first.visibleEndMs);
     for (let i = 1; i < live.length; i++) assert.ok(live[i].eventAtMs - live[i - 1].eventAtMs >= MIN_GAP_MS);
   } finally { f.dispose(); }
 });

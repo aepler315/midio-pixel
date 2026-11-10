@@ -1,13 +1,17 @@
-// The audition load screen's entertainment: a hyper-simplified rendition of
-// THIS song's percussion — its kicks distilled to thumps on the pulse with
-// the in-between hits demoted to soft hats — looping under a star glyph
-// that flinches on every thump, while the font auditions grind through
-// offline renders. Audio for those hits used to voice into the master bus
-// and leak oscillator clicks into the song (scheduled Web Audio nodes
-// survive stop()). The pulse is visual-only now. buildPercussionPattern is
-// pure and unit-tested; the LoadingShow class owns scheduling and the canvas.
+// The load screen's entertainment while a song is separated and analyzed: a
+// star glyph with three orbiters and a progress bar. Given a timeline it
+// also loops a hyper-simplified rendition of THIS song's percussion — its
+// kicks distilled to thumps on the pulse with the in-between hits demoted to
+// soft hats — and the star flinches on every thump. Audio for those hits
+// used to voice into the master bus and leak oscillator clicks into the song
+// (scheduled Web Audio nodes survive stop()). The pulse is visual-only now.
+// buildPercussionPattern is pure and unit-tested; the LoadingShow class owns
+// scheduling and the canvas.
 import { Role } from '../core/NoteEvent.js';
-import { MIDASUS_MESH, BABY_STAR_MESH } from '../render/meshes.js';
+import { hexagramMesh, BABY_STAR_MESH } from '../render/meshes.js';
+
+// The show's central star: a plain hexagram (formerly a character's sigil).
+const SHOW_STAR_MESH = hexagramMesh(8.5);
 import { computeRestLengths, drawMeshPart } from '../render/MeshDrawer.js';
 import { kickEnv } from '../world/MountainChoreo.js';
 
@@ -54,7 +58,7 @@ export class LoadingShow {
     this._raf = 0;
     this._session = 0;
     this._active = false;
-    this._meshRest = computeRestLengths(MIDASUS_MESH);
+    this._meshRest = computeRestLengths(SHOW_STAR_MESH);
     this._babyRest = computeRestLengths(BABY_STAR_MESH);
   }
 
@@ -114,20 +118,8 @@ export class LoadingShow {
     return session;
   }
 
-  setProgress(done, total, label) {
-    if (this.textEl) {
-      this.textEl.textContent = total > 0
-        ? `Auditioning SoundFonts against this song… ${done}/${total}${label ? ` — ${label}` : ''}`
-        : 'Preparing…';
-    }
-    if (this.barFillEl) {
-      this.barFillEl.style.width = total > 0 ? `${Math.round((done / total) * 100)}%` : '10%';
-    }
-  }
-
-  /** Generic staged-progress label, for callers outside the font-audition
-   *  flow (e.g. the audio-separation load screen): a plain status line
-   *  plus an optional 0..1 fill fraction. */
+  /** Staged-progress label for the audio-separation load screen: a plain
+   *  status line plus an optional 0..1 fill fraction. */
   setStage(text, frac = null) {
     if (this.textEl) this.textEl.textContent = text;
     if (this.barFillEl) this.barFillEl.style.width = frac != null ? `${Math.round(Math.max(0, Math.min(1, frac)) * 100)}%` : '10%';
@@ -153,10 +145,10 @@ export class LoadingShow {
     const env = kickEnv((nowSec - last) * 1000);
     const cx = c.width / 2, cy = c.height / 2 + 6;
     const pulse = 1 + 0.55 * env;
-    drawMeshPart(ctx2d, MIDASUS_MESH, this._meshRest, {
+    drawMeshPart(ctx2d, SHOW_STAR_MESH, this._meshRest, {
       tx: cx, ty: cy, rot: nowSec * 0.5, scaleX: 4.4 * pulse, scaleY: 4.4 * pulse,
     }, this._hue, { satBase: 55, lightBase: 70, widthBase: 1.8 });
-    // The three babies circle the show while the grown-ups audition.
+    // Three small stars circle the central one.
     for (let i = 0; i < 3; i++) {
       const a = nowSec * (0.7 + 0.12 * i) + (i * Math.PI * 2) / 3;
       drawMeshPart(ctx2d, BABY_STAR_MESH, this._babyRest, {

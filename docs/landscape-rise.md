@@ -1,7 +1,9 @@
 # Landscape: flat ground grows into the range
 
-Landscape starts with **level ground**. Every terrain height, including valleys
-below the camera, starts at one fixed ground level and grows with the song. The
+Landscape starts with **level ground**, hidden under the song's title card.
+Every terrain height, including valleys below the camera, starts at one fixed
+ground level, surges to most of its relief as the card fades, and finishes
+growing with the song. The
 previous eye-relative squash left valleys intact and made the skyline look cut
 off; it is no longer used.
 
@@ -22,8 +24,8 @@ source terrain minimum. It is not recomputed from the camera or a streaming
 window. Signed elevations are valid.
 
 `LandRise.js` provides the CPU and GLSL mapping. `uLandRise` stores `(1-s, baseM)`.
-At full height its functions return immediately. Terrain, trees, rivers, actors,
-lanterns, mirrors and all terrain depth/ownership passes share this mapping.
+At full height its functions return immediately. Terrain, trees, rivers,
+mirrors and all terrain depth/ownership passes share this mapping.
 Musical terrain movement is composed before the rise, so it cannot introduce
 relief at the completely flat opening. Normals use a finite inverse-transpose
 form at `s=0`; full-height normals are returned unchanged.
@@ -68,9 +70,25 @@ and accept the actual lowered camera without rebuilding on every frame.
 
 ## Song timing and seeking
 
-`compileLandRise` in `LandscapeScore` integrates `0.6 + energy` over heard time.
-It reaches full height at `max(0.6 * cadence, cadence - 20 seconds)`, easing the
-last 15 percent of the climb. Previews without a score show the complete range.
+Every song opens on its title card (`src/ui/TitleCard.js`), and the range
+surges up as the card fades (`src/core/OpeningTimeline.js`):
+
+| Heard time | What shows |
+| --- | --- |
+| 0–2.0 s | Title card (song, artist) over the flat ground |
+| 1.8–4.0 s | Opening surge: flat to 70% relief, ease-out |
+| 2.0–2.7 s | Card fades; the land is past half relief when it clears |
+| from 2.7 s | First place caption, fading in 1.5 s later |
+
+The surge composes with the music's climb:
+`rise = 1 - (1 - 0.7 * surge) * (1 - climb)`. The 70% matches the camera's
+settle point, so the tight opening lens has widened to the authored lens when
+the surge lands. The flat, featureless opening used to last most of the first
+twenty seconds; it now sits almost entirely under the card.
+
+The climb, `compileLandRise` in `LandscapeScore`, integrates `0.6 + energy` over
+heard time. It reaches full height at `max(0.6 * cadence, cadence - 20 seconds)`,
+easing the last 15 percent of the climb. Previews without a score show the complete range.
 When full-song analysis replaces the opening analysis, the curve holds the
 previous rise through the handoff and continues from there, taking at least eight
 seconds to finish. Seeking and restarting derive the height and camera from the

@@ -1,8 +1,8 @@
 // The terrain's shared musical deformation (land swell, kicks, gestures,
 // melodic ripple), the glacier and the song-long rise (LandRise.js), as the
 // mesh draws them. Everything that stands on the drawn ground reads it: the
-// terrain (SCENE_VERT), the forest and the cast, so none of them sinks into
-// the land as it swells or floats over it as it rises.
+// terrain (SCENE_VERT) and the forest, so neither sinks into the land as it
+// swells or floats over it as it rises.
 import { LAND_TOUR_FADE_END_M } from './LandMotionLimits.js';
 import { GLACIER_GLSL } from './GlacierField.js';
 import { LAND_RISE_GLSL } from './LandRise.js';
@@ -66,38 +66,3 @@ export const DEFORM_GLSL = /* glsl */`
       deformAt(p + vec3(0.0, 0.0, e)) - deformAt(p - vec3(0.0, 0.0, e))) / (2.0 * e);
   }
 `;
-
-/** Lift of the drawn ground at p, as SCENE_VERT applies it to the mesh: the
- *  glacier's ice and the deformation it leaves exposed (landLift), then the
- *  rise at the lifted point. */
-export const GROUND_LIFT_GLSL = /* glsl */`
-  float landLift(vec3 p) {
-    vec3 ice = glacierAt(p);
-    return ice.x + deformAt(p) * (1.0 - ice.y);
-  }
-  float groundLift(vec3 p) {
-    float lift = landLift(p);
-    return lift + riseLift(vec3(p.x, p.y + lift, p.z));
-  }
-`;
-
-/** DEFORM_GLSL's uniforms from `shared` (the terrain's), by reference, with
- *  still stand-ins where it lacks them (no lift). */
-export function deformUniforms(THREE, shared = {}) {
-  const ref = (key, make) => shared[key] || { value: make() };
-  return {
-    uHeightRange: ref('uHeightRange', () => new THREE.Vector2(0, 1)), uGridOrigin: ref('uGridOrigin', () => new THREE.Vector2()),
-    uGridExtent: ref('uGridExtent', () => new THREE.Vector2(1, 1)), uTexel: ref('uTexel', () => new THREE.Vector2(1, 1)),
-    uReceiver: ref('uReceiver', () => null),
-    uDeformAmp: ref('uDeformAmp', () => 0), uDeformKick: ref('uDeformKick', () => 0), uDeformGesture: ref('uDeformGesture', () => 0),
-    uDeformMelodic: ref('uDeformMelodic', () => 0), uDeformStructural: ref('uDeformStructural', () => 0),
-    uDeformK: ref('uDeformK', () => 0), uDeformDir: ref('uDeformDir', () => new THREE.Vector2(1, 0)), uDeformPhase: ref('uDeformPhase', () => 0),
-    uMelodyK: ref('uMelodyK', () => 0), uMelodyDir: ref('uMelodyDir', () => new THREE.Vector2(1, 0)), uMelodyPhase: ref('uMelodyPhase', () => 0),
-    uLandHierarchy: ref('uLandHierarchy', () => null), uLandDance: ref('uLandDance', () => new THREE.Vector4()),
-    uTourEye: ref('uTourEye', () => new THREE.Vector4()), uLandRise: ref('uLandRise', () => new THREE.Vector2()),
-    uGlacierEnabled: ref('uGlacierEnabled', () => 0), uGlacierStart: ref('uGlacierStart', () => new THREE.Vector2()),
-    uGlacierEnd: ref('uGlacierEnd', () => new THREE.Vector2(0, -100)), uGlacierWidth: ref('uGlacierWidth', () => 1),
-    uGlacierSurface: ref('uGlacierSurface', () => new THREE.Vector2()), uGlacierMaxThickness: ref('uGlacierMaxThickness', () => 0),
-    uGlacierRetreat: ref('uGlacierRetreat', () => 0),
-  };
-}

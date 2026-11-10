@@ -2,6 +2,7 @@
 // local server first; optionally set PLAYWRIGHT_CHROMIUM_PATH=/usr/bin/chromium.
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
+import { withLegacyRange } from './lib/allWorlds.mjs';
 
 const url = process.argv[2] || 'http://127.0.0.1:8080/';
 const browser = await chromium.launch({ headless: true,
@@ -58,7 +59,8 @@ try {
     }, mode);
     const page = await context.newPage(), errors = [];
     page.on('pageerror', error => errors.push(error.message));
-    await page.goto(url);
+    // The song now starts on its own; keep software GL off Range v2.
+    await page.goto(withLegacyRange(url));
     await page.locator('#fileInput').waitFor({ state: 'attached' });
     const files = mode === 'stems' ? [wav('drums.wav'), wav('bass.wav', 110)] : wav('first.wav');
     await page.locator('#fileInput').setInputFiles(files);
@@ -68,7 +70,8 @@ try {
       assert.equal(await page.evaluate(() => window.__fingerprintFault.workers[0].terminations), 1,
         'replacement terminates the old worker before its deadline or delayed reply');
     }
-    await page.locator('#worldSelect').waitFor({ state: 'visible', timeout: 60000 });
+    // Analysis finished once the song starts (straight in Landscape).
+    await page.waitForFunction(() => !!window.__SMW?.sim, null, { timeout: 60000 });
     await page.waitForFunction(() => window.__fingerprintFault.workers.every(w => w.terminations === 1));
     if (mode === 'replacement') await page.waitForFunction(() => window.__fingerprintFault.lateReplies === 1);
     const fault = await page.evaluate(() => window.__fingerprintFault);
@@ -76,7 +79,7 @@ try {
     assert.deepEqual(errors, []);
     if (mode !== 'unsupported') assert.ok(fault.workers.length > 0, 'fault reached fingerprint worker');
     if (mode === 'replacement') assert.equal(fault.workers.length, 2);
-    console.log(JSON.stringify({ mode, ...fault, picker: true, errors }));
+    console.log(JSON.stringify({ mode, ...fault, started: true, errors }));
     await context.close();
   }
 } finally { await browser.close(); }

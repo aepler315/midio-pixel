@@ -81,9 +81,9 @@ test('existing skipped ground detail fades before the source threshold without n
   assert.equal(after.landDetail, 0);
 });
 
-test('production sky/glint, crest, mirror and actor-glow instructions share the filtered appearance weight', () => {
-  const starts = ['lit = mix(lit, skyReflect', 'lit += (uSkyHorizon', 'color = mix(color, mirrored', 'color += glow'];
-  const expected = [.6, .345, .46, 1.2];
+test('production sky/glint, crest and mirror instructions share the filtered appearance weight', () => {
+  const starts = ['lit = mix(lit, skyReflect', 'lit += (uSkyHorizon', 'color = mix(color, mirrored'];
+  const expected = [.6, .345, .46];
   const mix = (a, b, t) => a * (1 - t) + b * t;
   for (let i = 0; i < starts.length; i++) {
     const start = SCENE_FRAG.indexOf(starts[i]); assert.ok(start >= 0);
@@ -91,7 +91,7 @@ test('production sky/glint, crest, mirror and actor-glow instructions share the 
     const run = new Function('paintWaterAmount', 'mix', 'clamp', 'smoothstep', `
       let lit = .2, color = .2;
       const skyReflect = .8, rWaterSkyMix = 1, skyHere = .5, uLightColor = 1, glint = .1, moonTransmission = 1;
-      const uSkyHorizon = 1, crest = 1, uWaterMusic = {z: 1}, paw = 1, glow = 1, clear = 1, air = 0;
+      const uSkyHorizon = 1, crest = 1, uWaterMusic = {z: 1}, paw = 1, clear = 1, air = 0;
       const uNarrative = {z: 1, w: 1}, uStorm = {x: 0}, mirrored = .8, reflectance = .5, waterCoverage = 1, have = 1;
       ${instruction} return ${i < 2 ? 'lit' : 'color'};`);
     assert.equal(run(0, mix, clamp, smoothstep), .2, `${starts[i]} cannot appear abruptly at the source shore`);

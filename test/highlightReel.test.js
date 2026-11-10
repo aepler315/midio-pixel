@@ -120,7 +120,10 @@ test('day-only evidence peaks at each sky regime maximum and stays out of the fi
   const durationMs = 180000, finale = { freezeAtMs: 176000 };
   const events = buildHighlightCandidates({ durationMs, finale });
   assertSchedule(events);
-  assert.deepEqual(events.map(e => e.category), ['night', 'dawn', 'noon', 'sunset']);
+  // The predawn night hold [1500, 2500] lies under the title card, so it is
+  // clipped by START_MS (TITLE_CARD_END_MS) rather than captured as a
+  // mostly-black card frame; the end-of-song night sits in the finale.
+  assert.deepEqual(events.map(e => e.category), ['dawn', 'noon', 'sunset']);
   const curves = highlightRegimeCurves({ durationMs, cycle: songSkyClock(durationMs) });
   for (const event of events) {
     let max = 0;
@@ -142,7 +145,7 @@ test('regimes the world cannot produce are absent', () => {
   const plain = buildHighlightCandidates({ durationMs, sections: [{ startMs: 0, profile: 'SOLAR', barMs: 2000 }],
     palettes: BIOMES, energyCurves: { globalEnergyNorm: () => .5 } });
   assert.ok(plain.every(e => ['dawn', 'noon', 'sunset', 'night'].includes(e.category)),
-    'no storm (Trio/no squall), no palette (one section), no climax (flat energy)');
+    'no storm (no squall), no palette (one section), no climax (flat energy)');
   const curves = highlightRegimeCurves({ durationMs, sections: [{ startMs: 0, profile: 'CUSTOM' }, { startMs: 5000, profile: 'SOLAR' }],
     palettes: [...BIOMES, { name: 'CUSTOM' }] });
   assert.equal(curves.warmest, undefined, 'a palette without painted colors has no warmth');
@@ -195,7 +198,7 @@ test('a Landscape squall adds storm regimes and hides the sun behind its deck', 
       assert.ok(storm.at(t).flash >= FLASH_HOLD * e.peakValue - 1e-9, `flash held at ${t}`);
     }
   }
-  // Without the squall evidence (Trio) the same song has no weather frames.
+  // Without the squall evidence the same song has no weather frames.
   assert.ok(buildHighlightCandidates({ durationMs, energyCurves }).every(e => !['storm', 'lightning', 'clearing'].includes(e.category)));
 });
 
@@ -303,7 +306,7 @@ test('direct capture preserves its bounded public gate', () => {
   assert.equal(reel.capture(source, 5000, 'Sunset'), true);
 });
 
-test('frame visibility: freeze, assembly, arrival and cuts hide every regime; weather needs the Range sky', () => {
+test('frame visibility: freeze, arrival and cuts hide every regime; weather needs the Range sky', () => {
   const v2 = { _rangeV2Active: true, _pass: () => true, currentBlend: { from: 'SOLAR', to: 'SOLAR', t: 1 },
     _cutFlash: 0, rangePresentation: { arriving: false } };
   const live = highlightFrameState({ fracture: { isFrozen: false, isDone: false } }, v2);
@@ -316,13 +319,15 @@ test('frame visibility: freeze, assembly, arrival and cuts hide every regime; we
   assert.equal(highlightVisible({ category: 'warmest', palette: 'ARCTIC' }, live), false, 'another palette is on screen');
   assert.equal(highlightVisible({ category: 'sunset' }, blending), true);
   for (const [sim, mgr] of [[{ fracture: { isFrozen: true } }, v2], [{ fracture: { isDone: true } }, v2],
-    [{ assembly: { active: true } }, v2], [{}, { ...v2, _cutFlash: .9 }], [{}, { ...v2, rangePresentation: { arriving: true } }],
+    [{}, { ...v2, _cutFlash: .9 }], [{}, { ...v2, rangePresentation: { arriving: true } }],
     [{}, { ...v2, _awaitingTerrain: true }]]) {
     assert.equal(highlightVisible({ category: 'noon' }, highlightFrameState(sim, mgr)), false);
   }
 });
 
-const LANDSCAPE = getWorld('alpine'), TRIO = getWorld('trio');
+// A world without the Range narrative or real biomes: dayNight washes and
+// key-rotated palettes.
+const LANDSCAPE = getWorld('alpine'), PLAIN = { kind: 'unregistered-kind' };
 
 test('a palette peak sits inside one settled palette, never across a crossfade', () => {
   // CONIFER (.283) and ICEFIELD (.284) are nearly equally cool, so the
@@ -346,7 +351,7 @@ test('a palette peak sits inside one settled palette, never across a crossfade',
 test('deepest night is only scheduled once the sun is down', () => {
   for (const durationMs of [60000, 180000, 300000]) {
     const clock = songSkyClock(durationMs);
-    for (const [world, committedThroughMs] of [[null, -Infinity], [null, 6000], [TRIO, 6000], [LANDSCAPE, 6000]]) {
+    for (const [world, committedThroughMs] of [[null, -Infinity], [null, 6000], [PLAIN, 6000], [LANDSCAPE, 6000]]) {
       const events = highlightPeaks({ durationMs, world, committedThroughMs, finale: { freezeAtMs: durationMs - 8000 } });
       for (const e of events.filter(e => e.category === 'night')) {
         for (const at of [e.eventAtMs, e.holdFromMs, e.holdToMs]) assert.equal(dayNight(at, clock).sunAlt, 0, `${durationMs} ${e.id}`);
@@ -355,14 +360,14 @@ test('deepest night is only scheduled once the sun is down', () => {
   }
 });
 
-test('Trio\'s first light and dusk peak with the washes Trio paints', () => {
+test('a world without twilight peaks its first light and dusk with the dayNight washes', () => {
   for (const durationMs of [180000, 300000]) {
     const clock = songSkyClock(durationMs), argmax = key => {
       let best = 0, at = 0;
       for (let t = 0; t <= durationMs; t += 250) { const v = dayNight(t, clock)[key]; if (v > best) { best = v; at = t; } }
       return at;
     };
-    const events = highlightPeaks({ durationMs, world: TRIO });
+    const events = highlightPeaks({ durationMs, world: PLAIN });
     const dawn = events.find(e => e.category === 'dawn'), dusk = events.find(e => e.category === 'sunset');
     assert.ok(Math.abs(dawn.eventAtMs - argmax('dawnAlpha')) <= 250, `dawn ${dawn.eventAtMs}`);
     assert.ok(Math.abs(dusk.eventAtMs - argmax('duskAlpha')) <= 250, `dusk ${dusk.eventAtMs}`);
@@ -374,10 +379,10 @@ test('Trio\'s first light and dusk peak with the washes Trio paints', () => {
   }
 });
 
-test('Trio rotates its palettes by the live key, so it has no palette regimes', () => {
+test('a world that rotates its palettes by the live key has no palette regimes', () => {
   const sections = [{ startMs: 0, profile: 'ARCTIC', barMs: 500, transition: 'fade' },
     { startMs: 8000, profile: 'SOLAR', barMs: 500, transition: 'fade' }];
-  const curves = highlightRegimeCurves({ durationMs: 24000, sections, palettes: BIOMES, world: TRIO });
+  const curves = highlightRegimeCurves({ durationMs: 24000, sections, palettes: BIOMES, world: PLAIN });
   assert.equal(curves.warmest, undefined);
   assert.equal(curves.coolest, undefined);
   assert.ok(highlightRegimeCurves({ durationMs: 24000, sections, palettes: BIOMES }).warmest, 'evidence without a world keeps them');

@@ -2,7 +2,7 @@
 // contract shared by the offline compiler (tools/lib/compiled-terrain.mjs)
 // and the runtime, the opt-in URL request, the displayed-ground samplers and
 // the TerrainData view the rest of a prepared scene reads (camera clearance,
-// forest roots, the cast). Pure: no DOM, no GPU.
+// forest roots, the opening focus). Pure: no DOM, no GPU.
 //
 // A pack is one representation of one view's terrain:
 //   'columns'  height columns: top faces and exposed side spans only

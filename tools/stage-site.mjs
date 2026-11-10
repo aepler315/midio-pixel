@@ -7,7 +7,7 @@ import { gunzipSync } from 'node:zlib';
 import { writePlexPublicConfig } from './write-plex-public-config.mjs';
 import { GENERATED_SOURCE_DIRS } from './lib/visual-evaluation-server.mjs';
 
-const REQUIRED = ['index.html', 'src/main.js', 'soundfonts'];
+const REQUIRED = ['index.html', 'src/main.js'];
 
 function overlaps(a, b) {
   const rel = path.relative(a, b);
@@ -250,8 +250,8 @@ export async function assertStagePaths(sourceDir, outputDir) {
     throw new Error('Stage output must be separate from the source directory.');
   }
   // In-tree staging is intentionally limited to the repository's dedicated
-  // artifact directory. Accepting an arbitrary descendant (notably `src` or
-  // `soundfonts`) makes the cleanup below a source-code deletion primitive.
+  // artifact directory. Accepting an arbitrary descendant (notably `src`)
+  // makes the cleanup below a source-code deletion primitive.
   if (overlaps(canonicalSource, canonicalOutput)
     && path.relative(canonicalSource, canonicalOutput) !== '_site') {
     throw new Error('Stage output inside the source must be its dedicated _site directory.');
@@ -295,7 +295,6 @@ export async function stageSite(sourceDir, outputDir, { commit = null, ref = nul
         const rel = path.relative(path.join(source, dir), from);
         return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
       }) }),
-    fs.cp(path.join(source, 'soundfonts'), path.join(output, 'soundfonts'), { recursive: true }),
     fs.writeFile(path.join(output, '.nojekyll'), ''),
   ]);
   await writePlexPublicConfig(path.join(output, 'src/config/plex.json'), {

@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { RangeScene } from '../src/world/alpine/RangeScene.js';
 import { sceneUniforms } from '../src/world/alpine/TerrainMaterial.js';
-import { SiteLights } from '../src/world/alpine/ActorsGL.js';
 import { createForest } from '../src/world/alpine/ForestGL.js';
 
 function fixture() {
@@ -41,10 +40,8 @@ test('one packed mist-flow value follows the shared CPU references in main and r
   const { scene, p } = fixture(), u = p.uniforms;
   assert.ok(u.uMistFlowParams, 'flow metadata has no compact GPU value');
   const packed = u.uMistFlowParams.value;
-  const lights = new SiteLights(THREE, u);
   const forest = createForest(THREE, { mesh: new Float32Array(), billboard: new Float32Array(), stride: 8, count: 0 }, u);
   for (const key of ['uMistFlowHeight', 'uMistFlowDistanceM', 'uMistFlowOn', 'uMistFlowParams']) {
-    assert.equal(lights.uniforms[key], u[key], `lights keep ${key} by reference`);
     assert.equal(forest.uniforms[key], u[key], `forest keeps ${key} by reference`);
   }
   const camera = new THREE.PerspectiveCamera(40, 16 / 9, 1, 100000);
@@ -71,7 +68,7 @@ test('one packed mist-flow value follows the shared CPU references in main and r
   assert.deepEqual(u.uMistFlowParams.value.toArray(), [-50, 300, 700, 0]);
   p.mistFlow = p.tourMistFlow = null; scene._setMistFlow(p);
   assert.deepEqual(u.uMistFlowParams.value.toArray(), [0, 1, 1, 0], 'missing data clears every packed lane');
-  forest.dispose(); lights.dispose(); mirror.target.texture.dispose();
+  forest.dispose(); mirror.target.texture.dispose();
 });
 
 test('view disposal retires both drainage textures once', () => {

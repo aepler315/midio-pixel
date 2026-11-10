@@ -1,6 +1,7 @@
 // Real transport seek lifecycle, with future state deliberately injected.
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
+import { withLegacyRange } from './lib/allWorlds.mjs';
 const browser = await chromium.launch({ headless: true,
   ...(process.env.PLAYWRIGHT_CHROMIUM_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH } : {}),
 });
@@ -8,13 +9,11 @@ try {
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
-  await page.route('**/soundfonts/', route => route.fulfill({ json: [] }));
-  await page.goto(process.argv[2] || 'http://127.0.0.1:8080');
-  for (const worldId of ['trio']) {
+  // A transport test, not a scenery test: pin the painted Range (see withLegacyRange).
+  await page.goto(withLegacyRange(process.argv[2] || 'http://127.0.0.1:8080'));
+  // The sample starts straight in Landscape once it is analysed.
   await page.locator('#demoBtn').click();
-  await page.locator('#worldSelect:not(.hidden)').waitFor({ timeout: 90000 });
-  await page.locator(`.worldCard[data-world-id="${worldId}"]`).click();
-  await page.waitForFunction(() => window.__SMW?.sim?.timeMs > 750, null, { timeout: 90000 });
+  await page.waitForFunction(() => window.__SMW?.sim?.timeMs > 750, null, { timeout: 120000 });
   const results = await page.evaluate(() => {
     const count = c => [...c.listeners.values()].reduce((n, s) => n + s.size, 0) + c.aheadRegs.length + c.barListeners.size;
     const initial = window.__SMW;
@@ -77,6 +76,5 @@ try {
   assert.equal(await page.locator('#pauseBtn').getAttribute('aria-pressed'), 'true');
   assert.equal(await page.evaluate(() => window.__SMW.audioEngine.ctx.state), 'suspended');
   await page.locator('#stopBtn').click();
-  }
   assert.deepEqual(errors, []);
 } finally { await browser.close(); }

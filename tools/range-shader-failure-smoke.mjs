@@ -19,7 +19,6 @@ if (!process.argv[4]) execFileSync(process.execPath, [path.join(root, 'tools/gen
 const FAULTS = {
   terrain: ['src/world/alpine/TerrainMaterial.js', 'export const SCENE_FRAG = /* glsl */`'],
   forest: ['src/world/alpine/ForestGL.js', 'const MESH_FRAG = /* glsl */`'],
-  actors: ['src/world/alpine/ActorsGL.js', 'const LANTERN_FRAG = /* glsl */`'],
 };
 const faultName = process.env.RANGE_SHADER_FAULT || 'terrain';
 assert.ok(FAULTS[faultName], `RANGE_SHADER_FAULT must be one of ${Object.keys(FAULTS).join(', ')}`);

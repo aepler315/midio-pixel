@@ -14,22 +14,19 @@ plays and does not depend on reading pixels back.
 | Regime | Label | Curve (source) | Worlds |
 | --- | --- | --- | --- |
 | `storm` | Storm peak | squall deck amount (`RangeStorm.stormAt`) | Landscape |
-| `sunset` | Sunset (Landscape), Dusk (Trio) | Landscape: setting twilight amount, scaled by clear sky (`DayNight.twilightAt`). Trio: dayNight's indigo dusk wash (`duskAlpha`) | both |
-| `night` | Deepest night | night with the sun down; Landscape also × (1 − twilight) (`DayNight.dayNight`) | both |
-| `dawn` | First light | Landscape: rising twilight amount, scaled by clear sky. Trio: dayNight's peach dawn wash (`dawnAlpha`) | both |
-| `noon` | High sun | sun altitude, scaled by clear sky | both |
+| `sunset` | Sunset | setting twilight amount, scaled by clear sky (`DayNight.twilightAt`) | Landscape |
+| `night` | Deepest night | night with the sun down, × (1 − twilight) (`DayNight.dayNight`) | Landscape |
+| `dawn` | First light | rising twilight amount, scaled by clear sky | Landscape |
+| `noon` | High sun | sun altitude, scaled by clear sky | Landscape |
 | `lightning` | Lightning | strongest strike, amp × deck amount at its attack | Landscape |
 | `clearing` | After the storm | `break01 × (1 − amount)`, the sun through the torn deck | Landscape |
 | `warmest` / `coolest` | Warmest / Coolest palette | red-over-blue of the cast palette's sky and silhouette colors, crossfaded by `BiomeSchedule.blendSections` | Landscape, when sections cast contrasting palettes |
-| `climax` | Climax | energy (`globalEnergyNorm`) smoothed over ±1 s | both |
+| `climax` | Climax | energy (`globalEnergyNorm`) smoothed over ±1 s | Landscape |
 
-Both worlds share the song's sky clock (`songSkyClock`, or the repeating
-cycle under 30 s), but paint sunrise and sunset differently: Landscape's Range
-sky paints `twilightAt`, Trio paints only dayNight's dawn and dusk washes, so
-each world's dawn and dusk curves follow what it paints. Only Landscape draws
-the squall, and only when the Range v2 sky is drawn. Trio has no weather
-regimes, and no palette regimes either: it hue-rotates every palette color by
-the live key (One Spectrum), which is not known before the song plays.
+Landscape uses the song's sky clock (`songSkyClock`, or the repeating cycle
+under 30 s), and its Range sky paints `twilightAt`, so the dawn and dusk
+curves follow what it paints. The squall is drawn only when the Range v2 sky
+is drawn.
 
 ## Selection
 
@@ -147,5 +144,9 @@ save loop `createReelSaver`, with its busy guard, retries and cancel) and
     level the performance governor shed to.
 
 The reel has no browser or device acceptance yet. `tools/highlight-reel-smoke.mjs`
-runs a headless Trio fixture and writes to an output directory. Keep that
-directory under `.smoke/` and never commit it.
+runs a headless Landscape fixture on the Canvas renderer and writes to an output directory. Keep that
+directory under `.smoke/` and never commit it. The fixture attaches no Range v2
+presentation, so it cannot draw weather: its storm, lightning and clearing
+windows are rejected (`highlightVisible`) and standbys still ahead take their
+slots. It captures the sky, climax and settled-palette regimes, and checks that
+frame cadence and a fresh seek start from the same schedule.

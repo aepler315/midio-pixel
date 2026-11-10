@@ -11,7 +11,6 @@ const browser = await chromium.launch({ headless: true,
 let failures = 0;
 try {
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
-  await context.route('**/soundfonts/', route => route.fulfill({ json: [] }));
   await context.route('**/favicon.ico', route => route.fulfill({ status: 204 }));
   const page = await context.newPage();
   const errors = [];
@@ -19,9 +18,8 @@ try {
   // A HUD test, not a scenery test: pin the painted Range (see withLegacyRange).
   await page.goto(withLegacyRange(url));
   await page.locator('#demoBtn').click();
-  await page.locator('#worldSelect:not(.hidden)').waitFor();
-  await page.locator('.worldCard[data-base-world-id="alpine"] .worldCardPlayBtn').click();
-  await page.locator('#hud:not(.hidden)').waitFor();
+  // The sample starts straight in Landscape once it is analysed.
+  await page.locator('#hud:not(.hidden)').waitFor({ timeout: 90000 });
   await page.waitForFunction(() => !!window.__SMW?.carMode);
 
   const paused = () => page.evaluate(() => window.__SMW.sim && document.getElementById('pauseBtn').getAttribute('aria-pressed'));

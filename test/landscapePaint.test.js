@@ -1,9 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SpaceRidge } from '../src/world/SpaceRidge.js';
 import { ConstellationWeaver } from '../src/world/ConstellationWeaver.js';
 import { LightRig } from '../src/world/LightRig.js';
-import { SkyEnsemble } from '../src/world/SkyEnsemble.js';
 
 function stub() {
   const ops = [];
@@ -37,24 +35,6 @@ function stub() {
   return { ctx, ops };
 }
 
-test('space ridge honors inherited opacity on every stroke', () => {
-  const ridge = new SpaceRidge(315);
-  const full = stub();
-  full.ctx.globalAlpha = 1;
-  ridge.draw(full.ctx, { width: 1280, height: 720 }, '#88aacc', 1, 1);
-  const dim = stub();
-  dim.ctx.globalAlpha = 0.25;
-  ridge.draw(dim.ctx, { width: 1280, height: 720 }, '#88aacc', 1, 1);
-  const none = stub();
-  none.ctx.globalAlpha = 0;
-  ridge.draw(none.ctx, { width: 1280, height: 720 }, '#88aacc', 1, 1);
-  assert.ok(full.ops.length > 0);
-  assert.equal(dim.ops.length, full.ops.length);
-  assert.ok(dim.ops.every((alpha, i) => Math.abs(alpha - full.ops[i] * 0.25) < 1e-9));
-  assert.ok(none.ops.every((alpha) => alpha === 0));
-  assert.equal(dim.ctx.globalAlpha, 0.25);
-});
-
 test('active and retained constellations both take the system opacity', () => {
   const weaver = new ConstellationWeaver(315, 1280, 720);
   weaver.stars.push({ dots: [{ x: 100, y: 80, phase: 0 }, { x: 140, y: 90, phase: 1 }], hue: 200 });
@@ -71,15 +51,6 @@ test('active and retained constellations both take the system opacity', () => {
   assert.equal(dim.ops.length, full.ops.length);
   assert.ok(dim.ops.every((alpha) => Math.abs(alpha - 0.25) < 1e-9));
   assert.equal(dim.ctx.globalAlpha, 0.25);
-});
-
-test('SpaceRidge has only a few bright structural joints, not a bead at every sample', () => {
-  const ridge = new SpaceRidge(315);
-  const view = stub();
-  let circles = 0;
-  view.ctx.arc = () => { circles++; };
-  ridge.draw(view.ctx, { width: 1280, height: 720 }, '#88aacc', 1);
-  assert.ok(circles <= 16, `too many bright nodes: ${circles} circles`);
 });
 
 test('Range can show one incidental figure and exclude the ridge corridor', () => {
@@ -122,16 +93,3 @@ test('light rig opacity changes without changing beam count', () => {
   assert.equal(dim.restored, 1);
 });
 
-test('ensemble planets and nested artifacts honor presentation and restore', () => {
-  const sky = new SkyEnsemble(315, 120000);
-  const view = stub();
-  view.ctx.globalAlpha = 0.5;
-  sky.draw(view.ctx, { width: 800, height: 450 }, 20000, {
-    fromName: 'RAINFOREST', toName: 'STEPPE', t: 0.5,
-    colors: { skyMid: '#6688aa', silhouette: '#334433', halo: '#ffe0b0' },
-    presentation: 0.5, maxPlanets: 1,
-  });
-  assert.ok(view.ops.length > 0);
-  assert.ok(view.ops.every((alpha) => alpha <= 0.25 + 1e-9));
-  assert.equal(view.ctx.globalAlpha, 0.5);
-});

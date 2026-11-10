@@ -16,7 +16,7 @@ import { DANCE_WAVE_BOUND } from '../src/world/alpine/MirrorScissor.js';
 import { landRiseLift } from '../src/world/alpine/LandRise.js';
 import { createForest } from '../src/world/alpine/ForestGL.js';
 import { crownHalfWidth } from '../src/world/alpine/ForestProfile.js';
-import { WIND_SWAY, GUST_LEAN, PARTING_LEAN, WIND_DIR } from '../src/world/alpine/ForestWind.js';
+import { WIND_SWAY, GUST_LEAN, WIND_DIR } from '../src/world/alpine/ForestWind.js';
 import { setTerrainDrawMode } from '../src/world/alpine/RailDraw.js';
 import { recordingWebGL2 } from './helpers/recordingWebGL2.mjs';
 
@@ -33,7 +33,6 @@ const edgy = r => () => { const v = r(); return v < .2 ? 0 : v > .8 ? 1 : r(); }
 // with the hidden inputs (receiver, fade, sines, gust, wind direction)
 // drawn at random within their ranges.
 const fract = x => x - Math.floor(x);
-const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const crownBase = (s, id) => s < .5 ? .46 + .06 * id : s > 1.5 && s < 2.5 ? .015 : .08;
 const crownRatio = s => s < .5 ? .30 : s < 1.5 ? .38 : s < 2.5 ? .265 : .425;
 function deformAt(u, e, r) {
@@ -46,14 +45,12 @@ function deformAt(u, e, r) {
 }
 const deformBound = u => { const d = u.raw; return Math.abs(d.amp) + Math.abs(d.kick + d.structural) + Math.abs(d.melodic) + Math.abs(d.gesture) + Math.abs(d.dance.x) + DANCE_WAVE_BOUND * Math.abs(d.dance.z); };
 function windAt(tree, y01, u, e, r) {
-  const ph = tree.id * 6.2831, t = u.uTime.value, wind = u.uWind.value, part = u.uParting.value;
+  const ph = tree.id * 6.2831, t = u.uTime.value, wind = u.uWind.value;
   const s = Math.sin(t * .65 + ph) * .6 + Math.sin(t * 1.45 + ph * 1.7) * .25;
   const sway = [s * WIND_SWAY * wind.x, s * .4 * WIND_SWAY * wind.x];
   const gust = e() * 2 - 1, a = r() * Math.PI * 2;
-  const ax = tree.x - part.x, az = tree.z - part.y, d = Math.hypot(ax, az);
-  const p = part.w * (1 - smooth(part.z * .3, part.z, d));
-  const lx = Math.cos(a) * gust * GUST_LEAN + ax / Math.max(d, 1) * p * PARTING_LEAN + WIND_DIR[0] * wind.y;
-  const lz = Math.sin(a) * gust * GUST_LEAN + az / Math.max(d, 1) * p * PARTING_LEAN + WIND_DIR[1] * wind.y;
+  const lx = Math.cos(a) * gust * GUST_LEAN + WIND_DIR[0] * wind.y;
+  const lz = Math.sin(a) * gust * GUST_LEAN + WIND_DIR[1] * wind.y;
   const k = tree.h * y01 * y01;
   return [(sway[0] + lx) * k, (sway[1] + lz) * k];
 }
@@ -77,7 +74,7 @@ function meshVertex(geo, k, tree, u, e, r) {
 const portUniforms = u => ({
   raw: { amp: u.uDeformAmp.value, kick: u.uDeformKick.value, structural: u.uDeformStructural.value, melodic: u.uDeformMelodic.value,
     gesture: u.uDeformGesture.value, dance: { x: u.uLandDance.value.x, y: u.uLandDance.value.y, z: u.uLandDance.value.z, w: u.uLandDance.value.w } },
-  uTime: u.uTime, uWind: u.uWind, uParting: u.uParting,
+  uTime: u.uTime, uWind: u.uWind,
 });
 
 // ---------------------------------------------------------------------------
@@ -120,8 +117,8 @@ function radial(position, branch) {
 // half as much again. Only ever used to pass a tree quickly: a tree it does
 // not clear goes through the port vertex by vertex.
 function looseBox(asset, tree, pu) {
-  const { foliage, trunk } = radial(asset.attributes.position, asset.attributes.aBranch), wind = pu.uWind.value, part = pu.uParting.value;
-  const lean = .92 * WIND_SWAY * Math.abs(wind.x) + GUST_LEAN + PARTING_LEAN * Math.abs(part.w) + Math.abs(wind.y);
+  const { foliage, trunk } = radial(asset.attributes.position, asset.attributes.aBranch), wind = pu.uWind.value;
+  const lean = .92 * WIND_SWAY * Math.abs(wind.x) + GUST_LEAN + Math.abs(wind.y);
   const R = 1.5 * (foliage * tree.w + trunk * .26 + lean * tree.h) + 1, D = 1.5 * deformBound(pu) + 1;
   return [tree.x - R, tree.y - D, tree.z - R, tree.x + R, tree.y + tree.h + D, tree.z + R];
 }
@@ -224,7 +221,7 @@ function placedTrees(seed) {
 function forestUniforms() {
   return { uDeformAmp: { value: 3 }, uDeformKick: { value: 1 }, uDeformStructural: { value: 0 }, uDeformMelodic: { value: .5 },
     uDeformGesture: { value: 0 }, uLandDance: { value: new THREE.Vector4() }, uTime: { value: 37.5 },
-    uWind: { value: new THREE.Vector2(1.2, .02) }, uParting: { value: new THREE.Vector4(40, -60, 120, .5) } };
+    uWind: { value: new THREE.Vector2(1.2, .02) } };
 }
 
 const W = 320, H = 180;

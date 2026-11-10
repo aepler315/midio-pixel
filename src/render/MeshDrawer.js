@@ -3,7 +3,6 @@
 // 1): hue from the edge's screen-space angle, brightness/glow from how far
 // its current length has deformed from rest. Squash-and-stretch, jaw
 // snaps, and neck bobs all become visible motion this way, for free.
-import { curl2 } from '../utils/fields.js';
 import { hexToRgb, rgbToHsl } from '../utils/color.js';
 
 const RIM_LIGHT_RANGE = 26; // max lightness swing (+/-) a fully-facing/fully-averted edge can pick up
@@ -212,67 +211,4 @@ export function drawGlowHalo(ctx, cx, cy, rx, ry, hueDeg, alpha, { sat = 70, lig
   ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
-}
-
-/**
- * The salvia melt: every vertex flows through a slow divergence-free
- * curl-noise field, so the form is never at rest -- a liquid instrument
- * rather than a rigid glyph. Two incommensurate field samples blend so
- * the flow never settles into a loop. Rest lengths are NOT recomputed:
- * the melt registers as continuous edge deformation, which the drawer
- * turns into shifting glow and hue -- the body itself plays.
- */
-export function meltMesh(mesh, cx, cy, tSec, amt, seed = 0) {
-  if (amt <= 0.02) return mesh;
-  const scratch = _getScratch(mesh.vertices.length);
-  for (let i = 0; i < mesh.vertices.length; i++) {
-    const v = mesh.vertices[i];
-    const dx = v.x - cx, dy = v.y - cy;
-    if (dx * dx + dy * dy < 4) { scratch[i].x = v.x; scratch[i].y = v.y; continue; }
-    const f = curl2((v.x + seed * 37.7) * 0.028, (v.y - seed * 11.3) * 0.028, tSec * 0.21 + seed);
-    const g = curl2((v.y + seed * 5.1) * 0.041, v.x * 0.041, tSec * 0.34 - seed * 2);
-    scratch[i].x = v.x + (f.x * 0.7 + g.x * 0.3) * amt;
-    scratch[i].y = v.y + (f.y * 0.7 + g.y * 0.3) * amt;
-  }
-  return { vertices: scratch, edges: mesh.edges, _scratch: scratch };
-}
-
-/**
- * Per-vertex lerp between two meshes that share vertex count and edge
- * topology (spec: the Apotheosis morph) -- t=0 is exactly meshA, t=1 is
- * exactly meshB, continuous in between. Edges are taken from meshA since
- * the two are required to be topologically identical.
- */
-export function lerpMesh(meshA, meshB, t) {
-  if (t <= 0) return meshA;
-  if (t >= 1) return meshB;
-  const scratch = _getScratch(meshA.vertices.length);
-  for (let i = 0; i < meshA.vertices.length; i++) {
-    const v = meshA.vertices[i], w = meshB.vertices[i];
-    scratch[i].x = v.x + (w.x - v.x) * t;
-    scratch[i].y = v.y + (w.y - v.y) * t;
-  }
-  return { vertices: scratch, edges: meshA.edges, _scratch: scratch };
-}
-
-/**
- * Radially displace a mesh's vertices about (cx,cy) by a ModalRing-style
- * field (anything with .energy and .displacementAt(theta)). Rest lengths
- * are intentionally NOT recomputed: displacement changes edge lengths
- * relative to rest, which is exactly what drives the glow/brightness in
- * drawMeshEdges -- the vibration lights the wireframe up for free.
- */
-export function displaceMeshRadial(mesh, cx, cy, field) {
-  if (!field || field.energy < 0.05) return mesh;
-  const scratch = _getScratch(mesh.vertices.length);
-  for (let i = 0; i < mesh.vertices.length; i++) {
-    const v = mesh.vertices[i];
-    const dx = v.x - cx, dy = v.y - cy;
-    const r = Math.hypot(dx, dy);
-    if (r < 2) { scratch[i].x = v.x; scratch[i].y = v.y; continue; }
-    const s = (r + field.displacementAt(Math.atan2(dy, dx))) / r;
-    scratch[i].x = cx + dx * s;
-    scratch[i].y = cy + dy * s;
-  }
-  return { vertices: scratch, edges: mesh.edges, _scratch: scratch };
 }

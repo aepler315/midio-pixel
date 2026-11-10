@@ -73,7 +73,7 @@ test('pixel heat uses eight-pixel cells, heard time, and source-over coverage', 
   const canvas = surface(), renderer = new Renderer(canvas);
   renderer._postBuffers.makeCanvas = () => surface(0, 0);
   renderer.pixelPolicy = pixelRenderPolicy({ pixelated: true });
-  const sim = { timeMs: 1000, heardTimeMs: 5000, perf: { heavyPostFx: true }, presentation: { performers: false },
+  const sim = { timeMs: 1000, heardTimeMs: 5000, perf: { heavyPostFx: true },
     biomes: { world: { kind: 'unregistered-kind' }, currentFxAlpha: () => 1 }, midio: { groundY: 625 } };
   const draw = timeMs => {
     canvas.draws.length = 0; sim.timeMs = timeMs;

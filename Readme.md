@@ -4,25 +4,19 @@ A music visualizer with real terrain, pixel landscapes, smooth skies and music-d
 
 This is an experimental project. Renderers, terrain, looks, cameras, worlds, defaults and performance policies can evolve with the current task. [Experimental development](docs/experimental-development.md) and [AGENTS.md](AGENTS.md) describe the workflow; old preservation lists and review holds do not freeze new work.
 
-Current presentation includes Pixel, Palette and Cinematic looks, five terrain grids from Classic (320×180) to Detailed (640×360), automatic quality and Fit/Integer preferences. Landscape combines pixel terrain with smooth sky, water and effects. Uniform is the current pixel sampling mode; old Depth selections migrate to it. These are implementation facts, not permanent design restrictions.
+Current presentation has one look, Cinematic, at five terrain grids from Classic (320×180) to Detailed (640×360, the default), with automatic quality and Fit/Integer preferences. The Pixel and Palette looks, palettes and dither were removed on November 10, 2026. Landscape combines pixel terrain with smooth sky, water and effects. Uniform is the current pixel sampling mode; old Depth selections migrate to it. These are implementation facts, not permanent design restrictions.
 
 Hosting: supermaudio.com is GitHub Pages serving the `gh-pages` branch, which `npm run publish:site` fills with only the staged site (see [Local validation and publishing](docs/local-validation.md)). The current limits are documented in [the validation matrix](docs/test-matrix.md).
 
 Drop a song and watch The Range carry the music. Midio Pixel is a
 browser music visualizer with moving landscapes and musical effects. Your
 original recording supplies the sound; its analysed rhythm, pitch, energy,
-and structure drive the scenery. **Play a sample** starts the authored song
-*Proof*, performed live by the built-in synth.
+and structure drive the scenery. **Play a sample** plays the authored song
+*Proof*, rendered to audio in the browser.
 
-Every song plays in one of two worlds, picked per song from the chooser once
-the song is ready: **Landscape**, The Range on real terrain, or **Trio**,
-where Midio, Broshi and Midasus perform automatically on the dancing range as
-it was before real terrain arrived. Midio jumps to rhythmic accents, Broshi
-follows the bass, and Midasus follows confident melodic notes and flies off to
-draw in the deep sky. The **World** setting switches worlds mid-song and keeps
-the current song and playhead. `?experience=landscape` or `?experience=trio`
-starts songs straight in that world without the chooser. Landscape and Trio
-both use Uniform pixel scaling.
+Every song plays in **Landscape**, The Range on real terrain. Once a song is
+analysed it starts straight away, in a version of Landscape tailored to it.
+Landscape uses Uniform pixel scaling.
 
 The root app uses plain JavaScript modules and Web Audio, with Canvas 2D
 composition and **Range v2** WebGL2 scenery. If that scenery cannot load or
@@ -51,12 +45,10 @@ LAN access, or set `PORT` to change the port.
    your browser can decode.
 2. Wait while the recording is pulled apart: frequency bands, onsets,
    tempo, pitch, and section structure become one song profile.
-3. When the song is ready, the chooser offers two cards, **Landscape** and
-   **Trio**. **Preview** plays the same quiet or peak passage in each;
-   **Play** starts the song in that world.
-4. Watch, or switch worlds with the **World** setting in Display. Both play
-   automatically with no score or failure condition. Optional taps help
-   calibrate the groove.
+3. When the song is ready it starts in Landscape, after a brief wait for the
+   song's own terrain (the bundled Tetons stand in if it is slow).
+4. Watch. Playback is automatic with no score or failure condition.
+   Optional taps help calibrate the groove.
 
 Several files selected or dropped together are treated as **stems of one
 song**, summed for playback and analysis. Use descriptive names such as
@@ -68,12 +60,10 @@ URL and library downloads keep playing the current song until the download
 hands off to the loader. **Stop** returns to the upload screen.
 
 The current page accepts local recordings, a music folder, URL loads and
-the live sample. MIDI uploads, paired MIDI/audio playback and song-search
-controls are no longer exposed. MIDI/SoundFont modules and the local
-Soulseek/free-music bridge remain for internal or legacy use; Docker, a
-Soulseek account and SoundFonts are not required for playback. Recorded
-songs play their original audio with timeline synthesis muted; the sample
-uses the fallback synth.
+the sample. MIDI files and SoundFonts are not supported; song-search
+controls are not exposed. The local Soulseek/free-music bridge remains for
+internal or legacy use; Docker and a Soulseek account are not required for
+playback. Every song plays its own audio.
 
 ## Your music library
 
@@ -125,14 +115,12 @@ batch rendering with ffmpeg, use `node tools/bulk-export.mjs --help`.
 | Snapshot button | Save one current-level, live-sized PNG on Android; save the five detail levels at full HD on desktop |
 | **Browse library** | Open the library: search, sort, folder view, auto-tag. `Esc` closes it |
 | **Timed lyric grounding: on/off** | Enable or skip lyric lookup; remembered between sessions |
-| **World** (Settings, or Display during playback) | Switch between Landscape and Trio mid-song; the song keeps playing |
 | Stage selector | Choose the render resolution, including 8-bit and 8-bit intensive presets |
 | Frame-rate selector | Cap rendering at 30 or 60 fps |
 | **BT** chip | The Bluetooth delay, set by **Sync** or typed in by hand. Fades with the rest of the HUD; held open while its editor is |
 | **Sync** button or `C` | Tap along with what you hear; the Bluetooth delay follows your taps, live ([docs](docs/sync-calibration.md)) |
 | `F` / `J` | Tap the low / high percussion parts for groove calibration |
 | `P` | Toggle the FPS display |
-| `T` | Toggle track details when available |
 | `F3` | Toggle section labels on the mountain seekbar |
 
 On a car head unit, the first tap after a long idle gap is spent entirely on
@@ -159,8 +147,8 @@ fake tempo.
 
 Here, “stem separation” in the implementation means frequency-band
 filtering. It is not learned instrument isolation. Pitch and role estimates
-from a mixed recording are approximate; sharing a timeline format with the
-MIDI adapter does not imply MIDI-level transcription accuracy.
+from a mixed recording are approximate; the timeline uses MIDI note numbers
+but does not imply MIDI-level transcription accuracy.
 
 The **Conductor** dispatches that timeline against the audio clock.
 Ahead-of-time subscriptions let a performer prepare a move whose peak
@@ -170,33 +158,18 @@ a fixed 120 Hz and rendering interpolates between steps.
 
 Melody, bass, pad and percussion estimates drive landscape motion and
 color. With uploaded stems, filenames and each stem's activity help assign
-these musical roles. In Trio the same estimates drive the cast; Landscape
-draws no performers, and neither world draws decorative actors.
+these musical roles. Landscape draws no performers or decorative actors.
 
-The world registry holds two worlds. The seven other landscape styles and the
-earlier Cathode have been removed; their old playback IDs resolve to
-Landscape.
+The world registry holds one world, Landscape. Trio, the seven other
+landscape styles and the earlier Cathode have been removed; their old
+playback IDs resolve to Landscape.
 
-- **Landscape** — real mountains that breathe with the mix: The Range on real terrain, drawn by Range v2. The **Camera tour: Tetons** setting (or `?rangeTour=tetons`) enables a song-timed flight through real Teton terrain. Use `?rangeTour=off` to override the saved preference. The tour belongs to Landscape: in Trio its toggle is disabled and the saved preference waits. [Validation and review evidence](docs/teton-tour-validation.md) record findings at their tested revisions. Further tour development is open to experimentation.
-- **Trio** — Midio, Midasus and Broshi on the dancing range: invented palettes on procedural ridges, the crystalline space ridge, a full sky of planets, and Midasus's voyages to the deep sky. See [Trio](docs/trio-stage.md).
+- **Landscape** — real mountains that breathe with the mix: The Range on real terrain, drawn by Range v2. The **Camera tour: Tetons** setting (or `?rangeTour=tetons`) enables a song-timed flight through real Teton terrain. Use `?rangeTour=off` to override the saved preference. [Validation and review evidence](docs/teton-tour-validation.md) record findings at their tested revisions. Further tour development is open to experimentation.
 
-The chooser shows one equal card per world, in authored order. A
-**Preview** plays the same quiet or peak passage through that world's
-treatment of the song. **Play** adapts palette, terrain, and musical
-response for the selected world, and a dense mix is filtered rather than
-amplified. There is no privileged “custom” card, no recommendation and no
-public score; a private post-adaptation fit appears only in the debug
+Each song adapts Landscape's palette, terrain, and musical response, and a
+dense mix is filtered rather than amplified. There is no recommendation and
+no public score; a private post-adaptation fit appears only in the debug
 overlay.
-
-Trio's procedural ranges are laid out as a timeline rather than as decoration.
-Each depth travels at its own speed, so one tile of it stands for a fixed
-stretch of music — roughly a song at the horizon, a section, a passage, and
-a phrase at the front — and a summit sits at the point in that stretch its
-moment occupies. The gaps between mountains are the gaps between events,
-the wider mountains are the longer events, and a summit shows its steep
-face toward whichever side the music rose or fell fastest on. Where the
-recording has a tempo, the gullies striping the flanks are cut on the beat
-grid, so the texture of the rock passes the eye at the song's own pulse.
 
 Analysis bundles are cached in IndexedDB so repeat plays can reuse the
 expensive analysis. Missing or unreadable cache entries fall back to fresh
@@ -252,24 +225,24 @@ checkout is behind), or to use another port:
 ## Repository layout
 
 ```text
-index.html   Recording/sample entry, world chooser, playback controls
+index.html   Recording/sample entry, playback controls
 src/
-  main.js    Loading, chooser, playback lifecycle, and app coordination
-  core/      NoteEvent timeline, Conductor, ParamBus, MIDI utilities
+  main.js    Loading, playback lifecycle, and app coordination
+  core/      NoteEvent timeline, Conductor, ParamBus
   audio/     Filtering, onset/tempo/pitch analysis, song profile, caching, playback
   lyrics/    Song identity, lyric lookup, alignment, and section interpretation
-  sim/       Fixed-step music simulation, calibration, effects, the Trio cast
+  sim/       Fixed-step music simulation, calibration, effects
   world/     World registry, adaptation, private fit, palettes, terrain, scenery
   eval/      Private world-quality corpus (no audio, no public scores)
   render/    Canvas compositor, pixel presentation, optional overlay, governor
   vision/    Optional vision tuning loop and provider adapters
-  ui/        Controls, world chooser, previews, accessibility, overlays, styles
+  ui/        Controls, accessibility, overlays, styles
 test/        Main app's Node tests and fixtures
 tools/       Local server, fixture generators, browser smoke checks, legacy tools
 ```
 
 GitHub Pages serves the `gh-pages` branch, which holds only the staged site
-(`index.html`, `src/`, `soundfonts/`, `CNAME`, `LICENSE`, `NOTICE` and
+(`index.html`, `src/`, `CNAME`, `LICENSE`, `NOTICE` and
 `version.json`), never the repository. `npm run publish:site` builds it from
 `main` (or `-- --ref <commit>`), verifies and boots it headless, and pushes it;
 `https://supermaudio.com/version.json` names the published commit. It does not
@@ -332,16 +305,15 @@ The check generates a deterministic 24-second PCM WAV and opens a fresh
 browser context. It turns off optional lyric lookup, selects 720p, and
 uploads through **Browse files**, preserving the browser gesture needed to
 unlock audio. It exercises the real decoder, OfflineAudioContext filtering,
-analysis, the world chooser (one equal card per world), and playback after
-a world is picked. This smoke pins the legacy Range renderer
-(`?rangeRenderer=legacy`).
+analysis, and playback starting straight in a song-tailored Landscape. This
+smoke pins the legacy Range renderer (`?rangeRenderer=legacy`).
 
-Assertions require a populated timeline, an active recording with the
-timeline synth muted, advancing audio and simulation clocks, a populated
-and changing canvas, controls that wake on a canvas tap, working pause/resume
-and stop controls, and no browser
-errors or visible error banner. Failure exits nonzero. Optional SoundFont
-discovery is stubbed to an empty library to avoid loading local user files.
+Assertions require a populated timeline, the decoded recording as the
+playing buffer, no world picker, advancing audio and simulation clocks, a
+populated and changing canvas, controls that wake on a canvas tap, working
+pause/resume, a replacement upload that stops the old song before the new
+one plays, working stop, and no browser errors or visible error banner.
+Failure exits nonzero.
 
 Artifacts are written to `.smoke/`: `fixture.wav`, `playback.png`,
 `report.json`, and a Playwright `trace.zip`; failures also attempt to
@@ -373,9 +345,9 @@ npm run test:routes -- --site-root _site --out .smoke/current-routes-song --audi
 ```
 
 This freezes the staged public `index.html` and `src/` bytes and serves them on
-an isolated loopback port. Four fresh headless contexts exercise clean default
-Landscape v2, Tetons selected through its control, Tetons restored after a clean
-reload in the same context, and Trio selected before upload. It records the
+an isolated loopback port. Three fresh headless contexts exercise clean default
+Landscape v2, Tetons selected through its control, and Tetons restored after a
+clean reload in the same context. It records the
 checkout SHA, public source digest, audio hash, browser version, actual route,
 decoded audio clocks and matching completed presentation/capture IDs. A changed
 canvas alone cannot pass. The generated 120-second fixture leaves room for
@@ -387,16 +359,13 @@ failure remains a failed acceptance result. Existing output directories are
 rejected to preserve earlier evidence.
 
 The optional manual Test workflow runs both suites and uploads diagnostics.
-The other `tools/smoke-*.mjs` scripts are legacy or specialized diagnostics;
-some still target removed MIDI/demo/SoundFont UI and are not the maintained
-upload regression suite.
+The other `tools/*-smoke.mjs` scripts are specialized diagnostics, not the
+maintained upload regression suite.
 
 ## Additional references
 
-- [Worlds](docs/worlds.md) — Landscape and Trio: the registry, song
-  adaptation, the chooser and the private fit.
-- [Trio](docs/trio-stage.md) — the cast, the space ridge and Midasus's
-  deep-sky voyages.
+- [Worlds](docs/worlds.md) — Landscape: the registry, song adaptation and
+  the private fit.
 - [VFX suite](docs/vfx-suite.md) — visual-system design notes.
 - [Car mode](docs/car-mode.md) — keeping a head-unit display awake and in
   fullscreen, and why a page cannot fake a tap.
@@ -405,10 +374,8 @@ upload regression suite.
   fixable from the page, and the URL route offered instead.
 - [Soulseek bridge notes](docs/soulseek.md) — retained backend tooling;
   the current upload page does not expose its search/connect controls.
-- [SoundFont tooling](soundfonts/README.md) — retained synthesis support;
-  uploaded recordings play their own audio with the timeline synth muted.
 
-Display settings now separate **Natural / Pixel / Palette** from **Auto / Economy** quality. Open **Display** during playback to change them. [Pixel presentation](docs/pixel-presentation.md) explains migration, palettes and exports; [landscape peaks](docs/landscape-peaks.md) explains climax storms and the three landscape-scale instrument characters.
+Display settings choose the pixel detail and Fit/Integer scaling; quality is Auto or Economy. Open **Display** during playback to change them. [Pixel presentation](docs/pixel-presentation.md) explains migration and exports; [landscape peaks](docs/landscape-peaks.md) explains climax storms.
 
 ## Minimum performance target
 

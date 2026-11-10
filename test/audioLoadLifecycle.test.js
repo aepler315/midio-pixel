@@ -54,9 +54,9 @@ function harness() {
     getBundle: async (key) => { keys.push(key); return {}; },
     unpackBundle: () => ({ fromBundle: true }),
     audioToTimeline: async () => ({ fromBundle: true }),
-    generateCustomBiomeFromMidi: () => ({}), rememberCustomBiome() {}, paramBus: {},
-    muteTimelineSynth: false, lastSongName: '', lastAudioBuffer: null,
-    fontRecommender: null, DEV_MODE: false, offerWorldsThenStart() {},
+    paramBus: {},
+    lastSongName: '', lastAudioBuffer: null,
+    DEV_MODE: false, offerWorldsThenStart() {},
     packBundle: () => ({}), putBundle: async () => {},
     // A load started from the music library reports the decoded duration
     // back to it -- the one fact a folder scan cannot know.

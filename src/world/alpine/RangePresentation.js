@@ -115,8 +115,6 @@ export const V2_TRAVEL_BANDS = 16;
 /** Residency key of the travel composition buffer (one stage-sized canvas
  *  the two sides are blended in before the single copy to the stage). */
 export const TRAVEL_SCRATCH_KEY = 'range:travel-scratch';
-/** The cast layer the presenter lays smoothly over the pixel frame. */
-export const CAST_LAYER_KEY = 'range:cast-layer';
 const WATER_LAYER_KEY = 'range:water-layer';
 const ARRIVAL_LAYER_KEY = 'range:direct-arrival';
 const WATER_EFFECT_MASK_KEY = 'range:water-effect-mask';
@@ -209,7 +207,7 @@ export class RangePresentation {
     this._sceneFactory = sceneFactory;
     this._makeCanvas = makeCanvas;
     this.exportMode = false;
-    // Set by the presenting renderer each frame: a Pixel/Palette look.
+    // Set by the presenting renderer each frame: a pixel-grid look.
     this.pixelated = false;
     this.pixelPolicy = null;
     // Travel: the composition buffer and the incoming side's own fade-in
@@ -220,19 +218,12 @@ export class RangePresentation {
     this.incomingFade = 1;
     this._handoff = null; // { outgoing, incoming } views while a late join fades
     this._waitedFor = null; // incoming view id a travel frame drew without
-    // Set by the presenting renderer each frame: it will lay the cast over
-    // the upscaled pixel frame (drawCastForeground). Without one the cast
-    // draws in the band passes, on the grid.
-    this.castForeground = false;
-    this.castLayer = null; // this frame's cast, for drawCastForeground
     this.waterLayer = null;
     this.waterOutputSize = null;
-    this._castCanvas = null;
     // Crest line and shorelines (RangeCrest.js), set by the presenting
     // renderer each frame: enabled only for the separate pixel composite.
     this.crestEnabled = false;
     this._crestScan = false;
-    this.crestPalette = null;
     this.crest = new RangeCrest({ makeCanvas, residency });
     this.scene = null;
     this.runtimeState = mode === 'v2' ? 'idle' : 'off'; // idle | loading | ready | failed | off
@@ -273,18 +264,6 @@ export class RangePresentation {
   get arriving() { return this.active && this.arrival < 1; }
 
   get enabled() { return this.mode === 'v2'; }
-
-  setSingleStage(enabled) {
-    if (this.singleStage === enabled) return;
-    this.singleStage = enabled;
-    if (!enabled) return;
-    this._releaseWater();
-    this._releaseWaterEffects();
-    this._releaseNearOcclusion();
-    this._releaseCastCanvas();
-    this.crest.release();
-    this.scene?.releaseCrestProbe?.();
-  }
 
   get cameraSchedule() { return this.railPlan?.snapshot ?? null; }
 
@@ -746,8 +725,7 @@ export class RangePresentation {
   }
 
   _crestProbeShed(sim) {
-    return !this.exportMode && !sim?.exportMode && !this.crestPalette
-      && (sim?.perf?.level ?? 0) >= CREST_GRID_SCAN_LEVEL;
+    return !this.exportMode && !sim?.exportMode && (sim?.perf?.level ?? 0) >= CREST_GRID_SCAN_LEVEL;
   }
 
   /** Renderer: this frame's inputs, before BiomeManager.draw. */
@@ -844,7 +822,6 @@ export class RangePresentation {
   _beginScenic() {
     this.resolutionRefused = false;
     this.stage = null;
-    this.castLayer = null;
     this.active = false;
     this.incomingViewId = null;
     this.frame = null;
@@ -990,7 +967,7 @@ export class RangePresentation {
     // What this frame draws stays resident (never evicted mid-use) -- pinned
     // before any reservation below, which may evict unpinned entries.
     const vp = inputs.scenicViewport;
-    this.scene.pinView?.(incoming ? [view.id, incoming.id] : view.id, [TRAVEL_SCRATCH_KEY, CAST_LAYER_KEY]);
+    this.scene.pinView?.(incoming ? [view.id, incoming.id] : view.id, [TRAVEL_SCRATCH_KEY]);
     try {
       // Quality rung and look decide the target's multisampling
       // (RangeRenderPolicy); Pixel/Palette never smooth their grid.
@@ -1029,25 +1006,27 @@ export class RangePresentation {
       this._releaseScratch();
     }
     this.incomingViewId = incoming?.id ?? null;
-    // A travel keeps the cast in the band passes: each side's nearer bands
-    // draw only in some columns, which one smooth layer cannot follow.
     this.scene.directTerrainMode = !!this.directTerrainMode;
     this.scene.separateWater = false;
     this.directWaterAvailable = false;
-    this.directCastAvailable = false;
-    if (this.directTerrainMode && this.scene._waterRenderTarget && this.scene.size) {
+    // Direct mode's full-size output target (range:water-output), reserved
+    // and pinned before water is admitted (_admitDirectWater), and only while
+    // a drawn view has water: on dry frames the existing entry is left
+    // unpinned (evictable) rather than released, so wet/dry travel does not
+    // churn it.
+    this.directWaterTargetAvailable = false;
+    const wet = !this.scene.hasWater || [view.id, incoming?.id].filter(Boolean).some((id) => this.scene.hasWater(id));
+    if (this.directTerrainMode && wet && this.scene._waterRenderTarget && this.scene.size) {
       const scale = this.scene.waterOutputScale || 1;
-      try { this.directCastAvailable = !!this.scene._waterRenderTarget(
+      try { this.directWaterTargetAvailable = !!this.scene._waterRenderTarget(
         Math.max(2, Math.round(this.scene.size.width * scale)), Math.max(2, Math.round(this.scene.size.height * scale))); }
-      catch { this.directCastAvailable = false; }
+      catch { this.directWaterTargetAvailable = false; }
     }
-    this.scene.castInBands = this.directTerrainMode ? !this.directCastAvailable : !this.castForeground || !!incoming;
-    if (!this.castForeground) this._releaseCastCanvas();
     this.seamP = holding ? 1 : blend.travel ? (blend.travelP ?? t) : t;
     this._updateIncomingFade(incomingSide ? { id: sideId(incomingSide) } : null, inputs.sim);
     this._handoff = incoming && this.incomingFade < 1 ? { outgoing: outgoingSide, incoming: incomingSide } : null;
     this.scene.pinView?.(incoming ? [view.id, incoming.id] : view.id,
-      [...(incoming ? [TRAVEL_SCRATCH_KEY] : [CAST_LAYER_KEY]), ...(this.directCastAvailable ? ['range:water-output'] : [])]);
+      [...(incoming ? [TRAVEL_SCRATCH_KEY] : []), ...(this.directWaterTargetAvailable ? ['range:water-output'] : [])]);
     this.timings.frameId = this.frameId + 1;
     this.timings.frameRenderMs = 0;
     this.timings.frameCopyMs = 0;
@@ -1096,7 +1075,6 @@ export class RangePresentation {
     this.scene.crestOutputScale = crestOn && crestGrid ? Math.max(1,
       (this.crestOutputSize?.width || crestGrid.width) / crestGrid.width,
       (this.crestOutputSize?.height || crestGrid.height) / crestGrid.height) : 1;
-    this.scene.singleStage = !!this.singleStage;
     this._crestScan = crestOn && this.crest.mode === 'grid';
     if (!crestOn) this.crest.update({ frameId: this.frame.frameId, timeMs: this.frame.timeMs, viewId: view.id, qualityLevel: this.frame.qualityLevel ?? 0 });
     this.scene.skyPan = this.skyPan; // rain curtains and lightning stand where the sky draws them
@@ -1242,9 +1220,9 @@ export class RangePresentation {
     // ranges, the far terrain) is the backdrop the lake reflects.
     if (pass === 'mid') {
       const manager = this.frameInputs?.sim?.biomes;
-      const drawSky = !this.directTerrainMode && !this.singleStage && manager?.highResolutionSky && manager.rangeSkyLayer ? (target, width, height) =>
+      const drawSky = !this.directTerrainMode && manager?.highResolutionSky && manager.rangeSkyLayer ? (target, width, height) =>
         manager.drawHighResolutionSky(target, target.canvas, { transform: [width / stage.width, 0, 0, height / stage.height, 0, 0] }) : null;
-      this.scene.captureBackdrop?.(ctx, stage, this.frame, drawSky);
+      this.scene.captureBackdrop?.(ctx, stage, this.frame, drawSky, [this.viewId, this.incomingViewId].filter(Boolean));
     }
     if (this.incomingViewId) {
       // Travel between two views: each side renders into its own target and
@@ -1264,7 +1242,6 @@ export class RangePresentation {
         if (this.directTerrainMode) {
           if (pass === 'far') this._drawDirectShaft(ctx, stage, cols);
           this._drawDirectWater(ctx, stage, pass, cols);
-          if (pass === 'near') this._drawDirectCast(ctx, stage, cols);
         }
       }
       return drawn;
@@ -1291,11 +1268,9 @@ export class RangePresentation {
       arrival: this.arrival, shafted: !!this.scene.lastShafted };
     if (!this.directTerrainMode && pass === 'near') this._recordNearOcclusion(ctx, stage, img, rect.width, rect.height);
     this._noteTiming(t1 - t0, performance.now() - t1);
-    if (!this.directTerrainMode && pass === 'near' && this.castForeground && !this.scene.castInBands) this._keepCast(ctx, stage);
     if (this.directTerrainMode) {
       if (pass === 'far') this._drawDirectShaft(ctx, stage);
       if (!assembled) this._drawDirectWater(ctx, stage, pass);
-      if (pass === 'near') this._drawDirectCast(ctx, stage);
     }
     else if (pass === 'near') this._keepWater(ctx, stage);
     if (!this.directTerrainMode && pass === 'near') this._finishCrest(ctx, stage);
@@ -1323,13 +1298,11 @@ export class RangePresentation {
       qualityLevel: this.frame.qualityLevel ?? 0, transform: t ? [t.a, t.b, t.c, t.d, t.e, t.f] : null,
       stage: { width: stage.width, height: stage.height },
       grid: { width: ctx.canvas.width, height: ctx.canvas.height },
-      sky: this.frameInputs?.sim?.biomes?._airColor ?? null, palette: this.crestPalette, scan: steady && !!this._crestScan });
+      sky: this.frameInputs?.sim?.biomes?._airColor ?? null });
   }
 
-  /** Presenter hook, before palette quantization (RangeCrest.prepareGrid). */
+  /** Presenter hook, before the grid is composited (RangeCrest.prepareGrid). */
   prepareCrestGrid(options) { return this.crestEnabled ? this.crest.prepareGrid(options) : false; }
-  /** Presenter hook, after palette quantization (RangeCrest.finishGrid). */
-  finishCrestGrid(options) { return this.crestEnabled ? this.crest.finishGrid(options) : false; }
 
   /** Presenter hooks at output resolution: the crest after the terrain,
    * shorelines after the water; live and for recordings alike. */
@@ -1397,19 +1370,19 @@ export class RangePresentation {
   }
 
   /** Admit everything before suppressing native water color. The full-size
-   * water target is already reserved for direct cast; no extra pass or
-   * target is introduced. A denied layer keeps the normal native color. */
+   * water target is already reserved (directWaterTargetAvailable); no extra pass
+   * or target is introduced. A denied layer keeps the normal native color. */
   _admitDirectWater(viewId, incomingId = null) {
     this.directWaterAvailable = false;
     if (this.scene) this.scene.separateWater = false;
-    if (!this.directTerrainMode || !this.directCastAvailable || !(this.arrival >= .999) || openingOcean01(this.frame?.rise01) >= 1
+    if (!this.directTerrainMode || !this.directWaterTargetAvailable || !(this.arrival >= .999) || openingOcean01(this.frame?.rise01) >= 1
       || !(this.outputSize?.width > 0 && this.outputSize?.height > 0)
       || this.scene.hasWater && ![viewId, incomingId].filter(Boolean).some(id => this.scene.hasWater(id))) return false;
     const canvas = this._ensureWaterCanvas('_waterCanvas', WATER_LAYER_KEY, this.outputSize.width, this.outputSize.height);
     if (!canvas) return false;
     this.directWaterAvailable = this.scene.separateWater = true;
     this.scene.pinView?.(incomingId ? [viewId, incomingId] : viewId,
-      [incomingId ? TRAVEL_SCRATCH_KEY : CAST_LAYER_KEY, 'range:water-output', WATER_LAYER_KEY]);
+      [...(incomingId ? [TRAVEL_SCRATCH_KEY] : []), 'range:water-output', WATER_LAYER_KEY]);
     return true;
   }
 
@@ -1496,21 +1469,6 @@ export class RangePresentation {
     const image = render('A');
     if (!image) return false;
     ctx.save(); ctx.globalAlpha = this.arrival; ctx.globalCompositeOperation = 'source-over';
-    ctx.imageSmoothingEnabled = true; drawScene(ctx, this.scene, image, 0, 0, stage.width, stage.height); ctx.restore();
-    return true;
-  }
-
-  _drawDirectCast(ctx, stage, columns = null) {
-    if (!this.directCastAvailable || !this.scene?.renderDirectCast || !this.scene.size) return false;
-    const scale = Math.max(1, this.scene.waterOutputScale || 1);
-    const w = this.scene.size.width * scale, h = this.scene.size.height * scale;
-    const render = (id, side, bandColumns) => this.scene.renderDirectCast(this._sideFrame(side), id, w, h, { side, bandColumns });
-    if (this.incomingViewId && columns) return this._compositeSides(ctx, stage, 'L5',
-      () => render(this.viewId, 'A', columns.A), () => render(this.incomingViewId, 'B', columns.B), null,
-      { smooth: true, additive: true });
-    const image = render(this.viewId, 'A', null);
-    if (!image) return false;
-    ctx.save(); ctx.globalAlpha = this.arrival; ctx.globalCompositeOperation = 'lighter';
     ctx.imageSmoothingEnabled = true; drawScene(ctx, this.scene, image, 0, 0, stage.width, stage.height); ctx.restore();
     return true;
   }
@@ -1726,115 +1684,6 @@ export class RangePresentation {
     return true;
   }
 
-  /**
-   * After the near partition: the scene draws the cast in its own pass
-   * (RangeScene.renderCast) and it is kept here, with the stage transform
-   * in effect, for the presenter to lay over the upscaled frame. Without
-   * room for the layer it is added to the grid right here instead.
-   */
-  _keepCast(ctx, stage) {
-    const c0 = performance.now();
-    const img = this.scene.renderCast?.(this._sideFrame(), this.viewId);
-    if (!img) return;
-    const rect = sceneRect(this.scene, img);
-    const t = ctx.getTransform?.();
-    const layer = t ? this._ensureCastCanvas(rect.width, rect.height) : null;
-    if (!layer) {
-      ctx.save();
-      ctx.globalAlpha = this.arrival;
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.drawImage(img, rect.x, rect.y, rect.width, rect.height, 0, 0, stage.width, stage.height);
-      ctx.restore();
-    } else {
-      const lctx = layer.getContext('2d');
-      lctx.setTransform(1, 0, 0, 1, 0, 0);
-      lctx.globalAlpha = 1;
-      lctx.globalCompositeOperation = 'copy';
-      lctx.drawImage(img, rect.x, rect.y, rect.width, rect.height, 0, 0, rect.width, rect.height);
-      lctx.globalCompositeOperation = 'source-over';
-      this.castLayer = { canvas: layer, width: rect.width, height: rect.height, transform: [t.a, t.b, t.c, t.d, t.e, t.f],
-        stageWidth: stage.width, stageHeight: stage.height, alpha: this.arrival };
-    }
-    const ms = performance.now() - c0;
-    this.timings.castMs = ms;
-    this.timings.frameRenderMs += ms;
-  }
-
-  /**
-   * The presenter's foreground hook (compositePixelFrame): this frame's
-   * cast, bilinear over the nearest-upscaled pixel frame (`fit` places
-   * the working buffer in the output), added as light. True when the
-   * composite is complete (also with no cast to add).
-   *
-   * Two things knowingly change from drawing it into the working buffer.
-   * The layer is in full colour: palette quantization and dither run on
-   * the working buffer before this composite, and the cast's few hues
-   * would only band. And it lands above everything the working buffer
-   * holds: the far vignettes and mid-depth life drawn between partitions
-   * (which a far or mid cast light used to sit behind), and whatever is
-   * painted after the near partition -- the cut flash, bloom, film finish
-   * and an in-frame HUD strip. Landscape draws no ground stage, flood,
-   * veil or near-field props over its partitions. The range caption is the
-   * exception kept: given its layout (`caption`, working-buffer pixels, with
-   * its plate's opacity) the cast shows through the plate as it would
-   * beneath it, instead of lighting the name.
-   */
-  drawCastForeground(ctx, fit, caption = null) {
-    const layer = this.castLayer;
-    // (A layer released since -- evicted, resized -- has no pixels left.)
-    if (!layer || !(layer.alpha > 0.001) || !(layer.canvas.width > 0)) return true;
-    const m = layer.transform, s = fit.scale, b = caption?.plate > 0 ? caption.bounds : null;
-    const box = b ? [fit.x + s * b.x, fit.y + s * b.y, s * b.width, s * b.height] : null;
-    const draw = (inside) => {
-      ctx.save();
-      ctx.beginPath();
-      if (inside) ctx.rect(...box);
-      else {
-        ctx.rect(fit.x, fit.y, fit.width, fit.height);
-        if (box) ctx.rect(...box); // even-odd: the frame less the plate
-      }
-      ctx.clip(box && !inside ? 'evenodd' : 'nonzero');
-      ctx.setTransform(s * m[0], s * m[1], s * m[2], s * m[3], fit.x + s * m[4], fit.y + s * m[5]);
-      ctx.globalAlpha = layer.alpha * (inside ? 1 - caption.plate : 1);
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.imageSmoothingEnabled = true;
-      try { ctx.drawImage(layer.canvas, 0, 0, layer.width, layer.height, 0, 0, layer.stageWidth, layer.stageHeight); }
-      finally { ctx.restore(); }
-    };
-    draw(false);
-    if (box) draw(true);
-    return true;
-  }
-
-  /** The cast layer's canvas at the scenic backing size, reserved before it
-   *  exists; null when the budget refuses it. */
-  _ensureCastCanvas(w, h) {
-    if (this._castCanvas && this._castCanvas.width === w && this._castCanvas.height === h
-      && (!this.residency || this.residency.get?.(CAST_LAYER_KEY) === this._castCanvas)) return this._castCanvas;
-    this._releaseCastCanvas();
-    let res = null;
-    if (this.residency) {
-      res = this.residency.reserve({ key: CAST_LAYER_KEY, bytes: w * h * 4, owner: 'range-targets' });
-      if (!res) return null;
-    }
-    const canvas = this._makeCanvas(w, h);
-    this._castCanvas = canvas;
-    if (res) {
-      this.residency.commit(res, canvas, (c) => {
-        if (this._castCanvas === c) this._castCanvas = null;
-        c.width = 0; c.height = 0;
-      });
-    }
-    return canvas;
-  }
-
-  _releaseCastCanvas() {
-    this.castLayer = null;
-    if (!this._castCanvas) return;
-    if (this.residency) this.residency.release(CAST_LAYER_KEY);
-    this._castCanvas = null;
-  }
-
   /** One pass's render and copy cost: kept as the last pass and summed
    *  into the frame's totals (a frame has several passes, two sides each
    *  during a travel). */
@@ -1875,7 +1724,7 @@ export class RangePresentation {
    * leave the bands up to 25% see-through. Each render returns the shared
    * drawing buffer, so A is fully drawn before B is rendered.
    */
-  _compositeSides(ctx, stage, layerKey, renderA, renderB, backing = null, { smooth = false, additive = false, screenSpace = false } = {}) {
+  _compositeSides(ctx, stage, layerKey, renderA, renderB, backing = null, { smooth = false, screenSpace = false } = {}) {
     const { lo, hi, bands } = travelSpans(stage.width, layerKey, this.seamP ?? 0, V2_TRAVEL_BANDS);
     const fadeB = this.incomingFade ?? 1;
     const far = stage.width * 2;
@@ -1924,7 +1773,7 @@ export class RangePresentation {
     if (!a && !b) return false;
     ctx.save();
     ctx.globalAlpha = this.arrival;
-    ctx.globalCompositeOperation = additive ? 'lighter' : 'source-over';
+    ctx.globalCompositeOperation = 'source-over';
     if (screenSpace) {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.drawImage(out, 0, 0, W, H, 0, 0, W, H);
@@ -2049,7 +1898,6 @@ export class RangePresentation {
     this._tourAbort?.abort();
     this._replanAbort?.abort();
     this._releaseScratch();
-    this._releaseCastCanvas();
     if (this.residency && this.generation) this.residency.cancelGeneration(this.generation);
     this.scene?.dispose();
     this.scene = null;

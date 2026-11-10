@@ -1,11 +1,8 @@
-// The authored demo song — a choreography oracle, not a random timeline.
-//
-// Because we wrote the notes, we know exactly when Midio should jump, when
-// a lead stab should pop a double-jump, when the trio should spin into a
-// disc, when the drop hits, and when everyone should stand still. The test
-// harness (ChoreoHarness) steps the same jump / disc / hype / performer
-// path Simulation uses and diffs the log against expectedChoreography().
-// When they disagree, the song is right and the logic is what we refine.
+// The authored demo song behind "Play a sample": a known score, not a random
+// timeline. Because we wrote the notes, we know exactly where every kick,
+// lead stab, drop and rest falls; expectedChoreography() derives that ground
+// truth from the score, so tests can hold the audio render and the drop
+// detector to it. When they disagree, the song is right.
 import { Role, GM_DRUM, makeNoteEvent, sortNoteEvents } from './NoteEvent.js';
 import { Lane } from './Casting.js';
 import { CueKind, splitCues } from './ConductorTrack.js';
@@ -36,7 +33,7 @@ const CHORDS = {
  *   half    kick on 1 + 3
  *   full    four-on-the-floor
  *   rest    no kicks at all
- *   fill    kick on 1 + 3, plus a Lane.MIDIO stab on 2 (the double-jump)
+ *   fill    kick on 1 + 3, plus a Lane.MIDIO lead stab on 2
  *
  * Cues are conductor-track events that skip probability rolls (Simulation
  * honors them as authored instructions). Energy is a 0..1 mix hint for the
@@ -249,9 +246,8 @@ export function sectionAtMs(tMs) {
 }
 
 /**
- * Ground-truth choreography derived from the score, not from running the
- * sim. The harness log is compared against this. Times are exact onsets;
- * tests allow one sim step (~8ms) of dispatch slack.
+ * Ground truth derived from the score, not from running the sim. Times are
+ * exact onsets; tests allow one sim step (~8ms) of dispatch slack.
  */
 export function expectedChoreography(song = buildDemoSong()) {
   const kicks = song.timeline.filter((e) => e.kick).map((e) => ({ tMs: e.tMs, vel: e.vel }));
@@ -267,10 +263,6 @@ export function expectedChoreography(song = buildDemoSong()) {
     .filter((s) => s.energy >= 0.85)
     .map((s) => ({ fromMs: s.bar0 * BAR_MS, toMs: (s.bar0 + s.bars) * BAR_MS, id: s.id }));
 
-  const discs = song.conductor.liveCues
-    .filter((c) => c.kind === CueKind.DROP || c.kind === CueKind.FLOURISH)
-    .map((c) => ({ tMs: c.tMs, kind: c.kind }));
-
   const drops = song.conductor.liveCues
     .filter((c) => c.kind === CueKind.DROP)
     .map((c) => c.tMs);
@@ -283,14 +275,11 @@ export function expectedChoreography(song = buildDemoSong()) {
     bpm: song.bpm,
     durationMs: song.durationMs,
     kicks,
-    jumpOnsets: kicks.map((k) => k.tMs), // every kick is a takeoff or a landing-tie relaunch
-    airJumpOnsets: leadStabs,
     leadStabs,
     bassNotes,
     melodyNotes,
     restWindows,
     hotWindows,
-    discs,
     drops,
     calms,
   };

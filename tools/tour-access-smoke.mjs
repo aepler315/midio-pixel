@@ -90,33 +90,33 @@ async function state(page) {
   });
 }
 
-async function loadSong(page, world = 'alpine') {
-  console.log(`Tour access: upload and choose ${world}.`);
+async function loadSong(page) {
+  console.log('Tour access: upload; the song starts in Landscape.');
   const lyrics = page.locator('#lyricGroundingBtn');
   if (await lyrics.getAttribute('aria-pressed') === 'true') await lyrics.click();
-  await page.locator('#fileInput').setInputFiles(wav);
-  console.log('Tour access: upload accepted; waiting for the world picker.');
-  await page.locator('#worldSelect[open]').waitFor({ timeout: 300000 });
-  // This handler follows the app's own world-selection handler in the same
-  // click. Pause before its first rAF can paint a software-rendered frame.
-  await page.locator('#worldSelectGrid').evaluate(node => {
-    node.addEventListener('click', () => {
-      if (window.__SMW?.sim && !window.__SMW.paused) document.getElementById('pauseBtn').click();
-    }, { once: true });
+  // The song starts on its own once analysed. Watch for its simulation and
+  // pause at once, before software GL renders frames in the background.
+  // (Previously this paused in the same click as the world picker; the poll
+  // can trail the start by one interval.)
+  await page.evaluate(() => {
+    const timer = setInterval(() => {
+      const app = window.__SMW;
+      if (!app?.sim) return;
+      clearInterval(timer);
+      if (!app.paused) document.getElementById('pauseBtn').click();
+    }, 16);
   });
-  console.log('Tour access: world picker ready; choosing and pausing in one click.');
-  await page.locator(`.worldCard[data-base-world-id="${world}"]`).click();
-  // The picker builds a song-specific world whose public ID is "custom".
-  // Both worlds are the alpine kind; the experience tells them apart.
-  const experience = world === 'trio' ? 'trio' : 'landscape';
-  await page.waitForFunction(experience => window.__SMW?.sim?.experience === experience
-    && window.__SMW.sim.biomes?.world?.kind === 'alpine', experience, { timeout: 300000 });
+  await page.locator('#fileInput').setInputFiles(wav);
+  console.log('Tour access: upload accepted; waiting for the song to start.');
+  // The song gets a song-specific world whose public ID is "custom", of the
+  // alpine kind.
+  await page.waitForFunction(() => window.__SMW?.sim?.biomes?.world?.kind === 'alpine', null, { timeout: 300000 });
   // Stop the real audio/rAF through the actual Pause handler as soon as the
   // world exists. Preparation and assertions must not leave software GL
   // rendering continuously in the background.
   await page.evaluate(() => { if (!window.__SMW.paused) document.getElementById('pauseBtn').click(); });
   await page.waitForFunction(() => window.__SMW.audioEngine.ctx.state === 'suspended');
-  console.log(`Tour access: ${world} started and paused; preparing requested scenery.`);
+  console.log('Tour access: Landscape started and paused; preparing requested scenery.');
 }
 
 async function drawCurrent(page) {
@@ -286,24 +286,6 @@ try {
       await record({ name: `${fail} assets unavailable`, state: unavailable, warnings: h.warnings });
       console.log(`Tour access: ${fail} fallback passed.`);
     } finally { await h.context.close(); }
-  }
-  if (['all', 'fallback'].includes(suite)) {
-    // Trio owns no Range presentation. The saved tour waits for Landscape:
-    // the toggle is disabled but stays checked, and storage keeps it.
-    const other = await open({ saved: 'tetons' });
-    try {
-    await loadSong(other.page, 'trio');
-    const ready = await other.page.evaluate(() => window.__SMW.rangeReady({ timeoutMs: 120000 }));
-    assert.equal(ready.mode, 'legacy');
-    const value = await expectStatus(other.page, 'off');
-    assert.match(value.text, /Available in Landscape/);
-    assert.equal(value.active, false);
-    assert.equal(value.checked, true);
-    assert.equal(await other.page.locator('#range-tour-toggle').isDisabled(), true);
-    assert.equal(await other.page.evaluate(() => localStorage.getItem('range-tour')), 'tetons');
-    assert.deepEqual(other.errors, []);
-      await record({ name: 'tour preference retained in Trio', state: value });
-    } finally { await other.context.close(); }
   }
   report.passed = true;
   console.log(`Tour access: ${report.checks.length} browser checks passed (${report.browser}).`);
