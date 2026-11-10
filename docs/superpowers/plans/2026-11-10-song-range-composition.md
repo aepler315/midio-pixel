@@ -131,14 +131,14 @@ Files: new `tools/lib/massif-cut.mjs`, `tools/lib/stage-compose.mjs`, `tools/bui
 
 Files: new `src/world/terrain/SongRangePlan.js`, generated `src/world/terrain/massifCatalogData.js`, new `tools/song-range-uniqueness.mjs`, tests `test/songRangePlan.test.js`; edits to `src/library/SongWorld.js` behind the flag.
 
-- [ ] **Signature.** `planSongRange(profile, seed, { catalog, templates })` returns `{ version, family, templateId, slots: [{ slotId, pieceId, mirrored }], baseM, label }`. Pure: no downloads, no decoding, no GPU.
-- [ ] **Family and template.** Family from `chooseSongBiomes(profile, seed)[0]`. Template chosen by seed among those the family supports.
-- [ ] **Principal massif.** Match the song's terrain target (`songTerrainTarget`) to piece character with the existing axis distance, fair-share floor and `seedTicket`, restricted to pieces that fit the principal slot's size class.
-- [ ] **Remaining slots.** Seeded draws without replacement, constrained by each slot's size class, preferring pieces from different source regions. `mirrored` is a seeded coin per slot.
-- [ ] **Determinism.** No recent-view history. Order candidates by stable id. A `SONG_RANGE_VERSION` constant changes when rules change.
-- [ ] **Uniqueness tool.** Over 10,000 synthetic records and the existing 16-profile evaluation corpus, report distinct layouts, the chance two given songs share a layout, the expected number of colliding pairs in libraries of 500 and 5,000, and the share taken by the most common principal massif. State plainly what catalog size each number assumes. With `p` pieces in a family and `K` slots the ceiling is `p!/(p-K)! * 2^K`; twelve pieces and four slots give 190,080.
-- [ ] **Label.** `describeSongWorld` returns `World: <principal massif> range` when the flag is on, with the same caching and the same zero-download rule.
-- [ ] **Tests.** Determinism, version stability, slot-class constraints, no piece repeated within a layout, label agreement between the compact record and the full profile over 10,000 comparisons.
+- [x] **Signature.** `planSongRange(profile, seed, { catalog, templates })` returns `{ version, family, templateId, slots: [{ slotId, pieceId, mirrored }], baseM, label }`. Pure: no downloads, no decoding, no GPU.
+- [x] **Family and template.** Family from `chooseSongBiomes(profile, seed)[0]`. Template chosen by seed among those the family supports.
+- [x] **Principal massif.** Match the song's terrain target (`songTerrainTarget`) to piece character with the existing axis distance, fair-share floor and `seedTicket`, restricted to pieces that fit the principal slot's size class.
+- [x] **Remaining slots.** Seeded draws without replacement, constrained by each slot's size class, preferring pieces from different source regions. `mirrored` is a seeded coin per slot.
+- [x] **Determinism.** No recent-view history. Order candidates by stable id. A `SONG_RANGE_VERSION` constant changes when rules change.
+- [x] **Uniqueness tool.** Over 10,000 synthetic records and the existing 16-profile evaluation corpus, report distinct layouts, the chance two given songs share a layout, the expected number of colliding pairs in libraries of 500 and 5,000, and the share taken by the most common principal massif. State plainly what catalog size each number assumes. With `p` pieces in a family and `K` slots the ceiling is `p!/(p-K)! * 2^K`; twelve pieces and four slots give 190,080.
+- [x] **Label.** `describeSongWorld` returns `World: <principal massif> range` when the flag is on, with the same caching and the same zero-download rule.
+- [x] **Tests.** Determinism, version stability, slot-class constraints, no piece repeated within a layout, label agreement between the compact record and the full profile over 10,000 comparisons.
 
 **Gate G2:** The uniqueness report exists and the owner accepts the collision numbers for the current catalog size, or accepts them as a target for Phase 5.
 

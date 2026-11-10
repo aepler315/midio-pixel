@@ -30,6 +30,8 @@ export function templateErrors(t) {
       errors.push(`slot ${s.id} outside the grid`);
     }
     if (!['horizon', 'back', 'front'].includes(s.row)) errors.push(`slot ${s.id} row`);
+    if (s.reliefM != null && !(Array.isArray(s.reliefM) && s.reliefM.length === 2 && Number.isFinite(s.reliefM[0])
+      && (s.reliefM[1] === null || s.reliefM[1] > s.reliefM[0]))) errors.push(`slot ${s.id} reliefM`);
   }
   const slots = t.slots || [];
   for (let a = 0; a < slots.length; a++) for (let b = a + 1; b < slots.length; b++) {

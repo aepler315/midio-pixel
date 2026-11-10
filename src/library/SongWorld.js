@@ -5,6 +5,8 @@ import { PROFILE_VERSION } from '../audio/SongProfile.js';
 import { planSongScenes } from '../world/terrain/SongScenePlan.js';
 import { SCENE_MATCH_VERSION } from '../world/terrain/SceneCatalog.js';
 import SCENE_CATALOG from '../world/terrain/sceneCatalogData.js';
+import { planSongRange, songRangeEnabled, songRangeKey, SONG_RANGE_VERSION } from '../world/terrain/SongRangePlan.js';
+import MASSIF_CATALOG from '../world/terrain/massifCatalogData.js';
 
 const WATCH_KEYS = Object.freeze(['drive', 'onset', 'texture', 'arc', 'contrast']);
 const pending = Object.freeze({ state: 'pending', label: 'World: play to discover',
@@ -30,22 +32,37 @@ export function createSongWorldRecord(profile, seed) {
   return copySongWorldRecord({ version: 1, seed, profileVersion: profile.version, watch: profile.watch });
 }
 
-/** Cached per record/catalog; safe for pooled rows in a large library. */
-export function describeSongWorld(record, { catalog = SCENE_CATALOG } = {}) {
+/** Cached per record/catalog; safe for pooled rows in a large library.
+ *  With `songRange` (default: ?songRange=1) a song whose home family has a
+ *  composed range is labelled by its principal massif; every other song,
+ *  and every song with the flag off, keeps its catalog-view label. */
+export function describeSongWorld(record, { catalog = SCENE_CATALOG, massifs = MASSIF_CATALOG, songRange = songRangeEnabled() } = {}) {
   if (!isSongWorldRecord(record)) return pending;
   const signature = `${record.seed}:${WATCH_KEYS.map(key => record.watch[key]).join(':')}`;
   const cached = descriptions.get(record);
-  if (cached?.catalog === catalog && cached.catalogVersion === catalog.catalogVersion && cached.signature === signature) return cached.value;
+  if (cached?.catalog === catalog && cached.catalogVersion === catalog.catalogVersion && cached.signature === signature
+    && cached.songRange === songRange && cached.massifs === massifs) return cached.value;
   const plan = planSongScenes({ version: record.profileVersion, watch: record.watch }, record.seed, { catalog });
   const choice = plan.sceneByBiome.get(plan.home), view = choice?.view;
   const biomeName = plan.home ? plan.home.toLowerCase().replaceAll('_', ' ') : 'Landscape';
   const name = view?.title || biomeName;
   const experimental = !!view && view.status !== 'approved';
+  const range = songRange ? planSongRange({ version: record.profileVersion, watch: record.watch }, record.seed, { catalog: massifs }) : null;
+  if (range) {
+    const names = range.slots.map((s) => massifs.pieces.find((p) => p.id === s.pieceId)?.name).filter(Boolean);
+    const value = Object.freeze({ state: 'known', label: range.label,
+      title: [`Song range: ${range.principal.name}`, `Massifs: ${names.join(', ')}`, 'Composed range (experimental)'].join(' · '),
+      viewId: view?.id ?? null, biome: plan.home, experimental: true,
+      songRange: Object.freeze({ key: songRangeKey(range), principal: range.principal.pieceId, version: SONG_RANGE_VERSION }),
+      catalogVersion: plan.catalogVersion, matchingVersion: SCENE_MATCH_VERSION });
+    descriptions.set(record, { catalog, catalogVersion: catalog.catalogVersion, signature, songRange, massifs, value });
+    return value;
+  }
   const value = Object.freeze({ state: 'known', label: `World: ${name}`,
     title: [`Landscape home: ${name}`, view?.place, experimental ? 'Experimental view' : null,
       !view ? 'Scenic view unavailable; using biome terrain.' : null].filter(Boolean).join(' · '),
     viewId: view?.id ?? null, biome: plan.home, experimental,
     catalogVersion: plan.catalogVersion, matchingVersion: SCENE_MATCH_VERSION });
-  descriptions.set(record, { catalog, catalogVersion: catalog.catalogVersion, signature, value });
+  descriptions.set(record, { catalog, catalogVersion: catalog.catalogVersion, signature, songRange, massifs, value });
   return value;
 }
