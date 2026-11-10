@@ -30,6 +30,10 @@ the plan did not know. Changes are marked **(P0)**.
 | D10 | Flag first | `?songRange=1`. Any failure falls back to the song's catalog view. |
 | D11 **(P0)** | Normalize two-tile sources with the `tile` window-cache layout | See "3DEP tile seams". Record the layout and the rebuilt height hash in every piece's provenance. |
 | D12 **(P0)** | Per-slot rise is sampled in the vertex stage only | See "Shader budget". The fragment stage keeps the scalar `uLandRise` for song-global effects. |
+| D13 **(P1)** | A massif is a watershed region above a smooth base | See "Cutting". Replaces the plan's height-above-drainage mask with a distance window. |
+| D14 **(P1)** | The lake is the floor | The lake reaches under the front row and between pieces. Land rises from its shore only behind it. This is D1's "mostly under water", made literal. |
+| D15 **(P1)** | Stages bake like ordinary views | Rail bake from the template's camera, not `allTiles`. Gaps the rise exposes fall to `RiseGround` as on every shipped view. Full-coverage pieces belong to Phase 3. |
+| D16 **(P1)** | Stage views have their own authoring file | `data/terrain/stage-views.json`, merged into the catalog by `writeCatalog`. Tools that rebuild views from a DEM and a lon/lat rail never see them. |
 
 ## Phase 0 findings
 
@@ -188,20 +192,94 @@ Evidence: `.smoke/p0-shader/budget.json`, with per-stage uniform lists.
   `validateTerrainManifest` exist at the paths the plan names.
 - Catalog version 57, matching version 2.
 
-## Phase 1 approach
+## Phase 1 as built
 
-1. Normalize source grids for the dry-conifer pieces with the `tile` layout
-   for multi-tile sources (D11).
-2. Run the hierarchy on each full grid. Grow each massif from a landmark or
-   prominence seed over cells whose `relief01` exceeds a threshold, limited by
-   a distance window. Snap the bounding box to whole 64-cell tiles. Subtract
-   the piece base, a low percentile of the masked cells. Force a zero ring
-   at least two cells wide. Reject pieces whose border relief before
-   feathering exceeds a data-set threshold.
-3. Compose three fixed layouts on `lake-amphitheatre-a` into
-   `readDemGrid`-shaped grids. The floor fills the rest. Bake with `allTiles`.
-   Publish as `candidate`, reachable only by `?rangeView`.
-4. Add the diagnostic rise override for the captures.
+### Cutting (`tools/lib/massif-cut.mjs`)
+
+1. **Sources.** Each source view's DEM is normalized again with the `tile`
+   window-cache layout (D11) into `.terrain-cache/massif-sources/`, then
+   despiked as the production bake does. A grid with any no-data is refused.
+2. **Seeds.** Named landmarks, snapped to the highest sample within 300 m,
+   come first. Then summits that are the highest sample within 3 km on a
+   200 m lattice. A seed within 2.5 km of an earlier one is dropped.
+3. **Partition.** A marker-controlled watershed floods downhill from every
+   seed at once, highest cell first, so neighbouring massifs meet along the
+   valleys between them.
+4. **Region.** The seed's own watershed cells above a level L, 8-connected to
+   the seed. L is the lowest level at which the region's tile block fits 10
+   tiles a side and stays 4 cells inside the source grid. Both limits are
+   monotone in L, so a binary search to 2 m finds it.
+5. **Base.** The harmonic (Laplace) surface B with B = h on every outline cell,
+   solved by over-relaxation from an inverse-distance first guess. Relief is
+   max(0, h − B). It is exactly zero on the whole outline and continuous up
+   to it. Inside, it is the measured DEM above a gently varying base.
+6. **Block.** The region's bounding box plus a two-cell zero ring, rounded up
+   to whole tiles. Lossless quarter turns put the source camera on +Z; the
+   residual angle is recorded. The source DEM is complete around the region,
+   so the coverage fan is the full 360°.
+
+Two simpler cuts were tried first and rejected on the real grids:
+
+| Cut | Result on the four sources |
+| --- | --- |
+| Contour island (relief = h − L inside the island above L) | Zero borders, but continuous ranges merge long before their flanks are included. Most pieces kept only 300–600 m of summit cap; Mount Sneffels kept 369 m, and only 393 m with a 14-tile budget. |
+| Watershed region over an inverse-distance base | Large reliefs, but B equals h on outline cells and not on their interior neighbours. Relief jumped up to 116 m in one cell next to the outline. Caught by the unit test. |
+
+**Outline check (changed from the plan).** The plan asked for the feather
+band's slope 95th percentile to stay at or below the piece's interior. This
+cut has no feather. Its outline band is real terrain, which is legitimately
+steeper than the interior on caldera walls and cliff-bound massifs (Mount
+Scott: band 0.88 against interior 0.59). The check that catches what the plan
+feared, a cut that steepens ground, compares the band's relief slope with the
+source DEM's slope on the same cells. Pieces fail above 1.15 times plus 0.02.
+On the four sources, all 41 accepted pieces lie within 1.11 times.
+
+### Library
+
+41 pieces from 83 seeds (Teton 19, Sawtooth 11, Sneffels 5, Crater Lake 6).
+The largest reliefs are Grand Teton (1,680 m), Mount Moran (1,532 m), a Teton
+summit at 3,459 m (1,109 m), a Teton summit seeded at 3,329 m (1,007 m), and
+Sawtooth summits of 994, 959, 892 (Heyburn Mountain) and 887 m. Rejected seeds
+mostly touch their source grid's edge. Ids are `<source view>:<landmark slug>`
+or `<source view>:summit-<seed height m>`; the table is written by `--list`.
+
+### Stage (`tools/lib/stage-compose.mjs`, `data/terrain/stage-templates.json`)
+
+`lake-amphitheatre-a` keeps the plan's grid (2241 x 2241 at 20 m) and three
+rows: horizon 3 slots of 11 x 10 tiles, back 3 of 9 x 10, front 2 of 7 x 7.
+The camera stands on the south shore and looks north with a 32° lens. Shipped
+approved views use 18–30°; the first draft's 38° made every massif small.
+
+The floor is a level lake at 2,050 m (Jackson Lake lies at about 2,064 m), an
+ellipse 48 x 16 km under the front row. Land rises from its shore at 3%. The
+baker marks any 3 x 3 patch within 0.35 m as water, so land must never be level.
+A unit test runs the baker's `waterMask` over the floor to prove no land cell
+becomes water. The first draft used a small lake and a land floor everywhere
+else. Its CPU still showed separate humps on a wide empty plain, which is the
+pilot's bare-skirt failure again.
+
+With the lake at 2,050 m and the floor rising behind it, the Grand Teton piece
+tops out near 4,200 m, close to its real 4,199 m. The dry-conifer rules
+(snowline 3,000 m, treeline 3,100 m) therefore put snow and forest where they
+belong on the tallest pieces.
+
+### Bake and publish (`tools/build-song-range-pilot.mjs`)
+
+`--list` cuts the library. `--build [--publish]` composes the layouts in
+`data/terrain/song-range-pilot.json` and bakes each with `bakeTerrain` and the
+template rail. It writes the same files and build record as
+`build-range-scene.mjs`, plus a `composition` block naming every piece, slot,
+mirroring flag, source grid hash, window layout and GDAL version. Published
+stages are `candidate`, not `experimental`, and are reachable only by
+`?rangeView=<id>`. Regenerating the catalog on an unchanged tree reproduces
+`sceneCatalogData.js` byte for byte; publishing adds the three views and
+nothing else.
+
+### Diagnostic rise
+
+`?rangeRise=<0..1>` holds `rise01` in `LandscapeScore` for every consumer, and
+`npm run review:landscape -- --rise N` sets it. Values outside 0..1 are
+ignored. Captures taken with it are labelled diagnostic.
 
 ## Known limits of this session
 

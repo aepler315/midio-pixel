@@ -1,0 +1,65 @@
+{
+  "schema": "midio.song-range-pilot",
+  "version": 1,
+  "notes": "Phase 1 of docs/superpowers/plans/2026-11-10-song-range-composition.md: three fixed dry-conifer layouts on one stage, baked with the production baker and published as diagnostic-only candidates. Piece ids are <source view>:<landmark slug | summit-<seed height m>>; run node tools/build-song-range-pilot.mjs --list for the library. Slot sizes in lake-amphitheatre-a: horizon 11x10 tiles, back 9x10, front 7x7.",
+  "template": "lake-amphitheatre-a",
+  "sources": ["teton-jackson-lake", "sawtooth-redfish-north", "san-juan-sneffels-north", "crater-lake-watchman-east"],
+  "sourceLabels": {
+    "teton-jackson-lake": "Teton Range",
+    "sawtooth-redfish-north": "Sawtooth Range",
+    "san-juan-sneffels-north": "Sneffels Range",
+    "crater-lake-watchman-east": "Crater Lake rim"
+  },
+  "cut": { "maxTiles": 10, "minReliefM": 300 },
+  "outlineSlopeRatioMax": 1.15,
+  "layouts": [
+    {
+      "id": "song-range-pilot-a",
+      "title": "Song range pilot A",
+      "place": "Composed stage: Teton Range, Sawtooth Range, Crater Lake rim",
+      "notes": "Principal massif Grand Teton.",
+      "slots": {
+        "H1": { "piece": "sawtooth-redfish-north:summit-3001" },
+        "H2": { "piece": "teton-jackson-lake:summit-3459" },
+        "H3": { "piece": "crater-lake-watchman-east:mount-scott" },
+        "B1": { "piece": "sawtooth-redfish-north:summit-3122" },
+        "B2": { "piece": "teton-jackson-lake:grand-teton" },
+        "B3": { "piece": "sawtooth-redfish-north:heyburn-mountain", "mirrored": true },
+        "F1": { "piece": "teton-jackson-lake:summit-3390" },
+        "F2": { "piece": "crater-lake-watchman-east:summit-2214", "mirrored": true }
+      }
+    },
+    {
+      "id": "song-range-pilot-b",
+      "title": "Song range pilot B",
+      "place": "Composed stage: Teton Range, Sawtooth Range, Crater Lake rim, Sneffels Range",
+      "notes": "Principal massif Mount Moran.",
+      "slots": {
+        "H1": { "piece": "sawtooth-redfish-north:grand-mogul" },
+        "H2": { "piece": "sawtooth-redfish-north:summit-3269" },
+        "H3": { "piece": "crater-lake-watchman-east:summit-2485", "mirrored": true },
+        "B1": { "piece": "teton-jackson-lake:summit-3266" },
+        "B2": { "piece": "teton-jackson-lake:mount-moran" },
+        "B3": { "piece": "teton-jackson-lake:summit-3329", "mirrored": true },
+        "F1": { "piece": "teton-jackson-lake:summit-3086" },
+        "F2": { "piece": "san-juan-sneffels-north:summit-4203" }
+      }
+    },
+    {
+      "id": "song-range-pilot-c",
+      "title": "Song range pilot C",
+      "place": "Composed stage: Teton Range, Sawtooth Range, Crater Lake rim",
+      "notes": "Principal massif the Teton summit seeded at 3329 m.",
+      "slots": {
+        "H1": { "piece": "crater-lake-watchman-east:mount-scott", "mirrored": true },
+        "H2": { "piece": "sawtooth-redfish-north:summit-3220" },
+        "H3": { "piece": "sawtooth-redfish-north:summit-3269", "mirrored": true },
+        "B1": { "piece": "sawtooth-redfish-north:heyburn-mountain" },
+        "B2": { "piece": "teton-jackson-lake:summit-3329" },
+        "B3": { "piece": "teton-jackson-lake:summit-3266", "mirrored": true },
+        "F1": { "piece": "sawtooth-redfish-north:summit-2789" },
+        "F2": { "piece": "teton-jackson-lake:summit-3026" }
+      }
+    }
+  ]
+}

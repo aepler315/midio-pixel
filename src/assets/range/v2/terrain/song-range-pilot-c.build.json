@@ -1,0 +1,454 @@
+{
+ "credit": "Elevation: USGS 3DEP 1/3 arc-second DEM; composed stage of measured massifs from Crater Lake rim, Oregon; Sawtooth Range, Idaho; Teton Range, Wyoming",
+ "sourceSha256": [
+  "b3d1c5e1d7dfba778e59b4cebc59765a63f4f34f0196db0acf30439b77b256d6",
+  "58ce26c612b21ba5d7a01aa0e64d4df7c3ace7531c57dfb19e0e56847f0de6f2",
+  "d2fde309093186ed72e1ad741277a31eef5ace3678be551fc23f7de09241e794",
+  "34bbf1ab95137d45af81bba804cfbd942ea7f9d353d7e0b31ea7ee72c33f14f5",
+  "e74ccd223967d153f5b098fb0847d0cf205f005c9de9159c2063f25e2e538ce6",
+  "0620bfa61bf4192a6b3f774d42d752210ad6c3275d3a0c585fc0fa392cb824b1",
+  "b9adba7fea91a214991368b780dfaff387d6c00f52156963cf97f8da98d097bf",
+  "5ee9631802371f315a3f542c2afe982d5090102e7b313fa1162d84a0def5ef80",
+  "09930a44096be83c6023c6d853c12d1571f428878691e4bfba81cdd17d9077b9",
+  "a19a985ea1d6370572bfaac2b7850bd90b49f28e9d10e3ad37c5ac17d4880e8f"
+ ],
+ "view": {
+  "id": "song-range-pilot-c",
+  "regionId": "song-range-stage",
+  "biome": "CONIFER",
+  "camera": {
+   "eyeStartM": [
+    600,
+    2125.1,
+    19600
+   ],
+   "eyeEndM": [
+    -900,
+    2127.1,
+    19000
+   ],
+   "targetStartM": [
+    200,
+    3072.1,
+    -1500
+   ],
+   "targetEndM": [
+    -600,
+    3172.1,
+    -1500
+   ],
+   "fovYDeg": 32
+  }
+ },
+ "characterScores": {
+  "energy": 0.11,
+  "rawness": 0.163,
+  "grandeur": 0.254,
+  "dominance": 0.647
+ },
+ "archetype": "defiant",
+ "skylineFeatures": [
+  {
+   "reliefM": 1095.367431640625,
+   "slopeMPerKm": 37.886905930541616,
+   "peaksPer10Km": 0.5403160251729413,
+   "roughnessM": 82.91524880597922,
+   "dominance": 0.6602524169058034,
+   "summitM": 3584.1376953125,
+   "lengthKm": 296.12299570198405
+  },
+  {
+   "reliefM": 1150.8359375,
+   "slopeMPerKm": 35.55501587576423,
+   "peaksPer10Km": 0.6148732213130408,
+   "roughnessM": 61.799602078585494,
+   "dominance": 0.6496245935359487,
+   "summitM": 3593.16748046875,
+   "lengthKm": 260.2162436970754
+  },
+  {
+   "reliefM": 1178.41552734375,
+   "slopeMPerKm": 38.835528186781104,
+   "peaksPer10Km": 0.6622036334455228,
+   "roughnessM": 51.639914949795056,
+   "dominance": 0.6312070755098109,
+   "summitM": 3585.45166015625,
+   "lengthKm": 211.4153304649865
+  }
+ ],
+ "manifestSha256": "9761cf84225efd9a1a838ef5b4274df7d99362715bc8dee9137e0621b9ce6890",
+ "payloadSha256": "d49b74cbc62cb3e8281570a7d87a39fa02e8fafe83808830e16ecae3d30d2618",
+ "payloadBytes": 919025,
+ "stats": {
+  "tiles": 663,
+  "desktop": {
+   "vertices": 635096,
+   "triangles": 1222998,
+   "meshBytes": 22297128,
+   "surfaceTextureBytes": 26784432
+  },
+  "mobile": {
+   "vertices": 222816,
+   "triangles": 420750,
+   "meshBytes": 7722792,
+   "surfaceTextureBytes": 26784432
+  }
+ },
+ "landmarks": [
+  {
+   "name": "Mount Scott",
+   "lonLat": null,
+   "publishedElevationM": null,
+   "localM": [
+    -15280,
+    -14640
+   ],
+   "demGroundM": 3476.4,
+   "demPeakWithin200mM": 3476.4
+  },
+  {
+   "name": "Sawtooth Range summit 3220 m",
+   "lonLat": null,
+   "publishedElevationM": null,
+   "localM": [
+    -1920,
+    -16800
+   ],
+   "demGroundM": 3309,
+   "demPeakWithin200mM": 3309
+  },
+  {
+   "name": "Sawtooth Range summit 3236 m",
+   "lonLat": null,
+   "publishedElevationM": null,
+   "localM": [
+    12600,
+    -14240
+   ],
+   "demGroundM": 3583.7,
+   "demPeakWithin200mM": 3583.7
+  },
+  {
+   "name": "Heyburn Mountain",
+   "lonLat": null,
+   "publishedElevationM": null,
+   "localM": [
+    -12920,
+    -3260
+   ],
+   "demGroundM": 3153.8,
+   "demPeakWithin200mM": 3153.8
+  },
+  {
+   "name": "Teton Range summit 3367 m",
+   "lonLat": null,
+   "publishedElevationM": null,
+   "localM": [
+    -3940,
+    -540
+   ],
+   "demGroundM": 3152.9,
+   "demPeakWithin200mM": 3152.9
+  },
+  {
+   "name": "Teton Range summit 3213 m",
+   "lonLat": null,
+   "publishedElevationM": null,
+   "localM": [
+    12740,
+    -1760
+   ],
+   "demGroundM": 3074.8,
+   "demPeakWithin200mM": 3074.8
+  },
+  {
+   "name": "Sawtooth Range summit 2789 m",
+   "lonLat": null,
+   "publishedElevationM": null,
+   "localM": [
+    -5620,
+    9540
+   ],
+   "demGroundM": 3008.6,
+   "demPeakWithin200mM": 3008.6
+  },
+  {
+   "name": "Teton Range summit 3007 m",
+   "lonLat": null,
+   "publishedElevationM": null,
+   "localM": [
+    5200,
+    9700
+   ],
+   "demGroundM": 2565.8,
+   "demPeakWithin200mM": 2565.8
+  }
+ ],
+ "achievedErrorPx": {
+  "desktop": 0.993,
+  "mobile": 1.991
+ },
+ "despikedSamples": 0,
+ "gentleGroundSmoothingM": null,
+ "composition": {
+  "schema": "midio.song-range-stage",
+  "version": 1,
+  "template": "lake-amphitheatre-a",
+  "layout": "song-range-pilot-c",
+  "principal": {
+   "slot": "B2",
+   "pieceId": "teton-jackson-lake:summit-3329",
+   "name": "Teton Range summit 3367 m"
+  },
+  "stageGridSha256": "6c453e056dcfe14318d905f3aa9100b8cdf8d590c47571e0a4285a7fcd7d7402",
+  "lakeLevelM": 2050,
+  "pieces": [
+   {
+    "slotId": "H1",
+    "row": "horizon",
+    "pieceId": "crater-lake-watchman-east:mount-scott",
+    "name": "Mount Scott",
+    "mirrored": true,
+    "tileOrigin": [
+     1,
+     2
+    ],
+    "tiles": [
+     10,
+     8
+    ],
+    "peakLocalM": [
+     -15280,
+     -14640
+    ],
+    "floorAtPeakM": 2621,
+    "peakReliefM": 856,
+    "stagePeakM": 3476,
+    "sourceView": "crater-lake-watchman-east",
+    "levelM": 1842
+   },
+   {
+    "slotId": "H2",
+    "row": "horizon",
+    "pieceId": "sawtooth-redfish-north:summit-3220",
+    "name": "Sawtooth Range summit 3220 m",
+    "mirrored": false,
+    "tileOrigin": [
+     13,
+     1
+    ],
+    "tiles": [
+     9,
+     10
+    ],
+    "peakLocalM": [
+     -1920,
+     -16800
+    ],
+    "floorAtPeakM": 2632,
+    "peakReliefM": 677,
+    "stagePeakM": 3309,
+    "sourceView": "sawtooth-redfish-north",
+    "levelM": 2484
+   },
+   {
+    "slotId": "H3",
+    "row": "horizon",
+    "pieceId": "sawtooth-redfish-north:summit-3269",
+    "name": "Sawtooth Range summit 3236 m",
+    "mirrored": true,
+    "tileOrigin": [
+     23,
+     1
+    ],
+    "tiles": [
+     10,
+     10
+    ],
+    "peakLocalM": [
+     12600,
+     -14240
+    ],
+    "floorAtPeakM": 2590,
+    "peakReliefM": 994,
+    "stagePeakM": 3584,
+    "sourceView": "sawtooth-redfish-north",
+    "levelM": 2138
+   },
+   {
+    "slotId": "B1",
+    "row": "back",
+    "pieceId": "sawtooth-redfish-north:heyburn-mountain",
+    "name": "Heyburn Mountain",
+    "mirrored": false,
+    "tileOrigin": [
+     4,
+     12
+    ],
+    "tiles": [
+     8,
+     7
+    ],
+    "peakLocalM": [
+     -12920,
+     -3260
+    ],
+    "floorAtPeakM": 2262,
+    "peakReliefM": 892,
+    "stagePeakM": 3154,
+    "sourceView": "sawtooth-redfish-north",
+    "levelM": 1554
+   },
+   {
+    "slotId": "B2",
+    "row": "back",
+    "pieceId": "teton-jackson-lake:summit-3329",
+    "name": "Teton Range summit 3367 m",
+    "mirrored": false,
+    "tileOrigin": [
+     13,
+     11
+    ],
+    "tiles": [
+     9,
+     10
+    ],
+    "peakLocalM": [
+     -3940,
+     -540
+    ],
+    "floorAtPeakM": 2146,
+    "peakReliefM": 1007,
+    "stagePeakM": 3153,
+    "sourceView": "teton-jackson-lake",
+    "levelM": 2056
+   },
+   {
+    "slotId": "B3",
+    "row": "back",
+    "pieceId": "teton-jackson-lake:summit-3266",
+    "name": "Teton Range summit 3213 m",
+    "mirrored": true,
+    "tileOrigin": [
+     22,
+     13
+    ],
+    "tiles": [
+     8,
+     5
+    ],
+    "peakLocalM": [
+     12740,
+     -1760
+    ],
+    "floorAtPeakM": 2216,
+    "peakReliefM": 859,
+    "stagePeakM": 3075,
+    "sourceView": "teton-jackson-lake",
+    "levelM": 1944
+   },
+   {
+    "slotId": "F1",
+    "row": "front",
+    "pieceId": "sawtooth-redfish-north:summit-2789",
+    "name": "Sawtooth Range summit 2789 m",
+    "mirrored": false,
+    "tileOrigin": [
+     11,
+     22
+    ],
+    "tiles": [
+     4,
+     5
+    ],
+    "peakLocalM": [
+     -5620,
+     9540
+    ],
+    "floorAtPeakM": 2050,
+    "peakReliefM": 959,
+    "stagePeakM": 3009,
+    "sourceView": "sawtooth-redfish-north",
+    "levelM": 1554
+   },
+   {
+    "slotId": "F2",
+    "row": "front",
+    "pieceId": "teton-jackson-lake:summit-3026",
+    "name": "Teton Range summit 3007 m",
+    "mirrored": false,
+    "tileOrigin": [
+     19,
+     22
+    ],
+    "tiles": [
+     5,
+     5
+    ],
+    "peakLocalM": [
+     5200,
+     9700
+    ],
+    "floorAtPeakM": 2050,
+    "peakReliefM": 516,
+    "stagePeakM": 2566,
+    "sourceView": "teton-jackson-lake",
+    "levelM": 2386
+   }
+  ],
+  "sources": {
+   "crater-lake-watchman-east": {
+    "gridSha256": "d48d968c3ac6e804f839d49672ebf490526f84a30f53592fe75accad241740be",
+    "windowCache": "tile",
+    "tools": {
+     "gdal": "3.8.4",
+     "numpy": "1.26.4",
+     "python": "3.12.3"
+    },
+    "place": "Cascade Range, Oregon",
+    "label": "Crater Lake rim, Oregon",
+    "license": "Public domain (U.S. Government work); credit U.S. Geological Survey",
+    "urls": [
+     "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/historical/n43w123/USGS_13_n43w123_20260818.tif",
+     "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/historical/n43w122/USGS_13_n43w122_20260601.tif",
+     "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/historical/n44w123/USGS_13_n44w123_20260202.tif",
+     "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/historical/n44w122/USGS_13_n44w122_20261027.tif"
+    ]
+   },
+   "sawtooth-redfish-north": {
+    "gridSha256": "95e759404ee0d86e566d17ee58c8b395c4267c7b8d08e4b7c94aa4598cff0d81",
+    "windowCache": "tile",
+    "tools": {
+     "gdal": "3.8.4",
+     "numpy": "1.26.4",
+     "python": "3.12.3"
+    },
+    "place": "Sawtooth Mountains, Idaho",
+    "label": "Sawtooth Range, Idaho",
+    "license": "Public domain (U.S. Government work); credit U.S. Geological Survey",
+    "urls": [
+     "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/historical/n44w116/USGS_13_n44w116_20260519.tif",
+     "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/historical/n44w115/USGS_13_n44w115_20260407.tif",
+     "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/historical/n45w116/USGS_13_n45w116_20260519.tif",
+     "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/historical/n45w115/USGS_13_n45w115_20260407.tif"
+    ]
+   },
+   "teton-jackson-lake": {
+    "gridSha256": "711784f1bc689b09b92f0964d815d732e53885075dfe9aef2948b45dd901f5f5",
+    "windowCache": "tile",
+    "tools": {
+     "gdal": "3.8.4",
+     "numpy": "1.26.4",
+     "python": "3.12.3"
+    },
+    "place": "Jackson Lake, Wyoming",
+    "label": "Teton Range, Wyoming",
+    "license": "Public domain (U.S. Government work); credit U.S. Geological Survey",
+    "urls": [
+     "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/historical/n44w111/USGS_13_n44w111_20250122.tif",
+     "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/historical/n45w111/USGS_13_n45w111_20250122.tif"
+    ]
+   }
+  }
+ }
+}

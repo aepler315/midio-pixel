@@ -1,0 +1,45 @@
+{
+  "schema": "midio.stage-views",
+  "version": 1,
+  "views": [
+    {
+      "id": "song-range-pilot-a",
+      "regionId": "song-range-stage",
+      "biome": "CONIFER",
+      "status": "candidate",
+      "title": "Song range pilot A",
+      "place": "Composed stage: Teton Range, Sawtooth Range, Crater Lake rim",
+      "notes": "Principal massif Grand Teton.",
+      "stage": {
+        "template": "lake-amphitheatre-a",
+        "layout": "song-range-pilot-a"
+      }
+    },
+    {
+      "id": "song-range-pilot-b",
+      "regionId": "song-range-stage",
+      "biome": "CONIFER",
+      "status": "candidate",
+      "title": "Song range pilot B",
+      "place": "Composed stage: Teton Range, Sawtooth Range, Crater Lake rim, Sneffels Range",
+      "notes": "Principal massif Mount Moran.",
+      "stage": {
+        "template": "lake-amphitheatre-a",
+        "layout": "song-range-pilot-b"
+      }
+    },
+    {
+      "id": "song-range-pilot-c",
+      "regionId": "song-range-stage",
+      "biome": "CONIFER",
+      "status": "candidate",
+      "title": "Song range pilot C",
+      "place": "Composed stage: Teton Range, Sawtooth Range, Crater Lake rim",
+      "notes": "Principal massif the Teton summit seeded at 3329 m.",
+      "stage": {
+        "template": "lake-amphitheatre-a",
+        "layout": "song-range-pilot-c"
+      }
+    }
+  ]
+}

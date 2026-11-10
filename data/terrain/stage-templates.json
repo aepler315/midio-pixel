@@ -1,0 +1,33 @@
+{
+  "schema": "midio.stage-templates",
+  "version": 1,
+  "notes": "Fixed stages for song range composition (docs/superpowers/specs/2026-11-10-song-range-composition-design.md). Slots are tile rectangles [ix, iz, tilesWide, tilesDeep] on a 64-cell tile lattice, ix east and iz south from the grid's north-west tile. Rows: horizon (farthest), back (tallest pieces), front (nearest). The camera looks north across the lake. Eye and target heights are metres above the stage floor at their own positions. The lake is the floor wherever it reaches: pieces may stand in it and rise straight out of the water; land rises from its shore at the floor gradient.",
+  "templates": [
+    {
+      "id": "lake-amphitheatre-a",
+      "title": "Lake amphitheatre A",
+      "families": ["dry-conifer"],
+      "grid": { "width": 2241, "height": 2241, "cellSizeM": 20, "originM": [-22400, -22400] },
+      "lake": { "levelM": 2050, "centerM": [0, 10500], "radiiM": [24000, 8000] },
+      "floor": { "shoreRiseM": 1.5, "slope": 0.03 },
+      "slots": [
+        { "id": "H1", "row": "horizon", "tiles": [1, 1, 11, 10] },
+        { "id": "H2", "row": "horizon", "tiles": [12, 1, 11, 10] },
+        { "id": "H3", "row": "horizon", "tiles": [23, 1, 11, 10] },
+        { "id": "B1", "row": "back", "tiles": [4, 11, 9, 10] },
+        { "id": "B2", "row": "back", "tiles": [13, 11, 9, 10] },
+        { "id": "B3", "row": "back", "tiles": [22, 11, 9, 10] },
+        { "id": "F1", "row": "front", "tiles": [10, 21, 7, 7] },
+        { "id": "F2", "row": "front", "tiles": [18, 21, 7, 7] }
+      ],
+      "principalSlot": "B2",
+      "camera": {
+        "eyeStart": { "xzM": [600, 19600], "aboveFloorM": 40 },
+        "eyeEnd": { "xzM": [-900, 19000], "aboveFloorM": 60 },
+        "targetStart": { "xzM": [200, -1500], "aboveFloorM": 900 },
+        "targetEnd": { "xzM": [-600, -1500], "aboveFloorM": 1000 },
+        "fovYDeg": 32
+      }
+    }
+  ]
+}
