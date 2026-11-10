@@ -33,36 +33,6 @@ test('recreating Landscape skips every cancelled generation when the song load i
   }
 });
 
-test('switching to one stage retires hybrid storage and permits a later hybrid allocation', () => {
-  const residency = new GraphicsResidency({ budgetBytes: 1024 * 1024 });
-  const allocate = key => {
-    const canvas = { width: 16, height: 16 };
-    const entry = residency.reserve({ key, bytes: 1024, owner: 'hybrid' });
-    residency.commit(entry, canvas, value => { value.width = value.height = 0; });
-    return canvas;
-  };
-  const pres = Object.assign(Object.create(RangePresentation.prototype), {
-    residency, singleStage: false, crest: { release() { residency.release('test:crest'); } },
-    scene: { releaseCrestProbe() { residency.release('test:probe'); }, releaseWaterTarget() { residency.release('test:water-target'); } },
-  });
-  const native = allocate('test:terrain');
-  const hybrid = () => {
-    pres._waterCanvas = allocate('range:water-layer');
-    pres._waterEffectCanvas = allocate('range:water-effect-mask');
-    pres._nearOcclusionCanvas = allocate('range:near-occlusion-mask');
-    allocate('test:crest'); allocate('test:probe'); allocate('test:water-target');
-  };
-  hybrid();
-  pres.setSingleStage(true);
-  assert.deepEqual([...residency.entries.keys()], ['test:terrain']);
-  assert.equal(native.width, 16);
-  pres.setSingleStage(false);
-  hybrid();
-  assert.equal(residency.entries.size, 7);
-  pres.setSingleStage(true);
-  assert.deepEqual([...residency.entries.keys()], ['test:terrain']);
-});
-
 /** A 2D context that accepts every call and records nothing. */
 function anyCtx() {
   const noop = () => {};
@@ -131,7 +101,10 @@ test('v2 draws its partitions at the retained pass boundaries, legacy scenery no
   m.dispose();
 });
 
-test('a single stage paints the current musical sky once before its terrain partitions', () => {
+// The single-stage pipeline (which also painted this sky inline) was removed;
+// the direct-terrain experiment is now the only path that paints it into the
+// scene canvas rather than the presenter's composite.
+test('direct terrain paints the current musical sky once before its terrain partitions', () => {
   const { m, calls } = manager();
   const effects = Object.freeze({ bass: .7, kick: .9 });
   const pres = fakePresentation();
@@ -141,7 +114,7 @@ test('a single stage paints the current musical sky once before its terrain part
   });
   m.rangePresentation = pres;
   m.highResolutionSky = true;
-  m.singleStage = true;
+  m.directFullResolution = true;
   m._highResolutionSkyRenderer = {
     draw(_ctx, frame) {
       assert.equal(frame.effects, effects);
@@ -159,11 +132,10 @@ test('a single stage paints the current musical sky once before its terrain part
   } finally { m.dispose(); }
 });
 
-test('a single stage retains its complete sky when the modern camera descriptor is unavailable', () => {
+test('the high-resolution sky keeps one complete inline sky when the modern camera descriptor is unavailable', () => {
   const { m, calls } = manager();
   m.rangePresentation = fakePresentation();
   m.highResolutionSky = true;
-  m.singleStage = true;
   m.drawHighResolutionSky = () => assert.fail('a missing descriptor must use the inline legacy sky');
   try {
     m.draw(anyCtx(), { width: 1408, height: 848 }, 0, 0, 1, null, groundView);
@@ -1114,7 +1086,7 @@ test('live crest collection precedes scenic setup and GPU draws, and exports ski
   assert.deepEqual(order, [], 'both explicit export paths avoid live collection');
 });
 
-test('live non-palette heavy rungs retire invisible probes before polling and recover the refined path', async () => {
+test('live heavy rungs retire invisible probes before polling and recover the refined path', async () => {
   const order = [], scene = fakeScene();
   scene.collectCrestProbe = () => order.push('collect');
   scene.releaseCrestProbe = () => order.push('release');
@@ -1154,14 +1126,8 @@ test('live non-palette heavy rungs retire invisible probes before polling and re
   assert.equal(scene.crestProbeMode, 'refined', 'recovery restores the existing refined mode');
   assert.ok(!order.includes('release'));
 
-  order.length = 0;
-  p.crestPalette = 'rgb332';
-  frame(6);
-  assert.equal(order[0], 'collect', 'Palette retains its existing probe/scan policy');
-  assert.ok(scene.crestProbeMode);
-  assert.ok(!order.includes('release'));
-
-  p.crestPalette = null;
+  // (A Palette look used to keep its probe and scan on these rungs; it was
+  // removed, so only exports are exempt.)
   for (const viaSim of [false, true]) {
     order.length = 0;
     p.exportMode = !viaSim;

@@ -7,11 +7,13 @@ import { pixelGrid } from '../src/render/PixelRenderPolicy.js';
 function surface(width = 1280, height = 720) {
   const canvas = { width, height };
   const ctx = { canvas, setTransform() {}, save() {}, restore() {}, fillRect() {}, clearRect() {}, drawImage() {} };
-  canvas.getContext = () => ctx;
+  // No WebGL here: Cinematic's cell reconstruction falls back to nearest.
+  canvas.getContext = type => String(type).startsWith('webgl') ? null : ctx;
   canvas.ownerDocument = { createElement: () => surface(0, 0) };
   return canvas;
 }
-const pixel = { pixelated: true, grid: pixelGrid(), paletteId: 'none', scaling: 'fit', rangePipeline: 'hybrid' };
+const pixel = { pixelated: true, grid: pixelGrid(), scaling: 'fit', rangePipeline: 'hybrid' };
+const cinematic = { ...pixel, cinematicPixel: true };
 
 test('crest resolution follows the physical output before drawing and is cleared for disabled overlays', () => {
   const canvas = surface(), seen = [];
@@ -19,16 +21,15 @@ test('crest resolution follows the physical output before drawing and is cleared
   const inner = { rangePresentation: range, draw() {
     seen.push({ size: range.crestOutputSize, enabled: range.crestEnabled, native: [this.canvas.width, this.canvas.height] });
   }, dispose() {} };
-  const renderer = createPresentingRenderer({ canvas, presentation: pixel, rendererFactory: () => inner });
+  const renderer = createPresentingRenderer({ canvas, presentation: cinematic, rendererFactory: () => inner });
   const sim = { biomes: { world: { kind: 'alpine' } } };
   const draw = () => { assert.equal(renderer.draw(sim, 0).presented, true); return seen.at(-1); };
   assert.deepEqual(draw(), { size: { width: 1280, height: 720 }, enabled: true, native: [320, 180] });
   canvas.width = 800; canvas.height = 600;
   assert.deepEqual(draw().size, { width: 800, height: 600 }, 'fullscreen uses physical canvas dimensions, not CSS or native grid size');
-  renderer.setPresentation({ ...pixel, rangePipeline: 'single' });
-  assert.deepEqual(draw(), { size: null, enabled: false, native: [320, 180] });
-  renderer.setPresentation(pixel);
-  assert.equal(draw().enabled, true);
+  // Every look composites, so a grid change keeps the crest overlay.
+  renderer.setPresentation({ ...cinematic, grid: pixelGrid('detailed') });
+  assert.deepEqual(draw(), { size: { width: 800, height: 600 }, enabled: true, native: [640, 360] });
   range.enabled = false;
   assert.equal(draw().size, null);
   renderer.dispose();

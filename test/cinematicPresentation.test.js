@@ -15,32 +15,39 @@ test('Cinematic Pixel survives storage and export without changing grid or quali
   assert.equal(p.cinematicPixel, true);
   assert.equal(p.grid.id, 'classicPlus');
   assert.equal(p.quality, 'auto');
-  assert.equal(p.paletteId, 'none');
+  for (const removed of ['paletteId', 'dither', 'ditherMode']) assert.equal(removed in p, false, removed);
   // Exports draw the finished grid: they never build pixel detail (716989a).
   assert.deepEqual(parseBulkArgs(['--look', 'cinematic', '--pixel-grid', 'classicPlus', 'song.wav']).presentation,
     { ...saved, buildPixelDetail: false });
-  assert.equal(resolvePresentation(DEFAULT_DISPLAY_PREFS).cinematicPixel, undefined);
+  // Cinematic is the only look, so the defaults are Cinematic too.
+  assert.equal(DEFAULT_DISPLAY_PREFS.look, 'cinematic');
+  assert.equal(resolvePresentation(DEFAULT_DISPLAY_PREFS).cinematicPixel, true);
 });
 
 test('Cinematic runs at its own detail level when none is chosen; a chosen one is kept', async () => {
   const { CINEMATIC_PIXEL_GRID, defaultGridFor } = await import('../src/render/DisplayProfile.js');
   assert.equal(CINEMATIC_PIXEL_GRID, 'detailed');
-  assert.equal(defaultGridFor('cinematic'), 'detailed');
-  for (const look of ['pixel', 'palette']) assert.equal(defaultGridFor(look), 'classic', `${look} keeps Classic`);
-  // A record or export request without a valid grid takes the look's own.
+  assert.equal(defaultGridFor(), 'detailed');
+  for (const look of ['cinematic', 'pixel', 'palette']) assert.equal(defaultGridFor(look), 'detailed', `${look} records default to Detailed`);
+  // A record or export request without a valid grid takes Cinematic's own.
   assert.equal(resolveDisplayPrefs({ saved: { version: 2, look: 'cinematic' } }).pixelGrid, 'detailed');
   assert.equal(resolveDisplayPrefs({ saved: { version: 2, look: 'cinematic', pixelGrid: 'broken' } }).pixelGrid, 'detailed');
-  assert.equal(resolveDisplayPrefs({ saved: { version: 2, look: 'pixel' } }).pixelGrid, 'classic');
+  assert.equal(resolveDisplayPrefs({ saved: { version: 2, look: 'pixel' } }).pixelGrid, 'detailed');
+  // A grid saved under the removed looks was nearly always their Classic default.
+  assert.equal(resolveDisplayPrefs({ saved: { version: 2, look: 'pixel', pixelGrid: 'classic' } }).pixelGrid, 'detailed');
   assert.equal(parseBulkArgs(['--look', 'cinematic', 'song.wav']).presentation.pixelGrid, 'detailed');
+  assert.equal(parseBulkArgs(['--quality', 'auto', 'song.wav']).presentation.pixelGrid, 'detailed');
   assert.equal(resolvePresentation({ version: 2, look: 'cinematic' }).grid.id, 'detailed');
   // Explicit choices, saved or requested, stay.
   assert.equal(resolveDisplayPrefs({ saved: { ...DEFAULT_DISPLAY_PREFS, look: 'cinematic', pixelGrid: 'classic' } }).pixelGrid, 'classic');
+  assert.equal(parseBulkArgs(['--pixel-grid', 'classic', 'song.wav']).presentation.pixelGrid, 'classic');
   const { parseReviewArgs } = await import('../tools/landscape-review.mjs');
   assert.deepEqual(parseReviewArgs(['--out', 'x', '--look', 'cinematic']).grids, ['detailed']);
-  assert.deepEqual(parseReviewArgs(['--out', 'x']).grids, ['classic', 'detailed'], 'Pixel reviews keep both');
+  assert.deepEqual(parseReviewArgs(['--out', 'x']).grids, ['detailed'], 'reviews default to Cinematic\'s own level');
+  assert.deepEqual(parseReviewArgs(['--out', 'x', '--grid', 'both']).grids, ['classic', 'detailed']);
 });
 
-test('a live Look switch reaches the terrain and sky on that draw and resets on return', () => {
+test('the Cinematic context reaches the terrain and sky on every draw, across a grid change', () => {
   const range = {}, manager = { world: { kind: 'alpine' } }, contexts = [];
   const makeCanvas = () => {
     const canvas = { width: 400, height: 225 };
@@ -49,15 +56,18 @@ test('a live Look switch reaches the terrain and sky on that draw and resets on 
     canvas.ownerDocument = { createElement: makeCanvas };
     return canvas;
   };
-  const renderer = createPresentingRenderer({ canvas: makeCanvas(), presentation: resolvePresentation({ ...DEFAULT_DISPLAY_PREFS, look: 'cinematic', pixelGrid:'classicPlus' }),
+  const renderer = createPresentingRenderer({ canvas: makeCanvas(), presentation: resolvePresentation({ ...DEFAULT_DISPLAY_PREFS, pixelGrid:'classicPlus' }),
     rendererFactory: () => ({ rangePresentation: range, draw(){ contexts.push([range.cinematicPixel, manager.cinematicPixel]); }, dispose(){} }) });
   renderer.draw({biomes:manager}, 0);
   assert.deepEqual(contexts[0], [true,true]);
   assert.equal(renderer.diagnostics.effectiveLook, 'cinematic');
-  renderer.setPresentation(resolvePresentation({ ...DEFAULT_DISPLAY_PREFS, pixelGrid:'classicPlus' }));
-  renderer.draw({biomes:manager}, 0);
-  assert.deepEqual(contexts[1], [false,false]);
-  assert.equal(renderer.diagnostics.effectiveLook, 'pixel');
+  // Another grid keeps the Cinematic context; there is no other look to
+  // return to. (This fake has no WebGL, so the cells fall back to nearest.)
+  renderer.setPresentation(resolvePresentation({ ...DEFAULT_DISPLAY_PREFS, pixelGrid:'medium' }));
+  assert.equal(renderer.draw({biomes:manager}, 0).presented, true);
+  assert.deepEqual(contexts[1], [true,true]);
+  assert.equal(renderer.diagnostics.effectiveLook, 'cinematic');
+  assert.equal(renderer.diagnostics.cinematicReconstruction.applied, false);
   renderer.dispose();
 });
 

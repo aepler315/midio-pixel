@@ -10,15 +10,20 @@ const WARP = 'ANGLE (Microsoft, Microsoft Basic Render Driver (0x0000008C) Direc
 
 test('review defaults are bounded, Uniform, continuous and headless only', () => {
   const args = parseReviewArgs(['--out', '.smoke/review']);
-  assert.deepEqual(args.grids, ['classic', 'detailed']);
-  assert.equal(args.look, 'pixel');
-  const manifest = makeReviewManifest(args, 'classic');
+  // Cinematic, the only look, at its own Detailed level.
+  assert.deepEqual(args.grids, ['detailed']);
+  assert.equal(args.look, 'cinematic');
+  const manifest = makeReviewManifest(args, 'detailed');
   assert.equal(manifest.settings.mode, 'continuous');
   assert.equal(manifest.settings.startMs, 12000);
+  assert.equal(manifest.settings.presentation.look, 'cinematic');
+  assert.equal(manifest.settings.presentation.pixelGrid, 'detailed');
   assert.equal(manifest.settings.presentation.pixelScale, 'original');
   assert.deepEqual(manifest.songs[0].clips, [{ startMs: 12000, durationMs: 2000 }]);
   assert.equal(args.liveSeconds, 0);assert.equal(parseReviewArgs(['--out','x','--ablate-aurora']).ablateAurora,true);
   for (const option of ['--headful', '--open', '--pixel-scale']) assert.throws(() => parseReviewArgs(['--out', 'x', option]), /Unknown/);
+  // --look stays for older scripts, but only names Cinematic.
+  assert.throws(() => parseReviewArgs(['--out', 'x', '--look', 'pixel']), /Cinematic is the only look/);
 });
 test('review selects Cinematic explicitly and retains the same bounded Classic+ controls', () => {
   const args = parseReviewArgs(['--out', 'x', '--look', 'cinematic', '--grid', 'classicPlus', '--live-seconds', '30']);

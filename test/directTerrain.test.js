@@ -12,13 +12,15 @@ function canvas(width = 1280, height = 720) {
     getImageData() { target.reads++; return { width: target.width, height: target.height, data: new Uint8ClampedArray(target.width * target.height * 4) }; },
     putImageData() { target.writes++; },
   };
-  target.getContext = () => ctx;
+  // No WebGL here: Cinematic's cell reconstruction falls back to nearest.
+  target.getContext = type => String(type).startsWith('webgl') ? null : ctx;
   target.ownerDocument = { createElement: () => canvas(0, 0) };
   return target;
 }
-const presentation = { pixelated: true, grid: { id: 'classic' }, paletteId: 'rgb332', dither: 1, scaling: 'fit', directTerrain: true };
+const presentation = { pixelated: true, cinematicPixel: true, grid: { id: 'classic' }, scaling: 'fit', directTerrain: true };
 
-test('direct mode renders at output resolution and palette-quantizes only a terrain partition', () => {
+// The partition's palette-quantize pass went with the Palette look.
+test('direct mode renders at output resolution and composites only a terrain partition, without readback', () => {
   const out = canvas(), scene = {}, range = { enabled: true };
   const inner = { canvasRenderer: scene, rangePresentation: range, dispose() {}, draw() {
     assert.notEqual(scene.canvas, out);
@@ -31,14 +33,17 @@ test('direct mode renders at output resolution and palette-quantizes only a terr
   const manager = { world: { kind: 'alpine' } };
   const residency = new GraphicsResidency();
   const renderer = createPresentingRenderer({ canvas: out, presentation, residency, rendererFactory: () => inner });
-  assert.equal(renderer.draw({ biomes: manager }, 0).presented, true);
+  // From quality rung 2 Cinematic sheds its cell reconstruction: nearest.
+  assert.equal(renderer.draw({ biomes: manager, perf: { level: 2 } }, 0).presented, true);
   assert.equal(manager.highResolutionSky, true);
   assert.equal(manager.directFullResolution, true);
+  assert.equal(range.cinematicPixel, true);
   assert.equal(out.reads, 0);
   const terrain = scene.canvas.calls.at(-1);
   assert.equal(terrain.smoothing, false);
-  assert.equal(terrain.args[0].reads, 1);
-  assert.equal(terrain.args[0].writes, 1);
+  assert.deepEqual([terrain.args[0].width, terrain.args[0].height], [320, 180], 'the native-grid partition');
+  assert.equal(terrain.args[0].reads, 0);
+  assert.equal(terrain.args[0].writes, 0);
   assert.equal(renderer.getCaptureSource().canvas, out);
   assert.equal(renderer.getCaptureSource().pixelated, false);
   assert.equal(renderer.getCaptureSource().terrainPixelated, true);
@@ -72,7 +77,7 @@ for (const [width, height] of [[2560, 1080], [800, 600]]) {
         'terrain must extend through the bottom-right screen edge');
     } };
     const renderer = createPresentingRenderer({ canvas: out,
-      presentation: { ...presentation, scaling: 'cover', paletteId: 'none' }, rendererFactory: () => inner });
+      presentation: { ...presentation, scaling: 'cover' }, rendererFactory: () => inner });
     assert.equal(renderer.draw({ biomes: { world: { kind: 'alpine' } } }, 0).presented, true);
     renderer.dispose();
   });

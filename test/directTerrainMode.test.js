@@ -44,14 +44,20 @@ test('direct mid-band reflection backdrop does not paint sky twice', () => {
   assert.equal(drawSky, null);
 });
 
-test('a single stage captures its completed sky and far terrain for water without repainting sky', () => {
+// The single stage (whose grid already held the sky, so it passed none) was
+// removed. The hybrid composite paints the sky outside the grid, so the mid
+// pass hands the water backdrop a painter for that same smooth sky.
+test('the hybrid mid band captures its far terrain for water with the smooth sky painter', () => {
   let drawSky, captured;
   const image = { width: 20, height: 10 };
   const stage = { width: 1408, height: 848 };
   const ctx = { save() {}, restore() {}, drawImage() {}, canvas: { width: 320, height: 180 } };
+  const painted = [];
+  const biomes = { highResolutionSky: true, rangeSkyLayer: {},
+    drawHighResolutionSky(target, canvas, options) { painted.push([target, canvas, options.transform]); return true; } };
   const pres = Object.assign(Object.create(RangePresentation.prototype), {
-    active: true, frame: {}, viewId: 'test', arrival: 1, singleStage: true,
-    frameInputs: { sim: { biomes: { highResolutionSky: true, rangeSkyLayer: {}, drawHighResolutionSky() {} } } },
+    active: true, frame: {}, viewId: 'test', arrival: 1,
+    frameInputs: { sim: { biomes } },
     scene: {
       captureBackdrop(context, bounds, frame, sky) { captured = [context, bounds, frame]; drawSky = sky; },
       renderPartition() { return image; },
@@ -60,6 +66,13 @@ test('a single stage captures its completed sky and far terrain for water withou
   });
   pres.drawPartition(ctx, 'mid', stage);
   assert.deepEqual(captured, [ctx, stage, pres.frame]);
+  assert.equal(typeof drawSky, 'function');
+  const target = { canvas: { width: 704, height: 424 } };
+  assert.equal(drawSky(target, 704, 424), true);
+  assert.deepEqual(painted, [[target, target.canvas, [0.5, 0, 0, 0.5, 0, 0]]], 'the stage sky, scaled to the backdrop');
+  // Without a sky layer this frame there is nothing to paint.
+  biomes.rangeSkyLayer = null;
+  pres.drawPartition(ctx, 'mid', stage);
   assert.equal(drawSky, null);
 });
 

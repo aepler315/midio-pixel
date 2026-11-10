@@ -31,38 +31,40 @@ export function materialPin(m) {
 }
 
 // Updated for placement coverage and compact shared mist-flow metadata, then
-// for the cast's removal (no lantern light, uniforms or tree parting).
+// for the cast's removal (no lantern light, uniforms or tree parting), then
+// for b38fd8a's reworded comment inside LAND_RISE_GLSL, which these shaders
+// embed (restoring the old comment text reproduces the previous pins exactly).
 // These pins record shader/render-state contracts; actual driver compilation
 // and visual evidence are recorded separately, not inferred from a hash.
 // Creation order: mesh, meshDepth, meshCore, meshCoreDepth, board, boardDepth.
 export const MAIN_PINS = {
   "partitioned": [
-    "62f79a0749aeb2733c04f8282640510dcba2c97ef968e6cca1dd393a8a018845",
-    "40e588a3531b05091975624eeab872ee6bd08eb4930350a530aa3e3caa80f701",
-    "e7a9515b2c78786465795b3bbaa226a372a682d5073ddd59a51a37d8ac2f2c97",
-    "881f4b573683f37c4c2087034a1a218df1719499703852aceb96aa496dac22ae",
-    "d3436790509941b7a13863d523855d997d56d00d08b865636538a183a5cc2b54",
-    "3008fad8948db672e810585d976aa695a613b593483253557f70301b47aa31ad"
+    "e01f575970f24f27a98f09673c5b4beb5f6879a72e231bf58000e71d236a1d3f",
+    "43c103c9daca18ec5968d2fdd60457394ca2a1e33fae19e02917f91da9fdfe21",
+    "f128e26d6a1d4ad8911bad8cb9ad10310f924fcc90fadf2abbd9a329ad5a6c2e",
+    "7f063bb367147a957b2de17f4f2de6a04144f6b835a7afac57655d36ad0a357b",
+    "e0acfe1a21f3e507b43fcc2e461a3763fe9b36ab60b1e44938ff4a175aa37ab5",
+    "f84a1e87c7f205c6a6333ad3cfa59785809adddd7c5cb87dba97101231cd79b9"
   ],
   "partitioned debug": [
-    "ce51d88c8a0d795c00617f5cc5431d5559ada2dd6ecbaaf4a9f5ce3cc40f8ce4",
-    "40e588a3531b05091975624eeab872ee6bd08eb4930350a530aa3e3caa80f701",
-    "cda083dcb6d8f0608aaeae7eeb187f01809b504082d4cb3737df91eed23a28bf",
-    "881f4b573683f37c4c2087034a1a218df1719499703852aceb96aa496dac22ae",
-    "fa6293afe067f8882376048f4723a1034fc0003cd638298c5e4a4817688e5552",
-    "3008fad8948db672e810585d976aa695a613b593483253557f70301b47aa31ad"
+    "423c1dd57be6a95d4d0b120363f07c0700746a33b4cc3f2c09fde4a349ecc6a8",
+    "43c103c9daca18ec5968d2fdd60457394ca2a1e33fae19e02917f91da9fdfe21",
+    "9ca1ff9f547457ee88550b0b9a03f17decea7494a5f5b06cdfa3ea0bad3c0298",
+    "7f063bb367147a957b2de17f4f2de6a04144f6b835a7afac57655d36ad0a357b",
+    "e7ff18816680f4952bf2afa5764df409b969d99aa89a97c7f304393b494cc47b",
+    "f84a1e87c7f205c6a6333ad3cfa59785809adddd7c5cb87dba97101231cd79b9"
   ],
   "plain": [
-    "6e05ac535e2beada45306cdc24a290372e89f52e68abe68486600eecd761162d",
-    "40e588a3531b05091975624eeab872ee6bd08eb4930350a530aa3e3caa80f701",
-    "91ce0bc478e0be9be0cd6aa4a32e620a37cbb08ca93079cbb15a76601aad203e",
-    "3008fad8948db672e810585d976aa695a613b593483253557f70301b47aa31ad"
+    "5610ed852a625e0dbb0854926caf2cd7fe90d33b2433be537791ab6b83555d40",
+    "43c103c9daca18ec5968d2fdd60457394ca2a1e33fae19e02917f91da9fdfe21",
+    "54705c27670f50154e1921c20a21827936f17a21dbae2f4716e3264928a99612",
+    "f84a1e87c7f205c6a6333ad3cfa59785809adddd7c5cb87dba97101231cd79b9"
   ],
   "plain debug": [
-    "b46e75f2a1479894cf9f4526878427e2d6448e021545e3a6d3520aed9d0f8237",
-    "40e588a3531b05091975624eeab872ee6bd08eb4930350a530aa3e3caa80f701",
-    "285b16140c47a0f714e39a7024183da6f755adaafe7644db3208955dbf5e0d7b",
-    "3008fad8948db672e810585d976aa695a613b593483253557f70301b47aa31ad"
+    "3125998c22a81f1293dc8cea8f3faf4741a6a8a830095e11057bcbc089fc0274",
+    "43c103c9daca18ec5968d2fdd60457394ca2a1e33fae19e02917f91da9fdfe21",
+    "1ac70d9f2c0db546587386471ccd05f385603f69be54bcdd2c3acde3539ed33a",
+    "f84a1e87c7f205c6a6333ad3cfa59785809adddd7c5cb87dba97101231cd79b9"
   ]
 };
 export const PIN_OPTIONS = [['partitioned', {}], ['partitioned debug', { forestDebug: true }], ['plain', { partitioned: false }], ['plain debug', { partitioned: false, forestDebug: true }]];
