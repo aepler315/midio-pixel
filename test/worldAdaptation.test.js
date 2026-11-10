@@ -118,31 +118,15 @@ test('response bounds: sparse is restrained, dense filters accents, quiet stays 
   }
 });
 
-test('a palette-only failure leaves geometry; a geometry-only failure leaves palettes', () => {
-  const poison = {
-    [Symbol.toPrimitive]() { throw new Error('poisoned label'); },
-    toString() { throw new Error('poisoned label'); },
-  };
+test('adaptation never synthesizes palettes, even for a world without real biomes', () => {
   const { data, profile } = song({
-    structure: { labels: [poison, 'B', poison, 'B'], boundariesMs: [0, 30000, 60000, 90000], confidence: 0.5 },
+    structure: { labels: ['A', 'B', 'A', 'B'], boundariesMs: [0, 30000, 60000, 90000], confidence: 0.5 },
   });
-  const warns = [];
-  const original = console.warn;
-  console.warn = (...args) => warns.push(args);
-  let result;
-  try {
-    // Landscape's real biomes are never synthesized (see below), so the
-    // palette path is exercised on an invented-palette world.
-    result = adaptWorld(INVENTED, profile, data);
-  } finally {
-    console.warn = original;
-  }
-  assert.equal(result.degraded.palette, true);
-  assert.ok(result.proof.dna?.error);
-  assert.ok(result.world.terrainMods, 'ridge geometry must survive a palette-only failure');
-  assert.ok(result.world.characterScheme);
-  assert.ok(warns.some((args) => String(args[0]).includes('palette')));
+  const result = adaptWorld(INVENTED, profile, data);
   assert.equal(result.world.palettes, INVENTED.palettes);
+  assert.equal(result.degraded.palette, false);
+  assert.ok(result.world.terrainMods, 'the song still shapes the terrain');
+  assert.ok(result.world.characterScheme);
 });
 
 test('The Range keeps its real biomes: no palette is synthesized into them', () => {

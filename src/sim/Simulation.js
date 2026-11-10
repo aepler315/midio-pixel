@@ -43,7 +43,7 @@ const WORLD_SPEED_PX_S = 220;
 export class Simulation {
   constructor(conductor, paramBus, {
     bpm = 120, energyCurves = null, canvasWidth = 1280, canvasHeight = 720,
-    customBiome = null, inputOffsetMs = 0, outputLatencyMs = null, visualLeadMs = 0, lyricSections = null, syncedLyrics = null, lyricSession = null, structure = null, tonalityTimeline = null,
+    inputOffsetMs = 0, outputLatencyMs = null, visualLeadMs = 0, lyricSections = null, syncedLyrics = null, lyricSession = null, structure = null, tonalityTimeline = null,
     groove = null,
     songSeed: pinnedSeed = null,
     conductorCues = null,
@@ -61,7 +61,6 @@ export class Simulation {
     this.conductor = conductor;
     this.paramBus = paramBus;
     this.energyCurves = energyCurves;
-    this.customBiome = customBiome || null;
     // Every song plays in Landscape; a missing or retired world id resolves
     // to it.
     this.worldId = resolveWorldId(worldId);
@@ -139,7 +138,6 @@ export class Simulation {
       groundField: this.groundField,
       fire: this.fire,
       flood: this.flood,
-      customBiome: this.customBiome,
       lyricSections,
       syncedLyrics,
       lyricSession,

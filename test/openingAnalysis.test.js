@@ -66,7 +66,6 @@ test('an opening stands for the whole song until the whole analysis lands', () =
   assert.ok(data.energyCurves.sample(0, 60000) > 0.5, 'past the opening the energy holds rather than falling silent');
 
   // The picker and the running song hold this object; the upgrade lands on it.
-  data.customBiome = { name: 'kept' };
   data.songIdentity = { seed: 7 };
   data.terrain = { range: { id: 'tetons' } };
   const full = { timeline: [{ tMs: 100 }, { tMs: 200000 }], durationMs: 240100, barGrid: [], songProfile: { version: 1, watch: { drive: 0.7 } } };
@@ -75,7 +74,7 @@ test('an opening stands for the whole song until the whole analysis lands', () =
   assert.equal(data.timeline.length, 2);
   assert.equal(data.durationMs, 240100);
   assert.equal(data.opening, undefined, 'no longer an opening');
-  assert.deepEqual([data.customBiome, data.songIdentity, data.terrain], [{ name: 'kept' }, { seed: 7 }, { range: { id: 'tetons' } }],
+  assert.deepEqual([data.songIdentity, data.terrain], [{ seed: 7 }, { range: { id: 'tetons' } }],
     'what was built on the opening is left as it is');
 });
 

@@ -494,7 +494,7 @@ export function rangeSkyTwilight(tw) {
 }
 
 export class BiomeManager {
-  constructor({ conductor, energyCurves, durationMs, canvasWidth, canvasHeight, groundY, songSeed, groundField = null, fire = null, flood = null, customBiome = null, lyricSections = null, syncedLyrics = null, lyricSession = null, structure = null, conductorSchedule = null, worldId = null, terrainProfiles = null, songTerrain = null, residency = null, chapterState = null, ridgeMusicSession = null, ridgeCasting, ridgeCalmCues }) {
+  constructor({ conductor, energyCurves, durationMs, canvasWidth, canvasHeight, groundY, songSeed, groundField = null, fire = null, flood = null, lyricSections = null, syncedLyrics = null, lyricSession = null, structure = null, conductorSchedule = null, worldId = null, terrainProfiles = null, songTerrain = null, residency = null, chapterState = null, ridgeMusicSession = null, ridgeCasting, ridgeCalmCues }) {
     this.conductor = conductor;
     this.ridgeMusicSession = ridgeMusicSession || createRidgeMusicSampler({ primary: new RidgeMotionHistory({ energyCurves,
       timeline: conductor.timeline, durationMs, casting: ridgeCasting, conductorCues: ridgeCalmCues, response: getWorld(worldId || DEFAULT_WORLD_ID)?.response }) });
@@ -513,7 +513,6 @@ export class BiomeManager {
     this.groundField = groundField;
     this.fire = fire; // FireDirector (src/sim/FireDirector.js), owned by Simulation -- see _drawWildfire()
     this.flood = flood; // FloodDirector (src/sim/FloodDirector.js), owned by Simulation -- see armFromTsunami() in update() and _drawFlood()
-    this.customBiome = customBiome || null;
     this.world = getWorld(worldId || DEFAULT_WORLD_ID);
     this.worldId = this.world.id;
     // Optional real-terrain skylines for L2 (far), L3 (middle), L4 (near).
@@ -556,15 +555,8 @@ export class BiomeManager {
     this.terrainPreview = false;
     this._ridgeCompositionFits = new WeakMap();
     this._landscapeGeometry = null;
-    // Palettes live on the world: its stock biomes, plus the optional
-    // MIDI-derived custom biome for a world without real biomes.
+    // Palettes live on the world: its biomes, cast section by section.
     this.profiles = this.world.palettes.slice();
-    // Real biomes are places, cast section by section; a generated single
-    // biome would paint the whole song as one of them.
-    this._singleCustom = this.world.kind === 'alpine' && !this.world.realBiomes;
-    if (customBiome && this._singleCustom) {
-      this.profiles = [...this.profiles, customBiome];
-    }
     this._lastSectionIdx = null;
     // Distant wave (DistantWave.js): how buried L2 currently is, whether the
     // swell has taken its place, and how far through the crossfade we are.
@@ -854,9 +846,6 @@ export class BiomeManager {
     // standalone, after this -- this._profileVariants is still whatever
     // _buildSchedule last computed, so that path is unaffected.
     this._rebuildStrips();
-    // MIDI custom biome: cast every section into the generated world so the
-    // dropped file IS the place, while stock demos keep dramaturgical casting.
-    if (this.customBiome && this._singleCustom) this.loadCustom(this.customBiome);
 
     // Ocean ecosystem: islands + ships sit on the water always; sea life,
     // the rare monster, and tsunamis (anchored on the song's loudest bars)
@@ -2052,27 +2041,6 @@ export class BiomeManager {
 
   _profile(name) {
     return this.profiles.find((b) => b.name === name) || this.profiles[0] || BIOMES[0];
-  }
-
-  /**
-   * Register (or re-cast) a custom biome profile for the current song.
-   * Safe to call after construction; strips/fields must already exist for
-   * the profile name (constructor path always builds them when customBiome
-   * is passed in). Hot registration of a brand-new profile mid-song is not
-   * supported — drop a new MIDI to rebuild the world.
-   */
-  loadCustom(custom) {
-    if (!custom || !custom.name) return;
-    if (!this.profiles.some((b) => b.name === custom.name)) {
-      this.profiles.push(custom);
-    }
-    this.customBiome = custom;
-    if (this.sections && this.sections.length) {
-      for (const s of this.sections) s.profile = custom.name;
-      // Reset blend so the next draw lands fully on the custom world.
-      this.currentBlend = { from: custom.name, to: custom.name, t: 1 };
-      this._lastSectionIdx = null;
-    }
   }
 
   /** The Key of the World: hue-rotate a color by the current (quantized)
@@ -3662,8 +3630,7 @@ export class BiomeManager {
     // skyStops): a harmonically richer song gets a subtler, more banded sky
     // gradient instead of the flat 3-stop default. Only takes effect when
     // BOTH sides of a transition carry skyStops of the same length --
-    // crossfading against a stock biome or the older customBiome importer
-    // (neither sets skyStops) falls back to the original fixed 3-stop
+    // crossfading against a stock biome (which sets no skyStops) falls back to the original fixed 3-stop
     // A.sky/B.sky exactly as before, so nothing else that reads sky[0..2]
     // for its own purposes (fire glow, water reflection, light rig, etc.)
     // is affected either way.

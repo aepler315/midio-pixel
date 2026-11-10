@@ -54,7 +54,7 @@ function harness() {
     getBundle: async (key) => { keys.push(key); return {}; },
     unpackBundle: () => ({ fromBundle: true }),
     audioToTimeline: async () => ({ fromBundle: true }),
-    generateCustomBiomeFromTimeline: () => ({}), rememberCustomBiome() {}, paramBus: {},
+    paramBus: {},
     lastSongName: '', lastAudioBuffer: null,
     DEV_MODE: false, offerWorldsThenStart() {},
     packBundle: () => ({}), putBundle: async () => {},

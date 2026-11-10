@@ -41,7 +41,6 @@ import { groundSpeedMps } from './world/terrain/ProfileTravel.js';
 import { TERRAIN_STRIP_WIDTH } from './world/terrain/StripRead.js';
 import { DrawErrorLog } from './render/DrawErrorLog.js';
 import { ROLE_LOW, ROLE_HIGH, GrooveFingerprint } from './sim/GrooveFingerprint.js';
-import { generateCustomBiomeFromTimeline, rememberCustomBiome } from './world/BiomeImporter.js';
 import {
   getLyricsDisabled, setLyricsDisabled,
   getBtLatencyTrimMs, setBtLatencyTrimMs, BT_LATENCY_TRIM_MS,
@@ -1322,7 +1321,7 @@ function offerWorldsThenStart(data, extra = {}) {
       const world = createSongWorldRecord(profile, seed);
       if (world) musicLibrary.noteSongWorld(extra.localTrack, world).catch(error => console.warn('[library] could not remember song world', error));
     }
-    if (!identity) data.songIdentity = { seed: autoSeed, songProfile: profile, customBiome: data.customBiome || null };
+    if (!identity) data.songIdentity = { seed: autoSeed, songProfile: profile };
     pendingWorldStart = { data, extra, features, seed, profile };
     // The song's real mountain range (RangeLibrary): matched and loaded in
     // the background. Kept on the song's data so it survives the rebuilds a
@@ -1714,7 +1713,6 @@ function startTimeline(timelineData, extra = {}) {
       // Logical stage always 1280×720 — canvas buffer may be 4K.
       canvasWidth: STAGE_W,
       canvasHeight: STAGE_H,
-      customBiome: timelineData.customBiome || null,
       // ChoreoClock: live output-latency getter so beat-anchored envelopes
       // peak when the EAR gets the beat (Bluetooth can lag 200ms+), except
       // while exporting, where audio and video share the source clock.
@@ -1981,7 +1979,6 @@ function startTimeline(timelineData, extra = {}) {
   window.__SMW = {
     conductor, paramBus, sim, audioEngine, visionLoop, debugOverlay,
     renderer, rendererMode, rendererBackend: renderer?.backend || 'canvas',
-    customBiome: timelineData.customBiome || null,
     analysis: timelineData.analysis || null,
     stems: timelineData.stems || null,
     get sourceTrack() { return lastTimelineData?.sourceTrack || null; },
@@ -2673,13 +2670,6 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
     if (data.stems && DEV_MODE) {
       console.info('[casting] stems:', data.stems.map((s) => `${s.name} -> ${s.lane || '(world)'}`).join(', '));
     }
-    // Every song gets its own visual fingerprint: a
-    // unique custom biome from the timeline plus the adapter's chroma/
-    // brightness/dynamics/width analysis (see BiomeImporter).
-    // Part of the song's identity: restored as it was first made, so a song
-    // started on its opening looks the same on every later play.
-    data.customBiome = data.songIdentity?.customBiome || generateCustomBiomeFromTimeline(data, selectedFiles[0].name || 'Audio');
-    rememberCustomBiome(paramBus, data.customBiome);
     lastSongName = sessionSongName(data, selectedFiles[0].name);
     lastAudioBuffer = audioBuffer;
     loadAudioFiles._preparedData = data;
