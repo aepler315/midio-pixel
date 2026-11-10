@@ -281,8 +281,84 @@ nothing else.
 `npm run review:landscape -- --rise N` sets it. Values outside 0..1 are
 ignored. Captures taken with it are labelled diagnostic.
 
+## Phase 2 as built
+
+### Planner (`src/world/terrain/SongRangePlan.js`)
+
+`planSongRange(profile, seed, { catalog })` is pure. It reads only the five
+watch values, through `songTerrainTarget` and `chooseSongBiomes`, plus the
+seed, so a compact library record and a full profile plan the same layout.
+
+1. **Family.** The home biome's material family. `BIOME_FAMILY` mirrors
+   `DEFAULT_PACKS` in `tools/build-range-scene.mjs`, and a test keeps the two
+   equal.
+2. **Template.** A seeded draw among the templates that support the family.
+3. **Principal.** Every piece that fits the principal slot, drawn with
+   `sceneOdds`: the catalog views' tempered ranks, 15% fair share and kernel,
+   against the song's terrain target.
+4. **Other slots.** In template order, a uniform seeded draw among unused
+   fitting pieces from the source regions used least so far.
+5. **Mirroring.** A seeded coin per slot.
+
+Candidates are sorted by id; reversing the catalog changes no plan. There is
+no recent-view history. `SONG_RANGE_VERSION = 1`. A song whose family has no
+pieces, or not enough to fill every slot, gets `null` and keeps its catalog
+view.
+
+**Slot fit (P2).** Footprint alone let a 959 m stump compete for a front slot
+beside 500 m pieces, and let small pieces take back slots. Each slot now has a
+peak relief range in `stage-templates.json` (`reliefM`): horizon 400 m and
+up, back 700 m and up, front 300 to 1,000 m. This is D8 (big massifs far,
+small near) in data. Only the planner applies it; composition accepts any
+piece that fits.
+
+**Catalog.** `node tools/build-song-range-pilot.mjs --catalog` writes
+`src/world/terrain/massifCatalogData.js`: templates plus piece metadata (id,
+name, family, source range, footprint, relief, character and relief hash).
+It is 22 KB and holds no terrain bytes. A test checks it against
+`stage-templates.json`.
+
+**Label.** With `?songRange=1`, `describeSongWorld` labels a song that has a
+plan `World: <principal> range` and marks it experimental. Its tooltip names
+every massif. Caching and the zero-download rule are unchanged, and the
+cache key includes the flag. Without the flag, or without a plan, the label
+is exactly the catalog-view label.
+
+### Uniqueness (`tools/song-range-uniqueness.mjs`)
+
+These figures assume today's catalog: one family (dry-conifer), 41 pieces and
+one template of 8 slots. Fitting pieces per slot are 29 for each horizon slot,
+8 for each back slot and 17 for each front slot.
+
+| | Synthetic (10,000) | Corpus (16 tracks x 625 seeds) |
+| --- | --- | --- |
+| Songs that get a composed range | 8.7% | 9.4% |
+| Distinct layouts among them | 867 of 867 | 942 of 942 |
+| P(two ranged songs share a layout), 95% bound | ≤ 8.0 x 10⁻⁶ | ≤ 6.8 x 10⁻⁶ |
+| Colliding pairs, 500-song library (95% bound) | ≤ 0.007 | ≤ 0.007 |
+| Colliding pairs, 5,000-song library (95% bound) | ≤ 0.75 | ≤ 0.75 |
+| Distinct principal massifs | 8 | 8 |
+| Most common principal | Teton summit seeded at 3,329 m, 18.1% | Heyburn Mountain, 23.8% |
+| For context, today's home catalog views: P(two songs share) | 0.065 | 0.065 |
+| For context, colliding pairs in 500 songs | about 8,100 | about 8,060 |
+
+The layout space under the fit rules is between 1.9 x 10¹¹ and 9.2 x 10¹¹,
+mirroring included. The plan's p!/(p−K)! x 2^K formula, which ignores fit,
+gives 9.9 x 10¹⁴.
+
+What limits the result is breadth, not collisions:
+
+1. **Coverage.** Only songs with a CONIFER home get a range: about 9%. Every
+   other family needs pieces (Phase 5).
+2. **Labels repeat.** Only 8 pieces fit the 9 x 10-tile back slot at 700 m or
+   more, so `World: <principal> range` comes from 8 names, and the most common
+   covers about a fifth of ranged songs. Layouts stay distinct; library
+   labels do not. Section 9, item 1 (list every massif, or generate a range
+   name) is the owner's call.
+
 ## Known limits of this session
 
 - Captures were not taken on the RTX 3060 or the JOYING head unit. SwiftShader
   links shaders but its images and timings are not production evidence.
-- Gate G1 is an owner gate and needs production captures.
+- Gate G1 is an owner gate and needs production captures. It has no recorded
+  owner verdict; Phase 2 started at the owner's instruction to continue.

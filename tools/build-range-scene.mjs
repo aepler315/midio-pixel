@@ -168,7 +168,7 @@ export async function buildView(view, { outDir, cell = null, log = console.log }
 }
 
 export const CATALOG_MODULE = path.join(root, 'src', 'world', 'terrain', 'sceneCatalogData.js');
-const DEFAULT_PACKS = {
+export const DEFAULT_PACKS = {
   RAINFOREST: 'wet-conifer', CONIFER: 'dry-conifer', TAIGA: 'taiga', ICEFIELD: 'icefield', TUNDRA: 'tundra',
   PINE_OAK: 'pine-oak', BROADLEAF: 'broadleaf', CHAPARRAL: 'chaparral', STEPPE: 'steppe', CANYON: 'canyon', DESERT: 'desert',
 };
