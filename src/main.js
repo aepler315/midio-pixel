@@ -1313,12 +1313,15 @@ function offerWorldsThenStart(data, extra = {}) {
     // the background. Kept on the song's data so it survives the rebuilds a
     // song goes through (seek, replay, export).
     const pendingForRange = pendingWorldStart;
-    pendingForRange.terrainReady = prepareSongTerrain(profile, seed).then((terrain) => {
+    const exporting = !!(extra.exportMode || readBulkExportFromUrl());
+    // A composed range gets a bounded wait (SONG_RANGE_WAIT_MS) so the home
+    // terrain is always ready by BIOME_WAIT_MS; exports wait for all of it.
+    pendingForRange.terrainReady = prepareSongTerrain(profile, seed, undefined,
+      exporting ? { songRangeWaitMs: Infinity } : {}).then((terrain) => {
       pendingForRange.data.terrain = terrain;
       return terrain;
     });
     lastFitDiagnostic = recordFitDiagnostic(features, profile);
-    const exporting = !!(extra.exportMode || readBulkExportFromUrl());
     // Every song starts straight in Landscape. Its home ranges have to be
     // there first -- briefly, then the bundled Tetons stand in -- and an
     // export waits for every biome, so its frames never depend on load timing.

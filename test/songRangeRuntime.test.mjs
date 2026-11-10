@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { songRangeChoice, songRangeStats } from '../src/world/terrain/RangeLibrary.js';
+import { songRangeChoice, songRangeStats, prepareSongTerrain } from '../src/world/terrain/RangeLibrary.js';
 import { planSongScenes } from '../src/world/terrain/SongScenePlan.js';
 import { RangePresentation } from '../src/world/alpine/RangePresentation.js';
 import { sceneViewErrors } from '../src/world/terrain/SceneCatalog.js';
@@ -81,4 +81,43 @@ test('?songRangeLayout runs a Phase 1 pilot layout through the runtime path', as
   const scenery = planSongScenes(profile, seed);
   const choice = await songRangeChoice(profile, seed, scenery, { search: `?songRangeLayout=${pilot.id}`, fetchImpl: diskFetch });
   assert.equal(choice.view.songRange.key, songRangeKey(plan));
+});
+
+test('a composed range that misses its wait leaves the song its catalog terrain on time', async () => {
+  const scenery = planSongScenes(profile, seed + 2);
+  const before = songRangeStats.late;
+  const hanging = () => new Promise(() => {}); // the stage pieces never arrive
+  const warn = console.warn; console.warn = () => {};
+  let terrain;
+  const t0 = Date.now();
+  try {
+    terrain = await prepareSongTerrain(profile, seed + 2, [], { songRangeWaitMs: 50, search: '?songRange=force', fetchImpl: hanging });
+  } finally { console.warn = warn; }
+  assert.ok(terrain, 'the home biome still loads');
+  assert.ok(Date.now() - t0 < 2000, 'preparation is not held by the stage');
+  assert.equal(terrain.songRange, null);
+  assert.equal(terrain.sceneByBiome.get(scenery.home).view.id, scenery.sceneByBiome.get(scenery.home).view.id);
+  assert.equal(songRangeStats.late, before + 1);
+});
+
+test('with an unbounded wait (exports), preparation keeps the composed range', async () => {
+  const scenery = planSongScenes(profile, seed);
+  const terrain = await prepareSongTerrain(profile, seed, [], { songRangeWaitMs: Infinity, search: '?songRange=force', fetchImpl: diskFetch });
+  assert.ok(terrain?.songRange, `fell back: ${songRangeStats.lastReason}`);
+  assert.equal(terrain.sceneByBiome.get(scenery.home).songRange, true);
+});
+
+test('a replay retries a composed range that failed in the previous generation', () => {
+  const camera = { eyeStartM: [0, 1500, 0], eyeEndM: [1000, 1600, 0], targetStartM: [0, 700, -9000], targetEndM: [2000, 700, -8000], fovYDeg: 35 };
+  const catalogView = { id: 'catalog-a', biome: 'ALPINE', status: 'approved', camera, terrainManifestUrl: 'a.json' };
+  const stage = { id: 'song-range-0123456789abcdef', biome: 'ALPINE', status: 'candidate', camera, songRange: {} };
+  const terrain = { sceneByBiome: new Map([['ALPINE', { view: stage, songRange: true, fallback: { view: catalogView } }]]) };
+  const mgr = { sections: [{ startMs: 0, profile: 'ALPINE', barMs: 750 }], durationMs: 60000, songSeed: 7, worldId: 'range', world: {} };
+  const p = new RangePresentation({ mode: 'v2', shots: false, retryDelaysMs: [] });
+  p.setSong({ terrain, mgr, generation: 1 });
+  assert.equal(p.railPlan.occurrences[0].viewId, stage.id);
+  p.failures.set(stage.id, 'decode: broken');
+  p.setSong({ terrain, mgr, generation: 2 });
+  assert.equal(p.failures.size, 0);
+  assert.equal(p.railPlan.occurrences[0].viewId, stage.id, 'the new plan asks for the composed range again');
 });

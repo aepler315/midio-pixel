@@ -326,6 +326,11 @@ export class RangePresentation {
     this.incomingFade = 1;
     this._handoff = null;
     this._waitedFor = null;
+    // Generation-local failures go before the rail plan resolves choices:
+    // a replay retries a composed range that failed last time.
+    this.failures.clear();
+    this.deferred.clear();
+    this.assetFailures.clear();
     this.sceneByBiome = terrain?.sceneByBiome || null;
     const restored = cameraSchedule ? sceneRailPlanFromSnapshot(cameraSchedule) : null;
     this.railPlan = restored && !Number.isFinite(cameraRefineThroughMs) ? restored : mgr ? compileSceneRailPlan({
@@ -334,9 +339,6 @@ export class RangePresentation {
       requestedMultiplier, previous: restored, committedThroughMs: cameraRefineThroughMs ?? -1,
     }) : restored;
     this._sideFrames = null;
-    this.failures.clear();
-    this.deferred.clear();
-    this.assetFailures.clear();
     this._preparing.clear();
     this._budgetRefusalAt.clear();
     this._needed.clear();

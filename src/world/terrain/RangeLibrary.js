@@ -23,7 +23,22 @@ import { loadTerrainPackage, sha256Hex } from '../alpine/RangeAssets.js';
 
 const RANGE_ASSET_BASE = new URL('../../assets/range/v2/', import.meta.url).href;
 /** Composed-range outcomes this session (song range composition, Phase 3). */
-export const songRangeStats = { planned: 0, assembled: 0, fallbacks: 0, lastReason: null, lastViewId: null };
+export const songRangeStats = { planned: 0, assembled: 0, fallbacks: 0, late: 0, lastReason: null, lastViewId: null };
+/** How long song preparation waits for a composed range, counted from the
+ *  start of preparation. Kept under main.js's BIOME_WAIT_MS (2.5 s) so a slow
+ *  stage never holds back the terrain the song starts with: past it the
+ *  catalog view plays, and the assembly finishes into the stage cache, where
+ *  the song's next preparation finds it. Exports pass Infinity. */
+export const SONG_RANGE_WAIT_MS = 1800;
+const LATE = Symbol('late');
+
+/** `promise`, or LATE once `deadline` (ms since epoch) has passed. */
+function byDeadline(promise, deadline) {
+  if (!Number.isFinite(deadline)) return promise;
+  let timer;
+  const late = new Promise((resolve) => { timer = setTimeout(resolve, Math.max(0, deadline - Date.now()), LATE); });
+  return Promise.race([promise, late]).finally(() => clearTimeout(timer));
+}
 
 /**
  * With ?songRange=1, the song's composed range replaces its home biome's
@@ -132,11 +147,20 @@ export async function prepareSongRange(profile, seed) {
  * horizon's. `sceneByBiome` maps each biome to its Range v2 SceneChoice
  * ({ view, fallbackReason }) from the curated catalog, drawn once per song.
  */
-export async function prepareSongTerrain(profile, seed, recent = readRecentRanges()) {
+export async function prepareSongTerrain(profile, seed, recent = readRecentRanges(),
+  { songRangeWaitMs = SONG_RANGE_WAIT_MS, search, fetchImpl } = {}) {
+  const startedAt = Date.now();
   try {
     const scenery = planSongScenes(profile, seed);
     const biomes = scenery.biomes;
     if (!biomes.length) return null;
+    // The composed range loads alongside the home biome, never after it.
+    const rangeOptions = { fetchImpl };
+    if (search !== undefined) rangeOptions.search = search;
+    const composing = songRangeChoice(profile, seed, scenery, rangeOptions).catch((err) => {
+      console.warn('[song range] composed range unavailable; keeping the catalog view', err);
+      return null;
+    });
     const byBiome = new Map();
     const load = async (biome) => {
       const set = chooseBiomeRidges(biome, profile, seed, { recent });
@@ -189,7 +213,13 @@ export async function prepareSongTerrain(profile, seed, recent = readRecentRange
     // The same pure plan names library worlds and runtime scenery. Transient
     // view history must not replace a song's identity on its next play.
     let sceneByBiome = scenery.sceneByBiome;
-    const ranged = await songRangeChoice(profile, seed, scenery);
+    let ranged = await byDeadline(composing, startedAt + songRangeWaitMs);
+    if (ranged === LATE) {
+      songRangeStats.late++;
+      songRangeStats.lastReason = `composed range not ready within ${songRangeWaitMs} ms`;
+      console.warn(`[song range] ${songRangeStats.lastReason}; this play keeps the catalog view`);
+      ranged = null;
+    }
     if (ranged) { sceneByBiome = new Map(sceneByBiome); sceneByBiome.set(scenery.home, ranged); }
     const terrain = {
       biomes, home: biomes[0], byBiome, whenAll, allLoaded: false,
