@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { titleCardFor, layoutPixelTitleCard, drawPixelTitleCard, drawTitleCard } from '../src/ui/TitleCard.js';
 import { TITLE_CARD_END_MS } from '../src/core/OpeningTimeline.js';
+import { pixelFontText } from '../src/ui/PixelFont.js';
 
 const CLASSIC = { width: 320, height: 180 };
 const DETAILED = { width: 640, height: 360 };
@@ -41,10 +42,43 @@ test('the pixel card fits its grid and keeps a big title when it can', () => {
 
 test('a long title falls back to caption size instead of being cut', () => {
   const card = titleCardFor({ title: 'An Extraordinarily Long Song Title That Keeps Going And Going' });
-  const layout = layoutPixelTitleCard(card, { grid: CLASSIC });
-  const titles = layout.lines.filter(l => l.kind === 'title');
-  assert.equal(titles[0].scale, layout.unit);
-  assert.ok(titles.length <= 3);
+  const classic = layoutPixelTitleCard(card, { grid: CLASSIC });
+  assert.equal(classic.lines.find(l => l.kind === 'title').scale, classic.unit);
+  for (const grid of [CLASSIC, DETAILED]) {
+    const titles = layoutPixelTitleCard(card, { grid }).lines.filter(l => l.kind === 'title');
+    assert.ok(titles.length <= 3);
+    assert.equal(titles.map(l => l.text).join(' '), pixelFontText(card.title), 'every word is kept');
+    assert.ok(titles.every(l => !l.text.endsWith('...')), 'nothing is cut');
+  }
+});
+
+test('a title too long for three lines is cut with an ellipsis, inside the grid', () => {
+  const card = titleCardFor({ title: 'Going And '.repeat(30).trim() });
+  for (const grid of [CLASSIC, DETAILED]) {
+    const titles = layoutPixelTitleCard(card, { grid }).lines.filter(l => l.kind === 'title');
+    assert.equal(titles.length, 3);
+    assert.ok(titles.at(-1).text.endsWith('...'));
+    for (const line of titles) assert.ok(line.x >= 0 && line.x + line.width <= grid.width, `${line.text} fits`);
+  }
+});
+
+test('the deferred composite draws the card on the heard time snapshotted with its frame', async () => {
+  const { Renderer } = await import('../src/render/Renderer.js');
+  const cardDraws = (titleCardMs, timeMs) => {
+    const renderer = Object.create(Renderer.prototype), ctx = recordingContext();
+    ctx.canvas = {};
+    renderer._deferredPostEffects = { sim: { timeMs }, viewStage: { width: 1280, height: 720 },
+      titleCard: titleCardFor({ title: 'Proof' }), titleCardMs, grid: CLASSIC };
+    renderer._drawBloom = () => {}; renderer._drawHeatDistortion = () => {};
+    renderer.drawDeferredPostEffects(ctx, { x: 0, y: 0, width: 1280, height: 720 });
+    return ctx.calls.filter(([name]) => name === 'fillRect' || name === 'fillText').length;
+  };
+  assert.ok(cardDraws(0, 0) > 0, 'the card opens the song');
+  assert.equal(cardDraws(TITLE_CARD_END_MS + 1, TITLE_CARD_END_MS + 1), 0, 'and is gone once faded');
+  // Output latency puts the transport ahead of what is heard: the replay
+  // follows the heard time, the clock the opening surge runs on.
+  assert.ok(cardDraws(1000, TITLE_CARD_END_MS + 300) > 0, 'still heard under the card');
+  assert.equal(cardDraws(TITLE_CARD_END_MS + 1, 0), 0);
 });
 
 test('text the pixel font cannot draw uses the smooth card instead of code points', () => {

@@ -177,3 +177,19 @@ test('severity rises harder under a surge than under sustained energy alone', ()
   }
   assert.ok(surging.severity > steady.severity, `surge (${surging.severity}) should exceed steady (${steady.severity})`);
 });
+
+test('WeatherDirector: sustained snowfall settles ground cover; other skies melt it', () => {
+  const w = new WeatherDirector();
+  // Force a live snowfall directly (kind defaults to snow) and integrate.
+  w.intensity = 0.9;
+  for (let t = 0; t < 30000; t += 100) w.update(t, 0.1, { valence: 0, energySlow: 0.9 });
+  assert.equal(w.kind, 'snow');
+  assert.ok(w.groundCover > 0.5, `expected real accumulation after ~30s of snow, got ${w.groundCover}`);
+  assert.ok(w.state.groundCover === w.groundCover, 'cover rides the public state');
+
+  // A happy mood swing (sunshine at this low epic) melts it back down.
+  const covered = w.groundCover;
+  for (let t = 30000; t < 50000; t += 100) w.update(t, 0.1, { valence: 0.9, energySlow: 0.9 });
+  assert.notEqual(w.kind, 'snow');
+  assert.ok(w.groundCover < covered * 0.3, `expected a thaw under ${w.kind}, got ${w.groundCover} (was ${covered})`);
+});

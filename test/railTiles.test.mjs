@@ -7,6 +7,7 @@ import { waterLevel } from '../src/world/alpine/RangeScene.js';
 import { mirrorLevelFor } from '../src/world/alpine/WaterMirror.js';
 import { buildFocusM } from '../src/world/alpine/BuildFocus.js';
 import { waterLevelOf } from '../tools/lib/scenic-cost.mjs';
+import { LEVEL, summitWorld } from './fixtures/summit-world.mjs';
 
 // The terrainBakePoses fixture (4 x 4 tiles of 64 cells at 20 m, a rail at
 // z = -600 looking north) with a deep, dead-flat lake south of the rail,
@@ -74,13 +75,34 @@ test('ground only a tour pose sees leaves the rail\'s height range, water and mi
   assert.equal(waterLevel(rail, { tour: true }), waterLevel(rail));
 });
 
-test('the opening\'s summit focus reads the rail\'s ground only', async () => {
-  const { view, rail, tour } = await packages();
-  assert.deepEqual(buildFocusM(tour, view), buildFocusM(rail, view));
+test('the opening\'s summit focus reads the rail\'s ground only', () => {
+  // The fixture above frames no summit (its focus is null for rail and tour
+  // alike), so this runs on a synthetic view with two peaks in the rail's
+  // frame: A at x = 3200 m and a taller B at x = 9600 m. B's tiles
+  // (x >= 8000 m, none of A's) carry rail: false here, the flag a bake gives
+  // tiles only a tour pose sees.
+  const peak = (cx, h) => (x, z) => Math.max(0, h * (1 - Math.hypot(x - cx, z - 8000) / 1200));
+  const a = peak(3200, 1000), b = peak(9600, 1400);
+  const { data, view } = summitWorld((x, z) => LEVEL + 5 + a(x, z) + b(x, z));
+  const tourOnly = (t) => t.ix >= 5;
+  const mark = (pick) => ({ ...data, tiles: new Map([...data.tiles].map(([k, t]) => [k, pick(t) ? { ...t, rail: false } : t])) });
+  const near = (f, x) => f != null && Math.hypot(f[0] - x, f[2] - 8000) < 200;
+  // Counted as rail ground, B holds the frame.
+  const all = buildFocusM(data, view);
+  assert.ok(near(all, 9600), `${all}`);
+  // Marked as a tour pose's, B leaves the focus on A, the same summit as a
+  // rail package that never shipped B's tiles.
+  const tour = buildFocusM(mark(tourOnly), view);
+  assert.ok(near(tour, 3200), `${tour}`);
+  const rail = {
+    ...data,
+    tiles: new Map([...data.tiles].filter(([, t]) => !tourOnly(t))),
+    byIndex: new Map([...data.byIndex].filter(([, t]) => !tourOnly(t))),
+  };
+  assert.deepEqual(tour, buildFocusM(rail, view));
   // With every tile marked as a tour pose's, the rail has no summit to frame.
-  const none = { ...tour, tiles: new Map([...tour.tiles].map(([k, t]) => [k, { ...t, rail: false }])) };
-  assert.equal(buildFocusM(none, view), null);
+  assert.equal(buildFocusM(mark(() => true), view), null);
   // A tour, or a view without a camera, keeps the authored target.
-  assert.equal(buildFocusM(rail, { ...view, tour: {} }), null);
-  assert.equal(buildFocusM(rail, { id: view.id }), null);
+  assert.equal(buildFocusM(data, { ...view, tour: {} }), null);
+  assert.equal(buildFocusM(data, { id: view.id }), null);
 });
