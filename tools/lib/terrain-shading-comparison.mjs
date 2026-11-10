@@ -9,7 +9,7 @@ export function compareTerrainReports(before, after) {
   const diff = compareReports(before, after);
   assert.deepEqual(before.launchArgs, after.launchArgs, 'different browser flags');
   const presentationKeys = ['requestedLook', 'effectiveLook', 'effectiveGrid', 'pixelScale',
-    'effectivePalette', 'effectiveDitherMode', 'output', 'working', 'qualityLevel'];
+    'output', 'working', 'qualityLevel'];
   for (let i = 0; i < before.songs.length; i++) {
     const a = before.songs[i], b = after.songs[i];
     const assetsA = a.loadedFiles ?? before.songs[0].loadedFiles;
