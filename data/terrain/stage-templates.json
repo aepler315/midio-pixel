@@ -1,24 +1,24 @@
 {
   "schema": "midio.stage-templates",
   "version": 1,
-  "notes": "Fixed stages for song range composition (docs/superpowers/specs/2026-11-10-song-range-composition-design.md). Slots are tile rectangles [ix, iz, tilesWide, tilesDeep] on a 64-cell tile lattice, ix east and iz south from the grid's north-west tile. Rows: horizon (farthest), back (tallest pieces), front (nearest). reliefM [min, max|null] is the peak relief a slot accepts (design D8: big massifs far, small near); the song planner enforces it, composition does not. The camera looks north across the lake. Eye and target heights are metres above the stage floor at their own positions. The lake is the floor wherever it reaches: pieces may stand in it and rise straight out of the water; land rises from its shore at the floor gradient.",
+  "notes": "Fixed stages for song range composition (docs/superpowers/specs/2026-11-10-song-range-composition-design.md). Slots are tile rectangles [ix, iz, tilesWide, tilesDeep] on a 64-cell tile lattice, ix east and iz south from the grid's north-west tile. Rows: horizon (farthest), back (tallest pieces), front (nearest). reliefM [min, max|null] is the peak relief a slot accepts (design D8: big massifs far, small near); the song planner enforces it, composition does not. The camera looks north across the lake. Eye and target heights are metres above the stage floor at their own positions. The lake is the floor wherever it reaches: pieces may stand in it and rise straight out of the water; land rises from its shore at the floor gradient (exact distance, StageFloor.js). lake-amphitheatre-a's lake covers everything but a shore strip at the eye, so no invented land shows between or behind the massifs.",
   "templates": [
     {
       "id": "lake-amphitheatre-a",
       "title": "Lake amphitheatre A",
       "families": ["dry-conifer"],
       "grid": { "width": 2241, "height": 2241, "cellSizeM": 20, "originM": [-22400, -22400] },
-      "lake": { "levelM": 2050, "centerM": [0, 10500], "radiiM": [24000, 8000] },
+      "lake": { "levelM": 2050, "centerM": [0, -10000], "radiiM": [60000, 27500] },
       "floor": { "shoreRiseM": 1.5, "slope": 0.03 },
       "slots": [
         { "id": "H1", "row": "horizon", "reliefM": [400, null], "tiles": [1, 1, 11, 10] },
         { "id": "H2", "row": "horizon", "reliefM": [400, null], "tiles": [12, 1, 11, 10] },
         { "id": "H3", "row": "horizon", "reliefM": [400, null], "tiles": [23, 1, 11, 10] },
-        { "id": "B1", "row": "back", "reliefM": [700, null], "tiles": [4, 11, 9, 10] },
-        { "id": "B2", "row": "back", "reliefM": [700, null], "tiles": [13, 11, 9, 10] },
-        { "id": "B3", "row": "back", "reliefM": [700, null], "tiles": [22, 11, 9, 10] },
-        { "id": "F1", "row": "front", "reliefM": [300, 1000], "tiles": [10, 21, 7, 7] },
-        { "id": "F2", "row": "front", "reliefM": [300, 1000], "tiles": [18, 21, 7, 7] }
+        { "id": "B1", "row": "back", "reliefM": [800, null], "tiles": [4, 11, 9, 10] },
+        { "id": "B2", "row": "back", "reliefM": [800, null], "tiles": [13, 11, 9, 10] },
+        { "id": "B3", "row": "back", "reliefM": [800, null], "tiles": [22, 11, 9, 10] },
+        { "id": "F1", "row": "front", "reliefM": [300, 650], "tiles": [10, 21, 7, 7] },
+        { "id": "F2", "row": "front", "reliefM": [300, 650], "tiles": [18, 21, 7, 7] }
       ],
       "principalSlot": "B2",
       "camera": {

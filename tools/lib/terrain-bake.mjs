@@ -32,30 +32,11 @@ import { glacierErrors } from '../../src/world/alpine/GlacierField.js';
 import { MIRROR_LIFT, MIRROR_SCALE, MIRROR_CLIP_M } from '../../src/world/alpine/WaterMirror.js';
 
 import { TERRAIN_SCHEMA, TERRAIN_VERSION, STRIDES, WATER_FLOW } from '../../src/world/alpine/TerrainPackage.js';
+import { SHORE_MAX_STRIDE, TILE_CELLS, LOD_BUDGETS, VISIBILITY, FRAMINGS, triangulatedHeight, tileStrideError, splitPlanes, encodeResiduals } from '../../src/world/alpine/TerrainTiles.js';
 
 export { TERRAIN_SCHEMA, TERRAIN_VERSION, STRIDES, WATER_FLOW };
-/** Coarsest stride a tile holding both water and land may use (cells). */
-export const SHORE_MAX_STRIDE = 4;
 export { validateTerrainManifest, decodeResiduals } from '../../src/world/alpine/TerrainPackage.js';
-export const TILE_CELLS = 64;
-export const LOD_BUDGETS = Object.freeze({
-  desktop: { errorPx: 1, heightPx: 1080 },
-  mobile: { errorPx: 2, heightPx: 720 },
-});
-// Frustum widening used for visibility: the widest supported framing
-// (2.4:1), the deepest camera pull-back (1 / ZOOM_MIN = 1.52) and the shake
-// overscan margin together. Conservative on purpose: a tile culled here is
-// never baked finely, so under-estimating would show coarse terrain.
-export const VISIBILITY = Object.freeze({
-  // Normal framing: 16:9 up to the reference's 2.07:1, with shake overscan.
-  core: { aspect: 2.1, fovScale: 1.2, budgetScale: 1 },
-  // Everything a frame can ever show: 2.4:1 at the deepest pull-back.
-  // Terrain only visible here is baked at 3x the pixel budget.
-  extended: { aspect: 2.4, fovScale: 1.85, budgetScale: 3 },
-  stations: 21, minDistanceM: 40,
-  // Occlusion raster: width in pixels, sample stride in cells, tolerance.
-  occlusion: { width: 384, stride: 4, depthSlack: 0.015, slackM: 30 },
-});
+export { SHORE_MAX_STRIDE, TILE_CELLS, LOD_BUDGETS, VISIBILITY, triangulatedHeight, tileStrideError, encodeResiduals };
 
 /** Each tile's axis-aligned box over its valid samples (null when it has
  *  none), as bakeTerrain lays tiles out: { cells, tilesX, tilesZ, boxes }
@@ -543,43 +524,10 @@ export function waterMask(h, valid, w, hgt, { flatM = 0.35, minCells = 60 } = {}
 /** Height of the stride-`s` triangulation at local sample (u, v) inside a
  *  cell of that stride whose corners are a (0,0), b (s,0), c (0,s), d (s,s).
  *  Quads split along the a-d diagonal, as TerrainMesh does. */
-export function triangulatedHeight(a, b, c, d, fu, fv) {
-  return fu >= fv ? a + (b - a) * fu + (d - b) * fv : a + (d - c) * fu + (c - a) * fv;
-}
-
-/** Max |full - stride triangulation| over one tile. Cells with an invalid
- *  corner are skipped (they are not drawn); a cell that would bridge an
- *  invalid interior sample makes the stride ineligible (Infinity). */
-export function tileStrideError(h, valid, w, hgt, x0, y0, cells, stride) {
-  if (stride === 1) return 0;
-  let err = 0;
-  for (let cy = 0; cy < cells; cy += stride) {
-    for (let cx = 0; cx < cells; cx += stride) {
-      const X = x0 + cx, Y = y0 + cy;
-      if (X + stride >= w || Y + stride >= hgt) continue;
-      const ia = Y * w + X, ib = ia + stride, ic = ia + stride * w, id = ic + stride;
-      if (!(valid[ia] && valid[ib] && valid[ic] && valid[id])) continue;
-      const a = h[ia], b = h[ib], c = h[ic], d = h[id];
-      for (let v = 0; v <= stride; v++) {
-        for (let u = 0; u <= stride; u++) {
-          const j = (Y + v) * w + X + u;
-          // A coarse cell with valid corners would draw over no-data inside
-          // it: that stride cannot represent this tile.
-          if (!valid[j]) return Infinity;
-          const e = Math.abs(h[j] - triangulatedHeight(a, b, c, d, u / stride, v / stride));
-          if (e > err) err = e;
-        }
-      }
-    }
-  }
-  return err;
-}
-
 function railStations(view, count) {
   return Array.from({ length: count }, (_, k) => cameraPoseAt(view, count > 1 ? k / (count - 1) : 0));
 }
 
-const FRAMINGS = Object.freeze(['core', 'extended']);
 // The visibility framings a pose is tested in: an 'extended' pose (seen
 // only in the widest framing) never makes a tile core.
 const POSE_FRAMINGS = Object.freeze({ core: FRAMINGS, extended: Object.freeze(['extended']), mirror: FRAMINGS });
@@ -667,29 +615,6 @@ function anyPointVisible(ob, pts, occ, minHeightM) {
   return false;
 }
 
-/** Byte-plane split of Uint16 values (low bytes, then high bytes): gzip
- *  compresses small residuals far better this way. */
-function splitPlanes(u16) {
-  const out = new Uint8Array(u16.length * 2);
-  for (let i = 0; i < u16.length; i++) { out[i] = u16[i] & 0xff; out[u16.length + i] = u16[i] >>> 8; }
-  return out;
-}
-
-/** Planar predictor residuals (left + up - upleft), modulo 2^16. */
-export function encodeResiduals(q, n) {
-  const r = new Uint16Array(q.length);
-  for (let y = 0; y < n; y++) {
-    for (let x = 0; x < n; x++) {
-      const i = y * n + x;
-      const left = x ? q[i - 1] : (y ? q[i - n] : 0);
-      const up = y ? q[i - n] : left;
-      const ul = x && y ? q[i - n - 1] : (y ? q[i - n] : left);
-      const pred = x && y ? Math.min(65535, Math.max(0, left + up - ul)) : (x ? left : up);
-      r[i] = (q[i] - pred) & 0xffff;
-    }
-  }
-  return r;
-}
 
 /**
  * Bake one view's terrain package.

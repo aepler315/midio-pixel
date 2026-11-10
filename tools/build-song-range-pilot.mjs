@@ -124,18 +124,51 @@ const pieceRow = (p) => ({ id: p.id, name: p.name, sourceView: p.sourceView, see
   coverageFanDeg: p.coverageFanDeg, outline: p.outline, base: p.base, character: p.character,
   reliefSha256: sha(Buffer.from(p.relief.buffer, p.relief.byteOffset, p.relief.byteLength)) });
 
-/** Runtime metadata for the planner: no relief, no terrain bytes. */
-export function massifCatalog(template, library) {
+export const MASSIF_DIR = path.join(RUNTIME_DIR, 'massif');
+/** File stem of a piece package: ids hold ':' which Windows cannot store. */
+export const pieceFile = (id) => id.replace(/:/g, '--');
+
+/** One piece as its own terrain package: every tile at stride 1 with its
+ *  per-stride errors, relief above the piece base in metres, the piece's
+ *  own hydrology, and kind 'massif-piece' so it is never taken for a view. */
+export async function bakePiece(piece, sourceLabel) {
+  const W = piece.width, H = piece.height;
+  const bytes = Buffer.from(piece.relief.buffer, piece.relief.byteOffset, piece.relief.byteLength);
+  const grid = { width: W, height: H, cellSizeM: piece.cellSizeM, originM: [0, 0], heightsM: piece.relief,
+    valid: new Uint8Array(W * H).fill(1), centerLonLat: null, upsampled: false,
+    horizontalCrs: 'Piece frame: metres from the block corner, +Z toward the source camera',
+    verticalReference: 'Relief above the piece base (metres)', sourceResolutionM: piece.cellSizeM, outputSpacingM: piece.cellSizeM,
+    meta: { payload: { heights: { sha256: sha(bytes) } } } };
+  const stem = pieceFile(piece.id);
+  const baked = await bakeTerrain(grid, { id: stem, regionId: piece.sourceView }, { allTiles: true, dataUrl: `${stem}.terrain.bin.gz` });
+  const manifest = { ...baked.manifest, kind: 'massif-piece',
+    piece: { id: piece.id, name: piece.name, sourceView: piece.sourceView, place: sourceLabel, tiles: [...piece.tiles],
+      peakReliefM: Math.round(piece.peakReliefM), levelM: Math.round(piece.levelM) } };
+  const manifestText = JSON.stringify(manifest) + '\n';
+  return { stem, manifestText, payload: baked.payload, manifestSha256: sha(manifestText) };
+}
+
+/** Runtime metadata for the planner and the assembler: templates (with
+ *  their floor and camera) and pieces (with their package pins). */
+export function massifCatalog(template, library, pins = new Map(), materials = {}, pilots = []) {
   const pieces = library.pieces.map((p) => ({ id: p.id, name: p.name, family: p.family, sourceView: p.sourceView,
     place: library.sources[p.sourceView].label, seedKind: p.seedKind, tiles: [...p.tiles],
     peakReliefM: Math.round(p.peakReliefM), peakM: Math.round(p.peakM),
     characterScores: Object.fromEntries(Object.entries(p.character).map(([k, v]) => [k, Math.round(v * 1000) / 1000])),
-    reliefSha256: sha(Buffer.from(p.relief.buffer, p.relief.byteOffset, p.relief.byteLength)) }))
+    reliefSha256: sha(Buffer.from(p.relief.buffer, p.relief.byteOffset, p.relief.byteLength)),
+    ...(pins.has(p.id) ? { manifestUrl: `massif/${pieceFile(p.id)}.terrain.json`, manifestSha256: pins.get(p.id) } : {}) }))
     .sort((a, b) => a.id.localeCompare(b.id));
   return { schema: 'midio.massif-catalog', version: 1,
     templates: [{ id: template.id, title: template.title, families: [...template.families], principalSlot: template.principalSlot,
-      lakeLevelM: template.lake.levelM, slots: template.slots.map((s) => ({ id: s.id, row: s.row, tiles: [...s.tiles], reliefM: s.reliefM ?? [0, null] })) }],
-    pieces };
+      lakeLevelM: template.lake.levelM, grid: { ...template.grid, originM: [...template.grid.originM] },
+      lake: { levelM: template.lake.levelM, centerM: [...template.lake.centerM], radiiM: [...template.lake.radiiM] },
+      floor: { ...template.floor }, camera: stageCamera(template),
+      slots: template.slots.map((s) => ({ id: s.id, row: s.row, tiles: [...s.tiles], reliefM: s.reliefM ?? [0, null] })) }],
+    materials, pieces,
+    // The Phase 1 layouts, so ?songRangeLayout=<id> can run one through the
+    // runtime path for comparison with its offline stage (diagnostic only).
+    pilots: pilots.map((l) => ({ id: l.id, templateId: template.id,
+      slots: template.slots.map((s) => ({ slotId: s.id, pieceId: l.slots[s.id].piece, mirrored: !!l.slots[s.id].mirrored })) })) };
 }
 
 function creditFor(placed, sources) {
@@ -211,11 +244,29 @@ async function main() {
   const doc = await readAuthoring();
   const library = await cutLibrary(pilot, doc);
   if (args.includes('--catalog')) {
+    // Piece packages and their pins, then the catalog that names them.
+    await fs.mkdir(MASSIF_DIR, { recursive: true });
+    const pins = new Map();
+    let total = 0;
+    for (const p of library.pieces) {
+      const b = await bakePiece(p, library.sources[p.sourceView].label);
+      await fs.writeFile(path.join(MASSIF_DIR, `${b.stem}.terrain.json`), b.manifestText);
+      await fs.writeFile(path.join(MASSIF_DIR, `${b.stem}.terrain.bin.gz`), b.payload);
+      pins.set(p.id, b.manifestSha256);
+      total += b.payload.byteLength + Buffer.byteLength(b.manifestText);
+    }
+    const families = [...new Set(library.pieces.map((p) => p.family))];
+    const materials = {};
+    for (const f of families) {
+      const url = `materials/${f}.json`;
+      materials[f] = { manifestUrl: url, manifestSha256: sha(await fs.readFile(path.join(RUNTIME_DIR, url))) };
+    }
     const text = '// Generated by tools/build-song-range-pilot.mjs --catalog. Do not edit.\n'
-      + '// Massif pieces and stage templates for the song range planner (SongRangePlan.js).\n'
-      + `export default ${JSON.stringify(massifCatalog(template, library), null, 1)};\n`;
+      + '// Massif pieces and stage templates for the song range planner (SongRangePlan.js)\n'
+      + '// and assembler (StageAssembly.js). Piece packages: src/assets/range/v2/massif/.\n'
+      + `export default ${JSON.stringify(massifCatalog(template, library, pins, materials, pilot.layouts), null, 1)};\n`;
     await fs.writeFile(MASSIF_CATALOG_MODULE, text);
-    console.log(`massif catalog: ${library.pieces.length} pieces, template ${template.id}`);
+    console.log(`massif catalog: ${library.pieces.length} pieces (${(total / 1048576).toFixed(2)} MiB of packages), template ${template.id}`);
     return;
   }
   if (args.includes('--list')) {

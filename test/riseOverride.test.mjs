@@ -28,3 +28,9 @@ test('the review tool passes --rise through as a diagnostic URL switch', () => {
   assert.throws(() => parseReviewArgs(['--out', '.smoke/x', '--rise', '2']), /rise must be/);
   assert.equal(makeReviewManifest(parseReviewArgs(['--out', '.smoke/x']), 'detailed').settings.debug, undefined);
 });
+
+test('the review tool passes --song-range through and refuses other values', () => {
+  const a = parseReviewArgs(['--out', '.smoke/x', '--view', 'natural', '--song-range', 'force', '--rise', '1']);
+  assert.deepEqual(makeReviewManifest(a, 'detailed').settings.debug, { rangeRise: 1, songRange: 'force' });
+  assert.throws(() => parseReviewArgs(['--out', '.smoke/x', '--song-range', 'on']), /song-range must be/);
+});

@@ -15,6 +15,48 @@ import { planSongScenes } from './SongScenePlan.js';
 import { chooseBiomeRidges } from './BiomeSet.js';
 import { profilesFromJSON } from './TerrainProfile.js';
 import { chooseHorizonRange, MASSIF_SALT } from './HorizonRidge.js';
+import { planSongRange, songRangeEnabled, songRangeForced, songRangeLayoutParam, pilotPlan } from './SongRangePlan.js';
+import MASSIF_CATALOG from './massifCatalogData.js';
+import SCENE_CATALOG from './sceneCatalogData.js';
+import { songRangeView, loadSongRangeStage } from '../alpine/StageAssembly.js';
+import { loadTerrainPackage, sha256Hex } from '../alpine/RangeAssets.js';
+
+const RANGE_ASSET_BASE = new URL('../../assets/range/v2/', import.meta.url).href;
+/** Composed-range outcomes this session (song range composition, Phase 3). */
+export const songRangeStats = { planned: 0, assembled: 0, fallbacks: 0, lastReason: null, lastViewId: null };
+
+/**
+ * With ?songRange=1, the song's composed range replaces its home biome's
+ * catalog view. The stage is fetched and assembled here, before playback
+ * chooses views, so a fetch, hash, decode or validation failure keeps the
+ * catalog view (logged once per song, counted in songRangeStats). The
+ * catalog choice rides along as `fallback` for later failures.
+ */
+export async function songRangeChoice(profile, seed, scenery, { search = globalThis.location?.search || '', fetchImpl } = {}) {
+  const layout = songRangeLayoutParam(search);
+  if (!songRangeEnabled(search) && !layout) return null;
+  const plan = layout ? pilotPlan(layout, scenery.home) : planSongRange(profile, seed, { forced: songRangeForced(search) });
+  if (!plan) return null;
+  songRangeStats.planned++;
+  const home = scenery.home;
+  const fallback = scenery.sceneByBiome.get(home) || null;
+  let view;
+  try {
+    view = songRangeView(plan, { catalog: MASSIF_CATALOG, sceneCatalog: SCENE_CATALOG });
+    // The forced diagnostic stands in for whatever the home biome is.
+    if (plan.forced && home) view = { ...view, biome: home };
+    await loadSongRangeStage(view, { catalog: MASSIF_CATALOG, baseUrl: RANGE_ASSET_BASE, fetchImpl, loadPackage: loadTerrainPackage, sha256Hex });
+  } catch (err) {
+    songRangeStats.fallbacks++;
+    songRangeStats.lastReason = String(err?.message || err);
+    console.warn('[song range] composed range unavailable; keeping the catalog view', err);
+    return null;
+  }
+  songRangeStats.assembled++;
+  songRangeStats.lastViewId = view.id;
+  return { view, fallbackReason: null, odds: 1, catalogVersion: SCENE_CATALOG.catalogVersion,
+    matchingVersion: fallback?.matchingVersion ?? null, songRange: true, forced: !!plan.forced, fallback };
+}
 
 export { RANGES };
 
@@ -146,10 +188,14 @@ export async function prepareSongTerrain(profile, seed, recent = readRecentRange
     })));
     // The same pure plan names library worlds and runtime scenery. Transient
     // view history must not replace a song's identity on its next play.
+    let sceneByBiome = scenery.sceneByBiome;
+    const ranged = await songRangeChoice(profile, seed, scenery);
+    if (ranged) { sceneByBiome = new Map(sceneByBiome); sceneByBiome.set(scenery.home, ranged); }
     const terrain = {
       biomes, home: biomes[0], byBiome, whenAll, allLoaded: false,
       range: home.ranges.far, ranges: home.ranges, profiles: home.profiles, horizon, massif,
-      sceneByBiome: scenery.sceneByBiome, catalogVersion: scenery.catalogVersion, matchingVersion: scenery.matchingVersion,
+      sceneByBiome, catalogVersion: scenery.catalogVersion, matchingVersion: scenery.matchingVersion,
+      songRange: ranged ? { viewId: ranged.view.id, key: ranged.view.songRange.key, forced: ranged.forced } : null,
     };
     whenAll.then(() => { terrain.allLoaded = true; });
     return terrain;

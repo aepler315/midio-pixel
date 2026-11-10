@@ -71,7 +71,9 @@ export function normalizeManifest(value, { historical = false } = {}) {
     // Diagnostic renders (Natural-rendering Task 0): existing developer URL
     // switches, recorded in the settings so a comparison must match them.
     const d = settings.debug;
-    keys(d, ['rangeDebug', 'forestDebug', 'rangeMsaa', 'rangeRise'], 'debug');
+    keys(d, ['rangeDebug', 'forestDebug', 'rangeMsaa', 'rangeRise', 'songRange', 'songRangeLayout'], 'debug');
+    if (d.songRangeLayout != null) assert.ok(/^song-range-pilot-[a-z]$/.test(d.songRangeLayout), 'invalid debug.songRangeLayout');
+    if (d.songRange != null) assert.ok(['1', 'force'].includes(d.songRange), 'invalid debug.songRange');
     if (d.rangeRise != null) assert.ok(Number.isFinite(d.rangeRise) && d.rangeRise >= 0 && d.rangeRise <= 1, 'invalid debug.rangeRise');
     if (d.rangeDebug != null) assert.ok(DEBUG_VIEWS.includes(d.rangeDebug), 'invalid debug.rangeDebug');
     if (d.forestDebug != null) assert.ok([0, 1].includes(d.forestDebug), 'invalid debug.forestDebug');

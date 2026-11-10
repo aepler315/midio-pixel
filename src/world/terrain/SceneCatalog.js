@@ -26,6 +26,7 @@ import { seedTicket, songTerrainTarget } from './RangeMatcher.js';
 import { cameraRailErrors } from './SceneTravel.js';
 import { riverChannelErrors } from '../alpine/RiverChannel.js';
 import { hashSeed } from '../../utils/math.js';
+import { songRangeViewErrors } from './SongRangeView.js';
 
 export const SCENIC_FAIR_SHARE = 0.15;
 export const SCENE_MATCH_VERSION = 2;
@@ -51,7 +52,9 @@ export function sceneViewErrors(view) {
   if (!STATUSES.has(view.status)) errors.push(`status ${view.status}`);
   if (view.experimental !== undefined && typeof view.experimental !== 'boolean') errors.push('experimental selection');
   if (!Number.isInteger(view.catalogVersion)) errors.push('catalogVersion');
-  if (typeof view.terrainManifestUrl !== 'string' || !view.terrainManifestUrl.endsWith('.json')) errors.push('terrainManifestUrl');
+  // A composed song range (StageAssembly.js) pins its pieces in place of one package.
+  if (view.songRange) errors.push(...songRangeViewErrors(view));
+  else if (typeof view.terrainManifestUrl !== 'string' || !view.terrainManifestUrl.endsWith('.json')) errors.push('terrainManifestUrl');
   if (typeof view.materialManifestUrl !== 'string' || !view.materialManifestUrl.endsWith('.json')) errors.push('materialManifestUrl');
   if (view.tourManifestUrl) {
     if (!view.tourManifestUrl.endsWith('.json') || !/^[a-f0-9]{64}$/.test(view.tourManifestSha256 || '')) errors.push('tour package identity');
