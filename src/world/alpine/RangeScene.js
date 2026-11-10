@@ -2409,7 +2409,7 @@ export class RangeScene {
     const baseRail = scenePoseAt(railView, { progress01: view.glacier ? (frame.glacier?.journey01 ?? frame.progress01) : frame.progress01, timeMs: frame.timeMs,
       tour: p?.cameraTour || view.tour });
     const rail = { ...baseRail, fovYDeg: applyLensFov(baseRail.fovYDeg, frame.cameraEffects) };
-    const openingRail = { ...rail, fovYDeg: landRiseFov(rail.fovYDeg, frame.rise01) };
+    const openingRail = { ...rail, fovYDeg: landRiseFov(rail.fovYDeg, frame.rise01, frame.timeMs) };
     const proj = scenicProjection(openingRail.fovYDeg, frame.scenicViewport);
     // This view's VISIBLE frustum (the overscan margin excluded): the
     // pointer is normalised against the visible stage, and the zoom must
@@ -2428,7 +2428,7 @@ export class RangeScene {
     const ground = groundAt ? groundAt(authoredPose.eyeM[0], authoredPose.eyeM[2]) : NaN;
     const pose = landRiseCamera(authoredPose, { rise01: frame.rise01, baseM: landRiseBase(p), groundM: ground,
       focusM: baseRail.tour || p?.cameraTour || view.tour ? null : p?.buildFocusM,
-      aspect: proj.aspect, overview: !p?.windowCache });
+      aspect: proj.aspect, overview: !p?.windowCache, timeMs: frame.timeMs });
     const resolved = { rail, proj, pose, tanX, tanY };
     poses.set(occurrenceId, resolved);
     this._ensureTourWindow(p, frame.timeMs, { pose, proj });

@@ -26,5 +26,5 @@ Uniform; the previous depth-pixel effect is removed.
 
 See the [README](Readme.md), [display controls](docs/pixel-presentation.md) and
 [validation records](docs/pixel-validation.md). Those records describe checks
-at their recorded revisions. Pages serves the `gh-pages` branch, published
-with `npm run publish:site` using the staged site.
+at their recorded revisions. Pages builds `main` directly, so every push to
+`main` deploys.

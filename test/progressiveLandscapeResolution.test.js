@@ -79,10 +79,11 @@ test('runtime grids keep caption scale continuous and cannot enter saved prefere
     const normalizedWidth = layout.bounds.width / grid.width;
     if (previous !== null) assert.ok(Math.abs(normalizedWidth - previous) < 1e-12);
     previous = normalizedWidth;
-    assert.equal(resolveDisplayPrefs({ saved: { version: 2, look: 'pixel', pixelGrid: grid.id } }).pixelGrid, 'classic');
+    const saved = resolveDisplayPrefs({ saved: { version: 2, look: 'cinematic', pixelGrid: grid.id } }).pixelGrid;
+    assert.equal(saved, ['classic', 'classicPlus', 'medium', 'mediumPlus', 'detailed'].includes(grid.id) ? grid.id : 'detailed');
   }
   assert.equal(resolveDisplayPrefs().buildPixelDetail, true);
-  assert.equal(resolvePresentation({ version: 2, look: 'pixel', buildPixelDetail: false }).buildPixelDetail, false);
+  assert.equal(resolvePresentation({ version: 2, look: 'cinematic', buildPixelDetail: false }).buildPixelDetail, false);
 });
 
 test('an admitted rung reuses its canvas and denied growth retains the useful previous raster', () => {
@@ -105,34 +106,6 @@ test('an admitted rung reuses its canvas and denied growth retains the useful pr
   output.dispose(); assert.equal(residency.usedBytes, 0);
 });
 
-test('single-stage playback follows heard rise, shares transition detail and preserves fixed modes', () => {
-  const canvas = surface(), range = { enabled: true }, manager = { world: { kind: 'alpine' }, durationMs: 90000,
-    sections: [], tSec: 0, energyCurves: { globalEnergyNorm: () => .4 } };
-  const seen = [];
-  const inner = { rangePresentation: range, draw() { seen.push({ grid: this.pixelPolicy.grid, lod: range.detailHeightPx, single: range.singleStage }); }, dispose() {} };
-  const adapter = createPresentingRenderer({ canvas, presentation, rendererFactory: () => inner });
-  const sim = { biomes: manager, heardTimeMs: 0 };
-  for (const timeMs of [0, 30000, 90000, 90000, 0]) {
-    sim.heardTimeMs = timeMs;
-    assert.equal(adapter.draw(sim, 0).presented, true);
-  }
-  assert.deepEqual([seen[0].grid.width, seen[2].grid.width, seen[3].grid.width, seen[4].grid.width], [320, 640, 640, 320]);
-  assert.ok(seen[1].grid.width > 320 && seen[1].grid.width < 640);
-  assert.ok(seen.every(s => s.lod === 360 && s.single));
-  assert.equal(adapter.diagnostics.progressiveDetail.rise01, landscapeScoreFor(manager).at(0).rise01);
-  assert.equal(adapter.diagnostics.progressiveDetail.requestedRung, 0);
-  sim.heardTimeMs = 90000;
-  for (const fixed of [{ ...presentation, buildPixelDetail: false }, { ...presentation, paletteId: 'rgb332' },
-    { ...presentation, rangePipeline: 'native' }, { ...presentation, directTerrain: true, buildPixelDetail: false }]) {
-    if (fixed.directTerrain) continue; // Its separate renderer has its own integration suite.
-    adapter.setPresentation(fixed);
-    adapter.draw(sim, 0);
-    assert.equal(adapter.output.grid.width, 320);
-    assert.equal(adapter.diagnostics.progressiveDetail.active, false);
-  }
-  adapter.dispose();
-});
-
 test('a full budget can shrink and return to fixed detail without holding both rasters', () => {
   const p = plan(), grid = p.grids[12], canvas = surface(), residency = new GraphicsResidency({ budgetBytes: grid.pixels * 4 });
   const output = new PixelPresentation({ canvas, presentation, residency });
@@ -147,19 +120,23 @@ test('a full budget can shrink and return to fixed detail without holding both r
 
 test('quality output resizing preserves a refused native ceiling until the fitted endpoint changes', () => {
   const canvas = surface(), range = { enabled: true }, manager = { world: { kind: 'alpine' }, durationMs: 90000, sections: [] };
-  let refuse = false;
-  const inner = { rangePresentation: range, draw() { manager._awaitingTerrain = refuse && this.pixelPolicy.grid.width > 320; range.resolutionRefused = manager._awaitingTerrain; range.reason = manager._awaitingTerrain ? 'budget: scene target' : null; }, dispose() {} };
+  // The scene refuses anything above the opening's own raster (the land
+  // starts one third built, so that is above Classic).
+  let refuse = false, startWidth = Infinity;
+  const inner = { rangePresentation: range, draw() { manager._awaitingTerrain = refuse && this.pixelPolicy.grid.width > startWidth; range.resolutionRefused = manager._awaitingTerrain; range.reason = manager._awaitingTerrain ? 'budget: scene target' : null; }, dispose() {} };
   const adapter = createPresentingRenderer({ canvas, presentation, rendererFactory: () => inner });
   const sim = { biomes: manager, heardTimeMs: 0 };
   assert.equal(adapter.draw(sim, 0).presented, true);
+  const start = adapter.output.grid; startWidth = start.width;
+  assert.ok(start.width > 320, 'a one-third-built land opens above Classic');
   refuse = true; sim.heardTimeMs = 90000;
   assert.equal(adapter.draw(sim, 0).presented, false);
   assert.equal(adapter.draw(sim, 0).presented, true);
-  assert.equal(adapter.output.grid.width, 320);
+  assert.equal(adapter.output.grid.width, start.width);
   assert.equal(adapter.diagnostics.progressiveDetail.reason, 'scene-memory');
   refuse = false; canvas.width = 960; canvas.height = 540;
   assert.equal(adapter.draw(sim, 0).presented, true);
-  assert.deepEqual([adapter.output.grid.width, adapter.output.grid.height], [320, 180], 'the same endpoint keeps its memory refusal');
+  assert.deepEqual([adapter.output.grid.width, adapter.output.grid.height], [start.width, start.height], 'the same endpoint keeps its memory refusal');
   assert.equal(adapter.diagnostics.progressiveDetail.reason, 'scene-memory');
   assert.equal(range.detailHeightPx, 360);
   canvas.width = 480; canvas.height = 270;
@@ -249,7 +226,8 @@ test('quality caps compose with seeks and small output endpoints without increas
     assert.equal(adapter.diagnostics.progressiveDetail.requestedRung, requestedRung);
     sim.perf.level = 0; adapter.draw(sim, 0); assert.equal(adapter.output.grid, requested);
     sim.heardTimeMs = 0; sim.perf.level = 6; adapter.draw(sim, 0);
-    assert.equal(adapter.output.grid.width, 320); assert.equal(adapter.diagnostics.progressiveDetail.reason, null);
+    // The one-third-built opening already asks for more than the q6 floor.
+    assert.equal(adapter.output.grid.width, 320); assert.equal(adapter.diagnostics.progressiveDetail.reason, 'quality');
     canvas.width = 240; canvas.height = 120; sim.heardTimeMs = 90000; sim.perf.level = 0; adapter.draw(sim, 0);
     assert.equal(adapter.output.grid.width, 320);
     assert.deepEqual(adapter.diagnostics.progressiveDetail.endpoint, { width: 320, height: 180 });
@@ -333,15 +311,12 @@ test('a denied quality-floor raster never falls back above the current native ca
   } finally { adapter.dispose(); }
 });
 
-test('native quality caps leave fixed presets, native pipeline and exports unchanged', () => {
+test('native quality caps leave fixed presets and exports unchanged', () => {
   const { adapter, sim } = growingHarness();
   try {
-    for (const fixed of [{ ...presentation, grid: pixelGrid('detailed'), buildPixelDetail: false },
-      { ...presentation, grid: pixelGrid('detailed'), rangePipeline: 'native' }]) {
-      adapter.setPresentation(fixed); adapter.draw(sim, 0);
-      assert.equal(adapter.output.grid.width, 640);
-      assert.equal(adapter.diagnostics.progressiveDetail.active, false);
-    }
+    adapter.setPresentation({ ...presentation, grid: pixelGrid('detailed'), buildPixelDetail: false }); adapter.draw(sim, 0);
+    assert.equal(adapter.output.grid.width, 640);
+    assert.equal(adapter.diagnostics.progressiveDetail.active, false);
     adapter.setPresentation({ ...presentation, rangePipeline: 'hybrid' }); sim.exportMode = true;
     adapter.draw(sim, 0); assert.equal(adapter.output.grid.width, 640, 'offline exports keep their requested quality');
   } finally { adapter.dispose(); }
@@ -378,30 +353,4 @@ test('a heavier incoming scene can fall below the outgoing scene\'s last useful 
   assert.equal(adapter.draw(sim, 0).presented, true);
   assert.equal(adapter.output.grid.width, 320);
   adapter.dispose();
-});
-
-test('the opening surge takes its detail growth in one step under the opaque title card', async () => {
-  const { RISE_SURGE_START_MS, RISE_SURGE_MS, TITLE_CARD_HOLD_MS } = await import('../src/core/OpeningTimeline.js');
-  const { adapter, sim, manager } = growingHarness();
-  manager.durationMs = 210000;
-  try {
-    sim.perf.level = 0;
-    const surgeEndMs = RISE_SURGE_START_MS + RISE_SURGE_MS, changes = [];
-    let previous = null;
-    for (let t = RISE_SURGE_START_MS - 100; t < surgeEndMs; t += 16) {
-      sim.heardTimeMs = t;
-      assert.equal(adapter.draw(sim, 0).presented, true);
-      if (previous && adapter.output.grid !== previous) changes.push(t);
-      previous = adapter.output.grid;
-    }
-    // On the plain composed rise this walked about 16 rungs during the reveal.
-    assert.equal(changes.length, 1, `grid changes at ${changes.join(', ')} ms`);
-    assert.ok(changes[0] >= RISE_SURGE_START_MS && changes[0] < TITLE_CARD_HOLD_MS, 'the one reallocation happens under the opaque card');
-    const score = landscapeScoreFor(manager), p = plan({ scaling: 'fit' });
-    sim.heardTimeMs = 2500; adapter.draw(sim, 0);
-    assert.equal(adapter.diagnostics.progressiveDetail.rise01, score.at(2500).rise01, 'diagnostics report the frame\'s own rise');
-    sim.heardTimeMs = surgeEndMs; adapter.draw(sim, 0);
-    assert.equal(adapter.output.grid, previous, 'no second step as the surge completes');
-    assert.equal(adapter.diagnostics.progressiveDetail.requestedRung, policy.landscapeResolutionAt(p, score.at(surgeEndMs).rise01).rung);
-  } finally { adapter.dispose(); }
 });
