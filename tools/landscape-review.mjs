@@ -23,6 +23,7 @@ const help = `npm run review:landscape -- --out .smoke/review [--audio song.wav]
   --view ID            Default: teton-range-tour; natural allows automatic landscape changes
   --pace N             Requested Landscape rail pace, 1|2|3|4 (default3)
   --tour MODE          off (authored rails), shots or tetons (default follows view)
+  --rise N             Diagnostic: hold the land at rise N (0..1) via ?rangeRise; not production playback
   --start-ms N         Continuous capture start (default12000)
   --seconds N          Clip length, >0 through180 (default2)
   --fps N              Fixed export sampling rate,1 through60 (default12)
@@ -37,7 +38,7 @@ Always headless. No --open or headful option. Output must be new. Artistic judgm
 `;
 export function parseReviewArgs(argv) {
   const a = { source: root, look: 'cinematic', grids: ['detailed'], view: 'teton-range-tour', pace: 3, startMs: 12000, seconds: 2, fps: 12, liveSeconds: 0, mp4: true };
-  const values = { '--out': 'out', '--source': 'source', '--snapshot': 'snapshot', '--baseline': 'baseline', '--audio': 'audio', '--look': 'look', '--grid': 'grid', '--view': 'view', '--pace': 'pace', '--tour': 'tour', '--start-ms': 'startMs', '--seconds': 'seconds', '--fps': 'fps', '--live-seconds': 'liveSeconds', '--browser': 'browser', '--gpu-match': 'gpuMatch' };
+  const values = { '--out': 'out', '--source': 'source', '--snapshot': 'snapshot', '--baseline': 'baseline', '--audio': 'audio', '--look': 'look', '--grid': 'grid', '--view': 'view', '--pace': 'pace', '--tour': 'tour', '--rise': 'rise', '--start-ms': 'startMs', '--seconds': 'seconds', '--fps': 'fps', '--live-seconds': 'liveSeconds', '--browser': 'browser', '--gpu-match': 'gpuMatch' };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     if (k === '--help' || k === '-h') return { help: true };
@@ -56,6 +57,7 @@ export function parseReviewArgs(argv) {
   assert.ok(Number.isInteger(a.fps) && a.fps >= 1 && a.fps <= 60, 'fps must be1 through60');
   assert.ok(Number.isInteger(a.liveSeconds) && a.liveSeconds >= 0 && a.liveSeconds <= 300, 'live-seconds must be0 through300');
   assert.ok([1, 2, 3, 4].includes(a.pace), 'pace must be1|2|3|4');
+  if (a.rise != null) { a.rise = Number(a.rise); assert.ok(Number.isFinite(a.rise) && a.rise >= 0 && a.rise <= 1, 'rise must be 0 through 1'); }
   a.tour ??= a.view === 'teton-range-tour' ? 'tetons' : 'shots';
   assert.ok(['off', 'shots', 'tetons'].includes(a.tour), 'tour must be off|shots|tetons');
   if (a.view === 'natural') a.view = null;
@@ -68,6 +70,7 @@ export function parseReviewArgs(argv) {
 export function makeReviewManifest(a, grid) {
   return normalizeManifest({ version: 1, settings: { width: 1280, height: 720, seed: 315, quality: 0,
     experience: 'landscape', view: a.view, pace: a.pace, tour: a.tour, ...(a.view === null ? { biome: null } : {}),
+    ...(a.rise != null ? { debug: { rangeRise: a.rise } } : {}),
     fps: a.fps, mode: 'continuous', startMs: a.startMs,
     presentation: { version: 2, look: a.look, quality: 'auto', palette: 'world', dither: .35,
       ditherMode: 'selective', pixelGrid: grid, pixelScale: 'original', scaling: 'fit' } },

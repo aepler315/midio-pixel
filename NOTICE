@@ -19,3 +19,12 @@ Dataset: https://registry.opendata.aws/terrain-tiles/
 Source attribution: https://github.com/tilezen/joerd/blob/master/docs/attribution.md
 Previews are reduced-resolution derived images for composition discovery;
 they do not reproduce the production terrain, materials or water treatment.
+
+Song range pilot stages (src/assets/range/v2/terrain/song-range-pilot-*.terrain.*,
+built by tools/build-song-range-pilot.mjs) are composed from massifs cut out of
+USGS 3D Elevation Program 1/3 arc-second DEMs (public domain, U.S. Government
+work; credit U.S. Geological Survey) around the Teton Range, Wyoming; the
+Sawtooth Range, Idaho; the Sneffels Range, Colorado; and Crater Lake, Oregon.
+Massif relief above each piece's base is measured DEM; the lake and land floor
+between pieces is generated. Each stage's build record lists its source tiles,
+window hashes and pieces.

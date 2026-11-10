@@ -13,8 +13,21 @@ const mean = (read, start, end) => {
   return sum / Math.max(1, count);
 };
 
+/**
+ * Diagnostic `?rangeRise=<0..1>`: hold the land at one height for review
+ * captures (song range composition, Phase 1). Absent or invalid means the
+ * music decides, as always. Evidence taken with it is not production playback.
+ */
+export function riseOverrideFrom(search = '') {
+  const raw = new URLSearchParams(search || '').get('rangeRise');
+  if (raw == null || raw === '') return null;
+  const v = Number(raw);
+  return Number.isFinite(v) && v >= 0 && v <= 1 ? v : null;
+}
+const RISE_OVERRIDE = riseOverrideFrom(globalThis.location?.search || '');
+
 export function compileLandscapeScore({ energyCurves, sections = [], timeline = [], durationMs = 0,
-  seed = 0, previous = null, committedThroughMs = -1 } = {}) {
+  seed = 0, previous = null, committedThroughMs = -1, riseOverride = RISE_OVERRIDE } = {}) {
   const duration = Math.max(0, Number(durationMs) || 0);
   const read = energyCurves?.globalEnergyNorm?.bind(energyCurves) || energyCurves?.globalEnergy?.bind(energyCurves) || (() => 0);
   const trusted = sections.filter(s => sectionTrust(s) > 0
@@ -111,7 +124,7 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
       intensity01: phrase?.relEnergy01 ?? energy01, camera: Object.freeze(camera),
       lens: lensFromCues(lensCues, t, !!options.preview),
       revealLens: revealLensFromCues(lensCues, t, !!options.preview),
-      rise01: options.preview ? 1 : rise.at(t) });
+      rise01: options.preview ? 1 : riseOverride ?? rise.at(t) });
   };
   return Object.freeze({ durationMs: duration, phrases, episodes: weather, freezeThroughMs, lensCues, cadenceMs,
     riseEndMs: rise.endMs, riseProgressAt: rise.progressAt, at: stateAt });
