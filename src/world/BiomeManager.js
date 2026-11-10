@@ -878,7 +878,10 @@ export class BiomeManager {
     this.cymatics = new CymaticField(songSeed);
     this.swarm = new KuramotoSwarm(songSeed);
     this.ribbon = new ChaosRibbon(songSeed);
-    this.rd = new ReactionDiffusion(songSeed);
+    // Built on first step (stepOptionalEffects): its 400-step warm-up costs
+    // ~11 ms per song start and seek, and Landscape never steps it.
+    this.rd = null;
+    this._rdSeed = songSeed; this._rdIntensity = 1; this._rdBias = 0;
     this.lightning = new LightningFX(songSeed);
     this.meteors = new MeteorShowerFX(songSeed);
     // Ambient connect-the-dots: ordinary melody notes weave constellations
@@ -972,7 +975,7 @@ export class BiomeManager {
         this.mandala.kick();
         this.swarm.kick(evt.vel);
         this.ribbon.kick();
-        this.rd.onKick();
+        this.rd?.onKick();
         this.weaver.onKick(evt.vel, evt.tMs);
         // Heavy kicks strike lightning, but only while a storm is blowing.
         const active = this.currentBlend ? this._profile(this.currentBlend.t > 0.5 ? this.currentBlend.to : this.currentBlend.from) : null;
@@ -2361,7 +2364,8 @@ export class BiomeManager {
     this.cymatics.intensity = gain;
     this.swarm.intensity = gain;
     this.ribbon.intensity = gain;
-    this.rd.intensity = gain;
+    this._rdIntensity = gain;
+    if (this.rd) this.rd.intensity = gain;
 
     // Biome personality: the dominant biome tunes the phenomena dials.
     const pers = PERSONALITY[t > 0.5 ? to : from] || REAL_PERSONALITY[t > 0.5 ? to : from] || {};
@@ -2369,7 +2373,8 @@ export class BiomeManager {
     const [bandLo, bandHi] = pers.swarmBand || [0.18, 0.53];
     this.swarm.setBand(bandLo, bandHi);
     this.mandala.rateMul = pers.mandalaRate ?? 1;
-    this.rd.bias = pers.rdBias ?? 0;
+    this._rdBias = pers.rdBias ?? 0;
+    if (this.rd) this.rd.bias = this._rdBias;
     this._ribbonScaleMul = pers.ribbonScale ?? 1;
     // Quake dust and wildfire smoke: the air stays hazy/reddened for a
     // while after either settles (QuakeDirector.dustLevel01,
@@ -4750,9 +4755,9 @@ export class BiomeManager {
 
   /** Which optional simulators this world will actually show at the
    *  current quality. Alpine spectacle is the mandala, cymatics, swarm,
-   *  ribbon, space ridge, light rig and lightning. Reaction
-   *  diffusion feeds the shared ground pass, so every painterly world
-   *  keeps it. */
+   *  ribbon, space ridge, light rig and lightning. Reaction diffusion
+   *  textures the legacy painted ground; it is built the first time it is
+   *  stepped, so under the Range sky it never exists. */
   optionalEffectsActive() {
     const phenomenaFull = !this._perf || !!this._perf.phenomenaFull;
     const kind = this.world?.kind || 'alpine';
@@ -4782,7 +4787,13 @@ export class BiomeManager {
     if (fx.cymatics) this.cymatics.update(nowMs, dtSec, energyCurves, calmLevel);
     if (fx.swarm) this.swarm.update(nowMs, dtSec, energyCurves, this._beatMs, calmLevel);
     if (fx.ribbon) this.ribbon.update(nowMs, dtSec, energyCurves, calmLevel);
-    if (fx.reactionDiffusion) this.rd.update(nowMs, dtSec, energyCurves, calmLevel);
+    if (fx.reactionDiffusion) {
+      if (!this.rd) {
+        this.rd = new ReactionDiffusion(this._rdSeed);
+        this.rd.intensity = this._rdIntensity; this.rd.bias = this._rdBias;
+      }
+      this.rd.update(nowMs, dtSec, energyCurves, calmLevel);
+    }
     if (fx.lightning) this.lightning.update(dtSec);
     if (fx.lightRig) this.lightRig.update(nowMs, dtSec, this._beatMs, calmLevel, this.budget, this.fever || 0);
     if (fx.meteors) this.meteors.update(dtSec);
@@ -8313,7 +8324,7 @@ export class BiomeManager {
         for (const bar of bars) if (bar.y < minTop) minTop = bar.y;
         ctx.save();
         ctx.clip(fillPath);
-        this.rd.draw(ctx, canvas, worldX, minTop);
+        this.rd?.draw(ctx, canvas, worldX, minTop);
         ctx.restore();
       }
 

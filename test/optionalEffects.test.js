@@ -64,6 +64,19 @@ test('no perf policy means full quality for a world that paints the effect', () 
   assert.ok(calls.includes('rd'));
 });
 
+test('reaction diffusion is built on its first step, so the Range sky never pays its warm-up', async () => {
+  const { ReactionDiffusion } = await import('../src/world/ReactionDiffusion.js');
+  const range = spyMgr('alpine', FULL).mgr;
+  Object.assign(range, { rd: null, _rdSeed: 7, _rdIntensity: .6, _rdBias: .2, _rangeSky: { showWeaver: false } });
+  for (let i = 0; i < 3; i++) range.stepOptionalEffects(1000 + i * 16, 0.016, null, 0, { x: 0, y: 0 });
+  assert.equal(range.rd, null, 'Landscape never constructs it');
+  const painted = spyMgr('alpine', FULL).mgr;
+  Object.assign(painted, { rd: null, _rdSeed: 7, _rdIntensity: .6, _rdBias: .2 });
+  painted.stepOptionalEffects(1000, 0.016, null, 0, { x: 0, y: 0 });
+  assert.ok(painted.rd instanceof ReactionDiffusion, 'the painted sky builds it when it first steps');
+  assert.deepEqual([painted.rd.intensity, painted.rd.bias], [.6, .2], 'with the gains already set');
+});
+
 test('under the Range sky, Landscape stops stepping the abstract phenomena it never draws', () => {
   const { mgr, calls } = spyMgr('alpine', FULL);
   mgr._rangeSky = { showWeaver: false };

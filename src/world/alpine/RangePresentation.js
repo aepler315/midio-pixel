@@ -1023,20 +1023,23 @@ export class RangePresentation {
     this.scene.separateWater = false;
     this.directWaterAvailable = false;
     // Direct mode's full-size output target (range:water-output), reserved
-    // before any water is admitted (_admitDirectWater). The name is kept
-    // from when the cast's lights also drew into it.
-    this.directCastAvailable = false;
-    if (this.directTerrainMode && this.scene._waterRenderTarget && this.scene.size) {
+    // and pinned before water is admitted (_admitDirectWater), and only while
+    // a drawn view has water: on dry frames the existing entry is left
+    // unpinned (evictable) rather than released, so wet/dry travel does not
+    // churn it.
+    this.directWaterTargetAvailable = false;
+    const wet = !this.scene.hasWater || [view.id, incoming?.id].filter(Boolean).some((id) => this.scene.hasWater(id));
+    if (this.directTerrainMode && wet && this.scene._waterRenderTarget && this.scene.size) {
       const scale = this.scene.waterOutputScale || 1;
-      try { this.directCastAvailable = !!this.scene._waterRenderTarget(
+      try { this.directWaterTargetAvailable = !!this.scene._waterRenderTarget(
         Math.max(2, Math.round(this.scene.size.width * scale)), Math.max(2, Math.round(this.scene.size.height * scale))); }
-      catch { this.directCastAvailable = false; }
+      catch { this.directWaterTargetAvailable = false; }
     }
     this.seamP = holding ? 1 : blend.travel ? (blend.travelP ?? t) : t;
     this._updateIncomingFade(incomingSide ? { id: sideId(incomingSide) } : null, inputs.sim);
     this._handoff = incoming && this.incomingFade < 1 ? { outgoing: outgoingSide, incoming: incomingSide } : null;
     this.scene.pinView?.(incoming ? [view.id, incoming.id] : view.id,
-      [...(incoming ? [TRAVEL_SCRATCH_KEY] : []), ...(this.directCastAvailable ? ['range:water-output'] : [])]);
+      [...(incoming ? [TRAVEL_SCRATCH_KEY] : []), ...(this.directWaterTargetAvailable ? ['range:water-output'] : [])]);
     this.timings.frameId = this.frameId + 1;
     this.timings.frameRenderMs = 0;
     this.timings.frameCopyMs = 0;
@@ -1383,12 +1386,12 @@ export class RangePresentation {
   }
 
   /** Admit everything before suppressing native water color. The full-size
-   * water target is already reserved (directCastAvailable); no extra pass
+   * water target is already reserved (directWaterTargetAvailable); no extra pass
    * or target is introduced. A denied layer keeps the normal native color. */
   _admitDirectWater(viewId, incomingId = null) {
     this.directWaterAvailable = false;
     if (this.scene) this.scene.separateWater = false;
-    if (!this.directTerrainMode || !this.directCastAvailable || !(this.arrival >= .999) || openingOcean01(this.frame?.rise01) >= 1
+    if (!this.directTerrainMode || !this.directWaterTargetAvailable || !(this.arrival >= .999) || openingOcean01(this.frame?.rise01) >= 1
       || !(this.outputSize?.width > 0 && this.outputSize?.height > 0)
       || this.scene.hasWater && ![viewId, incomingId].filter(Boolean).some(id => this.scene.hasWater(id))) return false;
     const canvas = this._ensureWaterCanvas('_waterCanvas', WATER_LAYER_KEY, this.outputSize.width, this.outputSize.height);
