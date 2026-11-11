@@ -194,7 +194,8 @@ async function main() {
       L.on = false;
       const state = structuredClone(s.rangeState);
       return { frames: L.frames, viewId: state.viewId, songRange: state.songRange ?? null, crest: state.crest ?? null, level: s.perfLevel,
-        heardMs: s.sim.heardTimeMs, rise01: s.sim.biomes.rangePresentation?.frame?.rise01 ?? null, frameRates: s.frameRates };
+        heardMs: s.sim.heardTimeMs, rise01: s.sim.biomes.rangePresentation?.frame?.rise01 ?? null, frameRates: s.frameRates,
+        performance: s.performanceSnapshot?.() ?? null };
     });
     report.errors = errors;
     report.summary = summarizeCallbacks(live.frames, startAt);

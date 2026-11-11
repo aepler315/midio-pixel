@@ -89,15 +89,15 @@ Not known: any timing on the RTX 3060 or the JOYING. Phase 0 exists to get it.
 
 **Files:** `test/songRangePlan.test.mjs`; `src/render/PerfGovernor.js`; `src/render/GraphicsDiagnostics.js`; `src/main.js` (frame loop, graphics report handler); `tools/landscape-review.mjs` (`liveReview`, `reviewDiagnostics`); `tools/range-device-probe.js`; `docs/range-v2-device-runs.md`; tests beside each.
 
-- [ ] Fix `test/songRangePlan.test.mjs:52`: build the "no plan" case from a restricted catalog fixture, since every family now plans. Fix `:113`: compare the catalog's families with the plannable subset the builder publishes. Add tests for the Phase 5 planner paths that have none (`canFill`, the constrained principal pool, the most-constrained-first retry). Answer the review thread on PR #122 with the commit.
-- [ ] `test/shotPlanner.test.mjs:177` asserts a wall-clock bound and fails on slow hosts. Leave its bound. Record in the Execution record the host it failed on and whether it passes on the owner's machine or a hosted Test run.
-- [ ] Governor event log. A fixed-size ring (32 entries, preallocated) of level changes: time since the governor started, from, to, cause (`period`, `work`, `probe-expired`, `recovered`), the period and work of the deciding sample, both accumulators. Counters: milliseconds spent at each level; samples over the period budget; samples with work pressure; samples without headroom. No allocation inside `sample()`.
-- [ ] Time every synchronous wait in the callback and sum them per frame: both `getImageData` sites in `RangeCrest` (`_prepareEdges` has no timer today), the probe collection (`collectMs`), and the presenter's `getError`. Expose the frame's total as `syncWaitMs`. Count each wait once: `crest.cutMs` already contains the presenter's `getError`, which runs inside `RangeCrest.drawTerrain`.
-- [ ] Frame statistics. Three fixed rings of the last 600 periods, works and synchronous waits; `diagnostics` computes median, p95 and maximum on demand.
-- [ ] `graphicsReport` gains a `performance` block: the governor snapshot, the current level, fps cap, presented and callback fps, the synchronous wait statistics, the drawn view id and song range id, the prepared view's tiles, geometry triangles and tree counts, and whether the mirror and backdrop are active. Extend `test/graphicsDiagnostics.test.js`.
-- [ ] `liveReview` in `tools/landscape-review.mjs` adds the same block and a level timeline (level sampled each frame, run-length encoded) to `live-report.json`. They do not change its pass/fail gates. `tools/range-device-probe.js` reports the same block; update the field table in `docs/range-v2-device-runs.md`.
+- [x] Fix `test/songRangePlan.test.mjs:52`: build the "no plan" case from a restricted catalog fixture, since every family now plans. Fix `:113`: compare the catalog's families with the plannable subset the builder publishes. Add tests for the Phase 5 planner paths that have none (`canFill`, the constrained principal pool, the most-constrained-first retry). Answer the review thread on PR #122 with the commit.
+- [x] `test/shotPlanner.test.mjs:177` asserts a wall-clock bound and fails on slow hosts. Leave its bound. Record in the Execution record the host it failed on and whether it passes on the owner's machine or a hosted Test run.
+- [x] Governor event log. A fixed-size ring (32 entries, preallocated) of level changes: time since the governor started, from, to, cause (`period`, `work`, `probe-expired`, `recovered`), the period and work of the deciding sample, both accumulators. Counters: milliseconds spent at each level; samples over the period budget; samples with work pressure; samples without headroom. No allocation inside `sample()`.
+- [x] Time every synchronous wait in the callback and sum them per frame: both `getImageData` sites in `RangeCrest` (`_prepareEdges` has no timer today), the probe collection (`collectMs`), and the presenter's `getError`. Expose the frame's total as `syncWaitMs`. Count each wait once: `crest.cutMs` already contains the presenter's `getError`, which runs inside `RangeCrest.drawTerrain`.
+- [x] Frame statistics. Three fixed rings of the last 600 periods, works and synchronous waits; `diagnostics` computes median, p95 and maximum on demand.
+- [x] `graphicsReport` gains a `performance` block: the governor snapshot, the current level, fps cap, presented and callback fps, the synchronous wait statistics, the drawn view id and song range id, the prepared view's tiles, geometry triangles and tree counts, and whether the mirror and backdrop are active. Extend `test/graphicsDiagnostics.test.js`.
+- [x] `liveReview` in `tools/landscape-review.mjs` adds the same block and a level timeline (level sampled each frame, run-length encoded) to `live-report.json`. They do not change its pass/fail gates. `tools/range-device-probe.js` reports the same block; update the field table in `docs/range-v2-device-runs.md`.
 - [ ] Optional, only if it fits in half a day: GPU time of the scene's WebGL work per frame through `EXT_disjoint_timer_query_webgl2` when the extension exists, median and p95 in the performance block. Skip it if a query disturbs a frame or the extension is absent in headless Chromium.
-- [ ] Unit tests for the remaining pure parts of the instruments: `summarizeCallbacks` (`range-live-callbacks.mjs`), `summarizeProfile` (`cpuprofile-top.mjs`), `runTrace` (`perf-governor-sim.mjs`). `test/rangeFrameCostCounters.test.mjs` already covers the in-page counters, `passTable` and `mainThreadMs`.
+- [x] Unit tests for the remaining pure parts of the instruments: `summarizeCallbacks` (`range-live-callbacks.mjs`), `summarizeProfile` (`cpuprofile-top.mjs`), `runTrace` (`perf-governor-sim.mjs`). `test/rangeFrameCostCounters.test.mjs` already covers the in-page counters, `passTable` and `mainThreadMs`.
 - [ ] Record the baseline counts this plan gates against by running the audit's section 11 commands; attach the reports to the pull request.
 
 **Gate G0:** `npm run lint` clean; `npm test` green apart from a recorded host-timing test; a graphics report from a headless run shows a shed event with its cause; the pull request states the owner commands below. Phases 1 to 3 do not wait for the owner's reply.
@@ -254,4 +254,26 @@ At each gate post: the step list with what was done; the count tables before and
 
 ## Execution record
 
-Empty. Add one section per phase: date, branch and pull request, what changed against this plan and why, the gate evidence, and what was not run.
+Add one section per phase: date, branch and pull request, what changed against this plan and why, the gate evidence, and what was not run.
+
+### Phase 0 (2026-11-10, branch `perf/p0-record`)
+
+The owner directed the work at the desktop (RTX 3060); the JOYING stays out of scope until Phase 7.
+
+What changed against the plan:
+
+- `songRangePlan`: the "no plan" case comes from the shipped catalog with every other family's pieces removed, and checks that removing other families never changes a song's layout. The catalog test compares each template's families with `plannableFamilies` (`tools/build-song-range-pilot.mjs`) over the authored list. New tests cover the principal pool that leaves pieces for the other slots and the most-constrained-first retry (the retry test fails with the retry removed). The PR #122 thread is not answered: posting comments is blocked in this session.
+- Governor record: `PerfGovernor.record` (a getter beside `diagnostics`, which keeps its six fields). Causes `period`, `work`, `probe-expired`, `recovered`. Level time is attributed per sample, each step capped at 250 ms so a pause is not counted as drawing. Explicit changes (quality limit, economy, fixture pins) are not logged as events; the record shows `fixtureLevel`, `holdQuality` and `retro`.
+- Synchronous waits: `src/render/SyncWaits.js`. Sites: `crestRead` (`prepareGrid`), `crestEdges` (`_prepareEdges`), `probeCollect` (`CrestProbe.collect`), `presenter` (`getError` through the copy of its canvas, timed as one wait). The scene canvas's `drawImage` into the working grid also waits on the GPU and is not yet a site; the audit measured it small (68 ms over a 25 s run). The frame loop passes `syncWaitMs` to `sample()`, which records it and does not decide on it (that is step 1d).
+- At levels 2 and up the presenter is suspended (`PixelPresentation.drawForeground`) and the crest probe runs light, so most waits vanish there; the statistics show that as zeros.
+- `liveReview` records `performance` and `levelTimeline` before its gates, so a failed run keeps them. `range-live-callbacks.mjs` records the same block in `end.performance`. `window.__SMW.performanceSnapshot()` returns it.
+- The optional GPU timer query was not built.
+- The `shotPlanner` wall-clock test fails on this two-vCPU cloud host (781 ms against a 50 ms bound); not run on the owner's machine.
+
+Gate evidence: a headless software run on a forced stage (`range-live-callbacks.mjs --song-range force --dry --seconds 25`, view `song-range-c7c9c4b0ccb5131e`) records six `period` sheds, 0 to 6 between 3.7 s and 15.6 s, each with the deciding period, work and accumulators, plus time at each level and frame statistics. Software timing: it says the record works, nothing about any GPU.
+
+Baseline: `range-frame-cost.mjs --song-range force --quality 0 --dry` on the branch counts 160 draws and 7,760,926 triangles at 12.0 s and 163 draws and 8,425,848 triangles at 86.4 s, equal to the audit.
+
+Checks: `npm run lint` clean; `npm test` 5,591 tests, 5,588 pass, 2 skipped, 1 fail (`shotPlanner` wall-clock, above).
+
+Not run: the owner's `test:gpu` commands.

@@ -1,4 +1,5 @@
 import { sharedResidency } from './GraphicsResidency.js';
+import { noteSyncWait } from './SyncWaits.js';
 
 // Reconstruction is deliberately conservative: nearest coverage owns the cell;
 // only a monotone, low-contrast colour slope can vary inside it. No history,
@@ -161,10 +162,13 @@ export class CinematicPixelRenderer {
       // never as wide as the shared buffer.
       this.strength=cellStrength(w/source.width);
       gl.uniform2f(this.size,source.width,source.height);gl.uniform1f(this.strengthLocation,this.strength);gl.drawArrays(gl.TRIANGLES,0,3);
-      if(gl.getError()!==gl.NO_ERROR){this.reason='draw-failed';return false;}
+      // getError and the copy below wait for the GPU: timed as one wait.
+      const waitStart=performance.now();
+      if(gl.getError()!==gl.NO_ERROR){noteSyncWait('presenter',performance.now()-waitStart);this.reason='draw-failed';return false;}
       // GL's origin is bottom-left: the viewport is the canvas's bottom rows.
       // Copied in the same task, so the unpreserved buffer is still intact.
       ctx.imageSmoothingEnabled=false;ctx.drawImage(this.canvas,0,this.canvas.height-h,w,h,fit.x,fit.y,fit.width,fit.height);
+      noteSyncWait('presenter',performance.now()-waitStart);
       this.reason=null;return true;
     }catch(error){this.reason=error.message;return false;}
   }

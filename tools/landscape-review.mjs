@@ -236,13 +236,21 @@ async function liveReview(browser, url, audio, args, dir) {
     browserDiagnostics.setPhase('live-playback');
     const delivery = await page.evaluate(async seconds => {
       const { FrameDeliveryAggregator } = await import('/src/render/FrameDelivery.js'); const meter = new FrameDeliveryAggregator(), start = performance.now();
+      // Governor level per callback, run-length encoded: [{ atSec, level, frames }].
+      const levels = [];
       await new Promise(resolve => { const tick = wallMs => { const s = window.__SMW, f = s.presentationDiagnostics.frame;
         meter.push({ wallMs, generation: s.generation, frameId: `${f.generation}:${f.frameId}`, presented: f.presented,
           attempted: f.reason !== 'not-rendered', paused: s.paused, hidden: document.hidden, capFps: s.fpsCap });
+        const level = s.perfLevel, run = levels[levels.length - 1];
+        if (run && run.level === level) run.frames++; else levels.push({ atSec: Math.round((wallMs - start) / 10) / 100, level, frames: 1 });
         if (wallMs - start < seconds * 1000) requestAnimationFrame(tick); else resolve(); }; requestAnimationFrame(tick); });
-      return meter.summary();
+      return { ...meter.summary(), levelTimeline: levels };
     }, args.liveSeconds);
+    result.levelTimeline = delivery.levelTimeline; delete delivery.levelTimeline;
     result.delivery = delivery;
+    // The product's own performance record (governor events, frame statistics,
+    // synchronous waits). Recorded before the gates so a failed run keeps it.
+    result.performance = await page.evaluate(() => window.__SMW.performanceSnapshot?.() ?? null);
     browserDiagnostics.setPhase('live-acceptance');
     const state = await reviewDiagnostics(page); result.state = state;if(args.hardware)requireHardwareRenderer(state.gpu,args.gpuMatch); assert.equal(state.playbackPreparing, false); assert.deepEqual(errors, []);
     assert.equal(state.presentation.effectiveLook,args.look,'actual selected look');assert.equal(state.presentation.pixelScale, 'original');assert.equal(state.presentation.effectiveGrid.id,args.grids[0]);

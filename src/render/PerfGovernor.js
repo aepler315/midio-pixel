@@ -144,6 +144,29 @@ const RETRO_PARTICLE_MUL = 0.35; // vs 0.6 at the ladder's particle rung
 // dance-column blit requires -- see danceColumnWidth.
 const RETRO_DANCE_COLUMN_WIDTH = 128;
 
+// Performance record. A fixed ring of the governor's level changes, time
+// spent at each level, sample counters, and rings of the last STATS_SIZE
+// frame periods, callback works and synchronous waits. All storage is
+// allocated here; sample() only writes numbers into it. `diagnostics`
+// builds the snapshot on demand.
+export const EVENT_LOG_SIZE = 32;
+export const STATS_SIZE = 600;
+/** Why a level changed: a period-pressure shed, a work-pressure shed, a
+ *  recovery probe that ended without observed work, or a recovery. */
+export const SHED_CAUSES = Object.freeze(['period', 'work', 'probe-expired', 'recovered']);
+// A paused or throttled gap is not time spent drawing at a level.
+const LEVEL_TIME_MAX_STEP_MS = 250;
+
+function ring(size) { return { data: new Float64Array(size), next: 0, count: 0 }; }
+function push(r, v) { r.data[r.next] = v; r.next = (r.next + 1) % r.data.length; if (r.count < r.data.length) r.count++; }
+function ringStats(r) {
+  if (!r.count) return { count: 0, median: null, p95: null, max: null };
+  const v = Array.from(r.data.subarray(0, r.count)).sort((a, b) => a - b);
+  const at = (q) => v[Math.min(v.length - 1, Math.floor(q * v.length))];
+  const round = (x) => Math.round(x * 100) / 100;
+  return { count: v.length, median: round(at(0.5)), p95: round(at(0.95)), max: round(v[v.length - 1]) };
+}
+
 export class PerfGovernor {
   constructor({ startLevel = 0, minLevel = 0, retro = false, economy = retro } = {}) {
     this._retro = !!economy;
@@ -171,6 +194,23 @@ export class PerfGovernor {
     this._workTimingEnabled = false;
     this._lastSampleAtMs = null;
     this._resetWorkEvidence();
+    this._log = Array.from({ length: EVENT_LOG_SIZE }, () => ({ atMs: 0, from: 0, to: 0, cause: '', periodMs: 0, workMs: null, overCount: 0, workOverCount: 0 }));
+    this._logNext = 0;
+    this._logCount = 0;
+    this._startedAtMs = null;
+    this._levelMs = new Float64Array(MAX_LEVEL + 1);
+    this._counts = { samples: 0, overPeriod: 0, workPressure: 0, noHeadroom: 0 };
+    this._periods = ring(STATS_SIZE);
+    this._works = ring(STATS_SIZE);
+    this._waits = ring(STATS_SIZE);
+  }
+
+  _record(cause, from, nowMs, deltaMs, workMs) {
+    const e = this._log[this._logNext];
+    e.atMs = nowMs; e.from = from; e.to = this.level; e.cause = cause; e.periodMs = deltaMs;
+    e.workMs = Number.isFinite(workMs) ? workMs : null; e.overCount = this._overCount; e.workOverCount = this._workOverCount;
+    this._logNext = (this._logNext + 1) % EVENT_LOG_SIZE;
+    if (this._logCount < EVENT_LOG_SIZE) this._logCount++;
   }
 
   /** Discard what the ladder has learned about which rungs are affordable.
@@ -204,13 +244,15 @@ export class PerfGovernor {
     this._probeUntilMs = null;
   }
 
-  _shedLevel() {
+  _shedLevel(cause = null, nowMs = NaN, deltaMs = NaN, workMs = null) {
     if (this.level >= MAX_LEVEL) return;
+    const from = this.level;
     if (this._recoveredInto.has(this.level)) {
       this._fallbacks.set(this.level, (this._fallbacks.get(this.level) || 0) + 1);
       this._recoveredInto.delete(this.level);
     }
     this.level++;
+    if (cause) this._record(cause, from, nowMs, deltaMs, workMs);
     this._overCount = 0;
     this._catastrophicRun = 0;
     this._cleanSinceMs = null;
@@ -226,6 +268,29 @@ export class PerfGovernor {
       workHeadroomMs: this._workHeadroomMs,
       probeLevel: this._probeLevel,
       probeUntilMs: this._probeUntilMs,
+    };
+  }
+
+  /** The performance record: level changes with their cause, time at each
+   *  level, sample counters and frame statistics. Times are seconds since
+   *  this governor's first sample. Built on demand. */
+  get record() {
+    const t0 = this._startedAtMs, sec = (ms) => (t0 === null || !Number.isFinite(ms) ? null : Math.round((ms - t0) / 10) / 100);
+    const events = [];
+    for (let i = 0; i < this._logCount; i++) {
+      const e = this._log[(this._logNext - this._logCount + i + EVENT_LOG_SIZE) % EVENT_LOG_SIZE];
+      events.push({ atSec: sec(e.atMs), from: e.from, to: e.to, cause: e.cause, periodMs: Math.round(e.periodMs * 100) / 100,
+        workMs: e.workMs === null ? null : Math.round(e.workMs * 100) / 100,
+        overCount: Math.round(e.overCount * 100) / 100, workOverCount: Math.round(e.workOverCount * 100) / 100 });
+    }
+    return {
+      level: this.level, minLevel: this.minLevel, fixtureLevel: this._fixtureLevel, holdQuality: this._holdQuality, retro: this._retro,
+      sinceSec: sec(this._lastSampleAtMs ?? NaN),
+      events, eventsDropped: this._logCount === EVENT_LOG_SIZE,
+      levelSec: Array.from(this._levelMs, (ms) => Math.round(ms / 10) / 100),
+      samples: { ...this._counts },
+      recoverWindowSec: Array.from({ length: MAX_LEVEL }, (_, l) => this.recoverWindowMsFor(l) / 1000),
+      periodMs: ringStats(this._periods), workMs: ringStats(this._works), syncWaitMs: ringStats(this._waits),
     };
   }
 
@@ -328,7 +393,14 @@ export class PerfGovernor {
   /** Observe every raw rAF period. Optional workMs measures the previous
    *  rendered callback's full CPU work; pass null when that callback skipped
    *  rendering. CPU submission time does not measure GPU headroom. */
-  sample(deltaMs, nowMs, { capFps = 60, workMs } = {}) {
+  sample(deltaMs, nowMs, { capFps = 60, workMs, syncWaitMs } = {}) {
+    if (Number.isFinite(deltaMs) && deltaMs > 0 && Number.isFinite(nowMs)) {
+      if (this._startedAtMs === null) this._startedAtMs = nowMs - deltaMs;
+      this._levelMs[this.level] += Math.min(deltaMs, LEVEL_TIME_MAX_STEP_MS);
+      push(this._periods, deltaMs);
+      if (Number.isFinite(workMs) && workMs >= 0) push(this._works, workMs);
+      if (Number.isFinite(syncWaitMs) && syncWaitMs >= 0) push(this._waits, syncWaitMs);
+    }
     const roundedFps = Math.round(capFps);
     const fps = roundedFps === 24 || roundedFps === 30 || roundedFps === 60 ? roundedFps : 60;
     const framePeriodMs = 1000 / fps;
@@ -361,6 +433,10 @@ export class PerfGovernor {
     }
     this._lastSampleAtMs = nowMs;
     const hasWork = Number.isFinite(workMs) && workMs >= 0;
+    this._counts.samples++;
+    if (deltaMs > budgetMs) this._counts.overPeriod++;
+    if (hasWork && workMs >= framePeriodMs * WORK_PRESSURE_RATIO) this._counts.workPressure++;
+    if (hasWork && workMs > framePeriodMs * WORK_HEADROOM_RATIO) this._counts.noHeadroom++;
     if (hasWork) {
       this._missingWorkMs = 0;
       const gapMs = this._lastWorkAtMs === null ? 0 : nowMs - this._lastWorkAtMs;
@@ -416,7 +492,7 @@ export class PerfGovernor {
         // No observed work can certify a probe. A pressure sample still
         // votes through the normal short probe threshold below, so a lone
         // hitch crossing the deadline is not an automatic failed attempt.
-        this._shedLevel();
+        this._shedLevel('probe-expired', nowMs, deltaMs, workMs);
         return;
       }
     }
@@ -441,7 +517,7 @@ export class PerfGovernor {
       if ((this._overCount >= shedAfter || this._workOverCount >= shedAfter) && this.level < MAX_LEVEL) {
         // Only a rung the ladder had CLIMBED BACK INTO counts as a failed
         // attempt: the first descent is a cold machine, not a verdict.
-        this._shedLevel();
+        this._shedLevel(this._overCount >= shedAfter ? 'period' : 'work', nowMs, deltaMs, workMs);
       }
     } else {
       this._catastrophicRun = 0;
@@ -450,6 +526,7 @@ export class PerfGovernor {
       else if (this.level > this.minLevel && nowMs - this._cleanSinceMs >= this.recoverWindowMsFor(this.level - 1)
         && (!this._workTimingEnabled || (hasWork && this._workHeadroomMs >= this.recoverWindowMsFor(this.level - 1)))) {
         this.level--;
+        this._record('recovered', this.level + 1, nowMs, deltaMs, workMs);
         this._recoveredInto.add(this.level);
         this._overCount = 0; // fresh evidence for the rung just entered
         this._workOverCount = 0;

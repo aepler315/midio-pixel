@@ -48,6 +48,7 @@ import {
 } from './ui/Accessibility.js';
 import { getVisualStyle, resolveVisualStyle } from './render/VisualStyle.js';
 import { PerfGovernor, resolvePerfStartLevel, MAX_LEVEL as PERF_MAX_LEVEL } from './render/PerfGovernor.js';
+import { resetSyncWaits, takeSyncWaits, lastSyncWaits } from './render/SyncWaits.js';
 import { sharedResidency } from './render/GraphicsResidency.js';
 import { RangePresentation, resolveRangeMode } from './world/alpine/RangePresentation.js';
 import { openCameraRun, cameraSongOptions, readRailPace, persistRailPace, railPaceControlState } from './ui/CameraRun.js';
@@ -280,6 +281,7 @@ let debugOverlay = null;
 let perfGovernor = null;
 let lastRafMs = null; // separate from lastNowMs (audio clock) -- tracks real rAF-to-rAF cadence for the perf governor
 let lastRenderedWorkMs = null; // CPU submission work, never vsync wait or a skipped draw
+let lastRenderedSyncWaitMs = null; // the part of that callback spent in synchronous GPU waits (SyncWaits.js)
 let rafHandle = null; // tracks the pending frame() call so a mid-song file
                        // drop can cancel the old loop instead of stacking a
                        // second one alongside it
@@ -2027,6 +2029,7 @@ function startTimeline(timelineData, extra = {}) {
     // the caller should redraw the same heard time (deterministic).
     rangeSettle: (opts) => (rangePresentation ? rangePresentation.settle(opts) : Promise.resolve(false)),
     get perf() { return perfGovernor || null; },
+    performanceSnapshot,
     // Car mode (KeepAwake.js): live state for debugging on a head unit, plus
     // the one hook a smoke test needs -- backdating the last-input clock, so
     // the wake-tap path can be exercised without idling for a real 20s.
@@ -3195,6 +3198,25 @@ document.getElementById('displaySettingsBtn')?.addEventListener('click', () => {
 });
 document.getElementById('displaySettingsClose')?.addEventListener('click', () => displayDialog.close());
 displayDialog?.addEventListener('close', () => settingsHome.append(titleSettings));
+/** The graphics report's performance block: the governor's record, the
+ *  frame rates, the last frame's synchronous waits, and what the Range is
+ *  drawing. Read on demand; nothing here runs per frame. */
+function performanceSnapshot() {
+  if (!perfGovernor) return null;
+  const scene = rangePresentation?.scene, snap = rangePresentation?.snapshot?.() ?? null;
+  const viewId = snap?.viewId ?? null, prepared = viewId ? scene?.prepared?.get(viewId) : null;
+  const stats = prepared?.stats ?? null;
+  return {
+    governor: perfGovernor.record, capFps: playbackFps(),
+    presentedFps: Number.isFinite(presentedFps.fps) ? Math.round(presentedFps.fps * 10) / 10 : null,
+    callbackFps: Number.isFinite(fpsEma) ? Math.round(fpsEma * 10) / 10 : null,
+    lastFrameSyncWaitMs: lastSyncWaits(),
+    view: viewId == null ? null : { viewId, songRange: viewId.startsWith('song-range-'),
+      tiles: prepared?.manifest?.tiles?.length ?? null, triangles: stats?.drawnTriangles ?? stats?.triangles ?? null, trees: stats?.trees ?? null },
+    mirror: scene ? !!(scene.mirrors?.A || scene.mirrors?.B) : null, backdrop: scene ? !!scene.backdrop : null,
+  };
+}
+
 document.getElementById('copyGraphicsReport')?.addEventListener('click', async () => {
   const output = document.getElementById('graphicsReport');
   const status = document.getElementById('graphicsReportStatus');
@@ -3203,6 +3225,7 @@ document.getElementById('copyGraphicsReport')?.addEventListener('click', async (
     range: rangePresentation?.snapshot(), voxelRange: pilot?.status, profile: displayPrefs,
     presentation: renderer?.diagnostics || titlePresentation?.diagnostics, canvas,
     gl: pilot?.gl ?? rangePresentation?.scene?.renderer?.getContext(),
+    performance: performanceSnapshot(),
   }), null, 2);
   output.hidden = false; output.value = text;
   try {
@@ -3218,10 +3241,11 @@ document.getElementById('copyGraphicsReport')?.addEventListener('click', async (
 
 function frame(tRaf) {
   if (!running) return;
-  if (paused || playbackPreparing) { lastRenderedWorkMs = null; rafHandle = requestAnimationFrame(frame); return; }
+  if (paused || playbackPreparing) { lastRenderedWorkMs = null; lastRenderedSyncWaitMs = null; rafHandle = requestAnimationFrame(frame); return; }
   const workStartMs = performance.now();
-  const previousWorkMs = lastRenderedWorkMs;
-  lastRenderedWorkMs = null;
+  const previousWorkMs = lastRenderedWorkMs, previousSyncWaitMs = lastRenderedSyncWaitMs;
+  lastRenderedWorkMs = null; lastRenderedSyncWaitMs = null;
+  resetSyncWaits();
   if (lastRafMs !== null) {
     const rafDeltaMs = tRaf - lastRafMs;
     noteFrameGap(rafDeltaMs);
@@ -3231,7 +3255,7 @@ function frame(tRaf) {
     // "frames" is exactly the shape the severity escalation is built to
     // believe, so it would shed rung after rung while nothing was being
     // drawn at all, and hand the player back a degraded show on return.
-    if (!document.hidden) perfGovernor.sample(rafDeltaMs, tRaf, { capFps: playbackFps(), workMs: previousWorkMs });
+    if (!document.hidden) perfGovernor.sample(rafDeltaMs, tRaf, { capFps: playbackFps(), workMs: previousWorkMs, syncWaitMs: previousSyncWaitMs });
     // Compared with the rung the stage was sized for, not the previous
     // frame's: a General quality change between frames moves the level
     // too, and the output resolution follows the level.
@@ -3398,6 +3422,8 @@ function frame(tRaf) {
   // WebGL submission can finish before the GPU: callback pressure remains
   // the governor's independent signal for missed deadlines.
   lastRenderedWorkMs = presented && !document.hidden ? Math.max(0, performance.now() - workStartMs) : null;
+  const frameSyncWaitMs = takeSyncWaits();
+  lastRenderedSyncWaitMs = lastRenderedWorkMs === null ? null : Math.min(frameSyncWaitMs, lastRenderedWorkMs);
 
   if (isSongComplete(nowMs)) {
     onSongComplete();

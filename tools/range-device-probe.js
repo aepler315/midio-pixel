@@ -109,6 +109,9 @@
     overcommits: r?.overcommits ?? null, denials: r?.denials ?? null,
     rangeTimingScope: 'CPU submission and copy per Range frame; not GPU completion',
     rangeRenderMsPerFrame: stats(renderMs), rangeCopyMsPerFrame: stats(copyMs),
+    // The product's own record: governor level changes with their causes,
+    // frame statistics and synchronous GPU waits (null on builds before it).
+    performance: smw?.performanceSnapshot?.() ?? null,
   };
   const text = JSON.stringify(report, null, 1);
   console.log(text);
