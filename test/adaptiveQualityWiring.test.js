@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 const source = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
-const start = source.indexOf('function frame(tRaf) {');
+const start = source.indexOf('function callbackWorkMs(');
 const end = source.indexOf('\nfunction applyShowAudio()', start);
 const frameSource = source.slice(start, end);
 
@@ -12,7 +12,7 @@ function runtime({ draw = true, hidden = false, paused = false } = {}) {
   let clock = 50;
   const samples = [];
   const context = vm.createContext({ running: true, paused, playbackPreparing: false, lastRafMs: 0,
-    lastRenderedWorkMs: 8, lastRenderedSyncWaitMs: 3, performance: { now: () => clock }, document: { hidden },
+    lastRenderedWorkMs: 8, lastRenderedSyncWaitMs: 0, performance: { now: () => clock }, document: { hidden },
     syncWaitMs: 0, resetSyncWaits() { context.syncWaitMs = 0; }, takeSyncWaits() { const ms = context.syncWaitMs; context.syncWaitMs = 0; return ms; },
     noteFrameGap() {}, perfGovernor: { level: 0, sample: (...args) => samples.push(args) },
     playbackFps: () => 30, fittedPerfLevel: 0, fitCanvas() {}, emaFps: () => 60,
@@ -77,14 +77,27 @@ test('the previous callback synchronous wait travels with its work, never larger
   const r = runtime();
   r.context.renderer.draw = () => { r.context.performance.now = ((t) => () => t)(r.context.performance.now() + 9); r.context.syncWaitMs += 4; return { presented: true }; };
   r.run(17);
-  assert.equal(r.samples[0][2].syncWaitMs, 3, 'the wait recorded with the previous work');
+  assert.equal(r.samples[0][2].syncWaitMs, 0, 'the wait recorded with the previous work');
   assert.equal(r.context.lastRenderedSyncWaitMs, 4);
+  const work = r.context.lastRenderedWorkMs;
   r.run(34);
   assert.equal(r.samples[1][2].syncWaitMs, 4);
+  assert.equal(r.samples[1][2].workMs, work - 4, 'the governor sees work outside the wait');
   r.context.renderer.draw = () => { r.context.syncWaitMs += 500; return { presented: true }; };
   r.run(51);
   assert.ok(r.context.lastRenderedSyncWaitMs <= r.context.lastRenderedWorkMs);
   r.context.playbackCadence.shouldDraw = () => false;
   r.run(68);
   assert.equal(r.context.lastRenderedSyncWaitMs, null, 'a skipped draw records no wait');
+});
+
+test('a 15 ms callback with 9 ms of timed wait reports 6 ms of work; without timers, the whole callback', () => {
+  const r = runtime();
+  r.context.lastRenderedWorkMs = 15; r.context.lastRenderedSyncWaitMs = 9;
+  r.run(17);
+  assert.equal(r.samples[0][2].workMs, 6);
+  const q = runtime();
+  q.context.lastRenderedWorkMs = 15; q.context.lastRenderedSyncWaitMs = null;
+  q.run(17);
+  assert.equal(q.samples[0][2].workMs, 15);
 });

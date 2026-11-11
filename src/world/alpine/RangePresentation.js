@@ -1237,8 +1237,17 @@ export class RangePresentation {
     // ranges, the far terrain) is the backdrop the lake reflects.
     if (pass === 'mid') {
       const manager = this.frameInputs?.sim?.biomes;
-      const drawSky = !this.directTerrainMode && manager?.highResolutionSky && manager.rangeSkyLayer ? (target, width, height) =>
-        manager.drawHighResolutionSky(target, target.canvas, { transform: [width / stage.width, 0, 0, height / stage.height, 0, 0] }) : null;
+      // The output's sky layer for this frame when the presenter offers one
+      // (drawn once, shared with the composite); otherwise the sky again.
+      const drawSky = !this.directTerrainMode && manager?.highResolutionSky && manager.rangeSkyLayer ? (target, width, height) => {
+        const layer = manager.outputSkyLayer?.stageImage(stage);
+        if (layer) {
+          target.imageSmoothingEnabled = true;
+          target.drawImage(layer.image, layer.sx, layer.sy, layer.sw, layer.sh, 0, 0, width, height);
+          return true;
+        }
+        return manager.drawHighResolutionSky(target, target.canvas, { transform: [width / stage.width, 0, 0, height / stage.height, 0, 0] });
+      } : null;
       this.scene.captureBackdrop?.(ctx, stage, this.frame, drawSky, [this.viewId, this.incomingViewId].filter(Boolean));
     }
     if (this.incomingViewId) {

@@ -79,6 +79,8 @@ const CLOUD_SHADOW_CASTERS = 16;
 const CASTERS = new Float32Array(CLOUD_SHADOW_CASTERS * CLOUD_CASTER_STRIDE);
 const CASTER_LIGHT = [0, 1, 0], CASTER_EYE = [0, 0, 0];
 const BACKDROP_KEY = 'range:water-backdrop';
+/** The shed-mirror backdrop's blur, scaled with the backdrop's width. */
+export const backdropBlur = (width) => `blur(${Math.max(1, width / 240).toFixed(1)}px)`;
 const CREST_FINE_KEY = 'range:crest-fine';
 /** Physical display sampling, including the scenic target's camera margin.
  * Refuse an unsupported size rather than advertise a lower-resolution edge. */
@@ -735,16 +737,25 @@ export class RangeScene {
     // The stage's rectangle in the canvas: the painter's scale/translate.
     const T = ctx.getTransform?.() || { a: 1, d: 1, e: 0, f: 0 };
     b.ctx.clearRect(0, 0, width, height);
-    // Once the ladder sheds the mirror, the backdrop is the whole
-    // reflection: a soft image reads as water where pixel steps do not.
-    b.ctx.filter = rangeQuality(frame?.qualityLevel).waterMirror ? 'none' : `blur(${Math.max(1, width / 240).toFixed(1)}px)`;
+    b.ctx.filter = 'none';
     if (drawSky) {
       b.ctx.save();
       try { drawSky(b.ctx, width, height); }
       finally { b.ctx.restore(); }
     }
     b.ctx.drawImage(ctx.canvas, T.e, T.f, T.a * stage.width, T.d * stage.height, 0, 0, width, height);
-    b.ctx.filter = 'none';
+    // Once the ladder sheds the mirror, the backdrop is the whole
+    // reflection: a soft image reads as water where pixel steps do not.
+    // One filtered copy of the finished backdrop onto itself ('copy'
+    // replaces it), where a filter set before the sky blurred every sky
+    // operation separately: a thousand filtered operations a frame.
+    if (!rangeQuality(frame?.qualityLevel).waterMirror) {
+      b.ctx.save();
+      b.ctx.globalCompositeOperation = 'copy';
+      b.ctx.filter = backdropBlur(width);
+      b.ctx.drawImage(b.canvas, 0, 0);
+      b.ctx.restore();
+    }
     b.texture.needsUpdate = true;
     b.frame = frame?.frameId ?? -1;
     return true;
