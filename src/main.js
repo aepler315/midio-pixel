@@ -3239,6 +3239,14 @@ document.getElementById('copyGraphicsReport')?.addEventListener('click', async (
 
 // --- Track visibility wiring ---
 
+/** The governor's work signal: the callback's duration minus the time it
+ *  spent waiting for the GPU inside synchronous calls (SyncWaits.js). The
+ *  GPU's own time still reaches the governor through the frame period. */
+function callbackWorkMs(workMs, syncWaitMs) {
+  if (!Number.isFinite(workMs)) return workMs;
+  return Number.isFinite(syncWaitMs) ? Math.max(0, workMs - syncWaitMs) : workMs;
+}
+
 function frame(tRaf) {
   if (!running) return;
   if (paused || playbackPreparing) { lastRenderedWorkMs = null; lastRenderedSyncWaitMs = null; rafHandle = requestAnimationFrame(frame); return; }
@@ -3255,7 +3263,7 @@ function frame(tRaf) {
     // "frames" is exactly the shape the severity escalation is built to
     // believe, so it would shed rung after rung while nothing was being
     // drawn at all, and hand the player back a degraded show on return.
-    if (!document.hidden) perfGovernor.sample(rafDeltaMs, tRaf, { capFps: playbackFps(), workMs: previousWorkMs, syncWaitMs: previousSyncWaitMs });
+    if (!document.hidden) perfGovernor.sample(rafDeltaMs, tRaf, { capFps: playbackFps(), workMs: callbackWorkMs(previousWorkMs, previousSyncWaitMs), syncWaitMs: previousSyncWaitMs });
     // Compared with the rung the stage was sized for, not the previous
     // frame's: a General quality change between frames moves the level
     // too, and the output resolution follows the level.
