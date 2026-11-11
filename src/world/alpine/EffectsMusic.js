@@ -7,12 +7,18 @@ import { boundaryLift01 } from '../WorldMusic.js';
 const unit = value => Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
 const positive = value => Number.isFinite(value) ? Math.max(0, value) : 0;
 const EMPTY_ACCENTS = Object.freeze([]);
-const SILENT = Object.freeze({ energy: 0, bass: 0, treble: 0, kick: 0, snare: 0, melody: 0, lift: 0,
+const SILENT = Object.freeze({ energy: 0, bass: 0, treble: 0, kick: 0, snare: 0, hat: 0, melody: 0, lift: 0,
   atmosphere: 0, expansion: 0, accents: EMPTY_ACCENTS });
 const EVENTS_MS = 2200;
 const SCAN_LIMIT = 128;
-const DECAY_MS = { kick: 240, snare: 125, melody: 650 };
-const CHANNELS = ['energy', 'bass', 'treble', 'kick', 'snare', 'melody', 'lift', 'atmosphere', 'expansion'];
+/** Accent kinds and their release. Hats are the shortest: a tick, not a hit. */
+export const ACCENT_DECAY_MS = Object.freeze({ kick: 240, snare: 125, hat: 90, melody: 650 });
+const DECAY_MS = ACCENT_DECAY_MS;
+/** Each kind keeps at most this many live accents, so dense sixteenth hats
+ *  can never crowd kicks or melody out of a consumer's fixed slots. */
+const PER_KIND = 2;
+const accentCounts = () => ({ kick: 0, snare: 0, hat: 0, melody: 0 });
+const CHANNELS = ['energy', 'bass', 'treble', 'kick', 'snare', 'hat', 'melody', 'lift', 'atmosphere', 'expansion'];
 const timelineCache = new WeakMap();
 const floorCache = new WeakMap();
 const cadenceCache = new WeakMap();
@@ -85,6 +91,9 @@ function eventKind(event) {
   if (event.role === 'RHYTHM' || event.channel === 9) {
     if (event.kick || event.pitch === 35 || event.pitch === 36) return 'kick';
     if (event.snare || event.pitch === 38 || event.pitch === 40 || event.pitch === 39) return 'snare';
+    // OnsetDetector classifies bright, high-band onsets as hats (42); MIDI
+    // adds pedal (44) and open (46) hats.
+    if (event.hat || event.pitch === 42 || event.pitch === 44 || event.pitch === 46) return 'hat';
   }
   if (event.role === 'MELODY' && Number.isFinite(event.pitch) && event.pitchProvenance !== 'synthetic') return 'melody';
   return null;
@@ -267,9 +276,9 @@ export function sampleEffectsMusic({ timeMs = 0, ridgeSample = null, timeline = 
   const expansion = unit(smooth((atmosphere - .35) / .55) + .25 * sectionExpansion(sections, now) * presence);
   if (!(presence > 0)) return atmosphere > 0 ? Object.freeze({ ...SILENT, atmosphere, expansion }) : SILENT;
 
-  const hits = { kick: unit(ridgeSample?.kick01) * .8, snare: 0,
+  const hits = { kick: unit(ridgeSample?.kick01) * .8, snare: 0, hat: 0,
     melody: unit(ridgeSample?.motionMelody?.activity) * .72 };
-  const onsets = new Map(), counts = { kick: 0, snare: 0, melody: 0 };
+  const onsets = new Map(), counts = accentCounts();
   for (const { event, age, strength } of recent) {
     const kind = event.kind;
     hits[kind] = Math.max(hits[kind], strength * Math.exp(-age / DECAY_MS[kind]));
@@ -280,11 +289,12 @@ export function sampleEffectsMusic({ timeMs = 0, ridgeSample = null, timeline = 
       seed: hashSeed(`${Number.isFinite(seed) ? seed : 0}:${event.tMs}:${kind}`) / 4294967296 });
   }
   const accents = [...onsets.values()].sort((a, b) => a.ageSec - b.ageSec || a.seed - b.seed)
-    .filter(accent => counts[accent.kind]++ < 2).map(Object.freeze);
+    .filter(accent => counts[accent.kind]++ < PER_KIND).map(Object.freeze);
   return Object.freeze({
     energy: unit(energy * pressureGain * presence), bass: unit(bass * pressureGain * presence),
     treble: unit(treble * pressureGain * presence),
     kick: unit(hits.kick * accentGain * presence), snare: unit(hits.snare * accentGain * presence),
+    hat: unit(hits.hat * accentGain * presence),
     melody: unit(hits.melody * accentGain * presence),
     lift: unit(sectionLift(sections, now) * accentGain * presence),
     atmosphere: unit(atmosphere), expansion, accents: Object.freeze(accents),
@@ -310,9 +320,9 @@ export function blendEffectsMusic(previous = SILENT, primary = SILENT, mix = 1) 
       else merged.set(key, { ...accent, strength });
     }
   }
-  const counts = { kick: 0, snare: 0, melody: 0 };
+  const counts = accentCounts();
   const accents = [...merged.values()].sort((a, b) => b.strength - a.strength || a.ageSec - b.ageSec)
-    .filter(accent => counts[accent.kind]++ < 2)
+    .filter(accent => counts[accent.kind]++ < PER_KIND)
     .sort((a, b) => a.ageSec - b.ageSec || a.seed - b.seed).map(Object.freeze);
   return Object.freeze({ ...Object.fromEntries(CHANNELS.map(key => [key,
     unit(unit(previous[key]) * (1 - amount) + unit(primary[key]) * amount)])), accents: Object.freeze(accents) });

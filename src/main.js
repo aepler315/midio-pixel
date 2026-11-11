@@ -3597,7 +3597,8 @@ function adoptFullAnalysisLive(data) {
     fitDiagnostic: sim.fitDiagnostic,
     chapterState: { previous: sim.biomes.chapterPlan, committedThroughMs: sim.heardTimeMs ?? audioEngine.nowMs, landSections: sim.biomes.sections,
       cameraTours: rangePresentation?.cameraContinuation?.(Math.max(cameraRun?.highWaterMs ?? 0, sim.heardTimeMs ?? audioEngine.nowMs)) || null,
-      landscapeHistory: { previous: sim.biomes.landscapeScore, committedThroughMs: sim.heardTimeMs ?? audioEngine.nowMs } },
+      landscapeHistory: { previous: sim.biomes.landscapeScore, moodScore: sim.biomes.moodScore || null,
+        committedThroughMs: sim.heardTimeMs ?? audioEngine.nowMs } },
   });
   if (!running || !sim) return;
   if (wasPaused) { paused = true; updatePauseButtonUI(); }
