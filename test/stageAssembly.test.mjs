@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import { gunzipSync } from 'node:zlib';
-import { assembleStage, pieceBlock, songRangeView, songRangeViewErrors, stageHash, STAGE_KIND } from '../src/world/alpine/StageAssembly.js';
+import { assembleStage, pieceBlock, songRangeView, songRangeViewErrors, stageHash, STAGE_KIND, stageReliefScale, reliefScaleFrom, STAGE_RELIEF,
+  stageTemplate } from '../src/world/alpine/StageAssembly.js';
 import { decodeTerrain } from '../src/world/alpine/TerrainMesh.js';
 import { WATER_FLOW } from '../src/world/alpine/TerrainPackage.js';
 import { planSongRange } from '../src/world/terrain/SongRangePlan.js';
@@ -118,4 +119,48 @@ test('a planned song gets a valid view record that pins its pieces and material'
   assert.equal(view.materialManifestSha256, sha(fs.readFileSync(new URL(view.materialManifestUrl, ASSETS))));
   assert.match(view.id, /^song-range-[0-9a-f]{16}$/);
   assert.deepEqual(songRangeViewErrors({ ...view, songRange: { ...view.songRange, pieces: [] } }), ['songRange pieces']);
+});
+
+test('a composed range ends looming: its relief scales until the tallest peak reaches the framing target', () => {
+  const plan = planOf(pilot.layouts[0]);
+  const measured = assembleStage(plan, blocksFor(plan), { catalog: MASSIF_CATALOG, forceStride: 1 });
+  const framed = assembleStage(plan, blocksFor(plan), { catalog: MASSIF_CATALOG, forceStride: 1, reliefScale: 'frame' });
+  const s = framed.reliefScale;
+  assert.ok(s > 1 && s <= STAGE_RELIEF.maxScale, `scale ${s}`);
+  assert.equal(framed.manifest.source.provenance.composition.reliefScale, s);
+  assert.equal(measured.reliefScale, 1);
+  // Relief scales about the floor; the floor and the lake do not move.
+  const a = decodeTerrain(measured.manifest, measured.decoded), b = decodeTerrain(framed.manifest, framed.decoded);
+  const t = stageTemplate(MASSIF_CATALOG, plan);
+  let checked = 0;
+  for (const [key, ta] of a.byIndex) {
+    const tb = b.byIndex.get(key);
+    for (let k = 0; k < ta.heightsM.length; k += 97) {
+      // The template lake (piece tarns sit on scaled relief and move with it).
+      const flat = ta.flowBytes?.[k] === WATER_FLOW && Math.abs(ta.heightsM[k] - t.lake.levelM) <= measured.manifest.quantization.stepM;
+      // Within the two packages' quantization steps (the step grows with the relief).
+      const tol = 2 * Math.max(measured.manifest.quantization.stepM, framed.manifest.quantization.stepM);
+      if (flat) { assert.ok(Math.abs(ta.heightsM[k] - tb.heightsM[k]) <= tol, `lake unchanged: ${ta.heightsM[k]} vs ${tb.heightsM[k]}`); continue; }
+      checked++;
+    }
+  }
+  assert.ok(checked > 1000);
+  for (const [i, p] of framed.placed.entries()) {
+    const q = measured.placed[i];
+    assert.ok(Math.abs(p.peakReliefM - s * q.peakReliefM) < 1e-6);
+    assert.ok(Math.abs((p.stagePeakM - q.stagePeakM) - (s - 1) * q.peakReliefM) < 1e-6, 'peaks rise by the scaled relief above the same floor');
+  }
+  const peaks = measured.placed.map((p) => ({ x: p.peakLocalM[0], z: p.peakLocalM[1], floorM: p.stagePeakM - p.peakReliefM, reliefM: p.peakReliefM }));
+  assert.equal(stageReliefScale(t, peaks), s, 'a pure function of the plan');
+  assert.equal(stageReliefScale(t, peaks, { targetY: -1 }), 1, 'a range already tall enough keeps its relief');
+  assert.equal(stageReliefScale(t, peaks, { targetY: 5 }), STAGE_RELIEF.maxScale, 'never past the cap');
+  const lower = stageReliefScale(t, peaks, { targetY: STAGE_RELIEF.targetY - 0.1 });
+  assert.ok(lower < s, 'a lower target needs less stretch');
+});
+
+test('?rangeRelief fixes the scale for review captures; invalid values are ignored', () => {
+  assert.equal(reliefScaleFrom(''), null);
+  assert.equal(reliefScaleFrom('?rangeRelief=2.5'), 2.5);
+  assert.equal(reliefScaleFrom('?rangeRelief=1'), 1);
+  for (const bad of ['?rangeRelief=0', '?rangeRelief=-1', '?rangeRelief=99', '?rangeRelief=big']) assert.equal(reliefScaleFrom(bad), null, bad);
 });
