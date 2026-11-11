@@ -2,8 +2,8 @@
 // its part of the song (compileStageRise), on compileLandRise's clock.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compileLandRise, compileStageRise, stageSlotOrder, chorusLabel, LAND_RISE_START, LAND_RISE_CATCH_UP_MS }
-  from '../src/world/alpine/LandRise.js';
+import { compileLandRise, compileStageRise, stageSlotOrder, chorusLabel, LAND_RISE_CATCH_UP_MS, STAGE_RISE_START, stageRiseAt,
+  stageProgressForScalar } from '../src/world/alpine/LandRise.js';
 import { compileLandscapeScore, landscapeScoreFor } from '../src/world/alpine/LandscapeScore.js';
 
 const SLOTS = [
@@ -45,10 +45,10 @@ test('the principal climbs in the chorus; the other slots in their labels, back 
   }
 });
 
-test('every slot starts one-third built, never sinks, and stands complete by the end', () => {
+test('every slot starts as a wiggle, never sinks, and stands complete by the end', () => {
   for (const r of [compile(), compile({ sections: [] })]) {
     for (const id of r.slotIds) {
-      assert.equal(r.at(id, 0), LAND_RISE_START, `${r.mode} ${id} at the first beat`);
+      assert.ok(Math.abs(r.at(id, 0) - STAGE_RISE_START) < EPS, `${r.mode} ${id} at the first beat`);
       let prior = -Infinity;
       for (let t = 0; t <= durationMs; t += 137) {
         const v = r.at(id, t);
@@ -66,8 +66,8 @@ test('a slot whose label only arrives after the climb ends makes it up in the fi
   const r = compile({ sections: late });
   assert.ok(late.find((s) => s.label === 'E').startMs >= r.endMs);
   assert.deepEqual(r.labels.B1, ['E']);
-  assert.equal(r.at('B1', r.endMs - LAND_RISE_CATCH_UP_MS - 1), LAND_RISE_START);
-  assert.ok(r.at('B1', r.endMs - LAND_RISE_CATCH_UP_MS / 2) > LAND_RISE_START);
+  assert.ok(Math.abs(r.at('B1', r.endMs - LAND_RISE_CATCH_UP_MS - 1) - STAGE_RISE_START) < EPS);
+  assert.ok(r.at('B1', r.endMs - LAND_RISE_CATCH_UP_MS / 2) > STAGE_RISE_START);
   assert.equal(r.at('B1', r.endMs), 1);
 });
 
@@ -87,20 +87,21 @@ test('without sections the slots rise back to front from the scalar curve', () =
   assert.ok(r.at('H1', t) > r.at('F2', t));
 });
 
-test('one slot is compileLandRise exactly, with or without structure and across a handoff', () => {
+test('one slot climbs on compileLandRise\'s progress exactly, with or without structure and across a handoff', () => {
   const one = [{ slotId: 'B2', row: 'back' }];
   for (const secs of [sections, []]) {
     const scalar = compileLandRise({ read, durationMs, cadenceMs, finaleMs });
     const slot = compileStageRise({ slots: one, principal: 'B2', sections: secs, read, durationMs, cadenceMs, finaleMs });
     for (let t = 0; t <= durationMs; t += 97) {
-      assert.equal(slot.at('B2', t), scalar.at(t));
-      assert.equal(slot.meanAt(t), scalar.at(t));
+      assert.equal(slot.progressAt('B2', t), scalar.progressAt(t));
+      assert.equal(slot.at('B2', t), stageRiseAt(scalar.progressAt(t)));
+      assert.equal(slot.meanAt(t), slot.at('B2', t));
     }
     const read2 = (t) => read(t * 1.07 + 900);
     const scalar2 = compileLandRise({ read: read2, durationMs, cadenceMs, finaleMs, previous: scalar.progressAt, freezeThroughMs: 41000 });
     const slot2 = compileStageRise({ slots: one, principal: 'B2', sections: secs, read: read2, durationMs, cadenceMs, finaleMs,
       previous: slot.progressAt, freezeThroughMs: 41000 });
-    for (let t = 0; t <= durationMs; t += 97) assert.equal(slot2.at('B2', t), scalar2.at(t));
+    for (let t = 0; t <= durationMs; t += 97) assert.equal(slot2.progressAt('B2', t), scalar2.progressAt(t));
   }
 });
 
@@ -120,7 +121,8 @@ test('whole-song analysis takes over each slot from where it stood, never sooner
   // A score with no stage before the handoff hands its scalar to every slot.
   const scalar = compileLandRise({ read: loudChorus, durationMs, cadenceMs, finaleMs });
   const fromScalar = compile({ previousScalar: scalar.progressAt, freezeThroughMs: freeze });
-  for (const id of fromScalar.slotIds) assert.equal(fromScalar.at(id, freeze), scalar.at(freeze));
+  // It continues from the height the land stood at, not from the same progress.
+  for (const id of fromScalar.slotIds) assert.ok(Math.abs(fromScalar.at(id, freeze) - scalar.at(freeze)) < 1e-9, `${id} no jump at the handoff`);
 });
 
 test('the score carries each slot and rises catalog views at the slots\' mean', () => {
@@ -168,4 +170,20 @@ test('an opening analysis stages a stagger; the whole song brings the structure'
   assert.equal(landscapeScoreFor(mgr({ analyzedThroughMs: null })).stageRise.mode, 'structure');
   // A song without a composed range has no stage rise either way.
   assert.equal(landscapeScoreFor({ ...mgr({}), songTerrain: null }).stageRise, null);
+});
+
+test('a stage grows by the same fraction of its height in every equal stretch of progress', () => {
+  // Geometric growth: equal progress steps multiply the height by equal
+  // factors (outside the final landing), so the climb never surges.
+  const ratios = [];
+  for (let p = 0; p + 0.1 <= 0.8; p += 0.1) ratios.push(stageRiseAt(p + 0.1) / stageRiseAt(p));
+  for (const r of ratios) assert.ok(Math.abs(r - ratios[0]) < 1e-9, `${r} against ${ratios[0]}`);
+  assert.ok(ratios[0] > 1.3 && ratios[0] < 1.5);
+  assert.equal(stageRiseAt(1), 1);
+  assert.ok(Math.abs(stageRiseAt(0) - STAGE_RISE_START) < EPS);
+  // The scalar handoff conversion lands on the same height.
+  const scalar = compileLandRise({ read, durationMs, cadenceMs, finaleMs });
+  for (let t = 0; t <= durationMs; t += 9973) {
+    assert.ok(Math.abs(stageRiseAt(stageProgressForScalar(scalar.progressAt(t))) - scalar.at(t)) < 1e-9, `height at ${t}`);
+  }
 });

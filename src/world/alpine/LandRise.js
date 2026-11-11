@@ -6,6 +6,12 @@ import { clamp01 } from '../../utils/math.js';
 
 /** Relief share at the song's first beat, skipping the first third of the build. */
 export const LAND_RISE_START = 1 / 3;
+/** A composed stage's relief share at the first beat: a wiggle on the lake.
+ *  Its slots grow geometrically from here to their full (framed) relief
+ *  (stageRiseAt), so the land gains the same fraction of its height in
+ *  every equal stretch of progress: never a visible surge, and by the end a
+ *  range twenty times the size it started. */
+export const STAGE_RISE_START = 0.05;
 /** Pace in silence, against 1 + energy at full energy. */
 export const LAND_RISE_QUIET_PACE = 0.6;
 /** Share of the climb spent easing to a stop on the complete range. */
@@ -224,6 +230,20 @@ export function compileLandRise({ read = () => 0, durationMs = 0, cadenceMs = du
 }
 
 const riseAt = (progress) => LAND_RISE_START + (1 - LAND_RISE_START) * landing(progress);
+/** A stage slot's rise for its progress: STAGE_RISE_START ** (1 - landing),
+ *  constant relative growth per unit of progress, easing onto 1. */
+export const stageRiseAt = (progress) => STAGE_RISE_START ** (1 - landing(progress));
+const landingInverse = (y) => {
+  const L = LAND_RISE_LANDING, a = 1 / (1 - L / 2), v = clamp01(y);
+  return v <= a * (1 - L) ? v / a : 1 - Math.sqrt(2 * L * (1 - v) / a);
+};
+/** The stage progress whose rise equals the scalar curve's at `progress`:
+ *  a stage taking over from a score without one continues from the height
+ *  the land stood at, not from the same progress on a different curve. */
+export const stageProgressForScalar = (progress) => {
+  const rise = riseAt(clamp01(progress));
+  return rise >= 1 ? 1 : landingInverse(1 - Math.log(rise) / Math.log(STAGE_RISE_START));
+};
 
 /** The climb's clock: it ends `finaleMs` before the cadence, no earlier than
  *  LAND_RISE_MIN_END of it, in STEP_MS steps. Null for a song with no length. */
@@ -303,7 +323,8 @@ export function chorusLabel(sections, read) {
  *   principal  the principal massif's slotId
  *   sections   trusted sections with labels ({ startMs, endMs, label })
  *
- * Every slot starts at LAND_RISE_START. With a chorus group, the principal
+ * Every slot starts at STAGE_RISE_START and grows geometrically
+ * (stageRiseAt). With a chorus group, the principal
  * climbs during the chorus group's sections; the other slots, back to
  * front, take the remaining labels in order of first appearance (a label
  * per slot, cycling whichever list is shorter) and climb during theirs.
@@ -311,7 +332,7 @@ export function chorusLabel(sections, read) {
  * the principal. Within an owned section progress integrates
  * LAND_RISE_QUIET_PACE + energy, normalised so every slot stands complete by
  * endMs; a slot that owns no time before endMs makes up its whole climb over
- * the final stretch. With one slot this is compileLandRise exactly.
+ * the final stretch. With one slot its progress is compileLandRise's.
  *
  * Without a chorus group (the opening analysis, or a song whose labels
  * never repeat) the slots rise back to front from the scalar curve, each
@@ -372,10 +393,10 @@ export function compileStageRise({ slots = [], principal = null, sections = [], 
     }
   }
   const before = (id) => (typeof previous === 'function' ? (t) => previous(id, t)
-    : typeof previousScalar === 'function' ? previousScalar : null);
+    : typeof previousScalar === 'function' ? (t) => stageProgressForScalar(previousScalar(t)) : null);
   const progress = new Map(slotIds.map((id) => [id, continueClimb(own.get(id), before(id), freezeThroughMs)]));
   const progressAt = (id, t) => (progress.get(id) || progress.get(lead))(t);
-  const at = (id, t) => riseAt(progressAt(id, t));
+  const at = (id, t) => stageRiseAt(progressAt(id, t));
   const slotsAt = (t) => Object.freeze(Object.fromEntries(slotIds.map((id) => [id, at(id, t)])));
   const meanAt = (t) => { let sum = 0; for (const id of slotIds) sum += at(id, t); return sum / slotIds.length; };
   return Object.freeze({ endMs: grid.endMs, mode, slotIds, labels: Object.freeze(labels), progressAt, at, slotsAt, meanAt });
