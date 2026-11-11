@@ -65,3 +65,14 @@ test('a ledger that refuses the layer leaves no layer and no charge', () => with
   assert.equal(r._skyLayerFor(manager(), fit, { width: 320, height: 180 }), null);
   assert.equal(r._sky, null);
 }));
+
+test('a layer evicted while the sky draws into it is never handed to the backdrop', () => withCanvas(() => {
+  const r = renderer();
+  let dispose = null;
+  r.residency = { entries: new Map(), reserve: () => ({}), commit: (res, layer, d) => { dispose = () => d(layer); return true; }, release() {} };
+  const m = manager();
+  // The sky's own buffer allocations evict the layer mid-draw.
+  m.drawHighResolutionSky = () => { dispose(); return true; };
+  assert.equal(r._skyLayerFor(m, fit, { width: 320, height: 180 }), null);
+  assert.equal(r._sky, null, 'the evicted layer is forgotten, so the composite draws its own sky');
+}));

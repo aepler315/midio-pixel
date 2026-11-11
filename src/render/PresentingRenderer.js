@@ -390,6 +390,10 @@ export class PresentingRenderer {
       finally { ctx.restore(); }
       Object.assign(layer, { frame: this._skyFrame, fit: { ...fit }, x, y, outputWidth: this.canvas.width, outputHeight: this.canvas.height });
     }
+    // The ledger may evict the layer while the sky allocates its own buffers
+    // (cloud and moon canvases): an evicted layer is zero-sized and no longer
+    // ours, so the backdrop draws its own sky instead.
+    if (this._sky !== layer || !(layer.canvas.width > 0)) return null;
     return layer.drawn ? { image: layer.canvas, sx: sx - x, sy: sy - y, sw, sh } : null;
   }
   _releaseSky() {
