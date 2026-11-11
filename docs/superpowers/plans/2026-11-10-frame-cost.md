@@ -287,7 +287,7 @@ Work from a parallel Phase 0 branch (closed PR #125) that #124 lacked, run on th
   - `teton-jackson-lake` (60 s): the same shape. Four `work` sheds at 4.7 to 7.4 s (deciding work 24.6 ms for 0→1, then 75 to 86 ms), two `period` sheds to level 6, recovery to level 3 at 60.1 s. Synchronous waits in the last 600 frames: median 0, max 49.5 ms.
   - `nc-ross-lake-north`: "Export presentation failed: terrain-not-ready" in the review's capture step, before live playback, so the view has no hardware record. The dry tool behaves the same way on this host and the failure is intermittent: on 6fe0c48 (before #124), unpinned at 96 kHz, it counted the view once (211,645,152 triangles at 12.0 s, near the audit's 205,541,632), then failed in every later attempt the same evening, including 6fe0c48 with its own unpinned tool and runs pinned at 44.1 and 96 kHz. The cause is not found. Phase 4 and decision D4 need this view measured, so it is open work, not a frame-cost result.
   - The same runs made earlier with #125's independent instruments gave the same sequence (a first `work` shed on a 21 to 25 ms callback, three more with 80 to 90 ms deciding callbacks, `period` sheds to 6, recovery to 4 on the stage and 3 on Teton), so the record does not depend on one implementation.
-  - **Reading.** This is the owner's "60 fps, perf 4/6" report. The first 30 seconds or so of a song are slow at every level, and shedding does not make them faster. A `work` shed needs about ten heavy samples (each is capped at a weight of 6 against a threshold of 60), and levels 1, 2 and 3 each lasted about ten frames of roughly 90 ms; levels 4 and 5 lasted about a second each at 18 to 22 fps with only 6 to 9 ms of callback work, so the time went outside the callback; level 6, the cheapest rung, ran at about 43 fps for its first 19 s (1,428 frames in 29.3 s, the last 600 at 60 fps) before its first clean ten-second window. After that the stage is cheap: at level 4 the callback works 2 ms of a 16.7 ms frame. So the governor turns a startup transient that no level removes into a six-level drop that takes about 50 s to partly undo. Phase 2b would not prevent this, since the slow frames are sustained, not isolated. What the transient is the record does not say: the callback's share at levels 0 to 3 and the outside share at 4 and 5 point at start-up work (detail growth, uploads, shader compilation, the opening) rather than the drawn scene, and no steady-state cost of levels 0 to 3 has been measured. Next evidence, before any governor change: a hardware callback profile of the first 30 s (`range-live-callbacks.mjs --hardware-gpu --profile`) and the governor's level and work through the same window. Two cheap record additions for Phase 1: store the deciding frame's `syncWaitMs` in each event, and keep the frame statistics of the first 30 s, which the 600-frame rings lose by the end of a run.
+  - **Reading.** This is the owner's "60 fps, perf 4/6" report: a six-level drop in the first ten seconds, then recovery at ten seconds per level. A `work` shed needs about ten heavy samples (each is capped at a weight of 6 against a threshold of 60). Levels 1, 2 and 3 each lasted about ten frames of roughly 90 ms. Levels 4 and 5 lasted about a second each at 18 to 22 fps with 6 to 9 ms of callback work. After about 17 s the stage is cheap: at level 4 the callback works 2 ms of a 16.7 ms frame. This record first read the opening as slow at every level, with Phase 2b no remedy. The hardware callback profiles under "Phase 1 on the owner's machine" below replace that reading. Old level 0 was over budget in the opening window, and shedding made the frame more expensive, not less.
 - **`shotPlanner`.** `test/shotPlanner.test.mjs:177` passed on the owner's machine in two full-suite runs.
 - **The owner's stage command needs `--view natural`.** `landscape-review`, and `test:gpu` which forwards to it, keeps its default view `teton-range-tour` when given only `--song-range force`, so the original command measured the Teton tour. The owner request above and section 1 are corrected.
 - **`tools/range-frame-cost.mjs` pins the AudioContext rate** (`--sample-rate`, default 44,100 Hz, recorded as `sampleRate` in each report). A headless AudioContext takes the host's output device rate, and the song analysis, and with it the composed stage and the camera, follows it: the same WAV composes `song-range-911f810a0bd86424` at 44.1 kHz, `song-range-61a1efc03691a322` at 48 kHz and `song-range-8a5bb600fa6dcb9e` at 96 kHz (the owner's device rate). Unpinned on the owner's machine the dry tool counted a different stage (6,861,218 triangles at level 0, none instanced) and different Teton counts; pinned it reproduces the audit there too: forced stage 160 draws / 7,760,926 and 163 / 8,425,848, `teton-jackson-lake` 17,241,160 / 18,780,094, `white-mountains-owens` 5,197,974 / 957,370, layout A 16,230,174 at 86 s. The baseline above matched the audit because its host runs at 44.1 kHz.
@@ -317,3 +317,41 @@ Gate evidence (the forced stage is `song-range-911f810a0bd86424`; baselines are 
 Checks: `npm run lint` clean; `npm test` 5,599 tests, 5,596 pass, 2 skipped, 1 fail (`shotPlanner` wall-clock, as on `main`).
 
 Not run: any GPU on this branch. The owner's RTX 3060 record (Phase 0 addendum above) was taken on `main` at 6c04719, before Phase 1. The stage counts here were taken at 44.1 kHz, the rate the Phase 0 addendum pins.
+
+#### Phase 1 on the owner's machine (2026-11-11, branch `perf/p0-followup` at a2e83c9, which carries #126)
+
+These runs were on the RTX 3060 (ANGLE Direct3D11), with the composed stage `song-range-c7c9c4b0ccb5131e` drawn at the live tools' 48 kHz. Timing class: hardware. The A/B baseline is `main` at 6c04719, run with the same tool in the same session. Evidence is in `.smoke/gpu-stage-p1` and `.smoke/hw-open` (files labelled `-6c04719` are the baseline).
+
+- **Owner route.** `npm run test:gpu -- --view natural --song-range force --live-seconds 60` now passes on Phase 1. The governor holds level 0 for all 60 s and records no events. Delivered: 3,528 frames, 58.8 fps, p95 16.8 ms, one gap over 100 ms (283 ms). Before Phase 1, the same command shed 0→6 and delivered p95 50 ms with three gaps, so `deliveredP95` and `gapsOver100ms` failed.
+- **Callback profile, governor deciding** (`range-live-callbacks.mjs --hardware-gpu --profile --seconds 40`).
+  - 6c04719 sheds at 4.1, 5.1, 6.0, 6.9, 8.1 and 9.2 s. These are the same steps as the owner run above, so this tool reproduces the `test:gpu` record.
+  - Phase 1 holds level 0 for 40 s: 2,322 callbacks (58 per second), callback median 14.2 ms.
+- **Pinned levels, 25 s** (`--level N`, no governor), per second, 6c04719 → Phase 1:
+
+| Level | Opening window (about 3 to 17 s) on 6c04719 | Same window on Phase 1 | Filtered 2D operations per callback |
+| --- | --- | --- | --- |
+| 0 | 42 to 49 callbacks/s; median 21 to 23 ms, of which `getImageData` ~7 ms and presenter `getError` ~4 ms | 58 to 60/s; median 15 to 16 ms, of which `getImageData` ~7 ms; no `getError` | 0 → 0 |
+| 2 | 10 to 15/s; median 81 to 99 ms, ~80 ms of it in `getImageData` | 59 to 60/s; median ~15 ms | ~1,020 to 1,080 → 1 |
+| 5 | 16 to 23/s; callback median 7.4 to 8.0 ms, so the time is spent outside the callback | 60/s; median 3.7 to 4.1 ms | ~1,020 to 1,080 → 1 |
+
+  After the window, every old level runs at 60 per second. Old level 2 drops to 14 filtered operations per callback by 20 s.
+
+- **Reading.**
+  - **Old code had two problems, a trigger and an amplifier.**
+    - The trigger: at level 0 the callback was over budget in the opening window. Its ~21 ms was mostly synchronous waits, which the old work signal counted.
+    - The amplifier: every level from 1 up sheds the mirror, and the backdrop then blurred every sky operation drawn into it. That is about 1,000 filtered operations a frame while the opening sky issues 4,000 to 5,000 2D operations.
+    - The amplifier showed differently by level. At levels 1 to 3 the crest's `getImageData` absorbed the flush, which gave the ~90 ms callbacks. At levels 4 to 6 the cost fell outside the callback and became `period` sheds.
+    - Shedding therefore made each frame more expensive, and the governor kept shedding until the window closed.
+  - **What Phase 1 changed.**
+    - 1a removed the amplifier. The pinned runs bypass the governor and so measure this directly.
+    - Level 0 no longer sheds. That is consistent with 1c (no steady-state `getError`) and 1d (waits no longer count as work) removing the trigger. Those two changes were not isolated from each other.
+- **Still open.**
+  - **The opening 2D burst remains.** On Phase 1, at level 0 with the governor deciding, the callback makes about 4,100 2D operations a callback at 6 s, against about 550 at 20 s. Its source is not identified.
+  - **Little headroom at level 0.** In the window the callback takes 15 to 16 ms of a 16.7 ms frame, and about half of that is the crest's `getImageData` wait. A slower GPU could still be pushed over by `period` pressure.
+  - **A hitch at about 27 s.** It reproduces in every run, old and new: one callback of 280 to 307 ms, then fewer callbacks over 27 to 29 s. Phase 1 does not touch it, and it is not part of the shed cascade.
+  - **`teton-jackson-lake` improves but still fails on Phase 1** (`test:gpu`, 60 s, `.smoke/gpu-teton-p1`).
+    - The cascade is gone. There are two `period` sheds, 0→1 at 11.5 s and 1→2 at 32.8 s, with 33.3 ms deciding periods and only 7 to 8 ms of work. The run ends at level 2.
+    - Delivered: 54.3 fps, p95 33.3 ms, one gap over 100 ms. That was 50.2 fps, p95 50 ms and four gaps before, with 0→6 by 9.5 s.
+    - `deliveredP95` still fails, and `gapsOver100ms` now passes.
+    - This is pressure outside the callback, so 1d does not address it. It is the next thing to measure on this view.
+  - **Ross.** `nc-ross-lake-north` still has no hardware record.
