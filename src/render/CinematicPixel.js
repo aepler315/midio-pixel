@@ -1,4 +1,5 @@
 import { sharedResidency } from './GraphicsResidency.js';
+import { syncWaits } from './SyncWaitLedger.js';
 
 // Reconstruction is deliberately conservative: nearest coverage owns the cell;
 // only a monotone, low-contrast colour slope can vary inside it. No history,
@@ -60,6 +61,7 @@ export class CinematicPixelRenderer {
     this.residency=residency; this.makeCanvas=makeCanvas; this.key=`cinematic-cells:${++nextPass}`;
     this.reason=null; this.bytes=0; this.failed=false; this.denied=null;
     this.bufW=this.bufH=this.srcW=this.srcH=0; this.peakW=this.peakH=this.underDraws=0;
+    this.getErrorMs=0; // the last draw's gl.getError() wait (a synchronous round trip to the GPU process)
   }
   _initialize() {
     this.canvas=this.makeCanvas();
@@ -161,7 +163,8 @@ export class CinematicPixelRenderer {
       // never as wide as the shared buffer.
       this.strength=cellStrength(w/source.width);
       gl.uniform2f(this.size,source.width,source.height);gl.uniform1f(this.strengthLocation,this.strength);gl.drawArrays(gl.TRIANGLES,0,3);
-      if(gl.getError()!==gl.NO_ERROR){this.reason='draw-failed';return false;}
+      const e0=performance.now(),glError=gl.getError();this.getErrorMs=performance.now()-e0;syncWaits.add('presenterGetError',this.getErrorMs);
+      if(glError!==gl.NO_ERROR){this.reason='draw-failed';return false;}
       // GL's origin is bottom-left: the viewport is the canvas's bottom rows.
       // Copied in the same task, so the unpreserved buffer is still intact.
       ctx.imageSmoothingEnabled=false;ctx.drawImage(this.canvas,0,this.canvas.height-h,w,h,fit.x,fit.y,fit.width,fit.height);

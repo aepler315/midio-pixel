@@ -272,10 +272,21 @@ async function measure(page, timeMs, quality, { warm, repeats }) {
   }, { timeMs, quality, warm, repeats, stepMs: FRAME_STEP_MS });
 }
 
-function parseArgs(argv) {
-  const a = { times: '12000,86000', quality: '0', warm: '2', repeats: '1', profile: '0', seconds: '90', dry: false, png: false };
+/** The AudioContext rate the song is analysed at. The song analysis, and with
+ *  it a composed stage and the camera, depend on the rate, and a headless
+ *  AudioContext takes the host's output device rate unless pinned: the same
+ *  WAV composed song-range-911f810a0bd86424 at 44.1 kHz (the audit's host),
+ *  song-range-61a1efc03691a322 at 48 kHz and song-range-8a5bb600fa6dcb9e at
+ *  96 kHz. 44.1 kHz reproduces docs/frame-cost-audit-2026-11-10.md exactly.
+ *  landscape-review and range-live-callbacks pin 48 kHz, yet a live review of
+ *  the same WAV composed another stage again, so a dry count at any rate is
+ *  not yet the live run's stage. */
+export const DEFAULT_SAMPLE_RATE = 44100;
+
+export function parseArgs(argv) {
+  const a = { times: '12000,86000', quality: '0', warm: '2', repeats: '1', profile: '0', seconds: '90', sampleRate: String(DEFAULT_SAMPLE_RATE), dry: false, png: false };
   const keys = { '--out': 'out', '--audio': 'audio', '--view': 'view', '--song-range': 'songRange', '--song-range-layout': 'songRangeLayout',
-    '--label': 'label', '--times': 'times', '--quality': 'quality', '--warm': 'warm', '--repeats': 'repeats', '--profile': 'profile', '--seconds': 'seconds' };
+    '--label': 'label', '--times': 'times', '--quality': 'quality', '--warm': 'warm', '--repeats': 'repeats', '--profile': 'profile', '--seconds': 'seconds', '--sample-rate': 'sampleRate' };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--dry') { a.dry = true; continue; }
     if (argv[i] === '--png') { a.png = true; continue; }
@@ -285,8 +296,9 @@ function parseArgs(argv) {
   if (!a.out) throw new Error('--out is required');
   if (!a.view && !a.songRange && !a.songRangeLayout) throw new Error('give --view, --song-range or --song-range-layout');
   if (a.dry && a.png) throw new Error('--png needs a full render: drop --dry');
+  if (!/^\d+$/.test(a.sampleRate) || Number(a.sampleRate) < 8000 || Number(a.sampleRate) > 192000) throw new Error('--sample-rate must be an integer from 8000 to 192000');
   return { ...a, times: a.times.split(',').map(Number).sort((x, y) => x - y), quality: a.quality.split(',').map(Number),
-    warm: Number(a.warm), repeats: Number(a.repeats), profile: Number(a.profile), seconds: Number(a.seconds) };
+    warm: Number(a.warm), repeats: Number(a.repeats), profile: Number(a.profile), seconds: Number(a.seconds), sampleRate: Number(a.sampleRate) };
 }
 
 /** A frame's host time outside the calls that wait for rendering: JavaScript
@@ -319,7 +331,7 @@ async function main() {
     presentation: { version: 2, look: 'cinematic', quality: 'auto', pixelGrid: 'detailed', pixelScale: 'original', scaling: 'fit' },
     ...(args.view ? { view: args.view } : { view: null, biome: null, debug }) },
   songs: [{ id: 'cost', fixture: 'contrast', seconds: args.seconds, timesMs: args.times, clips: [] }] });
-  const report = { label, dry: args.dry, settings,
+  const report = { label, dry: args.dry, sampleRate: args.sampleRate, settings,
     note: 'Counts are exact. Times are this host only (software WebGL); take hardware conclusions from hardware runs.', rows: [] };
   const save = () => fs.writeFile(path.join(out, `${label}.json`), `${JSON.stringify(report, null, 1)}\n`);
   const server = await serveSnapshot(await snapshotSource(root));
@@ -331,6 +343,12 @@ async function main() {
     const newContext = browser.newContext.bind(browser);
     browser.newContext = async (options) => {
       const context = await newContext(options);
+      // Pin the audio rate (see DEFAULT_SAMPLE_RATE): a headless AudioContext
+      // otherwise takes the host device's rate, and the composed stage follows it.
+      await context.addInitScript((sampleRate) => {
+        const Native = window.AudioContext;
+        window.AudioContext = class extends Native { constructor(options = {}) { super({ ...options, sampleRate }); } };
+      }, args.sampleRate);
       await context.addInitScript(installCounters, { dry: args.dry });
       return context;
     };

@@ -30,6 +30,7 @@ import { AUTO_TOUR_GATE, autoGateEnabled } from './CameraChoice.js';
 import { headingPitch, lookDir } from '../terrain/ShotPath.js';
 import { RangeCrest, crestBuildOpacity, CREST_GRID_SCAN_LEVEL } from './RangeCrest.js';
 import { openingOcean01 } from './BuildOcean.js';
+import { stageHash } from './StageAssembly.js';
 
 /** Native terrain backing for a full-resolution composition. The selected
  * grid is fitted to the same aspect-preserving output rectangle. */
@@ -1905,6 +1906,31 @@ export class RangePresentation {
       crest: { ...this.crest.diagnostics, enabled: this.crestEnabled, probe: this.scene?.crestProbeMode ?? null },
       songRange: this._songRangeSnapshot(),
     };
+  }
+
+  /** The drawn view's size and water passes for the graphics report's
+   *  performance block (read-only; nulls when nothing is drawn). Mirror:
+   *  the view's water mixes in a planar mirror this frame. Backdrop: the
+   *  sky copy was captured for this frame. */
+  drawnSnapshot() {
+    const viewId = this.active ? this.viewId : null;
+    const p = viewId ? this.scene?.prepared?.get(viewId) : null;
+    if (!p) return { viewId, songRangeId: null, tiles: null, geometryTriangles: null, trees: null, mirror: null, backdrop: null };
+    // Band geometries carry the count; a compiled-terrain view draws through
+    // its own meshes, leaves `geometries` empty and keeps the count in stats.
+    let triangles = 0, bands = 0;
+    for (const g of Object.values(p.geometries || {})) { triangles += (g?.index?.count ?? 0) / 3; bands++; }
+    if (!bands) triangles = Number.isFinite(p.stats?.triangles) ? p.stats.triangles : null;
+    const trees = p.stats?.trees;
+    const frameId = this.frame?.frameId;
+    // The layout key runs to hundreds of characters; its hash is the short
+    // stable id the composed view id is built from.
+    const plan = p.view?.songRange?.plan;
+    return { viewId, songRangeId: plan ? stageHash(plan) : null, tiles: p.manifest?.tiles?.length ?? null,
+      geometryTriangles: triangles,
+      trees: trees ? { mesh: (trees.mesh ?? 0) + (trees.meshDetail ?? 0), billboards: trees.billboard ?? 0 } : null,
+      mirror: (p.uniforms?.uMirrorAmount?.value ?? 0) > 0,
+      backdrop: frameId != null && this.scene?.backdrop?.frame === frameId };
   }
 
   /** Which slot is rising now (song range composition, Phase 4): the

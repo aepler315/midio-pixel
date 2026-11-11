@@ -23,6 +23,7 @@ import {
 } from '../../render/CrestLine.js';
 import { PROBE_BAND_ROWS, PROBE_WATER_ROW, PROBE_WATER_SLOTS, PROBE_FINE_ROWS, PROBE_FINE_K, PROBE_EDGE_ROW, EDGE_NEIGHBOURS, probeRow, edgeCell, fineLineRow } from './CrestProbe.js';
 import { CrestColorPattern } from '../../render/CrestPixelColors.js';
+import { syncWaits } from '../../render/SyncWaitLedger.js';
 
 export const CREST_SPLIT_KEY = 'range:crest-split';
 /** Quality rung from which the probe runs light ('grid' mode): crest rows
@@ -246,7 +247,7 @@ export class RangeCrest {
     this._origRead = null; // { frameId, groups }: rows of `_orig` this frame read
     this._glow = null; // translucent content above the skyline at the last reading (null: unknown)
     this.diagnostics = { mode: this.mode, fade: 0, splitFade: 0, splitStrength: 0, resets: 0, lastReset: null, probeMs: 0, probeRead: 'none', probeLag: 0, updateMs: 0, prepareMs: 0,
-      drawMs: 0, shoreMs: 0, splitCells: 0, columns: 0, shoreChains: 0, shoreDropped: 0, readback: 'none', readRows: 0, readbackMs: 0,
+      drawMs: 0, shoreMs: 0, splitCells: 0, columns: 0, shoreChains: 0, shoreDropped: 0, readback: 'none', readRows: 0, readbackMs: 0, edgesReadMs: 0,
       lagShift: 0, lagLineShift: 0, aligned: 0, cutColumns: 0, cutMs: 0, pockets: 0, glowRefill: 0 };
   }
 
@@ -370,6 +371,7 @@ export class RangeCrest {
     this.diagnostics.readback = probe ? 'probe' : 'none';
     this.diagnostics.readRows = 0;
     this.diagnostics.readbackMs = 0;
+    this.diagnostics.edgesReadMs = 0;
     this.diagnostics.shoreChains = shores.length;
     this.diagnostics.updateMs = performance.now() - t0;
     return this.snapshot;
@@ -739,7 +741,9 @@ export class RangeCrest {
         {
           const r0 = performance.now();
           const read = ctx.getImageData(0, y0, W, y1 - y0);
-          readMs += performance.now() - r0; readRows += y1 - y0;
+          const dt = performance.now() - r0;
+          // A GPU-backed grid makes this read wait for the GPU (frame-cost plan, Phase 0).
+          readMs += dt; readRows += y1 - y0; syncWaits.add('crestRead', dt);
           image = { data: read.data, width: W, y0, rows: y1 - y0, read };
         }
       } catch { return false; }
@@ -866,7 +870,12 @@ export class RangeCrest {
     const y0 = Math.max(0, lo + dy - 1), y1 = Math.min(H, hi + dy + 2);
     if (!(y1 > y0)) return false;
     let image;
+    const r0 = performance.now();
     try { image = ctx.getImageData(0, y0, W, y1 - y0); } catch { return false; }
+    // The second grid read of the frame; timed like _prepareCrest's.
+    const dt = performance.now() - r0;
+    this.diagnostics.edgesReadMs = dt;
+    syncWaits.add('crestEdgesRead', dt);
     return this._colorEdges(image.data, W, y0, y1 - y0);
   }
 

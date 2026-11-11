@@ -54,6 +54,8 @@
 // (same layout) marks those dry pixels with a dry neighbour, from that
 // render (RangeScene.renderWater), so the shore steps by output pixels too.
 
+import { syncWaits } from '../../render/SyncWaitLedger.js';
+
 export const PROBE_BAND_ROWS = Object.freeze({ far: 0, mid: 2, near: 4 });
 export const PROBE_WATER_ROW = 6;
 export const PROBE_WATER_SLOTS = 4;
@@ -384,7 +386,11 @@ export class ProbeReadback {
     this.failure = null; // a failed fence is distinct from a bounded busy ring
   }
 
-  get inFlight() { return this.slots.filter(s => s.sync).length; }
+  get inFlight() {
+    let n = 0; // counted in place: collect() reads this every frame
+    for (const slot of this.slots) if (slot.sync) n++;
+    return n;
+  }
 
   /** Queue a copy of rows 0..rows−1 (width × rows RGBA8) of the bound read
    *  framebuffer, tagged with `meta`. False when every slot is in flight. */
@@ -664,7 +670,8 @@ export class CrestProbe {
   collect() {
     this.collectMs = 0;
     if (!this.async) return;
-    const t0 = performance.now();
+    // With nothing in flight the poll makes no GL call, so it is no wait.
+    const pending = this.async.inFlight, t0 = performance.now();
     try {
       this.async.poll();
       if (this.async.failure) throw Error('Asynchronous crest readback failed');
@@ -673,6 +680,7 @@ export class CrestProbe {
       this.async = null;
     }
     this.collectMs = performance.now() - t0;
+    if (pending) syncWaits.add('probeCollect', this.collectMs);
   }
 
   /**
@@ -714,8 +722,13 @@ export class CrestProbe {
       }
     } else if (this.async) this.async.reset(); // an export frame: live results restart after it
     const total = this.totalRows;
+    // The synchronous read waits for this frame's GPU work: export's
+    // intentional read and the live fallback alike. Only this call is
+    // counted; readMs also holds collectMs, which collect() counted.
+    const s0 = performance.now();
     try { this.renderer.readRenderTargetPixels(this.target, 0, 0, this.width, total, this.data); }
     catch { return null; }
+    syncWaits.add('probeSyncRead', performance.now() - s0);
     this.readMs = performance.now() - t0 + collectMs;
     return { width: this.width, height: this.height, data: this.data, rows: this.rows, edges: this.edges,
       edgeRow: this.edgeRow, fine: this.fineData, readMs: this.readMs, frameId, lag: 0, mode: 'sync' };

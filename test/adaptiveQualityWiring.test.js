@@ -12,7 +12,10 @@ function runtime({ draw = true, hidden = false, paused = false } = {}) {
   let clock = 50;
   const samples = [];
   const context = vm.createContext({ running: true, paused, playbackPreparing: false, lastRafMs: 0,
-    lastRenderedWorkMs: 8, performance: { now: () => clock }, document: { hidden },
+    lastRenderedWorkMs: 8, lastRenderedSyncWaitMs: 3, performance: { now: () => clock }, document: { hidden },
+    // A ledger stand-in: each rendered callback's draw adds 4 ms of timed wait.
+    syncWaits: { frames: 0, totalMs: 0, beginFrame() { this.frames++; this.totalMs = 0; } },
+    lastSyncWait: { copies: 0, copyFrom() { this.copies++; } },
     noteFrameGap() {}, perfGovernor: { level: 0, sample: (...args) => samples.push(args) },
     playbackFps: () => 30, fittedPerfLevel: 0, fitCanvas() {}, emaFps: () => 60,
     fpsEma: 60, fpsHudVisible: false, hudIdleTick() {}, keepAwake: { tick() {} },
@@ -22,7 +25,7 @@ function runtime({ draw = true, hidden = false, paused = false } = {}) {
     bulkExportArmed: false, cameraRun: null, playbackCadence: { shouldDraw: () => draw },
     presentedFps: { sample() {} }, requestAnimationFrame: () => 1,
     rafHandle: null, pendingCaptureOptions: null,
-    renderer: { draw: () => { clock += 9; return { presented: true }; }, getCaptureSource: () => ({}) },
+    renderer: { draw: () => { clock += 9; context.syncWaits.totalMs += 4; return { presented: true }; }, getCaptureSource: () => ({}) },
     syncCaptionDetails() {}, drawErrors: { record: () => false },
     visionLoop: { maybeSample() { clock += 1; } }, debugOverlay: { render() {} },
     songRecorder: null, updateRecordReadout() {},
@@ -69,5 +72,36 @@ test('a failed or hidden presentation cannot provide headroom evidence', () => {
     if (!hidden) r.context.renderer.draw = () => { throw new Error('fixture failure'); };
     r.run(17);
     assert.equal(r.context.lastRenderedWorkMs, null);
+  }
+});
+
+test('the timed synchronous wait travels with the same callback\'s work', () => {
+  const r = runtime();
+  r.run(17);
+  // The first sample carries the seeded pair; this callback's ledger starts empty.
+  assert.equal(r.samples[0][2].workMs, 8);
+  assert.equal(r.samples[0][2].syncWaitMs, 3);
+  assert.equal(r.context.syncWaits.frames, 1);
+  assert.equal(r.context.lastRenderedWorkMs, 10);
+  assert.equal(r.context.lastRenderedSyncWaitMs, 4);
+  assert.equal(r.context.lastSyncWait.copies, 1);
+  r.run(50);
+  assert.equal(r.samples[1][2].workMs, 10);
+  assert.equal(r.samples[1][2].syncWaitMs, 4);
+});
+
+test('a callback without rendered work carries no synchronous wait either', () => {
+  const skipped = runtime();
+  skipped.context.playbackCadence.shouldDraw = () => false;
+  skipped.run(17);
+  skipped.run(34);
+  assert.equal(skipped.samples[1][2].workMs, null);
+  assert.equal(skipped.samples[1][2].syncWaitMs, null);
+  assert.equal(skipped.context.lastSyncWait.copies, 0);
+  for (const state of [{ paused: true }, { hidden: true }]) {
+    const r = runtime(state);
+    r.run(17);
+    assert.equal(r.context.lastRenderedSyncWaitMs, null);
+    assert.equal(r.context.lastSyncWait.copies, 0);
   }
 });

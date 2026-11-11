@@ -9,7 +9,7 @@ const executablePath = process.env.PLAYWRIGHT_CHROMIUM_PATH || chromium.executab
 test('Cinematic WebGL cells preserve pixels through suspension and context restoration', {
   skip: !existsSync(executablePath) && 'Chromium unavailable; set PLAYWRIGHT_CHROMIUM_PATH', timeout: 20000,
 }, async t => {
-  const files = new Map(await Promise.all(['CinematicPixel.js', 'GraphicsResidency.js'].map(async name =>
+  const files = new Map(await Promise.all(['CinematicPixel.js', 'GraphicsResidency.js', 'SyncWaitLedger.js'].map(async name =>
     [`/src/render/${name}`, await readFile(new URL(`../src/render/${name}`, import.meta.url), 'utf8')])));
   const browser = await chromium.launch({ headless: true, executablePath,
     args: ['--mute-audio', '--enable-gpu', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader'] });

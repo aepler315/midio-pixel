@@ -52,6 +52,17 @@ Leave the FPS cap at its default (uncapped) for acceptance runs; the report reco
 | `….excluded`, `generationChanges` | Callbacks while paused or hidden are excluded, and pause, visibility and song changes break the interval chains, so resuming never counts the gap as one frame |
 | `….capFps` | FPS caps in effect during the bucket |
 | `qualityLevels` | Frames spent at each governor level (0 is the full show; see the ladder below) |
+| `levelTimeline` | The level sampled every callback, run-length encoded as `{level, frames, fromMs, toMs}`. `fromMs` and `toMs` are the first and last callback of the run, in ms from the start of recording (the song's start when the probe was pasted before the song, else the paste); a level that returns later is a new run. At most 2,000 runs; later changes are only counted in `levelRunsDropped` |
+| `performance` | The governor's own record and the drawn scene at the end of the run: the same block as **Copy graphics report**'s `performance`, from `window.__SMW.performanceReport()`. It covers the current song only, since a restarted song starts a new governor. `null` with `performanceError` set when the build has no such hook |
+| `performance.level`, `.fpsCap`, `.presentedFps`, `.callbackFps` | The level, FPS cap and presented and callback frame rates when the report was taken |
+| `performance.governor.events` | The last 32 level changes, oldest first: `atMs` (ms since the governor's time origin: its first sample, or its warm-up start if earlier), `from`, `to`, `cause`, and the deciding frame's `periodMs`, `workMs`, `overCount` and `workOverCount`. `cause` is `period` (shed: missed frames), `work` (shed: callback work near the frame period), `probe-expired` (shed: a recovery probe ran out with no work timing), `recovered`, or an outside change: `limit`, `fixture`, `hold`, `retro`. `eventsDropped` counts older events overwritten; `counters.levelChanges` counts all of them |
+| `performance.governor.levelMs`, `.sinceStartMs` | Milliseconds spent at each level 0–6, and the time from the governor's time origin to its latest frame |
+| `performance.governor.counters` | `samples` (valid frames seen), `overBudget` (frame period over budget), `workPressure` (work at or above 85% of the frame period), `noHeadroom` (rendered frame with work above 70% of the period), `levelChanges` |
+| `performance.governor.frames` | `{count, median, p95, max}` in ms over the last 600 frames for `periodMs` (every frame), `workMs` and `syncWaitMs` (rendered frames only; `syncWaitMs` only when timed, so its count can be lower) |
+| `performance.syncWait` | `last`: the timed synchronous waits of the last rendered callback (`src/render/SyncWaitLedger.js`): `totalMs`, `calls`, and ms per kind — `crestRead` and `crestEdgesRead` (crest `getImageData`), `probeCollect` and `probeSyncRead` (crest probe readback), `presenterGetError` (the presenter's `getError`); `stats`: the same as `governor.frames.syncWaitMs` |
+| `performance.drawn` | What the frame drew: `viewId`, `songRangeId`, `tiles` (the prepared view's manifest tiles, counted as `tools/range-frame-cost.mjs` counts them: hidden and tour-only tiles included), `geometryTriangles` (terrain geometry; a compiled-terrain view reports its own mesh count), `trees` (`mesh`, `billboards`), and whether the `mirror` and `backdrop` are active. `null` fields are unknown |
+| `performance.governor` scalars | The governor's state when the report was taken: `level`, `minLevel` (the quality limit), `workTimingEnabled`, `framePeriodMs` (the detected display period), `observedWorkMs` and `workHeadroomMs` (the work filter and the room left under the work line), `probeLevel` and `probeUntilMs` (a recovery probe in progress, else `null`) |
+| `performance.gpuTimer` | Always `null` in this build: a per-frame GPU timer is not implemented (see the frame-cost plan's Phase 0 record). It does not mean the timer extension is absent |
 | `legacyFrames` | Frames where the Range drew legacy scenery (a view not ready, or refused room) |
 | `residencyPeakMiB`, `residencyPeakByOwnerMiB` | Highest ledger ownership, recorded by the ledger whenever ownership grows (so short-lived scratch reservations count), and what owned it at that moment. `residencyPeakWindow` says where the window starts: `page load` when the probe ran before the song (so use a freshly opened page), else `probe start` |
 | `overcommits`, `denials` | Ledger overcommits (should be 0) and refused reservations |
@@ -126,3 +137,18 @@ presentation/frame identity, so an actual quality-refresh gap remains visible
 instead of being discarded as a new song. Use this chain for the post-cold
 stall gate. Keep deliberate quality interventions separate from automatic
 ladder oscillation when interpreting the level counts.
+
+## Governor record — 2026-11-10
+
+Phase 0 of the frame-cost plan (`docs/superpowers/plans/2026-11-10-frame-cost.md`)
+adds the governor's record to the probe (`performance`, `levelTimeline` above)
+and to `npm run test:gpu -- --live-seconds N` (`tools/landscape-review.mjs`).
+There, `live-report.json` gains `performance`, read once after the delivery
+window, and `levelTimeline`, sampled on the same callbacks as `delivery` with
+`fromMs`/`toMs` relative to the window start. Both are written before any
+acceptance check runs, so a failed software-WebGL run still records them. A
+build without `performanceReport` records `performance: null` and a
+`performanceError` string; one without `perfLevel` records `level: null`
+runs. Neither field feeds the pass/fail gates or the acceptance table above.
+Use `performance.governor.events` for why a level changed, and `levelTimeline`
+for when and for how long it held.

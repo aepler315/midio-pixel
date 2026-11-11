@@ -17,7 +17,8 @@ import {
 } from './audio/loadLimits.js';
 import { Simulation } from './sim/Simulation.js';
 import { resolveRendererMode } from './render/WebGLRenderer.js';
-import { graphicsReport } from './render/GraphicsDiagnostics.js';
+import { graphicsReport, performanceBlock } from './render/GraphicsDiagnostics.js';
+import { syncWaits } from './render/SyncWaitLedger.js';
 import { hitTestComposerStrip } from './render/Renderer.js';
 import { AudioEngine } from './audio/AudioEngine.js';
 import { renderDemoSongToAudioBuffer } from './audio/DemoSongRender.js';
@@ -280,6 +281,19 @@ let debugOverlay = null;
 let perfGovernor = null;
 let lastRafMs = null; // separate from lastNowMs (audio clock) -- tracks real rAF-to-rAF cadence for the perf governor
 let lastRenderedWorkMs = null; // CPU submission work, never vsync wait or a skipped draw
+// The same callback's timed synchronous waits (SyncWaitLedger), kept and
+// cleared exactly with lastRenderedWorkMs so the governor sees a matched pair.
+let lastRenderedSyncWaitMs = null;
+// The last rendered callback's ledger, copied in place for the graphics
+// report: the ledger itself restarts on every callback, skipped draws included.
+const lastSyncWait = {
+  captured: false, totalMs: 0, calls: 0, crestRead: 0, crestEdgesRead: 0, probeCollect: 0, probeSyncRead: 0, presenterGetError: 0,
+  copyFrom(l) {
+    this.captured = true; this.totalMs = l.totalMs; this.calls = l.calls;
+    this.crestRead = l.crestRead; this.crestEdgesRead = l.crestEdgesRead; this.probeCollect = l.probeCollect;
+    this.probeSyncRead = l.probeSyncRead; this.presenterGetError = l.presenterGetError;
+  },
+};
 let rafHandle = null; // tracks the pending frame() call so a mid-song file
                        // drop can cancel the old loop instead of stacking a
                        // second one alongside it
@@ -1679,6 +1693,9 @@ function startTimeline(timelineData, extra = {}) {
     minLevel: exportMode ? 0 : renderQualityLevel(generalQuality),
     economy: effectivePresentation().quality === 'economy',
   });
+  // The report pairs the last callback's waits with this governor's record,
+  // so the previous song's ledger must not outlive its governor.
+  lastSyncWait.captured = false;
   // An offline frame's period is its draw time, which the ladder would read
   // as pressure and shed the picture the file exists to keep.
   if (exportMode) perfGovernor.freezeQuality(effectivePresentation().quality === 'economy' ? PERF_MAX_LEVEL : exportQualityLevel);
@@ -2012,6 +2029,8 @@ function startTimeline(timelineData, extra = {}) {
     beginBulkExport: (size) => beginBulkExport(size),
     renderExportFrame: (timeMs, options) => renderExportFrame(timeMs, options),
     get perfLevel() { return perfGovernor?.level ?? null; },
+    // The graphics report's performance block, built by the same function.
+    performanceReport: () => performanceBlock(performanceReportInput()),
     // The load generation this simulation belongs to; evidence records it
     // so a late response from an older load can be told apart.
     get generation() { return loadGen; },
@@ -3195,6 +3214,16 @@ document.getElementById('displaySettingsBtn')?.addEventListener('click', () => {
 });
 document.getElementById('displaySettingsClose')?.addEventListener('click', () => displayDialog.close());
 displayDialog?.addEventListener('close', () => settingsHome.append(titleSettings));
+/** The graphics report's performance input (GraphicsDiagnostics.performanceBlock).
+ *  Built on demand; null pieces before a song has a governor or a drawn view. */
+function performanceReportInput() {
+  return {
+    level: perfGovernor?.level ?? null, fpsCap: playbackFps(), presentedFps: presentedFps.fps, callbackFps: fpsEma,
+    governor: perfGovernor?.diagnostics ?? null,
+    syncWait: { last: lastSyncWait.captured ? lastSyncWait : null },
+    drawn: rangePresentation?.drawnSnapshot?.() ?? null,
+  };
+}
 document.getElementById('copyGraphicsReport')?.addEventListener('click', async () => {
   const output = document.getElementById('graphicsReport');
   const status = document.getElementById('graphicsReportStatus');
@@ -3203,6 +3232,7 @@ document.getElementById('copyGraphicsReport')?.addEventListener('click', async (
     range: rangePresentation?.snapshot(), voxelRange: pilot?.status, profile: displayPrefs,
     presentation: renderer?.diagnostics || titlePresentation?.diagnostics, canvas,
     gl: pilot?.gl ?? rangePresentation?.scene?.renderer?.getContext(),
+    performance: performanceReportInput(),
   }), null, 2);
   output.hidden = false; output.value = text;
   try {
@@ -3218,10 +3248,13 @@ document.getElementById('copyGraphicsReport')?.addEventListener('click', async (
 
 function frame(tRaf) {
   if (!running) return;
-  if (paused || playbackPreparing) { lastRenderedWorkMs = null; rafHandle = requestAnimationFrame(frame); return; }
+  if (paused || playbackPreparing) { lastRenderedWorkMs = null; lastRenderedSyncWaitMs = null; rafHandle = requestAnimationFrame(frame); return; }
+  syncWaits.beginFrame();
   const workStartMs = performance.now();
   const previousWorkMs = lastRenderedWorkMs;
+  const previousSyncWaitMs = lastRenderedSyncWaitMs;
   lastRenderedWorkMs = null;
+  lastRenderedSyncWaitMs = null;
   if (lastRafMs !== null) {
     const rafDeltaMs = tRaf - lastRafMs;
     noteFrameGap(rafDeltaMs);
@@ -3231,7 +3264,7 @@ function frame(tRaf) {
     // "frames" is exactly the shape the severity escalation is built to
     // believe, so it would shed rung after rung while nothing was being
     // drawn at all, and hand the player back a degraded show on return.
-    if (!document.hidden) perfGovernor.sample(rafDeltaMs, tRaf, { capFps: playbackFps(), workMs: previousWorkMs });
+    if (!document.hidden) perfGovernor.sample(rafDeltaMs, tRaf, { capFps: playbackFps(), workMs: previousWorkMs, syncWaitMs: previousSyncWaitMs });
     // Compared with the rung the stage was sized for, not the previous
     // frame's: a General quality change between frames moves the level
     // too, and the output resolution follows the level.
@@ -3398,6 +3431,8 @@ function frame(tRaf) {
   // WebGL submission can finish before the GPU: callback pressure remains
   // the governor's independent signal for missed deadlines.
   lastRenderedWorkMs = presented && !document.hidden ? Math.max(0, performance.now() - workStartMs) : null;
+  lastRenderedSyncWaitMs = lastRenderedWorkMs === null ? null : syncWaits.totalMs;
+  if (lastRenderedWorkMs !== null) lastSyncWait.copyFrom(syncWaits);
 
   if (isSongComplete(nowMs)) {
     onSongComplete();
@@ -5089,6 +5124,9 @@ syncRecordUI();
 // The title has a presentation owner before there is a song simulation.
 if (!window.__SMW) window.__SMW = {
   get presentationDiagnostics() { return titlePresentation?.diagnostics; },
+  // Before a song there is no governor: level and governor read null.
+  get perfLevel() { return perfGovernor?.level ?? null; },
+  performanceReport: () => performanceBlock(performanceReportInput()),
   get displayPrefs() { return { ...displayPrefs }; },
   get rangeRenderer() { return rangePresentation?.mode || rangeMode.mode; },
   get rangeState() { return rangeStateSnapshot(); },

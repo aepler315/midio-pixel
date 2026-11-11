@@ -101,6 +101,39 @@ const WORK_SAMPLE_MAX_GAP_MS = 250;
 const RECOVERY_PROBE_MS = 2000;
 export const MAX_LEVEL = 6;
 
+// Phase 0 performance record: what the ladder did and why, kept in fixed
+// storage so sample() records it without allocating. Observation only --
+// nothing below feeds back into a decision.
+export const EVENT_LOG_SIZE = 32;
+export const FRAME_STATS_SIZE = 600;
+const CAUSE_PERIOD = 'period';
+const CAUSE_WORK = 'work';
+const CAUSE_PROBE_EXPIRED = 'probe-expired';
+const CAUSE_RECOVERED = 'recovered';
+const CAUSE_LIMIT = 'limit';
+const CAUSE_FIXTURE = 'fixture';
+const CAUSE_HOLD = 'hold';
+const CAUSE_RETRO = 'retro';
+// _clock slots. NaN means "not yet": a Float64Array keeps per-frame doubles
+// unboxed, which null-initialised object fields would not.
+const CLOCK_ORIGIN = 0;
+const CLOCK_LAST = 1;
+
+/** Median, p95 and max of the first `count` entries of a ring (order does
+ *  not matter to any of them). Allocates; diagnostics only. */
+function ringStats(ring, count) {
+  if (count === 0) return { count: 0, median: null, p95: null, max: null };
+  // Typed-array sort is numeric; a plain array's default sort is not.
+  const sorted = ring.slice(0, count).sort();
+  const mid = count >> 1;
+  return {
+    count,
+    median: count % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2,
+    p95: sorted[Math.min(count - 1, Math.floor(0.95 * count))],
+    max: sorted[count - 1],
+  };
+}
+
 /** Resolve the initial shed level: a `?perf=lite|high` URL override wins;
  *  otherwise a coarse-pointer/small-viewport device heuristic starts a
  *  phone a rung down so the first second is already smooth rather than
@@ -171,6 +204,83 @@ export class PerfGovernor {
     this._workTimingEnabled = false;
     this._lastSampleAtMs = null;
     this._resetWorkEvidence();
+    this._initRecord();
+  }
+
+  // Only a new governor starts the record empty: warm-up, a quality limit
+  // and forgetRecoveryHistory all leave it alone.
+  _initRecord() {
+    this._clock = new Float64Array(2).fill(NaN);
+    this._levelMs = new Float64Array(MAX_LEVEL + 1);
+    this._countSamples = 0;
+    this._countOverBudget = 0;
+    this._countWorkPressure = 0;
+    this._countNoHeadroom = 0;
+    this._eventTotal = 0;
+    this._events = new Array(EVENT_LOG_SIZE);
+    // NaN, not 0 or null, in every fractional field: V8 then stores them as
+    // unboxed doubles from the start, so writing a 16.7 ms period in
+    // _logEvent overwrites in place instead of boxing a new HeapNumber.
+    // NaN stands for "none"; diagnostics turns it back into null.
+    for (let i = 0; i < EVENT_LOG_SIZE; i++) {
+      this._events[i] = { atMs: NaN, from: 0, to: 0, cause: CAUSE_PERIOD, periodMs: NaN, workMs: NaN, overCount: NaN, workOverCount: NaN };
+    }
+    this._periodRing = new Float64Array(FRAME_STATS_SIZE);
+    this._workRing = new Float64Array(FRAME_STATS_SIZE);
+    this._syncRing = new Float64Array(FRAME_STATS_SIZE);
+    this._periodHead = 0; this._periodCount = 0;
+    this._workHead = 0; this._workCount = 0;
+    this._syncHead = 0; this._syncCount = 0;
+  }
+
+  /** Record one valid sample, before any early return or decision. */
+  _observe(deltaMs, nowMs, workMs, syncWaitMs, framePeriodMs, budgetMs) {
+    const clock = this._clock;
+    if (Number.isNaN(clock[CLOCK_ORIGIN])) clock[CLOCK_ORIGIN] = nowMs;
+    clock[CLOCK_LAST] = nowMs;
+    // Tests and tools assign `level` directly; never index past the array.
+    const level = this.level;
+    if (Number.isInteger(level) && level >= 0 && level <= MAX_LEVEL) this._levelMs[level] += deltaMs;
+    this._countSamples++;
+    if (deltaMs > budgetMs) this._countOverBudget++;
+    this._periodRing[this._periodHead] = deltaMs;
+    this._periodHead = (this._periodHead + 1) % FRAME_STATS_SIZE;
+    if (this._periodCount < FRAME_STATS_SIZE) this._periodCount++;
+    if (!(Number.isFinite(workMs) && workMs >= 0)) return;
+    if (workMs >= framePeriodMs * WORK_PRESSURE_RATIO) this._countWorkPressure++;
+    // The ladder's own headroom test, negated.
+    if (!(workMs <= framePeriodMs * WORK_HEADROOM_RATIO)) this._countNoHeadroom++;
+    this._workRing[this._workHead] = workMs;
+    this._workHead = (this._workHead + 1) % FRAME_STATS_SIZE;
+    if (this._workCount < FRAME_STATS_SIZE) this._workCount++;
+    if (!(Number.isFinite(syncWaitMs) && syncWaitMs >= 0)) return;
+    this._syncRing[this._syncHead] = syncWaitMs;
+    this._syncHead = (this._syncHead + 1) % FRAME_STATS_SIZE;
+    if (this._syncCount < FRAME_STATS_SIZE) this._syncCount++;
+  }
+
+  /** Write one level change into its ring slot in place. The accumulators
+   *  are the values before any reset the change itself performs. */
+  _logEvent(from, to, cause, periodMs, workMs, overCount, workOverCount) {
+    const slot = this._events[this._eventTotal % EVENT_LOG_SIZE];
+    const last = this._clock[CLOCK_LAST];
+    slot.atMs = Number.isNaN(last) ? 0 : last - this._clock[CLOCK_ORIGIN];
+    slot.from = from;
+    slot.to = to;
+    slot.cause = cause;
+    slot.periodMs = periodMs == null ? NaN : periodMs;
+    slot.workMs = workMs == null ? NaN : workMs;
+    slot.overCount = overCount;
+    slot.workOverCount = workOverCount;
+    this._eventTotal++;
+  }
+
+  /** A level set from outside the ladder's own decisions; logged only when
+   *  it actually changes the level. */
+  _setLevelExternal(level, cause, overCount = this._overCount, workOverCount = this._workOverCount) {
+    if (level === this.level) return;
+    this._logEvent(this.level, level, cause, null, null, overCount, workOverCount);
+    this.level = level;
   }
 
   /** Discard what the ladder has learned about which rungs are affordable.
@@ -204,8 +314,9 @@ export class PerfGovernor {
     this._probeUntilMs = null;
   }
 
-  _shedLevel() {
+  _shedLevel(cause, periodMs, workMs) {
     if (this.level >= MAX_LEVEL) return;
+    this._logEvent(this.level, this.level + 1, cause, periodMs, workMs, this._overCount, this._workOverCount);
     if (this._recoveredInto.has(this.level)) {
       this._fallbacks.set(this.level, (this._fallbacks.get(this.level) || 0) + 1);
       this._recoveredInto.delete(this.level);
@@ -219,6 +330,19 @@ export class PerfGovernor {
 
   /** On-demand snapshot; sampling itself allocates no diagnostics objects. */
   get diagnostics() {
+    const last = this._clock[CLOCK_LAST];
+    const total = this._eventTotal;
+    const kept = Math.min(total, EVENT_LOG_SIZE);
+    const events = [];
+    for (let i = total - kept; i < total; i++) {
+      const e = this._events[i % EVENT_LOG_SIZE];
+      events.push({
+        atMs: e.atMs, from: e.from, to: e.to, cause: e.cause,
+        periodMs: Number.isNaN(e.periodMs) ? null : e.periodMs,
+        workMs: Number.isNaN(e.workMs) ? null : e.workMs,
+        overCount: e.overCount, workOverCount: e.workOverCount,
+      });
+    }
     return {
       workTimingEnabled: this._workTimingEnabled,
       framePeriodMs: this._framePeriodMs ?? 1000 / 60,
@@ -226,14 +350,34 @@ export class PerfGovernor {
       workHeadroomMs: this._workHeadroomMs,
       probeLevel: this._probeLevel,
       probeUntilMs: this._probeUntilMs,
+      level: this.level,
+      minLevel: this.minLevel,
+      sinceStartMs: Number.isNaN(last) ? 0 : last - this._clock[CLOCK_ORIGIN],
+      levelMs: Array.from(this._levelMs),
+      counters: {
+        samples: this._countSamples,
+        overBudget: this._countOverBudget,
+        workPressure: this._countWorkPressure,
+        noHeadroom: this._countNoHeadroom,
+        levelChanges: total,
+      },
+      events,
+      eventsDropped: total - kept,
+      frames: {
+        periodMs: ringStats(this._periodRing, this._periodCount),
+        workMs: ringStats(this._workRing, this._workCount),
+        syncWaitMs: ringStats(this._syncRing, this._syncCount),
+      },
     };
   }
 
   /** Apply an explicit detail budget immediately, retaining automatic shedding. */
   setQualityLimit(level) {
+    const overCount = this._overCount, workOverCount = this._workOverCount;
     this.minLevel = Number.isInteger(level) ? Math.max(0, Math.min(MAX_LEVEL, level)) : 0;
     this.forgetRecoveryHistory();
-    this.level = this._fixtureLevel ?? (this._holdQuality ? this._heldLevel : this._retro ? MAX_LEVEL : this.minLevel);
+    this._setLevelExternal(this._fixtureLevel ?? (this._holdQuality ? this._heldLevel : this._retro ? MAX_LEVEL : this.minLevel),
+      CAUSE_LIMIT, overCount, workOverCount);
   }
 
   /** How long a clean run has to last before the ladder will try `level`
@@ -262,6 +406,7 @@ export class PerfGovernor {
   set retro(on) {
     const next = !!on;
     if (next === this._retro) return;
+    const overCount = this._overCount, workOverCount = this._workOverCount;
     this._retro = next;
     // Leaving either direction starts the ladder's evidence over: the frames
     // measured under the old mode say nothing about the new one.
@@ -271,12 +416,16 @@ export class PerfGovernor {
     this._fallbacks.clear();
     this._recoveredInto.clear();
     this._resetWorkEvidence();
-    if (next && this._fixtureLevel === null) this.level = MAX_LEVEL;
+    if (next && this._fixtureLevel === null) this._setLevelExternal(MAX_LEVEL, CAUSE_RETRO, overCount, workOverCount);
   }
 
   /** Restart the warm-up grace: call when a new song starts (or the world is
    *  rebuilt), since that is when the expensive one-off bake happens. */
   beginWarmup(nowMs) {
+    // The record's time origin is the earlier of this and the first sample.
+    if (Number.isFinite(nowMs) && (Number.isNaN(this._clock[CLOCK_ORIGIN]) || nowMs < this._clock[CLOCK_ORIGIN])) {
+      this._clock[CLOCK_ORIGIN] = nowMs;
+    }
     this._warmUntilMs = nowMs + WARMUP_MS;
     this._overCount = 0;
     this._cleanSinceMs = null;
@@ -300,8 +449,8 @@ export class PerfGovernor {
 
   set holdQuality(on) {
     this._holdQuality = !!on;
-    if (this._fixtureLevel !== null) { this.level = this._fixtureLevel; return; }
-    if (this._holdQuality) this.level = this._heldLevel;
+    if (this._fixtureLevel !== null) { this._setLevelExternal(this._fixtureLevel, CAUSE_HOLD); return; }
+    if (this._holdQuality) this._setLevelExternal(this._heldLevel, CAUSE_HOLD);
   }
 
   /** Controlled evidence captures pin an exact rung, 0..MAX_LEVEL, which
@@ -312,23 +461,25 @@ export class PerfGovernor {
   setFixtureLevel(level) {
     if (level === null) {
       this._fixtureLevel = null;
-      if (this._holdQuality) this.level = this._heldLevel;
-      else if (this._retro) this.level = MAX_LEVEL;
+      if (this._holdQuality) this._setLevelExternal(this._heldLevel, CAUSE_FIXTURE);
+      else if (this._retro) this._setLevelExternal(MAX_LEVEL, CAUSE_FIXTURE);
       return;
     }
     if (!Number.isInteger(level) || level < 0 || level > MAX_LEVEL) {
       throw new RangeError(`fixture quality must be an integer 0..${MAX_LEVEL}, got ${level}`);
     }
     this._fixtureLevel = level;
-    this.level = level;
+    this._setLevelExternal(level, CAUSE_FIXTURE);
   }
 
   get fixtureLevel() { return this._fixtureLevel; }
 
   /** Observe every raw rAF period. Optional workMs measures the previous
    *  rendered callback's full CPU work; pass null when that callback skipped
-   *  rendering. CPU submission time does not measure GPU headroom. */
-  sample(deltaMs, nowMs, { capFps = 60, workMs } = {}) {
+   *  rendering. CPU submission time does not measure GPU headroom.
+   *  syncWaitMs is the timed synchronous wait inside that same callback; it
+   *  is recorded and decides nothing. */
+  sample(deltaMs, nowMs, { capFps = 60, workMs, syncWaitMs } = {}) {
     const roundedFps = Math.round(capFps);
     const fps = roundedFps === 24 || roundedFps === 30 || roundedFps === 60 ? roundedFps : 60;
     const framePeriodMs = 1000 / fps;
@@ -339,12 +490,26 @@ export class PerfGovernor {
       this._framePeriodMs = framePeriodMs;
       this.forgetRecoveryHistory();
     }
-    if (this._fixtureLevel !== null) { this.level = this._fixtureLevel; return; }
-    if (this._holdQuality) { this.level = this._heldLevel; return; }
+    // Recorded before the pins and the warm-up return, so the record covers
+    // every valid callback. Invalid samples leave it untouched.
+    if (Number.isFinite(deltaMs) && deltaMs > 0 && Number.isFinite(nowMs)) {
+      this._observe(deltaMs, nowMs, workMs, syncWaitMs, framePeriodMs, budgetMs);
+    }
+    if (this._fixtureLevel !== null) {
+      if (this.level !== this._fixtureLevel) this._setLevelExternal(this._fixtureLevel, CAUSE_FIXTURE);
+      return;
+    }
+    if (this._holdQuality) {
+      if (this.level !== this._heldLevel) this._setLevelExternal(this._heldLevel, CAUSE_HOLD);
+      return;
+    }
     // 8-bit mode holds the floor: neither shedding (already at the bottom)
     // nor recovering (see the `retro` setter -- recovery is exactly the
     // failure mode pinning exists to prevent).
-    if (this._retro) { this.level = MAX_LEVEL; return; }
+    if (this._retro) {
+      if (this.level !== MAX_LEVEL) this._setLevelExternal(MAX_LEVEL, CAUSE_RETRO);
+      return;
+    }
     // Opt-in, not automatic: a governor that has never been told a song is
     // starting behaves exactly as it always did. Seeding this implicitly on
     // the first sample would quietly change the meaning of every existing
@@ -416,7 +581,7 @@ export class PerfGovernor {
         // No observed work can certify a probe. A pressure sample still
         // votes through the normal short probe threshold below, so a lone
         // hitch crossing the deadline is not an automatic failed attempt.
-        this._shedLevel();
+        this._shedLevel(CAUSE_PROBE_EXPIRED, deltaMs, null);
         return;
       }
     }
@@ -441,7 +606,7 @@ export class PerfGovernor {
       if ((this._overCount >= shedAfter || this._workOverCount >= shedAfter) && this.level < MAX_LEVEL) {
         // Only a rung the ladder had CLIMBED BACK INTO counts as a failed
         // attempt: the first descent is a cold machine, not a verdict.
-        this._shedLevel();
+        this._shedLevel(this._overCount >= shedAfter ? CAUSE_PERIOD : CAUSE_WORK, deltaMs, hasWork ? workMs : null);
       }
     } else {
       this._catastrophicRun = 0;
@@ -449,6 +614,8 @@ export class PerfGovernor {
       if (this._cleanSinceMs === null) this._cleanSinceMs = nowMs;
       else if (this.level > this.minLevel && nowMs - this._cleanSinceMs >= this.recoverWindowMsFor(this.level - 1)
         && (!this._workTimingEnabled || (hasWork && this._workHeadroomMs >= this.recoverWindowMsFor(this.level - 1)))) {
+        this._logEvent(this.level, this.level - 1, CAUSE_RECOVERED, deltaMs, hasWork ? workMs : null,
+          this._overCount, this._workOverCount);
         this.level--;
         this._recoveredInto.add(this.level);
         this._overCount = 0; // fresh evidence for the rung just entered

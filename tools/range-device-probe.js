@@ -12,7 +12,10 @@
 //   presentation or a repeated frame is not a new delivered frame, and
 //   paused or hidden time and song changes are excluded, never counted as
 //   one long interval.
-// Also: the quality levels the governor chose, FPS caps seen, the residency
+// Also: the quality levels the governor chose (frame counts and a run-length
+// timeline), the governor's own record at the end (`performance`: level
+// changes with causes, time per level, frame and synchronous-wait
+// statistics, what was drawn), FPS caps seen, the residency
 // high-water mark (tracked by the ledger itself, so short-lived
 // reservations count) by owner, the Range render/copy CPU submission cost
 // per frame (every pass, both travel sides; not GPU completion), the stage
@@ -42,6 +45,12 @@
   if (!coldStartCaptured) residency()?.resetPeak?.();
   const buckets = { cold: new FrameDeliveryAggregator(), steady: new FrameDeliveryAggregator(), travel: new FrameDeliveryAggregator(), playback: new FrameDeliveryAggregator() };
   const levels = {};
+  // Run-length level timeline, ms from t0 (the song's start, or the paste
+  // when the song was already playing); a new run only when
+  // the level changes, so ladder chatter shows as many short runs.
+  const levelTimeline = [];
+  const MAX_LEVEL_RUNS = 2000;
+  let levelRunsDropped = 0, lastLevel;
   let previousBucket = null, segment = 0;
   const renderMs = [], copyMs = [];
   const MAX_TIMINGS = 40000; // ten minutes at 60 Hz, bounded
@@ -69,7 +78,16 @@
       // Keep the post-cold playback chain continuous across travel and
       // quality changes, so a real boundary stall is still measured.
       if (bucket !== 'cold') buckets.playback.push(sample);
-      levels[smw?.perfLevel] = (levels[smw?.perfLevel] || 0) + 1;
+      const level = smw?.perfLevel ?? null;
+      levels[level] = (levels[level] || 0) + 1;
+      // Once the cap is hit, later runs are only counted, so the last kept
+      // run never absorbs frames from after a dropped one.
+      const atMs = +(t - t0).toFixed(1), run = levelTimeline[levelTimeline.length - 1];
+      if (levelRunsDropped) { if (level !== lastLevel) levelRunsDropped++; }
+      else if (run && run.level === level) { run.frames++; run.toMs = atMs; }
+      else if (levelTimeline.length < MAX_LEVEL_RUNS) levelTimeline.push({ level, frames: 1, fromMs: atMs, toMs: atMs });
+      else levelRunsDropped = 1;
+      lastLevel = level;
       if (pres?.active) {
         // The totals of the latest Range frame (every pass summed), once
         // per frame: CPU submission and copy, not GPU completion.
@@ -94,6 +112,13 @@
   const gpu = gl ? (dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)) : null;
   const stage = document.querySelector('#stage');
   const r = residency()?.snapshot?.() || null;
+  // The governor's record and the drawn scene (graphicsReport's performance
+  // block). It belongs to the current song: a restart begins a new record.
+  let perfBlock = null, perfBlockError = null;
+  try {
+    if (typeof smw?.performanceReport === 'function') perfBlock = smw.performanceReport() ?? null;
+    else perfBlockError = 'window.__SMW.performanceReport is not available in this build';
+  } catch (error) { perfBlockError = String(error?.message ?? error); }
   const report = {
     when: new Date().toISOString(), url: location.href, userAgent: navigator.userAgent, gpu,
     deviceMemoryGB: navigator.deviceMemory ?? null, dpr: devicePixelRatio,
@@ -102,7 +127,8 @@
     budget: smw?.rangeState?.residency?.budget ?? null,
     minutes: MINUTES, coldStartCaptured, songRestarts: restarts,
     frameDelivery: { cold: buckets.cold.summary(), steady: buckets.steady.summary(), travel: buckets.travel.summary(), playback: buckets.playback.summary() },
-    qualityLevels: levels, legacyFrames,
+    qualityLevels: levels, levelTimeline, levelRunsDropped, legacyFrames,
+    performance: perfBlock, ...(perfBlockError ? { performanceError: perfBlockError } : {}),
     residencyPeakWindow: coldStartCaptured ? 'page load' : 'probe start',
     residencyPeakMiB: r ? +(r.peakBytes / MiB).toFixed(1) : null,
     residencyPeakByOwnerMiB: r ? Object.fromEntries(Object.entries(r.peakByOwner).map(([k, v]) => [k, +(v / MiB).toFixed(1)])) : null,

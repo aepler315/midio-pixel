@@ -90,22 +90,22 @@ Not known: any timing on the RTX 3060 or the JOYING. Phase 0 exists to get it.
 **Files:** `test/songRangePlan.test.mjs`; `src/render/PerfGovernor.js`; `src/render/GraphicsDiagnostics.js`; `src/main.js` (frame loop, graphics report handler); `tools/landscape-review.mjs` (`liveReview`, `reviewDiagnostics`); `tools/range-device-probe.js`; `docs/range-v2-device-runs.md`; tests beside each.
 
 - [ ] Fix `test/songRangePlan.test.mjs:52`: build the "no plan" case from a restricted catalog fixture, since every family now plans. Fix `:113`: compare the catalog's families with the plannable subset the builder publishes. Add tests for the Phase 5 planner paths that have none (`canFill`, the constrained principal pool, the most-constrained-first retry). Answer the review thread on PR #122 with the commit.
-- [ ] `test/shotPlanner.test.mjs:177` asserts a wall-clock bound and fails on slow hosts. Leave its bound. Record in the Execution record the host it failed on and whether it passes on the owner's machine or a hosted Test run.
-- [ ] Governor event log. A fixed-size ring (32 entries, preallocated) of level changes: time since the governor started, from, to, cause (`period`, `work`, `probe-expired`, `recovered`), the period and work of the deciding sample, both accumulators. Counters: milliseconds spent at each level; samples over the period budget; samples with work pressure; samples without headroom. No allocation inside `sample()`.
-- [ ] Time every synchronous wait in the callback and sum them per frame: both `getImageData` sites in `RangeCrest` (`_prepareEdges` has no timer today), the probe collection (`collectMs`), and the presenter's `getError`. Expose the frame's total as `syncWaitMs`. Count each wait once: `crest.cutMs` already contains the presenter's `getError`, which runs inside `RangeCrest.drawTerrain`.
-- [ ] Frame statistics. Three fixed rings of the last 600 periods, works and synchronous waits; `diagnostics` computes median, p95 and maximum on demand.
-- [ ] `graphicsReport` gains a `performance` block: the governor snapshot, the current level, fps cap, presented and callback fps, the synchronous wait statistics, the drawn view id and song range id, the prepared view's tiles, geometry triangles and tree counts, and whether the mirror and backdrop are active. Extend `test/graphicsDiagnostics.test.js`.
-- [ ] `liveReview` in `tools/landscape-review.mjs` adds the same block and a level timeline (level sampled each frame, run-length encoded) to `live-report.json`. They do not change its pass/fail gates. `tools/range-device-probe.js` reports the same block; update the field table in `docs/range-v2-device-runs.md`.
+- [x] `test/shotPlanner.test.mjs:177` asserts a wall-clock bound and fails on slow hosts. Leave its bound. Record in the Execution record the host it failed on and whether it passes on the owner's machine or a hosted Test run.
+- [x] Governor event log. A fixed-size ring (32 entries, preallocated) of level changes: time since the governor started, from, to, cause (`period`, `work`, `probe-expired`, `recovered`), the period and work of the deciding sample, both accumulators. Counters: milliseconds spent at each level; samples over the period budget; samples with work pressure; samples without headroom. No allocation inside `sample()`.
+- [x] Time every synchronous wait in the callback and sum them per frame: both `getImageData` sites in `RangeCrest` (`_prepareEdges` has no timer today), the probe collection (`collectMs`), and the presenter's `getError`. Expose the frame's total as `syncWaitMs`. Count each wait once: `crest.cutMs` already contains the presenter's `getError`, which runs inside `RangeCrest.drawTerrain`.
+- [x] Frame statistics. Three fixed rings of the last 600 periods, works and synchronous waits; `diagnostics` computes median, p95 and maximum on demand.
+- [x] `graphicsReport` gains a `performance` block: the governor snapshot, the current level, fps cap, presented and callback fps, the synchronous wait statistics, the drawn view id and song range id, the prepared view's tiles, geometry triangles and tree counts, and whether the mirror and backdrop are active. Extend `test/graphicsDiagnostics.test.js`.
+- [x] `liveReview` in `tools/landscape-review.mjs` adds the same block and a level timeline (level sampled each frame, run-length encoded) to `live-report.json`. They do not change its pass/fail gates. `tools/range-device-probe.js` reports the same block; update the field table in `docs/range-v2-device-runs.md`.
 - [ ] Optional, only if it fits in half a day: GPU time of the scene's WebGL work per frame through `EXT_disjoint_timer_query_webgl2` when the extension exists, median and p95 in the performance block. Skip it if a query disturbs a frame or the extension is absent in headless Chromium.
-- [ ] Unit tests for the remaining pure parts of the instruments: `summarizeCallbacks` (`range-live-callbacks.mjs`), `summarizeProfile` (`cpuprofile-top.mjs`), `runTrace` (`perf-governor-sim.mjs`). `test/rangeFrameCostCounters.test.mjs` already covers the in-page counters, `passTable` and `mainThreadMs`.
-- [ ] Record the baseline counts this plan gates against by running the audit's section 11 commands; attach the reports to the pull request.
+- [x] Unit tests for the remaining pure parts of the instruments: `summarizeCallbacks` (`range-live-callbacks.mjs`), `summarizeProfile` (`cpuprofile-top.mjs`), `runTrace` (`perf-governor-sim.mjs`). `test/rangeFrameCostCounters.test.mjs` already covers the in-page counters, `passTable` and `mainThreadMs`.
+- [x] Record the baseline counts this plan gates against by running the audit's section 11 commands; attach the reports to the pull request.
 
 **Gate G0:** `npm run lint` clean; `npm test` green apart from a recorded host-timing test; a graphics report from a headless run shows a shed event with its cause; the pull request states the owner commands below. Phases 1 to 3 do not wait for the owner's reply.
 
 **Owner request at G0** (about five minutes on the RTX machine):
 
 ```sh
-npm run test:gpu -- --song-range force --live-seconds 60 --out .smoke/gpu-stage
+npm run test:gpu -- --view natural --song-range force --live-seconds 60 --out .smoke/gpu-stage
 npm run test:gpu -- --view teton-jackson-lake --live-seconds 60 --out .smoke/gpu-teton
 npm run test:gpu -- --view nc-ross-lake-north --live-seconds 30 --out .smoke/gpu-ross
 ```
@@ -254,4 +254,48 @@ At each gate post: the step list with what was done; the count tables before and
 
 ## Execution record
 
-Empty. Add one section per phase: date, branch and pull request, what changed against this plan and why, the gate evidence, and what was not run.
+Add one section per phase: date, branch and pull request, what changed against this plan and why, the gate evidence, and what was not run.
+
+### Phase 0: 2026-11-10, branch `perf/p0-record` from `main` 6fe0c48
+
+**Host.** Windows 11, i9-14900KF, RTX 3060: the owner's machine. All headless runs used software WebGL (SwiftShader); no `--hardware-gpu` run was made. Node 24.22.2 through `fnm` (the machine default is Node 25, which `engine-strict` refuses). npm's install-script policy blocked esbuild's postinstall during `npm ci`; nothing in lint, tests or the review tools needed it.
+
+**What changed against the plan, and why.**
+- `reviewDiagnostics` in `tools/landscape-review.mjs` is unchanged. The performance block and level timeline live in `liveReview`'s `live-report.json`, where G0's evidence is read. A failed block is recorded as `performanceError` / `levelTimelineError` and never fails the review, so the gates stay as they were.
+- Synchronous waits are kept in a module ledger, `src/render/SyncWaitLedger.js`, with one numeric field per kind (`crestRead`, `crestEdgesRead`, `probeCollect`, `probeSyncRead`, `presenterGetError`). Export's intentional synchronous probe read counts as `probeSyncRead`, as the live fallback does; export never samples the governor. `readMs` (which contains `collectMs`) and `cutMs` (which contains the presenter's `getError`) are never added, so each wait counts once.
+- The event log has four causes beyond the plan's list: `limit`, `fixture`, `hold`, `retro`. They record level changes the governor did not decide, so the log accounts for every change. A shed's cause is `period` when the period accumulator reached its threshold, otherwise `work`.
+- `GraphicsDiagnostics` derives its level count from `PerfGovernor.MAX_LEVEL`. `drawn.geometryTriangles` takes a compiled-terrain view's own count (that path leaves band geometries empty) instead of reporting 0.
+- The governor's decisions are unchanged: `tools/perf-governor-sim.mjs` prints byte-identical output before and after.
+- **`tools/range-frame-cost.mjs` now pins the AudioContext rate**: `--sample-rate`, default 44,100 Hz, recorded in each report as `sampleRate`. A headless AudioContext takes the host's output device rate, and the song analysis, and with it the composed stage and the camera, follows it. The same WAV composes `song-range-911f810a0bd86424` at 44.1 kHz, `song-range-61a1efc03691a322` at 48 kHz and `song-range-8a5bb600fa6dcb9e` at 96 kHz (this host's device rate, which the unpinned tool used). At 44.1 kHz the tool reproduces the audit exactly on this host: the forced stage's level 0 frame at 160 draws / 7,760,926 triangles and 163 / 8,425,848, `teton-jackson-lake` 17,241,160 / 18,780,094, `white-mountains-owens` 5,197,974 / 957,370, layout A 16,230,174. So the audit's host ran at 44.1 kHz, and the audit's numbers hold as this plan's "today" on any host. `landscape-review` and `range-live-callbacks` already pinned 48 kHz. Pinning the dry tool at 48 kHz does not reproduce the live stage either: the G0 live review's own WAV (byte-identical to the audit's `song.wav`) drew `song-range-c7c9c4b0ccb5131e`, while the dry tool composes `61a1efc03691a322` from it at 48 kHz. Something else in the live path (its start time, or how it analyses the song) also moves the stage. Until that is found, a dry count describes the dry tool's stage, not the stage a live run drew; see decision D6 below.
+- **The owner's stage command needs `--view natural`.** `landscape-review` (and `test:gpu`, which forwards to it) keeps its default view, `teton-range-tour`, when given only `--song-range force`; the first G0 run measured the Teton tour. `--view natural` clears the view and biome as the dry tool does. The owner request at G0 is corrected; section 1's "hardware tooling" line has the same gap.
+
+**Optional GPU timer: deferred.** `EXT_disjoint_timer_query_webgl2` exists in headless Chromium here, but on SwiftShader it reports about 0.5 microseconds per frame, which measures nothing. The block carries `gpuTimer: null`. Revisit with the owner's hardware record if Phase 6 needs it.
+
+**Suite.** `npm run lint` clean. `npm test` on `main`: 5,575 tests, 5,562 pass, 2 fail (`songRangePlan` :52 and :113), 11 skipped. On this branch: 5,644 tests, 5,631 pass, 0 assertion failures, 11 skipped, 1 todo (the planner's three-way cycle limitation, recorded as `test.todo`). The one failing file in that run, `test/landRiseStageScene.test.mjs`, passed all 9 of its tests and then did not exit, spinning a core for 97 minutes until stopped; it did not recur alone on either tree or in five more runs on the branch (14 to 17 s each). After the last changes (compiled-view triangles, `--sample-rate`, review fixes) the full suite ran again on the final tree: 5,645 tests, 5,633 pass, 0 fail, 11 skipped, 1 todo, 310 s, no hang. `test/shotPlanner.test.mjs:177` passed on this host, the owner's machine, in both runs; the host it failed on is the audit's, which the audit does not name. No hosted Test run exists for this work: the last `test.yml` runs (2026-10-20 and 21) all failed, before this branch existed.
+
+**Review.** An independent adversarial review (four reviewers, two refuters per finding) raised 17 findings. Twelve were refuted by both refuters, among them all three on governor neutrality and allocation. The five that survived were low severity and are fixed here: compiled-view triangles; the field table's missing rows (`gpuTimer`, the governor's scalar fields) and its tile wording; this phase's first item ticked while its PR #122 step was open (now unticked); and the `shotPlanner` host above.
+
+**Baseline counts** (`.smoke/p0-baseline-44k/`, the audit's section 11 commands at the pinned 44.1 kHz; count class). Level 0 and 1 rows; the logs hold every level.
+
+| View | Level 0 triangles (instanced) | Level 1 | Filtered 2D operations |
+| --- | --- | --- | --- |
+| Forced stage `911f810a0bd86424` at 12.0 s | 7,760,926 (575,904), 160 draws | 5,430,572 | |
+| Forced stage at 86.4 s (88.8 s in the all-levels run) | 8,425,848 (776,544), 163 draws | 5,755,620 | 1,271 at level 6 |
+| Layout A `6ac2307926e5075b` at 86.0 s | 16,230,174 (6,083,320) | 8,974,120 | 0 |
+| `teton-jackson-lake` at 12.0 / 86.4 s | 17,241,160 / 18,780,094 | | |
+| `white-mountains-owens` at 12.0 / 86.4 s | 5,197,974 / 957,370 | | |
+| `nc-ross-lake-north` | not counted (below) | | |
+
+`song-range-stage-geometry.mjs`, `perf-governor-sim.mjs` and `range-prepare-cost.mjs stage` run in Node with no AudioContext; their output in `.smoke/p0-baseline/` stands. The full level 0 frame of the forced stage is in `.smoke/p0-baseline-44k/stage-full-l0/`. The unpinned 96 kHz browser counts in `.smoke/p0-baseline/` are superseded.
+
+**Gate G0 evidence.** `npm run review:landscape -- --out .smoke/p0-g0-stage --view natural --song-range force --live-seconds 45 --no-mp4` (software WebGL; its delivery targets fail on software, as expected, with metrics retained). `live-report.json` draws `song-range-c7c9c4b0ccb5131e` (1,225 tiles, 1,600,796 geometry triangles, 4,947 mesh trees and 52,774 billboards) and records four sheds, each with its cause and deciding sample: 0→1 at 28.3 s, `period`, period 2,666.6 ms, work 2,662.4 ms, `overCount` 60, `workOverCount` 6; then 1→2 at 38.3 s, 2→3 at 51.8 s and 3→4 at 65.3 s, all `period`. `levelTimeline` holds the matching runs. Synchronous waits: median 4,218 ms of a median 4,389 ms callback. That is software rendering completing inside the crest readback, and it ranks nothing about GPU cost (rule 1). The last callback, at level 4, has none, since the crest grid scan stops at `CREST_GRID_SCAN_LEVEL` 4. An earlier run without `--view natural` (`.smoke/p0-g0-live`) recorded three `period` sheds on the Teton tour.
+
+**Not run, or failing.** `--hardware-gpu` live runs (the owner request at G0); `tools/crest-edge-smoke`. `range-frame-cost.mjs --view nc-ross-lake-north --dry` ends with "Export presentation failed: terrain-not-ready" at 44.1 and 96 kHz, on `main`'s source as on this branch and with `main`'s own unpinned tool, in six attempts; it counted once earlier the same day (unpinned: 211,645,152 triangles at 12 s). Not a Phase 0 regression; the audit's 205,541,632 / 244,739,588 stay the reference until Phase 4 needs a fresh count. The PR #122 review-thread reply waits for the owner to approve posting.
+
+**Synchronous waits not in the ledger** (none runs every frame in normal play): `BiomeManager._readSkyline` (`getImageData`, throttled, space ridge only), `SongRecorder` (on stop), `VoxelRange` (`getError` on upload). Open for Phase 1d: whether any should be ledgered before the work signal subtracts the wait.
+
+**Owner decisions from this phase.**
+
+| # | Decision | Default |
+| --- | --- | --- |
+| D6 | Make the dry and live tools compose the same stage from the same song: one analysis rate for every tool, 44.1 kHz (keeps the audit's numbers) or 48 kHz (the live tools' rate and the common device rate; every audit count would move), and find what else in the live path moves the stage | Dry tool at 44.1 kHz, live tools at 48 kHz as today; dry counts and live timings of a composed stage are not paired until this is settled |

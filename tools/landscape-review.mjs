@@ -106,6 +106,18 @@ export function liveReviewGates({delivery,state,errors,seconds,startHeardMs,read
     selectedLook: state?.presentation?.effectiveLook === look,
     browserErrors: Array.isArray(errors)&&errors.length===0 };
 }
+// Run-length encodes the governor level sampled once per rAF callback during
+// the live window. fromMs/toMs are the first and last sample times of the run,
+// relative to the window start; a level that returns later is a new run.
+export function levelTimeline(levels, atMs) {
+  const runs = [], round = v => Math.round(v * 10) / 10;
+  for (let i = 0; i < levels.length; i++) {
+    const level = Number.isFinite(levels[i]) ? levels[i] : null, t = round(Math.max(0, atMs[i]));
+    const run = runs.at(-1);
+    if (run && run.level === level) { run.frames++; run.toMs = t; } else runs.push({ level, frames: 1, fromMs: t, toMs: t });
+  }
+  return runs;
+}
 export async function loadReviewSnapshot(args) {
   if (!args.snapshot) return snapshotSource(path.resolve(args.source));
   const dir=path.resolve(args.snapshot), manifest=JSON.parse(await fs.readFile(path.join(dir,'manifest.json'))), {hashes,digest}=manifest;
@@ -234,15 +246,29 @@ async function liveReview(browser, url, audio, args, dir) {
     assert.ok(ready.result.status === 'ready' || (args.recordBaseline && ready.result.status === 'legacy-ready'), `live readiness failed: ${JSON.stringify(ready)}`);assert.equal(ready.preparing, false);assert.ok(ready.durationMs-ready.heardMs>=args.liveSeconds*1000,'recording too short for requested live trace');
     const uploadToReadyMs = Date.now() - started;Object.assign(result,{uploadToReadyMs,ready});await json(path.join(dir,'live-report.json'),result);
     browserDiagnostics.setPhase('live-playback');
-    const delivery = await page.evaluate(async seconds => {
+    const live = await page.evaluate(async seconds => {
       const { FrameDeliveryAggregator } = await import('/src/render/FrameDelivery.js'); const meter = new FrameDeliveryAggregator(), start = performance.now();
+      const levels = [], atMs = [];
       await new Promise(resolve => { const tick = wallMs => { const s = window.__SMW, f = s.presentationDiagnostics.frame;
         meter.push({ wallMs, generation: s.generation, frameId: `${f.generation}:${f.frameId}`, presented: f.presented,
           attempted: f.reason !== 'not-rendered', paused: s.paused, hidden: document.hidden, capFps: s.fpsCap });
+        // A restarted song replaces __SMW; s is read afresh above. An old build
+        // without the getter records null rather than breaking the delivery loop.
+        let level = null; try { level = s.perfLevel ?? null; } catch { /* recorded as null */ }
+        levels.push(level); atMs.push(wallMs - start);
         if (wallMs - start < seconds * 1000) requestAnimationFrame(tick); else resolve(); }; requestAnimationFrame(tick); });
-      return meter.summary();
+      return { summary: meter.summary(), levels, atMs };
     }, args.liveSeconds);
+    const delivery = live.summary;
     result.delivery = delivery;
+    // Observation only, recorded before any assert below can throw: on software
+    // WebGL the gates fail and only the finally block writes the report.
+    try { result.levelTimeline = levelTimeline(live.levels, live.atMs); } catch (error) { result.levelTimeline = null; result.levelTimelineError = error.message; }
+    try {
+      const perfBlock = await page.evaluate(() => typeof window.__SMW?.performanceReport === 'function'
+        ? { report: window.__SMW.performanceReport() } : { error: 'window.__SMW.performanceReport is not available in this build' });
+      result.performance = perfBlock.report ?? null; if (perfBlock.error) result.performanceError = perfBlock.error;
+    } catch (error) { result.performance = null; result.performanceError = error.message; }
     browserDiagnostics.setPhase('live-acceptance');
     const state = await reviewDiagnostics(page); result.state = state;if(args.hardware)requireHardwareRenderer(state.gpu,args.gpuMatch); assert.equal(state.playbackPreparing, false); assert.deepEqual(errors, []);
     assert.equal(state.presentation.effectiveLook,args.look,'actual selected look');assert.equal(state.presentation.pixelScale, 'original');assert.equal(state.presentation.effectiveGrid.id,args.grids[0]);
