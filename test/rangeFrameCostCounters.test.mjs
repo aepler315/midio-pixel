@@ -4,7 +4,7 @@
 // as, and what a dry run skips.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { installCounters, passTable, mainThreadMs, rowSchedule, FRAME_STEP_MS } from '../tools/range-frame-cost.mjs';
+import { installCounters, passTable, mainThreadMs, rowSchedule, FRAME_STEP_MS, parseArgs, DEFAULT_SAMPLE_RATE } from '../tools/range-frame-cost.mjs';
 import { readinessProblem } from '../tools/range-live-callbacks.mjs';
 
 const GLOBALS = ['window', 'WebGL2RenderingContext', 'WebGLRenderingContext', 'CanvasRenderingContext2D', 'OffscreenCanvasRenderingContext2D',
@@ -148,4 +148,15 @@ test('a readiness result that is not ready stops a live measurement', () => {
   assert.match(readinessProblem({ status: 'cancelled', error: null }), /status cancelled\)/);
   assert.match(readinessProblem({ status: 'legacy-ready' }), /legacy-ready/);
   assert.match(readinessProblem(null), /status unknown/);
+});
+
+test('the dry tool analyses the song at a pinned rate, 44.1 kHz unless told otherwise', () => {
+  // The composed stage follows the AudioContext rate; 44.1 kHz reproduces the
+  // audit's record; other rates stay available for comparison.
+  assert.equal(DEFAULT_SAMPLE_RATE, 44100);
+  assert.equal(parseArgs(['--out', 'x', '--song-range', 'force']).sampleRate, 44100);
+  assert.equal(parseArgs(['--out', 'x', '--song-range', 'force', '--sample-rate', '48000']).sampleRate, 48000);
+  for (const bad of ['48k', '7999', '192001', '-1', '44100.5']) {
+    assert.throws(() => parseArgs(['--out', 'x', '--song-range', 'force', '--sample-rate', bad]), /--sample-rate/);
+  }
 });
