@@ -122,13 +122,16 @@ async function main() {
     presentation: { version: 2, look: 'cinematic', quality: 'auto', pixelGrid: 'detailed', pixelScale: 'original', scaling: 'fit' },
     ...(args.view ? { view: args.view } : { view: null, biome: null, debug }) },
   songs: [{ id: 'live', fixture: 'contrast', seconds: args.songSeconds, timesMs: [0], clips: [] }] });
-  const server = await serveSnapshot(await snapshotSource(root));
-  const executablePath = args.browser || process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined;
-  const browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}),
-    args: ['--autoplay-policy=no-user-gesture-required', ...(args.hardware ? ['--enable-gpu', '--ignore-gpu-blocklist'] : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'])] });
   const report = { label, dry: args.dry, hardwareRequested: args.hardware, pinnedLevel: args.level ?? null, seconds: args.seconds, settings,
     note: 'Callback work is this machine only. Under software WebGL the waits are not device timing; which calls wait is a property of the code path.' };
+  const server = await serveSnapshot(await snapshotSource(root));
+  const executablePath = args.browser || process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined;
+  // The server keeps the process alive: everything after it starts, the
+  // browser launch included, runs inside the cleanup scope.
+  let browser = null;
   try {
+    browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}),
+      args: ['--autoplay-policy=no-user-gesture-required', ...(args.hardware ? ['--enable-gpu', '--ignore-gpu-blocklist'] : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'])] });
     const context = await browser.newContext({ viewport: { width: 1280, height: 720 }, serviceWorkers: 'block' });
     await context.addInitScript(() => {
       const Native = window.AudioContext;
@@ -193,9 +196,11 @@ async function main() {
     console.log(`  level changes: ${report.summary.levelChanges.map((c) => `${c.atSec.toFixed(1)} s ${c.from}->${c.to}`).join(', ') || 'none'}`
       + `${report.seek ? `; seek to ${report.seek.toMs} ms at ${report.seek.atSec.toFixed(1)} s` : ''}`);
     await context.close();
+  } catch (error) {
+    report.error = error.message;
+    throw error;
   } finally {
-    await browser.close();
-    await server.close();
+    try { await browser?.close(); } finally { await server.close(); }
     await fs.writeFile(path.join(out, `${label}.json`), `${JSON.stringify(report, null, 1)}\n`);
   }
   console.log(`report: ${path.join(args.out, `${label}.json`)}`);

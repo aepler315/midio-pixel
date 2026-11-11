@@ -90,7 +90,17 @@ export function installCounters({ dry = false } = {}) {
   for (const name of ['texImage2D', 'texSubImage2D']) wrap(name, (b, a) => { b.textureUploads++; b.textureUploadBytes += viewBytes(a); },
     { wait: (a) => (fromCanvas(a) ? `gl.${name}(canvas)` : `gl.${name}(data)`) });
   for (const name of ['texImage3D', 'texSubImage3D']) wrap(name, (b, a) => { b.textureUploads++; b.textureUploadBytes += viewBytes(a); });
-  for (const name of ['bufferData', 'bufferSubData']) wrap(name, (b, a) => { b.bufferUploads++; b.bufferUploadBytes += a[1]?.byteLength ?? (typeof a[1] === 'number' ? a[1] : 0); });
+  // bufferData(target, sizeOrData, usage[, srcOffset, length]) and
+  // bufferSubData(target, dstByteOffset, srcData[, srcOffset, length]): the
+  // optional offset and length count elements of a typed-array source.
+  const sourceBytes = (data, srcOffset = 0, length = 0) => {
+    if (data == null) return 0;
+    if (!ArrayBuffer.isView(data)) return data.byteLength ?? 0;
+    const elementBytes = data.BYTES_PER_ELEMENT ?? 1, elements = data.byteLength / elementBytes;
+    return Math.max(0, length > 0 ? Math.min(length, elements - srcOffset) : elements - srcOffset) * elementBytes;
+  };
+  wrap('bufferData', (b, a) => { b.bufferUploads++; b.bufferUploadBytes += typeof a[1] === 'number' ? a[1] : sourceBytes(a[1], a[3], a[4]); });
+  wrap('bufferSubData', (b, a) => { b.bufferUploads++; b.bufferUploadBytes += sourceBytes(a[2], a[3], a[4]); });
   for (const name of ['readPixels', 'getBufferSubData']) wrap(name, (b) => { b.readbacks++; }, { wait: `gl.${name}` });
   for (const name of ['blitFramebuffer', 'copyTexSubImage2D', 'copyTexImage2D']) wrap(name, (b) => { b.blits++; });
   for (const name of ['finish', 'clientWaitSync', 'getError', 'checkFramebufferStatus']) wrap(name, null, { wait: `gl.${name}` });
@@ -279,18 +289,21 @@ async function main() {
     presentation: { version: 2, look: 'cinematic', quality: 'auto', pixelGrid: 'detailed', pixelScale: 'original', scaling: 'fit' },
     ...(args.view ? { view: args.view } : { view: null, biome: null, debug }) },
   songs: [{ id: 'cost', fixture: 'contrast', seconds: args.seconds, timesMs: args.times, clips: [] }] });
-  const server = await serveSnapshot(await snapshotSource(root));
-  const browser = await chromium.launch({ headless: true, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--autoplay-policy=no-user-gesture-required'] });
-  const newContext = browser.newContext.bind(browser);
-  browser.newContext = async (options) => {
-    const context = await newContext(options);
-    await context.addInitScript(installCounters, { dry: args.dry });
-    return context;
-  };
   const report = { label, dry: args.dry, settings,
     note: 'Counts are exact. Times are this host only (software WebGL); take hardware conclusions from hardware runs.', rows: [] };
   const save = () => fs.writeFile(path.join(out, `${label}.json`), `${JSON.stringify(report, null, 1)}\n`);
+  const server = await serveSnapshot(await snapshotSource(root));
+  // The server keeps the process alive: everything after it starts, the
+  // browser launch included, runs inside the cleanup scope.
+  let browser = null;
   try {
+    browser = await chromium.launch({ headless: true, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--autoplay-policy=no-user-gesture-required'] });
+    const newContext = browser.newContext.bind(browser);
+    browser.newContext = async (options) => {
+      const context = await newContext(options);
+      await context.addInitScript(installCounters, { dry: args.dry });
+      return context;
+    };
     const opened = Date.now();
     const loaded = await openEvaluationSong(browser, { url: server.url, audioPath: audio, settings,
       diagnostics: { errors: [], warnings: [], events: [], loadedFiles: new Set() } });
@@ -336,9 +349,11 @@ async function main() {
       console.log(`profile: ${args.profile} frames in ${hostMs.toFixed(0)} ms, ${report.profile.file}`);
     }
     await loaded.context.close();
+  } catch (error) {
+    report.error = error.message;
+    throw error;
   } finally {
-    await browser.close();
-    await server.close();
+    try { await browser?.close(); } finally { await server.close(); }
     await save();
   }
   console.log(`report: ${path.join(args.out, `${label}.json`)}`);
