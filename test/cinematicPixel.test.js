@@ -51,14 +51,14 @@ test('optional gradient pass refuses allocation before making a context, and fai
 });
 
 // A WebGL/canvas stub that records what the pass asks of the drawing buffer.
-function stubPass({ residency = new GraphicsResidency() } = {}) {
-  const log = { reserves: 0, resizes: 0, viewports: [], deleted: 0, contexts: 0 };
+function stubPass({ residency = new GraphicsResidency(), error = () => 0 } = {}) {
+  const log = { reserves: 0, resizes: 0, viewports: [], deleted: 0, contexts: 0, getErrors: 0 };
   const reserve = residency.reserve.bind(residency);
   residency.reserve = options => { log.reserves++; return reserve(options); };
   const gl = new Proxy({ NO_ERROR: 0 }, { get(target, name) {
     if (name in target) return target[name];
     if (typeof name === 'string' && /^[A-Z_0-9]+$/.test(name)) return name;
-    if (name === 'getError') return () => 0;
+    if (name === 'getError') return () => { log.getErrors++; return error(); };
     if (name === 'isContextLost') return () => false;
     if (name === 'viewport') return (...args) => log.viewports.push(args);
     if (/^get(Shader|Program)Parameter$/.test(name)) return () => true;
@@ -176,4 +176,22 @@ test('denied growth falls back for that draw without thrashing the buffer the di
   assert.equal(residency.usedBytes, display);
   pass.dispose();
   assert.equal(residency.usedBytes, 0);
+});
+
+test('steady-state draws never call getError; the first draws after setup and after a new buffer still do', () => {
+  const source = { width: 640, height: 360 };
+  const { pass, log, ctx } = stubPass();
+  for (let i = 0; i < 50; i++) assert.equal(pass.draw(ctx, source, fitOf(1280, 720)), true);
+  assert.equal(log.getErrors, module.ERROR_CHECK_DRAWS, 'only the first draws check');
+  // A new source size reallocates the buffer: checks resume.
+  for (let i = 0; i < 20; i++) assert.equal(pass.draw(ctx, { width: 480, height: 270 }, fitOf(1280, 720)), true);
+  assert.equal(log.getErrors, 2 * module.ERROR_CHECK_DRAWS);
+  pass.dispose();
+});
+test('an error on a first draw still fails that draw with draw-failed', () => {
+  const { pass, ctx, draws } = stubPass({ error: () => 1282 });
+  assert.equal(pass.draw(ctx, { width: 640, height: 360 }, fitOf(1280, 720)), false);
+  assert.equal(pass.reason, 'draw-failed');
+  assert.equal(draws.length, 0, 'nothing is copied from a failed draw');
+  pass.dispose();
 });

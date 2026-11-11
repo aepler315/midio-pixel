@@ -49,6 +49,8 @@ let nextPass=0;
  *  shrinks to what they used; also how many draws a denied growth is not
  *  retried for. */
 export const CINEMATIC_BUFFER_SHRINK_DRAWS=120;
+/** Draws after new GL objects, a new buffer or a restored context that still check gl.getError(). */
+export const ERROR_CHECK_DRAWS=3;
 /** Optional output-space pass. One native colour upload and five nearest taps.
  * Drawing-buffer and source-texture estimates share the scene residency budget.
  * Driver/context overhead remains outside these estimates, as for RangeScene.
@@ -61,6 +63,10 @@ export class CinematicPixelRenderer {
     this.residency=residency; this.makeCanvas=makeCanvas; this.key=`cinematic-cells:${++nextPass}`;
     this.reason=null; this.bytes=0; this.failed=false; this.denied=null;
     this.bufW=this.bufH=this.srcW=this.srcH=0; this.peakW=this.peakH=this.underDraws=0;
+    // gl.getError() flushes and waits for the GPU. It is checked on the first
+    // draws after new GL objects, a new buffer or a restored context; steady
+    // state relies on isContextLost() and exceptions.
+    this.errorChecks=ERROR_CHECK_DRAWS;
   }
   _initialize() {
     this.canvas=this.makeCanvas();
@@ -71,7 +77,7 @@ export class CinematicPixelRenderer {
     this.canvas.addEventListener?.('webglcontextrestored',()=>{
       // Restored contexts cannot delete handles from their previous epoch.
       // Forget them; the next draw recreates this context's own objects.
-      this.lost=false;this.failed=false;this.program=this.texture=this.buffer=null;
+      this.lost=false;this.failed=false;this.program=this.texture=this.buffer=null;this.errorChecks=ERROR_CHECK_DRAWS;
     });
     this._createObjects();
   }
@@ -94,6 +100,7 @@ export class CinematicPixelRenderer {
     for(const filter of [gl.TEXTURE_MIN_FILTER,gl.TEXTURE_MAG_FILTER])gl.texParameteri(gl.TEXTURE_2D,filter,gl.NEAREST);
     this.position=gl.getAttribLocation(this.program,'position');this.size=gl.getUniformLocation(this.program,'size');
     this.strengthLocation=gl.getUniformLocation(this.program,'strength');
+    this.errorChecks=ERROR_CHECK_DRAWS;
   }
   _deleteObjects(){
     const gl=this.gl;if(!gl)return;
@@ -141,7 +148,7 @@ export class CinematicPixelRenderer {
       if(!this.gl)this._initialize();
       this.canvas.width=bufW;this.canvas.height=bufH;
       if(!this.residency.commit(reservation,this.canvas,canvas=>{canvas.width=canvas.height=0;}))throw Error('allocation-stale');
-      this.bufW=bufW;this.bufH=bufH;this.srcW=srcW;this.srcH=srcH;this.bytes=bytes;
+      this.bufW=bufW;this.bufH=bufH;this.srcW=srcW;this.srcH=srcH;this.bytes=bytes;this.errorChecks=ERROR_CHECK_DRAWS;
       return true;
     }catch(error){this.residency.releaseReservation(reservation);this.residency.release(this.key);this._deleteObjects();this.failed=true;this.reason=error.message;if(this.canvas)this.canvas.width=this.canvas.height=0;return false;}
   }
@@ -162,9 +169,9 @@ export class CinematicPixelRenderer {
       // never as wide as the shared buffer.
       this.strength=cellStrength(w/source.width);
       gl.uniform2f(this.size,source.width,source.height);gl.uniform1f(this.strengthLocation,this.strength);gl.drawArrays(gl.TRIANGLES,0,3);
-      // getError and the copy below wait for the GPU: timed as one wait.
+      // getError (first draws only) and the copy below wait for the GPU: timed as one wait.
       const waitStart=performance.now();
-      if(gl.getError()!==gl.NO_ERROR){noteSyncWait('presenter',performance.now()-waitStart);this.reason='draw-failed';return false;}
+      if(this.errorChecks>0){this.errorChecks--;if(gl.getError()!==gl.NO_ERROR){noteSyncWait('presenter',performance.now()-waitStart);this.reason='draw-failed';return false;}}
       // GL's origin is bottom-left: the viewport is the canvas's bottom rows.
       // Copied in the same task, so the unpreserved buffer is still intact.
       ctx.imageSmoothingEnabled=false;ctx.drawImage(this.canvas,0,this.canvas.height-h,w,h,fit.x,fit.y,fit.width,fit.height);

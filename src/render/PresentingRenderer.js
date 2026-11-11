@@ -6,15 +6,31 @@ import { CinematicPixelRenderer } from './CinematicPixel.js';
 import { landscapeScoreFor } from '../world/alpine/LandscapeScore.js';
 import { landscapeResolutionPlan, landscapeResolutionAt, landscapeResolutionEndpoint, landscapeQualityRung } from './ProgressiveLandscapeResolution.js';
 
+const SKY_LAYER_KEY = 'range:output-sky';
+const sameFit = (a, b) => !!a && !!b && a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height && a.scale === b.scale;
+/** The composite's sky pass: the high-resolution sky under the scenic
+ *  transform scaled into `fit`, clipped to it. */
+function drawOutputSky(ctx, manager, fit, canvas) {
+  const m = manager.rangeSkyLayer?.scenicTransform;
+  if (!m || m.length !== 6) return false;
+  const s = fit.scale, transform = [s * m[0], s * m[1], s * m[2], s * m[3], fit.x + s * m[4], fit.y + s * m[5]];
+  ctx.save(); ctx.beginPath(); ctx.rect(fit.x, fit.y, fit.width, fit.height); ctx.clip();
+  try { return manager.drawHighResolutionSky(ctx, canvas, { transform }); }
+  finally { ctx.restore(); }
+}
+
 export function createPresentingRenderer({ canvas, mode = 'canvas', presentation, residency, voxelRange = null, rendererFactory = createRenderer }) {
   return new PresentingRenderer({ canvas, mode, presentation, residency, voxelRange, rendererFactory });
 }
-class PresentingRenderer {
+export class PresentingRenderer {
   constructor({ canvas, mode, presentation, residency, voxelRange, rendererFactory }) {
     this.canvas = canvas;
     this.inner = rendererFactory(canvas, mode);
     this.output = new PixelPresentation({ canvas, presentation, residency });
+    this.residency = residency || null;
     this.voxelRange = voxelRange;
+    // One high-resolution sky per frame (see _skyLayerFor).
+    this._sky = null; this._skyFrame = 0;
     this._disposed = false;
     this._requestedPresentation = presentation;
   }
@@ -164,6 +180,12 @@ class PresentingRenderer {
     }
     if (!source) return this.output.diagnostics.frame;
     scene.canvas = source; scene.ctx = source.getContext('2d');
+    // The output sky, drawn at most once this frame: the water backdrop
+    // (captured mid-frame) scales it down, and the composite blits it 1:1.
+    this._skyFrame++;
+    const skyFit = hybridSky
+      ? fitPixelRect(source.width, source.height, this.canvas.width, this.canvas.height, this.output.presentation.scaling) : null;
+    if (manager) manager.outputSkyLayer = skyFit ? { stageImage: (stage) => this._skyLayerFor(manager, skyFit, stage) } : null;
     // Scene captures (opening assembly, freeze, highlight reel) take the
     // finished composite, smooth sky and water included.
     scene.deferSceneCaptures = hybridSky || waterOverlay || postEffects || smoothEffects || crestOverlay || preparing;
@@ -183,13 +205,19 @@ class PresentingRenderer {
       scene.discardFrameCaptures?.();
       return this.output.failFrame('terrain-not-ready');
     }
+    if (manager) manager.outputSkyLayer = null;
+    const skyFrame = this._skyFrame;
     const background = hybridSky && manager.rangeSkyLayer ? (ctx, fit) => {
-      const m = manager.rangeSkyLayer.scenicTransform;
-      if (!m || m.length !== 6) return false;
-      const s = fit.scale, transform = [s * m[0], s * m[1], s * m[2], s * m[3], fit.x + s * m[4], fit.y + s * m[5]];
-      ctx.save(); ctx.beginPath(); ctx.rect(fit.x, fit.y, fit.width, fit.height); ctx.clip();
-      try { return manager.drawHighResolutionSky(ctx, this.canvas, { transform }); }
-      finally { ctx.restore(); }
+      // This frame's sky layer, when the backdrop drew one for this exact
+      // composite; otherwise (no water, a capture at another size) draw.
+      const layer = this._sky;
+      if (layer?.frame === skyFrame && sameFit(layer.fit, fit) && layer.outputWidth === ctx.canvas?.width && layer.outputHeight === ctx.canvas?.height) {
+        // 1:1 at whole pixels: the fit's area of the layer onto the black frame.
+        ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.imageSmoothingEnabled = false; ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+        try { ctx.drawImage(layer.canvas, fit.x - layer.x, fit.y - layer.y, fit.width, fit.height, fit.x, fit.y, fit.width, fit.height); } finally { ctx.restore(); }
+        return layer.drawn;
+      }
+      return drawOutputSky(ctx, manager, fit, this.canvas);
     } : null;
     // Deferred captions are painted after the water and post effects.
     const caption = scene.pixelCaptionLayout;
@@ -325,5 +353,49 @@ class PresentingRenderer {
     this._directBuffers?.dispose(); this._directBuffers = null;
     this._directCinematic?.suspend();
   }
-  dispose() { if (this._disposed) return; this._disposed = true; this._releaseDirect(); this._directCinematic?.dispose(); try { this.inner.dispose(); } finally { this.output.dispose(); } }
+  /** The stage's area of this frame's output sky, for the water backdrop:
+   *  { image, sx, sy, sw, sh } or null (no room, an unexpected transform),
+   *  in which case the backdrop draws its own sky as before. The layer is
+   *  the composite's sky pass in output pixels, over black, covering the
+   *  fit and the stage's whole area (the stage overscans the grid), offset
+   *  by whole pixels so the composite can blit the fit's part 1:1. */
+  _skyLayerFor(manager, fit, stage) {
+    const m = manager.rangeSkyLayer?.scenicTransform;
+    if (!m || m.length !== 6 || m[1] !== 0 || m[2] !== 0 || !(stage?.width > 0)) return null;
+    if (![fit.x, fit.y, fit.width, fit.height].every(Number.isInteger)) return null;
+    const s = fit.scale, sx = fit.x + s * m[4], sy = fit.y + s * m[5], sw = s * m[0] * stage.width, sh = s * m[3] * stage.height;
+    const x = Math.floor(Math.min(fit.x, sx)), y = Math.floor(Math.min(fit.y, sy));
+    const width = Math.ceil(Math.max(fit.x + fit.width, sx + sw)) - x, height = Math.ceil(Math.max(fit.y + fit.height, sy + sh)) - y;
+    if (!(width > 0 && height > 0) || width * height > 4 * this.canvas.width * this.canvas.height) return null;
+    let layer = this._sky;
+    if (!layer || layer.canvas.width !== width || layer.canvas.height !== height) {
+      this._releaseSky();
+      const res = this.residency?.reserve?.({ key: SKY_LAYER_KEY, bytes: width * height * 4, owner: 'range-sky-detail',
+        protect: [...(this.residency?.entries?.keys?.() || [])] });
+      if (this.residency?.reserve && !res) return null;
+      const canvas = typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(width, height)
+        : Object.assign((this.canvas.ownerDocument || globalThis.document).createElement('canvas'), { width, height });
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { if (res) this.residency.releaseReservation?.(res); return null; }
+      layer = { canvas, ctx, frame: -1, fit: null, drawn: false, x: 0, y: 0, outputWidth: 0, outputHeight: 0 };
+      if (res && !this.residency.commit(res, layer, (l) => { l.canvas.width = l.canvas.height = 0; if (this._sky === l) this._sky = null; })) return null;
+      this._sky = layer;
+    }
+    if (layer.frame !== this._skyFrame || !sameFit(layer.fit, fit) || layer.x !== x || layer.y !== y) {
+      const ctx = layer.ctx;
+      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.filter = 'none';
+      ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, width, height);
+      ctx.save();
+      try { layer.drawn = !!manager.drawHighResolutionSky(ctx, this.canvas, { transform: [s * m[0], 0, 0, s * m[3], sx - x, sy - y] }); }
+      finally { ctx.restore(); }
+      Object.assign(layer, { frame: this._skyFrame, fit: { ...fit }, x, y, outputWidth: this.canvas.width, outputHeight: this.canvas.height });
+    }
+    return layer.drawn ? { image: layer.canvas, sx: sx - x, sy: sy - y, sw, sh } : null;
+  }
+  _releaseSky() {
+    if (!this._sky) return;
+    if (this.residency?.release) this.residency.release(SKY_LAYER_KEY);
+    if (this._sky) { this._sky.canvas.width = this._sky.canvas.height = 0; this._sky = null; }
+  }
+  dispose() { if (this._disposed) return; this._disposed = true; this._releaseSky(); this._releaseDirect(); this._directCinematic?.dispose(); try { this.inner.dispose(); } finally { this.output.dispose(); } }
 }
