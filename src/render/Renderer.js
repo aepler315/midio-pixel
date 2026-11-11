@@ -76,7 +76,10 @@ const FILM_GRADE_SPACE = '#2a2060';      // indigo space wash layered in rendere
 // has real distance to travel.
 const FILM_GRADE_ALPHA_BASE = 0.012;     // floor alpha for the grade wash -- a finish, not a filter
 const FILM_GRADE_ALPHA_RANGE = 0.03;     // extra alpha the further warmth sits from neutral
-const VIGNETTE_MIN_ALPHA = 0.02;         // edge darkness at maximum openness (full hype/drop)
+// Landscape's mood hue (MoodScore.js) is the scene's colour, not a finish:
+// up to this much of each pixel's hue and saturation follows the music.
+const MOOD_GRADE_MAX = 0.55;
+const VIGNETTE_MIN_ALPHA = 0.02;        // edge darkness at maximum openness (full hype/drop)
 const VIGNETTE_MAX_ALPHA = 0.54;         // edge darkness at maximum depth (fully calm) -- deeper, moodier frame
 const VIGNETTE_ONSET_MIN = 0.34;         // onset fraction (of corner radius) at max depth -- a deep iris
 const VIGNETTE_ONSET_MAX = 0.62;         // onset fraction at min depth -- only the outer ring ever darkens
@@ -540,11 +543,13 @@ export class Renderer {
     const heardMs = sim.heardTimeMs ?? sim.timeMs;
     if (!frame || !(Math.abs(frame.timeMs - heardMs) <= 250)) return null;
     const effects = frame.effects || null;
-    const out = this._finishInputs || (this._finishInputs = { energy: 0, lift: 0, kick: 0, stormAmount: 0 });
+    const out = this._finishInputs || (this._finishInputs = { energy: 0, lift: 0, kick: 0, stormAmount: 0, mood: null });
     out.energy = effects?.energy || 0;
     out.lift = effects?.lift || 0;
     out.kick = effects?.kick || 0;
     out.stormAmount = frame.storm?.amount || 0;
+    // Frozen with the frame, so a deferred capture replays the same hue.
+    out.mood = frame.mood || null;
     return out;
   }
 
@@ -584,11 +589,24 @@ export class Renderer {
     const color = this._filmLerpCache.get(gradeCool, gradeWarm, ff.warmth);
     const gradeAlpha = (FILM_GRADE_ALPHA_BASE + FILM_GRADE_ALPHA_RANGE * Math.abs(ff.warmth - 0.5) * 2) * gradeMul;
     const filmWeight = sim.biomes?.world?.kind === 'alpine' ? (sim.biomes._rangePresentation?.film ?? 1) : 1;
+    const mood = narrative && finish?.mood?.alpha > 0 ? finish.mood : null;
     ctx.save();
-    ctx.globalCompositeOperation = 'soft-light';
-    ctx.globalAlpha = heavy ? Math.min(0.22, gradeAlpha) * filmWeight * (narrative?.materials ?? 1) : 0;
-    ctx.fillStyle = color;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    if (mood) {
+      // Landscape: the song's mood owns the frame's hue (MoodScore.js). The
+      // 'color' blend keeps each pixel's luminance, so the grade can never
+      // pump brightness; it is a musical signature and survives every
+      // quality rung. One fill: it costs the same destination read as the
+      // soft-light wash it replaces (a second dst-read fill would not).
+      ctx.globalCompositeOperation = 'color';
+      ctx.globalAlpha = Math.min(MOOD_GRADE_MAX, mood.alpha) * filmWeight;
+      ctx.fillStyle = this._moodFill(mood.rgb);
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    } else {
+      ctx.globalCompositeOperation = 'soft-light';
+      ctx.globalAlpha = heavy ? Math.min(0.22, gradeAlpha) * filmWeight * (narrative?.materials ?? 1) : 0;
+      ctx.fillStyle = color;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
     // Rendered: a whisper of indigo space grade so the whole frame reads
     // a little more orbital / deep-sea than pure warm daylight.
     if (dials.spaceWash && heavy) {
@@ -624,6 +642,13 @@ export class Renderer {
     ctx.fillStyle = vg;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.restore();
+  }
+
+  /** CSS colour for a mood rgb triple, reused while the hue holds. */
+  _moodFill(rgb) {
+    const key = (rgb[0] << 16) | (rgb[1] << 8) | rgb[2];
+    if (this._moodFillKey !== key) { this._moodFillKey = key; this._moodFillCss = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`; }
+    return this._moodFillCss;
   }
 
   /** HUD chrome follows optical effects in both live and recorded frames. */

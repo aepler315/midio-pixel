@@ -13,7 +13,7 @@ export function sampleSkyPerformance(effects, qualityLevel = 0) {
   if (!effects) return null;
   const energy = clamp(effects.energy), bass = clamp(effects.bass), treble = clamp(effects.treble);
   const melody = clamp(effects.melody), lift = clamp(effects.lift);
-  const kick = clamp(effects.kick), snare = clamp(effects.snare);
+  const kick = clamp(effects.kick), snare = clamp(effects.snare), hat = clamp(effects.hat);
   const directed = Number.isFinite(effects.atmosphere);
   const atmosphere = clamp(effects.atmosphere), expansion = clamp(effects.expansion);
   const glints = new Float32Array(GLINT_FAMILIES), sweeps = [];
@@ -25,11 +25,13 @@ export function sampleSkyPerformance(effects, qualityLevel = 0) {
   // Keep the melody's signature at every rung: at most one streak, kept
   // as scalars so a frame without one allocates nothing.
   let streakAge = 0, streakSeed = 0, streakStrength = 0;
-  for (let i = 0; i < Math.min(6, accents.length); i++) {
+  // Two accents per kind (EffectsMusic), four kinds: hats cannot take a
+  // kick's or a melody note's place.
+  for (let i = 0; i < Math.min(8, accents.length); i++) {
     const note = accents[i], age = note?.ageSec;
     const kind = note?.kind;
-    if (!['kick', 'snare', 'melody'].includes(kind)) continue;
-    const duration = kind === 'melody' ? 2 : kind === 'snare' ? .8 : 1.1;
+    if (!['kick', 'snare', 'hat', 'melody'].includes(kind)) continue;
+    const duration = kind === 'melody' ? 2 : kind === 'snare' ? .8 : kind === 'hat' ? .3 : 1.1;
     if (!Number.isFinite(age) || age < 0 || age >= duration) continue;
     const strength = clamp(note.strength);
     if (!strength) continue;
@@ -37,7 +39,15 @@ export function sampleSkyPerformance(effects, qualityLevel = 0) {
     // A crisp onset followed by an exact finite release. No background
     // oscillator can invent percussion or leave a trail after silence.
     const release = 1 - smooth(age / duration);
-    const hit = strength * Math.exp(-age * (kind === 'melody' ? 3 : 7)) * release;
+    const hit = strength * Math.exp(-age * (kind === 'melody' ? 3 : kind === 'hat' ? 14 : 7)) * release;
+    if (kind === 'hat') {
+      // A hat is a tick of starlight: one small glint family, no sweep, no
+      // streak and no pulse, so the fine grid never reads as a flash.
+      const family = Math.floor(fract(phase * 7.31 + .19) * GLINT_FAMILIES);
+      glints[family] = Math.max(glints[family], hit * .6);
+      admitted++;
+      continue;
+    }
     const family = Math.floor(phase * GLINT_FAMILIES);
     glints[family] = Math.max(glints[family], hit);
     glints[(family + 11) % GLINT_FAMILIES] = Math.max(glints[(family + 11) % GLINT_FAMILIES], hit * .72);
@@ -69,8 +79,9 @@ export function sampleSkyPerformance(effects, qualityLevel = 0) {
     glints[3] = kick * .8;
     glints[15] = snare * .85;
     glints[26] = melody * treble * .4;
+    glints[21] = hat * .5;
   }
-  if (Math.max(energy, bass, treble, melody, lift, kick, snare, atmosphere, expansion, pulse, streakStrength, ...sweeps.map(s => s.strength)) < .001) return null;
+  if (Math.max(energy, bass, treble, melody, lift, kick, snare, hat, atmosphere, expansion, pulse, streakStrength, ...sweeps.map(s => s.strength)) < .001) return null;
   return {
     glints, sweeps, pulse,
     streaks: streakStrength > 0 ? [{ age: streakAge, seed: streakSeed, strength: streakStrength }] : NO_STREAKS,

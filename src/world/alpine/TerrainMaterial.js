@@ -1182,7 +1182,8 @@ export function syncGustUniforms(u) {
 export function syncWaterMusicUniforms(u, effects) {
   const unit = value => Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
   u.uWaterMusic.value.set(.7 * unit(effects?.bass) + .3 * unit(effects?.energy), unit(effects?.kick),
-    .65 * unit(effects?.treble) + .75 * unit(effects?.snare) + .2 * unit(effects?.melody), unit(effects?.lift));
+    // Hats add fine sparkle only; their accents keep out of the wave slots.
+    .65 * unit(effects?.treble) + .75 * unit(effects?.snare) + .45 * unit(effects?.hat) + .2 * unit(effects?.melody), unit(effects?.lift));
   const accents = Array.isArray(effects?.accents) ? effects.accents.slice(0, 64).filter(a => a && Number.isFinite(a.ageSec)
     && a.ageSec >= 0 && a.ageSec < 4 && unit(a.strength) > 0 && ['kick', 'snare', 'melody'].includes(a.kind))
     .sort((a, b) => a.ageSec - b.ageSec) : [];

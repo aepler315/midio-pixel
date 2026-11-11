@@ -29,6 +29,7 @@ import { cloudSeaAt } from './CloudSea.js';
 import { rangeUserCamera } from './RangeCamera.js';
 import { hexLerp } from '../../utils/color.js';
 import { sampleEffectsMusic } from './EffectsMusic.js';
+import { sampleMood } from './MoodScore.js';
 import { danceDisplacement, landDanceRequest } from './TerrainHierarchy.js';
 
 const NIGHT_SKY = '#05060d';
@@ -497,6 +498,10 @@ export function buildRangeFrame({
     userCamera: sim.userCameraEnabled ? rangeUserCamera.sample() : null,
     scenicViewport, groundViewport,
     light: lightState, music: land, effects, ridges, narrative, groundBars, emitters,
+    // The song's mood as one hue for the frame (MoodScore.js), at heard time.
+    mood: mgr.terrainPreview ? null : sampleMood({ energyCurves: mgr.energyCurves,
+      tonalityTimeline: sim.vibe?.tonalityTimeline || null,
+      timeline: mgr.conductor?.timeline || sim.conductor?.timeline || null, durationMs: mgr.durationMs || 0 }, timeMs),
     waterHits: recentConductorHits(mgr.conductor?.timeline || sim.conductor?.timeline || [], timeMs),
     // World anchoring for fixed-ground dressing (rock stage, pools).
     worldX: pose.worldX, originX: pose.midioX,
