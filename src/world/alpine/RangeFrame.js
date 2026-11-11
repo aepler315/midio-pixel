@@ -499,9 +499,10 @@ export function buildRangeFrame({
     scenicViewport, groundViewport,
     light: lightState, music: land, effects, ridges, narrative, groundBars, emitters,
     // The song's mood as one hue for the frame (MoodScore.js), at heard time.
-    mood: mgr.terrainPreview ? null : sampleMood({ energyCurves: mgr.energyCurves,
+    mood: mgr.terrainPreview ? null : sampleMood(mgr, { energyCurves: mgr.energyCurves,
       tonalityTimeline: sim.vibe?.tonalityTimeline || null,
-      timeline: mgr.conductor?.timeline || sim.conductor?.timeline || null, durationMs: mgr.durationMs || 0 }, timeMs),
+      timeline: mgr.conductor?.timeline || sim.conductor?.timeline || null, durationMs: mgr.durationMs || 0,
+      committedThroughMs: (mgr.tSec || 0) * 1000 }, timeMs),
     waterHits: recentConductorHits(mgr.conductor?.timeline || sim.conductor?.timeline || [], timeMs),
     // World anchoring for fixed-ground dressing (rock stage, pools).
     worldX: pose.worldX, originX: pose.midioX,

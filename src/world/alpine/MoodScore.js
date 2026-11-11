@@ -23,10 +23,19 @@ export const MOOD_TAU_MS = 2600;
 const FEATURE_TAU_MS = 1800;
 /** Onset rate (per second) that reads as a full arrangement. */
 const FULL_ONSET_HZ = 5;
-/** Confidence at which the key fully owns its share of the mood. */
-const KEY_TRUST = 0.45;
-/** Largest share of the mood a fully trusted key carries. */
-const KEY_SHARE = 0.55;
+/** Share of the mood a settled key carries. The key chooses the side of the
+ *  spectrum (minor cool, major warm); the arrangement moves the hue within
+ *  it, so a loud minor climax deepens to slate rather than turning amber. */
+const KEY_SHARE = 0.65;
+/** Every key row votes for its mode; confidence weights the vote, but a
+ *  distorted mix's thin-confidence rows still count when they agree. */
+const VOTE_FLOOR = 0.25;
+/** Trailing memory of the key votes, against the whole song so far. */
+const KEY_TAU_MS = 10000;
+const KEY_TRAIL_SHARE = 0.6;
+/** A new analysis takes over the hue over this long (LandscapeScore's
+ *  camera handoff), never with a jump. */
+export const MOOD_HANDOFF_MS = 6000;
 /** Where a silent passage settles: empty, so cool, but not the saddest blue. */
 const SILENT_VALENCE = -0.45;
 
@@ -73,6 +82,27 @@ function rows(tonality) {
   return tonality.filter((k) => Number.isFinite(k?.tMs)).slice().sort((a, b) => a.tMs - b.tMs);
 }
 
+/** Bass notes [tMs, pitchClass, weight], time-ordered: the tonic evidence
+ *  that settles a relative major/minor pair (G major vs E minor share every
+ *  note; the bass line dwells on G in one and on E in the other). */
+function bassNotes(timeline) {
+  if (!Array.isArray(timeline)) return [];
+  return timeline.filter((e) => e && e.role === 'BASS' && Number.isFinite(e.pitch) && Number.isFinite(e.tMs) && unit(e.vel ?? e.velocity) > 0)
+    .map((e) => [e.tMs, ((Math.round(e.pitch) % 12) + 12) % 12, unit(e.vel ?? e.velocity) * Math.max(0.1, Math.min(2, (e.durMs || 250) / 250))])
+    .sort((a, b) => a[0] - b[0]);
+}
+
+/** Mode of a key row after the bass has had its say: a row whose relative
+ *  key's tonic (and fifth) the bass favours clearly is read as that key. */
+export function bassResolvedMode(row, bass) {
+  const mode = row.mode === 'minor' ? -1 : row.mode === 'major' ? 1 : Math.sign(row.majorness || 0);
+  if (!mode || !bass || !Number.isFinite(row.tonic)) return mode;
+  const t = ((Math.round(row.tonic) % 12) + 12) % 12, rel = (t + (mode < 0 ? 3 : 9)) % 12;
+  const score = (pc) => bass[pc] + 0.5 * bass[(pc + 7) % 12];
+  const own = score(t), other = score(rel);
+  return other > 1.3 * own + 1e-6 ? -mode : mode;
+}
+
 function onsetTimes(timeline) {
   if (!Array.isArray(timeline)) return new Float64Array(0);
   const t = timeline.filter((e) => e && Number.isFinite(e.tMs) && e.tMs >= 0 && unit(e.vel ?? e.velocity) > 0)
@@ -116,8 +146,12 @@ export function compileMood({ energyCurves = null, tonalityTimeline = null, time
   const mood = new Float32Array(n), fullness = new Float32Array(n), valence = new Float32Array(n);
   const keys = rows(tonalityTimeline), onsets = onsetTimes(timeline), floor = physicalFloor(energyCurves);
   const kf = 1 - Math.exp(-MOOD_STEP_MS / FEATURE_TAU_MS), km = 1 - Math.exp(-MOOD_STEP_MS / MOOD_TAU_MS);
-  const kd = 1 - Math.exp(-MOOD_STEP_MS / 3000);
+  const kd = 1 - Math.exp(-MOOD_STEP_MS / 3000), kk = 1 - Math.exp(-MOOD_STEP_MS / KEY_TAU_MS);
   let energy = 0, bright = 0.4, density = 0, v = 0, full = 0, key = -1, onset = 0;
+  let trailVote = 0, trailWeight = 0, songVote = 0, songWeight = 0, counted = -1;
+  // Trailing bass pitch-class weight (KEY_TAU_MS memory), heard notes only.
+  const basses = bassNotes(timeline), bass = new Float64Array(12);
+  let bassAt = 0;
   mood[0] = 0.5;
   for (let i = 1; i < n; i++) {
     const t = (i - 1) * MOOD_STEP_MS;
@@ -128,15 +162,27 @@ export function compileMood({ energyCurves = null, tonalityTimeline = null, time
     energy += (f.energy - energy) * kf;
     if (f.audible) bright += (f.bright - bright) * kf;
     while (key + 1 < keys.length && keys[key + 1].tMs <= t) key++;
-    const row = key >= 0 ? keys[key] : null;
-    const trust = row ? smooth(unit(row.confidence) / KEY_TRUST) : 0;
-    const major = row ? Math.max(-1, Math.min(1, Number.isFinite(row.majorness) ? row.majorness : row.mode === 'minor' ? -0.6 : 0.6)) : 0;
+    for (let pc = 0; pc < 12; pc++) bass[pc] *= 1 - kk;
+    while (bassAt < basses.length && basses[bassAt][0] <= t) { bass[basses[bassAt][1]] += basses[bassAt][2]; bassAt++; }
+    // Each newly heard key row votes once; the trailing tally decays.
+    trailVote *= 1 - kk; trailWeight *= 1 - kk;
+    for (; counted < key; counted++) {
+      const row = keys[counted + 1];
+      const weight = VOTE_FLOOR + (1 - VOTE_FLOOR) * unit(row.confidence);
+      const mode = bassResolvedMode(row, bassAt ? bass : null);
+      trailVote += mode * weight; trailWeight += weight; songVote += mode * weight; songWeight += weight;
+    }
+    const trail = trailWeight > 1e-6 ? trailVote / trailWeight : 0, song = songWeight > 1e-6 ? songVote / songWeight : 0;
+    // Agreement, not a single row, settles the key; a tally needs a few
+    // seconds of rows before it speaks with full weight.
+    const settled = smooth(Math.min(trailWeight, songWeight) / 2);
+    const side = Math.tanh(2 * (KEY_TRAIL_SHARE * trail + (1 - KEY_TRAIL_SHARE) * song)) / Math.tanh(2) * settled;
     const d = unit(density), e = unit(energy);
     // Brightness share sits around .15 (dark, bass-led) to .55 (airy).
     const b = unit((bright - 0.15) / 0.4);
     const colour = 0.45 * (2 * b - 1) + 0.30 * (2 * e - 1) + 0.25 * (2 * d - 1);
-    const w = KEY_SHARE * trust;
-    const target = f.audible || e > 0.02 ? w * major + (1 - w) * colour : SILENT_VALENCE;
+    const w = KEY_SHARE * Math.abs(side);
+    const target = f.audible || e > 0.02 ? KEY_SHARE * side + (1 - w) * colour : SILENT_VALENCE;
     v += (target - v) * km;
     full += (0.6 * e + 0.4 * d - full) * km;
     valence[i] = v;
@@ -155,20 +201,56 @@ export function compileMood({ energyCurves = null, tonalityTimeline = null, time
   return Object.freeze({ stepMs: MOOD_STEP_MS, mood, fullness, at });
 }
 
+/**
+ * A score that plays `previous` through `freezeThroughMs`, then eases into
+ * `next` over MOOD_HANDOFF_MS. A whole-song analysis replacing the opening
+ * one re-normalises energy and gathers more key evidence, so its curve
+ * differs; the hue must turn into it, not jump. Pure in heard time.
+ */
+export function handoffMood(previous, next, freezeThroughMs) {
+  if (!previous?.at || !(freezeThroughMs >= 0)) return next;
+  const rgb = [0, 0, 0];
+  const at = (timeMs) => {
+    const t = Number(timeMs) || 0;
+    if (t <= freezeThroughMs) return previous.at(t);
+    const k = smooth((t - freezeThroughMs) / MOOD_HANDOFF_MS);
+    if (k >= 1) return next.at(t);
+    const a = previous.at(t), b = next.at(t);
+    const mood01 = a.mood01 + (b.mood01 - a.mood01) * k, fullness01 = a.fullness01 + (b.fullness01 - a.fullness01) * k;
+    moodColor(mood01, rgb);
+    return Object.freeze({ mood01, fullness01, valence: a.valence + (b.valence - a.valence) * k,
+      rgb: Object.freeze([rgb[0], rgb[1], rgb[2]]), alpha: moodAlpha(mood01, fullness01) });
+  };
+  return Object.freeze({ ...next, previous, freezeThroughMs, at });
+}
+
 const cache = new WeakMap();
-/** The cached mood track for these analysis objects (rebuilt if any changes). */
-export function moodScoreFor({ energyCurves = null, tonalityTimeline = null, timeline = null, durationMs = 0 } = {}) {
-  if (!energyCurves || typeof energyCurves !== 'object') return null;
-  const hit = cache.get(energyCurves);
-  if (hit && hit.tonality === tonalityTimeline && hit.timeline === timeline && hit.durationMs === durationMs
-    && hit.length === (timeline?.length ?? 0)) return hit.score;
-  const score = compileMood({ energyCurves, tonalityTimeline, timeline, durationMs });
-  cache.set(energyCurves, { tonality: tonalityTimeline, timeline, durationMs, length: timeline?.length ?? 0, score });
+/**
+ * The mood track for `owner` (the BiomeManager), compiled once per analysis.
+ * Inputs are compared by identity, as LandscapeScore does: a replaced
+ * analysis recompiles and hands off from `committedThroughMs` (the heard
+ * time when it arrived); a timeline growing in place does not recompile.
+ * A rebuilt owner (the whole-song analysis arriving in place) hands off
+ * from `owner.landscapeHistory.moodScore` at its committedThroughMs.
+ * The current score is published as `owner.moodScore` for that carry.
+ */
+export function moodScoreFor(owner, { energyCurves = null, tonalityTimeline = null, timeline = null, durationMs = 0,
+  committedThroughMs = -1 } = {}) {
+  if (!energyCurves || typeof energyCurves !== 'object' || !owner || typeof owner !== 'object') return null;
+  const hit = cache.get(owner);
+  if (hit && hit.curves === energyCurves && hit.tonality === tonalityTimeline && hit.timeline === timeline
+    && hit.durationMs === durationMs) return hit.score;
+  const own = compileMood({ energyCurves, tonalityTimeline, timeline, durationMs });
+  const carried = owner.landscapeHistory?.moodScore || null;
+  const score = hit ? handoffMood(hit.score, own, committedThroughMs)
+    : carried ? handoffMood(carried, own, owner.landscapeHistory.committedThroughMs ?? -1) : own;
+  cache.set(owner, { curves: energyCurves, tonality: tonalityTimeline, timeline, durationMs, score });
+  owner.moodScore = score;
   return score;
 }
 
-/** Mood at heard time, or neutral (no grade) without an analysis. */
-export function sampleMood(inputs, timeMs) {
-  const score = moodScoreFor(inputs);
+/** Mood at heard time for `owner`, or neutral (no grade) without an analysis. */
+export function sampleMood(owner, inputs, timeMs) {
+  const score = moodScoreFor(owner, inputs);
   return score ? score.at(timeMs) : NEUTRAL;
 }
