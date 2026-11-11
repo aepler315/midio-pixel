@@ -54,6 +54,8 @@
 // (same layout) marks those dry pixels with a dry neighbour, from that
 // render (RangeScene.renderWater), so the shore steps by output pixels too.
 
+import { noteSyncWait } from '../../render/SyncWaits.js';
+
 export const PROBE_BAND_ROWS = Object.freeze({ far: 0, mid: 2, near: 4 });
 export const PROBE_WATER_ROW = 6;
 export const PROBE_WATER_SLOTS = 4;
@@ -673,6 +675,7 @@ export class CrestProbe {
       this.async = null;
     }
     this.collectMs = performance.now() - t0;
+    noteSyncWait('probeCollect', this.collectMs);
   }
 
   /**

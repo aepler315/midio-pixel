@@ -23,6 +23,7 @@ import {
 } from '../../render/CrestLine.js';
 import { PROBE_BAND_ROWS, PROBE_WATER_ROW, PROBE_WATER_SLOTS, PROBE_FINE_ROWS, PROBE_FINE_K, PROBE_EDGE_ROW, EDGE_NEIGHBOURS, probeRow, edgeCell, fineLineRow } from './CrestProbe.js';
 import { CrestColorPattern } from '../../render/CrestPixelColors.js';
+import { noteSyncWait } from '../../render/SyncWaits.js';
 
 export const CREST_SPLIT_KEY = 'range:crest-split';
 /** Quality rung from which the probe runs light ('grid' mode): crest rows
@@ -788,6 +789,7 @@ export class RangeCrest {
     this.diagnostics.readback = sampleOnly ? 'probe+crest-sample' : 'probe+crest-rows';
     this.diagnostics.readRows = readRows;
     this.diagnostics.readbackMs = readMs;
+    noteSyncWait('crestRead', readMs);
     this.diagnostics.prepareMs = performance.now() - t0;
     return true;
   }
@@ -866,7 +868,8 @@ export class RangeCrest {
     const y0 = Math.max(0, lo + dy - 1), y1 = Math.min(H, hi + dy + 2);
     if (!(y1 > y0)) return false;
     let image;
-    try { image = ctx.getImageData(0, y0, W, y1 - y0); } catch { return false; }
+    const r0 = performance.now();
+    try { image = ctx.getImageData(0, y0, W, y1 - y0); } catch { return false; } finally { noteSyncWait('crestEdges', performance.now() - r0); }
     return this._colorEdges(image.data, W, y0, y1 - y0);
   }
 

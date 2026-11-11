@@ -12,7 +12,8 @@ function runtime({ draw = true, hidden = false, paused = false } = {}) {
   let clock = 50;
   const samples = [];
   const context = vm.createContext({ running: true, paused, playbackPreparing: false, lastRafMs: 0,
-    lastRenderedWorkMs: 8, performance: { now: () => clock }, document: { hidden },
+    lastRenderedWorkMs: 8, lastRenderedSyncWaitMs: 3, performance: { now: () => clock }, document: { hidden },
+    syncWaitMs: 0, resetSyncWaits() { context.syncWaitMs = 0; }, takeSyncWaits() { const ms = context.syncWaitMs; context.syncWaitMs = 0; return ms; },
     noteFrameGap() {}, perfGovernor: { level: 0, sample: (...args) => samples.push(args) },
     playbackFps: () => 30, fittedPerfLevel: 0, fitCanvas() {}, emaFps: () => 60,
     fpsEma: 60, fpsHudVisible: false, hudIdleTick() {}, keepAwake: { tick() {} },
@@ -70,4 +71,20 @@ test('a failed or hidden presentation cannot provide headroom evidence', () => {
     r.run(17);
     assert.equal(r.context.lastRenderedWorkMs, null);
   }
+});
+
+test('the previous callback synchronous wait travels with its work, never larger than it', () => {
+  const r = runtime();
+  r.context.renderer.draw = () => { r.context.performance.now = ((t) => () => t)(r.context.performance.now() + 9); r.context.syncWaitMs += 4; return { presented: true }; };
+  r.run(17);
+  assert.equal(r.samples[0][2].syncWaitMs, 3, 'the wait recorded with the previous work');
+  assert.equal(r.context.lastRenderedSyncWaitMs, 4);
+  r.run(34);
+  assert.equal(r.samples[1][2].syncWaitMs, 4);
+  r.context.renderer.draw = () => { r.context.syncWaitMs += 500; return { presented: true }; };
+  r.run(51);
+  assert.ok(r.context.lastRenderedSyncWaitMs <= r.context.lastRenderedWorkMs);
+  r.context.playbackCadence.shouldDraw = () => false;
+  r.run(68);
+  assert.equal(r.context.lastRenderedSyncWaitMs, null, 'a skipped draw records no wait');
 });

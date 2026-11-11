@@ -50,18 +50,71 @@ test('a plan is deterministic, versioned, and fills every slot with a distinct f
 });
 
 test('songs without a family range keep no plan; candidate order cannot change a plan', () => {
-  let none = 0;
+  // Every family in the shipped catalog now has pieces, so the "no plan" case
+  // comes from a catalog with some families' pieces removed.
+  const families = [...new Set(MASSIF_CATALOG.pieces.map((p) => p.family))].sort();
+  const dropped = new Set(families.filter((_, i) => i % 2 === 0));
+  const restricted = { ...MASSIF_CATALOG, pieces: MASSIF_CATALOG.pieces.filter((p) => !dropped.has(p.family)) };
+  let none = 0, some = 0;
   for (const { seed, profile } of songs(400)) {
-    const plan = planSongRange(profile, seed);
+    const family = BIOME_FAMILY[chooseSongBiomes(profile, seed)[0]];
+    const plan = planSongRange(profile, seed, { catalog: restricted });
     if (!plan) {
       none++;
-      const family = BIOME_FAMILY[chooseSongBiomes(profile, seed)[0]];
-      assert.ok(!MASSIF_CATALOG.pieces.some((p) => p.family === family), `${family} has pieces but no plan`);
+      assert.ok(!restricted.pieces.some((p) => p.family === family), `${family} has pieces but no plan`);
+    } else {
+      some++;
+      assert.ok(!dropped.has(plan.family), `${plan.family} was removed but still planned`);
+      // Removing other families' pieces cannot change this song's layout.
+      assert.equal(songRangeKey(plan), songRangeKey(planSongRange(profile, seed)));
     }
   }
-  assert.ok(none > 0, 'some synthetic songs live in families with no pieces yet');
+  assert.ok(none > 0 && some > 0, `${none} songs without a plan, ${some} with one`);
   const shuffled = { ...MASSIF_CATALOG, pieces: [...MASSIF_CATALOG.pieces].reverse(), templates: [...MASSIF_CATALOG.templates].reverse() };
   for (const { seed, profile, plan } of planned(50)) assert.equal(songRangeKey(planSongRange(profile, seed, { catalog: shuffled })), songRangeKey(plan));
+});
+
+// Hand-built catalog for the planner's constrained paths: one template, two
+// slots, pieces that fit by size and relief.
+const tinyCatalog = (pieces, { principalSlot = 'p', slots } = {}) => ({
+  templates: [{ id: 't', families: ['dry-conifer'], principalSlot, lakeLevelM: 100,
+    slots: slots ?? [{ id: 'p', row: 'front', tiles: [0, 0, 4, 4], reliefM: [0, null] }, { id: 'q', row: 'back', tiles: [0, 0, 2, 2], reliefM: [0, null] }] }],
+  pieces: pieces.map((p) => ({ family: 'dry-conifer', sourceView: p.id, peakReliefM: 500, name: p.id, ...p })),
+});
+const dryConiferSong = () => {
+  for (const s of songs(5000, 3)) if (BIOME_FAMILY[chooseSongBiomes(s.profile, s.seed)[0]] === 'dry-conifer') return s;
+  throw new Error('no dry-conifer song');
+};
+
+test('the principal is never a piece the other slots need', () => {
+  // "small" is the only piece that fits slot q; it also fits the principal
+  // slot. The principal pool must leave it for q, whatever the ticket.
+  const catalog = tinyCatalog([{ id: 'big', tiles: [4, 4] }, { id: 'small', tiles: [2, 2] }]);
+  for (const { seed, profile } of songs(60, 5)) {
+    const plan = planSongRange(profile, seed, { catalog, forced: true });
+    assert.ok(plan, 'the layout is fillable');
+    assert.equal(plan.principal.pieceId, 'big');
+    assert.deepEqual(plan.slots.map((s) => s.pieceId), ['big', 'small']);
+  }
+  const { seed, profile } = dryConiferSong();
+  assert.equal(planSongRange(profile, seed, { catalog: tinyCatalog([{ id: 'big', tiles: [4, 4] }]) }), null, 'one piece cannot fill two slots');
+});
+
+test('a slot order that strands a slot is retried most constrained first', () => {
+  // Principal p takes "big". Slot a fits "mid" and "small"; slot b fits only
+  // "small". Template order (a before b) strands b whenever a picks "small";
+  // the retry fills b first and every layout completes.
+  const slots = [{ id: 'p', row: 'front', tiles: [0, 0, 6, 6], reliefM: [600, null] }, { id: 'a', row: 'back', tiles: [0, 0, 3, 3], reliefM: [0, null] },
+    { id: 'b', row: 'horizon', tiles: [0, 0, 2, 2], reliefM: [0, null] }];
+  const catalog = tinyCatalog([{ id: 'big', tiles: [6, 6], peakReliefM: 900 }, { id: 'mid', tiles: [3, 3] }, { id: 'small', tiles: [2, 2] }], { slots });
+  let plans = 0;
+  for (const { seed, profile } of songs(80, 9)) {
+    const plan = planSongRange(profile, seed, { catalog, forced: true });
+    assert.ok(plan);
+    assert.deepEqual(plan.slots.map((s) => s.pieceId), ['big', 'mid', 'small']);
+    plans++;
+  }
+  assert.equal(plans, 80);
 });
 
 test('a family with too few fitting pieces falls back to no plan', () => {
@@ -113,12 +166,16 @@ test('uniqueness statistics: unbiased shared-layout odds, a rule-of-three bound 
 test('the generated massif catalog matches the stage templates it was built from', async () => {
   const fs = await import('node:fs');
   const authored = JSON.parse(fs.readFileSync(new URL('../data/terrain/stage-templates.json', import.meta.url), 'utf8')).templates;
+  const { plannableFamilies } = await import('../tools/build-song-range-pilot.mjs');
+  const plannable = plannableFamilies(authored, MASSIF_CATALOG.pieces);
   for (const t of MASSIF_CATALOG.templates) {
     const a = authored.find((x) => x.id === t.id);
     assert.ok(a, `${t.id} missing from stage-templates.json`);
     assert.equal(t.principalSlot, a.principalSlot);
     assert.equal(t.lakeLevelM, a.lake.levelM);
-    assert.deepEqual(t.families, a.families);
+    // The builder keeps the authored families whose pieces can fill the template.
+    assert.deepEqual(t.families, plannable[t.id]);
+    assert.ok(t.families.every((f) => a.families.includes(f)), `${t.id} lists a family it was not authored with`);
     assert.deepEqual(t.slots, a.slots.map((s) => ({ id: s.id, row: s.row, tiles: s.tiles, reliefM: s.reliefM ?? [0, null] })));
   }
 });

@@ -56,6 +56,7 @@ Leave the FPS cap at its default (uncapped) for acceptance runs; the report reco
 | `residencyPeakMiB`, `residencyPeakByOwnerMiB` | Highest ledger ownership, recorded by the ledger whenever ownership grows (so short-lived scratch reservations count), and what owned it at that moment. `residencyPeakWindow` says where the window starts: `page load` when the probe ran before the song (so use a freshly opened page), else `probe start` |
 | `overcommits`, `denials` | Ledger overcommits (should be 0) and refused reservations |
 | `rangeRenderMsPerFrame`, `rangeCopyMsPerFrame` | CPU submission time per Range frame to render all its passes (far, mid, near, rock stage; both sides during a travel) and to composite them onto the stage. Not GPU completion time (`rangeTimingScope`) |
+| `performance` | The product's performance record, the same block as "Copy graphics report": `governor.events` (each level change with its time, cause `period`, `work`, `probe-expired` or `recovered`, and the deciding sample's period and work), `governor.levelSec` (seconds at each level), `governor.samples` (samples over the period budget, with work pressure, without headroom), `governor.periodMs` / `workMs` / `syncWaitMs` (median, p95 and max over the last 600 callbacks), `lastFrameSyncWaitMs` (the last frame's GPU waits by site), and the drawn view's tiles, triangles and trees. The record starts over when a seek or new song builds a new governor |
 
 ## Acceptance
 

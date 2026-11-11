@@ -13,7 +13,19 @@ export function shaderFailureLog(gl, program) {
   return [...shaders, link, ...warnings].join('\n').trim().slice(0, 768) || 'program link failed';
 }
 const pick = (value, keys) => value == null ? null : Object.fromEntries(keys.filter(k => value[k] !== undefined).map(k => [k, value[k]]));
-export function graphicsReport({ range = null, voxelRange = null, profile = null, presentation = null, canvas = null, gl = null, env = globalThis } = {}) {
+/** The performance block, bounded: the governor record keeps at most its
+ *  ring of events, and only known keys pass. */
+function performanceBlock(p) {
+  if (p == null) return null;
+  const g = p.governor;
+  return { ...pick(p, ['capFps', 'presentedFps', 'callbackFps', 'mirror', 'backdrop']),
+    lastFrameSyncWaitMs: pick(p.lastFrameSyncWaitMs, ['total', 'calls', 'crestRead', 'crestEdges', 'probeCollect', 'presenter']),
+    view: pick(p.view, ['viewId', 'songRange', 'tiles', 'triangles', 'trees']),
+    governor: g == null ? null : { ...pick(g, ['level', 'minLevel', 'fixtureLevel', 'holdQuality', 'retro', 'sinceSec', 'eventsDropped',
+      'levelSec', 'samples', 'recoverWindowSec', 'periodMs', 'workMs', 'syncWaitMs']),
+    events: (g.events || []).slice(-32).map((e) => pick(e, ['atSec', 'from', 'to', 'cause', 'periodMs', 'workMs', 'overCount', 'workOverCount'])) } };
+}
+export function graphicsReport({ range = null, voxelRange = null, profile = null, presentation = null, canvas = null, gl = null, performance = null, env = globalThis } = {}) {
   let gpu = null;
   if (gl) {
     gpu = { contextLost: !!gl.isContextLost?.() };
@@ -39,5 +51,6 @@ export function graphicsReport({ range = null, voxelRange = null, profile = null
       failures: Object.fromEntries(Object.entries(range.failures || {}).slice(0, 16).map(([k,v]) => [k, String(v).slice(0, 1024)])),
       deferred: (range.deferred || []).slice(0, 16),
       scene: pick(range.scene, ['contextLost', 'prepared', 'pending', 'size']),
-      residency: pick(range.residency, ['budget', 'budgetBytes', 'liveBytes', 'pendingBytes', 'denials', 'overcommits', 'byOwner']) }, gpu };
+      residency: pick(range.residency, ['budget', 'budgetBytes', 'liveBytes', 'pendingBytes', 'denials', 'overcommits', 'byOwner']) }, gpu,
+    ...(performance ? { performance: performanceBlock(performance) } : {}) };
 }
