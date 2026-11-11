@@ -4,7 +4,8 @@
 // as, and what a dry run skips.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { installCounters, passTable, mainThreadMs } from '../tools/range-frame-cost.mjs';
+import { installCounters, passTable, mainThreadMs, rowSchedule, FRAME_STEP_MS } from '../tools/range-frame-cost.mjs';
+import { readinessProblem } from '../tools/range-live-callbacks.mjs';
 
 const GLOBALS = ['window', 'WebGL2RenderingContext', 'WebGLRenderingContext', 'CanvasRenderingContext2D', 'OffscreenCanvasRenderingContext2D',
   'HTMLCanvasElement', 'OffscreenCanvas'];
@@ -118,4 +119,33 @@ test('calls that wait for rendering are timed by kind; the presenter stays out o
 test('time outside waits is the frame minus its waiting calls', () => {
   assert.equal(mainThreadMs({ hostMs: 700, waits: { 'gl.readPixels': { calls: 1, ms: 640 }, 'gl1.getError': { calls: 1, ms: 18 } } }), 42);
   assert.equal(mainThreadMs({ hostMs: 12, waits: {} }), 12);
+});
+
+test('rows never start at a time the forward-only export clock has passed', () => {
+  // Defaults: the times the audit's reports carry.
+  const ladder = rowSchedule([12000, 86000], [0, 1, 2, 3, 4, 5, 6], { warm: 2, repeats: 1 });
+  assert.deepEqual(ladder.rows.map((r) => r.startMs),
+    [12000, 12400, 12800, 13200, 13600, 14000, 14400, 88800, 89200, 89600, 90000, 90400, 90800, 91200]);
+  assert.deepEqual(rowSchedule([12000, 86000], [0]).rows.map((r) => r.startMs), [12000, 86400]);
+  assert.equal(rowSchedule([12000, 86000], [0]).profileStartMs, 87300);
+  // Sixty repeats run 1,054 ms: the next row waits for them.
+  for (const options of [{ warm: 2, repeats: 60 }, { warm: 40, repeats: 1 }, { warm: 0, repeats: 500 }]) {
+    const { rows, profileStartMs } = rowSchedule([12000, 12100, 86000], [0, 1, 2], options);
+    const lastFrame = (r) => r.startMs + (options.warm + options.repeats) * FRAME_STEP_MS;
+    for (let i = 1; i < rows.length; i++) {
+      assert.ok(rows[i].startMs > lastFrame(rows[i - 1]), `row ${i} starts after row ${i - 1} ends`);
+      assert.ok(rows[i].startMs >= rows[i].base, 'and never before its own requested time');
+    }
+    assert.ok(profileStartMs > lastFrame(rows.at(-1)));
+  }
+  assert.deepEqual(rowSchedule([12000], [0, 3], { warm: 2, repeats: 60 }).rows, [
+    { base: 12000, quality: 0, startMs: 12000 }, { base: 12000, quality: 3, startMs: 12000 + 63 * FRAME_STEP_MS }]);
+});
+
+test('a readiness result that is not ready stops a live measurement', () => {
+  assert.equal(readinessProblem({ status: 'ready', error: null }), null);
+  assert.match(readinessProblem({ status: 'failed', error: 'terrain asset 404' }), /status failed: terrain asset 404/);
+  assert.match(readinessProblem({ status: 'cancelled', error: null }), /status cancelled\)/);
+  assert.match(readinessProblem({ status: 'legacy-ready' }), /legacy-ready/);
+  assert.match(readinessProblem(null), /status unknown/);
 });

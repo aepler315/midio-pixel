@@ -212,34 +212,64 @@ export function labelPasses() {
   if (scene.shafts) label(scene.shafts, 'render', 'shafts');
 }
 
+/** Export-clock spacing of consecutive frames: just over one 60 Hz step, so
+ *  every frame advances the simulation. */
+export const FRAME_STEP_MS = 17;
+
+/**
+ * When each measurement row starts, and when the profile may start. The
+ * export clock only runs forward (stepExportClock in
+ * src/render/BulkExport.js): a row starts 400 ms after the row before it, or
+ * right after that row's last frame when its warm-up and repeats ran longer,
+ * and never at a time the clock has already passed.
+ */
+export function rowSchedule(times, qualities, { warm = 2, repeats = 1 } = {}) {
+  const rows = [];
+  let offset = 0, free = -Infinity;
+  for (const base of times) for (const quality of qualities) {
+    const startMs = Math.max(base + offset, free);
+    rows.push({ base, quality, startMs });
+    offset += 400;
+    free = startMs + (warm + repeats + 1) * FRAME_STEP_MS;
+  }
+  return { rows, profileStartMs: Math.max((times[times.length - 1] ?? 0) + offset + 500, free) };
+}
+
 async function measure(page, timeMs, quality, { warm, repeats }) {
-  return page.evaluate(async ({ timeMs, quality, warm, repeats }) => {
+  return page.evaluate(async ({ timeMs, quality, warm, repeats, stepMs }) => {
     const smw = window.__SMW, C = window.__gl;
     smw.perf.setFixtureLevel(quality);
-    smw.renderExportFrame(timeMs);
-    if (await smw.rangeSettle({ timeoutMs: 180000 })) smw.renderExportFrame(timeMs);
+    // Draw at `t` and confirm the export clock is there: a request behind the
+    // clock would silently redraw a later state under an earlier label.
+    const draw = (t) => {
+      const clock = smw.renderExportFrame(t);
+      if (Math.abs(clock.timeMs - t) > 1000 / 60 + 0.01) throw new Error(`export clock reached ${clock.timeMs.toFixed(0)} ms for a frame requested at ${t} ms; it only runs forward`);
+      return clock;
+    };
+    draw(timeMs);
+    if (await smw.rangeSettle({ timeoutMs: 180000 })) draw(timeMs);
     // Warm: programs linked, targets allocated, caches filled.
-    for (let i = 1; i <= warm; i++) smw.renderExportFrame(timeMs + i * 17);
+    for (let i = 1; i <= warm; i++) draw(timeMs + i * stepMs);
     const frames = [];
     for (let i = 1; i <= repeats; i++) {
       C.reset();
       const start = performance.now();
-      smw.renderExportFrame(timeMs + (warm + i) * 17);
-      frames.push({ hostMs: performance.now() - start, passes: structuredClone(C.by), canvas2d: { ...C.canvas2d }, presenter: { ...C.presenter }, waits: structuredClone(C.waits) });
+      const clock = draw(timeMs + (warm + i) * stepMs);
+      frames.push({ hostMs: performance.now() - start, clockMs: clock.timeMs, passes: structuredClone(C.by), canvas2d: { ...C.canvas2d }, presenter: { ...C.presenter }, waits: structuredClone(C.waits) });
     }
     const state = structuredClone(smw.rangeState);
     const presentation = smw.sim.biomes.rangePresentation, scene = presentation.scene, frame = presentation.frame;
     const p = scene.prepared.get(state.viewId);
     const strides = {};
     for (const t of p?.manifest?.tiles || []) { const s = t.lod?.[scene.budget] ?? t.stride; strides[s] = (strides[s] || 0) + 1; }
-    return { timeMs, quality, viewId: state.viewId, rise01: frame?.rise01 ?? null, slotRise01: frame?.slotRise01 ?? null, frames,
+    return { timeMs, clockMs: frames[frames.length - 1]?.clockMs ?? null, quality, viewId: state.viewId, rise01: frame?.rise01 ?? null, slotRise01: frame?.slotRise01 ?? null, frames,
       scene: { size: { ...scene.size }, budget: scene.budget, crestProbeMode: scene.crestProbeMode ?? null },
       geometryTriangles: p ? Object.fromEntries(Object.entries(p.geometries || {}).map(([band, g]) => [band, (g.index?.count ?? 0) / 3])) : null,
       tiles: p?.manifest?.tiles?.length ?? null, tilesVisible: p?.manifest?.tiles?.filter((t) => t.visible !== false).length ?? null, strides,
       trees: p?.stats?.trees ?? null, mirrorAmount: p?.uniforms?.uMirrorAmount?.value ?? null, slotRise: !!p?.slotRise, riseGround: !!p?.riseGround,
       night: smw.sim.biomes.rangeSkyLayer?.night ?? null,
       crest: state.crest ?? null, timings: state.timings ?? null, prepareLog: state.scene?.prepareLog ?? null, songRange: state.songRange ?? null };
-  }, { timeMs, quality, warm, repeats });
+  }, { timeMs, quality, warm, repeats, stepMs: FRAME_STEP_MS });
 }
 
 function parseArgs(argv) {
@@ -310,12 +340,11 @@ async function main() {
     report.environment = loaded.environment;
     report.openMs = Date.now() - opened;
     await loaded.page.evaluate(labelPasses);
-    // The export clock only runs forward: times ascend, and each quality
-    // draws a little later than the one before it.
-    let offset = 0;
-    for (const base of args.times) for (const quality of args.quality) {
-      const row = await measure(loaded.page, base + offset, quality, args);
-      offset += 400;
+    // The export clock only runs forward: times ascend, and each row draws
+    // later than every frame of the one before it (rowSchedule).
+    const schedule = rowSchedule(args.times, args.quality, args);
+    for (const { base, quality, startMs } of schedule.rows) {
+      const row = await measure(loaded.page, startMs, quality, args);
       if (args.png) {
         row.png = `${label}-q${quality}-${base}.png`;
         const url = await loaded.page.evaluate(() => document.querySelector('#stage').toDataURL('image/png'));
@@ -335,14 +364,14 @@ async function main() {
       const client = await loaded.page.context().newCDPSession(loaded.page);
       await client.send('Profiler.enable');
       await client.send('Profiler.setSamplingInterval', { interval: 200 });
-      const start = args.times[args.times.length - 1] + offset + 500;
+      const start = schedule.profileStartMs;
       await loaded.page.evaluate((t) => { window.__SMW.perf.setFixtureLevel(0); window.__SMW.renderExportFrame(t); }, start);
       await client.send('Profiler.start');
-      const hostMs = await loaded.page.evaluate(({ t, n }) => {
+      const hostMs = await loaded.page.evaluate(({ t, n, stepMs }) => {
         const begun = performance.now();
-        for (let i = 1; i <= n; i++) window.__SMW.renderExportFrame(t + i * 17);
+        for (let i = 1; i <= n; i++) window.__SMW.renderExportFrame(t + i * stepMs);
         return performance.now() - begun;
-      }, { t: start, n: args.profile });
+      }, { t: start, n: args.profile, stepMs: FRAME_STEP_MS });
       const { profile } = await client.send('Profiler.stop');
       report.profile = { frames: args.profile, hostMs, file: `${label}.cpuprofile` };
       await fs.writeFile(path.join(out, report.profile.file), JSON.stringify(profile));

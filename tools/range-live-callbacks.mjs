@@ -79,6 +79,14 @@ function parseArgs(argv) {
   return a;
 }
 
+/** Why a settled readiness result is no basis for a measurement, or null when
+ *  playback is ready. Preparation that fails or is cancelled resolves its
+ *  promise with that status; callbacks recorded after it are no playback. */
+export function readinessProblem(result) {
+  if (result?.status === 'ready') return null;
+  return `playback did not become ready (status ${result?.status ?? 'unknown'}${result?.error ? `: ${result.error}` : ''}); nothing was measured`;
+}
+
 const percentile = (sorted, p) => (sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))] : null);
 
 /** Per-second rows and whole-run figures from the callback log. */
@@ -152,10 +160,14 @@ async function main() {
     await page.locator('#fileInput').setInputFiles(audio);
     await page.waitForFunction(() => window.__SMW?.sim && (window.__SMW.renderReady || window.__SMW.rangeState?.active), null, { timeout: 600000 });
     report.ready = await page.evaluate(async () => {
-      const s = window.__SMW, result = s.renderReady ? await s.renderReady : { status: 'legacy-ready' };
+      const s = window.__SMW, settled = s.renderReady ? await s.renderReady : { status: 'legacy-ready' };
       const gl = s.sim.biomes.rangePresentation?.scene?.renderer?.getContext(), info = gl?.getExtension('WEBGL_debug_renderer_info');
+      // The readiness promise resolves on failure too (RenderReadyPlayback.js).
+      const result = { status: settled?.status ?? null, error: settled?.error ? String(settled.error.message || settled.error) : null };
       return { result, heardMs: s.sim.heardTimeMs, level: s.perfLevel, gpu: gl ? gl.getParameter(info?.UNMASKED_RENDERER_WEBGL || gl.RENDERER) : null };
     });
+    const problem = readinessProblem(report.ready.result);
+    if (problem) throw new Error(problem);
     report.uploadToReadyMs = Date.now() - started;
     if (args.hardware && /swiftshader|llvmpipe|software/i.test(report.ready.gpu || '')) throw new Error(`--hardware-gpu, but the renderer is ${report.ready.gpu}`);
     if (args.level != null) await page.evaluate((level) => window.__SMW.perf.setFixtureLevel(level), args.level);
