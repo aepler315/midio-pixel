@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { compileStorm } from '../src/world/alpine/RangeStorm.js';
-import { compileLandscapeScore } from '../src/world/alpine/LandscapeScore.js';
+import { compileLandscapeScore, landscapeScoreFor } from '../src/world/alpine/LandscapeScore.js';
 import { NEUTRAL_LENS } from '../src/render/CameraLens.js';
 
 const sections = [0, 20000, 40000, 60000, 80000, 100000].map((startMs, i) => ({
@@ -9,6 +9,34 @@ const sections = [0, 20000, 40000, 60000, 80000, 100000].map((startMs, i) => ({
 }));
 const energyCurves = { globalEnergyNorm: t => (t >= 20000 && t < 40000) || (t >= 60000 && t < 80000) ? .95 : .15 };
 const song = { sections, energyCurves, durationMs: 120000 };
+
+test('manager recreation after analysis and seeking keeps the admitted signature cues', () => {
+  const terrain = { signaturePerformance: { id: 'dual-summits' } };
+  const opening = { durationMs: 120000, tSec: 0, songTerrain: terrain,
+    energyCurves: { globalEnergyNorm: () => .1 }, sections: [], analyzedThroughMs: 30000 };
+  const first = landscapeScoreFor(opening);
+  const reanalyzed = { ...opening, tSec: 30, energyCurves, sections, analyzedThroughMs: null };
+  const adopted = landscapeScoreFor(reanalyzed);
+  const seek = landscapeScoreFor({ ...reanalyzed, tSec: 0 });
+  assert.equal(first.signatureScore, adopted.signatureScore);
+  assert.equal(seek.signatureScore, first.signatureScore);
+  for (const t of [0, 30000, 60000, 100000, 119000]) assert.deepEqual(seek.at(t).signature, first.at(t).signature);
+});
+
+test('the signature shares one deterministic cue score and independent slot rises across analysis handoff', () => {
+  const signature = { id: 'dual-summits' };
+  const previous = compileLandscapeScore({ ...song, signature });
+  assert.equal(previous.at(0).signature.id, 'dual-summits');
+  assert.ok(previous.at(0).slotRise01.B1 > previous.at(0).slotRise01.B2);
+  const adopted = compileLandscapeScore({ ...song, signature, previous, committedThroughMs: 29000,
+    energyCurves: { globalEnergyNorm: () => .1 } });
+  for (const t of [0, 28000, 29000, 39000, 69000, 119000]) {
+    assert.deepEqual(adopted.at(t).signature, previous.at(t).signature);
+    assert.deepEqual(adopted.at(t).slotRise01, previous.at(t).slotRise01);
+  }
+  assert.equal(compileLandscapeScore(song).at(29000).signature, null);
+  assert.equal(previous.at(0, { preview: true }).signature, null);
+});
 
 test('two separated sustained musical peaks produce two weather episodes and a quiet recovery', () => {
   const score = compileStorm(song);

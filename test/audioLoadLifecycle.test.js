@@ -37,7 +37,7 @@ function harness() {
     readBulkExportFromUrl: () => null, rangeListening: false, fullAnalysisPending: null, adoptFullAnalysisLive() {},
     AUDIO_LOAD_LIMITS, accumulateDecodedAudioBytes, accumulateDecodedByteLength, decodedAudioByteLength,
     accumulateEncodedAudioBytes, audioAbortError, validateAudioFiles, validateDecodedAudioBuffer, validateDecodedByteLength,
-    AbortController, audioSelections: createAudioSelection(), normalizeSourceMetadata, ...sessionIdentity,
+    AbortController, URLSearchParams, audioSelections: createAudioSelection(), normalizeSourceMetadata, ...sessionIdentity,
     continuousPlayback: new ContinuousPlayback(),
     selectionExportSettings: new WeakMap(), exportSetup: { snapshot: () => null },
     cancelUrlLoad() {}, buildLyricSections: () => null,

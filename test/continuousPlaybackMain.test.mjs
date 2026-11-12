@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { PlaybackSequence } from '../src/library/PlaybackSequence.js';
 import { createAudioSelection } from '../src/audio/AudioSelection.js';
+import { dualSummitsSelection } from '../src/world/alpine/DualSummitsMusic.js';
 
 const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
 function productionSource(name) {
@@ -54,7 +55,7 @@ test('an owned continuation keeps its world and skips the world picker', async (
   const ticket = {};
   const context = production('offerWorldsThenStart', {
     clearCustomWorld() {}, PROFILE_VERSION: 1, buildSongProfile: () => assert.fail('identity already exists'),
-    resolveSongSeed: () => 7, prepareSongTerrain: async () => null,
+    resolveSongSeed: () => 7, prepareSongTerrain: async () => null, dualSummitsSelection,
     recordFitDiagnostic: () => null, lastFitDiagnostic: null, pendingWorldStart: null,
     readBulkExportFromUrl: () => null, URL_PICKS_WORLD: false, experience: 'landscape', BIOME_WAIT_MS: 1,
     worldForExperience: () => 'range', worldExperience: () => 'trio',

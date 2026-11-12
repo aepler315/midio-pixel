@@ -8,11 +8,25 @@ import { assembleStage, pieceBlock, songRangeView, songRangeViewErrors, stageHas
 import { decodeTerrain } from '../src/world/alpine/TerrainMesh.js';
 import { WATER_FLOW } from '../src/world/alpine/TerrainPackage.js';
 import { planSongRange } from '../src/world/terrain/SongRangePlan.js';
+import { songRangeKey } from '../src/world/terrain/SongRangePlan.js';
+import { planDualSummitsScene } from '../src/world/terrain/DualSummitsScene.js';
 import MASSIF_CATALOG from '../src/world/terrain/massifCatalogData.js';
 import SCENE_CATALOG from '../src/world/terrain/sceneCatalogData.js';
 import { PROFILE_VERSION } from '../src/audio/SongProfile.js';
 
 const ASSETS = new URL('../src/assets/range/v2/', import.meta.url);
+
+test('authored slot placement is bounded, immutable and part of stage identity', () => {
+  const plan = planDualSummitsScene('CONIFER');
+  const original = MASSIF_CATALOG.templates.find(t => t.id === plan.templateId);
+  const t = stageTemplate(MASSIF_CATALOG, plan);
+  assert.equal(t.slots.find(s => s.id === 'B2').tiles[0], original.slots.find(s => s.id === 'B2').tiles[0] - 5);
+  assert.equal(original.slots.find(s => s.id === 'B2').tiles[0], 17, 'catalog stays untouched');
+  assert.notEqual(songRangeKey(plan), songRangeKey({ ...plan, slotOffsets: {} }));
+  assert.notEqual(songRangeKey(plan), songRangeKey({ ...plan, camera: { ...plan.camera, fovYDeg: 42 } }));
+  for (const slotOffsets of [{ B2: [-100, 0] }, { missing: [0, 0] }, { B2: [.5, 0] }])
+    assert.throws(() => stageTemplate(MASSIF_CATALOG, { ...plan, slotOffsets }), /stage slot/);
+});
 const pilot = JSON.parse(fs.readFileSync(new URL('../data/terrain/song-range-pilot.json', import.meta.url), 'utf8'));
 const sha = (b) => createHash('sha256').update(b).digest('hex');
 

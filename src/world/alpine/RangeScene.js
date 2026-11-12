@@ -67,6 +67,7 @@ import { LAND_RISE_START, SLOT_RISE_SLOTS, riseFromUniforms, risenHeight } from 
 import { stageSlotOwners } from './StageAssembly.js';
 import MASSIF_CATALOG from '../terrain/massifCatalogData.js';
 import { landRiseBase, landRiseCamera, landRiseFov } from './LandRiseCamera.js';
+import { dualSummitsPose } from './DualSummitsPerformance.js';
 import { RiseGround, riseGroundBytes } from './RiseGround.js';
 import { buildOpeningCoverageAsync, createOpeningCoverage, openingCoverageBytes } from './OpeningCoverage.js';
 import { openingOcean01 } from './BuildOcean.js';
@@ -2472,6 +2473,17 @@ export class RangeScene {
     const railView = this.compiledTerrain?.request.camera ? this._cameraView(view) : view;
     const baseRail = scenePoseAt(railView, { progress01: view.glacier ? (frame.glacier?.journey01 ?? frame.progress01) : frame.progress01, timeMs: frame.timeMs,
       tour: p?.cameraTour || view.tour });
+    const signature = dualSummitsPose(view, frame.performance?.signature, { baseM: landRiseBase(p) });
+    if (signature) {
+      const proj = scenicProjection(signature.fovYDeg, frame.scenicViewport);
+      const vp = frame.scenicViewport, m = vp.overscanPx || 0;
+      const tanY = Math.tan(proj.fovYDeg * Math.PI / 360) * Math.max(1, vp.logicalHeight - 2 * m) / vp.logicalHeight;
+      const tanX = tanY * Math.max(1, vp.logicalWidth - 2 * m) / Math.max(1, vp.logicalHeight - 2 * m);
+      const pose = applyCameraMoves(signature, null, frame.userCamera, { zoomMode: 'projection', cone: { tanX, tanY } });
+      const resolved = { rail: baseRail, proj, pose, tanX, tanY };
+      poses.set(occurrenceId, resolved);
+      return resolved;
+    }
     const rail = { ...baseRail, fovYDeg: applyLensFov(baseRail.fovYDeg, frame.cameraEffects) };
     const openingRail = { ...rail, fovYDeg: landRiseFov(rail.fovYDeg, frame.rise01, frame.timeMs) };
     const proj = scenicProjection(openingRail.fovYDeg, frame.scenicViewport);

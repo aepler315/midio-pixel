@@ -173,5 +173,8 @@ export function pilotPlan(id, biome, { catalog = MASSIF_CATALOG } = {}) {
 
 /** A layout's identity: two songs with equal keys stand in the same range. */
 export function songRangeKey(plan) {
-  return plan ? `${plan.templateId}|${plan.slots.map((s) => `${s.slotId}=${s.pieceId}${s.mirrored ? '~' : ''}`).join('|')}` : null;
+  if (!plan) return null;
+  const layout = `${plan.templateId}|${plan.slots.map((s) => `${s.slotId}=${s.pieceId}${s.mirrored ? '~' : ''}`).join('|')}`;
+  return plan.camera || plan.slotOffsets ? `${layout}|stage:${JSON.stringify({ camera: plan.camera,
+    offsets: Object.entries(plan.slotOffsets || {}).sort(([a], [b]) => a.localeCompare(b)) })}` : layout;
 }

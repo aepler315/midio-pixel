@@ -20,7 +20,7 @@
 import { TERRAIN_SCHEMA, TERRAIN_VERSION, STRIDES, WATER_FLOW, validateTerrainManifest } from './TerrainPackage.js';
 import { TILE_CELLS, LOD_BUDGETS, VISIBILITY, FRAMINGS, SHORE_MAX_STRIDE, tileStrideError, encodeResiduals, splitPlanes, quantizationFor } from './TerrainTiles.js';
 import { decodeTerrain } from './TerrainMesh.js';
-import { cameraPoseAt, boxMayBeVisible, viewDepthToBox, focalPx, projectPoint } from '../terrain/SceneTravel.js';
+import { cameraPoseAt, boxMayBeVisible, viewDepthToBox, focalPx, projectPoint, cameraRailErrors } from '../terrain/SceneTravel.js';
 import { stageFloorHeight, inStageLake, slotOrigin } from '../terrain/StageFloor.js';
 import { songRangeKey } from '../terrain/SongRangePlan.js';
 import { SLOT_RISE_SLOTS } from './LandRise.js';
@@ -110,7 +110,25 @@ function mirrored(block) {
 export function stageTemplate(catalog, plan) {
   const t = catalog.templates.find((x) => x.id === plan.templateId);
   if (!t) throw new Error(`no stage template ${plan.templateId}`);
-  return t;
+  if (!plan.camera && !plan.slotOffsets) return t;
+  if (plan.camera) {
+    const errors = cameraRailErrors(plan.camera);
+    if (errors.length) throw new Error(`invalid stage camera: ${errors.join('; ')}`);
+  }
+  const offsets = plan.slotOffsets || {};
+  for (const [id, offset] of Object.entries(offsets)) {
+    if (!t.slots.some(s => s.id === id) || !Array.isArray(offset) || offset.length !== 2 || !offset.every(Number.isInteger))
+      throw new Error(`invalid stage slot offset: ${id}`);
+  }
+  const slots = t.slots.map(s => {
+    if (!offsets[s.id]) return s;
+    const tiles = [...s.tiles];
+    tiles[0] += offsets[s.id][0]; tiles[1] += offsets[s.id][1];
+    if (tiles[0] < 0 || tiles[1] < 0 || tiles[0] + tiles[2] > (t.grid.width - 1) / TILE_CELLS
+      || tiles[1] + tiles[3] > (t.grid.height - 1) / TILE_CELLS) throw new Error(`stage slot outside grid: ${s.id}`);
+    return { ...s, tiles };
+  });
+  return { ...t, camera: plan.camera || t.camera, slots };
 }
 
 /** A stage's slots for the song's rise (song range composition, Phase 4):
@@ -204,7 +222,9 @@ export function assembleStage(plan, blocks, { catalog, id = `song-range-${stageH
   // Rail stations and lenses, exactly as a rail-only bake sees them.
   const view = { camera: t.camera };
   const stations = Array.from({ length: VISIBILITY.stations }, (_, k) => cameraPoseAt(view, k / (VISIBILITY.stations - 1)));
-  const focal = Object.fromEntries(Object.entries(LOD_BUDGETS).map(([k, b]) => [k, focalPx(t.camera.fovYDeg, b.heightPx)]));
+  const lodFovYDeg = plan.lodFovYDeg ?? t.camera.fovYDeg;
+  if (!(Number.isFinite(lodFovYDeg) && lodFovYDeg > 0 && lodFovYDeg <= t.camera.fovYDeg)) throw new Error(`${id}: invalid stage LOD field of view`);
+  const focal = Object.fromEntries(Object.entries(LOD_BUDGETS).map(([k, b]) => [k, focalPx(lodFovYDeg, b.heightPx)]));
   const n1 = cells + 1, valid = new Uint8Array(n1 * n1).fill(1);
   const h = new Float32Array(n1 * n1), fl = new Uint8Array(n1 * n1);
   const chunks = [];
@@ -295,7 +315,7 @@ export function assembleStage(plan, blocks, { catalog, id = `song-range-${stageH
     grid: { width: W, height: H, cellSizeM: c, originM: [...originM] },
     axes: 'X east, Y up, Z south (metres)', tileCells: cells, tilesX, tilesZ,
     quantization: { offsetM, stepM }, boundsM: bounds, bands: { ...BANDS },
-    lod: { budgets: LOD_BUDGETS, fovYDeg: t.camera.fovYDeg, visibility: VISIBILITY,
+    lod: { budgets: LOD_BUDGETS, fovYDeg: lodFovYDeg, visibility: VISIBILITY,
       framings: 'assembled at runtime against the template rail without occlusion culling; every tile is kept',
       achievedErrorPx: Object.fromEntries(Object.entries(achieved).map(([k, v]) => [k, Math.round(v * 1000) / 1000])),
       triangulation: 'quads split along the (0,0)-(1,1) diagonal; finer edges snap to the coarser neighbour' },

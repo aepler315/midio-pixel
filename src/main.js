@@ -25,6 +25,7 @@ import { VisionLoop } from './vision/VisionLoop.js';
 import { DebugOverlay } from './ui/DebugOverlay.js';
 import { FileChooserSupport } from './ui/FileChooserProbe.js';
 import { prepareSongTerrain } from './world/terrain/RangeLibrary.js';
+import { dualSummitsSelection } from './world/alpine/DualSummitsMusic.js';
 import {
   openAudioUrl, UrlAudioError, fetchAudioAsFile, classifyUrl,
 } from './net/UrlAudioSource.js';
@@ -1316,10 +1317,15 @@ function offerWorldsThenStart(data, extra = {}) {
     // song goes through (seek, replay, export).
     const pendingForRange = pendingWorldStart;
     const exporting = !!(extra.exportMode || readBulkExportFromUrl());
+    const signature = dualSummitsSelection({ durationMs: data.durationMs, sourceSha256: data.sourceSha256,
+      search: globalThis.location?.search || '' });
     // A composed range gets a bounded wait (SONG_RANGE_WAIT_MS) so the home
     // terrain is always ready by BIOME_WAIT_MS; exports wait for all of it.
     pendingForRange.terrainReady = prepareSongTerrain(profile, seed, undefined,
-      exporting ? { songRangeWaitMs: Infinity } : {}).then((terrain) => {
+      { ...(exporting ? { songRangeWaitMs: Infinity } : {}), signature }).then((terrain) => {
+      if (terrain?.signaturePerformance) terrain.signaturePerformance = {
+        ...terrain.signaturePerformance, sourceSha256: data.sourceSha256 || null,
+      };
       pendingForRange.data.terrain = terrain;
       return terrain;
     });
@@ -2427,10 +2433,15 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
       encodedBytes = accumulateEncodedAudioBytes(
         encodedBytes, bytes?.byteLength, file.name || 'audio file', AUDIO_LOAD_LIMITS,
       );
+      const signatureCandidate = selectedFiles.length === 1 && (/^ds182\.wav$/i.test(file.name || '')
+        || new URLSearchParams(globalThis.location?.search || '').get('performance') === 'dual-summits');
+      const sourceSha256 = signatureCandidate && globalThis.crypto?.subtle
+        ? [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(v => v.toString(16).padStart(2, '0')).join('') : null;
+      if (isStale()) return;
       const buffer = await audioEngine.decodeFile(bytes, { signal });
       validateDecodedAudioBuffer(buffer, AUDIO_LOAD_LIMITS);
       decodedBytes = accumulateDecodedAudioBytes(decodedBytes, buffer, AUDIO_LOAD_LIMITS);
-      decoded.push({ name: file.name || 'stem', buffer });
+      decoded.push({ name: file.name || 'stem', buffer, sourceSha256 });
     } catch (err) {
       if (isStale() || err?.name === 'AbortError') return;
       showErrorBanner(`Could not decode audio file "${file.name}": ` + err.message);
@@ -2596,6 +2607,7 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
     data.lyricIdentity = await identityReady;
     if (isStale()) return;
     data.sourceFileName = selectedFiles[0].name || 'song';
+    data.sourceSha256 = isStemDrop ? null : decoded[0].sourceSha256;
     data.lyricSession = { generation: myGen, admissions: [] };
     data.lyricSections = null;
     data.syncedLyrics = null;
