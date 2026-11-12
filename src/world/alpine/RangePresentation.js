@@ -238,12 +238,13 @@ export class RangePresentation {
     this.active = false;
     this.reason = mode === 'v2' ? 'not-started' : 'legacy-mode';
     this.failures = new Map(); // viewId -> reason (not retried this generation)
-    // A budget refusal is not a failure: the view is retried once room may
-    // have been freed (eviction of views no longer on screen), and its
-    // biome still counts as covered, so no legacy strips are baked for it.
+    // Budget pressure normally retries once room may have been freed, and
+    // the biome still counts as covered. The explicit Dual Summits stage
+    // instead yields to its catalog fallback after repeated refusals.
     this._preparing = new Map();
     this.assetFailures = new Map();
     this._budgetRefusalAt = new Map();
+    this._signatureBudgetRefusals = new Map();
     this.deferred = new Map(); // viewId -> retry-at (ms)
     this._needed = new Set(); // views this frame wanted on screen but lacked
     this._wants = []; // every view this frame wanted (both travel sides)
@@ -343,6 +344,7 @@ export class RangePresentation {
     this._sideFrames = null;
     this._preparing.clear();
     this._budgetRefusalAt.clear();
+    this._signatureBudgetRefusals.clear();
     this._needed.clear();
     this._wants = [];
     this.shown.clear();
@@ -525,6 +527,7 @@ export class RangePresentation {
       .then((prepared) => {
         if (gen !== this.generation) return;
         this.assetFailures.delete(view.id);
+        this._signatureBudgetRefusals.delete(view.id);
         // A tour the device cannot hold: the view keeps its rail this song.
         if (prepared?.railOnly && view.cameraPaths) this.shots.keepRail?.(view.id, `rail kept: ${prepared.railOnly}`);
       })
@@ -546,6 +549,7 @@ export class RangePresentation {
           }
         }
         if (err?.reason === 'budget') {
+          if (this._signatureBudgetRefused(view, err)) return;
           // No room right now (other views still pending or pinned): try
           // again shortly instead of dropping the biome to legacy for good,
           // and let the owner free fallback scenery the retry can use.
@@ -560,6 +564,19 @@ export class RangePresentation {
       }).finally(() => {
         if (this._preparing.get(view.id) === preparation) this._preparing.delete(view.id);
       });
+  }
+
+  /** A signature stage has a cheaper catalog fallback. Both preparation and
+   * target allocation must yield to it after repeated denial. */
+  _signatureBudgetRefused(view, error) {
+    if (view.signaturePerformance !== 'dual-summits') return false;
+    const refusals = (this._signatureBudgetRefusals.get(view.id) || 0) + 1;
+    this._signatureBudgetRefusals.set(view.id, refusals);
+    if (refusals < 3) return false;
+    this.deferred.delete(view.id);
+    this.failures.set(view.id, `budget: Dual Summits unavailable after ${refusals} budget refusals: ${error.message}`);
+    this._availabilityChanged();
+    return true;
   }
 
   _budgetRefused(viewId, now = Date.now()) {
@@ -1002,7 +1019,7 @@ export class RangePresentation {
       this.reason = `budget: ${err.message}`;
       // The render target was refused room: let the owner free fallback
       // scenery (legacy strips for covered biomes) before the next frame.
-      this._budgetRefused(view.id);
+      if (!this._signatureBudgetRefused(view, err)) this._budgetRefused(view.id);
       return false;
     }
     // The incoming side needs its own target and a composition buffer,
@@ -1098,6 +1115,7 @@ export class RangePresentation {
     this.viewId = view.id;
     this.active = true;
     this.reason = null;
+    this._signatureBudgetRefusals.delete(view.id);
     if (!this.shown.has(view.id) && !this.forced && !this.exportMode && !inputs.sim.exportMode) {
       this.shown.add(view.id);
       noteViewShown(view);
@@ -1913,6 +1931,11 @@ export class RangePresentation {
       timings: { ...this.timings }, catalogVersion: this.catalog.catalogVersion,
       crest: { ...this.crest.diagnostics, enabled: this.crestEnabled, probe: this.scene?.crestProbeMode ?? null },
       songRange: this._songRangeSnapshot(),
+      signaturePerformance: this.frame?.performance?.signature ? {
+        ...this.frame.performance.signature,
+        cues: this._riseMgr?.landscapeScore?.signatureScore?.cues ?? null,
+        evidence: this._riseMgr?.landscapeScore?.signatureScore?.evidence ?? null,
+      } : null,
     };
   }
 

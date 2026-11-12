@@ -45,6 +45,27 @@ const pose = { worldX: 1000, midioX: 400, midioDrawX: 402, midioY: 500 };
 const vp = (w, h, bw, bh) => viewportState({ logicalWidth: w, logicalHeight: h, backingWidth: bw, backingHeight: bh, overscanPx: 64 });
 const scenes = new Map([['RAINFOREST', { view: { id: 'nc-ross-lake-north' }, fallbackReason: null }]]);
 
+test('a failed signature stage restores catalog camera, rise and weather immediately', () => {
+  const sim = fakeSim(30);
+  sim.biomes.songTerrain = { signaturePerformance: { id: 'dual-summits', viewId: 'pair' },
+    songRange: { stage: { signaturePerformance: 'dual-summits', principal: 'B1',
+      slots: [{ slotId: 'B1', row: 'back' }, { slotId: 'B2', row: 'back' }] } } };
+  const inputs = { sim, frameId: 1, pose, scenicViewport: vp(1280, 720, 1280, 720), groundViewport: vp(1280, 720, 1280, 720) };
+  const pair = { id: 'pair', signaturePerformance: 'dual-summits' };
+  const signature = buildRangeFrame({ ...inputs, renderedViews: [pair] });
+  assert.equal(signature.performance.signature.id, 'dual-summits');
+  assert.ok(signature.slotRise01.B1 > signature.slotRise01.B2);
+  const fallback = buildRangeFrame({ ...inputs, renderedViews: [{ id: 'catalog' }] });
+  assert.equal(fallback.performance.signature, null);
+  assert.equal(fallback.slotRise01, null);
+  const ordinarySim = fakeSim(30);
+  const ordinary = buildRangeFrame({ ...inputs, sim: ordinarySim, renderedViews: [{ id: 'catalog' }] });
+  assert.equal(fallback.rise01, ordinary.rise01);
+  assert.deepEqual(fallback.storm, ordinary.storm);
+  assert.deepEqual(fallback.cameraMove, ordinary.cameraMove);
+  assert.deepEqual(buildRangeFrame({ ...inputs, renderedViews: [pair] }).performance.signature, signature.performance.signature);
+});
+
 test('effects share final heard time and freeze music independently of terrain motion', () => {
   const sim = fakeSim(2);
   sim.heardTimeMs = 10100;

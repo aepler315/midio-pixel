@@ -24,7 +24,7 @@ const { harness } = vm.runInNewContext(fixtureSource.slice(fixtureSource.indexOf
   fixtureSource.indexOf('\ntest(')) + '\n({ harness })', {
   vm, assert, cache, opening, ...limits, loadSource, fingerprintBuffer, GrooveFingerprint,
   createAudioSelection, ContinuousPlayback, normalizeSourceMetadata, sessionIdentity,
-  ensureRidgeMusicSession, upgradeRidgeMusicSession, AbortController, console,
+  ensureRidgeMusicSession, upgradeRidgeMusicSession, AbortController, URLSearchParams, console,
 });
 
 async function workers(behavior, run) {

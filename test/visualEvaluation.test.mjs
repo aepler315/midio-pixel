@@ -10,6 +10,16 @@ test('tour evidence pins the tour mode and rejects unknown tours', () => {
   assert.equal(normalizeManifest(input).settings.tour, 'tetons');
   assert.throws(() => normalizeManifest({ ...input, settings: { tour: 'unknown' } }), /invalid tour/);
 });
+
+test('performance evidence accepts only named or explicitly disabled performance controls', () => {
+  for (const performance of ['dual-summits', 'off']) {
+    const input = { ...manifest(), settings: { debug: { performance } } };
+    assert.deepEqual(normalizeManifest(input).settings.debug, { performance });
+  }
+  for (const performance of ['auto', 'other', 0, false]) {
+    assert.throws(() => normalizeManifest({ ...manifest(), settings: { debug: { performance } } }), /performance/);
+  }
+});
 test('rejects empty, duplicate, unsafe and ambiguous song inputs', () => {
   for (const input of [{ version: 1, songs: [] }, { version: 1, songs: [{ id: '../x', fixture: 'silence' }] },
     { version: 1, songs: [{ id: 'a', fixture: 'silence' }, { id: 'a', fixture: 'kicks' }] },

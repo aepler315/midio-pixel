@@ -29,9 +29,9 @@ export function sessionSongName(data, fallback = 'song') {
 export function adoptAudioSessionAnalysis(data, full) {
   const sourceTrack = data.sourceTrack;
   const lyricIdentity = data.lyricIdentity;
-  const { lyricSession, lyricSections, syncedLyrics, sourceFileName } = data;
+  const { lyricSession, lyricSections, syncedLyrics, sourceFileName, sourceSha256 } = data;
   adoptFullAnalysis(data, full);
-  Object.assign(data, { sourceTrack, lyricIdentity, lyricSession, lyricSections, syncedLyrics, sourceFileName });
+  Object.assign(data, { sourceTrack, lyricIdentity, lyricSession, lyricSections, syncedLyrics, sourceFileName, sourceSha256 });
 }
 
 /** Publish a resolved result only while the load still owns its data. The

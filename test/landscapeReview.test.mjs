@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseReviewArgs, makeReviewManifest, validateReviewFrame, requireHardwareRenderer } from '../tools/landscape-review.mjs';
+import { captureSchedule } from '../tools/lib/visual-evaluation.mjs';
+import { evaluationEntryUrl } from '../tools/lib/visual-evaluation-browser.mjs';
 
 // SwiftShader and RTX 3060 as earlier review runs recorded them; WARP is the same
 // constant the route gate tests use (ANGLE's D3D11 form, not seen on this machine).
@@ -24,6 +26,45 @@ test('review defaults are bounded, Uniform, continuous and headless only', () =>
   for (const option of ['--headful', '--open', '--pixel-scale']) assert.throws(() => parseReviewArgs(['--out', 'x', option]), /Unknown/);
   // --look stays for older scripts, but only names Cinematic.
   assert.throws(() => parseReviewArgs(['--out', 'x', '--look', 'pixel']), /Cinematic is the only look/);
+});
+
+test('review forwards an explicit performance selection to both capture entry URLs', () => {
+  for (const performance of ['dual-summits', 'off']) {
+    const args = parseReviewArgs(['--out', 'x', '--performance', performance]);
+    const settings = makeReviewManifest(args, 'detailed').settings;
+    assert.equal(settings.debug.performance, performance);
+    for (const bulkExport of [true, false]) {
+      const url = new URL(evaluationEntryUrl('http://localhost:8080/', settings, { bulkExport }));
+      assert.equal(url.searchParams.get('performance'), performance);
+    }
+  }
+  assert.equal(makeReviewManifest(parseReviewArgs(['--out', 'x']), 'detailed').settings.debug, undefined);
+  for (const performance of ['auto', 'dual', 'OFF']) {
+    assert.throws(() => parseReviewArgs(['--out', 'x', '--performance', performance]), /performance/);
+  }
+});
+
+test('seven review timestamps capture only discrete stills in one song schedule', () => {
+  const timesMs = [3000, 30000, 60000, 90000, 120000, 180000, 240000];
+  const args = parseReviewArgs(['--out', 'x', '--times-ms', timesMs.join(',')]);
+  const manifest = makeReviewManifest(args, 'detailed');
+  assert.equal(manifest.settings.mode, 'sparse');
+  assert.equal(manifest.settings.startMs, 0);
+  assert.equal(args.mp4, false);
+  assert.equal(manifest.songs.length, 1);
+  assert.deepEqual(manifest.songs[0].timesMs, timesMs);
+  assert.deepEqual(manifest.songs[0].clips, []);
+  assert.equal(manifest.songs[0].seconds, 241);
+  const schedule = captureSchedule(manifest.songs[0], 250000, manifest.settings);
+  assert.deepEqual(schedule.filter(point => point.save).map(point => point.timeMs), timesMs);
+  assert.ok(schedule.every(point => point.clips.length === 0));
+  assert.equal(schedule.length, 8, 'only the existing early opening paint accompanies the seven checkpoints');
+});
+
+test('review timestamps reject malformed or out-of-range input before browser launch', () => {
+  for (const times of ['', '3000,', ',3000', '3000,,30000', '-1', '1.5', 'NaN', 'Infinity', '86400001']) {
+    assert.throws(() => parseReviewArgs(['--out', 'x', '--times-ms', times]), /times-ms/);
+  }
 });
 test('review selects Cinematic explicitly and retains the same bounded Classic+ controls', () => {
   const args = parseReviewArgs(['--out', 'x', '--look', 'cinematic', '--grid', 'classicPlus', '--live-seconds', '30']);

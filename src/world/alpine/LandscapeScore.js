@@ -2,6 +2,8 @@
 // Nothing here advances on draw, dispatches notes or owns graphics resources.
 import { rangeCameraMoveAt, FINALE_MS } from './RangeCamera.js';
 import { compileLandRise, compileStageRise } from './LandRise.js';
+import { compileDualSummitsPerformance } from './DualSummitsPerformance.js';
+import { compileDualSummitsMusic } from './DualSummitsMusic.js';
 import { lastAudibleMs, sectionTrust } from './EffectsMusic.js';
 import { formLabelled } from '../terrain/SectionRoles.js';
 import { compileLensCues, lensFromCues, revealLensFromCues, REVEAL_GATHER_MS, LENS_MIN_GAP_MS } from '../../render/CameraLens.js';
@@ -36,8 +38,13 @@ const RISE_OVERRIDE = riseOverrideFrom(globalThis.location?.search || '');
  * sections come from the opening analysis alone.
  */
 export function compileLandscapeScore({ energyCurves, sections = [], timeline = [], durationMs = 0,
-  seed = 0, previous = null, committedThroughMs = -1, riseOverride = RISE_OVERRIDE, stage = null, wholeSong = true } = {}) {
+  seed = 0, previous = null, committedThroughMs = -1, riseOverride = RISE_OVERRIDE, stage = null, wholeSong = true,
+  signature = null, signatureHistory = null } = {}) {
   const duration = Math.max(0, Number(durationMs) || 0);
+  const signatureScore = signature?.id === 'dual-summits' ? compileDualSummitsPerformance({ durationMs: duration,
+    energyCurves, sections, previous: previous?.signatureScore || signatureHistory,
+    music: compileDualSummitsMusic({ signature: signature.id, durationMs: duration,
+      sourceSha256: signature.sourceSha256, energyCurves }) }) : null;
   const read = energyCurves?.globalEnergyNorm?.bind(energyCurves) || energyCurves?.globalEnergy?.bind(energyCurves) || (() => 0);
   const trusted = sections.filter(s => sectionTrust(s) > 0
     && Number.isFinite(s.startMs) && Number.isFinite(s.endMs) && s.endMs > s.startMs);
@@ -133,6 +140,7 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
   const stateAt = (timeMs, options = {}) => {
     const t = Math.max(0, Number(timeMs) || 0);
     if (previous && t <= freezeThroughMs) return previous.at(t, options);
+    const signature = !options.preview && options.signature !== false ? signatureScore?.at(t) ?? null : null;
     const phrase = phrases.find(p => t >= p.startMs && t < p.endMs);
     const energy01 = unit(read(t));
     const camera = { ...rangeCameraMoveAt({ timeMs: t, sections: phrases, durationMs: duration, seed,
@@ -145,11 +153,13 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
       intensity01: phrase?.relEnergy01 ?? energy01, camera: Object.freeze(camera),
       lens: lensFromCues(lensCues, t, !!options.preview),
       revealLens: revealLensFromCues(lensCues, t, !!options.preview),
-      ...riseState(t, options) });
+      ...riseState(t, options), signature,
+      ...(signature && riseOverride == null ? { rise01: signature.rise01, slotRise01: signature.slotRise01 } : {}) });
   };
   const riseState = (t, options) => {
     const held = options.preview ? 1 : riseOverride;
-    if (!stageRise) return { rise01: held ?? rise.at(t), slotRise01: null };
+    if (!stageRise || (stage?.signaturePerformance === 'dual-summits' && options.signature === false))
+      return { rise01: held ?? rise.at(t), slotRise01: null };
     if (held != null) return { rise01: held, slotRise01: heldSlots(held) };
     const slotRise01 = stageRise.slotsAt(t);
     let sum = 0;
@@ -157,10 +167,14 @@ export function compileLandscapeScore({ energyCurves, sections = [], timeline = 
     return { rise01: sum / stageRise.slotIds.length, slotRise01 };
   };
   return Object.freeze({ durationMs: duration, phrases, episodes: weather, freezeThroughMs, lensCues, cadenceMs,
-    riseEndMs: rise.endMs, riseProgressAt: rise.progressAt, stageRise, at: stateAt });
+    riseEndMs: rise.endMs, riseProgressAt: rise.progressAt, stageRise, signatureScore, at: stateAt });
 }
 
 const cache = new WeakMap();
+// The terrain identity survives the manager teardown on seek and Replay.
+// Keep admitted cues there by identity, without serializing executable readers
+// or retaining old songs after their terrain has been released.
+const signaturePlans = new WeakMap();
 /** The composed home stage's slots for the score, from the song's terrain
  *  (RangeLibrary.prepareSongTerrain): null for songs without one. */
 export function scoreStage(mgr) {
@@ -171,14 +185,17 @@ export function scoreStage(mgr) {
 export function landscapeScoreFor(mgr) {
   let hit = cache.get(mgr);
   const timeline = mgr.conductor?.timeline;
+  const signature = mgr.songTerrain?.signaturePerformance || null;
   const stage = scoreStage(mgr), wholeSong = !Number.isFinite(mgr.analyzedThroughMs);
   if (!hit || hit.curves !== mgr.energyCurves || hit.sections !== mgr.sections || hit.timeline !== timeline || hit.duration !== mgr.durationMs
-    || hit.stage !== stage || hit.wholeSong !== wholeSong) {
+    || hit.stage !== stage || hit.wholeSong !== wholeSong || hit.signature !== signature) {
     const previous = hit?.score || mgr.landscapeHistory?.previous || null;
     const committedThroughMs = hit ? (mgr.tSec || 0) * 1000 : mgr.landscapeHistory?.committedThroughMs ?? -1;
     const score = compileLandscapeScore({ energyCurves: mgr.energyCurves, sections: mgr.sections, timeline,
-      durationMs: mgr.durationMs, seed: mgr.songSeed || 0, previous, committedThroughMs, stage, wholeSong });
-    hit = { curves: mgr.energyCurves, sections: mgr.sections, timeline, duration: mgr.durationMs, stage, wholeSong, score };
+      durationMs: mgr.durationMs, seed: mgr.songSeed || 0, previous, committedThroughMs, stage, wholeSong, signature,
+      signatureHistory: signature && signaturePlans.get(signature) });
+    if (signature && score.signatureScore) signaturePlans.set(signature, score.signatureScore);
+    hit = { curves: mgr.energyCurves, sections: mgr.sections, timeline, duration: mgr.durationMs, stage, wholeSong, signature, score };
     cache.set(mgr, hit);
     mgr.landscapeScore = score;
   }
