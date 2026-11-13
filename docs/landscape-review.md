@@ -24,14 +24,14 @@ npm run review:landscape -- --out .smoke/landscape-candidate --baseline .smoke/l
 ```
 
 The bounded default is one generated 90-second contrast recording, a two-second
-continuous window beginning at 12 seconds, 12 saved frames per second, both
-Classic and Detailed grids, and fixed quality 0. The app still takes its normal
+continuous window beginning at 12 seconds, 12 saved frames per second, the
+Detailed grid, and fixed quality 0. Pass `--grid both` for Classic and Detailed. The app still takes its normal
 upload and analysis path. All recorded frames use Uniform raster scaling; old
 Depth preferences cannot activate the removed mode. Use `--audio recording.wav`
 for a representative recording, `--tour off --view teton-jackson-lake` for the
 authored lake rail, or `--start-ms 40000 --seconds 4 --fps 24` for another continuous passage.
-Use `--look cinematic` to review the experimental Cinematic Pixel Look;
-`--look pixel` remains the default. The selected Look applies to both the
+Cinematic is the only current Look; `--look cinematic` is accepted for explicit
+controls. Pixel and Palette Looks are retired. The selected Look applies to both the
 fixed-clock clips and optional live trace, and each checks the effective
 presentation diagnostics. `--grid classicPlus` selects the 400×225 native
 terrain raster without changing the Look.

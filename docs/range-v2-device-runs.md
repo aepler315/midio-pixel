@@ -1,5 +1,7 @@
 # Range v2 device runs
 
+For current budgets and quality consumers see [performance-budget.md](performance-budget.md) and `src/world/alpine/RangeQuality.js`. The quality table retained below predates the level-1 terrain-mirror shedding change; it is historical rather than a current runtime contract.
+
 These procedures establish device-specific evidence, not permission to develop.
 Task-authorized experiments may continue without the listed devices under the
 [experimental development policy](experimental-development.md). Report missing

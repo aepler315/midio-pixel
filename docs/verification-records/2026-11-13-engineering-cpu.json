@@ -1,0 +1,369 @@
+{
+  "date": "2026-11-13",
+  "baselineSource": {
+    "commit": "58454dd93e6919c591835f6ccc0edefa02888f49",
+    "branch": "",
+    "dirty": ""
+  },
+  "candidateSource": {
+    "commit": "58454dd93e6919c591835f6ccc0edefa02888f49",
+    "branch": "feat/agent-engineering-infrastructure",
+    "dirty": "M .github/pull_request_template.md\n M AGENTS.md\n M package-lock.json\n M package.json\n?? .agents/\n?? .github/workflows/agent-verification.yml\n?? docs/agent-evaluations.md\n?? docs/agent-infrastructure-plan.md\n?? docs/agent-workflow.md\n?? docs/architecture.md\n?? docs/decisions/\n?? docs/handoffs.md\n?? docs/performance-budget.md\n?? docs/verification.md\n?? docs/visual-contract.md\n?? evaluations/\n?? test/engineeringVerification.test.mjs\n?? tools/verification/"
+  },
+  "environment": {
+    "node": "24.22.1",
+    "platform": "linux",
+    "arch": "x64",
+    "cpu": "AMD EPYC 9V74 80-Core Processor",
+    "logicalCpus": 9
+  },
+  "fixture": {
+    "version": 1,
+    "seed": 315,
+    "durationMs": 120000,
+    "samples": 7,
+    "queries": 240,
+    "view": "teton-jackson-lake"
+  },
+  "workloadHash": "4d3431abc46dcea857c964c572f1a31f0bc7df748c07634e808005248c3796b1",
+  "asset": {
+    "payloadSha256": "7cf1e311606e69748c3b75b283b6ea41da13d1150d474199d0799b72d473485c",
+    "decodedSha256": "fc180869d8f8899c1327f0294e60d2efa721502613593a909befe29b39e71ba2"
+  },
+  "scope": "Node CPU surrogate. No GL context, GPU timing, displayed FPS or JOYING results. Memory is Node process RSS/heap/arrayBuffers, not graphics residency.",
+  "initializationMs": {
+    "base": 178.62766999999997,
+    "candidate": 94.372593
+  },
+  "baseResults": [
+    {
+      "id": "terrain-mobile-bias1",
+      "samples": 7,
+      "medianMs": 56.31744800000001,
+      "p95Ms": 105.54630400000008,
+      "maxMs": 105.54630400000008,
+      "checksum": "9a17aae1771f1ff15a949b709883e449630dc2015eec8e84f8e5e5e24f3cc1ec",
+      "memoryPeak": {
+        "rss": 213131264,
+        "heapTotal": 30658560,
+        "heapUsed": 18863152,
+        "external": 107892734,
+        "arrayBuffers": 103858299
+      }
+    },
+    {
+      "id": "terrain-mobile-bias2",
+      "samples": 7,
+      "medianMs": 16.90894400000002,
+      "p95Ms": 44.818234000000075,
+      "maxMs": 44.818234000000075,
+      "checksum": "8d8ac615bc71b60c4b549730cf0a612860fb7be990c14b4605f815bff9780d7c",
+      "memoryPeak": {
+        "rss": 181841920,
+        "heapTotal": 30658560,
+        "heapUsed": 19564040,
+        "external": 44680105,
+        "arrayBuffers": 40649895
+      }
+    },
+    {
+      "id": "terrain-desktop-bias1",
+      "samples": 7,
+      "medianMs": 109.71302200000036,
+      "p95Ms": 160.99933800000008,
+      "maxMs": 160.99933800000008,
+      "checksum": "e0125c3ac076e500c38d96ff7da8842468eea18e3e3bbf925666f2da39b89d95",
+      "memoryPeak": {
+        "rss": 268836864,
+        "heapTotal": 30658560,
+        "heapUsed": 18092960,
+        "external": 127057329,
+        "arrayBuffers": 123027119
+      }
+    },
+    {
+      "id": "terrain-desktop-bias2",
+      "samples": 7,
+      "medianMs": 21.624743999999737,
+      "p95Ms": 23.812620000000152,
+      "maxMs": 23.812620000000152,
+      "checksum": "88d22dae61c669267ec67d42523af1358ff7ba2993a68b935bc3fd2459057642",
+      "memoryPeak": {
+        "rss": 273424384,
+        "heapTotal": 47173632,
+        "heapUsed": 26313840,
+        "external": 156941321,
+        "arrayBuffers": 152911111
+      }
+    },
+    {
+      "id": "score-compile-and-sample",
+      "samples": 7,
+      "medianMs": 0.45262899999988804,
+      "p95Ms": 0.8011050000000068,
+      "maxMs": 0.8011050000000068,
+      "checksum": "11241d3d299ae6f9116694967f47e31ac613c9127bae22e6ae81f6be4042fb9d",
+      "memoryPeak": {
+        "rss": 168337408,
+        "heapTotal": 47173632,
+        "heapUsed": 19273464,
+        "external": 40992185,
+        "arrayBuffers": 36961975
+      }
+    },
+    {
+      "id": "camera-growth-updates",
+      "samples": 7,
+      "medianMs": 0.8957249999998567,
+      "p95Ms": 1.724800999999843,
+      "maxMs": 1.724800999999843,
+      "checksum": "55547e2203eab70169a7660c7f1d7d081cb859445b824403d9ba77b210f6f90d",
+      "memoryPeak": {
+        "rss": 169779200,
+        "heapTotal": 47960064,
+        "heapUsed": 28131880,
+        "external": 40992185,
+        "arrayBuffers": 36961975
+      }
+    },
+    {
+      "id": "quality-grid-transitions",
+      "samples": 7,
+      "medianMs": 0.027441000000180793,
+      "p95Ms": 0.1677279999998973,
+      "maxMs": 0.1677279999998973,
+      "checksum": "7086632e48a9ae58eeeb0c1817871e7c927d7075c749bd61db135ec726a01a23",
+      "memoryPeak": {
+        "rss": 169910272,
+        "heapTotal": 47960064,
+        "heapUsed": 14993840,
+        "external": 40365381,
+        "arrayBuffers": 36335171
+      }
+    },
+    {
+      "id": "geographic-height-sampling",
+      "samples": 7,
+      "medianMs": 0.09217600000010862,
+      "p95Ms": 0.16604600000027858,
+      "maxMs": 0.16604600000027858,
+      "checksum": "c9fa8562b2df7ae0466f7d075be9b7e67b5293bbdd96d7a6ce2985f125078e9c",
+      "memoryPeak": {
+        "rss": 169910272,
+        "heapTotal": 47960064,
+        "heapUsed": 15791056,
+        "external": 40365381,
+        "arrayBuffers": 36335171
+      }
+    }
+  ],
+  "candidateResults": [
+    {
+      "id": "terrain-mobile-bias1",
+      "samples": 7,
+      "medianMs": 44.529942000000005,
+      "p95Ms": 55.841812999999945,
+      "maxMs": 55.841812999999945,
+      "checksum": "9a17aae1771f1ff15a949b709883e449630dc2015eec8e84f8e5e5e24f3cc1ec",
+      "memoryPeak": {
+        "rss": 210968576,
+        "heapTotal": 30920704,
+        "heapUsed": 18413240,
+        "external": 107879826,
+        "arrayBuffers": 103845391
+      }
+    },
+    {
+      "id": "terrain-mobile-bias2",
+      "samples": 7,
+      "medianMs": 12.912038000000052,
+      "p95Ms": 27.158709000000044,
+      "maxMs": 27.158709000000044,
+      "checksum": "8d8ac615bc71b60c4b549730cf0a612860fb7be990c14b4605f815bff9780d7c",
+      "memoryPeak": {
+        "rss": 182456320,
+        "heapTotal": 30658560,
+        "heapUsed": 19355816,
+        "external": 51738121,
+        "arrayBuffers": 47707911
+      }
+    },
+    {
+      "id": "terrain-desktop-bias1",
+      "samples": 7,
+      "medianMs": 75.04240199999981,
+      "p95Ms": 100.49915499999997,
+      "maxMs": 100.49915499999997,
+      "checksum": "e0125c3ac076e500c38d96ff7da8842468eea18e3e3bbf925666f2da39b89d95",
+      "memoryPeak": {
+        "rss": 269602816,
+        "heapTotal": 30396416,
+        "heapUsed": 17860760,
+        "external": 127277029,
+        "arrayBuffers": 123246819
+      }
+    },
+    {
+      "id": "terrain-desktop-bias2",
+      "samples": 7,
+      "medianMs": 21.774801000000025,
+      "p95Ms": 33.00676900000008,
+      "maxMs": 33.00676900000008,
+      "checksum": "88d22dae61c669267ec67d42523af1358ff7ba2993a68b935bc3fd2459057642",
+      "memoryPeak": {
+        "rss": 279040000,
+        "heapTotal": 47173632,
+        "heapUsed": 27646000,
+        "external": 169812749,
+        "arrayBuffers": 165782539
+      }
+    },
+    {
+      "id": "score-compile-and-sample",
+      "samples": 7,
+      "medianMs": 0.3673740000003818,
+      "p95Ms": 0.7444310000000769,
+      "maxMs": 0.7444310000000769,
+      "checksum": "11241d3d299ae6f9116694967f47e31ac613c9127bae22e6ae81f6be4042fb9d",
+      "memoryPeak": {
+        "rss": 279040000,
+        "heapTotal": 46911488,
+        "heapUsed": 23003984,
+        "external": 41582053,
+        "arrayBuffers": 37551843
+      }
+    },
+    {
+      "id": "camera-growth-updates",
+      "samples": 7,
+      "medianMs": 2.5753890000000865,
+      "p95Ms": 6.509547000000111,
+      "maxMs": 6.509547000000111,
+      "checksum": "55547e2203eab70169a7660c7f1d7d081cb859445b824403d9ba77b210f6f90d",
+      "memoryPeak": {
+        "rss": 285986816,
+        "heapTotal": 47435776,
+        "heapUsed": 27704672,
+        "external": 41582053,
+        "arrayBuffers": 36127231
+      }
+    },
+    {
+      "id": "quality-grid-transitions",
+      "samples": 7,
+      "medianMs": 0.02617899999995643,
+      "p95Ms": 0.17760200000020632,
+      "maxMs": 0.17760200000020632,
+      "checksum": "7086632e48a9ae58eeeb0c1817871e7c927d7075c749bd61db135ec726a01a23",
+      "memoryPeak": {
+        "rss": 285986816,
+        "heapTotal": 47435776,
+        "heapUsed": 17061880,
+        "external": 40157441,
+        "arrayBuffers": 36127231
+      }
+    },
+    {
+      "id": "geographic-height-sampling",
+      "samples": 7,
+      "medianMs": 0.09191599999985556,
+      "p95Ms": 0.15780399999994188,
+      "maxMs": 0.15780399999994188,
+      "checksum": "c9fa8562b2df7ae0466f7d075be9b7e67b5293bbdd96d7a6ce2985f125078e9c",
+      "memoryPeak": {
+        "rss": 285986816,
+        "heapTotal": 47435776,
+        "heapUsed": 17886592,
+        "external": 40157441,
+        "arrayBuffers": 36127231
+      }
+    }
+  ],
+  "comparison": {
+    "pass": true,
+    "relative": 1,
+    "absoluteMs": 5,
+    "rows": [
+      {
+        "id": "terrain-mobile-bias1",
+        "pass": true,
+        "sameOutput": true,
+        "medianDeltaMs": -11.787506000000008,
+        "p95DeltaMs": -49.70449100000013,
+        "timing": true
+      },
+      {
+        "id": "terrain-mobile-bias2",
+        "pass": true,
+        "sameOutput": true,
+        "medianDeltaMs": -3.996905999999967,
+        "p95DeltaMs": -17.65952500000003,
+        "timing": true
+      },
+      {
+        "id": "terrain-desktop-bias1",
+        "pass": true,
+        "sameOutput": true,
+        "medianDeltaMs": -34.670620000000554,
+        "p95DeltaMs": -60.500183000000106,
+        "timing": true
+      },
+      {
+        "id": "terrain-desktop-bias2",
+        "pass": true,
+        "sameOutput": true,
+        "medianDeltaMs": 0.1500570000002881,
+        "p95DeltaMs": 9.194148999999925,
+        "timing": true
+      },
+      {
+        "id": "score-compile-and-sample",
+        "pass": true,
+        "sameOutput": true,
+        "medianDeltaMs": -0.08525499999950625,
+        "p95DeltaMs": -0.05667399999992995,
+        "timing": true
+      },
+      {
+        "id": "camera-growth-updates",
+        "pass": true,
+        "sameOutput": true,
+        "medianDeltaMs": 1.6796640000002299,
+        "p95DeltaMs": 4.784746000000268,
+        "timing": true
+      },
+      {
+        "id": "quality-grid-transitions",
+        "pass": true,
+        "sameOutput": true,
+        "medianDeltaMs": -0.0012620000002243614,
+        "p95DeltaMs": 0.009874000000309024,
+        "timing": true
+      },
+      {
+        "id": "geographic-height-sampling",
+        "pass": true,
+        "sameOutput": true,
+        "medianDeltaMs": -0.0002600000002530578,
+        "p95DeltaMs": -0.008242000000336702,
+        "timing": true
+      }
+    ]
+  },
+  "memory": {
+    "start": {
+      "rss": 50307072,
+      "heapTotal": 19386368,
+      "heapUsed": 11388720,
+      "external": 4171990,
+      "arrayBuffers": 212688
+    },
+    "end": {
+      "rss": 282005504,
+      "heapTotal": 47435776,
+      "heapUsed": 18020592,
+      "external": 40193930,
+      "arrayBuffers": 36132248
+    }
+  }
+}

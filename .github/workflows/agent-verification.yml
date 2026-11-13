@@ -1,0 +1,131 @@
+name: Agent engineering verification
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-verification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: ./.github/actions/setup
+      - name: Lint and module graph
+        run: |
+          mkdir -p .smoke/agent-ci
+          npm run lint 2>&1 | tee .smoke/agent-ci/lint.log
+          npm run check:modules 2>&1 | tee .smoke/agent-ci/modules.log
+      - name: Functional and integration tests
+        run: npm test 2>&1 | tee .smoke/agent-ci/tests.log
+      - name: Separate viewer tests
+        if: always()
+        run: npm --prefix ridgeview test 2>&1 | tee .smoke/agent-ci/ridgeview.log
+      - name: Production build and pinned asset checks
+        if: always()
+        run: npm run stage:site 2>&1 | tee .smoke/agent-ci/build.log
+      - name: Summary and retained logs
+        if: always()
+        run: |
+          echo '## Core verification' >> "$GITHUB_STEP_SUMMARY"
+          echo 'See individual step results and retained logs; failed/skipped checks are not passing evidence.' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
+        with:
+          name: agent-core
+          path: .smoke/agent-ci/
+          include-hidden-files: true
+          retention-days: 14
+
+  cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: ./.github/actions/setup
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          path: .smoke/agent-base-source
+      - name: Sequential same-runner CPU baseline and candidate
+        run: |
+          npm run bench:engineering -- --source .smoke/agent-base-source --out .smoke/agent-cpu-base
+          npm run bench:engineering -- --out .smoke/agent-cpu-candidate --baseline .smoke/agent-cpu-base/report.json --relative 1 --absolute-ms 5
+      - name: Summarize CPU evidence
+        if: always()
+        run: |
+          for f in .smoke/agent-cpu-{base,candidate}/summary.md; do
+            if [ -f "$f" ]; then cat "$f" >> "$GITHUB_STEP_SUMMARY"; fi
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
+        with:
+          name: agent-cpu
+          path: |
+            .smoke/agent-cpu-base/
+            .smoke/agent-cpu-candidate/
+          include-hidden-files: true
+          retention-days: 14
+
+  visual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: ./.github/actions/setup
+        with:
+          browser: true
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          path: .smoke/agent-base-source
+      - name: Render the reviewed upstream source
+        run: npm run verify:visual:capture -- --source .smoke/agent-base-source --out .smoke/agent-visual-base
+      - name: Bind reference to exact clean upstream commit
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
+        run: >-
+          npm run verify:visual:approve -- --candidate .smoke/agent-visual-base
+          --out .smoke/agent-visual-reference --reviewer upstream-base-source
+          --reason "Matched PR base source; generated pictures are not artistically approved"
+          --source-commit "$BASE_SHA"
+      - name: Render candidate with identical controls
+        run: npm run verify:visual:capture -- --out .smoke/agent-visual-candidate
+      - name: Compare with threshold and structural evidence
+        run: >-
+          npm run verify:visual -- --baseline .smoke/agent-visual-reference
+          --candidate .smoke/agent-visual-candidate --out .smoke/agent-visual-diff
+      - name: Summarize comparison
+        if: always()
+        run: |
+          echo '## Fixed-clock visual comparison against upstream base source' >> "$GITHUB_STEP_SUMMARY"
+          echo 'This is technical regression evidence, not owner artistic approval or device performance.' >> "$GITHUB_STEP_SUMMARY"
+          if [ -f .smoke/agent-visual-diff/summary.md ]; then cat .smoke/agent-visual-diff/summary.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
+        with:
+          name: agent-visual
+          path: |
+            .smoke/agent-visual-base/
+            .smoke/agent-visual-reference/
+            .smoke/agent-visual-candidate/
+            .smoke/agent-visual-diff/
+          include-hidden-files: true
+          retention-days: 14
