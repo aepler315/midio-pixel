@@ -85,3 +85,5 @@ Final full suite: **5,651 passed, 11 skipped, zero failures** (5,662 total, Node
 ## Limits
 
 The 90-second contrast fixture is the historical composed-stage reproduction case, not the canonical 513.8-second Dual Summits recording. Dual Summits continuous musical acceptance, physical-display pacing, other catalog views and JOYING hardware remain unverified. Approximately 270 ms isolated CPU callbacks remain in both full and dry traces, and late visible-crest readbacks remain costly. Neither is hidden by changing governor thresholds.
+
+A subsequent [supplied-MP3 automatic-selection check](2026-11-13-startup-mp3-acceptance.md) covers the complete 513.8-second recording on the RTX. It confirms lower opening callback cost, while documenting a remaining analysis-handoff pause and later quality drops in the automatically selected catalog view. It does not activate or validate authored Dual Summits.
