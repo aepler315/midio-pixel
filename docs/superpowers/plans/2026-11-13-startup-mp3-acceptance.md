@@ -66,3 +66,5 @@ fnm exec --using 24.22.2 node .smoke/mp3-live.mjs --audio '<mp3-path>' --seconds
 ```
 
 The tracked tool requires a scene flag and its manifest validation rejects `--song-range 0`; this is why these automatic-selection captures use the ignored wrapper. `--song-range 1` opts into composed stages and is not the automatic catalog-selection baseline. No tests or lint were rerun for this documentation-only follow-up; the runtime remains the previously validated change. The two captures and their comparison passed all recorded identity/continuity checks.
+
+The subsequent [cloud-cache handoff investigation](2026-11-13-startup-handoff.md) identifies and reduces a substantial part of the analysis-transition pause. The measurements above remain the pre-cache record.
