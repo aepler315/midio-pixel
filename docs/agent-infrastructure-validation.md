@@ -20,7 +20,9 @@ source of truth. No application `src/` files changed. No merge or deploy perform
   1 failed**, duration 435.3 s. Failure: `test/shotPlanner.test.mjs:190`,
   “an 18-shot library and a 3-minute song plan in under 50 ms” (865 ms test
   duration on this run). Its existing 50 ms assertion was not weakened.
-- Final full-suite results are recorded below after completion.
+- Post-review full suite: **5,595 tests, 5,581 passed, 13 skipped, 1 failed**,
+  duration 434.7 s; the same existing shotPlanner timing assertion failed. Final
+  focused infrastructure tests passed 10/10 after the isolated handoff enhancement.
 - `npm run eval:agents -- --task safe-modification --out .smoke/engineering/evaluation-rehearsal`:
   all three selected test files passed. This rehearsed the evaluation runner;
   no model assignment was performed or scored (`score: null`).
@@ -73,14 +75,45 @@ against the failed/unapproved capture failed nonzero and retained its error summ
 A standalone synthetic PNG tooling rehearsal exercised explicit approval, changed
 image comparison and generated before/after/difference reports; the difference
 image was opened and inspected. Those pixels test the tool only and are **not**
-Midio output. No application image was approved, inspected or claimed to pass.
+Midio output. No local sandbox application rendering succeeded. Hosted execution subsequently
+provided the actual application captures described below.
 
-The PR workflow implements a matching clean-base/candidate capture and comparison
-on hosted Chromium. Its reference is explicitly an approved-source comparison,
-not owner-approved pictures. Hosted results must be checked on the PR; adding a
-workflow is not evidence it ran. Once a browser-capable environment is available,
-run both captures, inspect actual pictures/consecutive motion and explicitly approve
-any image baseline. JOYING performance and listening/artistic review remain open.
+### Successful hosted evidence
+
+[PR #134](https://github.com/aepler315/midio-pixel/pull/134) triggered
+[run 43462294756](https://github.com/aepler315/midio-pixel/actions/runs/43462294756)
+at implementation commit `7b8cadc9672bdbe48e0916c78efbbc51866a4de8`.
+Its CPU and visual jobs passed. The core job ran lint/module checks, the full
+application suite, Ridgeview and production staging. Lint, modules, Ridgeview
+(26/26) and staging passed; the hosted application suite recorded 5,595 tests,
+5,574 passed, 20 skipped and the same single shotPlanner timing failure
+(test duration about 1,005 ms). The core job correctly failed and retained logs. The CPU artifact was downloaded and inspected:
+Node 24.22.2 / Linux x64 / Intel Xeon 6975P-C / four logical CPUs; all eight
+same-runner comparison scenarios passed. This is additional surrogate evidence,
+not the same environment as the local table above.
+
+The actual visual artifact was downloaded and inspected: eight reference and
+eight candidate frames, Chromium 156.0.8078.4, ANGLE Vulkan SwiftShader Device
+(Subzero), 640×360. All eight comparisons have changed ratio 0 and edge MAE 0;
+SSIM is 1 to floating-point precision. No source renderer change is claimed.
+Observed in the contact sheet and representative full-size frames: opening title
+over a dark skyline, middle moonlit blue terrain with visible ridge branches and
+reflections, a purple late landscape, visibly reduced half-relief diagnostic and
+an energetic quality-3 state. The storm amount at 45/54 s is approximately 0.571;
+that confirms exercised weather state, not realistic motion or artistic success.
+
+The inspected candidate frames were explicitly approved as the initial technical
+reference under `test/fixtures/verification/baseline/` (about 1.85 MiB total PNGs).
+Approval records the reviewer/reason and keeps owner artistic verdict unreviewed.
+The CI workflow now prefers these inspected references, avoiding a second full
+base capture on ordinary PRs; clean-source comparison remains a bootstrap fallback.
+Source-image generation never auto-approves a changed candidate.
+
+The source run's evidence is retained for 14 days as `agent-visual` and `agent-cpu`;
+the baseline images, identities and compact CPU measurements persist in Git.
+JOYING hardware, physical-display pacing, consecutive motion/listening and owner
+artistic review remain unverified. The initial local sandbox rejection remains an
+accurate local limitation, now independently resolved for fixed images by hosted CI.
 
 ## Independent review and fixes
 

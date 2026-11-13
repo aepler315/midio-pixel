@@ -6,7 +6,7 @@ Main inspected: `58454dd93e6919c591835f6ccc0edefa02888f49`. No open PRs were ret
 
 ## Decision
 
-Reuse the Node test runner, ESLint, stage-site production packager, frozen-source server and real upload/export capture API. Add a bounded scenario runner, explicit baseline approval, thresholded full-size PNG comparisons and a separate CPU benchmark. Keep costly full-song/GPU/device work opt-in. Automatic PR checks use read-only permissions and upload evidence even on failure.
+Reuse the Node test runner, ESLint, stage-site production packager, frozen-source server and real upload/export capture API. Add a bounded scenario runner, explicit baseline approval, thresholded full-size PNG comparisons and a separate CPU benchmark. Keep costly full-song/GPU/device work opt-in. Automatic PR checks use read-only permissions and upload evidence even on failure. Once the hosted corpus was inspected, eight technical baseline images were explicitly approved and committed; CI prefers those, retaining clean-source comparison as a bootstrap fallback.
 
 A small reviewed PNG corpus under `test/fixtures/verification/baseline/` is an intentional exception to the usual untracked-capture policy. Full captures/audio/logs remain in `.smoke/`. Baselines have reviewer/reason, controls, audio hashes, renderer, browser and source provenance. Generating a candidate never approves it. Initial technical approval does not imply owner artistic approval.
 

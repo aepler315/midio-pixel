@@ -102,14 +102,29 @@ test('every committed scenario normalizes against the current production export 
   }
 });
 
-test('handoff CLI snapshots real Git state and refuses to trust changed branch evidence', async t => {
+test('handoff CLI snapshots committed task files and refuses changed Git evidence', async t => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'midio-handoff-')); t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  // A self-contained repo keeps this test valid on clean main, feature branches
+  // and shallow CI checkouts without relying on an origin/main in the caller.
+  const repo = path.join(dir, 'repo'); await fs.mkdir(path.join(repo, 'tools/verification'), { recursive: true });
+  for (const name of ['handoff.mjs', 'io.mjs']) await fs.copyFile(`tools/verification/${name}`, path.join(repo, 'tools/verification', name));
+  const git = args => {
+    const result = spawnSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', ...args], { cwd: repo, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr); return result.stdout.trim();
+  };
+  git(['init']); git(['add', '.']); git(['commit', '-m', 'base']);
+  git(['update-ref', 'refs/remotes/origin/main', git(['rev-parse', 'HEAD'])]);
+  await fs.writeFile(path.join(repo, 'changed.txt'), 'committed task change');
+  git(['add', '.']); git(['commit', '-m', 'task']);
   const record = Object.fromEntries(['objective', 'decisions', 'tests', 'visual', 'performance', 'problems', 'remaining', 'next'].map(k => [k, `${k}: test fixture, not an executed engineering task`]));
   const input = path.join(dir, 'input.json'), out = path.join(dir, 'out'); await fs.writeFile(input, JSON.stringify(record));
-  const cli = args => spawnSync(process.execPath, ['tools/verification/handoff.mjs', ...args], { encoding: 'utf8' });
+  const cli = args => spawnSync(process.execPath, [path.join(repo, 'tools/verification/handoff.mjs'), ...args], { cwd: repo, encoding: 'utf8' });
   assert.equal(cli(['create', '--record', input, '--out', out]).status, 0);
   assert.equal(cli(['resume', '--handoff', out]).status, 0);
-  const file = path.join(out, 'report.json'), saved = JSON.parse(await fs.readFile(file)); saved.state.commit = 'stale'; await fs.writeFile(file, JSON.stringify(saved));
+  const file = path.join(out, 'report.json'), saved = JSON.parse(await fs.readFile(file));
+  assert.deepEqual(saved.state.changedFiles, ['changed.txt']); assert.deepEqual(saved.state.uncommittedFiles, []);
+  assert.match(saved.state.taskBase, /^[a-f0-9]{40}$/);
+  saved.state.commit = 'stale'; await fs.writeFile(file, JSON.stringify(saved));
   const resumed = cli(['resume', '--handoff', out]); assert.equal(resumed.status, 1); assert.match(resumed.stdout, /Git state changed/);
   delete record.tests; await fs.writeFile(input, JSON.stringify(record));
   assert.notEqual(cli(['create', '--record', input, '--out', path.join(dir, 'invalid')]).status, 0);

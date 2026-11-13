@@ -93,12 +93,15 @@ jobs:
         with:
           browser: true
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: ${{ hashFiles('test/fixtures/verification/baseline/report.json') == '' }}
         with:
           ref: ${{ github.event.pull_request.base.sha || github.sha }}
           path: .smoke/agent-base-source
       - name: Render the reviewed upstream source
+        if: ${{ hashFiles('test/fixtures/verification/baseline/report.json') == '' }}
         run: npm run verify:visual:capture -- --source .smoke/agent-base-source --out .smoke/agent-visual-base
       - name: Bind reference to exact clean upstream commit
+        if: ${{ hashFiles('test/fixtures/verification/baseline/report.json') == '' }}
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
         run: >-
@@ -108,14 +111,15 @@ jobs:
           --source-commit "$BASE_SHA"
       - name: Render candidate with identical controls
         run: npm run verify:visual:capture -- --out .smoke/agent-visual-candidate
-      - name: Compare with threshold and structural evidence
-        run: >-
-          npm run verify:visual -- --baseline .smoke/agent-visual-reference
-          --candidate .smoke/agent-visual-candidate --out .smoke/agent-visual-diff
+      - name: Compare with the inspected images or explicit source fallback
+        run: |
+          reference=test/fixtures/verification/baseline
+          if [ ! -f "$reference/report.json" ]; then reference=.smoke/agent-visual-reference; fi
+          npm run verify:visual -- --baseline "$reference" --candidate .smoke/agent-visual-candidate --out .smoke/agent-visual-diff
       - name: Summarize comparison
         if: always()
         run: |
-          echo '## Fixed-clock visual comparison against upstream base source' >> "$GITHUB_STEP_SUMMARY"
+          echo '## Fixed-clock visual comparison against the inspected baseline or explicit source fallback' >> "$GITHUB_STEP_SUMMARY"
           echo 'This is technical regression evidence, not owner artistic approval or device performance.' >> "$GITHUB_STEP_SUMMARY"
           if [ -f .smoke/agent-visual-diff/summary.md ]; then cat .smoke/agent-visual-diff/summary.md >> "$GITHUB_STEP_SUMMARY"; fi
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -127,5 +131,6 @@ jobs:
             .smoke/agent-visual-reference/
             .smoke/agent-visual-candidate/
             .smoke/agent-visual-diff/
+            test/fixtures/verification/baseline/
           include-hidden-files: true
           retention-days: 14

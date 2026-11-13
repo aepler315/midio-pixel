@@ -1,0 +1,149 @@
+{
+  "version": 1,
+  "status": "passed",
+  "controlsHash": "91a6a61ea89e5c300c4e8a8aae82889263dcbfe0060646c0d4dddcd982aa842e",
+  "corpus": {
+    "version": 1,
+    "fixture": {
+      "seconds": 90,
+      "sampleRate": 48000,
+      "wavSampleRate": 44100
+    },
+    "thresholds": {
+      "channel": 8,
+      "changedRatio": 0.01,
+      "minSsim": 0.985,
+      "edgeMae": 0.01
+    },
+    "settings": {
+      "width": 640,
+      "height": 360,
+      "seed": 315,
+      "quality": 0,
+      "view": "teton-jackson-lake",
+      "biome": "CONIFER",
+      "tour": "off",
+      "pace": 3,
+      "mode": "sparse",
+      "fps": 12
+    },
+    "scenarios": [
+      {
+        "id": "classic",
+        "grid": "classic",
+        "timesMs": [
+          0,
+          45000,
+          85000
+        ],
+        "purpose": "opening close-up, intermediate build, late distant composition; automatic heard-time growth"
+      },
+      {
+        "id": "detailed",
+        "grid": "detailed",
+        "timesMs": [
+          0,
+          45000,
+          85000
+        ],
+        "purpose": "same clocks on the finer terrain raster; ridge detail and camera"
+      },
+      {
+        "id": "half-rise",
+        "grid": "classic",
+        "timesMs": [
+          45000
+        ],
+        "debug": {
+          "rangeRise": 0.5
+        },
+        "purpose": "diagnostic exact half relief; distinct from automatic song progression"
+      },
+      {
+        "id": "weather-q3",
+        "grid": "classic",
+        "timesMs": [
+          54000
+        ],
+        "quality": 3,
+        "purpose": "musical weather and reduced fog sampling; actual weather uniforms retained"
+      }
+    ]
+  },
+  "frames": [
+    {
+      "id": "classic-0",
+      "png": "classic-0.png",
+      "sha256": "262c62676ad30715fb5febb055276e3bde73eeac976715b03667ae2647a95f7a",
+      "width": 640,
+      "height": 360
+    },
+    {
+      "id": "classic-45000",
+      "png": "classic-45000.png",
+      "sha256": "01007d87adc590e084fb09036277265b45253b64afbce41f049ec862ded19c9a",
+      "width": 640,
+      "height": 360
+    },
+    {
+      "id": "classic-85000",
+      "png": "classic-85000.png",
+      "sha256": "f039d3a5fe715aca422584724539c019c42dc940640004f2756187283983605f",
+      "width": 640,
+      "height": 360
+    },
+    {
+      "id": "detailed-0",
+      "png": "detailed-0.png",
+      "sha256": "06a246e6f60b3e67a801a5099b5ab3193b1b277b7b4858add200abeac15dfe0d",
+      "width": 640,
+      "height": 360
+    },
+    {
+      "id": "detailed-45000",
+      "png": "detailed-45000.png",
+      "sha256": "65f38b6ca7b101cc01a34256eb54491b8be88ec83b664d34ad4003586f628844",
+      "width": 640,
+      "height": 360
+    },
+    {
+      "id": "detailed-85000",
+      "png": "detailed-85000.png",
+      "sha256": "707d5c5fff3d5578f46d80ad16f15a17ad3435a2bc721307acf640ccebe8344d",
+      "width": 640,
+      "height": 360
+    },
+    {
+      "id": "half-rise-45000",
+      "png": "half-rise-45000.png",
+      "sha256": "ef5499b58605308195265f2eba42c8b49b0c726749a7ce22239e76a01c91a591",
+      "width": 640,
+      "height": 360
+    },
+    {
+      "id": "weather-q3-54000",
+      "png": "weather-q3-54000.png",
+      "sha256": "c17c07c9ac41804b9d150ce5c5757e789ebbca72c674acfe79549cf0fd6e054c",
+      "width": 640,
+      "height": 360
+    }
+  ],
+  "source": {
+    "commit": "7b8cadc9672bdbe48e0916c78efbbc51866a4de8",
+    "branch": "",
+    "dirty": "",
+    "digest": "9026a11c1e5ab5938f0b9aed970117e8a90451eb35d4fa0b5b34e759d6cd7ca1"
+  },
+  "scope": "Fixed-clock software WebGL export; technical references, no artistic, live-motion, GPU-time or JOYING certification.",
+  "browserVersion": "156.0.8078.4",
+  "browser": "chromium-156",
+  "audioSha256": "c0160a5c95669def70cfe43feeca1c06b81117cf01f2b4e43d59f1ef59e02297",
+  "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+  "approval": {
+    "reviewer": "Codex-technical-inspection",
+    "reason": "Initial eight-frame reference: actual hosted output inspected as a contact sheet and representative full-size images; exact pixel match with clean main 58454dd. Technical baseline only; owner artistic approval and motion/device evidence remain unreviewed.",
+    "at": "2026-11-13T16:31:37.105Z",
+    "kind": "inspected-images",
+    "artisticVerdict": "unreviewed"
+  }
+}

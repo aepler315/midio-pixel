@@ -79,11 +79,18 @@ portable inspected-image corpus is available, and adapts to the installed browse
 It does not automatically approve the candidate. Workflow dispatch compares the
 dispatched source with itself as a repeatability check, not a historical change.
 
-No initial inspected application-image baseline was created in the implementation
-workspace: its sandbox prevented Chromium startup. CI therefore uses approved
-source comparison by default. This limitation is explicit rather than seeding a
-reference from an unobserved output. The local approval/comparison mechanism is
-fully executable and tested with real synthetic PNG fixtures.
+The initial eight-image technical reference is committed under
+`test/fixtures/verification/baseline/`. It came from successful hosted Chromium
+captures on [run 43462294756](https://github.com/aepler315/midio-pixel/actions/runs/43462294756),
+matched clean main pixel-for-pixel, and was explicitly approved after inspection.
+Its owner artistic verdict remains unreviewed. CI prefers these inspected images;
+the clean-source comparison is a bootstrap fallback when no committed reference
+exists. To update deliberately, capture and inspect into a new directory, run the
+explicit approval command, review old/new/difference artifacts, then replace the
+committed reference in the feature PR with its new reviewer/reason. Never make
+capture or CI replace it automatically. Browser/harness changes need the same
+explicit migration. The implementation workspace could not launch Chromium, so
+hosted artifacts supplied the actual application-image evidence.
 
 ### Comparisons and failures
 
@@ -130,7 +137,7 @@ sequential runs; do not infer GPU time or head-unit FPS from Node.
 
 `agent-verification.yml` runs on PRs and manual dispatch, with only `contents: read`:
 core lint/module/tests/production staging; same-runner CPU base/candidate; and the
-8-image-per-side matched-source visual corpus. Jobs have finite timeouts and
+8-image corpus against inspected references (or clean-source bootstrap). Jobs have finite timeouts and
 14-day artifact retention, summaries on success/failure and concurrency cancellation.
 Actions and dependency locks are pinned; no secrets, privileged PR target event,
 production deploy or PR-write permission is added. Existing manual extended,
