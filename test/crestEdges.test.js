@@ -3,8 +3,8 @@
 // The shaders themselves are checked on a GPU by tools/crest-edge-smoke.mjs.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PROBE_EDGE_ROW, PROBE_FINE_ROWS, PROBE_FINE_K, EDGE_NEIGHBOURS, PROBE_EDGE_JUMP, PROBE_EDGE_MATCH, edgeCell } from '../src/world/alpine/CrestProbe.js';
-import { decodeEdges, colorEdges, edgeState, fineCrest } from '../src/world/alpine/RangeCrest.js';
+import { PROBE_BAND_ROWS, PROBE_EDGE_ROW, PROBE_FINE_ROWS, PROBE_FINE_K, EDGE_NEIGHBOURS, PROBE_EDGE_JUMP, PROBE_EDGE_MATCH, edgeCell } from '../src/world/alpine/CrestProbe.js';
+import { RangeCrest, decodeEdges, colorEdges, edgeState, fineCrest } from '../src/world/alpine/RangeCrest.js';
 
 const W = 6, H = 4;
 const identity = (e = 0, f = 0) => ({ a: 1, b: 0, c: 0, d: 1, e, f, sx: 1, sy: 1, Wg: W, Hg: H });
@@ -84,6 +84,71 @@ test('each edge cell takes its neighbour\'s colour, unless there is nothing to p
   assert.equal(colorEdges(edges, data, W, 0, H, { dy: 1 }), 1);
   edges.y[0] = 2;
   assert.equal(colorEdges(edges, data.subarray(2 * W * 4), W, 2, 2), 0, 'the neighbour\'s row was not read');
+});
+
+function drawRecorder() {
+  const ops = [];
+  return new Proxy({ ops }, {
+    get(target, key) { return key in target ? target[key] : (...args) => ops.push([key, ...args]); },
+    set(target, key, value) { target[key] = value; ops.push(['set', key, value]); return true; },
+  });
+}
+
+test('invisible edge refinement reads and draws nothing, then recolors from the next visible frame', () => {
+  const crest = new RangeCrest(), pr = probeWith([[2, 2, 0x000f, 0]]);
+  const base = { probe: pr, grid: { width: W, height: H }, stage: { width: W, height: H },
+    transform: [1, 0, 0, 1, 0, 0], viewId: 'edge-fixture', instant: true };
+  const fit = { x: 0, y: 0, width: W * 4, height: H * 4, scale: 4 };
+  let pixels = grid((_x, y) => y === 1 ? [90, 100, 200, 255] : [100, 80, 60, 255]), reads = 0;
+  const ctx = { getImageData(_x, y, _w, h) { reads++; return { data: pixels.slice(y * W * 4, (y + h) * W * 4) }; } };
+
+  crest.update({ ...base, frameId: 1, timeMs: 0, opacity: 1 });
+  crest.prepareGrid({ ctx });
+  const initial = drawRecorder();
+  crest.drawCrest(initial, fit, 1);
+  assert.ok(initial.ops.some(op => op[0] === 'set' && op[1] === 'fillStyle' && op[2] === 'rgb(90,100,200)'));
+
+  pixels = grid((_x, y) => y === 1 ? [20, 180, 40, 255] : [100, 80, 60, 255]);
+  reads = 0;
+  crest.update({ ...base, frameId: 2, timeMs: 1000 / 60, opacity: 0 });
+  crest.prepareGrid({ ctx });
+  const invisible = drawRecorder();
+  crest.drawCrest(invisible, fit, 2);
+  assert.deepEqual(invisible.ops, []);
+  assert.equal(reads, 0, 'edge colors have no consumer while the frozen crest opacity is zero');
+
+  crest.update({ ...base, frameId: 3, timeMs: 2000 / 60, opacity: 1 });
+  crest.prepareGrid({ ctx });
+  const visible = drawRecorder();
+  crest.drawCrest(visible, fit, 3);
+  assert.equal(reads, 1, 'the first visible frame reads its own grid');
+  assert.ok(visible.ops.some(op => op[0] === 'fillRect'), 'the edge mask draws again');
+  assert.ok(visible.ops.some(op => op[0] === 'set' && op[1] === 'fillStyle' && op[2] === 'rgb(20,180,40)'));
+  assert.ok(!visible.ops.some(op => op[0] === 'set' && op[1] === 'fillStyle' && op[2] === 'rgb(90,100,200)'), 'no stale edge color returns');
+});
+
+test('zero build opacity keeps crest smoothing history for its first visible frame', () => {
+  const hidden = new RangeCrest(), visible = new RangeCrest();
+  const base = { grid: { width: W, height: H }, stage: { width: W, height: H },
+    transform: [1, 0, 0, 1, 0, 0], viewId: 'edge-fixture' };
+  for (let frameId = 1; frameId <= 12; frameId++) {
+    const pr = probeWith([[2, 2, 0x000f, 0]]), row = PROBE_BAND_ROWS.far;
+    pr.rows = 1 << row | 1 << (row + 1);
+    for (let x = 0; x < W; x++) {
+      const offset = (row * W + x) * 4;
+      pr.data.set([frameId < 8 ? 2 : 3, 0, 128, 255], offset);
+      pr.data.set([90, 100, 200, 255], offset + W * 4);
+    }
+    const frame = { ...base, probe: pr, frameId, timeMs: frameId * 1000 / 60 };
+    hidden.update({ ...frame, opacity: frameId === 12 ? 1 : 0 });
+    visible.update({ ...frame, opacity: 1 });
+  }
+  const fit = { x: 0, y: 0, width: W * 4, height: H * 4, scale: 4 };
+  const actual = drawRecorder(), uninterrupted = drawRecorder();
+  hidden.drawCrest(actual, fit, 12);
+  visible.drawCrest(uninterrupted, fit, 12);
+  assert.ok(actual.ops.some(op => op[0] === 'stroke'));
+  assert.deepEqual(actual.ops, uninterrupted.ops, 'visibility changes no temporal geometry or color history');
 });
 
 test('the fine crest replaces whole-row steps by output-pixel rows, but never shaves a crown', () => {

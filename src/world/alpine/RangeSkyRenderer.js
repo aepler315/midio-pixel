@@ -5,7 +5,7 @@ import { CelestialPainter } from './CelestialPainter.js';
 import { drawStormSky } from './RangeStorm.js';
 import { LightningFX } from '../Lightning.js';
 import { cloudBanks } from './RangeCloudField.js';
-import { buildCloudTexture } from './RangeCloudTexture.js';
+import { cachedCloudTexture } from './RangeCloudTextureCache.js';
 import { sampleSkyPerformance } from './SkyPerformance.js';
 import { CELESTIAL_RISE_XFRAC, CELESTIAL_SET_XFRAC } from '../DayNight.js';
 export { cloudDensity } from './RangeCloudTexture.js';
@@ -182,7 +182,7 @@ export class RangeSkyRenderer {
     if (!canvas || this.painted.has(canvas)) return canvas;
     const ctx = canvas.getContext('2d'), image = ctx.createImageData(canvas.width, canvas.height);
     const seed = this.seed + index * 71;
-    image.data.set(buildCloudTexture(seed, canvas.width, canvas.height));
+    image.data.set(cachedCloudTexture(this.buffers.residency, seed, canvas.width, canvas.height));
     ctx.putImageData(image, 0, 0);
     this.painted.add(canvas);
     return canvas;

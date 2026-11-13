@@ -280,6 +280,17 @@ let lastGlowSig = null;
 let visionLoop = null;
 let debugOverlay = null;
 let perfGovernor = null;
+let fixturePerfLevel = null; // evidence preference survives governor replacement on analysis adoption/seek
+let sceneEpoch = 0; // page-local identity of a constructed simulation, independent of load generation
+let sceneGeneration = null;
+let sceneStartMs = 0;
+let sceneStartedAtMs = null;
+let performanceHistoryGeneration = null;
+let previousScenePerformance = []; // first measured scene plus the seven most recent completed scenes
+let omittedScenePerformance = 0;
+let renderedFrames = 0; // successful playback callbacks only; never reset on a scene rebuild
+let lastRenderAtMs = null;
+let lastFrameTiming = null;
 let lastRafMs = null; // separate from lastNowMs (audio clock) -- tracks real rAF-to-rAF cadence for the perf governor
 let lastRenderedWorkMs = null; // CPU submission work, never vsync wait or a skipped draw
 let lastRenderedSyncWaitMs = null; // the part of that callback spent in synchronous GPU waits (SyncWaits.js)
@@ -1662,6 +1673,7 @@ function startTimeline(timelineData, extra = {}) {
   // An export rebuild must not resume the context on the way through
   // stopTimeline: that resume is asynchronous and would land after the
   // suspend below, leaving the song playing under a stepped clock.
+  retainPerformanceScene();
   stopTimeline({ preservePause: preservePause || exportMode, keepAudio });
   fitCanvas();
   // Guard a degenerate declared duration (<=0): without it, FractureEngine's
@@ -1690,6 +1702,7 @@ function startTimeline(timelineData, extra = {}) {
   // An offline frame's period is its draw time, which the ladder would read
   // as pressure and shed the picture the file exists to keep.
   if (exportMode) perfGovernor.freezeQuality(effectivePresentation().quality === 'economy' ? PERF_MAX_LEVEL : exportQualityLevel);
+  if (fixturePerfLevel !== null) perfGovernor.setFixtureLevel(fixturePerfLevel);
   fitCanvas(); // sync the new governor's canvasWidth/scale to the live buffer
   // World construction (parallax strips, landmarks) is CPU-heavy; surface a
   // progress line so a multi-second bake never looks like a dead freeze.
@@ -1785,6 +1798,10 @@ function startTimeline(timelineData, extra = {}) {
   // keepUserCamera; a new song or a replay starts unzoomed.
   if (!extra.keepUserCamera) rangeUserCamera.reset();
   sim.analysisOpening = timelineData.opening || null;
+  sceneEpoch++;
+  sceneGeneration = loadGen;
+  sceneStartMs = Math.max(0, startAtMs || 0);
+  sceneStartedAtMs = performance.now();
   // This snapshot belongs to the song, beyond Simulation teardown/rebuild.
   if (!exportMode && !timelineData.opening) timelineData.rangeNarrative = sim.rangeNarrative;
   if (!exportMode && sim.biomes.chapterPlan) timelineData.chapterState = {
@@ -2006,7 +2023,12 @@ function startTimeline(timelineData, extra = {}) {
     get durationMs() { return conductor?.durationMs || 0; },
     get exportSize() { return { width: canvas.width, height: canvas.height }; },
     get presentationDiagnostics() { return renderer?.diagnostics || titlePresentation?.diagnostics; },
-    get frameRates() { return { presented: presentedFps.fps, callback: fpsEma }; },
+    get frameRates() { return { presented: presentedFps.fps, callback: fpsEma, renderedFrames, lastRenderAtMs }; },
+    get lastFrameTiming() { return lastFrameTiming ? { ...lastFrameTiming } : null; },
+    get sceneIdentity() { return sceneIdentitySnapshot(); },
+    get playbackState() { return { running, paused, preparing: playbackPreparing, status: renderPlayback.status }; },
+    setFixtureLevel,
+    get fixtureLevel() { return fixturePerfLevel; },
     // Device probes: what bounds delivered frames (the FPS cap) and whether
     // the song is paused, so callback cadence is not read as delivery.
     get fpsCap() { return playbackFps(); },
@@ -3220,12 +3242,68 @@ function performanceSnapshot() {
   const stats = prepared?.stats ?? null;
   return {
     governor: perfGovernor.record, capFps: playbackFps(),
+    recordScope: 'scene', scene: sceneIdentitySnapshot(),
+    previousScenes: structuredClone(previousScenePerformance), previousScenesOmitted: omittedScenePerformance,
     presentedFps: Number.isFinite(presentedFps.fps) ? Math.round(presentedFps.fps * 10) / 10 : null,
     callbackFps: Number.isFinite(fpsEma) ? Math.round(fpsEma * 10) / 10 : null,
+    lastFrame: lastFrameTiming ? { ...lastFrameTiming } : null,
     lastFrameSyncWaitMs: lastSyncWaits(),
     view: viewId == null ? null : { viewId, songRange: viewId.startsWith('song-range-'),
       tiles: prepared?.manifest?.tiles?.length ?? null, triangles: stats?.drawnTriangles ?? stats?.triangles ?? null, trees: stats?.trees ?? null },
     mirror: scene ? !!(scene.mirrors?.A || scene.mirrors?.B) : null, backdrop: scene ? !!scene.backdrop : null,
+  };
+}
+
+/** Preserve measurements before a seek or full-analysis rebuild replaces
+ * the governor. Records stay per scene; a new load starts a new history. */
+function retainPerformanceScene() {
+  if (performanceHistoryGeneration !== loadGen) {
+    performanceHistoryGeneration = loadGen;
+    previousScenePerformance = [];
+    omittedScenePerformance = 0;
+    return;
+  }
+  if (!perfGovernor || !sim) return;
+  const governor = perfGovernor.record;
+  if (!(governor.wholeRun.periodMs.count > 0)) return;
+  previousScenePerformance.push({ scene: structuredClone(sceneIdentitySnapshot()), endedAtMs: performance.now(), governor });
+  // Never evict the original measured startup. Keep the latest seven
+  // rebuilds after it, with omitted middle scenes explicitly counted.
+  if (previousScenePerformance.length > 8) {
+    previousScenePerformance.splice(1, 1);
+    omittedScenePerformance++;
+  }
+}
+
+/** Pin evidence before loading, so even the first prepared frame uses the
+ * requested rung. Keep the preference outside the per-scene governor. */
+function setFixtureLevel(level) {
+  if (level !== null && (!Number.isInteger(level) || level < 0 || level > PERF_MAX_LEVEL)) {
+    throw new RangeError(`fixture quality must be an integer 0..${PERF_MAX_LEVEL}, got ${level}`);
+  }
+  perfGovernor?.setFixtureLevel(level);
+  fixturePerfLevel = level;
+  if (perfGovernor) fitCanvas();
+  return fixturePerfLevel;
+}
+
+/** The loaded timeline upgrades in place before its simulation is rebuilt.
+ * Read analysis stage from the simulation that actually draws the picture. */
+function sceneIdentitySnapshot() {
+  if (!sim) return null;
+  const landscape = sim.biomes?.rangePresentation, scene = landscape?.scene;
+  const active = landscape?.active && landscape.runtimeState === 'ready' && scene && !scene.contextLost;
+  const viewId = active ? landscape.viewId ?? null : null;
+  const incomingViewId = active ? landscape.incomingViewId ?? null : null;
+  return {
+    generation: sceneGeneration, sceneEpoch, sceneStartMs, startedAtMs: sceneStartedAtMs,
+    analysisStage: sim.analysisOpening ? 'opening' : 'full',
+    analyzedMs: sim.analysisOpening?.analyzedMs ?? null,
+    songSeed: sim.songSeed, worldId: sim.worldId,
+    ridgeStateKey: lastTimelineData?.ridgeMusicSession?.stateKey ?? null,
+    sourceTrack: lastTimelineData?.sourceTrack || null,
+    viewId, stageKey: viewId ? scene.prepared?.get(viewId)?.view?.songRange?.key ?? null : null,
+    incomingViewId, incomingStageKey: incomingViewId ? scene.prepared?.get(incomingViewId)?.view?.songRange?.key ?? null : null,
   };
 }
 
@@ -3263,11 +3341,11 @@ function frame(tRaf) {
   if (!running) return;
   if (paused || playbackPreparing) { lastRenderedWorkMs = null; lastRenderedSyncWaitMs = null; rafHandle = requestAnimationFrame(frame); return; }
   const workStartMs = performance.now();
+  const rafDeltaMs = lastRafMs === null ? null : tRaf - lastRafMs;
   const previousWorkMs = lastRenderedWorkMs, previousSyncWaitMs = lastRenderedSyncWaitMs;
   lastRenderedWorkMs = null; lastRenderedSyncWaitMs = null;
   resetSyncWaits();
   if (lastRafMs !== null) {
-    const rafDeltaMs = tRaf - lastRafMs;
     noteFrameGap(rafDeltaMs);
     // A hidden page's frame timing says nothing about how expensive the
     // scene is. Chrome stops rAF outright for a hidden tab, but an embedded
@@ -3344,11 +3422,12 @@ function frame(tRaf) {
 
   const alpha = acc / STEP_MS;
   let presented = false;
+  let presentationResult = null;
   try {
-    const result = renderer.draw(sim, alpha);
-    presented = !!result?.presented;
+    presentationResult = renderer.draw(sim, alpha);
+    presented = !!presentationResult?.presented;
     syncCaptionDetails();
-    if (!presented) throw new Error(`Presentation failed: ${result?.reason || 'no completed frame'}`);
+    if (!presented) throw new Error(`Presentation failed: ${presentationResult?.reason || 'no completed frame'}`);
   } catch (err) {
     // One bad frame must not kill the whole run (canvas NaN colors used to
     // throw here and leave the world frozen on the last good paint). But it
@@ -3441,9 +3520,21 @@ function frame(tRaf) {
   // Includes simulation, drawing, capture and HUD work from this callback.
   // WebGL submission can finish before the GPU: callback pressure remains
   // the governor's independent signal for missed deadlines.
-  lastRenderedWorkMs = presented && !document.hidden ? Math.max(0, performance.now() - workStartMs) : null;
+  const callbackMs = Math.max(0, performance.now() - workStartMs);
+  lastRenderedWorkMs = presented && !document.hidden ? callbackMs : null;
   const frameSyncWaitMs = takeSyncWaits();
   lastRenderedSyncWaitMs = lastRenderedWorkMs === null ? null : Math.min(frameSyncWaitMs, lastRenderedWorkMs);
+  if (presented) {
+    renderedFrames++;
+    lastRenderAtMs = tRaf;
+    lastFrameTiming = {
+      frameId: renderedFrames, rafAtMs: tRaf, rafDeltaMs, sceneEpoch,
+      callbackMs, workMs: callbackWorkMs(lastRenderedWorkMs, lastRenderedSyncWaitMs),
+      syncWaitMs: Math.min(frameSyncWaitMs, callbackMs),
+      presentationId: presentationResult?.frameId ?? null,
+      presentationGeneration: presentationResult?.generation ?? null,
+    };
+  }
 
   if (isSongComplete(nowMs)) {
     onSongComplete();
@@ -5135,6 +5226,12 @@ syncRecordUI();
 
 // The title has a presentation owner before there is a song simulation.
 if (!window.__SMW) window.__SMW = {
+  setFixtureLevel,
+  get fixtureLevel() { return fixturePerfLevel; },
+  get frameRates() { return { presented: presentedFps.fps, callback: fpsEma, renderedFrames, lastRenderAtMs }; },
+  get lastFrameTiming() { return lastFrameTiming ? { ...lastFrameTiming } : null; },
+  get sceneIdentity() { return sceneIdentitySnapshot(); },
+  get playbackState() { return { running, paused, preparing: playbackPreparing, status: renderPlayback.status }; },
   get presentationDiagnostics() { return titlePresentation?.diagnostics; },
   get displayPrefs() { return { ...displayPrefs }; },
   get rangeRenderer() { return rangePresentation?.mode || rangeMode.mode; },
