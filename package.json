@@ -46,7 +46,14 @@
     "test:plex": "node tools/plex-smoke.mjs",
     "test:library-integrity": "node tools/library-scan-integrity-smoke.mjs",
     "test:tour-coverage": "node tools/tour-coverage-check.mjs",
-    "test:rise-coverage": "node tools/rise-coverage-check.mjs"
+    "test:rise-coverage": "node tools/rise-coverage-check.mjs",
+    "verify:visual:capture": "node tools/verification/capture.mjs",
+    "verify:visual": "node tools/verification/compare.mjs",
+    "verify:visual:approve": "node tools/verification/approve.mjs",
+    "bench:engineering": "node tools/verification/benchmark.mjs",
+    "agent:handoff": "node tools/verification/handoff.mjs create",
+    "agent:resume": "node tools/verification/handoff.mjs resume",
+    "eval:agents": "node tools/verification/evaluate.mjs"
   },
   "dependencies": {
     "slsk-client": "2.0.2"
@@ -57,6 +64,7 @@
     "eslint": "^10.14.0",
     "globals": "^17.14.0",
     "playwright": "^1.64.1",
+    "pngjs": "7.0.0",
     "three": "0.187.0"
   },
   "engines": {

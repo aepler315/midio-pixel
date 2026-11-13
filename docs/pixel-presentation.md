@@ -1,5 +1,7 @@
 # Display presentation
 
+Current engineering behavior is summarized in [visual-contract.md](visual-contract.md). This document retains historical Pixel/Palette/Depth sections; those modes are retired, Cinematic is the only effective Look and Uniform is the only current pixel scale.
+
 > **November 10, 2026:** Cinematic is the only look. The Pixel and Palette
 > looks, palettes, dither and the single-stage live path were removed; saved
 > records of any look migrate to Cinematic at its Detailed grid (a saved

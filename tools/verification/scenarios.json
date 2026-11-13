@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "fixture": {
+    "seconds": 90,
+    "sampleRate": 48000,
+    "wavSampleRate": 44100
+  },
+  "thresholds": {
+    "channel": 8,
+    "changedRatio": 0.01,
+    "minSsim": 0.985,
+    "edgeMae": 0.01
+  },
+  "settings": {
+    "width": 640,
+    "height": 360,
+    "seed": 315,
+    "quality": 0,
+    "view": "teton-jackson-lake",
+    "biome": "CONIFER",
+    "tour": "off",
+    "pace": 3,
+    "mode": "sparse",
+    "fps": 12
+  },
+  "scenarios": [
+    {
+      "id": "classic",
+      "grid": "classic",
+      "timesMs": [
+        0,
+        45000,
+        85000
+      ],
+      "purpose": "opening close-up, intermediate build, late distant composition; automatic heard-time growth"
+    },
+    {
+      "id": "detailed",
+      "grid": "detailed",
+      "timesMs": [
+        0,
+        45000,
+        85000
+      ],
+      "purpose": "same clocks on the finer terrain raster; ridge detail and camera"
+    },
+    {
+      "id": "half-rise",
+      "grid": "classic",
+      "timesMs": [
+        45000
+      ],
+      "debug": {
+        "rangeRise": 0.5
+      },
+      "purpose": "diagnostic exact half relief; distinct from automatic song progression"
+    },
+    {
+      "id": "weather-q3",
+      "grid": "classic",
+      "timesMs": [
+        54000
+      ],
+      "quality": 3,
+      "purpose": "musical weather and reduced fog sampling; actual weather uniforms retained"
+    }
+  ]
+}

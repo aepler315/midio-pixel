@@ -23,6 +23,8 @@ composition and **Range v2** WebGL2 scenery. If that scenery cannot load or
 WebGL2 is unavailable, painted Range scenery keeps playback running. There
 is no frontend build step for this app.
 
+Engineering entry points: [architecture](docs/architecture.md), [visual contract](docs/visual-contract.md), [performance budget](docs/performance-budget.md), [verification commands and CI](docs/verification.md), and [agent workflow](docs/agent-workflow.md).
+
 ## Run locally
 
 Use Node.js 24.x (the supported root toolchain, also used in CI) and npm:
@@ -357,7 +359,7 @@ with their original severity and phase retained. Every route must pass; a known
 failure remains a failed acceptance result. Existing output directories are
 rejected to preserve earlier evidence.
 
-The optional manual Test workflow runs both suites and uploads diagnostics.
+The automatic Agent engineering verification workflow runs PR checks and retains evidence. Existing manual Test and extended workflows remain available; see [verification](docs/verification.md).
 The other `tools/*-smoke.mjs` scripts are specialized diagnostics, not the
 maintained upload regression suite.
 

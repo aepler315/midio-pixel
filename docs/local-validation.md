@@ -6,11 +6,11 @@ below describe available checks and their pass conditions. A missing browser or
 device, a baseline failure, or an unrun broad suite does not block experimental
 implementation, iteration or local review commits; report those limits accurately.
 
-Routine validation runs locally, without GitHub Actions minutes. All test and
-visual workflows are manual (`workflow_dispatch`) only; they have no push,
-pull-request, schedule, or reusable-workflow trigger. Hosted validation is
-optional and is not required for routine local development; choose it when it
-serves the current task and its resource use is authorized.
+Routine validation remains available locally. `agent-verification.yml` now runs
+bounded core, CPU and visual checks on pull requests and manual dispatch; see
+[verification](verification.md). Existing extended visual/browser workflows remain
+manual. Hosted availability and billing are external; report actual runs rather
+than treating a configured workflow as evidence of execution.
 
 Use Node 24 (`.nvmrc`; `.npmrc` sets `engine-strict`, so `npm ci` refuses
 other versions) and the locked dependencies. `npm run validate` runs the whole
