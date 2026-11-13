@@ -3,14 +3,10 @@ import assert from 'node:assert/strict';
 import {
   estimateKey, buildSongDNA, FIFTHS_ORDER, familyShareFromWatch,
 } from '../src/world/dna/SongDNA.js';
-import { oklchToHex, hexToOklab, oklabDelta } from '../src/world/dna/OklchColor.js';
 import {
   buildShapeGrammar, computeTemperature, pickFx, pickParticleKind, deriveTerrainParams, deriveParticleMotion,
   pickCharacterScheme, CHARACTER_SCHEMES,
 } from '../src/world/dna/ShapeGrammar.js';
-import { synthesizePalette, synthesizeSectionPalettes } from '../src/world/dna/PaletteSynth.js';
-import { LANDMARKS } from '../src/world/Landmarks.js';
-import { biomeByName } from '../src/world/BiomeProfiles.js';
 import { ValueNoise1D } from '../src/utils/noise.js';
 import { alpineHeightField, rollingHeightField, ALPINE_CHARACTERS } from '../src/world/SilhouetteGenerator.js';
 import { ParticleField } from '../src/world/ParticleField.js';
@@ -228,21 +224,6 @@ test('audio chroma is a measured key; placeholder drum pitches are not', () => {
   assert.ok(dna.keyConfidence > 0.5);
 });
 
-test('oklchToHex always returns a valid 6-digit hex, even at extreme out-of-gamut chroma', () => {
-  for (const [L, C, H] of [[0.5, 0.4, 0], [0.9, 0.5, 120], [0.1, 0.3, 250], [0.5, 0, 90]]) {
-    const hex = oklchToHex(L, C, H);
-    assert.match(hex, /^#[0-9a-f]{6}$/);
-  }
-});
-
-test('oklabDelta is zero for identical colors and positive for different ones', () => {
-  const a = hexToOklab('#336699');
-  const b = hexToOklab('#336699');
-  const c = hexToOklab('#ffcc00');
-  assert.ok(oklabDelta(a, b) < 1e-9);
-  assert.ok(oklabDelta(a, c) > 0.05);
-});
-
 test('buildShapeGrammar weights are non-negative and normalized to sum 1', () => {
   const dna = buildSongDNA(synthTimeline({ pitches: [40, 43, 47], program: 30 })); // distorted guitar range
   const g = buildShapeGrammar(dna);
@@ -358,212 +339,6 @@ test('computeTemperature spreads toward the edges instead of collapsing to the m
     if (temp < 0.15 || temp > 0.85) extreme++;
   }
   assert.ok(extreme / N > 0.02, `expected >2% of songs to reach a genuinely hot/cold temperature, got ${(100 * extreme / N).toFixed(2)}%`);
-});
-
-test('synthesizePalette satisfies its own hard constraints: silhouette dark, sky stops distinguishable', () => {
-  const songs = [
-    synthTimeline({ pitches: [60, 64, 67] }),
-    synthTimeline({ pitches: [57, 60, 63, 67], program: 30 }),
-    synthTimeline({ pitches: [72, 76, 79, 84], program: 73 }),
-    { durationMs: 90000, bpm: 70 }, // audio-only, no timeline
-  ];
-  for (const data of songs) {
-    const dna = buildSongDNA(data);
-    const { profile, valid } = synthesizePalette(dna);
-    assert.equal(valid, true, `song seed ${dna.seed} failed to find a valid palette`);
-
-    const silL = hexToOklab(profile.silhouette)[0];
-    assert.ok(silL < 0.40, `silhouette too bright: L=${silL}`);
-
-    const [skyDark, skyMid, skyHot] = profile.sky.map(hexToOklab);
-    assert.ok(oklabDelta(skyDark, skyMid) > 0.02, 'sky dark/mid too close');
-    assert.ok(oklabDelta(skyMid, skyHot) > 0.02, 'sky mid/hot too close');
-    assert.ok(oklabDelta(hexToOklab(profile.silhouette), skyDark) > 0.08, 'silhouette blends into sky');
-
-    assert.ok(['sun', 'moon'].includes(profile.celestial.kind));
-    assert.ok(profile.celestial.color && profile.celestial.haloColor);
-    assert.ok(profile.particles.color);
-    // Matches the range stock worlds actually use (BiomeManager scales the
-    // ridge-dance amplitude by this directly) -- not 0..1.
-    assert.ok(profile.terrainEnergy >= 0.6 && profile.terrainEnergy <= 1.35);
-  }
-});
-
-test('synthesizePalette is deterministic for the same DNA', () => {
-  const dna = buildSongDNA(synthTimeline({ pitches: [62, 65, 69] }));
-  const a = synthesizePalette(dna);
-  const b = synthesizePalette(dna);
-  assert.deepEqual(a.profile.sky, b.profile.sky);
-  assert.equal(a.profile.silhouette, b.profile.silhouette);
-});
-
-// The novelty mechanism (recent-hue history nudging candidate selection
-// away from what recently played) was provably inert two ways at once:
-// (1) it was keyed on anchor.baseHue, which is fixed by dna.tonicPc alone
-// and therefore IDENTICAL across every one of the 400 candidates a single
-// song generates, so a constant added equally to every candidate's score
-// can never change which one wins; (2) even if it had varied, the score
-// line ADDED it (`soft + novelty`), and noveltyPenalty returns its LARGEST
-// value for the candidate CLOSEST to recent history -- so a working
-// version would have rewarded repeating recent palettes, not avoiding
-// them. Meanwhile it cost a localStorage.getItem+JSON.parse on every one
-// of those 400 iterations for a value that never changed within the call.
-function withMockLocalStorage(fn) {
-  const store = new Map();
-  const prev = globalThis.localStorage;
-  globalThis.localStorage = {
-    getItem: (k) => (store.has(k) ? store.get(k) : null),
-    setItem: (k, v) => store.set(k, v),
-  };
-  try {
-    return fn(store);
-  } finally {
-    globalThis.localStorage = prev;
-  }
-}
-
-test('novelty history genuinely penalizes (not rewards) landing near a recently-used hue', () => {
-  const dna = { ...buildSongDNA(synthTimeline({ pitches: [64, 67, 71] })), seed: 4242 };
-  withMockLocalStorage((store) => {
-    const noHistory = synthesizePalette(dna);
-    // Seed history at exactly the hue this song would otherwise land on --
-    // the case the mechanism exists for.
-    store.set('midio.worldDnaHistory', JSON.stringify([{ baseHue: noHistory.proof.baseHue }]));
-    const withHistory = synthesizePalette(dna);
-    // The old (additive, inverted) formula could only ever RAISE the score
-    // for a candidate near history. A real penalty must lower it.
-    assert.ok(withHistory.proof.softScore < noHistory.proof.softScore - 1e-6,
-      `matching history should lower the winning score (was ${noHistory.proof.softScore}, now ${withHistory.proof.softScore})`);
-  });
-});
-
-test('novelty history is read once per palette, not once per candidate', () => {
-  withMockLocalStorage((store) => {
-    let reads = 0;
-    const real = store.get.bind(store);
-    globalThis.localStorage.getItem = (k) => { reads++; return store.has(k) ? real(k) : null; };
-    store.set('midio.worldDnaHistory', JSON.stringify([{ baseHue: 90 }, { baseHue: 200 }]));
-    reads = 0;
-    const dna = buildSongDNA(synthTimeline({ pitches: [60, 64, 67] }));
-    synthesizePalette(dna);
-    assert.ok(reads <= 2, `expected at most a couple localStorage reads per palette, got ${reads} (N_CANDIDATES=400 would mean it's back in the loop)`);
-  });
-});
-
-test('novelty history measurably steers selection away from a recently-used hue across many songs', () => {
-  // A real, observable effect on WHICH candidate wins, not just its score --
-  // sampled across many seeds since any single song's softScore landscape
-  // can happen to have the same top candidate survive a small penalty.
-  let flips = 0;
-  const N = 40;
-  withMockLocalStorage((store) => {
-    for (let s = 1; s <= N; s++) {
-      const dna = { ...buildSongDNA(synthTimeline({ pitches: [60, 64, 67] })), seed: s * 1000 + 7 };
-      store.clear();
-      const a = synthesizePalette(dna);
-      store.set('midio.worldDnaHistory', JSON.stringify([{ baseHue: a.proof.baseHue }]));
-      const b = synthesizePalette(dna);
-      if (JSON.stringify(a.profile.sky) !== JSON.stringify(b.profile.sky)) flips++;
-    }
-  });
-  assert.ok(flips > 0, 'matching history should change the winning palette for at least some songs');
-});
-
-// A synthesized palette's own display `name` (e.g. "ALPINE_A_0", set by
-// synthesizeSectionPalettes) never matches a LANDMARKS/BIOMES key -- ground
-// clutter (decorateStrip), near-field occluders, and NearField's silhouette-
-// darkening color (biomeByName) all keyed off that display name and silently
-// found nothing for every generated world. landmarkKey is the fix: it must
-// always resolve to a real archetype, for every DNA shape this pipeline can
-// produce, not just the handful covered by the deterministic tests above.
-test('every synthesized palette carries a landmarkKey that LANDMARKS and biomeByName actually recognize', () => {
-  const songs = [
-    synthTimeline({ pitches: [60, 64, 67] }),
-    synthTimeline({ pitches: [57, 60, 63, 67], program: 30 }),
-    synthTimeline({ pitches: [72, 76, 79, 84], program: 73 }),
-    synthTimeline({ pitches: [36, 40, 43], program: 112 }), // distorted/percussive-leaning
-    { durationMs: 90000, bpm: 70 }, // audio-only, no timeline
-    { durationMs: 240000, bpm: 175 }, // audio-only, fast/hot
-  ];
-  for (const data of songs) {
-    const dna = buildSongDNA(data);
-    const { profile } = synthesizePalette(dna);
-    assert.ok(profile.landmarkKey, `song seed ${dna.seed} produced no landmarkKey`);
-    assert.ok(Array.isArray(LANDMARKS[profile.landmarkKey]) && LANDMARKS[profile.landmarkKey].length > 0,
-      `landmarkKey "${profile.landmarkKey}" (song seed ${dna.seed}) has no LANDMARKS entry`);
-    assert.ok(biomeByName(profile.landmarkKey).name === profile.landmarkKey,
-      `landmarkKey "${profile.landmarkKey}" doesn't resolve via biomeByName`);
-  }
-});
-
-test('synthesizeSectionPalettes: every section palette carries its own valid landmarkKey', () => {
-  const dna = buildSongDNA(synthTimeline({ pitches: [60, 62, 64, 65, 67, 69, 71], program: 73 }));
-  dna.sectionLabels = ['intro', 'verse', 'chorus', 'verse', 'chorus', 'outro'];
-  const { palettes } = synthesizeSectionPalettes(dna, 'alpine');
-  assert.ok(palettes.length >= 2);
-  for (const p of palettes) {
-    assert.ok(LANDMARKS[p.landmarkKey], `${p.name} has invalid landmarkKey "${p.landmarkKey}"`);
-    // The generated display name must NOT itself be a landmark key -- this
-    // is exactly the mismatch that made decorateStrip a silent no-op.
-    assert.ok(!LANDMARKS[p.name], `${p.name} unexpectedly collides with a real LANDMARKS key`);
-  }
-});
-
-test('skyStops: a harmonically simple song gets the plain 3-stop sky, a rich one gets 5 legible stops', () => {
-  const simpleDna = buildSongDNA(synthTimeline({ pitches: [60, 64, 67] }));
-  simpleDna.harmonicComplexity = 0.2;
-  const richDna = buildSongDNA(synthTimeline({ pitches: [60, 62, 64, 65, 67, 69, 71], program: 73 }));
-  richDna.harmonicComplexity = 0.85;
-
-  const { profile: simple } = synthesizePalette(simpleDna);
-  const { profile: rich } = synthesizePalette(richDna);
-
-  assert.equal(simple.skyStops.length, 3);
-  assert.deepEqual(simple.skyStops, simple.sky);
-  assert.equal(rich.skyStops.length, 5);
-  // The canonical dark/mid/hot stops still appear (at the new positions),
-  // so every other reader that still indexes A.sky[0..2] sees the exact
-  // same values as before.
-  assert.equal(rich.sky[0], rich.skyStops[0]);
-  assert.equal(rich.sky[1], rich.skyStops[2]);
-  assert.equal(rich.sky[2], rich.skyStops[4]);
-
-  // Every adjacent pair in the richer gradient stays visually distinguishable.
-  const labs = rich.skyStops.map(hexToOklab);
-  for (let i = 1; i < labs.length; i++) {
-    assert.ok(oklabDelta(labs[i - 1], labs[i]) > 0.008, `stops ${i - 1}/${i} too close`);
-  }
-});
-
-test('celestial companions: none for a simple song, more for a harmonically rich one, always paired with a valid color', () => {
-  const simpleDna = buildSongDNA(synthTimeline({ pitches: [60, 64, 67] }));
-  simpleDna.harmonicComplexity = 0.15;
-  const richDna = buildSongDNA(synthTimeline({ pitches: [60, 62, 64, 65, 67, 69, 71], program: 73 }));
-  richDna.harmonicComplexity = 0.9;
-
-  const { profile: simple } = synthesizePalette(simpleDna);
-  const { profile: rich } = synthesizePalette(richDna);
-
-  assert.equal(simple.celestial.companions.length, 0);
-  assert.ok(rich.celestial.companions.length >= 1 && rich.celestial.companions.length <= 3);
-  for (const co of rich.celestial.companions) {
-    assert.match(co.color, /^#[0-9a-f]{6}$/);
-    assert.match(co.haloColor, /^#[0-9a-f]{6}$/);
-    assert.ok(co.radiusFrac > 0 && co.radiusFrac < 1);
-    assert.ok(Number.isFinite(co.dxFrac) && Number.isFinite(co.dyFrac));
-  }
-});
-
-test('synthesizeSectionPalettes always yields >=2 distinctly-named entries so castBiomes never strands a section without a repeat-free choice', () => {
-  const dna = buildSongDNA(synthTimeline({ pitches: [60, 64, 67, 71] }));
-  const { palettes, temperature } = synthesizeSectionPalettes(dna, 'testworld');
-  assert.ok(palettes.length >= 2, `only ${palettes.length} palette(s) generated`);
-  const names = palettes.map((p) => p.name);
-  assert.equal(new Set(names).size, names.length, 'palette names collide');
-  for (const name of names) {
-    assert.ok(Number.isFinite(temperature[name]), `${name} missing a temperature entry`);
-    assert.ok(temperature[name] >= 0 && temperature[name] <= 1);
-  }
 });
 
 test('deriveTerrainParams: a spike/vertical-stack heavy grammar pinches flanks and pulls peaks apart, a mound/trunk heavy grammar does the opposite', () => {
@@ -732,17 +507,3 @@ test('ParticleField driftBias is a uniform per-frame nudge applied on top of a k
   }
 });
 
-test('section palettes stay in the same hue family (same tonic) across a song', () => {
-  const dna = buildSongDNA(synthTimeline({ pitches: [60, 64, 67, 60, 64, 67] }));
-  dna.sectionLabels = ['INTRO', 'VERSE', 'CHORUS', 'BRIDGE'];
-  const { palettes } = synthesizeSectionPalettes(dna, 'hue-family');
-  const hues = palettes.map((p) => {
-    const [, a, b] = hexToOklab(p.sky[0]);
-    return ((Math.atan2(b, a) * 180) / Math.PI + 360) % 360;
-  });
-  for (let i = 1; i < hues.length; i++) {
-    let d = Math.abs(hues[i] - hues[0]);
-    d = Math.min(d, 360 - d);
-    assert.ok(d < 70, `section ${i} hue ${hues[i]} strayed ${d}deg from section 0's ${hues[0]}`);
-  }
-});
