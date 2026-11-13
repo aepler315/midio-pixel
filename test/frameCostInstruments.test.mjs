@@ -3,6 +3,8 @@
 // audit's section 4.4 quotes.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import vm from 'node:vm';
+import * as liveInstrument from '../tools/range-live-callbacks.mjs';
 import { summarizeCallbacks } from '../tools/range-live-callbacks.mjs';
 import { summarizeProfile } from '../tools/cpuprofile-top.mjs';
 import { runTrace, scenarios } from '../tools/perf-governor-sim.mjs';
@@ -53,4 +55,100 @@ test('a trace is deterministic and carries the previous callback work, as the fr
   assert.deepEqual(seen.slice(0, 3), [undefined, 0, 1]);
   const [a, b] = [0, 1].map(() => runTrace(scenarios()[1].frame, scenarios()[1]).changes);
   assert.deepEqual(a.map((c) => c.to), b.map((c) => c.to));
+});
+
+test('live summaries keep tool callback, product callback, sync waits and governor CPU separate', () => {
+  const frames = [{ at: 10, ms: 23, productCallbackMs: 20, productSyncWaitMs: 7, governorCpuMs: 13,
+    phase: 'playback', level: 0, waits: { 'gl.readPixels': 4 }, filteredOps: 0, ops2d: 2 }];
+  const result = summarizeCallbacks(frames, 0);
+  assert.equal(result.total.workMedianMs, 23);
+  assert.equal(result.total.productCallbackMedianMs, 20);
+  assert.equal(result.total.productSyncWaitMedianMs, 7);
+  assert.equal(result.total.governorCpuMedianMs, 13);
+  assert.equal(result.total.waitShare, 4 / 23, 'instrumented calls are not the product sync-wait signal');
+});
+
+test('live hardware dry runs are allowed but software and unknown GPU evidence are rejected', () => {
+  assert.equal(typeof liveInstrument.parseArgs, 'function');
+  assert.equal(typeof liveInstrument.hardwareRendererProblem, 'function');
+  assert.equal(liveInstrument.parseArgs(['--out', '.smoke/test', '--view', 'teton-range', '--dry', '--hardware-gpu']).dry, true);
+  for (const renderer of [null, '', 'unknown', 'WebKit WebGL', 'ANGLE (Google, SwiftShader Device)', 'llvmpipe (LLVM)']) {
+    assert.ok(liveInstrument.hardwareRendererProblem(renderer), String(renderer));
+  }
+  assert.equal(liveInstrument.hardwareRendererProblem('ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11)'), null);
+});
+
+function callbackHarness() {
+  assert.equal(typeof liveInstrument.installCallbackLog, 'function');
+  let now = 0;
+  const pending = [];
+  const counters = { by: {}, waits: {}, canvas2d: {}, reset() { this.by = {}; this.waits = {}; this.canvas2d = { ops: 0, filteredOps: 0 }; } };
+  const smw = { frameRates: { renderedFrames: 0 }, playbackState: { running: true, preparing: false, paused: false, status: 'ready' },
+    sceneIdentity: { sceneEpoch: 1, analysisStage: 'opening', songSeed: 315 }, perfLevel: 0,
+    sim: { heardTimeMs: 0 }, lastFrameTiming: null, rangeState: { viewId: 'teton-range' } };
+  const sandbox = vm.createContext({ window: { __gl: counters, __SMW: smw, requestAnimationFrame(fn) { pending.push(fn); } },
+    performance: { now: () => now }, structuredClone });
+  vm.runInContext(`(${liveInstrument.installCallbackLog.toString()})()`, sandbox);
+  const run = (fn) => { sandbox.window.requestAnimationFrame(fn); pending.shift()(now); };
+  const advance = (ms) => { now += ms; };
+  return { live: sandbox.window.__live, smw, counters, run, advance };
+}
+
+test('live callback capture counts fast 2D presentations and excludes slow HUD callbacks', () => {
+  const h = callbackHarness();
+  h.live.arm();
+  h.run(() => { h.advance(25); h.counters.by.hud = { draws: 5 }; });
+  h.run(() => {
+    h.smw.frameRates.renderedFrames++;
+    h.smw.lastFrameTiming = { frameId: 1, callbackMs: 0.4, workMs: 0.3, syncWaitMs: 0.1 };
+    h.counters.canvas2d.ops = 1;
+    h.advance(0.5);
+  });
+  assert.equal(h.live.frames.length, 1);
+  assert.equal(h.live.frames[0].ms, 0.5);
+  assert.equal(h.live.frames[0].frameId, 1);
+  assert.equal(h.live.frames[0].governorCpuMs, 0.3);
+  assert.equal(h.live.frames[0].phase, 'playback');
+  h.smw.sceneIdentity = { ...h.smw.sceneIdentity, sceneEpoch: 2, analysisStage: 'full' };
+  h.run(() => h.advance(2));
+  assert.equal(h.live.transitions.at(-1).identity.analysisStage, 'full');
+  const stopped = h.live.stop();
+  h.run(() => { h.smw.frameRates.renderedFrames++; h.advance(100); });
+  assert.equal(stopped.frames.length, 1);
+  assert.equal(stopped.boundaries.stoppedAt, 27.5);
+  assert.equal(stopped.boundaries.firstPresentedAt, 25);
+});
+
+test('live capture arms before upload, marks readiness and stops atomically before profile serialization', async () => {
+  assert.equal(typeof liveInstrument.captureLivePlayback, 'function');
+  const h = callbackHarness();
+  const events = [];
+  const sandbox = vm.createContext({ window: { __live: h.live, __SMW: h.smw }, performance: { now: () => 100 }, structuredClone });
+  h.smw.renderReady = Promise.resolve({ status: 'ready' });
+  const page = {
+    evaluate: async (fn, arg) => vm.runInContext(`(${fn.toString()})(${JSON.stringify(arg) ?? ''})`, sandbox),
+    locator: () => ({ setInputFiles: async () => {
+      assert.equal(h.live.on, true); assert.ok(events.includes('Profiler.start')); events.push('upload');
+      h.run(() => { h.smw.frameRates.renderedFrames++; });
+    } }),
+    waitForFunction: async () => {},
+    waitForTimeout: async () => { h.advance(20); },
+  };
+  const client = { send: async (method) => { events.push(method); if (method === 'Profiler.stop') { assert.equal(h.live.on, false); return { profile: { nodes: [] } }; } return {}; } };
+  const result = await liveInstrument.captureLivePlayback({ page, client, audio: 'fixture.wav', seconds: 1 });
+  assert.ok(events.indexOf('Profiler.start') < events.indexOf('upload'));
+  assert.ok(events.indexOf('upload') < events.indexOf('Profiler.stop'));
+  assert.equal(result.capture.boundaries.stoppedAt, 20);
+  assert.deepEqual(result.profile, { nodes: [] });
+});
+
+test('live transitions retain catalog view changes without song-range stage keys', () => {
+  const h = callbackHarness();
+  h.smw.sceneIdentity = { ...h.smw.sceneIdentity, incomingViewId: 'catalog-a', incomingStageKey: null };
+  h.live.arm();
+  h.smw.sceneIdentity.incomingViewId = 'catalog-b';
+  h.run(() => h.advance(1));
+  assert.equal(h.live.transitions.length, 2);
+  assert.equal(h.live.transitions[0].identity.incomingViewId, 'catalog-a');
+  assert.equal(h.live.transitions[1].identity.incomingViewId, 'catalog-b');
 });

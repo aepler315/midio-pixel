@@ -860,7 +860,9 @@ export class RangeCrest {
    *  spanning the edge cells, read once. */
   _prepareEdges(ctx) {
     const snap = this.snapshot, edges = this._edges;
-    if (!snap || !edges.count || this._edgeFrame === snap.frameId) return false;
+    // drawCrest cannot consume these colors while the build hides the line.
+    // update still follows the probe and invalidates colors every frame.
+    if (!snap || !(snap.fade > 0) || !edges.count || this._edgeFrame === snap.frameId) return false;
     const { width: W, height: H } = snap.grid;
     let lo = Infinity, hi = -Infinity;
     for (let k = 0; k < edges.count; k++) { lo = Math.min(lo, edges.y[k]); hi = Math.max(hi, edges.y[k]); }

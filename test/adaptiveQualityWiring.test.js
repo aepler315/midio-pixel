@@ -12,6 +12,7 @@ function runtime({ draw = true, hidden = false, paused = false } = {}) {
   let clock = 50;
   const samples = [];
   const context = vm.createContext({ running: true, paused, playbackPreparing: false, lastRafMs: 0,
+    renderedFrames: 0, lastRenderAtMs: null, lastFrameTiming: null, sceneEpoch: 1,
     lastRenderedWorkMs: 8, lastRenderedSyncWaitMs: 0, performance: { now: () => clock }, document: { hidden },
     syncWaitMs: 0, resetSyncWaits() { context.syncWaitMs = 0; }, takeSyncWaits() { const ms = context.syncWaitMs; context.syncWaitMs = 0; return ms; },
     noteFrameGap() {}, perfGovernor: { level: 0, sample: (...args) => samples.push(args) },

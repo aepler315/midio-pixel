@@ -12,11 +12,11 @@ function run(governor, frames, { t = 0, period, work = null, wait = null }) {
 
 test('a period-pressure shed is logged with its cause and the deciding sample', () => {
   const g = new PerfGovernor();
-  run(g, 120, { period: 30, work: 8 });
+  run(g, 120, { period: 30, work: 8, wait: 4.25 });
   const r = g.record;
   assert.ok(r.level >= 1);
   const e = r.events[0];
-  assert.deepEqual([e.from, e.to, e.cause, e.periodMs, e.workMs], [0, 1, 'period', 30, 8]);
+  assert.deepEqual([e.from, e.to, e.cause, e.periodMs, e.workMs, e.syncWaitMs], [0, 1, 'period', 30, 8, 4.25]);
   assert.ok(e.atSec > 0 && e.atSec < 3.6);
   assert.ok(e.overCount >= 60, 'the accumulator that crossed the line');
 });
@@ -26,6 +26,7 @@ test('a work-pressure shed is logged as work', () => {
   run(g, 240, { period: 1000 / 60, work: 15.5 });
   assert.equal(g.record.events[0].cause, 'work');
   assert.equal(g.record.events[0].workMs, 15.5);
+  assert.equal(g.record.events[0].syncWaitMs, null);
 });
 
 test('a recovery is logged, and time at each level adds up to the run', () => {
@@ -55,6 +56,62 @@ test('frame statistics keep the last STATS_SIZE samples; waits come only from ca
   assert.equal(r.periodMs.count, STATS_SIZE);
   assert.equal(r.periodMs.max, 16.67, 'the 20 ms periods have left the window');
   assert.deepEqual([r.syncWaitMs.median, r.syncWaitMs.p95], [1.25, 1.25]);
+});
+
+test('the first thirty seconds survive a long run after recent samples roll over', () => {
+  const g = new PerfGovernor();
+  g.beginWarmup(0);
+  let t = run(g, 1500, { period: 20, work: 6, wait: 2.75 });
+  t = run(g, 5000, { t, period: 10, work: 3, wait: 1.25 });
+  const r = g.record;
+  assert.equal(r.startup.windowSec, 30);
+  assert.equal(r.startup.durationSec, 30);
+  assert.equal(r.startup.truncated, false);
+  assert.deepEqual(r.startup.periodMs, { count: 1500, median: 20, p95: 20, max: 20 });
+  assert.deepEqual(r.startup.workMs, { count: 1500, median: 6, p95: 6, max: 6 });
+  assert.deepEqual(r.startup.syncWaitMs, { count: 1500, median: 2.75, p95: 2.75, max: 2.75 });
+  assert.equal(r.periodMs.max, 10, 'recent statistics still describe the tail');
+  assert.equal(r.wholeRun.durationSec, t / 1000);
+  assert.deepEqual(r.wholeRun.periodMs, { count: 6500, mean: 12.31, max: 20 });
+  assert.deepEqual(r.wholeRun.workMs, { count: 6500, mean: 3.69, max: 6 });
+  assert.deepEqual(r.wholeRun.syncWaitMs, { count: 6500, mean: 1.6, max: 2.75 });
+});
+
+test('startup timing coverage cannot be filled by later work or waits', () => {
+  const g = new PerfGovernor();
+  g.setFixtureLevel(3);
+  const t = run(g, 1500, { period: 20 });
+  run(g, 1000, { t, period: 20, work: 5, wait: 0 });
+  const r = g.record;
+  assert.equal(r.startup.workMs.count, 0);
+  assert.equal(r.startup.syncWaitMs.count, 0);
+  assert.deepEqual(r.wholeRun.workMs, { count: 1000, mean: 5, max: 5 });
+  assert.deepEqual(r.wholeRun.syncWaitMs, { count: 1000, mean: 0, max: 0 });
+  assert.equal(r.wholeRun.durationSec, 50, 'pinned runs still have a measured duration');
+});
+
+test('startup storage overflow is explicit while whole-run statistics stay complete', () => {
+  const g = new PerfGovernor();
+  run(g, 10000, { period: 1, work: 0.5, wait: 0.25 });
+  const r = g.record;
+  assert.equal(r.startup.truncated, true);
+  assert.equal(r.startup.periodMs.count, r.startup.sampleLimit);
+  assert.ok(r.startup.durationSec < 10, 'duration describes retained samples');
+  assert.deepEqual(r.wholeRun.periodMs, { count: 10000, mean: 1, max: 1 });
+});
+
+test('whole-run statistics exclude invalid timings and retain unmeasured fields as null', () => {
+  const g = new PerfGovernor();
+  assert.deepEqual(g.record.wholeRun.periodMs, { count: 0, mean: null, max: null });
+  g.sample(NaN, 10, { workMs: 100, syncWaitMs: 100 });
+  g.sample(0, 20, { workMs: 100, syncWaitMs: 100 });
+  g.sample(10, NaN, { workMs: 100, syncWaitMs: 100 });
+  g.sample(10, 30, { workMs: -1, syncWaitMs: Infinity });
+  g.sample(20, 50, { workMs: 2, syncWaitMs: 0 });
+  const r = g.record.wholeRun;
+  assert.deepEqual(r.periodMs, { count: 2, mean: 15, max: 20 });
+  assert.deepEqual(r.workMs, { count: 1, mean: 2, max: 2 });
+  assert.deepEqual(r.syncWaitMs, { count: 1, mean: 0, max: 0 });
 });
 
 test('the event log is a ring: the newest EVENT_LOG_SIZE changes, oldest first', () => {
