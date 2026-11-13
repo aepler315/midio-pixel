@@ -59,11 +59,6 @@
       "count": 2
     }
   },
-  "src/world/dna/OklchColor.js": {
-    "no-useless-assignment": {
-      "count": 1
-    }
-  },
   "src/world/dna/SongDNA.js": {
     "no-useless-assignment": {
       "count": 9

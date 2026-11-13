@@ -398,7 +398,7 @@ export class Renderer {
     if (biomeManager) biomeManager.drawForeground(ctx, groundView.stage, pose.worldX, perf ? perf.veilEnabled : true);
     // Glass cracks removed: the progressive fracture and its terminal
     // shatter are gone at the request of the design. The ENGINE stays --
-    // CutDirector, CodaDirector, NoteChart and the film finish all hang off
+    // CodaDirector, NoteChart and the film finish all hang off
     // its finale timing (isAboutToFreeze / justEnteredFinale), and that
     // timing is the song's ending, not a decoration -- but it no longer
     // draws anything.
