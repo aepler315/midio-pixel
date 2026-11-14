@@ -51,7 +51,7 @@ const FIELDS = [
   ] },
   { title: 'Orbit', fields: [
     { key: 'direction', label: 'Direction', stateKey: 'directionDisabled', wide: true, options: [['cw', 'Clockwise'], ['ccw', 'Counterclockwise']] },
-    { key: 'orbitSeconds', label: 'Revolution sec', min: 20, max: 240, step: 1, stateKey: 'orbitDisabled', hint: 'Seconds for one full revolution.' },
+    { key: 'orbitSeconds', label: 'Orbit pace sec', min: 20, max: 240, step: 1, stateKey: 'orbitDisabled', hint: 'A larger number slows the orbit arc.' },
   ] },
   { title: 'Focus', fields: [
     { key: 'focusX', label: 'X · left / right %', min: -20, max: 20, step: 1, scale: 100, position: true, hint: 'Offset as a percentage of camera distance.' },
