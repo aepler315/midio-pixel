@@ -10,10 +10,64 @@ export const MP4_EXPORT_RESOLUTIONS = Object.freeze([
   { id: '2160p', label: '4K · 2160p', width: 3840, height: 2160 },
 ].map(Object.freeze));
 
+// Maximum encoded file bytes retained by the memory sink. This is not a cap
+// on total browser memory: canvas/codec/muxer work and a Blob snapshot add
+// overhead. Fixed pages avoid BufferTarget's power-of-two growth allocations.
 export const MAX_MP4_BUFFER_BYTES = 512 * 1024 * 1024;
 export const MP4_EXPORT_DEFAULTS = Object.freeze({ resolutionId: '1080p', fps: 30 });
 const AUDIO_BITRATE = 192_000;
 const AUDIO_CHUNK_FRAMES = 4096;
+const MP4_MEMORY_PAGE_BYTES = 1024 * 1024;
+
+/** A seekable, bounded output sink for MP4 header backpatches. Every write's
+ * final offset is admitted before allocating or copying any destination page.
+ * Each backing allocation is at most pageBytes; no full-film ArrayBuffer is
+ * created. toBlob() snapshots the pages, then releases our page references. */
+export function createMp4MemorySink({ maxBytes = MAX_MP4_BUFFER_BYTES, pageBytes = MP4_MEMORY_PAGE_BYTES } = {}) {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0 || !Number.isSafeInteger(pageBytes) || pageBytes <= 0) {
+    throw new Error('MP4 output byte and page limits must be positive integers.');
+  }
+  let pages = [], size = 0, allocated = 0;
+  const clear = () => { pages = []; size = 0; allocated = 0; };
+  const writable = new WritableStream({
+    write({ type, position, data }) {
+      if (type !== 'write' || !(data instanceof Uint8Array) || !Number.isSafeInteger(position) || position < 0) {
+        throw new Error('Invalid MP4 output write.');
+      }
+      // Subtraction also rejects lengths that would overflow the safe range.
+      if (position > maxBytes - data.byteLength) {
+        throw new Error(`The video exceeded the ${maxBytes} byte encoded-output limit. Save directly to a file, or choose a smaller resolution.`);
+      }
+      if (!data.byteLength) return;
+      const end = position + data.byteLength;
+      while (pages.length < Math.ceil(end / pageBytes)) {
+        const count = Math.min(pageBytes, maxBytes - allocated);
+        pages.push(new Uint8Array(count));
+        allocated += count;
+      }
+      let copied = 0;
+      while (copied < data.byteLength) {
+        const at = position + copied, index = Math.floor(at / pageBytes), offset = at % pageBytes;
+        const count = Math.min(data.byteLength - copied, pages[index].byteLength - offset);
+        pages[index].set(data.subarray(copied, copied + count), offset);
+        copied += count;
+      }
+      size = Math.max(size, end);
+    },
+    abort: clear,
+  });
+  return {
+    writable, clear,
+    get bytes() { return size; },
+    get allocatedBytes() { return allocated; },
+    toBlob() {
+      const blob = new Blob(pages.map((page, index) => page.subarray(0, Math.min(page.byteLength, size - index * pageBytes))),
+        { type: 'video/mp4' });
+      clear();
+      return blob;
+    },
+  };
+}
 
 export function resolveMp4ExportSettings(settings = {}) {
   const raw = String(settings.resolutionId ?? MP4_EXPORT_DEFAULTS.resolutionId).toLowerCase();
@@ -81,7 +135,8 @@ export async function checkMp4ExportSupport({ settings = MP4_EXPORT_DEFAULTS, au
  * of the speed at which rendering or encoding completes.
  *
  * Pass a FileSystemWritableFileStream as `writable` for large movies. Otherwise
- * the result contains a video/mp4 Blob, subject to the 512 MiB memory limit.
+ * the result contains a video/mp4 Blob, capped at 512 MiB of encoded output.
+ * Browser/codec/muxer allocations and the Blob snapshot require extra memory.
  * The supplied writable belongs to this call: success closes it, any failure
  * (including preflight) aborts it. The caller must not close it a second time.
  * A rejected/cancelled export never returns or commits a partial movie.
@@ -124,10 +179,11 @@ async function encodeMp4({
   const videoOptions = { codec: 'avc', quality, latencyMode: 'quality', keyFrameInterval: 2, sizeChangeBehavior: 'deny' };
 
   let bytes = 0;
-  const target = writable ? new media.StreamTarget(writable, { chunked: true, chunkSize: 1024 * 1024 }) : new media.BufferTarget();
+  const memory = writable ? null : createMp4MemorySink();
+  const target = new media.StreamTarget(writable || memory.writable, { chunked: true, chunkSize: MP4_MEMORY_PAGE_BYTES });
   target.onwrite = (start, end) => {
     bytes = Math.max(bytes, end);
-    if (!writable && bytes > MAX_MP4_BUFFER_BYTES) throw new Error('The video exceeded the 512 MiB memory limit. Save directly to a file, or choose a smaller resolution.');
+    if (!writable && bytes > MAX_MP4_BUFFER_BYTES) throw new Error('The video exceeded the 512 MiB encoded-output limit. Save directly to a file, or choose a smaller resolution.');
   };
   const output = new media.Output({ target, format: new media.Mp4OutputFormat({ fastStart: false }) });
   let cancelPromise = null;
@@ -182,7 +238,7 @@ async function encodeMp4({
     video.close(); sound.close();
     report('finalizing', totalFrames);
     await wait(output.finalize());
-    const blob = writable ? null : new Blob([target.buffer], { type: 'video/mp4' });
+    const blob = memory?.toBlob() ?? null;
     bytes = blob?.size ?? bytes;
     report('complete', totalFrames);
     return { blob, bytes, frames: totalFrames, width: resolved.width, height: resolved.height, fps: resolved.fps,
@@ -192,5 +248,6 @@ async function encodeMp4({
     throw signal?.aborted ? abortError() : err;
   } finally {
     signal?.removeEventListener('abort', onAbort);
+    memory?.clear();
   }
 }

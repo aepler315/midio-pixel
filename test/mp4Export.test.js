@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   MP4_EXPORT_RESOLUTIONS, MAX_MP4_BUFFER_BYTES, resolveMp4ExportSettings,
-  estimateMp4ExportBytes, mp4ExportFileName, exportMp4, checkMp4ExportSupport,
+  estimateMp4ExportBytes, mp4ExportFileName, exportMp4, checkMp4ExportSupport, createMp4MemorySink,
 } from '../src/render/Mp4Export.js';
 
 function audioBuffer({ rate = 3000, length = 3100, channels = 2 } = {}) {
@@ -16,9 +16,9 @@ function codecFixture({ videoSupported = true, audioSupported = true, addVideo =
     constructor(options) { this.options = options; this.target = options.target; this.state = 'pending'; state.outputs++; state.output = this; }
     addVideoTrack(source, meta) { state.videoConfig = source.options; state.videoMeta = meta; }
     addAudioTrack(source) { state.audioConfig = source.options; }
-    async start() { this.state = 'started'; this.target.onwrite?.(0, 8); }
-    async finalize() { state.finalized++; this.target.buffer = new Uint8Array([1, 2, 3, 4]).buffer; this.state = 'finalized'; }
-    async cancel() { state.cancelled++; this.state = 'canceled'; }
+    async start() { this.state = 'started'; this.target.start(); await this.target.write(new Uint8Array([1, 2, 3, 4]), 0); }
+    async finalize() { state.finalized++; await this.target.close(); this.state = 'finalized'; }
+    async cancel() { state.cancelled++; await this.target.close().catch(() => {}); this.state = 'canceled'; }
   }
   class CanvasSource {
     constructor(canvas, options) { this.options = options; }
@@ -37,8 +37,13 @@ function codecFixture({ videoSupported = true, audioSupported = true, addVideo =
     constructor(init) { this.init = init; }
     close() { state.closedSamples++; }
   }
-  class BufferTarget {}
-  class StreamTarget { constructor(writable) { this.writable = writable; } }
+  class BufferTarget { constructor() { throw new Error('An unbounded BufferTarget must never be allocated.'); } }
+  class StreamTarget {
+    constructor(writable) { this.writable = writable; }
+    start() { this.writer = this.writable.getWriter(); }
+    async write(data, position) { await this.writer.write({ type: 'write', data, position }); this.onwrite?.(position, position + data.byteLength); }
+    async close() { if (this.writer) { const writer = this.writer; this.writer = null; try { await writer.close(); } finally { writer.releaseLock(); } } }
+  }
   class Mp4OutputFormat { constructor(options) { state.format = options; } }
   class Quality { constructor(options) { this.options = options; } }
   const library = {
@@ -203,8 +208,48 @@ test('a direct file is aborted instead of committed after encoding or preflight 
 });
 
 test('actual byte growth enforces the memory guard and cancels the output', async () => {
-  const fixture = codecFixture({ addVideo: async (count, state) => { state.output.target.onwrite(0, MAX_MP4_BUFFER_BYTES + 1); } });
-  await assert.rejects(exportMp4(runOptions(fixture)), /large|memory|512/i);
+  const fixture = codecFixture({ addVideo: async (count, state) => { await state.output.target.write(new Uint8Array([1]), MAX_MP4_BUFFER_BYTES); } });
+  await assert.rejects(exportMp4(runOptions(fixture)), /limit|large|memory/i);
   assert.equal(fixture.state.cancelled, 1);
   assert.equal(fixture.state.finalized, 0);
+});
+
+test('the memory sink rejects an oversized end offset before allocating even one new page', async () => {
+  const sink = createMp4MemorySink({ maxBytes: 10, pageBytes: 4 });
+  const writer = sink.writable.getWriter();
+  await writer.write({ type: 'write', position: 0, data: new Uint8Array([1, 2, 3]) });
+  assert.equal(sink.bytes, 3);
+  assert.equal(sink.allocatedBytes, 4);
+  // Growing first would add pages for bytes4..11. The rejected write must
+  // leave both the existing content and its allocation unchanged.
+  await assert.rejects(writer.write({ type: 'write', position: 9, data: new Uint8Array([8, 9]) }), /limit|large/i);
+  assert.equal(sink.bytes, 3);
+  assert.equal(sink.allocatedBytes, 4);
+  writer.releaseLock(); sink.clear();
+  assert.equal(sink.allocatedBytes, 0);
+});
+
+test('fixed memory pages support cross-page header rewrites and a partial final page without a large contiguous buffer', async () => {
+  const sink = createMp4MemorySink({ maxBytes: 10, pageBytes: 4 });
+  const writer = sink.writable.getWriter();
+  await writer.write({ type: 'write', position: 0, data: new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]) });
+  assert.equal(sink.allocatedBytes, 10, 'the final allocation fits the remaining budget exactly');
+  await writer.write({ type: 'write', position: 3, data: new Uint8Array([30, 40, 50]) });
+  assert.equal(sink.allocatedBytes, 10, 'header rewrites allocate no new pages');
+  await writer.close(); writer.releaseLock();
+  const blob = sink.toBlob();
+  assert.equal(blob.type, 'video/mp4');
+  assert.deepEqual([...new Uint8Array(await blob.arrayBuffer())], [0, 1, 2, 30, 40, 50, 6, 7, 8, 9]);
+  assert.equal(sink.allocatedBytes, 0, 'page references are released after the Blob snapshot');
+});
+
+test('sparse MP4 writes create zero-filled holes and omit unused page capacity from the Blob', async () => {
+  const sink = createMp4MemorySink({ maxBytes: 12, pageBytes: 4 });
+  const writer = sink.writable.getWriter();
+  await writer.write({ type: 'write', position: 6, data: new Uint8Array([7]) });
+  assert.equal(sink.allocatedBytes, 8);
+  await writer.close(); writer.releaseLock();
+  const blob = sink.toBlob();
+  assert.equal(blob.size, 7);
+  assert.deepEqual([...new Uint8Array(await blob.arrayBuffer())], [0, 0, 0, 0, 0, 0, 7]);
 });
