@@ -1104,7 +1104,7 @@ export class RangeScene {
     if (!p?.windowCache || !frame?.scenicViewport) return;
     const coverage = terrainWindowCoverage(frame.scenicViewport);
     const pixelHeightPx = this.pixelated && !p.view?.glacier ? this.pixelHeightPx : null;
-    const cameraStudio = terrainWindowStudio(p.data, p.view.tour, frame.cameraStudio, p.waterLevelM);
+    const cameraStudio = terrainWindowStudio(p.data, p.view?.tour, frame.cameraStudio, p.waterLevelM);
     const studioKey = cameraStudio ? JSON.stringify(cameraStudio) : null;
     if (p.windowOptions.coverage?.key === coverage.key && (p.windowOptions.pixelHeightPx ?? null) === (pixelHeightPx ?? null)
       && (p.windowOptions.studioKey ?? null) === studioKey) return;
@@ -1145,12 +1145,13 @@ export class RangeScene {
   _terrainBuildSpec(p, index) {
     const spec = this._terrainWindowSpec(p, index);
     if (spec.bytes != null) return spec;
-    const view = index == null ? p.view : { ...p.view, tour: terrainWindowTour(p.data, p.view.tour, p.windowOptions), tourWindowStartMs: index * 8000 };
+    const plan = index == null ? null : spec.plan ||= planTerrainWindow(p.data, p.view.tour, index, p.windowOptions);
+    const view = index == null ? p.view : { ...p.view,
+      tour: terrainWindowTour(p.data, p.view.tour, plan.studioFallback ? { ...p.windowOptions, studioFallback: true } : p.windowOptions), tourWindowStartMs: index * 8000 };
     const forest = forestPlacementBound(p.data, view, p.rules);
     const scratch = forestBuildBytes(forest);
-    let terrain = 0, plan = null;
+    let terrain = 0;
     if (index != null) {
-      plan = planTerrainWindow(p.data, p.view.tour, index, p.windowOptions);
       for (const tile of p.data.tiles.values()) {
         if (!tile.visible) continue;
         const m = p.data.cells / plan.strides.get(tile.id);
@@ -1398,7 +1399,8 @@ export class RangeScene {
       Object.assign(p.windowCoverage, { detailHeightPx: w?.detail?.detailHeightPx,
         pixelErrorPx: w?.detail?.pixelErrorPx, pixelTrianglesSaved: w?.detail?.pixelTrianglesSaved,
         pixelCoarsenedTiles: w?.detail?.pixelCoarsenedTiles, pixelProtectedTiles: w?.detail?.pixelProtectedTiles,
-        pixelCoarsenedMaxErrorPx: w?.detail?.pixelCoarsenedMaxErrorPx });
+        pixelCoarsenedMaxErrorPx: w?.detail?.pixelCoarsenedMaxErrorPx,
+        studioDetailAdjusted: w?.detail?.studioDetailAdjusted, detailNote: w?.detail?.detailNote });
     };
     let window = p.windowCache.resident.get(index);
     const covers = w => !camera || (w?.detail?.coverageRevision === (p.coverageRevision || 0)
@@ -1415,7 +1417,9 @@ export class RangeScene {
     if (!window) {
       if (p.coverageRetryAt > Date.now()) { report(p.activeWindow, false, 'budget'); return false; }
       const spec = this._terrainWindowSpec(p, index);
-      const plan = spec.coarse ||= planTerrainWindow(p.data, p.view.tour, index, { ...p.windowOptions, bias: 2 });
+      const plan = spec.coarse ||= p.windowOptions.cameraStudio
+        ? { ...(spec.plan ||= planTerrainWindow(p.data, p.view.tour, index, p.windowOptions)), coarse: true }
+        : planTerrainWindow(p.data, p.view.tour, index, { ...p.windowOptions, bias: 2 });
       const key = `range:tour-window:${p.view.id}:${p.coverageRevision || 0}:${index}:coarse:${this._buildSerial = (this._buildSerial || 0) + 1}`;
       const bytes = 2 * (plan.triangles * 36 + 256 * 1024);
       const reserve = () => this.residency?.reserve({ key, bytes, owner: 'range-tour-window', generation: p.generation,
@@ -2476,12 +2480,23 @@ export class RangeScene {
     if (poses.has(occurrenceId)) return poses.get(occurrenceId);
     const railView = this.compiledTerrain?.request.camera ? this._cameraView(view) : view;
     const studioEnabled = frame.cameraStudio?.enabled === true;
-    const studioOptions = p?.windowOptions?.cameraStudio ? p.windowOptions
+    let studioOptions = p?.windowOptions?.cameraStudio ? p.windowOptions
       : studioEnabled && view.tour ? { cameraStudio: terrainWindowStudio(p?.data, view.tour, frame.cameraStudio, p?.waterLevelM) } : null;
+    let studioPlan = null;
+    if (studioEnabled && p?.windowCache) {
+      const index = Math.max(0, Math.floor(Math.min(frame.timeMs, Math.max(0, view.tour.durationMs - 1)) / 8000));
+      const spec = this._terrainWindowSpec(p, index);
+      studioPlan = spec.plan ||= planTerrainWindow(p.data, view.tour, index, p.windowOptions);
+      if (studioPlan.studioFallback) studioOptions = { ...studioOptions, studioFallback: true };
+    }
+    if (p) p.cameraStudioPlan = studioPlan;
     const poseTour = studioEnabled && view.tour ? terrainWindowTour(p?.data, view.tour, studioOptions) : p?.cameraTour || view.tour;
     const baseRail = scenePoseAt(railView, { progress01: view.glacier ? (frame.glacier?.journey01 ?? frame.progress01) : frame.progress01, timeMs: frame.timeMs,
       tour: poseTour });
-    const studioState = cameraStudioStatus(frame.cameraStudio, { fullCoverage: !!view.tour });
+    if (p) p.cameraStudioSourcePose = baseRail;
+    const studioState = cameraStudioStatus(frame.cameraStudio, { fullCoverage: !!view.tour, pose: baseRail,
+      detailLimited: !!studioPlan?.studioDetailAdjusted, budgetFallback: !!studioPlan?.studioFallback,
+      maxErrorPx: studioPlan?.maxErrorPx, summitMaxErrorPx: studioPlan?.summitMaxErrorPx });
     const signature = !studioEnabled && dualSummitsPose(view, frame.performance?.signature, { baseM: landRiseBase(p) });
     if (signature) {
       const proj = scenicProjection(signature.fovYDeg, frame.scenicViewport);
@@ -2522,7 +2537,11 @@ export class RangeScene {
   }
 
   cameraStudioStatus(viewId, settings) {
-    return cameraStudioStatus(settings, { fullCoverage: !!this.prepared.get(viewId)?.view?.tour });
+    const p = this.prepared.get(viewId);
+    return cameraStudioStatus(settings, { fullCoverage: !!p?.view?.tour,
+      pose: p?.cameraStudioSourcePose || (p?.view?.camera ? { fovYDeg: p.view.camera.fovYDeg } : null),
+      detailLimited: !!p?.cameraStudioPlan?.studioDetailAdjusted, budgetFallback: !!p?.cameraStudioPlan?.studioFallback,
+      maxErrorPx: p?.cameraStudioPlan?.maxErrorPx, summitMaxErrorPx: p?.cameraStudioPlan?.summitMaxErrorPx });
   }
 
   _setCamera(view, frame, p = null) {

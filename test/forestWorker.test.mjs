@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import vm from 'node:vm';
+import { terrainWindowTour } from '../src/world/alpine/TerrainWindow.js';
 
 test('terrain worker client and runtime survive case-insensitive staging', async () => {
   const directory = new URL('../src/world/alpine/', import.meta.url);
@@ -22,7 +23,7 @@ test('tour worker transfers all three forest lanes exactly once and count includ
   const self = { postMessage(message, transfer) { result = { message, transfer }; } };
   vm.runInNewContext(source.replace(/import[^;]+;/g, ''), { self, placeForest: () => placed,
     planTerrainWindow: () => ({ strides: new Map(), visible: new Set() }), buildTerrainGeometry: () => built,
-    restoreTourTimeline: x => x });
+    restoreTourTimeline: x => x, terrainWindowTour });
   self.onmessage({ data: { kind: 'init', tour: {}, data: {}, view: {}, rules: {}, seed: 315 } });
   self.onmessage({ data: { id: 3, index: 0, options: {} } });
   assert.equal(result.message.placed.count, 6);

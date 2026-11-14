@@ -71,6 +71,24 @@ test('Studio lens crops project sky anchors through the same magnification as te
   assert.ok(projected.xFrac > .7 && projected.xFrac < .75, `sky shares inward lens crop: ${projected.xFrac}`);
 });
 
+test('effective crop limits follow the actual authored shot lens and report capped settings', () => {
+  const scene = Object.assign(Object.create(RangeScene.prototype), { prepared: new Map(), _movedPoses: new WeakMap(), _ensureTourWindow() {} });
+  const view = { id: 'pruned', camera: { eyeStartM: pose.eyeM, eyeEndM: pose.eyeM,
+    targetStartM: pose.targetM, targetEndM: pose.targetM, fovYDeg: 40 } };
+  const p = { view, cameraTour: { ...tour, poseAt: () => ({ ...pose, fovYDeg: 28 }) } };
+  scene.prepared.set(view.id, p);
+  const cameraStudio = { enabled: true, distance: 1.8, fovDeg: 70 };
+  const resolved = scene.movedPose(view, { frameId: 1, timeMs: 20000, progress01: .5, cameraStudio,
+    rise01: 1, scenicViewport: vp, cameraEffects: null, cameraMove: null });
+  assert.equal(resolved.cameraStudio.effectiveDistanceMax, 1);
+  assert.equal(resolved.cameraStudio.effectiveFovMaxDeg, 28);
+  const status = scene.cameraStudioStatus(view.id, cameraStudio);
+  assert.equal(status.effectiveDistanceMax, 1);
+  assert.equal(status.effectiveFovMaxDeg, 28);
+  assert.equal(status.effectiveDistance, 1);
+  assert.equal(status.effectiveFovDeg, 28);
+});
+
 test('changing Studio settings invalidates outstanding terrain and forest plans once', () => {
   const cache = new windows.TourWindowCache({ build: async () => null });
   const scene = Object.assign(Object.create(RangeScene.prototype), {});

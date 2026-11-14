@@ -20,14 +20,15 @@ export const CAMERA_STUDIO_DEFAULTS = Object.freeze({
 const limits = Object.freeze({ distance: [.35, 1.8], elevation: [-15, 35], azimuthDeg: [-180, 180],
   orbitSeconds: [20, 240], focusX: [-.2, .2], focusY: [-.2, .2], focusZ: [-.2, .2],
   fovDeg: [15, 70], durationSec: [1, 30], holdSec: [0, 12], delaySec: [0, 10], overshoot: [0, .5] });
-const normalized = new WeakSet();
+const normalized = new WeakSet([CAMERA_STUDIO_DEFAULTS]);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const mix = (a, b, t) => a + (b - a) * t;
 const smooth = u => u * u * u * (u * (u * 6 - 15) + 10);
 const DEG = Math.PI / 180;
 
 /** Only known, finite settings survive storage or an export snapshot. */
-export function normalizeCameraStudioSettings(raw = {}) {
+export function normalizeCameraStudioSettings(raw = null) {
+  if (!raw || typeof raw !== 'object') return CAMERA_STUDIO_DEFAULTS;
   if (raw && typeof raw === 'object' && normalized.has(raw)) return raw;
   const source = raw && typeof raw === 'object' ? raw : {};
   const result = { ...CAMERA_STUDIO_DEFAULTS,
@@ -70,14 +71,21 @@ function motionAt(settings, timeMs) {
   return { yaw: 0, radius: 1 };
 }
 
-export function cameraStudioStatus(settings, { fullCoverage = false } = {}) {
+export function cameraStudioStatus(settings, { fullCoverage = false, pose = null, detailLimited = false,
+  budgetFallback = false, maxErrorPx = null, summitMaxErrorPx = null } = {}) {
   const s = normalizeCameraStudioSettings(settings);
+  const effectiveDistanceMax = fullCoverage ? 1.8 : 1;
+  const effectiveFovMaxDeg = fullCoverage ? 70 : Math.min(70, Number.isFinite(pose?.fovYDeg) ? pose.fovYDeg : 70);
   return Object.freeze({ enabled: s.enabled, preset: s.preset,
     capability: !s.enabled ? 'off' : fullCoverage ? 'full' : 'crop',
     positionEnabled: s.enabled && fullCoverage,
-    reason: !s.enabled ? 'Camera Studio is off.' : fullCoverage
-      ? 'Full camera movement around the range center.'
-      : 'This view supports inward distance and lens crops. Orbit, position and focus need a full-coverage terrain tour.' });
+    effectiveDistanceMax, effectiveFovMaxDeg,
+    effectiveDistance: Math.min(s.distance, effectiveDistanceMax), effectiveFovDeg: Math.min(s.fovDeg, effectiveFovMaxDeg),
+    detailLimited, budgetFallback, maxErrorPx, summitMaxErrorPx,
+    reason: !s.enabled ? 'Camera Studio is off.' : budgetFallback
+      ? 'Requested camera exceeds the terrain budget; using safe framing. Adjust the camera to try another view.' : fullCoverage
+      ? `Full camera movement around the range center.${detailLimited ? ' Terrain detail is reduced to keep this view within the graphics budget.' : ''}`
+      : `This authored view supports inward crops up to 1× distance and a ${Math.round(effectiveFovMaxDeg * 10) / 10}° lens. Orbit, position and focus need a full-coverage terrain tour.` });
 }
 
 const floorAt = (heightAt, waterLevelM, x, z) => {
@@ -91,7 +99,7 @@ const clearanceFor = pose => Math.max(250, Math.hypot(...pose.eyeM.map((v, i) =>
  * retaining its eye and aim prevents revealing occluded, omitted terrain. */
 export function applyCameraStudio(pose, settings, { timeMs = 0, referencePose = pose, fullCoverage = false,
   heightAt = null, waterLevelM = null } = {}) {
-  const s = normalizeCameraStudioSettings(settings), status = cameraStudioStatus(s, { fullCoverage });
+  const s = normalizeCameraStudioSettings(settings), status = cameraStudioStatus(s, { fullCoverage, pose });
   if (!s.enabled) return { pose, status };
   if (!fullCoverage) {
     const fov = Math.min(pose.fovYDeg, s.fovDeg);
