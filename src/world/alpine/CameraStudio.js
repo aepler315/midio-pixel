@@ -5,7 +5,7 @@ import { LAND_MAX_DISPLACEMENT_M } from './LandMotionLimits.js';
 
 export const CAMERA_STUDIO_PRESETS = Object.freeze([
   { id: 'rail', label: 'Follow rail', description: 'Keep the authored journey with your framing.' },
-  { id: 'orbit', label: 'Orbit', description: 'Circle the range center with spring arrivals and holds.' },
+  { id: 'orbit', label: 'Arc orbit', description: 'Orbit through a bounded front-side arc with spring arrivals and holds.' },
   { id: 'sweep', label: 'Pendulum sweep', description: 'Sweep gently between two sides of the range.' },
   { id: 'push', label: 'Push / pull', description: 'Move toward the range and ease back out.' },
   { id: 'static', label: 'Locked frame', description: 'Hold a fixed view of the range center.' },
@@ -65,8 +65,8 @@ function motionAt(settings, timeMs) {
   const u = cameraStudioSpring(Math.min(1, (elapsed - leg * span) / settings.durationSec), settings.overshoot);
   const signed = settings.direction === 'cw' ? 1 : -1;
   const swing = leg % 2 ? 1 - u : u;
-  if (settings.preset === 'orbit') return { yaw: signed * (leg + u) * settings.durationSec / settings.orbitSeconds * Math.PI * 2, radius: 1 };
-  if (settings.preset === 'sweep') return { yaw: signed * swing * 35 * DEG, radius: 1 };
+  if (settings.preset === 'orbit') return { yaw: signed * 15 * DEG * Math.sin((leg + u) * settings.durationSec / settings.orbitSeconds * Math.PI * 2), radius: 1 };
+  if (settings.preset === 'sweep') return { yaw: signed * swing * 15 * DEG, radius: 1 };
   if (settings.preset === 'push') return { yaw: 0, radius: 1 - swing * .28 };
   return { yaw: 0, radius: 1 };
 }

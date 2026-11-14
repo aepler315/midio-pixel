@@ -60,3 +60,21 @@ test('the production camera uses the covering authored pose after an extreme Stu
   assert.ok(Number.isFinite(resolved.cameraStudio.summitMaxErrorPx));
   p.windowCache.dispose();
 });
+
+test('one deterministic route policy survives adjoining windows, far seeks and changed render quality', () => {
+  for (const [settings, fallback] of [[{ enabled: true, preset: 'orbit' }, false],
+    [{ enabled: true, preset: 'orbit', distance: 1.8 }, true]]) {
+    const options = { coverage: terrainWindowCoverage(vp), cameraStudio: terrainWindowStudio(data, tour, settings),
+      protectedTileIds, riseSink: 1, riseBaseM: 2070, budget: 'mobile', heightPx: 720, pixelHeightPx: 180 };
+    for (const index of [14, 0, 15, 13, 22, 1]) {
+      const plan = planTerrainWindow(data, tour, index, options);
+      assert.equal(plan.studioFallback === true, fallback, `whole route at window ${index}`);
+      assert.ok(plan.maxErrorPx <= 16, `actual error at window ${index}: ${plan.maxErrorPx}`);
+      assert.ok(plan.summitMaxErrorPx <= 16, `actual summit error at window ${index}: ${plan.summitMaxErrorPx}`);
+    }
+    const again = planTerrainWindow(data, tour, 14, { ...options, pixelHeightPx: 360 });
+    const restored = planTerrainWindow(data, tour, 14, { ...options });
+    assert.equal(restored.studioFallback === true, fallback, 'quality changes do not mutate the old policy');
+    assert.ok(again.maxErrorPx <= 16);
+  }
+});
