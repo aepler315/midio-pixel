@@ -2,18 +2,22 @@
 // environments with no localStorage (Node's test runner, most notably) -- a
 // ReferenceError there is caught exactly like a disabled/blocked storage API
 // in a locked-down browser. Reads fall back to the default, never throwing.
-const NO_LYRICS_KEY = 'smw:noLyrics';
+export const NO_LYRICS_KEY = 'smw:noLyrics';
 
 // "No lyrics": a persisted opt-out from the LRCLIB lyric fetch/prompt that
 // runs for dropped audio files. When on, the whole identity/lyrics step is
 // skipped -- for songs that have no lyrics, or when the player just doesn't
 // want the search.
-export function getLyricsDisabled() {
-  try { return localStorage.getItem(NO_LYRICS_KEY) === '1'; } catch { return false; }
+// `storage` defaults to the page's localStorage; the settings registry
+// (src/config/settingsRegistry.js) passes its own so it can be tested.
+const pageStorage = () => { try { return globalThis.localStorage ?? null; } catch { return null; } };
+
+export function getLyricsDisabled(storage = pageStorage()) {
+  try { return storage.getItem(NO_LYRICS_KEY) === '1'; } catch { return false; }
 }
 
-export function setLyricsDisabled(v) {
-  try { localStorage.setItem(NO_LYRICS_KEY, v ? '1' : '0'); } catch { /* no persistent storage available */ }
+export function setLyricsDisabled(v, storage = pageStorage()) {
+  try { storage.setItem(NO_LYRICS_KEY, v ? '1' : '0'); } catch { /* no persistent storage available */ }
 }
 
 // The groove fingerprint (GrooveFingerprint.js): the one piece of state that
@@ -55,11 +59,11 @@ export function clearStoredGroove() {
 // happened yet -- so a negative value instead delays the actual AUDIO
 // output by that many ms (AudioEngine's own delay node), which reads to the
 // player as exactly the same relative correction.
-const BT_LATENCY_KEY = 'smw:btLatencyTrimMs';
+export const BT_LATENCY_KEY = 'smw:btLatencyTrimMs';
 // Pre-v2 storage: a flat on/off flag, always +30ms when on. Migrated below
 // so an existing "on" player keeps getting a correction after the update
 // instead of silently landing back at 0.
-const BT_LATENCY_KEY_LEGACY = 'smw:btLatencyTrim';
+export const BT_LATENCY_KEY_LEGACY = 'smw:btLatencyTrim';
 /** The pre-editable default and the popover's prefill: a deliberately
  *  conservative partial correction -- it will not fully cancel a 150ms BT
  *  stack, but it moves things in the right direction without a setup step.
@@ -67,25 +71,25 @@ const BT_LATENCY_KEY_LEGACY = 'smw:btLatencyTrim';
  *  someone who needs a *measured* number has the guided tap sync
  *  (LatencyCalibrator.js) for that instead. */
 export const BT_LATENCY_TRIM_MS = 30;
-const MAX_BT_LATENCY_TRIM_MS = 500; // sanity rail -- matches the input's own max
+export const MAX_BT_LATENCY_TRIM_MS = 500; // sanity rail -- matches the input's own max
 
 /** Current trim in ms, clamped to [-MAX_BT_LATENCY_TRIM_MS, MAX_BT_LATENCY_TRIM_MS].
  *  0 = off; positive delays visuals, negative delays audio (see comment above). */
-export function getBtLatencyTrimMs() {
+export function getBtLatencyTrimMs(storage = pageStorage()) {
   try {
-    const stored = localStorage.getItem(BT_LATENCY_KEY);
+    const stored = storage.getItem(BT_LATENCY_KEY);
     if (stored != null) {
       const ms = Number(stored);
       return Number.isFinite(ms) ? Math.max(-MAX_BT_LATENCY_TRIM_MS, Math.min(MAX_BT_LATENCY_TRIM_MS, ms)) : 0;
     }
     // Migrate the old boolean flag once, then let the new key take over.
-    if (localStorage.getItem(BT_LATENCY_KEY_LEGACY) === '1') return BT_LATENCY_TRIM_MS;
+    if (storage.getItem(BT_LATENCY_KEY_LEGACY) === '1') return BT_LATENCY_TRIM_MS;
     return 0;
   } catch { return 0; }
 }
 
-export function setBtLatencyTrimMs(ms) {
+export function setBtLatencyTrimMs(ms, storage = pageStorage()) {
   const clamped = Math.max(-MAX_BT_LATENCY_TRIM_MS, Math.min(MAX_BT_LATENCY_TRIM_MS, Math.round(Number(ms) || 0)));
-  try { localStorage.setItem(BT_LATENCY_KEY, String(clamped)); } catch { /* no persistent storage available */ }
+  try { storage.setItem(BT_LATENCY_KEY, String(clamped)); } catch { /* no persistent storage available */ }
   return clamped;
 }

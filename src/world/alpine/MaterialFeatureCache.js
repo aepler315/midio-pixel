@@ -1,4 +1,5 @@
 import { MATERIAL_HASH_GLSL } from './MaterialDetailDomain.js';
+import { settingValue } from '../../config/appSettings.js';
 
 const MAX_SIZE = 256;
 const BUILD_BYTES = 1024;
@@ -7,9 +8,8 @@ const MAX_CELL = 2 ** 24 - 2;
 const validCell = value => Number.isSafeInteger(value) && Math.abs(value) <= MAX_CELL;
 
 /** Cached features are live by default; reference/off/invalid values opt out. */
-export function materialFeatureMode(search = '') {
-  const value = new URLSearchParams(search).get('materialFeatures');
-  return value == null || value === 'warp' ? 'warp' : 'reference';
+export function materialFeatureMode(search) {
+  return settingValue('materialFeatures', search);
 }
 
 /** Four corner hashes per integer noise cell, covering both warped domains. */

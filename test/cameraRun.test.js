@@ -14,13 +14,20 @@ test('selected pace source wins strictly, including invalid URL and blocked stor
   for (const pace of [1, 2, 3, 4]) assert.equal(readRailPace(`?rangePace=${pace}`, null), pace);
 });
 
-test('pace persistence updates URL without dropping existing settings and tolerates storage errors', () => {
-  let replaced;
-  const url = persistRailPace(4, { href: 'https://example.test/?rangeTour=off#play', storage: { setItem() { throw Error('blocked'); } }, replace: value => { replaced = value; } });
-  assert.equal(url.searchParams.get('rangePace'), '4');
+// A chosen pace is a saved preference (settings registry): it supersedes a
+// URL override by removing it, instead of rewriting the address bar, so the
+// saved value -- not a stale parameter -- decides on the next reload.
+test('pace persistence saves, drops a superseded URL override, keeps other settings and tolerates storage errors', () => {
+  let replaced, saved;
+  const url = persistRailPace(4, { href: 'https://example.test/?rangePace=2&rangeTour=off#play', storage: { setItem(k, v) { saved = [k, v]; } }, replace: value => { replaced = value; } });
+  assert.deepEqual(saved, ['range-pace', '4']);
+  assert.equal(url.searchParams.has('rangePace'), false);
   assert.equal(url.searchParams.get('rangeTour'), 'off');
   assert.equal(url.hash, '#play');
   assert.equal(String(replaced), String(url));
+  let untouched = false;
+  persistRailPace(4, { href: 'https://example.test/?rangeTour=off', storage: { setItem() { throw Error('blocked'); } }, replace: () => { untouched = true; } });
+  assert.equal(untouched, false, 'no URL rewrite without an override to drop');
 });
 
 test('run high-water commits forward seek and stays committed after rewind and seek zero', () => {

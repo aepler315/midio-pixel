@@ -33,7 +33,11 @@ function pageKeys({ level = 'classic', modal = false, snapshotBusy = false } = {
     document: { getElementById: () => modal ? { open: true } : null },
     running: false, snapshotBusy, wakeHud() {},
     displayPrefs: { pixelGrid: level }, stepDetail: detail.stepDetail, detailKeyDelta: detail.detailKeyDelta,
-    applyDisplayPref(_, value) { changes.push(value); state.displayPrefs.pixelGrid = value; },
+    // The detail keys go through the settings store, like the menu.
+    settings: {
+      get: id => (id === 'pixelGrid' ? state.displayPrefs.pixelGrid : state.displayPrefs[id]),
+      set(id, value) { if (id === 'pixelGrid') { changes.push(value); state.displayPrefs.pixelGrid = value; } return { ok: true }; },
+    },
     beatTap() { taps++; }, DEV_MODE: false, INERT_KEYS: new Set(),
     NON_TEXT_INPUT_TYPES: new Set(['range', 'checkbox']), CONTROL_NAV_KEYS: new Set(['ArrowLeft', 'ArrowRight']),
   });

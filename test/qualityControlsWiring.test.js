@@ -19,58 +19,39 @@ import vm from 'node:vm';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const main = readFileSync(join(root, 'src/main.js'), 'utf8');
 
-/** The body of the first `change` listener registered on `el`. */
-function changeHandlerBody(source, el) {
-  const start = source.indexOf(`${el}.addEventListener('change'`);
-  assert.notEqual(start, -1, `no change listener found for ${el}`);
-  let depth = 0;
-  let seen = false;
-  for (let i = start; i < source.length; i++) {
-    const c = source[i];
-    if (c === '{') { depth++; seen = true; }
-    else if (c === '}') { depth--; if (seen && depth === 0) return source.slice(start, i + 1); }
-  }
-  throw new Error(`unbalanced listener body for ${el}`);
-}
 
-test("control: an explicit quality change clears the perf ladder's recovery history", () => {
-  const callbacks = new Map(); let resets = 0, fits = 0;
-  const displayControls = Object.fromEntries(['look', 'palette', 'dither', 'ditherMode', 'pixelGrid', 'scaling'].map(key => [key, {
-    value: '', addEventListener(type, callback) { assert.equal(type, 'change'); callbacks.set(key, callback); },
-  }]));
-  const context = vm.createContext({ displayControls,
-    displayPrefs: { look: 'palette', palette: 'rgb332', dither: 0, ditherMode: 'ordered', pixelGrid: 'classic', scaling: 'fill' },
-    snapshotBusy: false, presentation: {}, resolvePresentation: prefs => prefs, writeDisplayPrefs() {}, displayStorage: () => null,
-    syncDisplayControls() {}, perfGovernor: { forgetRecoveryHistory() { resets++; } }, fitCanvas() { fits++; }, paused: false,
+// Display settings and the frame rate arrive through the settings store
+// (src/config/appSettings.js): store.set -> applySettingChange -> applier.
+const END = '\n}\n';
+const slice = (from, to = END) => { const i = main.indexOf(from); assert.ok(i >= 0, from); return main.slice(i, main.indexOf(to, i) + to.length); };
+
+test("control: an explicit display change clears the perf ladder's recovery history exactly once", async () => {
+  const { SettingsStore } = await import('../src/config/appSettings.js');
+  let resets = 0, fits = 0;
+  const context = vm.createContext({
+    displayPrefs: { pixelGrid: 'classic', scaling: 'fit', buildPixelDetail: true },
+    snapshotBusy: false, presentation: {}, resolvePresentation: prefs => prefs,
+    syncDisplayControls() {}, perfGovernor: { forgetRecoveryHistory() { resets++; } }, fitCanvas() { fits++; }, paused: false, running: false, console,
   });
-  const functionStart = main.indexOf('function applyDisplayPref(');
-  assert.notEqual(functionStart, -1);
-  const functionEnd = main.indexOf('\n}\n', functionStart) + 3;
-  vm.runInContext(main.slice(functionStart, functionEnd), context);
-  const registrationStart = main.indexOf('  for (const [key, control] of Object.entries(displayControls)) {');
-  const registrationEnd = main.indexOf('\n  syncDisplayControls();', registrationStart);
-  assert.ok(registrationStart >= 0 && registrationEnd > registrationStart);
-  vm.runInContext(main.slice(registrationStart, registrationEnd), context);
-  assert.equal(callbacks.size, Object.keys(displayControls).length);
-  for (const callback of callbacks.values()) {
-    const before = resets;
-    callback();
-    assert.equal(resets, before + 1, 'every display control must clear old workload evidence exactly once');
+  vm.runInContext([slice('function applyDisplayPref('), slice('let landscapeRendererDirty = false;', '\n};\n'), slice('function applySettingChange(')].join('\n'), context);
+  const store = new SettingsStore({ storage: null });
+  store.subscribe(context.applySettingChange);
+  for (const [id, value] of [['pixelGrid', 'medium'], ['scaling', 'integer'], ['buildPixelDetail', true]]) {
+    const before = { resets, fits };
+    assert.equal(store.set(id, value).changed, true, id);
+    assert.equal(resets, before.resets + 1, `${id} must clear old workload evidence exactly once`);
+    assert.equal(fits, before.fits + 1, `${id} is re-presented once`);
   }
-  assert.equal(fits, callbacks.size, 'each actual setting change is re-presented');
 });
 
-for (const el of ['stageFpsEl']) {
-  test(`${el}: an explicit quality change clears the perf ladder's recovery history`, () => {
-    const body = changeHandlerBody(main, el);
-    assert.match(
-      body, /forgetRecoveryHistory\(\)/,
-      `${el}'s change handler must clear the recovery history -- the player has just changed `
-      + 'how much work a frame is, so the backoff earned at the old setting no longer describes '
-      + 'anything, and leaving it in place holds quality down for minutes after they fixed it',
-    );
-  });
-}
+test("fpsCap: an explicit frame-rate change clears the perf ladder's recovery history", () => {
+  assert.match(
+    slice('function applyFpsCap('), /forgetRecoveryHistory\(\)/,
+    'the frame-rate applier must clear the recovery history -- the player has just changed '
+    + 'how much work a frame is, so the backoff earned at the old setting no longer describes '
+    + 'anything, and leaving it in place holds quality down for minutes after they fixed it',
+  );
+});
 
 test("the governor's own resizing must NOT clear it", () => {
   // fitCanvas runs on window resize and on every governor-driven level

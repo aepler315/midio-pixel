@@ -26,6 +26,8 @@
     "test:peaks": "node tools/peak-evidence.mjs",
     "export:bulk": "node tools/bulk-export.mjs",
     "test:car": "node tools/car-mode-smoke.mjs",
+    "test:settings": "node tools/settings-smoke.mjs",
+    "settings:reference": "node tools/settings-reference.mjs",
     "test:urlload": "node tools/url-load-smoke.mjs",
     "test:snapshot": "node tools/detail-snapshot-smoke.mjs",
     "music-server": "node tools/music-server.mjs",

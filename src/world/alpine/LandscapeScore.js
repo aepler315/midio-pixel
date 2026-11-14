@@ -7,6 +7,7 @@ import { compileDualSummitsMusic } from './DualSummitsMusic.js';
 import { lastAudibleMs, sectionTrust } from './EffectsMusic.js';
 import { formLabelled } from '../terrain/SectionRoles.js';
 import { compileLensCues, lensFromCues, revealLensFromCues, REVEAL_GATHER_MS, LENS_MIN_GAP_MS } from '../../render/CameraLens.js';
+import { settingValue } from '../../config/appSettings.js';
 
 const unit = x => Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : 0;
 const ease = x => { const t = unit(x); return t * t * (3 - 2 * t); };
@@ -21,13 +22,9 @@ const mean = (read, start, end) => {
  * captures (song range composition, Phase 1). Absent or invalid means the
  * music decides, as always. Evidence taken with it is not production playback.
  */
-export function riseOverrideFrom(search = '') {
-  const raw = new URLSearchParams(search || '').get('rangeRise');
-  if (raw == null || raw === '') return null;
-  const v = Number(raw);
-  return Number.isFinite(v) && v >= 0 && v <= 1 ? v : null;
+export function riseOverrideFrom(search) {
+  return settingValue('rangeRise', search);
 }
-const RISE_OVERRIDE = riseOverrideFrom(globalThis.location?.search || '');
 
 /**
  * `stage` ({ slots: [{ slotId, row }], principal }) is a composed home
@@ -38,7 +35,7 @@ const RISE_OVERRIDE = riseOverrideFrom(globalThis.location?.search || '');
  * sections come from the opening analysis alone.
  */
 export function compileLandscapeScore({ energyCurves, sections = [], timeline = [], durationMs = 0,
-  seed = 0, previous = null, committedThroughMs = -1, riseOverride = RISE_OVERRIDE, stage = null, wholeSong = true,
+  seed = 0, previous = null, committedThroughMs = -1, riseOverride = riseOverrideFrom(), stage = null, wholeSong = true,
   signature = null, signatureHistory = null } = {}) {
   const duration = Math.max(0, Number(durationMs) || 0);
   const signatureScore = signature?.id === 'dual-summits' ? compileDualSummitsPerformance({ durationMs: duration,

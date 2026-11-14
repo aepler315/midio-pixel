@@ -1,9 +1,11 @@
 // One default-off study: Mount Moran in the Jackson Lake terrain package.
 // This is independent of Original/Depth presentation and adds no resources.
+import { settingValue } from '../../config/appSettings.js';
+
 export const MORAN_VIEW_ID = 'teton-jackson-lake';
 
-export function terrainShadingMode(search = globalThis.location?.search || '') {
-  return new URLSearchParams(search).get('terrainShading') === 'moran' ? 'moran' : 'off';
+export function terrainShadingMode(search) {
+  return settingValue('terrainShading', search);
 }
 
 export function terrainShadingForView(mode, viewId) {

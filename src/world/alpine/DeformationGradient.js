@@ -1,9 +1,9 @@
 import { LAND_TOUR_FADE_END_M } from './LandMotionLimits.js';
+import { settingValue } from '../../config/appSettings.js';
 
 /** Factored stencil is live by default; explicit reference/invalid values opt out. */
-export function deformationGradientMode(search = '') {
-  const value = new URLSearchParams(search).get('deformGradient');
-  return value == null || value === 'factored' ? 'factored' : 'reference';
+export function deformationGradientMode(search) {
+  return settingValue('deformGradient', search);
 }
 
 // The same one-metre central stencil as deformGrad. Only common

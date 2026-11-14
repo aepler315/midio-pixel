@@ -14,13 +14,16 @@ const indexHtml = readFileSync(
   fileURLToPath(new URL('../index.html', import.meta.url)), 'utf8',
 );
 
-test('product exposes Cinematic\'s grid and fitting, without a Look, Palette, Dither or Natural Stage menu', () => {
+// The settings panel is generated from the registry, which keeps the
+// control ids tools drive.
+test('product exposes Cinematic\'s grid and fitting, without a Look, Palette, Dither or Natural Stage menu', async () => {
+  const { SETTINGS } = await import('../src/config/settingsRegistry.js');
+  const ids = SETTINGS.map(def => def.controlId).filter(Boolean);
   assert.doesNotMatch(indexHtml, /id="stageRes"|value="natural"/);
-  assert.doesNotMatch(indexHtml, /id="display-(look|palette|dither|ditherMode)"/);
-  assert.match(indexHtml, /id="display-pixelGrid"/);
-  assert.doesNotMatch(indexHtml, /id="display-pixelScale"|value="depth">Depth/);
-  assert.match(indexHtml, /id="display-scaling"/);
-  assert.match(indexHtml, /id="stageFps"/);
+  assert.match(indexHtml, /id="settingsPanel"/);
+  for (const id of ['display-pixelGrid', 'display-scaling', 'stageFps']) assert.ok(ids.includes(id), id);
+  assert.ok(!SETTINGS.some(def => /^(look|palette|dither|ditherMode|pixelScale|stageRes)$/.test(def.id)));
+  assert.ok(!SETTINGS.find(def => def.id === 'pixelGrid').options.some(o => o.value === 'depth' || o.value === 'natural'));
 });
 
 test('shared legacy resolution helpers remain available for rendering and migration', () => {

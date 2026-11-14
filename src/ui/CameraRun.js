@@ -1,19 +1,19 @@
 import { normalizeRailPace, sceneRailPlanFromSnapshot, withSceneRailPace } from '../world/terrain/SceneRailPlan.js';
+import { resolveSettings } from '../config/settingsRegistry.js';
 
-/** URL presence is authoritative, even when its value is invalid. */
+/** The Landscape pace setting for an explicit URL and storage. URL presence
+ *  is authoritative, even when its value is invalid (registry rangePace). */
 export function readRailPace(search = '', storage = null) {
-  const params = new URLSearchParams(search);
-  if (params.has('rangePace')) return normalizeRailPace(params.get('rangePace'));
-  try { return normalizeRailPace(storage?.getItem('range-pace')); }
-  catch { return 3; }
+  return resolveSettings({ search, storage, ids: ['rangePace'] }).entries.rangePace.value;
 }
 
+/** Save a chosen pace. The saved preference now decides, so a URL override
+ *  it supersedes is removed from the address bar rather than rewritten. */
 export function persistRailPace(value, { href, storage = null, replace = () => {} } = {}) {
   const pace = normalizeRailPace(value);
   try { storage?.setItem('range-pace', String(pace)); } catch { /* Private/blocked storage. */ }
   const url = new URL(href);
-  url.searchParams.set('rangePace', String(pace));
-  replace(url);
+  if (url.searchParams.has('rangePace')) { url.searchParams.delete('rangePace'); replace(url); }
   return url;
 }
 
