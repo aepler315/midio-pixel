@@ -77,6 +77,17 @@ the observed run seed was 2,933,324,640.
 - Production staging: passed, including runtime/license/file integrity checks.
 - Export runtime regeneration check: pinned bundle current.
 
+After merging main's Playwright 1.65 update, the actual pre-push gate passed
+lint, a fresh full suite (5,656 passed, 20 skipped, zero failed; 300.6 seconds),
+and all 463 tracked module links. Its nine additional browser skips came from
+the new Playwright version's absent bundled Chromium. Re-running all eight
+affected test files with `PLAYWRIGHT_CHROMIUM_PATH` set to installed Chrome
+passed all 37 tests with zero skips (`.smoke/playwright-165-browser-tests.log`).
+The remaining 11 skips concern unavailable cached DEM grids and Python GDAL.
+The source, native MP4 smoke and browser checks therefore have no unresolved
+test failure. The final evidence-only documentation commit does not repeat
+the executable pre-push gate.
+
 Iteration exposed source-extraction test fixtures that needed the new camera
 boundary bindings and a pre-song terrain selector null-world bug. Focused
 regressions and the final full run above cover their fixes. The existing
