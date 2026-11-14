@@ -1,5 +1,5 @@
 // Settings panel regression in real Chromium (no user browser is opened).
-//   node tools/settings-smoke.mjs [--out .smoke/settings-<unique-run>] [--playback]
+//   node tools/settings-smoke.mjs [--out .smoke/settings-<unique-run>] [--playback] [--v2 | --only-v2]
 // Desktop, touch phone and JOYING-class head-unit (800×480, Android UA)
 // viewports: URL overrides and their indicators, rejected/retired/unknown
 // parameters, persistence across reloads, reset, saving overrides, share
@@ -7,7 +7,11 @@
 // horizontal overflow, and screenshots. With --playback (desktop) it also
 // plays the generated sample on the painted Range and changes live and
 // renderer-lifecycle settings mid-song, checking the audio and seed carry
-// over. Emulation only: no Android OS or head-unit hardware.
+// over. --v2 restarts the 3D landscape renderer mid-song on the machine's GPU
+// (SETTINGS_SMOKE_GL=swiftshader for software GL) and checks frames keep
+// presenting, the camera high-water and audio carry over, and repeated
+// restarts leave no context warnings. Emulation only: no Android OS or
+// head-unit hardware.
 // Exit 2 means Chromium was unavailable.
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -74,10 +78,11 @@ async function exercise(browser, base, scenario) {
     await page.locator('#graphicsTroubleshooting > summary').click();
   });
   await check('3D-only settings are disabled with a reason under the painted renderer', async () => {
-    await page.locator('[data-setting="rangeMsaa"]').evaluate(el => el.closest('details').open = true);
-    assert.equal(await page.locator('#setting-rangeMsaa').isDisabled(), true);
-    assert.match(await page.locator('[data-setting="rangeMsaa"] .settingNote').innerText(), /3D landscape renderer/);
-    assert.equal(await page.locator('#range-tour-toggle').isDisabled(), true);
+    await page.locator('[data-setting="landDance"]').evaluate(el => el.closest('details').open = true);
+    assert.equal(await page.locator('#setting-landDance').isDisabled(), true);
+    assert.match(await page.locator('[data-setting="landDance"] .settingNote').innerText(), /3D landscape renderer/);
+    assert.equal(await page.locator('[data-setting="rangeMsaa"]').count(), 0, 'no-op antialiasing is not offered');
+    assert.equal(await page.locator('#range-tour-toggle').isDisabled(), false, 'tours create the 3D presentation themselves');
   });
   await check('touch targets are at least 36 px and nothing overflows horizontally', async () => {
     const sizes = await page.evaluate(() => [...document.querySelectorAll('#settingsPanel select, #settingsPanel button, #settingsPanel .settingCheck, #settingsPanel input[type=number]')]
@@ -196,6 +201,131 @@ async function exercisePlayback(page, base, check) {
   await page.screenshot({ path: path.join(out, 'desktop-playback-settings.png') });
 }
 
+/** Luminance standard deviation of a PNG: a uniformly blank frame is ~0. */
+async function frameSpread(png) {
+  const { PNG } = await import('pngjs');
+  const img = PNG.sync.read(png);
+  let sum = 0, sq = 0, n = 0;
+  for (let i = 0; i < img.data.length; i += 4 * 37) {
+    const y = 0.2126 * img.data[i] + 0.7152 * img.data[i + 1] + 0.0722 * img.data[i + 2];
+    sum += y; sq += y * y; n++;
+  }
+  return Math.sqrt(Math.max(0, sq / n - (sum / n) ** 2));
+}
+
+/** --v2: the 3D landscape renderer restarted mid-song (Range v2 on the
+ *  default renderer, one forced view to bound the cost). */
+async function exerciseV2Restart(base) {
+  const row = { id: 'v2-restart', checks: [], status: 'running' };
+  report.scenarios.push(row);
+  const check = async (name, fn) => {
+    try { await fn(); row.checks.push({ name, status: 'passed' }); }
+    catch (error) { row.checks.push({ name, status: 'failed', error: error.message.split('\n')[0] }); }
+  };
+  const gpuArgs = process.env.SETTINGS_SMOKE_GL === 'swiftshader'
+    ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader']
+    : ['--use-angle=default', '--enable-gpu'];
+  const gpuBrowser = await chromium.launch({ headless: true, timeout: 15_000,
+    args: ['--mute-audio', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required', ...gpuArgs] });
+  const context = await gpuBrowser.newContext({ viewport: { width: 1280, height: 720 } });
+  const page = await context.newPage();
+  const warnings = [];
+  page.on('console', msg => { if (/context|WebGL/i.test(msg.text()) && msg.type() !== 'log') warnings.push(msg.text()); });
+  page.on('pageerror', e => warnings.push(`pageerror: ${e.message}`));
+  try {
+    await page.goto(base + '/?rangeView=teton-jackson-lake');
+    row.gl = await page.evaluate(() => {
+      const gl = document.createElement('canvas').getContext('webgl2');
+      const ext = gl?.getExtension('WEBGL_debug_renderer_info');
+      return gl ? gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER) : 'no WebGL2';
+    });
+    await page.locator('#demoBtn').click();
+    await page.waitForFunction(() => window.__SMW?.audioEngine?.nowMs > 1000 && window.__SMW.rangeState?.runtime === 'ready' && window.__SMW.rangeState?.active,
+      null, { timeout: 300_000 });
+    await page.waitForTimeout(3000);
+    const before = await page.evaluate(() => {
+      window.__restartAudio = window.__SMW.audioEngine;
+      return { seed: window.__SMW.songSeed, now: window.__SMW.audioEngine.nowMs, high: window.__SMW.cameraRunState.highWaterMs,
+        view: window.__SMW.rangeState.viewId };
+    });
+    row.before = before;
+    // The HUD fades when idle and the first tap only wakes it (car mode
+    // swallows it), as tools/car-mode-smoke.mjs checks.
+    const openSettings = async () => {
+      if (await page.locator('#hudRight.hud-faded').count()) await page.mouse.click(640, 360);
+      await page.locator('#hudRight:not(.hud-faded)').waitFor();
+      await page.locator('#displaySettingsBtn').click();
+    };
+    const warningsBefore = warnings.length;
+    await openSettings();
+    await page.locator('.settingsExperiments').evaluate(el => { el.open = true; });
+    await page.locator('#setting-canopySummary').uncheck();
+    await page.locator('.settingsPending button', { hasText: 'Apply now' }).waitFor();
+    await check('a 3D renderer setting waits for Apply now during playback', async () => {
+      assert.match(await page.locator('.settingsPending').innerText(), /Distant canopy summary/);
+      assert.equal(await page.evaluate(() => window.__SMW.rangeState.scene?.canopySummary?.requested), true, 'the running scene is unchanged until applied');
+    });
+    await page.locator('.settingsPending button', { hasText: 'Apply now' }).click();
+    await page.locator('#displaySettingsClose').click();
+    const samples = [];
+    for (let i = 0; i < 10; i++) {
+      await page.waitForTimeout(300);
+      const fps = await page.evaluate(() => ({ presented: window.__SMW.frameRates?.presented ?? 0, runtime: window.__SMW.rangeState?.runtime, active: window.__SMW.rangeState?.active }));
+      samples.push({ ...fps, spread: await frameSpread(await page.screenshot()) });
+    }
+    row.duringRestart = samples;
+    // The in-place rebuild holds the song (and draws) at its position until
+    // the replacement scene can draw: the screen keeps the held frame.
+    await check('the screen never goes blank while the renderer restarts', async () => {
+      assert.ok(samples.every(s => s.spread > 4), JSON.stringify(samples.map(s => Math.round(s.spread))));
+    });
+    await page.waitForFunction(() => window.__SMW.rangeState?.runtime === 'ready' && window.__SMW.rangeState?.active, null, { timeout: 300_000 });
+    await check('presentation resumes after the restart', async () => {
+      await page.waitForFunction(() => (window.__SMW.frameRates?.presented ?? 0) > 0, null, { timeout: 30_000 });
+    });
+    await check('the new scene draws with the changed setting', async () => {
+      const canopy = await page.evaluate(() => window.__SMW.rangeState.scene?.canopySummary);
+      row.canopy = canopy;
+      assert.equal(canopy?.requested, false);
+      assert.equal(canopy?.drawn?.[before.view], false, JSON.stringify(canopy));
+    });
+    await check('audio engine, seed, clock and camera high-water carry over', async () => {
+      const after = await page.evaluate(() => ({ same: window.__SMW.audioEngine === window.__restartAudio, seed: window.__SMW.songSeed,
+        now: window.__SMW.audioEngine.nowMs, high: window.__SMW.cameraRunState.highWaterMs, view: window.__SMW.rangeState.viewId,
+        pending: window.__SMW.settings.pending.length }));
+      row.after = after;
+      assert.ok(after.same, 'audio engine replaced');
+      assert.equal(after.seed, before.seed);
+      await page.waitForFunction(b => window.__SMW.audioEngine.nowMs > b + 500, after.now, { timeout: 30_000 });
+      assert.ok(after.high >= before.high, `camera high-water reset: ${before.high} -> ${after.high}`);
+      assert.equal(after.view, before.view);
+      assert.equal(after.pending, 0);
+    });
+    await check('diagnostics report what the new scene draws', async () => {
+      await openSettings();
+      await page.locator('#graphicsTroubleshooting').evaluate(el => { el.open = true; });
+      await page.waitForFunction(() => /Canopy summary/.test(document.getElementById('graphicsTroubleshooting').innerText));
+      const text = await page.locator('.settingsFacts').innerText();
+      row.facts = text;
+      assert.match(text, /Canopy summary\s+false requested; drawn teton-jackson-lake: false/);
+      assert.match(text, /Terrain antialiasing\s+0× \(GPU supports \d×; pixel-look\)/);
+    });
+    await check('repeated restarts leave no WebGL context warnings', async () => {
+      for (const on of [true, false, true]) {
+        await page.locator('#setting-canopySummary').setChecked(on);
+        await page.locator('.settingsPending button', { hasText: 'Apply now' }).click();
+        await page.waitForFunction(() => window.__SMW.rangeState?.runtime === 'ready' && window.__SMW.rangeState?.active, null, { timeout: 300_000 });
+      }
+      assert.deepEqual(warnings.slice(warningsBefore).filter(w => /too many active|context lost|CONTEXT_LOST|pageerror/i.test(w)), []);
+    });
+    await page.screenshot({ path: path.join(out, 'v2-after-restart.png') });
+  } finally {
+    row.consoleWarnings = warnings.slice(0, 20);
+    await gpuBrowser.close();
+  }
+  row.status = row.checks.every(c => c.status === 'passed') ? 'passed' : 'failed';
+}
+
 await fs.mkdir(out, { recursive: true });
 let browser, server;
 try {
@@ -209,7 +339,8 @@ try {
   if (browser) {
     const snapshot = await snapshotSource(root);
     server = await serveSnapshot(snapshot);
-    for (const scenario of scenarios) await exercise(browser, server.url, scenario);
+    if (!args.includes('--only-v2')) for (const scenario of scenarios) await exercise(browser, server.url, scenario);
+    if (args.includes('--v2') || args.includes('--only-v2')) await exerciseV2Restart(server.url);
     report.status = report.scenarios.every(r => r.status === 'passed') ? 'passed' : 'failed';
   }
 } catch (error) {

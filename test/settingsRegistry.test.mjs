@@ -151,6 +151,24 @@ test('dependencies disable settings with a reason', () => {
   assert.match(disabledReason(settingDefinition('performance'), { ...flat, rangeRenderer: 'v2', rangeView: 'x' }), /forced view/);
 });
 
+test('no two settings disable each other (a user could change neither)', () => {
+  const byId = new Map(SETTINGS.map(d => [d.id, d]));
+  for (const def of SETTINGS) for (const req of def.requires) {
+    const other = byId.get(req.id);
+    for (const back of other?.requires || []) {
+      if (back.id !== def.id) continue;
+      // def is disabled when other has value X; other is disabled when def
+      // has value Y. A deadlock needs a reachable pair where both hold.
+      const otherValues = other.options ? other.options.map(o => o.value) : other.type === 'boolean' ? [true, false] : [other.default, '__other__'];
+      const defValues = def.options ? def.options.map(o => o.value) : def.type === 'boolean' ? [true, false] : [def.default, '__other__'];
+      const blocks = (r, v) => ('is' in r ? v !== r.is : v === r.not);
+      for (const ov of otherValues) for (const dv of defValues) {
+        assert.ok(!(blocks(req, ov) && blocks(back, dv)), `${def.id}=${dv} and ${other.id}=${ov} disable each other`);
+      }
+    }
+  }
+});
+
 test('store: a change persists by policy, drops the URL override it supersedes and notifies', () => {
   const storage = memoryStorage();
   const history = memoryHistory('https://example.test/?rangePace=2&rangeTour=off');

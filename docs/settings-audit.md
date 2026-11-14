@@ -22,7 +22,7 @@ Lifecycle is the honest one after this change (see the registry).
 | `rangeTourIntended` | 1 | resolveRangeMode → tour planner | — | renderer | E | experimental |
 | `rangeShots` | all | resolveRangeMode → shot libraries | — | renderer | E | experimental |
 | `rangeTourGate` | off | CameraChoice.autoGateEnabled → RangePresentation ctor | — | renderer | F | advanced |
-| `rangeMsaa` | 0/2/4 (auto) | RangeRenderPolicy.msaaOverride → RangeScene ctor | — | renderer | F | advanced (Antialiasing) |
+| `rangeMsaa` | 0/2/4 (auto) | RangeRenderPolicy.msaaOverride → RangeScene ctor | — | renderer | U: `rangeRenderPolicy` returns 0 samples for any pixelated presentation before reading the override, and Cinematic is always pixelated (verified on an RTX 3060: requested 2×, ran 0×, reason `pixel-look`) | URL only, documented as no effect; Diagnostics shows samples used |
 | `rangeDebug` | masks…sun | RangeScene ctor | — | renderer | F (diagnostic) | developer |
 | `forestDebug` | 1 | RangeScene ctor | — | renderer | F (diagnostic) | developer |
 | `terrainShading` | moran | TerrainShadingExperiment → RangeScene ctor | — | renderer | E | experimental |
@@ -93,8 +93,10 @@ element ids, which tools drive.
 - 43 registry definitions: the 34 functional parameters plus 9 new URL names
   for formerly storage-only settings (`pixelGrid`, `buildDetail`, `scaling`,
   `maxQuality`, `fpsCap`, `shuffle`, `continuous`, `lyrics`, `btLatency`).
-- 36 in the panel; 25 of them had no UI before (plus the Teton tour option).
-- 7 URL-only by design: `bulkExport`, `exportW`, `exportH`,
-  `compiledTerrainCamera`, `compiledTerrainGroup`, `compiledTerrainProfile`,
-  `songRangeLayout`.
+- 35 in the panel (11 basic, 6 advanced, 9 experimental, 9 developer); 24 of
+  them had no UI before (plus the Teton tour option of Camera tours).
+- 8 URL-only: `bulkExport`, `exportW`, `exportH`, `compiledTerrainCamera`,
+  `compiledTerrainGroup`, `compiledTerrainProfile`, `songRangeLayout`
+  (automation contracts and measurement aids) and `rangeMsaa` (no effect in
+  the current look).
 - 7 retired names reported as ignored; 1 dead parser (`style`) removed.

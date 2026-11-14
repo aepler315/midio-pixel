@@ -18,13 +18,15 @@ before it and where each mechanism went.
   disclosure, each with an *Experimental* or *Diagnostic* badge.
 - **When a change applies** is shown on every setting that is not immediate:
   *Next landscape*, *Next song*, *Scene rebuild* (the scene is rebuilt in
-  place, music continues), *Renderer restart* (the 3D landscape renderer is
-  recreated, music continues; during playback this waits for **Apply now**),
-  or *Reload* (offered as **Reload page**, which stops the song). A bar at the
+  place: the song holds its place for a moment and resumes, it does not
+  restart), *Renderer restart* (the 3D landscape renderer is recreated the
+  same way; during playback this waits for **Apply now**), or *Reload*
+  (offered as **Reload page**, which stops the song). A bar at the
   top lists changes waiting to apply.
 - **Unavailable settings** are disabled with the reason (for example, 3D-only
   settings while the painted renderer is selected, or the compiled-terrain
-  pilot when its packs are not on the site).
+  pilot when its packs are not on the site). Parameters with no effect in the
+  current product (`rangeMsaa` under the Cinematic look) are not offered.
 - **Reset:** each changed setting has ↺; Diagnostics has *Reset all settings*.
 - **Diagnostics:** what is running (renderer requested vs running, fallback
   reason, active view, quality level and ceiling, pixel grid, antialiasing
@@ -95,7 +97,11 @@ SettingsPanel.js     subsystem adapters           main.js applySettingChange
   Renderer-lifecycle settings recreate the landscape presentation
   (`recreateLandscapePresentation`, then the one in-place rebuild
   `rebuildSceneInPlace`): immediately on the title screen, on **Apply now**
-  during playback, or at the next song. Constructor-time reads (RangeScene
+  during playback, or at the next song. The rebuild holds the song (audio
+  and drawing) at its heard position until the replacement scene can draw,
+  keeping the last frame on screen; the audio engine, seed, camera run and the
+  heard tour continuation (captured before the old presentation is disposed)
+  carry over. Constructor-time reads (RangeScene
   shader flags, RangePresentation tour options, the land-dance memory
   admission) therefore see the new value without a reload. The voxel pilot is
   constructed with the page, so it is the one *Reload* setting.
@@ -152,5 +158,9 @@ Then set `control: 'myControl'` on the definition. Built-in kinds: `checkbox`,
   reasons, ≥36 px targets, no horizontal overflow, keyboard section jumps,
   persistence across reload, reset, saving overrides, share links, the
   experiments disclosure; with `--playback`, live frame-rate/grid changes and a
-  renderer restart mid-song keeping the audio engine, seed and clock.
+  renderer restart mid-song keeping the audio engine, seed and clock. With
+  `--v2` (local GPU; `SETTINGS_SMOKE_GL=swiftshader` for software GL), a 3D
+  landscape renderer restart mid-song: the screen never blanks, presentation
+  resumes, the new scene draws the changed setting, audio/seed/camera
+  high-water carry over, and repeated restarts leave no context loss.
   Emulation only: not a device test.

@@ -300,7 +300,7 @@ export function mountSettingsPanel(root, { store, optionSources = {}, availabili
       const needsReload = pending.some(([, p]) => p.lifecycle === 'reload');
       const restart = pending.some(([, p]) => p.lifecycle === 'renderer' || p.lifecycle === 'scene');
       const names = pending.map(([id]) => rows.get(id)?.def.label || id).join(', ');
-      const children = [el(doc, 'span', { text: `Waiting to apply: ${names}. ${needsReload ? 'A reload stops the song.' : restart ? 'Applying restarts the landscape renderer; the music keeps playing.' : 'These apply when the next song starts.'}` })];
+      const children = [el(doc, 'span', { text: `Waiting to apply: ${names}. ${needsReload ? 'A reload stops the song.' : restart ? 'Applying rebuilds the landscape: the song holds its place briefly and resumes.' : 'These apply when the next song starts.'}` })];
       if (restart && actions.applyPending) {
         const b = el(doc, 'button', { type: 'button', className: 'ghostbtn chipbtn', text: 'Apply now' });
         b.addEventListener('click', () => { actions.applyPending(); sync(); });

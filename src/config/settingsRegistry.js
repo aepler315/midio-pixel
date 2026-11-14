@@ -38,8 +38,8 @@ export const LIFECYCLES = Object.freeze({
   live: { label: 'Immediately', short: 'Live' },
   'next-landscape': { label: 'From the next landscape or replay', short: 'Next landscape' },
   'next-song': { label: 'When the next song starts', short: 'Next song' },
-  scene: { label: 'Rebuilds the scene in place; the music keeps playing', short: 'Scene rebuild' },
-  renderer: { label: 'Restarts the 3D landscape renderer; the music keeps playing', short: 'Renderer restart' },
+  scene: { label: 'Rebuilds the scene in place; the song holds its place and resumes when the scene is ready', short: 'Scene rebuild' },
+  renderer: { label: 'Restarts the 3D landscape renderer; the song holds its place and resumes when the new scene is ready', short: 'Renderer restart' },
   reload: { label: 'Needs a page reload, which stops playback', short: 'Reload' },
 });
 
@@ -230,15 +230,15 @@ export const SETTINGS = Object.freeze([
     persist: 'saved', storage: displayField('scaling'), lifecycle: 'live', controlId: 'display-scaling',
   },
   {
-    id: 'rangeMsaa', url: 'rangeMsaa', section: 'appearance', group: 'Antialiasing', tier: 'advanced', maturity: 'stable',
+    id: 'rangeMsaa', url: 'rangeMsaa', section: 'experiments', group: 'Diagnostics', tier: 'developer', maturity: 'diagnostic',
     urlNote: '`0`, `2` or `4` (an empty value means off); anything else is automatic.',
     label: 'Terrain antialiasing', type: 'enum', default: 'auto',
-    description: 'Multisampling of 3D terrain edges. Automatic picks the largest count this GPU supports within budget, and 4× drops to 2× above 2560×1440.',
+    description: 'Multisampling of 3D terrain edges for non-pixel presentations. It has no effect in the current Cinematic look, which always renders terrain without multisampling (RangeRenderPolicy reason "pixel-look"), so it is not offered in the panel; Diagnostics reports the samples actually used.',
     options: [{ value: 'auto', label: 'Automatic' }, { value: '0', label: 'Off' }, { value: '2', label: '2×' }, { value: '4', label: '4×' }],
     // Historical rule: only 0, 2 and 4 are read; anything else means automatic.
     // (Number('') is 0, so an empty value has always meant off.)
     parseUrl: raw => ([0, 2, 4].includes(Number(raw)) ? ok(String(Number(raw))) : bad(`expected 0, 2 or 4, got "${raw}"`, 'auto')),
-    persist: 'saved', storage: unified('rangeMsaa'), lifecycle: 'renderer', requires: [V2_ONLY],
+    persist: 'url', lifecycle: 'renderer', requires: [V2_ONLY], ui: false,
   },
 
   // ---- Camera
@@ -255,7 +255,9 @@ export const SETTINGS = Object.freeze([
     // (including an empty one) means shot tours.
     parseUrl: raw => (raw === 'tetons' || raw === 'off' || raw === 'shots' ? ok(raw) : bad(`expected shots, off or tetons, got "${raw}"`, 'shots')),
     persist: 'saved', storage: plainKey('range-tour', v => (v === 'tetons' || v === 'off' ? v : 'shots')),
-    lifecycle: 'scene', controlId: 'range-tour-toggle', requires: [V2_ONLY],
+    // No renderer requirement: choosing a tour creates the 3D presentation
+    // (the Teton tour forces it), so this stays usable on the painted renderer.
+    lifecycle: 'scene', controlId: 'range-tour-toggle',
   },
   {
     id: 'rangePace', url: 'rangePace', section: 'camera', group: 'Camera tours', tier: 'basic', maturity: 'stable',

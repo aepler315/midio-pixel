@@ -18,8 +18,8 @@ Lifecycle: when a change reaches a running page.
 - **Live** (`live`): Immediately.
 - **Next landscape** (`next-landscape`): From the next landscape or replay.
 - **Next song** (`next-song`): When the next song starts.
-- **Scene rebuild** (`scene`): Rebuilds the scene in place; the music keeps playing.
-- **Renderer restart** (`renderer`): Restarts the 3D landscape renderer; the music keeps playing.
+- **Scene rebuild** (`scene`): Rebuilds the scene in place; the song holds its place and resumes when the scene is ready.
+- **Renderer restart** (`renderer`): Restarts the 3D landscape renderer; the song holds its place and resumes when the new scene is ready.
 - **Reload** (`reload`): Needs a page reload, which stops playback.
 
 ## Appearance
@@ -29,12 +29,10 @@ Lifecycle: when a change reaches a running page.
 | `pixelGrid` | Pixel detail | `classic`, `classicPlus`, `medium`, `mediumPlus`, `detailed` | `detailed` | Live | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 | `buildDetail` | Build pixel detail | `1`, `0` | `on` | Live | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 | `scaling` | Scaling | `fit`, `integer` | `fit` | Live | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
-| `rangeMsaa` | Terrain antialiasing | `auto`, `0`, `2`, `4` | `auto` | Renderer restart | yes (advanced) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 
 - `pixelGrid` — The terrain pixel grid. Larger grids cost more GPU work; Detailed is four times Classic.
 - `buildDetail` — Start at Classic pixels and sharpen to Detailed as the mountains rise. Choosing a fixed Pixel detail turns this off. Inactive unless: The terrain-only pixel experiment draws at a fixed grid. The voxel pilot draws at a fixed grid.
 - `scaling` — Fit fills the window and keeps the aspect. Integer uses evenly sized screen pixels, with borders when needed. Fullscreen always covers.
-- `rangeMsaa` — Multisampling of 3D terrain edges. Automatic picks the largest count this GPU supports within budget, and 4× drops to 2× above 2560×1440. URL rule: `0`, `2` or `4` (an empty value means off); anything else is automatic. Inactive unless: Needs the 3D landscape renderer (Performance → Landscape renderer).
 
 ## Camera
 
@@ -44,7 +42,7 @@ Lifecycle: when a change reaches a running page.
 | `rangePace` | Landscape pace | `1`, `2`, `3`, `4` | `3` | Next landscape | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 | `rangeTourGate` | Tour quality gate | see note | `on` | Renderer restart | yes (advanced) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 
-- `rangeTour` — Music-timed tours play where they beat the authored rail for the song. Authored rails keep every hand-made camera path. The Teton highway tour forces one long drive through the Tetons. URL rule: `off` and `tetons` are recognized; any other value means music-timed tours. Inactive unless: Needs the 3D landscape renderer (Performance → Landscape renderer).
+- `rangeTour` — Music-timed tours play where they beat the authored rail for the song. Authored rails keep every hand-made camera path. The Teton highway tour forces one long drive through the Tetons. URL rule: `off` and `tetons` are recognized; any other value means music-timed tours.
 - `rangePace` — How fast authored camera rails travel. Music-timed tours and Glacier keep their own timing; the pace is kept for ordinary landscapes and replays. URL rule: present wins even when invalid; an invalid value means the default pace.
 - `rangeTourGate` — Play a planned tour only where it beats the authored rail for the song. Off plays every planned tour, including weak ones. URL rule: only `off` disables the gate. Inactive unless: Needs the 3D landscape renderer (Performance → Landscape renderer). Only music-timed tours are gated.
 
@@ -92,6 +90,7 @@ Lifecycle: when a change reaches a running page.
 
 | Parameter | Setting | Values | Default | Lifecycle | In Settings | Persistence |
 | --- | --- | --- | --- | --- | --- | --- |
+| `rangeMsaa` | Terrain antialiasing | `auto`, `0`, `2`, `4` | `auto` | Renderer restart | no (URL only) | Not saved; kept in the address bar so a reload or shared link reproduces it |
 | `rangeShots` | Candidate shot libraries | see note | `off` | Renderer restart | yes (experimental) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 | `rangeTourIntended` | Try intended tour subjects | see note | `off` | Renderer restart | yes (experimental) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 | `songRange` | Composed song ranges | `off`, `1`, `force` | `off` | Next song | yes (experimental) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
@@ -115,6 +114,7 @@ Lifecycle: when a change reaches a running page.
 | `forestDebug` | Forest representation colours | see note | `off` | Renderer restart | yes (developer) | Not saved; kept in the address bar so a reload or shared link reproduces it |
 | `rangeDiag` | Landscape markers | see note | `off` | Renderer restart | yes (developer) | Not saved; kept in the address bar so a reload or shared link reproduces it |
 
+- `rangeMsaa` — Multisampling of 3D terrain edges for non-pixel presentations. It has no effect in the current Cinematic look, which always renders terrain without multisampling (RangeRenderPolicy reason "pixel-look"), so it is not offered in the panel; Diagnostics reports the samples actually used. URL rule: `0`, `2` or `4` (an empty value means off); anything else is automatic. Inactive unless: Needs the 3D landscape renderer (Performance → Landscape renderer).
 - `rangeShots` — Also play shot libraries that are still candidates, not only approved and enabled ones. For review. URL rule: only `all` enables candidate libraries. Inactive unless: Needs the 3D landscape renderer (Performance → Landscape renderer). Applies to music-timed tours.
 - `rangeTourIntended` — Let a tour shot framed by an alternative subject try its intended one. It replaces an accepted subject, so it is opt-in. URL rule: only `1` enables it. Inactive unless: Needs the 3D landscape renderer (Performance → Landscape renderer). Applies to camera tours.
 - `songRange` — Compose a home range for the song from measured mountain pieces. Force plans one for every song, whatever its biome (diagnostic). URL rule: `1`/`on` enable, `force` forces, `0`/`off` disable. Inactive unless: Needs the 3D landscape renderer (Performance → Landscape renderer).

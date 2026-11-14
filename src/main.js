@@ -561,12 +561,12 @@ function applyTourMode(choice) {
 
 /** The one in-place rebuild: the running song restarts its scene at the
  *  heard position without touching the audio. No-op on the title screen. */
-function rebuildSceneInPlace() {
+function rebuildSceneInPlace(overrides = {}) {
   if (!(running && sim && audioEngine && lastTimelineData)) return false;
   const wasPaused = paused;
   delete lastTimelineData.chapterState;
   startTimeline(lastTimelineData, {
-    ...lastStartExtra, songSeed: sim.songSeed,
+    ...lastStartExtra, ...overrides, songSeed: sim.songSeed,
     startAtMs: Math.max(0, audioEngine.nowMs), keepAudio: true,
     keepUserCamera: true, preservePause: wasPaused, chapterState: null, cameraRunIntent: 'preserve',
   });
@@ -864,8 +864,15 @@ function recreateLandscapePresentation() {
 /** "Apply now" for renderer settings during playback. */
 function applyPendingSettings() {
   if (landscapeRendererDirty || [...settings.pending.values()].some(p => p.lifecycle === 'renderer')) {
+    // The camera already heard stays heard: capture the old presentation's
+    // tour continuation before it is disposed.
+    let heardTours;
+    if (running && sim) {
+      if (cameraRun?.data === lastTimelineData) cameraRun.reach(sim.heardTimeMs);
+      heardTours = rangePresentation?.cameraContinuation?.(cameraRun?.highWaterMs ?? 0) || null;
+    }
     recreateLandscapePresentation();
-    rebuildSceneInPlace();
+    rebuildSceneInPlace(heardTours === undefined ? {} : { heardTours });
     settings.markApplied(['renderer', 'scene']);
   }
 }
@@ -906,9 +913,22 @@ function settingsRuntimeFacts() {
     'Pixel grid': `${active.grid.width}×${active.grid.height}${active.buildPixelDetail ? ', building detail' : ''}${active.directTerrain ? ', terrain-only pipeline' : ''}`,
     'Frame rate cap': `${playbackFps()} fps`,
     'Terrain antialiasing': edge ? `${edge.samples}× (GPU supports ${edge.capability}×; ${edge.reason})` : null,
+    // Requested vs drawn, from the scene's own snapshot.
+    ...sceneDrawnFacts(snap.scene),
     'Compiled terrain': compiled && compiled.request?.mode !== 'original' ? JSON.stringify(compiled.views) : null,
     'Voxel pilot': renderer?.voxelRange ? JSON.stringify(renderer.voxelRange.status) : null,
     'Memory budget': residencyBudgetFor().name,
+  };
+}
+
+function sceneDrawnFacts(scene) {
+  if (!scene) return {};
+  const drawn = (block, pick = v => v) => block ? `${block.requested} requested; drawn ${Object.entries(block.drawn || {})
+    .map(([view, v]) => `${view}: ${pick(v)}`).join(', ') || 'no view yet'}` : null;
+  return {
+    'Canopy summary': drawn(scene.canopySummary),
+    'Material features': drawn(scene.materialFeatures, v => v.selected),
+    'Deformation gradient': drawn(scene.deformationGradient, v => v.terrain),
   };
 }
 
@@ -1711,14 +1731,17 @@ function startTimeline(timelineData, extra = {}) {
   // Snapshot progress before teardown; exports never advance the live owner.
   if (!extra.exportMode && !bulkExportArmed && cameraRun?.data === lastTimelineData) cameraRun.reach(sim?.heardTimeMs);
   // The heard tours, before a tour-mode change or setSong replaces them.
-  const heardTours = rangePresentation?.cameraContinuation?.(cameraRun?.highWaterMs ?? 0) || null;
+  // A renderer restart replaces the presentation first and hands over the
+  // heard tours it captured from the old one (applyPendingSettings).
+  const heardTours = extra.heardTours !== undefined ? extra.heardTours
+    : rangePresentation?.cameraContinuation?.(cameraRun?.highWaterMs ?? 0) || null;
   const {
     songSeed: seedOverride = undefined, playBuffer,
     startAtMs = 0, startAtWallMs = 0, preservePause = false, captureMode: captureModeFlag = false,
     exportMode: exportModeFlag = false, exportSize = null, keepAudio = false,
   } = extra;
   lastStartExtra = { ...extra, automaticTicket: undefined, continuationWorldId: undefined, onAutomaticStart: undefined,
-    cameraSchedule: undefined, cameraTourMode: undefined, cameraRunIntent: undefined, exportMode: false, exportSize: null, exportPresentation: undefined, exportQualityLevel: undefined, beforePlayback: undefined, chapterState: null, keepAudio: false, startAtMs: 0, startAtWallMs: 0, keepUserCamera: false };
+    cameraSchedule: undefined, cameraTourMode: undefined, cameraRunIntent: undefined, exportMode: false, exportSize: null, exportPresentation: undefined, exportQualityLevel: undefined, beforePlayback: undefined, chapterState: null, keepAudio: false, startAtMs: 0, startAtWallMs: 0, keepUserCamera: false, heardTours: undefined };
   // The world decides the presentation, before anything below reads it.
   timelineData.worldId = resolveWorldId(timelineData.worldId || lastWorldId || DEFAULT_WORLD_ID);
   // A new song picks up renderer-lifecycle settings changed since the
