@@ -9,6 +9,7 @@ import { DEFAULT_DISPLAY_PREFS, resolvePresentation } from '../src/render/Displa
 import { createPresentingRenderer } from '../src/render/PresentingRenderer.js';
 import { GraphicsResidency } from '../src/render/GraphicsResidency.js';
 import { SettingsStore } from '../src/config/appSettings.js';
+import { CAMERA_STUDIO_SETTING_IDS } from '../src/config/settingsRegistry.js';
 const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
 
 const slice = (from, to = '\n}\n') => {
@@ -30,6 +31,7 @@ function memoryStorage() {
 }
 
 function wire(context, storage) {
+  context.CAMERA_STUDIO_SETTING_IDS = CAMERA_STUDIO_SETTING_IDS;
   vm.runInContext(binding, context);
   const store = new SettingsStore({ storage });
   store.addGuard(id => context.settingBlockedReason(id));

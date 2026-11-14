@@ -2,7 +2,9 @@
 
 Open Settings and enable **Camera Studio**. Its
 collapsible controls stay fixed on the HUD independently of idle fading, and
-are excluded from snapshots and video pixels. Settings are saved on this device.
+are excluded from snapshots and video pixels. Every composition preference is
+registered in Settings and saved on this device. Copy share link reproduces the
+composition; opening a shared configuration does not save it implicitly.
 Turn it off to return to the automatic camera.
 
 Choose Follow rail, Arc orbit, Pendulum sweep, Push / pull or Locked frame. Distance
@@ -32,7 +34,8 @@ setup pause (about 310 ms in the recorded desktop CPU probe); cached frames do
 not repeat it. This is not a target-device performance guarantee.
 
 **Reset zoom** clears wheel/pinch zoom. **Reset camera** restores the studio's
-defaults while leaving it enabled. The current configuration applies to the whole
+defaults while leaving it enabled. **Settings → Diagnostics → Reset all
+settings** also turns the studio off and clears its saved composition. The current configuration applies to the whole
 song; the studio does not record a timeline of live knob edits. Highlight redraws
 retain the camera settings of their captured moments.
 

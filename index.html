@@ -159,10 +159,6 @@
             <!-- Generated from src/config/settingsRegistry.js by src/ui/SettingsPanel.js.
                  Add a setting there, not here (docs/settings.md). -->
             <div id="settingsPanel" class="settingsPanel"></div>
-            <div class="videoExportSetting">
-              <button id="settingsVideoExportBtn" type="button" class="ghostbtn">Export video…</button>
-              <p class="hint">Render the complete song with music as an MP4, from 360p to 4K at 30 or 60 fps.</p>
-            </div>
           </details>
 
           
@@ -194,7 +190,7 @@
         <select id="videoExportFps"><option value="30">30 fps</option><option value="60">60 fps</option></select>
       </fieldset>
       <p id="videoExportSummary" class="hint"></p>
-      <p class="hint">H.264 video + AAC audio. Files stay on your device. Scene detail follows General quality; output resolution is independent.</p>
+      <p class="hint">H.264 video + AAC audio. Files stay on your device. Your current landscape and camera settings are used; output resolution is independent of terrain pixel detail.</p>
       <progress id="videoExportProgress" value="0" max="1" aria-label="Video export progress" hidden></progress>
       <p id="videoExportStatus" role="status" aria-live="polite">Load a song to export it.</p>
       <div class="videoExportActions"><button id="videoExportStart" type="button" class="ghostbtn">Render MP4</button><button id="videoExportCancel" type="button" class="ghostbtn" hidden>Cancel export</button><a id="videoExportDownload" class="ghostbtn" hidden>Save MP4</a></div>

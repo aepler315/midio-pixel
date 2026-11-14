@@ -7,8 +7,8 @@
 //
 // All basic controls stay rendered and visible when the disclosure is open
 // (sections are stacked, not tabbed) so keyboard, screen-reader and
-// automation users reach them the same way. Advanced, experimental and
-// diagnostic controls sit behind labelled disclosures.
+// automation users reach them the same way. Advanced and experimental
+// controls have labelled disclosures; engineering controls sit in Diagnostics.
 import { SECTIONS, SETTINGS, LIFECYCLES, defaultValue } from '../config/settingsRegistry.js';
 import { explainSetting } from '../config/appSettings.js';
 
@@ -17,7 +17,8 @@ const controls = new Map();
 /**
  * Register a control kind. `factory(def, ctx)` returns
  * { element, input, read(): value, write(value), setDisabled(bool) }.
- * `input` is the focusable element the row's label points at.
+ * `input` is the focusable element the row's label points at. The external
+ * navigation kind is grouped separately and has no read/write value.
  */
 export function registerSettingControl(name, factory) { controls.set(name, factory); }
 
@@ -102,6 +103,15 @@ registerSettingControl('text', (def, { doc, id }) => {
   return { element: input, input, read: () => (input.value.trim() === '' && def.nullable ? null : input.value.trim()), write: v => { input.value = v ?? ''; }, setDisabled: d => { input.disabled = d; } };
 });
 
+// Dedicated editors expose one navigation control for all of their fields.
+// Navigation has no value to read or write: never bind it to store.set().
+registerSettingControl('external', (def, { doc, id, actions }) => {
+  const input = el(doc, 'button', { type: 'button', id, className: 'ghostbtn chipbtn',
+    text: def.controlLabel || def.label, dataset: { controlTarget: def.controlTarget } });
+  input.addEventListener('click', () => actions.openControl?.(def.controlTarget));
+  return { element: input, input, setDisabled: disabled => { input.disabled = disabled; } };
+});
+
 /** A toggle button with aria-pressed (Timed lyric grounding keeps the
  *  button tools have always driven). */
 registerSettingControl('pressButton', (def, { doc, id }) => {
@@ -150,26 +160,39 @@ const SOURCE_LABEL = { url: 'page address', saved: 'your settings', default: 'de
  *  availability   { name: () => Promise<{ supported, reason }> }
  *  blocked(id)    a temporary reason a control cannot change now, or null
  *  runtime()      live engine facts for the diagnostics view
- *  actions        { applyPending(), reload(), copy(text) -> Promise<bool> }
+ *  actions        { applyPending(), reload(), copy(text) -> Promise<bool>, openControl(target), controlUnavailable(target) }
  */
 export function mountSettingsPanel(root, { store, optionSources = {}, availability = {}, blocked = () => null, runtime = () => ({}), actions = {} } = {}) {
   const doc = root.ownerDocument;
   const rows = new Map();
+  const externalControls = [];
   const availabilityResults = new Map();
+  const definitions = new Map(SETTINGS.map(def => [def.id, def]));
 
   const pendingBar = el(doc, 'div', { className: 'settingsPending', role: 'status', 'aria-live': 'polite', hidden: true });
   const overrideBar = el(doc, 'div', { className: 'settingsOverrides', hidden: true });
+  const qualityStatus = el(doc, 'p', { className: 'hint settingStatus', id: 'settingsQualityStatus', role: 'status' });
   const nav = el(doc, 'nav', { className: 'settingsNav', 'aria-label': 'Settings sections' });
   root.replaceChildren(pendingBar, overrideBar, nav);
 
   const visible = SETTINGS.filter(def => def.ui !== false && def.section);
+  const isEngineering = def => def.tier === 'developer' || def.maturity === 'diagnostic';
+  const engineering = visible.filter(isEngineering);
+  const publicDefinitions = visible.filter(def => !isEngineering(def));
+  const externalTargets = new Set();
   for (const section of SECTIONS) {
-    const defs = visible.filter(def => def.section === section.id);
-    if (!defs.length) continue;
+    const defs = publicDefinitions.filter(def => def.section === section.id && def.control !== 'external');
+    const external = publicDefinitions.filter(def => def.section === section.id && def.control === 'external' && !externalTargets.has(def.controlTarget));
+    const groups = [...new Set(external.map(def => def.controlTarget))].map(target => {
+      externalTargets.add(target);
+      return publicDefinitions.filter(def => def.control === 'external' && def.controlTarget === target);
+    });
+    if (!defs.length && !groups.length) continue;
     const sectionId = `settings-${section.id}`;
     const heading = el(doc, 'h3', { id: `${sectionId}-title`, text: section.label });
     const node = el(doc, 'section', { id: sectionId, className: 'settingsSection', 'aria-labelledby': heading.id, dataset: { section: section.id } },
       [heading, el(doc, 'p', { className: 'hint settingsSectionHint', text: section.description })]);
+    if (section.id === 'appearance') node.append(qualityStatus);
     const jump = el(doc, 'button', { type: 'button', className: 'ghostbtn chipbtn', 'aria-controls': sectionId, text: section.label });
     jump.addEventListener('click', () => {
       if (section.id === 'experiments') node.querySelector('details')?.setAttribute('open', '');
@@ -180,8 +203,8 @@ export function mountSettingsPanel(root, { store, optionSources = {}, availabili
     nav.append(jump);
 
     if (section.id === 'experiments') {
-      node.append(el(doc, 'p', { className: 'settingsWarning', text: 'Experimental and diagnostic settings can change how the landscape looks or performs, and some are comparisons for engineering review. They are labelled where they apply.' }));
-      const box = el(doc, 'details', { className: 'settingsAdvanced settingsExperiments' }, [el(doc, 'summary', { text: `Show experimental and diagnostic settings (${defs.length})` })]);
+      node.append(el(doc, 'p', { className: 'settingsWarning', text: 'Try visual variations that are still in progress. Each experiment explains what changes and when it applies.' }));
+      const box = el(doc, 'details', { className: 'settingsAdvanced settingsExperiments' }, [el(doc, 'summary', { text: `Show experimental settings (${defs.length})` })]);
       for (const group of [...new Set(defs.map(d => d.group))]) {
         box.append(el(doc, 'h4', { className: 'settingsGroup', text: group }));
         for (const def of defs.filter(d => d.group === group)) box.append(buildRow(def));
@@ -197,6 +220,7 @@ export function mountSettingsPanel(root, { store, optionSources = {}, availabili
         node.append(box);
       }
     }
+    for (const group of groups) node.append(buildExternalGroup(group));
     root.append(node);
   }
 
@@ -206,12 +230,27 @@ export function mountSettingsPanel(root, { store, optionSources = {}, availabili
   diagJump.addEventListener('click', () => { diagnostics.element.open = true; diagnostics.element.scrollIntoView({ block: 'start', behavior: 'smooth' }); diagnostics.element.querySelector('summary')?.focus({ preventScroll: true }); });
   nav.append(diagJump);
 
+  function buildExternalGroup(defs) {
+    const def = defs[0];
+    const id = `setting-control-${def.controlTarget}`;
+    const control = controls.get('external')(def, { doc, id, actions });
+    const description = def.controlTarget === 'cameraStudio' ? 'Choose camera motion and framing in Camera Studio during 3D playback.'
+      : def.controlTarget === 'mp4Export' ? 'Choose video size and frame rate, then render the complete song as an MP4.' : def.description;
+    const desc = el(doc, 'p', { className: 'hint settingDesc', id: `${id}-desc`, text: description });
+    control.input.setAttribute('aria-describedby', desc.id);
+    const note = el(doc, 'p', { className: 'settingNote', role: 'note', hidden: true });
+    const row = el(doc, 'div', { className: 'settingRow', dataset: { controlGroup: def.controlTarget } },
+      [el(doc, 'div', { className: 'settingMain' }, control.element), desc, note]);
+    externalControls.push({ defs, control, row });
+    return row;
+  }
+
   function buildRow(def) {
     const id = def.controlId || `setting-${def.id}`;
     const options = def.options || (def.optionsSource ? [{ value: null, label: 'Automatic (the song decides)' }, ...(optionSources[def.optionsSource]?.() || [])] : null);
     const kind = controlKind(def);
     const factory = controls.get(kind) || controls.get('text');
-    const control = factory(def, { doc, id, options });
+    const control = factory(def, { doc, id, options, actions });
     const descId = `${id}-desc`;
     control.input.setAttribute('aria-describedby', [descId, def.statusId].filter(Boolean).join(' '));
     const badges = el(doc, 'span', { className: 'settingBadges' });
@@ -235,7 +274,12 @@ export function mountSettingsPanel(root, { store, optionSources = {}, availabili
       sync();
     };
     for (const input of [control.input, ...(control.extraInputs || [])]) input.addEventListener(input === control.input ? (control.event || 'change') : 'change', commit);
-    reset.addEventListener('click', () => { store.reset(def.id); sync(); control.input.focus(); });
+    reset.addEventListener('click', () => {
+      const result = store.reset(def.id);
+      sync();
+      if (!result.ok) showNote(row, result.reason);
+      control.input.focus();
+    });
     rows.set(def.id, { def, control, row, badges, reset, note, kind });
     return row;
   }
@@ -299,7 +343,7 @@ export function mountSettingsPanel(root, { store, optionSources = {}, availabili
     if (pending.length) {
       const needsReload = pending.some(([, p]) => p.lifecycle === 'reload');
       const restart = pending.some(([, p]) => p.lifecycle === 'renderer' || p.lifecycle === 'scene');
-      const names = pending.map(([id]) => rows.get(id)?.def.label || id).join(', ');
+      const names = pending.map(([id]) => definitions.get(id)?.label || id).join(', ');
       const children = [el(doc, 'span', { text: `Waiting to apply: ${names}. ${needsReload ? 'A reload stops the song.' : restart ? 'Applying rebuilds the landscape: the song holds its place briefly and resumes.' : 'These apply when the next song starts.'}` })];
       if (restart && actions.applyPending) {
         const b = el(doc, 'button', { type: 'button', className: 'ghostbtn chipbtn', text: 'Apply now' });
@@ -314,10 +358,10 @@ export function mountSettingsPanel(root, { store, optionSources = {}, availabili
       pendingBar.replaceChildren(...children);
     }
     pendingBar.hidden = !pending.length;
-    const overrides = store.overrides().filter(id => rows.has(id));
+    const overrides = store.overrides().filter(id => definitions.get(id)?.ui !== false && definitions.get(id)?.section);
     if (overrides.length) {
-      const saveable = overrides.filter(id => rows.get(id).def.persist === 'saved');
-      const text = el(doc, 'span', { text: `${overrides.length} setting${overrides.length > 1 ? 's come' : ' comes'} from this page's address (${overrides.map(id => rows.get(id).def.label).join(', ')}). ${saveable.length ? 'They last only for this visit unless you save them.' : 'They last only for this visit.'}` });
+      const saveable = overrides.filter(id => definitions.get(id).persist === 'saved');
+      const text = el(doc, 'span', { text: `${overrides.length} setting${overrides.length > 1 ? 's come' : ' comes'} from this page's address (${overrides.map(id => definitions.get(id).label).join(', ')}). ${saveable.length ? 'They last only for this visit unless you save them.' : 'They last only for this visit.'}` });
       const children = [text];
       if (saveable.length) {
         const save = el(doc, 'button', { type: 'button', className: 'ghostbtn chipbtn', text: 'Save as my settings' });
@@ -333,6 +377,17 @@ export function mountSettingsPanel(root, { store, optionSources = {}, availabili
     // Keeps the id tools and the graphics report have always used.
     const details = el(doc, 'details', { id: 'graphicsTroubleshooting', className: 'settingsDiagnostics' });
     const summary = el(doc, 'summary', { text: 'Diagnostics and graphics report' });
+    const engineeringControls = el(doc, 'details', { id: 'settingsEngineering', className: 'settingsAdvanced settingsEngineering' }, [
+      el(doc, 'summary', { text: `Engineering controls (${engineering.length})` }),
+      el(doc, 'p', { className: 'hint', text: 'Overrides for troubleshooting, renderer comparisons and capture review. Changed values stay active until you reset them; they are included in the configuration and share link.' }),
+    ]);
+    for (const section of SECTIONS) {
+      const defs = engineering.filter(def => def.section === section.id);
+      if (!defs.length) continue;
+      engineeringControls.append(el(doc, 'h4', { className: 'settingsGroup', text: section.label }));
+      for (const def of defs) engineeringControls.append(buildRow(def));
+    }
+    engineeringControls.addEventListener('toggle', () => { if (engineeringControls.open) probeAvailability(); });
     const engine = el(doc, 'dl', { className: 'settingsFacts' });
     const changed = el(doc, 'table', { className: 'settingsTable' });
     const params = el(doc, 'div', { className: 'settingsParams' });
@@ -352,7 +407,9 @@ export function mountSettingsPanel(root, { store, optionSources = {}, availabili
     resetAll.addEventListener('click', () => {
       if (!armed) { armed = true; resetAll.textContent = 'Confirm: reset every setting'; return; }
       armed = false; resetAll.textContent = 'Reset all settings';
-      store.resetAll(); sync(); status.textContent = 'Every setting is back to its default.';
+      const result = store.resetAll();
+      sync();
+      status.textContent = result?.ok === false ? result.reason : 'Every setting is back to its default.';
     });
     // The graphics report controls (bound in main.js).
     const report = [
@@ -362,7 +419,7 @@ export function mountSettingsPanel(root, { store, optionSources = {}, availabili
       el(doc, 'p', { id: 'graphicsReportStatus', className: 'hint', role: 'status' }),
       el(doc, 'textarea', { id: 'graphicsReport', hidden: true, readonly: true, rows: 12, 'aria-label': 'Graphics report' }),
     ];
-    details.append(summary,
+    details.append(summary, engineeringControls,
       el(doc, 'h4', { className: 'settingsGroup', text: 'Engine' }), engine,
       el(doc, 'h4', { className: 'settingsGroup', text: 'Settings that differ from the default' }), changed,
       params,
@@ -380,14 +437,22 @@ export function mountSettingsPanel(root, { store, optionSources = {}, availabili
       for (const def of SETTINGS) {
         const x = explainSetting(def.id, store);
         if (x.source === 'default' && !x.pending && !x.rejected && Object.is(x.value, x.default)) continue;
-        rowsOut.push(el(doc, 'tr', {}, [
+        const reset = el(doc, 'button', { type: 'button', className: 'ghostbtn iconbtn settingReset',
+          'aria-label': `Reset ${def.label} to default`, title: 'Reset to default', text: '↺' });
+        reset.addEventListener('click', () => {
+          const result = store.reset(def.id);
+          sync();
+          status.textContent = result.ok ? `${def.label} is back to its default.` : result.reason;
+        });
+        rowsOut.push(el(doc, 'tr', { dataset: { diagnosticSetting: def.id } }, [
           el(doc, 'th', { scope: 'row', text: def.label }),
           el(doc, 'td', { text: formatValue(def, x.value) }),
           el(doc, 'td', { text: `${SOURCE_LABEL[x.source] || x.source}${x.pending ? ` · waiting (${x.pending})` : ''}${x.disabled ? ' · inactive' : ''}` }),
+          el(doc, 'td', {}, reset),
         ]));
       }
-      changed.replaceChildren(el(doc, 'thead', {}, el(doc, 'tr', {}, [el(doc, 'th', { scope: 'col', text: 'Setting' }), el(doc, 'th', { scope: 'col', text: 'Value' }), el(doc, 'th', { scope: 'col', text: 'Source' })])),
-        el(doc, 'tbody', {}, rowsOut.length ? rowsOut : el(doc, 'tr', {}, el(doc, 'td', { colspan: 3, text: 'Everything is at its default.' }))));
+      changed.replaceChildren(el(doc, 'thead', {}, el(doc, 'tr', {}, [el(doc, 'th', { scope: 'col', text: 'Setting' }), el(doc, 'th', { scope: 'col', text: 'Value' }), el(doc, 'th', { scope: 'col', text: 'Source' }), el(doc, 'th', { scope: 'col', text: 'Reset' })])),
+        el(doc, 'tbody', {}, rowsOut.length ? rowsOut : el(doc, 'tr', {}, el(doc, 'td', { colspan: 4, text: 'Everything is at its default.' }))));
       const d = store.describe();
       const lines = [
         ...d.settings.filter(s => s.rejected).map(s => `Rejected ?${SETTINGS.find(x => x.id === s.id).url}=${s.rejected.raw}: ${s.rejected.reason}.`),
@@ -402,6 +467,14 @@ export function mountSettingsPanel(root, { store, optionSources = {}, availabili
 
   function sync() {
     for (const id of rows.keys()) syncRow(id);
+    for (const { defs, control, row } of externalControls) {
+      const reason = actions.controlUnavailable?.(defs[0].controlTarget) || defs.map(def => blocked(def.id)).find(Boolean);
+      control.setDisabled(!!reason || !actions.openControl);
+      showNote(row, reason);
+    }
+    const quality = store.get('maxQuality');
+    const qualityLabel = formatValue(definitions.get('maxQuality'), quality);
+    qualityStatus.textContent = `Quality: ${qualityLabel}${quality === 'high' ? ' (default)' : ' override'}. Automatic quality reduces detail when needed to keep playback smooth.${quality === 'high' ? '' : ' Reset the quality override in Diagnostics → Engineering controls.'}`;
     syncBars();
     diagnostics.refresh();
   }

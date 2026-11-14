@@ -38,33 +38,63 @@ Lifecycle: when a change reaches a running page.
 
 | Parameter | Setting | Values | Default | Lifecycle | In Settings | Persistence |
 | --- | --- | --- | --- | --- | --- | --- |
+| `cameraStudioEnabled` | Camera Studio | `1`, `0` | `off` | Live | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `cameraStudioPreset` | Camera motion preset | `rail`, `orbit`, `sweep`, `push`, `static` | `rail` | Live | yes (advanced) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `cameraStudioDistance` | Camera distance | 0.35–1.8 | `1` | Live | yes (advanced) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `cameraStudioElevation` | Camera elevation | -15–35 | `0` | Live | yes (advanced) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `cameraStudioAzimuthDeg` | Camera azimuth | -180–180 | `0` | Live | yes (advanced) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `cameraStudioDirection` | Camera direction | `cw`, `ccw` | `cw` | Live | yes (advanced) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `cameraStudioOrbitSeconds` | Camera orbit pace | 20–240 | `90` | Live | yes (advanced) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `cameraStudioFocusX` | Camera focus X | -0.2–0.2 | `0` | Live | yes (advanced) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `cameraStudioFocusY` | Camera focus Y | -0.2–0.2 | `0` | Live | yes (advanced) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `cameraStudioFocusZ` | Camera focus Z | -0.2–0.2 | `0` | Live | yes (advanced) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `cameraStudioFovDeg` | Camera lens | 15–70 | `35` | Live | yes (advanced) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `cameraStudioDurationSec` | Camera travel duration | 1–30 | `8` | Live | yes (advanced) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `cameraStudioHoldSec` | Camera hold duration | 0–12 | `2` | Live | yes (advanced) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `cameraStudioDelaySec` | Camera start delay | 0–10 | `0` | Live | yes (advanced) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `cameraStudioOvershoot` | Camera overshoot | 0–0.5 | `0.15` | Live | yes (advanced) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 | `rangeTour` | Camera tours | `shots`, `off`, `tetons` | `shots` | Scene rebuild | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 | `rangePace` | Landscape pace | `1`, `2`, `3`, `4` | `3` | Next landscape | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
-| `rangeTourGate` | Tour quality gate | see note | `on` | Renderer restart | yes (advanced) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `rangeTourGate` | Tour quality gate | see note | `on` | Renderer restart | yes (developer) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 
+- `cameraStudioEnabled` — Keep live camera controls on screen during playback. Your composition is remembered.
+- `cameraStudioPreset` — Follow the authored rail, orbit, sweep, push and pull, or hold a locked frame.
+- `cameraStudioDistance` — Distance relative to the landscape camera. Authored crop views allow inward framing only.
+- `cameraStudioElevation` — Elevation in degrees above the landscape camera angle; needs full camera coverage.
+- `cameraStudioAzimuthDeg` — Starting angle in degrees around the focus point; needs full camera coverage.
+- `cameraStudioDirection` — Direction of orbit and sweep motion.
+- `cameraStudioOrbitSeconds` — Orbit arc pace in seconds; larger values slow the orbit.
+- `cameraStudioFocusX` — X focus offset as a fraction of camera distance; needs full camera coverage.
+- `cameraStudioFocusY` — Y focus offset as a fraction of camera distance; needs full camera coverage.
+- `cameraStudioFocusZ` — Z focus offset as a fraction of camera distance; needs full camera coverage.
+- `cameraStudioFovDeg` — Vertical lens angle in degrees. Authored crop views cannot widen beyond their original lens.
+- `cameraStudioDurationSec` — Duration in seconds of each orbit, sweep, or push and pull movement.
+- `cameraStudioHoldSec` — Time in seconds to hold at each motion arrival.
+- `cameraStudioDelaySec` — Delay in heard song seconds before camera motion begins.
+- `cameraStudioOvershoot` — Fraction of camera travel beyond the target before settling.
 - `rangeTour` — Music-timed tours play where they beat the authored rail for the song. Authored rails keep every hand-made camera path. The Teton highway tour forces one long drive through the Tetons. URL rule: `off` and `tetons` are recognized; any other value means music-timed tours.
 - `rangePace` — How fast authored camera rails travel. Music-timed tours and Glacier keep their own timing; the pace is kept for ordinary landscapes and replays. URL rule: present wins even when invalid; an invalid value means the default pace.
-- `rangeTourGate` — Play a planned tour only where it beats the authored rail for the song. Off plays every planned tour, including weak ones. URL rule: only `off` disables the gate. Inactive unless: Needs the 3D landscape renderer (Performance → Landscape renderer). Only music-timed tours are gated.
+- `rangeTourGate` — Play a planned tour only where it beats the authored rail for the song. Off plays every planned tour, including weak ones. URL rule: only `off` disables the gate. Inactive unless: Needs the 3D landscape renderer (Diagnostics → Engineering controls → Landscape renderer). Only music-timed tours are gated.
 
 ## Landscape
 
 | Parameter | Setting | Values | Default | Lifecycle | In Settings | Persistence |
 | --- | --- | --- | --- | --- | --- | --- |
 | `landDance` | Land dance | 0–1 | `1` | Live | yes (advanced) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
-| `rangeView` | Force a landscape view | text matching `^[A-Za-z0-9._-]{1,80}$` | automatic | Renderer restart | yes (advanced) | Not saved; kept in the address bar so a reload or shared link reproduces it |
+| `rangeView` | Force a landscape view | text matching `^[A-Za-z0-9._-]{1,80}$` | automatic | Renderer restart | yes (developer) | Not saved; kept in the address bar so a reload or shared link reproduces it |
 
-- `landDance` — How strongly the music moves ridges and drainages. 0 keeps the land still between growth steps. URL rule: `on` or empty is 1, `off` is 0, numbers clamp to 0–1, other text is 1. Inactive unless: Needs the 3D landscape renderer (Performance → Landscape renderer).
-- `rangeView` — Play every landscape against one catalog view instead of the song's own matches. Diagnostic: songs no longer choose their scenery. Inactive unless: Needs the 3D landscape renderer (Performance → Landscape renderer). The Teton highway tour forces its own view.
+- `landDance` — How strongly the music moves ridges and drainages. 0 keeps the land still between growth steps. URL rule: `on` or empty is 1, `off` is 0, numbers clamp to 0–1, other text is 1. Inactive unless: Needs the 3D landscape renderer (Diagnostics → Engineering controls → Landscape renderer).
+- `rangeView` — Play every landscape against one catalog view instead of the song's own matches. Diagnostic: songs no longer choose their scenery. Inactive unless: Needs the 3D landscape renderer (Diagnostics → Engineering controls → Landscape renderer). The Teton highway tour forces its own view.
 
 ## Performance
 
 | Parameter | Setting | Values | Default | Lifecycle | In Settings | Persistence |
 | --- | --- | --- | --- | --- | --- | --- |
-| `maxQuality` | General quality | `low`, `medium`, `high` | `high` | Live | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
-| `fpsCap` | Frame rate | `60`, `30` | `60` | Live | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
-| `perf` | Starting quality | `auto`, `lite`, `high` | `auto` | Next song | yes (advanced) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
-| `rangeRenderer` | Landscape renderer | `v2`, `legacy` | `v2` | Renderer restart | yes (advanced) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
-| `fps` | Show frame rate | see note | `off` | Live | yes (advanced) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `maxQuality` | General quality | `low`, `medium`, `high` | `high` | Live | yes (developer) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `fpsCap` | Frame rate | `60`, `30` | `60` | Live | yes (developer) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `perf` | Starting quality | `auto`, `lite`, `high` | `auto` | Next song | yes (developer) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `rangeRenderer` | Landscape renderer | `v2`, `legacy` | `v2` | Renderer restart | yes (developer) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `fps` | Show frame rate | see note | `off` | Live | yes (developer) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 
 - `maxQuality` — The most detail automatic quality may use. It still sheds detail below this to keep playback smooth.
 - `fpsCap` — 60 draws every frame; 30 skips every other frame and halves GPU work. URL rule: `30` or `60`.
@@ -76,11 +106,15 @@ Lifecycle: when a change reaches a running page.
 
 | Parameter | Setting | Values | Default | Lifecycle | In Settings | Persistence |
 | --- | --- | --- | --- | --- | --- | --- |
+| `mp4Resolution` | Video export resolution | `360p`, `480p`, `720p`, `1080p`, `1440p`, `2160p` | `1080p` | Live | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `mp4Fps` | Video export frame rate | `30`, `60` | `30` | Live | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 | `shuffle` | Shuffle | `1`, `0` | `on` | Live | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 | `continuous` | Continuous play | `1`, `0` | `off` | Live | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 | `lyrics` | Timed lyric grounding | `1`, `0` | `on` | Next song | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 | `btLatency` | Bluetooth delay (ms) | -500–500 | `0` | Live | yes | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 
+- `mp4Resolution` — Output pixels for frame-by-frame MP4 export; independent of the live landscape pixel grid.
+- `mp4Fps` — Frames per second for MP4 export; independent of the live frame-rate limit.
 - `shuffle` — Play library songs in a shuffled order.
 - `continuous` — Start the next library song automatically after a countdown.
 - `lyrics` — Look up time-stamped lyrics for the song and use them to place verses and choruses on the real clock.
@@ -91,8 +125,8 @@ Lifecycle: when a change reaches a running page.
 | Parameter | Setting | Values | Default | Lifecycle | In Settings | Persistence |
 | --- | --- | --- | --- | --- | --- | --- |
 | `rangeMsaa` | Terrain antialiasing | `auto`, `0`, `2`, `4` | `auto` | Renderer restart | no (URL only) | Not saved; kept in the address bar so a reload or shared link reproduces it |
-| `rangeShots` | Candidate shot libraries | see note | `off` | Renderer restart | yes (experimental) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
-| `rangeTourIntended` | Try intended tour subjects | see note | `off` | Renderer restart | yes (experimental) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `rangeShots` | Candidate shot libraries | see note | `off` | Renderer restart | yes (developer) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
+| `rangeTourIntended` | Try intended tour subjects | see note | `off` | Renderer restart | yes (developer) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 | `songRange` | Composed song ranges | `off`, `1`, `force` | `off` | Next song | yes (experimental) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 | `performance` | Dual Summits performance | `auto`, `dual-summits`, `off` | `auto` | Next song | yes (experimental) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 | `rangeRise` | Hold land height | 0–1 (empty: automatic) | automatic | Next song | yes (developer) | Not saved; kept in the address bar so a reload or shared link reproduces it |
@@ -102,7 +136,7 @@ Lifecycle: when a change reaches a running page.
 | `directTerrain` | Terrain-only pixel pipeline | see note | `off` | Live | yes (experimental) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 | `voxelRange` | Voxel range pilot | see note | `off` | Reload | yes (experimental) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
 | `terrainShading` | Mount Moran snow study | `off`, `moran` | `off` | Renderer restart | yes (experimental) | Saved in this browser when changed in Settings; a URL value lasts for the visit |
-| `compiledTerrain` | Compiled terrain (Monument Valley pilot) | `original`, `columns`, `mesh` | `original` | Renderer restart | yes (experimental) | Not saved; kept in the address bar so a reload or shared link reproduces it |
+| `compiledTerrain` | Compiled terrain (Monument Valley pilot) | `original`, `columns`, `mesh` | `original` | Renderer restart | yes (developer) | Not saved; kept in the address bar so a reload or shared link reproduces it |
 | `compiledTerrainCamera` | Compiled terrain test rail | text matching `^[a-z0-9-]{1,32}$` | automatic | Renderer restart | no (URL only) | Not saved; kept in the address bar so a reload or shared link reproduces it |
 | `compiledTerrainGroup` | Compiled terrain batching | `auto`, `1`, `2`, `4`, `8` | `auto` | Renderer restart | no (URL only) | Not saved; kept in the address bar so a reload or shared link reproduces it |
 | `compiledTerrainProfile` | Compiled terrain profile | text matching `^[a-z0-9-]{1,32}$` | automatic | Renderer restart | no (URL only) | Not saved; kept in the address bar so a reload or shared link reproduces it |
@@ -114,29 +148,29 @@ Lifecycle: when a change reaches a running page.
 | `forestDebug` | Forest representation colours | see note | `off` | Renderer restart | yes (developer) | Not saved; kept in the address bar so a reload or shared link reproduces it |
 | `rangeDiag` | Landscape markers | see note | `off` | Renderer restart | yes (developer) | Not saved; kept in the address bar so a reload or shared link reproduces it |
 
-- `rangeMsaa` — Multisampling of 3D terrain edges for non-pixel presentations. It has no effect in the current Cinematic look, which always renders terrain without multisampling (RangeRenderPolicy reason "pixel-look"), so it is not offered in the panel; Diagnostics reports the samples actually used. URL rule: `0`, `2` or `4` (an empty value means off); anything else is automatic. Inactive unless: Needs the 3D landscape renderer (Performance → Landscape renderer).
-- `rangeShots` — Also play shot libraries that are still candidates, not only approved and enabled ones. For review. URL rule: only `all` enables candidate libraries. Inactive unless: Needs the 3D landscape renderer (Performance → Landscape renderer). Applies to music-timed tours.
-- `rangeTourIntended` — Let a tour shot framed by an alternative subject try its intended one. It replaces an accepted subject, so it is opt-in. URL rule: only `1` enables it. Inactive unless: Needs the 3D landscape renderer (Performance → Landscape renderer). Applies to camera tours.
-- `songRange` — Compose a home range for the song from measured mountain pieces. Force plans one for every song, whatever its biome (diagnostic). URL rule: `1`/`on` enable, `force` forces, `0`/`off` disable. Inactive unless: Needs the 3D landscape renderer (Performance → Landscape renderer).
-- `performance` — Automatic selects the Dual Summits signature landscape only for the canonical recording. Always applies its direction to any song; Never suppresses it. URL rule: `dual-summits` or `off`; anything else is automatic. Inactive unless: Needs the 3D landscape renderer (Performance → Landscape renderer). A forced tour or view replaces the performance. A forced view replaces the performance.
-- `rangeRise` — Hold the land at one height (0–1) for review captures. Empty lets the music decide. Not production playback. Inactive unless: Needs the 3D landscape renderer (Performance → Landscape renderer).
+- `rangeMsaa` — Multisampling of 3D terrain edges for non-pixel presentations. It has no effect in the current Cinematic look, which always renders terrain without multisampling (RangeRenderPolicy reason "pixel-look"), so it is not offered in the panel; Diagnostics reports the samples actually used. URL rule: `0`, `2` or `4` (an empty value means off); anything else is automatic. Inactive unless: Needs the 3D landscape renderer (Diagnostics → Engineering controls → Landscape renderer).
+- `rangeShots` — Also play shot libraries that are still candidates, not only approved and enabled ones. For review. URL rule: only `all` enables candidate libraries. Inactive unless: Needs the 3D landscape renderer (Diagnostics → Engineering controls → Landscape renderer). Applies to music-timed tours.
+- `rangeTourIntended` — Let a tour shot framed by an alternative subject try its intended one. It replaces an accepted subject, so it is opt-in. URL rule: only `1` enables it. Inactive unless: Needs the 3D landscape renderer (Diagnostics → Engineering controls → Landscape renderer). Applies to camera tours.
+- `songRange` — Compose a home range for the song from measured mountain pieces. Force plans one for every song, whatever its biome (diagnostic). URL rule: `1`/`on` enable, `force` forces, `0`/`off` disable. Inactive unless: Needs the 3D landscape renderer (Diagnostics → Engineering controls → Landscape renderer).
+- `performance` — Automatic selects the Dual Summits signature landscape only for the canonical recording. Always applies its direction to any song; Never suppresses it. URL rule: `dual-summits` or `off`; anything else is automatic. Inactive unless: Needs the 3D landscape renderer (Diagnostics → Engineering controls → Landscape renderer). A forced tour or view replaces the performance. A forced view replaces the performance.
+- `rangeRise` — Hold the land at one height (0–1) for review captures. Empty lets the music decide. Not production playback. Inactive unless: Needs the 3D landscape renderer (Diagnostics → Engineering controls → Landscape renderer).
 - `rangeRelief` — A fixed relief scale for composed stages (1 = measured) instead of the framing rule. Empty uses the rule. Inactive unless: Applies to composed song ranges.
 - `songRangeLayout` — Run a catalog pilot layout (song-range-pilot-a/b/c) through the runtime, to compare with its offline stage.
 - `renderer` — Draw the optional WebGL post-effects overlay on top of Canvas 2D. Falls back to Canvas 2D when WebGL is unavailable.
-- `directTerrain` — Compose sky, water and effects at output resolution and sample only the terrain onto the pixel grid. Colours can differ from normal playback. URL rule: only `1` enables it. Inactive unless: Needs the 3D landscape renderer (Performance → Landscape renderer).
+- `directTerrain` — Compose sky, water and effects at output resolution and sample only the terrain onto the pixel grid. Colours can differ from normal playback. URL rule: only `1` enables it. Inactive unless: Needs the 3D landscape renderer (Diagnostics → Engineering controls → Landscape renderer).
 - `voxelRange` — Replace the landscape with the White Mountains voxel pilot (a 16 MB download, WebGL2). URL rule: only `1` enables it.
-- `terrainShading` — Curvature-aware snow edges on Mount Moran in the Jackson Lake view. Other views are unchanged. URL rule: only `moran` enables the study. Inactive unless: Needs the 3D landscape renderer (Performance → Landscape renderer).
-- `compiledTerrain` — Replace the terrain draw for the pilot view with precompiled meshes. Needs packs from npm run build:compiled-terrain; without them the original renderer draws. URL rule: `columns` or `mesh`; `off`/`original`/empty or an unknown value draws the original (unknown values are reported). Inactive unless: Needs the 3D landscape renderer (Performance → Landscape renderer).
+- `terrainShading` — Curvature-aware snow edges on Mount Moran in the Jackson Lake view. Other views are unchanged. URL rule: only `moran` enables the study. Inactive unless: Needs the 3D landscape renderer (Diagnostics → Engineering controls → Landscape renderer).
+- `compiledTerrain` — Replace the terrain draw for the pilot view with precompiled meshes. Needs packs from npm run build:compiled-terrain; without them the original renderer draws. URL rule: `columns` or `mesh`; `off`/`original`/empty or an unknown value draws the original (unknown values are reported). Inactive unless: Needs the 3D landscape renderer (Diagnostics → Engineering controls → Landscape renderer).
 - `compiledTerrainCamera` — The compiled-terrain pilot's declared test rail (for example "reverse").
 - `compiledTerrainGroup` — Draw batching for compiled packs: tiles per side of a merged block. A measuring aid. URL rule: `1`, `2`, `4` or `8`; anything else is automatic.
 - `compiledTerrainProfile` — Use packs built with --profile NAME.
-- `canopySummary` — Distant tree crowns use the mean canopy once they are too small to resolve. Off draws every crown individually, for comparison. URL rule: absent, `1` or `on` keep it; any other value opts out. Inactive unless: Needs the 3D landscape renderer (Performance → Landscape renderer).
-- `materialFeatures` — Cached rock and snow texture warp. Reference evaluates the noise per pixel, for comparison. URL rule: absent or `warp` keep the cache; any other value uses the reference. Inactive unless: Needs the 3D landscape renderer (Performance → Landscape renderer).
-- `deformGradient` — The factored terrain-tilt stencil. Reference uses the original six-call stencil, for comparison. URL rule: absent or `factored` keep it; any other value uses the reference. Inactive unless: Needs the 3D landscape renderer (Performance → Landscape renderer).
+- `canopySummary` — Distant tree crowns use the mean canopy once they are too small to resolve. Off draws every crown individually, for comparison. URL rule: absent, `1` or `on` keep it; any other value opts out. Inactive unless: Needs the 3D landscape renderer (Diagnostics → Engineering controls → Landscape renderer).
+- `materialFeatures` — Cached rock and snow texture warp. Reference evaluates the noise per pixel, for comparison. URL rule: absent or `warp` keep the cache; any other value uses the reference. Inactive unless: Needs the 3D landscape renderer (Diagnostics → Engineering controls → Landscape renderer).
+- `deformGradient` — The factored terrain-tilt stencil. Reference uses the original six-call stencil, for comparison. URL rule: absent or `factored` keep it; any other value uses the reference. Inactive unless: Needs the 3D landscape renderer (Diagnostics → Engineering controls → Landscape renderer).
 - `dev` — Enable the ` / V / T debug overlay keys and stem diagnostics. Off by default so stray key presses cannot change the engine. URL rule: only `1` enables it.
-- `rangeDebug` — Replace terrain shading with one internal channel. Inactive unless: Needs the 3D landscape renderer (Performance → Landscape renderer).
-- `forestDebug` — Colour trees by their level-of-detail representation. URL rule: only `1` enables it. Inactive unless: Needs the 3D landscape renderer (Performance → Landscape renderer).
-- `rangeDiag` — Draw diagnostic markers over the 3D landscape. URL rule: only `markers` enables it. Inactive unless: Needs the 3D landscape renderer (Performance → Landscape renderer).
+- `rangeDebug` — Replace terrain shading with one internal channel. Inactive unless: Needs the 3D landscape renderer (Diagnostics → Engineering controls → Landscape renderer).
+- `forestDebug` — Colour trees by their level-of-detail representation. URL rule: only `1` enables it. Inactive unless: Needs the 3D landscape renderer (Diagnostics → Engineering controls → Landscape renderer).
+- `rangeDiag` — Draw diagnostic markers over the 3D landscape. URL rule: only `markers` enables it. Inactive unless: Needs the 3D landscape renderer (Diagnostics → Engineering controls → Landscape renderer).
 
 ## Automation (URL only)
 

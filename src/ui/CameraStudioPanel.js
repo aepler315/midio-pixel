@@ -4,25 +4,23 @@ import {
   normalizeCameraStudioSettings,
 } from '../world/alpine/CameraStudio.js';
 
-export const CAMERA_STUDIO_STORAGE_KEY = 'midio.cameraStudio.v1';
+import {
+  CAMERA_STUDIO_FIELDS, resolveSettings, writeSaved, settingDefinition,
+} from '../config/settingsRegistry.js';
+export { CAMERA_STUDIO_STORAGE_KEY } from '../config/settingsRegistry.js';
 
-/** A denied storage API never prevents changing this session's camera. */
+/** Compatibility adapters for old callers. Only the registry owns persistence. */
 export function readCameraStudioSettings(storage) {
-  try {
-    return normalizeCameraStudioSettings(JSON.parse(storage?.getItem?.(CAMERA_STUDIO_STORAGE_KEY) ?? 'null'));
-  } catch {
-    return normalizeCameraStudioSettings(CAMERA_STUDIO_DEFAULTS);
-  }
+  const { entries } = resolveSettings({ storage, ids: CAMERA_STUDIO_FIELDS.map(def => def.id) });
+  return normalizeCameraStudioSettings(Object.fromEntries(CAMERA_STUDIO_FIELDS.map(def => [def.field, entries[def.id].value])));
 }
 
 export function writeCameraStudioSettings(storage, settings) {
-  try {
-    if (typeof storage?.setItem !== 'function') return false;
-    storage.setItem(CAMERA_STUDIO_STORAGE_KEY, JSON.stringify(normalizeCameraStudioSettings(settings)));
-    return true;
-  } catch {
-    return false;
-  }
+  const normalized = normalizeCameraStudioSettings(settings);
+  return CAMERA_STUDIO_FIELDS.map(field => writeSaved(
+    // The registered definition carries its storage adapter.
+    settingDefinition(field.id), storage, normalized[field.field],
+  )).every(Boolean);
 }
 
 export function cameraStudioPanelState(settings, {
@@ -44,25 +42,25 @@ export function cameraStudioPanelState(settings, {
 
 const FIELDS = [
   { title: 'Composition', fields: [
-    { key: 'distance', label: 'Distance ×', min: 0.35, max: 1.8, step: 0.01, hint: 'Distance relative to the landscape camera.' },
-    { key: 'fovDeg', label: 'Lens °', min: 15, max: 70, step: 1, hint: 'A smaller angle brings the landscape closer.' },
-    { key: 'elevation', label: 'Elevation °', min: -15, max: 35, step: 1, position: true, hint: 'Height above the landscape camera angle.' },
-    { key: 'azimuthDeg', label: 'Azimuth °', min: -180, max: 180, step: 1, position: true, hint: 'Starting angle around the focus point.' },
+    { key: 'distance', label: 'Distance ×', hint: 'Distance relative to the landscape camera.' },
+    { key: 'fovDeg', label: 'Lens °', hint: 'A smaller angle brings the landscape closer.' },
+    { key: 'elevation', label: 'Elevation °', position: true, hint: 'Height above the landscape camera angle.' },
+    { key: 'azimuthDeg', label: 'Azimuth °', position: true, hint: 'Starting angle around the focus point.' },
   ] },
   { title: 'Orbit', fields: [
-    { key: 'direction', label: 'Direction', stateKey: 'directionDisabled', wide: true, options: [['cw', 'Clockwise'], ['ccw', 'Counterclockwise']] },
-    { key: 'orbitSeconds', label: 'Orbit pace sec', min: 20, max: 240, step: 1, stateKey: 'orbitDisabled', hint: 'A larger number slows the orbit arc.' },
+    { key: 'direction', label: 'Direction', stateKey: 'directionDisabled', wide: true },
+    { key: 'orbitSeconds', label: 'Orbit pace sec', stateKey: 'orbitDisabled', hint: 'A larger number slows the orbit arc.' },
   ] },
   { title: 'Focus', fields: [
-    { key: 'focusX', label: 'X · left / right %', min: -20, max: 20, step: 1, scale: 100, position: true, hint: 'Offset as a percentage of camera distance.' },
-    { key: 'focusY', label: 'Y · down / up %', min: -20, max: 20, step: 1, scale: 100, position: true, hint: 'Offset as a percentage of camera distance.' },
-    { key: 'focusZ', label: 'Z · near / far %', min: -20, max: 20, step: 1, scale: 100, position: true, hint: 'Offset as a percentage of camera distance.' },
+    { key: 'focusX', label: 'X · left / right %', scale: 100, position: true, hint: 'Offset as a percentage of camera distance.' },
+    { key: 'focusY', label: 'Y · down / up %', scale: 100, position: true, hint: 'Offset as a percentage of camera distance.' },
+    { key: 'focusZ', label: 'Z · near / far %', scale: 100, position: true, hint: 'Offset as a percentage of camera distance.' },
   ] },
   { title: 'Move & settle', fields: [
-    { key: 'durationSec', label: 'Travel sec', min: 1, max: 30, step: 0.5, stateKey: 'motionDisabled' },
-    { key: 'holdSec', label: 'Hold sec', min: 0, max: 12, step: 0.5, stateKey: 'motionDisabled' },
-    { key: 'delaySec', label: 'Start delay sec', min: 0, max: 10, step: 0.5, stateKey: 'motionDisabled' },
-    { key: 'overshoot', label: 'Overshoot %', min: 0, max: 50, step: 1, scale: 100, stateKey: 'motionDisabled', hint: 'How far the camera moves past its target before settling.' },
+    { key: 'durationSec', label: 'Travel sec', stateKey: 'motionDisabled' },
+    { key: 'holdSec', label: 'Hold sec', stateKey: 'motionDisabled' },
+    { key: 'delaySec', label: 'Start delay sec', stateKey: 'motionDisabled' },
+    { key: 'overshoot', label: 'Overshoot %', scale: 100, stateKey: 'motionDisabled', hint: 'How far the camera moves past its target before settling.' },
   ] },
 ];
 
@@ -180,7 +178,11 @@ export class CameraStudioPanel {
     const group = this._element('fieldset', 'cameraStudioGroup');
     group.append(this._element('legend', '', title));
     const grid = this._element('div', 'cameraStudioFields');
-    for (const field of fields) {
+    for (const displayField of fields) {
+      const def = CAMERA_STUDIO_FIELDS.find(item => item.field === displayField.key);
+      const scale = displayField.scale || 1;
+      const field = { ...displayField, min: def.min * scale, max: def.max * scale, step: def.step * scale,
+        options: def.options?.map(option => [option.value, option.label]) };
       const label = this._element('label', 'cameraStudioField');
       if (field.wide) label.classList.add('cameraStudioFieldWide');
       const input = this._element(field.options ? 'select' : 'input');

@@ -50,6 +50,25 @@ test('defaults resolve with no URL and no storage', () => {
   assert.deepEqual(retired, []);
 });
 
+test('saving URL overrides preserves the visit when legacy preference writers report failure', () => {
+  const history = memoryHistory('https://example.test/?maxQuality=low&pixelGrid=classic&shuffle=0');
+  const storage = { getItem: () => null, setItem() { throw Error('quota'); } };
+  const store = new SettingsStore({ search: new URL(history.href()).search, history, storage });
+  assert.deepEqual(store.saveUrlOverrides(), []);
+  for (const id of ['maxQuality', 'pixelGrid', 'shuffle']) {
+    assert.equal(store.entry(id).source, 'url', id);
+    assert.ok(new URL(history.href()).searchParams.has(id), id);
+  }
+});
+
+test('a saved numeric override accepts JSON normalizing negative zero', () => {
+  const history = memoryHistory('https://example.test/?cameraStudioElevation=-0');
+  const store = new SettingsStore({ search: new URL(history.href()).search, history, storage: memoryStorage() });
+  assert.deepEqual(store.saveUrlOverrides(), ['cameraStudioElevation']);
+  assert.equal(store.entry('cameraStudioElevation').source, 'saved');
+  assert.equal(new URL(history.href()).search, '');
+});
+
 test('enum, number and boolean constraints validate and normalize', () => {
   assert.equal(normalizeValue(settingDefinition('pixelGrid'), 'medium'), 'medium');
   assert.equal(normalizeValue(settingDefinition('pixelGrid'), 'depth'), undefined);

@@ -1,20 +1,13 @@
 // Offline, fixed-clock H.264/AAC export. The page owns rebuilding/restoring
 // the song; this module owns encoding the exact frames it asks the page for.
 // No microphone, captureStream, live audio clock or server is involved.
-export const MP4_EXPORT_RESOLUTIONS = Object.freeze([
-  { id: '360p', label: '360p', width: 640, height: 360 },
-  { id: '480p', label: '480p', width: 854, height: 480 },
-  { id: '720p', label: '720p', width: 1280, height: 720 },
-  { id: '1080p', label: '1080p', width: 1920, height: 1080 },
-  { id: '1440p', label: '1440p', width: 2560, height: 1440 },
-  { id: '2160p', label: '4K · 2160p', width: 3840, height: 2160 },
-].map(Object.freeze));
+import { MP4_EXPORT_DEFAULTS, MP4_EXPORT_RESOLUTIONS, normalizeValue, settingDefinition } from '../config/settingsRegistry.js';
+export { MP4_EXPORT_DEFAULTS, MP4_EXPORT_RESOLUTIONS } from '../config/settingsRegistry.js';
 
 // Maximum encoded file bytes retained by the memory sink. This is not a cap
 // on total browser memory: canvas/codec/muxer work and a Blob snapshot add
 // overhead. Fixed pages avoid BufferTarget's power-of-two growth allocations.
 export const MAX_MP4_BUFFER_BYTES = 512 * 1024 * 1024;
-export const MP4_EXPORT_DEFAULTS = Object.freeze({ resolutionId: '1080p', fps: 30 });
 const AUDIO_BITRATE = 192_000;
 const AUDIO_CHUNK_FRAMES = 4096;
 const MP4_MEMORY_PAGE_BYTES = 1024 * 1024;
@@ -74,8 +67,8 @@ export function resolveMp4ExportSettings(settings = {}) {
   const id = raw === '4k' ? '2160p' : /^\d+$/.test(raw) ? `${raw}p` : raw;
   const resolution = MP4_EXPORT_RESOLUTIONS.find(item => item.id === id);
   if (!resolution) throw new Error(`Unknown video resolution "${raw}".`);
-  const fps = Number(settings.fps ?? MP4_EXPORT_DEFAULTS.fps);
-  if (fps !== 30 && fps !== 60) throw new Error('Video export needs 30 or 60 fps.');
+  const fps = normalizeValue(settingDefinition('mp4Fps'), settings.fps ?? MP4_EXPORT_DEFAULTS.fps);
+  if (fps === undefined) throw new Error('Video export needs 30 or 60 fps.');
   return {
     resolutionId: resolution.id, width: resolution.width, height: resolution.height, fps,
     videoBitrate: Math.round(Math.max(1_000_000, Math.min(80_000_000, resolution.width * resolution.height * fps * .12))),

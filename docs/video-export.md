@@ -1,11 +1,15 @@
 # MP4 video export
 
 Choose **Export** in the playback HUD, **Export video** on the completion screen,
-or **Settings → Export video** after loading a song with audio. Select 360p,
+or **Settings → Audio & playback → Export video** after loading a song with audio. Select 360p,
 480p, 720p, 1080p, 1440p or 4K, and 30 or 60 fps. **Render MP4** saves the complete
 song with its decoded original audio, current seed, camera, display settings and
-General quality ceiling. These choices are frozen for the render. HUD controls
-are excluded from the file.
+quality ceiling (High by default; overrides live in Diagnostics → Engineering
+controls). These choices are frozen for the render. HUD controls
+are excluded from the file. Resolution and frame rate use the shared Settings
+store, so Copy share link includes them and Reset all settings restores
+1080p / 30 fps. Older saved export choices carry over; opening the dialog
+never saves a temporary URL override.
 
 This is an offline frame-by-frame render. The simulation advances on its fixed
 song clock, waits for scenery, and encodes each completed frame with an exact

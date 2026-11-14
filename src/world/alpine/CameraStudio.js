@@ -3,23 +3,9 @@
 import { cameraBasis } from '../terrain/SceneTravel.js';
 import { LAND_MAX_DISPLACEMENT_M } from './LandMotionLimits.js';
 
-export const CAMERA_STUDIO_PRESETS = Object.freeze([
-  { id: 'rail', label: 'Follow rail', description: 'Keep the authored journey with your framing.' },
-  { id: 'orbit', label: 'Arc orbit', description: 'Orbit through a bounded front-side arc with spring arrivals and holds.' },
-  { id: 'sweep', label: 'Pendulum sweep', description: 'Sweep gently between two sides of the range.' },
-  { id: 'push', label: 'Push / pull', description: 'Move toward the range and ease back out.' },
-  { id: 'static', label: 'Locked frame', description: 'Hold a fixed view of the range center.' },
-].map(Object.freeze));
+import { CAMERA_STUDIO_FIELDS, CAMERA_STUDIO_DEFAULTS, normalizeValue } from '../../config/settingsRegistry.js';
+export { CAMERA_STUDIO_PRESETS, CAMERA_STUDIO_DEFAULTS } from '../../config/settingsRegistry.js';
 
-export const CAMERA_STUDIO_DEFAULTS = Object.freeze({
-  enabled: false, preset: 'rail', distance: 1, elevation: 0, azimuthDeg: 0,
-  direction: 'cw', orbitSeconds: 90, focusX: 0, focusY: 0, focusZ: 0,
-  fovDeg: 35, durationSec: 8, holdSec: 2, delaySec: 0, overshoot: .15,
-});
-
-const limits = Object.freeze({ distance: [.35, 1.8], elevation: [-15, 35], azimuthDeg: [-180, 180],
-  orbitSeconds: [20, 240], focusX: [-.2, .2], focusY: [-.2, .2], focusZ: [-.2, .2],
-  fovDeg: [15, 70], durationSec: [1, 30], holdSec: [0, 12], delaySec: [0, 10], overshoot: [0, .5] });
 const normalized = new WeakSet([CAMERA_STUDIO_DEFAULTS]);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const mix = (a, b, t) => a + (b - a) * t;
@@ -31,15 +17,8 @@ export function normalizeCameraStudioSettings(raw = null) {
   if (!raw || typeof raw !== 'object') return CAMERA_STUDIO_DEFAULTS;
   if (raw && typeof raw === 'object' && normalized.has(raw)) return raw;
   const source = raw && typeof raw === 'object' ? raw : {};
-  const result = { ...CAMERA_STUDIO_DEFAULTS,
-    enabled: source.enabled === true,
-    preset: CAMERA_STUDIO_PRESETS.some(p => p.id === source.preset) ? source.preset : 'rail',
-    direction: source.direction === 'ccw' ? 'ccw' : 'cw' };
-  for (const [key, [lo, hi]] of Object.entries(limits)) {
-    const value = typeof source[key] === 'number' || typeof source[key] === 'string' && source[key].trim() !== ''
-      ? Number(source[key]) : NaN;
-    result[key] = Number.isFinite(value) ? clamp(value, lo, hi) : CAMERA_STUDIO_DEFAULTS[key];
-  }
+  const result = Object.fromEntries(CAMERA_STUDIO_FIELDS.map(def =>
+    [def.field, normalizeValue(def, source[def.field]) ?? def.default]));
   Object.freeze(result);
   normalized.add(result);
   return result;

@@ -36,6 +36,14 @@ const scenarios = [
 const report = { status: 'running', startedAt: new Date().toISOString(), scenarios: [],
   limits: ['Chromium device emulation; no Android OS, head-unit hardware or physical touch input.'] };
 
+// A setting can move behind more than one disclosure without changing its
+// actual control id. Open every ancestor, as a keyboard user would.
+const revealControl = (page, selector) => page.locator(selector).evaluate(input => {
+  for (let node = input.parentElement; node; node = node.parentElement) {
+    if (node.tagName === 'DETAILS') node.open = true;
+  }
+});
+
 async function exercise(browser, base, scenario) {
   const row = { id: scenario.id, checks: [], status: 'running' };
   report.scenarios.push(row);
@@ -55,11 +63,43 @@ async function exercise(browser, base, scenario) {
   const openSettings = () => page.locator('#titleSettings').evaluate(el => { el.open = true; el.scrollIntoView(); });
   await openSettings();
 
-  await check('panel renders every section with its basic controls visible', async () => {
-    for (const id of ['appearance', 'camera', 'landscape', 'performance', 'playback', 'experiments']) assert.ok(await page.locator(`#settings-${id}`).count(), id);
-    for (const id of ['display-pixelGrid', 'display-scaling', 'generalQuality', 'stageFps', 'range-pace', 'range-tour-toggle', 'lyricGroundingBtn']) {
+  await check('panel shows artistic and playback sections with their basic controls visible', async () => {
+    for (const id of ['appearance', 'camera', 'landscape', 'playback', 'experiments']) assert.ok(await page.locator(`#settings-${id}`).count(), id);
+    assert.equal(await page.locator('#settings-performance').count(), 0, 'an empty engineering-only section is omitted');
+    for (const id of ['display-pixelGrid', 'display-scaling', 'range-pace', 'range-tour-toggle', 'lyricGroundingBtn', 'camera-studio-toggle']) {
       assert.ok(await page.locator(`#${id}`).isVisible(), `${id} visible`);
     }
+    assert.match(await page.locator('#settingsQualityStatus').innerText(), /High.*automatic|automatic.*High/i);
+  });
+  await check('engineering controls are retained only in nested, collapsed Diagnostics', async () => {
+    const engineering = page.locator('#settingsEngineering');
+    assert.equal(await engineering.count(), 1);
+    assert.equal(await engineering.evaluate(el => el.open), false);
+    assert.equal(await page.locator('#graphicsTroubleshooting').evaluate(el => el.open), false);
+    const placement = await page.evaluate(async () => {
+      const { SETTINGS } = await import('/src/config/settingsRegistry.js');
+      return SETTINGS.filter(d => d.ui !== false && d.section && (d.tier === 'developer' || d.maturity === 'diagnostic'))
+        .map(d => ({ id: d.id, rows: document.querySelectorAll(`[data-setting="${d.id}"]`).length,
+          engineering: !!document.querySelector(`#settingsEngineering [data-setting="${d.id}"]`) }));
+    });
+    assert.ok(placement.length > 10);
+    assert.deepEqual(placement.filter(d => d.rows !== 1 || !d.engineering), [], JSON.stringify(placement));
+    assert.equal(await page.locator('.settingsExperiments [data-tier="developer"], .settingsExperiments [data-maturity="diagnostic"]').count(), 0);
+    assert.equal(await page.locator('#generalQuality').isVisible(), false);
+    assert.equal(await page.locator('#stageFps').isVisible(), false);
+  });
+  await check('dedicated camera and export controls have one navigation entry each', async () => {
+    for (const target of ['cameraStudio', 'mp4Export']) {
+      const button = page.locator(`#settingsPanel button[data-control-target="${target}"]`);
+      assert.equal(await button.count(), 1, target);
+      assert.equal(await button.isVisible(), true, target);
+      assert.equal(await button.locator('xpath=ancestor::*[@data-setting]').count(), 0, 'navigation is not a setting value input');
+    }
+    assert.equal(await page.locator('#settingsPanel [data-setting^="cameraStudio"] input:not(#camera-studio-toggle)').count(), 0);
+    assert.equal(await page.locator('#settingsPanel [data-setting="mp4Resolution"], #settingsPanel [data-setting="mp4Fps"]').count(), 0);
+    assert.equal(await page.locator('#setting-control-cameraStudio').isDisabled(), true, 'live camera controls need a landscape song');
+    assert.match(await page.locator('[data-control-group="cameraStudio"] .settingNote').innerText(), /Load a landscape song/i);
+    assert.equal(await page.locator('#setting-control-mp4Export').isEnabled(), true, 'video output preferences can be chosen before loading a song');
   });
   await check('URL overrides are marked and listed, and not saved', async () => {
     assert.match(await page.locator('[data-setting="rangePace"] .settingBadges').innerText(), /page address/i);
@@ -96,11 +136,24 @@ async function exercise(browser, base, scenario) {
     assert.ok(overflow.page <= 1 && overflow.panelRight <= 1, JSON.stringify(overflow));
   });
   await check('keyboard: section jump moves focus to the section heading', async () => {
-    await page.locator('.settingsNav button', { hasText: 'Performance' }).focus();
+    await page.locator('.settingsNav button', { hasText: 'Appearance' }).focus();
     await page.keyboard.press('Enter');
-    await page.waitForFunction(() => document.activeElement?.id === 'settings-performance-title');
+    await page.waitForFunction(() => document.activeElement?.id === 'settings-appearance-title');
     await page.keyboard.press('Tab');
     assert.ok(await page.evaluate(() => !!document.activeElement.closest('#settingsPanel')));
+  });
+  await check('keyboard: Diagnostics opens before its Engineering controls disclosure', async () => {
+    await page.locator('.settingsNav button', { hasText: 'Diagnostics' }).focus();
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.activeElement === document.querySelector('#graphicsTroubleshooting > summary'));
+    assert.equal(await page.locator('#settingsEngineering').evaluate(el => el.open), false);
+    await page.keyboard.press('Tab');
+    assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('#settingsEngineering > summary')), true);
+    await page.keyboard.press('Enter');
+    assert.equal(await page.locator('#settingsEngineering').evaluate(el => el.open), true);
+    assert.equal(await page.locator('#generalQuality').isVisible(), true);
+    await page.locator('#settingsEngineering').evaluate(el => { el.open = false; });
+    await page.locator('#graphicsTroubleshooting').evaluate(el => { el.open = false; });
   });
   await page.screenshot({ path: path.join(out, `${scenario.id}-settings.png`), fullPage: false });
   await check('a saved choice persists across reload; reset restores the default', async () => {
@@ -147,9 +200,95 @@ async function exercise(browser, base, scenario) {
     await box.locator('summary').click();
     assert.ok(await page.locator('[data-setting="songRange"]').isVisible());
     assert.match(await page.locator('[data-setting="songRange"] .settingBadges').innerText(), /Experimental/);
+    assert.equal(await page.locator('[data-setting="compiledTerrain"]').isVisible(), false, 'compiled terrain belongs to Engineering');
+    await revealControl(page, '#setting-compiledTerrain');
     await page.waitForFunction(() => /npm run build:compiled-terrain/.test(document.querySelector('[data-setting="compiledTerrain"] .settingNote')?.textContent || ''), null, { timeout: 5000 });
+    await page.locator('#graphicsTroubleshooting').evaluate(el => { el.open = false; });
   });
   await page.screenshot({ path: path.join(out, `${scenario.id}-experiments.png`), fullPage: false });
+  await check('saved and URL quality overrides can be reset from Engineering without degrading the default', async () => {
+    await page.evaluate(() => localStorage.setItem('midio-pixel:render-quality:v1', 'low'));
+    await page.goto(base + '/');
+    await openSettings();
+    assert.equal(await page.locator('#generalQuality').isVisible(), false);
+    assert.match(await page.locator('#settingsQualityStatus').innerText(), /Low/);
+    await revealControl(page, '#generalQuality');
+    assert.equal(await page.locator('#generalQuality').inputValue(), '0');
+    await page.locator('[data-setting="maxQuality"] .settingReset').click();
+    assert.equal(await page.locator('#generalQuality').inputValue(), '2');
+    assert.equal(await page.evaluate(() => window.__SMW.settings.settings.find(s => s.id === 'maxQuality').value), 'high');
+    await page.reload();
+    await openSettings();
+    assert.equal(await page.locator('#generalQuality').inputValue(), '2');
+    await page.goto(base + '/?maxQuality=medium');
+    await openSettings();
+    assert.match(await page.locator('.settingsOverrides').innerText(), /General quality/);
+    await revealControl(page, '#generalQuality');
+    await page.locator('[data-setting="maxQuality"] .settingReset').click();
+    assert.equal(await page.locator('#generalQuality').inputValue(), '2');
+    assert.equal(new URL(page.url()).searchParams.has('maxQuality'), false);
+    assert.match(await page.locator('#settingsQualityStatus').innerText(), /High/);
+  });
+  await check('grouped external preferences remain visible, shareable and individually resettable in Diagnostics', async () => {
+    await page.goto(base + '/?cameraStudioDistance=1.4&mp4Fps=60');
+    await openSettings();
+    assert.match(await page.locator('.settingsOverrides').innerText(), /Camera distance.*Video export frame rate/);
+    const before = await page.evaluate(() => ({ camera: localStorage.getItem('midio.cameraStudio.v1'), mp4: localStorage.getItem('midio.mp4Export.v1') }));
+    await page.locator('#setting-control-mp4Export').click();
+    assert.equal(await page.locator('#videoExportFps').inputValue(), '60');
+    assert.deepEqual(await page.evaluate(() => ({ camera: localStorage.getItem('midio.cameraStudio.v1'), mp4: localStorage.getItem('midio.mp4Export.v1') })), before,
+      'opening the dedicated editor must not save address overrides');
+    await page.locator('#videoExportClose').click();
+    await openSettings();
+    await page.locator('.settingsOverrides button').click();
+    await page.locator('#graphicsTroubleshooting').evaluate(el => { el.open = true; });
+    assert.match(await page.locator('.settingsTable').innerText(), /Camera distance.*1.4/s);
+    await page.locator('#copySettingsLink').click();
+    const params = new URL(await page.locator('.settingsLink').inputValue()).searchParams;
+    assert.equal(params.get('cameraStudioDistance'), '1.4');
+    assert.equal(params.get('mp4Fps'), '60');
+    await page.locator('[data-diagnostic-setting="cameraStudioDistance"] button').click();
+    assert.equal(await page.evaluate(() => window.__SMW.settings.settings.find(s => s.id === 'cameraStudioDistance').value), 1);
+    assert.equal(await page.evaluate(() => window.__SMW.settings.settings.find(s => s.id === 'mp4Fps').value), 60, 'reset affects only its own preference');
+    await page.reload();
+    await openSettings();
+    assert.equal(await page.evaluate(() => window.__SMW.settings.settings.find(s => s.id === 'cameraStudioDistance').value), 1);
+  });
+  await check('old camera and video preferences populate dedicated controls and reset all stays reset after reload', async () => {
+    await page.evaluate(() => {
+      localStorage.setItem('midio.cameraStudio.v1', JSON.stringify({ enabled: true, preset: 'sweep', distance: 0.8, fovDeg: 25 }));
+      localStorage.setItem('midio.mp4Export.v1', JSON.stringify({ resolutionId: '4k', fps: '60' }));
+    });
+    await page.goto(base + '/');
+    await openSettings();
+    assert.equal(await page.locator('#camera-studio-toggle').isChecked(), true);
+    const studio = await page.evaluate(() => window.__SMW.cameraStudioSettings);
+    assert.equal(studio.preset, 'sweep');
+    assert.equal(studio.distance, 0.8);
+    await page.locator('#setting-control-mp4Export').click();
+    assert.equal(await page.locator('#videoExportResolution').inputValue(), '2160p');
+    assert.equal(await page.locator('#videoExportFps').inputValue(), '60');
+    await page.locator('#videoExportResolution').selectOption('720p');
+    await page.locator('#videoExportFps').selectOption('30');
+    assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('midio.mp4Export.v1'))), { resolutionId: '720p', fps: 30 });
+    await page.locator('#videoExportClose').click();
+    await openSettings();
+    await page.locator('#graphicsTroubleshooting').evaluate(el => { el.open = true; });
+    await page.locator('#resetAllSettings').click();
+    await page.locator('#resetAllSettings').click();
+    assert.equal(await page.locator('#camera-studio-toggle').isChecked(), false);
+    assert.equal(await page.evaluate(() => window.__SMW.cameraStudioSettings.distance), 1);
+    assert.equal(await page.evaluate(() => window.__SMW.cameraStudioSettings.preset), 'rail');
+    await page.locator('#setting-control-mp4Export').click();
+    assert.equal(await page.locator('#videoExportResolution').inputValue(), '1080p');
+    assert.equal(await page.locator('#videoExportFps').inputValue(), '30');
+    await page.locator('#videoExportClose').click();
+    await page.reload();
+    await openSettings();
+    const values = await page.evaluate(() => Object.fromEntries(window.__SMW.settings.settings
+      .filter(s => s.id.startsWith('cameraStudio') || s.id.startsWith('mp4')).map(s => [s.id, { value: s.value, default: s.default }])));
+    assert.ok(Object.values(values).every(s => Object.is(s.value, s.default)), JSON.stringify(values));
+  });
   await check('no page errors', async () => assert.deepEqual(errors, []));
   if (playback && scenario.id === 'desktop') await exercisePlayback(page, base, check, row);
   await context.close();
@@ -171,6 +310,7 @@ async function exercisePlayback(page, base, check) {
   });
   await check('live: frame rate and pixel detail apply without restarting the song', async () => {
     const before = await page.evaluate(() => window.__SMW.audioEngine.nowMs);
+    await revealControl(page, '#stageFps');
     await page.locator('#stageFps').selectOption('30');
     await page.waitForFunction(() => window.__SMW.fpsCap === 30);
     await page.locator('#display-pixelGrid').selectOption('medium');
@@ -201,6 +341,7 @@ async function exercisePlayback(page, base, check) {
     const after = await page.evaluate(() => window.__SMW.settings.settings.find(s => s.id === 'fps').value);
     assert.equal(after, !before);
     await page.locator('#displaySettingsBtn').click();
+    await revealControl(page, '#setting-fps');
     assert.equal(await page.locator('#setting-fps').isChecked(), after);
   });
   await page.screenshot({ path: path.join(out, 'desktop-playback-settings.png') });
@@ -230,7 +371,8 @@ async function exerciseV2Restart(base) {
   const gpuArgs = process.env.SETTINGS_SMOKE_GL === 'swiftshader'
     ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader']
     : ['--use-angle=default', '--enable-gpu'];
-  const gpuBrowser = await chromium.launch({ headless: true, timeout: 15_000,
+  const executablePath = process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined;
+  const gpuBrowser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}), timeout: 15_000,
     args: ['--mute-audio', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required', ...gpuArgs] });
   const context = await gpuBrowser.newContext({ viewport: { width: 1280, height: 720 } });
   const page = await context.newPage();
@@ -263,7 +405,7 @@ async function exerciseV2Restart(base) {
     };
     const warningsBefore = warnings.length;
     await openSettings();
-    await page.locator('.settingsExperiments').evaluate(el => { el.open = true; });
+    await revealControl(page, '#setting-canopySummary');
     await page.locator('#setting-canopySummary').uncheck();
     await page.locator('.settingsPending button', { hasText: 'Apply now' }).waitFor();
     await check('a 3D renderer setting waits for Apply now during playback', async () => {
@@ -322,6 +464,30 @@ async function exerciseV2Restart(base) {
         await page.waitForFunction(() => window.__SMW.rangeState?.runtime === 'ready' && window.__SMW.rangeState?.active, null, { timeout: 300_000 });
       }
       assert.deepEqual(warnings.slice(warningsBefore).filter(w => /too many active|context lost|CONTEXT_LOST|pageerror/i.test(w)), []);
+    });
+    await check('Reset all updates live camera preferences, hides its overlay and restores export defaults', async () => {
+      await page.locator('#camera-studio-toggle').check();
+      await page.locator('#displaySettingsClose').click();
+      await page.locator('#camera-studio-panel').waitFor({ state: 'visible' });
+      await page.locator('#camera-studio-distance').fill('0.65');
+      await page.locator('#camera-studio-distance').press('Tab');
+      assert.equal(await page.evaluate(() => window.__SMW.sim.cameraStudioSettings.distance), 0.65);
+      await openSettings();
+      await page.locator('#setting-control-mp4Export').click();
+      await page.locator('#videoExportResolution').selectOption('720p');
+      await page.locator('#videoExportFps').selectOption('60');
+      await page.locator('#videoExportClose').click();
+      await openSettings();
+      await page.locator('#graphicsTroubleshooting').evaluate(el => { el.open = true; });
+      await page.locator('#resetAllSettings').click();
+      await page.locator('#resetAllSettings').click();
+      await page.waitForFunction(() => window.__SMW.sim.cameraStudioSettings.enabled === false);
+      assert.equal(await page.evaluate(() => window.__SMW.sim.cameraStudioSettings.distance), 1);
+      assert.equal(await page.locator('#camera-studio-panel').isVisible(), false);
+      await page.locator('#setting-control-mp4Export').click();
+      assert.equal(await page.locator('#videoExportResolution').inputValue(), '1080p');
+      assert.equal(await page.locator('#videoExportFps').inputValue(), '30');
+      await page.locator('#videoExportClose').click();
     });
     await page.screenshot({ path: path.join(out, 'v2-after-restart.png') });
   } finally {
