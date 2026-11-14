@@ -31,9 +31,9 @@
 
 **Interfaces:** normalized camera settings; immutable `sim.cameraStudioSettings`; spatial and projection sampling by heard time.
 
-- [ ] Write/run failing tests for normalization, disabled identity, orbit direction, delay/overshoot, FPS/seek equivalence, bounded coverage and clearance.
-- [ ] Implement presets, temporal response and renderer integration with coherent sky and coverage.
-- [ ] Run focused tests/lint and commit owned files.
+- [x] Write/run failing tests for normalization, disabled identity, orbit direction, delay/overshoot, FPS/seek equivalence, bounded coverage and clearance.
+- [x] Implement presets, temporal response and renderer integration with coherent sky and coverage.
+- [x] Run focused tests/lint and commit owned files.
 
 ### Task 2: Camera controls
 
@@ -41,9 +41,9 @@
 
 **Interfaces:** panel constructor takes settings/HUD parents, settings and callback; `setSettings` and `setState` synchronize controls/status.
 
-- [ ] Verify toggle/preset/reset and input normalization behavior.
-- [ ] Build accessible compact stationary overlay, collapse and responsive controls.
-- [ ] Run focused checks and commit owned files.
+- [x] Verify toggle/preset/reset and input normalization behavior.
+- [x] Build accessible compact stationary overlay, collapse and responsive controls.
+- [x] Run focused checks and commit owned files.
 
 ### Task 3: Frame-by-frame encoder
 
@@ -51,16 +51,19 @@
 
 **Interfaces:** `exportMp4({canvas,audioBuffer,settings,renderFrame,signal,onProgress,writable})`; normalized six-resolution settings and filename helper.
 
-- [ ] Write/run failing cadence, PCM, backpressure, cancellation, capability and budget tests.
-- [ ] Implement H.264/AAC MP4 with quality-mode encoding, lockstep source audio and streaming target.
-- [ ] Run focused tests/lint and verify vendored license/hash; commit owned files.
+- [x] Write/run failing cadence, PCM, backpressure, cancellation, capability and budget tests.
+- [x] Implement H.264/AAC MP4 with quality-mode encoding, lockstep source audio and streaming target.
+- [x] Run focused tests/lint and verify vendored license/hash; commit owned files.
 
 ### Task 4: App integration and verification
 
 **Files:** `src/main.js`, `index.html`, `src/ui/style.css`, integration/smoke tooling and user documentation.
 
-- [ ] Persist studio settings safely and install immutable settings before every simulation draw.
-- [ ] Add Export video dialog with resolution/FPS/quality, progress, cancel and reusable download.
-- [ ] Own asynchronous export lifecycle: snapshot, await full analysis/terrain, rebuild on fixed clock, render every frame, restore previous session on all exits.
-- [ ] Run focused/full tests, lint, module graph, stage production, isolated browser control/motion/export checks and relevant benchmark.
-- [ ] Independent review, fix material findings, document measured results/limitations, commit integration.
+- [x] Persist studio settings safely and install immutable settings before every simulation draw.
+- [x] Add Export video dialog with resolution/FPS/quality, progress, cancel and reusable download.
+- [x] Own asynchronous export lifecycle: snapshot, await full analysis/terrain, rebuild on fixed clock, render every frame, restore previous session on all exits.
+- [x] Run focused/full tests, lint, module graph, stage production, isolated browser control/motion/export checks and relevant benchmark.
+- [x] Independent review, fix material findings, document measured results/limitations, commit integration.
+
+Evidence and remaining device/performance limitations:
+`docs/camera-studio-validation-2026-11-13.md`.
