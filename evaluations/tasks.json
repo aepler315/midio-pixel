@@ -1,0 +1,362 @@
+{
+  "version": 1,
+  "tasks": [
+    {
+      "id": "terrain-geometry",
+      "title": "Preserve ridge seams while changing terrain LOD",
+      "context": "src/world/alpine/TerrainMesh.js; TerrainChunks.js; test/terrainChunks.test.mjs",
+      "objective": "Implement a bounded LOD experiment that retains shared-edge positions and source elevations.",
+      "acceptance": [
+        "Adjacent tile edges agree at mixed strides.",
+        "Triangle count and elevation/provenance are reported for both budgets.",
+        "Before/after close ridge images retain spurs and silhouette."
+      ],
+      "checks": [
+        "terrainChunks.test.mjs",
+        "terrainChunksRender.test.mjs"
+      ],
+      "rubric": [
+        {
+          "criterion": "Adjacent tile edges agree at mixed strides.",
+          "points": 40
+        },
+        {
+          "criterion": "Triangle count and elevation/provenance are reported for both budgets.",
+          "points": 30
+        },
+        {
+          "criterion": "Before/after close ridge images retain spurs and silhouette.",
+          "points": 30
+        }
+      ],
+      "artifacts": [
+        "patch or commit/PR",
+        "test logs",
+        "applicable render/diff or benchmark reports",
+        "acceptance assessment and limitations"
+      ]
+    },
+    {
+      "id": "pixel-fidelity",
+      "title": "Improve raster reconstruction without losing the terrain pixel identity",
+      "context": "src/render/PixelRenderPolicy.js; CinematicPixel.js; PresentingRenderer.js; docs/visual-contract.md",
+      "objective": "Make a focused pixel treatment improvement; show identical controls and explain the intended image change.",
+      "acceptance": [
+        "Native grid dimensions stay correct.",
+        "Retired Depth/Palette options are not reintroduced.",
+        "Classic/Detailed actual images and an explicit reference decision are retained."
+      ],
+      "checks": [
+        "pixelRenderPolicy.test.js",
+        "pixelGridHandoff.test.js",
+        "cinematicPixelGpu.test.mjs"
+      ],
+      "rubric": [
+        {
+          "criterion": "Native grid dimensions stay correct.",
+          "points": 40
+        },
+        {
+          "criterion": "Retired Depth/Palette options are not reintroduced.",
+          "points": 30
+        },
+        {
+          "criterion": "Classic/Detailed actual images and an explicit reference decision are retained.",
+          "points": 30
+        }
+      ],
+      "artifacts": [
+        "patch or commit/PR",
+        "test logs",
+        "applicable render/diff or benchmark reports",
+        "acceptance assessment and limitations"
+      ]
+    },
+    {
+      "id": "audio-mapping",
+      "title": "Add an observable bounded musical response",
+      "context": "src/world/alpine/RangeFrame.js; LandscapeScore.js; src/audio/",
+      "objective": "Add one music-to-environment response driven by heard-time features; preserve quiet passages and seek determinism.",
+      "acceptance": [
+        "Silence does not produce false activity.",
+        "Heard clock, repeated seeks and late analysis are consistent.",
+        "Matching audio/frames demonstrate the response rather than a test-only value."
+      ],
+      "checks": [
+        "rangeFrame.test.js",
+        "landscapeScore.test.js",
+        "moodScore.test.js"
+      ],
+      "rubric": [
+        {
+          "criterion": "Silence does not produce false activity.",
+          "points": 40
+        },
+        {
+          "criterion": "Heard clock, repeated seeks and late analysis are consistent.",
+          "points": 30
+        },
+        {
+          "criterion": "Matching audio/frames demonstrate the response rather than a test-only value.",
+          "points": 30
+        }
+      ],
+      "artifacts": [
+        "patch or commit/PR",
+        "test logs",
+        "applicable render/diff or benchmark reports",
+        "acceptance assessment and limitations"
+      ]
+    },
+    {
+      "id": "camera-growth",
+      "title": "Keep a growing summit composed across seek and replay",
+      "context": "LandRiseCamera.js; RangeCamera.js; test/buildCameraScene.test.mjs",
+      "objective": "Improve one growing-range framing condition without abrupt camera motion or underground travel.",
+      "acceptance": [
+        "Focus projects inside the intended frame across sampled growth.",
+        "Clearance and full-height authored pose remain valid.",
+        "A consecutive clip demonstrates smoothness and direct seeks reconstruct the same pose."
+      ],
+      "checks": [
+        "buildCameraScene.test.mjs",
+        "rangeProjectionZoom.test.js",
+        "landRiseCamera.test.mjs"
+      ],
+      "rubric": [
+        {
+          "criterion": "Focus projects inside the intended frame across sampled growth.",
+          "points": 40
+        },
+        {
+          "criterion": "Clearance and full-height authored pose remain valid.",
+          "points": 30
+        },
+        {
+          "criterion": "A consecutive clip demonstrates smoothness and direct seeks reconstruct the same pose.",
+          "points": 30
+        }
+      ],
+      "artifacts": [
+        "patch or commit/PR",
+        "test logs",
+        "applicable render/diff or benchmark reports",
+        "acceptance assessment and limitations"
+      ]
+    },
+    {
+      "id": "performance",
+      "title": "Reduce a measured cost while preserving output",
+      "context": "tools/range-frame-cost.mjs; tools/range-prepare-cost.mjs; docs/performance-budget.md",
+      "objective": "Select one demonstrated hot path, establish a comparable baseline, optimize it and retain honest environment labels.",
+      "acceptance": [
+        "Actual output/geometry hashes or reviewed differences accompany the timing.",
+        "Same-environment distributions show the claimed reduction.",
+        "No allocations bypass admission and no desktop timings are labeled JOYING results."
+      ],
+      "checks": [
+        "perfGovernorHeadroom.test.js",
+        "adaptiveQualityWiring.test.js",
+        "graphicsResidency.test.js"
+      ],
+      "rubric": [
+        {
+          "criterion": "Actual output/geometry hashes or reviewed differences accompany the timing.",
+          "points": 40
+        },
+        {
+          "criterion": "Same-environment distributions show the claimed reduction.",
+          "points": 30
+        },
+        {
+          "criterion": "No allocations bypass admission and no desktop timings are labeled JOYING results.",
+          "points": 30
+        }
+      ],
+      "artifacts": [
+        "patch or commit/PR",
+        "test logs",
+        "applicable render/diff or benchmark reports",
+        "acceptance assessment and limitations"
+      ]
+    },
+    {
+      "id": "geographic-data",
+      "title": "Reject an invalid source without inventing terrain",
+      "context": "RangeAssets.js; TerrainMesh.js; docs/terrain-pipeline.md",
+      "objective": "Add a malformed/no-data fixture and preserve source checks, coordinate orientation and fallback.",
+      "acceptance": [
+        "Missing heights remain missing rather than silently becoming zero.",
+        "Tampered manifests/payloads are rejected and source attribution survives.",
+        "Valid supplied geography still loads; rejected data reaches a usable fallback."
+      ],
+      "checks": [
+        "rangeAssets.test.js",
+        "guideGeojson.test.js",
+        "terrainRelief.test.js"
+      ],
+      "rubric": [
+        {
+          "criterion": "Missing heights remain missing rather than silently becoming zero.",
+          "points": 40
+        },
+        {
+          "criterion": "Tampered manifests/payloads are rejected and source attribution survives.",
+          "points": 30
+        },
+        {
+          "criterion": "Valid supplied geography still loads; rejected data reaches a usable fallback.",
+          "points": 30
+        }
+      ],
+      "artifacts": [
+        "patch or commit/PR",
+        "test logs",
+        "applicable render/diff or benchmark reports",
+        "acceptance assessment and limitations"
+      ]
+    },
+    {
+      "id": "regression-debug",
+      "title": "Diagnose an actual reproduced failure",
+      "context": "test/; production consumers; docs/agent-workflow.md",
+      "objective": "Select a real failing behavior or inject a clearly labeled temporary fault; reproduce, trace root cause and repair without relaxing acceptance.",
+      "acceptance": [
+        "A test fails before the fix and passes after it.",
+        "The fix addresses the production consumer and removes the injected fault if used.",
+        "Final diff and all unaddressed baseline failures are reported."
+      ],
+      "checks": [
+        "engineeringVerification.test.mjs",
+        "rangeReadinessOwnership.test.js"
+      ],
+      "rubric": [
+        {
+          "criterion": "A test fails before the fix and passes after it.",
+          "points": 40
+        },
+        {
+          "criterion": "The fix addresses the production consumer and removes the injected fault if used.",
+          "points": 30
+        },
+        {
+          "criterion": "Final diff and all unaddressed baseline failures are reported.",
+          "points": 30
+        }
+      ],
+      "artifacts": [
+        "patch or commit/PR",
+        "test logs",
+        "applicable render/diff or benchmark reports",
+        "acceptance assessment and limitations"
+      ]
+    },
+    {
+      "id": "constrained-ui",
+      "title": "Improve one Android control at the real constrained viewport",
+      "context": "src/ui/; DisplayProfile.js; RenderOutputSize.js; tools/car-mode-smoke.mjs",
+      "objective": "Make one focused touch/scroll/fullscreen improvement for the head unit; retain settings and functional hit testing.",
+      "acceptance": [
+        "Control is usable without obscuring the stage on a declared viewport/DPR.",
+        "Fullscreen and restored preferences remain coherent.",
+        "Actual UI screenshot/hit testing is retained and device absence is declared."
+      ],
+      "checks": [
+        "accessibility.test.js",
+        "renderOutputSize.test.mjs",
+        "playbackPreferences.test.js"
+      ],
+      "rubric": [
+        {
+          "criterion": "Control is usable without obscuring the stage on a declared viewport/DPR.",
+          "points": 40
+        },
+        {
+          "criterion": "Fullscreen and restored preferences remain coherent.",
+          "points": 30
+        },
+        {
+          "criterion": "Actual UI screenshot/hit testing is retained and device absence is declared.",
+          "points": 30
+        }
+      ],
+      "artifacts": [
+        "patch or commit/PR",
+        "test logs",
+        "applicable render/diff or benchmark reports",
+        "acceptance assessment and limitations"
+      ]
+    },
+    {
+      "id": "architecture",
+      "title": "Trace the actual render and fallback lifecycle",
+      "context": "docs/architecture.md; src/main.js; RangePresentation.js; RangeScene.js",
+      "objective": "Produce a source-linked trace of upload through frame, including cancellation, admission and fallback; correct one stale navigation claim if found.",
+      "acceptance": [
+        "Caller/consumer references are current and reachable.",
+        "Experimental paths are distinguished from active paths.",
+        "Asset failure, generation ownership and shared-frame contracts are explained accurately."
+      ],
+      "checks": [
+        "presentationBoot.test.js",
+        "terrainBuildAdmission.test.js"
+      ],
+      "rubric": [
+        {
+          "criterion": "Caller/consumer references are current and reachable.",
+          "points": 40
+        },
+        {
+          "criterion": "Experimental paths are distinguished from active paths.",
+          "points": 30
+        },
+        {
+          "criterion": "Asset failure, generation ownership and shared-frame contracts are explained accurately.",
+          "points": 30
+        }
+      ],
+      "artifacts": [
+        "patch or commit/PR",
+        "test logs",
+        "applicable render/diff or benchmark reports",
+        "acceptance assessment and limitations"
+      ]
+    },
+    {
+      "id": "safe-modification",
+      "title": "Make a narrow feature change with an evidence-backed PR",
+      "context": "AGENTS.md; docs/agent-workflow.md; docs/handoffs.md",
+      "objective": "Implement a small requested improvement on a feature branch and deliver a reproducible handoff and reviewable diff.",
+      "acceptance": [
+        "No unrelated features, secrets or default-branch mutations appear.",
+        "Relevant tests/build and evidence are recorded; limitations are explicit.",
+        "Handoff branch/files/next action match Git and a reviewable PR/diff exists."
+      ],
+      "checks": [
+        "referencedPaths.test.js",
+        "stageSite.test.mjs",
+        "engineeringVerification.test.mjs"
+      ],
+      "rubric": [
+        {
+          "criterion": "No unrelated features, secrets or default-branch mutations appear.",
+          "points": 40
+        },
+        {
+          "criterion": "Relevant tests/build and evidence are recorded; limitations are explicit.",
+          "points": 30
+        },
+        {
+          "criterion": "Handoff branch/files/next action match Git and a reviewable PR/diff exists.",
+          "points": 30
+        }
+      ],
+      "artifacts": [
+        "patch or commit/PR",
+        "test logs",
+        "applicable render/diff or benchmark reports",
+        "acceptance assessment and limitations"
+      ]
+    }
+  ]
+}

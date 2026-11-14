@@ -1,6 +1,6 @@
 #!/bin/sh
-# Local gate before anything leaves this machine (GitHub Actions do not run
-# for this repository). Installed by `npm install` / `npm ci` through the
+# Local gate before a normal Git push, in addition to PR verification.
+# Installed by `npm install` / `npm ci` through the
 # `prepare` script (tools/install-hooks.mjs). Bypass once with
 # `git push --no-verify` when you know why.
 #

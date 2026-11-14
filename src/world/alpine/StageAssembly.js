@@ -20,14 +20,58 @@
 import { TERRAIN_SCHEMA, TERRAIN_VERSION, STRIDES, WATER_FLOW, validateTerrainManifest } from './TerrainPackage.js';
 import { TILE_CELLS, LOD_BUDGETS, VISIBILITY, FRAMINGS, SHORE_MAX_STRIDE, tileStrideError, encodeResiduals, splitPlanes, quantizationFor } from './TerrainTiles.js';
 import { decodeTerrain } from './TerrainMesh.js';
-import { cameraPoseAt, boxMayBeVisible, viewDepthToBox, focalPx } from '../terrain/SceneTravel.js';
+import { cameraPoseAt, boxMayBeVisible, viewDepthToBox, focalPx, projectPoint, cameraRailErrors } from '../terrain/SceneTravel.js';
 import { stageFloorHeight, inStageLake, slotOrigin } from '../terrain/StageFloor.js';
 import { songRangeKey } from '../terrain/SongRangePlan.js';
 import { SLOT_RISE_SLOTS } from './LandRise.js';
+import { settingValue } from '../../config/appSettings.js';
 
 export const STAGE_KIND = 'song-range-stage';
 export const PIECE_KIND = 'massif-piece';
 const BANDS = Object.freeze({ nearM: 1800, midM: 7000 });
+
+/**
+ * A composed range's finale: its massifs' relief is stretched vertically
+ * until, from the template's rail, the tallest-looking peak reaches
+ * `targetY` of the frame (normalized device y; the horizon sits near -0.12
+ * and the measured pieces stop near 0). Scale 1 keeps the measured relief;
+ * the floor and the lake never move. `maxScale` keeps a steppe of hills from
+ * turning into needles.
+ */
+export const STAGE_RELIEF = Object.freeze({ targetY: 0.4, maxScale: 3, aspect: 16 / 9 });
+
+/** Diagnostic `?rangeRelief=<scale>`: a fixed relief scale (1 = measured) for
+ *  review captures, in place of the framing rule. Null when absent or invalid. */
+export function reliefScaleFrom(search) {
+  return settingValue('rangeRelief', search);
+}
+
+/**
+ * The relief scale that brings a stage's tallest-looking peak to
+ * STAGE_RELIEF.targetY, seen from the template rail: for each rail station
+ * the highest projected in-frame peak, the median over stations. Peaks are
+ * [{ x, z, floorM, reliefM }]. Rounded to hundredths, so a stage's scale is a
+ * stable function of its plan.
+ */
+export function stageReliefScale(template, peaks, { targetY = STAGE_RELIEF.targetY, maxScale = STAGE_RELIEF.maxScale, aspect = STAGE_RELIEF.aspect } = {}) {
+  const stations = Array.from({ length: VISIBILITY.stations }, (_, k) => cameraPoseAt({ camera: template.camera }, k / (VISIBILITY.stations - 1)));
+  const lookAt = (scale) => {
+    const tops = stations.map((pose) => {
+      let top = -Infinity;
+      for (const p of peaks) {
+        const q = projectPoint(pose, aspect, [p.x, p.floorM + scale * p.reliefM, p.z]);
+        if (q && Math.abs(q.x) <= 1 && q.y > top) top = q.y;
+      }
+      return top;
+    }).sort((a, b) => a - b);
+    return tops[Math.floor(tops.length / 2)];
+  };
+  if (!peaks.length || !(lookAt(1) < targetY)) return 1;
+  if (!(lookAt(maxScale) > targetY)) return maxScale;
+  let lo = 1, hi = maxScale;
+  for (let i = 0; i < 30; i++) { const mid = (lo + hi) / 2; if (lookAt(mid) < targetY) lo = mid; else hi = mid; }
+  return Math.round(hi * 100) / 100;
+}
 
 /** A decoded piece package (stride-1 tiles) as one relief/flow block. */
 export function pieceBlock(data) {
@@ -64,7 +108,25 @@ function mirrored(block) {
 export function stageTemplate(catalog, plan) {
   const t = catalog.templates.find((x) => x.id === plan.templateId);
   if (!t) throw new Error(`no stage template ${plan.templateId}`);
-  return t;
+  if (!plan.camera && !plan.slotOffsets) return t;
+  if (plan.camera) {
+    const errors = cameraRailErrors(plan.camera);
+    if (errors.length) throw new Error(`invalid stage camera: ${errors.join('; ')}`);
+  }
+  const offsets = plan.slotOffsets || {};
+  for (const [id, offset] of Object.entries(offsets)) {
+    if (!t.slots.some(s => s.id === id) || !Array.isArray(offset) || offset.length !== 2 || !offset.every(Number.isInteger))
+      throw new Error(`invalid stage slot offset: ${id}`);
+  }
+  const slots = t.slots.map(s => {
+    if (!offsets[s.id]) return s;
+    const tiles = [...s.tiles];
+    tiles[0] += offsets[s.id][0]; tiles[1] += offsets[s.id][1];
+    if (tiles[0] < 0 || tiles[1] < 0 || tiles[0] + tiles[2] > (t.grid.width - 1) / TILE_CELLS
+      || tiles[1] + tiles[3] > (t.grid.height - 1) / TILE_CELLS) throw new Error(`stage slot outside grid: ${s.id}`);
+    return { ...s, tiles };
+  });
+  return { ...t, camera: plan.camera || t.camera, slots };
 }
 
 /** A stage's slots for the song's rise (song range composition, Phase 4):
@@ -114,7 +176,7 @@ export function stageSlotOwners(plan, catalog) {
  *   options  { catalog, id, forceStride, landmarks }
  * Returns { manifest, decoded (Uint8Array), placed }.
  */
-export function assembleStage(plan, blocks, { catalog, id = `song-range-${stageHash(plan)}`, forceStride = null } = {}) {
+export function assembleStage(plan, blocks, { catalog, id = `song-range-${stageHash(plan)}`, forceStride = null, reliefScale = 1 } = {}) {
   const t = stageTemplate(catalog, plan);
   const { width: W, height: H, cellSizeM: c, originM } = t.grid;
   const cells = TILE_CELLS;
@@ -141,8 +203,15 @@ export function assembleStage(plan, blocks, { catalog, id = `song-range-${stageH
     maxRelief = Math.max(maxRelief, peak);
     const px = originM[0] + (at[0] * cells + pk % block.width) * c, pz = originM[1] + (at[1] * cells + Math.floor(pk / block.width)) * c;
     placed.push({ slotId: s.slotId, pieceId: s.pieceId, mirrored: !!s.mirrored, tileOrigin: at, peakReliefM: peak,
-      peakLocalM: [px, pz], stagePeakM: stageFloorHeight(t, px, pz) + peak });
+      peakLocalM: [px, pz], floorM: stageFloorHeight(t, px, pz) });
   }
+  // 'frame' scales the relief to the template's framing (stageReliefScale);
+  // a number is used as given (1 = measured relief).
+  const scale = reliefScale === 'frame'
+    ? stageReliefScale(t, placed.map((p) => ({ x: p.peakLocalM[0], z: p.peakLocalM[1], floorM: p.floorM, reliefM: p.peakReliefM })))
+    : Number.isFinite(reliefScale) && reliefScale > 0 ? reliefScale : 1;
+  for (const p of placed) { p.peakReliefM *= scale; p.stagePeakM = p.floorM + p.peakReliefM; delete p.floorM; }
+  maxRelief *= scale;
   // Global quantization: the floor is highest at a grid corner (distance to
   // a convex lake is convex), and relief only adds to the floor.
   const corners = [[0, 0], [W - 1, 0], [0, H - 1], [W - 1, H - 1]].map(([i, j]) => stageFloorHeight(t, originM[0] + i * c, originM[1] + j * c));
@@ -151,7 +220,9 @@ export function assembleStage(plan, blocks, { catalog, id = `song-range-${stageH
   // Rail stations and lenses, exactly as a rail-only bake sees them.
   const view = { camera: t.camera };
   const stations = Array.from({ length: VISIBILITY.stations }, (_, k) => cameraPoseAt(view, k / (VISIBILITY.stations - 1)));
-  const focal = Object.fromEntries(Object.entries(LOD_BUDGETS).map(([k, b]) => [k, focalPx(t.camera.fovYDeg, b.heightPx)]));
+  const lodFovYDeg = plan.lodFovYDeg ?? t.camera.fovYDeg;
+  if (!(Number.isFinite(lodFovYDeg) && lodFovYDeg > 0 && lodFovYDeg <= t.camera.fovYDeg)) throw new Error(`${id}: invalid stage LOD field of view`);
+  const focal = Object.fromEntries(Object.entries(LOD_BUDGETS).map(([k, b]) => [k, focalPx(lodFovYDeg, b.heightPx)]));
   const n1 = cells + 1, valid = new Uint8Array(n1 * n1).fill(1);
   const h = new Float32Array(n1 * n1), fl = new Uint8Array(n1 * n1);
   const chunks = [];
@@ -169,7 +240,7 @@ export function assembleStage(plan, blocks, { catalog, id = `song-range-${stageH
       if (own) {
         const bi = gi - own.at[0] * cells, bj = gj - own.at[1] * cells;
         const bk = bj * own.block.width + bi;
-        r = own.block.relief[bk]; pf = own.block.flow[bk];
+        r = own.block.relief[bk] * scale; pf = own.block.flow[bk];
       }
       const y = stageFloorHeight(t, x, z) + r;
       const k = v * n1 + u;
@@ -234,15 +305,15 @@ export function assembleStage(plan, blocks, { catalog, id = `song-range-${stageH
   const manifest = {
     schema: TERRAIN_SCHEMA, version: TERRAIN_VERSION, kind: STAGE_KIND,
     viewId: id, regionId: 'song-range-stage',
-    source: { demSha256: null, provenance: { composition: { songRangeVersion: plan.version, key: songRangeKey(plan), template: t.id,
+    source: { demSha256: null, provenance: { composition: { songRangeVersion: plan.version, key: songRangeKey(plan), template: t.id, reliefScale: scale,
       pieces: placed.map((p) => ({ slotId: p.slotId, pieceId: p.pieceId, mirrored: p.mirrored })) } },
     fill: null, horizontalCrs: 'Local stage metres; pieces carry their own source CRS',
-    verticalReference: 'Stage floor plus measured relief above each piece base (metres)', centerLonLat: null,
+    verticalReference: 'Stage floor plus measured relief above each piece base, times composition.reliefScale (metres)', centerLonLat: null,
     sourceResolutionM: c, outputSpacingM: c },
     grid: { width: W, height: H, cellSizeM: c, originM: [...originM] },
     axes: 'X east, Y up, Z south (metres)', tileCells: cells, tilesX, tilesZ,
     quantization: { offsetM, stepM }, boundsM: bounds, bands: { ...BANDS },
-    lod: { budgets: LOD_BUDGETS, fovYDeg: t.camera.fovYDeg, visibility: VISIBILITY,
+    lod: { budgets: LOD_BUDGETS, fovYDeg: lodFovYDeg, visibility: VISIBILITY,
       framings: 'assembled at runtime against the template rail without occlusion culling; every tile is kept',
       achievedErrorPx: Object.fromEntries(Object.entries(achieved).map(([k, v]) => [k, Math.round(v * 1000) / 1000])),
       triangulation: 'quads split along the (0,0)-(1,1) diagonal; finer edges snap to the coarser neighbour' },
@@ -255,7 +326,7 @@ export function assembleStage(plan, blocks, { catalog, id = `song-range-${stageH
   };
   const check = validateTerrainManifest(manifest, { decoded: decoded.byteLength });
   if (!check.ok) throw new Error(`assembled stage rejected: ${check.errors.slice(0, 3).join('; ')}`);
-  return { manifest, decoded, placed };
+  return { manifest, decoded, placed, reliefScale: scale };
 }
 
 /** A short stable id for a plan's layout. */
@@ -313,7 +384,7 @@ const stageCache = new Map();
  *   sha256Hex    RangeAssets.sha256Hex
  * Resolves { manifest, data, bytes, identity, timings }.
  */
-export function loadSongRangeStage(view, { catalog, baseUrl, fetchImpl, signal = null, loadPackage, sha256Hex }) {
+export function loadSongRangeStage(view, { catalog, baseUrl, fetchImpl, signal = null, loadPackage, sha256Hex, reliefScale = undefined }) {
   const hit = stageCache.get(view.id);
   if (hit) return hit;
   const promise = (async () => {
@@ -322,7 +393,10 @@ export function loadSongRangeStage(view, { catalog, baseUrl, fetchImpl, signal =
       { signal, fetchImpl, expectManifestSha256: p.manifestSha256 })));
     const t1 = globalThis.performance?.now?.() ?? Date.now();
     const blocks = new Map(loaded.map((pkg) => [pkg.manifest.piece?.id, pieceBlock(pkg.data)]));
-    const { manifest, decoded } = assembleStage(view.songRange.plan, blocks, { catalog, id: view.id });
+    // A song's range ends looming over the lake (stageReliefScale). A pilot
+    // layout keeps its measured relief, to compare with its offline bake.
+    const scale = reliefScale ?? reliefScaleFrom() ?? (view.songRange.plan.pilot ? 1 : 'frame');
+    const { manifest, decoded } = assembleStage(view.songRange.plan, blocks, { catalog, id: view.id, reliefScale: scale });
     const decodedSha256 = await sha256Hex(decoded);
     manifest.payload.decodedSha256 = decodedSha256;
     const data = decodeTerrain(manifest, decoded);

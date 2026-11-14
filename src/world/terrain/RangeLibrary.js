@@ -20,6 +20,8 @@ import MASSIF_CATALOG from './massifCatalogData.js';
 import SCENE_CATALOG from './sceneCatalogData.js';
 import { songRangeView, loadSongRangeStage, stageRiseSlots } from '../alpine/StageAssembly.js';
 import { loadTerrainPackage, sha256Hex } from '../alpine/RangeAssets.js';
+import { dualSummitsRequested, planDualSummitsScene, dualSummitsSceneMetadata, DUAL_SUMMITS_SIGNATURE,
+  DUAL_SUMMITS_SCENE_VERSION } from './DualSummitsScene.js';
 
 const RANGE_ASSET_BASE = new URL('../../assets/range/v2/', import.meta.url).href;
 /** Composed-range outcomes this session (song range composition, Phase 3). */
@@ -47,10 +49,12 @@ function byDeadline(promise, deadline) {
  * catalog view (logged once per song, counted in songRangeStats). The
  * catalog choice rides along as `fallback` for later failures.
  */
-export async function songRangeChoice(profile, seed, scenery, { search = globalThis.location?.search || '', fetchImpl } = {}) {
+export async function songRangeChoice(profile, seed, scenery, { search, fetchImpl, signature } = {}) {
+  const dualSummits = dualSummitsRequested({ signature, search });
   const layout = songRangeLayoutParam(search);
-  if (!songRangeEnabled(search) && !layout) return null;
-  const plan = layout ? pilotPlan(layout, scenery.home) : planSongRange(profile, seed, { forced: songRangeForced(search) });
+  if (!dualSummits && !songRangeEnabled(search) && !layout) return null;
+  const plan = dualSummits ? planDualSummitsScene(scenery.home)
+    : layout ? pilotPlan(layout, scenery.home) : planSongRange(profile, seed, { forced: songRangeForced(search) });
   if (!plan) return null;
   songRangeStats.planned++;
   const home = scenery.home;
@@ -58,9 +62,12 @@ export async function songRangeChoice(profile, seed, scenery, { search = globalT
   let view;
   try {
     view = songRangeView(plan, { catalog: MASSIF_CATALOG, sceneCatalog: SCENE_CATALOG });
+    if (dualSummits) view = { ...view, id: `${view.id}-dual-summits-v${DUAL_SUMMITS_SCENE_VERSION}`,
+      title: 'Dual Summits', signaturePerformance: DUAL_SUMMITS_SIGNATURE, composition: { foreground: 'none', nearLedgeMaxFrac: 0 } };
     // The forced diagnostic stands in for whatever the home biome is.
     if (plan.forced && home) view = { ...view, biome: home };
-    await loadSongRangeStage(view, { catalog: MASSIF_CATALOG, baseUrl: RANGE_ASSET_BASE, fetchImpl, loadPackage: loadTerrainPackage, sha256Hex });
+    const stage = await loadSongRangeStage(view, { catalog: MASSIF_CATALOG, baseUrl: RANGE_ASSET_BASE, fetchImpl, loadPackage: loadTerrainPackage, sha256Hex });
+    if (dualSummits) view = { ...view, signatureSummits: dualSummitsSceneMetadata(stage.manifest) };
   } catch (err) {
     songRangeStats.fallbacks++;
     songRangeStats.lastReason = String(err?.message || err);
@@ -148,14 +155,14 @@ export async function prepareSongRange(profile, seed) {
  * ({ view, fallbackReason }) from the curated catalog, drawn once per song.
  */
 export async function prepareSongTerrain(profile, seed, recent = readRecentRanges(),
-  { songRangeWaitMs = SONG_RANGE_WAIT_MS, search, fetchImpl } = {}) {
+  { songRangeWaitMs = SONG_RANGE_WAIT_MS, search, fetchImpl, signature } = {}) {
   const startedAt = Date.now();
   try {
     const scenery = planSongScenes(profile, seed);
     const biomes = scenery.biomes;
     if (!biomes.length) return null;
     // The composed range loads alongside the home biome, never after it.
-    const rangeOptions = { fetchImpl };
+    const rangeOptions = { fetchImpl, signature };
     if (search !== undefined) rangeOptions.search = search;
     const composing = songRangeChoice(profile, seed, scenery, rangeOptions).catch((err) => {
       console.warn('[song range] composed range unavailable; keeping the catalog view', err);
@@ -220,14 +227,23 @@ export async function prepareSongTerrain(profile, seed, recent = readRecentRange
       console.warn(`[song range] ${songRangeStats.lastReason}; this play keeps the catalog view`);
       ranged = null;
     }
-    if (ranged) { sceneByBiome = new Map(sceneByBiome); sceneByBiome.set(scenery.home, ranged); }
+    if (ranged) {
+      sceneByBiome = new Map(sceneByBiome);
+      const owners = ranged.view.signaturePerformance ? biomes : [scenery.home];
+      for (const biome of owners) sceneByBiome.set(biome, ranged);
+    }
+    const signaturePerformance = ranged?.view.signaturePerformance ? {
+      id: ranged.view.signaturePerformance, viewId: ranged.view.id, summits: ranged.view.signatureSummits,
+    } : null;
     const terrain = {
       biomes, home: biomes[0], byBiome, whenAll, allLoaded: false,
       range: home.ranges.far, ranges: home.ranges, profiles: home.profiles, horizon, massif,
       sceneByBiome, catalogVersion: scenery.catalogVersion, matchingVersion: scenery.matchingVersion,
       // The stage's slots rise with the song's structure (LandscapeScore.js).
       songRange: ranged ? { viewId: ranged.view.id, key: ranged.view.songRange.key, forced: ranged.forced,
-        stage: stageRiseSlots(ranged.view.songRange.plan, MASSIF_CATALOG) } : null,
+        stage: { ...stageRiseSlots(ranged.view.songRange.plan, MASSIF_CATALOG),
+          ...(signaturePerformance ? { signaturePerformance: signaturePerformance.id } : {}) } } : null,
+      ...(signaturePerformance ? { signaturePerformance } : {}),
     };
     whenAll.then(() => { terrain.allLoaded = true; });
     return terrain;

@@ -1,37 +1,66 @@
-// Execute the production control binding with a real presentation owner.
+// Execute the production display appliers with a real settings store and a
+// real presentation owner: a change made in the settings panel (or by the
+// detail keys) goes store.set -> applySettingChange -> applyDisplayPref.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import { DEFAULT_DISPLAY_PREFS, resolvePresentation, writeDisplayPrefs } from '../src/render/DisplayProfile.js';
+import { DEFAULT_DISPLAY_PREFS, resolvePresentation } from '../src/render/DisplayProfile.js';
 import { createPresentingRenderer } from '../src/render/PresentingRenderer.js';
 import { GraphicsResidency } from '../src/render/GraphicsResidency.js';
+import { SettingsStore } from '../src/config/appSettings.js';
 const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
-// The shared applyDisplayPref (Display menu and keyboard detail) and the
-// boot block that binds each control to it.
-const start = main.indexOf('function applyDisplayPref(');
-const binding = main.slice(start, main.indexOf('  syncDisplayControls();\n  if (stageFpsEl)', start)) + '}';
-for (const paused of [true, false]) test(`grid controls preserve song time and ${paused ? 'redraw a paused completed frame' : 'invalidate until the next live frame'}`, () => {
+
+const slice = (from, to = '\n}\n') => {
+  const start = main.indexOf(from);
+  assert.ok(start >= 0, `missing ${from}`);
+  return main.slice(start, main.indexOf(to, start) + to.length);
+};
+// applyDisplayPref, the settings appliers and the blocked-reason guard.
+const binding = [
+  slice('function applyDisplayPref('),
+  slice('let landscapeRendererDirty = false;', '\nfunction applySettingChange('),
+  slice('function applySettingChange('),
+  slice('function settingBlockedReason('),
+].join('\n').replace('\nfunction applySettingChange(\n', '\n');
+
+function memoryStorage() {
+  const map = new Map();
+  return { writes: 0, getItem: k => (map.has(k) ? map.get(k) : null), setItem(k, v) { this.writes++; map.set(k, String(v)); }, removeItem: k => map.delete(k) };
+}
+
+function wire(context, storage) {
+  vm.runInContext(binding, context);
+  const store = new SettingsStore({ storage });
+  store.addGuard(id => context.settingBlockedReason(id));
+  store.subscribe(context.applySettingChange);
+  context.settings = store;
+  return store;
+}
+
+for (const paused of [true, false]) test(`grid changes preserve song time and ${paused ? 'redraw a paused completed frame' : 'invalidate until the next live frame'}`, () => {
   const ctx = { imageSmoothingEnabled: true }, canvas = { width: 320, height: 180, getContext: () => ctx };
-  // A Cinematic record keeps its chosen grid, so Classic -> Detailed is a real change.
   const prefs = { ...DEFAULT_DISPLAY_PREFS, pixelGrid: 'classic' };
   const renderer = createPresentingRenderer({ canvas, presentation: resolvePresentation(prefs), residency: new GraphicsResidency(),
     rendererFactory: () => ({ draw() {}, dispose() {} }) });
   const sim = { timeMs: 4500 };
   renderer.draw(sim, 1);
-  let handler, recorded = 0;
-  const control = { value: 'classic', addEventListener(name, fn) { handler = fn; } };
-  const context = vm.createContext({ displayControls: { pixelGrid: control }, displayPrefs: prefs, presentation: resolvePresentation(prefs),
-    writeDisplayPrefs, displayStorage: () => null, resolvePresentation, syncDisplayControls() {}, perfGovernor: null,
-    paused, sim, renderer, bulkExportArmed: false, console, snapshotBusy: false,
+  let recorded = 0;
+  const storage = memoryStorage();
+  storage.setItem('midio-pixel:display:v1', JSON.stringify(prefs));
+  const context = vm.createContext({ displayPrefs: prefs, presentation: resolvePresentation(prefs),
+    resolvePresentation, syncDisplayControls() {}, perfGovernor: null, running: true,
+    paused, sim, renderer, bulkExportArmed: false, console, snapshotBusy: false, reelSaver: { busy: false },
     songRecorder: { recording: true, captureFrame() { assert.ok(renderer.getCaptureSource()); recorded++; } },
     playbackPreparing: false,
     fitCanvas() { renderer.setPresentation(context.presentation); canvas.width = context.presentation.grid.width; canvas.height = context.presentation.grid.height; },
   });
-  vm.runInContext(binding, context);
+  const store = wire(context, storage);
   assert.equal(renderer.getCaptureSource()?.width, 320);
-  control.value = 'detailed'; handler();
+  assert.equal(store.set('pixelGrid', 'detailed').ok, true);
   assert.equal(context.displayPrefs.buildPixelDetail, false, 'choosing a preset stops automatic growth');
+  assert.equal(store.get('buildPixelDetail'), false, 'the coupled setting is saved with it');
+  assert.equal(JSON.parse(storage.getItem('midio-pixel:display:v1')).pixelGrid, 'detailed');
   assert.equal(context.presentation.grid.id, 'detailed');
   assert.equal(sim.timeMs, 4500);
   if (paused) { assert.equal(renderer.getCaptureSource()?.width, 640); assert.equal(recorded, 1); }
@@ -39,34 +68,35 @@ for (const paused of [true, false]) test(`grid controls preserve song time and $
   renderer.dispose();
 });
 
-test('a Display change during a snapshot is ignored, never saved over the player\'s level', () => {
-  let handler, writes = 0;
-  const control = { value: 'classic', addEventListener(name, fn) { handler = fn; } };
+test('a display change during a snapshot is refused, never saved over the player\'s level', () => {
   const prefs = { ...DEFAULT_DISPLAY_PREFS, pixelGrid: 'classic' };
-  const context = vm.createContext({ displayControls: { pixelGrid: control }, displayPrefs: prefs, presentation: resolvePresentation(prefs),
-    writeDisplayPrefs() { writes++; }, displayStorage: () => null, resolvePresentation, syncDisplayControls() {}, perfGovernor: null,
+  const storage = memoryStorage();
+  const context = vm.createContext({ displayPrefs: prefs, presentation: resolvePresentation(prefs),
+    resolvePresentation, syncDisplayControls() {}, perfGovernor: null, running: true,
     paused: true, sim: null, renderer: null, bulkExportArmed: false, console, songRecorder: null, playbackPreparing: false,
-    fitCanvas() {}, snapshotBusy: true });
-  vm.runInContext(binding, context);
-  control.value = 'detailed'; handler();
-  assert.equal(writes, 0);
+    fitCanvas() {}, snapshotBusy: true, reelSaver: { busy: false } });
+  const store = wire(context, storage);
+  const result = store.set('pixelGrid', 'detailed');
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /snapshot/i);
+  assert.equal(storage.writes, 0);
   assert.equal(context.displayPrefs.pixelGrid, prefs.pixelGrid);
 });
 
 test('the detail-build checkbox saves a boolean and preserves the manual preset', () => {
-  let handler;
-  const control = { checked: false, value: 'on', addEventListener(_name, fn) { handler = fn; } };
   const prefs = { ...DEFAULT_DISPLAY_PREFS, pixelGrid: 'medium', buildPixelDetail: false };
-  const context = vm.createContext({ displayControls: { buildPixelDetail: control }, displayPrefs: prefs, presentation: resolvePresentation(prefs),
-    writeDisplayPrefs() {}, displayStorage: () => null, resolvePresentation, syncDisplayControls() {}, perfGovernor: null,
+  const storage = memoryStorage();
+  storage.setItem('midio-pixel:display:v1', JSON.stringify(prefs));
+  const context = vm.createContext({ displayPrefs: prefs, presentation: resolvePresentation(prefs),
+    resolvePresentation, syncDisplayControls() {}, perfGovernor: null, running: true,
     paused: true, sim: null, renderer: null, bulkExportArmed: false, console, songRecorder: null, playbackPreparing: false,
-    fitCanvas() {}, snapshotBusy: false });
-  vm.runInContext(binding, context);
-  assert.equal(control.checked, false);
-  control.checked = true; handler();
+    fitCanvas() {}, snapshotBusy: false, reelSaver: { busy: false } });
+  const store = wire(context, storage);
+  assert.equal(store.get('buildPixelDetail'), false);
+  store.set('buildPixelDetail', true);
   assert.equal(context.displayPrefs.buildPixelDetail, true);
   assert.equal(context.displayPrefs.pixelGrid, 'medium');
-  control.checked = false; handler();
+  assert.equal(JSON.parse(storage.getItem('midio-pixel:display:v1')).buildPixelDetail, true);
+  store.set('buildPixelDetail', false);
   assert.equal(context.displayPrefs.buildPixelDetail, false);
 });
-

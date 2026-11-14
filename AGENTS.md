@@ -1,55 +1,108 @@
-# Midio Pixel development
+# Midio Pixel engineering
 
-Midio Pixel is an experimental music visualizer. Follow the current user task
-and [experimental-development policy](docs/experimental-development.md).
-Earlier plans, audits, preservation lists, review holds and rejected trials
-record their own revisions; they do not freeze future development.
+Music constructs cinematic pixel landscapes from geographic terrain. Current
+source and the current task govern implementation; [experimental development](docs/experimental-development.md)
+authorizes deliberate evolution. Older plans and review holds describe their own
+revisions. Start with [architecture](docs/architecture.md), [visual contract](docs/visual-contract.md)
+and [performance budget](docs/performance-budget.md). Reconnaissance anchor:
+`58454dd` (2026-11-13); recheck Git before relying on it.
 
-## Experiment and iterate
+## Navigate
 
-- Implement requested experiments and make routine technical decisions without
-  repeatedly seeking approval. Keep work reviewable and explain material choices.
-- Renderers, terrain representations, pixel treatments, looks, cameras, scenes,
-  audio/visual relationships, weather, quality budgets, defaults and optional
-  features may evolve. Existing architecture and numerical limits are starting
-  points, not permanent design requirements.
-- Use branches, small pilots, comparisons or feature switches when they help
-  the work. A separate prototype, fixed pilot order or opt-in switch is not a
-  universal prerequisite. Preserve unrelated user work.
-- Candidate experiments may be built and reviewed before full visual or device
-  validation. Keep actual runtime eligibility and approval metadata accurate;
-  changing a flag does not create missing evidence. Runtime checks may be
-  intentionally redesigned with their consumers and tests.
+- `src/main.js`: boot, upload/analysis adoption, live/export frame loops and UI.
+- `src/config/`, `src/ui/SettingsPanel.js`: settings registry, store and generated panel.
+- `src/audio/`, `src/core/`, `src/sim/`: analysis, transport, song timing, simulation.
+- `src/world/BiomeManager.js`, `src/world/alpine/`: Landscape score, growth,
+  cameras, RangePresentation, RangeScene, terrain/forest/water/sky/mist.
+- `src/world/terrain/`, `src/assets/range/v2/`, `tools/terrain/`: source profiles,
+  scene/massif catalogs, offline terrain packages and provenance.
+- `src/render/`: presentation, native pixel grids, governor and graphics ledger.
+- `test/`, `tools/`, `.github/workflows/`: Node contracts, real browser probes,
+  profiling and CI. `ridgeview/` is a separately tested viewer.
 
-## Verify what changed
+## Commands (Node 24.x, see .nvmrc)
 
-Choose checks proportionate to the change. Run focused behavior tests and lint
-for executable changes; use the full suite and browser/device tools when they
-help assess integration or release readiness. Documentation-only edits normally
-need consistency, link and whitespace checks rather than a full rendering run.
-[`npm run validate`](docs/local-validation.md) remains a convenient comprehensive
-check, not a prerequisite for every experiment, local commit or draft review.
+```sh
+npm ci --no-fund
+npx playwright install chromium             # once, for isolated browser tools
+npm run dev                                # http://localhost:8080
+npm run lint
+npm test                                   # full application Node suite
+npm --prefix ridgeview test
+npm run check:modules
+npm run stage:site                         # production build: _site, verifies pins
+npm run validate                           # comprehensive existing local sequence
+npm run verify:visual:capture -- --out .smoke/candidate
+npm run verify:visual -- --baseline REFERENCE --candidate .smoke/candidate --out .smoke/diff
+npm run bench:engineering -- --out .smoke/bench
+npm run bench:engineering -- --out .smoke/bench-after --baseline .smoke/bench/report.json
+npm run review:landscape -- --out .smoke/motion --grid both --no-mp4
+```
 
-Use [visual comparisons](docs/visual-evaluation-loop.md) when useful. Capturing
-a baseline, completing an artistic review, reaching a clean full suite or having
-a particular GPU/device is not required before editing or continuing an
-experiment. Report failures, baseline failures, unavailable tools and unrun
-checks. Claim visual, musical or device outcomes only when actually observed;
-include the song and timestamp for specific visual findings.
+Output directories must be new. Set `PLAYWRIGHT_CHROMIUM_PATH` for an installed
+Chromium. Existing hardware probes: `npm run test:gpu`, `tools/range-device-probe.js`;
+expensive cost tools: `tools/range-frame-cost.mjs`, `tools/range-prepare-cost.mjs`.
+See [verification usage](docs/verification.md) for approvals, CI tiers and failures.
 
-## Work carefully
+## Settings and configuration
 
-Default automated browser work to an isolated, headless, muted session and save
-reports without opening them. Use `npm run review:landscape -- --out
-.smoke/<unique-run>` for bounded captures. Respect the user's browser preference
-and avoid interrupting their active session.
+- Every user-adjustable or URL-overridable behaviour is a definition in
+  `src/config/settingsRegistry.js` ([settings](docs/settings.md)). The
+  definition is the source of validation, default, persistence, panel UI and
+  URL handling; read values with `settingValue(id)` / `appSettings().get(id)`.
+- Do not parse `location.search` or add `localStorage` keys for a setting in
+  application code; `test/settingsRegistry.test.mjs` enforces the first.
+  Declare the honest lifecycle (live, next landscape, next song, scene,
+  renderer, reload) and dependencies with reasons; add an applier in
+  `main.js` for live settings.
+- A user-facing feature is not complete while its only control is an
+  undocumented query parameter. Experimental work belongs under Experiments
+  with an accurate maturity label; URL-only (`ui: false`) is for automation
+  contracts and measurement aids, with the reason in the description.
+- Regenerate `docs/url-parameters.md` with `npm run settings:reference`; keep
+  existing parameter names and value rules working for tools and links.
 
-Keep generated evidence in `.smoke/` or external artifacts rather than adding
-large captures to Git. Retain attribution, licenses, private credentials and
-unrelated files. Respect `.gitattributes`; avoid accidental line-ending changes
-to vendor or pinned assets. Intentional asset/runtime changes should update the
-corresponding pins, manifests and verification tools together.
+## Preserve and verify
 
-Publishing, merging and other external actions follow the current user's
-authorization and the host's permissions. These docs do not grant additional
-platform permissions or turn an unrun check into a passing result.
+- Keep geographic provenance, source lattice, ridge/spur structure, coherent
+  metres and shared CPU/GPU deformation. Catalog geography differs from composed
+  artworks; label placement/relief changes honestly.
+- Current Look is Cinematic, terrain grids are pixelated, sky is deliberately
+  smooth, pixel scaling is Uniform. Depth, Pixel/Palette looks, real-time video
+  recording and old cast/performer features are retired. Frame-by-frame MP4 export
+  and optional Camera Studio are current; see their docs rather than old recorder UI.
+- Heard song time controls construction, camera and weather. Seek/replay and late
+  analysis must reconstruct consistent states. Preserve fallback on denied assets,
+  shader failure, cancelled generations or memory admission; no blank active scene.
+- Admit allocations before construction. JOYING JY-UTS18N12 is the minimum intended
+  target; mobile residency is 320 MiB or 192 MiB under low/unknown mobile memory.
+  Never substitute Node/SwiftShader timings for physical-device evidence.
+- Inspect existing implementations first. Define observable acceptance criteria,
+  make focused changes, test behavior, render visual changes, benchmark relevant
+  costs, investigate failures, and review the final diff. Required evidence depends
+  on the change; an unavailable device does not block independent implementation.
+- Independent verification means observable tests/renders/measurements beyond the
+  author's assertion. Use a fresh reviewer when available; report a self-review as
+  such. Failed, skipped and unrun checks must remain distinct.
+
+## Work and deliver
+
+Use a feature branch; preserve unrelated work. Commit focused changes with useful
+messages. PRs state behavior, checks actually run, references/artifacts, performance
+scope, limitations and next steps ([template](.github/pull_request_template.md)).
+Never merge, deploy, expose credentials or alter unrelated repositories without
+explicit authorization. Routine implementation, experiments, tests, bounded local
+captures and reversible fixes are autonomous. Escalate missing consequential
+product decisions, destructive operations and genuinely unavailable credentials.
+
+Definition of done: the requested behavior is implemented; relevant tests, lint,
+production staging, render review and benchmark comparisons are executed or
+precisely marked blocked; failures are investigated; the diff is reviewed; the PR
+contains evidence and remaining gaps. A changed image never auto-approves itself.
+Keep captures under `.smoke/` or CI artifacts; small deliberately approved visual
+references may live in `test/fixtures/verification/baseline/`. Respect pins,
+licenses, attribution and `.gitattributes`.
+
+Full lifecycle: [agent workflow](docs/agent-workflow.md). Interrupted work:
+[handoffs](docs/handoffs.md). Model-independent exercises: [evaluations](docs/agent-evaluations.md).
+Consequential choices: [decisions](docs/decisions/README.md).

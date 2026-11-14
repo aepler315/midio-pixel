@@ -1,5 +1,7 @@
 # Range v2 device runs
 
+For current budgets and quality consumers see [performance-budget.md](performance-budget.md) and `src/world/alpine/RangeQuality.js`. The quality table retained below predates the level-1 terrain-mirror shedding change; it is historical rather than a current runtime contract.
+
 These procedures establish device-specific evidence, not permission to develop.
 Task-authorized experiments may continue without the listed devices under the
 [experimental development policy](experimental-development.md). Report missing
@@ -20,7 +22,7 @@ Run each on the real device, with the tab in front, the screen awake and nothing
 
 ## How
 
-1. **Open a fresh page** (not one that has already played a song): `https://supermaudio.com/?fpsHud=1` (v2 is the default renderer; `fpsHud=1` shows the frame rate on screen). For a legacy comparison run, add `&rangeRenderer=legacy`.
+1. **Open a fresh page** (not one that has already played a song): `https://supermaudio.com/?fps=1` (v2 is the default renderer; `fps=1` shows the frame rate on screen, as does Settings → Performance → Show frame rate). For a legacy comparison run, add `&rangeRenderer=legacy`.
 2. **Attach DevTools to the page** (while it still shows the title screen):
    - Android: connect the device by USB with USB debugging on, open `chrome://inspect` on a desktop Chrome, and choose **inspect** under the tab.
    - iPhone: turn on Settings → Safari → Advanced → Web Inspector, connect to a Mac, and use Safari's Develop menu → the phone → the tab.

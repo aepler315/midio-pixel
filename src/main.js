@@ -25,6 +25,7 @@ import { VisionLoop } from './vision/VisionLoop.js';
 import { DebugOverlay } from './ui/DebugOverlay.js';
 import { FileChooserSupport } from './ui/FileChooserProbe.js';
 import { prepareSongTerrain } from './world/terrain/RangeLibrary.js';
+import { dualSummitsSelection } from './world/alpine/DualSummitsMusic.js';
 import {
   openAudioUrl, UrlAudioError, fetchAudioAsFile, classifyUrl,
 } from './net/UrlAudioSource.js';
@@ -41,17 +42,13 @@ import { groundSpeedMps } from './world/terrain/ProfileTravel.js';
 import { TERRAIN_STRIP_WIDTH } from './world/terrain/StripRead.js';
 import { DrawErrorLog } from './render/DrawErrorLog.js';
 import { ROLE_LOW, ROLE_HIGH, GrooveFingerprint } from './sim/GrooveFingerprint.js';
-import {
-  getLyricsDisabled, setLyricsDisabled,
-  getBtLatencyTrimMs, setBtLatencyTrimMs, BT_LATENCY_TRIM_MS,
-  getStoredGroove, setStoredGroove,
-} from './ui/Accessibility.js';
-import { getVisualStyle, resolveVisualStyle } from './render/VisualStyle.js';
+import { BT_LATENCY_TRIM_MS, getStoredGroove, setStoredGroove } from './ui/Accessibility.js';
+import { getVisualStyle } from './render/VisualStyle.js';
 import { PerfGovernor, resolvePerfStartLevel, MAX_LEVEL as PERF_MAX_LEVEL } from './render/PerfGovernor.js';
 import { resetSyncWaits, takeSyncWaits, lastSyncWaits } from './render/SyncWaits.js';
 import { sharedResidency } from './render/GraphicsResidency.js';
 import { RangePresentation, resolveRangeMode } from './world/alpine/RangePresentation.js';
-import { openCameraRun, cameraSongOptions, readRailPace, persistRailPace, railPaceControlState } from './ui/CameraRun.js';
+import { openCameraRun, cameraSongOptions, railPaceControlState } from './ui/CameraRun.js';
 import { applyTerrainTourPolicy, captureTourTerrainState, restoreTourTerrainState } from './ui/TourTerrain.js';
 import { rangeTourControlState } from './ui/RangeTourControl.js';
 import { stepDetail, detailKeyDelta, snapshotFileName, captureDetailSnapshots, canvasToPng, snapshotCapturePlan } from './ui/DetailSnapshots.js';
@@ -97,7 +94,7 @@ import { readVisionConfig, persistVisionConfig } from './vision/config.js';
 import { packBundle, unpackBundle } from './audio/AnalysisBundle.js';
 import { analysisCacheKey, getBundle, putBundle } from './audio/AnalysisCache.js';
 import { SongRecorder, recordingBudgetBytes } from './render/SongRecorder.js';
-import { readRenderQuality, writeRenderQuality, RENDER_QUALITIES, renderQualityLevel } from './render/RenderQuality.js';
+import { readRenderQuality, writeRenderQuality, renderQualityLevel } from './render/RenderQuality.js';
 import {
   estimateExportBytes,
   formatBytes, formatElapsed, exportFileName, describeResult, describeEarlyStop,
@@ -105,6 +102,10 @@ import {
 import { stepExportClock, evenExportSize } from './render/BulkExport.js';
 import { rangeUserCamera } from './world/alpine/RangeCamera.js';
 import { attachRangeZoomInput } from './ui/RangeZoomInput.js';
+import { normalizeCameraStudioSettings } from './world/alpine/CameraStudio.js';
+import { CameraStudioPanel, readCameraStudioSettings, writeCameraStudioSettings } from './ui/CameraStudioPanel.js';
+import { VideoExportSession, waitForExport } from './ui/VideoExportSession.js';
+import { MAX_MP4_BUFFER_BYTES, resolveMp4ExportSettings, estimateMp4ExportBytes, mp4ExportFileName, exportMp4, checkMp4ExportSupport } from './render/Mp4Export.js';
 import { MusicLibrary } from './library/MusicLibrary.js';
 import { createSongWorldRecord, describeSongWorld } from './library/SongWorld.js';
 import { folderPickerMode } from './library/FolderPickerMode.js';
@@ -119,11 +120,21 @@ import { PlexLibraryPanel } from './ui/PlexLibraryPanel.js';
 import { recentlyPlayed, displayTitle, displayArtist, untaggedTracks, randomTrack } from './library/TrackIndex.js';
 import { PlaybackSequence } from './library/PlaybackSequence.js';
 import { ContinuousPlayback } from './library/ContinuousPlayback.js';
-import { readPlaybackPrefs, writePlaybackPrefs } from './ui/PlaybackPreferences.js';
+import { appSettings } from './config/appSettings.js';
+import { mountSettingsPanel } from './ui/SettingsPanel.js';
+import { COMPILED_PILOT, COMPILED_ASSET_DIR, compiledManifestPath } from './world/alpine/CompiledTerrain.js';
 import { ensureReadPermission } from './library/LibraryScanner.js';
 
 
 const STEP_MS = 1000 / 120;
+
+// Settings: one registry (src/config/settingsRegistry.js) and one store
+// resolve URL overrides, saved preferences and defaults. The panel is
+// generated before any control below is looked up by id; applySettingChange
+// (further down) carries each change to the running app at its lifecycle
+// boundary. See docs/settings.md.
+const settings = appSettings();
+const settingsPanel = mountSettingsPanel(document.getElementById('settingsPanel'), { store: settings, ...settingsPanelHooks() });
 
 const canvas = document.getElementById('stage');
 const errorBannerEl = document.getElementById('errorBanner');
@@ -195,7 +206,6 @@ const completeNewSeedRowEl = document.getElementById('completeNewSeedRow');
 const completeNewSeedInputEl = document.getElementById('completeNewSeedInput');
 const completeNewSeedStartBtnEl = document.getElementById('completeNewSeedStartBtn');
 const completeNewSeedCancelBtnEl = document.getElementById('completeNewSeedCancelBtn');
-const stageFpsEl = document.getElementById('stageFps');
 const landscapeHintEl = document.getElementById('landscapeHint');
 const debugOverlayEl = document.getElementById('debugOverlay');
 const fpsHudEl = document.getElementById('fpsHud');
@@ -234,7 +244,6 @@ const lyricsTitleInputEl = document.getElementById('lyricsTitleInput');
 const lyricsFindBtnEl = document.getElementById('lyricsFindBtn');
 const lyricsSkipBtnEl = document.getElementById('lyricsSkipBtn');
 const lyricsNoneBtnEl = document.getElementById('lyricsNoneBtn');
-const lyricGroundingBtnEl = document.getElementById('lyricGroundingBtn');
 const calibrateBtnEl = document.getElementById('calibrateBtn');
 const recalibration = new RecalibrationOverlay({
   panel: document.getElementById('recalPanel'),
@@ -279,14 +288,25 @@ let lastGlowSig = null;
 let visionLoop = null;
 let debugOverlay = null;
 let perfGovernor = null;
+let fixturePerfLevel = null; // evidence preference survives governor replacement on analysis adoption/seek
+let sceneEpoch = 0; // page-local identity of a constructed simulation, independent of load generation
+let sceneGeneration = null;
+let sceneStartMs = 0;
+let sceneStartedAtMs = null;
+let performanceHistoryGeneration = null;
+let previousScenePerformance = []; // first measured scene plus the seven most recent completed scenes
+let omittedScenePerformance = 0;
+let renderedFrames = 0; // successful playback callbacks only; never reset on a scene rebuild
+let lastRenderAtMs = null;
+let lastFrameTiming = null;
 let lastRafMs = null; // separate from lastNowMs (audio clock) -- tracks real rAF-to-rAF cadence for the perf governor
 let lastRenderedWorkMs = null; // CPU submission work, never vsync wait or a skipped draw
 let lastRenderedSyncWaitMs = null; // the part of that callback spent in synchronous GPU waits (SyncWaits.js)
 let rafHandle = null; // tracks the pending frame() call so a mid-song file
                        // drop can cancel the old loop instead of stacking a
                        // second one alongside it
-let lyricsDisabled = getLyricsDisabled(); // "No lyrics": persisted opt-out from the lyric fetch/prompt
-let btLatencyTrimMs = getBtLatencyTrimMs(); // manual Bluetooth output-latency correction, player-entered ms; 0 = off
+let lyricsDisabled = !settings.get('lyrics'); // "No lyrics": the Timed lyric grounding setting, inverted
+let btLatencyTrimMs = settings.get('btLatency'); // manual Bluetooth output-latency correction, player-entered ms; 0 = off
 /** Derives that trim from tapping during a Sync pass. See SyncCalibrator.js:
  *  the player's taps are treated as canon, and the value moves after each
  *  one rather than at the end of the pass. */
@@ -335,29 +355,12 @@ function applyBtLatencyToAudioEngine() {
 // non-QWERTY layout, can land on them by accident and silently change
 // engine behavior with no visible indication of what happened. Ungated:
 // P (fps) and F3 (section labels), both self-explanatory and reversible.
-const DEV_MODE = new URLSearchParams(location.search).get('dev') === '1';
-// Graphics presentation: URL ?style=classic|rendered overrides storage.
-const _styleParam = new URLSearchParams(location.search).get('style');
-let visualStyle = _styleParam ? resolveVisualStyle(_styleParam) : getVisualStyle();
+// The Developer keys and overlay setting (?dev=1); live.
+let DEV_MODE = settings.get('dev');
+// One look remains; the retired ?style= parameter is reported, not read.
+let visualStyle = getVisualStyle();
 paramBus.visualStyle = visualStyle;
 
-/** Reflect the "Timed lyric grounding" preference on the loader toggle. */
-function syncLyricGroundingBtn() {
-  if (!lyricGroundingBtnEl) return;
-  // Stated positively: the setting is the FEATURE being on, not an opt-out
-  // from it, so `lyricsDisabled` is inverted for display.
-  const on = !lyricsDisabled;
-  lyricGroundingBtnEl.setAttribute('aria-pressed', on ? 'true' : 'false');
-  lyricGroundingBtnEl.textContent = `Timed lyric grounding: ${on ? 'on' : 'off'}`;
-}
-syncLyricGroundingBtn();
-if (lyricGroundingBtnEl) {
-  lyricGroundingBtnEl.addEventListener('click', () => {
-    lyricsDisabled = !lyricsDisabled;
-    setLyricsDisabled(lyricsDisabled);
-    syncLyricGroundingBtn();
-  });
-}
 
 
 // Guided calibration was previously reachable only via the C key -- this
@@ -384,13 +387,15 @@ let lastStartExtra = {};
 let bulkExportArmed = false;
 let cameraRun = null;
 let activeCameraSchedule = null;
-let requestedRailPace = readRailPace(location.search, displayStorage());
+let requestedRailPace = settings.get('rangePace');
 let lastAudioBuffer = null;
 let lastWorldId = DEFAULT_WORLD_ID;
 let pendingWorldStart = null;
 let lastFitDiagnostic = null;
 let lastSongName = 'song';
 let lastSongSeed = null; // 32-bit seed used for the run that just finished
+const videoExportSession = new VideoExportSession({ onState: syncVideoExportState });
+let cameraStudioSettings = readCameraStudioSettings(displayStorage());
 
 // Logical composition stays 1280×720. Live output uses the selected pixel
 // grid; exports retain their independently requested output dimensions.
@@ -404,6 +409,11 @@ displayPrefs = { ...displayPrefs, quality: 'auto' };
 writeRenderQuality(displayStorage(), generalQuality);
 const selectionExportSettings = new WeakMap();
 writeDisplayPrefs(displayStorage(), displayPrefs);
+// The effective preferences: a URL override applies to this visit only, so
+// it is merged after the saved record is migrated and written back.
+generalQuality = settings.get('maxQuality');
+displayPrefs = { ...displayPrefs, pixelGrid: settings.get('pixelGrid'), scaling: settings.get('scaling'),
+  buildPixelDetail: settings.get('buildPixelDetail') };
 let presentation = resolvePresentation(displayPrefs);
 const displayControls = Object.fromEntries(['pixelGrid', 'scaling', 'buildPixelDetail'].map(key => [key, document.getElementById(`display-${key}`)]));
 // HUD pixel-detail label and the every-level snapshot (src/ui/DetailSnapshots.js).
@@ -416,7 +426,7 @@ let snapshotPlayerPrefs = null;
  *  save rebuilds the song (and its sim) to draw them again. */
 let completedReelFrames = [];
 const reelSaver = createReelSaver();
-let playbackPrefs = readPlaybackPrefs(displayStorage());
+let playbackPrefs = { shuffle: settings.get('shuffle'), continuous: settings.get('continuous') };
 const playbackSequence = new PlaybackSequence();
 const continuousStatusEl = document.getElementById('continuousPlaybackStatus');
 const cancelContinuousBtnEl = document.getElementById('cancelContinuousPlaybackBtn');
@@ -441,16 +451,18 @@ function renderContinuousPlaybackState(state) {
   if (cancelContinuousBtnEl) cancelContinuousBtnEl.hidden = state.phase === 'idle';
   syncReelSaveControls();
 }
-for (const [id, key] of [['shufflePlayback', 'shuffle'], ['continuousPlayback', 'continuous']]) {
-  const control = document.getElementById(id);
+// The title screen's quick toggles are a second view of the same settings.
+const playbackToggles = { shuffle: document.getElementById('shufflePlayback'), continuous: document.getElementById('continuousPlayback') };
+for (const [key, control] of Object.entries(playbackToggles)) {
   if (!control) continue;
   control.checked = playbackPrefs[key];
-  control.addEventListener('change', () => {
-    playbackPrefs = { ...playbackPrefs, [key]: control.checked };
-    writePlaybackPrefs(displayStorage(), playbackPrefs);
-    if (key === 'shuffle') playbackSequence.reset();
-    if (key === 'continuous' && !control.checked) continuousPlayback.cancel();
-  });
+  control.addEventListener('change', () => settings.set(key, control.checked));
+}
+function applyPlaybackPref(key, value) {
+  playbackPrefs = { ...playbackPrefs, [key]: value };
+  if (playbackToggles[key]) playbackToggles[key].checked = value;
+  if (key === 'shuffle') playbackSequence.reset();
+  if (key === 'continuous' && !value) continuousPlayback.cancel();
 }
 cancelContinuousBtnEl?.addEventListener('click', () => continuousPlayback.cancel('Next song cancelled.'));
 /** The last save's PNGs, offered as links the player clicks: a download
@@ -458,7 +470,6 @@ cancelContinuousBtnEl?.addEventListener('click', () => continuousPlayback.cancel
  *  and browsers block or drop such downloads (several at once especially). */
 let reelFiles = [];
 let openReelIndex = -1;
-const STAGE_FPS_KEY = 'smw:stageFps';
 let simTime = 0;
 let acc = 0;
 let lastNowMs = 0;
@@ -469,26 +480,78 @@ const renderPlayback = createRenderReadyPlayback();
 let playbackPreparing = false;
 let renderReadyPromise = Promise.resolve({ status: 'idle' });
 let terrainRecordingHold = null;
-let fpsHudVisible = resolveFpsHudVisible(typeof location !== 'undefined' ? location.search : '');
+let fpsHudVisible = resolveFpsHudVisible();
 let fpsEma = null;
 const presentedFps = new PresentedFpsMeter();
 fpsHudEl?.classList.toggle('hidden', !fpsHudVisible);
-// Renderer path: ?renderer=webgl enables the optional WebGL post-FX overlay.
+// Renderer path: the WebGL post-effects overlay setting (?renderer=webgl).
 // Default remains pure Canvas 2D so loading a song never depends on GL.
-const rendererMode = resolveRendererMode(
-  typeof location !== 'undefined' ? location.search : '',
-);
+// Read again whenever startTimeline creates the renderer.
+let rendererMode = resolveRendererMode();
 paramBus.rendererMode = rendererMode;
 // Range v2 (real-terrain scenic views) is the default; ?rangeRenderer=legacy
 // opts out, and any v2 failure falls back to legacy per frame on its own.
 // ?rangeView=<id> forces one catalog view for diagnostics. One presentation (and one GPU context) per page.
 const rangeMode = resolveRangeMode();
-const voxelRangePilot = voxelRangeRequested(location.search)
+// The voxel pilot is constructed with the page (settings lifecycle: reload).
+const voxelRangePilot = voxelRangeRequested()
   ? new VoxelRange({ ownerDocument: document, residency: sharedResidency() }) : null;
 const voxelRangeCaption = voxelRangePilot ? sceneCaptionFor(voxelRangePilot.view) : null;
 let rangePresentation = rangeMode.mode === 'v2'
   ? new RangePresentation({ mode: 'v2', tour: rangeMode.tour, upgradeIntended: rangeMode.upgradeIntended, shots: rangeMode.shots, shotCandidates: rangeMode.shotCandidates, forcedViewId: rangeMode.forcedViewId, diag: rangeMode.diag, residency: sharedResidency(), budget: residencyBudgetFor().name })
   : null;
+
+const cameraStudioPanel = new CameraStudioPanel({
+  settingsParent: document.getElementById('titleSettings'), hudParent: document.getElementById('app') || document.body,
+  settings: cameraStudioSettings,
+  onChange: settings => {
+    if (videoExportSession.busy || bulkExportArmed || reelSaver.busy || snapshotBusy) return;
+    cameraStudioSettings = normalizeCameraStudioSettings(settings);
+    writeCameraStudioSettings(displayStorage(), cameraStudioSettings);
+    if (sim) sim.cameraStudioSettings = cameraStudioSettings;
+    syncCameraStudio();
+    if (paused && sim && renderer) redrawPausedCameraStudio();
+  },
+  onRecenter: () => {
+    if (videoExportSession.busy || bulkExportArmed || reelSaver.busy || snapshotBusy) return;
+    rangeUserCamera.reset();
+    if (paused && sim && renderer) redrawPausedCameraStudio();
+  },
+});
+let cameraStudioStatusAt = -Infinity;
+let cameraStudioRedraw = null;
+async function redrawPausedCameraStudio() {
+  cameraStudioRedraw?.abort();
+  const controller = cameraStudioRedraw = new AbortController();
+  const ownedSim = sim, ownedRenderer = renderer, generation = loadGen;
+  const settings = sim?.cameraStudioSettings;
+  const current = () => !controller.signal.aborted && paused && running && !snapshotBusy
+    && !videoExportSession.busy && !bulkExportArmed && !reelSaver.busy
+    && loadGen === generation && sim === ownedSim && renderer === ownedRenderer && sim?.cameraStudioSettings === settings;
+  try {
+    if (!current()) return;
+    ownedRenderer.draw(ownedSim, 1, { preparing: playbackPreparing });
+    syncCameraStudio();
+    const settled = rangePresentation && await rangePresentation.settle({ signal: controller.signal, timeoutMs: 30000 });
+    if (settled && current()) {
+      ownedRenderer.draw(ownedSim, 1, { preparing: playbackPreparing });
+      syncCameraStudio();
+    }
+  } catch (error) {
+    if (current() && error?.name !== 'AbortError') showErrorBanner(`Camera preview could not finish: ${error.message || error}`);
+  } finally { if (cameraStudioRedraw === controller) cameraStudioRedraw = null; }
+}
+function syncCameraStudio() {
+  const status = rangePresentation?.status();
+  const camera = status?.cameraStudio;
+  cameraStudioPanel.setState({ running: running && !bulkExportArmed && !playbackPreparing,
+    available: !!rangePresentation && sim?.biomes?.world?.kind === 'alpine',
+    busy: videoExportSession.busy || bulkExportArmed || reelSaver.busy || snapshotBusy,
+    positionEnabled: camera?.positionEnabled !== false,
+    effectiveDistanceMax: camera?.effectiveDistanceMax, effectiveFovMaxDeg: camera?.effectiveFovMaxDeg,
+    status: camera?.reason || (cameraStudioSettings.enabled ? 'Custom camera follows song time. Pause to compose a still.' : 'Automatic camera'),
+  });
+}
 
 const rangePaceSelect = document.getElementById('range-pace');
 const rangePaceStatus = document.getElementById('range-pace-status');
@@ -498,21 +561,19 @@ function currentCameraTourMode() {
 function cameraScheduleKey(worldId = lastTimelineData?.worldId) {
   return rangePresentation?.tourMode === 'tetons' ? `${worldId}:tetons` : worldId;
 }
+let rangePaceBlocked = null;
 function syncRangePaceControl() {
   const status = rangePresentation?.status();
   const state = railPaceControlState({ tourMode: status?.tourMode || (status?.shotTours?.active ? 'shots' : null),
     policy: status?.cameraRails?.to?.policy || status?.cameraRails?.from?.policy });
-  if (rangePaceSelect) {
-    rangePaceSelect.value = String(requestedRailPace);
-    rangePaceSelect.disabled = state.disabled || bulkExportArmed || reelSaver.busy;
-  }
-  if (rangePaceStatus) rangePaceStatus.textContent = state.text;
+  const blocked = settingBlockedReason('rangePace');
+  if (rangePaceSelect && blocked !== rangePaceBlocked) { rangePaceBlocked = blocked; settingsPanel.syncRow('rangePace'); }
+  if (rangePaceStatus && rangePaceStatus.textContent !== state.text) rangePaceStatus.textContent = state.text;
 }
-rangePaceSelect?.addEventListener('change', () => {
-  if (bulkExportArmed || reelSaver.busy) return;
-  requestedRailPace = readRailPace(`?rangePace=${rangePaceSelect.value}`);
-  persistRailPace(requestedRailPace, { href: location.href, storage: displayStorage(),
-    replace: url => history.replaceState(null, '', url) });
+/** Landscape pace (lifecycle next-landscape): the run's schedule takes the
+ *  new pace from its high-water mark; heard landscapes keep theirs. */
+function applyRailPace(pace) {
+  requestedRailPace = pace;
   if (cameraRun) {
     cameraRun.reach(sim?.heardTimeMs);
     activeCameraSchedule = cameraRun.setPace(requestedRailPace, cameraScheduleKey());
@@ -522,9 +583,8 @@ rangePaceSelect?.addEventListener('change', () => {
     }
   }
   syncRangePaceControl();
-});
+}
 
-const rangeTourToggle = document.getElementById('range-tour-toggle');
 const rangeTourStatus = document.getElementById('range-tour-status');
 function currentTourControlState() {
   return rangeTourControlState(rangePresentation?.status(), { running, worldKind: sim?.biomes?.world?.kind, paused });
@@ -536,39 +596,44 @@ function rangeStateSnapshot() {
 }
 function syncRangeTourControl() {
   syncRangePaceControl();
+  settingsPanel.syncRow('rangeTour');
   if (!rangeTourStatus) return;
   const status = currentTourControlState();
   if (rangeTourStatus.textContent !== status.text) rangeTourStatus.textContent = status.text;
   rangeTourStatus.dataset.state = status.state;
   rangeTourStatus.title = status.reason || '';
 }
-if (rangeTourToggle) {
-  // Camera tours are on by default: each approved view's shot tour. Off
-  // keeps every authored rail. The Teton highway tour (?rangeTour=tetons)
-  // stays reachable by URL and counts as on.
-  rangeTourToggle.checked = !!(rangeMode.tour || rangeMode.shots);
-  rangeTourToggle.addEventListener('change', () => {
-    const choice = rangeTourToggle.checked ? (rangePresentation?.tourMode === 'tetons' ? 'tetons' : 'shots') : 'off';
-    try { localStorage.setItem('range-tour', choice); } catch { /* Storage may be blocked. */ }
-    const url = new URL(location.href); url.searchParams.set('rangeTour', choice); history.replaceState(null, '', url);
-    rangePresentation ||= new RangePresentation({ mode: 'v2', upgradeIntended: rangeMode.upgradeIntended, residency: sharedResidency(), budget: residencyBudgetFor().name });
-    if (renderer) renderer.rangePresentation = rangePresentation;
-    applyTerrainTourPolicy(lastTimelineData?.terrain, choice, getWorld(lastTimelineData?.worldId)?.kind);
-    rangePresentation.setTourMode(choice === 'off' ? null : choice);
-    cameraRun?.forgetTours();
-    if (running && sim && audioEngine && lastTimelineData) {
-      const wasPaused=paused;
-      delete lastTimelineData.chapterState;
-      startTimeline(lastTimelineData, {
-        ...lastStartExtra, songSeed:sim.songSeed,
-        startAtMs:Math.max(0,audioEngine.nowMs), keepAudio:true,
-        keepUserCamera:true, preservePause:wasPaused, chapterState:null, cameraRunIntent:'preserve',
-      });
-      if(wasPaused){paused=true;updatePauseButtonUI();}
-    }
-    syncRangeTourControl();
-  });
+/** Camera tours (lifecycle scene): music-timed shot tours by default, off
+ *  keeps every authored rail, tetons forces the Teton highway tour. A
+ *  running song is rebuilt in place at its heard position; the audio,
+ *  seed and pause state carry over. The store has saved the choice. */
+function applyTourMode(choice) {
+  rangePresentation ||= new RangePresentation({ mode: 'v2', upgradeIntended: rangeMode.upgradeIntended, residency: sharedResidency(), budget: residencyBudgetFor().name });
+  if (renderer) renderer.rangePresentation = rangePresentation;
+  applyTerrainTourPolicy(lastTimelineData?.terrain, choice, lastTimelineData?.worldId ? getWorld(lastTimelineData.worldId)?.kind : null);
+  rangePresentation.setTourMode(choice === 'off' ? null : choice);
+  cameraRun?.forgetTours();
+  rebuildSceneInPlace();
+  settings.markApplied(['scene']);
+  syncRangeTourControl();
+  syncCameraStudio();
 }
+
+/** The one in-place rebuild: the running song restarts its scene at the
+ *  heard position without touching the audio. No-op on the title screen. */
+function rebuildSceneInPlace(overrides = {}) {
+  if (!(running && sim && audioEngine && lastTimelineData)) return false;
+  const wasPaused = paused;
+  delete lastTimelineData.chapterState;
+  startTimeline(lastTimelineData, {
+    ...lastStartExtra, ...overrides, songSeed: sim.songSeed,
+    startAtMs: Math.max(0, audioEngine.nowMs), keepAudio: true,
+    keepUserCamera: true, preservePause: wasPaused, chapterState: null, cameraRunIntent: 'preserve',
+  });
+  if (wasPaused) { paused = true; updatePauseButtonUI(); }
+  return true;
+}
+
 syncRangeTourControl();
 // Downloads/workers can settle while the audio is paused and no scenic
 // frames are drawn. Poll only lightweight status, and announce changed text.
@@ -584,35 +649,25 @@ const isCoarsePointer = typeof matchMedia !== 'undefined' && matchMedia('(pointe
 // Perf tier: ?perf=lite|high overrides; otherwise a coarse-pointer/small-
 // viewport device heuristic starts a phone a rung down so the first
 // second of play is already smooth instead of janky-then-corrected.
-const perfStartLevel = resolvePerfStartLevel(
-  typeof location !== 'undefined' ? location.search : '',
-  {
+// The Starting quality setting (lifecycle next-song); recomputed when it changes.
+function currentPerfStartLevel() {
+  return resolvePerfStartLevel(undefined, {
     isCoarsePointer,
     isSmallViewport: typeof window !== 'undefined' && Math.min(window.innerWidth || 9999, window.innerHeight || 9999) < 700,
-  },
-);
-
-const generalQualityEl = document.getElementById('generalQuality');
-function syncGeneralQuality() {
-  if (!generalQualityEl) return;
-  generalQualityEl.value = String(RENDER_QUALITIES.indexOf(generalQuality));
-  const label = generalQuality[0].toUpperCase() + generalQuality.slice(1);
-  generalQualityEl.setAttribute('aria-valuetext', label);
-  document.getElementById('generalQualityValue').textContent = label;
+  });
 }
-generalQualityEl?.addEventListener('input', () => {
-  generalQuality = RENDER_QUALITIES[Number(generalQualityEl.value)] || 'high';
-  writeRenderQuality(displayStorage(), generalQuality);
+let perfStartLevel = currentPerfStartLevel();
+
+/** General quality (live): the ceiling automatic quality may climb to. */
+function applyGeneralQuality(quality) {
+  generalQuality = quality;
   perfGovernor?.setQualityLimit(renderQualityLevel(generalQuality));
-  syncGeneralQuality();
-});
-syncGeneralQuality();
+}
 
 function syncDisplayControls() {
-  for (const [key, control] of Object.entries(displayControls)) if (control) {
-    if (key === 'buildPixelDetail') control.checked = displayPrefs.buildPixelDetail;
-    else control.value = String(displayPrefs[key]);
-  }
+  // The generated controls show the store's values; a snapshot's temporary
+  // level is never displayed or saved as the player's.
+  for (const id of ['pixelGrid', 'buildPixelDetail', 'scaling']) settingsPanel.syncRow(id);
   const grid = document.getElementById('pixelGridHint');
   const selectedGrid = presentation.grid;
   if (grid) { grid.hidden = false; grid.textContent = displayPrefs.buildPixelDetail
@@ -635,24 +690,17 @@ function syncDetailControls() {
   document.getElementById('hudRight')?.classList.toggle('snapshotBusy', snapshotBusy);
 }
 
-function storedFpsCap() {
-  try {
-    const stored = Number(localStorage.getItem(STAGE_FPS_KEY));
-    return stored === 30 || stored === 60 ? stored : null;
-  } catch { return null; }
+// The Frame rate setting (smw:stageFps; ?fpsCap=30|60).
+let fpsCapMs = 1000 / settings.get('fpsCap');
+/** Frame rate (live). Halving the draw rate halves the work, so what the
+ *  quality ladder learned at the old rate describes a different workload:
+ *  forget its recovery history, or a backoff earned before the change would
+ *  hold quality down for minutes after the player fixed the problem. */
+function applyFpsCap(fps) {
+  fpsCapMs = 1000 / fps;
+  playbackCadence.reset(); titleCadence.reset(); presentedFps.reset();
+  perfGovernor?.forgetRecoveryHistory();
 }
-
-function readFpsCap() {
-  const fromUi = Number(stageFpsEl?.value);
-  if (fromUi === 30 || fromUi === 60) return fromUi;
-  return storedFpsCap() ?? 60;
-}
-
-function persistFpsCap(fps) {
-  try { localStorage.setItem(STAGE_FPS_KEY, String(fps)); } catch { /* no storage */ }
-}
-
-let fpsCapMs = 1000 / readFpsCap();
 function playbackFps() {
   return songRecorder?.recording ? songRecorder.settings?.fps || 60 : Math.round(1000 / fpsCapMs);
 }
@@ -665,7 +713,7 @@ let bulkPresentation = null;
 let titlePresentation = null;
 function effectivePresentation() {
   const requested = bulkPresentation || presentation;
-  const experimental = directTerrainExperiment(typeof location === 'undefined' ? '' : location.search);
+  const experimental = directTerrainExperiment();
   const buildPixelDetail = !!requested.buildPixelDetail && !bulkExportSize && !voxelRangePilot && !experimental;
   // Cinematic, the only look, presents through the hybrid composite.
   return { ...requested, buildPixelDetail, rangePipeline: 'hybrid',
@@ -683,6 +731,7 @@ function ensureLandscapePresentation() {
       residency: sharedResidency(), budget: residencyBudgetFor().name });
   }
   if (renderer) renderer.rangePresentation = rangePresentation;
+  settingsPanel.setOptions('sceneCatalog');
   syncRangeTourControl();
   syncDisplayControls();
 }
@@ -722,13 +771,9 @@ function failBulkExport(message) {
 }
 
 function readBulkExportFromUrl() {
-  try {
-    const q = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
-    if (q.get('bulkExport') !== '1') return null;
-    return { w: Number(q.get('exportW')), h: Number(q.get('exportH')) };
-  } catch {
-    return null;
-  }
+  // URL-only settings (an automation contract); sizes arrive unvalidated.
+  if (!settings.get('bulkExport')) return null;
+  return { w: settings.get('exportW'), h: settings.get('exportH') };
 }
 
 /** Terrain uses its native grid; hybrid sky uses the displayed output density. */
@@ -786,9 +831,9 @@ function applyDisplayPref(key, value) {
   // (its finally re-syncs the menu); a change now would save its
   // temporary level and then be undone.
   if (snapshotBusy) return;
+  // The settings store has already validated and saved the change.
   displayPrefs = { ...displayPrefs, [key]: value, ...(key === 'pixelGrid' ? { buildPixelDetail: false } : {}) };
   presentation = resolvePresentation(displayPrefs);
-  writeDisplayPrefs(displayStorage(), displayPrefs);
   syncDisplayControls();
   perfGovernor?.forgetRecoveryHistory();
   fitCanvas();
@@ -800,37 +845,10 @@ function applyDisplayPref(key, value) {
   }
 }
 
-// Stored display preferences on boot.
+// Effective display preferences on boot. Each control is generated and
+// bound by SettingsPanel; applySettingChange applies changes.
 {
-  for (const [key, control] of Object.entries(displayControls)) {
-    if (!control) continue;
-    if (key === 'buildPixelDetail') control.checked = displayPrefs.buildPixelDetail;
-    else control.value = String(displayPrefs[key]);
-    control.addEventListener('change', () => applyDisplayPref(key, key === 'buildPixelDetail' ? control.checked : key === 'dither' ? Number(control.value) : control.value));
-  }
   syncDisplayControls();
-  if (stageFpsEl) {
-    stageFpsEl.value = String(storedFpsCap() ?? readFpsCap());
-    // Seeding the select above does not itself move the live cap, which was
-    // computed from readFpsCap() before the DOM was consulted -- so a
-    // restored 30fps has to be pushed into fpsCapMs here or the menu would
-    // read "30 fps" while the loop kept drawing 60.
-    fpsCapMs = 1000 / readFpsCap();
-    stageFpsEl.addEventListener('change', () => {
-      const fps = Number(stageFpsEl.value) || 60;
-      persistFpsCap(fps);
-      fpsCapMs = 1000 / fps;
-      playbackCadence.reset(); titleCadence.reset(); presentedFps.reset();
-      // As with the pixel detail control: halving the
-      // draw rate halves the work, so what the ladder learned at the old
-      // rate describes a different workload. The frame callbacks go clean
-      // almost immediately -- sampling runs at the full rAF rate whatever
-      // the cap, it is the DRAW that is skipped -- and without this the
-      // backoff from before the change would hold quality down for minutes
-      // after the player has already fixed the problem.
-      perfGovernor?.forgetRecoveryHistory();
-    });
-  }
   fitCanvas();
   // The backing store is now sized against the element's own CSS box, so a
   // rotation or window resize changes the right answer -- nothing re-ran
@@ -849,13 +867,176 @@ function applyDisplayPref(key, value) {
   }
 }
 
+// --- Settings -> running app ---
+// The store (src/config/appSettings.js) has validated and saved a change by
+// the time a listener runs; this carries it to the app at the lifecycle the
+// registry declares. Live settings apply here; renderer settings mark the
+// landscape renderer for recreation (now on the title screen, on "Apply
+// now" or at the next song while playing); reload settings wait for one.
+let landscapeRendererDirty = false;
+const SETTING_APPLIERS = {
+  pixelGrid: value => applyDisplayPref('pixelGrid', value),
+  buildPixelDetail: value => { if (displayPrefs.buildPixelDetail !== value) applyDisplayPref('buildPixelDetail', value); },
+  scaling: value => applyDisplayPref('scaling', value),
+  maxQuality: value => applyGeneralQuality(value),
+  fpsCap: value => applyFpsCap(value),
+  rangePace: value => applyRailPace(value),
+  rangeTour: value => applyTourMode(value),
+  shuffle: value => applyPlaybackPref('shuffle', value),
+  continuous: value => applyPlaybackPref('continuous', value),
+  lyrics: value => { lyricsDisabled = !value; },
+  btLatency: (value, origin) => {
+    btLatencyTrimMs = value;
+    applyBtLatencyToAudioEngine();
+    updateBtLatencyBtnUI();
+    if (origin === 'user') adoptManualTrim();
+  },
+  fps: value => { fpsHudVisible = value; fpsHudEl?.classList.toggle('hidden', !value); },
+  dev: value => { DEV_MODE = value; },
+  perf: () => { perfStartLevel = currentPerfStartLevel(); },
+  directTerrain: () => { perfGovernor?.forgetRecoveryHistory(); fitCanvasAndRedraw(); },
+};
+
+function applySettingChange({ changes }) {
+  for (const { id, value, lifecycle, origin } of changes) {
+    try {
+      if (SETTING_APPLIERS[id]) SETTING_APPLIERS[id](value, origin);
+      else if (lifecycle === 'renderer') {
+        landscapeRendererDirty = true;
+        // Nothing is drawing: recreate now, so the title screen and the
+        // next song both see the change without a pending notice.
+        if (!running) { recreateLandscapePresentation(); settings.markApplied(['renderer']); }
+      }
+    } catch (err) { console.warn(`[settings] could not apply ${id}`, err); }
+  }
+}
+
+/** Replace the landscape presentation (and with it the GPU scene) so
+ *  constructor-time settings take effect. The painted fallback draws until
+ *  the new scene is ready; an in-place rebuild keeps the audio. */
+function recreateLandscapePresentation() {
+  const old = rangePresentation;
+  rangePresentation = null;
+  try { old?.dispose(); } catch (err) { console.warn('[settings] presentation dispose failed', err); }
+  landscapeRendererDirty = false;
+  ensureLandscapePresentation();
+}
+
+/** "Apply now" for renderer settings during playback. */
+function applyPendingSettings() {
+  if (landscapeRendererDirty || [...settings.pending.values()].some(p => p.lifecycle === 'renderer')) {
+    // The camera already heard stays heard: capture the old presentation's
+    // tour continuation before it is disposed.
+    let heardTours;
+    if (running && sim) {
+      if (cameraRun?.data === lastTimelineData) cameraRun.reach(sim.heardTimeMs);
+      heardTours = rangePresentation?.cameraContinuation?.(cameraRun?.highWaterMs ?? 0) || null;
+    }
+    recreateLandscapePresentation();
+    rebuildSceneInPlace(heardTours === undefined ? {} : { heardTours });
+    settings.markApplied(['renderer', 'scene']);
+  }
+}
+
+/** A value set from an in-app control (BT chip, calibrator): through the
+ *  store, so it is validated, saved and shown in the panel. */
+function setSettingValue(id, value) {
+  settings.set(id, value, { origin: 'app' });
+  return settings.get(id);
+}
+
+/** Why a control cannot change right now, or null. */
+function settingBlockedReason(id) {
+  try {
+    if ((id === 'pixelGrid' || id === 'buildPixelDetail' || id === 'scaling') && snapshotBusy) return 'Unavailable while snapshots are being saved.';
+    if (id === 'rangePace' && (bulkExportArmed || reelSaver.busy)) return 'Unavailable while frames are being exported or saved.';
+    if (videoExportSession.busy || bulkExportArmed || reelSaver.busy || snapshotBusy) return 'Unavailable while video or snapshots are being saved.';
+    return null;
+  } catch { return null; } // Called during boot, before that state exists.
+}
+
+/** Live engine facts for the settings diagnostics: what was requested and
+ *  what is actually running, from existing instrumentation only. */
+function settingsRuntimeFacts() {
+  const snap = rangeStateSnapshot();
+  const scene = rangePresentation?.scene;
+  const active = effectivePresentation();
+  const edge = scene?.edge;
+  const compiled = scene?.compiledTerrain;
+  return {
+    Playback: running ? (paused ? 'paused' : 'playing') : 'title screen',
+    'Landscape renderer': `${snap.requestedMode} requested, ${snap.resolvedMode} running`,
+    'Fallback reason': snap.fallbackReason || null,
+    'Renderer runtime': snap.runtime,
+    'Active view': snap.viewId || snap.selectedViewId || null,
+    'Camera tour': snap.tourMode || currentCameraTourMode(),
+    'Canvas renderer': renderer?.backend || rendererMode,
+    'Quality level': perfGovernor ? `${perfGovernor.level} of ${PERF_MAX_LEVEL} (ceiling ${renderQualityLevel(generalQuality)}, start ${perfStartLevel})` : `starts at ${perfStartLevel}`,
+    'Pixel grid': `${active.grid.width}×${active.grid.height}${active.buildPixelDetail ? ', building detail' : ''}${active.directTerrain ? ', terrain-only pipeline' : ''}`,
+    'Frame rate cap': `${playbackFps()} fps`,
+    'Terrain antialiasing': edge ? `${edge.samples}× (GPU supports ${edge.capability}×; ${edge.reason})` : null,
+    // Requested vs drawn, from the scene's own snapshot.
+    ...sceneDrawnFacts(snap.scene),
+    'Compiled terrain': compiled && compiled.request?.mode !== 'original' ? JSON.stringify(compiled.views) : null,
+    'Voxel pilot': renderer?.voxelRange ? JSON.stringify(renderer.voxelRange.status) : null,
+    'Memory budget': residencyBudgetFor().name,
+  };
+}
+
+function sceneDrawnFacts(scene) {
+  if (!scene) return {};
+  const drawn = (block, pick = v => v) => block ? `${block.requested} requested; drawn ${Object.entries(block.drawn || {})
+    .map(([view, v]) => `${view}: ${pick(v)}`).join(', ') || 'no view yet'}` : null;
+  return {
+    'Canopy summary': drawn(scene.canopySummary),
+    'Material features': drawn(scene.materialFeatures, v => v.selected),
+    'Deformation gradient': drawn(scene.deformationGradient, v => v.terrain),
+  };
+}
+
+function settingsPanelHooks() {
+  return {
+    blocked: id => settingBlockedReason(id),
+    runtime: () => { try { return settingsRuntimeFacts(); } catch (err) { return { Error: String(err?.message || err) }; } },
+    optionSources: {
+      sceneCatalog: () => {
+        try {
+          return (rangePresentation?.catalog?.views || []).map(v => ({
+            value: v.id, label: `${v.title}${v.place ? ` — ${v.place}` : ''}${v.status && v.status !== 'approved' ? ` (${v.status})` : ''}`,
+          }));
+        } catch { return []; }
+      },
+    },
+    availability: {
+      // HEAD of the pilot's pack manifest; nothing is downloaded.
+      compiledTerrainPacks: async () => {
+        const url = new URL(`./assets/range/v2/${compiledManifestPath(COMPILED_PILOT.viewId, 'columns')}`, import.meta.url);
+        const res = await fetch(url, { method: 'HEAD' }).catch(() => null);
+        return res?.ok ? { supported: true }
+          : { supported: false, reason: `No compiled packs in ${COMPILED_ASSET_DIR} on this site; run npm run build:compiled-terrain. The original renderer draws.` };
+      },
+    },
+    actions: {
+      applyPending: () => applyPendingSettings(),
+      reload: () => location.reload(),
+      copy: async text => { try { await navigator.clipboard.writeText(text); return true; } catch { return false; } },
+    },
+  };
+}
+
+settings.addGuard(id => settingBlockedReason(id));
+settings.setContext({ playing: () => running && !!sim });
+settings.subscribe(applySettingChange);
+
 // Keyboard detail control: one level coarser or finer, through the same path as
 // the Display menu (persisted, re-presented, a paused frame redrawn).
 function stepPixelDetail(delta) {
   wakeHud();
   if (snapshotBusy) return;
   const next = stepDetail(displayPrefs.pixelGrid, delta);
-  if (next !== displayPrefs.pixelGrid || displayPrefs.buildPixelDetail) applyDisplayPref('pixelGrid', next);
+  // Through the store, like the menu: saved, and the menu shows it.
+  if (next !== settings.get('pixelGrid')) settings.set('pixelGrid', next, { origin: 'app' });
+  else if (displayPrefs.buildPixelDetail) settings.set('buildPixelDetail', false, { origin: 'app' });
 }
 
 // Hold the current moment and save lossless PNGs. Desktop captures each
@@ -891,6 +1072,7 @@ async function saveDetailSnapshots() {
   // Busy from here: the Display menu, Pause, Record and Sync wait (Stop
   // cancels), so all captured files are this one moment.
   snapshotBusy = true;
+  syncCameraStudio();
   syncDetailControls();
   const savedPrefs = displayPrefs, savedPresentation = presentation;
   snapshotPlayerPrefs = savedPrefs;
@@ -941,6 +1123,7 @@ async function saveDetailSnapshots() {
     presentation = savedPresentation;
     snapshotPlayerPrefs = null;
     snapshotBusy = false;
+    syncCameraStudio();
     syncDisplayControls();
     fitCanvas();
     if (!stopped()) {
@@ -1151,6 +1334,7 @@ function stopTimeline({ preservePause = false, keepAudio = false } = {}) {
   playbackPreparing = false;
   if (!keepAudio) terrainRecordingHold = null;
   running = false;
+  syncCameraStudio();
   syncKeepAwake();
   recalibration.stop();
   // conductor is a single instance shared across every song (see its
@@ -1213,6 +1397,7 @@ function updatePauseButtonUI() {
  *  in place with nothing extra to track, and resuming picks up exactly
  *  where it left off. */
 function togglePause() {
+  if (videoExportSession.busy) return;
   if (!running || !sim || !audioEngine) return;
   if (renderPlayback.status === 'failed') return;
   paused = !paused;
@@ -1233,6 +1418,7 @@ function togglePause() {
 
 /** Back to the title/drop screen so a different song can be chosen. */
 function backToTitle({ cancelContinuous = true } = {}) {
+  videoExportSession.cancel();
   if (cancelContinuous) continuousPlayback.cancel();
   // Any in-flight analysis belongs to the discarded song. Its progress or
   // failure must not redraw this title screen later.
@@ -1316,10 +1502,14 @@ function offerWorldsThenStart(data, extra = {}) {
     // song goes through (seek, replay, export).
     const pendingForRange = pendingWorldStart;
     const exporting = !!(extra.exportMode || readBulkExportFromUrl());
+    const signature = dualSummitsSelection({ durationMs: data.durationMs, sourceSha256: data.sourceSha256 });
     // A composed range gets a bounded wait (SONG_RANGE_WAIT_MS) so the home
     // terrain is always ready by BIOME_WAIT_MS; exports wait for all of it.
     pendingForRange.terrainReady = prepareSongTerrain(profile, seed, undefined,
-      exporting ? { songRangeWaitMs: Infinity } : {}).then((terrain) => {
+      { ...(exporting ? { songRangeWaitMs: Infinity } : {}), signature }).then((terrain) => {
+      if (terrain?.signaturePerformance) terrain.signaturePerformance = {
+        ...terrain.signaturePerformance, sourceSha256: data.sourceSha256 || null,
+      };
       pendingForRange.data.terrain = terrain;
       return terrain;
     });
@@ -1432,7 +1622,7 @@ function abortBulkExport() {
 /** Rebuild the current song at an exact frame size and arm the export clock.
  *  The seed and the decoded buffer carry over, so each resolution is the
  *  same performance. */
-function beginBulkExport({ width, height, presentation: override, qualityLevel = null, cameraSchedule = undefined, cameraTourMode = undefined } = {}) {
+function beginBulkExport({ width, height, presentation: override, qualityLevel = null, cameraSchedule = undefined, cameraTourMode = undefined, cameraStudio = cameraStudioSettings } = {}) {
   continuousPlayback.cancel();
   const size = evenExportSize({ w: width, h: height });
   if (!size) throw new Error(`Export size must be even and at least 2×2 (got ${width}×${height}).`);
@@ -1445,6 +1635,7 @@ function beginBulkExport({ width, height, presentation: override, qualityLevel =
     exportMode: true,
     cameraSchedule: cameraSchedule === undefined ? cameraRun?.scheduleFor(cameraScheduleKey()) || null : cameraSchedule,
     cameraTourMode: cameraTourMode ?? currentCameraTourMode(),
+    cameraStudioSettings: normalizeCameraStudioSettings(cameraStudio),
     exportSize: size,
     exportPresentation: override ? resolvePresentation(resolveDisplayPrefs({ saved: override })) : { ...effectivePresentation() },
     exportQualityLevel: Number.isInteger(qualityLevel) && qualityLevel >= 0 ? qualityLevel : perfGovernor?.level ?? perfStartLevel,
@@ -1608,16 +1799,23 @@ function startTimeline(timelineData, extra = {}) {
   // Snapshot progress before teardown; exports never advance the live owner.
   if (!extra.exportMode && !bulkExportArmed && cameraRun?.data === lastTimelineData) cameraRun.reach(sim?.heardTimeMs);
   // The heard tours, before a tour-mode change or setSong replaces them.
-  const heardTours = rangePresentation?.cameraContinuation?.(cameraRun?.highWaterMs ?? 0) || null;
+  // A renderer restart replaces the presentation first and hands over the
+  // heard tours it captured from the old one (applyPendingSettings).
+  const heardTours = extra.heardTours !== undefined ? extra.heardTours
+    : rangePresentation?.cameraContinuation?.(cameraRun?.highWaterMs ?? 0) || null;
   const {
     songSeed: seedOverride = undefined, playBuffer,
     startAtMs = 0, startAtWallMs = 0, preservePause = false, captureMode: captureModeFlag = false,
     exportMode: exportModeFlag = false, exportSize = null, keepAudio = false,
   } = extra;
   lastStartExtra = { ...extra, automaticTicket: undefined, continuationWorldId: undefined, onAutomaticStart: undefined,
-    cameraSchedule: undefined, cameraTourMode: undefined, cameraRunIntent: undefined, exportMode: false, exportSize: null, exportPresentation: undefined, exportQualityLevel: undefined, beforePlayback: undefined, chapterState: null, keepAudio: false, startAtMs: 0, startAtWallMs: 0, keepUserCamera: false };
+    cameraSchedule: undefined, cameraTourMode: undefined, cameraStudioSettings: undefined, cameraRunIntent: undefined, exportMode: false, exportSize: null, exportPresentation: undefined, exportQualityLevel: undefined, beforePlayback: undefined, chapterState: null, keepAudio: false, startAtMs: 0, startAtWallMs: 0, keepUserCamera: false, heardTours: undefined };
   // The world decides the presentation, before anything below reads it.
   timelineData.worldId = resolveWorldId(timelineData.worldId || lastWorldId || DEFAULT_WORLD_ID);
+  // A new song picks up renderer-lifecycle settings changed since the
+  // presentation was created; next-song settings were read at load.
+  if (!keepAudio && !exportModeFlag && landscapeRendererDirty) recreateLandscapePresentation();
+  if (!keepAudio) settings.markApplied(['next-song']);
   ensureLandscapePresentation();
   // Temporary render policy never writes the listener's URL or storage.
   if (extra.cameraTourMode !== undefined && rangePresentation && currentCameraTourMode() !== extra.cameraTourMode) {
@@ -1656,6 +1854,7 @@ function startTimeline(timelineData, extra = {}) {
   // An export rebuild must not resume the context on the way through
   // stopTimeline: that resume is asynchronous and would land after the
   // suspend below, leaving the song playing under a stepped clock.
+  retainPerformanceScene();
   stopTimeline({ preservePause: preservePause || exportMode, keepAudio });
   fitCanvas();
   // Guard a degenerate declared duration (<=0): without it, FractureEngine's
@@ -1684,6 +1883,7 @@ function startTimeline(timelineData, extra = {}) {
   // An offline frame's period is its draw time, which the ladder would read
   // as pressure and shed the picture the file exists to keep.
   if (exportMode) perfGovernor.freezeQuality(effectivePresentation().quality === 'economy' ? PERF_MAX_LEVEL : exportQualityLevel);
+  if (fixturePerfLevel !== null) perfGovernor.setFixtureLevel(fixturePerfLevel);
   fitCanvas(); // sync the new governor's canvasWidth/scale to the live buffer
   // World construction (parallax strips, landmarks) is CPU-heavy; surface a
   // progress line so a multi-second bake never looks like a dead freeze.
@@ -1769,16 +1969,22 @@ function startTimeline(timelineData, extra = {}) {
       displayPrefs: { ...(snapshotPlayerPrefs || displayPrefs) },
       qualityLevel: renderQualityLevel(generalQuality),
       sceneStartMs, continued, analysis, cameraTourMode, cameraSchedule: cameraRun?.scheduleFor(scheduleKey) || null,
+      cameraStudioSettings: normalizeCameraStudioSettings(sim.cameraStudioSettings),
     });
   }
   // The listener's zoom (scroll wheel, pinch) is live-only: exports and
   // captures draw the authored camera. A new song starts unzoomed; a seek
   // or a mid-song rebuild keeps the zoom where it is.
   sim.userCameraEnabled = !captureMode;
+  sim.cameraStudioSettings = normalizeCameraStudioSettings(extra.cameraStudioSettings ?? cameraStudioSettings);
   // Seeks (to 0 too) and the mid-song full-analysis rebuild say so with
   // keepUserCamera; a new song or a replay starts unzoomed.
   if (!extra.keepUserCamera) rangeUserCamera.reset();
   sim.analysisOpening = timelineData.opening || null;
+  sceneEpoch++;
+  sceneGeneration = loadGen;
+  sceneStartMs = Math.max(0, startAtMs || 0);
+  sceneStartedAtMs = performance.now();
   // This snapshot belongs to the song, beyond Simulation teardown/rebuild.
   if (!exportMode && !timelineData.opening) timelineData.rangeNarrative = sim.rangeNarrative;
   if (!exportMode && sim.biomes.chapterPlan) timelineData.chapterState = {
@@ -1814,6 +2020,8 @@ function startTimeline(timelineData, extra = {}) {
   // overlay. Created here per song, after the world is known.
   const voxelRange = waitForLandscape ? voxelRangePilot : null;
   voxelRange?.setSong(loadGen, sim, extra.chapterState?.committedThroughMs ?? startAtMs);
+  rendererMode = resolveRendererMode();
+  paramBus.rendererMode = rendererMode;
   renderer = createPresentingRenderer({ canvas, mode: rendererMode, presentation: effectivePresentation(),
     residency: sharedResidency(), voxelRange });
   if (rangePresentation) {
@@ -2000,11 +2208,20 @@ function startTimeline(timelineData, extra = {}) {
     get durationMs() { return conductor?.durationMs || 0; },
     get exportSize() { return { width: canvas.width, height: canvas.height }; },
     get presentationDiagnostics() { return renderer?.diagnostics || titlePresentation?.diagnostics; },
-    get frameRates() { return { presented: presentedFps.fps, callback: fpsEma }; },
+    get frameRates() { return { presented: presentedFps.fps, callback: fpsEma, renderedFrames, lastRenderAtMs }; },
+    get lastFrameTiming() { return lastFrameTiming ? { ...lastFrameTiming } : null; },
+    get sceneIdentity() { return sceneIdentitySnapshot(); },
+    get playbackState() { return { running, paused, preparing: playbackPreparing, status: renderPlayback.status }; },
+    get videoExportState() { return videoExportSession.state; },
+    get cameraStudioSettings() { return sim?.cameraStudioSettings || cameraStudioSettings; },
+    setFixtureLevel,
+    get fixtureLevel() { return fixturePerfLevel; },
     // Device probes: what bounds delivered frames (the FPS cap) and whether
     // the song is paused, so callback cadence is not read as delivery.
     get fpsCap() { return playbackFps(); },
     get paused() { return paused; },
+    // Requested vs effective settings and why (src/config/appSettings.js).
+    get settings() { return settings.describe(); },
     get playbackPreparing() { return playbackPreparing; },
     get renderReady() { return renderReadyPromise; },
     get continuousPlaybackState() { return { ...continuousPlayback.snapshot, ...playbackPrefs,
@@ -2300,9 +2517,7 @@ function promptForLyrics(identity, durationSec) {
     // choice, so future songs skip the lookup entirely (loadAudioFiles reads
     // lyricsDisabled).
     const onNever = () => {
-      lyricsDisabled = true;
-      setLyricsDisabled(true);
-      syncLyricGroundingBtn();
+      settings.set('lyrics', false, { origin: 'app' });
       finish(null);
     };
     lyricsFindBtnEl?.addEventListener('click', onFind);
@@ -2350,6 +2565,7 @@ async function resolveLyricsForAudio(identity, durationSec, vocalStem = null, { 
  *  stems of one song -- summed into a mix for analysis/playback, with each
  *  file's NAME casting its notes to a character (see Casting.js). */
 function beginAudioSelection(source, automaticTicket = null) {
+  videoExportSession.cancel();
   if (!automaticTicket) continuousPlayback.cancel();
   const ticket = audioSelections.begin(source);
   selectionExportSettings.set(ticket, exportSetup.snapshot());
@@ -2427,10 +2643,15 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
       encodedBytes = accumulateEncodedAudioBytes(
         encodedBytes, bytes?.byteLength, file.name || 'audio file', AUDIO_LOAD_LIMITS,
       );
+      const signatureCandidate = selectedFiles.length === 1 && (/^ds182\.wav$/i.test(file.name || '')
+        || settings.get('performance') === 'dual-summits');
+      const sourceSha256 = signatureCandidate && globalThis.crypto?.subtle
+        ? [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(v => v.toString(16).padStart(2, '0')).join('') : null;
+      if (isStale()) return;
       const buffer = await audioEngine.decodeFile(bytes, { signal });
       validateDecodedAudioBuffer(buffer, AUDIO_LOAD_LIMITS);
       decodedBytes = accumulateDecodedAudioBytes(decodedBytes, buffer, AUDIO_LOAD_LIMITS);
-      decoded.push({ name: file.name || 'stem', buffer });
+      decoded.push({ name: file.name || 'stem', buffer, sourceSha256 });
     } catch (err) {
       if (isStale() || err?.name === 'AbortError') return;
       showErrorBanner(`Could not decode audio file "${file.name}": ` + err.message);
@@ -2596,6 +2817,7 @@ async function loadAudioFiles(files, { selection = null, sourceMetadata = null, 
     data.lyricIdentity = await identityReady;
     if (isStale()) return;
     data.sourceFileName = selectedFiles[0].name || 'song';
+    data.sourceSha256 = isStemDrop ? null : decoded[0].sourceSha256;
     data.lyricSession = { generation: myGen, admissions: [] };
     data.lyricSections = null;
     data.syncedLyrics = null;
@@ -3194,6 +3416,7 @@ const settingsHome = titleSettings?.parentElement;
 document.getElementById('displaySettingsBtn')?.addEventListener('click', () => {
   document.getElementById('displaySettingsBody').append(titleSettings);
   titleSettings.open = true;
+  settingsPanel.sync();
   displayDialog.showModal();
 });
 document.getElementById('displaySettingsClose')?.addEventListener('click', () => displayDialog.close());
@@ -3208,12 +3431,68 @@ function performanceSnapshot() {
   const stats = prepared?.stats ?? null;
   return {
     governor: perfGovernor.record, capFps: playbackFps(),
+    recordScope: 'scene', scene: sceneIdentitySnapshot(),
+    previousScenes: structuredClone(previousScenePerformance), previousScenesOmitted: omittedScenePerformance,
     presentedFps: Number.isFinite(presentedFps.fps) ? Math.round(presentedFps.fps * 10) / 10 : null,
     callbackFps: Number.isFinite(fpsEma) ? Math.round(fpsEma * 10) / 10 : null,
+    lastFrame: lastFrameTiming ? { ...lastFrameTiming } : null,
     lastFrameSyncWaitMs: lastSyncWaits(),
     view: viewId == null ? null : { viewId, songRange: viewId.startsWith('song-range-'),
       tiles: prepared?.manifest?.tiles?.length ?? null, triangles: stats?.drawnTriangles ?? stats?.triangles ?? null, trees: stats?.trees ?? null },
     mirror: scene ? !!(scene.mirrors?.A || scene.mirrors?.B) : null, backdrop: scene ? !!scene.backdrop : null,
+  };
+}
+
+/** Preserve measurements before a seek or full-analysis rebuild replaces
+ * the governor. Records stay per scene; a new load starts a new history. */
+function retainPerformanceScene() {
+  if (performanceHistoryGeneration !== loadGen) {
+    performanceHistoryGeneration = loadGen;
+    previousScenePerformance = [];
+    omittedScenePerformance = 0;
+    return;
+  }
+  if (!perfGovernor || !sim) return;
+  const governor = perfGovernor.record;
+  if (!(governor.wholeRun.periodMs.count > 0)) return;
+  previousScenePerformance.push({ scene: structuredClone(sceneIdentitySnapshot()), endedAtMs: performance.now(), governor });
+  // Never evict the original measured startup. Keep the latest seven
+  // rebuilds after it, with omitted middle scenes explicitly counted.
+  if (previousScenePerformance.length > 8) {
+    previousScenePerformance.splice(1, 1);
+    omittedScenePerformance++;
+  }
+}
+
+/** Pin evidence before loading, so even the first prepared frame uses the
+ * requested rung. Keep the preference outside the per-scene governor. */
+function setFixtureLevel(level) {
+  if (level !== null && (!Number.isInteger(level) || level < 0 || level > PERF_MAX_LEVEL)) {
+    throw new RangeError(`fixture quality must be an integer 0..${PERF_MAX_LEVEL}, got ${level}`);
+  }
+  perfGovernor?.setFixtureLevel(level);
+  fixturePerfLevel = level;
+  if (perfGovernor) fitCanvas();
+  return fixturePerfLevel;
+}
+
+/** The loaded timeline upgrades in place before its simulation is rebuilt.
+ * Read analysis stage from the simulation that actually draws the picture. */
+function sceneIdentitySnapshot() {
+  if (!sim) return null;
+  const landscape = sim.biomes?.rangePresentation, scene = landscape?.scene;
+  const active = landscape?.active && landscape.runtimeState === 'ready' && scene && !scene.contextLost;
+  const viewId = active ? landscape.viewId ?? null : null;
+  const incomingViewId = active ? landscape.incomingViewId ?? null : null;
+  return {
+    generation: sceneGeneration, sceneEpoch, sceneStartMs, startedAtMs: sceneStartedAtMs,
+    analysisStage: sim.analysisOpening ? 'opening' : 'full',
+    analyzedMs: sim.analysisOpening?.analyzedMs ?? null,
+    songSeed: sim.songSeed, worldId: sim.worldId,
+    ridgeStateKey: lastTimelineData?.ridgeMusicSession?.stateKey ?? null,
+    sourceTrack: lastTimelineData?.sourceTrack || null,
+    viewId, stageKey: viewId ? scene.prepared?.get(viewId)?.view?.songRange?.key ?? null : null,
+    incomingViewId, incomingStageKey: incomingViewId ? scene.prepared?.get(incomingViewId)?.view?.songRange?.key ?? null : null,
   };
 }
 
@@ -3249,13 +3528,14 @@ function callbackWorkMs(workMs, syncWaitMs) {
 
 function frame(tRaf) {
   if (!running) return;
+  if (tRaf - cameraStudioStatusAt > 500) { cameraStudioStatusAt = tRaf; syncCameraStudio(); }
   if (paused || playbackPreparing) { lastRenderedWorkMs = null; lastRenderedSyncWaitMs = null; rafHandle = requestAnimationFrame(frame); return; }
   const workStartMs = performance.now();
+  const rafDeltaMs = lastRafMs === null ? null : tRaf - lastRafMs;
   const previousWorkMs = lastRenderedWorkMs, previousSyncWaitMs = lastRenderedSyncWaitMs;
   lastRenderedWorkMs = null; lastRenderedSyncWaitMs = null;
   resetSyncWaits();
   if (lastRafMs !== null) {
-    const rafDeltaMs = tRaf - lastRafMs;
     noteFrameGap(rafDeltaMs);
     // A hidden page's frame timing says nothing about how expensive the
     // scene is. Chrome stops rAF outright for a hidden tab, but an embedded
@@ -3332,11 +3612,12 @@ function frame(tRaf) {
 
   const alpha = acc / STEP_MS;
   let presented = false;
+  let presentationResult = null;
   try {
-    const result = renderer.draw(sim, alpha);
-    presented = !!result?.presented;
+    presentationResult = renderer.draw(sim, alpha);
+    presented = !!presentationResult?.presented;
     syncCaptionDetails();
-    if (!presented) throw new Error(`Presentation failed: ${result?.reason || 'no completed frame'}`);
+    if (!presented) throw new Error(`Presentation failed: ${presentationResult?.reason || 'no completed frame'}`);
   } catch (err) {
     // One bad frame must not kill the whole run (canvas NaN colors used to
     // throw here and leave the world frozen on the last good paint). But it
@@ -3429,9 +3710,21 @@ function frame(tRaf) {
   // Includes simulation, drawing, capture and HUD work from this callback.
   // WebGL submission can finish before the GPU: callback pressure remains
   // the governor's independent signal for missed deadlines.
-  lastRenderedWorkMs = presented && !document.hidden ? Math.max(0, performance.now() - workStartMs) : null;
+  const callbackMs = Math.max(0, performance.now() - workStartMs);
+  lastRenderedWorkMs = presented && !document.hidden ? callbackMs : null;
   const frameSyncWaitMs = takeSyncWaits();
   lastRenderedSyncWaitMs = lastRenderedWorkMs === null ? null : Math.min(frameSyncWaitMs, lastRenderedWorkMs);
+  if (presented) {
+    renderedFrames++;
+    lastRenderAtMs = tRaf;
+    lastFrameTiming = {
+      frameId: renderedFrames, rafAtMs: tRaf, rafDeltaMs, sceneEpoch,
+      callbackMs, workMs: callbackWorkMs(lastRenderedWorkMs, lastRenderedSyncWaitMs),
+      syncWaitMs: Math.min(frameSyncWaitMs, callbackMs),
+      presentationId: presentationResult?.frameId ?? null,
+      presentationGeneration: presentationResult?.generation ?? null,
+    };
+  }
 
   if (isSongComplete(nowMs)) {
     onSongComplete();
@@ -3609,6 +3902,7 @@ function adoptFullAnalysisLive(data) {
  * teardown/construction lifecycle as replay so no effect pool, timestamp,
  * subscription or renderer history can survive from the discarded future. */
 function seekSong(ms) {
+  if (videoExportSession.busy || bulkExportArmed) return;
   if (songRecorder?.recording || songRecorder?.finalizing || pendingCaptureOptions) {
     showErrorBanner('Finish or cancel the recording before seeking.');
     return;
@@ -3725,9 +4019,7 @@ function applySyncTap(tapMs) {
   }
 
   if (!result.changed) return;
-  btLatencyTrimMs = setBtLatencyTrimMs(result.trimMs);
-  applyBtLatencyToAudioEngine();
-  updateBtLatencyBtnUI();
+  btLatencyTrimMs = setSettingValue('btLatency', result.trimMs);
   // The chip is the thing that just changed; show it rather than making
   // the player hunt for confirmation that the tapping did anything.
   wakeHud();
@@ -3889,6 +4181,7 @@ function isTextEntry(el) {
 
 window.addEventListener('keydown', (e) => {
   if (e.defaultPrevented) return;
+  if (document.getElementById('videoExportDialog')?.open) return;
   // A modal chooser owns keyboard input; every key retains native
   // dialog/button behavior, including Escape.
   if (document.getElementById('plexLibraryPanel')?.open) return;
@@ -3955,8 +4248,8 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'j' || e.key === 'J') { beatTap(ROLE_HIGH); return; }
 
   if (e.key === 'p' || e.key === 'P') {
-    fpsHudVisible = !fpsHudVisible;
-    fpsHudEl?.classList.toggle('hidden', !fpsHudVisible);
+    // The Show frame rate setting; saved like the menu's checkbox.
+    settings.set('fps', !fpsHudVisible, { origin: 'app' });
     return;
   }
   // `` ` `` (the full telemetry overlay) and V
@@ -4035,16 +4328,12 @@ function openBtLatencyPopover() {
  *  that side isn't read live from `btLatencyTrimMs` the way visuals are. */
 function applyBtLatencyTrim() {
   if (!btLatencyInputEl) return;
-  btLatencyTrimMs = setBtLatencyTrimMs(btLatencyInputEl.value);
-  applyBtLatencyToAudioEngine();
-  updateBtLatencyBtnUI();
+  btLatencyTrimMs = setSettingValue('btLatency', btLatencyInputEl.value);
   adoptManualTrim();
   closeBtLatencyPopover();
 }
 function turnOffBtLatencyTrim() {
-  btLatencyTrimMs = setBtLatencyTrimMs(0);
-  applyBtLatencyToAudioEngine();
-  updateBtLatencyBtnUI();
+  btLatencyTrimMs = setSettingValue('btLatency', 0);
   adoptManualTrim();
   closeBtLatencyPopover();
 }
@@ -4087,6 +4376,7 @@ updateBtLatencyBtnUI();
 
 function onSongComplete() {
   running = false;
+  syncCameraStudio();
   hudEl.classList.add('hidden');
   // Silence audio under the complete panel (otherwise the buffer keeps going).
   audioEngine?.pause();
@@ -4104,7 +4394,7 @@ function onSongComplete() {
   // A full-song export ends where the song does. Awaiting it here would
   // hold up the panel, so it saves itself and writes its own line.
   const recordingReady = songRecorder?.recording ? finishRecording() : recordingFinalization;
-  queueContinuousPlayback(recordingReady);
+  if (!videoExportSession.busy) queueContinuousPlayback(recordingReady);
 }
 
 /** A completed live show may advance; exports and borrowed stages never do. */
@@ -4149,7 +4439,7 @@ async function startNextLibraryTrack(ticket, worldId) {
  *  the song-derived default. Explicit completion-screen seeds still override it. */
 function replaySong({ songSeed } = {}) {
   // A 4K reel save is drawing on the stage; its buttons say so (disabled).
-  if (reelSaver.busy) return;
+  if (reelSaver.busy || videoExportSession.busy) return;
   continuousPlayback.cancel();
   if (!lastTimelineData) { window.location.reload(); return; }
   // Capture buffer before rebuild — startTimeline stops the AudioContext source
@@ -4270,7 +4560,8 @@ function beginReelRender(data, group, size, restore) {
   lastSongSeed = group.songSeed;
   try {
     beginBulkExport({ width: size.w, height: size.h, presentation: { ...group.displayPrefs, scaling: 'fit' },
-      qualityLevel: group.qualityLevel, cameraSchedule: group.cameraSchedule, cameraTourMode: group.cameraTourMode });
+      qualityLevel: group.qualityLevel, cameraSchedule: group.cameraSchedule, cameraTourMode: group.cameraTourMode,
+      cameraStudio: group.cameraStudioSettings || normalizeCameraStudioSettings() });
   } catch (err) {
     throw classifyArmError(err, { armed: !!sim && bulkExportArmed, stage: { w: canvas.width, h: canvas.height }, size });
   }
@@ -4902,6 +5193,181 @@ musicLibrary.init().catch((err) => console.warn('[library] could not be loaded',
 // told comes from the bytes of the finished file, not the extension.
 // ===================================================================
 
+// Frame-by-frame export is separate from the retired real-time recorder below.
+// It uses the same immutable performance and fixed clock as offline rendering.
+const videoDialog = document.getElementById('videoExportDialog');
+const videoStatus = document.getElementById('videoExportStatus');
+const videoProgress = document.getElementById('videoExportProgress');
+const videoStart = document.getElementById('videoExportStart');
+const videoCancel = document.getElementById('videoExportCancel');
+const videoResolution = document.getElementById('videoExportResolution');
+const videoFps = document.getElementById('videoExportFps');
+const videoDownload = document.getElementById('videoExportDownload');
+let videoDownloadUrl = null;
+try {
+  const saved = resolveMp4ExportSettings(JSON.parse(displayStorage()?.getItem('midio.mp4Export.v1') || '{}'));
+  videoResolution.value = saved.resolutionId; videoFps.value = String(saved.fps);
+} catch { /* Invalid or denied storage keeps the HTML defaults. */ }
+
+function videoOutputSettings() {
+  return resolveMp4ExportSettings({ resolutionId: videoResolution.value, fps: videoFps.value });
+}
+function syncVideoOutputSettings() {
+  const settings = videoOutputSettings();
+  const durationMs = lastAudioBuffer ? lastAudioBuffer.length / lastAudioBuffer.sampleRate * 1000 : 0;
+  document.getElementById('videoExportSummary').textContent = `${settings.width} × ${settings.height} · ${settings.fps} fps`
+    + (durationMs ? ` · ${formatDuration(durationMs)} · about ${formatBytes(estimateMp4ExportBytes(settings, durationMs))}` : ' · Load a song first');
+  videoStart.disabled = videoExportSession.busy || !lastAudioBuffer || !lastTimelineData;
+  try { displayStorage()?.setItem('midio.mp4Export.v1', JSON.stringify(settings)); } catch { /* Session settings still work. */ }
+}
+function syncVideoExportState(state) {
+  document.getElementById('videoExportFields').disabled = state.busy;
+  videoStart.disabled = state.busy || !lastAudioBuffer || !lastTimelineData;
+  videoCancel.hidden = !state.busy;
+  document.getElementById('videoExportClose').textContent = state.busy ? 'Cancel export' : 'Close';
+  videoProgress.hidden = !state.busy;
+  videoProgress.value = state.progress || 0;
+  const messages = { preparing: 'Preparing the complete song and checking H.264/AAC support…',
+    encoding: `Rendering frame ${state.frame || 0} of ${state.totalFrames || '…'} · ${Math.floor((state.progress || 0) * 100)}%`,
+    finalizing: 'Finishing the MP4…', restoring: 'Restoring playback…',
+    cancelled: 'Export cancelled. Playback restored.', complete: 'MP4 ready.', error: state.error };
+  videoStatus.textContent = messages[state.phase] || '';
+  syncCameraStudio();
+}
+for (const id of ['settingsVideoExportBtn', 'videoExportBtn', 'completeVideoExportBtn']) {
+  document.getElementById(id)?.addEventListener('click', () => {
+    continuousPlayback.cancel();
+    if (displayDialog?.open) displayDialog.close();
+    syncVideoOutputSettings();
+    if (!videoExportSession.busy) videoStatus.textContent = lastAudioBuffer
+      ? 'Your current scene, camera, seed and detail settings will be used for the whole song.'
+      : 'Load a song with audio, then open Export video again.';
+    if (!videoDialog.open) videoDialog.showModal();
+  });
+}
+for (const control of [videoResolution, videoFps]) control.addEventListener('change', syncVideoOutputSettings);
+videoDialog.addEventListener('keydown', event => event.stopPropagation());
+videoDialog.addEventListener('cancel', event => {
+  if (videoExportSession.busy) { event.preventDefault(); videoExportSession.cancel(); }
+});
+document.getElementById('videoExportClose').addEventListener('click', () => {
+  if (videoExportSession.busy) videoExportSession.cancel(); else videoDialog.close();
+});
+videoCancel.addEventListener('click', () => videoExportSession.cancel());
+videoStart.addEventListener('click', () => { renderSongMp4(); });
+
+async function renderSongMp4() {
+  if (videoExportSession.busy || reelSaver.busy || snapshotBusy || bulkExportArmed) return;
+  if (!lastAudioBuffer || !lastTimelineData) { videoStatus.textContent = 'Load a song with audio before exporting.'; return; }
+  const data = lastTimelineData, audioBuffer = lastAudioBuffer, generation = loadGen;
+  const settings = videoOutputSettings();
+  const studio = normalizeCameraStudioSettings(cameraStudioSettings);
+  const display = { ...effectivePresentation() }, qualityLevel = renderQualityLevel(generalQuality);
+  const filename = mp4ExportFileName({ songName: sessionSongName(data, lastSongName), settings });
+  // Invoke the picker during the click's user activation. The writable itself
+  // is opened after codec/analysis readiness, and aborted on unsuccessful work.
+  let fileChoice;
+  try {
+    fileChoice = typeof window.showSaveFilePicker === 'function' ? window.showSaveFilePicker({
+      suggestedName: filename, types: [{ description: 'MP4 video', accept: { 'video/mp4': ['.mp4'] } }],
+    }) : Promise.resolve(null);
+    fileChoice.catch(() => {});
+  } catch (error) { videoStatus.textContent = error.message; return; }
+  continuousPlayback.cancel();
+  videoDownload.hidden = true;
+  let restore = null, ownSim = null, touched = false, writable = null, encoderOwnsFile = false;
+  const isCurrent = () => loadGen === generation && lastTimelineData === data && (!ownSim || sim === ownSim || !sim);
+  const check = signal => { if (signal.aborted || !isCurrent()) throw new DOMException('Video export cancelled.', 'AbortError'); };
+  try {
+    const result = await videoExportSession.run({ isCurrent,
+      prepare: async signal => {
+        const handle = await waitForExport(fileChoice, signal);
+        check(signal);
+        if (!handle && estimateMp4ExportBytes(settings, audioBuffer.duration * 1000) > MAX_MP4_BUFFER_BYTES)
+          throw Error('This export exceeds the 512 MiB encoded-output limit. Choose a smaller resolution or use a browser that can save directly to a file.');
+        await waitForExport(checkMp4ExportSupport({ settings, audioBuffer }), signal);
+        if (fullAnalysisPending) await waitForExport(fullAnalysisPending, signal);
+        check(signal);
+        if (data.opening) throw Error('The whole-song analysis is not ready. Try again after analysis finishes.');
+        if (data.terrain?.whenAll) await waitForExport(data.terrain.whenAll, signal);
+        check(signal);
+        restore = { terrainTourState: captureTourTerrainState(data.terrain), worldId: data.worldId,
+          hadChapter: Object.hasOwn(data, 'chapterState'), chapterState: data.chapterState,
+          cameraRun, activeCameraSchedule, cameraTourMode: currentCameraTourMode(),
+          hadCameraSchedule: Object.hasOwn(data, 'cameraSchedule'), cameraSchedule: data.cameraSchedule,
+          hadRangeNarrative: Object.hasOwn(data, 'rangeNarrative'), rangeNarrative: data.rangeNarrative,
+          lastStartExtra, lastSongSeed, paused, running, atMs: Math.max(0, audioEngine.nowMs),
+          loaderHidden: loaderEl.classList.contains('hidden'), ctxRunning: audioEngine.ctx.state === 'running',
+          gain: audioEngine.master.gain.value, studio, hudInFrame: renderer?.hudInFrame,
+        };
+        if (handle) writable = await handle.createWritable();
+        check(signal);
+        touched = true;
+        beginBulkExport({ width: settings.width, height: settings.height, presentation: display, qualityLevel,
+          cameraSchedule: restore.cameraRun?.scheduleFor(cameraScheduleKey()) || null,
+          cameraTourMode: restore.cameraTourMode, cameraStudio: studio });
+        ownSim = sim;
+        running = false; syncKeepAwake(); syncCameraStudio();
+        hudEl.classList.add('hidden'); rangeNavigationEl?.classList.add('hidden');
+        if (rangePresentation) await waitForExport(rangePresentation.whenReady({ timeoutMs: 120000 }), signal);
+        check(signal);
+        return { settings, writable };
+      },
+      encode: async (context, { signal, onProgress }) => {
+        encoderOwnsFile = true;
+        return exportMp4({ canvas, audioBuffer, ...context, signal, onProgress,
+          renderFrame: async timeMs => {
+            check(signal);
+            let frame = renderExportFrame(timeMs);
+            if (rangePresentation && await waitForExport(rangePresentation.settle({ timeoutMs: 120000 }), signal)) {
+              check(signal); frame = renderExportFrame(timeMs);
+            }
+            check(signal); return frame;
+          },
+        });
+      },
+      restore: async () => {
+        if (!touched || !restore) return;
+        endReelRender(data, restore);
+        if (restore.running) {
+          startTimeline(data, { ...restore.lastStartExtra, songSeed: restore.lastSongSeed, playBuffer: audioBuffer,
+            startAtMs: Math.min(restore.atMs, audioBuffer.duration * 1000 - 1), preservePause: restore.paused,
+            cameraRunIntent: 'preserve', keepUserCamera: true, cameraStudioSettings: restore.studio });
+          ownSim = sim;
+          renderer.hudInFrame = restore.hudInFrame;
+          await renderReadyPromise;
+          if (loadGen !== generation || lastTimelineData !== data || sim !== ownSim) return;
+          if (restore.paused) { paused = true; await audioEngine.ctx.suspend(); updatePauseButtonUI(); }
+          if (Number.isFinite(restore.gain)) audioEngine.master.gain.value = restore.gain;
+        }
+        syncCameraStudio();
+      },
+      discard: async () => {
+        // A newer load may fail before it builds a replacement simulation.
+        // Release the old export's stage in that case, without rebuilding its
+        // song or touching a renderer that a newer selection already owns.
+        if (!touched || (sim && sim !== ownSim)) return;
+        bulkExportArmed = false; bulkExportSize = null; bulkPresentation = null;
+        stopTimeline({ preservePause: true });
+        paused = false;
+        if (audioEngine?.ctx?.state === 'suspended') await audioEngine.ctx.resume();
+        updatePauseButtonUI(); fitCanvas(); syncCameraStudio();
+      },
+    });
+    if (!result) return;
+    if (result.blob) {
+      if (videoDownloadUrl) URL.revokeObjectURL(videoDownloadUrl);
+      videoDownloadUrl = URL.createObjectURL(result.blob);
+      videoDownload.href = videoDownloadUrl; videoDownload.download = filename;
+      videoDownload.hidden = false; videoDownload.click();
+    }
+    videoStatus.textContent = `${result.blob ? 'MP4 ready to save' : 'MP4 saved'} · ${result.width} × ${result.height} · ${result.fps} fps · ${result.frames.toLocaleString()} frames with music · ${formatBytes(result.bytes)}`;
+  } catch (error) { videoStatus.textContent = `Export failed: ${error.message || error}`; }
+  finally {
+    if (writable && !encoderOwnsFile) { try { await writable.abort(); } catch { /* The file was never committed. */ } }
+  }
+}
+
 const recordBtnEl = document.getElementById('recordBtn');
 const recordStatusEl = document.getElementById('recordStatus');
 const cancelExportBtn = document.getElementById('cancelExportBtn');
@@ -5123,6 +5589,13 @@ syncRecordUI();
 
 // The title has a presentation owner before there is a song simulation.
 if (!window.__SMW) window.__SMW = {
+  setFixtureLevel,
+  get settings() { return settings.describe(); },
+  get fixtureLevel() { return fixturePerfLevel; },
+  get frameRates() { return { presented: presentedFps.fps, callback: fpsEma, renderedFrames, lastRenderAtMs }; },
+  get lastFrameTiming() { return lastFrameTiming ? { ...lastFrameTiming } : null; },
+  get sceneIdentity() { return sceneIdentitySnapshot(); },
+  get playbackState() { return { running, paused, preparing: playbackPreparing, status: renderPlayback.status }; },
   get presentationDiagnostics() { return titlePresentation?.diagnostics; },
   get displayPrefs() { return { ...displayPrefs }; },
   get rangeRenderer() { return rangePresentation?.mode || rangeMode.mode; },

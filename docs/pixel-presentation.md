@@ -1,5 +1,7 @@
 # Display presentation
 
+Current engineering behavior is summarized in [visual-contract.md](visual-contract.md). This document retains historical Pixel/Palette/Depth sections; those modes are retired, Cinematic is the only effective Look and Uniform is the only current pixel scale.
+
 > **November 10, 2026:** Cinematic is the only look. The Pixel and Palette
 > looks, palettes, dither and the single-stage live path were removed; saved
 > records of any look migrate to Cinematic at its Detailed grid (a saved
@@ -24,9 +26,9 @@ captures run after the scene is complete.
 Native live rendering uses the terrain's own skyline and shoreline. The
 separate fine-edge reconstruction and smooth overlays described later in this
 page belong to the hybrid path. Cinematic Pixel and explicitly sized offline
-captures use that hybrid presentation. Diagnostic URLs select
-`?rangePipeline=hybrid`, `native` (resolution-only comparison), or `single`.
-Ordinary live Pixel and Palette default to `single`.
+captures use that hybrid presentation. Cinematic is the only look and always
+presents through the hybrid composite; `?rangePipeline=` is retired and
+reported as ignored (see [URL parameters](url-parameters.md)).
 
 The newer sky and musical rules, camera schedules, forest placement and
 deformation remain in the native scene. GPU depth snapshots avoid rebuilding

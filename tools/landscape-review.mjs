@@ -26,6 +26,8 @@ const help = `npm run review:landscape -- --out .smoke/review [--audio song.wav]
   --rise N             Diagnostic: hold the land at rise N (0..1) via ?rangeRise; not production playback
   --song-range MODE    1 (composed range when the song plans one) or force (diagnostic: always)
   --song-range-layout ID  Diagnostic: run Phase 1 layout ID (song-range-pilot-a|b|c) through the runtime path
+  --performance ID     dual-summits or off (default: automatic song selection)
+  --times-ms LIST      Comma-separated still timestamps; one upload, no continuous clip or MP4
   --start-ms N         Continuous capture start (default12000)
   --seconds N          Clip length, >0 through180 (default2)
   --fps N              Fixed export sampling rate,1 through60 (default12)
@@ -40,7 +42,7 @@ Always headless. No --open or headful option. Output must be new. Artistic judgm
 `;
 export function parseReviewArgs(argv) {
   const a = { source: root, look: 'cinematic', grids: ['detailed'], view: 'teton-range-tour', pace: 3, startMs: 12000, seconds: 2, fps: 12, liveSeconds: 0, mp4: true };
-  const values = { '--out': 'out', '--source': 'source', '--snapshot': 'snapshot', '--baseline': 'baseline', '--audio': 'audio', '--look': 'look', '--grid': 'grid', '--view': 'view', '--pace': 'pace', '--tour': 'tour', '--rise': 'rise', '--song-range': 'songRange', '--song-range-layout': 'songRangeLayout', '--start-ms': 'startMs', '--seconds': 'seconds', '--fps': 'fps', '--live-seconds': 'liveSeconds', '--browser': 'browser', '--gpu-match': 'gpuMatch' };
+  const values = { '--out': 'out', '--source': 'source', '--snapshot': 'snapshot', '--baseline': 'baseline', '--audio': 'audio', '--look': 'look', '--grid': 'grid', '--view': 'view', '--pace': 'pace', '--tour': 'tour', '--rise': 'rise', '--song-range': 'songRange', '--song-range-layout': 'songRangeLayout', '--performance': 'performance', '--times-ms': 'timesMs', '--start-ms': 'startMs', '--seconds': 'seconds', '--fps': 'fps', '--live-seconds': 'liveSeconds', '--browser': 'browser', '--gpu-match': 'gpuMatch' };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     if (k === '--help' || k === '-h') return { help: true };
@@ -59,6 +61,13 @@ export function parseReviewArgs(argv) {
   assert.ok(Number.isInteger(a.fps) && a.fps >= 1 && a.fps <= 60, 'fps must be1 through60');
   assert.ok(Number.isInteger(a.liveSeconds) && a.liveSeconds >= 0 && a.liveSeconds <= 300, 'live-seconds must be0 through300');
   assert.ok([1, 2, 3, 4].includes(a.pace), 'pace must be1|2|3|4');
+  if (a.performance != null) assert.ok(['dual-summits', 'off'].includes(a.performance), 'performance must be dual-summits or off');
+  if (a.timesMs != null) {
+    const times = a.timesMs.split(',');
+    assert.ok(times.every(t => t.trim() && Number.isInteger(Number(t)) && Number(t) >= 0 && Number(t) <= 86400000), 'invalid times-ms');
+    a.timesMs = times.map(Number);
+    a.mp4 = false;
+  }
   if (a.songRange != null) assert.ok(['1', 'force'].includes(a.songRange), 'song-range must be 1 or force');
   if (a.rise != null) { a.rise = Number(a.rise); assert.ok(Number.isFinite(a.rise) && a.rise >= 0 && a.rise <= 1, 'rise must be 0 through 1'); }
   a.tour ??= a.view === 'teton-range-tour' ? 'tetons' : 'shots';
@@ -71,14 +80,16 @@ export function parseReviewArgs(argv) {
   return a;
 }
 export function makeReviewManifest(a, grid) {
+  const stills = a.timesMs != null;
+  const timesMs = stills ? a.timesMs : [a.startMs, Math.ceil(a.startMs + a.seconds * 1000)];
   return normalizeManifest({ version: 1, settings: { width: 1280, height: 720, seed: 315, quality: 0,
     experience: 'landscape', view: a.view, pace: a.pace, tour: a.tour, ...(a.view === null ? { biome: null } : {}),
-    ...(a.rise != null || a.songRange != null || a.songRangeLayout != null ? { debug: { ...(a.rise != null ? { rangeRise: a.rise } : {}), ...(a.songRange != null ? { songRange: a.songRange } : {}), ...(a.songRangeLayout != null ? { songRangeLayout: a.songRangeLayout } : {}) } } : {}),
-    fps: a.fps, mode: 'continuous', startMs: a.startMs,
+    ...(a.rise != null || a.songRange != null || a.songRangeLayout != null || a.performance != null ? { debug: { ...(a.rise != null ? { rangeRise: a.rise } : {}), ...(a.songRange != null ? { songRange: a.songRange } : {}), ...(a.songRangeLayout != null ? { songRangeLayout: a.songRangeLayout } : {}), ...(a.performance != null ? { performance: a.performance } : {}) } } : {}),
+    fps: a.fps, mode: stills ? 'sparse' : 'continuous', startMs: stills ? 0 : a.startMs,
     presentation: { version: 2, look: a.look, quality: 'auto', palette: 'world', dither: .35,
       ditherMode: 'selective', pixelGrid: grid, pixelScale: 'original', scaling: 'fit' } },
-  songs: [{ id: 'review-audio', fixture: 'contrast', seconds: Math.max(90, a.liveSeconds + 15, Math.ceil((a.startMs / 1000 + a.seconds + 1))),
-    timesMs: [a.startMs, Math.ceil(a.startMs + a.seconds * 1000)], clips: [{ startMs: a.startMs, durationMs: a.seconds * 1000 }] }] });
+  songs: [{ id: 'review-audio', fixture: 'contrast', seconds: Math.max(90, a.liveSeconds + 15, Math.ceil(Math.max(...timesMs) / 1000 + 1)),
+    timesMs, clips: stills ? [] : [{ startMs: a.startMs, durationMs: a.seconds * 1000 }] }] });
 }
 // Shared with the route gate's hardware configuration. Rejects software
 // rasterizers (SwiftShader, llvmpipe, softpipe, Windows WARP, which is Chromium's
@@ -204,7 +215,7 @@ async function saveMedia(page, dir, row, settings, mp4, owner) {
   }, images);
   await fs.writeFile(path.join(dir, 'contact-sheet.png'), Buffer.from(png, 'base64'));
   const media = { contactSheet: 'contact-sheet.png', matchingAudioFramePlayer: 'index.html', mp4: null, scope: 'Exact PNG/audio clips are authoritative. Contact sheet uses nearest-neighbour thumbnails. MP4 is an optional lossy preview; no fixed-clock capture measures live pacing.' };
-  if (mp4) {
+  if (mp4 && row.clips.length) {
     try { await owner.execFile(process.env.FFMPEG_PATH || 'ffmpeg', ['-loglevel', 'error', '-framerate', String(settings.fps), '-i', path.join(dir, row.id, 'frame-%05d.png'), '-ss', String(settings.startMs / 1000), '-i', path.join(dir, row.audio), '-t', String(row.clips[0].durationMs / 1000), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '18', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', path.join(dir, 'motion.mp4')]); media.mp4 = 'motion.mp4'; }
     catch (error) { owner.check(); media.mp4Unavailable = error.message; }
   }
@@ -297,7 +308,7 @@ export async function runLandscapeReview(args, { launch = options => chromium.la
       const manifest = makeReviewManifest(args, grid), settings = manifest.settings, song = manifest.songs[0], dir = path.join(out, grid); await newDir(dir); await fs.mkdir(path.join(dir, song.id));
       const audio = `${song.id}/audio${path.extname(sharedAudio)}`; await fs.copyFile(sharedAudio, path.join(dir, audio));
       const row = { id: song.id, audio, audioSha256: sha256(await fs.readFile(sharedAudio)), clips: song.clips, frames: [], errors: [], warnings: [], events: [] };
-      const run = { version: 1, status: 'failed', source: report.source, browser: report.browser, settings, songs: [row], captureTransport: { headless: true, hardwareRequired: !!args.hardware }, timingScope: 'Continuous fixed export clock; not live pacing.' };
+      const run = { version: 1, status: 'failed', source: report.source, browser: report.browser, settings, songs: [row], captureTransport: { headless: true, hardwareRequired: !!args.hardware }, timingScope: args.timesMs ? 'Discrete fixed export clock stills; not live pacing.' : 'Continuous fixed export clock; not live pacing.' };
       report.grids.push({ grid, path: grid + '/index.html', report: grid + '/report.json' });
       await json(path.join(dir, 'manifest.json'), manifest);
       console.log(`Capturing ${grid}: headless ${args.hardware ? 'hardware required' : 'software WebGL'}`);

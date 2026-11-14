@@ -37,15 +37,16 @@ test('aborted local identity retains the pre-existing neutral result', async () 
 test('whole analysis replaces analysis fields but preserves session evidence object identity', () => {
   const session = { generation: 8, admissions: [{ revision: 1, heardTimeMs: 5000 }] };
   const identity = { title: 'Current title' }, lines = [{ tMs: 6000, text: 'heart' }], sections = [{ kind: 'verse' }];
-  const data = { sourceTrack: source, lyricIdentity: identity, sourceFileName: 'file.wav',
+  const data = { sourceTrack: source, lyricIdentity: identity, sourceFileName: 'file.wav', sourceSha256: 'current-hash',
     lyricSession: session, syncedLyrics: lines, lyricSections: sections, opening: { provisional: true }, durationMs: 15000 };
   const full = { durationMs: 60000, sourceTrack: { title: 'Old' }, lyricIdentity: { title: 'Old' },
-    sourceFileName: 'old.wav', lyricSession: null, syncedLyrics: null, lyricSections: null };
+    sourceFileName: 'old.wav', sourceSha256: 'cached-hash', lyricSession: null, syncedLyrics: null, lyricSections: null };
   adoptAudioSessionAnalysis(data, full);
   assert.equal(data.durationMs, 60000); assert.equal(data.opening, undefined);
   assert.equal(data.sourceTrack, source); assert.equal(data.lyricIdentity, identity);
   assert.equal(data.lyricSession, session); assert.equal(data.syncedLyrics, lines); assert.equal(data.lyricSections, sections);
   assert.equal(data.sourceFileName, 'file.wav');
+  assert.equal(data.sourceSha256, 'current-hash');
 });
 
 test('the ownership gate precedes publication and live consumer invocation', () => {

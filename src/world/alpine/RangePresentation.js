@@ -18,6 +18,7 @@ import { scenePoseAt, cameraBasis } from '../terrain/SceneTravel.js';
 import { loadTourPackage } from '../terrain/TourPackage.js';
 import { prepareTourTimeline } from '../terrain/TourRuntime.js';
 import { applyCameraMoves } from './RangeCamera.js';
+import { cameraStudioStatus } from './CameraStudio.js';
 import { skyTurn, projectRangeCelestials, projectRailCelestials } from './RangeSkyComposition.js';
 import { convertLightBetween } from './LightSpace.js';
 import { lightDirTo } from '../../render/LightField.js';
@@ -30,6 +31,8 @@ import { AUTO_TOUR_GATE, autoGateEnabled } from './CameraChoice.js';
 import { headingPitch, lookDir } from '../terrain/ShotPath.js';
 import { RangeCrest, crestBuildOpacity, CREST_GRID_SCAN_LEVEL } from './RangeCrest.js';
 import { openingOcean01 } from './BuildOcean.js';
+import { appSettings } from '../../config/appSettings.js';
+import { resolveSettings } from '../../config/settingsRegistry.js';
 
 /** Native terrain backing for a full-resolution composition. The selected
  * grid is fitted to the same aspect-preserving output rectangle. */
@@ -61,26 +64,27 @@ const retryUrl = (url, attempt) => (attempt ? `${url}?retry=${attempt}` : url);
  *  other candidate shot libraries play, for review only. In shots mode a planned
  *  tour plays only where it beats the rail for the song (CameraChoice.js);
  *  ?rangeTourGate=off plays every planned tour. */
-export function resolveRangeMode(search = (typeof location !== 'undefined' ? location.search : ''), storage = null) {
-  try {
-    const q = new URLSearchParams(String(search || '').replace(/^\?/, ''));
-    const raw = (q.get('rangeRenderer') || RANGE_DEFAULT_MODE).toLowerCase();
-    const forcedViewId = q.get('rangeView') || null;
-    const diag = q.get('rangeDiag') === 'markers' ? 'markers' : null;
-    let saved = null;
-    try { saved = (storage || globalThis.localStorage)?.getItem('range-tour'); } catch { /* Private-mode storage can be unavailable. */ }
-    const choice = q.has('rangeTour') ? q.get('rangeTour') : saved;
-    const tour = choice === 'tetons' ? 'tetons' : null;
-    const shots = !tour && choice !== 'off';
-    // ?rangeTourIntended=1 lets a tour shot framed by an alternative try its
-    // intended subject. It replaces an accepted subject, so it is opt-in.
-    const upgradeIntended = q.get('rangeTourIntended') === '1';
-    return { mode: tour ? 'v2' : RANGE_RENDERER_MODES.includes(raw) ? raw : RANGE_DEFAULT_MODE, forcedViewId: tour ? 'teton-range-tour' : forcedViewId, diag, tour, upgradeIntended,
-      shots, shotCandidates: q.get('rangeShots') === 'all' };
-  } catch {
-    return { mode: RANGE_DEFAULT_MODE, forcedViewId: null, diag: null, tour: null, upgradeIntended: false, shots: true, shotCandidates: false };
+export function resolveRangeMode(search, storage = null) {
+  // Without arguments: the page's settings store. With an explicit search
+  // (and optional storage), that input alone, as before the registry.
+  let v;
+  if (search === undefined && storage === null) v = appSettings().values;
+  else {
+    let store = storage;
+    if (!store) { try { store = globalThis.localStorage ?? null; } catch { store = null; } }
+    const { entries } = resolveSettings({ search: search ?? '', storage: store, ids: RANGE_MODE_SETTINGS });
+    v = Object.fromEntries(RANGE_MODE_SETTINGS.map(id => [id, entries[id].value]));
   }
+  const tour = v.rangeTour === 'tetons' ? 'tetons' : null;
+  return {
+    mode: tour ? 'v2' : RANGE_RENDERER_MODES.includes(v.rangeRenderer) ? v.rangeRenderer : RANGE_DEFAULT_MODE,
+    forcedViewId: tour ? 'teton-range-tour' : v.rangeView || null, diag: v.rangeDiag ? 'markers' : null, tour,
+    // rangeTourIntended lets a tour shot framed by an alternative try its
+    // intended subject. It replaces an accepted subject, so it is opt-in.
+    upgradeIntended: !!v.rangeTourIntended, shots: !tour && v.rangeTour !== 'off', shotCandidates: !!v.rangeShots,
+  };
 }
+const RANGE_MODE_SETTINGS = ['rangeRenderer', 'rangeView', 'rangeDiag', 'rangeTour', 'rangeTourIntended', 'rangeShots'];
 
 /** Which legacy range layer's travel timing each partition follows. */
 const PASS_LAYER = { far: 'L2', mid: 'L4', near: 'L5' };
@@ -238,12 +242,13 @@ export class RangePresentation {
     this.active = false;
     this.reason = mode === 'v2' ? 'not-started' : 'legacy-mode';
     this.failures = new Map(); // viewId -> reason (not retried this generation)
-    // A budget refusal is not a failure: the view is retried once room may
-    // have been freed (eviction of views no longer on screen), and its
-    // biome still counts as covered, so no legacy strips are baked for it.
+    // Budget pressure normally retries once room may have been freed, and
+    // the biome still counts as covered. The explicit Dual Summits stage
+    // instead yields to its catalog fallback after repeated refusals.
     this._preparing = new Map();
     this.assetFailures = new Map();
     this._budgetRefusalAt = new Map();
+    this._signatureBudgetRefusals = new Map();
     this.deferred = new Map(); // viewId -> retry-at (ms)
     this._needed = new Set(); // views this frame wanted on screen but lacked
     this._wants = []; // every view this frame wanted (both travel sides)
@@ -343,6 +348,7 @@ export class RangePresentation {
     this._sideFrames = null;
     this._preparing.clear();
     this._budgetRefusalAt.clear();
+    this._signatureBudgetRefusals.clear();
     this._needed.clear();
     this._wants = [];
     this.shown.clear();
@@ -525,6 +531,7 @@ export class RangePresentation {
       .then((prepared) => {
         if (gen !== this.generation) return;
         this.assetFailures.delete(view.id);
+        this._signatureBudgetRefusals.delete(view.id);
         // A tour the device cannot hold: the view keeps its rail this song.
         if (prepared?.railOnly && view.cameraPaths) this.shots.keepRail?.(view.id, `rail kept: ${prepared.railOnly}`);
       })
@@ -546,6 +553,7 @@ export class RangePresentation {
           }
         }
         if (err?.reason === 'budget') {
+          if (this._signatureBudgetRefused(view, err)) return;
           // No room right now (other views still pending or pinned): try
           // again shortly instead of dropping the biome to legacy for good,
           // and let the owner free fallback scenery the retry can use.
@@ -560,6 +568,19 @@ export class RangePresentation {
       }).finally(() => {
         if (this._preparing.get(view.id) === preparation) this._preparing.delete(view.id);
       });
+  }
+
+  /** A signature stage has a cheaper catalog fallback. Both preparation and
+   * target allocation must yield to it after repeated denial. */
+  _signatureBudgetRefused(view, error) {
+    if (view.signaturePerformance !== 'dual-summits') return false;
+    const refusals = (this._signatureBudgetRefusals.get(view.id) || 0) + 1;
+    this._signatureBudgetRefusals.set(view.id, refusals);
+    if (refusals < 3) return false;
+    this.deferred.delete(view.id);
+    this.failures.set(view.id, `budget: Dual Summits unavailable after ${refusals} budget refusals: ${error.message}`);
+    this._availabilityChanged();
+    return true;
   }
 
   _budgetRefused(viewId, now = Date.now()) {
@@ -1002,7 +1023,7 @@ export class RangePresentation {
       this.reason = `budget: ${err.message}`;
       // The render target was refused room: let the owner free fallback
       // scenery (legacy strips for covered biomes) before the next frame.
-      this._budgetRefused(view.id);
+      if (!this._signatureBudgetRefused(view, err)) this._budgetRefused(view.id);
       return false;
     }
     // The incoming side needs its own target and a composition buffer,
@@ -1098,6 +1119,7 @@ export class RangePresentation {
     this.viewId = view.id;
     this.active = true;
     this.reason = null;
+    this._signatureBudgetRefusals.delete(view.id);
     if (!this.shown.has(view.id) && !this.forced && !this.exportMode && !inputs.sim.exportMode) {
       this.shown.add(view.id);
       noteViewShown(view);
@@ -1114,7 +1136,7 @@ export class RangePresentation {
    *  handoff between views never jumps the clouds. */
   _skyPan(view, incoming, frame) {
     const still = { x: 0, y: 0 };
-    if (!frame?.cameraMove || !frame.scenicViewport) return still;
+    if ((!frame?.cameraMove && !frame?.cameraStudio?.enabled) || !frame.scenicViewport) return still;
     const vp = frame.scenicViewport;
     const one = (v, side) => {
       const sideFrame = this._sideFrames?.[side] || frame;
@@ -1891,6 +1913,8 @@ export class RangePresentation {
       cameraRails: { scheduleId: this.cameraSchedule?.id ?? null, requestedMultiplier: this.cameraSchedule?.requestedMultiplier ?? 3,
         from: active ? this.frame?.railSides?.A ?? null : null, to: active ? this.frame?.railSides?.B ?? null : null },
       shotTours: { enabled: this.shots.enabled, active: this.active && this.cameraTourActive, views: this.shots.status() },
+      cameraStudio: this.scene?.cameraStudioStatus?.(active ? this.viewId : selectedViewId, this.frame?.cameraStudio)
+        || cameraStudioStatus(this.frame?.cameraStudio, { fullCoverage: !!this.tourMode }),
     };
   }
 
@@ -1913,6 +1937,11 @@ export class RangePresentation {
       timings: { ...this.timings }, catalogVersion: this.catalog.catalogVersion,
       crest: { ...this.crest.diagnostics, enabled: this.crestEnabled, probe: this.scene?.crestProbeMode ?? null },
       songRange: this._songRangeSnapshot(),
+      signaturePerformance: this.frame?.performance?.signature ? {
+        ...this.frame.performance.signature,
+        cues: this._riseMgr?.landscapeScore?.signatureScore?.cues ?? null,
+        evidence: this._riseMgr?.landscapeScore?.signatureScore?.evidence ?? null,
+      } : null,
     };
   }
 

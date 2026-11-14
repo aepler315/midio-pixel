@@ -1,5 +1,6 @@
 import { finishPreparation, prepareInSlices } from './PreparationSteps.js';
 import { terrainHeightAt } from './TerrainMesh.js';
+import { settingValue } from '../../config/appSettings.js';
 // Ridge/drainage hierarchy of a terrain view, for land that dances to the
 // music along its own geography instead of along a synthetic sine
 // (docs/landscape-dance.md). Engine-agnostic: typed arrays in, typed
@@ -45,12 +46,8 @@ const DZ = [0, 1, 1, 1, 0, -1, -1, -1];
 
 /** The land dance, 0..1: on by default. `?landDance=0` (or any 0..1 value)
  *  remains only as an opt-out for side-by-side checks. */
-export function landDanceRequest(search = globalThis.location?.search || '') {
-  const raw = new URLSearchParams(String(search || '').replace(/^\?/, '')).get('landDance');
-  if (raw == null || raw === '' || raw === 'on') return 1;
-  if (raw === 'off') return 0;
-  const v = Number(raw);
-  return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 1;
+export function landDanceRequest(search) {
+  return settingValue('landDance', search);
 }
 
 /** Min-heap of (key, index) on parallel typed arrays. */

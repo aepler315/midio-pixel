@@ -441,10 +441,11 @@ test('individual cloud textures reuse, evict with their tint, and reconstruct de
   for (let i = 0; i < 56; i++) sky._cloud(i + 500);
   assert.equal(sky.cloudCache.size, 48);
   assert.equal(sky.buffers.buffers.has('storm-cloud-103'), false);
-  assert.equal(residency.usedBytes, 48 * 192 * 128 * 4);
+  assert.equal(residency.snapshot().byOwner['range-sky-detail'].live, 48 * 192 * 128 * 4);
+  assert.ok(residency.usedBytes <= residency.budgetBytes, 'optional shared pixels respect the same graphics budget');
   assert.deepEqual(sky._cloud(103).pixels, pixels, 'returning to a world bank restores exactly its shape');
   sky._seed(316);
   assert.equal(sky.cloudCache.size, 0);
-  assert.equal(residency.usedBytes, 0);
+  assert.equal(residency.snapshot().byOwner['range-sky-detail'], undefined, 'the seed change releases renderer-owned canvases');
   sky.dispose();
 });

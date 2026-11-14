@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { PlaybackSequence } from '../src/library/PlaybackSequence.js';
 import { createAudioSelection } from '../src/audio/AudioSelection.js';
+import { dualSummitsSelection } from '../src/world/alpine/DualSummitsMusic.js';
 
 const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
 function productionSource(name) {
@@ -14,22 +15,24 @@ function productionSource(name) {
   return main.slice(start, end);
 }
 function production(name, bindings) {
-  const context = vm.createContext(bindings);
+  const context = vm.createContext({ videoExportSession: { busy: false, cancel() {} }, syncCameraStudio() {}, ...bindings });
   vm.runInContext(productionSource(name), context);
   return context;
 }
 const element = () => ({ classList: { add() {}, remove() {} }, textContent: '' });
 
 test('a manual source selection cancels a pending automatic next song', () => {
-  let cancelled = 0;
+  let cancelled = 0, cancelledExport = 0;
   const context = production('beginAudioSelection', {
     continuousPlayback: { cancel() { cancelled++; } },
+    videoExportSession: { cancel() { cancelledExport++; } },
     audioSelections: { begin: source => ({ source }) }, selectionExportSettings: new WeakMap(),
     exportSetup: { snapshot: () => null }, loadGen: 0, running: false,
     loadAudioFiles: {}, cancelUrlLoad() {},
   });
   context.beginAudioSelection('local');
   assert.equal(cancelled, 1);
+  assert.equal(cancelledExport, 1, 'the new song owns the page after cancelling an old export');
 });
 
 test('completion preserves results and schedules the next song after recording finalization', () => {
@@ -54,7 +57,7 @@ test('an owned continuation keeps its world and skips the world picker', async (
   const ticket = {};
   const context = production('offerWorldsThenStart', {
     clearCustomWorld() {}, PROFILE_VERSION: 1, buildSongProfile: () => assert.fail('identity already exists'),
-    resolveSongSeed: () => 7, prepareSongTerrain: async () => null,
+    resolveSongSeed: () => 7, prepareSongTerrain: async () => null, dualSummitsSelection,
     recordFitDiagnostic: () => null, lastFitDiagnostic: null, pendingWorldStart: null,
     readBulkExportFromUrl: () => null, URL_PICKS_WORLD: false, experience: 'landscape', BIOME_WAIT_MS: 1,
     worldForExperience: () => 'range', worldExperience: () => 'trio',

@@ -1,3 +1,4 @@
+import { settingValue } from '../../config/appSettings.js';
 // Range v2 edge policy (natural-rendering Task 1). Decides how many
 // multisamples the offscreen scenic target gets, and accounts for the memory
 // that costs, before anything is allocated.
@@ -26,14 +27,11 @@ export const MAX_RANGE_SAMPLES = 4;
 /** Physical pixels above which 4x falls back to 2x (memory and fill). */
 export const MSAA_4X_PIXEL_LIMIT = 2560 * 1440;
 
-/** Developer override: ?rangeMsaa=0|2|4 (anything else is ignored). */
-export function msaaOverride(search = (typeof location !== 'undefined' ? location.search : '')) {
-  try {
-    const raw = new URLSearchParams(String(search || '').replace(/^\?/, '')).get('rangeMsaa');
-    if (raw == null) return null;
-    const n = Number(raw);
-    return [0, 2, 4].includes(n) ? n : null;
-  } catch { return null; }
+/** The Terrain antialiasing setting (registry id rangeMsaa; URL
+ *  ?rangeMsaa=0|2|4): a sample count, or null for automatic. */
+export function msaaOverride(search) {
+  const value = settingValue('rangeMsaa', search);
+  return value === 'auto' ? null : Number(value);
 }
 
 /**

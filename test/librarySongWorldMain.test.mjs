@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { createSongWorldRecord, describeSongWorld } from '../src/library/SongWorld.js';
 import { planSongScenes } from '../src/world/terrain/SongScenePlan.js';
+import { dualSummitsSelection } from '../src/world/alpine/DualSummitsMusic.js';
 
 const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
 const start = main.indexOf('function offerWorldsThenStart(');
@@ -20,7 +21,7 @@ function setup({ rejectStorage = false } = {}) {
   const ui = { progress: [], loader: element(true), hud: element(false), nav: element(false) };
   const context = vm.createContext({ clearCustomWorld() {}, PROFILE_VERSION: 2, createSongWorldRecord,
     showProgress: (text) => ui.progress.push(text), loaderEl: ui.loader, hudEl: ui.hud, rangeNavigationEl: ui.nav,
-    buildSongProfile: () => profile, resolveSongSeed: () => 88,
+    buildSongProfile: () => profile, resolveSongSeed: () => 88, dualSummitsSelection,
     musicLibrary: { async noteSongWorld(track, record) { calls.push({ track, record }); if (rejectStorage) throw Error('storage unavailable'); } },
     prepareSongTerrain: async (p, seed) => { const plan = planSongScenes(p, seed); plans.push(plan); return plan; },
     pendingWorldStart: null, lastFitDiagnostic: null, recordFitDiagnostic: () => null,

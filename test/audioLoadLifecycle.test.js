@@ -37,8 +37,8 @@ function harness() {
     readBulkExportFromUrl: () => null, rangeListening: false, fullAnalysisPending: null, adoptFullAnalysisLive() {},
     AUDIO_LOAD_LIMITS, accumulateDecodedAudioBytes, accumulateDecodedByteLength, decodedAudioByteLength,
     accumulateEncodedAudioBytes, audioAbortError, validateAudioFiles, validateDecodedAudioBuffer, validateDecodedByteLength,
-    AbortController, audioSelections: createAudioSelection(), normalizeSourceMetadata, ...sessionIdentity,
-    continuousPlayback: new ContinuousPlayback(),
+    AbortController, URLSearchParams, audioSelections: createAudioSelection(), normalizeSourceMetadata, ...sessionIdentity,
+    continuousPlayback: new ContinuousPlayback(), videoExportSession: { cancel() {} },
     selectionExportSettings: new WeakMap(), exportSetup: { snapshot: () => null },
     cancelUrlLoad() {}, buildLyricSections: () => null,
     loadGen: 0, groove: new GrooveFingerprint(), lyricsDisabled: true,
@@ -57,6 +57,8 @@ function harness() {
     paramBus: {},
     lastSongName: '', lastAudioBuffer: null,
     DEV_MODE: false, offerWorldsThenStart() {},
+    // The Dual Summits performance setting (settings store); automatic here.
+    settings: { get: id => (id === 'performance' ? 'auto' : undefined) },
     packBundle: () => ({}), putBundle: async () => {},
     // A load started from the music library reports the decoded duration
     // back to it -- the one fact a folder scan cannot know.

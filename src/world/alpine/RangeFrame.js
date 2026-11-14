@@ -27,6 +27,7 @@ import { profileTravelPx } from '../terrain/ProfileTravel.js';
 import { styleDials } from '../../render/VisualStyle.js';
 import { cloudSeaAt } from './CloudSea.js';
 import { rangeUserCamera } from './RangeCamera.js';
+import { normalizeCameraStudioSettings } from './CameraStudio.js';
 import { hexLerp } from '../../utils/color.js';
 import { sampleEffectsMusic } from './EffectsMusic.js';
 import { sampleMood } from './MoodScore.js';
@@ -273,6 +274,9 @@ export function heardBeats(transport, timeMs) {
 let danceRequest = null;
 /** The land dance for this page (on unless ?landDance=0), read once. */
 export function requestedLandDance() { return danceRequest ??= landDanceRequest(); }
+/** A new RangeScene admits memory for the current Land dance setting, so
+ *  the request is captured per scene (settings lifecycle: renderer). */
+export function resetLandDanceRequest() { danceRequest = null; }
 
 export const RANGE_MOTION_REFERENCE_M = 106.7;
 
@@ -378,7 +382,11 @@ export function buildRangeFrame({
   const choice = (b) => forcedView || sceneAssignments?.get?.(b) || null;
   const timeMs = sim.heardTimeMs ?? (mgr.tSec || 0) * 1000;
   const narrative = sim.rangeNarrativeAt?.(timeMs) || null;
-  const score = landscapeScoreFor(mgr).at(timeMs, { preview: !!mgr.terrainPreview });
+  const visibleViews = renderedViews || [choice(biomeFrom)?.view, choice(biomeTo)?.view].filter(Boolean);
+  // An admitted stage can still fail on GPU preparation. Its catalog fallback
+  // must regain the ordinary camera, relief and weather on that very frame.
+  const signatureActive = visibleViews.length > 0 && visibleViews.every(v => v.signaturePerformance === 'dual-summits');
+  const score = landscapeScoreFor(mgr).at(timeMs, { preview: !!mgr.terrainPreview, signature: signatureActive });
   // Scenic framing opens on major musical arrivals without driving the
   // stage's independent impact/dip/tilt controls.
   const performance = { ...score, lens: score.revealLens || NEUTRAL_LENS };
@@ -448,6 +456,15 @@ export function buildRangeFrame({
   const land = landDance(landMotion(music, landMoment01(mgr.sections, timeMs, mgr._landHistory),
     { tSec: timeMs / 1000, seed: sim.songSeed ?? 0 }),
   { dance01: mgr.landDance01 ?? requestedLandDance(), beats: heardBeats(mgr.beatTransport, timeMs), tSec: timeMs / 1000 });
+  if (score.signature) {
+    for (const key of ['amplitudeM', 'kickM', 'gestureM', 'melodicM', 'structuralM', 'spineM', 'drainM', 'totalBoundM']) {
+      if (Number.isFinite(land[key])) land[key] *= .18;
+    }
+  }
+  const weather = stormAt(mgr, timeMs);
+  const signatureWeather = score.signature ? { ...weather, flash: 0,
+    amount: weather.amount * (1 - .85 * score.signature.convergence01),
+    break01: Math.max(weather.break01, score.signature.convergence01 * .7) } : weather;
   const ridgeViewport = { width: sim.stageW || 1280, height: sim.stageH || 720 };
   // These measurements describe legacy painted ridges and their moon
   // relationship. The compact smooth sky consumes neither; keep the
@@ -490,11 +507,12 @@ export function buildRangeFrame({
     slotRise01: performance.slotRise01 ?? null,
     // How much of the Forest Service map under the land shows (quiet passages).
     cloudSea01: cloudSeaAt(mgr, timeMs),
-    storm: stormAt(mgr, timeMs),
+    storm: signatureWeather,
     performance,
     cameraEffects: lens,
     // Camera: this section's slow cinematic move, and the listener's zoom.
     cameraMove: performance.camera,
+    cameraStudio: normalizeCameraStudioSettings(sim.cameraStudioSettings),
     userCamera: sim.userCameraEnabled ? rangeUserCamera.sample() : null,
     scenicViewport, groundViewport,
     light: lightState, music: land, effects, ridges, narrative, groundBars, emitters,
