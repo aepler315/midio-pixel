@@ -19,6 +19,7 @@ import { chooseSongBiomes } from './BiomeSet.js';
 import { seedTicket, songTerrainTarget } from './RangeMatcher.js';
 import { sceneOdds, SCENIC_FAIR_SHARE } from './SceneCatalog.js';
 import MASSIF_CATALOG from './massifCatalogData.js';
+import { settingValue } from '../../config/appSettings.js';
 
 export const SONG_RANGE_VERSION = 2;
 
@@ -36,16 +37,15 @@ const SALT_MIRROR = 0x5c0;
 
 /** `?songRange=1` (or `on`) turns on composed ranges. Default off.
  *  `?songRange=force` also turns them on, and is diagnostic: see songRangeForced. */
-export function songRangeEnabled(search = globalThis.location?.search || '') {
-  const v = new URLSearchParams(search || '').get('songRange');
-  return v === '1' || v === 'on' || v === 'force';
+export function songRangeEnabled(search) {
+  return settingValue('songRange', search) !== 'off';
 }
 
 /** Diagnostic `?songRange=force`: plan every song, with its own family or else the first family that
  *  has pieces, whatever its home biome, so review captures with any song
  *  reach a composed range. Never production evidence. */
-export function songRangeForced(search = globalThis.location?.search || '') {
-  return new URLSearchParams(search || '').get('songRange') === 'force';
+export function songRangeForced(search) {
+  return settingValue('songRange', search) === 'force';
 }
 
 const fits = (slot, piece) => piece.tiles[0] <= slot.tiles[2] && piece.tiles[1] <= slot.tiles[3]
@@ -152,8 +152,8 @@ export function planSongRange(profile, seed, { catalog = MASSIF_CATALOG, forced 
 
 /** Diagnostic `?songRangeLayout=<pilot id>`: a Phase 1 layout run through
  *  the runtime path, to compare with its offline stage. Null when absent. */
-export function songRangeLayoutParam(search = globalThis.location?.search || '') {
-  return new URLSearchParams(search || '').get('songRangeLayout') || null;
+export function songRangeLayoutParam(search) {
+  return settingValue('songRangeLayout', search);
 }
 
 /** The plan for a catalog pilot layout, standing in for `biome`. */

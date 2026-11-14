@@ -1,3 +1,4 @@
+import { settingValue } from '../config/appSettings.js';
 // Perf-degradation ladder (spec §6.2): "under load it sheds in order: vision
 // loop -> particle caps -> crack refraction -> L7 foreground veil -> biome
 // crossfade quality." Sheds one rung after a sustained run of over-budget
@@ -105,14 +106,10 @@ export const MAX_LEVEL = 6;
  *  otherwise a coarse-pointer/small-viewport device heuristic starts a
  *  phone a rung down so the first second is already smooth rather than
  *  janky-then-corrected. */
-export function resolvePerfStartLevel(search = '', { isCoarsePointer = false, isSmallViewport = false } = {}) {
-  try {
-    const raw = search || '';
-    const q = new URLSearchParams(raw.startsWith('?') ? raw.slice(1) : raw);
-    const p = (q.get('perf') || '').toLowerCase();
-    if (p === 'lite') return 2;
-    if (p === 'high') return 0;
-  } catch { /* fall through to the device heuristic */ }
+export function resolvePerfStartLevel(search, { isCoarsePointer = false, isSmallViewport = false } = {}) {
+  const p = settingValue('perf', search);
+  if (p === 'lite') return 2;
+  if (p === 'high') return 0;
   return (isCoarsePointer || isSmallViewport) ? 1 : 0;
 }
 

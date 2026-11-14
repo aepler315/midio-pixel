@@ -219,8 +219,10 @@ try {
     assert.deepEqual(off.chapterBiomes, active.originalBiomes);
     assert.ok(off.chapters.every(c => active.originalBiomes.includes(c.biome)));
     assert.equal(await page.evaluate(() => window.__SMW.audioEngine === window.__tourAccessAudio), true);
-    assert.equal(await page.evaluate(() => localStorage.getItem('range-tour')), null);
-    assert.equal(new URL(page.url()).searchParams.get('rangeTour'), 'off');
+    // The settings store saves the choice and drops the URL override it
+    // supersedes (docs/settings.md), so a reload honours the saved value.
+    assert.equal(await page.evaluate(() => localStorage.getItem('range-tour')), 'off');
+    assert.equal(new URL(page.url()).searchParams.has('rangeTour'), false);
     await record({ name: 'paused disable restores geography and chapters', paused, off });
     console.log('Tour access: paused disable passed; re-enabling the tour.');
     await page.locator('#range-tour-toggle').check({ timeout: 300000 });
@@ -232,7 +234,7 @@ try {
     assert.deepEqual(onPaused.chapterBiomes, ['CONIFER']);
     assert.ok(onPaused.chapters.every(c => c.biome === 'CONIFER'));
     assert.equal(await page.evaluate(() => localStorage.getItem('range-tour')), 'tetons');
-    assert.equal(new URL(page.url()).searchParams.get('rangeTour'), 'tetons');
+    assert.equal(new URL(page.url()).searchParams.has('rangeTour'), false);
     await record({ name: 'paused enable retains clock and seed without stale activity', onPaused });
     console.log('Tour access: paused off/on preserved clock, seed and chapters; checking playing toggle.');
     const playingToggle = await within('playing tour toggle', page.evaluate(async () => {

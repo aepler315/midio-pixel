@@ -12,6 +12,7 @@
 // (sRGB8 + AO8: a texel per column, or per control lattice vertex), and the
 // ground the mesh displays.
 import { BANDS } from './TerrainMesh.js';
+import { settingEntry } from '../../config/appSettings.js';
 
 export const COMPILED_SCHEMA = 'midio.compiled-terrain';
 export const COMPILED_VERSION = 1;
@@ -47,22 +48,19 @@ export const COMPILED_PILOT = Object.freeze({
  *  ?compiledTerrainGroup=1|2|4|8 (draw batching, tiles per block side)
  *  ?compiledTerrainProfile=NAME (packs built with --profile NAME).
  *  An unknown value is reported, never guessed. */
-export function compiledTerrainRequest(search = '') {
-  const q = new URLSearchParams(search);
-  const raw = q.get('compiledTerrain');
-  const off = raw == null || raw === '' || raw === 'off' || raw === 'original';
-  const mode = off ? 'original' : COMPILED_REPRESENTATIONS.includes(raw) ? raw : 'original';
-  const camRaw = q.get('compiledTerrainCamera');
-  const camera = camRaw && Object.hasOwn(COMPILED_PILOT.cameras, camRaw) ? camRaw : null;
+export function compiledTerrainRequest(search) {
+  const entry = id => settingEntry(id, search);
+  const requested = entry('compiledTerrain');
+  const mode = COMPILED_REPRESENTATIONS.includes(requested.value) ? requested.value : 'original';
+  const cam = entry('compiledTerrainCamera');
+  const camera = cam.value && Object.hasOwn(COMPILED_PILOT.cameras, cam.value) ? cam.value : null;
   // Draw batching (tiles per side of a merged block); a measuring aid.
-  const groupRaw = Number(q.get('compiledTerrainGroup'));
-  const groupTiles = [1, 2, 4, 8].includes(groupRaw) ? groupRaw : null;
-  const profileRaw = q.get('compiledTerrainProfile');
-  const profile = profileRaw && PROFILE_NAME.test(profileRaw) ? profileRaw : null;
+  const group = entry('compiledTerrainGroup').value;
+  const profile = entry('compiledTerrainProfile').value;
   return {
-    mode, camera, groupTiles, profile,
-    invalid: !off && mode === 'original' ? raw : null,
-    invalidCamera: camRaw && !camera ? camRaw : null,
+    mode, camera, groupTiles: group === 'auto' ? null : group, profile: profile && PROFILE_NAME.test(profile) ? profile : null,
+    invalid: requested.rejected ? requested.rejected.raw : null,
+    invalidCamera: cam.requested && !camera ? cam.requested : null,
   };
 }
 

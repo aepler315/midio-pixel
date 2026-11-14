@@ -24,6 +24,7 @@ import { cameraPoseAt, boxMayBeVisible, viewDepthToBox, focalPx, projectPoint, c
 import { stageFloorHeight, inStageLake, slotOrigin } from '../terrain/StageFloor.js';
 import { songRangeKey } from '../terrain/SongRangePlan.js';
 import { SLOT_RISE_SLOTS } from './LandRise.js';
+import { settingValue } from '../../config/appSettings.js';
 
 export const STAGE_KIND = 'song-range-stage';
 export const PIECE_KIND = 'massif-piece';
@@ -41,11 +42,8 @@ export const STAGE_RELIEF = Object.freeze({ targetY: 0.4, maxScale: 3, aspect: 1
 
 /** Diagnostic `?rangeRelief=<scale>`: a fixed relief scale (1 = measured) for
  *  review captures, in place of the framing rule. Null when absent or invalid. */
-export function reliefScaleFrom(search = globalThis.location?.search || '') {
-  const raw = new URLSearchParams(search || '').get('rangeRelief');
-  if (raw == null || raw === '') return null;
-  const v = Number(raw);
-  return Number.isFinite(v) && v >= 0.25 && v <= 6 ? v : null;
+export function reliefScaleFrom(search) {
+  return settingValue('rangeRelief', search);
 }
 
 /**

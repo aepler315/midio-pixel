@@ -54,7 +54,7 @@ import { mistParams, mistDrift, easeMistSteps, atmosphereMusic } from './RangeAt
 import { mirrorSize, mirrorLevelFor, mirrorCameraFor, mirrorTextureMatrix, MIRROR_CLIP_M, MIRROR_LIFT } from './WaterMirror.js';
 import { drawnTile, terrainHeightRange } from './TerrainPackage.js';
 import { tourGround, railGroundData, setTerrainDrawMode, drawnIndexCount } from './RailDraw.js';
-import { scenicProjection, calibrateRangeMusic, rangeCameraCalibration, requestedLandDance } from './RangeFrame.js';
+import { scenicProjection, calibrateRangeMusic, rangeCameraCalibration, requestedLandDance, resetLandDanceRequest } from './RangeFrame.js';
 import { applyGlacierUniforms, glacierErrors, glacierSample } from './GlacierField.js';
 import { riverChannelErrors } from './RiverChannel.js';
 import { buildFocusM } from './BuildFocus.js';
@@ -72,6 +72,7 @@ import { dualSummitsPose } from './DualSummitsPerformance.js';
 import { RiseGround, riseGroundBytes } from './RiseGround.js';
 import { buildOpeningCoverageAsync, createOpeningCoverage, openingCoverageBytes } from './OpeningCoverage.js';
 import { openingOcean01 } from './BuildOcean.js';
+import { settingValue } from '../../config/appSettings.js';
 // Storm light, linear: the deck's underside, the rain-dimmed horizon, the
 // rain air, per episode kind (RangeStorm STORM_KINDS zenith/horizon/air).
 // The air meets the slate the sky paints at the horizon (drawStormSky).
@@ -263,18 +264,21 @@ export class RangeScene {
     this.THREE = THREE;
     this.diag = diag;
     // Developer-only representation probe; normal shaders compile it out.
-    this.forestDebug = new URLSearchParams(globalThis.location?.search || '').get('forestDebug') === '1';
+    // Settings with the renderer lifecycle are read once per scene; a
+    // change applies by recreating the presentation (docs/settings.md).
+    this.forestDebug = settingValue('forestDebug');
     this.terrainShading = terrainShadingMode();
-    this.deformationGradient = deformationGradientMode(globalThis.location?.search || '');
-    this.materialFeatures = materialFeatureMode(globalThis.location?.search || '');
-    this.canopySummary = canopySummaryEnabled(globalThis.location?.search || '');
+    this.deformationGradient = deformationGradientMode();
+    this.materialFeatures = materialFeatureMode();
+    this.canopySummary = canopySummaryEnabled();
+    resetLandDanceRequest();
     // Developer-only compiled terrain experiment (?compiledTerrain=, see
     // docs/compiled-terrain-experiment.md): what was asked, and per view
     // what was actually drawn and why.
-    this.compiledTerrain = { request: compiledTerrainRequest(globalThis.location?.search || ''), views: {} };
+    this.compiledTerrain = { request: compiledTerrainRequest(), views: {} };
     this._cameraViews = new WeakMap();
     // Developer-only terrain views (?rangeDebug=roughness etc.).
-    this.debugMask = TERRAIN_DEBUG_MODES[new URLSearchParams(globalThis.location?.search || '').get('rangeDebug')] ?? 0;
+    this.debugMask = Object.hasOwn(TERRAIN_DEBUG_MODES, settingValue('rangeDebug')) ? TERRAIN_DEBUG_MODES[settingValue('rangeDebug')] : 0;
     this.residency = residency;
     this.budget = budget;
     this.canvas = canvas || document.createElement('canvas');

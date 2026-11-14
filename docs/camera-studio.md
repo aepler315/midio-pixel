@@ -1,6 +1,6 @@
 # Camera Studio
 
-Open Settings (Display during playback) and enable **Camera Studio**. Its
+Open Settings and enable **Camera Studio**. Its
 collapsible controls stay fixed on the HUD independently of idle fading, and
 are excluded from snapshots and video pixels. Settings are saved on this device.
 Turn it off to return to the automatic camera.
@@ -17,8 +17,8 @@ Some landscapes contain only terrain visible from an authored camera. These
 views support inward distance/lens crops and disable spatial controls. Full
 terrain tours support spatial moves with terrain clearance, shared terrain and
 forest coverage, and resource admission. The panel reports effective capability.
-Choose **Settings → Camera terrain → Teton Range · full camera** to access the
-spatial controls without changing a URL. Choose **Song landscapes** to return.
+Choose **Settings → Camera → Camera tours → Teton highway tour** to access the
+spatial controls without changing a URL. Choose **Music-timed tours** to return.
 Arc orbit uses a bounded front-side arc because existing terrain is coarser on
 its far side; it does not promise a full 360° revolution.
 Wide or close views can need more geometry than a rail; the renderer retains its

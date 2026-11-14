@@ -126,3 +126,34 @@ and retained the synchronous-preflight performance limitation above.
 
 The in-memory 512 MiB limit caps encoded output bytes. Canvas, source audio,
 encoder/muxer buffers and Blob snapshot overhead use additional memory.
+
+
+## Unified Settings merge follow-up
+
+Merged main `8ac50b0` into the Camera Studio branch. Kept the generated Settings
+panel and its store-driven tour lifecycle, added capture-time guards to unified
+settings, and retained the Camera Studio panel and MP4 dialogs. Full Teton terrain
+is now selected through Camera → Camera tours → Teton highway tour; the camera
+tour probe and user guide follow that control.
+
+Fresh checks: lint, module graph (466 modules), production staging, Ridgeview
+(26 tests), focused snapshot/camera lifecycle tests (13 tests), Settings browser
+smoke at desktop/phone/head-unit viewport sizes, native Chrome full-terrain tour
+smoke, and native Chrome application/MP4 export smoke all passed. The export smoke
+verified cancellation restoration, camera-pose parity, complete H.264 frame count,
+and non-silent full-length AAC music. Browser reports and captures are under
+`.smoke/merge-settings-chrome-20261113`, `.smoke/merge-camera-tour-20261113` and
+`.smoke/merge-camera-export-20261113`; captures remain untracked. The initial
+Settings run lacked the new Playwright headless-shell binary; rerunning against
+installed Chrome passed. Inspected the export dialog, head-unit Settings and the
+generated tour fixture at 12 seconds. Independent read-only review found no
+critical or important merge-resolution issues. No target-device performance or
+new artistic approval is claimed.
+
+The full Node 24.22.3 application suite passed: 5,683 passed, 20 skipped, zero
+failed (5,703 total). Optional Chromium-dependent Node tests were skipped because
+the updated Playwright headless shell is not installed; the separate native
+Chrome camera, export and Settings probes above passed. An earlier Node 25 run
+exposed the snapshot guard-order regression; preserving the existing snapshot
+checks before the new capture guard fixed it, confirmed by focused and full-suite
+reruns. No merge markers or whitespace errors remain.

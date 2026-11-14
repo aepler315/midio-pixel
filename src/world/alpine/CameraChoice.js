@@ -16,6 +16,7 @@
 // Pure: given a restored shot timeline and the view's visible intervals it
 // returns the verdict and the numbers it used, for status and review.
 import { SHOT_KEY_MS } from '../terrain/ShotTimeline.js';
+import { settingValue } from '../../config/appSettings.js';
 
 /** Where a planned tour stops beating its rail. Calibrated on the R7
  *  candidate libraries (docs/landscape-camera.md#one-default-camera). */
@@ -76,8 +77,8 @@ export function tourBeatsRail(timeline, visible = null, gate = AUTO_TOUR_GATE) {
   return { ok: !reason, reason, metrics: m };
 }
 
-/** ?rangeTourGate=off plays every planned tour (review of weak plans). */
-export function autoGateEnabled(search = (typeof location !== 'undefined' ? location.search : '')) {
-  try { return new URLSearchParams(String(search || '').replace(/^\?/, '')).get('rangeTourGate') !== 'off'; }
-  catch { return true; }
+/** The Tour quality gate setting; ?rangeTourGate=off plays every planned
+ *  tour (review of weak plans). */
+export function autoGateEnabled(search) {
+  return settingValue('rangeTourGate', search);
 }

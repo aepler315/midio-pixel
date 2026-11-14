@@ -31,6 +31,8 @@ import { AUTO_TOUR_GATE, autoGateEnabled } from './CameraChoice.js';
 import { headingPitch, lookDir } from '../terrain/ShotPath.js';
 import { RangeCrest, crestBuildOpacity, CREST_GRID_SCAN_LEVEL } from './RangeCrest.js';
 import { openingOcean01 } from './BuildOcean.js';
+import { appSettings } from '../../config/appSettings.js';
+import { resolveSettings } from '../../config/settingsRegistry.js';
 
 /** Native terrain backing for a full-resolution composition. The selected
  * grid is fitted to the same aspect-preserving output rectangle. */
@@ -62,26 +64,27 @@ const retryUrl = (url, attempt) => (attempt ? `${url}?retry=${attempt}` : url);
  *  other candidate shot libraries play, for review only. In shots mode a planned
  *  tour plays only where it beats the rail for the song (CameraChoice.js);
  *  ?rangeTourGate=off plays every planned tour. */
-export function resolveRangeMode(search = (typeof location !== 'undefined' ? location.search : ''), storage = null) {
-  try {
-    const q = new URLSearchParams(String(search || '').replace(/^\?/, ''));
-    const raw = (q.get('rangeRenderer') || RANGE_DEFAULT_MODE).toLowerCase();
-    const forcedViewId = q.get('rangeView') || null;
-    const diag = q.get('rangeDiag') === 'markers' ? 'markers' : null;
-    let saved = null;
-    try { saved = (storage || globalThis.localStorage)?.getItem('range-tour'); } catch { /* Private-mode storage can be unavailable. */ }
-    const choice = q.has('rangeTour') ? q.get('rangeTour') : saved;
-    const tour = choice === 'tetons' ? 'tetons' : null;
-    const shots = !tour && choice !== 'off';
-    // ?rangeTourIntended=1 lets a tour shot framed by an alternative try its
-    // intended subject. It replaces an accepted subject, so it is opt-in.
-    const upgradeIntended = q.get('rangeTourIntended') === '1';
-    return { mode: tour ? 'v2' : RANGE_RENDERER_MODES.includes(raw) ? raw : RANGE_DEFAULT_MODE, forcedViewId: tour ? 'teton-range-tour' : forcedViewId, diag, tour, upgradeIntended,
-      shots, shotCandidates: q.get('rangeShots') === 'all' };
-  } catch {
-    return { mode: RANGE_DEFAULT_MODE, forcedViewId: null, diag: null, tour: null, upgradeIntended: false, shots: true, shotCandidates: false };
+export function resolveRangeMode(search, storage = null) {
+  // Without arguments: the page's settings store. With an explicit search
+  // (and optional storage), that input alone, as before the registry.
+  let v;
+  if (search === undefined && storage === null) v = appSettings().values;
+  else {
+    let store = storage;
+    if (!store) { try { store = globalThis.localStorage ?? null; } catch { store = null; } }
+    const { entries } = resolveSettings({ search: search ?? '', storage: store, ids: RANGE_MODE_SETTINGS });
+    v = Object.fromEntries(RANGE_MODE_SETTINGS.map(id => [id, entries[id].value]));
   }
+  const tour = v.rangeTour === 'tetons' ? 'tetons' : null;
+  return {
+    mode: tour ? 'v2' : RANGE_RENDERER_MODES.includes(v.rangeRenderer) ? v.rangeRenderer : RANGE_DEFAULT_MODE,
+    forcedViewId: tour ? 'teton-range-tour' : v.rangeView || null, diag: v.rangeDiag ? 'markers' : null, tour,
+    // rangeTourIntended lets a tour shot framed by an alternative try its
+    // intended subject. It replaces an accepted subject, so it is opt-in.
+    upgradeIntended: !!v.rangeTourIntended, shots: !tour && v.rangeTour !== 'off', shotCandidates: !!v.rangeShots,
+  };
 }
+const RANGE_MODE_SETTINGS = ['rangeRenderer', 'rangeView', 'rangeDiag', 'rangeTour', 'rangeTourIntended', 'rangeShots'];
 
 /** Which legacy range layer's travel timing each partition follows. */
 const PASS_LAYER = { far: 'L2', mid: 'L4', near: 'L5' };

@@ -7,12 +7,12 @@ import { normalizeCameraStudioSettings } from '../src/world/alpine/CameraStudio.
 const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
 
 test('full camera terrain can be selected visibly while preserving the song position and pause', () => {
-  const start = main.indexOf('function setRangeTourMode(choice) {');
+  const start = main.indexOf('function applyTourMode(choice) {');
   assert.ok(start >= 0, 'one route action serves the Settings terrain selector');
   const end = main.indexOf('\n}\n', start) + 3;
   let restarted, mode;
   const context = vm.createContext({ videoExportSession: { busy: false }, bulkExportArmed: false,
-    reelSaver: { busy: false }, snapshotBusy: false, paused: true, running: true,
+    settings: { markApplied() {} }, reelSaver: { busy: false }, snapshotBusy: false, paused: true, running: true,
     localStorage: { setItem() {} }, URL, location: { href: 'http://localhost/' }, history: { replaceState() {} },
     rangePresentation: { setTourMode(value) { mode = value; } }, renderer: {},
     applyTerrainTourPolicy() {}, getWorld: () => ({ kind: 'alpine' }),
@@ -21,7 +21,9 @@ test('full camera terrain can be selected visibly while preserving the song posi
     startTimeline(data, options) { restarted = { data, options }; },
     syncRangeTourControl() {}, syncCameraStudio() {}, updatePauseButtonUI() {},
   });
-  vm.runInContext(main.slice(start, end) + '\nsetRangeTourMode("tetons");', context);
+  const rebuildStart = main.indexOf('function rebuildSceneInPlace(overrides = {}) {');
+  const rebuildEnd = main.indexOf('\n}\n', rebuildStart) + 3;
+  vm.runInContext(main.slice(rebuildStart, rebuildEnd) + main.slice(start, end) + '\napplyTourMode("tetons");', context);
   assert.equal(mode, 'tetons');
   assert.equal(restarted.options.songSeed, 7);
   assert.equal(restarted.options.startAtMs, 5000);
@@ -31,18 +33,20 @@ test('full camera terrain can be selected visibly while preserving the song posi
 });
 
 test('full terrain can be selected on the title screen before any song exists', () => {
-  const start = main.indexOf('function setRangeTourMode(choice) {');
+  const start = main.indexOf('function applyTourMode(choice) {');
   const end = main.indexOf('\n}\n', start) + 3;
   let selected;
   const context = vm.createContext({ videoExportSession: { busy: false }, bulkExportArmed: false,
-    reelSaver: { busy: false }, snapshotBusy: false, paused: false, running: false,
+    settings: { markApplied() {} }, reelSaver: { busy: false }, snapshotBusy: false, paused: false, running: false,
     localStorage: { setItem() {} }, URL, location: { href: 'http://localhost/' }, history: { replaceState() {} },
     rangePresentation: { setTourMode(mode) { selected = mode; } }, renderer: null,
     applyTerrainTourPolicy() {}, getWorld: () => assert.fail('there is no selected world yet'),
     lastTimelineData: null, cameraRun: null, sim: null, audioEngine: null,
     syncRangeTourControl() {}, syncCameraStudio() {},
   });
-  vm.runInContext(main.slice(start, end) + '\nsetRangeTourMode("tetons");', context);
+  const rebuildStart = main.indexOf('function rebuildSceneInPlace(overrides = {}) {');
+  const rebuildEnd = main.indexOf('\n}\n', rebuildStart) + 3;
+  vm.runInContext(main.slice(rebuildStart, rebuildEnd) + main.slice(start, end) + '\napplyTourMode("tetons");', context);
   assert.equal(selected, 'tetons');
 });
 
@@ -103,3 +107,14 @@ test('camera studio marks its fixed overlay busy while snapshots borrow the canv
   vm.runInContext(main.slice(start, end) + '\nsyncCameraStudio();', context);
   assert.equal(state.busy, true);
 });
+
+for (const busy of ['video', 'bulk', 'reel', 'snapshot']) {
+  test(`unified camera settings cannot rebuild the scene during ${busy} capture`, () => {
+    const start = main.indexOf('function settingBlockedReason(id) {');
+    const end = main.indexOf('\n}\n', start) + 3;
+    const context = vm.createContext({ videoExportSession: { busy: busy === 'video' },
+      bulkExportArmed: busy === 'bulk', reelSaver: { busy: busy === 'reel' }, snapshotBusy: busy === 'snapshot' });
+    vm.runInContext(main.slice(start, end), context);
+    assert.ok(context.settingBlockedReason('rangeTour'));
+  });
+}

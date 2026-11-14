@@ -2,6 +2,7 @@ import catalog from '../world/terrain/sceneCatalogData.js';
 import { createVoxelRangeScore } from '../world/alpine/VoxelRangeScore.js';
 import { sha256Hex } from '../world/alpine/RangeAssets.js';
 import voxelAsset from '../assets/range/v2/voxel/white-mountains-owens.v2.js';
+import { settingValue } from '../config/appSettings.js';
 
 const VIEW_ID = 'white-mountains-owens';
 const VIEW = catalog.views.find(view => view.id === VIEW_ID);
@@ -139,8 +140,8 @@ void main() {
   pixel = vec4(color + vec3(0.10,0.075,0.035)*glow,1.0);
 }`;
 
-export function voxelRangeRequested(search = '') {
-  return new URLSearchParams(search).get('voxelRange') === '1';
+export function voxelRangeRequested(search) {
+  return settingValue('voxelRange', search);
 }
 
 export function decodeVoxelRangePack(buffer) {

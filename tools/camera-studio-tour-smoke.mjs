@@ -51,8 +51,8 @@ try {
   await page.goto(evaluationEntryUrl(server.url, { ...settings, tour: null }));
   await page.locator('#titleSettings').evaluate(node => { node.open = true; });
   assert.equal(new URL(page.url()).searchParams.has('rangeTour'), false);
-  await page.locator('#range-terrain-mode').selectOption('tetons');
-  report.selectedFullTerrainThroughSettings = await page.locator('#range-terrain-mode').inputValue() === 'tetons';
+  await page.locator('#range-tour-toggle-kind').selectOption('tetons');
+  report.selectedFullTerrainThroughSettings = await page.locator('#range-tour-toggle-kind').inputValue() === 'tetons';
   report.afterSelection = await page.evaluate(() => ({ href: location.href, saved: localStorage.getItem('range-tour'), range: window.__SMW?.rangeState }));
   assert.equal(report.selectedFullTerrainThroughSettings, true);
   const lyrics = page.locator('#lyricGroundingBtn');

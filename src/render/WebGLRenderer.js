@@ -19,6 +19,7 @@
 // Toggle with ?renderer=webgl (or createRenderer(canvas, 'webgl')).
 
 import { Renderer } from './Renderer.js';
+import { settingValue } from '../config/appSettings.js';
 
 const VERT = `#version 300 es
 in vec2 a_pos;
@@ -319,14 +320,8 @@ export function createRenderer(canvas, mode = 'canvas') {
   return new Renderer(canvas);
 }
 
-/** Resolve renderer mode from URL (?renderer=webgl) or explicit override. */
-export function resolveRendererMode(search = (typeof location !== 'undefined' ? location.search : '')) {
-  try {
-    const raw = search || '';
-    const q = new URLSearchParams(raw.startsWith('?') ? raw.slice(1) : raw);
-    const m = (q.get('renderer') || 'canvas').toLowerCase();
-    return m === 'webgl' ? 'webgl' : 'canvas';
-  } catch {
-    return 'canvas';
-  }
+/** The WebGL post-effects overlay setting (registry id renderer; URL
+ *  ?renderer=webgl), or the mode an explicit search string asks for. */
+export function resolveRendererMode(search) {
+  return settingValue('renderer', search);
 }

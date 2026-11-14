@@ -36,6 +36,12 @@ frame-by-frame browser MP4 exporter reuses the fixed clock and encodes source
 audio with WebCodecs and a pinned local muxer. See [Camera Studio](camera-studio.md)
 and [video export](video-export.md).
 
+Configuration flows through one settings registry (`src/config/settingsRegistry.js`)
+and store (`src/config/appSettings.js`): URL overrides, saved preferences and
+defaults resolve once per page, the Settings panel is generated from the
+definitions, and `main.js` applies each change at its lifecycle boundary. See
+[settings](settings.md) and the generated [URL parameters](url-parameters.md).
+
 `LandscapeScore` compiles growth, weather and camera-related cues;
 `RangeFrame` snapshots shared music, atmosphere, geometry/camera controls and
 viewport state. CPU geometry, GLSL displacement, depth, ownership and reflection

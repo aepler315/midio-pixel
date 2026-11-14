@@ -274,6 +274,9 @@ export function heardBeats(transport, timeMs) {
 let danceRequest = null;
 /** The land dance for this page (on unless ?landDance=0), read once. */
 export function requestedLandDance() { return danceRequest ??= landDanceRequest(); }
+/** A new RangeScene admits memory for the current Land dance setting, so
+ *  the request is captured per scene (settings lifecycle: renderer). */
+export function resetLandDanceRequest() { danceRequest = null; }
 
 export const RANGE_MOTION_REFERENCE_M = 106.7;
 
