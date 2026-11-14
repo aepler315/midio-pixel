@@ -41,13 +41,14 @@ import { forestAssetBytes, FOREST_FAMILIES, FOREST_VARIANTS } from './ForestSpec
 import { bakeHorizonAsync, createHorizonTexture, horizonBytes } from './TerrainOcclusion.js';
 import { hierarchyLattice, buildTerrainHierarchyAsync, createHierarchyTexture, HIERARCHY_MAX_SAMPLES } from './TerrainHierarchy.js';
 import { buildMistFlowAsync, createMistFlowTexture, MIST_FLOW_MAX_SAMPLES } from './MistFlow.js';
-import { planTerrainWindow, terrainWindowCoverage, terrainWindowCovers, tourSummitTiles, terrainPixelProtection, TourWindowCache } from './TerrainWindow.js';
+import { planTerrainWindow, terrainWindowCoverage, terrainWindowCovers, tourSummitTiles, terrainPixelProtection, TourWindowCache, terrainWindowStudio, terrainWindowTour } from './TerrainWindow.js';
 import { TerrainWindowWorker, shareTerrainLanes, terrainLaneBytes } from './TerrainWindowWorkerClient.js';
 import { buildTerrainGeometry } from './TerrainMesh.js';
 import { buildRockStage } from './RockStage.js';
 import { RockStageGL } from './RockStageGL.js';
 import { scenePoseAt } from '../terrain/SceneTravel.js';
 import { applyCameraMoves, rangeUserCamera } from './RangeCamera.js';
+import { applyCameraStudio, cameraStudioStatus } from './CameraStudio.js';
 import { BANDS, terrainFringeBytes, terrainRailCopyBytes, terrainHeightAt, SURFACE_BUILD_BYTES_PER_PIXEL } from './TerrainMesh.js';
 import { mistParams, mistDrift, easeMistSteps, atmosphereMusic } from './RangeAtmosphere.js';
 import { mirrorSize, mirrorLevelFor, mirrorCameraFor, mirrorTextureMatrix, MIRROR_CLIP_M, MIRROR_LIFT } from './WaterMirror.js';
@@ -1103,9 +1104,12 @@ export class RangeScene {
     if (!p?.windowCache || !frame?.scenicViewport) return;
     const coverage = terrainWindowCoverage(frame.scenicViewport);
     const pixelHeightPx = this.pixelated && !p.view?.glacier ? this.pixelHeightPx : null;
-    if (p.windowOptions.coverage?.key === coverage.key && (p.windowOptions.pixelHeightPx ?? null) === (pixelHeightPx ?? null)) return;
-    const keepDetail = p.windowOptions.coverage?.key === coverage.key;
-    p.windowOptions = { ...p.windowOptions, coverage, pixelHeightPx };
+    const cameraStudio = terrainWindowStudio(p.data, p.view.tour, frame.cameraStudio, p.waterLevelM);
+    const studioKey = cameraStudio ? JSON.stringify(cameraStudio) : null;
+    if (p.windowOptions.coverage?.key === coverage.key && (p.windowOptions.pixelHeightPx ?? null) === (pixelHeightPx ?? null)
+      && (p.windowOptions.studioKey ?? null) === studioKey) return;
+    const keepDetail = p.windowOptions.coverage?.key === coverage.key && (p.windowOptions.studioKey ?? null) === studioKey;
+    p.windowOptions = { ...p.windowOptions, coverage, pixelHeightPx, cameraStudio, studioKey };
     this._invalidateTourWindows(p, { keepDetail });
   }
 
@@ -1141,7 +1145,7 @@ export class RangeScene {
   _terrainBuildSpec(p, index) {
     const spec = this._terrainWindowSpec(p, index);
     if (spec.bytes != null) return spec;
-    const view = index == null ? p.view : { ...p.view, tourWindowStartMs: index * 8000 };
+    const view = index == null ? p.view : { ...p.view, tour: terrainWindowTour(p.data, p.view.tour, p.windowOptions), tourWindowStartMs: index * 8000 };
     const forest = forestPlacementBound(p.data, view, p.rules);
     const scratch = forestBuildBytes(forest);
     let terrain = 0, plan = null;
@@ -2471,21 +2475,27 @@ export class RangeScene {
     const occurrenceId = frame.occurrenceId ?? view.id;
     if (poses.has(occurrenceId)) return poses.get(occurrenceId);
     const railView = this.compiledTerrain?.request.camera ? this._cameraView(view) : view;
+    const studioEnabled = frame.cameraStudio?.enabled === true;
+    const studioOptions = p?.windowOptions?.cameraStudio ? p.windowOptions
+      : studioEnabled && view.tour ? { cameraStudio: terrainWindowStudio(p?.data, view.tour, frame.cameraStudio, p?.waterLevelM) } : null;
+    const poseTour = studioEnabled && view.tour ? terrainWindowTour(p?.data, view.tour, studioOptions) : p?.cameraTour || view.tour;
     const baseRail = scenePoseAt(railView, { progress01: view.glacier ? (frame.glacier?.journey01 ?? frame.progress01) : frame.progress01, timeMs: frame.timeMs,
-      tour: p?.cameraTour || view.tour });
-    const signature = dualSummitsPose(view, frame.performance?.signature, { baseM: landRiseBase(p) });
+      tour: poseTour });
+    const studioState = cameraStudioStatus(frame.cameraStudio, { fullCoverage: !!view.tour });
+    const signature = !studioEnabled && dualSummitsPose(view, frame.performance?.signature, { baseM: landRiseBase(p) });
     if (signature) {
       const proj = scenicProjection(signature.fovYDeg, frame.scenicViewport);
       const vp = frame.scenicViewport, m = vp.overscanPx || 0;
       const tanY = Math.tan(proj.fovYDeg * Math.PI / 360) * Math.max(1, vp.logicalHeight - 2 * m) / vp.logicalHeight;
       const tanX = tanY * Math.max(1, vp.logicalWidth - 2 * m) / Math.max(1, vp.logicalHeight - 2 * m);
       const pose = applyCameraMoves(signature, null, frame.userCamera, { zoomMode: 'projection', cone: { tanX, tanY } });
-      const resolved = { rail: baseRail, proj, pose, tanX, tanY };
+      const resolved = { rail: baseRail, proj, pose, tanX, tanY, cameraStudio: studioState };
       poses.set(occurrenceId, resolved);
       return resolved;
     }
     const rail = { ...baseRail, fovYDeg: applyLensFov(baseRail.fovYDeg, frame.cameraEffects) };
-    const openingRail = { ...rail, fovYDeg: landRiseFov(rail.fovYDeg, frame.rise01, frame.timeMs) };
+    const studioRail = studioEnabled && !view.tour ? applyCameraStudio(rail, frame.cameraStudio).pose : rail;
+    const openingRail = { ...studioRail, fovYDeg: landRiseFov(studioRail.fovYDeg, frame.rise01, frame.timeMs) };
     const proj = scenicProjection(openingRail.fovYDeg, frame.scenicViewport);
     // This view's VISIBLE frustum (the overscan margin excluded): the
     // pointer is normalised against the visible stage, and the zoom must
@@ -2496,7 +2506,7 @@ export class RangeScene {
     // Cinematic section moves and the listener's zoom (RangeCamera.js),
     // computed once per frame and view: the partition passes reuse it.
     const groundAt = p?.data ? this._renderedGround(view, frame, p.data, p) : null;
-    const authoredPose = applyCameraMoves(openingRail, frame.cameraMove, frame.userCamera, {
+    const authoredPose = applyCameraMoves(openingRail, studioEnabled ? null : frame.cameraMove, frame.userCamera, {
         heightAt: groundAt, waterLevelM: p?.waterLevelM,
         sampleStepM: p?.data?.grid?.cellSizeM, cone: { tanX, tanY },
         heightRangeM: p?.uniforms ? [p.uniforms.uHeightRange.value.x, p.uniforms.uHeightRange.value.y] : null,
@@ -2505,10 +2515,14 @@ export class RangeScene {
     const pose = landRiseCamera(authoredPose, { rise01: frame.rise01, baseM: landRiseBase(p), groundM: ground,
       focusM: baseRail.tour || p?.cameraTour || view.tour ? null : p?.buildFocusM,
       aspect: proj.aspect, overview: !p?.windowCache, timeMs: frame.timeMs });
-    const resolved = { rail, proj, pose, tanX, tanY };
+    const resolved = { rail, proj, pose, tanX, tanY, cameraStudio: studioState };
     poses.set(occurrenceId, resolved);
     this._ensureTourWindow(p, frame.timeMs, { pose, proj });
     return resolved;
+  }
+
+  cameraStudioStatus(viewId, settings) {
+    return cameraStudioStatus(settings, { fullCoverage: !!this.prepared.get(viewId)?.view?.tour });
   }
 
   _setCamera(view, frame, p = null) {

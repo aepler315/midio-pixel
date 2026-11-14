@@ -27,6 +27,7 @@ import { profileTravelPx } from '../terrain/ProfileTravel.js';
 import { styleDials } from '../../render/VisualStyle.js';
 import { cloudSeaAt } from './CloudSea.js';
 import { rangeUserCamera } from './RangeCamera.js';
+import { normalizeCameraStudioSettings } from './CameraStudio.js';
 import { hexLerp } from '../../utils/color.js';
 import { sampleEffectsMusic } from './EffectsMusic.js';
 import { sampleMood } from './MoodScore.js';
@@ -508,6 +509,7 @@ export function buildRangeFrame({
     cameraEffects: lens,
     // Camera: this section's slow cinematic move, and the listener's zoom.
     cameraMove: performance.camera,
+    cameraStudio: normalizeCameraStudioSettings(sim.cameraStudioSettings),
     userCamera: sim.userCameraEnabled ? rangeUserCamera.sample() : null,
     scenicViewport, groundViewport,
     light: lightState, music: land, effects, ridges, narrative, groundBars, emitters,

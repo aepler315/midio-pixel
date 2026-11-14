@@ -7,9 +7,39 @@ import { LAND_MAX_DISPLACEMENT_M, LAND_TOUR_FADE_END_M, landDetailErrorM } from 
 import { risenHeight } from './LandRise.js';
 import { landRiseCamera } from './LandRiseCamera.js';
 import { terrainHeightAt } from './TerrainMesh.js';
+import { cameraStudioTour, normalizeCameraStudioSettings } from './CameraStudio.js';
 
 const dot = (a, b) => a.reduce((n, v, i) => n + v * b[i], 0);
 const ceil = n => Math.ceil(n * 64) / 64;
+const studioTours = new WeakMap();
+
+/** Plain data travels with worker requests. Full-coverage tours orbit the
+ * terrain package's center, with altitude sampled from the same DEM. */
+export function terrainWindowStudio(data, tour, settings, waterLevelM = null) {
+  const s = normalizeCameraStudioSettings(settings);
+  if (!s.enabled) return null;
+  let referencePose = tour.poseAt(tour.durationMs / 2);
+  const grid = data?.grid;
+  if (grid?.width > 1 && grid?.height > 1) {
+    const x = grid.originM[0] + (grid.width - 1) * grid.cellSizeM / 2;
+    const z = grid.originM[1] + (grid.height - 1) * grid.cellSizeM / 2;
+    const y = terrainHeightAt(data, x, z);
+    referencePose = { ...referencePose, targetM: [x, Number.isFinite(y) ? y : referencePose.targetM[1], z] };
+  }
+  return { settings: s, referencePose, waterLevelM, sampleStepM: grid?.cellSizeM || 30 };
+}
+
+/** Renderer, terrain detail and forest placement consume exactly one path. */
+export function terrainWindowTour(data, tour, options = {}) {
+  const studio = options.cameraStudio;
+  if (!studio?.settings?.enabled) return tour;
+  const cached = studioTours.get(options);
+  if (cached?.tour === tour && cached.data === data) return cached.route;
+  const route = cameraStudioTour(tour, studio.settings, { ...studio,
+    heightAt: data ? (x, z) => terrainHeightAt(data, x, z) : null });
+  studioTours.set(options, { tour, data, route });
+  return route;
+}
 
 /** Envelope over the song, from its flattest terrain to full relief.
  *  Peaks can move down and terrain below the base can move up. */
@@ -215,8 +245,9 @@ export function planTerrainWindow(data, tour, index, {
   pixelLimit = budget === 'mobile' ? 2 : 1, coverage = null, coverageRevision = 0,
   protectedTileIds = [],
   pixelHeightPx = null, pixelErrorPx = .25, pixelProtectedTileIds = [],
-  mirrorLevelM = null, riseSink = 0, riseBaseM = 0,
+  mirrorLevelM = null, riseSink = 0, riseBaseM = 0, cameraStudio = null,
 } = {}) {
+  tour = terrainWindowTour(data, tour, { cameraStudio });
   const summits = new Set(protectedTileIds);
   const startMs = index * 8000, endMs = Math.min(tour.durationMs, startMs + 8000);
   const times = [];
