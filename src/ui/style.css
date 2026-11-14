@@ -2666,4 +2666,20 @@ html, body {
 .qualityTicks { display:flex; justify-content:space-between; font-size:11px; color:#99aec3; }
 .exportSaved { position:fixed; z-index:120; bottom:22px; left:50%; transform:translateX(-50%); width:max-content; max-width:calc(100vw - 36px); padding:14px 20px; border:1px solid #9edbbf88; border-radius:12px; background:#102d25f2; color:#def9ea; font-size:12px; box-shadow:0 8px 40px #0005; }
 .exportSaved[hidden] { display:none; }
+.videoExportSetting { margin: 18px 0; border-top: 1px solid #a1b5d32b; padding-top: 16px; }
+.videoExportDialog { width: min(540px, calc(100vw - 32px)); box-sizing: border-box; max-height: calc(100dvh - 32px); overflow: auto; padding: 24px; color: var(--text-primary, #edf2fa); border: 1px solid #9ab5ce66; border-radius: 16px; background: #102132; box-shadow: 0 18px 90px #0009; }
+.videoExportDialog::backdrop { background: #030910bc; }
+.videoExportDialog p { font-size: 13px; line-height: 1.6; }
+.videoExportHeading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.videoExportHeading h2 { margin: 0; font-size: 21px; }
+.videoExportFields { display: grid; grid-template-columns: 110px minmax(0, 1fr); align-items: center; gap: 14px 12px; padding: 16px 0; border: 0; margin: 8px 0; min-width: 0; }
+.videoExportFields legend { font-size: 13px; color: #bacee1; }
+.videoExportFields label { font-size: 13px; }
+.videoExportFields select { width: 100%; min-width: 0; padding: 10px; border: 1px solid #9ab5ce50; border-radius: 6px; background: #152b3d; color: #eef4ff; font: inherit; }
+.videoExportDialog progress { width: 100%; accent-color: #a5dfc0; }
+.videoExportDialog [hidden] { display: none; }
+.videoExportActions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.videoExportActions a { text-decoration: none; }
+#videoExportStatus { color: #c4f1dd; overflow-wrap: anywhere; min-height: 42px; }
+@media (max-width: 520px) { .videoExportDialog { padding: 18px; } .videoExportFields { grid-template-columns: 90px minmax(0, 1fr); } }
 @media(max-width:520px) { .exportSetup { padding:15px; } .exportFields { grid-template-columns:minmax(0,1fr) 68px; gap:14px 12px; } .exportControls { grid-template-columns:1fr; } .exportToggle small { font-size:11px; } .titleQuickActions { align-items:flex-start; flex-direction:column; gap:5px; } }

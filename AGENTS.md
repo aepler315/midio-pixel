@@ -49,8 +49,9 @@ See [verification usage](docs/verification.md) for approvals, CI tiers and failu
   metres and shared CPU/GPU deformation. Catalog geography differs from composed
   artworks; label placement/relief changes honestly.
 - Current Look is Cinematic, terrain grids are pixelated, sky is deliberately
-  smooth, pixel scaling is Uniform. Depth, Pixel/Palette looks, video recording
-  and old cast/performer features are retired. Do not resurrect them from old docs.
+  smooth, pixel scaling is Uniform. Depth, Pixel/Palette looks, real-time video
+  recording and old cast/performer features are retired. Frame-by-frame MP4 export
+  and optional Camera Studio are current; see their docs rather than old recorder UI.
 - Heard song time controls construction, camera and weather. Seek/replay and late
   analysis must reconstruct consistent states. Preserve fallback on denied assets,
   shader failure, cancelled generations or memory admission; no blank active scene.

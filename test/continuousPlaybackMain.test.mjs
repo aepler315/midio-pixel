@@ -15,22 +15,24 @@ function productionSource(name) {
   return main.slice(start, end);
 }
 function production(name, bindings) {
-  const context = vm.createContext(bindings);
+  const context = vm.createContext({ videoExportSession: { busy: false, cancel() {} }, syncCameraStudio() {}, ...bindings });
   vm.runInContext(productionSource(name), context);
   return context;
 }
 const element = () => ({ classList: { add() {}, remove() {} }, textContent: '' });
 
 test('a manual source selection cancels a pending automatic next song', () => {
-  let cancelled = 0;
+  let cancelled = 0, cancelledExport = 0;
   const context = production('beginAudioSelection', {
     continuousPlayback: { cancel() { cancelled++; } },
+    videoExportSession: { cancel() { cancelledExport++; } },
     audioSelections: { begin: source => ({ source }) }, selectionExportSettings: new WeakMap(),
     exportSetup: { snapshot: () => null }, loadGen: 0, running: false,
     loadAudioFiles: {}, cancelUrlLoad() {},
   });
   context.beginAudioSelection('local');
   assert.equal(cancelled, 1);
+  assert.equal(cancelledExport, 1, 'the new song owns the page after cancelling an old export');
 });
 
 test('completion preserves results and schedules the next song after recording finalization', () => {

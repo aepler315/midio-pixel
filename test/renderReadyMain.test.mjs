@@ -10,7 +10,8 @@ function production(name, bindings) {
   assert.ok(declaration >= 0);
   const start = main.slice(0, declaration).endsWith('async ') ? declaration - 6 : declaration;
   const end = main.indexOf('\n}\n', start) + 3;
-  const context = vm.createContext({ songRecorder: null, pendingCaptureOptions: null, ...bindings });
+  const context = vm.createContext({ songRecorder: null, pendingCaptureOptions: null, videoExportSession: { busy: false },
+    bulkExportArmed: false, cameraStudioStatusAt: -Infinity, syncCameraStudio() {}, ...bindings });
   vm.runInContext(main.slice(start, end), context);
   return context;
 }
@@ -21,6 +22,19 @@ test('capture fps overrides the live cap and releases it after recording', () =>
   assert.equal(context.playbackFps(), 60);
   context.songRecorder.recording = false;
   assert.equal(context.playbackFps(), 30);
+});
+
+test('video export keeps seeks and pause inputs from changing the render clock', () => {
+  let rebuilt = 0, suspended = 0;
+  const bindings = { videoExportSession: { busy: true }, running: true, paused: false,
+    sim: { songSeed: 315, conductor: { durationMs: 30000 } }, lastTimelineData: {},
+    audioEngine: { nowMs: 1000, ctx: { suspend() { suspended++; } } },
+    startTimeline() { rebuilt++; }, renderPlayback: { status: 'ready' } };
+  const seek = production('seekSong', bindings), pause = production('togglePause', bindings);
+  seek.seekSong(15000); pause.togglePause();
+  assert.equal(rebuilt, 0);
+  assert.equal(suspended, 0);
+  assert.equal(pause.paused, false);
 });
 
 test('full source recording retains its sustained tail without live-show fades or ducks', () => {

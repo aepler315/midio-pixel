@@ -30,6 +30,12 @@ replaced by whole-song results: history and committed-time handoff keep already
 heard construction/weather/camera from jumping. Export APIs sample a fixed clock;
 these are useful for screenshots and cannot measure delivered live FPS.
 
+Camera Studio supplies immutable optional settings through Simulation/RangeFrame;
+its heard-time routes share terrain/forest coverage and sky projection. The
+frame-by-frame browser MP4 exporter reuses the fixed clock and encodes source
+audio with WebCodecs and a pinned local muxer. See [Camera Studio](camera-studio.md)
+and [video export](video-export.md).
+
 `LandscapeScore` compiles growth, weather and camera-related cues;
 `RangeFrame` snapshots shared music, atmosphere, geometry/camera controls and
 viewport state. CPU geometry, GLSL displacement, depth, ownership and reflection
