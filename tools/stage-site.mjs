@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 import { writePlexPublicConfig } from './write-plex-public-config.mjs';
 import { GENERATED_SOURCE_DIRS } from './lib/visual-evaluation-server.mjs';
@@ -31,6 +31,66 @@ async function canonicalPath(target) {
 }
 
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
+
+const EXPORT_RUNTIME_FILES = ['mediabunny.module.js', 'LICENSE-mediabunny.txt'];
+const EXPORT_RUNTIME_API = ['Output', 'Mp4OutputFormat', 'BufferTarget', 'StreamTarget', 'CanvasSource',
+  'AudioSampleSource', 'AudioSample', 'Quality', 'canEncodeVideo', 'canEncodeAudio'];
+
+async function hasExportFootprint(directory) {
+  for (const name of ['src/vendor/export', 'src/render/Mp4Export.js']) {
+    if (await exists(path.join(directory, name))) return true;
+  }
+  try { return /Mp4Export|vendor\/export\//.test(await fs.readFile(path.join(directory, 'src/main.js'), 'utf8')); }
+  catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+}
+
+/** The published export is self-contained: its pinned bundle, usable API and
+ * MPL license must travel together. Historical sites without export skip it. */
+export async function verifyExportRuntime(sourceDir, outputDir) {
+  const vendor = path.join(outputDir, 'src/vendor/export');
+  let runtime;
+  try { runtime = JSON.parse(await fs.readFile(path.join(vendor, 'runtime.json'), 'utf8')); }
+  catch (error) {
+    if (error.code === 'ENOENT' && !await hasExportFootprint(sourceDir) && !await hasExportFootprint(outputDir)) return { checked: false };
+    throw new Error(`MP4 export requires readable runtime.json: ${error.message}`, { cause: error });
+  }
+  if (!runtime || !/^\d+\.\d+\.\d+$/.test(runtime.mediabunny) || runtime.license !== 'MPL-2.0'
+    || runtime.source !== `https://registry.npmjs.org/mediabunny/-/mediabunny-${runtime.mediabunny}.tgz`
+    || !runtime.files || Object.keys(runtime.files).length !== EXPORT_RUNTIME_FILES.length) {
+    throw new Error('MP4 export runtime.json metadata is invalid.');
+  }
+  for (const name of EXPORT_RUNTIME_FILES) {
+    const pin = runtime.files[name];
+    if (!Number.isSafeInteger(pin?.bytes) || pin.bytes <= 0 || !/^[a-f0-9]{64}$/.test(pin.sha256)) {
+      throw new Error(`MP4 export runtime.json has an invalid pin for ${name}.`);
+    }
+    const bytes = await fs.readFile(path.join(vendor, name));
+    if (bytes.byteLength !== pin.bytes || sha256(bytes) !== pin.sha256) throw new Error(`MP4 export ${name} does not match runtime.json.`);
+  }
+  // Verify in a fresh process: Mediabunny deliberately flags loading two
+  // independently bundled instances into one global realm. Source/stage
+  // verification must not create that duplicate inside the staging process.
+  const entry = pathToFileURL(path.join(vendor, 'mediabunny.module.js')).href;
+  try {
+    execFileSync(process.execPath, ['--input-type=module', '-e',
+      `const m = await import(${JSON.stringify(entry)}); const missing = ${JSON.stringify(EXPORT_RUNTIME_API)}.filter(name => typeof m[name] !== 'function'); if (missing.length) throw new Error('Missing exports: ' + missing.join(', '));`],
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (error) {
+    throw new Error(`MP4 export runtime cannot provide its required exports: ${error.stderr || error.message}`, { cause: error });
+  }
+  let rebuilt = false;
+  if (await exists(path.join(sourceDir, 'node_modules/mediabunny/package.json'))) {
+    const { buildExportRuntime } = await import(pathToFileURL(path.join(sourceDir, 'tools/build-export-runtime.mjs')).href);
+    const files = await buildExportRuntime();
+    for (const [name, bytes] of Object.entries(files)) {
+      if (!bytes.equals(await fs.readFile(path.join(vendor, name)))) {
+        throw new Error('MP4 export runtime is stale; run node tools/build-export-runtime.mjs');
+      }
+    }
+    rebuilt = true;
+  }
+  return { checked: true, rebuilt, version: runtime.mediabunny };
+}
 
 // These paths and import references positively identify a Range-enabled tree,
 // including a partial copy with missing metadata. Check source and output.
@@ -281,6 +341,9 @@ export async function stageSite(sourceDir, outputDir, { commit = null, ref = nul
     catch { throw new Error(`Missing required runtime input: ${required}`); }
   }
 
+  // Reject a broken export bundle before replacing a previously good build.
+  await verifyExportRuntime(source, source);
+
   await fs.rm(output, { recursive: true, force: true });
   await fs.mkdir(output, { recursive: true });
   await Promise.all([
@@ -301,13 +364,14 @@ export async function stageSite(sourceDir, outputDir, { commit = null, ref = nul
     apiBase: process.env.MIDIO_PLEX_PUBLIC_API_BASE || '',
   });
   await verifyRangeRuntime(source, output);
+  await verifyExportRuntime(source, output);
   // What is live: https://supermaudio.com/version.json names the commit.
   await fs.writeFile(path.join(output, 'version.json'),
     `${JSON.stringify({ commit: sourceCommit(source, commit), ref })}\n`);
   return output;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+if (process.argv[1] && await fs.realpath(process.argv[1]) === await fs.realpath(fileURLToPath(import.meta.url))) {
   const source = process.argv[2] || '.';
   const output = process.argv[3] || '_site';
   stageSite(source, output).then((dir) => console.log(`Staged site at ${dir}`)).catch((error) => {

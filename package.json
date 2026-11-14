@@ -25,6 +25,8 @@
     "test:landscape": "node tools/range-landscape-smoke.mjs",
     "test:peaks": "node tools/peak-evidence.mjs",
     "export:bulk": "node tools/bulk-export.mjs",
+    "build:export-runtime": "node tools/build-export-runtime.mjs",
+    "test:mp4export": "node tools/mp4-export-smoke.mjs",
     "test:car": "node tools/car-mode-smoke.mjs",
     "test:urlload": "node tools/url-load-smoke.mjs",
     "test:snapshot": "node tools/detail-snapshot-smoke.mjs",

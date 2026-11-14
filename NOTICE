@@ -11,6 +11,14 @@ tools/build-tour-names.mjs selects summit, lake, pass and valley features
 from the GeoNames US dump under the same CC BY 4.0 license, transforms their
 coordinates into the tour's local metric frame, and records the input hash.
 
+The offline MP4 exporter includes a bundled subset of Mediabunny 1.66.0,
+Copyright 2026-present Vanilagy and contributors, under Mozilla Public
+License 2.0. The license is src/vendor/export/LICENSE-mediabunny.txt.
+Corresponding source and version/hash pins are recorded in
+src/vendor/export/runtime.json; tools/build-export-runtime.mjs reproduces
+the distributed subset from the pinned package. Upstream project:
+https://github.com/Vanilagy/mediabunny
+
 View Scout's geographic camera leads are derived from the repository's
 Ridgeview snapshot (GeoNames names, CC BY 4.0, and Wikidata names, CC0).
 Its coarse terrain previews use Terrain Tiles on AWS, provided by Mapzen /
