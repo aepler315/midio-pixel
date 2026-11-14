@@ -179,12 +179,12 @@ for (const userAgent of ['Android 13', 'Desktop']) test(`actual ${userAgent} lan
   const begin = main.indexOf('async function saveDetailSnapshots()');
   const code = main.slice(begin, main.indexOf('\n}\n', begin) + 3);
   const savedPrefs = { version: 2, look: 'cinematic', pixelGrid: 'medium', buildPixelDetail: true };
-  const captured = [], drawn = [];
+  const captured = [], drawn = [], studioLocks = [];
   const context = vm.createContext({ snapshotBusy: false, running: true, sim: {}, paused: true, playbackPreparing: false,
     bulkExportArmed: false, songRecorder: null, snapshotPlayerPrefs: null, bulkExportSize: null, displayPrefs: savedPrefs,
     presentation: resolvePresentation(savedPrefs), navigator: { userAgent }, canvas: { width: 960, height: 540 },
     resolvePresentation, snapshotCapturePlan, captureDetailSnapshots, snapshotFileName: (_date, level) => level,
-    syncDetailControls() {}, syncDisplayControls() {}, wakeHud() {},
+    syncDetailControls() {}, syncDisplayControls() {}, syncCameraStudio() { studioLocks.push(context.snapshotBusy); }, wakeHud() {},
     fitCanvas() { context.canvas.width = context.bulkExportSize?.w || context.presentation.grid.width;
       context.canvas.height = context.bulkExportSize?.h || context.presentation.grid.height; },
     renderer: { draw() { drawn.push(context.presentation.buildPixelDetail); return { presented: true }; } },
@@ -200,4 +200,5 @@ for (const userAgent of ['Android 13', 'Desktop']) test(`actual ${userAgent} lan
   assert.equal(context.displayPrefs, savedPrefs);
   assert.equal(context.bulkExportSize, null);
   assert.equal(context.snapshotBusy, false);
+  assert.deepEqual(studioLocks, [true, false], 'camera controls lock for the whole snapshot set');
 });

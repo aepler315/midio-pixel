@@ -30,6 +30,22 @@ test('full camera terrain can be selected visibly while preserving the song posi
   assert.equal(context.paused, true);
 });
 
+test('full terrain can be selected on the title screen before any song exists', () => {
+  const start = main.indexOf('function setRangeTourMode(choice) {');
+  const end = main.indexOf('\n}\n', start) + 3;
+  let selected;
+  const context = vm.createContext({ videoExportSession: { busy: false }, bulkExportArmed: false,
+    reelSaver: { busy: false }, snapshotBusy: false, paused: false, running: false,
+    localStorage: { setItem() {} }, URL, location: { href: 'http://localhost/' }, history: { replaceState() {} },
+    rangePresentation: { setTourMode(mode) { selected = mode; } }, renderer: null,
+    applyTerrainTourPolicy() {}, getWorld: () => assert.fail('there is no selected world yet'),
+    lastTimelineData: null, cameraRun: null, sim: null, audioEngine: null,
+    syncRangeTourControl() {}, syncCameraStudio() {},
+  });
+  vm.runInContext(main.slice(start, end) + '\nsetRangeTourMode("tetons");', context);
+  assert.equal(selected, 'tetons');
+});
+
 test('paused composition redraws settled terrain only for the same scene and settings', async () => {
   const start = main.indexOf('async function redrawPausedCameraStudio() {');
   assert.ok(start >= 0, 'paused preview has an asynchronous settle lifecycle');

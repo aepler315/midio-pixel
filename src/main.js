@@ -632,7 +632,7 @@ function setRangeTourMode(choice) {
   const url = new URL(location.href); url.searchParams.set('rangeTour', choice); history.replaceState(null, '', url);
   rangePresentation ||= new RangePresentation({ mode: 'v2', upgradeIntended: rangeMode.upgradeIntended, residency: sharedResidency(), budget: residencyBudgetFor().name });
   if (renderer) renderer.rangePresentation = rangePresentation;
-  applyTerrainTourPolicy(lastTimelineData?.terrain, choice, getWorld(lastTimelineData?.worldId)?.kind);
+  applyTerrainTourPolicy(lastTimelineData?.terrain, choice, lastTimelineData?.worldId ? getWorld(lastTimelineData.worldId)?.kind : null);
   rangePresentation.setTourMode(choice === 'off' ? null : choice);
   cameraRun?.forgetTours();
   if (running && sim && audioEngine && lastTimelineData) {
