@@ -174,10 +174,101 @@ const plainKey = (key, decode = v => v, encode = String) => ({
   clear: storage => storage?.removeItem(key),
 });
 
+/** Field adapters retain the existing records, including partially saved old
+ * records. A reset deletes its field, so an old preference cannot return on reload. */
+function recordField(key, field, decode = value => value, fields = null) {
+  const read = storage => {
+    const parsed = JSON.parse(storage?.getItem?.(key) ?? 'null');
+    const record = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    return fields ? Object.fromEntries(Object.entries(record).filter(([name]) => fields.includes(name))) : record;
+  };
+  return {
+    key,
+    read: storage => decode(read(storage)[field]),
+    write(storage, value) {
+      let record;
+      try { record = read(storage); } catch { record = {}; }
+      storage?.setItem(key, JSON.stringify({ ...record, [field]: value }));
+    },
+    clear(storage) {
+      let record;
+      try { record = read(storage); } catch { record = {}; }
+      if (!(field in record)) return;
+      delete record[field];
+      if (Object.keys(record).length || !storage?.removeItem) storage?.setItem(key, JSON.stringify(record));
+      else storage.removeItem(key);
+    },
+  };
+}
+
+export const CAMERA_STUDIO_STORAGE_KEY = 'midio.cameraStudio.v1';
+export const MP4_EXPORT_STORAGE_KEY = 'midio.mp4Export.v1';
+export const CAMERA_STUDIO_PRESETS = Object.freeze([
+  { id: 'rail', label: 'Follow rail', description: 'Keep the authored journey with your framing.' },
+  { id: 'orbit', label: 'Arc orbit', description: 'Orbit through a bounded front-side arc with spring arrivals and holds.' },
+  { id: 'sweep', label: 'Pendulum sweep', description: 'Sweep gently between two sides of the range.' },
+  { id: 'push', label: 'Push / pull', description: 'Move toward the range and ease back out.' },
+  { id: 'static', label: 'Locked frame', description: 'Hold a fixed view of the range center.' },
+].map(Object.freeze));
+
+/** Camera renderer, saved record, URL, and the dedicated camera controls all
+ * use these same definitions. Numeric steps guide controls; saved fractional
+ * values remain intact, as in the original Camera Studio preferences. */
+export const CAMERA_STUDIO_FIELDS = Object.freeze([
+  { field: 'enabled', label: 'Camera Studio', type: 'boolean', default: false,
+    description: 'Keep live camera controls on screen during playback. Your composition is remembered.' },
+  { field: 'preset', label: 'Camera motion preset', type: 'enum', default: 'rail',
+    options: CAMERA_STUDIO_PRESETS.map(p => ({ value: p.id, label: p.label })),
+    description: 'Follow the authored rail, orbit, sweep, push and pull, or hold a locked frame.' },
+  { field: 'distance', label: 'Camera distance', type: 'number', min: .35, max: 1.8, step: .01, default: 1,
+    description: 'Distance relative to the landscape camera. Authored crop views allow inward framing only.' },
+  { field: 'elevation', label: 'Camera elevation', type: 'number', min: -15, max: 35, step: 1, default: 0,
+    description: 'Elevation in degrees above the landscape camera angle; needs full camera coverage.' },
+  { field: 'azimuthDeg', label: 'Camera azimuth', type: 'number', min: -180, max: 180, step: 1, default: 0,
+    description: 'Starting angle in degrees around the focus point; needs full camera coverage.' },
+  { field: 'direction', label: 'Camera direction', type: 'enum', default: 'cw',
+    options: [{ value: 'cw', label: 'Clockwise' }, { value: 'ccw', label: 'Counterclockwise' }],
+    description: 'Direction of orbit and sweep motion.' },
+  { field: 'orbitSeconds', label: 'Camera orbit pace', type: 'number', min: 20, max: 240, step: 1, default: 90,
+    description: 'Orbit arc pace in seconds; larger values slow the orbit.' },
+  ...['X', 'Y', 'Z'].map(axis => ({ field: `focus${axis}`, label: `Camera focus ${axis}`, type: 'number',
+    min: -.2, max: .2, step: .01, default: 0,
+    description: `${axis} focus offset as a fraction of camera distance; needs full camera coverage.` })),
+  { field: 'fovDeg', label: 'Camera lens', type: 'number', min: 15, max: 70, step: 1, default: 35,
+    description: 'Vertical lens angle in degrees. Authored crop views cannot widen beyond their original lens.' },
+  { field: 'durationSec', label: 'Camera travel duration', type: 'number', min: 1, max: 30, step: .5, default: 8,
+    description: 'Duration in seconds of each orbit, sweep, or push and pull movement.' },
+  { field: 'holdSec', label: 'Camera hold duration', type: 'number', min: 0, max: 12, step: .5, default: 2,
+    description: 'Time in seconds to hold at each motion arrival.' },
+  { field: 'delaySec', label: 'Camera start delay', type: 'number', min: 0, max: 10, step: .5, default: 0,
+    description: 'Delay in heard song seconds before camera motion begins.' },
+  { field: 'overshoot', label: 'Camera overshoot', type: 'number', min: 0, max: .5, step: .01, default: .15,
+    description: 'Fraction of camera travel beyond the target before settling.' },
+].map(field => Object.freeze({ ...field, id: `cameraStudio${field.field[0].toUpperCase()}${field.field.slice(1)}`,
+  ...(field.type === 'number' ? { normalize: value => {
+    const n = typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
+    return typeof n === 'number' && Number.isFinite(n) ? Math.min(field.max, Math.max(field.min, n)) : undefined;
+  }, parseUrl: raw => {
+    const parsed = numberParse(field, raw);
+    return parsed.ok ? ok(Number(raw)) : parsed;
+  } } : {}),
+})));
+export const CAMERA_STUDIO_DEFAULTS = Object.freeze(Object.fromEntries(CAMERA_STUDIO_FIELDS.map(d => [d.field, d.default])));
+export const CAMERA_STUDIO_SETTING_IDS = Object.freeze(CAMERA_STUDIO_FIELDS.map(d => d.id));
+export const MP4_EXPORT_DEFAULTS = Object.freeze({ resolutionId: '1080p', fps: 30 });
+export const MP4_EXPORT_RESOLUTIONS = Object.freeze([
+  { id: '360p', label: '360p', width: 640, height: 360 },
+  { id: '480p', label: '480p', width: 854, height: 480 },
+  { id: '720p', label: '720p', width: 1280, height: 720 },
+  { id: '1080p', label: '1080p', width: 1920, height: 1080 },
+  { id: '1440p', label: '1440p', width: 2560, height: 1440 },
+  { id: '2160p', label: '4K · 2160p', width: 3840, height: 2160 },
+].map(Object.freeze));
+
 // ---- the definitions ------------------------------------------------------
 
 const TERRAIN_DEBUG_OPTIONS = ['masks', 'slope', 'albedo', 'fill', 'key', 'roughness', 'specular', 'sun'];
-const V2_ONLY = { id: 'rangeRenderer', is: 'v2', reason: 'Needs the 3D landscape renderer (Performance → Landscape renderer).' };
+const V2_ONLY = { id: 'rangeRenderer', is: 'v2', reason: 'Needs the 3D landscape renderer (Diagnostics → Engineering controls → Landscape renderer).' };
 
 /**
  * Field reference (docs/settings.md has the full contract):
@@ -242,6 +333,36 @@ export const SETTINGS = Object.freeze([
   },
 
   // ---- Camera
+  // Dedicated controls remain in Camera Studio and the export dialog. The
+  // Settings panel groups external controls; reset/share/diagnostics still
+  // include every field because these are ordinary registered preferences.
+  ...CAMERA_STUDIO_FIELDS.map(field => ({
+    ...field, section: 'camera', group: 'Camera Studio', tier: field.field === 'enabled' ? 'basic' : 'advanced', maturity: 'stable',
+    persist: 'saved', storage: recordField(CAMERA_STUDIO_STORAGE_KEY, field.field, undefined, CAMERA_STUDIO_FIELDS.map(d => d.field)), lifecycle: 'live',
+    ...(field.field === 'enabled' ? { controlId: 'camera-studio-toggle' }
+      : { control: 'external', controlTarget: 'cameraStudio', controlLabel: 'Camera Studio…' }),
+  })),
+  {
+    id: 'mp4Resolution', section: 'playback', group: 'Video export', tier: 'basic', maturity: 'stable',
+    label: 'Video export resolution', description: 'Output pixels for frame-by-frame MP4 export; independent of the live landscape pixel grid.',
+    type: 'enum', default: MP4_EXPORT_DEFAULTS.resolutionId,
+    options: MP4_EXPORT_RESOLUTIONS.map(({ id: value, label }) => ({ value, label })),
+    persist: 'saved', storage: recordField(MP4_EXPORT_STORAGE_KEY, 'resolutionId', value => {
+      if (value == null) return undefined;
+      const raw = String(value).toLowerCase();
+      return raw === '4k' ? '2160p' : /^\d+$/.test(raw) ? `${raw}p` : raw;
+    }, ['resolutionId', 'fps']), lifecycle: 'live', control: 'external', controlTarget: 'mp4Export', controlLabel: 'Export video…',
+  },
+  {
+    id: 'mp4Fps', section: 'playback', group: 'Video export', tier: 'basic', maturity: 'stable',
+    label: 'Video export frame rate', description: 'Frames per second for MP4 export; independent of the live frame-rate limit.',
+    type: 'enum', default: MP4_EXPORT_DEFAULTS.fps,
+    options: [{ value: 30, label: '30 fps' }, { value: 60, label: '60 fps' }],
+    normalize: value => [30, 60].includes(Number(value)) ? Number(value) : undefined,
+    persist: 'saved', storage: recordField(MP4_EXPORT_STORAGE_KEY, 'fps', undefined, ['resolutionId', 'fps']), lifecycle: 'live',
+    control: 'external', controlTarget: 'mp4Export', controlLabel: 'Export video…',
+  },
+
   {
     id: 'rangeTour', url: 'rangeTour', section: 'camera', group: 'Camera tours', tier: 'basic', maturity: 'stable',
     urlNote: '`off` and `tetons` are recognized; any other value means music-timed tours.',
@@ -276,7 +397,7 @@ export const SETTINGS = Object.freeze([
     persist: 'saved', storage: plainKey('range-pace', v => normalizeRailPace(v)), lifecycle: 'next-landscape', controlId: 'range-pace', statusId: 'range-pace-status',
   },
   {
-    id: 'rangeTourGate', url: 'rangeTourGate', section: 'camera', group: 'Shot selection', tier: 'advanced', maturity: 'stable',
+    id: 'rangeTourGate', url: 'rangeTourGate', section: 'camera', group: 'Shot selection', tier: 'developer', maturity: 'diagnostic',
     urlNote: 'only `off` disables the gate.',
     label: 'Tour quality gate', type: 'boolean', default: true,
     description: 'Play a planned tour only where it beats the authored rail for the song. Off plays every planned tour, including weak ones.',
@@ -286,7 +407,7 @@ export const SETTINGS = Object.freeze([
     requires: [V2_ONLY, { id: 'rangeTour', is: 'shots', reason: 'Only music-timed tours are gated.' }],
   },
   {
-    id: 'rangeShots', url: 'rangeShots', section: 'experiments', group: 'Camera experiments', tier: 'experimental', maturity: 'experimental',
+    id: 'rangeShots', url: 'rangeShots', section: 'experiments', group: 'Camera experiments', tier: 'developer', maturity: 'diagnostic',
     urlNote: 'only `all` enables candidate libraries.',
     label: 'Candidate shot libraries', type: 'boolean', default: false,
     description: 'Also play shot libraries that are still candidates, not only approved and enabled ones. For review.',
@@ -296,7 +417,7 @@ export const SETTINGS = Object.freeze([
     requires: [V2_ONLY, { id: 'rangeTour', is: 'shots', reason: 'Applies to music-timed tours.' }],
   },
   {
-    id: 'rangeTourIntended', url: 'rangeTourIntended', section: 'experiments', group: 'Camera experiments', tier: 'experimental', maturity: 'experimental',
+    id: 'rangeTourIntended', url: 'rangeTourIntended', section: 'experiments', group: 'Camera experiments', tier: 'developer', maturity: 'diagnostic',
     urlNote: 'only `1` enables it.',
     label: 'Try intended tour subjects', type: 'boolean', default: false,
     description: 'Let a tour shot framed by an alternative subject try its intended one. It replaces an accepted subject, so it is opt-in.',
@@ -322,7 +443,7 @@ export const SETTINGS = Object.freeze([
     persist: 'saved', storage: unified('landDance'), lifecycle: 'live', requires: [V2_ONLY],
   },
   {
-    id: 'rangeView', url: 'rangeView', section: 'landscape', group: 'Geographic view', tier: 'advanced', maturity: 'diagnostic',
+    id: 'rangeView', url: 'rangeView', section: 'landscape', group: 'Geographic view', tier: 'developer', maturity: 'diagnostic',
     label: 'Force a landscape view', type: 'string', nullable: true, default: null, pattern: /^[A-Za-z0-9._-]{1,80}$/,
     description: 'Play every landscape against one catalog view instead of the song\'s own matches. Diagnostic: songs no longer choose their scenery.',
     optionsSource: 'sceneCatalog',
@@ -371,7 +492,7 @@ export const SETTINGS = Object.freeze([
 
   // ---- Performance
   {
-    id: 'maxQuality', url: 'maxQuality', section: 'performance', group: 'Automatic quality', tier: 'basic', maturity: 'stable',
+    id: 'maxQuality', url: 'maxQuality', section: 'performance', group: 'Automatic quality', tier: 'developer', maturity: 'diagnostic',
     label: 'General quality', type: 'enum', default: 'high',
     description: 'The most detail automatic quality may use. It still sheds detail below this to keep playback smooth.',
     options: RENDER_QUALITIES.map(q => ({ value: q, label: q[0].toUpperCase() + q.slice(1) })),
@@ -387,7 +508,7 @@ export const SETTINGS = Object.freeze([
     lifecycle: 'live', controlId: 'generalQuality', control: 'slider',
   },
   {
-    id: 'fpsCap', url: 'fpsCap', section: 'performance', group: 'Frame rate', tier: 'basic', maturity: 'stable',
+    id: 'fpsCap', url: 'fpsCap', section: 'performance', group: 'Frame rate', tier: 'developer', maturity: 'diagnostic',
     urlNote: '`30` or `60`.',
     label: 'Frame rate', type: 'enum', default: 60,
     description: '60 draws every frame; 30 skips every other frame and halves GPU work.',
@@ -398,14 +519,14 @@ export const SETTINGS = Object.freeze([
     lifecycle: 'live', controlId: 'stageFps',
   },
   {
-    id: 'perf', url: 'perf', section: 'performance', group: 'Automatic quality', tier: 'advanced', maturity: 'stable',
+    id: 'perf', url: 'perf', section: 'performance', group: 'Automatic quality', tier: 'developer', maturity: 'diagnostic',
     label: 'Starting quality', type: 'enum', default: 'auto', caseInsensitive: true,
     description: 'Where automatic quality starts each song. Automatic starts phones and small screens one step down. Lite starts two steps down; Full starts at full detail.',
     options: [{ value: 'auto', label: 'Automatic' }, { value: 'lite', label: 'Lite' }, { value: 'high', label: 'Full' }],
     persist: 'saved', storage: unified('perf'), lifecycle: 'next-song',
   },
   {
-    id: 'rangeRenderer', url: 'rangeRenderer', section: 'performance', group: 'Renderer', tier: 'advanced', maturity: 'stable',
+    id: 'rangeRenderer', url: 'rangeRenderer', section: 'performance', group: 'Renderer', tier: 'developer', maturity: 'diagnostic',
     label: 'Landscape renderer', type: 'enum', default: 'v2', caseInsensitive: true,
     description: '3D terrain uses WebGL2 scenery and falls back to the painted ranges on its own when it cannot run. Painted always uses the lighter 2D ranges.',
     options: [{ value: 'v2', label: '3D terrain (WebGL2)' }, { value: 'legacy', label: 'Painted ranges' }],
@@ -413,7 +534,7 @@ export const SETTINGS = Object.freeze([
     requires: [{ id: 'rangeTour', not: 'tetons', reason: 'The Teton highway tour always uses 3D terrain.' }],
   },
   {
-    id: 'fps', url: 'fps', section: 'performance', group: 'Diagnostics', tier: 'advanced', maturity: 'stable',
+    id: 'fps', url: 'fps', section: 'performance', group: 'Diagnostics', tier: 'developer', maturity: 'diagnostic',
     urlNote: 'the bare parameter (any value except `0`/`off`) shows the counter.',
     label: 'Show frame rate', type: 'boolean', default: false,
     description: 'An on-screen frames-per-second counter. The P key toggles it too.',
@@ -494,7 +615,7 @@ export const SETTINGS = Object.freeze([
     persist: 'saved', storage: unified('terrainShading'), lifecycle: 'renderer', requires: [V2_ONLY],
   },
   {
-    id: 'compiledTerrain', url: 'compiledTerrain', section: 'experiments', group: 'Rendering experiments', tier: 'experimental', maturity: 'experimental',
+    id: 'compiledTerrain', url: 'compiledTerrain', section: 'experiments', group: 'Rendering experiments', tier: 'developer', maturity: 'diagnostic',
     urlNote: '`columns` or `mesh`; `off`/`original`/empty or an unknown value draws the original (unknown values are reported).',
     label: 'Compiled terrain (Monument Valley pilot)', type: 'enum', default: 'original',
     description: 'Replace the terrain draw for the pilot view with precompiled meshes. Needs packs from npm run build:compiled-terrain; without them the original renderer draws.',
@@ -656,7 +777,12 @@ export function readSaved(def, storage) {
 
 export function writeSaved(def, storage, value) {
   if (def.persist !== 'saved' || !def.storage || !storage) return false;
-  try { def.storage.write(storage, value); return true; } catch { return false; }
+  try {
+    if (def.storage.write(storage, value) === false) return false;
+    // Older adapters may swallow quota/private-mode failures. Confirm the
+    // value is readable before removing the visit's only URL override.
+    return readSaved(def, storage) === value;
+  } catch { return false; }
 }
 
 function toParams(search) {

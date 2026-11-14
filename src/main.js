@@ -103,7 +103,7 @@ import { stepExportClock, evenExportSize } from './render/BulkExport.js';
 import { rangeUserCamera } from './world/alpine/RangeCamera.js';
 import { attachRangeZoomInput } from './ui/RangeZoomInput.js';
 import { normalizeCameraStudioSettings } from './world/alpine/CameraStudio.js';
-import { CameraStudioPanel, readCameraStudioSettings, writeCameraStudioSettings } from './ui/CameraStudioPanel.js';
+import { CameraStudioPanel } from './ui/CameraStudioPanel.js';
 import { VideoExportSession, waitForExport } from './ui/VideoExportSession.js';
 import { MAX_MP4_BUFFER_BYTES, resolveMp4ExportSettings, estimateMp4ExportBytes, mp4ExportFileName, exportMp4, checkMp4ExportSupport } from './render/Mp4Export.js';
 import { MusicLibrary } from './library/MusicLibrary.js';
@@ -120,7 +120,8 @@ import { PlexLibraryPanel } from './ui/PlexLibraryPanel.js';
 import { recentlyPlayed, displayTitle, displayArtist, untaggedTracks, randomTrack } from './library/TrackIndex.js';
 import { PlaybackSequence } from './library/PlaybackSequence.js';
 import { ContinuousPlayback } from './library/ContinuousPlayback.js';
-import { appSettings } from './config/appSettings.js';
+import { appSettings, cameraStudioPreferences, setCameraStudioPreferences } from './config/appSettings.js';
+import { CAMERA_STUDIO_SETTING_IDS } from './config/settingsRegistry.js';
 import { mountSettingsPanel } from './ui/SettingsPanel.js';
 import { COMPILED_PILOT, COMPILED_ASSET_DIR, compiledManifestPath } from './world/alpine/CompiledTerrain.js';
 import { ensureReadPermission } from './library/LibraryScanner.js';
@@ -395,7 +396,7 @@ let lastFitDiagnostic = null;
 let lastSongName = 'song';
 let lastSongSeed = null; // 32-bit seed used for the run that just finished
 const videoExportSession = new VideoExportSession({ onState: syncVideoExportState });
-let cameraStudioSettings = readCameraStudioSettings(displayStorage());
+let cameraStudioSettings = normalizeCameraStudioSettings(cameraStudioPreferences(settings));
 
 // Logical composition stays 1280×720. Live output uses the selected pixel
 // grid; exports retain their independently requested output dimensions.
@@ -502,15 +503,11 @@ let rangePresentation = rangeMode.mode === 'v2'
   : null;
 
 const cameraStudioPanel = new CameraStudioPanel({
-  settingsParent: document.getElementById('titleSettings'), hudParent: document.getElementById('app') || document.body,
+  hudParent: document.getElementById('app') || document.body,
   settings: cameraStudioSettings,
-  onChange: settings => {
+  onChange: preferences => {
     if (videoExportSession.busy || bulkExportArmed || reelSaver.busy || snapshotBusy) return;
-    cameraStudioSettings = normalizeCameraStudioSettings(settings);
-    writeCameraStudioSettings(displayStorage(), cameraStudioSettings);
-    if (sim) sim.cameraStudioSettings = cameraStudioSettings;
-    syncCameraStudio();
-    if (paused && sim && renderer) redrawPausedCameraStudio();
+    setCameraStudioPreferences(preferences, settings);
   },
   onRecenter: () => {
     if (videoExportSession.busy || bulkExportArmed || reelSaver.busy || snapshotBusy) return;
@@ -874,7 +871,18 @@ function applyDisplayPref(key, value) {
 // landscape renderer for recreation (now on the title screen, on "Apply
 // now" or at the next song while playing); reload settings wait for one.
 let landscapeRendererDirty = false;
+function applyCameraStudioPreferences() {
+  cameraStudioSettings = normalizeCameraStudioSettings(cameraStudioPreferences(settings));
+  cameraStudioPanel.setSettings(cameraStudioSettings);
+  if (sim) sim.cameraStudioSettings = cameraStudioSettings;
+  syncCameraStudio();
+  if (paused && sim && renderer) redrawPausedCameraStudio();
+}
+
 const SETTING_APPLIERS = {
+  ...Object.fromEntries(CAMERA_STUDIO_SETTING_IDS.map(id => [id, applyCameraStudioPreferences])),
+  mp4Resolution: () => syncVideoOutputSettings(),
+  mp4Fps: () => syncVideoOutputSettings(),
   pixelGrid: value => applyDisplayPref('pixelGrid', value),
   buildPixelDetail: value => { if (displayPrefs.buildPixelDetail !== value) applyDisplayPref('buildPixelDetail', value); },
   scaling: value => applyDisplayPref('scaling', value),
@@ -994,6 +1002,17 @@ function sceneDrawnFacts(scene) {
   };
 }
 
+/** Dedicated controls are useful only once their live camera can be seen. */
+function customControlUnavailableReason(target) {
+  if (target !== 'cameraStudio') return null;
+  try {
+    if (!running || playbackPreparing) return 'Load a landscape song before opening Camera Studio.';
+    if (!rangePresentation || sim?.biomes?.world?.kind !== 'alpine') return 'Camera Studio needs a 3D landscape song.';
+    if (!settings.get('cameraStudioEnabled')) return 'Enable Camera Studio to open its live controls.';
+    return settingBlockedReason('cameraStudioEnabled');
+  } catch { return 'Load a landscape song before opening Camera Studio.'; }
+}
+
 function settingsPanelHooks() {
   return {
     blocked: id => settingBlockedReason(id),
@@ -1017,6 +1036,16 @@ function settingsPanelHooks() {
       },
     },
     actions: {
+      controlUnavailable: target => customControlUnavailableReason(target),
+      openControl: target => {
+        if (customControlUnavailableReason(target)) return;
+        if (target === 'cameraStudio') {
+          cameraStudioPanel.collapsed = false;
+          cameraStudioPanel.setSettings(cameraStudioSettings);
+          if (displayDialog?.open) displayDialog.close();
+          cameraStudioPanel.element.scrollIntoView?.({ block: 'nearest' });
+        } else if (target === 'mp4Export') openVideoExport();
+      },
       applyPending: () => applyPendingSettings(),
       reload: () => location.reload(),
       copy: async text => { try { await navigator.clipboard.writeText(text); return true; } catch { return false; } },
@@ -1633,6 +1662,9 @@ function beginBulkExport({ width, height, presentation: override, qualityLevel =
   const extra = {
     playBuffer: lastAudioBuffer || undefined,
     exportMode: true,
+    // Export frames disable listener input. Keep its shared zoom intact so
+    // completion, cancellation and failed preparation can resume that framing.
+    keepUserCamera: true,
     cameraSchedule: cameraSchedule === undefined ? cameraRun?.scheduleFor(cameraScheduleKey()) || null : cameraSchedule,
     cameraTourMode: cameraTourMode ?? currentCameraTourMode(),
     cameraStudioSettings: normalizeCameraStudioSettings(cameraStudio),
@@ -5204,21 +5236,19 @@ const videoResolution = document.getElementById('videoExportResolution');
 const videoFps = document.getElementById('videoExportFps');
 const videoDownload = document.getElementById('videoExportDownload');
 let videoDownloadUrl = null;
-try {
-  const saved = resolveMp4ExportSettings(JSON.parse(displayStorage()?.getItem('midio.mp4Export.v1') || '{}'));
-  videoResolution.value = saved.resolutionId; videoFps.value = String(saved.fps);
-} catch { /* Invalid or denied storage keeps the HTML defaults. */ }
+syncVideoOutputSettings();
 
 function videoOutputSettings() {
-  return resolveMp4ExportSettings({ resolutionId: videoResolution.value, fps: videoFps.value });
+  return resolveMp4ExportSettings({ resolutionId: settings.get('mp4Resolution'), fps: settings.get('mp4Fps') });
 }
 function syncVideoOutputSettings() {
-  const settings = videoOutputSettings();
+  const output = videoOutputSettings();
+  videoResolution.value = output.resolutionId;
+  videoFps.value = String(output.fps);
   const durationMs = lastAudioBuffer ? lastAudioBuffer.length / lastAudioBuffer.sampleRate * 1000 : 0;
-  document.getElementById('videoExportSummary').textContent = `${settings.width} × ${settings.height} · ${settings.fps} fps`
-    + (durationMs ? ` · ${formatDuration(durationMs)} · about ${formatBytes(estimateMp4ExportBytes(settings, durationMs))}` : ' · Load a song first');
+  document.getElementById('videoExportSummary').textContent = `${output.width} × ${output.height} · ${output.fps} fps`
+    + (durationMs ? ` · ${formatDuration(durationMs)} · about ${formatBytes(estimateMp4ExportBytes(output, durationMs))}` : ' · Load a song first');
   videoStart.disabled = videoExportSession.busy || !lastAudioBuffer || !lastTimelineData;
-  try { displayStorage()?.setItem('midio.mp4Export.v1', JSON.stringify(settings)); } catch { /* Session settings still work. */ }
 }
 function syncVideoExportState(state) {
   document.getElementById('videoExportFields').disabled = state.busy;
@@ -5234,18 +5264,26 @@ function syncVideoExportState(state) {
   videoStatus.textContent = messages[state.phase] || '';
   syncCameraStudio();
 }
-for (const id of ['settingsVideoExportBtn', 'videoExportBtn', 'completeVideoExportBtn']) {
-  document.getElementById(id)?.addEventListener('click', () => {
-    continuousPlayback.cancel();
-    if (displayDialog?.open) displayDialog.close();
-    syncVideoOutputSettings();
-    if (!videoExportSession.busy) videoStatus.textContent = lastAudioBuffer
-      ? 'Your current scene, camera, seed and detail settings will be used for the whole song.'
-      : 'Load a song with audio, then open Export video again.';
-    if (!videoDialog.open) videoDialog.showModal();
-  });
+function openVideoExport() {
+  continuousPlayback.cancel();
+  if (displayDialog?.open) displayDialog.close();
+  syncVideoOutputSettings();
+  if (!videoExportSession.busy) videoStatus.textContent = lastAudioBuffer
+    ? 'Your current scene, camera, seed and detail settings will be used for the whole song.'
+    : 'Load a song with audio, then open Export video again.';
+  if (!videoDialog.open) videoDialog.showModal();
 }
-for (const control of [videoResolution, videoFps]) control.addEventListener('change', syncVideoOutputSettings);
+for (const id of ['videoExportBtn', 'completeVideoExportBtn']) {
+  document.getElementById(id)?.addEventListener('click', openVideoExport);
+}
+videoResolution.addEventListener('change', () => {
+  settings.set('mp4Resolution', videoResolution.value);
+  syncVideoOutputSettings();
+});
+videoFps.addEventListener('change', () => {
+  settings.set('mp4Fps', Number(videoFps.value));
+  syncVideoOutputSettings();
+});
 videoDialog.addEventListener('keydown', event => event.stopPropagation());
 videoDialog.addEventListener('cancel', event => {
   if (videoExportSession.busy) { event.preventDefault(); videoExportSession.cancel(); }

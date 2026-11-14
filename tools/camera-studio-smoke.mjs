@@ -29,6 +29,10 @@ const state = () => page.evaluate(() => ({ playback: window.__SMW?.playbackState
   seed: window.__SMW?.songSeed, studio: window.__SMW?.cameraStudioSettings,
   heardTimeMs: window.__SMW?.sim?.heardTimeMs, audioMs: window.__SMW?.audioEngine?.nowMs,
   camera: window.__SMW?.rangeState?.cameraStudio, range: window.__SMW?.rangeState?.viewId }));
+const listenerZoom = () => page.evaluate(async () => {
+  const { rangeUserCamera: camera } = await import('/src/world/alpine/RangeCamera.js');
+  return { target: { ...camera.target }, current: { ...camera.current } };
+});
 const wakeAndClick = async selector => {
   await page.locator('#stage').dispatchEvent('pointermove', { pointerType: 'mouse', clientX: 20, clientY: 200 });
   await page.locator(selector).click({ timeout: 10000 });
@@ -152,6 +156,19 @@ try {
   await capturePage('landscape-studio-collapsed-5000ms.png');
   await page.locator('#camera-studio-panel .cameraStudioCollapse').click();
   check('collapsing leaves the stationary studio header available', await page.locator('#camera-studio-panel').isVisible());
+  await page.evaluate(async () => {
+    const { rangeUserCamera: camera } = await import('/src/world/alpine/RangeCamera.js');
+    const app = window.__SMW, canvas = document.getElementById('stage');
+    app.renderer.draw(app.sim, 0);
+    const rect = canvas.getBoundingClientRect();
+    canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: -240, clientX: rect.left + rect.width * 0.6,
+      clientY: rect.top + rect.height * 0.45, bubbles: true, cancelable: true }));
+    camera.sample(performance.now() + 5000);
+    app.renderer.draw(app.sim, 0);
+  });
+  const zoomBeforeExport = report.listenerZoom = await listenerZoom();
+  check('wheel input applies off-centre listener zoom before export', zoomBeforeExport.target.fx > 0
+    && Math.abs(zoomBeforeExport.target.rx) > 0);
   await wakeAndClick('#videoExportBtn');
   check('Export opens a native modal dialog', await page.locator('#videoExportDialog').evaluate(dialog => dialog.open && dialog.matches(':modal')));
   check('all six video output sizes are offered', await page.locator('#videoExportResolution option').count() === 6);
@@ -170,6 +187,7 @@ try {
     && cancelled.playback.running && cancelled.playback.paused && cancelled.seed === before.seed
     && cancelled.studio.distance === 0.65 && cancelled.studio.fovDeg === 25);
   check('cancelled playback returns near its original song time', Math.abs(cancelled.audioMs - before.audioMs) < 150);
+  check('cancelled export restores the listener wheel zoom', JSON.stringify(await listenerZoom()) === JSON.stringify(zoomBeforeExport));
   const downloadReady = page.waitForEvent('download', { timeout: 300000 });
   await page.locator('#videoExportStart').click();
   await page.waitForFunction(() => !window.__SMW?.videoExportState?.busy && ['complete', 'error'].includes(window.__SMW?.videoExportState?.phase), null, { timeout: 300000 });
@@ -208,6 +226,7 @@ try {
   report.probe = probe;
   check('finished export restores paused playback and studio settings', report.completed.playback.running && report.completed.playback.paused
     && report.completed.seed === before.seed && report.completed.studio.distance === 0.65);
+  check('completed export restores the listener wheel zoom', JSON.stringify(await listenerZoom()) === JSON.stringify(zoomBeforeExport));
   check('no page errors occurred', report.pageErrors.length === 0);
   check('no browser console errors occurred', report.consoleErrors.length === 0);
   check('captured application source stayed unchanged', (await snapshotSource(root)).digest === snapshot.digest);
