@@ -46,7 +46,7 @@ const capturePage = async filename => {
 };
 try {
   browser = await chromium.launch({ headless: true,
-    executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe',
+    ...(process.env.PLAYWRIGHT_CHROMIUM_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH } : { channel: 'chrome' }),
     args: ['--mute-audio'] });
   report.browserVersion = browser.version();
   context = await browser.newContext({ viewport: { width: 1280, height: 720 }, acceptDownloads: true, serviceWorkers: 'block' });
@@ -89,27 +89,45 @@ try {
   });
   await page.waitForFunction(() => window.__SMW?.paused);
   await page.evaluate(async () => { window.__SMW.seek(5000); await window.__SMW.renderReady; });
+  // Align the heard clock with the export's canonical five-second frame.
+  // Live audio includes native device latency; exported source audio does not.
+  await page.evaluate(async () => {
+    const correction = 5000 - window.__SMW.sim.heardTimeMs;
+    if (Math.abs(correction) > 0.01) {
+      window.__SMW.seek(5000 + correction);
+      await window.__SMW.renderReady;
+    }
+  });
   await page.evaluate(() => window.__SMW.rangeReady({ timeoutMs: 120000 }));
   check('enabled studio overlay appears during paused Landscape', await page.locator('#camera-studio-panel').isVisible());
   const before = await state();
+  check('paused capture uses the canonical heard-song timestamp', Math.abs(before.heardTimeMs - 5000) < 0.01);
   report.before = before;
-  const beforeCamera = await page.evaluate(() => ({ fov: window.__SMW.sim.biomes.rangePresentation?.scene?.camera?.fov,
-    x: window.__SMW.sim.biomes.rangePresentation?.scene?.camera?.position?.x }));
+  const cameraSnapshot = () => page.evaluate(() => {
+    const camera = window.__SMW.sim.biomes.rangePresentation?.scene?.camera, matrix = camera?.matrixWorld?.elements;
+    const pose = camera?.userData?.rangeCameraPose;
+    return { fov: camera?.fov, logicalFov: pose?.fovYDeg, eye: pose?.eyeM, target: pose?.targetM,
+      forward: matrix ? [-matrix[8], -matrix[9], -matrix[10]] : null,
+      heardTimeMs: window.__SMW.sim.heardTimeMs, timeMs: window.__SMW.sim.timeMs };
+  });
+  const beforeCamera = await cameraSnapshot();
   await page.locator('#camera-studio-distance').fill('0.65');
   await page.locator('#camera-studio-distance').press('Tab');
   await page.locator('#camera-studio-fovDeg').fill('25');
   await page.locator('#camera-studio-fovDeg').press('Tab');
   if (report.pageErrors.length) throw new Error(report.pageErrors.join('\n'));
-  await page.waitForFunction(previous => {
+  const expectedFov = 2 * Math.atan(Math.tan(25 * Math.PI / 360) * 0.65) * 180 / Math.PI;
+  await page.waitForFunction(expected => {
     const camera = window.__SMW.sim.biomes.rangePresentation?.scene?.camera;
-    return camera && camera.fov < previous.fov;
-  }, beforeCamera);
+    return camera && Math.abs(camera.userData.rangeCameraPose.fovYDeg - expected) < 0.0001;
+  }, expectedFov);
   const after = await state();
-  const afterCamera = await page.evaluate(() => ({ fov: window.__SMW.sim.biomes.rangePresentation?.scene?.camera?.fov,
-    x: window.__SMW.sim.biomes.rangePresentation?.scene?.camera?.position?.x }));
+  const afterCamera = await cameraSnapshot();
   report.cameras = { before: beforeCamera, after: afterCamera };
   check('paused form edits update the live studio snapshot', after.playback.paused && after.studio.distance === 0.65 && after.studio.fovDeg === 25);
-  check('paused edits redraw the lens without moving a pruned package', afterCamera.fov < beforeCamera.fov && Math.abs(afterCamera.x - beforeCamera.x) < 0.01);
+  check('paused edits redraw the lens without moving a pruned package', afterCamera.fov < beforeCamera.fov
+    && Math.hypot(...afterCamera.eye.map((value, i) => value - beforeCamera.eye[i])) < 0.01
+    && Math.hypot(...afterCamera.target.map((value, i) => value - beforeCamera.target[i])) < 0.01);
   await page.locator('.cameraStudioBody').evaluate(body => { body.scrollTop = 0; });
   await page.evaluate(() => {
     window.__cameraStudioExportPoses = [];
@@ -119,8 +137,11 @@ try {
       const result = draw.call(this, sim, ...args);
       if (window.__SMW?.videoExportState.phase === 'encoding' && Math.abs(sim.heardTimeMs - 5000) < 60) {
         const presentation = sim.biomes.rangePresentation, camera = presentation?.scene?.camera;
+        const matrix = camera?.matrixWorld?.elements;
+        const pose = camera?.userData?.rangeCameraPose;
         window.__cameraStudioExportPoses.push({ timeMs: sim.timeMs, heardTimeMs: sim.heardTimeMs,
-          eye: camera?.position?.toArray(), fov: camera?.fov, studio: sim.cameraStudioSettings,
+          eye: pose?.eyeM, target: pose?.targetM, forward: matrix ? [-matrix[8], -matrix[9], -matrix[10]] : null,
+          fov: camera?.fov, logicalFov: pose?.fovYDeg, studio: sim.cameraStudioSettings,
           cameraRails: presentation?.status()?.cameraRails });
       }
       return result;
@@ -155,6 +176,19 @@ try {
   report.completed = await state();
   report.exportPosesNear5000ms = await page.evaluate(() => window.__cameraStudioExportPoses);
   check('full-song MP4 export completes', report.completed.export.phase === 'complete');
+  const encodedPose = report.exportPosesNear5000ms.reduce((closest, pose) => !closest
+    || Math.abs(pose.heardTimeMs - afterCamera.heardTimeMs) < Math.abs(closest.heardTimeMs - afterCamera.heardTimeMs) ? pose : closest, null);
+  check('completed export records its actual near-five-second camera', encodedPose !== null);
+  check('encoded frames use the edited Studio settings and effective lens', encodedPose.studio.enabled === true
+    && encodedPose.studio.distance === 0.65 && encodedPose.studio.fovDeg === 25 && Math.abs(encodedPose.logicalFov - afterCamera.logicalFov) < 0.001);
+  report.liveExportComparison = { live: afterCamera, encoded: encodedPose,
+    heardTimeDeltaMs: encodedPose.heardTimeMs - afterCamera.heardTimeMs,
+    eyeDeltaM: Math.hypot(...encodedPose.eye.map((value, i) => value - afterCamera.eye[i])),
+    targetDeltaM: Math.hypot(...encodedPose.target.map((value, i) => value - afterCamera.target[i])),
+    forwardDelta: Math.hypot(...encodedPose.forward.map((value, i) => value - afterCamera.forward[i])),
+    fovDeltaDeg: encodedPose.fov - afterCamera.fov };
+  check('live and encoded frames preserve the same five-second camera pose', Math.abs(report.liveExportComparison.heardTimeDeltaMs) < 0.01
+    && report.liveExportComparison.eyeDeltaM < 0.01 && report.liveExportComparison.targetDeltaM < 0.01);
   const download = await downloadReady;
   const mp4 = path.join(output, download.suggestedFilename());
   await download.saveAs(mp4);
