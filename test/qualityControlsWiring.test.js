@@ -15,6 +15,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
+import { CAMERA_STUDIO_SETTING_IDS } from '../src/config/settingsRegistry.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const main = readFileSync(join(root, 'src/main.js'), 'utf8');
@@ -29,6 +30,7 @@ test("control: an explicit display change clears the perf ladder's recovery hist
   const { SettingsStore } = await import('../src/config/appSettings.js');
   let resets = 0, fits = 0;
   const context = vm.createContext({
+    CAMERA_STUDIO_SETTING_IDS,
     displayPrefs: { pixelGrid: 'classic', scaling: 'fit', buildPixelDetail: true },
     snapshotBusy: false, presentation: {}, resolvePresentation: prefs => prefs,
     syncDisplayControls() {}, perfGovernor: { forgetRecoveryHistory() { resets++; } }, fitCanvas() { fits++; }, paused: false, running: false, console,

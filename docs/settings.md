@@ -11,11 +11,14 @@ before it and where each mechanism went.
 - **Where:** the title screen's **Settings** disclosure, and the **Settings**
   button in the playback HUD (the same panel, in a dialog; the music keeps
   playing). A jump bar moves between sections: Appearance, Camera, Landscape,
-  Performance, Audio & playback, Experiments, Diagnostics.
+  Audio & playback, Experiments, Diagnostics.
 - **Ordinary, advanced, experimental:** each section shows its everyday
-  settings. *Advanced …* disclosures hold finer controls. Experimental and
-  diagnostic settings live only under **Experiments**, behind a labelled
-  disclosure, each with an *Experimental* or *Diagnostic* badge.
+  settings. *Advanced …* disclosures hold finer controls. Visual experiments
+  live under **Experiments**, behind a labelled disclosure. Quality limits,
+  renderer forcing and engineering comparisons live under **Diagnostics →
+  Engineering controls**. Their existing defaults, saved values and URL
+  overrides still work; changed values have reset controls. See the
+  [keep/move decisions](settings-simplification.md).
 - **When a change applies** is shown on every setting that is not immediate:
   *Next landscape*, *Next song*, *Scene rebuild* (the scene is rebuilt in
   place: the song holds its place for a moment and resumes, it does not
@@ -27,7 +30,13 @@ before it and where each mechanism went.
   settings while the painted renderer is selected, or the compiled-terrain
   pilot when its packs are not on the site). Parameters with no effect in the
   current product (`rangeMsaa` under the Cinematic look) are not offered.
+- **Camera Studio and MP4 export:** Camera Studio's composition controls stay
+  in its playback overlay; resolution and frame rate stay in the Export video
+  dialog. Settings links to those controls once per feature. Each preference
+  still appears in Diagnostics and participates in reset and share links.
 - **Reset:** each changed setting has ↺; Diagnostics has *Reset all settings*.
+  This also turns Camera Studio off, resets its live composition and restores
+  the MP4 dialog to 1080p / 30 fps. The defaults remain after a reload.
 - **Diagnostics:** what is running (renderer requested vs running, fallback
   reason, active view, quality level and ceiling, pixel grid, antialiasing
   actually used, compiled-terrain results), every setting that differs from its
@@ -58,7 +67,10 @@ when the page loads (`appSettings()` in `src/config/appSettings.js`).
   (`midio-pixel:display:v1`, migrating `smw:display:v1/v2` and `smw:stageRes`),
   `midio-pixel:render-quality:v1` (migrating Economy → Low), `smw:stageFps`,
   `range-pace`, `range-tour`, `midio.playback.v1`, `smw:noLyrics`,
-  `smw:btLatencyTrimMs` (migrating `smw:btLatencyTrim`). Settings that had no
+  `smw:btLatencyTrimMs` (migrating `smw:btLatencyTrim`), Camera Studio's
+  `midio.cameraStudio.v1`, and `midio.mp4Export.v1`. The camera and export
+  records are read per field, so valid older choices survive partly invalid
+  records; MP4 resolution aliases such as `4k` are migrated. Settings that had no
   storage share `midio-pixel:settings:v1`.
 
 ## Architecture
@@ -79,13 +91,19 @@ SettingsPanel.js     subsystem adapters           main.js applySettingChange
   adapter, `lifecycle`, `requires` (dependencies/conflicts with reasons),
   `couples` (settings changed together), `availability` (a lazy capability
   probe), `ui: false` (URL-only), `share: false`, `control`/`controlId`/
-  `statusId` for the panel, `parseUrl` + `urlNote` for historical URL rules.
+  `statusId` for the panel, `controlTarget`/`controlLabel` for grouped external
+  controls, `parseUrl` + `urlNote` for historical URL rules.
 - **Store** (`SettingsStore`): `get(id)` is a property read, safe in frame
   loops; nothing parses the URL or touches storage after construction except
   `set`/`reset`/`saveUrlOverrides`. `set` validates, runs guards (e.g. no
   display change while snapshots are saved), persists by policy, applies
   couplings, marks a change *pending* when its lifecycle cannot apply now, and
-  notifies listeners once per change. `describe()` and `explainSetting()`
+  notifies listeners once per change. Reset checks guards before changing saved
+  records or URL/source metadata; full reset preflights every eligible setting
+  so capture locks refuse it without a partial reset. Saving URL overrides also
+  honors guards and keeps each override in the address until storage succeeds.
+  Reset clears rejected URL values and their diagnostic metadata too.
+  `describe()` and `explainSetting()`
   report requested vs effective values and why.
 - **Subsystems** read through the store. Historical parser functions keep their
   signatures as adapters: with no argument they read the page store; with an
@@ -138,10 +156,16 @@ registerSettingControl('myControl', (def, { doc, id, options }) => {
 
 Then set `control: 'myControl'` on the definition. Built-in kinds: `checkbox`,
 `select`, `slider` (enum on a range input), `range`, `number`, `text`,
-`pressButton` (aria-pressed toggle), `tour` (Camera tours checkbox + kind).
+`pressButton` (aria-pressed toggle), `tour` (Camera tours checkbox + kind),
+`external` (one navigation button per `controlTarget`, for controls that already
+live in Camera Studio or the MP4 dialog). External definitions retain `ui: true`
+so reset, override banners, diagnostics and share links include every field.
 
 ## Testing
 
+- `test/cameraStudioSettings.test.mjs` — camera/MP4 migration and validation,
+  URL precedence without implicit saving, full reset and reload, share round
+  trips, and live camera/export-dialog application.
 - `test/settingsRegistry.test.mjs` — definitions, defaults, constraints,
   historical URL rules, precedence, migration, dependencies, store persistence
   and URL clean-up, couplings, guards, pending lifecycles, share links,
