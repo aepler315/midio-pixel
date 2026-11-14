@@ -1,6 +1,7 @@
 // A recording-specific, explicitly selected performance. These measurements
 // come from aligned exported stem groups, never inferred from mixed timbre.
 import { DS182_EVIDENCE } from '../../assets/performance/ds182.js';
+import { settingValue } from '../../config/appSettings.js';
 
 const unit = value => Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
 const STEP_MS = 100;
@@ -21,8 +22,8 @@ export function ds182EvidenceFor({ signature, durationMs, sourceSha256 } = {}) {
 /** Only a byte-identical canonical upload selects the performance by itself.
  * A URL can explicitly request its direction with other audio, in which case
  * unmatched audio retains the mix-energy fallback and no stem-role claims. */
-export function dualSummitsSelection({ durationMs, sourceSha256, search = '' } = {}) {
-  const requested = new URLSearchParams(search).get('performance');
+export function dualSummitsSelection({ durationMs, sourceSha256, search } = {}) {
+  const requested = settingValue('performance', search);
   if (requested === 'off') return 'off';
   if (requested === 'dual-summits') return 'dual-summits';
   return sourceSha256 === DS182_EVIDENCE.sources.mix.sha256

@@ -37,6 +37,7 @@ jobs:
           trap 'kill "$source_pid" "${staged_pid:-}" 2>/dev/null || true' EXIT
           curl --fail --silent --retry 20 --retry-connrefused --retry-delay 1 http://127.0.0.1:8080/ > /dev/null
           npm run test:smoke -- http://127.0.0.1:8080
+          npm run test:settings -- --out .smoke/settings --playback
           npm run stage:site
           SITE_ROOT=_site HOST=127.0.0.1 PORT=8090 node tools/serve.js > .smoke/core-staged.log 2>&1 &
           staged_pid=$!

@@ -1,4 +1,6 @@
-/** Opt into the experimental terrain-only pixel pipeline for visual review. */
-export function directTerrainExperiment(search = '') {
-  return new URLSearchParams(search).get('directTerrain') === '1';
+import { settingValue } from '../config/appSettings.js';
+
+/** The experimental terrain-only pixel pipeline (registry id directTerrain). */
+export function directTerrainExperiment(search) {
+  return settingValue('directTerrain', search);
 }

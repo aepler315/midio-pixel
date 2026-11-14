@@ -155,50 +155,9 @@
           <p class="hint"><a href="./src/dev/view-discovery.html" target="_blank" rel="noopener">Scout landscape views</a> — browse real terrain and save your favorites.</p>
           <details id="titleSettings" class="settingsWell">
             <summary class="settingsSummary">Settings</summary>
-            <p class="hint">The Range v2 uses WebGL2 scenery when available, with a painted fallback.</p>
-            <div class="prefRow">
-
-              <button id="lyricGroundingBtn" class="ghostbtn chipbtn" type="button" aria-pressed="true" title="Looks up time-stamped lyrics for your song and uses them to place verses and choruses on the real clock. Tries the tags as they are, then progressively cleaner versions of them. Remembered.">Timed lyric grounding: on</button>
-            </div>
-
-          
-
-            <div class="generalQualityRow">
-              <label for="generalQuality">General quality <output id="generalQualityValue" for="generalQuality">High</output></label>
-              <input id="generalQuality" type="range" min="0" max="2" step="1" value="2" aria-describedby="generalQualityHint" />
-              <div class="qualityTicks" aria-hidden="true"><span>Low</span><span>Medium</span><span>High</span></div>
-              <p id="generalQualityHint" class="hint">Automatically adapts detail to keep playback smooth. This sets the maximum.</p>
-            </div>
-            <div class="resRow displayRow">
-              <label for="display-pixelGrid">Pixel detail</label>
-              <select id="display-pixelGrid" title="Classic+ uses 1.56×, Medium 2.25×, Medium+ 3.06× and Detailed four times the pixel work. Quality remains independent."><option value="classic">Classic — 320×180</option><option value="classicPlus">Classic+ — 400×225</option><option value="medium">Medium — 480×270</option><option value="mediumPlus">Medium+ — 560×315</option><option value="detailed">Detailed — 640×360</option></select>
-              <label><input id="display-buildPixelDetail" type="checkbox" checked aria-describedby="buildPixelDetailHint"> Build pixel detail</label>
-              <span id="buildPixelDetailHint" class="hint">Classic pixels sharpen with the rising landscape.</span>
-              <label for="range-pace">Landscape pace</label>
-              <select id="range-pace" aria-describedby="range-pace-status"><option value="1">1x</option><option value="2">2x</option><option value="3" selected>3x</option><option value="4">4x</option></select>
-              <label><input id="range-tour-toggle" type="checkbox" aria-describedby="range-tour-description range-tour-status"> Camera tours</label>
-              <span id="pixelGridHint" hidden>320 × 180 grid</span>
-            </div>
-            <p class="hint" id="range-pace-status" role="status" aria-live="polite">Applies to the next unplayed landscape or replay.</p>
-            <p class="hint" id="range-tour-description">One camera by default: each landscape plays its music-timed tour where it beats the authored rail for the song, and the rail otherwise. Off keeps every authored rail. <span id="range-tour-status" role="status" aria-live="polite" data-state="off">Off</span></p>
-            <div class="resRow displayRow">
-              <label for="display-scaling">Scaling</label>
-              <select id="display-scaling" title="Fit fills the available space while preserving aspect. Integer uses evenly sized physical pixels, with borders when needed."><option value="fit">Fit</option><option value="integer">Integer</option></select>
-            </div>
-            <div class="resRow">
-              <label for="stageFps">Frame rate</label>
-              <select id="stageFps" title="Frame-rate cap. 60 = every frame drawn; 30 = every other frame skipped, halving GPU load.">
-                <option value="60" selected>60 fps</option>
-                <option value="30">30 fps</option>
-              </select>
-            </div>
-            <details id="graphicsTroubleshooting">
-              <summary>Graphics troubleshooting</summary>
-              <p class="hint">If the 3D scenery never appears, copy a report of the graphics state. Audio, filenames and lyrics are excluded.</p>
-              <button id="copyGraphicsReport" class="ghostbtn" type="button">Copy graphics report</button>
-              <p id="graphicsReportStatus" class="hint" role="status"></p>
-              <textarea id="graphicsReport" hidden readonly rows="12" aria-label="Graphics report"></textarea>
-            </details>
+            <!-- Generated from src/config/settingsRegistry.js by src/ui/SettingsPanel.js.
+                 Add a setting there, not here (docs/settings.md). -->
+            <div id="settingsPanel" class="settingsPanel"></div>
           </details>
 
           
@@ -218,7 +177,7 @@
     <dialog id="libraryPanel" class="libraryPanel hidden" aria-label="Music library"></dialog>
 
 
-    <dialog id="displaySettingsDialog"><button id="displaySettingsClose" type="button" class="ghostbtn">Close</button><div id="displaySettingsBody"></div></dialog>
+    <dialog id="displaySettingsDialog" aria-label="Settings"><button id="displaySettingsClose" type="button" class="ghostbtn">Close</button><div id="displaySettingsBody"></div></dialog>
     <div id="hud" class="hidden">
       <div id="hudLeft">
         <div id="btLatencyControl">
@@ -250,7 +209,7 @@
           <input id="rangeSeek" type="range" min="0" max="1" step="0.1" value="0" aria-label="Song position in seconds" />
           <button id="rangeRestart" type="button" class="ghostbtn">Restart</button>
         </details>
-        <button id="displaySettingsBtn" class="ghostbtn" type="button" title="Display settings">Display</button>
+        <button id="displaySettingsBtn" class="ghostbtn" type="button" title="Settings: display, camera, landscape, performance and playback">Settings</button>
         <div id="detailControls" class="detailControls" role="group" aria-label="Pixel detail">
           <span id="detailLevel" class="detailLevel" aria-live="polite">Classic</span>
         </div>

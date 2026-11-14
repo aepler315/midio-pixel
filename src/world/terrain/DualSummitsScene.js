@@ -2,6 +2,7 @@
 // use the ordinary song-range assembly and Range v2 rendering paths.
 import MASSIF_CATALOG from './massifCatalogData.js';
 import { SONG_RANGE_VERSION } from './SongRangePlan.js';
+import { settingValue } from '../../config/appSettings.js';
 
 export const DUAL_SUMMITS_SIGNATURE = 'dual-summits';
 export const DUAL_SUMMITS_SCENE_VERSION = 3;
@@ -11,8 +12,8 @@ const SUMMITS = Object.freeze([
 ]);
 
 /** An explicit option takes precedence over the repeatable review URL. */
-export function dualSummitsRequested({ signature, search = globalThis.location?.search || '' } = {}) {
-  return (signature ?? new URLSearchParams(search || '').get('performance')) === DUAL_SUMMITS_SIGNATURE;
+export function dualSummitsRequested({ signature, search } = {}) {
+  return (signature ?? settingValue('performance', search)) === DUAL_SUMMITS_SIGNATURE;
 }
 
 /** Null if a catalog revision cannot supply both pinned, fitting massifs. */

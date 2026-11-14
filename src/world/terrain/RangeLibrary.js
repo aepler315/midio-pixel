@@ -49,7 +49,7 @@ function byDeadline(promise, deadline) {
  * catalog view (logged once per song, counted in songRangeStats). The
  * catalog choice rides along as `fallback` for later failures.
  */
-export async function songRangeChoice(profile, seed, scenery, { search = globalThis.location?.search || '', fetchImpl, signature } = {}) {
+export async function songRangeChoice(profile, seed, scenery, { search, fetchImpl, signature } = {}) {
   const dualSummits = dualSummitsRequested({ signature, search });
   const layout = songRangeLayoutParam(search);
   if (!dualSummits && !songRangeEnabled(search) && !layout) return null;

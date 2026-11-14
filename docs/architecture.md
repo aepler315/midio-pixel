@@ -30,6 +30,12 @@ replaced by whole-song results: history and committed-time handoff keep already
 heard construction/weather/camera from jumping. Export APIs sample a fixed clock;
 these are useful for screenshots and cannot measure delivered live FPS.
 
+Configuration flows through one settings registry (`src/config/settingsRegistry.js`)
+and store (`src/config/appSettings.js`): URL overrides, saved preferences and
+defaults resolve once per page, the Settings panel is generated from the
+definitions, and `main.js` applies each change at its lifecycle boundary. See
+[settings](settings.md) and the generated [URL parameters](url-parameters.md).
+
 `LandscapeScore` compiles growth, weather and camera-related cues;
 `RangeFrame` snapshots shared music, atmosphere, geometry/camera controls and
 viewport state. CPU geometry, GLSL displacement, depth, ownership and reflection

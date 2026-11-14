@@ -166,7 +166,7 @@ The world registry holds one world, Landscape. Trio, the seven other
 landscape styles and the earlier Cathode have been removed; their old
 playback IDs resolve to Landscape.
 
-- **Landscape** — real mountains that breathe with the mix: The Range on real terrain, drawn by Range v2. The **Camera tour: Tetons** setting (or `?rangeTour=tetons`) enables a song-timed flight through real Teton terrain. Use `?rangeTour=off` to override the saved preference. [Validation and review evidence](docs/teton-tour-validation.md) record findings at their tested revisions. Further tour development is open to experimentation.
+- **Landscape** — real mountains that breathe with the mix: The Range on real terrain, drawn by Range v2. The **Settings → Camera → Camera tours → Teton highway tour** choice (or `?rangeTour=tetons`) enables a song-timed flight through real Teton terrain. Use `?rangeTour=off` to override the saved preference. [Validation and review evidence](docs/teton-tour-validation.md) record findings at their tested revisions. Further tour development is open to experimentation.
 
 Each song adapts Landscape's palette, terrain, and musical response, and a
 dense mix is filtered rather than amplified. There is no recommendation and
@@ -185,11 +185,18 @@ presets provide additional controls.
 Canvas 2D composes the scene; Range v2 supplies WebGL2 terrain by default.
 A current browser with Web Audio and audio-format decoding is required.
 WebGL2 enables the v2 scenery, while unsupported devices keep the painted
-Range fallback. `?rangeRenderer=legacy` selects that fallback explicitly.
-`?renderer=webgl` separately enables an optional post-processing overlay;
-it is not the switch for Range v2.
+Range fallback. **Settings → Performance → Landscape renderer** (or
+`?rangeRenderer=legacy`) selects that fallback explicitly. The experimental
+**WebGL post-effects overlay** (`?renderer=webgl`) is separate; it is not the
+switch for Range v2.
 
-Add `?dev=1` to enable developer shortcuts. During playback, the backtick
+Every setting is in the in-app **Settings** panel (title screen, or the
+Settings button during playback); URL parameters remain optional overrides for
+links, tests and benchmarks. See [settings](docs/settings.md) and the
+generated [URL parameter reference](docs/url-parameters.md).
+
+Turn on **Settings → Experiments → Developer keys and overlay** (or add
+`?dev=1`) to enable developer shortcuts. During playback, the backtick
 key opens the debug overlay, and `V` toggles the optional vision tuning
 loop. That loop is off by default and needs a configured local or remote
 provider. Its provider/model/endpoint settings live in the debug overlay;

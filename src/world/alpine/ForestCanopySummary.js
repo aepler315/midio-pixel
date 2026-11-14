@@ -1,7 +1,8 @@
+import { settingValue } from '../../config/appSettings.js';
+
 /** Distant crowns use the mean canopy once their projected width is unresolved. */
-export function canopySummaryEnabled(search = '') {
-  const value = new URLSearchParams(search).get('canopySummary');
-  return value === null || value === '1' || value === 'on';
+export function canopySummaryEnabled(search) {
+  return settingValue('canopySummary', search);
 }
 
 /** Weight of individual crown detail; the remaining weight uses the live mean canopy. */

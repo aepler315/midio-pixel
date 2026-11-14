@@ -57,6 +57,8 @@ function harness() {
     paramBus: {},
     lastSongName: '', lastAudioBuffer: null,
     DEV_MODE: false, offerWorldsThenStart() {},
+    // The Dual Summits performance setting (settings store); automatic here.
+    settings: { get: id => (id === 'performance' ? 'auto' : undefined) },
     packBundle: () => ({}), putBundle: async () => {},
     // A load started from the music library reports the decoded duration
     // back to it -- the one fact a folder scan cannot know.
