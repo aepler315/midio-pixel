@@ -537,11 +537,11 @@ async function redrawPausedCameraStudio() {
     && loadGen === generation && sim === ownedSim && renderer === ownedRenderer && sim?.cameraStudioSettings === settings;
   try {
     if (!current()) return;
-    ownedRenderer.draw(ownedSim, 0, { preparing: playbackPreparing });
+    ownedRenderer.draw(ownedSim, 1, { preparing: playbackPreparing });
     syncCameraStudio();
     const settled = rangePresentation && await rangePresentation.settle({ signal: controller.signal, timeoutMs: 30000 });
     if (settled && current()) {
-      ownedRenderer.draw(ownedSim, 0, { preparing: playbackPreparing });
+      ownedRenderer.draw(ownedSim, 1, { preparing: playbackPreparing });
       syncCameraStudio();
     }
   } catch (error) {
@@ -595,6 +595,7 @@ rangePaceSelect?.addEventListener('change', () => {
 });
 
 const rangeTourToggle = document.getElementById('range-tour-toggle');
+const rangeTerrainMode = document.getElementById('range-terrain-mode');
 const rangeTourStatus = document.getElementById('range-tour-status');
 function currentTourControlState() {
   return rangeTourControlState(rangePresentation?.status(), { running, worldKind: sim?.biomes?.world?.kind, paused });
@@ -606,6 +607,9 @@ function rangeStateSnapshot() {
 }
 function syncRangeTourControl() {
   syncRangePaceControl();
+  const busy = videoExportSession.busy || bulkExportArmed || reelSaver.busy || snapshotBusy;
+  if (rangeTerrainMode) { rangeTerrainMode.value = currentCameraTourMode() === 'tetons' ? 'tetons' : 'song'; rangeTerrainMode.disabled = busy; }
+  if (rangeTourToggle) { rangeTourToggle.checked = currentCameraTourMode() !== 'off'; rangeTourToggle.disabled = busy; }
   if (!rangeTourStatus) return;
   const status = currentTourControlState();
   if (rangeTourStatus.textContent !== status.text) rangeTourStatus.textContent = status.text;
@@ -614,30 +618,32 @@ function syncRangeTourControl() {
 }
 if (rangeTourToggle) {
   // Camera tours are on by default: each approved view's shot tour. Off
-  // keeps every authored rail. The Teton highway tour (?rangeTour=tetons)
-  // stays reachable by URL and counts as on.
+  // keeps every authored rail. Full Teton terrain is also selectable here.
   rangeTourToggle.checked = !!(rangeMode.tour || rangeMode.shots);
   rangeTourToggle.addEventListener('change', () => {
     const choice = rangeTourToggle.checked ? (rangePresentation?.tourMode === 'tetons' ? 'tetons' : 'shots') : 'off';
-    try { localStorage.setItem('range-tour', choice); } catch { /* Storage may be blocked. */ }
-    const url = new URL(location.href); url.searchParams.set('rangeTour', choice); history.replaceState(null, '', url);
-    rangePresentation ||= new RangePresentation({ mode: 'v2', upgradeIntended: rangeMode.upgradeIntended, residency: sharedResidency(), budget: residencyBudgetFor().name });
-    if (renderer) renderer.rangePresentation = rangePresentation;
-    applyTerrainTourPolicy(lastTimelineData?.terrain, choice, getWorld(lastTimelineData?.worldId)?.kind);
-    rangePresentation.setTourMode(choice === 'off' ? null : choice);
-    cameraRun?.forgetTours();
-    if (running && sim && audioEngine && lastTimelineData) {
-      const wasPaused=paused;
-      delete lastTimelineData.chapterState;
-      startTimeline(lastTimelineData, {
-        ...lastStartExtra, songSeed:sim.songSeed,
-        startAtMs:Math.max(0,audioEngine.nowMs), keepAudio:true,
-        keepUserCamera:true, preservePause:wasPaused, chapterState:null, cameraRunIntent:'preserve',
-      });
-      if(wasPaused){paused=true;updatePauseButtonUI();}
-    }
-    syncRangeTourControl();
+    setRangeTourMode(choice);
   });
+}
+rangeTerrainMode?.addEventListener('change', () => setRangeTourMode(rangeTerrainMode.value === 'tetons' ? 'tetons' : rangeTourToggle?.checked ? 'shots' : 'off'));
+function setRangeTourMode(choice) {
+  if (!['off', 'shots', 'tetons'].includes(choice) || videoExportSession.busy || bulkExportArmed || reelSaver.busy || snapshotBusy) return;
+  try { localStorage.setItem('range-tour', choice); } catch { /* Storage may be blocked. */ }
+  const url = new URL(location.href); url.searchParams.set('rangeTour', choice); history.replaceState(null, '', url);
+  rangePresentation ||= new RangePresentation({ mode: 'v2', upgradeIntended: rangeMode.upgradeIntended, residency: sharedResidency(), budget: residencyBudgetFor().name });
+  if (renderer) renderer.rangePresentation = rangePresentation;
+  applyTerrainTourPolicy(lastTimelineData?.terrain, choice, getWorld(lastTimelineData?.worldId)?.kind);
+  rangePresentation.setTourMode(choice === 'off' ? null : choice);
+  cameraRun?.forgetTours();
+  if (running && sim && audioEngine && lastTimelineData) {
+    const wasPaused = paused;
+    delete lastTimelineData.chapterState;
+    startTimeline(lastTimelineData, { ...lastStartExtra, songSeed: sim.songSeed,
+      startAtMs: Math.max(0, audioEngine.nowMs), keepAudio: true,
+      keepUserCamera: true, preservePause: wasPaused, chapterState: null, cameraRunIntent: 'preserve' });
+    if (wasPaused) { paused = true; updatePauseButtonUI(); }
+  }
+  syncRangeTourControl(); syncCameraStudio();
 }
 syncRangeTourControl();
 // Downloads/workers can settle while the audio is paused and no scenic
@@ -5170,7 +5176,7 @@ async function renderSongMp4() {
         const handle = await waitForExport(fileChoice, signal);
         check(signal);
         if (!handle && estimateMp4ExportBytes(settings, audioBuffer.duration * 1000) > MAX_MP4_BUFFER_BYTES)
-          throw Error('This export exceeds the 512 MiB browser-memory limit. Choose a smaller resolution or use a browser that can save directly to a file.');
+          throw Error('This export exceeds the 512 MiB encoded-output limit. Choose a smaller resolution or use a browser that can save directly to a file.');
         await waitForExport(checkMp4ExportSupport({ settings, audioBuffer }), signal);
         if (fullAnalysisPending) await waitForExport(fullAnalysisPending, signal);
         check(signal);

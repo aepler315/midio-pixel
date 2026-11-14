@@ -6,6 +6,30 @@ import { normalizeCameraStudioSettings } from '../src/world/alpine/CameraStudio.
 
 const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
 
+test('full camera terrain can be selected visibly while preserving the song position and pause', () => {
+  const start = main.indexOf('function setRangeTourMode(choice) {');
+  assert.ok(start >= 0, 'one route action serves the Settings terrain selector');
+  const end = main.indexOf('\n}\n', start) + 3;
+  let restarted, mode;
+  const context = vm.createContext({ videoExportSession: { busy: false }, bulkExportArmed: false,
+    reelSaver: { busy: false }, snapshotBusy: false, paused: true, running: true,
+    localStorage: { setItem() {} }, URL, location: { href: 'http://localhost/' }, history: { replaceState() {} },
+    rangePresentation: { setTourMode(value) { mode = value; } }, renderer: {},
+    applyTerrainTourPolicy() {}, getWorld: () => ({ kind: 'alpine' }),
+    lastTimelineData: { worldId: 'range', chapterState: {} }, cameraRun: { forgetTours() {} },
+    sim: { songSeed: 7 }, audioEngine: { nowMs: 5000 }, lastStartExtra: {},
+    startTimeline(data, options) { restarted = { data, options }; },
+    syncRangeTourControl() {}, syncCameraStudio() {}, updatePauseButtonUI() {},
+  });
+  vm.runInContext(main.slice(start, end) + '\nsetRangeTourMode("tetons");', context);
+  assert.equal(mode, 'tetons');
+  assert.equal(restarted.options.songSeed, 7);
+  assert.equal(restarted.options.startAtMs, 5000);
+  assert.equal(restarted.options.keepAudio, true);
+  assert.equal(restarted.options.preservePause, true);
+  assert.equal(context.paused, true);
+});
+
 test('paused composition redraws settled terrain only for the same scene and settings', async () => {
   const start = main.indexOf('async function redrawPausedCameraStudio() {');
   assert.ok(start >= 0, 'paused preview has an asynchronous settle lifecycle');
