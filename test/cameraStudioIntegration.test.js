@@ -89,6 +89,23 @@ test('effective crop limits follow the actual authored shot lens and report capp
   assert.equal(status.effectiveFovDeg, 28);
 });
 
+test('editing a crop during the growing opening preserves the resolved eye and aim', () => {
+  const scene = Object.assign(Object.create(RangeScene.prototype), { prepared: new Map(), _movedPoses: new WeakMap(), _ensureTourWindow() {} });
+  const view = { id: 'opening-crop', camera: { eyeStartM: pose.eyeM, eyeEndM: pose.eyeM,
+    targetStartM: pose.targetM, targetEndM: pose.targetM, fovYDeg: 40 } };
+  const p = { view, buildFocusM: [3000, 1000, 0] };
+  for (const rise01 of [.2, .5, .8]) {
+    const frame = { frameId: 1, timeMs: 5000, progress01: .5, rise01, scenicViewport: vp,
+      cameraEffects: null, cameraMove: null, cameraStudio: { enabled: true, distance: 1, fovDeg: 40 } };
+    const baseline = scene.movedPose(view, frame, p);
+    const cropped = scene.movedPose(view, { ...frame, cameraStudio: { enabled: true, distance: .65, fovDeg: 25 } }, p);
+    assert.deepEqual(cropped.pose.eyeM, baseline.pose.eyeM, `eye at rise ${rise01}`);
+    assert.deepEqual(cropped.pose.targetM, baseline.pose.targetM, `aim at rise ${rise01}`);
+    assert.ok(cropped.proj.fovYDeg < baseline.proj.fovYDeg);
+    assert.equal(cropped.proj.fovYDeg, 2 * Math.atan(Math.tan(cropped.pose.fovYDeg * Math.PI / 360) * vp.logicalHeight / 720) * 180 / Math.PI);
+  }
+});
+
 test('changing Studio settings invalidates outstanding terrain and forest plans once', () => {
   const cache = new windows.TourWindowCache({ build: async () => null });
   const scene = Object.assign(Object.create(RangeScene.prototype), {});

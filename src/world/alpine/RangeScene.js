@@ -2509,9 +2509,9 @@ export class RangeScene {
       return resolved;
     }
     const rail = { ...baseRail, fovYDeg: applyLensFov(baseRail.fovYDeg, frame.cameraEffects) };
-    const studioRail = studioEnabled && !view.tour ? applyCameraStudio(rail, frame.cameraStudio).pose : rail;
-    const openingRail = { ...studioRail, fovYDeg: landRiseFov(studioRail.fovYDeg, frame.rise01, frame.timeMs) };
-    const proj = scenicProjection(openingRail.fovYDeg, frame.scenicViewport);
+    const openingRail = { ...rail, fovYDeg: landRiseFov(rail.fovYDeg, frame.rise01, frame.timeMs) };
+    const cropLens = studioEnabled && !view.tour ? applyCameraStudio(openingRail, frame.cameraStudio).pose.fovYDeg : openingRail.fovYDeg;
+    const proj = scenicProjection(cropLens, frame.scenicViewport);
     // This view's VISIBLE frustum (the overscan margin excluded): the
     // pointer is normalised against the visible stage, and the zoom must
     // stay inside this view's own cone from its very first frame.
@@ -2527,9 +2527,13 @@ export class RangeScene {
         heightRangeM: p?.uniforms ? [p.uniforms.uHeightRange.value.x, p.uniforms.uHeightRange.value.y] : null,
         zoomMode: 'projection' });
     const ground = groundAt ? groundAt(authoredPose.eyeM[0], authoredPose.eyeM[2]) : NaN;
-    const pose = landRiseCamera(authoredPose, { rise01: frame.rise01, baseM: landRiseBase(p), groundM: ground,
+    const grownPose = landRiseCamera(authoredPose, { rise01: frame.rise01, baseM: landRiseBase(p), groundM: ground,
       focusM: baseRail.tour || p?.cameraTour || view.tour ? null : p?.buildFocusM,
       aspect: proj.aspect, overview: !p?.windowCache, timeMs: frame.timeMs });
+    // Resolve the authored opening aim before applying a projection-only
+    // Studio crop. Feeding the cropped lens into keepFocusFramed would turn
+    // the eye toward a different point when a listener edits the lens.
+    const pose = cropLens === grownPose.fovYDeg ? grownPose : { ...grownPose, fovYDeg: cropLens };
     const resolved = { rail, proj, pose, tanX, tanY, cameraStudio: studioState };
     poses.set(occurrenceId, resolved);
     this._ensureTourWindow(p, frame.timeMs, { pose, proj });
