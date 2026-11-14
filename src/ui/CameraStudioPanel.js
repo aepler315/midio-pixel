@@ -27,11 +27,18 @@ export function writeCameraStudioSettings(storage, settings) {
 
 export function cameraStudioPanelState(settings, {
   running = false, available = true, busy = false, positionEnabled = true,
+  effectiveDistanceMax = 1, effectiveFovMaxDeg = 35,
 } = {}) {
+  const positionDisabled = busy || !available || !positionEnabled;
   return {
     visible: settings?.enabled === true && running && available,
     disabled: busy || !available,
-    positionDisabled: busy || !available || !positionEnabled,
+    positionDisabled,
+    motionDisabled: positionDisabled || !['orbit', 'sweep', 'push'].includes(settings?.preset),
+    directionDisabled: positionDisabled || !['orbit', 'sweep'].includes(settings?.preset),
+    orbitDisabled: positionDisabled || settings?.preset !== 'orbit',
+    distanceMax: positionEnabled ? 1.8 : Math.min(1, Number.isFinite(effectiveDistanceMax) ? effectiveDistanceMax : 1),
+    fovMaxDeg: positionEnabled ? 70 : Math.min(70, Number.isFinite(effectiveFovMaxDeg) ? effectiveFovMaxDeg : 35),
   };
 }
 
@@ -43,8 +50,8 @@ const FIELDS = [
     { key: 'azimuthDeg', label: 'Azimuth °', min: -180, max: 180, step: 1, position: true, hint: 'Starting angle around the focus point.' },
   ] },
   { title: 'Orbit', fields: [
-    { key: 'direction', label: 'Direction', position: true, wide: true, options: [['cw', 'Clockwise'], ['ccw', 'Counterclockwise']] },
-    { key: 'orbitSeconds', label: 'Revolution sec', min: 20, max: 240, step: 1, position: true, hint: 'Seconds for one full revolution.' },
+    { key: 'direction', label: 'Direction', stateKey: 'directionDisabled', wide: true, options: [['cw', 'Clockwise'], ['ccw', 'Counterclockwise']] },
+    { key: 'orbitSeconds', label: 'Revolution sec', min: 20, max: 240, step: 1, stateKey: 'orbitDisabled', hint: 'Seconds for one full revolution.' },
   ] },
   { title: 'Focus', fields: [
     { key: 'focusX', label: 'X · left / right %', min: -20, max: 20, step: 1, scale: 100, position: true, hint: 'Offset as a percentage of camera distance.' },
@@ -52,10 +59,10 @@ const FIELDS = [
     { key: 'focusZ', label: 'Z · near / far %', min: -20, max: 20, step: 1, scale: 100, position: true, hint: 'Offset as a percentage of camera distance.' },
   ] },
   { title: 'Move & settle', fields: [
-    { key: 'durationSec', label: 'Travel sec', min: 1, max: 30, step: 0.5 },
-    { key: 'holdSec', label: 'Hold sec', min: 0, max: 12, step: 0.5 },
-    { key: 'delaySec', label: 'Start delay sec', min: 0, max: 10, step: 0.5 },
-    { key: 'overshoot', label: 'Overshoot %', min: 0, max: 50, step: 1, scale: 100, hint: 'How far the camera moves past its target before settling.' },
+    { key: 'durationSec', label: 'Travel sec', min: 1, max: 30, step: 0.5, stateKey: 'motionDisabled' },
+    { key: 'holdSec', label: 'Hold sec', min: 0, max: 12, step: 0.5, stateKey: 'motionDisabled' },
+    { key: 'delaySec', label: 'Start delay sec', min: 0, max: 10, step: 0.5, stateKey: 'motionDisabled' },
+    { key: 'overshoot', label: 'Overshoot %', min: 0, max: 50, step: 1, scale: 100, stateKey: 'motionDisabled', hint: 'How far the camera moves past its target before settling.' },
   ] },
 ];
 
@@ -138,7 +145,7 @@ export class CameraStudioPanel {
     this.resetButton = this._button('Reset camera', () => this._change({ ...CAMERA_STUDIO_DEFAULTS, enabled: this.settings.enabled }));
     actions.append(this.resetButton);
     if (onRecenter) {
-      this.recenterButton = this._button('Restart move', () => this.onRecenter());
+      this.recenterButton = this._button('Reset zoom', () => this.onRecenter());
       actions.append(this.recenterButton);
     }
     this.body.append(actions);
@@ -213,7 +220,10 @@ export class CameraStudioPanel {
   }
 
   _syncInput(input, field) {
-    const value = field.options ? this.settings[field.key] : String(Number((this.settings[field.key] * (field.scale || 1)).toFixed(3)));
+    const view = cameraStudioPanelState(this.settings, this.state);
+    const effective = field.key === 'distance' ? Math.min(view.distanceMax, this.settings.distance)
+      : field.key === 'fovDeg' ? Math.min(view.fovMaxDeg, this.settings.fovDeg) : this.settings[field.key];
+    const value = field.options ? effective : String(Number((effective * (field.scale || 1)).toFixed(3)));
     if (input.value !== value) input.value = value;
   }
 
@@ -256,12 +266,17 @@ export class CameraStudioPanel {
     this.resetButton.disabled = view.disabled;
     if (this.recenterButton) this.recenterButton.disabled = view.disabled;
     for (const button of this.presetButtons.values()) button.disabled = view.disabled;
-    for (const { input, field } of this.inputs.values()) input.disabled = field.position ? view.positionDisabled : view.disabled;
+    for (const { input, field } of this.inputs.values()) {
+      input.disabled = field.stateKey ? view[field.stateKey] : field.position ? view.positionDisabled : view.disabled;
+      if (field.key === 'distance') input.max = String(view.distanceMax);
+      if (field.key === 'fovDeg') input.max = String(view.fovMaxDeg);
+      if (this.document.activeElement !== input) this._syncInput(input, field);
+    }
     const status = this.state.status || (this.state.busy
       ? 'Camera controls are held while your render finishes.'
       : this.state.positionEnabled
         ? 'Changes apply live and are saved for your next performance.'
-        : 'Framing only for this landscape. Spatial moves need full terrain coverage.');
+        : 'Inward framing only for this landscape. The lens cannot widen beyond its authored view.');
     if (this.status.textContent !== status) this.status.textContent = status;
   }
 

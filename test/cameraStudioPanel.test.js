@@ -74,3 +74,37 @@ test('snapshot work locks all camera controls while crop views lock position onl
   assert.equal(busy.disabled, true);
   assert.equal(busy.positionDisabled, true);
 });
+
+test('camera controls only enable parameters used by the selected motion', () => {
+  const live = { running: true, available: true, positionEnabled: true };
+  for (const preset of ['rail', 'static']) {
+    const state = cameraStudioPanelState({ enabled: true, preset }, live);
+    assert.equal(state.motionDisabled, true, preset);
+    assert.equal(state.directionDisabled, true, preset);
+    assert.equal(state.orbitDisabled, true, preset);
+  }
+  const orbit = cameraStudioPanelState({ enabled: true, preset: 'orbit' }, live);
+  assert.equal(orbit.motionDisabled, false);
+  assert.equal(orbit.directionDisabled, false);
+  assert.equal(orbit.orbitDisabled, false);
+  const sweep = cameraStudioPanelState({ enabled: true, preset: 'sweep' }, live);
+  assert.equal(sweep.motionDisabled, false);
+  assert.equal(sweep.directionDisabled, false);
+  assert.equal(sweep.orbitDisabled, true);
+  const push = cameraStudioPanelState({ enabled: true, preset: 'push' }, live);
+  assert.equal(push.motionDisabled, false);
+  assert.equal(push.directionDisabled, true);
+  assert.equal(push.orbitDisabled, true);
+  const crop = cameraStudioPanelState({ enabled: true, preset: 'orbit' }, { ...live, positionEnabled: false });
+  assert.equal(crop.motionDisabled, true);
+});
+
+test('crop controls expose the effective safe distance and authored lens limits', () => {
+  const crop = cameraStudioPanelState({ enabled: true }, { running: true, available: true,
+    positionEnabled: false, effectiveDistanceMax: 1, effectiveFovMaxDeg: 28 });
+  assert.equal(crop.distanceMax, 1);
+  assert.equal(crop.fovMaxDeg, 28);
+  const full = cameraStudioPanelState({ enabled: true }, { positionEnabled: true });
+  assert.equal(full.distanceMax, 1.8);
+  assert.equal(full.fovMaxDeg, 70);
+});
