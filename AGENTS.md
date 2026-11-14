@@ -10,6 +10,7 @@ and [performance budget](docs/performance-budget.md). Reconnaissance anchor:
 ## Navigate
 
 - `src/main.js`: boot, upload/analysis adoption, live/export frame loops and UI.
+- `src/config/`, `src/ui/SettingsPanel.js`: settings registry, store and generated panel.
 - `src/audio/`, `src/core/`, `src/sim/`: analysis, transport, song timing, simulation.
 - `src/world/BiomeManager.js`, `src/world/alpine/`: Landscape score, growth,
   cameras, RangePresentation, RangeScene, terrain/forest/water/sky/mist.
@@ -42,6 +43,24 @@ Output directories must be new. Set `PLAYWRIGHT_CHROMIUM_PATH` for an installed
 Chromium. Existing hardware probes: `npm run test:gpu`, `tools/range-device-probe.js`;
 expensive cost tools: `tools/range-frame-cost.mjs`, `tools/range-prepare-cost.mjs`.
 See [verification usage](docs/verification.md) for approvals, CI tiers and failures.
+
+## Settings and configuration
+
+- Every user-adjustable or URL-overridable behaviour is a definition in
+  `src/config/settingsRegistry.js` ([settings](docs/settings.md)). The
+  definition is the source of validation, default, persistence, panel UI and
+  URL handling; read values with `settingValue(id)` / `appSettings().get(id)`.
+- Do not parse `location.search` or add `localStorage` keys for a setting in
+  application code; `test/settingsRegistry.test.mjs` enforces the first.
+  Declare the honest lifecycle (live, next landscape, next song, scene,
+  renderer, reload) and dependencies with reasons; add an applier in
+  `main.js` for live settings.
+- A user-facing feature is not complete while its only control is an
+  undocumented query parameter. Experimental work belongs under Experiments
+  with an accurate maturity label; URL-only (`ui: false`) is for automation
+  contracts and measurement aids, with the reason in the description.
+- Regenerate `docs/url-parameters.md` with `npm run settings:reference`; keep
+  existing parameter names and value rules working for tools and links.
 
 ## Preserve and verify
 
