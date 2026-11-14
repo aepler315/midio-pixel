@@ -1,6 +1,10 @@
 # Camera Studio and MP4 export validation
 
 Source: feature branch `feat/camera-studio-export`, based on `a2ff8f5`.
+Main's subsequent Playwright 1.65 update (`0885b73`) was merged while retaining
+the pinned exporter dependency. Fresh dependency installation, tracked module
+verification and the real 360p30/60/direct-file smoke passed after that update
+(`.smoke/mp4-export-playwright-165/`). Application source was unchanged by it.
 This records host evidence; JOYING/Android device performance is not established.
 
 ## Reproduction
